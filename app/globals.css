@@ -2086,43 +2086,56 @@ canvas:focus-visible {
 }
 
 @media (max-width: 860px) {
-  /* Launcher → scrolling hero + espresso sheet (design 3b) */
+  /* Launcher → single scrolling column: a hero card on top, then the copy
+     (Curbside Landing Mobile). Same DOM as desktop, reflowed with flex order. */
   .launcher-shell { height: auto; min-height: 100dvh; overflow: visible; }
-  .launcher-shell .app-header { width: calc(100% - 20px); min-height: 64px; }
+  .launcher-shell .app-header { width: calc(100% - 32px); min-height: 58px; }
+  /* The landing keeps both nav links inline — no hamburger here. */
+  .launcher-shell .header-actions { display: flex; gap: 2px; }
+  .launcher-shell .header-actions button {
+    min-height: 38px;
+    padding: 0 11px;
+    font-size: 13px;
+    color: var(--hud-cream-72);
+  }
+  .launcher-shell .mobile-menu { display: none; }
+
   .launcher-page {
     display: flex;
     flex-direction: column;
     width: 100%;
     height: auto;
     min-height: 0;
+    gap: 0;
     margin: 0;
-    padding: 0 0 26px;
+    padding: 0 0 24px;
   }
+
   .launcher-road-visual {
     order: 1;
     display: block;
-    align-self: stretch;
-    width: 100%;
-    height: clamp(310px, 50vh, 412px);
+    width: auto;
+    height: clamp(210px, 30vh, 260px);
     min-height: 0;
-    margin-bottom: 20px;
-    border: 0;
-    border-radius: 0 0 28px 28px;
-    box-shadow: 0 24px 40px -28px rgba(0, 0, 0, 0.7);
+    margin: 4px 16px 22px;
+    border: 1px solid var(--hud-line-2);
+    border-radius: 24px;
+    box-shadow: 0 20px 40px -26px rgba(0, 0, 0, 0.7);
   }
   .launcher-road-visual::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 4;
-    background: linear-gradient(180deg, rgba(20, 29, 32, 0.35), transparent 26%, transparent 42%, var(--hud-bg));
-    pointer-events: none;
+    z-index: 1;
+    background: linear-gradient(
+      180deg,
+      rgba(10, 14, 15, 0) 42%,
+      rgba(10, 14, 15, 0.6) 76%,
+      rgba(10, 14, 15, 0.9)
+    );
   }
   .launcher-progress { display: none; }
   .launcher-place {
-    left: 20px;
-    right: 20px;
-    bottom: 22px;
+    left: 16px;
+    right: 16px;
+    bottom: 14px;
     z-index: 6;
     max-width: none;
     padding: 0;
@@ -2130,27 +2143,37 @@ canvas:focus-visible {
     background: transparent;
     backdrop-filter: none;
   }
-  .launcher-place strong { font-size: 40px; line-height: 0.94; text-shadow: 0 2px 14px rgba(20, 29, 32, 0.5); }
-  .launcher-place span { text-shadow: 0 1px 4px rgba(20, 29, 32, 0.6); }
-  .launcher-copy { order: 2; align-content: start; height: auto; padding: 0 20px; }
-  .launcher-copy > .eyebrow,
-  .launcher-copy > h1 { display: none; }
-  .launcher-pick-label { margin-top: 2px; }
-  .launcher-destinations {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    gap: 8px;
-    margin: 0 -20px;
-    padding: 0 20px 4px;
-    scroll-snap-type: x proximity;
-    scrollbar-width: none;
+  .launcher-place span { text-shadow: 0 1px 5px rgba(10, 14, 15, 0.75); }
+  .launcher-place strong {
+    font-size: 26px;
+    line-height: 1;
+    text-shadow: 0 2px 12px rgba(10, 14, 15, 0.6);
   }
-  .launcher-destinations::-webkit-scrollbar { display: none; }
-  .launcher-destinations button { flex: 0 0 auto; scroll-snap-align: start; }
-  .launcher-setup-summary { margin-top: 14px; }
+  .launcher-place em,
+  .launcher-place small { text-shadow: 0 1px 5px rgba(10, 14, 15, 0.75); }
+
+  .launcher-copy { order: 2; align-content: start; height: auto; padding: 0 20px; }
+  /* Mobile shows the headline (the old full-bleed treatment hid it). */
+  .launcher-copy > h1 { margin-bottom: 4px; }
+  .mode-toggle { margin: 16px 0 22px; }
+  .launcher-pick-label { margin-top: 2px; }
+  .launcher-destinations { flex-wrap: wrap; gap: 9px; }
   .launcher-actions { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 18px; }
-  .launcher-primary { width: 100%; }
+  .launcher-primary {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+  }
   .launcher-actions .secondary-button { width: 100%; }
+  .career-launcher { justify-items: stretch; }
+  .career-card { max-width: none; }
+  .career-card-progress-foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+  }
+  .career-card-progress-foot span:last-child { text-align: left; }
   .launcher-legal { position: static; order: 3; margin: 18px 0 0; padding: 0 20px; max-width: 100%; font-size: 10px; }
   .setup-sheet-backdrop { align-items: flex-end; }
   .setup-sheet { width: 100%; height: auto; max-height: 92dvh; padding: 22px 18px max(22px, env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; box-shadow: 0 -22px 60px rgba(13,23,26,.25); animation-name: sheet-up; }
@@ -2168,7 +2191,8 @@ canvas:focus-visible {
 }
 
 @media (max-width: 420px) {
-  .launcher-place strong { font-size: 34px; }
+  .launcher-place strong { font-size: 24px; }
+  .launcher-copy > h1 { font-size: 38px; }
   .setup-sheet-heading h2 { font-size: 28px; letter-spacing: -.035em; }
   .settings-card { padding: 20px; }
 }
