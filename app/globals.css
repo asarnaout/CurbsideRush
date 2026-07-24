@@ -1796,7 +1796,11 @@ canvas:focus-visible {
 /* ── Career garage (Curbside Career) ──────────────────────────────────────── */
 /* Same shell width as the launcher/header, so the header and body line up on
    both pages and switching landing → career doesn't resize the content. */
-.garage-shell .app-header {
+/* Career pages share the launcher's gutter so the header, the heading and the
+ * cards all sit on one vertical line, and nothing shifts when you move between
+ * them. The default .app-header is wider (1440/48) — a page that forgets this
+ * class visibly steps out of alignment. */
+.career-shell .app-header {
   width: min(1380px, calc(100% - 64px));
   min-height: 66px;
 }
@@ -2220,16 +2224,16 @@ canvas:focus-visible {
 
 @media (max-width: 860px) {
   /* Curbside Career Mobile: a single scrolling column of horizontal cards. */
-  .garage-shell .app-header { width: calc(100% - 32px); }
+  .career-shell .app-header { width: calc(100% - 32px); }
   /* Keep the two nav links inline (no hamburger), like the mobile landing. */
-  .garage-shell .header-actions { display: flex; gap: 2px; }
-  .garage-shell .header-actions button {
+  .career-shell .header-actions { display: flex; gap: 2px; }
+  .career-shell .header-actions button {
     min-height: 38px;
     padding: 0 11px;
     font-size: 13px;
     color: var(--hud-cream-72);
   }
-  .garage-shell .mobile-menu { display: none; }
+  .career-shell .mobile-menu { display: none; }
   .garage-page {
     width: calc(100% - 32px);
     min-height: 0;

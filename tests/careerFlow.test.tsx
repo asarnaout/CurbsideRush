@@ -585,8 +585,15 @@ describe("career mode flow", () => {
     await screen.findByRole("heading", { name: /Pick today's ride/i });
     expect(screen.getByTestId("garage-cash")).toHaveTextContent("$500.00");
 
+    // The garage and the travel board must wear the same shell: it is what
+    // pulls the header onto the page's gutter. Without it the header falls back
+    // to a wider default and visibly steps out of line with the cards.
+    const shell = () => document.querySelector("main")?.className ?? "";
+    expect(shell()).toContain("career-shell");
+
     fireEvent.click(screen.getByTestId("garage-travel"));
     await screen.findByRole("heading", { name: /Where are you working/i });
+    expect(shell()).toContain("career-shell");
     expect(screen.getByTestId("travel-wallet")).toHaveTextContent("$500.00");
     expect(screen.getByTestId("travel-us-nyc")).toHaveTextContent(/You're here/i);
     expect(screen.getByTestId("travel-jp-tokyo")).toHaveTextContent("$400.00");
