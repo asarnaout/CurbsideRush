@@ -1971,6 +1971,19 @@ canvas:focus-visible {
   gap: 9px;
   padding: 14px;
 }
+.garage-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+.garage-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+/* The compact circle affordance replaces the text foot on mobile only. */
+.garage-card-dot { display: none; }
 .garage-card-name {
   font-family: var(--font-serif);
   font-size: 17px;
@@ -2171,18 +2184,75 @@ canvas:focus-visible {
 .garage-abandon:hover { color: var(--hud-coral-warm); }
 
 @media (max-width: 860px) {
+  /* Curbside Career Mobile: a single scrolling column of horizontal cards. */
   .garage-shell .app-header { width: calc(100% - 32px); }
+  /* Keep the two nav links inline (no hamburger), like the mobile landing. */
+  .garage-shell .header-actions { display: flex; gap: 2px; }
+  .garage-shell .header-actions button {
+    min-height: 38px;
+    padding: 0 11px;
+    font-size: 13px;
+    color: var(--hud-cream-72);
+  }
+  .garage-shell .mobile-menu { display: none; }
   .garage-page {
     width: calc(100% - 32px);
     min-height: 0;
-    padding: 16px 0 28px;
+    padding: 12px 0 24px;
     gap: 16px;
   }
-  .garage-head { flex-direction: column; align-items: stretch; gap: 14px; }
-  .garage-cash { text-align: left; }
-  .garage-fleet { flex-wrap: wrap; min-height: 0; }
-  .garage-card { flex: 1 1 calc(50% - 7px); min-width: 150px; }
-  .garage-footer { flex-direction: column; }
+  .garage-head { flex-direction: column; align-items: stretch; gap: 12px; }
+  .garage-head-copy h1 { font-size: 34px; }
+  /* Cash becomes a full-width bar: label left, value right. */
+  .garage-cash {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-radius: 16px;
+    text-align: left;
+  }
+  .garage-cash-label { margin-bottom: 0; }
+  .garage-cash-value { font-size: 28px; }
+
+  .garage-fleet { flex-direction: column; flex-wrap: nowrap; gap: 11px; min-height: 0; }
+  .garage-card { flex: none; flex-direction: row; align-items: stretch; border-radius: 16px; }
+  .garage-card-art { flex: none; width: 112px; min-height: 0; }
+  .garage-card-art-note { display: none; }
+  .garage-card-art > svg { width: 34px; height: 34px; }
+  .garage-card-lock {
+    top: 8px;
+    right: auto;
+    left: 8px;
+    gap: 4px;
+    padding: 3px 7px;
+    font-size: 8px;
+  }
+  .garage-card-body { flex-direction: row; align-items: center; gap: 10px; padding: 12px 14px; }
+  .garage-card-info { flex: 1; gap: 5px; }
+  .garage-card-meta { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+  .garage-tag { padding: 3px 8px; font-size: 9px; }
+  .garage-card-fuel { font-size: 10.5px; }
+  .garage-card-fuel svg { display: none; }
+  .garage-card-foot { flex: none; margin-top: 0; padding-top: 0; }
+  .garage-card-foot-label { display: none; }
+  .garage-card-dot {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1.5px solid var(--hud-line-3);
+    border-radius: 50%;
+    color: var(--hud-cream-60);
+  }
+  .garage-card-dot.on {
+    border-color: var(--hud-yellow);
+    background: var(--hud-yellow);
+    color: var(--hud-ink);
+  }
+
+  .garage-footer { flex-direction: column; gap: 11px; }
   .garage-actions { width: auto; }
 }
 

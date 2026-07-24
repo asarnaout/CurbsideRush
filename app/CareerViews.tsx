@@ -150,58 +150,76 @@ export function GarageView({
                 )}
               </span>
               <span className="garage-card-body">
-                <span className="garage-card-name">{vehicle.name}</span>
-                {owned ? (
-                  <span className="garage-card-rent owned">
-                    {vehicle.owned ? "Yours · no rent" : "Owned — no rent"}
-                  </span>
-                ) : (
-                  <span className="garage-card-rent">
-                    {formatMoney(rent, country)}
-                    <em> / day</em>
-                  </span>
-                )}
-                <span className="garage-card-tags">
-                  {rideshare ? (
-                    <>
-                      <span className="garage-tag">Deliveries</span>
-                      <span className="garage-tag rideshare">Rideshare</span>
-                    </>
+                <span className="garage-card-info">
+                  <span className="garage-card-name">{vehicle.name}</span>
+                  {owned ? (
+                    <span className="garage-card-rent owned">
+                      {vehicle.owned ? "Yours · no rent" : "Owned — no rent"}
+                    </span>
                   ) : (
-                    <span className="garage-tag">Deliveries only</span>
+                    <span className="garage-card-rent">
+                      {formatMoney(rent, country)}
+                      <em> / day</em>
+                    </span>
                   )}
+                  <span className="garage-card-meta">
+                    <span className="garage-card-tags">
+                      {rideshare ? (
+                        <>
+                          <span className="garage-tag">Deliveries</span>
+                          <span className="garage-tag rideshare">Rideshare</span>
+                        </>
+                      ) : (
+                        <span className="garage-tag">Deliveries only</span>
+                      )}
+                    </span>
+                    {vehicle.tankL > 0 ? (
+                      <span className="garage-card-fuel">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18" />
+                          <path d="M2 22h13" />
+                          <path d="M13 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3" />
+                          <path d="M6 8h4" />
+                        </svg>
+                        {vehicle.tankL} L tank
+                      </span>
+                    ) : (
+                      <span className="garage-card-fuel green">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+                          <path d="M2 21c0-3 1.85-5.36 5.08-6" />
+                        </svg>
+                        No fuel needed
+                      </span>
+                    )}
+                  </span>
                 </span>
-                {vehicle.tankL > 0 ? (
-                  <span className="garage-card-fuel">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18" />
-                      <path d="M2 22h13" />
-                      <path d="M13 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3" />
-                      <path d="M6 8h4" />
-                    </svg>
-                    {vehicle.tankL} L tank
-                  </span>
-                ) : (
-                  <span className="garage-card-fuel green">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
-                      <path d="M2 21c0-3 1.85-5.36 5.08-6" />
-                    </svg>
-                    No fuel needed
-                  </span>
-                )}
                 <span className="garage-card-foot">
-                  {active ? (
-                    <span className="garage-card-today">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-                      TODAY&apos;S RIDE
+                  <span className="garage-card-foot-label">
+                    {active ? (
+                      <span className="garage-card-today">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                        TODAY&apos;S RIDE
+                      </span>
+                    ) : disabled ? (
+                      <span className="garage-card-cant">
+                        {lockedReason ?? "Can't afford today"}
+                      </span>
+                    ) : (
+                      <span className="garage-card-choose">Choose this ride</span>
+                    )}
+                  </span>
+                  {!disabled && (
+                    <span
+                      className={`garage-card-dot${active ? " on" : ""}`}
+                      aria-hidden="true"
+                    >
+                      {active ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                      ) : (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+                      )}
                     </span>
-                  ) : disabled ? (
-                    <span className="garage-card-cant">
-                      {lockedReason ?? "Can't afford today"}
-                    </span>
-                  ) : (
-                    <span className="garage-card-choose">Choose this ride</span>
                   )}
                 </span>
               </span>
