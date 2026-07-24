@@ -40,7 +40,7 @@ export const ROADSIDE_PRICE_FACTOR = 1.5;
 
 /**
  * Par-time model for the carrying leg: effective city pace of the reference
- * hatchback, a slack factor covering road-vs-straight-line detour plus
+ * sedan, a slack factor covering road-vs-straight-line detour plus
  * forgiveness, and a floor so short hops are never impossible.
  */
 export const PAR_BASE_SPEED_MPS = 8;
@@ -102,7 +102,7 @@ export const TICKET_PRICE_BY_DESTINATION: Readonly<
   "jp-tokyo": 40_000,
 };
 
-/** Seed cash: about one hatchback rent plus change — day 1 is a bike day. */
+/** Seed cash: about one sedan rent plus change — day 1 is a bike day. */
 export const CAREER_STARTING_CASH_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 20,
   uk: 20,
@@ -139,7 +139,7 @@ export type CareerVehicleId =
 
 /**
  * Mirrors the optional player-physics fields on SimulationCoreConfig. The
- * compact hatch must stay exactly equal to the simulation's defaults — it is
+ * compact sedan must stay exactly equal to the simulation's defaults — it is
  * the reference vehicle, and equality is what keeps the deterministic
  * acceptance replay untouched by career work.
  */
@@ -275,8 +275,11 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     },
   },
   {
+    // The id says hatch and the car is a sedan: `compact-hatch` is persisted
+    // inside the checksummed career slice, so renaming it would invalidate
+    // every existing save. Only the label was wrong, so only the label moved.
     id: "compact-hatch",
-    name: "Compact hatchback",
+    name: "Compact sedan",
     model: "compact-hatch",
     visualKind: "car",
     owned: false,

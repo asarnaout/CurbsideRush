@@ -169,6 +169,11 @@ const V = "/models/vehicles";
  * import) covers London. Scales are
  * length-matched to VEHICLE_DIMENSIONS. Most models import front-first (+Z,
  * yawOffset 0); the van imports front-along-+X, so it needs a -90° yawOffset.
+ *
+ * Ids describe the *role*, not the body: three of them resolve to the one
+ * `sedan.glb` and differ only by scale, so `compact-hatch` is a saloon like the
+ * rest of them. Career Mode calls it a "Compact sedan" for that reason — the id
+ * stays as it is because it is persisted in the save.
  */
 export const VEHICLE_MODEL_REGISTRY: Partial<
   Record<VehicleModel, VehicleModelConfig>
