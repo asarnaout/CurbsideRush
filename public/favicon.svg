@@ -1,6 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="18" fill="#f4c849"/>
-  <path d="M16 0h32v64H16z" fill="#172326"/>
-  <path d="M32 4v10m0 8v10m0 8v10m0 8v2" stroke="#fffdf7" stroke-width="4" stroke-linecap="round"/>
-  <path d="M21 21c0-6 4-10 11-10h9v7h-9c-2 0-3 1-3 3s1 3 3 3h2c7 0 11 4 11 11s-4 12-12 12H22v-7h11c3 0 4-2 4-4s-1-4-4-4h-2c-6 0-10-4-10-11Z" fill="#e65d49" stroke="#fffdf7" stroke-width="2"/>
+<!--
+  The Curbside Rush mark: a yellow tile with a single kerb-stone bar canted
+  like a parked car.
+
+  This is `.brand-mark` from globals.css, scaled from its 44px tile to a 64
+  box: radius 13 -> 18.9, bar 5x22 -> 7.3x32 with fully rounded ends, at the
+  same 22deg. Change one and change the other — nothing enforces it.
+
+  Until now this file was still the pre-rebrand SideSwap icon (a dollar sign on
+  a road), which is why the browser tab showed something the site never did.
+
+  The header mark's inset bottom shading is deliberately not reproduced: it is
+  a 9%-opacity detail that would be invisible at 16px and only muddies the
+  silhouette, which is all a favicon really conveys.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Curbside Rush">
+  <rect width="64" height="64" rx="18.9" fill="#f4c848"/>
+  <rect x="28.36" y="16" width="7.27" height="32" rx="3.64" fill="#182326" transform="rotate(22 32 32)"/>
 </svg>
