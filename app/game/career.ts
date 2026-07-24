@@ -47,6 +47,42 @@ export const PAR_BASE_SPEED_MPS = 8;
 export const PAR_SLACK = 1.9;
 export const PAR_MIN_MS = 45_000;
 
+/**
+ * The career route, in order — **this array is the whole route**. Reorder it,
+ * add a city, drop one, and the start city, the unlock order, which ticket goes
+ * where and what the travel page lists all follow from it. Nothing else encodes
+ * the sequence.
+ *
+ * Milton Keynes and Calais are deliberately absent: both remain free-drive
+ * cities, they are just not part of the career.
+ */
+export const CAREER_CITIES: readonly DestinationId[] = [
+  "us-nyc",
+  "jp-tokyo",
+  "uk-london",
+];
+
+/** Where every career begins. */
+export const CAREER_START_CITY: DestinationId = CAREER_CITIES[0];
+
+/** Position on the ladder, or -1 for a city the career never visits. */
+export function careerCityIndex(destinationId: DestinationId): number {
+  return CAREER_CITIES.indexOf(destinationId);
+}
+
+export function isCareerCity(destinationId: DestinationId): boolean {
+  return careerCityIndex(destinationId) >= 0;
+}
+
+/** The city a ticket from here would fly to, or null at the end of the ladder. */
+export function nextCareerCity(
+  destinationId: DestinationId,
+): DestinationId | null {
+  const index = careerCityIndex(destinationId);
+  if (index < 0) return null;
+  return CAREER_CITIES[index + 1] ?? null;
+}
+
 /** Seed cash: about one hatchback rent plus change — day 1 is a bike day. */
 export const CAREER_STARTING_CASH_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 20,

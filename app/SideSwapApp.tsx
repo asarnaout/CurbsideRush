@@ -47,6 +47,8 @@ import {
   activeCity,
   applyBuyout,
   applySettlement,
+  CAREER_START_CITY,
+  careerCountryOf,
   careerDayTrafficSeed,
   careerFare,
   careerGigSeedBase,
@@ -1091,8 +1093,10 @@ export default function SideSwapApp() {
     // which key off the seed we mint here, not off how we minted it).
     const careerSeed =
       (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0;
+    // The ladder decides where a career opens, not whatever city the launcher
+    // happens to be showing.
     const slice = createCareerSlice({
-      destinationId: destination.id,
+      destinationId: CAREER_START_CITY,
       careerSeed,
     });
     const saved = writeCareer(progress, slice);
@@ -1251,12 +1255,18 @@ export default function SideSwapApp() {
 
   // The launcher hero mirrors what the primary action will actually play: a
   // running career's locked city, otherwise the free-drive pick.
-  const launcherInCareer = gameMode === "career" && careerCity !== null;
+  const launcherInCareer = gameMode === "career";
+  // In career mode the hero mirrors the run's city — the one you are in, or the
+  // ladder's opener before a career exists — never the free-drive selection.
+  const careerLauncherDestinationId =
+    careerCity?.destinationId ?? CAREER_START_CITY;
   const launcherDestination = launcherInCareer
-    ? getDestinationProfile(careerCity.destinationId)
+    ? getDestinationProfile(careerLauncherDestinationId)
     : destination;
-  const launcherCountry =
-    launcherInCareer && careerCountry ? careerCountry : country;
+  const launcherCountry = launcherInCareer
+    ? (careerCountry ??
+      getCountryProfile(careerCountryOf(careerLauncherDestinationId)))
+    : country;
 
   const saveSettings = (next: PlayerProgressV2) => {
     setProgress(next);
@@ -2185,12 +2195,13 @@ export default function SideSwapApp() {
                 career={progress.career}
                 city={careerCity}
                 cityName={
-                  careerCity
-                    ? getDestinationProfile(careerCity.destinationId)
-                        .destinationName
-                    : destination.destinationName
+                  getDestinationProfile(careerLauncherDestinationId)
+                    .destinationName
                 }
-                country={careerCountry ?? country}
+                country={
+                  careerCountry ??
+                  getCountryProfile(careerCountryOf(CAREER_START_CITY))
+                }
                 garageVehicleId={garageVehicleId}
                 onStartCareer={startCareer}
                 onContinue={() => {

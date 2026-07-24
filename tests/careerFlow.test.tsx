@@ -257,10 +257,12 @@ const enterCareerMode = async () => {
   fireEvent.click(screen.getByTestId("mode-career"));
 };
 
-// Default city is uk-london; the career slice therefore prices in GBP.
-const UK_START_CASH = CAREER_STARTING_CASH_BY_COUNTRY.uk; // 20
-const HATCH_RENT_UK = 12;
-const LONDON_FREE_DRIVE_ID = getDestinationProfile("uk-london").freeDriveId;
+// A fresh career always opens at the ladder's first city, so these price in
+// USD. Seeded-in-London tests price in GBP; the integers happen to match, only
+// the symbol and the fuel price differ.
+const US_START_CASH = CAREER_STARTING_CASH_BY_COUNTRY.us; // 20
+const HATCH_RENT_US = 12;
+const NYC_FREE_DRIVE_ID = getDestinationProfile("us-nyc").freeDriveId;
 
 describe("career mode flow", () => {
   it("starts a career, persists a verified slice, and opens the garage", async () => {
@@ -270,13 +272,13 @@ describe("career mode flow", () => {
     expect(
       await screen.findByRole("heading", { name: /Pick today's ride/i }),
     ).toBeVisible();
-    expect(screen.getByTestId("garage-cash")).toHaveTextContent("£20.00");
+    expect(screen.getByTestId("garage-cash")).toHaveTextContent("$20.00");
 
     const stored = storedCareer();
     expect(stored).not.toBeNull();
     expect((stored as CareerSliceV2).state).toBe("active");
     expect(activeCity(stored as CareerSliceV2).day).toBe(1);
-    expect(activeCity(stored as CareerSliceV2).countryId).toBe("uk");
+    expect(activeCity(stored as CareerSliceV2).countryId).toBe("us");
     expect(typeof (stored as CareerSliceV2).checksum).toBe("string");
   });
 
@@ -295,12 +297,12 @@ describe("career mode flow", () => {
     const scene = await screen.findByLabelText("Mock driving scene");
     expect(scene).toHaveAttribute(
       "data-scenario",
-      `career-${LONDON_FREE_DRIVE_ID}-d1`,
+      `career-${NYC_FREE_DRIVE_ID}-d1`,
     );
     expect(scene).toHaveAttribute("data-visual-kind", "bicycle");
     expect(scene).toHaveAttribute("data-max-speed", "7.5");
     // No rent charged, and the bike day has no fuel gauge at all.
-    expect(screen.getByTestId("day-cash")).toHaveTextContent("£20.00");
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("$20.00");
     expect(screen.queryByText(/^Fuel$/)).not.toBeInTheDocument();
   });
 
@@ -314,10 +316,10 @@ describe("career mode flow", () => {
     await screen.findByLabelText("Mock driving scene");
     // Rent left the day cash before the first metre was driven.
     expect(screen.getByTestId("day-cash")).toHaveTextContent(
-      `£${(UK_START_CASH - HATCH_RENT_UK).toFixed(2)}`,
+      `$${(US_START_CASH - HATCH_RENT_US).toFixed(2)}`,
     );
     // The morning slice is untouched on disk until settlement.
-    expect(activeCity(storedCareer() as CareerSliceV2).cash).toBe(UK_START_CASH);
+    expect(activeCity(storedCareer() as CareerSliceV2).cash).toBe(US_START_CASH);
   });
 
   it("keeps career fines out of the free-drive wallet and lets cash go negative", async () => {
@@ -330,12 +332,12 @@ describe("career mode flow", () => {
 
     fireEvent.click(screen.getByTestId("mock-fine"));
     // 20 - 12 rent - 8 fine = 0.
-    expect(screen.getByTestId("day-cash")).toHaveTextContent("£0.00");
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("$0.00");
 
     const raw = JSON.parse(
       window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
     ) as { walletByCountry: Record<string, number> };
-    expect(raw.walletByCountry.uk).toBe(20);
+    expect(raw.walletByCountry.us).toBe(20);
   });
 
   it("settles at the whistle: ledger lines, borrowed shortfall, then the next day's garage", async () => {
@@ -352,15 +354,15 @@ describe("career mode flow", () => {
     expect(
       await screen.findByRole("heading", { name: /The day's reckoning/i }),
     ).toBeVisible();
-    expect(screen.getByTestId("ledger-rent_info")).toHaveTextContent("£12.00");
-    expect(screen.getByTestId("ledger-fines")).toHaveTextContent("£8.00");
-    expect(screen.getByTestId("ledger-platform_fee")).toHaveTextContent("£3.00");
+    expect(screen.getByTestId("ledger-rent_info")).toHaveTextContent("$12.00");
+    expect(screen.getByTestId("ledger-fines")).toHaveTextContent("$8.00");
+    expect(screen.getByTestId("ledger-platform_fee")).toHaveTextContent("$3.00");
     // 0 cash − 3 fee = −3 shortfall → loan ceil(3 × 1.15) = 4.
     expect(screen.getByTestId("ledger-loan_origination")).toHaveTextContent(
-      "£4.00",
+      "$4.00",
     );
     expect(screen.getByTestId("ledger-closing_balance")).toHaveTextContent(
-      "£0.00",
+      "$0.00",
     );
 
     const settled = activeCity(storedCareer() as CareerSliceV2);
@@ -373,7 +375,7 @@ describe("career mode flow", () => {
       await screen.findByRole("heading", { name: /Pick today's ride/i }),
     ).toBeVisible();
     expect(screen.getByTestId("forecast-installment")).toHaveTextContent(
-      "£2.00",
+      "$2.00",
     );
   });
 
@@ -392,7 +394,7 @@ describe("career mode flow", () => {
     ).toBeVisible();
     const stored = storedCareer() as CareerSliceV2;
     expect(activeCity(stored).day).toBe(1);
-    expect(activeCity(stored).cash).toBe(UK_START_CASH);
+    expect(activeCity(stored).cash).toBe(US_START_CASH);
   });
 
   it("offers only a reset for a tampered career, leaving free-drive progress alone", async () => {
@@ -552,7 +554,7 @@ describe("career mode flow", () => {
     const scene = await screen.findByLabelText("Mock driving scene");
 
     // 20 - 12 rent = 8 before the tank runs dry.
-    expect(screen.getByTestId("day-cash")).toHaveTextContent("£8.00");
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("$8.00");
     fireEvent.click(screen.getByTestId("mock-drain"));
 
     // The rescue stages itself the moment the tank hits zero.
@@ -560,9 +562,9 @@ describe("career mode flow", () => {
     expect(screen.getByText(/roadside service/i)).toBeVisible();
 
     // The pump event bills the full 40 L at 1.5x plus the call-out fee:
-    // round(40 x 0.45 x 1.5) + 10 = 37 -> 8 - 37 = -29.
+    // round(40 x 0.40 x 1.5) + 10 = 34 -> 8 - 34 = -26.
     fireEvent.click(screen.getByTestId("mock-scene-pump"));
-    expect(screen.getByTestId("day-cash")).toHaveTextContent("-£29.00");
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$26.00");
 
     fireEvent.click(screen.getByTestId("mock-scene-done"));
     expect(scene).toHaveAttribute("data-cutscene-kind", "none");

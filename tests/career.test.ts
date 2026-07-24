@@ -3,7 +3,12 @@ import {
   activeCity,
   applyBuyout,
   applySettlement,
+  CAREER_CITIES,
+  CAREER_START_CITY,
+  careerCityIndex,
   careerCountryOf,
+  isCareerCity,
+  nextCareerCity,
   BUYOUT_RENT_MULTIPLIER,
   buyoutPrice,
   canBuyout,
@@ -508,6 +513,49 @@ describe("checksum and slice codec", () => {
   it("re-stamping an already-stamped slice is a no-op", () => {
     expect(stampCareerChecksum(slice)).toEqual(slice);
     expect(computeCareerChecksum(slice)).toBe(slice.checksum);
+  });
+});
+
+describe("the city ladder", () => {
+  it("is a route of real, distinct destinations", () => {
+    const ids = DESTINATION_PROFILES.map((profile) => profile.id);
+    for (const city of CAREER_CITIES) {
+      expect(ids, `${city} is not a real destination`).toContain(city);
+    }
+    expect(new Set(CAREER_CITIES).size).toBe(CAREER_CITIES.length);
+    expect(CAREER_CITIES.length).toBeGreaterThan(1);
+  });
+
+  it("opens in New York and runs NYC -> Tokyo -> London", () => {
+    // Pins the intended route. Reordering CAREER_CITIES is a deliberate design
+    // change and should update this line with it.
+    expect(CAREER_CITIES).toEqual(["us-nyc", "jp-tokyo", "uk-london"]);
+    expect(CAREER_START_CITY).toBe("us-nyc");
+  });
+
+  it("leaves Milton Keynes and Calais to free drive", () => {
+    expect(isCareerCity("uk-milton-keynes")).toBe(false);
+    expect(isCareerCity("fr-calais")).toBe(false);
+    expect(nextCareerCity("fr-calais")).toBeNull();
+  });
+
+  it("walks forward and stops at the end", () => {
+    expect(nextCareerCity("us-nyc")).toBe("jp-tokyo");
+    expect(nextCareerCity("jp-tokyo")).toBe("uk-london");
+    expect(nextCareerCity(CAREER_CITIES[CAREER_CITIES.length - 1])).toBeNull();
+    expect(careerCityIndex("us-nyc")).toBe(0);
+    expect(careerCityIndex("uk-milton-keynes")).toBe(-1);
+  });
+
+  it("gives every ladder city a starting float and a full vehicle catalog", () => {
+    for (const city of CAREER_CITIES) {
+      const countryId = careerCountryOf(city);
+      expect(CAREER_STARTING_CASH_BY_COUNTRY[countryId]).toBeGreaterThan(0);
+      expect(PLATFORM_FEE_BY_COUNTRY[countryId]).toBeGreaterThan(0);
+      for (const vehicle of CAREER_VEHICLES) {
+        expect(vehicle.rentByCountry[countryId]).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
 });
 
