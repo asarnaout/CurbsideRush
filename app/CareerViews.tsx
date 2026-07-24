@@ -16,6 +16,7 @@ import {
   CAREER_VEHICLES,
   getCareerVehicle,
   nextInstallment,
+  PLATFORM_FEE_BY_COUNTRY,
   vehicleRent,
   type CareerSliceV1,
   type CareerVehicleId,
@@ -90,160 +91,268 @@ export function GarageView({
   const selectedRent = selected ? vehicleRent(selected, slice) : 0;
   const selectedLocked = Boolean(lockedVehicles[selectedVehicleId]);
   const selectedStartable = !selectedLocked && slice.cash >= selectedRent;
+  const fee = PLATFORM_FEE_BY_COUNTRY[country.id];
+  const installment = slice.loan ? nextInstallment(slice.loan) : 0;
+  const dueToday = selectedRent + fee + installment;
   return (
-    <section className="subpage" aria-label="Career garage">
-      <div className="subpage-heading">
-        <div>
-          <p className="eyebrow">
-            CAREER · DAY {slice.day} · {country.flagEmoji}
+    <section className="garage-page" aria-label="Career garage">
+      <div className="garage-head">
+        <div className="garage-head-copy">
+          <p className="garage-eyebrow">
+            <span className="garage-eyebrow-dot" aria-hidden="true" />
+            CAREER · DAY {slice.day}
           </p>
           <h1>Pick today&apos;s ride.</h1>
-          <p>
-            Rent is paid up front — every idle minute burns money you already
-            spent. Cash on hand:{" "}
-            <strong data-testid="garage-cash">
-              {formatMoney(slice.cash, country)}
-            </strong>
+          <p className="garage-sub">
+            Rent is paid up front — every idle minute burns money you&apos;ve
+            already spent. Choose what you can keep busy.
           </p>
         </div>
+        <div className="garage-cash">
+          <span className="garage-cash-label">CASH ON HAND</span>
+          <span className="garage-cash-value" data-testid="garage-cash">
+            {formatMoney(slice.cash, country)}
+          </span>
+        </div>
       </div>
-      {slice.state === "won" && (
-        <div
-          data-testid="victory-banner"
-          style={{
-            ...cardStyle,
-            borderColor: "#5bbf6a",
-            background: "rgba(46, 110, 64, 0.28)",
-            marginBottom: "1rem",
-            fontWeight: 700,
-          }}
-        >
-          🏁 CAREER COMPLETE — you bought your own wheels on day{" "}
-          {slice.victoryDay}. The treadmill is beaten; keep driving for the
-          records.
-        </div>
-      )}
-      {slice.finalNotice && (
-        <div
-          role="alert"
-          style={{
-            ...cardStyle,
-            borderColor: "#e0533f",
-            background: "rgba(150, 24, 28, 0.28)",
-            marginBottom: "1rem",
-            fontWeight: 700,
-          }}
-        >
-          ⚠ FINAL NOTICE — end another day short while owing and the career is
-          over.
-        </div>
-      )}
-      <div
-        role="group"
-        aria-label="Vehicles"
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(15rem, 1fr))",
-          gap: "0.9rem",
-        }}
-      >
+
+      <div className="garage-fleet" role="group" aria-label="Vehicles">
         {CAREER_VEHICLES.map((vehicle) => {
           const rent = vehicleRent(vehicle, slice);
           const lockedReason = lockedVehicles[vehicle.id];
           const affordable = slice.cash >= rent;
           const disabled = Boolean(lockedReason) || !affordable;
           const active = selectedVehicleId === vehicle.id;
-          const capability = vehicle.allowedGigKinds.includes("passenger")
-            ? "Deliveries + rideshare"
-            : "Deliveries only";
+          const rideshare = vehicle.allowedGigKinds.includes("passenger");
+          const owned = vehicle.owned || slice.ownedVehicleId === vehicle.id;
           return (
             <button
               key={vehicle.id}
               type="button"
               data-testid={`garage-vehicle-${vehicle.id}`}
+              className={`garage-card${active ? " active" : ""}${disabled ? " locked" : ""}`}
               aria-pressed={active}
               disabled={disabled}
               onClick={() => onSelect(vehicle.id)}
-              style={{
-                ...cardStyle,
-                textAlign: "left",
-                cursor: disabled ? "not-allowed" : "pointer",
-                opacity: disabled ? 0.45 : 1,
-                borderColor: active ? "#f2c658" : "rgba(255,255,255,0.12)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.35rem",
-              }}
             >
-              <strong style={{ fontSize: "1.05rem" }}>{vehicle.name}</strong>
-              <span>
-                {rent === 0
-                  ? vehicle.owned
-                    ? "Yours — no rent"
-                    : "Owned — no rent"
-                  : `Rent ${formatMoney(rent, country)} / day`}
+              {/* Placeholder art until the real vehicle renders land. */}
+              <span className="garage-card-art" aria-hidden="true">
+                <VehicleGlyph kind={vehicle.visualKind} />
+                <span className="garage-card-art-note">Artwork soon</span>
+                {disabled && (
+                  <span className="garage-card-lock">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="4" y="11" width="16" height="10" rx="2" />
+                      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                    </svg>
+                    LOCKED
+                  </span>
+                )}
               </span>
-              <small style={{ opacity: 0.75 }}>
-                {capability}
-                {vehicle.tankL > 0
-                  ? ` · ${vehicle.tankL} L tank`
-                  : " · no fuel needed"}
-              </small>
-              {lockedReason ? (
-                <small style={{ color: "#f2c658" }}>{lockedReason}</small>
-              ) : !affordable ? (
-                <small style={{ color: "#e0533f" }}>Can&apos;t afford today</small>
-              ) : null}
+              <span className="garage-card-body">
+                <span className="garage-card-name">{vehicle.name}</span>
+                {owned ? (
+                  <span className="garage-card-rent owned">
+                    {vehicle.owned ? "Yours · no rent" : "Owned — no rent"}
+                  </span>
+                ) : (
+                  <span className="garage-card-rent">
+                    {formatMoney(rent, country)}
+                    <em> / day</em>
+                  </span>
+                )}
+                <span className="garage-card-tags">
+                  {rideshare ? (
+                    <>
+                      <span className="garage-tag">Deliveries</span>
+                      <span className="garage-tag rideshare">Rideshare</span>
+                    </>
+                  ) : (
+                    <span className="garage-tag">Deliveries only</span>
+                  )}
+                </span>
+                {vehicle.tankL > 0 ? (
+                  <span className="garage-card-fuel">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18" />
+                      <path d="M2 22h13" />
+                      <path d="M13 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3" />
+                      <path d="M6 8h4" />
+                    </svg>
+                    {vehicle.tankL} L tank
+                  </span>
+                ) : (
+                  <span className="garage-card-fuel green">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+                      <path d="M2 21c0-3 1.85-5.36 5.08-6" />
+                    </svg>
+                    No fuel needed
+                  </span>
+                )}
+                <span className="garage-card-foot">
+                  {active ? (
+                    <span className="garage-card-today">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                      TODAY&apos;S RIDE
+                    </span>
+                  ) : disabled ? (
+                    <span className="garage-card-cant">
+                      {lockedReason ?? "Can't afford today"}
+                    </span>
+                  ) : (
+                    <span className="garage-card-choose">Choose this ride</span>
+                  )}
+                </span>
+              </span>
             </button>
           );
         })}
       </div>
-      <BuyoutFund slice={slice} country={country} />
-      <div style={{ ...cardStyle, marginTop: "1rem" }} data-testid="garage-forecast">
-        <strong>Tonight&apos;s obligations</strong>
-        <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.1rem", opacity: 0.85 }}>
-          <li>Platform fee</li>
+
+      <div className="garage-footer">
+        <GarageFreedom slice={slice} country={country} />
+        <div className="garage-panel garage-obligations" data-testid="garage-forecast">
+          <div className="garage-panel-label coral">TONIGHT&apos;S OBLIGATIONS</div>
+          <div className="garage-ob-row">
+            <span>Rent · {selected?.name ?? "—"}</span>
+            <strong>
+              {selectedRent === 0 ? "Free" : formatMoney(selectedRent, country)}
+            </strong>
+          </div>
+          <div className="garage-ob-row">
+            <span>Platform fee</span>
+            <strong>{formatMoney(fee, country)}</strong>
+          </div>
           {slice.loan && (
-            <li data-testid="forecast-installment">
-              Loan installment {formatMoney(nextInstallment(slice.loan), country)}{" "}
-              ({formatMoney(slice.loan.principalRemaining, country)} over{" "}
-              {slice.loan.daysRemaining}{" "}
-              {slice.loan.daysRemaining === 1 ? "day" : "days"})
-            </li>
+            <div className="garage-ob-row" data-testid="forecast-installment">
+              <span>Loan installment</span>
+              <strong>{formatMoney(installment, country)}</strong>
+            </div>
           )}
-          <li>Anything you still owe becomes a loan (+15%)</li>
-        </ul>
-      </div>
-      <div
-        className="settings-actions"
-        style={{ marginTop: "1.1rem", display: "flex", gap: "0.75rem" }}
-      >
-        <button type="button" className="danger-button" onClick={onAbandon}>
-          Abandon career
-        </button>
-        {selected && canBuyout(slice, selected) && (
+          <div className="garage-ob-rule" />
+          <div className="garage-ob-total">
+            <span>Due today</span>
+            <strong>{formatMoney(dueToday, country)}</strong>
+          </div>
+          <div className="garage-ob-note">
+            Anything unpaid rolls into a loan (+15%).
+          </div>
+        </div>
+        <div className="garage-actions">
+          {selected && canBuyout(slice, selected) && (
+            <button
+              type="button"
+              className="garage-buyout"
+              data-testid="garage-buyout"
+              onClick={() => onBuyout(selectedVehicleId)}
+            >
+              Buy the {selected.name.toLowerCase()} outright —{" "}
+              {formatMoney(buyoutPrice(selected, slice.countryId), country)}
+            </button>
+          )}
           <button
             type="button"
-            className="secondary-button"
-            data-testid="garage-buyout"
-            onClick={() => onBuyout(selectedVehicleId)}
-            style={{ borderColor: "#f2c658", color: "#f2c658" }}
+            className="garage-start"
+            data-testid="garage-start-day"
+            disabled={!selectedStartable}
+            onClick={() => onStartDay(selectedVehicleId)}
           >
-            Buy the {selected.name.toLowerCase()} outright —{" "}
-            {formatMoney(buyoutPrice(selected, slice.countryId), country)}
+            Start Day {slice.day}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
-        )}
-        <button
-          type="button"
-          className="primary-button"
-          data-testid="garage-start-day"
-          disabled={!selectedStartable}
-          onClick={() => onStartDay(selectedVehicleId)}
-        >
-          Start Day {slice.day} →
-        </button>
+          <button type="button" className="garage-abandon" onClick={onAbandon}>
+            Abandon career
+          </button>
+        </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * The garage footer's left panel. One adaptive slot that shows the buyout
+ * progress (the finish line), or — when that is hidden — the win, the final
+ * notice, or the outstanding debt, so the footer keeps a stable three-panel
+ * shape in every state.
+ */
+function GarageFreedom({
+  slice,
+  country,
+}: {
+  slice: CareerSliceV1;
+  country: CountryProfile;
+}) {
+  if (slice.state === "won") {
+    return (
+      <div className="garage-panel garage-freedom won" data-testid="victory-banner">
+        <div className="garage-panel-label green">🏁 FREEDOM BOUGHT</div>
+        <div className="garage-freedom-copy">
+          You bought your own wheels on day {slice.victoryDay}. The daily
+          treadmill is beaten — keep driving for the records.
+        </div>
+      </div>
+    );
+  }
+  if (slice.finalNotice) {
+    return (
+      <div className="garage-panel garage-freedom notice" role="alert">
+        <div className="garage-panel-label coral">⚠ FINAL NOTICE</div>
+        <div className="garage-freedom-copy">
+          End another day short while owing and the career is over — clear the
+          books tonight.
+        </div>
+      </div>
+    );
+  }
+  if (slice.loan) {
+    return (
+      <div className="garage-panel garage-freedom debt">
+        <div className="garage-panel-label coral">OUTSTANDING DEBT</div>
+        <div className="garage-freedom-copy">
+          You owe {formatMoney(slice.loan.principalRemaining, country)} over{" "}
+          {slice.loan.daysRemaining}{" "}
+          {slice.loan.daysRemaining === 1 ? "day" : "days"} — tonight&apos;s
+          installment is {formatMoney(nextInstallment(slice.loan), country)}.
+        </div>
+      </div>
+    );
+  }
+  const cheapest = CAREER_VEHICLES.filter((v) => v.buyoutEligible).reduce(
+    (best, v) =>
+      buyoutPrice(v, slice.countryId) < buyoutPrice(best, slice.countryId)
+        ? v
+        : best,
+  );
+  const price = buyoutPrice(cheapest, slice.countryId);
+  const fraction = Math.max(0, Math.min(1, slice.cash / price));
+  const remaining = Math.max(0, price - slice.cash);
+  return (
+    <div className="garage-panel garage-freedom" data-testid="buyout-fund">
+      <div className="garage-panel-head">
+        <span className="garage-panel-label">BUY YOUR FREEDOM</span>
+        <span className="garage-panel-note">
+          own the {cheapest.name.toLowerCase()} · {BUYOUT_RENT_MULTIPLIER}× its rent
+        </span>
+      </div>
+      <p className="garage-freedom-copy">
+        Buy a vehicle outright and the daily rent treadmill is beaten for good.
+      </p>
+      <div className="garage-bar">
+        <i style={{ width: `${fraction * 100}%` }} />
+      </div>
+      <div className="garage-freedom-foot">
+        <span>
+          {formatMoney(slice.cash, country)}
+          <em> / {formatMoney(price, country)}</em>
+        </span>
+        <span>
+          {remaining > 0
+            ? `${formatMoney(remaining, country)} to go`
+            : "Ready to buy"}
+        </span>
+      </div>
+    </div>
   );
 }
 

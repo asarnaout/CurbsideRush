@@ -1988,7 +1988,7 @@ export default function SideSwapApp() {
 
   return (
     <main
-      className={`app-shell ${effectiveView === "launcher" ? "launcher-shell" : ""}`}
+      className={`app-shell ${effectiveView === "launcher" ? "launcher-shell" : ""} ${effectiveView === "career-garage" ? "garage-shell" : ""}`}
       style={themeStyle}
     >
       <header className="app-header">
