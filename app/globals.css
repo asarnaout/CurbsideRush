@@ -39,6 +39,7 @@
   --hud-yellow: #f4c848; /* primary accent */
   --hud-green: #7a8a5e; /* complete / success */
   --hud-coral: #e0787c; /* stamps, destructive */
+  --hud-coral-warm: #e8705a; /* hero emphasis, live day marker */
   --hud-orange: #f0a56a; /* capstone */
   --hud-surface: rgba(255, 255, 255, 0.05); /* card fill */
   --hud-surface-2: rgba(255, 255, 255, 0.07); /* raised card fill */
@@ -157,43 +158,39 @@ canvas:focus-visible {
 }
 
 .brand-mark {
+  position: relative;
   display: grid;
-  width: 43px;
-  height: 43px;
+  width: 44px;
+  height: 44px;
   place-items: center;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: 13px;
   background: var(--hud-yellow);
   box-shadow:
-    0 6px 16px -5px rgba(244, 200, 72, 0.55),
+    0 8px 20px -8px rgba(244, 200, 72, 0.5),
     inset 0 -5px 0 rgba(0, 0, 0, 0.09);
   font-size: 0;
-  transform: rotate(-3deg);
 }
 
-.brand-mark::before,
-.brand-mark::after {
+/* A single kerb-stone bar canted like a parked car — the "Curbside" mark. */
+.brand-mark::before {
   content: "";
-  width: 4px;
-  height: 30px;
-  border-radius: 4px;
+  width: 5px;
+  height: 22px;
+  border-radius: 3px;
   background: var(--hud-ink);
-  transform: rotate(28deg) translateX(-5px);
-}
-
-.brand-mark::after {
-  position: absolute;
-  height: 9px;
-  border-top: 4px dashed var(--hud-yellow);
-  background: transparent;
-  transform: rotate(28deg) translate(5px, -1px);
+  transform: rotate(22deg);
 }
 
 .brand-mark.small {
   width: 29px;
   height: 29px;
   border-radius: 9px;
-  border-color: rgba(255, 255, 255, 0.9);
+}
+
+.brand-mark.small::before {
+  width: 4px;
+  height: 15px;
 }
 
 .brand-copy {
@@ -1528,9 +1525,259 @@ canvas:focus-visible {
 }
 
 .launcher-copy h1 em {
-  color: var(--destination-accent);
+  color: var(--hud-coral-warm);
   font-weight: 700;
   font-style: italic;
+}
+
+/* ── Free / Career segmented control ──────────────────────────────────────── */
+.mode-toggle {
+  display: inline-flex;
+  justify-self: start;
+  gap: 4px;
+  margin: clamp(16px, 2.2vh, 24px) 0 clamp(20px, 2.6vh, 28px);
+  padding: 5px;
+  border: 1px solid var(--hud-line-2);
+  border-radius: 999px;
+  background: var(--hud-surface);
+}
+
+.mode-toggle button {
+  padding: 10px 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--hud-cream-60);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 700;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-toggle button:hover {
+  color: var(--hud-cream);
+  background: var(--hud-surface-2);
+}
+
+.mode-toggle button.active,
+.mode-toggle button.active:hover {
+  background: var(--hud-yellow);
+  color: var(--hud-ink);
+  box-shadow: 0 6px 16px -9px rgba(244, 200, 72, 0.7);
+}
+
+/* ── Career status card (launcher) ────────────────────────────────────────── */
+.career-launcher {
+  display: grid;
+  gap: 18px;
+  justify-items: start;
+}
+
+.career-launcher .launcher-actions {
+  margin-top: 0;
+}
+
+.career-card {
+  width: 100%;
+  max-width: 452px;
+  padding: 20px 22px;
+  border: 1px solid var(--hud-line);
+  border-radius: 22px;
+  background: rgba(16, 23, 25, 0.66);
+  box-shadow: 0 20px 50px -24px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(10px);
+}
+
+.career-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+
+.career-card-eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  color: var(--hud-sage-lt);
+}
+
+.career-card-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border: 1px solid var(--hud-line-2);
+  border-radius: 999px;
+  background: var(--hud-surface-2);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  color: var(--hud-cream);
+}
+
+.career-card-day i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hud-coral-warm);
+  box-shadow: 0 0 8px var(--hud-coral-warm);
+}
+
+.career-card-balance {
+  margin-bottom: 18px;
+}
+
+.career-card-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--hud-cream-40);
+}
+
+.career-card-amount-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.career-card-amount {
+  font-size: 44px;
+  font-weight: 900;
+  line-height: 0.85;
+  letter-spacing: -0.03em;
+  color: var(--hud-yellow);
+  font-variant-numeric: tabular-nums;
+}
+
+.career-card-note {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.career-card-note.good {
+  color: #8fae72;
+}
+
+.career-card-note.warn {
+  color: var(--hud-coral);
+}
+
+.career-card-rule {
+  height: 1px;
+  margin-bottom: 16px;
+  background: var(--hud-line);
+}
+
+.career-card-vehicle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.career-card-vehicle-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--hud-line);
+  border-radius: 12px;
+  background: var(--hud-surface-2);
+  color: var(--hud-cream);
+}
+
+.career-card-vehicle-copy {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+}
+
+.career-card-vehicle-copy small {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--hud-cream-40);
+}
+
+.career-card-vehicle-copy strong {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--hud-cream);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.career-card-badge {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid var(--hud-line-3);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--hud-cream-60);
+}
+
+.career-card-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.career-card-progress-head span {
+  overflow: hidden;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  color: var(--hud-sage-lt);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.career-card-progress-head strong {
+  flex: none;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--hud-cream);
+}
+
+.career-card-bar {
+  height: 9px;
+  margin-bottom: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--hud-line-2);
+}
+
+.career-card-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e0a838, var(--hud-yellow));
+  transition: width 0.4s ease;
+}
+
+.career-card-progress-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--hud-cream-50);
+}
+
+.career-card-progress-foot span:last-child {
+  text-align: right;
 }
 
 .launcher-pick-label {
@@ -1692,6 +1939,21 @@ canvas:focus-visible {
   user-select: none;
 }
 
+/* Bottom scrim so the place caption reads against any scene beneath it. */
+.launcher-road-visual::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 14, 15, 0) 42%,
+    rgba(10, 14, 15, 0.5) 76%,
+    rgba(10, 14, 15, 0.86)
+  );
+}
+
 .launcher-place {
   position: absolute;
   bottom: 18px;
@@ -1708,7 +1970,7 @@ canvas:focus-visible {
   backdrop-filter: blur(10px);
 }
 .launcher-place span { color: var(--hud-yellow); font-size: 9px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
-.launcher-place strong { font-family: var(--font-serif); font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+.launcher-place strong { font-family: var(--font-serif); font-size: 28px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
 .launcher-place em { color: rgba(255, 255, 255, 0.78); font-size: 10px; font-style: normal; }
 .launcher-place small { color: rgba(255, 255, 255, 0.62); font-size: 10px; }
 
