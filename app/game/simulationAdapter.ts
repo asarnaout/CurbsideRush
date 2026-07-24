@@ -39,7 +39,7 @@ import {
 const DEFAULT_LANE_WIDTH_M = 3.5;
 // The car's top speed models a real vehicle, not a governor pinned to the
 // posted limit. It tops out at a clean round number in each country's own unit
-// — 90 mph where speeds read in mph, 145 km/h (its equivalent) where they read
+// — 70 mph where speeds read in mph, 113 km/h (its equivalent) where they read
 // in km/h — leaving generous headroom above every urban route so a driver can
 // physically exceed the limit. Going over is scored as speeding, never
 // silently prevented.

@@ -1,13 +1,18 @@
 /**
- * Async glTF model library (vehicles now; characters follow in a later phase).
+ * Async glTF model library for vehicles, characters and props.
  *
  * Models are preloaded into per-scene {@link AssetContainer}s during setup, then
- * instantiated synchronously on demand. This lets the existing synchronous
- * vehicle-build path (`createVehicleMesh`) stay synchronous: it asks whether a
- * model is ready and, if so, instantiates it; otherwise it falls back to the
- * procedural geometry. A slow or failed load therefore never breaks the scene —
- * the vehicle simply stays on its procedural fallback and upgrades in place once
- * the container finishes loading.
+ * instantiated synchronously on demand. This lets the synchronous build paths
+ * (`createVehicleMesh`, the character and prop builders) stay synchronous: each
+ * asks whether a model is ready and, if so, instantiates it.
+ *
+ * There is no procedural fallback. A caller that asks before the container has
+ * landed gets an empty placeholder (`createVehicleMesh`) or null (characters,
+ * the crowd, props) — never stand-in geometry — and is upgraded in place once
+ * the load settles. What keeps those placeholders off screen is the loading
+ * gate: `markReady` only lifts after the preload has settled, so anything that
+ * lifts it early ships invisible cars and people. A single failed load
+ * therefore costs that one model, not the scene.
  *
  * Containers are keyed by URL (not by VehicleModel) so several models that share
  * one file — e.g. the sedan reused for the hatch and the recoloured taxi — load
