@@ -20,7 +20,7 @@ npm run dev          # Vite dev server + Miniflare worker on :3000 (NOT `next de
 npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run typecheck    # tsc --noEmit, ~2s
 npm run lint         # eslint, ~4s
-npm test             # vitest run: 51 files, 669 tests, ~145s
+npm test             # vitest run: 51 files, 693 tests, ~145s
 ```
 
 Node >= 22.13 (repo currently runs v26).
@@ -30,7 +30,7 @@ Node >= 22.13 (repo currently runs v26).
 `npm test` takes ~145s and **97% of that is one file** — `tests/trafficSafetyAcceptance.test.ts` (141s: 5 cities x every start/checkpoint x 51 seeds x 60s of sim). Use the fast loop while iterating, full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 50 files / 667 tests in ~7s
+# everything except the acceptance test -> 50 files / 691 tests in ~7s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts                     # one file
@@ -179,6 +179,7 @@ The AudioContext is a **module-level singleton**, deliberately not per-session, 
 - **Six test files import `GameCanvas.tsx` for real in node** — `content`, `gameCanvasInput`, `guidanceCoverage`, `intersectionVisuals`, `pavementPaths`, `roadJunctions`. Adding a top-level side effect touching `window`/`document`/WebGL breaks tests unrelated to rendering. Five more name the module but use `import type` and never load it (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`, `staticColliders`, `trafficSafetyAcceptance`), as do all three app-side importers — so the only other runtime load is `SideSwapApp`'s lazy `dynamic()`. Grep alone misleads here; check whether the import is type-only.
 - **`public/models/vehicles/london-double-decker.glb` is gitignored** (purchased asset, licence forbids redistribution). Its test is `skipIf`-guarded, so a fresh clone silently skips it. Rebuild with `node tools/build-london-bus.mjs <path-to.obj>`.
 - **The app shell is tested through Career and almost nowhere else.** `careerFlow.test.tsx` renders a real `SideSwapApp` (GameCanvas mocked) across 12 tests: rent prepay, fines landing in day-cash rather than the wallet, settlement/ledger lines, the quit-day discard, a tampered save, per-vehicle physics/model props, buyout, and the roadside-refuel cutscene. `launcher.test.tsx` adds 4 on the launcher itself. What no test touches: free-drive fuel drain, free-drive refuel pricing, the 8s fine debounce, the gig double-credit guard (`paidGigRef`), minimap pins, music mute. Changing any of those is invisible to `npm test` (the cutscene *choreography* is covered by `tests/cutsceneScript.test.ts`; the free-drive wiring is not).
-- **`app/globals.css` is ~2705 lines and substantially dead** (removed lesson hub, passport, results views). The driving HUD is inline styles in `SideSwapApp.tsx`, not CSS.
+- **`app/globals.css` is ~3445 lines and substantially dead** (removed lesson hub, passport, results views). The driving HUD is inline styles in `SideSwapApp.tsx`, not CSS.
+- **`.app-shell` sets `overflow: hidden`, which silently disables `position: sticky` anywhere below it** — a scroll container, so a sticky child pins to *it* rather than the viewport and simply never moves. The career pages override it to `overflow: clip` (clips identically, no scrollport) inside the 860px block, which is what lets the garage dock and the travel flight bar pin at all. Nothing warns; the element just sits in flow.
 - **No `wrangler.toml`.** Worker config is inline in `vite.config.ts` (`localBindingConfig`) at dev time and generated into `dist/server/wrangler.json` at build. The `@cloudflare/vite-plugin` import is deliberately dynamic — Wrangler snapshots its log path on import. The image-optimization branch in `worker/index.ts` and the D1/drizzle packaging in `build/sites-vite-plugin.ts` are inherited template code with no live consumer.
 - The `@/*` tsconfig path alias exists and is **used zero times**. Every import is relative; follow that.
