@@ -11,6 +11,7 @@ import { formatMoney } from "./game/content";
 import {
   activeCity,
   BUYOUT_RENT_MULTIPLIER,
+  buyableVehicles,
   buyoutPrice,
   canBuyVehicle,
   CAREER_CITIES,
@@ -62,6 +63,8 @@ const BANNER_KINDS = new Set<LedgerLine["kind"]>([
   "final_notice",
   "bankruptcy",
 ]);
+
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 const cardStyle: React.CSSProperties = {
   borderRadius: "1rem",
@@ -342,10 +345,10 @@ function GarageFreedom({
   if (slice.state === "won") {
     return (
       <div className="garage-panel garage-freedom won" data-testid="victory-banner">
-        <div className="garage-panel-label green">🏁 FREEDOM BOUGHT</div>
+        <div className="garage-panel-label green">🏁 THE WHOLE MAP</div>
         <div className="garage-freedom-copy">
-          You bought your own wheels on day {slice.victoryDay}. The daily
-          treadmill is beaten — keep driving for the records.
+          Every city, every vehicle, bought outright on day {slice.victoryDay}.
+          There is nothing left to owe anyone — keep driving for the records.
         </div>
       </div>
     );
@@ -355,8 +358,8 @@ function GarageFreedom({
       <div className="garage-panel garage-freedom notice" role="alert">
         <div className="garage-panel-label coral">⚠ FINAL NOTICE</div>
         <div className="garage-freedom-copy">
-          End another day short while owing and the career is over — clear the
-          books tonight.
+          End another day short while owing and this city wipes — cash, debts
+          and the fleet you bought here. Clear the books tonight.
         </div>
       </div>
     );
@@ -374,50 +377,16 @@ function GarageFreedom({
       </div>
     );
   }
-  const cheapest = CAREER_VEHICLES.filter((v) => v.buyoutEligible).reduce(
-    (best, v) =>
-      buyoutPrice(v, city.countryId) < buyoutPrice(best, city.countryId)
-        ? v
-        : best,
-  );
-  const price = buyoutPrice(cheapest, city.countryId);
-  const fraction = Math.max(0, Math.min(1, city.cash / price));
-  const remaining = Math.max(0, price - city.cash);
-  return (
-    <div className="garage-panel garage-freedom" data-testid="buyout-fund">
-      <div className="garage-panel-head">
-        <span className="garage-panel-label">BUY YOUR FREEDOM</span>
-        <span className="garage-panel-note">
-          own the {cheapest.name.toLowerCase()} · {BUYOUT_RENT_MULTIPLIER}× its rent
-        </span>
-      </div>
-      <p className="garage-freedom-copy">
-        Buy a vehicle outright and the daily rent treadmill is beaten for good.
-      </p>
-      <div className="garage-bar">
-        <i style={{ width: `${fraction * 100}%` }} />
-      </div>
-      <div className="garage-freedom-foot">
-        <span>
-          {formatMoney(city.cash, country)}
-          <em> / {formatMoney(price, country)}</em>
-        </span>
-        <span>
-          {remaining > 0
-            ? `${formatMoney(remaining, country)} to go`
-            : "Ready to buy"}
-        </span>
-      </div>
-    </div>
-  );
+  return <CareerGoal slice={slice} city={city} country={country} />;
 }
 
 /**
- * The run's finish line, kept visible from day 1 (research: all-loss ledgers
- * burn players out — show the escape route). Progress toward the cheapest
- * eligible buyout; hidden once won, while indebted, or under notice.
+ * What you are saving for here: the onward ticket while one is unbought, and
+ * the city's remaining fleet once the flight is behind you (or there is no
+ * flight left to take). Kept visible from day 1 — an all-loss ledger with no
+ * stated escape route is what burns players out.
  */
-export function BuyoutFund({
+export function CareerGoal({
   slice,
   city,
   country,
@@ -426,54 +395,78 @@ export function BuyoutFund({
   city: CareerCityView;
   country: CountryProfile;
 }) {
-  if (slice.state !== "active" || city.loan || city.finalNotice) return null;
-  const cheapest = CAREER_VEHICLES.filter(
-    (vehicle) => vehicle.buyoutEligible,
-  ).reduce((best, vehicle) =>
-    buyoutPrice(vehicle, city.countryId) < buyoutPrice(best, city.countryId)
-      ? vehicle
-      : best,
+  const onward = nextCareerCity(city.destinationId);
+  const price = ticketPrice(city.destinationId);
+  const ticketOutstanding =
+    onward !== null && price !== null && slice.cities[onward] === undefined;
+
+  if (ticketOutstanding) {
+    const remaining = Math.max(0, price - city.cash);
+    return (
+      <div className="garage-panel garage-freedom" data-testid="career-goal">
+        <div className="garage-panel-head">
+          <span className="garage-panel-label">THE WAY OUT</span>
+          <span className="garage-panel-note">one-way ticket</span>
+        </div>
+        <p className="garage-freedom-copy">
+          Buy the flight and start again somewhere new — or stay and keep
+          building here. Entirely your call.
+        </p>
+        <div className="garage-bar">
+          <i style={{ width: `${clamp01(city.cash / price) * 100}%` }} />
+        </div>
+        <div className="garage-freedom-foot">
+          <span>
+            {formatMoney(city.cash, country)}
+            <em> / {formatMoney(price, country)}</em>
+          </span>
+          <span>
+            {remaining > 0
+              ? `${formatMoney(remaining, country)} to go`
+              : "Ready to fly"}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const buyable = buyableVehicles();
+  const owned = buyable.filter((vehicle) =>
+    city.ownedVehicleIds.includes(vehicle.id),
+  ).length;
+  const nextBuy = buyable.find(
+    (vehicle) => !city.ownedVehicleIds.includes(vehicle.id),
   );
-  const price = buyoutPrice(cheapest, city.countryId);
-  const fraction = Math.max(0, Math.min(1, city.cash / price));
+  const target = nextBuy ? buyoutPrice(nextBuy, city.countryId) : 0;
   return (
-    <div
-      style={{ ...cardStyle, marginTop: "1rem" }}
-      data-testid="buyout-fund"
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "1rem",
-          marginBottom: "0.4rem",
-        }}
-      >
-        <strong>Buy your freedom</strong>
-        <span>
-          {formatMoney(city.cash, country)} / {formatMoney(price, country)}
+    <div className="garage-panel garage-freedom" data-testid="career-goal">
+      <div className="garage-panel-head">
+        <span className="garage-panel-label">OWN THE FLEET</span>
+        <span className="garage-panel-note">
+          {owned}/{buyable.length} here
         </span>
       </div>
-      <div
-        style={{
-          height: "0.5rem",
-          borderRadius: "999px",
-          background: "rgba(255,255,255,0.16)",
-          overflow: "hidden",
-        }}
-      >
-        <div
+      <p className="garage-freedom-copy">
+        {nextBuy
+          ? `Own every vehicle in every city to beat the game. Next up here: the ${nextBuy.name.toLowerCase()}.`
+          : "This city's fleet is complete. Finish the others to beat the game."}
+      </p>
+      <div className="garage-bar">
+        <i
           style={{
-            height: "100%",
-            width: `${fraction * 100}%`,
-            background: "#f2c658",
+            width: `${
+              (nextBuy ? clamp01(city.cash / target) : 1) * 100
+            }%`,
           }}
         />
       </div>
-      <small style={{ opacity: 0.7 }}>
-        Own the {cheapest.name.toLowerCase()} outright (
-        {BUYOUT_RENT_MULTIPLIER}× its rent) and the daily treadmill is beaten.
-      </small>
+      <div className="garage-freedom-foot">
+        <span>
+          {formatMoney(city.cash, country)}
+          {nextBuy && <em> / {formatMoney(target, country)}</em>}
+        </span>
+        <span>{nextBuy ? nextBuy.name : "Complete"}</span>
+      </div>
     </div>
   );
 }
@@ -585,7 +578,7 @@ export function LedgerView({
         </p>
       )}
       <div style={{ maxWidth: "30rem" }}>
-        <BuyoutFund slice={slice} city={city} country={country} />
+        <CareerGoal slice={slice} city={city} country={country} />
       </div>
       <div className="settings-actions" style={{ marginTop: "1.1rem" }}>
         <button
@@ -603,18 +596,19 @@ export function LedgerView({
 
 export function CareerOverView({
   city,
+  cityName,
   country,
-  onRestart,
-  onMenu,
+  onContinue,
 }: {
+  /** The city as it stood the morning of the day that broke it. */
   city: CareerCityView;
+  cityName: string;
   country: CountryProfile;
-  onRestart: () => void;
-  onMenu: () => void;
+  onContinue: () => void;
 }) {
   const stats = city.stats;
   const rows: readonly (readonly [string, string])[] = [
-    ["Days survived", String(stats.daysCompleted)],
+    ["Days worked here", String(stats.daysCompleted)],
     ["Gigs completed", String(stats.gigsCompleted)],
     ["On-time deliveries", String(stats.gigsOnTime)],
     ["Gross earned", formatMoney(stats.grossEarned, country)],
@@ -627,11 +621,13 @@ export function CareerOverView({
     <section className="subpage" aria-label="Career over">
       <div className="subpage-heading">
         <div>
-          <p className="eyebrow">CAREER OVER</p>
-          <h1>The bank called it.</h1>
+          <p className="eyebrow">WIPED OUT</p>
+          <h1>{cityName} took everything.</h1>
           <p>
-            Day {city.day} ended {formatMoney(city.cash, country)} short with
-            nothing left to borrow.
+            The bank called it on day {city.day}. Your {cityName} fleet is
+            repossessed and you start over here on{" "}
+            {formatMoney(CAREER_STARTING_CASH_BY_COUNTRY[city.countryId], country)}
+            {" "}— but only here. Every other city is exactly as you left it.
           </p>
         </div>
       </div>
@@ -651,24 +647,19 @@ export function CareerOverView({
           </div>
         ))}
       </div>
-      <div className="settings-actions" style={{ marginTop: "1.1rem", display: "flex", gap: "0.75rem" }}>
-        <button type="button" className="secondary-button" onClick={onMenu}>
-          Back to menu
-        </button>
+      <div className="settings-actions" style={{ marginTop: "1.1rem" }}>
         <button
           type="button"
           className="primary-button"
-          data-testid="career-restart"
-          onClick={onRestart}
+          data-testid="career-continue-after-wipe"
+          onClick={onContinue}
         >
-          Start a new career
+          Start again in {cityName}
         </button>
       </div>
     </section>
   );
 }
-
-const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 /** The launcher career card's display fields. Kept flat so the card only lays out. */
 export interface CareerCardModel {
@@ -893,9 +884,7 @@ export function CareerSetupPanel({
   garageVehicleId,
   onStartCareer,
   onContinue,
-  onViewLastRun,
   onResetCorrupt,
-  onStartFresh,
 }: {
   career: CareerSliceV2 | { state: "corrupt" } | null;
   /** The active city of `career`, or null before one exists. */
@@ -905,9 +894,7 @@ export function CareerSetupPanel({
   garageVehicleId: CareerVehicleId;
   onStartCareer: () => void;
   onContinue: () => void;
-  onViewLastRun: () => void;
   onResetCorrupt: () => void;
-  onStartFresh: () => void;
 }) {
   if (career && career.state === "corrupt") {
     return (
@@ -926,30 +913,8 @@ export function CareerSetupPanel({
       </div>
     );
   }
-  if (career && career.state === "over") {
-    return (
-      <div className="launcher-actions" data-testid="career-finished">
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={onViewLastRun}
-        >
-          View last run — Day {city?.day ?? 1}
-        </button>
-        <button
-          type="button"
-          className="primary-button launcher-primary"
-          data-testid="career-start"
-          onClick={onStartFresh}
-        >
-          Start a new career
-          <span aria-hidden="true">→</span>
-        </button>
-      </div>
-    );
-  }
-  // Corrupt and over handled above, so `career` is now an active/won slice or
-  // null (a fresh start) — both drive the card, one live and one as a preview.
+  // Corrupt handled above, so `career` is now a live slice or null (a fresh
+  // start) — both drive the card, one live and one as a preview.
   const slice: CareerSliceV2 | null = career;
   const model = careerCardModel(slice, city, country, garageVehicleId);
   return (

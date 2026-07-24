@@ -454,6 +454,12 @@ export default function SideSwapApp() {
     readonly result: SettlementResult;
     readonly slice: CareerSliceV2;
     readonly city: CareerCityView;
+    /**
+     * The city as it stood that morning. A bankrupt settlement wipes the city,
+     * so the wipe report has to read the run it lost, not the fresh sheet that
+     * replaced it.
+     */
+    readonly morningCity: CareerCityView;
   } | null>(null);
   // Day-clock timestamp when the current career gig entered "carrying"; the
   // tip window (Crazy Taxi-style par time on the carrying leg) counts from it.
@@ -1130,7 +1136,7 @@ export default function SideSwapApp() {
   };
 
   const beginCareerDay = (vehicleId: CareerVehicleId) => {
-    if (!careerSlice || !careerCity || careerSlice.state === "over") return;
+    if (!careerSlice || !careerCity) return;
     const vehicle = getCareerVehicle(vehicleId);
     const rent = vehicleRent(vehicle, careerCity);
     if (careerCity.cash < rent) return;
@@ -1219,7 +1225,12 @@ export default function SideSwapApp() {
     setProgress(saved);
     saveProgress(saved);
     const nextCity = activeCity(nextSlice);
-    setLastSettlement({ result: settlement, slice: nextSlice, city: nextCity });
+    setLastSettlement({
+      result: settlement,
+      slice: nextSlice,
+      city: nextCity,
+      morningCity: run.city,
+    });
     setGarageVehicleId((previous) =>
       nextCity.cash >= vehicleRent(getCareerVehicle(previous), nextCity)
         ? previous
@@ -1286,10 +1297,8 @@ export default function SideSwapApp() {
   // shell. Derived, not redirected — the underlying `view` self-corrects on
   // the next explicit navigation.
   const effectiveView: View =
-    view === "career-garage" && (!careerSlice || careerSlice.state === "over")
-      ? careerSlice
-        ? "career-over"
-        : "launcher"
+    view === "career-garage" && !careerSlice
+      ? "launcher"
       : view === "career-ledger" && !lastSettlement
         ? careerSlice
           ? "career-garage"
@@ -2128,7 +2137,6 @@ export default function SideSwapApp() {
       {effectiveView === "career-garage" &&
         careerSlice &&
         careerCity &&
-        careerSlice.state !== "over" &&
         careerCountry && (
           <GarageView
             slice={careerSlice}
@@ -2168,15 +2176,18 @@ export default function SideSwapApp() {
           onContinue={() => setView("career-garage")}
         />
       )}
-      {effectiveView === "career-over" && careerCity && careerCountry && (
+      {effectiveView === "career-over" && lastSettlement && careerCountry && (
         <CareerOverView
-          city={careerCity}
+          city={lastSettlement.morningCity}
+          cityName={
+            getDestinationProfile(lastSettlement.morningCity.destinationId)
+              .destinationName
+          }
           country={careerCountry}
-          onRestart={() => {
-            setGameMode("career");
-            resetCareer("launcher");
+          onContinue={() => {
+            setGarageVehicleId("bicycle");
+            setView("career-garage");
           }}
-          onMenu={() => setView("launcher")}
         />
       )}
 
@@ -2279,9 +2290,7 @@ export default function SideSwapApp() {
                   );
                   setView("career-garage");
                 }}
-                onViewLastRun={() => setView("career-over")}
                 onResetCorrupt={() => resetCareer("launcher")}
-                onStartFresh={() => resetCareer("launcher")}
               />
             )}
           </div>

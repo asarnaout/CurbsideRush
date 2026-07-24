@@ -4,6 +4,7 @@ import {
   applyTicket,
   applyVehiclePurchase,
   canBuyTicket,
+  careerWon,
   applySettlement,
   CAREER_CITIES,
   CAREER_START_CITY,
@@ -45,6 +46,7 @@ import {
   vehicleRent,
   withCity,
   type CareerCityState,
+  type CareerSliceV2,
   type CareerLoan,
   type DayLedgerInput,
   type SettlementResult,
@@ -370,7 +372,20 @@ describe("applySettlement", () => {
     );
   });
 
-  it("marks the slice over on bankruptcy and preserves the negative cash", () => {
+  it("wipes the city on bankruptcy and leaves the rest of the career standing", () => {
+    // A career two cities deep, rich and well-equipped in New York.
+    const career = withCity(
+      withCity(baseSlice, "us-nyc", {
+        ...activeCity(baseSlice),
+        cash: 900,
+        day: 14,
+        ownedVehicleIds: ["compact-hatch", "delivery-van"],
+        finalNotice: true,
+        loan: { principalRemaining: 30, daysRemaining: 3 },
+      }),
+      "jp-tokyo",
+      { ...createCityState("jp"), cash: 77_000, ownedVehicleIds: ["sport-sedan"] },
+    );
     const doomed = settleDay({
       cash: -5,
       ledger: log(),
@@ -379,9 +394,23 @@ describe("applySettlement", () => {
       platformFee: 3,
       rule: "grace",
     });
-    const next = applySettlement(baseSlice, log(), doomed);
-    expect(next.state).toBe("over");
-    expect(activeCity(next).cash).toBeLessThan(0);
+    const next = applySettlement(career, log(), doomed);
+
+    // New York is back to the day you arrived — and the fleet is repossessed,
+    // which is what stops bankruptcy being a free way out of a bad loan.
+    const wiped = activeCity(next);
+    expect(wiped.cash).toBe(CAREER_STARTING_CASH_BY_COUNTRY.us);
+    expect(wiped.day).toBe(1);
+    expect(wiped.loan).toBeNull();
+    expect(wiped.finalNotice).toBe(false);
+    expect(wiped.ownedVehicleIds).toEqual([]);
+    expect(wiped.stats.daysCompleted).toBe(0);
+
+    // Tokyo never noticed.
+    expect(next.cities["jp-tokyo"]?.cash).toBe(77_000);
+    expect(next.cities["jp-tokyo"]?.ownedVehicleIds).toEqual(["sport-sedan"]);
+    // And the career itself is still running.
+    expect(next.state).toBe("active");
     expect(parseCareerSlice(JSON.parse(JSON.stringify(next)))).toEqual(next);
   });
 });
@@ -508,13 +537,12 @@ describe("checksum and slice codec", () => {
   });
 
   it("accepts negative cash — the codec must never clamp", () => {
-    // Negative cash is legitimate in the "over" state.
-    const broke = withCity(slice, "uk-london", {
-      ...activeCity(slice),
-      cash: -45,
-    });
-    const over = stampCareerChecksum({ ...broke, state: "over" });
-    expect(parseCareerSlice(JSON.parse(JSON.stringify(over)))).toEqual(over);
+    // Settlement no longer banks a deficit, but the codec's job is to verify
+    // what it is handed, not to quietly repair it.
+    const broke = stampCareerChecksum(
+      withCity(slice, "uk-london", { ...activeCity(slice), cash: -45 }),
+    );
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(broke)))).toEqual(broke);
   });
 
   it("re-stamping an already-stamped slice is a no-op", () => {
@@ -663,6 +691,89 @@ describe("tickets and travel", () => {
     // Omitting the index reproduces the ladder's first city exactly.
     expect(careerDayTrafficSeed(42, 3)).toBe(careerDayTrafficSeed(42, 3, 0));
     expect(careerGigSeedBase(42, 3)).toBe(careerGigSeedBase(42, 3, 0));
+  });
+});
+
+describe("the win condition", () => {
+  const fullFleet = CAREER_VEHICLES.filter((v) => v.buyoutEligible).map(
+    (v) => v.id,
+  );
+  const cityWithFleet = (countryId: "us" | "jp" | "uk") => ({
+    ...createCityState(countryId),
+    ownedVehicleIds: fullFleet,
+  });
+
+  const everything = (): CareerSliceV2 => {
+    let career = createCareerSlice({ destinationId: "us-nyc", careerSeed: 1 });
+    for (const city of CAREER_CITIES) {
+      career = withCity(career, city, cityWithFleet(careerCountryOf(city) as never));
+    }
+    return stampCareerChecksum({
+      ...career,
+      currentDestinationId: CAREER_CITIES[CAREER_CITIES.length - 1],
+    });
+  };
+
+  it("needs the final city AND every fleet, not one or the other", () => {
+    const complete = everything();
+    expect(careerWon(complete)).toBe(true);
+
+    // Reached London, but one van short in Tokyo.
+    const shortOne = withCity(complete, "jp-tokyo", {
+      ...cityWithFleet("jp"),
+      ownedVehicleIds: fullFleet.slice(1),
+    });
+    expect(careerWon(shortOne)).toBe(false);
+
+    // Every fleet owned, but never flew the last leg.
+    const neverArrived = stampCareerChecksum({
+      ...complete,
+      currentDestinationId: "us-nyc",
+      cities: { ...complete.cities, "uk-london": undefined },
+    });
+    expect(careerWon(neverArrived)).toBe(false);
+  });
+
+  it("stamps the victory on the purchase that completes it, once", () => {
+    const last = CAREER_CITIES[CAREER_CITIES.length - 1];
+    const sports = getCareerVehicle("sport-sedan");
+    let career = createCareerSlice({ destinationId: "us-nyc", careerSeed: 2 });
+    for (const city of CAREER_CITIES) {
+      career = withCity(career, city, cityWithFleet(careerCountryOf(city) as never));
+    }
+    // One vehicle missing in the final city, and the cash to close it out.
+    career = stampCareerChecksum({
+      ...career,
+      currentDestinationId: last,
+    });
+    career = withCity(career, last, {
+      ...cityWithFleet(careerCountryOf(last) as never),
+      day: 30,
+      cash: buyoutPrice(sports, careerCountryOf(last)),
+      ownedVehicleIds: fullFleet.filter((id) => id !== "sport-sedan"),
+    });
+    expect(career.state).toBe("active");
+
+    const won = applyVehiclePurchase(career, sports);
+    expect(won.state).toBe("won");
+    expect(won.victoryDay).toBe(30);
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(won)))).toEqual(won);
+
+    // Sticky: the day is recorded once and play continues.
+    const later = applySettlement(
+      won,
+      emptyDayLog(),
+      settleDay({
+        cash: 500,
+        ledger: emptyDayLog(),
+        loan: null,
+        finalNotice: false,
+        platformFee: PLATFORM_FEE_BY_COUNTRY[careerCountryOf(last)],
+        rule: "grace",
+      }),
+    );
+    expect(later.state).toBe("won");
+    expect(later.victoryDay).toBe(30);
   });
 });
 

@@ -393,8 +393,8 @@ export interface CareerCityState {
   readonly day: number;
   /**
    * Integer cash at the last boundary. Non-negative while playable (settlement
-   * converts shortfalls to loans); may be negative only in the "over" state,
-   * preserved for the career-over display.
+   * converts shortfalls to loans). Never negative once stored: a bankrupt
+   * settlement resets the city rather than banking the deficit.
    */
   readonly cash: number;
   readonly loan: CareerLoan | null;
@@ -408,8 +408,12 @@ export interface CareerCityState {
 export interface CareerSliceV2 {
   /** Bumped whenever the persisted shape changes; older saves decode to null. */
   readonly version: 2;
-  /** "won" is sticky: the victory happened, endless play continues. */
-  readonly state: "active" | "won" | "over";
+  /**
+   * "won" is sticky: the victory happened, endless play continues. There is no
+   * terminal failure state — going bankrupt wipes the city you did it in and
+   * leaves the rest of the career standing.
+   */
+  readonly state: "active" | "won";
   /** Fixed at creation; every per-day seed derives from it. */
   readonly careerSeed: number;
   /** Where the driver is right now. Always a key of `cities`. */
@@ -566,7 +570,7 @@ const isCityState = (value: unknown): value is CareerCityState => {
  * Decodes a persisted career value. Returns null when absent, the verified
  * slice when sound, and the corrupt marker when the structure or checksum is
  * wrong. NEVER clamps — progress.ts's country-map parser is deliberately not
- * reused here, because an "over" career may legitimately carry negative cash.
+ * reused here: clamping would quietly repair a tampered save.
  *
  * A blob from before the per-city rewrite has no `version` and decodes to
  * **null**, not corrupt: its shape is obsolete rather than tampered with, so the
@@ -592,7 +596,7 @@ export function parseCareerSlice(value: unknown): CareerPersisted {
     return null;
   }
   if (
-    (value.state !== "active" && value.state !== "won" && value.state !== "over") ||
+    (value.state !== "active" && value.state !== "won") ||
     !isInteger(value.careerSeed) ||
     !DESTINATION_IDS.includes(value.currentDestinationId as DestinationId) ||
     !isRecord(value.cities) ||
@@ -1004,17 +1008,24 @@ export function applySettlement(
       settlement.loan?.principalRemaining ?? 0,
     ),
   };
-  const next = withCity(slice, city.destinationId, {
+  if (settlement.outcome === "game_over") {
+    // Bankruptcy is local. The city is wiped back to the day you arrived —
+    // starting float, day 1, debts gone, and the fleet repossessed, which is
+    // what stops going bust from being a free bailout out of a bad loan. Every
+    // other city on the ladder is untouched and still there to fly back to.
+    return withCity(
+      slice,
+      city.destinationId,
+      createCityState(city.countryId),
+    );
+  }
+  return withCity(slice, city.destinationId, {
     day: city.day + 1,
     cash: settlement.cash,
     loan: settlement.loan,
     finalNotice: settlement.finalNotice,
     ownedVehicleIds: city.ownedVehicleIds,
     stats,
-  });
-  return stampCareerChecksum({
-    ...next,
-    state: settlement.outcome === "game_over" ? "over" : next.state,
   });
 }
 
@@ -1057,11 +1068,13 @@ export function applyVehiclePurchase(
     throw new Error(`Cannot buy ${vehicle.id} here`);
   }
   const city = activeCity(slice);
-  return withCity(slice, city.destinationId, {
-    ...city,
-    cash: city.cash - buyoutPrice(vehicle, city.countryId),
-    ownedVehicleIds: [...city.ownedVehicleIds, vehicle.id],
-  });
+  return withVictoryIfEarned(
+    withCity(slice, city.destinationId, {
+      ...city,
+      cash: city.cash - buyoutPrice(vehicle, city.countryId),
+      ownedVehicleIds: [...city.ownedVehicleIds, vehicle.id],
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1112,11 +1125,13 @@ export function applyTicket(slice: CareerSliceV2): CareerSliceV2 {
     ...city,
     cash: city.cash - price,
   });
-  return stampCareerChecksum({
-    ...paid,
-    currentDestinationId: next,
-    cities: { ...paid.cities, [next]: createCityState(careerCountryOf(next)) },
-  });
+  return withVictoryIfEarned(
+    stampCareerChecksum({
+      ...paid,
+      currentDestinationId: next,
+      cities: { ...paid.cities, [next]: createCityState(careerCountryOf(next)) },
+    }),
+  );
 }
 
 /** Moves to a city already reached. Free, instant, and always reversible. */
@@ -1133,6 +1148,33 @@ export function travelTo(
 /** Every vehicle that can be bought at all, cheapest first. */
 export function buyableVehicles(): readonly CareerVehicleSpec[] {
   return CAREER_VEHICLES.filter((vehicle) => vehicle.buyoutEligible);
+}
+
+/**
+ * Beating the game: stand in the last city on the ladder having bought every
+ * buyable vehicle in *every* city. Reaching London is the midgame; owning all
+ * three fleets is the end of it.
+ */
+export function careerWon(slice: CareerSliceV2): boolean {
+  const finalCity = CAREER_CITIES[CAREER_CITIES.length - 1];
+  if (slice.cities[finalCity] === undefined) return false;
+  return CAREER_CITIES.every((destinationId) => {
+    const city = slice.cities[destinationId];
+    return city !== undefined && ownsFullFleet(city);
+  });
+}
+
+/**
+ * Stamps the victory the first time it is earned. Applied after every purchase
+ * and every flight — the only two moves that can complete the condition.
+ */
+export function withVictoryIfEarned(slice: CareerSliceV2): CareerSliceV2 {
+  if (slice.state === "won" || !careerWon(slice)) return slice;
+  return stampCareerChecksum({
+    ...slice,
+    state: "won",
+    victoryDay: activeCity(slice).day,
+  });
 }
 
 /** True once this city's fleet holds every buyable vehicle. */

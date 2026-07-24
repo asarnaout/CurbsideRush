@@ -470,7 +470,7 @@ describe("career mode flow", () => {
     await screen.findByRole("heading", { name: /Pick today's ride/i });
   });
 
-  it("falls back to the bike when broke, and a shortfall under FINAL NOTICE ends the career", async () => {
+  it("falls back to the bike when broke, and a shortfall under FINAL NOTICE wipes the city", async () => {
     seedProgressWithCareer(
       careerIn("uk-london", 7, {
         cash: 0,
@@ -501,16 +501,24 @@ describe("career mode flow", () => {
     await screen.findByLabelText("Mock driving scene");
     expect(screen.getByTestId("day-cash")).toHaveTextContent("£0.00");
 
-    // Earn nothing: fee 3 + installment 10 on 0 cash under the notice = over.
+    // Earn nothing: fee 3 + installment 10 on 0 cash under the notice = wiped.
     fireEvent.click(screen.getByTestId("mock-hud-end"));
     expect(
-      await screen.findByRole("heading", { name: /The bank called it/i }),
+      await screen.findByRole("heading", { name: /took everything/i }),
     ).toBeVisible();
-    expect((storedCareer() as CareerSliceV2).state).toBe("over");
 
-    fireEvent.click(screen.getByTestId("career-restart"));
-    expect(await screen.findByTestId("career-new-panel")).toBeVisible();
-    expect(storedCareer()).toBeNull();
+    // The city resets; the career does not end.
+    const wiped = storedCareer() as CareerSliceV2;
+    expect(wiped.state).toBe("active");
+    expect(activeCity(wiped).cash).toBe(CAREER_STARTING_CASH_BY_COUNTRY.uk);
+    expect(activeCity(wiped).day).toBe(1);
+    expect(activeCity(wiped).loan).toBeNull();
+
+    fireEvent.click(screen.getByTestId("career-continue-after-wipe"));
+    expect(
+      await screen.findByRole("heading", { name: /Pick today's ride/i }),
+    ).toBeVisible();
+    expect(screen.getByTestId("garage-cash")).toHaveTextContent("£20.00");
   });
 
   it("buys any vehicle from its own card, without selecting it first", async () => {
