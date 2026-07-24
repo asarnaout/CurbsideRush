@@ -1174,12 +1174,6 @@ export function TravelView({
                 {/* eslint-disable-next-line @next/next/no-img-element -- static city art in /public; next/image adds nothing for a fixed, non-critical thumbnail */}
                 <img src={stop.imageSrc} alt="" aria-hidden="true" draggable={false} />
                 <span className="travel-card-scrim" aria-hidden="true" />
-                <span className="travel-card-side">
-                  <span className="travel-flag" aria-hidden="true">
-                    {stop.flagEmoji}
-                  </span>
-                  {stop.side}
-                </span>
                 {stop.state === "here" && (
                   <span className="travel-card-badge">
                     <i aria-hidden="true" />
@@ -1194,18 +1188,35 @@ export function TravelView({
               </div>
 
               <div className="travel-card-body">
-                <div>
-                  <div className="travel-card-name">{stop.name}</div>
-                  <div className="travel-card-area">{stop.area}</div>
+                <div className="travel-card-heading">
+                  <div className="travel-card-titles">
+                    <div className="travel-card-name">{stop.name}</div>
+                    <div className="travel-card-area">{stop.area}</div>
+                    {/* Positioned over the art on desktop, inline under the
+                        name on mobile — one element, two layouts. */}
+                    <span className="travel-card-side">
+                      <span className="travel-flag" aria-hidden="true">
+                        {stop.flagEmoji}
+                      </span>
+                      {stop.side}
+                    </span>
+                  </div>
+                  {chosen && (
+                    <span className="travel-card-tick" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                    </span>
+                  )}
                 </div>
 
                 {stop.waiting && (
                   <div className="travel-card-stash">
-                    <div className="travel-chip">
+                    <div className="travel-chip stash">
                       <span className="travel-chip-label">STASHED</span>
                       <strong className="yellow">{stop.waiting.cash}</strong>
                     </div>
-                    <div className="travel-chip">
+                    <div className="travel-chip parked">
                       <span className="travel-chip-label">PARKED</span>
                       <strong>
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">

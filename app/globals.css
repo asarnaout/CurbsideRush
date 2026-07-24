@@ -2898,6 +2898,10 @@ canvas:focus-visible {
 .travel-card.locked .travel-card-scrim {
   background: linear-gradient(180deg, rgba(8, 11, 12, 0.5), rgba(8, 11, 12, 0.82));
 }
+.travel-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.travel-card-titles { min-width: 0; }
+/* Desktop hides the tick — the selection ring already says it. */
+.travel-card-tick { display: none; }
 .travel-card-side {
   position: absolute;
   top: 9px;
@@ -3093,4 +3097,189 @@ canvas:focus-visible {
   box-shadow: none;
   color: var(--hud-cream-40);
   cursor: default;
+}
+
+@media (max-width: 860px) {
+  /* Curbside Travel Mobile: one scrolling column of horizontal cards, and the
+     flight pinned to the bottom of the screen. Follows the career garage's
+     mobile reflow — same 860px breakpoint, same 112px art column. */
+  .travel-page {
+    width: calc(100% - 32px);
+    min-height: 0;
+    padding: 12px 0 24px;
+    gap: 14px;
+  }
+  .travel-head { flex-direction: column; align-items: stretch; gap: 14px; }
+  .travel-head h1 { font-size: 33px; letter-spacing: -0.8px; }
+  .travel-sub { max-width: none; margin: 0; font-size: 12.5px; }
+  .travel-eyebrow { margin-bottom: 10px; font-size: 10px; letter-spacing: 0.24em; }
+
+  /* Wallet takes the room; the counter shrinks to its content. */
+  .travel-stats { gap: 9px; }
+  .travel-stat { flex: 1; min-width: 0; padding: 11px 13px; border-radius: 14px; }
+  .travel-stat:first-child { min-width: 0; }
+  .travel-stat:last-child { flex: none; min-width: 0; }
+  .travel-stat-label { margin-bottom: 4px; font-size: 8px; letter-spacing: 0.14em; }
+  .travel-stat-value { font-size: 21px; letter-spacing: -0.5px; }
+  .travel-stat-value.yellow { margin-bottom: 5px; }
+  .travel-stat-value em { font-size: 13px; }
+  .travel-stat-note { font-size: 9.5px; }
+
+  .travel-grid { display: flex; flex-direction: column; gap: 11px; }
+
+  .travel-card {
+    flex-direction: row;
+    min-height: 104px;
+    border-radius: 16px;
+    box-shadow: 0 12px 30px -22px rgba(0, 0, 0, 0.75);
+  }
+  .travel-card-ring { border-radius: 16px; box-shadow: 0 0 0 3px rgba(244, 200, 72, 0.1); }
+  .travel-card-hit:focus-visible { border-radius: 16px; }
+
+  /* Art becomes a fixed-width column; its scrim runs left-to-right. */
+  .travel-card-art { width: 112px; height: auto; }
+  .travel-card-scrim {
+    background: linear-gradient(90deg, rgba(8, 11, 12, 0.08), rgba(8, 11, 12, 0.45));
+  }
+  .travel-card.locked .travel-card-scrim {
+    background: linear-gradient(90deg, rgba(8, 11, 12, 0.55), rgba(8, 11, 12, 0.8));
+  }
+  /* Lock centres in the thumbnail; "you're here" tucks into its bottom corner. */
+  .travel-card-lock {
+    top: 50%;
+    right: auto;
+    left: 56px;
+    width: 28px;
+    height: 28px;
+    transform: translate(-50%, -50%);
+  }
+  .travel-card-badge {
+    top: auto;
+    right: auto;
+    bottom: 8px;
+    left: 8px;
+    padding: 3px 8px;
+    font-size: 8px;
+    white-space: nowrap;
+  }
+  .travel-card-badge i { display: none; }
+
+  .travel-card-body { flex: 1; min-width: 0; gap: 7px; padding: 12px 13px; }
+  .travel-card-name { margin-bottom: 2px; font-size: 17px; }
+  /* The neighbourhood line is desktop-only detail; the side of the road is
+     what actually changes when you fly, so that is what mobile keeps. */
+  .travel-card-area { display: none; }
+  .travel-card-side {
+    position: static;
+    display: flex;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    backdrop-filter: none;
+    font-size: 8.5px;
+    letter-spacing: 0.1em;
+    color: rgba(244, 239, 222, 0.42);
+  }
+  .travel-flag { font-size: 10px; }
+  /* Selection reads as a tick on the card itself, not just the ring. */
+  .travel-card-tick {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--hud-yellow);
+    color: var(--hud-ink);
+  }
+
+  /* Stash and fleet collapse from boxed stats into one line of pills. */
+  .travel-card-stash { align-items: center; gap: 8px; }
+  .travel-chip {
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+  .travel-chip-label { margin-bottom: 0; font-size: 10.5px; letter-spacing: 0; }
+  .travel-chip strong,
+  .travel-chip strong.yellow { font-size: 10.5px; font-weight: 700; }
+  .travel-chip.stash {
+    padding: 3px 8px;
+    border: 1px solid rgba(244, 200, 72, 0.32);
+    border-radius: 999px;
+    background: rgba(244, 200, 72, 0.13);
+  }
+  .travel-chip.stash .travel-chip-label {
+    order: 2;
+    color: var(--hud-yellow);
+    text-transform: lowercase;
+  }
+  .travel-chip.parked .travel-chip-label { display: none; }
+  .travel-chip.parked strong { color: var(--hud-cream-50); }
+
+  /* Unlock note becomes a single inline line. */
+  .travel-card-unlock {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: rgba(244, 239, 222, 0.42);
+  }
+  .travel-card-unlock .travel-chip-label {
+    display: inline;
+    margin: 0;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    color: rgba(244, 239, 222, 0.32);
+  }
+  .travel-card-unlock .travel-chip-label::after { content: " · "; }
+  .travel-card-unlock strong { font-size: 10.5px; font-weight: 600; }
+
+  .travel-card-foot { padding-top: 0; }
+  .travel-card-ticket { align-items: flex-end; }
+  .travel-card-ticket strong { font-size: 13px; }
+  .travel-card-cta { padding: 5px 12px; font-size: 10.5px; }
+  .travel-card-short { font-size: 10px; }
+  .travel-card-base, .travel-card-free { font-size: 9.5px; }
+
+  /* The flight pins to the bottom over the scrolling list, and goes
+     full-width on its own row. `display: contents` lets the Back link sit
+     beside the destination line while the button wraps beneath — no second
+     copy of either in the markup. */
+  .travel-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 6;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 -16px -24px;
+    padding: 14px 16px 22px;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 0;
+    background: linear-gradient(180deg, rgba(10, 14, 16, 0), rgba(10, 14, 16, 0.92) 34%, #0a0e10);
+  }
+  .travel-footer-copy { flex: 1; gap: 8px; }
+  .travel-flag.big { font-size: 15px; }
+  .travel-footer-line {
+    overflow: hidden;
+    font-size: 12.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .travel-footer-actions { display: contents; }
+  .travel-back { flex: none; padding: 4px; font-size: 11.5px; white-space: nowrap; }
+  .travel-fly {
+    flex: 1 0 100%;
+    justify-content: center;
+    order: 3;
+    padding: 15px;
+    border-radius: 15px;
+  }
 }
