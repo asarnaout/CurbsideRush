@@ -1238,6 +1238,15 @@ export default function SideSwapApp() {
           ? "launcher"
           : view;
 
+  // The launcher hero mirrors what the primary action will actually play: a
+  // running career's locked city, otherwise the free-drive pick.
+  const launcherInCareer = gameMode === "career" && careerSlice !== null;
+  const launcherDestination = launcherInCareer
+    ? getDestinationProfile(careerSlice.destinationId)
+    : destination;
+  const launcherCountry =
+    launcherInCareer && careerCountry ? careerCountry : country;
+
   const saveSettings = (next: PlayerProgressV2) => {
     setProgress(next);
     setDestinationId(next.lastDestinationId);
@@ -1979,7 +1988,7 @@ export default function SideSwapApp() {
 
   return (
     <main
-      className={`app-shell ${effectiveView === "launcher" ? "launcher-shell" : ""}`}
+      className={`app-shell ${effectiveView === "launcher" ? "launcher-shell" : ""} ${effectiveView === "career-garage" ? "garage-shell" : ""}`}
       style={themeStyle}
     >
       <header className="app-header">
@@ -2092,18 +2101,7 @@ export default function SideSwapApp() {
               <>Rise and <em>Grind</em></>
             </h1>
 
-            <div
-              role="group"
-              aria-label="Game mode"
-              style={{
-                display: "inline-flex",
-                gap: "0.4rem",
-                margin: "0.9rem 0 0.2rem",
-                padding: "0.25rem",
-                borderRadius: "999px",
-                background: "rgba(15, 18, 22, 0.35)",
-              }}
-            >
+            <div className="mode-toggle" role="group" aria-label="Game mode">
               {(
                 [
                   ["free", "Free drive"],
@@ -2113,26 +2111,17 @@ export default function SideSwapApp() {
                 <button
                   key={mode}
                   type="button"
+                  className={gameMode === mode ? "active" : ""}
                   data-testid={`mode-${mode}`}
                   aria-pressed={gameMode === mode}
                   onClick={() => setGameMode(mode)}
-                  style={{
-                    padding: "0.45rem 1.1rem",
-                    borderRadius: "999px",
-                    border: "none",
-                    cursor: "pointer",
-                    font: "700 0.9rem/1 inherit",
-                    background:
-                      gameMode === mode ? "#f2c658" : "transparent",
-                    color: gameMode === mode ? "#1a1c1f" : "inherit",
-                  }}
                 >
                   {label}
                 </button>
               ))}
             </div>
 
-            {(gameMode === "free" || !careerSlice) && (
+            {gameMode === "free" && (
             <>
             <p className="launcher-pick-label">Choose a city</p>
             <div
@@ -2187,6 +2176,7 @@ export default function SideSwapApp() {
                     : destination.destinationName
                 }
                 country={careerCountry ?? country}
+                garageVehicleId={garageVehicleId}
                 onStartCareer={startCareer}
                 onContinue={() => {
                   // A saved career may no longer afford the sticky garage
@@ -2209,22 +2199,24 @@ export default function SideSwapApp() {
 
           <div
             className="launcher-road-visual"
-            aria-label={`${destination.destinationName} training preview`}
+            aria-label={`${launcherDestination.destinationName} training preview`}
           >
             {/* eslint-disable-next-line @next/next/no-img-element -- static preview art in /public; next/image adds no value for a fixed, non-critical hero */}
             <img
               className="launcher-photo"
-              src={DESTINATION_PREVIEW_IMAGES[destination.id]}
-              style={{ objectPosition: DESTINATION_PREVIEW_FOCUS[destination.id] }}
+              src={DESTINATION_PREVIEW_IMAGES[launcherDestination.id]}
+              style={{
+                objectPosition: DESTINATION_PREVIEW_FOCUS[launcherDestination.id],
+              }}
               alt=""
               aria-hidden="true"
               draggable={false}
             />
             <div className="launcher-place">
-              <span>{country.flagEmoji} {country.countryName}</span>
-              <strong>{destination.destinationName}</strong>
-              <em>{destination.destinationSubtitle}</em>
-              <small>Traffic keeps {country.trafficSide} · {country.speedUnit === "kmh" ? "km/h" : "mph"}</small>
+              <span>{launcherCountry.flagEmoji} {launcherCountry.countryName}</span>
+              <strong>{launcherDestination.destinationName}</strong>
+              <em>{launcherDestination.destinationSubtitle}</em>
+              <small>Keeps {launcherCountry.trafficSide} · earn on the clock</small>
             </div>
           </div>
           <p className="launcher-legal">Familiarisation only—not legal advice or driver instruction. Map data © OpenStreetMap contributors.</p>

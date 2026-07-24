@@ -39,6 +39,7 @@
   --hud-yellow: #f4c848; /* primary accent */
   --hud-green: #7a8a5e; /* complete / success */
   --hud-coral: #e0787c; /* stamps, destructive */
+  --hud-coral-warm: #e8705a; /* hero emphasis, live day marker */
   --hud-orange: #f0a56a; /* capstone */
   --hud-surface: rgba(255, 255, 255, 0.05); /* card fill */
   --hud-surface-2: rgba(255, 255, 255, 0.07); /* raised card fill */
@@ -157,43 +158,39 @@ canvas:focus-visible {
 }
 
 .brand-mark {
+  position: relative;
   display: grid;
-  width: 43px;
-  height: 43px;
+  width: 44px;
+  height: 44px;
   place-items: center;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: 13px;
   background: var(--hud-yellow);
   box-shadow:
-    0 6px 16px -5px rgba(244, 200, 72, 0.55),
+    0 8px 20px -8px rgba(244, 200, 72, 0.5),
     inset 0 -5px 0 rgba(0, 0, 0, 0.09);
   font-size: 0;
-  transform: rotate(-3deg);
 }
 
-.brand-mark::before,
-.brand-mark::after {
+/* A single kerb-stone bar canted like a parked car — the "Curbside" mark. */
+.brand-mark::before {
   content: "";
-  width: 4px;
-  height: 30px;
-  border-radius: 4px;
+  width: 5px;
+  height: 22px;
+  border-radius: 3px;
   background: var(--hud-ink);
-  transform: rotate(28deg) translateX(-5px);
-}
-
-.brand-mark::after {
-  position: absolute;
-  height: 9px;
-  border-top: 4px dashed var(--hud-yellow);
-  background: transparent;
-  transform: rotate(28deg) translate(5px, -1px);
+  transform: rotate(22deg);
 }
 
 .brand-mark.small {
   width: 29px;
   height: 29px;
   border-radius: 9px;
-  border-color: rgba(255, 255, 255, 0.9);
+}
+
+.brand-mark.small::before {
+  width: 4px;
+  height: 15px;
 }
 
 .brand-copy {
@@ -1445,6 +1442,7 @@ canvas:focus-visible {
 }
 
 .launcher-shell .app-header {
+  width: min(1380px, calc(100% - 64px));
   min-height: 72px;
 }
 
@@ -1528,9 +1526,734 @@ canvas:focus-visible {
 }
 
 .launcher-copy h1 em {
-  color: var(--destination-accent);
+  color: var(--hud-coral-warm);
   font-weight: 700;
   font-style: italic;
+}
+
+/* ── Free / Career segmented control ──────────────────────────────────────── */
+.mode-toggle {
+  display: inline-flex;
+  justify-self: start;
+  gap: 4px;
+  margin: clamp(16px, 2.2vh, 24px) 0 clamp(20px, 2.6vh, 28px);
+  padding: 5px;
+  border: 1px solid var(--hud-line-2);
+  border-radius: 999px;
+  background: var(--hud-surface);
+}
+
+.mode-toggle button {
+  padding: 10px 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--hud-cream-60);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 700;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-toggle button:hover {
+  color: var(--hud-cream);
+  background: var(--hud-surface-2);
+}
+
+.mode-toggle button.active,
+.mode-toggle button.active:hover {
+  background: var(--hud-yellow);
+  color: var(--hud-ink);
+  box-shadow: 0 6px 16px -9px rgba(244, 200, 72, 0.7);
+}
+
+/* ── Career status card (launcher) ────────────────────────────────────────── */
+.career-launcher {
+  display: grid;
+  gap: 18px;
+  justify-items: stretch;
+  /* Cap the column to the card width so the CTA below lines up with the card. */
+  max-width: 452px;
+}
+
+.career-launcher .launcher-actions {
+  margin-top: 0;
+  width: 100%;
+}
+
+/* The career CTA spans the card width (the free-drive "Start driving" stays
+   compact — it isn't inside .career-launcher). */
+.career-launcher .launcher-primary {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+.career-card {
+  width: 100%;
+  max-width: 452px;
+  padding: 20px 22px;
+  border: 1px solid var(--hud-line);
+  border-radius: 22px;
+  background: rgba(16, 23, 25, 0.66);
+  box-shadow: 0 20px 50px -24px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(10px);
+}
+
+.career-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+
+.career-card-eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  color: var(--hud-sage-lt);
+}
+
+.career-card-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border: 1px solid var(--hud-line-2);
+  border-radius: 999px;
+  background: var(--hud-surface-2);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  color: var(--hud-cream);
+}
+
+.career-card-day i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hud-coral-warm);
+  box-shadow: 0 0 8px var(--hud-coral-warm);
+}
+
+.career-card-balance {
+  margin-bottom: 18px;
+}
+
+.career-card-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--hud-cream-40);
+}
+
+.career-card-amount-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.career-card-amount {
+  font-size: 44px;
+  font-weight: 900;
+  line-height: 0.85;
+  letter-spacing: -0.03em;
+  color: var(--hud-yellow);
+  font-variant-numeric: tabular-nums;
+}
+
+.career-card-note {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.career-card-note.good {
+  color: #8fae72;
+}
+
+.career-card-note.warn {
+  color: var(--hud-coral);
+}
+
+.career-card-rule {
+  height: 1px;
+  margin-bottom: 16px;
+  background: var(--hud-line);
+}
+
+.career-card-vehicle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.career-card-vehicle-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--hud-line);
+  border-radius: 12px;
+  background: var(--hud-surface-2);
+  color: var(--hud-cream);
+}
+
+.career-card-vehicle-copy {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+}
+
+.career-card-vehicle-copy small {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--hud-cream-40);
+}
+
+.career-card-vehicle-copy strong {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--hud-cream);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.career-card-badge {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid var(--hud-line-3);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--hud-cream-60);
+}
+
+.career-card-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.career-card-progress-head span {
+  overflow: hidden;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  color: var(--hud-sage-lt);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.career-card-progress-head strong {
+  flex: none;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--hud-cream);
+}
+
+.career-card-bar {
+  height: 9px;
+  margin-bottom: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--hud-line-2);
+}
+
+.career-card-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e0a838, var(--hud-yellow));
+  transition: width 0.4s ease;
+}
+
+.career-card-progress-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--hud-cream-50);
+}
+
+.career-card-progress-foot span:last-child {
+  text-align: right;
+}
+
+/* ── Career garage (Curbside Career) ──────────────────────────────────────── */
+/* Same shell width as the launcher/header, so the header and body line up on
+   both pages and switching landing → career doesn't resize the content. */
+.garage-shell .app-header {
+  width: min(1380px, calc(100% - 64px));
+  min-height: 66px;
+}
+
+.garage-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(1380px, calc(100% - 64px));
+  min-height: calc(100dvh - 66px);
+  margin: 0 auto;
+  padding: 22px 0 28px;
+}
+
+.garage-head {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.garage-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  color: var(--hud-sage-lt);
+}
+
+.garage-eyebrow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hud-coral-warm);
+  box-shadow: 0 0 8px var(--hud-coral-warm);
+}
+
+.garage-head-copy h1 {
+  margin: 0 0 8px;
+  font-family: var(--font-serif);
+  font-size: clamp(30px, 3.4vw, 42px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.025em;
+  color: var(--hud-cream);
+}
+
+.garage-sub {
+  margin: 0;
+  max-width: 520px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--hud-cream-50);
+}
+
+.garage-cash {
+  flex: none;
+  padding: 15px 22px;
+  border: 1px solid var(--hud-line);
+  border-radius: 18px;
+  background: rgba(16, 23, 25, 0.62);
+  box-shadow: 0 16px 40px -24px rgba(0, 0, 0, 0.7);
+  text-align: right;
+}
+
+.garage-cash-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--hud-cream-40);
+}
+
+.garage-cash-value {
+  display: block;
+  font-size: 38px;
+  font-weight: 900;
+  line-height: 0.85;
+  letter-spacing: -0.03em;
+  color: var(--hud-yellow);
+  font-variant-numeric: tabular-nums;
+}
+
+.garage-fleet {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 14px;
+  min-height: 264px;
+}
+
+.garage-card {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--hud-line);
+  border-radius: 18px;
+  background: rgba(16, 23, 25, 0.6);
+  box-shadow: 0 16px 38px -24px rgba(0, 0, 0, 0.75);
+  color: var(--hud-cream);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+.garage-card:hover:not(:disabled):not(.active) { border-color: var(--hud-line-3); }
+.garage-card:active:not(:disabled) { transform: translateY(1px); }
+.garage-card.active {
+  border-color: var(--hud-yellow);
+  box-shadow:
+    0 0 0 4px rgba(244, 200, 72, 0.1),
+    0 16px 34px -16px rgba(244, 200, 72, 0.4);
+}
+.garage-card.locked { cursor: not-allowed; }
+
+.garage-card-art {
+  position: relative;
+  display: grid;
+  flex: 1 1 auto;
+  gap: 6px;
+  place-items: center;
+  min-height: 130px;
+  background: linear-gradient(160deg, #101619, #0b1013);
+  color: rgba(244, 239, 222, 0.24);
+}
+/* Only the placeholder glyph (a direct child) — not the lock badge's icon. */
+.garage-card-art > svg { width: 46px; height: 46px; }
+.garage-card-art-note {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: rgba(244, 239, 222, 0.28);
+  text-transform: uppercase;
+}
+.garage-card.locked .garage-card-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 11, 12, 0.55);
+}
+.garage-card-lock {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid rgba(232, 112, 90, 0.42);
+  border-radius: 999px;
+  background: rgba(232, 112, 90, 0.18);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #f2a794;
+}
+
+.garage-card-body {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+}
+.garage-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+.garage-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+/* The compact circle affordance replaces the text foot on mobile only. */
+.garage-card-dot { display: none; }
+.garage-card-name {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--hud-cream);
+}
+.garage-card-rent { font-size: 13px; font-weight: 700; color: var(--hud-cream); }
+.garage-card-rent em { color: var(--hud-cream-40); font-style: normal; font-weight: 600; }
+.garage-card-rent.owned { font-size: 12px; font-weight: 800; color: #8fae72; }
+.garage-card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.garage-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border: 1px solid rgba(122, 138, 94, 0.4);
+  border-radius: 999px;
+  background: rgba(122, 138, 94, 0.16);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #bcc79d;
+}
+.garage-tag.rideshare {
+  border-color: rgba(244, 200, 72, 0.36);
+  background: rgba(244, 200, 72, 0.14);
+  color: var(--hud-yellow);
+}
+.garage-card-fuel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--hud-cream-50);
+}
+.garage-card-fuel.green { color: #8fae72; }
+.garage-card-foot { margin-top: auto; padding-top: 4px; }
+.garage-card-today {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  color: var(--hud-yellow);
+}
+.garage-card-choose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid var(--hud-line-3);
+  border-radius: 11px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--hud-cream);
+}
+.garage-card:hover:not(:disabled) .garage-card-choose {
+  background: var(--hud-surface-2);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.garage-card-cant { font-size: 11.5px; font-weight: 700; color: var(--hud-coral-warm); }
+
+.garage-footer { display: flex; flex: none; gap: 16px; align-items: stretch; }
+.garage-panel {
+  padding: 16px 20px;
+  border: 1px solid var(--hud-line);
+  border-radius: 18px;
+  background: rgba(16, 23, 25, 0.62);
+}
+.garage-freedom { flex: 1.6; }
+.garage-obligations { flex: 1.1; }
+.garage-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+.garage-panel-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: var(--hud-sage-lt);
+}
+.garage-panel-label.coral { color: #e8a08e; }
+.garage-panel-label.green { color: #8fae72; }
+.garage-panel-note { font-size: 11px; font-weight: 700; color: var(--hud-cream-40); }
+.garage-freedom-copy {
+  margin: 0 0 11px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--hud-cream-60);
+}
+.garage-freedom.won .garage-freedom-copy,
+.garage-freedom.notice .garage-freedom-copy,
+.garage-freedom.debt .garage-freedom-copy { margin: 8px 0 0; }
+.garage-bar {
+  height: 9px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--hud-line-2);
+}
+.garage-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e0a838, var(--hud-yellow));
+  transition: width 0.4s ease;
+}
+.garage-freedom-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.garage-freedom-foot span:first-child { font-size: 15px; font-weight: 800; color: var(--hud-cream); }
+.garage-freedom-foot em { font-size: 13px; font-weight: 600; font-style: normal; color: var(--hud-cream-40); }
+.garage-freedom-foot span:last-child { font-size: 11.5px; font-weight: 600; color: var(--hud-cream-40); }
+
+.garage-obligations .garage-panel-label { display: block; margin-bottom: 11px; }
+.garage-ob-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--hud-cream-60);
+}
+.garage-ob-row strong { color: var(--hud-cream); font-weight: 700; }
+.garage-ob-rule { height: 1px; margin: 2px 0 9px; background: var(--hud-line); }
+.garage-ob-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.garage-ob-total span { font-size: 12.5px; font-weight: 800; color: var(--hud-cream); }
+.garage-ob-total strong { font-size: 16px; font-weight: 900; color: var(--hud-yellow); }
+.garage-ob-note { font-size: 11px; font-weight: 600; color: var(--hud-coral-warm); }
+
+.garage-actions {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 11px;
+  width: 236px;
+}
+.garage-start {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  border: 0;
+  border-radius: 15px;
+  background: var(--hud-yellow);
+  color: var(--hud-ink);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 800;
+  box-shadow: 0 12px 28px -14px rgba(244, 200, 72, 0.45);
+  transition: background 0.15s ease;
+}
+.garage-start:hover:not(:disabled) { background: #f7d15f; }
+.garage-start:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.garage-buyout {
+  padding: 12px;
+  border: 1px solid rgba(244, 200, 72, 0.5);
+  border-radius: 13px;
+  background: rgba(244, 200, 72, 0.08);
+  color: var(--hud-yellow);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
+  text-align: center;
+}
+.garage-buyout:hover { background: rgba(244, 200, 72, 0.14); }
+.garage-abandon {
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--hud-cream-40);
+  cursor: pointer;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 700;
+  transition: color 0.15s ease;
+}
+.garage-abandon:hover { color: var(--hud-coral-warm); }
+
+@media (max-width: 860px) {
+  /* Curbside Career Mobile: a single scrolling column of horizontal cards. */
+  .garage-shell .app-header { width: calc(100% - 32px); }
+  /* Keep the two nav links inline (no hamburger), like the mobile landing. */
+  .garage-shell .header-actions { display: flex; gap: 2px; }
+  .garage-shell .header-actions button {
+    min-height: 38px;
+    padding: 0 11px;
+    font-size: 13px;
+    color: var(--hud-cream-72);
+  }
+  .garage-shell .mobile-menu { display: none; }
+  .garage-page {
+    width: calc(100% - 32px);
+    min-height: 0;
+    padding: 12px 0 24px;
+    gap: 16px;
+  }
+  .garage-head { flex-direction: column; align-items: stretch; gap: 12px; }
+  .garage-head-copy h1 { font-size: 34px; }
+  /* Cash becomes a full-width bar: label left, value right. */
+  .garage-cash {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-radius: 16px;
+    text-align: left;
+  }
+  .garage-cash-label { margin-bottom: 0; }
+  .garage-cash-value { font-size: 28px; }
+
+  .garage-fleet { flex-direction: column; flex-wrap: nowrap; gap: 11px; min-height: 0; }
+  .garage-card { flex: none; flex-direction: row; align-items: stretch; border-radius: 16px; }
+  .garage-card-art { flex: none; width: 112px; min-height: 0; }
+  .garage-card-art-note { display: none; }
+  .garage-card-art > svg { width: 34px; height: 34px; }
+  .garage-card-lock {
+    top: 8px;
+    right: auto;
+    left: 8px;
+    gap: 4px;
+    padding: 3px 7px;
+    font-size: 8px;
+  }
+  .garage-card-body { flex-direction: row; align-items: center; gap: 10px; padding: 12px 14px; }
+  .garage-card-info { flex: 1; gap: 5px; }
+  .garage-card-meta { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+  .garage-tag { padding: 3px 8px; font-size: 9px; }
+  .garage-card-fuel { font-size: 10.5px; }
+  .garage-card-fuel svg { display: none; }
+  .garage-card-foot { flex: none; margin-top: 0; padding-top: 0; }
+  .garage-card-foot-label { display: none; }
+  .garage-card-dot {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1.5px solid var(--hud-line-3);
+    border-radius: 50%;
+    color: var(--hud-cream-60);
+  }
+  .garage-card-dot.on {
+    border-color: var(--hud-yellow);
+    background: var(--hud-yellow);
+    color: var(--hud-ink);
+  }
+
+  .garage-footer { flex-direction: column; gap: 11px; }
+  .garage-actions { width: auto; }
 }
 
 .launcher-pick-label {
@@ -1692,6 +2415,21 @@ canvas:focus-visible {
   user-select: none;
 }
 
+/* Bottom scrim so the place caption reads against any scene beneath it. */
+.launcher-road-visual::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 14, 15, 0) 42%,
+    rgba(10, 14, 15, 0.5) 76%,
+    rgba(10, 14, 15, 0.86)
+  );
+}
+
 .launcher-place {
   position: absolute;
   bottom: 18px;
@@ -1708,7 +2446,7 @@ canvas:focus-visible {
   backdrop-filter: blur(10px);
 }
 .launcher-place span { color: var(--hud-yellow); font-size: 9px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
-.launcher-place strong { font-family: var(--font-serif); font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+.launcher-place strong { font-family: var(--font-serif); font-size: 28px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
 .launcher-place em { color: rgba(255, 255, 255, 0.78); font-size: 10px; font-style: normal; }
 .launcher-place small { color: rgba(255, 255, 255, 0.62); font-size: 10px; }
 
@@ -1824,43 +2562,69 @@ canvas:focus-visible {
 }
 
 @media (max-width: 860px) {
-  /* Launcher → scrolling hero + espresso sheet (design 3b) */
+  /* Launcher → single scrolling column: a hero card on top, then the copy
+     (Curbside Landing Mobile). Same DOM as desktop, reflowed with flex order. */
   .launcher-shell { height: auto; min-height: 100dvh; overflow: visible; }
-  .launcher-shell .app-header { width: calc(100% - 20px); min-height: 64px; }
+  .launcher-shell .app-header { width: calc(100% - 32px); min-height: 58px; }
+  /* The landing keeps both nav links inline — no hamburger here. */
+  .launcher-shell .header-actions { display: flex; gap: 2px; }
+  .launcher-shell .header-actions button {
+    min-height: 38px;
+    padding: 0 11px;
+    font-size: 13px;
+    color: var(--hud-cream-72);
+  }
+  .launcher-shell .mobile-menu { display: none; }
+
+  /* One shared gutter for the whole column, so the hero, headline, toggle,
+     card, chips and CTA all line up on the same left/right edges (matching the
+     header, which is also inset 16px). */
   .launcher-page {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     width: 100%;
     height: auto;
     min-height: 0;
+    gap: 0;
     margin: 0;
-    padding: 0 0 26px;
+    padding: 0 16px 24px;
   }
+
   .launcher-road-visual {
     order: 1;
     display: block;
-    align-self: stretch;
-    width: 100%;
-    height: clamp(310px, 50vh, 412px);
+    width: auto;
+    height: clamp(250px, 38vh, 340px);
     min-height: 0;
-    margin-bottom: 20px;
+    margin: 2px 0 6px;
     border: 0;
-    border-radius: 0 0 28px 28px;
-    box-shadow: 0 24px 40px -28px rgba(0, 0, 0, 0.7);
+    border-radius: 26px 26px 0 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  /* Dissolve the photo into the page rather than boxing it: fade the image
+     itself to transparent so the background shows through the bottom, and a
+     soft scrim (also faded) keeps the caption legible without a hard edge. */
+  .launcher-photo {
+    -webkit-mask-image: linear-gradient(180deg, #000 58%, transparent 99%);
+    mask-image: linear-gradient(180deg, #000 58%, transparent 99%);
   }
   .launcher-road-visual::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 4;
-    background: linear-gradient(180deg, rgba(20, 29, 32, 0.35), transparent 26%, transparent 42%, var(--hud-bg));
-    pointer-events: none;
+    z-index: 1;
+    background: linear-gradient(
+      180deg,
+      rgba(10, 14, 15, 0) 46%,
+      rgba(10, 14, 15, 0.45) 72%,
+      rgba(10, 14, 15, 0.72) 88%,
+      rgba(10, 14, 15, 0) 100%
+    );
   }
   .launcher-progress { display: none; }
   .launcher-place {
-    left: 20px;
-    right: 20px;
-    bottom: 22px;
+    left: 0;
+    right: 0;
+    bottom: 14px;
     z-index: 6;
     max-width: none;
     padding: 0;
@@ -1868,28 +2632,46 @@ canvas:focus-visible {
     background: transparent;
     backdrop-filter: none;
   }
-  .launcher-place strong { font-size: 40px; line-height: 0.94; text-shadow: 0 2px 14px rgba(20, 29, 32, 0.5); }
-  .launcher-place span { text-shadow: 0 1px 4px rgba(20, 29, 32, 0.6); }
-  .launcher-copy { order: 2; align-content: start; height: auto; padding: 0 20px; }
-  .launcher-copy > .eyebrow,
-  .launcher-copy > h1 { display: none; }
-  .launcher-pick-label { margin-top: 2px; }
-  .launcher-destinations {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    gap: 8px;
-    margin: 0 -20px;
-    padding: 0 20px 4px;
-    scroll-snap-type: x proximity;
-    scrollbar-width: none;
+  .launcher-place span { text-shadow: 0 1px 6px rgba(10, 14, 15, 0.9); }
+  .launcher-place strong {
+    font-size: 26px;
+    line-height: 1;
+    text-shadow: 0 2px 16px rgba(10, 14, 15, 0.9), 0 1px 3px rgba(10, 14, 15, 0.8);
   }
-  .launcher-destinations::-webkit-scrollbar { display: none; }
-  .launcher-destinations button { flex: 0 0 auto; scroll-snap-align: start; }
-  .launcher-setup-summary { margin-top: 14px; }
+  .launcher-place em,
+  .launcher-place small { text-shadow: 0 1px 6px rgba(10, 14, 15, 0.92); }
+
+  .launcher-copy { order: 2; align-content: start; height: auto; padding: 0; }
+  /* Mobile shows the headline (the old full-bleed treatment hid it). */
+  .launcher-copy > h1 { margin-bottom: 4px; }
+  /* Stretch the mode toggle to the content width so it lines up (both edges)
+     with the card / chips directly below it. */
+  .mode-toggle {
+    display: flex;
+    justify-self: stretch;
+    width: 100%;
+    margin: 16px 0 22px;
+  }
+  .mode-toggle button { flex: 1; padding-inline: 0; }
+  .launcher-pick-label { margin-top: 2px; }
+  .launcher-destinations { flex-wrap: wrap; gap: 9px; }
   .launcher-actions { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 18px; }
-  .launcher-primary { width: 100%; }
+  .launcher-primary {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+  }
   .launcher-actions .secondary-button { width: 100%; }
-  .launcher-legal { position: static; order: 3; margin: 18px 0 0; padding: 0 20px; max-width: 100%; font-size: 10px; }
+  .career-launcher { justify-items: stretch; max-width: none; }
+  .career-card { max-width: none; }
+  .career-card-progress-foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+  }
+  .career-card-progress-foot span:last-child { text-align: left; }
+  .launcher-legal { position: static; order: 3; margin: 18px 0 0; padding: 0; max-width: 100%; font-size: 10px; }
   .setup-sheet-backdrop { align-items: flex-end; }
   .setup-sheet { width: 100%; height: auto; max-height: 92dvh; padding: 22px 18px max(22px, env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; box-shadow: 0 -22px 60px rgba(13,23,26,.25); animation-name: sheet-up; }
   @keyframes sheet-up { from { transform: translateY(100%); } }
@@ -1906,7 +2688,8 @@ canvas:focus-visible {
 }
 
 @media (max-width: 420px) {
-  .launcher-place strong { font-size: 34px; }
+  .launcher-place strong { font-size: 24px; }
+  .launcher-copy > h1 { font-size: 38px; }
   .setup-sheet-heading h2 { font-size: 28px; letter-spacing: -.035em; }
   .settings-card { padding: 20px; }
 }
