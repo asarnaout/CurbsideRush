@@ -88,9 +88,12 @@ export function nextCareerCity(
  * currency — you buy it where you are standing. The last city on the ladder has
  * no onward flight and so no entry.
  *
- * Sized as the endgame of a city: comfortably more than the priciest vehicle
- * there, so leaving is a decision you save up for rather than stumble into.
- * `tests/careerBalance.test.ts` fails if a fare edit ever puts one out of reach.
+ * Sized at roughly a week of solid driving — more than the entry-level vehicle
+ * so it competes with the garage for your cash, but deliberately *less* than
+ * the top of the range, because gating each city behind its dearest vehicle
+ * would put a ~30-day wall in front of ever seeing the next one. Completing the
+ * fleets is the long game; seeing the cities is not.
+ * `tests/careerBalance.test.ts` fails if a fare edit puts one out of reach.
  */
 export const TICKET_PRICE_BY_DESTINATION: Readonly<
   Partial<Record<DestinationId, number>>
