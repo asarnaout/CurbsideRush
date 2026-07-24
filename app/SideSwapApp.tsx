@@ -84,10 +84,12 @@ import {
   CareerSetupPanel,
   formatClock,
   travelBoard,
+  travelSummary,
   TravelView,
   GarageView,
   LedgerView,
 } from "./CareerViews";
+import type { TravelCityFacts } from "./CareerViews";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FULL_CONDITION_PCT, damageForCollision } from "./game/damage";
 import {
@@ -259,6 +261,21 @@ const DESTINATION_PREVIEW_IMAGES: Record<DestinationId, string> = {
 const DESTINATION_PREVIEW_FOCUS: Partial<Record<DestinationId, string>> = {
   "fr-calais": "64% center",
 };
+
+/**
+ * Everything the travel board shows about a city, pulled from the profiles that
+ * already describe it. The area line takes the first clause of the destination
+ * subtitle — the rest is scene-setting that would wrap the card.
+ */
+function describeTravelCity(destinationId: DestinationId): TravelCityFacts {
+  const destination = getDestinationProfile(destinationId);
+  return {
+    name: destination.destinationName,
+    area: destination.destinationSubtitle.split("·")[0].trim(),
+    country: getCountryProfile(destination.countryId),
+    imageSrc: DESTINATION_PREVIEW_IMAGES[destinationId],
+  };
+}
 
 const assistanceFromProgress = (
   progress: PlayerProgressV2,
@@ -2065,7 +2082,11 @@ export default function SideSwapApp() {
 
   return (
     <main
-      className={`app-shell ${effectiveView === "launcher" ? "launcher-shell" : ""} ${effectiveView === "career-garage" ? "garage-shell" : ""}`}
+      className={`app-shell ${effectiveView === "launcher" ? "launcher-shell" : ""} ${
+        effectiveView === "career-garage" || effectiveView === "career-travel"
+          ? "career-shell"
+          : ""
+      }`}
       style={themeStyle}
     >
       <header className="app-header">
@@ -2154,12 +2175,13 @@ export default function SideSwapApp() {
             onAbandon={() => setPendingConfirm("abandon-career")}
           />
         )}
-      {effectiveView === "career-travel" && careerSlice && (
+      {effectiveView === "career-travel" && careerSlice && careerCity && (
         <TravelView
-          stops={travelBoard(
+          stops={travelBoard(careerSlice, describeTravelCity)}
+          summary={travelSummary(
             careerSlice,
-            (id) => getCountryProfile(getDestinationProfile(id).countryId),
-            (id) => getDestinationProfile(id).destinationName,
+            getCountryProfile(careerCity.countryId),
+            getDestinationProfile(careerCity.destinationId).destinationName,
           )}
           onGoTo={travelToCity}
           onBuyTicket={() => setPendingConfirm("buy-ticket")}
