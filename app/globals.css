@@ -1925,7 +1925,8 @@ canvas:focus-visible {
   background: linear-gradient(160deg, #101619, #0b1013);
   color: rgba(244, 239, 222, 0.24);
 }
-.garage-card-art svg { width: 46px; height: 46px; }
+/* Only the placeholder glyph (a direct child) — not the lock badge's icon. */
+.garage-card-art > svg { width: 46px; height: 46px; }
 .garage-card-art-note {
   font-size: 8px;
   font-weight: 800;
