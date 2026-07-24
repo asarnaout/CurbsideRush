@@ -224,7 +224,7 @@ const POLICE_LIVERIES: Readonly<Record<PlateRegion, PoliceLivery>> = {
 const POLICE_MODELS: Readonly<Record<PlateRegion, VehicleModel>> = {
   us: "urban-crossover", // NYPD RMPs are Explorer-shaped SUVs
   uk: "sport-wagon", // UK response cars are estates and soft-roaders
-  fr: "compact-hatch", // Police nationale runs hatchbacks
+  fr: "compact-hatch", // Police nationale patrol saloons (the id renders sedan.glb)
   jp: "electric-fastback", // patrol sedans
 };
 
