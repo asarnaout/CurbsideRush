@@ -2740,54 +2740,6 @@ canvas:focus-visible {
   .launcher-actions { margin-top: 12px; }
 }
 
-/* ---- Career travel board ------------------------------------------------ */
-/* The ladder of cities: where you are, where you have been, and the one
-   onward ticket. Shares the garage's dark-HUD vocabulary. */
-.travel-board {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-width: 34rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.travel-stop {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 13px 16px;
-  border: 1px solid var(--hud-line);
-  border-radius: 15px;
-  background: rgba(16, 23, 25, 0.6);
-}
-.travel-stop.here { border-color: rgba(244, 200, 72, 0.55); }
-.travel-stop.locked { opacity: 0.42; }
-.travel-flag { font-size: 24px; line-height: 1; }
-.travel-copy { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
-.travel-copy strong { font-size: 15px; font-weight: 800; }
-.travel-copy small { font-size: 12px; color: var(--hud-cream-40); font-weight: 600; }
-.travel-action {
-  flex: 0 0 auto;
-  padding: 8px 14px;
-  border: 1px solid var(--hud-line-3);
-  border-radius: 11px;
-  background: transparent;
-  color: var(--hud-cream);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 800;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.travel-action:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
-.travel-action.buy { border-color: rgba(244, 200, 72, 0.5); color: var(--hud-yellow); }
-.travel-action.buy:hover:not(:disabled) { background: rgba(244, 200, 72, 0.14); }
-.travel-action:disabled { opacity: 0.45; cursor: not-allowed; }
-.travel-action.current {
-  border-color: transparent;
-  color: var(--hud-yellow);
-  cursor: default;
-}
 .garage-travel {
   padding: 10px;
   border: 1px solid var(--hud-line-3);
@@ -2801,3 +2753,344 @@ canvas:focus-visible {
   transition: background 0.15s ease;
 }
 .garage-travel:hover { background: rgba(255, 255, 255, 0.06); }
+
+/* ══ Career travel board ═══════════════════════════════════════════════════
+   The ladder of cities: where you are, where you have been, and the one
+   onward ticket. Desktop only for now — the mobile design is a separate
+   layout and is not attempted here.
+   Values follow the Curbside Travel design, mapped onto the HUD tokens the
+   rest of the app already uses rather than re-stating its literal hexes. */
+.travel-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(1380px, calc(100% - 64px));
+  min-height: calc(100dvh - 66px);
+  margin: 0 auto;
+  padding: 22px 0 28px;
+}
+
+.travel-head {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+}
+.travel-head-copy { min-width: 0; }
+.travel-head h1 {
+  margin: 0 0 7px;
+  font-family: var(--font-serif);
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -1px;
+  color: var(--hud-cream);
+}
+.travel-sub {
+  max-width: 500px;
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--hud-cream-50);
+}
+.travel-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  color: var(--hud-sage-lt);
+}
+.travel-eyebrow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hud-coral-warm);
+  box-shadow: 0 0 8px var(--hud-coral-warm);
+}
+
+.travel-stats { display: flex; flex: none; gap: 12px; }
+.travel-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 13px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  background: rgba(16, 23, 25, 0.62);
+}
+.travel-stat:first-child { min-width: 212px; }
+.travel-stat:last-child { min-width: 112px; }
+.travel-stat-label {
+  margin-bottom: 5px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--hud-cream-40);
+}
+.travel-stat-value {
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: -0.8px;
+  color: var(--hud-cream);
+  font-variant-numeric: tabular-nums;
+}
+.travel-stat-value.yellow { color: var(--hud-yellow); margin-bottom: 6px; }
+.travel-stat-value em { font-size: 17px; font-style: normal; color: rgba(244, 239, 222, 0.35); }
+.travel-stat-note { font-size: 10.5px; font-weight: 600; color: var(--hud-cream-40); }
+
+.travel-grid {
+  display: grid;
+  flex: none;
+  align-content: start;
+  grid-auto-rows: min-content;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.travel-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 214px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  background: rgba(16, 23, 25, 0.6);
+  box-shadow: 0 16px 38px -24px rgba(0, 0, 0, 0.75);
+}
+.travel-card.here { border-color: rgba(244, 200, 72, 0.3); background: rgba(20, 29, 26, 0.7); }
+.travel-card.locked { border-color: rgba(255, 255, 255, 0.06); background: rgba(14, 19, 21, 0.5); }
+/* The whole card is the hit target, laid over the art and copy but under the
+   selection ring so the ring never swallows a click. */
+.travel-card-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.travel-card-hit:focus-visible { outline: 2px solid var(--hud-yellow); outline-offset: -4px; border-radius: 18px; }
+.travel-card-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  border: 2px solid var(--hud-yellow);
+  border-radius: 18px;
+  box-shadow: 0 0 0 4px rgba(244, 200, 72, 0.1), 0 14px 32px -14px rgba(244, 200, 72, 0.35);
+  pointer-events: none;
+}
+
+.travel-card-art { position: relative; flex: none; height: 104px; overflow: hidden; background: #0c1214; }
+.travel-card-art img { width: 100%; height: 100%; object-fit: cover; }
+.travel-card-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: linear-gradient(180deg, rgba(8, 11, 12, 0.06), rgba(8, 11, 12, 0.5));
+}
+.travel-card.locked .travel-card-art img { filter: grayscale(0.7); }
+.travel-card.locked .travel-card-scrim {
+  background: linear-gradient(180deg, rgba(8, 11, 12, 0.5), rgba(8, 11, 12, 0.82));
+}
+.travel-card-side {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(8, 11, 12, 0.66);
+  backdrop-filter: blur(6px);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: rgba(244, 239, 222, 0.8);
+}
+.travel-flag { font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif; font-size: 12px; }
+.travel-flag.big { font-size: 22px; }
+.travel-card-badge {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--hud-yellow);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: var(--hud-ink);
+}
+.travel-card-badge i { width: 5px; height: 5px; border-radius: 50%; background: var(--hud-ink); }
+.travel-card-lock {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: rgba(8, 11, 12, 0.72);
+  color: var(--hud-cream-60);
+}
+
+.travel-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px 14px 14px;
+}
+.travel-card-name {
+  margin-bottom: 3px;
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--hud-cream);
+}
+.travel-card.locked .travel-card-name { color: rgba(244, 239, 222, 0.45); }
+.travel-card-area {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--hud-cream-40);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.travel-card-stash { display: flex; align-items: stretch; gap: 8px; }
+.travel-chip {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.045);
+}
+.travel-chip-label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: rgba(244, 239, 222, 0.38);
+}
+.travel-chip strong {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--hud-cream);
+  font-variant-numeric: tabular-nums;
+}
+.travel-chip strong.yellow { font-size: 14px; color: var(--hud-yellow); }
+
+.travel-card-unlock {
+  padding: 9px 11px;
+  border: 1px dashed rgba(255, 255, 255, 0.13);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.travel-card-unlock strong { font-size: 12px; font-weight: 700; color: var(--hud-cream-60); }
+
+.travel-card-foot { margin-top: auto; padding-top: 2px; }
+.travel-card-base,
+.travel-card-free {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #8fae72;
+}
+.travel-card-ticket { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.travel-card-ticket strong { font-size: 14px; font-weight: 800; color: rgba(244, 239, 222, 0.62); }
+.travel-card-ticket strong.yellow { color: var(--hud-yellow); }
+.travel-card-cta {
+  padding: 7px 14px;
+  border: 1px solid rgba(244, 200, 72, 0.45);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--hud-yellow);
+  white-space: nowrap;
+}
+.travel-card-hit:hover ~ .travel-card-body .travel-card-cta { background: rgba(244, 200, 72, 0.14); }
+.travel-card-short {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--hud-coral-warm);
+  text-align: right;
+  white-space: nowrap;
+}
+.travel-card-locked { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; color: rgba(244, 239, 222, 0.3); }
+
+.travel-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: auto;
+  padding: 14px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  background: rgba(16, 23, 25, 0.62);
+}
+.travel-footer-copy { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.travel-footer-line { font-size: 16px; font-weight: 800; color: var(--hud-cream); }
+.travel-footer-actions { display: flex; flex: none; align-items: center; gap: 14px; }
+.travel-back {
+  padding: 8px 4px;
+  border: 0;
+  background: none;
+  color: var(--hud-cream-40);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  transition: color 0.15s ease;
+}
+.travel-back:hover { color: var(--hud-cream); }
+.travel-fly {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 24px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--hud-yellow);
+  box-shadow: 0 12px 28px -14px rgba(244, 200, 72, 0.45);
+  color: var(--hud-ink);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.travel-fly:disabled {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+  color: var(--hud-cream-40);
+  cursor: default;
+}

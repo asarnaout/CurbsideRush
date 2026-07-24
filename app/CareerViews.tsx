@@ -20,6 +20,7 @@ import {
   getCareerVehicle,
   nextCareerCity,
   nextInstallment,
+  unlockedCities,
   PLATFORM_FEE_BY_COUNTRY,
   ticketPrice,
   ownsVehicle,
@@ -950,18 +951,37 @@ export function CareerSetupPanel({
   );
 }
 
-/** One row of the travel board: a ladder city and what you can do with it. */
+/** What the travel board needs to describe a city, resolved by the caller. */
+export interface TravelCityFacts {
+  readonly name: string;
+  /** Short neighbourhood line under the name. */
+  readonly area: string;
+  readonly country: CountryProfile;
+  /** Cover photo for the card header. */
+  readonly imageSrc: string;
+}
+
+/** One card on the travel board: a ladder city and what you can do with it. */
 export interface TravelStop {
   readonly destinationId: DestinationId;
   readonly name: string;
-  readonly countryName: string;
+  readonly area: string;
   readonly flagEmoji: string;
+  /** "DRIVES ON THE LEFT/RIGHT" — the thing that actually changes when you fly. */
+  readonly side: string;
+  readonly imageSrc: string;
   readonly state: "here" | "unlocked" | "next" | "locked";
   /** Cash and fleet waiting there, for a city already reached. */
   readonly waiting: { readonly cash: string; readonly vehicles: number } | null;
-  /** Ticket price from the *current* city, on the "next" row only. */
+  /** Ticket price out of the *current* city, on the "next" card only. */
   readonly ticket: string | null;
   readonly affordable: boolean;
+  /** How far short of the ticket you are, when you cannot afford it. */
+  readonly shortBy: string | null;
+  /** What it takes to reach a city still beyond the ladder's edge. */
+  readonly unlockAt: string | null;
+  /** Whether picking this card as a destination does anything. */
+  readonly selectable: boolean;
 }
 
 /**
@@ -970,14 +990,14 @@ export interface TravelStop {
  */
 export function travelBoard(
   slice: CareerSliceV2,
-  countryOf: (destinationId: DestinationId) => CountryProfile,
-  nameOf: (destinationId: DestinationId) => string,
+  describe: (destinationId: DestinationId) => TravelCityFacts,
 ): readonly TravelStop[] {
   const here = activeCity(slice);
+  const hereCountry = describe(here.destinationId).country;
   const onward = nextCareerCity(here.destinationId);
   const price = ticketPrice(here.destinationId);
-  return CAREER_CITIES.map((destinationId) => {
-    const country = countryOf(destinationId);
+  return CAREER_CITIES.map((destinationId, index) => {
+    const facts = describe(destinationId);
     const reached = slice.cities[destinationId];
     const state: TravelStop["state"] =
       destinationId === here.destinationId
@@ -987,115 +1007,304 @@ export function travelBoard(
           : destinationId === onward
             ? "next"
             : "locked";
+    const isNext = state === "next" && price !== null;
+    const affordable = isNext && here.cash >= (price as number);
+    // A city past the ladder's edge opens by reaching the one before it —
+    // derived from CAREER_CITIES, so reordering the route rewrites this too.
+    const previous = index > 0 ? describe(CAREER_CITIES[index - 1]).name : null;
     return {
       destinationId,
-      name: nameOf(destinationId),
-      countryName: country.countryName,
-      flagEmoji: country.flagEmoji,
+      name: facts.name,
+      area: facts.area,
+      flagEmoji: facts.country.flagEmoji,
+      side: `DRIVES ON THE ${facts.country.trafficSide === "left" ? "LEFT" : "RIGHT"}`,
+      imageSrc: facts.imageSrc,
       state,
       waiting: reached
         ? {
-            cash: formatMoney(reached.cash, country),
+            cash: formatMoney(reached.cash, facts.country),
             vehicles: reached.ownedVehicleIds.length,
           }
         : null,
-      ticket:
-        state === "next" && price !== null
-          ? formatMoney(price, countryOf(here.destinationId))
+      ticket: isNext ? formatMoney(price as number, hereCountry) : null,
+      affordable,
+      shortBy:
+        isNext && !affordable
+          ? formatMoney((price as number) - here.cash, hereCountry)
           : null,
-      affordable: state === "next" && price !== null && here.cash >= price,
+      unlockAt: state === "locked" && previous ? `Fly to ${previous} first` : null,
+      selectable: state === "unlocked" || state === "next",
     };
   });
 }
 
+/** The wallet/unlocked pair beside the travel heading. */
+export interface TravelSummary {
+  readonly hereName: string;
+  readonly cash: string;
+  readonly unlockedCount: number;
+  readonly totalCount: number;
+}
+
+export function travelSummary(
+  slice: CareerSliceV2,
+  hereCountry: CountryProfile,
+  hereName: string,
+): TravelSummary {
+  return {
+    hereName,
+    cash: formatMoney(activeCity(slice).cash, hereCountry),
+    unlockedCount: unlockedCities(slice).length,
+    totalCount: CAREER_CITIES.length,
+  };
+}
+
+const LockIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4" y="11" width="16" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </svg>
+);
+
 /**
- * The travel board: every city on the career ladder, the ones you have reached
- * (free to fly back to, with whatever you left there still waiting), and the
- * one onward ticket you can buy. Moving on is always optional — this page is
- * reachable from the garage and never forces a choice.
+ * The travel board: every city on the career ladder — where you are, the ones
+ * you have reached (free to fly back to, with whatever you left there still
+ * waiting), the one onward ticket you can buy, and the rest still locked.
+ *
+ * Picking a card only *selects* a destination; the flight itself is the single
+ * action in the footer. That split is deliberate — it puts one obvious commit
+ * point on a page where one of the choices spends money you cannot get back.
  */
 export function TravelView({
   stops,
+  summary,
   onGoTo,
   onBuyTicket,
   onBack,
 }: {
   stops: readonly TravelStop[];
+  summary: TravelSummary;
   onGoTo: (destinationId: DestinationId) => void;
   onBuyTicket: () => void;
   onBack: () => void;
 }) {
+  const [destinationId, setDestinationId] = useState<DestinationId | null>(null);
+  const destination = stops.find((stop) => stop.destinationId === destinationId);
+  const here = stops.find((stop) => stop.state === "here");
+  // A selected destination is flyable when it is already unlocked (free) or is
+  // the next rung and the ticket is covered.
+  const canFly = Boolean(
+    destination &&
+      (destination.state === "unlocked" ||
+        (destination.state === "next" && destination.affordable)),
+  );
+
+  const footerLine = !destination
+    ? "Pick a city to fly to"
+    : destination.state === "unlocked"
+      ? `${destination.name} · already yours, no ticket`
+      : canFly
+        ? `${destination.name} · ticket ${destination.ticket}`
+        : `${destination.name} · need ${destination.shortBy} more`;
+
+  const flyLabel = !destination
+    ? "Select a destination"
+    : canFly
+      ? `Fly to ${destination.name}`
+      : `Ticket costs ${destination.ticket}`;
+
   return (
-    <section className="subpage" aria-label="Travel">
-      <div className="subpage-heading">
-        <div>
-          <p className="eyebrow">CAREER · TRAVEL</p>
+    <section className="travel-page" aria-label="Travel">
+      <div className="travel-head">
+        <div className="travel-head-copy">
+          <p className="travel-eyebrow">
+            <span className="travel-eyebrow-dot" aria-hidden="true" />
+            CAREER · TRAVEL
+          </p>
           <h1>Where are you working?</h1>
-          <p>
+          <p className="travel-sub">
             Money and vehicles stay in the city you earned them in. Fly back any
             time — everything you left is still there.
           </p>
         </div>
+        <div className="travel-stats">
+          <div className="travel-stat">
+            <span className="travel-stat-label">
+              WALLET IN {summary.hereName.toUpperCase()}
+            </span>
+            <strong className="travel-stat-value yellow" data-testid="travel-wallet">
+              {summary.cash}
+            </strong>
+            <span className="travel-stat-note">
+              Only cash here pays for tickets.
+            </span>
+          </div>
+          <div className="travel-stat">
+            <span className="travel-stat-label">UNLOCKED</span>
+            <strong className="travel-stat-value">
+              {summary.unlockedCount}
+              <em> / {summary.totalCount}</em>
+            </strong>
+          </div>
+        </div>
       </div>
 
-      <ol className="travel-board" data-testid="travel-board">
-        {stops.map((stop) => (
-          <li
-            key={stop.destinationId}
-            className={`travel-stop ${stop.state}`}
-            data-testid={`travel-${stop.destinationId}`}
-          >
-            <span className="travel-flag" aria-hidden="true">
-              {stop.flagEmoji}
-            </span>
-            <span className="travel-copy">
-              <strong>{stop.name}</strong>
-              <small>
-                {stop.state === "here" && "You're here"}
-                {stop.state === "unlocked" &&
-                  stop.waiting &&
-                  `${stop.waiting.cash} waiting · ${stop.waiting.vehicles} owned`}
-                {stop.state === "next" && `Ticket ${stop.ticket}`}
-                {stop.state === "locked" && "Locked"}
-              </small>
-            </span>
-            {stop.state === "unlocked" && (
-              <button
-                type="button"
-                className="travel-action"
-                data-testid={`travel-go-${stop.destinationId}`}
-                onClick={() => onGoTo(stop.destinationId)}
-              >
-                Fly here
-              </button>
-            )}
-            {stop.state === "next" && (
-              <button
-                type="button"
-                className="travel-action buy"
-                data-testid="travel-buy-ticket"
-                disabled={!stop.affordable}
-                onClick={onBuyTicket}
-              >
-                Buy ticket
-              </button>
-            )}
-            {stop.state === "here" && (
-              <span className="travel-action current">✓</span>
-            )}
-          </li>
-        ))}
-      </ol>
+      <div className="travel-grid" role="group" aria-label="Cities">
+        {stops.map((stop) => {
+          const chosen = stop.destinationId === destinationId;
+          return (
+            <div
+              key={stop.destinationId}
+              className={`travel-card ${stop.state}${chosen ? " chosen" : ""}`}
+              data-testid={`travel-${stop.destinationId}`}
+            >
+              {stop.selectable ? (
+                <button
+                  type="button"
+                  className="travel-card-hit"
+                  aria-pressed={chosen}
+                  aria-label={`Select ${stop.name}`}
+                  data-testid={`travel-pick-${stop.destinationId}`}
+                  onClick={() => setDestinationId(stop.destinationId)}
+                />
+              ) : null}
+              {chosen && <span className="travel-card-ring" aria-hidden="true" />}
 
-      <div className="settings-actions" style={{ marginTop: "1.1rem" }}>
-        <button
-          type="button"
-          className="primary-button"
-          data-testid="travel-back"
-          onClick={onBack}
-        >
-          Back to the garage
-        </button>
+              <div className="travel-card-art">
+                {/* eslint-disable-next-line @next/next/no-img-element -- static city art in /public; next/image adds nothing for a fixed, non-critical thumbnail */}
+                <img src={stop.imageSrc} alt="" aria-hidden="true" draggable={false} />
+                <span className="travel-card-scrim" aria-hidden="true" />
+                <span className="travel-card-side">
+                  <span className="travel-flag" aria-hidden="true">
+                    {stop.flagEmoji}
+                  </span>
+                  {stop.side}
+                </span>
+                {stop.state === "here" && (
+                  <span className="travel-card-badge">
+                    <i aria-hidden="true" />
+                    YOU&apos;RE HERE
+                  </span>
+                )}
+                {stop.state === "locked" && (
+                  <span className="travel-card-lock" aria-hidden="true">
+                    <LockIcon />
+                  </span>
+                )}
+              </div>
+
+              <div className="travel-card-body">
+                <div>
+                  <div className="travel-card-name">{stop.name}</div>
+                  <div className="travel-card-area">{stop.area}</div>
+                </div>
+
+                {stop.waiting && (
+                  <div className="travel-card-stash">
+                    <div className="travel-chip">
+                      <span className="travel-chip-label">STASHED</span>
+                      <strong className="yellow">{stop.waiting.cash}</strong>
+                    </div>
+                    <div className="travel-chip">
+                      <span className="travel-chip-label">PARKED</span>
+                      <strong>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 13l1.6-4.7A2 2 0 0 1 6.5 7h11a2 2 0 0 1 1.9 1.3L21 13" />
+                          <path d="M3 13h18v4a1 1 0 0 1-1 1h-1.6" />
+                          <path d="M5.6 18H4a1 1 0 0 1-1-1v-4" />
+                          <circle cx="7.6" cy="18" r="1.7" />
+                          <circle cx="16.4" cy="18" r="1.7" />
+                        </svg>
+                        {stop.waiting.vehicles}
+                        {stop.waiting.vehicles === 1 ? " car" : " cars"}
+                      </strong>
+                    </div>
+                  </div>
+                )}
+
+                {stop.unlockAt && (
+                  <div className="travel-card-unlock">
+                    <span className="travel-chip-label">UNLOCKS AT</span>
+                    <strong>{stop.unlockAt}</strong>
+                  </div>
+                )}
+
+                <div className="travel-card-foot">
+                  {stop.state === "here" && (
+                    <span className="travel-card-base">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                      CURRENT BASE
+                    </span>
+                  )}
+                  {stop.state === "unlocked" && (
+                    <span className="travel-card-free">Fly back free</span>
+                  )}
+                  {stop.state === "next" && (
+                    <span className="travel-card-ticket">
+                      <span>
+                        <span className="travel-chip-label">TICKET</span>
+                        <strong className={stop.affordable ? "yellow" : undefined}>
+                          {stop.ticket}
+                        </strong>
+                      </span>
+                      {stop.affordable ? (
+                        <span className="travel-card-cta">Fly here</span>
+                      ) : (
+                        <span className="travel-card-short">
+                          {stop.shortBy}
+                          <br />
+                          to go
+                        </span>
+                      )}
+                    </span>
+                  )}
+                  {stop.state === "locked" && (
+                    <span className="travel-card-locked">LOCKED</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="travel-footer">
+        <div className="travel-footer-copy">
+          <span className="travel-flag big" aria-hidden="true">
+            {(destination ?? here)?.flagEmoji}
+          </span>
+          <div>
+            <div className="travel-stat-label">
+              {destination ? "DESTINATION" : "NO TICKET BOOKED"}
+            </div>
+            <div className="travel-footer-line" data-testid="travel-footer-line">
+              {footerLine}
+            </div>
+          </div>
+        </div>
+        <div className="travel-footer-actions">
+          <button type="button" className="travel-back" onClick={onBack}>
+            Back to the garage
+          </button>
+          <button
+            type="button"
+            className="travel-fly"
+            data-testid="travel-fly"
+            disabled={!canFly}
+            onClick={() => {
+              if (!destination || !canFly) return;
+              if (destination.state === "unlocked") onGoTo(destination.destinationId);
+              else onBuyTicket();
+            }}
+          >
+            {flyLabel}
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
       </div>
     </section>
   );

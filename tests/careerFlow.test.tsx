@@ -587,13 +587,32 @@ describe("career mode flow", () => {
 
     fireEvent.click(screen.getByTestId("garage-travel"));
     await screen.findByRole("heading", { name: /Where are you working/i });
+    expect(screen.getByTestId("travel-wallet")).toHaveTextContent("$500.00");
     expect(screen.getByTestId("travel-us-nyc")).toHaveTextContent(/You're here/i);
     expect(screen.getByTestId("travel-jp-tokyo")).toHaveTextContent("$400.00");
-    // London is two legs away and stays locked.
+    // Tokyo tells you which side of the road you are about to be on.
+    expect(screen.getByTestId("travel-jp-tokyo")).toHaveTextContent(
+      /DRIVES ON THE LEFT/i,
+    );
+    // London is two legs away, stays locked, and cannot be picked.
     expect(screen.getByTestId("travel-uk-london")).toHaveTextContent(/Locked/i);
-    expect(screen.queryByTestId("travel-go-uk-london")).toBeNull();
+    expect(screen.getByTestId("travel-uk-london")).toHaveTextContent(
+      /Fly to Tokyo first/i,
+    );
+    expect(screen.queryByTestId("travel-pick-uk-london")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("travel-buy-ticket"));
+    // Nothing is bookable until a destination is picked.
+    expect(screen.getByTestId("travel-fly")).toBeDisabled();
+    expect(screen.getByTestId("travel-footer-line")).toHaveTextContent(
+      /Pick a city to fly to/i,
+    );
+
+    // Picking Tokyo arms the one commit point in the footer.
+    fireEvent.click(screen.getByTestId("travel-pick-jp-tokyo"));
+    expect(screen.getByTestId("travel-footer-line")).toHaveTextContent(
+      "Tokyo · ticket $400.00",
+    );
+    fireEvent.click(screen.getByTestId("travel-fly"));
     fireEvent.click(screen.getByRole("button", { name: /Buy the ticket/i }));
 
     // Tokyo: fresh yen float, day 1, and the hatch did not come along.
@@ -615,8 +634,12 @@ describe("career mode flow", () => {
     // And flying back is free and restores exactly what was left there.
     fireEvent.click(screen.getByTestId("garage-travel"));
     await screen.findByRole("heading", { name: /Where are you working/i });
+    // New York now shows what is waiting there rather than a ticket price.
     expect(screen.getByTestId("travel-us-nyc")).toHaveTextContent("$100.00");
-    fireEvent.click(screen.getByTestId("travel-go-us-nyc"));
+    expect(screen.getByTestId("travel-us-nyc")).toHaveTextContent(/1 car/i);
+    expect(screen.getByTestId("travel-us-nyc")).toHaveTextContent(/Fly back free/i);
+    fireEvent.click(screen.getByTestId("travel-pick-us-nyc"));
+    fireEvent.click(screen.getByTestId("travel-fly"));
     await screen.findByRole("heading", { name: /Pick today's ride/i });
     expect(screen.getByTestId("garage-cash")).toHaveTextContent("$100.00");
     expect(screen.getByTestId("garage-vehicle-compact-hatch")).toHaveTextContent(
