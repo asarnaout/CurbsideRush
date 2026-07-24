@@ -1442,6 +1442,7 @@ canvas:focus-visible {
 }
 
 .launcher-shell .app-header {
+  width: min(1380px, calc(100% - 64px));
   min-height: 72px;
 }
 
@@ -1793,13 +1794,18 @@ canvas:focus-visible {
 }
 
 /* ── Career garage (Curbside Career) ──────────────────────────────────────── */
-.garage-shell .app-header { min-height: 66px; }
+/* Same shell width as the launcher/header, so the header and body line up on
+   both pages and switching landing → career doesn't resize the content. */
+.garage-shell .app-header {
+  width: min(1380px, calc(100% - 64px));
+  min-height: 66px;
+}
 
 .garage-page {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  width: min(1280px, calc(100% - 64px));
+  width: min(1380px, calc(100% - 64px));
   min-height: calc(100dvh - 66px);
   margin: 0 auto;
   padding: 22px 0 28px;
@@ -2165,6 +2171,7 @@ canvas:focus-visible {
 .garage-abandon:hover { color: var(--hud-coral-warm); }
 
 @media (max-width: 860px) {
+  .garage-shell .app-header { width: calc(100% - 32px); }
   .garage-page {
     width: calc(100% - 32px);
     min-height: 0;
