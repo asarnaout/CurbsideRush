@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeCity,
   CAREER_VEHICLES,
   careerFare,
   PLATFORM_FEE_BY_COUNTRY,
@@ -79,11 +80,9 @@ describe("career balance tripwire", () => {
     for (const destination of DESTINATION_PROFILES) {
       const country = getCountryProfile(destination.countryId);
       const mapId = getFreeDrive(destination.freeDriveId).mapId;
-      const slice = createCareerSlice({
-        countryId: country.id,
-        destinationId: destination.id,
-        careerSeed: 1,
-      });
+      const city = activeCity(
+        createCareerSlice({ destinationId: destination.id, careerSeed: 1 }),
+      );
       for (const vehicle of CAREER_VEHICLES) {
         const bestMedian = Math.max(
           ...vehicle.allowedGigKinds.map(
@@ -95,7 +94,7 @@ describe("career balance tripwire", () => {
           `${destination.id} offers no priceable gigs for ${vehicle.id}`,
         ).toBeGreaterThan(0);
         const dailyFloor =
-          vehicleRent(vehicle, slice) + PLATFORM_FEE_BY_COUNTRY[country.id];
+          vehicleRent(vehicle, city) + PLATFORM_FEE_BY_COUNTRY[country.id];
         expect(
           dailyFloor,
           `${vehicle.id} in ${destination.id}: floor ${dailyFloor} vs median net ${bestMedian}`,

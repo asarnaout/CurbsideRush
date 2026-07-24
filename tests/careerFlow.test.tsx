@@ -10,10 +10,12 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CAREER_STARTING_CASH_BY_COUNTRY,
+  activeCity,
   createCareerSlice,
+  withCity,
+  type CareerCityState,
   DAY_LENGTH_MS,
-  stampCareerChecksum,
-  type CareerSliceV1,
+  type CareerSliceV2,
 } from "../app/game/career";
 import { getDestinationProfile } from "../app/game/content";
 import {
@@ -222,13 +224,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const storedCareer = (): CareerSliceV1 | { state: string } | null => {
+const storedCareer = (): CareerSliceV2 | { state: string } | null => {
   const raw = window.localStorage.getItem(PROGRESS_STORAGE_KEY);
   if (raw === null) return null;
-  return (JSON.parse(raw) as { career: CareerSliceV1 | null }).career;
+  return (JSON.parse(raw) as { career: CareerSliceV2 | null }).career;
 };
 
-const seedProgressWithCareer = (slice: CareerSliceV1) => {
+/**
+ * A career whose starting city has been patched — cash, debt, day. Money lives
+ * per city now, so seeding a scenario means editing the city, not the slice.
+ */
+const careerIn = (
+  destinationId: Parameters<typeof createCareerSlice>[0]["destinationId"],
+  careerSeed: number,
+  patch: Partial<CareerCityState> = {},
+): CareerSliceV2 => {
+  const slice = createCareerSlice({ destinationId, careerSeed });
+  return withCity(slice, destinationId, { ...activeCity(slice), ...patch });
+};
+
+const seedProgressWithCareer = (slice: CareerSliceV2) => {
   const progress = writeCareer(createDefaultProgress(), slice);
   window.localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(progress));
 };
@@ -259,10 +274,10 @@ describe("career mode flow", () => {
 
     const stored = storedCareer();
     expect(stored).not.toBeNull();
-    expect((stored as CareerSliceV1).state).toBe("active");
-    expect((stored as CareerSliceV1).day).toBe(1);
-    expect((stored as CareerSliceV1).countryId).toBe("uk");
-    expect(typeof (stored as CareerSliceV1).checksum).toBe("string");
+    expect((stored as CareerSliceV2).state).toBe("active");
+    expect(activeCity(stored as CareerSliceV2).day).toBe(1);
+    expect(activeCity(stored as CareerSliceV2).countryId).toBe("uk");
+    expect(typeof (stored as CareerSliceV2).checksum).toBe("string");
   });
 
   it("starts day 1 on your own bicycle: free, fuel-less, deliveries-only", async () => {
@@ -302,7 +317,7 @@ describe("career mode flow", () => {
       `£${(UK_START_CASH - HATCH_RENT_UK).toFixed(2)}`,
     );
     // The morning slice is untouched on disk until settlement.
-    expect((storedCareer() as CareerSliceV1).cash).toBe(UK_START_CASH);
+    expect(activeCity(storedCareer() as CareerSliceV2).cash).toBe(UK_START_CASH);
   });
 
   it("keeps career fines out of the free-drive wallet and lets cash go negative", async () => {
@@ -348,7 +363,7 @@ describe("career mode flow", () => {
       "£0.00",
     );
 
-    const settled = storedCareer() as CareerSliceV1;
+    const settled = activeCity(storedCareer() as CareerSliceV2);
     expect(settled.day).toBe(2);
     expect(settled.cash).toBe(0);
     expect(settled.loan).toEqual({ principalRemaining: 4, daysRemaining: 3 });
@@ -375,14 +390,13 @@ describe("career mode flow", () => {
     expect(
       await screen.findByRole("heading", { name: /Pick today's ride/i }),
     ).toBeVisible();
-    const stored = storedCareer() as CareerSliceV1;
-    expect(stored.day).toBe(1);
-    expect(stored.cash).toBe(UK_START_CASH);
+    const stored = storedCareer() as CareerSliceV2;
+    expect(activeCity(stored).day).toBe(1);
+    expect(activeCity(stored).cash).toBe(UK_START_CASH);
   });
 
   it("offers only a reset for a tampered career, leaving free-drive progress alone", async () => {
     const slice = createCareerSlice({
-      countryId: "uk",
       destinationId: "uk-london",
       careerSeed: 99,
     });
@@ -407,14 +421,7 @@ describe("career mode flow", () => {
 
   it("rides the motorbike: composed visual kind, 24 cap, fuel gauge, deliveries only", async () => {
     seedProgressWithCareer(
-      stampCareerChecksum({
-        ...createCareerSlice({
-          countryId: "uk",
-          destinationId: "uk-london",
-          careerSeed: 77,
-        }),
-        cash: 50,
-      }),
+      careerIn("uk-london", 77, { cash: 50 }),
     );
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-continue"));
@@ -441,14 +448,7 @@ describe("career mode flow", () => {
 
   it("takes the van out with its own model and physics", async () => {
     seedProgressWithCareer(
-      stampCareerChecksum({
-        ...createCareerSlice({
-          countryId: "uk",
-          destinationId: "uk-london",
-          careerSeed: 55,
-        }),
-        cash: 100,
-      }),
+      careerIn("uk-london", 55, { cash: 100 }),
     );
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-continue"));
@@ -470,16 +470,11 @@ describe("career mode flow", () => {
 
   it("falls back to the bike when broke, and a shortfall under FINAL NOTICE ends the career", async () => {
     seedProgressWithCareer(
-      stampCareerChecksum({
-        ...createCareerSlice({
-          countryId: "uk",
-          destinationId: "uk-london",
-          careerSeed: 7,
-        }),
+      careerIn("uk-london", 7, {
         cash: 0,
         loan: { principalRemaining: 30, daysRemaining: 3 },
         finalNotice: true,
-      }),
+        }),
     );
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-continue"));
@@ -504,7 +499,7 @@ describe("career mode flow", () => {
     expect(
       await screen.findByRole("heading", { name: /The bank called it/i }),
     ).toBeVisible();
-    expect((storedCareer() as CareerSliceV1).state).toBe("over");
+    expect((storedCareer() as CareerSliceV2).state).toBe("over");
 
     fireEvent.click(screen.getByTestId("career-restart"));
     expect(await screen.findByTestId("career-new-panel")).toBeVisible();
@@ -513,15 +508,10 @@ describe("career mode flow", () => {
 
   it("buys the hatch outright while debt-free: victory recorded, rent gone", async () => {
     seedProgressWithCareer(
-      stampCareerChecksum({
-        ...createCareerSlice({
-          countryId: "uk",
-          destinationId: "uk-london",
-          careerSeed: 21,
-        }),
+      careerIn("uk-london", 21, {
         cash: 200,
         day: 5,
-      }),
+        }),
     );
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-continue"));
@@ -539,11 +529,11 @@ describe("career mode flow", () => {
     expect(await screen.findByTestId("victory-banner")).toHaveTextContent(
       /day 5/i,
     );
-    const won = storedCareer() as CareerSliceV1;
+    const won = storedCareer() as CareerSliceV2;
     expect(won.state).toBe("won");
     expect(won.victoryDay).toBe(5);
-    expect(won.ownedVehicleId).toBe("compact-hatch");
-    expect(won.cash).toBe(20);
+    expect(activeCity(won).ownedVehicleIds).toEqual(["compact-hatch"]);
+    expect(activeCity(won).cash).toBe(20);
     // The owned hatch now rents free — the whole 20 survives the morning.
     expect(screen.getByTestId("garage-vehicle-compact-hatch")).toHaveTextContent(
       /Owned — no rent/,

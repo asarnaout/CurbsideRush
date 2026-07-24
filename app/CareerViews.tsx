@@ -17,8 +17,10 @@ import {
   getCareerVehicle,
   nextInstallment,
   PLATFORM_FEE_BY_COUNTRY,
+  ownsVehicle,
   vehicleRent,
-  type CareerSliceV1,
+  type CareerCityView,
+  type CareerSliceV2,
   type CareerVehicleId,
   type CareerVehicleSpec,
   type LedgerLine,
@@ -67,6 +69,7 @@ const cardStyle: React.CSSProperties = {
 
 export function GarageView({
   slice,
+  city,
   country,
   selectedVehicleId,
   lockedVehicles,
@@ -75,7 +78,9 @@ export function GarageView({
   onBuyout,
   onAbandon,
 }: {
-  slice: CareerSliceV1;
+  slice: CareerSliceV2;
+  /** The city being played: all money, rent and debt come from here. */
+  city: CareerCityView;
   country: CountryProfile;
   selectedVehicleId: CareerVehicleId;
   /** Vehicles present but not yet playable, with the reason shown on the card. */
@@ -88,11 +93,11 @@ export function GarageView({
   const selected = CAREER_VEHICLES.find(
     (vehicle) => vehicle.id === selectedVehicleId,
   );
-  const selectedRent = selected ? vehicleRent(selected, slice) : 0;
+  const selectedRent = selected ? vehicleRent(selected, city) : 0;
   const selectedLocked = Boolean(lockedVehicles[selectedVehicleId]);
-  const selectedStartable = !selectedLocked && slice.cash >= selectedRent;
+  const selectedStartable = !selectedLocked && city.cash >= selectedRent;
   const fee = PLATFORM_FEE_BY_COUNTRY[country.id];
-  const installment = slice.loan ? nextInstallment(slice.loan) : 0;
+  const installment = city.loan ? nextInstallment(city.loan) : 0;
   const dueToday = selectedRent + fee + installment;
   return (
     <section className="garage-page" aria-label="Career garage">
@@ -100,7 +105,7 @@ export function GarageView({
         <div className="garage-head-copy">
           <p className="garage-eyebrow">
             <span className="garage-eyebrow-dot" aria-hidden="true" />
-            CAREER · DAY {slice.day}
+            CAREER · DAY {city.day}
           </p>
           <h1>Pick today&apos;s ride.</h1>
           <p className="garage-sub">
@@ -111,20 +116,20 @@ export function GarageView({
         <div className="garage-cash">
           <span className="garage-cash-label">CASH ON HAND</span>
           <span className="garage-cash-value" data-testid="garage-cash">
-            {formatMoney(slice.cash, country)}
+            {formatMoney(city.cash, country)}
           </span>
         </div>
       </div>
 
       <div className="garage-fleet" role="group" aria-label="Vehicles">
         {CAREER_VEHICLES.map((vehicle) => {
-          const rent = vehicleRent(vehicle, slice);
+          const rent = vehicleRent(vehicle, city);
           const lockedReason = lockedVehicles[vehicle.id];
-          const affordable = slice.cash >= rent;
+          const affordable = city.cash >= rent;
           const disabled = Boolean(lockedReason) || !affordable;
           const active = selectedVehicleId === vehicle.id;
           const rideshare = vehicle.allowedGigKinds.includes("passenger");
-          const owned = vehicle.owned || slice.ownedVehicleId === vehicle.id;
+          const owned = ownsVehicle(city, vehicle);
           return (
             <button
               key={vehicle.id}
@@ -229,7 +234,7 @@ export function GarageView({
       </div>
 
       <div className="garage-footer">
-        <GarageFreedom slice={slice} country={country} />
+        <GarageFreedom slice={slice} city={city} country={country} />
         <div className="garage-panel garage-obligations" data-testid="garage-forecast">
           <div className="garage-panel-label coral">TONIGHT&apos;S OBLIGATIONS</div>
           <div className="garage-ob-row">
@@ -242,7 +247,7 @@ export function GarageView({
             <span>Platform fee</span>
             <strong>{formatMoney(fee, country)}</strong>
           </div>
-          {slice.loan && (
+          {city.loan && (
             <div className="garage-ob-row" data-testid="forecast-installment">
               <span>Loan installment</span>
               <strong>{formatMoney(installment, country)}</strong>
@@ -266,7 +271,7 @@ export function GarageView({
               onClick={() => onBuyout(selectedVehicleId)}
             >
               Buy the {selected.name.toLowerCase()} outright —{" "}
-              {formatMoney(buyoutPrice(selected, slice.countryId), country)}
+              {formatMoney(buyoutPrice(selected, city.countryId), country)}
             </button>
           )}
           <button
@@ -276,7 +281,7 @@ export function GarageView({
             disabled={!selectedStartable}
             onClick={() => onStartDay(selectedVehicleId)}
           >
-            Start Day {slice.day}
+            Start Day {city.day}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
           <button type="button" className="garage-abandon" onClick={onAbandon}>
@@ -296,9 +301,11 @@ export function GarageView({
  */
 function GarageFreedom({
   slice,
+  city,
   country,
 }: {
-  slice: CareerSliceV1;
+  slice: CareerSliceV2;
+  city: CareerCityView;
   country: CountryProfile;
 }) {
   if (slice.state === "won") {
@@ -312,7 +319,7 @@ function GarageFreedom({
       </div>
     );
   }
-  if (slice.finalNotice) {
+  if (city.finalNotice) {
     return (
       <div className="garage-panel garage-freedom notice" role="alert">
         <div className="garage-panel-label coral">⚠ FINAL NOTICE</div>
@@ -323,28 +330,28 @@ function GarageFreedom({
       </div>
     );
   }
-  if (slice.loan) {
+  if (city.loan) {
     return (
       <div className="garage-panel garage-freedom debt">
         <div className="garage-panel-label coral">OUTSTANDING DEBT</div>
         <div className="garage-freedom-copy">
-          You owe {formatMoney(slice.loan.principalRemaining, country)} over{" "}
-          {slice.loan.daysRemaining}{" "}
-          {slice.loan.daysRemaining === 1 ? "day" : "days"} — tonight&apos;s
-          installment is {formatMoney(nextInstallment(slice.loan), country)}.
+          You owe {formatMoney(city.loan.principalRemaining, country)} over{" "}
+          {city.loan.daysRemaining}{" "}
+          {city.loan.daysRemaining === 1 ? "day" : "days"} — tonight&apos;s
+          installment is {formatMoney(nextInstallment(city.loan), country)}.
         </div>
       </div>
     );
   }
   const cheapest = CAREER_VEHICLES.filter((v) => v.buyoutEligible).reduce(
     (best, v) =>
-      buyoutPrice(v, slice.countryId) < buyoutPrice(best, slice.countryId)
+      buyoutPrice(v, city.countryId) < buyoutPrice(best, city.countryId)
         ? v
         : best,
   );
-  const price = buyoutPrice(cheapest, slice.countryId);
-  const fraction = Math.max(0, Math.min(1, slice.cash / price));
-  const remaining = Math.max(0, price - slice.cash);
+  const price = buyoutPrice(cheapest, city.countryId);
+  const fraction = Math.max(0, Math.min(1, city.cash / price));
+  const remaining = Math.max(0, price - city.cash);
   return (
     <div className="garage-panel garage-freedom" data-testid="buyout-fund">
       <div className="garage-panel-head">
@@ -361,7 +368,7 @@ function GarageFreedom({
       </div>
       <div className="garage-freedom-foot">
         <span>
-          {formatMoney(slice.cash, country)}
+          {formatMoney(city.cash, country)}
           <em> / {formatMoney(price, country)}</em>
         </span>
         <span>
@@ -381,21 +388,23 @@ function GarageFreedom({
  */
 export function BuyoutFund({
   slice,
+  city,
   country,
 }: {
-  slice: CareerSliceV1;
+  slice: CareerSliceV2;
+  city: CareerCityView;
   country: CountryProfile;
 }) {
-  if (slice.state !== "active" || slice.loan || slice.finalNotice) return null;
+  if (slice.state !== "active" || city.loan || city.finalNotice) return null;
   const cheapest = CAREER_VEHICLES.filter(
     (vehicle) => vehicle.buyoutEligible,
   ).reduce((best, vehicle) =>
-    buyoutPrice(vehicle, slice.countryId) < buyoutPrice(best, slice.countryId)
+    buyoutPrice(vehicle, city.countryId) < buyoutPrice(best, city.countryId)
       ? vehicle
       : best,
   );
-  const price = buyoutPrice(cheapest, slice.countryId);
-  const fraction = Math.max(0, Math.min(1, slice.cash / price));
+  const price = buyoutPrice(cheapest, city.countryId);
+  const fraction = Math.max(0, Math.min(1, city.cash / price));
   return (
     <div
       style={{ ...cardStyle, marginTop: "1rem" }}
@@ -411,7 +420,7 @@ export function BuyoutFund({
       >
         <strong>Buy your freedom</strong>
         <span>
-          {formatMoney(slice.cash, country)} / {formatMoney(price, country)}
+          {formatMoney(city.cash, country)} / {formatMoney(price, country)}
         </span>
       </div>
       <div
@@ -441,13 +450,16 @@ export function BuyoutFund({
 export function LedgerView({
   result,
   slice,
+  city,
   country,
   reducedMotion,
   onContinue,
 }: {
   result: SettlementResult;
   /** The slice AFTER settlement (already advanced to the next day). */
-  slice: CareerSliceV1;
+  slice: CareerSliceV2;
+  /** That slice's active city, likewise post-settlement. */
+  city: CareerCityView;
   country: CountryProfile;
   reducedMotion: boolean;
   onContinue: () => void;
@@ -460,7 +472,7 @@ export function LedgerView({
     <section className="subpage" aria-label="End of day ledger">
       <div className="subpage-heading">
         <div>
-          <p className="eyebrow">CAREER · DAY {slice.day - 1} COMPLETE</p>
+          <p className="eyebrow">CAREER · DAY {city.day - 1} COMPLETE</p>
           <h1>The day&apos;s reckoning.</h1>
         </div>
       </div>
@@ -534,15 +546,15 @@ export function LedgerView({
           shortfall ends the career.
         </div>
       )}
-      {slice.loan && result.outcome !== "final_notice" && (
+      {city.loan && result.outcome !== "final_notice" && (
         <p style={{ marginTop: "0.9rem", opacity: 0.85 }}>
-          Outstanding debt {formatMoney(slice.loan.principalRemaining, country)}{" "}
+          Outstanding debt {formatMoney(city.loan.principalRemaining, country)}{" "}
           — next installment{" "}
-          {formatMoney(nextInstallment(slice.loan), country)}.
+          {formatMoney(nextInstallment(city.loan), country)}.
         </p>
       )}
       <div style={{ maxWidth: "30rem" }}>
-        <BuyoutFund slice={slice} country={country} />
+        <BuyoutFund slice={slice} city={city} country={country} />
       </div>
       <div className="settings-actions" style={{ marginTop: "1.1rem" }}>
         <button
@@ -551,7 +563,7 @@ export function LedgerView({
           data-testid="ledger-continue"
           onClick={onContinue}
         >
-          Continue to Day {slice.day} →
+          Continue to Day {city.day} →
         </button>
       </div>
     </section>
@@ -559,17 +571,17 @@ export function LedgerView({
 }
 
 export function CareerOverView({
-  slice,
+  city,
   country,
   onRestart,
   onMenu,
 }: {
-  slice: CareerSliceV1;
+  city: CareerCityView;
   country: CountryProfile;
   onRestart: () => void;
   onMenu: () => void;
 }) {
-  const stats = slice.stats;
+  const stats = city.stats;
   const rows: readonly (readonly [string, string])[] = [
     ["Days survived", String(stats.daysCompleted)],
     ["Gigs completed", String(stats.gigsCompleted)],
@@ -587,7 +599,7 @@ export function CareerOverView({
           <p className="eyebrow">CAREER OVER</p>
           <h1>The bank called it.</h1>
           <p>
-            Day {slice.day} ended {formatMoney(slice.cash, country)} short with
+            Day {city.day} ended {formatMoney(city.cash, country)} short with
             nothing left to borrow.
           </p>
         </div>
@@ -655,19 +667,20 @@ export interface CareerCardModel {
  * the buyout, which is the actual win.
  */
 export function careerCardModel(
-  slice: CareerSliceV1 | null,
+  slice: CareerSliceV2 | null,
+  city: CareerCityView | null,
   country: CountryProfile,
   garageVehicleId: CareerVehicleId,
 ): CareerCardModel {
   const startingCash = CAREER_STARTING_CASH_BY_COUNTRY[country.id];
-  const day = slice?.day ?? 1;
-  const cash = slice?.cash ?? startingCash;
-  const ownedId = slice?.ownedVehicleId ?? null;
+  const day = city?.day ?? 1;
+  const cash = city?.cash ?? startingCash;
+  const ownedIds = city?.ownedVehicleIds ?? [];
   const won = slice?.state === "won";
-  const loan = slice?.loan ?? null;
+  const loan = city?.loan ?? null;
 
-  const drivingSpec = getCareerVehicle(ownedId ?? garageVehicleId);
-  const ownsDriving = drivingSpec.owned || ownedId === drivingSpec.id;
+  const drivingSpec = getCareerVehicle(ownedIds[0] ?? garageVehicleId);
+  const ownsDriving = drivingSpec.owned || ownedIds.includes(drivingSpec.id);
   const driving = {
     name: drivingSpec.name,
     badge: (ownsDriving ? "OWNED" : "RENTED") as "OWNED" | "RENTED",
@@ -687,7 +700,7 @@ export function careerCardModel(
   }
 
   const rentOf = (vehicle: CareerVehicleSpec): number =>
-    vehicle.owned || ownedId === vehicle.id
+    vehicle.owned || ownedIds.includes(vehicle.id)
       ? 0
       : vehicle.rentByCountry[country.id];
   const cheapestBuyout = CAREER_VEHICLES.filter((v) => v.buyoutEligible).reduce(
@@ -696,7 +709,7 @@ export function careerCardModel(
   );
   const buyoutCost = buyoutPrice(cheapestBuyout, country.id);
   const nextRental = CAREER_VEHICLES.filter(
-    (v) => v.id !== "bicycle" && !v.owned && ownedId !== v.id && rentOf(v) > cash,
+    (v) => v.id !== "bicycle" && !v.owned && !ownedIds.includes(v.id) && rentOf(v) > cash,
   ).sort((a, b) => rentOf(a) - rentOf(b))[0];
 
   let bar: CareerCardModel["bar"];
@@ -843,6 +856,7 @@ export function CareerLauncherCard({ model }: { model: CareerCardModel }) {
  */
 export function CareerSetupPanel({
   career,
+  city,
   cityName,
   country,
   garageVehicleId,
@@ -852,7 +866,9 @@ export function CareerSetupPanel({
   onResetCorrupt,
   onStartFresh,
 }: {
-  career: CareerSliceV1 | { state: "corrupt" } | null;
+  career: CareerSliceV2 | { state: "corrupt" } | null;
+  /** The active city of `career`, or null before one exists. */
+  city: CareerCityView | null;
   cityName: string;
   country: CountryProfile;
   garageVehicleId: CareerVehicleId;
@@ -887,7 +903,7 @@ export function CareerSetupPanel({
           className="secondary-button"
           onClick={onViewLastRun}
         >
-          View last run — Day {career.day}
+          View last run — Day {city?.day ?? 1}
         </button>
         <button
           type="button"
@@ -903,8 +919,8 @@ export function CareerSetupPanel({
   }
   // Corrupt and over handled above, so `career` is now an active/won slice or
   // null (a fresh start) — both drive the card, one live and one as a preview.
-  const slice: CareerSliceV1 | null = career;
-  const model = careerCardModel(slice, country, garageVehicleId);
+  const slice: CareerSliceV2 | null = career;
+  const model = careerCardModel(slice, city, country, garageVehicleId);
   return (
     <div
       className="career-launcher"
@@ -919,7 +935,7 @@ export function CareerSetupPanel({
             data-testid="career-continue"
             onClick={onContinue}
           >
-            Continue shift · Day {slice.day}
+            Continue shift · Day {city?.day ?? 1}
             <span aria-hidden="true">→</span>
           </button>
         ) : (
