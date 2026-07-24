@@ -123,7 +123,7 @@ export function GarageView({
           <h1>Pick today&apos;s ride.</h1>
           <p className="garage-sub">
             Rent is paid up front — every idle minute burns money you&apos;ve
-            already spent. Choose what you can keep busy.
+            already spent. Buy one outright and the rent stops for good.
           </p>
         </div>
         <div className="garage-cash">
@@ -149,123 +149,138 @@ export function GarageView({
           const owned = ownsVehicle(city, vehicle);
           const price = buyoutPrice(vehicle, city.countryId);
           const buyable = canBuyVehicle(slice, vehicle);
+          const showBuy = vehicle.buyoutEligible && !owned;
+          // Choosing and buying both live in the action row *outside* the card
+          // button — nesting a button in a button is invalid HTML, and the slot
+          // is what draws the card, so they still read as inside it. Desktop
+          // stacks the row, mobile lays it side by side.
+          const canChoose = !active && !disabled && affordable;
+          const showActions = canChoose || showBuy;
+          // The status line the card carries under its specs: what it is today,
+          // or why it cannot be today's ride.
+          const status = active ? (
+            <span className="garage-card-today">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+              TODAY&apos;S RIDE
+            </span>
+          ) : disabled ? (
+            <span className="garage-card-cant">{lockedReason}</span>
+          ) : affordable ? null : (
+            <span className="garage-card-cant">
+              Rent&apos;s out of reach today
+            </span>
+          );
           return (
-            <div className="garage-slot" key={vehicle.id}>
+            <div
+              className={`garage-slot${active ? " active" : ""}${disabled ? " locked" : ""}${showActions ? " with-actions" : ""}`}
+              key={vehicle.id}
+            >
             <button
               type="button"
               data-testid={`garage-vehicle-${vehicle.id}`}
-              className={`garage-card${active ? " active" : ""}${disabled ? " locked" : ""}`}
+              className="garage-card"
               aria-pressed={active}
               disabled={disabled}
               onClick={() => onSelect(vehicle.id)}
             >
-              {/* Placeholder art until the real vehicle renders land. */}
-              <span className="garage-card-art" aria-hidden="true">
-                <VehicleGlyph kind={vehicle.visualKind} />
-                <span className="garage-card-art-note">Artwork soon</span>
-                {disabled && (
-                  <span className="garage-card-lock">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="4" y="11" width="16" height="10" rx="2" />
-                      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                    </svg>
-                    LOCKED
-                  </span>
-                )}
-              </span>
-              <span className="garage-card-body">
-                <span className="garage-card-info">
-                  <span className="garage-card-name">{vehicle.name}</span>
-                  {owned ? (
-                    <span className="garage-card-rent owned">
-                      {vehicle.owned ? "Yours · no rent" : "Owned — no rent"}
-                    </span>
-                  ) : (
-                    <span className="garage-card-rent">
-                      {formatMoney(rent, country)}
-                      <em> / day</em>
+              {/* Art beside the specs on mobile, above them on desktop. */}
+              <span className="garage-card-main">
+                {/* Placeholder art until the real vehicle renders land. */}
+                <span className="garage-card-art" aria-hidden="true">
+                  <VehicleGlyph kind={vehicle.visualKind} />
+                  <span className="garage-card-art-note">Artwork soon</span>
+                  {owned && <span className="garage-card-owned">OWNED</span>}
+                  {disabled && (
+                    <span className="garage-card-lock">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="4" y="11" width="16" height="10" rx="2" />
+                        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                      </svg>
+                      LOCKED
                     </span>
                   )}
-                  <span className="garage-card-meta">
-                    <span className="garage-card-tags">
-                      {rideshare ? (
-                        <>
-                          <span className="garage-tag">Deliveries</span>
-                          <span className="garage-tag rideshare">Rideshare</span>
-                        </>
-                      ) : (
-                        <span className="garage-tag">Deliveries only</span>
-                      )}
-                    </span>
-                    {vehicle.tankL > 0 ? (
-                      <span className="garage-card-fuel">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18" />
-                          <path d="M2 22h13" />
-                          <path d="M13 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3" />
-                          <path d="M6 8h4" />
-                        </svg>
-                        {vehicle.tankL} L tank
-                      </span>
-                    ) : (
-                      <span className="garage-card-fuel green">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
-                          <path d="M2 21c0-3 1.85-5.36 5.08-6" />
-                        </svg>
-                        No fuel needed
-                      </span>
-                    )}
-                  </span>
                 </span>
-                <span className="garage-card-foot">
-                  <span className="garage-card-foot-label">
-                    {active ? (
-                      <span className="garage-card-today">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-                        TODAY&apos;S RIDE
+                <span className="garage-card-body">
+                  <span className="garage-card-info">
+                    <span className="garage-card-heading">
+                      <span className="garage-card-titles">
+                        <span className="garage-card-name">{vehicle.name}</span>
+                        {owned ? (
+                          <span className="garage-card-rent owned">
+                            {vehicle.owned ? "Yours · no rent" : "Owned — no rent"}
+                          </span>
+                        ) : (
+                          <span className="garage-card-rent">
+                            {formatMoney(rent, country)}
+                            <em> / day</em>
+                          </span>
+                        )}
                       </span>
-                    ) : disabled ? (
-                      <span className="garage-card-cant">{lockedReason}</span>
-                    ) : affordable ? (
-                      <span className="garage-card-choose">Choose this ride</span>
-                    ) : (
-                      <span className="garage-card-cant">
-                        Rent&apos;s out of reach today
-                      </span>
-                    )}
-                  </span>
-                  {!disabled && (
-                    <span
-                      className={`garage-card-dot${active ? " on" : ""}`}
-                      aria-hidden="true"
-                    >
-                      {active ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-                      ) : (
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+                      {/* Mobile's selection mark; desktop says it in words. */}
+                      {active && (
+                        <span className="garage-card-dot" aria-hidden="true">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                        </span>
                       )}
                     </span>
-                  )}
+                    <span className="garage-card-meta">
+                      <span className={`garage-tag${rideshare ? " rideshare" : ""}`}>
+                        {rideshare ? "Deliveries + Rideshare" : "Deliveries only"}
+                      </span>
+                      {vehicle.tankL > 0 ? (
+                        <span className="garage-card-fuel">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18" />
+                            <path d="M2 22h13" />
+                            <path d="M13 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3" />
+                            <path d="M6 8h4" />
+                          </svg>
+                          {vehicle.tankL} L tank
+                        </span>
+                      ) : (
+                        /* Only the leaf goes green — the label stays as quiet as
+                           every other card's, so the row scans as one column. */
+                        <span className="garage-card-fuel">
+                          <svg className="green" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+                            <path d="M2 21c0-3 1.85-5.36 5.08-6" />
+                          </svg>
+                          No fuel needed
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                  {status && <span className="garage-card-foot">{status}</span>}
                 </span>
               </span>
             </button>
-            {/* Buying is per card, not per selection: every eligible vehicle
-                shows its own price, and the only gate is cash on hand. */}
-            {vehicle.buyoutEligible &&
-              (owned ? (
-                <span className="garage-card-buy owned">✓ Yours</span>
-              ) : (
-                <button
-                  type="button"
-                  className="garage-card-buy"
-                  data-testid={`garage-buy-${vehicle.id}`}
-                  disabled={!buyable}
-                  onClick={() => onBuy(vehicle.id)}
-                >
-                  Buy · {formatMoney(price, country)}
-                </button>
-              ))}
+            {showActions && (
+              <div className="garage-card-actions">
+                {/* Redundant with tapping the card, which also selects — but the
+                    card gives no visible affordance without it. */}
+                {canChoose && (
+                  <button
+                    type="button"
+                    className="garage-card-choose"
+                    aria-label={`Choose ${vehicle.name}`}
+                    onClick={() => onSelect(vehicle.id)}
+                  >
+                    Choose this ride
+                  </button>
+                )}
+                {showBuy && (
+                  <button
+                    type="button"
+                    className="garage-card-buy"
+                    data-testid={`garage-buy-${vehicle.id}`}
+                    disabled={!buyable}
+                    onClick={() => onBuy(vehicle.id)}
+                  >
+                    Buy · {formatMoney(price, country)}
+                  </button>
+                )}
+              </div>
+            )}
             </div>
           );
         })}
@@ -300,28 +315,44 @@ export function GarageView({
             Anything unpaid rolls into a loan (+15%).
           </div>
         </div>
+        {/* DOM order is the mobile reading order: travel scrolls with the page,
+            then the bar pins to the bottom carrying what the day costs and the
+            two ways out of it. Desktop reorders these into one column. */}
         <div className="garage-actions">
-          <button
-            type="button"
-            className="garage-start"
-            data-testid="garage-start-day"
-            disabled={!selectedStartable}
-            onClick={() => onStartDay(selectedVehicleId)}
-          >
-            Start Day {city.day}
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-          </button>
           <button
             type="button"
             className="garage-travel"
             data-testid="garage-travel"
             onClick={onTravel}
           >
-            ✈ Travel · {cityName}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17.8 19.2 16 11l3.5-3.5a2.1 2.1 0 0 0-3-3L13 8 4.8 6.2a1 1 0 0 0-.9 1.7l4 3.1-2.4 2.4H3.2a.8.8 0 0 0-.5 1.4l2.2 1.6 1.6 2.2a.8.8 0 0 0 1.4-.5v-2.3l2.4-2.4 3.1 4a1 1 0 0 0 1.7-.9Z" />
+            </svg>
+            Travel · {cityName}
           </button>
-          <button type="button" className="garage-abandon" onClick={onAbandon}>
-            Abandon career
-          </button>
+          <div className="garage-dock">
+            {/* The obligations panel scrolls away on mobile; the bar keeps the
+                number that decides whether to start the day at all. */}
+            <div className="garage-dock-due">
+              <span className="garage-dock-label">DUE TODAY</span>
+              <span className="garage-dock-value">
+                {formatMoney(dueToday, country)} · {selected?.name ?? "—"}
+              </span>
+            </div>
+            <button type="button" className="garage-abandon" onClick={onAbandon}>
+              Abandon career
+            </button>
+            <button
+              type="button"
+              className="garage-start"
+              data-testid="garage-start-day"
+              disabled={!selectedStartable}
+              onClick={() => onStartDay(selectedVehicleId)}
+            >
+              Start Day {city.day}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+            </button>
+          </div>
         </div>
       </div>
     </section>
