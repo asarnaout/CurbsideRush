@@ -18,7 +18,13 @@ export async function generateMetadata(): Promise<Metadata> {
       "A low-poly open-world 3D driving game — run deliveries and passenger fares across five world cities, each with its own currency and side of the road.",
     applicationName: "Curbside Rush",
     icons: {
-      icon: "/favicon.svg",
+      // Versioned deliberately. favicon.svg was byte-identical from the repo's
+      // first commit until the mark finally replaced the pre-rebrand SideSwap
+      // icon, so every returning visitor has the old one cached — and browsers
+      // cache favicons far more stubbornly than pages, past a hard reload and
+      // often past an incognito window. A changed URL is the only bust they
+      // cannot ignore. Bump this whenever the icon's artwork changes.
+      icon: "/favicon.svg?v=2",
     },
     keywords: [
       "driving game",
