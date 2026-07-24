@@ -6,19 +6,26 @@ import { useState } from "react";
 // end-of-day ledger, and the career-over report. Props-pure — everything they
 // show arrives as data, so tests render them directly without the app shell.
 
-import type { CountryProfile } from "./game/types";
+import type { CountryProfile, DestinationId } from "./game/types";
 import { formatMoney } from "./game/content";
 import {
+  activeCity,
   BUYOUT_RENT_MULTIPLIER,
+  buyableVehicles,
   buyoutPrice,
-  canBuyout,
+  canBuyVehicle,
+  CAREER_CITIES,
   CAREER_STARTING_CASH_BY_COUNTRY,
   CAREER_VEHICLES,
   getCareerVehicle,
+  nextCareerCity,
   nextInstallment,
   PLATFORM_FEE_BY_COUNTRY,
+  ticketPrice,
+  ownsVehicle,
   vehicleRent,
-  type CareerSliceV1,
+  type CareerCityView,
+  type CareerSliceV2,
   type CareerVehicleId,
   type CareerVehicleSpec,
   type LedgerLine,
@@ -57,6 +64,8 @@ const BANNER_KINDS = new Set<LedgerLine["kind"]>([
   "bankruptcy",
 ]);
 
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
 const cardStyle: React.CSSProperties = {
   borderRadius: "1rem",
   border: "1px solid rgba(255,255,255,0.12)",
@@ -67,32 +76,40 @@ const cardStyle: React.CSSProperties = {
 
 export function GarageView({
   slice,
+  city,
   country,
   selectedVehicleId,
   lockedVehicles,
   onSelect,
   onStartDay,
-  onBuyout,
+  onBuy,
+  onTravel,
   onAbandon,
+  cityName,
 }: {
-  slice: CareerSliceV1;
+  slice: CareerSliceV2;
+  /** The city being played: all money, rent and debt come from here. */
+  city: CareerCityView;
   country: CountryProfile;
   selectedVehicleId: CareerVehicleId;
   /** Vehicles present but not yet playable, with the reason shown on the card. */
   lockedVehicles: Readonly<Partial<Record<CareerVehicleId, string>>>;
   onSelect: (id: CareerVehicleId) => void;
   onStartDay: (id: CareerVehicleId) => void;
-  onBuyout: (id: CareerVehicleId) => void;
+  onBuy: (id: CareerVehicleId) => void;
+  onTravel: () => void;
   onAbandon: () => void;
+  /** Where the driver is, shown on the travel button. */
+  cityName: string;
 }) {
   const selected = CAREER_VEHICLES.find(
     (vehicle) => vehicle.id === selectedVehicleId,
   );
-  const selectedRent = selected ? vehicleRent(selected, slice) : 0;
+  const selectedRent = selected ? vehicleRent(selected, city) : 0;
   const selectedLocked = Boolean(lockedVehicles[selectedVehicleId]);
-  const selectedStartable = !selectedLocked && slice.cash >= selectedRent;
+  const selectedStartable = !selectedLocked && city.cash >= selectedRent;
   const fee = PLATFORM_FEE_BY_COUNTRY[country.id];
-  const installment = slice.loan ? nextInstallment(slice.loan) : 0;
+  const installment = city.loan ? nextInstallment(city.loan) : 0;
   const dueToday = selectedRent + fee + installment;
   return (
     <section className="garage-page" aria-label="Career garage">
@@ -100,7 +117,7 @@ export function GarageView({
         <div className="garage-head-copy">
           <p className="garage-eyebrow">
             <span className="garage-eyebrow-dot" aria-hidden="true" />
-            CAREER · DAY {slice.day}
+            CAREER · DAY {city.day}
           </p>
           <h1>Pick today&apos;s ride.</h1>
           <p className="garage-sub">
@@ -111,23 +128,29 @@ export function GarageView({
         <div className="garage-cash">
           <span className="garage-cash-label">CASH ON HAND</span>
           <span className="garage-cash-value" data-testid="garage-cash">
-            {formatMoney(slice.cash, country)}
+            {formatMoney(city.cash, country)}
           </span>
         </div>
       </div>
 
       <div className="garage-fleet" role="group" aria-label="Vehicles">
         {CAREER_VEHICLES.map((vehicle) => {
-          const rent = vehicleRent(vehicle, slice);
+          const rent = vehicleRent(vehicle, city);
           const lockedReason = lockedVehicles[vehicle.id];
-          const affordable = slice.cash >= rent;
-          const disabled = Boolean(lockedReason) || !affordable;
+          const affordable = city.cash >= rent;
+          // Only a locked vehicle is unselectable. Not being able to afford
+          // *today's rent* must not hide the card, because the buy price is
+          // reached long before that stops mattering — an unselectable card was
+          // exactly what made vehicles look un-purchasable.
+          const disabled = Boolean(lockedReason);
           const active = selectedVehicleId === vehicle.id;
           const rideshare = vehicle.allowedGigKinds.includes("passenger");
-          const owned = vehicle.owned || slice.ownedVehicleId === vehicle.id;
+          const owned = ownsVehicle(city, vehicle);
+          const price = buyoutPrice(vehicle, city.countryId);
+          const buyable = canBuyVehicle(slice, vehicle);
           return (
+            <div className="garage-slot" key={vehicle.id}>
             <button
-              key={vehicle.id}
               type="button"
               data-testid={`garage-vehicle-${vehicle.id}`}
               className={`garage-card${active ? " active" : ""}${disabled ? " locked" : ""}`}
@@ -202,11 +225,13 @@ export function GarageView({
                         TODAY&apos;S RIDE
                       </span>
                     ) : disabled ? (
-                      <span className="garage-card-cant">
-                        {lockedReason ?? "Can't afford today"}
-                      </span>
-                    ) : (
+                      <span className="garage-card-cant">{lockedReason}</span>
+                    ) : affordable ? (
                       <span className="garage-card-choose">Choose this ride</span>
+                    ) : (
+                      <span className="garage-card-cant">
+                        Rent&apos;s out of reach today
+                      </span>
                     )}
                   </span>
                   {!disabled && (
@@ -224,12 +249,29 @@ export function GarageView({
                 </span>
               </span>
             </button>
+            {/* Buying is per card, not per selection: every eligible vehicle
+                shows its own price, and the only gate is cash on hand. */}
+            {vehicle.buyoutEligible &&
+              (owned ? (
+                <span className="garage-card-buy owned">✓ Yours</span>
+              ) : (
+                <button
+                  type="button"
+                  className="garage-card-buy"
+                  data-testid={`garage-buy-${vehicle.id}`}
+                  disabled={!buyable}
+                  onClick={() => onBuy(vehicle.id)}
+                >
+                  Buy · {formatMoney(price, country)}
+                </button>
+              ))}
+            </div>
           );
         })}
       </div>
 
       <div className="garage-footer">
-        <GarageFreedom slice={slice} country={country} />
+        <GarageFreedom slice={slice} city={city} country={country} />
         <div className="garage-panel garage-obligations" data-testid="garage-forecast">
           <div className="garage-panel-label coral">TONIGHT&apos;S OBLIGATIONS</div>
           <div className="garage-ob-row">
@@ -242,7 +284,7 @@ export function GarageView({
             <span>Platform fee</span>
             <strong>{formatMoney(fee, country)}</strong>
           </div>
-          {slice.loan && (
+          {city.loan && (
             <div className="garage-ob-row" data-testid="forecast-installment">
               <span>Loan installment</span>
               <strong>{formatMoney(installment, country)}</strong>
@@ -258,17 +300,6 @@ export function GarageView({
           </div>
         </div>
         <div className="garage-actions">
-          {selected && canBuyout(slice, selected) && (
-            <button
-              type="button"
-              className="garage-buyout"
-              data-testid="garage-buyout"
-              onClick={() => onBuyout(selectedVehicleId)}
-            >
-              Buy the {selected.name.toLowerCase()} outright —{" "}
-              {formatMoney(buyoutPrice(selected, slice.countryId), country)}
-            </button>
-          )}
           <button
             type="button"
             className="garage-start"
@@ -276,8 +307,16 @@ export function GarageView({
             disabled={!selectedStartable}
             onClick={() => onStartDay(selectedVehicleId)}
           >
-            Start Day {slice.day}
+            Start Day {city.day}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+          </button>
+          <button
+            type="button"
+            className="garage-travel"
+            data-testid="garage-travel"
+            onClick={onTravel}
+          >
+            ✈ Travel · {cityName}
           </button>
           <button type="button" className="garage-abandon" onClick={onAbandon}>
             Abandon career
@@ -296,144 +335,138 @@ export function GarageView({
  */
 function GarageFreedom({
   slice,
+  city,
   country,
 }: {
-  slice: CareerSliceV1;
+  slice: CareerSliceV2;
+  city: CareerCityView;
   country: CountryProfile;
 }) {
   if (slice.state === "won") {
     return (
       <div className="garage-panel garage-freedom won" data-testid="victory-banner">
-        <div className="garage-panel-label green">🏁 FREEDOM BOUGHT</div>
+        <div className="garage-panel-label green">🏁 THE WHOLE MAP</div>
         <div className="garage-freedom-copy">
-          You bought your own wheels on day {slice.victoryDay}. The daily
-          treadmill is beaten — keep driving for the records.
+          Every city, every vehicle, bought outright on day {slice.victoryDay}.
+          There is nothing left to owe anyone — keep driving for the records.
         </div>
       </div>
     );
   }
-  if (slice.finalNotice) {
+  if (city.finalNotice) {
     return (
       <div className="garage-panel garage-freedom notice" role="alert">
         <div className="garage-panel-label coral">⚠ FINAL NOTICE</div>
         <div className="garage-freedom-copy">
-          End another day short while owing and the career is over — clear the
-          books tonight.
+          End another day short while owing and this city wipes — cash, debts
+          and the fleet you bought here. Clear the books tonight.
         </div>
       </div>
     );
   }
-  if (slice.loan) {
+  if (city.loan) {
     return (
       <div className="garage-panel garage-freedom debt">
         <div className="garage-panel-label coral">OUTSTANDING DEBT</div>
         <div className="garage-freedom-copy">
-          You owe {formatMoney(slice.loan.principalRemaining, country)} over{" "}
-          {slice.loan.daysRemaining}{" "}
-          {slice.loan.daysRemaining === 1 ? "day" : "days"} — tonight&apos;s
-          installment is {formatMoney(nextInstallment(slice.loan), country)}.
+          You owe {formatMoney(city.loan.principalRemaining, country)} over{" "}
+          {city.loan.daysRemaining}{" "}
+          {city.loan.daysRemaining === 1 ? "day" : "days"} — tonight&apos;s
+          installment is {formatMoney(nextInstallment(city.loan), country)}.
         </div>
       </div>
     );
   }
-  const cheapest = CAREER_VEHICLES.filter((v) => v.buyoutEligible).reduce(
-    (best, v) =>
-      buyoutPrice(v, slice.countryId) < buyoutPrice(best, slice.countryId)
-        ? v
-        : best,
-  );
-  const price = buyoutPrice(cheapest, slice.countryId);
-  const fraction = Math.max(0, Math.min(1, slice.cash / price));
-  const remaining = Math.max(0, price - slice.cash);
-  return (
-    <div className="garage-panel garage-freedom" data-testid="buyout-fund">
-      <div className="garage-panel-head">
-        <span className="garage-panel-label">BUY YOUR FREEDOM</span>
-        <span className="garage-panel-note">
-          own the {cheapest.name.toLowerCase()} · {BUYOUT_RENT_MULTIPLIER}× its rent
-        </span>
-      </div>
-      <p className="garage-freedom-copy">
-        Buy a vehicle outright and the daily rent treadmill is beaten for good.
-      </p>
-      <div className="garage-bar">
-        <i style={{ width: `${fraction * 100}%` }} />
-      </div>
-      <div className="garage-freedom-foot">
-        <span>
-          {formatMoney(slice.cash, country)}
-          <em> / {formatMoney(price, country)}</em>
-        </span>
-        <span>
-          {remaining > 0
-            ? `${formatMoney(remaining, country)} to go`
-            : "Ready to buy"}
-        </span>
-      </div>
-    </div>
-  );
+  return <CareerGoal slice={slice} city={city} country={country} />;
 }
 
 /**
- * The run's finish line, kept visible from day 1 (research: all-loss ledgers
- * burn players out — show the escape route). Progress toward the cheapest
- * eligible buyout; hidden once won, while indebted, or under notice.
+ * What you are saving for here: the onward ticket while one is unbought, and
+ * the city's remaining fleet once the flight is behind you (or there is no
+ * flight left to take). Kept visible from day 1 — an all-loss ledger with no
+ * stated escape route is what burns players out.
  */
-export function BuyoutFund({
+export function CareerGoal({
   slice,
+  city,
   country,
 }: {
-  slice: CareerSliceV1;
+  slice: CareerSliceV2;
+  city: CareerCityView;
   country: CountryProfile;
 }) {
-  if (slice.state !== "active" || slice.loan || slice.finalNotice) return null;
-  const cheapest = CAREER_VEHICLES.filter(
-    (vehicle) => vehicle.buyoutEligible,
-  ).reduce((best, vehicle) =>
-    buyoutPrice(vehicle, slice.countryId) < buyoutPrice(best, slice.countryId)
-      ? vehicle
-      : best,
+  const onward = nextCareerCity(city.destinationId);
+  const price = ticketPrice(city.destinationId);
+  const ticketOutstanding =
+    onward !== null && price !== null && slice.cities[onward] === undefined;
+
+  if (ticketOutstanding) {
+    const remaining = Math.max(0, price - city.cash);
+    return (
+      <div className="garage-panel garage-freedom" data-testid="career-goal">
+        <div className="garage-panel-head">
+          <span className="garage-panel-label">THE WAY OUT</span>
+          <span className="garage-panel-note">one-way ticket</span>
+        </div>
+        <p className="garage-freedom-copy">
+          Buy the flight and start again somewhere new — or stay and keep
+          building here. Entirely your call.
+        </p>
+        <div className="garage-bar">
+          <i style={{ width: `${clamp01(city.cash / price) * 100}%` }} />
+        </div>
+        <div className="garage-freedom-foot">
+          <span>
+            {formatMoney(city.cash, country)}
+            <em> / {formatMoney(price, country)}</em>
+          </span>
+          <span>
+            {remaining > 0
+              ? `${formatMoney(remaining, country)} to go`
+              : "Ready to fly"}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const buyable = buyableVehicles();
+  const owned = buyable.filter((vehicle) =>
+    city.ownedVehicleIds.includes(vehicle.id),
+  ).length;
+  const nextBuy = buyable.find(
+    (vehicle) => !city.ownedVehicleIds.includes(vehicle.id),
   );
-  const price = buyoutPrice(cheapest, slice.countryId);
-  const fraction = Math.max(0, Math.min(1, slice.cash / price));
+  const target = nextBuy ? buyoutPrice(nextBuy, city.countryId) : 0;
   return (
-    <div
-      style={{ ...cardStyle, marginTop: "1rem" }}
-      data-testid="buyout-fund"
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "1rem",
-          marginBottom: "0.4rem",
-        }}
-      >
-        <strong>Buy your freedom</strong>
-        <span>
-          {formatMoney(slice.cash, country)} / {formatMoney(price, country)}
+    <div className="garage-panel garage-freedom" data-testid="career-goal">
+      <div className="garage-panel-head">
+        <span className="garage-panel-label">OWN THE FLEET</span>
+        <span className="garage-panel-note">
+          {owned}/{buyable.length} here
         </span>
       </div>
-      <div
-        style={{
-          height: "0.5rem",
-          borderRadius: "999px",
-          background: "rgba(255,255,255,0.16)",
-          overflow: "hidden",
-        }}
-      >
-        <div
+      <p className="garage-freedom-copy">
+        {nextBuy
+          ? `Own every vehicle in every city to beat the game. Next up here: the ${nextBuy.name.toLowerCase()}.`
+          : "This city's fleet is complete. Finish the others to beat the game."}
+      </p>
+      <div className="garage-bar">
+        <i
           style={{
-            height: "100%",
-            width: `${fraction * 100}%`,
-            background: "#f2c658",
+            width: `${
+              (nextBuy ? clamp01(city.cash / target) : 1) * 100
+            }%`,
           }}
         />
       </div>
-      <small style={{ opacity: 0.7 }}>
-        Own the {cheapest.name.toLowerCase()} outright (
-        {BUYOUT_RENT_MULTIPLIER}× its rent) and the daily treadmill is beaten.
-      </small>
+      <div className="garage-freedom-foot">
+        <span>
+          {formatMoney(city.cash, country)}
+          {nextBuy && <em> / {formatMoney(target, country)}</em>}
+        </span>
+        <span>{nextBuy ? nextBuy.name : "Complete"}</span>
+      </div>
     </div>
   );
 }
@@ -441,13 +474,16 @@ export function BuyoutFund({
 export function LedgerView({
   result,
   slice,
+  city,
   country,
   reducedMotion,
   onContinue,
 }: {
   result: SettlementResult;
   /** The slice AFTER settlement (already advanced to the next day). */
-  slice: CareerSliceV1;
+  slice: CareerSliceV2;
+  /** That slice's active city, likewise post-settlement. */
+  city: CareerCityView;
   country: CountryProfile;
   reducedMotion: boolean;
   onContinue: () => void;
@@ -460,7 +496,7 @@ export function LedgerView({
     <section className="subpage" aria-label="End of day ledger">
       <div className="subpage-heading">
         <div>
-          <p className="eyebrow">CAREER · DAY {slice.day - 1} COMPLETE</p>
+          <p className="eyebrow">CAREER · DAY {city.day - 1} COMPLETE</p>
           <h1>The day&apos;s reckoning.</h1>
         </div>
       </div>
@@ -534,15 +570,15 @@ export function LedgerView({
           shortfall ends the career.
         </div>
       )}
-      {slice.loan && result.outcome !== "final_notice" && (
+      {city.loan && result.outcome !== "final_notice" && (
         <p style={{ marginTop: "0.9rem", opacity: 0.85 }}>
-          Outstanding debt {formatMoney(slice.loan.principalRemaining, country)}{" "}
+          Outstanding debt {formatMoney(city.loan.principalRemaining, country)}{" "}
           — next installment{" "}
-          {formatMoney(nextInstallment(slice.loan), country)}.
+          {formatMoney(nextInstallment(city.loan), country)}.
         </p>
       )}
       <div style={{ maxWidth: "30rem" }}>
-        <BuyoutFund slice={slice} country={country} />
+        <CareerGoal slice={slice} city={city} country={country} />
       </div>
       <div className="settings-actions" style={{ marginTop: "1.1rem" }}>
         <button
@@ -551,7 +587,7 @@ export function LedgerView({
           data-testid="ledger-continue"
           onClick={onContinue}
         >
-          Continue to Day {slice.day} →
+          Continue to Day {city.day} →
         </button>
       </div>
     </section>
@@ -559,19 +595,20 @@ export function LedgerView({
 }
 
 export function CareerOverView({
-  slice,
+  city,
+  cityName,
   country,
-  onRestart,
-  onMenu,
+  onContinue,
 }: {
-  slice: CareerSliceV1;
+  /** The city as it stood the morning of the day that broke it. */
+  city: CareerCityView;
+  cityName: string;
   country: CountryProfile;
-  onRestart: () => void;
-  onMenu: () => void;
+  onContinue: () => void;
 }) {
-  const stats = slice.stats;
+  const stats = city.stats;
   const rows: readonly (readonly [string, string])[] = [
-    ["Days survived", String(stats.daysCompleted)],
+    ["Days worked here", String(stats.daysCompleted)],
     ["Gigs completed", String(stats.gigsCompleted)],
     ["On-time deliveries", String(stats.gigsOnTime)],
     ["Gross earned", formatMoney(stats.grossEarned, country)],
@@ -584,11 +621,13 @@ export function CareerOverView({
     <section className="subpage" aria-label="Career over">
       <div className="subpage-heading">
         <div>
-          <p className="eyebrow">CAREER OVER</p>
-          <h1>The bank called it.</h1>
+          <p className="eyebrow">WIPED OUT</p>
+          <h1>{cityName} took everything.</h1>
           <p>
-            Day {slice.day} ended {formatMoney(slice.cash, country)} short with
-            nothing left to borrow.
+            The bank called it on day {city.day}. Your {cityName} fleet is
+            repossessed and you start over here on{" "}
+            {formatMoney(CAREER_STARTING_CASH_BY_COUNTRY[city.countryId], country)}
+            {" "}— but only here. Every other city is exactly as you left it.
           </p>
         </div>
       </div>
@@ -608,24 +647,19 @@ export function CareerOverView({
           </div>
         ))}
       </div>
-      <div className="settings-actions" style={{ marginTop: "1.1rem", display: "flex", gap: "0.75rem" }}>
-        <button type="button" className="secondary-button" onClick={onMenu}>
-          Back to menu
-        </button>
+      <div className="settings-actions" style={{ marginTop: "1.1rem" }}>
         <button
           type="button"
           className="primary-button"
-          data-testid="career-restart"
-          onClick={onRestart}
+          data-testid="career-continue-after-wipe"
+          onClick={onContinue}
         >
-          Start a new career
+          Start again in {cityName}
         </button>
       </div>
     </section>
   );
 }
-
-const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 /** The launcher career card's display fields. Kept flat so the card only lays out. */
 export interface CareerCardModel {
@@ -655,19 +689,20 @@ export interface CareerCardModel {
  * the buyout, which is the actual win.
  */
 export function careerCardModel(
-  slice: CareerSliceV1 | null,
+  slice: CareerSliceV2 | null,
+  city: CareerCityView | null,
   country: CountryProfile,
   garageVehicleId: CareerVehicleId,
 ): CareerCardModel {
   const startingCash = CAREER_STARTING_CASH_BY_COUNTRY[country.id];
-  const day = slice?.day ?? 1;
-  const cash = slice?.cash ?? startingCash;
-  const ownedId = slice?.ownedVehicleId ?? null;
+  const day = city?.day ?? 1;
+  const cash = city?.cash ?? startingCash;
+  const ownedIds = city?.ownedVehicleIds ?? [];
   const won = slice?.state === "won";
-  const loan = slice?.loan ?? null;
+  const loan = city?.loan ?? null;
 
-  const drivingSpec = getCareerVehicle(ownedId ?? garageVehicleId);
-  const ownsDriving = drivingSpec.owned || ownedId === drivingSpec.id;
+  const drivingSpec = getCareerVehicle(ownedIds[0] ?? garageVehicleId);
+  const ownsDriving = drivingSpec.owned || ownedIds.includes(drivingSpec.id);
   const driving = {
     name: drivingSpec.name,
     badge: (ownsDriving ? "OWNED" : "RENTED") as "OWNED" | "RENTED",
@@ -687,7 +722,7 @@ export function careerCardModel(
   }
 
   const rentOf = (vehicle: CareerVehicleSpec): number =>
-    vehicle.owned || ownedId === vehicle.id
+    vehicle.owned || ownedIds.includes(vehicle.id)
       ? 0
       : vehicle.rentByCountry[country.id];
   const cheapestBuyout = CAREER_VEHICLES.filter((v) => v.buyoutEligible).reduce(
@@ -696,7 +731,7 @@ export function careerCardModel(
   );
   const buyoutCost = buyoutPrice(cheapestBuyout, country.id);
   const nextRental = CAREER_VEHICLES.filter(
-    (v) => v.id !== "bicycle" && !v.owned && ownedId !== v.id && rentOf(v) > cash,
+    (v) => v.id !== "bicycle" && !v.owned && !ownedIds.includes(v.id) && rentOf(v) > cash,
   ).sort((a, b) => rentOf(a) - rentOf(b))[0];
 
   let bar: CareerCardModel["bar"];
@@ -843,24 +878,23 @@ export function CareerLauncherCard({ model }: { model: CareerCardModel }) {
  */
 export function CareerSetupPanel({
   career,
+  city,
   cityName,
   country,
   garageVehicleId,
   onStartCareer,
   onContinue,
-  onViewLastRun,
   onResetCorrupt,
-  onStartFresh,
 }: {
-  career: CareerSliceV1 | { state: "corrupt" } | null;
+  career: CareerSliceV2 | { state: "corrupt" } | null;
+  /** The active city of `career`, or null before one exists. */
+  city: CareerCityView | null;
   cityName: string;
   country: CountryProfile;
   garageVehicleId: CareerVehicleId;
   onStartCareer: () => void;
   onContinue: () => void;
-  onViewLastRun: () => void;
   onResetCorrupt: () => void;
-  onStartFresh: () => void;
 }) {
   if (career && career.state === "corrupt") {
     return (
@@ -879,32 +913,10 @@ export function CareerSetupPanel({
       </div>
     );
   }
-  if (career && career.state === "over") {
-    return (
-      <div className="launcher-actions" data-testid="career-finished">
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={onViewLastRun}
-        >
-          View last run — Day {career.day}
-        </button>
-        <button
-          type="button"
-          className="primary-button launcher-primary"
-          data-testid="career-start"
-          onClick={onStartFresh}
-        >
-          Start a new career
-          <span aria-hidden="true">→</span>
-        </button>
-      </div>
-    );
-  }
-  // Corrupt and over handled above, so `career` is now an active/won slice or
-  // null (a fresh start) — both drive the card, one live and one as a preview.
-  const slice: CareerSliceV1 | null = career;
-  const model = careerCardModel(slice, country, garageVehicleId);
+  // Corrupt handled above, so `career` is now a live slice or null (a fresh
+  // start) — both drive the card, one live and one as a preview.
+  const slice: CareerSliceV2 | null = career;
+  const model = careerCardModel(slice, city, country, garageVehicleId);
   return (
     <div
       className="career-launcher"
@@ -919,7 +931,7 @@ export function CareerSetupPanel({
             data-testid="career-continue"
             onClick={onContinue}
           >
-            Continue shift · Day {slice.day}
+            Continue shift · Day {city?.day ?? 1}
             <span aria-hidden="true">→</span>
           </button>
         ) : (
@@ -935,5 +947,156 @@ export function CareerSetupPanel({
         )}
       </div>
     </div>
+  );
+}
+
+/** One row of the travel board: a ladder city and what you can do with it. */
+export interface TravelStop {
+  readonly destinationId: DestinationId;
+  readonly name: string;
+  readonly countryName: string;
+  readonly flagEmoji: string;
+  readonly state: "here" | "unlocked" | "next" | "locked";
+  /** Cash and fleet waiting there, for a city already reached. */
+  readonly waiting: { readonly cash: string; readonly vehicles: number } | null;
+  /** Ticket price from the *current* city, on the "next" row only. */
+  readonly ticket: string | null;
+  readonly affordable: boolean;
+}
+
+/**
+ * Derives the travel board from the career. Pure (money formatted here) so the
+ * copy is unit-testable without rendering, in the style of careerCardModel.
+ */
+export function travelBoard(
+  slice: CareerSliceV2,
+  countryOf: (destinationId: DestinationId) => CountryProfile,
+  nameOf: (destinationId: DestinationId) => string,
+): readonly TravelStop[] {
+  const here = activeCity(slice);
+  const onward = nextCareerCity(here.destinationId);
+  const price = ticketPrice(here.destinationId);
+  return CAREER_CITIES.map((destinationId) => {
+    const country = countryOf(destinationId);
+    const reached = slice.cities[destinationId];
+    const state: TravelStop["state"] =
+      destinationId === here.destinationId
+        ? "here"
+        : reached
+          ? "unlocked"
+          : destinationId === onward
+            ? "next"
+            : "locked";
+    return {
+      destinationId,
+      name: nameOf(destinationId),
+      countryName: country.countryName,
+      flagEmoji: country.flagEmoji,
+      state,
+      waiting: reached
+        ? {
+            cash: formatMoney(reached.cash, country),
+            vehicles: reached.ownedVehicleIds.length,
+          }
+        : null,
+      ticket:
+        state === "next" && price !== null
+          ? formatMoney(price, countryOf(here.destinationId))
+          : null,
+      affordable: state === "next" && price !== null && here.cash >= price,
+    };
+  });
+}
+
+/**
+ * The travel board: every city on the career ladder, the ones you have reached
+ * (free to fly back to, with whatever you left there still waiting), and the
+ * one onward ticket you can buy. Moving on is always optional — this page is
+ * reachable from the garage and never forces a choice.
+ */
+export function TravelView({
+  stops,
+  onGoTo,
+  onBuyTicket,
+  onBack,
+}: {
+  stops: readonly TravelStop[];
+  onGoTo: (destinationId: DestinationId) => void;
+  onBuyTicket: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <section className="subpage" aria-label="Travel">
+      <div className="subpage-heading">
+        <div>
+          <p className="eyebrow">CAREER · TRAVEL</p>
+          <h1>Where are you working?</h1>
+          <p>
+            Money and vehicles stay in the city you earned them in. Fly back any
+            time — everything you left is still there.
+          </p>
+        </div>
+      </div>
+
+      <ol className="travel-board" data-testid="travel-board">
+        {stops.map((stop) => (
+          <li
+            key={stop.destinationId}
+            className={`travel-stop ${stop.state}`}
+            data-testid={`travel-${stop.destinationId}`}
+          >
+            <span className="travel-flag" aria-hidden="true">
+              {stop.flagEmoji}
+            </span>
+            <span className="travel-copy">
+              <strong>{stop.name}</strong>
+              <small>
+                {stop.state === "here" && "You're here"}
+                {stop.state === "unlocked" &&
+                  stop.waiting &&
+                  `${stop.waiting.cash} waiting · ${stop.waiting.vehicles} owned`}
+                {stop.state === "next" && `Ticket ${stop.ticket}`}
+                {stop.state === "locked" && "Locked"}
+              </small>
+            </span>
+            {stop.state === "unlocked" && (
+              <button
+                type="button"
+                className="travel-action"
+                data-testid={`travel-go-${stop.destinationId}`}
+                onClick={() => onGoTo(stop.destinationId)}
+              >
+                Fly here
+              </button>
+            )}
+            {stop.state === "next" && (
+              <button
+                type="button"
+                className="travel-action buy"
+                data-testid="travel-buy-ticket"
+                disabled={!stop.affordable}
+                onClick={onBuyTicket}
+              >
+                Buy ticket
+              </button>
+            )}
+            {stop.state === "here" && (
+              <span className="travel-action current">✓</span>
+            )}
+          </li>
+        ))}
+      </ol>
+
+      <div className="settings-actions" style={{ marginTop: "1.1rem" }}>
+        <button
+          type="button"
+          className="primary-button"
+          data-testid="travel-back"
+          onClick={onBack}
+        >
+          Back to the garage
+        </button>
+      </div>
+    </section>
   );
 }

@@ -32,7 +32,7 @@ export const LOAN_ORIGINATION_RATE = 0.15;
 /** Settlements a loan spans; installments are ceil(principal / days left). */
 export const LOAN_TERM_DAYS = 3;
 
-/** Buying out a rental costs this many days of its rent. */
+/** Buying a vehicle outright costs this many days of its rent. */
 export const BUYOUT_RENT_MULTIPLIER = 15;
 
 /** Roadside rescue refills the whole tank at this premium over pump price. */
@@ -46,6 +46,61 @@ export const ROADSIDE_PRICE_FACTOR = 1.5;
 export const PAR_BASE_SPEED_MPS = 8;
 export const PAR_SLACK = 1.9;
 export const PAR_MIN_MS = 45_000;
+
+/**
+ * The career route, in order — **this array is the whole route**. Reorder it,
+ * add a city, drop one, and the start city, the unlock order, which ticket goes
+ * where and what the travel page lists all follow from it. Nothing else encodes
+ * the sequence.
+ *
+ * Milton Keynes and Calais are deliberately absent: both remain free-drive
+ * cities, they are just not part of the career.
+ */
+export const CAREER_CITIES: readonly DestinationId[] = [
+  "us-nyc",
+  "jp-tokyo",
+  "uk-london",
+];
+
+/** Where every career begins. */
+export const CAREER_START_CITY: DestinationId = CAREER_CITIES[0];
+
+/** Position on the ladder, or -1 for a city the career never visits. */
+export function careerCityIndex(destinationId: DestinationId): number {
+  return CAREER_CITIES.indexOf(destinationId);
+}
+
+export function isCareerCity(destinationId: DestinationId): boolean {
+  return careerCityIndex(destinationId) >= 0;
+}
+
+/** The city a ticket from here would fly to, or null at the end of the ladder. */
+export function nextCareerCity(
+  destinationId: DestinationId,
+): DestinationId | null {
+  const index = careerCityIndex(destinationId);
+  if (index < 0) return null;
+  return CAREER_CITIES[index + 1] ?? null;
+}
+
+/**
+ * What the onward plane ticket costs, priced in the **departure** city's own
+ * currency — you buy it where you are standing. The last city on the ladder has
+ * no onward flight and so no entry.
+ *
+ * Sized at roughly a week of solid driving — more than the entry-level vehicle
+ * so it competes with the garage for your cash, but deliberately *less* than
+ * the top of the range, because gating each city behind its dearest vehicle
+ * would put a ~30-day wall in front of ever seeing the next one. Completing the
+ * fleets is the long game; seeing the cities is not.
+ * `tests/careerBalance.test.ts` fails if a fare edit puts one out of reach.
+ */
+export const TICKET_PRICE_BY_DESTINATION: Readonly<
+  Partial<Record<DestinationId, number>>
+> = {
+  "us-nyc": 400,
+  "jp-tokyo": 40_000,
+};
 
 /** Seed cash: about one hatchback rent plus change — day 1 is a bike day. */
 export const CAREER_STARTING_CASH_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
@@ -331,31 +386,57 @@ export interface CareerStats {
   readonly largestDebt: number;
 }
 
-export interface CareerSliceV1 {
-  /** "won" is sticky: the victory happened, endless play continues. */
-  readonly state: "active" | "won" | "over";
-  readonly countryId: CountryId;
-  readonly destinationId: DestinationId;
-  /** Fixed at creation; every per-day seed derives from it. */
-  readonly careerSeed: number;
-  /** 1-based: the next day to play. */
+/**
+ * One city's run. Money, debt, day counter, fleet and stats are all local to
+ * the city they were earned in: flying somewhere new starts a fresh sheet, and
+ * flying back resumes the old one exactly as it was left.
+ */
+export interface CareerCityState {
+  /** 1-based: the next day to play in this city. */
   readonly day: number;
   /**
    * Integer cash at the last boundary. Non-negative while playable (settlement
-   * converts shortfalls to loans); may be negative only in the "over" state,
-   * preserved for the career-over display.
+   * converts shortfalls to loans). Never negative once stored: a bankrupt
+   * settlement resets the city rather than banking the deficit.
    */
   readonly cash: number;
   readonly loan: CareerLoan | null;
   /** One strike left: set by re-borrowing while indebted (grace rule). */
   readonly finalNotice: boolean;
-  readonly ownedVehicleId: CareerVehicleId | null;
+  /** Vehicles bought outright here. Rent-free in this city, nowhere else. */
+  readonly ownedVehicleIds: readonly CareerVehicleId[];
+  readonly stats: CareerStats;
+}
+
+export interface CareerSliceV2 {
+  /** Bumped whenever the persisted shape changes; older saves decode to null. */
+  readonly version: 2;
+  /**
+   * "won" is sticky: the victory happened, endless play continues. There is no
+   * terminal failure state — going bankrupt wipes the city you did it in and
+   * leaves the rest of the career standing.
+   */
+  readonly state: "active" | "won";
+  /** Fixed at creation; every per-day seed derives from it. */
+  readonly careerSeed: number;
+  /** Where the driver is right now. Always a key of `cities`. */
+  readonly currentDestinationId: DestinationId;
+  /**
+   * One entry per city reached. **Presence is the unlock**: a city is playable
+   * iff it has a state here, so there is no second list to keep in sync.
+   */
+  readonly cities: Readonly<Partial<Record<DestinationId, CareerCityState>>>;
   readonly victoryDay: number | null;
   /** Frozen per career so mid-run rule changes can't strand a save. */
   readonly rule: BankruptcyRule;
-  readonly stats: CareerStats;
   /** Storage integrity stamp — see stampCareerChecksum. */
   readonly checksum: string;
+}
+
+/** A city's state plus the identity the caller would otherwise have to thread. */
+export interface CareerCityView extends CareerCityState {
+  readonly destinationId: DestinationId;
+  readonly countryId: CountryId;
 }
 
 /**
@@ -367,9 +448,7 @@ export interface CareerCorrupt {
   readonly state: "corrupt";
 }
 
-export type CareerPersisted = CareerSliceV1 | CareerCorrupt | null;
-
-const COUNTRY_IDS: readonly CountryId[] = ["us", "uk", "fr", "jp"];
+export type CareerPersisted = CareerSliceV2 | CareerCorrupt | null;
 
 // Mirrors the id set progress.ts hardcodes; content.test.ts pins the real list
 // at five, so drift here fails loudly rather than silently.
@@ -380,6 +459,17 @@ const DESTINATION_IDS: readonly DestinationId[] = [
   "fr-calais",
   "jp-tokyo",
 ];
+
+/**
+ * The country a destination belongs to, read off its id prefix. This module is
+ * deliberately import-free at runtime (see the header), so it cannot ask
+ * content.ts — but every destination id is `${countryId}-${place}` and
+ * career.test.ts pins that against the real DESTINATION_PROFILES, so the shortcut
+ * cannot drift silently.
+ */
+export function careerCountryOf(destinationId: DestinationId): CountryId {
+  return destinationId.slice(0, destinationId.indexOf("-")) as CountryId;
+}
 
 const VEHICLE_IDS: readonly CareerVehicleId[] = CAREER_VEHICLES.map(
   (vehicle) => vehicle.id,
@@ -420,7 +510,7 @@ const fnv1aHex = (text: string): string => {
 };
 
 export function computeCareerChecksum(
-  slice: Omit<CareerSliceV1, "checksum">,
+  slice: Omit<CareerSliceV2, "checksum">,
 ): string {
   const rest: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(slice)) {
@@ -430,9 +520,9 @@ export function computeCareerChecksum(
 }
 
 export function stampCareerChecksum(
-  slice: Omit<CareerSliceV1, "checksum">,
-): CareerSliceV1 {
-  return { ...(slice as CareerSliceV1), checksum: computeCareerChecksum(slice) };
+  slice: Omit<CareerSliceV2, "checksum">,
+): CareerSliceV2 {
+  return { ...(slice as CareerSliceV2), checksum: computeCareerChecksum(slice) };
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -463,11 +553,33 @@ const isStats = (value: unknown): value is CareerStats => {
   return fields.every((field) => isInteger(value[field]) && (value[field] as number) >= 0);
 };
 
+const isCityState = (value: unknown): value is CareerCityState => {
+  if (!isRecord(value)) return false;
+  return (
+    isInteger(value.day) &&
+    (value.day as number) >= 1 &&
+    isInteger(value.cash) &&
+    (value.loan === null || isLoan(value.loan)) &&
+    typeof value.finalNotice === "boolean" &&
+    Array.isArray(value.ownedVehicleIds) &&
+    value.ownedVehicleIds.every((id) =>
+      VEHICLE_IDS.includes(id as CareerVehicleId),
+    ) &&
+    isStats(value.stats)
+  );
+};
+
 /**
  * Decodes a persisted career value. Returns null when absent, the verified
  * slice when sound, and the corrupt marker when the structure or checksum is
  * wrong. NEVER clamps — progress.ts's country-map parser is deliberately not
- * reused here, because an "over" career may legitimately carry negative cash.
+ * reused here: clamping would quietly repair a tampered save.
+ *
+ * A blob from before the per-city rewrite has no `version` and decodes to
+ * **null**, not corrupt: its shape is obsolete rather than tampered with, so the
+ * player gets a clean "start a career" instead of a damaged-save alarm. Anything
+ * claiming to be the current version and failing still reports corrupt, which is
+ * what keeps tamper detection honest.
  *
  * Invariant this relies on: the app only ever replaces the career field
  * through writeCareer/clearCareer (which stamp), so a slice passing through
@@ -483,51 +595,48 @@ export function parseCareerSlice(value: unknown): CareerPersisted {
   if (value.state === "corrupt") {
     return { state: "corrupt" };
   }
+  if (value.version !== 2) {
+    return null;
+  }
   if (
-    (value.state !== "active" && value.state !== "won" && value.state !== "over") ||
-    !COUNTRY_IDS.includes(value.countryId as CountryId) ||
-    !DESTINATION_IDS.includes(value.destinationId as DestinationId) ||
-    !(value.destinationId as string).startsWith(`${value.countryId as string}-`) ||
+    (value.state !== "active" && value.state !== "won") ||
     !isInteger(value.careerSeed) ||
-    !isInteger(value.day) ||
-    (value.day as number) < 1 ||
-    !isInteger(value.cash) ||
-    (value.loan !== null && !isLoan(value.loan)) ||
-    typeof value.finalNotice !== "boolean" ||
-    (value.ownedVehicleId !== null &&
-      !VEHICLE_IDS.includes(value.ownedVehicleId as CareerVehicleId)) ||
+    !DESTINATION_IDS.includes(value.currentDestinationId as DestinationId) ||
+    !isRecord(value.cities) ||
     (value.victoryDay !== null && !isInteger(value.victoryDay)) ||
     (value.rule !== "strict" && value.rule !== "grace") ||
-    !isStats(value.stats) ||
     typeof value.checksum !== "string"
   ) {
     return { state: "corrupt" };
   }
-  const slice = value as unknown as CareerSliceV1;
+  const cityIds = Object.keys(value.cities);
+  if (
+    cityIds.length === 0 ||
+    !cityIds.every((id) => DESTINATION_IDS.includes(id as DestinationId)) ||
+    !cityIds.every((id) => isCityState((value.cities as UnknownCities)[id])) ||
+    // The pointer must land on a city that exists, or activeCity has nothing
+    // to return and every consumer would be reading undefined.
+    !cityIds.includes(value.currentDestinationId as string)
+  ) {
+    return { state: "corrupt" };
+  }
+  const slice = value as unknown as CareerSliceV2;
   if (computeCareerChecksum(slice) !== slice.checksum) {
     return { state: "corrupt" };
   }
   return slice;
 }
 
-export function createCareerSlice(input: {
-  readonly countryId: CountryId;
-  readonly destinationId: DestinationId;
-  readonly careerSeed: number;
-  readonly rule?: BankruptcyRule;
-}): CareerSliceV1 {
-  return stampCareerChecksum({
-    state: "active",
-    countryId: input.countryId,
-    destinationId: input.destinationId,
-    careerSeed: input.careerSeed >>> 0,
+type UnknownCities = Record<string, unknown>;
+
+/** A fresh sheet for a city just arrived in: seed cash, day 1, no fleet. */
+export function createCityState(countryId: CountryId): CareerCityState {
+  return {
     day: 1,
-    cash: CAREER_STARTING_CASH_BY_COUNTRY[input.countryId],
+    cash: CAREER_STARTING_CASH_BY_COUNTRY[countryId],
     loan: null,
     finalNotice: false,
-    ownedVehicleId: null,
-    victoryDay: null,
-    rule: input.rule ?? "grace",
+    ownedVehicleIds: [],
     stats: {
       daysCompleted: 0,
       grossEarned: 0,
@@ -538,6 +647,65 @@ export function createCareerSlice(input: {
       loansTaken: 0,
       largestDebt: 0,
     },
+  };
+}
+
+/** The city the driver is currently in. The codec guarantees it exists. */
+export function activeCity(slice: CareerSliceV2): CareerCityView {
+  const state = slice.cities[slice.currentDestinationId];
+  if (!state) {
+    throw new Error(`Career has no state for ${slice.currentDestinationId}`);
+  }
+  return {
+    ...state,
+    destinationId: slice.currentDestinationId,
+    countryId: careerCountryOf(slice.currentDestinationId),
+  };
+}
+
+/**
+ * Drops the identity fields `activeCity` adds back on, so a view can be edited
+ * and stored without leaking `destinationId`/`countryId` into the saved city —
+ * duplicated truth that would then have to be kept in sync with the map key.
+ */
+export function cityStateOf(view: CareerCityView | CareerCityState): CareerCityState {
+  return {
+    day: view.day,
+    cash: view.cash,
+    loan: view.loan,
+    finalNotice: view.finalNotice,
+    ownedVehicleIds: view.ownedVehicleIds,
+    stats: view.stats,
+  };
+}
+
+/** Replaces one city's state and re-stamps. The only way to mutate a city. */
+export function withCity(
+  slice: CareerSliceV2,
+  destinationId: DestinationId,
+  next: CareerCityView | CareerCityState,
+): CareerSliceV2 {
+  return stampCareerChecksum({
+    ...slice,
+    cities: { ...slice.cities, [destinationId]: cityStateOf(next) },
+  });
+}
+
+export function createCareerSlice(input: {
+  readonly destinationId: DestinationId;
+  readonly careerSeed: number;
+  readonly rule?: BankruptcyRule;
+}): CareerSliceV2 {
+  return stampCareerChecksum({
+    version: 2,
+    state: "active",
+    careerSeed: input.careerSeed >>> 0,
+    currentDestinationId: input.destinationId,
+    cities: {
+      [input.destinationId]: createCityState(careerCountryOf(input.destinationId)),
+    },
+    victoryDay: null,
+    rule: input.rule ?? "grace",
   });
 }
 
@@ -561,17 +729,35 @@ const avalanche = (value: number): number => {
  * seed + day always replays identically — that is what makes a mid-day quit
  * "redo the day", not "reroll the day".
  */
-export function careerDayTrafficSeed(careerSeed: number, day: number): number {
+export function careerDayTrafficSeed(
+  careerSeed: number,
+  day: number,
+  // Folded in so day 3 in Tokyo is not day 3 in New York. Defaults to the
+  // ladder's first city, which keeps every pre-ladder seed exactly as it was.
+  cityIndex = 0,
+): number {
   const mixed =
-    avalanche((careerSeed >>> 0) ^ Math.imul(day, 0x9e3779b1)) & 0x7fffffff;
+    avalanche(
+      (careerSeed >>> 0) ^
+        Math.imul(day, 0x9e3779b1) ^
+        Math.imul(cityIndex, 0x7feb352d),
+    ) & 0x7fffffff;
   return mixed === 0 ? 1 : mixed;
 }
 
 /** Base for the day's gig draws; gig i uses base + i, as free drive does. */
-export function careerGigSeedBase(careerSeed: number, day: number): number {
+export function careerGigSeedBase(
+  careerSeed: number,
+  day: number,
+  cityIndex = 0,
+): number {
   const mixed =
-    avalanche((careerSeed >>> 0) ^ 0x5eed_ca7 ^ Math.imul(day, 0x27d4eb2f)) &
-    0x7fffffff;
+    avalanche(
+      (careerSeed >>> 0) ^
+        0x5eed_ca7 ^
+        Math.imul(day, 0x27d4eb2f) ^
+        Math.imul(cityIndex, 0x846ca68b),
+    ) & 0x7fffffff;
   return mixed === 0 ? 1 : mixed;
 }
 
@@ -604,15 +790,27 @@ export function gigParMs(pickupToDropoffM: number, paceFactor: number): number {
   return Math.max(PAR_MIN_MS, Math.round(seconds * 1000));
 }
 
-/** Owned vehicles (the bicycle, or a bought-out rental) cost nothing to take out. */
+/**
+ * Owned vehicles (the bicycle, or one bought outright) cost nothing to take
+ * out. Ownership is per city: the van you bought in New York is still rented in
+ * Tokyo, because you left it in New York.
+ */
 export function vehicleRent(
   vehicle: CareerVehicleSpec,
-  slice: CareerSliceV1,
+  city: CareerCityView,
 ): number {
-  if (vehicle.owned || slice.ownedVehicleId === vehicle.id) {
+  if (vehicle.owned || city.ownedVehicleIds.includes(vehicle.id)) {
     return 0;
   }
-  return vehicle.rentByCountry[slice.countryId];
+  return vehicle.rentByCountry[city.countryId];
+}
+
+/** True when this city's fleet includes the vehicle (or it is always yours). */
+export function ownsVehicle(
+  city: CareerCityState,
+  vehicle: CareerVehicleSpec,
+): boolean {
+  return vehicle.owned || city.ownedVehicleIds.includes(vehicle.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -787,37 +985,49 @@ export function settleDay(input: {
 }
 
 /**
- * Folds a finished day into the slice: day counter, cash/loan/notice from the
- * settlement, stats rollup, and the terminal state on bankruptcy. Returns a
- * freshly stamped slice ready to persist.
+ * Folds a finished day into the current city: day counter, cash/loan/notice
+ * from the settlement, stats rollup, and the terminal state on bankruptcy.
+ * Only the city that was driven is touched — every other city's sheet is left
+ * exactly as it was. Returns a freshly stamped slice ready to persist.
  */
 export function applySettlement(
-  slice: CareerSliceV1,
+  slice: CareerSliceV2,
   ledger: DayLedgerInput,
   settlement: SettlementResult,
-): CareerSliceV1 {
+): CareerSliceV2 {
+  const city = activeCity(slice);
   const borrowed =
     settlement.outcome === "borrowed" || settlement.outcome === "final_notice";
   const stats: CareerStats = {
-    daysCompleted: slice.stats.daysCompleted + 1,
-    grossEarned: slice.stats.grossEarned + ledger.grossFares,
-    tipsEarned: slice.stats.tipsEarned + ledger.tips,
-    finesPaid: slice.stats.finesPaid + ledger.finesTotal,
-    gigsCompleted: slice.stats.gigsCompleted + ledger.gigsCompleted,
-    gigsOnTime: slice.stats.gigsOnTime + ledger.gigsOnTime,
-    loansTaken: slice.stats.loansTaken + (borrowed ? 1 : 0),
+    daysCompleted: city.stats.daysCompleted + 1,
+    grossEarned: city.stats.grossEarned + ledger.grossFares,
+    tipsEarned: city.stats.tipsEarned + ledger.tips,
+    finesPaid: city.stats.finesPaid + ledger.finesTotal,
+    gigsCompleted: city.stats.gigsCompleted + ledger.gigsCompleted,
+    gigsOnTime: city.stats.gigsOnTime + ledger.gigsOnTime,
+    loansTaken: city.stats.loansTaken + (borrowed ? 1 : 0),
     largestDebt: Math.max(
-      slice.stats.largestDebt,
+      city.stats.largestDebt,
       settlement.loan?.principalRemaining ?? 0,
     ),
   };
-  return stampCareerChecksum({
-    ...slice,
-    day: slice.day + 1,
+  if (settlement.outcome === "game_over") {
+    // Bankruptcy is local. The city is wiped back to the day you arrived —
+    // starting float, day 1, debts gone, and the fleet repossessed, which is
+    // what stops going bust from being a free bailout out of a bad loan. Every
+    // other city on the ladder is untouched and still there to fly back to.
+    return withCity(
+      slice,
+      city.destinationId,
+      createCityState(city.countryId),
+    );
+  }
+  return withCity(slice, city.destinationId, {
+    day: city.day + 1,
     cash: settlement.cash,
     loan: settlement.loan,
     finalNotice: settlement.finalNotice,
-    state: settlement.outcome === "game_over" ? "over" : slice.state,
+    ownedVehicleIds: city.ownedVehicleIds,
     stats,
   });
 }
@@ -834,35 +1044,145 @@ export function buyoutPrice(
 }
 
 /**
- * One buyout per career: debt-free, playable, eligible vehicle, cash covers
- * the price, and nothing owned yet. Buying is the victory.
+ * Cash on hand is the only condition. Deliberately: debt does not block a
+ * purchase, there is no cap on how many you own, and every eligible vehicle is
+ * offered rather than only whichever one the garage has selected. Spending
+ * yourself back into a shortfall is a decision the player is allowed to make —
+ * settlement will price it tonight.
  */
-export function canBuyout(
-  slice: CareerSliceV1,
+export function canBuyVehicle(
+  slice: CareerSliceV2,
   vehicle: CareerVehicleSpec,
 ): boolean {
+  const city = activeCity(slice);
   return (
-    slice.state !== "over" &&
     vehicle.buyoutEligible &&
-    slice.loan === null &&
-    !slice.finalNotice &&
-    slice.ownedVehicleId === null &&
-    slice.cash >= buyoutPrice(vehicle, slice.countryId)
+    !city.ownedVehicleIds.includes(vehicle.id) &&
+    city.cash >= buyoutPrice(vehicle, city.countryId)
   );
 }
 
-export function applyBuyout(
-  slice: CareerSliceV1,
+/** Adds the vehicle to *this city's* fleet. It stays behind if you fly on. */
+export function applyVehiclePurchase(
+  slice: CareerSliceV2,
   vehicle: CareerVehicleSpec,
-): CareerSliceV1 {
-  if (!canBuyout(slice, vehicle)) {
-    throw new Error(`Buyout not available for ${vehicle.id}`);
+): CareerSliceV2 {
+  if (!canBuyVehicle(slice, vehicle)) {
+    throw new Error(`Cannot buy ${vehicle.id} here`);
   }
+  const city = activeCity(slice);
+  return withVictoryIfEarned(
+    withCity(slice, city.destinationId, {
+      ...city,
+      cash: city.cash - buyoutPrice(vehicle, city.countryId),
+      ownedVehicleIds: [...city.ownedVehicleIds, vehicle.id],
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Travel: the ladder, the ticket, and moving between cities already reached
+// ---------------------------------------------------------------------------
+
+/** Cities reached so far, in ladder order. Presence in `cities` is the unlock. */
+export function unlockedCities(slice: CareerSliceV2): readonly DestinationId[] {
+  return CAREER_CITIES.filter((city) => slice.cities[city] !== undefined);
+}
+
+/** Price of the flight out of here, or null at the end of the ladder. */
+export function ticketPrice(from: DestinationId): number | null {
+  if (nextCareerCity(from) === null) return null;
+  return TICKET_PRICE_BY_DESTINATION[from] ?? null;
+}
+
+/**
+ * Buying the ticket is optional and is the only way to reach a new city — you
+ * can grind a city as long as you like first. Cash on hand is the only gate,
+ * matching vehicle purchases.
+ */
+export function canBuyTicket(slice: CareerSliceV2): boolean {
+  const city = activeCity(slice);
+  const next = nextCareerCity(city.destinationId);
+  const price = ticketPrice(city.destinationId);
+  if (next === null || price === null) return false;
+  // Already flown this leg before and come back — the onward city is unlocked,
+  // so travel there is free rather than another ticket.
+  if (slice.cities[next] !== undefined) return false;
+  return city.cash >= price;
+}
+
+/**
+ * Flies on: debits the ticket from the city you are leaving, opens the next
+ * city on a fresh sheet (its own country's starting float, day 1, no fleet),
+ * and moves the pointer. Nothing crosses — the money and vehicles you leave
+ * behind stay exactly where they are, waiting for you to fly back.
+ */
+export function applyTicket(slice: CareerSliceV2): CareerSliceV2 {
+  if (!canBuyTicket(slice)) {
+    throw new Error("No onward ticket available from here");
+  }
+  const city = activeCity(slice);
+  const next = nextCareerCity(city.destinationId) as DestinationId;
+  const price = ticketPrice(city.destinationId) as number;
+  const paid = withCity(slice, city.destinationId, {
+    ...city,
+    cash: city.cash - price,
+  });
+  return withVictoryIfEarned(
+    stampCareerChecksum({
+      ...paid,
+      currentDestinationId: next,
+      cities: { ...paid.cities, [next]: createCityState(careerCountryOf(next)) },
+    }),
+  );
+}
+
+/** Moves to a city already reached. Free, instant, and always reversible. */
+export function travelTo(
+  slice: CareerSliceV2,
+  destinationId: DestinationId,
+): CareerSliceV2 {
+  if (slice.cities[destinationId] === undefined) {
+    throw new Error(`${destinationId} has not been reached yet`);
+  }
+  return stampCareerChecksum({ ...slice, currentDestinationId: destinationId });
+}
+
+/** Every vehicle that can be bought at all, cheapest first. */
+export function buyableVehicles(): readonly CareerVehicleSpec[] {
+  return CAREER_VEHICLES.filter((vehicle) => vehicle.buyoutEligible);
+}
+
+/**
+ * Beating the game: stand in the last city on the ladder having bought every
+ * buyable vehicle in *every* city. Reaching London is the midgame; owning all
+ * three fleets is the end of it.
+ */
+export function careerWon(slice: CareerSliceV2): boolean {
+  const finalCity = CAREER_CITIES[CAREER_CITIES.length - 1];
+  if (slice.cities[finalCity] === undefined) return false;
+  return CAREER_CITIES.every((destinationId) => {
+    const city = slice.cities[destinationId];
+    return city !== undefined && ownsFullFleet(city);
+  });
+}
+
+/**
+ * Stamps the victory the first time it is earned. Applied after every purchase
+ * and every flight — the only two moves that can complete the condition.
+ */
+export function withVictoryIfEarned(slice: CareerSliceV2): CareerSliceV2 {
+  if (slice.state === "won" || !careerWon(slice)) return slice;
   return stampCareerChecksum({
     ...slice,
-    cash: slice.cash - buyoutPrice(vehicle, slice.countryId),
-    ownedVehicleId: vehicle.id,
     state: "won",
-    victoryDay: slice.victoryDay ?? slice.day,
+    victoryDay: activeCity(slice).day,
   });
+}
+
+/** True once this city's fleet holds every buyable vehicle. */
+export function ownsFullFleet(city: CareerCityState): boolean {
+  return buyableVehicles().every((vehicle) =>
+    city.ownedVehicleIds.includes(vehicle.id),
+  );
 }

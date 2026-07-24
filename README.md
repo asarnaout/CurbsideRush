@@ -4,6 +4,14 @@ Curbside Rush is a low-poly, single-player 3D open-world driving game where you 
 
 The maps are New York City (Upper West Side), London (South Kensington), Milton Keynes (Oldbrook), Calais/Coquelles, and Tokyo (Setagaya). Pick a city and drive: deliveries load at a business and drop off across town, passenger fares carry a rider to their destination, earnings and fuel are tracked per country, you refuel at gas stations, and driving badly in front of a patrol car costs you a fine. Also included are first- and third-person cameras with a rear-view mirror, keyboard/gamepad/touch controls, ambient traffic and pedestrian crowds, local progress, accessibility settings, and official road-rule references.
 
+## Two ways to play
+
+**Free drive** drops you into any of the five cities with your own car and no clock — gigs come one after another for as long as you want to keep driving.
+
+**Career** is the campaign. You start in New York on the local equivalent of $20 and your own bicycle, renting a vehicle each morning and paying it back over a ~6-minute working day: 25% platform commission, a daily fee, and a loan waiting if you end a day short. Save enough and you can buy a vehicle outright — any of them, as many as you can afford — or buy a plane ticket and start again from nothing in Tokyo, then London.
+
+Money and vehicles belong to the city you earned them in. Flying on means a fresh balance in the local currency and none of the fleet you built, but nothing is lost: you can fly back any time and pick that city up exactly where you left it. Going bankrupt costs you that city — its cash, its debts and its fleet — and nothing else. Owning every vehicle in every city is how you finish the game.
+
 ## Local development
 
 Requires Node.js 22.13 or newer.
@@ -38,7 +46,7 @@ One vehicle model, `public/models/vehicles/london-double-decker.glb`, is a purch
 - `app/game/simulationAdapter.ts` translates an authored map pack into the simulation's configuration once, before the drive starts.
 - `app/game/GameCanvas.tsx` owns the client-only Babylon.js scene, cameras, input, audio and strict cleanup.
 - `app/game/content.ts` and `londonContent.ts` define country profiles, official references, and the map packs. A map pack pairs a directed lane graph (the legal truth the simulation drives on) with road-surface centrelines (the visual truth); road meshes, junctions, kerbs, pavements, markings, addresses and pedestrian routes are all derived from those two at load time.
-- `app/game/gigs.ts` is the delivery/fare state machine, and `app/game/progress.ts` validates and migrates the versioned `sideswap:v2` local save.
+- `app/game/gigs.ts` is the delivery/fare state machine, `app/game/career.ts` is Career Mode's pure economy (the city ladder, rentals, loans, tickets and the win condition), and `app/game/progress.ts` validates and migrates the versioned `sideswap:v2` local save.
 - `public/map-data/` contains frozen, checksummed OpenStreetMap extracts kept for provenance and attribution. Nothing reads them at runtime; the drivable geography is authored separately.
 
 Curbside Rush is a game for entertainment, not legal advice or driver-licensing instruction. The in-game Sources & credits view links to the dated official material behind each country's road rules.

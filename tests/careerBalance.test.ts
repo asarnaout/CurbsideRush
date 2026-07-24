@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeCity,
+  buyoutPrice,
+  CAREER_CITIES,
   CAREER_VEHICLES,
+  careerCountryOf,
   careerFare,
   PLATFORM_FEE_BY_COUNTRY,
   vehicleRent,
   createCareerSlice,
+  ticketPrice,
 } from "../app/game/career";
 import {
   DESTINATION_PROFILES,
+  getDestinationProfile,
   GIG_FARE_BY_COUNTRY,
   PASSENGER_FARE_BY_COUNTRY,
   getCountryProfile,
@@ -79,11 +85,9 @@ describe("career balance tripwire", () => {
     for (const destination of DESTINATION_PROFILES) {
       const country = getCountryProfile(destination.countryId);
       const mapId = getFreeDrive(destination.freeDriveId).mapId;
-      const slice = createCareerSlice({
-        countryId: country.id,
-        destinationId: destination.id,
-        careerSeed: 1,
-      });
+      const city = activeCity(
+        createCareerSlice({ destinationId: destination.id, careerSeed: 1 }),
+      );
       for (const vehicle of CAREER_VEHICLES) {
         const bestMedian = Math.max(
           ...vehicle.allowedGigKinds.map(
@@ -95,12 +99,87 @@ describe("career balance tripwire", () => {
           `${destination.id} offers no priceable gigs for ${vehicle.id}`,
         ).toBeGreaterThan(0);
         const dailyFloor =
-          vehicleRent(vehicle, slice) + PLATFORM_FEE_BY_COUNTRY[country.id];
+          vehicleRent(vehicle, city) + PLATFORM_FEE_BY_COUNTRY[country.id];
         expect(
           dailyFloor,
           `${vehicle.id} in ${destination.id}: floor ${dailyFloor} vs median net ${bestMedian}`,
         ).toBeLessThan(bestMedian * 4);
       }
+    }
+  });
+});
+
+/** A day's take-home driving `vehicle` at a modest four gigs, before tips. */
+function dailyNet(
+  destinationId: (typeof CAREER_CITIES)[number],
+  vehicle: (typeof CAREER_VEHICLES)[number],
+): number {
+  const countryId = careerCountryOf(destinationId);
+  const mapId = getFreeDrive(getDestinationProfile(destinationId).freeDriveId)
+    .mapId;
+  const best = Math.max(
+    ...vehicle.allowedGigKinds.map(
+      (kind) => medianNet(mapId, countryId, kind, vehicle) ?? 0,
+    ),
+  );
+  const city = activeCity(
+    createCareerSlice({ destinationId, careerSeed: 1 }),
+  );
+  return best * 4 - vehicleRent(vehicle, city) - PLATFORM_FEE_BY_COUNTRY[countryId];
+}
+
+// The ladder's tripwire. A ticket has to be a goal you save for — several days
+// of real work — without becoming a wall that strands the player in city one.
+// Both bounds are generous; today's prices land around 8-12 days.
+describe("ticket reachability", () => {
+  const MIN_DAYS = 3;
+  const MAX_DAYS = 20;
+
+  it("keeps every onward ticket a few days' work away, never a wall", () => {
+    for (const destinationId of CAREER_CITIES) {
+      const price = ticketPrice(destinationId);
+      if (price === null) continue;
+      // The best earner you could realistically be running by then.
+      const days = Math.min(
+        ...CAREER_VEHICLES.filter((vehicle) => vehicle.id !== "bicycle").map(
+          (vehicle) => {
+            const net = dailyNet(destinationId, vehicle);
+            return net > 0 ? price / net : Number.POSITIVE_INFINITY;
+          },
+        ),
+      );
+      expect(
+        days,
+        `${destinationId}: ticket ${price} is ${days.toFixed(1)} days of work`,
+      ).toBeLessThan(MAX_DAYS);
+      expect(
+        days,
+        `${destinationId}: ticket ${price} is only ${days.toFixed(1)} days — too cheap to be a goal`,
+      ).toBeGreaterThan(MIN_DAYS);
+    }
+  });
+
+  it("prices a ticket above the cheapest vehicle it competes with", () => {
+    // The ticket and the fleet compete for the same cash, so leaving must cost
+    // more than the entry-level purchase — otherwise flying on is always the
+    // obviously correct first buy and the garage never gets a look in.
+    //
+    // Deliberately NOT above the *dearest* vehicle: gating each ticket behind
+    // the top of the range would make every city a ~30-day wall before the next
+    // one is even visible. Completing the fleets is the long game; seeing the
+    // cities is not meant to be.
+    for (const destinationId of CAREER_CITIES) {
+      const price = ticketPrice(destinationId);
+      if (price === null) continue;
+      const cheapest = Math.min(
+        ...CAREER_VEHICLES.filter((vehicle) => vehicle.buyoutEligible).map(
+          (vehicle) => buyoutPrice(vehicle, careerCountryOf(destinationId)),
+        ),
+      );
+      expect(
+        price,
+        `${destinationId}: ticket ${price} vs entry vehicle ${cheapest}`,
+      ).toBeGreaterThan(cheapest);
     }
   });
 });

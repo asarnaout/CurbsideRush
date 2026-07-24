@@ -13,6 +13,7 @@ import {
   writeCareer,
 } from "../app/game/progress";
 import {
+  activeCity,
   applySettlement,
   createCareerSlice,
   emptyDayLog,
@@ -165,7 +166,6 @@ describe("player progress (V2 economy)", () => {
 describe("career slice persistence", () => {
   const freshSlice = () =>
     createCareerSlice({
-      countryId: "us",
       destinationId: "us-nyc",
       careerSeed: 424242,
     });
@@ -231,7 +231,7 @@ describe("career slice persistence", () => {
     expect(
       restored.career !== null &&
         restored.career.state !== "corrupt" &&
-        restored.career.loan !== null,
+        activeCity(restored.career).loan !== null,
     ).toBe(true);
   });
 
