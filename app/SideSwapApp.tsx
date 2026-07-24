@@ -75,6 +75,7 @@ import {
   GarageView,
   LedgerView,
 } from "./CareerViews";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { FULL_CONDITION_PCT, damageForCollision } from "./game/damage";
 import {
   buildCareerDayLesson,
@@ -367,6 +368,12 @@ export default function SideSwapApp() {
     new Map<DestinationId, HTMLButtonElement>(),
   );
   const [paused, setPaused] = useState(false);
+  // Which in-game confirmation modal is open, if any. Replaces native
+  // window.confirm() so the prompt matches the dark HUD (#164). Only one is
+  // ever open at a time, and each is dismissed within its own view.
+  const [pendingConfirm, setPendingConfirm] = useState<
+    "end-day" | "abandon-career" | null
+  >(null);
   const [hud, setHud] = useState<GameHudSnapshot | null>(null);
   const [driveFuel, setDriveFuel] = useState(TANK_CAPACITY_L);
   const lastPoseRef = useRef<{ x: number; z: number } | null>(null);
@@ -1015,28 +1022,29 @@ export default function SideSwapApp() {
     setView("driving");
   };
 
+  // The actual career-day teardown, run once the player confirms the exit.
+  // Boundary saves only: nothing was written since the morning, so quitting
+  // simply redoes the day (same seeds, same garage cash).
+  const finishCareerDayExit = () => {
+    setPendingConfirm(null);
+    dayActiveRef.current = false;
+    pendingSettleRef.current = false;
+    careerRunRef.current = null;
+    setCareerRun(null);
+    setGig(null);
+    setPaused(false);
+    setActiveSession(null);
+    clearCutscene();
+    music.stop();
+    suspendAudioContext();
+    setView("career-garage");
+  };
+
   const exitDrive = () => {
     if (careerRunRef.current) {
-      // Boundary saves only: nothing was written since the morning, so quitting
-      // simply redoes the day (same seeds, same garage cash).
-      if (
-        !window.confirm(
-          "End the day early? Today's progress is discarded and the day restarts.",
-        )
-      ) {
-        return;
-      }
-      dayActiveRef.current = false;
-      pendingSettleRef.current = false;
-      careerRunRef.current = null;
-      setCareerRun(null);
-      setGig(null);
-      setPaused(false);
-      setActiveSession(null);
-      clearCutscene();
-      music.stop();
-      suspendAudioContext();
-      setView("career-garage");
+      // Ending a career day mid-run discards it — confirm first, via the
+      // in-game dialog rather than a native prompt.
+      setPendingConfirm("end-day");
       return;
     }
     // Persist the current tank level back to the country's saved fuel.
@@ -1955,6 +1963,16 @@ export default function SideSwapApp() {
             Speed {hud.speed} {hud.speedUnit}, gear {hud.gear}.
           </div>
         )}
+        {pendingConfirm === "end-day" && (
+          <ConfirmDialog
+            title="End the day early?"
+            body="Today's progress is discarded and the day restarts from the garage."
+            cancelLabel="Keep driving"
+            confirmLabel="End day"
+            onCancel={() => setPendingConfirm(null)}
+            onConfirm={finishCareerDayExit}
+          />
+        )}
       </main>
     );
   }
@@ -2042,15 +2060,7 @@ export default function SideSwapApp() {
             onSelect={setGarageVehicleId}
             onStartDay={beginCareerDay}
             onBuyout={buyVehicle}
-            onAbandon={() => {
-              if (
-                window.confirm(
-                  "Abandon this career? The save is deleted for good.",
-                )
-              ) {
-                resetCareer("launcher");
-              }
-            }}
+            onAbandon={() => setPendingConfirm("abandon-career")}
           />
         )}
       {effectiveView === "career-ledger" && lastSettlement && careerCountry && (
@@ -2226,6 +2236,19 @@ export default function SideSwapApp() {
           <span>Curbside Rush is familiarisation, not legal advice or driver instruction.</span>
           <span>Map data © OpenStreetMap contributors · ODbL</span>
         </footer>
+      )}
+      {pendingConfirm === "abandon-career" && (
+        <ConfirmDialog
+          title="Abandon this career?"
+          body="Your career save is deleted for good. This can't be undone."
+          confirmLabel="Abandon career"
+          tone="danger"
+          onCancel={() => setPendingConfirm(null)}
+          onConfirm={() => {
+            setPendingConfirm(null);
+            resetCareer("launcher");
+          }}
+        />
       )}
     </main>
   );

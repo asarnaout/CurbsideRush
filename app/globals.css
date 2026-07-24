@@ -887,6 +887,16 @@ canvas:focus-visible {
 
 .danger-button:hover { background: rgba(224, 120, 124, 0.1); border-color: rgba(224, 120, 124, 0.32); }
 
+/* Filled coral CTA — a destructive action confirmed in a modal (ConfirmDialog),
+   where the affirmative button needs presence the low-emphasis text style lacks. */
+.danger-button.solid {
+  border-color: var(--hud-coral);
+  background: var(--hud-coral);
+  color: #241014;
+}
+.danger-button.solid:hover { background: #e88b8f; border-color: #e88b8f; }
+.danger-button.solid:active { transform: translateY(1px); }
+
 .side-swap-banner {
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr) auto;

@@ -207,8 +207,14 @@ beforeEach(() => {
   });
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
   vi.stubGlobal("matchMedia", vi.fn(desktopMatchMedia));
-  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
+
+// Ending a career day now confirms through the in-game dialog (#164), not a
+// native prompt: leave the drive, then accept the modal.
+async function endDayEarly() {
+  fireEvent.click(screen.getByTestId("mock-exit"));
+  fireEvent.click(await screen.findByTestId("confirm-accept"));
+}
 
 afterEach(() => {
   cleanup();
@@ -364,9 +370,8 @@ describe("career mode flow", () => {
     await screen.findByLabelText("Mock driving scene");
 
     fireEvent.click(screen.getByTestId("mock-fine"));
-    fireEvent.click(screen.getByTestId("mock-exit"));
+    await endDayEarly();
 
-    expect(window.confirm).toHaveBeenCalled();
     expect(
       await screen.findByRole("heading", { name: /Pick today's ride/i }),
     ).toBeVisible();
@@ -430,7 +435,7 @@ describe("career mode flow", () => {
     expect(screen.getByTestId("day-cash")).toHaveTextContent("£42.00");
     expect(screen.getByText(/^Fuel$/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("mock-exit"));
+    await endDayEarly();
     await screen.findByRole("heading", { name: /Pick today's ride/i });
   });
 
@@ -459,7 +464,7 @@ describe("career mode flow", () => {
     expect(scene).toHaveAttribute("data-player-model", "delivery-van");
     expect(scene).toHaveAttribute("data-max-speed", "19");
 
-    fireEvent.click(screen.getByTestId("mock-exit"));
+    await endDayEarly();
     await screen.findByRole("heading", { name: /Pick today's ride/i });
   });
 
