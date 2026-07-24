@@ -11,7 +11,7 @@ import { formatMoney } from "./game/content";
 import {
   BUYOUT_RENT_MULTIPLIER,
   buyoutPrice,
-  canBuyout,
+  canBuyVehicle,
   CAREER_STARTING_CASH_BY_COUNTRY,
   CAREER_VEHICLES,
   getCareerVehicle,
@@ -75,7 +75,7 @@ export function GarageView({
   lockedVehicles,
   onSelect,
   onStartDay,
-  onBuyout,
+  onBuy,
   onAbandon,
 }: {
   slice: CareerSliceV2;
@@ -87,7 +87,7 @@ export function GarageView({
   lockedVehicles: Readonly<Partial<Record<CareerVehicleId, string>>>;
   onSelect: (id: CareerVehicleId) => void;
   onStartDay: (id: CareerVehicleId) => void;
-  onBuyout: (id: CareerVehicleId) => void;
+  onBuy: (id: CareerVehicleId) => void;
   onAbandon: () => void;
 }) {
   const selected = CAREER_VEHICLES.find(
@@ -126,13 +126,19 @@ export function GarageView({
           const rent = vehicleRent(vehicle, city);
           const lockedReason = lockedVehicles[vehicle.id];
           const affordable = city.cash >= rent;
-          const disabled = Boolean(lockedReason) || !affordable;
+          // Only a locked vehicle is unselectable. Not being able to afford
+          // *today's rent* must not hide the card, because the buy price is
+          // reached long before that stops mattering — an unselectable card was
+          // exactly what made vehicles look un-purchasable.
+          const disabled = Boolean(lockedReason);
           const active = selectedVehicleId === vehicle.id;
           const rideshare = vehicle.allowedGigKinds.includes("passenger");
           const owned = ownsVehicle(city, vehicle);
+          const price = buyoutPrice(vehicle, city.countryId);
+          const buyable = canBuyVehicle(slice, vehicle);
           return (
+            <div className="garage-slot" key={vehicle.id}>
             <button
-              key={vehicle.id}
               type="button"
               data-testid={`garage-vehicle-${vehicle.id}`}
               className={`garage-card${active ? " active" : ""}${disabled ? " locked" : ""}`}
@@ -207,11 +213,13 @@ export function GarageView({
                         TODAY&apos;S RIDE
                       </span>
                     ) : disabled ? (
-                      <span className="garage-card-cant">
-                        {lockedReason ?? "Can't afford today"}
-                      </span>
-                    ) : (
+                      <span className="garage-card-cant">{lockedReason}</span>
+                    ) : affordable ? (
                       <span className="garage-card-choose">Choose this ride</span>
+                    ) : (
+                      <span className="garage-card-cant">
+                        Rent&apos;s out of reach today
+                      </span>
                     )}
                   </span>
                   {!disabled && (
@@ -229,6 +237,23 @@ export function GarageView({
                 </span>
               </span>
             </button>
+            {/* Buying is per card, not per selection: every eligible vehicle
+                shows its own price, and the only gate is cash on hand. */}
+            {vehicle.buyoutEligible &&
+              (owned ? (
+                <span className="garage-card-buy owned">✓ Yours</span>
+              ) : (
+                <button
+                  type="button"
+                  className="garage-card-buy"
+                  data-testid={`garage-buy-${vehicle.id}`}
+                  disabled={!buyable}
+                  onClick={() => onBuy(vehicle.id)}
+                >
+                  Buy · {formatMoney(price, country)}
+                </button>
+              ))}
+            </div>
           );
         })}
       </div>
@@ -263,17 +288,6 @@ export function GarageView({
           </div>
         </div>
         <div className="garage-actions">
-          {selected && canBuyout(slice, selected) && (
-            <button
-              type="button"
-              className="garage-buyout"
-              data-testid="garage-buyout"
-              onClick={() => onBuyout(selectedVehicleId)}
-            >
-              Buy the {selected.name.toLowerCase()} outright —{" "}
-              {formatMoney(buyoutPrice(selected, city.countryId), country)}
-            </button>
-          )}
           <button
             type="button"
             className="garage-start"

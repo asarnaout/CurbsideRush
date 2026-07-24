@@ -45,14 +45,15 @@ import {
 } from "./game/progress";
 import {
   activeCity,
-  applyBuyout,
   applySettlement,
+  applyVehiclePurchase,
   CAREER_START_CITY,
   careerCountryOf,
   careerDayTrafficSeed,
   careerFare,
   careerGigSeedBase,
   careerTip,
+  canBuyVehicle,
   createCareerSlice,
   DAY_LENGTH_MS,
   emptyDayLog,
@@ -1224,13 +1225,14 @@ export default function SideSwapApp() {
     endCareerDayRef.current = endCareerDay;
   });
 
-  // The victory: buying the selected rental outright while debt-free. A
-  // garage-boundary save, like settlement — applyBuyout stamps the slice with
-  // state "won" and the victory day; the owned vehicle rents free thereafter.
+  // Buying a vehicle outright. A garage-boundary save, like settlement. The
+  // bought vehicle joins THIS city's fleet and rents free here forever after —
+  // it does not follow you to the next city.
   const buyVehicle = (vehicleId: CareerVehicleId) => {
     if (!careerSlice) return;
     const vehicle = getCareerVehicle(vehicleId);
-    const bought = applyBuyout(careerSlice, vehicle);
+    if (!canBuyVehicle(careerSlice, vehicle)) return;
+    const bought = applyVehiclePurchase(careerSlice, vehicle);
     const saved = writeCareer(progress, bought);
     setProgress(saved);
     saveProgress(saved);
@@ -2091,7 +2093,7 @@ export default function SideSwapApp() {
             lockedVehicles={lockedCareerVehicles}
             onSelect={setGarageVehicleId}
             onStartDay={beginCareerDay}
-            onBuyout={buyVehicle}
+            onBuy={buyVehicle}
             onAbandon={() => setPendingConfirm("abandon-career")}
           />
         )}

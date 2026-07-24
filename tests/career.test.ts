@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   activeCity,
-  applyBuyout,
+  applyVehiclePurchase,
   applySettlement,
   CAREER_CITIES,
   CAREER_START_CITY,
@@ -11,7 +11,8 @@ import {
   nextCareerCity,
   BUYOUT_RENT_MULTIPLIER,
   buyoutPrice,
-  canBuyout,
+  canBuyVehicle,
+  ownsFullFleet,
   CAREER_STARTING_CASH_BY_COUNTRY,
   CAREER_VEHICLES,
   careerDayTrafficSeed,
@@ -775,7 +776,7 @@ describe("rent and buyout", () => {
     expect(buyoutPrice(hatch, "jp")).toBe(1200 * BUYOUT_RENT_MULTIPLIER);
   });
 
-  it("enforces the eligibility matrix", () => {
+  it("gates a purchase on cash and nothing else", () => {
     const hatch = getCareerVehicle("compact-hatch");
     const price = buyoutPrice(hatch, "jp");
     const withCash = (patch: Partial<CareerCityState>) =>
@@ -784,40 +785,71 @@ describe("rent and buyout", () => {
         cash: price,
         ...patch,
       });
-    const rich = withCash({});
-    expect(canBuyout(rich, hatch)).toBe(true);
-    expect(canBuyout(rich, getCareerVehicle("bicycle"))).toBe(false);
-    expect(canBuyout(withCash({ cash: price - 1 }), hatch)).toBe(false);
+    expect(canBuyVehicle(withCash({}), hatch)).toBe(true);
+    expect(canBuyVehicle(withCash({ cash: price - 1 }), hatch)).toBe(false);
+    // The bicycle is yours already and is not for sale.
+    expect(canBuyVehicle(withCash({}), getCareerVehicle("bicycle"))).toBe(false);
+    // Already in this city's fleet.
     expect(
-      canBuyout(
-        withCash({ loan: { principalRemaining: 1, daysRemaining: 1 } }),
-        hatch,
-      ),
-    ).toBe(false);
-    expect(canBuyout(withCash({ finalNotice: true }), hatch)).toBe(false);
-    expect(
-      canBuyout(withCash({ ownedVehicleIds: ["delivery-van"] }), hatch),
-    ).toBe(false);
-    expect(
-      canBuyout(stampCareerChecksum({ ...rich, state: "over" }), hatch),
+      canBuyVehicle(withCash({ ownedVehicleIds: ["compact-hatch"] }), hatch),
     ).toBe(false);
   });
 
-  it("buying out records the victory once and keeps the day", () => {
+  it("lets you buy while indebted and under final notice", () => {
+    // Deliberate: spending yourself back into a shortfall is the player's call,
+    // and settlement prices it tonight.
     const hatch = getCareerVehicle("compact-hatch");
     const price = buyoutPrice(hatch, "jp");
-    const ready = withCity(slice, "jp-tokyo", {
+    const struggling = withCity(slice, "jp-tokyo", {
       ...activeCity(slice),
-      cash: price + 500,
-      day: 9,
+      cash: price,
+      loan: { principalRemaining: 5000, daysRemaining: 2 },
+      finalNotice: true,
     });
-    const won = applyBuyout(ready, hatch);
-    expect(won.state).toBe("won");
-    expect(won.victoryDay).toBe(9);
-    expect(activeCity(won).ownedVehicleIds).toEqual(["compact-hatch"]);
-    expect(activeCity(won).cash).toBe(500);
-    expect(parseCareerSlice(JSON.parse(JSON.stringify(won)))).toEqual(won);
-    expect(() => applyBuyout(won, hatch)).toThrow();
+    expect(canBuyVehicle(struggling, hatch)).toBe(true);
+    const bought = applyVehiclePurchase(struggling, hatch);
+    expect(activeCity(bought).ownedVehicleIds).toEqual(["compact-hatch"]);
+    // The debt is untouched by the purchase — it just cost the cash.
+    expect(activeCity(bought).loan).toEqual({
+      principalRemaining: 5000,
+      daysRemaining: 2,
+    });
+  });
+
+  it("collects a whole fleet, one purchase at a time", () => {
+    const buyable = CAREER_VEHICLES.filter((vehicle) => vehicle.buyoutEligible);
+    let career = withCity(slice, "jp-tokyo", {
+      ...activeCity(slice),
+      cash: 10_000_000,
+    });
+    expect(ownsFullFleet(activeCity(career))).toBe(false);
+    for (const vehicle of buyable) {
+      expect(canBuyVehicle(career, vehicle), vehicle.id).toBe(true);
+      career = applyVehiclePurchase(career, vehicle);
+      // Bought vehicles stop costing rent immediately.
+      expect(vehicleRent(vehicle, activeCity(career))).toBe(0);
+    }
+    expect(activeCity(career).ownedVehicleIds).toHaveLength(buyable.length);
+    expect(ownsFullFleet(activeCity(career))).toBe(true);
+    // No double-buying, and the slice still verifies.
+    expect(canBuyVehicle(career, buyable[0])).toBe(false);
+    expect(() => applyVehiclePurchase(career, buyable[0])).toThrow(/Cannot buy/);
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(career)))).toEqual(career);
+  });
+
+  it("charges the price and leaves other cities' fleets alone", () => {
+    const hatch = getCareerVehicle("compact-hatch");
+    const twoCities = withCity(
+      withCity(slice, "jp-tokyo", {
+        ...activeCity(slice),
+        cash: buyoutPrice(hatch, "jp") + 7,
+      }),
+      "us-nyc",
+      createCityState("us"),
+    );
+    const bought = applyVehiclePurchase(twoCities, hatch);
+    expect(activeCity(bought).cash).toBe(7);
+    expect(bought.cities["us-nyc"]?.ownedVehicleIds).toEqual([]);
   });
 });
 

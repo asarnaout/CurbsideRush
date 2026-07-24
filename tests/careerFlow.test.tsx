@@ -483,8 +483,13 @@ describe("career mode flow", () => {
     await screen.findByRole("heading", { name: /Pick today's ride/i });
 
     expect(screen.getByRole("alert")).toHaveTextContent(/FINAL NOTICE/i);
-    // Broke: motor tiers are out of reach, the owned bike is auto-selected.
-    expect(screen.getByTestId("garage-vehicle-compact-hatch")).toBeDisabled();
+    // Broke: the owned bike is auto-selected. The hatch card stays selectable
+    // (you must be able to reach its Buy control at any balance) but its rent
+    // is out of reach, so the day cannot start on it.
+    const hatchCard = screen.getByTestId("garage-vehicle-compact-hatch");
+    expect(hatchCard).toBeEnabled();
+    expect(hatchCard).toHaveTextContent(/out of reach today/i);
+    expect(screen.getByTestId("garage-buy-compact-hatch")).toBeDisabled();
     const bikeCard = screen.getByTestId("garage-vehicle-bicycle");
     expect(bikeCard).toBeEnabled();
     expect(bikeCard).toHaveAttribute("aria-pressed", "true");
@@ -508,41 +513,54 @@ describe("career mode flow", () => {
     expect(storedCareer()).toBeNull();
   });
 
-  it("buys the hatch outright while debt-free: victory recorded, rent gone", async () => {
+  it("buys any vehicle from its own card, without selecting it first", async () => {
     seedProgressWithCareer(
       careerIn("uk-london", 21, {
         cash: 200,
         day: 5,
-        }),
+        // Debt is deliberately no gate on buying.
+        loan: { principalRemaining: 40, daysRemaining: 3 },
+      }),
     );
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-continue"));
     await screen.findByRole("heading", { name: /Pick today's ride/i });
 
-    // The finish line is visible from the garage: the cheapest escape is now
-    // the motorbike at 8 × 15 = 120.
-    expect(screen.getByTestId("buyout-fund")).toHaveTextContent("£120.00");
-
-    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
-    const buy = screen.getByTestId("garage-buyout");
-    expect(buy).toHaveTextContent("£180.00");
-    fireEvent.click(buy);
-
-    expect(await screen.findByTestId("victory-banner")).toHaveTextContent(
-      /day 5/i,
+    // Every eligible vehicle prices itself; the bike is not for sale.
+    expect(screen.getByTestId("garage-buy-compact-hatch")).toHaveTextContent(
+      "£180.00",
     );
-    const won = storedCareer() as CareerSliceV2;
-    expect(won.state).toBe("won");
-    expect(won.victoryDay).toBe(5);
-    expect(activeCity(won).ownedVehicleIds).toEqual(["compact-hatch"]);
-    expect(activeCity(won).cash).toBe(20);
-    // The owned hatch now rents free — the whole 20 survives the morning.
+    expect(screen.getByTestId("garage-buy-motorbike")).toHaveTextContent(
+      "£120.00",
+    );
+    expect(screen.queryByTestId("garage-buy-bicycle")).toBeNull();
+    // £200 covers the motorbike and the hatch, not the van at £300.
+    expect(screen.getByTestId("garage-buy-delivery-van")).toBeDisabled();
+
+    // Take the motorbike out for the day, then buy the *hatch*. The old flow
+    // could only ever buy whatever card was selected; these are now independent.
+    fireEvent.click(screen.getByTestId("garage-vehicle-motorbike"));
+    expect(screen.getByTestId("garage-vehicle-motorbike")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(screen.getByTestId("garage-buy-compact-hatch"));
+
+    const owned = storedCareer() as CareerSliceV2;
+    expect(activeCity(owned).ownedVehicleIds).toEqual(["compact-hatch"]);
+    expect(activeCity(owned).cash).toBe(20);
+    // The debt is untouched: the purchase cost cash, not the loan.
+    expect(activeCity(owned).loan).toEqual({
+      principalRemaining: 40,
+      daysRemaining: 3,
+    });
+    // Owned now, so it rents free and its card says so.
     expect(screen.getByTestId("garage-vehicle-compact-hatch")).toHaveTextContent(
       /Owned — no rent/,
     );
-    fireEvent.click(screen.getByTestId("garage-start-day"));
-    await screen.findByLabelText("Mock driving scene");
-    expect(screen.getByTestId("day-cash")).toHaveTextContent("£20.00");
+    // Its Buy control is replaced by the ownership marker.
+    expect(screen.queryByTestId("garage-buy-compact-hatch")).toBeNull();
+    expect(screen.getByTestId("garage-buy-motorbike")).toBeInTheDocument();
   });
 
   it("summons roadside service on an empty tank and charges the premium into the red", async () => {

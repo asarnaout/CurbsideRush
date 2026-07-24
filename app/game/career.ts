@@ -32,7 +32,7 @@ export const LOAN_ORIGINATION_RATE = 0.15;
 /** Settlements a loan spans; installments are ceil(principal / days left). */
 export const LOAN_TERM_DAYS = 3;
 
-/** Buying out a rental costs this many days of its rent. */
+/** Buying a vehicle outright costs this many days of its rent. */
 export const BUYOUT_RENT_MULTIPLIER = 15;
 
 /** Roadside rescue refills the whole tank at this premium over pump price. */
@@ -996,40 +996,48 @@ export function buyoutPrice(
 }
 
 /**
- * One buyout per career: debt-free, playable, eligible vehicle, cash covers
- * the price, and nothing owned yet. Buying is the victory.
+ * Cash on hand is the only condition. Deliberately: debt does not block a
+ * purchase, there is no cap on how many you own, and every eligible vehicle is
+ * offered rather than only whichever one the garage has selected. Spending
+ * yourself back into a shortfall is a decision the player is allowed to make —
+ * settlement will price it tonight.
  */
-export function canBuyout(
+export function canBuyVehicle(
   slice: CareerSliceV2,
   vehicle: CareerVehicleSpec,
 ): boolean {
   const city = activeCity(slice);
   return (
-    slice.state !== "over" &&
     vehicle.buyoutEligible &&
-    city.loan === null &&
-    !city.finalNotice &&
-    city.ownedVehicleIds.length === 0 &&
+    !city.ownedVehicleIds.includes(vehicle.id) &&
     city.cash >= buyoutPrice(vehicle, city.countryId)
   );
 }
 
-export function applyBuyout(
+/** Adds the vehicle to *this city's* fleet. It stays behind if you fly on. */
+export function applyVehiclePurchase(
   slice: CareerSliceV2,
   vehicle: CareerVehicleSpec,
 ): CareerSliceV2 {
-  if (!canBuyout(slice, vehicle)) {
-    throw new Error(`Buyout not available for ${vehicle.id}`);
+  if (!canBuyVehicle(slice, vehicle)) {
+    throw new Error(`Cannot buy ${vehicle.id} here`);
   }
   const city = activeCity(slice);
-  const next = withCity(slice, city.destinationId, {
+  return withCity(slice, city.destinationId, {
     ...city,
     cash: city.cash - buyoutPrice(vehicle, city.countryId),
     ownedVehicleIds: [...city.ownedVehicleIds, vehicle.id],
   });
-  return stampCareerChecksum({
-    ...next,
-    state: "won",
-    victoryDay: slice.victoryDay ?? city.day,
-  });
+}
+
+/** Every vehicle that can be bought at all, cheapest first. */
+export function buyableVehicles(): readonly CareerVehicleSpec[] {
+  return CAREER_VEHICLES.filter((vehicle) => vehicle.buyoutEligible);
+}
+
+/** True once this city's fleet holds every buyable vehicle. */
+export function ownsFullFleet(city: CareerCityState): boolean {
+  return buyableVehicles().every((vehicle) =>
+    city.ownedVehicleIds.includes(vehicle.id),
+  );
 }
