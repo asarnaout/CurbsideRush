@@ -2121,7 +2121,7 @@ export default function SideSwapApp() {
               ))}
             </div>
 
-            {(gameMode === "free" || !careerSlice) && (
+            {gameMode === "free" && (
             <>
             <p className="launcher-pick-label">Choose a city</p>
             <div

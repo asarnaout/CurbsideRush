@@ -1570,11 +1570,23 @@ canvas:focus-visible {
 .career-launcher {
   display: grid;
   gap: 18px;
-  justify-items: start;
+  justify-items: stretch;
+  /* Cap the column to the card width so the CTA below lines up with the card. */
+  max-width: 452px;
 }
 
 .career-launcher .launcher-actions {
   margin-top: 0;
+  width: 100%;
+}
+
+/* The career CTA spans the card width (the free-drive "Start driving" stays
+   compact — it isn't inside .career-launcher). */
+.career-launcher .launcher-primary {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
 }
 
 .career-card {
@@ -2187,7 +2199,7 @@ canvas:focus-visible {
     justify-content: center;
   }
   .launcher-actions .secondary-button { width: 100%; }
-  .career-launcher { justify-items: stretch; }
+  .career-launcher { justify-items: stretch; max-width: none; }
   .career-card { max-width: none; }
   .career-card-progress-foot {
     flex-direction: column;
