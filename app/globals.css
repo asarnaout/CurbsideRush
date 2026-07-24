@@ -2739,3 +2739,65 @@ canvas:focus-visible {
   .launcher-setup-summary button { min-height: 50px; }
   .launcher-actions { margin-top: 12px; }
 }
+
+/* ---- Career travel board ------------------------------------------------ */
+/* The ladder of cities: where you are, where you have been, and the one
+   onward ticket. Shares the garage's dark-HUD vocabulary. */
+.travel-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 34rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.travel-stop {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 16px;
+  border: 1px solid var(--hud-line);
+  border-radius: 15px;
+  background: rgba(16, 23, 25, 0.6);
+}
+.travel-stop.here { border-color: rgba(244, 200, 72, 0.55); }
+.travel-stop.locked { opacity: 0.42; }
+.travel-flag { font-size: 24px; line-height: 1; }
+.travel-copy { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
+.travel-copy strong { font-size: 15px; font-weight: 800; }
+.travel-copy small { font-size: 12px; color: var(--hud-cream-40); font-weight: 600; }
+.travel-action {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: 1px solid var(--hud-line-3);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--hud-cream);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.travel-action:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
+.travel-action.buy { border-color: rgba(244, 200, 72, 0.5); color: var(--hud-yellow); }
+.travel-action.buy:hover:not(:disabled) { background: rgba(244, 200, 72, 0.14); }
+.travel-action:disabled { opacity: 0.45; cursor: not-allowed; }
+.travel-action.current {
+  border-color: transparent;
+  color: var(--hud-yellow);
+  cursor: default;
+}
+.garage-travel {
+  padding: 10px;
+  border: 1px solid var(--hud-line-3);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--hud-cream);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 800;
+  text-align: center;
+  transition: background 0.15s ease;
+}
+.garage-travel:hover { background: rgba(255, 255, 255, 0.06); }

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   activeCity,
+  applyTicket,
   applyVehiclePurchase,
+  canBuyTicket,
   applySettlement,
   CAREER_CITIES,
   CAREER_START_CITY,
@@ -9,6 +11,10 @@ import {
   careerCountryOf,
   isCareerCity,
   nextCareerCity,
+  ticketPrice,
+  travelTo,
+  TICKET_PRICE_BY_DESTINATION,
+  unlockedCities,
   BUYOUT_RENT_MULTIPLIER,
   buyoutPrice,
   canBuyVehicle,
@@ -557,6 +563,106 @@ describe("the city ladder", () => {
         expect(vehicle.rentByCountry[countryId]).toBeGreaterThanOrEqual(0);
       }
     }
+  });
+});
+
+describe("tickets and travel", () => {
+  const nyc = () => createCareerSlice({ destinationId: "us-nyc", careerSeed: 9 });
+
+  it("prices a ticket out of every city but the last", () => {
+    for (const city of CAREER_CITIES) {
+      const price = ticketPrice(city);
+      if (nextCareerCity(city) === null) {
+        expect(price, `${city} is the last stop`).toBeNull();
+      } else {
+        expect(price, `${city} needs a ticket price`).toBeGreaterThan(0);
+        expect(Number.isSafeInteger(price)).toBe(true);
+      }
+    }
+    // No stray prices for cities that are not on the ladder.
+    for (const id of Object.keys(TICKET_PRICE_BY_DESTINATION)) {
+      expect(isCareerCity(id as never)).toBe(true);
+    }
+  });
+
+  it("gates the ticket on cash and nothing else", () => {
+    const price = ticketPrice("us-nyc") as number;
+    const broke = nyc();
+    expect(canBuyTicket(broke)).toBe(false);
+    const ready = withCity(broke, "us-nyc", {
+      ...activeCity(broke),
+      cash: price,
+      // Debt is no gate here either, matching vehicle purchases.
+      loan: { principalRemaining: 99, daysRemaining: 2 },
+      finalNotice: true,
+    });
+    expect(canBuyTicket(ready)).toBe(true);
+    expect(
+      canBuyTicket(
+        withCity(ready, "us-nyc", { ...activeCity(ready), cash: price - 1 }),
+      ),
+    ).toBe(false);
+  });
+
+  it("flying on debits here, opens there fresh, and leaves this city intact", () => {
+    const price = ticketPrice("us-nyc") as number;
+    const ready = withCity(nyc(), "us-nyc", {
+      ...activeCity(nyc()),
+      cash: price + 250,
+      day: 12,
+      ownedVehicleIds: ["compact-hatch", "delivery-van"],
+    });
+    const flown = applyTicket(ready);
+
+    expect(flown.currentDestinationId).toBe("jp-tokyo");
+    const tokyo = activeCity(flown);
+    expect(tokyo.countryId).toBe("jp");
+    expect(tokyo.cash).toBe(CAREER_STARTING_CASH_BY_COUNTRY.jp);
+    expect(tokyo.day).toBe(1);
+    expect(tokyo.ownedVehicleIds).toEqual([]);
+
+    // New York keeps its change, its day counter and its fleet.
+    const left = flown.cities["us-nyc"];
+    expect(left?.cash).toBe(250);
+    expect(left?.day).toBe(12);
+    expect(left?.ownedVehicleIds).toEqual(["compact-hatch", "delivery-van"]);
+    expect(unlockedCities(flown)).toEqual(["us-nyc", "jp-tokyo"]);
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(flown)))).toEqual(flown);
+  });
+
+  it("never sells a second ticket for a leg already flown", () => {
+    const price = ticketPrice("us-nyc") as number;
+    const flown = applyTicket(
+      withCity(nyc(), "us-nyc", { ...activeCity(nyc()), cash: price }),
+    );
+    // Fly back with plenty of cash: Tokyo is unlocked, so travel is free now.
+    const backRich = withCity(travelTo(flown, "us-nyc"), "us-nyc", {
+      ...(flown.cities["us-nyc"] as CareerCityState),
+      cash: 999_999,
+    });
+    expect(canBuyTicket(backRich)).toBe(false);
+    expect(() => applyTicket(backRich)).toThrow(/No onward ticket/);
+  });
+
+  it("travels freely between cities already reached, and refuses the rest", () => {
+    const price = ticketPrice("us-nyc") as number;
+    const flown = applyTicket(
+      withCity(nyc(), "us-nyc", { ...activeCity(nyc()), cash: price }),
+    );
+    const back = travelTo(flown, "us-nyc");
+    expect(back.currentDestinationId).toBe("us-nyc");
+    // Free: flying back costs nothing.
+    expect(activeCity(back).cash).toBe(0);
+    expect(activeCity(travelTo(back, "jp-tokyo")).countryId).toBe("jp");
+    expect(() => travelTo(back, "uk-london")).toThrow(/not been reached/);
+  });
+
+  it("gives each city its own traffic and gig streams on the same day number", () => {
+    expect(careerDayTrafficSeed(42, 3, 0)).not.toBe(careerDayTrafficSeed(42, 3, 1));
+    expect(careerGigSeedBase(42, 3, 0)).not.toBe(careerGigSeedBase(42, 3, 1));
+    // Omitting the index reproduces the ladder's first city exactly.
+    expect(careerDayTrafficSeed(42, 3)).toBe(careerDayTrafficSeed(42, 3, 0));
+    expect(careerGigSeedBase(42, 3)).toBe(careerGigSeedBase(42, 3, 0));
   });
 });
 

@@ -563,6 +563,59 @@ describe("career mode flow", () => {
     expect(screen.getByTestId("garage-buy-motorbike")).toBeInTheDocument();
   });
 
+  it("flies to Tokyo: yen prices, a fresh float, and New York left intact", async () => {
+    // Enough for the $400 ticket, with a hatch already bought in New York.
+    seedProgressWithCareer(
+      careerIn("us-nyc", 31, {
+        cash: 500,
+        day: 8,
+        ownedVehicleIds: ["compact-hatch"],
+      }),
+    );
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    expect(screen.getByTestId("garage-cash")).toHaveTextContent("$500.00");
+
+    fireEvent.click(screen.getByTestId("garage-travel"));
+    await screen.findByRole("heading", { name: /Where are you working/i });
+    expect(screen.getByTestId("travel-us-nyc")).toHaveTextContent(/You're here/i);
+    expect(screen.getByTestId("travel-jp-tokyo")).toHaveTextContent("$400.00");
+    // London is two legs away and stays locked.
+    expect(screen.getByTestId("travel-uk-london")).toHaveTextContent(/Locked/i);
+    expect(screen.queryByTestId("travel-go-uk-london")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("travel-buy-ticket"));
+    fireEvent.click(screen.getByRole("button", { name: /Buy the ticket/i }));
+
+    // Tokyo: fresh yen float, day 1, and the hatch did not come along.
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    expect(screen.getByTestId("garage-cash")).toHaveTextContent("¥3,000");
+    expect(screen.getByTestId("garage-vehicle-compact-hatch")).toHaveTextContent(
+      "¥1,200",
+    );
+    expect(screen.getByTestId("garage-buy-compact-hatch")).toHaveTextContent(
+      "¥18,000",
+    );
+    const flown = storedCareer() as CareerSliceV2;
+    expect(flown.currentDestinationId).toBe("jp-tokyo");
+    expect(activeCity(flown).ownedVehicleIds).toEqual([]);
+    // New York kept the change and the fleet.
+    expect(flown.cities["us-nyc"]?.cash).toBe(100);
+    expect(flown.cities["us-nyc"]?.ownedVehicleIds).toEqual(["compact-hatch"]);
+
+    // And flying back is free and restores exactly what was left there.
+    fireEvent.click(screen.getByTestId("garage-travel"));
+    await screen.findByRole("heading", { name: /Where are you working/i });
+    expect(screen.getByTestId("travel-us-nyc")).toHaveTextContent("$100.00");
+    fireEvent.click(screen.getByTestId("travel-go-us-nyc"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    expect(screen.getByTestId("garage-cash")).toHaveTextContent("$100.00");
+    expect(screen.getByTestId("garage-vehicle-compact-hatch")).toHaveTextContent(
+      /Owned — no rent/,
+    );
+  });
+
   it("summons roadside service on an empty tank and charges the premium into the red", async () => {
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-start"));

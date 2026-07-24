@@ -6,17 +6,21 @@ import { useState } from "react";
 // end-of-day ledger, and the career-over report. Props-pure — everything they
 // show arrives as data, so tests render them directly without the app shell.
 
-import type { CountryProfile } from "./game/types";
+import type { CountryProfile, DestinationId } from "./game/types";
 import { formatMoney } from "./game/content";
 import {
+  activeCity,
   BUYOUT_RENT_MULTIPLIER,
   buyoutPrice,
   canBuyVehicle,
+  CAREER_CITIES,
   CAREER_STARTING_CASH_BY_COUNTRY,
   CAREER_VEHICLES,
   getCareerVehicle,
+  nextCareerCity,
   nextInstallment,
   PLATFORM_FEE_BY_COUNTRY,
+  ticketPrice,
   ownsVehicle,
   vehicleRent,
   type CareerCityView,
@@ -76,7 +80,9 @@ export function GarageView({
   onSelect,
   onStartDay,
   onBuy,
+  onTravel,
   onAbandon,
+  cityName,
 }: {
   slice: CareerSliceV2;
   /** The city being played: all money, rent and debt come from here. */
@@ -88,7 +94,10 @@ export function GarageView({
   onSelect: (id: CareerVehicleId) => void;
   onStartDay: (id: CareerVehicleId) => void;
   onBuy: (id: CareerVehicleId) => void;
+  onTravel: () => void;
   onAbandon: () => void;
+  /** Where the driver is, shown on the travel button. */
+  cityName: string;
 }) {
   const selected = CAREER_VEHICLES.find(
     (vehicle) => vehicle.id === selectedVehicleId,
@@ -297,6 +306,14 @@ export function GarageView({
           >
             Start Day {city.day}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+          </button>
+          <button
+            type="button"
+            className="garage-travel"
+            data-testid="garage-travel"
+            onClick={onTravel}
+          >
+            ✈ Travel · {cityName}
           </button>
           <button type="button" className="garage-abandon" onClick={onAbandon}>
             Abandon career
@@ -965,5 +982,156 @@ export function CareerSetupPanel({
         )}
       </div>
     </div>
+  );
+}
+
+/** One row of the travel board: a ladder city and what you can do with it. */
+export interface TravelStop {
+  readonly destinationId: DestinationId;
+  readonly name: string;
+  readonly countryName: string;
+  readonly flagEmoji: string;
+  readonly state: "here" | "unlocked" | "next" | "locked";
+  /** Cash and fleet waiting there, for a city already reached. */
+  readonly waiting: { readonly cash: string; readonly vehicles: number } | null;
+  /** Ticket price from the *current* city, on the "next" row only. */
+  readonly ticket: string | null;
+  readonly affordable: boolean;
+}
+
+/**
+ * Derives the travel board from the career. Pure (money formatted here) so the
+ * copy is unit-testable without rendering, in the style of careerCardModel.
+ */
+export function travelBoard(
+  slice: CareerSliceV2,
+  countryOf: (destinationId: DestinationId) => CountryProfile,
+  nameOf: (destinationId: DestinationId) => string,
+): readonly TravelStop[] {
+  const here = activeCity(slice);
+  const onward = nextCareerCity(here.destinationId);
+  const price = ticketPrice(here.destinationId);
+  return CAREER_CITIES.map((destinationId) => {
+    const country = countryOf(destinationId);
+    const reached = slice.cities[destinationId];
+    const state: TravelStop["state"] =
+      destinationId === here.destinationId
+        ? "here"
+        : reached
+          ? "unlocked"
+          : destinationId === onward
+            ? "next"
+            : "locked";
+    return {
+      destinationId,
+      name: nameOf(destinationId),
+      countryName: country.countryName,
+      flagEmoji: country.flagEmoji,
+      state,
+      waiting: reached
+        ? {
+            cash: formatMoney(reached.cash, country),
+            vehicles: reached.ownedVehicleIds.length,
+          }
+        : null,
+      ticket:
+        state === "next" && price !== null
+          ? formatMoney(price, countryOf(here.destinationId))
+          : null,
+      affordable: state === "next" && price !== null && here.cash >= price,
+    };
+  });
+}
+
+/**
+ * The travel board: every city on the career ladder, the ones you have reached
+ * (free to fly back to, with whatever you left there still waiting), and the
+ * one onward ticket you can buy. Moving on is always optional — this page is
+ * reachable from the garage and never forces a choice.
+ */
+export function TravelView({
+  stops,
+  onGoTo,
+  onBuyTicket,
+  onBack,
+}: {
+  stops: readonly TravelStop[];
+  onGoTo: (destinationId: DestinationId) => void;
+  onBuyTicket: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <section className="subpage" aria-label="Travel">
+      <div className="subpage-heading">
+        <div>
+          <p className="eyebrow">CAREER · TRAVEL</p>
+          <h1>Where are you working?</h1>
+          <p>
+            Money and vehicles stay in the city you earned them in. Fly back any
+            time — everything you left is still there.
+          </p>
+        </div>
+      </div>
+
+      <ol className="travel-board" data-testid="travel-board">
+        {stops.map((stop) => (
+          <li
+            key={stop.destinationId}
+            className={`travel-stop ${stop.state}`}
+            data-testid={`travel-${stop.destinationId}`}
+          >
+            <span className="travel-flag" aria-hidden="true">
+              {stop.flagEmoji}
+            </span>
+            <span className="travel-copy">
+              <strong>{stop.name}</strong>
+              <small>
+                {stop.state === "here" && "You're here"}
+                {stop.state === "unlocked" &&
+                  stop.waiting &&
+                  `${stop.waiting.cash} waiting · ${stop.waiting.vehicles} owned`}
+                {stop.state === "next" && `Ticket ${stop.ticket}`}
+                {stop.state === "locked" && "Locked"}
+              </small>
+            </span>
+            {stop.state === "unlocked" && (
+              <button
+                type="button"
+                className="travel-action"
+                data-testid={`travel-go-${stop.destinationId}`}
+                onClick={() => onGoTo(stop.destinationId)}
+              >
+                Fly here
+              </button>
+            )}
+            {stop.state === "next" && (
+              <button
+                type="button"
+                className="travel-action buy"
+                data-testid="travel-buy-ticket"
+                disabled={!stop.affordable}
+                onClick={onBuyTicket}
+              >
+                Buy ticket
+              </button>
+            )}
+            {stop.state === "here" && (
+              <span className="travel-action current">✓</span>
+            )}
+          </li>
+        ))}
+      </ol>
+
+      <div className="settings-actions" style={{ marginTop: "1.1rem" }}>
+        <button
+          type="button"
+          className="primary-button"
+          data-testid="travel-back"
+          onClick={onBack}
+        >
+          Back to the garage
+        </button>
+      </div>
+    </section>
   );
 }

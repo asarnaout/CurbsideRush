@@ -83,6 +83,22 @@ export function nextCareerCity(
   return CAREER_CITIES[index + 1] ?? null;
 }
 
+/**
+ * What the onward plane ticket costs, priced in the **departure** city's own
+ * currency — you buy it where you are standing. The last city on the ladder has
+ * no onward flight and so no entry.
+ *
+ * Sized as the endgame of a city: comfortably more than the priciest vehicle
+ * there, so leaving is a decision you save up for rather than stumble into.
+ * `tests/careerBalance.test.ts` fails if a fare edit ever puts one out of reach.
+ */
+export const TICKET_PRICE_BY_DESTINATION: Readonly<
+  Partial<Record<DestinationId, number>>
+> = {
+  "us-nyc": 400,
+  "jp-tokyo": 40_000,
+};
+
 /** Seed cash: about one hatchback rent plus change — day 1 is a bike day. */
 export const CAREER_STARTING_CASH_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 20,
@@ -706,17 +722,35 @@ const avalanche = (value: number): number => {
  * seed + day always replays identically — that is what makes a mid-day quit
  * "redo the day", not "reroll the day".
  */
-export function careerDayTrafficSeed(careerSeed: number, day: number): number {
+export function careerDayTrafficSeed(
+  careerSeed: number,
+  day: number,
+  // Folded in so day 3 in Tokyo is not day 3 in New York. Defaults to the
+  // ladder's first city, which keeps every pre-ladder seed exactly as it was.
+  cityIndex = 0,
+): number {
   const mixed =
-    avalanche((careerSeed >>> 0) ^ Math.imul(day, 0x9e3779b1)) & 0x7fffffff;
+    avalanche(
+      (careerSeed >>> 0) ^
+        Math.imul(day, 0x9e3779b1) ^
+        Math.imul(cityIndex, 0x7feb352d),
+    ) & 0x7fffffff;
   return mixed === 0 ? 1 : mixed;
 }
 
 /** Base for the day's gig draws; gig i uses base + i, as free drive does. */
-export function careerGigSeedBase(careerSeed: number, day: number): number {
+export function careerGigSeedBase(
+  careerSeed: number,
+  day: number,
+  cityIndex = 0,
+): number {
   const mixed =
-    avalanche((careerSeed >>> 0) ^ 0x5eed_ca7 ^ Math.imul(day, 0x27d4eb2f)) &
-    0x7fffffff;
+    avalanche(
+      (careerSeed >>> 0) ^
+        0x5eed_ca7 ^
+        Math.imul(day, 0x27d4eb2f) ^
+        Math.imul(cityIndex, 0x846ca68b),
+    ) & 0x7fffffff;
   return mixed === 0 ? 1 : mixed;
 }
 
@@ -1028,6 +1062,72 @@ export function applyVehiclePurchase(
     cash: city.cash - buyoutPrice(vehicle, city.countryId),
     ownedVehicleIds: [...city.ownedVehicleIds, vehicle.id],
   });
+}
+
+// ---------------------------------------------------------------------------
+// Travel: the ladder, the ticket, and moving between cities already reached
+// ---------------------------------------------------------------------------
+
+/** Cities reached so far, in ladder order. Presence in `cities` is the unlock. */
+export function unlockedCities(slice: CareerSliceV2): readonly DestinationId[] {
+  return CAREER_CITIES.filter((city) => slice.cities[city] !== undefined);
+}
+
+/** Price of the flight out of here, or null at the end of the ladder. */
+export function ticketPrice(from: DestinationId): number | null {
+  if (nextCareerCity(from) === null) return null;
+  return TICKET_PRICE_BY_DESTINATION[from] ?? null;
+}
+
+/**
+ * Buying the ticket is optional and is the only way to reach a new city — you
+ * can grind a city as long as you like first. Cash on hand is the only gate,
+ * matching vehicle purchases.
+ */
+export function canBuyTicket(slice: CareerSliceV2): boolean {
+  const city = activeCity(slice);
+  const next = nextCareerCity(city.destinationId);
+  const price = ticketPrice(city.destinationId);
+  if (next === null || price === null) return false;
+  // Already flown this leg before and come back — the onward city is unlocked,
+  // so travel there is free rather than another ticket.
+  if (slice.cities[next] !== undefined) return false;
+  return city.cash >= price;
+}
+
+/**
+ * Flies on: debits the ticket from the city you are leaving, opens the next
+ * city on a fresh sheet (its own country's starting float, day 1, no fleet),
+ * and moves the pointer. Nothing crosses — the money and vehicles you leave
+ * behind stay exactly where they are, waiting for you to fly back.
+ */
+export function applyTicket(slice: CareerSliceV2): CareerSliceV2 {
+  if (!canBuyTicket(slice)) {
+    throw new Error("No onward ticket available from here");
+  }
+  const city = activeCity(slice);
+  const next = nextCareerCity(city.destinationId) as DestinationId;
+  const price = ticketPrice(city.destinationId) as number;
+  const paid = withCity(slice, city.destinationId, {
+    ...city,
+    cash: city.cash - price,
+  });
+  return stampCareerChecksum({
+    ...paid,
+    currentDestinationId: next,
+    cities: { ...paid.cities, [next]: createCityState(careerCountryOf(next)) },
+  });
+}
+
+/** Moves to a city already reached. Free, instant, and always reversible. */
+export function travelTo(
+  slice: CareerSliceV2,
+  destinationId: DestinationId,
+): CareerSliceV2 {
+  if (slice.cities[destinationId] === undefined) {
+    throw new Error(`${destinationId} has not been reached yet`);
+  }
+  return stampCareerChecksum({ ...slice, currentDestinationId: destinationId });
 }
 
 /** Every vehicle that can be bought at all, cheapest first. */

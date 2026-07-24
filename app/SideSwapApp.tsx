@@ -46,15 +46,21 @@ import {
 import {
   activeCity,
   applySettlement,
+  applyTicket,
   applyVehiclePurchase,
+  canBuyTicket,
   CAREER_START_CITY,
   careerCountryOf,
+  nextCareerCity,
   careerDayTrafficSeed,
   careerFare,
   careerGigSeedBase,
+  careerCityIndex,
   careerTip,
   canBuyVehicle,
   createCareerSlice,
+  ticketPrice,
+  travelTo,
   DAY_LENGTH_MS,
   emptyDayLog,
   getCareerVehicle,
@@ -77,6 +83,8 @@ import {
   CareerOverView,
   CareerSetupPanel,
   formatClock,
+  travelBoard,
+  TravelView,
   GarageView,
   LedgerView,
 } from "./CareerViews";
@@ -120,7 +128,8 @@ type View =
   | "credits"
   | "career-garage"
   | "career-ledger"
-  | "career-over";
+  | "career-over"
+  | "career-travel";
 
 /**
  * The in-flight career day: the morning slice, the city being driven (resolved
@@ -382,7 +391,7 @@ export default function SideSwapApp() {
   // window.confirm() so the prompt matches the dark HUD (#164). Only one is
   // ever open at a time, and each is dismissed within its own view.
   const [pendingConfirm, setPendingConfirm] = useState<
-    "end-day" | "abandon-career" | null
+    "end-day" | "abandon-career" | "buy-ticket" | null
   >(null);
   const [hud, setHud] = useState<GameHudSnapshot | null>(null);
   const [driveFuel, setDriveFuel] = useState(TANK_CAPACITY_L);
@@ -910,7 +919,11 @@ export default function SideSwapApp() {
         activeFreeDrive,
         driveCountry.trafficSide,
         careerRun.city.day,
-        careerDayTrafficSeed(careerRun.slice.careerSeed, careerRun.city.day),
+        careerDayTrafficSeed(
+          careerRun.slice.careerSeed,
+          careerRun.city.day,
+          careerCityIndex(careerRun.city.destinationId),
+        ),
       )
     : buildFreeDriveLesson(activeFreeDrive, driveCountry.trafficSide);
 
@@ -1157,6 +1170,7 @@ export default function SideSwapApp() {
     gigSeedRef.current = careerGigSeedBase(
       careerSlice.careerSeed,
       careerCity.day,
+      careerCityIndex(careerCity.destinationId),
     );
     gigKindHistoryRef.current = [];
     paidGigRef.current = null;
@@ -1238,6 +1252,35 @@ export default function SideSwapApp() {
     saveProgress(saved);
   };
 
+  // Flying to a city already reached: free, instant, and reversible. A garage
+  // boundary like every other career write.
+  const travelToCity = (destinationId: DestinationId) => {
+    if (!careerSlice) return;
+    const moved = travelTo(careerSlice, destinationId);
+    const saved = writeCareer(progress, moved);
+    setProgress(saved);
+    saveProgress(saved);
+    setDestinationId(destinationId);
+    setLastSettlement(null);
+    setGarageVehicleId("bicycle");
+    setView("career-garage");
+  };
+
+  // The onward ticket. Debits the city you are leaving and opens the next one
+  // on a fresh sheet — nothing crosses, which is the whole point of the ladder.
+  const buyTicket = () => {
+    if (!careerSlice || !canBuyTicket(careerSlice)) return;
+    setPendingConfirm(null);
+    const flown = applyTicket(careerSlice);
+    const saved = writeCareer(progress, flown);
+    setProgress(saved);
+    saveProgress(saved);
+    setDestinationId(flown.currentDestinationId);
+    setLastSettlement(null);
+    setGarageVehicleId("bicycle");
+    setView("career-garage");
+  };
+
   // Career interstitials need their backing state; a stale view (an abandoned
   // or missing career) falls back to something renderable instead of a blank
   // shell. Derived, not redirected — the underlying `view` self-corrects on
@@ -1253,7 +1296,9 @@ export default function SideSwapApp() {
           : "launcher"
         : view === "career-over" && !careerSlice
           ? "launcher"
-          : view;
+          : view === "career-travel" && !careerSlice
+            ? "launcher"
+            : view;
 
   // The launcher hero mirrors what the primary action will actually play: a
   // running career's locked city, otherwise the free-drive pick.
@@ -2094,9 +2139,25 @@ export default function SideSwapApp() {
             onSelect={setGarageVehicleId}
             onStartDay={beginCareerDay}
             onBuy={buyVehicle}
+            onTravel={() => setView("career-travel")}
+            cityName={
+              getDestinationProfile(careerCity.destinationId).destinationName
+            }
             onAbandon={() => setPendingConfirm("abandon-career")}
           />
         )}
+      {effectiveView === "career-travel" && careerSlice && (
+        <TravelView
+          stops={travelBoard(
+            careerSlice,
+            (id) => getCountryProfile(getDestinationProfile(id).countryId),
+            (id) => getDestinationProfile(id).destinationName,
+          )}
+          onGoTo={travelToCity}
+          onBuyTicket={() => setPendingConfirm("buy-ticket")}
+          onBack={() => setView("career-garage")}
+        />
+      )}
       {effectiveView === "career-ledger" && lastSettlement && careerCountry && (
         <LedgerView
           result={lastSettlement.result}
@@ -2256,6 +2317,24 @@ export default function SideSwapApp() {
           <span>Curbside Rush is familiarisation, not legal advice or driver instruction.</span>
           <span>Map data © OpenStreetMap contributors · ODbL</span>
         </footer>
+      )}
+      {pendingConfirm === "buy-ticket" && careerSlice && careerCity && (
+        <ConfirmDialog
+          title={`Fly to ${
+            getDestinationProfile(
+              nextCareerCity(careerCity.destinationId) ?? CAREER_START_CITY,
+            ).destinationName
+          }?`}
+          body={`The ticket costs ${formatMoney(
+            ticketPrice(careerCity.destinationId) ?? 0,
+            careerCountry ?? country,
+          )}. You'll arrive with a fresh starting balance and none of the vehicles you own here — they stay in ${
+            getDestinationProfile(careerCity.destinationId).destinationName
+          }, waiting for you to fly back.`}
+          confirmLabel="Buy the ticket"
+          onCancel={() => setPendingConfirm(null)}
+          onConfirm={buyTicket}
+        />
       )}
       {pendingConfirm === "abandon-career" && (
         <ConfirmDialog
