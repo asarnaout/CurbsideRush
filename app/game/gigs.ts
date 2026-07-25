@@ -97,6 +97,17 @@ const PICKUP_SOURCE_KINDS = new Set(["restaurant", "shop", "depot"]);
 
 /** Shortest gig worth offering, pickup to drop-off. */
 export const MIN_GIG_DISTANCE_M = 120;
+/**
+ * Furthest a gig will send you, when the pool offers a choice.
+ *
+ * A Career day is about six minutes of sim clock. At a city speed limit, with
+ * a signal on every block, 1.1 km is a couple of minutes of driving — a
+ * substantial job that still leaves the day room for several. Without a
+ * ceiling a 3 km map pairs addresses right across itself, and one fare eats
+ * the shift. Not a hard rule: where nothing nearer exists the long job is
+ * still offered, because no gig is worse than a long one.
+ */
+export const MAX_GIG_DISTANCE_M = 1100;
 
 /**
  * Which places each end of a gig may use.
@@ -149,18 +160,36 @@ export function generateGigFromPools(
   if (!pickups.length || !dropoffs.length) return null;
   const pickupIndex = Math.floor(hashToUnit(seed) * pickups.length) % pickups.length;
   const pickup = pickups[pickupIndex];
-  // Walk the drop-off forward past anything too close to be worth driving to.
-  // With dozens of street addresses in the pool, some land a few metres from
-  // the pickup, and the arrival radius is 14 m — such a gig would complete
-  // almost the instant it was offered, for a near-base payout.
-  let dropoffIndex =
+  // Walk the drop-off forward past anything too close to be worth driving to,
+  // and past anything so far that the job is the whole shift. With dozens of
+  // street addresses in the pool some land a few metres from the pickup, and
+  // the arrival radius is 14 m — such a gig would complete almost the instant
+  // it was offered, for a near-base payout. At the other end, a city 3 km
+  // across can pair two addresses most of that apart, which at a city speed
+  // limit and a signal on every block is most of a working day for one fare.
+  const start =
     Math.floor(hashToUnit(seed + 1) * dropoffs.length) % dropoffs.length;
+  let dropoffIndex = start;
+  let firstReachable: number | null = null;
   for (let attempt = 0; attempt < dropoffs.length; attempt += 1) {
     const candidate = dropoffs[dropoffIndex];
-    if (candidate.id !== pickup.id && distance(pickup, candidate) >= MIN_GIG_DISTANCE_M) {
-      break;
+    if (candidate.id !== pickup.id) {
+      const gap = distance(pickup, candidate);
+      if (gap >= MIN_GIG_DISTANCE_M) {
+        if (gap <= MAX_GIG_DISTANCE_M) break;
+        // Remember it: on a pool where everything is far — a small map, or a
+        // pickup out at an edge — a long gig beats no gig.
+        firstReachable ??= dropoffIndex;
+      }
     }
     dropoffIndex = (dropoffIndex + 1) % dropoffs.length;
+  }
+  if (dropoffIndex === start && firstReachable !== null) {
+    const wrapped = dropoffs[start];
+    const gap = distance(pickup, wrapped);
+    if (wrapped.id === pickup.id || gap < MIN_GIG_DISTANCE_M || gap > MAX_GIG_DISTANCE_M) {
+      dropoffIndex = firstReachable;
+    }
   }
   const dropoff = dropoffs[dropoffIndex];
   // Every candidate was the pickup itself: the pools share a single entry.
