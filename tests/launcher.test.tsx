@@ -27,7 +27,6 @@ vi.mock("next/dynamic", () => ({
       trafficSide,
       steeringSide,
       cameraMode,
-      showBuiltInHud,
     }: {
       lesson?: {
         readonly id: string;
@@ -37,7 +36,6 @@ vi.mock("next/dynamic", () => ({
       trafficSide?: string;
       steeringSide?: string;
       cameraMode?: string;
-      showBuiltInHud?: boolean;
     }) {
       return (
         <section
@@ -47,7 +45,6 @@ vi.mock("next/dynamic", () => ({
           data-traffic-side={trafficSide}
           data-steering-side={steeringSide}
           data-camera={cameraMode}
-          data-show-hud={String(showBuiltInHud)}
         >
           <span>{lesson?.title}</span>
         </section>
@@ -171,8 +168,6 @@ describe("gig launcher", () => {
     // Launches the free drive directly — no lesson id, no route, no finish.
     expect(scene).toHaveAttribute("data-scenario", london.freeDriveId);
     expect(scene).toHaveAttribute("data-route-count", "0");
-    // The reworked HUD replaces the built-in coach/score panel.
-    expect(scene).toHaveAttribute("data-show-hud", "false");
   });
 
   it.each(["uk-london", "us-nyc"] as const)(
