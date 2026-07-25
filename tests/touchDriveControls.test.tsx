@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   TouchDriveControls,
   TOUCH_LEFT_RAIL_PX,
+  TOUCH_MINIMAP_PX,
   TOUCH_PEDAL_RAIL_PX,
   TOUCH_TOP_RAIL_PX,
 } from "../app/game/TouchDriveControls";
@@ -34,6 +35,7 @@ function renderControls(overrides: Partial<Parameters<typeof TouchDriveControls>
     onCamera: vi.fn(),
     onHorn: vi.fn(),
     onPause: vi.fn(),
+    onToggleFullscreen: vi.fn(),
     onTouchPointer: vi.fn(),
   };
   stubPointerPlumbing();
@@ -127,6 +129,18 @@ describe("touch driving controls", () => {
     expect(screen.queryByLabelText("Left indicator")).not.toBeInTheDocument();
   });
 
+  it("keeps the cockpit look controls out of the top row", () => {
+    // They used to extend the top row leftward, which on a 734px-wide phone ran
+    // REAR straight under the centred speed readout.
+    renderControls({ cameraMode: "first" });
+    const utilityRow = screen.getByTestId("utility-row");
+    const lookRow = screen.getByTestId("look-row");
+    expect(utilityRow).not.toContainElement(screen.getByLabelText("Look behind"));
+    expect(lookRow).toContainElement(screen.getByLabelText("Look behind"));
+    expect(lookRow).toContainElement(screen.getByLabelText("Look left"));
+    expect(lookRow).toContainElement(screen.getByLabelText("Look right"));
+  });
+
   it("looks left as negative and right as positive", () => {
     const handlers = renderControls({ cameraMode: "first" });
     fireEvent.pointerDown(screen.getByLabelText("Look left"), pointer(0));
@@ -168,6 +182,37 @@ describe("touch driving controls", () => {
     // top of it still clears the status card.
     expect(TOUCH_LEFT_RAIL_PX).toBeGreaterThan(TOUCH_TOP_RAIL_PX);
     expect(TOUCH_LEFT_RAIL_PX).toBeLessThan(SHORTEST_LANDSCAPE_PX - 100);
+
+    // The cockpit look row stacks above the minimap in the same column, so the
+    // pair has to fit between the bottom inset and the top button row.
+    expect(inset + TOUCH_MINIMAP_PX + 8 + 44).toBeLessThan(
+      SHORTEST_LANDSCAPE_PX - TOUCH_TOP_RAIL_PX,
+    );
+  });
+
+  it("offers fullscreen as a toggle, and only where the browser has the API", () => {
+    // Mobile Safari ties its own toolbar hiding to scrolling, and the drive
+    // screen cannot scroll — so on a phone this control is the only way to
+    // reclaim the address bar's strip once the drive has started.
+    const handlers = renderControls({ onToggleFullscreen: undefined });
+    expect(screen.queryByTestId("toggle-fullscreen")).not.toBeInTheDocument();
+    expect(handlers.onToggleFullscreen).not.toHaveBeenCalled();
+
+    cleanup();
+    const live = renderControls();
+    const toggle = screen.getByTestId("toggle-fullscreen");
+    expect(toggle).toHaveAttribute("aria-label", "Play fullscreen");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(toggle);
+    expect(live.onToggleFullscreen).toHaveBeenCalledTimes(1);
+
+    // Stays in place while fullscreen rather than vanishing: iOS exits on a
+    // swipe with no press of ours, and a slot that empties shifts the row.
+    cleanup();
+    renderControls({ isFullscreen: true });
+    const active = screen.getByTestId("toggle-fullscreen");
+    expect(active).toHaveAttribute("aria-label", "Leave fullscreen");
+    expect(active).toHaveAttribute("aria-pressed", "true");
   });
 
   it("dims without becoming untappable when another input takes over", () => {

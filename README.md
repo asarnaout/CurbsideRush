@@ -6,6 +6,8 @@ The maps are New York City (Upper West Side), London (South Kensington), Milton 
 
 On a phone, hold it sideways: drag your left thumb anywhere on the lower-left of the screen to steer — wherever you touch down becomes centre — and use Drive and Brake on the right. Holding Brake once you have stopped reverses. Portrait pauses the drive and asks you to rotate; nothing is lost and nothing reloads.
 
+The ⛶ control goes fullscreen, which is worth it — mobile browsers only hide their own toolbars when a page scrolls, and the drive screen deliberately cannot. Adding the game to your Home Screen gives the same thing for the whole session, with no browser chrome at all.
+
 ## Two ways to play
 
 **Free drive** drops you into any of the five cities with your own car and no clock — gigs come one after another for as long as you want to keep driving.

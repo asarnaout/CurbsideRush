@@ -107,7 +107,10 @@ import {
 import { Minimap } from "./game/MinimapCanvas";
 import { DRIVE_LAYER } from "./game/driveLayers";
 import { readInputCapabilities } from "./game/pointerCapabilities";
-import { applyViewportFitCover, requestLandscapeLock } from "./game/viewportSetup";
+import {
+  applyViewportFitCover,
+  requestImmersiveLandscape,
+} from "./game/viewportSetup";
 import {
   SAFE_LEFT,
   SAFE_RIGHT,
@@ -1061,7 +1064,7 @@ export default function SideSwapApp() {
     // an await.
     primeAudioContext();
     music.start(nextDestinationId);
-    if (touchFirst) requestLandscapeLock(document.documentElement);
+    if (touchFirst) requestImmersiveLandscape(document.documentElement);
     const nextDestination = getDestinationProfile(nextDestinationId);
     const nextCountryId = nextDestination.countryId;
     const session: GameSessionConfig = {
@@ -1229,7 +1232,7 @@ export default function SideSwapApp() {
     // gesture's own task, and fullscreen/orientation the same (as beginDrive).
     primeAudioContext();
     music.start(careerCity.destinationId);
-    if (touchFirst) requestLandscapeLock(document.documentElement);
+    if (touchFirst) requestImmersiveLandscape(document.documentElement);
     const destinationProfile = getDestinationProfile(careerCity.destinationId);
     const session: GameSessionConfig = {
       countryId: careerCity.countryId,

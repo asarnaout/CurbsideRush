@@ -69,6 +69,14 @@ import {
   type InputCapabilities,
 } from "./pointerCapabilities";
 import {
+  canFullscreen,
+  exitFullscreen,
+  isFullscreen,
+  isStandaloneDisplay,
+  onFullscreenChange,
+  requestImmersiveLandscape,
+} from "./viewportSetup";
+import {
   createRenderScalingState,
   desktopHardwareScalingLevel,
   RENDER_SCALING_WARMUP_MS,
@@ -10756,6 +10764,10 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       "loading" | "ready" | "unsupported" | "context-lost" | "error"
     >("loading");
     const [isPortrait, setIsPortrait] = useState(false);
+    // Tracked rather than assumed, because iOS leaves fullscreen on a swipe
+    // without any press of ours.
+    const [fullscreen, setFullscreen] = useState(false);
+    const [fullscreenOffered, setFullscreenOffered] = useState(false);
     const [inputPresentation, setInputPresentation] =
       useState<AdaptiveInputPresentation>(() =>
         createInitialInputPresentation(inputCapabilitiesRef.current),
@@ -10955,6 +10967,25 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       [],
     );
 
+    // Mobile Safari only collapses its toolbars in response to scrolling, and
+    // the drive screen cannot scroll by design — so on a phone this control is
+    // the only way to reclaim the strip the address bar and tab bar occupy.
+    // Pointless where the browser is already chrome-less (added to the Home
+    // Screen) or has no Fullscreen API at all.
+    useEffect(() => {
+      setFullscreenOffered(canFullscreen() && !isStandaloneDisplay());
+      const sync = () => setFullscreen(isFullscreen());
+      sync();
+      return onFullscreenChange(sync);
+    }, []);
+
+    const toggleFullscreen = useCallback(() => {
+      // Straight out of the click, with no await in front of it: the same
+      // transient-activation rule that governs priming audio.
+      if (isFullscreen()) exitFullscreen();
+      else requestImmersiveLandscape(document.documentElement);
+    }, []);
+
     const registerTouchPointer = useCallback((pointerType: string) => {
       if (pointerType === "touch" || pointerType === "pen") {
         sessionRef.current?.registerTouchInput();
@@ -10991,6 +11022,8 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
             onCamera={() => sessionRef.current?.toggleCamera()}
             onHorn={(down) => (down ? sessionRef.current?.horn() : sessionRef.current?.hornRelease())}
             onPause={() => sessionRef.current?.togglePause()}
+            onToggleFullscreen={fullscreenOffered ? toggleFullscreen : undefined}
+            isFullscreen={fullscreen}
             onTouchPointer={registerTouchPointer}
           />
         )}
