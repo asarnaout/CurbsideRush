@@ -20,7 +20,7 @@ npm run dev          # Vite dev server + Miniflare worker on :3000 (NOT `next de
 npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run typecheck    # tsc --noEmit, ~2s
 npm run lint         # eslint, ~4s
-npm test             # vitest run: 51 files, 693 tests, ~145s
+npm test             # vitest run: 52 files, 695 tests, ~145s
 ```
 
 Node >= 22.13 (repo currently runs v26).
@@ -30,7 +30,7 @@ Node >= 22.13 (repo currently runs v26).
 `npm test` takes ~145s and **97% of that is one file** — `tests/trafficSafetyAcceptance.test.ts` (141s: 5 cities x every start/checkpoint x 51 seeds x 60s of sim). Use the fast loop while iterating, full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 50 files / 691 tests in ~7s
+# everything except the acceptance test -> 51 files / 693 tests in ~7s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts                     # one file

@@ -26,7 +26,6 @@ import {
   type CareerCityView,
   type CareerSliceV2,
   type CareerVehicleId,
-  type CareerVehicleSpec,
   type LedgerLine,
   type SettlementResult,
 } from "./game/career";
@@ -62,6 +61,22 @@ const BANNER_KINDS = new Set<LedgerLine["kind"]>([
   "final_notice",
   "bankruptcy",
 ]);
+
+/**
+ * Studio art for each garage card, keyed so a new vehicle id fails typecheck
+ * until it has a tile. All five share one frame (2.6:1, vehicle scaled to the
+ * same height, outer edge feathered to `.garage-card-art`'s background) — see
+ * `tools/build-vehicle-art.mjs`, which is what keeps them a lineup rather than
+ * five unrelated crops. Drawn with `object-fit: contain`, so the card box may be
+ * any shape.
+ */
+export const VEHICLE_ART: Record<CareerVehicleId, string> = {
+  bicycle: "/vehicles/bicycle.webp",
+  motorbike: "/vehicles/motorbike.webp",
+  "compact-hatch": "/vehicles/compact-hatch.webp",
+  "delivery-van": "/vehicles/delivery-van.webp",
+  "sport-sedan": "/vehicles/sport-sedan.webp",
+};
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
@@ -181,12 +196,13 @@ export function GarageView({
               disabled={disabled}
               onClick={() => onSelect(vehicle.id)}
             >
-              {/* Art beside the specs on mobile, above them on desktop. */}
+              {/* Art above the specs — a full-width banner on mobile too, where
+                  the travel board puts its city photo in a side column: a city
+                  survives a portrait crop and a vehicle's side profile does not. */}
               <span className="garage-card-main">
-                {/* Placeholder art until the real vehicle renders land. */}
                 <span className="garage-card-art" aria-hidden="true">
-                  <VehicleGlyph kind={vehicle.visualKind} />
-                  <span className="garage-card-art-note">Artwork soon</span>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- static vehicle art in /public; next/image adds nothing for a fixed, non-critical thumbnail */}
+                  <img src={VEHICLE_ART[vehicle.id]} alt="" draggable={false} />
                   {owned && <span className="garage-card-owned">OWNED</span>}
                   {disabled && (
                     <span className="garage-card-lock">
@@ -728,52 +744,6 @@ export function careerCardModel(
   }
 
   return { day, cash: formatMoney(cash, country), note };
-}
-
-/** Line-art vehicle mark for the card's "now driving" row, chosen by visual kind. */
-function VehicleGlyph({ kind }: { kind: CareerVehicleSpec["visualKind"] }) {
-  const props = {
-    width: 22,
-    height: 22,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 2.1,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true,
-  };
-  if (kind === "bicycle") {
-    return (
-      <svg {...props}>
-        <circle cx="5.5" cy="17.5" r="3.3" />
-        <circle cx="18.5" cy="17.5" r="3.3" />
-        <path d="M5.5 17.5 10 8h4l4.5 9.5" />
-        <path d="M10 8 8 6" />
-        <path d="M13.5 8 15 6h2.5" />
-      </svg>
-    );
-  }
-  if (kind === "motorbike") {
-    return (
-      <svg {...props}>
-        <circle cx="5" cy="17" r="3.2" />
-        <circle cx="19" cy="17" r="3.2" />
-        <path d="M5 17h6l3.5-4.5H11" />
-        <path d="M12.5 12.5h4L19 17" />
-        <path d="M14.5 8H18" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...props}>
-      <path d="M3 13l1.6-4.7A2 2 0 0 1 6.5 7h11a2 2 0 0 1 1.9 1.3L21 13" />
-      <path d="M3 13h18v4a1 1 0 0 1-1 1h-1.6" />
-      <path d="M5.6 18H4a1 1 0 0 1-1-1v-4" />
-      <circle cx="7.6" cy="18" r="1.6" />
-      <circle cx="16.4" cy="18" r="1.6" />
-    </svg>
-  );
 }
 
 /**

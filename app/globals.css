@@ -1834,8 +1834,8 @@ canvas:focus-visible {
   cursor: pointer;
 }
 .garage-card:disabled { cursor: not-allowed; }
-/* Art over specs here, art beside them on mobile — the one wrapper that lets
-   the action row span the full card width in both. */
+/* Art over specs, on both layouts — the one wrapper that lets the action row
+   span the full card width underneath them. */
 .garage-card-main {
   display: flex;
   flex: 1;
@@ -1843,26 +1843,30 @@ canvas:focus-visible {
   min-width: 0;
 }
 
+/* The strip carries the tiles' own ratio rather than the travel board's fixed
+   104px height, at every width including the mobile banner. A fifth of the page
+   is a box that ranges from ~150px to 264px wide, and at the narrow end a fixed
+   height letterboxes the art into the top two-thirds — which reads as the
+   vehicle hovering over a dark shelf. Matching the ratio means the tile always
+   fills the box exactly. Keep the background in step with `CARD_BG` in
+   tools/build-vehicle-art.mjs: it is what the tiles are feathered to. */
 .garage-card-art {
   position: relative;
-  display: grid;
   flex: none;
-  gap: 6px;
-  place-items: center;
-  height: 96px;
+  aspect-ratio: 2.6;
   overflow: hidden;
   background: #0c1214;
-  color: rgba(244, 239, 222, 0.24);
 }
-/* Only the placeholder glyph (a direct child) — not a badge's icon. */
-.garage-card-art > svg { width: 38px; height: 38px; }
-.garage-card-art-note {
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.18em;
-  color: rgba(244, 239, 222, 0.28);
-  text-transform: uppercase;
+/* `contain`, not the travel card's `cover`, so a rounding difference between the
+   box and the tile can never crop the nose or tail off a car. */
+.garage-card-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
+/* Locked stock reads as stock, not as art — the travel board greys its locked
+   cities the same way. */
+.garage-card:disabled .garage-card-art img { filter: grayscale(0.72); }
 .garage-card:disabled .garage-card-art::after {
   content: "";
   position: absolute;
@@ -2251,11 +2255,6 @@ canvas:focus-visible {
   }
   .garage-slot.active { box-shadow: 0 0 0 3px rgba(244, 200, 72, 0.1); }
   .garage-slot.active::after { border-radius: 15px; }
-  /* Art beside the specs, with the actions spanning underneath both. */
-  .garage-card-main { flex-direction: row; align-items: stretch; }
-  .garage-card-art { flex: none; width: 104px; height: auto; min-height: 118px; }
-  .garage-card-art-note { display: none; }
-  .garage-card-art > svg { width: 34px; height: 34px; }
   .garage-card-owned,
   .garage-card-lock { top: 7px; gap: 4px; padding: 3px 8px; font-size: 8px; }
   .garage-card-owned { left: 7px; }
