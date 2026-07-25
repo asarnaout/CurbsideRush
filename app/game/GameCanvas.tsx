@@ -1887,12 +1887,20 @@ interface AuthoredSignalHeadVisual {
   readonly redMaterial: StandardMaterial;
   readonly amberMaterial: StandardMaterial;
   readonly greenMaterial: StandardMaterial;
+  /** Cache for resolvedSignalLight; see that helper for the contract. */
+  resolvedLightIndex?: number;
+  /** Last aspect written to the lens materials — writes are skipped until it changes. */
+  lastAspect?: AuthoredSignalAspect;
 }
 
 interface RailwayCrossingVisual {
   readonly trafficLightIds: readonly string[];
   readonly lampMaterials: readonly StandardMaterial[];
   readonly barrierPivot: TransformNode;
+  /** Cache for resolvedSignalLight; see that helper for the contract. */
+  resolvedLightIndex?: number;
+  lastWarningActive?: boolean;
+  lastFlashIndex?: number;
 }
 
 interface RouteProjection {
@@ -6824,11 +6832,40 @@ class BabylonGameSession {
     this.emit("coaching", message, "info");
   }
 
+  /**
+   * The head's snapshot light, via a resolved-index cache. getSnapshot maps
+   * the core's trafficLights array, whose membership and order are fixed for
+   * the session, so the index a head resolves once holds for every later
+   * snapshot; the id recheck (a ≤4-entry includes) catches anything that
+   * would break that. -1 records "no light exists for this head" — the
+   * fixed-clock fallback case. Before this cache, every head ran a find()
+   * over every light with an includes() inside, per fixed step: 27x more
+   * iterations after the NYC grid grew, and the top per-frame CPU cost.
+   */
+  private resolvedSignalLight(
+    visual: {
+      readonly trafficLightIds: readonly string[];
+      resolvedLightIndex?: number;
+    },
+    lights: SimulationSnapshot["trafficLights"],
+  ): SimulationSnapshot["trafficLights"][number] | null {
+    const cached = visual.resolvedLightIndex;
+    if (cached === -1) return null;
+    if (cached !== undefined) {
+      const light = lights[cached];
+      if (light && visual.trafficLightIds.includes(light.id)) return light;
+    }
+    const index = lights.findIndex((light) =>
+      visual.trafficLightIds.includes(light.id),
+    );
+    visual.resolvedLightIndex = index;
+    return index >= 0 ? lights[index] : null;
+  }
+
   private updateAuthoredSignalVisuals() {
+    const lights = this.simulationSnapshot.trafficLights;
     for (const head of this.authoredSignalHeads) {
-      const simulationLight = this.simulationSnapshot.trafficLights.find(
-        (light) => head.trafficLightIds.includes(light.id),
-      );
+      const simulationLight = this.resolvedSignalLight(head, lights);
       const aspect: AuthoredSignalAspect = simulationLight?.state ??
         authoredSignalAspectAt({
           elapsedSeconds: this.trafficLightSeconds,
@@ -6837,6 +6874,8 @@ class BabylonGameSession {
           phaseGroups: head.phaseGroups,
           style: head.style,
         });
+      if (aspect === head.lastAspect) continue;
+      head.lastAspect = aspect;
       const redOn =
         aspect === "red" || aspect === "red_amber" || aspect === "all_red";
       const amberOn = aspect === "amber" || aspect === "red_amber";
@@ -6858,19 +6897,26 @@ class BabylonGameSession {
       );
     }
     for (const crossing of this.railwayCrossingVisuals) {
-      const light = this.simulationSnapshot.trafficLights.find((candidate) =>
-        crossing.trafficLightIds.includes(candidate.id),
-      );
+      const light = this.resolvedSignalLight(crossing, lights);
       const warningActive = Boolean(light && light.state !== "green");
       const flashIndex = Math.floor(this.simulationSnapshot.elapsedMs / 360) % 2;
-      crossing.lampMaterials.forEach((material, index) => {
-        const illuminated = warningActive && index % 2 === flashIndex;
-        material.emissiveColor.copyFromFloats(
-          illuminated ? 0.92 : 0.08,
-          illuminated ? 0.035 : 0.005,
-          illuminated ? 0.02 : 0.005,
-        );
-      });
+      // The lamps alternate on a 360ms clock — rewrite them only on a tick
+      // boundary or a state flip, not sixty times a second.
+      if (
+        warningActive !== crossing.lastWarningActive ||
+        flashIndex !== crossing.lastFlashIndex
+      ) {
+        crossing.lastWarningActive = warningActive;
+        crossing.lastFlashIndex = flashIndex;
+        crossing.lampMaterials.forEach((material, index) => {
+          const illuminated = warningActive && index % 2 === flashIndex;
+          material.emissiveColor.copyFromFloats(
+            illuminated ? 0.92 : 0.08,
+            illuminated ? 0.035 : 0.005,
+            illuminated ? 0.02 : 0.005,
+          );
+        });
+      }
       const targetBarrierRotation = warningActive ? 0 : -1.22;
       if (this.options.reducedMotion) {
         crossing.barrierPivot.rotation.z = targetBarrierRotation;
