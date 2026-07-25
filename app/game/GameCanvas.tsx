@@ -66,6 +66,12 @@ import { DRIVE_LAYER } from "./driveLayers";
 import { TouchDriveControls } from "./TouchDriveControls";
 import { releaseTouchSteer } from "./touchSteering";
 import {
+  POSE_SNAP_STEP_M,
+  lerpHeading,
+  lerpValue,
+  shouldSnapPose,
+} from "./renderInterpolation";
+import {
   readInputCapabilities,
   type InputCapabilities,
 } from "./pointerCapabilities";
@@ -1692,6 +1698,7 @@ interface PlayerState {
   previousX: number;
   previousZ: number;
   heading: number;
+  previousHeading: number;
   speedMps: number;
   gear: DriveGear;
   indicator: TurnIndicator;
@@ -1713,6 +1720,14 @@ interface NpcVehicle {
   speed: number;
   z: number;
   laneX: number;
+  // Previous/current sim pose pair; updateNpcVisuals blends between them at
+  // render rate. laneX/z above keep their legacy meanings — don't overload.
+  poseX: number;
+  poseZ: number;
+  poseHeading: number;
+  prevPoseX: number;
+  prevPoseZ: number;
+  prevPoseHeading: number;
   laneId?: string;
   active?: boolean;
   currentSpeed?: number;
@@ -3523,6 +3538,7 @@ class BabylonGameSession {
       previousX: start.x,
       previousZ: start.z,
       heading: start.heading,
+      previousHeading: start.heading,
       speedMps: 0,
       gear: "D",
       indicator: "off",
@@ -3887,6 +3903,11 @@ class BabylonGameSession {
     this.applySimulationSnapshot(this.simulation.getSnapshot());
     this.processSimulationEvents(this.simulation.drainEvents());
     this.clearHeldInputs();
+    // A checkpoint can sit under the snap threshold; pin the blend pair
+    // explicitly so the first frame after a reset shows the reset pose.
+    this.playerState.previousX = this.playerState.x;
+    this.playerState.previousZ = this.playerState.z;
+    this.playerState.previousHeading = this.playerState.heading;
     this.displayedX = this.playerState.x;
     this.displayedZ = this.playerState.z;
     this.displayedHeading = this.playerState.heading;
@@ -4766,8 +4787,12 @@ class BabylonGameSession {
       const pose = lerpCarPose(move.from, move.to, eased);
       if (move.vehicle === "player") {
         this.simulation.setPlayerPose(pose);
-        this.playerState.previousX = this.playerState.x;
-        this.playerState.previousZ = this.playerState.z;
+        // The glide already advances at render rate; pin prev to the same
+        // pose so the interpolated car sits exactly on the choreography
+        // rather than one blend step behind it.
+        this.playerState.previousX = pose.x;
+        this.playerState.previousZ = pose.z;
+        this.playerState.previousHeading = pose.heading;
         this.playerState.x = pose.x;
         this.playerState.z = pose.z;
         this.playerState.heading = pose.heading;
@@ -4974,6 +4999,7 @@ class BabylonGameSession {
     const interpolation = this.paused ? 1 : this.accumulator / FIXED_STEP;
     if (!this.paused) this.advanceCutscene(frameSeconds);
     this.updatePlayerVisuals(interpolation);
+    this.updateNpcVisuals(interpolation);
     let mark = performance.now();
     this.updateGuidanceVisuals();
     this.perfSample(PERF_GUIDANCE, performance.now() - mark);
@@ -6561,6 +6587,7 @@ class BabylonGameSession {
       const npc = this.npcVehicles[slotAssignments[vehicleIndex]];
       if (!npc) continue;
       const previousSpeed = npc.currentSpeed ?? vehicle.speedMps;
+      const reassigned = npc.simulationId !== vehicle.id;
       npc.simulationId = vehicle.id;
       this.ensureNpcVehicleVisual(npc, vehicle.id, vehicle.variant);
       npc.active = true;
@@ -6596,17 +6623,58 @@ class BabylonGameSession {
       // the render slot, and re-applied every tick because this loop enables
       // every active vehicle from scratch.
       npc.node.setEnabled(vehicle.id !== this.hiddenNpcSimulationId);
-      npc.node.position.set(vehicle.x, 0.12, vehicle.z);
-      npc.node.rotation.y = vehicle.heading;
+      // Shift the pose pair for updateNpcVisuals' render-rate blend. A slot
+      // that changed cars, or a car that jumped a teleport-sized gap, snaps —
+      // blending across either would streak the vehicle through the map.
+      if (
+        reassigned ||
+        shouldSnapPose(
+          npc.poseX,
+          npc.poseZ,
+          vehicle.x,
+          vehicle.z,
+          POSE_SNAP_STEP_M,
+        )
+      ) {
+        npc.prevPoseX = vehicle.x;
+        npc.prevPoseZ = vehicle.z;
+        npc.prevPoseHeading = vehicle.heading;
+      } else {
+        npc.prevPoseX = npc.poseX;
+        npc.prevPoseZ = npc.poseZ;
+        npc.prevPoseHeading = npc.poseHeading;
+      }
+      npc.poseX = vehicle.x;
+      npc.poseZ = vehicle.z;
+      npc.poseHeading = vehicle.heading;
     }
   }
 
   private applySimulationSnapshot(snapshot: SimulationSnapshot) {
     const previousX = this.playerState.x;
     const previousZ = this.playerState.z;
+    const previousHeading = this.playerState.heading;
     this.simulationSnapshot = snapshot;
-    this.playerState.previousX = previousX;
-    this.playerState.previousZ = previousZ;
+    // A gap no legal drive can produce is a teleport (tow reset, checkpoint
+    // restore): snap the pair together so the render blend never streaks the
+    // car across the map for a frame.
+    if (
+      shouldSnapPose(
+        previousX,
+        previousZ,
+        snapshot.player.x,
+        snapshot.player.z,
+        POSE_SNAP_STEP_M,
+      )
+    ) {
+      this.playerState.previousX = snapshot.player.x;
+      this.playerState.previousZ = snapshot.player.z;
+      this.playerState.previousHeading = snapshot.player.heading;
+    } else {
+      this.playerState.previousX = previousX;
+      this.playerState.previousZ = previousZ;
+      this.playerState.previousHeading = previousHeading;
+    }
     this.playerState.x = snapshot.player.x;
     this.playerState.z = snapshot.player.z;
     this.playerState.heading = snapshot.player.heading;
@@ -6828,15 +6896,24 @@ class BabylonGameSession {
     }
   }
 
+  /**
+   * Draws the car at the blend of its previous and current sim poses — real
+   * fixed-step interpolation, not smoothing. The old exponential chase here
+   * re-derived its blend factor from the accumulator phase every frame, so at
+   * speed the car (and the camera chasing it) hopped by the phase difference
+   * each frame — the high-speed "nodding" jitter, at its worst on 120 Hz
+   * displays where the sim steps on alternating frames.
+   */
   private updatePlayerVisuals(interpolation: number) {
     const state = this.playerState;
-    const positionBlend = this.options.reducedMotion ? 1 : clamp(0.35 + interpolation * 0.65, 0, 1);
-    this.displayedX += (state.x - this.displayedX) * positionBlend;
-    this.displayedZ += (state.z - this.displayedZ) * positionBlend;
-    let headingDelta = state.heading - this.displayedHeading;
-    while (headingDelta > Math.PI) headingDelta -= Math.PI * 2;
-    while (headingDelta < -Math.PI) headingDelta += Math.PI * 2;
-    this.displayedHeading += headingDelta * positionBlend;
+    const alpha = this.options.reducedMotion ? 1 : interpolation;
+    this.displayedX = lerpValue(state.previousX, state.x, alpha);
+    this.displayedZ = lerpValue(state.previousZ, state.z, alpha);
+    this.displayedHeading = lerpHeading(
+      state.previousHeading,
+      state.heading,
+      alpha,
+    );
     this.player.position.set(
       this.displayedX,
       0.12 - this.cutsceneDipOffset,
@@ -6846,6 +6923,29 @@ class BabylonGameSession {
     const visualSteer = this.mergedInput().steer;
     if (this.steeringAssembly) {
       this.steeringAssembly.rotation.y = resolveSteeringWheelSpin(visualSteer);
+    }
+  }
+
+  /**
+   * Same prev/current blend for the ambient cars. Walkers and cyclists stay
+   * fixed-step on purpose — at ≤1.4 m/s they move under 2.5cm per step, below
+   * anything a frame can show. Skips disabled slots; the fixed-step apply
+   * owns setEnabled, lamps and detail levels.
+   */
+  private updateNpcVisuals(interpolation: number) {
+    const alpha = this.options.reducedMotion ? 1 : interpolation;
+    for (const npc of this.npcVehicles) {
+      if (!npc.active) continue;
+      npc.node.position.set(
+        lerpValue(npc.prevPoseX, npc.poseX, alpha),
+        0.12,
+        lerpValue(npc.prevPoseZ, npc.poseZ, alpha),
+      );
+      npc.node.rotation.y = lerpHeading(
+        npc.prevPoseHeading,
+        npc.poseHeading,
+        alpha,
+      );
     }
   }
 
@@ -10396,6 +10496,7 @@ class BabylonGameSession {
         `fallback-${vehicleId}`,
         appearance,
       );
+      const spawnHeading = direction > 0 ? 0 : Math.PI;
       this.npcVehicles.push({
         node,
         visual,
@@ -10406,9 +10507,15 @@ class BabylonGameSession {
         speed: 5.5 + (index % 4) * 0.65,
         z,
         laneX,
+        poseX: laneX,
+        poseZ: z,
+        poseHeading: spawnHeading,
+        prevPoseX: laneX,
+        prevPoseZ: z,
+        prevPoseHeading: spawnHeading,
       });
       node.position.set(laneX, 0.12, z);
-      node.rotation.y = direction > 0 ? 0 : Math.PI;
+      node.rotation.y = spawnHeading;
     }
 
     const clothes = [new Color3(0.83, 0.38, 0.22), new Color3(0.2, 0.45, 0.72), new Color3(0.68, 0.28, 0.62)];
@@ -10536,6 +10643,12 @@ class BabylonGameSession {
         currentSpeed: cruiseSpeed,
         z,
         laneX: x,
+        poseX: x,
+        poseZ: z,
+        poseHeading: heading,
+        prevPoseX: x,
+        prevPoseZ: z,
+        prevPoseHeading: heading,
         laneId: pathSegment.laneId,
         active: true,
       };
