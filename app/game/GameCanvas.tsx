@@ -91,6 +91,7 @@ import {
   RENDER_SCALING_WINDOW_MS,
   renderScalingLevel,
   stepRenderScaling,
+  TOUCH_SCALING_LADDER,
   TOUCH_TARGET_FPS,
   type RenderScalingState,
 } from "./renderScaling";
@@ -5262,6 +5263,24 @@ class BabylonGameSession {
     const level = stepRenderScaling(this.renderScaling, this.engine.getFps());
     if (level !== this.engine.getHardwareScalingLevel()) {
       this.engine.setHardwareScalingLevel(level);
+    }
+    this.applyPerfRung(this.renderScaling.index);
+  }
+
+  /**
+   * Non-resolution costs stepped with the touch ladder. Only the blurriest
+   * rung sheds the sun shadows — a device that cannot hold the softest
+   * resolution needs its per-frame budget back more than shadow polish; the
+   * governor restores them the moment it climbs. Toggling light.shadowEnabled
+   * skips the shadow-map render without any resize, so unlike the resolution
+   * rungs it can never flash (flashes come from setHardwareScalingLevel's
+   * resize recompiling the bloom kernels — see renderScaling.ts).
+   */
+  private applyPerfRung(rungIndex: number) {
+    const shadowsOn = rungIndex < TOUCH_SCALING_LADDER.length - 1;
+    const light = this.shadowGenerator?.getLight();
+    if (light && light.shadowEnabled !== shadowsOn) {
+      light.shadowEnabled = shadowsOn;
     }
   }
 
