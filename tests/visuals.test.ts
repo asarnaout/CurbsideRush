@@ -8,6 +8,8 @@ import {
   generateRoadsidePropPlacements,
   hashStringToSeed,
   mixHexColors,
+  resolveCameraFarPlane,
+  resolveEffectiveFogRange,
   resolveFogRange,
   resolveMapVisualKey,
   resolveMapVisualPalette,
@@ -112,6 +114,34 @@ describe("fog ranges", () => {
       start: 160,
       end: 1100,
     });
+  });
+
+  it("tightens the night band, and only the night band", () => {
+    // NYC-sized night grid: both ends hit the night caps.
+    expect(resolveEffectiveFogRange(true, { x: 1080, z: 3000 })).toEqual({
+      start: 100,
+      end: 440,
+    });
+    // Same world by day keeps the plain range.
+    expect(resolveEffectiveFogRange(false, { x: 1080, z: 3000 })).toEqual(
+      resolveFogRange({ x: 1080, z: 3000 }),
+    );
+    // A small night map already under the caps is untouched.
+    expect(resolveEffectiveFogRange(true, { x: 180, z: 180 })).toEqual({
+      start: 81,
+      end: 340,
+    });
+  });
+});
+
+describe("camera far plane", () => {
+  it("rides 20m past the effective fog end", () => {
+    // Night NYC: fog fully swallows the world at 440.
+    expect(resolveCameraFarPlane(true, { x: 1080, z: 3000 })).toBe(460);
+    // Day Milton Keynes corridor.
+    expect(resolveCameraFarPlane(false, { x: 1500, z: 300 })).toBe(1120);
+    // The orientation-yard fallback world.
+    expect(resolveCameraFarPlane(false, { x: 180, z: 180 })).toBe(360);
   });
 });
 

@@ -228,6 +228,39 @@ export function resolveFogRange(worldSize: VisualPoint): FogRange {
   };
 }
 
+/**
+ * The fog band the scene actually runs. Night maps tighten it: the far end of
+ * a long avenue fades out so a corner turn onto a canyon draws far fewer
+ * buildings (the worst-case spike), and it deepens the night mood. This is
+ * the single source of that tightening — the sky builder and the camera far
+ * plane must agree on where the world ends.
+ */
+export function resolveEffectiveFogRange(
+  night: boolean,
+  worldSize: VisualPoint,
+): FogRange {
+  const range = resolveFogRange(worldSize);
+  if (!night) return range;
+  return {
+    start: Math.min(range.start, 100),
+    end: Math.min(range.end, 440),
+  };
+}
+
+/**
+ * Camera far plane, hugging the fog: linear fog fully swallows everything at
+ * fogEnd, so geometry past it contributes nothing but frustum tests and draw
+ * calls — on the 3 km NYC grid that was the whole city, every frame, from
+ * anywhere. The +20m margin keeps the last visible sliver of the fade off the
+ * clip edge.
+ */
+export function resolveCameraFarPlane(
+  night: boolean,
+  worldSize: VisualPoint,
+): number {
+  return resolveEffectiveFogRange(night, worldSize).end + 20;
+}
+
 export type SilhouetteShapeKind = "box" | "hill" | "spike" | "pylon";
 
 export interface SilhouetteShape {

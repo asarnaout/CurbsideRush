@@ -131,7 +131,8 @@ import {
   generateRoadsidePropPlacements,
   hashStringToSeed,
   PAVED_SIDEWALK_WIDTH_M,
-  resolveFogRange,
+  resolveCameraFarPlane,
+  resolveEffectiveFogRange,
   resolveMapVisualKey,
   resolveMapVisualPalette,
   seededUnit,
@@ -3480,6 +3481,9 @@ class BabylonGameSession {
   private displayedZ = START_Z;
   private displayedHeading = 0;
   private cameraMotionSeconds = 0;
+  // Set by createSkyAndHorizon from the map's fog band, applied to every
+  // camera in the constructor. Babylon's default far plane is 10km.
+  private cameraFarPlaneM = 10_000;
   private lastSimulationHonkActive = false;
   private lastSimulationCoachMessage: string | null = null;
   private visualPalette: MapVisualPalette = resolveMapVisualPalette("orientation-yard");
@@ -3674,6 +3678,14 @@ class BabylonGameSession {
     this.rearCamera.fov = (64 * Math.PI) / 180;
     this.rearCamera.layerMask = WORLD_LAYER_MASK;
     this.rearCamera.viewport = new Viewport(0.36, 0.845, 0.28, 0.125);
+
+    // One far plane for all three cameras, from the fog band the environment
+    // chose above. Fog hides but never culls: with the default 10km plane the
+    // whole 3km NYC grid was frustum-tested and submitted from anywhere on
+    // the map, fully fogged and invisible.
+    this.thirdCamera.maxZ = this.cameraFarPlaneM;
+    this.firstCamera.maxZ = this.cameraFarPlaneM;
+    this.rearCamera.maxZ = this.cameraFarPlaneM;
 
     this.createEffectsPipeline();
     this.setCameraMode(this.cameraMode, false);
@@ -6273,10 +6285,12 @@ class BabylonGameSession {
   /**
    * Freeze the dense static scenery so the render loop stops recomputing world
    * matrices and bounding info for ~9k instanced meshes every frame (the cause
-   * of the driving stutter), and build a selection octree so frustum culling of
-   * that many meshes is spatial rather than linear. Runs once after the first
-   * render, when every world matrix is already correct — freezing earlier (mid
-   * construction) cached identity matrices and dropped buildings at the origin.
+   * of the driving stutter). Frustum culling of the frozen set is still a
+   * linear per-mesh sweep — the camera far plane riding the fog band is what
+   * keeps the submitted set small. Runs once after the first render, when
+   * every world matrix is already correct — freezing earlier (mid
+   * construction) cached identity matrices and dropped buildings at the
+   * origin.
    */
   private freezeStaticScenery() {
     // Parents-before-children order (as pushed) means each freeze reads an
@@ -9966,19 +9980,24 @@ class BabylonGameSession {
     const scene = this.scene;
     const horizon = Color3.FromHexString(palette.skyHorizon);
     scene.clearColor = new Color4(horizon.r, horizon.g, horizon.b, 1);
-    const fogRange = resolveFogRange(worldSize);
+    // The night tightening lives inside resolveEffectiveFogRange so the fog
+    // and the camera far plane can never disagree about where the world ends.
+    const fogRange = resolveEffectiveFogRange(palette.night === true, worldSize);
     scene.fogMode = Scene.FOGMODE_LINEAR;
     scene.fogColor = Color3.FromHexString(palette.fogColor);
-    if (palette.night) {
-      // Tighter fog at night: fades the far end of long avenues so a corner
-      // turn onto a canyon draws far fewer buildings (the worst-case spike),
-      // and it deepens the night mood.
-      scene.fogStart = Math.min(fogRange.start, 100);
-      scene.fogEnd = Math.min(fogRange.end, 440);
-    } else {
-      scene.fogStart = fogRange.start;
-      scene.fogEnd = fogRange.end;
-    }
+    scene.fogStart = fogRange.start;
+    scene.fogEnd = fogRange.end;
+    // Everything past fogEnd is fully fogged, so clipping there culls the
+    // rest of the city for free. Stored on the session because the cameras
+    // are built after the environment; the constructor applies it to all
+    // three. The sky dome and horizon ring follow the camera
+    // (infiniteDistance), so their angular look is scale-invariant — shrink
+    // them to sit inside the far plane instead of being clipped by it.
+    this.cameraFarPlaneM = resolveCameraFarPlane(
+      palette.night === true,
+      worldSize,
+    );
+    const domeScale = Math.min(1, (this.cameraFarPlaneM * 0.98) / 950);
 
     const skyMaterial = new StandardMaterial("sky-dome-material", scene);
     skyMaterial.emissiveTexture = createSkyGradientTexture(scene, palette);
@@ -9988,7 +10007,11 @@ class BabylonGameSession {
     skyMaterial.fogEnabled = false;
     const skyDome = MeshBuilder.CreateSphere(
       "sky-dome",
-      { diameter: 1900, segments: 12, sideOrientation: Mesh.BACKSIDE },
+      {
+        diameter: 1900 * domeScale,
+        segments: 12,
+        sideOrientation: Mesh.BACKSIDE,
+      },
       scene,
     );
     skyDome.material = skyMaterial;
@@ -10010,8 +10033,8 @@ class BabylonGameSession {
     const ring = MeshBuilder.CreateCylinder(
       "horizon-ring",
       {
-        height: 110,
-        diameter: 1700,
+        height: 110 * domeScale,
+        diameter: 1700 * domeScale,
         tessellation: 48,
         cap: Mesh.NO_CAP,
         sideOrientation: Mesh.BACKSIDE,
@@ -10019,7 +10042,7 @@ class BabylonGameSession {
       scene,
     );
     ring.material = ringMaterial;
-    ring.position.y = 26;
+    ring.position.y = 26 * domeScale;
     ring.infiniteDistance = true;
     ring.isPickable = false;
     ring.applyFog = false;
