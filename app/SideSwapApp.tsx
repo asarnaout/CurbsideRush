@@ -462,6 +462,14 @@ export default function SideSwapApp() {
   const dayElapsedBaseRef = useRef(0);
   const lastSimElapsedRef = useRef(0);
   const [dayRemainingMs, setDayRemainingMs] = useState(DAY_LENGTH_MS);
+  // Day elapsed at the moment GameCanvas lifted its loading gate, or null while
+  // it is still building. The "DAY n" title waits for this and then times its
+  // 2.6s from it, because the sim — and so the day clock — starts stepping as
+  // soon as the session is constructed, well before the models finish
+  // preloading. Timed from zero instead, the card spends its whole window
+  // underneath "Preparing your drive…" and is half over, or missed entirely, by
+  // the time there is a city to see it against (#178 follow-up).
+  const [dayIntroFromMs, setDayIntroFromMs] = useState<number | null>(null);
   // The whistle blew mid-cutscene/tow: settle as soon as the scene resolves.
   const pendingSettleRef = useRef(false);
   // Guards double settlement from the 10 Hz HUD stream.
@@ -710,6 +718,13 @@ export default function SideSwapApp() {
   // Both debit the local wallet and flash the toast, mirroring the refuel path.
   const handleGameEvent = useCallback(
     (event: GameRuntimeEvent) => {
+      if (event.type === "ready") {
+        // The scene is built and GameCanvas's overlay has cleared, so the title
+        // now has somewhere to land. Anchored to the day clock rather than to
+        // wall time so it fades on the same clock it is measured against.
+        setDayIntroFromMs(dayElapsedBaseRef.current + lastSimElapsedRef.current);
+        return;
+      }
       if (event.type === "cutscene") {
         const active = cutsceneRef.current;
         const evidence = event.evidence ?? {};
@@ -1183,6 +1198,10 @@ export default function SideSwapApp() {
     dayElapsedBaseRef.current = 0;
     lastSimElapsedRef.current = 0;
     setDayRemainingMs(DAY_LENGTH_MS);
+    // Withheld until the new day's session reports ready. A tow does not clear
+    // it, so the title cannot come back mid-day: `reset()` reuses the session
+    // and `ready` fires once per mount.
+    setDayIntroFromMs(null);
     pendingSettleRef.current = false;
     dayActiveRef.current = true;
     setDestinationId(careerCity.destinationId);
@@ -1434,6 +1453,11 @@ export default function SideSwapApp() {
     gigParForCardMs !== null && carryingSinceMs !== null
       ? gigParForCardMs - (DAY_LENGTH_MS - dayRemainingMs - carryingSinceMs)
       : null;
+  // How long the "DAY n" title has been up, or null while it is still withheld.
+  const dayIntroElapsedMs =
+    dayIntroFromMs === null
+      ? null
+      : DAY_LENGTH_MS - dayRemainingMs - dayIntroFromMs;
   const minimapPins = gigTargetVenue
     ? [
         ...gasPins,
@@ -1534,9 +1558,10 @@ export default function SideSwapApp() {
           onCameraChange={(mode) => setCamera(fromCanvasCamera(mode))}
           onExit={exitDrive}
         />
-        {careerRun && DAY_LENGTH_MS - dayRemainingMs < 2600 && hud && (
+        {careerRun && dayIntroElapsedMs !== null && dayIntroElapsedMs < 2600 && hud && (
           <div
             aria-hidden="true"
+            data-testid="day-title"
             style={{
               position: "absolute",
               inset: 0,
@@ -1553,7 +1578,7 @@ export default function SideSwapApp() {
                 textShadow: "0 4px 24px rgba(0,0,0,0.55)",
                 opacity: progress.accessibility.reducedMotion
                   ? 1
-                  : Math.min(1, (2600 - (DAY_LENGTH_MS - dayRemainingMs)) / 600),
+                  : Math.min(1, (2600 - dayIntroElapsedMs) / 600),
               }}
             >
               <div
