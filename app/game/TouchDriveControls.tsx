@@ -42,6 +42,9 @@ export interface TouchDriveControlsProps {
   readonly onCamera: () => void;
   readonly onHorn: (down: boolean) => void;
   readonly onPause: () => void;
+  /** Omitted where the browser has no Fullscreen API to offer. */
+  readonly onToggleFullscreen?: () => void;
+  readonly isFullscreen?: boolean;
   /** Lets the session mark touch as the active input family. */
   readonly onTouchPointer: (pointerType: string) => void;
 }
@@ -68,6 +71,12 @@ export const TOUCH_TOP_RAIL_PX = 52;
 
 /** Pedal column width plus its gap — what sits to the right of the minimap. */
 export const TOUCH_PEDAL_RAIL_PX = 96;
+
+/**
+ * Minimap edge length on touch. Shared with `SideSwapApp`, which sizes it, and
+ * used here to stack the cockpit look row directly above it.
+ */
+export const TOUCH_MINIMAP_PX = 104;
 
 /**
  * Where the left rail (gig card, then status card) ends and the steering region
@@ -126,6 +135,8 @@ export function TouchDriveControls({
   onCamera,
   onHorn,
   onPause,
+  onToggleFullscreen,
+  isFullscreen = false,
   onTouchPointer,
 }: TouchDriveControlsProps) {
   const steerRef = useRef<TouchSteerState | null>(null);
@@ -332,12 +343,13 @@ export function TouchDriveControls({
       </div>
 
       {/*
-        A horizontal row along the top edge, not a column down the right one.
-        The right edge below this row is spoken for: minimap, then the pedals.
-        The app's own music button occupies the corner, so this row starts one
+        A horizontal row along the top edge, not a column down the right one:
+        the right edge below it is spoken for by the minimap and then the
+        pedals. The app's own music button holds the corner, so this starts one
         button-width in from it.
       */}
       <div
+        data-testid="utility-row"
         style={{
           position: "absolute",
           right: `calc(${SAFE_RIGHT} + ${TOUCH_TOP_RAIL_PX}px)`,
@@ -363,44 +375,78 @@ export function TouchDriveControls({
           HORN
         </button>
         <button type="button" style={UTILITY_BUTTON} aria-label="Pause" onClick={onPause}>
-          Ⅱ
+          &#x2161;
         </button>
-        {cameraMode === "first" && (
-          <>
-            <button
-              type="button"
-              style={UTILITY_BUTTON}
-              aria-label="Look left"
-              {...hold((value) => onQuickLook(-value))}
-            >
-              ◄
-            </button>
-            <button
-              type="button"
-              style={UTILITY_BUTTON}
-              aria-label="Look right"
-              {...hold(onQuickLook)}
-            >
-              ►
-            </button>
-            <button
-              type="button"
-              style={UTILITY_BUTTON}
-              aria-label="Look behind"
-              onPointerDown={(event) => {
-                onTouchPointer(event.pointerType);
-                event.currentTarget.setPointerCapture(event.pointerId);
-                onLookBehind(true);
-              }}
-              onPointerUp={() => onLookBehind(false)}
-              onPointerCancel={() => onLookBehind(false)}
-              onPointerLeave={() => onLookBehind(false)}
-            >
-              REAR
-            </button>
-          </>
+        {/*
+          A toggle rather than a button that vanishes on success: iOS drops out
+          of fullscreen on a swipe with no press of ours, and the slot staying
+          filled is also what stops the row shifting under the player's thumb.
+        */}
+        {onToggleFullscreen && (
+          <button
+            type="button"
+            style={UTILITY_BUTTON}
+            data-testid="toggle-fullscreen"
+            aria-pressed={isFullscreen}
+            aria-label={isFullscreen ? "Leave fullscreen" : "Play fullscreen"}
+            onClick={onToggleFullscreen}
+          >
+            {isFullscreen ? "\u2924" : "\u26F6"}
+          </button>
         )}
       </div>
+
+      {/*
+        Cockpit look controls get their own row, stacked directly above the
+        minimap. They used to extend the top row leftward, which on a 734px-wide
+        phone ran the REAR button straight under the centred speed readout.
+      */}
+      {cameraMode === "first" && (
+        <div
+          data-testid="look-row"
+          style={{
+            position: "absolute",
+            right: `calc(${SAFE_RIGHT} + ${TOUCH_PEDAL_RAIL_PX}px)`,
+            bottom: `calc(${SAFE_BOTTOM} + ${TOUCH_MINIMAP_PX + 8}px)`,
+            display: "flex",
+            flexDirection: "row-reverse",
+            gap: 8,
+            pointerEvents: "auto",
+          }}
+        >
+          <button
+            type="button"
+            style={UTILITY_BUTTON}
+            aria-label="Look right"
+            {...hold(onQuickLook)}
+          >
+            &#x25BA;
+          </button>
+          <button
+            type="button"
+            style={UTILITY_BUTTON}
+            aria-label="Look behind"
+            onPointerDown={(event) => {
+              onTouchPointer(event.pointerType);
+              event.currentTarget.setPointerCapture(event.pointerId);
+              onLookBehind(true);
+            }}
+            onPointerUp={() => onLookBehind(false)}
+            onPointerCancel={() => onLookBehind(false)}
+            onPointerLeave={() => onLookBehind(false)}
+          >
+            REAR
+          </button>
+          <button
+            type="button"
+            style={UTILITY_BUTTON}
+            aria-label="Look left"
+            {...hold((value) => onQuickLook(-value))}
+          >
+            &#x25C4;
+          </button>
+        </div>
+      )}
     </div>
   );
 }

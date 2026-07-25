@@ -17,6 +17,25 @@ export async function generateMetadata(): Promise<Metadata> {
     description:
       "A low-poly open-world 3D driving game — run deliveries and passenger fares across five world cities, each with its own currency and side of the road.",
     applicationName: "Curbside Rush",
+    // The Fullscreen API reclaims the browser chrome mid-drive, but only while
+    // the tab is open. Added to the Home Screen there is no chrome to reclaim —
+    // which on iOS is the only way to get a genuinely full screen for the whole
+    // session, since Safari ties its own toolbar hiding to scrolling and the
+    // drive screen is deliberately unscrollable.
+    manifest: "/manifest.webmanifest",
+    appleWebApp: {
+      // Deliberately no `capable` here: vinext's shim renders only `title` and
+      // `statusBarStyle` from this block and drops the rest, so declaring it
+      // would look right and do nothing. It goes through `other` below, which
+      // the shim does emit verbatim.
+      title: "Curbside Rush",
+      statusBarStyle: "black-translucent",
+    },
+    // Only the apple- form: the shim already emits `mobile-web-app-capable`
+    // itself, and declaring it here too just duplicates the tag.
+    other: {
+      "apple-mobile-web-app-capable": "yes",
+    },
     icons: {
       // Versioned deliberately. favicon.svg was byte-identical from the repo's
       // first commit until the mark finally replaced the pre-rebrand SideSwap
