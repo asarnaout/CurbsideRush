@@ -1268,6 +1268,8 @@ export class SimulationCore {
   private routeVisitedGeneration = new Float64Array(0);
   private routeVisitedBest = new Float64Array(0);
   private routeSearchGeneration = 0;
+  /** Memo for parsedNpcDigits; NPC ids are stable within a session. */
+  private readonly npcDigitCache = new Map<string, number>();
   private readonly trafficGates: NormalizedTrafficGate[];
   private readonly laneRestrictions: LaneRestriction[];
   private readonly boxJunctions: SimulationBoxJunctionDefinition[];
@@ -1830,6 +1832,7 @@ export class SimulationCore {
     // pre-increment, but a reset run should start from a clean slate anyway.
     this.routeSearchGeneration = 0;
     this.routeVisitedGeneration.fill(0);
+    this.npcDigitCache.clear();
     this.config.trafficSide = this.initialTrafficSide;
     this.config.speedUnit = this.initialSpeedUnit;
     this.score = {
@@ -3643,8 +3646,23 @@ export class SimulationCore {
     );
   }
 
+  /**
+   * The digits parsed out of an NPC id, possibly NaN — callers apply their
+   * own fallback (numericNpcId's `|| 0` vs nextLaneForNpc's `|| 1`; the two
+   * differ on purpose and must stay distinct). Memoised because the
+   * regex + parse ran per NPC per step, and ids never change within a
+   * session.
+   */
+  private parsedNpcDigits(id: string): number {
+    const cached = this.npcDigitCache.get(id);
+    if (cached !== undefined) return cached;
+    const parsed = Number.parseInt(id.replace(/\D+/g, ""), 10);
+    this.npcDigitCache.set(id, parsed);
+    return parsed;
+  }
+
   private numericNpcId(id: string): number {
-    return Number.parseInt(id.replace(/\D+/g, ""), 10) || 0;
+    return this.parsedNpcDigits(id) || 0;
   }
 
   private nextLaneForNpc(
@@ -3652,7 +3670,7 @@ export class SimulationCore {
     lane: NormalizedLane,
   ): NormalizedLane | null {
     if (lane.successorLaneIds.length) {
-      const numericId = Number.parseInt(npc.id.replace(/\D+/g, ""), 10) || 1;
+      const numericId = this.parsedNpcDigits(npc.id) || 1;
       const index = (npc.transitionCount + numericId - 1) % lane.successorLaneIds.length;
       return this.lanesById.get(lane.successorLaneIds[index]) ?? null;
     }
