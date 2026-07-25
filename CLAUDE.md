@@ -20,17 +20,17 @@ npm run dev          # Vite dev server + Miniflare worker on :3000 (NOT `next de
 npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run typecheck    # tsc --noEmit, ~2s
 npm run lint         # eslint, ~4s
-npm test             # vitest run: 57 files, 788 tests, ~140s
+npm test             # vitest run: 58 files, 807 tests, ~70s
 ```
 
 Node >= 22.13 (repo currently runs v26).
 
 ### Testing
 
-`npm test` takes ~140s and **almost all of it is one file** — `tests/trafficSafetyAcceptance.test.ts` (5 cities x every start/checkpoint x 51 seeds x 60s of sim). Everything else runs in ~8s. Use the fast loop while iterating, full suite before committing:
+`npm test` takes ~70s and **almost all of it is one file** — `tests/trafficSafetyAcceptance.test.ts` (5 cities x every start/checkpoint x 51 seeds x 60s of sim). Everything else runs in ~10s. Use the fast loop while iterating, full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 56 files / 786 tests in ~8s
+# everything except the acceptance test -> 57 files / 806 tests in ~10s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts                     # one file
@@ -142,7 +142,7 @@ Vehicle ground contact is a two-value handshake: nodes at `y = 0.12` and `LOCAL_
 
 ### Rendering layer
 
-`GameCanvas.tsx` is ~11.1k lines but only two live objects: `class BabylonGameSession` and the React component at the bottom. **React owns the canvas element, the props, and one 10 Hz HUD snapshot; the session owns everything else.** No React state is driven at frame rate. The session is rebuilt only on `[trafficSide, steeringSide, lesson?.id, mapPack?.id]`; every other prop flows through `session.updateOptions(...)`. Notably *not* orientation — rotating a phone pauses the drive, it does not rebuild the city.
+`GameCanvas.tsx` is ~11.5k lines but only two live objects: `class BabylonGameSession` and the React component at the bottom. **React owns the canvas element, the props, and one 10 Hz HUD snapshot; the session owns everything else.** No React state is driven at frame rate. The session is rebuilt only on `[trafficSide, steeringSide, lesson?.id, mapPack?.id]`; every other prop flows through `session.updateOptions(...)`. Notably *not* orientation — rotating a phone pauses the drive, it does not rebuild the city. **Rendered poses are the prev/current sim-pose blend** (`renderInterpolation.ts`, alpha = the accumulator remainder) for the player and NPCs — so every pose teleport (reset, cutscene repose, NPC slot reuse) must pin prev = current or the entity streaks for a frame; `shouldSnapPose` catches >2.5m jumps automatically. The far plane rides the fog band (`resolveCameraFarPlane`) — raise fog and you raise draw distance with it.
 
 Everything above `GameCanvasProps` is an **exported pure geometry layer** (road strips, junction fills, chevron placement) — exported specifically so tests can import them without instantiating Babylon.
 
@@ -185,7 +185,7 @@ The AudioContext is a **module-level singleton**, deliberately not per-session, 
 - **Ambient traffic count comes from `resolveAmbientVehicleCount`** (`simulationAdapter.ts`) — one source for both sim and renderer, which allocate separately and must agree. A map sets `ambientTraffic` when its size makes the lesson's density band wrong; NYC does (32 desktop / 16 touch, against the core's clamp of 32). Patrols are not authored: `isPatrolVehicle` marks one car in five, so the car count *is* the police count. Cars being cheap depends on `routeDistanceAhead` being bounded by **distance** as well as hops: it runs for every pair of cars every step, six hops out of a three-exit junction is hundreds of lanes, and it was 97% of the step before `ROUTE_LOOKAHEAD_LIMIT_M`. Raising that re-opens the cost; below ~62 m it changes following behaviour.
 - **`window.__sideswap*` debug hooks install once in `installDebugHooks`** and are deleted in `dispose()` — a new hook must be added to both, or it leaks the disposed session.
 - **`window.localStorage` does not exist in this project's jsdom.** A new `.tsx` test needs the `installLocalStorage` polyfill from `launcher.test.tsx` (or inject `ProgressStorage` like `progress.test.ts` does), plus a **synchronous `requestAnimationFrame` stub** — otherwise `SideSwapApp`'s `hydrated` guard never lifts and every test sees only the loading screen. Tests default to `environment: "node"`; DOM needs `// @vitest-environment jsdom` on line 1 and a local `@testing-library/jest-dom/vitest` import (there is no setup file).
-- **Six test files import `GameCanvas.tsx` for real in node** — `content`, `gameCanvasInput`, `guidanceCoverage`, `intersectionVisuals`, `pavementPaths`, `roadJunctions`. Adding a top-level side effect touching `window`/`document`/WebGL breaks tests unrelated to rendering. Five more name the module but use `import type` and never load it (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`, `staticColliders`, `trafficSafetyAcceptance`), as do all three app-side importers — so the only other runtime load is `SideSwapApp`'s lazy `dynamic()`. Grep alone misleads here; check whether the import is type-only.
+- **Seven test files import `GameCanvas.tsx` for real in node** — `content`, `gameCanvasInput`, `guidanceCoverage`, `intersectionVisuals`, `pavementPaths`, `roadJunctions`, `roadMarkings`. Adding a top-level side effect touching `window`/`document`/WebGL breaks tests unrelated to rendering. Five more name the module but use `import type` and never load it (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`, `staticColliders`, `trafficSafetyAcceptance`), as do all three app-side importers — so the only other runtime load is `SideSwapApp`'s lazy `dynamic()`. Grep alone misleads here; check whether the import is type-only.
 - **`public/models/vehicles/london-double-decker.glb` is gitignored** (purchased asset, licence forbids redistribution). Its test is `skipIf`-guarded, so a fresh clone silently skips it. Rebuild with `node tools/build-london-bus.mjs <path-to.obj>`.
 - **The app shell is tested through Career and almost nowhere else.** `careerFlow.test.tsx` renders a real `SideSwapApp` (GameCanvas mocked) across 18 tests: rent prepay, a fine staging the pull-over and only charging on its `cite` step, settlement/ledger lines, the quit-day discard, a tampered save, per-vehicle physics/model props, buyout, the roadside-refuel cutscene, the garage selection surviving a reload, and the day title waiting on the `ready` event. `launcher.test.tsx` adds 3 on the launcher itself. What no test touches: free-drive fuel drain, free-drive refuel pricing, the 8s fine debounce, the gig double-credit guard (`paidGigRef`), minimap pins, music mute, **and the whole touch HUD reflow** — `touchFirst` is false in jsdom, so every test sees the desktop layout. Changing any of those is invisible to `npm test` (the cutscene *choreography* is covered by `tests/cutsceneScript.test.ts`; the free-drive wiring is not).
 - **`app/globals.css` is ~3270 lines and substantially dead** (removed lesson hub, passport, results views). The driving HUD is inline styles in `SideSwapApp.tsx`, not CSS.
