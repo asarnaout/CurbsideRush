@@ -1611,6 +1611,19 @@ interface AnalogInput {
   quickLook: number;
 }
 
+/**
+ * The input with the largest magnitude, ties to the earlier argument —
+ * reduce-with-rest-args semantics without the per-call array. A value only
+ * wins against zero by strictly exceeding it.
+ */
+function strongestOfThree(first: number, second: number, third: number): number {
+  let best = 0;
+  if (Math.abs(first) > Math.abs(best)) best = first;
+  if (Math.abs(second) > Math.abs(best)) best = second;
+  if (Math.abs(third) > Math.abs(best)) best = third;
+  return best;
+}
+
 /** Driving input while a cutscene owns the car: everything at rest. */
 const CUTSCENE_LOCKED_INPUT: Readonly<AnalogInput> = Object.freeze({
   throttle: 0,
@@ -3612,6 +3625,28 @@ class BabylonGameSession {
   // Set by createSkyAndHorizon from the map's fog band, applied to every
   // camera in the constructor. Babylon's default far plane is 10km.
   private cameraFarPlaneM = 10_000;
+  /** Lane lookup for per-frame guidance code; null on the yard fallback. */
+  private readonly laneById: Map<
+    string,
+    GameCanvasMapPack["laneGraph"]["lanes"][number]
+  > | null;
+  // mergedInput's reused result — its consumers all read synchronously.
+  private readonly mergedInputScratch: AnalogInput = {
+    throttle: 0,
+    brake: 0,
+    reverse: 0,
+    steer: 0,
+    quickLook: 0,
+  };
+  // updateCamera scratch, reused every frame so the camera path allocates
+  // nothing. The target scratch is retained by setTarget between frames
+  // (ArcRotate keeps the reference); that is safe because it is fully
+  // rewritten before every setTarget call.
+  private readonly cameraForwardScratch = new Vector3();
+  private readonly cameraRightScratch = new Vector3();
+  private readonly cameraBaseScratch = new Vector3();
+  private readonly cameraTargetScratch = new Vector3();
+  private readonly cameraDesiredScratch = new Vector3();
   private lastSimulationHonkActive = false;
   private lastSimulationCoachMessage: string | null = null;
   private visualPalette: MapVisualPalette = resolveMapVisualPalette("orientation-yard");
@@ -3680,6 +3715,9 @@ class BabylonGameSession {
       gear: "D",
       indicator: "off",
     };
+    this.laneById = options.mapPack
+      ? new Map(options.mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]))
+      : null;
     this.collisionGraceUntil = eventNow() + 2_000;
     this.checkpoint = { ...start };
     this.displayedX = start.x;
@@ -3818,6 +3856,7 @@ class BabylonGameSession {
     this.createEffectsPipeline();
     this.setCameraMode(this.cameraMode, false);
     this.installListeners();
+    this.installDebugHooks();
     // Built here rather than lazily on first sound: the wavetables and noise
     // buffers cost a few milliseconds, and this runs behind the loading overlay
     // instead of hitching a live frame. Null when Web Audio is unavailable.
@@ -5520,7 +5559,7 @@ class BabylonGameSession {
       mapPack.laneGraph.lanes,
     );
     const projectedLane = roadProjection
-      ? mapPack.laneGraph.lanes.find((lane) => lane.id === roadProjection.laneId)
+      ? this.laneById?.get(roadProjection.laneId) ?? null
       : null;
     const roadTolerance =
       (projectedLane?.widthM ?? Math.min(3.5, mapPack.geometry.roadWidth * 0.45)) / 2 +
@@ -5588,37 +5627,35 @@ class BabylonGameSession {
     // every consumer (sim input, engine audio, steering visual, quick-look)
     // reads through here, so one gate locks them all.
     if (this.activeCutscene) return CUTSCENE_LOCKED_INPUT;
-    const strongest = (...values: number[]) =>
-      values.reduce((best, value) =>
-        Math.abs(value) > Math.abs(best) ? value : best,
-      0);
-    return {
-      throttle: clamp(
-        Math.max(this.keyboard.throttle, this.touch.throttle, this.gamepad.throttle),
-        0,
-        1,
-      ),
-      brake: clamp(
-        Math.max(this.keyboard.brake, this.touch.brake, this.gamepad.brake),
-        0,
-        1,
-      ),
-      reverse: clamp(
-        Math.max(this.keyboard.reverse, this.touch.reverse, this.gamepad.reverse),
-        0,
-        1,
-      ),
-      steer: clamp(
-        strongest(this.keyboard.steer, this.touch.steer, this.gamepad.steer),
-        -1,
-        1,
-      ),
-      quickLook: strongest(
-        this.keyboard.quickLook,
-        this.touch.quickLook,
-        this.gamepad.quickLook,
-      ),
-    };
+    // Reuses one scratch object: this runs ~5x per frame and every consumer
+    // reads it synchronously — nothing may hold the result across frames.
+    const merged = this.mergedInputScratch;
+    merged.throttle = clamp(
+      Math.max(this.keyboard.throttle, this.touch.throttle, this.gamepad.throttle),
+      0,
+      1,
+    );
+    merged.brake = clamp(
+      Math.max(this.keyboard.brake, this.touch.brake, this.gamepad.brake),
+      0,
+      1,
+    );
+    merged.reverse = clamp(
+      Math.max(this.keyboard.reverse, this.touch.reverse, this.gamepad.reverse),
+      0,
+      1,
+    );
+    merged.steer = clamp(
+      strongestOfThree(this.keyboard.steer, this.touch.steer, this.gamepad.steer),
+      -1,
+      1,
+    );
+    merged.quickLook = strongestOfThree(
+      this.keyboard.quickLook,
+      this.touch.quickLook,
+      this.gamepad.quickLook,
+    );
+    return merged;
   }
 
   private advanceAuthoredCheckpoints(lesson: GameCanvasLesson) {
@@ -7154,13 +7191,17 @@ class BabylonGameSession {
       routeHeading && routeHeading.distance < 5
         ? routeHeading.heading
         : this.displayedHeading;
-    const forward = new Vector3(
+    const forward = this.cameraForwardScratch.set(
       Math.sin(chaseHeading),
       0,
       Math.cos(chaseHeading),
     );
-    const right = new Vector3(forward.z, 0, -forward.x);
-    const base = new Vector3(this.displayedX, 0.12, this.displayedZ);
+    const right = this.cameraRightScratch.set(forward.z, 0, -forward.x);
+    const base = this.cameraBaseScratch.set(
+      this.displayedX,
+      0.12,
+      this.displayedZ,
+    );
     // Shake/bob phase advances with distance covered, capped: uncapped, the
     // chase shake's |sin| vertical term reached ~21 Hz at top speed — beyond
     // what 60 Hz sampling can express, so it aliased into flicker instead of
@@ -7179,12 +7220,11 @@ class BabylonGameSession {
         this.thirdCamera.position.copyFrom(this.activeCutscene.cameraPosition);
       } else {
         const smooth = 1 - Math.exp(-3.5 * dt);
-        this.thirdCamera.position.copyFrom(
-          Vector3.Lerp(
-            this.thirdCamera.position,
-            this.activeCutscene.cameraPosition,
-            smooth,
-          ),
+        Vector3.LerpToRef(
+          this.thirdCamera.position,
+          this.activeCutscene.cameraPosition,
+          smooth,
+          this.thirdCamera.position,
         );
       }
       this.thirdCamera.setTarget(this.activeCutscene.cameraTarget);
@@ -7232,24 +7272,27 @@ class BabylonGameSession {
         (this.options.playerVehicle?.model &&
           CHASE_TUNING_BY_MODEL[this.options.playerVehicle.model]) ||
         DEFAULT_CHASE_TUNING;
-      const target = base
-        .add(forward.scale(chase.targetAheadM))
-        .add(new Vector3(0, 1.05, 0));
+      const target = this.cameraTargetScratch.copyFrom(base);
+      forward.scaleAndAddToRef(chase.targetAheadM, target);
+      target.y += 1.05;
       const cameraShake =
         this.options.cameraShake && !this.options.reducedMotion
           ? Math.sin(this.cameraMotionSeconds * 2.7) *
             Math.min(0.08, this.playerState.speedMps * 0.004)
           : 0;
-      const desiredPosition = base
-        .subtract(forward.scale(chase.backM))
-        .add(right.scale(cameraShake))
-        .add(new Vector3(0, chase.upM + Math.abs(cameraShake) * 0.35, 0));
+      const desiredPosition = this.cameraDesiredScratch.copyFrom(base);
+      forward.scaleAndAddToRef(-chase.backM, desiredPosition);
+      right.scaleAndAddToRef(cameraShake, desiredPosition);
+      desiredPosition.y += chase.upM + Math.abs(cameraShake) * 0.35;
       if (this.options.reducedMotion) {
         this.thirdCamera.position.copyFrom(desiredPosition);
       } else {
         const smooth = 1 - Math.exp(-7 * dt);
-        this.thirdCamera.position.copyFrom(
-          Vector3.Lerp(this.thirdCamera.position, desiredPosition, smooth),
+        Vector3.LerpToRef(
+          this.thirdCamera.position,
+          desiredPosition,
+          smooth,
+          this.thirdCamera.position,
         );
       }
       this.thirdCamera.setTarget(target);
@@ -7266,7 +7309,7 @@ class BabylonGameSession {
         const lift = Math.cos(this.impactShakeSeconds * 39) * 0.11 * kick;
         const camera =
           this.cameraMode === "first" ? this.firstCamera : this.thirdCamera;
-        camera.position.addInPlace(right.scale(jab));
+        right.scaleAndAddToRef(jab, camera.position);
         camera.position.y += lift;
       }
       this.impactKick *= Math.exp(-5.2 * dt);
@@ -9481,9 +9524,11 @@ class BabylonGameSession {
     );
     const currentLaneId =
       visibleRouteIndex === null ? null : lesson.route[visibleRouteIndex];
-    const currentLane = mapPack.laneGraph.lanes.find(
-      (candidate) => candidate.id === currentLaneId,
-    );
+    // Map lookup, and none at all off-route: the find() this replaces
+    // scanned every lane in the city per frame — including on free drive,
+    // where currentLaneId is always null and it found nothing.
+    const currentLane =
+      currentLaneId != null ? this.laneById?.get(currentLaneId) : undefined;
     const currentProjection = currentLane
       ? projectPointToLane(currentLane, {
           x: this.playerState.x,
@@ -9515,33 +9560,52 @@ class BabylonGameSession {
       for (const mesh of visual.meshes) mesh.setEnabled(enabled);
     }
     this.updateGuidanceCueVisual();
-    // TEMP DEBUG: live guidance introspection + analog control for
-    // WebDriver-based QA.
-    if (typeof window !== "undefined") {
+  }
+
+  /**
+   * QA's window hooks (__sideswap*), installed once per session. They lived
+   * at the tail of updateGuidanceVisuals for years, re-allocating eight
+   * closures — plus a guidance object with a per-chevron .map() — every
+   * frame. Each hook now computes on call; dispose() still deletes the full
+   * list, so the install/delete pairing rule is unchanged.
+   */
+  private installDebugHooks() {
+    if (typeof window === "undefined") return;
+    {
       const debugWindow = window as unknown as Record<string, unknown>;
-      debugWindow.__sideswapGuidanceDebug = {
-        owner: this.simulationSnapshot.guidance.owner,
-        status: this.simulationSnapshot.guidance.status,
-        blockingReason: this.simulationSnapshot.guidance.blockingReason ?? null,
-        cue: this.simulationSnapshot.guidance.cue ?? null,
-        visibleRouteIndex,
-        paused: this.paused,
-        player: {
-          x: Math.round(this.playerState.x * 100) / 100,
-          z: Math.round(this.playerState.z * 100) / 100,
-          heading: Math.round(this.playerState.heading * 1000) / 1000,
-          speed: Math.round(this.playerState.speedMps * 100) / 100,
-        },
-        checkpoint: this.simulationSnapshot.nextCheckpointId ?? null,
-        instruction: this.instruction,
-        chevrons: this.routeChevronVisuals.map((visual) => ({
-          routeIndex: visual.routeIndex,
-          laneId: visual.laneId,
-          d: Math.round(visual.distanceAlongM),
-          x: Math.round((visual.meshes[0]?.position.x ?? 0) * 10) / 10,
-          z: Math.round((visual.meshes[0]?.position.z ?? 0) * 10) / 10,
-          on: visual.meshes[0]?.isEnabled() ?? false,
-        })),
+      debugWindow.__sideswapGuidanceDebug = () => {
+        const lesson = this.options.lesson;
+        const visibleRouteIndex = lesson
+          ? resolveAuthoritativeRouteIndex(
+              lesson.route.length,
+              this.simulationSnapshot.guidance,
+            )
+          : null;
+        return {
+          owner: this.simulationSnapshot.guidance.owner,
+          status: this.simulationSnapshot.guidance.status,
+          blockingReason:
+            this.simulationSnapshot.guidance.blockingReason ?? null,
+          cue: this.simulationSnapshot.guidance.cue ?? null,
+          visibleRouteIndex,
+          paused: this.paused,
+          player: {
+            x: Math.round(this.playerState.x * 100) / 100,
+            z: Math.round(this.playerState.z * 100) / 100,
+            heading: Math.round(this.playerState.heading * 1000) / 1000,
+            speed: Math.round(this.playerState.speedMps * 100) / 100,
+          },
+          checkpoint: this.simulationSnapshot.nextCheckpointId ?? null,
+          instruction: this.instruction,
+          chevrons: this.routeChevronVisuals.map((visual) => ({
+            routeIndex: visual.routeIndex,
+            laneId: visual.laneId,
+            d: Math.round(visual.distanceAlongM),
+            x: Math.round((visual.meshes[0]?.position.x ?? 0) * 10) / 10,
+            z: Math.round((visual.meshes[0]?.position.z ?? 0) * 10) / 10,
+            on: visual.meshes[0]?.isEnabled() ?? false,
+          })),
+        };
       };
       debugWindow.__sideswapDriveControl = (input: {
         throttle?: number;
@@ -11179,7 +11243,16 @@ class BabylonGameSession {
 
   private pollGamepad() {
     if (!("getGamepads" in navigator)) return;
-    const pad = Array.from(navigator.getGamepads()).find(Boolean);
+    // Scanned by index — this runs every frame, almost always padless, and
+    // Array.from allocated on every one of them.
+    const pads = navigator.getGamepads();
+    let pad: (typeof pads)[number] = null;
+    for (let index = 0; index < pads.length; index += 1) {
+      if (pads[index]) {
+        pad = pads[index];
+        break;
+      }
+    }
     if (!pad) {
       if (this.gamepadConnected) this.handleGamepadDisconnected();
       return;

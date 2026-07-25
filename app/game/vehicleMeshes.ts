@@ -1099,12 +1099,22 @@ function buildModelVehicle(
     brakeLights: [],
     setSignal(signal, blinkOn) {
       if (disposed) return;
+      // Callers re-assert state every frame; only a change re-glows the
+      // lamps. blinkOn only matters while a side is signalling, so an "off"
+      // fleet skips even the blink cadence.
+      if (
+        activeSignal === signal &&
+        (signal === "off" || signalLit === blinkOn)
+      ) {
+        return;
+      }
       activeSignal = signal;
       signalLit = blinkOn;
       applyRearLamps();
     },
     setBraking(active) {
       if (disposed) return;
+      if (braking === active) return;
       braking = active;
       applyRearLamps();
     },
