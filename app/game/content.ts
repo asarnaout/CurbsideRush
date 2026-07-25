@@ -1747,6 +1747,11 @@ export const MAP_PACKS: readonly MapPack[] = [
         // 1.5 m authored shoulder) before its 11.64 m half-width starts — else the
         // forecourt slab bleeds onto the sidewalk.
         { id: "nyc-gas", kind: "gas_station", anchor: { laneId: "nyc-72-e-we", distanceAlongM: 29 }, footprint: point(14, 9), label: "Broadway Fuel", setbackM: 18.7 },
+        // The second station sits at the far corner from the first: that one is
+        // W 72nd and West End, in the south-west, so this is W 96th up by
+        // Columbus. On a map 2.9 km end to end, one pump stop meant a run the
+        // length of the city to reach it whichever way you were driving.
+        { id: "nyc-gas-uptown", kind: "gas_station", anchor: { laneId: "nyc-96-e-col", distanceAlongM: 70 }, footprint: point(14, 9), label: "West 96th Fuel", setbackM: 18.7 },
       ],
       gigVenues: [
         { id: "nyc-v1", kind: "restaurant", anchor: { laneId: "nyc-amst-n-1-75", distanceAlongM: 22 }, footprint: point(28, 20), name: "Amsterdam Diner", setbackM: 18 },
@@ -1757,6 +1762,27 @@ export const MAP_PACKS: readonly MapPack[] = [
         // deliveries do not all start on Amsterdam. `modelId` gives it its own
         // building — two restaurants that look identical read as one place.
         { id: "nyc-v5", kind: "restaurant", anchor: { laneId: "nyc-bway-n-75", distanceAlongM: 90 }, footprint: point(14, 14), name: "Broadway Pizzeria", modelId: "restaurant-pizzeria" },
+        // The rest of the city needs somewhere to eat and shop too: five venues
+        // clustered in the middle third left the new ends with nothing but
+        // generated addresses. Kinds and models are cycled so no two
+        // neighbouring venues are the same building — the catalogue has five
+        // distinct ones, and every anchor here is a couple of blocks from the
+        // nearest venue using the same.
+        //
+        // Lincoln Square and the south end
+        { id: "nyc-v6", kind: "restaurant", anchor: { laneId: "nyc-bway-n-61", distanceAlongM: 120 }, footprint: point(28, 20), name: "Lincoln Square Diner", setbackM: 18 },
+        { id: "nyc-v7", kind: "shop", anchor: { laneId: "nyc-we-n-59", distanceAlongM: 120 }, footprint: point(16, 12), name: "West End Bodega" },
+        { id: "nyc-v8", kind: "office", anchor: { laneId: "nyc-59-e-amst", distanceAlongM: 70 }, footprint: point(16, 14), name: "Columbus Circle Offices" },
+        { id: "nyc-v9", kind: "residence", anchor: { laneId: "nyc-amst-n-1-59", distanceAlongM: 120 }, footprint: point(14, 12), name: "Amsterdam Residences" },
+        { id: "nyc-v10", kind: "restaurant", anchor: { laneId: "nyc-65-e-bway", distanceAlongM: 80 }, footprint: point(14, 14), name: "West 65th Taqueria", modelId: "restaurant-pizzeria" },
+        // Uptown, above the museum
+        { id: "nyc-v11", kind: "shop", anchor: { laneId: "nyc-riv-n-79", distanceAlongM: 120 }, footprint: point(16, 12), name: "Riverside Market" },
+        { id: "nyc-v12", kind: "restaurant", anchor: { laneId: "nyc-bway-s-100", distanceAlongM: 120 }, footprint: point(28, 20), name: "Straus Park Bagels", setbackM: 18 },
+        { id: "nyc-v13", kind: "residence", anchor: { laneId: "nyc-we-s-96", distanceAlongM: 120 }, footprint: point(14, 12), name: "West 96th Apartments" },
+        { id: "nyc-v14", kind: "office", anchor: { laneId: "nyc-col-s-1-100", distanceAlongM: 120 }, footprint: point(16, 14), name: "Columbus Uptown Offices" },
+        { id: "nyc-v15", kind: "restaurant", anchor: { laneId: "nyc-amst-n-2-86", distanceAlongM: 120 }, footprint: point(14, 14), name: "Amsterdam Noodle Bar", modelId: "restaurant-pizzeria" },
+        { id: "nyc-v16", kind: "shop", anchor: { laneId: "nyc-106-w-amst", distanceAlongM: 80 }, footprint: point(16, 12), name: "West 106th Grocers" },
+        { id: "nyc-v17", kind: "residence", anchor: { laneId: "nyc-cpw-s-96", distanceAlongM: 120 }, footprint: point(14, 12), name: "Central Park West Residences" },
       ],
       landmarks: [
         // Kept clear of the carriageways (a content test enforces this).
