@@ -10,7 +10,7 @@ export async function generateMetadata(): Promise<Metadata> {
     requestHeaders.get("x-forwarded-proto") ??
     (host?.startsWith("localhost") ? "http" : "https");
   const origin = host ? `${protocol}://${host}` : "http://localhost:3000";
-  const imageUrl = new URL("/og.png", origin).toString();
+  const imageUrl = new URL("/og.jpg", origin).toString();
 
   return {
     title: "Curbside Rush",
@@ -43,10 +43,12 @@ export async function generateMetadata(): Promise<Metadata> {
       url: origin,
       images: [
         {
+          // 1200x630 is the card size every platform lays out for; the file is
+          // a ~181 KB JPEG because WhatsApp drops preview images past ~300 KB.
           url: imageUrl,
-          width: 1568,
-          height: 1003,
-          alt: "Curbside Rush low-poly London driving scene in South Kensington",
+          width: 1200,
+          height: 630,
+          alt: "Curbside Rush key art: a bicycle, motorbike and blue sedan on a New York street under the title Rise and Grind",
         },
       ],
     },

@@ -144,10 +144,17 @@ provided its licence text travels with the fonts (included alongside them):
 ## First-party — created for Curbside Rush (no third-party rights)
 
 - **favicon.svg** — original Curbside Rush mark.
-- **og.png** and **`public/landing/*.webp`** (per-city preview illustrations) —
-  generated with OpenAI (ChatGPT) by the project owner, who owns the output
-  under OpenAI's Terms of Use. Stylised generic city scenes; no third-party
-  assets, logos, or branding.
+- **`public/landing/*.webp`** (per-city preview illustrations) — generated with
+  OpenAI (ChatGPT) by the project owner, who owns the output under OpenAI's
+  Terms of Use. Stylised generic city scenes; no third-party assets, logos, or
+  branding.
+- **og.jpg** (the link-preview card) — generated with OpenAI (ChatGPT) by the
+  project owner on 2026-07-24, who owns the output under OpenAI's Terms of Use.
+  Downloaded as `curbside-rush-og-image-generic-vehicles.jpg`. A stylised
+  generic New York street with the game's own title and mark; no third-party
+  assets, marque or branding. Sized 1200x630 at ~181 KB for the reasons noted in
+  `app/layout.tsx`.
+  It replaces an `og.png` that still carried the pre-rebrand "SideSwap" name.
 - **`public/vehicles/*.webp`** (Career garage card art) — generated with OpenAI
   (ChatGPT) by the project owner on 2026-07-24, who owns the output under
   OpenAI's Terms of Use. Studio shots of generic low-poly vehicles; no

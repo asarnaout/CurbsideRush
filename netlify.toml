@@ -1,0 +1,33 @@
+# Netlify publishes this repo as a static site.
+#
+# `vinext build` targets Cloudflare Workers, so there is no `.next` directory
+# and nothing for Netlify's Next.js runtime to deploy. Instead the build renders
+# the single route once (tools/prerender-static.mjs) and we publish the client
+# bundle as plain files — the game is client-side after the first paint, so it
+# needs no server. Cloudflare remains deployable from the same build; see
+# `npm run build` and the generated dist/server/wrangler.json.
+#
+# MANUAL STEP, ONCE: remove "@netlify/plugin-nextjs" under
+# Site configuration -> Build & deploy -> Build plugins. It was installed from
+# the Netlify UI, and this file cannot uninstall a UI-installed plugin — it will
+# keep running and keep failing on the missing `.next` directory until removed.
+
+[build]
+  command = "npm run build:static"
+  publish = "dist/client"
+
+[build.environment]
+  # The repo needs >= 22.13 (package.json engines).
+  NODE_VERSION = "22"
+
+# The prerendered HTML freezes the origin used in og:image / og:url, so the
+# build needs to know the address it is being published to. Netlify injects URL
+# and DEPLOY_PRIME_URL, which resolveSiteUrl reads per context, so nothing is
+# hardcoded here and deploy previews get cards pointing at the preview. Set
+# SITE_URL explicitly only to override that (e.g. a custom domain that is not
+# yet Netlify's primary alias).
+
+# Content-hashed assets are already marked immutable by dist/client/_headers,
+# which Netlify reads. index.html deliberately stays on Netlify's default
+# revalidate-every-time policy: it carries the og: tags and the asset hashes, so
+# a cached copy would keep serving stale ones after a deploy.

@@ -20,7 +20,7 @@ npm run dev          # Vite dev server + Miniflare worker on :3000 (NOT `next de
 npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run typecheck    # tsc --noEmit, ~2s
 npm run lint         # eslint, ~4s
-npm test             # vitest run: 52 files, 696 tests, ~145s
+npm test             # vitest run: 53 files, 712 tests, ~145s
 ```
 
 Node >= 22.13 (repo currently runs v26).
@@ -30,7 +30,7 @@ Node >= 22.13 (repo currently runs v26).
 `npm test` takes ~145s and **97% of that is one file** — `tests/trafficSafetyAcceptance.test.ts` (141s: 5 cities x every start/checkpoint x 51 seeds x 60s of sim). Use the fast loop while iterating, full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 51 files / 694 tests in ~7s
+# everything except the acceptance test -> 52 files / 710 tests in ~7s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts                     # one file
@@ -182,4 +182,5 @@ The AudioContext is a **module-level singleton**, deliberately not per-session, 
 - **`app/globals.css` is ~3445 lines and substantially dead** (removed lesson hub, passport, results views). The driving HUD is inline styles in `SideSwapApp.tsx`, not CSS.
 - **`.app-shell` sets `overflow: hidden`, which silently disables `position: sticky` anywhere below it** — a scroll container, so a sticky child pins to *it* rather than the viewport and simply never moves. The career pages override it to `overflow: clip` (clips identically, no scrollport) inside the 860px block, which is what lets the garage dock and the travel flight bar pin at all. Nothing warns; the element just sits in flow.
 - **No `wrangler.toml`.** Worker config is inline in `vite.config.ts` (`localBindingConfig`) at dev time and generated into `dist/server/wrangler.json` at build. The `@cloudflare/vite-plugin` import is deliberately dynamic — Wrangler snapshots its log path on import. The image-optimization branch in `worker/index.ts` and the D1/drizzle packaging in `build/sites-vite-plugin.ts` are inherited template code with no live consumer.
+- **Two deploy shapes from one build.** `npm run build` emits a Cloudflare Worker; `npm run build:static` adds `tools/prerender-static.mjs`, which renders `/` *through that same Worker in-process* (it has no `cloudflare:` imports, and `env` is only touched on `/_vinext/image`) and writes `dist/client/index.html` for Netlify to publish as static files. **`vinext start` is not a substitute** — it serves unhashed dev URLs that 404 on a static host, so the page never hydrates; `assertUsableHtml` fails the build on exactly that. The prerender freezes the origin into `og:image`, so it refuses to run without a real `SITE_URL`/Netlify `URL` — a wrong one is invisible until a shared link renders with no card.
 - The `@/*` tsconfig path alias exists and is **used zero times**. Every import is relative; follow that.
