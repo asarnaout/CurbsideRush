@@ -1249,6 +1249,7 @@ export class SimulationCore {
   private readonly trafficLights: NormalizedTrafficLight[];
   private readonly trafficLightsById: Map<string, NormalizedTrafficLight>;
   private readonly stopLines: StopLineDefinition[];
+  private readonly stopLinesByLaneId: Map<string, StopLineDefinition[]>;
   private readonly trafficGates: NormalizedTrafficGate[];
   private readonly laneRestrictions: LaneRestriction[];
   private readonly boxJunctions: SimulationBoxJunctionDefinition[];
@@ -1501,6 +1502,18 @@ export class SimulationCore {
     this.stopLines = (configuration.stopLines ?? defaultStopLines)
       .filter((line) => this.lanesById.has(line.laneId))
       .map((line) => ({ ...line }));
+    // Per-lane view of the same objects, in the same relative order, so the
+    // per-NPC-per-step control checks read one bucket instead of scanning
+    // every stop line in the city.
+    this.stopLinesByLaneId = new Map();
+    for (const line of this.stopLines) {
+      let bucket = this.stopLinesByLaneId.get(line.laneId);
+      if (!bucket) {
+        bucket = [];
+        this.stopLinesByLaneId.set(line.laneId, bucket);
+      }
+      bucket.push(line);
+    }
     const authoredTrafficGates = (configuration.trafficGates ?? [])
       .filter((gate) => this.lanesById.has(gate.laneId))
       .map((gate) => {
@@ -3932,9 +3945,12 @@ export class SimulationCore {
     currentProjection: LaneProjection | null,
   ): void {
     if (!currentProjection) return;
+    const laneStopLines = this.stopLinesByLaneId.get(
+      currentProjection.lane.id,
+    );
+    if (!laneStopLines) return;
     const speed = Math.abs(this.signedSpeedMps);
-    for (const stopLine of this.stopLines) {
-      if (stopLine.laneId !== currentProjection.lane.id) continue;
+    for (const stopLine of laneStopLines) {
       const distanceAhead = stopLine.distance - currentProjection.distanceAlong;
       if (distanceAhead >= 0 && distanceAhead <= 14) {
         const previousMinimum = this.stopApproachSpeeds.get(stopLine.id) ?? Number.POSITIVE_INFINITY;
@@ -4423,10 +4439,11 @@ export class SimulationCore {
     lane: NormalizedLane,
     distance: number,
   ): number | null {
+    const laneStopLines = this.stopLinesByLaneId.get(lane.id);
+    if (!laneStopLines) return null;
     let best = Number.POSITIVE_INFINITY;
-    for (const stopLine of this.stopLines) {
+    for (const stopLine of laneStopLines) {
       if (
-        stopLine.laneId !== lane.id ||
         (stopLine.kind !== "traffic_light" && stopLine.kind !== "railway") ||
         !stopLine.trafficLightId
       ) {
@@ -4444,9 +4461,11 @@ export class SimulationCore {
     lane: NormalizedLane,
     distance: number,
   ): number | null {
+    const laneStopLines = this.stopLinesByLaneId.get(lane.id);
+    if (!laneStopLines) return null;
     let best = Number.POSITIVE_INFINITY;
-    for (const stopLine of this.stopLines) {
-      if (stopLine.laneId !== lane.id || stopLine.kind !== "yield") continue;
+    for (const stopLine of laneStopLines) {
+      if (stopLine.kind !== "yield") continue;
       const linePose = this.pointOnLane(lane, stopLine.distance);
       const conflictRadius = stopLine.conflictRadius ?? 12;
       const hasConflict = this.npcs.some(
