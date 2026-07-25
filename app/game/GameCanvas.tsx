@@ -11056,6 +11056,29 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
                   {activeInputGuide.details}
                 </span>
               </details>
+              {/*
+                Where someone stares at the browser bars and pauses to look for
+                a setting. There is no in-page fullscreen on iPhone Safari — no
+                Fullscreen API outside <video>, and its own toolbar hiding only
+                answers to scrolling, which this screen deliberately cannot do —
+                so the Home Screen really is the answer, and this is where it
+                gets asked for.
+              */}
+              {inputPresentation.touchFirst && !fullscreenOffered && (
+                <p
+                  data-testid="pause-home-screen-tip"
+                  style={{
+                    width: "min(330px, 100%)",
+                    margin: "0 auto 18px",
+                    opacity: 0.72,
+                    font: "600 11px/1.5 system-ui, sans-serif",
+                  }}
+                >
+                  Browser bars in the way? Tap <strong>Share</strong> then{" "}
+                  <strong>Add to Home Screen</strong>, and open the game from
+                  there for a full screen.
+                </p>
+              )}
               <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
                 <button autoFocus type="button" style={{ ...actionButtonStyle, width: "auto", paddingInline: 20 }} onClick={() => sessionRef.current?.setPaused(false)}>
                   RESUME
