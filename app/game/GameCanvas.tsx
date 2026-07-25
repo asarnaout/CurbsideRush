@@ -1765,6 +1765,119 @@ function appearanceVisualKey(appearance: VehicleAppearance): string {
  * stable slots, leaving tail slots for scripted/non-numeric vehicles. This
  * prevents a newly activated ambient car from evicting a maneuver lead.
  */
+/**
+ * Merged road-paint geometry. Every dash and solid run used to be its own
+ * unfrozen CreateBox — ~1,100 meshes on the NYC grid, each a per-frame
+ * frustum test and draw call. These accumulators collect the exact same
+ * boxes (same dash phase walk, same +0.25 depth pad and height rule, same
+ * winding via Babylon's own box data, rotated and translated) so the session
+ * can pour one mesh per paint colour. Pure and exported for node tests.
+ */
+export interface MarkingGeometry {
+  positions: number[];
+  normals: number[];
+  indices: number[];
+}
+
+export function createMarkingGeometry(): MarkingGeometry {
+  return { positions: [], normals: [], indices: [] };
+}
+
+/** One paint box, replicating createFlatSegment's dimensions exactly. */
+export function appendMarkingBox(
+  geometry: MarkingGeometry,
+  start: GameCanvasPoint,
+  end: GameCanvasPoint,
+  width: number,
+  y: number,
+): void {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.01) return;
+  const heading = Math.atan2(dx, dz);
+  const box = VertexData.CreateBox({
+    width,
+    height: Math.max(0.025, y * 0.45),
+    depth: length + 0.25,
+  });
+  const centerX = (start.x + end.x) / 2;
+  const centerZ = (start.z + end.z) / 2;
+  const sin = Math.sin(heading);
+  const cos = Math.cos(heading);
+  const indexBase = geometry.positions.length / 3;
+  const positions = box.positions as number[];
+  const normals = box.normals as number[];
+  for (let i = 0; i < positions.length; i += 3) {
+    const px = positions[i];
+    const py = positions[i + 1];
+    const pz = positions[i + 2];
+    // rotation.y = heading, as Babylon applies it to a mesh.
+    geometry.positions.push(
+      centerX + px * cos + pz * sin,
+      y + py,
+      centerZ - px * sin + pz * cos,
+    );
+    const nx = normals[i];
+    const nz = normals[i + 2];
+    geometry.normals.push(nx * cos + nz * sin, normals[i + 1], -nx * sin + nz * cos);
+  }
+  for (const index of box.indices as number[]) {
+    geometry.indices.push(indexBase + index);
+  }
+}
+
+/** The dash walk from createDashedPath, phase carry-over and all. */
+export function appendDashedMarkingBoxes(
+  geometry: MarkingGeometry,
+  points: readonly GameCanvasPoint[],
+  width: number,
+  y: number,
+  dashLength = 3,
+  gapLength = 4,
+): void {
+  let phase = 0;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 0.01) continue;
+    const ux = dx / length;
+    const uz = dz / length;
+    for (
+      let distance = -phase;
+      distance < length;
+      distance += dashLength + gapLength
+    ) {
+      const from = Math.max(0, distance);
+      const to = Math.min(length, distance + dashLength);
+      if (to - from > 0.2) {
+        appendMarkingBox(
+          geometry,
+          { x: start.x + ux * from, z: start.z + uz * from },
+          { x: start.x + ux * to, z: start.z + uz * to },
+          width,
+          y,
+        );
+      }
+    }
+    phase = (phase + length) % (dashLength + gapLength);
+  }
+}
+
+export function appendSolidMarkingBoxes(
+  geometry: MarkingGeometry,
+  points: readonly GameCanvasPoint[],
+  width: number,
+  y: number,
+): void {
+  for (let index = 0; index < points.length - 1; index += 1) {
+    appendMarkingBox(geometry, points[index], points[index + 1], width, y);
+  }
+}
+
 export function resolveNpcVisualSlotAssignments(
   slots: readonly Readonly<{ simulationId?: string }>[],
   vehicles: readonly Readonly<{ id: string }>[],
@@ -7424,10 +7537,14 @@ class BabylonGameSession {
         ROAD_JUNCTION_FILL_Y,
       );
     }
+    // All lane paint pours into two merged meshes (one per colour) instead
+    // of a box per dash — see MarkingGeometry. Chevrons, crosswalks and
+    // thresholds keep their own meshes: they need per-mesh setEnabled.
+    const whitePaint = createMarkingGeometry();
+    const yellowPaint = createMarkingGeometry();
     for (const surface of roadSurfaces) {
       for (const marking of surface.markings) {
-        const material =
-          marking.color === "yellow" ? yellowMarkingMaterial : laneMaterial;
+        const paint = marking.color === "yellow" ? yellowPaint : whitePaint;
         // Give-way bars and box junctions belong *to* a junction; everything
         // else is lane paint, which stops at one.
         const runs = LANE_PAINT_STYLES.has(marking.style)
@@ -7436,19 +7553,17 @@ class BabylonGameSession {
               roadSurfaces.filter((other) => other.id !== surface.id),
             )
           : [marking.points as MarkingPoint[]];
-        for (const [runIndex, run] of runs.entries()) {
-          const name = `road-marking-${surface.id}-${marking.id}-${runIndex}`;
+        for (const run of runs) {
           if (
             marking.style === "centre_dashed" ||
             marking.style === "lane_dashed" ||
             marking.style === "give_way"
           ) {
-            this.createDashedPath(
-              name,
+            appendDashedMarkingBoxes(
+              paint,
               run,
               marking.style === "give_way" ? 0.24 : 0.11,
               0.12,
-              material,
               marking.style === "centre_dashed"
                 ? 3.2
                 : marking.style === "give_way"
@@ -7462,16 +7577,21 @@ class BabylonGameSession {
             );
             continue;
           }
-          this.createSolidPath(
-            name,
+          appendSolidMarkingBoxes(
+            paint,
             run,
             marking.style === "box_junction" ? 0.18 : 0.11,
             0.12,
-            material,
           );
         }
       }
     }
+    this.buildMergedMarkingMesh("road-markings-white", whitePaint, laneMaterial);
+    this.buildMergedMarkingMesh(
+      "road-markings-yellow",
+      yellowPaint,
+      yellowMarkingMaterial,
+    );
     for (const [routeIndex, laneId] of (this.options.lesson?.route ?? []).entries()) {
       const lane = mapPack.laneGraph.lanes.find((candidate) => candidate.id === laneId);
       if (!lane || lane.role === "connector") continue;
@@ -9123,6 +9243,25 @@ class BabylonGameSession {
     return mesh;
   }
 
+  /** Pours a MarkingGeometry accumulator into one frozen static mesh. */
+  private buildMergedMarkingMesh(
+    name: string,
+    geometry: MarkingGeometry,
+    material: StandardMaterial,
+  ) {
+    if (geometry.indices.length === 0) return;
+    const mesh = new Mesh(name, this.scene);
+    const data = new VertexData();
+    data.positions = geometry.positions;
+    data.normals = geometry.normals;
+    data.indices = geometry.indices;
+    data.applyToMesh(mesh);
+    mesh.material = material;
+    mesh.isPickable = false;
+    mesh.freezeWorldMatrix();
+    mesh.doNotSyncBoundingInfo = true;
+  }
+
   private createFlatSegment(
     name: string,
     start: GameCanvasPoint,
@@ -9144,64 +9283,6 @@ class BabylonGameSession {
     );
     segment.rotation.y = Math.atan2(dx, dz);
     return segment;
-  }
-
-  private createDashedPath(
-    name: string,
-    points: readonly GameCanvasPoint[],
-    width: number,
-    y: number,
-    material: StandardMaterial,
-    dashLength = 3,
-    gapLength = 4,
-  ) {
-    let dashIndex = 0;
-    let phase = 0;
-    for (let index = 0; index < points.length - 1; index += 1) {
-      const start = points[index];
-      const end = points[index + 1];
-      const dx = end.x - start.x;
-      const dz = end.z - start.z;
-      const length = Math.hypot(dx, dz);
-      if (length < 0.01) continue;
-      const ux = dx / length;
-      const uz = dz / length;
-      for (let distance = -phase; distance < length; distance += dashLength + gapLength) {
-        const from = Math.max(0, distance);
-        const to = Math.min(length, distance + dashLength);
-        if (to - from > 0.2) {
-          this.createFlatSegment(
-            `${name}-${dashIndex}`,
-            { x: start.x + ux * from, z: start.z + uz * from },
-            { x: start.x + ux * to, z: start.z + uz * to },
-            width,
-            y,
-            material,
-          );
-          dashIndex += 1;
-        }
-      }
-      phase = (phase + length) % (dashLength + gapLength);
-    }
-  }
-
-  private createSolidPath(
-    name: string,
-    points: readonly GameCanvasPoint[],
-    width: number,
-    y: number,
-    material: StandardMaterial,
-  ) {
-    for (let index = 0; index < points.length - 1; index += 1) {
-      this.createFlatSegment(
-        `${name}-${index}`,
-        points[index],
-        points[index + 1],
-        width,
-        y,
-        material,
-      );
-    }
   }
 
   private createRouteChevrons(
