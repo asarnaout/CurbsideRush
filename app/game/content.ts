@@ -18,6 +18,7 @@ import type {
   MapPack,
   MapSpawnPoint,
   OfficialRuleReference,
+  ProceduralBlock,
   ProceduralLandmark,
   ResolvedGameSessionConfig,
   RuleCode,
@@ -1374,9 +1375,126 @@ function buildNycGrid(
   return { nodes: nodeOrder, lanes, roadSurfaces, signals };
 }
 
+/** How a grid cell is built up. `buildingSet` picks the instanced glb wall. */
+interface NycZone {
+  readonly buildingSet: string;
+  readonly heightRange: readonly [number, number];
+  readonly density: number;
+  readonly material: string;
+}
+
+const NYC_ZONES = {
+  towers: { buildingSet: "nyc-downtown", heightRange: [40, 60], density: 0.95, material: "stone" },
+  midrise: { buildingSet: "nyc-midrise", heightRange: [18, 30], density: 0.92, material: "sandstone" },
+  brownstone: { buildingSet: "nyc-brownstone", heightRange: [12, 22], density: 0.9, material: "brick" },
+  houses: { buildingSet: "nyc-house", heightRange: [8, 14], density: 0.88, material: "brick" },
+  retail: { buildingSet: "nyc-shop", heightRange: [10, 18], density: 0.93, material: "brick" },
+} as const satisfies Record<string, NycZone>;
+
+/**
+ * Zoning by column and latitude rather than by cell, so that adding a street
+ * splits a cell without changing what stands on either half.
+ *
+ * It follows the real neighbourhood: the tower core sits on Broadway and
+ * Amsterdam and thins going uptown, the low-rise residential belt runs down the
+ * river side, and Broadway and Amsterdam above 86th are the retail strip. The
+ * detached-house pocket has to stay clear of the towers — `content.test.ts`
+ * requires 20 m and the river columns keep hundreds.
+ */
+const nycZoneFor = (columnKey: string, centreZ: number): NycZone | null => {
+  switch (columnKey) {
+    case "riv-we":
+      return centreZ < 0 ? NYC_ZONES.brownstone : NYC_ZONES.houses;
+    case "we-bway":
+      return centreZ < 0 ? NYC_ZONES.brownstone : NYC_ZONES.houses;
+    case "bway-amst":
+      return centreZ < 480 ? NYC_ZONES.towers : NYC_ZONES.retail;
+    case "amst-col":
+      return centreZ < 0
+        ? NYC_ZONES.towers
+        : centreZ < 480
+          ? NYC_ZONES.midrise
+          : NYC_ZONES.retail;
+    case "col-cpw":
+      // The museum and its grounds own the 79th–86th cell; a street wall there
+      // would stand inside the authored landmark.
+      if (centreZ > 0 && centreZ < 480) return null;
+      return centreZ < 480 ? NYC_ZONES.midrise : NYC_ZONES.brownstone;
+    default:
+      return NYC_ZONES.midrise;
+  }
+};
+
+/** Metres from a road centreline to the block frontage: carriageway + pavement. */
+const NYC_BLOCK_INSET_M = 13;
+/** Depth of the fill strip beyond the outermost avenue. */
+const NYC_MARGIN_DEPTH_M = 44;
+
+/**
+ * Blocks derived from the same grid the roads are: one per cell, plus a fill
+ * strip beyond the westernmost avenue of each row so the outer kerb has
+ * frontage too. Deriving them is what lets a new street be one line — it splits
+ * every cell it crosses and both halves keep their zoning — rather than forty
+ * hand-edited rectangles.
+ */
+function buildNycBlocks(
+  avenues: readonly NycRoadSpec[],
+  streets: readonly NycRoadSpec[],
+): ProceduralBlock[] {
+  const reaches = (avenue: NycRoadSpec, street: NycRoadSpec): boolean =>
+    (avenue.crossings ?? streets.map((s) => s.key)).includes(street.key) &&
+    (street.crossings ?? avenues.map((a) => a.key)).includes(avenue.key);
+
+  const blocks: ProceduralBlock[] = [];
+  for (let row = 0; row + 1 < streets.length; row += 1) {
+    const south = streets[row];
+    const north = streets[row + 1];
+    const centreZ = (south.coordinate + north.coordinate) / 2;
+    const depthZ = north.coordinate - south.coordinate - NYC_BLOCK_INSET_M * 2;
+    if (depthZ <= 0) continue;
+    const present = avenues.filter(
+      (avenue) => reaches(avenue, south) && reaches(avenue, north),
+    );
+    for (let column = 0; column + 1 < present.length; column += 1) {
+      const west = present[column];
+      const east = present[column + 1];
+      const columnKey = `${west.key}-${east.key}`;
+      const zone = nycZoneFor(columnKey, centreZ);
+      if (!zone) continue;
+      const widthX = east.coordinate - west.coordinate - NYC_BLOCK_INSET_M * 2;
+      if (widthX <= 0) continue;
+      blocks.push({
+        id: `nyc-block-${columnKey}-${Math.round(centreZ)}`,
+        center: point((west.coordinate + east.coordinate) / 2, centreZ),
+        size: point(widthX, depthZ),
+        heightRange: zone.heightRange,
+        density: zone.density,
+        material: zone.material,
+        buildingSet: zone.buildingSet,
+      });
+    }
+    const westmost = present[0];
+    if (!westmost) continue;
+    blocks.push({
+      id: `nyc-block-west-margin-${Math.round(centreZ)}`,
+      center: point(
+        westmost.coordinate - NYC_BLOCK_INSET_M - NYC_MARGIN_DEPTH_M / 2,
+        centreZ,
+      ),
+      size: point(NYC_MARGIN_DEPTH_M, depthZ),
+      heightRange: NYC_ZONES.brownstone.heightRange,
+      density: NYC_ZONES.brownstone.density,
+      material: NYC_ZONES.brownstone.material,
+      buildingSet: NYC_ZONES.brownstone.buildingSet,
+    });
+  }
+  return blocks;
+}
+
 const nycGrid = buildNycGrid(NYC_AVENUES, NYC_STREETS);
 const nycLanes = nycGrid.lanes;
 const nycSignals = nycGrid.signals;
+const nycBlocks = buildNycBlocks(NYC_AVENUES, NYC_STREETS);
 
 
 const ukNodes = {
@@ -1603,50 +1721,14 @@ export const MAP_PACKS: readonly MapPack[] = [
       roadWidth: 11,
       shoulderWidth: 1.5,
       roadSurfaces: nycGrid.roadSurfaces,
-      blocks: [
-        // Dense street-wall blocks tightly filling every grid cell (avenues at
-        // x=-320/-120/40/180/320, cross-streets at z=-480/0/480), inset ~13 m
-        // for the road + sidewalk. `buildingSet` picks the instanced glb wall
-        // that hugs each block's road frontage. Zoning clusters the tall towers
-        // on the Broadway/Amsterdam core and keeps the low-rise residential belt
-        // (brownstones) + the detached-house pocket over on the West End side,
-        // well clear of the skyscrapers. Mid-rise fills the rest + the margins.
-        //
-        // Lincoln Square row, W 65th ↔ W 72nd (towers reach furthest south)
-        { id: "nyc-block-we-bway-ss", center: point(-220, -720), size: point(174, 454), heightRange: [16, 26], density: 0.9, material: "brick", buildingSet: "nyc-brownstone" },
-        { id: "nyc-block-bway-amst-ss", center: point(-40, -720), size: point(134, 454), heightRange: [42, 62], density: 0.95, material: "stone", buildingSet: "nyc-downtown" },
-        { id: "nyc-block-amst-col-ss", center: point(110, -720), size: point(114, 454), heightRange: [38, 56], density: 0.95, material: "stone", buildingSet: "nyc-downtown" },
-        { id: "nyc-block-col-cpw-ss", center: point(250, -720), size: point(114, 454), heightRange: [18, 30], density: 0.92, material: "sandstone", buildingSet: "nyc-midrise" },
-        // West End ↔ Broadway column (residential belt, kept away from towers)
-        { id: "nyc-block-we-bway-s", center: point(-220, -240), size: point(174, 454), heightRange: [14, 24], density: 0.9, material: "brick", buildingSet: "nyc-brownstone" },
-        { id: "nyc-block-we-bway-n", center: point(-220, 240), size: point(174, 454), heightRange: [8, 14], density: 0.9, material: "brick", buildingSet: "nyc-house" },
-        // Broadway ↔ Amsterdam column (downtown towers)
-        { id: "nyc-block-bway-amst-s", center: point(-40, -240), size: point(134, 454), heightRange: [40, 60], density: 0.95, material: "stone", buildingSet: "nyc-downtown" },
-        { id: "nyc-block-bway-amst-n", center: point(-40, 240), size: point(134, 454), heightRange: [40, 60], density: 0.95, material: "stone", buildingSet: "nyc-downtown" },
-        // Amsterdam ↔ Columbus column (towers south, mid-rise north)
-        { id: "nyc-block-amst-col-s", center: point(110, -240), size: point(114, 454), heightRange: [36, 54], density: 0.95, material: "stone", buildingSet: "nyc-downtown" },
-        { id: "nyc-block-amst-col-n", center: point(110, 240), size: point(114, 454), heightRange: [18, 30], density: 0.92, material: "sandstone", buildingSet: "nyc-midrise" },
-        // Columbus ↔ Central Park West column (mid-rise; NE cell is the museum)
-        { id: "nyc-block-col-cpw-s", center: point(250, -240), size: point(114, 454), heightRange: [18, 30], density: 0.92, material: "sandstone", buildingSet: "nyc-midrise" },
-        // W 86th ↔ W 96th row: uptown, so low-rise — a second detached-house
-        // pocket on the West End side and brownstone toward the park.
-        { id: "nyc-block-we-bway-nn", center: point(-220, 720), size: point(174, 454), heightRange: [8, 14], density: 0.9, material: "brick", buildingSet: "nyc-house" },
-        { id: "nyc-block-bway-amst-nn", center: point(-40, 720), size: point(134, 454), heightRange: [20, 34], density: 0.93, material: "sandstone", buildingSet: "nyc-midrise" },
-        { id: "nyc-block-amst-col-nn", center: point(110, 720), size: point(114, 454), heightRange: [16, 28], density: 0.92, material: "sandstone", buildingSet: "nyc-midrise" },
-        { id: "nyc-block-col-cpw-nn", center: point(250, 720), size: point(114, 454), heightRange: [14, 24], density: 0.9, material: "brick", buildingSet: "nyc-brownstone" },
-        // Riverside Drive ↔ West End column: the low-rise river belt, and the
-        // furthest the detached-house pocket gets from the tower core.
-        { id: "nyc-block-riv-we-s", center: point(-390, -240), size: point(114, 454), heightRange: [10, 18], density: 0.88, material: "brick", buildingSet: "nyc-brownstone" },
-        { id: "nyc-block-riv-we-n", center: point(-390, 240), size: point(114, 454), heightRange: [8, 14], density: 0.88, material: "brick", buildingSet: "nyc-house" },
-        { id: "nyc-block-riv-we-nn", center: point(-390, 720), size: point(114, 454), heightRange: [8, 14], density: 0.88, material: "brick", buildingSet: "nyc-house" },
-        // Margin fill so the outer avenues/streets have buildings on both sides.
-        // South of 72nd there is no Riverside Drive, so the west edge is West
-        // End's own far kerb and the strip steps back in to meet it.
-        { id: "nyc-block-west-margin", center: point(-352, -720), size: point(44, 454), heightRange: [12, 20], density: 0.9, material: "brick", buildingSet: "nyc-brownstone" },
-        { id: "nyc-block-riverside-margin", center: point(-495, 240), size: point(44, 1414), heightRange: [10, 18], density: 0.88, material: "brick", buildingSet: "nyc-brownstone" },
+      blocks: nycBlocks.concat([
+        // The two strips beyond the outermost cross streets, which no row
+        // generates because they have grid on one side only. The north one is
+        // wider: Riverside Drive reaches W 96th, so there is more frontage up
+        // there than below W 65th.
         { id: "nyc-block-south-margin", center: point(0, -995), size: point(628, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
-        { id: "nyc-block-north-margin", center: point(0, 995), size: point(628, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
-      ],
+        { id: "nyc-block-north-margin", center: point(-70, 995), size: point(754, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
+      ]),
       servicePoints: [
         // West 72nd is a wide two-way, and NYC is a paved city, so the lot must
         // clear the carriageway plus the full 3.4 m concrete sidewalk (not the
