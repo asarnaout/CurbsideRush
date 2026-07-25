@@ -452,6 +452,19 @@ function policeAppearance(
   };
 }
 
+/**
+ * A patrol car's appearance for a map, bypassing the one-in-five roll that
+ * decides whether an *ambient* car is a patrol. The traffic-stop cutscene
+ * stages its own patrol rig and needs it to be a patrol every time.
+ */
+export function policeAppearanceForMap(
+  mapId: string,
+  vehicleId: string,
+  trafficSeed = 0,
+): VehicleAppearance {
+  return policeAppearance({ mapId, vehicleId, trafficSeed, variant: "car" });
+}
+
 function isLondonVehicle(input: TrafficVehicleAppearanceInput): boolean {
   const region = `${input.mapId}|${input.vehicleId}`.toLowerCase();
   return region.includes("london");

@@ -162,6 +162,23 @@ vi.mock("next/dynamic", () => ({
           </button>
           <button
             type="button"
+            data-testid="mock-scene-cite"
+            onClick={() =>
+              props.onEvent?.({
+                type: "cutscene",
+                message: "cite",
+                timestamp: 2,
+                evidence: {
+                  nonce: props.cutscene?.nonce ?? -1,
+                  phase: "cite",
+                },
+              })
+            }
+          >
+            cite
+          </button>
+          <button
+            type="button"
             data-testid="mock-scene-done"
             onClick={() =>
               props.onEvent?.({
@@ -474,7 +491,16 @@ describe("career mode flow", () => {
     fireEvent.click(screen.getByTestId("garage-start-day"));
     await screen.findByLabelText("Mock driving scene");
 
+    // A witnessed violation stages the traffic stop; nothing is charged until
+    // the officer reaches the window.
     fireEvent.click(screen.getByTestId("mock-fine"));
+    expect(screen.getByLabelText("Mock driving scene")).toHaveAttribute(
+      "data-cutscene-kind",
+      "pullover",
+    );
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("$4.00");
+
+    fireEvent.click(screen.getByTestId("mock-scene-cite"));
     // 20 - 16 rent - 8 fine = -4.
     expect(screen.getByTestId("day-cash")).toHaveTextContent("-$4.00");
 
@@ -493,6 +519,8 @@ describe("career mode flow", () => {
     await screen.findByLabelText("Mock driving scene");
 
     fireEvent.click(screen.getByTestId("mock-fine"));
+    fireEvent.click(screen.getByTestId("mock-scene-cite"));
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
     fireEvent.click(screen.getByTestId("mock-hud-end"));
 
     expect(
@@ -531,6 +559,8 @@ describe("career mode flow", () => {
     await screen.findByLabelText("Mock driving scene");
 
     fireEvent.click(screen.getByTestId("mock-fine"));
+    fireEvent.click(screen.getByTestId("mock-scene-cite"));
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
     await endDayEarly();
 
     expect(
