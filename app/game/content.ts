@@ -1056,7 +1056,7 @@ interface NycRoadSpec {
 const NYC_AVENUES: readonly NycRoadSpec[] = [
   // Riverside Drive begins at 72nd, as it really does, so it skips the southern
   // rows and the grid's west edge steps in below them.
-  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96"] },
+  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96", "100", "106"] },
   { key: "we", nodeKey: "we", roadId: "nyc-west-end", coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
   { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1 },
   { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
@@ -1072,6 +1072,8 @@ const NYC_AVENUES: readonly NycRoadSpec[] = [
  * (six real blocks) between junctions.
  */
 const NYC_STREETS: readonly NycRoadSpec[] = [
+  { key: "59", nodeKey: "59", roadId: "nyc-west-59", coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "61", nodeKey: "61", roadId: "nyc-west-61", coordinate: -1200, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
   { key: "65", nodeKey: "65", roadId: "nyc-west-65", coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
   { key: "68", nodeKey: "68", roadId: "nyc-west-68", coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
   { key: "72", nodeKey: "72", roadId: "nyc-west-72", coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
@@ -1083,6 +1085,8 @@ const NYC_STREETS: readonly NycRoadSpec[] = [
   { key: "86", nodeKey: "86", roadId: "nyc-west-86", coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
   { key: "91", nodeKey: "91", roadId: "nyc-west-91", coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
   { key: "96", nodeKey: "96", roadId: "nyc-west-96", coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "100", nodeKey: "100", roadId: "nyc-west-100", coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
+  { key: "106", nodeKey: "106", roadId: "nyc-west-106", coordinate: 1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
 ];
 
 interface NycGridLane {
@@ -1720,7 +1724,7 @@ export const MAP_PACKS: readonly MapPack[] = [
       // Grid runs W 65th to W 96th across six avenues; bounds have to cover it
       // with room for the margin blocks, or everything outside reads as
       // out_of_bounds the moment the player drives onto it.
-      worldSize: point(1040, 2100),
+      worldSize: point(1080, 3000),
       roadWidth: 11,
       shoulderWidth: 1.5,
       roadSurfaces: nycGrid.roadSurfaces,
@@ -1729,8 +1733,8 @@ export const MAP_PACKS: readonly MapPack[] = [
         // generates because they have grid on one side only. The north one is
         // wider: Riverside Drive reaches W 96th, so there is more frontage up
         // there than below W 65th.
-        { id: "nyc-block-south-margin", center: point(0, -995), size: point(628, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
-        { id: "nyc-block-north-margin", center: point(-70, 995), size: point(754, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
+        { id: "nyc-block-south-margin", center: point(0, -1475), size: point(614, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
+        { id: "nyc-block-north-margin", center: point(-70, 1475), size: point(754, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
       ]),
       servicePoints: [
         // West 72nd is a wide two-way, and NYC is a paved city, so the lot must
