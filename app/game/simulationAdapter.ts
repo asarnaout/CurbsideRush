@@ -431,6 +431,31 @@ function laneForwardDirection(
   return length > 0.01 ? { x: dx / length, z: dz / length } : null;
 }
 
+const DENSITY_COUNTS = { none: 0, light: 6, moderate: 12, busy: 18 } as const;
+/** A phone pays much more per car, so the bands are capped there. */
+const TOUCH_DENSITY_CAP = 12;
+
+/**
+ * How many ambient cars a drive runs.
+ *
+ * The simulation and the renderer each allocate against this — sim NPCs and
+ * render slots have to agree or cars drive around with nothing drawn on them —
+ * and the table used to be written out in both files. One copy, and a map may
+ * override the band outright when its size makes the band wrong.
+ */
+export function resolveAmbientVehicleCount(
+  mapPack: {
+    readonly ambientTraffic?: { readonly desktop: number; readonly touch: number };
+  },
+  density: keyof typeof DENSITY_COUNTS,
+  touchFirst: boolean,
+): number {
+  const override = mapPack.ambientTraffic;
+  if (override) return touchFirst ? override.touch : override.desktop;
+  const configured = DENSITY_COUNTS[density];
+  return touchFirst ? Math.min(TOUCH_DENSITY_CAP, configured) : configured;
+}
+
 /** Arclength fractions for the supplemental oncoming gates on a two-way road. */
 const ONCOMING_GATE_FRACTIONS = [0.72, 0.28] as const;
 
@@ -1281,9 +1306,11 @@ export function buildSimulationCoreConfig({
     ...traffic.stopLines,
     ...buildStopAndYieldLines(mapPack),
   ];
-  const densityCounts = { none: 0, light: 6, moderate: 12, busy: 18 } as const;
-  const configuredCount = densityCounts[lesson.trafficDensity];
-  const npcCount = touchFirst ? Math.min(12, configuredCount) : configuredCount;
+  const npcCount = resolveAmbientVehicleCount(
+    mapPack,
+    lesson.trafficDensity,
+    touchFirst,
+  );
   const restrictions =
     lesson.kind === "free_drive" || lesson.assessedRules?.includes("restricted_lane")
       ? mapPack.laneGraph.restrictions ?? []

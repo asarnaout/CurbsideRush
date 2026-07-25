@@ -1720,6 +1720,13 @@ export const MAP_PACKS: readonly MapPack[] = [
     name: "NYC Upper West Side",
     areaLabel: "Broadway, West 72nd Street & nearby avenues",
     countryIds: ["us"],
+    // Twelve cars is what every map got, and it is what this one had when it
+    // was a fifth the size. Spread over 47 km of lane they left the streets
+    // empty, and patrols with them — a patrol is one car in five, so twelve
+    // cars is one or two police in the whole city. 32 is the simulation core's
+    // own clamp; a phone keeps a lower count because each car costs it much
+    // more, and the O(n^2) car-following work is paid per decision.
+    ambientTraffic: { desktop: 32, touch: 16 },
     source: osmSource(
       { south: 40.7738, west: -73.9919, north: 40.7836, east: -73.9738 },
       "https://www.openstreetmap.org/export#map=16/40.7787/-73.9829",
@@ -1818,13 +1825,36 @@ export const MAP_PACKS: readonly MapPack[] = [
         anchoredSpawn("nyc-car-3", "vehicle", "nyc-we-n-72", 130),
         anchoredSpawn("nyc-cab-4", "vehicle", "nyc-amst-n-1-72", 120),
         anchoredSpawn("nyc-car-5", "vehicle", "nyc-col-s-1-86", 120),
+        // Cars are handed out round-robin over the traffic gates, and a vehicle
+        // spawn is what makes a gate. Five of them all inside the old middle
+        // third meant the ends of the city started empty and only filled as
+        // cars recycled; these put gates on every corner of the grid instead.
+        anchoredSpawn("nyc-car-6", "vehicle", "nyc-bway-n-61", 120),
+        anchoredSpawn("nyc-cab-7", "vehicle", "nyc-we-s-65", 120),
+        anchoredSpawn("nyc-car-8", "vehicle", "nyc-cpw-n-59", 120),
+        anchoredSpawn("nyc-car-9", "vehicle", "nyc-59-e-we", 70),
+        anchoredSpawn("nyc-van-10", "vehicle", "nyc-amst-n-2-65", 120),
+        anchoredSpawn("nyc-car-11", "vehicle", "nyc-riv-n-79", 120),
+        anchoredSpawn("nyc-cab-12", "vehicle", "nyc-bway-s-100", 120),
+        anchoredSpawn("nyc-car-13", "vehicle", "nyc-96-w-cpw", 70),
+        anchoredSpawn("nyc-car-14", "vehicle", "nyc-col-s-1-100", 120),
+        anchoredSpawn("nyc-bus-15", "vehicle", "nyc-106-e-we", 80),
+        anchoredSpawn("nyc-car-16", "vehicle", "nyc-cpw-s-96", 120),
+        anchoredSpawn("nyc-car-17", "vehicle", "nyc-riv-s-91", 120),
         freeSpawn("nyc-ped-1", "pedestrian", -100, 12, 0),
         freeSpawn("nyc-ped-2", "pedestrian", -132, -10, 180),
         freeSpawn("nyc-ped-3", "pedestrian", 28, 12, 0),
         freeSpawn("nyc-ped-4", "pedestrian", 168, -12, 180),
         freeSpawn("nyc-ped-5", "pedestrian", -308, 10, 0),
+        // The ambient crowd is a bubble that follows the car, so it covers the
+        // new streets for free. These are the scenario road users, which are
+        // placed: a few uptown and downtown so the ends are not bare on arrival.
+        freeSpawn("nyc-ped-6", "pedestrian", -100, -1092, 0),
+        freeSpawn("nyc-ped-7", "pedestrian", 168, 1088, 180),
+        freeSpawn("nyc-ped-8", "pedestrian", -448, 600, 0),
         freeSpawn("nyc-cyclist-1", "cyclist", -318, -200, 0, "nyc-we-n-72"),
         freeSpawn("nyc-cyclist-2", "cyclist", 38.3, -200, 0, "nyc-amst-n-1-72"),
+        freeSpawn("nyc-cyclist-3", "cyclist", -458, 600, 0, "nyc-riv-n-86"),
       ],
       [
         checkpoint("nyc-r1-start", "West 72nd & West End", "nyc-72-e-we", 30),

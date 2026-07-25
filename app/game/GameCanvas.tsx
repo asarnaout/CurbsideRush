@@ -51,6 +51,7 @@ import {
 } from "./simulation";
 import {
   buildSimulationCoreConfig,
+  resolveAmbientVehicleCount,
   resolveSimulationLaneAnchor,
   resolveVenuePlacement,
 } from "./simulationAdapter";
@@ -1253,6 +1254,10 @@ export interface GameCanvasMapPack {
   readonly id: string;
   readonly name: string;
   readonly areaLabel?: string;
+  readonly ambientTraffic?: {
+    readonly desktop: number;
+    readonly touch: number;
+  };
   readonly geometry: Readonly<{
     worldSize: GameCanvasPoint;
     roadWidth: number;
@@ -10324,10 +10329,11 @@ class BabylonGameSession {
   ) {
     const scene = this.scene;
     const random = seededUnit(lesson.trafficSeed);
-    const densityCounts = { none: 0, light: 6, moderate: 12, busy: 18 } as const;
-    const count = this.options.inputCapabilities.touchFirst
-      ? Math.min(12, densityCounts[lesson.trafficDensity])
-      : densityCounts[lesson.trafficDensity];
+    const count = resolveAmbientVehicleCount(
+      mapPack,
+      lesson.trafficDensity,
+      this.options.inputCapabilities.touchFirst,
+    );
     const usableLanes = mapPack.laneGraph.lanes.filter((lane) => lane.centerline.length >= 2);
     const vehicleSpawns = mapPack.laneGraph.spawnPoints.filter(
       (spawn) => spawn.kind === "vehicle",

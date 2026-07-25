@@ -32,6 +32,18 @@ const NPC_MIN_BUMPER_CLEARANCE_M = 3;
 // whatever the player happens to be driving.
 const NPC_FOLLOW_STANDSTILL_GAP_M = 6.05;
 const NPC_LANE_CHANGE_DISTANCE_M = 12;
+/**
+ * How far along the route ahead `routeDistanceAhead` will look before giving
+ * up and calling a car "not ahead of me".
+ *
+ * Every consumer of that distance is a following-gap test, and the widest is a
+ * car at top speed wanting its standstill gap plus 1.8 s of headway — under
+ * 62 m. The traffic-gate headway check and the player's own following-distance
+ * rule are both smaller again, and `followingNpc` discards anything past 80 m
+ * outright. This is set several times over the largest of them, so it prunes
+ * the search without any caller being able to tell.
+ */
+const ROUTE_LOOKAHEAD_LIMIT_M = 240;
 const NPC_LANE_CHANGE_SIGNAL_SECONDS = 1.2;
 const NPC_LANE_CHANGE_END_MARGIN_M = 2;
 // NPC-to-NPC clearance at a lane entry, pinned for the same reason as the
@@ -3123,6 +3135,37 @@ export class SimulationCore {
    * `cornerFromLaneId`). Falls back to the centreline pose whenever the hop
    * is unknown, discontinuous, or geometrically degenerate.
    */
+  /**
+   * Where a car sits over the last stretch of a lane that hands on to another:
+   * on the sweep between the two rather than on its own end blend, which eases
+   * sideways toward the shared junction node.
+   *
+   * Split out and taking its distance as an argument — rather than reading
+   * `npc.distance` — so a lane change can aim at the pose its car will actually
+   * settle on. Aiming at the raw centreline instead left the car short of the
+   * lane line at the moment the change completed, and it covered the last
+   * half-metre sideways in a single tick.
+   */
+  private npcExitArcPose(
+    npc: NpcInternal,
+    lane: NormalizedLane,
+    distance: number,
+    fallback: SimulationPose,
+  ): SimulationPose {
+    const exitWindow = Math.min(NPC_CORNER_WINDOW_M, lane.length / 2);
+    const exitStart = lane.length - exitWindow;
+    if (distance < exitStart) return fallback;
+    const next = this.nextLaneForNpc(npc, lane);
+    if (
+      next &&
+      next.id !== lane.id &&
+      this.areLaneEndpointsContinuous(lane, next)
+    ) {
+      return this.cornerArcPose(lane, next, distance - exitStart) ?? fallback;
+    }
+    return fallback;
+  }
+
   private npcCornerPose(
     npc: NpcInternal,
     lane: NormalizedLane,
@@ -3131,17 +3174,7 @@ export class SimulationCore {
     const exitWindow = Math.min(NPC_CORNER_WINDOW_M, lane.length / 2);
     const exitStart = lane.length - exitWindow;
     if (npc.distance >= exitStart) {
-      const next = this.nextLaneForNpc(npc, lane);
-      if (
-        next &&
-        next.id !== lane.id &&
-        this.areLaneEndpointsContinuous(lane, next)
-      ) {
-        return (
-          this.cornerArcPose(lane, next, npc.distance - exitStart) ?? fallback
-        );
-      }
-      return fallback;
+      return this.npcExitArcPose(npc, lane, npc.distance, fallback);
     }
     if (npc.cornerFromLaneId) {
       const entryWindow = Math.min(NPC_CORNER_WINDOW_M, lane.length / 2);
@@ -3239,7 +3272,12 @@ export class SimulationCore {
             const amount = smoothStep(npc.laneChangeProgress);
             const targetDistance =
               (npc.distance / activeSourceLane.length) * targetLane.length;
-            const targetPose = this.pointOnLane(targetLane, targetDistance);
+            const targetPose = this.npcExitArcPose(
+              npc,
+              targetLane,
+              targetDistance,
+              this.pointOnLane(targetLane, targetDistance),
+            );
             npc.x = sourcePose.x + (targetPose.x - sourcePose.x) * amount;
             npc.z = sourcePose.z + (targetPose.z - sourcePose.z) * amount;
             this.chaseNpcHeading(
@@ -3256,7 +3294,12 @@ export class SimulationCore {
           const amount = smoothStep(npc.laneChangeProgress);
           const targetDistance =
             (npc.distance / activeSourceLane.length) * targetLane.length;
-          const targetPose = this.pointOnLane(targetLane, targetDistance);
+          const targetPose = this.npcExitArcPose(
+            npc,
+            targetLane,
+            targetDistance,
+            this.pointOnLane(targetLane, targetDistance),
+          );
           npc.x = sourcePose.x + (targetPose.x - sourcePose.x) * amount;
           npc.z = sourcePose.z + (targetPose.z - sourcePose.z) * amount;
           this.chaseNpcHeading(
@@ -4301,6 +4344,13 @@ export class SimulationCore {
     while (queue.length) {
       const current = queue.shift()!;
       if (current.depth > 6) continue;
+      // Nothing asks about a car this far along the route. The depth cap alone
+      // bounded the search by *hops*, so on a city with more roads leading out
+      // of each junction the same six hops walked several hundred lanes — and
+      // this runs for every pair of cars, every step. Every caller's threshold
+      // is a following gap; the largest is a car at top speed wanting its
+      // 1.8 s headway, under 62 m. See the note on the constant.
+      if (current.distanceToStart > ROUTE_LOOKAHEAD_LIMIT_M) continue;
       const previousBest = visited.get(current.lane.id);
       if (previousBest !== undefined && previousBest <= current.distanceToStart) continue;
       visited.set(current.lane.id, current.distanceToStart);
