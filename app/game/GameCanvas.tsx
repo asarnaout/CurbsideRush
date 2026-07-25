@@ -1898,6 +1898,28 @@ const START_Z = -52;
 const FINISH_Z = 72;
 const LANE_CENTER = 2.75;
 
+// Frame-budget accounting drained by __sideswapPerfDebug. Indices into the
+// session's perfSumMs/perfMaxMs arrays; the first four are per-fixed-step
+// stages, the rest per-rendered-frame, and drainPerfStats averages each over
+// its own denominator.
+const PERF_SIM_STEP = 0;
+const PERF_SNAPSHOT_APPLY = 1;
+const PERF_CROWD = 2;
+const PERF_COLLISION = 3;
+const PERF_GUIDANCE = 4;
+const PERF_CAMERA = 5;
+const PERF_SCENE_RENDER = 6;
+const PERF_STAGE_COUNT = 7;
+const PERF_STAGE_NAMES = [
+  "simStepMs",
+  "snapshotApplyMs",
+  "crowdMs",
+  "collisionMs",
+  "guidanceMs",
+  "cameraMs",
+  "sceneRenderMs",
+] as const;
+
 export const INPUT_PROMPT_SWITCH_COOLDOWN_MS = 750;
 export const TOUCH_CONTROL_DIM_DELAY_MS = 1_500;
 
@@ -3380,6 +3402,13 @@ class BabylonGameSession {
   private accumulator = 0;
   private lastFrameTime = 0;
   private lastHudTime = 0;
+  // Substage timing sums/maxima since the last __sideswapPerfDebug poll
+  // (polling drains them). Flat typed arrays so the hot loops allocate nothing.
+  private readonly perfSumMs = new Float64Array(PERF_STAGE_COUNT);
+  private readonly perfMaxMs = new Float64Array(PERF_STAGE_COUNT);
+  private perfFrames = 0;
+  private perfFixedSteps = 0;
+  private perfDrawCalls = 0;
   private lastSpeedingEvent = -10_000;
   private collisionGraceUntil = 0;
   private wrongSideSeconds = 0;
@@ -4945,7 +4974,9 @@ class BabylonGameSession {
     const interpolation = this.paused ? 1 : this.accumulator / FIXED_STEP;
     if (!this.paused) this.advanceCutscene(frameSeconds);
     this.updatePlayerVisuals(interpolation);
+    let mark = performance.now();
     this.updateGuidanceVisuals();
+    this.perfSample(PERF_GUIDANCE, performance.now() - mark);
     if (!this.paused) this.updatePropFalls(frameSeconds);
     if (this.damageSmoke?.isStarted()) {
       // Trail the smoke from the engine bay, wherever the car is facing.
@@ -4955,7 +4986,9 @@ class BabylonGameSession {
         this.displayedZ + Math.cos(this.displayedHeading) * 1.05,
       );
     }
+    mark = performance.now();
     this.updateCamera(frameSeconds);
+    this.perfSample(PERF_CAMERA, performance.now() - mark);
     this.updateIndicatorLights(frameSeconds);
     this.playerCyclistVisual?.advancePedals?.(
       this.playerState.speedMps * frameSeconds,
@@ -4971,7 +5004,15 @@ class BabylonGameSession {
     // very next thing that happens is a full redraw into the new buffer,
     // rather than the frame being presented mid-rebuild.
     this.governRenderScaling(now);
+    const drawCallsBefore = this.engineDrawCallCount();
+    mark = performance.now();
     this.scene.render();
+    this.perfSample(PERF_SCENE_RENDER, performance.now() - mark);
+    const drawCallsAfter = this.engineDrawCallCount();
+    if (drawCallsBefore !== null && drawCallsAfter !== null) {
+      this.perfDrawCalls += drawCallsAfter - drawCallsBefore;
+    }
+    this.perfFrames += 1;
     if (now - this.lastHudTime >= 100) this.publishHud();
   };
 
@@ -4992,6 +5033,56 @@ class BabylonGameSession {
     if (level !== this.engine.getHardwareScalingLevel()) {
       this.engine.setHardwareScalingLevel(level);
     }
+  }
+
+  private perfSample(stage: number, ms: number) {
+    this.perfSumMs[stage] += ms;
+    if (ms > this.perfMaxMs[stage]) this.perfMaxMs[stage] = ms;
+  }
+
+  // Cumulative since page load (no per-frame reset without scene
+  // instrumentation) — meaningful only as a delta between two reads.
+  private engineDrawCallCount(): number | null {
+    return (
+      (this.engine as unknown as { _drawCalls?: { current: number } })
+        ._drawCalls?.current ?? null
+    );
+  }
+
+  /**
+   * Per-substage frame-budget report since the previous poll; polling resets
+   * the window. Fixed-step stages average per sim step, render stages per
+   * rendered frame — on a 120 Hz display those denominators differ 2:1.
+   */
+  private drainPerfStats() {
+    const frames = Math.max(1, this.perfFrames);
+    const steps = Math.max(1, this.perfFixedSteps);
+    const round = (value: number) => Math.round(value * 1000) / 1000;
+    const stages: Record<string, { avgMs: number; maxMs: number }> = {};
+    for (let stage = 0; stage < PERF_STAGE_COUNT; stage += 1) {
+      const denominator = stage <= PERF_COLLISION ? steps : frames;
+      stages[PERF_STAGE_NAMES[stage]] = {
+        avgMs: round(this.perfSumMs[stage] / denominator),
+        maxMs: round(this.perfMaxMs[stage]),
+      };
+    }
+    const heapBytes = (
+      performance as unknown as { memory?: { usedJSHeapSize: number } }
+    ).memory?.usedJSHeapSize;
+    const report = {
+      perfWindowFrames: this.perfFrames,
+      perfWindowFixedSteps: this.perfFixedSteps,
+      stages,
+      drawCallsPerFrame: Math.round(this.perfDrawCalls / frames),
+      // Chrome only; Safari has no performance.memory, so null there.
+      heapUsedMB: heapBytes ? Math.round(heapBytes / 1048576) : null,
+    };
+    this.perfSumMs.fill(0);
+    this.perfMaxMs.fill(0);
+    this.perfFrames = 0;
+    this.perfFixedSteps = 0;
+    this.perfDrawCalls = 0;
+    return report;
   }
 
   /**
@@ -5064,18 +5155,27 @@ class BabylonGameSession {
             ? "right"
             : undefined,
     };
+    let mark = performance.now();
     const snapshot = this.simulation.step(dt, simulationInput);
+    this.perfSample(PERF_SIM_STEP, performance.now() - mark);
+    mark = performance.now();
     this.applySimulationSnapshot(snapshot);
+    this.perfSample(PERF_SNAPSHOT_APPLY, performance.now() - mark);
     const events = this.simulation.drainEvents();
     this.processSimulationEvents(events);
     if (events.length === 0) this.publishSimulationCoachMessage(snapshot);
+    mark = performance.now();
     this.animatePedestrians(dt);
     this.syncRailRoadUsers(dt);
     this.stepAmbientCrowd(dt);
     this.updateDownedRoadUsers();
+    this.perfSample(PERF_CROWD, performance.now() - mark);
+    mark = performance.now();
     this.reportVulnerableRoadUserCollision();
     this.checkDestructiblePropCollisions();
     this.evaluateAuthoredProgress();
+    this.perfSample(PERF_COLLISION, performance.now() - mark);
+    this.perfFixedSteps += 1;
   }
 
   private reportVulnerableRoadUserCollision() {
@@ -9227,11 +9327,12 @@ class BabylonGameSession {
         materials: this.scene.materials.length,
         // Cumulative since page load (no per-frame reset without scene
         // instrumentation) — meaningful as a delta between two polls.
-        drawCallsCumulative:
-          (this.engine as unknown as { _drawCalls?: { current: number } })
-            ._drawCalls?.current ?? null,
+        drawCallsCumulative: this.engineDrawCallCount(),
         crowdInstances: this.crowdRenderer?.instanceCount ?? 0,
         crowdMeshes: this.crowdRenderer?.meshCount ?? 0,
+        // Substage timings since the previous poll — reading resets the
+        // window, so poll on a fixed cadence when comparing runs.
+        ...this.drainPerfStats(),
       });
       // The interaction cutscene's live state, so QA can assert the scene
       // actually runs, where its actor is, and that the camera stack and the
