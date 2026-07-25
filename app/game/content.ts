@@ -1411,6 +1411,9 @@ const NYC_ZONES = {
 const nycZoneFor = (columnKey: string, centreZ: number): NycZone | null => {
   switch (columnKey) {
     case "riv-we":
+      // Joan of Arc Park owns the W 91st–96th block: a street wall there would
+      // stand inside the park you are meant to be able to drive around.
+      if (centreZ > 720 && centreZ < 960) return null;
       return centreZ < 0 ? NYC_ZONES.brownstone : NYC_ZONES.houses;
     case "we-bway":
       return centreZ < 0 ? NYC_ZONES.brownstone : NYC_ZONES.houses;
@@ -1482,6 +1485,8 @@ function buildNycBlocks(
     }
     const westmost = present[0];
     if (!westmost) continue;
+    // Riverside Drive's far side is Riverside Park, not frontage.
+    if (westmost.key === "riv") continue;
     blocks.push({
       id: `nyc-block-west-margin-${Math.round(centreZ)}`,
       center: point(
@@ -1757,8 +1762,20 @@ export const MAP_PACKS: readonly MapPack[] = [
         // Kept clear of the carriageways (a content test enforces this).
         { id: "nyc-verdi-green", kind: "park", center: point(-40, -455), size: point(40, 24), color: "#5c8c4b" },
         { id: "nyc-subway", kind: "station", center: point(-92, -455), size: point(8, 5), color: "#2d2f33" },
-        { id: "nyc-central-park", kind: "park", center: point(358, 0), size: point(38, 940), color: "#4f7a3d" },
+        // Central Park runs the whole east edge now the grid does, and is no
+        // longer a 38 m token: at 200 m it reads as the park the avenue is
+        // named after rather than a verge. Its west edge stays clear of
+        // Central Park West's kerb, which is what keeps addresses off it.
+        { id: "nyc-central-park", kind: "park", center: point(440, 0), size: point(200, 2900), color: "#4f7a3d" },
         { id: "nyc-amnh", kind: "shops", center: point(250, 240), size: point(100, 420), color: "#caa76f" },
+        // Riverside Park fills the far side of Riverside Drive, where the land
+        // really does fall away to the Hudson — so the west edge of the map is
+        // green rather than another row of brownstones.
+        { id: "nyc-riverside-park", kind: "park", center: point(-506, 480), size: point(66, 1934), color: "#4f7a3d" },
+        // Joan of Arc Park: a real triangle off Riverside Drive at W 93rd,
+        // here given the whole block between W 91st and W 96th so it has road
+        // on all four sides and can be driven round — about a 760 m lap.
+        { id: "nyc-joan-of-arc-park", kind: "park", center: point(-390, 840), size: point(104, 204), color: "#5c8c4b" },
       ],
     },
     laneGraph: graph(
