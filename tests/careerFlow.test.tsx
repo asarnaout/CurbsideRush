@@ -90,6 +90,26 @@ vi.mock("next/dynamic", () => ({
           </button>
           <button
             type="button"
+            data-testid="mock-hud-late"
+            onClick={() => props.onHudUpdate?.(snapshot(9_000))}
+          >
+            hud late
+          </button>
+          <button
+            type="button"
+            data-testid="mock-ready"
+            onClick={() =>
+              props.onEvent?.({
+                type: "ready",
+                message: "Training yard ready.",
+                timestamp: 0,
+              })
+            }
+          >
+            ready
+          </button>
+          <button
+            type="button"
             data-testid="mock-fine"
             onClick={() =>
               props.onEvent?.({
@@ -304,6 +324,29 @@ describe("career mode flow", () => {
     // No rent charged, and the bike day has no fuel gauge at all.
     expect(screen.getByTestId("day-cash")).toHaveTextContent("$20.00");
     expect(screen.queryByText(/^Fuel$/)).not.toBeInTheDocument();
+  });
+
+  it("holds the day title back until the scene is ready, then times it from there", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+
+    // The sim starts stepping while GameCanvas is still preloading models, so
+    // HUD ticks arrive with the loading overlay still up. The title must not
+    // paint over it — that is what put "DAY 1" through "Preparing your drive…".
+    fireEvent.click(screen.getByTestId("mock-hud-mid"));
+    expect(screen.queryByTestId("day-title")).not.toBeInTheDocument();
+
+    // Ready lands 1s into the day; the title's window runs from there, not from
+    // zero, or a slow load would eat it before there was a city to see it over.
+    fireEvent.click(screen.getByTestId("mock-ready"));
+    expect(screen.getByTestId("day-title")).toHaveTextContent("DAY 1");
+
+    // 8s past ready is well beyond the 2.6s window.
+    fireEvent.click(screen.getByTestId("mock-hud-late"));
+    expect(screen.queryByTestId("day-title")).not.toBeInTheDocument();
   });
 
   it("charges the hatch rent up front when it is taken out instead", async () => {
