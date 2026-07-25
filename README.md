@@ -40,6 +40,34 @@ One vehicle model, `public/models/vehicles/london-double-decker.glb`, is a purch
 
 `CLAUDE.md` documents the architecture in depth — the layering rules, the geometry conventions, and the invariants that are easy to break silently.
 
+## Deploying
+
+The build targets Cloudflare Workers, and the same build can be published as a
+plain static site. Nothing here needs a server at runtime: there are no route
+handlers or server actions, and the game is client-side after the first paint.
+
+```bash
+npm run build                                              # Cloudflare Worker -> dist/
+npx wrangler deploy                                        # ...deploy it
+
+SITE_URL=https://your-site.example npm run build:static    # + prerendered index.html
+```
+
+`build:static` renders the one route through the built Worker and writes
+`dist/client/index.html`, so `dist/client` can be published as static files.
+`netlify.toml` already points Netlify at it; Netlify supplies the site URL
+itself, so `SITE_URL` is only needed when building the static output by hand.
+
+It is deliberate that the prerender **fails without a site URL**. Absolute
+`og:image` and `og:url` values are frozen into the HTML at build time, and a
+wrong origin is invisible on the site itself — it only shows up as a shared link
+with no preview card.
+
+**Deploying to Netlify for the first time:** remove `@netlify/plugin-nextjs`
+under Site configuration → Build & deploy → Build plugins. Netlify installs it
+on sight of `next` in `package.json`, it looks for a `.next` directory this
+build never produces, and `netlify.toml` cannot uninstall a UI-installed plugin.
+
 ## Architecture
 
 - `app/game/simulation.ts` is the deterministic fixed-step simulation: vehicle physics, traffic, road-rule enforcement and scoring. It imports nothing but its own types — no React, no Babylon, no clock, no unseeded randomness — so a drive replays bit-exactly from a seed.
