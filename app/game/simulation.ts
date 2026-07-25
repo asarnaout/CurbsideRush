@@ -3348,25 +3348,28 @@ export class SimulationCore {
       if (!lane) continue;
       const barelyMoved =
         Math.hypot(npc.x - npc.previousX, npc.z - npc.previousZ) < 0.04;
-      const obeyingControl =
-        lane.kind === "roundabout" ||
-        this.redLightGapForLane(lane, npc.distance) !== null ||
-        this.yieldGapForLane(lane, npc.distance) !== null;
+      // Ordered cheapest-first so the short-circuit does the real work: a
+      // moving car (nearly all of them, nearly all the time) never pays for
+      // the stop-line scans or the pairwise pin check. All three predicates
+      // are pure reads, so skipping them cannot perturb determinism.
       // A car pressed within a body length of another is the signature of a
       // collision jam: an orderly stopped queue settles at the ~5 m decision gap
       // (see makeTrafficDecisions), so only a deadlock compresses down to the
       // NPC_BODY_CLEARANCE_M hard floor. This catches both a same-heading
       // pile-up and a converging bump while leaving normal queues untouched.
-      const pinnedAgainstAnotherCar = this.npcs.some((other) => {
-        if (!other.active || other.id === npc.id) return false;
-        const reach = NPC_BODY_CLEARANCE_M + 0.5;
-        return distanceSquared(npc, other) <= reach * reach;
-      });
       const jammed =
         npc.speedMps < 0.25 &&
         barelyMoved &&
-        !obeyingControl &&
-        pinnedAgainstAnotherCar;
+        !(
+          lane.kind === "roundabout" ||
+          this.redLightGapForLane(lane, npc.distance) !== null ||
+          this.yieldGapForLane(lane, npc.distance) !== null
+        ) &&
+        this.npcs.some((other) => {
+          if (!other.active || other.id === npc.id) return false;
+          const reach = NPC_BODY_CLEARANCE_M + 0.5;
+          return distanceSquared(npc, other) <= reach * reach;
+        });
       if (!jammed) {
         npc.jamSeconds = 0;
         npc.incidentLeanRad = 0;
