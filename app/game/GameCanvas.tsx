@@ -26,6 +26,7 @@ import {
   UniversalCamera,
   Vector3,
   Vector4,
+  VertexBuffer,
   VertexData,
   Viewport,
 } from "@babylonjs/core";
@@ -1884,18 +1885,23 @@ interface AuthoredSignalHeadVisual {
   readonly phaseGroup: string;
   readonly phaseGroups: readonly string[];
   readonly style: AuthoredSignalStyle;
-  readonly redMaterial: StandardMaterial;
-  readonly amberMaterial: StandardMaterial;
-  readonly greenMaterial: StandardMaterial;
+  // Live handles into the shared lens master's per-instance color buffer —
+  // writing one recolours that lens on the next draw. One master mesh + one
+  // material serve every lens in the city; the per-head material clones they
+  // replaced put ~750 unbatchable materials in the scene.
+  readonly redColor: Color4;
+  readonly amberColor: Color4;
+  readonly greenColor: Color4;
   /** Cache for resolvedSignalLight; see that helper for the contract. */
   resolvedLightIndex?: number;
-  /** Last aspect written to the lens materials — writes are skipped until it changes. */
+  /** Last aspect written to the lens colors — writes are skipped until it changes. */
   lastAspect?: AuthoredSignalAspect;
 }
 
 interface RailwayCrossingVisual {
   readonly trafficLightIds: readonly string[];
-  readonly lampMaterials: readonly StandardMaterial[];
+  /** Per-instance color handles, same contract as AuthoredSignalHeadVisual. */
+  readonly lampColors: readonly Color4[];
   readonly barrierPivot: TransformNode;
   /** Cache for resolvedSignalLight; see that helper for the contract. */
   resolvedLightIndex?: number;
@@ -3415,6 +3421,7 @@ class BabylonGameSession {
    * null = merge failed for that url (falls back to the multi-mesh path). */
   private readonly buildingMasters = new Map<string, Mesh | null>();
   private readonly storefrontSignMaterials = new Map<string, StandardMaterial>();
+  private signalLensMaster: Mesh | null = null;
   private signalRedMaterial: StandardMaterial | null = null;
   private signalAmberMaterial: StandardMaterial | null = null;
   private signalGreenMaterial: StandardMaterial | null = null;
@@ -6880,20 +6887,23 @@ class BabylonGameSession {
         aspect === "red" || aspect === "red_amber" || aspect === "all_red";
       const amberOn = aspect === "amber" || aspect === "red_amber";
       const greenOn = aspect === "green";
-      head.redMaterial.emissiveColor.copyFromFloats(
+      head.redColor.copyFromFloats(
         redOn ? 0.75 : 0.08,
         redOn ? 0.025 : 0.005,
         redOn ? 0.015 : 0.005,
+        1,
       );
-      head.amberMaterial.emissiveColor.copyFromFloats(
+      head.amberColor.copyFromFloats(
         amberOn ? 0.72 : 0.08,
         amberOn ? 0.31 : 0.04,
         amberOn ? 0.015 : 0.005,
+        1,
       );
-      head.greenMaterial.emissiveColor.copyFromFloats(
+      head.greenColor.copyFromFloats(
         greenOn ? 0.01 : 0.005,
         greenOn ? 0.46 : 0.06,
         greenOn ? 0.1 : 0.012,
+        1,
       );
     }
     for (const crossing of this.railwayCrossingVisuals) {
@@ -6908,12 +6918,13 @@ class BabylonGameSession {
       ) {
         crossing.lastWarningActive = warningActive;
         crossing.lastFlashIndex = flashIndex;
-        crossing.lampMaterials.forEach((material, index) => {
+        crossing.lampColors.forEach((color, index) => {
           const illuminated = warningActive && index % 2 === flashIndex;
-          material.emissiveColor.copyFromFloats(
+          color.copyFromFloats(
             illuminated ? 0.92 : 0.08,
             illuminated ? 0.035 : 0.005,
             illuminated ? 0.02 : 0.005,
+            1,
           );
         });
       }
@@ -9722,6 +9733,53 @@ class BabylonGameSession {
     };
   }
 
+  /**
+   * The one mesh + one material behind every signal and railway lens in the
+   * city. Each lens is a plain instance whose registered color buffer IS its
+   * lamp state — lighting disabled, white emissive, so the shader's
+   * per-instance color multiply lands the exact color written. The per-head
+   * StandardMaterial clones this replaces (three per head) were ~750 unique
+   * materials on the NYC grid, one draw call each.
+   */
+  private getSignalLensMaster(): Mesh {
+    if (this.signalLensMaster) return this.signalLensMaster;
+    const material = new StandardMaterial("signal-lens-material", this.scene);
+    material.diffuseColor = Color3.Black();
+    material.specularColor = Color3.Black();
+    material.emissiveColor = Color3.White();
+    material.disableLighting = true;
+    const master = MeshBuilder.CreateCylinder(
+      "signal-lens-master",
+      { height: 0.1, diameter: 0.25, tessellation: 18 },
+      this.scene,
+    );
+    master.material = material;
+    master.isVisible = false;
+    master.isPickable = false;
+    master.registerInstancedBuffer(VertexBuffer.ColorKind, 4);
+    master.instancedBuffers.color = new Color4(0, 0, 0, 1);
+    this.signalLensMaster = master;
+    return master;
+  }
+
+  /** A lens instance parented to `head`; returns its live color handle. */
+  private createSignalLens(
+    name: string,
+    head: TransformNode,
+    localPosition: Vector3,
+    dimColor: Color4,
+    scale?: Vector3,
+  ): Color4 {
+    const lens = this.getSignalLensMaster().createInstance(name);
+    lens.parent = head;
+    lens.position.copyFrom(localPosition);
+    lens.rotation.x = Math.PI / 2;
+    if (scale) lens.scaling.copyFrom(scale);
+    lens.isPickable = false;
+    lens.instancedBuffers.color = dimColor;
+    return dimColor;
+  }
+
   private createSignalHead(
     name: string,
     position: GameCanvasPoint,
@@ -9744,34 +9802,27 @@ class BabylonGameSession {
       materials.dark,
       head,
     );
-    const redMaterial = materials.redLamp.clone(`${name}-red-material`);
-    const amberMaterial = materials.amberLamp.clone(`${name}-amber-material`);
-    const greenMaterial = materials.greenLamp.clone(`${name}-green-material`);
-    redMaterial.emissiveColor.copyFromFloats(0.08, 0.005, 0.005);
-    amberMaterial.emissiveColor.copyFromFloats(0.08, 0.04, 0.005);
-    greenMaterial.emissiveColor.copyFromFloats(0.005, 0.06, 0.012);
     this.authoredSignalHeads.push({
       ...runtime,
-      redMaterial,
-      amberMaterial,
-      greenMaterial,
-    });
-    const lamps = [
-      { id: "red", y: 0.43, material: redMaterial },
-      { id: "amber", y: 0, material: amberMaterial },
-      { id: "green", y: -0.43, material: greenMaterial },
-    ];
-    for (const lamp of lamps) {
-      const lens = createCylinder(
-        this.scene,
-        `${name}-${lamp.id}`,
-        { height: 0.1, diameter: 0.25, tessellation: 18 },
-        new Vector3(0, lamp.y, -0.25),
-        lamp.material,
+      redColor: this.createSignalLens(
+        `${name}-red`,
         head,
-      );
-      lens.rotation.x = Math.PI / 2;
-    }
+        new Vector3(0, 0.43, -0.25),
+        new Color4(0.08, 0.005, 0.005, 1),
+      ),
+      amberColor: this.createSignalLens(
+        `${name}-amber`,
+        head,
+        new Vector3(0, 0, -0.25),
+        new Color4(0.08, 0.04, 0.005, 1),
+      ),
+      greenColor: this.createSignalLens(
+        `${name}-green`,
+        head,
+        new Vector3(0, -0.43, -0.25),
+        new Color4(0.005, 0.06, 0.012, 1),
+      ),
+    });
   }
 
   private buildSignalInstallation(
@@ -9870,22 +9921,25 @@ class BabylonGameSession {
     }
     const sideX = Math.cos(heading);
     const sideZ = -Math.sin(heading);
-    const lampMaterials: StandardMaterial[] = [];
+    const lampColors: Color4[] = [];
     for (const side of [-1, 1]) {
-      const lampMaterial = materials.redLamp.clone(
-        `${controlId}-${installation.id}-warning-${side}-material`,
-      );
-      lampMaterial.emissiveColor.copyFromFloats(0.08, 0.005, 0.005);
-      lampMaterials.push(lampMaterial);
-      const lamp = createCylinder(
-        this.scene,
+      const lamp = this.getSignalLensMaster().createInstance(
         `${controlId}-${installation.id}-warning-${side}`,
-        { height: 0.11, diameter: 0.35, tessellation: 18 },
-        new Vector3(base.x + sideX * side * 0.34, 2.38, base.z + sideZ * side * 0.34),
-        lampMaterial,
+      );
+      lamp.position.set(
+        base.x + sideX * side * 0.34,
+        2.38,
+        base.z + sideZ * side * 0.34,
       );
       lamp.rotation.x = Math.PI / 2;
       lamp.rotation.y = heading;
+      // The master lens is 0.25across x 0.1 tall; the crossing lamp is a
+      // wider, slightly deeper disc.
+      lamp.scaling.set(1.4, 1.1, 1.4);
+      lamp.isPickable = false;
+      const color = new Color4(0.08, 0.005, 0.005, 1);
+      lamp.instancedBuffers.color = color;
+      lampColors.push(color);
     }
     const barrierLength = 4.6;
     const barrierPivot = new TransformNode(
@@ -9906,7 +9960,7 @@ class BabylonGameSession {
     barrierPivot.rotation.z = -1.22;
     this.railwayCrossingVisuals.push({
       trafficLightIds,
-      lampMaterials,
+      lampColors,
       barrierPivot,
     });
   }
