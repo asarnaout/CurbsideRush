@@ -105,6 +105,15 @@ import {
   gasStationPumpPositions,
 } from "./game/servicePoints";
 import { Minimap } from "./game/MinimapCanvas";
+import { DRIVE_LAYER } from "./game/driveLayers";
+import { readInputCapabilities } from "./game/pointerCapabilities";
+import { applyViewportFitCover, requestLandscapeLock } from "./game/viewportSetup";
+import {
+  SAFE_LEFT,
+  SAFE_RIGHT,
+  SAFE_TOP,
+  TOUCH_PEDAL_RAIL_PX,
+} from "./game/TouchDriveControls";
 import { primeAudioContext, suspendAudioContext } from "./game/audio/audioContext";
 import { useDriveMusic } from "./game/audio/musicPlayer";
 import {
@@ -497,6 +506,7 @@ export default function SideSwapApp() {
   // stored preference and the highlighted card from ever disagreeing.
   const garageVehicleId = progress.lastCareerVehicleId;
   const [gameMode, setGameMode] = useState<"free" | "career">("free");
+  const [touchFirst, setTouchFirst] = useState(false);
 
   useEffect(() => {
     gigRef.current = gig;
@@ -941,6 +951,20 @@ export default function SideSwapApp() {
     return () => window.clearTimeout(timer);
   }, [fineToast]);
 
+  // On a phone the bottom of the screen belongs to thumbs. The HUD has to know,
+  // because it used to lay the wallet card straight over the steering control
+  // and the minimap straight over the pedals — and since both panels are
+  // `pointerEvents: "none"`, nothing failed: the controls stayed tappable and
+  // simply could not be seen.
+  useEffect(() => {
+    applyViewportFitCover();
+    const sync = () => setTouchFirst(readInputCapabilities().touchFirst);
+    sync();
+    const query = window.matchMedia("(pointer: coarse)");
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
   // Career only: a tank run dry summons roadside service instead of leaving a
   // dead throttle — the scene immobilizes the car and its pump event charges
   // the premium (which may push the day into the red). Free drive keeps the
@@ -1030,11 +1054,14 @@ export default function SideSwapApp() {
     scenarioId: ScenarioId,
     nextDestinationId = destinationId,
   ) => {
-    // Both synchronously, inside the click that got us here: Safari only honours
-    // an audio resume and a play() in the same task as the gesture that
-    // triggered them, so neither can move into an effect or behind an await.
+    // All three synchronously, inside the click that got us here: Safari only
+    // honours an audio resume and a play() in the same task as the gesture that
+    // triggered them, and the fullscreen/orientation request has the identical
+    // transient-activation rule. None of them can move into an effect or behind
+    // an await.
     primeAudioContext();
     music.start(nextDestinationId);
+    if (touchFirst) requestLandscapeLock(document.documentElement);
     const nextDestination = getDestinationProfile(nextDestinationId);
     const nextCountryId = nextDestination.countryId;
     const session: GameSessionConfig = {
@@ -1199,9 +1226,10 @@ export default function SideSwapApp() {
     const rent = vehicleRent(vehicle, careerCity);
     if (careerCity.cash < rent) return;
     // Synchronously, inside the click: Safari only honours audio in the
-    // gesture's own task (same constraint as beginDrive).
+    // gesture's own task, and fullscreen/orientation the same (as beginDrive).
     primeAudioContext();
     music.start(careerCity.destinationId);
+    if (touchFirst) requestLandscapeLock(document.documentElement);
     const destinationProfile = getDestinationProfile(careerCity.destinationId);
     const session: GameSessionConfig = {
       countryId: careerCity.countryId,
@@ -1510,6 +1538,14 @@ export default function SideSwapApp() {
         },
       ]
     : gasPins;
+  // The driving HUD's one layout switch. On touch every readout lives in the
+  // top band, because the bottom band is the steering region and the pedals;
+  // on a desktop the corners are free and the HUD keeps its roomier placement.
+  // `env(safe-area-inset-*)` only resolves to anything once the viewport meta
+  // carries `viewport-fit=cover` — see `applyViewportFitCover`.
+  const hudInset = touchFirst
+    ? { top: SAFE_TOP, left: SAFE_LEFT, right: SAFE_RIGHT }
+    : { top: "1rem", left: "1rem", right: "1rem" };
   // A waiting rider mesh only makes sense while heading to a passenger pickup.
   const riderVenueId =
     gig && gig.kind === "passenger" && gig.state === "enroute_pickup"
@@ -1569,7 +1605,6 @@ export default function SideSwapApp() {
           cameraMode={toCanvasCamera(camera)}
           speedUnit={driveCountry.speedUnit === "kmh" ? "km/h" : "mph"}
           paused={paused}
-          showBuiltInHud={false}
           reducedMotion={progress.accessibility.reducedMotion}
           steeringSensitivity={progress.accessibility.steeringSensitivity}
           fieldOfView={(progress.accessibility.fieldOfView * Math.PI) / 180}
@@ -1577,7 +1612,6 @@ export default function SideSwapApp() {
           effectsVolume={progress.accessibility.effectsVolume}
           cameraShake={progress.accessibility.cameraShake}
           headBob={progress.accessibility.headBob}
-          visualHonkIndicator={progress.accessibility.visualHonkIndicator}
           outOfFuel={tankCapacityL > 0 && driveFuel <= 0}
           playerVehicle={
             careerVehicle
@@ -1610,7 +1644,7 @@ export default function SideSwapApp() {
               display: "grid",
               placeItems: "center",
               pointerEvents: "none",
-              zIndex: 7,
+              zIndex: DRIVE_LAYER.toast,
             }}
           >
             <div
@@ -1647,17 +1681,19 @@ export default function SideSwapApp() {
           <div
             style={{
               position: "absolute",
-              left: "1rem",
-              top: "1rem",
-              maxWidth: "16rem",
-              padding: "0.7rem 0.9rem",
+              left: hudInset.left,
+              top: hudInset.top,
+              maxWidth: touchFirst ? "13rem" : "16rem",
+              padding: touchFirst ? "0.5rem 0.7rem" : "0.7rem 0.9rem",
               borderRadius: "0.9rem",
               background: "rgba(15, 18, 22, 0.72)",
               backdropFilter: "blur(10px)",
               color: "#f4f6f8",
-              font: "600 0.9rem/1.3 system-ui, sans-serif",
+              font: touchFirst
+                ? "600 0.8rem/1.25 system-ui, sans-serif"
+                : "600 0.9rem/1.3 system-ui, sans-serif",
               pointerEvents: "none",
-              zIndex: 5,
+              zIndex: DRIVE_LAYER.hud,
             }}
           >
             <div
@@ -1760,7 +1796,11 @@ export default function SideSwapApp() {
             style={{
               position: "absolute",
               left: "50%",
-              bottom: "1.4rem",
+              // Bottom-centre is inside the steering region on touch, and a
+              // knob track can reach 80px either side of the thumb.
+              ...(touchFirst
+                ? { top: `calc(${hudInset.top} + 3.4rem)` }
+                : { bottom: "1.4rem" }),
               transform: "translateX(-50%)",
               padding: "0.55rem 1.2rem",
               borderRadius: "999px",
@@ -1769,7 +1809,7 @@ export default function SideSwapApp() {
               color: "#f4f6f8",
               font: "600 0.95rem/1.2 system-ui, sans-serif",
               pointerEvents: "none",
-              zIndex: 6,
+              zIndex: DRIVE_LAYER.toast,
             }}
           >
             {cutsceneCaption}
@@ -1789,7 +1829,7 @@ export default function SideSwapApp() {
               color: "#fff",
               font: "700 0.95rem/1.2 system-ui, sans-serif",
               boxShadow: "0 6px 20px rgba(0, 0, 0, 0.35)",
-              zIndex: 6,
+              zIndex: DRIVE_LAYER.toast,
               pointerEvents: "none",
               display: "flex",
               alignItems: "center",
@@ -1803,24 +1843,34 @@ export default function SideSwapApp() {
             </span>
           </div>
         )}
+        {/*
+          The card that used to cover the steering control. On touch it moves
+          up under the gig card; on desktop the bottom-left corner is still the
+          right home for it.
+        */}
         <div
           aria-hidden="true"
+          data-testid="drive-status-card"
           style={{
             position: "absolute",
-            left: "1rem",
-            bottom: "1rem",
+            left: hudInset.left,
+            ...(touchFirst
+              ? { top: `calc(${hudInset.top} + ${gig && gig.state !== "delivered" ? "6.4rem" : "0rem"})` }
+              : { bottom: "1rem" }),
             display: "flex",
             flexDirection: "column",
-            gap: "0.55rem",
-            minWidth: "10rem",
-            padding: "0.7rem 0.9rem",
+            gap: touchFirst ? "0.35rem" : "0.55rem",
+            minWidth: touchFirst ? "8.5rem" : "10rem",
+            padding: touchFirst ? "0.5rem 0.7rem" : "0.7rem 0.9rem",
             borderRadius: "0.9rem",
             background: "rgba(15, 18, 22, 0.62)",
             backdropFilter: "blur(10px)",
             color: "#f4f6f8",
-            font: "600 0.95rem/1.1 system-ui, sans-serif",
+            font: touchFirst
+              ? "600 0.82rem/1.1 system-ui, sans-serif"
+              : "600 0.95rem/1.1 system-ui, sans-serif",
             pointerEvents: "none",
-            zIndex: 5,
+            zIndex: DRIVE_LAYER.hud,
           }}
         >
           {careerRun ? (
@@ -2001,7 +2051,7 @@ export default function SideSwapApp() {
             color: "#f4f6f8",
             textAlign: "center",
             font: "700 1.25rem/1.35 system-ui, sans-serif",
-            zIndex: 9,
+            zIndex: DRIVE_LAYER.curtain,
             opacity: towing ? 1 : 0,
             pointerEvents: "none",
             transition: progress.accessibility.reducedMotion
@@ -2033,9 +2083,11 @@ export default function SideSwapApp() {
             style={{
               position: "absolute",
               left: "50%",
-              bottom: "1.4rem",
+              ...(touchFirst
+                ? { top: `calc(${hudInset.top} + 3.4rem)` }
+                : { bottom: "1.4rem" }),
               transform: "translateX(-50%)",
-              zIndex: 6,
+              zIndex: DRIVE_LAYER.action,
             }}
           >
             <button
@@ -2061,6 +2113,11 @@ export default function SideSwapApp() {
             </button>
           </div>
         )}
+        {/*
+          Bottom-right is the pedal column on touch, so the map shifts one
+          column left rather than stacking above them — a landscape phone is
+          only ~343px tall, and stacked it landed 31px on top of DRIVE.
+        */}
         {hud && (
           <Minimap
             worldSize={runtimeMap.geometry.worldSize}
@@ -2069,7 +2126,44 @@ export default function SideSwapApp() {
             playerZ={hud.playerZ}
             heading={hud.heading}
             pins={minimapPins}
+            size={touchFirst ? 104 : 150}
+            anchorStyle={
+              touchFirst
+                ? {
+                    right: `calc(${hudInset.right} + ${TOUCH_PEDAL_RAIL_PX}px)`,
+                    bottom: "max(12px, env(safe-area-inset-bottom))",
+                  }
+                : undefined
+            }
           />
+        )}
+        {/*
+          The "Visual honk cue" accessibility setting. It used to render inside
+          GameCanvas's built-in HUD — which the app has always passed
+          `showBuiltInHud={false}`, so the toggle in Settings has never done
+          anything. Lives with the HUD that is actually on screen now.
+        */}
+        {hud?.honking && progress.accessibility.visualHonkIndicator && (
+          <div
+            role="status"
+            data-testid="honk-cue"
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: `calc(${hudInset.top} + 3.4rem)`,
+              transform: "translateX(-50%)",
+              padding: "0.4rem 0.85rem",
+              borderRadius: "999px",
+              background: "#f2c658",
+              color: "#172226",
+              font: "800 0.72rem/1 system-ui, sans-serif",
+              letterSpacing: "0.08em",
+              pointerEvents: "none",
+              zIndex: DRIVE_LAYER.toast,
+            }}
+          >
+            HORN
+          </div>
         )}
         {hud && (
           <div
@@ -2077,7 +2171,7 @@ export default function SideSwapApp() {
             aria-hidden="true"
             style={{
               position: "absolute",
-              top: "1rem",
+              top: hudInset.top,
               left: "50%",
               transform: "translateX(-50%)",
               display: "flex",
@@ -2090,7 +2184,7 @@ export default function SideSwapApp() {
               color: "#f4f6f8",
               font: "700 1.4rem/1 system-ui, sans-serif",
               pointerEvents: "none",
-              zIndex: 5,
+              zIndex: DRIVE_LAYER.hud,
             }}
           >
             <strong>{hud.speed}</strong>
@@ -2110,10 +2204,12 @@ export default function SideSwapApp() {
           title={musicMuted ? "Unmute music" : "Mute music"}
           style={{
             position: "absolute",
-            top: "1rem",
-            right: "1rem",
-            width: "2.6rem",
-            height: "2.6rem",
+            // Shares the top-right rail with the drive controls' button row,
+            // which starts one button-width in from this corner.
+            top: hudInset.top,
+            right: hudInset.right,
+            width: touchFirst ? "2.75rem" : "2.6rem",
+            height: touchFirst ? "2.75rem" : "2.6rem",
             display: "grid",
             placeItems: "center",
             borderRadius: "999px",
@@ -2123,7 +2219,8 @@ export default function SideSwapApp() {
             backdropFilter: "blur(10px)",
             color: musicMuted ? "rgba(244, 246, 248, 0.45)" : "#f4f6f8",
             font: "500 1.1rem/1 system-ui, sans-serif",
-            zIndex: 6,
+            // A tap target, not a readout — it outranks the HUD it sits beside.
+            zIndex: DRIVE_LAYER.action,
           }}
         >
           <span aria-hidden="true">{musicMuted ? "🔇" : "🎵"}</span>
@@ -2380,6 +2477,10 @@ export default function SideSwapApp() {
                 onResetCorrupt={() => resetCareer("launcher")}
               />
             )}
+            {/* Warn before the drive, not after. The rotate gate used to be the
+                first thing a phone player met on the far side of the CTA — and
+                on iPhone it cannot be removed, only anticipated. */}
+            {touchFirst && <LandscapeHint />}
           </div>
 
           <div
@@ -2446,6 +2547,30 @@ export default function SideSwapApp() {
         />
       )}
     </main>
+  );
+}
+
+/**
+ * Sets expectations before the drive rather than after it. The rotate gate
+ * cannot be avoided on iPhone — Safari has never shipped
+ * `ScreenOrientation.lock()` — so the next best thing is that nobody meets it
+ * as a surprise on the far side of a button they have already pressed.
+ */
+function LandscapeHint() {
+  return (
+    <p
+      style={{
+        margin: "0.7rem 0 0",
+        display: "flex",
+        alignItems: "center",
+        gap: "0.45rem",
+        color: "var(--hud-cream-40, rgba(244,246,248,0.62))",
+        font: "600 0.78rem/1.35 system-ui, sans-serif",
+      }}
+    >
+      <span aria-hidden="true">↻</span>
+      Best played with your phone sideways.
+    </p>
   );
 }
 

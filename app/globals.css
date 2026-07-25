@@ -76,10 +76,17 @@ html {
   min-width: 320px;
   background: var(--hud-bg);
   scroll-behavior: smooth;
+  /* Kills pull-to-refresh and scroll chaining. Declarative and off the main
+     thread, unlike cancelling touchmove — which browsers ignore anyway, since
+     document-level touch listeners have been passive by default since
+     Chrome 56. */
+  overscroll-behavior: none;
 }
 
 body {
-  min-height: 100vh;
+  /* Not 100vh: on iOS that resolves against the *large* viewport (toolbars
+     hidden), so a page sized to it overflows under the toolbar on load. */
+  min-height: 100dvh;
   margin: 0;
   background:
     radial-gradient(circle at 8% 0%, rgba(244, 200, 72, 0.08), transparent 30rem),
@@ -102,6 +109,10 @@ a,
 select,
 input[type="range"] {
   -webkit-tap-highlight-color: transparent;
+  /* Removes the ~300ms double-tap-zoom wait without disabling scrolling.
+     `user-scalable=no` is not an option: iOS has ignored it since iOS 10, and
+     since Safari 13 `touch-action` is the lever that actually works. */
+  touch-action: manipulation;
 }
 
 button {
@@ -130,7 +141,7 @@ canvas:focus-visible {
 }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
 }
 
@@ -940,12 +951,22 @@ canvas:focus-visible {
   inset: 0;
   overflow: hidden;
   background: var(--asphalt);
+  /* The driving surface is a control, not a document: no panning, no
+     selection, no callout menu, no magnifier under a dragging thumb. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .game-canvas {
   position: absolute !important;
   inset: 0;
-  min-height: 100vh !important;
+  /* No min-height. `.game-page` is `position: fixed; inset: 0`, so this already
+     fills the viewport — and the `100vh` that used to be here resolved against
+     iOS's large viewport, pushing the bottom of the scene (and the controls
+     anchored to it) below the fold whenever the toolbar was showing. */
   border-radius: 0 !important;
 }
 
@@ -960,67 +981,9 @@ canvas:focus-visible {
   font-weight: 750;
 }
 
-.game-brand,
-.game-context,
-.game-exit {
-  position: absolute;
-  z-index: 15;
-}
-
-.game-brand {
-  bottom: max(17px, env(safe-area-inset-bottom));
-  left: max(17px, env(safe-area-inset-left));
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 850;
-  letter-spacing: 0.13em;
-  pointer-events: none;
-}
-
-.game-context {
-  top: 85px;
-  left: 16px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: 320px;
-  padding: 9px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 16px;
-  background: rgba(12, 20, 23, 0.6);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 8px 24px rgba(0, 0, 0, 0.35);
-  color: #fff;
-  backdrop-filter: blur(14px) saturate(1.2);
-}
-
-.game-context > span { font-size: 20px; }
-.game-context div { display: grid; gap: 2px; }
-.game-context strong { font-size: 11px; }
-.game-context small { color: rgba(255, 255, 255, 0.62); font-size: 8px; }
-
-.game-exit {
-  right: 16px;
-  bottom: max(17px, env(safe-area-inset-bottom));
-  min-height: 40px;
-  padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
-  background: rgba(12, 20, 23, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
-  color: #fff;
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 0.04em;
-  backdrop-filter: blur(14px) saturate(1.2);
-}
-
 .results-page,
 .loading-screen {
-  min-height: 100vh;
+  min-height: 100dvh;
   padding: 48px 24px;
   background:
     radial-gradient(circle at 12% 0%, rgba(244, 200, 72, 0.07), transparent 32rem),
@@ -1129,7 +1092,7 @@ canvas:focus-visible {
 
 .subpage {
   width: min(1180px, calc(100% - 48px));
-  min-height: calc(100vh - 150px);
+  min-height: calc(100dvh - 150px);
   margin: 0 auto;
   padding: 68px 0 90px;
 }
@@ -1401,7 +1364,6 @@ canvas:focus-visible {
   .results-card { padding: 30px 20px; border-radius: 24px; }
   .result-seal { float: none; margin-bottom: 20px; }
   .results-actions, .settings-actions { align-items: stretch; flex-direction: column-reverse; }
-  .game-context { top: 82px; max-width: calc(100% - 32px); }
 }
 
 @media (max-width: 520px) {
@@ -1411,16 +1373,6 @@ canvas:focus-visible {
   .inline-selects { grid-template-columns: 1fr; }
   .segmented.three { grid-template-columns: 1fr; }
   .segmented.three button { min-height: 38px; }
-}
-
-@media (max-height: 520px) {
-  .game-brand { display: none; }
-  .game-exit {
-    top: 144px;
-    right: auto;
-    bottom: auto;
-    left: max(17px, env(safe-area-inset-left));
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

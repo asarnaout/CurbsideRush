@@ -37,7 +37,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   FIXED_STEP_SECONDS,
@@ -62,6 +61,23 @@ import {
   resolveServicePointLot,
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
+import { DRIVE_LAYER } from "./driveLayers";
+import { TouchDriveControls } from "./TouchDriveControls";
+import { releaseTouchSteer } from "./touchSteering";
+import {
+  readInputCapabilities,
+  type InputCapabilities,
+} from "./pointerCapabilities";
+import {
+  createRenderScalingState,
+  desktopHardwareScalingLevel,
+  RENDER_SCALING_WARMUP_MS,
+  RENDER_SCALING_WINDOW_MS,
+  renderScalingLevel,
+  stepRenderScaling,
+  TOUCH_TARGET_FPS,
+  type RenderScalingState,
+} from "./renderScaling";
 import {
   BIKE_CUTSCENE_BODY,
   buildBikeErrandScript,
@@ -1475,7 +1491,6 @@ export interface GameCanvasProps {
   effectsVolume?: number;
   cameraShake?: boolean;
   headBob?: boolean;
-  visualHonkIndicator?: boolean;
   /** When true (out of fuel), the throttle is held at zero. */
   outOfFuel?: boolean;
   /** Car condition 0..100 (app-owned damage state); drives the hood smoke. */
@@ -1501,7 +1516,6 @@ export interface GameCanvasProps {
   vehiclePhysics?: PlayerVehiclePhysics | null;
   className?: string;
   style?: CSSProperties;
-  showBuiltInHud?: boolean;
   onHudUpdate?: (snapshot: GameHudSnapshot) => void;
   onEvent?: (event: GameRuntimeEvent) => void;
   onPauseChange?: (paused: boolean) => void;
@@ -1847,11 +1861,6 @@ const LANE_CENTER = 2.75;
 export const INPUT_PROMPT_SWITCH_COOLDOWN_MS = 750;
 export const TOUCH_CONTROL_DIM_DELAY_MS = 1_500;
 
-export interface InputCapabilities {
-  readonly touchFirst: boolean;
-  readonly hybridTouch: boolean;
-}
-
 export interface AdaptiveInputPresentation {
   readonly activeFamily: InputFamily;
   readonly touchFirst: boolean;
@@ -1944,18 +1953,6 @@ export function resolveCockpitCameraPoses({
 
 const eventNow = () =>
   typeof performance === "undefined" ? Date.now() : performance.now();
-
-export function readInputCapabilities(): InputCapabilities {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return { touchFirst: false, hybridTouch: false };
-  }
-  const touchFirst = window.matchMedia("(pointer: coarse)").matches;
-  const anyCoarsePointer = window.matchMedia("(any-pointer: coarse)").matches;
-  return {
-    touchFirst,
-    hybridTouch: !touchFirst && anyCoarsePointer,
-  };
-}
 
 export function createInitialInputPresentation(
   capabilities: InputCapabilities,
@@ -3366,6 +3363,13 @@ class BabylonGameSession {
   private hornHeld = false;
   private keyboard: AnalogInput = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
   private touch: AnalogInput = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
+  /** True while a lifted thumb's steering is easing back to centre. */
+  private touchSteerReleasing = false;
+  /** Null on desktop, which is deliberately not governed. */
+  private renderScaling: RenderScalingState | null;
+  private lastRenderScalingCheck = 0;
+  /** Set when the scene reports ready; the governor stays quiet until then. */
+  private renderScalingArmedAt = Number.POSITIVE_INFINITY;
   private gamepad: AnalogInput = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
   private gamepadButtons: boolean[] = [];
   private gamepadConnected = false;
@@ -3474,12 +3478,16 @@ class BabylonGameSession {
       this.instruction;
     if (startPrompt) this.triggeredPrompts.add(startPrompt.id);
 
+    const touchFirst = options.inputCapabilities.touchFirst;
     this.engine = new Engine(
       canvas,
-      true,
+      // MSAA on the main framebuffer is bypassed anyway — createEffectsPipeline
+      // renders through an offscreen target — and on a mobile tile GPU it is the
+      // most expensive thing you can ask for. Touch pays for FXAA instead.
+      !touchFirst,
       {
         alpha: false,
-        antialias: true,
+        antialias: !touchFirst,
         preserveDrawingBuffer: false,
         stencil: true,
         powerPreference: "high-performance",
@@ -3491,10 +3499,16 @@ class BabylonGameSession {
       throw new Error("Curbside Rush requires WebGL 2.");
     }
 
-    const scale = options.inputCapabilities.touchFirst
-      ? Math.max(1, Math.min(1.65, window.devicePixelRatio / 1.2))
-      : Math.max(1, Math.min(1.4, window.devicePixelRatio / 1.6));
-    this.engine.setHardwareScalingLevel(scale);
+    // Touch resolution is governed, because a phone cannot simply be pinned to
+    // a good number: it throttles, and a career day runs about six minutes.
+    // Desktop is not governed and keeps exactly the level it always had — see
+    // renderScaling.ts for what governing it cost.
+    this.renderScaling = touchFirst ? createRenderScalingState() : null;
+    this.engine.setHardwareScalingLevel(
+      this.renderScaling
+        ? renderScalingLevel(this.renderScaling)
+        : desktopHardwareScalingLevel(window.devicePixelRatio || 1),
+    );
     // Weak devices (touch, or few CPU cores) build a thinner building wall so
     // the dense city stays playable on phones.
     const cores =
@@ -3591,6 +3605,10 @@ class BabylonGameSession {
   private markReady() {
     if (this.disposed || this.readyEmitted) return;
     this.readyEmitted = true;
+    // Arm the resolution governor from here, not from the constructor: the
+    // frame rate before this point is model upload and shader warm-up, and
+    // judging the device on it drops resolution the instant the scene appears.
+    this.renderScalingArmedAt = performance.now() + RENDER_SCALING_WARMUP_MS;
     this.callbacks.onReady?.();
     this.emit("ready", "Training yard ready.");
     this.publishHud(true);
@@ -3628,8 +3646,36 @@ class BabylonGameSession {
     if (value !== 0) this.inputRouter.registerMeaningfulInput("touch");
   }
 
+  /**
+   * Look behind. `quickLook` is an angle *selector*, not a -1..1 axis: only
+   * magnitudes above 1.5 mean "over your shoulder", which is why the keyboard's
+   * look-behind key assigns 2 directly. `setTouchAnalog` clamps to -1..1, so the
+   * old touch REAR button could never reach the threshold and silently behaved
+   * as a second "look right".
+   */
+  setTouchLookBehind(on: boolean) {
+    this.touch.quickLook = on ? 2 : 0;
+    if (on) this.inputRouter.registerMeaningfulInput("touch");
+  }
+
+  /** A live drag: takes the wheel straight, cancelling any release in flight. */
+  setTouchSteer(value: number) {
+    this.touchSteerReleasing = false;
+    this.setTouchAnalog("steer", value);
+  }
+
+  /**
+   * Hands the wheel back. The ease itself runs in `fixedUpdate` rather than in
+   * React, so it costs nothing per frame and cannot be interrupted by a render.
+   */
+  releaseTouchSteer() {
+    this.touchSteerReleasing = this.touch.steer !== 0;
+    if (!this.touchSteerReleasing) this.touch.steer = 0;
+  }
+
   clearTouch() {
     this.touch = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
+    this.touchSteerReleasing = false;
   }
 
   registerTouchInput() {
@@ -4695,9 +4741,33 @@ class BabylonGameSession {
       this.shadowRefreshSeconds = 0;
       this.refreshShadowCasters();
     }
+    // Before the render, never after. `setHardwareScalingLevel` resizes, and a
+    // resize can leave the bloom blurs recompiling; doing it here means the
+    // very next thing that happens is a full redraw into the new buffer,
+    // rather than the frame being presented mid-rebuild.
+    this.governRenderScaling(now);
     this.scene.render();
     if (now - this.lastHudTime >= 100) this.publishHud();
   };
+
+  /**
+   * Trades resolution against frame rate, on touch only.
+   *
+   * Quiet while paused — a stalled frame rate would read as a device in
+   * trouble and blur the scene the player is staring at — and quiet for the
+   * first seconds after ready, where the frame rate still carries model upload
+   * and shader warm-up rather than anything about the device.
+   */
+  private governRenderScaling(now: number) {
+    if (!this.renderScaling || this.paused || this.contextLost) return;
+    if (now < this.renderScalingArmedAt) return;
+    if (now - this.lastRenderScalingCheck < RENDER_SCALING_WINDOW_MS) return;
+    this.lastRenderScalingCheck = now;
+    const level = stepRenderScaling(this.renderScaling, this.engine.getFps());
+    if (level !== this.engine.getHardwareScalingLevel()) {
+      this.engine.setHardwareScalingLevel(level);
+    }
+  }
 
   /**
    * Feeds the engine sound once per rendered frame. Deliberately not driven from
@@ -4742,6 +4812,12 @@ class BabylonGameSession {
   }
 
   private fixedUpdate(dt: number) {
+    // Runs before mergedInput reads it: a lifted thumb eases the wheel back to
+    // centre over ~120ms instead of dropping it, which would read as a twitch.
+    if (this.touchSteerReleasing) {
+      this.touch.steer = releaseTouchSteer(this.touch.steer, dt);
+      if (this.touch.steer === 0) this.touchSteerReleasing = false;
+    }
     const input = this.mergedInput();
     this.ruleElapsedSeconds += dt;
     const quickLookAngle =
@@ -8901,6 +8977,12 @@ class BabylonGameSession {
       // dense city and confirm the static-scenery freeze keeps it smooth.
       debugWindow.__sideswapPerfDebug = () => ({
         fps: Math.round(this.engine.getFps()),
+        // CSS px per rendered px, so lower is sharper. Watching this settle is
+        // how you tell a throttling device from a slow one. Null rung means
+        // desktop, which is not governed.
+        hardwareScalingLevel: this.engine.getHardwareScalingLevel(),
+        renderScalingRung: this.renderScaling?.index ?? null,
+        targetFps: this.renderScaling ? TOUCH_TARGET_FPS : null,
         totalMeshes: this.scene.meshes.length,
         activeMeshes: this.scene.getActiveMeshes().length,
         materials: this.scene.materials.length,
@@ -9486,9 +9568,14 @@ class BabylonGameSession {
     // 1024 (was 2048): the dense city re-renders this shadow map every frame,
     // so quartering its pixels frees real per-frame budget; night shadows are
     // soft + dim enough that the lower resolution isn't noticeable.
+    // Percentage-closer filtering is the per-pixel cost here, and on a phone it
+    // is paid on every shadowed fragment in a dense city. The softness
+    // difference is invisible at a phone's viewing distance.
     const generator = new ShadowGenerator(1024, sun);
     generator.usePercentageCloserFiltering = true;
-    generator.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
+    generator.filteringQuality = this.options.inputCapabilities.touchFirst
+      ? ShadowGenerator.QUALITY_LOW
+      : ShadowGenerator.QUALITY_MEDIUM;
     generator.bias = 0.015;
     generator.normalBias = 0.4;
     generator.setDarkness(0.42);
@@ -9548,8 +9635,14 @@ class BabylonGameSession {
     );
     // The pipeline renders through an offscreen target, bypassing the
     // engine-level MSAA; re-enable multisampling on that target instead.
-    pipeline.samples = 4;
-    pipeline.fxaaEnabled = false;
+    //
+    // Not on touch. 4x MSAA multiplies the cost of every pixel, and a mobile
+    // GPU would rather spend that on having more of them: FXAA at a real
+    // resolution beats MSAA at a fraction of one, especially for a low-poly
+    // city that is mostly long straight edges — kerbs, lane paint, rooflines.
+    const touchFirst = this.options.inputCapabilities.touchFirst;
+    pipeline.samples = touchFirst ? 1 : 4;
+    pipeline.fxaaEnabled = touchFirst;
     pipeline.bloomEnabled = true;
     // Bloom stays keyed to bright emissives (lamps, brake lights); the
     // threshold is lifted alongside tone mapping so the newly warm, brighter
@@ -10465,6 +10558,7 @@ class BabylonGameSession {
     this.keyboard = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
     this.touch = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
     this.gamepad = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
+    this.touchSteerReleasing = false;
     // Covers blur, tab hide, pause and reset: without this a keyup that never
     // arrives because the window lost focus leaves the horn blaring.
     this.hornRelease();
@@ -10542,23 +10636,29 @@ class BabylonGameSession {
   }
 }
 
+// No `isolation: "isolate"` here, deliberately. It would make this subtree an
+// atomic stacking context at the shell's own level, so no z-index inside could
+// ever rise above a HUD sibling rendered by SideSwapApp — which is exactly how
+// the touch controls ended up painted under the wallet card and the minimap.
+// Layering across both files goes through DRIVE_LAYER instead.
+// No `minHeight` either. A landscape phone viewport is about 393px tall, so a
+// 420px floor made the shell taller than the page that clips it — and the
+// bottom of the shell is exactly where the pedals and the steering region are
+// anchored.
 const shellStyle: CSSProperties = {
   position: "relative",
   width: "100%",
   height: "100%",
-  minHeight: 420,
   overflow: "hidden",
   borderRadius: 24,
   background: "#172226",
   color: "#f6f2e7",
-  isolation: "isolate",
 };
 
 const canvasStyle: CSSProperties = {
   display: "block",
   width: "100%",
   height: "100%",
-  minHeight: 420,
   outline: "none",
   touchAction: "none",
 };
@@ -10569,13 +10669,6 @@ const glassPanelStyle: CSSProperties = {
   boxShadow:
     "inset 0 1px 0 rgba(255,255,255,.09), 0 8px 24px rgba(0,0,0,.35)",
   backdropFilter: "blur(14px) saturate(1.2)",
-};
-
-const hudLabelStyle: CSSProperties = {
-  fontSize: 10,
-  fontWeight: 750,
-  letterSpacing: ".12em",
-  textTransform: "uppercase",
 };
 
 const actionButtonStyle: CSSProperties = {
@@ -10595,25 +10688,22 @@ const actionButtonStyle: CSSProperties = {
 
 const INPUT_GUIDANCE: Record<
   InputFamily,
-  { readonly label: string; readonly orientationHint: string; readonly details: string }
+  { readonly label: string; readonly details: string }
 > = {
   keyboard: {
     label: "Keyboard",
-    orientationHint: "W / ↑ drives · S / ↓ brakes then reverses · A / D steers",
     details:
       "W or ↑ drives. S or ↓ brakes, and keeps going into reverse once you have stopped. Space is the brake on its own, and A/D or ←/→ steer. Q/E signal, C changes camera, H sounds the horn, and P or Escape pauses.",
   },
   gamepad: {
     label: "Controller",
-    orientationHint: "Left stick steers · right trigger drives · left trigger brakes then reverses",
     details:
       "Use the left stick to steer and the right trigger to drive. The left trigger brakes, and keeps going into reverse once you have stopped. A sounds the horn, B changes camera, X/Y signal, and Start pauses.",
   },
   touch: {
     label: "Touch",
-    orientationHint: "Use the left steering pad and right Drive / Brake pedals",
     details:
-      "Use the left thumb pad to steer and the right Drive and Brake pedals for speed; holding Brake after stopping reverses. The upper-right controls handle indicators, camera, horn, and pause. Swipe the road view to look around.",
+      "Drag your left thumb anywhere on the lower-left of the screen to steer — wherever you touch down becomes centre, so there is no pad to find. Drive and Brake are on the right, and holding Brake once you have stopped reverses. Camera, horn and pause are in the top-right corner. Swipe the road view to look around.",
   },
 };
 
@@ -10634,7 +10724,6 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       effectsVolume = 0.75,
       cameraShake = false,
       headBob = false,
-      visualHonkIndicator = true,
       outOfFuel = false,
       carConditionPct = 100,
       resetNonce = 0,
@@ -10646,7 +10735,6 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       vehiclePhysics = null,
       className,
       style,
-      showBuiltInHud = true,
       onHudUpdate,
       onEvent,
       onPauseChange,
@@ -10672,7 +10760,6 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       useState<AdaptiveInputPresentation>(() =>
         createInitialInputPresentation(inputCapabilitiesRef.current),
       );
-    const [sessionActivation, setSessionActivation] = useState(0);
     const [hud, setHud] = useState<GameHudSnapshot>({
       speed: 0,
       speedUnit,
@@ -10712,6 +10799,10 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       onContextRestored: () => setRuntimeState("ready"),
     };
 
+    // The gate pauses the drive; it does not tear it down. It used to keep the
+    // session-creation effect from running at all, so every rotation rebuilt
+    // the entire city — and since `screen.orientation.lock()` has never shipped
+    // in Safari, rotating is something a phone player does over and over.
     useEffect(() => {
       const updateViewportFlags = () => {
         const capabilities = readInputCapabilities();
@@ -10732,11 +10823,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
           sessionRef.current?.clearTouch();
           sessionRef.current?.setPaused(true);
         } else if (wasReady && wasPortraitGate) {
-          if (sessionRef.current) {
-            sessionRef.current.setPaused(paused, false);
-          } else {
-            setSessionActivation((activation) => activation + 1);
-          }
+          sessionRef.current?.setPaused(paused, false);
         }
       };
       updateViewportFlags();
@@ -10751,7 +10838,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
     useEffect(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      if (!viewportReadyRef.current || touchPortraitGateRef.current) {
+      if (!viewportReadyRef.current) {
         setRuntimeState("loading");
         return;
       }
@@ -10820,8 +10907,10 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
         ownedSession?.dispose();
       };
       // Rebuild only when scene-defining jurisdiction/cockpit choices change.
+      // Notably not orientation: rotating a phone pauses the drive, it does not
+      // rebuild the city.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [trafficSide, steeringSide, lesson?.id, mapPack?.id, sessionActivation]);
+    }, [trafficSide, steeringSide, lesson?.id, mapPack?.id]);
 
     useEffect(() => {
       sessionRef.current?.updateOptions({
@@ -10872,32 +10961,11 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       }
     }, []);
 
-    const updateSteeringPad = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-      const bounds = event.currentTarget.getBoundingClientRect();
-      const centerX = bounds.left + bounds.width / 2;
-      sessionRef.current?.setTouchAnalog(
-        "steer",
-        clamp((event.clientX - centerX) / (bounds.width * 0.36), -1, 1),
-      );
-    }, []);
-
-    const endSteering = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-      sessionRef.current?.setTouchAnalog("steer", 0);
-    }, []);
-
     const touchVisible =
       inputPresentation.touchFirst || inputPresentation.touchRevealed;
     const touchPortraitGate = inputPresentation.touchFirst && isPortrait;
     const criticalOverlay = runtimeState !== "ready";
     const activeInputGuide = INPUT_GUIDANCE[inputPresentation.activeFamily];
-    const showOrientationControlsHint =
-      runtimeState === "ready" &&
-      !hud.paused &&
-      (lesson?.kind ?? "orientation") === "orientation" &&
-      hud.objectiveProgress < 0.08;
 
     return (
       <div className={className} style={{ ...shellStyle, ...style }}>
@@ -10908,297 +10976,23 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
           style={canvasStyle}
         />
 
-        {showBuiltInHud && (
-          <>
-            <div
-              aria-live="polite"
-              style={{
-                ...glassPanelStyle,
-                position: "absolute",
-                top: 16,
-                left: 16,
-                display: "flex",
-                alignItems: "center",
-                gap: 13,
-                padding: "10px 14px",
-                borderRadius: 16,
-                pointerEvents: "none",
-                fontFamily: "system-ui, sans-serif",
-              }}
-            >
-              <div
-                style={{
-                  minWidth: 42,
-                  fontSize: 28,
-                  fontWeight: 850,
-                  lineHeight: 1,
-                  textAlign: "right",
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {hud.speed}
-              </div>
-              <div style={{ opacity: 0.72, fontSize: 11, lineHeight: 1.25 }}>
-                {hud.speedUnit}
-                <br />
-                <span style={{ ...hudLabelStyle, color: "#f2c658" }}>Gear {hud.gear}</span>
-              </div>
-              <div style={{ width: 1, alignSelf: "stretch", background: "rgba(255,255,255,.16)" }} />
-              <div style={{ fontSize: 11, lineHeight: 1.45, opacity: 0.9, fontVariantNumeric: "tabular-nums" }}>
-                SCORE {hud.score}
-                <br />{hud.cameraMode === "first" ? "COCKPIT" : "CHASE"}
-                <br />IND {hud.indicator === "off" ? "OFF" : hud.indicator === "left" ? "← LEFT" : "RIGHT →"}
-              </div>
-            </div>
-
-            {hud.rearViewVisible && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "3%",
-                  left: "50%",
-                  width: "28%",
-                  height: "12.5%",
-                  transform: "translateX(-50%)",
-                  boxSizing: "border-box",
-                  border: "3px solid rgba(16,22,24,.92)",
-                  borderRadius: 12,
-                  background: "linear-gradient(145deg, rgba(255,255,255,.09), transparent 32%)",
-                  boxShadow: "inset 0 0 0 1px rgba(255,255,255,.14), 0 6px 20px rgba(0,0,0,.35)",
-                  pointerEvents: "none",
-                }}
-              >
-                <i
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    bottom: -14,
-                    left: "50%",
-                    width: 22,
-                    height: 14,
-                    transform: "translateX(-50%)",
-                    background: "#182021",
-                    clipPath: "polygon(28% 0,72% 0,100% 100%,0 100%)",
-                  }}
-                />
-                <span style={{ position: "absolute", bottom: 5, left: 9, padding: "2px 5px", borderRadius: 5, background: "rgba(10,18,20,.45)", font: "750 8px system-ui", letterSpacing: ".13em", opacity: 0.76 }}>
-                  REAR VIEW
-                </span>
-              </div>
-            )}
-
-            <div
-              style={{
-                ...glassPanelStyle,
-                position: "absolute",
-                top: 16,
-                right: 16,
-                width: "min(360px, calc(100% - 180px))",
-                padding: "12px 15px",
-                borderRadius: 16,
-                pointerEvents: "none",
-                font: "650 13px/1.35 system-ui, sans-serif",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 7 }}>
-                <span style={{ ...hudLabelStyle, color: "#f2c658" }}>Coach</span>
-                <span style={{ ...hudLabelStyle, opacity: 0.62, fontVariantNumeric: "tabular-nums" }}>
-                  {Math.round(hud.objectiveProgress * 100)}%
-                </span>
-              </div>
-              <div style={{ marginBottom: 5, fontSize: 10, opacity: 0.62 }}>
-                {hud.scenarioTitle} · {hud.objective}
-              </div>
-              {hud.scenarioClock && (
-                <div
-                  aria-label={`Scenario time ${hud.scenarioClock}`}
-                  style={{
-                    marginBottom: 7,
-                    color: "#f2c658",
-                    fontSize: 9,
-                    fontWeight: 800,
-                    letterSpacing: ".08em",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Scenario time · {hud.scenarioClock}
-                </div>
-              )}
-              {hud.instruction}
-              <div style={{ height: 3, marginTop: 10, overflow: "hidden", borderRadius: 99, background: "rgba(255,255,255,.12)" }}>
-                <div
-                  style={{
-                    width: `${hud.objectiveProgress * 100}%`,
-                    height: "100%",
-                    background: "#f2c658",
-                    transition: reducedMotion ? "none" : "width 240ms ease",
-                  }}
-                />
-              </div>
-            </div>
-
-            {showOrientationControlsHint && (
-              <div
-                role="status"
-                aria-label={`${activeInputGuide.label} control hint`}
-                style={{
-                  ...glassPanelStyle,
-                  position: "absolute",
-                  left: 16,
-                  // Keep clear of the SIDESWAP brand mark pinned bottom-left.
-                  bottom: touchVisible ? 122 : 56,
-                  maxWidth: "min(390px, calc(100% - 32px))",
-                  padding: "9px 12px",
-                  borderRadius: 13,
-                  pointerEvents: "none",
-                  font: "650 12px/1.35 system-ui, sans-serif",
-                  transition: reducedMotion ? "none" : "opacity 160ms ease",
-                }}
-              >
-                <span style={{ color: "#f2c658", fontSize: 9, fontWeight: 850, letterSpacing: ".09em" }}>
-                  {activeInputGuide.label.toUpperCase()} CONTROLS
-                </span>
-                <span style={{ display: "block", marginTop: 3, opacity: 0.9 }}>
-                  {activeInputGuide.orientationHint}
-                </span>
-              </div>
-            )}
-
-            {hud.honking && visualHonkIndicator && (
-              <div
-                role="status"
-                style={{
-                  position: "absolute",
-                  left: "50%",
-                  bottom: touchVisible ? 126 : 50,
-                  transform: "translateX(-50%)",
-                  padding: "8px 13px",
-                  borderRadius: 99,
-                  background: "#f2c658",
-                  color: "#172226",
-                  font: "850 11px system-ui",
-                  letterSpacing: ".08em",
-                }}
-              >
-                HORN · AUDIO CUE
-              </div>
-            )}
-          </>
-        )}
 
         {touchVisible && runtimeState === "ready" && !isPortrait && (
-          <div
-            role="group"
-            aria-label={
-              inputPresentation.touchControlsDimmed
-                ? "Touch driving controls, dimmed while another input is active"
-                : "Touch driving controls"
-            }
-            onPointerDownCapture={(event) => registerTouchPointer(event.pointerType)}
-            style={{
-              opacity: inputPresentation.touchControlsDimmed ? 0.18 : 1,
-              pointerEvents: "auto",
-              transition: reducedMotion ? "none" : "opacity 180ms ease",
-            }}
-          >
-            <div
-              role="slider"
-              aria-label="Steering"
-              aria-valuemin={-1}
-              aria-valuemax={1}
-              aria-valuenow={0}
-              onPointerDown={(event) => {
-                event.currentTarget.setPointerCapture(event.pointerId);
-                updateSteeringPad(event);
-              }}
-              onPointerMove={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) updateSteeringPad(event);
-              }}
-              onPointerUp={endSteering}
-              onPointerCancel={endSteering}
-              style={{
-                position: "absolute",
-                left: "max(18px, env(safe-area-inset-left))",
-                bottom: "max(18px, env(safe-area-inset-bottom))",
-                width: 132,
-                height: 82,
-                borderRadius: 44,
-                border: "1px solid rgba(255,255,255,.2)",
-                background: "rgba(10,18,20,.58)",
-                touchAction: "none",
-              }}
-            >
-              <span style={{ position: "absolute", left: 11, top: 31, font: "800 18px system-ui" }}>‹</span>
-              <span style={{ position: "absolute", right: 11, top: 31, font: "800 18px system-ui" }}>›</span>
-              <span style={{ position: "absolute", left: "50%", top: "50%", width: 46, height: 46, transform: "translate(-50%,-50%)", borderRadius: 999, border: "5px solid rgba(255,255,255,.75)" }} />
-            </div>
-
-            <div style={{ position: "absolute", right: "max(18px, env(safe-area-inset-right))", bottom: "max(18px, env(safe-area-inset-bottom))", display: "flex", alignItems: "flex-end", gap: 12 }}>
-              <button
-                type="button"
-                aria-label="Brake and reverse"
-                style={{ ...actionButtonStyle, width: 62, height: 80, borderRadius: 20, background: "rgba(126,42,36,.84)" }}
-                onPointerDown={(event) => {
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  sessionRef.current?.setTouchAnalog("reverse", 1);
-                }}
-                onPointerUp={() => sessionRef.current?.setTouchAnalog("reverse", 0)}
-                onPointerCancel={() => sessionRef.current?.setTouchAnalog("reverse", 0)}
-              >
-                BRAKE
-              </button>
-              <button
-                type="button"
-                aria-label="Accelerator"
-                style={{ ...actionButtonStyle, width: 62, height: 104, borderRadius: 20, background: "rgba(36,104,77,.86)" }}
-                onPointerDown={(event) => {
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  sessionRef.current?.setTouchAnalog("throttle", 1);
-                }}
-                onPointerUp={() => sessionRef.current?.setTouchAnalog("throttle", 0)}
-                onPointerCancel={() => sessionRef.current?.setTouchAnalog("throttle", 0)}
-              >
-                DRIVE
-              </button>
-            </div>
-
-            <div style={{ position: "absolute", right: "max(24px, env(safe-area-inset-right))", top: 82, display: "grid", gridTemplateColumns: "repeat(2, 48px)", gap: 8 }}>
-              <button type="button" style={actionButtonStyle} aria-label="Left indicator" onClick={() => sessionRef.current?.setIndicator("left")}>◀</button>
-              <button type="button" style={actionButtonStyle} aria-label="Right indicator" onClick={() => sessionRef.current?.setIndicator("right")}>▶</button>
-              <button type="button" style={actionButtonStyle} aria-label="Change camera" onClick={() => sessionRef.current?.toggleCamera()}>CAM</button>
-              <button type="button" style={actionButtonStyle} aria-label="Sound horn" onPointerDown={() => sessionRef.current?.horn()} onPointerUp={() => sessionRef.current?.hornRelease()} onPointerCancel={() => sessionRef.current?.hornRelease()} onPointerLeave={() => sessionRef.current?.hornRelease()}>HORN</button>
-              <button type="button" style={actionButtonStyle} aria-label="Pause" onClick={() => sessionRef.current?.togglePause()}>Ⅱ</button>
-            </div>
-
-            {hud.cameraMode === "first" && (
-              <div style={{ position: "absolute", left: "50%", bottom: 18, transform: "translateX(-50%)", display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  style={actionButtonStyle}
-                  aria-label="Look left"
-                  onPointerDown={() => sessionRef.current?.setTouchAnalog("quickLook", -1)}
-                  onPointerUp={() => sessionRef.current?.setTouchAnalog("quickLook", 0)}
-                  onPointerCancel={() => sessionRef.current?.setTouchAnalog("quickLook", 0)}
-                >LOOK L</button>
-                <button
-                  type="button"
-                  style={actionButtonStyle}
-                  aria-label="Look behind"
-                  onPointerDown={() => sessionRef.current?.setTouchAnalog("quickLook", 2)}
-                  onPointerUp={() => sessionRef.current?.setTouchAnalog("quickLook", 0)}
-                  onPointerCancel={() => sessionRef.current?.setTouchAnalog("quickLook", 0)}
-                >REAR</button>
-                <button
-                  type="button"
-                  style={actionButtonStyle}
-                  aria-label="Look right"
-                  onPointerDown={() => sessionRef.current?.setTouchAnalog("quickLook", 1)}
-                  onPointerUp={() => sessionRef.current?.setTouchAnalog("quickLook", 0)}
-                  onPointerCancel={() => sessionRef.current?.setTouchAnalog("quickLook", 0)}
-                >LOOK R</button>
-              </div>
-            )}
-          </div>
+          <TouchDriveControls
+            cameraMode={hud.cameraMode}
+            dimmed={inputPresentation.touchControlsDimmed}
+            reducedMotion={reducedMotion}
+            onSteer={(value) => sessionRef.current?.setTouchSteer(value)}
+            onSteerRelease={() => sessionRef.current?.releaseTouchSteer()}
+            onThrottle={(value) => sessionRef.current?.setTouchAnalog("throttle", value)}
+            onBrake={(value) => sessionRef.current?.setTouchAnalog("reverse", value)}
+            onQuickLook={(value) => sessionRef.current?.setTouchAnalog("quickLook", value)}
+            onLookBehind={(on) => sessionRef.current?.setTouchLookBehind(on)}
+            onCamera={() => sessionRef.current?.toggleCamera()}
+            onHorn={(down) => (down ? sessionRef.current?.horn() : sessionRef.current?.hornRelease())}
+            onPause={() => sessionRef.current?.togglePause()}
+            onTouchPointer={registerTouchPointer}
+          />
         )}
 
         {hud.paused && runtimeState === "ready" && (
@@ -11214,6 +11008,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
               placeItems: "center",
               background: "rgba(8,14,16,.54)",
               backdropFilter: "blur(5px)",
+              zIndex: DRIVE_LAYER.action,
             }}
           >
             <div style={{ ...glassPanelStyle, padding: "24px 28px", borderRadius: 20, textAlign: "center", fontFamily: "system-ui" }}>
@@ -11254,6 +11049,9 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
               background: "#172226",
               textAlign: "center",
               fontFamily: "system-ui, sans-serif",
+              // Without this the app's HUD painted its wallet card straight
+              // through "Preparing your drive…".
+              zIndex: DRIVE_LAYER.curtain,
             }}
           >
             <div style={{ maxWidth: 470 }}>
@@ -11277,6 +11075,15 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
           </div>
         )}
 
+        {/*
+          Deliberately a scrim over a live, paused scene rather than an opaque
+          wall. `screen.orientation.lock()` has never shipped in Safari, so a
+          phone held in portrait cannot be corrected by the page — the overlay
+          is the only lever there is, which makes rotating back out of it a
+          thing players will do repeatedly. It used to cost a full city rebuild,
+          because the session-creation effect refused to construct Babylon at
+          all while the gate was up. It now only pauses.
+        */}
         {touchPortraitGate && (
           <div
             role="dialog"
@@ -11287,16 +11094,23 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
               display: "grid",
               placeItems: "center",
               padding: 30,
-              background: "rgba(12,20,22,.94)",
+              background: "rgba(12,20,22,.72)",
+              backdropFilter: "blur(3px)",
               textAlign: "center",
               fontFamily: "system-ui, sans-serif",
-              zIndex: 10,
+              zIndex: DRIVE_LAYER.curtain,
             }}
           >
-            <div>
-              <div aria-hidden="true" style={{ fontSize: 48, marginBottom: 14 }}>↻</div>
-              <strong style={{ display: "block", fontSize: 22, marginBottom: 8 }}>Rotate to landscape</strong>
-              <span style={{ opacity: 0.68, fontSize: 14 }}>A wider road view keeps the touch controls clear.</span>
+            <div style={{ ...glassPanelStyle, padding: "22px 26px", borderRadius: 20 }}>
+              <div aria-hidden="true" style={{ fontSize: 44, marginBottom: 12 }}>
+                ↻
+              </div>
+              <strong style={{ display: "block", fontSize: 21, marginBottom: 8 }}>
+                Turn your phone sideways
+              </strong>
+              <span style={{ display: "block", opacity: 0.7, fontSize: 14, maxWidth: 260 }}>
+                Your drive is paused right where you left it.
+              </span>
             </div>
           </div>
         )}

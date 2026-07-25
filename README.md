@@ -4,6 +4,8 @@ Curbside Rush is a low-poly, single-player 3D open-world driving game where you 
 
 The maps are New York City (Upper West Side), London (South Kensington), Milton Keynes (Oldbrook), Calais/Coquelles, and Tokyo (Setagaya). Pick a city and drive: deliveries load at a business and drop off across town, passenger fares carry a rider to their destination, earnings and fuel are tracked per country, you refuel at gas stations, and driving badly in front of a patrol car costs you a fine. Also included are first- and third-person cameras with a rear-view mirror, keyboard/gamepad/touch controls, ambient traffic and pedestrian crowds, local progress, accessibility settings, and official road-rule references.
 
+On a phone, hold it sideways: drag your left thumb anywhere on the lower-left of the screen to steer — wherever you touch down becomes centre — and use Drive and Brake on the right. Holding Brake once you have stopped reverses. Portrait pauses the drive and asks you to rotate; nothing is lost and nothing reloads.
+
 ## Two ways to play
 
 **Free drive** drops you into any of the five cities with your own car and no clock — gigs come one after another for as long as you want to keep driving.

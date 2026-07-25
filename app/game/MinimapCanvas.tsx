@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { createMinimapProjector, projectRoadNetwork } from "./minimap";
+import { DRIVE_LAYER } from "./driveLayers";
 
 export interface MinimapPin {
   readonly x: number;
@@ -19,6 +20,11 @@ interface MinimapProps {
   readonly heading: number;
   readonly pins?: readonly MinimapPin[];
   readonly size?: number;
+  /**
+   * Corner placement. The default bottom-right corner is a thumb zone on touch,
+   * so the drive screen moves it out of the way rather than covering a pedal.
+   */
+  readonly anchorStyle?: CSSProperties;
 }
 
 /**
@@ -34,6 +40,7 @@ export function Minimap({
   heading,
   pins = [],
   size = 150,
+  anchorStyle,
 }: MinimapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const networkRef = useRef<HTMLCanvasElement | null>(null);
@@ -108,6 +115,7 @@ export function Minimap({
         position: "absolute",
         right: "1rem",
         bottom: "1rem",
+        ...anchorStyle,
         width: `${size}px`,
         height: `${size}px`,
         borderRadius: "0.9rem",
@@ -115,7 +123,7 @@ export function Minimap({
         background: "rgba(15, 18, 22, 0.66)",
         backdropFilter: "blur(8px)",
         pointerEvents: "none",
-        zIndex: 5,
+        zIndex: DRIVE_LAYER.hud,
       }}
     />
   );
