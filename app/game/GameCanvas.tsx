@@ -3633,8 +3633,15 @@ class BabylonGameSession {
       this.scene,
     );
     this.thirdCamera.inputs.clear();
-    this.thirdCamera.lowerRadiusLimit = 8;
-    this.thirdCamera.upperRadiusLimit = 16;
+    // No radius limits: updateCamera writes position + target every frame,
+    // and ArcRotate's authoritative state is spherical — setTarget rebuilds
+    // radius from the written position and _checkLimits clamps it, feeding
+    // the clamped position back. At speed the chase lag pushed the radius
+    // across upperRadiusLimit every other frame, and the clamp's ~0.2m
+    // vertical snap-back was the high-speed camera nod. Inputs are cleared
+    // and nothing else reads the radius, so the limits guarded nothing.
+    this.thirdCamera.lowerRadiusLimit = null;
+    this.thirdCamera.upperRadiusLimit = null;
     this.thirdCamera.minZ = 0.1;
     this.thirdCamera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     this.thirdCamera.fov = clampHorizontalFieldOfView(options.fieldOfView);
