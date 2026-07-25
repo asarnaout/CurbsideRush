@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
-import { createMinimapProjector, projectRoadNetwork } from "./minimap";
+import {
+  createMinimapFollowProjector,
+  createMinimapProjector,
+  createMinimapSheetProjector,
+  projectRoadNetwork,
+  resolveMinimapScale,
+} from "./minimap";
 import { DRIVE_LAYER } from "./driveLayers";
 
 export interface MinimapPin {
@@ -31,6 +37,12 @@ interface MinimapProps {
  * Corner minimap: rasterises the static road network once per map to an
  * offscreen canvas, then each update blits it and overlays the pins + the live
  * player marker. Projection maths live in ./minimap (unit-tested).
+ *
+ * A map small enough to fit is drawn whole, as it always was. One too big
+ * scrolls under the player instead of shrinking to fit: the sheet is rasterised
+ * for the whole world at a readable scale and each update blits the window
+ * around the car. Fitting a tripled city into 150 px turns every street into a
+ * hairline, which is a worse map than one you can only see part of.
  */
 export function Minimap({
   worldSize,
@@ -44,23 +56,41 @@ export function Minimap({
 }: MinimapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const networkRef = useRef<HTMLCanvasElement | null>(null);
-  const projector = useMemo(
-    () => createMinimapProjector(worldSize, size),
+  const scale = useMemo(
+    () => resolveMinimapScale(worldSize, size),
     [worldSize, size],
+  );
+  // The sheet the network is drawn on: the widget itself when the world fits,
+  // otherwise a canvas covering the whole world at the same readable scale.
+  const sheet = useMemo(
+    () =>
+      scale.follows
+        ? createMinimapSheetProjector(worldSize, scale.pixelsPerMetre, size / 2)
+        : { ...createMinimapProjector(worldSize, size), width: size, height: size },
+    [worldSize, size, scale],
+  );
+  // Where pins and the player marker go in the widget: the same sheet when the
+  // map is drawn whole, or a window centred on the car when it scrolls.
+  const projector = useMemo(
+    () =>
+      scale.follows
+        ? createMinimapFollowProjector(playerX, playerZ, scale.pixelsPerMetre, size)
+        : sheet,
+    [scale, playerX, playerZ, size, sheet],
   );
 
   // Rasterise the static road network once per map/size.
   useEffect(() => {
     const offscreen = document.createElement("canvas");
-    offscreen.width = size;
-    offscreen.height = size;
+    offscreen.width = sheet.width;
+    offscreen.height = sheet.height;
     const ctx = offscreen.getContext("2d");
     if (ctx) {
       ctx.strokeStyle = "rgba(206, 214, 222, 0.55)";
       ctx.lineWidth = 2;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
-      for (const line of projectRoadNetwork(roadSurfaces, projector)) {
+      for (const line of projectRoadNetwork(roadSurfaces, sheet)) {
         if (line.length < 2) continue;
         ctx.beginPath();
         ctx.moveTo(line[0].x, line[0].y);
@@ -71,14 +101,32 @@ export function Minimap({
       }
     }
     networkRef.current = offscreen;
-  }, [roadSurfaces, projector, size]);
+  }, [roadSurfaces, sheet]);
 
   // Composite the cached network + pins + live player pose each update.
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, size, size);
-    if (networkRef.current) ctx.drawImage(networkRef.current, 0, 0);
+    if (networkRef.current) {
+      if (scale.follows) {
+        // Blit the slice of the sheet the player stands in the middle of.
+        const at = sheet.project(playerX, playerZ);
+        ctx.drawImage(
+          networkRef.current,
+          at.x - size / 2,
+          at.y - size / 2,
+          size,
+          size,
+          0,
+          0,
+          size,
+          size,
+        );
+      } else {
+        ctx.drawImage(networkRef.current, 0, 0);
+      }
+    }
 
     for (const pin of pins) {
       const point = projector.project(pin.x, pin.z);
@@ -103,7 +151,7 @@ export function Minimap({
     ctx.lineTo(center.x - dx * 4 - px * 4, center.y - dy * 4 - py * 4);
     ctx.closePath();
     ctx.fill();
-  }, [playerX, playerZ, heading, pins, projector, size]);
+  }, [playerX, playerZ, heading, pins, projector, size, scale, sheet]);
 
   const radius = Math.round(size * 0.11);
 
