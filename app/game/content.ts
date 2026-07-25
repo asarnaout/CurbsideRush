@@ -1061,6 +1061,9 @@ interface NycRoadSpec {
 
 /** West to east. */
 const NYC_AVENUES: readonly NycRoadSpec[] = [
+  // Riverside Drive begins at 72nd, as it really does, so it skips the southern
+  // rows and the grid's west edge steps in below them.
+  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "79", "86", "96"], forwardAnchor: "72", backwardAnchor: "96" },
   { key: "we", nodeKey: "we", roadId: "nyc-west-end", coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1, forwardAnchor: "72", backwardAnchor: "86" },
   { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1, forwardAnchor: "72", backwardAnchor: "86" },
   { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2, forwardAnchor: "72", backwardAnchor: "86" },
@@ -1593,10 +1596,10 @@ export const MAP_PACKS: readonly MapPack[] = [
       "manifest-v1:nyc-uws-2026-07-10",
     ),
     geometry: {
-      // Grid runs W 65th to W 96th across five avenues; bounds have to cover it
+      // Grid runs W 65th to W 96th across six avenues; bounds have to cover it
       // with room for the margin blocks, or everything outside reads as
       // out_of_bounds the moment the player drives onto it.
-      worldSize: point(760, 2100),
+      worldSize: point(1040, 2100),
       roadWidth: 11,
       shoulderWidth: 1.5,
       roadSurfaces: nycGrid.roadSurfaces,
@@ -1631,8 +1634,16 @@ export const MAP_PACKS: readonly MapPack[] = [
         { id: "nyc-block-bway-amst-nn", center: point(-40, 720), size: point(134, 454), heightRange: [20, 34], density: 0.93, material: "sandstone", buildingSet: "nyc-midrise" },
         { id: "nyc-block-amst-col-nn", center: point(110, 720), size: point(114, 454), heightRange: [16, 28], density: 0.92, material: "sandstone", buildingSet: "nyc-midrise" },
         { id: "nyc-block-col-cpw-nn", center: point(250, 720), size: point(114, 454), heightRange: [14, 24], density: 0.9, material: "brick", buildingSet: "nyc-brownstone" },
-        // Margin fill so the outer avenues/streets have buildings on both sides
-        { id: "nyc-block-west-margin", center: point(-352, 0), size: point(44, 1894), heightRange: [12, 20], density: 0.9, material: "brick", buildingSet: "nyc-brownstone" },
+        // Riverside Drive ↔ West End column: the low-rise river belt, and the
+        // furthest the detached-house pocket gets from the tower core.
+        { id: "nyc-block-riv-we-s", center: point(-390, -240), size: point(114, 454), heightRange: [10, 18], density: 0.88, material: "brick", buildingSet: "nyc-brownstone" },
+        { id: "nyc-block-riv-we-n", center: point(-390, 240), size: point(114, 454), heightRange: [8, 14], density: 0.88, material: "brick", buildingSet: "nyc-house" },
+        { id: "nyc-block-riv-we-nn", center: point(-390, 720), size: point(114, 454), heightRange: [8, 14], density: 0.88, material: "brick", buildingSet: "nyc-house" },
+        // Margin fill so the outer avenues/streets have buildings on both sides.
+        // South of 72nd there is no Riverside Drive, so the west edge is West
+        // End's own far kerb and the strip steps back in to meet it.
+        { id: "nyc-block-west-margin", center: point(-352, -720), size: point(44, 454), heightRange: [12, 20], density: 0.9, material: "brick", buildingSet: "nyc-brownstone" },
+        { id: "nyc-block-riverside-margin", center: point(-495, 240), size: point(44, 1414), heightRange: [10, 18], density: 0.88, material: "brick", buildingSet: "nyc-brownstone" },
         { id: "nyc-block-south-margin", center: point(0, -995), size: point(628, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
         { id: "nyc-block-north-margin", center: point(0, 995), size: point(628, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
       ],

@@ -226,6 +226,7 @@ interface StreetProfile {
  * it, and the cross streets start from the park and count west.
  */
 const STREET_PROFILES: Record<string, StreetProfile> = {
+  "nyc-riverside": { name: "Riverside Dr", axis: "z", baseNumber: 250, numbersPerM: 0.3 },
   "nyc-west-end": { name: "West End Ave", axis: "z", baseNumber: 500, numbersPerM: 0.3 },
   "nyc-broadway": { name: "Broadway", axis: "z", baseNumber: 2150, numbersPerM: 0.3 },
   "nyc-amsterdam": { name: "Amsterdam Ave", axis: "z", baseNumber: 2050, numbersPerM: 0.3 },
