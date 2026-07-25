@@ -105,26 +105,60 @@ export function Minimap({
     ctx.fill();
   }, [playerX, playerZ, heading, pins, projector, size]);
 
+  const radius = Math.round(size * 0.11);
+
   return (
-    <canvas
-      ref={canvasRef}
-      width={size}
-      height={size}
+    <div
       aria-hidden="true"
       style={{
         position: "absolute",
         right: "1rem",
         bottom: "1rem",
         ...anchorStyle,
-        width: `${size}px`,
-        height: `${size}px`,
-        borderRadius: "0.9rem",
-        border: "1px solid rgba(255,255,255,0.18)",
-        background: "rgba(15, 18, 22, 0.66)",
-        backdropFilter: "blur(8px)",
+        width: size,
+        height: size,
+        borderRadius: radius,
+        overflow: "hidden",
+        border: "1px solid rgba(255,255,255,0.11)",
+        background: "rgba(11, 15, 17, 0.82)",
+        backdropFilter: "blur(14px)",
+        boxShadow: "0 18px 40px -24px rgba(0,0,0,.85)",
         pointerEvents: "none",
         zIndex: DRIVE_LAYER.hud,
       }}
-    />
+    >
+      <canvas
+        ref={canvasRef}
+        width={size}
+        height={size}
+        style={{ display: "block", width: `${size}px`, height: `${size}px` }}
+      />
+      {/*
+        The map is north-up — `projectRoadNetwork` never rotates it — and
+        without saying so it reads as a heading-up map whose roads refuse to
+        turn.
+      */}
+      <span
+        style={{
+          position: "absolute",
+          top: Math.round(size * 0.05),
+          left: Math.round(size * 0.06),
+          display: "flex",
+          alignItems: "center",
+          gap: 3,
+          font: '900 9px/1 "Figtree", system-ui, sans-serif',
+          color: "rgba(244,239,222,.7)",
+        }}
+      >
+        N
+        <span
+          style={{
+            width: 1,
+            height: 8,
+            background: "rgba(244,239,222,.4)",
+          }}
+        />
+      </span>
+    </div>
   );
 }

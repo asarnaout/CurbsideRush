@@ -7,7 +7,7 @@ import {
   TouchDriveControls,
   TOUCH_LEFT_RAIL_PX,
   TOUCH_MINIMAP_PX,
-  TOUCH_PEDAL_RAIL_PX,
+  TOUCH_PEDAL_BLOCK_PX,
   TOUCH_TOP_RAIL_PX,
 } from "../app/game/TouchDriveControls";
 import { DRIVE_LAYER } from "../app/game/driveLayers";
@@ -166,27 +166,29 @@ describe("touch driving controls", () => {
   // ended up 31px on top of the DRIVE pedal on a real 734x343 phone.
   it("fits the right rail on the shortest landscape phone", () => {
     const SHORTEST_LANDSCAPE_PX = 320;
-    const pedalStack = 100 + 10 + 84; // DRIVE, gap, BRAKE
     const inset = 12;
 
-    // Buttons across the top, pedals up the right edge, and they must not meet.
-    expect(TOUCH_TOP_RAIL_PX + pedalStack + inset).toBeLessThanOrEqual(
-      SHORTEST_LANDSCAPE_PX,
-    );
+    // The right edge stacks: safe inset, button row, minimap — and below all of
+    // that the pedals rise from the bottom inset. They must not meet. This is
+    // the arithmetic that put the minimap 31px on top of DRIVE on a real
+    // 734x343 phone when the pedals were still a stacked column.
+    expect(
+      inset + TOUCH_TOP_RAIL_PX + TOUCH_MINIMAP_PX + TOUCH_PEDAL_BLOCK_PX + inset,
+    ).toBeLessThanOrEqual(SHORTEST_LANDSCAPE_PX);
 
-    // The minimap sits beside the pedals, not above them, so its column has to
-    // be at least as wide as the map itself.
-    expect(TOUCH_PEDAL_RAIL_PX).toBeGreaterThanOrEqual(84 + 8);
+    // Pedals abreast is what buys that room back: stacked, the column alone was
+    // most of a landscape phone's height.
+    expect(TOUCH_PEDAL_BLOCK_PX).toBeLessThan(TOUCH_MINIMAP_PX + 8);
 
-    // The steering region starts below the left rail, so a knob drawn at the
-    // top of it still clears the status card.
+    // The steering region starts below the left rail, so a drag begun at the
+    // top of it still misses the status panel.
     expect(TOUCH_LEFT_RAIL_PX).toBeGreaterThan(TOUCH_TOP_RAIL_PX);
     expect(TOUCH_LEFT_RAIL_PX).toBeLessThan(SHORTEST_LANDSCAPE_PX - 100);
 
-    // The cockpit look row stacks above the minimap in the same column, so the
-    // pair has to fit between the bottom inset and the top button row.
-    expect(inset + TOUCH_MINIMAP_PX + 8 + 44).toBeLessThan(
-      SHORTEST_LANDSCAPE_PX - TOUCH_TOP_RAIL_PX,
+    // The horn, and above it the cockpit look row, share the bottom-left
+    // cluster with the steering slider — that column has to clear the left rail.
+    expect(inset + 48 + 8 + 44).toBeLessThan(
+      SHORTEST_LANDSCAPE_PX - TOUCH_LEFT_RAIL_PX,
     );
   });
 

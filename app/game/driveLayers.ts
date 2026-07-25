@@ -1,8 +1,8 @@
 /**
  * The drive screen's one and only stacking order.
  *
- * The 3D view and the driving controls live in `GameCanvas`; the gig card,
- * wallet, minimap and toasts live in `SideSwapApp`. They are siblings in the
+ * The 3D view and the driving controls live in `GameCanvas`; the status panel,
+ * minimap and toasts live in `SideSwapApp`. They are siblings in the
  * `.game-page` stacking context, so their z-indices have to be read together —
  * and for a long time they weren't: the HUD sat on `zIndex: 5` while the touch
  * controls had none, which painted the steering pad underneath the wallet card
@@ -18,7 +18,12 @@
  * z-index on a control could then rise above a HUD sibling.
  */
 export const DRIVE_LAYER = Object.freeze({
-  /** Gig card, wallet/day card, minimap, speed pill. Readouts, never targets. */
+  /**
+   * The scene scrim: edge vignette + the bands the HUD reads against. Above the
+   * canvas, below every readout, and `pointerEvents: "none"` throughout.
+   */
+  scrim: 5,
+  /** Status panel, minimap, speed readout. Readouts, never targets. */
   hud: 10,
   /** Steering region, pedals, camera/horn/pause cluster. Must clear the HUD. */
   touch: 20,
