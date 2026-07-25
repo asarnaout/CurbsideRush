@@ -1,5 +1,10 @@
-import { parseCareerSlice, stampCareerChecksum } from "./career";
-import type { CareerPersisted } from "./career";
+import {
+  DEFAULT_GARAGE_VEHICLE_ID,
+  isCareerVehicleId,
+  parseCareerSlice,
+  stampCareerChecksum,
+} from "./career";
+import type { CareerPersisted, CareerVehicleId } from "./career";
 import {
   STARTING_WALLET_BY_COUNTRY,
   TANK_CAPACITY_L,
@@ -99,6 +104,9 @@ const parseDestinationId = (value: unknown): DestinationId | undefined =>
   typeof value === "string" && DESTINATION_IDS.has(value as DestinationId)
     ? (value as DestinationId)
     : undefined;
+
+const parseCareerVehicleId = (value: unknown): CareerVehicleId =>
+  isCareerVehicleId(value) ? value : DEFAULT_GARAGE_VEHICLE_ID;
 
 const parseCamera = (value: unknown): CameraMode => {
   if (value === "first_person" || value === "first" || value === "cockpit") {
@@ -211,6 +219,7 @@ export function createDefaultProgress(now: string = nowIso()): PlayerProgressV2 
     preferredCamera: "third_person",
     accessibility: { ...DEFAULT_ACCESSIBILITY },
     career: null,
+    lastCareerVehicleId: DEFAULT_GARAGE_VEHICLE_ID,
     updatedAt,
   };
 }
@@ -262,6 +271,9 @@ export function migrateProgress(value: unknown, now: string = nowIso()): PlayerP
     // Absent on pre-career saves -> null; checksum mismatches surface as the
     // persisted corrupt marker rather than being silently rebuilt away.
     career: parseCareerSlice(value.career),
+    // A save from before the garage remembered anything falls to the same ride
+    // a new career opens on; affordability is re-checked at the garage anyway.
+    lastCareerVehicleId: parseCareerVehicleId(value.lastCareerVehicleId),
     updatedAt,
   };
 }

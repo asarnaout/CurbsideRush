@@ -62,7 +62,9 @@ import {
   ticketPrice,
   travelTo,
   DAY_LENGTH_MS,
+  DEFAULT_GARAGE_VEHICLE_ID,
   emptyDayLog,
+  garageDefaultVehicle,
   getCareerVehicle,
   gigParMs,
   PLATFORM_FEE_BY_COUNTRY,
@@ -490,8 +492,10 @@ export default function SideSwapApp() {
   // tip window (Crazy Taxi-style par time on the carrying leg) counts from it.
   const [carryingSinceMs, setCarryingSinceMs] = useState<number | null>(null);
   const carryingSinceRef = useRef<number | null>(null);
-  const [garageVehicleId, setGarageVehicleId] =
-    useState<CareerVehicleId>("compact-hatch");
+  // The garage's selection has no state of its own: it lives in `progress` so
+  // that it survives a reload, and reading it from one place is what keeps the
+  // stored preference and the highlighted card from ever disagreeing.
+  const garageVehicleId = progress.lastCareerVehicleId;
   const [gameMode, setGameMode] = useState<"free" | "career">("free");
 
   useEffect(() => {
@@ -1140,6 +1144,27 @@ export default function SideSwapApp() {
   // broke garage impossible to soft-lock.
   const lockedCareerVehicles: Partial<Record<CareerVehicleId, string>> = {};
 
+  /**
+   * Persists the garage's selection. Every path that moves it comes through
+   * here — the driver tapping a card, and the automatic walk-down alike — so
+   * what storage holds is always the ride the garage is showing.
+   *
+   * `base` is for the callers that are already rewriting progress this tick (a
+   * career write, a purchase): passing their result folds both changes into a
+   * single save instead of racing two.
+   */
+  const commitGarageVehicle = (
+    vehicleId: CareerVehicleId,
+    base: PlayerProgressV2 = progress,
+  ) => {
+    const next =
+      base.lastCareerVehicleId === vehicleId
+        ? base
+        : { ...base, lastCareerVehicleId: vehicleId };
+    setProgress(next);
+    saveProgress(next);
+  };
+
   const startCareer = () => {
     // App-layer randomness is fine (the sim's no-RNG rule protects replays,
     // which key off the seed we mint here, not off how we minted it).
@@ -1151,11 +1176,12 @@ export default function SideSwapApp() {
       destinationId: CAREER_START_CITY,
       careerSeed,
     });
-    const saved = writeCareer(progress, slice);
-    setProgress(saved);
-    saveProgress(saved);
-    // The career fantasy starts at the bottom: day 1 on your own bicycle.
-    setGarageVehicleId("bicycle");
+    // A career with no history has no choice to keep, so day 1 gets the opening
+    // the catalog nominates rather than whatever the last career ended on.
+    commitGarageVehicle(
+      garageDefaultVehicle(activeCity(slice), DEFAULT_GARAGE_VEHICLE_ID),
+      writeCareer(progress, slice),
+    );
     setView("career-garage");
   };
 
@@ -1256,10 +1282,6 @@ export default function SideSwapApp() {
       rule: run.slice.rule,
     });
     const nextSlice = applySettlement(run.slice, ledger, settlement);
-    // The one mid-career save point: day boundaries only.
-    const saved = writeCareer(progress, nextSlice);
-    setProgress(saved);
-    saveProgress(saved);
     const nextCity = activeCity(nextSlice);
     setLastSettlement({
       result: settlement,
@@ -1267,10 +1289,19 @@ export default function SideSwapApp() {
       city: nextCity,
       morningCity: run.city,
     });
-    setGarageVehicleId((previous) =>
-      nextCity.cash >= vehicleRent(getCareerVehicle(previous), nextCity)
-        ? previous
-        : "bicycle",
+    // The one mid-career save point: day boundaries only. Tomorrow keeps
+    // today's ride, unless the night's reckoning put it out of reach.
+    commitGarageVehicle(
+      garageDefaultVehicle(
+        nextCity,
+        // A wipe hands back a fresh sheet with the fleet repossessed: there is
+        // no run left for a choice to belong to, so it reopens like a new
+        // career rather than on whatever the lost one was driving.
+        settlement.outcome === "game_over"
+          ? DEFAULT_GARAGE_VEHICLE_ID
+          : garageVehicleId,
+      ),
+      writeCareer(progress, nextSlice),
     );
     careerRunRef.current = null;
     setCareerRun(null);
@@ -1294,9 +1325,14 @@ export default function SideSwapApp() {
     const vehicle = getCareerVehicle(vehicleId);
     if (!canBuyVehicle(careerSlice, vehicle)) return;
     const bought = applyVehiclePurchase(careerSlice, vehicle);
-    const saved = writeCareer(progress, bought);
-    setProgress(saved);
-    saveProgress(saved);
+    // The purchase is the one thing that spends cash without leaving the
+    // garage, so it is also the one place a standing selection can go out of
+    // reach while the driver is looking at it. Re-walk rather than leave a card
+    // highlighted that Start Day would refuse.
+    commitGarageVehicle(
+      garageDefaultVehicle(activeCity(bought), garageVehicleId),
+      writeCareer(progress, bought),
+    );
   };
 
   // Flying to a city already reached: free, instant, and reversible. A garage
@@ -1304,12 +1340,15 @@ export default function SideSwapApp() {
   const travelToCity = (destinationId: DestinationId) => {
     if (!careerSlice) return;
     const moved = travelTo(careerSlice, destinationId);
-    const saved = writeCareer(progress, moved);
-    setProgress(saved);
-    saveProgress(saved);
     setDestinationId(destinationId);
     setLastSettlement(null);
-    setGarageVehicleId("bicycle");
+    // A city you have already run resumes exactly as you left it, so your
+    // choice comes with you — priced against that city's cash, not the one you
+    // flew out of.
+    commitGarageVehicle(
+      garageDefaultVehicle(activeCity(moved), garageVehicleId),
+      writeCareer(progress, moved),
+    );
     setView("career-garage");
   };
 
@@ -1319,12 +1358,15 @@ export default function SideSwapApp() {
     if (!careerSlice || !canBuyTicket(careerSlice)) return;
     setPendingConfirm(null);
     const flown = applyTicket(careerSlice);
-    const saved = writeCareer(progress, flown);
-    setProgress(saved);
-    saveProgress(saved);
     setDestinationId(flown.currentDestinationId);
     setLastSettlement(null);
-    setGarageVehicleId("bicycle");
+    // Landing somewhere new is starting from nothing again — a fresh sheet with
+    // its own float and no fleet, so it opens the way a new career does rather
+    // than carrying a choice that was earned somewhere else.
+    commitGarageVehicle(
+      garageDefaultVehicle(activeCity(flown), DEFAULT_GARAGE_VEHICLE_ID),
+      writeCareer(progress, flown),
+    );
     setView("career-garage");
   };
 
@@ -2190,7 +2232,7 @@ export default function SideSwapApp() {
             country={careerCountry}
             selectedVehicleId={garageVehicleId}
             lockedVehicles={lockedCareerVehicles}
-            onSelect={setGarageVehicleId}
+            onSelect={(vehicleId) => commitGarageVehicle(vehicleId)}
             onStartDay={beginCareerDay}
             onBuy={buyVehicle}
             onTravel={() => setView("career-travel")}
@@ -2231,10 +2273,9 @@ export default function SideSwapApp() {
               .destinationName
           }
           country={careerCountry}
-          onContinue={() => {
-            setGarageVehicleId("bicycle");
-            setView("career-garage");
-          }}
+          // The wipe's fresh sheet already chose the garage's opening ride when
+          // it settled, so this is only the way back to it.
+          onContinue={() => setView("career-garage")}
         />
       )}
 
@@ -2325,15 +2366,15 @@ export default function SideSwapApp() {
                 }
                 onStartCareer={startCareer}
                 onContinue={() => {
-                  // A saved career may no longer afford the sticky garage
-                  // selection; fall back to the always-available bicycle.
-                  setGarageVehicleId((previous) =>
-                    careerCity &&
-                    careerCity.cash >=
-                      vehicleRent(getCareerVehicle(previous), careerCity)
-                      ? previous
-                      : "bicycle",
-                  );
+                  // The one entry that reaches the garage across a reload, so
+                  // it is where the remembered ride gets re-priced: a career
+                  // resumed after a bad night may no longer afford what it was
+                  // last showing.
+                  if (careerCity) {
+                    commitGarageVehicle(
+                      garageDefaultVehicle(careerCity, garageVehicleId),
+                    );
+                  }
                   setView("career-garage");
                 }}
                 onResetCorrupt={() => resetCareer("launcher")}

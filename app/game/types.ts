@@ -1,6 +1,6 @@
 // Type-only: career.ts imports back from this module at runtime, but a
 // type-level cycle is erased at compile time.
-import type { CareerPersisted } from "./career";
+import type { CareerPersisted, CareerVehicleId } from "./career";
 
 export type TrafficSide = "left" | "right";
 export type SteeringSide = TrafficSide;
@@ -631,6 +631,14 @@ export interface PlayerProgressV2 {
    * writeCareer/clearCareer reducers may replace this field.
    */
   readonly career: CareerPersisted;
+  /**
+   * The garage's selection, remembered across reloads — a preference, not
+   * career state, which is why it sits out here rather than inside the
+   * checksummed slice. It holds whatever the garage last *showed*, including a
+   * selection `garageDefaultVehicle` walked down, so reopening the game always
+   * restores the ride the driver was actually looking at.
+   */
+  readonly lastCareerVehicleId: CareerVehicleId;
   readonly updatedAt: string;
 }
 
