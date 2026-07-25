@@ -109,6 +109,8 @@ import { DRIVE_LAYER } from "./game/driveLayers";
 import { readInputCapabilities } from "./game/pointerCapabilities";
 import {
   applyViewportFitCover,
+  canFullscreen,
+  isStandaloneDisplay,
   requestImmersiveLandscape,
 } from "./game/viewportSetup";
 import {
@@ -510,6 +512,8 @@ export default function SideSwapApp() {
   const garageVehicleId = progress.lastCareerVehicleId;
   const [gameMode, setGameMode] = useState<"free" | "career">("free");
   const [touchFirst, setTouchFirst] = useState(false);
+  const [needsHomeScreenForFullscreen, setNeedsHomeScreenForFullscreen] =
+    useState(false);
 
   useEffect(() => {
     gigRef.current = gig;
@@ -961,7 +965,16 @@ export default function SideSwapApp() {
   // simply could not be seen.
   useEffect(() => {
     applyViewportFitCover();
-    const sync = () => setTouchFirst(readInputCapabilities().touchFirst);
+    // iPhone Safari has no Fullscreen API for anything but <video>, so the
+    // in-drive fullscreen control correctly hides itself there — and Safari
+    // only hides its own toolbars in response to scrolling, which the drive
+    // screen cannot do. Adding the game to the Home Screen is genuinely the
+    // only way to get the browser chrome off the screen on that device, so it
+    // has to be something the player is told about rather than guesses.
+    const sync = () => {
+      setTouchFirst(readInputCapabilities().touchFirst);
+      setNeedsHomeScreenForFullscreen(!canFullscreen() && !isStandaloneDisplay());
+    };
     sync();
     const query = window.matchMedia("(pointer: coarse)");
     query.addEventListener("change", sync);
@@ -2480,10 +2493,12 @@ export default function SideSwapApp() {
                 onResetCorrupt={() => resetCareer("launcher")}
               />
             )}
-            {/* Warn before the drive, not after. The rotate gate used to be the
-                first thing a phone player met on the far side of the CTA — and
-                on iPhone it cannot be removed, only anticipated. */}
-            {touchFirst && <LandscapeHint />}
+            {/* Before the drive, not after: on iPhone neither the rotate gate
+                nor the browser chrome can be removed by code, so the only
+                honest move is to say so where it can still be acted on. */}
+            {touchFirst && (
+              <MobilePlayTips needsHomeScreen={needsHomeScreenForFullscreen} />
+            )}
           </div>
 
           <div
@@ -2554,26 +2569,46 @@ export default function SideSwapApp() {
 }
 
 /**
- * Sets expectations before the drive rather than after it. The rotate gate
- * cannot be avoided on iPhone — Safari has never shipped
- * `ScreenOrientation.lock()` — so the next best thing is that nobody meets it
- * as a surprise on the far side of a button they have already pressed.
+ * Sets expectations before the drive rather than after it.
+ *
+ * Neither piece of advice can be replaced by code on an iPhone. Safari has
+ * never shipped `ScreenOrientation.lock()`, so the rotate gate is unavoidable;
+ * and it has no Fullscreen API for anything but `<video>`, while its own
+ * toolbar hiding only responds to scrolling — which the drive screen, being
+ * `position: fixed` with `touch-action: none`, structurally cannot do. Added to
+ * the Home Screen there is no browser chrome in the first place, so on that
+ * device this is the whole answer rather than a nicety.
  */
-function LandscapeHint() {
+function MobilePlayTips({ needsHomeScreen }: { needsHomeScreen: boolean }) {
+  const line: CSSProperties = {
+    margin: "0.7rem 0 0",
+    display: "flex",
+    alignItems: "baseline",
+    gap: "0.45rem",
+    color: "var(--hud-cream-40, rgba(244,246,248,0.62))",
+    font: "600 0.78rem/1.35 system-ui, sans-serif",
+  };
   return (
-    <p
-      style={{
-        margin: "0.7rem 0 0",
-        display: "flex",
-        alignItems: "center",
-        gap: "0.45rem",
-        color: "var(--hud-cream-40, rgba(244,246,248,0.62))",
-        font: "600 0.78rem/1.35 system-ui, sans-serif",
-      }}
-    >
-      <span aria-hidden="true">↻</span>
-      Best played with your phone sideways.
-    </p>
+    <>
+      <p style={line}>
+        <span aria-hidden="true">↻</span>
+        Best played with your phone sideways.
+      </p>
+      {needsHomeScreen && (
+        <p style={line} data-testid="home-screen-tip">
+          <span aria-hidden="true">⤴</span>
+          <span>
+            For a full screen with no browser bars, tap{" "}
+            <strong style={{ color: "var(--hud-cream, #f4f6f8)" }}>Share</strong>{" "}
+            then{" "}
+            <strong style={{ color: "var(--hud-cream, #f4f6f8)" }}>
+              Add to Home Screen
+            </strong>
+            , and open it from there.
+          </span>
+        </p>
+      )}
+    </>
   );
 }
 

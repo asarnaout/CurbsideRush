@@ -214,4 +214,54 @@ describe("gig launcher", () => {
     expect(await findTagline()).toBeVisible();
     expect(startButton("uk-london")).toBeEnabled();
   });
+
+  describe("mobile play tips", () => {
+    const asTouchDevice = () =>
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({
+          ...desktopMatchMedia(query),
+          matches: query.includes("pointer: coarse"),
+        })),
+      );
+
+    const withoutFullscreenApi = () => {
+      const proto = Element.prototype as unknown as Record<string, unknown>;
+      delete proto.requestFullscreen;
+      delete proto.webkitRequestFullscreen;
+    };
+
+    it("tells a phone with no Fullscreen API to use the Home Screen", async () => {
+      // iPhone Safari has no Fullscreen API outside <video>, and hides its own
+      // toolbars only on scroll — which the drive screen cannot do. The
+      // in-drive control correctly hides itself there, so without this tip the
+      // player is simply stuck with the browser bars and no way to know why.
+      asTouchDevice();
+      withoutFullscreenApi();
+      render(<SideSwapApp />);
+      await findTagline();
+
+      expect(await screen.findByTestId("home-screen-tip")).toBeVisible();
+      expect(screen.getByText(/Add to Home Screen/i)).toBeVisible();
+    });
+
+    it("stays quiet where the browser can go fullscreen on its own", async () => {
+      asTouchDevice();
+      const proto = Element.prototype as unknown as Record<string, unknown>;
+      proto.requestFullscreen = vi.fn();
+      render(<SideSwapApp />);
+      await findTagline();
+
+      expect(screen.queryByTestId("home-screen-tip")).not.toBeInTheDocument();
+      delete proto.requestFullscreen;
+    });
+
+    it("stays quiet on a desktop pointer", async () => {
+      withoutFullscreenApi();
+      render(<SideSwapApp />);
+      await findTagline();
+
+      expect(screen.queryByTestId("home-screen-tip")).not.toBeInTheDocument();
+    });
+  });
 });
