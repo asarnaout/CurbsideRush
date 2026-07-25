@@ -14,6 +14,7 @@ import {
   createCareerSlice,
   withCity,
   type CareerCityState,
+  type CareerVehicleId,
   DAY_LENGTH_MS,
   type CareerSliceV2,
 } from "../app/game/career";
@@ -263,10 +264,27 @@ const careerIn = (
   return withCity(slice, destinationId, { ...activeCity(slice), ...patch });
 };
 
-const seedProgressWithCareer = (slice: CareerSliceV2) => {
+const seedProgressWithCareer = (
+  slice: CareerSliceV2,
+  /** The garage selection the save was left holding, when a test cares. */
+  lastCareerVehicleId?: CareerVehicleId,
+) => {
   const progress = writeCareer(createDefaultProgress(), slice);
-  window.localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(progress));
+  window.localStorage.setItem(
+    PROGRESS_STORAGE_KEY,
+    JSON.stringify(
+      lastCareerVehicleId ? { ...progress, lastCareerVehicleId } : progress,
+    ),
+  );
 };
+
+/** The remembered garage selection as it stands on disk. */
+const storedVehicleId = (): string =>
+  (
+    JSON.parse(
+      window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
+    ) as { lastCareerVehicleId: string }
+  ).lastCareerVehicleId;
 
 const findTagline = () =>
   screen.findByRole("heading", { name: /Rise and Grind/i });
@@ -281,7 +299,7 @@ const enterCareerMode = async () => {
 // USD. Seeded-in-London tests price in GBP; the integers happen to match, only
 // the symbol and the fuel price differ.
 const US_START_CASH = CAREER_STARTING_CASH_BY_COUNTRY.us; // 20
-const HATCH_RENT_US = 12;
+const HATCH_RENT_US = 16;
 const NYC_FREE_DRIVE_ID = getDestinationProfile("us-nyc").freeDriveId;
 
 describe("career mode flow", () => {
@@ -302,16 +320,99 @@ describe("career mode flow", () => {
     expect(typeof (stored as CareerSliceV2).checksum).toBe("string");
   });
 
-  it("starts day 1 on your own bicycle: free, fuel-less, deliveries-only", async () => {
+  it("opens a new career on the motorbike, the seed float covering its rent", async () => {
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-start"));
     await screen.findByRole("heading", { name: /Pick today's ride/i });
 
-    // The bike is owned and pre-selected; the day starts without rent.
+    expect(screen.getByTestId("garage-vehicle-motorbike")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("garage-vehicle-bicycle")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    // Preselected, not forced: the free bike is one click away and startable.
+    fireEvent.click(screen.getByTestId("garage-vehicle-bicycle"));
+    expect(screen.getByTestId("garage-vehicle-bicycle")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("remembers the ride across a reload, and persists the pick as it is made", async () => {
+    seedProgressWithCareer(careerIn("uk-london", 31, { cash: 100 }));
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+
+    fireEvent.click(screen.getByTestId("garage-vehicle-sport-sedan"));
+    expect(storedVehicleId()).toBe("sport-sedan");
+
+    // A reload: same storage, a brand-new app with no memory of the session.
+    cleanup();
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    expect(screen.getByTestId("garage-vehicle-sport-sedan")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("re-prices a remembered ride it can no longer afford, and keeps the demotion", async () => {
+    // Left holding the sports car, resumed on £20: its £38 rent is gone, the
+    // £26 van would leave less than the £3 fee, the £16 hatch clears it.
+    seedProgressWithCareer(
+      careerIn("uk-london", 33, { cash: 20 }),
+      "sport-sedan",
+    );
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+
+    expect(screen.getByTestId("garage-vehicle-compact-hatch")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // The day must be startable on whatever the garage put you in.
+    expect(screen.getByTestId("garage-start-day")).toBeEnabled();
+    // The walk-down is written through, so the garage never climbs back into
+    // the sports car on its own once the balance recovers.
+    expect(storedVehicleId()).toBe("compact-hatch");
+  });
+
+  it("keeps today's ride for tomorrow when the night's reckoning leaves it in reach", async () => {
+    seedProgressWithCareer(careerIn("uk-london", 44, { cash: 200 }));
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+
+    fireEvent.click(screen.getByTestId("garage-vehicle-delivery-van"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+    fireEvent.click(screen.getByTestId("mock-hud-end"));
+
+    fireEvent.click(await screen.findByTestId("ledger-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    // 200 − 26 rent − 3 fee = 171: the van is still affordable, so it stands.
+    expect(screen.getByTestId("garage-vehicle-delivery-van")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("rides day 1 on your own bicycle: free, fuel-less, deliveries-only", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+
+    // The bike is owned, so the day starts without rent.
     const bikeCard = screen.getByTestId("garage-vehicle-bicycle");
     expect(bikeCard).toBeEnabled();
-    expect(bikeCard).toHaveAttribute("aria-pressed", "true");
     expect(bikeCard).toHaveTextContent(/no fuel needed/i);
+    fireEvent.click(bikeCard);
 
     fireEvent.click(screen.getByTestId("garage-start-day"));
     const scene = await screen.findByLabelText("Mock driving scene");
@@ -374,8 +475,8 @@ describe("career mode flow", () => {
     await screen.findByLabelText("Mock driving scene");
 
     fireEvent.click(screen.getByTestId("mock-fine"));
-    // 20 - 12 rent - 8 fine = 0.
-    expect(screen.getByTestId("day-cash")).toHaveTextContent("$0.00");
+    // 20 - 16 rent - 8 fine = -4.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$4.00");
 
     const raw = JSON.parse(
       window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
@@ -397,12 +498,12 @@ describe("career mode flow", () => {
     expect(
       await screen.findByRole("heading", { name: /The day's reckoning/i }),
     ).toBeVisible();
-    expect(screen.getByTestId("ledger-rent_info")).toHaveTextContent("$12.00");
+    expect(screen.getByTestId("ledger-rent_info")).toHaveTextContent("$16.00");
     expect(screen.getByTestId("ledger-fines")).toHaveTextContent("$8.00");
     expect(screen.getByTestId("ledger-platform_fee")).toHaveTextContent("$3.00");
-    // 0 cash − 3 fee = −3 shortfall → loan ceil(3 × 1.15) = 4.
+    // −4 cash − 3 fee = −7 shortfall → loan ceil(7 × 1.15) = 9.
     expect(screen.getByTestId("ledger-loan_origination")).toHaveTextContent(
-      "$4.00",
+      "$9.00",
     );
     expect(screen.getByTestId("ledger-closing_balance")).toHaveTextContent(
       "$0.00",
@@ -411,14 +512,14 @@ describe("career mode flow", () => {
     const settled = activeCity(storedCareer() as CareerSliceV2);
     expect(settled.day).toBe(2);
     expect(settled.cash).toBe(0);
-    expect(settled.loan).toEqual({ principalRemaining: 4, daysRemaining: 3 });
+    expect(settled.loan).toEqual({ principalRemaining: 9, daysRemaining: 3 });
 
     fireEvent.click(screen.getByTestId("ledger-continue"));
     expect(
       await screen.findByRole("heading", { name: /Pick today's ride/i }),
     ).toBeVisible();
     expect(screen.getByTestId("forecast-installment")).toHaveTextContent(
-      "$2.00",
+      "$3.00",
     );
   });
 
@@ -482,9 +583,9 @@ describe("career mode flow", () => {
     const scene = await screen.findByLabelText("Mock driving scene");
     expect(scene).toHaveAttribute("data-player-model", "default"); // composed, not a registry car
     expect(scene).toHaveAttribute("data-visual-kind", "motorbike");
-    expect(scene).toHaveAttribute("data-max-speed", "24");
-    // Rent prepaid (50 - 8), and the 12 L tank gets a fuel gauge.
-    expect(screen.getByTestId("day-cash")).toHaveTextContent("£42.00");
+    expect(scene).toHaveAttribute("data-max-speed", "28.4704");
+    // Rent prepaid (50 - 10), and the 12 L tank gets a fuel gauge.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("£40.00");
     expect(screen.getByText(/^Fuel$/)).toBeInTheDocument();
 
     await endDayEarly();
@@ -507,7 +608,7 @@ describe("career mode flow", () => {
 
     const scene = await screen.findByLabelText("Mock driving scene");
     expect(scene).toHaveAttribute("data-player-model", "delivery-van");
-    expect(scene).toHaveAttribute("data-max-speed", "19");
+    expect(scene).toHaveAttribute("data-max-speed", "23.4704");
 
     await endDayEarly();
     await screen.findByRole("heading", { name: /Pick today's ride/i });
@@ -567,7 +668,7 @@ describe("career mode flow", () => {
   it("buys any vehicle from its own card, without selecting it first", async () => {
     seedProgressWithCareer(
       careerIn("uk-london", 21, {
-        cash: 200,
+        cash: 260,
         day: 5,
         // Debt is deliberately no gate on buying.
         loan: { principalRemaining: 40, daysRemaining: 3 },
@@ -579,13 +680,13 @@ describe("career mode flow", () => {
 
     // Every eligible vehicle prices itself; the bike is not for sale.
     expect(screen.getByTestId("garage-buy-compact-hatch")).toHaveTextContent(
-      "£180.00",
+      "£240.00",
     );
     expect(screen.getByTestId("garage-buy-motorbike")).toHaveTextContent(
-      "£120.00",
+      "£150.00",
     );
     expect(screen.queryByTestId("garage-buy-bicycle")).toBeNull();
-    // £200 covers the motorbike and the hatch, not the van at £300.
+    // £260 covers the motorbike and the hatch, not the van at £390.
     expect(screen.getByTestId("garage-buy-delivery-van")).toBeDisabled();
 
     // Take the motorbike out for the day, then buy the *hatch*. The old flow
@@ -669,10 +770,10 @@ describe("career mode flow", () => {
     await screen.findByRole("heading", { name: /Pick today's ride/i });
     expect(screen.getByTestId("garage-cash")).toHaveTextContent("¥3,000");
     expect(screen.getByTestId("garage-vehicle-compact-hatch")).toHaveTextContent(
-      "¥1,200",
+      "¥1,600",
     );
     expect(screen.getByTestId("garage-buy-compact-hatch")).toHaveTextContent(
-      "¥18,000",
+      "¥24,000",
     );
     const flown = storedCareer() as CareerSliceV2;
     expect(flown.currentDestinationId).toBe("jp-tokyo");
@@ -705,8 +806,8 @@ describe("career mode flow", () => {
     fireEvent.click(screen.getByTestId("garage-start-day"));
     const scene = await screen.findByLabelText("Mock driving scene");
 
-    // 20 - 12 rent = 8 before the tank runs dry.
-    expect(screen.getByTestId("day-cash")).toHaveTextContent("$8.00");
+    // 20 - 16 rent = 4 before the tank runs dry.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("$4.00");
     fireEvent.click(screen.getByTestId("mock-drain"));
 
     // The rescue stages itself the moment the tank hits zero.
@@ -714,9 +815,9 @@ describe("career mode flow", () => {
     expect(screen.getByText(/roadside service/i)).toBeVisible();
 
     // The pump event bills the full 40 L at 1.5x plus the call-out fee:
-    // round(40 x 0.40 x 1.5) + 10 = 34 -> 8 - 34 = -26.
+    // round(40 x 0.40 x 1.5) + 10 = 34 -> 4 - 34 = -30.
     fireEvent.click(screen.getByTestId("mock-scene-pump"));
-    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$26.00");
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$30.00");
 
     fireEvent.click(screen.getByTestId("mock-scene-done"));
     expect(scene).toHaveAttribute("data-cutscene-kind", "none");

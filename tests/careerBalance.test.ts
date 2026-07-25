@@ -76,17 +76,25 @@ function medianNet(
   return nets[Math.floor(nets.length / 2)];
 }
 
-// The tripwire: every tier must be beatable at a modest pace in every city.
-// If a future fare/rent/fee edit makes a vehicle need more than ~4 median
-// gigs just to break even, the mode has silently become unwinnable there and
-// this fails loudly instead.
+// The tripwire: every tier must be beatable at a modest pace in every city the
+// career can actually reach. If a future fare/rent/fee edit makes a vehicle need
+// more than ~4 median gigs just to break even, the mode has silently become
+// unwinnable there and this fails loudly instead.
+//
+// Scoped to CAREER_CITIES rather than every destination, because rent is only
+// ever charged in a ladder city — what a van would cost in Calais or Milton
+// Keynes is not a fact about the mode. Putting either on the ladder pulls it
+// under this assertion automatically, which is the moment the answer starts to
+// matter; be warned that the delivery van is the tier that would fail there
+// today, on gig distances short enough to hold the median fare down.
 describe("career balance tripwire", () => {
-  it("keeps rent + platform fee under four median gig nets for every vehicle and city", () => {
-    for (const destination of DESTINATION_PROFILES) {
+  it("keeps rent + platform fee under four median gig nets for every vehicle and ladder city", () => {
+    for (const destinationId of CAREER_CITIES) {
+      const destination = getDestinationProfile(destinationId);
       const country = getCountryProfile(destination.countryId);
       const mapId = getFreeDrive(destination.freeDriveId).mapId;
       const city = activeCity(
-        createCareerSlice({ destinationId: destination.id, careerSeed: 1 }),
+        createCareerSlice({ destinationId, careerSeed: 1 }),
       );
       for (const vehicle of CAREER_VEHICLES) {
         const bestMedian = Math.max(

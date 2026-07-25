@@ -16,6 +16,7 @@ import {
   activeCity,
   applySettlement,
   createCareerSlice,
+  DEFAULT_GARAGE_VEHICLE_ID,
   emptyDayLog,
   settleDay,
 } from "../app/game/career";
@@ -192,6 +193,29 @@ describe("career slice persistence", () => {
     const restored = loadProgress(storage);
     expect(restored.career).toBeNull();
     expect(restored.walletByCountry).toEqual(STARTING_WALLET_BY_COUNTRY);
+  });
+
+  it("carries the remembered garage vehicle through a save, defaulting an absent or bogus one", () => {
+    const storage = memoryStorage();
+    const picked = { ...createDefaultProgress(), lastCareerVehicleId: "delivery-van" as const };
+    saveProgress(picked, storage);
+    // migrateProgress runs on save as well as load: a field it does not know
+    // about is stripped on the way out, so this is what proves it knows.
+    expect(loadProgress(storage).lastCareerVehicleId).toBe("delivery-van");
+
+    const legacy = createDefaultProgress() as unknown as Record<string, unknown>;
+    delete legacy.lastCareerVehicleId;
+    expect(
+      loadProgress(memoryStorage({ "sideswap:v2": JSON.stringify(legacy) }))
+        .lastCareerVehicleId,
+    ).toBe(DEFAULT_GARAGE_VEHICLE_ID);
+    expect(
+      loadProgress(
+        memoryStorage({
+          "sideswap:v2": JSON.stringify({ ...legacy, lastCareerVehicleId: "hovercraft" }),
+        }),
+      ).lastCareerVehicleId,
+    ).toBe(DEFAULT_GARAGE_VEHICLE_ID);
   });
 
   it("surfaces a hand-tampered slice as corrupt, and the marker survives a save", () => {

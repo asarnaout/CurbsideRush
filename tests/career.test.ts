@@ -29,7 +29,9 @@ import {
   computeCareerChecksum,
   createCareerSlice,
   DAY_LENGTH_MS,
+  DEFAULT_GARAGE_VEHICLE_ID,
   emptyDayLog,
+  garageDefaultVehicle,
   getCareerVehicle,
   gigParMs,
   LOAN_ORIGINATION_RATE,
@@ -894,9 +896,11 @@ describe("vehicle catalog invariants", () => {
     }
   });
 
-  it("pins the hatch physics to the simulation's documented defaults", () => {
+  it("pins the hatch physics to the simulation's defaults, bar the speed uplift", () => {
     expect(getCareerVehicle("compact-hatch").physics).toEqual({
-      maxForwardSpeedMps: 22,
+      // 22 (the core's default) + 10 mph, the uplift every motorised career
+      // vehicle carries. The handling model below is still the reference.
+      maxForwardSpeedMps: 26.4704,
       maxReverseSpeedMps: 7,
       forwardAccelMps2: 5.6,
       reverseAccelMps2: 4.1,
@@ -966,7 +970,7 @@ describe("rent and buyout", () => {
     const hatch = getCareerVehicle("compact-hatch");
     const city = activeCity(slice);
     expect(vehicleRent(getCareerVehicle("bicycle"), city)).toBe(0);
-    expect(vehicleRent(hatch, city)).toBe(1200);
+    expect(vehicleRent(hatch, city)).toBe(1600);
     expect(
       vehicleRent(hatch, { ...city, ownedVehicleIds: ["compact-hatch"] }),
     ).toBe(0);
@@ -984,13 +988,13 @@ describe("rent and buyout", () => {
     const nyc = createCityState("us");
     expect(
       vehicleRent(hatch, { ...nyc, destinationId: "us-nyc", countryId: "us" }),
-    ).toBe(12);
+    ).toBe(16);
   });
 
   it("prices buyout at the rent multiplier", () => {
     const hatch = getCareerVehicle("compact-hatch");
-    expect(buyoutPrice(hatch, "us")).toBe(12 * BUYOUT_RENT_MULTIPLIER);
-    expect(buyoutPrice(hatch, "jp")).toBe(1200 * BUYOUT_RENT_MULTIPLIER);
+    expect(buyoutPrice(hatch, "us")).toBe(16 * BUYOUT_RENT_MULTIPLIER);
+    expect(buyoutPrice(hatch, "jp")).toBe(1600 * BUYOUT_RENT_MULTIPLIER);
   });
 
   it("gates a purchase on cash and nothing else", () => {
@@ -1093,5 +1097,95 @@ describe("createCareerSlice", () => {
 
   it("keeps the day length constant sane", () => {
     expect(DAY_LENGTH_MS).toBe(360_000);
+  });
+});
+
+describe("garageDefaultVehicle", () => {
+  // Every case is priced in a US city: fee 3, rents 0/10/16/26/38.
+  const base = createCareerSlice({ destinationId: "us-nyc", careerSeed: 1 });
+  const nyc = (patch: Partial<CareerCityState> = {}) =>
+    activeCity(withCity(base, "us-nyc", { ...activeCity(base), ...patch }));
+
+  it("keeps a pick the day can start on, rich or poor", () => {
+    expect(garageDefaultVehicle(nyc({ cash: 400 }), "sport-sedan")).toBe(
+      "sport-sedan",
+    );
+    // Exactly the rent is startable, and the Start Day button agrees, so the
+    // garage must not second-guess it even with the fee still to come.
+    expect(garageDefaultVehicle(nyc({ cash: 38 }), "sport-sedan")).toBe(
+      "sport-sedan",
+    );
+  });
+
+  it("walks down to the dearest ride still within the day's means", () => {
+    // 31 misses the sports car; the van at 26 leaves 5 against a 3 fee.
+    expect(garageDefaultVehicle(nyc({ cash: 31 }), "sport-sedan")).toBe(
+      "delivery-van",
+    );
+    expect(garageDefaultVehicle(nyc({ cash: 20 }), "sport-sedan")).toBe(
+      "compact-hatch",
+    );
+    expect(garageDefaultVehicle(nyc({ cash: 15 }), "sport-sedan")).toBe(
+      "motorbike",
+    );
+    expect(garageDefaultVehicle(nyc({ cash: 12 }), "sport-sedan")).toBe(
+      "bicycle",
+    );
+  });
+
+  it("never walks up: the fallback is capped at what was asked for", () => {
+    expect(garageDefaultVehicle(nyc({ cash: 400 }), "motorbike")).toBe(
+      "motorbike",
+    );
+    // Flush, but the bike is what was chosen and the bike is what it keeps.
+    expect(garageDefaultVehicle(nyc({ cash: 400 }), "bicycle")).toBe("bicycle");
+  });
+
+  it("budgets the fallback against the fee and tonight's installment", () => {
+    const indebted = nyc({
+      cash: 31,
+      loan: { principalRemaining: 30, daysRemaining: 3 },
+    });
+    // Installment is ceil(30/3) = 10, so 13 is due before any rent: the van at
+    // 26 would leave 5 and end the day short. Rent alone would have taken it.
+    expect(nextInstallment(indebted.loan as CareerLoan)).toBe(10);
+    expect(garageDefaultVehicle(indebted, "sport-sedan")).toBe("compact-hatch");
+  });
+
+  it("falls to the bicycle when nothing clears the obligations", () => {
+    expect(garageDefaultVehicle(nyc({ cash: 0 }), "sport-sedan")).toBe(
+      "bicycle",
+    );
+    // Not even the free bike covers the fee here — it is still the answer,
+    // because there is nothing cheaper to fall to.
+    expect(
+      garageDefaultVehicle(
+        nyc({ cash: 2, loan: { principalRemaining: 90, daysRemaining: 3 } }),
+        "delivery-van",
+      ),
+    ).toBe("bicycle");
+  });
+
+  it("prefers a vehicle owned outright over the bicycle it ties with on rent", () => {
+    const owned = nyc({ cash: 4, ownedVehicleIds: ["delivery-van"] });
+    // Both rent at 0 and both clear the 3 fee; the van is the better ride.
+    expect(vehicleRent(getCareerVehicle("delivery-van"), owned)).toBe(0);
+    expect(garageDefaultVehicle(owned, "sport-sedan")).toBe("delivery-van");
+  });
+
+  it("nominates a ride a new career's float can actually take", () => {
+    for (const destinationId of CAREER_CITIES) {
+      const city = activeCity(
+        createCareerSlice({ destinationId, careerSeed: 1 }),
+      );
+      const opening = garageDefaultVehicle(city, DEFAULT_GARAGE_VEHICLE_ID);
+      expect(opening, `${destinationId} cannot open on its default`).toBe(
+        DEFAULT_GARAGE_VEHICLE_ID,
+      );
+      expect(city.cash).toBeGreaterThanOrEqual(
+        vehicleRent(getCareerVehicle(opening), city) +
+          PLATFORM_FEE_BY_COUNTRY[city.countryId],
+      );
+    }
   });
 });

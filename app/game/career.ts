@@ -102,7 +102,11 @@ export const TICKET_PRICE_BY_DESTINATION: Readonly<
   "jp-tokyo": 40_000,
 };
 
-/** Seed cash: about one sedan rent plus change — day 1 is a bike day. */
+/**
+ * Seed cash: about one sedan rent plus change. It must stay above the motorbike
+ * rent — that is what the fresh-career garage preselects, falling back to the
+ * free bicycle only if this float ever drops below it.
+ */
 export const CAREER_STARTING_CASH_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 20,
   uk: 20,
@@ -139,9 +143,12 @@ export type CareerVehicleId =
 
 /**
  * Mirrors the optional player-physics fields on SimulationCoreConfig. The
- * compact sedan must stay exactly equal to the simulation's defaults — it is
- * the reference vehicle, and equality is what keeps the deterministic
- * acceptance replay untouched by career work.
+ * compact sedan stays equal to the simulation's defaults in every field but
+ * top speed — it is the reference vehicle, and holding the rest of the handling
+ * model identical is what keeps the deterministic acceptance replay untouched
+ * by career work. Only `maxForwardSpeedMps` departs, by the same +10 mph every
+ * motorised career vehicle carries; the simulation's own default is still 22,
+ * so free drive is unmoved.
  */
 export interface CareerVehiclePhysics {
   readonly maxForwardSpeedMps: number;
@@ -184,9 +191,12 @@ export interface CareerVehicleSpec {
   readonly physics: CareerVehiclePhysics;
 }
 
-/** The simulation's current player-physics literals, verbatim. */
+/**
+ * The simulation's current player-physics literals, verbatim but for the top
+ * speed: 22 m/s plus the catalog-wide 10 mph (4.4704 m/s) uplift.
+ */
 const HATCH_PHYSICS: CareerVehiclePhysics = {
-  maxForwardSpeedMps: 22,
+  maxForwardSpeedMps: 26.4704,
   maxReverseSpeedMps: 7,
   forwardAccelMps2: 5.6,
   reverseAccelMps2: 4.1,
@@ -205,9 +215,12 @@ const HATCH_PHYSICS: CareerVehiclePhysics = {
 
 /**
  * Rent ascending = risk ascending: pricier vehicles must out-earn their rent,
- * so the garage choice is the difficulty select. Balance intent: each vehicle
- * breaks even at ~2 completed gigs/day and profits at 3+; the sports car only
- * pays off on 4+ on-time passenger fares.
+ * so the garage choice is the difficulty select. Balance intent, measured in
+ * median gigs needed to clear rent + the platform fee: the two-wheelers and the
+ * sedan land under 2.5 across the ladder, the sports car near 2 (passenger
+ * fares carry it), and the delivery van is the tightest tier at ~3.6 in London
+ * — deliveries only, on a rent the sports car's fares would shrug off.
+ * `careerBalance.test.ts` holds the ceiling at 4 and fails loudly past it.
  */
 export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
   {
@@ -248,16 +261,16 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: null,
     visualKind: "motorbike",
     owned: false,
-    rentByCountry: { us: 8, uk: 8, fr: 10, jp: 800 },
+    rentByCountry: { us: 10, uk: 10, fr: 13, jp: 1000 },
     buyoutEligible: true,
     tankL: 12,
-    fuelLPerM: 0.0009,
+    fuelLPerM: 0.00135,
     fuelPriceFactor: 1,
     allowedGigKinds: ["delivery"],
     fareFactors: { delivery: 1.1, passenger: 1 },
     paceFactor: 1.15,
     physics: {
-      maxForwardSpeedMps: 24,
+      maxForwardSpeedMps: 28.4704,
       maxReverseSpeedMps: 3,
       forwardAccelMps2: 6.8,
       reverseAccelMps2: 2.5,
@@ -283,10 +296,10 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: "compact-hatch",
     visualKind: "car",
     owned: false,
-    rentByCountry: { us: 12, uk: 12, fr: 15, jp: 1200 },
+    rentByCountry: { us: 16, uk: 16, fr: 20, jp: 1600 },
     buyoutEligible: true,
     tankL: 40,
-    fuelLPerM: 0.002,
+    fuelLPerM: 0.003,
     fuelPriceFactor: 1,
     allowedGigKinds: ["delivery", "passenger"],
     fareFactors: { delivery: 1, passenger: 1 },
@@ -299,16 +312,16 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: "delivery-van",
     visualKind: "car",
     owned: false,
-    rentByCountry: { us: 20, uk: 20, fr: 25, jp: 2000 },
+    rentByCountry: { us: 26, uk: 26, fr: 33, jp: 2600 },
     buyoutEligible: true,
     tankL: 70,
-    fuelLPerM: 0.0032,
+    fuelLPerM: 0.0048,
     fuelPriceFactor: 1,
     allowedGigKinds: ["delivery"],
     fareFactors: { delivery: 1.5, passenger: 1 },
     paceFactor: 0.92,
     physics: {
-      maxForwardSpeedMps: 19,
+      maxForwardSpeedMps: 23.4704,
       maxReverseSpeedMps: 6,
       forwardAccelMps2: 4.6,
       reverseAccelMps2: 3.4,
@@ -331,16 +344,16 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: "sport-sedan",
     visualKind: "car",
     owned: false,
-    rentByCountry: { us: 32, uk: 32, fr: 40, jp: 3200 },
+    rentByCountry: { us: 38, uk: 38, fr: 48, jp: 3800 },
     buyoutEligible: true,
     tankL: 45,
-    fuelLPerM: 0.0035,
+    fuelLPerM: 0.00525,
     fuelPriceFactor: 1.4,
     allowedGigKinds: ["delivery", "passenger"],
     fareFactors: { delivery: 1, passenger: 1.6 },
     paceFactor: 1.25,
     physics: {
-      maxForwardSpeedMps: 27,
+      maxForwardSpeedMps: 31.4704,
       maxReverseSpeedMps: 8,
       forwardAccelMps2: 7.4,
       reverseAccelMps2: 5,
@@ -478,6 +491,10 @@ const VEHICLE_IDS: readonly CareerVehicleId[] = CAREER_VEHICLES.map(
   (vehicle) => vehicle.id,
 );
 
+export function isCareerVehicleId(value: unknown): value is CareerVehicleId {
+  return VEHICLE_IDS.includes(value as CareerVehicleId);
+}
+
 /**
  * Deterrence, not security: the salt ships in the bundle and anyone who reads
  * it can forge a save. It exists to stop casual localStorage edits only.
@@ -565,9 +582,7 @@ const isCityState = (value: unknown): value is CareerCityState => {
     (value.loan === null || isLoan(value.loan)) &&
     typeof value.finalNotice === "boolean" &&
     Array.isArray(value.ownedVehicleIds) &&
-    value.ownedVehicleIds.every((id) =>
-      VEHICLE_IDS.includes(id as CareerVehicleId),
-    ) &&
+    value.ownedVehicleIds.every(isCareerVehicleId) &&
     isStats(value.stats)
   );
 };
@@ -814,6 +829,61 @@ export function ownsVehicle(
   vehicle: CareerVehicleSpec,
 ): boolean {
   return vehicle.owned || city.ownedVehicleIds.includes(vehicle.id);
+}
+
+/**
+ * What a garage with no history opens on: a new career's day 1, and every
+ * fresh sheet that follows one (flying in on a ticket, or a bankruptcy wipe).
+ * The bicycle is free but slow enough that clicking past it was every driver's
+ * first move; the motorbike is the cheapest ride that actually earns, and
+ * `CAREER_STARTING_CASH_BY_COUNTRY` is held above its rent so this stands.
+ */
+export const DEFAULT_GARAGE_VEHICLE_ID: CareerVehicleId = "motorbike";
+
+/**
+ * The ride a garage should open on, given what the driver last chose.
+ *
+ * Their pick stands whenever the day can start on it — the same `cash >= rent`
+ * test the Start Day button uses — so the garage never demotes a selection they
+ * could have made by hand. Only a pick that is out of reach makes this walk
+ * *down* the catalog, to the dearest vehicle still within the day's means. It
+ * can lower a selection but never raise one, which is the whole point: an
+ * automatic upgrade would silently put a driver in a car they never chose, on
+ * the morning their balance is highest and the rent hurts most.
+ *
+ * The walk budgets against everything tonight will charge — rent, the platform
+ * fee, any loan installment — not rent alone. Defaulting someone onto a vehicle
+ * whose rent by itself clears their balance hands them a day that is already
+ * short at the whistle, and under `grace` with the final notice standing that
+ * shortfall costs them the city. The owned bicycle rents at 0 and is the floor:
+ * when not even it covers the obligations it is still the answer, because there
+ * is nothing cheaper to fall to.
+ *
+ * Walking by catalog position rather than by price is deliberate. The order is
+ * ascending rent *and* ascending capability, and the two only part company for
+ * a vehicle bought outright — which rents at 0 yet is still the better ride, so
+ * an owned van must beat the bicycle it now ties with on price.
+ */
+export function garageDefaultVehicle(
+  city: CareerCityView,
+  preferred: CareerVehicleId,
+): CareerVehicleId {
+  if (city.cash >= vehicleRent(getCareerVehicle(preferred), city)) {
+    return preferred;
+  }
+  const obligations =
+    PLATFORM_FEE_BY_COUNTRY[city.countryId] +
+    (city.loan === null ? 0 : nextInstallment(city.loan));
+  const ceiling = CAREER_VEHICLES.findIndex(
+    (vehicle) => vehicle.id === preferred,
+  );
+  for (let index = ceiling - 1; index >= 0; index -= 1) {
+    const vehicle = CAREER_VEHICLES[index];
+    if (city.cash - vehicleRent(vehicle, city) >= obligations) {
+      return vehicle.id;
+    }
+  }
+  return "bicycle";
 }
 
 // ---------------------------------------------------------------------------
