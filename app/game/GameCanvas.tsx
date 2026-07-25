@@ -3641,8 +3641,12 @@ class BabylonGameSession {
   };
   // updateCamera scratch, reused every frame so the camera path allocates
   // nothing. The target scratch is retained by setTarget between frames
-  // (ArcRotate keeps the reference); that is safe because it is fully
-  // rewritten before every setTarget call.
+  // (ArcRotate keeps the reference) — which is exactly why every setTarget
+  // call here passes allowSamePosition=true: setTarget's change check is
+  // `currentTarget.equals(newTarget)`, and against its own retained object
+  // that is always true, so without the flag it never rebuilds the
+  // spherical state and _getViewMatrix clobbers every position write with
+  // the stale pose (the camera froze at its construction offset).
   private readonly cameraForwardScratch = new Vector3();
   private readonly cameraRightScratch = new Vector3();
   private readonly cameraBaseScratch = new Vector3();
@@ -3866,6 +3870,7 @@ class BabylonGameSession {
     this.thirdCamera.maxZ = this.cameraFarPlaneM;
     this.firstCamera.maxZ = this.cameraFarPlaneM;
     this.rearCamera.maxZ = this.cameraFarPlaneM;
+    this.snapChaseCameraToPose();
 
     this.createEffectsPipeline();
     this.setCameraMode(this.cameraMode, false);
@@ -4116,6 +4121,7 @@ class BabylonGameSession {
     this.displayedX = this.playerState.x;
     this.displayedZ = this.playerState.z;
     this.displayedHeading = this.playerState.heading;
+    this.snapChaseCameraToPose();
     if (incidentMessage) {
       this.instruction = incidentMessage;
       this.setPaused(true);
@@ -7214,6 +7220,40 @@ class BabylonGameSession {
     }
   }
 
+  /**
+   * Pins the chase camera to its steady-state pose behind the car. Used at
+   * construction and on pose teleports (tow reset): the per-frame smoothing
+   * would otherwise glide the camera in from wherever it last stood — at
+   * session start that is the ArcRotate construction pose near the map
+   * origin, a cross-map swoop. The deleted upperRadiusLimit used to mask
+   * the construction case by yanking the camera to within 16m of the target
+   * on the first setTarget; this does the job on purpose instead.
+   */
+  private snapChaseCameraToPose() {
+    const chase =
+      (this.options.playerVehicle?.model &&
+        CHASE_TUNING_BY_MODEL[this.options.playerVehicle.model]) ||
+      DEFAULT_CHASE_TUNING;
+    const forward = this.cameraForwardScratch.set(
+      Math.sin(this.displayedHeading),
+      0,
+      Math.cos(this.displayedHeading),
+    );
+    const base = this.cameraBaseScratch.set(
+      this.displayedX,
+      0.12,
+      this.displayedZ,
+    );
+    const target = this.cameraTargetScratch.copyFrom(base);
+    forward.scaleAndAddToRef(chase.targetAheadM, target);
+    target.y += 1.05;
+    const desired = this.cameraDesiredScratch.copyFrom(base);
+    forward.scaleAndAddToRef(-chase.backM, desired);
+    desired.y += chase.upM;
+    this.thirdCamera.position.copyFrom(desired);
+    this.thirdCamera.setTarget(target, undefined, true);
+  }
+
   private updateCamera(dt: number) {
     const routeHeading =
       this.playerState.speedMps < 0.2
@@ -7259,7 +7299,14 @@ class BabylonGameSession {
           this.thirdCamera.position,
         );
       }
-      this.thirdCamera.setTarget(this.activeCutscene.cameraTarget);
+      // allowSamePosition: see the camera scratch fields — without it a
+      // retained target object suppresses the spherical rebuild and the
+      // position writes above are clobbered.
+      this.thirdCamera.setTarget(
+        this.activeCutscene.cameraTarget,
+        undefined,
+        true,
+      );
     } else if (this.cameraMode === "first") {
       const seatSide = this.options.steeringSide === "left" ? -0.46 : 0.46;
       const headBob =
@@ -7327,7 +7374,10 @@ class BabylonGameSession {
           this.thirdCamera.position,
         );
       }
-      this.thirdCamera.setTarget(target);
+      // allowSamePosition: see the camera scratch fields — without it the
+      // reused target scratch suppresses the spherical rebuild and the
+      // position write above is clobbered by the stale pose.
+      this.thirdCamera.setTarget(target, undefined, true);
     }
 
     // Impact kick: a short decaying jolt on top of whichever camera is live,
