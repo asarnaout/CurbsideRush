@@ -1050,35 +1050,39 @@ interface NycRoadSpec {
    * Riverside Drive is the short one, starting at 72nd as it really does.
    */
   readonly crossings?: readonly string[];
-  /**
-   * Crossing key whose outgoing span is numbered 1 travelling forward, and the
-   * same going backward. These exist only so the spans that were already
-   * authored keep the ids that venues, spawns and checkpoints refer to:
-   * extending West End south would otherwise renumber every lane on it.
-   */
-  readonly forwardAnchor: string;
-  readonly backwardAnchor: string;
 }
 
 /** West to east. */
 const NYC_AVENUES: readonly NycRoadSpec[] = [
   // Riverside Drive begins at 72nd, as it really does, so it skips the southern
   // rows and the grid's west edge steps in below them.
-  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "79", "86", "96"], forwardAnchor: "72", backwardAnchor: "96" },
-  { key: "we", nodeKey: "we", roadId: "nyc-west-end", coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1, forwardAnchor: "72", backwardAnchor: "86" },
-  { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1, forwardAnchor: "72", backwardAnchor: "86" },
-  { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2, forwardAnchor: "72", backwardAnchor: "86" },
-  { key: "col", nodeKey: "col", roadId: "nyc-columbus", coordinate: 180, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1, forwardAnchor: "72", backwardAnchor: "86" },
-  { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", coordinate: 320, widthM: 11, oneWay: null, lanesPerDirection: 1, forwardAnchor: "72", backwardAnchor: "86" },
+  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96"] },
+  { key: "we", nodeKey: "we", roadId: "nyc-west-end", coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
+  { key: "col", nodeKey: "col", roadId: "nyc-columbus", coordinate: 180, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1 },
+  { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", coordinate: 320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
 ];
 
-/** South to north. The two-way crosstowns are the ones that really are. */
+/**
+ * South to north. The wide two-way ones are the crosstown streets that really
+ * are two-way; between each pair runs a narrow side street, one-way, and
+ * alternating the way Manhattan's do — even numbers eastbound, odd westbound.
+ * They exist so there is somewhere to turn: without them the avenues run 480 m
+ * (six real blocks) between junctions.
+ */
 const NYC_STREETS: readonly NycRoadSpec[] = [
-  { key: "65", nodeKey: "65", roadId: "nyc-west-65", coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1, forwardAnchor: "we", backwardAnchor: "cpw" },
-  { key: "72", nodeKey: "72", roadId: "nyc-west-72", coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1, forwardAnchor: "we", backwardAnchor: "cpw" },
-  { key: "79", nodeKey: "79", roadId: "nyc-west-79", coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1, forwardAnchor: "we", backwardAnchor: "cpw" },
-  { key: "86", nodeKey: "86", roadId: "nyc-west-86", coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1, forwardAnchor: "we", backwardAnchor: "cpw" },
-  { key: "96", nodeKey: "96", roadId: "nyc-west-96", coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1, forwardAnchor: "we", backwardAnchor: "cpw" },
+  { key: "65", nodeKey: "65", roadId: "nyc-west-65", coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "68", nodeKey: "68", roadId: "nyc-west-68", coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
+  { key: "72", nodeKey: "72", roadId: "nyc-west-72", coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "75", nodeKey: "75", roadId: "nyc-west-75", coordinate: -240, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "79", nodeKey: "79", roadId: "nyc-west-79", coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  // W 82nd stops at Columbus: the museum and its grounds fill the block through
+  // to Central Park West, exactly as they interrupt the real street grid there.
+  { key: "82", nodeKey: "82", roadId: "nyc-west-82", coordinate: 240, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: ["riv", "we", "bway", "amst", "col"] },
+  { key: "86", nodeKey: "86", roadId: "nyc-west-86", coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "91", nodeKey: "91", roadId: "nyc-west-91", coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "96", nodeKey: "96", roadId: "nyc-west-96", coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
 ];
 
 interface NycGridLane {
@@ -1156,10 +1160,6 @@ function buildNycGrid(
       if (road.oneWay === "forward" && !forward) continue;
       if (road.oneWay === "backward" && forward) continue;
       const ordered = forward ? crossings : [...crossings].reverse();
-      const anchorAt = ordered.findIndex(
-        (cross) =>
-          cross.key === (forward ? road.forwardAnchor : road.backwardAnchor),
-      );
       for (let span = 0; span + 1 < ordered.length; span += 1) {
         const startCross = ordered[span];
         const endCross = ordered[span + 1];
@@ -1176,12 +1176,15 @@ function buildNycGrid(
         // Right-hand normal of the direction of travel — the driver's right.
         const rightX = Math.cos(headingRad);
         const rightZ = -Math.sin(headingRad);
-        const spanIndex = span - Math.max(0, anchorAt) + 1;
         for (let laneNo = 1; laneNo <= road.lanesPerDirection; laneNo += 1) {
+          // Named for the crossing the block starts at, in travel order, so an
+          // id says where it is and stays put when a new street splits the
+          // block next to it. Numbering the spans instead meant every lane on
+          // an avenue was renamed by inserting one street across it.
           const id =
             road.lanesPerDirection > 1
               ? `nyc-${road.key}-${letters[forward ? 0 : 1]}-${laneNo}-${startCross.key}`
-              : `nyc-${road.key}-${letters[forward ? 0 : 1]}-${spanIndex}`;
+              : `nyc-${road.key}-${letters[forward ? 0 : 1]}-${startCross.key}`;
           // A two-way road puts each direction on its own right; a multi-lane
           // one-way splits its lanes either side of the carriageway centre; a
           // single-lane one-way simply is the centreline.
@@ -1734,17 +1737,17 @@ export const MAP_PACKS: readonly MapPack[] = [
         // clear the carriageway plus the full 3.4 m concrete sidewalk (not the
         // 1.5 m authored shoulder) before its 11.64 m half-width starts — else the
         // forecourt slab bleeds onto the sidewalk.
-        { id: "nyc-gas", kind: "gas_station", anchor: { laneId: "nyc-72-e-1", distanceAlongM: 29 }, footprint: point(14, 9), label: "Broadway Fuel", setbackM: 18.7 },
+        { id: "nyc-gas", kind: "gas_station", anchor: { laneId: "nyc-72-e-we", distanceAlongM: 29 }, footprint: point(14, 9), label: "Broadway Fuel", setbackM: 18.7 },
       ],
       gigVenues: [
-        { id: "nyc-v1", kind: "restaurant", anchor: { laneId: "nyc-amst-n-1-72", distanceAlongM: 262 }, footprint: point(28, 20), name: "Amsterdam Diner", setbackM: 18 },
-        { id: "nyc-v2", kind: "shop", anchor: { laneId: "nyc-86-e-3", distanceAlongM: 70 }, footprint: point(16, 12), name: "West 86th Grocers" },
-        { id: "nyc-v3", kind: "residence", anchor: { laneId: "nyc-col-s-1-79", distanceAlongM: 445 }, footprint: point(14, 12), name: "Columbus Apartments" },
-        { id: "nyc-v4", kind: "office", anchor: { laneId: "nyc-we-n-2", distanceAlongM: 240 }, footprint: point(16, 14), name: "West End Offices" },
+        { id: "nyc-v1", kind: "restaurant", anchor: { laneId: "nyc-amst-n-1-75", distanceAlongM: 22 }, footprint: point(28, 20), name: "Amsterdam Diner", setbackM: 18 },
+        { id: "nyc-v2", kind: "shop", anchor: { laneId: "nyc-86-e-amst", distanceAlongM: 70 }, footprint: point(16, 12), name: "West 86th Grocers" },
+        { id: "nyc-v3", kind: "residence", anchor: { laneId: "nyc-col-s-1-75", distanceAlongM: 205 }, footprint: point(14, 12), name: "Columbus Apartments" },
+        { id: "nyc-v4", kind: "office", anchor: { laneId: "nyc-we-n-79", distanceAlongM: 200 }, footprint: point(16, 14), name: "West End Offices" },
         // A second kitchen, on the far side of the map from the diner, so
         // deliveries do not all start on Amsterdam. `modelId` gives it its own
         // building — two restaurants that look identical read as one place.
-        { id: "nyc-v5", kind: "restaurant", anchor: { laneId: "nyc-bway-n-1", distanceAlongM: 330 }, footprint: point(14, 14), name: "Broadway Pizzeria", modelId: "restaurant-pizzeria" },
+        { id: "nyc-v5", kind: "restaurant", anchor: { laneId: "nyc-bway-n-75", distanceAlongM: 90 }, footprint: point(14, 14), name: "Broadway Pizzeria", modelId: "restaurant-pizzeria" },
       ],
       landmarks: [
         // Kept clear of the carriageways (a content test enforces this).
@@ -1760,12 +1763,12 @@ export const MAP_PACKS: readonly MapPack[] = [
       nycSignals.map((signal) => signal.control),
       nycSignals.map((signal) => signal.zone),
       [
-        anchoredSpawn("nyc-player-1way", "player", "nyc-72-e-1", 30),
-        anchoredSpawn("nyc-player-signals", "player", "nyc-bway-n-1", 30),
-        anchoredSpawn("nyc-player-lane", "player", "nyc-we-n-1", 30),
-        anchoredSpawn("nyc-car-1", "vehicle", "nyc-bway-s-1", 130),
-        anchoredSpawn("nyc-car-2", "vehicle", "nyc-79-e-1", 60),
-        anchoredSpawn("nyc-car-3", "vehicle", "nyc-we-n-1", 130),
+        anchoredSpawn("nyc-player-1way", "player", "nyc-72-e-we", 30),
+        anchoredSpawn("nyc-player-signals", "player", "nyc-bway-n-72", 30),
+        anchoredSpawn("nyc-player-lane", "player", "nyc-we-n-72", 30),
+        anchoredSpawn("nyc-car-1", "vehicle", "nyc-bway-s-86", 130),
+        anchoredSpawn("nyc-car-2", "vehicle", "nyc-79-e-we", 60),
+        anchoredSpawn("nyc-car-3", "vehicle", "nyc-we-n-72", 130),
         anchoredSpawn("nyc-cab-4", "vehicle", "nyc-amst-n-1-72", 120),
         anchoredSpawn("nyc-car-5", "vehicle", "nyc-col-s-1-86", 120),
         freeSpawn("nyc-ped-1", "pedestrian", -100, 12, 0),
@@ -1773,20 +1776,20 @@ export const MAP_PACKS: readonly MapPack[] = [
         freeSpawn("nyc-ped-3", "pedestrian", 28, 12, 0),
         freeSpawn("nyc-ped-4", "pedestrian", 168, -12, 180),
         freeSpawn("nyc-ped-5", "pedestrian", -308, 10, 0),
-        freeSpawn("nyc-cyclist-1", "cyclist", -318, -200, 0, "nyc-we-n-1"),
+        freeSpawn("nyc-cyclist-1", "cyclist", -318, -200, 0, "nyc-we-n-72"),
         freeSpawn("nyc-cyclist-2", "cyclist", 38.3, -200, 0, "nyc-amst-n-1-72"),
       ],
       [
-        checkpoint("nyc-r1-start", "West 72nd & West End", "nyc-72-e-1", 30),
-        checkpoint("nyc-r1-amst", "Amsterdam Avenue northbound", "nyc-amst-n-1-72", 240),
-        checkpoint("nyc-r1-86", "West 86th Street", "nyc-86-e-3", 70),
-        checkpoint("nyc-r1-finish", "Columbus & 72nd", "nyc-col-s-1-79", 445),
-        checkpoint("nyc-r2-start", "Broadway & 72nd", "nyc-bway-n-1", 30),
-        checkpoint("nyc-r2-signal", "Broadway & 79th signal", "nyc-bway-n-1", 445),
-        checkpoint("nyc-r2-finish", "West 86th & Broadway", "nyc-86-w-4", 180),
-        checkpoint("nyc-r3-start", "West End & 72nd", "nyc-we-n-1", 30),
-        checkpoint("nyc-r3-mid", "West End & 79th", "nyc-we-n-2", 240),
-        checkpoint("nyc-r3-finish", "West 86th & Central Park West", "nyc-86-e-2", 145),
+        checkpoint("nyc-r1-start", "West 72nd & West End", "nyc-72-e-we", 30),
+        checkpoint("nyc-r1-amst", "Amsterdam Avenue northbound", "nyc-amst-n-1-75", 120),
+        checkpoint("nyc-r1-86", "West 86th Street", "nyc-86-e-amst", 70),
+        checkpoint("nyc-r1-finish", "Columbus & 72nd", "nyc-col-s-1-75", 205),
+        checkpoint("nyc-r2-start", "Broadway & 72nd", "nyc-bway-n-72", 30),
+        checkpoint("nyc-r2-signal", "Broadway & 79th signal", "nyc-bway-n-75", 205),
+        checkpoint("nyc-r2-finish", "West 86th & Broadway", "nyc-86-w-bway", 180),
+        checkpoint("nyc-r3-start", "West End & 72nd", "nyc-we-n-72", 30),
+        checkpoint("nyc-r3-mid", "West End & 79th", "nyc-we-n-79", 200),
+        checkpoint("nyc-r3-finish", "West 86th & Central Park West", "nyc-86-e-bway", 145),
       ],
     ),
   },

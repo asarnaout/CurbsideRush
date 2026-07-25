@@ -139,7 +139,14 @@ describe("road markings read the way a local driver expects", () => {
       // A one-way carriageway wide enough for two lanes divides them in white.
       // A single-lane side street has nothing to divide and stays unpainted —
       // a centre line on one would read as two-way, which is the whole bug.
-      if (lanes.length > 1) {
+      // Counted per block, not per road: a one-way street crossing five
+      // avenues carries five lanes end to end and still has one to drive in.
+      const perBlock = new Map<string, number>();
+      for (const lane of lanes) {
+        const key = `${lane.from}->${lane.to}`;
+        perBlock.set(key, (perBlock.get(key) ?? 0) + 1);
+      }
+      if (Math.max(...perBlock.values()) > 1) {
         expect(paint, surface.id).toEqual(["lane_dashed/white"]);
         multiLaneOneWayChecked += 1;
       } else {
@@ -228,23 +235,35 @@ describe("NYC junctions connect the way the asphalt suggests", () => {
           lane.centerline[1].x * Math.cos(heading) -
           lane.centerline[1].z * Math.sin(heading);
         const [inner, kerbside] = [...pair].sort((a, b) => offset(a) - offset(b));
+        // End to end, not segment to segment: a lane's last half-metre is the
+        // taper into the junction node and points nothing like the road does.
+        const turnsOff = (lane: LaneSegment) =>
+          lane.successors
+            .map((id) => byId.get(id)!)
+            .filter((next) => next.roadId !== lane.roadId)
+            .map((next) =>
+              signedTurn(
+                headingOf(lane.centerline[0], lane.centerline.at(-1)!),
+                headingOf(next.centerline[0], next.centerline.at(-1)!),
+              ) > 0
+                ? "right"
+                : "left",
+            );
+        const available = new Set([...turnsOff(inner), ...turnsOff(kerbside)]);
+        // The rule is about *choosing* between turns. Where the crossing street
+        // is one-way, the junction offers only one, and both lanes take it or
+        // neither does — insisting the inner lane turn left into a street that
+        // only runs east would be worse driving, not better.
+        if (available.size < 2) continue;
         for (const [lane, expected] of [
           [inner, "left"],
           [kerbside, "right"],
         ] as const) {
-          const leaving = lane.successors
-            .map((id) => byId.get(id)!)
-            .filter((next) => next.roadId !== lane.roadId);
-          expect(leaving.length, `${lane.id} turns off ${roadId}`).toBeGreaterThan(0);
-          // End to end, not segment to segment: a lane's last half-metre is the
-          // taper into the junction node and points nothing like the road does.
-          const turn = signedTurn(
-            headingOf(lane.centerline[0], lane.centerline.at(-1)!),
-            headingOf(leaving[0].centerline[0], leaving[0].centerline.at(-1)!),
-          );
+          const turns = turnsOff(lane);
+          expect(turns.length, `${lane.id} turns off ${roadId}`).toBeGreaterThan(0);
           expect(
-            turn > 0 ? "right" : "left",
-            `${lane.id} → ${leaving[0].id} should be its ${expected} turn`,
+            turns[0],
+            `${lane.id} should turn ${expected} out of ${roadId}`,
           ).toBe(expected);
         }
       }
