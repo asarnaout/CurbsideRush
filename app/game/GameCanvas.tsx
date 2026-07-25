@@ -3651,11 +3651,18 @@ class BabylonGameSession {
   private lastSimulationCoachMessage: string | null = null;
   private visualPalette: MapVisualPalette = resolveMapVisualPalette("orientation-yard");
   private shadowGenerator: ShadowGenerator | null = null;
-  private readonly staticShadowCasters: Array<{
-    mesh: AbstractMesh;
-    x: number;
-    z: number;
-  }> = [];
+  // Static shadow casters bucketed by cell, so the periodic refresh queries
+  // a ring instead of scanning every registered caster in the city. The
+  // static sublist and the final render list are persistent and rebuilt in
+  // place — the refresh allocates nothing in steady state.
+  private readonly shadowCasterCells = new Map<
+    string,
+    Array<{ mesh: AbstractMesh; x: number; z: number }>
+  >();
+  private readonly shadowStaticList: AbstractMesh[] = [];
+  private readonly shadowRenderList: AbstractMesh[] = [];
+  private shadowStaticAnchorX = Number.POSITIVE_INFINITY;
+  private shadowStaticAnchorZ = Number.POSITIVE_INFINITY;
   private shadowRefreshSeconds = Number.POSITIVE_INFINITY;
   private effectsPipeline: DefaultRenderingPipeline | null = null;
 
@@ -10331,18 +10338,68 @@ class BabylonGameSession {
   /** Static casters never move again, so their world matrices freeze here. */
   private registerShadowCaster(mesh: AbstractMesh, x: number, z: number) {
     mesh.freezeWorldMatrix();
-    this.staticShadowCasters.push({ mesh, x, z });
+    const cell = BabylonGameSession.SHADOW_CELL_M;
+    const key = `${Math.floor(x / cell)}:${Math.floor(z / cell)}`;
+    let bucket = this.shadowCasterCells.get(key);
+    if (!bucket) {
+      bucket = [];
+      this.shadowCasterCells.set(key, bucket);
+    }
+    bucket.push({ mesh, x, z });
   }
 
   private static readonly SHADOW_CASTER_RADIUS_M = 90;
+  private static readonly SHADOW_CELL_M = 45;
+  /** Distance the player must cover before the static sublist re-gathers. */
+  private static readonly SHADOW_STATIC_REARM_M = 20;
 
   private refreshShadowCasters() {
     const shadowMap = this.shadowGenerator?.getShadowMap();
     if (!shadowMap) return;
     const radius = BabylonGameSession.SHADOW_CASTER_RADIUS_M;
-    const list: AbstractMesh[] = this.playerVehicleVisual
-      ? [...this.playerVehicleVisual.shadowCasters]
-      : [...this.playerExterior.getChildMeshes()];
+    // Static casters re-gather only after real movement: within the 20m
+    // rearm the anchored ring is off by at most 20m at the 90m boundary,
+    // which fog and shadow softness swallow. Vehicle casters below refresh
+    // on every 0.5s tick regardless, so a car pulling up never lacks its
+    // shadow for long.
+    if (
+      Math.hypot(
+        this.displayedX - this.shadowStaticAnchorX,
+        this.displayedZ - this.shadowStaticAnchorZ,
+      ) >= BabylonGameSession.SHADOW_STATIC_REARM_M
+    ) {
+      this.shadowStaticAnchorX = this.displayedX;
+      this.shadowStaticAnchorZ = this.displayedZ;
+      this.shadowStaticList.length = 0;
+      const cell = BabylonGameSession.SHADOW_CELL_M;
+      const minCellX = Math.floor((this.displayedX - radius) / cell);
+      const maxCellX = Math.floor((this.displayedX + radius) / cell);
+      const minCellZ = Math.floor((this.displayedZ - radius) / cell);
+      const maxCellZ = Math.floor((this.displayedZ + radius) / cell);
+      for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+        for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+          const bucket = this.shadowCasterCells.get(`${cellX}:${cellZ}`);
+          if (!bucket) continue;
+          for (const caster of bucket) {
+            if (
+              Math.hypot(
+                caster.x - this.displayedX,
+                caster.z - this.displayedZ,
+              ) <= radius
+            ) {
+              this.shadowStaticList.push(caster.mesh);
+            }
+          }
+        }
+      }
+    }
+    const list = this.shadowRenderList;
+    list.length = 0;
+    if (this.playerVehicleVisual) {
+      list.push(...this.playerVehicleVisual.shadowCasters);
+    } else {
+      list.push(...this.playerExterior.getChildMeshes());
+    }
     for (const npc of this.npcVehicles) {
       if (npc.active === false) continue;
       const position = npc.node.position;
@@ -10351,14 +10408,7 @@ class BabylonGameSession {
       }
       list.push(...npc.visual.shadowCasters);
     }
-    for (const caster of this.staticShadowCasters) {
-      if (
-        Math.hypot(caster.x - this.displayedX, caster.z - this.displayedZ) <=
-        radius
-      ) {
-        list.push(caster.mesh);
-      }
-    }
+    for (const mesh of this.shadowStaticList) list.push(mesh);
     shadowMap.renderList = list;
   }
 
