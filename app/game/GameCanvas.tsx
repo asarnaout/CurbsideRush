@@ -1917,6 +1917,11 @@ const LANE_CENTER = 2.75;
 // session's perfSumMs/perfMaxMs arrays; the first four are per-fixed-step
 // stages, the rest per-rendered-frame, and drainPerfStats averages each over
 // its own denominator.
+// Caps the camera shake/bob phase rate: 12 m/s * 2.7 rad/m ≈ 5.2 Hz for the
+// chase shake (whose |sin| height term doubles that), ~3.6 Hz for head bob —
+// both comfortably under the 30 Hz Nyquist limit of 60 Hz sampling.
+const CAMERA_MOTION_SPEED_CAP_MPS = 12;
+
 const PERF_SIM_STEP = 0;
 const PERF_SNAPSHOT_APPLY = 1;
 const PERF_CROWD = 2;
@@ -6972,7 +6977,13 @@ class BabylonGameSession {
     );
     const right = new Vector3(forward.z, 0, -forward.x);
     const base = new Vector3(this.displayedX, 0.12, this.displayedZ);
-    this.cameraMotionSeconds += dt * this.playerState.speedMps;
+    // Shake/bob phase advances with distance covered, capped: uncapped, the
+    // chase shake's |sin| vertical term reached ~21 Hz at top speed — beyond
+    // what 60 Hz sampling can express, so it aliased into flicker instead of
+    // reading as speed. The cap pins it at ~5 Hz; amplitude still scales
+    // with true speed below.
+    this.cameraMotionSeconds +=
+      dt * Math.min(this.playerState.speedMps, CAMERA_MOTION_SPEED_CAP_MPS);
     const look = this.mergedInput().quickLook;
     const quickLookAngle = Math.abs(look) > 1.5 ? Math.PI : look * 1.18;
 
