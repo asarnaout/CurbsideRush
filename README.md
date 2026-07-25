@@ -2,7 +2,7 @@
 
 Curbside Rush is a low-poly, single-player 3D open-world driving game where you run deliveries and passenger fares across five city maps in four countries — each country with its own currency, road rules, and side of the road.
 
-The maps are New York City (Upper West Side), London (South Kensington), Milton Keynes (Oldbrook), Calais/Coquelles, and Tokyo (Setagaya). Pick a city and drive: deliveries load at a business and drop off across town, passenger fares carry a rider to their destination, earnings and fuel are tracked per country, you refuel at gas stations, and driving badly in front of a patrol car gets you pulled over — the patrol stops you at the kerb, an officer walks up to your window, and the fine lands there. Also included are first- and third-person cameras with a rear-view mirror, keyboard/gamepad/touch controls, ambient traffic and pedestrian crowds, local progress, accessibility settings, and official road-rule references.
+The maps are New York City (Upper West Side), London (South Kensington), Milton Keynes (Oldbrook), Calais/Coquelles, and Tokyo (Setagaya). New York is the big one: the grid runs from West 59th up to West 106th across Riverside Drive, West End, Broadway, Amsterdam, Columbus and Central Park West, with Manhattan's alternating one-way side streets threaded between the crosstown ones, two gas stations at opposite corners, Central Park down the east edge and Riverside Park down the west. Pick a city and drive: deliveries load at a business and drop off across town, passenger fares carry a rider to their destination, earnings and fuel are tracked per country, you refuel at gas stations, and driving badly in front of a patrol car gets you pulled over — the patrol stops you at the kerb, an officer walks up to your window, and the fine lands there. Also included are first- and third-person cameras with a rear-view mirror, keyboard/gamepad/touch controls, ambient traffic and pedestrian crowds, local progress, accessibility settings, and official road-rule references.
 
 On a phone, hold it sideways: drag your left thumb anywhere on the lower-left of the screen to steer — wherever you touch down becomes centre — and use Drive and Brake on the right. Holding Brake once you have stopped reverses. Portrait pauses the drive and asks you to rotate; nothing is lost and nothing reloads.
 
@@ -34,7 +34,7 @@ npm test
 npm run build
 ```
 
-`npm test` takes about two minutes, almost all of it in the traffic-safety acceptance test (every start position across five cities, 51 seeds, 60 seconds of simulation each). While iterating, skip it:
+`npm test` takes a little over two minutes, almost all of it in the traffic-safety acceptance test (every start position across five cities, 51 seeds, 60 seconds of simulation each). Everything else runs in about eight seconds, so while iterating, skip it:
 
 ```bash
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"

@@ -20,17 +20,17 @@ npm run dev          # Vite dev server + Miniflare worker on :3000 (NOT `next de
 npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run typecheck    # tsc --noEmit, ~2s
 npm run lint         # eslint, ~4s
-npm test             # vitest run: 53 files, 712 tests, ~145s
+npm test             # vitest run: 57 files, 788 tests, ~140s
 ```
 
 Node >= 22.13 (repo currently runs v26).
 
 ### Testing
 
-`npm test` takes ~145s and **97% of that is one file** — `tests/trafficSafetyAcceptance.test.ts` (141s: 5 cities x every start/checkpoint x 51 seeds x 60s of sim). Use the fast loop while iterating, full suite before committing:
+`npm test` takes ~140s and **almost all of it is one file** — `tests/trafficSafetyAcceptance.test.ts` (5 cities x every start/checkpoint x 51 seeds x 60s of sim). Everything else runs in ~8s. Use the fast loop while iterating, full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 52 files / 710 tests in ~7s
+# everything except the acceptance test -> 56 files / 786 tests in ~8s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts                     # one file
@@ -69,11 +69,11 @@ simulationAdapter   authored MapPack + lesson -> core config (build-time only)
 
 **The core knows nothing about gigs, money, or fuel.** Gigs are a pure proximity state machine (`gigs.ts`, no imports at all), but its state no longer flips on drive-by: the app detects arrival (stopped inside 14 m) and stages an **interaction cutscene** (`cutsceneScript.ts` builds the pure choreography; the session executes it — actor, staged third-person shot, all driving input zeroed at `mergedInput`), and the gig advances when the scene's `done` event lands. Refuel works the same way — the debit+fill happen at the scene's `pump` event, not the button press. Fuel is enforced at the input boundary by zeroing throttle before it reaches the core. The police-fine loop lives in `GameCanvas` + `SideSwapApp` and is a cutscene too (see "A witnessed fine is a pull-over"). The economy is strictly an outer ring, and **no score, event history or infraction is ever persisted** — the wallet debit is the only durable consequence.
 
-`buildSimulationCoreConfig` runs **once**, in the `BabylonGameSession` constructor — never in the frame loop. It translates lanes, infers single-lane adjacency, synthesizes signal phases and supplemental oncoming traffic gates, and **throws** on invalid authored data (missing lane, illegal successor transition, out-of-range anchor). A bad map pack crashes the drive rather than degrading.
+`buildSimulationCoreConfig` runs **once**, in the `BabylonGameSession` constructor — never in the frame loop. It translates lanes, infers single-lane adjacency, synthesizes signal phases and supplemental oncoming traffic gates. Its throws all sit on route/maneuver validation, which free drive skips — so on a live map it does **not** reject bad data, it degrades quietly: short lanes are filtered out, unresolvable checkpoints dropped, out-of-range anchors clamped to a lane end. The tests are the real guardrail; see "Sharp edges".
 
 ### Content: two parallel truths
 
-There is **no procedural city generator and no runtime map import**. A map pack is a hand-authored TypeScript literal in `content.ts` / `londonContent.ts`, and it carries two structures that must be kept in sync:
+There is **no procedural city generator and no runtime map import**. A map pack is authored in `content.ts` / `londonContent.ts`, and it carries two structures that must be kept in sync:
 
 - **`laneGraph.lanes`** — directed legal truth. What the simulation, guidance, NPCs and scoring use.
 - **`geometry.roadSurfaces`** — visual truth. Centrelines + markings.
@@ -90,7 +90,7 @@ Linked only by `LaneSegment.roadId <-> RoadSurface.id`/`laneIds`. Two-way street
 | instanced building street wall | `blocks.buildingSet` | `slotBlockBuildings` |
 | signal phase clock | `controls.phaseGroup` | `authoredSignalAspectAt` |
 
-`getMapPack(id)` is a pure frozen lookup that throws on unknown ids.
+`getMapPack(id)` is a pure frozen lookup that throws on unknown ids. **NYC is declared as a grid, not written lane by lane.** `NYC_AVENUES` / `NYC_STREETS` state each road's coordinate, width, one-way direction, lanes per direction and crossings reached; `buildNycGrid` derives its ~230 lanes, offsets, successors, surfaces and a signal at every crossing fed by two roads, and `buildNycBlocks` the blocks — zoned by column and latitude, so inserting a street splits a cell without changing what stands on either half. A new street is one line. Hence **lane ids name the crossing each block starts at** (`nyc-we-n-72`): numbering spans renames every lane on a road the moment one crosses it. And `roadIdForLane` has **no NYC branches** — the generator passes each road id.
 
 The JSON in `public/map-data/` is **provenance only** — nothing reads it at runtime. `scripts/fetch-osm.mjs` is a manually-run, one-off freezer, not part of any build. `tests/map-data.test.ts` recomputes a sha256 over `JSON.stringify({roads, buildings})`, so reformatting or reordering keys breaks the checksum even when geometry is identical. Regenerate; never hand-edit.
 
@@ -150,7 +150,7 @@ Everything above `GameCanvasProps` is an **exported pure geometry layer** (road 
 
 Touch controls live in `TouchDriveControls.tsx` with **no Babylon import**, so `tests/touchDriveControls.test.tsx` can render them in jsdom. Steering is drag-with-a-floating-origin (`touchSteering.ts`, pure); the release ease runs in `fixedUpdate` via `touchSteerReleasing`, never in React. The visible slider is an affordance drawn *inside* the drag region, not the target — the region is still the whole lower-left quadrant.
 
-**The drive HUD's layout is one budget split across two files, and the constants are the contract.** A landscape phone is ~343px tall, not the ~390 the arithmetic wants; `TOUCH_TOP_RAIL_PX` / `TOUCH_MINIMAP_PX` / `TOUCH_PEDAL_BLOCK_PX` / `TOUCH_LEFT_RAIL_PX` are exported from `TouchDriveControls` because `SideSwapApp` places the status panel and minimap against them, and the rail arithmetic is asserted in `touchDriveControls.test.tsx` (jsdom has no layout, so that test *is* the check). The right edge reads top-down: buttons, minimap, pedals — which only fits because the pedals sit **abreast**; stacked they were ~194px and owned the whole edge. The status panel's width is `min(250px, 37%)`: the speed readout is centred, and a flat 250px runs into the numeral at 568px wide.
+**The drive HUD's layout is one budget split across two files, and the constants are the contract.** A landscape phone is ~343px tall, not the ~390 the arithmetic wants; `TOUCH_TOP_RAIL_PX` / `TOUCH_MINIMAP_PX` / `TOUCH_PEDAL_BLOCK_PX` / `TOUCH_LEFT_RAIL_PX` are exported from `TouchDriveControls` because `SideSwapApp` places the status panel and minimap against them, and the rail arithmetic is asserted in `touchDriveControls.test.tsx` (jsdom has no layout, so that test *is* the check). The right edge reads top-down: buttons, minimap, pedals — which only fits because the pedals sit **abreast**; stacked they were ~194px and owned the whole edge. The status panel's width is `min(250px, 37%)`: the speed readout is centred, and a flat 250px runs into the numeral at 568px wide. The minimap inside it fits the whole world only while the world is small: past `MINIMAP_FOLLOW_SPAN_M` (`minimap.ts`) it keeps its scale and scrolls instead, blitting the window the car sits in the middle of out of a sheet rasterised once for the whole world. NYC is over the span and follows; every other map is under it and is still drawn whole.
 
 Models are a two-phase construction: everything starts as an empty placeholder, then an async preload upgrades vehicles/characters/props, builds instanced buildings and the VAT crowd, and only then calls `markReady()` — which is what lifts the React loading gate. There is no procedural vehicle/character fallback any more, so **anything that lifts `markReady` early ships invisible cars and people**.
 
@@ -181,7 +181,8 @@ The AudioContext is a **module-level singleton**, deliberately not per-session, 
 - **`content.ts` and `londonContent.ts` each carry private copies** of `point`, `node`, `laneTrue`, `arcPoints`, `turningLoop`, `connectorConflictZones`. Fixing one does not fix the other.
 - **`0.08m` is the definition of "shared node"** for both junction fills and pavement rails. Authoring a shared endpoint 0.1m apart yields no junction fill (grass through the crossing) and no pavement trim (walkers on the asphalt), silently.
 - **Successors must be geometrically continuous** — tests require 0.01m; `buildConnectedNpcPath` requires 2.5m. Break it and traffic despawns rather than errors. An *empty* successor list does the same thing, wherever the player happens to be looking: London's bus lane dead-ended at a signal and the double-decker blinked out every green (#128). Both are now guarded by "gives every lane somewhere legal to go" in `content.test.ts`.
-- **`streetAddressesForMap` caches by `pack.id`** in a module-level Map; gig selection, the renderer and tests must all agree, so mutating a pack after first call has no effect. Street addresses only exist for the ~8 NYC roads in `STREET_PROFILES` — other maps fall back to authored venues.
+- **`streetAddressesForMap` caches by `pack.id`** in a module-level Map; gig selection, the renderer and tests must all agree, so mutating a pack after first call has no effect. Street addresses only exist for the NYC roads listed in `STREET_PROFILES` — a NYC road missing from it generates none, silently, which is what `ADDRESSABLE_STREET_NAMES` exists for the test to catch. Other maps fall back to authored venues.
+- **Ambient traffic count comes from `resolveAmbientVehicleCount`** (`simulationAdapter.ts`) — one source for both sim and renderer, which allocate separately and must agree. A map sets `ambientTraffic` when its size makes the lesson's density band wrong; NYC does (32 desktop / 16 touch, against the core's clamp of 32). Patrols are not authored: `isPatrolVehicle` marks one car in five, so the car count *is* the police count. Cars being cheap depends on `routeDistanceAhead` being bounded by **distance** as well as hops: it runs for every pair of cars every step, six hops out of a three-exit junction is hundreds of lanes, and it was 97% of the step before `ROUTE_LOOKAHEAD_LIMIT_M`. Raising that re-opens the cost; below ~62 m it changes following behaviour.
 - **`window.__sideswap*` debug hooks are rebuilt every frame** and deleted in `dispose()` — a new hook must be added to both the install block in `updateGuidanceVisuals` and the deletion list in `dispose()`, or it leaks the disposed session.
 - **`window.localStorage` does not exist in this project's jsdom.** A new `.tsx` test needs the `installLocalStorage` polyfill from `launcher.test.tsx` (or inject `ProgressStorage` like `progress.test.ts` does), plus a **synchronous `requestAnimationFrame` stub** — otherwise `SideSwapApp`'s `hydrated` guard never lifts and every test sees only the loading screen. Tests default to `environment: "node"`; DOM needs `// @vitest-environment jsdom` on line 1 and a local `@testing-library/jest-dom/vitest` import (there is no setup file).
 - **Six test files import `GameCanvas.tsx` for real in node** — `content`, `gameCanvasInput`, `guidanceCoverage`, `intersectionVisuals`, `pavementPaths`, `roadJunctions`. Adding a top-level side effect touching `window`/`document`/WebGL breaks tests unrelated to rendering. Five more name the module but use `import type` and never load it (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`, `staticColliders`, `trafficSafetyAcceptance`), as do all three app-side importers — so the only other runtime load is `SideSwapApp`'s lazy `dynamic()`. Grep alone misleads here; check whether the import is type-only.
