@@ -148,6 +148,13 @@ provided its licence text travels with the fonts (included alongside them):
   generated with OpenAI (ChatGPT) by the project owner, who owns the output
   under OpenAI's Terms of Use. Stylised generic city scenes; no third-party
   assets, logos, or branding.
+- **`public/vehicles/*.webp`** (Career garage card art) — generated with OpenAI
+  (ChatGPT) by the project owner on 2026-07-24, who owns the output under
+  OpenAI's Terms of Use. Studio shots of generic low-poly vehicles; no
+  third-party assets, marque, badging or number plates. They are renders in
+  their own right, not photographs of the `.glb` models above, so nothing in the
+  model credits carries over. Framed for the cards by
+  `tools/build-vehicle-art.mjs`.
 - **All sound effects** — engine, wind and road noise, tyre and brake squeal,
   horn, and collision impacts are **synthesised at runtime in Web Audio**
   (`app/game/audio/`). No sample, recording, or third-party audio asset is used
