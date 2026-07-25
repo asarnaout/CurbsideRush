@@ -20,7 +20,7 @@ const run = (fpsSeries: readonly number[]) => {
 };
 
 describe("desktop resolution", () => {
-  it("is exactly what it has always been", () => {
+  it("keeps the laptop DPR curve exactly as it has always been", () => {
     // Desktop had no reported problem. Governing it — and raising a retina
     // Mac to ~4x the pixels — is what pushed it under target, ratcheted it to
     // the blurriest rung, and flashed black on every step.
@@ -32,6 +32,18 @@ describe("desktop resolution", () => {
       expect(desktopHardwareScalingLevel(dpr)).toBeGreaterThanOrEqual(1);
       expect(desktopHardwareScalingLevel(dpr)).toBeLessThanOrEqual(1.4);
     }
+  });
+
+  it("caps big DPR-1 monitors at the render-width budget", () => {
+    // A 4K monitor at DPR 1 used to render all 3840 columns with 4x MSAA —
+    // the heaviest desktop case. The cap holds the buffer at 2560 wide.
+    expect(desktopHardwareScalingLevel(1, 3840)).toBeCloseTo(1.5, 10);
+    expect(desktopHardwareScalingLevel(1, 5120)).toBeCloseTo(2, 10);
+    // Everything 1440p and below is untouched by the cap...
+    expect(desktopHardwareScalingLevel(1, 2560)).toBe(1);
+    expect(desktopHardwareScalingLevel(1, 1920)).toBe(1);
+    // ...and a retina laptop keeps its DPR level (CSS width nowhere near it).
+    expect(desktopHardwareScalingLevel(2, 1512)).toBeCloseTo(1.25, 10);
   });
 });
 

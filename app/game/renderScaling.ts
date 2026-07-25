@@ -74,14 +74,29 @@ export const RENDER_SCALING_WINDOW_MS = 3_000;
 export const RENDER_SCALING_WARMUP_MS = 5_000;
 
 /**
- * What desktop has always rendered at, preserved exactly.
- *
- * Desktop is **not** governed. It had no reported problem, and raising its
- * resolution the way touch needed cost a retina Mac ~4x the pixels, which is
- * what pushed it under target and started the ratchet in the first place.
+ * Widest buffer desktop will render. A DPR-1 4K/5K monitor reports CSS
+ * pixels equal to physical ones, so the DPR curve alone rendered every
+ * pixel of a 3840-wide screen — with 4x MSAA on top, by far the heaviest
+ * desktop case. 2560 keeps 1440p-and-below untouched.
  */
-export function desktopHardwareScalingLevel(devicePixelRatio: number): number {
-  return Math.max(1, Math.min(1.4, devicePixelRatio / 1.6));
+export const DESKTOP_MAX_RENDER_WIDTH_PX = 2560;
+
+/**
+ * Desktop's static level. The DPR curve is what desktop has always rendered
+ * at on laptop panels, preserved exactly; the width cap only engages when
+ * CSS width / level would exceed DESKTOP_MAX_RENDER_WIDTH_PX (big DPR-1
+ * monitors). Applied once at session construction — desktop is **not**
+ * governed. It had no reported problem, and raising its resolution the way
+ * touch needed cost a retina Mac ~4x the pixels, which is what pushed it
+ * under target and started the ratchet in the first place.
+ */
+export function desktopHardwareScalingLevel(
+  devicePixelRatio: number,
+  cssWidthPx?: number,
+): number {
+  const base = Math.max(1, Math.min(1.4, devicePixelRatio / 1.6));
+  if (!cssWidthPx || cssWidthPx <= 0) return base;
+  return Math.max(base, cssWidthPx / DESKTOP_MAX_RENDER_WIDTH_PX);
 }
 
 export interface RenderScalingState {

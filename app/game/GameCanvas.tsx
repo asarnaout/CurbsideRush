@@ -3768,13 +3768,19 @@ class BabylonGameSession {
 
     // Touch resolution is governed, because a phone cannot simply be pinned to
     // a good number: it throttles, and a career day runs about six minutes.
-    // Desktop is not governed and keeps exactly the level it always had — see
-    // renderScaling.ts for what governing it cost.
+    // Desktop is not governed and keeps its static level — the DPR curve it
+    // always had, now width-capped so a DPR-1 4K monitor stops rendering
+    // every physical pixel (see renderScaling.ts for what governing cost).
+    // Static means set once here: a window dragged to another monitor keeps
+    // the level until the next session rebuild, and never resizes mid-drive.
     this.renderScaling = touchFirst ? createRenderScalingState() : null;
     this.engine.setHardwareScalingLevel(
       this.renderScaling
         ? renderScalingLevel(this.renderScaling)
-        : desktopHardwareScalingLevel(window.devicePixelRatio || 1),
+        : desktopHardwareScalingLevel(
+            window.devicePixelRatio || 1,
+            canvas.clientWidth || undefined,
+          ),
     );
     // Weak devices (touch, or few CPU cores) build a thinner building wall so
     // the dense city stays playable on phones.
@@ -10379,8 +10385,16 @@ class BabylonGameSession {
     // GPU would rather spend that on having more of them: FXAA at a real
     // resolution beats MSAA at a fraction of one, especially for a low-poly
     // city that is mostly long straight edges — kerbs, lane paint, rooflines.
+    // On desktop the sample count follows the buffer: at ~2560 wide (the
+    // width-capped 4K case) 2x resolves what 4x resolved at laptop sizes,
+    // for half the multisample cost. getRenderWidth is post-scaling — the
+    // level was set at engine construction, before this runs.
     const touchFirst = this.options.inputCapabilities.touchFirst;
-    pipeline.samples = touchFirst ? 1 : 4;
+    pipeline.samples = touchFirst
+      ? 1
+      : this.engine.getRenderWidth() >= 2400
+        ? 2
+        : 4;
     pipeline.fxaaEnabled = touchFirst;
     pipeline.bloomEnabled = true;
     // Bloom stays keyed to bright emissives (lamps, brake lights); the
