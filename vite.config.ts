@@ -43,7 +43,20 @@ export default defineConfig(async () => {
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
+  // Netlify sets COMMIT_REF on every build. Frozen into the bundle so a player
+  // can read back which build they are actually running — without it, "the fix
+  // is deployed" and "your browser cached the old page" look identical from
+  // both ends, which is a slow and demoralising thing to debug over screenshots.
+  const buildRef = (
+    process.env.COMMIT_REF ??
+    process.env.CF_PAGES_COMMIT_SHA ??
+    "dev"
+  ).slice(0, 7);
+
   return {
+    define: {
+      __BUILD_REF__: JSON.stringify(buildRef),
+    },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,

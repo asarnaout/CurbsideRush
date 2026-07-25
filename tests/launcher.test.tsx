@@ -215,6 +215,18 @@ describe("gig launcher", () => {
     expect(startButton("uk-london")).toBeEnabled();
   });
 
+  it("stamps the running build where a player can read it back", async () => {
+    // Mobile Safari serves a cached page long after a deploy, and without this
+    // "the fix shipped" and "you are looking at yesterday's bundle" are
+    // indistinguishable from either end of a bug report.
+    render(<SideSwapApp />);
+    await findTagline();
+
+    const stamp = await screen.findByTestId("build-ref");
+    expect(stamp).toBeVisible();
+    expect(stamp).toHaveTextContent(/^build \S+$/);
+  });
+
   describe("mobile play tips", () => {
     const asTouchDevice = () =>
       vi.stubGlobal(

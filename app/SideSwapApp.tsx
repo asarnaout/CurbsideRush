@@ -177,6 +177,15 @@ type ChoiceOption<T extends string> = {
   readonly hint: string;
 };
 
+/**
+ * Short commit ref of the running build, frozen in by `vite.config.ts` from
+ * Netlify's `COMMIT_REF`. `"dev"` locally. Declared rather than imported
+ * because it is a compile-time `define`, not a module.
+ */
+declare const __BUILD_REF__: string;
+const BUILD_REF: string =
+  typeof __BUILD_REF__ === "string" ? __BUILD_REF__ : "dev";
+
 const CAMERA_CHOICES: readonly ChoiceOption<CameraMode>[] = [
   { value: "first_person", symbol: "1P", label: "Driver view", hint: "First person" },
   { value: "third_person", symbol: "3P", label: "Chase view", hint: "Third person" },
@@ -2523,7 +2532,16 @@ export default function SideSwapApp() {
               <small>Keeps {launcherCountry.trafficSide} · earn on the clock</small>
             </div>
           </div>
-          <p className="launcher-legal">Familiarisation only—not legal advice or driver instruction. Map data © OpenStreetMap contributors.</p>
+          <p className="launcher-legal">
+            Familiarisation only—not legal advice or driver instruction. Map data © OpenStreetMap contributors.{" "}
+            {/* Which build you are actually looking at. Mobile Safari will
+                happily keep serving a cached page long after a deploy, and
+                without this there is no way to tell that apart from the deploy
+                having failed. */}
+            <span data-testid="build-ref" style={{ opacity: 0.55 }}>
+              build {BUILD_REF}
+            </span>
+          </p>
         </section>
       )}
 
