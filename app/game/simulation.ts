@@ -581,6 +581,9 @@ interface NormalizedLane {
   loop: boolean;
   segmentLengths: number[];
   length: number;
+  /** Position in SimulationCore.lanes, stamped in the constructor — lets
+   * hot paths key typed arrays by lane without a map lookup. */
+  index?: number;
 }
 
 interface NormalizedTrafficLight extends SimulationPoint {
@@ -1250,6 +1253,21 @@ export class SimulationCore {
   private readonly trafficLightsById: Map<string, NormalizedTrafficLight>;
   private readonly stopLines: StopLineDefinition[];
   private readonly stopLinesByLaneId: Map<string, StopLineDefinition[]>;
+  // routeDistanceAhead scratch. The search runs for every pair of cars,
+  // every step (~61k/s at 32 cars) and used to allocate a queue array, a
+  // visited Map and a node literal per pushed lane — over a million
+  // short-lived objects a second, pure GC feed. The queue is now three
+  // parallel arrays walked by a moving head (no shift() memmove); visited is
+  // a generation-stamped pair keyed by lane.index, cleared by bumping the
+  // generation (pre-incremented per call, so the post-reset zero can never
+  // read as visited). Traversal order and float comparisons are identical
+  // to the old form — the acceptance trace hash pins that.
+  private readonly routeQueueLanes: NormalizedLane[] = [];
+  private readonly routeQueueDistances: number[] = [];
+  private readonly routeQueueDepths: number[] = [];
+  private routeVisitedGeneration = new Float64Array(0);
+  private routeVisitedBest = new Float64Array(0);
+  private routeSearchGeneration = 0;
   private readonly trafficGates: NormalizedTrafficGate[];
   private readonly laneRestrictions: LaneRestriction[];
   private readonly boxJunctions: SimulationBoxJunctionDefinition[];
@@ -1326,6 +1344,9 @@ export class SimulationCore {
       ? configuration.lanes.map(normalizeLane)
       : buildDefaultLanes(trafficSide);
     this.lanesById = new Map(this.lanes.map((lane) => [lane.id, lane]));
+    for (const [index, lane] of this.lanes.entries()) lane.index = index;
+    this.routeVisitedGeneration = new Float64Array(this.lanes.length);
+    this.routeVisitedBest = new Float64Array(this.lanes.length);
     for (const lane of this.lanes) {
       lane.successorLaneIds = lane.successorLaneIds.filter(
         (successorId, index, values) =>
@@ -1805,6 +1826,10 @@ export class SimulationCore {
     this.elapsedSeconds = 0;
     this.tick = 0;
     this.status = "running";
+    // Pure scratch — stale content is unreadable behind the generation
+    // pre-increment, but a reset run should start from a clean slate anyway.
+    this.routeSearchGeneration = 0;
+    this.routeVisitedGeneration.fill(0);
     this.config.trafficSide = this.initialTrafficSide;
     this.config.speedUnit = this.initialSpeedUnit;
     this.score = {
@@ -4344,49 +4369,62 @@ export class SimulationCore {
     if (fromLane.id === targetLane.id) {
       return this.distanceAhead(fromLane, fromDistance, targetDistance);
     }
-    const queue: Array<{
-      lane: NormalizedLane;
-      distanceToStart: number;
-      depth: number;
-    }> = [];
+    const queueLanes = this.routeQueueLanes;
+    const queueDistances = this.routeQueueDistances;
+    const queueDepths = this.routeQueueDepths;
+    this.routeSearchGeneration += 1;
+    const generation = this.routeSearchGeneration;
+    let head = 0;
+    let tail = 0;
     for (const successorId of fromLane.successorLaneIds) {
       const successor = this.lanesById.get(successorId);
       if (successor) {
-        queue.push({
-          lane: successor,
-          distanceToStart: fromLane.length - fromDistance,
-          depth: 1,
-        });
+        queueLanes[tail] = successor;
+        queueDistances[tail] = fromLane.length - fromDistance;
+        queueDepths[tail] = 1;
+        tail += 1;
       }
     }
-    const visited = new Map<string, number>();
-    while (queue.length) {
-      const current = queue.shift()!;
-      if (current.depth > 6) continue;
+    let result = Number.POSITIVE_INFINITY;
+    while (head < tail) {
+      const lane = queueLanes[head];
+      const distanceToStart = queueDistances[head];
+      const depth = queueDepths[head];
+      head += 1;
+      if (depth > 6) continue;
       // Nothing asks about a car this far along the route. The depth cap alone
       // bounded the search by *hops*, so on a city with more roads leading out
       // of each junction the same six hops walked several hundred lanes — and
       // this runs for every pair of cars, every step. Every caller's threshold
       // is a following gap; the largest is a car at top speed wanting its
       // 1.8 s headway, under 62 m. See the note on the constant.
-      if (current.distanceToStart > ROUTE_LOOKAHEAD_LIMIT_M) continue;
-      const previousBest = visited.get(current.lane.id);
-      if (previousBest !== undefined && previousBest <= current.distanceToStart) continue;
-      visited.set(current.lane.id, current.distanceToStart);
-      if (current.lane.id === targetLane.id) {
-        return current.distanceToStart + targetDistance;
+      if (distanceToStart > ROUTE_LOOKAHEAD_LIMIT_M) continue;
+      const laneIndex = lane.index!;
+      if (
+        this.routeVisitedGeneration[laneIndex] === generation &&
+        this.routeVisitedBest[laneIndex] <= distanceToStart
+      ) {
+        continue;
       }
-      for (const successorId of current.lane.successorLaneIds) {
+      this.routeVisitedGeneration[laneIndex] = generation;
+      this.routeVisitedBest[laneIndex] = distanceToStart;
+      if (lane.id === targetLane.id) {
+        result = distanceToStart + targetDistance;
+        break;
+      }
+      for (const successorId of lane.successorLaneIds) {
         const successor = this.lanesById.get(successorId);
         if (!successor) continue;
-        queue.push({
-          lane: successor,
-          distanceToStart: current.distanceToStart + current.lane.length,
-          depth: current.depth + 1,
-        });
+        queueLanes[tail] = successor;
+        queueDistances[tail] = distanceToStart + lane.length;
+        queueDepths[tail] = depth + 1;
+        tail += 1;
       }
     }
-    return Number.POSITIVE_INFINITY;
+    // Drop the lane references so a search burst cannot pin lanes between
+    // calls; the number arrays just keep their capacity.
+    queueLanes.length = 0;
+    return result;
   }
 
   private leadVehicleGap(
