@@ -70,10 +70,12 @@ import {
 } from "./pointerCapabilities";
 import {
   createRenderScalingState,
+  desktopHardwareScalingLevel,
+  RENDER_SCALING_WARMUP_MS,
   RENDER_SCALING_WINDOW_MS,
-  resolveRenderProfile,
+  renderScalingLevel,
   stepRenderScaling,
-  type RenderScalingProfile,
+  TOUCH_TARGET_FPS,
   type RenderScalingState,
 } from "./renderScaling";
 import {
@@ -3363,9 +3365,11 @@ class BabylonGameSession {
   private touch: AnalogInput = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
   /** True while a lifted thumb's steering is easing back to centre. */
   private touchSteerReleasing = false;
-  private renderProfile: RenderScalingProfile;
-  private renderScaling: RenderScalingState;
+  /** Null on desktop, which is deliberately not governed. */
+  private renderScaling: RenderScalingState | null;
   private lastRenderScalingCheck = 0;
+  /** Set when the scene reports ready; the governor stays quiet until then. */
+  private renderScalingArmedAt = Number.POSITIVE_INFINITY;
   private gamepad: AnalogInput = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
   private gamepadButtons: boolean[] = [];
   private gamepadConnected = false;
@@ -3495,12 +3499,16 @@ class BabylonGameSession {
       throw new Error("Curbside Rush requires WebGL 2.");
     }
 
-    // Resolution is governed, not fixed: see renderScaling.ts for why a level
-    // derived from devicePixelRatio double-counts adaptToDeviceRatio, and why a
-    // phone cannot simply be pinned to a good number.
-    this.renderProfile = resolveRenderProfile(touchFirst, window.devicePixelRatio || 1);
-    this.renderScaling = createRenderScalingState(this.renderProfile);
-    this.engine.setHardwareScalingLevel(this.renderScaling.level);
+    // Touch resolution is governed, because a phone cannot simply be pinned to
+    // a good number: it throttles, and a career day runs about six minutes.
+    // Desktop is not governed and keeps exactly the level it always had — see
+    // renderScaling.ts for what governing it cost.
+    this.renderScaling = touchFirst ? createRenderScalingState() : null;
+    this.engine.setHardwareScalingLevel(
+      this.renderScaling
+        ? renderScalingLevel(this.renderScaling)
+        : desktopHardwareScalingLevel(window.devicePixelRatio || 1),
+    );
     // Weak devices (touch, or few CPU cores) build a thinner building wall so
     // the dense city stays playable on phones.
     const cores =
@@ -3597,6 +3605,10 @@ class BabylonGameSession {
   private markReady() {
     if (this.disposed || this.readyEmitted) return;
     this.readyEmitted = true;
+    // Arm the resolution governor from here, not from the constructor: the
+    // frame rate before this point is model upload and shader warm-up, and
+    // judging the device on it drops resolution the instant the scene appears.
+    this.renderScalingArmedAt = performance.now() + RENDER_SCALING_WARMUP_MS;
     this.callbacks.onReady?.();
     this.emit("ready", "Training yard ready.");
     this.publishHud(true);
@@ -4729,29 +4741,29 @@ class BabylonGameSession {
       this.shadowRefreshSeconds = 0;
       this.refreshShadowCasters();
     }
-    this.scene.render();
+    // Before the render, never after. `setHardwareScalingLevel` resizes, and a
+    // resize can leave the bloom blurs recompiling; doing it here means the
+    // very next thing that happens is a full redraw into the new buffer,
+    // rather than the frame being presented mid-rebuild.
     this.governRenderScaling(now);
+    this.scene.render();
     if (now - this.lastHudTime >= 100) this.publishHud();
   };
 
   /**
-   * Trades resolution against frame rate on a slow window.
+   * Trades resolution against frame rate, on touch only.
    *
-   * Called after the render so `getFps()` reflects the frame just drawn.
-   * `setHardwareScalingLevel` calls `resize()`, which reallocates the
-   * backbuffer, so it is invoked only when the level actually moves — and never
-   * while paused, where a stalled frame rate would read as a device in trouble
-   * and blur the scene the player is staring at.
+   * Quiet while paused — a stalled frame rate would read as a device in
+   * trouble and blur the scene the player is staring at — and quiet for the
+   * first seconds after ready, where the frame rate still carries model upload
+   * and shader warm-up rather than anything about the device.
    */
   private governRenderScaling(now: number) {
-    if (this.paused || this.contextLost) return;
+    if (!this.renderScaling || this.paused || this.contextLost) return;
+    if (now < this.renderScalingArmedAt) return;
     if (now - this.lastRenderScalingCheck < RENDER_SCALING_WINDOW_MS) return;
     this.lastRenderScalingCheck = now;
-    const level = stepRenderScaling(
-      this.renderScaling,
-      this.engine.getFps(),
-      this.renderProfile,
-    );
+    const level = stepRenderScaling(this.renderScaling, this.engine.getFps());
     if (level !== this.engine.getHardwareScalingLevel()) {
       this.engine.setHardwareScalingLevel(level);
     }
@@ -8966,10 +8978,11 @@ class BabylonGameSession {
       debugWindow.__sideswapPerfDebug = () => ({
         fps: Math.round(this.engine.getFps()),
         // CSS px per rendered px, so lower is sharper. Watching this settle is
-        // how you tell a throttling device from a slow one.
+        // how you tell a throttling device from a slow one. Null rung means
+        // desktop, which is not governed.
         hardwareScalingLevel: this.engine.getHardwareScalingLevel(),
-        renderScalingBounds: [this.renderProfile.min, this.renderProfile.max],
-        targetFps: this.renderProfile.targetFps,
+        renderScalingRung: this.renderScaling?.index ?? null,
+        targetFps: this.renderScaling ? TOUCH_TARGET_FPS : null,
         totalMeshes: this.scene.meshes.length,
         activeMeshes: this.scene.getActiveMeshes().length,
         materials: this.scene.materials.length,
