@@ -118,21 +118,54 @@ describe("signal stop bars (#149)", () => {
   });
 
   it("merges parallel one-way lanes' bars into one continuous line", () => {
-    // Amsterdam & 79th, the junction in the issue screenshot: both northbound
-    // lanes' bars must sit on the same east-west line with overlapping spans.
+    // The junction in the issue screenshot was Amsterdam & 79th: where an
+    // avenue runs two lanes the same way into one signal approach, their bars
+    // must sit on a single line with overlapping spans rather than reading as
+    // two stubs. Every such approach on the map has to hold, not just that one.
     const pack = getMapPack("nyc-upper-west-side");
-    const bars = stopBars(pack).filter((bar) =>
-      ["nyc-amst-n-1a", "nyc-amst-n-2a"].includes(bar.laneId),
-    );
-    expect(bars).toHaveLength(2);
-    const zs = bars.flatMap((bar) => [bar.start.z, bar.end.z]);
-    expect(Math.max(...zs) - Math.min(...zs)).toBeLessThan(0.005);
-    const [left, right] = bars.map((bar) =>
-      [bar.start.x, bar.end.x].sort((a, b) => a - b),
-    );
-    const overlap =
-      Math.min(left[1], right[1]) - Math.max(left[0], right[0]);
-    expect(overlap, "bars overlap into one line").toBeGreaterThan(0);
+    const laneById = new Map(pack.laneGraph.lanes.map((lane) => [lane.id, lane]));
+    // One bar per approach, so parallel lanes are separate approaches of the
+    // same control. Group by junction and direction of travel: that is exactly
+    // the set of bars that has to read as one painted line.
+    const headingOf = (laneId: string) => {
+      const lane = laneById.get(laneId)!;
+      const from = lane.centerline[0];
+      const to = lane.centerline[lane.centerline.length - 1];
+      return Math.atan2(to.x - from.x, to.z - from.z);
+    };
+    const byArm = new Map<string, ReturnType<typeof stopBars>>();
+    for (const bar of stopBars(pack)) {
+      const octant =
+        ((Math.round(headingOf(bar.laneId) / (Math.PI / 4)) % 8) + 8) % 8;
+      const key = `${bar.controlId}|${octant}`;
+      byArm.set(key, [...(byArm.get(key) ?? []), bar]);
+    }
+    let merged = 0;
+    for (const [key, bars] of byArm) {
+      if (bars.length < 2) continue;
+      // The bars run across the lanes, so they share the coordinate on the
+      // approach's own axis and overlap along the other.
+      const alongZ = Math.abs(Math.cos(headingOf(bars[0].laneId))) > 0.5;
+      const shared = bars.flatMap((bar) =>
+        alongZ ? [bar.start.z, bar.end.z] : [bar.start.x, bar.end.x],
+      );
+      expect(Math.max(...shared) - Math.min(...shared), `${key} off-line`).toBeLessThan(0.005);
+      const spans = bars
+        .map((bar) =>
+          (alongZ ? [bar.start.x, bar.end.x] : [bar.start.z, bar.end.z]).sort(
+            (a, b) => a - b,
+          ),
+        )
+        .sort((a, b) => a[0] - b[0]);
+      for (let index = 1; index < spans.length; index += 1) {
+        expect(
+          spans[index - 1][1] - spans[index][0],
+          `${key} bars overlap into one line`,
+        ).toBeGreaterThan(0);
+      }
+      merged += 1;
+    }
+    expect(merged, "multi-lane signal approaches").toBeGreaterThan(0);
   });
 });
 

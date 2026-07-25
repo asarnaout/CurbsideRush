@@ -288,39 +288,50 @@ describe("street-wall placement invariants on the real NYC blocks", () => {
     "the detached-house block forms one straight street wall per edge",
     { timeout: 30_000 },
     async () => {
-      const block = setBlocks().find((b) => b.id === "nyc-block-we-bway-n")!;
-      const boxes = await worldBoxes(block);
-      expect(boxes.length).toBeGreaterThanOrEqual(80);
-      const byEdge = new Map<string, number[]>();
-      for (const box of boxes) {
-        const o = box.edgeOutward;
-        const edge =
-          Math.abs(o) < 0.01
-            ? "N"
-            : Math.abs(Math.abs(o) - Math.PI) < 0.01
-              ? "S"
-              : Math.abs(o - Math.PI / 2) < 0.01
-                ? "E"
-                : "W";
-        const setback =
-          edge === "N"
-            ? block.center.z + block.size.z / 2 - box.z1
-            : edge === "S"
-              ? box.z0 - (block.center.z - block.size.z / 2)
-              : edge === "E"
-                ? block.center.x + block.size.x / 2 - box.x1
-                : box.x0 - (block.center.x - block.size.x / 2);
-        byEdge.set(edge, [...(byEdge.get(edge) ?? []), setback]);
+      // Every detached-house block, not one named block: the pocket may be
+      // authored as one big rectangle or several, and the crooked wall is a
+      // per-edge property either way.
+      let totalHouses = 0;
+      for (const block of houseBlocks()) {
+        const boxes = await worldBoxes(block);
+        totalHouses += boxes.length;
+        const byEdge = new Map<string, number[]>();
+        for (const box of boxes) {
+          const o = box.edgeOutward;
+          const edge =
+            Math.abs(o) < 0.01
+              ? "N"
+              : Math.abs(Math.abs(o) - Math.PI) < 0.01
+                ? "S"
+                : Math.abs(o - Math.PI / 2) < 0.01
+                  ? "E"
+                  : "W";
+          const setback =
+            edge === "N"
+              ? block.center.z + block.size.z / 2 - box.z1
+              : edge === "S"
+                ? box.z0 - (block.center.z - block.size.z / 2)
+                : edge === "E"
+                  ? block.center.x + block.size.x / 2 - box.x1
+                  : box.x0 - (block.center.x - block.size.x / 2);
+          byEdge.set(edge, [...(byEdge.get(edge) ?? []), setback]);
+        }
+        expect([...byEdge.keys()].sort(), block.id).toEqual(["E", "N", "S", "W"]);
+        for (const [edge, setbacks] of byEdge) {
+          const spread = Math.max(...setbacks) - Math.min(...setbacks);
+          expect(
+            spread,
+            `${block.id} edge ${edge} setback spread (m): ${setbacks.map((s) => s.toFixed(2)).join(", ")}`,
+          ).toBeLessThanOrEqual(0.75);
+          expect(
+            Math.min(...setbacks),
+            `${block.id} edge ${edge} min setback`,
+          ).toBeGreaterThanOrEqual(-0.2);
+        }
       }
-      expect([...byEdge.keys()].sort()).toEqual(["E", "N", "S", "W"]);
-      for (const [edge, setbacks] of byEdge) {
-        const spread = Math.max(...setbacks) - Math.min(...setbacks);
-        expect(
-          spread,
-          `edge ${edge} setback spread (m): ${setbacks.map((s) => s.toFixed(2)).join(", ")}`,
-        ).toBeLessThanOrEqual(0.75);
-        expect(Math.min(...setbacks), `edge ${edge} min setback`).toBeGreaterThanOrEqual(-0.2);
-      }
+      // Enough houses across the pocket for a crooked wall to be visible at
+      // all — the bug hid in a long row, not in a handful of buildings.
+      expect(totalHouses, "houses across the detached-house pocket").toBeGreaterThanOrEqual(80);
     },
   );
 });

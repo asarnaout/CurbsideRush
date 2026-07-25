@@ -32,6 +32,18 @@ const NPC_MIN_BUMPER_CLEARANCE_M = 3;
 // whatever the player happens to be driving.
 const NPC_FOLLOW_STANDSTILL_GAP_M = 6.05;
 const NPC_LANE_CHANGE_DISTANCE_M = 12;
+/**
+ * How far along the route ahead `routeDistanceAhead` will look before giving
+ * up and calling a car "not ahead of me".
+ *
+ * Every consumer of that distance is a following-gap test, and the widest is a
+ * car at top speed wanting its standstill gap plus 1.8 s of headway — under
+ * 62 m. The traffic-gate headway check and the player's own following-distance
+ * rule are both smaller again, and `followingNpc` discards anything past 80 m
+ * outright. This is set several times over the largest of them, so it prunes
+ * the search without any caller being able to tell.
+ */
+const ROUTE_LOOKAHEAD_LIMIT_M = 240;
 const NPC_LANE_CHANGE_SIGNAL_SECONDS = 1.2;
 const NPC_LANE_CHANGE_END_MARGIN_M = 2;
 // NPC-to-NPC clearance at a lane entry, pinned for the same reason as the
@@ -569,6 +581,9 @@ interface NormalizedLane {
   loop: boolean;
   segmentLengths: number[];
   length: number;
+  /** Position in SimulationCore.lanes, stamped in the constructor — lets
+   * hot paths key typed arrays by lane without a map lookup. */
+  index?: number;
 }
 
 interface NormalizedTrafficLight extends SimulationPoint {
@@ -1237,6 +1252,24 @@ export class SimulationCore {
   private readonly trafficLights: NormalizedTrafficLight[];
   private readonly trafficLightsById: Map<string, NormalizedTrafficLight>;
   private readonly stopLines: StopLineDefinition[];
+  private readonly stopLinesByLaneId: Map<string, StopLineDefinition[]>;
+  // routeDistanceAhead scratch. The search runs for every pair of cars,
+  // every step (~61k/s at 32 cars) and used to allocate a queue array, a
+  // visited Map and a node literal per pushed lane — over a million
+  // short-lived objects a second, pure GC feed. The queue is now three
+  // parallel arrays walked by a moving head (no shift() memmove); visited is
+  // a generation-stamped pair keyed by lane.index, cleared by bumping the
+  // generation (pre-incremented per call, so the post-reset zero can never
+  // read as visited). Traversal order and float comparisons are identical
+  // to the old form — the acceptance trace hash pins that.
+  private readonly routeQueueLanes: NormalizedLane[] = [];
+  private readonly routeQueueDistances: number[] = [];
+  private readonly routeQueueDepths: number[] = [];
+  private routeVisitedGeneration = new Float64Array(0);
+  private routeVisitedBest = new Float64Array(0);
+  private routeSearchGeneration = 0;
+  /** Memo for parsedNpcDigits; NPC ids are stable within a session. */
+  private readonly npcDigitCache = new Map<string, number>();
   private readonly trafficGates: NormalizedTrafficGate[];
   private readonly laneRestrictions: LaneRestriction[];
   private readonly boxJunctions: SimulationBoxJunctionDefinition[];
@@ -1313,6 +1346,9 @@ export class SimulationCore {
       ? configuration.lanes.map(normalizeLane)
       : buildDefaultLanes(trafficSide);
     this.lanesById = new Map(this.lanes.map((lane) => [lane.id, lane]));
+    for (const [index, lane] of this.lanes.entries()) lane.index = index;
+    this.routeVisitedGeneration = new Float64Array(this.lanes.length);
+    this.routeVisitedBest = new Float64Array(this.lanes.length);
     for (const lane of this.lanes) {
       lane.successorLaneIds = lane.successorLaneIds.filter(
         (successorId, index, values) =>
@@ -1489,6 +1525,18 @@ export class SimulationCore {
     this.stopLines = (configuration.stopLines ?? defaultStopLines)
       .filter((line) => this.lanesById.has(line.laneId))
       .map((line) => ({ ...line }));
+    // Per-lane view of the same objects, in the same relative order, so the
+    // per-NPC-per-step control checks read one bucket instead of scanning
+    // every stop line in the city.
+    this.stopLinesByLaneId = new Map();
+    for (const line of this.stopLines) {
+      let bucket = this.stopLinesByLaneId.get(line.laneId);
+      if (!bucket) {
+        bucket = [];
+        this.stopLinesByLaneId.set(line.laneId, bucket);
+      }
+      bucket.push(line);
+    }
     const authoredTrafficGates = (configuration.trafficGates ?? [])
       .filter((gate) => this.lanesById.has(gate.laneId))
       .map((gate) => {
@@ -1780,6 +1828,11 @@ export class SimulationCore {
     this.elapsedSeconds = 0;
     this.tick = 0;
     this.status = "running";
+    // Pure scratch — stale content is unreadable behind the generation
+    // pre-increment, but a reset run should start from a clean slate anyway.
+    this.routeSearchGeneration = 0;
+    this.routeVisitedGeneration.fill(0);
+    this.npcDigitCache.clear();
     this.config.trafficSide = this.initialTrafficSide;
     this.config.speedUnit = this.initialSpeedUnit;
     this.score = {
@@ -3123,6 +3176,37 @@ export class SimulationCore {
    * `cornerFromLaneId`). Falls back to the centreline pose whenever the hop
    * is unknown, discontinuous, or geometrically degenerate.
    */
+  /**
+   * Where a car sits over the last stretch of a lane that hands on to another:
+   * on the sweep between the two rather than on its own end blend, which eases
+   * sideways toward the shared junction node.
+   *
+   * Split out and taking its distance as an argument — rather than reading
+   * `npc.distance` — so a lane change can aim at the pose its car will actually
+   * settle on. Aiming at the raw centreline instead left the car short of the
+   * lane line at the moment the change completed, and it covered the last
+   * half-metre sideways in a single tick.
+   */
+  private npcExitArcPose(
+    npc: NpcInternal,
+    lane: NormalizedLane,
+    distance: number,
+    fallback: SimulationPose,
+  ): SimulationPose {
+    const exitWindow = Math.min(NPC_CORNER_WINDOW_M, lane.length / 2);
+    const exitStart = lane.length - exitWindow;
+    if (distance < exitStart) return fallback;
+    const next = this.nextLaneForNpc(npc, lane);
+    if (
+      next &&
+      next.id !== lane.id &&
+      this.areLaneEndpointsContinuous(lane, next)
+    ) {
+      return this.cornerArcPose(lane, next, distance - exitStart) ?? fallback;
+    }
+    return fallback;
+  }
+
   private npcCornerPose(
     npc: NpcInternal,
     lane: NormalizedLane,
@@ -3131,17 +3215,7 @@ export class SimulationCore {
     const exitWindow = Math.min(NPC_CORNER_WINDOW_M, lane.length / 2);
     const exitStart = lane.length - exitWindow;
     if (npc.distance >= exitStart) {
-      const next = this.nextLaneForNpc(npc, lane);
-      if (
-        next &&
-        next.id !== lane.id &&
-        this.areLaneEndpointsContinuous(lane, next)
-      ) {
-        return (
-          this.cornerArcPose(lane, next, npc.distance - exitStart) ?? fallback
-        );
-      }
-      return fallback;
+      return this.npcExitArcPose(npc, lane, npc.distance, fallback);
     }
     if (npc.cornerFromLaneId) {
       const entryWindow = Math.min(NPC_CORNER_WINDOW_M, lane.length / 2);
@@ -3239,7 +3313,12 @@ export class SimulationCore {
             const amount = smoothStep(npc.laneChangeProgress);
             const targetDistance =
               (npc.distance / activeSourceLane.length) * targetLane.length;
-            const targetPose = this.pointOnLane(targetLane, targetDistance);
+            const targetPose = this.npcExitArcPose(
+              npc,
+              targetLane,
+              targetDistance,
+              this.pointOnLane(targetLane, targetDistance),
+            );
             npc.x = sourcePose.x + (targetPose.x - sourcePose.x) * amount;
             npc.z = sourcePose.z + (targetPose.z - sourcePose.z) * amount;
             this.chaseNpcHeading(
@@ -3256,7 +3335,12 @@ export class SimulationCore {
           const amount = smoothStep(npc.laneChangeProgress);
           const targetDistance =
             (npc.distance / activeSourceLane.length) * targetLane.length;
-          const targetPose = this.pointOnLane(targetLane, targetDistance);
+          const targetPose = this.npcExitArcPose(
+            npc,
+            targetLane,
+            targetDistance,
+            this.pointOnLane(targetLane, targetDistance),
+          );
           npc.x = sourcePose.x + (targetPose.x - sourcePose.x) * amount;
           npc.z = sourcePose.z + (targetPose.z - sourcePose.z) * amount;
           this.chaseNpcHeading(
@@ -3305,25 +3389,28 @@ export class SimulationCore {
       if (!lane) continue;
       const barelyMoved =
         Math.hypot(npc.x - npc.previousX, npc.z - npc.previousZ) < 0.04;
-      const obeyingControl =
-        lane.kind === "roundabout" ||
-        this.redLightGapForLane(lane, npc.distance) !== null ||
-        this.yieldGapForLane(lane, npc.distance) !== null;
+      // Ordered cheapest-first so the short-circuit does the real work: a
+      // moving car (nearly all of them, nearly all the time) never pays for
+      // the stop-line scans or the pairwise pin check. All three predicates
+      // are pure reads, so skipping them cannot perturb determinism.
       // A car pressed within a body length of another is the signature of a
       // collision jam: an orderly stopped queue settles at the ~5 m decision gap
       // (see makeTrafficDecisions), so only a deadlock compresses down to the
       // NPC_BODY_CLEARANCE_M hard floor. This catches both a same-heading
       // pile-up and a converging bump while leaving normal queues untouched.
-      const pinnedAgainstAnotherCar = this.npcs.some((other) => {
-        if (!other.active || other.id === npc.id) return false;
-        const reach = NPC_BODY_CLEARANCE_M + 0.5;
-        return distanceSquared(npc, other) <= reach * reach;
-      });
       const jammed =
         npc.speedMps < 0.25 &&
         barelyMoved &&
-        !obeyingControl &&
-        pinnedAgainstAnotherCar;
+        !(
+          lane.kind === "roundabout" ||
+          this.redLightGapForLane(lane, npc.distance) !== null ||
+          this.yieldGapForLane(lane, npc.distance) !== null
+        ) &&
+        this.npcs.some((other) => {
+          if (!other.active || other.id === npc.id) return false;
+          const reach = NPC_BODY_CLEARANCE_M + 0.5;
+          return distanceSquared(npc, other) <= reach * reach;
+        });
       if (!jammed) {
         npc.jamSeconds = 0;
         npc.incidentLeanRad = 0;
@@ -3559,8 +3646,23 @@ export class SimulationCore {
     );
   }
 
+  /**
+   * The digits parsed out of an NPC id, possibly NaN — callers apply their
+   * own fallback (numericNpcId's `|| 0` vs nextLaneForNpc's `|| 1`; the two
+   * differ on purpose and must stay distinct). Memoised because the
+   * regex + parse ran per NPC per step, and ids never change within a
+   * session.
+   */
+  private parsedNpcDigits(id: string): number {
+    const cached = this.npcDigitCache.get(id);
+    if (cached !== undefined) return cached;
+    const parsed = Number.parseInt(id.replace(/\D+/g, ""), 10);
+    this.npcDigitCache.set(id, parsed);
+    return parsed;
+  }
+
   private numericNpcId(id: string): number {
-    return Number.parseInt(id.replace(/\D+/g, ""), 10) || 0;
+    return this.parsedNpcDigits(id) || 0;
   }
 
   private nextLaneForNpc(
@@ -3568,7 +3670,7 @@ export class SimulationCore {
     lane: NormalizedLane,
   ): NormalizedLane | null {
     if (lane.successorLaneIds.length) {
-      const numericId = Number.parseInt(npc.id.replace(/\D+/g, ""), 10) || 1;
+      const numericId = this.parsedNpcDigits(npc.id) || 1;
       const index = (npc.transitionCount + numericId - 1) % lane.successorLaneIds.length;
       return this.lanesById.get(lane.successorLaneIds[index]) ?? null;
     }
@@ -3886,9 +3988,12 @@ export class SimulationCore {
     currentProjection: LaneProjection | null,
   ): void {
     if (!currentProjection) return;
+    const laneStopLines = this.stopLinesByLaneId.get(
+      currentProjection.lane.id,
+    );
+    if (!laneStopLines) return;
     const speed = Math.abs(this.signedSpeedMps);
-    for (const stopLine of this.stopLines) {
-      if (stopLine.laneId !== currentProjection.lane.id) continue;
+    for (const stopLine of laneStopLines) {
       const distanceAhead = stopLine.distance - currentProjection.distanceAlong;
       if (distanceAhead >= 0 && distanceAhead <= 14) {
         const previousMinimum = this.stopApproachSpeeds.get(stopLine.id) ?? Number.POSITIVE_INFINITY;
@@ -4282,42 +4387,62 @@ export class SimulationCore {
     if (fromLane.id === targetLane.id) {
       return this.distanceAhead(fromLane, fromDistance, targetDistance);
     }
-    const queue: Array<{
-      lane: NormalizedLane;
-      distanceToStart: number;
-      depth: number;
-    }> = [];
+    const queueLanes = this.routeQueueLanes;
+    const queueDistances = this.routeQueueDistances;
+    const queueDepths = this.routeQueueDepths;
+    this.routeSearchGeneration += 1;
+    const generation = this.routeSearchGeneration;
+    let head = 0;
+    let tail = 0;
     for (const successorId of fromLane.successorLaneIds) {
       const successor = this.lanesById.get(successorId);
       if (successor) {
-        queue.push({
-          lane: successor,
-          distanceToStart: fromLane.length - fromDistance,
-          depth: 1,
-        });
+        queueLanes[tail] = successor;
+        queueDistances[tail] = fromLane.length - fromDistance;
+        queueDepths[tail] = 1;
+        tail += 1;
       }
     }
-    const visited = new Map<string, number>();
-    while (queue.length) {
-      const current = queue.shift()!;
-      if (current.depth > 6) continue;
-      const previousBest = visited.get(current.lane.id);
-      if (previousBest !== undefined && previousBest <= current.distanceToStart) continue;
-      visited.set(current.lane.id, current.distanceToStart);
-      if (current.lane.id === targetLane.id) {
-        return current.distanceToStart + targetDistance;
+    let result = Number.POSITIVE_INFINITY;
+    while (head < tail) {
+      const lane = queueLanes[head];
+      const distanceToStart = queueDistances[head];
+      const depth = queueDepths[head];
+      head += 1;
+      if (depth > 6) continue;
+      // Nothing asks about a car this far along the route. The depth cap alone
+      // bounded the search by *hops*, so on a city with more roads leading out
+      // of each junction the same six hops walked several hundred lanes — and
+      // this runs for every pair of cars, every step. Every caller's threshold
+      // is a following gap; the largest is a car at top speed wanting its
+      // 1.8 s headway, under 62 m. See the note on the constant.
+      if (distanceToStart > ROUTE_LOOKAHEAD_LIMIT_M) continue;
+      const laneIndex = lane.index!;
+      if (
+        this.routeVisitedGeneration[laneIndex] === generation &&
+        this.routeVisitedBest[laneIndex] <= distanceToStart
+      ) {
+        continue;
       }
-      for (const successorId of current.lane.successorLaneIds) {
+      this.routeVisitedGeneration[laneIndex] = generation;
+      this.routeVisitedBest[laneIndex] = distanceToStart;
+      if (lane.id === targetLane.id) {
+        result = distanceToStart + targetDistance;
+        break;
+      }
+      for (const successorId of lane.successorLaneIds) {
         const successor = this.lanesById.get(successorId);
         if (!successor) continue;
-        queue.push({
-          lane: successor,
-          distanceToStart: current.distanceToStart + current.lane.length,
-          depth: current.depth + 1,
-        });
+        queueLanes[tail] = successor;
+        queueDistances[tail] = distanceToStart + lane.length;
+        queueDepths[tail] = depth + 1;
+        tail += 1;
       }
     }
-    return Number.POSITIVE_INFINITY;
+    // Drop the lane references so a search burst cannot pin lanes between
+    // calls; the number arrays just keep their capacity.
+    queueLanes.length = 0;
+    return result;
   }
 
   private leadVehicleGap(
@@ -4370,10 +4495,11 @@ export class SimulationCore {
     lane: NormalizedLane,
     distance: number,
   ): number | null {
+    const laneStopLines = this.stopLinesByLaneId.get(lane.id);
+    if (!laneStopLines) return null;
     let best = Number.POSITIVE_INFINITY;
-    for (const stopLine of this.stopLines) {
+    for (const stopLine of laneStopLines) {
       if (
-        stopLine.laneId !== lane.id ||
         (stopLine.kind !== "traffic_light" && stopLine.kind !== "railway") ||
         !stopLine.trafficLightId
       ) {
@@ -4391,9 +4517,11 @@ export class SimulationCore {
     lane: NormalizedLane,
     distance: number,
   ): number | null {
+    const laneStopLines = this.stopLinesByLaneId.get(lane.id);
+    if (!laneStopLines) return null;
     let best = Number.POSITIVE_INFINITY;
-    for (const stopLine of this.stopLines) {
-      if (stopLine.laneId !== lane.id || stopLine.kind !== "yield") continue;
+    for (const stopLine of laneStopLines) {
+      if (stopLine.kind !== "yield") continue;
       const linePose = this.pointOnLane(lane, stopLine.distance);
       const conflictRadius = stopLine.conflictRadius ?? 12;
       const hasConflict = this.npcs.some(

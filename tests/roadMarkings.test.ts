@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { MAP_PACKS } from "../app/game/content";
 import {
+  appendDashedMarkingBoxes,
+  appendMarkingBox,
+  appendSolidMarkingBoxes,
+  createMarkingGeometry,
+  type MarkingGeometry,
+} from "../app/game/GameCanvas";
+import {
   splitMarkingAtCrossings,
   type MarkingPoint,
 } from "../app/game/roadMarkings";
@@ -149,5 +156,136 @@ describe("lane paint stops at a junction", () => {
         expect(runs.length, `${surface.id}/${marking.id}`).toBeGreaterThan(1);
       }
     }
+  });
+});
+
+/** Verts per box from Babylon's CreateBox: 24 positions, 36 indices. */
+const BOX_VERTS = 24;
+const BOX_INDICES = 36;
+
+function boxCount(geometry: MarkingGeometry): number {
+  expect(geometry.indices.length % BOX_INDICES).toBe(0);
+  expect(geometry.positions.length % (BOX_VERTS * 3)).toBe(0);
+  return geometry.indices.length / BOX_INDICES;
+}
+
+/** Centroid of one box's 24 corners is its centre. */
+function boxCenter(geometry: MarkingGeometry, box: number) {
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  const base = box * BOX_VERTS * 3;
+  for (let i = 0; i < BOX_VERTS; i += 1) {
+    x += geometry.positions[base + i * 3];
+    y += geometry.positions[base + i * 3 + 1];
+    z += geometry.positions[base + i * 3 + 2];
+  }
+  return { x: x / BOX_VERTS, y: y / BOX_VERTS, z: z / BOX_VERTS };
+}
+
+function boxBounds(geometry: MarkingGeometry, box: number) {
+  const base = box * BOX_VERTS * 3;
+  const lo = { x: Infinity, y: Infinity, z: Infinity };
+  const hi = { x: -Infinity, y: -Infinity, z: -Infinity };
+  for (let i = 0; i < BOX_VERTS; i += 1) {
+    const x = geometry.positions[base + i * 3];
+    const y = geometry.positions[base + i * 3 + 1];
+    const z = geometry.positions[base + i * 3 + 2];
+    lo.x = Math.min(lo.x, x);
+    lo.y = Math.min(lo.y, y);
+    lo.z = Math.min(lo.z, z);
+    hi.x = Math.max(hi.x, x);
+    hi.y = Math.max(hi.y, y);
+    hi.z = Math.max(hi.z, z);
+  }
+  return { lo, hi };
+}
+
+describe("merged marking geometry", () => {
+  it("replicates the legacy box: centre, +0.25 depth pad, height rule", () => {
+    const geometry = createMarkingGeometry();
+    appendMarkingBox(geometry, { x: 0, z: 0 }, { x: 0, z: 10 }, 0.11, 0.12);
+    expect(boxCount(geometry)).toBe(1);
+    const center = boxCenter(geometry, 0);
+    expect(center.x).toBeCloseTo(0, 10);
+    expect(center.y).toBeCloseTo(0.12, 10);
+    expect(center.z).toBeCloseTo(5, 10);
+    const { lo, hi } = boxBounds(geometry, 0);
+    // Along +z: length 10 plus the 0.25 pad. Across: the 0.11 width.
+    // Height: max(0.025, 0.12 * 0.45).
+    expect(hi.z - lo.z).toBeCloseTo(10.25, 10);
+    expect(hi.x - lo.x).toBeCloseTo(0.11, 10);
+    expect(hi.y - lo.y).toBeCloseTo(0.054, 10);
+  });
+
+  it("rotates the box with the segment heading", () => {
+    const geometry = createMarkingGeometry();
+    appendMarkingBox(geometry, { x: 0, z: 0 }, { x: 8, z: 0 }, 0.11, 0.12);
+    const { lo, hi } = boxBounds(geometry, 0);
+    // Heading east: the padded length lies along x, the width along z.
+    expect(hi.x - lo.x).toBeCloseTo(8.25, 10);
+    expect(hi.z - lo.z).toBeCloseTo(0.11, 10);
+  });
+
+  it("skips degenerate segments", () => {
+    const geometry = createMarkingGeometry();
+    appendMarkingBox(geometry, { x: 3, z: 3 }, { x: 3, z: 3.005 }, 0.11, 0.12);
+    expect(boxCount(geometry)).toBe(0);
+  });
+
+  it("carries the dash phase across polyline joints", () => {
+    const geometry = createMarkingGeometry();
+    // Two segments of 5m and 6m, dash 3 / gap 4 (period 7): segment one
+    // emits [0,3] and hands over phase 5, so segment two's first window is
+    // [-5,-2] (dropped) and the next [2,5] — exactly one dash each.
+    appendDashedMarkingBoxes(
+      geometry,
+      [
+        { x: 0, z: 0 },
+        { x: 0, z: 5 },
+        { x: 0, z: 11 },
+      ],
+      0.11,
+      0.12,
+      3,
+      4,
+    );
+    expect(boxCount(geometry)).toBe(2);
+    expect(boxCenter(geometry, 0).z).toBeCloseTo(1.5, 10);
+    // Second dash spans z 7..10 in world space (2..5 within its segment).
+    expect(boxCenter(geometry, 1).z).toBeCloseTo(8.5, 10);
+  });
+
+  it("drops dash slivers shorter than 0.2m", () => {
+    const geometry = createMarkingGeometry();
+    // A 7.15m run with dash 3 / gap 4: [0,3] paints, the second window
+    // opens at 7 and closes at 7.15 — a 0.15m sliver, dropped.
+    appendDashedMarkingBoxes(
+      geometry,
+      [
+        { x: 0, z: 0 },
+        { x: 0, z: 7.15 },
+      ],
+      0.11,
+      0.12,
+      3,
+      4,
+    );
+    expect(boxCount(geometry)).toBe(1);
+  });
+
+  it("emits one box per solid polyline segment", () => {
+    const geometry = createMarkingGeometry();
+    appendSolidMarkingBoxes(
+      geometry,
+      [
+        { x: 0, z: 0 },
+        { x: 0, z: 4 },
+        { x: 3, z: 4 },
+      ],
+      0.11,
+      0.12,
+    );
+    expect(boxCount(geometry)).toBe(2);
   });
 });

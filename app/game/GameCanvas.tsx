@@ -26,6 +26,7 @@ import {
   UniversalCamera,
   Vector3,
   Vector4,
+  VertexBuffer,
   VertexData,
   Viewport,
 } from "@babylonjs/core";
@@ -51,6 +52,7 @@ import {
 } from "./simulation";
 import {
   buildSimulationCoreConfig,
+  resolveAmbientVehicleCount,
   resolveSimulationLaneAnchor,
   resolveVenuePlacement,
 } from "./simulationAdapter";
@@ -64,6 +66,12 @@ import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import { DRIVE_LAYER } from "./driveLayers";
 import { TouchDriveControls } from "./TouchDriveControls";
 import { releaseTouchSteer } from "./touchSteering";
+import {
+  POSE_SNAP_STEP_M,
+  lerpHeading,
+  lerpValue,
+  shouldSnapPose,
+} from "./renderInterpolation";
 import {
   readInputCapabilities,
   type InputCapabilities,
@@ -83,6 +91,7 @@ import {
   RENDER_SCALING_WINDOW_MS,
   renderScalingLevel,
   stepRenderScaling,
+  TOUCH_SCALING_LADDER,
   TOUCH_TARGET_FPS,
   type RenderScalingState,
 } from "./renderScaling";
@@ -124,7 +133,8 @@ import {
   generateRoadsidePropPlacements,
   hashStringToSeed,
   PAVED_SIDEWALK_WIDTH_M,
-  resolveFogRange,
+  resolveCameraFarPlane,
+  resolveEffectiveFogRange,
   resolveMapVisualKey,
   resolveMapVisualPalette,
   seededUnit,
@@ -1253,6 +1263,10 @@ export interface GameCanvasMapPack {
   readonly id: string;
   readonly name: string;
   readonly areaLabel?: string;
+  readonly ambientTraffic?: {
+    readonly desktop: number;
+    readonly touch: number;
+  };
   readonly geometry: Readonly<{
     worldSize: GameCanvasPoint;
     roadWidth: number;
@@ -1598,6 +1612,19 @@ interface AnalogInput {
   quickLook: number;
 }
 
+/**
+ * The input with the largest magnitude, ties to the earlier argument —
+ * reduce-with-rest-args semantics without the per-call array. A value only
+ * wins against zero by strictly exceeding it.
+ */
+function strongestOfThree(first: number, second: number, third: number): number {
+  let best = 0;
+  if (Math.abs(first) > Math.abs(best)) best = first;
+  if (Math.abs(second) > Math.abs(best)) best = second;
+  if (Math.abs(third) > Math.abs(best)) best = third;
+  return best;
+}
+
 /** Driving input while a cutscene owns the car: everything at rest. */
 const CUTSCENE_LOCKED_INPUT: Readonly<AnalogInput> = Object.freeze({
   throttle: 0,
@@ -1687,6 +1714,7 @@ interface PlayerState {
   previousX: number;
   previousZ: number;
   heading: number;
+  previousHeading: number;
   speedMps: number;
   gear: DriveGear;
   indicator: TurnIndicator;
@@ -1708,6 +1736,14 @@ interface NpcVehicle {
   speed: number;
   z: number;
   laneX: number;
+  // Previous/current sim pose pair; updateNpcVisuals blends between them at
+  // render rate. laneX/z above keep their legacy meanings — don't overload.
+  poseX: number;
+  poseZ: number;
+  poseHeading: number;
+  prevPoseX: number;
+  prevPoseZ: number;
+  prevPoseHeading: number;
   laneId?: string;
   active?: boolean;
   currentSpeed?: number;
@@ -1743,6 +1779,119 @@ function appearanceVisualKey(appearance: VehicleAppearance): string {
  * stable slots, leaving tail slots for scripted/non-numeric vehicles. This
  * prevents a newly activated ambient car from evicting a maneuver lead.
  */
+/**
+ * Merged road-paint geometry. Every dash and solid run used to be its own
+ * unfrozen CreateBox — ~1,100 meshes on the NYC grid, each a per-frame
+ * frustum test and draw call. These accumulators collect the exact same
+ * boxes (same dash phase walk, same +0.25 depth pad and height rule, same
+ * winding via Babylon's own box data, rotated and translated) so the session
+ * can pour one mesh per paint colour. Pure and exported for node tests.
+ */
+export interface MarkingGeometry {
+  positions: number[];
+  normals: number[];
+  indices: number[];
+}
+
+export function createMarkingGeometry(): MarkingGeometry {
+  return { positions: [], normals: [], indices: [] };
+}
+
+/** One paint box, replicating createFlatSegment's dimensions exactly. */
+export function appendMarkingBox(
+  geometry: MarkingGeometry,
+  start: GameCanvasPoint,
+  end: GameCanvasPoint,
+  width: number,
+  y: number,
+): void {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.01) return;
+  const heading = Math.atan2(dx, dz);
+  const box = VertexData.CreateBox({
+    width,
+    height: Math.max(0.025, y * 0.45),
+    depth: length + 0.25,
+  });
+  const centerX = (start.x + end.x) / 2;
+  const centerZ = (start.z + end.z) / 2;
+  const sin = Math.sin(heading);
+  const cos = Math.cos(heading);
+  const indexBase = geometry.positions.length / 3;
+  const positions = box.positions as number[];
+  const normals = box.normals as number[];
+  for (let i = 0; i < positions.length; i += 3) {
+    const px = positions[i];
+    const py = positions[i + 1];
+    const pz = positions[i + 2];
+    // rotation.y = heading, as Babylon applies it to a mesh.
+    geometry.positions.push(
+      centerX + px * cos + pz * sin,
+      y + py,
+      centerZ - px * sin + pz * cos,
+    );
+    const nx = normals[i];
+    const nz = normals[i + 2];
+    geometry.normals.push(nx * cos + nz * sin, normals[i + 1], -nx * sin + nz * cos);
+  }
+  for (const index of box.indices as number[]) {
+    geometry.indices.push(indexBase + index);
+  }
+}
+
+/** The dash walk from createDashedPath, phase carry-over and all. */
+export function appendDashedMarkingBoxes(
+  geometry: MarkingGeometry,
+  points: readonly GameCanvasPoint[],
+  width: number,
+  y: number,
+  dashLength = 3,
+  gapLength = 4,
+): void {
+  let phase = 0;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 0.01) continue;
+    const ux = dx / length;
+    const uz = dz / length;
+    for (
+      let distance = -phase;
+      distance < length;
+      distance += dashLength + gapLength
+    ) {
+      const from = Math.max(0, distance);
+      const to = Math.min(length, distance + dashLength);
+      if (to - from > 0.2) {
+        appendMarkingBox(
+          geometry,
+          { x: start.x + ux * from, z: start.z + uz * from },
+          { x: start.x + ux * to, z: start.z + uz * to },
+          width,
+          y,
+        );
+      }
+    }
+    phase = (phase + length) % (dashLength + gapLength);
+  }
+}
+
+export function appendSolidMarkingBoxes(
+  geometry: MarkingGeometry,
+  points: readonly GameCanvasPoint[],
+  width: number,
+  y: number,
+): void {
+  for (let index = 0; index < points.length - 1; index += 1) {
+    appendMarkingBox(geometry, points[index], points[index + 1], width, y);
+  }
+}
+
 export function resolveNpcVisualSlotAssignments(
   slots: readonly Readonly<{ simulationId?: string }>[],
   vehicles: readonly Readonly<{ id: string }>[],
@@ -1863,15 +2012,28 @@ interface AuthoredSignalHeadVisual {
   readonly phaseGroup: string;
   readonly phaseGroups: readonly string[];
   readonly style: AuthoredSignalStyle;
-  readonly redMaterial: StandardMaterial;
-  readonly amberMaterial: StandardMaterial;
-  readonly greenMaterial: StandardMaterial;
+  // Live handles into the shared lens master's per-instance color buffer —
+  // writing one recolours that lens on the next draw. One master mesh + one
+  // material serve every lens in the city; the per-head material clones they
+  // replaced put ~750 unbatchable materials in the scene.
+  readonly redColor: Color4;
+  readonly amberColor: Color4;
+  readonly greenColor: Color4;
+  /** Cache for resolvedSignalLight; see that helper for the contract. */
+  resolvedLightIndex?: number;
+  /** Last aspect written to the lens colors — writes are skipped until it changes. */
+  lastAspect?: AuthoredSignalAspect;
 }
 
 interface RailwayCrossingVisual {
   readonly trafficLightIds: readonly string[];
-  readonly lampMaterials: readonly StandardMaterial[];
+  /** Per-instance color handles, same contract as AuthoredSignalHeadVisual. */
+  readonly lampColors: readonly Color4[];
   readonly barrierPivot: TransformNode;
+  /** Cache for resolvedSignalLight; see that helper for the contract. */
+  resolvedLightIndex?: number;
+  lastWarningActive?: boolean;
+  lastFlashIndex?: number;
 }
 
 interface RouteProjection {
@@ -1892,6 +2054,33 @@ const FIXED_STEP = 1 / 60;
 const START_Z = -52;
 const FINISH_Z = 72;
 const LANE_CENTER = 2.75;
+
+// Frame-budget accounting drained by __sideswapPerfDebug. Indices into the
+// session's perfSumMs/perfMaxMs arrays; the first four are per-fixed-step
+// stages, the rest per-rendered-frame, and drainPerfStats averages each over
+// its own denominator.
+// Caps the camera shake/bob phase rate: 12 m/s * 2.7 rad/m ≈ 5.2 Hz for the
+// chase shake (whose |sin| height term doubles that), ~3.6 Hz for head bob —
+// both comfortably under the 30 Hz Nyquist limit of 60 Hz sampling.
+const CAMERA_MOTION_SPEED_CAP_MPS = 12;
+
+const PERF_SIM_STEP = 0;
+const PERF_SNAPSHOT_APPLY = 1;
+const PERF_CROWD = 2;
+const PERF_COLLISION = 3;
+const PERF_GUIDANCE = 4;
+const PERF_CAMERA = 5;
+const PERF_SCENE_RENDER = 6;
+const PERF_STAGE_COUNT = 7;
+const PERF_STAGE_NAMES = [
+  "simStepMs",
+  "snapshotApplyMs",
+  "crowdMs",
+  "collisionMs",
+  "guidanceMs",
+  "cameraMs",
+  "sceneRenderMs",
+] as const;
 
 export const INPUT_PROMPT_SWITCH_COOLDOWN_MS = 750;
 export const TOUCH_CONTROL_DIM_DELAY_MS = 1_500;
@@ -3359,6 +3548,7 @@ class BabylonGameSession {
    * null = merge failed for that url (falls back to the multi-mesh path). */
   private readonly buildingMasters = new Map<string, Mesh | null>();
   private readonly storefrontSignMaterials = new Map<string, StandardMaterial>();
+  private signalLensMaster: Mesh | null = null;
   private signalRedMaterial: StandardMaterial | null = null;
   private signalAmberMaterial: StandardMaterial | null = null;
   private signalGreenMaterial: StandardMaterial | null = null;
@@ -3375,6 +3565,13 @@ class BabylonGameSession {
   private accumulator = 0;
   private lastFrameTime = 0;
   private lastHudTime = 0;
+  // Substage timing sums/maxima since the last __sideswapPerfDebug poll
+  // (polling drains them). Flat typed arrays so the hot loops allocate nothing.
+  private readonly perfSumMs = new Float64Array(PERF_STAGE_COUNT);
+  private readonly perfMaxMs = new Float64Array(PERF_STAGE_COUNT);
+  private perfFrames = 0;
+  private perfFixedSteps = 0;
+  private perfDrawCalls = 0;
   private lastSpeedingEvent = -10_000;
   private collisionGraceUntil = 0;
   private wrongSideSeconds = 0;
@@ -3426,15 +3623,51 @@ class BabylonGameSession {
   private displayedZ = START_Z;
   private displayedHeading = 0;
   private cameraMotionSeconds = 0;
+  // Set by createSkyAndHorizon from the map's fog band, applied to every
+  // camera in the constructor. Babylon's default far plane is 10km.
+  private cameraFarPlaneM = 10_000;
+  /** Lane lookup for per-frame guidance code; null on the yard fallback. */
+  private readonly laneById: Map<
+    string,
+    GameCanvasMapPack["laneGraph"]["lanes"][number]
+  > | null;
+  // mergedInput's reused result — its consumers all read synchronously.
+  private readonly mergedInputScratch: AnalogInput = {
+    throttle: 0,
+    brake: 0,
+    reverse: 0,
+    steer: 0,
+    quickLook: 0,
+  };
+  // updateCamera scratch, reused every frame so the camera path allocates
+  // nothing. The target scratch is retained by setTarget between frames
+  // (ArcRotate keeps the reference) — which is exactly why every setTarget
+  // call here passes allowSamePosition=true: setTarget's change check is
+  // `currentTarget.equals(newTarget)`, and against its own retained object
+  // that is always true, so without the flag it never rebuilds the
+  // spherical state and _getViewMatrix clobbers every position write with
+  // the stale pose (the camera froze at its construction offset).
+  private readonly cameraForwardScratch = new Vector3();
+  private readonly cameraRightScratch = new Vector3();
+  private readonly cameraBaseScratch = new Vector3();
+  private readonly cameraTargetScratch = new Vector3();
+  private readonly cameraDesiredScratch = new Vector3();
   private lastSimulationHonkActive = false;
   private lastSimulationCoachMessage: string | null = null;
   private visualPalette: MapVisualPalette = resolveMapVisualPalette("orientation-yard");
   private shadowGenerator: ShadowGenerator | null = null;
-  private readonly staticShadowCasters: Array<{
-    mesh: AbstractMesh;
-    x: number;
-    z: number;
-  }> = [];
+  // Static shadow casters bucketed by cell, so the periodic refresh queries
+  // a ring instead of scanning every registered caster in the city. The
+  // static sublist and the final render list are persistent and rebuilt in
+  // place — the refresh allocates nothing in steady state.
+  private readonly shadowCasterCells = new Map<
+    string,
+    Array<{ mesh: AbstractMesh; x: number; z: number }>
+  >();
+  private readonly shadowStaticList: AbstractMesh[] = [];
+  private readonly shadowRenderList: AbstractMesh[] = [];
+  private shadowStaticAnchorX = Number.POSITIVE_INFINITY;
+  private shadowStaticAnchorZ = Number.POSITIVE_INFINITY;
   private shadowRefreshSeconds = Number.POSITIVE_INFINITY;
   private effectsPipeline: DefaultRenderingPipeline | null = null;
 
@@ -3489,10 +3722,14 @@ class BabylonGameSession {
       previousX: start.x,
       previousZ: start.z,
       heading: start.heading,
+      previousHeading: start.heading,
       speedMps: 0,
       gear: "D",
       indicator: "off",
     };
+    this.laneById = options.mapPack
+      ? new Map(options.mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]))
+      : null;
     this.collisionGraceUntil = eventNow() + 2_000;
     this.checkpoint = { ...start };
     this.displayedX = start.x;
@@ -3543,13 +3780,19 @@ class BabylonGameSession {
 
     // Touch resolution is governed, because a phone cannot simply be pinned to
     // a good number: it throttles, and a career day runs about six minutes.
-    // Desktop is not governed and keeps exactly the level it always had — see
-    // renderScaling.ts for what governing it cost.
+    // Desktop is not governed and keeps its static level — the DPR curve it
+    // always had, now width-capped so a DPR-1 4K monitor stops rendering
+    // every physical pixel (see renderScaling.ts for what governing cost).
+    // Static means set once here: a window dragged to another monitor keeps
+    // the level until the next session rebuild, and never resizes mid-drive.
     this.renderScaling = touchFirst ? createRenderScalingState() : null;
     this.engine.setHardwareScalingLevel(
       this.renderScaling
         ? renderScalingLevel(this.renderScaling)
-        : desktopHardwareScalingLevel(window.devicePixelRatio || 1),
+        : desktopHardwareScalingLevel(
+            window.devicePixelRatio || 1,
+            canvas.clientWidth || undefined,
+          ),
     );
     // Weak devices (touch, or few CPU cores) build a thinner building wall so
     // the dense city stays playable on phones.
@@ -3583,8 +3826,15 @@ class BabylonGameSession {
       this.scene,
     );
     this.thirdCamera.inputs.clear();
-    this.thirdCamera.lowerRadiusLimit = 8;
-    this.thirdCamera.upperRadiusLimit = 16;
+    // No radius limits: updateCamera writes position + target every frame,
+    // and ArcRotate's authoritative state is spherical — setTarget rebuilds
+    // radius from the written position and _checkLimits clamps it, feeding
+    // the clamped position back. At speed the chase lag pushed the radius
+    // across upperRadiusLimit every other frame, and the clamp's ~0.2m
+    // vertical snap-back was the high-speed camera nod. Inputs are cleared
+    // and nothing else reads the radius, so the limits guarded nothing.
+    this.thirdCamera.lowerRadiusLimit = null;
+    this.thirdCamera.upperRadiusLimit = null;
     this.thirdCamera.minZ = 0.1;
     this.thirdCamera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     this.thirdCamera.fov = clampHorizontalFieldOfView(options.fieldOfView);
@@ -3613,9 +3863,19 @@ class BabylonGameSession {
     this.rearCamera.layerMask = WORLD_LAYER_MASK;
     this.rearCamera.viewport = new Viewport(0.36, 0.845, 0.28, 0.125);
 
+    // One far plane for all three cameras, from the fog band the environment
+    // chose above. Fog hides but never culls: with the default 10km plane the
+    // whole 3km NYC grid was frustum-tested and submitted from anywhere on
+    // the map, fully fogged and invisible.
+    this.thirdCamera.maxZ = this.cameraFarPlaneM;
+    this.firstCamera.maxZ = this.cameraFarPlaneM;
+    this.rearCamera.maxZ = this.cameraFarPlaneM;
+    this.snapChaseCameraToPose();
+
     this.createEffectsPipeline();
     this.setCameraMode(this.cameraMode, false);
     this.installListeners();
+    this.installDebugHooks();
     // Built here rather than lazily on first sound: the wavetables and noise
     // buffers cost a few milliseconds, and this runs behind the loading overlay
     // instead of hitching a live frame. Null when Web Audio is unavailable.
@@ -3853,9 +4113,15 @@ class BabylonGameSession {
     this.applySimulationSnapshot(this.simulation.getSnapshot());
     this.processSimulationEvents(this.simulation.drainEvents());
     this.clearHeldInputs();
+    // A checkpoint can sit under the snap threshold; pin the blend pair
+    // explicitly so the first frame after a reset shows the reset pose.
+    this.playerState.previousX = this.playerState.x;
+    this.playerState.previousZ = this.playerState.z;
+    this.playerState.previousHeading = this.playerState.heading;
     this.displayedX = this.playerState.x;
     this.displayedZ = this.playerState.z;
     this.displayedHeading = this.playerState.heading;
+    this.snapChaseCameraToPose();
     if (incidentMessage) {
       this.instruction = incidentMessage;
       this.setPaused(true);
@@ -4732,8 +4998,12 @@ class BabylonGameSession {
       const pose = lerpCarPose(move.from, move.to, eased);
       if (move.vehicle === "player") {
         this.simulation.setPlayerPose(pose);
-        this.playerState.previousX = this.playerState.x;
-        this.playerState.previousZ = this.playerState.z;
+        // The glide already advances at render rate; pin prev to the same
+        // pose so the interpolated car sits exactly on the choreography
+        // rather than one blend step behind it.
+        this.playerState.previousX = pose.x;
+        this.playerState.previousZ = pose.z;
+        this.playerState.previousHeading = pose.heading;
         this.playerState.x = pose.x;
         this.playerState.z = pose.z;
         this.playerState.heading = pose.heading;
@@ -4940,7 +5210,10 @@ class BabylonGameSession {
     const interpolation = this.paused ? 1 : this.accumulator / FIXED_STEP;
     if (!this.paused) this.advanceCutscene(frameSeconds);
     this.updatePlayerVisuals(interpolation);
+    this.updateNpcVisuals(interpolation);
+    let mark = performance.now();
     this.updateGuidanceVisuals();
+    this.perfSample(PERF_GUIDANCE, performance.now() - mark);
     if (!this.paused) this.updatePropFalls(frameSeconds);
     if (this.damageSmoke?.isStarted()) {
       // Trail the smoke from the engine bay, wherever the car is facing.
@@ -4950,7 +5223,9 @@ class BabylonGameSession {
         this.displayedZ + Math.cos(this.displayedHeading) * 1.05,
       );
     }
+    mark = performance.now();
     this.updateCamera(frameSeconds);
+    this.perfSample(PERF_CAMERA, performance.now() - mark);
     this.updateIndicatorLights(frameSeconds);
     this.playerCyclistVisual?.advancePedals?.(
       this.playerState.speedMps * frameSeconds,
@@ -4966,7 +5241,15 @@ class BabylonGameSession {
     // very next thing that happens is a full redraw into the new buffer,
     // rather than the frame being presented mid-rebuild.
     this.governRenderScaling(now);
+    const drawCallsBefore = this.engineDrawCallCount();
+    mark = performance.now();
     this.scene.render();
+    this.perfSample(PERF_SCENE_RENDER, performance.now() - mark);
+    const drawCallsAfter = this.engineDrawCallCount();
+    if (drawCallsBefore !== null && drawCallsAfter !== null) {
+      this.perfDrawCalls += drawCallsAfter - drawCallsBefore;
+    }
+    this.perfFrames += 1;
     if (now - this.lastHudTime >= 100) this.publishHud();
   };
 
@@ -4987,6 +5270,74 @@ class BabylonGameSession {
     if (level !== this.engine.getHardwareScalingLevel()) {
       this.engine.setHardwareScalingLevel(level);
     }
+    this.applyPerfRung(this.renderScaling.index);
+  }
+
+  /**
+   * Non-resolution costs stepped with the touch ladder. Only the blurriest
+   * rung sheds the sun shadows — a device that cannot hold the softest
+   * resolution needs its per-frame budget back more than shadow polish; the
+   * governor restores them the moment it climbs. Toggling light.shadowEnabled
+   * skips the shadow-map render without any resize, so unlike the resolution
+   * rungs it can never flash (flashes come from setHardwareScalingLevel's
+   * resize recompiling the bloom kernels — see renderScaling.ts).
+   */
+  private applyPerfRung(rungIndex: number) {
+    const shadowsOn = rungIndex < TOUCH_SCALING_LADDER.length - 1;
+    const light = this.shadowGenerator?.getLight();
+    if (light && light.shadowEnabled !== shadowsOn) {
+      light.shadowEnabled = shadowsOn;
+    }
+  }
+
+  private perfSample(stage: number, ms: number) {
+    this.perfSumMs[stage] += ms;
+    if (ms > this.perfMaxMs[stage]) this.perfMaxMs[stage] = ms;
+  }
+
+  // Cumulative since page load (no per-frame reset without scene
+  // instrumentation) — meaningful only as a delta between two reads.
+  private engineDrawCallCount(): number | null {
+    return (
+      (this.engine as unknown as { _drawCalls?: { current: number } })
+        ._drawCalls?.current ?? null
+    );
+  }
+
+  /**
+   * Per-substage frame-budget report since the previous poll; polling resets
+   * the window. Fixed-step stages average per sim step, render stages per
+   * rendered frame — on a 120 Hz display those denominators differ 2:1.
+   */
+  private drainPerfStats() {
+    const frames = Math.max(1, this.perfFrames);
+    const steps = Math.max(1, this.perfFixedSteps);
+    const round = (value: number) => Math.round(value * 1000) / 1000;
+    const stages: Record<string, { avgMs: number; maxMs: number }> = {};
+    for (let stage = 0; stage < PERF_STAGE_COUNT; stage += 1) {
+      const denominator = stage <= PERF_COLLISION ? steps : frames;
+      stages[PERF_STAGE_NAMES[stage]] = {
+        avgMs: round(this.perfSumMs[stage] / denominator),
+        maxMs: round(this.perfMaxMs[stage]),
+      };
+    }
+    const heapBytes = (
+      performance as unknown as { memory?: { usedJSHeapSize: number } }
+    ).memory?.usedJSHeapSize;
+    const report = {
+      perfWindowFrames: this.perfFrames,
+      perfWindowFixedSteps: this.perfFixedSteps,
+      stages,
+      drawCallsPerFrame: Math.round(this.perfDrawCalls / frames),
+      // Chrome only; Safari has no performance.memory, so null there.
+      heapUsedMB: heapBytes ? Math.round(heapBytes / 1048576) : null,
+    };
+    this.perfSumMs.fill(0);
+    this.perfMaxMs.fill(0);
+    this.perfFrames = 0;
+    this.perfFixedSteps = 0;
+    this.perfDrawCalls = 0;
+    return report;
   }
 
   /**
@@ -5059,18 +5410,27 @@ class BabylonGameSession {
             ? "right"
             : undefined,
     };
+    let mark = performance.now();
     const snapshot = this.simulation.step(dt, simulationInput);
+    this.perfSample(PERF_SIM_STEP, performance.now() - mark);
+    mark = performance.now();
     this.applySimulationSnapshot(snapshot);
+    this.perfSample(PERF_SNAPSHOT_APPLY, performance.now() - mark);
     const events = this.simulation.drainEvents();
     this.processSimulationEvents(events);
     if (events.length === 0) this.publishSimulationCoachMessage(snapshot);
+    mark = performance.now();
     this.animatePedestrians(dt);
     this.syncRailRoadUsers(dt);
     this.stepAmbientCrowd(dt);
     this.updateDownedRoadUsers();
+    this.perfSample(PERF_CROWD, performance.now() - mark);
+    mark = performance.now();
     this.reportVulnerableRoadUserCollision();
     this.checkDestructiblePropCollisions();
     this.evaluateAuthoredProgress();
+    this.perfSample(PERF_COLLISION, performance.now() - mark);
+    this.perfFixedSteps += 1;
   }
 
   private reportVulnerableRoadUserCollision() {
@@ -5237,7 +5597,7 @@ class BabylonGameSession {
       mapPack.laneGraph.lanes,
     );
     const projectedLane = roadProjection
-      ? mapPack.laneGraph.lanes.find((lane) => lane.id === roadProjection.laneId)
+      ? this.laneById?.get(roadProjection.laneId) ?? null
       : null;
     const roadTolerance =
       (projectedLane?.widthM ?? Math.min(3.5, mapPack.geometry.roadWidth * 0.45)) / 2 +
@@ -5305,37 +5665,35 @@ class BabylonGameSession {
     // every consumer (sim input, engine audio, steering visual, quick-look)
     // reads through here, so one gate locks them all.
     if (this.activeCutscene) return CUTSCENE_LOCKED_INPUT;
-    const strongest = (...values: number[]) =>
-      values.reduce((best, value) =>
-        Math.abs(value) > Math.abs(best) ? value : best,
-      0);
-    return {
-      throttle: clamp(
-        Math.max(this.keyboard.throttle, this.touch.throttle, this.gamepad.throttle),
-        0,
-        1,
-      ),
-      brake: clamp(
-        Math.max(this.keyboard.brake, this.touch.brake, this.gamepad.brake),
-        0,
-        1,
-      ),
-      reverse: clamp(
-        Math.max(this.keyboard.reverse, this.touch.reverse, this.gamepad.reverse),
-        0,
-        1,
-      ),
-      steer: clamp(
-        strongest(this.keyboard.steer, this.touch.steer, this.gamepad.steer),
-        -1,
-        1,
-      ),
-      quickLook: strongest(
-        this.keyboard.quickLook,
-        this.touch.quickLook,
-        this.gamepad.quickLook,
-      ),
-    };
+    // Reuses one scratch object: this runs ~5x per frame and every consumer
+    // reads it synchronously — nothing may hold the result across frames.
+    const merged = this.mergedInputScratch;
+    merged.throttle = clamp(
+      Math.max(this.keyboard.throttle, this.touch.throttle, this.gamepad.throttle),
+      0,
+      1,
+    );
+    merged.brake = clamp(
+      Math.max(this.keyboard.brake, this.touch.brake, this.gamepad.brake),
+      0,
+      1,
+    );
+    merged.reverse = clamp(
+      Math.max(this.keyboard.reverse, this.touch.reverse, this.gamepad.reverse),
+      0,
+      1,
+    );
+    merged.steer = clamp(
+      strongestOfThree(this.keyboard.steer, this.touch.steer, this.gamepad.steer),
+      -1,
+      1,
+    );
+    merged.quickLook = strongestOfThree(
+      this.keyboard.quickLook,
+      this.touch.quickLook,
+      this.gamepad.quickLook,
+    );
+    return merged;
   }
 
   private advanceAuthoredCheckpoints(lesson: GameCanvasLesson) {
@@ -6130,10 +6488,12 @@ class BabylonGameSession {
   /**
    * Freeze the dense static scenery so the render loop stops recomputing world
    * matrices and bounding info for ~9k instanced meshes every frame (the cause
-   * of the driving stutter), and build a selection octree so frustum culling of
-   * that many meshes is spatial rather than linear. Runs once after the first
-   * render, when every world matrix is already correct — freezing earlier (mid
-   * construction) cached identity matrices and dropped buildings at the origin.
+   * of the driving stutter). Frustum culling of the frozen set is still a
+   * linear per-mesh sweep — the camera far plane riding the fog band is what
+   * keeps the submitted set small. Runs once after the first render, when
+   * every world matrix is already correct — freezing earlier (mid
+   * construction) cached identity matrices and dropped buildings at the
+   * origin.
    */
   private freezeStaticScenery() {
     // Parents-before-children order (as pushed) means each freeze reads an
@@ -6456,6 +6816,7 @@ class BabylonGameSession {
       const npc = this.npcVehicles[slotAssignments[vehicleIndex]];
       if (!npc) continue;
       const previousSpeed = npc.currentSpeed ?? vehicle.speedMps;
+      const reassigned = npc.simulationId !== vehicle.id;
       npc.simulationId = vehicle.id;
       this.ensureNpcVehicleVisual(npc, vehicle.id, vehicle.variant);
       npc.active = true;
@@ -6491,17 +6852,58 @@ class BabylonGameSession {
       // the render slot, and re-applied every tick because this loop enables
       // every active vehicle from scratch.
       npc.node.setEnabled(vehicle.id !== this.hiddenNpcSimulationId);
-      npc.node.position.set(vehicle.x, 0.12, vehicle.z);
-      npc.node.rotation.y = vehicle.heading;
+      // Shift the pose pair for updateNpcVisuals' render-rate blend. A slot
+      // that changed cars, or a car that jumped a teleport-sized gap, snaps —
+      // blending across either would streak the vehicle through the map.
+      if (
+        reassigned ||
+        shouldSnapPose(
+          npc.poseX,
+          npc.poseZ,
+          vehicle.x,
+          vehicle.z,
+          POSE_SNAP_STEP_M,
+        )
+      ) {
+        npc.prevPoseX = vehicle.x;
+        npc.prevPoseZ = vehicle.z;
+        npc.prevPoseHeading = vehicle.heading;
+      } else {
+        npc.prevPoseX = npc.poseX;
+        npc.prevPoseZ = npc.poseZ;
+        npc.prevPoseHeading = npc.poseHeading;
+      }
+      npc.poseX = vehicle.x;
+      npc.poseZ = vehicle.z;
+      npc.poseHeading = vehicle.heading;
     }
   }
 
   private applySimulationSnapshot(snapshot: SimulationSnapshot) {
     const previousX = this.playerState.x;
     const previousZ = this.playerState.z;
+    const previousHeading = this.playerState.heading;
     this.simulationSnapshot = snapshot;
-    this.playerState.previousX = previousX;
-    this.playerState.previousZ = previousZ;
+    // A gap no legal drive can produce is a teleport (tow reset, checkpoint
+    // restore): snap the pair together so the render blend never streaks the
+    // car across the map for a frame.
+    if (
+      shouldSnapPose(
+        previousX,
+        previousZ,
+        snapshot.player.x,
+        snapshot.player.z,
+        POSE_SNAP_STEP_M,
+      )
+    ) {
+      this.playerState.previousX = snapshot.player.x;
+      this.playerState.previousZ = snapshot.player.z;
+      this.playerState.previousHeading = snapshot.player.heading;
+    } else {
+      this.playerState.previousX = previousX;
+      this.playerState.previousZ = previousZ;
+      this.playerState.previousHeading = previousHeading;
+    }
     this.playerState.x = snapshot.player.x;
     this.playerState.z = snapshot.player.z;
     this.playerState.heading = snapshot.player.heading;
@@ -6625,11 +7027,40 @@ class BabylonGameSession {
     this.emit("coaching", message, "info");
   }
 
+  /**
+   * The head's snapshot light, via a resolved-index cache. getSnapshot maps
+   * the core's trafficLights array, whose membership and order are fixed for
+   * the session, so the index a head resolves once holds for every later
+   * snapshot; the id recheck (a ≤4-entry includes) catches anything that
+   * would break that. -1 records "no light exists for this head" — the
+   * fixed-clock fallback case. Before this cache, every head ran a find()
+   * over every light with an includes() inside, per fixed step: 27x more
+   * iterations after the NYC grid grew, and the top per-frame CPU cost.
+   */
+  private resolvedSignalLight(
+    visual: {
+      readonly trafficLightIds: readonly string[];
+      resolvedLightIndex?: number;
+    },
+    lights: SimulationSnapshot["trafficLights"],
+  ): SimulationSnapshot["trafficLights"][number] | null {
+    const cached = visual.resolvedLightIndex;
+    if (cached === -1) return null;
+    if (cached !== undefined) {
+      const light = lights[cached];
+      if (light && visual.trafficLightIds.includes(light.id)) return light;
+    }
+    const index = lights.findIndex((light) =>
+      visual.trafficLightIds.includes(light.id),
+    );
+    visual.resolvedLightIndex = index;
+    return index >= 0 ? lights[index] : null;
+  }
+
   private updateAuthoredSignalVisuals() {
+    const lights = this.simulationSnapshot.trafficLights;
     for (const head of this.authoredSignalHeads) {
-      const simulationLight = this.simulationSnapshot.trafficLights.find(
-        (light) => head.trafficLightIds.includes(light.id),
-      );
+      const simulationLight = this.resolvedSignalLight(head, lights);
       const aspect: AuthoredSignalAspect = simulationLight?.state ??
         authoredSignalAspectAt({
           elapsedSeconds: this.trafficLightSeconds,
@@ -6638,40 +7069,53 @@ class BabylonGameSession {
           phaseGroups: head.phaseGroups,
           style: head.style,
         });
+      if (aspect === head.lastAspect) continue;
+      head.lastAspect = aspect;
       const redOn =
         aspect === "red" || aspect === "red_amber" || aspect === "all_red";
       const amberOn = aspect === "amber" || aspect === "red_amber";
       const greenOn = aspect === "green";
-      head.redMaterial.emissiveColor.copyFromFloats(
+      head.redColor.copyFromFloats(
         redOn ? 0.75 : 0.08,
         redOn ? 0.025 : 0.005,
         redOn ? 0.015 : 0.005,
+        1,
       );
-      head.amberMaterial.emissiveColor.copyFromFloats(
+      head.amberColor.copyFromFloats(
         amberOn ? 0.72 : 0.08,
         amberOn ? 0.31 : 0.04,
         amberOn ? 0.015 : 0.005,
+        1,
       );
-      head.greenMaterial.emissiveColor.copyFromFloats(
+      head.greenColor.copyFromFloats(
         greenOn ? 0.01 : 0.005,
         greenOn ? 0.46 : 0.06,
         greenOn ? 0.1 : 0.012,
+        1,
       );
     }
     for (const crossing of this.railwayCrossingVisuals) {
-      const light = this.simulationSnapshot.trafficLights.find((candidate) =>
-        crossing.trafficLightIds.includes(candidate.id),
-      );
+      const light = this.resolvedSignalLight(crossing, lights);
       const warningActive = Boolean(light && light.state !== "green");
       const flashIndex = Math.floor(this.simulationSnapshot.elapsedMs / 360) % 2;
-      crossing.lampMaterials.forEach((material, index) => {
-        const illuminated = warningActive && index % 2 === flashIndex;
-        material.emissiveColor.copyFromFloats(
-          illuminated ? 0.92 : 0.08,
-          illuminated ? 0.035 : 0.005,
-          illuminated ? 0.02 : 0.005,
-        );
-      });
+      // The lamps alternate on a 360ms clock — rewrite them only on a tick
+      // boundary or a state flip, not sixty times a second.
+      if (
+        warningActive !== crossing.lastWarningActive ||
+        flashIndex !== crossing.lastFlashIndex
+      ) {
+        crossing.lastWarningActive = warningActive;
+        crossing.lastFlashIndex = flashIndex;
+        crossing.lampColors.forEach((color, index) => {
+          const illuminated = warningActive && index % 2 === flashIndex;
+          color.copyFromFloats(
+            illuminated ? 0.92 : 0.08,
+            illuminated ? 0.035 : 0.005,
+            illuminated ? 0.02 : 0.005,
+            1,
+          );
+        });
+      }
       const targetBarrierRotation = warningActive ? 0 : -1.22;
       if (this.options.reducedMotion) {
         crossing.barrierPivot.rotation.z = targetBarrierRotation;
@@ -6723,15 +7167,24 @@ class BabylonGameSession {
     }
   }
 
+  /**
+   * Draws the car at the blend of its previous and current sim poses — real
+   * fixed-step interpolation, not smoothing. The old exponential chase here
+   * re-derived its blend factor from the accumulator phase every frame, so at
+   * speed the car (and the camera chasing it) hopped by the phase difference
+   * each frame — the high-speed "nodding" jitter, at its worst on 120 Hz
+   * displays where the sim steps on alternating frames.
+   */
   private updatePlayerVisuals(interpolation: number) {
     const state = this.playerState;
-    const positionBlend = this.options.reducedMotion ? 1 : clamp(0.35 + interpolation * 0.65, 0, 1);
-    this.displayedX += (state.x - this.displayedX) * positionBlend;
-    this.displayedZ += (state.z - this.displayedZ) * positionBlend;
-    let headingDelta = state.heading - this.displayedHeading;
-    while (headingDelta > Math.PI) headingDelta -= Math.PI * 2;
-    while (headingDelta < -Math.PI) headingDelta += Math.PI * 2;
-    this.displayedHeading += headingDelta * positionBlend;
+    const alpha = this.options.reducedMotion ? 1 : interpolation;
+    this.displayedX = lerpValue(state.previousX, state.x, alpha);
+    this.displayedZ = lerpValue(state.previousZ, state.z, alpha);
+    this.displayedHeading = lerpHeading(
+      state.previousHeading,
+      state.heading,
+      alpha,
+    );
     this.player.position.set(
       this.displayedX,
       0.12 - this.cutsceneDipOffset,
@@ -6744,6 +7197,63 @@ class BabylonGameSession {
     }
   }
 
+  /**
+   * Same prev/current blend for the ambient cars. Walkers and cyclists stay
+   * fixed-step on purpose — at ≤1.4 m/s they move under 2.5cm per step, below
+   * anything a frame can show. Skips disabled slots; the fixed-step apply
+   * owns setEnabled, lamps and detail levels.
+   */
+  private updateNpcVisuals(interpolation: number) {
+    const alpha = this.options.reducedMotion ? 1 : interpolation;
+    for (const npc of this.npcVehicles) {
+      if (!npc.active) continue;
+      npc.node.position.set(
+        lerpValue(npc.prevPoseX, npc.poseX, alpha),
+        0.12,
+        lerpValue(npc.prevPoseZ, npc.poseZ, alpha),
+      );
+      npc.node.rotation.y = lerpHeading(
+        npc.prevPoseHeading,
+        npc.poseHeading,
+        alpha,
+      );
+    }
+  }
+
+  /**
+   * Pins the chase camera to its steady-state pose behind the car. Used at
+   * construction and on pose teleports (tow reset): the per-frame smoothing
+   * would otherwise glide the camera in from wherever it last stood — at
+   * session start that is the ArcRotate construction pose near the map
+   * origin, a cross-map swoop. The deleted upperRadiusLimit used to mask
+   * the construction case by yanking the camera to within 16m of the target
+   * on the first setTarget; this does the job on purpose instead.
+   */
+  private snapChaseCameraToPose() {
+    const chase =
+      (this.options.playerVehicle?.model &&
+        CHASE_TUNING_BY_MODEL[this.options.playerVehicle.model]) ||
+      DEFAULT_CHASE_TUNING;
+    const forward = this.cameraForwardScratch.set(
+      Math.sin(this.displayedHeading),
+      0,
+      Math.cos(this.displayedHeading),
+    );
+    const base = this.cameraBaseScratch.set(
+      this.displayedX,
+      0.12,
+      this.displayedZ,
+    );
+    const target = this.cameraTargetScratch.copyFrom(base);
+    forward.scaleAndAddToRef(chase.targetAheadM, target);
+    target.y += 1.05;
+    const desired = this.cameraDesiredScratch.copyFrom(base);
+    forward.scaleAndAddToRef(-chase.backM, desired);
+    desired.y += chase.upM;
+    this.thirdCamera.position.copyFrom(desired);
+    this.thirdCamera.setTarget(target, undefined, true);
+  }
+
   private updateCamera(dt: number) {
     const routeHeading =
       this.playerState.speedMps < 0.2
@@ -6753,14 +7263,24 @@ class BabylonGameSession {
       routeHeading && routeHeading.distance < 5
         ? routeHeading.heading
         : this.displayedHeading;
-    const forward = new Vector3(
+    const forward = this.cameraForwardScratch.set(
       Math.sin(chaseHeading),
       0,
       Math.cos(chaseHeading),
     );
-    const right = new Vector3(forward.z, 0, -forward.x);
-    const base = new Vector3(this.displayedX, 0.12, this.displayedZ);
-    this.cameraMotionSeconds += dt * this.playerState.speedMps;
+    const right = this.cameraRightScratch.set(forward.z, 0, -forward.x);
+    const base = this.cameraBaseScratch.set(
+      this.displayedX,
+      0.12,
+      this.displayedZ,
+    );
+    // Shake/bob phase advances with distance covered, capped: uncapped, the
+    // chase shake's |sin| vertical term reached ~21 Hz at top speed — beyond
+    // what 60 Hz sampling can express, so it aliased into flicker instead of
+    // reading as speed. The cap pins it at ~5 Hz; amplitude still scales
+    // with true speed below.
+    this.cameraMotionSeconds +=
+      dt * Math.min(this.playerState.speedMps, CAMERA_MOTION_SPEED_CAP_MPS);
     const look = this.mergedInput().quickLook;
     const quickLookAngle = Math.abs(look) > 1.5 ? Math.PI : look * 1.18;
 
@@ -6772,15 +7292,21 @@ class BabylonGameSession {
         this.thirdCamera.position.copyFrom(this.activeCutscene.cameraPosition);
       } else {
         const smooth = 1 - Math.exp(-3.5 * dt);
-        this.thirdCamera.position.copyFrom(
-          Vector3.Lerp(
-            this.thirdCamera.position,
-            this.activeCutscene.cameraPosition,
-            smooth,
-          ),
+        Vector3.LerpToRef(
+          this.thirdCamera.position,
+          this.activeCutscene.cameraPosition,
+          smooth,
+          this.thirdCamera.position,
         );
       }
-      this.thirdCamera.setTarget(this.activeCutscene.cameraTarget);
+      // allowSamePosition: see the camera scratch fields — without it a
+      // retained target object suppresses the spherical rebuild and the
+      // position writes above are clobbered.
+      this.thirdCamera.setTarget(
+        this.activeCutscene.cameraTarget,
+        undefined,
+        true,
+      );
     } else if (this.cameraMode === "first") {
       const seatSide = this.options.steeringSide === "left" ? -0.46 : 0.46;
       const headBob =
@@ -6825,27 +7351,33 @@ class BabylonGameSession {
         (this.options.playerVehicle?.model &&
           CHASE_TUNING_BY_MODEL[this.options.playerVehicle.model]) ||
         DEFAULT_CHASE_TUNING;
-      const target = base
-        .add(forward.scale(chase.targetAheadM))
-        .add(new Vector3(0, 1.05, 0));
+      const target = this.cameraTargetScratch.copyFrom(base);
+      forward.scaleAndAddToRef(chase.targetAheadM, target);
+      target.y += 1.05;
       const cameraShake =
         this.options.cameraShake && !this.options.reducedMotion
           ? Math.sin(this.cameraMotionSeconds * 2.7) *
             Math.min(0.08, this.playerState.speedMps * 0.004)
           : 0;
-      const desiredPosition = base
-        .subtract(forward.scale(chase.backM))
-        .add(right.scale(cameraShake))
-        .add(new Vector3(0, chase.upM + Math.abs(cameraShake) * 0.35, 0));
+      const desiredPosition = this.cameraDesiredScratch.copyFrom(base);
+      forward.scaleAndAddToRef(-chase.backM, desiredPosition);
+      right.scaleAndAddToRef(cameraShake, desiredPosition);
+      desiredPosition.y += chase.upM + Math.abs(cameraShake) * 0.35;
       if (this.options.reducedMotion) {
         this.thirdCamera.position.copyFrom(desiredPosition);
       } else {
         const smooth = 1 - Math.exp(-7 * dt);
-        this.thirdCamera.position.copyFrom(
-          Vector3.Lerp(this.thirdCamera.position, desiredPosition, smooth),
+        Vector3.LerpToRef(
+          this.thirdCamera.position,
+          desiredPosition,
+          smooth,
+          this.thirdCamera.position,
         );
       }
-      this.thirdCamera.setTarget(target);
+      // allowSamePosition: see the camera scratch fields — without it the
+      // reused target scratch suppresses the spherical rebuild and the
+      // position write above is clobbered by the stale pose.
+      this.thirdCamera.setTarget(target, undefined, true);
     }
 
     // Impact kick: a short decaying jolt on top of whichever camera is live,
@@ -6859,7 +7391,7 @@ class BabylonGameSession {
         const lift = Math.cos(this.impactShakeSeconds * 39) * 0.11 * kick;
         const camera =
           this.cameraMode === "first" ? this.firstCamera : this.thirdCamera;
-        camera.position.addInPlace(right.scale(jab));
+        right.scaleAndAddToRef(jab, camera.position);
         camera.position.y += lift;
       }
       this.impactKick *= Math.exp(-5.2 * dt);
@@ -7130,10 +7662,14 @@ class BabylonGameSession {
         ROAD_JUNCTION_FILL_Y,
       );
     }
+    // All lane paint pours into two merged meshes (one per colour) instead
+    // of a box per dash — see MarkingGeometry. Chevrons, crosswalks and
+    // thresholds keep their own meshes: they need per-mesh setEnabled.
+    const whitePaint = createMarkingGeometry();
+    const yellowPaint = createMarkingGeometry();
     for (const surface of roadSurfaces) {
       for (const marking of surface.markings) {
-        const material =
-          marking.color === "yellow" ? yellowMarkingMaterial : laneMaterial;
+        const paint = marking.color === "yellow" ? yellowPaint : whitePaint;
         // Give-way bars and box junctions belong *to* a junction; everything
         // else is lane paint, which stops at one.
         const runs = LANE_PAINT_STYLES.has(marking.style)
@@ -7142,19 +7678,17 @@ class BabylonGameSession {
               roadSurfaces.filter((other) => other.id !== surface.id),
             )
           : [marking.points as MarkingPoint[]];
-        for (const [runIndex, run] of runs.entries()) {
-          const name = `road-marking-${surface.id}-${marking.id}-${runIndex}`;
+        for (const run of runs) {
           if (
             marking.style === "centre_dashed" ||
             marking.style === "lane_dashed" ||
             marking.style === "give_way"
           ) {
-            this.createDashedPath(
-              name,
+            appendDashedMarkingBoxes(
+              paint,
               run,
               marking.style === "give_way" ? 0.24 : 0.11,
               0.12,
-              material,
               marking.style === "centre_dashed"
                 ? 3.2
                 : marking.style === "give_way"
@@ -7168,16 +7702,21 @@ class BabylonGameSession {
             );
             continue;
           }
-          this.createSolidPath(
-            name,
+          appendSolidMarkingBoxes(
+            paint,
             run,
             marking.style === "box_junction" ? 0.18 : 0.11,
             0.12,
-            material,
           );
         }
       }
     }
+    this.buildMergedMarkingMesh("road-markings-white", whitePaint, laneMaterial);
+    this.buildMergedMarkingMesh(
+      "road-markings-yellow",
+      yellowPaint,
+      yellowMarkingMaterial,
+    );
     for (const [routeIndex, laneId] of (this.options.lesson?.route ?? []).entries()) {
       const lane = mapPack.laneGraph.lanes.find((candidate) => candidate.id === laneId);
       if (!lane || lane.role === "connector") continue;
@@ -8829,6 +9368,25 @@ class BabylonGameSession {
     return mesh;
   }
 
+  /** Pours a MarkingGeometry accumulator into one frozen static mesh. */
+  private buildMergedMarkingMesh(
+    name: string,
+    geometry: MarkingGeometry,
+    material: StandardMaterial,
+  ) {
+    if (geometry.indices.length === 0) return;
+    const mesh = new Mesh(name, this.scene);
+    const data = new VertexData();
+    data.positions = geometry.positions;
+    data.normals = geometry.normals;
+    data.indices = geometry.indices;
+    data.applyToMesh(mesh);
+    mesh.material = material;
+    mesh.isPickable = false;
+    mesh.freezeWorldMatrix();
+    mesh.doNotSyncBoundingInfo = true;
+  }
+
   private createFlatSegment(
     name: string,
     start: GameCanvasPoint,
@@ -8850,64 +9408,6 @@ class BabylonGameSession {
     );
     segment.rotation.y = Math.atan2(dx, dz);
     return segment;
-  }
-
-  private createDashedPath(
-    name: string,
-    points: readonly GameCanvasPoint[],
-    width: number,
-    y: number,
-    material: StandardMaterial,
-    dashLength = 3,
-    gapLength = 4,
-  ) {
-    let dashIndex = 0;
-    let phase = 0;
-    for (let index = 0; index < points.length - 1; index += 1) {
-      const start = points[index];
-      const end = points[index + 1];
-      const dx = end.x - start.x;
-      const dz = end.z - start.z;
-      const length = Math.hypot(dx, dz);
-      if (length < 0.01) continue;
-      const ux = dx / length;
-      const uz = dz / length;
-      for (let distance = -phase; distance < length; distance += dashLength + gapLength) {
-        const from = Math.max(0, distance);
-        const to = Math.min(length, distance + dashLength);
-        if (to - from > 0.2) {
-          this.createFlatSegment(
-            `${name}-${dashIndex}`,
-            { x: start.x + ux * from, z: start.z + uz * from },
-            { x: start.x + ux * to, z: start.z + uz * to },
-            width,
-            y,
-            material,
-          );
-          dashIndex += 1;
-        }
-      }
-      phase = (phase + length) % (dashLength + gapLength);
-    }
-  }
-
-  private createSolidPath(
-    name: string,
-    points: readonly GameCanvasPoint[],
-    width: number,
-    y: number,
-    material: StandardMaterial,
-  ) {
-    for (let index = 0; index < points.length - 1; index += 1) {
-      this.createFlatSegment(
-        `${name}-${index}`,
-        points[index],
-        points[index + 1],
-        width,
-        y,
-        material,
-      );
-    }
   }
 
   private createRouteChevrons(
@@ -9106,9 +9606,11 @@ class BabylonGameSession {
     );
     const currentLaneId =
       visibleRouteIndex === null ? null : lesson.route[visibleRouteIndex];
-    const currentLane = mapPack.laneGraph.lanes.find(
-      (candidate) => candidate.id === currentLaneId,
-    );
+    // Map lookup, and none at all off-route: the find() this replaces
+    // scanned every lane in the city per frame — including on free drive,
+    // where currentLaneId is always null and it found nothing.
+    const currentLane =
+      currentLaneId != null ? this.laneById?.get(currentLaneId) : undefined;
     const currentProjection = currentLane
       ? projectPointToLane(currentLane, {
           x: this.playerState.x,
@@ -9140,33 +9642,52 @@ class BabylonGameSession {
       for (const mesh of visual.meshes) mesh.setEnabled(enabled);
     }
     this.updateGuidanceCueVisual();
-    // TEMP DEBUG: live guidance introspection + analog control for
-    // WebDriver-based QA.
-    if (typeof window !== "undefined") {
+  }
+
+  /**
+   * QA's window hooks (__sideswap*), installed once per session. They lived
+   * at the tail of updateGuidanceVisuals for years, re-allocating eight
+   * closures — plus a guidance object with a per-chevron .map() — every
+   * frame. Each hook now computes on call; dispose() still deletes the full
+   * list, so the install/delete pairing rule is unchanged.
+   */
+  private installDebugHooks() {
+    if (typeof window === "undefined") return;
+    {
       const debugWindow = window as unknown as Record<string, unknown>;
-      debugWindow.__sideswapGuidanceDebug = {
-        owner: this.simulationSnapshot.guidance.owner,
-        status: this.simulationSnapshot.guidance.status,
-        blockingReason: this.simulationSnapshot.guidance.blockingReason ?? null,
-        cue: this.simulationSnapshot.guidance.cue ?? null,
-        visibleRouteIndex,
-        paused: this.paused,
-        player: {
-          x: Math.round(this.playerState.x * 100) / 100,
-          z: Math.round(this.playerState.z * 100) / 100,
-          heading: Math.round(this.playerState.heading * 1000) / 1000,
-          speed: Math.round(this.playerState.speedMps * 100) / 100,
-        },
-        checkpoint: this.simulationSnapshot.nextCheckpointId ?? null,
-        instruction: this.instruction,
-        chevrons: this.routeChevronVisuals.map((visual) => ({
-          routeIndex: visual.routeIndex,
-          laneId: visual.laneId,
-          d: Math.round(visual.distanceAlongM),
-          x: Math.round((visual.meshes[0]?.position.x ?? 0) * 10) / 10,
-          z: Math.round((visual.meshes[0]?.position.z ?? 0) * 10) / 10,
-          on: visual.meshes[0]?.isEnabled() ?? false,
-        })),
+      debugWindow.__sideswapGuidanceDebug = () => {
+        const lesson = this.options.lesson;
+        const visibleRouteIndex = lesson
+          ? resolveAuthoritativeRouteIndex(
+              lesson.route.length,
+              this.simulationSnapshot.guidance,
+            )
+          : null;
+        return {
+          owner: this.simulationSnapshot.guidance.owner,
+          status: this.simulationSnapshot.guidance.status,
+          blockingReason:
+            this.simulationSnapshot.guidance.blockingReason ?? null,
+          cue: this.simulationSnapshot.guidance.cue ?? null,
+          visibleRouteIndex,
+          paused: this.paused,
+          player: {
+            x: Math.round(this.playerState.x * 100) / 100,
+            z: Math.round(this.playerState.z * 100) / 100,
+            heading: Math.round(this.playerState.heading * 1000) / 1000,
+            speed: Math.round(this.playerState.speedMps * 100) / 100,
+          },
+          checkpoint: this.simulationSnapshot.nextCheckpointId ?? null,
+          instruction: this.instruction,
+          chevrons: this.routeChevronVisuals.map((visual) => ({
+            routeIndex: visual.routeIndex,
+            laneId: visual.laneId,
+            d: Math.round(visual.distanceAlongM),
+            x: Math.round((visual.meshes[0]?.position.x ?? 0) * 10) / 10,
+            z: Math.round((visual.meshes[0]?.position.z ?? 0) * 10) / 10,
+            on: visual.meshes[0]?.isEnabled() ?? false,
+          })),
+        };
       };
       debugWindow.__sideswapDriveControl = (input: {
         throttle?: number;
@@ -9222,11 +9743,12 @@ class BabylonGameSession {
         materials: this.scene.materials.length,
         // Cumulative since page load (no per-frame reset without scene
         // instrumentation) — meaningful as a delta between two polls.
-        drawCallsCumulative:
-          (this.engine as unknown as { _drawCalls?: { current: number } })
-            ._drawCalls?.current ?? null,
+        drawCallsCumulative: this.engineDrawCallCount(),
         crowdInstances: this.crowdRenderer?.instanceCount ?? 0,
         crowdMeshes: this.crowdRenderer?.meshCount ?? 0,
+        // Substage timings since the previous poll — reading resets the
+        // window, so poll on a fixed cadence when comparing runs.
+        ...this.drainPerfStats(),
       });
       // The interaction cutscene's live state, so QA can assert the scene
       // actually runs, where its actor is, and that the camera stack and the
@@ -9438,6 +9960,53 @@ class BabylonGameSession {
     };
   }
 
+  /**
+   * The one mesh + one material behind every signal and railway lens in the
+   * city. Each lens is a plain instance whose registered color buffer IS its
+   * lamp state — lighting disabled, white emissive, so the shader's
+   * per-instance color multiply lands the exact color written. The per-head
+   * StandardMaterial clones this replaces (three per head) were ~750 unique
+   * materials on the NYC grid, one draw call each.
+   */
+  private getSignalLensMaster(): Mesh {
+    if (this.signalLensMaster) return this.signalLensMaster;
+    const material = new StandardMaterial("signal-lens-material", this.scene);
+    material.diffuseColor = Color3.Black();
+    material.specularColor = Color3.Black();
+    material.emissiveColor = Color3.White();
+    material.disableLighting = true;
+    const master = MeshBuilder.CreateCylinder(
+      "signal-lens-master",
+      { height: 0.1, diameter: 0.25, tessellation: 18 },
+      this.scene,
+    );
+    master.material = material;
+    master.isVisible = false;
+    master.isPickable = false;
+    master.registerInstancedBuffer(VertexBuffer.ColorKind, 4);
+    master.instancedBuffers.color = new Color4(0, 0, 0, 1);
+    this.signalLensMaster = master;
+    return master;
+  }
+
+  /** A lens instance parented to `head`; returns its live color handle. */
+  private createSignalLens(
+    name: string,
+    head: TransformNode,
+    localPosition: Vector3,
+    dimColor: Color4,
+    scale?: Vector3,
+  ): Color4 {
+    const lens = this.getSignalLensMaster().createInstance(name);
+    lens.parent = head;
+    lens.position.copyFrom(localPosition);
+    lens.rotation.x = Math.PI / 2;
+    if (scale) lens.scaling.copyFrom(scale);
+    lens.isPickable = false;
+    lens.instancedBuffers.color = dimColor;
+    return dimColor;
+  }
+
   private createSignalHead(
     name: string,
     position: GameCanvasPoint,
@@ -9460,34 +10029,27 @@ class BabylonGameSession {
       materials.dark,
       head,
     );
-    const redMaterial = materials.redLamp.clone(`${name}-red-material`);
-    const amberMaterial = materials.amberLamp.clone(`${name}-amber-material`);
-    const greenMaterial = materials.greenLamp.clone(`${name}-green-material`);
-    redMaterial.emissiveColor.copyFromFloats(0.08, 0.005, 0.005);
-    amberMaterial.emissiveColor.copyFromFloats(0.08, 0.04, 0.005);
-    greenMaterial.emissiveColor.copyFromFloats(0.005, 0.06, 0.012);
     this.authoredSignalHeads.push({
       ...runtime,
-      redMaterial,
-      amberMaterial,
-      greenMaterial,
-    });
-    const lamps = [
-      { id: "red", y: 0.43, material: redMaterial },
-      { id: "amber", y: 0, material: amberMaterial },
-      { id: "green", y: -0.43, material: greenMaterial },
-    ];
-    for (const lamp of lamps) {
-      const lens = createCylinder(
-        this.scene,
-        `${name}-${lamp.id}`,
-        { height: 0.1, diameter: 0.25, tessellation: 18 },
-        new Vector3(0, lamp.y, -0.25),
-        lamp.material,
+      redColor: this.createSignalLens(
+        `${name}-red`,
         head,
-      );
-      lens.rotation.x = Math.PI / 2;
-    }
+        new Vector3(0, 0.43, -0.25),
+        new Color4(0.08, 0.005, 0.005, 1),
+      ),
+      amberColor: this.createSignalLens(
+        `${name}-amber`,
+        head,
+        new Vector3(0, 0, -0.25),
+        new Color4(0.08, 0.04, 0.005, 1),
+      ),
+      greenColor: this.createSignalLens(
+        `${name}-green`,
+        head,
+        new Vector3(0, -0.43, -0.25),
+        new Color4(0.005, 0.06, 0.012, 1),
+      ),
+    });
   }
 
   private buildSignalInstallation(
@@ -9586,22 +10148,25 @@ class BabylonGameSession {
     }
     const sideX = Math.cos(heading);
     const sideZ = -Math.sin(heading);
-    const lampMaterials: StandardMaterial[] = [];
+    const lampColors: Color4[] = [];
     for (const side of [-1, 1]) {
-      const lampMaterial = materials.redLamp.clone(
-        `${controlId}-${installation.id}-warning-${side}-material`,
-      );
-      lampMaterial.emissiveColor.copyFromFloats(0.08, 0.005, 0.005);
-      lampMaterials.push(lampMaterial);
-      const lamp = createCylinder(
-        this.scene,
+      const lamp = this.getSignalLensMaster().createInstance(
         `${controlId}-${installation.id}-warning-${side}`,
-        { height: 0.11, diameter: 0.35, tessellation: 18 },
-        new Vector3(base.x + sideX * side * 0.34, 2.38, base.z + sideZ * side * 0.34),
-        lampMaterial,
+      );
+      lamp.position.set(
+        base.x + sideX * side * 0.34,
+        2.38,
+        base.z + sideZ * side * 0.34,
       );
       lamp.rotation.x = Math.PI / 2;
       lamp.rotation.y = heading;
+      // The master lens is 0.25across x 0.1 tall; the crossing lamp is a
+      // wider, slightly deeper disc.
+      lamp.scaling.set(1.4, 1.1, 1.4);
+      lamp.isPickable = false;
+      const color = new Color4(0.08, 0.005, 0.005, 1);
+      lamp.instancedBuffers.color = color;
+      lampColors.push(color);
     }
     const barrierLength = 4.6;
     const barrierPivot = new TransformNode(
@@ -9622,7 +10187,7 @@ class BabylonGameSession {
     barrierPivot.rotation.z = -1.22;
     this.railwayCrossingVisuals.push({
       trafficLightIds,
-      lampMaterials,
+      lampColors,
       barrierPivot,
     });
   }
@@ -9742,19 +10307,24 @@ class BabylonGameSession {
     const scene = this.scene;
     const horizon = Color3.FromHexString(palette.skyHorizon);
     scene.clearColor = new Color4(horizon.r, horizon.g, horizon.b, 1);
-    const fogRange = resolveFogRange(worldSize);
+    // The night tightening lives inside resolveEffectiveFogRange so the fog
+    // and the camera far plane can never disagree about where the world ends.
+    const fogRange = resolveEffectiveFogRange(palette.night === true, worldSize);
     scene.fogMode = Scene.FOGMODE_LINEAR;
     scene.fogColor = Color3.FromHexString(palette.fogColor);
-    if (palette.night) {
-      // Tighter fog at night: fades the far end of long avenues so a corner
-      // turn onto a canyon draws far fewer buildings (the worst-case spike),
-      // and it deepens the night mood.
-      scene.fogStart = Math.min(fogRange.start, 100);
-      scene.fogEnd = Math.min(fogRange.end, 440);
-    } else {
-      scene.fogStart = fogRange.start;
-      scene.fogEnd = fogRange.end;
-    }
+    scene.fogStart = fogRange.start;
+    scene.fogEnd = fogRange.end;
+    // Everything past fogEnd is fully fogged, so clipping there culls the
+    // rest of the city for free. Stored on the session because the cameras
+    // are built after the environment; the constructor applies it to all
+    // three. The sky dome and horizon ring follow the camera
+    // (infiniteDistance), so their angular look is scale-invariant — shrink
+    // them to sit inside the far plane instead of being clipped by it.
+    this.cameraFarPlaneM = resolveCameraFarPlane(
+      palette.night === true,
+      worldSize,
+    );
+    const domeScale = Math.min(1, (this.cameraFarPlaneM * 0.98) / 950);
 
     const skyMaterial = new StandardMaterial("sky-dome-material", scene);
     skyMaterial.emissiveTexture = createSkyGradientTexture(scene, palette);
@@ -9764,7 +10334,11 @@ class BabylonGameSession {
     skyMaterial.fogEnabled = false;
     const skyDome = MeshBuilder.CreateSphere(
       "sky-dome",
-      { diameter: 1900, segments: 12, sideOrientation: Mesh.BACKSIDE },
+      {
+        diameter: 1900 * domeScale,
+        segments: 12,
+        sideOrientation: Mesh.BACKSIDE,
+      },
       scene,
     );
     skyDome.material = skyMaterial;
@@ -9786,8 +10360,8 @@ class BabylonGameSession {
     const ring = MeshBuilder.CreateCylinder(
       "horizon-ring",
       {
-        height: 110,
-        diameter: 1700,
+        height: 110 * domeScale,
+        diameter: 1700 * domeScale,
         tessellation: 48,
         cap: Mesh.NO_CAP,
         sideOrientation: Mesh.BACKSIDE,
@@ -9795,7 +10369,7 @@ class BabylonGameSession {
       scene,
     );
     ring.material = ringMaterial;
-    ring.position.y = 26;
+    ring.position.y = 26 * domeScale;
     ring.infiniteDistance = true;
     ring.isPickable = false;
     ring.applyFog = false;
@@ -9833,18 +10407,68 @@ class BabylonGameSession {
   /** Static casters never move again, so their world matrices freeze here. */
   private registerShadowCaster(mesh: AbstractMesh, x: number, z: number) {
     mesh.freezeWorldMatrix();
-    this.staticShadowCasters.push({ mesh, x, z });
+    const cell = BabylonGameSession.SHADOW_CELL_M;
+    const key = `${Math.floor(x / cell)}:${Math.floor(z / cell)}`;
+    let bucket = this.shadowCasterCells.get(key);
+    if (!bucket) {
+      bucket = [];
+      this.shadowCasterCells.set(key, bucket);
+    }
+    bucket.push({ mesh, x, z });
   }
 
   private static readonly SHADOW_CASTER_RADIUS_M = 90;
+  private static readonly SHADOW_CELL_M = 45;
+  /** Distance the player must cover before the static sublist re-gathers. */
+  private static readonly SHADOW_STATIC_REARM_M = 20;
 
   private refreshShadowCasters() {
     const shadowMap = this.shadowGenerator?.getShadowMap();
     if (!shadowMap) return;
     const radius = BabylonGameSession.SHADOW_CASTER_RADIUS_M;
-    const list: AbstractMesh[] = this.playerVehicleVisual
-      ? [...this.playerVehicleVisual.shadowCasters]
-      : [...this.playerExterior.getChildMeshes()];
+    // Static casters re-gather only after real movement: within the 20m
+    // rearm the anchored ring is off by at most 20m at the 90m boundary,
+    // which fog and shadow softness swallow. Vehicle casters below refresh
+    // on every 0.5s tick regardless, so a car pulling up never lacks its
+    // shadow for long.
+    if (
+      Math.hypot(
+        this.displayedX - this.shadowStaticAnchorX,
+        this.displayedZ - this.shadowStaticAnchorZ,
+      ) >= BabylonGameSession.SHADOW_STATIC_REARM_M
+    ) {
+      this.shadowStaticAnchorX = this.displayedX;
+      this.shadowStaticAnchorZ = this.displayedZ;
+      this.shadowStaticList.length = 0;
+      const cell = BabylonGameSession.SHADOW_CELL_M;
+      const minCellX = Math.floor((this.displayedX - radius) / cell);
+      const maxCellX = Math.floor((this.displayedX + radius) / cell);
+      const minCellZ = Math.floor((this.displayedZ - radius) / cell);
+      const maxCellZ = Math.floor((this.displayedZ + radius) / cell);
+      for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+        for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+          const bucket = this.shadowCasterCells.get(`${cellX}:${cellZ}`);
+          if (!bucket) continue;
+          for (const caster of bucket) {
+            if (
+              Math.hypot(
+                caster.x - this.displayedX,
+                caster.z - this.displayedZ,
+              ) <= radius
+            ) {
+              this.shadowStaticList.push(caster.mesh);
+            }
+          }
+        }
+      }
+    }
+    const list = this.shadowRenderList;
+    list.length = 0;
+    if (this.playerVehicleVisual) {
+      list.push(...this.playerVehicleVisual.shadowCasters);
+    } else {
+      list.push(...this.playerExterior.getChildMeshes());
+    }
     for (const npc of this.npcVehicles) {
       if (npc.active === false) continue;
       const position = npc.node.position;
@@ -9853,14 +10477,7 @@ class BabylonGameSession {
       }
       list.push(...npc.visual.shadowCasters);
     }
-    for (const caster of this.staticShadowCasters) {
-      if (
-        Math.hypot(caster.x - this.displayedX, caster.z - this.displayedZ) <=
-        radius
-      ) {
-        list.push(caster.mesh);
-      }
-    }
+    for (const mesh of this.shadowStaticList) list.push(mesh);
     shadowMap.renderList = list;
   }
 
@@ -9887,8 +10504,16 @@ class BabylonGameSession {
     // GPU would rather spend that on having more of them: FXAA at a real
     // resolution beats MSAA at a fraction of one, especially for a low-poly
     // city that is mostly long straight edges — kerbs, lane paint, rooflines.
+    // On desktop the sample count follows the buffer: at ~2560 wide (the
+    // width-capped 4K case) 2x resolves what 4x resolved at laptop sizes,
+    // for half the multisample cost. getRenderWidth is post-scaling — the
+    // level was set at engine construction, before this runs.
     const touchFirst = this.options.inputCapabilities.touchFirst;
-    pipeline.samples = touchFirst ? 1 : 4;
+    pipeline.samples = touchFirst
+      ? 1
+      : this.engine.getRenderWidth() >= 2400
+        ? 2
+        : 4;
     pipeline.fxaaEnabled = touchFirst;
     pipeline.bloomEnabled = true;
     // Bloom stays keyed to bright emissives (lamps, brake lights); the
@@ -10290,6 +10915,7 @@ class BabylonGameSession {
         `fallback-${vehicleId}`,
         appearance,
       );
+      const spawnHeading = direction > 0 ? 0 : Math.PI;
       this.npcVehicles.push({
         node,
         visual,
@@ -10300,9 +10926,15 @@ class BabylonGameSession {
         speed: 5.5 + (index % 4) * 0.65,
         z,
         laneX,
+        poseX: laneX,
+        poseZ: z,
+        poseHeading: spawnHeading,
+        prevPoseX: laneX,
+        prevPoseZ: z,
+        prevPoseHeading: spawnHeading,
       });
       node.position.set(laneX, 0.12, z);
-      node.rotation.y = direction > 0 ? 0 : Math.PI;
+      node.rotation.y = spawnHeading;
     }
 
     const clothes = [new Color3(0.83, 0.38, 0.22), new Color3(0.2, 0.45, 0.72), new Color3(0.68, 0.28, 0.62)];
@@ -10324,10 +10956,11 @@ class BabylonGameSession {
   ) {
     const scene = this.scene;
     const random = seededUnit(lesson.trafficSeed);
-    const densityCounts = { none: 0, light: 6, moderate: 12, busy: 18 } as const;
-    const count = this.options.inputCapabilities.touchFirst
-      ? Math.min(12, densityCounts[lesson.trafficDensity])
-      : densityCounts[lesson.trafficDensity];
+    const count = resolveAmbientVehicleCount(
+      mapPack,
+      lesson.trafficDensity,
+      this.options.inputCapabilities.touchFirst,
+    );
     const usableLanes = mapPack.laneGraph.lanes.filter((lane) => lane.centerline.length >= 2);
     const vehicleSpawns = mapPack.laneGraph.spawnPoints.filter(
       (spawn) => spawn.kind === "vehicle",
@@ -10429,6 +11062,12 @@ class BabylonGameSession {
         currentSpeed: cruiseSpeed,
         z,
         laneX: x,
+        poseX: x,
+        poseZ: z,
+        poseHeading: heading,
+        prevPoseX: x,
+        prevPoseZ: z,
+        prevPoseHeading: heading,
         laneId: pathSegment.laneId,
         active: true,
       };
@@ -10737,7 +11376,16 @@ class BabylonGameSession {
 
   private pollGamepad() {
     if (!("getGamepads" in navigator)) return;
-    const pad = Array.from(navigator.getGamepads()).find(Boolean);
+    // Scanned by index — this runs every frame, almost always padless, and
+    // Array.from allocated on every one of them.
+    const pads = navigator.getGamepads();
+    let pad: (typeof pads)[number] = null;
+    for (let index = 0; index < pads.length; index += 1) {
+      if (pads[index]) {
+        pad = pads[index];
+        break;
+      }
+    }
     if (!pad) {
       if (this.gamepadConnected) this.handleGamepadDisconnected();
       return;

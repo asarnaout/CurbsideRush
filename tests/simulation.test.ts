@@ -845,6 +845,110 @@ describe("deterministic simulation", () => {
     );
     expect(railwayEvent?.evidence).toMatchObject({ warningActive: true });
   });
+
+  it("holds each lane's traffic to its own signal, not a neighbour's", () => {
+    // Two parallel lanes, each with its own light and stop line: one lane
+    // red, the other green. Pins the per-lane stop-line association — a
+    // cross-lane leak in the lookup would either stop the green lane's car
+    // or wave the red lane's car through.
+    const core = new SimulationCore({
+      lanes: [
+        {
+          id: "red-lane",
+          points: [{ x: 0, z: 0 }, { x: 0, z: 100 }],
+          width: 3.2,
+          speedLimitMps: 12,
+          loop: false,
+        },
+        {
+          id: "green-lane",
+          points: [{ x: 50, z: 0 }, { x: 50, z: 100 }],
+          width: 3.2,
+          speedLimitMps: 12,
+          loop: false,
+        },
+        {
+          id: "player-parking-lane",
+          points: [{ x: -50, z: 0 }, { x: -50, z: 100 }],
+          width: 3.2,
+          speedLimitMps: 12,
+          loop: false,
+        },
+      ],
+      bounds: { minX: -60, maxX: 60, minZ: -10, maxZ: 110 },
+      spawn: { x: -50, z: 10, heading: 0 },
+      npcCount: 2,
+      trafficLights: [
+        {
+          id: "red-signal",
+          phaseGroup: "red-group",
+          x: 0,
+          z: 20,
+          cycle: {
+            sequence: "standard" as const,
+            greenSeconds: 1,
+            amberSeconds: 0.5,
+            allRedSeconds: 0.5,
+            redSeconds: 20,
+            redAmberSeconds: 0,
+            offsetSeconds: 2.1,
+          },
+        },
+        {
+          id: "green-signal",
+          phaseGroup: "green-group",
+          x: 50,
+          z: 20,
+          cycle: {
+            sequence: "standard" as const,
+            greenSeconds: 30,
+            amberSeconds: 0.5,
+            allRedSeconds: 0.5,
+            redSeconds: 1,
+            redAmberSeconds: 0,
+            offsetSeconds: 0,
+          },
+        },
+      ],
+      stopLines: [
+        {
+          id: "red-stop-line",
+          laneId: "red-lane",
+          distance: 20,
+          kind: "traffic_light" as const,
+          trafficLightId: "red-signal",
+        },
+        {
+          id: "green-stop-line",
+          laneId: "green-lane",
+          distance: 20,
+          kind: "traffic_light" as const,
+          trafficLightId: "green-signal",
+        },
+      ],
+      trafficGates: [
+        {
+          id: "red-gate",
+          laneId: "red-lane",
+          distance: 2,
+          desiredSpeedMps: 8,
+        },
+        {
+          id: "green-gate",
+          laneId: "green-lane",
+          distance: 2,
+          desiredSpeedMps: 8,
+        },
+      ],
+    });
+    for (let tick = 0; tick < 8 * 60; tick += 1) core.step(1 / 60);
+    const npcs = core.getSnapshot().npcs;
+    const redNpc = npcs.find((npc) => npc.laneId === "red-lane");
+    const greenNpc = npcs.find((npc) => npc.laneId === "green-lane");
+    expect(redNpc?.z).toBeLessThan(20);
+    expect(redNpc?.speedMps).toBeLessThan(0.4);
+    expect(greenNpc?.z).toBeGreaterThan(22);
+  });
 });
 
 describe("static world collision", () => {

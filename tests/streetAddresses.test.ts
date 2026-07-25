@@ -7,6 +7,7 @@ import {
 } from "../app/game/gigs";
 import { resolveSimulationLaneAnchor } from "../app/game/simulationAdapter";
 import {
+  ADDRESSABLE_STREET_NAMES,
   JUNCTION_CLEARANCE_M,
   MIN_OPPOSITE_KERB_M,
   MIN_SEPARATION_M,
@@ -69,25 +70,24 @@ const kerbOf = (address: StreetAddress): WorldPoint => ({
 describe("procedural street addresses", () => {
   it("covers every NYC street with a workable number of drop-offs", () => {
     // Four authored venues was the whole problem. Anything in this band spreads
-    // gigs across the grid; far more would just be noise on the minimap.
+    // gigs across the grid; far more would just be noise on the minimap. The
+    // ceiling is stated per metre of addressable kerb rather than as a flat
+    // count, so it keeps meaning the same thing as the map grows: candidates
+    // are laid out every JUNCTION_CLEARANCE-trimmed 150 m, so a generator
+    // producing one per 110 m has started stacking them.
+    const addressableM = nyc.laneGraph.lanes
+      .filter((lane) => lane.role === "travel" || lane.role === "one_way")
+      .reduce((total, lane) => total + laneLength(lane.centerline), 0);
     expect(nycAddresses.length).toBeGreaterThanOrEqual(30);
-    expect(nycAddresses.length).toBeLessThanOrEqual(120);
+    expect(nycAddresses.length).toBeLessThanOrEqual(Math.round(addressableM / 110));
 
+    // Every street with a profile must actually produce addresses, and no
+    // address may come from a street without one. A road whose `roadId` is
+    // missing from STREET_PROFILES generates nothing at all, silently.
     const streets = new Set(
       nycAddresses.map((address) => address.name.replace(/^\d+\s/, "")),
     );
-    expect(streets).toEqual(
-      new Set([
-        "West End Ave",
-        "Broadway",
-        "Amsterdam Ave",
-        "Columbus Ave",
-        "Central Park West",
-        "W 72nd St",
-        "W 79th St",
-        "W 86th St",
-      ]),
-    );
+    expect(streets).toEqual(new Set(ADDRESSABLE_STREET_NAMES));
   });
 
   it("is deterministic, so a street keeps its addresses between runs", () => {

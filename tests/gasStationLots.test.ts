@@ -165,6 +165,18 @@ describe("gas-station lots", () => {
       }
     }
 
-    expect(reviewed).toHaveLength(MAP_PACKS.length);
+    // Every station on every map got measured, and no map is unrefuellable. A
+    // big city may want more than one pump stop, so this counts stations rather
+    // than assuming one apiece.
+    expect(reviewed.length).toBeGreaterThanOrEqual(MAP_PACKS.length);
+    expect(reviewed).toEqual([
+      ...new Set(
+        MAP_PACKS.flatMap((pack) =>
+          (pack.geometry.servicePoints ?? [])
+            .filter((service) => service.kind === "gas_station")
+            .map((service) => service.id),
+        ),
+      ),
+    ]);
   });
 });

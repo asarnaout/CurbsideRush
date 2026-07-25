@@ -111,6 +111,8 @@ function hairSlot(index: number, hairCount: number): number {
 }
 
 const RESPAWN_ATTEMPTS = 12;
+/** Cell size of the respawn grid — a few cells cover the spawn annulus. */
+const RESPAWN_CELL_M = 32;
 const JUNCTION_PAUSE_CHANCE = 0.3;
 const JUNCTION_PAUSE_S = 0.3;
 const WALKER_VISIBILITY_RADIUS_M = 2;
@@ -118,6 +120,14 @@ const WALKER_VISIBILITY_RADIUS_M = 2;
  * taper ramp the scattered position drifts diagonally toward the node, and a
  * body facing the rail tangent would visibly crab-walk the drift. */
 const HEADING_LOOKAHEAD_M = 0.6;
+
+/** One polyline segment of a pavement edge, bucketed for respawn sampling. */
+interface RespawnSegment {
+  readonly edgeIndex: number;
+  /** Arclength where this segment starts on its edge. */
+  readonly sStart: number;
+  readonly lengthM: number;
+}
 
 export class CrowdSim {
   readonly walkers: CrowdWalker[];
@@ -127,6 +137,12 @@ export class CrowdSim {
   /** Length-weighted cumulative table so spawns favour long rails. */
   private readonly cumulativeLengths: Float64Array;
   private readonly totalLength: number;
+  /** Pavement segments bucketed by midpoint cell; respawn samples only the
+   * cells around the annulus instead of the whole city. */
+  private readonly respawnCells = new Map<string, RespawnSegment[]>();
+  /** Slack a cell-centre test needs before it can rule a cell out: half the
+   * cell diagonal, half the longest bucketed segment, the scatter band. */
+  private readonly respawnPadM: number;
   private primed = false;
 
   constructor(graph: PavementGraph, config: CrowdConfig) {
@@ -140,6 +156,31 @@ export class CrowdSim {
       this.cumulativeLengths[index] = total;
     }
     this.totalLength = total;
+    let longestSegment = 0;
+    for (const [edgeIndex, edge] of graph.edges.entries()) {
+      for (let index = 0; index < edge.points.length - 1; index += 1) {
+        const lengthM = edge.cumulativeM[index + 1] - edge.cumulativeM[index];
+        if (lengthM <= 0) continue;
+        longestSegment = Math.max(longestSegment, lengthM);
+        const midX = (edge.points[index].x + edge.points[index + 1].x) / 2;
+        const midZ = (edge.points[index].z + edge.points[index + 1].z) / 2;
+        const key = `${Math.floor(midX / RESPAWN_CELL_M)}:${Math.floor(midZ / RESPAWN_CELL_M)}`;
+        let bucket = this.respawnCells.get(key);
+        if (!bucket) {
+          bucket = [];
+          this.respawnCells.set(key, bucket);
+        }
+        bucket.push({
+          edgeIndex,
+          sStart: edge.cumulativeM[index],
+          lengthM,
+        });
+      }
+    }
+    this.respawnPadM =
+      (RESPAWN_CELL_M * Math.SQRT2) / 2 +
+      longestSegment / 2 +
+      config.scatterHalfWidthM;
     this.walkers = Array.from({ length: config.count }, (_, index) => ({
       edgeId: 0,
       s: 0,
@@ -318,34 +359,89 @@ export class CrowdSim {
     // the annulus and visibility checks probe where the walker will actually
     // stand, offset included.
     walker.lateralM = (this.random() * 2 - 1) * this.config.scatterHalfWidthM;
+    // Sample only the pavement near the annulus. Picking uniformly over the
+    // whole city made an in-band landing a ~1-in-60 shot once the map grew
+    // ~4x — and the old all-attempts-failed fallback (the pick farthest from
+    // the player) parked the walker beyond recycleRadiusM, which the next
+    // step read as stranded and respawned again: 12 whole-map picks per
+    // walker per step, forever, with the streets visibly thinning.
+    const segments: RespawnSegment[] = [];
+    const cumulative: number[] = [];
+    let total = 0;
+    const outerReach = outerRadiusM + this.respawnPadM;
+    const innerReach = Math.max(0, innerRadiusM - this.respawnPadM);
+    const minCellX = Math.floor((focus.x - outerReach) / RESPAWN_CELL_M);
+    const maxCellX = Math.floor((focus.x + outerReach) / RESPAWN_CELL_M);
+    const minCellZ = Math.floor((focus.z - outerReach) / RESPAWN_CELL_M);
+    const maxCellZ = Math.floor((focus.z + outerReach) / RESPAWN_CELL_M);
+    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+      for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+        const centreX = (cellX + 0.5) * RESPAWN_CELL_M;
+        const centreZ = (cellZ + 0.5) * RESPAWN_CELL_M;
+        const centreDistance = Math.hypot(
+          centreX - focus.x,
+          centreZ - focus.z,
+        );
+        if (centreDistance < innerReach || centreDistance > outerReach) {
+          continue;
+        }
+        const bucket = this.respawnCells.get(`${cellX}:${cellZ}`);
+        if (!bucket) continue;
+        for (const segment of bucket) {
+          segments.push(segment);
+          total += segment.lengthM;
+          cumulative.push(total);
+        }
+      }
+    }
+    const bandMiddle = (innerRadiusM + outerRadiusM) / 2;
     let bestEdge = 0;
     let bestS = 0;
-    let bestScore = -1;
+    let bestScore = Number.POSITIVE_INFINITY;
     for (let attempt = 0; attempt < RESPAWN_ATTEMPTS; attempt += 1) {
-      const pick = this.random() * this.totalLength;
-      let low = 0;
-      let high = this.cumulativeLengths.length - 1;
-      while (low < high) {
-        const mid = (low + high) >> 1;
-        if (this.cumulativeLengths[mid] < pick) low = mid + 1;
-        else high = mid;
+      let edgeIndex: number;
+      let s: number;
+      if (total > 0) {
+        const pick = this.random() * total;
+        let low = 0;
+        let high = cumulative.length - 1;
+        while (low < high) {
+          const mid = (low + high) >> 1;
+          if (cumulative[mid] < pick) low = mid + 1;
+          else high = mid;
+        }
+        const segment = segments[low];
+        edgeIndex = segment.edgeIndex;
+        s = segment.sStart + this.random() * segment.lengthM;
+      } else {
+        // No pavement anywhere near the band (a focus off the network, or a
+        // band wider than the map): fall back to the whole-city table.
+        const pick = this.random() * this.totalLength;
+        let low = 0;
+        let high = this.cumulativeLengths.length - 1;
+        while (low < high) {
+          const mid = (low + high) >> 1;
+          if (this.cumulativeLengths[mid] < pick) low = mid + 1;
+          else high = mid;
+        }
+        edgeIndex = low;
+        s = this.random() * this.graph.edges[low].lengthM;
       }
-      const edge = this.graph.edges[low];
-      const s = this.random() * edge.lengthM;
+      const edge = this.graph.edges[edgeIndex];
       const pose = samplePavementEdgeOffset(edge, s, this.scatterOf(walker, edge));
       const distance = Math.hypot(pose.x - focus.x, pose.z - focus.z);
       const inAnnulus = distance >= innerRadiusM && distance <= outerRadiusM;
       if (inAnnulus && !isVisible(pose.x, pose.z, WALKER_VISIBILITY_RADIUS_M)) {
-        bestEdge = low;
+        bestEdge = edgeIndex;
         bestS = s;
-        bestScore = Number.POSITIVE_INFINITY;
         break;
       }
-      // Fallback ranking: prefer far from the player, so a camera that sees
-      // the whole annulus still gets its spawn as far away as possible.
-      if (distance > bestScore) {
-        bestScore = distance;
-        bestEdge = low;
+      // Fallback ranking: nearest the band's middle — never the farthest
+      // pick, whose beyond-recycleRadiusM stand is what caused the loop.
+      const score = Math.abs(distance - bandMiddle);
+      if (score < bestScore) {
+        bestScore = score;
+        bestEdge = edgeIndex;
         bestS = s;
       }
     }

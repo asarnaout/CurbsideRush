@@ -124,32 +124,37 @@ describe("road markings read the way a local driver expects", () => {
 
   it("gives NYC a paint scheme that tells its one-ways from its two-ways", () => {
     // The regression guard for issue #5, spelled out on the map that had it.
-    const byRoad = new Map(
-      surfacesOf(nyc).map((entry) => [entry.surface.id, entry]),
-    );
-    for (const roadId of [
-      "nyc-west-72",
-      "nyc-west-79",
-      "nyc-west-86",
-      "nyc-west-end",
-      "nyc-broadway",
-      "nyc-central-park-west",
-    ]) {
-      const entry = byRoad.get(roadId)!;
-      expect(entry.twoWay, roadId).toBe(true);
-      expect(
-        entry.surface.markings.map((m) => `${m.style}/${m.color}`),
-        roadId,
-      ).toEqual(["centre_solid/yellow"]);
+    // Driven off the pack rather than a road-id list: the point is that every
+    // NYC carriageway is painted for what it is, including ones added later.
+    let twoWayChecked = 0;
+    let multiLaneOneWayChecked = 0;
+    for (const { surface, lanes, twoWay } of surfacesOf(nyc)) {
+      if (!lanes.length) continue;
+      const paint = surface.markings.map((m) => `${m.style}/${m.color}`);
+      if (twoWay) {
+        expect(paint, surface.id).toEqual(["centre_solid/yellow"]);
+        twoWayChecked += 1;
+        continue;
+      }
+      // A one-way carriageway wide enough for two lanes divides them in white.
+      // A single-lane side street has nothing to divide and stays unpainted —
+      // a centre line on one would read as two-way, which is the whole bug.
+      // Counted per block, not per road: a one-way street crossing five
+      // avenues carries five lanes end to end and still has one to drive in.
+      const perBlock = new Map<string, number>();
+      for (const lane of lanes) {
+        const key = `${lane.from}->${lane.to}`;
+        perBlock.set(key, (perBlock.get(key) ?? 0) + 1);
+      }
+      if (Math.max(...perBlock.values()) > 1) {
+        expect(paint, surface.id).toEqual(["lane_dashed/white"]);
+        multiLaneOneWayChecked += 1;
+      } else {
+        expect(paint, surface.id).toEqual([]);
+      }
     }
-    for (const roadId of ["nyc-amsterdam", "nyc-columbus"]) {
-      const entry = byRoad.get(roadId)!;
-      expect(entry.twoWay, roadId).toBe(false);
-      expect(
-        entry.surface.markings.map((m) => `${m.style}/${m.color}`),
-        roadId,
-      ).toEqual(["lane_dashed/white"]);
-    }
+    expect(twoWayChecked, "two-way NYC roads").toBeGreaterThanOrEqual(6);
+    expect(multiLaneOneWayChecked, "multi-lane one-way NYC roads").toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -207,16 +212,21 @@ describe("NYC junctions connect the way the asphalt suggests", () => {
     // Two lanes running the same way is only realistic if the kerbside one
     // takes the right turns and the one against the centreline takes the
     // lefts. It is also what feeds traffic into both of them.
-    for (const roadId of ["nyc-amsterdam", "nyc-columbus"]) {
-      const surface = nyc.geometry.roadSurfaces.find((s) => s.id === roadId)!;
-      const roadLanes = surface.laneIds.map((id) => byId.get(id)!);
+    let pairsChecked = 0;
+    for (const { surface, lanes: roadLanes, twoWay } of surfacesOf(nyc)) {
+      if (twoWay || roadLanes.length < 2) continue;
+      const roadId = surface.id;
       const groups = new Map<string, LaneSegment[]>();
       for (const lane of roadLanes) {
         const key = `${lane.from}->${lane.to}`;
         groups.set(key, [...(groups.get(key) ?? []), lane]);
       }
       for (const [key, pair] of groups) {
+        // A single-lane block of a one-way street has no inner/kerbside choice
+        // to get wrong; only paired blocks carry this contract.
+        if (pair.length === 1) continue;
         expect(pair.length, `${roadId} ${key}`).toBe(2);
+        pairsChecked += 1;
         const heading = headingOf(pair[0].centerline[0], pair[0].centerline.at(-1)!);
         // The kerb is off the right-hand normal (cos h, -sin h), so of the two
         // the lane further along it is the outside one. Measured at the second
@@ -225,27 +235,40 @@ describe("NYC junctions connect the way the asphalt suggests", () => {
           lane.centerline[1].x * Math.cos(heading) -
           lane.centerline[1].z * Math.sin(heading);
         const [inner, kerbside] = [...pair].sort((a, b) => offset(a) - offset(b));
+        // End to end, not segment to segment: a lane's last half-metre is the
+        // taper into the junction node and points nothing like the road does.
+        const turnsOff = (lane: LaneSegment) =>
+          lane.successors
+            .map((id) => byId.get(id)!)
+            .filter((next) => next.roadId !== lane.roadId)
+            .map((next) =>
+              signedTurn(
+                headingOf(lane.centerline[0], lane.centerline.at(-1)!),
+                headingOf(next.centerline[0], next.centerline.at(-1)!),
+              ) > 0
+                ? "right"
+                : "left",
+            );
+        const available = new Set([...turnsOff(inner), ...turnsOff(kerbside)]);
+        // The rule is about *choosing* between turns. Where the crossing street
+        // is one-way, the junction offers only one, and both lanes take it or
+        // neither does — insisting the inner lane turn left into a street that
+        // only runs east would be worse driving, not better.
+        if (available.size < 2) continue;
         for (const [lane, expected] of [
           [inner, "left"],
           [kerbside, "right"],
         ] as const) {
-          const leaving = lane.successors
-            .map((id) => byId.get(id)!)
-            .filter((next) => next.roadId !== lane.roadId);
-          expect(leaving.length, `${lane.id} turns off ${roadId}`).toBeGreaterThan(0);
-          // End to end, not segment to segment: a lane's last half-metre is the
-          // taper into the junction node and points nothing like the road does.
-          const turn = signedTurn(
-            headingOf(lane.centerline[0], lane.centerline.at(-1)!),
-            headingOf(leaving[0].centerline[0], leaving[0].centerline.at(-1)!),
-          );
+          const turns = turnsOff(lane);
+          expect(turns.length, `${lane.id} turns off ${roadId}`).toBeGreaterThan(0);
           expect(
-            turn > 0 ? "right" : "left",
-            `${lane.id} → ${leaving[0].id} should be its ${expected} turn`,
+            turns[0],
+            `${lane.id} should turn ${expected} out of ${roadId}`,
           ).toBe(expected);
         }
       }
     }
+    expect(pairsChecked, "paired one-way blocks").toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -285,10 +308,11 @@ describe("ambient traffic circulates instead of blinking out", () => {
 
 describe("NYC controls the junctions a driver expects to be controlled", () => {
   it("puts a signal on every crossing that has traffic on both phases", () => {
-    // Manhattan signalises its avenue crossings. The two exempt nodes are the
-    // tail ends of the one-way avenues: nothing arrives from the avenue there,
-    // so a second phase would just hold the cross street at red for no one.
-    const ONE_WAY_TAILS = new Set(["nyc-amst-72", "nyc-col-86"]);
+    // Manhattan signalises its avenue crossings. The rule is stated in terms of
+    // *arriving* roads, which already excuses the tail end of a one-way avenue:
+    // nothing arrives from the avenue there, so the node only ever sees the
+    // cross street and a second phase would hold it at red for no one.
+    let controlledNodes = 0;
     const inbound = new Map<string, LaneSegment[]>();
     for (const lane of nyc.laneGraph.lanes) {
       inbound.set(lane.to, [...(inbound.get(lane.to) ?? []), lane]);
@@ -301,7 +325,8 @@ describe("NYC controls the junctions a driver expects to be controlled", () => {
     for (const node of nyc.laneGraph.nodes) {
       const arrivals = inbound.get(node.id) ?? [];
       const roads = new Set(arrivals.map((lane) => lane.roadId));
-      if (roads.size < 2 || ONE_WAY_TAILS.has(node.id)) continue;
+      if (roads.size < 2) continue;
+      controlledNodes += 1;
       for (const lane of arrivals) {
         expect(
           signalled.has(lane.id),
@@ -309,5 +334,6 @@ describe("NYC controls the junctions a driver expects to be controlled", () => {
         ).toBe(true);
       }
     }
+    expect(controlledNodes, "NYC crossings with two arriving roads").toBeGreaterThanOrEqual(11);
   });
 });

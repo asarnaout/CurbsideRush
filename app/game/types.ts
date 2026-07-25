@@ -455,6 +455,22 @@ export interface ProceduralMapGeometry {
   readonly gigVenues?: readonly GigVenue[];
 }
 
+/**
+ * How many ambient cars a map carries, when its size makes the lesson's
+ * density band the wrong answer.
+ *
+ * Density is authored per drive ("moderate"), not per city, so every map got
+ * the same twelve cars whatever its size. That is a very different street on a
+ * 600 m grid and on a 3 km one — the same cars spread over five times the road
+ * leave it empty, and patrols with them, since a patrol is one car in five.
+ */
+export interface AmbientTrafficConfig {
+  /** Cars on a desktop-class machine. The simulation core clamps at 32. */
+  readonly desktop: number;
+  /** Cars on a phone, where each one costs a good deal more. */
+  readonly touch: number;
+}
+
 export interface MapPack {
   readonly id: MapId;
   readonly name: string;
@@ -463,6 +479,7 @@ export interface MapPack {
   readonly source: FrozenMapSource;
   readonly geometry: ProceduralMapGeometry;
   readonly laneGraph: LaneGraph;
+  readonly ambientTraffic?: AmbientTrafficConfig;
 }
 
 /** What a solid obstacle is, for collision-event evidence and messaging. */
