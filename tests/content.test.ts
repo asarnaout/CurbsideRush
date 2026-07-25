@@ -425,7 +425,15 @@ describe("SideSwap content", () => {
         count += 1;
       }
     }
-    expect(count).toBe(5); // one gas station per city
+    // Every city has to be refuellable; a big one may want more than one pump
+    // stop, so this is a floor per city rather than a fixed total.
+    for (const pack of MAP_PACKS) {
+      expect(
+        (pack.geometry.servicePoints ?? []).length,
+        `${pack.id} gas stations`,
+      ).toBeGreaterThanOrEqual(1);
+    }
+    expect(count).toBeGreaterThanOrEqual(MAP_PACKS.length);
   });
 
   it("anchors every gig venue to a real lane, with enough per city", () => {

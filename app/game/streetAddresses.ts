@@ -236,6 +236,16 @@ const STREET_PROFILES: Record<string, StreetProfile> = {
   "nyc-west-86": { name: "W 86th St", axis: "x", baseNumber: 200, axisSign: -1, numbersPerM: 0.55 },
 };
 
+/**
+ * Every street the generator is opted into, by display name. A road with no
+ * profile above produces no addresses at all, silently — so this is exported
+ * for tests to assert that each profiled street really does yield some, which
+ * is the only way that omission ever surfaces.
+ */
+export const ADDRESSABLE_STREET_NAMES: readonly string[] = Object.freeze([
+  ...new Set(Object.values(STREET_PROFILES).map((profile) => profile.name)),
+]);
+
 /** What a block's zoning makes the people living on its frontage. */
 const KINDS_BY_BUILDING_SET: Record<string, readonly GigVenueKind[]> = {
   "nyc-brownstone": ["residence"],

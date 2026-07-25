@@ -8,15 +8,20 @@ import {
 
 /**
  * Regulatory signs are derived from the lane graph so signage can never
- * disagree with the wrong-way rules the simulation enforces. These tests pin
- * the full NYC inventory (the map's one-way roads are Amsterdam, northbound
- * at x=40, and Columbus, southbound at x=180) and the facing contract: DO NOT
- * ENTER / WRONG WAY message faces point along legal flow — at would-be
- * wrong-way drivers — so legal traffic only ever sees their gray backs.
+ * disagree with the wrong-way rules the simulation enforces. These tests
+ * re-derive the expected inventory from that same lane graph rather than
+ * pinning coordinates: which mouths exist, and how many posts each earns, is a
+ * function of the map, and the map is meant to grow. What is pinned is the
+ * contract — a mouth you may enter gets ONE WAY blades, a mouth you may not
+ * gets DO NOT ENTER plus WRONG WAY repeaters, an ordinary two-way arm gets
+ * nothing, and DO NOT ENTER / WRONG WAY message faces point along legal flow
+ * (at would-be wrong-way drivers) so legal traffic sees only their gray backs.
  */
 
+const nycPack = () => getMapPack("nyc-upper-west-side");
+
 const nycPlacements = (): readonly RegulatorySignPlacement[] => {
-  const pack = getMapPack("nyc-upper-west-side");
+  const pack = nycPack();
   return regulatorySignPlacements({
     lanes: pack.laneGraph.lanes,
     roadSurfaces: pack.geometry.roadSurfaces,
@@ -29,131 +34,342 @@ const byKind = (
   kind: RegulatorySignPlacement["kind"],
 ) => placements.filter((placement) => placement.kind === kind);
 
-const coordinateSet = (placements: readonly RegulatorySignPlacement[]) =>
-  new Set(
-    placements.map(
-      (placement) =>
-        `${Math.round(placement.x * 20) / 20},${Math.round(placement.z * 20) / 20}`,
-    ),
+// Mirrors regulatorySigns.ts. A mouth sign stands MOUTH_OFFSET_M along the arm
+// and half a carriageway plus KERB_MARGIN_M off to each side, so a post sits
+// hypot(10, width/2 + 0.9) from the node it guards.
+const MOUTH_OFFSET_M = 10;
+const KERB_MARGIN_M = 0.9;
+const WRONG_WAY_NEAR_M = 35;
+const WRONG_WAY_MIDBLOCK_MIN_M = 320;
+const NODE_EPSILON_M = 0.08;
+const MIN_ARM_LENGTH_M = MOUTH_OFFSET_M * 2;
+
+type Point = { readonly x: number; readonly z: number };
+
+const nodeKey = (point: Point): string =>
+  `${Math.round(point.x / NODE_EPSILON_M)}:${Math.round(point.z / NODE_EPSILON_M)}`;
+
+const unitTo = (from: Point, to: Point) => {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const length = Math.hypot(dx, dz);
+  return length > 0.01 ? { x: dx / length, z: dz / length, length } : null;
+};
+
+/**
+ * A road is one-way when every lane on it runs the same way — the same test
+ * `buildTrafficGates` uses to decide a carriageway needs oncoming traffic.
+ */
+const oneWayRoadIds = (pack: ReturnType<typeof nycPack>): ReadonlySet<string> => {
+  const byRoad = new Map<string, { x: number; z: number }[]>();
+  for (const lane of pack.laneGraph.lanes) {
+    if (lane.role === "roundabout" || lane.centerline.length < 2) continue;
+    const direction = unitTo(lane.centerline[0], lane.centerline.at(-1)!);
+    if (!direction) continue;
+    const list = byRoad.get(lane.roadId) ?? [];
+    list.push(direction);
+    byRoad.set(lane.roadId, list);
+  }
+  const oneWay = new Set<string>();
+  for (const [roadId, directions] of byRoad) {
+    const reference = directions[0];
+    if (
+      directions.every(
+        (direction) => direction.x * reference.x + direction.z * reference.z >= 0,
+      )
+    ) {
+      oneWay.add(roadId);
+    }
+  }
+  return oneWay;
+};
+
+/**
+ * Every junction arm of a one-way road, keyed the way the module buckets them:
+ * per road, per octant of the bearing from the node toward the arm's far end.
+ * Two parallel lanes of the same avenue share an arm and therefore one sign
+ * pair. `departing` arms are enterable mouths; `arriving` arms are forbidden.
+ */
+interface OneWayArm {
+  readonly roadId: string;
+  readonly node: Point;
+  /** Unit vector from the node along the arm, toward its far end. */
+  readonly along: { readonly x: number; readonly z: number };
+  readonly lengthM: number;
+  /** "mixed" is an ordinary two-way arm, which earns no signs. */
+  readonly departing: boolean | "mixed";
+}
+
+const oneWayArms = (pack: ReturnType<typeof nycPack>): readonly OneWayArm[] => {
+  const oneWay = oneWayRoadIds(pack);
+  const nodes = new Map<
+    string,
+    { position: Point; roadIds: Set<string>; arms: Map<string, OneWayArm> }
+  >();
+  const visit = (node: Point, opposite: Point, roadId: string, departing: boolean) => {
+    const key = nodeKey(node);
+    const entry = nodes.get(key) ?? {
+      position: node,
+      roadIds: new Set<string>(),
+      arms: new Map<string, OneWayArm>(),
+    };
+    entry.roadIds.add(roadId);
+    nodes.set(key, entry);
+    if (!oneWay.has(roadId)) return;
+    const along = unitTo(node, opposite);
+    if (!along) return;
+    const bearing = Math.atan2(along.x, along.z);
+    const octant = ((Math.round(bearing / (Math.PI / 4)) % 8) + 8) % 8;
+    const armKey = `${roadId}|${octant}`;
+    // An arm mixing departing and arriving lanes is an ordinary two-way arm;
+    // the module signs neither. Record the mix so we can drop it below.
+    const existing = entry.arms.get(armKey);
+    if (existing) {
+      if (existing.departing !== departing) {
+        entry.arms.set(armKey, { ...existing, departing: "mixed" });
+      }
+      return;
+    }
+    entry.arms.set(armKey, {
+      roadId,
+      node,
+      along: { x: along.x, z: along.z },
+      lengthM: along.length,
+      departing,
+    });
+  };
+  for (const lane of pack.laneGraph.lanes) {
+    if (lane.role === "roundabout" || lane.centerline.length < 2) continue;
+    const start = lane.centerline[0];
+    const end = lane.centerline.at(-1)!;
+    if (nodeKey(start) === nodeKey(end)) continue;
+    visit(start, end, lane.roadId, true);
+    visit(end, start, lane.roadId, false);
+  }
+  const arms: OneWayArm[] = [];
+  for (const entry of nodes.values()) {
+    // Mid-road nodes joining two blocks of the same road offer no turn to warn
+    // about, so the module signs only junctions where roads actually meet.
+    if (entry.roadIds.size < 2) continue;
+    for (const arm of entry.arms.values()) {
+      if (typeof arm.departing !== "boolean") continue;
+      if (arm.lengthM < MIN_ARM_LENGTH_M) continue;
+      arms.push(arm);
+    }
+  }
+  return arms;
+};
+
+/** Posts within a metre of an expected station, on either kerb. */
+const postsNear = (
+  placements: readonly RegulatorySignPlacement[],
+  kind: RegulatorySignPlacement["kind"],
+  station: Point,
+  lateralM: number,
+) =>
+  placements.filter(
+    (placement) =>
+      placement.kind === kind &&
+      Math.abs(
+        Math.hypot(placement.x - station.x, placement.z - station.z) - lateralM,
+      ) < 1,
   );
+
+/** Carriageway width for a road, as the module resolves it. */
+const roadWidth = (pack: ReturnType<typeof nycPack>, roadId: string): number => {
+  const surface = pack.geometry.roadSurfaces?.find(
+    (candidate) => candidate.id === roadId,
+  );
+  return surface?.widthM ?? pack.geometry.roadWidth;
+};
+
+const stationAlong = (arm: OneWayArm, distanceM: number): Point => ({
+  x: arm.node.x + arm.along.x * distanceM,
+  z: arm.node.z + arm.along.z * distanceM,
+});
+
+const distanceToPolyline = (
+  point: Point,
+  polyline: readonly Point[],
+): number => {
+  let best = Number.POSITIVE_INFINITY;
+  for (let index = 0; index + 1 < polyline.length; index += 1) {
+    const a = polyline[index];
+    const b = polyline[index + 1];
+    const abx = b.x - a.x;
+    const abz = b.z - a.z;
+    const lengthSq = abx * abx + abz * abz;
+    const t = lengthSq
+      ? Math.max(
+          0,
+          Math.min(1, ((point.x - a.x) * abx + (point.z - a.z) * abz) / lengthSq),
+        )
+      : 0;
+    best = Math.min(
+      best,
+      Math.hypot(point.x - (a.x + abx * t), point.z - (a.z + abz * t)),
+    );
+  }
+  return best;
+};
 
 describe("NYC regulatory sign inventory", () => {
   const placements = nycPlacements();
 
-  it("emits exactly the derived post counts", () => {
-    expect(byKind(placements, "one_way")).toHaveLength(8);
-    expect(byKind(placements, "do_not_enter")).toHaveLength(8);
-    expect(byKind(placements, "wrong_way")).toHaveLength(16);
+  const pack = nycPack();
+  const arms = oneWayArms(pack);
+  const enterable = arms.filter((arm) => arm.departing === true);
+  const forbidden = arms.filter((arm) => arm.departing === false);
+
+  it("signs the map's one-way mouths and nothing else", () => {
+    // There has to be something to test; a NYC with no one-way avenue would
+    // pass every assertion below vacuously.
+    expect(enterable.length, "enterable one-way mouths").toBeGreaterThan(0);
+    expect(forbidden.length, "forbidden one-way mouths").toBeGreaterThan(0);
+
+    // Posts always come in kerb pairs, one per mouth per kind, plus a WRONG
+    // WAY repeater mid-block on arms long enough to warrant one.
+    const longForbidden = forbidden.filter(
+      (arm) => arm.lengthM > WRONG_WAY_MIDBLOCK_MIN_M,
+    );
+    expect(byKind(placements, "one_way")).toHaveLength(enterable.length * 2);
+    expect(byKind(placements, "do_not_enter")).toHaveLength(forbidden.length * 2);
+    expect(byKind(placements, "wrong_way")).toHaveLength(
+      (forbidden.length + longForbidden.length) * 2,
+    );
   });
 
-  it("places ONE WAY posts at all four enterable one-way mouths", () => {
-    const posts = coordinateSet(byKind(placements, "one_way"));
-    // Amsterdam departs 72nd and 79th northward; Columbus departs 79th and
-    // 86th southward. Lateral = 9/2 + 0.9 = 5.4 m off the road centreline.
-    for (const expected of [
-      "34.6,-470", "45.4,-470",
-      "34.6,10", "45.4,10",
-      "174.6,-10", "185.4,-10",
-      "174.6,470", "185.4,470",
-    ]) {
-      expect(posts, `one_way post at (${expected})`).toContain(expected);
+  it("places a ONE WAY pair at every enterable one-way mouth", () => {
+    for (const arm of enterable) {
+      const lateral = roadWidth(pack, arm.roadId) / 2 + KERB_MARGIN_M;
+      expect(
+        postsNear(placements, "one_way", stationAlong(arm, MOUTH_OFFSET_M), lateral),
+        `${arm.roadId} mouth at (${arm.node.x}, ${arm.node.z})`,
+      ).toHaveLength(2);
     }
   });
 
-  it("places DO NOT ENTER pairs at all four forbidden mouths", () => {
-    const posts = coordinateSet(byKind(placements, "do_not_enter"));
-    for (const expected of [
-      "34.6,-10", "45.4,-10",   // Amsterdam south arm at 79th
-      "34.6,470", "45.4,470",   // Amsterdam terminus at 86th
-      "174.6,10", "185.4,10",   // Columbus north arm at 79th
-      "174.6,-470", "185.4,-470", // Columbus terminus at 72nd (issue example)
-    ]) {
-      expect(posts, `do_not_enter post at (${expected})`).toContain(expected);
+  it("places a DO NOT ENTER pair at every forbidden one-way mouth", () => {
+    for (const arm of forbidden) {
+      const lateral = roadWidth(pack, arm.roadId) / 2 + KERB_MARGIN_M;
+      expect(
+        postsNear(
+          placements,
+          "do_not_enter",
+          stationAlong(arm, MOUTH_OFFSET_M),
+          lateral,
+        ),
+        `${arm.roadId} mouth at (${arm.node.x}, ${arm.node.z})`,
+      ).toHaveLength(2);
     }
   });
 
   it("repeats WRONG WAY pairs at 35 m and mid-block on every one-way block", () => {
-    const posts = coordinateSet(byKind(placements, "wrong_way"));
-    for (const expected of [
-      "34.6,-35", "45.4,-35", "34.6,-240", "45.4,-240", // Amst 72->79
-      "34.6,445", "45.4,445", "34.6,240", "45.4,240",   // Amst 79->86
-      "174.6,35", "185.4,35", "174.6,240", "185.4,240", // Col 86->79
-      "174.6,-445", "185.4,-445", "174.6,-240", "185.4,-240", // Col 79->72
-    ]) {
-      expect(posts, `wrong_way post at (${expected})`).toContain(expected);
+    for (const arm of forbidden) {
+      const lateral = roadWidth(pack, arm.roadId) / 2 + KERB_MARGIN_M;
+      const label = `${arm.roadId} arm at (${arm.node.x}, ${arm.node.z})`;
+      expect(
+        postsNear(
+          placements,
+          "wrong_way",
+          stationAlong(arm, WRONG_WAY_NEAR_M),
+          lateral,
+        ),
+        `${label} near station`,
+      ).toHaveLength(2);
+      if (arm.lengthM > WRONG_WAY_MIDBLOCK_MIN_M) {
+        expect(
+          postsNear(
+            placements,
+            "wrong_way",
+            stationAlong(arm, arm.lengthM / 2),
+            lateral,
+          ),
+          `${label} mid-block station`,
+        ).toHaveLength(2);
+      }
     }
   });
 
   it("points every message face along the legal flow", () => {
+    // The nearest one-way lane to a post is the block it guards; its own
+    // heading is the legal flow, and every face must agree with it.
+    const oneWay = oneWayRoadIds(pack);
+    const oneWayLanes = pack.laneGraph.lanes.filter(
+      (lane) => oneWay.has(lane.roadId) && lane.centerline.length >= 2,
+    );
     for (const placement of placements) {
-      const northbound = Math.abs(placement.x - 40) < 7; // Amsterdam corridor
-      const expected = northbound ? 0 : Math.PI;
+      let best: (typeof oneWayLanes)[number] | null = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (const lane of oneWayLanes) {
+        const distance = distanceToPolyline(placement, lane.centerline);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = lane;
+        }
+      }
+      const flow = unitTo(best!.centerline[0], best!.centerline.at(-1)!)!;
+      // ONE WAY blades point away from the junction along their own arm, which
+      // for an enterable mouth is the direction of legal travel too.
+      const expected = Math.atan2(flow.x, flow.z);
       const difference = Math.abs(
         Math.atan2(
           Math.sin(placement.flowHeadingRad - expected),
           Math.cos(placement.flowHeadingRad - expected),
         ),
       );
-      expect(difference, placement.refId).toBeLessThan(1e-6);
+      expect(difference, `${placement.refId} beside ${best!.id}`).toBeLessThan(
+        1e-6,
+      );
     }
   });
 
-  it("keeps every post inside the one-way corridors", () => {
-    // Two-way roads (WE/Broadway/CPW, 72nd/79th/86th) must stay unsigned.
+  it("keeps every post on a one-way road", () => {
+    // Two-way roads must stay unsigned: a DO NOT ENTER on a street you may
+    // legally turn into is worse than no sign at all.
+    const oneWay = oneWayRoadIds(pack);
+    const surfaces = pack.geometry.roadSurfaces ?? [];
     for (const placement of placements) {
+      let nearest = surfaces[0];
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (const surface of surfaces) {
+        const distance = distanceToPolyline(placement, surface.centerline);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          nearest = surface;
+        }
+      }
       expect(
-        Math.abs(placement.x - 40) < 7 || Math.abs(placement.x - 180) < 7,
-        `${placement.refId} at x=${placement.x}`,
+        oneWay.has(nearest.id),
+        `${placement.refId} stands beside two-way ${nearest.id}`,
       ).toBe(true);
     }
   });
 
   it("faces every DO NOT ENTER at its junction", () => {
-    const pack = getMapPack("nyc-upper-west-side");
-    const nodeKeys = new Set(
-      pack.laneGraph.lanes.flatMap((lane) => [
-        `${Math.round(lane.centerline[0].x)},${Math.round(lane.centerline[0].z)}`,
-        `${Math.round(lane.centerline[lane.centerline.length - 1].x)},${Math.round(lane.centerline[lane.centerline.length - 1].z)}`,
-      ]),
+    const junctions = new Set(
+      pack.laneGraph.nodes.map((node) => nodeKey(node.position)),
     );
     for (const placement of byKind(placements, "do_not_enter")) {
-      // Walking 10 m along the message-face normal from the post's mouth
-      // station must land on the junction node the sign guards.
-      const nodeX = placement.x + Math.sin(placement.flowHeadingRad) * 10;
-      const nodeZ = placement.z + Math.cos(placement.flowHeadingRad) * 10;
-      const lateral = Math.abs(nodeX - 40) < 7 ? nodeX - 40 : nodeX - 180;
+      // Walking MOUTH_OFFSET_M along the message-face normal from the post's
+      // station lands on the mouth's centreline; stepping back off the kerb
+      // from there must land on the junction node the sign guards.
+      const mouthX = placement.x + Math.sin(placement.flowHeadingRad) * MOUTH_OFFSET_M;
+      const mouthZ = placement.z + Math.cos(placement.flowHeadingRad) * MOUTH_OFFSET_M;
+      const found = pack.laneGraph.nodes.some(
+        (node) =>
+          junctions.has(nodeKey(node.position)) &&
+          Math.hypot(node.position.x - mouthX, node.position.z - mouthZ) <
+            pack.geometry.roadWidth / 2 + KERB_MARGIN_M + 0.5,
+      );
       expect(
-        nodeKeys.has(
-          `${Math.round(nodeX - lateral)},${Math.round(nodeZ)}`,
-        ),
-        `${placement.refId} faces (${nodeX.toFixed(1)},${nodeZ.toFixed(1)})`,
+        found,
+        `${placement.refId} faces (${mouthX.toFixed(1)},${mouthZ.toFixed(1)})`,
       ).toBe(true);
     }
   });
 
   it("stands clear of carriageways and signal masts", () => {
-    const pack = getMapPack("nyc-upper-west-side");
-    const distanceToPolyline = (
-      point: { x: number; z: number },
-      polyline: readonly { x: number; z: number }[],
-    ): number => {
-      let best = Number.POSITIVE_INFINITY;
-      for (let index = 0; index + 1 < polyline.length; index += 1) {
-        const a = polyline[index];
-        const b = polyline[index + 1];
-        const abx = b.x - a.x;
-        const abz = b.z - a.z;
-        const lengthSq = abx * abx + abz * abz;
-        const t = lengthSq
-          ? Math.max(0, Math.min(1, ((point.x - a.x) * abx + (point.z - a.z) * abz) / lengthSq))
-          : 0;
-        best = Math.min(
-          best,
-          Math.hypot(point.x - (a.x + abx * t), point.z - (a.z + abz * t)),
-        );
-      }
-      return best;
-    };
     for (const placement of placements) {
       for (const surface of pack.geometry.roadSurfaces ?? []) {
         expect(
