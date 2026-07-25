@@ -1845,6 +1845,26 @@ export class SimulationCore {
     );
   }
 
+  /**
+   * Places the player at an authored pose, outside the input path.
+   *
+   * Only the pull-over cutscene uses this: for the length of that scene the
+   * choreography owns the car, and the core has to agree with what is on screen
+   * or every NPC keeps avoiding a ghost in the lane the player has visibly
+   * left. Nothing on an ordinary drive calls it, so replay traces are
+   * unaffected. `updateRoadState` runs here rather than waiting for the next
+   * step, so a caller reading the snapshot straight after sees the lane the car
+   * is actually on.
+   */
+  setPlayerPose(pose: SimulationPose, speedMps = 0): void {
+    this.player.x = pose.x;
+    this.player.z = pose.z;
+    this.player.heading = wrapAngle(pose.heading);
+    this.signedSpeedMps = speedMps;
+    this.viewHeading = this.player.heading;
+    this.updateRoadState();
+  }
+
   /** Returns to the latest checkpoint without clearing score or event history. */
   resetToCheckpoint(): void {
     this.restoreCheckpointPose();

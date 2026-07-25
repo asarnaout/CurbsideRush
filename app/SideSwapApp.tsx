@@ -623,6 +623,9 @@ export default function SideSwapApp() {
   const towResetNonceRef = useRef(0);
   const [towResetNonce, setTowResetNonce] = useState(0);
   const lastPedFineAtRef = useRef(0);
+  // Why the patrol pulled you over, carried from the `fine` event that staged
+  // the stop to the citation step that actually charges for it.
+  const pendingFineReasonRef = useRef<string | null>(null);
   // The interaction cutscene being performed (refuel, boarding, an errand).
   // While set, the canvas locks driving input; its `done` event applies the
   // durable effect (gig state flip) and clears this. The ref mirrors the
@@ -919,6 +922,26 @@ export default function SideSwapApp() {
         const active = cutsceneRef.current;
         const evidence = event.evidence ?? {};
         if (!active || evidence.nonce !== active.nonce) return;
+        if (evidence.phase === "cite") {
+          // The officer is at the window. Career fines are day-local like
+          // every other career charge; free drive debits the country wallet.
+          const fine = FINE_BY_COUNTRY[driveCountry.id];
+          if (careerRunRef.current) {
+            chargeCareer(fine, (log) => ({
+              ...log,
+              finesTotal: log.finesTotal + fine,
+            }));
+          } else {
+            const fined = debit(progress, driveCountry.id, fine);
+            setProgress(fined);
+            saveProgress(fined);
+          }
+          setFineToast({
+            amount: fine,
+            reason: pendingFineReasonRef.current ?? fineReason(undefined),
+          });
+          return;
+        }
         if (evidence.phase === "pump") {
           // The nozzle is in: pay and fill atomically, and stretch the fuel
           // bar's transition across the fill window so the gauge pours while
@@ -1103,21 +1126,25 @@ export default function SideSwapApp() {
       if (event.type !== "fine") return;
       const now = Date.now();
       if (now - lastFineAtRef.current < 8000) return;
+      // The stop *is* the citation: stage the pull-over and let its `cite`
+      // step debit, the same way the pump scene pays for its fuel. A scene
+      // already running (or a tow) means the violation goes uncited rather
+      // than queueing behind it — the debounce clock only starts once a stop
+      // actually begins, so the next one is not swallowed too.
+      if (cutsceneRef.current || towingRef.current) return;
       lastFineAtRef.current = now;
-      const amount = FINE_BY_COUNTRY[driveCountry.id];
-      if (careerRunRef.current) {
-        chargeCareer(amount, (log) => ({
-          ...log,
-          finesTotal: log.finesTotal + amount,
-        }));
-      } else {
-        const fined = debit(progress, driveCountry.id, amount);
-        setProgress(fined);
-        saveProgress(fined);
-      }
-      setFineToast({ amount, reason: fineReason(event.ruleCode) });
+      pendingFineReasonRef.current = fineReason(event.ruleCode);
+      beginCutscene("pullover");
     },
-    [progress, driveCountry, driveFuel, beginTow, clearCutscene, chargeCareer],
+    [
+      progress,
+      driveCountry,
+      driveFuel,
+      beginTow,
+      beginCutscene,
+      clearCutscene,
+      chargeCareer,
+    ],
   );
 
   // Auto-dismiss the fine toast a few seconds after it appears.
@@ -1753,6 +1780,8 @@ export default function SideSwapApp() {
       ? "Refueling…"
       : cutscene.kind === "roadside_refuel"
         ? "Out of fuel — roadside service…"
+        : cutscene.kind === "pullover"
+          ? "Pulled over — licence and registration…"
         : cutscene.kind === "board"
         ? "Your rider is getting in…"
         : cutscene.kind === "exit"

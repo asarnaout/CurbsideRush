@@ -2,13 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   BIKE_CUTSCENE_BODY,
   buildBikeErrandScript,
+  buildPulloverScript,
   buildRoadsideRefuelScript,
   cutsceneBodyProfile,
   DEFAULT_CUTSCENE_BODY,
+  lerpCarPose,
   MAX_LEG_SECONDS,
+  MIN_PULLOVER_RUN_M,
+  pointAlongPolyline,
+  projectOntoPolyline,
   PUMP_BASE_SECONDS,
   PUMP_EXTRA_SECONDS,
+  pulloverPose,
+  pulloverRunM,
+  settleEase,
   STORE_DWELL_SECONDS,
+  WINDOW_DWELL_SECONDS,
   buildBoardScript,
   buildErrandScript,
   buildExitScript,
@@ -22,8 +31,9 @@ import {
   type CutsceneBodyProfile,
   type CutsceneCarPose,
   type CutsceneStep,
+  type PulloverRoad,
 } from "../app/game/cutsceneScript";
-import type { WorldPoint } from "../app/game/types";
+import type { TrafficSide, WorldPoint } from "../app/game/types";
 
 const CAR_POSES: readonly CutsceneCarPose[] = [
   { x: 0, z: 0, heading: 0 },
@@ -423,5 +433,245 @@ describe("buildRoadsideRefuelScript", () => {
         expect(Math.abs(fillerLocal.lat)).toBeGreaterThan(1.1);
       }
     }
+  });
+});
+
+// --- The traffic stop -------------------------------------------------------
+
+/** A straight 8 m carriageway running north, centred on x = 0. */
+const NORTH_ROAD: PulloverRoad = {
+  centerline: [
+    { x: 0, z: -400 },
+    { x: 0, z: 400 },
+  ],
+  halfWidthM: 4,
+};
+
+describe("projectOntoPolyline / pointAlongPolyline", () => {
+  it("finds the nearest point, its tangent and its arc length", () => {
+    const hit = projectOntoPolyline(NORTH_ROAD.centerline, 3, 25);
+    expect(hit).not.toBeNull();
+    expect(hit!.point.x).toBeCloseTo(0, 6);
+    expect(hit!.point.z).toBeCloseTo(25, 6);
+    expect(hit!.distance).toBeCloseTo(3, 6);
+    // Heading convention: 0 = +z, so a due-north polyline reads as 0.
+    expect(hit!.tangent).toBeCloseTo(0, 6);
+    expect(hit!.along).toBeCloseTo(425, 6);
+  });
+
+  it("walks a bent polyline by arc length and clamps past its end", () => {
+    const bend: readonly WorldPoint[] = [
+      { x: 0, z: 0 },
+      { x: 0, z: 10 },
+      { x: 10, z: 10 },
+    ];
+    const mid = pointAlongPolyline(bend, 15);
+    expect(mid!.point.x).toBeCloseTo(5, 6);
+    expect(mid!.point.z).toBeCloseTo(10, 6);
+    expect(mid!.tangent).toBeCloseTo(Math.PI / 2, 6);
+    const past = pointAlongPolyline(bend, 999);
+    expect(past!.point).toEqual({ x: 10, z: 10 });
+    expect(pointAlongPolyline([{ x: 0, z: 0 }], 1)).toBeNull();
+  });
+});
+
+describe("settleEase", () => {
+  it("starts at twice the average speed and arrives at rest", () => {
+    expect(settleEase(0)).toBe(0);
+    expect(settleEase(1)).toBe(1);
+    // Derivative at t=0 is 2 (the entry speed pulloverSeconds solves for) and
+    // 0 at t=1 — the car decelerates into its stop rather than snapping.
+    const h = 1e-6;
+    expect((settleEase(h) - settleEase(0)) / h).toBeCloseTo(2, 3);
+    expect((settleEase(1) - settleEase(1 - h)) / h).toBeCloseTo(0, 3);
+    expect(settleEase(-3)).toBe(0);
+    expect(settleEase(3)).toBe(1);
+  });
+});
+
+describe("pulloverPose", () => {
+  it("parks against the kerb on the correct side, both traffic sides", () => {
+    for (const trafficSide of ["right", "left"] as const) {
+      const car: CutsceneCarPose = { x: -1.7, z: 0, heading: 0 };
+      const parked = pulloverPose(car, 20, trafficSide, NORTH_ROAD);
+      // Kerb is on the vehicle's right in right-hand traffic.
+      const kerbSign = trafficSide === "right" ? 1 : -1;
+      expect(Math.sign(parked.x)).toBe(kerbSign);
+      // Inside the carriageway, with the flank close to but clear of the kerb.
+      const flank = Math.abs(parked.x) + DEFAULT_CUTSCENE_BODY.bodyHalfLatM;
+      expect(flank).toBeLessThanOrEqual(NORTH_ROAD.halfWidthM);
+      expect(flank).toBeGreaterThan(NORTH_ROAD.halfWidthM - 0.5);
+      expect(parked.z).toBeCloseTo(20, 6);
+      expect(parked.heading).toBeCloseTo(0, 6);
+    }
+  });
+
+  it("rolls the way the car is going, not the way the road was authored", () => {
+    // Same road, car heading south: it must end up behind the start in world
+    // terms, still on its own kerb side.
+    const car: CutsceneCarPose = { x: 1.7, z: 0, heading: Math.PI };
+    const parked = pulloverPose(car, 20, "right", NORTH_ROAD);
+    expect(parked.z).toBeCloseTo(-20, 6);
+    expect(Math.abs(parked.heading)).toBeCloseTo(Math.PI, 6);
+    // Driving south on the right puts the kerb at negative x.
+    expect(parked.x).toBeLessThan(0);
+  });
+
+  it("still parks ahead and kerbward with no road to measure", () => {
+    for (const trafficSide of ["right", "left"] as const) {
+      for (const car of CAR_POSES) {
+        const parked = pulloverPose(car, 12, trafficSide, null);
+        const p = local(car, parked);
+        expect(p.long).toBeCloseTo(12, 6);
+        expect(Math.sign(p.lat)).toBe(trafficSide === "right" ? 1 : -1);
+        expect(parked.heading).toBe(car.heading);
+      }
+    }
+  });
+});
+
+describe("pulloverRunM", () => {
+  it("scales the roll-out with speed but never stops on the spot", () => {
+    expect(pulloverRunM(0)).toBe(MIN_PULLOVER_RUN_M);
+    expect(pulloverRunM(-5)).toBe(MIN_PULLOVER_RUN_M);
+    expect(pulloverRunM(30)).toBeGreaterThan(MIN_PULLOVER_RUN_M);
+    expect(pulloverRunM(30)).toBeGreaterThan(pulloverRunM(10));
+  });
+});
+
+describe("buildPulloverScript", () => {
+  const CASES: readonly {
+    trafficSide: TrafficSide;
+    steeringSide: "left" | "right";
+  }[] = [
+    { trafficSide: "right", steeringSide: "left" },
+    { trafficSide: "left", steeringSide: "right" },
+    // Deliberately mismatched: a left-hand-drive car on a left-hand-traffic
+    // map is a legal combination the launcher allows.
+    { trafficSide: "left", steeringSide: "left" },
+  ];
+
+  it("puts the patrol behind the parked car, nose to tail, not through it", () => {
+    for (const { trafficSide, steeringSide } of CASES) {
+      const car: CutsceneCarPose = { x: -1.7, z: -30, heading: 0 };
+      const plan = buildPulloverScript(
+        car,
+        18,
+        steeringSide,
+        trafficSide,
+        NORTH_ROAD,
+      );
+      const behind = local(plan.parked, plan.patrol);
+      expect(behind.long).toBeLessThan(-DEFAULT_CUTSCENE_BODY.bodyHalfLongM * 2);
+      expect(Math.abs(behind.lat)).toBeCloseTo(0, 6);
+      expect(plan.patrol.heading).toBeCloseTo(plan.parked.heading, 6);
+      // It arrives from further back still, so it reads as following you in.
+      const runUp = local(plan.parked, plan.patrolStart);
+      expect(runUp.long).toBeLessThan(behind.long - 10);
+    }
+  });
+
+  it("walks the officer up the driver's flank and back, clear of both cars", () => {
+    for (const { trafficSide, steeringSide } of CASES) {
+      const car: CutsceneCarPose = { x: 1.7, z: 40, heading: 2.1 };
+      const plan = buildPulloverScript(
+        car,
+        9,
+        steeringSide,
+        trafficSide,
+        NORTH_ROAD,
+      );
+      expectClearOfCarBody(plan.parked, plan.steps);
+      expectClearOfCarBody(plan.patrol, plan.steps);
+      // He ends up beside the driver's own window, on the driver's side.
+      const approach = plan.steps.find((step) => step.action === "walk");
+      const stand = approach!.path![approach!.path!.length - 1];
+      const p = local(plan.parked, stand);
+      expect(Math.sign(p.lat)).toBe(steeringSide === "left" ? -1 : 1);
+      expect(Math.abs(p.lat)).toBeGreaterThan(
+        DEFAULT_CUTSCENE_BODY.bodyHalfLatM,
+      );
+      expect(Math.abs(p.long)).toBeLessThan(1.5);
+    }
+  });
+
+  it("cites once, at the window, for 2-3 s", () => {
+    const plan = buildPulloverScript(
+      { x: 0, z: 0, heading: 0 },
+      14,
+      "left",
+      "right",
+      NORTH_ROAD,
+    );
+    const cites = plan.steps.filter((step) => step.citeWindow);
+    expect(cites).toHaveLength(1);
+    expect(cites[0].action).toBe("idle");
+    expect(cites[0].seconds).toBe(WINDOW_DWELL_SECONDS);
+    expect(cites[0].seconds).toBeGreaterThanOrEqual(2);
+    expect(cites[0].seconds).toBeLessThanOrEqual(3);
+    // The citation lands after the officer has actually walked over.
+    expect(plan.steps.indexOf(cites[0])).toBeGreaterThan(1);
+  });
+
+  it("moves both cars in one opening step that lands them on their marks", () => {
+    const car: CutsceneCarPose = { x: -1.7, z: 0, heading: 0 };
+    const plan = buildPulloverScript(car, 22, "left", "right", NORTH_ROAD);
+    const moves = plan.steps.flatMap((step) => step.carMoves ?? []);
+    expect(plan.steps.filter((step) => step.carMoves).length).toBe(1);
+    expect(plan.steps[0].carMoves).toBeDefined();
+    const player = moves.find((move) => move.vehicle === "player");
+    const patrol = moves.find((move) => move.vehicle === "patrol");
+    expect(player).toMatchObject({ from: car, to: plan.parked });
+    expect(patrol).toMatchObject({ from: plan.patrolStart, to: plan.patrol });
+    // The eased track is continuous from the clocked pose to the parked one.
+    expect(lerpCarPose(player!.from, player!.to, settleEase(0))).toEqual(car);
+    expect(lerpCarPose(player!.from, player!.to, settleEase(1))).toEqual(
+      plan.parked,
+    );
+  });
+
+  it("takes the shortest way round when the stop crosses the heading wrap", () => {
+    // Heading just under +π gliding to just over −π: a naive lerp would spin
+    // the car a full turn on the spot.
+    const from: CutsceneCarPose = { x: 0, z: 0, heading: Math.PI - 0.05 };
+    const to: CutsceneCarPose = { x: 0, z: 10, heading: -Math.PI + 0.05 };
+    const mid = lerpCarPose(from, to, 0.5);
+    expect(Math.abs(mid.heading)).toBeGreaterThan(Math.PI - 0.06);
+  });
+
+  it("still stages a full stop when the car is nowhere near a road", () => {
+    // The app debits the fine on the citation step, so a stop that cannot be
+    // built is a violation that silently costs nothing.
+    const car: CutsceneCarPose = { x: 900, z: -900, heading: 0.4 };
+    const plan = buildPulloverScript(car, 0, "right", "left", null);
+    expect(plan.steps.length).toBeGreaterThan(3);
+    expect(plan.steps.some((step) => step.citeWindow)).toBe(true);
+    expect(scriptSeconds(plan.steps)).toBeGreaterThan(WINDOW_DWELL_SECONDS);
+    expectClearOfCarBody(plan.parked, plan.steps);
+  });
+
+  it("runs long enough to read as a stop, and hurries when clocked fast", () => {
+    const slow = buildPulloverScript(
+      { x: 0, z: 0, heading: 0 },
+      2,
+      "left",
+      "right",
+      NORTH_ROAD,
+    );
+    const fast = buildPulloverScript(
+      { x: 0, z: 0, heading: 0 },
+      28,
+      "left",
+      "right",
+      NORTH_ROAD,
+    );
+    for (const plan of [slow, fast]) {
+      expect(scriptSeconds(plan.steps)).toBeGreaterThan(7);
+      expect(scriptSeconds(plan.steps)).toBeLessThan(20);
+    }
+    // Clocked at speed you roll further before stopping.
+    expect(
+      Math.hypot(fast.parked.x, fast.parked.z),
+    ).toBeGreaterThan(Math.hypot(slow.parked.x, slow.parked.z));
   });
 });

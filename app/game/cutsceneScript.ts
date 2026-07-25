@@ -19,7 +19,8 @@ export type CutsceneKind =
   | "exit"
   | "food_pickup"
   | "food_dropoff"
-  | "roadside_refuel";
+  | "roadside_refuel"
+  | "pullover";
 
 export interface CutsceneCarPose {
   readonly x: number;
@@ -35,6 +36,20 @@ export type CutsceneSound =
   | "pump_start"
   | "pump_stop";
 
+/**
+ * The two vehicles a scene may drive. Every other scene plays out around a
+ * parked car and moves nobody but the actor; the traffic stop is the one that
+ * has to steer the player's own car (to the kerb) and bring a second one in
+ * behind it.
+ */
+export type CutsceneVehicle = "player" | "patrol";
+
+export interface CutsceneCarMove {
+  readonly vehicle: CutsceneVehicle;
+  readonly from: CutsceneCarPose;
+  readonly to: CutsceneCarPose;
+}
+
 export interface CutsceneStep {
   readonly action: CutsceneAction;
   /** Polyline for walk/run; the single spawn point for show. */
@@ -48,6 +63,14 @@ export interface CutsceneStep {
   readonly carDip?: boolean;
   /** The refuel fill window: the app pours the tank over this step. */
   readonly fuelWindow?: boolean;
+  /**
+   * Vehicle poses interpolated across this step, eased so a car settles into
+   * its stop rather than snapping to it. The session replays them onto the
+   * simulation's player and onto the scene's own patrol rig.
+   */
+  readonly carMoves?: readonly CutsceneCarMove[];
+  /** The citation window: the app debits the fine as this step begins. */
+  readonly citeWindow?: boolean;
 }
 
 export const WALK_SPEED_MPS = 1.5;
@@ -502,6 +525,310 @@ export function buildRoadsideRefuelScript(
     },
     { action: "hide", seconds: 0.45, sound: "door_close", carDip: true },
   ];
+}
+
+// --- The traffic stop -------------------------------------------------------
+//
+// Unlike every other scene, this one starts with the car moving and has to park
+// it: a witnessed violation now plays out as an actual pull-over rather than a
+// fine appearing out of nowhere (issue #141). The whole thing is choreography —
+// the car is not driven to the kerb by the physics, it is carried there along
+// an eased track that the session replays onto the simulation's player pose, so
+// the core (and every NPC avoiding the player) agrees with what is on screen.
+
+/** Clearance kept between the parked car's flank and the kerb line. */
+const PULLOVER_KERB_GAP_M = 0.35;
+/** Bumper-to-bumper gap the patrol leaves behind the car it stopped. */
+const PATROL_STOP_GAP_M = 3.2;
+/** How far back the patrol starts, so it visibly follows you in. */
+const PATROL_RUN_UP_M = 21;
+/** Lateral clearance the officer keeps off a flank while walking or standing. */
+const OFFICER_CLEAR_M = 0.55;
+/** Where the officer waits behind the car before stepping up to the window. */
+const OFFICER_FLANK_BACK_M = 1.1;
+/** How far off the carriageway centreline the fallback park sits, absent a road
+ * frame to measure a real kerb against. Roughly one lane width. */
+const PULLOVER_BLIND_SHIFT_M = 1.7;
+
+/** The patrol's own envelope: a saloon, so the flagship's numbers fit it. */
+const PATROL_BODY = DEFAULT_CUTSCENE_BODY;
+
+/** Shortest distance the car rolls before it is stopped, whatever its speed. */
+export const MIN_PULLOVER_RUN_M = 7;
+/** Speed the glide is timed against when the car is already crawling, so a
+ * standing stop still eases over rather than taking the full cap. */
+const PULLOVER_NOMINAL_MPS = 5;
+const MIN_PULLOVER_SECONDS = 1.6;
+const MAX_PULLOVER_SECONDS = 4.5;
+/** How long the officer stands at the driver's window. */
+export const WINDOW_DWELL_SECONDS = 2.6;
+
+/** The carriageway the pull-over parks against: a road surface's centreline
+ * (not a lane's) plus its half width, which is what puts the car at the kerb
+ * rather than at the edge of whichever lane it happened to be in. */
+export interface PulloverRoad {
+  readonly centerline: readonly WorldPoint[];
+  readonly halfWidthM: number;
+}
+
+export interface PolylineHit {
+  readonly point: WorldPoint;
+  /** Segment tangent in the heading convention (0 = +z). */
+  readonly tangent: number;
+  /** Arc length from the polyline's start to the projected point. */
+  readonly along: number;
+  /** Perpendicular distance from the query point to the polyline. */
+  readonly distance: number;
+}
+
+/** Nearest point on a polyline to (x, z). Null for a degenerate polyline. */
+export function projectOntoPolyline(
+  points: readonly WorldPoint[],
+  x: number,
+  z: number,
+): PolylineHit | null {
+  if (points.length < 2) return null;
+  let best: PolylineHit | null = null;
+  let travelled = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const a = points[index - 1];
+    const b = points[index];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 1e-6) continue;
+    const t = Math.max(
+      0,
+      Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (length * length)),
+    );
+    const point = { x: a.x + dx * t, z: a.z + dz * t };
+    const distance = Math.hypot(x - point.x, z - point.z);
+    if (!best || distance < best.distance) {
+      best = {
+        point,
+        tangent: Math.atan2(dx, dz),
+        along: travelled + length * t,
+        distance,
+      };
+    }
+    travelled += length;
+  }
+  return best;
+}
+
+/** The pose `along` metres into a polyline, clamped to its ends. */
+export function pointAlongPolyline(
+  points: readonly WorldPoint[],
+  along: number,
+): PolylineHit | null {
+  if (points.length < 2) return null;
+  let travelled = 0;
+  let last: PolylineHit | null = null;
+  for (let index = 1; index < points.length; index += 1) {
+    const a = points[index - 1];
+    const b = points[index];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 1e-6) continue;
+    const tangent = Math.atan2(dx, dz);
+    if (along <= travelled + length) {
+      const t = Math.max(0, Math.min(1, (along - travelled) / length));
+      return {
+        point: { x: a.x + dx * t, z: a.z + dz * t },
+        tangent,
+        along: travelled + length * t,
+        distance: 0,
+      };
+    }
+    travelled += length;
+    last = { point: b, tangent, along: travelled, distance: 0 };
+  }
+  return last;
+}
+
+/** Shortest-arc heading interpolation, so a stop never spins the long way. */
+function lerpHeading(from: number, to: number, t: number): number {
+  let delta = to - from;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return from + delta * t;
+}
+
+/**
+ * A car's pose `t` of the way through a move. `t` is expected pre-eased; the
+ * session eases once so the position and heading stay in step.
+ */
+export function lerpCarPose(
+  from: CutsceneCarPose,
+  to: CutsceneCarPose,
+  t: number,
+): CutsceneCarPose {
+  return {
+    x: from.x + (to.x - from.x) * t,
+    z: from.z + (to.z - from.z) * t,
+    heading: lerpHeading(from.heading, to.heading, t),
+  };
+}
+
+/**
+ * Ease-out for a car coming to rest: `1 - (1-t)²`. Its speed at t=0 is exactly
+ * `2·distance/seconds`, which is why {@link pulloverSeconds} solves for the
+ * duration that makes that the speed the car was already doing — the glide
+ * starts at the driver's own pace and decelerates smoothly to nothing.
+ */
+export function settleEase(t: number): number {
+  const clamped = Math.max(0, Math.min(1, t));
+  return 1 - (1 - clamped) * (1 - clamped);
+}
+
+/** How far the car rolls before stopping, from the speed it was clocked at. */
+export function pulloverRunM(speedMps: number): number {
+  return Math.max(MIN_PULLOVER_RUN_M, Math.max(0, speedMps) * 1.4);
+}
+
+function pulloverSeconds(runM: number, speedMps: number): number {
+  return Math.max(
+    MIN_PULLOVER_SECONDS,
+    Math.min(
+      MAX_PULLOVER_SECONDS,
+      (2 * runM) / Math.max(speedMps, PULLOVER_NOMINAL_MPS),
+    ),
+  );
+}
+
+/**
+ * Where the car ends up: `runM` further along the road it is on, shifted to the
+ * kerb. With a road frame the shift is measured from the carriageway centreline
+ * so the car finishes hard against the kerb whatever lane it was in and however
+ * wide the street is; without one (an unmapped surface, or a car already off
+ * the road) it falls back to a lane-width shift off the car's own heading —
+ * never nothing, because the scene has to end with the car parked somewhere.
+ */
+export function pulloverPose(
+  car: CutsceneCarPose,
+  runM: number,
+  trafficSide: TrafficSide,
+  road: PulloverRoad | null,
+  body: CutsceneBodyProfile = DEFAULT_CUTSCENE_BODY,
+): CutsceneCarPose {
+  // The kerb is on the vehicle's right in right-hand traffic — the same rule
+  // kerbLat encodes, in metres rather than door offsets.
+  const kerbSign = trafficSide === "right" ? 1 : -1;
+  const hit = road ? projectOntoPolyline(road.centerline, car.x, car.z) : null;
+  if (!road || !hit) {
+    const blind = toWorld(car, runM, kerbSign * PULLOVER_BLIND_SHIFT_M);
+    return { x: blind.x, z: blind.z, heading: car.heading };
+  }
+  // Which way along the centreline the car is travelling; a road's centreline
+  // is authored in one direction and the player may be going either way.
+  const forward = Math.cos(car.heading - hit.tangent) >= 0 ? 1 : -1;
+  const target =
+    pointAlongPolyline(road.centerline, hit.along + forward * runM) ?? hit;
+  const heading = forward > 0 ? target.tangent : target.tangent + Math.PI;
+  const lateral = Math.max(
+    0,
+    road.halfWidthM - body.bodyHalfLatM - PULLOVER_KERB_GAP_M,
+  );
+  return {
+    x: target.point.x + Math.cos(heading) * lateral * kerbSign,
+    z: target.point.z - Math.sin(heading) * lateral * kerbSign,
+    heading,
+  };
+}
+
+export interface PulloverPlan {
+  readonly steps: readonly CutsceneStep[];
+  /** Where the player's car ends up; the session drives the sim to it. */
+  readonly parked: CutsceneCarPose;
+  /** Where the patrol ends up, and where its rig is spawned to arrive from. */
+  readonly patrol: CutsceneCarPose;
+  readonly patrolStart: CutsceneCarPose;
+}
+
+/**
+ * The whole traffic stop: the car glides to the kerb while the patrol pulls in
+ * behind it, an officer gets out, walks up the driver's flank, spends a few
+ * seconds at the window (where the fine actually lands), walks back and gets
+ * in.
+ *
+ * The officer's route is built entirely from the two *parked* poses, which
+ * share a heading and sit nose-to-tail, so the walk runs parallel to both car
+ * bodies at `doorLateralM + OFFICER_CLEAR_M` — outside `bodyHalfLatM` on
+ * either of them, and therefore never through one.
+ */
+export function buildPulloverScript(
+  car: CutsceneCarPose,
+  speedMps: number,
+  steeringSide: SteeringSide,
+  trafficSide: TrafficSide,
+  road: PulloverRoad | null,
+  body: CutsceneBodyProfile = DEFAULT_CUTSCENE_BODY,
+): PulloverPlan {
+  const runM = pulloverRunM(speedMps);
+  const parked = pulloverPose(car, runM, trafficSide, road, body);
+  const behindM =
+    body.bodyHalfLongM + PATROL_BODY.bodyHalfLongM + PATROL_STOP_GAP_M;
+  const patrolAt = (back: number): CutsceneCarPose => {
+    const point = toWorld(parked, -back, 0);
+    return { x: point.x, z: point.z, heading: parked.heading };
+  };
+  const patrol = patrolAt(behindM);
+  const patrolStart = patrolAt(behindM + PATROL_RUN_UP_M);
+
+  // Both cars are driven from the same seat, so the officer's door and the
+  // driver's window are on the same side of the road — he steps out and walks
+  // straight up the flank.
+  const side = driverLat(steeringSide, body) >= 0 ? 1 : -1;
+  const officerDoor = toWorld(
+    patrol,
+    PATROL_BODY.frontDoorForwardM,
+    side * (PATROL_BODY.doorLateralM + OFFICER_CLEAR_M),
+  );
+  const walkLat = side * (body.doorLateralM + OFFICER_CLEAR_M);
+  const flank = toWorld(parked, -body.bodyHalfLongM - OFFICER_FLANK_BACK_M, walkLat);
+  const window = toWorld(parked, body.frontDoorForwardM, walkLat);
+  const approach = [officerDoor, flank, window];
+  const back = [window, flank, officerDoor];
+  const parkedPoint: WorldPoint = { x: parked.x, z: parked.z };
+
+  return {
+    parked,
+    patrol,
+    patrolStart,
+    steps: [
+      {
+        // Nobody is out of a car yet: this step is purely the two cars moving.
+        action: "hide",
+        seconds: pulloverSeconds(runM, Math.max(0, speedMps)),
+        carMoves: [
+          { vehicle: "player", from: car, to: parked },
+          { vehicle: "patrol", from: patrolStart, to: patrol },
+        ],
+      },
+      {
+        action: "show",
+        path: [officerDoor],
+        seconds: 0.55,
+        face: headingTo(officerDoor, parkedPoint),
+        sound: "door",
+      },
+      {
+        action: "walk",
+        path: approach,
+        seconds: legSeconds(approach, WALK_SPEED_MPS),
+        sound: "door_close",
+      },
+      {
+        action: "idle",
+        seconds: WINDOW_DWELL_SECONDS,
+        face: headingTo(window, parkedPoint),
+        citeWindow: true,
+      },
+      { action: "walk", path: back, seconds: legSeconds(back, WALK_SPEED_MPS) },
+      { action: "hide", seconds: 0.5, sound: "door_close" },
+    ],
+  };
 }
 
 /** Total running time of a script, for captions and safety timeouts. */

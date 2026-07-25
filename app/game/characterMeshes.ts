@@ -6,11 +6,14 @@
  * back to the procedural cylinder people.
  */
 import {
+  type AbstractMesh,
   AnimationGroup,
   Color3,
   type Material,
+  Mesh,
   MeshBuilder,
   Scene,
+  type Skeleton,
   StandardMaterial,
   TransformNode,
   Vector3,
@@ -355,6 +358,157 @@ export function buildActorVisual(
   colors: CharacterColors,
 ): ActorVisual | null {
   const config = CHARACTER_MODELS[Math.abs(variant) % CHARACTER_MODELS.length];
+  return buildActorFromConfig(
+    scene,
+    parent,
+    name,
+    config,
+    materialOverrides(config, colors),
+  );
+}
+
+/**
+ * The rig person-c happens to be — a man in an open jacket over a shirt front —
+ * carries the only per-panel materials in the roster: `Shirt` (the jacket),
+ * `TieTexture` (the chest panel between its lapels), `Pants` and `Details`
+ * (collar and cuffs). All four are flat baseColorFactors with no textures, so
+ * the whole police uniform is a recolour of a rig the game already ships,
+ * rather than a sixth character glb to download, license and keep in step with
+ * the crowd's shared-skeleton bake.
+ */
+const OFFICER_MODEL = CHARACTER_MODELS[2];
+
+/**
+ * The patrol uniform: a dark navy buttoned shirt with a lighter placket and a
+ * pale collar, over navy trousers. Deliberately plain — what makes him read as
+ * police is the peaked cap's silhouette, not the fabric. An earlier hi-vis
+ * version was legible but wrong: patrol officers wear a shirt, not a vest.
+ */
+const OFFICER_UNIFORM: ReadonlyMap<string, Color3> = new Map([
+  ["Shirt", Color3.FromHexString("#22314f")], // navy shirt + sleeves
+  ["TieTexture", Color3.FromHexString("#2a3a5c")], // buttoned placket, a shade up
+  ["Pants", Color3.FromHexString("#18243c")], // navy trousers
+  ["Details", Color3.FromHexString("#c9ccd2")], // collar points + cuff trim
+  ["Skin", Color3.FromHexString("#c8a077")],
+  ["Hair", Color3.FromHexString("#3a3630")],
+]);
+
+const CAP_NAVY = Color3.FromHexString("#1d2c4a");
+const CAP_BLACK = Color3.FromHexString("#10141c");
+
+/**
+ * The peaked cap, built procedurally and hung off the rig's `Head` bone.
+ *
+ * Silhouette is what identifies a police officer at the distance the traffic
+ * stop actually plays at — a uniform recolour alone reads as a pedestrian in a
+ * dark coat. Three primitives (crown, band, peak) are enough at this polygon
+ * budget, and generating them beats shipping a sixth character glb.
+ *
+ * Two things here are measured, not guessed. The bone's world matrix carries
+ * the rig's own 100x armature scale times the model scale (37.4x on these
+ * rigs), so the holder divides it back out and every dimension below is plain
+ * metres. And the peak sits on **+Z in bone space**, which is the face on this
+ * rig — verified by render, and the opposite of what the wrap's yawOffset would
+ * lead you to assume.
+ */
+function addPeakedCap(
+  scene: Scene,
+  name: string,
+  skeleton: Skeleton | null,
+  carrier: AbstractMesh | undefined,
+): { meshes: Mesh[]; materials: StandardMaterial[] } | null {
+  const head = skeleton?.bones.find((bone) => bone.name === "Head");
+  if (!head || !carrier) return null;
+
+  const navy = new StandardMaterial(`${name}-cap-navy`, scene);
+  navy.diffuseColor = CAP_NAVY.clone();
+  navy.specularColor = new Color3(0.05, 0.05, 0.05);
+  const black = new StandardMaterial(`${name}-cap-black`, scene);
+  black.diffuseColor = CAP_BLACK.clone();
+  black.specularColor = new Color3(0.08, 0.08, 0.08);
+
+  const crown = MeshBuilder.CreateCylinder(
+    `${name}-cap-crown`,
+    { diameterTop: 0.248, diameterBottom: 0.222, height: 0.088, tessellation: 14 },
+    scene,
+  );
+  const band = MeshBuilder.CreateCylinder(
+    `${name}-cap-band`,
+    { diameter: 0.224, height: 0.045, tessellation: 14 },
+    scene,
+  );
+  const peak = MeshBuilder.CreateCylinder(
+    `${name}-cap-peak`,
+    { diameter: 0.23, height: 0.017, tessellation: 14 },
+    scene,
+  );
+  crown.material = navy;
+  band.material = black;
+  peak.material = black;
+  crown.position.y = 0.174;
+  band.position.y = 0.108;
+  peak.position.set(0, 0.113, 0.086);
+  peak.scaling.z = 1.05;
+  peak.rotation.x = 0.16;
+
+  const holder = new TransformNode(`${name}-cap`, scene);
+  for (const mesh of [crown, band, peak]) {
+    mesh.parent = holder;
+    mesh.isPickable = false;
+  }
+  // An empty mesh is the only thing attachToBone accepts as the follower.
+  const anchor = new Mesh(`${name}-cap-anchor`, scene);
+  anchor.isPickable = false;
+  holder.parent = anchor;
+  anchor.attachToBone(head, carrier);
+  // Both of these are load-bearing, and their absence fails silently. A
+  // freshly instantiated skeleton still holds the glb's own armature transform
+  // (100x on these rigs) and knows nothing of the 0.374 the caller just applied
+  // to the model root, so the bone's world matrix reads scale 100 at y=4.2 m
+  // rather than scale 37.4 at head height. Decomposing that builds the cap 2.7x
+  // oversize and parks it in the air above him — visible in no frame at all.
+  carrier.computeWorldMatrix(true);
+  skeleton?.prepare();
+  anchor.computeWorldMatrix(true);
+  const boneScale = new Vector3();
+  anchor.getWorldMatrix().decompose(boneScale);
+  holder.scaling.setAll(1 / (boneScale.x || 1));
+
+  return { meshes: [crown, band, peak, anchor], materials: [navy, black] };
+}
+
+/** The officer who walks up to your window on a traffic stop. */
+export function buildOfficerVisual(
+  scene: Scene,
+  parent: TransformNode,
+  name: string,
+): ActorVisual | null {
+  return buildActorFromConfig(
+    scene,
+    parent,
+    name,
+    OFFICER_MODEL,
+    OFFICER_UNIFORM,
+    addPeakedCap,
+  );
+}
+
+/** Optional headwear/kit hung off the rig's skeleton once it is instantiated. */
+type ActorAttachment = (
+  scene: Scene,
+  name: string,
+  skeleton: Skeleton | null,
+  carrier: AbstractMesh | undefined,
+) => { meshes: Mesh[]; materials: StandardMaterial[] } | null;
+
+function buildActorFromConfig(
+  scene: Scene,
+  parent: TransformNode,
+  name: string,
+  config: CharacterModelConfig,
+  overrides: ReadonlyMap<string, Color3>,
+  attachment?: ActorAttachment,
+): ActorVisual | null {
   if (!isModelReady(scene, config.url)) return null;
   const instance = instantiateModel(scene, config.url);
   const modelRoot = instance?.rootNodes[0] as TransformNode | undefined;
@@ -366,13 +520,17 @@ export function buildActorVisual(
   modelRoot.parent = root;
   modelRoot.scaling.setAll(config.scale);
 
-  const owned = convertMaterials(
-    scene,
-    name,
-    root,
-    materialOverrides(config, colors),
-  );
+  const owned = convertMaterials(scene, name, root, overrides);
   addContactShadow(scene, name, root, 0.62, 0.5);
+
+  // Bone-attached kit rides the skeleton's world matrix, so it must be built
+  // after the model is parented and scaled — and it lives outside `root`, which
+  // is why dispose() has to reach it explicitly.
+  const skeleton = instance.skeletons[0] ?? null;
+  const carrier = instance.rootNodes[0]
+    ?.getChildMeshes(false)
+    .find((mesh) => mesh.skeleton === skeleton);
+  const attached = attachment?.(scene, name, skeleton, carrier) ?? null;
 
   const clips = new Map<ActorClip, AnimationGroup>();
   for (const group of instance.animationGroups) {
@@ -409,8 +567,11 @@ export function buildActorVisual(
       if (disposed) return;
       disposed = true;
       for (const group of clips.values()) group.dispose();
+      for (const mesh of attached?.meshes ?? []) mesh.dispose(false, false);
       root.dispose(false, false);
-      for (const material of owned) material.dispose(true, false);
+      for (const material of [...owned, ...(attached?.materials ?? [])]) {
+        material.dispose(true, false);
+      }
     },
   };
   visual.setClip("idle");
