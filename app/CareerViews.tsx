@@ -10,14 +10,12 @@ import type { CountryProfile, DestinationId } from "./game/types";
 import { formatMoney } from "./game/content";
 import {
   activeCity,
-  BUYOUT_RENT_MULTIPLIER,
   buyableVehicles,
   buyoutPrice,
   canBuyVehicle,
   CAREER_CITIES,
   CAREER_STARTING_CASH_BY_COUNTRY,
   CAREER_VEHICLES,
-  getCareerVehicle,
   nextCareerCity,
   nextInstallment,
   unlockedCities,
@@ -698,51 +696,27 @@ export interface CareerCardModel {
   readonly day: number;
   readonly cash: string;
   readonly note: { readonly text: string; readonly tone: "good" | "warn" } | null;
-  readonly driving: {
-    readonly name: string;
-    readonly badge: "RENTED" | "OWNED";
-    readonly kind: CareerVehicleSpec["visualKind"];
-  };
-  readonly bar: {
-    readonly label: string;
-    readonly target: string;
-    readonly fraction: number;
-    readonly saved: string;
-  };
-  readonly footnote: string;
 }
 
 /**
  * Derives the launcher career card from the live slice, or — before any career
  * exists — from the chosen country's day-1 defaults, so the card doubles as a
  * "here's what you'll start with" preview. Pure (money formatted here) so the
- * copy is unit-testable without rendering. The progress bar tracks the next
- * rental you can't yet afford; once every rental is within reach it flips to
- * the buyout, which is the actual win.
+ * copy is unit-testable without rendering. What you are saving for is stated on
+ * the garage's own panel, so the card stays a balance and nothing else.
  */
 export function careerCardModel(
   slice: CareerSliceV2 | null,
   city: CareerCityView | null,
   country: CountryProfile,
-  garageVehicleId: CareerVehicleId,
 ): CareerCardModel {
   const startingCash = CAREER_STARTING_CASH_BY_COUNTRY[country.id];
   const day = city?.day ?? 1;
   const cash = city?.cash ?? startingCash;
-  const ownedIds = city?.ownedVehicleIds ?? [];
-  const won = slice?.state === "won";
   const loan = city?.loan ?? null;
 
-  const drivingSpec = getCareerVehicle(ownedIds[0] ?? garageVehicleId);
-  const ownsDriving = drivingSpec.owned || ownedIds.includes(drivingSpec.id);
-  const driving = {
-    name: drivingSpec.name,
-    badge: (ownsDriving ? "OWNED" : "RENTED") as "OWNED" | "RENTED",
-    kind: drivingSpec.visualKind,
-  };
-
   let note: CareerCardModel["note"] = null;
-  if (won) {
+  if (slice?.state === "won") {
     note = { text: "freedom bought", tone: "good" };
   } else if (loan) {
     note = {
@@ -753,51 +727,7 @@ export function careerCardModel(
     note = { text: `+${formatMoney(startingCash, country)} starter`, tone: "good" };
   }
 
-  const rentOf = (vehicle: CareerVehicleSpec): number =>
-    vehicle.owned || ownedIds.includes(vehicle.id)
-      ? 0
-      : vehicle.rentByCountry[country.id];
-  const cheapestBuyout = CAREER_VEHICLES.filter((v) => v.buyoutEligible).reduce(
-    (best, v) =>
-      buyoutPrice(v, country.id) < buyoutPrice(best, country.id) ? v : best,
-  );
-  const buyoutCost = buyoutPrice(cheapestBuyout, country.id);
-  const nextRental = CAREER_VEHICLES.filter(
-    (v) => v.id !== "bicycle" && !v.owned && !ownedIds.includes(v.id) && rentOf(v) > cash,
-  ).sort((a, b) => rentOf(a) - rentOf(b))[0];
-
-  let bar: CareerCardModel["bar"];
-  let footnote: string;
-  if (won) {
-    bar = {
-      label: "OWNED OUTRIGHT",
-      target: "",
-      fraction: 1,
-      saved: `The ${drivingSpec.name.toLowerCase()} is yours`,
-    };
-    footnote = slice?.victoryDay
-      ? `Treadmill beaten on day ${slice.victoryDay} — keep driving.`
-      : "The treadmill is beaten — keep driving.";
-  } else if (nextRental) {
-    const rent = rentOf(nextRental);
-    bar = {
-      label: `NEXT · RENT THE ${nextRental.name.toUpperCase()}`,
-      target: formatMoney(rent, country),
-      fraction: clamp01(cash / rent),
-      saved: `${formatMoney(cash, country)} / ${formatMoney(rent, country)} saved`,
-    };
-    footnote = `Own one outright at ${formatMoney(buyoutCost, country)} · buy your way out`;
-  } else {
-    bar = {
-      label: `NEXT · BUY THE ${cheapestBuyout.name.toUpperCase()}`,
-      target: formatMoney(buyoutCost, country),
-      fraction: clamp01(cash / buyoutCost),
-      saved: `${formatMoney(cash, country)} / ${formatMoney(buyoutCost, country)} saved`,
-    };
-    footnote = `Own it outright (${BUYOUT_RENT_MULTIPLIER}× rent) and beat the treadmill`;
-  }
-
-  return { day, cash: formatMoney(cash, country), note, driving, bar, footnote };
+  return { day, cash: formatMoney(cash, country), note };
 }
 
 /** Line-art vehicle mark for the card's "now driving" row, chosen by visual kind. */
@@ -847,9 +777,9 @@ function VehicleGlyph({ kind }: { kind: CareerVehicleSpec["visualKind"] }) {
 }
 
 /**
- * The rich career status card shown on the launcher: balance, the ride you'll
- * take out, and progress toward the next goal. Presentational — every value
- * arrives already formatted from {@link careerCardModel}.
+ * The career status card shown on the launcher: the day and the balance.
+ * Presentational — every value arrives already formatted from
+ * {@link careerCardModel}.
  */
 export function CareerLauncherCard({ model }: { model: CareerCardModel }) {
   return (
@@ -874,30 +804,6 @@ export function CareerLauncherCard({ model }: { model: CareerCardModel }) {
           )}
         </div>
       </div>
-      <div className="career-card-rule" />
-      <div className="career-card-vehicle">
-        <span className="career-card-vehicle-icon">
-          <VehicleGlyph kind={model.driving.kind} />
-        </span>
-        <span className="career-card-vehicle-copy">
-          <small>NOW DRIVING</small>
-          <strong>{model.driving.name}</strong>
-        </span>
-        <span className="career-card-badge">{model.driving.badge}</span>
-      </div>
-      <div className="career-card-progress">
-        <div className="career-card-progress-head">
-          <span>{model.bar.label}</span>
-          {model.bar.target && <strong>{model.bar.target}</strong>}
-        </div>
-        <div className="career-card-bar">
-          <i style={{ width: `${model.bar.fraction * 100}%` }} />
-        </div>
-        <div className="career-card-progress-foot">
-          <span>{model.bar.saved}</span>
-          <span>{model.footnote}</span>
-        </div>
-      </div>
     </div>
   );
 }
@@ -913,7 +819,6 @@ export function CareerSetupPanel({
   city,
   cityName,
   country,
-  garageVehicleId,
   onStartCareer,
   onContinue,
   onResetCorrupt,
@@ -923,7 +828,6 @@ export function CareerSetupPanel({
   city: CareerCityView | null;
   cityName: string;
   country: CountryProfile;
-  garageVehicleId: CareerVehicleId;
   onStartCareer: () => void;
   onContinue: () => void;
   onResetCorrupt: () => void;
@@ -948,7 +852,7 @@ export function CareerSetupPanel({
   // Corrupt handled above, so `career` is now a live slice or null (a fresh
   // start) — both drive the card, one live and one as a preview.
   const slice: CareerSliceV2 | null = career;
-  const model = careerCardModel(slice, city, country, garageVehicleId);
+  const model = careerCardModel(slice, city, country);
   return (
     <div
       className="career-launcher"

@@ -2298,7 +2298,6 @@ export default function SideSwapApp() {
                   careerCountry ??
                   getCountryProfile(careerCountryOf(CAREER_START_CITY))
                 }
-                garageVehicleId={garageVehicleId}
                 onStartCareer={startCareer}
                 onContinue={() => {
                   // A saved career may no longer afford the sticky garage
