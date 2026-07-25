@@ -22,8 +22,20 @@ export interface NpcPathSegment {
   readonly length: number;
 }
 
-/** Hops before we stop extending a route, however much road is still ahead. */
-export const NPC_PATH_MAX_HOPS = 24;
+/**
+ * Hops before we stop extending a route, however much road is still ahead.
+ *
+ * This is a cap on the tail, not the typical cost: the walk stops as soon as it
+ * revisits a lane, which on the current maps takes about 18 hops on average.
+ * But the cap has to clear the *worst* case on the largest map, because a walk
+ * cut short reads as `loop: false` and the caller despawns the car — traffic
+ * blinking out mid-street with nothing wrong with the map. That worst case
+ * grows with the lane count (NYC's is ~3x what a 24-hop budget could close),
+ * so the number is set well clear of it rather than snugly.
+ * `roadRealism.test.ts` walks every lane at every offset on every pack, which
+ * is what actually holds this honest.
+ */
+export const NPC_PATH_MAX_HOPS = 160;
 /** A successor must start where the previous lane ended, within this slack. */
 const CONTINUITY_TOLERANCE_M = 2.5;
 
