@@ -50,6 +50,7 @@ const job = (patch: Partial<HudJob> = {}): HudJob => ({
   sub: "then 214 W 108th St",
   pay: "+$19.34",
   tip: null,
+  hint: null,
   surged: false,
   ...patch,
 });

@@ -127,7 +127,10 @@ import {
   SAFE_LEFT,
   SAFE_RIGHT,
   SAFE_TOP,
+  TOUCH_INSET_PX,
   TOUCH_MINIMAP_PX,
+  TOUCH_OFFER_GAP_PX,
+  TOUCH_PEDAL_BLOCK_PX,
   TOUCH_TOP_RAIL_PX,
 } from "./game/TouchDriveControls";
 import { primeAudioContext, suspendAudioContext } from "./game/audio/audioContext";
@@ -156,6 +159,7 @@ import {
 } from "./game/dispatch";
 import type { DispatchState, SurgeWindow } from "./game/dispatch";
 import {
+  DriveCornerButton,
   DriveMoneyCluster,
   DriveNavCard,
   DriveOfferBar,
@@ -430,6 +434,25 @@ function gigTipFor(
   );
 }
 
+/**
+ * What the card says about the tip while a job is in the car.
+ *
+ * The two kinds are timed differently and the wording has to match, or the HUD
+ * promises something the payout will not honour: a food order's quoted tip is
+ * already banked and only the *bonus* is on the clock, while a rider's whole
+ * tip slides with how long the trip takes.
+ */
+function tipHint(kind: GigKind, remainingMs: number): string | null {
+  if (kind === "passenger") {
+    return remainingMs > 0
+      ? `Rider is timing you — ${formatClock(remainingMs)}`
+      : "Taking a while — the tip is slipping";
+  }
+  return remainingMs > 0
+    ? `Quick-delivery bonus — ${formatClock(remainingMs)}`
+    : null;
+}
+
 /** How close to a gig stop counts as arrived — mirrors `advanceGig`'s radius;
  * the state itself now flips when the arrival cutscene completes. */
 const GIG_ARRIVAL_RADIUS_M = 14;
@@ -484,13 +507,9 @@ function fineReason(code: string | undefined): string {
  * the two across a stylesheet is how the z-order bug in `driveLayers.ts`
  * happened in the first place).
  */
-const HUD_CREAM = "#f4efde";
 const HUD_GOLD = "#f4c848";
 const HUD_CORAL = "#e8705a";
 const HUD_SAGE = "#8fae72";
-const HUD_GLASS = "rgba(11,15,17,.76)";
-const HUD_SANS = '"Figtree", system-ui, sans-serif';
-const HUD_SERIF = '"Playfair Display", Georgia, serif';
 
 /** How each dispatch outcome reads: taken, paid, passed over, or lost. */
 const DISPATCH_TOAST_COLOR = {
@@ -500,34 +519,6 @@ const DISPATCH_TOAST_COLOR = {
   lost: HUD_CORAL,
 } as const;
 
-function HudGlyph({
-  path,
-  size = 14,
-  color = "rgba(244,239,222,.55)",
-}: {
-  path: readonly string[];
-  size?: number;
-  color?: string;
-}) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={2.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      style={{ display: "block", flex: "none" }}
-    >
-      {path.map((d) => (
-        <path key={d} d={d} />
-      ))}
-    </svg>
-  );
-}
 
 const FUEL_PUMP_ICON = [
   "M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18",
@@ -542,38 +533,9 @@ const CAR_ICON = [
   "M7.6 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
   "M16.4 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
 ];
-const CLOCK_ICON = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18", "M12 7v5l3.5 2"];
-const PARCEL_ICON = [
-  "m7.5 4.27 9 5.15",
-  "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z",
-  "m3.3 7 8.7 5 8.7-5",
-  "M12 22V12",
-];
-const RIDER_ICON = [
-  "M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8",
-  "M4 21a8 8 0 0 1 16 0",
-];
 
-interface HudStatCell {
-  readonly id: string;
-  readonly icon: readonly string[];
-  readonly label: string;
-  readonly value: string;
-  readonly testId?: string;
-  readonly valueColor?: string;
-  readonly fill?: number;
-  readonly fillColor?: string;
-  readonly fillTransition?: string;
-}
 
 /** Lays the stat strip out two-up, the way the meters pair in the design. */
-function chunkPairs(cells: readonly HudStatCell[]): HudStatCell[][] {
-  const rows: HudStatCell[][] = [];
-  for (let index = 0; index < cells.length; index += 2) {
-    rows.push(cells.slice(index, index + 2));
-  }
-  return rows;
-}
 
 /**
  * One cell of the panel's stat strip: glyph, value, and an optional meter bar.
@@ -581,65 +543,6 @@ function chunkPairs(cells: readonly HudStatCell[]): HudStatCell[][] {
  * The bar is what makes fuel and condition readable at a glance while the eyes
  * belong to the road — a percentage alone has to be parsed, a bar does not.
  */
-function HudStat({
-  icon,
-  label,
-  value,
-  testId,
-  valueColor,
-  fill,
-  fillColor,
-  fillTransition,
-  compact,
-}: HudStatCell & { compact: boolean }) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        minWidth: 0,
-        display: "flex",
-        alignItems: "center",
-        gap: compact ? 5 : 7,
-      }}
-    >
-      <HudGlyph path={icon} size={compact ? 13 : 15} />
-      <span className="sr-only">{label}</span>
-      <span
-        data-testid={testId}
-        style={{
-          font: `800 ${compact ? 11 : 13}px/1 ${HUD_SANS}`,
-          color: valueColor ?? "rgba(244,239,222,.82)",
-          fontVariantNumeric: "tabular-nums",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {value}
-      </span>
-      {fill !== undefined && (
-        <div
-          style={{
-            flex: 1,
-            minWidth: compact ? 22 : 30,
-            height: compact ? 5 : 6,
-            borderRadius: 999,
-            background: "rgba(255,255,255,.14)",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              height: "100%",
-              width: `${Math.max(0, Math.min(100, fill))}%`,
-              borderRadius: 999,
-              background: fillColor,
-              transition: fillTransition,
-            }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function SideSwapApp() {
   const [progress, setProgress] = useState<PlayerProgressV2>(() =>
@@ -721,6 +624,7 @@ export default function SideSwapApp() {
   // The comp is a fixed 1920 frame and its clusters are scaled to fit, so the
   // HUD has to know how wide the window is. Only on resize — never per frame.
   const [viewportWidth, setViewportWidth] = useState(HUD_DESIGN_WIDTH);
+  const [viewportHeight, setViewportHeight] = useState(1080);
   const [fineToast, setFineToast] = useState<{
     amount: number;
     reason: string;
@@ -1176,7 +1080,10 @@ export default function SideSwapApp() {
   }, [view, answerOffer]);
 
   useEffect(() => {
-    const sync = () => setViewportWidth(window.innerWidth);
+    const sync = () => {
+      setViewportWidth(window.innerWidth);
+      setViewportHeight(window.innerHeight);
+    };
     sync();
     window.addEventListener("resize", sync);
     return () => window.removeEventListener("resize", sync);
@@ -2174,19 +2081,15 @@ export default function SideSwapApp() {
   // The tip window for the active career gig: previewed before pickup, counted
   // down while carrying. Derived from the same 10 Hz day-clock state that
   // drives the countdown chip, so it re-renders in step.
-  const gigParForCardMs =
-    careerRun && gig
-      ? gigParMs(
-          Math.hypot(
-            gig.dropoff.x - gig.pickup.x,
-            gig.dropoff.z - gig.pickup.z,
-          ),
-          careerRun.vehicle.paceFactor,
-        )
-      : null;
+  const gigParForCardMs = gig
+    ? gigParMs(
+        Math.hypot(gig.dropoff.x - gig.pickup.x, gig.dropoff.z - gig.pickup.z),
+        careerRun ? careerRun.vehicle.paceFactor : 1,
+      )
+    : null;
   const tipRemainingMs =
     gigParForCardMs !== null && carryingSinceMs !== null
-      ? gigParForCardMs - (DAY_LENGTH_MS - dayRemainingMs - carryingSinceMs)
+      ? gigParForCardMs - (driveElapsedMs - carryingSinceMs)
       : null;
   // How long the "DAY n" title has been up, or null while it is still withheld.
   const dayIntroElapsedMs =
@@ -2258,29 +2161,19 @@ export default function SideSwapApp() {
   // `state !== "delivered"` test at every field it reads.
   const activeGig = gig && gig.state !== "delivered" ? gig : null;
   /*
-   * The HUD panel's stat strip, as data. Which cells exist varies — a bicycle
-   * has no tank, free drive has no day clock — so building the list and letting
-   * it flow two-up is what keeps the panel from growing holes.
+   * The nav card's gauges, as data. Which exist varies — a bicycle has no tank
+   * — so the list is built rather than laid out, which is what keeps the row
+   * from growing a hole. The day clock is not here: it rides the money cluster
+   * beside the cash it governs.
    */
-  const statCells: HudStatCell[] = [];
-  if (careerRun) {
-    statCells.push({
-      id: "clock",
-      icon: CLOCK_ICON,
-      label: `Day ${careerRun.city.day} time remaining`,
-      value: formatClock(dayRemainingMs),
-      testId: "day-clock",
-      valueColor: dayRemainingMs < 60_000 ? HUD_GOLD : undefined,
-    });
-  }
+  const navGauges: HudGauge[] = [];
   if (tankCapacityL > 0) {
-    statCells.push({
+    navGauges.push({
       id: "fuel",
       icon: FUEL_PUMP_ICON,
       label: "Fuel",
       value: driveFuel <= 0 ? "EMPTY" : `${Math.round(fuelFraction * 100)}%`,
-      valueColor: driveFuel <= 0 ? HUD_CORAL : undefined,
-      fill: fuelFraction * 100,
+      fill: fuelFraction,
       fillColor:
         fuelFraction <= 0.15
           ? HUD_CORAL
@@ -2293,7 +2186,7 @@ export default function SideSwapApp() {
         fuelFillMs > 0 ? `width ${fuelFillMs}ms linear` : "width 0.2s ease",
     });
   }
-  statCells.push({
+  navGauges.push({
     id: "condition",
     icon: CAR_ICON,
     label:
@@ -2303,8 +2196,7 @@ export default function SideSwapApp() {
           ? "Motorbike"
           : "Car",
     value: carCondition <= 0 ? "WRECKED" : `${Math.round(carCondition)}%`,
-    valueColor: carCondition <= 0 ? HUD_CORAL : undefined,
-    fill: carCondition,
+    fill: carCondition / 100,
     fillColor:
       carCondition <= 25 ? HUD_CORAL : carCondition <= 55 ? HUD_GOLD : HUD_SAGE,
     fillTransition: "width 0.2s ease",
@@ -2315,6 +2207,16 @@ export default function SideSwapApp() {
   // props-pure: it is handed finished strings and knows nothing about gigs,
   // dispatch or career.
   const hudScale = resolveHudScale(viewportWidth);
+  // What the right edge has spare between the top button row and the pedals.
+  // The mobile comp is drawn on a 400px-tall frame; the shortest landscape
+  // phone the rail budget admits is 320, and Safari with its toolbars showing
+  // leaves about 343 — so the card is sized from this, not from the comp.
+  const touchOfferSlotPx =
+    viewportHeight -
+    TOUCH_INSET_PX * 2 -
+    TOUCH_TOP_RAIL_PX -
+    TOUCH_PEDAL_BLOCK_PX -
+    TOUCH_OFFER_GAP_PX;
   const roadNames = runtimeMap.roadNames ?? {};
   const streetOf = (roadId: string) => roadNames[roadId] ?? roadId;
 
@@ -2386,6 +2288,14 @@ export default function SideSwapApp() {
             ? `from ${activeGig.pickup.name}`
             : `then ${activeGig.dropoff.name}`,
         pay: `+${formatMoney(activeGig.reward, driveCountry)}`,
+        // Stopping is what starts the scene now, so a driver rolling through
+        // the arrival radius needs telling. It outranks the tip clock: it is
+        // the difference between the job progressing and not.
+        hint: nearGigStop
+          ? `Stop the car to ${activeGig.state === "carrying" ? "drop off" : "pick up"}.`
+          : activeGig.state === "carrying" && tipRemainingMs !== null
+            ? tipHint(activeGig.kind, tipRemainingMs)
+            : null,
         // Only a food order's tip is known in advance; a rider's is the point
         // of the drop-off, so the card stays silent about it.
         tip:
@@ -2396,17 +2306,6 @@ export default function SideSwapApp() {
       }
     : null;
 
-  const navGauges: readonly HudGauge[] = statCells
-    .filter((cell) => cell.id !== "clock")
-    .map((cell) => ({
-      id: cell.id,
-      icon: cell.icon,
-      label: cell.label,
-      value: cell.value,
-      fill: (cell.fill ?? 0) / 100,
-      fillColor: cell.fillColor ?? HUD_SAGE,
-      fillTransition: cell.fillTransition,
-    }));
 
   const detourLabel =
     offer && previewRoute
@@ -2675,10 +2574,11 @@ export default function SideSwapApp() {
         {hudOffer && touchFirst && (
           <DriveOfferBar
             inset={{
-              top: `calc(${hudInset.top} + 6.2rem)`,
-              left: hudInset.left,
+              top: `calc(${hudInset.top} + ${TOUCH_TOP_RAIL_PX}px)`,
+              right: hudInset.right,
             }}
             offer={hudOffer}
+            slotHeight={touchOfferSlotPx}
             onAccept={() => answerOffer(true)}
             onPass={() => answerOffer(false)}
           />
@@ -2708,344 +2608,40 @@ export default function SideSwapApp() {
             remaining={formatClock(Math.max(0, surge.endMs - driveElapsedMs))}
           />
         )}
-        {/*
-          One panel, top-left: the job, the money and the two gauges that can end
-          a day. Touch keeps it — the designed desktop HUD below replaces it with
-          the nav card, and reflowing that for a phone is its own piece of work.
-        */}
-        {touchFirst && (
-          <div
-            data-testid="drive-status-card"
-            style={{
-              position: "absolute",
-              left: hudInset.left,
-              top: hudInset.top,
-              // Capped *and* proportional: the speed readout is centred, so on a
-              // 568px-wide phone a flat 250px panel runs its right edge straight
-              // into the numeral. 37% keeps the two clear at every landscape
-              // width without shrinking the panel on the phones that have room.
-              width: touchFirst ? "min(250px, 37%)" : 316,
-              maxWidth: "calc(100% - 24px)",
-              padding: touchFirst ? "9px 11px 9px 17px" : "13px 15px 12px 24px",
-              borderRadius: touchFirst ? 14 : 18,
-              background: HUD_GLASS,
-              backdropFilter: "blur(16px)",
-              border: "1px solid rgba(255,255,255,.09)",
-              boxShadow: "0 18px 40px -24px rgba(0,0,0,.85)",
-              color: HUD_CREAM,
-              pointerEvents: "none",
-              zIndex: DRIVE_LAYER.hud,
-            }}
-          >
-            <div
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                left: touchFirst ? 6 : 9,
-                top: touchFirst ? 9 : 13,
-                bottom: touchFirst ? 9 : 13,
-                width: touchFirst ? 3 : 4,
-                borderRadius: 999,
-                background: activeGig
-                  ? activeGig.state === "carrying"
-                    ? HUD_GOLD
-                    : HUD_CORAL
-                  : HUD_SAGE,
-              }}
-            />
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-              }}
-            >
-              <span
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  minWidth: 0,
-                  font: `800 ${touchFirst ? 10 : 12}px/1 ${HUD_SANS}`,
-                  letterSpacing: ".2em",
-                  color: activeGig ? HUD_GOLD : "rgba(244,239,222,.55)",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                }}
-              >
-                {activeGig && (
-                  <HudGlyph
-                    path={activeGig.kind === "passenger" ? RIDER_ICON : PARCEL_ICON}
-                    size={touchFirst ? 13 : 15}
-                    color={HUD_GOLD}
-                  />
-                )}
-                {activeGig
-                  ? activeGig.state === "carrying"
-                    ? activeGig.kind === "passenger"
-                      ? "DROP OFF"
-                      : "DELIVER"
-                    : "PICK UP"
-                  : careerRun
-                    ? `DAY ${careerRun.city.day}`
-                    : "FREE DRIVE"}
-              </span>
-              <span
-                data-testid={careerRun ? "day-cash" : undefined}
-                style={{
-                  flex: "none",
-                  background: "rgba(244,200,72,.15)",
-                  border: "1px solid rgba(244,200,72,.4)",
-                  borderRadius: 999,
-                  padding: touchFirst ? "3px 9px" : "4px 12px",
-                  font: `900 ${touchFirst ? 13 : 16}px/1 ${HUD_SANS}`,
-                  color: careerRun && dayCash < 0 ? HUD_CORAL : HUD_GOLD,
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {formatMoney(careerRun ? dayCash : walletHere, driveCountry)}
-              </span>
-            </div>
-            {activeGig && (
-              <>
-                <div
-                  style={{
-                    marginTop: touchFirst ? 5 : 7,
-                    fontFamily: HUD_SERIF,
-                    fontWeight: 700,
-                    fontSize: touchFirst ? 18 : 25,
-                    lineHeight: 1.05,
-                    color: HUD_CREAM,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {activeGig.state === "carrying" ? activeGig.dropoff.name : activeGig.pickup.name}
-                </div>
-                <div
-                  style={{
-                    marginTop: 3,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                    font: `600 ${touchFirst ? 11 : 13}px/1.25 ${HUD_SANS}`,
-                    color: "rgba(244,239,222,.62)",
-                  }}
-                >
-                  <span
-                    style={{
-                      minWidth: 0,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {activeGig.state === "carrying"
-                      ? `from ${activeGig.pickup.name}`
-                      : `then ${activeGig.dropoff.name}`}
-                  </span>
-                  {/*
-                    Outline where the wallet pill above is filled, and signed —
-                    two gold pills stacked otherwise read as the same number
-                    twice, when one is what you have and one is what the job pays.
-                  */}
-                  <span
-                    style={{
-                      flex: "none",
-                      border: "1px solid rgba(244,200,72,.35)",
-                      borderRadius: 999,
-                      padding: "2px 7px",
-                      font: `800 ${touchFirst ? 10 : 11}px/1 ${HUD_SANS}`,
-                      color: HUD_GOLD,
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    +{formatMoney(activeGig.reward, driveCountry)}
-                  </span>
-                </div>
-                {gigParForCardMs !== null && activeGig.state === "enroute_pickup" && (
-                  <div
-                    style={{
-                      marginTop: 4,
-                      font: `600 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                      color: "rgba(244,239,222,.6)",
-                    }}
-                  >
-                    Tip window {formatClock(gigParForCardMs)} once picked up
-                  </div>
-                )}
-                {activeGig.state === "carrying" && tipRemainingMs !== null && (
-                  <div
-                    data-testid="tip-clock"
-                    style={{
-                      marginTop: 4,
-                      font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                      color:
-                        tipRemainingMs <= 0
-                          ? "rgba(244,239,222,.5)"
-                          : tipRemainingMs < (gigParForCardMs ?? 0) * 0.2
-                            ? HUD_GOLD
-                            : HUD_SAGE,
-                    }}
-                  >
-                    {tipRemainingMs > 0
-                      ? `Tip ${formatClock(tipRemainingMs)}`
-                      : "Tip missed — base fare only"}
-                  </div>
-                )}
-                {nearGigStop && !cutscene && hud && hud.speed > 1 && (
-                  <div
-                    style={{
-                      marginTop: 4,
-                      font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                      color: HUD_GOLD,
-                    }}
-                  >
-                    Stop the car to{" "}
-                    {activeGig.state === "carrying" ? "drop off" : "pick up"}.
-                  </div>
-                )}
-              </>
-            )}
-            {!activeGig && (
-              <div
-                data-testid="dispatch-idle"
-                style={{
-                  marginTop: touchFirst ? 4 : 6,
-                  font: `700 ${touchFirst ? 11 : 13}px/1.2 ${HUD_SANS}`,
-                  color: "rgba(244,239,222,.55)",
-                }}
-              >
-                {offer ? "Offer waiting…" : "Waiting for a job…"}
-              </div>
-            )}
-            {queuedGig && (
-              <div
-                data-testid="queued-gig"
-                style={{
-                  marginTop: 4,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                  color: HUD_SAGE,
-                }}
-              >
-                <span style={{ letterSpacing: ".16em" }}>NEXT UP</span>
-                <span
-                  style={{
-                    minWidth: 0,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    color: "rgba(244,239,222,.72)",
-                  }}
-                >
-                  {queuedGig.pickup.name}
-                </span>
-              </div>
-            )}
-            <div
-              aria-hidden="true"
-              style={{
-                height: 1,
-                background: "rgba(255,255,255,.1)",
-                margin: touchFirst ? "8px 0" : "11px 0",
-              }}
-            />
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: touchFirst ? 6 : 8,
-              }}
-            >
-              {chunkPairs(statCells).map((row) => (
-                <div
-                  key={row[0].id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: touchFirst ? 8 : 11,
-                  }}
-                >
-                  {row.map((cell, index) => [
-                    index > 0 ? (
-                      <span
-                        key={`${cell.id}-rule`}
-                        aria-hidden="true"
-                        style={{
-                          flex: "none",
-                          width: 1,
-                          height: touchFirst ? 15 : 19,
-                          background: "rgba(255,255,255,.1)",
-                        }}
-                      />
-                    ) : null,
-                    <HudStat key={cell.id} {...cell} compact={touchFirst} />,
-                  ])}
-                </div>
-              ))}
-            </div>
-            {careerRun?.city.loan && (
-              <div
-                style={{
-                  marginTop: touchFirst ? 6 : 8,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 10,
-                  font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                  color: "rgba(244,239,222,.62)",
-                }}
-              >
-                <span>Debt</span>
-                <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                  {formatMoney(
-                    careerRun.city.loan.principalRemaining,
+        <DriveNavCard
+          scale={hudScale}
+          inset={{ top: hudInset.top, left: hudInset.left }}
+          manoeuvre={navManoeuvre}
+          nextManoeuvre={followingManoeuvre}
+          job={navJob}
+          idleLabel={
+            offer ? "Offer waiting…" : "Waiting for a job…"
+          }
+          gauges={navGauges}
+          compact={touchFirst}
+          money={
+            touchFirst
+              ? {
+                  balance: formatMoney(
+                    careerRun ? dayCash : walletHere,
                     driveCountry,
-                  )}{" "}
-                  · {careerRun.city.loan.daysRemaining}d
-                </span>
-              </div>
-            )}
-            {careerRun?.city.finalNotice && (
-              <div
-                style={{
-                  marginTop: 4,
-                  font: `900 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                  letterSpacing: ".16em",
-                  color: HUD_CORAL,
-                }}
-              >
-                FINAL NOTICE
-              </div>
-            )}
-          </div>
-        )}
-        {!touchFirst && (
-          <DriveNavCard
-            scale={hudScale}
-            inset={{ top: hudInset.top, left: hudInset.left }}
-            manoeuvre={navManoeuvre}
-            nextManoeuvre={followingManoeuvre}
-            job={navJob}
-            idleLabel={
-              offer ? "Offer waiting…" : "Waiting for a job…"
-            }
-            gauges={navGauges}
-            queued={
-              queuedGig
-                ? {
-                    title: queuedGig.pickup.name,
-                    pay: `+${formatMoney(queuedGig.reward, driveCountry)}`,
-                  }
-                : null
-            }
-          />
-        )}
+                  ),
+                  session: `+${formatMoney(sessionEarnings, driveCountry)}`,
+                  label: careerRun
+                    ? `DAY ${careerRun.city.day} · ${formatClock(dayRemainingMs)}`
+                    : "TODAY",
+                }
+              : null
+          }
+          queued={
+            queuedGig
+              ? {
+                  title: queuedGig.pickup.name,
+                  pay: `+${formatMoney(queuedGig.reward, driveCountry)}`,
+                }
+              : null
+          }
+        />
         <div
           aria-live="polite"
           style={{
@@ -3139,7 +2735,8 @@ export default function SideSwapApp() {
             pins={minimapPins}
             route={minimapRoute}
             previewRoute={previewRoute ? previewRoute.points : undefined}
-            previewLabel={detourLabel ?? undefined}
+            previewLabel={touchFirst ? undefined : detourLabel ?? undefined}
+            dimmed={touchFirst && hudOffer !== null}
             size={touchFirst ? TOUCH_MINIMAP_PX : Math.round(304 * hudScale)}
             anchorStyle={
               touchFirst
@@ -3186,62 +2783,7 @@ export default function SideSwapApp() {
           be caught in peripheral vision and given a shadow instead of a plate —
           a pill here would be a second object between the player and the road.
         */}
-        {hud && touchFirst && (
-            <div
-              className="drive-speed"
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                top: hudInset.top,
-                left: "50%",
-                transform: "translateX(-50%)",
-                display: "flex",
-                alignItems: "baseline",
-                gap: touchFirst ? 5 : 8,
-                color: HUD_CREAM,
-                textShadow: "0 3px 14px rgba(0,0,0,.85)",
-                pointerEvents: "none",
-                zIndex: DRIVE_LAYER.hud,
-              }}
-            >
-              <strong
-                style={{
-                  font: `900 ${touchFirst ? 34 : 46}px/.82 ${HUD_SANS}`,
-                  letterSpacing: "-0.04em",
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {hud.speed}
-              </strong>
-              <span
-                style={{
-                  font: `800 ${touchFirst ? 11 : 14}px/1 ${HUD_SANS}`,
-                  letterSpacing: ".12em",
-                  color: "rgba(244,239,222,.62)",
-                  textTransform: "uppercase",
-                }}
-              >
-                {hud.speedUnit}
-              </span>
-              {/* Its own chip: butted against the unit it just read as a suffix. */}
-              <em
-                style={{
-                  marginLeft: touchFirst ? 2 : 4,
-                  padding: touchFirst ? "3px 6px" : "4px 8px",
-                  borderRadius: 6,
-                  background: "rgba(11,15,17,.55)",
-                  font: `800 ${touchFirst ? 10 : 13}px/1 ${HUD_SANS}`,
-                  fontStyle: "normal",
-                  letterSpacing: ".06em",
-                  color: "rgba(244,239,222,.72)",
-                  textShadow: "none",
-                }}
-              >
-                {hud.gear}
-              </em>
-            </div>
-        )}
-        {hud && !touchFirst && (
+        {hud && (
           <DriveSpeedCluster
             scale={hudScale}
             inset={{ top: hudInset.top }}
@@ -3249,89 +2791,50 @@ export default function SideSwapApp() {
             speedUnit={hud.speedUnit}
             speedLimit={hud.speedLimit}
             gear={hud.gear}
+            compact={touchFirst}
           />
         )}
         {touchFirst && (
-          <button
-            type="button"
-            onClick={toggleMusicMuted}
-            aria-pressed={musicMuted}
-            aria-label={musicMuted ? "Unmute music" : "Mute music"}
-            title={musicMuted ? "Unmute music" : "Mute music"}
-            style={{
-              position: "absolute",
-              // Shares the top-right rail with the drive controls' button row,
-              // which starts one button-width in from this corner, so it matches
-              // those buttons exactly rather than merely sitting beside them.
-              top: hudInset.top,
-              right: hudInset.right,
-              width: 44,
-              height: 44,
-              display: "grid",
-              placeItems: "center",
-              borderRadius: "999px",
-              border: "1px solid rgba(255,255,255,.13)",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,.09)",
-              cursor: "pointer",
-              padding: 0,
-              background: "rgba(11,15,17,.7)",
-              backdropFilter: "blur(14px)",
-              color: musicMuted ? "rgba(244,239,222,.4)" : HUD_CREAM,
-              // A tap target, not a readout — it outranks the HUD it sits beside.
-              zIndex: DRIVE_LAYER.action,
-            }}
-          >
-            <svg
-              width={20}
-              height={20}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.6}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-              style={{ display: "block" }}
-            >
-              <path d="M9 18V5l12-2v13" />
-              <circle cx="6" cy="18" r="3" />
-              <circle cx="18" cy="16" r="3" />
-              {musicMuted && <path d="M3 3l18 18" />}
-            </svg>
-          </button>
+          <DriveCornerButton
+            inset={{ top: hudInset.top, right: hudInset.right }}
+            label={musicMuted ? "Unmute music" : "Mute music"}
+            pressed={musicMuted}
+            onPress={toggleMusicMuted}
+          />
         )}
         {!touchFirst && (
-          <DriveMoneyCluster
-            scale={hudScale}
-            inset={{ top: hudInset.top, right: hudInset.right }}
-            balance={formatMoney(careerRun ? dayCash : walletHere, driveCountry)}
-            balanceLabel={careerRun ? "Cash today" : "Wallet"}
-            session={`+${formatMoney(sessionEarnings, driveCountry)}`}
-            sessionLabel={
-              careerRun
-                ? `DAY ${careerRun.city.day} · ${formatClock(dayRemainingMs)}`
-                : "TODAY"
-            }
-            gain={payoutGain}
-            buttons={[
-              {
-                id: "music",
-                label: musicMuted ? "Unmute music" : "Mute music",
-                pressed: musicMuted,
-                onPress: toggleMusicMuted,
-              },
-              {
-                id: "camera",
-                label: "Switch camera",
-                onPress: () => pressDriveKey("KeyC"),
-              },
-              {
-                id: "pause",
-                label: "Pause",
-                onPress: () => pressDriveKey("KeyP"),
-              },
-            ]}
-          />
+        <DriveMoneyCluster
+          scale={hudScale}
+          inset={{ top: hudInset.top, right: hudInset.right }}
+          balance={formatMoney(careerRun ? dayCash : walletHere, driveCountry)}
+          balanceLabel={careerRun ? "Cash today" : "Wallet"}
+          session={`+${formatMoney(sessionEarnings, driveCountry)}`}
+          sessionLabel={
+            careerRun
+              ? `DAY ${careerRun.city.day} · ${formatClock(dayRemainingMs)}`
+              : "TODAY"
+          }
+          gain={payoutGain}
+          compact={touchFirst}
+          buttons={[
+            {
+              id: "music",
+              label: musicMuted ? "Unmute music" : "Mute music",
+              pressed: musicMuted,
+              onPress: toggleMusicMuted,
+            },
+            {
+              id: "camera",
+              label: "Switch camera",
+              onPress: () => pressDriveKey("KeyC"),
+            },
+            {
+              id: "pause",
+              label: "Pause",
+              onPress: () => pressDriveKey("KeyP"),
+            },
+          ]}
+        />
         )}
         {hud && (
           <div className="sr-only" aria-live="polite">
