@@ -157,6 +157,7 @@ import type { DispatchState, SurgeWindow } from "./game/dispatch";
 import {
   DriveMoneyCluster,
   DriveNavCard,
+  DriveOfferBar,
   DriveOfferCard,
   DriveOfferGlow,
   DriveSpeedCluster,
@@ -2636,8 +2637,8 @@ export default function SideSwapApp() {
           <DriveToast
             scale={hudScale}
             inset={{
-              top: `calc(${hudInset.top} + ${touchFirst ? 4.5 : 9}rem)`,
-              right: hudInset.right,
+              top: `calc(${hudInset.top} + ${touchFirst ? 12.5 : 9}rem)`,
+              right: touchFirst ? "auto" : hudInset.right,
             }}
             tone={DISPATCH_TOAST_COLOR[dispatchToast.tone]}
             testId="dispatch-toast"
@@ -2645,7 +2646,18 @@ export default function SideSwapApp() {
             {dispatchToast.text}
           </DriveToast>
         )}
-        {hudOffer && (
+        {hudOffer && touchFirst && (
+          <DriveOfferBar
+            inset={{
+              top: `calc(${hudInset.top} + 6.2rem)`,
+              left: hudInset.left,
+            }}
+            offer={hudOffer}
+            onAccept={() => answerOffer(true)}
+            onPass={() => answerOffer(false)}
+          />
+        )}
+        {hudOffer && !touchFirst && (
           <>
             <DriveOfferGlow />
             <DriveOfferCard

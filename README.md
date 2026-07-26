@@ -2,7 +2,7 @@
 
 Curbside Rush is a low-poly, single-player 3D open-world driving game where you run deliveries and passenger fares across five city maps in four countries — each country with its own currency, road rules, and side of the road.
 
-The maps are New York City (Upper West Side), London (South Kensington), Milton Keynes (Oldbrook), Calais/Coquelles, and Tokyo (Setagaya). New York is the big one: the grid runs from West 59th up to West 106th across Riverside Drive, West End, Broadway, Amsterdam, Columbus and Central Park West, with Manhattan's alternating one-way side streets threaded between the crosstown ones, two gas stations at opposite corners, Central Park down the east edge and Riverside Park down the west. Pick a city and drive: deliveries load at a business and drop off across town, passenger fares carry a rider to their destination, earnings and fuel are tracked per country, you refuel at gas stations, and driving badly in front of a patrol car gets you pulled over — the patrol stops you at the kerb, an officer walks up to your window, and the fine lands there. A corner minimap scrolls under you with a GPS line down the streets to your next stop, so you drive the city rather than the compass. Also included are first- and third-person cameras with a rear-view mirror, keyboard/gamepad/touch controls, ambient traffic and pedestrian crowds, local progress, accessibility settings, and official road-rule references.
+The maps are New York City (Upper West Side), London (South Kensington), Milton Keynes (Oldbrook), Calais/Coquelles, and Tokyo (Setagaya). New York is the big one: the grid runs from West 59th up to West 106th across Riverside Drive, West End, Broadway, Amsterdam, Columbus and Central Park West, with Manhattan's alternating one-way side streets threaded between the crosstown ones, two gas stations at opposite corners, Central Park down the east edge and Riverside Park down the west. Pick a city and drive: dispatch offers you work and you take it or pass on it, deliveries load at a business and drop off across town, passenger fares carry a rider to their destination, earnings and fuel are tracked per country, you refuel at gas stations, and driving badly in front of a patrol car gets you pulled over — the patrol stops you at the kerb, an officer walks up to your window, and the fine lands there. A corner minimap scrolls under you with a GPS line down the streets to your next stop and turn-by-turn directions above it, so you drive the city rather than the compass. Also included are first- and third-person cameras with a rear-view mirror, keyboard/gamepad/touch controls, ambient traffic and pedestrian crowds, local progress, accessibility settings, and official road-rule references.
 
 On a phone, hold it sideways: drag your left thumb anywhere on the lower-left of the screen to steer — wherever you touch down becomes centre — and use Drive and Brake on the right. Holding Brake once you have stopped reverses. Portrait pauses the drive and asks you to rotate; nothing is lost and nothing reloads.
 
@@ -10,7 +10,15 @@ The ⛶ control goes fullscreen, which is worth it — mobile browsers only hide
 
 ## Two ways to play
 
-**Free drive** drops you into any of the five cities with your own car and no clock — gigs come one after another for as long as you want to keep driving.
+**Free drive** drops you into any of the five cities with your own car and no clock — work keeps coming for as long as you want to keep driving.
+
+## Taking work
+
+You are offered jobs rather than assigned them. An offer arrives with the fare, the kind of job and how far out of your way it is — the minimap dashes a line to it while you decide — and you have fifteen seconds to take it (**F**) or pass (**G**). Passing costs nothing but the wait for the next one, which can be up to forty-five seconds. Accepting while you already have a job queues it behind the one in hand, so a good driver is never empty.
+
+Tips work differently by kind. A food customer decides their tip when they order, so you know it before you accept, and a quick delivery *might* earn a little more on top. A rider makes their mind up on the way: their tip is hidden until they get out, and it falls the longer the trip takes and the more traffic laws you break with them in the car.
+
+Every so often the city surges. Fares double while it lasts — a minute or two — though customers paying twice the going rate tip a little less. It is worth driving hard for.
 
 **Career** is the campaign. You start in New York on the local equivalent of $20 and your own bicycle, renting a vehicle each morning and paying it back over a ~6-minute working day: 25% platform commission, a daily fee, and a loan waiting if you end a day short. Save enough and you can buy a vehicle outright — any of them, as many as you can afford — or buy a plane ticket and start again from nothing in Tokyo, then London.
 
@@ -78,7 +86,7 @@ build never produces, and `netlify.toml` cannot uninstall a UI-installed plugin.
 - `app/game/simulationAdapter.ts` translates an authored map pack into the simulation's configuration once, before the drive starts.
 - `app/game/GameCanvas.tsx` owns the client-only Babylon.js scene, cameras, input, audio and strict cleanup.
 - `app/game/content.ts` and `londonContent.ts` define country profiles, official references, and the map packs. A map pack pairs a directed lane graph (the legal truth the simulation drives on) with road-surface centrelines (the visual truth); road meshes, junctions, kerbs, pavements, markings, addresses and pedestrian routes are all derived from those two at load time.
-- `app/game/gigs.ts` is the delivery/fare state machine, `app/game/gpsRoute.ts` finds the minimap's route across the lane graph, `app/game/career.ts` is Career Mode's pure economy (the city ladder, rentals, loans, tickets and the win condition), and `app/game/progress.ts` validates and migrates the versioned `sideswap:v2` local save.
+- `app/game/gigs.ts` generates the jobs and `app/game/dispatch.ts` decides when they are offered, what they tip and when the city surges — both pure and seeded, so a career day replays exactly. `app/game/gpsRoute.ts` finds the minimap's route and its turn-by-turn directions across the lane graph, `app/game/DriveHud.tsx` is the drive screen's readout, `app/game/career.ts` is Career Mode's pure economy (the city ladder, rentals, loans, tickets and the win condition), and `app/game/progress.ts` validates and migrates the versioned `sideswap:v2` local save.
 - `public/map-data/` contains frozen, checksummed OpenStreetMap extracts kept for provenance and attribution. Nothing reads them at runtime; the drivable geography is authored separately.
 
 Curbside Rush is a game for entertainment, not legal advice or driver-licensing instruction. The in-game Sources & credits view links to the dated official material behind each country's road rules.

@@ -989,20 +989,21 @@ export function DriveToast({
     <div
       role="status"
       data-testid={testId}
-      style={cluster(scale, "top right", {
+      style={cluster(scale, inset.right === "auto" ? "top left" : "top right", {
         top: inset.top,
         right: inset.right,
+        left: inset.right === "auto" ? "0.75rem" : undefined,
         display: "flex",
         alignItems: "center",
         gap: 12,
-        height: 74,
-        padding: "0 30px",
-        borderRadius: 22,
+        height: inset.right === "auto" ? 44 : 74,
+        padding: inset.right === "auto" ? "0 16px" : "0 30px",
+        borderRadius: inset.right === "auto" ? 14 : 22,
         background: "rgba(11,15,17,.86)",
         backdropFilter: "blur(16px)",
         border: `1.5px solid ${tone}`,
         boxShadow: "0 26px 60px -24px rgba(0,0,0,.9)",
-        font: `900 22px ${HUD_SANS}`,
+        font: `900 ${inset.right === "auto" ? 13 : 22}px ${HUD_SANS}`,
         letterSpacing: "2.4px",
         color: tone,
         whiteSpace: "nowrap",
@@ -1383,5 +1384,141 @@ export function DriveOfferGlow() {
           "linear-gradient(270deg,rgba(250,243,228,.20),rgba(250,243,228,0) 78%)",
       }}
     />
+  );
+}
+
+/**
+ * The offer, compressed for a phone.
+ *
+ * The full card is 430x384. On an 874x402 landscape phone that buries the
+ * minimap and crowds the pedals, and an offer is on screen a good fraction of
+ * the time — so touch gets a bar instead. It sits under the status panel, above
+ * the lower-left quadrant the steering drag owns, and carries only what a
+ * decision needs: what kind of job, what it pays, and how long is left.
+ *
+ * This is not the phone HUD redesign, which is its own piece of work. It is the
+ * minimum that keeps the new mechanic playable on a phone.
+ */
+export function DriveOfferBar({
+  inset,
+  offer,
+  onAccept,
+  onPass,
+}: {
+  inset: { readonly top: string; readonly left: string };
+  offer: HudOffer;
+  onAccept: () => void;
+  onPass: () => void;
+}) {
+  const food = offer.kind === "delivery";
+  return (
+    <div
+      data-testid="gig-offer"
+      style={{
+        position: "absolute",
+        top: inset.top,
+        left: inset.left,
+        width: 250,
+        borderRadius: 14,
+        background: "linear-gradient(168deg,#faf4e6,#efe1c8)",
+        padding: "8px 10px 9px",
+        boxShadow: "0 18px 40px -22px rgba(0,0,0,.85)",
+        zIndex: DRIVE_LAYER.action,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <HudGlyph
+          path={food ? FOOD_ICON : RIDER_ICON}
+          size={12}
+          strokeWidth={2.75}
+          color={food ? "#a8541f" : "#4e6236"}
+        />
+        <span
+          style={{
+            font: `800 9px ${HUD_SANS}`,
+            letterSpacing: "1.4px",
+            color: food ? "#a8541f" : "#4e6236",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {food ? "FOOD" : "RIDE"}
+        </span>
+        <span
+          data-testid="offer-pay"
+          style={{
+            font: `900 17px ${HUD_SANS}`,
+            color: HUD_INK,
+            fontVariantNumeric: "tabular-nums",
+            marginLeft: 2,
+          }}
+        >
+          {offer.pay}
+        </span>
+        <span
+          data-testid="offer-countdown"
+          style={{
+            marginLeft: "auto",
+            font: `900 13px ${HUD_SANS}`,
+            color: "rgba(32,30,29,.45)",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {offer.secondsLeft}s
+        </span>
+      </div>
+      <div
+        style={{
+          font: `700 12px/1.2 ${HUD_SANS}`,
+          color: "rgba(32,30,29,.72)",
+          margin: "2px 0 7px",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {offer.title}
+        {offer.chips[0] ? ` · ${offer.chips[0]}` : ""}
+      </div>
+      <div style={{ display: "flex", gap: 7 }}>
+        <button
+          type="button"
+          data-testid="offer-pass"
+          onClick={onPass}
+          aria-label="Pass on this job"
+          style={{
+            width: 74,
+            height: 36,
+            borderRadius: 10,
+            background: "rgba(32,30,29,.06)",
+            border: "1.5px solid rgba(217,97,76,.35)",
+            font: `900 12px ${HUD_SANS}`,
+            letterSpacing: "1px",
+            color: "#b04a34",
+            cursor: "pointer",
+          }}
+        >
+          PASS
+        </button>
+        <button
+          type="button"
+          data-testid="offer-accept"
+          onClick={onAccept}
+          aria-label="Accept this job"
+          style={{
+            flex: 1,
+            height: 36,
+            borderRadius: 10,
+            background: "linear-gradient(180deg,#9dbb7f,#7d9e63)",
+            border: "none",
+            font: `900 15px ${HUD_SANS}`,
+            letterSpacing: "1px",
+            color: "#16210f",
+            cursor: "pointer",
+          }}
+        >
+          ACCEPT
+        </button>
+      </div>
+    </div>
   );
 }
