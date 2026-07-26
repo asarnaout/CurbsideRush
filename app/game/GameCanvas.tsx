@@ -67,7 +67,13 @@ import {
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import { DRIVE_LAYER } from "./driveLayers";
 import {
-  COCKPIT_DASH_DRIVER_Z,
+  COCKPIT_BINNACLE_PROFILE,
+  COCKPIT_BINNACLE_WIDTH,
+  COCKPIT_CABIN_WIDTH,
+  COCKPIT_CLUSTER,
+  COCKPIT_DASH_PROFILE,
+  COCKPIT_VENT_PROFILE,
+  COCKPIT_VENT_SLOTS,
   REAR_VIEW_VIEWPORT,
   resolveCockpitPitch,
   resolveCockpitSteeringGeometry,
@@ -10758,6 +10764,19 @@ class BabylonGameSession {
         ),
       );
     }
+    this.buildCockpit();
+  }
+
+  /**
+   * The first-person interior.
+   *
+   * Built unconditionally, even on a bicycle day where it is never shown, and
+   * hung off `playerCockpit` — which `applyCameraStack` enables only in first
+   * person. Layout lives in `cockpitLayout`; this method is only the
+   * translation from those numbers into meshes.
+   */
+  private buildCockpit() {
+    const scene = this.scene;
     const bodyDark = makeMaterial(scene, "player-blue-dark", new Color3(0.04, 0.23, 0.3));
     // A cabin is a lit room, not a silhouette. These sit an order of magnitude
     // above where they used to, because the old values were tuned as if the
@@ -10801,22 +10820,24 @@ class BabylonGameSession {
       new Color3(0.05, 0.28, 0.26),
       0.3,
     );
+    const ventShadow = makeInteriorMaterial(
+      scene,
+      "cockpit-vent-shadow",
+      new Color3(0.028, 0.026, 0.024),
+      undefined,
+      0.15,
+    );
     createBox(scene, "cockpit-hood", { width: 1.62, height: 0.045, depth: 0.42 }, new Vector3(0, 0.74, 1.55), bodyDark, this.playerCockpit);
     createExtrudedPrism(
       scene,
       "cockpit-dash-shell",
-      1.92,
-      [
-        { y: 0.68, z: COCKPIT_DASH_DRIVER_Z },
-        { y: 0.96, z: COCKPIT_DASH_DRIVER_Z },
-        { y: 1.04, z: 0.94 },
-        { y: 0.74, z: 0.94 },
-      ],
+      COCKPIT_CABIN_WIDTH,
+      COCKPIT_DASH_PROFILE,
       dash,
       this.playerCockpit,
     );
-    createBox(scene, "cockpit-dash-trim", { width: 1.72, height: 0.022, depth: 0.024 }, new Vector3(0, 0.91, 0.255), cockpitTrim, this.playerCockpit);
-    createBox(scene, "windshield-sill", { width: 1.9, height: 0.038, depth: 0.08 }, new Vector3(0, 1.04, 0.94), cockpitTrim, this.playerCockpit);
+    createBox(scene, "cockpit-dash-trim", { width: 1.78, height: 0.014, depth: 0.02 }, new Vector3(0, 0.948, 0.354), cockpitTrim, this.playerCockpit);
+    createBox(scene, "windshield-sill", { width: COCKPIT_CABIN_WIDTH, height: 0.028, depth: 0.09 }, new Vector3(0, 1.155, 0.985), cockpitTrim, this.playerCockpit);
     for (const side of [-1, 1]) {
       createBox(
         scene,
@@ -10827,58 +10848,74 @@ class BabylonGameSession {
         this.playerCockpit,
       );
     }
+
+    // Air vents. The profile is authored lying down and turned a quarter turn
+    // about Y so its sweep becomes depth — see COCKPIT_VENT_PROFILE. Each one
+    // is a bezel, a dark throat set behind it so the opening reads as a hole
+    // rather than a badge, and a single blade across the middle.
+    for (const [index, slot] of COCKPIT_VENT_SLOTS.entries()) {
+      const bezel = createExtrudedPrism(
+        scene,
+        `cockpit-vent-${index}`,
+        0.05,
+        COCKPIT_VENT_PROFILE,
+        cockpitTrim,
+        this.playerCockpit,
+      );
+      bezel.rotation.y = Math.PI / 2;
+      bezel.scaling.set(1, slot.width * 0.42, slot.width);
+      bezel.position.set(slot.x, slot.y, slot.z);
+      // The throat sits a whisker in FRONT of the bezel's face, not behind it.
+      // The bezel is a solid prism, so a throat at a physically-correct depth
+      // is simply inside it and never seen; a smaller dark plate laid on top
+      // reads as the hole instead, and the bezel survives as a border.
+      const throat = createExtrudedPrism(
+        scene,
+        `cockpit-vent-throat-${index}`,
+        0.012,
+        COCKPIT_VENT_PROFILE,
+        ventShadow,
+        this.playerCockpit,
+      );
+      throat.rotation.y = Math.PI / 2;
+      throat.scaling.set(1, slot.width * 0.3, slot.width * 0.84);
+      throat.position.set(slot.x, slot.y, slot.z - 0.029);
+      createBox(
+        scene,
+        `cockpit-vent-blade-${index}`,
+        { width: slot.width * 0.7, height: 0.008, depth: 0.01 },
+        new Vector3(slot.x, slot.y, slot.z - 0.036),
+        cockpitTrim,
+        this.playerCockpit,
+      );
+    }
+
     const steeringGeometry = resolveCockpitSteeringGeometry(
       this.options.steeringSide,
     );
     const wheelX = steeringGeometry.x;
 
-    const instrumentHood = MeshBuilder.CreateTorus(
-      "instrument-hood",
-      { diameter: 0.42, thickness: 0.038, tessellation: 28 },
+    const binnacle = createExtrudedPrism(
       scene,
+      "instrument-hood",
+      COCKPIT_BINNACLE_WIDTH,
+      COCKPIT_BINNACLE_PROFILE,
+      dash,
+      this.playerCockpit,
     );
-    instrumentHood.position.set(wheelX, 1.08, 0.39);
-    instrumentHood.rotation.x = Math.PI / 2;
-    instrumentHood.scaling.z = 0.5;
-    instrumentHood.parent = this.playerCockpit;
-    setMeshMaterial(instrumentHood, cockpitTrim);
+    binnacle.position.x = wheelX;
 
-    const clusterFace = createCylinder(
+    const clusterBacking = createBox(
       scene,
       "instrument-cluster-face",
-      { height: 0.024, diameter: 0.38, tessellation: 28 },
-      new Vector3(wheelX, 1.07, 0.3),
+      { width: COCKPIT_CLUSTER.width, height: COCKPIT_CLUSTER.height, depth: 0.018 },
+      new Vector3(wheelX, COCKPIT_CLUSTER.y, COCKPIT_CLUSTER.z),
       instrumentFace,
       this.playerCockpit,
     );
-    clusterFace.rotation.x = Math.PI / 2;
-    clusterFace.scaling.z = 0.48;
+    clusterBacking.rotation.x = COCKPIT_CLUSTER.tiltX;
 
-    for (const gaugeOffset of [-0.11, 0.11]) {
-      const gaugeRing = createCylinder(
-        scene,
-        `instrument-gauge-ring-${gaugeOffset}`,
-        { height: 0.02, diameter: 0.108, tessellation: 20 },
-        new Vector3(wheelX + gaugeOffset, 1.075, 0.279),
-        cockpitTrim,
-        this.playerCockpit,
-      );
-      gaugeRing.rotation.x = Math.PI / 2;
-      const gaugeFace = createCylinder(
-        scene,
-        `instrument-gauge-face-${gaugeOffset}`,
-        { height: 0.01, diameter: 0.084, tessellation: 20 },
-        new Vector3(wheelX + gaugeOffset, 1.075, 0.263),
-        instrumentFace,
-        this.playerCockpit,
-      );
-      gaugeFace.rotation.x = Math.PI / 2;
-    }
-    createBox(scene, "instrument-status", { width: 0.062, height: 0.02, depth: 0.014 }, new Vector3(wheelX, 1.038, 0.252), instrumentGlow, this.playerCockpit);
-
-    for (const x of [-0.06, 0.06]) {
-      createBox(scene, `centre-vent-${x}`, { width: 0.09, height: 0.014, depth: 0.012 }, new Vector3(x, 0.955, 0.254), cockpitTrim, this.playerCockpit);
-    }
+    createBox(scene, "instrument-status", { width: 0.05, height: 0.012, depth: 0.01 }, new Vector3(0, 0.905, 0.298), instrumentGlow, this.playerCockpit);
 
     const steeringMount = new TransformNode("steering-mount", scene);
     steeringMount.position.set(
@@ -10915,17 +10952,49 @@ class BabylonGameSession {
     );
     steeringWheel.parent = this.steeringAssembly;
     setMeshMaterial(steeringWheel, steeringRubber);
-    createBox(scene, "wheel-horizontal-spoke", { width: 0.24, height: 0.026, depth: 0.032 }, Vector3.Zero(), steeringRubber, this.steeringAssembly);
-    createBox(scene, "wheel-lower-spoke", { width: 0.032, height: 0.026, depth: 0.13 }, new Vector3(0, 0, 0.055), steeringRubber, this.steeringAssembly);
-    const steeringHub = createCylinder(
+
+    // Three spokes, not two. The assembly's local +Z points down the face of
+    // the wheel once the column tilt is applied, so the bottom spoke runs along
+    // +Z and the pair runs along ±X. The spokes and hub take the dash colour
+    // and the rim stays dark, which is the two-tone the reference has and the
+    // only thing that keeps a wheel from reading as one black ring.
+    const spokeReach = steeringGeometry.wheelDiameter / 2;
+    for (const side of [-1, 1]) {
+      createBox(
+        scene,
+        `wheel-spoke-${side}`,
+        { width: spokeReach, height: 0.02, depth: 0.038 },
+        new Vector3(side * spokeReach * 0.55, 0, 0.022),
+        cockpitTrim,
+        this.steeringAssembly,
+      );
+    }
+    createBox(
       scene,
-      "steering-hub",
-      { height: 0.045, diameter: 0.13, tessellation: 20 },
-      Vector3.Zero(),
+      "wheel-lower-spoke",
+      { width: 0.044, height: 0.02, depth: spokeReach * 0.82 },
+      new Vector3(0, 0, spokeReach * 0.56),
       cockpitTrim,
       this.steeringAssembly,
     );
-    steeringHub.scaling.z = 0.56;
+    const steeringHub = createCylinder(
+      scene,
+      "steering-hub",
+      { height: 0.05, diameter: 0.148, tessellation: 20 },
+      new Vector3(0, 0.004, 0.012),
+      cockpitTrim,
+      this.steeringAssembly,
+    );
+    steeringHub.scaling.z = 0.62;
+    const steeringEmblem = createCylinder(
+      scene,
+      "steering-emblem",
+      { height: 0.054, diameter: 0.056, tessellation: 16 },
+      new Vector3(0, 0.006, 0.012),
+      steeringRubber,
+      this.steeringAssembly,
+    );
+    steeringEmblem.scaling.z = 0.62;
   }
 
   private buildTraffic() {
