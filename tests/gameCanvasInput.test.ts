@@ -337,7 +337,6 @@ describe("cockpit camera tracking", () => {
     expect(
       isCameraStackActive("first", "first-person-camera", [
         "first-person-camera",
-        "rear-view-camera",
       ]),
     ).toBe(true);
     expect(
@@ -345,6 +344,18 @@ describe("cockpit camera tracking", () => {
         "third-person-camera",
       ]),
     ).toBe(true);
+  });
+
+  it("rejects a stack that still has the mirror rendering as a scene camera", () => {
+    // The rear-view camera belongs to a render target now. If it turns up in
+    // scene.activeCameras again, the mirror is back to a full un-throttled
+    // scene pass every frame and the whole point has been undone.
+    expect(
+      isCameraStackActive("first", "first-person-camera", [
+        "first-person-camera",
+        "rear-view-camera",
+      ]),
+    ).toBe(false);
   });
 
   it("moves both first-person cameras with the vehicle in world space", () => {

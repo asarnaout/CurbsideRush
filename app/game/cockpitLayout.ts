@@ -61,6 +61,38 @@ export const REAR_VIEW_VIEWPORT = Object.freeze({
   height: 0.115,
 });
 
+/**
+ * Where to hang a quad off the first-person camera so it covers a viewport
+ * rectangle exactly.
+ *
+ * The mirror's reflection used to be a second camera rendered straight into
+ * that rectangle. It is now a render target, which has to be shown on some
+ * geometry — and geometry parented to the camera is screen-space by
+ * construction, so the rectangle, the HUD housing drawn around it and the image
+ * inside it all stay locked together however the player is looking.
+ *
+ * The camera is `FOVMODE_HORIZONTAL_FIXED`, so `fov` is the horizontal angle
+ * and the vertical half-extent is the horizontal one over the aspect ratio.
+ * Both depend on the field of view and the canvas shape, so this has to be
+ * recomputed whenever either moves — a quad sized once at construction slides
+ * out from under its own housing the first time someone drags the FOV slider.
+ */
+export function cameraPanelPlacement(
+  rect: { x: number; y: number; width: number; height: number },
+  horizontalFovRad: number,
+  viewportAspectRatio: number,
+  distance: number,
+): { width: number; height: number; x: number; y: number } {
+  const halfWidth = Math.tan(horizontalFovRad / 2) * distance;
+  const halfHeight = halfWidth / viewportAspectRatio;
+  return {
+    width: 2 * halfWidth * rect.width,
+    height: 2 * halfHeight * rect.height,
+    x: (rect.x + rect.width / 2 - 0.5) * 2 * halfWidth,
+    y: (rect.y + rect.height / 2 - 0.5) * 2 * halfHeight,
+  };
+}
+
 /** The same rectangle in CSS terms, measured from the top-left of the canvas. */
 export function rearViewCssRect(): {
   leftPercent: number;
