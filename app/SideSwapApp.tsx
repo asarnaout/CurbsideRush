@@ -104,7 +104,15 @@ import {
   distanceToNearestPump,
   gasStationPumpPositions,
 } from "./game/servicePoints";
-import { Minimap } from "./game/MinimapCanvas";
+import { Minimap, type MinimapPin } from "./game/MinimapCanvas";
+import {
+  findGpsRoute,
+  gpsGraphForLanes,
+  routeDeviationM,
+  trimRouteToPlayer,
+  type GpsLane,
+  type GpsPoint,
+} from "./game/gpsRoute";
 import { DRIVE_LAYER } from "./game/driveLayers";
 import { rearViewCssRect } from "./game/cockpitLayout";
 import { readInputCapabilities } from "./game/pointerCapabilities";
@@ -398,6 +406,21 @@ function nextGigFor(
  * the state itself now flips when the arrival cutscene completes. */
 const GIG_ARRIVAL_RADIUS_M = 14;
 
+/**
+ * How far off the GPS line counts as having left it. Wide enough to sit out a
+ * lane change, an overtake or a kerbside stop without the route flickering;
+ * narrow enough that a wrong turn re-routes within a block. Roads are ~10 m and
+ * NYC's junctions are 240 m apart.
+ */
+const ROUTE_DEVIATION_LIMIT_M = 30;
+
+/**
+ * The floor on re-searching while the destination is unchanged. Only reached
+ * when the player is genuinely off-route — driving away from a destination
+ * would otherwise search on every one of the 10 HUD snapshots a second.
+ */
+const ROUTE_RESEARCH_INTERVAL_MS = 1500;
+
 /** Human-readable reason for a fine toast, from the violation's rule code. */
 function fineReason(code: string | undefined): string {
   switch (code) {
@@ -683,6 +706,13 @@ export default function SideSwapApp() {
   // that it survives a reload, and reading it from one place is what keeps the
   // stored preference and the highlighted card from ever disagreeing.
   const garageVehicleId = progress.lastCareerVehicleId;
+  // The GPS line to the current gig. Mirrored into a ref because the search
+  // that maintains it runs inside `handleHud`, which cannot read state.
+  const [gpsRoute, setGpsRoute] = useState<readonly GpsPoint[] | null>(null);
+  const gpsRouteRef = useRef<readonly GpsPoint[] | null>(null);
+  const routeTargetRef = useRef<string | null>(null);
+  const routeSearchedAtRef = useRef(0);
+  const routeLanesRef = useRef<readonly GpsLane[]>([]);
   const [gameMode, setGameMode] = useState<"free" | "career">("free");
   const [touchFirst, setTouchFirst] = useState(false);
   const [needsHomeScreenForFullscreen, setNeedsHomeScreenForFullscreen] =
@@ -762,6 +792,61 @@ export default function SideSwapApp() {
   // written back to the country's tank on refuel and on exit (free drive) or
   // discarded with the rental at day end (career). In career the same stream
   // drives the day clock off the sim's deterministic elapsed time.
+  /**
+   * Keeps the minimap's GPS line pointed at the current gig.
+   *
+   * The search is cheap — 0.13 ms across NYC's 227 lanes — but this runs on
+   * every one of the ten snapshots a second, so what keeps it cheap is how
+   * rarely it searches: once when the destination changes, and again only once
+   * the player has actually left the route, which is a wrong turn. Holding the
+   * route rather than re-deriving it also keeps the drawn line still; a grid
+   * offers many equal-cost staircases between two points, and re-searching as
+   * you drive would flip between them.
+   *
+   * Everything the 10 Hz path does is the deviation check, bounded by the
+   * route's own few dozen points.
+   */
+  const updateGpsRoute = useCallback((snapshot: GameHudSnapshot) => {
+    const target = gigRef.current ? gigTarget(gigRef.current) : null;
+    if (!target) {
+      if (routeTargetRef.current === null) return;
+      routeTargetRef.current = null;
+      gpsRouteRef.current = null;
+      setGpsRoute(null);
+      return;
+    }
+    // Pickup and drop-off are separate destinations at the same venue id.
+    const targetKey = `${target.id}:${gigRef.current?.state ?? ""}`;
+    const fresh = routeTargetRef.current === targetKey;
+    if (
+      fresh &&
+      routeDeviationM(
+        gpsRouteRef.current ?? [],
+        snapshot.playerX,
+        snapshot.playerZ,
+      ) <= ROUTE_DEVIATION_LIMIT_M
+    ) {
+      return;
+    }
+    // Off-route and staying off it — a player driving away from a destination
+    // would otherwise re-search ten times a second.
+    const now = performance.now();
+    if (fresh && now - routeSearchedAtRef.current < ROUTE_RESEARCH_INTERVAL_MS) {
+      return;
+    }
+    routeSearchedAtRef.current = now;
+    routeTargetRef.current = targetKey;
+    const found = findGpsRoute(
+      gpsGraphForLanes(routeLanesRef.current),
+      { x: snapshot.playerX, z: snapshot.playerZ },
+      snapshot.heading,
+      target,
+    );
+    const route = found.length > 1 ? found : null;
+    gpsRouteRef.current = route;
+    setGpsRoute(route);
+  }, []);
+
   const handleHud = useCallback((snapshot: GameHudSnapshot) => {
     setHud(snapshot);
     const run = careerRunRef.current;
@@ -779,6 +864,7 @@ export default function SideSwapApp() {
       }
     }
     lastPoseRef.current = { x: snapshot.playerX, z: snapshot.playerZ };
+    updateGpsRoute(snapshot);
     if (run && dayActiveRef.current) {
       if (snapshot.simElapsedMs < lastSimElapsedRef.current) {
         dayElapsedBaseRef.current += lastSimElapsedRef.current;
@@ -797,7 +883,7 @@ export default function SideSwapApp() {
         }
       }
     }
-  }, []);
+  }, [updateGpsRoute]);
 
   // Arriving at a gig stop now means actually stopping there: inside the
   // arrival radius at walking pace. That starts the matching interaction
@@ -1190,6 +1276,11 @@ export default function SideSwapApp() {
   const activeScenarioId = activeSession?.scenarioId ?? destination.freeDriveId;
   const activeFreeDrive = getFreeDrive(activeScenarioId);
   const runtimeMap = getMapPack(activeFreeDrive.mapId);
+  // `handleHud` searches the lane graph but is a `[]`-deps callback, so the
+  // active city reaches it the way `gig` does — through a ref kept in step.
+  useEffect(() => {
+    routeLanesRef.current = runtimeMap.laneGraph.lanes;
+  }, [runtimeMap]);
   // A career day is the same open-world scenario under a per-day identity and
   // seed, so the remount key rolls the world over between days and a retried
   // day replays identically.
@@ -1741,16 +1832,23 @@ export default function SideSwapApp() {
     dayIntroFromMs === null
       ? null
       : DAY_LENGTH_MS - dayRemainingMs - dayIntroFromMs;
-  const minimapPins = gigTargetVenue
+  const minimapPins: MinimapPin[] = gigTargetVenue
     ? [
         ...gasPins,
         {
           x: gigTargetVenue.x,
           z: gigTargetVenue.z,
           color: gig?.state === "carrying" ? "#f2c658" : "#e0533f",
+          kind: "destination",
         },
       ]
     : gasPins;
+  // Drawn from where the car actually is, so the line leads rather than trails.
+  // The route itself is searched in `handleHud`; this only slices it.
+  const minimapRoute =
+    gpsRoute && hud
+      ? trimRouteToPlayer(gpsRoute, hud.playerX, hud.playerZ)
+      : undefined;
   // The driving HUD's one layout switch. On touch every readout lives in the
   // top band, because the bottom band is the steering region and the pedals;
   // on a desktop the corners are free and the HUD keeps its roomier placement.
@@ -2423,6 +2521,7 @@ export default function SideSwapApp() {
             playerZ={hud.playerZ}
             heading={hud.heading}
             pins={minimapPins}
+            route={minimapRoute}
             size={touchFirst ? TOUCH_MINIMAP_PX : 150}
             anchorStyle={
               touchFirst
