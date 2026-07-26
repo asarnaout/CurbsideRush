@@ -3,6 +3,10 @@ import { getMapPack, MAP_PACKS } from "../app/game/content";
 import {
   regulatorySignPlacements,
   regulatorySignYawRad,
+  speedLimitSignFamily,
+  speedLimitSignPlacements,
+  speedLimitSignYawRad,
+  LIMIT_REPEATER_SPACING_M,
   type RegulatorySignPlacement,
 } from "../app/game/regulatorySigns";
 
@@ -431,6 +435,257 @@ describe("robustness across map packs", () => {
           ).toBeGreaterThan(15);
         }
       }
+    }
+  });
+});
+
+/**
+ * Speed-limit signage runs on every map, not just New York's MUTCD grid, and
+ * it exists because the limit is now the one number the game charges you for
+ * exceeding. These tests re-derive what should be posted from the lane graph
+ * the same way the one-way suite above does.
+ */
+describe("speed-limit signage", () => {
+  const signsFor = (pack: ReturnType<typeof nycPack>) =>
+    speedLimitSignPlacements({
+      lanes: pack.laneGraph.lanes,
+      roadSurfaces: pack.geometry.roadSurfaces,
+      defaultRoadWidthM: pack.geometry.roadWidth,
+    });
+
+  const drivenRoadIds = (pack: ReturnType<typeof nycPack>) =>
+    new Set(
+      pack.laneGraph.lanes
+        .filter((lane) => lane.role !== "roundabout")
+        .map((lane) => lane.roadId),
+    );
+
+  it("posts every map, including the one that posts a single figure", () => {
+    // London is 20 everywhere, so a "sign only where the limit changes" rule
+    // would leave the entire city silent. It is the reason corridors carry a
+    // floor sign whether or not they earned an entry one.
+    for (const pack of MAP_PACKS) {
+      expect(signsFor(pack).length, pack.id).toBeGreaterThan(0);
+    }
+    const london = signsFor(getMapPack("london-south-kensington"));
+    expect(new Set(london.map((sign) => sign.limitFigure))).toEqual(new Set([20]));
+    expect(london.every((sign) => sign.reason === "repeater")).toBe(true);
+  });
+
+  it("never out-numbers the signage it stands beside", () => {
+    // A count regression is how this quietly becomes a forest of posts. NYC is
+    // the dense case: a 25/30 checkerboard earns an entry sign at every
+    // junction where the two disagree.
+    const nyc = signsFor(nycPack());
+    expect(nyc.length).toBeLessThan(nycPlacements().length);
+    expect(nyc.length).toBeLessThanOrEqual(240);
+    for (const pack of MAP_PACKS) {
+      if (pack.id === "nyc-upper-west-side") continue;
+      expect(signsFor(pack).length, pack.id).toBeLessThanOrEqual(60);
+    }
+  });
+
+  it("posts the figure its own road is limited to", () => {
+    // The invariant that makes signage unable to disagree with enforcement,
+    // which is the whole reason both families derive from the lane graph.
+    for (const pack of MAP_PACKS) {
+      for (const sign of signsFor(pack)) {
+        const lanes = pack.laneGraph.lanes.filter(
+          (lane) => lane.roadId === sign.roadId,
+        );
+        expect(lanes.length, `${pack.id}/${sign.refId}`).toBeGreaterThan(0);
+        for (const lane of lanes) {
+          expect(lane.speedLimit, `${pack.id}/${sign.refId}`).toBe(
+            sign.limitFigure,
+          );
+        }
+      }
+    }
+  });
+
+  it("communicates every figure the map posts", () => {
+    for (const pack of MAP_PACKS) {
+      const posted = new Set(
+        pack.laneGraph.lanes
+          .filter((lane) => lane.role !== "roundabout")
+          .map((lane) => lane.speedLimit),
+      );
+      const signed = new Set(signsFor(pack).map((sign) => sign.limitFigure));
+      expect(signed, pack.id).toEqual(posted);
+    }
+  });
+
+  it("stands on its own road's kerb, following the road round a bend", () => {
+    // The bug this pins: stationing off the straight chord between junctions
+    // puts a post inside the carriageway on every curved road — 0.8 m into
+    // Cromwell Road, 2.8 m into fr-north-west-road, 0.6 m into jp-east-curve.
+    for (const pack of MAP_PACKS) {
+      for (const sign of signsFor(pack)) {
+        const surface = pack.geometry.roadSurfaces.find(
+          (candidate) => candidate.id === sign.roadId,
+        );
+        if (!surface) continue;
+        const offset = distanceToPolyline(sign, surface.centerline);
+        expect(offset, `${pack.id}/${sign.refId}`).toBeGreaterThanOrEqual(
+          surface.widthM / 2 + KERB_MARGIN_M - 0.35,
+        );
+        expect(offset, `${pack.id}/${sign.refId}`).toBeLessThanOrEqual(
+          surface.widthM / 2 + KERB_MARGIN_M + 0.35,
+        );
+      }
+    }
+  });
+
+  it("stands clear of every carriageway and signal mast, on every map", () => {
+    // The one-way suite only ever checked this on NYC's straight grid.
+    for (const pack of MAP_PACKS) {
+      for (const sign of signsFor(pack)) {
+        for (const surface of pack.geometry.roadSurfaces ?? []) {
+          expect(
+            distanceToPolyline(sign, surface.centerline),
+            `${pack.id}/${sign.refId} vs ${surface.id}`,
+          ).toBeGreaterThanOrEqual(surface.widthM / 2 + 0.5);
+        }
+        for (const control of pack.laneGraph.controls) {
+          for (const installation of control.installations ?? []) {
+            expect(
+              Math.hypot(
+                sign.x - installation.position.x,
+                sign.z - installation.position.z,
+              ),
+              `${pack.id}/${sign.refId} vs ${installation.id}`,
+            ).toBeGreaterThanOrEqual(2.5);
+          }
+        }
+      }
+    }
+  });
+
+  it("never shares a kerb station with a one-way post", () => {
+    // LIMIT_OFFSET_M sits deliberately past MOUTH_OFFSET_M for this reason.
+    for (const sign of signsFor(nycPack())) {
+      for (const other of nycPlacements()) {
+        expect(
+          Math.hypot(sign.x - other.x, sign.z - other.z),
+          `${sign.refId} vs ${other.refId}`,
+        ).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+
+  it("faces the driver it is for, which is the opposite of a DO NOT ENTER", () => {
+    // The contrast is the contract: a DO NOT ENTER faces the driver coming the
+    // wrong way, a limit sign faces the one obeying it. Copying the wrong
+    // formula is the likeliest bug here and reads plausibly on screen.
+    expect(speedLimitSignYawRad(0)).toBeCloseTo(0, 9);
+    expect(Math.abs(speedLimitSignYawRad(Math.PI))).toBeCloseTo(Math.PI, 9);
+    for (const flow of [0, 0.7, -1.2, Math.PI / 2]) {
+      const difference = Math.abs(
+        speedLimitSignYawRad(flow) - regulatorySignYawRad("do_not_enter", flow),
+      );
+      expect(Math.min(difference, Math.PI * 2 - difference)).toBeCloseTo(
+        Math.PI,
+        9,
+      );
+    }
+  });
+
+  it("leaves no long drive without a posted limit", () => {
+    // The answer to a mid-road spawn: corridors are same-limit by
+    // construction, so leaving one always crosses a change, and a change is
+    // always an entry sign. Measured worst case is a little over 200 m.
+    const READABLE_M = 25;
+    for (const pack of MAP_PACKS) {
+      const signs = signsFor(pack);
+      const byId = new Map(pack.laneGraph.lanes.map((lane) => [lane.id, lane]));
+      const passesSign = (lane: (typeof pack.laneGraph.lanes)[number]) =>
+        signs.some((sign) =>
+          lane.centerline.some(
+            (point) => Math.hypot(point.x - sign.x, point.z - sign.z) <= READABLE_M,
+          ),
+        );
+      for (const start of pack.laneGraph.lanes) {
+        if (start.role === "roundabout") continue;
+        // Breadth-first along successors: how far before a sign is readable.
+        let frontier = [{ id: start.id, distance: 0 }];
+        const seen = new Set<string>();
+        let reached = Number.POSITIVE_INFINITY;
+        while (frontier.length && reached === Number.POSITIVE_INFINITY) {
+          const next: typeof frontier = [];
+          for (const step of frontier) {
+            if (seen.has(step.id)) continue;
+            seen.add(step.id);
+            const lane = byId.get(step.id);
+            if (!lane) continue;
+            if (passesSign(lane)) {
+              reached = Math.min(reached, step.distance);
+              continue;
+            }
+            let length = 0;
+            for (let index = 0; index + 1 < lane.centerline.length; index += 1) {
+              length += Math.hypot(
+                lane.centerline[index + 1].x - lane.centerline[index].x,
+                lane.centerline[index + 1].z - lane.centerline[index].z,
+              );
+            }
+            for (const successor of lane.successors) {
+              next.push({ id: successor, distance: step.distance + length });
+            }
+          }
+          frontier = next;
+        }
+        expect(reached, `${pack.id}/${start.id}`).toBeLessThanOrEqual(
+          LIMIT_REPEATER_SPACING_M,
+        );
+      }
+    }
+  });
+
+  it("keeps posts off the rings and apart from each other", () => {
+    for (const pack of MAP_PACKS) {
+      const signs = signsFor(pack);
+      const roads = drivenRoadIds(pack);
+      for (const sign of signs) {
+        expect(roads, `${pack.id}/${sign.refId}`).toContain(sign.roadId);
+      }
+      for (let left = 0; left < signs.length; left += 1) {
+        for (let right = left + 1; right < signs.length; right += 1) {
+          expect(
+            Math.hypot(
+              signs[left].x - signs[right].x,
+              signs[left].z - signs[right].z,
+            ),
+            `${signs[left].refId} vs ${signs[right].refId}`,
+          ).toBeGreaterThanOrEqual(4);
+        }
+      }
+    }
+  });
+
+  it("posts two-digit figures, which is what the sign faces are drawn for", () => {
+    for (const pack of MAP_PACKS) {
+      for (const sign of signsFor(pack)) {
+        expect(String(sign.limitFigure), pack.id).toMatch(/^\d{2}$/);
+      }
+    }
+  });
+
+  it("derives deterministically, with unique ids", () => {
+    for (const pack of MAP_PACKS) {
+      const signs = signsFor(pack);
+      expect(signs).toEqual(signsFor(pack));
+      expect(new Set(signs.map((sign) => sign.refId)).size, pack.id).toBe(
+        signs.length,
+      );
+    }
+  });
+
+  it("picks the sign design from the country, not the unit", () => {
+    // Britain reads in mph and still posts a red-ringed circle, so speedUnit
+    // cannot choose the face.
+    expect(speedLimitSignFamily("us")).toBe("mutcd");
+    for (const country of ["uk", "fr", "jp"]) {
+      expect(speedLimitSignFamily(country), country).toBe("vienna");
     }
   });
 });
