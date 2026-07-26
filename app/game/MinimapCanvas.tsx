@@ -50,6 +50,15 @@ interface MinimapProps {
   readonly previewRoute?: readonly { readonly x: number; readonly z: number }[];
   /** What the preview line is worth taking, e.g. "0.4 mi". */
   readonly previewLabel?: string;
+  /**
+   * Fades the whole widget out without unmounting it.
+   *
+   * On a phone the offer card lands in this exact slot — there is nowhere else
+   * for something that size — so the map gets out of its way rather than being
+   * buried by it. Kept mounted so the rasterised sheet and the scroll position
+   * survive: an offer resolves every few seconds.
+   */
+  readonly dimmed?: boolean;
   readonly size?: number;
   /**
    * Corner placement. The default bottom-right corner is a thumb zone on touch,
@@ -84,6 +93,7 @@ export function Minimap({
   route,
   previewRoute,
   previewLabel,
+  dimmed = false,
   size = 150,
   anchorStyle,
 }: MinimapProps) {
@@ -279,6 +289,7 @@ export function Minimap({
   return (
     <div
       aria-hidden="true"
+      data-testid="minimap"
       style={{
         position: "absolute",
         right: "1rem",
@@ -295,6 +306,8 @@ export function Minimap({
         backdropFilter: "blur(14px)",
         boxShadow: "0 18px 40px -24px rgba(0,0,0,.85)",
         pointerEvents: "none",
+        opacity: dimmed ? 0 : 1,
+        transition: "opacity .26s ease",
         zIndex: DRIVE_LAYER.hud,
       }}
     >

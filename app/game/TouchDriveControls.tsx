@@ -62,6 +62,13 @@ export interface TouchDriveControlsProps {
   readonly onTouchPointer: (pointerType: string) => void;
 }
 
+/** The floor every safe-area inset falls back to, and the figure the rail
+ * budget is computed against. */
+export const TOUCH_INSET_PX = 12;
+
+/** Air left between the offer card's bottom edge and the pedals below it. */
+export const TOUCH_OFFER_GAP_PX = 10;
+
 export const SAFE_LEFT = "max(12px, env(safe-area-inset-left))";
 export const SAFE_RIGHT = "max(12px, env(safe-area-inset-right))";
 const SAFE_BOTTOM = "max(12px, env(safe-area-inset-bottom))";

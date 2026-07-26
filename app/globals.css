@@ -3351,3 +3351,10 @@ canvas:focus-visible {
   @keyframes hudLimitAlarm { 0%, 100% { transform: none; } }
   @keyframes hudEdgeGlow { 0%, 100% { opacity: .4; } }
 }
+/* The offer card's detour rail: the dashed leg between you and the pickup. */
+@keyframes hudDetourRail {
+  to { background-position: -15px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes hudDetourRail { to { background-position: 0 0; } }
+}

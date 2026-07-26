@@ -177,6 +177,8 @@ export interface HudJob {
   readonly pay: string;
   /** The quoted tip, when the customer named one up front. */
   readonly tip: string | null;
+  /** A one-line nudge under the job — stop the car, the tip clock. */
+  readonly hint: string | null;
   readonly surged: boolean;
 }
 
@@ -192,6 +194,65 @@ const cluster = (scale: number, origin: string, rest: CSSProperties): CSSPropert
 // Top-left: where you are going, and what you are carrying
 // ---------------------------------------------------------------------------
 
+/**
+ * Two sizings for the same clusters: the desktop comp and the mobile one.
+ *
+ * `Curbside Driving HUD Mobile` is drawn at 1740x800 — a landscape phone's
+ * ~870x400 CSS pixels at 2x — so every figure below is the comp's halved. They
+ * sit side by side rather than as ternaries at each property so a value can be
+ * checked against either design without reading the JSX.
+ */
+interface NavMetrics {
+  readonly width: number;
+  readonly radius: number;
+  readonly pad: string;
+  readonly rail: { readonly left: number; readonly inset: number; readonly width: number };
+  readonly plate: number;
+  readonly plateRadius: number;
+  readonly arrow: number;
+  readonly dist: number;
+  readonly unit: number;
+  readonly kicker: number;
+  readonly street: number;
+  readonly bar: number;
+  readonly barMargin: string;
+  readonly rowGap: number;
+  readonly label: number;
+  readonly nextStreet: number;
+  readonly nextDistance: number;
+  readonly icon: number;
+  readonly jobName: number;
+  readonly pay: number;
+  readonly payPad: string;
+  readonly gaugeValue: number;
+  readonly gaugeValueWidth: number;
+  readonly gaugeBar: number;
+  readonly gap: number;
+}
+
+const NAV_DESKTOP: NavMetrics = {
+  width: 486, radius: 24, pad: "16px 18px 13px 24px",
+  rail: { left: 10, inset: 18, width: 5 },
+  plate: 74, plateRadius: 21, arrow: 42,
+  dist: 35, unit: 15, kicker: 11, street: 30,
+  bar: 3, barMargin: "12px 0 11px", rowGap: 12,
+  label: 11, nextStreet: 15, nextDistance: 13, icon: 16,
+  jobName: 18, pay: 17, payPad: "3px 13px",
+  gaugeValue: 15, gaugeValueWidth: 46, gaugeBar: 6, gap: 16,
+};
+
+const NAV_MOBILE: NavMetrics = {
+  width: 330, radius: 14, pad: "10px 11px 9px 15px",
+  rail: { left: 6, inset: 11, width: 3 },
+  plate: 46, plateRadius: 13, arrow: 27,
+  dist: 23, unit: 10, kicker: 8, street: 19,
+  bar: 2, barMargin: "7px 0 6px", rowGap: 7,
+  label: 8, nextStreet: 10, nextDistance: 9, icon: 10,
+  jobName: 12, pay: 11, payPad: "2px 8px",
+  gaugeValue: 10, gaugeValueWidth: 28, gaugeBar: 4, gap: 9,
+};
+
+
 export function DriveNavCard({
   scale,
   inset,
@@ -201,9 +262,13 @@ export function DriveNavCard({
   idleLabel,
   gauges,
   queued,
+  money = null,
+  compact = false,
 }: {
   scale: number;
   inset: { readonly top: string; readonly left: string };
+  /** Sizes the card from the mobile comp instead of the desktop one. */
+  compact?: boolean;
   manoeuvre: HudManoeuvre | null;
   nextManoeuvre: { readonly kind: HudManoeuvre["kind"]; readonly street: string; readonly distance: string } | null;
   job: HudJob | null;
@@ -211,17 +276,26 @@ export function DriveNavCard({
   idleLabel: string | null;
   gauges: readonly HudGauge[];
   queued: { readonly title: string; readonly pay: string } | null;
+  /**
+   * Balance and shift total, shown in this card's header instead of their own
+   * cluster. The mobile comp puts them top-right, but that corner already
+   * carries the camera/pause/fullscreen rail — and fullscreen is the only way
+   * to reclaim Safari's chrome mid-drive, so it is not negotiable. Beside the
+   * job is where the numbers that change together belong anyway.
+   */
+  money?: { readonly balance: string; readonly session: string; readonly label: string } | null;
 }) {
+  const m = compact ? NAV_MOBILE : NAV_DESKTOP;
   const railColor = job ? (job.kind === "passenger" ? HUD_SAGE : HUD_CORAL) : "rgba(244,239,222,.28)";
   return (
     <div
       style={cluster(scale, "top left", {
         top: inset.top,
         left: inset.left,
-        width: 486,
+        width: m.width,
         display: "flex",
         flexDirection: "column",
-        gap: 12,
+        gap: compact ? 7 : 12,
         pointerEvents: "none",
       })}
     >
@@ -232,8 +306,8 @@ export function DriveNavCard({
           background: HUD_GLASS,
           backdropFilter: "blur(18px)",
           border: "1px solid rgba(255,255,255,.09)",
-          borderRadius: 24,
-          padding: "16px 18px 13px 24px",
+          borderRadius: m.radius,
+          padding: m.pad,
           boxShadow: "0 24px 56px -26px rgba(0,0,0,.88)",
         }}
       >
@@ -241,26 +315,69 @@ export function DriveNavCard({
           aria-hidden="true"
           style={{
             position: "absolute",
-            left: 10,
-            top: 18,
-            bottom: 18,
-            width: 5,
+            left: m.rail.left,
+            top: m.rail.inset,
+            bottom: m.rail.inset,
+            width: m.rail.width,
             borderRadius: 999,
             background: railColor,
           }}
         />
 
+        {money && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 7,
+              marginBottom: m.rowGap,
+            }}
+          >
+            <span
+              data-testid="day-cash"
+              style={{
+                font: `900 ${m.dist - 4}px/1 ${HUD_SANS}`,
+                color: HUD_CREAM,
+                fontVariantNumeric: "tabular-nums",
+                letterSpacing: "-0.5px",
+              }}
+            >
+              {money.balance}
+            </span>
+            <span
+              style={{
+                font: `900 ${m.nextDistance}px ${HUD_SANS}`,
+                color: HUD_GOLD,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {money.session}
+            </span>
+            <span
+              data-testid="day-clock"
+              style={{
+                marginLeft: "auto",
+                font: `800 ${m.label - 1}px ${HUD_SANS}`,
+                letterSpacing: "1.6px",
+                color: "rgba(244,239,222,.34)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {money.label}
+            </span>
+          </div>
+        )}
         {manoeuvre ? (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: m.gap }}>
               <div
                 data-testid="manoeuvre-plate"
                 style={{
                   position: "relative",
-                  width: 74,
-                  height: 74,
+                  width: m.plate,
+                  height: m.plate,
                   flex: "none",
-                  borderRadius: 21,
+                  borderRadius: m.plateRadius,
                   display: "grid",
                   placeItems: "center",
                   background: manoeuvre.imminent ? HUD_GOLD : "rgba(244,200,72,.13)",
@@ -271,7 +388,7 @@ export function DriveNavCard({
               >
                 <HudGlyph
                   path={MANOEUVRE_ICON[manoeuvre.kind] ?? MANOEUVRE_ICON.straight}
-                  size={42}
+                  size={m.arrow}
                   strokeWidth={2.6}
                   color={manoeuvre.imminent ? "#241c05" : HUD_GOLD}
                 />
@@ -281,14 +398,14 @@ export function DriveNavCard({
                   style={{
                     display: "flex",
                     alignItems: "baseline",
-                    gap: 8,
+                    gap: compact ? 5 : 8,
                     marginBottom: 2,
                   }}
                 >
                   <span
                     data-testid="manoeuvre-distance"
                     style={{
-                      font: `900 35px/1 ${HUD_SANS}`,
+                      font: `900 ${m.dist}px/1 ${HUD_SANS}`,
                       color: HUD_CREAM,
                       fontVariantNumeric: "tabular-nums",
                       letterSpacing: "-1.4px",
@@ -298,7 +415,7 @@ export function DriveNavCard({
                   </span>
                   <span
                     style={{
-                      font: `800 15px ${HUD_SANS}`,
+                      font: `800 ${m.unit}px ${HUD_SANS}`,
                       letterSpacing: "1.6px",
                       color: "rgba(244,239,222,.48)",
                       textTransform: "uppercase",
@@ -308,7 +425,7 @@ export function DriveNavCard({
                   </span>
                   <span
                     style={{
-                      font: `800 11px ${HUD_SANS}`,
+                      font: `800 ${m.kicker}px ${HUD_SANS}`,
                       letterSpacing: "2.2px",
                       color: manoeuvre.imminent ? HUD_GOLD : "rgba(244,239,222,.5)",
                       marginLeft: 3,
@@ -321,7 +438,7 @@ export function DriveNavCard({
                 <div
                   data-testid="manoeuvre-street"
                   style={{
-                    font: `700 30px/1.08 ${HUD_SERIF}`,
+                    font: `700 ${m.street}px/1.08 ${HUD_SERIF}`,
                     color: HUD_CREAM,
                     whiteSpace: "nowrap",
                     overflow: "hidden",
@@ -343,13 +460,13 @@ export function DriveNavCard({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
-                margin: "12px 0 11px",
+                gap: compact ? 7 : 10,
+                margin: m.barMargin,
               }}
             >
               <span
                 style={{
-                  font: `800 10px ${HUD_SANS}`,
+                  font: `800 ${m.label - 1}px ${HUD_SANS}`,
                   letterSpacing: "2px",
                   color: "rgba(244,239,222,.3)",
                   flex: "none",
@@ -361,7 +478,7 @@ export function DriveNavCard({
                 aria-hidden="true"
                 style={{
                   flex: 1,
-                  height: 3,
+                  height: m.bar,
                   borderRadius: 999,
                   background: "rgba(255,255,255,.09)",
                   overflow: "hidden",
@@ -381,7 +498,7 @@ export function DriveNavCard({
               <span
                 data-testid="destination-distance"
                 style={{
-                  font: `700 12px ${HUD_SANS}`,
+                  font: `700 ${m.nextDistance}px ${HUD_SANS}`,
                   color: "rgba(244,239,222,.5)",
                   fontVariantNumeric: "tabular-nums",
                   whiteSpace: "nowrap",
@@ -400,12 +517,12 @@ export function DriveNavCard({
               display: "flex",
               alignItems: "center",
               gap: 9,
-              marginBottom: 12,
+              marginBottom: m.rowGap,
             }}
           >
             <span
               style={{
-                font: `800 11px ${HUD_SANS}`,
+                font: `800 ${m.label}px ${HUD_SANS}`,
                 letterSpacing: "2.2px",
                 color: "rgba(244,239,222,.3)",
               }}
@@ -414,13 +531,13 @@ export function DriveNavCard({
             </span>
             <HudGlyph
               path={MANOEUVRE_ICON[nextManoeuvre.kind] ?? MANOEUVRE_ICON.straight}
-              size={15}
+              size={m.icon - 1}
               strokeWidth={2.8}
               color="rgba(244,239,222,.44)"
             />
             <span
               style={{
-                font: `600 15px ${HUD_SANS}`,
+                font: `600 ${m.nextStreet}px ${HUD_SANS}`,
                 color: "rgba(244,239,222,.56)",
                 minWidth: 0,
                 overflow: "hidden",
@@ -433,7 +550,7 @@ export function DriveNavCard({
             <span
               style={{
                 marginLeft: "auto",
-                font: `700 13px ${HUD_SANS}`,
+                font: `700 ${m.nextDistance}px ${HUD_SANS}`,
                 color: "rgba(244,239,222,.32)",
                 fontVariantNumeric: "tabular-nums",
                 whiteSpace: "nowrap",
@@ -447,7 +564,7 @@ export function DriveNavCard({
         {(manoeuvre || nextManoeuvre) && (
           <div
             aria-hidden="true"
-            style={{ height: 1, background: "rgba(255,255,255,.09)", marginBottom: 11 }}
+            style={{ height: 1, background: "rgba(255,255,255,.09)", marginBottom: m.rowGap - 1 }}
           />
         )}
 
@@ -456,19 +573,19 @@ export function DriveNavCard({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 11,
-              marginBottom: 12,
+              gap: compact ? 8 : 11,
+              marginBottom: m.rowGap,
             }}
           >
             <HudGlyph
               path={job.kind === "passenger" ? RIDER_ICON : PARCEL_ICON}
-              size={16}
+              size={m.icon}
               strokeWidth={2.75}
               color={HUD_GOLD}
             />
             <span
               style={{
-                font: `800 12px ${HUD_SANS}`,
+                font: `800 ${m.label + 1}px ${HUD_SANS}`,
                 letterSpacing: "2.4px",
                 color: HUD_GOLD,
                 whiteSpace: "nowrap",
@@ -478,11 +595,11 @@ export function DriveNavCard({
             </span>
             <span
               aria-hidden="true"
-              style={{ width: 1, height: 18, background: "rgba(255,255,255,.13)" }}
+              style={{ width: 1, height: compact ? 12 : 18, background: "rgba(255,255,255,.13)" }}
             />
             <span
               style={{
-                font: `700 18px ${HUD_SANS}`,
+                font: `700 ${m.jobName}px ${HUD_SANS}`,
                 color: "rgba(244,239,222,.9)",
                 flex: 1,
                 minWidth: 0,
@@ -500,8 +617,8 @@ export function DriveNavCard({
                 background: "rgba(244,200,72,.13)",
                 border: `1px solid rgba(244,200,72,.34)`,
                 borderRadius: 999,
-                padding: "3px 13px",
-                font: `900 17px ${HUD_SANS}`,
+                padding: m.payPad,
+                font: `900 ${m.pay}px ${HUD_SANS}`,
                 color: HUD_GOLD,
                 fontVariantNumeric: "tabular-nums",
                 whiteSpace: "nowrap",
@@ -517,8 +634,8 @@ export function DriveNavCard({
               display: "flex",
               alignItems: "center",
               gap: 11,
-              marginBottom: 12,
-              font: `700 16px ${HUD_SANS}`,
+              marginBottom: m.rowGap,
+              font: `700 ${m.jobName}px ${HUD_SANS}`,
               color: "rgba(244,239,222,.5)",
             }}
           >
@@ -526,13 +643,26 @@ export function DriveNavCard({
           </div>
         )}
 
-        {job?.tip && (
+        {job?.hint && (
+          <div
+            data-testid="job-hint"
+            style={{
+              marginTop: -4,
+              marginBottom: m.rowGap - 1,
+              font: `700 ${m.nextDistance}px ${HUD_SANS}`,
+              color: HUD_GOLD,
+            }}
+          >
+            {job.hint}
+          </div>
+        )}
+        {job?.tip && !job.hint && (
           <div
             data-testid="job-tip"
             style={{
               marginTop: -6,
-              marginBottom: 11,
-              font: `700 13px ${HUD_SANS}`,
+              marginBottom: m.rowGap - 1,
+              font: `700 ${m.nextDistance}px ${HUD_SANS}`,
               color: HUD_SAGE,
             }}
           >
@@ -549,18 +679,18 @@ export function DriveNavCard({
                 display: "flex",
                 alignItems: "center",
                 gap: 11,
-                paddingLeft: index > 0 ? 18 : 0,
-                paddingRight: index < gauges.length - 1 ? 14 : 0,
+                paddingLeft: index > 0 ? (compact ? 10 : 18) : 0,
+                paddingRight: index < gauges.length - 1 ? (compact ? 8 : 14) : 0,
                 borderLeft: index > 0 ? "1px solid rgba(255,255,255,.1)" : undefined,
               }}
             >
-              <HudGlyph path={gauge.icon} size={16} color="rgba(244,239,222,.5)" />
+              <HudGlyph path={gauge.icon} size={m.icon} color="rgba(244,239,222,.5)" />
               <span className="sr-only">{gauge.label}</span>
               <span
                 data-testid={gauge.testId}
                 style={{
-                  minWidth: 46,
-                  font: `800 15px ${HUD_SANS}`,
+                  minWidth: m.gaugeValueWidth,
+                  font: `800 ${m.gaugeValue}px ${HUD_SANS}`,
                   color: "rgba(244,239,222,.74)",
                   fontVariantNumeric: "tabular-nums",
                 }}
@@ -571,7 +701,7 @@ export function DriveNavCard({
                 aria-hidden="true"
                 style={{
                   flex: 1,
-                  height: 6,
+                  height: m.gaugeBar,
                   borderRadius: 999,
                   background: "rgba(255,255,255,.13)",
                   overflow: "hidden",
@@ -599,12 +729,12 @@ export function DriveNavCard({
             position: "relative",
             display: "flex",
             alignItems: "center",
-            gap: 13,
+            gap: compact ? 8 : 13,
             background: "rgba(11,15,17,.68)",
             backdropFilter: "blur(14px)",
             border: "1px solid rgba(143,174,114,.34)",
-            borderRadius: 18,
-            padding: "11px 16px 11px 30px",
+            borderRadius: compact ? 11 : 18,
+            padding: compact ? "7px 10px 7px 17px" : "11px 16px 11px 30px",
             boxShadow: "0 18px 40px -24px rgba(0,0,0,.85)",
           }}
         >
@@ -612,17 +742,17 @@ export function DriveNavCard({
             aria-hidden="true"
             style={{
               position: "absolute",
-              left: 10,
-              top: 14,
-              bottom: 14,
-              width: 5,
+              left: m.rail.left,
+              top: compact ? 8 : 14,
+              bottom: compact ? 8 : 14,
+              width: m.rail.width,
               borderRadius: 999,
               background: "rgba(143,174,114,.75)",
             }}
           />
           <span
             style={{
-              font: `800 12px ${HUD_SANS}`,
+              font: `800 ${m.label}px ${HUD_SANS}`,
               letterSpacing: "2.4px",
               color: HUD_SAGE,
               whiteSpace: "nowrap",
@@ -632,11 +762,11 @@ export function DriveNavCard({
           </span>
           <span
             aria-hidden="true"
-            style={{ width: 1, height: 22, background: "rgba(255,255,255,.13)" }}
+            style={{ width: 1, height: compact ? 13 : 22, background: "rgba(255,255,255,.13)" }}
           />
           <span
             style={{
-              font: `700 17px ${HUD_SANS}`,
+              font: `700 ${m.jobName - 1}px ${HUD_SANS}`,
               color: "rgba(244,239,222,.9)",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -648,7 +778,7 @@ export function DriveNavCard({
           </span>
           <span
             style={{
-              font: `900 18px ${HUD_SANS}`,
+              font: `900 ${m.pay}px ${HUD_SANS}`,
               color: HUD_GOLD,
               fontVariantNumeric: "tabular-nums",
             }}
@@ -688,15 +818,21 @@ export function DriveSpeedCluster({
   speedUnit,
   speedLimit,
   gear,
+  compact = false,
 }: {
   scale: number;
   inset: { readonly top: string };
+  compact?: boolean;
   speed: number;
   speedUnit: string;
   /** Zero until the first lane projection lands, which hides the plate. */
   speedLimit: number;
   gear: string;
 }) {
+  // Mobile halves the comp's 84x106 plate and 92px numeral.
+  const m = compact
+    ? { plateW: 42, plateH: 53, plateRadius: 5, pad: 3, border: 1.5, cap: 7, num: 21, speed: 46, unit: 13, gap: 11, gear: 10 }
+    : { plateW: 70, plateH: 88, plateRadius: 8, pad: 5, border: 2.5, cap: 11, num: 35, speed: 76, unit: 22, gap: 20, gear: 14 };
   const over = speedLimit > 0 ? speed - speedLimit : 0;
   const level = over >= SPEED_ALARM_OVER ? 2 : over >= SPEED_WARN_OVER ? 1 : 0;
   const speedColor = [HUD_CREAM, HUD_GOLD, HUD_CORAL][level];
@@ -715,7 +851,7 @@ export function DriveSpeedCluster({
         marginLeft: -0.5,
         display: "flex",
         alignItems: "center",
-        gap: 20,
+        gap: m.gap,
         pointerEvents: "none",
         translate: "-50%",
       })}
@@ -725,12 +861,12 @@ export function DriveSpeedCluster({
           data-testid="speed-limit-sign"
           style={{
             position: "relative",
-            width: 70,
-            height: 88,
+            width: m.plateW,
+            height: m.plateH,
             flex: "none",
-            borderRadius: 8,
+            borderRadius: m.plateRadius,
             background: "#f7f3e9",
-            padding: 5,
+            padding: m.pad,
             boxShadow: `0 8px 22px -8px rgba(0,0,0,.8), ${plateGlow}`,
             animation: level === 2 ? "hudLimitAlarm 1s ease-in-out infinite" : undefined,
             transition: "box-shadow .3s ease",
@@ -740,30 +876,30 @@ export function DriveSpeedCluster({
             style={{
               width: "100%",
               height: "100%",
-              border: "2.5px solid #14120f",
-              borderRadius: 5,
+              border: `${m.border}px solid #14120f`,
+              borderRadius: m.plateRadius - 2,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <span style={{ font: `800 11px/1.15 ${HUD_SANS}`, letterSpacing: ".4px", color: "#14120f" }}>
+            <span style={{ font: `800 ${m.cap}px/1.15 ${HUD_SANS}`, letterSpacing: ".4px", color: "#14120f" }}>
               SPEED
             </span>
             <span
               style={{
-                font: `800 11px/1.15 ${HUD_SANS}`,
+                font: `800 ${m.cap}px/1.15 ${HUD_SANS}`,
                 letterSpacing: ".4px",
                 color: "#14120f",
-                marginBottom: 3,
+                marginBottom: compact ? 2 : 3,
               }}
             >
               LIMIT
             </span>
             <span
               style={{
-                font: `900 35px/1 ${HUD_SANS}`,
+                font: `900 ${m.num}px/1 ${HUD_SANS}`,
                 color: "#14120f",
                 fontVariantNumeric: "tabular-nums",
                 letterSpacing: "-1px",
@@ -778,14 +914,14 @@ export function DriveSpeedCluster({
         style={{
           display: "flex",
           alignItems: "baseline",
-          gap: 10,
+          gap: compact ? 6 : 10,
           textShadow: "0 3px 14px rgba(0,0,0,.85)",
         }}
       >
         <strong
           data-testid="speed-value"
           style={{
-            font: `900 76px/.82 ${HUD_SANS}`,
+            font: `900 ${m.speed}px/.82 ${HUD_SANS}`,
             color: speedColor,
             fontVariantNumeric: "tabular-nums",
             letterSpacing: "-2.4px",
@@ -796,7 +932,7 @@ export function DriveSpeedCluster({
         </strong>
         <span
           style={{
-            font: `800 22px ${HUD_SANS}`,
+            font: `800 ${m.unit}px ${HUD_SANS}`,
             letterSpacing: "2px",
             color: "rgba(244,239,222,.6)",
             textTransform: "uppercase",
@@ -807,10 +943,10 @@ export function DriveSpeedCluster({
         <em
           style={{
             fontStyle: "normal",
-            borderRadius: 8,
-            padding: "4px 9px",
+            borderRadius: 6,
+            padding: compact ? "3px 6px" : "4px 9px",
             background: "rgba(11,15,17,.55)",
-            font: `800 14px ${HUD_SANS}`,
+            font: `800 ${m.gear}px ${HUD_SANS}`,
             color: "rgba(244,239,222,.7)",
           }}
         >
@@ -834,9 +970,11 @@ export function DriveMoneyCluster({
   sessionLabel,
   gain,
   buttons,
+  compact = false,
 }: {
   scale: number;
   inset: { readonly top: string; readonly right: string };
+  compact?: boolean;
   balance: string;
   balanceLabel: string;
   session: string;
@@ -851,20 +989,31 @@ export function DriveMoneyCluster({
   }[];
 }) {
   const icon = { music: MUSIC_ICON, camera: CAMERA_ICON, pause: PAUSE_ICON };
+  const m = compact
+    ? { balance: 26, wallet: 15, session: 9, label: 7, gain: 13, button: 39, glyph: 16, gap: 7 }
+    : { balance: 47, wallet: 28, session: 16, label: 11, gain: 23, button: 46, glyph: 21, gap: 10 };
   return (
     <div
       style={cluster(scale, "top right", {
         top: inset.top,
         right: inset.right,
         display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-end",
-        gap: 10,
+        flexDirection: compact ? "row-reverse" : "column",
+        alignItems: compact ? "center" : "flex-end",
+        gap: compact ? 11 : 10,
         zIndex: DRIVE_LAYER.action,
       })}
     >
       <div
-        style={{ position: "relative", display: "flex", alignItems: "center", gap: 14 }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: compact ? 3 : 10,
+        }}
+      >
+      <div
+        style={{ position: "relative", display: "flex", alignItems: "center", gap: compact ? 8 : 14 }}
       >
         <div
           aria-hidden="true"
@@ -872,8 +1021,8 @@ export function DriveMoneyCluster({
           style={{
             position: "absolute",
             right: 2,
-            top: -28,
-            font: `900 23px ${HUD_SANS}`,
+            top: compact ? -18 : -28,
+            font: `900 ${m.gain}px ${HUD_SANS}`,
             color: HUD_GOLD,
             fontVariantNumeric: "tabular-nums",
             textShadow: "0 2px 12px rgba(0,0,0,.9)",
@@ -886,12 +1035,12 @@ export function DriveMoneyCluster({
         >
           {gain}
         </div>
-        <HudGlyph path={WALLET_ICON} size={28} strokeWidth={2.3} color="rgba(244,239,222,.4)" />
+        <HudGlyph path={WALLET_ICON} size={m.wallet} strokeWidth={2.3} color="rgba(244,239,222,.4)" />
         <span className="sr-only">{balanceLabel}</span>
         <span
           data-testid="day-cash"
           style={{
-            font: `900 47px/.9 ${HUD_SANS}`,
+            font: `900 ${m.balance}px/.9 ${HUD_SANS}`,
             color: HUD_CREAM,
             fontVariantNumeric: "tabular-nums",
             letterSpacing: "-2px",
@@ -904,7 +1053,7 @@ export function DriveMoneyCluster({
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span
           style={{
-            font: `900 16px ${HUD_SANS}`,
+            font: `900 ${m.session}px ${HUD_SANS}`,
             color: HUD_GOLD,
             fontVariantNumeric: "tabular-nums",
             textShadow: "0 2px 10px rgba(0,0,0,.85)",
@@ -915,7 +1064,7 @@ export function DriveMoneyCluster({
         <span
           data-testid="day-clock"
           style={{
-            font: `800 11px ${HUD_SANS}`,
+            font: `800 ${m.label}px ${HUD_SANS}`,
             letterSpacing: "2px",
             color: "rgba(244,239,222,.34)",
             whiteSpace: "nowrap",
@@ -924,7 +1073,8 @@ export function DriveMoneyCluster({
           {sessionLabel}
         </span>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: m.gap, marginTop: compact ? 0 : 6 }}>
         {buttons.map((button) => (
           <button
             key={button.id}
@@ -934,8 +1084,8 @@ export function DriveMoneyCluster({
             aria-pressed={button.pressed}
             title={button.label}
             style={{
-              width: 46,
-              height: 46,
+              width: m.button,
+              height: m.button,
               borderRadius: "50%",
               background: "rgba(11,15,17,.6)",
               backdropFilter: "blur(14px)",
@@ -947,7 +1097,7 @@ export function DriveMoneyCluster({
               padding: 0,
             }}
           >
-            <HudGlyph path={icon[button.id]} size={21} strokeWidth={2.75} color={HUD_CREAM} />
+            <HudGlyph path={icon[button.id]} size={m.glyph} strokeWidth={2.75} color={HUD_CREAM} />
           </button>
         ))}
       </div>
@@ -1449,137 +1599,379 @@ export function DriveOfferGlow() {
 }
 
 /**
- * The offer, compressed for a phone.
+ * The offer on a phone, from `Curbside Driving HUD Mobile`.
  *
- * The full card is 430x384. On an 874x402 landscape phone that buries the
- * minimap and crowds the pedals, and an offer is on screen a good fraction of
- * the time — so touch gets a bar instead. It sits under the status panel, above
- * the lower-left quadrant the steering drag owns, and carries only what a
- * decision needs: what kind of job, what it pays, and how long is left.
+ * It lives in the minimap's slot and the map fades out beneath it — the comp's
+ * own answer to a card this size on a screen this small, and a better one than
+ * shrinking it: while you are deciding, the decision is the only thing that
+ * matters.
  *
- * This is not the phone HUD redesign, which is its own piece of work. It is the
- * minimum that keeps the new mechanic playable on a phone.
+ * The detour is drawn rather than listed. A rail from YOU to BACK ON ROUTE with
+ * the pickup pinned partway along says "this is a small dogleg" or "this is
+ * miles out of your way" at a glance, which a figure in a chip does not.
+ *
+ * **`slotHeight` is the hard constraint, not the comp.** The comp is drawn on
+ * an 800px frame — 400 CSS pixels — but the shortest landscape phone the rail
+ * budget admits is 320, and Safari showing its toolbars leaves ~343. Below
+ * `RAIL_MIN_SLOT_PX` the rail is dropped rather than letting the card grow down
+ * into the pedals; the distance it carried is on the sub-line either way.
  */
+export const MOBILE_OFFER_W = 260;
+export const MOBILE_OFFER_H = 184;
+/** Slot height under which the detour rail is dropped to keep the card clear. */
+export const RAIL_MIN_SLOT_PX = 172;
+
 export function DriveOfferBar({
   inset,
   offer,
+  slotHeight,
   onAccept,
   onPass,
 }: {
-  inset: { readonly top: string; readonly left: string };
+  inset: { readonly top: string; readonly right: string };
   offer: HudOffer;
+  /** Height between the button rail and the pedals — see the note above. */
+  slotHeight: number;
   onAccept: () => void;
   onPass: () => void;
 }) {
   const food = offer.kind === "delivery";
+  const showRail = slotHeight >= RAIL_MIN_SLOT_PX;
+  const height = Math.min(MOBILE_OFFER_H, Math.max(120, slotHeight));
+  const fuseHot = offer.elapsed > 0.72;
   return (
     <div
       data-testid="gig-offer"
       style={{
         position: "absolute",
         top: inset.top,
-        left: inset.left,
-        width: 250,
-        borderRadius: 14,
-        background: "linear-gradient(168deg,#faf4e6,#efe1c8)",
-        padding: "8px 10px 9px",
-        boxShadow: "0 18px 40px -22px rgba(0,0,0,.85)",
+        right: inset.right,
         zIndex: DRIVE_LAYER.action,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <HudGlyph
-          path={food ? FOOD_ICON : RIDER_ICON}
-          size={12}
-          strokeWidth={2.75}
-          color={food ? "#a8541f" : "#4e6236"}
-        />
-        <span
+      <div
+        style={{
+          position: "relative",
+          width: MOBILE_OFFER_W,
+          height,
+          borderRadius: 16,
+          background: "linear-gradient(168deg,#faf4e6,#efe1c8)",
+          padding: "11px 13px 10px",
+          display: "flex",
+          flexDirection: "column",
+          boxShadow:
+            "0 24px 54px -20px rgba(0,0,0,.86), 0 0 0 1px rgba(255,255,255,.35) inset",
+        }}
+      >
+        <svg
+          viewBox={`0 0 ${MOBILE_OFFER_W} ${height}`}
+          aria-hidden="true"
           style={{
-            font: `800 9px ${HUD_SANS}`,
-            letterSpacing: "1.4px",
-            color: food ? "#a8541f" : "#4e6236",
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            pointerEvents: "none",
+            overflow: "visible",
+          }}
+        >
+          <rect
+            x="1.5"
+            y="1.5"
+            width={MOBILE_OFFER_W - 3}
+            height={height - 3}
+            rx="15"
+            fill="none"
+            stroke="rgba(32,30,29,.1)"
+            strokeWidth="3"
+          />
+          <rect
+            x="1.5"
+            y="1.5"
+            width={MOBILE_OFFER_W - 3}
+            height={height - 3}
+            rx="15"
+            fill="none"
+            stroke={fuseHot ? "#d9614c" : HUD_INK}
+            strokeWidth="3"
+            strokeLinecap="round"
+            pathLength={1000}
+            strokeDasharray={1000}
+            style={{
+              strokeDashoffset: Math.min(1, Math.max(0, offer.elapsed)) * 1000,
+              transition: `stroke-dashoffset ${FUSE_SMOOTHING_MS}ms linear, stroke .25s ease`,
+            }}
+          />
+        </svg>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            marginBottom: 6,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              background: food ? "rgba(198,113,57,.15)" : "rgba(90,110,68,.16)",
+              borderRadius: 999,
+              padding: "3px 8px 3px 6px",
+            }}
+          >
+            <HudGlyph
+              path={food ? FOOD_ICON : RIDER_ICON}
+              size={10}
+              strokeWidth={2.75}
+              color={food ? "#a8541f" : "#4e6236"}
+            />
+            <span
+              style={{
+                font: `800 8px ${HUD_SANS}`,
+                letterSpacing: "1.6px",
+                color: food ? "#a8541f" : "#4e6236",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {food ? "FOOD DELIVERY" : "RIDESHARE"}
+            </span>
+          </div>
+          <span
+            data-testid="offer-countdown"
+            style={{
+              font: `900 13px ${HUD_SANS}`,
+              color: "rgba(32,30,29,.45)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {offer.secondsLeft}s
+          </span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
+          <span
+            data-testid="offer-pay"
+            style={{
+              font: `900 29px/.9 ${HUD_SANS}`,
+              color: HUD_INK,
+              letterSpacing: "-1.1px",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {offer.pay}
+          </span>
+          {offer.bonus && (
+            <span
+              data-testid="offer-bonus"
+              style={{
+                background: offer.surged ? "rgba(168,84,31,.14)" : "rgba(32,30,29,.08)",
+                borderRadius: 999,
+                padding: "2px 7px",
+                font: `800 9px ${HUD_SANS}`,
+                color: offer.surged ? "#a8541f" : "rgba(32,30,29,.6)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {offer.bonus}
+            </span>
+          )}
+        </div>
+
+        <div
+          style={{
+            font: `700 18px/1.05 ${HUD_SERIF}`,
+            color: HUD_INK,
+            marginTop: 2,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
             whiteSpace: "nowrap",
           }}
         >
-          {food ? "FOOD" : "RIDE"}
-        </span>
-        <span
-          data-testid="offer-pay"
+          {offer.title}
+        </div>
+        <div
           style={{
-            font: `900 17px ${HUD_SANS}`,
-            color: HUD_INK,
-            fontVariantNumeric: "tabular-nums",
-            marginLeft: 2,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: "auto",
+            font: `600 9px ${HUD_SANS}`,
+            color: "rgba(32,30,29,.55)",
+            overflow: "hidden",
+            whiteSpace: "nowrap",
           }}
         >
-          {offer.pay}
-        </span>
-        <span
-          data-testid="offer-countdown"
-          style={{
-            marginLeft: "auto",
-            font: `900 13px ${HUD_SANS}`,
-            color: "rgba(32,30,29,.45)",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {offer.secondsLeft}s
-        </span>
-      </div>
-      <div
-        style={{
-          font: `700 12px/1.2 ${HUD_SANS}`,
-          color: "rgba(32,30,29,.72)",
-          margin: "2px 0 7px",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {offer.title}
-        {offer.chips[0] ? ` · ${offer.chips[0]}` : ""}
-      </div>
-      <div style={{ display: "flex", gap: 7 }}>
-        <button
-          type="button"
-          data-testid="offer-pass"
-          onClick={onPass}
-          aria-label="Pass on this job"
-          style={{
-            width: 74,
-            height: 36,
-            borderRadius: 10,
-            background: "rgba(32,30,29,.06)",
-            border: "1.5px solid rgba(217,97,76,.35)",
-            font: `900 12px ${HUD_SANS}`,
-            letterSpacing: "1px",
-            color: "#b04a34",
-            cursor: "pointer",
-          }}
-        >
-          PASS
-        </button>
-        <button
-          type="button"
-          data-testid="offer-accept"
-          onClick={onAccept}
-          aria-label="Accept this job"
-          style={{
-            flex: 1,
-            height: 36,
-            borderRadius: 10,
-            background: "linear-gradient(180deg,#9dbb7f,#7d9e63)",
-            border: "none",
-            font: `900 15px ${HUD_SANS}`,
-            letterSpacing: "1px",
-            color: "#16210f",
-            cursor: "pointer",
-          }}
-        >
-          ACCEPT
-        </button>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{offer.sub}</span>
+          {offer.chips[0] && (
+            <>
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 3,
+                  height: 3,
+                  borderRadius: "50%",
+                  background: "rgba(32,30,29,.25)",
+                  flex: "none",
+                }}
+              />
+              <span style={{ flex: "none", color: "rgba(32,30,29,.45)" }}>
+                {offer.chips[0]}
+              </span>
+            </>
+          )}
+        </div>
+
+        {showRail && (
+          <div data-testid="detour-rail" style={{ margin: "7px 0 8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+              <span
+                aria-hidden="true"
+                style={{ width: 7, height: 7, borderRadius: "50%", background: HUD_INK, flex: "none" }}
+              />
+              <span
+                aria-hidden="true"
+                style={{ width: 17, height: 2, borderRadius: 1, background: "rgba(32,30,29,.3)" }}
+              />
+              <span
+                aria-hidden="true"
+                style={{
+                  flex: 1,
+                  height: 2,
+                  borderRadius: 1,
+                  background:
+                    "repeating-linear-gradient(90deg,rgba(168,84,31,.85) 0 5px,transparent 5px 10px)",
+                  backgroundSize: "15px 2px",
+                  animation: "hudDetourRail .8s linear infinite",
+                }}
+              />
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="#a8541f" style={{ flex: "none" }} aria-hidden="true">
+                <path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7Zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2Z" />
+              </svg>
+              <span
+                aria-hidden="true"
+                style={{ flex: 1, height: 2, borderRadius: 1, background: "rgba(32,30,29,.18)" }}
+              />
+              <span
+                aria-hidden="true"
+                style={{ width: 7, height: 7, borderRadius: 2, background: "rgba(32,30,29,.35)", flex: "none" }}
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <span style={{ font: `800 7px ${HUD_SANS}`, letterSpacing: "1.2px", color: "rgba(32,30,29,.38)" }}>
+                YOU
+              </span>
+              <span
+                data-testid="detour-label"
+                style={{
+                  margin: "0 auto",
+                  font: `900 9px ${HUD_SANS}`,
+                  color: "#a8541f",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {offer.chips[0] ?? ""}
+              </span>
+              <span style={{ font: `800 7px ${HUD_SANS}`, letterSpacing: "1.2px", color: "rgba(32,30,29,.38)" }}>
+                BACK ON ROUTE
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 7, marginTop: showRail ? 0 : 7 }}>
+          <button
+            type="button"
+            data-testid="offer-pass"
+            onClick={onPass}
+            aria-label="Pass on this job"
+            style={{
+              width: 74,
+              height: 42,
+              borderRadius: 12,
+              background: "rgba(32,30,29,.06)",
+              border: "1.5px solid rgba(217,97,76,.35)",
+              font: `900 11px ${HUD_SANS}`,
+              letterSpacing: "1.2px",
+              color: "#b04a34",
+              cursor: "pointer",
+            }}
+          >
+            PASS
+          </button>
+          <button
+            type="button"
+            data-testid="offer-accept"
+            onClick={onAccept}
+            aria-label="Accept this job"
+            style={{
+              flex: 1,
+              height: 42,
+              borderRadius: 12,
+              background: "linear-gradient(180deg,#9dbb7f,#7d9e63)",
+              border: "none",
+              font: `900 15px ${HUD_SANS}`,
+              letterSpacing: "1.2px",
+              color: "#16210f",
+              cursor: "pointer",
+              boxShadow:
+                "0 10px 22px -10px rgba(125,158,99,.9), inset 0 2px 0 rgba(255,255,255,.34)",
+            }}
+          >
+            ACCEPT
+          </button>
+        </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The one round button the app owns on a phone.
+ *
+ * `TouchDriveControls` starts its own row a button-width in from the corner
+ * precisely to leave this slot — camera, pause and fullscreen are the session's,
+ * music is the app's, and the two must not stack on top of each other.
+ */
+export function DriveCornerButton({
+  inset,
+  label,
+  pressed,
+  onPress,
+}: {
+  inset: { readonly top: string; readonly right: string };
+  label: string;
+  pressed?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPress}
+      aria-pressed={pressed}
+      aria-label={label}
+      title={label}
+      style={{
+        position: "absolute",
+        top: inset.top,
+        right: inset.right,
+        width: 44,
+        height: 44,
+        borderRadius: "50%",
+        background: "rgba(11,15,17,.6)",
+        backdropFilter: "blur(14px)",
+        border: "1px solid rgba(255,255,255,.1)",
+        display: "grid",
+        placeItems: "center",
+        padding: 0,
+        cursor: "pointer",
+        zIndex: DRIVE_LAYER.action,
+      }}
+    >
+      <HudGlyph path={MUSIC_ICON} size={19} strokeWidth={2.75} color={HUD_CREAM} />
+    </button>
   );
 }
