@@ -2864,6 +2864,35 @@ function makeMaterial(
   return material;
 }
 
+/**
+ * A cabin surface: like `makeMaterial`, but it actually collects the scene's
+ * ambient term.
+ *
+ * Babylon defaults `StandardMaterial.ambientColor` to black, and the ambient
+ * contribution is `scene.ambientColor * material.ambientColor` — so every
+ * material built by `makeMaterial` throws the scene's ambient light away. Out in
+ * the city that is invisible, because the sun and the sky light do the work. In
+ * the cockpit it is most of the problem: the interior faces away from both
+ * lights, sits under the pipeline's vignette, and had nothing else lifting it.
+ *
+ * Ambient is also the only lift available that costs nothing. The scene has
+ * exactly two lights and every material in the game compiles against both;
+ * adding a third for the cabin would recompile every material and put another
+ * light term on every fragment on screen, to brighten geometry that covers a
+ * third of one camera.
+ */
+function makeInteriorMaterial(
+  scene: Scene,
+  name: string,
+  color: Color3,
+  emissive?: Color3,
+  ambient = 0.75,
+): StandardMaterial {
+  const material = makeMaterial(scene, name, color, emissive);
+  material.ambientColor = new Color3(ambient, ambient, ambient);
+  return material;
+}
+
 function inferSpawnVehicleVariant(spawnId?: string): NpcVehicleVariant {
   const normalized = spawnId?.toLowerCase() ?? "";
   if (normalized.includes("bus")) return "bus";
@@ -10730,35 +10759,47 @@ class BabylonGameSession {
       );
     }
     const bodyDark = makeMaterial(scene, "player-blue-dark", new Color3(0.04, 0.23, 0.3));
-    const steeringRubber = makeMaterial(
+    // A cabin is a lit room, not a silhouette. These sit an order of magnitude
+    // above where they used to, because the old values were tuned as if the
+    // dash were part of the night outside — the emissive term is a floor that
+    // keeps surfaces legible through the pipeline's vignette, which lands
+    // squarely on the lower half of the frame where the cockpit is. All of them
+    // stay well under `bloomThreshold` (0.72 at night); only the gauge accents
+    // are allowed anywhere near it.
+    const steeringRubber = makeInteriorMaterial(
       scene,
       "steering-rubber",
-      new Color3(0.05, 0.055, 0.058),
-      new Color3(0.008, 0.009, 0.01),
+      new Color3(0.105, 0.097, 0.09),
+      new Color3(0.02, 0.019, 0.017),
+      0.45,
     );
-    const dash = makeMaterial(
+    const dash = makeInteriorMaterial(
       scene,
       "dashboard",
-      new Color3(0.115, 0.125, 0.13),
-      new Color3(0.018, 0.02, 0.022),
+      new Color3(0.23, 0.212, 0.192),
+      new Color3(0.031, 0.029, 0.026),
+      0.55,
     );
-    const cockpitTrim = makeMaterial(
+    const cockpitTrim = makeInteriorMaterial(
       scene,
       "cockpit-trim",
-      new Color3(0.175, 0.185, 0.19),
-      new Color3(0.012, 0.014, 0.015),
+      new Color3(0.285, 0.264, 0.239),
+      new Color3(0.036, 0.033, 0.029),
+      0.55,
     );
-    const instrumentFace = makeMaterial(
+    const instrumentFace = makeInteriorMaterial(
       scene,
       "instrument-face",
-      new Color3(0.03, 0.06, 0.07),
-      new Color3(0.01, 0.055, 0.065),
+      new Color3(0.045, 0.055, 0.062),
+      new Color3(0.02, 0.032, 0.038),
+      0.3,
     );
-    const instrumentGlow = makeMaterial(
+    const instrumentGlow = makeInteriorMaterial(
       scene,
       "instrument-glow",
-      new Color3(0.04, 0.13, 0.15),
-      new Color3(0.01, 0.035, 0.04),
+      new Color3(0.08, 0.4, 0.38),
+      new Color3(0.05, 0.28, 0.26),
+      0.3,
     );
     createBox(scene, "cockpit-hood", { width: 1.62, height: 0.045, depth: 0.42 }, new Vector3(0, 0.74, 1.55), bodyDark, this.playerCockpit);
     createExtrudedPrism(
