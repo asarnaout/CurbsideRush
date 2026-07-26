@@ -177,6 +177,49 @@ export const COCKPIT_CLUSTER = Object.freeze({
 });
 
 /**
+ * The cluster's faceplate is baked at this size and never repainted. Its aspect
+ * ratio is the mesh's, so the dial faces stay circular.
+ */
+export const COCKPIT_CLUSTER_TEXTURE = Object.freeze({ width: 512, height: 160 });
+
+/**
+ * Both dials sweep from lower-left round through the top to lower-right, the
+ * ordinary 270 degrees of a car gauge.
+ *
+ * These are values for `rotation.z` on a needle pivot, not abstract angles, so
+ * start is greater than end: the cluster's local +X is the driver's right and
+ * +Y is up, which makes a positive rotation about Z read as anticlockwise from
+ * the seat. Assign the result directly and the needle turns the right way.
+ */
+export const COCKPIT_GAUGE_SWEEP_START = (135 * Math.PI) / 180;
+export const COCKPIT_GAUGE_SWEEP_END = (-135 * Math.PI) / 180;
+
+/**
+ * Dial centres as a fraction of the faceplate's width, shared by the baked
+ * texture and the needle pivots so a retouch of one cannot drift from the other.
+ */
+export const COCKPIT_GAUGE_CENTRES: readonly number[] = Object.freeze([
+  0.2266, 0.7734,
+]);
+
+/** Dial radius as a fraction of the faceplate's height. */
+export const COCKPIT_GAUGE_RADIUS = 0.375;
+
+/** Fastest reading on the speedometer, in m/s — a shade over the sim's cap. */
+export const COCKPIT_SPEEDO_MAX_MPS = 42;
+
+export function resolveGaugeNeedleAngle(
+  value: number,
+  maximum: number,
+  sweepStart: number = COCKPIT_GAUGE_SWEEP_START,
+  sweepEnd: number = COCKPIT_GAUGE_SWEEP_END,
+): number {
+  if (!(maximum > 0)) return sweepStart;
+  const travelled = clamp(value / maximum, 0, 1);
+  return sweepStart + travelled * (sweepEnd - sweepStart);
+}
+
+/**
  * Vertical screen position of the dash's crown, as a fraction from the top of
  * the viewport.
  *

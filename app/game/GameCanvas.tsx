@@ -71,12 +71,17 @@ import {
   COCKPIT_BINNACLE_WIDTH,
   COCKPIT_CABIN_WIDTH,
   COCKPIT_CLUSTER,
+  COCKPIT_CLUSTER_TEXTURE,
   COCKPIT_DASH_PROFILE,
+  COCKPIT_GAUGE_CENTRES,
+  COCKPIT_GAUGE_RADIUS,
+  COCKPIT_SPEEDO_MAX_MPS,
   COCKPIT_VENT_PROFILE,
   COCKPIT_VENT_SLOTS,
   REAR_VIEW_VIEWPORT,
   resolveCockpitPitch,
   resolveCockpitSteeringGeometry,
+  resolveGaugeNeedleAngle,
   resolveSteeringWheelSpin,
 } from "./cockpitLayout";
 import { TouchDriveControls } from "./TouchDriveControls";
@@ -134,7 +139,12 @@ import {
   type PulloverRoad,
 } from "./cutsceneScript";
 import { DriveAudio } from "./audio/DriveAudio";
-import { MOTORBIKE_ENGINE_PROFILE } from "./audio/audioMath";
+import {
+  ENGINE,
+  GEAR_TOP_MPS,
+  MOTORBIKE_ENGINE_PROFILE,
+  targetRpm,
+} from "./audio/audioMath";
 import {
   authoredSignalAspectAt,
   type AuthoredSignalAspect,
@@ -2871,6 +2881,82 @@ function makeMaterial(
 }
 
 /**
+ * The instrument cluster's faceplate, drawn once.
+ *
+ * Everything on it is static: the dial rings, their ticks, the centre readout
+ * bars. The two things that actually move are needles, and they are meshes that
+ * rotate — nothing in this game repaints a DynamicTexture per frame and this is
+ * not the place to start. A 512x160 re-raster plus upload every frame would cost
+ * more than the whole rest of the cockpit put together, to animate two lines.
+ *
+ * Ring colours are the reference's: teal for road speed, amber for revs.
+ */
+function makeInstrumentClusterTexture(scene: Scene): DynamicTexture {
+  const { width, height } = COCKPIT_CLUSTER_TEXTURE;
+  const texture = new DynamicTexture(
+    "instrument-cluster-face",
+    { width, height },
+    scene,
+    true,
+  );
+  const context = textureContext(texture);
+  context.fillStyle = "#080b0d";
+  context.fillRect(0, 0, width, height);
+
+  const centreY = height / 2;
+  const radius = height * COCKPIT_GAUGE_RADIUS;
+  const sweepStart = (135 * Math.PI) / 180;
+  const sweepEnd = (405 * Math.PI) / 180;
+
+  COCKPIT_GAUGE_CENTRES.forEach((centre, index) => {
+    const centreX = centre * width;
+    const accent = index === 0 ? "#3fd8c4" : "#f2a02a";
+
+    context.fillStyle = "#0d1417";
+    context.beginPath();
+    context.arc(centreX, centreY, radius * 0.92, 0, Math.PI * 2);
+    context.fill();
+
+    context.strokeStyle = accent;
+    context.lineWidth = 4;
+    context.setLineDash([7, 6]);
+    context.beginPath();
+    context.arc(centreX, centreY, radius, sweepStart, sweepEnd);
+    context.stroke();
+    context.setLineDash([]);
+
+    // A finer ring of ticks inside the accent, every 13.5 degrees of the sweep.
+    context.strokeStyle = "rgba(206, 216, 220, 0.55)";
+    context.lineWidth = 2;
+    for (let tick = 0; tick <= 20; tick += 1) {
+      const angle = sweepStart + ((sweepEnd - sweepStart) * tick) / 20;
+      const long = tick % 5 === 0;
+      const inner = radius * (long ? 0.62 : 0.72);
+      const outer = radius * 0.8;
+      context.beginPath();
+      context.moveTo(
+        centreX + Math.cos(angle) * inner,
+        centreY + Math.sin(angle) * inner,
+      );
+      context.lineTo(
+        centreX + Math.cos(angle) * outer,
+        centreY + Math.sin(angle) * outer,
+      );
+      context.stroke();
+    }
+  });
+
+  // The centre stack: a gear/readout block between the dials.
+  context.fillStyle = "#3fd8c4";
+  for (const offset of [-20, 0, 20]) {
+    context.fillRect(width / 2 - 21, centreY + offset - 2, 42, 4);
+  }
+
+  texture.update(false);
+  return texture;
+}
+
+/**
  * A cabin surface: like `makeMaterial`, but it actually collects the scene's
  * ambient term.
  *
@@ -3431,6 +3517,8 @@ class BabylonGameSession {
   private readonly playerExterior: TransformNode;
   private readonly playerCockpit: TransformNode;
   private steeringAssembly: TransformNode | null = null;
+  /** Speedometer then tachometer pivots, spun in updatePlayerVisuals. */
+  private gaugeNeedles: TransformNode[] = [];
   private readonly thirdCamera: ArcRotateCamera;
   private readonly firstCamera: UniversalCamera;
   private readonly rearCamera: UniversalCamera;
@@ -7233,6 +7321,42 @@ class BabylonGameSession {
     if (this.steeringAssembly) {
       this.steeringAssembly.rotation.y = resolveSteeringWheelSpin(visualSteer);
     }
+    this.updateGaugeNeedles();
+  }
+
+  /**
+   * Points the two dials at what the car is actually doing.
+   *
+   * The tachometer reuses the audio model's own `targetRpm` and gear ratios, so
+   * the needle rises and drops on the same curve as the engine note. It calls
+   * those pure functions rather than reading `DriveAudio`, which is null
+   * whenever Web Audio is unavailable — a muted tab must still have a working
+   * rev counter. The cost is that the ratio comes from road speed instead of the
+   * voice's hysteresis state, so during a shift the two can briefly disagree by
+   * one gear. On a dial that is a needle settling a moment early.
+   */
+  private updateGaugeNeedles() {
+    if (this.gaugeNeedles.length !== 2) return;
+    const speed = this.playerState.speedMps;
+    this.gaugeNeedles[0].rotation.z = resolveGaugeNeedleAngle(
+      speed,
+      COCKPIT_SPEEDO_MAX_MPS,
+    );
+    const input = this.mergedInput();
+    const signed = this.simulationSnapshot.player.signedSpeedMps;
+    const reverse = signed < -STOPPED_AUDIO_SPEED_MPS;
+    const load = this.options.outOfFuel
+      ? 0
+      : reverse
+        ? input.reverse
+        : Math.max(input.throttle, input.reverse);
+    const gear =
+      GEAR_TOP_MPS.findIndex((top) => speed <= top) + 1 || GEAR_TOP_MPS.length;
+    const rpm = targetRpm(gear, speed, load, reverse);
+    this.gaugeNeedles[1].rotation.z = resolveGaugeNeedleAngle(
+      rpm - ENGINE.idleRpm,
+      ENGINE.redlineRpm - ENGINE.idleRpm,
+    );
   }
 
   /**
@@ -10905,15 +11029,62 @@ class BabylonGameSession {
     );
     binnacle.position.x = wheelX;
 
-    const clusterBacking = createBox(
+    const clusterRoot = new TransformNode("instrument-cluster", scene);
+    clusterRoot.parent = this.playerCockpit;
+    clusterRoot.position.set(wheelX, COCKPIT_CLUSTER.y, COCKPIT_CLUSTER.z);
+    clusterRoot.rotation.x = COCKPIT_CLUSTER.tiltX;
+    createBox(
       scene,
-      "instrument-cluster-face",
-      { width: COCKPIT_CLUSTER.width, height: COCKPIT_CLUSTER.height, depth: 0.018 },
-      new Vector3(wheelX, COCKPIT_CLUSTER.y, COCKPIT_CLUSTER.z),
+      "instrument-cluster-shell",
+      { width: COCKPIT_CLUSTER.width + 0.022, height: COCKPIT_CLUSTER.height + 0.018, depth: 0.02 },
+      Vector3.Zero(),
       instrumentFace,
-      this.playerCockpit,
+      clusterRoot,
     );
-    clusterBacking.rotation.x = COCKPIT_CLUSTER.tiltX;
+    const clusterFace = MeshBuilder.CreatePlane(
+      "instrument-cluster-face",
+      { width: COCKPIT_CLUSTER.width, height: COCKPIT_CLUSTER.height },
+      scene,
+    );
+    clusterFace.parent = clusterRoot;
+    clusterFace.position.z = -0.0105;
+    const clusterMaterial = makeMaterial(
+      scene,
+      "instrument-cluster-lit",
+      Color3.White(),
+      new Color3(0.62, 0.62, 0.62),
+    );
+    const clusterTexture = makeInstrumentClusterTexture(scene);
+    clusterMaterial.diffuseTexture = clusterTexture;
+    clusterMaterial.emissiveTexture = clusterTexture;
+    setMeshMaterial(clusterFace, clusterMaterial);
+
+    // Needles are meshes on pivots, driven from updatePlayerVisuals.
+    const needleMaterial = makeMaterial(
+      scene,
+      "instrument-needle",
+      new Color3(0.85, 0.93, 0.92),
+      new Color3(0.42, 0.5, 0.49),
+    );
+    const needleLength = COCKPIT_CLUSTER.height * COCKPIT_GAUGE_RADIUS * 1.55;
+    this.gaugeNeedles = COCKPIT_GAUGE_CENTRES.map((centre, index) => {
+      const pivot = new TransformNode(`instrument-needle-pivot-${index}`, scene);
+      pivot.parent = clusterRoot;
+      pivot.position.set(
+        (centre - 0.5) * COCKPIT_CLUSTER.width,
+        0,
+        -0.0135,
+      );
+      createBox(
+        scene,
+        `instrument-needle-${index}`,
+        { width: 0.0038, height: needleLength, depth: 0.0026 },
+        new Vector3(0, needleLength * 0.4, 0),
+        needleMaterial,
+        pivot,
+      );
+      return pivot;
+    });
 
     createBox(scene, "instrument-status", { width: 0.05, height: 0.012, depth: 0.01 }, new Vector3(0, 0.905, 0.298), instrumentGlow, this.playerCockpit);
 
