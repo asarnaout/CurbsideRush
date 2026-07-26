@@ -3358,3 +3358,22 @@ canvas:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   @keyframes hudDetourRail { to { background-position: 0 0; } }
 }
+
+/* "Preparing your drive…" overlay (GameCanvas): the mark's continuous spin and
+   the loading bar's shimmer sweep. Both inline styles reference these by name
+   — see the criticalOverlay block in app/game/GameCanvas.tsx. */
+@keyframes sideswap-loading-spin {
+  from { transform: rotate(45deg); }
+  to { transform: rotate(405deg); }
+}
+@keyframes sideswap-loading-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The bar's own width is the real signal; freeze the two purely decorative
+     motions rather than disable them, so the mark keeps its diamond angle
+     instead of vanishing. */
+  @keyframes sideswap-loading-spin { from, to { transform: rotate(45deg); } }
+  @keyframes sideswap-loading-shimmer { from, to { opacity: 0; } }
+}

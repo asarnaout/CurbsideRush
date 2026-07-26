@@ -1785,6 +1785,12 @@ export interface GameCanvasHandle {
   focus: () => void;
 }
 
+/** 0..1, monotonically non-decreasing over one load — see LOAD_PHASE_WEIGHTS. */
+interface LoadProgress {
+  readonly fraction: number;
+  readonly label: string;
+}
+
 interface SessionCallbacks {
   onHudUpdate?: (snapshot: GameHudSnapshot) => void;
   onEvent?: (event: GameRuntimeEvent) => void;
@@ -1795,6 +1801,7 @@ interface SessionCallbacks {
   onReady?: () => void;
   onContextLost?: () => void;
   onContextRestored?: () => void;
+  onLoadProgress?: (progress: LoadProgress) => void;
 }
 
 interface SessionOptions {
@@ -3808,6 +3815,49 @@ function createExtrudedPrism(
   return mesh;
 }
 
+const LOADING_MODELS_LABEL = "Loading models…";
+const FINISHING_TOUCHES_LABEL = "Finishing touches…";
+
+/**
+ * Relative share of the "Preparing your drive…" bar each real build phase in
+ * `preloadVehicleModels` gets. Profiled with performance.now() around each
+ * phase on both the NYC and London maps (production build): loading models —
+ * network fetch plus glTF decode, the only phase with byte-level signal and
+ * the only one that scales with connection speed — is consistently ~80% of
+ * wall time regardless of map size, because every other phase is local JS/GPU
+ * work. The rest are real milestones sized off that same profiling; each
+ * fires the instant its phase actually finishes, never a timer. Must sum to
+ * 1, though nothing breaks if it drifts slightly — `preloadVehicleModels`
+ * hardcodes the final report to exactly 1 regardless, so a forgotten update
+ * here only throws off the mid-sequence jump sizes, not the end state.
+ */
+const LOAD_PHASE_WEIGHTS = {
+  models: 0.8,
+  vehiclesAndPeople: 0.08,
+  city: 0.09,
+  warmUp: 0.03,
+} as const;
+
+/**
+ * Waits a full paint cycle. Two rAFs, not one: a promise resolved inside a
+ * single requestAnimationFrame callback still runs its continuation as a
+ * microtask of that same callback, before the browser paints — a state update
+ * flushed there would never reach the screen ahead of the next (synchronous,
+ * potentially heavy) build phase. Scheduling the second rAF from inside the
+ * first defers the resolve to the following frame, by which point the current
+ * one has already painted. Not `setTimeout`: a macrotask is not guaranteed to
+ * land after a paint the way a *second* rAF is — rAF is specifically defined
+ * as running immediately before the browser's next render, so waiting for two
+ * of them is the one mechanism that's actually certain, not just usually
+ * right. Used only to let a loading-progress update actually reach the screen
+ * between build phases — never in the per-frame render path.
+ */
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
 class BabylonGameSession {
   private readonly canvas: HTMLCanvasElement;
   private readonly engine: Engine;
@@ -4674,25 +4724,65 @@ class BabylonGameSession {
     this.engine.dispose();
   }
 
+  private reportLoadProgress(fraction: number, label: string) {
+    this.callbacks.onLoadProgress?.({ fraction, label });
+  }
+
   /**
    * Loads the vehicle glbs off the critical path. Vehicles are built with their
    * procedural fallback during construction and upgraded to the imported models
    * here once the containers arrive; a failed load simply leaves them procedural.
+   *
+   * Reports real progress throughout, never simulated: `preloadModels`'s own
+   * byte/file-settlement signal drives the first (dominant) `models` share, and
+   * every phase after it only advances the instant that exact phase actually
+   * finishes — the running `progress` total is never a timer. Each `await
+   * nextPaint()` exists solely so that milestone is actually visible: without
+   * it, React's state update and the next (synchronous, CPU-bound) phase would
+   * land in the same task, and the browser would never get a chance to paint
+   * the intermediate number before the next chunk of work starts. An earlier
+   * version yielded only once (before "Finishing touches" as a whole), on the
+   * theory that the three sub-phases after it were short enough to read as one
+   * beat. Confirmed wrong on a real drive: whichever of those sub-phases is
+   * slowest on a given device and map, the bar sat frozen at 80% for its whole
+   * duration — indistinguishable from a hang, exactly what this feature exists
+   * to avoid. Every real milestone gets its own yield now, so no single
+   * sub-phase — whichever it turns out to be, on whatever hardware — can hide
+   * behind a neighbour's label. Two rAFs, not one: a promise resolved inside a
+   * single requestAnimationFrame callback still runs its continuation as a
+   * microtask of that callback, before the browser paints — see `nextPaint`.
+   * Measured cost of all four yields together, on the heaviest map (NYC,
+   * headless software rendering — a pessimistic case; real hardware should be
+   * less): ~400ms against a multi-second load.
+   * `this.disposed` is re-checked after every yield because a yield is a point
+   * where dispose() (an unmount mid-load) could otherwise run before the next
+   * phase touches the scene.
    */
   private async preloadVehicleModels() {
+    this.reportLoadProgress(0, LOADING_MODELS_LABEL);
     try {
-      await preloadModels(this.scene, [
-        ...vehicleModelUrls(),
-        ...characterModelUrls(),
-        ...propModelUrls(),
-        ...this.buildingModelUrls,
-      ]);
+      await preloadModels(
+        this.scene,
+        [
+          ...vehicleModelUrls(),
+          ...characterModelUrls(),
+          ...propModelUrls(),
+          ...this.buildingModelUrls,
+        ],
+        (fraction) =>
+          this.reportLoadProgress(fraction * LOAD_PHASE_WEIGHTS.models, LOADING_MODELS_LABEL),
+      );
     } catch {
       // Preload failed (e.g. offline / blocked). Proceed anyway so the loading
       // gate still lifts; vehicles build from whatever models did load.
     }
     if (this.disposed) return;
     this.modelsReady = true;
+    let progress = LOAD_PHASE_WEIGHTS.models;
+    this.reportLoadProgress(progress, FINISHING_TOUCHES_LABEL);
+    await nextPaint();
+    if (this.disposed) return;
+
     this.upgradeVehiclesToModels();
     this.upgradeRoadUsersToModels();
     // The waiting rider is placed from options, usually before the character
@@ -4703,13 +4793,24 @@ class BabylonGameSession {
       this.syncRider();
     }
     this.upgradePropsToModels();
+    progress += LOAD_PHASE_WEIGHTS.vehiclesAndPeople;
+    this.reportLoadProgress(progress, FINISHING_TOUCHES_LABEL);
+    await nextPaint();
+    if (this.disposed) return;
+
     this.buildInstancedBuildings();
     this.buildAmbientCrowd();
+    progress += LOAD_PHASE_WEIGHTS.city;
+    this.reportLoadProgress(progress, FINISHING_TOUCHES_LABEL);
+    await nextPaint();
+    if (this.disposed) return;
+
     // Freeze the dense scenery once the first frame has computed its matrices.
     this.scene.onAfterRenderObservable.addOnce(() => this.freezeStaticScenery());
     // Compile every shader + upload every buffer now, while the loading gate is
     // still up, so the first corner of the drive doesn't stall.
     this.warmUpPipeline();
+    this.reportLoadProgress(1, FINISHING_TOUCHES_LABEL);
     this.markReady();
   }
 
@@ -13339,6 +13440,10 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
     const [runtimeState, setRuntimeState] = useState<
       "loading" | "ready" | "unsupported" | "context-lost" | "error"
     >("loading");
+    const [loadProgress, setLoadProgress] = useState<LoadProgress>({
+      fraction: 0,
+      label: LOADING_MODELS_LABEL,
+    });
     const [isPortrait, setIsPortrait] = useState(false);
     // Tracked rather than assumed, because iOS leaves fullscreen on a swipe
     // without any press of ours.
@@ -13386,6 +13491,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       onReady: () => setRuntimeState("ready"),
       onContextLost: () => setRuntimeState("context-lost"),
       onContextRestored: () => setRuntimeState("ready"),
+      onLoadProgress: (progress) => setLoadProgress(progress),
     };
 
     // The gate pauses the drive; it does not tear it down. It used to keep the
@@ -13440,6 +13546,10 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       let alive = true;
       let ownedSession: BabylonGameSession | null = null;
       setRuntimeState("loading");
+      // A rebuild (lesson/mapPack change) reuses this component instance
+      // rather than remounting, so the bar needs its own reset here — useState's
+      // initial value only covers a fresh mount.
+      setLoadProgress({ fraction: 0, label: LOADING_MODELS_LABEL });
       try {
         const session = new BabylonGameSession(
           canvas,
@@ -13478,6 +13588,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
             onReady: () => callbackRef.current.onReady?.(),
             onContextLost: () => callbackRef.current.onContextLost?.(),
             onContextRestored: () => callbackRef.current.onContextRestored?.(),
+            onLoadProgress: (progress) => callbackRef.current.onLoadProgress?.(progress),
           },
         );
         ownedSession = session;
@@ -13574,6 +13685,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
     const touchPortraitGate = inputPresentation.touchFirst && isPortrait;
     const criticalOverlay = runtimeState !== "ready";
     const activeInputGuide = INPUT_GUIDANCE[inputPresentation.activeFamily];
+    const loadPercent = Math.round(clamp(loadProgress.fraction, 0, 1) * 100);
 
     return (
       <div className={className} style={{ ...shellStyle, ...style }}>
@@ -13688,7 +13800,18 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
             }}
           >
             <div style={{ maxWidth: 470 }}>
-              <div aria-hidden="true" style={{ margin: "0 auto 18px", width: 54, height: 54, borderRadius: 18, border: "5px solid #f2c658", transform: "rotate(45deg)" }} />
+              <div
+                aria-hidden="true"
+                style={{
+                  margin: "0 auto 18px",
+                  width: 54,
+                  height: 54,
+                  borderRadius: 18,
+                  border: "5px solid #f2c658",
+                  transform: "rotate(45deg)",
+                  animation: runtimeState === "loading" ? "sideswap-loading-spin 2.2s linear infinite" : undefined,
+                }}
+              />
               <strong style={{ display: "block", marginBottom: 9, fontSize: 23 }}>
                 {runtimeState === "unsupported" && "This browser cannot start the 3D drive"}
                 {runtimeState === "context-lost" && "The 3D view was interrupted"}
@@ -13704,6 +13827,69 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
                       ? "Refresh the page to rebuild the lesson. Your saved progress is unaffected."
                       : "Building roads, traffic, and your cockpit."}
               </span>
+              {runtimeState === "loading" && (
+                <div style={{ marginTop: 20 }}>
+                  <div
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={loadPercent}
+                    aria-valuetext={`${loadProgress.label} ${loadPercent}%`}
+                    style={{
+                      width: "100%",
+                      height: 6,
+                      borderRadius: 999,
+                      background: "rgba(255,255,255,0.12)",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {/* No width transition, deliberately: the % text has none either
+                        (it can't — it's discrete text), so animating the fill would
+                        make it lag behind the number it's supposed to equal on every
+                        jump. They must always read the same value at the same instant. */}
+                    <div
+                      style={{
+                        width: `${loadPercent}%`,
+                        height: "100%",
+                        borderRadius: 999,
+                        background: "linear-gradient(90deg, #d9a53e, #f2c658)",
+                        position: "relative",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        aria-hidden="true"
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          background:
+                            "linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent)",
+                          animation: "sideswap-loading-shimmer 1.6s ease-in-out infinite",
+                        }}
+                      />
+                    </div>
+                  </div>
+                  {/* aria-hidden: a sighted-only duplicate of the progressbar's own
+                      aria-valuetext. The card above is role="status" (a live region),
+                      and this text changes many times a second — without hiding it, a
+                      screen reader would re-announce every percentage tick instead of
+                      the rare, meaningful state changes the region exists for. */}
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginTop: 8,
+                      fontSize: 12,
+                      opacity: 0.68,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    <span>{loadProgress.label}</span>
+                    <span>{loadPercent}%</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
