@@ -10873,27 +10873,6 @@ class BabylonGameSession {
       rig,
     );
     sail.position.x = side * COCKPIT_WING_MIRROR.sailX;
-    // The arm passes under the A-pillar, which by this z has climbed well clear
-    // of it, and overlaps both the sail and the housing so there is no seam at
-    // either end.
-    const armInner = side * COCKPIT_WING_MIRROR.sailX;
-    const armOuter = side * COCKPIT_WING_MIRROR.lateral;
-    createBox(
-      scene,
-      "wing-mirror-arm",
-      {
-        width: Math.abs(armOuter - armInner) + 0.05,
-        height: COCKPIT_WING_MIRROR.armHeight,
-        depth: COCKPIT_WING_MIRROR.armDepth,
-      },
-      new Vector3(
-        (armInner + armOuter) / 2,
-        COCKPIT_WING_MIRROR.armY,
-        COCKPIT_WING_MIRROR.armZ,
-      ),
-      shell,
-      rig,
-    );
 
     // The head carries the turn toward the seat, so the shell and the glass
     // cannot come apart: both hang off it at zero rotation.
@@ -10906,6 +10885,28 @@ class BabylonGameSession {
     );
     const headRotation = wingMirrorHeadRotation(this.options.steeringSide);
     head.rotation.set(headRotation.x, headRotation.y, 0);
+
+    // Inboard in the head's space is -side: the yaw mirrors between drive
+    // sides, so local +x points inboard on the left of the car and outboard on
+    // the right. It starts inside the housing, so there is no seam where the
+    // two meet, and it clears the A-pillar, which has climbed well above this
+    // height by the z the arm reaches.
+    createBox(
+      scene,
+      "wing-mirror-arm",
+      {
+        width: COCKPIT_WING_MIRROR.armLength,
+        height: COCKPIT_WING_MIRROR.armHeight,
+        depth: COCKPIT_WING_MIRROR.armDepth,
+      },
+      new Vector3(
+        (-side * COCKPIT_WING_MIRROR.armLength) / 2,
+        COCKPIT_WING_MIRROR.armLocalY,
+        COCKPIT_WING_MIRROR.armLocalZ,
+      ),
+      shell,
+      head,
+    );
     // Sized to hide behind the bezel from the front while still giving the
     // housing real depth from any other angle.
     createBox(

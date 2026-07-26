@@ -337,8 +337,18 @@ export const COCKPIT_WING_MIRROR = Object.freeze({
    */
   sailX: 0.99,
   sailThickness: 0.075,
-  armY: 1.2,
-  armZ: 0.8,
+  /**
+   * The arm is measured in the mirror head's own space, not the cabin's.
+   *
+   * The head is yawed about 29 degrees to face the seat, which swings the
+   * glass's inboard edge forward in z — straight through where a cabin-aligned
+   * arm at the same height would run. Hung off the head instead, the arm
+   * emerges from behind the housing by construction, and because the yaw is
+   * what points it inboard-and-forward it lands on the sail on its own.
+   */
+  armLength: 0.26,
+  armLocalY: -0.015,
+  armLocalZ: 0.028,
   armHeight: 0.048,
   armDepth: 0.058,
   /** How far the mirror camera swings outboard of straight back. */
