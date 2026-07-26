@@ -108,10 +108,11 @@ import { Minimap, type MinimapPin } from "./game/MinimapCanvas";
 import {
   findGpsRoute,
   gpsGraphForLanes,
-  routeDeviationM,
+  routeProgress,
   trimRouteToPlayer,
   type GpsLane,
-  type GpsPoint,
+  type GpsProgress,
+  type GpsRoute,
 } from "./game/gpsRoute";
 import { DRIVE_LAYER } from "./game/driveLayers";
 import { rearViewCssRect } from "./game/cockpitLayout";
@@ -708,8 +709,12 @@ export default function SideSwapApp() {
   const garageVehicleId = progress.lastCareerVehicleId;
   // The GPS line to the current gig. Mirrored into a ref because the search
   // that maintains it runs inside `handleHud`, which cannot read state.
-  const [gpsRoute, setGpsRoute] = useState<readonly GpsPoint[] | null>(null);
-  const gpsRouteRef = useRef<readonly GpsPoint[] | null>(null);
+  const [gpsRoute, setGpsRoute] = useState<GpsRoute | null>(null);
+  const gpsRouteRef = useRef<GpsRoute | null>(null);
+  // Next manoeuvre and distance to it, refreshed by the same projection that
+  // measures deviation. Held in a ref rather than state because nothing renders
+  // it yet — the guidance banner is a separate piece of work.
+  const gpsProgressRef = useRef<GpsProgress | null>(null);
   const routeTargetRef = useRef<string | null>(null);
   const routeSearchedAtRef = useRef(0);
   const routeLanesRef = useRef<readonly GpsLane[]>([]);
@@ -818,14 +823,13 @@ export default function SideSwapApp() {
     // Pickup and drop-off are separate destinations at the same venue id.
     const targetKey = `${target.id}:${gigRef.current?.state ?? ""}`;
     const fresh = routeTargetRef.current === targetKey;
-    if (
-      fresh &&
-      routeDeviationM(
-        gpsRouteRef.current ?? [],
-        snapshot.playerX,
-        snapshot.playerZ,
-      ) <= ROUTE_DEVIATION_LIMIT_M
-    ) {
+    // One projection answers both questions the snapshot has: whether the
+    // player has left the route, and what the next manoeuvre is.
+    const progress = gpsRouteRef.current
+      ? routeProgress(gpsRouteRef.current, snapshot.playerX, snapshot.playerZ)
+      : null;
+    gpsProgressRef.current = fresh ? progress : null;
+    if (fresh && progress && progress.deviationM <= ROUTE_DEVIATION_LIMIT_M) {
       return;
     }
     // Off-route and staying off it — a player driving away from a destination
@@ -842,8 +846,11 @@ export default function SideSwapApp() {
       snapshot.heading,
       target,
     );
-    const route = found.length > 1 ? found : null;
+    const route = found.points.length > 1 ? found : null;
     gpsRouteRef.current = route;
+    gpsProgressRef.current = route
+      ? routeProgress(route, snapshot.playerX, snapshot.playerZ)
+      : null;
     setGpsRoute(route);
   }, []);
 
@@ -1847,7 +1854,7 @@ export default function SideSwapApp() {
   // The route itself is searched in `handleHud`; this only slices it.
   const minimapRoute =
     gpsRoute && hud
-      ? trimRouteToPlayer(gpsRoute, hud.playerX, hud.playerZ)
+      ? trimRouteToPlayer(gpsRoute.points, hud.playerX, hud.playerZ)
       : undefined;
   // The driving HUD's one layout switch. On touch every readout lives in the
   // top band, because the bottom band is the steering region and the pedals;

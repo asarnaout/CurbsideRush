@@ -4,7 +4,7 @@ import {
   findGpsRoute,
   gpsGraphForLanes,
   projectOntoPolyline,
-  routeDeviationM,
+  routeProgress,
   trimRouteToPlayer,
   type GpsLane,
   type GpsPoint,
@@ -22,6 +22,12 @@ import { streetAddressesForMap } from "../app/game/streetAddresses";
  */
 const HEADING_NORTH = 0;
 const HEADING_EAST = Math.PI / 2;
+
+/** The drawn line alone. Most cases below are about where the line goes; the
+ * legs and manoeuvres behind it get their own describe block. */
+const routePoints = (
+  ...args: Parameters<typeof findGpsRoute>
+): readonly GpsPoint[] => findGpsRoute(...args).points;
 
 function lane(
   id: string,
@@ -56,7 +62,7 @@ describe("gps route search", () => {
   it("routes across the graph and starts at the player, not the lane end", () => {
     const graph = buildGpsGraph(grid);
     // Half way along row0-a, heading east, destination at the end of row1-b.
-    const route = findGpsRoute(
+    const route = routePoints(
       graph,
       { x: 50, z: 0 },
       HEADING_EAST,
@@ -75,7 +81,7 @@ describe("gps route search", () => {
     const graph = buildGpsGraph(grid);
     // Standing on row1-a, which only feeds row1-b. row0-a is 100 m south and
     // would be the straight-line choice; there is no legal way back to it.
-    const route = findGpsRoute(
+    const route = routePoints(
       graph,
       { x: 0, z: 100 },
       HEADING_EAST,
@@ -90,7 +96,7 @@ describe("gps route search", () => {
       lane("a", { x: 0, z: 0 }, { x: 50, z: 0 }, []),
       lane("island", { x: 500, z: 500 }, { x: 550, z: 500 }, []),
     ];
-    const route = findGpsRoute(
+    const route = routePoints(
       buildGpsGraph(stranded),
       { x: 10, z: 0 },
       HEADING_EAST,
@@ -106,7 +112,7 @@ describe("gps route search", () => {
       lane("a", { x: 0, z: 0 }, { x: 50, z: 0 }, ["b"]),
       lane("b", { x: 50, z: 40 }, { x: 100, z: 40 }, []),
     ];
-    const route = findGpsRoute(
+    const route = routePoints(
       buildGpsGraph(broken),
       { x: 10, z: 0 },
       HEADING_EAST,
@@ -120,7 +126,7 @@ describe("gps route search", () => {
     // Sit 0.6 m to the west of the road centreline — nearer the backward lane —
     // but heading east. The route must run east regardless.
     const graph = buildGpsGraph(street);
-    const route = findGpsRoute(
+    const route = routePoints(
       graph,
       { x: 100, z: -0.6 },
       HEADING_EAST,
@@ -134,7 +140,7 @@ describe("gps route search", () => {
     const street = twoWay("main", { x: 0, z: 0 }, { x: 200, z: 0 });
     // Heading due north on an east-west street: neither lane agrees, so the
     // search still has to start somewhere rather than give up.
-    const route = findGpsRoute(
+    const route = routePoints(
       buildGpsGraph(street),
       { x: 100, z: 1.7 },
       HEADING_NORTH,
@@ -147,7 +153,7 @@ describe("gps route search", () => {
     const single: readonly GpsLane[] = [
       lane("a", { x: 0, z: 0 }, { x: 200, z: 0 }, []),
     ];
-    const route = findGpsRoute(
+    const route = routePoints(
       buildGpsGraph(single),
       { x: 20, z: 0 },
       HEADING_EAST,
@@ -166,7 +172,7 @@ describe("gps route search", () => {
       lane("s", { x: 100, z: 100 }, { x: 0, z: 100 }, ["w"]),
       lane("w", { x: 0, z: 100 }, { x: 0, z: 0 }, ["n"]),
     ];
-    const route = findGpsRoute(
+    const route = routePoints(
       buildGpsGraph(loop),
       { x: 80, z: 0 },
       HEADING_EAST,
@@ -188,8 +194,8 @@ describe("gps route search", () => {
 
   it("reuses its scratch across searches without leaking state", () => {
     const graph = buildGpsGraph(grid);
-    const first = findGpsRoute(graph, { x: 50, z: 0 }, HEADING_EAST, { x: 200, z: 100 });
-    const second = findGpsRoute(graph, { x: 50, z: 0 }, HEADING_EAST, { x: 200, z: 100 });
+    const first = routePoints(graph, { x: 50, z: 0 }, HEADING_EAST, { x: 200, z: 100 });
+    const second = routePoints(graph, { x: 50, z: 0 }, HEADING_EAST, { x: 200, z: 100 });
     expect(second).toEqual(first);
   });
 });
@@ -220,8 +226,11 @@ describe("gps polyline maths", () => {
   });
 
   it("reports deviation, and infinity for an empty route", () => {
-    expect(routeDeviationM(line, 50, 8)).toBeCloseTo(8, 6);
-    expect(routeDeviationM([], 0, 0)).toBe(Number.POSITIVE_INFINITY);
+    const route = { points: line, legs: [], manoeuvres: [] };
+    expect(routeProgress(route, 50, 8).deviationM).toBeCloseTo(8, 6);
+    expect(
+      routeProgress({ points: [], legs: [], manoeuvres: [] }, 0, 0).deviationM,
+    ).toBe(Number.POSITIVE_INFINITY);
   });
 
   it("trims the travelled part so the line starts at the car", () => {
@@ -277,7 +286,7 @@ describe("gps route on the shipped NYC map", () => {
         points[1].x - points[0].x,
         points[1].z - points[0].z,
       );
-      const route = findGpsRoute(graph, from, heading, to);
+      const route = routePoints(graph, from, heading, to);
       expect(
         route.length,
         `no route from ${from.laneId} to ${to.laneId}`,
@@ -312,11 +321,190 @@ describe("gps route on the shipped NYC map", () => {
     const pairs = addresses.filter((_, index) => index % 2 === 0).slice(0, 40);
     const started = performance.now();
     for (let index = 1; index < pairs.length; index += 1) {
-      findGpsRoute(graph, pairs[index - 1], 0, pairs[index]);
+      routePoints(graph, pairs[index - 1], 0, pairs[index]);
     }
     const perSearch = (performance.now() - started) / (pairs.length - 1);
     // Budget, not a benchmark: this runs once per destination change, and a
     // frame is 16 ms. Anything approaching that means the search regressed.
     expect(perSearch).toBeLessThan(4);
+  });
+});
+
+/**
+ * Legs and manoeuvres. These are what a turn-by-turn HUD reads, and the whole
+ * job is collapsing the lane graph's per-block detail into instructions a
+ * driver would actually say out loud.
+ */
+describe("gps route legs and manoeuvres", () => {
+  /** An avenue split into per-block lanes, the way buildNycGrid emits them. */
+  const blocks = (
+    roadId: string,
+    from: GpsPoint,
+    step: GpsPoint,
+    count: number,
+    successors: (index: number) => readonly string[],
+  ): GpsLane[] =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `${roadId}-${index}`,
+      roadId,
+      centerline: [
+        { x: from.x + step.x * index, z: from.z + step.z * index },
+        { x: from.x + step.x * (index + 1), z: from.z + step.z * (index + 1) },
+      ],
+      successors: successors(index),
+    }));
+
+  it("collapses a street's per-block lanes into one leg", () => {
+    // Eight blocks up one avenue is one instruction, not eight.
+    const avenue = blocks("ave", { x: 0, z: 0 }, { x: 0, z: 100 }, 8, (index) =>
+      index < 7 ? [`ave-${index + 1}`] : [],
+    );
+    const route = findGpsRoute(
+      buildGpsGraph(avenue),
+      { x: 0, z: 10 },
+      HEADING_NORTH,
+      { x: 0, z: 780 },
+    );
+    expect(route.points.length).toBeGreaterThan(1);
+    expect(route.legs).toHaveLength(1);
+    expect(route.legs[0].roadId).toBe("ave");
+    // Only the arrival is announced — no "continue straight" every block.
+    expect(route.manoeuvres.map((m) => m.kind)).toEqual(["arrive"]);
+  });
+
+  it("classifies a right turn onto the street being joined", () => {
+    const corner: readonly GpsLane[] = [
+      { id: "ave-0", roadId: "ave", centerline: [{ x: 0, z: 0 }, { x: 0, z: 200 }], successors: ["cross-0"] },
+      { id: "cross-0", roadId: "cross", centerline: [{ x: 0, z: 200 }, { x: 200, z: 200 }], successors: [] },
+    ];
+    const route = findGpsRoute(
+      buildGpsGraph(corner),
+      { x: 0, z: 10 },
+      HEADING_NORTH,
+      { x: 190, z: 200 },
+    );
+    expect(route.legs.map((leg) => leg.roadId)).toEqual(["ave", "cross"]);
+    const turn = route.manoeuvres[0];
+    // Driving north then turning to run east is a right turn onto "cross".
+    expect(turn.kind).toBe("right");
+    expect(turn.ontoRoadId).toBe("cross");
+    expect(turn.turnRad).toBeCloseTo(Math.PI / 2, 3);
+    expect(turn.point.x).toBeCloseTo(0, 3);
+    expect(turn.point.z).toBeCloseTo(200, 3);
+    expect(route.manoeuvres.at(-1)?.kind).toBe("arrive");
+  });
+
+  it("classifies a left turn as the mirror of a right one", () => {
+    const corner: readonly GpsLane[] = [
+      { id: "ave-0", roadId: "ave", centerline: [{ x: 0, z: 0 }, { x: 0, z: 200 }], successors: ["cross-0"] },
+      { id: "cross-0", roadId: "cross", centerline: [{ x: 0, z: 200 }, { x: -200, z: 200 }], successors: [] },
+    ];
+    const route = findGpsRoute(
+      buildGpsGraph(corner),
+      { x: 0, z: 10 },
+      HEADING_NORTH,
+      { x: -190, z: 200 },
+    );
+    expect(route.manoeuvres[0].kind).toBe("left");
+    expect(route.manoeuvres[0].turnRad).toBeCloseTo(-Math.PI / 2, 3);
+  });
+
+  it("does not call a gentle kink a turn", () => {
+    // Two lanes of one street meeting at 10 degrees is a bend, not an
+    // instruction — and they share a road id anyway, so it is one leg.
+    const bend: readonly GpsLane[] = [
+      { id: "a", roadId: "road", centerline: [{ x: 0, z: 0 }, { x: 0, z: 200 }], successors: ["b"] },
+      { id: "b", roadId: "road", centerline: [{ x: 0, z: 200 }, { x: 35, z: 400 }], successors: [] },
+    ];
+    const route = findGpsRoute(
+      buildGpsGraph(bend),
+      { x: 0, z: 10 },
+      HEADING_NORTH,
+      { x: 34, z: 395 },
+    );
+    expect(route.legs).toHaveLength(1);
+    expect(route.manoeuvres.map((m) => m.kind)).toEqual(["arrive"]);
+  });
+
+  it("collapses a roundabout into one manoeuvre", () => {
+    // Its lanes all carry one road id — as MK's uk-roundabout really does — so
+    // merging by road turns four 90-degree hops into a single instruction
+    // rather than "turn right" four times.
+    const island: readonly GpsLane[] = [
+      { id: "in", roadId: "approach", centerline: [{ x: -100, z: 0 }, { x: -20, z: 0 }], successors: ["rb-n"] },
+      { id: "rb-n", roadId: "circle", centerline: [{ x: -20, z: 0 }, { x: 0, z: 20 }], successors: ["rb-e"] },
+      { id: "rb-e", roadId: "circle", centerline: [{ x: 0, z: 20 }, { x: 20, z: 0 }], successors: ["rb-s"] },
+      { id: "rb-s", roadId: "circle", centerline: [{ x: 20, z: 0 }, { x: 0, z: -20 }], successors: ["out"] },
+      { id: "out", roadId: "exit", centerline: [{ x: 0, z: -20 }, { x: 0, z: -120 }], successors: [] },
+    ];
+    const route = findGpsRoute(
+      buildGpsGraph(island),
+      { x: -90, z: 0 },
+      HEADING_EAST,
+      { x: 0, z: -110 },
+    );
+    expect(route.legs.map((leg) => leg.roadId)).toEqual([
+      "approach",
+      "circle",
+      "exit",
+    ]);
+    expect(route.manoeuvres).toHaveLength(3);
+    expect(route.manoeuvres.at(-1)?.kind).toBe("arrive");
+  });
+
+  it("measures legs on real geometry, not the simplified line", () => {
+    // simplify() drops collinear points, so legs must not be derivable from
+    // the drawn points — this pins that they are measured independently.
+    const avenue = blocks("ave", { x: 0, z: 0 }, { x: 0, z: 100 }, 6, (index) =>
+      index < 5 ? [`ave-${index + 1}`] : [],
+    );
+    const route = findGpsRoute(
+      buildGpsGraph(avenue),
+      { x: 0, z: 0 },
+      HEADING_NORTH,
+      { x: 0, z: 600 },
+    );
+    // A 600 m straight collapses to two drawn points but still measures 600 m.
+    expect(route.points).toHaveLength(2);
+    expect(route.legs[0].lengthM).toBeCloseTo(600, 3);
+    expect(route.legs[0].alongM).toBe(0);
+  });
+
+  it("counts down to the next manoeuvre and hands over once it is passed", () => {
+    const corner: readonly GpsLane[] = [
+      { id: "ave-0", roadId: "ave", centerline: [{ x: 0, z: 0 }, { x: 0, z: 200 }], successors: ["cross-0"] },
+      { id: "cross-0", roadId: "cross", centerline: [{ x: 0, z: 200 }, { x: 200, z: 200 }], successors: [] },
+    ];
+    const route = findGpsRoute(
+      buildGpsGraph(corner),
+      { x: 0, z: 0 },
+      HEADING_NORTH,
+      { x: 200, z: 200 },
+    );
+    // Well short of the corner: the turn is next, 150 m out.
+    const early = routeProgress(route, 0, 50);
+    expect(early.next?.kind).toBe("right");
+    expect(early.distanceToNextM).toBeCloseTo(150, 0);
+    expect(early.remainingM).toBeCloseTo(350, 0);
+    expect(early.deviationM).toBeCloseTo(0, 6);
+    // Round the corner and onto the new street: the arrival takes over.
+    const late = routeProgress(route, 100, 200);
+    expect(late.next?.kind).toBe("arrive");
+    expect(late.distanceToNextM).toBeCloseTo(100, 0);
+  });
+
+  it("keeps the turn as next while the car is still swinging through it", () => {
+    // Without slack the banner flips to the following instruction mid-corner.
+    const corner: readonly GpsLane[] = [
+      { id: "ave-0", roadId: "ave", centerline: [{ x: 0, z: 0 }, { x: 0, z: 200 }], successors: ["cross-0"] },
+      { id: "cross-0", roadId: "cross", centerline: [{ x: 0, z: 200 }, { x: 200, z: 200 }], successors: [] },
+    ];
+    const route = findGpsRoute(
+      buildGpsGraph(corner),
+      { x: 0, z: 0 },
+      HEADING_NORTH,
+      { x: 200, z: 200 },
+    );
+    expect(routeProgress(route, 4, 200).next?.kind).toBe("right");
   });
 });
