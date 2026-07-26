@@ -169,6 +169,7 @@ import {
 } from "./audio/audioMath";
 import {
   authoredSignalAspectAt,
+  trafficCameraControlIds,
   type AuthoredSignalAspect,
   type AuthoredSignalStyle,
 } from "./trafficSignals";
@@ -1096,6 +1097,14 @@ export interface GameRuntimeEvent {
   ruleCode?: string;
   penalty?: number;
   evidence?: Readonly<Record<string, string | number | boolean>>;
+  /**
+   * On a `fine`, who wrote it. A patrol means a traffic stop, and the money
+   * moves on that scene's `cite` step; a camera has nobody to stage, so the app
+   * debits where it stands. Deliberately its own field rather than a key inside
+   * `evidence`, which is what the simulation measured about the driving — who
+   * happened to be watching is not.
+   */
+  issuedBy?: "patrol" | "camera";
 }
 
 /**
@@ -1763,6 +1772,17 @@ type NpcPathSegment = NpcPathSegmentData;
 
 /** How long a patrol strobes after clocking a violation (~6s at 60 Hz). */
 const PATROL_BEACON_TICKS = 360;
+
+/**
+ * How close a camera has to be to book you for speed.
+ *
+ * Only speeding needs this — a red light names the light it was run, so that
+ * camera is resolved by id. Kept near the junction it stands on rather than
+ * generous, because the fiction is passing under the camera, not being
+ * somewhere in its half of the neighbourhood; New York's blocks run 240 m
+ * apart, so 30 m is comfortably one junction's worth.
+ */
+const TRAFFIC_CAMERA_SPEED_RADIUS_M = 30;
 
 interface NpcVehicle {
   node: TransformNode;
@@ -3776,6 +3796,17 @@ class BabylonGameSession {
   private signalGreenMaterial: StandardMaterial | null = null;
   private readonly authoredSignalHeads: AuthoredSignalHeadVisual[] = [];
   private readonly railwayCrossingVisuals: RailwayCrossingVisual[] = [];
+  /**
+   * The enforcement cameras, resolved once from the map's signal controls when
+   * the scene is built — never per frame, and never from the render tree.
+   *
+   * A red light names the light it was run (`evidence.trafficLightId`, which is
+   * the approach id), so that one is answered exactly rather than by proximity:
+   * a camera tickets the junction it watches and no other. Speeding names no
+   * signal at all, so it falls back to the positions.
+   */
+  private readonly trafficCameraControlIdByLightId = new Map<string, string>();
+  private readonly trafficCameraPoints: GameCanvasPoint[] = [];
   private readonly disposers: Array<() => void> = [];
   private callbacks: SessionCallbacks;
   private options: SessionOptions;
@@ -6214,6 +6245,37 @@ class BabylonGameSession {
   }
 
   /**
+   * Whether an enforcement camera saw this violation.
+   *
+   * Only the two a camera can actually establish on its own. A fixed lens
+   * cannot tell a wrong-way driver from one who has just cleared a turn, nor
+   * whose fault a crash was, which is precisely why those stay a patrol's job —
+   * and keeping collisions out is also what makes it impossible for a camera
+   * and the unconditional pedestrian-strike fine to charge for the same moment.
+   *
+   * Speeding is the only one that needs a radius, because its evidence names no
+   * signal. It runs at most once per the core's 8s cooldown on the rule, over
+   * the sixteen or so points in a city, so it is nowhere near a hot path.
+   */
+  private trafficCameraWitnesses(event: SimulationRuleEvent): boolean {
+    if (event.code === "red_light") {
+      const lightId = event.evidence?.trafficLightId;
+      return (
+        typeof lightId === "string" &&
+        this.trafficCameraControlIdByLightId.has(lightId)
+      );
+    }
+    if (event.code === "speeding") {
+      const { x, z } = this.playerState;
+      return this.trafficCameraPoints.some(
+        (point) =>
+          Math.hypot(point.x - x, point.z - z) <= TRAFFIC_CAMERA_SPEED_RADIUS_M,
+      );
+    }
+    return false;
+  }
+
+  /**
    * Places the low-poly building glb registered under `modelKey` at (x, z),
    * facing the road via the lane `heading` + the model's yaw offset. Returns
    * false when the key has no registered model or its glb has not preloaded,
@@ -7343,6 +7405,18 @@ class BabylonGameSession {
           this.emit("fine", "A patrol clocked the violation.", "warning", {
             ruleCode: event.code,
             evidence: event.evidence,
+            issuedBy: "patrol",
+          });
+        } else if (this.trafficCameraWitnesses(event)) {
+          // `else`, not a second `if`: one violation can be answered once. An
+          // officer on the scene outranks the camera above them because the
+          // stop is the better moment, and this is what makes being charged
+          // twice for one offence structurally impossible rather than a matter
+          // of two debounce clocks agreeing.
+          this.emit("fine", "A traffic camera caught the violation.", "warning", {
+            ruleCode: event.code,
+            evidence: event.evidence,
+            issuedBy: "camera",
           });
         }
       }
@@ -8521,7 +8595,21 @@ class BabylonGameSession {
     this.signalRedMaterial = redLamp;
     this.signalAmberMaterial = amberLamp;
     this.signalGreenMaterial = greenLamp;
+    const cameraControlIds = trafficCameraControlIds(
+      mapPack.laneGraph.controls
+        .filter((control) => control.type === "signal")
+        .map((control) => control.id),
+    );
     for (const control of mapPack.laneGraph.controls) {
+      if (cameraControlIds.has(control.id)) {
+        this.trafficCameraPoints.push(control.position);
+        // The adapter names each light after its approach — `light.id` and
+        // `stopLine.trafficLightId` are both `approach.id` — so this is the
+        // same key the red-light evidence arrives under.
+        for (const approach of control.approaches ?? []) {
+          this.trafficCameraControlIdByLightId.set(approach.id, control.id);
+        }
+      }
       const logicalHeading = degreesToRadians(control.headingDeg);
       const offset = mapPack.geometry.roadWidth / 2 + 1.25;
       const inferredPosition = {
@@ -12727,7 +12815,7 @@ class BabylonGameSession {
     type: GameRuntimeEvent["type"],
     message: string,
     severity: GameRuntimeEvent["severity"] = "info",
-    rule?: Pick<GameRuntimeEvent, "ruleCode" | "penalty" | "evidence">,
+    rule?: Pick<GameRuntimeEvent, "ruleCode" | "penalty" | "evidence" | "issuedBy">,
   ) {
     this.callbacks.onEvent?.({
       type,
