@@ -11,12 +11,14 @@ import {
   DirectionalLight,
   DynamicTexture,
   Engine,
+  Frustum,
   HemisphericLight,
   ImageProcessingConfiguration,
   Matrix,
   Mesh,
   MeshBuilder,
   ParticleSystem,
+  Plane,
   Quaternion,
   Scene,
   ShadowGenerator,
@@ -3527,6 +3529,19 @@ class BabylonGameSession {
   private crowdRenderer: CrowdRenderer | null = null;
   private crowdDirty = false;
   private readonly crowdProbePoint = new Vector3();
+  /** The gameplay camera's frustum for the crowd probes, refreshed each
+   * fixed step. scene.frustumPlanes is unusable here: it holds whichever
+   * camera rendered last, and in first-person that is the rear-view mirror —
+   * a probe facing backward calls "hidden" exactly what is dead ahead. */
+  private readonly crowdFrustumPlanes = [
+    new Plane(0, 0, 0, 0),
+    new Plane(0, 0, 0, 0),
+    new Plane(0, 0, 0, 0),
+    new Plane(0, 0, 0, 0),
+    new Plane(0, 0, 0, 0),
+    new Plane(0, 0, 0, 0),
+  ];
+  private readonly crowdFrustumMatrix = new Matrix();
   /** Cached per-map pavement graph; null once known to be unavailable. */
   private pavementGraph: PavementGraph | null | undefined;
   /** The sidewalk band the graph was built with; drives the crowd's scatter. */
@@ -3871,6 +3886,8 @@ class BabylonGameSession {
     this.firstCamera.maxZ = this.cameraFarPlaneM;
     this.rearCamera.maxZ = this.cameraFarPlaneM;
     this.snapChaseCameraToPose();
+    // Sane probe planes before the first fixed step ever asks.
+    this.refreshCrowdFrustum();
 
     this.createEffectsPipeline();
     this.setCameraMode(this.cameraMode, false);
@@ -4450,17 +4467,25 @@ class BabylonGameSession {
     this.crowdRenderer = renderer;
   }
 
-  /** Whether a disc on the ground is inside the camera frustum. One frame
-   * stale after a camera cut; the bubble's radius condition covers that. */
+  /** Whether a disc on the ground is inside the gameplay camera's frustum.
+   * One frame stale after a camera cut; the bubble's radius condition covers
+   * that. See crowdFrustumPlanes for why scene.frustumPlanes won't do. */
   private readonly crowdVisibility = (x: number, z: number, radiusM: number): boolean => {
-    const planes = this.scene.frustumPlanes;
-    if (!planes) return true;
     this.crowdProbePoint.set(x, 1, z);
-    for (const plane of planes) {
+    for (const plane of this.crowdFrustumPlanes) {
       if (plane.dotCoordinate(this.crowdProbePoint) < -radiusM) return false;
     }
     return true;
   };
+
+  private refreshCrowdFrustum(): void {
+    const camera =
+      this.cameraMode === "first" ? this.firstCamera : this.thirdCamera;
+    camera
+      .getViewMatrix()
+      .multiplyToRef(camera.getProjectionMatrix(), this.crowdFrustumMatrix);
+    Frustum.GetPlanesToRef(this.crowdFrustumMatrix, this.crowdFrustumPlanes);
+  }
 
   private stepAmbientCrowd(dt: number) {
     if (!this.crowdSim || !this.crowdRenderer) return;
@@ -5421,6 +5446,7 @@ class BabylonGameSession {
     if (events.length === 0) this.publishSimulationCoachMessage(snapshot);
     mark = performance.now();
     this.animatePedestrians(dt);
+    if (this.crowdSim || this.railRoadUsers.length) this.refreshCrowdFrustum();
     this.syncRailRoadUsers(dt);
     this.stepAmbientCrowd(dt);
     this.updateDownedRoadUsers();
