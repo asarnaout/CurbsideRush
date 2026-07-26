@@ -158,6 +158,108 @@ describe("road markings read the way a local driver expects", () => {
   });
 });
 
+/**
+ * A road posts one limit, chosen from what the road is. The number lives once
+ * per road — on `NycRoadSpec` for the generated grid, in a per-city table for
+ * the rest — and the lane builders stamp it onto that road's lanes, so these
+ * are the invariants that catch the table and the asphalt disagreeing.
+ */
+describe("speed limits read the way a local driver expects", () => {
+  /** What each country's signs actually say. A figure outside its own list is
+   * a typo, not a design choice: no country posts 33 mph or 45 km/h. */
+  const POSTED_FIGURES: Readonly<Record<string, readonly number[]>> = {
+    mph: [20, 25, 30, 40, 50, 60, 70],
+    kmh: [20, 30, 40, 50, 60, 70, 80],
+  };
+
+  const limitsOf = (pack: MapPack): Map<string, number> => {
+    const byRoad = new Map<string, number>();
+    for (const lane of pack.laneGraph.lanes) byRoad.set(lane.roadId, lane.speedLimit);
+    return byRoad;
+  };
+
+  it("posts a limit on every road, including ones no lane happens to mention", () => {
+    // Totality over *surfaces*. `streetNames.test.ts` walks lane roadIds, so a
+    // surface carrying no lanes slips through it — this is the check that a
+    // road cannot exist unposted.
+    for (const pack of MAP_PACKS) {
+      const posted = limitsOf(pack);
+      for (const { surface } of surfacesOf(pack)) {
+        const limit = posted.get(surface.id);
+        expect(limit, `${pack.id}/${surface.id} has no posted limit`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("never lets a street disagree with itself", () => {
+    // The reason neither `lane` nor `laneTrue` takes a limit any more: authored
+    // per lane, one block of a street quietly ends up posted differently from
+    // the next and nothing anywhere says so.
+    for (const pack of MAP_PACKS) {
+      for (const { surface, lanes } of surfacesOf(pack)) {
+        const distinct = [...new Set(lanes.map((lane) => lane.speedLimit))];
+        expect(distinct, `${pack.id}/${surface.id}`).toHaveLength(
+          lanes.length ? 1 : 0,
+        );
+      }
+    }
+  });
+
+  it("posts only figures the host country actually signs", () => {
+    for (const pack of MAP_PACKS) {
+      const country = getCountryProfile(pack.countryIds[0]);
+      const allowed = POSTED_FIGURES[country.speedUnit];
+      for (const [roadId, limit] of limitsOf(pack)) {
+        expect(
+          allowed,
+          `${pack.id}/${roadId} posts ${limit} ${country.speedUnit}`,
+        ).toContain(limit);
+      }
+    }
+  });
+
+  it("never posts a roundabout or a shared space above an ordinary road", () => {
+    // Both are places you slow for — a ring with traffic joining it, or 5.8 m of
+    // carriageway with pedestrians on it — so neither may out-rank any ordinary
+    // road on its own map. Stated as \"not above\" rather than \"below\" because a
+    // uniform map is legitimate: every road in Kensington and Chelsea is 20.
+    for (const pack of MAP_PACKS) {
+      const posted = limitsOf(pack);
+      const ordinary = surfacesOf(pack)
+        .filter(({ surface }) => surface.surfaceType === "standard")
+        .flatMap(({ surface }) => posted.get(surface.id) ?? []);
+      if (!ordinary.length) continue;
+      const slowestOrdinary = Math.min(...ordinary);
+      for (const { surface } of surfacesOf(pack)) {
+        if (surface.surfaceType === "standard") continue;
+        const limit = posted.get(surface.id);
+        if (limit === undefined) continue;
+        expect(
+          limit,
+          `${pack.id}/${surface.id} is a ${surface.surfaceType} posted above an ordinary road`,
+        ).toBeLessThanOrEqual(slowestOrdinary);
+      }
+    }
+  });
+
+  it("posts NYC's unpainted side streets below the streets that carry the traffic", () => {
+    // A 9 m single-lane one-way with no paint on it at all is the residential
+    // back street; the avenues and the wide two-way crosstown routes are what
+    // the neighbourhood drives through. The rule is stated off the paint rather
+    // than a road-id list so it holds for streets added later.
+    const posted = limitsOf(nyc);
+    const bare: number[] = [];
+    const painted: number[] = [];
+    for (const { surface, lanes } of surfacesOf(nyc)) {
+      if (!lanes.length) continue;
+      (surface.markings.length ? painted : bare).push(posted.get(surface.id)!);
+    }
+    expect(bare.length).toBeGreaterThanOrEqual(6);
+    expect(painted.length).toBeGreaterThanOrEqual(6);
+    expect(Math.max(...bare)).toBeLessThan(Math.max(...painted));
+  });
+});
+
 describe("NYC junctions connect the way the asphalt suggests", () => {
   const lanes = nyc.laneGraph.lanes;
   const byId = new Map(lanes.map((lane) => [lane.id, lane]));

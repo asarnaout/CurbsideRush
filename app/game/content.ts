@@ -1113,9 +1113,11 @@ const MK_ROAD_SPEED_LIMITS = {
   "uk-west-approach": 40,
   "uk-east-link": 40,
   "uk-westgrid": 40,
-  "uk-westloop": 40,
   "uk-oldbrook-loop": 30,
+  // Both rings, and both tighter than anything else on the map: a 12 m
+  // radius is not driveable at the grid road's figure.
   "uk-roundabout": 30,
+  "uk-westloop": 30,
 } as const satisfies Record<string, number>;
 
 /** France signs 50 in town and 70 on the open approaches out of it. */
@@ -1128,8 +1130,9 @@ const CALAIS_ROAD_SPEED_LIMITS = {
   "fr-east-south-road": 50,
   "fr-north-west-road": 50,
   "fr-westgrid": 50,
-  "fr-westloop": 50,
+  // Same as Milton Keynes: the turning loop is a 10 m ring, not a road.
   "fr-roundabout": 30,
+  "fr-westloop": 30,
 } as const satisfies Record<string, number>;
 
 /**
