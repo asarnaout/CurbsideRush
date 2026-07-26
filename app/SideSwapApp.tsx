@@ -96,7 +96,6 @@ import {
   buildCareerDayLesson,
   buildFreeDriveLesson,
 } from "./game/freeDriveLesson";
-import { resolveSimulationLaneAnchor } from "./game/simulationAdapter";
 import {
   FUEL_PUMP_REACH_M,
   distanceToNearestPump,
@@ -137,7 +136,8 @@ import {
   pickGigKindAvoidingStreak,
   selectGigPools,
 } from "./game/gigs";
-import type { Gig, GigKind, GigVenuePosition } from "./game/gigs";
+import type { Gig, GigKind } from "./game/gigs";
+import { resolveGigAddresses, resolveGigVenues } from "./game/gigPools";
 import {
   createDispatch,
   foodSpeedBonus,
@@ -151,7 +151,6 @@ import {
   surgeWindowAt,
 } from "./game/dispatch";
 import type { DispatchState } from "./game/dispatch";
-import { streetAddressesForMap } from "./game/streetAddresses";
 import type {
   CameraMode,
   CountryProfile,
@@ -334,37 +333,6 @@ const assistanceFromProgress = (
   reducedMotion: progress.accessibility.reducedMotion,
 });
 
-function resolveGigVenues(
-  map: ReturnType<typeof getMapPack>,
-): GigVenuePosition[] {
-  return (map.geometry.gigVenues ?? []).flatMap((venue) => {
-    const pose = resolveSimulationLaneAnchor(map.laneGraph.lanes, venue.anchor);
-    return pose
-      ? [
-          {
-            id: venue.id,
-            name: venue.name,
-            kind: venue.kind,
-            x: pose.x,
-            z: pose.z,
-          },
-        ]
-      : [];
-  });
-}
-
-/** The map's generated street addresses, in gig-pool shape. */
-function resolveGigAddresses(
-  map: ReturnType<typeof getMapPack>,
-): GigVenuePosition[] {
-  return streetAddressesForMap(map).map((address) => ({
-    id: address.id,
-    name: address.name,
-    kind: address.kind,
-    x: address.x,
-    z: address.z,
-  }));
-}
 
 /**
  * Builds the next gig for a drive. The kind (delivery vs. passenger) is a

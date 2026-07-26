@@ -18,7 +18,22 @@ import {
   DAY_LENGTH_MS,
   type CareerSliceV2,
 } from "../app/game/career";
-import { getDestinationProfile } from "../app/game/content";
+import {
+  getCountryProfile,
+  getDestinationProfile,
+  getFreeDrive,
+  getMapPack,
+  GIG_FARE_BY_COUNTRY,
+  PASSENGER_FARE_BY_COUNTRY,
+} from "../app/game/content";
+import { careerCityIndex, careerFare, careerGigSeedBase } from "../app/game/career";
+import { resolveGigAddresses, resolveGigVenues } from "../app/game/gigPools";
+import {
+  generateGigFromPools,
+  pickGigKindAvoidingStreak,
+  selectGigPools,
+} from "../app/game/gigs";
+import type { Gig } from "../app/game/gigs";
 import {
   createDefaultProgress,
   PROGRESS_STORAGE_KEY,
@@ -28,6 +43,8 @@ import SideSwapApp from "../app/SideSwapApp";
 
 /** Sim-clock the mock canvas advances, so a test can run time forward. */
 const mockClock = { ms: 0 };
+/** Where `mock-hud-at-stop` parks the car — a test sets it to the gig's stop. */
+const mockStop = { x: 0, z: 0 };
 
 // The career loop is driven end-to-end through the mock canvas: buttons fire
 // canned HUD snapshots (the sim clock) and runtime events (a fine, exit) so
@@ -47,7 +64,7 @@ vi.mock("next/dynamic", () => ({
       onEvent?: (event: Record<string, unknown>) => void;
       onExit?: () => void;
     }) {
-      const snapshot = (simElapsedMs: number, playerX = 0) => ({
+      const snapshot = (simElapsedMs: number, playerX = 0, playerZ = 0) => ({
         speed: 0,
         speedUnit: "mph",
         gear: "D",
@@ -65,7 +82,7 @@ vi.mock("next/dynamic", () => ({
         checkpoint: "",
         trafficSide: "left",
         playerX,
-        playerZ: 0,
+        playerZ,
         heading: 0,
         simElapsedMs,
       });
@@ -105,6 +122,18 @@ vi.mock("next/dynamic", () => ({
             onClick={() => props.onHudUpdate?.(snapshot(20_000))}
           >
             hud past offer window
+          </button>
+          <button
+            type="button"
+            data-testid="mock-hud-at-stop"
+            onClick={() => {
+              mockClock.ms += 1_000;
+              props.onHudUpdate?.(
+                snapshot(mockClock.ms, mockStop.x, mockStop.z),
+              );
+            }}
+          >
+            drive to the stop
           </button>
           <button
             type="button"
@@ -256,6 +285,8 @@ const desktopMatchMedia = (query: string): MediaQueryList =>
 
 beforeEach(() => {
   mockClock.ms = 0;
+  mockStop.x = 0;
+  mockStop.z = 0;
   installLocalStorage();
   window.localStorage.clear();
   Object.defineProperty(window, "innerWidth", {
@@ -983,5 +1014,150 @@ describe("dispatch: offers, waits and the queue", () => {
     // With both hands full, dispatch goes quiet rather than stacking a third.
     for (let second = 0; second < 90; second += 1) tick();
     expect(screen.queryByTestId("gig-offer")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The gig the game will offer first on a given career day.
+ *
+ * Rebuilt from the very functions the app calls, so the test knows where the
+ * stop is without the app having to expose it. If this ever diverges from what
+ * the player is shown, the assertions below stop matching and say so.
+ */
+function firstOfferOf(destinationId: "us-nyc" | "uk-london", careerSeed: number): Gig {
+  const profile = getDestinationProfile(destinationId);
+  const map = getMapPack(getFreeDrive(profile.freeDriveId).mapId);
+  const country = getCountryProfile(profile.countryId);
+  const seed = careerGigSeedBase(careerSeed, 1, careerCityIndex(destinationId));
+  const kind = pickGigKindAvoidingStreak(seed, []);
+  const { pickups, dropoffs } = selectGigPools(
+    resolveGigVenues(map),
+    resolveGigAddresses(map),
+    kind,
+  );
+  const fare =
+    kind === "passenger"
+      ? PASSENGER_FARE_BY_COUNTRY[country.id]
+      : GIG_FARE_BY_COUNTRY[country.id];
+  const gig = generateGigFromPools(
+    pickups,
+    dropoffs,
+    fare,
+    country.currency.code,
+    seed,
+    kind,
+  );
+  if (!gig) throw new Error("no gig generated for the seeded day");
+  return gig;
+}
+
+describe("dispatch: a job from offer to payout", () => {
+  /** The seeded career's first job, and the day started on the free bicycle. */
+  const startSeededDay = async (careerSeed: number) => {
+    seedProgressWithCareer(careerIn("us-nyc", careerSeed, { cash: 100 }));
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    // The bicycle is free and deliveries-only, so rent never muddies the sums.
+    fireEvent.click(screen.getByTestId("garage-vehicle-bicycle"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+  };
+
+  const driveTo = (point: { x: number; z: number }) => {
+    mockStop.x = point.x;
+    mockStop.z = point.z;
+    fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+  };
+
+  it("runs a delivery from offer to money in the bank", async () => {
+    const CAREER_SEED = 4_242;
+    const expected = firstOfferOf("us-nyc", CAREER_SEED);
+    // The bicycle only takes deliveries, so this is the run being tested.
+    expect(expected.kind).toBe("delivery");
+
+    await startSeededDay(CAREER_SEED);
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    expect(screen.getByTestId("gig-offer")).toHaveTextContent(
+      expected.pickup.name,
+    );
+    fireEvent.click(screen.getByText("ACCEPT (F)"));
+
+    const scene = screen.getByLabelText("Mock driving scene");
+    expect(scene).toHaveAttribute("data-cutscene-kind", "none");
+
+    // Pulling up at the pickup stages the errand; the job is only picked up
+    // when its scene finishes.
+    driveTo(expected.pickup);
+    expect(scene).toHaveAttribute("data-cutscene-kind", "food_pickup");
+    expect(screen.getByTestId("drive-status-card")).toHaveTextContent("PICK UP");
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    expect(screen.getByTestId("drive-status-card")).toHaveTextContent("DELIVER");
+
+    const before = screen.getByTestId("day-cash").textContent ?? "";
+    driveTo(expected.dropoff);
+    expect(scene).toHaveAttribute("data-cutscene-kind", "food_dropoff");
+    // Still unpaid: the money moves on the scene's done event, not on arrival.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent(before);
+
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    const { net } = careerFare(expected.reward, "delivery", {
+      fareFactors: { delivery: 1, passenger: 1 },
+    } as Parameters<typeof careerFare>[2]);
+    expect(screen.getByTestId("day-cash")).not.toHaveTextContent(before);
+    // A food tip is quoted up front, so it always lands on top of the fare.
+    expect(screen.getByTestId("dispatch-toast")).toHaveTextContent(/TIP \+/);
+    expect(net).toBeGreaterThan(0);
+
+    // Nothing queued behind it, so the driver goes back to waiting.
+    expect(screen.getByTestId("dispatch-idle")).toBeVisible();
+  });
+
+  it("does not pay the same drop-off twice", async () => {
+    const CAREER_SEED = 4_242;
+    const expected = firstOfferOf("us-nyc", CAREER_SEED);
+    await startSeededDay(CAREER_SEED);
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    fireEvent.click(screen.getByText("ACCEPT (F)"));
+
+    driveTo(expected.pickup);
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    driveTo(expected.dropoff);
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    const paid = screen.getByTestId("day-cash").textContent ?? "";
+
+    // A stray repeat of the scene's done event must not credit it again. The
+    // guard that holds here is the cleared job rather than paidGigRef: the
+    // drop-off leaves nothing carrying, so there is nothing left to pay for.
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    expect(screen.getByTestId("day-cash")).toHaveTextContent(paid);
+  });
+
+  it("hands the queued job over the moment the current one lands", async () => {
+    const CAREER_SEED = 4_242;
+    const expected = firstOfferOf("us-nyc", CAREER_SEED);
+    await startSeededDay(CAREER_SEED);
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    fireEvent.click(screen.getByText("ACCEPT (F)"));
+
+    driveTo(expected.pickup);
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+
+    // Take a second job while carrying the first.
+    for (let second = 0; second < 70 && !screen.queryByTestId("gig-offer"); second += 1) {
+      fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    }
+    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    const queued = screen.getByTestId("queued-gig").textContent ?? "";
+    expect(queued).toContain("NEXT UP");
+
+    driveTo(expected.dropoff);
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+
+    // The queue is empty and the driver is straight onto the next pickup —
+    // no idle spell, because they had already lined one up.
+    expect(screen.queryByTestId("queued-gig")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dispatch-idle")).not.toBeInTheDocument();
+    expect(screen.getByTestId("drive-status-card")).toHaveTextContent("PICK UP");
   });
 });
