@@ -139,12 +139,18 @@ import {
 } from "./game/gigs";
 import type { Gig, GigKind, GigVenuePosition } from "./game/gigs";
 import {
+  createDispatch,
   foodSpeedBonus,
   gigParMs,
+  OFFER_WINDOW_MS,
   quotedTip,
+  resolveOffer,
   ridePromptness,
   rideTip,
+  stepDispatch,
+  surgeWindowAt,
 } from "./game/dispatch";
+import type { DispatchState } from "./game/dispatch";
 import { streetAddressesForMap } from "./game/streetAddresses";
 import type {
   CameraMode,
@@ -380,6 +386,7 @@ function nextGigFor(
   // Career vehicles gate what may be OFFERED: a bicycle courier is never shown
   // a rideshare request rather than being allowed to decline one.
   allowedKinds: readonly GigKind[] = ["delivery", "passenger"],
+  surgeMultiplier = 1,
 ): Gig | null {
   const venues = resolveGigVenues(map);
   const addresses = resolveGigAddresses(map);
@@ -396,6 +403,7 @@ function nextGigFor(
       country.currency.code,
       seed,
       kind,
+      surgeMultiplier,
     );
   };
   const drawn = pickGigKindAvoidingStreak(seed, recentKinds);
@@ -629,13 +637,40 @@ export default function SideSwapApp() {
   const [driveFuel, setDriveFuel] = useState(TANK_CAPACITY_L);
   const lastPoseRef = useRef<{ x: number; z: number } | null>(null);
   const [gig, setGig] = useState<Gig | null>(null);
-  const gigSeedRef = useRef(1);
-  // The kinds served so far this drive, newest last, capped to the streak
+  // The kinds offered so far this drive, newest last, capped to the streak
   // window. Threaded into nextGigFor so no drive opens on a long run of one
   // kind — NYC's trafficSeed otherwise hashes to eight deliveries before the
-  // first fare. Reset when a drive starts.
+  // first fare. Counted per *offer* rather than per gig served: a player who
+  // passes on four deliveries has still been shown four deliveries.
   const gigKindHistoryRef = useRef<GigKind[]>([]);
   const paidGigRef = useRef<string | null>(null);
+  // ── Dispatch ─────────────────────────────────────────────────────────────
+  // The schedule lives in a ref, not state: while the queue is full it re-arms
+  // on every snapshot, which as state would be a set-per-tick for nothing. What
+  // renders is state — the live offer with the moment it opened, the queued job
+  // and the drive clock the countdown is measured against.
+  const dispatchRef = useRef<DispatchState>(createDispatch(1));
+  const [offer, setOffer] = useState<{ gig: Gig; offeredAtMs: number } | null>(
+    null,
+  );
+  const offerRef = useRef<Gig | null>(null);
+  const [driveElapsedMs, setDriveElapsedMs] = useState(0);
+  const [queuedGig, setQueuedGig] = useState<Gig | null>(null);
+  const queuedGigRef = useRef<Gig | null>(null);
+  const [dispatchToast, setDispatchToast] = useState<{
+    text: string;
+    tone: "accept" | "pass" | "lost";
+  } | null>(null);
+  // Everything building an offer needs, parked where the `[]`-deps HUD
+  // callback can reach it — same reason `careerRunRef` exists.
+  const driveContextRef = useRef<{
+    map: ReturnType<typeof getMapPack>;
+    country: CountryProfile;
+    allowedKinds: readonly GigKind[];
+    surgeSeed: number;
+  } | null>(null);
+  /** Sim-clock ms since the drive began, folded across tow resets. */
+  const driveElapsedRef = useRef(0);
   const [fineToast, setFineToast] = useState<{
     amount: number;
     reason: string;
@@ -864,6 +899,60 @@ export default function SideSwapApp() {
     setGpsRoute(route);
   }, []);
 
+  /**
+   * Builds the gig an offer seed names, priced for whatever surge is running
+   * at the moment it is offered. The kind is recorded here rather than on
+   * acceptance: a player who passes four deliveries has still been shown four
+   * deliveries, and the anti-streak rule is about what they were shown.
+   */
+  const buildOffer = useCallback((seed: number, nowMs: number): Gig | null => {
+    const context = driveContextRef.current;
+    if (!context) return null;
+    const surge = surgeWindowAt(context.surgeSeed, nowMs);
+    const built = nextGigFor(
+      context.map,
+      context.country,
+      seed,
+      gigKindHistoryRef.current,
+      context.allowedKinds,
+      surge ? surge.multiplier : 1,
+    );
+    if (built) {
+      gigKindHistoryRef.current = [
+        ...gigKindHistoryRef.current,
+        built.kind,
+      ].slice(-MAX_SAME_KIND_STREAK);
+    }
+    return built;
+  }, []);
+
+  const stepDispatchNow = useCallback(
+    (nowMs: number) => {
+      if (!driveContextRef.current) return;
+      // Dispatch goes quiet only when both hands are full: a job in progress
+      // *and* one already queued behind it.
+      const busy = gigRef.current !== null && queuedGigRef.current !== null;
+      const step = stepDispatch(dispatchRef.current, nowMs, !busy);
+      dispatchRef.current = step.state;
+      if (step.event === "opened") {
+        const built = buildOffer(step.state.offerSeed, nowMs);
+        if (built) {
+          offerRef.current = built;
+          setOffer({ gig: built, offeredAtMs: nowMs });
+        } else {
+          // This map cannot produce a gig under the current constraints —
+          // close the offer at once rather than showing an empty card.
+          dispatchRef.current = resolveOffer(step.state, nowMs);
+        }
+      } else if (step.event === "expired") {
+        offerRef.current = null;
+        setOffer(null);
+        setDispatchToast({ text: "OFFER LOST", tone: "lost" });
+      }
+    },
+    [buildOffer],
+  );
+
   const handleHud = useCallback((snapshot: GameHudSnapshot) => {
     setHud(snapshot);
     const run = careerRunRef.current;
@@ -882,12 +971,18 @@ export default function SideSwapApp() {
     }
     lastPoseRef.current = { x: snapshot.playerX, z: snapshot.playerZ };
     updateGpsRoute(snapshot);
+    // A tow restarts the session's clock, so fold the old total in rather than
+    // letting elapsed time jump backwards. Hoisted out of the career branch:
+    // dispatch runs in free drive too, and both read the same clock.
+    if (snapshot.simElapsedMs < lastSimElapsedRef.current) {
+      dayElapsedBaseRef.current += lastSimElapsedRef.current;
+    }
+    lastSimElapsedRef.current = snapshot.simElapsedMs;
+    const elapsed = dayElapsedBaseRef.current + snapshot.simElapsedMs;
+    driveElapsedRef.current = elapsed;
+    setDriveElapsedMs(elapsed);
+    stepDispatchNow(elapsed);
     if (run && dayActiveRef.current) {
-      if (snapshot.simElapsedMs < lastSimElapsedRef.current) {
-        dayElapsedBaseRef.current += lastSimElapsedRef.current;
-      }
-      lastSimElapsedRef.current = snapshot.simElapsedMs;
-      const elapsed = dayElapsedBaseRef.current + snapshot.simElapsedMs;
       const remaining = Math.max(0, DAY_LENGTH_MS - elapsed);
       setDayRemainingMs(remaining);
       if (remaining <= 0) {
@@ -900,7 +995,88 @@ export default function SideSwapApp() {
         }
       }
     }
-  }, [updateGpsRoute]);
+  }, [updateGpsRoute, stepDispatchNow]);
+
+  /**
+   * Answers the live offer. Accepting takes the job now, or parks it behind the
+   * one in hand; passing costs nothing but the wait for the next one, which is
+   * deliberate — a hidden acceptance rate would punish the driver for the very
+   * choice the game just asked them to make.
+   */
+  const answerOffer = useCallback((accepted: boolean) => {
+    const current = offerRef.current;
+    if (!current) return;
+    dispatchRef.current = resolveOffer(dispatchRef.current, driveElapsedRef.current);
+    offerRef.current = null;
+    setOffer(null);
+    if (!accepted) {
+      setDispatchToast({ text: "PASSED", tone: "pass" });
+      return;
+    }
+    if (gigRef.current) {
+      queuedGigRef.current = current;
+      setQueuedGig(current);
+      setDispatchToast({ text: "ADDED TO QUEUE", tone: "accept" });
+    } else {
+      gigRef.current = current;
+      setGig(current);
+      setDispatchToast({ text: "JOB ACCEPTED", tone: "accept" });
+    }
+  }, []);
+
+  /** Hands the queued job over on a drop-off, or leaves the driver idle. */
+  const promoteQueuedGig = useCallback((): Gig | null => {
+    const promoted = queuedGigRef.current;
+    queuedGigRef.current = null;
+    setQueuedGig(null);
+    gigRef.current = promoted;
+    setGig(promoted);
+    return promoted;
+  }, []);
+
+  /** Clears every trace of the last drive's dispatch and arms the next. */
+  const resetDispatch = (baseSeed: number) => {
+    dispatchRef.current = createDispatch(baseSeed);
+    driveElapsedRef.current = 0;
+    dayElapsedBaseRef.current = 0;
+    lastSimElapsedRef.current = 0;
+    setDriveElapsedMs(0);
+    offerRef.current = null;
+    setOffer(null);
+    queuedGigRef.current = null;
+    setQueuedGig(null);
+    setDispatchToast(null);
+  };
+
+  // F takes the job, G passes on it. Q and E stay the turn indicators: an offer
+  // arrives while you are driving, which is exactly when you want to signal.
+  useEffect(() => {
+    if (view !== "driving") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || !offerRef.current) return;
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+      if (event.code === "KeyF") {
+        event.preventDefault();
+        answerOffer(true);
+      } else if (event.code === "KeyG") {
+        event.preventDefault();
+        answerOffer(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [view, answerOffer]);
+
+  useEffect(() => {
+    if (!dispatchToast) return;
+    const timer = window.setTimeout(() => setDispatchToast(null), 1700);
+    return () => window.clearTimeout(timer);
+  }, [dispatchToast]);
 
   // Arriving at a gig stop now means actually stopping there: inside the
   // arrival radius at walking pace. That starts the matching interaction
@@ -1165,28 +1341,10 @@ export default function SideSwapApp() {
                 gigsCompleted: dayLogRef.current.gigsCompleted + 1,
                 gigsOnTime: dayLogRef.current.gigsOnTime + (onTime ? 1 : 0),
               };
-              const careerCountry = getCountryProfile(run.city.countryId);
-              const careerMap = getMapPack(
-                getFreeDrive(
-                  getDestinationProfile(run.city.destinationId).freeDriveId,
-                ).mapId,
-              );
-              gigSeedRef.current += 1;
-              const nextGig = nextGigFor(
-                careerMap,
-                careerCountry,
-                gigSeedRef.current,
-                gigKindHistoryRef.current,
-                run.vehicle.allowedGigKinds,
-              );
-              if (nextGig) {
-                gigKindHistoryRef.current = [
-                  ...gigKindHistoryRef.current,
-                  nextGig.kind,
-                ].slice(-MAX_SAME_KIND_STREAK);
-              }
-              gigRef.current = nextGig;
-              setGig(nextGig);
+              // The next job is whatever was accepted while this one ran —
+              // nothing is conjured on completion any more. With an empty queue
+              // the driver goes idle until dispatch offers again.
+              promoteQueuedGig();
             } else if (!run) {
               setGig((existing) =>
                 existing && existing.state === "carrying"
@@ -1260,6 +1418,7 @@ export default function SideSwapApp() {
       beginCutscene,
       clearCutscene,
       chargeCareer,
+      promoteQueuedGig,
     ],
   );
 
@@ -1348,10 +1507,10 @@ export default function SideSwapApp() {
     }
   }, [destinationId, hydrated, progress.accessibility.reducedMotion]);
 
-  // Pay out a completed delivery and immediately offer the next one. Guarded by
-  // paidGigRef so re-renders can't double-credit the same gig. Free drive only:
-  // career gigs are paid synchronously in the cutscene done handler so a
-  // drop-off at the whistle lands before settlement.
+  // Pay out a completed delivery and hand over whatever was queued behind it.
+  // Guarded by paidGigRef so re-renders can't double-credit the same gig. Free
+  // drive only: career gigs are paid synchronously in the cutscene done handler
+  // so a drop-off at the whistle lands before settlement.
   useEffect(() => {
     if (careerRunRef.current) return;
     if (!gig || gig.state !== "delivered" || paidGigRef.current === gig.id) {
@@ -1364,21 +1523,8 @@ export default function SideSwapApp() {
     };
     setProgress(settled);
     saveProgress(settled);
-    gigSeedRef.current += 1;
-    const nextGig = nextGigFor(
-      runtimeMap,
-      driveCountry,
-      gigSeedRef.current,
-      gigKindHistoryRef.current,
-    );
-    if (nextGig) {
-      gigKindHistoryRef.current = [
-        ...gigKindHistoryRef.current,
-        nextGig.kind,
-      ].slice(-MAX_SAME_KIND_STREAK);
-    }
-    setGig(nextGig);
-  }, [gig, progress, driveCountry, runtimeMap]);
+    promoteQueuedGig();
+  }, [gig, progress, driveCountry, promoteQueuedGig]);
 
   const chooseDestination = (id: DestinationId) => {
     setDestinationId(id);
@@ -1426,19 +1572,19 @@ export default function SideSwapApp() {
     setDriveFuel(committedProgress.fuelByCountry[nextCountryId]);
     lastPoseRef.current = null;
     const nextFreeDrive = getFreeDrive(scenarioId);
-    gigSeedRef.current = nextFreeDrive.trafficSeed;
     gigKindHistoryRef.current = [];
     paidGigRef.current = null;
-    const firstGig = nextGigFor(
-      getMapPack(nextFreeDrive.mapId),
-      getCountryProfile(nextCountryId),
-      gigSeedRef.current,
-      gigKindHistoryRef.current,
-    );
-    if (firstGig) {
-      gigKindHistoryRef.current = [firstGig.kind];
-    }
-    setGig(firstGig);
+    // A drive opens with an offer waiting rather than a job assigned — the
+    // first HUD snapshot lands at t=0, which is when dispatch fires.
+    driveContextRef.current = {
+      map: getMapPack(nextFreeDrive.mapId),
+      country: getCountryProfile(nextCountryId),
+      allowedKinds: ["delivery", "passenger"],
+      surgeSeed: nextFreeDrive.trafficSeed,
+    };
+    resetDispatch(nextFreeDrive.trafficSeed);
+    gigRef.current = null;
+    setGig(null);
     setHud(null);
     setPaused(false);
     carConditionRef.current = FULL_CONDITION_PCT;
@@ -1597,25 +1743,24 @@ export default function SideSwapApp() {
     // Rentals come with a full tank, included in the rent; nothing persists.
     setDriveFuel(vehicle.tankL);
     lastPoseRef.current = null;
-    gigSeedRef.current = careerGigSeedBase(
+    const dayGigSeed = careerGigSeedBase(
       careerSlice.careerSeed,
       careerCity.day,
       careerCityIndex(careerCity.destinationId),
     );
     gigKindHistoryRef.current = [];
     paidGigRef.current = null;
-    const firstGig = nextGigFor(
-      getMapPack(getFreeDrive(destinationProfile.freeDriveId).mapId),
-      getCountryProfile(careerCity.countryId),
-      gigSeedRef.current,
-      gigKindHistoryRef.current,
-      vehicle.allowedGigKinds,
-    );
-    if (firstGig) {
-      gigKindHistoryRef.current = [firstGig.kind];
-    }
-    gigRef.current = firstGig;
-    setGig(firstGig);
+    driveContextRef.current = {
+      map: getMapPack(getFreeDrive(destinationProfile.freeDriveId).mapId),
+      country: getCountryProfile(careerCity.countryId),
+      // Career vehicles gate what may be OFFERED: a bicycle courier is never
+      // shown a rideshare request rather than being left to decline one.
+      allowedKinds: vehicle.allowedGigKinds,
+      surgeSeed: dayGigSeed,
+    };
+    resetDispatch(dayGigSeed);
+    gigRef.current = null;
+    setGig(null);
     carryingSinceRef.current = null;
     setCarryingSinceMs(null);
     setHud(null);
@@ -2182,6 +2327,186 @@ export default function SideSwapApp() {
             </span>
           </div>
         )}
+        {dispatchToast && (
+          <div
+            role="status"
+            data-testid="dispatch-toast"
+            style={{
+              position: "absolute",
+              top: "5.5rem",
+              right: hudInset.right,
+              padding: "0.55rem 1rem",
+              borderRadius: 14,
+              background: HUD_GLASS,
+              backdropFilter: "blur(14px)",
+              border: `1.5px solid ${
+                dispatchToast.tone === "accept"
+                  ? HUD_SAGE
+                  : dispatchToast.tone === "lost"
+                    ? HUD_CORAL
+                    : "rgba(244,239,222,.4)"
+              }`,
+              color:
+                dispatchToast.tone === "accept"
+                  ? HUD_SAGE
+                  : dispatchToast.tone === "lost"
+                    ? HUD_CORAL
+                    : "rgba(244,239,222,.7)",
+              font: `900 13px/1 ${HUD_SANS}`,
+              letterSpacing: ".18em",
+              zIndex: DRIVE_LAYER.toast,
+              pointerEvents: "none",
+            }}
+          >
+            {dispatchToast.text}
+          </div>
+        )}
+        {/*
+          The offer. Interactive, so it sits on the action layer rather than
+          the read-only HUD one — the status panel is `pointerEvents: "none"`
+          and an accept button could never live inside it.
+        */}
+        {offer && (
+          <div
+            data-testid="gig-offer"
+            style={{
+              position: "absolute",
+              top: "9.5rem",
+              right: hudInset.right,
+              width: 300,
+              padding: "14px 16px",
+              borderRadius: 18,
+              background: HUD_GLASS,
+              backdropFilter: "blur(16px)",
+              border: "1px solid rgba(255,255,255,.12)",
+              boxShadow: "0 24px 56px -26px rgba(0,0,0,.88)",
+              zIndex: DRIVE_LAYER.action,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                font: `800 11px/1 ${HUD_SANS}`,
+                letterSpacing: ".2em",
+                color: offer.gig.kind === "passenger" ? HUD_SAGE : HUD_GOLD,
+              }}
+            >
+              <span>
+                {offer.gig.kind === "passenger" ? "RIDESHARE" : "FOOD DELIVERY"}
+              </span>
+              <span
+                data-testid="offer-countdown"
+                style={{
+                  color: "rgba(244,239,222,.55)",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {Math.ceil(
+                  Math.max(
+                    0,
+                    OFFER_WINDOW_MS - (driveElapsedMs - offer.offeredAtMs),
+                  ) / 1000,
+                )}
+                s
+              </span>
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                display: "flex",
+                alignItems: "baseline",
+                gap: 8,
+              }}
+            >
+              <span
+                style={{
+                  font: `900 26px/1 ${HUD_SANS}`,
+                  color: HUD_CREAM,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                +{formatMoney(offer.gig.reward, driveCountry)}
+              </span>
+              {offer.gig.surged && (
+                <span
+                  style={{
+                    borderRadius: 999,
+                    padding: "2px 8px",
+                    background: "rgba(244,200,72,.16)",
+                    font: `800 11px/1 ${HUD_SANS}`,
+                    letterSpacing: ".1em",
+                    color: HUD_GOLD,
+                  }}
+                >
+                  SURGE ×2
+                </span>
+              )}
+            </div>
+            <div
+              style={{
+                marginTop: 4,
+                font: `700 15px/1.2 ${HUD_SERIF}`,
+                color: HUD_CREAM,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {offer.gig.pickup.name}
+            </div>
+            <div
+              style={{
+                marginTop: 2,
+                font: `600 12px/1.3 ${HUD_SANS}`,
+                color: "rgba(244,239,222,.6)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              then {offer.gig.dropoff.name}
+            </div>
+            <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => answerOffer(false)}
+                style={{
+                  flex: "none",
+                  padding: "9px 14px",
+                  borderRadius: 12,
+                  border: "1.5px solid rgba(224,120,124,.4)",
+                  background: "transparent",
+                  color: HUD_CORAL,
+                  font: `900 13px/1 ${HUD_SANS}`,
+                  letterSpacing: ".08em",
+                  cursor: "pointer",
+                }}
+              >
+                PASS (G)
+              </button>
+              <button
+                type="button"
+                onClick={() => answerOffer(true)}
+                style={{
+                  flex: 1,
+                  padding: "9px 14px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: HUD_SAGE,
+                  color: "#16210f",
+                  font: `900 14px/1 ${HUD_SANS}`,
+                  letterSpacing: ".08em",
+                  cursor: "pointer",
+                }}
+              >
+                ACCEPT (F)
+              </button>
+            </div>
+          </div>
+        )}
         {/*
           One panel, top-left: the job, the money, and the two gauges that can
           end a day. It used to be two cards — the gig up top and a status card
@@ -2383,6 +2708,44 @@ export default function SideSwapApp() {
                 </div>
               )}
             </>
+          )}
+          {!activeGig && (
+            <div
+              data-testid="dispatch-idle"
+              style={{
+                marginTop: touchFirst ? 4 : 6,
+                font: `700 ${touchFirst ? 11 : 13}px/1.2 ${HUD_SANS}`,
+                color: "rgba(244,239,222,.55)",
+              }}
+            >
+              {offer ? "Offer waiting…" : "Waiting for a job…"}
+            </div>
+          )}
+          {queuedGig && (
+            <div
+              data-testid="queued-gig"
+              style={{
+                marginTop: 4,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
+                color: HUD_SAGE,
+              }}
+            >
+              <span style={{ letterSpacing: ".16em" }}>NEXT UP</span>
+              <span
+                style={{
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  color: "rgba(244,239,222,.72)",
+                }}
+              >
+                {queuedGig.pickup.name}
+              </span>
+            </div>
           )}
           <div
             aria-hidden="true"

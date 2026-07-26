@@ -26,6 +26,9 @@ import {
 } from "../app/game/progress";
 import SideSwapApp from "../app/SideSwapApp";
 
+/** Sim-clock the mock canvas advances, so a test can run time forward. */
+const mockClock = { ms: 0 };
+
 // The career loop is driven end-to-end through the mock canvas: buttons fire
 // canned HUD snapshots (the sim clock) and runtime events (a fine, exit) so
 // the whole day → settlement → next-day cycle runs on fireEvent.click with no
@@ -95,6 +98,23 @@ vi.mock("next/dynamic", () => ({
             onClick={() => props.onHudUpdate?.(snapshot(9_000))}
           >
             hud late
+          </button>
+          <button
+            type="button"
+            data-testid="mock-hud-past-offer"
+            onClick={() => props.onHudUpdate?.(snapshot(20_000))}
+          >
+            hud past offer window
+          </button>
+          <button
+            type="button"
+            data-testid="mock-hud-advance"
+            onClick={() => {
+              mockClock.ms += 1_000;
+              props.onHudUpdate?.(snapshot(mockClock.ms));
+            }}
+          >
+            advance one second
           </button>
           <button
             type="button"
@@ -235,6 +255,7 @@ const desktopMatchMedia = (query: string): MediaQueryList =>
   }) as unknown as MediaQueryList;
 
 beforeEach(() => {
+  mockClock.ms = 0;
   installLocalStorage();
   window.localStorage.clear();
   Object.defineProperty(window, "innerWidth", {
@@ -856,5 +877,111 @@ describe("career mode flow", () => {
       window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
     ) as { walletByCountry: Record<string, number> };
     expect(raw.walletByCountry.uk).toBe(20);
+  });
+});
+
+// The gig↔app seam had no coverage at all before dispatch landed: nothing
+// exercised how a job reaches the driver, only what happened once it had.
+describe("dispatch: offers, waits and the queue", () => {
+  const startDay = async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    return screen.findByLabelText("Mock driving scene");
+  };
+
+  it("opens the day with an offer waiting rather than a job assigned", async () => {
+    await startDay();
+    // Before the first snapshot the driver simply has nothing.
+    expect(screen.getByTestId("dispatch-idle")).toHaveTextContent(
+      /waiting for a job/i,
+    );
+    expect(screen.queryByTestId("gig-offer")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("mock-hud-mid"));
+    const card = screen.getByTestId("gig-offer");
+    expect(card).toBeVisible();
+    expect(card).toHaveTextContent(/FOOD DELIVERY|RIDESHARE/);
+    // Still no job in hand — an offer is a question, not an assignment.
+    expect(screen.getByTestId("dispatch-idle")).toHaveTextContent(/offer waiting/i);
+  });
+
+  it("takes the job on accept and clears the card", async () => {
+    await startDay();
+    fireEvent.click(screen.getByTestId("mock-hud-mid"));
+    const pickup = screen.getByTestId("gig-offer").textContent ?? "";
+
+    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    expect(screen.queryByTestId("gig-offer")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dispatch-idle")).not.toBeInTheDocument();
+    expect(screen.getByTestId("dispatch-toast")).toHaveTextContent("JOB ACCEPTED");
+    // The status card is now showing the job that was accepted.
+    expect(screen.getByTestId("drive-status-card")).toHaveTextContent("PICK UP");
+    expect(pickup.length).toBeGreaterThan(0);
+  });
+
+  it("costs nothing to pass — the driver just waits for the next one", async () => {
+    await startDay();
+    fireEvent.click(screen.getByTestId("mock-hud-mid"));
+    fireEvent.click(screen.getByText("PASS (G)"));
+
+    expect(screen.queryByTestId("gig-offer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("dispatch-toast")).toHaveTextContent("PASSED");
+    expect(screen.getByTestId("dispatch-idle")).toHaveTextContent(
+      /waiting for a job/i,
+    );
+    // No money moved, and nothing was recorded against the driver.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("$10.00");
+  });
+
+  it("loses an offer that is left unanswered", async () => {
+    await startDay();
+    fireEvent.click(screen.getByTestId("mock-hud-mid"));
+    expect(screen.getByTestId("gig-offer")).toBeVisible();
+
+    fireEvent.click(screen.getByTestId("mock-hud-past-offer"));
+    expect(screen.queryByTestId("gig-offer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("dispatch-toast")).toHaveTextContent("OFFER LOST");
+  });
+
+  it("answers F and G from the keyboard, leaving Q and E to the indicators", async () => {
+    await startDay();
+    fireEvent.click(screen.getByTestId("mock-hud-mid"));
+
+    // Q and E are the turn signals and must not touch the offer.
+    fireEvent.keyDown(window, { code: "KeyQ" });
+    fireEvent.keyDown(window, { code: "KeyE" });
+    expect(screen.getByTestId("gig-offer")).toBeVisible();
+
+    fireEvent.keyDown(window, { code: "KeyF" });
+    expect(screen.queryByTestId("gig-offer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("dispatch-toast")).toHaveTextContent("JOB ACCEPTED");
+  });
+
+  it("queues a second job behind the one in hand instead of replacing it", async () => {
+    await startDay();
+    const tick = () => fireEvent.click(screen.getByTestId("mock-hud-advance"));
+
+    tick();
+    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    expect(screen.queryByTestId("queued-gig")).not.toBeInTheDocument();
+
+    // Run the clock until dispatch offers again. The ceiling is one lost
+    // window plus the longest quiet spell, so this always terminates.
+    for (let second = 0; second < 70 && !screen.queryByTestId("gig-offer"); second += 1) {
+      tick();
+    }
+    expect(screen.getByTestId("gig-offer")).toBeVisible();
+
+    // Accepting a second job parks it — it does not replace the one in hand.
+    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    expect(screen.getByTestId("dispatch-toast")).toHaveTextContent("ADDED TO QUEUE");
+    expect(screen.getByTestId("queued-gig")).toBeVisible();
+    expect(screen.getByTestId("drive-status-card")).toHaveTextContent("PICK UP");
+
+    // With both hands full, dispatch goes quiet rather than stacking a third.
+    for (let second = 0; second < 90; second += 1) tick();
+    expect(screen.queryByTestId("gig-offer")).not.toBeInTheDocument();
   });
 });
