@@ -1066,12 +1066,12 @@ interface NycRoadSpec {
 const NYC_AVENUES: readonly NycRoadSpec[] = [
   // Riverside Drive begins at 72nd, as it really does, so it skips the southern
   // rows and the grid's west edge steps in below them.
-  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", name: "Riverside Dr", speedLimit: 20, coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96", "100", "106"] },
-  { key: "we", nodeKey: "we", roadId: "nyc-west-end", name: "West End Ave", speedLimit: 20, coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
-  { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", name: "Broadway", speedLimit: 25, coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1 },
-  { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", name: "Amsterdam Ave", speedLimit: 25, coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
-  { key: "col", nodeKey: "col", roadId: "nyc-columbus", name: "Columbus Ave", speedLimit: 25, coordinate: 180, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1 },
-  { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", name: "Central Park West", speedLimit: 20, coordinate: 320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", name: "Riverside Dr", speedLimit: 25, coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96", "100", "106"] },
+  { key: "we", nodeKey: "we", roadId: "nyc-west-end", name: "West End Ave", speedLimit: 25, coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", name: "Broadway", speedLimit: 30, coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", name: "Amsterdam Ave", speedLimit: 30, coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
+  { key: "col", nodeKey: "col", roadId: "nyc-columbus", name: "Columbus Ave", speedLimit: 30, coordinate: 180, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1 },
+  { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", name: "Central Park West", speedLimit: 25, coordinate: 320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
 ];
 
 /**
@@ -1082,37 +1082,42 @@ const NYC_AVENUES: readonly NycRoadSpec[] = [
  * (six real blocks) between junctions.
  */
 const NYC_STREETS: readonly NycRoadSpec[] = [
-  { key: "59", nodeKey: "59", roadId: "nyc-west-59", name: "W 59th St", speedLimit: 25, coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "61", nodeKey: "61", roadId: "nyc-west-61", name: "W 61st St", speedLimit: 20, coordinate: -1200, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", speedLimit: 25, coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "68", nodeKey: "68", roadId: "nyc-west-68", name: "W 68th St", speedLimit: 20, coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
-  { key: "72", nodeKey: "72", roadId: "nyc-west-72", name: "W 72nd St", speedLimit: 25, coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "75", nodeKey: "75", roadId: "nyc-west-75", name: "W 75th St", speedLimit: 20, coordinate: -240, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "79", nodeKey: "79", roadId: "nyc-west-79", name: "W 79th St", speedLimit: 25, coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "59", nodeKey: "59", roadId: "nyc-west-59", name: "W 59th St", speedLimit: 30, coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "61", nodeKey: "61", roadId: "nyc-west-61", name: "W 61st St", speedLimit: 25, coordinate: -1200, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", speedLimit: 30, coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "68", nodeKey: "68", roadId: "nyc-west-68", name: "W 68th St", speedLimit: 25, coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
+  { key: "72", nodeKey: "72", roadId: "nyc-west-72", name: "W 72nd St", speedLimit: 30, coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "75", nodeKey: "75", roadId: "nyc-west-75", name: "W 75th St", speedLimit: 25, coordinate: -240, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "79", nodeKey: "79", roadId: "nyc-west-79", name: "W 79th St", speedLimit: 30, coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
   // W 82nd stops at Columbus: the museum and its grounds fill the block through
   // to Central Park West, exactly as they interrupt the real street grid there.
-  { key: "82", nodeKey: "82", roadId: "nyc-west-82", name: "W 82nd St", speedLimit: 20, coordinate: 240, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: ["riv", "we", "bway", "amst", "col"] },
-  { key: "86", nodeKey: "86", roadId: "nyc-west-86", name: "W 86th St", speedLimit: 25, coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "91", nodeKey: "91", roadId: "nyc-west-91", name: "W 91st St", speedLimit: 20, coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "96", nodeKey: "96", roadId: "nyc-west-96", name: "W 96th St", speedLimit: 25, coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "100", nodeKey: "100", roadId: "nyc-west-100", name: "W 100th St", speedLimit: 20, coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
-  { key: "106", nodeKey: "106", roadId: "nyc-west-106", name: "W 106th St", speedLimit: 25, coordinate: 1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "82", nodeKey: "82", roadId: "nyc-west-82", name: "W 82nd St", speedLimit: 25, coordinate: 240, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: ["riv", "we", "bway", "amst", "col"] },
+  { key: "86", nodeKey: "86", roadId: "nyc-west-86", name: "W 86th St", speedLimit: 30, coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "91", nodeKey: "91", roadId: "nyc-west-91", name: "W 91st St", speedLimit: 25, coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "96", nodeKey: "96", roadId: "nyc-west-96", name: "W 96th St", speedLimit: 30, coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "100", nodeKey: "100", roadId: "nyc-west-100", name: "W 100th St", speedLimit: 25, coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
+  { key: "106", nodeKey: "106", roadId: "nyc-west-106", name: "W 106th St", speedLimit: 30, coordinate: 1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
 ];
 
 /**
- * Milton Keynes posts its grid roads at the national limit and everything
- * inside an estate at the built-up default. `uk-oldbrook-loop` is that estate:
- * it carries the Oldbrook Houses venue, the only crosswalk on the map, and a
- * green.
+ * Milton Keynes posts its dual carriageway at the national limit, its
+ * distributor roads a rung under it, and the estate inside them at the
+ * built-up default. `uk-oldbrook-loop` is that estate: it carries the Oldbrook
+ * Houses venue, the only crosswalk on the map, and a green.
+ *
+ * The dual carriageway stays at 60 rather than taking the 70 its class would
+ * allow, because 70 mph is exactly `MAX_FORWARD_SPEED_MPS_MPH` — a limit the
+ * car cannot exceed is one the speeding rule can never trip, which would make
+ * this the one road in the game where speeding is impossible.
  */
 const MK_ROAD_SPEED_LIMITS = {
   "uk-dual-carriageway": 60,
-  "uk-north-approach": 40,
-  "uk-east-approach": 40,
-  "uk-south-approach": 40,
-  "uk-west-approach": 40,
-  "uk-east-link": 40,
-  "uk-westgrid": 40,
+  "uk-north-approach": 50,
+  "uk-east-approach": 50,
+  "uk-south-approach": 50,
+  "uk-west-approach": 50,
+  "uk-east-link": 50,
+  "uk-westgrid": 50,
   "uk-oldbrook-loop": 30,
   // Both rings, and both tighter than anything else on the map: a 12 m
   // radius is not driveable at the grid road's figure.
@@ -1120,44 +1125,50 @@ const MK_ROAD_SPEED_LIMITS = {
   "uk-westloop": 30,
 } as const satisfies Record<string, number>;
 
-/** France signs 50 in town and 70 on the open approaches out of it. */
+/**
+ * France's urban default is 50. These through-routes are posted a rung above
+ * it, at a figure France does sign on urban roads that carry traffic, so a
+ * town this small does not crawl; the open road out to the south-east keeps
+ * the 70 its frontage earns.
+ */
 const CALAIS_ROAD_SPEED_LIMITS = {
   "fr-south-east-road": 70,
-  "fr-north-approach": 50,
-  "fr-east-approach": 50,
-  "fr-south-approach": 50,
-  "fr-west-approach": 50,
-  "fr-east-south-road": 50,
-  "fr-north-west-road": 50,
-  "fr-westgrid": 50,
+  "fr-north-approach": 60,
+  "fr-east-approach": 60,
+  "fr-south-approach": 60,
+  "fr-west-approach": 60,
+  "fr-east-south-road": 60,
+  "fr-north-west-road": 60,
+  "fr-westgrid": 60,
   // Same as Milton Keynes: the turning loop is a 10 m ring, not a road.
   "fr-roundabout": 30,
   "fr-westloop": 30,
 } as const satisfies Record<string, number>;
 
 /**
- * Setagaya-dori is the only arterial here; the rest of the ward is a Zone 30
- * neighbourhood, and the three `shared_space` lanes are too narrow for even
- * that — 5.8 m of carriageway with pedestrians on it.
+ * Setagaya-dori is the only arterial here and is posted as one; the rest of
+ * the ward reads at Japan's ordinary urban figure. The three `shared_space`
+ * lanes are too narrow for even that — 5.8 m of carriageway with pedestrians
+ * on it — so they keep the Zone 20 the whole neighbourhood used to carry.
  */
 const TOKYO_ROAD_SPEED_LIMITS = {
-  "jp-setagaya-dori": 40,
-  "jp-south-road": 30,
-  "jp-east-curve": 30,
-  "jp-center-road": 30,
-  "jp-west-road": 30,
-  "jp-north-road": 30,
-  "jp-junction-road": 30,
-  "jp-westhill-road": 30,
-  "jp-easthill-road": 30,
-  "jp-uptown-road": 30,
-  "jp-westedge-road": 30,
-  "jp-southrow-west": 30,
-  "jp-centerrow-west": 30,
-  "jp-northrow-west": 30,
-  "jp-westside-road": 30,
-  "jp-westside-south": 30,
-  "jp-eastside-road": 30,
+  "jp-setagaya-dori": 50,
+  "jp-south-road": 40,
+  "jp-east-curve": 40,
+  "jp-center-road": 40,
+  "jp-west-road": 40,
+  "jp-north-road": 40,
+  "jp-junction-road": 40,
+  "jp-westhill-road": 40,
+  "jp-easthill-road": 40,
+  "jp-uptown-road": 40,
+  "jp-westedge-road": 40,
+  "jp-southrow-west": 40,
+  "jp-centerrow-west": 40,
+  "jp-northrow-west": 40,
+  "jp-westside-road": 40,
+  "jp-westside-south": 40,
+  "jp-eastside-road": 40,
   "jp-narrow-road": 20,
   "jp-narrowhill-road": 20,
   "jp-shrine-road": 20,
