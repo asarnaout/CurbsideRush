@@ -90,6 +90,7 @@ import {
   COCKPIT_SPEEDO_MAX_MPS,
   COCKPIT_VENT_PROFILE,
   COCKPIT_VENT_SLOTS,
+  COCKPIT_WING_MIRROR,
   REAR_VIEW_VIEWPORT,
   cameraPanelPlacement,
   cockpitScreenSpan,
@@ -98,6 +99,10 @@ import {
   resolveCockpitSteeringGeometry,
   resolveGaugeNeedleAngle,
   resolveSteeringWheelSpin,
+  resolveWingMirrorPose,
+  wingMirrorHeadRotation,
+  wingMirrorIsVisible,
+  wingMirrorSide,
 } from "./cockpitLayout";
 import { TouchDriveControls } from "./TouchDriveControls";
 import { releaseTouchSteer } from "./touchSteering";
@@ -3835,7 +3840,12 @@ class BabylonGameSession {
   private mirrorGatheredHeading = Number.POSITIVE_INFINITY;
   private rearViewTexture: RenderTargetTexture | null = null;
   private mirrorRenderCount = 0;
+  /** Cleared by the blurriest render rung, which sheds the mirrors entirely. */
+  private mirrorsAllowed = true;
   private rearViewPanel: Mesh | null = null;
+  private wingMirrorTexture: RenderTargetTexture | null = null;
+  private wingMirrorCamera: UniversalCamera | null = null;
+  private wingMirrorRig: TransformNode | null = null;
   private effectsPipeline: DefaultRenderingPipeline | null = null;
 
   constructor(
@@ -4212,7 +4222,8 @@ class BabylonGameSession {
    */
   private setMirrorsActive(active: boolean) {
     const targets = this.scene.customRenderTargets;
-    for (const texture of [this.rearViewTexture]) {
+    active = active && this.mirrorsAllowed;
+    for (const texture of [this.rearViewTexture, this.wingMirrorTexture]) {
       if (!texture) continue;
       const index = targets.indexOf(texture);
       if (active && index === -1) targets.push(texture);
@@ -4359,6 +4370,8 @@ class BabylonGameSession {
     this.setMirrorsActive(false);
     this.rearViewTexture?.dispose();
     this.rearViewTexture = null;
+    this.wingMirrorTexture?.dispose();
+    this.wingMirrorTexture = null;
     this.simulation.dispose();
     this.inputRouter.dispose();
     this.clearHeldInputs();
@@ -5508,6 +5521,14 @@ class BabylonGameSession {
     for (const part of this.windscreenParts) {
       if (part.isEnabled(false) !== topRung) part.setEnabled(topRung);
     }
+    // The mirrors are render targets: a device that cannot hold the softest
+    // resolution should not be rendering the scene a second and third time for
+    // two small panels, however cheap the cull has made them.
+    this.mirrorsAllowed = topRung;
+    this.setMirrorsActive(topRung && this.cameraMode === "first");
+    this.rearViewPanel?.setEnabled(topRung);
+    if (!topRung) this.wingMirrorRig?.setEnabled(false);
+    else this.syncWingMirrorVisibility();
   }
 
   private perfSample(stage: number, ms: number) {
@@ -7616,6 +7637,19 @@ class BabylonGameSession {
         poses.rear.rotationY,
         0,
       );
+      if (this.wingMirrorCamera) {
+        // Bolted to the car, not to the head: the wing mirror does not bob or
+        // swing with a quick look, because the mirror it is standing in for is
+        // welded to the door.
+        const wing = resolveWingMirrorPose({
+          x: this.displayedX,
+          z: this.displayedZ,
+          vehicleHeading: this.displayedHeading,
+          steeringSide: this.options.steeringSide,
+        });
+        this.wingMirrorCamera.position.set(wing.x, wing.y, wing.z);
+        this.wingMirrorCamera.rotation.set(wing.rotationX, wing.rotationY, 0);
+      }
     } else {
       const chase =
         (this.options.playerVehicle?.model &&
@@ -10762,6 +10796,119 @@ class BabylonGameSession {
   }
 
   /**
+   * The driver's wing mirror: a stalk, a shell, and glass showing its own
+   * render target.
+   *
+   * Unlike the rear view this is a real object out beside the door, so it moves
+   * with the cabin and is framed by the field of view like anything else — and
+   * at a narrow FOV it slides off the edge of the screen, at which point the
+   * whole thing including its render target is switched off rather than drawn
+   * as a sliver.
+   *
+   * Its camera looks back *and outboard*: the lane beside you is the one thing
+   * the rear-view mirror cannot show, and the only reason to have this at all.
+   */
+  private buildWingMirror(steeringRubber: StandardMaterial, shell: StandardMaterial) {
+    const scene = this.scene;
+    const side = wingMirrorSide(this.options.steeringSide);
+    const rig = new TransformNode("wing-mirror", scene);
+    rig.parent = this.playerCockpit;
+    rig.position.set(
+      side * COCKPIT_WING_MIRROR.lateral,
+      COCKPIT_WING_MIRROR.y,
+      COCKPIT_WING_MIRROR.z,
+    );
+    this.wingMirrorRig = rig;
+
+    createBox(
+      scene,
+      "wing-mirror-stalk",
+      { width: 0.13, height: 0.026, depth: 0.028 },
+      new Vector3(-side * 0.09, -0.035, 0.02),
+      steeringRubber,
+      rig,
+    );
+    // The head carries the turn toward the seat, so the shell and the glass
+    // cannot come apart: both hang off it at zero rotation.
+    const head = new TransformNode("wing-mirror-head", scene);
+    head.parent = rig;
+    const headRotation = wingMirrorHeadRotation(this.options.steeringSide);
+    head.rotation.set(headRotation.x, headRotation.y, 0);
+    createBox(
+      scene,
+      "wing-mirror-shell",
+      { width: 0.181, height: 0.118, depth: 0.052 },
+      Vector3.Zero(),
+      shell,
+      head,
+    );
+
+    const camera = new UniversalCamera(
+      "wing-mirror-camera",
+      Vector3.Zero(),
+      scene,
+    );
+    camera.inputs.clear();
+    camera.minZ = 0.08;
+    camera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
+    camera.fov = (58 * Math.PI) / 180;
+    camera.layerMask = WORLD_LAYER_MASK;
+    camera.maxZ = Math.min(this.cameraFarPlaneM, MIRROR_RADIUS_M);
+    this.wingMirrorCamera = camera;
+
+    const texture = new RenderTargetTexture(
+      "wing-mirror",
+      { width: 192, height: 128 },
+      scene,
+      false,
+    );
+    texture.activeCamera = camera;
+    // A third of the rear view's rate. It is a smaller image further into the
+    // corner of the eye, and staggering the two means they never both render on
+    // the same frame — otherwise frame times spike in lockstep instead of
+    // staying flat, which is worse than either cost on its own.
+    texture.refreshRate = 3;
+    texture.forceLayerMaskCheck = true;
+    texture.clearColor = this.scene.clearColor.clone();
+    texture.getCustomRenderList = () => this.updateMirrorRenderList(camera);
+    this.wingMirrorTexture = texture;
+
+    const glassMaterial = makeMaterial(
+      scene,
+      "wing-mirror-glass",
+      Color3.White(),
+      new Color3(0.62, 0.62, 0.62),
+    );
+    glassMaterial.diffuseTexture = texture;
+    glassMaterial.emissiveTexture = texture;
+    glassMaterial.disableLighting = true;
+
+    const glass = MeshBuilder.CreatePlane(
+      "wing-mirror-glass",
+      {
+        width: COCKPIT_WING_MIRROR.glassWidth,
+        height: COCKPIT_WING_MIRROR.glassHeight,
+      },
+      scene,
+    );
+    glass.parent = head;
+    glass.position.z = -0.029;
+    setMeshMaterial(glass, glassMaterial);
+  }
+
+  /** Hides the wing mirror, and stops rendering it, when the field of view has
+   * pushed it off the side of the screen. */
+  private syncWingMirrorVisibility() {
+    const rig = this.wingMirrorRig;
+    if (!rig) return;
+    const visible = wingMirrorIsVisible(
+      this.firstCamera.fov,
+      this.options.steeringSide,
+    );
+    if (rig.isEnabled(false) !== visible) rig.setEnabled(visible);
+  }
+
+  /**
    * Sizes the mirror quad to the viewport rectangle it stands in for.
    *
    * Must run whenever the field of view or the canvas shape changes, or the
@@ -10779,6 +10926,7 @@ class BabylonGameSession {
     );
     panel.scaling.set(placement.width, placement.height, 1);
     panel.position.set(placement.x, placement.y, distance);
+    this.syncWingMirrorVisibility();
   }
 
   private viewportAspectRatio(): number {
@@ -11609,6 +11757,7 @@ class BabylonGameSession {
     );
     steeringEmblem.scaling.z = 0.62;
 
+    this.buildWingMirror(steeringRubber, cockpitTrim);
     this.mergeCockpitStatics();
     for (const mesh of this.playerCockpit.getChildMeshes(false)) {
       mesh.layerMask = COCKPIT_LAYER_MASK;

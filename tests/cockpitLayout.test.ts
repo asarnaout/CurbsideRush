@@ -12,12 +12,18 @@ import {
   COCKPIT_SCREEN,
   COCKPIT_VENT_SLOTS,
   REAR_VIEW_VIEWPORT,
+  cameraPanelPlacement,
   cockpitCowlScreenFraction,
   cockpitScreenSpan,
   cockpitScreenTiltX,
   rearViewCssRect,
   resolveCockpitSteeringGeometry,
   resolveGaugeNeedleAngle,
+  resolveWingMirrorPose,
+  wingMirrorHeadRotation,
+  wingMirrorIsVisible,
+  wingMirrorScreenFraction,
+  wingMirrorSide,
 } from "../app/game/cockpitLayout";
 
 const MIN_FOV = (55 * Math.PI) / 180;
@@ -159,6 +165,117 @@ describe("windscreen", () => {
     const facingZ = -Math.cos(tilt);
     expect(facingY).toBeLessThan(0);
     expect(facingZ).toBeLessThan(0);
+  });
+});
+
+describe("camera-locked mirror panel", () => {
+  const rect = REAR_VIEW_VIEWPORT;
+
+  it("covers the viewport rectangle it stands in for", () => {
+    // The panel replaced a screen-space viewport, so its job is to occupy
+    // exactly the same box. At distance d the frustum is 2*d*tan(fov/2) wide,
+    // and the panel takes the rect's fraction of that.
+    const distance = 0.12;
+    const fov = (72 * Math.PI) / 180;
+    const placement = cameraPanelPlacement(rect, fov, 1.86, distance);
+    const frustumWidth = 2 * Math.tan(fov / 2) * distance;
+    const frustumHeight = frustumWidth / 1.86;
+    expect(placement.width).toBeCloseTo(frustumWidth * rect.width);
+    expect(placement.height).toBeCloseTo(frustumHeight * rect.height);
+  });
+
+  it("puts the panel where the rectangle is, not in the middle", () => {
+    const placement = cameraPanelPlacement(rect, (72 * Math.PI) / 180, 1.86, 0.12);
+    // The rect is centred horizontally and high up, so the panel sits on the
+    // centreline and above it.
+    expect(placement.x).toBeCloseTo(0);
+    expect(placement.y).toBeGreaterThan(0);
+  });
+
+  it("grows with the field of view and with the canvas", () => {
+    const narrow = cameraPanelPlacement(rect, MIN_FOV, 1.86, 0.12);
+    const wide = cameraPanelPlacement(rect, MAX_FOV, 1.86, 0.12);
+    expect(wide.width).toBeGreaterThan(narrow.width);
+    // A taller viewport (smaller aspect) means a taller frustum at the same
+    // horizontal angle, so the panel has to grow vertically to keep its share.
+    const tall = cameraPanelPlacement(rect, MIN_FOV, 1.6, 0.12);
+    expect(tall.height).toBeGreaterThan(narrow.height);
+    expect(tall.width).toBeCloseTo(narrow.width);
+  });
+});
+
+describe("wing mirror", () => {
+  it("sits on the driver's side and mirrors between drive sides", () => {
+    expect(wingMirrorSide("left")).toBe(-1);
+    expect(wingMirrorSide("right")).toBe(1);
+    const left = wingMirrorScreenFraction((72 * Math.PI) / 180, "left");
+    const right = wingMirrorScreenFraction((72 * Math.PI) / 180, "right");
+    expect(left).toBeCloseTo(1 - right);
+    expect(left).toBeLessThan(0.5);
+  });
+
+  it("is skipped once a narrow field of view pushes it off the edge", () => {
+    // This is what stops the game rendering a whole extra pass for a mirror
+    // that is a sliver at the frame edge, and it is the only reason the wing
+    // mirror can exist at the bottom of the FOV range at all.
+    expect(wingMirrorIsVisible(MIN_FOV, "left")).toBe(false);
+    expect(wingMirrorIsVisible((72 * Math.PI) / 180, "left")).toBe(true);
+    expect(wingMirrorIsVisible(MAX_FOV, "left")).toBe(true);
+    expect(wingMirrorIsVisible(MIN_FOV, "right")).toBe(false);
+  });
+
+  it("moves with the car in world space", () => {
+    const start = resolveWingMirrorPose({
+      x: 0,
+      z: 0,
+      vehicleHeading: 0,
+      steeringSide: "left",
+    });
+    const moved = resolveWingMirrorPose({
+      x: 7,
+      z: -3,
+      vehicleHeading: 0,
+      steeringSide: "left",
+    });
+    expect(moved.x - start.x).toBeCloseTo(7);
+    expect(moved.z - start.z).toBeCloseTo(-3);
+    expect(moved.y).toBeCloseTo(start.y);
+  });
+
+  it("hangs off the driver's flank and looks back past it", () => {
+    const pose = resolveWingMirrorPose({
+      x: 0,
+      z: 0,
+      vehicleHeading: 0,
+      steeringSide: "left",
+    });
+    // Heading 0 is +z, so the driver's side of a left-hand-drive car is -x.
+    expect(pose.x).toBeLessThan(0);
+    expect(pose.z).toBeGreaterThan(0);
+    // Looking back down the flank: behind the car, and splayed outboard of
+    // straight back rather than parallel to it — the lane beside you is the
+    // whole point, and a rear-view mirror already covers straight back.
+    const back = Math.PI;
+    expect(pose.rotationY).toBeGreaterThan(back);
+    expect(pose.rotationY).toBeLessThan(back + Math.PI / 2);
+    const right = resolveWingMirrorPose({
+      x: 0,
+      z: 0,
+      vehicleHeading: 0,
+      steeringSide: "right",
+    });
+    expect(right.x).toBeCloseTo(-pose.x);
+    expect(right.rotationY - back).toBeCloseTo(-(pose.rotationY - back));
+  });
+
+  it("turns its head toward the seat, mirrored per drive side", () => {
+    const left = wingMirrorHeadRotation("left");
+    const right = wingMirrorHeadRotation("right");
+    expect(left.y).toBeCloseTo(-right.y);
+    expect(left.x).toBeCloseTo(right.x);
+    // The eye is inboard and behind, so the head yaws away from straight ahead
+    // by a real amount rather than sitting flat against the door.
+    expect(Math.abs(left.y)).toBeGreaterThan(0.2);
   });
 });
 
