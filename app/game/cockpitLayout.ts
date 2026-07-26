@@ -61,6 +61,38 @@ export const REAR_VIEW_VIEWPORT = Object.freeze({
   height: 0.115,
 });
 
+/**
+ * Where to hang a quad off the first-person camera so it covers a viewport
+ * rectangle exactly.
+ *
+ * The mirror's reflection used to be a second camera rendered straight into
+ * that rectangle. It is now a render target, which has to be shown on some
+ * geometry — and geometry parented to the camera is screen-space by
+ * construction, so the rectangle, the HUD housing drawn around it and the image
+ * inside it all stay locked together however the player is looking.
+ *
+ * The camera is `FOVMODE_HORIZONTAL_FIXED`, so `fov` is the horizontal angle
+ * and the vertical half-extent is the horizontal one over the aspect ratio.
+ * Both depend on the field of view and the canvas shape, so this has to be
+ * recomputed whenever either moves — a quad sized once at construction slides
+ * out from under its own housing the first time someone drags the FOV slider.
+ */
+export function cameraPanelPlacement(
+  rect: { x: number; y: number; width: number; height: number },
+  horizontalFovRad: number,
+  viewportAspectRatio: number,
+  distance: number,
+): { width: number; height: number; x: number; y: number } {
+  const halfWidth = Math.tan(horizontalFovRad / 2) * distance;
+  const halfHeight = halfWidth / viewportAspectRatio;
+  return {
+    width: 2 * halfWidth * rect.width,
+    height: 2 * halfHeight * rect.height,
+    x: (rect.x + rect.width / 2 - 0.5) * 2 * halfWidth,
+    y: (rect.y + rect.height / 2 - 0.5) * 2 * halfHeight,
+  };
+}
+
 /** The same rectangle in CSS terms, measured from the top-left of the canvas. */
 export function rearViewCssRect(): {
   leftPercent: number;
@@ -276,6 +308,221 @@ export const COCKPIT_DOOR_PROFILE: readonly CockpitProfilePoint[] = Object.freez
 ]);
 
 export const COCKPIT_DOOR_X = 0.958;
+
+/**
+ * The driver's wing mirror, in cockpit space.
+ *
+ * Driver's side only. The passenger mirror sits about 50 degrees off the
+ * driver's axis, which is outside the frame at every field of view the game
+ * allows — a real cabin gets away with two because your own vision spans 180
+ * degrees and a 72-degree screen does not. Cheating it inboard far enough to be
+ * seen would float it over the middle of the dashboard.
+ */
+export const COCKPIT_WING_MIRROR = Object.freeze({
+  /** Lateral offset from the centreline, signed outward by the driver's side. */
+  lateral: 1.22,
+  // Just clear of the dashboard's outboard corner, which sits closer to the eye
+  // and therefore spreads wider across the frame than its width suggests.
+  y: 1.224,
+  z: 0.78,
+  glassWidth: 0.2,
+  glassHeight: 0.105,
+  /** How far the bezel stands proud of the glass, as a fraction of each axis. */
+  bezelMargin: 0.2,
+  /**
+   * The mount. A door mirror this high has nothing under it to sit on — the
+   * door card tops out at 1.06 and the A-pillar has already risen away by this
+   * z — so without a sail panel and a visible arm it reads as floating beside
+   * the car rather than bolted to it.
+   */
+  sailX: 0.99,
+  sailThickness: 0.075,
+  /**
+   * The arm is measured in the mirror head's own space, not the cabin's.
+   *
+   * The head is yawed about 29 degrees to face the seat, which swings the
+   * glass's inboard edge forward in z — straight through where a cabin-aligned
+   * arm at the same height would run. Hung off the head instead, the arm
+   * emerges from behind the housing by construction, and because the yaw is
+   * what points it inboard-and-forward it lands on the sail on its own.
+   */
+  armLength: 0.26,
+  armLocalY: -0.015,
+  armLocalZ: 0.028,
+  armHeight: 0.048,
+  armDepth: 0.058,
+  /** How far the mirror camera swings outboard of straight back. */
+  splayRad: 0.42,
+});
+
+/** Which way the driver's side lies: -x for left-hand drive. */
+export function wingMirrorSide(steeringSide: SteeringSide): number {
+  return steeringSide === "left" ? -1 : 1;
+}
+
+/**
+ * The sail panel — the triangular filler at the front corner of the door
+ * window that a real door mirror bolts to. Swept thin across `sailX`.
+ */
+export const WING_MIRROR_SAIL_PROFILE: readonly CockpitProfilePoint[] =
+  Object.freeze([
+    { y: 1.005, z: 0.585 },
+    { y: 1.03, z: 0.985 },
+    { y: 1.235, z: 0.955 },
+    { y: 1.175, z: 0.66 },
+  ]);
+
+export interface MirrorOutlinePoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * The wing mirror's outline, normalised to ±1 on both axes.
+ *
+ * A door mirror is not a rectangle, and built as one it read as a panel stuck
+ * to the door rather than a moulded housing. Chamfered corners and a taller
+ * outboard edge are what give it the cast shape a real one has. Kept as a
+ * normalised outline so the glass and the bezel behind it are provably the same
+ * shape at two different scales.
+ *
+ * Convex, and wound anticlockwise — `createChamferedPanel` fans it from the
+ * centre and relies on both.
+ */
+export const WING_MIRROR_OUTLINE: readonly MirrorOutlinePoint[] = Object.freeze([
+  { x: 1, y: 0.54 },
+  { x: 0.7, y: 1 },
+  { x: -0.62, y: 1 },
+  { x: -1, y: 0.46 },
+  { x: -1, y: -0.66 },
+  { x: -0.68, y: -1 },
+  { x: 0.72, y: -1 },
+  { x: 1, y: -0.6 },
+]);
+
+/**
+ * The outline as the driver sees it. Flipped for right-hand drive so the taller
+ * edge stays outboard rather than turning to face the cabin.
+ */
+export function wingMirrorOutline(
+  steeringSide: SteeringSide,
+): MirrorOutlinePoint[] {
+  const side = wingMirrorSide(steeringSide);
+  const points = WING_MIRROR_OUTLINE.map((point) => ({
+    x: point.x * side,
+    y: point.y,
+  }));
+  // Negating x reverses the winding, and the fan depends on it.
+  return side < 0 ? points : points.reverse();
+}
+
+/**
+ * Euler angles that turn the mirror head to face the driver's eye.
+ *
+ * Derived rather than authored, so the head keeps pointing at the seat if the
+ * mirror is ever moved. Babylon composes rotations in YXZ and a plane is
+ * authored facing -Z, so this solves for the pair that puts -Z along the line
+ * from the mirror to the eye.
+ */
+export function wingMirrorHeadRotation(steeringSide: SteeringSide): {
+  readonly x: number;
+  readonly y: number;
+} {
+  const side = wingMirrorSide(steeringSide);
+  const toEyeX = side * 0.46 - side * COCKPIT_WING_MIRROR.lateral;
+  const toEyeY = COCKPIT_EYE_Y - COCKPIT_WING_MIRROR.y;
+  const toEyeZ = COCKPIT_EYE_Z - COCKPIT_WING_MIRROR.z;
+  const length = Math.hypot(toEyeX, toEyeY, toEyeZ);
+  // The mesh's +Z has to end up opposite the eye for its -Z face to meet it.
+  const forwardX = -toEyeX / length;
+  const forwardY = -toEyeY / length;
+  const forwardZ = -toEyeZ / length;
+  return {
+    x: Math.asin(clamp(-forwardY, -1, 1)),
+    y: Math.atan2(forwardX, forwardZ),
+  };
+}
+
+/**
+ * Where the wing mirror appears across the frame, 0 at the left edge.
+ *
+ * It is a real object out beside the door, so at a narrow field of view it
+ * slides off the side of the screen entirely. Rendering a mirror nobody can see
+ * is pure waste, and the render target is the expensive part — so this is what
+ * decides whether the whole thing is built into the frame at all.
+ */
+export function wingMirrorScreenFraction(
+  horizontalFovRad: number,
+  steeringSide: SteeringSide,
+): number {
+  const side = wingMirrorSide(steeringSide);
+  const seat = side * 0.46;
+  const lateral = side * COCKPIT_WING_MIRROR.lateral - seat;
+  const forward = COCKPIT_WING_MIRROR.z - COCKPIT_EYE_Z;
+  const offset =
+    (0.5 * Math.tan(Math.atan2(Math.abs(lateral), forward))) /
+    Math.tan(horizontalFovRad / 2);
+  return side < 0 ? 0.5 - offset : 0.5 + offset;
+}
+
+/**
+ * Below this much clearance from the edge the mirror is more than half cut off,
+ * and is skipped rather than drawn as a sliver.
+ */
+export const WING_MIRROR_MIN_EDGE_FRACTION = 0.025;
+
+export function wingMirrorIsVisible(
+  horizontalFovRad: number,
+  steeringSide: SteeringSide,
+): boolean {
+  const fraction = wingMirrorScreenFraction(horizontalFovRad, steeringSide);
+  return (
+    fraction > WING_MIRROR_MIN_EDGE_FRACTION &&
+    fraction < 1 - WING_MIRROR_MIN_EDGE_FRACTION
+  );
+}
+
+/**
+ * The wing mirror camera, in world space.
+ *
+ * Aimed back and outboard rather than straight back: the point of the thing is
+ * the lane beside you, which a rear-view mirror cannot show. Built the same way
+ * as `resolveCockpitCameraPoses` — world space, no reliance on Babylon parent
+ * transforms — so it cannot drift from the car it is bolted to.
+ */
+export function resolveWingMirrorPose({
+  x,
+  z,
+  vehicleHeading,
+  steeringSide,
+}: {
+  readonly x: number;
+  readonly z: number;
+  readonly vehicleHeading: number;
+  readonly steeringSide: SteeringSide;
+}): {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly rotationX: number;
+  readonly rotationY: number;
+} {
+  const side = wingMirrorSide(steeringSide);
+  const forwardX = Math.sin(vehicleHeading);
+  const forwardZ = Math.cos(vehicleHeading);
+  const rightX = forwardZ;
+  const rightZ = -forwardX;
+  const lateral = side * COCKPIT_WING_MIRROR.lateral;
+  return {
+    x: x + rightX * lateral + forwardX * COCKPIT_WING_MIRROR.z,
+    // Cockpit space rides 0.12 above the road, as everything else here does.
+    y: COCKPIT_WING_MIRROR.y + 0.12,
+    z: z + rightZ * lateral + forwardZ * COCKPIT_WING_MIRROR.z,
+    rotationX: 0.06,
+    rotationY:
+      vehicleHeading + Math.PI - side * COCKPIT_WING_MIRROR.splayRad,
+  };
+}
 
 /**
  * The cluster's faceplate is baked at this size and never repainted. Its aspect
