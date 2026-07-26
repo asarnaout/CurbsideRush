@@ -91,6 +91,7 @@ import {
   COCKPIT_VENT_PROFILE,
   COCKPIT_VENT_SLOTS,
   COCKPIT_WING_MIRROR,
+  WING_MIRROR_SAIL_PROFILE,
   REAR_VIEW_VIEWPORT,
   cameraPanelPlacement,
   cockpitScreenSpan,
@@ -10856,27 +10857,53 @@ class BabylonGameSession {
   private buildWingMirror(steeringRubber: StandardMaterial, shell: StandardMaterial) {
     const scene = this.scene;
     const side = wingMirrorSide(this.options.steeringSide);
+    // The rig sits at the cabin's own origin so the mount can be authored in
+    // plain cockpit coordinates alongside the door and pillar it has to meet;
+    // only the head is moved out to the mirror.
     const rig = new TransformNode("wing-mirror", scene);
     rig.parent = this.playerCockpit;
-    rig.position.set(
-      side * COCKPIT_WING_MIRROR.lateral,
-      COCKPIT_WING_MIRROR.y,
-      COCKPIT_WING_MIRROR.z,
-    );
     this.wingMirrorRig = rig;
 
-    createBox(
+    const sail = createExtrudedPrism(
       scene,
-      "wing-mirror-stalk",
-      { width: 0.13, height: 0.026, depth: 0.028 },
-      new Vector3(-side * 0.09, -0.035, 0.02),
+      "wing-mirror-sail",
+      COCKPIT_WING_MIRROR.sailThickness,
+      WING_MIRROR_SAIL_PROFILE,
       steeringRubber,
       rig,
     );
+    sail.position.x = side * COCKPIT_WING_MIRROR.sailX;
+    // The arm passes under the A-pillar, which by this z has climbed well clear
+    // of it, and overlaps both the sail and the housing so there is no seam at
+    // either end.
+    const armInner = side * COCKPIT_WING_MIRROR.sailX;
+    const armOuter = side * COCKPIT_WING_MIRROR.lateral;
+    createBox(
+      scene,
+      "wing-mirror-arm",
+      {
+        width: Math.abs(armOuter - armInner) + 0.05,
+        height: COCKPIT_WING_MIRROR.armHeight,
+        depth: COCKPIT_WING_MIRROR.armDepth,
+      },
+      new Vector3(
+        (armInner + armOuter) / 2,
+        COCKPIT_WING_MIRROR.armY,
+        COCKPIT_WING_MIRROR.armZ,
+      ),
+      shell,
+      rig,
+    );
+
     // The head carries the turn toward the seat, so the shell and the glass
     // cannot come apart: both hang off it at zero rotation.
     const head = new TransformNode("wing-mirror-head", scene);
     head.parent = rig;
+    head.position.set(
+      side * COCKPIT_WING_MIRROR.lateral,
+      COCKPIT_WING_MIRROR.y,
+      COCKPIT_WING_MIRROR.z,
+    );
     const headRotation = wingMirrorHeadRotation(this.options.steeringSide);
     head.rotation.set(headRotation.x, headRotation.y, 0);
     // Sized to hide behind the bezel from the front while still giving the

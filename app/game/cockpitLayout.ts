@@ -329,6 +329,18 @@ export const COCKPIT_WING_MIRROR = Object.freeze({
   glassHeight: 0.105,
   /** How far the bezel stands proud of the glass, as a fraction of each axis. */
   bezelMargin: 0.2,
+  /**
+   * The mount. A door mirror this high has nothing under it to sit on — the
+   * door card tops out at 1.06 and the A-pillar has already risen away by this
+   * z — so without a sail panel and a visible arm it reads as floating beside
+   * the car rather than bolted to it.
+   */
+  sailX: 0.99,
+  sailThickness: 0.075,
+  armY: 1.2,
+  armZ: 0.8,
+  armHeight: 0.048,
+  armDepth: 0.058,
   /** How far the mirror camera swings outboard of straight back. */
   splayRad: 0.42,
 });
@@ -337,6 +349,18 @@ export const COCKPIT_WING_MIRROR = Object.freeze({
 export function wingMirrorSide(steeringSide: SteeringSide): number {
   return steeringSide === "left" ? -1 : 1;
 }
+
+/**
+ * The sail panel — the triangular filler at the front corner of the door
+ * window that a real door mirror bolts to. Swept thin across `sailX`.
+ */
+export const WING_MIRROR_SAIL_PROFILE: readonly CockpitProfilePoint[] =
+  Object.freeze([
+    { y: 1.005, z: 0.585 },
+    { y: 1.03, z: 0.985 },
+    { y: 1.235, z: 0.955 },
+    { y: 1.175, z: 0.66 },
+  ]);
 
 export interface MirrorOutlinePoint {
   readonly x: number;
