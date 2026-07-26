@@ -1092,6 +1092,27 @@ export const LONDON_MAP_PACK: MapPack = {
   areaLabel:
     "Queen's Gate, Cromwell Road, Exhibition Road and Thurloe Place",
   countryIds: ["uk"],
+  // The names the roads were authored under, taken off the comments above.
+  // Naming is many-to-one here: Cromwell Road and Exhibition Road are each
+  // modelled as several surfaces, and they all read as the one street a driver
+  // is on. Keyed on `roadId` and never on lane id — the surface
+  // `london-cromwell-west` carries lanes named `london-cromwell-east-*`.
+  roadNames: {
+    "london-queen-gate": "Queen's Gate",
+    "london-cromwell-west": "Cromwell Road",
+    "london-cromwell-east": "Cromwell Road",
+    "london-cromwell-far-west": "Cromwell Road",
+    "london-exhibition-road": "Exhibition Road",
+    "london-exhibition-north": "Exhibition Road",
+    "london-thurloe-place": "Thurloe Place",
+    "london-gloucester": "Gloucester Road",
+    "london-kensington": "Kensington Road",
+    // No real-world counterpart: these close the loops the quarter needs.
+    "london-quiet-loop": "Petersham Mews",
+    "london-east-road": "Brompton Approach",
+    "london-brompton-loop": "Brompton Circus",
+    "london-gloucester-loop": "Gloucester Circus",
+  },
   source: {
     boundingBox: {
       south: 51.4938,

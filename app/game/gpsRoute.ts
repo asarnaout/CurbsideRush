@@ -121,6 +121,8 @@ export interface GpsProjection {
 export interface GpsGraph {
   readonly lanes: readonly GpsLane[];
   readonly indexById: ReadonlyMap<string, number>;
+  /** Per lane, the street it belongs to for leg-merging purposes. */
+  readonly streetKeys: readonly string[];
   /** Flattened successor adjacency: lane i's edges are [offsets[i], offsets[i+1]). */
   readonly successorOffsets: Int32Array;
   readonly successorIndices: Int32Array;
@@ -157,7 +159,10 @@ function polylineLength(points: readonly GpsPoint[]): number {
  * turns before left, so a tie between equal-cost routes resolves toward going
  * straight, which is the one a driver would pick anyway.
  */
-export function buildGpsGraph(lanes: readonly GpsLane[]): GpsGraph {
+export function buildGpsGraph(
+  lanes: readonly GpsLane[],
+  roadNames?: Readonly<Record<string, string>>,
+): GpsGraph {
   const indexById = new Map<string, number>();
   for (let index = 0; index < lanes.length; index += 1) {
     indexById.set(lanes[index].id, index);
@@ -181,9 +186,18 @@ export function buildGpsGraph(lanes: readonly GpsLane[]): GpsGraph {
     }
   }
   successorOffsets[lanes.length] = edges.length;
+  // What counts as "the same street" when merging legs. The display name wins
+  // over the road id wherever there is one, because a street is often several
+  // surfaces: London models Cromwell Road as three, and merging on ids alone
+  // told the driver to turn onto the road they were already driving down.
+  const streetKeys = lanes.map((lane) => {
+    const roadId = lane.roadId ?? lane.id;
+    return roadNames?.[roadId] ?? roadId;
+  });
   return {
     lanes,
     indexById,
+    streetKeys,
     successorOffsets,
     successorIndices: Int32Array.from(edges),
     lengths,
@@ -207,10 +221,13 @@ const GRAPH_BY_LANES = new WeakMap<readonly GpsLane[], GpsGraph>();
  * frozen module-level objects (`getMapPack`), so a drive resolves this once —
  * the same reason `streetAddressesForMap` can cache by pack id.
  */
-export function gpsGraphForLanes(lanes: readonly GpsLane[]): GpsGraph {
+export function gpsGraphForLanes(
+  lanes: readonly GpsLane[],
+  roadNames?: Readonly<Record<string, string>>,
+): GpsGraph {
   const cached = GRAPH_BY_LANES.get(lanes);
   if (cached) return cached;
-  const graph = buildGpsGraph(lanes);
+  const graph = buildGpsGraph(lanes, roadNames);
   GRAPH_BY_LANES.set(lanes, graph);
   return graph;
 }
@@ -509,20 +526,28 @@ function buildLegs(
 /** Groups a lane sequence into runs sharing a road id, carrying each run's
  * points so leg geometry is measured on the real centrelines. */
 function groupByRoad(
-  lanes: readonly { readonly roadId: string; readonly points: readonly GpsPoint[] }[],
+  lanes: readonly DrivenLane[],
 ): { roadId: string; points: GpsPoint[] }[] {
-  const runs: { roadId: string; points: GpsPoint[] }[] = [];
+  const runs: { roadId: string; streetKey: string; points: GpsPoint[] }[] = [];
   for (const lane of lanes) {
     const current = runs[runs.length - 1];
-    if (current && current.roadId === lane.roadId) {
+    if (current && current.streetKey === lane.streetKey) {
       appendLanePoints(current.points, lane.points);
       continue;
     }
     const points: GpsPoint[] = [];
     appendLanePoints(points, lane.points);
-    runs.push({ roadId: lane.roadId, points });
+    runs.push({ roadId: lane.roadId, streetKey: lane.streetKey, points });
   }
   return runs;
+}
+
+/** One lane's contribution to a route: the stretch driven, the road it reports
+ * as, and the street it merges under. */
+interface DrivenLane {
+  readonly roadId: string;
+  readonly streetKey: string;
+  readonly points: readonly GpsPoint[];
 }
 
 /** Appends a lane's points, skipping the joint already contributed by its
@@ -564,8 +589,9 @@ export function findGpsRoute(
   // Each lane the route uses, with only the stretch actually driven. Legs are
   // built from these rather than from the finished line, because `simplify`
   // leaves the points with no correspondence to lanes.
-  const driven: { roadId: string; points: GpsPoint[] }[] = [];
+  const driven: { roadId: string; streetKey: string; points: GpsPoint[] }[] = [];
   const roadIdOf = (lane: number): string => graph.lanes[lane].roadId ?? graph.lanes[lane].id;
+  const streetKeyOf = (lane: number): string => graph.streetKeys[lane];
 
   // Already on the destination's lane with the destination ahead: no search.
   if (startLane === goalLane && goalAt.alongM >= startAt.alongM) {
@@ -574,7 +600,11 @@ export function findGpsRoute(
       direct.push({ x: goalPoints[index].x, z: goalPoints[index].z });
     }
     direct.push({ x: to.x, z: to.z });
-    driven.push({ roadId: roadIdOf(startLane), points: direct });
+    driven.push({
+      roadId: roadIdOf(startLane),
+      streetKey: streetKeyOf(startLane),
+      points: direct,
+    });
     return assembleRoute(driven, to);
   }
 
@@ -588,7 +618,11 @@ export function findGpsRoute(
   for (let index = startAt.index + 1; index < startPoints.length; index += 1) {
     startRun.push({ x: startPoints[index].x, z: startPoints[index].z });
   }
-  driven.push({ roadId: roadIdOf(startLane), points: startRun });
+  driven.push({
+    roadId: roadIdOf(startLane),
+    streetKey: streetKeyOf(startLane),
+    points: startRun,
+  });
   for (let hop = 0; hop < laneSequence.length; hop += 1) {
     const lane = laneSequence[hop];
     const isGoal = hop === laneSequence.length - 1;
@@ -598,7 +632,7 @@ export function findGpsRoute(
     const points: GpsPoint[] = [];
     appendLanePoints(points, centerline);
     if (isGoal) appendLanePoints(points, [{ x: to.x, z: to.z }]);
-    driven.push({ roadId: roadIdOf(lane), points });
+    driven.push({ roadId: roadIdOf(lane), streetKey: streetKeyOf(lane), points });
   }
   return assembleRoute(driven, to);
 }
@@ -609,7 +643,7 @@ export function findGpsRoute(
  * the points get simplified for drawing, the legs keep the real geometry.
  */
 function assembleRoute(
-  driven: readonly { readonly roadId: string; readonly points: readonly GpsPoint[] }[],
+  driven: readonly DrivenLane[],
   destination: GpsPoint,
 ): GpsRoute {
   const points: GpsPoint[] = [];

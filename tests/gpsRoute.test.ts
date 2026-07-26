@@ -508,3 +508,39 @@ describe("gps route legs and manoeuvres", () => {
     expect(routeProgress(route, 4, 200).next?.kind).toBe("right");
   });
 });
+
+describe("gps legs merge on the street, not the surface", () => {
+  // Outside NYC a street is often several road surfaces: London models Cromwell
+  // Road as three. Merging on road id alone announced a turn onto the road the
+  // driver was already on — "left onto Cromwell Road, straight onto Cromwell
+  // Road" — so the merge key is the display name wherever there is one.
+  const split: readonly GpsLane[] = [
+    { id: "a", roadId: "side", centerline: [{ x: -100, z: 0 }, { x: 0, z: 0 }], successors: ["b"] },
+    { id: "b", roadId: "main-west", centerline: [{ x: 0, z: 0 }, { x: 0, z: 150 }], successors: ["c"] },
+    { id: "c", roadId: "main-east", centerline: [{ x: 0, z: 150 }, { x: 0, z: 320 }], successors: [] },
+  ];
+
+  it("keeps two surfaces of one street as a single leg", () => {
+    const named = buildGpsGraph(split, {
+      side: "Side Street",
+      "main-west": "Main Road",
+      "main-east": "Main Road",
+    });
+    const route = findGpsRoute(named, { x: -90, z: 0 }, HEADING_EAST, { x: 0, z: 310 });
+    expect(route.legs).toHaveLength(2);
+    // Running east then turning to head north is a left under atan2(dx, dz).
+    expect(route.manoeuvres.map((m) => m.kind)).toEqual(["left", "arrive"]);
+    expect(route.manoeuvres[0].ontoRoadId).toBe("main-west");
+  });
+
+  it("falls back to road ids when the city has no names", () => {
+    // Milton Keynes and Calais ship unnamed, and must still produce legs.
+    const unnamed = buildGpsGraph(split);
+    const route = findGpsRoute(unnamed, { x: -90, z: 0 }, HEADING_EAST, { x: 0, z: 310 });
+    expect(route.legs.map((leg) => leg.roadId)).toEqual([
+      "side",
+      "main-west",
+      "main-east",
+    ]);
+  });
+});

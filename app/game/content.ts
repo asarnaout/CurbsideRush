@@ -1027,6 +1027,9 @@ interface NycRoadSpec {
   /** Node-id fragment. Broadway's nodes are `bw` while its lanes are `bway`. */
   readonly nodeKey: string;
   readonly roadId: string;
+  /** What a driver would call this street. Kept on the spec so adding a road
+   * stays one line, name included. */
+  readonly name: string;
   /** x for an avenue, z for a cross street. */
   readonly coordinate: number;
   readonly widthM: number;
@@ -1056,12 +1059,12 @@ interface NycRoadSpec {
 const NYC_AVENUES: readonly NycRoadSpec[] = [
   // Riverside Drive begins at 72nd, as it really does, so it skips the southern
   // rows and the grid's west edge steps in below them.
-  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96", "100", "106"] },
-  { key: "we", nodeKey: "we", roadId: "nyc-west-end", coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
-  { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1 },
-  { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
-  { key: "col", nodeKey: "col", roadId: "nyc-columbus", coordinate: 180, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1 },
-  { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", coordinate: 320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", name: "Riverside Dr", coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96", "100", "106"] },
+  { key: "we", nodeKey: "we", roadId: "nyc-west-end", name: "West End Ave", coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", name: "Broadway", coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", name: "Amsterdam Ave", coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
+  { key: "col", nodeKey: "col", roadId: "nyc-columbus", name: "Columbus Ave", coordinate: 180, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1 },
+  { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", name: "Central Park West", coordinate: 320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
 ];
 
 /**
@@ -1072,21 +1075,21 @@ const NYC_AVENUES: readonly NycRoadSpec[] = [
  * (six real blocks) between junctions.
  */
 const NYC_STREETS: readonly NycRoadSpec[] = [
-  { key: "59", nodeKey: "59", roadId: "nyc-west-59", coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "61", nodeKey: "61", roadId: "nyc-west-61", coordinate: -1200, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "65", nodeKey: "65", roadId: "nyc-west-65", coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "68", nodeKey: "68", roadId: "nyc-west-68", coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
-  { key: "72", nodeKey: "72", roadId: "nyc-west-72", coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "75", nodeKey: "75", roadId: "nyc-west-75", coordinate: -240, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "79", nodeKey: "79", roadId: "nyc-west-79", coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "59", nodeKey: "59", roadId: "nyc-west-59", name: "W 59th St", coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "61", nodeKey: "61", roadId: "nyc-west-61", name: "W 61st St", coordinate: -1200, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "68", nodeKey: "68", roadId: "nyc-west-68", name: "W 68th St", coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
+  { key: "72", nodeKey: "72", roadId: "nyc-west-72", name: "W 72nd St", coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "75", nodeKey: "75", roadId: "nyc-west-75", name: "W 75th St", coordinate: -240, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "79", nodeKey: "79", roadId: "nyc-west-79", name: "W 79th St", coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
   // W 82nd stops at Columbus: the museum and its grounds fill the block through
   // to Central Park West, exactly as they interrupt the real street grid there.
-  { key: "82", nodeKey: "82", roadId: "nyc-west-82", coordinate: 240, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: ["riv", "we", "bway", "amst", "col"] },
-  { key: "86", nodeKey: "86", roadId: "nyc-west-86", coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "91", nodeKey: "91", roadId: "nyc-west-91", coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "96", nodeKey: "96", roadId: "nyc-west-96", coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "100", nodeKey: "100", roadId: "nyc-west-100", coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
-  { key: "106", nodeKey: "106", roadId: "nyc-west-106", coordinate: 1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "82", nodeKey: "82", roadId: "nyc-west-82", name: "W 82nd St", coordinate: 240, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: ["riv", "we", "bway", "amst", "col"] },
+  { key: "86", nodeKey: "86", roadId: "nyc-west-86", name: "W 86th St", coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "91", nodeKey: "91", roadId: "nyc-west-91", name: "W 91st St", coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "96", nodeKey: "96", roadId: "nyc-west-96", name: "W 96th St", coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "100", nodeKey: "100", roadId: "nyc-west-100", name: "W 100th St", coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
+  { key: "106", nodeKey: "106", roadId: "nyc-west-106", name: "W 106th St", coordinate: 1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
 ];
 
 interface NycGridLane {
@@ -1127,6 +1130,7 @@ function buildNycGrid(
   readonly lanes: readonly LaneSegment[];
   readonly roadSurfaces: readonly RoadSurface[];
   readonly signals: readonly ReturnType<typeof intersectionSignal>[];
+  readonly roadNames: Readonly<Record<string, string>>;
 } {
   const reaches = (avenue: NycRoadSpec, street: NycRoadSpec): boolean =>
     (avenue.crossings ?? streets.map((s) => s.key)).includes(street.key) &&
@@ -1379,7 +1383,9 @@ function buildNycGrid(
     ];
   });
 
-  return { nodes: nodeOrder, lanes, roadSurfaces, signals };
+  const roadNames: Record<string, string> = {};
+  for (const road of [...avenues, ...streets]) roadNames[road.roadId] = road.name;
+  return { nodes: nodeOrder, lanes, roadSurfaces, signals, roadNames };
 }
 
 /** How a grid cell is built up. `buildingSet` picks the instanced glb wall. */
@@ -1720,6 +1726,9 @@ export const MAP_PACKS: readonly MapPack[] = [
     name: "NYC Upper West Side",
     areaLabel: "Broadway, West 72nd Street & nearby avenues",
     countryIds: ["us"],
+    // Derived from the road specs rather than listed again, so a new street
+    // still carries its name on the one line that declares it.
+    roadNames: nycGrid.roadNames,
     // Twelve cars is what every map got, and it is what this one had when it
     // was a fifth the size. Spread over 47 km of lane they left the streets
     // empty, and patrols with them — a patrol is one car in five, so twelve
@@ -2105,6 +2114,31 @@ export const MAP_PACKS: readonly MapPack[] = [
     name: "Tokyo — Setagaya",
     areaLabel: "Yamashita, Miyanosaka and Gotokuji",
     countryIds: ["jp"],
+    // The names the lanes were authored under — every road here was already
+    // described in the comments above, this promotes them to data. Only
+    // Setagaya-dori is a real street; the rest are this neighbourhood's own.
+    roadNames: {
+      "jp-setagaya-dori": "Setagaya-dori",
+      "jp-south-road": "Yamashita St",
+      "jp-center-road": "Miyanosaka St",
+      "jp-north-road": "Gotokuji St",
+      "jp-west-road": "West St",
+      "jp-east-curve": "East Curve",
+      "jp-junction-road": "Junction St",
+      "jp-narrow-road": "Narrow Lane",
+      "jp-westhill-road": "Westhill St",
+      "jp-narrowhill-road": "Narrowhill Lane",
+      "jp-easthill-road": "Easthill St",
+      "jp-uptown-road": "Uptown St",
+      "jp-westedge-road": "Westedge St",
+      "jp-southrow-west": "South Row",
+      "jp-centerrow-west": "Center Row",
+      "jp-northrow-west": "North Row",
+      "jp-westside-road": "Westside St",
+      "jp-westside-south": "Westside South",
+      "jp-shrine-road": "Shrine Lane",
+      "jp-eastside-road": "Eastside St",
+    },
     source: osmSource(
       { south: 35.6476, west: 139.6345, north: 35.6568, east: 139.6539 },
       "https://www.openstreetmap.org/export#map=16/35.6522/139.6442",

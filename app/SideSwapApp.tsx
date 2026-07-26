@@ -718,6 +718,11 @@ export default function SideSwapApp() {
   const routeTargetRef = useRef<string | null>(null);
   const routeSearchedAtRef = useRef(0);
   const routeLanesRef = useRef<readonly GpsLane[]>([]);
+  // Street names travel with the lanes so legs merge on the street a driver
+  // perceives, not the surface id — several surfaces can be one road.
+  const routeRoadNamesRef = useRef<Readonly<Record<string, string>> | undefined>(
+    undefined,
+  );
   const [gameMode, setGameMode] = useState<"free" | "career">("free");
   const [touchFirst, setTouchFirst] = useState(false);
   const [needsHomeScreenForFullscreen, setNeedsHomeScreenForFullscreen] =
@@ -841,7 +846,7 @@ export default function SideSwapApp() {
     routeSearchedAtRef.current = now;
     routeTargetRef.current = targetKey;
     const found = findGpsRoute(
-      gpsGraphForLanes(routeLanesRef.current),
+      gpsGraphForLanes(routeLanesRef.current, routeRoadNamesRef.current),
       { x: snapshot.playerX, z: snapshot.playerZ },
       snapshot.heading,
       target,
@@ -1287,6 +1292,7 @@ export default function SideSwapApp() {
   // active city reaches it the way `gig` does — through a ref kept in step.
   useEffect(() => {
     routeLanesRef.current = runtimeMap.laneGraph.lanes;
+    routeRoadNamesRef.current = runtimeMap.roadNames;
   }, [runtimeMap]);
   // A career day is the same open-world scenario under a per-day identity and
   // seed, so the remount key rolls the world over between days and a retried
