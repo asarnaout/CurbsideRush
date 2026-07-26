@@ -25,7 +25,6 @@ import {
   careerDayTrafficSeed,
   careerFare,
   careerGigSeedBase,
-  careerTip,
   computeCareerChecksum,
   createCareerSlice,
   DAY_LENGTH_MS,
@@ -33,11 +32,9 @@ import {
   emptyDayLog,
   garageDefaultVehicle,
   getCareerVehicle,
-  gigParMs,
   LOAN_ORIGINATION_RATE,
   LOAN_TERM_DAYS,
   nextInstallment,
-  PAR_MIN_MS,
   parseCareerSlice,
   PLATFORM_FEE_BY_COUNTRY,
   settleDay,
@@ -417,7 +414,9 @@ describe("applySettlement", () => {
   });
 });
 
-describe("fares, tips and par times", () => {
+// Tips and par times moved to dispatch.ts when free drive started paying them
+// too; they are covered in tests/dispatch.test.ts.
+describe("fares", () => {
   it("applies vehicle fare factors and the commission split with integer rounding", () => {
     const van = getCareerVehicle("delivery-van");
     const fare = careerFare(21, "delivery", van);
@@ -429,21 +428,6 @@ describe("fares, tips and par times", () => {
     expect(careerFare(20, "delivery", hatch)).toEqual({ gross: 20, net: 15 });
   });
 
-  it("tips are commission-free and only for on-time deliveries", () => {
-    expect(careerTip(32, true)).toBe(10); // round(32 * 0.3)
-    expect(careerTip(32, false)).toBe(0);
-  });
-
-  it("par time floors at the minimum and scales with distance and pace", () => {
-    expect(gigParMs(10, 1)).toBe(PAR_MIN_MS);
-    const hatchPar = gigParMs(1000, 1);
-    expect(hatchPar).toBe(Math.round(((1000 / 8) * 1.9) * 1000));
-    // Slower vehicle -> longer window; faster -> shorter.
-    expect(gigParMs(1000, 0.45)).toBeGreaterThan(hatchPar);
-    expect(gigParMs(1000, 1.25)).toBeLessThan(hatchPar);
-    // Monotone in distance.
-    expect(gigParMs(2000, 1)).toBeGreaterThan(hatchPar);
-  });
 });
 
 describe("checksum and slice codec", () => {

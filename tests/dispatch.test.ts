@@ -2,9 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import {
   createDispatch,
+  FOOD_TIP_MAX_RATE,
+  FOOD_TIP_MIN_RATE,
+  foodSpeedBonus,
+  gigParMs,
   offerElapsedFraction,
   offerRemainingMs,
   OFFER_WINDOW_MS,
+  PAR_MIN_MS,
+  quotedTip,
+  RIDE_TIP_MAX_RATE,
+  ridePromptness,
+  rideTip,
   resolveOffer,
   searchDelayMs,
   SEARCH_MAX_MS,
@@ -15,6 +24,7 @@ import {
   SURGE_FARE_MULTIPLIER,
   SURGE_MAX_MS,
   SURGE_MIN_MS,
+  SURGE_TIP_FACTOR,
   surgeWindowAt,
   type DispatchState,
 } from "../app/game/dispatch";
@@ -258,5 +268,132 @@ describe("surge windows", () => {
     const at = (seed: number) =>
       Array.from({ length: 60 }, (_, index) => (surgeWindowAt(seed, index * 5_000) ? 1 : 0)).join("");
     expect(at(101)).not.toBe(at(102));
+  });
+});
+
+describe("par times", () => {
+  it("floors at the minimum and scales with distance and pace", () => {
+    expect(gigParMs(10, 1)).toBe(PAR_MIN_MS);
+    const hatchPar = gigParMs(1000, 1);
+    expect(hatchPar).toBe(Math.round((1000 / 8) * 1.9 * 1000));
+    // Slower vehicle -> longer window; faster -> shorter.
+    expect(gigParMs(1000, 0.45)).toBeGreaterThan(hatchPar);
+    expect(gigParMs(1000, 1.25)).toBeLessThan(hatchPar);
+    // Monotone in distance.
+    expect(gigParMs(2000, 1)).toBeGreaterThan(hatchPar);
+  });
+
+  it("reads promptness as full inside par, falling to nothing at twice it", () => {
+    expect(ridePromptness(0, 60_000)).toBe(1);
+    expect(ridePromptness(60_000, 60_000)).toBe(1);
+    expect(ridePromptness(90_000, 60_000)).toBeCloseTo(0.5, 6);
+    expect(ridePromptness(120_000, 60_000)).toBe(0);
+    expect(ridePromptness(600_000, 60_000)).toBe(0);
+    // A par of zero cannot be missed.
+    expect(ridePromptness(10_000, 0)).toBe(1);
+  });
+});
+
+describe("food delivery tips", () => {
+  it("quotes a tip inside the stated band, before the offer is answered", () => {
+    // The figure shows on the offer card, so it has to be real and in range.
+    for (let seed = 1; seed <= 3_000; seed += 1) {
+      const tip = quotedTip(1_000, seed);
+      expect(tip).toBeGreaterThanOrEqual(Math.floor(1_000 * FOOD_TIP_MIN_RATE));
+      expect(tip).toBeLessThanOrEqual(Math.ceil(1_000 * FOOD_TIP_MAX_RATE));
+    }
+  });
+
+  it("quotes the same figure every time it is asked", () => {
+    // The card, the job panel and the payout all call this independently.
+    for (const seed of [4, 88, 5_000]) {
+      expect(quotedTip(340, seed)).toBe(quotedTip(340, seed));
+    }
+  });
+
+  it("pays the quoted tip whether or not the delivery was quick", () => {
+    // Only the *bonus* is earned by speed; the customer already tipped.
+    expect(quotedTip(500, 12)).toBeGreaterThan(0);
+    expect(foodSpeedBonus(500, 12, false)).toBe(0);
+  });
+
+  it("rewards a fast delivery sometimes, but never guarantees it", () => {
+    // "Fast delivery COULD (but not guaranteed) result in an extra tip."
+    const trials = 4_000;
+    let paid = 0;
+    for (let seed = 1; seed <= trials; seed += 1) {
+      if (foodSpeedBonus(500, seed, true) > 0) paid += 1;
+    }
+    const share = paid / trials;
+    expect(share).toBeGreaterThan(0.3);
+    expect(share).toBeLessThan(0.6);
+  });
+
+  it("thins tips during a surge, because the customer already paid double", () => {
+    for (const seed of [7, 51, 906]) {
+      expect(quotedTip(1_000, seed, true)).toBeLessThan(quotedTip(1_000, seed, false));
+      expect(quotedTip(1_000, seed, true)).toBeCloseTo(
+        Math.round(quotedTip(1_000, seed, false) * SURGE_TIP_FACTOR),
+        0,
+      );
+    }
+  });
+});
+
+describe("rideshare tips", () => {
+  const clean = { promptness: 1, violations: 0 };
+
+  it("never exceeds the most generous a rider gets", () => {
+    for (let seed = 1; seed <= 3_000; seed += 1) {
+      expect(rideTip(1_000, seed, clean)).toBeLessThanOrEqual(
+        Math.ceil(1_000 * RIDE_TIP_MAX_RATE),
+      );
+      expect(rideTip(1_000, seed, clean)).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("pays less the longer the ride took", () => {
+    // Monotone in promptness, so dawdling is never rewarded.
+    for (const seed of [3, 64, 1_200]) {
+      const fast = rideTip(1_000, seed, { promptness: 1, violations: 0 });
+      const middling = rideTip(1_000, seed, { promptness: 0.5, violations: 0 });
+      const slow = rideTip(1_000, seed, { promptness: 0, violations: 0 });
+      expect(middling).toBeLessThanOrEqual(fast);
+      expect(slow).toBeLessThanOrEqual(middling);
+      // A slow but clean ride still tips something — riders forgive traffic.
+      expect(slow).toBeGreaterThan(0);
+    }
+  });
+
+  it("pays less for every rule broken with someone in the car", () => {
+    for (const seed of [3, 64, 1_200]) {
+      const none = rideTip(1_000, seed, clean);
+      const one = rideTip(1_000, seed, { ...clean, violations: 1 });
+      const three = rideTip(1_000, seed, { ...clean, violations: 3 });
+      expect(one).toBeLessThan(none);
+      expect(three).toBeLessThan(one);
+      expect(three).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("cannot be driven negative by a catastrophic ride", () => {
+    expect(rideTip(1_000, 5, { promptness: 0, violations: 40 })).toBe(0);
+    expect(rideTip(1_000, 5, { promptness: 0, violations: -3 })).toBeGreaterThanOrEqual(0);
+  });
+
+  it("varies by rider rather than being a fixed percentage", () => {
+    // The whole point is that it is unknown until the ride is over.
+    const tips = new Set(
+      Array.from({ length: 200 }, (_, index) => rideTip(1_000, index + 1, clean)),
+    );
+    expect(tips.size).toBeGreaterThan(20);
+  });
+
+  it("thins during a surge like every other tip", () => {
+    for (const seed of [7, 51, 906]) {
+      const plain = rideTip(2_000, seed, clean);
+      const surged = rideTip(2_000, seed, { ...clean, surged: true });
+      if (plain > 1) expect(surged).toBeLessThan(plain);
+    }
   });
 });

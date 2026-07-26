@@ -19,6 +19,9 @@
 
 import { hashToUnit } from "./gigs";
 
+const clamp = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value));
+
 // ---------------------------------------------------------------------------
 // Surge
 // ---------------------------------------------------------------------------
@@ -238,4 +241,128 @@ export function offerElapsedFraction(state: DispatchState, nowMs: number): numbe
   if (state.phase !== "offered") return 0;
   const elapsed = (nowMs - state.offeredAtMs) / OFFER_WINDOW_MS;
   return Math.min(1, Math.max(0, elapsed));
+}
+
+// ---------------------------------------------------------------------------
+// Tips
+// ---------------------------------------------------------------------------
+
+/**
+ * Par-time model for the carrying leg (pickup scene done → dropped off): the
+ * effective city pace of the reference sedan, a slack factor covering
+ * road-versus-straight-line detour plus forgiveness, and a floor so a short hop
+ * is never impossible.
+ *
+ * Lives here rather than in `career.ts` because tips are no longer a Career
+ * mechanic — free drive pays them too, at `paceFactor` 1.
+ */
+export const PAR_BASE_SPEED_MPS = 8;
+export const PAR_SLACK = 1.9;
+export const PAR_MIN_MS = 45_000;
+
+/**
+ * The tip window for one gig. A pure function of the gig and the vehicle, so it
+ * replays identically on a retried day.
+ */
+export function gigParMs(pickupToDropoffM: number, paceFactor: number): number {
+  const seconds = (pickupToDropoffM / (PAR_BASE_SPEED_MPS * paceFactor)) * PAR_SLACK;
+  return Math.max(PAR_MIN_MS, Math.round(seconds * 1000));
+}
+
+/** Share of the gross a food order tips, drawn once and quoted with the offer. */
+export const FOOD_TIP_MIN_RATE = 0.08;
+export const FOOD_TIP_MAX_RATE = 0.28;
+
+/**
+ * Chance an on-time food delivery earns something extra on top of the quoted
+ * tip, and what that is worth as a share of the gross.
+ *
+ * Deliberately a coin-flip rather than a rule: a customer who is pleased their
+ * food arrived hot *might* add to what they already tipped. Guaranteeing it
+ * would turn the quoted figure into a lie and make par a second fare table.
+ */
+export const FOOD_SPEED_BONUS_CHANCE = 0.45;
+export const FOOD_SPEED_BONUS_RATE = 0.08;
+
+/** The most generous a rider ever is, before speed and driving are accounted for. */
+export const RIDE_TIP_MAX_RATE = 0.22;
+/**
+ * Floor the speed factor never drops below. A slow ride still tips something —
+ * riders forgive traffic, and zeroing the tip for a long trip would punish the
+ * player for the city rather than for their driving.
+ */
+export const RIDE_TIP_SLOW_FLOOR = 0.35;
+/** Share of what is left that each rule broken during the ride costs. */
+export const RIDE_TIP_VIOLATION_PENALTY = 0.3;
+
+const FOOD_TIP_SALT = 0x13_9a_5c_71;
+const FOOD_BONUS_SALT = 0x64_c2_0d_3f;
+const RIDE_TIP_SALT = 0x38_e7_b1_92;
+
+/** Applies the surge discount, then rounds to whole currency units. */
+const settle = (gross: number, rate: number, surged: boolean): number => {
+  const scaled = rate * (surged ? SURGE_TIP_FACTOR : 1);
+  return Math.max(0, Math.round(gross * scaled));
+};
+
+/**
+ * What a food order tips, known before the offer is accepted.
+ *
+ * A delivery customer decides their tip in the app when they order, so the
+ * figure is real and shows on the card — it is part of what the player is
+ * weighing up, not a reward revealed afterwards.
+ */
+export function quotedTip(gross: number, seed: number, surged = false): number {
+  const rate =
+    FOOD_TIP_MIN_RATE +
+    hashToUnit((seed ^ FOOD_TIP_SALT) | 0) * (FOOD_TIP_MAX_RATE - FOOD_TIP_MIN_RATE);
+  return settle(gross, rate, surged);
+}
+
+/**
+ * The extra a *fast* food delivery may earn on top of the quoted tip — zero if
+ * it was late, and zero on a bit under half of on-time runs.
+ */
+export function foodSpeedBonus(gross: number, seed: number, onTime: boolean, surged = false): number {
+  if (!onTime) return 0;
+  if (hashToUnit((seed ^ FOOD_BONUS_SALT) | 0) >= FOOD_SPEED_BONUS_CHANCE) return 0;
+  return settle(gross, FOOD_SPEED_BONUS_RATE, surged);
+}
+
+/**
+ * How well the carrying leg was driven, 1 at or inside par falling to 0 at
+ * twice it.
+ */
+export function ridePromptness(elapsedMs: number, parMs: number): number {
+  if (!(parMs > 0)) return 1;
+  if (elapsedMs <= parMs) return 1;
+  return clamp(1 - (elapsedMs - parMs) / parMs, 0, 1);
+}
+
+export interface RideTipInputs {
+  /** From `ridePromptness`. */
+  readonly promptness: number;
+  /** Rules broken between boarding and getting out. */
+  readonly violations: number;
+  readonly surged?: boolean;
+}
+
+/**
+ * What a rider tips, unknown until they are out of the car.
+ *
+ * Unlike a food order there is no figure decided up front — the passenger is
+ * sitting there watching how the trip goes, and what they leave depends on how
+ * long it took and how it was driven. Each violation costs a share of what is
+ * left rather than a flat amount, so the first one stings and the tenth cannot
+ * push the tip negative.
+ */
+export function rideTip(gross: number, seed: number, inputs: RideTipInputs): number {
+  const generosity = hashToUnit((seed ^ RIDE_TIP_SALT) | 0) * RIDE_TIP_MAX_RATE;
+  const speed =
+    RIDE_TIP_SLOW_FLOOR + (1 - RIDE_TIP_SLOW_FLOOR) * clamp(inputs.promptness, 0, 1);
+  const behaviour = Math.pow(
+    1 - RIDE_TIP_VIOLATION_PENALTY,
+    Math.max(0, Math.floor(inputs.violations)),
+  );
+  return settle(gross, generosity * speed * behaviour, inputs.surged === true);
 }

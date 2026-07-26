@@ -41,6 +41,38 @@ describe("gig generation + state machine", () => {
     expect(gig!.reward).toBe(expected);
   });
 
+  it("carries the seed it was drawn from", () => {
+    // Tips are pure functions of it, so holding it beats parsing `gig-7` back
+    // apart or stamping every derived figure onto the gig by hand.
+    const gig = generateGig(venues, fare, "GBP", 7);
+    expect(gig!.seed).toBe(7);
+    expect(gig!.id).toBe("gig-7");
+  });
+
+  it("prices a surge into the reward, keeping the base figure alongside", () => {
+    // A gig is fully priced before it is ever offered: the number on the card,
+    // the number in the job panel and the number that lands in the wallet are
+    // one field, so no consumer can forget to apply the multiplier.
+    const plain = generateGig(venues, fare, "GBP", 7)!;
+    const surged = generateGig(venues, fare, "GBP", 7, "delivery", 2)!;
+
+    expect(plain.surged).toBe(false);
+    expect(plain.baseReward).toBe(plain.reward);
+
+    expect(surged.surged).toBe(true);
+    expect(surged.baseReward).toBe(plain.reward);
+    expect(surged.reward).toBe(plain.reward * 2);
+    // Same job, only a different price.
+    expect(surged.pickup).toEqual(plain.pickup);
+    expect(surged.dropoff).toEqual(plain.dropoff);
+  });
+
+  it("treats a multiplier of one as no surge at all", () => {
+    expect(generateGig(venues, fare, "GBP", 3, "delivery", 1)).toEqual(
+      generateGig(venues, fare, "GBP", 3),
+    );
+  });
+
   it("is deterministic for the same seed", () => {
     expect(generateGig(venues, fare, "GBP", 42)).toEqual(
       generateGig(venues, fare, "GBP", 42),

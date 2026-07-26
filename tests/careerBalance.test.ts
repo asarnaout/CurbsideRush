@@ -20,7 +20,7 @@ import {
   getFreeDrive,
   getMapPack,
 } from "../app/game/content";
-import { MIN_GIG_DISTANCE_M, selectGigPools } from "../app/game/gigs";
+import { gigReward, MIN_GIG_DISTANCE_M, selectGigPools } from "../app/game/gigs";
 import type { GigKind, GigVenuePosition } from "../app/game/gigs";
 import { resolveSimulationLaneAnchor } from "../app/game/simulationAdapter";
 import { streetAddressesForMap } from "../app/game/streetAddresses";
@@ -67,8 +67,10 @@ function medianNet(
       if (dropoff.id === pickup.id) continue;
       const distance = Math.hypot(dropoff.x - pickup.x, dropoff.z - pickup.z);
       if (distance < MIN_GIG_DISTANCE_M) continue;
-      const reward = Math.round(fare.base + fare.ratePerM * distance);
-      nets.push(careerFare(reward, kind, vehicle).net);
+      // Deliberately the un-surged price. A surge is upside a player chases,
+      // not income the ladder may be balanced against — budget for it and the
+      // tiers become unaffordable in every ordinary window.
+      nets.push(careerFare(gigReward(fare, pickup, dropoff), kind, vehicle).net);
     }
   }
   if (!nets.length) return null;

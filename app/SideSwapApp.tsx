@@ -56,7 +56,6 @@ import {
   careerFare,
   careerGigSeedBase,
   careerCityIndex,
-  careerTip,
   canBuyVehicle,
   createCareerSlice,
   ticketPrice,
@@ -66,7 +65,6 @@ import {
   emptyDayLog,
   garageDefaultVehicle,
   getCareerVehicle,
-  gigParMs,
   PLATFORM_FEE_BY_COUNTRY,
   ROADSIDE_CALLOUT_FEE_BY_COUNTRY,
   ROADSIDE_PRICE_FACTOR,
@@ -140,6 +138,13 @@ import {
   selectGigPools,
 } from "./game/gigs";
 import type { Gig, GigKind, GigVenuePosition } from "./game/gigs";
+import {
+  foodSpeedBonus,
+  gigParMs,
+  quotedTip,
+  ridePromptness,
+  rideTip,
+} from "./game/dispatch";
 import { streetAddressesForMap } from "./game/streetAddresses";
 import type {
   CameraMode,
@@ -1122,8 +1127,11 @@ export default function SideSwapApp() {
                 current.kind,
                 run.vehicle,
               );
-              // On-time within the par window earns the commission-free tip;
-              // late still pays the base net — no hard fail.
+              // Tips are commission-free either way, but the two kinds settle
+              // differently: a food order tipped when it was placed, and may
+              // add something if it arrived hot; a rider decides on the way and
+              // pays for how the trip went. Late still pays the fare — no hard
+              // fail.
               const parMs = gigParMs(
                 Math.hypot(
                   current.dropoff.x - current.pickup.x,
@@ -1134,8 +1142,17 @@ export default function SideSwapApp() {
               const elapsedNow =
                 dayElapsedBaseRef.current + lastSimElapsedRef.current;
               const since = carryingSinceRef.current;
-              const onTime = since !== null && elapsedNow - since <= parMs;
-              const tip = careerTip(gross, onTime);
+              const carriedMs = since === null ? parMs : elapsedNow - since;
+              const onTime = since !== null && carriedMs <= parMs;
+              const tip =
+                current.kind === "passenger"
+                  ? rideTip(gross, current.seed, {
+                      promptness: ridePromptness(carriedMs, parMs),
+                      violations: 0,
+                      surged: current.surged,
+                    })
+                  : quotedTip(gross, current.seed, current.surged) +
+                    foodSpeedBonus(gross, current.seed, onTime, current.surged);
               carryingSinceRef.current = null;
               setCarryingSinceMs(null);
               dayCashRef.current += net + tip;
