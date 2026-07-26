@@ -4042,6 +4042,8 @@ class BabylonGameSession {
   private gamepadConnected = false;
   private readonly inputRouter: AdaptiveInputRouter;
   private indicatorBlinkSeconds = 0;
+  private previousIndicatorSignal: TurnIndicator = "off";
+  private previousIndicatorBlinkOn = false;
   private trafficLightSeconds = 0;
   private trafficLightIsRed = false;
   private swipePointer: number | null = null;
@@ -8028,7 +8030,18 @@ class BabylonGameSession {
   private updateIndicatorLights(dt: number) {
     this.indicatorBlinkSeconds = (this.indicatorBlinkSeconds + dt) % 0.8;
     const blinkOn = this.indicatorBlinkSeconds < 0.4;
-    this.playerVehicleVisual?.setSignal(this.playerState.indicator, blinkOn);
+    const indicator = this.playerState.indicator;
+    // A click on every edge the driver (or an auto-cancel) can produce: signal
+    // engaged, signal cancelled, or the relay's own on/off half-cycle — the
+    // same rhythm a physical flasher relay makes.
+    const changedSignal = indicator !== this.previousIndicatorSignal;
+    const changedPhase = indicator !== "off" && blinkOn !== this.previousIndicatorBlinkOn;
+    if (changedSignal || changedPhase) {
+      this.audio?.indicatorTick(indicator !== "off" && blinkOn);
+    }
+    this.previousIndicatorSignal = indicator;
+    this.previousIndicatorBlinkOn = blinkOn;
+    this.playerVehicleVisual?.setSignal(indicator, blinkOn);
     this.playerVehicleVisual?.setBraking(
       Math.max(this.keyboard.brake, this.touch.brake, this.gamepad.brake) > 0.08,
     );

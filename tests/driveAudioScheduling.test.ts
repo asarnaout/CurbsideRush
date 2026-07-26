@@ -14,6 +14,7 @@ import { MasterBus } from "../app/game/audio/masterBus";
 import { AmbienceVoice } from "../app/game/audio/voices/ambienceVoice";
 import { EngineVoice } from "../app/game/audio/voices/engineVoice";
 import { HornVoice } from "../app/game/audio/voices/hornVoice";
+import { IndicatorVoice } from "../app/game/audio/voices/indicatorVoice";
 import { TyreVoice } from "../app/game/audio/voices/tyreVoice";
 import type { VoiceContext } from "../app/game/audio/voices/voiceContext";
 
@@ -282,6 +283,23 @@ describe("horn envelope", () => {
     horn.press();
     expect(scheduled.length).toBe(before);
     expect(horn.isHeld).toBe(true);
+  });
+});
+
+describe("indicator relay click", () => {
+  it("pitches the lamp-off click lower, so the two ticks read as a rhythm", () => {
+    const indicator = new IndicatorVoice(makeVoiceContext(context));
+    recording = true;
+    indicator.tick(true);
+    const openFreq = scheduled.find(
+      (event) => event.method === "setValueAtTime" && event.value > 1000,
+    )?.value;
+    scheduled.length = 0;
+    indicator.tick(false);
+    const closedFreq = scheduled.find(
+      (event) => event.method === "setValueAtTime" && event.value > 1000,
+    )?.value;
+    expect(openFreq).toBeGreaterThan(closedFreq ?? Infinity);
   });
 });
 

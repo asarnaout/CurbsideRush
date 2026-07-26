@@ -24,6 +24,7 @@ import { EngineVoice } from "./voices/engineVoice";
 import { FoleyVoice, type FoleyCue } from "./voices/foleyVoice";
 import { HornVoice } from "./voices/hornVoice";
 import { ImpactVoice } from "./voices/impactVoice";
+import { IndicatorVoice } from "./voices/indicatorVoice";
 import { TyreVoice } from "./voices/tyreVoice";
 import {
   createAmbienceBuffer,
@@ -44,6 +45,7 @@ export class DriveAudio {
   private readonly horn: HornVoice;
   private readonly impacts: ImpactVoice;
   private readonly foleyVoice: FoleyVoice;
+  private readonly indicator: IndicatorVoice;
   private readonly state: DriveAudioState;
   private readonly params: DriveAudioParams;
   private readonly profile: ResolvedEngineProfile;
@@ -78,6 +80,7 @@ export class DriveAudio {
     this.horn = new HornVoice(voice);
     this.impacts = new ImpactVoice(voice);
     this.foleyVoice = new FoleyVoice(voice);
+    this.indicator = new IndicatorVoice(voice);
   }
 
   /**
@@ -134,6 +137,11 @@ export class DriveAudio {
   /** Another car's horn, pitched and filtered so it reads as somebody else. */
   hornBlip(seconds: number, variant: number): void {
     if (!this.disposed) this.horn.blip(seconds, variant);
+  }
+
+  /** The turn-signal relay click; `open` is the lamp-lit half of the cycle. */
+  indicatorTick(open: boolean): void {
+    if (!this.disposed) this.indicator.tick(open);
   }
 
   get hornHeld(): boolean {
