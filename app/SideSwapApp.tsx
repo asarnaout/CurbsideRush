@@ -2919,31 +2919,21 @@ export default function SideSwapApp() {
  * device this is the whole answer rather than a nicety.
  */
 function MobilePlayTips({ needsHomeScreen }: { needsHomeScreen: boolean }) {
-  const line: CSSProperties = {
-    margin: "0.7rem 0 0",
-    display: "flex",
-    alignItems: "baseline",
-    gap: "0.45rem",
-    color: "var(--hud-cream-40, rgba(244,246,248,0.62))",
-    font: "600 0.78rem/1.35 system-ui, sans-serif",
-  };
+  // Styled in `globals.css` (`.launcher-tip`) rather than inline, unlike the
+  // driving HUD: these are launcher chrome, and a landscape phone hides the
+  // rotate line — which an inline `display` would have outranked.
   return (
     <>
-      <p style={line}>
+      <p className="launcher-tip launcher-tip-rotate">
         <span aria-hidden="true">↻</span>
         Best played with your phone sideways.
       </p>
       {needsHomeScreen && (
-        <p style={line} data-testid="home-screen-tip">
+        <p className="launcher-tip" data-testid="home-screen-tip">
           <span aria-hidden="true">⤴</span>
           <span>
-            For a full screen with no browser bars, tap{" "}
-            <strong style={{ color: "var(--hud-cream, #f4f6f8)" }}>Share</strong>{" "}
-            then{" "}
-            <strong style={{ color: "var(--hud-cream, #f4f6f8)" }}>
-              Add to Home Screen
-            </strong>
-            , and open it from there.
+            For a full screen with no browser bars, tap <strong>Share</strong>{" "}
+            then <strong>Add to Home Screen</strong>, and open it from there.
           </span>
         </p>
       )}
