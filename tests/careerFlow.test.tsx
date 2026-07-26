@@ -943,7 +943,7 @@ describe("dispatch: offers, waits and the queue", () => {
     fireEvent.click(screen.getByTestId("mock-hud-mid"));
     const pickup = screen.getByTestId("gig-offer").textContent ?? "";
 
-    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
     expect(screen.queryByTestId("gig-offer")).not.toBeInTheDocument();
     expect(screen.queryByTestId("dispatch-idle")).not.toBeInTheDocument();
     expect(screen.getByTestId("dispatch-toast")).toHaveTextContent("JOB ACCEPTED");
@@ -955,7 +955,7 @@ describe("dispatch: offers, waits and the queue", () => {
   it("costs nothing to pass — the driver just waits for the next one", async () => {
     await startDay();
     fireEvent.click(screen.getByTestId("mock-hud-mid"));
-    fireEvent.click(screen.getByText("PASS (G)"));
+    fireEvent.click(screen.getByTestId("offer-pass"));
 
     expect(screen.queryByTestId("gig-offer")).not.toBeInTheDocument();
     expect(screen.getByTestId("dispatch-toast")).toHaveTextContent("PASSED");
@@ -995,7 +995,7 @@ describe("dispatch: offers, waits and the queue", () => {
     const tick = () => fireEvent.click(screen.getByTestId("mock-hud-advance"));
 
     tick();
-    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
     expect(screen.queryByTestId("queued-gig")).not.toBeInTheDocument();
 
     // Run the clock until dispatch offers again. The ceiling is one lost
@@ -1006,7 +1006,7 @@ describe("dispatch: offers, waits and the queue", () => {
     expect(screen.getByTestId("gig-offer")).toBeVisible();
 
     // Accepting a second job parks it — it does not replace the one in hand.
-    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
     expect(screen.getByTestId("dispatch-toast")).toHaveTextContent("ADDED TO QUEUE");
     expect(screen.getByTestId("queued-gig")).toBeVisible();
     expect(screen.getByTestId("drive-status-card")).toHaveTextContent("PICK UP");
@@ -1081,7 +1081,7 @@ describe("dispatch: a job from offer to payout", () => {
     expect(screen.getByTestId("gig-offer")).toHaveTextContent(
       expected.pickup.name,
     );
-    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
 
     const scene = screen.getByLabelText("Mock driving scene");
     expect(scene).toHaveAttribute("data-cutscene-kind", "none");
@@ -1118,7 +1118,7 @@ describe("dispatch: a job from offer to payout", () => {
     const expected = firstOfferOf("us-nyc", CAREER_SEED);
     await startSeededDay(CAREER_SEED);
     fireEvent.click(screen.getByTestId("mock-hud-advance"));
-    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
 
     driveTo(expected.pickup);
     fireEvent.click(screen.getByTestId("mock-scene-done"));
@@ -1138,7 +1138,7 @@ describe("dispatch: a job from offer to payout", () => {
     const expected = firstOfferOf("us-nyc", CAREER_SEED);
     await startSeededDay(CAREER_SEED);
     fireEvent.click(screen.getByTestId("mock-hud-advance"));
-    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
 
     driveTo(expected.pickup);
     fireEvent.click(screen.getByTestId("mock-scene-done"));
@@ -1147,7 +1147,7 @@ describe("dispatch: a job from offer to payout", () => {
     for (let second = 0; second < 70 && !screen.queryByTestId("gig-offer"); second += 1) {
       fireEvent.click(screen.getByTestId("mock-hud-advance"));
     }
-    fireEvent.click(screen.getByText("ACCEPT (F)"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
     const queued = screen.getByTestId("queued-gig").textContent ?? "";
     expect(queued).toContain("NEXT UP");
 

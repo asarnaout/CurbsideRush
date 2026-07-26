@@ -2536,6 +2536,20 @@ export function formatMoney(amount: number, country: CountryProfile): string {
  * one reads.
  */
 export function formatDistance(metres: number, country: CountryProfile): string {
+  const { value, unit } = formatDistanceParts(metres, country);
+  return `${value} ${unit}`;
+}
+
+/**
+ * The same figure with the number and the unit kept apart, for a readout that
+ * sets them at different sizes — a guidance banner puts the distance at display
+ * weight and the unit small beside it. Splitting `formatDistance`'s string on a
+ * space would work today and break the first time a unit has one in it.
+ */
+export function formatDistanceParts(
+  metres: number,
+  country: CountryProfile,
+): { readonly value: string; readonly unit: string } {
   const value = Number.isFinite(metres) ? Math.max(0, metres) : 0;
   if (country.speedUnit === "mph") {
     const miles = value / 1609.344;
@@ -2544,13 +2558,20 @@ export function formatDistance(metres: number, country: CountryProfile): string 
     // signs in — Britain in yards, America in feet.
     if (miles < 0.1) {
       const yards = value * 1.09361;
-      if (country.id === "uk") return `${Math.max(10, Math.round(yards / 10) * 10)} yd`;
-      return `${Math.max(50, Math.round((yards * 3) / 50) * 50)} ft`;
+      if (country.id === "uk") {
+        return { value: String(Math.max(10, Math.round(yards / 10) * 10)), unit: "yd" };
+      }
+      return {
+        value: String(Math.max(50, Math.round((yards * 3) / 50) * 50)),
+        unit: "ft",
+      };
     }
-    return `${miles.toFixed(1)} mi`;
+    return { value: miles.toFixed(1), unit: "mi" };
   }
-  if (value < 1000) return `${Math.max(10, Math.round(value / 10) * 10)} m`;
-  return `${(value / 1000).toFixed(1)} km`;
+  if (value < 1000) {
+    return { value: String(Math.max(10, Math.round(value / 10) * 10)), unit: "m" };
+  }
+  return { value: (value / 1000).toFixed(1), unit: "km" };
 }
 
 export const SCORING_CONFIG: ScoringConfig = {

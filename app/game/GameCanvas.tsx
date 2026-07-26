@@ -329,6 +329,12 @@ export interface GameHudSnapshot {
    * rather than wall time.
    */
   simElapsedMs: number;
+  /**
+   * The limit posted on the road under the car, already rounded and in the same
+   * unit as `speed` — so a HUD can put the two side by side without converting
+   * anything. Zero only before the first lane projection lands.
+   */
+  speedLimit: number;
   scenarioClock?: string;
 }
 
@@ -3768,6 +3774,8 @@ class BabylonGameSession {
   private accumulator = 0;
   private lastFrameTime = 0;
   private lastHudTime = 0;
+  /** Last non-zero posted limit — see `postedSpeedLimit`. */
+  private lastPostedSpeedLimit = 0;
   // Substage timing sums/maxima since the last __sideswapPerfDebug poll
   // (polling drains them). Flat typed arrays so the hot loops allocate nothing.
   private readonly perfSumMs = new Float64Array(PERF_STAGE_COUNT);
@@ -12569,8 +12577,24 @@ class BabylonGameSession {
       playerZ: this.playerState.z,
       heading: this.playerState.heading,
       simElapsedMs: this.simulationSnapshot.elapsedMs,
+      speedLimit: this.postedSpeedLimit(),
       scenarioClock: this.options.lesson?.scenarioClock?.label,
     });
+  }
+
+  /**
+   * The limit posted on the road under the car, in the same unit as `speed`.
+   *
+   * The simulation reports zero whenever the lane projection fails — a junction
+   * gap, a car park, anything off the network — and a sign that blinks to zero
+   * every time the car crosses a crossroads is worse than no sign. So the last
+   * real figure is held instead: a driver on an unmarked stretch is still
+   * bound by the limit of the road they turned off.
+   */
+  private postedSpeedLimit(): number {
+    const posted = this.simulationSnapshot.road.speedLimitDisplay;
+    if (posted > 0) this.lastPostedSpeedLimit = posted;
+    return this.lastPostedSpeedLimit;
   }
 }
 
@@ -12725,6 +12749,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       playerZ: 0,
       heading: 0,
       simElapsedMs: 0,
+      speedLimit: 0,
     });
 
     callbackRef.current = {
