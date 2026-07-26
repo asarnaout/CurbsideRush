@@ -10,9 +10,12 @@ import {
   DriveOfferCard,
   DriveSpeedCluster,
   DriveSurgeBanner,
+  DriveOfferBar,
   FUSE_SMOOTHING_MS,
   HUD_DESIGN_WIDTH,
   HUD_MIN_SCALE,
+  MOBILE_OFFER_H,
+  RAIL_MIN_SLOT_PX,
   resolveHudScale,
   SPEED_ALARM_OVER,
   SPEED_WARN_OVER,
@@ -434,5 +437,121 @@ describe("the surge banner", () => {
     expect(banner).toHaveTextContent("1:14");
     // Transient and above everything read, like the other toasts.
     expect(Number(banner.style.zIndex)).toBe(DRIVE_LAYER.toast);
+  });
+});
+
+describe("the phone HUD", () => {
+  it("carries the money in the job card, where the corner cannot", () => {
+    // The mobile comp puts the balance top-right, but that corner already
+    // holds camera/pause/fullscreen — and fullscreen is the only way to
+    // reclaim Safari's chrome once a drive has started.
+    navCard({
+      compact: true,
+      money: { balance: "$248.60", session: "+$62.10", label: "DAY 3 · 4:12" },
+    });
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("$248.60");
+    expect(screen.getByTestId("day-clock")).toHaveTextContent("DAY 3 · 4:12");
+  });
+
+  it("leaves the money out on desktop, where it has its own cluster", () => {
+    navCard({ compact: false });
+    expect(screen.queryByTestId("day-cash")).not.toBeInTheDocument();
+  });
+
+  it("draws the same card smaller rather than a different one", () => {
+    // Both sizings render the same testids, so nothing downstream — the app,
+    // these tests — has to know which one is on screen.
+    for (const compact of [true, false]) {
+      cleanup();
+      navCard({ compact, queued: { title: "Amsterdam Bagels", pay: "+$12.40" } });
+      expect(screen.getByTestId("manoeuvre-street")).toBeVisible();
+      expect(screen.getByTestId("destination-progress")).toBeVisible();
+      expect(screen.getByTestId("job-pay")).toBeVisible();
+      expect(screen.getByTestId("queued-gig")).toBeVisible();
+      expect(screen.getByText("Fuel")).toBeInTheDocument();
+    }
+  });
+
+  it("says what to do when the driver is rolling through a stop", () => {
+    // Stopping is what starts the pickup scene, so this outranks the tip clock.
+    navCard({ job: job({ hint: "Stop the car to pick up." }) });
+    expect(screen.getByTestId("job-hint")).toHaveTextContent("Stop the car");
+    expect(screen.queryByTestId("job-tip")).not.toBeInTheDocument();
+  });
+});
+
+describe("the offer on a phone", () => {
+  const bar = (slotHeight: number, patch: Partial<HudOffer> = {}) => {
+    const onAccept = vi.fn();
+    const onPass = vi.fn();
+    render(
+      <DriveOfferBar
+        inset={{ top: "64px", right: "12px" }}
+        offer={offer(patch)}
+        slotHeight={slotHeight}
+        onAccept={onAccept}
+        onPass={onPass}
+      />,
+    );
+    return { onAccept, onPass };
+  };
+
+  it("shows the same job the desktop card does", () => {
+    bar(224);
+    expect(screen.getByTestId("offer-pay")).toHaveTextContent("+$12.40");
+    expect(screen.getByTestId("offer-countdown")).toHaveTextContent("12");
+    expect(screen.getByText("Amsterdam Bagels")).toBeVisible();
+    expect(screen.getByText("FOOD DELIVERY")).toBeVisible();
+  });
+
+  it("draws the detour as a rail when there is room for one", () => {
+    bar(224);
+    expect(screen.getByTestId("detour-rail")).toBeVisible();
+    expect(screen.getByTestId("detour-label")).toHaveTextContent("0.4 mi away");
+    expect(screen.getByText("YOU")).toBeVisible();
+    expect(screen.getByText("BACK ON ROUTE")).toBeVisible();
+  });
+
+  it("drops the rail rather than growing down into the pedals", () => {
+    // The comp is drawn on a 400px frame; Safari with its toolbars leaves
+    // ~343, and the shortest phone the rail budget admits is 320.
+    bar(RAIL_MIN_SLOT_PX - 1);
+    expect(screen.queryByTestId("detour-rail")).not.toBeInTheDocument();
+    // The distance it carried is still on the sub-line.
+    expect(screen.getByTestId("gig-offer")).toHaveTextContent("0.4 mi away");
+  });
+
+  it("never stands taller than the slot it was given", () => {
+    for (const slot of [224, 165, 142]) {
+      cleanup();
+      bar(slot);
+      const card = screen.getByTestId("gig-offer").firstElementChild as HTMLElement;
+      const height = Number.parseInt(card.style.height, 10);
+      expect(height).toBeLessThanOrEqual(Math.max(slot, 120));
+      expect(height).toBeLessThanOrEqual(MOBILE_OFFER_H);
+    }
+  });
+
+  it("answers to a tap, with no keycaps to press", () => {
+    const { onAccept, onPass } = bar(224);
+    expect(screen.getByTestId("offer-accept")).not.toHaveTextContent("F");
+    fireEvent.click(screen.getByTestId("offer-pass"));
+    expect(onPass).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("offer-accept"));
+    expect(onAccept).toHaveBeenCalledTimes(1);
+  });
+
+  it("outranks the map it is standing on top of", () => {
+    const { container } = render(
+      <DriveOfferBar
+        inset={{ top: "64px", right: "12px" }}
+        offer={offer()}
+        slotHeight={224}
+        onAccept={vi.fn()}
+        onPass={vi.fn()}
+      />,
+    );
+    const root = container.firstElementChild as HTMLElement;
+    expect(Number(root.style.zIndex)).toBe(DRIVE_LAYER.action);
   });
 });
