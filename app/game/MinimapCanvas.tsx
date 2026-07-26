@@ -5,6 +5,7 @@ import {
   createMinimapFollowProjector,
   createMinimapProjector,
   createMinimapSheetProjector,
+  MINIMAP_ROUTE_WIDTH_FRACTION,
   projectRoadNetwork,
   resolveMinimapRoadWidth,
   resolveMinimapScale,
@@ -109,7 +110,7 @@ export function Minimap({
     if (ctx) {
       // Translucent, so the overlap at a crossing brightens into a junction
       // patch on its own — the reason there is no junction pass here.
-      ctx.strokeStyle = "rgba(158, 170, 180, 0.20)";
+      ctx.strokeStyle = "rgba(170, 182, 192, 0.28)";
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       for (const line of projectRoadNetwork(roadSurfaces, sheet)) {
@@ -160,7 +161,7 @@ export function Minimap({
     // once, when the destination changed.
     if (route && route.length > 1) {
       ctx.strokeStyle = "#f2c658";
-      ctx.lineWidth = Math.max(2, size * 0.026);
+      ctx.lineWidth = Math.max(2, size * MINIMAP_ROUTE_WIDTH_FRACTION);
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.beginPath();
@@ -209,11 +210,15 @@ export function Minimap({
     ctx.beginPath();
     ctx.arc(center.x, center.y, Math.max(8, size * 0.075), 0, Math.PI * 2);
     ctx.fill();
+    // Sized off the widget rather than in flat pixels, so the arrow keeps its
+    // proportions on the smaller touch map instead of swelling to fill it.
+    const nose = Math.max(5, size * 0.055);
+    const tail = Math.max(3.5, size * 0.038);
     ctx.fillStyle = "#f2c658";
     ctx.beginPath();
-    ctx.moveTo(center.x + dx * 6, center.y + dy * 6);
-    ctx.lineTo(center.x - dx * 4 + px * 4, center.y - dy * 4 + py * 4);
-    ctx.lineTo(center.x - dx * 4 - px * 4, center.y - dy * 4 - py * 4);
+    ctx.moveTo(center.x + dx * nose, center.y + dy * nose);
+    ctx.lineTo(center.x - dx * tail + px * tail, center.y - dy * tail + py * tail);
+    ctx.lineTo(center.x - dx * tail - px * tail, center.y - dy * tail - py * tail);
     ctx.closePath();
     ctx.fill();
   }, [playerX, playerZ, heading, pins, route, projector, size, scale, sheet]);

@@ -41,16 +41,31 @@ export const MINIMAP_FOLLOW_SPAN_M = 500;
  * on a phone, so the grid reads as a mesh of hairlines rather than streets with
  * blocks between them. Roads therefore get a floor proportional to the widget,
  * which is what every map renderer does — the drawn width stops being a
- * measurement and becomes a symbol. Real width still wins wherever it is wider,
- * so a boulevard stays fatter than a side street.
+ * measurement and becomes a symbol.
+ *
+ * At the shipped span the floor governs *every* road: beating it takes a
+ * carriageway over ~31 m, and the widest authored anywhere is 25 m. So the
+ * width term is not currently load-bearing, and streets of different widths
+ * deliberately draw alike. It earns its keep only if a map zooms closer or
+ * authors a genuinely huge road, and it is cheaper to keep than to rediscover.
  */
 export function resolveMinimapRoadWidth(
   widthM: number,
   pixelsPerMetre: number,
   size: number,
 ): number {
-  return Math.max(size * 0.032, widthM * pixelsPerMetre);
+  return Math.max(size * ROAD_WIDTH_FLOOR_FRACTION, widthM * pixelsPerMetre);
 }
+
+/**
+ * Road width as a share of the widget, and the route line's share of that.
+ *
+ * The two are a pair: the GPS line has to sit *inside* the street it follows,
+ * or it reads as a separate object laid over the city rather than the way
+ * through it. Roughly half the road width is what does that.
+ */
+const ROAD_WIDTH_FLOOR_FRACTION = 0.058;
+export const MINIMAP_ROUTE_WIDTH_FRACTION = ROAD_WIDTH_FLOOR_FRACTION * 0.55;
 
 /** Pixels per metre a projector draws at, and whether it scrolls. */
 export interface MinimapScale {

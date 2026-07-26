@@ -4,6 +4,7 @@ import {
   createMinimapProjector,
   createMinimapSheetProjector,
   MINIMAP_FOLLOW_SPAN_M,
+  MINIMAP_ROUTE_WIDTH_FRACTION,
   projectRoadNetwork,
   resolveMinimapRoadWidth,
   resolveMinimapScale,
@@ -117,17 +118,28 @@ describe("minimap road width", () => {
     // NYC's follow scale on a 150 px widget: a 10.4 m street is ~2.9 px true,
     // under the floor, so it draws at the floor instead.
     const pixelsPerMetre = (150 - 12) / MINIMAP_FOLLOW_SPAN_M;
-    expect(10.4 * pixelsPerMetre).toBeLessThan(150 * 0.032);
-    expect(resolveMinimapRoadWidth(10.4, pixelsPerMetre, 150)).toBeCloseTo(4.8, 6);
+    expect(10.4 * pixelsPerMetre).toBeLessThan(150 * 0.058);
+    expect(resolveMinimapRoadWidth(10.4, pixelsPerMetre, 150)).toBeCloseTo(8.7, 6);
     // The touch widget is smaller, so its floor is smaller too — the roads keep
     // the same share of the map rather than swallowing it.
-    expect(resolveMinimapRoadWidth(10.4, pixelsPerMetre, 104)).toBeCloseTo(3.328, 6);
+    expect(resolveMinimapRoadWidth(10.4, pixelsPerMetre, 104)).toBeCloseTo(6.032, 6);
   });
 
   it("lets a genuinely wide road draw wider than the floor", () => {
     // A 40 m boulevard at a close scale beats the floor and stays fatter than
     // the side street beside it.
     expect(resolveMinimapRoadWidth(40, 0.5, 150)).toBe(20);
-    expect(resolveMinimapRoadWidth(0, 0.5, 150)).toBe(4.8);
+    expect(resolveMinimapRoadWidth(0, 0.5, 150)).toBeCloseTo(8.7, 6);
+  });
+
+  it("keeps the route line inside the road it follows", () => {
+    // The pair is the point: a GPS line as wide as the street reads as a bar
+    // laid over the city rather than the way through it.
+    for (const size of [150, 104]) {
+      const route = size * MINIMAP_ROUTE_WIDTH_FRACTION;
+      const road = resolveMinimapRoadWidth(10.4, 0.276, size);
+      expect(route).toBeLessThan(road);
+      expect(route / road).toBeCloseTo(0.55, 2);
+    }
   });
 });
