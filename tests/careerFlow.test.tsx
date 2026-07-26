@@ -28,6 +28,7 @@ import {
 } from "../app/game/content";
 import { careerCityIndex, careerFare, careerGigSeedBase } from "../app/game/career";
 import { resolveGigAddresses, resolveGigVenues } from "../app/game/gigPools";
+import { gasStationPumpPositions } from "../app/game/servicePoints";
 import {
   generateGigFromPools,
   pickGigKindAvoidingStreak,
@@ -45,6 +46,8 @@ import SideSwapApp from "../app/SideSwapApp";
 const mockClock = { ms: 0 };
 /** Where `mock-hud-at-stop` parks the car — a test sets it to the gig's stop. */
 const mockStop = { x: 0, z: 0 };
+/** How many 39m ticks `mock-drain` fires — lower for a partial drain. */
+const mockDrainTicks = { count: 600 };
 /**
  * Wall clock, which every fine debounce in the app reads through `Date.now()`
  * — not the sim clock above. Without a handle on it, two fines fired in the
@@ -272,8 +275,9 @@ vi.mock("next/dynamic", () => ({
             type="button"
             data-testid="mock-drain"
             onClick={() => {
-              // ~47 L of driving in one click: 600 HUD ticks, 39 m apart.
-              for (let index = 1; index <= 600; index += 1) {
+              // 39m per tick; the default 600-tick count comfortably empties
+              // any tank, and a test can lower it first for a partial drain.
+              for (let index = 1; index <= mockDrainTicks.count; index += 1) {
                 props.onHudUpdate?.(snapshot(1_000, index * 39));
               }
             }}
@@ -376,6 +380,7 @@ beforeEach(() => {
   mockClock.ms = 0;
   mockStop.x = 0;
   mockStop.z = 0;
+  mockDrainTicks.count = 600;
   wallClock.ms = 1_700_000_000_000;
   vi.spyOn(Date, "now").mockImplementation(() => wallClock.ms);
   installLocalStorage();
@@ -1137,6 +1142,63 @@ describe("career mode flow", () => {
       window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
     ) as { walletByCountry: Record<string, number> };
     expect(raw.walletByCountry.uk).toBe(20);
+  });
+
+  it("refuels at the pump from the keyboard, and the prompt says how (#217)", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    const scene = await screen.findByLabelText("Mock driving scene");
+
+    // ~20 L of a 40 L tank (171 ticks x 39 m x 0.003 L/m) — enough to need
+    // fuel without draining to zero, which would instead auto-stage the
+    // roadside_refuel rescue rather than leave the ordinary prompt to press.
+    mockDrainTicks.count = 171;
+    fireEvent.click(screen.getByTestId("mock-drain"));
+
+    const nycMap = getMapPack(
+      getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
+    );
+    const gasStation = (nycMap.geometry.servicePoints ?? [])[0];
+    const pump = gasStationPumpPositions(nycMap.laneGraph.lanes, gasStation)[0];
+    mockStop.x = pump.x;
+    mockStop.z = pump.z;
+    fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+
+    // The Enter hint only shows once pressing it would actually do something.
+    const refuelButton = await screen.findByTestId("refuel-button");
+    expect(refuelButton).toHaveTextContent("ENTER");
+    expect(scene).toHaveAttribute("data-cutscene-kind", "none");
+
+    fireEvent.keyDown(window, { code: "Enter" });
+    expect(scene).toHaveAttribute("data-cutscene-kind", "refuel");
+  });
+
+  it("leaves the prompt silent on Enter once the tank is full", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    const scene = await screen.findByLabelText("Mock driving scene");
+
+    const nycMap = getMapPack(
+      getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
+    );
+    const gasStation = (nycMap.geometry.servicePoints ?? [])[0];
+    const pump = gasStationPumpPositions(nycMap.laneGraph.lanes, gasStation)[0];
+    mockStop.x = pump.x;
+    mockStop.z = pump.z;
+    fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+
+    const refuelButton = await screen.findByTestId("refuel-button");
+    expect(refuelButton).toHaveTextContent("Tank full");
+    expect(refuelButton).not.toHaveTextContent("ENTER");
+
+    fireEvent.keyDown(window, { code: "Enter" });
+    expect(scene).toHaveAttribute("data-cutscene-kind", "none");
   });
 });
 
