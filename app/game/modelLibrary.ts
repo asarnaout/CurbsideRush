@@ -55,18 +55,49 @@ function containersFor(scene: Scene): Map<string, AssetContainer> {
  * Loads every (de-duplicated) URL into the per-scene container cache. Failures
  * are logged and skipped so a missing or broken asset just leaves the affected
  * models on their procedural fallback. Resolves once all attempts have settled.
+ *
+ * `onProgress`, when given, reports a real (never simulated) 0..1 fraction:
+ * each pending file contributes at most one equal-weighted unit — sized by its
+ * own downloaded/total byte ratio where the server reports a length, capped at
+ * 0.92 — and only reaches its full unit once that file's load has actually
+ * settled (success or failure alike). Equal weighting per file, not per byte,
+ * is deliberate: a handful of files (e.g. the character models) tend to settle
+ * in the same tick because glTF parsing serialises on the main thread, and
+ * weighting by byte size would make that cluster's jump proportional to its
+ * share of total bytes — worse on a small map where a few files are a large
+ * share. The 0.92 cap keeps a sliver of visible headroom for that per-file
+ * parse tail (which fires no progress events of its own) rather than reading
+ * 100% while the file is still settling.
  */
 export async function preloadModels(
   scene: Scene,
   urls: readonly string[],
+  onProgress?: (fraction: number) => void,
 ): Promise<void> {
   ensureLoadersRegistered();
   const map = containersFor(scene);
+  const toLoad = [...new Set(urls)].filter((url) => !map.has(url));
+  if (toLoad.length === 0) {
+    onProgress?.(1);
+    return;
+  }
+  const unitsDone = new Array(toLoad.length).fill(0);
+  const report = () => {
+    if (!onProgress) return;
+    let sum = 0;
+    for (const unit of unitsDone) sum += unit;
+    onProgress(sum / toLoad.length);
+  };
   await Promise.all(
-    [...new Set(urls)].map(async (url) => {
-      if (map.has(url)) return;
+    toLoad.map(async (url, index) => {
       try {
-        const container = await LoadAssetContainerAsync(url, scene);
+        const container = await LoadAssetContainerAsync(url, scene, {
+          onProgress: (event) => {
+            if (!event.lengthComputable || event.total <= 0) return;
+            unitsDone[index] = Math.min(0.92, event.loaded / event.total);
+            report();
+          },
+        });
         if (scene.isDisposed) {
           container.dispose();
           return;
@@ -74,6 +105,9 @@ export async function preloadModels(
         map.set(url, container);
       } catch (error) {
         console.warn(`[modelLibrary] failed to load ${url}`, error);
+      } finally {
+        unitsDone[index] = 1;
+        report();
       }
     }),
   );
