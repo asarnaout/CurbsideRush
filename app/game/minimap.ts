@@ -23,14 +23,49 @@ export interface MinimapProjector {
 /**
  * Metres the widget shows across its own width once a map is too big to fit.
  *
- * Fitting the whole world in works while the world is small: it was ~1080 m
- * across, so a 150 px widget drew streets a pixel or so apart and you could
- * read the grid. Triple the world and the same fit draws the same grid at a
- * third the size — every street a hairline, the player marker larger than the
- * block it stands in. Past this span the map scrolls under the player instead,
- * at the scale it has always had.
+ * Every shipped map is now past this, so in practice they all scroll: the
+ * largest dimensions run 3000 m (NYC), 1500 m (Milton Keynes), 800 m (London),
+ * 680 m (Calais) and 600 m (Tokyo). That is the point of the number — a map
+ * drawn whole has to shrink its streets to hairlines, and once the widget
+ * carries a route line to the destination there is nothing an overview buys
+ * that the route does not already answer.
+ *
+ * The fitted path below is still live code for a world smaller than this.
  */
-export const MINIMAP_FOLLOW_SPAN_M = 1050;
+export const MINIMAP_FOLLOW_SPAN_M = 500;
+
+/**
+ * How wide a road draws on the widget, in pixels.
+ *
+ * True scale is unreadable: a 10.4 m street at the follow scale is under 2 px
+ * on a phone, so the grid reads as a mesh of hairlines rather than streets with
+ * blocks between them. Roads therefore get a floor proportional to the widget,
+ * which is what every map renderer does — the drawn width stops being a
+ * measurement and becomes a symbol.
+ *
+ * At the shipped span the floor governs *every* road: beating it takes a
+ * carriageway over ~31 m, and the widest authored anywhere is 25 m. So the
+ * width term is not currently load-bearing, and streets of different widths
+ * deliberately draw alike. It earns its keep only if a map zooms closer or
+ * authors a genuinely huge road, and it is cheaper to keep than to rediscover.
+ */
+export function resolveMinimapRoadWidth(
+  widthM: number,
+  pixelsPerMetre: number,
+  size: number,
+): number {
+  return Math.max(size * ROAD_WIDTH_FLOOR_FRACTION, widthM * pixelsPerMetre);
+}
+
+/**
+ * Road width as a share of the widget, and the route line's share of that.
+ *
+ * The two are a pair: the GPS line has to sit *inside* the street it follows,
+ * or it reads as a separate object laid over the city rather than the way
+ * through it. Roughly half the road width is what does that.
+ */
+const ROAD_WIDTH_FLOOR_FRACTION = 0.058;
+export const MINIMAP_ROUTE_WIDTH_FRACTION = ROAD_WIDTH_FLOOR_FRACTION * 0.55;
 
 /** Pixels per metre a projector draws at, and whether it scrolls. */
 export interface MinimapScale {
@@ -124,14 +159,28 @@ export function createMinimapProjector(
   };
 }
 
-/** Projects road-surface centrelines into minimap polylines for drawing. */
+/** A road ready to stroke: widget-space points, plus the width it draws at. */
+export interface MinimapRoadLine {
+  readonly points: MinimapPoint[];
+  /** Carriageway width in metres — `resolveMinimapRoadWidth` turns it into a stroke. */
+  readonly widthM: number;
+}
+
+/**
+ * Projects road-surface centrelines into minimap polylines for drawing. The
+ * width travels with the points rather than being looked up by index at the
+ * call site, so a filtered or reordered network cannot silently draw the wrong
+ * street at the wrong weight.
+ */
 export function projectRoadNetwork(
   roadSurfaces: readonly {
     readonly centerline: readonly { readonly x: number; readonly z: number }[];
+    readonly widthM?: number;
   }[],
   projector: MinimapProjector,
-): MinimapPoint[][] {
-  return roadSurfaces.map((surface) =>
-    surface.centerline.map((point) => projector.project(point.x, point.z)),
-  );
+): MinimapRoadLine[] {
+  return roadSurfaces.map((surface) => ({
+    points: surface.centerline.map((point) => projector.project(point.x, point.z)),
+    widthM: surface.widthM ?? 0,
+  }));
 }
