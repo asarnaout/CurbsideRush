@@ -106,6 +106,7 @@ import {
 } from "./game/servicePoints";
 import { Minimap } from "./game/MinimapCanvas";
 import { DRIVE_LAYER } from "./game/driveLayers";
+import { rearViewCssRect } from "./game/cockpitLayout";
 import { readInputCapabilities } from "./game/pointerCapabilities";
 import {
   applyViewportFitCover,
@@ -1922,6 +1923,41 @@ export default function SideSwapApp() {
               "radial-gradient(120% 110% at 50% 45%, transparent 52%, rgba(5,8,9,.42))",
           }}
         />
+        {/*
+          The rear-view mirror's housing.
+
+          The reflection itself is not a texture on a mesh — it is a second
+          camera rendered into a fixed strip of the canvas. That makes it
+          screen-space, so its surround has to be screen-space too: a 3D housing
+          hung in the cabin would swing away from its own reflection the moment
+          the player glanced left. Both read their rectangle from
+          rearViewCssRect, so the frame cannot drift off the glass.
+
+          box-sizing keeps the border outside the reflection: the content box is
+          the viewport rectangle exactly, and the housing grows outward from it.
+        */}
+        {hud?.rearViewVisible && (
+          <div
+            aria-hidden="true"
+            data-testid="rear-view-housing"
+            style={{
+              position: "absolute",
+              boxSizing: "border-box",
+              left: `calc(${rearViewCssRect().leftPercent}% - 9px)`,
+              top: `calc(${rearViewCssRect().topPercent}% - 8px)`,
+              width: `calc(${rearViewCssRect().widthPercent}% + 18px)`,
+              height: `calc(${rearViewCssRect().heightPercent}% + 16px)`,
+              border: "8px solid #2b2724",
+              borderBottomWidth: "10px",
+              borderRadius: "14px",
+              boxShadow:
+                "0 10px 22px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(0,0,0,0.6)," +
+                "inset 0 2px 5px rgba(0,0,0,0.75)",
+              pointerEvents: "none",
+              zIndex: DRIVE_LAYER.hud,
+            }}
+          />
+        )}
         {careerRun && dayIntroElapsedMs !== null && dayIntroElapsedMs < 2600 && hud && (
           <div
             aria-hidden="true"

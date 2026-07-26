@@ -51,11 +51,26 @@ export const COCKPIT_DASH_DRIVER_Z = 0.28;
  * and they drift apart the first time someone retunes the framing.
  */
 export const REAR_VIEW_VIEWPORT = Object.freeze({
-  x: 0.36,
-  y: 0.845,
-  width: 0.28,
-  height: 0.125,
+  x: 0.385,
+  y: 0.825,
+  width: 0.23,
+  height: 0.115,
 });
+
+/** The same rectangle in CSS terms, measured from the top-left of the canvas. */
+export function rearViewCssRect(): {
+  leftPercent: number;
+  topPercent: number;
+  widthPercent: number;
+  heightPercent: number;
+} {
+  return {
+    leftPercent: REAR_VIEW_VIEWPORT.x * 100,
+    topPercent: (1 - REAR_VIEW_VIEWPORT.y - REAR_VIEW_VIEWPORT.height) * 100,
+    widthPercent: REAR_VIEW_VIEWPORT.width * 100,
+    heightPercent: REAR_VIEW_VIEWPORT.height * 100,
+  };
+}
 
 /** Where the driver's eye sits, in cockpit space. Mirrors the world-space
  * numbers `resolveCockpitCameraPoses` writes: eye height 1.49 and 0.6 m behind
