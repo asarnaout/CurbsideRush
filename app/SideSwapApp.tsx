@@ -107,6 +107,7 @@ import { Minimap, type MinimapPin } from "./game/MinimapCanvas";
 import {
   findGpsRoute,
   gpsGraphForLanes,
+  routeLengthM,
   routeProgress,
   trimRouteToPlayer,
   type GpsLane,
@@ -440,8 +441,7 @@ const GIG_ARRIVAL_RADIUS_M = 14;
  * driver has to be in the right lane.
  */
 const MANOEUVRE_IMMINENT_M = 45;
-/** Range the approach bar fills across. */
-const MANOEUVRE_APPROACH_M = 400;
+
 
 /**
  * How far off the GPS line counts as having left it. Wide enough to sit out a
@@ -806,6 +806,18 @@ export default function SideSwapApp() {
   // what `handleHud` writes, since that callback cannot read state.
   const gpsProgressRef = useRef<GpsProgress | null>(null);
   const [gpsProgress, setGpsProgress] = useState<GpsProgress | null>(null);
+  /**
+   * How long the run to the current stop was when it started — the denominator
+   * the "to go" bar fills against.
+   *
+   * It cannot be the live route's own length: a route is re-searched whenever
+   * the driver strays 30 m off it, and the new one runs from where they now
+   * stand, so its length *is* the distance remaining. Dividing by that puts the
+   * bar back to zero at every re-search. Pinning it per leg makes the bar mean
+   * "how much of this run is behind me", and it only resets when the stop
+   * itself changes — pickup to drop-off.
+   */
+  const [legRouteTotalM, setLegRouteTotalM] = useState(0);
   const routeTargetRef = useRef<string | null>(null);
   const routeSearchedAtRef = useRef(0);
   const routeLanesRef = useRef<readonly GpsLane[]>([]);
@@ -914,6 +926,8 @@ export default function SideSwapApp() {
       routeTargetRef.current = null;
       gpsRouteRef.current = null;
       setGpsRoute(null);
+      setGpsProgress(null);
+      setLegRouteTotalM(0);
       return;
     }
     // Pickup and drop-off are separate destinations at the same venue id.
@@ -944,6 +958,11 @@ export default function SideSwapApp() {
       target,
     );
     const route = found.points.length > 1 ? found : null;
+    // A fresh stop restarts the bar; a re-search for the same stop keeps its
+    // denominator, growing it only if the detour left more to drive than the
+    // whole run did to begin with.
+    const length = route ? routeLengthM(route) : 0;
+    setLegRouteTotalM((current) => (fresh ? Math.max(current, length) : length));
     gpsRouteRef.current = route;
     gpsProgressRef.current = route
       ? routeProgress(route, snapshot.playerX, snapshot.playerZ)
@@ -2315,10 +2334,17 @@ export default function SideSwapApp() {
             distanceValue: parts.value,
             distanceUnit: parts.unit,
             imminent: gpsProgress.distanceToNextM <= MANOEUVRE_IMMINENT_M,
-            // Fills as the turn approaches rather than draining, so the bar is
-            // longest at the moment the driver has to act on it.
-            approach:
-              1 - Math.min(1, gpsProgress.distanceToNextM / MANOEUVRE_APPROACH_M),
+            // Against the whole run to the stop, so it fills once across a job
+            // instead of sawtoothing back to empty at every corner.
+            destinationProgress:
+              legRouteTotalM > 0
+                ? 1 -
+                  Math.min(1, Math.max(0, gpsProgress.remainingM / legRouteTotalM))
+                : 0,
+            destinationDistance: formatDistance(
+              gpsProgress.remainingM,
+              driveCountry,
+            ),
           };
         })()
       : null;

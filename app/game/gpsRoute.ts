@@ -293,6 +293,20 @@ export function projectOntoPolyline(
   return best;
 }
 
+/**
+ * How far the route runs, measured on the real centrelines rather than on the
+ * simplified drawn line — the same scale `GpsProgress.remainingM` is in, so the
+ * two divide into a fraction of the journey done.
+ */
+export function routeLengthM(route: GpsRoute): number {
+  const legs = route.legs;
+  if (legs.length) {
+    const last = legs[legs.length - 1];
+    return last.alongM + last.lengthM;
+  }
+  return polylineLength(route.points);
+}
+
 /** Where the driver is on a route, and what they have to do next. */
 export interface GpsProgress {
   /** Metres off the line; +Infinity for an empty route. */
@@ -332,10 +346,7 @@ export function routeProgress(
   // `alongM` runs along the simplified line while manoeuvres are measured on
   // the real centrelines, so scale between them rather than comparing raw.
   const drawnLength = polylineLength(route.points);
-  const legs = route.legs;
-  const trueLength = legs.length
-    ? legs[legs.length - 1].alongM + legs[legs.length - 1].lengthM
-    : drawnLength;
+  const trueLength = routeLengthM(route);
   const travelled = drawnLength > 0 ? (at.alongM / drawnLength) * trueLength : 0;
   let next: GpsManoeuvre | null = null;
   for (const manoeuvre of route.manoeuvres) {

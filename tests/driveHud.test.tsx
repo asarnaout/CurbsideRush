@@ -33,7 +33,8 @@ const manoeuvre = (patch: Partial<HudManoeuvre> = {}): HudManoeuvre => ({
   distanceValue: "0.3",
   distanceUnit: "mi",
   imminent: false,
-  approach: 0.4,
+  destinationProgress: 0.4,
+  destinationDistance: "1.2 mi",
   ...patch,
 });
 
@@ -127,6 +128,27 @@ describe("the nav card", () => {
       navCard({ manoeuvre: manoeuvre({ kind, imminent: true }) });
       expect(screen.getByText(near)).toBeVisible();
     }
+  });
+
+  it("measures the bar against the whole run to the stop, not the next turn", () => {
+    // The comp's bar meant proximity to the manoeuvre, which sawtoothed back to
+    // empty at every corner and said nothing about how far was left.
+    navCard({
+      manoeuvre: manoeuvre({ destinationProgress: 0.25, destinationDistance: "1.2 mi" }),
+    });
+    expect(screen.getByTestId("destination-progress")).toHaveStyle({ width: "25%" });
+    expect(screen.getByTestId("destination-distance")).toHaveTextContent("1.2 mi");
+    // Labelled, because a bar that silently changed meaning is worse than one
+    // that never had a caption.
+    expect(screen.getByText("TO GO")).toBeVisible();
+  });
+
+  it("clamps the bar rather than overflowing it", () => {
+    navCard({ manoeuvre: manoeuvre({ destinationProgress: 1.4 }) });
+    expect(screen.getByTestId("destination-progress")).toHaveStyle({ width: "100%" });
+    cleanup();
+    navCard({ manoeuvre: manoeuvre({ destinationProgress: -0.2 }) });
+    expect(screen.getByTestId("destination-progress")).toHaveStyle({ width: "0%" });
   });
 
   it("shows the job in hand and what it pays", () => {

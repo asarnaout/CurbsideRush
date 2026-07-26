@@ -4,6 +4,7 @@ import {
   findGpsRoute,
   gpsGraphForLanes,
   projectOntoPolyline,
+  routeLengthM,
   routeProgress,
   trimRouteToPlayer,
   type GpsLane,
@@ -370,6 +371,34 @@ describe("gps route legs and manoeuvres", () => {
     expect(route.legs[0].roadId).toBe("ave");
     // Only the arrival is announced — no "continue straight" every block.
     expect(route.manoeuvres.map((m) => m.kind)).toEqual(["arrive"]);
+  });
+
+  it("measures a route's length on the same scale as what is left of it", () => {
+    // The HUD divides one by the other to show how much of the run to the stop
+    // is behind you; on different scales the bar would be quietly wrong.
+    const avenue = blocks("ave", { x: 0, z: 0 }, { x: 0, z: 100 }, 8, (index) =>
+      index < 7 ? [`ave-${index + 1}`] : [],
+    );
+    const graph = buildGpsGraph(avenue);
+    const route = findGpsRoute(graph, { x: 0, z: 10 }, HEADING_NORTH, { x: 0, z: 780 });
+    const total = routeLengthM(route);
+    expect(total).toBeGreaterThan(0);
+
+    // At the start essentially all of it is still to go; at the end, none.
+    const atStart = routeProgress(route, 0, 10);
+    expect(atStart.remainingM / total).toBeGreaterThan(0.95);
+    const atEnd = routeProgress(route, 0, 780);
+    expect(atEnd.remainingM / total).toBeLessThan(0.05);
+
+    // And it only ever falls as the driver advances — the bar must not go
+    // backwards between two points on the same route.
+    let previous = Number.POSITIVE_INFINITY;
+    for (let z = 10; z <= 780; z += 70) {
+      const remaining = routeProgress(route, 0, z).remainingM;
+      expect(remaining).toBeLessThanOrEqual(previous + 0.01);
+      expect(remaining).toBeLessThanOrEqual(total + 0.01);
+      previous = remaining;
+    }
   });
 
   it("classifies a right turn onto the street being joined", () => {

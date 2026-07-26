@@ -146,8 +146,14 @@ export interface HudManoeuvre {
   readonly distanceUnit: string;
   /** True once the turn is close enough to act on — lights the plate. */
   readonly imminent: boolean;
-  /** 0→1 across the approach, for the proximity bar. */
-  readonly approach: number;
+  /**
+   * How much of the journey to the stop is behind you, 0→1 — *not* proximity to
+   * the next turn, which sawtoothed back to empty at every corner and told the
+   * driver nothing about how far they still had to go.
+   */
+  readonly destinationProgress: number;
+  /** What is left of it, e.g. "1.2 mi". */
+  readonly destinationDistance: string;
 }
 
 export interface HudGauge {
@@ -327,25 +333,63 @@ export function DriveNavCard({
               </div>
             </div>
 
+            {/*
+              The run to the stop, not to the next turn. Labelled because the
+              comp's bar meant proximity to the manoeuvre above it, and a bar
+              that silently changed meaning is worse than one that never had a
+              caption.
+            */}
             <div
-              aria-hidden="true"
               style={{
-                height: 3,
-                borderRadius: 999,
-                background: "rgba(255,255,255,.09)",
-                margin: "13px 0 11px",
-                overflow: "hidden",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                margin: "12px 0 11px",
               }}
             >
-              <div
+              <span
                 style={{
-                  height: "100%",
-                  borderRadius: 999,
-                  background: `linear-gradient(90deg,rgba(244,200,72,.45),${HUD_GOLD})`,
-                  width: `${Math.round(Math.min(1, Math.max(0, manoeuvre.approach)) * 100)}%`,
-                  transition: "width .25s ease",
+                  font: `800 10px ${HUD_SANS}`,
+                  letterSpacing: "2px",
+                  color: "rgba(244,239,222,.3)",
+                  flex: "none",
                 }}
-              />
+              >
+                TO GO
+              </span>
+              <div
+                aria-hidden="true"
+                style={{
+                  flex: 1,
+                  height: 3,
+                  borderRadius: 999,
+                  background: "rgba(255,255,255,.09)",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  data-testid="destination-progress"
+                  style={{
+                    height: "100%",
+                    borderRadius: 999,
+                    background: `linear-gradient(90deg,rgba(244,200,72,.45),${HUD_GOLD})`,
+                    width: `${Math.round(Math.min(1, Math.max(0, manoeuvre.destinationProgress)) * 100)}%`,
+                    transition: "width .3s linear",
+                  }}
+                />
+              </div>
+              <span
+                data-testid="destination-distance"
+                style={{
+                  font: `700 12px ${HUD_SANS}`,
+                  color: "rgba(244,239,222,.5)",
+                  fontVariantNumeric: "tabular-nums",
+                  whiteSpace: "nowrap",
+                  flex: "none",
+                }}
+              >
+                {manoeuvre.destinationDistance}
+              </span>
             </div>
           </>
         ) : null}
