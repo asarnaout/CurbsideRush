@@ -3443,9 +3443,6 @@ function SettingsView({ progress, onSave, onReset, onBack }: { progress: PlayerP
   const updateAccessibility = (patch: Partial<PlayerProgressV2["accessibility"]>) => setDraft((current) => ({ ...current, accessibility: { ...current.accessibility, ...patch } }));
   return (
     <section className="subpage settings-page">
-      <div className="subpage-heading">
-        <button className="secondary-button" type="button" onClick={onBack} style={{ marginLeft: "auto" }}>Back to Homepage</button>
-      </div>
       <div className="settings-grid">
         <section className="settings-card" aria-labelledby="driving-preferences-title">
           <div className="settings-card-head">
@@ -3483,6 +3480,7 @@ function SettingsView({ progress, onSave, onReset, onBack }: { progress: PlayerP
         </section>
       </div>
       <div className="settings-actions">
+        <button className="secondary-button" type="button" onClick={onBack}>Back to Homepage</button>
         <button type="button" className="danger-button" onClick={onReset}>Reset local progress</button>
         <button type="button" className="primary-button" onClick={() => { onSave({ ...draft, updatedAt: new Date().toISOString() }); onBack(); }}>Save settings</button>
       </div>
