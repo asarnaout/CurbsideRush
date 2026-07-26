@@ -110,12 +110,33 @@ function hairSlot(index: number, hairCount: number): number {
   return (index + Math.floor(index / count) * HAIR_CYCLE_ROTATION) % count;
 }
 
-const RESPAWN_ATTEMPTS = 12;
+const RESPAWN_ATTEMPTS = 16;
 /** Cell size of the respawn grid — a few cells cover the spawn annulus. */
 const RESPAWN_CELL_M = 32;
+/** Fallback landings stay this far inside recycleRadiusM, so a forced spot
+ * can never read as stranded and trigger a second respawn next step. */
+const RESPAWN_RECYCLE_GUARD_M = 12;
 const JUNCTION_PAUSE_CHANCE = 0.3;
 const JUNCTION_PAUSE_S = 0.3;
 const WALKER_VISIBILITY_RADIUS_M = 2;
+const SPAWN_HIDE_MARGIN_PER_M = 0.35;
+const SPAWN_HIDE_MARGIN_MAX_M = 24;
+
+/**
+ * How far outside the frustum a *spawn* must sit, by distance. The flat
+ * walker radius is ~4° of slack at 30 m — one chase-camera yaw in a turn
+ * sweeps that in a frame or two, and the fresh walker pops into view. Scaling
+ * the margin with distance makes it angular (~20° near the player, tapering
+ * to ~11° at a 130 m band edge, where fog is already dimming the pop). Spawn
+ * placement only: the in-view checks that turn walkers round or recycle them
+ * keep the flat radius, so removal semantics are untouched.
+ */
+export function spawnHideMarginM(distanceM: number): number {
+  return (
+    WALKER_VISIBILITY_RADIUS_M +
+    Math.min(SPAWN_HIDE_MARGIN_MAX_M, distanceM * SPAWN_HIDE_MARGIN_PER_M)
+  );
+}
 /** How far ahead a walker looks to face its true travel direction: through a
  * taper ramp the scattered position drifts diagonally toward the node, and a
  * body facing the rail tangent would visibly crab-walk the drift. */
@@ -255,14 +276,17 @@ export class CrowdSim {
       if (distance > this.config.recycleRadiusM) {
         this.respawn(walker, focus, isVisible);
       } else if (distance > this.config.outerRadiusM && walker.state === "walk") {
-        if (!isVisible(walker.x, walker.z, WALKER_VISIBILITY_RADIUS_M)) {
-          this.respawn(walker, focus, isVisible);
-        } else {
-          // Walking away while watched: turn round like anyone reaching the
-          // end of their street. Inbound walkers are left to wander back.
-          const away =
-            Math.sin(walker.headingRad) * dx + Math.cos(walker.headingRad) * dz;
-          if (away > 0) {
+        // Inbound walkers are left to wander back, seen or unseen — recycling
+        // them would churn the fallback placements that deliberately land
+        // just past the band facing inward when the whole band is on screen.
+        const away =
+          Math.sin(walker.headingRad) * dx + Math.cos(walker.headingRad) * dz;
+        if (away > 0) {
+          if (!isVisible(walker.x, walker.z, WALKER_VISIBILITY_RADIUS_M)) {
+            this.respawn(walker, focus, isVisible);
+          } else {
+            // Walking away while watched: turn round like anyone reaching
+            // the end of their street.
             walker.dir = -walker.dir as 1 | -1;
             walker.headingRad += Math.PI;
             walker.state = "pause";
@@ -361,10 +385,15 @@ export class CrowdSim {
     walker.lateralM = (this.random() * 2 - 1) * this.config.scatterHalfWidthM;
     // Sample only the pavement near the annulus. Picking uniformly over the
     // whole city made an in-band landing a ~1-in-60 shot once the map grew
-    // ~4x — and the old all-attempts-failed fallback (the pick farthest from
-    // the player) parked the walker beyond recycleRadiusM, which the next
-    // step read as stranded and respawned again: 12 whole-map picks per
-    // walker per step, forever, with the streets visibly thinning.
+    // ~4x. Placement is then three tiers: a hidden in-band sample wins
+    // outright; failing that, the best hidden sample inside the recycle
+    // guard — typically the shell just past the band, the natural spot when
+    // the whole band is on screen; only with every sample watched does the
+    // nearest-band-middle pick land regardless of visibility, because a
+    // watched materialization beats a vanished walker. The fallbacks aim at
+    // the band, never past it: the old farthest-pick fallback parked walkers
+    // beyond recycleRadiusM, which the next step read as stranded and
+    // respawned again — 12 whole-map picks per walker per step, forever.
     const segments: RespawnSegment[] = [];
     const cumulative: number[] = [];
     let total = 0;
@@ -395,9 +424,15 @@ export class CrowdSim {
       }
     }
     const bandMiddle = (innerRadiusM + outerRadiusM) / 2;
-    let bestEdge = 0;
-    let bestS = 0;
-    let bestScore = Number.POSITIVE_INFINITY;
+    const fallbackCeiling = this.config.recycleRadiusM - RESPAWN_RECYCLE_GUARD_M;
+    let chosenEdge = -1;
+    let chosenS = 0;
+    let hiddenEdge = -1;
+    let hiddenS = 0;
+    let hiddenScore = Number.POSITIVE_INFINITY;
+    let anyEdge = 0;
+    let anyS = 0;
+    let anyScore = Number.POSITIVE_INFINITY;
     for (let attempt = 0; attempt < RESPAWN_ATTEMPTS; attempt += 1) {
       let edgeIndex: number;
       let s: number;
@@ -430,23 +465,35 @@ export class CrowdSim {
       const edge = this.graph.edges[edgeIndex];
       const pose = samplePavementEdgeOffset(edge, s, this.scatterOf(walker, edge));
       const distance = Math.hypot(pose.x - focus.x, pose.z - focus.z);
-      const inAnnulus = distance >= innerRadiusM && distance <= outerRadiusM;
-      if (inAnnulus && !isVisible(pose.x, pose.z, WALKER_VISIBILITY_RADIUS_M)) {
-        bestEdge = edgeIndex;
-        bestS = s;
+      const hidden = !isVisible(pose.x, pose.z, spawnHideMarginM(distance));
+      if (hidden && distance >= innerRadiusM && distance <= outerRadiusM) {
+        chosenEdge = edgeIndex;
+        chosenS = s;
         break;
       }
-      // Fallback ranking: nearest the band's middle — never the farthest
-      // pick, whose beyond-recycleRadiusM stand is what caused the loop.
       const score = Math.abs(distance - bandMiddle);
-      if (score < bestScore) {
-        bestScore = score;
-        bestEdge = edgeIndex;
-        bestS = s;
+      if (
+        hidden &&
+        distance >= innerRadiusM &&
+        distance <= fallbackCeiling &&
+        score < hiddenScore
+      ) {
+        hiddenScore = score;
+        hiddenEdge = edgeIndex;
+        hiddenS = s;
+      }
+      if (score < anyScore) {
+        anyScore = score;
+        anyEdge = edgeIndex;
+        anyS = s;
       }
     }
-    walker.edgeId = bestEdge;
-    walker.s = bestS;
+    if (chosenEdge < 0) {
+      chosenEdge = hiddenEdge >= 0 ? hiddenEdge : anyEdge;
+      chosenS = hiddenEdge >= 0 ? hiddenS : anyS;
+    }
+    walker.edgeId = chosenEdge;
+    walker.s = chosenS;
     walker.dir = this.random() < 0.5 ? 1 : -1;
     walker.speedMps =
       this.config.minSpeedMps +
@@ -455,13 +502,24 @@ export class CrowdSim {
     walker.pauseRemaining = 0;
     walker.downedRemaining = 0;
     walker.justRecycled = true;
-    const edge = this.graph.edges[bestEdge];
-    const pose = samplePavementEdgeOffset(edge, bestS, this.scatterOf(walker, edge));
+    const edge = this.graph.edges[chosenEdge];
+    const pose = samplePavementEdgeOffset(edge, chosenS, this.scatterOf(walker, edge));
     walker.x = pose.x;
     walker.z = pose.z;
     walker.segmentHint = pose.segmentIndex;
     walker.headingRad =
       walker.dir === 1 ? pose.headingRad : pose.headingRad + Math.PI;
+    // A fallback landing past the band faces home, so the next step's
+    // outbound check cannot recycle it straight back out of the pool.
+    if (Math.hypot(walker.x - focus.x, walker.z - focus.z) > outerRadiusM) {
+      const away =
+        Math.sin(walker.headingRad) * (walker.x - focus.x) +
+        Math.cos(walker.headingRad) * (walker.z - focus.z);
+      if (away > 0) {
+        walker.dir = -walker.dir as 1 | -1;
+        walker.headingRad += Math.PI;
+      }
+    }
   }
 }
 

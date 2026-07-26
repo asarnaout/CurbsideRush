@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createCrowdSim,
+  spawnHideMarginM,
   WALKER_DOWNED_TOTAL_SECONDS,
   WALKER_FALL_SECONDS,
   WALKER_LIE_SECONDS,
@@ -192,6 +193,62 @@ describe("CrowdSim.step", () => {
     expect(turnarounds).toBeGreaterThan(0);
   });
 
+  // Respawn-heavy probe over 10k steps: give it the same slack as the other
+  // long loops so parallel-worker contention cannot flake it. Synchronous
+  // body — the timeout is a label, never a truncation.
+  it("prefers a hidden spot past the band over a visible one inside it", { timeout: 20_000 }, () => {
+    // Every point inside the outer radius is on screen; only the shell past
+    // it is hidden — a long straight avenue, the whole band in frustum. The
+    // old fallback placed forced respawns mid-band, materializing a walker
+    // in full view. Now they must land in the hidden shell, facing home.
+    const sim = makeSim();
+    sim.step(DT, CENTRE, never);
+    const bandVisible = (x: number, z: number) =>
+      Math.hypot(x - CENTRE.x, z - CENTRE.z) <= CONFIG.outerRadiusM;
+    let recycles = 0;
+    let hidden = 0;
+    for (let step = 0; step < 10_000; step += 1) {
+      sim.step(DT, CENTRE, bandVisible);
+      for (const walker of sim.walkers) {
+        if (!walker.justRecycled) continue;
+        recycles += 1;
+        const distance = Math.hypot(walker.x - CENTRE.x, walker.z - CENTRE.z);
+        // Loop safety: nothing may land where the next step reads stranded.
+        expect(distance).toBeLessThan(CONFIG.recycleRadiusM);
+        if (distance > CONFIG.outerRadiusM) hidden += 1;
+      }
+    }
+    expect(recycles).toBeGreaterThan(20);
+    // The rare all-samples-missed tier may still land a watched walker; it
+    // must be the exception, not the rule it used to be (0% hidden before).
+    expect(hidden / recycles).toBeGreaterThan(0.9);
+  });
+
+  it("keeps the pool sane when everything is watched: one hop, no churn", () => {
+    // A focus jump with an all-seeing probe forces the last-resort tier for
+    // every stranded walker. Those placements must sit inside the recycle
+    // radius and stay put — a placement the next step recycles again would
+    // burn 16 samples per walker per step, the thrash this system replaced.
+    const sim = makeSim();
+    sim.step(DT, CENTRE, never);
+    const elsewhere = { x: 80, z: 0 };
+    sim.step(DT, elsewhere, always);
+    const moved = sim.walkers
+      .map((walker, index) => (walker.justRecycled ? index : -1))
+      .filter((index) => index >= 0);
+    expect(moved.length).toBeGreaterThan(0);
+    for (const index of moved) {
+      const walker = sim.walkers[index];
+      expect(
+        Math.hypot(walker.x - elsewhere.x, walker.z - elsewhere.z),
+      ).toBeLessThan(CONFIG.recycleRadiusM);
+    }
+    sim.step(DT, elsewhere, always);
+    for (const index of moved) {
+      expect(sim.walkers[index].justRecycled).toBe(false);
+    }
+  });
+
   it("recycles unseen walkers stranded outside the bubble", () => {
     const sim = makeSim();
     sim.step(DT, CENTRE, never);
@@ -293,6 +350,25 @@ describe("CrowdSim.step", () => {
     first.step(DT, CENTRE, never);
     second.step(DT, CENTRE, never);
     expect(first.walkers).not.toEqual(second.walkers);
+  });
+});
+
+describe("spawnHideMarginM", () => {
+  it("starts at the flat walker radius and grows with distance", () => {
+    // Angular, not fixed: 2m is ~4 degrees at 30m, which one chase-camera
+    // yaw in a turn sweeps through in a frame or two.
+    expect(spawnHideMarginM(0)).toBe(2);
+    let previous = spawnHideMarginM(0);
+    for (const distance of [5, 15, 30, 50, 68]) {
+      const margin = spawnHideMarginM(distance);
+      expect(margin).toBeGreaterThan(previous);
+      previous = margin;
+    }
+  });
+
+  it("caps, so far spawns are not rejected across half the map", () => {
+    expect(spawnHideMarginM(200)).toBe(spawnHideMarginM(500));
+    expect(spawnHideMarginM(500)).toBe(26);
   });
 });
 
