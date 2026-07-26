@@ -143,12 +143,17 @@ const laneWidthForLane = (id: string): number => {
   return 3.2;
 };
 
+/**
+ * The speed limit is not a parameter: it comes from `ROAD_SPEED_LIMITS` via the
+ * lane's own road, so every lane of a street necessarily agrees with it. That
+ * lookup is declared further down the file but only ever runs when a lane is
+ * built, which is later still.
+ */
 const lane = (
   id: string,
   from: LaneNode,
   to: LaneNode,
   trafficSide: TrafficSide,
-  speedLimit: number,
   successors: readonly string[],
   role: LaneRole = "travel",
   via: readonly WorldPoint[] = [],
@@ -165,7 +170,7 @@ const lane = (
   centerline: [from.position, ...via, to.position],
   role,
   trafficSide,
-  speedLimit,
+  speedLimit: speedLimitForRoad(roadId),
   ...(localSpeedUnit ? { localSpeedUnit } : {}),
   successors,
   ...(adjacentLaneIds ? { adjacentLaneIds } : {}),
@@ -204,7 +209,6 @@ const laneTrue = (
   from: LaneNode,
   to: LaneNode,
   trafficSide: TrafficSide,
-  speedLimit: number,
   successors: readonly string[],
   role: LaneRole,
   establishedPath: readonly WorldPoint[],
@@ -225,7 +229,7 @@ const laneTrue = (
     centerline,
     role,
     trafficSide,
-    speedLimit,
+    speedLimit: speedLimitForRoad(roadId),
     ...(localSpeedUnit ? { localSpeedUnit } : {}),
     successors,
     ...(adjacentLaneIds ? { adjacentLaneIds } : {}),
@@ -314,7 +318,6 @@ const turningLoop = (opts: {
   bulgeDeg: number;
   radius: number;
   side: TrafficSide;
-  speed: number;
   departLaneId: string;
   color: string;
   islandRadius?: number;
@@ -333,7 +336,6 @@ const turningLoop = (opts: {
     bulgeDeg,
     radius,
     side,
-    speed,
     departLaneId,
     color,
     islandRadius = Math.max(4, radius - 6),
@@ -367,8 +369,8 @@ const turningLoop = (opts: {
     farNode,
     firstArcId,
     lanes: [
-      lane(firstArcId, connectNode, farNode, side, speed, [secondArcId], "roundabout", arcA.slice(1, -1), undefined, prefix, undefined, speedUnit),
-      lane(secondArcId, farNode, connectNode, side, speed, [departLaneId], "roundabout", arcB.slice(1, -1), undefined, prefix, undefined, speedUnit),
+      lane(firstArcId, connectNode, farNode, side, [secondArcId], "roundabout", arcA.slice(1, -1), undefined, prefix, undefined, speedUnit),
+      lane(secondArcId, farNode, connectNode, side, [departLaneId], "roundabout", arcB.slice(1, -1), undefined, prefix, undefined, speedUnit),
     ],
     surface: roadSurface(prefix, [...arcA, ...arcB.slice(1)], widthM, [firstArcId, secondArcId], "roundabout"),
     island: {
@@ -1015,7 +1017,6 @@ export const DESTINATION_PROFILES: readonly DestinationProfile[] = [
 
 /** Lateral offset of a lane line from its carriageway centreline. */
 const NYC_LANE_OFFSET_M = 1.7;
-const NYC_SPEED_LIMIT_MPH = 25;
 /** Beyond this a successor is a U-turn, not a turn. */
 const NYC_MAX_TURN_RAD = (120 * Math.PI) / 180;
 
@@ -1030,6 +1031,12 @@ interface NycRoadSpec {
   /** What a driver would call this street. Kept on the spec so adding a road
    * stays one line, name included. */
   readonly name: string;
+  /**
+   * Posted limit in mph. Required, and on the spec for the same reason the name
+   * is: a new street declares everything about itself on the one line that
+   * declares it, and the compiler will not let that line omit this.
+   */
+  readonly speedLimit: number;
   /** x for an avenue, z for a cross street. */
   readonly coordinate: number;
   readonly widthM: number;
@@ -1059,12 +1066,12 @@ interface NycRoadSpec {
 const NYC_AVENUES: readonly NycRoadSpec[] = [
   // Riverside Drive begins at 72nd, as it really does, so it skips the southern
   // rows and the grid's west edge steps in below them.
-  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", name: "Riverside Dr", coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96", "100", "106"] },
-  { key: "we", nodeKey: "we", roadId: "nyc-west-end", name: "West End Ave", coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
-  { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", name: "Broadway", coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1 },
-  { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", name: "Amsterdam Ave", coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
-  { key: "col", nodeKey: "col", roadId: "nyc-columbus", name: "Columbus Ave", coordinate: 180, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1 },
-  { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", name: "Central Park West", coordinate: 320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", name: "Riverside Dr", speedLimit: 20, coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96", "100", "106"] },
+  { key: "we", nodeKey: "we", roadId: "nyc-west-end", name: "West End Ave", speedLimit: 20, coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", name: "Broadway", speedLimit: 25, coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", name: "Amsterdam Ave", speedLimit: 25, coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
+  { key: "col", nodeKey: "col", roadId: "nyc-columbus", name: "Columbus Ave", speedLimit: 25, coordinate: 180, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1 },
+  { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", name: "Central Park West", speedLimit: 20, coordinate: 320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
 ];
 
 /**
@@ -1075,22 +1082,123 @@ const NYC_AVENUES: readonly NycRoadSpec[] = [
  * (six real blocks) between junctions.
  */
 const NYC_STREETS: readonly NycRoadSpec[] = [
-  { key: "59", nodeKey: "59", roadId: "nyc-west-59", name: "W 59th St", coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "61", nodeKey: "61", roadId: "nyc-west-61", name: "W 61st St", coordinate: -1200, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "68", nodeKey: "68", roadId: "nyc-west-68", name: "W 68th St", coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
-  { key: "72", nodeKey: "72", roadId: "nyc-west-72", name: "W 72nd St", coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "75", nodeKey: "75", roadId: "nyc-west-75", name: "W 75th St", coordinate: -240, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "79", nodeKey: "79", roadId: "nyc-west-79", name: "W 79th St", coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "59", nodeKey: "59", roadId: "nyc-west-59", name: "W 59th St", speedLimit: 25, coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "61", nodeKey: "61", roadId: "nyc-west-61", name: "W 61st St", speedLimit: 20, coordinate: -1200, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", speedLimit: 25, coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "68", nodeKey: "68", roadId: "nyc-west-68", name: "W 68th St", speedLimit: 20, coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
+  { key: "72", nodeKey: "72", roadId: "nyc-west-72", name: "W 72nd St", speedLimit: 25, coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "75", nodeKey: "75", roadId: "nyc-west-75", name: "W 75th St", speedLimit: 20, coordinate: -240, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "79", nodeKey: "79", roadId: "nyc-west-79", name: "W 79th St", speedLimit: 25, coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
   // W 82nd stops at Columbus: the museum and its grounds fill the block through
   // to Central Park West, exactly as they interrupt the real street grid there.
-  { key: "82", nodeKey: "82", roadId: "nyc-west-82", name: "W 82nd St", coordinate: 240, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: ["riv", "we", "bway", "amst", "col"] },
-  { key: "86", nodeKey: "86", roadId: "nyc-west-86", name: "W 86th St", coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "91", nodeKey: "91", roadId: "nyc-west-91", name: "W 91st St", coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "96", nodeKey: "96", roadId: "nyc-west-96", name: "W 96th St", coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "100", nodeKey: "100", roadId: "nyc-west-100", name: "W 100th St", coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
-  { key: "106", nodeKey: "106", roadId: "nyc-west-106", name: "W 106th St", coordinate: 1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "82", nodeKey: "82", roadId: "nyc-west-82", name: "W 82nd St", speedLimit: 20, coordinate: 240, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: ["riv", "we", "bway", "amst", "col"] },
+  { key: "86", nodeKey: "86", roadId: "nyc-west-86", name: "W 86th St", speedLimit: 25, coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "91", nodeKey: "91", roadId: "nyc-west-91", name: "W 91st St", speedLimit: 20, coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
+  { key: "96", nodeKey: "96", roadId: "nyc-west-96", name: "W 96th St", speedLimit: 25, coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "100", nodeKey: "100", roadId: "nyc-west-100", name: "W 100th St", speedLimit: 20, coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
+  { key: "106", nodeKey: "106", roadId: "nyc-west-106", name: "W 106th St", speedLimit: 25, coordinate: 1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
 ];
+
+/**
+ * Milton Keynes posts its grid roads at the national limit and everything
+ * inside an estate at the built-up default. `uk-oldbrook-loop` is that estate:
+ * it carries the Oldbrook Houses venue, the only crosswalk on the map, and a
+ * green.
+ */
+const MK_ROAD_SPEED_LIMITS = {
+  "uk-dual-carriageway": 60,
+  "uk-north-approach": 40,
+  "uk-east-approach": 40,
+  "uk-south-approach": 40,
+  "uk-west-approach": 40,
+  "uk-east-link": 40,
+  "uk-westgrid": 40,
+  "uk-oldbrook-loop": 30,
+  // Both rings, and both tighter than anything else on the map: a 12 m
+  // radius is not driveable at the grid road's figure.
+  "uk-roundabout": 30,
+  "uk-westloop": 30,
+} as const satisfies Record<string, number>;
+
+/** France signs 50 in town and 70 on the open approaches out of it. */
+const CALAIS_ROAD_SPEED_LIMITS = {
+  "fr-south-east-road": 70,
+  "fr-north-approach": 50,
+  "fr-east-approach": 50,
+  "fr-south-approach": 50,
+  "fr-west-approach": 50,
+  "fr-east-south-road": 50,
+  "fr-north-west-road": 50,
+  "fr-westgrid": 50,
+  // Same as Milton Keynes: the turning loop is a 10 m ring, not a road.
+  "fr-roundabout": 30,
+  "fr-westloop": 30,
+} as const satisfies Record<string, number>;
+
+/**
+ * Setagaya-dori is the only arterial here; the rest of the ward is a Zone 30
+ * neighbourhood, and the three `shared_space` lanes are too narrow for even
+ * that — 5.8 m of carriageway with pedestrians on it.
+ */
+const TOKYO_ROAD_SPEED_LIMITS = {
+  "jp-setagaya-dori": 40,
+  "jp-south-road": 30,
+  "jp-east-curve": 30,
+  "jp-center-road": 30,
+  "jp-west-road": 30,
+  "jp-north-road": 30,
+  "jp-junction-road": 30,
+  "jp-westhill-road": 30,
+  "jp-easthill-road": 30,
+  "jp-uptown-road": 30,
+  "jp-westedge-road": 30,
+  "jp-southrow-west": 30,
+  "jp-centerrow-west": 30,
+  "jp-northrow-west": 30,
+  "jp-westside-road": 30,
+  "jp-westside-south": 30,
+  "jp-eastside-road": 30,
+  "jp-narrow-road": 20,
+  "jp-narrowhill-road": 20,
+  "jp-shrine-road": 20,
+} as const satisfies Record<string, number>;
+
+/**
+ * Every road in this file and what it is posted at, keyed by `RoadSurface.id`
+ * — the same key space as `LaneSegment.roadId`.
+ *
+ * A road declares its limit **once**, here or on its `NycRoadSpec`, and
+ * `lane`/`laneTrue` stamp it onto every lane of that road. Authoring it per
+ * lane is how the two drift apart, which is why neither builder takes one.
+ *
+ * Choose the figure from what the road *is*, in this order: frontage (housing,
+ * park, school, shared space lower it), then class (arterial > through street >
+ * local > mews/service/roundabout), then geometry (width, lane count,
+ * curvature, junction density). Never post a number the host country does not
+ * use — `roadRealism.test.ts` holds you to a per-country list.
+ */
+const ROAD_SPEED_LIMITS: Readonly<Record<string, number>> = {
+  ...Object.fromEntries(
+    [...NYC_AVENUES, ...NYC_STREETS].map((road) => [road.roadId, road.speedLimit]),
+  ),
+  ...MK_ROAD_SPEED_LIMITS,
+  ...CALAIS_ROAD_SPEED_LIMITS,
+  ...TOKYO_ROAD_SPEED_LIMITS,
+};
+
+/**
+ * Throws rather than defaulting: a road with no posted limit is an authoring
+ * omission, and a silent fallback would put ambient traffic through it at
+ * whatever the guess happened to be. This runs at module scope, so the failure
+ * lands on import — every test at once, naming the road.
+ */
+const speedLimitForRoad = (roadId: string): number => {
+  const limit = ROAD_SPEED_LIMITS[roadId];
+  if (limit === undefined) {
+    throw new Error(`No speed limit posted for road "${roadId}"`);
+  }
+  return limit;
+};
 
 interface NycGridLane {
   readonly id: string;
@@ -1312,7 +1420,6 @@ function buildNycGrid(
       lane.fromNode,
       lane.toNode,
       "right",
-      NYC_SPEED_LIMIT_MPH,
       successorsFor(lane),
       lane.road.oneWay === null ? "travel" : "one_way",
       [lane.via],
@@ -1531,28 +1638,28 @@ const ukNodes = {
 const ukLanes: readonly LaneSegment[] = [
   // Use short arc segments instead of a diamond. The visual carriageway and
   // the legal vehicle path now round each corner together.
-  lane("uk-rb-n-e", ukNodes.n, ukNodes.e, "left", 30, ["uk-rb-e-s", "uk-exit-east"], "roundabout", [point(13, 31.4), point(24, 24), point(31.4, 13)]),
-  lane("uk-rb-e-s", ukNodes.e, ukNodes.s, "left", 30, ["uk-rb-s-w", "uk-exit-south"], "roundabout", [point(31.4, -13), point(24, -24), point(13, -31.4)]),
-  lane("uk-rb-s-w", ukNodes.s, ukNodes.w, "left", 30, ["uk-rb-w-n", "uk-exit-west"], "roundabout", [point(-13, -31.4), point(-24, -24), point(-31.4, -13)]),
-  lane("uk-rb-w-n", ukNodes.w, ukNodes.n, "left", 30, ["uk-rb-n-e", "uk-exit-north"], "roundabout", [point(-31.4, 13), point(-24, 24), point(-13, 31.4)]),
-  laneTrue("uk-entry-north", ukNodes.no, ukNodes.n, "left", 40, ["uk-rb-n-e"], "entry", [point(1.7, 76)], ["uk-exit-north"]),
-  laneTrue("uk-exit-north", ukNodes.n, ukNodes.no, "left", 40, ["uk-dual-n-east"], "exit", [point(-1.7, 76)], ["uk-entry-north"]),
-  laneTrue("uk-entry-east", ukNodes.eo, ukNodes.e, "left", 40, ["uk-rb-e-s"], "entry", [point(82, -1.7)], ["uk-exit-east"]),
-  laneTrue("uk-exit-east", ukNodes.e, ukNodes.eo, "left", 40, ["uk-entry-east"], "exit", [point(82, 1.7)], ["uk-entry-east"]),
-  laneTrue("uk-entry-south", ukNodes.so, ukNodes.s, "left", 40, ["uk-rb-s-w"], "entry", [point(-1.7, -76)], ["uk-exit-south"]),
-  laneTrue("uk-exit-south", ukNodes.s, ukNodes.so, "left", 40, ["uk-south-west"], "exit", [point(1.7, -76)], ["uk-entry-south"]),
-  laneTrue("uk-entry-west", ukNodes.wo, ukNodes.w, "left", 40, ["uk-rb-w-n"], "entry", [point(-82, 1.7)], ["uk-exit-west"]),
-  laneTrue("uk-exit-west", ukNodes.w, ukNodes.wo, "left", 40, ["uk-west-south", "uk-westgrid-out"], "exit", [point(-82, -1.7)], ["uk-entry-west"]),
-  laneTrue("uk-dual-n-east", ukNodes.no, ukNodes.ne, "left", 60, ["uk-east-north"], "travel", [point(80, 119.75), point(220, 119.75), point(360, 119.75), point(500, 119.75), point(620, 119.75)], ["uk-dual-n-east-pass"]),
-  laneTrue("uk-dual-n-east-pass", ukNodes.no, ukNodes.ne, "left", 60, ["uk-east-north"], "passing", [point(80, 116.25), point(220, 116.25), point(360, 116.25), point(500, 116.25), point(620, 116.25)], ["uk-dual-n-east"]),
-  laneTrue("uk-east-north", ukNodes.ne, ukNodes.eo, "left", 40, ["uk-entry-east"], "travel", [point(701.7, 117.5), point(701.7, 70), point(701.34, 28.95), point(600.4, -11.65), point(450.1, -31.7), point(299.86, -26.7), point(199.75, -11.68), point(130.25, -1.75)]),
-  laneTrue("uk-south-west", ukNodes.so, ukNodes.wo, "left", 40, ["uk-entry-west"], "travel", [point(-0.5, -119.7), point(-66.1, -119.3), point(-131.49, -60.82), point(-131.7, -0.5)]),
-  laneTrue("uk-west-south", ukNodes.wo, ukNodes.so, "left", 40, ["uk-entry-south"], "travel", [point(-128.3, -0.5), point(-128.51, -59.18), point(-64.31, -116.45), point(-0.5, -116.3)]),
+  lane("uk-rb-n-e", ukNodes.n, ukNodes.e, "left", ["uk-rb-e-s", "uk-exit-east"], "roundabout", [point(13, 31.4), point(24, 24), point(31.4, 13)]),
+  lane("uk-rb-e-s", ukNodes.e, ukNodes.s, "left", ["uk-rb-s-w", "uk-exit-south"], "roundabout", [point(31.4, -13), point(24, -24), point(13, -31.4)]),
+  lane("uk-rb-s-w", ukNodes.s, ukNodes.w, "left", ["uk-rb-w-n", "uk-exit-west"], "roundabout", [point(-13, -31.4), point(-24, -24), point(-31.4, -13)]),
+  lane("uk-rb-w-n", ukNodes.w, ukNodes.n, "left", ["uk-rb-n-e", "uk-exit-north"], "roundabout", [point(-31.4, 13), point(-24, 24), point(-13, 31.4)]),
+  laneTrue("uk-entry-north", ukNodes.no, ukNodes.n, "left", ["uk-rb-n-e"], "entry", [point(1.7, 76)], ["uk-exit-north"]),
+  laneTrue("uk-exit-north", ukNodes.n, ukNodes.no, "left", ["uk-dual-n-east"], "exit", [point(-1.7, 76)], ["uk-entry-north"]),
+  laneTrue("uk-entry-east", ukNodes.eo, ukNodes.e, "left", ["uk-rb-e-s"], "entry", [point(82, -1.7)], ["uk-exit-east"]),
+  laneTrue("uk-exit-east", ukNodes.e, ukNodes.eo, "left", ["uk-entry-east"], "exit", [point(82, 1.7)], ["uk-entry-east"]),
+  laneTrue("uk-entry-south", ukNodes.so, ukNodes.s, "left", ["uk-rb-s-w"], "entry", [point(-1.7, -76)], ["uk-exit-south"]),
+  laneTrue("uk-exit-south", ukNodes.s, ukNodes.so, "left", ["uk-south-west"], "exit", [point(1.7, -76)], ["uk-entry-south"]),
+  laneTrue("uk-entry-west", ukNodes.wo, ukNodes.w, "left", ["uk-rb-w-n"], "entry", [point(-82, 1.7)], ["uk-exit-west"]),
+  laneTrue("uk-exit-west", ukNodes.w, ukNodes.wo, "left", ["uk-west-south", "uk-westgrid-out"], "exit", [point(-82, -1.7)], ["uk-entry-west"]),
+  laneTrue("uk-dual-n-east", ukNodes.no, ukNodes.ne, "left", ["uk-east-north"], "travel", [point(80, 119.75), point(220, 119.75), point(360, 119.75), point(500, 119.75), point(620, 119.75)], ["uk-dual-n-east-pass"]),
+  laneTrue("uk-dual-n-east-pass", ukNodes.no, ukNodes.ne, "left", ["uk-east-north"], "passing", [point(80, 116.25), point(220, 116.25), point(360, 116.25), point(500, 116.25), point(620, 116.25)], ["uk-dual-n-east"]),
+  laneTrue("uk-east-north", ukNodes.ne, ukNodes.eo, "left", ["uk-entry-east"], "travel", [point(701.7, 117.5), point(701.7, 70), point(701.34, 28.95), point(600.4, -11.65), point(450.1, -31.7), point(299.86, -26.7), point(199.75, -11.68), point(130.25, -1.75)]),
+  laneTrue("uk-south-west", ukNodes.so, ukNodes.wo, "left", ["uk-entry-west"], "travel", [point(-0.5, -119.7), point(-66.1, -119.3), point(-131.49, -60.82), point(-131.7, -0.5)]),
+  laneTrue("uk-west-south", ukNodes.wo, ukNodes.so, "left", ["uk-entry-south"], "travel", [point(-128.3, -0.5), point(-128.51, -59.18), point(-64.31, -116.45), point(-0.5, -116.3)]),
   // Westbound grid road off the roundabout's west arm. Rather than a flat
   // dead-end it ends in a single-arm turning loop (uk-westloop) so free-drive
   // can roam west and circle back, with genuine oncoming traffic on the way.
-  laneTrue("uk-westgrid-out", ukNodes.wo, ukNodes.wgo, "left", 40, ["uk-westloop-a"], "travel", [point(-225, -1.7)], ["uk-westgrid-in"], "uk-westgrid", 3.2),
-  laneTrue("uk-westgrid-in", ukNodes.wgo, ukNodes.wo, "left", 40, ["uk-entry-west"], "travel", [point(-225, 1.7)], ["uk-westgrid-out"], "uk-westgrid", 3.2),
+  laneTrue("uk-westgrid-out", ukNodes.wo, ukNodes.wgo, "left", ["uk-westloop-a"], "travel", [point(-225, -1.7)], ["uk-westgrid-in"], "uk-westgrid", 3.2),
+  laneTrue("uk-westgrid-in", ukNodes.wgo, ukNodes.wo, "left", ["uk-entry-west"], "travel", [point(-225, 1.7)], ["uk-westgrid-out"], "uk-westgrid", 3.2),
 ];
 
 // Turning loop at the west end of the Oldbrook westgrid (left-side: clockwise).
@@ -1562,7 +1669,6 @@ const ukWestLoop = turningLoop({
   bulgeDeg: 180,
   radius: 12,
   side: "left",
-  speed: 40,
   departLaneId: "uk-westgrid-in",
   color: "#608b4e",
 });
@@ -1583,27 +1689,27 @@ const frNodes = {
 const frLanes: readonly LaneSegment[] = [
   // Match the French counter-clockwise circulation with smooth, driveable
   // arcs. This also leaves a clean, consistently wide island boundary.
-  lane("fr-rb-n-w", frNodes.n, frNodes.w, "right", 30, ["fr-rb-w-s", "fr-exit-west"], "roundabout", [point(-13, 31.4), point(-24, 24), point(-31.4, 13)]),
-  lane("fr-rb-w-s", frNodes.w, frNodes.s, "right", 30, ["fr-rb-s-e", "fr-exit-south"], "roundabout", [point(-31.4, -13), point(-24, -24), point(-13, -31.4)]),
-  lane("fr-rb-s-e", frNodes.s, frNodes.e, "right", 30, ["fr-rb-e-n", "fr-exit-east"], "roundabout", [point(13, -31.4), point(24, -24), point(31.4, -13)]),
-  lane("fr-rb-e-n", frNodes.e, frNodes.n, "right", 30, ["fr-rb-n-w", "fr-exit-north"], "roundabout", [point(31.4, 13), point(24, 24), point(13, 31.4)]),
-  laneTrue("fr-entry-north", frNodes.no, frNodes.n, "right", 50, ["fr-rb-n-w"], "entry", [point(-1.7, 76)], ["fr-exit-north"]),
-  laneTrue("fr-exit-north", frNodes.n, frNodes.no, "right", 50, ["fr-north-west"], "exit", [point(1.7, 76)], ["fr-entry-north"]),
-  laneTrue("fr-entry-east", frNodes.eo, frNodes.e, "right", 50, ["fr-rb-e-n"], "entry", [point(86, 1.7)], ["fr-exit-east"]),
-  laneTrue("fr-exit-east", frNodes.e, frNodes.eo, "right", 50, ["fr-east-south"], "exit", [point(86, -1.7)], ["fr-entry-east"]),
-  laneTrue("fr-entry-south", frNodes.so, frNodes.s, "right", 50, ["fr-rb-s-e"], "entry", [point(1.7, -76)], ["fr-exit-south"]),
-  laneTrue("fr-exit-south", frNodes.s, frNodes.so, "right", 50, ["fr-south-east"], "exit", [point(-1.7, -76)], ["fr-entry-south"]),
-  laneTrue("fr-entry-west", frNodes.wo, frNodes.w, "right", 50, ["fr-rb-w-s"], "entry", [point(-86, -1.7)], ["fr-exit-west"]),
-  laneTrue("fr-exit-west", frNodes.w, frNodes.wo, "right", 50, ["fr-entry-west", "fr-westgrid-out"], "exit", [point(-86, 1.7)], ["fr-entry-west"]),
-  laneTrue("fr-south-east", frNodes.so, frNodes.eo, "right", 70, ["fr-entry-east"], "travel", [point(0.5, -119.7), point(53, -100.7), point(94, -80.7), point(139.25, -1.25)], ["fr-south-east-pass"]),
-  laneTrue("fr-south-east-pass", frNodes.so, frNodes.eo, "right", 70, ["fr-entry-east"], "passing", [point(-0.5, -116.3), point(53, -97.3), point(94, -77.3), point(136.25, 0.4)], ["fr-south-east"]),
-  laneTrue("fr-east-south", frNodes.eo, frNodes.so, "right", 50, ["fr-entry-south"], "travel", [point(136.5, -0.95), point(148.31, -42.18), point(148.49, -109.21), point(103.74, -128.32), point(20.2, -128.31), point(1.3, -116.8)]),
-  laneTrue("fr-north-west", frNodes.no, frNodes.wo, "right", 50, ["fr-entry-west"], "travel", [point(-1.23, 119.27), point(-81.1, 77.3), point(-139.05, 1.43)]),
+  lane("fr-rb-n-w", frNodes.n, frNodes.w, "right", ["fr-rb-w-s", "fr-exit-west"], "roundabout", [point(-13, 31.4), point(-24, 24), point(-31.4, 13)]),
+  lane("fr-rb-w-s", frNodes.w, frNodes.s, "right", ["fr-rb-s-e", "fr-exit-south"], "roundabout", [point(-31.4, -13), point(-24, -24), point(-13, -31.4)]),
+  lane("fr-rb-s-e", frNodes.s, frNodes.e, "right", ["fr-rb-e-n", "fr-exit-east"], "roundabout", [point(13, -31.4), point(24, -24), point(31.4, -13)]),
+  lane("fr-rb-e-n", frNodes.e, frNodes.n, "right", ["fr-rb-n-w", "fr-exit-north"], "roundabout", [point(31.4, 13), point(24, 24), point(13, 31.4)]),
+  laneTrue("fr-entry-north", frNodes.no, frNodes.n, "right", ["fr-rb-n-w"], "entry", [point(-1.7, 76)], ["fr-exit-north"]),
+  laneTrue("fr-exit-north", frNodes.n, frNodes.no, "right", ["fr-north-west"], "exit", [point(1.7, 76)], ["fr-entry-north"]),
+  laneTrue("fr-entry-east", frNodes.eo, frNodes.e, "right", ["fr-rb-e-n"], "entry", [point(86, 1.7)], ["fr-exit-east"]),
+  laneTrue("fr-exit-east", frNodes.e, frNodes.eo, "right", ["fr-east-south"], "exit", [point(86, -1.7)], ["fr-entry-east"]),
+  laneTrue("fr-entry-south", frNodes.so, frNodes.s, "right", ["fr-rb-s-e"], "entry", [point(1.7, -76)], ["fr-exit-south"]),
+  laneTrue("fr-exit-south", frNodes.s, frNodes.so, "right", ["fr-south-east"], "exit", [point(-1.7, -76)], ["fr-entry-south"]),
+  laneTrue("fr-entry-west", frNodes.wo, frNodes.w, "right", ["fr-rb-w-s"], "entry", [point(-86, -1.7)], ["fr-exit-west"]),
+  laneTrue("fr-exit-west", frNodes.w, frNodes.wo, "right", ["fr-entry-west", "fr-westgrid-out"], "exit", [point(-86, 1.7)], ["fr-entry-west"]),
+  laneTrue("fr-south-east", frNodes.so, frNodes.eo, "right", ["fr-entry-east"], "travel", [point(0.5, -119.7), point(53, -100.7), point(94, -80.7), point(139.25, -1.25)], ["fr-south-east-pass"]),
+  laneTrue("fr-south-east-pass", frNodes.so, frNodes.eo, "right", ["fr-entry-east"], "passing", [point(-0.5, -116.3), point(53, -97.3), point(94, -77.3), point(136.25, 0.4)], ["fr-south-east"]),
+  laneTrue("fr-east-south", frNodes.eo, frNodes.so, "right", ["fr-entry-south"], "travel", [point(136.5, -0.95), point(148.31, -42.18), point(148.49, -109.21), point(103.74, -128.32), point(20.2, -128.31), point(1.3, -116.8)]),
+  laneTrue("fr-north-west", frNodes.no, frNodes.wo, "right", ["fr-entry-west"], "travel", [point(-1.23, 119.27), point(-81.1, 77.3), point(-139.05, 1.43)]),
   // Westbound local road off the roundabout's west arm. It now ends in a
   // single-arm turning loop (fr-westloop) instead of a flat dead-end, so
   // right-side free-drive can roam west and circle back with oncoming traffic.
-  laneTrue("fr-westgrid-out", frNodes.wo, frNodes.wgo, "right", 50, ["fr-westloop-a"], "travel", [point(-219, 1.7)], ["fr-westgrid-in"], "fr-westgrid", 3.2),
-  laneTrue("fr-westgrid-in", frNodes.wgo, frNodes.wo, "right", 50, ["fr-entry-west"], "travel", [point(-219, -1.7)], ["fr-westgrid-out"], "fr-westgrid", 3.2),
+  laneTrue("fr-westgrid-out", frNodes.wo, frNodes.wgo, "right", ["fr-westloop-a"], "travel", [point(-219, 1.7)], ["fr-westgrid-in"], "fr-westgrid", 3.2),
+  laneTrue("fr-westgrid-in", frNodes.wgo, frNodes.wo, "right", ["fr-entry-west"], "travel", [point(-219, -1.7)], ["fr-westgrid-out"], "fr-westgrid", 3.2),
 ];
 
 // Turning loop at the west end of the Coquelles westgrid (right-side: counter-
@@ -1614,7 +1720,6 @@ const frWestLoop = turningLoop({
   bulgeDeg: 180,
   radius: 10,
   side: "right",
-  speed: 50,
   departLaneId: "fr-westgrid-in",
   color: "#6d914f",
 });
@@ -1645,78 +1750,78 @@ const jpNodes = {
 };
 
 const jpLanes: readonly LaneSegment[] = [
-  laneTrue("jp-south-east-1", jpNodes.a, jpNodes.b, "left", 30, ["jp-south-east-2", "jp-narrow-north-1", "jp-shrine-south"], "travel", [point(-71, -70.5)], ["jp-south-west-1"]),
-  laneTrue("jp-south-east-2", jpNodes.b, jpNodes.c, "left", 30, ["jp-curve-north", "jp-eastside-south"], "rail_crossing", [point(21, -70.5)], ["jp-south-west-2"]),
-  laneTrue("jp-south-west-1", jpNodes.b, jpNodes.a, "left", 30, ["jp-westedge-north", "jp-southrow-west-w"], "travel", [point(-71, -73.5)], ["jp-south-east-1"], "jp-south-road", 3),
-  laneTrue("jp-south-west-2", jpNodes.c, jpNodes.b, "left", 30, ["jp-south-west-1"], "rail_crossing", [point(21, -73.5)], ["jp-south-east-2"], "jp-south-road", 3),
-  laneTrue("jp-curve-north", jpNodes.c, jpNodes.d, "left", 30, ["jp-center-west-1"], "travel", [point(71.64, -70.27), point(100.78, -54.81), point(106.36, -34.57), point(110.23, -18.1)], ["jp-curve-south"]),
-  laneTrue("jp-curve-south", jpNodes.d, jpNodes.c, "left", 30, ["jp-south-west-2"], "travel", [point(113.54, -18.88), point(109.64, -35.43), point(103.22, -57.19), point(73.24, -73.26)], ["jp-curve-north"], "jp-east-curve", 3),
-  laneTrue("jp-center-west-1", jpNodes.d, jpNodes.e, "left", 30, ["jp-center-west-2"], "travel", [point(110.37, -18.7), point(81.1, 16.56), point(54.5, 16.3)], ["jp-center-east-3"]),
-  laneTrue("jp-center-west-2", jpNodes.e, jpNodes.f, "left", 30, ["jp-center-west-3", "jp-narrow-north-2"], "travel", [point(12, 16.5)], ["jp-center-east-2"]),
-  laneTrue("jp-center-west-3", jpNodes.f, jpNodes.g, "left", 30, ["jp-west-north", "jp-centerrow-west-w"], "travel", [point(-71, 16.5)], ["jp-center-east-1"]),
-  laneTrue("jp-center-east-1", jpNodes.g, jpNodes.f, "left", 30, ["jp-center-east-2", "jp-narrow-south-1"], "travel", [point(-71, 19.5)], ["jp-center-west-3"], "jp-center-road", 3),
-  laneTrue("jp-center-east-2", jpNodes.f, jpNodes.e, "left", 30, ["jp-center-east-3"], "travel", [point(12, 19.5)], ["jp-center-west-2"], "jp-center-road", 3),
-  laneTrue("jp-center-east-3", jpNodes.e, jpNodes.d, "left", 30, ["jp-curve-south"], "travel", [point(54.5, 19.7), point(82.9, 19.45), point(112.99, -16.53)], ["jp-center-west-1"], "jp-center-road", 3),
-  laneTrue("jp-west-north", jpNodes.g, jpNodes.h, "left", 30, ["jp-north-east-1", "jp-westhill-north"], "travel", [point(-113.5, 47)], ["jp-west-south"]),
-  laneTrue("jp-west-south", jpNodes.h, jpNodes.g, "left", 30, ["jp-center-east-1", "jp-westedge-south"], "travel", [point(-110.5, 47)], ["jp-west-north"], "jp-west-road", 3),
-  laneTrue("jp-north-east-1", jpNodes.h, jpNodes.i, "left", 30, ["jp-north-east-2"], "travel", [point(-71, 77.5)], ["jp-north-west-2"]),
-  laneTrue("jp-north-east-2", jpNodes.i, jpNodes.j, "left", 30, ["jp-junction-south", "jp-easthill-north"], "travel", [point(26, 77.5)], ["jp-north-west-1"]),
-  laneTrue("jp-north-west-1", jpNodes.j, jpNodes.i, "left", 30, ["jp-north-west-2", "jp-narrow-south-2"], "travel", [point(26, 74.5)], ["jp-north-east-2"], "jp-north-road", 3),
-  laneTrue("jp-north-west-2", jpNodes.i, jpNodes.h, "left", 30, ["jp-west-south", "jp-northrow-west-w"], "travel", [point(-71, 74.5)], ["jp-north-east-1"], "jp-north-road", 3),
-  laneTrue("jp-junction-south", jpNodes.j, jpNodes.e, "left", 30, ["jp-center-west-2"], "travel", [point(83.3, 75.1), point(83.5, 47), point(55.3, 17.1)], ["jp-junction-north"]),
-  laneTrue("jp-junction-north", jpNodes.e, jpNodes.j, "left", 30, ["jp-north-west-1", "jp-easthill-north"], "travel", [point(52.7, 18.9), point(80.5, 47), point(80.7, 76.9)], ["jp-junction-south"], "jp-junction-road", 3),
-  laneTrue("jp-narrow-north-1", jpNodes.b, jpNodes.f, "left", 20, ["jp-narrow-north-2"], "travel", [point(-31.35, -27)], ["jp-narrow-south-1"]),
-  laneTrue("jp-narrow-north-2", jpNodes.f, jpNodes.i, "left", 20, ["jp-north-east-2", "jp-narrowhill-north"], "travel", [point(-31.35, 47)], ["jp-narrow-south-2"]),
-  laneTrue("jp-narrow-south-1", jpNodes.f, jpNodes.b, "left", 20, ["jp-south-west-1", "jp-shrine-south"], "travel", [point(-28.65, -27)], ["jp-narrow-north-1"], "jp-narrow-road", 2.7),
-  laneTrue("jp-narrow-south-2", jpNodes.i, jpNodes.f, "left", 20, ["jp-narrow-south-1"], "travel", [point(-28.65, 47)], ["jp-narrow-north-2"], "jp-narrow-road", 2.7),
+  laneTrue("jp-south-east-1", jpNodes.a, jpNodes.b, "left", ["jp-south-east-2", "jp-narrow-north-1", "jp-shrine-south"], "travel", [point(-71, -70.5)], ["jp-south-west-1"]),
+  laneTrue("jp-south-east-2", jpNodes.b, jpNodes.c, "left", ["jp-curve-north", "jp-eastside-south"], "rail_crossing", [point(21, -70.5)], ["jp-south-west-2"]),
+  laneTrue("jp-south-west-1", jpNodes.b, jpNodes.a, "left", ["jp-westedge-north", "jp-southrow-west-w"], "travel", [point(-71, -73.5)], ["jp-south-east-1"], "jp-south-road", 3),
+  laneTrue("jp-south-west-2", jpNodes.c, jpNodes.b, "left", ["jp-south-west-1"], "rail_crossing", [point(21, -73.5)], ["jp-south-east-2"], "jp-south-road", 3),
+  laneTrue("jp-curve-north", jpNodes.c, jpNodes.d, "left", ["jp-center-west-1"], "travel", [point(71.64, -70.27), point(100.78, -54.81), point(106.36, -34.57), point(110.23, -18.1)], ["jp-curve-south"]),
+  laneTrue("jp-curve-south", jpNodes.d, jpNodes.c, "left", ["jp-south-west-2"], "travel", [point(113.54, -18.88), point(109.64, -35.43), point(103.22, -57.19), point(73.24, -73.26)], ["jp-curve-north"], "jp-east-curve", 3),
+  laneTrue("jp-center-west-1", jpNodes.d, jpNodes.e, "left", ["jp-center-west-2"], "travel", [point(110.37, -18.7), point(81.1, 16.56), point(54.5, 16.3)], ["jp-center-east-3"]),
+  laneTrue("jp-center-west-2", jpNodes.e, jpNodes.f, "left", ["jp-center-west-3", "jp-narrow-north-2"], "travel", [point(12, 16.5)], ["jp-center-east-2"]),
+  laneTrue("jp-center-west-3", jpNodes.f, jpNodes.g, "left", ["jp-west-north", "jp-centerrow-west-w"], "travel", [point(-71, 16.5)], ["jp-center-east-1"]),
+  laneTrue("jp-center-east-1", jpNodes.g, jpNodes.f, "left", ["jp-center-east-2", "jp-narrow-south-1"], "travel", [point(-71, 19.5)], ["jp-center-west-3"], "jp-center-road", 3),
+  laneTrue("jp-center-east-2", jpNodes.f, jpNodes.e, "left", ["jp-center-east-3"], "travel", [point(12, 19.5)], ["jp-center-west-2"], "jp-center-road", 3),
+  laneTrue("jp-center-east-3", jpNodes.e, jpNodes.d, "left", ["jp-curve-south"], "travel", [point(54.5, 19.7), point(82.9, 19.45), point(112.99, -16.53)], ["jp-center-west-1"], "jp-center-road", 3),
+  laneTrue("jp-west-north", jpNodes.g, jpNodes.h, "left", ["jp-north-east-1", "jp-westhill-north"], "travel", [point(-113.5, 47)], ["jp-west-south"]),
+  laneTrue("jp-west-south", jpNodes.h, jpNodes.g, "left", ["jp-center-east-1", "jp-westedge-south"], "travel", [point(-110.5, 47)], ["jp-west-north"], "jp-west-road", 3),
+  laneTrue("jp-north-east-1", jpNodes.h, jpNodes.i, "left", ["jp-north-east-2"], "travel", [point(-71, 77.5)], ["jp-north-west-2"]),
+  laneTrue("jp-north-east-2", jpNodes.i, jpNodes.j, "left", ["jp-junction-south", "jp-easthill-north"], "travel", [point(26, 77.5)], ["jp-north-west-1"]),
+  laneTrue("jp-north-west-1", jpNodes.j, jpNodes.i, "left", ["jp-north-west-2", "jp-narrow-south-2"], "travel", [point(26, 74.5)], ["jp-north-east-2"], "jp-north-road", 3),
+  laneTrue("jp-north-west-2", jpNodes.i, jpNodes.h, "left", ["jp-west-south", "jp-northrow-west-w"], "travel", [point(-71, 74.5)], ["jp-north-east-1"], "jp-north-road", 3),
+  laneTrue("jp-junction-south", jpNodes.j, jpNodes.e, "left", ["jp-center-west-2"], "travel", [point(83.3, 75.1), point(83.5, 47), point(55.3, 17.1)], ["jp-junction-north"]),
+  laneTrue("jp-junction-north", jpNodes.e, jpNodes.j, "left", ["jp-north-west-1", "jp-easthill-north"], "travel", [point(52.7, 18.9), point(80.5, 47), point(80.7, 76.9)], ["jp-junction-south"], "jp-junction-road", 3),
+  laneTrue("jp-narrow-north-1", jpNodes.b, jpNodes.f, "left", ["jp-narrow-north-2"], "travel", [point(-31.35, -27)], ["jp-narrow-south-1"]),
+  laneTrue("jp-narrow-north-2", jpNodes.f, jpNodes.i, "left", ["jp-north-east-2", "jp-narrowhill-north"], "travel", [point(-31.35, 47)], ["jp-narrow-south-2"]),
+  laneTrue("jp-narrow-south-1", jpNodes.f, jpNodes.b, "left", ["jp-south-west-1", "jp-shrine-south"], "travel", [point(-28.65, -27)], ["jp-narrow-north-1"], "jp-narrow-road", 2.7),
+  laneTrue("jp-narrow-south-2", jpNodes.i, jpNodes.f, "left", ["jp-narrow-south-1"], "travel", [point(-28.65, 47)], ["jp-narrow-north-2"], "jp-narrow-road", 2.7),
   // --- Northern district: a second loop north of the existing streets ---
   // Westhill Road (N-S, x=-112): extends the west edge north up to Uptown.
-  laneTrue("jp-westhill-north", jpNodes.h, jpNodes.nw2, "left", 30, ["jp-uptown-east-1"], "travel", [point(-113.5, 122)], ["jp-westhill-south"], "jp-westhill-road", 3),
-  laneTrue("jp-westhill-south", jpNodes.nw2, jpNodes.h, "left", 30, ["jp-west-south"], "travel", [point(-110.5, 122)], ["jp-westhill-north"], "jp-westhill-road", 3),
+  laneTrue("jp-westhill-north", jpNodes.h, jpNodes.nw2, "left", ["jp-uptown-east-1"], "travel", [point(-113.5, 122)], ["jp-westhill-south"], "jp-westhill-road", 3),
+  laneTrue("jp-westhill-south", jpNodes.nw2, jpNodes.h, "left", ["jp-west-south"], "travel", [point(-110.5, 122)], ["jp-westhill-north"], "jp-westhill-road", 3),
   // Narrowhill Road (narrow N-S, x=-30): extends the central spine north.
-  laneTrue("jp-narrowhill-north", jpNodes.i, jpNodes.nm2, "left", 20, ["jp-uptown-east-2", "jp-uptown-west-2"], "travel", [point(-31.35, 122)], ["jp-narrowhill-south"], "jp-narrowhill-road", 2.7),
-  laneTrue("jp-narrowhill-south", jpNodes.nm2, jpNodes.i, "left", 20, ["jp-narrow-south-2"], "travel", [point(-28.65, 122)], ["jp-narrowhill-north"], "jp-narrowhill-road", 2.7),
+  laneTrue("jp-narrowhill-north", jpNodes.i, jpNodes.nm2, "left", ["jp-uptown-east-2", "jp-uptown-west-2"], "travel", [point(-31.35, 122)], ["jp-narrowhill-south"], "jp-narrowhill-road", 2.7),
+  laneTrue("jp-narrowhill-south", jpNodes.nm2, jpNodes.i, "left", ["jp-narrow-south-2"], "travel", [point(-28.65, 122)], ["jp-narrowhill-north"], "jp-narrowhill-road", 2.7),
   // Easthill Road (N-S, x=82): extends the junction line north.
-  laneTrue("jp-easthill-north", jpNodes.j, jpNodes.ne2, "left", 30, ["jp-uptown-west-1"], "travel", [point(80.5, 122)], ["jp-easthill-south"], "jp-easthill-road", 3),
-  laneTrue("jp-easthill-south", jpNodes.ne2, jpNodes.j, "left", 30, ["jp-junction-south", "jp-north-west-1"], "travel", [point(83.5, 122)], ["jp-easthill-north"], "jp-easthill-road", 3),
+  laneTrue("jp-easthill-north", jpNodes.j, jpNodes.ne2, "left", ["jp-uptown-west-1"], "travel", [point(80.5, 122)], ["jp-easthill-south"], "jp-easthill-road", 3),
+  laneTrue("jp-easthill-south", jpNodes.ne2, jpNodes.j, "left", ["jp-junction-south", "jp-north-west-1"], "travel", [point(83.5, 122)], ["jp-easthill-north"], "jp-easthill-road", 3),
   // Uptown Road (E-W, z=168): the northern through-street closing the loop.
-  laneTrue("jp-uptown-east-1", jpNodes.nw2, jpNodes.nm2, "left", 30, ["jp-uptown-east-2", "jp-narrowhill-south"], "travel", [point(-71, 169.5)], ["jp-uptown-west-2"], "jp-uptown-road", 3),
-  laneTrue("jp-uptown-east-2", jpNodes.nm2, jpNodes.ne2, "left", 30, ["jp-easthill-south"], "travel", [point(26, 169.5)], ["jp-uptown-west-1"], "jp-uptown-road", 3),
-  laneTrue("jp-uptown-west-1", jpNodes.ne2, jpNodes.nm2, "left", 30, ["jp-uptown-west-2", "jp-narrowhill-south"], "travel", [point(26, 166.5)], ["jp-uptown-east-2"], "jp-uptown-road", 3),
-  laneTrue("jp-uptown-west-2", jpNodes.nm2, jpNodes.nw2, "left", 30, ["jp-westhill-south"], "travel", [point(-71, 166.5)], ["jp-uptown-east-1"], "jp-uptown-road", 3),
+  laneTrue("jp-uptown-east-1", jpNodes.nw2, jpNodes.nm2, "left", ["jp-uptown-east-2", "jp-narrowhill-south"], "travel", [point(-71, 169.5)], ["jp-uptown-west-2"], "jp-uptown-road", 3),
+  laneTrue("jp-uptown-east-2", jpNodes.nm2, jpNodes.ne2, "left", ["jp-easthill-south"], "travel", [point(26, 169.5)], ["jp-uptown-west-1"], "jp-uptown-road", 3),
+  laneTrue("jp-uptown-west-1", jpNodes.ne2, jpNodes.nm2, "left", ["jp-uptown-west-2", "jp-narrowhill-south"], "travel", [point(26, 166.5)], ["jp-uptown-east-2"], "jp-uptown-road", 3),
+  laneTrue("jp-uptown-west-2", jpNodes.nm2, jpNodes.nw2, "left", ["jp-westhill-south"], "travel", [point(-71, 166.5)], ["jp-uptown-east-1"], "jp-uptown-road", 3),
   // --- Western corridor: closes the west side and reaches out to Westside Road ---
   // Westedge Road (N-S, x=-112): joins the south stub up to the centre street.
-  laneTrue("jp-westedge-north", jpNodes.a, jpNodes.g, "left", 30, ["jp-west-north", "jp-centerrow-west-w"], "travel", [point(-113.5, -27)], ["jp-westedge-south"], "jp-westedge-road", 3),
-  laneTrue("jp-westedge-south", jpNodes.g, jpNodes.a, "left", 30, ["jp-south-east-1", "jp-southrow-west-w"], "travel", [point(-110.5, -27)], ["jp-westedge-north"], "jp-westedge-road", 3),
+  laneTrue("jp-westedge-north", jpNodes.a, jpNodes.g, "left", ["jp-west-north", "jp-centerrow-west-w"], "travel", [point(-113.5, -27)], ["jp-westedge-south"], "jp-westedge-road", 3),
+  laneTrue("jp-westedge-south", jpNodes.g, jpNodes.a, "left", ["jp-south-east-1", "jp-southrow-west-w"], "travel", [point(-110.5, -27)], ["jp-westedge-north"], "jp-westedge-road", 3),
   // Southrow West (E-W, z=-72): extends the south road out to Westside Road.
-  laneTrue("jp-southrow-west-w", jpNodes.a, jpNodes.sw, "left", 30, ["jp-westside-north-1", "jp-westside-south-south"], "travel", [point(-186, -73.5)], ["jp-southrow-west-e"], "jp-southrow-west", 3),
-  laneTrue("jp-southrow-west-e", jpNodes.sw, jpNodes.a, "left", 30, ["jp-south-east-1", "jp-westedge-north"], "travel", [point(-186, -70.5)], ["jp-southrow-west-w"], "jp-southrow-west", 3),
+  laneTrue("jp-southrow-west-w", jpNodes.a, jpNodes.sw, "left", ["jp-westside-north-1", "jp-westside-south-south"], "travel", [point(-186, -73.5)], ["jp-southrow-west-e"], "jp-southrow-west", 3),
+  laneTrue("jp-southrow-west-e", jpNodes.sw, jpNodes.a, "left", ["jp-south-east-1", "jp-westedge-north"], "travel", [point(-186, -70.5)], ["jp-southrow-west-w"], "jp-southrow-west", 3),
   // Centerrow West (E-W, z=18): extends the centre street out to Westside Road.
-  laneTrue("jp-centerrow-west-w", jpNodes.g, jpNodes.cw, "left", 30, ["jp-westside-north-2", "jp-westside-south-1"], "travel", [point(-186, 16.5)], ["jp-centerrow-west-e"], "jp-centerrow-west", 3),
-  laneTrue("jp-centerrow-west-e", jpNodes.cw, jpNodes.g, "left", 30, ["jp-center-east-1", "jp-westedge-south"], "travel", [point(-186, 19.5)], ["jp-centerrow-west-w"], "jp-centerrow-west", 3),
+  laneTrue("jp-centerrow-west-w", jpNodes.g, jpNodes.cw, "left", ["jp-westside-north-2", "jp-westside-south-1"], "travel", [point(-186, 16.5)], ["jp-centerrow-west-e"], "jp-centerrow-west", 3),
+  laneTrue("jp-centerrow-west-e", jpNodes.cw, jpNodes.g, "left", ["jp-center-east-1", "jp-westedge-south"], "travel", [point(-186, 19.5)], ["jp-centerrow-west-w"], "jp-centerrow-west", 3),
   // Northrow West (E-W, z=76): extends the north road out to Westside Road.
-  laneTrue("jp-northrow-west-w", jpNodes.h, jpNodes.nw, "left", 30, ["jp-westside-south-2"], "travel", [point(-186, 74.5)], ["jp-northrow-west-e"], "jp-northrow-west", 3),
-  laneTrue("jp-northrow-west-e", jpNodes.nw, jpNodes.h, "left", 30, ["jp-north-east-1", "jp-west-south"], "travel", [point(-186, 77.5)], ["jp-northrow-west-w"], "jp-northrow-west", 3),
+  laneTrue("jp-northrow-west-w", jpNodes.h, jpNodes.nw, "left", ["jp-westside-south-2"], "travel", [point(-186, 74.5)], ["jp-northrow-west-e"], "jp-northrow-west", 3),
+  laneTrue("jp-northrow-west-e", jpNodes.nw, jpNodes.h, "left", ["jp-north-east-1", "jp-west-south"], "travel", [point(-186, 77.5)], ["jp-northrow-west-w"], "jp-northrow-west", 3),
   // Westside Road (N-S, x=-260): the far-west street closing the western loop.
-  laneTrue("jp-westside-north-1", jpNodes.sw, jpNodes.cw, "left", 30, ["jp-westside-north-2", "jp-centerrow-west-e"], "travel", [point(-261.5, -27)], ["jp-westside-south-1"], "jp-westside-road", 3),
-  laneTrue("jp-westside-north-2", jpNodes.cw, jpNodes.nw, "left", 30, ["jp-northrow-west-e"], "travel", [point(-261.5, 47)], ["jp-westside-south-2"], "jp-westside-road", 3),
-  laneTrue("jp-westside-south-2", jpNodes.nw, jpNodes.cw, "left", 30, ["jp-westside-south-1", "jp-centerrow-west-e"], "travel", [point(-258.5, 47)], ["jp-westside-north-2"], "jp-westside-road", 3),
-  laneTrue("jp-westside-south-1", jpNodes.cw, jpNodes.sw, "left", 30, ["jp-southrow-west-e", "jp-westside-south-south"], "travel", [point(-258.5, -27)], ["jp-westside-north-1"], "jp-westside-road", 3),
+  laneTrue("jp-westside-north-1", jpNodes.sw, jpNodes.cw, "left", ["jp-westside-north-2", "jp-centerrow-west-e"], "travel", [point(-261.5, -27)], ["jp-westside-south-1"], "jp-westside-road", 3),
+  laneTrue("jp-westside-north-2", jpNodes.cw, jpNodes.nw, "left", ["jp-northrow-west-e"], "travel", [point(-261.5, 47)], ["jp-westside-south-2"], "jp-westside-road", 3),
+  laneTrue("jp-westside-south-2", jpNodes.nw, jpNodes.cw, "left", ["jp-westside-south-1", "jp-centerrow-west-e"], "travel", [point(-258.5, 47)], ["jp-westside-north-2"], "jp-westside-road", 3),
+  laneTrue("jp-westside-south-1", jpNodes.cw, jpNodes.sw, "left", ["jp-southrow-west-e", "jp-westside-south-south"], "travel", [point(-258.5, -27)], ["jp-westside-north-1"], "jp-westside-road", 3),
   // --- Southern district: Setagaya-dori arterial and its approaches ---
   // Setagaya-dori (E-W arterial, z=-168): the wider, faster hero through-road.
-  laneTrue("jp-dori-east-1", jpNodes.ssW, jpNodes.ssM, "left", 40, ["jp-dori-east-2", "jp-shrine-north"], "travel", [point(-145, -166.5)], ["jp-dori-west-2"], "jp-setagaya-dori", 3),
-  laneTrue("jp-dori-east-2", jpNodes.ssM, jpNodes.ssE, "left", 40, ["jp-eastside-north"], "travel", [point(21, -166.5)], ["jp-dori-west-1"], "jp-setagaya-dori", 3),
-  laneTrue("jp-dori-west-1", jpNodes.ssE, jpNodes.ssM, "left", 40, ["jp-dori-west-2", "jp-shrine-north"], "travel", [point(21, -169.5)], ["jp-dori-east-2"], "jp-setagaya-dori", 3),
-  laneTrue("jp-dori-west-2", jpNodes.ssM, jpNodes.ssW, "left", 40, ["jp-westside-south-north"], "travel", [point(-145, -169.5)], ["jp-dori-east-1"], "jp-setagaya-dori", 3),
+  laneTrue("jp-dori-east-1", jpNodes.ssW, jpNodes.ssM, "left", ["jp-dori-east-2", "jp-shrine-north"], "travel", [point(-145, -166.5)], ["jp-dori-west-2"], "jp-setagaya-dori", 3),
+  laneTrue("jp-dori-east-2", jpNodes.ssM, jpNodes.ssE, "left", ["jp-eastside-north"], "travel", [point(21, -166.5)], ["jp-dori-west-1"], "jp-setagaya-dori", 3),
+  laneTrue("jp-dori-west-1", jpNodes.ssE, jpNodes.ssM, "left", ["jp-dori-west-2", "jp-shrine-north"], "travel", [point(21, -169.5)], ["jp-dori-east-2"], "jp-setagaya-dori", 3),
+  laneTrue("jp-dori-west-2", jpNodes.ssM, jpNodes.ssW, "left", ["jp-westside-south-north"], "travel", [point(-145, -169.5)], ["jp-dori-east-1"], "jp-setagaya-dori", 3),
   // Westside South (N-S, x=-260): joins Westside Road down to the arterial.
-  laneTrue("jp-westside-south-north", jpNodes.ssW, jpNodes.sw, "left", 30, ["jp-westside-north-1", "jp-southrow-west-e"], "travel", [point(-261.5, -120)], ["jp-westside-south-south"], "jp-westside-south", 3),
-  laneTrue("jp-westside-south-south", jpNodes.sw, jpNodes.ssW, "left", 30, ["jp-dori-east-1"], "travel", [point(-258.5, -120)], ["jp-westside-south-north"], "jp-westside-south", 3),
+  laneTrue("jp-westside-south-north", jpNodes.ssW, jpNodes.sw, "left", ["jp-westside-north-1", "jp-southrow-west-e"], "travel", [point(-261.5, -120)], ["jp-westside-south-south"], "jp-westside-south", 3),
+  laneTrue("jp-westside-south-south", jpNodes.sw, jpNodes.ssW, "left", ["jp-dori-east-1"], "travel", [point(-258.5, -120)], ["jp-westside-south-north"], "jp-westside-south", 3),
   // Shrine Road (narrow N-S, x=-30): extends the central spine south to the arterial.
-  laneTrue("jp-shrine-north", jpNodes.ssM, jpNodes.b, "left", 20, ["jp-narrow-north-1", "jp-south-east-2"], "travel", [point(-31.35, -120)], ["jp-shrine-south"], "jp-shrine-road", 2.7),
-  laneTrue("jp-shrine-south", jpNodes.b, jpNodes.ssM, "left", 20, ["jp-dori-west-2", "jp-dori-east-2"], "travel", [point(-28.65, -120)], ["jp-shrine-north"], "jp-shrine-road", 2.7),
+  laneTrue("jp-shrine-north", jpNodes.ssM, jpNodes.b, "left", ["jp-narrow-north-1", "jp-south-east-2"], "travel", [point(-31.35, -120)], ["jp-shrine-south"], "jp-shrine-road", 2.7),
+  laneTrue("jp-shrine-south", jpNodes.b, jpNodes.ssM, "left", ["jp-dori-west-2", "jp-dori-east-2"], "travel", [point(-28.65, -120)], ["jp-shrine-north"], "jp-shrine-road", 2.7),
   // Eastside Road (N-S, x=72): joins the south road down to the arterial.
-  laneTrue("jp-eastside-north", jpNodes.ssE, jpNodes.c, "left", 30, ["jp-south-west-2", "jp-curve-north"], "travel", [point(70.5, -120)], ["jp-eastside-south"], "jp-eastside-road", 3),
-  laneTrue("jp-eastside-south", jpNodes.c, jpNodes.ssE, "left", 30, ["jp-dori-west-1"], "travel", [point(73.5, -120)], ["jp-eastside-north"], "jp-eastside-road", 3),
+  laneTrue("jp-eastside-north", jpNodes.ssE, jpNodes.c, "left", ["jp-south-west-2", "jp-curve-north"], "travel", [point(70.5, -120)], ["jp-eastside-south"], "jp-eastside-road", 3),
+  laneTrue("jp-eastside-south", jpNodes.c, jpNodes.ssE, "left", ["jp-dori-west-1"], "travel", [point(73.5, -120)], ["jp-eastside-north"], "jp-eastside-road", 3),
 ];
 
 export const MAP_PACKS: readonly MapPack[] = [
@@ -2138,7 +2243,9 @@ export const MAP_PACKS: readonly MapPack[] = [
       "jp-westside-south": "Westside South",
       "jp-shrine-road": "Shrine Lane",
       "jp-eastside-road": "Eastside St",
-    },
+      // Checked against the limit table, so a road cannot be named without
+      // being posted or posted without being named.
+    } satisfies Readonly<Record<keyof typeof TOKYO_ROAD_SPEED_LIMITS, string>>,
     source: osmSource(
       { south: 35.6476, west: 139.6345, north: 35.6568, east: 139.6539 },
       "https://www.openstreetmap.org/export#map=16/35.6522/139.6442",

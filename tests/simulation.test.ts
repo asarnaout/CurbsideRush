@@ -1232,6 +1232,85 @@ describe("coach-mode crash response with traffic", () => {
   });
 });
 
+describe("ambient traffic reads the limit of the road it is on", () => {
+  /**
+   * A closed rectangle split into two L-shaped lanes, one posted four times
+   * faster than the other. Ambient drivers draw a fraction of the posted limit
+   * at spawn and used to keep the resulting *speed* for life, so a car that
+   * started on the fast lane carried that speed round the slow one — invisible
+   * while every road on a map shared one limit, and wrong the moment they
+   * stopped doing so.
+   */
+  const loopConfig = () =>
+    new SimulationCore({
+      seed: 11,
+      npcCount: 1,
+      enforcement: "coach",
+      lanes: [
+        {
+          id: "fast",
+          points: [
+            { x: -100, z: -100 },
+            { x: 100, z: -100 },
+            { x: 100, z: 100 },
+          ],
+          width: 8,
+          speedLimitMps: 24,
+          successorLaneIds: ["slow"],
+        },
+        {
+          id: "slow",
+          points: [
+            { x: 100, z: 100 },
+            { x: -100, z: 100 },
+            { x: -100, z: -100 },
+          ],
+          width: 8,
+          speedLimitMps: 6,
+          successorLaneIds: ["fast"],
+        },
+      ],
+      // Spawn at the top of the fast lane so the car has its whole length to
+      // get up to speed before the corner into the slow one.
+      trafficGates: [{ id: "gate", laneId: "fast", distance: 5 }],
+      spawn: { x: 0, z: 0, heading: 0 },
+      bounds: { minX: -160, maxX: 160, minZ: -160, maxZ: 160 },
+    });
+
+  const settledSpeedOn = (laneId: string): number => {
+    const simulation = loopConfig();
+    let recorded = 0;
+    let secondsOnLane = 0;
+    for (let index = 0; index < 6000; index += 1) {
+      simulation.step(1 / 60, {});
+      const npc = simulation.getSnapshot().npcs[0];
+      if (!npc || npc.laneId !== laneId) {
+        secondsOnLane = 0;
+        continue;
+      }
+      secondsOnLane += 1 / 60;
+      // Sample once it has had time to settle onto the new road rather than
+      // mid-deceleration into it.
+      if (secondsOnLane > 6) recorded = Math.max(recorded, npc.speedMps);
+    }
+    return recorded;
+  };
+
+  it("cruises near the posted limit on a fast road", () => {
+    // The spawn draw is 68-92% of the limit, so 24 m/s lands in 16.3-22.1.
+    const fast = settledSpeedOn("fast");
+    expect(fast).toBeGreaterThan(24 * 0.6);
+    expect(fast).toBeLessThanOrEqual(24 * 1.05);
+  });
+
+  it("slows to the new limit after turning onto a slower road", () => {
+    // The regression: this used to sit up at the fast lane's figure.
+    const slow = settledSpeedOn("slow");
+    expect(slow).toBeGreaterThan(0);
+    expect(slow).toBeLessThanOrEqual(6 * 1.05);
+  });
+});
+
 describe("reportExternalContact", () => {
   it("scrubs speed and records a minor event under coach enforcement", () => {
     const simulation = new SimulationCore({

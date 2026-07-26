@@ -30,13 +30,11 @@ Node >= 22.13 (repo currently runs v26).
 `npm test` takes ~70s and **almost all of it is one file** — `tests/trafficSafetyAcceptance.test.ts` (5 cities x every start/checkpoint x 51 seeds x 60s of sim). Everything else runs in ~10s. Use the fast loop while iterating, full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 59 files / 851 tests in ~10s
+# everything except the acceptance test -> 63 files / 912 tests in ~10s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
-npx vitest run tests/simulation.test.ts                     # one file
-npx vitest run tests/simulation.test.ts -t "reverses off"   # one test (substring)
-npm test -- tests/minimap.test.ts -t "flips north"          # note the `--`
-npx vitest tests/gigs.test.ts                               # watch
+npx vitest run tests/simulation.test.ts -t "reverses off"   # one file; -t filters by substring
+npm test -- tests/minimap.test.ts -t "flips north"          # note the `--`; `npx vitest <file>` watches
 ```
 
 The `--exclude "**/node_modules/**"` is required because passing `--exclude` overrides vitest's defaults. The acceptance test's `2_700_000`ms timeout is a label only — the body is synchronous, so it can never truncate coverage.
@@ -91,6 +89,8 @@ Linked only by `LaneSegment.roadId <-> RoadSurface.id`/`laneIds`. Two-way street
 | signal phase clock | `controls.phaseGroup` | `authoredSignalAspectAt` |
 
 `getMapPack(id)` is a pure frozen lookup that throws on unknown ids. **NYC is declared as a grid, not written lane by lane.** `NYC_AVENUES` / `NYC_STREETS` state each road's coordinate, width, one-way direction, lanes per direction and crossings reached; `buildNycGrid` derives its ~230 lanes, offsets, successors, surfaces and a signal at every crossing fed by two roads, and `buildNycBlocks` the blocks — zoned by column and latitude, so inserting a street splits a cell without changing what stands on either half. A new street is one line. Hence **lane ids name the crossing each block starts at** (`nyc-we-n-72`): numbering spans renames every lane on a road the moment one crosses it. And `roadIdForLane` has **no NYC branches** — the generator passes each road id.
+
+**Every road posts a speed limit**, declared once per road — on its `NycRoadSpec` for the grid, in a per-city `*_ROAD_SPEED_LIMITS` table elsewhere — which `lane`/`laneTrue` stamp onto that road's lanes rather than taking one, so a street cannot disagree with itself; an unposted road throws on import. The figure is the one on the sign, in the country's own `speedUnit`, never a canonical unit. Choose it from **frontage** first (housing, park, school, shared space lower it), then **class** (arterial > through street > local > mews/service/roundabout), then **geometry** (width, lane count, curvature, junction density) — and never a number that country does not sign. NPCs cruise at a fraction of it drawn once at spawn and re-applied at every road change, so the limits are what actually paces traffic.
 
 The JSON in `public/map-data/` is **provenance only** — nothing reads it at runtime. `scripts/fetch-osm.mjs` is a manually-run, one-off freezer, not part of any build. `tests/map-data.test.ts` recomputes a sha256 over `JSON.stringify({roads, buildings})`, so reformatting or reordering keys breaks the checksum even when geometry is identical. Regenerate; never hand-edit.
 
