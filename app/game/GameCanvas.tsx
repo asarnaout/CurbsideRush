@@ -240,8 +240,12 @@ import { speedingWarrantsCitation } from "./speeding";
 import {
   regulatorySignPlacements,
   regulatorySignYawRad,
+  speedLimitSignFamily,
+  speedLimitSignPlacements,
+  speedLimitSignYawRad,
   type RegulatorySignKind,
   type RegulatorySignPlacement,
+  type SpeedLimitSignPlacement,
 } from "./regulatorySigns";
 import {
   buildConnectedNpcPath,
@@ -1293,6 +1297,11 @@ export interface GameCanvasMapPack {
   readonly id: string;
   readonly name: string;
   readonly areaLabel?: string;
+  /**
+   * Host country, for signage that differs by jurisdiction. Not derivable from
+   * `speedUnit`: Britain reads in mph and still posts the Vienna disc.
+   */
+  readonly countryIds?: readonly string[];
   readonly ambientTraffic?: {
     readonly desktop: number;
     readonly touch: number;
@@ -2490,6 +2499,7 @@ const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructiblePropConfig>
   "oneway-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a ONE WAY sign", fall: "topple" },
   "dne-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a DO NOT ENTER sign", fall: "topple" },
   "wrongway-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a WRONG WAY sign", fall: "topple" },
+  "speedlimit-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a speed limit sign", fall: "topple" },
   hydrant: { radiusM: 0.35, speedScale: 0.9, damage: "light", noun: "a fire hydrant", fall: "topple" },
   bollard: { radiusM: 0.25, speedScale: 0.92, damage: "light", noun: "a bollard", fall: "topple" },
   vending: { radiusM: 0.6, speedScale: 0.88, damage: "light", noun: "a vending machine", fall: "topple" },
@@ -3758,6 +3768,8 @@ class BabylonGameSession {
    * null = merge failed for that url (falls back to the multi-mesh path). */
   private readonly buildingMasters = new Map<string, Mesh | null>();
   private readonly storefrontSignMaterials = new Map<string, StandardMaterial>();
+  /** Shared by both sign families; see `signPostMaster`. */
+  private signPost: Mesh | null = null;
   private signalLensMaster: Mesh | null = null;
   private signalRedMaterial: StandardMaterial | null = null;
   private signalAmberMaterial: StandardMaterial | null = null;
@@ -8650,20 +8662,29 @@ class BabylonGameSession {
       }
     }
 
-    // Regulatory signage is derived from the lane graph, so it can never
-    // disagree with the wrong-way rules the simulation enforces. NYC-only:
-    // the other maps carry no US-style signage (and resolveMapVisualKey
-    // falls back to "nyc" for unknown ids, so gate on the pack id).
+    // Both sign families derive from the lane graph, so signage can never
+    // disagree with the rules the simulation enforces. One-way signage is US
+    // MUTCD and stays NYC-only (and resolveMapVisualKey falls back to "nyc"
+    // for unknown ids, so gate on the pack id); every city posts its speed
+    // limits, in its own country's design.
+    const signInput = {
+      lanes: mapPack.laneGraph.lanes,
+      roadSurfaces: mapPack.geometry.roadSurfaces,
+      defaultRoadWidthM: mapPack.geometry.roadWidth,
+    };
     const regulatorySigns =
       mapPack.id === "nyc-upper-west-side"
-        ? regulatorySignPlacements({
-            lanes: mapPack.laneGraph.lanes,
-            roadSurfaces: mapPack.geometry.roadSurfaces,
-            defaultRoadWidthM: mapPack.geometry.roadWidth,
-          })
+        ? regulatorySignPlacements(signInput)
         : [];
+    const speedLimitSigns = speedLimitSignPlacements(signInput);
     if (regulatorySigns.length) this.buildRegulatorySigns(regulatorySigns);
-    this.buildRoadsideProps(mapPack, palette, mapId, roadSurfaces, regulatorySigns);
+    if (speedLimitSigns.length) {
+      this.buildSpeedLimitSigns(speedLimitSigns, mapPack.countryIds?.[0] ?? "us");
+    }
+    this.buildRoadsideProps(mapPack, palette, mapId, roadSurfaces, [
+      ...regulatorySigns,
+      ...speedLimitSigns,
+    ]);
 
     for (const checkpoint of this.authoredCheckpoints) {
       this.checkpointVisuals.push(
@@ -9468,7 +9489,6 @@ class BabylonGameSession {
       context.fillText("WRONG WAY", 256, 130);
     });
     const materials = {
-      post: makeMaterial(scene, "regsign-post", new Color3(0.45, 0.47, 0.48)),
       one_way: faceMaterial("regsign-oneway", oneWayTexture),
       do_not_enter: faceMaterial("regsign-dne", dneTexture),
       wrong_way: faceMaterial("regsign-wrongway", wrongWayTexture),
@@ -9502,13 +9522,7 @@ class BabylonGameSession {
     };
     const swapped = (region: Vector4): Vector4 =>
       new Vector4(region.z, region.w, region.x, region.y);
-    const post = MeshBuilder.CreateCylinder(
-      "prop-master-regsign-post",
-      { height: 2.6, diameter: 0.09, tessellation: 8 },
-      scene,
-    );
-    setMeshMaterial(post, materials.post);
-    post.isVisible = false;
+    const post = this.signPostMaster();
     const blades: Record<RegulatorySignKind, Mesh> = {
       // Double-faced: left-arrow cell reads on -Z, right-arrow cell on +Z, so
       // cross traffic on either side sees the arrow pointing along the flow.
@@ -9581,10 +9595,194 @@ class BabylonGameSession {
         destructibleParts,
       );
     }
-    materials.post.freeze();
     materials.one_way.freeze();
     materials.do_not_enter.freeze();
     materials.wrong_way.freeze();
+  }
+
+  /**
+   * The 2.6 m sign post, shared by both sign families — either may build first
+   * or alone, so it is memoised rather than owned by one of them. Sharing it
+   * means the second family's posts cost no extra draw call.
+   */
+  private signPostMaster(): Mesh {
+    if (this.signPost) return this.signPost;
+    const material = makeMaterial(
+      this.scene,
+      "regsign-post",
+      new Color3(0.45, 0.47, 0.48),
+    );
+    const post = MeshBuilder.CreateCylinder(
+      "prop-master-regsign-post",
+      { height: 2.6, diameter: 0.09, tessellation: 8 },
+      this.scene,
+    );
+    setMeshMaterial(post, material);
+    post.isVisible = false;
+    material.freeze();
+    this.signPost = post;
+    return post;
+  }
+
+  /**
+   * Speed-limit plates, on every map, in the host country's own design.
+   *
+   * Unlike the one-way family this cannot key its masters off the sign kind:
+   * the number is baked into the blade's `faceUV`, so instances of one master
+   * can only ever read one figure. One master, texture and material per
+   * distinct posted figure instead — at most three on any shipped city, and
+   * every instance of a figure batches into a single draw call.
+   */
+  private buildSpeedLimitSigns(
+    placements: readonly SpeedLimitSignPlacement[],
+    countryId: string,
+  ) {
+    const scene = this.scene;
+    const vienna = speedLimitSignFamily(countryId) !== "mutcd";
+    const white = "#f4f6f6";
+    const post = this.signPostMaster();
+    const materials: StandardMaterial[] = [];
+    const bladeFor = (figure: number): Mesh => {
+      // The design occupies the top half (Vienna) or top 5/8 (MUTCD) of the
+      // canvas; the rest stays the aluminium fill so GRAY_UV keeps sampling a
+      // flat patch of this same texture for every other face.
+      //
+      // As a fraction of canvas height — and canvas y runs down from the top
+      // while texture v runs up from the bottom, so the design's lower edge is
+      // at v = 1 - designV. Getting this wrong does not fail: it silently
+      // samples the wrong band and slices the numeral off the plate.
+      const designHeightPx = vienna ? 512 : 640;
+      const designV = designHeightPx / 1024;
+      const texture = new DynamicTexture(
+        `speedsign-${figure}-texture`,
+        { width: 512, height: 1024 },
+        scene,
+        true,
+      );
+      const context = textureContext(texture);
+      context.fillStyle = "#9aa0a3";
+      context.fillRect(0, 0, 512, 1024);
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      if (vienna) {
+        // The Vienna Convention disc: white field, red annulus, numeral.
+        context.fillStyle = white;
+        context.fillRect(0, 0, 512, 512);
+        context.fillStyle = "#c1121f";
+        context.beginPath();
+        context.arc(256, 256, 244, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = white;
+        context.beginPath();
+        context.arc(256, 256, 186, 0, Math.PI * 2);
+        context.fill();
+        // Japan is the Vienna signatory that sets its limit numerals in blue
+        // rather than black — the one visual tell that you are in Tokyo.
+        context.fillStyle = countryId === "jp" ? "#12266e" : "#101214";
+        context.font = "bold 232px Arial, sans-serif";
+        context.fillText(String(figure), 256, 268);
+      } else {
+        // MUTCD R2-1: white rectangle, black border, SPEED / LIMIT / figure.
+        context.fillStyle = white;
+        context.fillRect(0, 0, 512, 640);
+        context.strokeStyle = "#101214";
+        context.lineWidth = 14;
+        context.strokeRect(18, 18, 512 - 36, 640 - 36);
+        context.fillStyle = "#101214";
+        context.font = "bold 96px Arial, sans-serif";
+        context.fillText("SPEED", 256, 118);
+        context.fillText("LIMIT", 256, 224);
+        context.font = "bold 260px Arial, sans-serif";
+        context.fillText(String(figure), 256, 452);
+      }
+      texture.update();
+      const material = new StandardMaterial(`speedsign-${figure}`, scene);
+      material.diffuseTexture = texture;
+      // The plate recipe: lit enough to read after dark, held under the night
+      // bloom threshold so it does not glow.
+      material.emissiveTexture = texture;
+      material.emissiveColor = new Color3(0.3, 0.3, 0.3);
+      material.specularColor = new Color3(0.12, 0.12, 0.12);
+      material.specularPower = 48;
+      materials.push(material);
+      const design = new Vector4(0, 1 - designV, 1, 1);
+      const gray = new Vector4(0.4, 0.1, 0.6, 0.3);
+      let mesh: Mesh;
+      if (vienna) {
+        // A disc, not a plate with a disc painted on it: the round silhouette
+        // is the strongest cue that this is not an American street, and it
+        // reads at a distance where the numeral does not. Babylon inscribes a
+        // cap's circle into its faceUV rect, so the 512-square design lands
+        // 1:1 — [bottom cap, tube, top cap].
+        mesh = MeshBuilder.CreateCylinder(
+          `prop-master-speedsign-${figure}`,
+          { height: 0.05, diameter: 0.62, tessellation: 32, faceUV: [gray, gray, design] },
+          scene,
+        );
+        // Baked rather than set per instance: an instance carries only the
+        // yaw, and this stands the disc up so its face reads like the box's
+        // -Z face does.
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.bakeCurrentTransformIntoVertices();
+      } else {
+        mesh = MeshBuilder.CreateBox(
+          `prop-master-speedsign-${figure}`,
+          {
+            width: 0.61,
+            height: 0.76,
+            depth: 0.045,
+            // Face 1 is -Z, the one Babylon renders upright.
+            faceUV: [gray, design, gray, gray, gray, gray],
+          },
+          scene,
+        );
+      }
+      setMeshMaterial(mesh, material);
+      mesh.isVisible = false;
+      return mesh;
+    };
+    const blades = new Map<number, Mesh>();
+    for (const figure of new Set(placements.map((p) => p.limitFigure))) {
+      blades.set(figure, bladeFor(figure));
+    }
+    const bladeOffset = new Vector3(0, vienna ? 2.2 : 2.12, -0.08);
+    const postOffset = new Vector3(0, 1.3, 0);
+    let instanceIndex = 0;
+    for (const placement of placements) {
+      const blade = blades.get(placement.limitFigure);
+      if (!blade) continue;
+      const yaw = speedLimitSignYawRad(placement.flowHeadingRad);
+      const sin = Math.sin(yaw);
+      const cos = Math.cos(yaw);
+      const destructibleParts: DestructiblePropPart[] = [];
+      for (const part of [
+        { master: post, offset: postOffset },
+        { master: blade, offset: bladeOffset },
+      ]) {
+        const instance = part.master.createInstance(
+          `prop-speedlimit-sign-${instanceIndex}`,
+        );
+        instanceIndex += 1;
+        instance.position.set(
+          placement.x + part.offset.x * cos + part.offset.z * sin,
+          part.offset.y,
+          placement.z - part.offset.x * sin + part.offset.z * cos,
+        );
+        instance.rotation.y = yaw;
+        instance.isPickable = false;
+        this.staticSceneryFreeze.push(instance);
+        this.registerShadowCaster(instance, placement.x, placement.z);
+        destructibleParts.push({ node: instance, isLightPool: false });
+      }
+      this.registerDestructibleProp(
+        "speedlimit-sign",
+        placement.x,
+        placement.z,
+        1,
+        destructibleParts,
+      );
+    }
+    for (const material of materials) material.freeze();
   }
 
   private buildLondonStreetFurniture() {
