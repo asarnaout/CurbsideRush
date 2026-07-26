@@ -116,6 +116,9 @@ const WALLET_ICON = [
   "M17 13h.01",
 ];
 const MUSIC_ICON = ["M9 18V5l12-2v13", "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6", "M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6"];
+/** The note, struck through — pressed/muted is otherwise silent on this glyph. */
+const MUSIC_MUTED_ICON = [...MUSIC_ICON, "M3 3l18 18"];
+const MUSIC_DIM_COLOR = "rgba(244,239,222,.4)";
 const CAMERA_ICON = [
   "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3Z",
   "M12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7",
@@ -1099,31 +1102,39 @@ export function DriveMoneyCluster({
       </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: m.gap, marginTop: compact ? 0 : 6 }}>
-        {buttons.map((button) => (
-          <button
-            key={button.id}
-            type="button"
-            onClick={button.onPress}
-            aria-label={button.label}
-            aria-pressed={button.pressed}
-            title={button.label}
-            style={{
-              width: m.button,
-              height: m.button,
-              borderRadius: "50%",
-              background: "rgba(11,15,17,.6)",
-              backdropFilter: "blur(14px)",
-              border: "1px solid rgba(255,255,255,.1)",
-              display: "grid",
-              placeItems: "center",
-              cursor: "pointer",
-              opacity: 0.78,
-              padding: 0,
-            }}
-          >
-            <HudGlyph path={icon[button.id]} size={m.glyph} strokeWidth={2.75} color={HUD_CREAM} />
-          </button>
-        ))}
+        {buttons.map((button) => {
+          const muted = button.id === "music" && button.pressed;
+          return (
+            <button
+              key={button.id}
+              type="button"
+              onClick={button.onPress}
+              aria-label={button.label}
+              aria-pressed={button.pressed}
+              title={button.label}
+              style={{
+                width: m.button,
+                height: m.button,
+                borderRadius: "50%",
+                background: "rgba(11,15,17,.6)",
+                backdropFilter: "blur(14px)",
+                border: "1px solid rgba(255,255,255,.1)",
+                display: "grid",
+                placeItems: "center",
+                cursor: "pointer",
+                opacity: 0.78,
+                padding: 0,
+              }}
+            >
+              <HudGlyph
+                path={muted ? MUSIC_MUTED_ICON : icon[button.id]}
+                size={m.glyph}
+                strokeWidth={2.75}
+                color={muted ? MUSIC_DIM_COLOR : HUD_CREAM}
+              />
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -1995,7 +2006,12 @@ export function DriveCornerButton({
         zIndex: DRIVE_LAYER.action,
       }}
     >
-      <HudGlyph path={MUSIC_ICON} size={19} strokeWidth={2.75} color={HUD_CREAM} />
+      <HudGlyph
+        path={pressed ? MUSIC_MUTED_ICON : MUSIC_ICON}
+        size={19}
+        strokeWidth={2.75}
+        color={pressed ? MUSIC_DIM_COLOR : HUD_CREAM}
+      />
     </button>
   );
 }
