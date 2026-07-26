@@ -666,6 +666,7 @@ export default function SideSwapApp() {
   const [hud, setHud] = useState<GameHudSnapshot | null>(null);
   const [driveFuel, setDriveFuel] = useState(TANK_CAPACITY_L);
   const lastPoseRef = useRef<{ x: number; z: number } | null>(null);
+  const lastHeadingRef = useRef(0);
   const [gig, setGig] = useState<Gig | null>(null);
   // The kinds offered so far this drive, newest last, capped to the streak
   // window. Threaded into nextGigFor so no drive opens on a long run of one
@@ -704,6 +705,12 @@ export default function SideSwapApp() {
   /** Rules broken since the current job was picked up — the rider is watching. */
   const carryViolationsRef = useRef(0);
   const [surge, setSurge] = useState<SurgeWindow | null>(null);
+  /**
+   * The dashed line to a live offer's pickup — how far out of the way it is,
+   * answered on the map rather than in a number nobody can picture. Searched
+   * once when the offer opens, never per frame.
+   */
+  const [previewRoute, setPreviewRoute] = useState<GpsRoute | null>(null);
   // What this drive has earned, fare and tips together. Career reads its day
   // cash from the ledger, but free drive had no running total at all — only a
   // wallet that quietly went up.
@@ -945,6 +952,28 @@ export default function SideSwapApp() {
   }, []);
 
   /**
+   * One route from where the car stands to anywhere, over the same cached lane
+   * graph the live GPS line uses. Held in a ref so `stepDispatchNow` can reach
+   * it without taking the last pose as a dependency.
+   */
+  const routeToRef = useRef<(to: { x: number; z: number }) => GpsRoute | null>(
+    () => null,
+  );
+  useEffect(() => {
+    routeToRef.current = (to) => {
+      const pose = lastPoseRef.current;
+      if (!pose || !routeLanesRef.current.length) return null;
+      const found = findGpsRoute(
+        gpsGraphForLanes(routeLanesRef.current, routeRoadNamesRef.current),
+        pose,
+        lastHeadingRef.current,
+        to,
+      );
+      return found.points.length > 1 ? found : null;
+    };
+  });
+
+  /**
    * Builds the gig an offer seed names, priced for whatever surge is running
    * at the moment it is offered. The kind is recorded here rather than on
    * acceptance: a player who passes four deliveries has still been shown four
@@ -985,6 +1014,7 @@ export default function SideSwapApp() {
         if (built) {
           offerRef.current = built;
           setOffer({ gig: built, offeredAtMs: nowMs });
+          setPreviewRoute(routeToRef.current(built.pickup));
         } else {
           // This map cannot produce a gig under the current constraints —
           // close the offer at once rather than showing an empty card.
@@ -993,6 +1023,7 @@ export default function SideSwapApp() {
       } else if (step.event === "expired") {
         offerRef.current = null;
         setOffer(null);
+        setPreviewRoute(null);
         setDispatchToast({ text: "OFFER LOST", tone: "lost" });
       }
     },
@@ -1016,6 +1047,7 @@ export default function SideSwapApp() {
       }
     }
     lastPoseRef.current = { x: snapshot.playerX, z: snapshot.playerZ };
+    lastHeadingRef.current = snapshot.heading;
     updateGpsRoute(snapshot);
     // A tow restarts the session's clock, so fold the old total in rather than
     // letting elapsed time jump backwards. Hoisted out of the career branch:
@@ -1055,6 +1087,7 @@ export default function SideSwapApp() {
     dispatchRef.current = resolveOffer(dispatchRef.current, driveElapsedRef.current);
     offerRef.current = null;
     setOffer(null);
+    setPreviewRoute(null);
     if (!accepted) {
       setDispatchToast({ text: "PASSED", tone: "pass" });
       return;
@@ -1088,6 +1121,7 @@ export default function SideSwapApp() {
     lastSimElapsedRef.current = 0;
     setDriveElapsedMs(0);
     setSurge(null);
+    setPreviewRoute(null);
     setSessionEarnings(0);
     setPayoutGain(null);
     offerRef.current = null;
@@ -2347,6 +2381,15 @@ export default function SideSwapApp() {
       fillTransition: cell.fillTransition,
     }));
 
+  const detourLabel =
+    offer && previewRoute
+      ? formatDistance(
+          routeProgress(previewRoute, hud?.playerX ?? 0, hud?.playerZ ?? 0)
+            .remainingM,
+          driveCountry,
+        )
+      : null;
+
   const hudOffer: HudOffer | null = offer
     ? {
         kind: offer.gig.kind,
@@ -2362,13 +2405,14 @@ export default function SideSwapApp() {
             ? `then ${offer.gig.dropoff.name}`
             : `then ${offer.gig.dropoff.name}`,
         chips: [
-          formatDistance(
+          ...(detourLabel ? [`${detourLabel} away`] : []),
+          `${formatDistance(
             Math.hypot(
               offer.gig.dropoff.x - offer.gig.pickup.x,
               offer.gig.dropoff.z - offer.gig.pickup.z,
             ),
             driveCountry,
-          ),
+          )} run`,
           offer.gig.kind === "passenger" ? "1 rider" : "1 order",
         ],
         footnote: activeGig
@@ -3056,6 +3100,8 @@ export default function SideSwapApp() {
             heading={hud.heading}
             pins={minimapPins}
             route={minimapRoute}
+            previewRoute={previewRoute ? previewRoute.points : undefined}
+            previewLabel={detourLabel ?? undefined}
             size={touchFirst ? TOUCH_MINIMAP_PX : Math.round(304 * hudScale)}
             anchorStyle={
               touchFirst

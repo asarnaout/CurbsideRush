@@ -41,6 +41,15 @@ interface MinimapProps {
    * must run once per destination and this component redraws at 10 Hz.
    */
   readonly route?: readonly { readonly x: number; readonly z: number }[];
+  /**
+   * A second, dashed line to somewhere the player has not committed to — the
+   * pickup of an offer they are being asked to take. Drawn under the live route
+   * and in a different hand entirely, because the whole question it answers is
+   * "how far out of my way is this?".
+   */
+  readonly previewRoute?: readonly { readonly x: number; readonly z: number }[];
+  /** What the preview line is worth taking, e.g. "0.4 mi". */
+  readonly previewLabel?: string;
   readonly size?: number;
   /**
    * Corner placement. The default bottom-right corner is a thumb zone on touch,
@@ -73,6 +82,8 @@ export function Minimap({
   heading,
   pins = [],
   route,
+  previewRoute,
+  previewLabel,
   size = 150,
   anchorStyle,
 }: MinimapProps) {
@@ -156,6 +167,35 @@ export function Minimap({
       }
     }
 
+    // The detour preview goes down first, so the committed route paints over it
+    // wherever the two share streets — the player is being shown the extra, not
+    // a competing plan.
+    if (previewRoute && previewRoute.length > 1) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(250,243,228,0.85)";
+      ctx.lineWidth = Math.max(1.5, size * MINIMAP_ROUTE_WIDTH_FRACTION * 0.7);
+      ctx.setLineDash([Math.max(4, size * 0.042), Math.max(4, size * 0.05)]);
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      const start = projector.project(previewRoute[0].x, previewRoute[0].z);
+      ctx.moveTo(start.x, start.y);
+      for (let index = 1; index < previewRoute.length; index += 1) {
+        const point = projector.project(previewRoute[index].x, previewRoute[index].z);
+        ctx.lineTo(point.x, point.y);
+      }
+      ctx.stroke();
+      // A hollow ring at the far end: a place being offered, not a pin planted.
+      const end = previewRoute[previewRoute.length - 1];
+      const at = projector.project(end.x, end.z);
+      ctx.setLineDash([]);
+      ctx.lineWidth = Math.max(2, size * 0.01);
+      ctx.beginPath();
+      ctx.arc(at.x, at.y, Math.max(4, size * 0.03), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // The GPS line, under the pins so the destination marker caps it. One path
     // per update over a few dozen points — the search that produced them ran
     // once, when the destination changed.
@@ -221,7 +261,18 @@ export function Minimap({
     ctx.lineTo(center.x - dx * tail - px * tail, center.y - dy * tail - py * tail);
     ctx.closePath();
     ctx.fill();
-  }, [playerX, playerZ, heading, pins, route, projector, size, scale, sheet]);
+  }, [
+    playerX,
+    playerZ,
+    heading,
+    pins,
+    route,
+    previewRoute,
+    projector,
+    size,
+    scale,
+    sheet,
+  ]);
 
   const radius = Math.round(size * 0.11);
 
@@ -258,6 +309,55 @@ export function Minimap({
         without saying so it reads as a heading-up map whose roads refuse to
         turn.
       */}
+      {previewLabel && (
+        <div
+          data-testid="detour-preview"
+          style={{
+            position: "absolute",
+            left: Math.round(size * 0.04),
+            right: Math.round(size * 0.04),
+            bottom: Math.round(size * 0.04),
+            display: "flex",
+            alignItems: "center",
+            gap: Math.max(4, Math.round(size * 0.026)),
+            background: "rgba(250,243,228,.92)",
+            borderRadius: Math.round(size * 0.04),
+            padding: `${Math.round(size * 0.023)}px ${Math.round(size * 0.04)}px`,
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              width: Math.max(5, Math.round(size * 0.026)),
+              height: Math.max(5, Math.round(size * 0.026)),
+              borderRadius: "50%",
+              background: "#201e1d",
+              flex: "none",
+            }}
+          />
+          <span
+            style={{
+              font: `800 ${Math.max(8, Math.round(size * 0.039))}px/1 "Figtree", system-ui, sans-serif`,
+              letterSpacing: "1.4px",
+              color: "rgba(32,30,29,.75)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            DETOUR
+          </span>
+          <span
+            style={{
+              marginLeft: "auto",
+              font: `900 ${Math.max(9, Math.round(size * 0.043))}px/1 "Figtree", system-ui, sans-serif`,
+              color: "#201e1d",
+              fontVariantNumeric: "tabular-nums",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {previewLabel}
+          </span>
+        </div>
+      )}
       <span
         style={{
           position: "absolute",
