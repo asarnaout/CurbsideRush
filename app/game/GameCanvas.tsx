@@ -66,6 +66,33 @@ import {
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import { DRIVE_LAYER } from "./driveLayers";
+import {
+  COCKPIT_BINNACLE_PROFILE,
+  COCKPIT_BINNACLE_WIDTH,
+  COCKPIT_CABIN_WIDTH,
+  COCKPIT_CLUSTER,
+  COCKPIT_CLUSTER_TEXTURE,
+  COCKPIT_DASH_PROFILE,
+  COCKPIT_DOOR_PROFILE,
+  COCKPIT_DOOR_X,
+  COCKPIT_GAUGE_CENTRES,
+  COCKPIT_GAUGE_RADIUS,
+  COCKPIT_PILLAR_PROFILE,
+  COCKPIT_PILLAR_THICKNESS,
+  COCKPIT_PILLAR_X,
+  COCKPIT_ROOF_PROFILE,
+  COCKPIT_SCREEN,
+  COCKPIT_SPEEDO_MAX_MPS,
+  COCKPIT_VENT_PROFILE,
+  COCKPIT_VENT_SLOTS,
+  REAR_VIEW_VIEWPORT,
+  cockpitScreenSpan,
+  cockpitScreenTiltX,
+  resolveCockpitPitch,
+  resolveCockpitSteeringGeometry,
+  resolveGaugeNeedleAngle,
+  resolveSteeringWheelSpin,
+} from "./cockpitLayout";
 import { TouchDriveControls } from "./TouchDriveControls";
 import { releaseTouchSteer } from "./touchSteering";
 import {
@@ -121,7 +148,12 @@ import {
   type PulloverRoad,
 } from "./cutsceneScript";
 import { DriveAudio } from "./audio/DriveAudio";
-import { MOTORBIKE_ENGINE_PROFILE } from "./audio/audioMath";
+import {
+  ENGINE,
+  GEAR_TOP_MPS,
+  MOTORBIKE_ENGINE_PROFILE,
+  targetRpm,
+} from "./audio/audioMath";
 import {
   authoredSignalAspectAt,
   type AuthoredSignalAspect,
@@ -290,13 +322,22 @@ export interface GameHudSnapshot {
 export const MIN_HORIZONTAL_FOV = (55 * Math.PI) / 180;
 export const MAX_HORIZONTAL_FOV = (100 * Math.PI) / 180;
 export const DEFAULT_HORIZONTAL_FOV = (72 * Math.PI) / 180;
-export const MAX_STEERING_WHEEL_SPIN = 0.95;
-export const COCKPIT_DASH_DRIVER_Z = 0.28;
 export const PLAYER_GUIDANCE_HALF_WIDTH_M = 0.91;
 export const GUIDANCE_LATERAL_CLEARANCE_M = 0.3;
 export const WORLD_LAYER_MASK = 0x0fffffff;
 export const GUIDANCE_LAYER_MASK = 0x10000000;
-export const PRIMARY_CAMERA_LAYER_MASK = WORLD_LAYER_MASK | GUIDANCE_LAYER_MASK;
+/**
+ * The cabin's own bit, so the rear-view camera never sees it.
+ *
+ * First person renders the whole scene twice — once full-screen, once into the
+ * mirror strip — and the mirror looks backwards from a point behind the
+ * dashboard. Every cockpit mesh submitted to that pass is work with no possible
+ * effect on a pixel. Same trick the guidance arrows already use to stay out of
+ * the mirror.
+ */
+export const COCKPIT_LAYER_MASK = 0x20000000;
+export const PRIMARY_CAMERA_LAYER_MASK =
+  WORLD_LAYER_MASK | GUIDANCE_LAYER_MASK | COCKPIT_LAYER_MASK;
 /** Mirrors the simulation's standstill threshold, for deciding which pedal is
  * driving and which is braking when the audio reads the controls. */
 const STOPPED_AUDIO_SPEED_MPS = 0.2;
@@ -1008,39 +1049,6 @@ export function guidanceCueOverlapsCheckpoint(
 
 export function clampHorizontalFieldOfView(value: number): number {
   return clamp(value, MIN_HORIZONTAL_FOV, MAX_HORIZONTAL_FOV);
-}
-
-export function resolveCockpitPitch(viewportAspectRatio: number): number {
-  const wideBlend = clamp((viewportAspectRatio - 1.6) / 0.4, 0, 1);
-  return 0.1 + wideBlend * 0.02;
-}
-
-/** Returns rotation around the wheel's own steering-column axis. */
-export function resolveSteeringWheelSpin(steer: number): number {
-  if (steer === 0) return 0;
-  return -clamp(steer, -1, 1) * MAX_STEERING_WHEEL_SPIN;
-}
-
-export interface CockpitSteeringGeometry {
-  readonly x: number;
-  readonly y: number;
-  readonly z: number;
-  readonly mountRotationX: number;
-  readonly wheelDiameter: number;
-  readonly rimThickness: number;
-}
-
-export function resolveCockpitSteeringGeometry(
-  steeringSide: SteeringSide,
-): CockpitSteeringGeometry {
-  return {
-    x: steeringSide === "left" ? -0.47 : 0.47,
-    y: 1.16,
-    z: 0.22,
-    mountRotationX: Math.PI / 2 + 0.2,
-    wheelDiameter: 0.32,
-    rimThickness: 0.027,
-  };
 }
 
 export interface GameRuntimeEvent {
@@ -2892,6 +2900,111 @@ function makeMaterial(
   return material;
 }
 
+/**
+ * The instrument cluster's faceplate, drawn once.
+ *
+ * Everything on it is static: the dial rings, their ticks, the centre readout
+ * bars. The two things that actually move are needles, and they are meshes that
+ * rotate — nothing in this game repaints a DynamicTexture per frame and this is
+ * not the place to start. A 512x160 re-raster plus upload every frame would cost
+ * more than the whole rest of the cockpit put together, to animate two lines.
+ *
+ * Ring colours are the reference's: teal for road speed, amber for revs.
+ */
+function makeInstrumentClusterTexture(scene: Scene): DynamicTexture {
+  const { width, height } = COCKPIT_CLUSTER_TEXTURE;
+  const texture = new DynamicTexture(
+    "instrument-cluster-face",
+    { width, height },
+    scene,
+    true,
+  );
+  const context = textureContext(texture);
+  context.fillStyle = "#080b0d";
+  context.fillRect(0, 0, width, height);
+
+  const centreY = height / 2;
+  const radius = height * COCKPIT_GAUGE_RADIUS;
+  const sweepStart = (135 * Math.PI) / 180;
+  const sweepEnd = (405 * Math.PI) / 180;
+
+  COCKPIT_GAUGE_CENTRES.forEach((centre, index) => {
+    const centreX = centre * width;
+    const accent = index === 0 ? "#3fd8c4" : "#f2a02a";
+
+    context.fillStyle = "#0d1417";
+    context.beginPath();
+    context.arc(centreX, centreY, radius * 0.92, 0, Math.PI * 2);
+    context.fill();
+
+    context.strokeStyle = accent;
+    context.lineWidth = 4;
+    context.setLineDash([7, 6]);
+    context.beginPath();
+    context.arc(centreX, centreY, radius, sweepStart, sweepEnd);
+    context.stroke();
+    context.setLineDash([]);
+
+    // A finer ring of ticks inside the accent, every 13.5 degrees of the sweep.
+    context.strokeStyle = "rgba(206, 216, 220, 0.55)";
+    context.lineWidth = 2;
+    for (let tick = 0; tick <= 20; tick += 1) {
+      const angle = sweepStart + ((sweepEnd - sweepStart) * tick) / 20;
+      const long = tick % 5 === 0;
+      const inner = radius * (long ? 0.62 : 0.72);
+      const outer = radius * 0.8;
+      context.beginPath();
+      context.moveTo(
+        centreX + Math.cos(angle) * inner,
+        centreY + Math.sin(angle) * inner,
+      );
+      context.lineTo(
+        centreX + Math.cos(angle) * outer,
+        centreY + Math.sin(angle) * outer,
+      );
+      context.stroke();
+    }
+  });
+
+  // The centre stack: a gear/readout block between the dials.
+  context.fillStyle = "#3fd8c4";
+  for (const offset of [-20, 0, 20]) {
+    context.fillRect(width / 2 - 21, centreY + offset - 2, 42, 4);
+  }
+
+  texture.update(false);
+  return texture;
+}
+
+/**
+ * A cabin surface: like `makeMaterial`, but it actually collects the scene's
+ * ambient term.
+ *
+ * Babylon defaults `StandardMaterial.ambientColor` to black, and the ambient
+ * contribution is `scene.ambientColor * material.ambientColor` — so every
+ * material built by `makeMaterial` throws the scene's ambient light away. Out in
+ * the city that is invisible, because the sun and the sky light do the work. In
+ * the cockpit it is most of the problem: the interior faces away from both
+ * lights, sits under the pipeline's vignette, and had nothing else lifting it.
+ *
+ * Ambient is also the only lift available that costs nothing. The scene has
+ * exactly two lights and every material in the game compiles against both;
+ * adding a third for the cabin would recompile every material and put another
+ * light term on every fragment on screen, to brighten geometry that covers a
+ * third of one camera.
+ */
+function makeInteriorMaterial(
+  scene: Scene,
+  name: string,
+  color: Color3,
+  emissive?: Color3,
+  ambient = 0.75,
+): StandardMaterial {
+  const material = makeMaterial(scene, name, color, emissive);
+  material.ambientColor = new Color3(ambient, ambient, ambient);
+  return material;
+}
+
 function inferSpawnVehicleVariant(spawnId?: string): NpcVehicleVariant {
   const normalized = spawnId?.toLowerCase() ?? "";
   if (normalized.includes("bus")) return "bus";
@@ -3402,6 +3515,18 @@ function createExtrudedPrism(
     indices.push(pointCount, pointCount + index + 1, pointCount + index);
   }
 
+  // A planar unwrap round the section. Nothing built from a prism is textured
+  // today, but Babylon refuses to merge meshes whose attribute sets differ, and
+  // every MeshBuilder primitive carries UVs — so a prism without them cannot be
+  // merged with a box, which is exactly what the cockpit does.
+  const uvs: number[] = [];
+  const lastPoint = Math.max(1, pointCount - 1);
+  for (const v of [0, 1]) {
+    for (let index = 0; index < pointCount; index += 1) {
+      uvs.push(index / lastPoint, v);
+    }
+  }
+
   const normals: number[] = [];
   VertexData.ComputeNormals(positions, indices, normals);
   const mesh = new Mesh(name, scene);
@@ -3409,6 +3534,7 @@ function createExtrudedPrism(
   vertexData.positions = positions;
   vertexData.indices = indices;
   vertexData.normals = normals;
+  vertexData.uvs = uvs;
   vertexData.applyToMesh(mesh);
   mesh.convertToFlatShadedMesh();
   mesh.parent = parent ?? null;
@@ -3424,6 +3550,11 @@ class BabylonGameSession {
   private readonly playerExterior: TransformNode;
   private readonly playerCockpit: TransformNode;
   private steeringAssembly: TransformNode | null = null;
+  /** Speedometer then tachometer pivots, spun in updatePlayerVisuals. */
+  private gaugeNeedles: TransformNode[] = [];
+  /** Glass, tint band and wipers — the first things dropped on the blurriest
+   * touch rung, since the panes are the only fill-rate cost in the cabin. */
+  private windscreenParts: Mesh[] = [];
   private readonly thirdCamera: ArcRotateCamera;
   private readonly firstCamera: UniversalCamera;
   private readonly rearCamera: UniversalCamera;
@@ -3876,7 +4007,12 @@ class BabylonGameSession {
     this.rearCamera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     this.rearCamera.fov = (64 * Math.PI) / 180;
     this.rearCamera.layerMask = WORLD_LAYER_MASK;
-    this.rearCamera.viewport = new Viewport(0.36, 0.845, 0.28, 0.125);
+    this.rearCamera.viewport = new Viewport(
+      REAR_VIEW_VIEWPORT.x,
+      REAR_VIEW_VIEWPORT.y,
+      REAR_VIEW_VIEWPORT.width,
+      REAR_VIEW_VIEWPORT.height,
+    );
 
     // One far plane for all three cameras, from the fog band the environment
     // chose above. Fog hides but never culls: with the default 10km plane the
@@ -5308,10 +5444,18 @@ class BabylonGameSession {
    * resize recompiling the bloom kernels — see renderScaling.ts).
    */
   private applyPerfRung(rungIndex: number) {
-    const shadowsOn = rungIndex < TOUCH_SCALING_LADDER.length - 1;
+    const topRung = rungIndex < TOUCH_SCALING_LADDER.length - 1;
     const light = this.shadowGenerator?.getLight();
-    if (light && light.shadowEnabled !== shadowsOn) {
-      light.shadowEnabled = shadowsOn;
+    if (light && light.shadowEnabled !== topRung) {
+      light.shadowEnabled = topRung;
+    }
+    // The windscreen panes are the cabin's only fill-rate cost: two large
+    // alpha-blended quads across most of the frame. Everything else in there is
+    // a handful of opaque triangles, so this is the only cockpit detail worth
+    // shedding, and the wipers go with the glass because a wiper resting on
+    // nothing reads as a bug.
+    for (const part of this.windscreenParts) {
+      if (part.isEnabled(false) !== topRung) part.setEnabled(topRung);
     }
   }
 
@@ -6814,6 +6958,13 @@ class BabylonGameSession {
     // Populate the shadow map's caster list so the shadow-depth shaders compile
     // during warm-up too, not on the first corner.
     this.refreshShadowCasters();
+    // A drive that starts in third person has the cockpit disabled here, so its
+    // shaders and buffers would otherwise be paid for mid-drive, on whichever
+    // frame the player first presses C. Enable it for the warm-up regardless of
+    // the recorded camera and put it back after — disabled meshes are skipped
+    // entirely, so without this the whole cabin is a hitch waiting to happen.
+    const cockpitWasEnabled = this.playerCockpit.isEnabled(false);
+    this.playerCockpit.setEnabled(true);
     const renderable = this.scene.meshes.filter((m) => m.getTotalVertices() > 0);
     const previous = renderable.map((m) => m.alwaysSelectAsActiveMesh);
     for (const mesh of renderable) mesh.alwaysSelectAsActiveMesh = true;
@@ -6827,6 +6978,7 @@ class BabylonGameSession {
     renderable.forEach((mesh, index) => {
       mesh.alwaysSelectAsActiveMesh = previous[index];
     });
+    this.playerCockpit.setEnabled(cockpitWasEnabled);
   }
 
   private applySimulationNpcSnapshots(snapshot: SimulationSnapshot) {
@@ -7221,6 +7373,42 @@ class BabylonGameSession {
     if (this.steeringAssembly) {
       this.steeringAssembly.rotation.y = resolveSteeringWheelSpin(visualSteer);
     }
+    this.updateGaugeNeedles();
+  }
+
+  /**
+   * Points the two dials at what the car is actually doing.
+   *
+   * The tachometer reuses the audio model's own `targetRpm` and gear ratios, so
+   * the needle rises and drops on the same curve as the engine note. It calls
+   * those pure functions rather than reading `DriveAudio`, which is null
+   * whenever Web Audio is unavailable — a muted tab must still have a working
+   * rev counter. The cost is that the ratio comes from road speed instead of the
+   * voice's hysteresis state, so during a shift the two can briefly disagree by
+   * one gear. On a dial that is a needle settling a moment early.
+   */
+  private updateGaugeNeedles() {
+    if (this.gaugeNeedles.length !== 2) return;
+    const speed = this.playerState.speedMps;
+    this.gaugeNeedles[0].rotation.z = resolveGaugeNeedleAngle(
+      speed,
+      COCKPIT_SPEEDO_MAX_MPS,
+    );
+    const input = this.mergedInput();
+    const signed = this.simulationSnapshot.player.signedSpeedMps;
+    const reverse = signed < -STOPPED_AUDIO_SPEED_MPS;
+    const load = this.options.outOfFuel
+      ? 0
+      : reverse
+        ? input.reverse
+        : Math.max(input.throttle, input.reverse);
+    const gear =
+      GEAR_TOP_MPS.findIndex((top) => speed <= top) + 1 || GEAR_TOP_MPS.length;
+    const rpm = targetRpm(gear, speed, load, reverse);
+    this.gaugeNeedles[1].rotation.z = resolveGaugeNeedleAngle(
+      rpm - ENGINE.idleRpm,
+      ENGINE.redlineRpm - ENGINE.idleRpm,
+    );
   }
 
   /**
@@ -10752,53 +10940,96 @@ class BabylonGameSession {
         ),
       );
     }
+    this.buildCockpit();
+  }
+
+  /**
+   * The first-person interior.
+   *
+   * Built unconditionally, even on a bicycle day where it is never shown, and
+   * hung off `playerCockpit` — which `applyCameraStack` enables only in first
+   * person. Layout lives in `cockpitLayout`; this method is only the
+   * translation from those numbers into meshes.
+   */
+  private buildCockpit() {
+    const scene = this.scene;
     const bodyDark = makeMaterial(scene, "player-blue-dark", new Color3(0.04, 0.23, 0.3));
-    const steeringRubber = makeMaterial(
+    // A cabin is a lit room, not a silhouette. These sit an order of magnitude
+    // above where they used to, because the old values were tuned as if the
+    // dash were part of the night outside — the emissive term is a floor that
+    // keeps surfaces legible through the pipeline's vignette, which lands
+    // squarely on the lower half of the frame where the cockpit is. All of them
+    // stay well under `bloomThreshold` (0.72 at night); only the gauge accents
+    // are allowed anywhere near it.
+    // A cabin needs a big ambient floor after dark and almost none at noon.
+    // Diffuse is the term the sun multiplies, and the sun runs at 1.3 by day
+    // against 0.6 at night, while ambient and emissive are flat in both — so a
+    // single palette is either unreadable in New York or bleached in London.
+    // Pick per map, the way the building night glow already does.
+    // The numbers below are the night values; daylight scales all three down,
+    // because by day the sun does the work and the same floor that rescues a
+    // New York cabin bleaches a London one to flat beige.
+    const night = this.visualPalette?.night ?? false;
+    const toneScale = night ? 1 : 0.73;
+    const ambientFloor = night ? 0.6 : 0.3;
+    const glowScale = night ? 1 : 0.5;
+    const surface = (r: number, g: number, b: number) =>
+      new Color3(r * toneScale, g * toneScale, b * toneScale);
+    const lit = (r: number, g: number, b: number) =>
+      new Color3(r * glowScale, g * glowScale, b * glowScale);
+    const steeringRubber = makeInteriorMaterial(
       scene,
       "steering-rubber",
-      new Color3(0.05, 0.055, 0.058),
-      new Color3(0.008, 0.009, 0.01),
+      surface(0.105, 0.097, 0.09),
+      lit(0.02, 0.019, 0.017),
+      ambientFloor * 0.72,
     );
-    const dash = makeMaterial(
+    const dash = makeInteriorMaterial(
       scene,
       "dashboard",
-      new Color3(0.115, 0.125, 0.13),
-      new Color3(0.018, 0.02, 0.022),
+      surface(0.275, 0.253, 0.229),
+      lit(0.038, 0.035, 0.031),
+      ambientFloor,
     );
-    const cockpitTrim = makeMaterial(
+    const cockpitTrim = makeInteriorMaterial(
       scene,
       "cockpit-trim",
-      new Color3(0.175, 0.185, 0.19),
-      new Color3(0.012, 0.014, 0.015),
+      surface(0.335, 0.31, 0.281),
+      lit(0.044, 0.04, 0.035),
+      ambientFloor,
     );
-    const instrumentFace = makeMaterial(
+    const instrumentFace = makeInteriorMaterial(
       scene,
       "instrument-face",
-      new Color3(0.03, 0.06, 0.07),
-      new Color3(0.01, 0.055, 0.065),
+      new Color3(0.045, 0.055, 0.062),
+      new Color3(0.02, 0.032, 0.038),
+      0.3,
     );
-    const instrumentGlow = makeMaterial(
+    const instrumentGlow = makeInteriorMaterial(
       scene,
       "instrument-glow",
-      new Color3(0.04, 0.13, 0.15),
-      new Color3(0.01, 0.035, 0.04),
+      new Color3(0.08, 0.4, 0.38),
+      new Color3(0.05, 0.28, 0.26),
+      0.3,
+    );
+    const ventShadow = makeInteriorMaterial(
+      scene,
+      "cockpit-vent-shadow",
+      new Color3(0.028, 0.026, 0.024),
+      undefined,
+      0.15,
     );
     createBox(scene, "cockpit-hood", { width: 1.62, height: 0.045, depth: 0.42 }, new Vector3(0, 0.74, 1.55), bodyDark, this.playerCockpit);
     createExtrudedPrism(
       scene,
       "cockpit-dash-shell",
-      1.92,
-      [
-        { y: 0.68, z: COCKPIT_DASH_DRIVER_Z },
-        { y: 0.96, z: COCKPIT_DASH_DRIVER_Z },
-        { y: 1.04, z: 0.94 },
-        { y: 0.74, z: 0.94 },
-      ],
+      COCKPIT_CABIN_WIDTH,
+      COCKPIT_DASH_PROFILE,
       dash,
       this.playerCockpit,
     );
-    createBox(scene, "cockpit-dash-trim", { width: 1.72, height: 0.022, depth: 0.024 }, new Vector3(0, 0.91, 0.255), cockpitTrim, this.playerCockpit);
-    createBox(scene, "windshield-sill", { width: 1.9, height: 0.038, depth: 0.08 }, new Vector3(0, 1.04, 0.94), cockpitTrim, this.playerCockpit);
+    createBox(scene, "cockpit-dash-trim", { width: 1.78, height: 0.014, depth: 0.02 }, new Vector3(0, 0.948, 0.354), cockpitTrim, this.playerCockpit);
+    createBox(scene, "windshield-sill", { width: COCKPIT_CABIN_WIDTH, height: 0.028, depth: 0.09 }, new Vector3(0, 1.155, 0.985), cockpitTrim, this.playerCockpit);
     for (const side of [-1, 1]) {
       createBox(
         scene,
@@ -10808,59 +11039,222 @@ class BabylonGameSession {
         cockpitTrim,
         this.playerCockpit,
       );
+      const doorCard = createExtrudedPrism(
+        scene,
+        `cockpit-door-card-${side}`,
+        0.05,
+        COCKPIT_DOOR_PROFILE,
+        dash,
+        this.playerCockpit,
+      );
+      doorCard.position.x = side * COCKPIT_DOOR_X;
+      const pillar = createExtrudedPrism(
+        scene,
+        `cockpit-a-pillar-${side}`,
+        COCKPIT_PILLAR_THICKNESS,
+        COCKPIT_PILLAR_PROFILE,
+        cockpitTrim,
+        this.playerCockpit,
+      );
+      pillar.position.x = side * COCKPIT_PILLAR_X;
+      createBox(
+        scene,
+        `cockpit-sun-visor-${side}`,
+        { width: 0.44, height: 0.022, depth: 0.19 },
+        new Vector3(side * 0.4, 1.652, 0.612),
+        cockpitTrim,
+        this.playerCockpit,
+      ).rotation.x = -0.42;
     }
+    createExtrudedPrism(
+      scene,
+      "cockpit-header-rail",
+      COCKPIT_CABIN_WIDTH,
+      COCKPIT_ROOF_PROFILE,
+      cockpitTrim,
+      this.playerCockpit,
+    );
+
+    // The glass. One near-transparent pane over the whole aperture plus a
+    // darker band along the header, the way a real screen is tinted. Lighting
+    // is off (the colour IS the emissive) and depth writes are disabled, so it
+    // can never occlude the alpha-blended crowd and shadows behind it.
+    const screenTilt = cockpitScreenTiltX();
+    const screenSpan = cockpitScreenSpan();
+    const screenMidY = (COCKPIT_SCREEN.sillY + COCKPIT_SCREEN.headerY) / 2;
+    const screenMidZ = (COCKPIT_SCREEN.sillZ + COCKPIT_SCREEN.headerZ) / 2;
+    const glassMaterial = new StandardMaterial("windscreen-glass", scene);
+    glassMaterial.diffuseColor = Color3.Black();
+    glassMaterial.specularColor = Color3.Black();
+    glassMaterial.emissiveColor = new Color3(0.44, 0.5, 0.56);
+    glassMaterial.alpha = 0.055;
+    glassMaterial.disableLighting = true;
+    glassMaterial.disableDepthWrite = true;
+    glassMaterial.backFaceCulling = false;
+    this.windscreenParts = [];
+    const glass = MeshBuilder.CreatePlane(
+      "windscreen-glass",
+      { width: COCKPIT_SCREEN.halfWidth * 2, height: screenSpan },
+      scene,
+    );
+    glass.parent = this.playerCockpit;
+    glass.position.set(0, screenMidY, screenMidZ);
+    glass.rotation.x = screenTilt;
+    setMeshMaterial(glass, glassMaterial);
+    this.windscreenParts.push(glass);
+
+    const bandMaterial = new StandardMaterial("windscreen-band", scene);
+    bandMaterial.diffuseColor = Color3.Black();
+    bandMaterial.specularColor = Color3.Black();
+    bandMaterial.emissiveColor = new Color3(0.06, 0.07, 0.085);
+    bandMaterial.alpha = 0.5;
+    bandMaterial.disableLighting = true;
+    bandMaterial.disableDepthWrite = true;
+    bandMaterial.backFaceCulling = false;
+    const band = MeshBuilder.CreatePlane(
+      "windscreen-band",
+      { width: COCKPIT_SCREEN.halfWidth * 2, height: screenSpan * 0.16 },
+      scene,
+    );
+    band.parent = this.playerCockpit;
+    const bandOffset = screenSpan * 0.42;
+    band.position.set(
+      0,
+      screenMidY + bandOffset * Math.cos(screenTilt),
+      screenMidZ + bandOffset * Math.sin(screenTilt),
+    );
+    band.rotation.x = screenTilt;
+    setMeshMaterial(band, bandMaterial);
+    this.windscreenParts.push(band);
+
+    // Wipers, parked along the sill.
+    for (const side of [-1, 1]) {
+      const wiper = createBox(
+        scene,
+        `windscreen-wiper-${side}`,
+        { width: 0.66, height: 0.014, depth: 0.026 },
+        new Vector3(side * 0.35, COCKPIT_SCREEN.sillY + 0.036, COCKPIT_SCREEN.sillZ - 0.03),
+        steeringRubber,
+        this.playerCockpit,
+      );
+      wiper.rotation.z = side * 0.075;
+      this.windscreenParts.push(wiper);
+    }
+
+    // Air vents. The profile is authored lying down and turned a quarter turn
+    // about Y so its sweep becomes depth — see COCKPIT_VENT_PROFILE. Each one
+    // is a bezel, a dark throat set behind it so the opening reads as a hole
+    // rather than a badge, and a single blade across the middle.
+    for (const [index, slot] of COCKPIT_VENT_SLOTS.entries()) {
+      const bezel = createExtrudedPrism(
+        scene,
+        `cockpit-vent-${index}`,
+        0.05,
+        COCKPIT_VENT_PROFILE,
+        cockpitTrim,
+        this.playerCockpit,
+      );
+      bezel.rotation.y = Math.PI / 2;
+      bezel.scaling.set(1, slot.width * 0.42, slot.width);
+      bezel.position.set(slot.x, slot.y, slot.z);
+      // The throat sits a whisker in FRONT of the bezel's face, not behind it.
+      // The bezel is a solid prism, so a throat at a physically-correct depth
+      // is simply inside it and never seen; a smaller dark plate laid on top
+      // reads as the hole instead, and the bezel survives as a border.
+      const throat = createExtrudedPrism(
+        scene,
+        `cockpit-vent-throat-${index}`,
+        0.012,
+        COCKPIT_VENT_PROFILE,
+        ventShadow,
+        this.playerCockpit,
+      );
+      throat.rotation.y = Math.PI / 2;
+      throat.scaling.set(1, slot.width * 0.3, slot.width * 0.84);
+      throat.position.set(slot.x, slot.y, slot.z - 0.029);
+      createBox(
+        scene,
+        `cockpit-vent-blade-${index}`,
+        { width: slot.width * 0.7, height: 0.008, depth: 0.01 },
+        new Vector3(slot.x, slot.y, slot.z - 0.036),
+        cockpitTrim,
+        this.playerCockpit,
+      );
+    }
+
     const steeringGeometry = resolveCockpitSteeringGeometry(
       this.options.steeringSide,
     );
     const wheelX = steeringGeometry.x;
 
-    const instrumentHood = MeshBuilder.CreateTorus(
+    const binnacle = createExtrudedPrism(
+      scene,
       "instrument-hood",
-      { diameter: 0.42, thickness: 0.038, tessellation: 28 },
-      scene,
-    );
-    instrumentHood.position.set(wheelX, 1.08, 0.39);
-    instrumentHood.rotation.x = Math.PI / 2;
-    instrumentHood.scaling.z = 0.5;
-    instrumentHood.parent = this.playerCockpit;
-    setMeshMaterial(instrumentHood, cockpitTrim);
-
-    const clusterFace = createCylinder(
-      scene,
-      "instrument-cluster-face",
-      { height: 0.024, diameter: 0.38, tessellation: 28 },
-      new Vector3(wheelX, 1.07, 0.3),
-      instrumentFace,
+      COCKPIT_BINNACLE_WIDTH,
+      COCKPIT_BINNACLE_PROFILE,
+      dash,
       this.playerCockpit,
     );
-    clusterFace.rotation.x = Math.PI / 2;
-    clusterFace.scaling.z = 0.48;
+    binnacle.position.x = wheelX;
 
-    for (const gaugeOffset of [-0.11, 0.11]) {
-      const gaugeRing = createCylinder(
-        scene,
-        `instrument-gauge-ring-${gaugeOffset}`,
-        { height: 0.02, diameter: 0.108, tessellation: 20 },
-        new Vector3(wheelX + gaugeOffset, 1.075, 0.279),
-        cockpitTrim,
-        this.playerCockpit,
-      );
-      gaugeRing.rotation.x = Math.PI / 2;
-      const gaugeFace = createCylinder(
-        scene,
-        `instrument-gauge-face-${gaugeOffset}`,
-        { height: 0.01, diameter: 0.084, tessellation: 20 },
-        new Vector3(wheelX + gaugeOffset, 1.075, 0.263),
-        instrumentFace,
-        this.playerCockpit,
-      );
-      gaugeFace.rotation.x = Math.PI / 2;
-    }
-    createBox(scene, "instrument-status", { width: 0.062, height: 0.02, depth: 0.014 }, new Vector3(wheelX, 1.038, 0.252), instrumentGlow, this.playerCockpit);
+    const clusterRoot = new TransformNode("instrument-cluster", scene);
+    clusterRoot.parent = this.playerCockpit;
+    clusterRoot.position.set(wheelX, COCKPIT_CLUSTER.y, COCKPIT_CLUSTER.z);
+    clusterRoot.rotation.x = COCKPIT_CLUSTER.tiltX;
+    createBox(
+      scene,
+      "instrument-cluster-shell",
+      { width: COCKPIT_CLUSTER.width + 0.022, height: COCKPIT_CLUSTER.height + 0.018, depth: 0.02 },
+      Vector3.Zero(),
+      instrumentFace,
+      clusterRoot,
+    );
+    const clusterFace = MeshBuilder.CreatePlane(
+      "instrument-cluster-face",
+      { width: COCKPIT_CLUSTER.width, height: COCKPIT_CLUSTER.height },
+      scene,
+    );
+    clusterFace.parent = clusterRoot;
+    clusterFace.position.z = -0.0105;
+    const clusterMaterial = makeMaterial(
+      scene,
+      "instrument-cluster-lit",
+      Color3.White(),
+      new Color3(0.62, 0.62, 0.62),
+    );
+    const clusterTexture = makeInstrumentClusterTexture(scene);
+    clusterMaterial.diffuseTexture = clusterTexture;
+    clusterMaterial.emissiveTexture = clusterTexture;
+    setMeshMaterial(clusterFace, clusterMaterial);
 
-    for (const x of [-0.06, 0.06]) {
-      createBox(scene, `centre-vent-${x}`, { width: 0.09, height: 0.014, depth: 0.012 }, new Vector3(x, 0.955, 0.254), cockpitTrim, this.playerCockpit);
-    }
+    // Needles are meshes on pivots, driven from updatePlayerVisuals.
+    const needleMaterial = makeMaterial(
+      scene,
+      "instrument-needle",
+      new Color3(0.85, 0.93, 0.92),
+      new Color3(0.42, 0.5, 0.49),
+    );
+    const needleLength = COCKPIT_CLUSTER.height * COCKPIT_GAUGE_RADIUS * 1.55;
+    this.gaugeNeedles = COCKPIT_GAUGE_CENTRES.map((centre, index) => {
+      const pivot = new TransformNode(`instrument-needle-pivot-${index}`, scene);
+      pivot.parent = clusterRoot;
+      pivot.position.set(
+        (centre - 0.5) * COCKPIT_CLUSTER.width,
+        0,
+        -0.0135,
+      );
+      createBox(
+        scene,
+        `instrument-needle-${index}`,
+        { width: 0.0038, height: needleLength, depth: 0.0026 },
+        new Vector3(0, needleLength * 0.4, 0),
+        needleMaterial,
+        pivot,
+      );
+      return pivot;
+    });
+
+    createBox(scene, "instrument-status", { width: 0.05, height: 0.012, depth: 0.01 }, new Vector3(0, 0.905, 0.298), instrumentGlow, this.playerCockpit);
 
     const steeringMount = new TransformNode("steering-mount", scene);
     steeringMount.position.set(
@@ -10897,17 +11291,125 @@ class BabylonGameSession {
     );
     steeringWheel.parent = this.steeringAssembly;
     setMeshMaterial(steeringWheel, steeringRubber);
-    createBox(scene, "wheel-horizontal-spoke", { width: 0.24, height: 0.026, depth: 0.032 }, Vector3.Zero(), steeringRubber, this.steeringAssembly);
-    createBox(scene, "wheel-lower-spoke", { width: 0.032, height: 0.026, depth: 0.13 }, new Vector3(0, 0, 0.055), steeringRubber, this.steeringAssembly);
-    const steeringHub = createCylinder(
+
+    // Three spokes, not two. The assembly's local +Z points down the face of
+    // the wheel once the column tilt is applied, so the bottom spoke runs along
+    // +Z and the pair runs along ±X. The spokes and hub take the dash colour
+    // and the rim stays dark, which is the two-tone the reference has and the
+    // only thing that keeps a wheel from reading as one black ring.
+    const spokeReach = steeringGeometry.wheelDiameter / 2;
+    for (const side of [-1, 1]) {
+      createBox(
+        scene,
+        `wheel-spoke-${side}`,
+        { width: spokeReach, height: 0.02, depth: 0.038 },
+        new Vector3(side * spokeReach * 0.55, 0, 0.022),
+        cockpitTrim,
+        this.steeringAssembly,
+      );
+    }
+    createBox(
       scene,
-      "steering-hub",
-      { height: 0.045, diameter: 0.13, tessellation: 20 },
-      Vector3.Zero(),
+      "wheel-lower-spoke",
+      { width: 0.044, height: 0.02, depth: spokeReach * 0.82 },
+      new Vector3(0, 0, spokeReach * 0.56),
       cockpitTrim,
       this.steeringAssembly,
     );
-    steeringHub.scaling.z = 0.56;
+    const steeringHub = createCylinder(
+      scene,
+      "steering-hub",
+      { height: 0.05, diameter: 0.148, tessellation: 20 },
+      new Vector3(0, 0.004, 0.012),
+      cockpitTrim,
+      this.steeringAssembly,
+    );
+    steeringHub.scaling.z = 0.62;
+    const steeringEmblem = createCylinder(
+      scene,
+      "steering-emblem",
+      { height: 0.054, diameter: 0.056, tessellation: 16 },
+      new Vector3(0, 0.006, 0.012),
+      steeringRubber,
+      this.steeringAssembly,
+    );
+    steeringEmblem.scaling.z = 0.62;
+
+    this.mergeCockpitStatics();
+    for (const mesh of this.playerCockpit.getChildMeshes(false)) {
+      mesh.layerMask = COCKPIT_LAYER_MASK;
+      // The cabin is on screen by definition whenever it is enabled at all, so
+      // frustum-testing it every frame is pure waste. It also cannot be
+      // freezeWorldMatrix'd — playerCockpit hangs off the player node, whose
+      // transform is rewritten every frame — which is exactly why the part
+      // count matters and the statics above are merged.
+      mesh.alwaysSelectAsActiveMesh = true;
+      mesh.doNotSyncBoundingInfo = true;
+    }
+    for (const material of [
+      bodyDark,
+      steeringRubber,
+      dash,
+      cockpitTrim,
+      ventShadow,
+      instrumentFace,
+      instrumentGlow,
+      clusterMaterial,
+      needleMaterial,
+      glassMaterial,
+      bandMaterial,
+    ]) {
+      material.freeze();
+    }
+  }
+
+  /**
+   * Collapses the cabin's static parts down to one mesh per material.
+   *
+   * The interior is now around forty pieces, and none of them can have its
+   * world matrix frozen, so every one is a draw call and a matrix walk on every
+   * frame of every first-person drive. Merging by material takes that back
+   * below where it was before the cabin was rebuilt.
+   *
+   * The parent is dropped before merging and restored after: `mesh.parent =
+   * null` leaves the local transform in place as the world transform, which is
+   * cockpit space, so the baked vertices come out in the coordinates the
+   * cockpit node expects. Merging while still parented would bake in wherever
+   * the car happened to be sitting at construction time. A fresh mesh is passed
+   * as the merge target for the same reason — Babylon would otherwise reuse the
+   * first source, whose own transform has already been applied to its vertices.
+   *
+   * The windscreen parts stay out of it: they are toggled independently on the
+   * blurriest render rung.
+   */
+  private mergeCockpitStatics() {
+    const keepSeparate = new Set<AbstractMesh>(this.windscreenParts);
+    const groups = new Map<string, Mesh[]>();
+    for (const child of this.playerCockpit.getChildMeshes(true)) {
+      if (keepSeparate.has(child)) continue;
+      const key = child.material?.name ?? "";
+      const group = groups.get(key);
+      if (group) group.push(child as Mesh);
+      else groups.set(key, [child as Mesh]);
+    }
+    for (const [key, meshes] of groups) {
+      if (meshes.length < 2) continue;
+      const material = meshes[0].material;
+      const target = new Mesh(`cockpit-merged-${key}`, this.scene);
+      for (const mesh of meshes) mesh.parent = null;
+      const merged = Mesh.MergeMeshes(meshes, true, true, target, false, false);
+      if (!merged) {
+        // Nothing was merged, so the sources are still live: put them back
+        // rather than leaving the cabin scattered at the world origin.
+        target.dispose();
+        for (const mesh of meshes) mesh.parent = this.playerCockpit;
+        continue;
+      }
+      merged.material = material;
+      merged.isPickable = false;
+      merged.receiveShadows = false;
+      merged.parent = this.playerCockpit;
+    }
   }
 
   private buildTraffic() {
