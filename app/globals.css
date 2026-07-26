@@ -3332,3 +3332,22 @@ canvas:focus-visible {
     border-radius: 15px;
   }
 }
+
+/* ── Drive HUD animations ──────────────────────────────────────────────────
+   The two the design comp carries. They live here rather than inline because
+   `@keyframes` cannot be expressed in a style object; everything else about
+   the drive HUD stays inline (see app/game/DriveHud.tsx). */
+@keyframes hudLimitAlarm {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.075); }
+}
+@keyframes hudEdgeGlow {
+  0%, 100% { opacity: .28; }
+  50% { opacity: .72; }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* A pulsing sign and a breathing screen edge are exactly what this setting
+     is for. The colour change still carries the warning. */
+  @keyframes hudLimitAlarm { 0%, 100% { transform: none; } }
+  @keyframes hudEdgeGlow { 0%, 100% { opacity: .4; } }
+}

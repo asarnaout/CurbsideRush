@@ -20,10 +20,22 @@ export interface GigFare {
 
 export interface Gig {
   readonly id: string;
+  /**
+   * The draw this gig came from. Carried rather than parsed back out of `id`
+   * because everything downstream that has to be *this gig's* answer and not
+   * some other one — what the customer tips, whether the rider was generous —
+   * is a pure function of it. Holding the seed keeps those derivable at any
+   * point instead of stamped on and kept in step by hand.
+   */
+  readonly seed: number;
   readonly kind: GigKind;
   readonly pickup: GigVenuePosition;
   readonly dropoff: GigVenuePosition;
+  /** What the job pays, surge included. This is the figure that gets paid. */
   readonly reward: number;
+  /** What it would have paid off-surge, for the card's "was" line. */
+  readonly baseReward: number;
+  readonly surged: boolean;
   readonly currencyCode: string;
   readonly state: GigState;
 }
@@ -33,8 +45,14 @@ const distance = (
   b: { readonly x: number; readonly z: number },
 ): number => Math.hypot(a.x - b.x, a.z - b.z);
 
-// Small deterministic hash → [0, 1) so a given seed reproduces the same offer.
-const hashToUnit = (seed: number): number => {
+/**
+ * Small deterministic hash → [0, 1) so a given seed reproduces the same offer.
+ *
+ * Exported because `dispatch.ts` draws from the same seeds — when work is
+ * offered and whether the city is surging have to replay identically alongside
+ * what the work *is*, and two hashes would be two things to keep in step.
+ */
+export const hashToUnit = (seed: number): number => {
   let h = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
   h ^= h >>> 13;
   h = Math.imul(h, 0xc2b2ae35) >>> 0;
@@ -110,6 +128,22 @@ export const MIN_GIG_DISTANCE_M = 120;
 export const MAX_GIG_DISTANCE_M = 1100;
 
 /**
+ * What one job pays before any surge, vehicle factor or commission.
+ *
+ * Exported because `careerBalance.test.ts` has to price every possible pairing
+ * on a map to find the median, which no single seeded draw can do — and when it
+ * carried its own copy of this line, a change here would have left the economy
+ * tripwire quietly measuring the old game.
+ */
+export function gigReward(
+  fare: GigFare,
+  pickup: { readonly x: number; readonly z: number },
+  dropoff: { readonly x: number; readonly z: number },
+): number {
+  return Math.round(fare.base + fare.ratePerM * distance(pickup, dropoff));
+}
+
+/**
  * Which places each end of a gig may use.
  *
  * A parcel or a meal comes from a business and goes to somebody's door, so
@@ -148,6 +182,11 @@ export function selectGigPools(
  * Callers therefore hand in the places each end may legally use, and this only
  * decides which ones the seed lands on. Returns null when either pool is empty
  * or the two would have to be the same place.
+ *
+ * `surgeMultiplier` is applied here rather than at payout so a gig is fully
+ * priced before it is ever offered: the number on the offer card, the number in
+ * the job panel and the number that lands in the wallet are one field, and no
+ * consumer has to remember to re-apply it.
  */
 export function generateGigFromPools(
   pickups: readonly GigVenuePosition[],
@@ -156,6 +195,7 @@ export function generateGigFromPools(
   currencyCode: string,
   seed: number,
   kind: GigKind = "delivery",
+  surgeMultiplier = 1,
 ): Gig | null {
   if (!pickups.length || !dropoffs.length) return null;
   const pickupIndex = Math.floor(hashToUnit(seed) * pickups.length) % pickups.length;
@@ -194,15 +234,17 @@ export function generateGigFromPools(
   const dropoff = dropoffs[dropoffIndex];
   // Every candidate was the pickup itself: the pools share a single entry.
   if (dropoff.id === pickup.id) return null;
-  const reward = Math.round(
-    fare.base + fare.ratePerM * distance(pickup, dropoff),
-  );
+  const baseReward = gigReward(fare, pickup, dropoff);
+  const surged = surgeMultiplier > 1;
   return {
     id: `gig-${seed}`,
+    seed,
     kind,
     pickup,
     dropoff,
-    reward,
+    reward: surged ? Math.round(baseReward * surgeMultiplier) : baseReward,
+    baseReward,
+    surged,
     currencyCode,
     state: "enroute_pickup",
   };
@@ -222,8 +264,17 @@ export function generateGig(
   currencyCode: string,
   seed: number,
   kind: GigKind = "delivery",
+  surgeMultiplier = 1,
 ): Gig | null {
-  return generateGigFromPools(venues, venues, fare, currencyCode, seed, kind);
+  return generateGigFromPools(
+    venues,
+    venues,
+    fare,
+    currencyCode,
+    seed,
+    kind,
+    surgeMultiplier,
+  );
 }
 
 /**

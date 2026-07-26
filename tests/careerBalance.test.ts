@@ -20,33 +20,19 @@ import {
   getFreeDrive,
   getMapPack,
 } from "../app/game/content";
-import { MIN_GIG_DISTANCE_M, selectGigPools } from "../app/game/gigs";
+import { gigReward, MIN_GIG_DISTANCE_M, selectGigPools } from "../app/game/gigs";
 import type { GigKind, GigVenuePosition } from "../app/game/gigs";
-import { resolveSimulationLaneAnchor } from "../app/game/simulationAdapter";
-import { streetAddressesForMap } from "../app/game/streetAddresses";
+import { resolveGigAddresses, resolveGigVenues } from "../app/game/gigPools";
 import type { MapId } from "../app/game/types";
 
-// Mirrors SideSwapApp's pool resolution so the tripwire prices the same gigs
-// the game actually offers.
+// The very pools the game offers from — shared rather than mirrored, so the
+// tripwire can never drift into pricing a game nobody is playing.
 function poolsFor(mapId: MapId): {
   venues: GigVenuePosition[];
   addresses: GigVenuePosition[];
 } {
   const map = getMapPack(mapId);
-  const venues = (map.geometry.gigVenues ?? []).flatMap((venue) => {
-    const pose = resolveSimulationLaneAnchor(map.laneGraph.lanes, venue.anchor);
-    return pose
-      ? [{ id: venue.id, name: venue.name, kind: venue.kind, x: pose.x, z: pose.z }]
-      : [];
-  });
-  const addresses = streetAddressesForMap(map).map((address) => ({
-    id: address.id,
-    name: address.name,
-    kind: address.kind,
-    x: address.x,
-    z: address.z,
-  }));
-  return { venues, addresses };
+  return { venues: resolveGigVenues(map), addresses: resolveGigAddresses(map) };
 }
 
 function medianNet(
@@ -67,8 +53,10 @@ function medianNet(
       if (dropoff.id === pickup.id) continue;
       const distance = Math.hypot(dropoff.x - pickup.x, dropoff.z - pickup.z);
       if (distance < MIN_GIG_DISTANCE_M) continue;
-      const reward = Math.round(fare.base + fare.ratePerM * distance);
-      nets.push(careerFare(reward, kind, vehicle).net);
+      // Deliberately the un-surged price. A surge is upside a player chases,
+      // not income the ladder may be balanced against — budget for it and the
+      // tiers become unaffordable in every ordinary window.
+      nets.push(careerFare(gigReward(fare, pickup, dropoff), kind, vehicle).net);
     }
   }
   if (!nets.length) return null;

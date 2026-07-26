@@ -23,9 +23,6 @@ export const DAY_LENGTH_MS = 360_000;
 /** The platform's cut of every gross fare. Tips are commission-free. */
 export const COMMISSION_RATE = 0.25;
 
-/** On-time delivery bonus, as a fraction of the gross fare. */
-export const TIP_RATE = 0.3;
-
 /** Fee folded into a loan at origination (and into each consolidation). */
 export const LOAN_ORIGINATION_RATE = 0.15;
 
@@ -37,15 +34,6 @@ export const BUYOUT_RENT_MULTIPLIER = 15;
 
 /** Roadside rescue refills the whole tank at this premium over pump price. */
 export const ROADSIDE_PRICE_FACTOR = 1.5;
-
-/**
- * Par-time model for the carrying leg: effective city pace of the reference
- * sedan, a slack factor covering road-vs-straight-line detour plus
- * forgiveness, and a floor so short hops are never impossible.
- */
-export const PAR_BASE_SPEED_MPS = 8;
-export const PAR_SLACK = 1.9;
-export const PAR_MIN_MS = 45_000;
 
 /**
  * The career route, in order — **this array is the whole route**. Reorder it,
@@ -780,7 +768,12 @@ export function careerGigSeedBase(
 }
 
 // ---------------------------------------------------------------------------
-// Fares, tips, par times, rent
+// Fares and rent
+//
+// Tips are not here. They apply in free drive too, so the whole model — the
+// quoted food tip, its speed bonus, the rider's hidden percentage and the par
+// clock all three read against — lives in `dispatch.ts`. What stays is the part
+// that is genuinely Career's: the vehicle's fare factor and the platform's cut.
 // ---------------------------------------------------------------------------
 
 export function careerFare(
@@ -793,19 +786,6 @@ export function careerFare(
   const gross = Math.round(baseReward * factor);
   const net = Math.round(gross * (1 - COMMISSION_RATE));
   return { gross, net };
-}
-
-export function careerTip(gross: number, onTime: boolean): number {
-  return onTime ? Math.round(gross * TIP_RATE) : 0;
-}
-
-/**
- * Tip window for the carrying leg only (pickup-scene done → delivered), so it
- * is a pure function of the gig and replays identically on a retried day.
- */
-export function gigParMs(pickupToDropoffM: number, paceFactor: number): number {
-  const seconds = (pickupToDropoffM / (PAR_BASE_SPEED_MPS * paceFactor)) * PAR_SLACK;
-  return Math.max(PAR_MIN_MS, Math.round(seconds * 1000));
 }
 
 /**

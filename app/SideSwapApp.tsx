@@ -24,6 +24,8 @@ import {
   GIG_FARE_BY_COUNTRY,
   PASSENGER_FARE_BY_COUNTRY,
   TANK_CAPACITY_L,
+  formatDistance,
+  formatDistanceParts,
   formatMoney,
   getCountryProfile,
   getDestinationProfile,
@@ -56,7 +58,6 @@ import {
   careerFare,
   careerGigSeedBase,
   careerCityIndex,
-  careerTip,
   canBuyVehicle,
   createCareerSlice,
   ticketPrice,
@@ -66,7 +67,6 @@ import {
   emptyDayLog,
   garageDefaultVehicle,
   getCareerVehicle,
-  gigParMs,
   PLATFORM_FEE_BY_COUNTRY,
   ROADSIDE_CALLOUT_FEE_BY_COUNTRY,
   ROADSIDE_PRICE_FACTOR,
@@ -98,7 +98,6 @@ import {
   buildCareerDayLesson,
   buildFreeDriveLesson,
 } from "./game/freeDriveLesson";
-import { resolveSimulationLaneAnchor } from "./game/simulationAdapter";
 import {
   FUEL_PUMP_REACH_M,
   distanceToNearestPump,
@@ -108,6 +107,7 @@ import { Minimap, type MinimapPin } from "./game/MinimapCanvas";
 import {
   findGpsRoute,
   gpsGraphForLanes,
+  routeLengthM,
   routeProgress,
   trimRouteToPlayer,
   type GpsLane,
@@ -139,8 +139,35 @@ import {
   pickGigKindAvoidingStreak,
   selectGigPools,
 } from "./game/gigs";
-import type { Gig, GigKind, GigVenuePosition } from "./game/gigs";
-import { streetAddressesForMap } from "./game/streetAddresses";
+import type { Gig, GigKind } from "./game/gigs";
+import { resolveGigAddresses, resolveGigVenues } from "./game/gigPools";
+import {
+  createDispatch,
+  foodSpeedBonus,
+  gigParMs,
+  OFFER_WINDOW_MS,
+  quotedTip,
+  SURGE_FARE_MULTIPLIER,
+  resolveOffer,
+  ridePromptness,
+  rideTip,
+  stepDispatch,
+  surgeWindowAt,
+} from "./game/dispatch";
+import type { DispatchState, SurgeWindow } from "./game/dispatch";
+import {
+  DriveMoneyCluster,
+  DriveNavCard,
+  DriveOfferBar,
+  DriveOfferCard,
+  DriveOfferGlow,
+  DriveSpeedCluster,
+  DriveSurgeBanner,
+  DriveToast,
+  HUD_DESIGN_WIDTH,
+  resolveHudScale,
+} from "./game/DriveHud";
+import type { HudGauge, HudJob, HudManoeuvre, HudOffer } from "./game/DriveHud";
 import type {
   CameraMode,
   CountryProfile,
@@ -323,37 +350,6 @@ const assistanceFromProgress = (
   reducedMotion: progress.accessibility.reducedMotion,
 });
 
-function resolveGigVenues(
-  map: ReturnType<typeof getMapPack>,
-): GigVenuePosition[] {
-  return (map.geometry.gigVenues ?? []).flatMap((venue) => {
-    const pose = resolveSimulationLaneAnchor(map.laneGraph.lanes, venue.anchor);
-    return pose
-      ? [
-          {
-            id: venue.id,
-            name: venue.name,
-            kind: venue.kind,
-            x: pose.x,
-            z: pose.z,
-          },
-        ]
-      : [];
-  });
-}
-
-/** The map's generated street addresses, in gig-pool shape. */
-function resolveGigAddresses(
-  map: ReturnType<typeof getMapPack>,
-): GigVenuePosition[] {
-  return streetAddressesForMap(map).map((address) => ({
-    id: address.id,
-    name: address.name,
-    kind: address.kind,
-    x: address.x,
-    z: address.z,
-  }));
-}
 
 /**
  * Builds the next gig for a drive. The kind (delivery vs. passenger) is a
@@ -375,6 +371,7 @@ function nextGigFor(
   // Career vehicles gate what may be OFFERED: a bicycle courier is never shown
   // a rideshare request rather than being allowed to decline one.
   allowedKinds: readonly GigKind[] = ["delivery", "passenger"],
+  surgeMultiplier = 1,
 ): Gig | null {
   const venues = resolveGigVenues(map);
   const addresses = resolveGigAddresses(map);
@@ -391,6 +388,7 @@ function nextGigFor(
       country.currency.code,
       seed,
       kind,
+      surgeMultiplier,
     );
   };
   const drawn = pickGigKindAvoidingStreak(seed, recentKinds);
@@ -403,9 +401,47 @@ function nextGigFor(
   );
 }
 
+/**
+ * What a finished job tips, on top of whatever the fare paid.
+ *
+ * The two kinds settle differently, which is the whole point of the rewrite: a
+ * food order was tipped when it was placed and may add a little for a quick
+ * run, while a rider decides on the way — against how long the trip took and
+ * how many rules were broken with them in the car.
+ */
+function gigTipFor(
+  gig: Gig,
+  gross: number,
+  carriedMs: number,
+  parMs: number,
+  onTime: boolean,
+  violations: number,
+): number {
+  if (gig.kind === "passenger") {
+    return rideTip(gross, gig.seed, {
+      promptness: ridePromptness(carriedMs, parMs),
+      violations,
+      surged: gig.surged,
+    });
+  }
+  return (
+    quotedTip(gross, gig.seed, gig.surged) +
+    foodSpeedBonus(gross, gig.seed, onTime, gig.surged)
+  );
+}
+
 /** How close to a gig stop counts as arrived — mirrors `advanceGig`'s radius;
  * the state itself now flips when the arrival cutscene completes. */
 const GIG_ARRIVAL_RADIUS_M = 14;
+
+/**
+ * Distance at which the next manoeuvre stops being something to know about and
+ * becomes something to do — the plate lights and the wording switches from
+ * "HEAD LEFT ONTO" to "TURN LEFT NOW". About two car lengths past the point a
+ * driver has to be in the right lane.
+ */
+const MANOEUVRE_IMMINENT_M = 45;
+
 
 /**
  * How far off the GPS line counts as having left it. Wide enough to sit out a
@@ -455,6 +491,14 @@ const HUD_SAGE = "#8fae72";
 const HUD_GLASS = "rgba(11,15,17,.76)";
 const HUD_SANS = '"Figtree", system-ui, sans-serif';
 const HUD_SERIF = '"Playfair Display", Georgia, serif';
+
+/** How each dispatch outcome reads: taken, paid, passed over, or lost. */
+const DISPATCH_TOAST_COLOR = {
+  accept: HUD_SAGE,
+  paid: HUD_GOLD,
+  pass: "rgba(244,239,222,.55)",
+  lost: HUD_CORAL,
+} as const;
 
 function HudGlyph({
   path,
@@ -623,14 +667,60 @@ export default function SideSwapApp() {
   const [hud, setHud] = useState<GameHudSnapshot | null>(null);
   const [driveFuel, setDriveFuel] = useState(TANK_CAPACITY_L);
   const lastPoseRef = useRef<{ x: number; z: number } | null>(null);
+  const lastHeadingRef = useRef(0);
   const [gig, setGig] = useState<Gig | null>(null);
-  const gigSeedRef = useRef(1);
-  // The kinds served so far this drive, newest last, capped to the streak
+  // The kinds offered so far this drive, newest last, capped to the streak
   // window. Threaded into nextGigFor so no drive opens on a long run of one
   // kind — NYC's trafficSeed otherwise hashes to eight deliveries before the
-  // first fare. Reset when a drive starts.
+  // first fare. Counted per *offer* rather than per gig served: a player who
+  // passes on four deliveries has still been shown four deliveries.
   const gigKindHistoryRef = useRef<GigKind[]>([]);
   const paidGigRef = useRef<string | null>(null);
+  // ── Dispatch ─────────────────────────────────────────────────────────────
+  // The schedule lives in a ref, not state: while the queue is full it re-arms
+  // on every snapshot, which as state would be a set-per-tick for nothing. What
+  // renders is state — the live offer with the moment it opened, the queued job
+  // and the drive clock the countdown is measured against.
+  const dispatchRef = useRef<DispatchState>(createDispatch(1));
+  const [offer, setOffer] = useState<{ gig: Gig; offeredAtMs: number } | null>(
+    null,
+  );
+  const offerRef = useRef<Gig | null>(null);
+  const [driveElapsedMs, setDriveElapsedMs] = useState(0);
+  const [queuedGig, setQueuedGig] = useState<Gig | null>(null);
+  const queuedGigRef = useRef<Gig | null>(null);
+  const [dispatchToast, setDispatchToast] = useState<{
+    text: string;
+    tone: "accept" | "pass" | "lost" | "paid";
+  } | null>(null);
+  // Everything building an offer needs, parked where the `[]`-deps HUD
+  // callback can reach it — same reason `careerRunRef` exists.
+  const driveContextRef = useRef<{
+    map: ReturnType<typeof getMapPack>;
+    country: CountryProfile;
+    allowedKinds: readonly GigKind[];
+    surgeSeed: number;
+  } | null>(null);
+  /** Sim-clock ms since the drive began, folded across tow resets. */
+  const driveElapsedRef = useRef(0);
+  /** Rules broken since the current job was picked up — the rider is watching. */
+  const carryViolationsRef = useRef(0);
+  const [surge, setSurge] = useState<SurgeWindow | null>(null);
+  /**
+   * The dashed line to a live offer's pickup — how far out of the way it is,
+   * answered on the map rather than in a number nobody can picture. Searched
+   * once when the offer opens, never per frame.
+   */
+  const [previewRoute, setPreviewRoute] = useState<GpsRoute | null>(null);
+  // What this drive has earned, fare and tips together. Career reads its day
+  // cash from the ledger, but free drive had no running total at all — only a
+  // wallet that quietly went up.
+  const [sessionEarnings, setSessionEarnings] = useState(0);
+  /** The `+$x.xx` that floats off the balance on a payout, then clears. */
+  const [payoutGain, setPayoutGain] = useState<string | null>(null);
+  // The comp is a fixed 1920 frame and its clusters are scaled to fit, so the
+  // HUD has to know how wide the window is. Only on resize — never per frame.
+  const [viewportWidth, setViewportWidth] = useState(HUD_DESIGN_WIDTH);
   const [fineToast, setFineToast] = useState<{
     amount: number;
     reason: string;
@@ -712,9 +802,22 @@ export default function SideSwapApp() {
   const [gpsRoute, setGpsRoute] = useState<GpsRoute | null>(null);
   const gpsRouteRef = useRef<GpsRoute | null>(null);
   // Next manoeuvre and distance to it, refreshed by the same projection that
-  // measures deviation. Held in a ref rather than state because nothing renders
-  // it yet — the guidance banner is a separate piece of work.
+  // measures deviation. Mirrored into state for the guidance banner; the ref is
+  // what `handleHud` writes, since that callback cannot read state.
   const gpsProgressRef = useRef<GpsProgress | null>(null);
+  const [gpsProgress, setGpsProgress] = useState<GpsProgress | null>(null);
+  /**
+   * How long the run to the current stop was when it started — the denominator
+   * the "to go" bar fills against.
+   *
+   * It cannot be the live route's own length: a route is re-searched whenever
+   * the driver strays 30 m off it, and the new one runs from where they now
+   * stand, so its length *is* the distance remaining. Dividing by that puts the
+   * bar back to zero at every re-search. Pinning it per leg makes the bar mean
+   * "how much of this run is behind me", and it only resets when the stop
+   * itself changes — pickup to drop-off.
+   */
+  const [legRouteTotalM, setLegRouteTotalM] = useState(0);
   const routeTargetRef = useRef<string | null>(null);
   const routeSearchedAtRef = useRef(0);
   const routeLanesRef = useRef<readonly GpsLane[]>([]);
@@ -823,6 +926,8 @@ export default function SideSwapApp() {
       routeTargetRef.current = null;
       gpsRouteRef.current = null;
       setGpsRoute(null);
+      setGpsProgress(null);
+      setLegRouteTotalM(0);
       return;
     }
     // Pickup and drop-off are separate destinations at the same venue id.
@@ -834,6 +939,7 @@ export default function SideSwapApp() {
       ? routeProgress(gpsRouteRef.current, snapshot.playerX, snapshot.playerZ)
       : null;
     gpsProgressRef.current = fresh ? progress : null;
+    setGpsProgress(gpsProgressRef.current);
     if (fresh && progress && progress.deviationM <= ROUTE_DEVIATION_LIMIT_M) {
       return;
     }
@@ -852,12 +958,97 @@ export default function SideSwapApp() {
       target,
     );
     const route = found.points.length > 1 ? found : null;
+    // A fresh stop restarts the bar; a re-search for the same stop keeps its
+    // denominator, growing it only if the detour left more to drive than the
+    // whole run did to begin with.
+    const length = route ? routeLengthM(route) : 0;
+    setLegRouteTotalM((current) => (fresh ? Math.max(current, length) : length));
     gpsRouteRef.current = route;
     gpsProgressRef.current = route
       ? routeProgress(route, snapshot.playerX, snapshot.playerZ)
       : null;
+    setGpsProgress(gpsProgressRef.current);
     setGpsRoute(route);
   }, []);
+
+  /**
+   * One route from where the car stands to anywhere, over the same cached lane
+   * graph the live GPS line uses. Held in a ref so `stepDispatchNow` can reach
+   * it without taking the last pose as a dependency.
+   */
+  const routeToRef = useRef<(to: { x: number; z: number }) => GpsRoute | null>(
+    () => null,
+  );
+  useEffect(() => {
+    routeToRef.current = (to) => {
+      const pose = lastPoseRef.current;
+      if (!pose || !routeLanesRef.current.length) return null;
+      const found = findGpsRoute(
+        gpsGraphForLanes(routeLanesRef.current, routeRoadNamesRef.current),
+        pose,
+        lastHeadingRef.current,
+        to,
+      );
+      return found.points.length > 1 ? found : null;
+    };
+  });
+
+  /**
+   * Builds the gig an offer seed names, priced for whatever surge is running
+   * at the moment it is offered. The kind is recorded here rather than on
+   * acceptance: a player who passes four deliveries has still been shown four
+   * deliveries, and the anti-streak rule is about what they were shown.
+   */
+  const buildOffer = useCallback((seed: number, nowMs: number): Gig | null => {
+    const context = driveContextRef.current;
+    if (!context) return null;
+    const surge = surgeWindowAt(context.surgeSeed, nowMs);
+    const built = nextGigFor(
+      context.map,
+      context.country,
+      seed,
+      gigKindHistoryRef.current,
+      context.allowedKinds,
+      surge ? surge.multiplier : 1,
+    );
+    if (built) {
+      gigKindHistoryRef.current = [
+        ...gigKindHistoryRef.current,
+        built.kind,
+      ].slice(-MAX_SAME_KIND_STREAK);
+    }
+    return built;
+  }, []);
+
+  const stepDispatchNow = useCallback(
+    (nowMs: number) => {
+      if (!driveContextRef.current) return;
+      // Dispatch goes quiet only when both hands are full: a job in progress
+      // *and* one already queued behind it.
+      const busy = gigRef.current !== null && queuedGigRef.current !== null;
+      const step = stepDispatch(dispatchRef.current, nowMs, !busy);
+      dispatchRef.current = step.state;
+      setSurge(surgeWindowAt(driveContextRef.current.surgeSeed, nowMs));
+      if (step.event === "opened") {
+        const built = buildOffer(step.state.offerSeed, nowMs);
+        if (built) {
+          offerRef.current = built;
+          setOffer({ gig: built, offeredAtMs: nowMs });
+          setPreviewRoute(routeToRef.current(built.pickup));
+        } else {
+          // This map cannot produce a gig under the current constraints —
+          // close the offer at once rather than showing an empty card.
+          dispatchRef.current = resolveOffer(step.state, nowMs);
+        }
+      } else if (step.event === "expired") {
+        offerRef.current = null;
+        setOffer(null);
+        setPreviewRoute(null);
+        setDispatchToast({ text: "OFFER LOST", tone: "lost" });
+      }
+    },
+    [buildOffer],
+  );
 
   const handleHud = useCallback((snapshot: GameHudSnapshot) => {
     setHud(snapshot);
@@ -876,13 +1067,20 @@ export default function SideSwapApp() {
       }
     }
     lastPoseRef.current = { x: snapshot.playerX, z: snapshot.playerZ };
+    lastHeadingRef.current = snapshot.heading;
     updateGpsRoute(snapshot);
+    // A tow restarts the session's clock, so fold the old total in rather than
+    // letting elapsed time jump backwards. Hoisted out of the career branch:
+    // dispatch runs in free drive too, and both read the same clock.
+    if (snapshot.simElapsedMs < lastSimElapsedRef.current) {
+      dayElapsedBaseRef.current += lastSimElapsedRef.current;
+    }
+    lastSimElapsedRef.current = snapshot.simElapsedMs;
+    const elapsed = dayElapsedBaseRef.current + snapshot.simElapsedMs;
+    driveElapsedRef.current = elapsed;
+    setDriveElapsedMs(elapsed);
+    stepDispatchNow(elapsed);
     if (run && dayActiveRef.current) {
-      if (snapshot.simElapsedMs < lastSimElapsedRef.current) {
-        dayElapsedBaseRef.current += lastSimElapsedRef.current;
-      }
-      lastSimElapsedRef.current = snapshot.simElapsedMs;
-      const elapsed = dayElapsedBaseRef.current + snapshot.simElapsedMs;
       const remaining = Math.max(0, DAY_LENGTH_MS - elapsed);
       setDayRemainingMs(remaining);
       if (remaining <= 0) {
@@ -895,7 +1093,106 @@ export default function SideSwapApp() {
         }
       }
     }
-  }, [updateGpsRoute]);
+  }, [updateGpsRoute, stepDispatchNow]);
+
+  /**
+   * Answers the live offer. Accepting takes the job now, or parks it behind the
+   * one in hand; passing costs nothing but the wait for the next one, which is
+   * deliberate — a hidden acceptance rate would punish the driver for the very
+   * choice the game just asked them to make.
+   */
+  const answerOffer = useCallback((accepted: boolean) => {
+    const current = offerRef.current;
+    if (!current) return;
+    dispatchRef.current = resolveOffer(dispatchRef.current, driveElapsedRef.current);
+    offerRef.current = null;
+    setOffer(null);
+    setPreviewRoute(null);
+    if (!accepted) {
+      setDispatchToast({ text: "PASSED", tone: "pass" });
+      return;
+    }
+    if (gigRef.current) {
+      queuedGigRef.current = current;
+      setQueuedGig(current);
+      setDispatchToast({ text: "ADDED TO QUEUE", tone: "accept" });
+    } else {
+      gigRef.current = current;
+      setGig(current);
+      setDispatchToast({ text: "JOB ACCEPTED", tone: "accept" });
+    }
+  }, []);
+
+  /** Hands the queued job over on a drop-off, or leaves the driver idle. */
+  const promoteQueuedGig = useCallback((): Gig | null => {
+    const promoted = queuedGigRef.current;
+    queuedGigRef.current = null;
+    setQueuedGig(null);
+    gigRef.current = promoted;
+    setGig(promoted);
+    return promoted;
+  }, []);
+
+  /** Clears every trace of the last drive's dispatch and arms the next. */
+  const resetDispatch = (baseSeed: number) => {
+    dispatchRef.current = createDispatch(baseSeed);
+    driveElapsedRef.current = 0;
+    dayElapsedBaseRef.current = 0;
+    lastSimElapsedRef.current = 0;
+    setDriveElapsedMs(0);
+    setSurge(null);
+    setPreviewRoute(null);
+    setSessionEarnings(0);
+    setPayoutGain(null);
+    offerRef.current = null;
+    setOffer(null);
+    queuedGigRef.current = null;
+    setQueuedGig(null);
+    setDispatchToast(null);
+  };
+
+  // F takes the job, G passes on it. Q and E stay the turn indicators: an offer
+  // arrives while you are driving, which is exactly when you want to signal.
+  useEffect(() => {
+    if (view !== "driving") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || !offerRef.current) return;
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+      if (event.code === "KeyF") {
+        event.preventDefault();
+        answerOffer(true);
+      } else if (event.code === "KeyG") {
+        event.preventDefault();
+        answerOffer(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [view, answerOffer]);
+
+  useEffect(() => {
+    const sync = () => setViewportWidth(window.innerWidth);
+    sync();
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, []);
+
+  useEffect(() => {
+    if (!payoutGain) return;
+    const timer = window.setTimeout(() => setPayoutGain(null), 1_250);
+    return () => window.clearTimeout(timer);
+  }, [payoutGain]);
+
+  useEffect(() => {
+    if (!dispatchToast) return;
+    const timer = window.setTimeout(() => setDispatchToast(null), 1700);
+    return () => window.clearTimeout(timer);
+  }, [dispatchToast]);
 
   // Arriving at a gig stop now means actually stopping there: inside the
   // arrival radius at walking pace. That starts the matching interaction
@@ -925,6 +1222,19 @@ export default function SideSwapApp() {
       );
     }
   }, [view, hud, gig, cutscene, towing, beginCutscene]);
+
+  /**
+   * Presses one of the drive session's own keys.
+   *
+   * Camera and pause belong to `BabylonGameSession`, which listens on the
+   * window; `GameCanvas` comes through `next/dynamic` so there is no handle to
+   * call a method on. Synthesising the keystroke is the route this file already
+   * takes to close a dialog.
+   */
+  const pressDriveKey = useCallback((code: string) => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keyup", { code, bubbles: true }));
+  }, []);
 
   const handleUiGamepadBack = useCallback(() => {
     const dialog = document.querySelector('[role="dialog"]');
@@ -960,6 +1270,27 @@ export default function SideSwapApp() {
     activeSession?.destinationId ?? destinationId,
   );
   const driveCountry = getCountryProfile(driveDestination.countryId);
+
+  /**
+   * Says what a finished job actually paid. A rideshare tip is unknown right up
+   * to the drop-off, so without this the reveal — the whole point of hiding it —
+   * would be a number quietly ticking up in the corner.
+   */
+  const announcePayout = useCallback(
+    (fare: number, tip: number) => {
+      setSessionEarnings((total) => total + fare + tip);
+      setPayoutGain(`+${formatMoney(fare + tip, driveCountry)}`);
+      setDispatchToast({
+        text:
+          tip > 0
+            ? `+${formatMoney(fare, driveCountry)} · TIP +${formatMoney(tip, driveCountry)}`
+            : `+${formatMoney(fare, driveCountry)}`,
+        tone: "paid",
+      });
+    },
+    [driveCountry],
+  );
+
   const activeSteeringSide = resolveSteeringSide(
     activeSession?.steeringPreference ?? "auto",
     driveCountry,
@@ -1016,6 +1347,17 @@ export default function SideSwapApp() {
         // wall time so it fades on the same clock it is measured against.
         setDayIntroFromMs(dayElapsedBaseRef.current + lastSimElapsedRef.current);
         return;
+      }
+      // A rider in the back sees everything, witnessed or not, so the tip reads
+      // the rule stream rather than the fine stream. Every violation surfaces
+      // exactly once as coaching/collision/incident; the `fine` that may follow
+      // is the same offence again, which is why it is excluded here.
+      if (
+        event.type !== "fine" &&
+        event.ruleCode &&
+        gigRef.current?.state === "carrying"
+      ) {
+        carryViolationsRef.current += 1;
       }
       if (event.type === "cutscene") {
         const active = cutsceneRef.current;
@@ -1098,12 +1440,14 @@ export default function SideSwapApp() {
                 ? { ...current, state: "carrying" }
                 : current,
             );
-            if (careerRunRef.current) {
-              const elapsed =
-                dayElapsedBaseRef.current + lastSimElapsedRef.current;
-              carryingSinceRef.current = elapsed;
-              setCarryingSinceMs(elapsed);
-            }
+            // The carrying leg starts here in both modes: free drive tips too
+            // now, and both the par clock and the rider's patience run from
+            // the moment the job is actually in the car.
+            const elapsed =
+              dayElapsedBaseRef.current + lastSimElapsedRef.current;
+            carryingSinceRef.current = elapsed;
+            setCarryingSinceMs(elapsed);
+            carryViolationsRef.current = 0;
           } else if (active.kind === "exit" || active.kind === "food_dropoff") {
             const run = careerRunRef.current;
             const current = gigRef.current;
@@ -1122,8 +1466,11 @@ export default function SideSwapApp() {
                 current.kind,
                 run.vehicle,
               );
-              // On-time within the par window earns the commission-free tip;
-              // late still pays the base net — no hard fail.
+              // Tips are commission-free either way, but the two kinds settle
+              // differently: a food order tipped when it was placed, and may
+              // add something if it arrived hot; a rider decides on the way and
+              // pays for how the trip went. Late still pays the fare — no hard
+              // fail.
               const parMs = gigParMs(
                 Math.hypot(
                   current.dropoff.x - current.pickup.x,
@@ -1134,12 +1481,22 @@ export default function SideSwapApp() {
               const elapsedNow =
                 dayElapsedBaseRef.current + lastSimElapsedRef.current;
               const since = carryingSinceRef.current;
-              const onTime = since !== null && elapsedNow - since <= parMs;
-              const tip = careerTip(gross, onTime);
+              const carriedMs = since === null ? parMs : elapsedNow - since;
+              const onTime = since !== null && carriedMs <= parMs;
+              const tip = gigTipFor(
+                current,
+                gross,
+                carriedMs,
+                parMs,
+                onTime,
+                carryViolationsRef.current,
+              );
+              carryViolationsRef.current = 0;
               carryingSinceRef.current = null;
               setCarryingSinceMs(null);
               dayCashRef.current += net + tip;
               setDayCash(dayCashRef.current);
+              announcePayout(net, tip);
               dayLogRef.current = {
                 ...dayLogRef.current,
                 grossFares: dayLogRef.current.grossFares + gross,
@@ -1148,28 +1505,10 @@ export default function SideSwapApp() {
                 gigsCompleted: dayLogRef.current.gigsCompleted + 1,
                 gigsOnTime: dayLogRef.current.gigsOnTime + (onTime ? 1 : 0),
               };
-              const careerCountry = getCountryProfile(run.city.countryId);
-              const careerMap = getMapPack(
-                getFreeDrive(
-                  getDestinationProfile(run.city.destinationId).freeDriveId,
-                ).mapId,
-              );
-              gigSeedRef.current += 1;
-              const nextGig = nextGigFor(
-                careerMap,
-                careerCountry,
-                gigSeedRef.current,
-                gigKindHistoryRef.current,
-                run.vehicle.allowedGigKinds,
-              );
-              if (nextGig) {
-                gigKindHistoryRef.current = [
-                  ...gigKindHistoryRef.current,
-                  nextGig.kind,
-                ].slice(-MAX_SAME_KIND_STREAK);
-              }
-              gigRef.current = nextGig;
-              setGig(nextGig);
+              // The next job is whatever was accepted while this one ran —
+              // nothing is conjured on completion any more. With an empty queue
+              // the driver goes idle until dispatch offers again.
+              promoteQueuedGig();
             } else if (!run) {
               setGig((existing) =>
                 existing && existing.state === "carrying"
@@ -1243,6 +1582,8 @@ export default function SideSwapApp() {
       beginCutscene,
       clearCutscene,
       chargeCareer,
+      promoteQueuedGig,
+      announcePayout,
     ],
   );
 
@@ -1331,37 +1672,45 @@ export default function SideSwapApp() {
     }
   }, [destinationId, hydrated, progress.accessibility.reducedMotion]);
 
-  // Pay out a completed delivery and immediately offer the next one. Guarded by
-  // paidGigRef so re-renders can't double-credit the same gig. Free drive only:
-  // career gigs are paid synchronously in the cutscene done handler so a
-  // drop-off at the whistle lands before settlement.
+  // Pay out a completed delivery and hand over whatever was queued behind it.
+  // Guarded by paidGigRef so re-renders can't double-credit the same gig. Free
+  // drive only: career gigs are paid synchronously in the cutscene done handler
+  // so a drop-off at the whistle lands before settlement.
   useEffect(() => {
     if (careerRunRef.current) return;
     if (!gig || gig.state !== "delivered" || paidGigRef.current === gig.id) {
       return;
     }
     paidGigRef.current = gig.id;
+    // Free drive takes the fare whole — no vehicle factor, no commission — and
+    // the reference car's pace, so par is measured at a factor of one.
+    const parMs = gigParMs(
+      Math.hypot(gig.dropoff.x - gig.pickup.x, gig.dropoff.z - gig.pickup.z),
+      1,
+    );
+    const since = carryingSinceRef.current;
+    const carriedMs = since === null ? parMs : driveElapsedRef.current - since;
+    const onTime = since !== null && carriedMs <= parMs;
+    const tip = gigTipFor(
+      gig,
+      gig.reward,
+      carriedMs,
+      parMs,
+      onTime,
+      carryViolationsRef.current,
+    );
+    carryViolationsRef.current = 0;
+    carryingSinceRef.current = null;
+    setCarryingSinceMs(null);
     const settled: PlayerProgressV2 = {
-      ...credit(progress, driveCountry.id, gig.reward),
+      ...credit(progress, driveCountry.id, gig.reward + tip),
       completedGigCount: progress.completedGigCount + 1,
     };
     setProgress(settled);
     saveProgress(settled);
-    gigSeedRef.current += 1;
-    const nextGig = nextGigFor(
-      runtimeMap,
-      driveCountry,
-      gigSeedRef.current,
-      gigKindHistoryRef.current,
-    );
-    if (nextGig) {
-      gigKindHistoryRef.current = [
-        ...gigKindHistoryRef.current,
-        nextGig.kind,
-      ].slice(-MAX_SAME_KIND_STREAK);
-    }
-    setGig(nextGig);
-  }, [gig, progress, driveCountry, runtimeMap]);
+    announcePayout(gig.reward, tip);
+    promoteQueuedGig();
+  }, [gig, progress, driveCountry, promoteQueuedGig, announcePayout]);
 
   const chooseDestination = (id: DestinationId) => {
     setDestinationId(id);
@@ -1409,19 +1758,19 @@ export default function SideSwapApp() {
     setDriveFuel(committedProgress.fuelByCountry[nextCountryId]);
     lastPoseRef.current = null;
     const nextFreeDrive = getFreeDrive(scenarioId);
-    gigSeedRef.current = nextFreeDrive.trafficSeed;
     gigKindHistoryRef.current = [];
     paidGigRef.current = null;
-    const firstGig = nextGigFor(
-      getMapPack(nextFreeDrive.mapId),
-      getCountryProfile(nextCountryId),
-      gigSeedRef.current,
-      gigKindHistoryRef.current,
-    );
-    if (firstGig) {
-      gigKindHistoryRef.current = [firstGig.kind];
-    }
-    setGig(firstGig);
+    // A drive opens with an offer waiting rather than a job assigned — the
+    // first HUD snapshot lands at t=0, which is when dispatch fires.
+    driveContextRef.current = {
+      map: getMapPack(nextFreeDrive.mapId),
+      country: getCountryProfile(nextCountryId),
+      allowedKinds: ["delivery", "passenger"],
+      surgeSeed: nextFreeDrive.trafficSeed,
+    };
+    resetDispatch(nextFreeDrive.trafficSeed);
+    gigRef.current = null;
+    setGig(null);
     setHud(null);
     setPaused(false);
     carConditionRef.current = FULL_CONDITION_PCT;
@@ -1580,25 +1929,24 @@ export default function SideSwapApp() {
     // Rentals come with a full tank, included in the rent; nothing persists.
     setDriveFuel(vehicle.tankL);
     lastPoseRef.current = null;
-    gigSeedRef.current = careerGigSeedBase(
+    const dayGigSeed = careerGigSeedBase(
       careerSlice.careerSeed,
       careerCity.day,
       careerCityIndex(careerCity.destinationId),
     );
     gigKindHistoryRef.current = [];
     paidGigRef.current = null;
-    const firstGig = nextGigFor(
-      getMapPack(getFreeDrive(destinationProfile.freeDriveId).mapId),
-      getCountryProfile(careerCity.countryId),
-      gigSeedRef.current,
-      gigKindHistoryRef.current,
-      vehicle.allowedGigKinds,
-    );
-    if (firstGig) {
-      gigKindHistoryRef.current = [firstGig.kind];
-    }
-    gigRef.current = firstGig;
-    setGig(firstGig);
+    driveContextRef.current = {
+      map: getMapPack(getFreeDrive(destinationProfile.freeDriveId).mapId),
+      country: getCountryProfile(careerCity.countryId),
+      // Career vehicles gate what may be OFFERED: a bicycle courier is never
+      // shown a rideshare request rather than being left to decline one.
+      allowedKinds: vehicle.allowedGigKinds,
+      surgeSeed: dayGigSeed,
+    };
+    resetDispatch(dayGigSeed);
+    gigRef.current = null;
+    setGig(null);
     carryingSinceRef.current = null;
     setCarryingSinceMs(null);
     setHud(null);
@@ -1962,6 +2310,152 @@ export default function SideSwapApp() {
     fillTransition: "width 0.2s ease",
   });
 
+  // ── Desktop HUD ───────────────────────────────────────────────────────────
+  // Everything the designed clusters render, worked out here so DriveHud stays
+  // props-pure: it is handed finished strings and knows nothing about gigs,
+  // dispatch or career.
+  const hudScale = resolveHudScale(viewportWidth);
+  const roadNames = runtimeMap.roadNames ?? {};
+  const streetOf = (roadId: string) => roadNames[roadId] ?? roadId;
+
+  const navManoeuvre: HudManoeuvre | null =
+    gpsProgress?.next
+      ? (() => {
+          const parts = formatDistanceParts(
+            gpsProgress.distanceToNextM,
+            driveCountry,
+          );
+          return {
+            kind: gpsProgress.next.kind,
+            street:
+              gpsProgress.next.kind === "arrive"
+                ? (activeGig ? gigTarget(activeGig)?.name ?? "your stop" : "your stop")
+                : streetOf(gpsProgress.next.ontoRoadId),
+            distanceValue: parts.value,
+            distanceUnit: parts.unit,
+            imminent: gpsProgress.distanceToNextM <= MANOEUVRE_IMMINENT_M,
+            // Against the whole run to the stop, so it fills once across a job
+            // instead of sawtoothing back to empty at every corner.
+            destinationProgress:
+              legRouteTotalM > 0
+                ? 1 -
+                  Math.min(1, Math.max(0, gpsProgress.remainingM / legRouteTotalM))
+                : 0,
+            destinationDistance: formatDistance(
+              gpsProgress.remainingM,
+              driveCountry,
+            ),
+          };
+        })()
+      : null;
+
+  const followingManoeuvre = (() => {
+    const next = gpsProgress?.next;
+    if (!next || !gpsRoute) return null;
+    const index = gpsRoute.manoeuvres.indexOf(next);
+    const following = index >= 0 ? gpsRoute.manoeuvres[index + 1] : undefined;
+    if (!following) return null;
+    return {
+      kind: following.kind,
+      street:
+        following.kind === "arrive"
+          ? (activeGig ? gigTarget(activeGig)?.name ?? "your stop" : "your stop")
+          : streetOf(following.ontoRoadId),
+      distance: formatDistance(
+        Math.max(0, following.alongM - next.alongM),
+        driveCountry,
+      ),
+    };
+  })();
+
+  const navJob: HudJob | null = activeGig
+    ? {
+        kind: activeGig.kind,
+        eyebrow:
+          activeGig.state === "carrying"
+            ? activeGig.kind === "passenger"
+              ? "DROP OFF"
+              : "DELIVER"
+            : "PICK UP",
+        target:
+          activeGig.state === "carrying"
+            ? activeGig.dropoff.name
+            : activeGig.pickup.name,
+        sub:
+          activeGig.state === "carrying"
+            ? `from ${activeGig.pickup.name}`
+            : `then ${activeGig.dropoff.name}`,
+        pay: `+${formatMoney(activeGig.reward, driveCountry)}`,
+        // Only a food order's tip is known in advance; a rider's is the point
+        // of the drop-off, so the card stays silent about it.
+        tip:
+          activeGig.kind === "delivery"
+            ? `Tip ${formatMoney(quotedTip(activeGig.reward, activeGig.seed, activeGig.surged), driveCountry)} already added`
+            : null,
+        surged: activeGig.surged,
+      }
+    : null;
+
+  const navGauges: readonly HudGauge[] = statCells
+    .filter((cell) => cell.id !== "clock")
+    .map((cell) => ({
+      id: cell.id,
+      icon: cell.icon,
+      label: cell.label,
+      value: cell.value,
+      fill: (cell.fill ?? 0) / 100,
+      fillColor: cell.fillColor ?? HUD_SAGE,
+      fillTransition: cell.fillTransition,
+    }));
+
+  const detourLabel =
+    offer && previewRoute
+      ? formatDistance(
+          routeProgress(previewRoute, hud?.playerX ?? 0, hud?.playerZ ?? 0)
+            .remainingM,
+          driveCountry,
+        )
+      : null;
+
+  const hudOffer: HudOffer | null = offer
+    ? {
+        kind: offer.gig.kind,
+        pay: `+${formatMoney(offer.gig.reward, driveCountry)}`,
+        bonus: offer.gig.surged
+          ? `surge ×${SURGE_FARE_MULTIPLIER}`
+          : offer.gig.kind === "delivery"
+            ? `+${formatMoney(quotedTip(offer.gig.reward, offer.gig.seed, offer.gig.surged), driveCountry)} tip`
+            : null,
+        title: offer.gig.pickup.name,
+        sub:
+          offer.gig.kind === "passenger"
+            ? `then ${offer.gig.dropoff.name}`
+            : `then ${offer.gig.dropoff.name}`,
+        chips: [
+          ...(detourLabel ? [`${detourLabel} away`] : []),
+          `${formatDistance(
+            Math.hypot(
+              offer.gig.dropoff.x - offer.gig.pickup.x,
+              offer.gig.dropoff.z - offer.gig.pickup.z,
+            ),
+            driveCountry,
+          )} run`,
+          offer.gig.kind === "passenger" ? "1 rider" : "1 order",
+        ],
+        footnote: activeGig
+          ? `Stacks after ${gigTarget(activeGig)?.name ?? "your current job"}`
+          : "Nothing else in hand",
+        secondsLeft: Math.ceil(
+          Math.max(0, OFFER_WINDOW_MS - (driveElapsedMs - offer.offeredAtMs)) / 1000,
+        ),
+        elapsed: Math.min(
+          1,
+          Math.max(0, (driveElapsedMs - offer.offeredAtMs) / OFFER_WINDOW_MS),
+        ),
+        surged: offer.gig.surged,
+      }
+    : null;
+
   if (!hydrated) {
     return (
       <main className="loading-screen" aria-live="polite">
@@ -2165,284 +2659,393 @@ export default function SideSwapApp() {
             </span>
           </div>
         )}
+        {dispatchToast && (
+          <DriveToast
+            scale={hudScale}
+            inset={{
+              top: `calc(${hudInset.top} + ${touchFirst ? 12.5 : 9}rem)`,
+              right: touchFirst ? "auto" : hudInset.right,
+            }}
+            tone={DISPATCH_TOAST_COLOR[dispatchToast.tone]}
+            testId="dispatch-toast"
+          >
+            {dispatchToast.text}
+          </DriveToast>
+        )}
+        {hudOffer && touchFirst && (
+          <DriveOfferBar
+            inset={{
+              top: `calc(${hudInset.top} + 6.2rem)`,
+              left: hudInset.left,
+            }}
+            offer={hudOffer}
+            onAccept={() => answerOffer(true)}
+            onPass={() => answerOffer(false)}
+          />
+        )}
+        {hudOffer && !touchFirst && (
+          <>
+            <DriveOfferGlow />
+            <DriveOfferCard
+              scale={hudScale}
+              inset={{
+                top: `calc(${hudInset.top} + ${touchFirst ? 4.5 : 9}rem)`,
+                right: hudInset.right,
+              }}
+              offer={hudOffer}
+              acceptKey="F"
+              passKey="G"
+              onAccept={() => answerOffer(true)}
+              onPass={() => answerOffer(false)}
+            />
+          </>
+        )}
+        {surge && (
+          <DriveSurgeBanner
+            scale={hudScale}
+            inset={{ top: `calc(${hudInset.top} + ${touchFirst ? 3 : 7.2}rem)` }}
+            multiplier={surge.multiplier}
+            remaining={formatClock(Math.max(0, surge.endMs - driveElapsedMs))}
+          />
+        )}
         {/*
-          One panel, top-left: the job, the money, and the two gauges that can
-          end a day. It used to be two cards — the gig up top and a status card
-          in the opposite corner — which put the numbers that change together at
-          opposite ends of the screen, and on touch cost the whole left rail.
+          One panel, top-left: the job, the money and the two gauges that can end
+          a day. Touch keeps it — the designed desktop HUD below replaces it with
+          the nav card, and reflowing that for a phone is its own piece of work.
         */}
-        <div
-          data-testid="drive-status-card"
-          style={{
-            position: "absolute",
-            left: hudInset.left,
-            top: hudInset.top,
-            // Capped *and* proportional: the speed readout is centred, so on a
-            // 568px-wide phone a flat 250px panel runs its right edge straight
-            // into the numeral. 37% keeps the two clear at every landscape
-            // width without shrinking the panel on the phones that have room.
-            width: touchFirst ? "min(250px, 37%)" : 316,
-            maxWidth: "calc(100% - 24px)",
-            padding: touchFirst ? "9px 11px 9px 17px" : "13px 15px 12px 24px",
-            borderRadius: touchFirst ? 14 : 18,
-            background: HUD_GLASS,
-            backdropFilter: "blur(16px)",
-            border: "1px solid rgba(255,255,255,.09)",
-            boxShadow: "0 18px 40px -24px rgba(0,0,0,.85)",
-            color: HUD_CREAM,
-            pointerEvents: "none",
-            zIndex: DRIVE_LAYER.hud,
-          }}
-        >
+        {touchFirst && (
           <div
-            aria-hidden="true"
+            data-testid="drive-status-card"
             style={{
               position: "absolute",
-              left: touchFirst ? 6 : 9,
-              top: touchFirst ? 9 : 13,
-              bottom: touchFirst ? 9 : 13,
-              width: touchFirst ? 3 : 4,
-              borderRadius: 999,
-              background: activeGig
-                ? activeGig.state === "carrying"
-                  ? HUD_GOLD
-                  : HUD_CORAL
-                : HUD_SAGE,
-            }}
-          />
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 10,
+              left: hudInset.left,
+              top: hudInset.top,
+              // Capped *and* proportional: the speed readout is centred, so on a
+              // 568px-wide phone a flat 250px panel runs its right edge straight
+              // into the numeral. 37% keeps the two clear at every landscape
+              // width without shrinking the panel on the phones that have room.
+              width: touchFirst ? "min(250px, 37%)" : 316,
+              maxWidth: "calc(100% - 24px)",
+              padding: touchFirst ? "9px 11px 9px 17px" : "13px 15px 12px 24px",
+              borderRadius: touchFirst ? 14 : 18,
+              background: HUD_GLASS,
+              backdropFilter: "blur(16px)",
+              border: "1px solid rgba(255,255,255,.09)",
+              boxShadow: "0 18px 40px -24px rgba(0,0,0,.85)",
+              color: HUD_CREAM,
+              pointerEvents: "none",
+              zIndex: DRIVE_LAYER.hud,
             }}
           >
-            <span
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: touchFirst ? 6 : 9,
+                top: touchFirst ? 9 : 13,
+                bottom: touchFirst ? 9 : 13,
+                width: touchFirst ? 3 : 4,
+                borderRadius: 999,
+                background: activeGig
+                  ? activeGig.state === "carrying"
+                    ? HUD_GOLD
+                    : HUD_CORAL
+                  : HUD_SAGE,
+              }}
+            />
+            <div
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 6,
-                minWidth: 0,
-                font: `800 ${touchFirst ? 10 : 12}px/1 ${HUD_SANS}`,
-                letterSpacing: ".2em",
-                color: activeGig ? HUD_GOLD : "rgba(244,239,222,.55)",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
+                justifyContent: "space-between",
+                gap: 10,
               }}
             >
-              {activeGig && (
-                <HudGlyph
-                  path={activeGig.kind === "passenger" ? RIDER_ICON : PARCEL_ICON}
-                  size={touchFirst ? 13 : 15}
-                  color={HUD_GOLD}
-                />
-              )}
-              {activeGig
-                ? activeGig.state === "carrying"
-                  ? activeGig.kind === "passenger"
-                    ? "DROP OFF"
-                    : "DELIVER"
-                  : "PICK UP"
-                : careerRun
-                  ? `DAY ${careerRun.city.day}`
-                  : "FREE DRIVE"}
-            </span>
-            <span
-              data-testid={careerRun ? "day-cash" : undefined}
-              style={{
-                flex: "none",
-                background: "rgba(244,200,72,.15)",
-                border: "1px solid rgba(244,200,72,.4)",
-                borderRadius: 999,
-                padding: touchFirst ? "3px 9px" : "4px 12px",
-                font: `900 ${touchFirst ? 13 : 16}px/1 ${HUD_SANS}`,
-                color: careerRun && dayCash < 0 ? HUD_CORAL : HUD_GOLD,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {formatMoney(careerRun ? dayCash : walletHere, driveCountry)}
-            </span>
-          </div>
-          {activeGig && (
-            <>
-              <div
+              <span
                 style={{
-                  marginTop: touchFirst ? 5 : 7,
-                  fontFamily: HUD_SERIF,
-                  fontWeight: 700,
-                  fontSize: touchFirst ? 18 : 25,
-                  lineHeight: 1.05,
-                  color: HUD_CREAM,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {activeGig.state === "carrying" ? activeGig.dropoff.name : activeGig.pickup.name}
-              </div>
-              <div
-                style={{
-                  marginTop: 3,
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  font: `600 ${touchFirst ? 11 : 13}px/1.25 ${HUD_SANS}`,
-                  color: "rgba(244,239,222,.62)",
+                  gap: 6,
+                  minWidth: 0,
+                  font: `800 ${touchFirst ? 10 : 12}px/1 ${HUD_SANS}`,
+                  letterSpacing: ".2em",
+                  color: activeGig ? HUD_GOLD : "rgba(244,239,222,.55)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
                 }}
               >
+                {activeGig && (
+                  <HudGlyph
+                    path={activeGig.kind === "passenger" ? RIDER_ICON : PARCEL_ICON}
+                    size={touchFirst ? 13 : 15}
+                    color={HUD_GOLD}
+                  />
+                )}
+                {activeGig
+                  ? activeGig.state === "carrying"
+                    ? activeGig.kind === "passenger"
+                      ? "DROP OFF"
+                      : "DELIVER"
+                    : "PICK UP"
+                  : careerRun
+                    ? `DAY ${careerRun.city.day}`
+                    : "FREE DRIVE"}
+              </span>
+              <span
+                data-testid={careerRun ? "day-cash" : undefined}
+                style={{
+                  flex: "none",
+                  background: "rgba(244,200,72,.15)",
+                  border: "1px solid rgba(244,200,72,.4)",
+                  borderRadius: 999,
+                  padding: touchFirst ? "3px 9px" : "4px 12px",
+                  font: `900 ${touchFirst ? 13 : 16}px/1 ${HUD_SANS}`,
+                  color: careerRun && dayCash < 0 ? HUD_CORAL : HUD_GOLD,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {formatMoney(careerRun ? dayCash : walletHere, driveCountry)}
+              </span>
+            </div>
+            {activeGig && (
+              <>
+                <div
+                  style={{
+                    marginTop: touchFirst ? 5 : 7,
+                    fontFamily: HUD_SERIF,
+                    fontWeight: 700,
+                    fontSize: touchFirst ? 18 : 25,
+                    lineHeight: 1.05,
+                    color: HUD_CREAM,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {activeGig.state === "carrying" ? activeGig.dropoff.name : activeGig.pickup.name}
+                </div>
+                <div
+                  style={{
+                    marginTop: 3,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    font: `600 ${touchFirst ? 11 : 13}px/1.25 ${HUD_SANS}`,
+                    color: "rgba(244,239,222,.62)",
+                  }}
+                >
+                  <span
+                    style={{
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {activeGig.state === "carrying"
+                      ? `from ${activeGig.pickup.name}`
+                      : `then ${activeGig.dropoff.name}`}
+                  </span>
+                  {/*
+                    Outline where the wallet pill above is filled, and signed —
+                    two gold pills stacked otherwise read as the same number
+                    twice, when one is what you have and one is what the job pays.
+                  */}
+                  <span
+                    style={{
+                      flex: "none",
+                      border: "1px solid rgba(244,200,72,.35)",
+                      borderRadius: 999,
+                      padding: "2px 7px",
+                      font: `800 ${touchFirst ? 10 : 11}px/1 ${HUD_SANS}`,
+                      color: HUD_GOLD,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    +{formatMoney(activeGig.reward, driveCountry)}
+                  </span>
+                </div>
+                {gigParForCardMs !== null && activeGig.state === "enroute_pickup" && (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      font: `600 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
+                      color: "rgba(244,239,222,.6)",
+                    }}
+                  >
+                    Tip window {formatClock(gigParForCardMs)} once picked up
+                  </div>
+                )}
+                {activeGig.state === "carrying" && tipRemainingMs !== null && (
+                  <div
+                    data-testid="tip-clock"
+                    style={{
+                      marginTop: 4,
+                      font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
+                      color:
+                        tipRemainingMs <= 0
+                          ? "rgba(244,239,222,.5)"
+                          : tipRemainingMs < (gigParForCardMs ?? 0) * 0.2
+                            ? HUD_GOLD
+                            : HUD_SAGE,
+                    }}
+                  >
+                    {tipRemainingMs > 0
+                      ? `Tip ${formatClock(tipRemainingMs)}`
+                      : "Tip missed — base fare only"}
+                  </div>
+                )}
+                {nearGigStop && !cutscene && hud && hud.speed > 1 && (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
+                      color: HUD_GOLD,
+                    }}
+                  >
+                    Stop the car to{" "}
+                    {activeGig.state === "carrying" ? "drop off" : "pick up"}.
+                  </div>
+                )}
+              </>
+            )}
+            {!activeGig && (
+              <div
+                data-testid="dispatch-idle"
+                style={{
+                  marginTop: touchFirst ? 4 : 6,
+                  font: `700 ${touchFirst ? 11 : 13}px/1.2 ${HUD_SANS}`,
+                  color: "rgba(244,239,222,.55)",
+                }}
+              >
+                {offer ? "Offer waiting…" : "Waiting for a job…"}
+              </div>
+            )}
+            {queuedGig && (
+              <div
+                data-testid="queued-gig"
+                style={{
+                  marginTop: 4,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
+                  color: HUD_SAGE,
+                }}
+              >
+                <span style={{ letterSpacing: ".16em" }}>NEXT UP</span>
                 <span
                   style={{
                     minWidth: 0,
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
+                    color: "rgba(244,239,222,.72)",
                   }}
                 >
-                  {activeGig.state === "carrying"
-                    ? `from ${activeGig.pickup.name}`
-                    : `then ${activeGig.dropoff.name}`}
-                </span>
-                {/*
-                  Outline where the wallet pill above is filled, and signed —
-                  two gold pills stacked otherwise read as the same number
-                  twice, when one is what you have and one is what the job pays.
-                */}
-                <span
-                  style={{
-                    flex: "none",
-                    border: "1px solid rgba(244,200,72,.35)",
-                    borderRadius: 999,
-                    padding: "2px 7px",
-                    font: `800 ${touchFirst ? 10 : 11}px/1 ${HUD_SANS}`,
-                    color: HUD_GOLD,
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  +{formatMoney(activeGig.reward, driveCountry)}
+                  {queuedGig.pickup.name}
                 </span>
               </div>
-              {gigParForCardMs !== null && activeGig.state === "enroute_pickup" && (
+            )}
+            <div
+              aria-hidden="true"
+              style={{
+                height: 1,
+                background: "rgba(255,255,255,.1)",
+                margin: touchFirst ? "8px 0" : "11px 0",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: touchFirst ? 6 : 8,
+              }}
+            >
+              {chunkPairs(statCells).map((row) => (
                 <div
+                  key={row[0].id}
                   style={{
-                    marginTop: 4,
-                    font: `600 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                    color: "rgba(244,239,222,.6)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: touchFirst ? 8 : 11,
                   }}
                 >
-                  Tip window {formatClock(gigParForCardMs)} once picked up
+                  {row.map((cell, index) => [
+                    index > 0 ? (
+                      <span
+                        key={`${cell.id}-rule`}
+                        aria-hidden="true"
+                        style={{
+                          flex: "none",
+                          width: 1,
+                          height: touchFirst ? 15 : 19,
+                          background: "rgba(255,255,255,.1)",
+                        }}
+                      />
+                    ) : null,
+                    <HudStat key={cell.id} {...cell} compact={touchFirst} />,
+                  ])}
                 </div>
-              )}
-              {activeGig.state === "carrying" && tipRemainingMs !== null && (
-                <div
-                  data-testid="tip-clock"
-                  style={{
-                    marginTop: 4,
-                    font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                    color:
-                      tipRemainingMs <= 0
-                        ? "rgba(244,239,222,.5)"
-                        : tipRemainingMs < (gigParForCardMs ?? 0) * 0.2
-                          ? HUD_GOLD
-                          : HUD_SAGE,
-                  }}
-                >
-                  {tipRemainingMs > 0
-                    ? `Tip ${formatClock(tipRemainingMs)}`
-                    : "Tip missed — base fare only"}
-                </div>
-              )}
-              {nearGigStop && !cutscene && hud && hud.speed > 1 && (
-                <div
-                  style={{
-                    marginTop: 4,
-                    font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                    color: HUD_GOLD,
-                  }}
-                >
-                  Stop the car to{" "}
-                  {activeGig.state === "carrying" ? "drop off" : "pick up"}.
-                </div>
-              )}
-            </>
-          )}
-          <div
-            aria-hidden="true"
-            style={{
-              height: 1,
-              background: "rgba(255,255,255,.1)",
-              margin: touchFirst ? "8px 0" : "11px 0",
-            }}
-          />
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: touchFirst ? 6 : 8,
-            }}
-          >
-            {chunkPairs(statCells).map((row) => (
+              ))}
+            </div>
+            {careerRun?.city.loan && (
               <div
-                key={row[0].id}
                 style={{
+                  marginTop: touchFirst ? 6 : 8,
                   display: "flex",
-                  alignItems: "center",
-                  gap: touchFirst ? 8 : 11,
+                  justifyContent: "space-between",
+                  gap: 10,
+                  font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
+                  color: "rgba(244,239,222,.62)",
                 }}
               >
-                {row.map((cell, index) => [
-                  index > 0 ? (
-                    <span
-                      key={`${cell.id}-rule`}
-                      aria-hidden="true"
-                      style={{
-                        flex: "none",
-                        width: 1,
-                        height: touchFirst ? 15 : 19,
-                        background: "rgba(255,255,255,.1)",
-                      }}
-                    />
-                  ) : null,
-                  <HudStat key={cell.id} {...cell} compact={touchFirst} />,
-                ])}
+                <span>Debt</span>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                  {formatMoney(
+                    careerRun.city.loan.principalRemaining,
+                    driveCountry,
+                  )}{" "}
+                  · {careerRun.city.loan.daysRemaining}d
+                </span>
               </div>
-            ))}
+            )}
+            {careerRun?.city.finalNotice && (
+              <div
+                style={{
+                  marginTop: 4,
+                  font: `900 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
+                  letterSpacing: ".16em",
+                  color: HUD_CORAL,
+                }}
+              >
+                FINAL NOTICE
+              </div>
+            )}
           </div>
-          {careerRun?.city.loan && (
-            <div
-              style={{
-                marginTop: touchFirst ? 6 : 8,
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 10,
-                font: `700 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                color: "rgba(244,239,222,.62)",
-              }}
-            >
-              <span>Debt</span>
-              <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                {formatMoney(
-                  careerRun.city.loan.principalRemaining,
-                  driveCountry,
-                )}{" "}
-                · {careerRun.city.loan.daysRemaining}d
-              </span>
-            </div>
-          )}
-          {careerRun?.city.finalNotice && (
-            <div
-              style={{
-                marginTop: 4,
-                font: `900 ${touchFirst ? 10 : 12}px/1.2 ${HUD_SANS}`,
-                letterSpacing: ".16em",
-                color: HUD_CORAL,
-              }}
-            >
-              FINAL NOTICE
-            </div>
-          )}
-        </div>
+        )}
+        {!touchFirst && (
+          <DriveNavCard
+            scale={hudScale}
+            inset={{ top: hudInset.top, left: hudInset.left }}
+            manoeuvre={navManoeuvre}
+            nextManoeuvre={followingManoeuvre}
+            job={navJob}
+            idleLabel={
+              offer ? "Offer waiting…" : "Waiting for a job…"
+            }
+            gauges={navGauges}
+            queued={
+              queuedGig
+                ? {
+                    title: queuedGig.pickup.name,
+                    pay: `+${formatMoney(queuedGig.reward, driveCountry)}`,
+                  }
+                : null
+            }
+          />
+        )}
         <div
           aria-live="polite"
           style={{
@@ -2535,7 +3138,9 @@ export default function SideSwapApp() {
             heading={hud.heading}
             pins={minimapPins}
             route={minimapRoute}
-            size={touchFirst ? TOUCH_MINIMAP_PX : 150}
+            previewRoute={previewRoute ? previewRoute.points : undefined}
+            previewLabel={detourLabel ?? undefined}
+            size={touchFirst ? TOUCH_MINIMAP_PX : Math.round(304 * hudScale)}
             anchorStyle={
               touchFirst
                 ? {
@@ -2581,108 +3186,153 @@ export default function SideSwapApp() {
           be caught in peripheral vision and given a shadow instead of a plate —
           a pill here would be a second object between the player and the road.
         */}
-        {hud && (
-          <div
-            className="drive-speed"
-            aria-hidden="true"
+        {hud && touchFirst && (
+            <div
+              className="drive-speed"
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: hudInset.top,
+                left: "50%",
+                transform: "translateX(-50%)",
+                display: "flex",
+                alignItems: "baseline",
+                gap: touchFirst ? 5 : 8,
+                color: HUD_CREAM,
+                textShadow: "0 3px 14px rgba(0,0,0,.85)",
+                pointerEvents: "none",
+                zIndex: DRIVE_LAYER.hud,
+              }}
+            >
+              <strong
+                style={{
+                  font: `900 ${touchFirst ? 34 : 46}px/.82 ${HUD_SANS}`,
+                  letterSpacing: "-0.04em",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {hud.speed}
+              </strong>
+              <span
+                style={{
+                  font: `800 ${touchFirst ? 11 : 14}px/1 ${HUD_SANS}`,
+                  letterSpacing: ".12em",
+                  color: "rgba(244,239,222,.62)",
+                  textTransform: "uppercase",
+                }}
+              >
+                {hud.speedUnit}
+              </span>
+              {/* Its own chip: butted against the unit it just read as a suffix. */}
+              <em
+                style={{
+                  marginLeft: touchFirst ? 2 : 4,
+                  padding: touchFirst ? "3px 6px" : "4px 8px",
+                  borderRadius: 6,
+                  background: "rgba(11,15,17,.55)",
+                  font: `800 ${touchFirst ? 10 : 13}px/1 ${HUD_SANS}`,
+                  fontStyle: "normal",
+                  letterSpacing: ".06em",
+                  color: "rgba(244,239,222,.72)",
+                  textShadow: "none",
+                }}
+              >
+                {hud.gear}
+              </em>
+            </div>
+        )}
+        {hud && !touchFirst && (
+          <DriveSpeedCluster
+            scale={hudScale}
+            inset={{ top: hudInset.top }}
+            speed={hud.speed}
+            speedUnit={hud.speedUnit}
+            speedLimit={hud.speedLimit}
+            gear={hud.gear}
+          />
+        )}
+        {touchFirst && (
+          <button
+            type="button"
+            onClick={toggleMusicMuted}
+            aria-pressed={musicMuted}
+            aria-label={musicMuted ? "Unmute music" : "Mute music"}
+            title={musicMuted ? "Unmute music" : "Mute music"}
             style={{
               position: "absolute",
+              // Shares the top-right rail with the drive controls' button row,
+              // which starts one button-width in from this corner, so it matches
+              // those buttons exactly rather than merely sitting beside them.
               top: hudInset.top,
-              left: "50%",
-              transform: "translateX(-50%)",
-              display: "flex",
-              alignItems: "baseline",
-              gap: touchFirst ? 5 : 8,
-              color: HUD_CREAM,
-              textShadow: "0 3px 14px rgba(0,0,0,.85)",
-              pointerEvents: "none",
-              zIndex: DRIVE_LAYER.hud,
+              right: hudInset.right,
+              width: 44,
+              height: 44,
+              display: "grid",
+              placeItems: "center",
+              borderRadius: "999px",
+              border: "1px solid rgba(255,255,255,.13)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,.09)",
+              cursor: "pointer",
+              padding: 0,
+              background: "rgba(11,15,17,.7)",
+              backdropFilter: "blur(14px)",
+              color: musicMuted ? "rgba(244,239,222,.4)" : HUD_CREAM,
+              // A tap target, not a readout — it outranks the HUD it sits beside.
+              zIndex: DRIVE_LAYER.action,
             }}
           >
-            <strong
-              style={{
-                font: `900 ${touchFirst ? 34 : 46}px/.82 ${HUD_SANS}`,
-                letterSpacing: "-0.04em",
-                fontVariantNumeric: "tabular-nums",
-              }}
+            <svg
+              width={20}
+              height={20}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.6}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              style={{ display: "block" }}
             >
-              {hud.speed}
-            </strong>
-            <span
-              style={{
-                font: `800 ${touchFirst ? 11 : 14}px/1 ${HUD_SANS}`,
-                letterSpacing: ".12em",
-                color: "rgba(244,239,222,.62)",
-                textTransform: "uppercase",
-              }}
-            >
-              {hud.speedUnit}
-            </span>
-            {/* Its own chip: butted against the unit it just read as a suffix. */}
-            <em
-              style={{
-                marginLeft: touchFirst ? 2 : 4,
-                padding: touchFirst ? "3px 6px" : "4px 8px",
-                borderRadius: 6,
-                background: "rgba(11,15,17,.55)",
-                font: `800 ${touchFirst ? 10 : 13}px/1 ${HUD_SANS}`,
-                fontStyle: "normal",
-                letterSpacing: ".06em",
-                color: "rgba(244,239,222,.72)",
-                textShadow: "none",
-              }}
-            >
-              {hud.gear}
-            </em>
-          </div>
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
+              {musicMuted && <path d="M3 3l18 18" />}
+            </svg>
+          </button>
         )}
-        <button
-          type="button"
-          onClick={toggleMusicMuted}
-          aria-pressed={musicMuted}
-          aria-label={musicMuted ? "Unmute music" : "Mute music"}
-          title={musicMuted ? "Unmute music" : "Mute music"}
-          style={{
-            position: "absolute",
-            // Shares the top-right rail with the drive controls' button row,
-            // which starts one button-width in from this corner, so it matches
-            // those buttons exactly rather than merely sitting beside them.
-            top: hudInset.top,
-            right: hudInset.right,
-            width: 44,
-            height: 44,
-            display: "grid",
-            placeItems: "center",
-            borderRadius: "999px",
-            border: "1px solid rgba(255,255,255,.13)",
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,.09)",
-            cursor: "pointer",
-            padding: 0,
-            background: "rgba(11,15,17,.7)",
-            backdropFilter: "blur(14px)",
-            color: musicMuted ? "rgba(244,239,222,.4)" : HUD_CREAM,
-            // A tap target, not a readout — it outranks the HUD it sits beside.
-            zIndex: DRIVE_LAYER.action,
-          }}
-        >
-          <svg
-            width={20}
-            height={20}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.6}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            style={{ display: "block" }}
-          >
-            <path d="M9 18V5l12-2v13" />
-            <circle cx="6" cy="18" r="3" />
-            <circle cx="18" cy="16" r="3" />
-            {musicMuted && <path d="M3 3l18 18" />}
-          </svg>
-        </button>
+        {!touchFirst && (
+          <DriveMoneyCluster
+            scale={hudScale}
+            inset={{ top: hudInset.top, right: hudInset.right }}
+            balance={formatMoney(careerRun ? dayCash : walletHere, driveCountry)}
+            balanceLabel={careerRun ? "Cash today" : "Wallet"}
+            session={`+${formatMoney(sessionEarnings, driveCountry)}`}
+            sessionLabel={
+              careerRun
+                ? `DAY ${careerRun.city.day} · ${formatClock(dayRemainingMs)}`
+                : "TODAY"
+            }
+            gain={payoutGain}
+            buttons={[
+              {
+                id: "music",
+                label: musicMuted ? "Unmute music" : "Mute music",
+                pressed: musicMuted,
+                onPress: toggleMusicMuted,
+              },
+              {
+                id: "camera",
+                label: "Switch camera",
+                onPress: () => pressDriveKey("KeyC"),
+              },
+              {
+                id: "pause",
+                label: "Pause",
+                onPress: () => pressDriveKey("KeyP"),
+              },
+            ]}
+          />
+        )}
         {hud && (
           <div className="sr-only" aria-live="polite">
             Speed {hud.speed} {hud.speedUnit}, gear {hud.gear}.
