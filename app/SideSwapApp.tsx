@@ -416,6 +416,35 @@ function nextGigFor(
   );
 }
 
+/**
+ * What a finished job tips, on top of whatever the fare paid.
+ *
+ * The two kinds settle differently, which is the whole point of the rewrite: a
+ * food order was tipped when it was placed and may add a little for a quick
+ * run, while a rider decides on the way — against how long the trip took and
+ * how many rules were broken with them in the car.
+ */
+function gigTipFor(
+  gig: Gig,
+  gross: number,
+  carriedMs: number,
+  parMs: number,
+  onTime: boolean,
+  violations: number,
+): number {
+  if (gig.kind === "passenger") {
+    return rideTip(gross, gig.seed, {
+      promptness: ridePromptness(carriedMs, parMs),
+      violations,
+      surged: gig.surged,
+    });
+  }
+  return (
+    quotedTip(gross, gig.seed, gig.surged) +
+    foodSpeedBonus(gross, gig.seed, onTime, gig.surged)
+  );
+}
+
 /** How close to a gig stop counts as arrived — mirrors `advanceGig`'s radius;
  * the state itself now flips when the arrival cutscene completes. */
 const GIG_ARRIVAL_RADIUS_M = 14;
@@ -468,6 +497,14 @@ const HUD_SAGE = "#8fae72";
 const HUD_GLASS = "rgba(11,15,17,.76)";
 const HUD_SANS = '"Figtree", system-ui, sans-serif';
 const HUD_SERIF = '"Playfair Display", Georgia, serif';
+
+/** How each dispatch outcome reads: taken, paid, passed over, or lost. */
+const DISPATCH_TOAST_COLOR = {
+  accept: HUD_SAGE,
+  paid: HUD_GOLD,
+  pass: "rgba(244,239,222,.55)",
+  lost: HUD_CORAL,
+} as const;
 
 function HudGlyph({
   path,
@@ -659,7 +696,7 @@ export default function SideSwapApp() {
   const queuedGigRef = useRef<Gig | null>(null);
   const [dispatchToast, setDispatchToast] = useState<{
     text: string;
-    tone: "accept" | "pass" | "lost";
+    tone: "accept" | "pass" | "lost" | "paid";
   } | null>(null);
   // Everything building an offer needs, parked where the `[]`-deps HUD
   // callback can reach it — same reason `careerRunRef` exists.
@@ -671,6 +708,8 @@ export default function SideSwapApp() {
   } | null>(null);
   /** Sim-clock ms since the drive began, folded across tow resets. */
   const driveElapsedRef = useRef(0);
+  /** Rules broken since the current job was picked up — the rider is watching. */
+  const carryViolationsRef = useRef(0);
   const [fineToast, setFineToast] = useState<{
     amount: number;
     reason: string;
@@ -1141,6 +1180,25 @@ export default function SideSwapApp() {
     activeSession?.destinationId ?? destinationId,
   );
   const driveCountry = getCountryProfile(driveDestination.countryId);
+
+  /**
+   * Says what a finished job actually paid. A rideshare tip is unknown right up
+   * to the drop-off, so without this the reveal — the whole point of hiding it —
+   * would be a number quietly ticking up in the corner.
+   */
+  const announcePayout = useCallback(
+    (fare: number, tip: number) => {
+      setDispatchToast({
+        text:
+          tip > 0
+            ? `+${formatMoney(fare, driveCountry)} · TIP +${formatMoney(tip, driveCountry)}`
+            : `+${formatMoney(fare, driveCountry)}`,
+        tone: "paid",
+      });
+    },
+    [driveCountry],
+  );
+
   const activeSteeringSide = resolveSteeringSide(
     activeSession?.steeringPreference ?? "auto",
     driveCountry,
@@ -1197,6 +1255,17 @@ export default function SideSwapApp() {
         // wall time so it fades on the same clock it is measured against.
         setDayIntroFromMs(dayElapsedBaseRef.current + lastSimElapsedRef.current);
         return;
+      }
+      // A rider in the back sees everything, witnessed or not, so the tip reads
+      // the rule stream rather than the fine stream. Every violation surfaces
+      // exactly once as coaching/collision/incident; the `fine` that may follow
+      // is the same offence again, which is why it is excluded here.
+      if (
+        event.type !== "fine" &&
+        event.ruleCode &&
+        gigRef.current?.state === "carrying"
+      ) {
+        carryViolationsRef.current += 1;
       }
       if (event.type === "cutscene") {
         const active = cutsceneRef.current;
@@ -1279,12 +1348,14 @@ export default function SideSwapApp() {
                 ? { ...current, state: "carrying" }
                 : current,
             );
-            if (careerRunRef.current) {
-              const elapsed =
-                dayElapsedBaseRef.current + lastSimElapsedRef.current;
-              carryingSinceRef.current = elapsed;
-              setCarryingSinceMs(elapsed);
-            }
+            // The carrying leg starts here in both modes: free drive tips too
+            // now, and both the par clock and the rider's patience run from
+            // the moment the job is actually in the car.
+            const elapsed =
+              dayElapsedBaseRef.current + lastSimElapsedRef.current;
+            carryingSinceRef.current = elapsed;
+            setCarryingSinceMs(elapsed);
+            carryViolationsRef.current = 0;
           } else if (active.kind === "exit" || active.kind === "food_dropoff") {
             const run = careerRunRef.current;
             const current = gigRef.current;
@@ -1320,19 +1391,20 @@ export default function SideSwapApp() {
               const since = carryingSinceRef.current;
               const carriedMs = since === null ? parMs : elapsedNow - since;
               const onTime = since !== null && carriedMs <= parMs;
-              const tip =
-                current.kind === "passenger"
-                  ? rideTip(gross, current.seed, {
-                      promptness: ridePromptness(carriedMs, parMs),
-                      violations: 0,
-                      surged: current.surged,
-                    })
-                  : quotedTip(gross, current.seed, current.surged) +
-                    foodSpeedBonus(gross, current.seed, onTime, current.surged);
+              const tip = gigTipFor(
+                current,
+                gross,
+                carriedMs,
+                parMs,
+                onTime,
+                carryViolationsRef.current,
+              );
+              carryViolationsRef.current = 0;
               carryingSinceRef.current = null;
               setCarryingSinceMs(null);
               dayCashRef.current += net + tip;
               setDayCash(dayCashRef.current);
+              announcePayout(net, tip);
               dayLogRef.current = {
                 ...dayLogRef.current,
                 grossFares: dayLogRef.current.grossFares + gross,
@@ -1419,6 +1491,7 @@ export default function SideSwapApp() {
       clearCutscene,
       chargeCareer,
       promoteQueuedGig,
+      announcePayout,
     ],
   );
 
@@ -1517,14 +1590,35 @@ export default function SideSwapApp() {
       return;
     }
     paidGigRef.current = gig.id;
+    // Free drive takes the fare whole — no vehicle factor, no commission — and
+    // the reference car's pace, so par is measured at a factor of one.
+    const parMs = gigParMs(
+      Math.hypot(gig.dropoff.x - gig.pickup.x, gig.dropoff.z - gig.pickup.z),
+      1,
+    );
+    const since = carryingSinceRef.current;
+    const carriedMs = since === null ? parMs : driveElapsedRef.current - since;
+    const onTime = since !== null && carriedMs <= parMs;
+    const tip = gigTipFor(
+      gig,
+      gig.reward,
+      carriedMs,
+      parMs,
+      onTime,
+      carryViolationsRef.current,
+    );
+    carryViolationsRef.current = 0;
+    carryingSinceRef.current = null;
+    setCarryingSinceMs(null);
     const settled: PlayerProgressV2 = {
-      ...credit(progress, driveCountry.id, gig.reward),
+      ...credit(progress, driveCountry.id, gig.reward + tip),
       completedGigCount: progress.completedGigCount + 1,
     };
     setProgress(settled);
     saveProgress(settled);
+    announcePayout(gig.reward, tip);
     promoteQueuedGig();
-  }, [gig, progress, driveCountry, promoteQueuedGig]);
+  }, [gig, progress, driveCountry, promoteQueuedGig, announcePayout]);
 
   const chooseDestination = (id: DestinationId) => {
     setDestinationId(id);
@@ -2339,19 +2433,8 @@ export default function SideSwapApp() {
               borderRadius: 14,
               background: HUD_GLASS,
               backdropFilter: "blur(14px)",
-              border: `1.5px solid ${
-                dispatchToast.tone === "accept"
-                  ? HUD_SAGE
-                  : dispatchToast.tone === "lost"
-                    ? HUD_CORAL
-                    : "rgba(244,239,222,.4)"
-              }`,
-              color:
-                dispatchToast.tone === "accept"
-                  ? HUD_SAGE
-                  : dispatchToast.tone === "lost"
-                    ? HUD_CORAL
-                    : "rgba(244,239,222,.7)",
+              border: `1.5px solid ${DISPATCH_TOAST_COLOR[dispatchToast.tone]}`,
+              color: DISPATCH_TOAST_COLOR[dispatchToast.tone],
               font: `900 13px/1 ${HUD_SANS}`,
               letterSpacing: ".18em",
               zIndex: DRIVE_LAYER.toast,
