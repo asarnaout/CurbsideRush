@@ -10,6 +10,7 @@ import {
   DriveOfferCard,
   DriveSpeedCluster,
   DriveSurgeBanner,
+  FUSE_SMOOTHING_MS,
   HUD_DESIGN_WIDTH,
   HUD_MIN_SCALE,
   resolveHudScale,
@@ -282,21 +283,31 @@ describe("the offer card", () => {
   });
 
   it("burns the fuse in step with the window, and reddens near the end", () => {
-    const fuse = () =>
-      document.querySelectorAll("rect")[1] as unknown as SVGRectElement;
+    const fuse = () => document.querySelectorAll("rect")[1] as SVGRectElement;
     card({ offer: offer({ elapsed: 0 }) });
-    expect(fuse().getAttribute("stroke-dashoffset")).toBe("0");
+    expect(fuse().style.strokeDashoffset).toBe("0");
     expect(fuse().getAttribute("stroke")).toBe("#201e1d");
 
     cleanup();
     card({ offer: offer({ elapsed: 0.5 }) });
     // pathLength is normalised to 1000, so the offset *is* the fraction burnt
     // whatever the card's real perimeter.
-    expect(fuse().getAttribute("stroke-dashoffset")).toBe("500");
+    expect(fuse().style.strokeDashoffset).toBe("500");
 
     cleanup();
     card({ offer: offer({ elapsed: 0.9 }) });
     expect(fuse().getAttribute("stroke")).toBe("#d9614c");
+  });
+
+  it("interpolates between HUD samples rather than stepping with them", () => {
+    // `elapsed` arrives ~10 times a second; without this the stroke jumps a
+    // fifteenth of the border at a time and reads as a stutter.
+    card();
+    const fuse = document.querySelectorAll("rect")[1] as SVGRectElement;
+    expect(fuse.style.transition).toContain("stroke-dashoffset");
+    expect(fuse.style.transition).toContain("linear");
+    // Longer than the publish interval, or the smoothing cannot bridge a gap.
+    expect(FUSE_SMOOTHING_MS).toBeGreaterThan(100);
   });
 
   it("sits where it can actually be clicked", () => {

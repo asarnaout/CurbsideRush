@@ -1037,6 +1037,22 @@ export interface HudOffer {
 
 const OFFER_W = 430;
 const OFFER_H = 384;
+
+/**
+ * How long the fuse takes to reach a new position.
+ *
+ * `elapsed` arrives on the HUD snapshot, which publishes about ten times a
+ * second — so the raw value steps in jumps of roughly a fifteenth of the
+ * border, which reads as a stutter crawling round the card. Handing the browser
+ * a transition longer than the gap between samples lets it interpolate: each
+ * new target arrives partway through the last move, so the stroke never stops.
+ *
+ * Long enough to ride out a dropped sample (the publish interval is floored at
+ * 100ms but lands on a frame boundary, so it stretches under load), short
+ * enough that the constant lag it introduces — well under a percent of the
+ * offer window — is invisible. The same trick the fuel gauge uses for the pump.
+ */
+export const FUSE_SMOOTHING_MS = 200;
 const FOOD_ICON = [
   "M15 11h.01",
   "M11 15h.01",
@@ -1131,9 +1147,10 @@ export function DriveOfferCard({
             strokeLinecap="round"
             pathLength={1000}
             strokeDasharray={1000}
-            strokeDashoffset={Math.round(
-              Math.min(1, Math.max(0, offer.elapsed)) * 1000,
-            )}
+            style={{
+              strokeDashoffset: Math.min(1, Math.max(0, offer.elapsed)) * 1000,
+              transition: `stroke-dashoffset ${FUSE_SMOOTHING_MS}ms linear, stroke .25s ease`,
+            }}
           />
         </svg>
 
