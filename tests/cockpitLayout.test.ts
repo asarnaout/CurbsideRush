@@ -22,6 +22,7 @@ import {
   resolveWingMirrorPose,
   wingMirrorHeadRotation,
   wingMirrorIsVisible,
+  wingMirrorOutline,
   wingMirrorScreenFraction,
   wingMirrorSide,
 } from "../app/game/cockpitLayout";
@@ -266,6 +267,59 @@ describe("wing mirror", () => {
     });
     expect(right.x).toBeCloseTo(-pose.x);
     expect(right.rotationY - back).toBeCloseTo(-(pose.rotationY - back));
+  });
+
+  it("keeps its outline convex", () => {
+    // createChamferedPanel fans the outline from its centre, which is only
+    // valid for a convex shape — a concave point would fold a triangle back
+    // over the glass and put a wedge of the reflection in the wrong place.
+    const points = wingMirrorOutline("left");
+    let sign = 0;
+    for (let index = 0; index < points.length; index += 1) {
+      const a = points[index];
+      const b = points[(index + 1) % points.length];
+      const c = points[(index + 2) % points.length];
+      const cross =
+        (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+      if (cross === 0) continue;
+      const turn = Math.sign(cross);
+      if (sign === 0) sign = turn;
+      expect(turn).toBe(sign);
+    }
+    expect(sign).not.toBe(0);
+  });
+
+  it("mirrors its outline between drive sides without flipping the winding", () => {
+    const left = wingMirrorOutline("left");
+    const right = wingMirrorOutline("right");
+    expect(right).toHaveLength(left.length);
+    // Same shape reflected: every point on one side has its mirror on the
+    // other. Negating x alone would reverse the winding and cull the glass
+    // away entirely, which is why the reversal is undone.
+    for (const point of left) {
+      expect(
+        right.some(
+          (other) =>
+            Math.abs(other.x + point.x) < 1e-9 &&
+            Math.abs(other.y - point.y) < 1e-9,
+        ),
+      ).toBe(true);
+    }
+    const winding = (points: { x: number; y: number }[]) =>
+      Math.sign(
+        points.reduce((sum, a, index) => {
+          const b = points[(index + 1) % points.length];
+          return sum + (a.x * b.y - b.x * a.y);
+        }, 0),
+      );
+    expect(winding(right)).toBe(winding(left));
+  });
+
+  it("stays inside the box it is normalised to", () => {
+    for (const point of wingMirrorOutline("left")) {
+      expect(Math.abs(point.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(point.y)).toBeLessThanOrEqual(1);
+    }
   });
 
   it("turns its head toward the seat, mirrored per drive side", () => {

@@ -102,6 +102,7 @@ import {
   resolveWingMirrorPose,
   wingMirrorHeadRotation,
   wingMirrorIsVisible,
+  wingMirrorOutline,
   wingMirrorSide,
 } from "./cockpitLayout";
 import { TouchDriveControls } from "./TouchDriveControls";
@@ -3490,6 +3491,50 @@ function createFacadeBox(
     scene,
   );
   mesh.position.copyFrom(position);
+  setMeshMaterial(mesh, material);
+  return mesh;
+}
+
+/**
+ * A flat panel with a chamfered outline, facing -Z, with planar UVs.
+ *
+ * Neither existing primitive can carry a mirror image on a shape with cut
+ * corners: `MeshBuilder.CreatePlane` only makes rectangles, and
+ * `createExtrudedPrism` wraps its UVs around the section rather than across the
+ * face, so a texture on it comes out smeared. This fans a convex outline from
+ * its centre and takes UVs straight off the vertex positions, so the reflection
+ * sits square on the glass whatever the outline is.
+ */
+function createChamferedPanel(
+  scene: Scene,
+  name: string,
+  outline: readonly Readonly<{ x: number; y: number }>[],
+  width: number,
+  height: number,
+  material: StandardMaterial,
+  parent?: TransformNode,
+): Mesh {
+  const positions: number[] = [0, 0, 0];
+  const uvs: number[] = [0.5, 0.5];
+  for (const point of outline) {
+    positions.push((point.x * width) / 2, (point.y * height) / 2, 0);
+    uvs.push(point.x / 2 + 0.5, point.y / 2 + 0.5);
+  }
+  const indices: number[] = [];
+  for (let index = 0; index < outline.length; index += 1) {
+    const next = ((index + 1) % outline.length) + 1;
+    indices.push(0, next, index + 1);
+  }
+  const normals: number[] = [];
+  VertexData.ComputeNormals(positions, indices, normals);
+  const mesh = new Mesh(name, scene);
+  const vertexData = new VertexData();
+  vertexData.positions = positions;
+  vertexData.indices = indices;
+  vertexData.normals = normals;
+  vertexData.uvs = uvs;
+  vertexData.applyToMesh(mesh);
+  mesh.parent = parent ?? null;
   setMeshMaterial(mesh, material);
   return mesh;
 }
@@ -10834,14 +10879,31 @@ class BabylonGameSession {
     head.parent = rig;
     const headRotation = wingMirrorHeadRotation(this.options.steeringSide);
     head.rotation.set(headRotation.x, headRotation.y, 0);
+    // Sized to hide behind the bezel from the front while still giving the
+    // housing real depth from any other angle.
     createBox(
       scene,
       "wing-mirror-shell",
-      { width: 0.181, height: 0.118, depth: 0.052 },
+      {
+        width: COCKPIT_WING_MIRROR.glassWidth * 0.88,
+        height: COCKPIT_WING_MIRROR.glassHeight * 0.86,
+        depth: 0.055,
+      },
       Vector3.Zero(),
       shell,
       head,
     );
+    const outline = wingMirrorOutline(this.options.steeringSide);
+    const bezelMargin = 1 + COCKPIT_WING_MIRROR.bezelMargin;
+    createChamferedPanel(
+      scene,
+      "wing-mirror-bezel",
+      outline,
+      COCKPIT_WING_MIRROR.glassWidth * bezelMargin,
+      COCKPIT_WING_MIRROR.glassHeight * bezelMargin,
+      shell,
+      head,
+    ).position.z = -0.026;
 
     const camera = new UniversalCamera(
       "wing-mirror-camera",
@@ -10883,17 +10945,16 @@ class BabylonGameSession {
     glassMaterial.emissiveTexture = texture;
     glassMaterial.disableLighting = true;
 
-    const glass = MeshBuilder.CreatePlane(
-      "wing-mirror-glass",
-      {
-        width: COCKPIT_WING_MIRROR.glassWidth,
-        height: COCKPIT_WING_MIRROR.glassHeight,
-      },
+    const glass = createChamferedPanel(
       scene,
+      "wing-mirror-glass",
+      outline,
+      COCKPIT_WING_MIRROR.glassWidth,
+      COCKPIT_WING_MIRROR.glassHeight,
+      glassMaterial,
+      head,
     );
-    glass.parent = head;
     glass.position.z = -0.029;
-    setMeshMaterial(glass, glassMaterial);
   }
 
   /** Hides the wing mirror, and stops rendering it, when the field of view has

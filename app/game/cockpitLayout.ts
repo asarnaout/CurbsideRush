@@ -320,13 +320,15 @@ export const COCKPIT_DOOR_X = 0.958;
  */
 export const COCKPIT_WING_MIRROR = Object.freeze({
   /** Lateral offset from the centreline, signed outward by the driver's side. */
-  lateral: 1.15,
+  lateral: 1.22,
   // Just clear of the dashboard's outboard corner, which sits closer to the eye
   // and therefore spreads wider across the frame than its width suggests.
-  y: 1.21,
+  y: 1.224,
   z: 0.78,
-  glassWidth: 0.155,
-  glassHeight: 0.098,
+  glassWidth: 0.2,
+  glassHeight: 0.105,
+  /** How far the bezel stands proud of the glass, as a fraction of each axis. */
+  bezelMargin: 0.2,
   /** How far the mirror camera swings outboard of straight back. */
   splayRad: 0.42,
 });
@@ -334,6 +336,50 @@ export const COCKPIT_WING_MIRROR = Object.freeze({
 /** Which way the driver's side lies: -x for left-hand drive. */
 export function wingMirrorSide(steeringSide: SteeringSide): number {
   return steeringSide === "left" ? -1 : 1;
+}
+
+export interface MirrorOutlinePoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * The wing mirror's outline, normalised to ±1 on both axes.
+ *
+ * A door mirror is not a rectangle, and built as one it read as a panel stuck
+ * to the door rather than a moulded housing. Chamfered corners and a taller
+ * outboard edge are what give it the cast shape a real one has. Kept as a
+ * normalised outline so the glass and the bezel behind it are provably the same
+ * shape at two different scales.
+ *
+ * Convex, and wound anticlockwise — `createChamferedPanel` fans it from the
+ * centre and relies on both.
+ */
+export const WING_MIRROR_OUTLINE: readonly MirrorOutlinePoint[] = Object.freeze([
+  { x: 1, y: 0.54 },
+  { x: 0.7, y: 1 },
+  { x: -0.62, y: 1 },
+  { x: -1, y: 0.46 },
+  { x: -1, y: -0.66 },
+  { x: -0.68, y: -1 },
+  { x: 0.72, y: -1 },
+  { x: 1, y: -0.6 },
+]);
+
+/**
+ * The outline as the driver sees it. Flipped for right-hand drive so the taller
+ * edge stays outboard rather than turning to face the cabin.
+ */
+export function wingMirrorOutline(
+  steeringSide: SteeringSide,
+): MirrorOutlinePoint[] {
+  const side = wingMirrorSide(steeringSide);
+  const points = WING_MIRROR_OUTLINE.map((point) => ({
+    x: point.x * side,
+    y: point.y,
+  }));
+  // Negating x reverses the winding, and the fan depends on it.
+  return side < 0 ? points : points.reverse();
 }
 
 /**
