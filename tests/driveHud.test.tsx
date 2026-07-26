@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DriveCornerButton,
   DriveMoneyCluster,
   DriveNavCard,
   DriveOfferCard,
@@ -12,6 +13,7 @@ import {
   DriveSurgeBanner,
   DriveOfferBar,
   FUSE_SMOOTHING_MS,
+  HUD_CREAM,
   HUD_DESIGN_WIDTH,
   HUD_MIN_SCALE,
   MOBILE_OFFER_H,
@@ -447,6 +449,54 @@ describe("the money cluster", () => {
     );
     const root = container.firstElementChild as HTMLElement;
     expect(Number(root.style.zIndex)).toBe(DRIVE_LAYER.action);
+  });
+
+  it("dims and strikes the note through once muted, not just aria-pressed (#227)", () => {
+    money({
+      buttons: [
+        { id: "music", label: "Unmute music", pressed: true, onPress: vi.fn() },
+        { id: "camera", label: "Switch camera", onPress: vi.fn() },
+        { id: "pause", label: "Pause", onPress: vi.fn() },
+      ],
+    });
+    const button = screen.getByRole("button", { name: "Unmute music" });
+    const svg = button.querySelector("svg");
+    expect(svg).not.toHaveAttribute("stroke", HUD_CREAM);
+    // The struck-through note is one path longer than the plain glyph.
+    expect(button.querySelectorAll("path")).toHaveLength(4);
+  });
+
+  it("leaves the plain note untouched while music is playing", () => {
+    money();
+    const button = screen.getByRole("button", { name: "Mute music" });
+    const svg = button.querySelector("svg");
+    expect(svg).toHaveAttribute("stroke", HUD_CREAM);
+    expect(button.querySelectorAll("path")).toHaveLength(3);
+  });
+
+  it("never lets camera or pause borrow the muted-note treatment", () => {
+    money();
+    const camera = screen.getByRole("button", { name: "Switch camera" });
+    expect(camera.querySelector("svg")).toHaveAttribute("stroke", HUD_CREAM);
+    expect(camera.querySelectorAll("path")).toHaveLength(2);
+  });
+});
+
+describe("the corner button", () => {
+  it("shows full-strength while playing", () => {
+    render(<DriveCornerButton inset={inset} label="Mute music" pressed={false} onPress={vi.fn()} />);
+    const button = screen.getByRole("button", { name: "Mute music" });
+    const svg = button.querySelector("svg");
+    expect(svg).toHaveAttribute("stroke", HUD_CREAM);
+    expect(button.querySelectorAll("path")).toHaveLength(3);
+  });
+
+  it("dims and strikes the note through once muted (#227)", () => {
+    render(<DriveCornerButton inset={inset} label="Unmute music" pressed onPress={vi.fn()} />);
+    const button = screen.getByRole("button", { name: "Unmute music" });
+    const svg = button.querySelector("svg");
+    expect(svg).not.toHaveAttribute("stroke", HUD_CREAM);
+    expect(button.querySelectorAll("path")).toHaveLength(4);
   });
 });
 
