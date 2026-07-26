@@ -43,6 +43,7 @@ import {
   LONDON_RULE_REFERENCES,
 } from "./londonContent";
 import { buildLaneTrueGeometry, CONNECTOR_BLEND_RUN_M } from "./laneConnectors";
+import { speedingFineMultiplier } from "./speeding";
 
 export const CONTENT_REVIEWED_ON = "2026-07-10";
 
@@ -2493,6 +2494,12 @@ export const PASSENGER_FARE_BY_COUNTRY: Readonly<
  * off-road, running a red). Deliberately modest — a couple of fares' worth — so
  * it nudges rather than punishes; the pivot away from termination means careless
  * driving should cost money, not end the run.
+ *
+ * Speeding is the exception: it is the one violation the game measures by
+ * degree, so it is priced by degree too. See `speedingFine`, which scales from
+ * this figure rather than replacing it — every consumer that reasons about what
+ * a fine is worth (`REPAIR_FEE_BY_COUNTRY`, the starting-wallet check) still
+ * has one number to reason about.
  */
 export const FINE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 8,
@@ -2500,6 +2507,53 @@ export const FINE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   fr: 10,
   jp: 800,
 };
+
+/**
+ * A speed in metres per second, read in the unit that country's signs use.
+ *
+ * The simulation works in m/s and every posted figure is in the local unit, so
+ * anything that puts the two side by side — what the officer writes on the
+ * ticket, what the toast tells the player — has to cross over once. The pair of
+ * constants is the same one `SimulationCore.toDisplaySpeed` uses; there is
+ * nowhere to share them from, because `simulation.ts` imports only `./types`
+ * and knows nothing of countries.
+ */
+export function postedSpeed(
+  metresPerSecond: number,
+  country: CountryProfile,
+): number {
+  return metresPerSecond * (country.speedUnit === "mph" ? 2.236936 : 3.6);
+}
+
+/**
+ * What a speeding ticket costs, scaled by how far over the driver was.
+ *
+ * Every other fine is flat because every other violation is binary — you were
+ * on the wrong side of the road or you were not. Speeding has a magnitude, and
+ * a flat charge for it says twelve over and forty over are the same offence.
+ *
+ * `speedingFineMultiplier` runs 1x to 2x; a patrol only cites past its own
+ * tolerance, about five over, so real tickets land between roughly 1.25x and
+ * 2x — $10 to $16 in New York, one to two short fares. That keeps the
+ * "deliberately modest" calibration above: the point is still to nudge, only
+ * now it nudges harder the worse the driving.
+ *
+ * Rounded to a whole unit of the currency, or to the nearest hundred where the
+ * currency has no minor units at all — a yen ticket reading Y1,347 would be the
+ * only price in the game that does.
+ */
+export function speedingFine(
+  country: CountryProfile,
+  overInPostedUnits: number,
+): number {
+  const base = FINE_BY_COUNTRY[country.id];
+  const multiplier = speedingFineMultiplier(
+    overInPostedUnits,
+    country.speedUnit,
+  );
+  const step = country.currency.minorUnits === 0 ? 100 : 1;
+  return Math.round((base * multiplier) / step) * step;
+}
 
 /**
  * Tow-and-repair bill when the car's condition hits zero. Roughly three

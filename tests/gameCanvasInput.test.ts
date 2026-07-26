@@ -23,10 +23,6 @@ import {
   resolveRouteChevronHalfSpan,
   resolveNpcVisualSlotAssignments,
   smoothClosedRoadCenterline,
-  speedingExcessMps,
-  speedingWarrantsCitation,
-  CITATION_TOLERANCE_FRACTION,
-  CITATION_TOLERANCE_MPS,
   type AdaptiveInputPresentation,
 } from "../app/game/GameCanvas";
 import {
@@ -553,53 +549,5 @@ describe("adaptive GameCanvas input presentation", () => {
       touchControlsDimmed: true,
     });
     router.dispose();
-  });
-});
-
-describe("what a patrol writes a ticket for", () => {
-  // 30 mph in m/s — the figure the raised NYC avenues now post.
-  const LIMIT_MPS = 13.4;
-  const at = (overMps: number) => ({
-    speedMps: LIMIT_MPS + overMps,
-    limitMps: LIMIT_MPS,
-  });
-
-  it("leaves the coaching band alone", () => {
-    // The monitor already spoke up at max(1.3, limit * 0.08) over — about
-    // 3 mph here. Charging money at that line would stop a driver for drift.
-    expect(speedingWarrantsCitation(at(1.4))).toBe(false);
-    expect(speedingWarrantsCitation(at(CITATION_TOLERANCE_MPS - 0.01))).toBe(false);
-  });
-
-  it("cites once the driver is clearly over", () => {
-    expect(speedingWarrantsCitation(at(CITATION_TOLERANCE_MPS + 0.01))).toBe(true);
-    expect(speedingWarrantsCitation(at(8))).toBe(true);
-  });
-
-  it("scales its tolerance with the limit on a fast road", () => {
-    // The flat 2.2 m/s floor only binds up to ~14.7 m/s of limit; above that
-    // the fraction takes over, so a 60 mph road is not ticketed at 5 mph over.
-    const fast = 26.8; // 60 mph
-    const fraction = fast * CITATION_TOLERANCE_FRACTION;
-    expect(fraction).toBeGreaterThan(CITATION_TOLERANCE_MPS);
-    expect(
-      speedingWarrantsCitation({ speedMps: fast + fraction - 0.1, limitMps: fast }),
-    ).toBe(false);
-    expect(
-      speedingWarrantsCitation({ speedMps: fast + fraction + 0.1, limitMps: fast }),
-    ).toBe(true);
-  });
-
-  it("refuses to cite an event it cannot measure", () => {
-    // The amount is derived from the excess, so an unmeasurable violation must
-    // not be a chargeable one. The monitor always emits both figures.
-    expect(speedingExcessMps(undefined)).toBeNull();
-    expect(speedingExcessMps({ speedMps: 20 })).toBeNull();
-    expect(speedingExcessMps({ speedMps: 20, limitMps: 0 })).toBeNull();
-    expect(speedingWarrantsCitation({ maneuverId: "pass-1" })).toBe(false);
-  });
-
-  it("reports the excess the fine is priced from", () => {
-    expect(speedingExcessMps(at(6))).toBeCloseTo(6, 9);
   });
 });

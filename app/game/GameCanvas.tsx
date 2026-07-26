@@ -236,6 +236,7 @@ import {
 } from "./storefronts";
 import { assembleStorefrontVariantMaster } from "./storefrontMaster";
 import { streetAddressesForMap } from "./streetAddresses";
+import { speedingWarrantsCitation } from "./speeding";
 import {
   regulatorySignPlacements,
   regulatorySignYawRad,
@@ -1533,52 +1534,6 @@ const CHASE_TUNING_BY_MODEL: Partial<Record<VehicleModel, ChaseTuning>> = {
   // The sports car sits low; tighten the frame slightly.
   "sport-sedan": { backM: 9.8, upM: 5, targetAheadM: 3.8 },
 };
-
-/**
- * How far over the limit a patrol will actually pull someone over for, on top
- * of the tolerance the coaching already allows.
- *
- * The rule monitor coaches at `max(1.3, limit * 0.08)` over — about 3 mph on a
- * 30 — which is the right place to *say something* and completely the wrong
- * place to take money. No force writes a ticket for three over, and with a
- * patrol inside 35 m being common, citing at the coaching threshold would stop
- * a driver for drifting. This second, wider band is what a ticket costs: the
- * coaching still fires underneath it and charges nothing.
- */
-export const CITATION_TOLERANCE_MPS = 2.2;
-export const CITATION_TOLERANCE_FRACTION = 0.15;
-
-/**
- * How far over the limit the driver was, from a `speeding` event's own
- * evidence, or null when the event did not carry both figures.
- *
- * Null is the honest answer rather than zero: the amount charged is derived
- * from this, so an event that cannot be measured must not be one that can be
- * priced. The monitor always emits both, so this is a contract check.
- */
-export function speedingExcessMps(
-  evidence: Readonly<Record<string, string | number | boolean>> | undefined,
-): number | null {
-  const speed = evidence?.speedMps;
-  const limit = evidence?.limitMps;
-  if (typeof speed !== "number" || typeof limit !== "number" || limit <= 0) {
-    return null;
-  }
-  return speed - limit;
-}
-
-/** Whether a `speeding` event is over the line a patrol would stop someone at. */
-export function speedingWarrantsCitation(
-  evidence: Readonly<Record<string, string | number | boolean>> | undefined,
-): boolean {
-  const excess = speedingExcessMps(evidence);
-  if (excess === null) return false;
-  const limit = evidence?.limitMps as number;
-  return (
-    excess >
-    Math.max(CITATION_TOLERANCE_MPS, limit * CITATION_TOLERANCE_FRACTION)
-  );
-}
 
 export interface GameCanvasProps {
   trafficSide: TrafficSide;
