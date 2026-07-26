@@ -2414,6 +2414,38 @@ export function formatMoney(amount: number, country: CountryProfile): string {
   return `${value < 0 ? "-" : ""}${symbol}${body}`;
 }
 
+/**
+ * Formats a distance the way that country signs them, e.g. "0.4 mi" or "350 m".
+ *
+ * There is no `distanceUnit` on a country profile, and adding one would be a
+ * second source of truth: `speedUnit` already says which system a country
+ * drives in, and it is right for all of them — the mph countries sign in miles,
+ * the km/h ones in metres and kilometres.
+ *
+ * The rounding is deliberately coarse. A guidance readout refreshes ten times a
+ * second, and a string that changes every one of those re-lays-out a text node
+ * for no benefit — nobody reads a drop-off as 0.37 mi. Quantising to a tenth of
+ * a mile or ten metres changes it about once a second, which is also how a real
+ * one reads.
+ */
+export function formatDistance(metres: number, country: CountryProfile): string {
+  const value = Number.isFinite(metres) ? Math.max(0, metres) : 0;
+  if (country.speedUnit === "mph") {
+    const miles = value / 1609.344;
+    // Below a tenth of a mile "0.1 mi" stops distinguishing anything, and the
+    // instruction is imminent, so it switches to the short unit that country
+    // signs in — Britain in yards, America in feet.
+    if (miles < 0.1) {
+      const yards = value * 1.09361;
+      if (country.id === "uk") return `${Math.max(10, Math.round(yards / 10) * 10)} yd`;
+      return `${Math.max(50, Math.round((yards * 3) / 50) * 50)} ft`;
+    }
+    return `${miles.toFixed(1)} mi`;
+  }
+  if (value < 1000) return `${Math.max(10, Math.round(value / 10) * 10)} m`;
+  return `${(value / 1000).toFixed(1)} km`;
+}
+
 export const SCORING_CONFIG: ScoringConfig = {
   weights: {
     safety: 0.5,
