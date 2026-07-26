@@ -480,6 +480,17 @@ export interface MapPack {
   readonly geometry: ProceduralMapGeometry;
   readonly laneGraph: LaneGraph;
   readonly ambientTraffic?: AmbientTrafficConfig;
+  /**
+   * Display names for this city's streets, keyed by `RoadSurface.id` (which is
+   * the same key space as `LaneSegment.roadId`).
+   *
+   * Optional, and deliberately partial: guidance falls back to naming no street
+   * at all rather than blocking on a city nobody has named yet. Names live on
+   * the pack rather than in one global table because they are authored content
+   * like the geometry beside them — a central table would have to be kept in
+   * step with every content file by hand.
+   */
+  readonly roadNames?: Readonly<Record<string, string>>;
 }
 
 /** What a solid obstacle is, for collision-event evidence and messaging. */

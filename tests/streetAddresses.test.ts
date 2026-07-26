@@ -7,7 +7,7 @@ import {
 } from "../app/game/gigs";
 import { resolveSimulationLaneAnchor } from "../app/game/simulationAdapter";
 import {
-  ADDRESSABLE_STREET_NAMES,
+  addressableStreetNames,
   JUNCTION_CLEARANCE_M,
   MIN_OPPOSITE_KERB_M,
   MIN_SEPARATION_M,
@@ -45,6 +45,7 @@ const rawInput = (pack: MapPack): StreetAddressInput => ({
   blocks: pack.geometry.blocks,
   landmarks: pack.geometry.landmarks,
   roadSurfaces: pack.geometry.roadSurfaces,
+  roadNames: pack.roadNames,
   occupiedPoints: poisOf(pack),
 });
 
@@ -87,7 +88,7 @@ describe("procedural street addresses", () => {
     const streets = new Set(
       nycAddresses.map((address) => address.name.replace(/^\d+\s/, "")),
     );
-    expect(streets).toEqual(new Set(ADDRESSABLE_STREET_NAMES));
+    expect(streets).toEqual(new Set(addressableStreetNames(nyc.roadNames)));
   });
 
   it("is deterministic, so a street keeps its addresses between runs", () => {

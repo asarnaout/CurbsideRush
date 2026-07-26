@@ -66,6 +66,9 @@ export interface StreetAddressInput {
   readonly blocks: readonly AddressBlock[];
   readonly landmarks: readonly AddressLandmark[];
   readonly roadSurfaces: readonly AddressRoadSurface[];
+  /** Display names by `roadId`. A profiled street with no name here generates
+   * nothing — the address would have no street to be on. */
+  readonly roadNames?: Readonly<Record<string, string>>;
   /** Authored venue + service-point anchors to keep clear of. */
   readonly occupiedPoints?: readonly WorldPoint[];
   /** Mean distance between addresses along one kerb. Defaults to 150 m. */
@@ -110,6 +113,7 @@ export interface AddressMapPack {
     }[];
   };
   readonly laneGraph: { readonly lanes: readonly AddressLane[] };
+  readonly roadNames?: Readonly<Record<string, string>>;
 }
 
 const ADDRESSES_BY_MAP = new Map<string, readonly StreetAddress[]>();
@@ -135,6 +139,7 @@ export function streetAddressesForMap(
     blocks: pack.geometry.blocks ?? [],
     landmarks: pack.geometry.landmarks ?? [],
     roadSurfaces: pack.geometry.roadSurfaces ?? [],
+    roadNames: pack.roadNames,
     occupiedPoints: [
       ...(pack.geometry.gigVenues ?? []),
       ...(pack.geometry.servicePoints ?? []),
@@ -197,16 +202,31 @@ export const MIN_OPPOSITE_KERB_M = 12;
 const POI_CLEARANCE_M = 30;
 
 /**
- * Margin the kerb spot keeps beyond a carriageway edge. This is what stops an
- * *inner* lane from generating: its right-hand "kerb" is really the next lane
- * over, and while such a spot can still find building frontage further out, a
- * rider standing there would be stood in live traffic.
+ * Margin the kerb spot must keep beyond a carriageway edge. This is what stops
+ * an *inner* lane from generating: its right-hand "kerb" is really the next
+ * lane over, and while such a spot can still find building frontage further
+ * out, a rider standing there would be stood in live traffic.
+ *
+ * The test is "at least this much clear", not "more than". The difference is
+ * not pedantry: NYC's narrow one-way side streets are 9 m with their single
+ * lane on the centreline, so `KERB_OFFSET_M` lands the rider at exactly 5 m —
+ * the edge plus exactly this margin. Rejecting on equality silently excluded
+ * every one of those six streets from having addresses at all, which read as
+ * "side streets have no frontage" rather than as an off-by-a-boundary.
  */
 const CARRIAGEWAY_CLEARANCE_M = 0.5;
 
-/** Street names and house numbering, keyed by `LaneSegment.roadId`. */
+/**
+ * House numbering for a street, keyed by `LaneSegment.roadId`.
+ *
+ * **Presence in `STREET_PROFILES` is what makes a street addressable**, so this
+ * table gates gig drop-offs and is not merely descriptive. The display name
+ * deliberately does *not* live here any more: it moved to `MapPack.roadNames`
+ * so that naming a street for turn-by-turn guidance cannot silently start
+ * generating gigs on it. Keep the two apart — a road wants a name in far more
+ * cities than it wants house numbers.
+ */
 interface StreetProfile {
-  readonly name: string;
   /** Which world axis the street runs along; numbering counts along it. */
   readonly axis: "x" | "z";
   /** House number at `axis = 0`. */
@@ -225,27 +245,62 @@ interface StreetProfile {
  * neighbourhood — Broadway is in the 2100s up here, the avenues a little below
  * it, and the cross streets start from the park and count west.
  */
+const AVENUE = { axis: "z", numbersPerM: 0.3 } as const;
+/** Cross streets number west from the park, and far faster than an avenue. */
+const CROSS_STREET = {
+  axis: "x",
+  baseNumber: 200,
+  axisSign: -1,
+  numbersPerM: 0.55,
+} as const;
+
 const STREET_PROFILES: Record<string, StreetProfile> = {
-  "nyc-riverside": { name: "Riverside Dr", axis: "z", baseNumber: 250, numbersPerM: 0.3 },
-  "nyc-west-end": { name: "West End Ave", axis: "z", baseNumber: 500, numbersPerM: 0.3 },
-  "nyc-broadway": { name: "Broadway", axis: "z", baseNumber: 2150, numbersPerM: 0.3 },
-  "nyc-amsterdam": { name: "Amsterdam Ave", axis: "z", baseNumber: 2050, numbersPerM: 0.3 },
-  "nyc-columbus": { name: "Columbus Ave", axis: "z", baseNumber: 1950, numbersPerM: 0.3 },
-  "nyc-central-park-west": { name: "Central Park West", axis: "z", baseNumber: 300, numbersPerM: 0.3 },
-  "nyc-west-72": { name: "W 72nd St", axis: "x", baseNumber: 200, axisSign: -1, numbersPerM: 0.55 },
-  "nyc-west-79": { name: "W 79th St", axis: "x", baseNumber: 200, axisSign: -1, numbersPerM: 0.55 },
-  "nyc-west-86": { name: "W 86th St", axis: "x", baseNumber: 200, axisSign: -1, numbersPerM: 0.55 },
+  "nyc-riverside": { ...AVENUE, baseNumber: 250 },
+  "nyc-west-end": { ...AVENUE, baseNumber: 500 },
+  "nyc-broadway": { ...AVENUE, baseNumber: 2150 },
+  "nyc-amsterdam": { ...AVENUE, baseNumber: 2050 },
+  "nyc-columbus": { ...AVENUE, baseNumber: 1950 },
+  "nyc-central-park-west": { ...AVENUE, baseNumber: 300 },
+  // Every cross street, wide crosstown and narrow side street alike. The side
+  // streets were held back while they had no names; now that they have them,
+  // leaving them out only made the city's drop-offs cluster on six avenues.
+  "nyc-west-59": CROSS_STREET,
+  "nyc-west-61": CROSS_STREET,
+  "nyc-west-65": CROSS_STREET,
+  "nyc-west-68": CROSS_STREET,
+  "nyc-west-72": CROSS_STREET,
+  "nyc-west-75": CROSS_STREET,
+  "nyc-west-79": CROSS_STREET,
+  "nyc-west-82": CROSS_STREET,
+  "nyc-west-86": CROSS_STREET,
+  "nyc-west-91": CROSS_STREET,
+  "nyc-west-96": CROSS_STREET,
+  "nyc-west-100": CROSS_STREET,
+  "nyc-west-106": CROSS_STREET,
 };
 
 /**
- * Every street the generator is opted into, by display name. A road with no
- * profile above produces no addresses at all, silently — so this is exported
- * for tests to assert that each profiled street really does yield some, which
- * is the only way that omission ever surfaces.
+ * Every street the generator is opted into, by display name.
+ *
+ * Derived from the profiles **intersected with the map's names**, not from the
+ * names alone: a street can be named for guidance in a city that generates no
+ * addresses at all, and listing those here would claim addresses that never
+ * appear. A road with no profile produces nothing, silently, so this is
+ * exported for tests to assert each profiled street really does yield some —
+ * the only way that omission ever surfaces.
  */
-export const ADDRESSABLE_STREET_NAMES: readonly string[] = Object.freeze([
-  ...new Set(Object.values(STREET_PROFILES).map((profile) => profile.name)),
-]);
+export function addressableStreetNames(
+  roadNames: Readonly<Record<string, string>> | undefined,
+): readonly string[] {
+  if (!roadNames) return [];
+  return [
+    ...new Set(
+      Object.keys(STREET_PROFILES)
+        .map((roadId) => roadNames[roadId])
+        .filter((name): name is string => Boolean(name)),
+    ),
+  ];
+}
 
 /** What a block's zoning makes the people living on its frontage. */
 const KINDS_BY_BUILDING_SET: Record<string, readonly GigVenueKind[]> = {
@@ -310,13 +365,19 @@ export function generateStreetAddresses(
   const usedNames = new Set<string>();
 
   // Sorted for a stable walk order regardless of how the map authored its lanes.
+  //
+  // The gate is `STREET_PROFILES`, never the name table: names exist for whole
+  // cities that generate no addresses at all, and gating on those would opt
+  // every one of them in at once.
   const lanes = [...input.lanes]
     .filter((lane) => ADDRESSABLE_ROLES.has(lane.role ?? ""))
     .filter((lane) => STREET_PROFILES[lane.roadId ?? ""])
+    .filter((lane) => input.roadNames?.[lane.roadId ?? ""])
     .sort((a, b) => a.id.localeCompare(b.id));
 
   for (const lane of lanes) {
     const profile = STREET_PROFILES[lane.roadId ?? ""];
+    const streetName = input.roadNames?.[lane.roadId ?? ""] ?? "";
     const length = polylineLength(lane.centerline);
     const usable = length - JUNCTION_CLEARANCE_M * 2;
     if (usable <= 0) continue;
@@ -351,7 +412,7 @@ export function generateStreetAddresses(
       if (
         input.roadSurfaces.some(
           (surface) =>
-            distanceToPolylineM(kerb, surface.centerline) <=
+            distanceToPolylineM(kerb, surface.centerline) <
             surface.widthM / 2 + CARRIAGEWAY_CLEARANCE_M,
         )
       ) {
@@ -400,8 +461,8 @@ export function generateStreetAddresses(
       // street's own parity until one is free rather than dropping the address,
       // so every name the HUD prints identifies exactly one place.
       let number = houseNumber(profile, pose, kerb);
-      while (usedNames.has(`${number} ${profile.name}`)) number += 2;
-      const name = `${number} ${profile.name}`;
+      while (usedNames.has(`${number} ${streetName}`)) number += 2;
+      const name = `${number} ${streetName}`;
       usedNames.add(name);
 
       accepted.push({
