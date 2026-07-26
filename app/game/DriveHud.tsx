@@ -807,9 +807,32 @@ function manoeuvreKicker(manoeuvre: HudManoeuvre): string {
 // Top-centre: how fast you are going, against how fast you may
 // ---------------------------------------------------------------------------
 
-/** Over the limit by this much reads as amber, and by the second as red. */
-export const SPEED_WARN_OVER = 6;
-export const SPEED_ALARM_OVER = 15;
+/**
+ * Over the limit by this much reads as amber, and by the second as red —
+ * stated per unit rather than as one pair applied to whatever arrives.
+ *
+ * The margins are the same piece of road either way; only the numbering
+ * changes. A flat 6/15 calibrated in mph put Tokyo's amber at 3.7 mph over and
+ * its red at 9, so a 30 km/h street alarmed at speeds nobody in New York would
+ * look up from — which reads exactly like the readout being in the wrong unit,
+ * even though the figure and its label were right all along.
+ */
+export interface SpeedOverBand {
+  readonly warn: number;
+  readonly alarm: number;
+}
+
+export const SPEED_OVER_BANDS: Readonly<Record<"mph" | "kmh", SpeedOverBand>> = {
+  mph: { warn: 6, alarm: 15 },
+  kmh: { warn: 10, alarm: 24 },
+};
+
+/** The band for a readout's unit. Anything metric takes the km/h pair. */
+export function speedOverBand(speedUnit: string): SpeedOverBand {
+  return speedUnit.toLowerCase().startsWith("k")
+    ? SPEED_OVER_BANDS.kmh
+    : SPEED_OVER_BANDS.mph;
+}
 
 export function DriveSpeedCluster({
   scale,
@@ -834,7 +857,8 @@ export function DriveSpeedCluster({
     ? { plateW: 42, plateH: 53, plateRadius: 5, pad: 3, border: 1.5, cap: 7, num: 21, speed: 46, unit: 13, gap: 11, gear: 10 }
     : { plateW: 70, plateH: 88, plateRadius: 8, pad: 5, border: 2.5, cap: 11, num: 35, speed: 76, unit: 22, gap: 20, gear: 14 };
   const over = speedLimit > 0 ? speed - speedLimit : 0;
-  const level = over >= SPEED_ALARM_OVER ? 2 : over >= SPEED_WARN_OVER ? 1 : 0;
+  const band = speedOverBand(speedUnit);
+  const level = over >= band.alarm ? 2 : over >= band.warn ? 1 : 0;
   const speedColor = [HUD_CREAM, HUD_GOLD, HUD_CORAL][level];
   const plateGlow = [
     "0 0 0 0 rgba(0,0,0,0)",
