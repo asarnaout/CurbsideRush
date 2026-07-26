@@ -33,8 +33,14 @@ const distance = (
   b: { readonly x: number; readonly z: number },
 ): number => Math.hypot(a.x - b.x, a.z - b.z);
 
-// Small deterministic hash → [0, 1) so a given seed reproduces the same offer.
-const hashToUnit = (seed: number): number => {
+/**
+ * Small deterministic hash → [0, 1) so a given seed reproduces the same offer.
+ *
+ * Exported because `dispatch.ts` draws from the same seeds — when work is
+ * offered and whether the city is surging have to replay identically alongside
+ * what the work *is*, and two hashes would be two things to keep in step.
+ */
+export const hashToUnit = (seed: number): number => {
   let h = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
   h ^= h >>> 13;
   h = Math.imul(h, 0xc2b2ae35) >>> 0;
