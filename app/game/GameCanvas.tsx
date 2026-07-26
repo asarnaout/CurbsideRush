@@ -576,6 +576,106 @@ export function signalStopBarSegment(
   };
 }
 
+/**
+ * The enforcement camera's body: a squat housing under a rain hood, on a stub
+ * bracket back to whatever it is bolted to. Every figure is shared between the
+ * mesh and `trafficCameraPlacement` below, so the lens can never drift off the
+ * front of the box it is supposed to be set into.
+ */
+export const TRAFFIC_CAMERA_BODY = {
+  housing: { width: 0.3, height: 0.24, depth: 0.44 },
+  hood: { width: 0.34, height: 0.05, depth: 0.32 },
+  bracket: { length: 0.4, diameter: 0.07 },
+  /** How far forward of the body centre the glass sits. */
+  lensForwardM: 0.23,
+  /** How far back along a mast arm the camera stands from the signal head. */
+  armInsetM: 1.9,
+  /** Height above the mast, so it sits on the arm rather than in it. */
+  mastRiseM: 0.2,
+  /**
+   * Drop below the top of a kerbside pole, and how far the body steps off it.
+   *
+   * The step has to clear the shaft's radius *plus* half the housing depth, or
+   * the back of the camera is inside the pole. Set a little beyond that so the
+   * bracket has somewhere to reach back to.
+   *
+   * The drop is small because there is very little pole left to use: a kerbside
+   * head hangs centred at `poleHeight - 0.95` and is 1.48 tall, so it already
+   * reaches to within 0.21 m of the top. The camera goes in the gap above it.
+   */
+  poleDropM: 0.08,
+  poleClearM: 0.42,
+} as const;
+
+export interface TrafficCameraPlacement {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** Yaw of the body, matching the signal head so the glass looks at oncoming traffic. */
+  readonly yaw: number;
+  /** Where the glass itself lands, for the lens instance set into the front. */
+  readonly lens: { readonly x: number; readonly y: number; readonly z: number };
+}
+
+/**
+ * Where an enforcement camera stands on the signal it watches.
+ *
+ * It takes the head's own yaw rather than deriving one. A head's lenses hang on
+ * its local -Z and it is turned by the approach's direction of travel, which
+ * puts the glass facing back down the road at the driver being signalled — the
+ * same thing a camera has to look at, so the two are the same number. This is
+ * the relation `regulatorySigns.ts` spells out for DO NOT ENTER: a sign (or a
+ * lens) meant for the driver coming at you faces into the flow.
+ *
+ * Over the carriageway it stands on top of the mast arm, back from the head so
+ * the two read as separate hardware. On a kerbside pole there is no arm to
+ * stand on, so it goes above the head and steps off the shaft far enough to
+ * clear it.
+ */
+export function trafficCameraPlacement(
+  installation: {
+    readonly position: GameCanvasPoint;
+    readonly headingDeg: number;
+    readonly armHeadingDeg?: number;
+    readonly mounting: string;
+  },
+  poleHeight: number,
+  armSpanM: number,
+): TrafficCameraPlacement {
+  const yaw = degreesToRadians(installation.headingDeg);
+  // The direction the glass looks: local -Z through a yaw about Y.
+  const facingX = -Math.sin(yaw);
+  const facingZ = -Math.cos(yaw);
+  const base = installation.position;
+  let x: number;
+  let z: number;
+  let y: number;
+  if (installation.mounting === "mast_arm") {
+    const armHeading = degreesToRadians(
+      installation.armHeadingDeg ?? installation.headingDeg,
+    );
+    const along = Math.max(0, armSpanM - TRAFFIC_CAMERA_BODY.armInsetM);
+    x = base.x + Math.cos(armHeading) * along;
+    z = base.z - Math.sin(armHeading) * along;
+    y = poleHeight + TRAFFIC_CAMERA_BODY.mastRiseM;
+  } else {
+    x = base.x + facingX * TRAFFIC_CAMERA_BODY.poleClearM;
+    z = base.z + facingZ * TRAFFIC_CAMERA_BODY.poleClearM;
+    y = poleHeight - TRAFFIC_CAMERA_BODY.poleDropM;
+  }
+  return {
+    x,
+    y,
+    z,
+    yaw,
+    lens: {
+      x: x + facingX * TRAFFIC_CAMERA_BODY.lensForwardM,
+      y,
+      z: z + facingZ * TRAFFIC_CAMERA_BODY.lensForwardM,
+    },
+  };
+}
+
 /** Removes authored duplicate points while retaining the fact that a path is closed. */
 function normalizeRoadCenterline(
   points: readonly GameCanvasPoint[],
@@ -3791,6 +3891,7 @@ class BabylonGameSession {
   /** Shared by both sign families; see `signPostMaster`. */
   private signPost: Mesh | null = null;
   private signalLensMaster: Mesh | null = null;
+  private trafficCameraMaster: Mesh | null = null;
   private signalRedMaterial: StandardMaterial | null = null;
   private signalAmberMaterial: StandardMaterial | null = null;
   private signalGreenMaterial: StandardMaterial | null = null;
@@ -8673,6 +8774,10 @@ class BabylonGameSession {
               phaseGroups: phaseGroups.length ? phaseGroups : [control.id],
               style: installation.style,
             },
+            // One per head, so each approach into an equipped junction has a
+            // lens looking back at it rather than one camera pointed down a
+            // single arm while the other three go unwatched.
+            cameraControlIds.has(control.id) && installation.role === "primary",
           );
           continue;
         }
@@ -10665,6 +10770,90 @@ class BabylonGameSession {
     return master;
   }
 
+  /**
+   * The one hidden mesh behind every enforcement camera in the city.
+   *
+   * Merged down to a single mesh on a single material on purpose: Babylon
+   * batches instances of one mesh into one draw call, and a MultiMaterial merge
+   * would have cost one per submesh per camera instead. Sixteen cameras on the
+   * New York grid are therefore one draw call, and the glass on the front is an
+   * instance of the signal lens master, so it joins a batch that already exists
+   * and costs nothing at all.
+   *
+   * Built from boxes rather than a downloaded glb: the CC0 sets have generic
+   * security cameras and no enforcement camera, and an imported one would have
+   * carried a licence entry, a registry entry, preload weight and an art style
+   * at odds with the hand-built signal head it bolts to.
+   */
+  private getTrafficCameraMaster(material: StandardMaterial): Mesh | null {
+    if (this.trafficCameraMaster) return this.trafficCameraMaster;
+    const { housing, hood, bracket } = TRAFFIC_CAMERA_BODY;
+    const parts = [
+      createBox(this.scene, "traffic-camera-housing", housing, Vector3.Zero(), material),
+      createBox(
+        this.scene,
+        "traffic-camera-hood",
+        hood,
+        new Vector3(0, housing.height / 2 + hood.height / 2, -0.07),
+        material,
+      ),
+    ];
+    const stem = createCylinder(
+      this.scene,
+      "traffic-camera-bracket",
+      { height: bracket.length, diameter: bracket.diameter, tessellation: 8 },
+      new Vector3(0, 0, housing.depth / 2 + bracket.length / 2),
+      material,
+    );
+    // The cylinder stands on its own Y; lay it back along +Z into the mount.
+    stem.rotation.x = Math.PI / 2;
+    parts.push(stem);
+    const master = Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+    if (!master) return null;
+    master.name = "prop-master-traffic-camera";
+    master.isVisible = false;
+    master.isPickable = false;
+    this.trafficCameraMaster = master;
+    return master;
+  }
+
+  /** Stands a camera on `installation`, looking back down the approach it watches. */
+  private buildTrafficCamera(
+    controlId: string,
+    installation: {
+      readonly position: GameCanvasPoint;
+      readonly headingDeg: number;
+      readonly armHeadingDeg?: number;
+      readonly mounting: string;
+    },
+    poleHeight: number,
+    armSpanM: number,
+    materials: TrafficControlMaterials,
+  ) {
+    const master = this.getTrafficCameraMaster(materials.dark);
+    if (!master) return;
+    const placement = trafficCameraPlacement(installation, poleHeight, armSpanM);
+    const body = master.createInstance(`prop-traffic-camera-${controlId}`);
+    body.position.set(placement.x, placement.y, placement.z);
+    body.rotation.y = placement.yaw;
+    body.isPickable = false;
+    this.staticSceneryFreeze.push(body);
+    const lens = this.getSignalLensMaster().createInstance(
+      `prop-traffic-camera-${controlId}-lens`,
+    );
+    lens.position.set(placement.lens.x, placement.lens.y, placement.lens.z);
+    lens.rotation.x = Math.PI / 2;
+    lens.rotation.y = placement.yaw;
+    // The master lens is 0.25 across; a camera's glass is a smaller, flatter
+    // disc. Its colour is the standby glow, written once — there is no flash to
+    // drive, because the citation is a toast on the HUD and a camera you have
+    // already passed is behind you by the time it would fire.
+    lens.scaling.set(0.62, 0.6, 0.62);
+    lens.isPickable = false;
+    lens.instancedBuffers.color = new Color4(0.16, 0.012, 0.01, 1);
+    this.staticSceneryFreeze.push(lens);
+  }
+
   /** A lens instance parented to `head`; returns its live color handle. */
   private createSignalLens(
     name: string,
@@ -10739,6 +10928,7 @@ class BabylonGameSession {
       AuthoredSignalHeadVisual,
       "trafficLightIds" | "phaseGroup" | "phaseGroups" | "style"
     >,
+    hasCamera: boolean,
   ) {
     const headHeading = degreesToRadians(installation.headingDeg);
     const armHeading = degreesToRadians(
@@ -10778,6 +10968,15 @@ class BabylonGameSession {
         materials,
         { controlId, ...runtime },
       );
+      if (hasCamera) {
+        this.buildTrafficCamera(
+          `${controlId}-${installation.id}`,
+          installation,
+          poleHeight,
+          span,
+          materials,
+        );
+      }
       return;
     }
     this.createSignalHead(
@@ -10788,6 +10987,15 @@ class BabylonGameSession {
       materials,
       { controlId, ...runtime },
     );
+    if (hasCamera) {
+      this.buildTrafficCamera(
+        `${controlId}-${installation.id}`,
+        installation,
+        poleHeight,
+        0,
+        materials,
+      );
+    }
   }
 
   private buildRailwayCrossingInstallation(
