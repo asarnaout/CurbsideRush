@@ -177,6 +177,88 @@ export const COCKPIT_CLUSTER = Object.freeze({
 });
 
 /**
+ * The windscreen aperture, as the two points its rake runs between.
+ *
+ * The A-pillars, the glass, the shade band and the wiper park all derive from
+ * these four numbers, so the screen cannot end up with its glass and its frame
+ * on slightly different planes.
+ */
+export const COCKPIT_SCREEN = Object.freeze({
+  sillY: 1.155,
+  sillZ: 0.99,
+  headerY: 1.7,
+  headerZ: 0.72,
+  halfWidth: 0.93,
+});
+
+/** Distance from sill to header along the rake. */
+export function cockpitScreenSpan(): number {
+  return Math.hypot(
+    COCKPIT_SCREEN.headerY - COCKPIT_SCREEN.sillY,
+    COCKPIT_SCREEN.headerZ - COCKPIT_SCREEN.sillZ,
+  );
+}
+
+/**
+ * Rotation about X that lays a Babylon plane flat against the windscreen.
+ *
+ * A plane is authored in XY facing -Z; this turns that face into the screen's
+ * inner surface, which on a raked screen points down and back at the driver.
+ */
+export function cockpitScreenTiltX(): number {
+  return -Math.atan2(
+    COCKPIT_SCREEN.sillZ - COCKPIT_SCREEN.headerZ,
+    COCKPIT_SCREEN.headerY - COCKPIT_SCREEN.sillY,
+  );
+}
+
+/** Outer face of each A-pillar, and how thick the slab is. */
+export const COCKPIT_PILLAR_X = 1.08;
+export const COCKPIT_PILLAR_THICKNESS = 0.065;
+
+/**
+ * The A-pillar, as a slab lying along the screen's edge.
+ *
+ * Built by walking the rake line and stepping sideways off it, so the pillar's
+ * inner face is the glass line by construction. It does not lean inward as it
+ * rises — a prism swept along X is a constant-X slab and cannot — which is a
+ * liberty the rest of the low-poly bodywork already takes.
+ */
+export const COCKPIT_PILLAR_PROFILE: readonly CockpitProfilePoint[] =
+  Object.freeze([
+    { y: 1.146, z: 0.972 },
+    { y: 1.691, z: 0.702 },
+    { y: 1.74, z: 0.801 },
+    { y: 1.195, z: 1.071 },
+  ]);
+
+/**
+ * The header rail and the strip of headliner behind it.
+ *
+ * Deliberately high: the lip lands about 4% down the frame on a phone in
+ * landscape, so it crops the sky the way a real cabin does without taking any
+ * of the road. It sits behind the rear-view mirror's viewport, which is drawn
+ * by a later camera and paints straight over it — the same relationship a real
+ * mirror has with the headliner it hangs off.
+ */
+export const COCKPIT_ROOF_PROFILE: readonly CockpitProfilePoint[] = Object.freeze([
+  { y: 1.672, z: 0.695 },
+  { y: 1.745, z: 0.715 },
+  { y: 1.762, z: 0.2 },
+  { y: 1.688, z: 0.2 },
+]);
+
+/** The inner door panel, swept thin down each flank. */
+export const COCKPIT_DOOR_PROFILE: readonly CockpitProfilePoint[] = Object.freeze([
+  { y: 0.5, z: -0.55 },
+  { y: 0.5, z: 0.78 },
+  { y: 1.02, z: 0.88 },
+  { y: 1.06, z: -0.6 },
+]);
+
+export const COCKPIT_DOOR_X = 0.958;
+
+/**
  * The cluster's faceplate is baked at this size and never repainted. Its aspect
  * ratio is the mesh's, so the dial faces stay circular.
  */

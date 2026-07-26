@@ -73,12 +73,21 @@ import {
   COCKPIT_CLUSTER,
   COCKPIT_CLUSTER_TEXTURE,
   COCKPIT_DASH_PROFILE,
+  COCKPIT_DOOR_PROFILE,
+  COCKPIT_DOOR_X,
   COCKPIT_GAUGE_CENTRES,
   COCKPIT_GAUGE_RADIUS,
+  COCKPIT_PILLAR_PROFILE,
+  COCKPIT_PILLAR_THICKNESS,
+  COCKPIT_PILLAR_X,
+  COCKPIT_ROOF_PROFILE,
+  COCKPIT_SCREEN,
   COCKPIT_SPEEDO_MAX_MPS,
   COCKPIT_VENT_PROFILE,
   COCKPIT_VENT_SLOTS,
   REAR_VIEW_VIEWPORT,
+  cockpitScreenSpan,
+  cockpitScreenTiltX,
   resolveCockpitPitch,
   resolveCockpitSteeringGeometry,
   resolveGaugeNeedleAngle,
@@ -3519,6 +3528,9 @@ class BabylonGameSession {
   private steeringAssembly: TransformNode | null = null;
   /** Speedometer then tachometer pivots, spun in updatePlayerVisuals. */
   private gaugeNeedles: TransformNode[] = [];
+  /** Glass, tint band and wipers — the first things dropped on the blurriest
+   * touch rung, since the panes are the only fill-rate cost in the cabin. */
+  private windscreenParts: Mesh[] = [];
   private readonly thirdCamera: ArcRotateCamera;
   private readonly firstCamera: UniversalCamera;
   private readonly rearCamera: UniversalCamera;
@@ -10919,16 +10931,16 @@ class BabylonGameSession {
     const dash = makeInteriorMaterial(
       scene,
       "dashboard",
-      new Color3(0.23, 0.212, 0.192),
-      new Color3(0.031, 0.029, 0.026),
-      0.55,
+      new Color3(0.275, 0.253, 0.229),
+      new Color3(0.038, 0.035, 0.031),
+      0.6,
     );
     const cockpitTrim = makeInteriorMaterial(
       scene,
       "cockpit-trim",
-      new Color3(0.285, 0.264, 0.239),
-      new Color3(0.036, 0.033, 0.029),
-      0.55,
+      new Color3(0.335, 0.31, 0.281),
+      new Color3(0.044, 0.04, 0.035),
+      0.6,
     );
     const instrumentFace = makeInteriorMaterial(
       scene,
@@ -10971,6 +10983,106 @@ class BabylonGameSession {
         cockpitTrim,
         this.playerCockpit,
       );
+      const doorCard = createExtrudedPrism(
+        scene,
+        `cockpit-door-card-${side}`,
+        0.05,
+        COCKPIT_DOOR_PROFILE,
+        dash,
+        this.playerCockpit,
+      );
+      doorCard.position.x = side * COCKPIT_DOOR_X;
+      const pillar = createExtrudedPrism(
+        scene,
+        `cockpit-a-pillar-${side}`,
+        COCKPIT_PILLAR_THICKNESS,
+        COCKPIT_PILLAR_PROFILE,
+        cockpitTrim,
+        this.playerCockpit,
+      );
+      pillar.position.x = side * COCKPIT_PILLAR_X;
+      createBox(
+        scene,
+        `cockpit-sun-visor-${side}`,
+        { width: 0.44, height: 0.022, depth: 0.19 },
+        new Vector3(side * 0.4, 1.652, 0.612),
+        cockpitTrim,
+        this.playerCockpit,
+      ).rotation.x = -0.42;
+    }
+    createExtrudedPrism(
+      scene,
+      "cockpit-header-rail",
+      COCKPIT_CABIN_WIDTH,
+      COCKPIT_ROOF_PROFILE,
+      cockpitTrim,
+      this.playerCockpit,
+    );
+
+    // The glass. One near-transparent pane over the whole aperture plus a
+    // darker band along the header, the way a real screen is tinted. Lighting
+    // is off (the colour IS the emissive) and depth writes are disabled, so it
+    // can never occlude the alpha-blended crowd and shadows behind it.
+    const screenTilt = cockpitScreenTiltX();
+    const screenSpan = cockpitScreenSpan();
+    const screenMidY = (COCKPIT_SCREEN.sillY + COCKPIT_SCREEN.headerY) / 2;
+    const screenMidZ = (COCKPIT_SCREEN.sillZ + COCKPIT_SCREEN.headerZ) / 2;
+    const glassMaterial = new StandardMaterial("windscreen-glass", scene);
+    glassMaterial.diffuseColor = Color3.Black();
+    glassMaterial.specularColor = Color3.Black();
+    glassMaterial.emissiveColor = new Color3(0.44, 0.5, 0.56);
+    glassMaterial.alpha = 0.055;
+    glassMaterial.disableLighting = true;
+    glassMaterial.disableDepthWrite = true;
+    glassMaterial.backFaceCulling = false;
+    this.windscreenParts = [];
+    const glass = MeshBuilder.CreatePlane(
+      "windscreen-glass",
+      { width: COCKPIT_SCREEN.halfWidth * 2, height: screenSpan },
+      scene,
+    );
+    glass.parent = this.playerCockpit;
+    glass.position.set(0, screenMidY, screenMidZ);
+    glass.rotation.x = screenTilt;
+    setMeshMaterial(glass, glassMaterial);
+    this.windscreenParts.push(glass);
+
+    const bandMaterial = new StandardMaterial("windscreen-band", scene);
+    bandMaterial.diffuseColor = Color3.Black();
+    bandMaterial.specularColor = Color3.Black();
+    bandMaterial.emissiveColor = new Color3(0.06, 0.07, 0.085);
+    bandMaterial.alpha = 0.5;
+    bandMaterial.disableLighting = true;
+    bandMaterial.disableDepthWrite = true;
+    bandMaterial.backFaceCulling = false;
+    const band = MeshBuilder.CreatePlane(
+      "windscreen-band",
+      { width: COCKPIT_SCREEN.halfWidth * 2, height: screenSpan * 0.16 },
+      scene,
+    );
+    band.parent = this.playerCockpit;
+    const bandOffset = screenSpan * 0.42;
+    band.position.set(
+      0,
+      screenMidY + bandOffset * Math.cos(screenTilt),
+      screenMidZ + bandOffset * Math.sin(screenTilt),
+    );
+    band.rotation.x = screenTilt;
+    setMeshMaterial(band, bandMaterial);
+    this.windscreenParts.push(band);
+
+    // Wipers, parked along the sill.
+    for (const side of [-1, 1]) {
+      const wiper = createBox(
+        scene,
+        `windscreen-wiper-${side}`,
+        { width: 0.66, height: 0.014, depth: 0.026 },
+        new Vector3(side * 0.35, COCKPIT_SCREEN.sillY + 0.036, COCKPIT_SCREEN.sillZ - 0.03),
+        steeringRubber,
+        this.playerCockpit,
+      );
+      wiper.rotation.z = side * 0.075;
+      this.windscreenParts.push(wiper);
     }
 
     // Air vents. The profile is authored lying down and turned a quarter turn
