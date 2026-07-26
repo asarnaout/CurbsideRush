@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { MAP_PACKS } from "../app/game/content";
 import {
+  TRAFFIC_CAMERA_RATE,
   authoredSignalAspectAt,
   authoredSignalOffsetSeconds,
+  trafficCameraControlIds,
 } from "../app/game/trafficSignals";
+
+const signalControlIdsOf = (mapId: string): string[] =>
+  MAP_PACKS.find((map) => map.id === mapId)!
+    .laneGraph.controls.filter((control) => control.type === "signal")
+    .map((control) => control.id);
 
 const aspectAt = (
   style: "nyc_signal" | "uk_signal",
@@ -166,6 +173,69 @@ describe("authored traffic-signal installations", () => {
         }
       }
     }
+  });
+
+  it("equips a quarter of a city's signals with a camera", () => {
+    for (const mapId of ["nyc-upper-west-side", "london-south-kensington"]) {
+      const ids = signalControlIdsOf(mapId);
+      expect(ids.length, `${mapId} has signals`).toBeGreaterThan(0);
+      const equipped = trafficCameraControlIds(ids);
+      expect(equipped.size, `${mapId} camera count`).toBe(
+        Math.max(1, Math.round(ids.length * TRAFFIC_CAMERA_RATE)),
+      );
+      for (const id of equipped) expect(ids).toContain(id);
+    }
+  });
+
+  it("gives a signalled city at least one camera however few signals it has", () => {
+    // London has two. A `hash(id) < 0.25` threshold lands on zero here more
+    // often than not, which is the whole reason the draw ranks and cuts.
+    expect(trafficCameraControlIds(["a", "b"]).size).toBe(1);
+    expect(trafficCameraControlIds(["only-one"]).size).toBe(1);
+    expect(trafficCameraControlIds([]).size).toBe(0);
+  });
+
+  it("draws the same cameras every time, whatever order the controls arrive in", () => {
+    const ids = signalControlIdsOf("nyc-upper-west-side");
+    const once = [...trafficCameraControlIds(ids)].sort();
+    expect([...trafficCameraControlIds(ids)].sort()).toEqual(once);
+    expect([...trafficCameraControlIds([...ids].reverse())].sort()).toEqual(once);
+    expect([...trafficCameraControlIds([...ids, ...ids])].sort()).toEqual(once);
+  });
+
+  it("spreads New York's cameras across the grid rather than down a few roads", () => {
+    // Signal ids are `nyc-sig-<avenue>-<street>`, and they all share the same
+    // long prefix. Ranking on raw FNV-1a — whose high bits barely move once a
+    // prefix is folded in — put all sixteen on Amsterdam, West End and
+    // Broadway, leaving Riverside, Columbus and Central Park West with none.
+    const equipped = [...trafficCameraControlIds(signalControlIdsOf("nyc-upper-west-side"))];
+    const avenues = new Set(equipped.map((id) => id.split("-")[2]));
+    const streets = new Set(equipped.map((id) => id.split("-")[3]));
+    expect(avenues.size, `avenues: ${[...avenues].join(",")}`).toBeGreaterThanOrEqual(5);
+    expect(streets.size, `streets: ${[...streets].join(",")}`).toBeGreaterThanOrEqual(8);
+  });
+
+  it("does not draw cameras where the phase offsets already cluster", () => {
+    // Both hash the same control ids. Unsalted they would agree, and every
+    // camera in the city would sit on a junction sharing one phase offset.
+    const ids = signalControlIdsOf("nyc-upper-west-side");
+    const equipped = trafficCameraControlIds(ids);
+    const offsets = new Set(
+      [...equipped].map((id) => authoredSignalOffsetSeconds(id)),
+    );
+    expect(offsets.size).toBeGreaterThan(1);
+  });
+
+  it("honours a rate other than the default", () => {
+    const ids = signalControlIdsOf("nyc-upper-west-side");
+    expect(trafficCameraControlIds(ids, 0).size).toBe(0);
+    expect(trafficCameraControlIds(ids, 1).size).toBe(ids.length);
+    expect(trafficCameraControlIds(ids, 2).size).toBe(ids.length);
+    expect(trafficCameraControlIds(ids, 0.5).size).toBe(Math.round(ids.length / 2));
+    // A larger rate can only add to a smaller one, never reshuffle it.
+    const quarter = trafficCameraControlIds(ids, 0.25);
+    const half = trafficCameraControlIds(ids, 0.5);
+    for (const id of quarter) expect(half.has(id)).toBe(true);
   });
 
   it("groups opposing London axes correctly", () => {
