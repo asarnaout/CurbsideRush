@@ -172,6 +172,30 @@ vi.mock("next/dynamic", () => ({
           >
             fine
           </button>
+          {/* A speeding stop, with the evidence the rule monitor emits. The
+              excess is what the ticket is priced from, so the two buttons
+              stand for a marginal and a flagrant one on a 30 mph road. */}
+          {([
+            ["mock-fine-speeding-mild", 13.4 + 2.4],
+            ["mock-fine-speeding-bad", 13.4 + 12],
+          ] as const).map(([testId, speedMps]) => (
+            <button
+              key={testId}
+              type="button"
+              data-testid={testId}
+              onClick={() =>
+                props.onEvent?.({
+                  type: "fine",
+                  message: "Fined",
+                  timestamp: 1,
+                  ruleCode: "speeding",
+                  evidence: { speedMps, limitMps: 13.4 },
+                })
+              }
+            >
+              speeding
+            </button>
+          ))}
           <button
             type="button"
             data-testid="mock-exit"
@@ -560,6 +584,61 @@ describe("career mode flow", () => {
       window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
     ) as { walletByCountry: Record<string, number> };
     expect(raw.walletByCountry.us).toBe(20);
+  });
+
+  it("charges a speeding ticket by how far over the driver was", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+
+    // 12 m/s over a 30 mph limit — about 27 mph over, past the point where the
+    // scale caps out, so this is the full 2x of the flat $8 fine.
+    fireEvent.click(screen.getByTestId("mock-fine-speeding-bad"));
+    expect(screen.getByLabelText("Mock driving scene")).toHaveAttribute(
+      "data-cutscene-kind",
+      "pullover",
+    );
+    // Still nothing charged: the stop is not the citation, the window is.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("$4.00");
+
+    fireEvent.click(screen.getByTestId("mock-scene-cite"));
+    // 20 - 16 rent - 16 fine = -12, against -4 for the flat red-light fine.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$12.00");
+    // And the toast says why in the figures the ticket was priced from,
+    // rather than leaving a variable amount looking like a bug. (The
+    // pull-over caption is also role="status", so this asks for the text.)
+    expect(
+      screen.getByText(/Fined \$16\.00 for doing 57 in a 30/),
+    ).toBeInTheDocument();
+  });
+
+  it("does not stop the same driver for speeding twice in a row", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+
+    fireEvent.click(screen.getByTestId("mock-fine-speeding-mild"));
+    fireEvent.click(screen.getByTestId("mock-scene-cite"));
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    // 2.4 m/s over is 5.4 mph, just past the citation line, and already costs
+    // above the flat $8: 20 - 16 rent - 10 fine = -6.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$6.00");
+
+    // The rule re-arms in the core after 8s and the app debounce is another 8,
+    // so without a grace period a driver holding over would be pulled roughly
+    // every ten seconds. The next stop must not stage at all.
+    fireEvent.click(screen.getByTestId("mock-fine-speeding-bad"));
+    expect(screen.getByLabelText("Mock driving scene")).not.toHaveAttribute(
+      "data-cutscene-kind",
+      "pullover",
+    );
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$6.00");
   });
 
   it("settles at the whistle: ledger lines, borrowed shortfall, then the next day's garage", async () => {

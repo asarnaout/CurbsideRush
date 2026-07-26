@@ -58,6 +58,41 @@ describe("simulation runtime adapter (free-roam)", () => {
     }
   });
 
+  it("hands the HUD back the number on the sign, in the country's own unit", () => {
+    // The round trip nothing used to assert: an authored figure is in the host
+    // country's unit, the adapter converts it to m/s, and the core converts it
+    // back for the readout. Those two conversions have to agree, and the only
+    // thing telling either of them which unit to use is the country profile.
+    //
+    // `roadRealism.test.ts` cannot catch a mixup here on its own: its mph and
+    // km/h posted-figure lists overlap on {20,30,40,50,60,70}, which is every
+    // figure Tokyo and Calais post — so a metric city quietly read as imperial
+    // would pass it. This is the test that fails instead.
+    for (const freeDrive of FREE_DRIVES) {
+      const country = getCountryProfile(freeDrive.countryId);
+      const mapPack = getMapPack(freeDrive.mapId);
+      const lesson = freeDriveLesson(freeDrive);
+      const snapshot = new SimulationCore(
+        buildSimulationCoreConfig({
+          lesson,
+          mapPack,
+          trafficSide: lesson.trafficSide,
+          speedUnit: canvasSpeedUnit(freeDrive),
+        }),
+      ).getSnapshot();
+
+      expect(snapshot.speedUnit, freeDrive.id).toBe(country.speedUnit);
+      const laneId = snapshot.road.laneId;
+      expect(laneId, `${freeDrive.id} spawns off-lane`).not.toBeNull();
+      const authored = mapPack.laneGraph.lanes.find((lane) => lane.id === laneId);
+      expect(authored, `${freeDrive.id}/${laneId}`).toBeDefined();
+      expect(
+        snapshot.road.speedLimitDisplay,
+        `${freeDrive.id} posts ${authored!.speedLimit} ${country.speedUnit} but reads back as ${snapshot.road.speedLimitDisplay}`,
+      ).toBe(authored!.speedLimit);
+    }
+  });
+
   it("keeps a stationary player safe from authored traffic in every city", () => {
     for (const freeDrive of FREE_DRIVES) {
       const mapPack = getMapPack(freeDrive.mapId);

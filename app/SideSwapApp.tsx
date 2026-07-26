@@ -31,9 +31,15 @@ import {
   getDestinationProfile,
   getFreeDrive,
   getMapPack,
+  postedSpeed,
   resolveSessionConfig,
   resolveSteeringSide,
+  speedingFine,
 } from "./game/content";
+import {
+  SPEEDING_STOP_GRACE_MS,
+  speedingExcessMps,
+} from "./game/speeding";
 import {
   clearCareer,
   createDefaultProgress,
@@ -481,8 +487,21 @@ const ROUTE_DEVIATION_LIMIT_M = 30;
  */
 const ROUTE_RESEARCH_INTERVAL_MS = 1500;
 
-/** Human-readable reason for a fine toast, from the violation's rule code. */
-function fineReason(code: string | undefined): string {
+/**
+ * Human-readable reason for a fine toast, from the violation's rule code.
+ *
+ * Speeding is the only one that cites figures, because it is the only one
+ * whose fine moves: a driver told they were charged "for speeding" cannot see
+ * that the amount tracked the offence, and would read two different tickets as
+ * a bug. "Doing 42 in a 30" makes the scaling legible without a second line of
+ * UI. Both figures come out of the event's own evidence, so what the officer
+ * says and what the wallet loses are computed from one measurement.
+ */
+function fineReason(
+  code: string | undefined,
+  evidence: Readonly<Record<string, string | number | boolean>> | undefined,
+  country: CountryProfile,
+): string {
   switch (code) {
     case "wrong_way":
       return "driving on the wrong side";
@@ -492,6 +511,16 @@ function fineReason(code: string | undefined): string {
       return "running a red light";
     case "collision":
       return "careless driving";
+    case "speeding": {
+      const speed = evidence?.speedMps;
+      const limit = evidence?.limitMps;
+      if (typeof speed !== "number" || typeof limit !== "number") {
+        return "speeding";
+      }
+      return `doing ${Math.round(postedSpeed(speed, country))} in a ${Math.round(
+        postedSpeed(limit, country),
+      )}`;
+    }
     default:
       return "a road violation";
   }
@@ -642,9 +671,19 @@ export default function SideSwapApp() {
   const towResetNonceRef = useRef(0);
   const [towResetNonce, setTowResetNonce] = useState(0);
   const lastPedFineAtRef = useRef(0);
-  // Why the patrol pulled you over, carried from the `fine` event that staged
-  // the stop to the citation step that actually charges for it.
+  // A speeding stop has a cooldown of its own, far longer than the 8s every
+  // other violation gets. The rule re-arms after 8s in the core and the app
+  // debounce is another 8, so a driver holding well over on a long avenue
+  // would be pulled roughly every ten seconds — more often than any other
+  // fineable rule can fire, and unrecognisable as policing. The officer just
+  // dealt with you.
+  const lastSpeedingFineAtRef = useRef(0);
+  // Why the patrol pulled you over and what it will cost, both carried from
+  // the `fine` event that staged the stop to the citation step that charges
+  // for it. The amount is settled here rather than at `cite` because the
+  // evidence arrives with the event and the scene step carries only a nonce.
   const pendingFineReasonRef = useRef<string | null>(null);
+  const pendingFineAmountRef = useRef<number | null>(null);
   // The interaction cutscene being performed (refuel, boarding, an errand).
   // While set, the canvas locks driving input; its `done` event applies the
   // durable effect (gig state flip) and clears this. The ref mirrors the
@@ -1273,7 +1312,10 @@ export default function SideSwapApp() {
         if (evidence.phase === "cite") {
           // The officer is at the window. Career fines are day-local like
           // every other career charge; free drive debits the country wallet.
-          const fine = FINE_BY_COUNTRY[driveCountry.id];
+          // The amount was settled when the stop was staged — a speeding
+          // ticket is priced off the excess, everything else is the flat fine.
+          const fine =
+            pendingFineAmountRef.current ?? FINE_BY_COUNTRY[driveCountry.id];
           if (careerRunRef.current) {
             chargeCareer(fine, (log) => ({
               ...log,
@@ -1286,7 +1328,9 @@ export default function SideSwapApp() {
           }
           setFineToast({
             amount: fine,
-            reason: pendingFineReasonRef.current ?? fineReason(undefined),
+            reason:
+              pendingFineReasonRef.current ??
+              fineReason(undefined, undefined, driveCountry),
           });
           return;
         }
@@ -1471,6 +1515,10 @@ export default function SideSwapApp() {
       if (event.type !== "fine") return;
       const now = Date.now();
       if (now - lastFineAtRef.current < 8000) return;
+      const speeding = event.ruleCode === "speeding";
+      if (speeding && now - lastSpeedingFineAtRef.current < SPEEDING_STOP_GRACE_MS) {
+        return;
+      }
       // The stop *is* the citation: stage the pull-over and let its `cite`
       // step debit, the same way the pump scene pays for its fuel. A scene
       // already running (or a tow) means the violation goes uncited rather
@@ -1478,7 +1526,20 @@ export default function SideSwapApp() {
       // actually begins, so the next one is not swallowed too.
       if (cutsceneRef.current || towingRef.current) return;
       lastFineAtRef.current = now;
-      pendingFineReasonRef.current = fineReason(event.ruleCode);
+      if (speeding) lastSpeedingFineAtRef.current = now;
+      // Price it here, not at `cite`: this is where the measurement is. A
+      // speeding ticket scales with the excess; every other violation is
+      // binary and pays the flat fine.
+      const excessMps = speeding ? speedingExcessMps(event.evidence) : null;
+      pendingFineAmountRef.current =
+        excessMps === null
+          ? null
+          : speedingFine(driveCountry, postedSpeed(excessMps, driveCountry));
+      pendingFineReasonRef.current = fineReason(
+        event.ruleCode,
+        event.evidence,
+        driveCountry,
+      );
       beginCutscene("pullover");
     },
     [

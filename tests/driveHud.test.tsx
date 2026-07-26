@@ -17,8 +17,7 @@ import {
   MOBILE_OFFER_H,
   RAIL_MIN_SLOT_PX,
   resolveHudScale,
-  SPEED_ALARM_OVER,
-  SPEED_WARN_OVER,
+  speedOverBand,
   type HudGauge,
   type HudJob,
   type HudManoeuvre,
@@ -240,13 +239,37 @@ describe("the speed cluster", () => {
       speed({ speed: 30 + over, speedLimit: 30 });
       return screen.getByTestId("speed-value").style.color;
     };
+    const band = speedOverBand("mph");
     const legal = colourAt(0);
-    const warn = colourAt(SPEED_WARN_OVER);
-    const alarm = colourAt(SPEED_ALARM_OVER);
+    const warn = colourAt(band.warn);
+    const alarm = colourAt(band.alarm);
     expect(warn).not.toBe(legal);
     expect(alarm).not.toBe(warn);
     // Just under the threshold is still the calm colour.
-    expect(colourAt(SPEED_WARN_OVER - 1)).toBe(legal);
+    expect(colourAt(band.warn - 1)).toBe(legal);
+  });
+
+  it("reads the same margin of road in km/h as in mph", () => {
+    // The bug this pins: a flat mph band applied to a km/h readout alarmed at
+    // 3.7 mph over. Both bands must describe the same overspeed, so a figure
+    // that is calm in mph stays calm at its metric equivalent.
+    const colourAt = (unit: string, over: number) => {
+      cleanup();
+      speed({ speed: 40 + over, speedLimit: 40, speedUnit: unit });
+      return screen.getByTestId("speed-value").style.color;
+    };
+    const calm = colourAt("mph", 0);
+    const mph = speedOverBand("mph");
+    const kmh = speedOverBand("km/h");
+    expect(kmh.warn).toBeGreaterThan(mph.warn);
+    expect(kmh.alarm).toBeGreaterThan(mph.alarm);
+    // 6 km/h over is 3.7 mph over — well inside the mph warning margin, so it
+    // must not warn. It did before the band was split.
+    expect(colourAt("km/h", mph.warn)).toBe(calm);
+    expect(colourAt("km/h", kmh.warn)).not.toBe(calm);
+    // Both bands land within a couple of units of the same real overspeed.
+    expect(Math.abs(kmh.warn / 1.609 - mph.warn)).toBeLessThan(1);
+    expect(Math.abs(kmh.alarm / 1.609 - mph.alarm)).toBeLessThan(1);
   });
 
   it("never warns when there is no limit to be over", () => {
