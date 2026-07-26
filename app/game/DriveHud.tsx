@@ -739,6 +739,7 @@ export function DriveSpeedCluster({
         }}
       >
         <strong
+          data-testid="speed-value"
           style={{
             font: `900 76px/.82 ${HUD_SANS}`,
             color: speedColor,
