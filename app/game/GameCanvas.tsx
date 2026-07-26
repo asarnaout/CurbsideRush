@@ -169,6 +169,7 @@ import {
 } from "./audio/audioMath";
 import {
   authoredSignalAspectAt,
+  trafficCameraControlIds,
   type AuthoredSignalAspect,
   type AuthoredSignalStyle,
 } from "./trafficSignals";
@@ -572,6 +573,178 @@ export function signalStopBarSegment(
   return {
     start: { x: stop.x - sideX * halfWidth, z: stop.z - sideZ * halfWidth },
     end: { x: stop.x + sideX * halfWidth, z: stop.z + sideZ * halfWidth },
+  };
+}
+
+/**
+ * The signal hardware a camera has to sit on. Shared with
+ * `buildSignalInstallation`, which builds the pole and arm from these same
+ * figures — the camera hangs off geometry it does not own, and reading the
+ * numbers from a second copy is how it ended up floating 17 cm over the arm.
+ *
+ * Note the arm's centre hangs a full thickness below the top of the mast, so
+ * its upper surface is at `poleHeight - armThicknessM / 2` — *not* at
+ * `poleHeight`, which is the trap.
+ */
+export const SIGNAL_MAST = {
+  poleHeightM: 5.4,
+  poleDiameterM: 0.22,
+  armThicknessM: 0.18,
+  kerbsidePoleHeightM: 3.7,
+  kerbsidePoleDiameterM: 0.17,
+} as const;
+
+/** The upper surface of a mast arm hung from a pole of `poleHeight`. */
+export function mastArmTopY(poleHeight: number): number {
+  return poleHeight - SIGNAL_MAST.armThicknessM / 2;
+}
+
+/**
+ * The enforcement camera's body: a squat housing under a rain hood. Every
+ * figure is shared between the mesh and `trafficCameraPlacement` below, so the
+ * lens can never drift off the front of the box it is set into.
+ *
+ * There is no bracket. One merged master serves both mountings, and a stub can
+ * only point one way: backwards into a kerbside pole leaves it stuck out in
+ * mid-air over a mast arm, which is exactly how it shipped and looked wrong.
+ * The housing seats directly against what holds it instead — resting on the arm
+ * over the carriageway, bedded into the shaft at the kerb — which needs no stub
+ * at all and cannot leave a gap.
+ */
+export const TRAFFIC_CAMERA_BODY = {
+  housing: { width: 0.3, height: 0.24, depth: 0.44 },
+  hood: { width: 0.34, height: 0.05, depth: 0.32 },
+  /** How far forward of the body centre the glass sits. */
+  lensForwardM: 0.23,
+  /** How far back along a mast arm the camera stands from the signal head. */
+  armInsetM: 1.9,
+  /** How far the housing beds into whatever carries it, so no seam shows. */
+  seatM: 0.02,
+  /**
+   * Drop below the top of a kerbside pole, and how far the body steps off it.
+   *
+   * The drop is small because there is very little pole left to use: a kerbside
+   * head hangs centred at `poleHeight - 0.95` and is 1.48 tall, so it already
+   * reaches to within 0.21 m of the top. The camera goes in the gap above it.
+   *
+   * The step is set so the *back face* lands just inside the shaft — clear of
+   * the pole's centre so the camera is not skewered by it, but not beyond the
+   * shaft's surface either, or it hangs in the air off the side.
+   */
+  poleDropM: 0.08,
+  poleClearM: 0.28,
+} as const;
+
+/**
+ * Which of an equipped junction's signal heads carry a camera: one per approach
+ * it enforces, deduped, because a head often serves several approaches.
+ *
+ * Not simply "the primary heads", which is what it was. Enforcement is per
+ * control — every approach of a watched junction is booked — but the props were
+ * hung per `role: "primary"` head, and London's southbound Queen's Gate arm is
+ * signalled only by a `secondary` pole. That approach was ticketed by a camera
+ * standing nowhere, which is the one thing a visible rule must never do.
+ *
+ * The fallback covers a junction whose heads name no approaches at all: better
+ * a camera on every primary than an enforced junction with nothing on it.
+ */
+export function trafficCameraHeadIds(control: {
+  readonly approaches?: readonly { readonly id: string }[];
+  readonly installations?: readonly {
+    readonly id: string;
+    readonly style: string;
+    readonly role: string;
+    readonly approachIds?: readonly string[];
+  }[];
+}): ReadonlySet<string> {
+  const heads = (control.installations ?? []).filter(
+    (candidate) =>
+      candidate.style === "nyc_signal" || candidate.style === "uk_signal",
+  );
+  const chosen = new Set<string>();
+  for (const approach of control.approaches ?? []) {
+    const serving = heads.filter((head) =>
+      (head.approachIds ?? []).includes(approach.id),
+    );
+    const pick = serving.find((head) => head.role === "primary") ?? serving[0];
+    if (pick) chosen.add(pick.id);
+  }
+  if (chosen.size === 0) {
+    for (const head of heads) if (head.role === "primary") chosen.add(head.id);
+  }
+  return chosen;
+}
+
+export interface TrafficCameraPlacement {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** Yaw of the body, matching the signal head so the glass looks at oncoming traffic. */
+  readonly yaw: number;
+  /** Where the glass itself lands, for the lens instance set into the front. */
+  readonly lens: { readonly x: number; readonly y: number; readonly z: number };
+}
+
+/**
+ * Where an enforcement camera stands on the signal it watches.
+ *
+ * It takes the head's own yaw rather than deriving one. A head's lenses hang on
+ * its local -Z and it is turned by the approach's direction of travel, which
+ * puts the glass facing back down the road at the driver being signalled — the
+ * same thing a camera has to look at, so the two are the same number. This is
+ * the relation `regulatorySigns.ts` spells out for DO NOT ENTER: a sign (or a
+ * lens) meant for the driver coming at you faces into the flow.
+ *
+ * Over the carriageway it rests on the mast arm's upper surface, back from the
+ * head so the two read as separate hardware. On a kerbside pole there is no arm
+ * to stand on, so it goes in the gap above the head, bedded into the shaft.
+ * Either way the housing touches its mount: nothing here floats.
+ */
+export function trafficCameraPlacement(
+  installation: {
+    readonly position: GameCanvasPoint;
+    readonly headingDeg: number;
+    readonly armHeadingDeg?: number;
+    readonly mounting: string;
+  },
+  poleHeight: number,
+  armSpanM: number,
+): TrafficCameraPlacement {
+  const yaw = degreesToRadians(installation.headingDeg);
+  // The direction the glass looks: local -Z through a yaw about Y.
+  const facingX = -Math.sin(yaw);
+  const facingZ = -Math.cos(yaw);
+  const base = installation.position;
+  let x: number;
+  let z: number;
+  let y: number;
+  if (installation.mounting === "mast_arm") {
+    const armHeading = degreesToRadians(
+      installation.armHeadingDeg ?? installation.headingDeg,
+    );
+    const along = Math.max(0, armSpanM - TRAFFIC_CAMERA_BODY.armInsetM);
+    x = base.x + Math.cos(armHeading) * along;
+    z = base.z - Math.sin(armHeading) * along;
+    // Sat on the arm's upper surface, bedded in a shade so no seam shows.
+    y =
+      mastArmTopY(poleHeight) +
+      TRAFFIC_CAMERA_BODY.housing.height / 2 -
+      TRAFFIC_CAMERA_BODY.seatM;
+  } else {
+    x = base.x + facingX * TRAFFIC_CAMERA_BODY.poleClearM;
+    z = base.z + facingZ * TRAFFIC_CAMERA_BODY.poleClearM;
+    y = poleHeight - TRAFFIC_CAMERA_BODY.poleDropM;
+  }
+  return {
+    x,
+    y,
+    z,
+    yaw,
+    lens: {
+      x: x + facingX * TRAFFIC_CAMERA_BODY.lensForwardM,
+      y,
+      z: z + facingZ * TRAFFIC_CAMERA_BODY.lensForwardM,
+    },
   };
 }
 
@@ -1096,6 +1269,14 @@ export interface GameRuntimeEvent {
   ruleCode?: string;
   penalty?: number;
   evidence?: Readonly<Record<string, string | number | boolean>>;
+  /**
+   * On a `fine`, who wrote it. A patrol means a traffic stop, and the money
+   * moves on that scene's `cite` step; a camera has nobody to stage, so the app
+   * debits where it stands. Deliberately its own field rather than a key inside
+   * `evidence`, which is what the simulation measured about the driving — who
+   * happened to be watching is not.
+   */
+  issuedBy?: "patrol" | "camera";
 }
 
 /**
@@ -1763,6 +1944,17 @@ type NpcPathSegment = NpcPathSegmentData;
 
 /** How long a patrol strobes after clocking a violation (~6s at 60 Hz). */
 const PATROL_BEACON_TICKS = 360;
+
+/**
+ * How close a camera has to be to book you for speed.
+ *
+ * Only speeding needs this — a red light names the light it was run, so that
+ * camera is resolved by id. Kept near the junction it stands on rather than
+ * generous, because the fiction is passing under the camera, not being
+ * somewhere in its half of the neighbourhood; New York's blocks run 240 m
+ * apart, so 30 m is comfortably one junction's worth.
+ */
+const TRAFFIC_CAMERA_SPEED_RADIUS_M = 30;
 
 interface NpcVehicle {
   node: TransformNode;
@@ -3771,11 +3963,23 @@ class BabylonGameSession {
   /** Shared by both sign families; see `signPostMaster`. */
   private signPost: Mesh | null = null;
   private signalLensMaster: Mesh | null = null;
+  private trafficCameraMaster: Mesh | null = null;
   private signalRedMaterial: StandardMaterial | null = null;
   private signalAmberMaterial: StandardMaterial | null = null;
   private signalGreenMaterial: StandardMaterial | null = null;
   private readonly authoredSignalHeads: AuthoredSignalHeadVisual[] = [];
   private readonly railwayCrossingVisuals: RailwayCrossingVisual[] = [];
+  /**
+   * The enforcement cameras, resolved once from the map's signal controls when
+   * the scene is built — never per frame, and never from the render tree.
+   *
+   * A red light names the light it was run (`evidence.trafficLightId`, which is
+   * the approach id), so that one is answered exactly rather than by proximity:
+   * a camera tickets the junction it watches and no other. Speeding names no
+   * signal at all, so it falls back to the positions.
+   */
+  private readonly trafficCameraControlIdByLightId = new Map<string, string>();
+  private readonly trafficCameraPoints: GameCanvasPoint[] = [];
   private readonly disposers: Array<() => void> = [];
   private callbacks: SessionCallbacks;
   private options: SessionOptions;
@@ -4425,6 +4629,7 @@ class BabylonGameSession {
         "__sideswapCutsceneDebug",
         "__sideswapLampDebug",
         "__sideswapCrowdDebug",
+        "__sideswapEnforcementDebug",
       ]) {
         delete debugWindow[key];
       }
@@ -6214,6 +6419,37 @@ class BabylonGameSession {
   }
 
   /**
+   * Whether an enforcement camera saw this violation.
+   *
+   * Only the two a camera can actually establish on its own. A fixed lens
+   * cannot tell a wrong-way driver from one who has just cleared a turn, nor
+   * whose fault a crash was, which is precisely why those stay a patrol's job —
+   * and keeping collisions out is also what makes it impossible for a camera
+   * and the unconditional pedestrian-strike fine to charge for the same moment.
+   *
+   * Speeding is the only one that needs a radius, because its evidence names no
+   * signal. It runs at most once per the core's 8s cooldown on the rule, over
+   * the sixteen or so points in a city, so it is nowhere near a hot path.
+   */
+  private trafficCameraWitnesses(event: SimulationRuleEvent): boolean {
+    if (event.code === "red_light") {
+      const lightId = event.evidence?.trafficLightId;
+      return (
+        typeof lightId === "string" &&
+        this.trafficCameraControlIdByLightId.has(lightId)
+      );
+    }
+    if (event.code === "speeding") {
+      const { x, z } = this.playerState;
+      return this.trafficCameraPoints.some(
+        (point) =>
+          Math.hypot(point.x - x, point.z - z) <= TRAFFIC_CAMERA_SPEED_RADIUS_M,
+      );
+    }
+    return false;
+  }
+
+  /**
    * Places the low-poly building glb registered under `modelKey` at (x, z),
    * facing the road via the lane `heading` + the model's yaw offset. Returns
    * false when the key has no registered model or its glb has not preloaded,
@@ -7343,6 +7579,18 @@ class BabylonGameSession {
           this.emit("fine", "A patrol clocked the violation.", "warning", {
             ruleCode: event.code,
             evidence: event.evidence,
+            issuedBy: "patrol",
+          });
+        } else if (this.trafficCameraWitnesses(event)) {
+          // `else`, not a second `if`: one violation can be answered once. An
+          // officer on the scene outranks the camera above them because the
+          // stop is the better moment, and this is what makes being charged
+          // twice for one offence structurally impossible rather than a matter
+          // of two debounce clocks agreeing.
+          this.emit("fine", "A traffic camera caught the violation.", "warning", {
+            ruleCode: event.code,
+            evidence: event.evidence,
+            issuedBy: "camera",
           });
         }
       }
@@ -8521,7 +8769,24 @@ class BabylonGameSession {
     this.signalRedMaterial = redLamp;
     this.signalAmberMaterial = amberLamp;
     this.signalGreenMaterial = greenLamp;
+    const cameraControlIds = trafficCameraControlIds(
+      mapPack.laneGraph.controls
+        .filter((control) => control.type === "signal")
+        .map((control) => control.id),
+    );
     for (const control of mapPack.laneGraph.controls) {
+      const cameraHeadIds = cameraControlIds.has(control.id)
+        ? trafficCameraHeadIds(control)
+        : null;
+      if (cameraControlIds.has(control.id)) {
+        this.trafficCameraPoints.push(control.position);
+        // The adapter names each light after its approach — `light.id` and
+        // `stopLine.trafficLightId` are both `approach.id` — so this is the
+        // same key the red-light evidence arrives under.
+        for (const approach of control.approaches ?? []) {
+          this.trafficCameraControlIdByLightId.set(approach.id, control.id);
+        }
+      }
       const logicalHeading = degreesToRadians(control.headingDeg);
       const offset = mapPack.geometry.roadWidth / 2 + 1.25;
       const inferredPosition = {
@@ -8585,6 +8850,9 @@ class BabylonGameSession {
               phaseGroups: phaseGroups.length ? phaseGroups : [control.id],
               style: installation.style,
             },
+            // One per approach the junction enforces, so no arm is booked by a
+            // camera the driver never had a chance to see.
+            cameraHeadIds?.has(installation.id) ?? false,
           );
           continue;
         }
@@ -10394,6 +10662,33 @@ class BabylonGameSession {
           right: glow(this.playerVehicleVisual?.rightIndicators),
         };
       };
+      // What the enforcement cameras can currently see, and what every signal
+      // is showing. Two rules are only fineable in a window that lasts a couple
+      // of seconds — a red aspect, or a patrol out of range — so QA cannot
+      // reproduce either by driving and hoping. This is the state that decides
+      // it, without which "the camera did not fine me" is unfalsifiable.
+      debugWindow.__sideswapEnforcementDebug = () => {
+        const { x, z } = this.playerState;
+        return {
+          cameraLightIds: [...this.trafficCameraControlIdByLightId.keys()],
+          cameraControlIds: [
+            ...new Set(this.trafficCameraControlIdByLightId.values()),
+          ],
+          nearestCameraM: this.trafficCameraPoints.reduce(
+            (best, point) => Math.min(best, Math.hypot(point.x - x, point.z - z)),
+            Number.POSITIVE_INFINITY,
+          ),
+          inSpeedCameraRange: this.trafficCameraWitnesses({
+            code: "speeding",
+          } as SimulationRuleEvent),
+          patrolWithin35M: Boolean(this.patrolNearPlayer(35)),
+          lights: this.simulationSnapshot.trafficLights.map((light) => ({
+            id: light.id,
+            state: light.state,
+            watched: this.trafficCameraControlIdByLightId.has(light.id),
+          })),
+        };
+      };
       // Walker states + bubble, so the capture harness can assert the crowd
       // moves smoothly and never pops in or out on screen.
       debugWindow.__sideswapCrowdDebug = () => {
@@ -10577,6 +10872,80 @@ class BabylonGameSession {
     return master;
   }
 
+  /**
+   * The one hidden mesh behind every enforcement camera in the city.
+   *
+   * Merged down to a single mesh on a single material on purpose: Babylon
+   * batches instances of one mesh into one draw call, and a MultiMaterial merge
+   * would have cost one per submesh per camera instead. Sixteen cameras on the
+   * New York grid are therefore one draw call, and the glass on the front is an
+   * instance of the signal lens master, so it joins a batch that already exists
+   * and costs nothing at all.
+   *
+   * Built from boxes rather than a downloaded glb: the CC0 sets have generic
+   * security cameras and no enforcement camera, and an imported one would have
+   * carried a licence entry, a registry entry, preload weight and an art style
+   * at odds with the hand-built signal head it bolts to.
+   */
+  private getTrafficCameraMaster(material: StandardMaterial): Mesh | null {
+    if (this.trafficCameraMaster) return this.trafficCameraMaster;
+    const { housing, hood } = TRAFFIC_CAMERA_BODY;
+    const parts = [
+      createBox(this.scene, "traffic-camera-housing", housing, Vector3.Zero(), material),
+      createBox(
+        this.scene,
+        "traffic-camera-hood",
+        hood,
+        new Vector3(0, housing.height / 2 + hood.height / 2, -0.07),
+        material,
+      ),
+    ];
+    const master = Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+    if (!master) return null;
+    master.name = "prop-master-traffic-camera";
+    master.isVisible = false;
+    master.isPickable = false;
+    this.trafficCameraMaster = master;
+    return master;
+  }
+
+  /** Stands a camera on `installation`, looking back down the approach it watches. */
+  private buildTrafficCamera(
+    controlId: string,
+    installation: {
+      readonly position: GameCanvasPoint;
+      readonly headingDeg: number;
+      readonly armHeadingDeg?: number;
+      readonly mounting: string;
+    },
+    poleHeight: number,
+    armSpanM: number,
+    materials: TrafficControlMaterials,
+  ) {
+    const master = this.getTrafficCameraMaster(materials.dark);
+    if (!master) return;
+    const placement = trafficCameraPlacement(installation, poleHeight, armSpanM);
+    const body = master.createInstance(`prop-traffic-camera-${controlId}`);
+    body.position.set(placement.x, placement.y, placement.z);
+    body.rotation.y = placement.yaw;
+    body.isPickable = false;
+    this.staticSceneryFreeze.push(body);
+    const lens = this.getSignalLensMaster().createInstance(
+      `prop-traffic-camera-${controlId}-lens`,
+    );
+    lens.position.set(placement.lens.x, placement.lens.y, placement.lens.z);
+    lens.rotation.x = Math.PI / 2;
+    lens.rotation.y = placement.yaw;
+    // The master lens is 0.25 across; a camera's glass is a smaller, flatter
+    // disc. Its colour is the standby glow, written once — there is no flash to
+    // drive, because the citation is a toast on the HUD and a camera you have
+    // already passed is behind you by the time it would fire.
+    lens.scaling.set(0.62, 0.6, 0.62);
+    lens.isPickable = false;
+    lens.instancedBuffers.color = new Color4(0.16, 0.012, 0.01, 1);
+    this.staticSceneryFreeze.push(lens);
+  }
+
   /** A lens instance parented to `head`; returns its live color handle. */
   private createSignalLens(
     name: string,
@@ -10651,6 +11020,7 @@ class BabylonGameSession {
       AuthoredSignalHeadVisual,
       "trafficLightIds" | "phaseGroup" | "phaseGroups" | "style"
     >,
+    hasCamera: boolean,
   ) {
     const headHeading = degreesToRadians(installation.headingDeg);
     const armHeading = degreesToRadians(
@@ -10658,11 +11028,19 @@ class BabylonGameSession {
     );
     const base = installation.position;
     const mastArm = installation.mounting === "mast_arm";
-    const poleHeight = mastArm ? 5.4 : 3.7;
+    const poleHeight = mastArm
+      ? SIGNAL_MAST.poleHeightM
+      : SIGNAL_MAST.kerbsidePoleHeightM;
     createCylinder(
       this.scene,
       `${controlId}-${installation.id}-pole`,
-      { height: poleHeight, diameter: mastArm ? 0.22 : 0.17, tessellation: 14 },
+      {
+        height: poleHeight,
+        diameter: mastArm
+          ? SIGNAL_MAST.poleDiameterM
+          : SIGNAL_MAST.kerbsidePoleDiameterM,
+        tessellation: 14,
+      },
       new Vector3(base.x, poleHeight / 2, base.z),
       materials.dark,
     );
@@ -10673,10 +11051,16 @@ class BabylonGameSession {
       const arm = createBox(
         this.scene,
         `${controlId}-${installation.id}-mast-arm`,
-        { width: span, height: 0.18, depth: 0.18 },
+        {
+          width: span,
+          height: SIGNAL_MAST.armThicknessM,
+          depth: SIGNAL_MAST.armThicknessM,
+        },
+        // Hung a full thickness below the top, so its upper surface — what the
+        // camera stands on — is at `mastArmTopY(poleHeight)`.
         new Vector3(
           base.x + sideX * span / 2,
-          poleHeight - 0.18,
+          poleHeight - SIGNAL_MAST.armThicknessM,
           base.z + sideZ * span / 2,
         ),
         materials.dark,
@@ -10690,6 +11074,15 @@ class BabylonGameSession {
         materials,
         { controlId, ...runtime },
       );
+      if (hasCamera) {
+        this.buildTrafficCamera(
+          `${controlId}-${installation.id}`,
+          installation,
+          poleHeight,
+          span,
+          materials,
+        );
+      }
       return;
     }
     this.createSignalHead(
@@ -10700,6 +11093,15 @@ class BabylonGameSession {
       materials,
       { controlId, ...runtime },
     );
+    if (hasCamera) {
+      this.buildTrafficCamera(
+        `${controlId}-${installation.id}`,
+        installation,
+        poleHeight,
+        0,
+        materials,
+      );
+    }
   }
 
   private buildRailwayCrossingInstallation(
@@ -12727,7 +13129,7 @@ class BabylonGameSession {
     type: GameRuntimeEvent["type"],
     message: string,
     severity: GameRuntimeEvent["severity"] = "info",
-    rule?: Pick<GameRuntimeEvent, "ruleCode" | "penalty" | "evidence">,
+    rule?: Pick<GameRuntimeEvent, "ruleCode" | "penalty" | "evidence" | "issuedBy">,
   ) {
     this.callbacks.onEvent?.({
       type,

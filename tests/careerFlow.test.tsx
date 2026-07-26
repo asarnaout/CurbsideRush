@@ -45,6 +45,16 @@ import SideSwapApp from "../app/SideSwapApp";
 const mockClock = { ms: 0 };
 /** Where `mock-hud-at-stop` parks the car — a test sets it to the gig's stop. */
 const mockStop = { x: 0, z: 0 };
+/**
+ * Wall clock, which every fine debounce in the app reads through `Date.now()`
+ * — not the sim clock above. Without a handle on it, two fines fired in the
+ * same tick of a test are microseconds apart and every spacing rule swallows
+ * the second, so a test could not tell a working debounce from a broken one.
+ */
+const wallClock = { ms: 1_700_000_000_000 };
+const advanceWallClock = (ms: number) => {
+  wallClock.ms += ms;
+};
 
 // The career loop is driven end-to-end through the mock canvas: buttons fire
 // canned HUD snapshots (the sim clock) and runtime events (a fine, exit) so
@@ -196,6 +206,61 @@ vi.mock("next/dynamic", () => ({
               speeding
             </button>
           ))}
+          {/* The same two violations, written by a camera instead. No patrol
+              is on the scene, so there is no stop to stage and the money moves
+              where the driver stands. */}
+          <button
+            type="button"
+            data-testid="mock-fine-camera"
+            onClick={() =>
+              props.onEvent?.({
+                type: "fine",
+                message: "A traffic camera caught the violation.",
+                timestamp: 1,
+                ruleCode: "red_light",
+                issuedBy: "camera",
+              })
+            }
+          >
+            camera fine
+          </button>
+          <button
+            type="button"
+            data-testid="mock-fine-camera-speeding"
+            onClick={() =>
+              props.onEvent?.({
+                type: "fine",
+                message: "A traffic camera caught the violation.",
+                timestamp: 1,
+                ruleCode: "speeding",
+                evidence: { speedMps: 13.4 + 12, limitMps: 13.4 },
+                issuedBy: "camera",
+              })
+            }
+          >
+            camera speeding
+          </button>
+          {/* Striking someone is cited by the app on its own, with no patrol
+              and no camera involved — the third way money can move. */}
+          <button
+            type="button"
+            data-testid="mock-hit-pedestrian"
+            onClick={() =>
+              props.onEvent?.({
+                type: "collision",
+                message: "You struck a pedestrian.",
+                timestamp: 1,
+                ruleCode: "collision",
+                evidence: {
+                  roadUserType: "pedestrian",
+                  externalRoadUser: true,
+                  impactSpeedMps: 6,
+                },
+              })
+            }
+          >
+            hit a pedestrian
+          </button>
           <button
             type="button"
             data-testid="mock-exit"
@@ -311,6 +376,8 @@ beforeEach(() => {
   mockClock.ms = 0;
   mockStop.x = 0;
   mockStop.z = 0;
+  wallClock.ms = 1_700_000_000_000;
+  vi.spyOn(Date, "now").mockImplementation(() => wallClock.ms);
   installLocalStorage();
   window.localStorage.clear();
   Object.defineProperty(window, "innerWidth", {
@@ -633,12 +700,95 @@ describe("career mode flow", () => {
     // The rule re-arms in the core after 8s and the app debounce is another 8,
     // so without a grace period a driver holding over would be pulled roughly
     // every ten seconds. The next stop must not stage at all.
+    //
+    // Ten seconds on, so every shorter clock — the 3s any-fine spacing and the
+    // 8s witnessed debounce — has already expired and the speeding grace is
+    // demonstrably the one doing the work.
+    advanceWallClock(10_000);
     fireEvent.click(screen.getByTestId("mock-fine-speeding-bad"));
     expect(screen.getByLabelText("Mock driving scene")).not.toHaveAttribute(
       "data-cutscene-kind",
       "pullover",
     );
     expect(screen.getByTestId("day-cash")).toHaveTextContent("-$6.00");
+  });
+
+  it("lets a camera write the ticket where the driver stands, with no stop to stage", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+
+    fireEvent.click(screen.getByTestId("mock-fine-camera"));
+    // No officer to stage: nothing is choreographed, and unlike a patrol stop
+    // the money has already moved. 20 - 16 rent - 8 fine = -4.
+    expect(screen.getByLabelText("Mock driving scene")).not.toHaveAttribute(
+      "data-cutscene-kind",
+      "pullover",
+    );
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$4.00");
+    // The driver is told a machine did it, not an officer they never saw.
+    expect(
+      screen.getByText(/Camera fined \$8\.00 for running a red light/),
+    ).toBeInTheDocument();
+
+    // Career money stays day-local, exactly as a patrol's fine does.
+    const raw = JSON.parse(
+      window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
+    ) as { walletByCountry: Record<string, number> };
+    expect(raw.walletByCountry.us).toBe(20);
+  });
+
+  it("prices a camera's speeding ticket off the excess, the same as a patrol's", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+
+    fireEvent.click(screen.getByTestId("mock-fine-camera-speeding"));
+    // The same 2x of the flat $8 the pull-over charges for this speed, taken
+    // without a scene: 20 - 16 rent - 16 fine = -12.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$12.00");
+    expect(
+      screen.getByText(/Camera fined \$16\.00 for doing 57 in a 30/),
+    ).toBeInTheDocument();
+  });
+
+  it("charges once when one incident is answered by two mechanisms", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+
+    // One swerve can leave the road and hit someone in the same breath. Two
+    // rules trip, two different mechanisms answer them, and the driver must
+    // pay for the incident once. 20 - 16 rent - 8 = -4, not -12.
+    fireEvent.click(screen.getByTestId("mock-fine-camera"));
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$4.00");
+    fireEvent.click(screen.getByTestId("mock-hit-pedestrian"));
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$4.00");
+
+    // And it holds the other way round, including against a patrol stop —
+    // which must not even stage, or its citation step would charge later.
+    fireEvent.click(screen.getByTestId("mock-fine"));
+    expect(screen.getByLabelText("Mock driving scene")).not.toHaveAttribute(
+      "data-cutscene-kind",
+      "pullover",
+    );
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$4.00");
+
+    // Far enough on to be a new incident rather than the same one, and the
+    // driver is chargeable again — the spacing collapses one moment, it does
+    // not stop enforcement. 8s clears both the 3s spacing and the ped clock.
+    advanceWallClock(8_000);
+    fireEvent.click(screen.getByTestId("mock-hit-pedestrian"));
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$12.00");
   });
 
   it("settles at the whistle: ledger lines, borrowed shortfall, then the next day's garage", async () => {

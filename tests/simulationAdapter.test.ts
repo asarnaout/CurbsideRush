@@ -164,4 +164,47 @@ describe("simulation runtime adapter (free-roam)", () => {
     expect(vanished).toEqual([]);
     expect(continuations).toBeGreaterThan(0);
   });
+
+  it("names a signal's lights after its approaches, which is how a camera knows the junction it watches", () => {
+    // A red-light camera resolves the junction by id rather than by distance:
+    // `checkStopLines` puts the stop line's `trafficLightId` into the event's
+    // evidence, and GameCanvas looks that up in a map it built from
+    // `control.approaches[].id`. Nothing else pins those two to each other, and
+    // if they drift the cameras stop firing for red lights *silently* — no
+    // throw, no failing render, just a rule that never charges.
+    let signalControls = 0;
+    for (const freeDrive of FREE_DRIVES) {
+      const lesson = freeDriveLesson(freeDrive);
+      const mapPack = getMapPack(freeDrive.mapId);
+      const config = buildSimulationCoreConfig({
+        lesson,
+        mapPack,
+        trafficSide: lesson.trafficSide,
+        speedUnit: canvasSpeedUnit(freeDrive),
+      });
+      const lightIds = new Set((config.trafficLights ?? []).map((light) => light.id));
+      for (const control of mapPack.laneGraph.controls) {
+        if (control.type !== "signal") continue;
+        signalControls += 1;
+        const approachIds = control.approaches.map((approach) => approach.id);
+        expect(approachIds.length, `${control.id} approaches`).toBeGreaterThan(0);
+        for (const approachId of approachIds) {
+          expect(lightIds, `${mapPack.id}/${approachId} is a light`).toContain(
+            approachId,
+          );
+        }
+        // …and every stop line under that control cites one of them.
+        const lines = (config.stopLines ?? []).filter((line) =>
+          approachIds.some((id) => line.id.startsWith(`${id}-`)),
+        );
+        expect(lines.length, `${control.id} stop lines`).toBeGreaterThan(0);
+        for (const line of lines) {
+          expect(approachIds, `${line.id} cites ${line.trafficLightId}`).toContain(
+            line.trafficLightId,
+          );
+        }
+      }
+    }
+    expect(signalControls).toBeGreaterThan(0);
+  });
 });

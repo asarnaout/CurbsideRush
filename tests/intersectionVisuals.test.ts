@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { getMapPack, MAP_PACKS } from "../app/game/content";
-import { roadAxisHeadingNear, signalStopBarSegment } from "../app/game/GameCanvas";
+import {
+  mastArmTopY,
+  roadAxisHeadingNear,
+  signalStopBarSegment,
+  SIGNAL_MAST,
+  TRAFFIC_CAMERA_BODY,
+  trafficCameraHeadIds,
+  trafficCameraPlacement,
+} from "../app/game/GameCanvas";
+import { trafficCameraControlIds } from "../app/game/trafficSignals";
 import type { LaneSegment, MapPack } from "../app/game/types";
 
 /**
@@ -252,5 +261,174 @@ describe("roadAxisHeadingNear", () => {
     expect(
       roadAxisHeadingNear([{ x: 1, z: 1 }, { x: 1, z: 1 }], { x: 0, z: 0 }),
     ).toBeNull();
+  });
+});
+
+describe("enforcement camera placement", () => {
+  const MAST_POLE_HEIGHT = SIGNAL_MAST.poleHeightM;
+  const POLE_HEIGHT = SIGNAL_MAST.kerbsidePoleHeightM;
+
+  it("looks back down the approach, the way the signal head it shares does", () => {
+    // Heading is the direction of travel of the approach. The driver it is
+    // for is coming toward +z, so the glass has to be on the -z side of the
+    // body — pointed at them, not away up an empty road.
+    const placed = trafficCameraPlacement(
+      { position: { x: 0, z: 0 }, headingDeg: 0, armHeadingDeg: 180, mounting: "mast_arm" },
+      MAST_POLE_HEIGHT,
+      6,
+    );
+    expect(placed.yaw).toBeCloseTo(0, 6);
+    expect(placed.lens.z).toBeLessThan(placed.z);
+    expect(placed.lens.z).toBeCloseTo(placed.z - TRAFFIC_CAMERA_BODY.lensForwardM, 6);
+
+    // And a quarter turn round, the same relation holds on the other axis.
+    const east = trafficCameraPlacement(
+      { position: { x: 0, z: 0 }, headingDeg: 90, armHeadingDeg: 270, mounting: "roadside_pole" },
+      POLE_HEIGHT,
+      0,
+    );
+    expect(east.lens.x).toBeLessThan(east.x);
+  });
+
+  it("rests on the arm rather than hovering over it", () => {
+    const span = 6;
+    const placed = trafficCameraPlacement(
+      { position: { x: 0, z: 0 }, headingDeg: 0, armHeadingDeg: 0, mounting: "mast_arm" },
+      MAST_POLE_HEIGHT,
+      span,
+    );
+    // It shipped 17 cm in the air, because the placement measured from the top
+    // of the *pole* while the arm hangs a full thickness below it. The bottom
+    // of the housing has to be on the arm's upper surface — a shade into it, so
+    // no seam shows, and never above it.
+    const armTop = mastArmTopY(MAST_POLE_HEIGHT);
+    expect(armTop).toBeCloseTo(MAST_POLE_HEIGHT - SIGNAL_MAST.armThicknessM / 2, 6);
+    const bottom = placed.y - TRAFFIC_CAMERA_BODY.housing.height / 2;
+    expect(bottom).toBeLessThanOrEqual(armTop);
+    expect(armTop - bottom).toBeLessThan(0.05);
+    // The head hangs at `span - 0.45` along the same arm. The camera must be
+    // clearly inboard of it or the two read as one lump of hardware.
+    expect(Math.hypot(placed.x, placed.z)).toBeLessThan(span - 0.45 - 1);
+    // And well over anything driving under it.
+    expect(bottom).toBeGreaterThan(4.6);
+  });
+
+  it("beds a kerbside camera into the pole it is bolted to", () => {
+    const placed = trafficCameraPlacement(
+      { position: { x: 0, z: 0 }, headingDeg: 0, mounting: "roadside_pole" },
+      POLE_HEIGHT,
+      0,
+    );
+    // Bolted on, which is two bounds, not one: the housing's centre has to be
+    // outside the shaft or the pole skewers it, and its back face has to reach
+    // the shaft's surface or the camera hangs in the air beside the pole.
+    const shaft = SIGNAL_MAST.kerbsidePoleDiameterM / 2;
+    const offset = Math.hypot(placed.x, placed.z);
+    expect(offset).toBeGreaterThan(shaft);
+    expect(offset - TRAFFIC_CAMERA_BODY.housing.depth / 2).toBeLessThanOrEqual(shaft);
+    // And the bottom of it has to clear the top of the signal head below,
+    // which hangs centred at `poleHeight - 0.95` and stands 1.48 tall.
+    const headTop = POLE_HEIGHT - 0.95 + 1.48 / 2;
+    expect(placed.y - TRAFFIC_CAMERA_BODY.housing.height / 2).toBeGreaterThan(
+      headTop,
+    );
+    expect(placed.y).toBeLessThan(POLE_HEIGHT);
+  });
+
+  it("puts a camera on every approach a watched junction actually books", () => {
+    // Enforcement is per control: cross the line on red on *any* arm of an
+    // equipped junction and you are fined. The props were hung per
+    // `role: "primary"` head, and London's southbound Queen's Gate arm is
+    // signalled only by a secondary pole — so that approach was ticketed by a
+    // camera standing nowhere on the road the driver could see.
+    let checked = 0;
+    for (const mapId of ["nyc-upper-west-side", "london-south-kensington"]) {
+      const pack = getMapPack(mapId as MapPack["id"]);
+      const equipped = trafficCameraControlIds(
+        pack.laneGraph.controls
+          .filter((control) => control.type === "signal")
+          .map((control) => control.id),
+      );
+      for (const control of pack.laneGraph.controls) {
+        if (!equipped.has(control.id)) continue;
+        const withCamera = trafficCameraHeadIds(control);
+        expect(withCamera.size, `${control.id} has cameras`).toBeGreaterThan(0);
+        for (const approach of control.approaches) {
+          const served = control.installations.some(
+            (head) =>
+              withCamera.has(head.id) &&
+              (head.approachIds ?? []).includes(approach.id),
+          );
+          expect(served, `${mapId}/${approach.id} is booked but unwatched`).toBe(true);
+          checked += 1;
+        }
+      }
+    }
+    expect(checked, "approaches checked").toBeGreaterThan(0);
+  });
+
+  it("watches oncoming traffic on every shipped map, and from across the junction on a mast", () => {
+    for (const mapId of ["nyc-upper-west-side", "london-south-kensington"]) {
+      const pack = getMapPack(mapId as MapPack["id"]);
+      const laneById = new Map(pack.laneGraph.lanes.map((lane) => [lane.id, lane]));
+      const equipped = trafficCameraControlIds(
+        pack.laneGraph.controls
+          .filter((control) => control.type === "signal")
+          .map((control) => control.id),
+      );
+      let checked = 0;
+      for (const control of pack.laneGraph.controls) {
+        if (!equipped.has(control.id)) continue;
+        const withCamera = trafficCameraHeadIds(control);
+        for (const installation of control.installations) {
+          if (!withCamera.has(installation.id)) continue;
+          const mast = installation.mounting === "mast_arm";
+          const placed = trafficCameraPlacement(
+            installation,
+            mast ? MAST_POLE_HEIGHT : POLE_HEIGHT,
+            mast ? Math.max(4.8, Math.min(8.5, pack.geometry.roadWidth * 0.68)) : 0,
+          );
+          for (const approachId of installation.approachIds ?? []) {
+            const approach = control.approaches.find((a) => a.id === approachId);
+            const lane = approach && laneById.get(approach.stopLine.laneId);
+            if (!approach || !lane) continue;
+            const stop = anchorPose(lane, approach.stopLine.distanceAlongM);
+            if (!stop) continue;
+            // The glass looks along -Z through the yaw, and it has to look
+            // into the flow: a camera turned the way the traffic goes films
+            // the boots of cars leaving the junction.
+            const facingX = -Math.sin(placed.yaw);
+            const facingZ = -Math.cos(placed.yaw);
+            const travelX = Math.sin(stop.heading);
+            const travelZ = Math.cos(stop.heading);
+            expect(
+              facingX * travelX + facingZ * travelZ,
+              `${mapId}/${control.id}/${approachId} looks the way the cars go`,
+            ).toBeLessThan(-0.9);
+            // A mast camera hangs across the junction, so the line it books is
+            // genuinely in front of it. That is what the 1.9 m inset back from
+            // the head must not undo. A kerbside signal is a near-side one —
+            // the car stops level with the pole — so the same is not asked of
+            // it, only that it is standing close to the line it watches.
+            const toStopX = stop.x - placed.x;
+            const toStopZ = stop.z - placed.z;
+            const along = facingX * toStopX + facingZ * toStopZ;
+            if (installation.mounting === "mast_arm") {
+              expect(
+                along,
+                `${mapId}/${control.id}/${approachId} sits past its stop line`,
+              ).toBeGreaterThan(0);
+            } else {
+              expect(
+                Math.hypot(toStopX, toStopZ),
+                `${mapId}/${control.id}/${approachId} stands away from its line`,
+              ).toBeLessThan(12);
+            }
+            checked += 1;
+          }
+        }
+      }
+      expect(checked, `${mapId} cameras checked`).toBeGreaterThan(0);
+    }
   });
 });
