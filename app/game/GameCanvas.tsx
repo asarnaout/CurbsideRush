@@ -577,34 +577,62 @@ export function signalStopBarSegment(
 }
 
 /**
- * The enforcement camera's body: a squat housing under a rain hood, on a stub
- * bracket back to whatever it is bolted to. Every figure is shared between the
- * mesh and `trafficCameraPlacement` below, so the lens can never drift off the
- * front of the box it is supposed to be set into.
+ * The signal hardware a camera has to sit on. Shared with
+ * `buildSignalInstallation`, which builds the pole and arm from these same
+ * figures — the camera hangs off geometry it does not own, and reading the
+ * numbers from a second copy is how it ended up floating 17 cm over the arm.
+ *
+ * Note the arm's centre hangs a full thickness below the top of the mast, so
+ * its upper surface is at `poleHeight - armThicknessM / 2` — *not* at
+ * `poleHeight`, which is the trap.
+ */
+export const SIGNAL_MAST = {
+  poleHeightM: 5.4,
+  poleDiameterM: 0.22,
+  armThicknessM: 0.18,
+  kerbsidePoleHeightM: 3.7,
+  kerbsidePoleDiameterM: 0.17,
+} as const;
+
+/** The upper surface of a mast arm hung from a pole of `poleHeight`. */
+export function mastArmTopY(poleHeight: number): number {
+  return poleHeight - SIGNAL_MAST.armThicknessM / 2;
+}
+
+/**
+ * The enforcement camera's body: a squat housing under a rain hood. Every
+ * figure is shared between the mesh and `trafficCameraPlacement` below, so the
+ * lens can never drift off the front of the box it is set into.
+ *
+ * There is no bracket. One merged master serves both mountings, and a stub can
+ * only point one way: backwards into a kerbside pole leaves it stuck out in
+ * mid-air over a mast arm, which is exactly how it shipped and looked wrong.
+ * The housing seats directly against what holds it instead — resting on the arm
+ * over the carriageway, bedded into the shaft at the kerb — which needs no stub
+ * at all and cannot leave a gap.
  */
 export const TRAFFIC_CAMERA_BODY = {
   housing: { width: 0.3, height: 0.24, depth: 0.44 },
   hood: { width: 0.34, height: 0.05, depth: 0.32 },
-  bracket: { length: 0.4, diameter: 0.07 },
   /** How far forward of the body centre the glass sits. */
   lensForwardM: 0.23,
   /** How far back along a mast arm the camera stands from the signal head. */
   armInsetM: 1.9,
-  /** Height above the mast, so it sits on the arm rather than in it. */
-  mastRiseM: 0.2,
+  /** How far the housing beds into whatever carries it, so no seam shows. */
+  seatM: 0.02,
   /**
    * Drop below the top of a kerbside pole, and how far the body steps off it.
-   *
-   * The step has to clear the shaft's radius *plus* half the housing depth, or
-   * the back of the camera is inside the pole. Set a little beyond that so the
-   * bracket has somewhere to reach back to.
    *
    * The drop is small because there is very little pole left to use: a kerbside
    * head hangs centred at `poleHeight - 0.95` and is 1.48 tall, so it already
    * reaches to within 0.21 m of the top. The camera goes in the gap above it.
+   *
+   * The step is set so the *back face* lands just inside the shaft — clear of
+   * the pole's centre so the camera is not skewered by it, but not beyond the
+   * shaft's surface either, or it hangs in the air off the side.
    */
   poleDropM: 0.08,
-  poleClearM: 0.42,
+  poleClearM: 0.28,
 } as const;
 
 export interface TrafficCameraPlacement {
@@ -627,10 +655,10 @@ export interface TrafficCameraPlacement {
  * the relation `regulatorySigns.ts` spells out for DO NOT ENTER: a sign (or a
  * lens) meant for the driver coming at you faces into the flow.
  *
- * Over the carriageway it stands on top of the mast arm, back from the head so
- * the two read as separate hardware. On a kerbside pole there is no arm to
- * stand on, so it goes above the head and steps off the shaft far enough to
- * clear it.
+ * Over the carriageway it rests on the mast arm's upper surface, back from the
+ * head so the two read as separate hardware. On a kerbside pole there is no arm
+ * to stand on, so it goes in the gap above the head, bedded into the shaft.
+ * Either way the housing touches its mount: nothing here floats.
  */
 export function trafficCameraPlacement(
   installation: {
@@ -657,7 +685,11 @@ export function trafficCameraPlacement(
     const along = Math.max(0, armSpanM - TRAFFIC_CAMERA_BODY.armInsetM);
     x = base.x + Math.cos(armHeading) * along;
     z = base.z - Math.sin(armHeading) * along;
-    y = poleHeight + TRAFFIC_CAMERA_BODY.mastRiseM;
+    // Sat on the arm's upper surface, bedded in a shade so no seam shows.
+    y =
+      mastArmTopY(poleHeight) +
+      TRAFFIC_CAMERA_BODY.housing.height / 2 -
+      TRAFFIC_CAMERA_BODY.seatM;
   } else {
     x = base.x + facingX * TRAFFIC_CAMERA_BODY.poleClearM;
     z = base.z + facingZ * TRAFFIC_CAMERA_BODY.poleClearM;
@@ -10787,7 +10819,7 @@ class BabylonGameSession {
    */
   private getTrafficCameraMaster(material: StandardMaterial): Mesh | null {
     if (this.trafficCameraMaster) return this.trafficCameraMaster;
-    const { housing, hood, bracket } = TRAFFIC_CAMERA_BODY;
+    const { housing, hood } = TRAFFIC_CAMERA_BODY;
     const parts = [
       createBox(this.scene, "traffic-camera-housing", housing, Vector3.Zero(), material),
       createBox(
@@ -10798,16 +10830,6 @@ class BabylonGameSession {
         material,
       ),
     ];
-    const stem = createCylinder(
-      this.scene,
-      "traffic-camera-bracket",
-      { height: bracket.length, diameter: bracket.diameter, tessellation: 8 },
-      new Vector3(0, 0, housing.depth / 2 + bracket.length / 2),
-      material,
-    );
-    // The cylinder stands on its own Y; lay it back along +Z into the mount.
-    stem.rotation.x = Math.PI / 2;
-    parts.push(stem);
     const master = Mesh.MergeMeshes(parts, true, true, undefined, false, false);
     if (!master) return null;
     master.name = "prop-master-traffic-camera";
@@ -10936,11 +10958,19 @@ class BabylonGameSession {
     );
     const base = installation.position;
     const mastArm = installation.mounting === "mast_arm";
-    const poleHeight = mastArm ? 5.4 : 3.7;
+    const poleHeight = mastArm
+      ? SIGNAL_MAST.poleHeightM
+      : SIGNAL_MAST.kerbsidePoleHeightM;
     createCylinder(
       this.scene,
       `${controlId}-${installation.id}-pole`,
-      { height: poleHeight, diameter: mastArm ? 0.22 : 0.17, tessellation: 14 },
+      {
+        height: poleHeight,
+        diameter: mastArm
+          ? SIGNAL_MAST.poleDiameterM
+          : SIGNAL_MAST.kerbsidePoleDiameterM,
+        tessellation: 14,
+      },
       new Vector3(base.x, poleHeight / 2, base.z),
       materials.dark,
     );
@@ -10951,10 +10981,16 @@ class BabylonGameSession {
       const arm = createBox(
         this.scene,
         `${controlId}-${installation.id}-mast-arm`,
-        { width: span, height: 0.18, depth: 0.18 },
+        {
+          width: span,
+          height: SIGNAL_MAST.armThicknessM,
+          depth: SIGNAL_MAST.armThicknessM,
+        },
+        // Hung a full thickness below the top, so its upper surface — what the
+        // camera stands on — is at `mastArmTopY(poleHeight)`.
         new Vector3(
           base.x + sideX * span / 2,
-          poleHeight - 0.18,
+          poleHeight - SIGNAL_MAST.armThicknessM,
           base.z + sideZ * span / 2,
         ),
         materials.dark,

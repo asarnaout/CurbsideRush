@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { getMapPack, MAP_PACKS } from "../app/game/content";
 import {
+  mastArmTopY,
   roadAxisHeadingNear,
   signalStopBarSegment,
+  SIGNAL_MAST,
   TRAFFIC_CAMERA_BODY,
   trafficCameraPlacement,
 } from "../app/game/GameCanvas";
@@ -262,8 +264,8 @@ describe("roadAxisHeadingNear", () => {
 });
 
 describe("enforcement camera placement", () => {
-  const MAST_POLE_HEIGHT = 5.4;
-  const POLE_HEIGHT = 3.7;
+  const MAST_POLE_HEIGHT = SIGNAL_MAST.poleHeightM;
+  const POLE_HEIGHT = SIGNAL_MAST.kerbsidePoleHeightM;
 
   it("looks back down the approach, the way the signal head it shares does", () => {
     // Heading is the direction of travel of the approach. The driver it is
@@ -287,34 +289,42 @@ describe("enforcement camera placement", () => {
     expect(east.lens.x).toBeLessThan(east.x);
   });
 
-  it("stands on the arm, back from the head and above the traffic", () => {
+  it("rests on the arm rather than hovering over it", () => {
     const span = 6;
     const placed = trafficCameraPlacement(
       { position: { x: 0, z: 0 }, headingDeg: 0, armHeadingDeg: 0, mounting: "mast_arm" },
       MAST_POLE_HEIGHT,
       span,
     );
+    // It shipped 17 cm in the air, because the placement measured from the top
+    // of the *pole* while the arm hangs a full thickness below it. The bottom
+    // of the housing has to be on the arm's upper surface — a shade into it, so
+    // no seam shows, and never above it.
+    const armTop = mastArmTopY(MAST_POLE_HEIGHT);
+    expect(armTop).toBeCloseTo(MAST_POLE_HEIGHT - SIGNAL_MAST.armThicknessM / 2, 6);
+    const bottom = placed.y - TRAFFIC_CAMERA_BODY.housing.height / 2;
+    expect(bottom).toBeLessThanOrEqual(armTop);
+    expect(armTop - bottom).toBeLessThan(0.05);
     // The head hangs at `span - 0.45` along the same arm. The camera must be
     // clearly inboard of it or the two read as one lump of hardware.
-    const headAlong = span - 0.45;
-    expect(Math.hypot(placed.x, placed.z)).toBeLessThan(headAlong - 1);
-    // On top of the mast, not inside it: the arm spans 5.13-5.31.
-    expect(placed.y).toBeGreaterThan(MAST_POLE_HEIGHT);
+    expect(Math.hypot(placed.x, placed.z)).toBeLessThan(span - 0.45 - 1);
     // And well over anything driving under it.
-    expect(placed.y - TRAFFIC_CAMERA_BODY.housing.height / 2).toBeGreaterThan(4.6);
+    expect(bottom).toBeGreaterThan(4.6);
   });
 
-  it("steps a kerbside camera off the pole it is bolted to", () => {
+  it("beds a kerbside camera into the pole it is bolted to", () => {
     const placed = trafficCameraPlacement(
       { position: { x: 0, z: 0 }, headingDeg: 0, mounting: "roadside_pole" },
       POLE_HEIGHT,
       0,
     );
-    // The back of the housing has to clear the 0.17-diameter shaft, not just
-    // its centre.
-    expect(Math.hypot(placed.x, placed.z)).toBeGreaterThan(
-      0.17 / 2 + TRAFFIC_CAMERA_BODY.housing.depth / 2,
-    );
+    // Bolted on, which is two bounds, not one: the housing's centre has to be
+    // outside the shaft or the pole skewers it, and its back face has to reach
+    // the shaft's surface or the camera hangs in the air beside the pole.
+    const shaft = SIGNAL_MAST.kerbsidePoleDiameterM / 2;
+    const offset = Math.hypot(placed.x, placed.z);
+    expect(offset).toBeGreaterThan(shaft);
+    expect(offset - TRAFFIC_CAMERA_BODY.housing.depth / 2).toBeLessThanOrEqual(shaft);
     // And the bottom of it has to clear the top of the signal head below,
     // which hangs centred at `poleHeight - 0.95` and stands 1.48 tall.
     const headTop = POLE_HEIGHT - 0.95 + 1.48 / 2;
