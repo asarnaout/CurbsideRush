@@ -326,7 +326,18 @@ export const PLAYER_GUIDANCE_HALF_WIDTH_M = 0.91;
 export const GUIDANCE_LATERAL_CLEARANCE_M = 0.3;
 export const WORLD_LAYER_MASK = 0x0fffffff;
 export const GUIDANCE_LAYER_MASK = 0x10000000;
-export const PRIMARY_CAMERA_LAYER_MASK = WORLD_LAYER_MASK | GUIDANCE_LAYER_MASK;
+/**
+ * The cabin's own bit, so the rear-view camera never sees it.
+ *
+ * First person renders the whole scene twice — once full-screen, once into the
+ * mirror strip — and the mirror looks backwards from a point behind the
+ * dashboard. Every cockpit mesh submitted to that pass is work with no possible
+ * effect on a pixel. Same trick the guidance arrows already use to stay out of
+ * the mirror.
+ */
+export const COCKPIT_LAYER_MASK = 0x20000000;
+export const PRIMARY_CAMERA_LAYER_MASK =
+  WORLD_LAYER_MASK | GUIDANCE_LAYER_MASK | COCKPIT_LAYER_MASK;
 /** Mirrors the simulation's standstill threshold, for deciding which pedal is
  * driving and which is braking when the audio reads the controls. */
 const STOPPED_AUDIO_SPEED_MPS = 0.2;
@@ -3504,6 +3515,18 @@ function createExtrudedPrism(
     indices.push(pointCount, pointCount + index + 1, pointCount + index);
   }
 
+  // A planar unwrap round the section. Nothing built from a prism is textured
+  // today, but Babylon refuses to merge meshes whose attribute sets differ, and
+  // every MeshBuilder primitive carries UVs — so a prism without them cannot be
+  // merged with a box, which is exactly what the cockpit does.
+  const uvs: number[] = [];
+  const lastPoint = Math.max(1, pointCount - 1);
+  for (const v of [0, 1]) {
+    for (let index = 0; index < pointCount; index += 1) {
+      uvs.push(index / lastPoint, v);
+    }
+  }
+
   const normals: number[] = [];
   VertexData.ComputeNormals(positions, indices, normals);
   const mesh = new Mesh(name, scene);
@@ -3511,6 +3534,7 @@ function createExtrudedPrism(
   vertexData.positions = positions;
   vertexData.indices = indices;
   vertexData.normals = normals;
+  vertexData.uvs = uvs;
   vertexData.applyToMesh(mesh);
   mesh.convertToFlatShadedMesh();
   mesh.parent = parent ?? null;
@@ -5420,10 +5444,18 @@ class BabylonGameSession {
    * resize recompiling the bloom kernels — see renderScaling.ts).
    */
   private applyPerfRung(rungIndex: number) {
-    const shadowsOn = rungIndex < TOUCH_SCALING_LADDER.length - 1;
+    const topRung = rungIndex < TOUCH_SCALING_LADDER.length - 1;
     const light = this.shadowGenerator?.getLight();
-    if (light && light.shadowEnabled !== shadowsOn) {
-      light.shadowEnabled = shadowsOn;
+    if (light && light.shadowEnabled !== topRung) {
+      light.shadowEnabled = topRung;
+    }
+    // The windscreen panes are the cabin's only fill-rate cost: two large
+    // alpha-blended quads across most of the frame. Everything else in there is
+    // a handful of opaque triangles, so this is the only cockpit detail worth
+    // shedding, and the wipers go with the glass because a wiper resting on
+    // nothing reads as a bug.
+    for (const part of this.windscreenParts) {
+      if (part.isEnabled(false) !== topRung) part.setEnabled(topRung);
     }
   }
 
@@ -6926,6 +6958,13 @@ class BabylonGameSession {
     // Populate the shadow map's caster list so the shadow-depth shaders compile
     // during warm-up too, not on the first corner.
     this.refreshShadowCasters();
+    // A drive that starts in third person has the cockpit disabled here, so its
+    // shaders and buffers would otherwise be paid for mid-drive, on whichever
+    // frame the player first presses C. Enable it for the warm-up regardless of
+    // the recorded camera and put it back after — disabled meshes are skipped
+    // entirely, so without this the whole cabin is a hitch waiting to happen.
+    const cockpitWasEnabled = this.playerCockpit.isEnabled(false);
+    this.playerCockpit.setEnabled(true);
     const renderable = this.scene.meshes.filter((m) => m.getTotalVertices() > 0);
     const previous = renderable.map((m) => m.alwaysSelectAsActiveMesh);
     for (const mesh of renderable) mesh.alwaysSelectAsActiveMesh = true;
@@ -6939,6 +6978,7 @@ class BabylonGameSession {
     renderable.forEach((mesh, index) => {
       mesh.alwaysSelectAsActiveMesh = previous[index];
     });
+    this.playerCockpit.setEnabled(cockpitWasEnabled);
   }
 
   private applySimulationNpcSnapshots(snapshot: SimulationSnapshot) {
@@ -11278,6 +11318,82 @@ class BabylonGameSession {
       this.steeringAssembly,
     );
     steeringEmblem.scaling.z = 0.62;
+
+    this.mergeCockpitStatics();
+    for (const mesh of this.playerCockpit.getChildMeshes(false)) {
+      mesh.layerMask = COCKPIT_LAYER_MASK;
+      // The cabin is on screen by definition whenever it is enabled at all, so
+      // frustum-testing it every frame is pure waste. It also cannot be
+      // freezeWorldMatrix'd — playerCockpit hangs off the player node, whose
+      // transform is rewritten every frame — which is exactly why the part
+      // count matters and the statics above are merged.
+      mesh.alwaysSelectAsActiveMesh = true;
+      mesh.doNotSyncBoundingInfo = true;
+    }
+    for (const material of [
+      bodyDark,
+      steeringRubber,
+      dash,
+      cockpitTrim,
+      ventShadow,
+      instrumentFace,
+      instrumentGlow,
+      clusterMaterial,
+      needleMaterial,
+      glassMaterial,
+      bandMaterial,
+    ]) {
+      material.freeze();
+    }
+  }
+
+  /**
+   * Collapses the cabin's static parts down to one mesh per material.
+   *
+   * The interior is now around forty pieces, and none of them can have its
+   * world matrix frozen, so every one is a draw call and a matrix walk on every
+   * frame of every first-person drive. Merging by material takes that back
+   * below where it was before the cabin was rebuilt.
+   *
+   * The parent is dropped before merging and restored after: `mesh.parent =
+   * null` leaves the local transform in place as the world transform, which is
+   * cockpit space, so the baked vertices come out in the coordinates the
+   * cockpit node expects. Merging while still parented would bake in wherever
+   * the car happened to be sitting at construction time. A fresh mesh is passed
+   * as the merge target for the same reason — Babylon would otherwise reuse the
+   * first source, whose own transform has already been applied to its vertices.
+   *
+   * The windscreen parts stay out of it: they are toggled independently on the
+   * blurriest render rung.
+   */
+  private mergeCockpitStatics() {
+    const keepSeparate = new Set<AbstractMesh>(this.windscreenParts);
+    const groups = new Map<string, Mesh[]>();
+    for (const child of this.playerCockpit.getChildMeshes(true)) {
+      if (keepSeparate.has(child)) continue;
+      const key = child.material?.name ?? "";
+      const group = groups.get(key);
+      if (group) group.push(child as Mesh);
+      else groups.set(key, [child as Mesh]);
+    }
+    for (const [key, meshes] of groups) {
+      if (meshes.length < 2) continue;
+      const material = meshes[0].material;
+      const target = new Mesh(`cockpit-merged-${key}`, this.scene);
+      for (const mesh of meshes) mesh.parent = null;
+      const merged = Mesh.MergeMeshes(meshes, true, true, target, false, false);
+      if (!merged) {
+        // Nothing was merged, so the sources are still live: put them back
+        // rather than leaving the cabin scattered at the world origin.
+        target.dispose();
+        for (const mesh of meshes) mesh.parent = this.playerCockpit;
+        continue;
+      }
+      merged.material = material;
+      merged.isPickable = false;
+      merged.receiveShadows = false;
+      merged.parent = this.playerCockpit;
+    }
   }
 
   private buildTraffic() {
