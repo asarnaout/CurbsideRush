@@ -50,8 +50,11 @@ export interface GpsLeg {
   /** Distance from the route's start to where this leg begins, in metres. */
   readonly alongM: number;
   readonly lengthM: number;
-  /** Chord bearing, first point to last — see `legHeading`. */
-  readonly headingRad: number;
+  /** Bearing the leg is driven on as it is joined — see `bearingNear`. */
+  readonly entryHeadingRad: number;
+  /** Bearing it is being driven on as it is left. Differs from the entry
+   * bearing on anything curved, and on a loop road the two are opposite. */
+  readonly exitHeadingRad: number;
 }
 
 /** What the driver has to do where two legs meet. */
@@ -214,7 +217,10 @@ export function buildGpsGraph(
   };
 }
 
-const GRAPH_BY_LANES = new WeakMap<readonly GpsLane[], GpsGraph>();
+const GRAPH_BY_LANES = new WeakMap<
+  readonly GpsLane[],
+  { names: Readonly<Record<string, string>> | undefined; graph: GpsGraph }[]
+>();
 
 /**
  * Cached `buildGpsGraph`, keyed on the lane array's identity. Map packs are
@@ -225,10 +231,17 @@ export function gpsGraphForLanes(
   lanes: readonly GpsLane[],
   roadNames?: Readonly<Record<string, string>>,
 ): GpsGraph {
-  const cached = GRAPH_BY_LANES.get(lanes);
-  if (cached) return cached;
+  // Keyed on the names as well as the lanes, and this is not paranoia: the
+  // names decide how legs merge, so a caller that asked for the same lanes
+  // without them would otherwise poison the cache and hand the next caller a
+  // graph that splits one street into several — silently, since the route
+  // still draws correctly and only the instructions are wrong.
+  const entries = GRAPH_BY_LANES.get(lanes) ?? [];
+  const cached = entries.find((entry) => entry.names === roadNames);
+  if (cached) return cached.graph;
   const graph = buildGpsGraph(lanes, roadNames);
-  GRAPH_BY_LANES.set(lanes, graph);
+  entries.push({ names: roadNames, graph });
+  GRAPH_BY_LANES.set(lanes, entries);
   return graph;
 }
 
@@ -456,18 +469,65 @@ function signedTurnRad(from: number, to: number): number {
   return wrapped;
 }
 
+/** Skipped at each end when reading a bearing: the connector S-curve
+ * `buildLaneTrueGeometry` lays down is already bending into the next lane, so a
+ * bearing taken across it understates the turn that follows. */
+const BEARING_BLEND_SKIP_M = 6;
+/** Read the bearing over this much road. Long enough to average out the
+ * sampling of a curve, short enough to describe one end of a leg rather than
+ * the whole thing. */
+const BEARING_RUN_M = 20;
+
+/** The point `distance` metres along a polyline, clamped to its ends. */
+function pointAtDistance(points: readonly GpsPoint[], distance: number): GpsPoint {
+  if (distance <= 0) return points[0];
+  let travelled = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const point = points[index];
+    const span = Math.hypot(point.x - previous.x, point.z - previous.z);
+    if (travelled + span >= distance) {
+      const t = span < 1e-9 ? 0 : (distance - travelled) / span;
+      return {
+        x: previous.x + (point.x - previous.x) * t,
+        z: previous.z + (point.z - previous.z) * t,
+      };
+    }
+    travelled += span;
+  }
+  return points[points.length - 1];
+}
+
 /**
- * A leg's bearing, taken as the chord from its first point to its last.
+ * The bearing a leg is being driven on near one of its ends.
  *
- * Not the last segment's bearing: `buildLaneTrueGeometry` ends every lane with
- * a connector S-curve that is already bending toward whatever comes next, so a
- * last-segment reading understates the turn that follows. Over a 240 m block a
- * chord is immune to 6 m of blend at each end.
+ * A single chord across the whole leg was wrong on anything that curves, and
+ * catastrophically wrong on a loop: London's quiet loop and Gloucester loop
+ * merge into one leg whose first and last points are nearly the same place, so
+ * the chord pointed back the way it came and *every* route onto them was
+ * classified as a u-turn — 31% of all London routes. A leg therefore has two
+ * bearings, each read over a short run near its own end, which is immune both
+ * to the connector blend and to whatever the middle of the leg does.
  */
-function legHeading(points: readonly GpsPoint[]): number {
-  const first = points[0];
-  const last = points[points.length - 1];
-  return Math.atan2(last.x - first.x, last.z - first.z);
+function bearingNear(points: readonly GpsPoint[], atEnd: boolean): number {
+  const total = polylineLength(points);
+  const skip = Math.min(BEARING_BLEND_SKIP_M, total * 0.25);
+  const run = Math.min(BEARING_RUN_M, Math.max(total - skip * 2, total * 0.5));
+  const [fromM, toM] = atEnd
+    ? [total - skip - run, total - skip]
+    : [skip, skip + run];
+  const from = pointAtDistance(points, fromM);
+  const to = pointAtDistance(points, toM);
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  // A degenerate run (a leg shorter than the blend it is trying to skip) falls
+  // back to the chord, which is the best available answer at that size.
+  if (Math.hypot(dx, dz) < 0.01) {
+    const first = points[0];
+    const last = points[points.length - 1];
+    return Math.atan2(last.x - first.x, last.z - first.z);
+  }
+  return Math.atan2(dx, dz);
 }
 
 function classifyTurn(turnRad: number): GpsManoeuvreKind {
@@ -496,10 +556,13 @@ function buildLegs(
   for (const run of laneRuns) {
     if (run.points.length < 2) continue;
     const lengthM = polylineLength(run.points);
-    const heading = legHeading(run.points);
+    const entryHeadingRad = bearingNear(run.points, false);
+    const exitHeadingRad = bearingNear(run.points, true);
     const previous = legs[legs.length - 1];
     if (previous) {
-      const turnRad = signedTurnRad(previous.headingRad, heading);
+      // Leaving the last leg's exit bearing for this one's entry bearing: what
+      // the driver actually does at the junction between them.
+      const turnRad = signedTurnRad(previous.exitHeadingRad, entryHeadingRad);
       manoeuvres.push({
         kind: classifyTurn(turnRad),
         ontoRoadId: run.roadId,
@@ -508,7 +571,13 @@ function buildLegs(
         turnRad,
       });
     }
-    legs.push({ roadId: run.roadId, alongM, lengthM, headingRad: heading });
+    legs.push({
+      roadId: run.roadId,
+      alongM,
+      lengthM,
+      entryHeadingRad,
+      exitHeadingRad,
+    });
     alongM += lengthM;
   }
   if (legs.length) {

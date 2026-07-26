@@ -544,3 +544,96 @@ describe("gps legs merge on the street, not the surface", () => {
     ]);
   });
 });
+
+describe("gps leg bearings are read per end, not across the whole leg", () => {
+  /** A loop road, as London's quiet loop and Gloucester loop are: its lanes
+   * share one road id, so they merge into a single leg whose first and last
+   * points are nearly the same place. */
+  const withLoop: readonly GpsLane[] = [
+    { id: "in", roadId: "street", centerline: [{ x: -200, z: 0 }, { x: 0, z: 0 }], successors: ["loop-a"] },
+    { id: "loop-a", roadId: "loop", centerline: [{ x: 0, z: 0 }, { x: 60, z: 30 }], successors: ["loop-b"] },
+    { id: "loop-b", roadId: "loop", centerline: [{ x: 60, z: 30 }, { x: 60, z: -30 }], successors: ["loop-c"] },
+    { id: "loop-c", roadId: "loop", centerline: [{ x: 60, z: -30 }, { x: 6, z: -4 }], successors: [] },
+  ];
+
+  it("does not call joining a loop road a u-turn", () => {
+    // The bug this pins: a chord across the merged loop points back the way it
+    // came, so every route onto London's two loops classified as a u-turn —
+    // 31% of all its routes. Bearings read near each end fix it because the
+    // entry bearing describes the loop's start, not its round trip.
+    const route = findGpsRoute(
+      buildGpsGraph(withLoop),
+      { x: -190, z: 0 },
+      HEADING_EAST,
+      { x: 8, z: -5 },
+    );
+    expect(route.legs.map((leg) => leg.roadId)).toEqual(["street", "loop"]);
+    expect(route.manoeuvres[0].kind).not.toBe("uturn");
+    // Entering east and leaving the loop heading west: the two ends really do
+    // differ, which is exactly what one chord could not express.
+    const loop = route.legs[1];
+    expect(Math.abs(signedTurn(loop.entryHeadingRad, loop.exitHeadingRad)))
+      .toBeGreaterThan(Math.PI / 2);
+  });
+
+  it("still calls a genuine reversal a u-turn", () => {
+    // The classifier must not have been flattened into never saying it.
+    const doublesBack: readonly GpsLane[] = [
+      { id: "a", roadId: "a", centerline: [{ x: 0, z: 0 }, { x: 0, z: 200 }], successors: ["b"] },
+      { id: "b", roadId: "b", centerline: [{ x: 0, z: 200 }, { x: 35, z: 0 }], successors: [] },
+    ];
+    const route = findGpsRoute(
+      buildGpsGraph(doublesBack),
+      { x: 0, z: 10 },
+      HEADING_NORTH,
+      { x: 34, z: 10 },
+    );
+    expect(route.manoeuvres[0].kind).toBe("uturn");
+  });
+
+  it("reads a hairpin through a link road as two turns, not a reversal", () => {
+    const hairpin: readonly GpsLane[] = [
+      { id: "in", roadId: "in", centerline: [{ x: 0, z: 0 }, { x: 0, z: 200 }], successors: ["turn"] },
+      { id: "turn", roadId: "turn", centerline: [{ x: 0, z: 200 }, { x: 6, z: 206 }, { x: 12, z: 200 }], successors: ["back"] },
+      { id: "back", roadId: "back", centerline: [{ x: 12, z: 200 }, { x: 12, z: 0 }], successors: [] },
+    ];
+    const route = findGpsRoute(
+      buildGpsGraph(hairpin),
+      { x: 0, z: 10 },
+      HEADING_NORTH,
+      { x: 12, z: 10 },
+    );
+    expect(route.manoeuvres.map((m) => m.kind)).toEqual([
+      "right",
+      "right",
+      "arrive",
+    ]);
+  });
+
+  it("keeps the graph cache honest about the names it was built with", () => {
+    // Names decide how legs merge, so a nameless call must not hand the next
+    // caller a graph that splits one street into several.
+    const lanes: readonly GpsLane[] = [
+      { id: "a", roadId: "main-west", centerline: [{ x: 0, z: 0 }, { x: 0, z: 100 }], successors: ["b"] },
+      { id: "b", roadId: "main-east", centerline: [{ x: 0, z: 100 }, { x: 0, z: 200 }], successors: [] },
+    ];
+    const names = { "main-west": "Main Road", "main-east": "Main Road" };
+    const bare = gpsGraphForLanes(lanes);
+    const named = gpsGraphForLanes(lanes, names);
+    expect(bare).not.toBe(named);
+    expect(named.streetKeys).toEqual(["Main Road", "Main Road"]);
+    expect(bare.streetKeys).toEqual(["main-west", "main-east"]);
+    // And each is still cached in its own right.
+    expect(gpsGraphForLanes(lanes, names)).toBe(named);
+    expect(gpsGraphForLanes(lanes)).toBe(bare);
+  });
+});
+
+/** Local mirror of the module's private helper, so the loop assertion above can
+ * talk about the angle between a leg's own two ends. */
+function signedTurn(from: number, to: number): number {
+  let wrapped = (to - from) % (Math.PI * 2);
+  if (wrapped > Math.PI) wrapped -= Math.PI * 2;
+  if (wrapped < -Math.PI) wrapped += Math.PI * 2;
+  return wrapped;
+}
