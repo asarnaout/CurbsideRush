@@ -635,6 +635,46 @@ export const TRAFFIC_CAMERA_BODY = {
   poleClearM: 0.28,
 } as const;
 
+/**
+ * Which of an equipped junction's signal heads carry a camera: one per approach
+ * it enforces, deduped, because a head often serves several approaches.
+ *
+ * Not simply "the primary heads", which is what it was. Enforcement is per
+ * control — every approach of a watched junction is booked — but the props were
+ * hung per `role: "primary"` head, and London's southbound Queen's Gate arm is
+ * signalled only by a `secondary` pole. That approach was ticketed by a camera
+ * standing nowhere, which is the one thing a visible rule must never do.
+ *
+ * The fallback covers a junction whose heads name no approaches at all: better
+ * a camera on every primary than an enforced junction with nothing on it.
+ */
+export function trafficCameraHeadIds(control: {
+  readonly approaches?: readonly { readonly id: string }[];
+  readonly installations?: readonly {
+    readonly id: string;
+    readonly style: string;
+    readonly role: string;
+    readonly approachIds?: readonly string[];
+  }[];
+}): ReadonlySet<string> {
+  const heads = (control.installations ?? []).filter(
+    (candidate) =>
+      candidate.style === "nyc_signal" || candidate.style === "uk_signal",
+  );
+  const chosen = new Set<string>();
+  for (const approach of control.approaches ?? []) {
+    const serving = heads.filter((head) =>
+      (head.approachIds ?? []).includes(approach.id),
+    );
+    const pick = serving.find((head) => head.role === "primary") ?? serving[0];
+    if (pick) chosen.add(pick.id);
+  }
+  if (chosen.size === 0) {
+    for (const head of heads) if (head.role === "primary") chosen.add(head.id);
+  }
+  return chosen;
+}
+
 export interface TrafficCameraPlacement {
   readonly x: number;
   readonly y: number;
@@ -4589,6 +4629,7 @@ class BabylonGameSession {
         "__sideswapCutsceneDebug",
         "__sideswapLampDebug",
         "__sideswapCrowdDebug",
+        "__sideswapEnforcementDebug",
       ]) {
         delete debugWindow[key];
       }
@@ -8734,6 +8775,9 @@ class BabylonGameSession {
         .map((control) => control.id),
     );
     for (const control of mapPack.laneGraph.controls) {
+      const cameraHeadIds = cameraControlIds.has(control.id)
+        ? trafficCameraHeadIds(control)
+        : null;
       if (cameraControlIds.has(control.id)) {
         this.trafficCameraPoints.push(control.position);
         // The adapter names each light after its approach — `light.id` and
@@ -8806,10 +8850,9 @@ class BabylonGameSession {
               phaseGroups: phaseGroups.length ? phaseGroups : [control.id],
               style: installation.style,
             },
-            // One per head, so each approach into an equipped junction has a
-            // lens looking back at it rather than one camera pointed down a
-            // single arm while the other three go unwatched.
-            cameraControlIds.has(control.id) && installation.role === "primary",
+            // One per approach the junction enforces, so no arm is booked by a
+            // camera the driver never had a chance to see.
+            cameraHeadIds?.has(installation.id) ?? false,
           );
           continue;
         }
@@ -10617,6 +10660,33 @@ class BabylonGameSession {
           indicator: this.playerState.indicator,
           left: glow(this.playerVehicleVisual?.leftIndicators),
           right: glow(this.playerVehicleVisual?.rightIndicators),
+        };
+      };
+      // What the enforcement cameras can currently see, and what every signal
+      // is showing. Two rules are only fineable in a window that lasts a couple
+      // of seconds — a red aspect, or a patrol out of range — so QA cannot
+      // reproduce either by driving and hoping. This is the state that decides
+      // it, without which "the camera did not fine me" is unfalsifiable.
+      debugWindow.__sideswapEnforcementDebug = () => {
+        const { x, z } = this.playerState;
+        return {
+          cameraLightIds: [...this.trafficCameraControlIdByLightId.keys()],
+          cameraControlIds: [
+            ...new Set(this.trafficCameraControlIdByLightId.values()),
+          ],
+          nearestCameraM: this.trafficCameraPoints.reduce(
+            (best, point) => Math.min(best, Math.hypot(point.x - x, point.z - z)),
+            Number.POSITIVE_INFINITY,
+          ),
+          inSpeedCameraRange: this.trafficCameraWitnesses({
+            code: "speeding",
+          } as SimulationRuleEvent),
+          patrolWithin35M: Boolean(this.patrolNearPlayer(35)),
+          lights: this.simulationSnapshot.trafficLights.map((light) => ({
+            id: light.id,
+            state: light.state,
+            watched: this.trafficCameraControlIdByLightId.has(light.id),
+          })),
         };
       };
       // Walker states + bubble, so the capture harness can assert the crowd

@@ -6,6 +6,7 @@ import {
   signalStopBarSegment,
   SIGNAL_MAST,
   TRAFFIC_CAMERA_BODY,
+  trafficCameraHeadIds,
   trafficCameraPlacement,
 } from "../app/game/GameCanvas";
 import { trafficCameraControlIds } from "../app/game/trafficSignals";
@@ -334,6 +335,38 @@ describe("enforcement camera placement", () => {
     expect(placed.y).toBeLessThan(POLE_HEIGHT);
   });
 
+  it("puts a camera on every approach a watched junction actually books", () => {
+    // Enforcement is per control: cross the line on red on *any* arm of an
+    // equipped junction and you are fined. The props were hung per
+    // `role: "primary"` head, and London's southbound Queen's Gate arm is
+    // signalled only by a secondary pole — so that approach was ticketed by a
+    // camera standing nowhere on the road the driver could see.
+    let checked = 0;
+    for (const mapId of ["nyc-upper-west-side", "london-south-kensington"]) {
+      const pack = getMapPack(mapId as MapPack["id"]);
+      const equipped = trafficCameraControlIds(
+        pack.laneGraph.controls
+          .filter((control) => control.type === "signal")
+          .map((control) => control.id),
+      );
+      for (const control of pack.laneGraph.controls) {
+        if (!equipped.has(control.id)) continue;
+        const withCamera = trafficCameraHeadIds(control);
+        expect(withCamera.size, `${control.id} has cameras`).toBeGreaterThan(0);
+        for (const approach of control.approaches) {
+          const served = control.installations.some(
+            (head) =>
+              withCamera.has(head.id) &&
+              (head.approachIds ?? []).includes(approach.id),
+          );
+          expect(served, `${mapId}/${approach.id} is booked but unwatched`).toBe(true);
+          checked += 1;
+        }
+      }
+    }
+    expect(checked, "approaches checked").toBeGreaterThan(0);
+  });
+
   it("watches oncoming traffic on every shipped map, and from across the junction on a mast", () => {
     for (const mapId of ["nyc-upper-west-side", "london-south-kensington"]) {
       const pack = getMapPack(mapId as MapPack["id"]);
@@ -346,9 +379,9 @@ describe("enforcement camera placement", () => {
       let checked = 0;
       for (const control of pack.laneGraph.controls) {
         if (!equipped.has(control.id)) continue;
+        const withCamera = trafficCameraHeadIds(control);
         for (const installation of control.installations) {
-          if (installation.role !== "primary") continue;
-          if (installation.style !== "nyc_signal" && installation.style !== "uk_signal") continue;
+          if (!withCamera.has(installation.id)) continue;
           const mast = installation.mounting === "mast_arm";
           const placed = trafficCameraPlacement(
             installation,
