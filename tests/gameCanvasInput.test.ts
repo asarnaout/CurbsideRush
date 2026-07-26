@@ -2,12 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { VertexData } from "@babylonjs/core";
 import {
   AdaptiveInputRouter,
-  COCKPIT_DASH_DRIVER_Z,
   DEFAULT_HORIZONTAL_FOV,
   GUIDANCE_LAYER_MASK,
   INPUT_PROMPT_SWITCH_COOLDOWN_MS,
   MAX_HORIZONTAL_FOV,
-  MAX_STEERING_WHEEL_SPIN,
   MIN_HORIZONTAL_FOV,
   PRIMARY_CAMERA_LAYER_MASK,
   TOUCH_CONTROL_DIM_DELAY_MS,
@@ -19,17 +17,21 @@ import {
   isAuthoredCheckpointCrossing,
   isLaneGuidanceDistanceAllowed,
   isCameraStackActive,
-  resolveCockpitPitch,
   resolveCockpitCameraPoses,
-  resolveCockpitSteeringGeometry,
   resolveAuthoritativeRouteIndex,
   resolveCheckpointTargetWidth,
   resolveRouteChevronHalfSpan,
   resolveNpcVisualSlotAssignments,
-  resolveSteeringWheelSpin,
   smoothClosedRoadCenterline,
   type AdaptiveInputPresentation,
 } from "../app/game/GameCanvas";
+import {
+  COCKPIT_DASH_DRIVER_Z,
+  MAX_STEERING_WHEEL_SPIN,
+  resolveCockpitPitch,
+  resolveCockpitSteeringGeometry,
+  resolveSteeringWheelSpin,
+} from "../app/game/cockpitLayout";
 
 describe("authoritative NPC visual slots", () => {
   it("preserves live ids regardless of snapshot order", () => {

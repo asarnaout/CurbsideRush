@@ -66,6 +66,13 @@ import {
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import { DRIVE_LAYER } from "./driveLayers";
+import {
+  COCKPIT_DASH_DRIVER_Z,
+  REAR_VIEW_VIEWPORT,
+  resolveCockpitPitch,
+  resolveCockpitSteeringGeometry,
+  resolveSteeringWheelSpin,
+} from "./cockpitLayout";
 import { TouchDriveControls } from "./TouchDriveControls";
 import { releaseTouchSteer } from "./touchSteering";
 import {
@@ -290,8 +297,6 @@ export interface GameHudSnapshot {
 export const MIN_HORIZONTAL_FOV = (55 * Math.PI) / 180;
 export const MAX_HORIZONTAL_FOV = (100 * Math.PI) / 180;
 export const DEFAULT_HORIZONTAL_FOV = (72 * Math.PI) / 180;
-export const MAX_STEERING_WHEEL_SPIN = 0.95;
-export const COCKPIT_DASH_DRIVER_Z = 0.28;
 export const PLAYER_GUIDANCE_HALF_WIDTH_M = 0.91;
 export const GUIDANCE_LATERAL_CLEARANCE_M = 0.3;
 export const WORLD_LAYER_MASK = 0x0fffffff;
@@ -1008,39 +1013,6 @@ export function guidanceCueOverlapsCheckpoint(
 
 export function clampHorizontalFieldOfView(value: number): number {
   return clamp(value, MIN_HORIZONTAL_FOV, MAX_HORIZONTAL_FOV);
-}
-
-export function resolveCockpitPitch(viewportAspectRatio: number): number {
-  const wideBlend = clamp((viewportAspectRatio - 1.6) / 0.4, 0, 1);
-  return 0.1 + wideBlend * 0.02;
-}
-
-/** Returns rotation around the wheel's own steering-column axis. */
-export function resolveSteeringWheelSpin(steer: number): number {
-  if (steer === 0) return 0;
-  return -clamp(steer, -1, 1) * MAX_STEERING_WHEEL_SPIN;
-}
-
-export interface CockpitSteeringGeometry {
-  readonly x: number;
-  readonly y: number;
-  readonly z: number;
-  readonly mountRotationX: number;
-  readonly wheelDiameter: number;
-  readonly rimThickness: number;
-}
-
-export function resolveCockpitSteeringGeometry(
-  steeringSide: SteeringSide,
-): CockpitSteeringGeometry {
-  return {
-    x: steeringSide === "left" ? -0.47 : 0.47,
-    y: 1.16,
-    z: 0.22,
-    mountRotationX: Math.PI / 2 + 0.2,
-    wheelDiameter: 0.32,
-    rimThickness: 0.027,
-  };
 }
 
 export interface GameRuntimeEvent {
@@ -3876,7 +3848,12 @@ class BabylonGameSession {
     this.rearCamera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     this.rearCamera.fov = (64 * Math.PI) / 180;
     this.rearCamera.layerMask = WORLD_LAYER_MASK;
-    this.rearCamera.viewport = new Viewport(0.36, 0.845, 0.28, 0.125);
+    this.rearCamera.viewport = new Viewport(
+      REAR_VIEW_VIEWPORT.x,
+      REAR_VIEW_VIEWPORT.y,
+      REAR_VIEW_VIEWPORT.width,
+      REAR_VIEW_VIEWPORT.height,
+    );
 
     // One far plane for all three cameras, from the fog band the environment
     // chose above. Fog hides but never culls: with the default 10km plane the
