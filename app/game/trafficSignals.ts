@@ -75,7 +75,7 @@ function trafficCameraRank(controlId: string): number {
 }
 
 /** Share of a map's signalled junctions that watch themselves. */
-export const TRAFFIC_CAMERA_RATE = 0.25;
+export const TRAFFIC_CAMERA_RATE = 1 / 3;
 
 /**
  * Which of a map's signals carry an enforcement camera — derived from the
@@ -83,7 +83,7 @@ export const TRAFFIC_CAMERA_RATE = 0.25;
  * free.
  *
  * Ranked by hash and cut at the count, rather than the obvious
- * `hash(id) < rate` threshold. A threshold yields *approximately* a quarter,
+ * `hash(id) < rate` threshold. A threshold yields *approximately* the share,
  * which is fine on New York's 65 signals and useless on London's two, where it
  * lands on zero more often than not and the feature simply does not exist in
  * that city. Ranking gives exactly the rate at any map size, and the `max(1)`

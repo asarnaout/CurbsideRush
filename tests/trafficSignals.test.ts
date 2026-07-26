@@ -175,7 +175,7 @@ describe("authored traffic-signal installations", () => {
     }
   });
 
-  it("equips a quarter of a city's signals with a camera", () => {
+  it("equips a third of a city's signals with a camera", () => {
     for (const mapId of ["nyc-upper-west-side", "london-south-kensington"]) {
       const ids = signalControlIdsOf(mapId);
       expect(ids.length, `${mapId} has signals`).toBeGreaterThan(0);
@@ -188,8 +188,8 @@ describe("authored traffic-signal installations", () => {
   });
 
   it("gives a signalled city at least one camera however few signals it has", () => {
-    // London has two. A `hash(id) < 0.25` threshold lands on zero here more
-    // often than not, which is the whole reason the draw ranks and cuts.
+    // London has two, and a third of two rounds to one. A threshold draw is
+    // what cannot be relied on at this size — hence ranking and cutting.
     expect(trafficCameraControlIds(["a", "b"]).size).toBe(1);
     expect(trafficCameraControlIds(["only-one"]).size).toBe(1);
     expect(trafficCameraControlIds([]).size).toBe(0);
@@ -233,9 +233,9 @@ describe("authored traffic-signal installations", () => {
     expect(trafficCameraControlIds(ids, 2).size).toBe(ids.length);
     expect(trafficCameraControlIds(ids, 0.5).size).toBe(Math.round(ids.length / 2));
     // A larger rate can only add to a smaller one, never reshuffle it.
-    const quarter = trafficCameraControlIds(ids, 0.25);
+    const third = trafficCameraControlIds(ids, 1 / 3);
     const half = trafficCameraControlIds(ids, 0.5);
-    for (const id of quarter) expect(half.has(id)).toBe(true);
+    for (const id of third) expect(half.has(id)).toBe(true);
   });
 
   it("groups opposing London axes correctly", () => {
