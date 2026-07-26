@@ -20,7 +20,7 @@ npm run dev          # Vite dev server + Miniflare worker on :3000 (NOT `next de
 npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run typecheck    # tsc --noEmit, ~2s
 npm run lint         # eslint, ~4s
-npm test             # vitest run: 58 files, 812 tests, ~70s
+npm test             # vitest run: 59 files, 830 tests, ~70s
 ```
 
 Node >= 22.13 (repo currently runs v26).
@@ -30,7 +30,7 @@ Node >= 22.13 (repo currently runs v26).
 `npm test` takes ~70s and **almost all of it is one file** — `tests/trafficSafetyAcceptance.test.ts` (5 cities x every start/checkpoint x 51 seeds x 60s of sim). Everything else runs in ~10s. Use the fast loop while iterating, full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 57 files / 810 tests in ~10s
+# everything except the acceptance test -> 58 files / 828 tests in ~10s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts                     # one file
@@ -158,6 +158,8 @@ The ambient crowd is the whole city's pedestrians rendered as **3-5 meshes total
 
 `resolveMapVisualKey(mapId)` is **substring matching with an `nyc` default** — a typo'd or new map id silently gets NYC's night+paved palette, which changes lighting, fog, ground texture, sidewalk width *and* the crowd's rail geometry.
 
+The first-person cabin splits like the road geometry does: `cockpitLayout.ts` holds every number (dash section, vent slots, pillar/roof profiles, screen rake, gauge sweep, the mirror rect) with no Babylon import, and `buildCockpit` only turns them into meshes. Four traps. **`makeMaterial` leaves `ambientColor` black**, so a cabin surface built with it discards `scene.ambientColor` and reads as a silhouette after dark — use `makeInteriorMaterial`, whose three terms are day/night split because the sun runs 1.3 against 0.6 and one palette bleaches whichever end it is not tuned for. **Nothing under `playerCockpit` can be `freezeWorldMatrix`'d** (it hangs off the player node, rewritten every frame), so `mergeCockpitStatics` collapses the statics to one mesh per material at the end of the build: a new part is a permanent draw call unless it lands in a merge group, and it must carry UVs or Babylon refuses the merge — which is the only reason `createExtrudedPrism` emits them. **The cowl can eat the road**, so `cockpitCowlScreenFraction` and `tests/cockpitLayout.test.ts` pin it across every FOV and aspect. And **the rear-view mirror is a second camera in a fixed viewport, not a texture on a mesh** — screen-space, so its housing must be too (a 3D bezel swings off its own reflection on the first quick-look); `REAR_VIEW_VIEWPORT`/`rearViewCssRect` feed both the Babylon `Viewport` and the HUD frame `SideSwapApp` draws from `rearViewVisible`. That second camera is also why the cabin carries `COCKPIT_LAYER_MASK` and the mirror does not.
+
 ### Audio
 
 `audioMath.ts` (577 lines) has zero Web Audio imports — it is the entire car model (invented 5-speed gearbox, rpm curves, wind/road/squeal) and mutates caller-owned objects, allocating nothing. Voices only schedule those numbers. `DriveAudio.create()` returns `null` when Web Audio is unavailable, hence `this.audio?.…` everywhere.
@@ -196,4 +198,3 @@ The AudioContext is a **module-level singleton**, deliberately not per-session, 
 - **`.app-shell` sets `overflow: hidden`, which silently disables `position: sticky` anywhere below it** — a scroll container, so a sticky child pins to *it* rather than the viewport and simply never moves. The career pages override it to `overflow: clip` (clips identically, no scrollport) inside the 860px block, which is what lets the garage dock and the travel flight bar pin at all. Nothing warns; the element just sits in flow.
 - **No `wrangler.toml`.** Worker config is inline in `vite.config.ts` (`localBindingConfig`) at dev time and generated into `dist/server/wrangler.json` at build. The `@cloudflare/vite-plugin` import is deliberately dynamic — Wrangler snapshots its log path on import. The image-optimization branch in `worker/index.ts` and the D1/drizzle packaging in `build/sites-vite-plugin.ts` are inherited template code with no live consumer.
 - **Two deploy shapes from one build.** `npm run build` emits a Cloudflare Worker; `npm run build:static` adds `tools/prerender-static.mjs`, which renders `/` *through that same Worker in-process* (it has no `cloudflare:` imports, and `env` is only touched on `/_vinext/image`) and writes `dist/client/index.html` for Netlify to publish as static files. **`vinext start` is not a substitute** — it serves unhashed dev URLs that 404 on a static host, so the page never hydrates; `assertUsableHtml` fails the build on exactly that. The prerender freezes the origin into `og:image`, so it refuses to run without a real `SITE_URL`/Netlify `URL` — a wrong one is invisible until a shared link renders with no card.
-- The `@/*` tsconfig path alias exists and is **used zero times**. Every import is relative; follow that.

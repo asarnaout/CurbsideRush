@@ -10961,26 +10961,42 @@ class BabylonGameSession {
     // squarely on the lower half of the frame where the cockpit is. All of them
     // stay well under `bloomThreshold` (0.72 at night); only the gauge accents
     // are allowed anywhere near it.
+    // A cabin needs a big ambient floor after dark and almost none at noon.
+    // Diffuse is the term the sun multiplies, and the sun runs at 1.3 by day
+    // against 0.6 at night, while ambient and emissive are flat in both — so a
+    // single palette is either unreadable in New York or bleached in London.
+    // Pick per map, the way the building night glow already does.
+    // The numbers below are the night values; daylight scales all three down,
+    // because by day the sun does the work and the same floor that rescues a
+    // New York cabin bleaches a London one to flat beige.
+    const night = this.visualPalette?.night ?? false;
+    const toneScale = night ? 1 : 0.73;
+    const ambientFloor = night ? 0.6 : 0.3;
+    const glowScale = night ? 1 : 0.5;
+    const surface = (r: number, g: number, b: number) =>
+      new Color3(r * toneScale, g * toneScale, b * toneScale);
+    const lit = (r: number, g: number, b: number) =>
+      new Color3(r * glowScale, g * glowScale, b * glowScale);
     const steeringRubber = makeInteriorMaterial(
       scene,
       "steering-rubber",
-      new Color3(0.105, 0.097, 0.09),
-      new Color3(0.02, 0.019, 0.017),
-      0.45,
+      surface(0.105, 0.097, 0.09),
+      lit(0.02, 0.019, 0.017),
+      ambientFloor * 0.72,
     );
     const dash = makeInteriorMaterial(
       scene,
       "dashboard",
-      new Color3(0.275, 0.253, 0.229),
-      new Color3(0.038, 0.035, 0.031),
-      0.6,
+      surface(0.275, 0.253, 0.229),
+      lit(0.038, 0.035, 0.031),
+      ambientFloor,
     );
     const cockpitTrim = makeInteriorMaterial(
       scene,
       "cockpit-trim",
-      new Color3(0.335, 0.31, 0.281),
-      new Color3(0.044, 0.04, 0.035),
-      0.6,
+      surface(0.335, 0.31, 0.281),
+      lit(0.044, 0.04, 0.035),
+      ambientFloor,
     );
     const instrumentFace = makeInteriorMaterial(
       scene,
