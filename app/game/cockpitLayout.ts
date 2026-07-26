@@ -52,7 +52,11 @@ export const COCKPIT_DASH_DRIVER_Z = 0.28;
  */
 export const REAR_VIEW_VIEWPORT = Object.freeze({
   x: 0.385,
-  y: 0.825,
+  // Hangs below the speed readout rather than behind it. The readout is
+  // centred at the top of the frame and takes a much larger share of a 390px
+  // phone in landscape than of a desktop window, so the clearance has to be
+  // set for the phone or the numeral ends up sitting on the glass.
+  y: 0.775,
   width: 0.23,
   height: 0.115,
 });
