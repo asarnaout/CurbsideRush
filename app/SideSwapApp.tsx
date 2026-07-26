@@ -497,6 +497,17 @@ const ROUTE_RESEARCH_INTERVAL_MS = 1500;
  * UI. Both figures come out of the event's own evidence, so what the officer
  * says and what the wallet loses are computed from one measurement.
  */
+/**
+ * The shortest gap between two fines from *any* source.
+ *
+ * Short on purpose. It is here to stop one incident being charged twice — a
+ * swerve that leaves the road and hits someone trips two rules in the same
+ * breath, and two different mechanisms answer them — not to re-pace a driver
+ * who reoffends a few seconds later, which each mechanism's own clock already
+ * governs.
+ */
+const FINE_MIN_SPACING_MS = 3000;
+
 function fineReason(
   code: string | undefined,
   evidence: Readonly<Record<string, string | number | boolean>> | undefined,
@@ -657,6 +668,7 @@ export default function SideSwapApp() {
   const [fineToast, setFineToast] = useState<{
     amount: number;
     reason: string;
+    issuedBy: "patrol" | "camera";
   } | null>(null);
   const lastFineAtRef = useRef(0);
   // Per-drive car condition (100 = pristine). Collision events wear it down;
@@ -678,6 +690,15 @@ export default function SideSwapApp() {
   // fineable rule can fire, and unrecognisable as policing. The officer just
   // dealt with you.
   const lastSpeedingFineAtRef = useRef(0);
+  // One moment, one charge — across every mechanism that can take money, which
+  // the three clocks above cannot see between them. Three things now fine the
+  // driver: a patrol stop, a camera, and striking someone. A swerve onto the
+  // pavement that hits a pedestrian is a single incident that trips
+  // `out_of_bounds` and `collision` in the same breath, and without this it
+  // pays for both. Deliberately short — it exists to collapse one incident, not
+  // to slow down a driver who genuinely reoffends, whose pacing stays with the
+  // per-mechanism clocks.
+  const lastAnyFineAtRef = useRef(0);
   // Why the patrol pulled you over and what it will cost, both carried from
   // the `fine` event that staged the stop to the citation step that charges
   // for it. The amount is settled here rather than at `cite` because the
@@ -1218,6 +1239,35 @@ export default function SideSwapApp() {
   const driveCountry = getCountryProfile(driveDestination.countryId);
 
   /**
+   * The one place money is taken for a violation, whoever wrote it — the
+   * officer at the window, the camera over the junction, or the app's own
+   * citation for striking someone.
+   *
+   * Career fines are day-local like every other career charge and may push the
+   * day negative; free drive debits the country wallet and persists. Those two
+   * branches were copied at all three sites, which is exactly where they would
+   * have drifted apart. Stamping the shared clock here means it marks money
+   * actually moving rather than an intention to charge.
+   */
+  const chargeFine = useCallback(
+    (amount: number, reason: string, issuedBy: "patrol" | "camera") => {
+      lastAnyFineAtRef.current = Date.now();
+      if (careerRunRef.current) {
+        chargeCareer(amount, (log) => ({
+          ...log,
+          finesTotal: log.finesTotal + amount,
+        }));
+      } else {
+        const fined = debit(progress, driveCountry.id, amount);
+        setProgress(fined);
+        saveProgress(fined);
+      }
+      setFineToast({ amount, reason, issuedBy });
+    },
+    [progress, driveCountry, chargeCareer],
+  );
+
+  /**
    * Says what a finished job actually paid. A rideshare tip is unknown right up
    * to the drop-off, so without this the reveal — the whole point of hiding it —
    * would be a number quietly ticking up in the corner.
@@ -1310,28 +1360,15 @@ export default function SideSwapApp() {
         const evidence = event.evidence ?? {};
         if (!active || evidence.nonce !== active.nonce) return;
         if (evidence.phase === "cite") {
-          // The officer is at the window. Career fines are day-local like
-          // every other career charge; free drive debits the country wallet.
-          // The amount was settled when the stop was staged — a speeding
-          // ticket is priced off the excess, everything else is the flat fine.
-          const fine =
-            pendingFineAmountRef.current ?? FINE_BY_COUNTRY[driveCountry.id];
-          if (careerRunRef.current) {
-            chargeCareer(fine, (log) => ({
-              ...log,
-              finesTotal: log.finesTotal + fine,
-            }));
-          } else {
-            const fined = debit(progress, driveCountry.id, fine);
-            setProgress(fined);
-            saveProgress(fined);
-          }
-          setFineToast({
-            amount: fine,
-            reason:
-              pendingFineReasonRef.current ??
+          // The officer is at the window. The amount was settled when the stop
+          // was staged — a speeding ticket is priced off the excess, everything
+          // else is the flat fine.
+          chargeFine(
+            pendingFineAmountRef.current ?? FINE_BY_COUNTRY[driveCountry.id],
+            pendingFineReasonRef.current ??
               fineReason(undefined, undefined, driveCountry),
-          });
+            "patrol",
+          );
           return;
         }
         if (evidence.phase === "pump") {
@@ -1490,40 +1527,29 @@ export default function SideSwapApp() {
         if (roadUser === "pedestrian" || roadUser === "cyclist") {
           const now = Date.now();
           if (now - lastPedFineAtRef.current < 4000) return;
+          if (now - lastAnyFineAtRef.current < FINE_MIN_SPACING_MS) return;
           lastPedFineAtRef.current = now;
-          const amount = FINE_BY_COUNTRY[driveCountry.id];
-          if (careerRunRef.current) {
-            chargeCareer(amount, (log) => ({
-              ...log,
-              finesTotal: log.finesTotal + amount,
-            }));
-          } else {
-            const fined = debit(progress, driveCountry.id, amount);
-            setProgress(fined);
-            saveProgress(fined);
-          }
-          setFineToast({
-            amount,
-            reason:
-              roadUser === "cyclist"
-                ? "striking a cyclist"
-                : "striking a pedestrian",
-          });
+          chargeFine(
+            FINE_BY_COUNTRY[driveCountry.id],
+            roadUser === "cyclist"
+              ? "striking a cyclist"
+              : "striking a pedestrian",
+            "patrol",
+          );
         }
         return;
       }
       if (event.type !== "fine") return;
       const now = Date.now();
+      if (now - lastAnyFineAtRef.current < FINE_MIN_SPACING_MS) return;
       if (now - lastFineAtRef.current < 8000) return;
       const speeding = event.ruleCode === "speeding";
       if (speeding && now - lastSpeedingFineAtRef.current < SPEEDING_STOP_GRACE_MS) {
         return;
       }
-      // The stop *is* the citation: stage the pull-over and let its `cite`
-      // step debit, the same way the pump scene pays for its fuel. A scene
-      // already running (or a tow) means the violation goes uncited rather
-      // than queueing behind it — the debounce clock only starts once a stop
-      // actually begins, so the next one is not swallowed too.
+      // A scene already running (or a tow) means the violation goes uncited
+      // rather than queueing behind it — every clock below is stamped only once
+      // the citation is really under way, so the next one is not swallowed too.
       if (cutsceneRef.current || towingRef.current) return;
       lastFineAtRef.current = now;
       if (speeding) lastSpeedingFineAtRef.current = now;
@@ -1531,15 +1557,25 @@ export default function SideSwapApp() {
       // speeding ticket scales with the excess; every other violation is
       // binary and pays the flat fine.
       const excessMps = speeding ? speedingExcessMps(event.evidence) : null;
-      pendingFineAmountRef.current =
+      const amount =
         excessMps === null
           ? null
           : speedingFine(driveCountry, postedSpeed(excessMps, driveCountry));
-      pendingFineReasonRef.current = fineReason(
-        event.ruleCode,
-        event.evidence,
-        driveCountry,
-      );
+      const reason = fineReason(event.ruleCode, event.evidence, driveCountry);
+      if (event.issuedBy === "camera") {
+        // Nobody to pull you over, so there is no scene and no `cite` step to
+        // carry the amount to: the camera posts the ticket where the driver
+        // stands, the way striking someone is charged. The pull-over is the
+        // better moment when there is an officer to stage it, which is why
+        // GameCanvas only reaches for a camera when there is not.
+        chargeFine(amount ?? FINE_BY_COUNTRY[driveCountry.id], reason, "camera");
+        return;
+      }
+      // The stop *is* the citation: stage the pull-over and let its `cite`
+      // step debit, the same way the pump scene pays for its fuel.
+      lastAnyFineAtRef.current = now;
+      pendingFineAmountRef.current = amount;
+      pendingFineReasonRef.current = reason;
       beginCutscene("pullover");
     },
     [
@@ -1550,6 +1586,7 @@ export default function SideSwapApp() {
       beginCutscene,
       clearCutscene,
       chargeCareer,
+      chargeFine,
       promoteQueuedGig,
       announcePayout,
     ],
@@ -2612,9 +2649,12 @@ export default function SideSwapApp() {
               gap: "0.5rem",
             }}
           >
-            <span aria-hidden="true">🚓</span>
+            <span aria-hidden="true">
+              {fineToast.issuedBy === "camera" ? "📷" : "🚓"}
+            </span>
             <span>
-              Fined {formatMoney(fineToast.amount, driveCountry)} for{" "}
+              {fineToast.issuedBy === "camera" ? "Camera fined" : "Fined"}{" "}
+              {formatMoney(fineToast.amount, driveCountry)} for{" "}
               {fineToast.reason}
             </span>
           </div>
