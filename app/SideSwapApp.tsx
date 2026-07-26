@@ -2145,7 +2145,9 @@ export default function SideSwapApp() {
     : litresNeeded > 0.5 && walletHere >= refuelCost;
   // Pressing Refuel now stages the pump cutscene; the wallet debit and the
   // fill land when the scene reports the nozzle is in (its `pump` event).
-  const refuel = () => {
+  // useCallback (rather than a plain closure) so the Enter-key effect below
+  // isn't forced to resubscribe on every fuel-gauge tick.
+  const refuel = useCallback(() => {
     if (!canRefuel || cutscene || towing) return;
     beginCutscene(
       "refuel",
@@ -2153,7 +2155,30 @@ export default function SideSwapApp() {
       undefined,
       tankCapacityL > 0 ? litresNeeded / tankCapacityL : 0,
     );
-  };
+  }, [canRefuel, cutscene, towing, beginCutscene, tankCapacityL, litresNeeded]);
+
+  // Enter mirrors the on-screen Refuel prompt, same as F/G mirror the offer
+  // card — only live while the prompt itself is showing, so it never fires a
+  // cutscene the player is stood too far from a pump to see staged. `refuel`
+  // already no-ops once there is nothing left to fill.
+  useEffect(() => {
+    if (view !== "driving" || !activeGasStation) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+      if (event.code === "Enter" || event.code === "NumpadEnter") {
+        event.preventDefault();
+        refuel();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [view, activeGasStation, refuel]);
 
   // Pin the pumps rather than the lane anchor. The anchor sits on the
   // carriageway ~19m short of the forecourt, and now that fuel is only offered
@@ -2798,9 +2823,13 @@ export default function SideSwapApp() {
           >
             <button
               type="button"
+              data-testid="refuel-button"
               onClick={refuel}
               disabled={!canRefuel}
               style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.6rem",
                 padding: "0.65rem 1.3rem",
                 borderRadius: "999px",
                 border: "none",
@@ -2811,11 +2840,34 @@ export default function SideSwapApp() {
                 backdropFilter: "blur(10px)",
               }}
             >
-              {litresNeeded <= 0.5
-                ? `${activeGasStation.label} · Tank full`
-                : canRefuel
-                  ? `Refuel — ${formatMoney(refuelCost, driveCountry)}`
-                  : `Need ${formatMoney(refuelCost, driveCountry)} to fill up`}
+              <span>
+                {litresNeeded <= 0.5
+                  ? `${activeGasStation.label} · Tank full`
+                  : canRefuel
+                    ? `Refuel — ${formatMoney(refuelCost, driveCountry)}`
+                    : `Need ${formatMoney(refuelCost, driveCountry)} to fill up`}
+              </span>
+              {/* Only live while `refuel()` actually does something — same gate as the
+                  Enter-key listener above. Touch has no keyboard to hint at. */}
+              {!touchFirst && canRefuel && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "grid",
+                    placeItems: "center",
+                    minWidth: "2.3rem",
+                    height: "1.35rem",
+                    padding: "0 0.35rem",
+                    borderRadius: 6,
+                    background: "rgba(26,28,31,0.18)",
+                    font: "800 0.68rem/1 system-ui, sans-serif",
+                    letterSpacing: "0.02em",
+                    color: "#1a1c1f",
+                  }}
+                >
+                  ENTER
+                </span>
+              )}
             </button>
           </div>
         )}
