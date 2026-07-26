@@ -692,6 +692,16 @@ interface NpcInternal extends MutablePose {
   distance: number;
   speedMps: number;
   desiredSpeedMps: number;
+  /**
+   * How briskly this driver takes a posted limit, as a fraction of it, drawn
+   * once at spawn. Kept so `desiredSpeedMps` can be re-derived against each new
+   * road instead of latching the spawn road's figure for life — without it a
+   * car that starts on an arterial carries that speed into a 20 km/h lane.
+   *
+   * Left undefined when a traffic gate authored an absolute speed: that number
+   * is a scripted setpiece, not a driving style, so it must not be rescaled.
+   */
+  speedFactor?: number;
   targetSpeedMps: number;
   state: NpcDrivingState;
   signal: TurnSignal;
@@ -2548,8 +2558,15 @@ export class SimulationCore {
       const preferredGate = this.trafficGates[index % this.trafficGates.length];
       const lane = this.lanesById.get(preferredGate.laneId) ?? this.lanes[0];
       const pose = this.pointOnLane(lane, preferredGate.distance);
-      const desiredSpeedMps = preferredGate.desiredSpeedMps ??
-        lane.speedLimitMps * (0.68 + this.random.next() * 0.24);
+      // The draw stays inside the branch that always made it, so the PRNG is
+      // consumed the same number of times in the same order as before drivers
+      // started carrying their style between roads.
+      const speedFactor =
+        preferredGate.desiredSpeedMps === undefined
+          ? 0.68 + this.random.next() * 0.24
+          : undefined;
+      const desiredSpeedMps =
+        preferredGate.desiredSpeedMps ?? lane.speedLimitMps * speedFactor!;
       const variant = preferredGate.variant ?? this.randomVehicleVariant();
       const npc: NpcInternal = {
         id: `npc-${index + 1}`,
@@ -2562,6 +2579,7 @@ export class SimulationCore {
         distance: preferredGate.distance,
         speedMps: 0,
         desiredSpeedMps,
+        speedFactor,
         targetSpeedMps: desiredSpeedMps,
         state: lane.kind === "roundabout" ? "roundabout" : "cruising",
         signal: "off",
@@ -2738,11 +2756,14 @@ export class SimulationCore {
     npc.preferredGateId = gate.id;
     npc.laneId = lane.id;
     npc.distance = gate.distance;
-    npc.desiredSpeedMps = gate.desiredSpeedMps ?? clamp(
-      npc.desiredSpeedMps,
-      1,
-      lane.speedLimitMps * 1.05,
-    );
+    // Same rule as a lane change: a driver with a style reads the new road's
+    // limit through it. Only a car whose speed was never a style — a scripted
+    // gate speed — falls back to carrying its old figure under a clamp.
+    npc.desiredSpeedMps =
+      gate.desiredSpeedMps ??
+      (npc.speedFactor !== undefined
+        ? lane.speedLimitMps * npc.speedFactor
+        : clamp(npc.desiredSpeedMps, 1, lane.speedLimitMps * 1.05));
     npc.speedMps = npc.desiredSpeedMps * 0.55;
     npc.targetSpeedMps = npc.desiredSpeedMps;
     npc.state = lane.kind === "roundabout" ? "roundabout" : "cruising";
@@ -3504,6 +3525,12 @@ export class SimulationCore {
       npc.targetLaneId = undefined;
       npc.laneChangeProgress = 0;
       npc.signal = "off";
+      // A driver reads the limit of the road they are now on. Re-derived from
+      // the style drawn at spawn, so an assertive driver stays assertive and a
+      // cautious one cautious — they just do it against the new number.
+      if (npc.speedFactor !== undefined) {
+        npc.desiredSpeedMps = nextLane.speedLimitMps * npc.speedFactor;
+      }
       transitions += 1;
     }
     if (transitions > this.lanes.length) {
