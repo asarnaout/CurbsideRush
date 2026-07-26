@@ -3268,7 +3268,7 @@ export default function SideSwapApp() {
               <span>{launcherCountry.flagEmoji} {launcherCountry.countryName}</span>
               <strong>{launcherDestination.destinationName}</strong>
               <em>{launcherDestination.destinationSubtitle}</em>
-              <small>Keeps {launcherCountry.trafficSide} · earn on the clock</small>
+              <small>Keeps {launcherCountry.trafficSide}</small>
             </div>
           </div>
           <p className="launcher-legal">
