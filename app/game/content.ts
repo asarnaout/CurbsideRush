@@ -1890,16 +1890,22 @@ export const MAP_PACKS: readonly MapPack[] = [
         // Columbus. On a map 2.9 km end to end, one pump stop meant a run the
         // length of the city to reach it whichever way you were driving.
         { id: "nyc-gas-uptown", kind: "gas_station", anchor: { laneId: "nyc-96-e-col", distanceAlongM: 70 }, footprint: point(14, 9), label: "West 96th Fuel", setbackM: 18.7 },
-        // The two repair shops take the corners the pumps do not: fuel is at
-        // W 72nd/West End (south-west) and W 96th/Columbus (north-east), so
-        // these sit south-east and north-west. Both services are a detour, and
-        // two detours to the same corner is one landmark, not two.
+        // The two repair shops sit away from the pumps — fuel is at W 72nd/West
+        // End and W 96th/Columbus — but **zoning outranks spread**. A workshop
+        // wants commercial frontage, and `nycZoneFor` puts detached houses up
+        // the whole Riverside–West End column north of centre, so the obvious
+        // far corner from the uptown station is exactly where one must not go:
+        // sited there, the shop stood between two clapboard homes with porches.
+        // Broadway is the Upper West Side's commercial spine and its blocks
+        // above W 79th are zoned retail, which is where the uptown one lives
+        // now. The downtown one is on Columbus in the midrise belt — avenue
+        // frontage, mixed use, and the right neighbours for a garage.
         //
         // The shop is a much smaller building than the station, so its lot is
         // 4.8 m to the station's 11.64 — hence a set-back in the twelves rather
         // than the eighteens for the same kerb gap on the same street.
         { id: "nyc-repair-downtown", kind: "repair_shop", anchor: { laneId: "nyc-65-e-col", distanceAlongM: 36 }, footprint: point(10, 8), label: "West 65th Auto", setbackM: 11.8 },
-        { id: "nyc-repair-uptown", kind: "repair_shop", anchor: { laneId: "nyc-100-e-riv", distanceAlongM: 52 }, footprint: point(10, 8), label: "Riverside Auto", setbackM: 13 },
+        { id: "nyc-repair-uptown", kind: "repair_shop", anchor: { laneId: "nyc-bway-n-91", distanceAlongM: 60 }, footprint: point(10, 8), label: "Broadway Auto", setbackM: 12.1 },
       ],
       gigVenues: [
         { id: "nyc-v1", kind: "restaurant", anchor: { laneId: "nyc-amst-n-1-75", distanceAlongM: 22 }, footprint: point(28, 20), name: "Amsterdam Diner", setbackM: 18 },

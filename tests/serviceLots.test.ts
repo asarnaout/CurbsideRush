@@ -202,4 +202,37 @@ describe("service-point lots", () => {
       "calais-coquelles": 0,
     });
   });
+
+  it("puts the workshops on commercial frontage, not between houses", () => {
+    // Siting is not just geometry. The first uptown shop cleared the kerb, sat
+    // on a block and stood 300 m from anything else — and landed in the middle
+    // of the Riverside detached-house belt, with a porch either side of it.
+    // NYC is the only map that zones its blocks, so it is the only one that can
+    // be checked; `nycZoneFor` puts houses up the whole west column north of
+    // centre, which is precisely the far corner a spread-only rule reaches for.
+    const RESIDENTIAL: readonly string[] = ["nyc-house", "nyc-brownstone"];
+    const pack = MAP_PACKS.find((p) => p.id === "nyc-upper-west-side")!;
+    for (const shop of repairShopsOf(pack.geometry.servicePoints)) {
+      const pose = resolveSimulationLaneAnchor(
+        pack.laneGraph.lanes,
+        shop.anchor,
+      );
+      if (!pose) continue;
+      const setback = shop.setbackM ?? DEFAULT_SETBACK_M;
+      const centre = {
+        x: pose.x + Math.cos(pose.heading) * setback,
+        z: pose.z - Math.sin(pose.heading) * setback,
+      };
+      const block = pack.geometry.blocks.find(
+        (candidate) =>
+          Math.abs(centre.x - candidate.center.x) <= candidate.size.x / 2 &&
+          Math.abs(centre.z - candidate.center.z) <= candidate.size.z / 2,
+      );
+      expect(block, `${shop.id} stands on no block at all`).toBeDefined();
+      expect(
+        RESIDENTIAL.includes(String(block?.buildingSet)),
+        `${shop.id} is in the ${block?.buildingSet} zone — a garage between homes`,
+      ).toBe(false);
+    }
+  });
 });
