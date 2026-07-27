@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  REPAIR_SHOP_BAY_CLEAR_DEPTH_M,
+  REPAIR_SHOP_BAY_CLEAR_WIDTH_M,
+} from "../app/game/repairShopLayout";
+import {
   BIKE_CUTSCENE_BODY,
   buildBikeErrandScript,
   buildPulloverScript,
@@ -439,7 +443,7 @@ describe("buildRoadsideRefuelScript", () => {
 });
 
 describe("buildRepairScript", () => {
-  it("works at the bonnet without crossing the body, every combination", () => {
+  it("works at the front wing without crossing the body, every combination", () => {
     for (const car of CAR_POSES) {
       for (const steeringSide of ["left", "right"] as const) {
         const script = buildRepairScript(car, steeringSide);
@@ -454,30 +458,51 @@ describe("buildRepairScript", () => {
           action: "hide",
           carDip: true,
         });
-        // The work happens dead ahead on the centreline, not out to a flank.
+        // The work happens beside the driver's front wing, on their own side.
         const walkOut = script[1];
-        const bonnet = walkOut.path![walkOut.path!.length - 1];
-        const bonnetLocal = local(car, bonnet);
-        expect(Math.abs(bonnetLocal.lat)).toBeLessThan(0.01);
-        expect(bonnetLocal.long).toBeGreaterThan(2);
+        const wing = local(car, walkOut.path![walkOut.path!.length - 1]);
+        const driverSign = steeringSide === "left" ? -1 : 1;
+        expect(Math.sign(wing.lat)).toBe(driverSign);
+        expect(wing.long).toBeGreaterThan(0.5);
       }
     }
   });
 
-  it("never leaves the car's own envelope", () => {
+  it("keeps the whole walk inside a repair bay, however the car parked", () => {
     // The bay is walled on three sides and the actor is a render-only node, so
-    // nothing stops it walking through a wall. Keeping every waypoint inside
-    // the space the car itself occupies plus its skirting ring is what makes
-    // that impossible rather than merely unlikely — whatever size the bay is.
-    const reach = DEFAULT_CUTSCENE_BODY.clearLongM + 1.6;
-    for (const car of CAR_POSES) {
+    // nothing physically stops it walking through a wall — only the geometry
+    // does. This is what caught the first attempt, which stood the driver a
+    // bumper's length off the nose: a car noses in until its collider meets the
+    // back wall, which put that point outside the building.
+    const half = {
+      long: REPAIR_SHOP_BAY_CLEAR_DEPTH_M / 2,
+      lat: REPAIR_SHOP_BAY_CLEAR_WIDTH_M / 2,
+    };
+    // Every way a car can legitimately come to rest in the bay: nose-in,
+    // reversed in, and pushed up against either wall.
+    const parks = [0, Math.PI, Math.PI / 2, -Math.PI / 2].flatMap((heading) =>
+      [-0.9, 0, 0.9].flatMap((along) =>
+        [-0.5, 0, 0.5].map((across) => ({ heading, along, across })),
+      ),
+    );
+    for (const park of parks) {
+      // Bay frame: +long runs from the mouth to the back wall, +lat across it.
+      const car = {
+        x: park.across,
+        z: park.along,
+        heading: park.heading,
+      };
       for (const steeringSide of ["left", "right"] as const) {
         for (const step of buildRepairScript(car, steeringSide)) {
           for (const point of step.path ?? []) {
             expect(
-              Math.hypot(point.x - car.x, point.z - car.z),
-              `${steeringSide} waypoint strays from the car`,
-            ).toBeLessThanOrEqual(reach);
+              Math.abs(point.z),
+              `walk leaves the bay lengthways (heading ${park.heading.toFixed(2)})`,
+            ).toBeLessThanOrEqual(half.long);
+            expect(
+              Math.abs(point.x),
+              `walk leaves the bay sideways (heading ${park.heading.toFixed(2)})`,
+            ).toBeLessThanOrEqual(half.lat);
           }
         }
       }

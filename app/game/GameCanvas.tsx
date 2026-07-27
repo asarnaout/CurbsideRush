@@ -63,11 +63,15 @@ import {
   FUEL_PUMP_REACH_M,
   gasStationPumpPositions,
   gasStationsOf,
+  distanceToRepairBay,
+  repairShopBayPosition,
+  repairShopsOf,
   resolveServicePointLot,
   type ServicePointKind,
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import {
+  REPAIR_BAY_REACH_M,
   REPAIR_SHOP_LOT_HALF_M,
   REPAIR_SHOP_PARTS,
   type RepairShopSurface,
@@ -153,6 +157,7 @@ import {
   buildPulloverScript,
   buildRefuelScript,
   buildRepairScript,
+  repairCameraPosition,
   buildRoadsideRefuelScript,
   cutsceneBodyProfile,
   DEFAULT_CUTSCENE_BODY,
@@ -5256,8 +5261,8 @@ class BabylonGameSession {
         break;
       }
       case "repair": {
-        // Likewise needs no map data — the work happens at the car's own
-        // bonnet, so this branch always yields a script. Deliberate: the bill
+        // Likewise needs no map data — the work happens at the car's own front
+        // wing, so this branch always yields a script. Deliberate: the bill
         // is charged on the scene's repair step, so a shop visit that could not
         // be staged would be a repair that silently cost nothing.
         script = buildRepairScript(car, this.options.steeringSide, body);
@@ -5387,6 +5392,24 @@ class BabylonGameSession {
     const radius = pullover
       ? Math.max(14, span * 1.25)
       : Math.max(9, span * 0.85);
+    const cameraY = 4.2 + span * 0.25;
+
+    // The repair scene is the one that plays inside a building, so it does not
+    // take the generic framing — see `repairCameraPosition`.
+    const framing =
+      request.kind === "repair"
+        ? this.repairBayFramingAt(car.x, car.z)
+        : null;
+    // Measured from the BAY's centre, not from the scene's own midpoint. The
+    // midpoint is already pulled toward the actor, so offsetting from it
+    // compounds and walks the camera out past the flank — where it films the
+    // outside of the wall. The shot is a property of the shop.
+    const repairShot = framing
+      ? repairCameraPosition(framing.bay.x, framing.bay.z, framing.mouth, {
+          x: focus.x - car.x,
+          z: focus.z - car.z,
+        })
+      : null;
 
     const riderWasHidden = request.kind === "board" && this.riderNode !== null;
     if (riderWasHidden) this.riderNode?.setEnabled(false);
@@ -5412,12 +5435,16 @@ class BabylonGameSession {
       segmentTotal: 0,
       actorNode,
       actorVisual,
-      cameraPosition: new Vector3(
-        midX + perpX * radius,
-        4.2 + span * 0.25,
-        midZ + perpZ * radius,
-      ),
-      cameraTarget: new Vector3(midX, 1.0, midZ),
+      cameraPosition: repairShot
+        ? new Vector3(repairShot.x, repairShot.y, repairShot.z)
+        : new Vector3(midX + perpX * radius, cameraY, midZ + perpZ * radius),
+      // Both ends of the repair shot come off the shop: aiming at the scene's
+      // own midpoint instead leaves the bay off to one side, because the
+      // midpoint drifts with wherever the car stopped and whichever flank the
+      // driver is working on.
+      cameraTarget: framing
+        ? new Vector3(framing.bay.x, 1.0, framing.bay.z)
+        : new Vector3(midX, 1.0, midZ),
       groundY: CUTSCENE_GROUND_Y[request.kind] ?? ACTOR_WALK_Y,
       riderWasHidden,
       playerRiderHidden,
@@ -5727,6 +5754,45 @@ class BabylonGameSession {
     this.emit("cutscene", CUTSCENE_DONE_MESSAGE[kind], "info", {
       evidence: { phase: "done", nonce, kind },
     });
+  }
+
+  /**
+   * Which way the open side of the repair bay the car is standing in faces —
+   * a unit vector, or null if the car is not in one.
+   *
+   * The shop is set back along the lane's driver-right normal and turned to
+   * face back the way it came, so its mouth points along exactly the opposite
+   * of that normal. That is a fact about the building, which is what makes it
+   * the right thing to frame the scene against: how the driver got in — nose
+   * first, reversed, or slewed across the bay — tells you nothing about where
+   * the wall is.
+   */
+  private repairBayFramingAt(
+    x: number,
+    z: number,
+  ): {
+    readonly bay: { readonly x: number; readonly z: number };
+    readonly mouth: { readonly x: number; readonly z: number };
+  } | null {
+    const mapPack = this.options.mapPack;
+    if (!mapPack) return null;
+    for (const service of repairShopsOf(mapPack.geometry.servicePoints)) {
+      const reach = distanceToRepairBay(mapPack.laneGraph.lanes, service, x, z);
+      // Slack over the prompt's own reach: the scene stages a frame or two
+      // after the button, and a car rolling to a stop may have drifted.
+      if (reach > REPAIR_BAY_REACH_M + 2) continue;
+      const bay = repairShopBayPosition(mapPack.laneGraph.lanes, service);
+      const pose = resolveSimulationLaneAnchor(
+        mapPack.laneGraph.lanes,
+        service.anchor,
+      );
+      if (!bay || !pose) continue;
+      return {
+        bay,
+        mouth: { x: -Math.cos(pose.heading), z: Math.sin(pose.heading) },
+      };
+    }
+    return null;
   }
 
   /** The pump the refuel scene plays at: nearest to the car, within the same
@@ -10948,6 +11014,13 @@ class BabylonGameSession {
                 Math.round(this.activeCutscene.actorNode.position.z * 100) /
                 100,
               actorVisible: this.activeCutscene.actorNode.isEnabled(),
+              // Where the scene is watched from. A staged shot that ends up
+              // inside a wall looks like a rendering bug and is really a
+              // placement one, and there is no way to tell from a screenshot
+              // which wall you are inside of.
+              cameraX: Math.round(this.activeCutscene.cameraPosition.x * 100) / 100,
+              cameraY: Math.round(this.activeCutscene.cameraPosition.y * 100) / 100,
+              cameraZ: Math.round(this.activeCutscene.cameraPosition.z * 100) / 100,
               // The traffic stop's second car, so QA can assert it actually
               // pulls in behind rather than parking on top of the player.
               patrolX: this.activeCutscene.patrolNode

@@ -26,7 +26,9 @@ import {
   repairShopsOf,
   resolveServicePointLot,
 } from "../app/game/servicePoints";
+import { repairCameraPosition } from "../app/game/cutsceneScript";
 import {
+  REPAIR_SHOP_BAY_CLEAR_HEIGHT_M,
   REPAIR_SHOP_BACK_INNER_X,
   REPAIR_SHOP_BACK_OUTER_X,
   REPAIR_SHOP_BAY_CLEAR_WIDTH_M,
@@ -399,6 +401,68 @@ describe("the drivable world stays open", () => {
           clearanceToNearestObstacle(world.obstacles, mouth.x, mouth.z).distance,
           `${service.id} is walled across its mouth`,
         ).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("watches the repair scene from outside the shop, not from inside a wall", () => {
+    // The generic cutscene stager offsets nine metres perpendicular to the
+    // car and lifts the camera above four — fine on a forecourt, and inside
+    // the office wall and the bay roof for a car parked in a 4.6 m bay. It
+    // shipped that way for exactly one screenshot. Checked per shop rather
+    // than by eye because "inside a wall" and "in a dark garage" look alike.
+    for (const world of driveWorlds) {
+      const mapPack = getMapPack(world.freeDrive.mapId);
+      for (const service of repairShopsOf(mapPack.geometry.servicePoints)) {
+        const pose = resolveSimulationLaneAnchor(
+          mapPack.laneGraph.lanes,
+          service.anchor,
+        );
+        const bay = repairShopBayPosition(mapPack.laneGraph.lanes, service);
+        if (!pose || !bay) continue;
+        // The mouth faces back against the driver-right set-back that put the
+        // shop off the road, which is the rule the session uses.
+        const mouth = {
+          x: -Math.cos(pose.heading),
+          z: Math.sin(pose.heading),
+        };
+        // Worst case for the sideways offset: the driver works on whichever
+        // flank, so check both.
+        for (const side of [
+          { x: -mouth.z, z: mouth.x },
+          { x: mouth.z, z: -mouth.x },
+        ]) {
+        const shot = repairCameraPosition(bay.x, bay.z, mouth, side);
+
+        const nearest = clearanceToNearestObstacle(
+          world.obstacles,
+          shot.x,
+          shot.z,
+        );
+        expect(
+          nearest.distance,
+          `${service.id} is filmed from inside ${nearest.id}`,
+        ).toBeGreaterThan(0);
+        // It also has to be on the road side of the mouth, or it is outside a
+        // wall rather than outside the building — still a wall on screen.
+        const towardRoad =
+          (shot.x - bay.x) * mouth.x + (shot.z - bay.z) * mouth.z;
+        expect(towardRoad, `${service.id} camera is behind the bay`).toBeGreaterThan(
+          -REPAIR_SHOP_MOUTH_X,
+        );
+        // Under the lintel, so the sightline goes through the opening.
+        expect(shot.y).toBeLessThan(REPAIR_SHOP_BAY_CLEAR_HEIGHT_M);
+        // And square enough on to see through it. Outside the opening's own
+        // width the camera looks along the outside of the flank at the next
+        // building — not inside a wall, and just as useless.
+        const aside = Math.abs(
+          (shot.x - bay.x) * -mouth.z + (shot.z - bay.z) * mouth.x,
+        );
+        expect(
+          aside,
+          `${service.id} is filmed from beside the opening, not through it`,
+        ).toBeLessThan(REPAIR_SHOP_BAY_CLEAR_WIDTH_M / 2 - 0.5);
+        }
       }
     }
   });
