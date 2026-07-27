@@ -1,6 +1,7 @@
 /**
  * The canvas 2D pass both maps share: the road network raster, the GPS lines,
- * the destination pin and the player arrow.
+ * the destination pin and the player arrow. Place markers are not here — they
+ * are DOM icons layered over this, so the legend and the map draw one glyph.
  *
  * Two surfaces draw the same city — the corner widget (`MinimapCanvas.tsx`) and
  * the whole-city view (`ExpandedMap.tsx`) — and a second copy of this would be
@@ -23,16 +24,18 @@ import {
   type MinimapProjector,
 } from "./minimap";
 
-export interface MinimapPin {
+/**
+ * The one place the route line ends at.
+ *
+ * Deliberately the only marker this module draws. Everything else a map shows —
+ * fuel, repairs, diners, shops, cameras — is an icon in the DOM layer above the
+ * canvas (see `mapPoi.ts`), so a screenful of services can never compete with
+ * where the player is actually going: it is the only round thing on the map.
+ */
+export interface MapDestination {
   readonly x: number;
   readonly z: number;
   readonly color: string;
-  /**
-   * `destination` draws the ringed map pin the route line ends at; everything
-   * else stays a plain dot, so a screenful of services cannot compete with the
-   * one place the player is actually going.
-   */
-  readonly kind?: "dot" | "destination";
 }
 
 /** A point in world metres — what every polyline here is expressed in. */
@@ -58,7 +61,6 @@ export interface MapSymbolSizes {
   readonly previewRingRadiusPx: number;
   readonly previewRingWidthPx: number;
   readonly destinationRadiusPx: number;
-  readonly dotRadiusPx: number;
   readonly playerHaloRadiusPx: number;
   readonly playerNosePx: number;
   readonly playerTailPx: number;
@@ -77,7 +79,6 @@ export function minimapSymbolSizes(size: number): MapSymbolSizes {
     previewRingRadiusPx: Math.max(4, size * 0.03),
     previewRingWidthPx: Math.max(2, size * 0.01),
     destinationRadiusPx: Math.max(4, size * 0.042),
-    dotRadiusPx: 3,
     playerHaloRadiusPx: Math.max(8, size * 0.075),
     playerNosePx: Math.max(5, size * 0.055),
     playerTailPx: Math.max(3.5, size * 0.038),
@@ -142,7 +143,7 @@ export interface MapOverlayInput {
   readonly heading: number;
   readonly route?: readonly MapDrawPoint[];
   readonly previewRoute?: readonly MapDrawPoint[];
-  readonly pins?: readonly MinimapPin[];
+  readonly destination?: MapDestination | null;
 }
 
 /**
@@ -151,7 +152,7 @@ export interface MapOverlayInput {
  */
 export function drawMapOverlay(
   ctx: CanvasRenderingContext2D,
-  { projector, symbols, playerX, playerZ, heading, route, previewRoute, pins = [] }: MapOverlayInput,
+  { projector, symbols, playerX, playerZ, heading, route, previewRoute, destination }: MapOverlayInput,
 ): void {
   // The detour preview goes down first, so the committed route paints over it
   // wherever the two share streets — the player is being shown the extra, not
@@ -186,25 +187,18 @@ export function drawMapOverlay(
     strokePolyline(ctx, route, projector);
   }
 
-  for (const pin of pins) {
-    const point = projector.project(pin.x, pin.z);
-    if (pin.kind === "destination") {
-      // The head of a map pin: a filled disc with a white eye, sized to sit on
-      // top of the route line rather than beside it.
-      const radius = symbols.destinationRadiusPx;
-      ctx.fillStyle = pin.color;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.92)";
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, radius * 0.38, 0, Math.PI * 2);
-      ctx.fill();
-      continue;
-    }
-    ctx.fillStyle = pin.color;
+  if (destination) {
+    // The head of a map pin: a filled disc with a white eye, sized to sit on
+    // top of the route line rather than beside it.
+    const point = projector.project(destination.x, destination.z);
+    const radius = symbols.destinationRadiusPx;
+    ctx.fillStyle = destination.color;
     ctx.beginPath();
-    ctx.arc(point.x, point.y, symbols.dotRadiusPx, 0, Math.PI * 2);
+    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius * 0.38, 0, Math.PI * 2);
     ctx.fill();
   }
 

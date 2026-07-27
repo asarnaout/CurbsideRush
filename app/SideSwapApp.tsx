@@ -113,12 +113,17 @@ import {
   FUEL_PUMP_REACH_M,
   distanceToNearestPump,
   distanceToRepairBay,
-  gasStationPumpPositions,
   gasStationsOf,
-  repairShopBayPosition,
   repairShopsOf,
 } from "./game/servicePoints";
-import { Minimap, type MinimapPin } from "./game/MinimapCanvas";
+import { Minimap } from "./game/MinimapCanvas";
+import type { MapDestination } from "./game/minimapDraw";
+import {
+  collectMapPois,
+  mapPoisOfKinds,
+  MINIMAP_POI_KINDS,
+  type MapPoi,
+} from "./game/mapPoi";
 import {
   findGpsRoute,
   gpsGraphForLanes,
@@ -559,6 +564,9 @@ function fineReason(
  */
 const HUD_GOLD = "#f4c848";
 const HUD_CORAL = "#e8705a";
+
+/** A stable empty set, so nothing off the drive screen re-renders on identity. */
+const EMPTY_MAP_POIS: readonly MapPoi[] = Object.freeze([]);
 const HUD_SAGE = "#8fae72";
 
 /**
@@ -2284,38 +2292,17 @@ export default function SideSwapApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [view, promptKind, promptAct]);
 
-  // Pin the pumps rather than the lane anchor. The anchor sits on the
-  // carriageway ~19m short of the forecourt, and now that fuel is only offered
-  // at the pumps a pin out on the road would send the player to a dead spot.
-  const gasPins =
-    view === "driving" && tankCapacityL > 0
-      ? gasStationsOf(runtimeMap.geometry.servicePoints).flatMap((service) => {
-          const pumps = gasStationPumpPositions(
-            runtimeMap.laneGraph.lanes,
-            service,
-          );
-          if (!pumps.length) return [];
-          return [
-            {
-              x: pumps.reduce((total, pump) => total + pump.x, 0) / pumps.length,
-              z: pumps.reduce((total, pump) => total + pump.z, 0) / pumps.length,
-              color: "#5bbf6a",
-            },
-          ];
-        })
-      : [];
-  // Repair shops are pinned whatever the car's condition: a service you can
-  // only see once you already need it is one you cannot plan a detour around.
-  const repairPins =
-    view === "driving"
-      ? repairShopsOf(runtimeMap.geometry.servicePoints).flatMap((service) => {
-          const bay = repairShopBayPosition(
-            runtimeMap.laneGraph.lanes,
-            service,
-          );
-          return bay ? [{ x: bay.x, z: bay.z, color: HUD_CORAL }] : [];
-        })
-      : [];
+  // Every marked place on this map — pumps, bays, diners, grocers, cameras —
+  // resolved once per pack by `collectMapPois` and shared with the whole-city
+  // map, so the two can never disagree about where the nearest one is.
+  const mapPois = view === "driving" ? collectMapPois(runtimeMap) : EMPTY_MAP_POIS;
+  // What the corner widget carries is narrower, and narrower again on a bike:
+  // a vehicle with no tank has nothing to do at a pump. Repair shops stay
+  // marked whatever the car's condition — a service you can only see once you
+  // already need it is one you cannot plan a detour around.
+  const minimapPois = mapPoisOfKinds(mapPois, MINIMAP_POI_KINDS).filter(
+    (poi) => poi.kind !== "fuel" || tankCapacityL > 0,
+  );
   const gigTargetVenue = gig ? gigTarget(gig) : null;
   // The tip window for the active career gig: previewed before pickup, counted
   // down while carrying. Derived from the same 10 Hz day-clock state that
@@ -2335,18 +2322,13 @@ export default function SideSwapApp() {
     dayIntroFromMs === null
       ? null
       : DAY_LENGTH_MS - dayRemainingMs - dayIntroFromMs;
-  const minimapPins: MinimapPin[] = gigTargetVenue
-    ? [
-        ...gasPins,
-        ...repairPins,
-        {
-          x: gigTargetVenue.x,
-          z: gigTargetVenue.z,
-          color: gig?.state === "carrying" ? "#f2c658" : "#e0533f",
-          kind: "destination",
-        },
-      ]
-    : [...gasPins, ...repairPins];
+  const mapDestination: MapDestination | null = gigTargetVenue
+    ? {
+        x: gigTargetVenue.x,
+        z: gigTargetVenue.z,
+        color: gig?.state === "carrying" ? "#f2c658" : "#e0533f",
+      }
+    : null;
   // Drawn from where the car actually is, so the line leads rather than trails.
   // The route itself is searched in `handleHud`; this only slices it.
   const minimapRoute =
@@ -2982,7 +2964,8 @@ export default function SideSwapApp() {
             playerX={hud.playerX}
             playerZ={hud.playerZ}
             heading={hud.heading}
-            pins={minimapPins}
+            destination={mapDestination}
+            pois={minimapPois}
             route={minimapRoute}
             previewRoute={previewRoute ? previewRoute.points : undefined}
             previewLabel={touchFirst ? undefined : detourLabel ?? undefined}

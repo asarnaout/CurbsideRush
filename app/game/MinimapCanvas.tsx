@@ -12,11 +12,11 @@ import {
   drawMapOverlay,
   drawRoadNetwork,
   minimapSymbolSizes,
-  type MinimapPin,
+  type MapDestination,
 } from "./minimapDraw";
+import { MapPoiLayer } from "./MapPoiLayer";
+import type { MapPoi } from "./mapPoi";
 import { DRIVE_LAYER } from "./driveLayers";
-
-export type { MinimapPin };
 
 interface MinimapProps {
   readonly worldSize: { readonly x: number; readonly z: number };
@@ -27,7 +27,17 @@ interface MinimapProps {
   readonly playerX: number;
   readonly playerZ: number;
   readonly heading: number;
-  readonly pins?: readonly MinimapPin[];
+  /**
+   * Where the player is going. The only marker on the canvas, so it can never
+   * be lost among the places — see `MapDestination`.
+   */
+  readonly destination?: MapDestination | null;
+  /**
+   * Services worth knowing about mid-drive, as icons over the canvas. The app
+   * hands in a filtered set (`MINIMAP_POI_KINDS`) — the whole city's would bury
+   * a 104 px square.
+   */
+  readonly pois?: readonly MapPoi[];
   /**
    * The GPS line from the car to the current destination, in world metres,
    * already trimmed to start at the player. Computed app-side — see
@@ -64,8 +74,9 @@ interface MinimapProps {
 /**
  * Corner minimap: rasterises the static road network once per map to an
  * offscreen canvas, then each update blits it and overlays the route line, the
- * pins and the live player marker. Projection maths live in ./minimap
- * (unit-tested); the route search lives in ./gpsRoute and never runs here.
+ * destination and the live player marker. Place icons ride above it in the DOM
+ * (`MapPoiLayer`). Projection maths live in ./minimap (unit-tested); the route
+ * search lives in ./gpsRoute and never runs here.
  *
  * A map small enough to fit is drawn whole; every city the game ships is past
  * the follow span and scrolls under the player instead. The sheet is rasterised
@@ -83,7 +94,8 @@ export function Minimap({
   playerX,
   playerZ,
   heading,
-  pins = [],
+  destination,
+  pois = [],
   route,
   previewRoute,
   previewLabel,
@@ -169,13 +181,13 @@ export function Minimap({
       heading,
       route,
       previewRoute,
-      pins,
+      destination,
     });
   }, [
     playerX,
     playerZ,
     heading,
-    pins,
+    destination,
     route,
     previewRoute,
     projector,
@@ -216,6 +228,18 @@ export function Minimap({
         width={size}
         height={size}
         style={{ display: "block", width: `${size}px`, height: `${size}px` }}
+      />
+      {/*
+        Sized off the widget like everything else here, but with a floor: below
+        about 10 px a stroked glyph stops being a picture and becomes a smudge,
+        and the touch map is only 104 px across.
+      */}
+      <MapPoiLayer
+        pois={pois}
+        projector={projector}
+        width={size}
+        height={size}
+        glyphPx={Math.round(Math.min(15, Math.max(10, size * 0.105)))}
       />
       {/*
         The map is north-up — `projectRoadNetwork` never rotates it — and

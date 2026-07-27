@@ -104,8 +104,6 @@ describe("the widget's symbol sizes", () => {
     expect(at150.destinationRadiusPx).toBeCloseTo(150 * 0.042, 9);
     expect(at150.playerHaloRadiusPx).toBeCloseTo(150 * 0.075, 9);
     expect(at150.playerNosePx).toBeCloseTo(150 * 0.055, 9);
-    // The plain dot is the one flat pixel size in the set.
-    expect(at150.dotRadiusPx).toBe(3);
   });
 
   it("shrink with the widget, but never below the floors that keep them visible", () => {
@@ -185,16 +183,10 @@ describe("the overlay pass", () => {
     expect(firstPreview).toBeLessThan(firstRoute);
   });
 
-  it("draws the destination as a ringed pin and everything else as a dot", () => {
-    overlay({
-      pins: [
-        { x: 100, z: 100, color: "#5bbf6a" },
-        { x: -200, z: 300, color: "#e0533f", kind: "destination" },
-      ],
-    });
-    const dot = arcsAt("#5bbf6a");
-    expect(dot).toHaveLength(1);
-    expect(dot[0].args[2]).toBe(3);
+  it("draws the destination as a ringed pin, the only marker on the canvas", () => {
+    // Everything else a map marks is a DOM icon above the canvas, which is what
+    // keeps the one place the player is going the only round thing on it.
+    overlay({ destination: { x: -200, z: 300, color: "#e0533f" } });
     const disc = arcsAt("#e0533f");
     expect(disc).toHaveLength(1);
     const radius = disc[0].args[2] as number;
@@ -214,7 +206,7 @@ describe("the overlay pass", () => {
   it("caps everything with the player, so the car is never buried", () => {
     overlay({
       route: [{ x: 0, z: 0 }, { x: 0, z: 200 }],
-      pins: [{ x: 0, z: 200, color: "#e0533f", kind: "destination" }],
+      destination: { x: 0, z: 200, color: "#e0533f" },
     });
     const halo = ops.findIndex(
       (entry) => entry.op === "arc" && entry.fillStyle === "rgba(242, 198, 88, 0.20)",
