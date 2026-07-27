@@ -1319,6 +1319,26 @@ export function buildingKeepOuts(
   return keepOuts;
 }
 
+/**
+ * The instanced street-wall buildings that survive the keep-outs.
+ *
+ * The renderer's filter and the test's assertion have to be the same decision,
+ * or the test only proves that a predicate exists — which is exactly what the
+ * first version of it proved, while the renderer went on passing centres and
+ * meshing a brownstone into Broadway Auto.
+ */
+export function keptStreetWallBuildings<
+  T extends { readonly modelId: string; readonly x: number; readonly z: number },
+>(placements: readonly T[], keepOuts: readonly BuildingKeepOut[]): readonly T[] {
+  return placements.filter((b) => {
+    // Measured against the building's own footprint, not just its centre. A
+    // brownstone is ~11 m across, so one centred a comfortable 8 m outside a
+    // repair shop's keep-out still has its flank 2.5 m inside the shop.
+    const half = (buildingPlacementConfig(b.modelId)?.footprintM ?? 0) / 2;
+    return !isInsideKeepOut(keepOuts, b.x, b.z, half, half);
+  });
+}
+
 /** Keeps a checkpoint target wholly inside its authored lane. */
 export function resolveCheckpointTargetWidth(laneWidthM: number): number {
   return Math.max(0, Math.min(2.4, laneWidthM - 0.6));
@@ -7453,18 +7473,14 @@ class BabylonGameSession {
   private buildInstancedBuildings() {
     if (this.visualPalette?.night) this.applyBuildingNightGlow();
     for (const { block, setId, buildFallback } of this.pendingBuildingBlocks) {
-      const placements = slotBlockBuildings(
+      const slotted = slotBlockBuildings(
         block.center,
         block.size,
         setId,
         hashStringToSeed(`${block.id}-buildings`),
         this.buildingKeepFraction,
-      ).filter(
-        (b) =>
-          !this.buildingExclusions.some(
-            (ex) => Math.hypot(b.x - ex.x, b.z - ex.z) < ex.radius,
-          ),
       );
+      const placements = keptStreetWallBuildings(slotted, this.buildingExclusions);
       let placed = 0;
       for (const b of placements) {
         const master =

@@ -13,7 +13,14 @@ import {
   buildingKeepOuts,
   facadeGridCells,
   isInsideKeepOut,
+  keptStreetWallBuildings,
 } from "../app/game/GameCanvas";
+import {
+  buildingPlacementConfig,
+  isBuildingSetId,
+  slotBlockBuildings,
+} from "../app/game/buildingSets";
+import { hashStringToSeed } from "../app/game/visuals";
 import {
   buildSimulationCoreConfig,
   buildStaticObstacles,
@@ -488,14 +495,14 @@ describe("the drivable world stays open", () => {
       for (const service of mapPack.geometry.servicePoints ?? []) {
         const lot = resolveServicePointLot(mapPack.laneGraph.lanes, service);
         if (!lot) continue;
-        const half = SERVICE_LOT_HALF_M[service.kind];
+        const halfLot = SERVICE_LOT_HALF_M[service.kind];
         for (const block of mapPack.geometry.blocks) {
           // Museum blocks render as two wings, not a grid.
           if (block.material.endsWith("-museum")) continue;
           for (const cell of facadeGridCells(block)) {
             // Widest the size jitter can make the box.
-            const reachX = half + (cell.cellWidth * 0.82) / 2;
-            const reachZ = half + (cell.cellDepth * 0.82) / 2;
+            const reachX = halfLot + (cell.cellWidth * 0.82) / 2;
+            const reachZ = halfLot + (cell.cellDepth * 0.82) / 2;
             const overlaps =
               Math.abs(cell.x - lot.x) < reachX &&
               Math.abs(cell.z - lot.z) < reachZ;
@@ -510,6 +517,44 @@ describe("the drivable world stays open", () => {
               ),
               `${block.id}#${cell.index} would stand in ${service.id}'s lot`,
             ).toBe(true);
+          }
+
+          // ...and the instanced glb street wall, which is what NYC actually
+          // renders. Its buildings are slotted along the block edge, so this is
+          // where a neighbour's flank reaches into a shop even though its centre
+          // is comfortably outside the keep-out.
+          //
+          // Run through `keptStreetWallBuildings` — the same call the renderer
+          // makes — rather than re-deciding here. An earlier version of this
+          // recomputed the predicate itself, which meant it passed no matter
+          // what the renderer did, and it did indeed pass while a brownstone
+          // was meshed into Broadway Auto.
+          if (!block.buildingSet || !isBuildingSetId(block.buildingSet)) continue;
+          const kept = keptStreetWallBuildings(
+            slotBlockBuildings(
+              block.center,
+              block.size,
+              block.buildingSet,
+              hashStringToSeed(`${block.id}-buildings`),
+            ),
+            keepOuts,
+          );
+          for (const placed of kept) {
+            const half =
+              (buildingPlacementConfig(placed.modelId)?.footprintM ?? 0) / 2;
+            const nearestX = Math.max(
+              placed.x - half,
+              Math.min(lot.x, placed.x + half),
+            );
+            const nearestZ = Math.max(
+              placed.z - half,
+              Math.min(lot.z, placed.z + half),
+            );
+            expect(
+              Math.abs(nearestX - lot.x) < halfLot &&
+                Math.abs(nearestZ - lot.z) < halfLot,
+              `${placed.modelId} on ${block.id} reaches into ${service.id}'s lot`,
+            ).toBe(false);
           }
         }
       }
