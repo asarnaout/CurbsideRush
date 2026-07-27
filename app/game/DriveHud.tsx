@@ -21,6 +21,16 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import { DRIVE_LAYER } from "./driveLayers";
+import {
+  CAMERA_ICON,
+  FOOD_ICON,
+  MUSIC_ICON,
+  MUSIC_MUTED_ICON,
+  PARCEL_ICON,
+  PAUSE_ICON,
+  RIDER_ICON,
+  WALLET_ICON,
+} from "./hudIcons";
 
 // ---------------------------------------------------------------------------
 // Palette and type. These repeat globals.css's `--hud-*` custom properties as
@@ -90,40 +100,7 @@ export function HudGlyph({
   );
 }
 
-export const FUEL_PUMP_ICON = [
-  "M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18",
-  "M2 22h13",
-  "M13 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3",
-  "M6 8h4",
-];
-export const CAR_ICON = [
-  "M3 13l1.6-4.7A2 2 0 0 1 6.5 7h11a2 2 0 0 1 1.9 1.3L21 13",
-  "M3 13h18v4a1 1 0 0 1-1 1h-1.6",
-  "M5.6 18H4a1 1 0 0 1-1-1v-4",
-  "M7.6 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
-  "M16.4 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
-];
-export const CLOCK_ICON = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18", "M12 7v5l3.5 2"];
-export const PARCEL_ICON = [
-  "m7.5 4.27 9 5.15",
-  "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z",
-  "m3.3 7 8.7 5 8.7-5",
-  "M12 22V12",
-];
-export const RIDER_ICON = ["M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8", "M4 21a8 8 0 0 1 16 0"];
-const WALLET_ICON = [
-  "M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5",
-  "M17 13h.01",
-];
-const MUSIC_ICON = ["M9 18V5l12-2v13", "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6", "M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6"];
-/** The note, struck through — pressed/muted is otherwise silent on this glyph. */
-const MUSIC_MUTED_ICON = [...MUSIC_ICON, "M3 3l18 18"];
 const MUSIC_DIM_COLOR = "rgba(244,239,222,.4)";
-const CAMERA_ICON = [
-  "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3Z",
-  "M12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7",
-];
-const PAUSE_ICON = ["M7 4h2v16H7z", "M15 4h2v16h-2z"];
 
 /** One arrow per manoeuvre kind, matching `GpsManoeuvreKind`. */
 const MANOEUVRE_ICON: Readonly<Record<string, readonly string[]>> = {
@@ -1282,13 +1259,6 @@ const OFFER_H = 384;
  * offer window — is invisible. The same trick the fuel gauge uses for the pump.
  */
 export const FUSE_SMOOTHING_MS = 200;
-const FOOD_ICON = [
-  "M15 11h.01",
-  "M11 15h.01",
-  "M16 16h.01",
-  "m2 16 20 6-6-20A20 20 0 0 0 2 16",
-  "M5.71 17.11a17.04 17.04 0 0 1 11.4-11.4",
-];
 
 /**
  * The offer card. Interactive, so it takes `DRIVE_LAYER.action` rather than the

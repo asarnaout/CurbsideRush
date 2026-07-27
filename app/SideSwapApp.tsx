@@ -187,6 +187,7 @@ import {
   resolveHudScale,
 } from "./game/DriveHud";
 import type { HudGauge, HudJob, HudManoeuvre, HudOffer } from "./game/DriveHud";
+import { CAR_ICON, FUEL_PUMP_ICON } from "./game/hudIcons";
 import type {
   CameraMode,
   CountryProfile,
@@ -586,20 +587,6 @@ const DISPATCH_TOAST_COLOR = {
   lost: HUD_CORAL,
 } as const;
 
-
-const FUEL_PUMP_ICON = [
-  "M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18",
-  "M2 22h13",
-  "M13 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3",
-  "M6 8h4",
-];
-const CAR_ICON = [
-  "M3 13l1.6-4.7A2 2 0 0 1 6.5 7h11a2 2 0 0 1 1.9 1.3L21 13",
-  "M3 13h18v4a1 1 0 0 1-1 1h-1.6",
-  "M5.6 18H4a1 1 0 0 1-1-1v-4",
-  "M7.6 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
-  "M16.4 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
-];
 
 
 /** Lays the stat strip out two-up, the way the meters pair in the design. */
