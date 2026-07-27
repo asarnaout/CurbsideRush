@@ -1205,6 +1205,120 @@ export function collectRoadJunctionFills(
   return fills;
 }
 
+/** A circle the street wall must not build inside. */
+export interface BuildingKeepOut {
+  readonly x: number;
+  readonly z: number;
+  readonly radius: number;
+}
+
+/**
+ * Whether a street-wall building would stand in someone's lot.
+ *
+ * Takes the building's own half-extents rather than just its centre. The
+ * instanced glb wall can get away with a centre test because its buildings are
+ * slotted along a block edge at roughly the keep-out's own scale; the
+ * procedural facade grid divides a whole block into as few as nine boxes, and
+ * on NYC one of those is 48 m across — far enough that its centre clears a
+ * forecourt by 30 m while its wall still covers it.
+ */
+export function isInsideKeepOut(
+  keepOuts: readonly BuildingKeepOut[],
+  x: number,
+  z: number,
+  halfWidth = 0,
+  halfDepth = 0,
+): boolean {
+  return keepOuts.some((ex) => {
+    // Nearest point of the building's footprint to the keep-out's centre.
+    const nearestX = Math.max(x - halfWidth, Math.min(ex.x, x + halfWidth));
+    const nearestZ = Math.max(z - halfDepth, Math.min(ex.z, z + halfDepth));
+    return Math.hypot(nearestX - ex.x, nearestZ - ex.z) < ex.radius;
+  });
+}
+
+/**
+ * Where the procedural facade grid puts a building on a block.
+ *
+ * The cell centres are fully determined by the block; only each box's size and
+ * height are jittered by the scene's PRNG. Split out so the placement can be
+ * checked against the service and venue keep-outs without standing up a scene —
+ * a facade box inside a lot is invisible in code and unmistakable in play.
+ */
+export function facadeGridCells(block: {
+  readonly center: { readonly x: number; readonly z: number };
+  readonly size: { readonly x: number; readonly z: number };
+  readonly density: number;
+}): readonly {
+  readonly index: number;
+  readonly x: number;
+  readonly z: number;
+  readonly cellWidth: number;
+  readonly cellDepth: number;
+}[] {
+  const count = Math.max(1, Math.round(3 + block.density * 7));
+  const columns = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / columns);
+  const cellWidth = block.size.x / columns;
+  const cellDepth = block.size.z / rows;
+  const cells = [];
+  for (let index = 0; index < count; index += 1) {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    cells.push({
+      index,
+      x: block.center.x - block.size.x / 2 + cellWidth * (column + 0.5),
+      z: block.center.z - block.size.z / 2 + cellDepth * (row + 0.5),
+      cellWidth,
+      cellDepth,
+    });
+  }
+  return cells;
+}
+
+/**
+ * Every circle the street wall must leave clear: each service point's lot and
+ * each gig venue's plot.
+ *
+ * Exported so the placement can be checked against it without a scene. The two
+ * street-wall paths consume this at very different times — the instanced glb
+ * wall after preload, the procedural facade grid inline — which is exactly how
+ * a terrace ended up standing through London's and Tokyo's repair shops: the
+ * keep-outs used to be collected as each building was placed, which was in time
+ * for one path and far too late for the other.
+ */
+export function buildingKeepOuts(
+  mapPack: GameCanvasMapPack,
+): readonly BuildingKeepOut[] {
+  const keepOuts: BuildingKeepOut[] = [];
+  for (const service of mapPack.geometry.servicePoints ?? []) {
+    const lot = resolveServicePointLot(mapPack.laneGraph.lanes, service);
+    if (!lot) continue;
+    keepOuts.push({
+      x: lot.x,
+      z: lot.z,
+      // The station's glb lot is bigger than its authored footprint, so it
+      // wants a generous clearance. The repair shop is a much smaller building,
+      // and clearing 16 m round it would punch a hole in the street wall far
+      // larger than the shop standing in it.
+      radius:
+        service.kind === "repair_shop"
+          ? REPAIR_SHOP_LOT_HALF_M + 3
+          : Math.max(service.footprint.x, service.footprint.z) + 16,
+    });
+  }
+  for (const venue of mapPack.geometry.gigVenues ?? []) {
+    const placement = resolveVenuePlacement(mapPack, venue);
+    if (!placement) continue;
+    keepOuts.push({
+      x: placement.x,
+      z: placement.z,
+      radius: Math.max(venue.footprint.x, venue.footprint.z) / 2 + 12,
+    });
+  }
+  return keepOuts;
+}
+
 /** Keeps a checkpoint target wholly inside its authored lane. */
 export function resolveCheckpointTargetWidth(laneWidthM: number): number {
   return Math.max(0, Math.min(2.4, laneWidthM - 0.6));
@@ -6965,6 +7079,22 @@ class BabylonGameSession {
   }
 
   /**
+   * The circles the street wall must not build inside: every service point's
+   * lot and every gig venue's plot.
+   *
+   * Collected up front rather than as each is placed, because the procedural
+   * facade grid runs inline while the instanced glb wall is deferred until
+   * after preload — so a keep-out added during placement arrives in time for
+   * one path and far too late for the other. That asymmetry stood a terrace
+   * straight through London's and Tokyo's repair shops, and it was only ever
+   * latent for the gas stations because every one of them happens to sit on
+   * ground no block covers.
+   */
+  private collectBuildingExclusions(mapPack: GameCanvasMapPack) {
+    this.buildingExclusions.push(...buildingKeepOuts(mapPack));
+  }
+
+  /**
    * Builds a repair shop out of `REPAIR_SHOP_PARTS`.
    *
    * The one service building with no glb behind it (see `repairShopLayout.ts`
@@ -8782,33 +8912,49 @@ class BabylonGameSession {
     };
     // The procedural windowed-facade-box grid: the classic filler, and the
     // fallback for any block whose building-set glbs never load.
+    // Every keep-out has to be known before a single building is dressed.
+    // The instanced street wall gets away with collecting these as it goes,
+    // because it is deferred until after preload; the procedural facade grid
+    // below runs inline, so a keep-out pushed later in this method would arrive
+    // after the boxes it was meant to exclude were already standing.
+    this.collectBuildingExclusions(mapPack);
+
     const placeFacadeGrid = (
       block: GameCanvasMapPack["geometry"]["blocks"][number],
       material: StandardMaterial,
     ) => {
-      const count = Math.max(1, Math.round(3 + block.density * 7));
-      for (let index = 0; index < count; index += 1) {
-        const columns = Math.ceil(Math.sqrt(count));
-        const row = Math.floor(index / columns);
-        const column = index % columns;
-        const cellWidth = block.size.x / columns;
-        const rows = Math.ceil(count / columns);
-        const cellDepth = block.size.z / rows;
-        const width = Math.max(5, cellWidth * (0.58 + random() * 0.24));
-        const depth = Math.max(5, cellDepth * (0.58 + random() * 0.24));
-        const height = block.heightRange[0] + random() * (block.heightRange[1] - block.heightRange[0]);
-        const x = block.center.x - block.size.x / 2 + cellWidth * (column + 0.5);
-        const z = block.center.z - block.size.z / 2 + cellDepth * (row + 0.5);
+      for (const cell of facadeGridCells(block)) {
+        const width = Math.max(5, cell.cellWidth * (0.58 + random() * 0.24));
+        const depth = Math.max(5, cell.cellDepth * (0.58 + random() * 0.24));
+        const height =
+          block.heightRange[0] +
+          random() * (block.heightRange[1] - block.heightRange[0]);
+        // Same keep-outs the instanced street wall respects. Without this a
+        // terrace box stands inside the gas station or the repair shop it was
+        // supposed to make room for — and since the collider builder carves the
+        // block rect regardless, the car drives straight through the visible
+        // building rather than being stopped by it.
+        if (
+          isInsideKeepOut(
+            this.buildingExclusions,
+            cell.x,
+            cell.z,
+            width / 2,
+            depth / 2,
+          )
+        ) {
+          continue;
+        }
         this.registerShadowCaster(
           createFacadeBox(
             scene,
-            `building-${block.id}-${index}`,
+            `building-${block.id}-${cell.index}`,
             { width, height, depth },
-            new Vector3(x, height / 2, z),
+            new Vector3(cell.x, height / 2, cell.z),
             material,
           ),
-          x,
-          z,
+          cell.x,
+          cell.z,
         );
       }
     };
@@ -8871,18 +9017,8 @@ class BabylonGameSession {
       if (!lot) continue;
       const px = lot.x;
       const pz = lot.z;
-      // Keep the dense street wall off the forecourt (the glb lot is bigger than
-      // the fallback footprint, so a generous clearance leaves an open lot). The
-      // repair shop is a much smaller building, and clearing 16 m round it would
-      // punch a hole in the street wall far bigger than the shop.
-      this.buildingExclusions.push({
-        x: px,
-        z: pz,
-        radius:
-          service.kind === "repair_shop"
-            ? REPAIR_SHOP_LOT_HALF_M + 3
-            : Math.max(service.footprint.x, service.footprint.z) + 16,
-      });
+      // The street-wall keep-out for this lot is already in place — see
+      // `collectBuildingExclusions`, which has to run before anything is built.
       if (service.kind === "repair_shop") {
         // No glb to wait on, so this is built outright rather than going through
         // placeProp — a deferred prop with no model would be retried after every
@@ -8953,12 +9089,8 @@ class BabylonGameSession {
       };
       const px = placement.x;
       const pz = placement.z;
-      // Keep scenery buildings off the gig venue's own lot.
-      this.buildingExclusions.push({
-        x: px,
-        z: pz,
-        radius: Math.max(venue.footprint.x, venue.footprint.z) / 2 + 12,
-      });
+      // The keep-out that holds scenery off this venue's lot is already in
+      // place — see `collectBuildingExclusions`.
       // A rider waits curbside (nearer the lane than the building) facing the road.
       this.gigVenueCurbside.set(venue.id, {
         x: pose.x + Math.cos(pose.heading) * 4.5,

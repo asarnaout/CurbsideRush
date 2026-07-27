@@ -10,6 +10,11 @@ import type {
   SpeedUnit as CanvasSpeedUnit,
 } from "../app/game/GameCanvas";
 import {
+  buildingKeepOuts,
+  facadeGridCells,
+  isInsideKeepOut,
+} from "../app/game/GameCanvas";
+import {
   buildSimulationCoreConfig,
   buildStaticObstacles,
   distanceToStaticObstacle,
@@ -25,6 +30,7 @@ import {
   repairShopBayPosition,
   repairShopsOf,
   resolveServicePointLot,
+  SERVICE_LOT_HALF_M,
 } from "../app/game/servicePoints";
 import { repairCameraPosition } from "../app/game/cutsceneScript";
 import {
@@ -462,6 +468,49 @@ describe("the drivable world stays open", () => {
           aside,
           `${service.id} is filmed from beside the opening, not through it`,
         ).toBeLessThan(REPAIR_SHOP_BAY_CLEAR_WIDTH_M / 2 - 0.5);
+        }
+      }
+    }
+  });
+
+  it("never stands a street-wall building inside a service lot", () => {
+    // The collider builder carves a service point's lot out of the block rect
+    // it sits on, so anything the street wall draws there is a building the car
+    // drives straight through. The two street-wall paths read their keep-outs
+    // at very different times — the instanced glb wall after preload, the
+    // procedural facade grid inline — and while the keep-outs were collected
+    // as buildings were placed, only the deferred one saw them. A terrace stood
+    // through London's and Tokyo's repair shops; the gas stations were spared
+    // only because every one of them sits on ground no block covers.
+    for (const world of driveWorlds) {
+      const mapPack = getMapPack(world.freeDrive.mapId);
+      const keepOuts = buildingKeepOuts(mapPack);
+      for (const service of mapPack.geometry.servicePoints ?? []) {
+        const lot = resolveServicePointLot(mapPack.laneGraph.lanes, service);
+        if (!lot) continue;
+        const half = SERVICE_LOT_HALF_M[service.kind];
+        for (const block of mapPack.geometry.blocks) {
+          // Museum blocks render as two wings, not a grid.
+          if (block.material.endsWith("-museum")) continue;
+          for (const cell of facadeGridCells(block)) {
+            // Widest the size jitter can make the box.
+            const reachX = half + (cell.cellWidth * 0.82) / 2;
+            const reachZ = half + (cell.cellDepth * 0.82) / 2;
+            const overlaps =
+              Math.abs(cell.x - lot.x) < reachX &&
+              Math.abs(cell.z - lot.z) < reachZ;
+            if (!overlaps) continue;
+            expect(
+              isInsideKeepOut(
+                keepOuts,
+                cell.x,
+                cell.z,
+                (cell.cellWidth * 0.82) / 2,
+                (cell.cellDepth * 0.82) / 2,
+              ),
+              `${block.id}#${cell.index} would stand in ${service.id}'s lot`,
+            ).toBe(true);
+          }
         }
       }
     }
