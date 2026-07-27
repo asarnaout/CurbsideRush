@@ -1885,6 +1885,16 @@ export const MAP_PACKS: readonly MapPack[] = [
         // Columbus. On a map 2.9 km end to end, one pump stop meant a run the
         // length of the city to reach it whichever way you were driving.
         { id: "nyc-gas-uptown", kind: "gas_station", anchor: { laneId: "nyc-96-e-col", distanceAlongM: 70 }, footprint: point(14, 9), label: "West 96th Fuel", setbackM: 18.7 },
+        // The two repair shops take the corners the pumps do not: fuel is at
+        // W 72nd/West End (south-west) and W 96th/Columbus (north-east), so
+        // these sit south-east and north-west. Both services are a detour, and
+        // two detours to the same corner is one landmark, not two.
+        //
+        // The shop is a much smaller building than the station, so its lot is
+        // 4.8 m to the station's 11.64 — hence a set-back in the twelves rather
+        // than the eighteens for the same kerb gap on the same street.
+        { id: "nyc-repair-downtown", kind: "repair_shop", anchor: { laneId: "nyc-65-e-col", distanceAlongM: 36 }, footprint: point(10, 8), label: "West 65th Auto", setbackM: 11.8 },
+        { id: "nyc-repair-uptown", kind: "repair_shop", anchor: { laneId: "nyc-100-e-riv", distanceAlongM: 52 }, footprint: point(10, 8), label: "Riverside Auto", setbackM: 13 },
       ],
       gigVenues: [
         { id: "nyc-v1", kind: "restaurant", anchor: { laneId: "nyc-amst-n-1-75", distanceAlongM: 22 }, footprint: point(28, 20), name: "Amsterdam Diner", setbackM: 18 },
@@ -2309,6 +2319,11 @@ export const MAP_PACKS: readonly MapPack[] = [
         // the west edge clears the junction apron at jp-a rather than kissing
         // its corner.
         { id: "jp-gas", kind: "gas_station", anchor: { laneId: "jp-south-east-1", distanceAlongM: 22 }, footprint: point(12, 8), label: "Setagaya Fuel", setbackM: 17.3 },
+        // Fuel is in the south-west, so the workshop takes the north row. Like
+        // the station it is anchored on the near lane and thrown across the
+        // road by the driver's-right set-back, which on a left-hand-traffic map
+        // is the far side — that is what puts it against the north block.
+        { id: "jp-repair", kind: "repair_shop", anchor: { laneId: "jp-north-west-2", distanceAlongM: 36 }, footprint: point(10, 8), label: "Setagaya Auto", setbackM: 10.5 },
       ],
       gigVenues: [
         // West side of the narrow street (driver's right of the southbound

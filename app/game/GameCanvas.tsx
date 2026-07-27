@@ -67,6 +67,11 @@ import {
   type ServicePointKind,
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
+import {
+  REPAIR_SHOP_LOT_HALF_M,
+  REPAIR_SHOP_PARTS,
+  type RepairShopSurface,
+} from "./repairShopLayout";
 import { DRIVE_LAYER } from "./driveLayers";
 import {
   MIRROR_RADIUS_M,
@@ -6854,6 +6859,154 @@ class BabylonGameSession {
     this.deferredProps.push({ kind, x, z, heading, fallback, label });
   }
 
+  /**
+   * Builds a repair shop out of `REPAIR_SHOP_PARTS`.
+   *
+   * The one service building with no glb behind it (see `repairShopLayout.ts`
+   * for why), so it is assembled here from the same constants the collider
+   * builder reads — which is what makes the wall you can see and the wall that
+   * stops you the same wall.
+   *
+   * The holder is rotated by the lane **heading**, not by the lot's yaw: the
+   * parts are authored in the frame `propFootprints.ts` documents, which already
+   * has the service yaw offset baked in. Rotating by the full yaw would turn the
+   * building a further quarter-turn out of its own colliders.
+   */
+  private buildRepairShop(
+    id: string,
+    lot: { x: number; z: number },
+    heading: number,
+    label: string,
+  ) {
+    const scene = this.scene;
+    const holder = new TransformNode(`repair-shop-${id}`, scene);
+    holder.position.set(lot.x, 0, lot.z);
+    holder.rotation.y = heading;
+
+    // A workshop reads as a workshop mostly by being lit inside while the street
+    // is not, so the bay surfaces carry their own emissive rather than relying on
+    // a lamp that the night city's fog would swallow anyway.
+    const materials: Record<RepairShopSurface, StandardMaterial> = {
+      shell: makeMaterial(scene, `${id}-shell`, new Color3(0.34, 0.36, 0.4)),
+      trim: makeMaterial(
+        scene,
+        `${id}-trim`,
+        new Color3(0.82, 0.36, 0.16),
+        new Color3(0.24, 0.1, 0.03),
+      ),
+      floor: makeMaterial(
+        scene,
+        `${id}-floor`,
+        new Color3(0.27, 0.28, 0.3),
+        new Color3(0.16, 0.14, 0.1),
+      ),
+      apron: makeMaterial(scene, `${id}-apron`, new Color3(0.3, 0.31, 0.33)),
+      door: makeMaterial(scene, `${id}-door`, new Color3(0.24, 0.26, 0.29)),
+      glass: makeMaterial(
+        scene,
+        `${id}-glass`,
+        new Color3(0.5, 0.6, 0.66),
+        new Color3(0.3, 0.34, 0.28),
+      ),
+      shutter: makeMaterial(scene, `${id}-shutter`, new Color3(0.55, 0.57, 0.6)),
+    };
+
+    for (const part of REPAIR_SHOP_PARTS) {
+      createBox(
+        scene,
+        `${id}-${part.id}`,
+        {
+          width: part.maxX - part.minX,
+          height: part.maxY - part.minY,
+          depth: part.maxZ - part.minZ,
+        },
+        new Vector3(
+          (part.minX + part.maxX) / 2,
+          (part.minY + part.maxY) / 2,
+          (part.minZ + part.maxZ) / 2,
+        ),
+        materials[part.surface],
+        holder,
+      );
+    }
+
+    this.addRepairShopSign(holder, id, label);
+  }
+
+  /**
+   * Letters the shop's name across its fascia.
+   *
+   * Deliberately not `addRoofSign`'s geometric board search: that hunts for the
+   * largest thin elevated plate, which on a bare shell can just as easily latch
+   * onto the roof and render a name plane the size of a wall. Here the fascia is
+   * a known part, so the sign is placed off the same box that draws it.
+   */
+  private addRepairShopSign(
+    holder: TransformNode,
+    id: string,
+    label: string,
+  ): void {
+    const fascia = REPAIR_SHOP_PARTS.find((part) => part.id === "fascia");
+    if (!fascia) return;
+    // Inset so the lettering sits on the band rather than running into the
+    // corners of the building.
+    const width = (fascia.maxZ - fascia.minZ) * 0.86;
+    const height = (fascia.maxY - fascia.minY) * 0.62;
+
+    const textureHeight =
+      Math.max(64, Math.round((1024 * height) / width / 2)) * 2;
+    const texture = new DynamicTexture(
+      `${id}-fascia-texture`,
+      { width: 1024, height: textureHeight },
+      this.scene,
+      true,
+    );
+    texture.hasAlpha = true;
+    const context = texture.getContext();
+    const text = label.toUpperCase();
+    let fontSize = Math.round(textureHeight * 0.72);
+    context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
+    while (fontSize > 40 && context.measureText(text).width > 1024 * 0.92) {
+      fontSize -= 10;
+      context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
+    }
+    // null clear colour: the canvas stays transparent outside the glyphs.
+    texture.drawText(
+      text,
+      null,
+      null,
+      `bold ${fontSize}px Figtree, Arial, sans-serif`,
+      "#f6f1e4",
+      null,
+      true,
+    );
+    texture.update();
+
+    const material = new StandardMaterial(`${id}-fascia-material`, this.scene);
+    material.diffuseTexture = texture;
+    material.useAlphaFromDiffuseTexture = true;
+    // Emissive from the same texture so the name reads on the night maps, the
+    // way every other bit of signage in the city does.
+    material.emissiveTexture = texture;
+    material.specularColor = Color3.Black();
+
+    const plane = MeshBuilder.CreatePlane(
+      `${id}-fascia-sign`,
+      { width, height },
+      this.scene,
+    );
+    plane.parent = holder;
+    plane.position.set(
+      fascia.minX - 0.03,
+      (fascia.minY + fascia.maxY) / 2,
+      (fascia.minZ + fascia.maxZ) / 2,
+    );
+    // A Babylon plane faces -z natively; a quarter turn about Y points it down
+    // -x, which is the side the road is on in this frame.
+    plane.rotation.y = Math.PI / 2;
+    plane.material = material;
+  }
+
   /** Once the prop glbs preload, replace each procedural venue/station box with
    * its imported model, disposing the fallback. Kinds whose glb never loaded stay
    * procedural. Mirrors upgradeRoadUsersToModels for the environment props. */
@@ -8614,12 +8767,24 @@ class BabylonGameSession {
       const px = lot.x;
       const pz = lot.z;
       // Keep the dense street wall off the forecourt (the glb lot is bigger than
-      // the fallback footprint, so a generous clearance leaves an open lot).
+      // the fallback footprint, so a generous clearance leaves an open lot). The
+      // repair shop is a much smaller building, and clearing 16 m round it would
+      // punch a hole in the street wall far bigger than the shop.
       this.buildingExclusions.push({
         x: px,
         z: pz,
-        radius: Math.max(service.footprint.x, service.footprint.z) + 16,
+        radius:
+          service.kind === "repair_shop"
+            ? REPAIR_SHOP_LOT_HALF_M + 3
+            : Math.max(service.footprint.x, service.footprint.z) + 16,
       });
+      if (service.kind === "repair_shop") {
+        // No glb to wait on, so this is built outright rather than going through
+        // placeProp — a deferred prop with no model would be retried after every
+        // preload forever, and never upgrade.
+        this.buildRepairShop(service.id, lot, pose.heading, service.label);
+        continue;
+      }
       this.placeProp(service.kind, px, pz, pose.heading, service.id, (parent) => {
         const trim = makeMaterial(
           scene,

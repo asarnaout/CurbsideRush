@@ -2,19 +2,24 @@ import { describe, expect, it } from "vitest";
 import { MAP_PACKS } from "../app/game/content";
 import { resolveSimulationLaneAnchor } from "../app/game/simulationAdapter";
 import { resolveMapVisualPalette } from "../app/game/visuals";
+import {
+  SERVICE_LOT_HALF_M,
+  gasStationsOf,
+  repairShopsOf,
+} from "../app/game/servicePoints";
 import type { WorldPoint } from "../app/game/types";
 
 /**
- * Every gas station is a square glb lot dropped beside a lane. It has to land
- * in the same place on all five maps: hard against the dirt shoulder, never on
- * it and never floating out in a field. Judging that by eye took hours per
- * city, so the rule is pinned down numerically here instead.
+ * Every service point is a square lot dropped beside a lane. It has to land in
+ * the same place on all five maps: hard against the dirt shoulder, never on it
+ * and never floating out in a field. Judging that by eye took hours per city,
+ * so the rule is pinned down numerically here instead.
+ *
+ * Both kinds are measured by the same rule but at their own size — a gas
+ * station's lot is the 23.28 m base slab its glb rides on, a repair shop's is
+ * the much smaller square derived from what `repairShopLayout.ts` draws. That
+ * is why the two kinds carry set-backs six metres apart on the same street.
  */
-
-// The model rides on a square base slab that measures 23.28 m a side once the
-// prop registry's 2.8x scale is applied, so the lot reaches 11.64 m out from
-// the anchored centre in every direction.
-const LOT_HALF_M = 11.64;
 // Mirrors GameCanvas: a paved city renders a fixed concrete sidewalk in place of
 // the authored dirt shoulder, so the lot must park hard against THAT wider band
 // (PAVED_SIDEWALK_WIDTH), not the narrower authored one — otherwise the forecourt
@@ -111,24 +116,21 @@ const segmentToLotDistance = (a: LotPoint, b: LotPoint, half: number): number =>
   );
 };
 
-describe("gas-station lots", () => {
+describe("service-point lots", () => {
   it("parks every lot hard against the shoulder without touching it", () => {
     const reviewed: string[] = [];
 
     for (const pack of MAP_PACKS) {
       const shoulderWidth = shoulderWidthFor(pack);
-      const stations = (pack.geometry.servicePoints ?? []).filter(
-        (service) => service.kind === "gas_station",
-      );
-      expect(stations.length, `${pack.id} has no gas station`).toBeGreaterThan(0);
-
-      for (const station of stations) {
-        const pose = resolveSimulationLaneAnchor(pack.laneGraph.lanes, station.anchor);
-        expect(pose, `${station.id} anchor does not resolve`).not.toBeNull();
+      for (const service of pack.geometry.servicePoints ?? []) {
+        const pose = resolveSimulationLaneAnchor(pack.laneGraph.lanes, service.anchor);
+        expect(pose, `${service.id} anchor does not resolve`).not.toBeNull();
         if (!pose) continue;
 
-        // Matches GameCanvas: the lot is set back along the right-hand normal.
-        const setback = station.setbackM ?? DEFAULT_SETBACK_M;
+        // Matches GameCanvas: the lot is set back along the right-hand normal,
+        // at whatever half-extent this kind of building occupies.
+        const half = SERVICE_LOT_HALF_M[service.kind];
+        const setback = service.setbackM ?? DEFAULT_SETBACK_M;
         const centre: WorldPoint = {
           x: pose.x + Math.cos(pose.heading) * setback,
           z: pose.z - Math.sin(pose.heading) * setback,
@@ -144,7 +146,7 @@ describe("gas-station lots", () => {
               segmentToLotDistance(
                 toLotFrame(surface.centerline[index], centre, pose.heading),
                 toLotFrame(surface.centerline[index + 1], centre, pose.heading),
-                LOT_HALF_M,
+                half,
               ) - reach;
             if (gap < nearestGap) {
               nearestGap = gap;
@@ -155,28 +157,49 @@ describe("gas-station lots", () => {
 
         expect(
           nearestGap,
-          `${station.id} bleeds ${(-nearestGap).toFixed(2)}m into ${nearestSurfaceId}`,
+          `${service.id} bleeds ${(-nearestGap).toFixed(2)}m into ${nearestSurfaceId}`,
         ).toBeGreaterThanOrEqual(0);
         expect(
           nearestGap,
-          `${station.id} floats ${nearestGap.toFixed(2)}m off ${nearestSurfaceId}`,
+          `${service.id} floats ${nearestGap.toFixed(2)}m off ${nearestSurfaceId}`,
         ).toBeLessThanOrEqual(MAX_KERB_GAP_M);
-        reviewed.push(station.id);
+        reviewed.push(service.id);
       }
     }
 
-    // Every station on every map got measured, and no map is unrefuellable. A
-    // big city may want more than one pump stop, so this counts stations rather
-    // than assuming one apiece.
-    expect(reviewed.length).toBeGreaterThanOrEqual(MAP_PACKS.length);
-    expect(reviewed).toEqual([
-      ...new Set(
-        MAP_PACKS.flatMap((pack) =>
-          (pack.geometry.servicePoints ?? [])
-            .filter((service) => service.kind === "gas_station")
-            .map((service) => service.id),
-        ),
+    // Every service point on every map got measured.
+    expect(reviewed).toEqual(
+      MAP_PACKS.flatMap((pack) =>
+        (pack.geometry.servicePoints ?? []).map((service) => service.id),
       ),
-    ]);
+    );
+  });
+
+  it("puts a pump stop on every map and a workshop in every career city", () => {
+    for (const pack of MAP_PACKS) {
+      // No map may be unrefuellable. A big city may want more than one pump
+      // stop, so this is a floor rather than a fixed total.
+      expect(
+        gasStationsOf(pack.geometry.servicePoints).length,
+        `${pack.id} gas stations`,
+      ).toBeGreaterThan(0);
+    }
+
+    // Repairs are deliberately NOT everywhere. Milton Keynes and Calais are out
+    // of career scope (careerBalance.test.ts says the same of their economies),
+    // so shipping a workshop there would be content no run can reach.
+    const shopsByMap = Object.fromEntries(
+      MAP_PACKS.map((pack) => [
+        pack.id,
+        repairShopsOf(pack.geometry.servicePoints).length,
+      ]),
+    );
+    expect(shopsByMap).toEqual({
+      "nyc-upper-west-side": 2,
+      "london-south-kensington": 1,
+      "tokyo-setagaya": 1,
+      "milton-keynes-oldbrook": 0,
+      "calais-coquelles": 0,
+    });
   });
 });

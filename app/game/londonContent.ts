@@ -1228,6 +1228,15 @@ export const LONDON_MAP_PACK: MapPack = {
       // distanceAlongM 17.09 does the same to the north: Cromwell's south
       // shoulder ends at z-37.1 and the slab's north edge lands at z≈-37.15.
       { id: "london-gas", kind: "gas_station", anchor: { laneId: "london-quiet-south-opposite", distanceAlongM: 17.09 }, footprint: point(12, 8), label: "Cromwell Fuel", setbackM: 18.6 },
+      // Behind Queen's Gate, tucked into the terraces — the one frontage on
+      // this map with room for it. Everything else is museum block (whose
+      // forecourt has to stay open) or a venue lot, and a shop on the open
+      // ground north of the museums would read as a shed in a field.
+      // The mews garage is also the truthful South Kensington answer: the
+      // repair trade here is behind the terraces, not on Cromwell Road.
+      // Anchored on the southbound lane so the driver's-right set-back throws
+      // the lot west onto the terrace block rather than into the carriageway.
+      { id: "london-repair", kind: "repair_shop", anchor: { laneId: "london-queen-gate-south-1", distanceAlongM: 52 }, footprint: point(10, 8), label: "Queen's Gate Motors", setbackM: 11.9 },
     ],
     gigVenues: [
       { id: "london-v1", kind: "restaurant", anchor: { laneId: "london-cromwell-east-1", distanceAlongM: 44 }, footprint: point(14, 10), name: "Cromwell Cafe" },
