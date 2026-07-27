@@ -1595,25 +1595,35 @@ describe("dispatch: a job from offer to payout", () => {
 });
 
 describe("the whole-city map", () => {
-  const startDay = async (keepOffer = false) => {
+  const startDay = async () => {
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-start"));
     await screen.findByRole("heading", { name: /Pick today's ride/i });
     fireEvent.click(screen.getByTestId("garage-start-day"));
     const scene = await screen.findByLabelText("Mock driving scene");
     // One snapshot, so the app has a player pose to draw the map around. It
-    // also opens the offer every drive starts with, and an open offer is one of
-    // the two things the map yields to — so clear it unless a test wants it.
-    //
-    // Only the *opening* offer is dependable here: `startCareer` mints a random
-    // career seed, so when the next one arrives is not something a test can
-    // count on.
+    // also opens the offer every drive starts with, and the map yields to an
+    // open offer — so pass it, leaving the screen clear.
     fireEvent.click(screen.getByTestId("mock-hud-mid"));
-    if (!keepOffer) fireEvent.click(screen.getByTestId("offer-pass"));
+    fireEvent.click(screen.getByTestId("offer-pass"));
     return scene;
   };
 
   const openMap = () => fireEvent.keyDown(window, { code: "KeyM" });
+
+  /**
+   * Roll the sim clock forward a second at a time until dispatch opens an
+   * offer. `OFFER_WINDOW_MS` is 15s and the quiet spell after a pass is capped
+   * at 45s, so 90 seconds is well past needing one — and stopping the moment it
+   * appears means the window cannot be driven past.
+   */
+  const driveUntilOffered = () => {
+    for (let second = 0; second < 90; second += 1) {
+      if (screen.queryByTestId("gig-offer")) return;
+      fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    }
+    throw new Error("dispatch never offered a job in 90s of driving");
+  };
 
   it("opens on M and closes on M again", async () => {
     await startDay();
@@ -1669,12 +1679,18 @@ describe("the whole-city map", () => {
   });
 
   it("gets out of an offer's way, then returns once it is answered", async () => {
-    // The offer card renders before the map at the same layer, so a map over it
-    // makes ACCEPT untappable for the full fifteen seconds on a phone.
-    await startDay(true);
-    expect(screen.getByTestId("gig-offer")).toBeVisible();
-
+    // The offer card renders before the map at the same layer, so a map left
+    // over it makes ACCEPT untappable for the full fifteen seconds on a phone.
+    await startDay();
     openMap();
+    expect(screen.getByTestId("expanded-map")).toBeVisible();
+
+    // Drive on until dispatch offers the next job. Waiting for it rather than
+    // naming a moment is what makes this deterministic: `startCareer` mints a
+    // random career seed, so *when* the next offer opens is not a fixed number
+    // — only that the quiet spell is capped at 45s, so one always arrives.
+    driveUntilOffered();
+    expect(screen.getByTestId("gig-offer")).toBeVisible();
     expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
     expect(screen.getByTestId("offer-accept")).toBeVisible();
 
