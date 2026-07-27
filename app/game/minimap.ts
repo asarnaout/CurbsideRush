@@ -201,6 +201,29 @@ export function createMinimapFitProjector(
 }
 
 /**
+ * The largest box with the world's own aspect that fits inside `available`.
+ *
+ * The whole-city map cuts its canvas to this rather than filling the space it
+ * is given, so the panel *is* the city's shape — a tall column for New York, a
+ * wide band for Milton Keynes — and no part of the canvas is spent on empty
+ * ground. Pure, because "how big is the map on this screen" is the one number
+ * the layout is built around and it should not need a browser to check.
+ */
+export function fitMinimapPanel(
+  worldSize: MinimapWorldSize,
+  available: { readonly width: number; readonly height: number },
+): { readonly width: number; readonly height: number } {
+  const scale = Math.min(
+    Math.max(0, available.width) / Math.max(1, worldSize.x),
+    Math.max(0, available.height) / Math.max(1, worldSize.z),
+  );
+  return {
+    width: Math.max(1, worldSize.x * scale),
+    height: Math.max(1, worldSize.z * scale),
+  };
+}
+
+/**
  * Builds a square projector that fits the map's worldSize inside a `size`×`size`
  * canvas. The square case of `createMinimapFitProjector`, which is what the
  * corner widget wants — it is square by construction.
