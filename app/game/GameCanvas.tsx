@@ -152,6 +152,7 @@ import {
   buildExitScript,
   buildPulloverScript,
   buildRefuelScript,
+  buildRepairScript,
   buildRoadsideRefuelScript,
   cutsceneBodyProfile,
   DEFAULT_CUTSCENE_BODY,
@@ -1894,6 +1895,7 @@ interface ActiveCutscene {
   /** The player's own bike rider was hidden for a dismount (restored on cancel). */
   playerRiderHidden: boolean;
   pumpEmitted: boolean;
+  repairEmitted: boolean;
   /**
    * The traffic stop's second car: a scene-owned patrol rig rather than the
    * ambient patrol that clocked you, because that one is still being driven by
@@ -1935,6 +1937,36 @@ const ACTOR_WALK_Y = 0.08;
 /** The gas station's forecourt slab tops out at ~0.095 (measured world AABB
  * of the placed model), so the refuel scene walks a touch higher still. */
 const FORECOURT_WALK_Y = 0.1;
+
+/**
+ * The ground plane each scene's actor walks on, where it is not the road.
+ *
+ * A lookup rather than the ternary this started as, so a scene added without a
+ * thought about what it stands on gets the road rather than the gas station's
+ * slab. The repair shop's bay floor tops out at 0.07 — flush with the road, so
+ * it wants no entry at all.
+ */
+const CUTSCENE_GROUND_Y: Partial<Record<CutsceneKind, number>> = {
+  refuel: FORECOURT_WALK_Y,
+};
+
+/**
+ * What the scene reports on its way out, per kind.
+ *
+ * A full `Record` rather than the ternary chain this was, so adding a kind is a
+ * compile error here instead of silently inheriting whichever branch happened
+ * to be last ("Order delivered.", as it went).
+ */
+const CUTSCENE_DONE_MESSAGE: Record<CutsceneKind, string> = {
+  refuel: "Tank filled; back behind the wheel.",
+  roadside_refuel: "Tank filled; back behind the wheel.",
+  repair: "Repaired; back on the road.",
+  board: "Rider aboard.",
+  exit: "Rider dropped off.",
+  pullover: "Ticket written; you're free to go.",
+  food_pickup: "Order collected.",
+  food_dropoff: "Order delivered.",
+};
 
 /** How far inside the pavement a street address's "front door" sits. */
 const STREET_DOOR_INSET_M = 3.2;
@@ -5223,6 +5255,14 @@ class BabylonGameSession {
         script = buildRoadsideRefuelScript(car, this.options.steeringSide, body);
         break;
       }
+      case "repair": {
+        // Likewise needs no map data — the work happens at the car's own
+        // bonnet, so this branch always yields a script. Deliberate: the bill
+        // is charged on the scene's repair step, so a shop visit that could not
+        // be staged would be a repair that silently cost nothing.
+        script = buildRepairScript(car, this.options.steeringSide, body);
+        break;
+      }
       case "board": {
         const spot = request.venueId
           ? this.gigVenueCurbside.get(request.venueId)
@@ -5378,10 +5418,11 @@ class BabylonGameSession {
         midZ + perpZ * radius,
       ),
       cameraTarget: new Vector3(midX, 1.0, midZ),
-      groundY: request.kind === "refuel" ? FORECOURT_WALK_Y : ACTOR_WALK_Y,
+      groundY: CUTSCENE_GROUND_Y[request.kind] ?? ACTOR_WALK_Y,
       riderWasHidden,
       playerRiderHidden,
       pumpEmitted: false,
+      repairEmitted: false,
       patrolNode: patrolRig?.node ?? null,
       patrolVisual: patrolRig?.visual ?? null,
       citeEmitted: false,
@@ -5466,6 +5507,16 @@ class BabylonGameSession {
       this.emit("cutscene", "Filling the tank.", "info", {
         evidence: {
           phase: "pump",
+          nonce: cutscene.nonce,
+          durationMs: Math.round(step.seconds * 1000),
+        },
+      });
+    }
+    if (step.repairWindow && !cutscene.repairEmitted) {
+      cutscene.repairEmitted = true;
+      this.emit("cutscene", "Panels straightened, lights replaced.", "info", {
+        evidence: {
+          phase: "repair",
           nonce: cutscene.nonce,
           durationMs: Math.round(step.seconds * 1000),
         },
@@ -5673,19 +5724,7 @@ class BabylonGameSession {
   }
 
   private emitCutsceneDone(nonce: number, kind: CutsceneKind) {
-    const message =
-      kind === "refuel" || kind === "roadside_refuel"
-        ? "Tank filled; back behind the wheel."
-        : kind === "board"
-          ? "Rider aboard."
-          : kind === "exit"
-            ? "Rider dropped off."
-            : kind === "pullover"
-              ? "Ticket written; you're free to go."
-              : kind === "food_pickup"
-                ? "Order collected."
-                : "Order delivered.";
-    this.emit("cutscene", message, "info", {
+    this.emit("cutscene", CUTSCENE_DONE_MESSAGE[kind], "info", {
       evidence: { phase: "done", nonce, kind },
     });
   }

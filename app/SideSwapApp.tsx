@@ -99,7 +99,12 @@ import {
 } from "./CareerViews";
 import type { TravelCityFacts } from "./CareerViews";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { FULL_CONDITION_PCT, damageForCollision } from "./game/damage";
+import {
+  FULL_CONDITION_PCT,
+  MIN_REPAIRABLE_DAMAGE_PCT,
+  damageForCollision,
+} from "./game/damage";
+import { REPAIR_BAY_REACH_M } from "./game/repairShopLayout";
 import {
   buildCareerDayLesson,
   buildFreeDriveLesson,
@@ -107,6 +112,7 @@ import {
 import {
   FUEL_PUMP_REACH_M,
   distanceToNearestPump,
+  distanceToRepairBay,
   gasStationPumpPositions,
   gasStationsOf,
   repairShopBayPosition,
@@ -553,6 +559,24 @@ function fineReason(
 const HUD_GOLD = "#f4c848";
 const HUD_CORAL = "#e8705a";
 const HUD_SAGE = "#8fae72";
+
+/**
+ * What the caption over an interaction scene reads, per kind.
+ *
+ * A full `Record` rather than the ternary chain this was, so adding a scene is
+ * a compile error here instead of silently inheriting the last branch — which,
+ * for anything unlisted, said "Delivering the order…".
+ */
+const CUTSCENE_CAPTION: Record<CutsceneRequest["kind"], string> = {
+  refuel: "Refueling…",
+  roadside_refuel: "Out of fuel — roadside service…",
+  repair: "In the shop…",
+  pullover: "Pulled over — licence and registration…",
+  board: "Your rider is getting in…",
+  exit: "Dropping off your rider…",
+  food_pickup: "Picking up the order…",
+  food_dropoff: "Delivering the order…",
+};
 
 /** How each dispatch outcome reads: taken, paid, passed over, or lost. */
 const DISPATCH_TOAST_COLOR = {
@@ -1383,6 +1407,35 @@ export default function SideSwapApp() {
           );
           return;
         }
+        if (evidence.phase === "repair") {
+          // The bonnet is up: pay and mend atomically, the same contract the
+          // pump step keeps. An aborted scene after this point was still a
+          // completed repair; before it, nothing happened.
+          //
+          // Damage comes off the ref, not the `carCondition` state: the ref is
+          // what the collision handler decrements, and the state can be a
+          // render behind a shunt taken on the way in.
+          const damage = Math.max(
+            0,
+            FULL_CONDITION_PCT - carConditionRef.current,
+          );
+          const price = repairPrice(driveCountry, damage, "shop");
+          if (careerRunRef.current) {
+            chargeCareer(price, (log) => ({
+              ...log,
+              repairsTotal: log.repairsTotal + price,
+            }));
+          } else {
+            const paid = debit(progress, driveCountry.id, price);
+            setProgress(paid);
+            saveProgress(paid);
+          }
+          // No session reset, unlike the tow — the car is mended where it
+          // stands, in the bay it drove into.
+          carConditionRef.current = FULL_CONDITION_PCT;
+          setCarCondition(FULL_CONDITION_PCT);
+          return;
+        }
         if (evidence.phase === "pump") {
           // The nozzle is in: pay and fill atomically, and stretch the fuel
           // bar's transition across the fill window so the gauge pours while
@@ -2169,12 +2222,64 @@ export default function SideSwapApp() {
     );
   }, [canRefuel, cutscene, towing, beginCutscene, tankCapacityL, litresNeeded]);
 
-  // Enter mirrors the on-screen Refuel prompt, same as F/G mirror the offer
-  // card — only live while the prompt itself is showing, so it never fires a
-  // cutscene the player is stood too far from a pump to see staged. `refuel`
-  // already no-ops once there is nothing left to fill.
+  // Measured to the bay the car has to be standing in, for the same reason the
+  // fuel prompt measures to the pumps: the lane anchor is out on the road.
+  const activeRepairShop =
+    view === "driving" && hud && hud.speed <= 1
+      ? repairShopsOf(runtimeMap.geometry.servicePoints).find(
+          (service) =>
+            distanceToRepairBay(
+              runtimeMap.laneGraph.lanes,
+              service,
+              hud.playerX,
+              hud.playerZ,
+            ) <= REPAIR_BAY_REACH_M,
+        ) ?? null
+      : null;
+  const damagePct = Math.max(0, FULL_CONDITION_PCT - carCondition);
+  const repairCost = repairPrice(driveCountry, damagePct, "shop");
+  // Deliberately NOT gated on affording it, which is where this parts company
+  // with `canRefuel` a few lines up. `debit` clamps at zero, so gating the shop
+  // would leave a broke player no choice but to keep driving until the car hit
+  // zero and the tow fired — and the tow's debit clamps too. The expensive
+  // option would be free and the cheap one forbidden, which is backwards from
+  // what pricing repairs by damage is for. Only the tow should ever bite.
+  const canRepair = damagePct >= MIN_REPAIRABLE_DAMAGE_PCT;
+  const repair = useCallback(() => {
+    if (!canRepair || cutscene || towing) return;
+    beginCutscene("repair");
+  }, [canRepair, cutscene, towing, beginCutscene]);
+
+  // The two service prompts share one slot, one Enter handler and one card.
+  // They can never both be live — a car cannot be at a pump and in a bay at
+  // once — but built as two blocks they would sit at the same `left: 50%` and
+  // register two `Enter` listeners, and nothing would say so until they did.
+  const promptKind = activeGasStation
+    ? ("refuel" as const)
+    : activeRepairShop
+      ? ("repair" as const)
+      : null;
+  const promptTestId =
+    promptKind === "refuel" ? "refuel-button" : "repair-button";
+  const promptEnabled = promptKind === "refuel" ? canRefuel : canRepair;
+  const promptAct = promptKind === "refuel" ? refuel : repair;
+  const promptLabel =
+    promptKind === "refuel"
+      ? litresNeeded <= 0.5
+        ? `${activeGasStation?.label} · Tank full`
+        : canRefuel
+          ? `Refuel — ${formatMoney(refuelCost, driveCountry)}`
+          : `Need ${formatMoney(refuelCost, driveCountry)} to fill up`
+      : canRepair
+        ? `Repair — ${formatMoney(repairCost, driveCountry)}`
+        : `${activeRepairShop?.label} · Nothing to fix`;
+
+  // Enter mirrors whichever service prompt is showing, same as F/G mirror the
+  // offer card — only live while the prompt itself is up, so it never fires a
+  // cutscene the player is stood too far away to see staged. Both actions
+  // already no-op when there is nothing to do.
   useEffect(() => {
-    if (view !== "driving" || !activeGasStation) return;
+    if (view !== "driving" || !promptKind) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat) return;
       if (
@@ -2185,12 +2290,12 @@ export default function SideSwapApp() {
       }
       if (event.code === "Enter" || event.code === "NumpadEnter") {
         event.preventDefault();
-        refuel();
+        promptAct();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [view, activeGasStation, refuel]);
+  }, [view, promptKind, promptAct]);
 
   // Pin the pumps rather than the lane anchor. The anchor sits on the
   // carriageway ~19m short of the forecourt, and now that fuel is only offered
@@ -2286,21 +2391,7 @@ export default function SideSwapApp() {
         hud.playerZ - gigTargetVenue.z,
       ) <= GIG_ARRIVAL_RADIUS_M,
   );
-  const cutsceneCaption = cutscene
-    ? cutscene.kind === "refuel"
-      ? "Refueling…"
-      : cutscene.kind === "roadside_refuel"
-        ? "Out of fuel — roadside service…"
-        : cutscene.kind === "pullover"
-          ? "Pulled over — licence and registration…"
-        : cutscene.kind === "board"
-        ? "Your rider is getting in…"
-        : cutscene.kind === "exit"
-          ? "Dropping off your rider…"
-          : cutscene.kind === "food_pickup"
-            ? "Picking up the order…"
-            : "Delivering the order…"
-    : null;
+  const cutsceneCaption = cutscene ? CUTSCENE_CAPTION[cutscene.kind] : null;
   // A street address is a spot outside a row of buildings that look like every
   // other row, so the stop you are heading for gets a lit kerbside beacon.
   const gigStopId = gigTargetVenue?.id ?? null;
@@ -2834,7 +2925,7 @@ export default function SideSwapApp() {
             </>
           )}
         </div>
-        {activeGasStation && !cutscene && !towing && tankCapacityL > 0 && (
+        {promptKind && !cutscene && !towing && tankCapacityL > 0 && (
           <div
             style={{
               position: "absolute",
@@ -2848,9 +2939,9 @@ export default function SideSwapApp() {
           >
             <button
               type="button"
-              data-testid="refuel-button"
-              onClick={refuel}
-              disabled={!canRefuel}
+              data-testid={promptTestId}
+              onClick={promptAct}
+              disabled={!promptEnabled}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -2858,23 +2949,17 @@ export default function SideSwapApp() {
                 padding: "0.65rem 1.3rem",
                 borderRadius: "999px",
                 border: "none",
-                cursor: canRefuel ? "pointer" : "not-allowed",
-                background: canRefuel ? "#f2c658" : "rgba(60,64,70,0.85)",
-                color: canRefuel ? "#1a1c1f" : "#f4f6f8",
+                cursor: promptEnabled ? "pointer" : "not-allowed",
+                background: promptEnabled ? "#f2c658" : "rgba(60,64,70,0.85)",
+                color: promptEnabled ? "#1a1c1f" : "#f4f6f8",
                 font: "700 1rem/1 system-ui, sans-serif",
                 backdropFilter: "blur(10px)",
               }}
             >
-              <span>
-                {litresNeeded <= 0.5
-                  ? `${activeGasStation.label} · Tank full`
-                  : canRefuel
-                    ? `Refuel — ${formatMoney(refuelCost, driveCountry)}`
-                    : `Need ${formatMoney(refuelCost, driveCountry)} to fill up`}
-              </span>
-              {/* Only live while `refuel()` actually does something — same gate as the
+              <span>{promptLabel}</span>
+              {/* Only live while the action actually does something — same gate as the
                   Enter-key listener above. Touch has no keyboard to hint at. */}
-              {!touchFirst && canRefuel && (
+              {!touchFirst && promptEnabled && (
                 <span
                   aria-hidden="true"
                   style={{

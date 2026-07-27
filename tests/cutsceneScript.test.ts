@@ -3,8 +3,10 @@ import {
   BIKE_CUTSCENE_BODY,
   buildBikeErrandScript,
   buildPulloverScript,
+  buildRepairScript,
   buildRoadsideRefuelScript,
   cutsceneBodyProfile,
+  REPAIR_WORK_SECONDS,
   DEFAULT_CUTSCENE_BODY,
   lerpCarPose,
   MAX_LEG_SECONDS,
@@ -433,6 +435,79 @@ describe("buildRoadsideRefuelScript", () => {
         expect(Math.abs(fillerLocal.lat)).toBeGreaterThan(1.1);
       }
     }
+  });
+});
+
+describe("buildRepairScript", () => {
+  it("works at the bonnet without crossing the body, every combination", () => {
+    for (const car of CAR_POSES) {
+      for (const steeringSide of ["left", "right"] as const) {
+        const script = buildRepairScript(car, steeringSide);
+        expectClearOfCarBody(car, script);
+        // Exactly one repair window, and it lasts the beat the app pays for.
+        const windows = script.filter((step) => step.repairWindow);
+        expect(windows).toHaveLength(1);
+        expect(windows[0].seconds).toBe(REPAIR_WORK_SECONDS);
+        // Steps out the driver door, ends back inside with the dip.
+        expect(script[0].path?.[0]).toEqual(driverDoorPoint(car, steeringSide));
+        expect(script[script.length - 1]).toMatchObject({
+          action: "hide",
+          carDip: true,
+        });
+        // The work happens dead ahead on the centreline, not out to a flank.
+        const walkOut = script[1];
+        const bonnet = walkOut.path![walkOut.path!.length - 1];
+        const bonnetLocal = local(car, bonnet);
+        expect(Math.abs(bonnetLocal.lat)).toBeLessThan(0.01);
+        expect(bonnetLocal.long).toBeGreaterThan(2);
+      }
+    }
+  });
+
+  it("never leaves the car's own envelope", () => {
+    // The bay is walled on three sides and the actor is a render-only node, so
+    // nothing stops it walking through a wall. Keeping every waypoint inside
+    // the space the car itself occupies plus its skirting ring is what makes
+    // that impossible rather than merely unlikely — whatever size the bay is.
+    const reach = DEFAULT_CUTSCENE_BODY.clearLongM + 1.6;
+    for (const car of CAR_POSES) {
+      for (const steeringSide of ["left", "right"] as const) {
+        for (const step of buildRepairScript(car, steeringSide)) {
+          for (const point of step.path ?? []) {
+            expect(
+              Math.hypot(point.x - car.x, point.z - car.z),
+              `${steeringSide} waypoint strays from the car`,
+            ).toBeLessThanOrEqual(reach);
+          }
+        }
+      }
+    }
+  });
+
+  it("always stages — it needs nothing but the car", () => {
+    // The bill is charged on the repair step, so a scene that could not be
+    // staged would be a shop visit that silently cost nothing (or, if the app
+    // paid up front, one that charged for nothing).
+    for (const car of CAR_POSES) {
+      for (const steeringSide of ["left", "right"] as const) {
+        for (const body of [
+          DEFAULT_CUTSCENE_BODY,
+          cutsceneBodyProfile(6.2, 2.2),
+          cutsceneBodyProfile(3.4, 1.5),
+        ]) {
+          const script = buildRepairScript(car, steeringSide, body);
+          expect(script.length).toBeGreaterThan(0);
+          expect(script.some((step) => step.repairWindow)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("is deterministic", () => {
+    const car = CAR_POSES[1];
+    expect(buildRepairScript(car, "left")).toEqual(
+      buildRepairScript(car, "left"),
+    );
   });
 });
 

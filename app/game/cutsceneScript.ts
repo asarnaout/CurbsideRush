@@ -15,6 +15,7 @@ import type { SteeringSide, TrafficSide, WorldPoint } from "./types";
 
 export type CutsceneKind =
   | "refuel"
+  | "repair"
   | "board"
   | "exit"
   | "food_pickup"
@@ -64,6 +65,15 @@ export interface CutsceneStep {
   /** The refuel fill window: the app pours the tank over this step. */
   readonly fuelWindow?: boolean;
   /**
+   * The repair window: the app bills for the work and restores the car's
+   * condition as this step begins.
+   *
+   * Its own flag rather than a reuse of `fuelWindow` gated on the scene's kind,
+   * because `fuelWindow` names the fuel gauge's fill animation as well as the
+   * charge, and the app drives that off it.
+   */
+  readonly repairWindow?: boolean;
+  /**
    * Vehicle poses interpolated across this step, eased so a car settles into
    * its stop rather than snapping to it. The session replays them onto the
    * simulation's player and onto the scene's own patrol rig.
@@ -80,6 +90,13 @@ export const MAX_LEG_SECONDS = 6;
 export const PUMP_BASE_SECONDS = 3;
 export const PUMP_EXTRA_SECONDS = 2;
 export const STORE_DWELL_SECONDS = 1.5;
+/**
+ * How long the driver spends at the bonnet while the car is put right. Flat
+ * rather than scaled by the damage: this is the beat that tells the player the
+ * work happened, and a repair that dragged on for a bad night would just be a
+ * longer wait for the same outcome.
+ */
+export const REPAIR_WORK_SECONDS = 5;
 
 /**
  * The vehicle envelope every walk path respects: the body rectangle to stay
@@ -523,6 +540,55 @@ export function buildRoadsideRefuelScript(
       seconds: legSeconds(back, WALK_SPEED_MPS),
       sound: "pump_stop",
     },
+    { action: "hide", seconds: 0.45, sound: "door_close", carDip: true },
+  ];
+}
+
+/** How far off the front bumper the driver stands to work on the car. */
+const BONNET_STAND_OFF_M = 0.9;
+
+/**
+ * Driver gets out, works at the bonnet for a few seconds, gets back in.
+ *
+ * Takes only the car's pose — no bay, no map data — so like the roadside rescue
+ * and the traffic stop it can never fail to stage. That matters more here than
+ * it looks: `startCutscene` answers an unstageable scene by completing it
+ * immediately, and this scene's `repairWindow` step is where the bill is
+ * charged and the car is put right. A shop that could not be staged would be a
+ * button that took the player's money and fixed nothing, or fixed the car for
+ * free — depending which way it failed.
+ *
+ * Being car-relative also keeps the walk inside whatever space the car itself
+ * fits in, which is what stops the driver strolling through a bay wall on the
+ * way round. The bonnet specifically, rather than a flank: a lateral work point
+ * puts the actor between the car and a wall, exactly where the envelope's
+ * skirting waypoints have least room.
+ */
+export function buildRepairScript(
+  car: CutsceneCarPose,
+  steeringSide: SteeringSide,
+  body: CutsceneBodyProfile = DEFAULT_CUTSCENE_BODY,
+): CutsceneStep[] {
+  const door = driverDoorPoint(car, steeringSide, body);
+  const bonnet = toWorld(car, body.bodyHalfLongM + BONNET_STAND_OFF_M, 0);
+  const out = routeAroundCar(car, door, bonnet, body);
+  const back = routeAroundCar(car, bonnet, door, body);
+  return [
+    {
+      action: "show",
+      path: [door],
+      seconds: 0.35,
+      face: headingTo(car, door),
+      sound: "door",
+    },
+    { action: "walk", path: out, seconds: legSeconds(out, WALK_SPEED_MPS) },
+    {
+      action: "idle",
+      seconds: REPAIR_WORK_SECONDS,
+      face: headingTo(bonnet, car),
+      repairWindow: true,
+    },
+    { action: "walk", path: back, seconds: legSeconds(back, WALK_SPEED_MPS) },
     { action: "hide", seconds: 0.45, sound: "door_close", carDip: true },
   ];
 }
