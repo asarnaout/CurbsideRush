@@ -19,7 +19,6 @@ import {
   DESTINATION_PROFILES,
   FINE_BY_COUNTRY,
   FUEL_CONSUMPTION_L_PER_M,
-  REPAIR_FEE_BY_COUNTRY,
   FUEL_PRICE_PER_LITRE_BY_COUNTRY,
   GIG_FARE_BY_COUNTRY,
   PASSENGER_FARE_BY_COUNTRY,
@@ -34,6 +33,7 @@ import {
   postedSpeed,
   resolveSessionConfig,
   resolveSteeringSide,
+  repairPrice,
   speedingFine,
 } from "./game/content";
 import {
@@ -683,6 +683,9 @@ export default function SideSwapApp() {
   const carConditionRef = useRef(FULL_CONDITION_PCT);
   const [towing, setTowing] = useState(false);
   const towingRef = useRef(false);
+  // What the tow actually charged, so the overlay quotes the bill rather than
+  // re-deriving one. State, not a ref: the overlay is React-rendered.
+  const [towFee, setTowFee] = useState(0);
   const towResetNonceRef = useRef(0);
   const [towResetNonce, setTowResetNonce] = useState(0);
   const lastPedFineAtRef = useRef(0);
@@ -1305,7 +1308,13 @@ export default function SideSwapApp() {
     // A scene in flight is torn down by the session's reset; drop the app
     // side too so nothing waits on a `done` that will never come.
     clearCutscene();
-    const fee = REPAIR_FEE_BY_COUNTRY[driveCountry.id];
+    // A write-off is billed for all 100 points at the roadside premium, so it
+    // always costs strictly more than driving into a shop would have. Stashed
+    // in state rather than re-derived by the overlay below: the two used to
+    // read the same flat constant independently, which was harmless only for
+    // as long as the price was constant.
+    const fee = repairPrice(driveCountry, FULL_CONDITION_PCT, "tow");
+    setTowFee(fee);
     if (careerRunRef.current) {
       // Day-local money: the repair bill can push the day negative.
       chargeCareer(fee, (log) => ({
@@ -2820,7 +2829,7 @@ export default function SideSwapApp() {
                 {careerVehicle && careerVehicle.visualKind !== "car"
                   ? "Fixed up kerbside — "
                   : "Towed & repaired — "}
-                {formatMoney(REPAIR_FEE_BY_COUNTRY[driveCountry.id], driveCountry)}
+                {formatMoney(towFee, driveCountry)}
               </span>
             </>
           )}

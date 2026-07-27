@@ -32,7 +32,14 @@ export const LOAN_TERM_DAYS = 3;
 /** Buying a vehicle outright costs this many days of its rent. */
 export const BUYOUT_RENT_MULTIPLIER = 15;
 
-/** Roadside rescue refills the whole tank at this premium over pump price. */
+/**
+ * Roadside rescue refills the whole tank at this premium over pump price.
+ *
+ * Also what a tow charges over the same repair done at a shop (`repairPrice`),
+ * deliberately: a tow *is* a roadside call-out, and pricing the two rescues off
+ * one number is what keeps "the service that comes to you costs more" a rule
+ * rather than a coincidence. Retuning it moves both.
+ */
 export const ROADSIDE_PRICE_FACTOR = 1.5;
 
 /**
@@ -110,7 +117,10 @@ export const PLATFORM_FEE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   jp: 300,
 };
 
-/** Flat call-out charge on top of the premium fuel when rescued roadside. */
+/**
+ * Flat call-out charge on top of the premium fuel when rescued roadside — and,
+ * for the same reason, on top of a tow's repair bill. See `ROADSIDE_PRICE_FACTOR`.
+ */
 export const ROADSIDE_CALLOUT_FEE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 10,
   uk: 10,

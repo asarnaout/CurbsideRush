@@ -5,7 +5,11 @@ import {
   SMOKE_LIGHT_CONDITION_PCT,
   damageForCollision,
 } from "../app/game/damage";
-import { FINE_BY_COUNTRY, REPAIR_FEE_BY_COUNTRY } from "../app/game/content";
+import {
+  FINE_BY_COUNTRY,
+  getCountryProfile,
+  repairPrice,
+} from "../app/game/content";
 
 describe("damageForCollision", () => {
   it("charges pedestrians and cyclists a small flat rate — the citation is the cost", () => {
@@ -62,15 +66,89 @@ describe("damageForCollision", () => {
   });
 });
 
-describe("REPAIR_FEE_BY_COUNTRY", () => {
-  it("prices a write-off noticeably above a fine in every country", () => {
-    for (const country of ["us", "uk", "fr", "jp"] as const) {
-      expect(REPAIR_FEE_BY_COUNTRY[country]).toBeGreaterThanOrEqual(
-        FINE_BY_COUNTRY[country] * 2,
+describe("repairPrice", () => {
+  const countries = (["us", "uk", "fr", "jp"] as const).map(getCountryProfile);
+
+  it("prices a full rebuild noticeably above a fine in every country", () => {
+    // The band the old flat tow fee was tuned to, now applied to the honest
+    // full repair: worse than a ticket, never enough to bankrupt a session.
+    for (const country of countries) {
+      const full = repairPrice(country, FULL_CONDITION_PCT, "shop");
+      expect(full, country.id).toBeGreaterThanOrEqual(
+        FINE_BY_COUNTRY[country.id] * 2,
       );
-      expect(REPAIR_FEE_BY_COUNTRY[country]).toBeLessThanOrEqual(
-        FINE_BY_COUNTRY[country] * 5,
+      expect(full, country.id).toBeLessThanOrEqual(
+        FINE_BY_COUNTRY[country.id] * 5,
       );
+    }
+  });
+
+  it("always makes a tow dearer than driving in — at every damage level", () => {
+    // This is what issue #213 is actually about, and what stops a later tuner
+    // quietly making the write-off the cheaper way out of a bad night.
+    for (const country of countries) {
+      const towed = repairPrice(country, FULL_CONDITION_PCT, "tow");
+      expect(
+        towed,
+        `${country.id} tow vs full shop repair`,
+      ).toBeGreaterThan(repairPrice(country, FULL_CONDITION_PCT, "shop") * 1.5);
+      for (let damage = 0; damage <= FULL_CONDITION_PCT; damage += 5) {
+        expect(
+          repairPrice(country, damage, "shop"),
+          `${country.id} shop at ${damage}% vs tow`,
+        ).toBeLessThan(towed);
+      }
+    }
+  });
+
+  it("charges for the damage carried, not a flat fee", () => {
+    for (const country of countries) {
+      const full = repairPrice(country, FULL_CONDITION_PCT, "shop");
+      expect(repairPrice(country, 0, "shop"), country.id).toBe(0);
+      // Pro rata, within one rounding step of half the full price.
+      const step = country.currency.minorUnits === 0 ? 100 : 1;
+      expect(
+        Math.abs(repairPrice(country, 50, "shop") - full / 2),
+        country.id,
+      ).toBeLessThanOrEqual(step);
+      // Monotonic: more damage never costs less.
+      let previous = -1;
+      for (let damage = 0; damage <= FULL_CONDITION_PCT; damage += 1) {
+        const price = repairPrice(country, damage, "shop");
+        expect(price, `${country.id} at ${damage}%`).toBeGreaterThanOrEqual(
+          previous,
+        );
+        previous = price;
+      }
+      // Damage cannot exceed a full car, however it is asked for.
+      expect(repairPrice(country, 500, "shop"), country.id).toBe(full);
+      expect(repairPrice(country, -20, "shop"), country.id).toBe(0);
+    }
+  });
+
+  it("quotes a price the currency can actually be written in", () => {
+    // Yen has no minor units, so a bill of ¥1,347 would be the only price in
+    // the game that reads like a rounding artefact.
+    for (const country of countries) {
+      const step = country.currency.minorUnits === 0 ? 100 : 1;
+      for (const damage of [7, 23, 41, 68, 99]) {
+        for (const service of ["shop", "tow"] as const) {
+          expect(
+            repairPrice(country, damage, service) % step,
+            `${country.id} ${service} at ${damage}%`,
+          ).toBe(0);
+        }
+      }
+    }
+  });
+
+  it("leaves a shop repair worth the detour at the damage that prompts one", () => {
+    // The feature only works if limping in beats pressing on. A car at the
+    // smoke threshold should cost a fraction of writing itself off.
+    for (const country of countries) {
+      const smoking = repairPrice(country, FULL_CONDITION_PCT - 30, "shop");
+      const towed = repairPrice(country, FULL_CONDITION_PCT, "tow");
+      expect(smoking * 2, country.id).toBeLessThan(towed);
     }
   });
 });
