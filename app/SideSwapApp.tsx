@@ -116,6 +116,7 @@ import {
   gasStationsOf,
   repairShopsOf,
 } from "./game/servicePoints";
+import { ExpandedMap } from "./game/ExpandedMap";
 import { Minimap } from "./game/MinimapCanvas";
 import type { MapDestination } from "./game/minimapDraw";
 import {
@@ -623,6 +624,9 @@ export default function SideSwapApp() {
     new Map<DestinationId, HTMLButtonElement>(),
   );
   const [paused, setPaused] = useState(false);
+  // The whole-city map (M, or the HUD button). Deliberately not a pause: the
+  // car keeps rolling while it is up, and `ExpandedMap` is built around that.
+  const [mapOpen, setMapOpen] = useState(false);
   // Which in-game confirmation modal is open, if any. Replaces native
   // window.confirm() so the prompt matches the dark HUD (#164). Only one is
   // ever open at a time, and each is dismissed within its own view.
@@ -1163,6 +1167,58 @@ export default function SideSwapApp() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [view, answerOffer]);
+
+  /*
+   * M opens the whole city, and closes it again.
+   *
+   * It lives here rather than in `BabylonGameSession`'s key switch because the
+   * map is app state — the session knows nothing about routes or places — and
+   * because that switch has no test coverage at all.
+   *
+   * A *bubble* listener, like F and G. `ConfirmDialog` installs a capture-phase
+   * handler that swallows every key, and capture listeners on `window` run in
+   * registration order — so a capture-phase M would fire first and open the map
+   * behind an open dialog. Bubbling, it never runs while one is up.
+   */
+  useEffect(() => {
+    if (view !== "driving") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.code !== "KeyM") return;
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+      // The pause card is its own screen, at the same layer and painted under
+      // this one. Nothing good happens with both up.
+      if (paused) return;
+      event.preventDefault();
+      setMapOpen((open) => !open);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [view, paused]);
+
+  /*
+   * Two things outrank the map, and it yields to both — but only for as long as
+   * they last, which is why this is derived rather than a close.
+   *
+   * `paused`: GameCanvas renders the pause dialog at `DRIVE_LAYER.action` and
+   * so does this, but the app's subtree paints after the session's — so a map
+   * left showing would float on top of the pause screen. Covers a hidden tab
+   * too, which pauses.
+   *
+   * `offer`: the offer card is at `action` as well and renders *before* the
+   * map, so a map over it makes ACCEPT untappable for the whole fifteen
+   * seconds on touch. The phone HUD already moves the corner map out of an
+   * offer's way; this is the same courtesy.
+   *
+   * Answering the offer or resuming brings the map straight back, because the
+   * player never asked to close it. Leaving the drive is the only thing that
+   * actually clears the flag — see `beginDrive`.
+   */
+  const mapVisible = mapOpen && !paused && !offer;
 
   useEffect(() => {
     const sync = () => {
@@ -1838,6 +1894,7 @@ export default function SideSwapApp() {
     setGig(null);
     setHud(null);
     setPaused(false);
+    setMapOpen(false);
     carConditionRef.current = FULL_CONDITION_PCT;
     setCarCondition(FULL_CONDITION_PCT);
     towingRef.current = false;
@@ -1857,6 +1914,7 @@ export default function SideSwapApp() {
     setCareerRun(null);
     setGig(null);
     setPaused(false);
+    setMapOpen(false);
     setActiveSession(null);
     clearCutscene();
     music.stop();
@@ -1877,6 +1935,7 @@ export default function SideSwapApp() {
     saveProgress(persisted);
     setGig(null);
     setPaused(false);
+    setMapOpen(false);
     setActiveSession(null);
     clearCutscene();
     music.stop();
@@ -2016,6 +2075,7 @@ export default function SideSwapApp() {
     setCarryingSinceMs(null);
     setHud(null);
     setPaused(false);
+    setMapOpen(false);
     carConditionRef.current = FULL_CONDITION_PCT;
     setCarCondition(FULL_CONDITION_PCT);
     towingRef.current = false;
@@ -2065,6 +2125,7 @@ export default function SideSwapApp() {
     setCareerRun(null);
     setGig(null);
     setPaused(false);
+    setMapOpen(false);
     setActiveSession(null);
     clearCutscene();
     // Music keeps playing across the ledger and garage — they are part of the
@@ -3073,6 +3134,31 @@ export default function SideSwapApp() {
           <div className="sr-only" aria-live="polite">
             Speed {hud.speed} {hud.speedUnit}, gear {hud.gear}.
           </div>
+        )}
+        {/*
+          Last of the drive overlays, so it paints over the HUD it is meant to
+          replace for as long as it is up. Anything that must outrank it closes
+          it instead — see the effect that watches `paused` and `offer`.
+        */}
+        {mapVisible && hud && (
+          <ExpandedMap
+            cityName={driveDestination.destinationName}
+            subtitle={navJob ? `${navJob.eyebrow} · ${navJob.target}` : null}
+            worldSize={runtimeMap.geometry.worldSize}
+            roadSurfaces={runtimeMap.geometry.roadSurfaces}
+            pois={mapPois}
+            destination={mapDestination}
+            // The whole line, not the remainder the corner widget draws: the
+            // question this view answers is what the journey looks like.
+            route={gpsRoute ? gpsRoute.points : undefined}
+            previewRoute={previewRoute ? previewRoute.points : undefined}
+            playerX={hud.playerX}
+            playerZ={hud.playerZ}
+            heading={hud.heading}
+            viewport={{ width: viewportWidth, height: viewportHeight }}
+            showKeyHints={!touchFirst}
+            onClose={() => setMapOpen(false)}
+          />
         )}
         {pendingConfirm === "end-day" && (
           <ConfirmDialog
