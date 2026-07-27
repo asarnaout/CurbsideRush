@@ -5,24 +5,18 @@ import {
   createMinimapFollowProjector,
   createMinimapProjector,
   createMinimapSheetProjector,
-  MINIMAP_ROUTE_WIDTH_FRACTION,
-  projectRoadNetwork,
-  resolveMinimapRoadWidth,
+  minimapRoadFloorPx,
   resolveMinimapScale,
 } from "./minimap";
+import {
+  drawMapOverlay,
+  drawRoadNetwork,
+  minimapSymbolSizes,
+  type MinimapPin,
+} from "./minimapDraw";
 import { DRIVE_LAYER } from "./driveLayers";
 
-export interface MinimapPin {
-  readonly x: number;
-  readonly z: number;
-  readonly color: string;
-  /**
-   * `destination` draws the ringed map pin the route line ends at; everything
-   * else stays a plain dot, so a screenful of gas stations cannot compete with
-   * the one place the player is actually going.
-   */
-  readonly kind?: "dot" | "destination";
-}
+export type { MinimapPin };
 
 interface MinimapProps {
   readonly worldSize: { readonly x: number; readonly z: number };
@@ -129,25 +123,13 @@ export function Minimap({
     offscreen.height = sheet.height;
     const ctx = offscreen.getContext("2d");
     if (ctx) {
-      // Translucent, so the overlap at a crossing brightens into a junction
-      // patch on its own — the reason there is no junction pass here.
-      ctx.strokeStyle = "rgba(170, 182, 192, 0.28)";
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      for (const line of projectRoadNetwork(roadSurfaces, sheet)) {
-        if (line.points.length < 2) continue;
-        ctx.lineWidth = resolveMinimapRoadWidth(
-          line.widthM,
-          scale.pixelsPerMetre,
-          size,
-        );
-        ctx.beginPath();
-        ctx.moveTo(line.points[0].x, line.points[0].y);
-        for (let index = 1; index < line.points.length; index += 1) {
-          ctx.lineTo(line.points[index].x, line.points[index].y);
-        }
-        ctx.stroke();
-      }
+      drawRoadNetwork(
+        ctx,
+        roadSurfaces,
+        sheet,
+        scale.pixelsPerMetre,
+        minimapRoadFloorPx(size),
+      );
     }
     networkRef.current = offscreen;
   }, [roadSurfaces, sheet, scale, size]);
@@ -177,100 +159,18 @@ export function Minimap({
       }
     }
 
-    // The detour preview goes down first, so the committed route paints over it
-    // wherever the two share streets — the player is being shown the extra, not
-    // a competing plan.
-    if (previewRoute && previewRoute.length > 1) {
-      ctx.save();
-      ctx.strokeStyle = "rgba(250,243,228,0.85)";
-      ctx.lineWidth = Math.max(1.5, size * MINIMAP_ROUTE_WIDTH_FRACTION * 0.7);
-      ctx.setLineDash([Math.max(4, size * 0.042), Math.max(4, size * 0.05)]);
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      const start = projector.project(previewRoute[0].x, previewRoute[0].z);
-      ctx.moveTo(start.x, start.y);
-      for (let index = 1; index < previewRoute.length; index += 1) {
-        const point = projector.project(previewRoute[index].x, previewRoute[index].z);
-        ctx.lineTo(point.x, point.y);
-      }
-      ctx.stroke();
-      // A hollow ring at the far end: a place being offered, not a pin planted.
-      const end = previewRoute[previewRoute.length - 1];
-      const at = projector.project(end.x, end.z);
-      ctx.setLineDash([]);
-      ctx.lineWidth = Math.max(2, size * 0.01);
-      ctx.beginPath();
-      ctx.arc(at.x, at.y, Math.max(4, size * 0.03), 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // The GPS line, under the pins so the destination marker caps it. One path
-    // per update over a few dozen points — the search that produced them ran
-    // once, when the destination changed.
-    if (route && route.length > 1) {
-      ctx.strokeStyle = "#f2c658";
-      ctx.lineWidth = Math.max(2, size * MINIMAP_ROUTE_WIDTH_FRACTION);
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      const first = projector.project(route[0].x, route[0].z);
-      ctx.moveTo(first.x, first.y);
-      for (let index = 1; index < route.length; index += 1) {
-        const point = projector.project(route[index].x, route[index].z);
-        ctx.lineTo(point.x, point.y);
-      }
-      ctx.stroke();
-    }
-
-    for (const pin of pins) {
-      const point = projector.project(pin.x, pin.z);
-      if (pin.kind === "destination") {
-        // The head of a map pin: a filled disc with a white eye, sized to sit
-        // on top of the route line rather than beside it.
-        const radius = Math.max(4, size * 0.042);
-        ctx.fillStyle = pin.color;
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "rgba(255,255,255,0.92)";
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, radius * 0.38, 0, Math.PI * 2);
-        ctx.fill();
-        continue;
-      }
-      ctx.fillStyle = pin.color;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Player marker: a triangle pointing along the heading. Heading θ maps to a
-    // world direction (sin θ, cos θ); on the minimap +x is right and +z is up
-    // (screen -y), so the screen direction is (sin θ, -cos θ).
-    const center = projector.project(playerX, playerZ);
-    const dx = Math.sin(heading);
-    const dy = -Math.cos(heading);
-    const px = -dy;
-    const py = dx;
-    // A soft disc under the arrow, so the car stays findable where the route
-    // line runs beneath it and against a bright junction patch.
-    ctx.fillStyle = "rgba(242, 198, 88, 0.20)";
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, Math.max(8, size * 0.075), 0, Math.PI * 2);
-    ctx.fill();
-    // Sized off the widget rather than in flat pixels, so the arrow keeps its
-    // proportions on the smaller touch map instead of swelling to fill it.
-    const nose = Math.max(5, size * 0.055);
-    const tail = Math.max(3.5, size * 0.038);
-    ctx.fillStyle = "#f2c658";
-    ctx.beginPath();
-    ctx.moveTo(center.x + dx * nose, center.y + dy * nose);
-    ctx.lineTo(center.x - dx * tail + px * tail, center.y - dy * tail + py * tail);
-    ctx.lineTo(center.x - dx * tail - px * tail, center.y - dy * tail - py * tail);
-    ctx.closePath();
-    ctx.fill();
+    drawMapOverlay(ctx, {
+      projector,
+      // Fractions of the widget's own edge, so the arrow keeps its proportions
+      // on the smaller touch map instead of swelling to fill it.
+      symbols: minimapSymbolSizes(size),
+      playerX,
+      playerZ,
+      heading,
+      route,
+      previewRoute,
+      pins,
+    });
   }, [
     playerX,
     playerZ,

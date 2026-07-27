@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Minimap } from "../app/game/MinimapCanvas";
 import {
   MINIMAP_ROUTE_WIDTH_FRACTION,
-  resolveMinimapRoadWidth,
+  minimapRoadFloorPx,
+  resolveMapRoadWidth,
   resolveMinimapScale,
 } from "../app/game/minimap";
 
@@ -116,7 +117,7 @@ describe("minimap drawing", () => {
     // Every authored street is under the floor and takes it — that is the
     // normal case, and the reason the grid is legible at all.
     expect(roadStrokes[0].lineWidth).toBeCloseTo(
-      resolveMinimapRoadWidth(10.4, scale.pixelsPerMetre, SIZE),
+      resolveMapRoadWidth(10.4, scale.pixelsPerMetre, minimapRoadFloorPx(SIZE)),
       6,
     );
     expect(roadStrokes[0].lineWidth).toBeCloseTo(SIZE * 0.058, 6);
@@ -143,7 +144,7 @@ describe("minimap drawing", () => {
     expect(route[0].lineWidth).toBeCloseTo(SIZE * MINIMAP_ROUTE_WIDTH_FRACTION, 6);
     const scale = resolveMinimapScale(WORLD, SIZE);
     expect(route[0].lineWidth).toBeLessThan(
-      resolveMinimapRoadWidth(10.4, scale.pixelsPerMetre, SIZE),
+      resolveMapRoadWidth(10.4, scale.pixelsPerMetre, minimapRoadFloorPx(SIZE)),
     );
     // One moveTo and a lineTo per remaining point — not a path per segment.
     const lineTos = ops.filter((entry) => entry.op === "lineTo");

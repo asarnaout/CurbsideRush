@@ -43,7 +43,7 @@ export const MINIMAP_FOLLOW_SPAN_M = 500;
  * measurement into a symbol, which is what every map renderer does.
  *
  * The floor is a parameter because the two surfaces want it expressed
- * differently. See `resolveMinimapRoadWidth` and `MAP_ROAD_WIDTH_FLOOR_PX`.
+ * differently. See `minimapRoadFloorPx` and `MAP_ROAD_WIDTH_FLOOR_PX`.
  */
 export function resolveMapRoadWidth(
   widthM: number,
@@ -54,23 +54,17 @@ export function resolveMapRoadWidth(
 }
 
 /**
- * The corner widget's road width: the floor is a share of the widget itself.
+ * The corner widget's floor: a share of the widget itself, so the roads keep
+ * the same share of the map at either size rather than swallowing the smaller
+ * one.
  *
- * At the shipped follow span that floor governs *every* road — beating it takes
- * a carriageway over ~31 m and the widest authored anywhere is 25 m — so the
- * width term is not load-bearing here, and streets of different widths
- * deliberately draw alike.
+ * At the shipped follow span this floor governs *every* road — beating it takes
+ * a carriageway over ~31 m and the widest authored anywhere is 25 m — so on the
+ * widget the true-width term is not load-bearing, and streets of different
+ * widths deliberately draw alike.
  */
-export function resolveMinimapRoadWidth(
-  widthM: number,
-  pixelsPerMetre: number,
-  size: number,
-): number {
-  return resolveMapRoadWidth(
-    widthM,
-    pixelsPerMetre,
-    size * ROAD_WIDTH_FLOOR_FRACTION,
-  );
+export function minimapRoadFloorPx(size: number): number {
+  return size * ROAD_WIDTH_FLOOR_FRACTION;
 }
 
 /**
@@ -222,7 +216,7 @@ export function createMinimapProjector(
 /** A road ready to stroke: widget-space points, plus the width it draws at. */
 export interface MinimapRoadLine {
   readonly points: MinimapPoint[];
-  /** Carriageway width in metres — `resolveMinimapRoadWidth` turns it into a stroke. */
+  /** Carriageway width in metres — `resolveMapRoadWidth` turns it into a stroke. */
   readonly widthM: number;
 }
 
