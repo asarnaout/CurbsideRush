@@ -44,6 +44,11 @@ import {
 } from "./londonContent";
 import { buildLaneTrueGeometry, CONNECTOR_BLEND_RUN_M } from "./laneConnectors";
 import { speedingFineMultiplier } from "./speeding";
+import { FULL_CONDITION_PCT } from "./damage";
+import {
+  ROADSIDE_CALLOUT_FEE_BY_COUNTRY,
+  ROADSIDE_PRICE_FACTOR,
+} from "./career";
 
 export const CONTENT_REVIEWED_ON = "2026-07-10";
 
@@ -1885,6 +1890,22 @@ export const MAP_PACKS: readonly MapPack[] = [
         // Columbus. On a map 2.9 km end to end, one pump stop meant a run the
         // length of the city to reach it whichever way you were driving.
         { id: "nyc-gas-uptown", kind: "gas_station", anchor: { laneId: "nyc-96-e-col", distanceAlongM: 70 }, footprint: point(14, 9), label: "West 96th Fuel", setbackM: 18.7 },
+        // The two repair shops sit away from the pumps — fuel is at W 72nd/West
+        // End and W 96th/Columbus — but **zoning outranks spread**. A workshop
+        // wants commercial frontage, and `nycZoneFor` puts detached houses up
+        // the whole Riverside–West End column north of centre, so the obvious
+        // far corner from the uptown station is exactly where one must not go:
+        // sited there, the shop stood between two clapboard homes with porches.
+        // Broadway is the Upper West Side's commercial spine and its blocks
+        // above W 79th are zoned retail, which is where the uptown one lives
+        // now. The downtown one is on Columbus in the midrise belt — avenue
+        // frontage, mixed use, and the right neighbours for a garage.
+        //
+        // The shop is a much smaller building than the station, so its lot is
+        // 4.8 m to the station's 11.64 — hence a set-back in the twelves rather
+        // than the eighteens for the same kerb gap on the same street.
+        { id: "nyc-repair-downtown", kind: "repair_shop", anchor: { laneId: "nyc-65-e-col", distanceAlongM: 36 }, footprint: point(10, 8), label: "West 65th Auto", setbackM: 11.8 },
+        { id: "nyc-repair-uptown", kind: "repair_shop", anchor: { laneId: "nyc-bway-n-91", distanceAlongM: 60 }, footprint: point(10, 8), label: "Broadway Auto", setbackM: 12.1 },
       ],
       gigVenues: [
         { id: "nyc-v1", kind: "restaurant", anchor: { laneId: "nyc-amst-n-1-75", distanceAlongM: 22 }, footprint: point(28, 20), name: "Amsterdam Diner", setbackM: 18 },
@@ -2309,6 +2330,11 @@ export const MAP_PACKS: readonly MapPack[] = [
         // the west edge clears the junction apron at jp-a rather than kissing
         // its corner.
         { id: "jp-gas", kind: "gas_station", anchor: { laneId: "jp-south-east-1", distanceAlongM: 22 }, footprint: point(12, 8), label: "Setagaya Fuel", setbackM: 17.3 },
+        // Fuel is in the south-west, so the workshop takes the north row. Like
+        // the station it is anchored on the near lane and thrown across the
+        // road by the driver's-right set-back, which on a left-hand-traffic map
+        // is the far side — that is what puts it against the north block.
+        { id: "jp-repair", kind: "repair_shop", anchor: { laneId: "jp-north-west-2", distanceAlongM: 36 }, footprint: point(10, 8), label: "Setagaya Auto", setbackM: 10.5 },
       ],
       gigVenues: [
         // West side of the narrow street (driver's right of the southbound
@@ -2498,7 +2524,7 @@ export const PASSENGER_FARE_BY_COUNTRY: Readonly<
  * Speeding is the exception: it is the one violation the game measures by
  * degree, so it is priced by degree too. See `speedingFine`, which scales from
  * this figure rather than replacing it — every consumer that reasons about what
- * a fine is worth (`REPAIR_FEE_BY_COUNTRY`, the starting-wallet check) still
+ * a fine is worth (`REPAIR_RATE_BY_COUNTRY`, the starting-wallet check) still
  * has one number to reason about.
  */
 export const FINE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
@@ -2556,16 +2582,68 @@ export function speedingFine(
 }
 
 /**
- * Tow-and-repair bill when the car's condition hits zero. Roughly three
- * fines' worth: wrecking the car should sting harder than a citation but
- * never bankrupt a session — the wallet remains the only durable consequence.
+ * What a full rebuild — all 100 condition points — costs at a repair shop.
+ *
+ * These were the flat tow-and-repair fee before repair shops existed, kept to
+ * the digit so the balance they were tuned to still holds: roughly three fines'
+ * worth, enough that wrecking the car stings harder than a citation without
+ * bankrupting a session. What changed is what they mean. The figure is now the
+ * *most* a repair can cost rather than what every repair costs, and the tow
+ * charges a premium on top of it (see `repairPrice`).
  */
-export const REPAIR_FEE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
+export const REPAIR_RATE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 25,
   uk: 25,
   fr: 30,
   jp: 2500,
 };
+
+/** Where the work is done — the two ways a damaged car gets fixed. */
+export type RepairService = "shop" | "tow";
+
+/**
+ * What fixing the car costs, by how broken it is and who does it.
+ *
+ * The shop bills only the damage actually carried, so the bill scales with the
+ * driving; the tow bills all 100 points whatever the car went in with, at the
+ * roadside premium and with the roadside call-out on top. That is the same
+ * shape — and deliberately the same two constants — as filling up at a pump
+ * versus being rescued with a jerrycan: the service that comes to you costs
+ * more than the one you drive to.
+ *
+ * The gap that produces is the point of the feature. A full rebuild is $25 at a
+ * shop and $48 towed, so limping in at 40% damage costs $10 against the $48 of
+ * pushing on and writing the car off. Damage stops being a binary "am I about
+ * to get towed" and becomes a running cost worth managing.
+ *
+ * The curve is linear on purpose. Anything steeper makes an early detour
+ * disproportionately cheap and muddles the one thing the player has to
+ * internalise: half the damage, half the price.
+ *
+ * Rounded to a whole unit of the currency, or to the nearest hundred where the
+ * currency has no minor units — the same readability rule `speedingFine` uses,
+ * and for the same reason: a yen bill reading ¥1,347 would be the only price in
+ * the game that does.
+ */
+export function repairPrice(
+  country: CountryProfile,
+  damagePct: number,
+  service: RepairService,
+): number {
+  const billed =
+    service === "tow"
+      ? FULL_CONDITION_PCT
+      : Math.min(FULL_CONDITION_PCT, Math.max(0, damagePct));
+  const premium = service === "tow" ? ROADSIDE_PRICE_FACTOR : 1;
+  const callout =
+    service === "tow" ? ROADSIDE_CALLOUT_FEE_BY_COUNTRY[country.id] : 0;
+  const raw =
+    ((REPAIR_RATE_BY_COUNTRY[country.id] * billed) / FULL_CONDITION_PCT) *
+      premium +
+    callout;
+  const step = country.currency.minorUnits === 0 ? 100 : 1;
+  return Math.round(raw / step) * step;
+}
 
 /** Starting cash a new (or migrated) player holds in each country's currency. */
 export const STARTING_WALLET_BY_COUNTRY: Readonly<Record<CountryId, number>> = {

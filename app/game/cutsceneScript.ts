@@ -15,6 +15,7 @@ import type { SteeringSide, TrafficSide, WorldPoint } from "./types";
 
 export type CutsceneKind =
   | "refuel"
+  | "repair"
   | "board"
   | "exit"
   | "food_pickup"
@@ -64,6 +65,15 @@ export interface CutsceneStep {
   /** The refuel fill window: the app pours the tank over this step. */
   readonly fuelWindow?: boolean;
   /**
+   * The repair window: the app bills for the work and restores the car's
+   * condition as this step begins.
+   *
+   * Its own flag rather than a reuse of `fuelWindow` gated on the scene's kind,
+   * because `fuelWindow` names the fuel gauge's fill animation as well as the
+   * charge, and the app drives that off it.
+   */
+  readonly repairWindow?: boolean;
+  /**
    * Vehicle poses interpolated across this step, eased so a car settles into
    * its stop rather than snapping to it. The session replays them onto the
    * simulation's player and onto the scene's own patrol rig.
@@ -80,6 +90,13 @@ export const MAX_LEG_SECONDS = 6;
 export const PUMP_BASE_SECONDS = 3;
 export const PUMP_EXTRA_SECONDS = 2;
 export const STORE_DWELL_SECONDS = 1.5;
+/**
+ * How long the driver spends at the car while it is put right. Flat
+ * rather than scaled by the damage: this is the beat that tells the player the
+ * work happened, and a repair that dragged on for a bad night would just be a
+ * longer wait for the same outcome.
+ */
+export const REPAIR_WORK_SECONDS = 5;
 
 /**
  * The vehicle envelope every walk path respects: the body rectangle to stay
@@ -523,6 +540,117 @@ export function buildRoadsideRefuelScript(
       seconds: legSeconds(back, WALK_SPEED_MPS),
       sound: "pump_stop",
     },
+    { action: "hide", seconds: 0.45, sound: "door_close", carDip: true },
+  ];
+}
+
+/**
+ * Where the driver stands to work, in the car's own frame: at the front wing on
+ * the driver's side, not out in front of the bumper.
+ *
+ * Dead ahead was the first attempt and it is wrong for the place this scene
+ * plays. A car noses into a 6.4 m bay until its collider meets the back wall,
+ * which leaves the point a bumper's length further forward standing outside the
+ * building — the driver walked through the back wall to get to it. Beside the
+ * wing, the actor is never further from the bay's centre than the car itself
+ * is, whichever way it parked.
+ */
+const WORK_FORWARD_FRACTION = 0.6;
+const WORK_LATERAL_CLEARANCE_M = 0.35;
+
+/**
+ * Where the repair scene is watched from, relative to the car, given which way
+ * the bay's open side faces.
+ *
+ * Every other scene is framed by the generic stager: a perpendicular offset
+ * from the car–actor line, pulled back nine metres and lifted four. In a 4.6 m
+ * bay walled on three sides that puts the camera through a wall and into the
+ * roof, which is exactly what it did.
+ *
+ * The direction is the shop's, not the car's. Framing off the car's own axis
+ * works right until someone reverses in, and then "behind the car" is the back
+ * wall. The height sits below the lintel so the sightline goes through the
+ * opening rather than down onto it.
+ */
+export const REPAIR_CAMERA_BACK_M = 9;
+export const REPAIR_CAMERA_HEIGHT_M = 2.6;
+/**
+ * How far off the bay's axis the shot sits, toward the side the driver works
+ * on. Square-on, the car is between the camera and the mechanic and hides the
+ * only thing the scene exists to show.
+ *
+ * Bounded by the mouth, not by taste. Step outside the opening's own width and
+ * you are looking along the outside of the flank wall at the building next
+ * door — which is what 2.4 m did, on a bay whose opening only reaches 2.3 m
+ * either side of the axis.
+ */
+export const REPAIR_CAMERA_ASIDE_M = 1.4;
+
+export function repairCameraPosition(
+  midX: number,
+  midZ: number,
+  mouth: WorldPoint,
+  /** Which way is "the driver's side" — any vector pointing that way. */
+  towardWorkside: WorldPoint = { x: 0, z: 0 },
+): { readonly x: number; readonly y: number; readonly z: number } {
+  // Perpendicular to the mouth, turned to whichever flank the work is on.
+  const perpX = -mouth.z;
+  const perpZ = mouth.x;
+  const side =
+    perpX * towardWorkside.x + perpZ * towardWorkside.z < 0 ? -1 : 1;
+  return {
+    x: midX + mouth.x * REPAIR_CAMERA_BACK_M + perpX * side * REPAIR_CAMERA_ASIDE_M,
+    y: REPAIR_CAMERA_HEIGHT_M,
+    z: midZ + mouth.z * REPAIR_CAMERA_BACK_M + perpZ * side * REPAIR_CAMERA_ASIDE_M,
+  };
+}
+
+/**
+ * Driver gets out, works at the front wing for a few seconds, gets back in.
+ *
+ * Takes only the car's pose — no bay, no map data — so like the roadside rescue
+ * and the traffic stop it can never fail to stage. That matters more here than
+ * it looks: `startCutscene` answers an unstageable scene by completing it
+ * immediately, and this scene's `repairWindow` step is where the bill is
+ * charged and the car is put right. A shop that could not be staged would be a
+ * button that took the player's money and fixed nothing, or fixed the car for
+ * free — depending which way it failed.
+ *
+ * Being car-relative also keeps the walk inside whatever space the car itself
+ * fits in, which is what stops the driver strolling through a bay wall on the
+ * way round — see `WORK_FORWARD_FRACTION` for why that is the wing rather than
+ * the bumper.
+ */
+export function buildRepairScript(
+  car: CutsceneCarPose,
+  steeringSide: SteeringSide,
+  body: CutsceneBodyProfile = DEFAULT_CUTSCENE_BODY,
+): CutsceneStep[] {
+  const door = driverDoorPoint(car, steeringSide, body);
+  const driverSign = steeringSide === "left" ? -1 : 1;
+  const wing = toWorld(
+    car,
+    body.bodyHalfLongM * WORK_FORWARD_FRACTION,
+    driverSign * (body.doorLateralM + WORK_LATERAL_CLEARANCE_M),
+  );
+  const out = routeAroundCar(car, door, wing, body);
+  const back = routeAroundCar(car, wing, door, body);
+  return [
+    {
+      action: "show",
+      path: [door],
+      seconds: 0.35,
+      face: headingTo(car, door),
+      sound: "door",
+    },
+    { action: "walk", path: out, seconds: legSeconds(out, WALK_SPEED_MPS) },
+    {
+      action: "idle",
+      seconds: REPAIR_WORK_SECONDS,
+      face: headingTo(wing, car),
+      repairWindow: true,
+    },
+    { action: "walk", path: back, seconds: legSeconds(back, WALK_SPEED_MPS) },
     { action: "hide", seconds: 0.45, sound: "door_close", carDip: true },
   ];
 }

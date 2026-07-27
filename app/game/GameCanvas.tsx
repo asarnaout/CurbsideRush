@@ -62,9 +62,20 @@ import {
   DEFAULT_SERVICE_SETBACK_M,
   FUEL_PUMP_REACH_M,
   gasStationPumpPositions,
+  gasStationsOf,
+  distanceToRepairBay,
+  repairShopBayPosition,
+  repairShopsOf,
   resolveServicePointLot,
+  type ServicePointKind,
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
+import {
+  REPAIR_BAY_REACH_M,
+  REPAIR_SHOP_LOT_HALF_M,
+  REPAIR_SHOP_PARTS,
+  type RepairShopSurface,
+} from "./repairShopLayout";
 import { DRIVE_LAYER } from "./driveLayers";
 import {
   MIRROR_RADIUS_M,
@@ -145,6 +156,8 @@ import {
   buildExitScript,
   buildPulloverScript,
   buildRefuelScript,
+  buildRepairScript,
+  repairCameraPosition,
   buildRoadsideRefuelScript,
   cutsceneBodyProfile,
   DEFAULT_CUTSCENE_BODY,
@@ -1192,6 +1205,140 @@ export function collectRoadJunctionFills(
   return fills;
 }
 
+/** A circle the street wall must not build inside. */
+export interface BuildingKeepOut {
+  readonly x: number;
+  readonly z: number;
+  readonly radius: number;
+}
+
+/**
+ * Whether a street-wall building would stand in someone's lot.
+ *
+ * Takes the building's own half-extents rather than just its centre. The
+ * instanced glb wall can get away with a centre test because its buildings are
+ * slotted along a block edge at roughly the keep-out's own scale; the
+ * procedural facade grid divides a whole block into as few as nine boxes, and
+ * on NYC one of those is 48 m across — far enough that its centre clears a
+ * forecourt by 30 m while its wall still covers it.
+ */
+export function isInsideKeepOut(
+  keepOuts: readonly BuildingKeepOut[],
+  x: number,
+  z: number,
+  halfWidth = 0,
+  halfDepth = 0,
+): boolean {
+  return keepOuts.some((ex) => {
+    // Nearest point of the building's footprint to the keep-out's centre.
+    const nearestX = Math.max(x - halfWidth, Math.min(ex.x, x + halfWidth));
+    const nearestZ = Math.max(z - halfDepth, Math.min(ex.z, z + halfDepth));
+    return Math.hypot(nearestX - ex.x, nearestZ - ex.z) < ex.radius;
+  });
+}
+
+/**
+ * Where the procedural facade grid puts a building on a block.
+ *
+ * The cell centres are fully determined by the block; only each box's size and
+ * height are jittered by the scene's PRNG. Split out so the placement can be
+ * checked against the service and venue keep-outs without standing up a scene —
+ * a facade box inside a lot is invisible in code and unmistakable in play.
+ */
+export function facadeGridCells(block: {
+  readonly center: { readonly x: number; readonly z: number };
+  readonly size: { readonly x: number; readonly z: number };
+  readonly density: number;
+}): readonly {
+  readonly index: number;
+  readonly x: number;
+  readonly z: number;
+  readonly cellWidth: number;
+  readonly cellDepth: number;
+}[] {
+  const count = Math.max(1, Math.round(3 + block.density * 7));
+  const columns = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / columns);
+  const cellWidth = block.size.x / columns;
+  const cellDepth = block.size.z / rows;
+  const cells = [];
+  for (let index = 0; index < count; index += 1) {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    cells.push({
+      index,
+      x: block.center.x - block.size.x / 2 + cellWidth * (column + 0.5),
+      z: block.center.z - block.size.z / 2 + cellDepth * (row + 0.5),
+      cellWidth,
+      cellDepth,
+    });
+  }
+  return cells;
+}
+
+/**
+ * Every circle the street wall must leave clear: each service point's lot and
+ * each gig venue's plot.
+ *
+ * Exported so the placement can be checked against it without a scene. The two
+ * street-wall paths consume this at very different times — the instanced glb
+ * wall after preload, the procedural facade grid inline — which is exactly how
+ * a terrace ended up standing through London's and Tokyo's repair shops: the
+ * keep-outs used to be collected as each building was placed, which was in time
+ * for one path and far too late for the other.
+ */
+export function buildingKeepOuts(
+  mapPack: GameCanvasMapPack,
+): readonly BuildingKeepOut[] {
+  const keepOuts: BuildingKeepOut[] = [];
+  for (const service of mapPack.geometry.servicePoints ?? []) {
+    const lot = resolveServicePointLot(mapPack.laneGraph.lanes, service);
+    if (!lot) continue;
+    keepOuts.push({
+      x: lot.x,
+      z: lot.z,
+      // The station's glb lot is bigger than its authored footprint, so it
+      // wants a generous clearance. The repair shop is a much smaller building,
+      // and clearing 16 m round it would punch a hole in the street wall far
+      // larger than the shop standing in it.
+      radius:
+        service.kind === "repair_shop"
+          ? REPAIR_SHOP_LOT_HALF_M + 3
+          : Math.max(service.footprint.x, service.footprint.z) + 16,
+    });
+  }
+  for (const venue of mapPack.geometry.gigVenues ?? []) {
+    const placement = resolveVenuePlacement(mapPack, venue);
+    if (!placement) continue;
+    keepOuts.push({
+      x: placement.x,
+      z: placement.z,
+      radius: Math.max(venue.footprint.x, venue.footprint.z) / 2 + 12,
+    });
+  }
+  return keepOuts;
+}
+
+/**
+ * The instanced street-wall buildings that survive the keep-outs.
+ *
+ * The renderer's filter and the test's assertion have to be the same decision,
+ * or the test only proves that a predicate exists — which is exactly what the
+ * first version of it proved, while the renderer went on passing centres and
+ * meshing a brownstone into Broadway Auto.
+ */
+export function keptStreetWallBuildings<
+  T extends { readonly modelId: string; readonly x: number; readonly z: number },
+>(placements: readonly T[], keepOuts: readonly BuildingKeepOut[]): readonly T[] {
+  return placements.filter((b) => {
+    // Measured against the building's own footprint, not just its centre. A
+    // brownstone is ~11 m across, so one centred a comfortable 8 m outside a
+    // repair shop's keep-out still has its flank 2.5 m inside the shop.
+    const half = (buildingPlacementConfig(b.modelId)?.footprintM ?? 0) / 2;
+    return !isInsideKeepOut(keepOuts, b.x, b.z, half, half);
+  });
+}
+
 /** Keeps a checkpoint target wholly inside its authored lane. */
 export function resolveCheckpointTargetWidth(laneWidthM: number): number {
   return Math.max(0, Math.min(2.4, laneWidthM - 0.6));
@@ -1532,9 +1679,12 @@ export interface GameCanvasMapPack {
       readonly size: GameCanvasPoint;
       readonly color: string;
     }[];
+    // `kind` is the real union rather than `string` (as the neighbouring
+    // structural types use), because placement resolves the lot's yaw from it —
+    // a widened kind has to reach every consumer, not slip through as a string.
     servicePoints?: readonly {
       readonly id: string;
-      readonly kind: string;
+      readonly kind: ServicePointKind;
       readonly anchor: {
         readonly laneId: string;
         readonly distanceAlongM: number;
@@ -1884,6 +2034,7 @@ interface ActiveCutscene {
   /** The player's own bike rider was hidden for a dismount (restored on cancel). */
   playerRiderHidden: boolean;
   pumpEmitted: boolean;
+  repairEmitted: boolean;
   /**
    * The traffic stop's second car: a scene-owned patrol rig rather than the
    * ambient patrol that clocked you, because that one is still being driven by
@@ -1925,6 +2076,36 @@ const ACTOR_WALK_Y = 0.08;
 /** The gas station's forecourt slab tops out at ~0.095 (measured world AABB
  * of the placed model), so the refuel scene walks a touch higher still. */
 const FORECOURT_WALK_Y = 0.1;
+
+/**
+ * The ground plane each scene's actor walks on, where it is not the road.
+ *
+ * A lookup rather than the ternary this started as, so a scene added without a
+ * thought about what it stands on gets the road rather than the gas station's
+ * slab. The repair shop's bay floor tops out at 0.07 — flush with the road, so
+ * it wants no entry at all.
+ */
+const CUTSCENE_GROUND_Y: Partial<Record<CutsceneKind, number>> = {
+  refuel: FORECOURT_WALK_Y,
+};
+
+/**
+ * What the scene reports on its way out, per kind.
+ *
+ * A full `Record` rather than the ternary chain this was, so adding a kind is a
+ * compile error here instead of silently inheriting whichever branch happened
+ * to be last ("Order delivered.", as it went).
+ */
+const CUTSCENE_DONE_MESSAGE: Record<CutsceneKind, string> = {
+  refuel: "Tank filled; back behind the wheel.",
+  roadside_refuel: "Tank filled; back behind the wheel.",
+  repair: "Repaired; back on the road.",
+  board: "Rider aboard.",
+  exit: "Rider dropped off.",
+  pullover: "Ticket written; you're free to go.",
+  food_pickup: "Order collected.",
+  food_dropoff: "Order delivered.",
+};
 
 /** How far inside the pavement a street address's "front door" sits. */
 const STREET_DOOR_INSET_M = 3.2;
@@ -5213,6 +5394,14 @@ class BabylonGameSession {
         script = buildRoadsideRefuelScript(car, this.options.steeringSide, body);
         break;
       }
+      case "repair": {
+        // Likewise needs no map data — the work happens at the car's own front
+        // wing, so this branch always yields a script. Deliberate: the bill
+        // is charged on the scene's repair step, so a shop visit that could not
+        // be staged would be a repair that silently cost nothing.
+        script = buildRepairScript(car, this.options.steeringSide, body);
+        break;
+      }
       case "board": {
         const spot = request.venueId
           ? this.gigVenueCurbside.get(request.venueId)
@@ -5337,6 +5526,24 @@ class BabylonGameSession {
     const radius = pullover
       ? Math.max(14, span * 1.25)
       : Math.max(9, span * 0.85);
+    const cameraY = 4.2 + span * 0.25;
+
+    // The repair scene is the one that plays inside a building, so it does not
+    // take the generic framing — see `repairCameraPosition`.
+    const framing =
+      request.kind === "repair"
+        ? this.repairBayFramingAt(car.x, car.z)
+        : null;
+    // Measured from the BAY's centre, not from the scene's own midpoint. The
+    // midpoint is already pulled toward the actor, so offsetting from it
+    // compounds and walks the camera out past the flank — where it films the
+    // outside of the wall. The shot is a property of the shop.
+    const repairShot = framing
+      ? repairCameraPosition(framing.bay.x, framing.bay.z, framing.mouth, {
+          x: focus.x - car.x,
+          z: focus.z - car.z,
+        })
+      : null;
 
     const riderWasHidden = request.kind === "board" && this.riderNode !== null;
     if (riderWasHidden) this.riderNode?.setEnabled(false);
@@ -5362,16 +5569,21 @@ class BabylonGameSession {
       segmentTotal: 0,
       actorNode,
       actorVisual,
-      cameraPosition: new Vector3(
-        midX + perpX * radius,
-        4.2 + span * 0.25,
-        midZ + perpZ * radius,
-      ),
-      cameraTarget: new Vector3(midX, 1.0, midZ),
-      groundY: request.kind === "refuel" ? FORECOURT_WALK_Y : ACTOR_WALK_Y,
+      cameraPosition: repairShot
+        ? new Vector3(repairShot.x, repairShot.y, repairShot.z)
+        : new Vector3(midX + perpX * radius, cameraY, midZ + perpZ * radius),
+      // Both ends of the repair shot come off the shop: aiming at the scene's
+      // own midpoint instead leaves the bay off to one side, because the
+      // midpoint drifts with wherever the car stopped and whichever flank the
+      // driver is working on.
+      cameraTarget: framing
+        ? new Vector3(framing.bay.x, 1.0, framing.bay.z)
+        : new Vector3(midX, 1.0, midZ),
+      groundY: CUTSCENE_GROUND_Y[request.kind] ?? ACTOR_WALK_Y,
       riderWasHidden,
       playerRiderHidden,
       pumpEmitted: false,
+      repairEmitted: false,
       patrolNode: patrolRig?.node ?? null,
       patrolVisual: patrolRig?.visual ?? null,
       citeEmitted: false,
@@ -5456,6 +5668,16 @@ class BabylonGameSession {
       this.emit("cutscene", "Filling the tank.", "info", {
         evidence: {
           phase: "pump",
+          nonce: cutscene.nonce,
+          durationMs: Math.round(step.seconds * 1000),
+        },
+      });
+    }
+    if (step.repairWindow && !cutscene.repairEmitted) {
+      cutscene.repairEmitted = true;
+      this.emit("cutscene", "Panels straightened, lights replaced.", "info", {
+        evidence: {
+          phase: "repair",
           nonce: cutscene.nonce,
           durationMs: Math.round(step.seconds * 1000),
         },
@@ -5663,21 +5885,48 @@ class BabylonGameSession {
   }
 
   private emitCutsceneDone(nonce: number, kind: CutsceneKind) {
-    const message =
-      kind === "refuel" || kind === "roadside_refuel"
-        ? "Tank filled; back behind the wheel."
-        : kind === "board"
-          ? "Rider aboard."
-          : kind === "exit"
-            ? "Rider dropped off."
-            : kind === "pullover"
-              ? "Ticket written; you're free to go."
-              : kind === "food_pickup"
-                ? "Order collected."
-                : "Order delivered.";
-    this.emit("cutscene", message, "info", {
+    this.emit("cutscene", CUTSCENE_DONE_MESSAGE[kind], "info", {
       evidence: { phase: "done", nonce, kind },
     });
+  }
+
+  /**
+   * Which way the open side of the repair bay the car is standing in faces —
+   * a unit vector, or null if the car is not in one.
+   *
+   * The shop is set back along the lane's driver-right normal and turned to
+   * face back the way it came, so its mouth points along exactly the opposite
+   * of that normal. That is a fact about the building, which is what makes it
+   * the right thing to frame the scene against: how the driver got in — nose
+   * first, reversed, or slewed across the bay — tells you nothing about where
+   * the wall is.
+   */
+  private repairBayFramingAt(
+    x: number,
+    z: number,
+  ): {
+    readonly bay: { readonly x: number; readonly z: number };
+    readonly mouth: { readonly x: number; readonly z: number };
+  } | null {
+    const mapPack = this.options.mapPack;
+    if (!mapPack) return null;
+    for (const service of repairShopsOf(mapPack.geometry.servicePoints)) {
+      const reach = distanceToRepairBay(mapPack.laneGraph.lanes, service, x, z);
+      // Slack over the prompt's own reach: the scene stages a frame or two
+      // after the button, and a car rolling to a stop may have drifted.
+      if (reach > REPAIR_BAY_REACH_M + 2) continue;
+      const bay = repairShopBayPosition(mapPack.laneGraph.lanes, service);
+      const pose = resolveSimulationLaneAnchor(
+        mapPack.laneGraph.lanes,
+        service.anchor,
+      );
+      if (!bay || !pose) continue;
+      return {
+        bay,
+        mouth: { x: -Math.cos(pose.heading), z: Math.sin(pose.heading) },
+      };
+    }
+    return null;
   }
 
   /** The pump the refuel scene plays at: nearest to the car, within the same
@@ -5690,7 +5939,7 @@ class BabylonGameSession {
     if (!mapPack) return null;
     let best: { x: number; z: number } | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
-    for (const service of mapPack.geometry.servicePoints ?? []) {
+    for (const service of gasStationsOf(mapPack.geometry.servicePoints)) {
       for (const pump of gasStationPumpPositions(
         mapPack.laneGraph.lanes,
         service,
@@ -6849,6 +7098,170 @@ class BabylonGameSession {
     this.deferredProps.push({ kind, x, z, heading, fallback, label });
   }
 
+  /**
+   * The circles the street wall must not build inside: every service point's
+   * lot and every gig venue's plot.
+   *
+   * Collected up front rather than as each is placed, because the procedural
+   * facade grid runs inline while the instanced glb wall is deferred until
+   * after preload — so a keep-out added during placement arrives in time for
+   * one path and far too late for the other. That asymmetry stood a terrace
+   * straight through London's and Tokyo's repair shops, and it was only ever
+   * latent for the gas stations because every one of them happens to sit on
+   * ground no block covers.
+   */
+  private collectBuildingExclusions(mapPack: GameCanvasMapPack) {
+    this.buildingExclusions.push(...buildingKeepOuts(mapPack));
+  }
+
+  /**
+   * Builds a repair shop out of `REPAIR_SHOP_PARTS`.
+   *
+   * The one service building with no glb behind it (see `repairShopLayout.ts`
+   * for why), so it is assembled here from the same constants the collider
+   * builder reads — which is what makes the wall you can see and the wall that
+   * stops you the same wall.
+   *
+   * The holder is rotated by the lane **heading**, not by the lot's yaw: the
+   * parts are authored in the frame `propFootprints.ts` documents, which already
+   * has the service yaw offset baked in. Rotating by the full yaw would turn the
+   * building a further quarter-turn out of its own colliders.
+   */
+  private buildRepairShop(
+    id: string,
+    lot: { x: number; z: number },
+    heading: number,
+    label: string,
+  ) {
+    const scene = this.scene;
+    const holder = new TransformNode(`repair-shop-${id}`, scene);
+    holder.position.set(lot.x, 0, lot.z);
+    holder.rotation.y = heading;
+
+    // A workshop reads as a workshop mostly by being lit inside while the street
+    // is not, so the bay surfaces carry their own emissive rather than relying on
+    // a lamp that the night city's fog would swallow anyway.
+    const materials: Record<RepairShopSurface, StandardMaterial> = {
+      shell: makeMaterial(scene, `${id}-shell`, new Color3(0.34, 0.36, 0.4)),
+      trim: makeMaterial(
+        scene,
+        `${id}-trim`,
+        new Color3(0.82, 0.36, 0.16),
+        new Color3(0.24, 0.1, 0.03),
+      ),
+      floor: makeMaterial(
+        scene,
+        `${id}-floor`,
+        new Color3(0.27, 0.28, 0.3),
+        new Color3(0.16, 0.14, 0.1),
+      ),
+      apron: makeMaterial(scene, `${id}-apron`, new Color3(0.3, 0.31, 0.33)),
+      door: makeMaterial(scene, `${id}-door`, new Color3(0.24, 0.26, 0.29)),
+      glass: makeMaterial(
+        scene,
+        `${id}-glass`,
+        new Color3(0.5, 0.6, 0.66),
+        new Color3(0.3, 0.34, 0.28),
+      ),
+      shutter: makeMaterial(scene, `${id}-shutter`, new Color3(0.55, 0.57, 0.6)),
+    };
+
+    for (const part of REPAIR_SHOP_PARTS) {
+      createBox(
+        scene,
+        `${id}-${part.id}`,
+        {
+          width: part.maxX - part.minX,
+          height: part.maxY - part.minY,
+          depth: part.maxZ - part.minZ,
+        },
+        new Vector3(
+          (part.minX + part.maxX) / 2,
+          (part.minY + part.maxY) / 2,
+          (part.minZ + part.maxZ) / 2,
+        ),
+        materials[part.surface],
+        holder,
+      );
+    }
+
+    this.addRepairShopSign(holder, id, label);
+  }
+
+  /**
+   * Letters the shop's name across its fascia.
+   *
+   * Deliberately not `addRoofSign`'s geometric board search: that hunts for the
+   * largest thin elevated plate, which on a bare shell can just as easily latch
+   * onto the roof and render a name plane the size of a wall. Here the fascia is
+   * a known part, so the sign is placed off the same box that draws it.
+   */
+  private addRepairShopSign(
+    holder: TransformNode,
+    id: string,
+    label: string,
+  ): void {
+    const fascia = REPAIR_SHOP_PARTS.find((part) => part.id === "fascia");
+    if (!fascia) return;
+    // Inset so the lettering sits on the band rather than running into the
+    // corners of the building.
+    const width = (fascia.maxZ - fascia.minZ) * 0.86;
+    const height = (fascia.maxY - fascia.minY) * 0.62;
+
+    const textureHeight =
+      Math.max(64, Math.round((1024 * height) / width / 2)) * 2;
+    const texture = new DynamicTexture(
+      `${id}-fascia-texture`,
+      { width: 1024, height: textureHeight },
+      this.scene,
+      true,
+    );
+    texture.hasAlpha = true;
+    const context = texture.getContext();
+    const text = label.toUpperCase();
+    let fontSize = Math.round(textureHeight * 0.72);
+    context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
+    while (fontSize > 40 && context.measureText(text).width > 1024 * 0.92) {
+      fontSize -= 10;
+      context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
+    }
+    // null clear colour: the canvas stays transparent outside the glyphs.
+    texture.drawText(
+      text,
+      null,
+      null,
+      `bold ${fontSize}px Figtree, Arial, sans-serif`,
+      "#f6f1e4",
+      null,
+      true,
+    );
+    texture.update();
+
+    const material = new StandardMaterial(`${id}-fascia-material`, this.scene);
+    material.diffuseTexture = texture;
+    material.useAlphaFromDiffuseTexture = true;
+    // Emissive from the same texture so the name reads on the night maps, the
+    // way every other bit of signage in the city does.
+    material.emissiveTexture = texture;
+    material.specularColor = Color3.Black();
+
+    const plane = MeshBuilder.CreatePlane(
+      `${id}-fascia-sign`,
+      { width, height },
+      this.scene,
+    );
+    plane.parent = holder;
+    plane.position.set(
+      fascia.minX - 0.03,
+      (fascia.minY + fascia.maxY) / 2,
+      (fascia.minZ + fascia.maxZ) / 2,
+    );
+    // A Babylon plane faces -z natively; a quarter turn about Y points it down
+    // -x, which is the side the road is on in this frame.
+    plane.rotation.y = Math.PI / 2;
+    plane.material = material;
+  }
+
   /** Once the prop glbs preload, replace each procedural venue/station box with
    * its imported model, disposing the fallback. Kinds whose glb never loaded stay
    * procedural. Mirrors upgradeRoadUsersToModels for the environment props. */
@@ -7060,18 +7473,14 @@ class BabylonGameSession {
   private buildInstancedBuildings() {
     if (this.visualPalette?.night) this.applyBuildingNightGlow();
     for (const { block, setId, buildFallback } of this.pendingBuildingBlocks) {
-      const placements = slotBlockBuildings(
+      const slotted = slotBlockBuildings(
         block.center,
         block.size,
         setId,
         hashStringToSeed(`${block.id}-buildings`),
         this.buildingKeepFraction,
-      ).filter(
-        (b) =>
-          !this.buildingExclusions.some(
-            (ex) => Math.hypot(b.x - ex.x, b.z - ex.z) < ex.radius,
-          ),
       );
+      const placements = keptStreetWallBuildings(slotted, this.buildingExclusions);
       let placed = 0;
       for (const b of placements) {
         const master =
@@ -8519,33 +8928,49 @@ class BabylonGameSession {
     };
     // The procedural windowed-facade-box grid: the classic filler, and the
     // fallback for any block whose building-set glbs never load.
+    // Every keep-out has to be known before a single building is dressed.
+    // The instanced street wall gets away with collecting these as it goes,
+    // because it is deferred until after preload; the procedural facade grid
+    // below runs inline, so a keep-out pushed later in this method would arrive
+    // after the boxes it was meant to exclude were already standing.
+    this.collectBuildingExclusions(mapPack);
+
     const placeFacadeGrid = (
       block: GameCanvasMapPack["geometry"]["blocks"][number],
       material: StandardMaterial,
     ) => {
-      const count = Math.max(1, Math.round(3 + block.density * 7));
-      for (let index = 0; index < count; index += 1) {
-        const columns = Math.ceil(Math.sqrt(count));
-        const row = Math.floor(index / columns);
-        const column = index % columns;
-        const cellWidth = block.size.x / columns;
-        const rows = Math.ceil(count / columns);
-        const cellDepth = block.size.z / rows;
-        const width = Math.max(5, cellWidth * (0.58 + random() * 0.24));
-        const depth = Math.max(5, cellDepth * (0.58 + random() * 0.24));
-        const height = block.heightRange[0] + random() * (block.heightRange[1] - block.heightRange[0]);
-        const x = block.center.x - block.size.x / 2 + cellWidth * (column + 0.5);
-        const z = block.center.z - block.size.z / 2 + cellDepth * (row + 0.5);
+      for (const cell of facadeGridCells(block)) {
+        const width = Math.max(5, cell.cellWidth * (0.58 + random() * 0.24));
+        const depth = Math.max(5, cell.cellDepth * (0.58 + random() * 0.24));
+        const height =
+          block.heightRange[0] +
+          random() * (block.heightRange[1] - block.heightRange[0]);
+        // Same keep-outs the instanced street wall respects. Without this a
+        // terrace box stands inside the gas station or the repair shop it was
+        // supposed to make room for — and since the collider builder carves the
+        // block rect regardless, the car drives straight through the visible
+        // building rather than being stopped by it.
+        if (
+          isInsideKeepOut(
+            this.buildingExclusions,
+            cell.x,
+            cell.z,
+            width / 2,
+            depth / 2,
+          )
+        ) {
+          continue;
+        }
         this.registerShadowCaster(
           createFacadeBox(
             scene,
-            `building-${block.id}-${index}`,
+            `building-${block.id}-${cell.index}`,
             { width, height, depth },
-            new Vector3(x, height / 2, z),
+            new Vector3(cell.x, height / 2, cell.z),
             material,
           ),
-          x,
-          z,
+          cell.x,
+          cell.z,
         );
       }
     };
@@ -8608,13 +9033,15 @@ class BabylonGameSession {
       if (!lot) continue;
       const px = lot.x;
       const pz = lot.z;
-      // Keep the dense street wall off the forecourt (the glb lot is bigger than
-      // the fallback footprint, so a generous clearance leaves an open lot).
-      this.buildingExclusions.push({
-        x: px,
-        z: pz,
-        radius: Math.max(service.footprint.x, service.footprint.z) + 16,
-      });
+      // The street-wall keep-out for this lot is already in place — see
+      // `collectBuildingExclusions`, which has to run before anything is built.
+      if (service.kind === "repair_shop") {
+        // No glb to wait on, so this is built outright rather than going through
+        // placeProp — a deferred prop with no model would be retried after every
+        // preload forever, and never upgrade.
+        this.buildRepairShop(service.id, lot, pose.heading, service.label);
+        continue;
+      }
       this.placeProp(service.kind, px, pz, pose.heading, service.id, (parent) => {
         const trim = makeMaterial(
           scene,
@@ -8678,12 +9105,8 @@ class BabylonGameSession {
       };
       const px = placement.x;
       const pz = placement.z;
-      // Keep scenery buildings off the gig venue's own lot.
-      this.buildingExclusions.push({
-        x: px,
-        z: pz,
-        radius: Math.max(venue.footprint.x, venue.footprint.z) / 2 + 12,
-      });
+      // The keep-out that holds scenery off this venue's lot is already in
+      // place — see `collectBuildingExclusions`.
       // A rider waits curbside (nearer the lane than the building) facing the road.
       this.gigVenueCurbside.set(venue.id, {
         x: pose.x + Math.cos(pose.heading) * 4.5,
@@ -10739,6 +11162,13 @@ class BabylonGameSession {
                 Math.round(this.activeCutscene.actorNode.position.z * 100) /
                 100,
               actorVisible: this.activeCutscene.actorNode.isEnabled(),
+              // Where the scene is watched from. A staged shot that ends up
+              // inside a wall looks like a rendering bug and is really a
+              // placement one, and there is no way to tell from a screenshot
+              // which wall you are inside of.
+              cameraX: Math.round(this.activeCutscene.cameraPosition.x * 100) / 100,
+              cameraY: Math.round(this.activeCutscene.cameraPosition.y * 100) / 100,
+              cameraZ: Math.round(this.activeCutscene.cameraPosition.z * 100) / 100,
               // The traffic stop's second car, so QA can assert it actually
               // pulls in behind rather than parking on top of the player.
               patrolX: this.activeCutscene.patrolNode

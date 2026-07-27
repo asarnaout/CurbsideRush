@@ -25,10 +25,21 @@ import {
   getMapPack,
   GIG_FARE_BY_COUNTRY,
   PASSENGER_FARE_BY_COUNTRY,
+  formatMoney,
+  repairPrice,
 } from "../app/game/content";
+import {
+  FULL_CONDITION_PCT,
+  damageForCollision,
+} from "../app/game/damage";
 import { careerCityIndex, careerFare, careerGigSeedBase } from "../app/game/career";
 import { resolveGigAddresses, resolveGigVenues } from "../app/game/gigPools";
-import { gasStationPumpPositions } from "../app/game/servicePoints";
+import {
+  gasStationPumpPositions,
+  gasStationsOf,
+  repairShopBayPosition,
+  repairShopsOf,
+} from "../app/game/servicePoints";
 import {
   generateGigFromPools,
   pickGigKindAvoidingStreak,
@@ -318,6 +329,38 @@ vi.mock("next/dynamic", () => ({
             }
           >
             cite
+          </button>
+          <button
+            type="button"
+            data-testid="mock-scene-repair"
+            onClick={() =>
+              props.onEvent?.({
+                type: "cutscene",
+                message: "repair",
+                timestamp: 2,
+                evidence: {
+                  nonce: props.cutscene?.nonce ?? -1,
+                  phase: "repair",
+                  durationMs: 5_000,
+                },
+              })
+            }
+          >
+            repair
+          </button>
+          <button
+            type="button"
+            data-testid="mock-collision"
+            onClick={() =>
+              props.onEvent?.({
+                type: "collision",
+                message: "bang",
+                timestamp: 2,
+                evidence: { obstacle: "building", impactSpeedMps: 12 },
+              })
+            }
+          >
+            collision
           </button>
           <button
             type="button"
@@ -1161,7 +1204,7 @@ describe("career mode flow", () => {
     const nycMap = getMapPack(
       getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
     );
-    const gasStation = (nycMap.geometry.servicePoints ?? [])[0];
+    const gasStation = gasStationsOf(nycMap.geometry.servicePoints)[0];
     const pump = gasStationPumpPositions(nycMap.laneGraph.lanes, gasStation)[0];
     mockStop.x = pump.x;
     mockStop.z = pump.z;
@@ -1187,7 +1230,7 @@ describe("career mode flow", () => {
     const nycMap = getMapPack(
       getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
     );
-    const gasStation = (nycMap.geometry.servicePoints ?? [])[0];
+    const gasStation = gasStationsOf(nycMap.geometry.servicePoints)[0];
     const pump = gasStationPumpPositions(nycMap.laneGraph.lanes, gasStation)[0];
     mockStop.x = pump.x;
     mockStop.z = pump.z;
@@ -1199,6 +1242,92 @@ describe("career mode flow", () => {
 
     fireEvent.keyDown(window, { code: "Enter" });
     expect(scene).toHaveAttribute("data-cutscene-kind", "none");
+  });
+
+  /** Parks the car in the bay of New York's first repair shop. */
+  const parkInTheBay = () => {
+    const nycMap = getMapPack(
+      getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
+    );
+    const shop = repairShopsOf(nycMap.geometry.servicePoints)[0];
+    const bay = repairShopBayPosition(nycMap.laneGraph.lanes, shop)!;
+    mockStop.x = bay.x;
+    mockStop.z = bay.z;
+    fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+  };
+
+  it("offers nothing to an undamaged car sitting in the bay", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    const scene = await screen.findByLabelText("Mock driving scene");
+
+    parkInTheBay();
+    const button = await screen.findByTestId("repair-button");
+    expect(button).toHaveTextContent(/nothing to fix/i);
+    expect(button).not.toHaveTextContent("ENTER");
+
+    fireEvent.keyDown(window, { code: "Enter" });
+    expect(scene).toHaveAttribute("data-cutscene-kind", "none");
+  });
+
+  it("repairs a damaged car for what the damage costs, not a flat fee", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    const scene = await screen.findByLabelText("Mock driving scene");
+
+    // Two 12 m/s shunts into a wall: 32 condition points apiece by
+    // damageForCollision, so 64 points of damage and nowhere near a write-off.
+    const damage = damageForCollision({
+      obstacle: "building",
+      impactSpeedMps: 12,
+    });
+    fireEvent.click(screen.getByTestId("mock-collision"));
+    fireEvent.click(screen.getByTestId("mock-collision"));
+    const expected = repairPrice(
+      getCountryProfile("us"),
+      damage * 2,
+      "shop",
+    );
+    // The bill has to be proportional to be worth anything — a flat fee would
+    // read the same here as a full rebuild.
+    expect(expected).toBeLessThan(
+      repairPrice(getCountryProfile("us"), FULL_CONDITION_PCT, "shop"),
+    );
+
+    const cashBefore = Number(
+      screen.getByTestId("day-cash").textContent!.replace(/[^0-9.-]/g, ""),
+    );
+    parkInTheBay();
+    const button = await screen.findByTestId("repair-button");
+    expect(button).toHaveTextContent(formatMoney(expected, getCountryProfile("us")));
+    expect(button).toHaveTextContent("ENTER");
+
+    fireEvent.keyDown(window, { code: "Enter" });
+    expect(scene).toHaveAttribute("data-cutscene-kind", "repair");
+
+    // Nothing moves until the scene says the bonnet is up.
+    expect(
+      Number(screen.getByTestId("day-cash").textContent!.replace(/[^0-9.-]/g, "")),
+    ).toBeCloseTo(cashBefore, 2);
+
+    fireEvent.click(screen.getByTestId("mock-scene-repair"));
+    expect(
+      Number(screen.getByTestId("day-cash").textContent!.replace(/[^0-9.-]/g, "")),
+    ).toBeCloseTo(cashBefore - expected, 2);
+
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    expect(scene).toHaveAttribute("data-cutscene-kind", "none");
+    // Mended: the prompt has nothing left to offer.
+    parkInTheBay();
+    expect(await screen.findByTestId("repair-button")).toHaveTextContent(
+      /nothing to fix/i,
+    );
   });
 });
 
