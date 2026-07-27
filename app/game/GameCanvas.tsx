@@ -77,6 +77,7 @@ import {
   type RepairShopSurface,
 } from "./repairShopLayout";
 import { DRIVE_LAYER } from "./driveLayers";
+import { INPUT_GUIDANCE, type InputFamily } from "./inputGuidance";
 import {
   MIRROR_RADIUS_M,
   mirrorCandidatesAreStale,
@@ -316,7 +317,6 @@ import { PED_TURN_PAUSE_S, stepStroll } from "./pedestrianStroll";
 export type TrafficSide = "left" | "right";
 export type SteeringSide = "left" | "right";
 export type CameraMode = "first" | "third";
-type InputFamily = "keyboard" | "gamepad" | "touch";
 export type DriveGear = "D" | "R";
 export type TurnIndicator = "left" | "right" | "off";
 export type SpeedUnit = "mph" | "km/h";
@@ -13799,27 +13799,6 @@ const actionButtonStyle: CSSProperties = {
   letterSpacing: ".03em",
   touchAction: "none",
   userSelect: "none",
-};
-
-const INPUT_GUIDANCE: Record<
-  InputFamily,
-  { readonly label: string; readonly details: string }
-> = {
-  keyboard: {
-    label: "Keyboard",
-    details:
-      "W or ↑ drives. S or ↓ brakes, and keeps going into reverse once you have stopped. Space is the brake on its own, and A/D or ←/→ steer. Q/E signal, C changes camera, H sounds the horn, and P or Escape pauses.",
-  },
-  gamepad: {
-    label: "Controller",
-    details:
-      "Use the left stick to steer and the right trigger to drive. The left trigger brakes, and keeps going into reverse once you have stopped. A sounds the horn, B changes camera, X/Y signal, and Start pauses.",
-  },
-  touch: {
-    label: "Touch",
-    details:
-      "Drag your left thumb anywhere on the lower-left of the screen to steer — wherever you touch down becomes centre, so there is no pad to find. Drive and Brake are on the right, and holding Brake once you have stopped reverses. Camera, horn and pause are in the top-right corner. Swipe the road view to look around.",
-  },
 };
 
 export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
