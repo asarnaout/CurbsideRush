@@ -35,27 +35,55 @@ export interface MinimapProjector {
 export const MINIMAP_FOLLOW_SPAN_M = 500;
 
 /**
- * How wide a road draws on the widget, in pixels.
+ * How wide a road draws, in pixels: true scale, but never thinner than `floorPx`.
  *
- * True scale is unreadable: a 10.4 m street at the follow scale is under 2 px
- * on a phone, so the grid reads as a mesh of hairlines rather than streets with
- * blocks between them. Roads therefore get a floor proportional to the widget,
- * which is what every map renderer does — the drawn width stops being a
- * measurement and becomes a symbol.
+ * True scale alone is unreadable at the corner widget's scale — a 10.4 m street
+ * is under 2 px on a phone, so the grid reads as a mesh of hairlines rather than
+ * streets with blocks between them. A floor turns the drawn width from a
+ * measurement into a symbol, which is what every map renderer does.
  *
- * At the shipped span the floor governs *every* road: beating it takes a
- * carriageway over ~31 m, and the widest authored anywhere is 25 m. So the
- * width term is not currently load-bearing, and streets of different widths
- * deliberately draw alike. It earns its keep only if a map zooms closer or
- * authors a genuinely huge road, and it is cheaper to keep than to rediscover.
+ * The floor is a parameter because the two surfaces want it expressed
+ * differently. See `resolveMinimapRoadWidth` and `MAP_ROAD_WIDTH_FLOOR_PX`.
+ */
+export function resolveMapRoadWidth(
+  widthM: number,
+  pixelsPerMetre: number,
+  floorPx: number,
+): number {
+  return Math.max(floorPx, widthM * pixelsPerMetre);
+}
+
+/**
+ * The corner widget's road width: the floor is a share of the widget itself.
+ *
+ * At the shipped follow span that floor governs *every* road — beating it takes
+ * a carriageway over ~31 m and the widest authored anywhere is 25 m — so the
+ * width term is not load-bearing here, and streets of different widths
+ * deliberately draw alike.
  */
 export function resolveMinimapRoadWidth(
   widthM: number,
   pixelsPerMetre: number,
   size: number,
 ): number {
-  return Math.max(size * ROAD_WIDTH_FLOOR_FRACTION, widthM * pixelsPerMetre);
+  return resolveMapRoadWidth(
+    widthM,
+    pixelsPerMetre,
+    size * ROAD_WIDTH_FLOOR_FRACTION,
+  );
 }
+
+/**
+ * The whole-city map's floor, in flat pixels rather than a share of the canvas.
+ *
+ * A share is the wrong model once the canvas is the screen: 5.8% of 900 px is a
+ * 52 px street, which fuses the entire grid into one slab. Fitted, the scale is
+ * high enough that true width carries most roads on its own (a 10.4 m street is
+ * ~3 px across a fitted NYC), so this only catches the narrowest lanes and
+ * mews — the opposite balance to the widget, where the floor governs
+ * everything.
+ */
+export const MAP_ROAD_WIDTH_FLOOR_PX = 1.75;
 
 /**
  * Road width as a share of the widget, and the route line's share of that.
@@ -135,28 +163,60 @@ export function createMinimapFollowProjector(
   };
 }
 
+/** A fit projector, plus the canvas it fits into and the scale it landed on. */
+export interface MinimapFitProjector extends MinimapProjector {
+  readonly width: number;
+  readonly height: number;
+  /** Needed to width roads, which the fitted map draws close to true scale. */
+  readonly pixelsPerMetre: number;
+}
+
+/**
+ * Fits the whole world inside a `width`×`height` canvas (minus `padding` on
+ * each edge), preserving aspect and flipping +z (north) to screen-up.
+ *
+ * Rectangular rather than square because the cities are nothing like square —
+ * 1080x3000 m in New York against 1500x300 m in Milton Keynes — and a whole-city
+ * view boxed into a square spends most of itself on nothing. The caller sizes
+ * the canvas to the world's own aspect and this fills it.
+ */
+export function createMinimapFitProjector(
+  worldSize: MinimapWorldSize,
+  width: number,
+  height: number,
+  padding = 6,
+): MinimapFitProjector {
+  const pixelsPerMetre = Math.min(
+    Math.max(1, width - padding * 2) / Math.max(1, worldSize.x),
+    Math.max(1, height - padding * 2) / Math.max(1, worldSize.z),
+  );
+  const centerX = width / 2;
+  const centerY = height / 2;
+  return {
+    size: Math.max(width, height),
+    width,
+    height,
+    pixelsPerMetre,
+    project(worldX, worldZ) {
+      return {
+        x: centerX + worldX * pixelsPerMetre,
+        y: centerY - worldZ * pixelsPerMetre,
+      };
+    },
+  };
+}
+
 /**
  * Builds a square projector that fits the map's worldSize inside a `size`×`size`
- * canvas (minus `padding` on each edge), preserving aspect and flipping +z
- * (north) to screen-up.
+ * canvas. The square case of `createMinimapFitProjector`, which is what the
+ * corner widget wants — it is square by construction.
  */
 export function createMinimapProjector(
   worldSize: MinimapWorldSize,
   size: number,
   padding = 6,
 ): MinimapProjector {
-  const usable = Math.max(1, size - padding * 2);
-  const scale = Math.min(
-    usable / Math.max(1, worldSize.x),
-    usable / Math.max(1, worldSize.z),
-  );
-  const center = size / 2;
-  return {
-    size,
-    project(worldX, worldZ) {
-      return { x: center + worldX * scale, y: center - worldZ * scale };
-    },
-  };
+  return createMinimapFitProjector(worldSize, size, size, padding);
 }
 
 /** A road ready to stroke: widget-space points, plus the width it draws at. */

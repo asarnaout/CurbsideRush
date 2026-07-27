@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  createMinimapFitProjector,
   createMinimapFollowProjector,
   createMinimapProjector,
   createMinimapSheetProjector,
+  MAP_ROAD_WIDTH_FLOOR_PX,
   MINIMAP_FOLLOW_SPAN_M,
   MINIMAP_ROUTE_WIDTH_FRACTION,
   projectRoadNetwork,
+  resolveMapRoadWidth,
   resolveMinimapRoadWidth,
   resolveMinimapScale,
 } from "../app/game/minimap";
@@ -141,5 +144,96 @@ describe("minimap road width", () => {
       expect(route).toBeLessThan(road);
       expect(route / road).toBeCloseTo(0.55, 2);
     }
+  });
+
+  it("the widget's floor is the flat one with its share worked out", () => {
+    // One implementation, two ways of naming the floor — so the widget cannot
+    // drift from the whole-city map by rounding differently.
+    expect(resolveMinimapRoadWidth(10.4, 0.276, 150)).toBe(
+      resolveMapRoadWidth(10.4, 0.276, 150 * 0.058),
+    );
+  });
+
+  it("a flat floor is what keeps a whole-city map off one grey slab", () => {
+    // Fitted NYC: 3000 m of city down ~860 px of screen. A share-of-the-canvas
+    // floor would be 50 px a street here; the flat floor leaves true width in
+    // charge, which is the opposite balance to the widget.
+    const fitted = 860 / 3000;
+    expect(resolveMapRoadWidth(10.4, fitted, MAP_ROAD_WIDTH_FLOOR_PX)).toBeCloseTo(
+      10.4 * fitted,
+      6,
+    );
+    expect(10.4 * fitted).toBeGreaterThan(MAP_ROAD_WIDTH_FLOOR_PX);
+    // It still catches an alley that would otherwise vanish under a pixel.
+    expect(resolveMapRoadWidth(4, fitted, MAP_ROAD_WIDTH_FLOOR_PX)).toBe(
+      MAP_ROAD_WIDTH_FLOOR_PX,
+    );
+  });
+});
+
+describe("whole-city fit projection", () => {
+  // The cities are nothing like square, and nothing like each other.
+  const NYC = { x: 1080, z: 3000 };
+  const MILTON_KEYNES = { x: 1500, z: 300 };
+
+  it("fills a canvas cut to the world's own aspect", () => {
+    // 1080x3000 into a panel of exactly that shape and no padding: both axes
+    // land on the edges, so none of the canvas is spent on nothing. This is how
+    // the whole-city map asks for it — it sizes its own canvas to the world and
+    // keeps its breathing room in the layout around it.
+    const height = 860;
+    const width = (height * NYC.x) / NYC.z;
+    const fit = createMinimapFitProjector(NYC, width, height, 0);
+    expect(fit.project(0, NYC.z / 2).y).toBeCloseTo(0, 5);
+    expect(fit.project(0, -NYC.z / 2).y).toBeCloseTo(height, 5);
+    expect(fit.project(-NYC.x / 2, 0).x).toBeCloseTo(0, 5);
+    expect(fit.project(NYC.x / 2, 0).x).toBeCloseTo(width, 5);
+  });
+
+  it("padding bites the narrow axis first on an aspect-matched canvas", () => {
+    // Worth knowing before reaching for a padded fit: uniform padding is a
+    // bigger share of the short side, so on a canvas already cut to the world's
+    // aspect it is the *narrow* axis that ends up limiting, and the long one
+    // keeps a sliver of slack. Nothing is clipped either way.
+    const padding = 8;
+    const height = 860;
+    const width = Math.round((height * NYC.x) / NYC.z);
+    const fit = createMinimapFitProjector(NYC, width, height, padding);
+    expect(fit.pixelsPerMetre).toBeCloseTo((width - padding * 2) / NYC.x, 6);
+    expect(fit.project(-NYC.x / 2, 0).x).toBeCloseTo(padding, 5);
+    expect(fit.project(0, NYC.z / 2).y).toBeGreaterThan(padding);
+  });
+
+  it("letterboxes rather than distorts when the canvas is the wrong shape", () => {
+    // Milton Keynes is 5:1 wide. Dropped into a square it keeps its aspect and
+    // leaves the slack above and below — a stretched city is not a map.
+    const fit = createMinimapFitProjector(MILTON_KEYNES, 600, 600, 6);
+    expect(fit.pixelsPerMetre).toBeCloseTo((600 - 12) / 1500, 6);
+    const north = fit.project(0, MILTON_KEYNES.z / 2);
+    expect(north.y).toBeGreaterThan(6);
+    expect(north.y).toBeLessThan(300);
+    // Aspect preserved: a square of world is a square on screen.
+    const acrossM = fit.project(100, 0).x - fit.project(0, 0).x;
+    const downM = fit.project(0, 0).y - fit.project(0, 100).y;
+    expect(acrossM).toBeCloseTo(downM, 6);
+  });
+
+  it("carries the scale it landed on, so roads can draw at true width", () => {
+    const fit = createMinimapFitProjector(NYC, 320, 860, 8);
+    expect(fit.width).toBe(320);
+    expect(fit.height).toBe(860);
+    expect(fit.pixelsPerMetre).toBeCloseTo((860 - 16) / 3000, 6);
+    expect(fit.size).toBe(860);
+  });
+
+  it("is what the square corner projector is built from", () => {
+    // `createMinimapProjector` is the square case, so the widget's geometry is
+    // pinned to the same implementation the whole-city map uses.
+    const square = createMinimapProjector(NYC, 150, 6);
+    const fit = createMinimapFitProjector(NYC, 150, 150, 6);
+    for (const [x, z] of [[0, 0], [400, -900], [-540, 1500]] as const) {
+      expect(square.project(x, z)).toEqual(fit.project(x, z));
+    }
+    expect(square.size).toBe(fit.size);
   });
 });
