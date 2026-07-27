@@ -2359,10 +2359,21 @@ export default function SideSwapApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [view, promptKind, promptAct]);
 
+  const gigTargetVenue = gig ? gigTarget(gig) : null;
   // Every marked place on this map — pumps, bays, diners, grocers, cameras —
   // resolved once per pack by `collectMapPois` and shared with the whole-city
   // map, so the two can never disagree about where the nearest one is.
-  const mapPois = view === "driving" ? collectMapPois(runtimeMap) : EMPTY_MAP_POIS;
+  //
+  // Minus the one you are driving to. Place markers are DOM above the canvas
+  // and the destination pin is drawn *on* it, so a diner's own icon sits right
+  // on top of the pin for that diner — burying the single thing the map exists
+  // to point at. The pin is the better marker of the two, and both saying the
+  // same thing twice was never the intent. Ids line up because a food or shop
+  // marker is keyed on the venue the gig targets.
+  const allMapPois = view === "driving" ? collectMapPois(runtimeMap) : EMPTY_MAP_POIS;
+  const mapPois = gigTargetVenue
+    ? allMapPois.filter((poi) => poi.id !== gigTargetVenue.id)
+    : allMapPois;
   // What the corner widget carries is narrower, and narrower again on a bike:
   // a vehicle with no tank has nothing to do at a pump. Repair shops stay
   // marked whatever the car's condition — a service you can only see once you
@@ -2370,7 +2381,6 @@ export default function SideSwapApp() {
   const minimapPois = mapPoisOfKinds(mapPois, MINIMAP_POI_KINDS).filter(
     (poi) => poi.kind !== "fuel" || tankCapacityL > 0,
   );
-  const gigTargetVenue = gig ? gigTarget(gig) : null;
   // The tip window for the active career gig: previewed before pickup, counted
   // down while carrying. Derived from the same 10 Hz day-clock state that
   // drives the countdown chip, so it re-renders in step.

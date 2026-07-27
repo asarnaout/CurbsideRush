@@ -10,6 +10,7 @@ import {
 } from "./minimap";
 import {
   drawMapOverlay,
+  drawPlayerMarker,
   drawRoadNetwork,
   minimapSymbolSizes,
   type MapDestination,
@@ -104,6 +105,7 @@ export function Minimap({
   anchorStyle,
 }: MinimapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const playerRef = useRef<HTMLCanvasElement>(null);
   const networkRef = useRef<HTMLCanvasElement | null>(null);
   const scale = useMemo(
     () => resolveMinimapScale(worldSize, size),
@@ -176,9 +178,6 @@ export function Minimap({
       // Fractions of the widget's own edge, so the arrow keeps its proportions
       // on the smaller touch map instead of swelling to fill it.
       symbols: minimapSymbolSizes(size),
-      playerX,
-      playerZ,
-      heading,
       route,
       previewRoute,
       destination,
@@ -195,6 +194,20 @@ export function Minimap({
     scale,
     sheet,
   ]);
+
+  // The car, onto its own canvas above the place icons — see `drawPlayerMarker`.
+  useEffect(() => {
+    const ctx = playerRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, size, size);
+    drawPlayerMarker(ctx, {
+      projector,
+      symbols: minimapSymbolSizes(size),
+      playerX,
+      playerZ,
+      heading,
+    });
+  }, [projector, size, playerX, playerZ, heading]);
 
   const radius = Math.round(size * 0.11);
 
@@ -240,6 +253,21 @@ export function Minimap({
         width={size}
         height={size}
         glyphPx={Math.round(Math.min(15, Math.max(10, size * 0.105)))}
+      />
+      {/* Above the icons, so a camera at the junction you are crossing cannot
+          sit on top of the arrow telling you which way you are pointing. */}
+      <canvas
+        ref={playerRef}
+        width={size}
+        height={size}
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "block",
+          width: `${size}px`,
+          height: `${size}px`,
+          pointerEvents: "none",
+        }}
       />
       {/*
         The map is north-up — `projectRoadNetwork` never rotates it — and

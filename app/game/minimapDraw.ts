@@ -137,22 +137,19 @@ function strokePolyline(
 export interface MapOverlayInput {
   readonly projector: MinimapProjector;
   readonly symbols: MapSymbolSizes;
-  readonly playerX: number;
-  readonly playerZ: number;
-  /** Radians, `atan2(dx, dz)` — 0 is +z (north). */
-  readonly heading: number;
   readonly route?: readonly MapDrawPoint[];
   readonly previewRoute?: readonly MapDrawPoint[];
   readonly destination?: MapDestination | null;
 }
 
 /**
- * Draws everything that moves: the detour preview, the GPS line, the pins and
- * the player. Assumes the network has already been laid down underneath.
+ * The lines and the pin: detour preview, GPS route, destination. Assumes the
+ * road network has already been laid down underneath, and expects
+ * `drawPlayerMarker` to go on top of it — with the place icons in between.
  */
 export function drawMapOverlay(
   ctx: CanvasRenderingContext2D,
-  { projector, symbols, playerX, playerZ, heading, route, previewRoute, destination }: MapOverlayInput,
+  { projector, symbols, route, previewRoute, destination }: MapOverlayInput,
 ): void {
   // The detour preview goes down first, so the committed route paints over it
   // wherever the two share streets — the player is being shown the extra, not
@@ -202,9 +199,34 @@ export function drawMapOverlay(
     ctx.fill();
   }
 
-  // Player marker: a triangle pointing along the heading. Heading θ maps to a
-  // world direction (sin θ, cos θ); on the map +x is right and +z is up
-  // (screen -y), so the screen direction is (sin θ, -cos θ).
+}
+
+export interface PlayerMarkerInput {
+  readonly projector: MinimapProjector;
+  readonly symbols: MapSymbolSizes;
+  readonly playerX: number;
+  readonly playerZ: number;
+  /** Radians, `atan2(dx, dz)` — 0 is +z (north). */
+  readonly heading: number;
+}
+
+/**
+ * The car, drawn last of everything and onto its own canvas.
+ *
+ * Separate because the place icons are DOM above the map canvas, so anything
+ * painted with the roads is behind them — and a marker at a junction would then
+ * sit squarely on top of the arrow. On the corner widget the car is always dead
+ * centre, and New York puts an enforcement camera on a third of its junctions,
+ * so the arrow would disappear every time the player crossed one. Which way am
+ * I pointing is the whole job of that widget.
+ */
+export function drawPlayerMarker(
+  ctx: CanvasRenderingContext2D,
+  { projector, symbols, playerX, playerZ, heading }: PlayerMarkerInput,
+): void {
+  // A triangle pointing along the heading. Heading θ maps to a world direction
+  // (sin θ, cos θ); on the map +x is right and +z is up (screen -y), so the
+  // screen direction is (sin θ, -cos θ).
   const center = projector.project(playerX, playerZ);
   const dx = Math.sin(heading);
   const dy = -Math.cos(heading);

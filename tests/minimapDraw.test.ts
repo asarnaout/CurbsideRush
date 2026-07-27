@@ -7,6 +7,7 @@ import {
 } from "../app/game/minimap";
 import {
   drawMapOverlay,
+  drawPlayerMarker,
   drawRoadNetwork,
   minimapSymbolSizes,
   type MapSymbolSizes,
@@ -88,6 +89,14 @@ const projector = () => createMinimapFitProjector(WORLD, 200, 200, 0);
 
 function overlay(overrides: Partial<Parameters<typeof drawMapOverlay>[1]> = {}) {
   drawMapOverlay(recordingContext(), {
+    projector: projector(),
+    symbols: minimapSymbolSizes(150),
+    ...overrides,
+  });
+}
+
+function player(overrides: Partial<Parameters<typeof drawPlayerMarker>[1]> = {}) {
+  drawPlayerMarker(recordingContext(), {
     projector: projector(),
     symbols: minimapSymbolSizes(150),
     playerX: 0,
@@ -197,21 +206,30 @@ describe("the overlay pass", () => {
 
   it("points the player arrow along the heading", () => {
     // Heading +pi/2 is due east: the nose sits right of the car, level with it.
-    overlay({ heading: Math.PI / 2 });
+    player({ heading: Math.PI / 2 });
     const nose = ops.filter((entry) => entry.op === "moveTo").at(-1);
     expect(nose?.args[0] as number).toBeCloseTo(100 + minimapSymbolSizes(150).playerNosePx, 9);
     expect(nose?.args[1] as number).toBeCloseTo(100, 9);
   });
 
-  it("caps everything with the player, so the car is never buried", () => {
+  it("leaves the car out entirely, so the icons above cannot bury it", () => {
+    // The place icons are DOM over this canvas, so anything drawn here is
+    // behind them. The car goes on a canvas of its own, stacked above the
+    // icons — an enforcement camera sits at a third of New York's junctions,
+    // and on the corner widget the car is always dead centre.
     overlay({
       route: [{ x: 0, z: 0 }, { x: 0, z: 200 }],
       destination: { x: 0, z: 200, color: "#e0533f" },
     });
-    const halo = ops.findIndex(
-      (entry) => entry.op === "arc" && entry.fillStyle === "rgba(242, 198, 88, 0.20)",
-    );
-    const pin = ops.findIndex((entry) => entry.op === "arc" && entry.fillStyle === "#e0533f");
-    expect(pin).toBeLessThan(halo);
+    expect(arcsAt("rgba(242, 198, 88, 0.20)")).toHaveLength(0);
+    expect(arcsAt("#e0533f")).toHaveLength(1);
+  });
+
+  it("draws the car and nothing else on its own pass", () => {
+    player();
+    expect(arcsAt("rgba(242, 198, 88, 0.20)")).toHaveLength(1);
+    // One filled triangle: three points, closed.
+    expect(ops.filter((entry) => entry.op === "closePath")).toHaveLength(1);
+    expect(ops.filter((entry) => entry.op === "stroke")).toHaveLength(0);
   });
 });

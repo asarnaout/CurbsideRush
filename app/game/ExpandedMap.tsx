@@ -19,6 +19,7 @@ import {
 } from "./minimap";
 import {
   drawMapOverlay,
+  drawPlayerMarker,
   drawRoadNetwork,
   type MapDestination,
   type MapDrawPoint,
@@ -112,6 +113,7 @@ export function ExpandedMap({
   onClose,
 }: ExpandedMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const playerRef = useRef<HTMLCanvasElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const tight = viewport.height < TIGHT_BELOW_PX;
@@ -163,25 +165,26 @@ export function ExpandedMap({
     drawMapOverlay(ctx, {
       projector,
       symbols: EXPANDED_MAP_SYMBOLS,
-      playerX,
-      playerZ,
-      heading,
       route,
       previewRoute,
       destination,
     });
-  }, [
-    roadSurfaces,
-    projector,
-    box,
-    dpr,
-    playerX,
-    playerZ,
-    heading,
-    route,
-    previewRoute,
-    destination,
-  ]);
+  }, [roadSurfaces, projector, box, dpr, route, previewRoute, destination]);
+
+  // The car, above the place icons — see `drawPlayerMarker`.
+  useEffect(() => {
+    const ctx = playerRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, box.width, box.height);
+    drawPlayerMarker(ctx, {
+      projector,
+      symbols: EXPANDED_MAP_SYMBOLS,
+      playerX,
+      playerZ,
+      heading,
+    });
+  }, [projector, box, dpr, playerX, playerZ, heading]);
 
   /*
    * Escape has to be caught in the capture phase and stopped dead.
@@ -283,6 +286,19 @@ export function ExpandedMap({
             height={box.height}
             glyphPx={glyphPx}
             testId="expanded-map-poi"
+          />
+          <canvas
+            ref={playerRef}
+            width={Math.round(box.width * dpr)}
+            height={Math.round(box.height * dpr)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "block",
+              width: `${box.width}px`,
+              height: `${box.height}px`,
+              pointerEvents: "none",
+            }}
           />
         </div>
 
