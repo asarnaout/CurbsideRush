@@ -1627,6 +1627,21 @@ describe("the whole-city map", () => {
     expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
   });
 
+  it("opens from the HUD control beside the camera and pause ones", async () => {
+    // Issue #216 asks for the icon there, and on a phone it is the only way in.
+    await startDay();
+    const open = screen.getByRole("button", { name: "Open the city map (M)" });
+    expect(open).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(open);
+    expect(screen.getByTestId("expanded-map")).toBeVisible();
+
+    // The same control closes it, and says which state it is in.
+    const close = screen.getByRole("button", { name: "Close the city map (M)" });
+    expect(close).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(close);
+    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+  });
+
   it("does not pause the drive — the car keeps rolling", async () => {
     // The decision the whole component is built around. If this ever flips,
     // the focus and key-swallowing rules in `ExpandedMap` become wrong too.

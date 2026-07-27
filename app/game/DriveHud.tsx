@@ -24,6 +24,7 @@ import { DRIVE_LAYER } from "./driveLayers";
 import {
   CAMERA_ICON,
   FOOD_ICON,
+  MAP_ICON,
   MUSIC_ICON,
   MUSIC_MUTED_ICON,
   PARCEL_ICON,
@@ -986,13 +987,18 @@ export function DriveMoneyCluster({
   /** The `+$x.xx` that floats up on a payout, cleared once it has run. */
   gain: string | null;
   buttons: readonly {
-    readonly id: "music" | "camera" | "pause";
+    readonly id: "music" | "camera" | "map" | "pause";
     readonly label: string;
     readonly pressed?: boolean;
     readonly onPress: () => void;
   }[];
 }) {
-  const icon = { music: MUSIC_ICON, camera: CAMERA_ICON, pause: PAUSE_ICON };
+  const icon = {
+    music: MUSIC_ICON,
+    camera: CAMERA_ICON,
+    map: MAP_ICON,
+    pause: PAUSE_ICON,
+  };
   const m = compact
     ? { balance: 26, wallet: 15, session: 9, label: 7, gain: 13, button: 39, glyph: 16, gap: 7 }
     : { balance: 47, wallet: 28, session: 16, label: 11, gain: 23, button: 46, glyph: 21, gap: 10 };

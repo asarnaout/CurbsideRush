@@ -3122,6 +3122,14 @@ export default function SideSwapApp() {
               label: "Switch camera",
               onPress: () => pressDriveKey("KeyC"),
             },
+            // App state, so it toggles directly. `pressDriveKey` exists only
+            // for the session's own controls, which the app cannot call.
+            {
+              id: "map",
+              label: mapOpen ? "Close the city map (M)" : "Open the city map (M)",
+              pressed: mapOpen,
+              onPress: () => setMapOpen((open) => !open),
+            },
             {
               id: "pause",
               label: "Pause",
