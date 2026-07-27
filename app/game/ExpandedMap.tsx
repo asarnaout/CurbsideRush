@@ -10,6 +10,7 @@ import {
   MAP_POI_FAMILY,
   MAP_POI_LEGEND,
   type MapPoi,
+  type MapPoiKind,
 } from "./mapPoi";
 import { MapPoiLayer } from "./MapPoiLayer";
 import {
@@ -221,7 +222,15 @@ export function ExpandedMap({
     return () => opener?.focus?.();
   }, []);
 
-  const counts = countMapPois(pois);
+  // Which families this city has at all — for fading a row, not for counting.
+  // What a key is for is telling you what a symbol means; how many of them
+  // there are is what the map itself is showing you.
+  const hasAny = useMemo(() => {
+    const present = countMapPois(pois);
+    return Object.fromEntries(
+      MAP_POI_LEGEND.map((kind) => [kind, present[kind] > 0]),
+    ) as Readonly<Record<MapPoiKind, boolean>>;
+  }, [pois]);
   const glyphPx = Math.round(
     Math.min(16, Math.max(11, Math.min(box.width, box.height) * 0.035)),
   );
@@ -369,7 +378,6 @@ export function ExpandedMap({
           >
             {MAP_POI_LEGEND.map((kind) => {
               const family = MAP_POI_FAMILY[kind];
-              const count = counts[kind];
               return (
                 <li
                   key={kind}
@@ -379,10 +387,11 @@ export function ExpandedMap({
                     display: "flex",
                     alignItems: "center",
                     gap: 9,
-                    // Milton Keynes, Calais and Tokyo have no traffic lights at
-                    // all. The row stays and says so — a key that quietly drops
-                    // a symbol leaves the player wondering what it meant.
-                    opacity: count === 0 ? 0.38 : 1,
+                    // Faded where the city has none of them — Milton Keynes,
+                    // Calais and Tokyo have no traffic lights at all. Not a
+                    // tally, just the difference between "you have not found one
+                    // yet" and "there are none to find".
+                    opacity: hasAny[kind] ? 1 : 0.38,
                   }}
                 >
                   <span
@@ -408,15 +417,6 @@ export function ExpandedMap({
                     }}
                   >
                     {family.label}
-                  </span>
-                  <span
-                    style={{
-                      font: `800 ${tight ? 10 : 11}px/1 ${HUD_SANS}`,
-                      fontVariantNumeric: "tabular-nums",
-                      color: "rgba(244,239,222,.5)",
-                    }}
-                  >
-                    {count === 0 ? "none" : count}
                   </span>
                 </li>
               );

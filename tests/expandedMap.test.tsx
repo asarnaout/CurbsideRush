@@ -187,22 +187,38 @@ describe("the whole-city map", () => {
     expect(marked.map((node) => node.getAttribute("data-poi-kind"))).toContain("food");
   });
 
-  it("keys every family, and says so when a city has none of one", () => {
-    // Milton Keynes, Calais and Tokyo have no traffic lights at all. A key that
-    // quietly drops a symbol leaves the player wondering what it meant.
+  it("keys every family, whether or not this city has any", () => {
+    // A key that quietly drops a symbol leaves the player wondering what it
+    // meant when they meet one.
     renderMap();
     const rows = screen.getAllByTestId("map-legend-row");
     expect(rows).toHaveLength(5);
-    const cameras = rows.find((row) => row.dataset.poiKind === "camera")!;
-    expect(cameras).toHaveTextContent("Cameras");
-    expect(cameras).toHaveTextContent("none");
-    expect(Number(cameras.style.opacity)).toBeLessThan(1);
     const fuel = rows.find((row) => row.dataset.poiKind === "fuel")!;
-    expect(fuel).toHaveTextContent("1");
+    expect(fuel).toHaveTextContent("Fuel");
     expect(fuel.querySelector("svg")).toHaveAttribute(
       "stroke",
       MAP_POI_FAMILY.fuel.color,
     );
+  });
+
+  it("says what each symbol is and never how many there are", () => {
+    // The key explains the icons; the map itself is already showing how many.
+    renderMap();
+    for (const row of screen.getAllByTestId("map-legend-row")) {
+      expect(row.textContent).not.toMatch(/\d/);
+    }
+  });
+
+  it("fades a family the city has none of", () => {
+    // Milton Keynes, Calais and Tokyo have no traffic lights at all, so no
+    // cameras — worth the difference between "not found one yet" and "there
+    // are none to find".
+    renderMap();
+    const rows = screen.getAllByTestId("map-legend-row");
+    const cameras = rows.find((row) => row.dataset.poiKind === "camera")!;
+    const fuel = rows.find((row) => row.dataset.poiKind === "fuel")!;
+    expect(Number(cameras.style.opacity)).toBeLessThan(1);
+    expect(Number(fuel.style.opacity)).toBe(1);
   });
 
   it("names where you are going, and says north-up when you are going nowhere", () => {
