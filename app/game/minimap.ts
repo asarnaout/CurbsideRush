@@ -1,8 +1,9 @@
-// Pure top-down projection for the corner minimap. World coordinates are centred
-// on the origin and span the map's worldSize; these helpers fit that box into a
-// square canvas so the driving view can rasterise the road network once and then
-// overlay the live player pose + pins each frame. No rendering here — just maths,
-// so it is trivially unit-testable.
+// Pure top-down projection for both maps: the square corner widget and the
+// whole-city panel behind M. World coordinates are centred on the origin and
+// span the map's worldSize; these helpers fit that box into a canvas — square
+// for the widget, cut to the world's own aspect for the panel — so the drive
+// can rasterise the road network and overlay the live pose on top of it. No
+// rendering here — just maths, so it is trivially unit-testable.
 
 export interface MinimapPoint {
   readonly x: number;
@@ -21,16 +22,20 @@ export interface MinimapProjector {
 }
 
 /**
- * Metres the widget shows across its own width once a map is too big to fit.
+ * Metres the corner widget shows across its own width once a map is too big to
+ * fit.
  *
- * Every shipped map is now past this, so in practice they all scroll: the
- * largest dimensions run 3000 m (NYC), 1500 m (Milton Keynes), 800 m (London),
- * 680 m (Calais) and 600 m (Tokyo). That is the point of the number — a map
- * drawn whole has to shrink its streets to hairlines, and once the widget
- * carries a route line to the destination there is nothing an overview buys
- * that the route does not already answer.
+ * Every shipped map is past this, so the widget always scrolls: the largest
+ * dimensions run 3000 m (NYC), 1500 m (Milton Keynes), 800 m (London), 680 m
+ * (Calais) and 600 m (Tokyo). That is the point of the number — a 3 km city
+ * squeezed into 150 px is a mesh of hairlines, and at that size the route line
+ * already answers everything an overview would.
  *
- * The fitted path below is still live code for a world smaller than this.
+ * Which is not an argument against ever seeing the whole city, only against
+ * seeing it in the corner. `ExpandedMap` does exactly that, on a canvas big
+ * enough for it — and it must reach `createMinimapFitProjector` directly rather
+ * than through `resolveMinimapScale`, which would answer `follows` here and
+ * rasterise New York into a ~70 MB sheet.
  */
 export const MINIMAP_FOLLOW_SPAN_M = 500;
 

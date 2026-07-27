@@ -173,7 +173,7 @@ export function drawMapOverlay(
     ctx.restore();
   }
 
-  // The GPS line, under the pins so the destination marker caps it. One path
+  // The GPS line, under the destination so the pin caps it. One path
   // per update over a few dozen points — the search that produced them ran
   // once, when the destination changed.
   if (route && route.length > 1) {

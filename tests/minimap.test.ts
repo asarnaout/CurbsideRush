@@ -101,9 +101,9 @@ describe("minimap projection", () => {
   });
 
   it("every shipped city is past the follow span", () => {
-    // The widget scrolls on all of them, so the fitted branch is a fallback
-    // rather than a path any drive takes. If a map ever lands under the span
-    // again this is the reminder that both branches are live.
+    // The corner widget scrolls on all of them. The whole-city map fits every
+    // one of them instead, but it reaches `createMinimapFitProjector` directly
+    // — asking `resolveMinimapScale` at that size buys a ~70 MB sheet.
     for (const [name, worldSize] of [
       ["nyc", { x: 1080, z: 3000 }],
       ["milton keynes", { x: 1500, z: 300 }],

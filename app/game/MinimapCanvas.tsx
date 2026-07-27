@@ -120,8 +120,9 @@ export function Minimap({
         : { ...createMinimapProjector(worldSize, size), width: size, height: size },
     [worldSize, size, scale],
   );
-  // Where pins and the player marker go in the widget: the same sheet when the
-  // map is drawn whole, or a window centred on the car when it scrolls.
+  // Where the route, the destination and the place icons go in the widget: the
+  // same sheet when the map is drawn whole, or a window centred on the car when
+  // it scrolls.
   const projector = useMemo(
     () =>
       scale.follows
@@ -148,7 +149,7 @@ export function Minimap({
     networkRef.current = offscreen;
   }, [roadSurfaces, sheet, scale, size]);
 
-  // Composite the cached network + pins + live player pose each update.
+  // Composite the cached network, the route and the destination each update.
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
