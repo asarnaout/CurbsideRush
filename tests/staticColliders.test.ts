@@ -21,6 +21,7 @@ import {
 } from "../app/game/pavementPaths";
 import {
   gasStationPumpPositions,
+  gasStationsOf,
   resolveServicePointLot,
 } from "../app/game/servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "../app/game/propFootprints";
@@ -119,7 +120,10 @@ describe("static obstacle build", () => {
     }
   });
 
-  it("never turns a gas station lot solid — the car has to reach the pumps", () => {
+  // Kind-agnostic on purpose: neither a forecourt nor a bay floor may be solid,
+  // and both kinds' own furniture is emitted under a prefixed id, never the
+  // service point's own.
+  it("never turns a service lot solid — the car has to drive onto it", () => {
     for (const world of driveWorlds) {
       const mapPack = getMapPack(world.freeDrive.mapId);
       const serviceIds = new Set(
@@ -249,7 +253,9 @@ describe("the drivable world stays open", () => {
   it("keeps every gas station enterable, with a clear stop beside each pump", () => {
     for (const world of driveWorlds) {
       const mapPack = getMapPack(world.freeDrive.mapId);
-      for (const service of mapPack.geometry.servicePoints ?? []) {
+      // Gas only: the aisle point and the pump ring below are station geometry,
+      // and a repair shop run through them would pass vacuously.
+      for (const service of gasStationsOf(mapPack.geometry.servicePoints)) {
         const lot = resolveServicePointLot(mapPack.laneGraph.lanes, service);
         expect(lot, `${service.id} lot`).not.toBeNull();
         if (!lot) continue;

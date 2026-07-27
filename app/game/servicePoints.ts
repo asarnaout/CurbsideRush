@@ -1,14 +1,27 @@
 /**
- * Where a gas station's lot and its fuel pumps actually land in the world.
+ * Where a service point's lot, its fuel pumps and its repair bay actually land
+ * in the world.
  *
- * The renderer places the station model set back from its anchored lane, so a
- * station's furniture is nowhere near the lane anchor itself — with the current
- * set-backs the pumps sit 19m or so from it. Anything that asks "is the car at
- * this station?" therefore has to resolve the same placement the renderer uses,
- * which is why that maths lives here rather than being repeated per caller.
+ * The renderer places a service building set back from its anchored lane, so
+ * its furniture is nowhere near the lane anchor itself — with the current
+ * set-backs a station's pumps sit 19m or so from it. Anything that asks "is the
+ * car at this service?" therefore has to resolve the same placement the
+ * renderer uses, which is why that maths lives here rather than being repeated
+ * per caller.
  */
-import type { WorldPoint } from "./types";
+import type { ServicePointKind, WorldPoint } from "./types";
 import { resolveSimulationLaneAnchor } from "./laneAnchors";
+
+// Re-exported so `GameCanvas` can name the union without importing `./types`,
+// which it otherwise avoids in favour of local structural types. One union,
+// reachable from both rings — a second copy would be free to drift, and this
+// one is a lookup key rather than a label.
+export type { ServicePointKind };
+import {
+  REPAIR_SHOP_BAY_OFFSET_M,
+  REPAIR_SHOP_LOT_HALF_M,
+} from "./repairShopLayout";
+import { GAS_STATION_SLAB_HALF_M } from "./propFootprints";
 
 /**
  * The only lane fields anchor resolution needs. Both the authored `LaneSegment`
@@ -21,8 +34,15 @@ export interface AnchoredLane {
   readonly centerline: readonly WorldPoint[];
 }
 
-/** Likewise the only service-point fields placement needs. */
+/**
+ * Likewise the only service-point fields placement needs.
+ *
+ * `kind` is required rather than defaulted: the lot's yaw comes from the kind's
+ * frame, and a wrong default would rotate a building's colliders away from the
+ * building itself — visible only as a car stopping on open ground.
+ */
 export interface AnchoredServicePoint {
+  readonly kind: ServicePointKind;
   readonly anchor: {
     readonly laneId: string;
     readonly distanceAlongM: number;
@@ -30,12 +50,61 @@ export interface AnchoredServicePoint {
   readonly setbackM?: number;
 }
 
+/** Enough of a service point to tell the two kinds apart. */
+interface KindedServicePoint {
+  readonly kind: ServicePointKind;
+}
+
+/**
+ * The gas stations on a map, and nothing else.
+ *
+ * Named rather than inlined because the pump maths below is unconditional: run
+ * `gasStationPumpPositions` over a repair shop and it will happily invent four
+ * pumps on its forecourt, offering fuel at a garage and staging the refuel
+ * cutscene at a nozzle that is not there. Every gas-specific caller goes
+ * through here.
+ */
+export const gasStationsOf = <T extends KindedServicePoint>(
+  points: readonly T[] | undefined,
+): readonly T[] => (points ?? []).filter((point) => point.kind === "gas_station");
+
+/** The repair shops on a map, and nothing else. See `gasStationsOf`. */
+export const repairShopsOf = <T extends KindedServicePoint>(
+  points: readonly T[] | undefined,
+): readonly T[] => (points ?? []).filter((point) => point.kind === "repair_shop");
+
 /** Fallback when a site does not tune its own set-back. */
 export const DEFAULT_SERVICE_SETBACK_M = 16;
 
-/** Mirrors PROP_MODEL_REGISTRY.gas_station in modelLibrary. */
-const GAS_STATION_MODEL_SCALE = 2.8;
-const GAS_STATION_YAW_OFFSET = Math.PI / 2;
+/**
+ * How each kind's building sits on its lot: the scale its geometry is drawn at
+ * and the yaw that turns its frontage to face the road.
+ *
+ * These are the numbers the *renderer* uses, restated. This module deliberately
+ * does not import `modelLibrary` (which pulls in Babylon), so the gas station's
+ * pair is a hand copy of `PROP_MODEL_REGISTRY.gas_station` — and a copy that
+ * silently disagreed would rotate every collider on the lot while the building
+ * looked fine. `tests/modelLibrary.test.ts` pins the two together.
+ *
+ * The repair shop has no model to disagree with: it is authored at true metres
+ * in `repairShopLayout.ts`, hence scale 1. It takes the same yaw offset so both
+ * kinds share one frame convention — road on the `-x` side.
+ */
+export const SERVICE_MODEL_FRAME: Readonly<
+  Record<ServicePointKind, { readonly scale: number; readonly yawOffset: number }>
+> = Object.freeze({
+  gas_station: { scale: 2.8, yawOffset: Math.PI / 2 },
+  repair_shop: { scale: 1, yawOffset: Math.PI / 2 },
+});
+
+/** Half-extent of each kind's lot — the square carved out of a block rect. */
+export const SERVICE_LOT_HALF_M: Readonly<Record<ServicePointKind, number>> =
+  Object.freeze({
+    gas_station: GAS_STATION_SLAB_HALF_M,
+    repair_shop: REPAIR_SHOP_LOT_HALF_M,
+  });
+
+const GAS_STATION_MODEL_SCALE = SERVICE_MODEL_FRAME.gas_station.scale;
 
 /**
  * The four pump bodies, in the station model's own frame (model units, before
@@ -62,7 +131,7 @@ const GAS_STATION_PUMP_OFFSETS: readonly WorldPoint[] = [
  */
 export const FUEL_PUMP_REACH_M = 5;
 
-/** The pose the station model is placed at: lot centre plus its facing. */
+/** The pose a service building is placed at: lot centre plus its facing. */
 export function resolveServicePointLot(
   lanes: readonly AnchoredLane[],
   service: AnchoredServicePoint,
@@ -74,7 +143,7 @@ export function resolveServicePointLot(
   return {
     x: pose.x + Math.cos(pose.heading) * setback,
     z: pose.z - Math.sin(pose.heading) * setback,
-    yaw: pose.heading + GAS_STATION_YAW_OFFSET,
+    yaw: pose.heading + SERVICE_MODEL_FRAME[service.kind].yawOffset,
   };
 }
 
@@ -106,4 +175,38 @@ export function distanceToNearestPump(
     if (distance < nearest) nearest = distance;
   }
   return nearest;
+}
+
+/**
+ * World position of a repair shop's bay floor — where the car has to stop.
+ *
+ * The repair-shop counterpart of `gasStationPumpPositions`, and simpler for the
+ * same reason the shop is authored: there is one bay, at a known offset in the
+ * shop's own frame, rather than four pump bodies recovered by inverting a
+ * model's placement.
+ */
+export function repairShopBayPosition(
+  lanes: readonly AnchoredLane[],
+  service: AnchoredServicePoint,
+): WorldPoint | null {
+  const lot = resolveServicePointLot(lanes, service);
+  if (!lot) return null;
+  const cos = Math.cos(lot.yaw);
+  const sin = Math.sin(lot.yaw);
+  const { x, z } = REPAIR_SHOP_BAY_OFFSET_M;
+  return {
+    x: lot.x + x * cos + z * sin,
+    z: lot.z - x * sin + z * cos,
+  };
+}
+
+/** Metres from (x, z) to the shop's bay; Infinity if unresolvable. */
+export function distanceToRepairBay(
+  lanes: readonly AnchoredLane[],
+  service: AnchoredServicePoint,
+  x: number,
+  z: number,
+): number {
+  const bay = repairShopBayPosition(lanes, service);
+  return bay ? Math.hypot(x - bay.x, z - bay.z) : Number.POSITIVE_INFINITY;
 }

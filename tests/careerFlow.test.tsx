@@ -28,7 +28,10 @@ import {
 } from "../app/game/content";
 import { careerCityIndex, careerFare, careerGigSeedBase } from "../app/game/career";
 import { resolveGigAddresses, resolveGigVenues } from "../app/game/gigPools";
-import { gasStationPumpPositions } from "../app/game/servicePoints";
+import {
+  gasStationPumpPositions,
+  gasStationsOf,
+} from "../app/game/servicePoints";
 import {
   generateGigFromPools,
   pickGigKindAvoidingStreak,
@@ -1161,7 +1164,7 @@ describe("career mode flow", () => {
     const nycMap = getMapPack(
       getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
     );
-    const gasStation = (nycMap.geometry.servicePoints ?? [])[0];
+    const gasStation = gasStationsOf(nycMap.geometry.servicePoints)[0];
     const pump = gasStationPumpPositions(nycMap.laneGraph.lanes, gasStation)[0];
     mockStop.x = pump.x;
     mockStop.z = pump.z;
@@ -1187,7 +1190,7 @@ describe("career mode flow", () => {
     const nycMap = getMapPack(
       getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
     );
-    const gasStation = (nycMap.geometry.servicePoints ?? [])[0];
+    const gasStation = gasStationsOf(nycMap.geometry.servicePoints)[0];
     const pump = gasStationPumpPositions(nycMap.laneGraph.lanes, gasStation)[0];
     mockStop.x = pump.x;
     mockStop.z = pump.z;

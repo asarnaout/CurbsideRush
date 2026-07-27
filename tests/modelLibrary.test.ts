@@ -6,6 +6,7 @@ import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
 import { NYC_ENV_MODELS } from "../app/game/buildingCatalog";
 import { MAP_PACKS } from "../app/game/content";
+import { SERVICE_MODEL_FRAME, gasStationsOf } from "../app/game/servicePoints";
 
 // Guards the Babylon 9 loader-registration path that modelLibrary.preloadModels
 // depends on. The old `import "@babylonjs/loaders/glTF/2.0"` side effect did NOT
@@ -154,11 +155,33 @@ describe("prop (environment building) model assets", () => {
         expect(PROP_MODEL_REGISTRY[key], `${pack.id}/${venue.id} → ${key}`)
           .toBeDefined();
       }
-      for (const service of pack.geometry.servicePoints ?? []) {
+      // Only imported services resolve here. The repair shop has no glb at all —
+      // it is authored in repairShopLayout.ts and built from primitives — so
+      // demanding a registry entry for it would be demanding a model that by
+      // design does not exist.
+      for (const service of gasStationsOf(pack.geometry.servicePoints)) {
         expect(PROP_MODEL_REGISTRY[service.kind], `${pack.id}/${service.id}`)
           .toBeDefined();
       }
     }
+  });
+
+  /**
+   * `servicePoints.ts` cannot import this registry — it is a leaf the pure
+   * placement maths and the app both depend on, and the registry pulls in
+   * Babylon. So it restates each service kind's scale and yaw in
+   * `SERVICE_MODEL_FRAME`, and a restatement that drifted would rotate and
+   * resize every collider on the lot while the building itself looked correct:
+   * a car stopping dead on open ground, with no wall in sight.
+   */
+  it("keeps the placement frame in step with the model registry", () => {
+    const config = PROP_MODEL_REGISTRY.gas_station;
+    expect(SERVICE_MODEL_FRAME.gas_station.scale).toBe(config.scale);
+    expect(SERVICE_MODEL_FRAME.gas_station.yawOffset).toBe(config.yawOffset);
+    // The authored shop is drawn at true metres, so its frame scale must be 1 —
+    // anything else would silently shrink a bay sized against a real van.
+    expect(SERVICE_MODEL_FRAME.repair_shop.scale).toBe(1);
+    expect(PROP_MODEL_REGISTRY.repair_shop).toBeUndefined();
   });
 
   // Only models that need a name overlay want one, and where it goes is

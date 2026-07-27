@@ -108,6 +108,9 @@ import {
   FUEL_PUMP_REACH_M,
   distanceToNearestPump,
   gasStationPumpPositions,
+  gasStationsOf,
+  repairShopBayPosition,
+  repairShopsOf,
 } from "./game/servicePoints";
 import { Minimap, type MinimapPin } from "./game/MinimapCanvas";
 import {
@@ -2120,7 +2123,7 @@ export default function SideSwapApp() {
   // car stopped on the carriageway while refusing it at the pumps themselves.
   const activeGasStation =
     view === "driving" && hud && hud.speed <= 1
-      ? (runtimeMap.geometry.servicePoints ?? []).find(
+      ? gasStationsOf(runtimeMap.geometry.servicePoints).find(
           (service) =>
             distanceToNearestPump(
               runtimeMap.laneGraph.lanes,
@@ -2185,7 +2188,7 @@ export default function SideSwapApp() {
   // at the pumps a pin out on the road would send the player to a dead spot.
   const gasPins =
     view === "driving" && tankCapacityL > 0
-      ? (runtimeMap.geometry.servicePoints ?? []).flatMap((service) => {
+      ? gasStationsOf(runtimeMap.geometry.servicePoints).flatMap((service) => {
           const pumps = gasStationPumpPositions(
             runtimeMap.laneGraph.lanes,
             service,
@@ -2198,6 +2201,18 @@ export default function SideSwapApp() {
               color: "#5bbf6a",
             },
           ];
+        })
+      : [];
+  // Repair shops are pinned whatever the car's condition: a service you can
+  // only see once you already need it is one you cannot plan a detour around.
+  const repairPins =
+    view === "driving"
+      ? repairShopsOf(runtimeMap.geometry.servicePoints).flatMap((service) => {
+          const bay = repairShopBayPosition(
+            runtimeMap.laneGraph.lanes,
+            service,
+          );
+          return bay ? [{ x: bay.x, z: bay.z, color: HUD_CORAL }] : [];
         })
       : [];
   const gigTargetVenue = gig ? gigTarget(gig) : null;
@@ -2222,6 +2237,7 @@ export default function SideSwapApp() {
   const minimapPins: MinimapPin[] = gigTargetVenue
     ? [
         ...gasPins,
+        ...repairPins,
         {
           x: gigTargetVenue.x,
           z: gigTargetVenue.z,
@@ -2229,7 +2245,7 @@ export default function SideSwapApp() {
           kind: "destination",
         },
       ]
-    : gasPins;
+    : [...gasPins, ...repairPins];
   // Drawn from where the car actually is, so the line leads rather than trails.
   // The route itself is searched in `handleHud`; this only slices it.
   const minimapRoute =

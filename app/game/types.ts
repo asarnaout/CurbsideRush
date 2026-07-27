@@ -402,10 +402,23 @@ export interface ProceduralLandmark {
   readonly color: string;
 }
 
-/** An interactive roadside service the player can pull up to (gas, etc.). */
+/**
+ * What a service point sells. Also the key its building is looked up by —
+ * `PROP_MODEL_REGISTRY` for the imported gas station, `repairShopLayout.ts` for
+ * the authored shop.
+ *
+ * Most machinery that walks `servicePoints` wants both kinds (the block carve
+ * that keeps the lot drivable, the prop-scatter and street-address keep-outs).
+ * The handful that is gas-specific must say so through `gasStationsOf` /
+ * `repairShopsOf` in `servicePoints.ts` — an inline `kind === "gas_station"` is
+ * how the next kind gets missed.
+ */
+export type ServicePointKind = "gas_station" | "repair_shop";
+
+/** An interactive roadside service the player can pull up to (gas, repairs). */
 export interface ServicePoint {
   readonly id: string;
-  readonly kind: "gas_station";
+  readonly kind: ServicePointKind;
   /** Curbside pose on the drivable lane graph the car pulls up to. */
   readonly anchor: LaneAnchor;
   /** Footprint (metres) for the rendered building/pumps. */

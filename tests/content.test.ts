@@ -20,6 +20,7 @@ import type {
   WorldPoint,
 } from "../app/game/types";
 import { resolveCheckpointTargetWidth } from "../app/game/GameCanvas";
+import { gasStationsOf } from "../app/game/servicePoints";
 
 const GEOMETRY_EPSILON = 1e-5;
 const ROAD_ENVELOPE_SAMPLE_INTERVAL_M = 0.25;
@@ -426,10 +427,12 @@ describe("SideSwap content", () => {
       }
     }
     // Every city has to be refuellable; a big one may want more than one pump
-    // stop, so this is a floor per city rather than a fixed total.
+    // stop, so this is a floor per city rather than a fixed total. Counted by
+    // kind: a repair shop is not somewhere you can fill up, so a map carrying
+    // one must not read as having a station.
     for (const pack of MAP_PACKS) {
       expect(
-        (pack.geometry.servicePoints ?? []).length,
+        gasStationsOf(pack.geometry.servicePoints).length,
         `${pack.id} gas stations`,
       ).toBeGreaterThanOrEqual(1);
     }

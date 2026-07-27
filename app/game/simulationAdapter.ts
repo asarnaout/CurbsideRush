@@ -29,12 +29,14 @@ import {
   resolveSimulationLaneAnchor,
   type ResolvedSimulationAnchor,
 } from "./laneAnchors";
-import { resolveServicePointLot } from "./servicePoints";
 import {
-  GAS_STATION_SLAB_HALF_M,
-  GAS_STATION_SOLIDS_M,
-  PROP_MODEL_FOOTPRINTS_M,
-} from "./propFootprints";
+  resolveServicePointLot,
+  SERVICE_LOT_HALF_M,
+  SERVICE_MODEL_FRAME,
+  type ServicePointKind,
+} from "./servicePoints";
+import { GAS_STATION_SOLIDS_M, PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
+import { REPAIR_SHOP_SOLIDS_M } from "./repairShopLayout";
 
 const DEFAULT_LANE_WIDTH_M = 3.5;
 // The car's top speed models a real vehicle, not a governor pinned to the
@@ -875,11 +877,6 @@ function pavementOuterFromPose(
 /** Clearance kept between the pavement's outer edge and a building front. */
 const VENUE_PAVEMENT_GAP_M = 0.4;
 
-/** Mirrors servicePoints' GAS_STATION_YAW_OFFSET: the measured station frame
- * is the holder at heading 0, i.e. rotated by exactly this much less than the
- * lot's yaw. */
-const GAS_STATION_HOLDER_YAW_OFFSET = Math.PI / 2;
-
 export interface VenuePlacement {
   /** Where the building holder stands (what placeProp receives). */
   readonly x: number;
@@ -943,8 +940,8 @@ export function resolveVenuePlacement(
  * - blocks -> their full rect (the street wall / facade grid hugs the edges;
  *   interiors and the 1.6 m building gaps are narrower than the car anyway).
  *   London museum blocks mirror the renderer's two-wing layout instead, and
- *   gas-station lots are carved out of any block rect they overlap so the
- *   forecourt entrance is open ground.
+ *   service-point lots (both kinds) are carved out of any block rect they
+ *   overlap so the forecourt or bay entrance is open ground.
  * - building-like landmarks (station/terminal/shops as drawn boxes, tower as
  *   its cylinder) -> solid; parks keep only their centre feature tree; railway
  *   rails and roundabout-island pads stay drivable.
@@ -953,6 +950,9 @@ export function resolveVenuePlacement(
  *   without a measured model) at the shared resolveVenuePlacement position.
  * - gas stations -> the lot slab stays drivable, but the shop building and
  *   the two pump islands (pumps + kerb + canopy pillars) are solid.
+ * - repair shops -> the bay floor and its apron stay drivable; the flank, the
+ *   back wall and the office block are solid. Leaving the mouth open is what
+ *   makes the bay a bay rather than a sealed box.
  * - world edges -> fences just outside the bounds.
  */
 export function buildStaticObstacles(
@@ -965,14 +965,21 @@ export function buildStaticObstacles(
   // Gas-station lots (the full base slab plus a margin) are carved out of any
   // block rect they overlap: the visual street wall is already excluded from
   // the lot, and leaving the block collider there walled off the forecourt.
-  const stationLots: { lot: { x: number; z: number; yaw: number }; carve: AxisRect }[] = [];
+  // Both kinds carve — a repair shop walled off by its own block rect would be
+  // a garage you cannot drive into — but each carves its own size.
+  const serviceLots: {
+    kind: ServicePointKind;
+    lot: { x: number; z: number; yaw: number };
+    carve: AxisRect;
+  }[] = [];
   for (const service of mapPack.geometry.servicePoints ?? []) {
     const lot = resolveServicePointLot(mapPack.laneGraph.lanes, service);
     if (!lot) continue;
     const spanM =
-      GAS_STATION_SLAB_HALF_M *
+      SERVICE_LOT_HALF_M[service.kind] *
       (Math.abs(Math.cos(lot.yaw)) + Math.abs(Math.sin(lot.yaw)));
-    stationLots.push({
+    serviceLots.push({
+      kind: service.kind,
       lot,
       carve: {
         minX: lot.x - spanM - 1,
@@ -984,7 +991,7 @@ export function buildStaticObstacles(
   }
   const pushBlockRect = (id: string, rect: AxisRect) => {
     let pieces = [rect];
-    for (const { carve } of stationLots) {
+    for (const { carve } of serviceLots) {
       pieces = pieces.flatMap((piece) => subtractRect(piece, carve));
     }
     for (const [index, piece] of pieces.entries()) {
@@ -1023,18 +1030,23 @@ export function buildStaticObstacles(
     });
   }
 
-  // The station's own solid furniture: shop building and the two pump
-  // islands, measured from the glb and placed with the exact transform the
-  // renderer (and gasStationPumpPositions) use.
-  for (const [stationIndex, { lot }] of stationLots.entries()) {
-    const cos = Math.cos(lot.yaw - GAS_STATION_HOLDER_YAW_OFFSET);
-    const sin = Math.sin(lot.yaw - GAS_STATION_HOLDER_YAW_OFFSET);
-    for (const solid of GAS_STATION_SOLIDS_M) {
+  // Each service point's own solid furniture, placed with the exact transform
+  // the renderer uses. A gas station's is its shop and two pump islands,
+  // measured from the glb; a repair shop's is the three walls around its bay,
+  // taken from the same constants that draw them. Both leave the ground the car
+  // drives on (forecourt, bay floor) open — that is what makes them enterable.
+  for (const [serviceIndex, { kind, lot }] of serviceLots.entries()) {
+    const cos = Math.cos(lot.yaw - SERVICE_MODEL_FRAME[kind].yawOffset);
+    const sin = Math.sin(lot.yaw - SERVICE_MODEL_FRAME[kind].yawOffset);
+    const solids =
+      kind === "gas_station" ? GAS_STATION_SOLIDS_M : REPAIR_SHOP_SOLIDS_M;
+    const prefix = kind === "gas_station" ? "station" : "repair";
+    for (const solid of solids) {
       const centerX = (solid.minX + solid.maxX) / 2;
       const centerZ = (solid.minZ + solid.maxZ) / 2;
       obstacles.push({
         kind: "obb",
-        id: `station-${stationIndex}-${solid.id}`,
+        id: `${prefix}-${serviceIndex}-${solid.id}`,
         tag: "landmark",
         x: lot.x + centerX * cos + centerZ * sin,
         z: lot.z - centerX * sin + centerZ * cos,

@@ -62,7 +62,9 @@ import {
   DEFAULT_SERVICE_SETBACK_M,
   FUEL_PUMP_REACH_M,
   gasStationPumpPositions,
+  gasStationsOf,
   resolveServicePointLot,
+  type ServicePointKind,
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import { DRIVE_LAYER } from "./driveLayers";
@@ -1532,9 +1534,12 @@ export interface GameCanvasMapPack {
       readonly size: GameCanvasPoint;
       readonly color: string;
     }[];
+    // `kind` is the real union rather than `string` (as the neighbouring
+    // structural types use), because placement resolves the lot's yaw from it —
+    // a widened kind has to reach every consumer, not slip through as a string.
     servicePoints?: readonly {
       readonly id: string;
-      readonly kind: string;
+      readonly kind: ServicePointKind;
       readonly anchor: {
         readonly laneId: string;
         readonly distanceAlongM: number;
@@ -5690,7 +5695,7 @@ class BabylonGameSession {
     if (!mapPack) return null;
     let best: { x: number; z: number } | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
-    for (const service of mapPack.geometry.servicePoints ?? []) {
+    for (const service of gasStationsOf(mapPack.geometry.servicePoints)) {
       for (const pump of gasStationPumpPositions(
         mapPack.laneGraph.lanes,
         service,
