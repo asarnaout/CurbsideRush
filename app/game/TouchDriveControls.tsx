@@ -89,8 +89,29 @@ const SANS = '"Figtree", system-ui, sans-serif';
 /** 44px is the smallest target Apple's HIG treats as reliably tappable. */
 const UTILITY_PX = 44;
 
-/** Top-right button row: one button plus its gap. */
+/**
+ * One button plus its gap — used as a **height**, and only as a height.
+ *
+ * This is what the minimap and the status panel are placed below, and what the
+ * right-rail budget in `touchDriveControls.test.tsx` adds up. The corner row is
+ * one button tall however many buttons it holds, so this number does not move
+ * when the app gains one.
+ */
 export const TOUCH_TOP_RAIL_PX = UTILITY_PX + 8;
+
+/** The same step, sideways: how far one more corner button reaches inward. */
+export const TOUCH_CORNER_SLOT_PX = UTILITY_PX + 8;
+
+/**
+ * How much of the top-right corner the *app's* buttons own, so the session's
+ * row can start clear of them.
+ *
+ * Two slots: music and the city map. The split from `TOUCH_TOP_RAIL_PX` matters
+ * — that one is a height and this one is a width, and they were the same
+ * constant while the app had exactly one button. Adding a second would
+ * otherwise have pushed the minimap down the screen for no reason.
+ */
+export const TOUCH_CORNER_RAIL_PX = TOUCH_CORNER_SLOT_PX * 2;
 
 /**
  * Minimap edge length on touch. Shared with `SideSwapApp`, which sizes and
@@ -601,14 +622,14 @@ export function TouchDriveControls({
       {/*
         A horizontal row along the top edge, not a column down the right one:
         the right edge below it is spoken for by the minimap and then the
-        pedals. The app's own music button holds the corner, so this starts one
-        button-width in from it.
+        pedals. The app's own buttons — music, and the city map — hold the
+        corner, so this starts clear of them.
       */}
       <div
         data-testid="utility-row"
         style={{
           position: "absolute",
-          right: `calc(${SAFE_RIGHT} + ${TOUCH_TOP_RAIL_PX}px)`,
+          right: `calc(${SAFE_RIGHT} + ${TOUCH_CORNER_RAIL_PX}px)`,
           top: SAFE_TOP,
           display: "flex",
           flexDirection: "row-reverse",

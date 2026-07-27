@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Minimap } from "../app/game/MinimapCanvas";
+import { MAP_POI_FAMILY, type MapPoi } from "../app/game/mapPoi";
 import {
   MINIMAP_ROUTE_WIDTH_FRACTION,
-  resolveMinimapRoadWidth,
+  minimapRoadFloorPx,
+  resolveMapRoadWidth,
   resolveMinimapScale,
 } from "../app/game/minimap";
 
@@ -116,7 +118,7 @@ describe("minimap drawing", () => {
     // Every authored street is under the floor and takes it — that is the
     // normal case, and the reason the grid is legible at all.
     expect(roadStrokes[0].lineWidth).toBeCloseTo(
-      resolveMinimapRoadWidth(10.4, scale.pixelsPerMetre, SIZE),
+      resolveMapRoadWidth(10.4, scale.pixelsPerMetre, minimapRoadFloorPx(SIZE)),
       6,
     );
     expect(roadStrokes[0].lineWidth).toBeCloseTo(SIZE * 0.058, 6);
@@ -143,7 +145,7 @@ describe("minimap drawing", () => {
     expect(route[0].lineWidth).toBeCloseTo(SIZE * MINIMAP_ROUTE_WIDTH_FRACTION, 6);
     const scale = resolveMinimapScale(WORLD, SIZE);
     expect(route[0].lineWidth).toBeLessThan(
-      resolveMinimapRoadWidth(10.4, scale.pixelsPerMetre, SIZE),
+      resolveMapRoadWidth(10.4, scale.pixelsPerMetre, minimapRoadFloorPx(SIZE)),
     );
     // One moveTo and a lineTo per remaining point — not a path per segment.
     const lineTos = ops.filter((entry) => entry.op === "lineTo");
@@ -155,17 +157,8 @@ describe("minimap drawing", () => {
     expect(strokesAt("#f2c658")).toHaveLength(0);
   });
 
-  it("draws the destination as a ringed pin and everything else as a dot", () => {
-    renderMap({
-      pins: [
-        { x: 40, z: 40, color: "#5bbf6a" },
-        { x: -60, z: 90, color: "#e0533f", kind: "destination" },
-      ],
-    });
-    // The gas station: a single small dot.
-    const dot = arcsAt("#5bbf6a");
-    expect(dot).toHaveLength(1);
-    expect(dot[0].args[2]).toBe(3);
+  it("draws the destination as a ringed pin on the canvas", () => {
+    renderMap({ destination: { x: -60, z: 90, color: "#e0533f" } });
     // The destination: a coloured disc with a white eye inside it.
     const disc = arcsAt("#e0533f");
     expect(disc).toHaveLength(1);
@@ -204,5 +197,68 @@ describe("minimap drawing", () => {
       Math.max(8, 104 * 0.075),
       6,
     );
+  });
+});
+
+describe("the places the widget marks", () => {
+  const poi = (over: Partial<MapPoi> = {}): MapPoi => ({
+    id: "p1",
+    kind: "fuel",
+    x: 0,
+    z: 40,
+    label: "Broadway Fuel",
+    ...over,
+  });
+
+  it("marks a place with its own glyph rather than a coloured dot", () => {
+    // The whole of issue #226: green used to mean fuel and you had to know.
+    renderMap({ pois: [poi()] });
+    const marker = screen.getByTestId("map-poi");
+    expect(marker).toHaveAttribute("data-poi-kind", "fuel");
+    expect(marker).toHaveAttribute("title", "Broadway Fuel");
+    const glyph = marker.querySelector("svg");
+    expect(glyph).toHaveAttribute("stroke", MAP_POI_FAMILY.fuel.color);
+    expect(marker.querySelectorAll("path")).toHaveLength(
+      MAP_POI_FAMILY.fuel.icon.length,
+    );
+  });
+
+  it("centres each marker on the thing it marks", () => {
+    // Placed by its corner, a marker hangs down and right of the pump.
+    renderMap({ pois: [poi({ x: 0, z: 0 })] });
+    const marker = screen.getByTestId("map-poi");
+    expect(marker.style.transform).toBe("translate(-50%, -50%)");
+    expect(marker.style.left).toBe(`${SIZE / 2}px`);
+    expect(marker.style.top).toBe(`${SIZE / 2}px`);
+  });
+
+  it("draws a wrench and a camera in their own colours, never the route gold", () => {
+    renderMap({
+      pois: [
+        poi({ id: "r1", kind: "repair", x: 10, z: 10 }),
+        poi({ id: "c1", kind: "camera", x: -10, z: -10 }),
+      ],
+    });
+    const kinds = screen
+      .getAllByTestId("map-poi")
+      .map((node) => node.getAttribute("data-poi-kind"));
+    expect(kinds).toEqual(["repair", "camera"]);
+    for (const node of screen.getAllByTestId("map-poi")) {
+      expect(node.querySelector("svg")).not.toHaveAttribute("stroke", "#f2c658");
+    }
+  });
+
+  it("does not lay out the markers that are off the window", () => {
+    // The widget scrolls a 500 m window over a 3 km city, so most of New York's
+    // thirty-six markers are nowhere near the box at any moment.
+    renderMap({ pois: [poi({ x: 0, z: 40 }), poi({ id: "far", x: 0, z: 1400 })] });
+    const marked = screen.getAllByTestId("map-poi");
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toHaveAttribute("title", "Broadway Fuel");
+  });
+
+  it("marks nothing when the app hands it nothing", () => {
+    renderMap();
+    expect(screen.queryByTestId("map-poi")).toBeNull();
   });
 });

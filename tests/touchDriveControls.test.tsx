@@ -5,6 +5,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   TouchDriveControls,
+  TOUCH_CORNER_RAIL_PX,
+  TOUCH_CORNER_SLOT_PX,
   TOUCH_LEFT_RAIL_PX,
   TOUCH_MINIMAP_PX,
   TOUCH_PEDAL_BLOCK_PX,
@@ -190,6 +192,33 @@ describe("touch driving controls", () => {
     expect(inset + 48 + 8 + 44).toBeLessThan(
       SHORTEST_LANDSCAPE_PX - TOUCH_LEFT_RAIL_PX,
     );
+  });
+
+  // The other half of the same budget, and the reason the two constants split:
+  // the corner row grew a button sideways, which must not push the minimap down.
+  it("fits the top rail across the narrowest landscape phone", () => {
+    const NARROWEST_LANDSCAPE_PX = 640;
+    const inset = 12;
+    // The app holds the corner (music, city map); the session's row starts
+    // clear of it with camera, pause and fullscreen.
+    expect(TOUCH_CORNER_RAIL_PX).toBe(TOUCH_CORNER_SLOT_PX * 2);
+    const sessionRow = 3 * 44 + 2 * 8;
+    const rightEdge = inset + TOUCH_CORNER_RAIL_PX + sessionRow;
+    // The status panel is `min(250px, 37%)` on the left, and the speed readout
+    // is centred between the two — it needs the middle to still exist.
+    const statusPanel = Math.min(250, NARROWEST_LANDSCAPE_PX * 0.37);
+    expect(rightEdge + statusPanel).toBeLessThan(NARROWEST_LANDSCAPE_PX);
+
+    // A width, not a height: the corner row is one button tall however many
+    // buttons it holds, so the vertical budget above is untouched by it.
+    expect(TOUCH_TOP_RAIL_PX).toBe(52);
+    expect(TOUCH_CORNER_RAIL_PX).toBeGreaterThan(TOUCH_TOP_RAIL_PX);
+  });
+
+  it("starts the session's row clear of the buttons the app owns", () => {
+    renderControls();
+    const row = screen.getByTestId("utility-row") as HTMLElement;
+    expect(row.style.right).toContain(`${TOUCH_CORNER_RAIL_PX}px`);
   });
 
   it("offers fullscreen as a toggle, and only where the browser has the API", () => {

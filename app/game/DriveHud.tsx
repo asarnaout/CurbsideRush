@@ -21,6 +21,18 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import { DRIVE_LAYER } from "./driveLayers";
+import { TOUCH_CORNER_SLOT_PX } from "./TouchDriveControls";
+import {
+  CAMERA_ICON,
+  FOOD_ICON,
+  MAP_ICON,
+  MUSIC_ICON,
+  MUSIC_MUTED_ICON,
+  PARCEL_ICON,
+  PAUSE_ICON,
+  RIDER_ICON,
+  WALLET_ICON,
+} from "./hudIcons";
 
 // ---------------------------------------------------------------------------
 // Palette and type. These repeat globals.css's `--hud-*` custom properties as
@@ -90,40 +102,7 @@ export function HudGlyph({
   );
 }
 
-export const FUEL_PUMP_ICON = [
-  "M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18",
-  "M2 22h13",
-  "M13 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3",
-  "M6 8h4",
-];
-export const CAR_ICON = [
-  "M3 13l1.6-4.7A2 2 0 0 1 6.5 7h11a2 2 0 0 1 1.9 1.3L21 13",
-  "M3 13h18v4a1 1 0 0 1-1 1h-1.6",
-  "M5.6 18H4a1 1 0 0 1-1-1v-4",
-  "M7.6 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
-  "M16.4 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
-];
-export const CLOCK_ICON = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18", "M12 7v5l3.5 2"];
-export const PARCEL_ICON = [
-  "m7.5 4.27 9 5.15",
-  "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z",
-  "m3.3 7 8.7 5 8.7-5",
-  "M12 22V12",
-];
-export const RIDER_ICON = ["M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8", "M4 21a8 8 0 0 1 16 0"];
-const WALLET_ICON = [
-  "M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5",
-  "M17 13h.01",
-];
-const MUSIC_ICON = ["M9 18V5l12-2v13", "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6", "M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6"];
-/** The note, struck through — pressed/muted is otherwise silent on this glyph. */
-const MUSIC_MUTED_ICON = [...MUSIC_ICON, "M3 3l18 18"];
 const MUSIC_DIM_COLOR = "rgba(244,239,222,.4)";
-const CAMERA_ICON = [
-  "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3Z",
-  "M12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7",
-];
-const PAUSE_ICON = ["M7 4h2v16H7z", "M15 4h2v16h-2z"];
 
 /** One arrow per manoeuvre kind, matching `GpsManoeuvreKind`. */
 const MANOEUVRE_ICON: Readonly<Record<string, readonly string[]>> = {
@@ -1009,13 +988,18 @@ export function DriveMoneyCluster({
   /** The `+$x.xx` that floats up on a payout, cleared once it has run. */
   gain: string | null;
   buttons: readonly {
-    readonly id: "music" | "camera" | "pause";
+    readonly id: "music" | "camera" | "map" | "pause";
     readonly label: string;
     readonly pressed?: boolean;
     readonly onPress: () => void;
   }[];
 }) {
-  const icon = { music: MUSIC_ICON, camera: CAMERA_ICON, pause: PAUSE_ICON };
+  const icon = {
+    music: MUSIC_ICON,
+    camera: CAMERA_ICON,
+    map: MAP_ICON,
+    pause: PAUSE_ICON,
+  };
   const m = compact
     ? { balance: 26, wallet: 15, session: 9, label: 7, gain: 13, button: 39, glyph: 16, gap: 7 }
     : { balance: 47, wallet: 28, session: 16, label: 11, gain: 23, button: 46, glyph: 21, gap: 10 };
@@ -1282,13 +1266,6 @@ const OFFER_H = 384;
  * offer window — is invisible. The same trick the fuel gauge uses for the pump.
  */
 export const FUSE_SMOOTHING_MS = 200;
-const FOOD_ICON = [
-  "M15 11h.01",
-  "M11 15h.01",
-  "M16 16h.01",
-  "m2 16 20 6-6-20A20 20 0 0 0 2 16",
-  "M5.71 17.11a17.04 17.04 0 0 1 11.4-11.4",
-];
 
 /**
  * The offer card. Interactive, so it takes `DRIVE_LAYER.action` rather than the
@@ -1965,23 +1942,36 @@ export function DriveOfferBar({
 }
 
 /**
- * The one round button the app owns on a phone.
+ * A round button the app owns on a phone.
  *
- * `TouchDriveControls` starts its own row a button-width in from the corner
- * precisely to leave this slot — camera, pause and fullscreen are the session's,
- * music is the app's, and the two must not stack on top of each other.
+ * `TouchDriveControls` starts its own row clear of these — camera, pause and
+ * fullscreen are the session's, music and the city map are the app's, and the
+ * two sets must not stack on top of each other. `TOUCH_CORNER_RAIL_PX` is the
+ * width they agree on; a third app button means widening it.
+ *
+ * `slot` counts leftward from the corner, so slot 0 is the corner itself.
  */
 export function DriveCornerButton({
   inset,
+  slot = 0,
+  icon,
+  activeIcon,
   label,
   pressed,
   onPress,
+  testId,
 }: {
   inset: { readonly top: string; readonly right: string };
+  slot?: number;
+  icon: readonly string[];
+  /** Swapped in while `pressed`, and dimmed — the muted note's treatment. */
+  activeIcon?: readonly string[];
   label: string;
   pressed?: boolean;
   onPress: () => void;
+  testId?: string;
 }) {
+  const dimmed = Boolean(pressed && activeIcon);
   return (
     <button
       type="button"
@@ -1989,10 +1979,11 @@ export function DriveCornerButton({
       aria-pressed={pressed}
       aria-label={label}
       title={label}
+      data-testid={testId}
       style={{
         position: "absolute",
         top: inset.top,
-        right: inset.right,
+        right: `calc(${inset.right} + ${slot * TOUCH_CORNER_SLOT_PX}px)`,
         width: 44,
         height: 44,
         borderRadius: "50%",
@@ -2007,10 +1998,10 @@ export function DriveCornerButton({
       }}
     >
       <HudGlyph
-        path={pressed ? MUSIC_MUTED_ICON : MUSIC_ICON}
+        path={dimmed ? activeIcon! : icon}
         size={19}
         strokeWidth={2.75}
-        color={pressed ? MUSIC_DIM_COLOR : HUD_CREAM}
+        color={dimmed ? MUSIC_DIM_COLOR : HUD_CREAM}
       />
     </button>
   );

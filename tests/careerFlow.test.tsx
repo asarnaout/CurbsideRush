@@ -84,8 +84,10 @@ vi.mock("next/dynamic", () => ({
       } | null;
       cutscene?: { readonly nonce: number; readonly kind: string } | null;
       vehiclePhysics?: { readonly maxForwardSpeedMps?: number } | null;
+      paused?: boolean;
       onHudUpdate?: (snapshot: Record<string, unknown>) => void;
       onEvent?: (event: Record<string, unknown>) => void;
+      onPauseChange?: (paused: boolean) => void;
       onExit?: () => void;
     }) {
       const snapshot = (simElapsedMs: number, playerX = 0, playerZ = 0) => ({
@@ -118,7 +120,17 @@ vi.mock("next/dynamic", () => ({
           data-visual-kind={props.playerVehicle?.visualKind ?? "none"}
           data-max-speed={props.vehiclePhysics?.maxForwardSpeedMps ?? "default"}
           data-cutscene-kind={props.cutscene?.kind ?? "none"}
+          // What the session was actually told to do. The whole-city map must
+          // never move this: it is an overlay, not a pause.
+          data-paused={String(props.paused ?? false)}
         >
+          <button
+            type="button"
+            data-testid="mock-pause"
+            onClick={() => props.onPauseChange?.(true)}
+          >
+            pause
+          </button>
           <button
             type="button"
             data-testid="mock-hud-mid"
@@ -1579,5 +1591,137 @@ describe("dispatch: a job from offer to payout", () => {
     expect(screen.queryByTestId("queued-gig")).not.toBeInTheDocument();
     expect(screen.queryByTestId("dispatch-idle")).not.toBeInTheDocument();
     expect(screen.getByTestId("drive-status-card")).toHaveTextContent("PICK UP");
+  });
+});
+
+describe("the whole-city map", () => {
+  const startDay = async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    const scene = await screen.findByLabelText("Mock driving scene");
+    // One snapshot, so the app has a player pose to draw the map around. It
+    // also opens the offer every drive starts with, and the map yields to an
+    // open offer — so pass it, leaving the screen clear.
+    fireEvent.click(screen.getByTestId("mock-hud-mid"));
+    fireEvent.click(screen.getByTestId("offer-pass"));
+    return scene;
+  };
+
+  const openMap = () => fireEvent.keyDown(window, { code: "KeyM" });
+
+  /**
+   * Roll the sim clock forward a second at a time until dispatch opens an
+   * offer. `OFFER_WINDOW_MS` is 15s and the quiet spell after a pass is capped
+   * at 45s, so 90 seconds is well past needing one — and stopping the moment it
+   * appears means the window cannot be driven past.
+   */
+  const driveUntilOffered = () => {
+    for (let second = 0; second < 90; second += 1) {
+      if (screen.queryByTestId("gig-offer")) return;
+      fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    }
+    throw new Error("dispatch never offered a job in 90s of driving");
+  };
+
+  it("opens on M and closes on M again", async () => {
+    await startDay();
+    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+    openMap();
+    expect(screen.getByRole("dialog", { name: "City map" })).toBeVisible();
+    openMap();
+    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+  });
+
+  it("closes on the close button too, for anyone without a keyboard", async () => {
+    await startDay();
+    openMap();
+    fireEvent.click(screen.getByRole("button", { name: "Close the map" }));
+    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+  });
+
+  it("opens from the HUD control beside the camera and pause ones", async () => {
+    // Issue #216 asks for the icon there, and on a phone it is the only way in.
+    await startDay();
+    const open = screen.getByRole("button", { name: "Open the city map (M)" });
+    expect(open).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(open);
+    expect(screen.getByTestId("expanded-map")).toBeVisible();
+
+    // The same control closes it, and says which state it is in.
+    const close = screen.getByRole("button", { name: "Close the city map (M)" });
+    expect(close).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(close);
+    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+  });
+
+  it("does not pause the drive — the car keeps rolling", async () => {
+    // The decision the whole component is built around. If this ever flips,
+    // the focus and key-swallowing rules in `ExpandedMap` become wrong too.
+    const scene = await startDay();
+    expect(scene).toHaveAttribute("data-paused", "false");
+    openMap();
+    expect(screen.getByTestId("expanded-map")).toBeVisible();
+    expect(scene).toHaveAttribute("data-paused", "false");
+  });
+
+  it("stays out of the way of the pause screen, and comes back after it", async () => {
+    // Both sit at DRIVE_LAYER.action and the app paints after the session, so
+    // a map left showing would float on top of the pause card.
+    await startDay();
+    openMap();
+    fireEvent.click(screen.getByTestId("mock-pause"));
+    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+    // M is inert while paused rather than fighting it.
+    openMap();
+    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+  });
+
+  it("gets out of an offer's way, then returns once it is answered", async () => {
+    // The offer card renders before the map at the same layer, so a map left
+    // over it makes ACCEPT untappable for the full fifteen seconds on a phone.
+    await startDay();
+    openMap();
+    expect(screen.getByTestId("expanded-map")).toBeVisible();
+
+    // Drive on until dispatch offers the next job. Waiting for it rather than
+    // naming a moment is what makes this deterministic: `startCareer` mints a
+    // random career seed, so *when* the next offer opens is not a fixed number
+    // — only that the quiet spell is capped at 45s, so one always arrives.
+    driveUntilOffered();
+    expect(screen.getByTestId("gig-offer")).toBeVisible();
+    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+    expect(screen.getByTestId("offer-accept")).toBeVisible();
+
+    // The player never asked to close it, so answering brings it straight back.
+    fireEvent.click(screen.getByTestId("offer-pass"));
+    expect(screen.getByTestId("expanded-map")).toBeVisible();
+  });
+
+  it("marks the city's places, cameras and all", async () => {
+    await startDay();
+    openMap();
+    const kinds = new Set(
+      screen
+        .getAllByTestId("expanded-map-poi")
+        .map((node) => node.getAttribute("data-poi-kind")),
+    );
+    // New York has all five families, which the corner widget never shows.
+    expect(kinds).toContain("fuel");
+    expect(kinds).toContain("food");
+    expect(kinds).toContain("camera");
+    expect(screen.getAllByTestId("map-legend-row")).toHaveLength(5);
+  });
+
+  it("does not survive into the next day", async () => {
+    await startDay();
+    openMap();
+    expect(screen.getByTestId("expanded-map")).toBeVisible();
+    await endDayEarly();
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
   });
 });

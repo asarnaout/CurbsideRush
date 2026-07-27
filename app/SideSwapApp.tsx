@@ -113,12 +113,18 @@ import {
   FUEL_PUMP_REACH_M,
   distanceToNearestPump,
   distanceToRepairBay,
-  gasStationPumpPositions,
   gasStationsOf,
-  repairShopBayPosition,
   repairShopsOf,
 } from "./game/servicePoints";
-import { Minimap, type MinimapPin } from "./game/MinimapCanvas";
+import { ExpandedMap } from "./game/ExpandedMap";
+import { Minimap } from "./game/MinimapCanvas";
+import type { MapDestination } from "./game/minimapDraw";
+import {
+  collectMapPois,
+  mapPoisOfKinds,
+  MINIMAP_POI_KINDS,
+  type MapPoi,
+} from "./game/mapPoi";
 import {
   findGpsRoute,
   gpsGraphForLanes,
@@ -187,6 +193,13 @@ import {
   resolveHudScale,
 } from "./game/DriveHud";
 import type { HudGauge, HudJob, HudManoeuvre, HudOffer } from "./game/DriveHud";
+import {
+  CAR_ICON,
+  FUEL_PUMP_ICON,
+  MAP_ICON,
+  MUSIC_ICON,
+  MUSIC_MUTED_ICON,
+} from "./game/hudIcons";
 import type {
   CameraMode,
   CountryProfile,
@@ -558,6 +571,9 @@ function fineReason(
  */
 const HUD_GOLD = "#f4c848";
 const HUD_CORAL = "#e8705a";
+
+/** A stable empty set, so nothing off the drive screen re-renders on identity. */
+const EMPTY_MAP_POIS: readonly MapPoi[] = Object.freeze([]);
 const HUD_SAGE = "#8fae72";
 
 /**
@@ -587,20 +603,6 @@ const DISPATCH_TOAST_COLOR = {
 } as const;
 
 
-const FUEL_PUMP_ICON = [
-  "M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18",
-  "M2 22h13",
-  "M13 10h3a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3",
-  "M6 8h4",
-];
-const CAR_ICON = [
-  "M3 13l1.6-4.7A2 2 0 0 1 6.5 7h11a2 2 0 0 1 1.9 1.3L21 13",
-  "M3 13h18v4a1 1 0 0 1-1 1h-1.6",
-  "M5.6 18H4a1 1 0 0 1-1-1v-4",
-  "M7.6 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
-  "M16.4 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
-];
-
 
 /** Lays the stat strip out two-up, the way the meters pair in the design. */
 
@@ -628,6 +630,9 @@ export default function SideSwapApp() {
     new Map<DestinationId, HTMLButtonElement>(),
   );
   const [paused, setPaused] = useState(false);
+  // The whole-city map (M, or the HUD button). Deliberately not a pause: the
+  // car keeps rolling while it is up, and `ExpandedMap` is built around that.
+  const [mapOpen, setMapOpen] = useState(false);
   // Which in-game confirmation modal is open, if any. Replaces native
   // window.confirm() so the prompt matches the dark HUD (#164). Only one is
   // ever open at a time, and each is dismissed within its own view.
@@ -1168,6 +1173,58 @@ export default function SideSwapApp() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [view, answerOffer]);
+
+  /*
+   * M opens the whole city, and closes it again.
+   *
+   * It lives here rather than in `BabylonGameSession`'s key switch because the
+   * map is app state — the session knows nothing about routes or places — and
+   * because that switch has no test coverage at all.
+   *
+   * A *bubble* listener, like F and G. `ConfirmDialog` installs a capture-phase
+   * handler that swallows every key, and capture listeners on `window` run in
+   * registration order — so a capture-phase M would fire first and open the map
+   * behind an open dialog. Bubbling, it never runs while one is up.
+   */
+  useEffect(() => {
+    if (view !== "driving") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.code !== "KeyM") return;
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+      // The pause card is its own screen, at the same layer and painted under
+      // this one. Nothing good happens with both up.
+      if (paused) return;
+      event.preventDefault();
+      setMapOpen((open) => !open);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [view, paused]);
+
+  /*
+   * Two things outrank the map, and it yields to both — but only for as long as
+   * they last, which is why this is derived rather than a close.
+   *
+   * `paused`: GameCanvas renders the pause dialog at `DRIVE_LAYER.action` and
+   * so does this, but the app's subtree paints after the session's — so a map
+   * left showing would float on top of the pause screen. Covers a hidden tab
+   * too, which pauses.
+   *
+   * `offer`: the offer card is at `action` as well and renders *before* the
+   * map, so a map over it makes ACCEPT untappable for the whole fifteen
+   * seconds on touch. The phone HUD already moves the corner map out of an
+   * offer's way; this is the same courtesy.
+   *
+   * Answering the offer or resuming brings the map straight back, because the
+   * player never asked to close it. Leaving the drive is the only thing that
+   * actually clears the flag — see `beginDrive`.
+   */
+  const mapVisible = mapOpen && !paused && !offer;
 
   useEffect(() => {
     const sync = () => {
@@ -1843,6 +1900,7 @@ export default function SideSwapApp() {
     setGig(null);
     setHud(null);
     setPaused(false);
+    setMapOpen(false);
     carConditionRef.current = FULL_CONDITION_PCT;
     setCarCondition(FULL_CONDITION_PCT);
     towingRef.current = false;
@@ -1862,6 +1920,7 @@ export default function SideSwapApp() {
     setCareerRun(null);
     setGig(null);
     setPaused(false);
+    setMapOpen(false);
     setActiveSession(null);
     clearCutscene();
     music.stop();
@@ -1882,6 +1941,7 @@ export default function SideSwapApp() {
     saveProgress(persisted);
     setGig(null);
     setPaused(false);
+    setMapOpen(false);
     setActiveSession(null);
     clearCutscene();
     music.stop();
@@ -2021,6 +2081,7 @@ export default function SideSwapApp() {
     setCarryingSinceMs(null);
     setHud(null);
     setPaused(false);
+    setMapOpen(false);
     carConditionRef.current = FULL_CONDITION_PCT;
     setCarCondition(FULL_CONDITION_PCT);
     towingRef.current = false;
@@ -2070,6 +2131,7 @@ export default function SideSwapApp() {
     setCareerRun(null);
     setGig(null);
     setPaused(false);
+    setMapOpen(false);
     setActiveSession(null);
     clearCutscene();
     // Music keeps playing across the ledger and garage — they are part of the
@@ -2297,39 +2359,28 @@ export default function SideSwapApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [view, promptKind, promptAct]);
 
-  // Pin the pumps rather than the lane anchor. The anchor sits on the
-  // carriageway ~19m short of the forecourt, and now that fuel is only offered
-  // at the pumps a pin out on the road would send the player to a dead spot.
-  const gasPins =
-    view === "driving" && tankCapacityL > 0
-      ? gasStationsOf(runtimeMap.geometry.servicePoints).flatMap((service) => {
-          const pumps = gasStationPumpPositions(
-            runtimeMap.laneGraph.lanes,
-            service,
-          );
-          if (!pumps.length) return [];
-          return [
-            {
-              x: pumps.reduce((total, pump) => total + pump.x, 0) / pumps.length,
-              z: pumps.reduce((total, pump) => total + pump.z, 0) / pumps.length,
-              color: "#5bbf6a",
-            },
-          ];
-        })
-      : [];
-  // Repair shops are pinned whatever the car's condition: a service you can
-  // only see once you already need it is one you cannot plan a detour around.
-  const repairPins =
-    view === "driving"
-      ? repairShopsOf(runtimeMap.geometry.servicePoints).flatMap((service) => {
-          const bay = repairShopBayPosition(
-            runtimeMap.laneGraph.lanes,
-            service,
-          );
-          return bay ? [{ x: bay.x, z: bay.z, color: HUD_CORAL }] : [];
-        })
-      : [];
   const gigTargetVenue = gig ? gigTarget(gig) : null;
+  // Every marked place on this map — pumps, bays, diners, grocers, cameras —
+  // resolved once per pack by `collectMapPois` and shared with the whole-city
+  // map, so the two can never disagree about where the nearest one is.
+  //
+  // Minus the one you are driving to. Place markers are DOM above the canvas
+  // and the destination pin is drawn *on* it, so a diner's own icon sits right
+  // on top of the pin for that diner — burying the single thing the map exists
+  // to point at. The pin is the better marker of the two, and both saying the
+  // same thing twice was never the intent. Ids line up because a food or shop
+  // marker is keyed on the venue the gig targets.
+  const allMapPois = view === "driving" ? collectMapPois(runtimeMap) : EMPTY_MAP_POIS;
+  const mapPois = gigTargetVenue
+    ? allMapPois.filter((poi) => poi.id !== gigTargetVenue.id)
+    : allMapPois;
+  // What the corner widget carries is narrower, and narrower again on a bike:
+  // a vehicle with no tank has nothing to do at a pump. Repair shops stay
+  // marked whatever the car's condition — a service you can only see once you
+  // already need it is one you cannot plan a detour around.
+  const minimapPois = mapPoisOfKinds(mapPois, MINIMAP_POI_KINDS).filter(
+    (poi) => poi.kind !== "fuel" || tankCapacityL > 0,
+  );
   // The tip window for the active career gig: previewed before pickup, counted
   // down while carrying. Derived from the same 10 Hz day-clock state that
   // drives the countdown chip, so it re-renders in step.
@@ -2348,18 +2399,13 @@ export default function SideSwapApp() {
     dayIntroFromMs === null
       ? null
       : DAY_LENGTH_MS - dayRemainingMs - dayIntroFromMs;
-  const minimapPins: MinimapPin[] = gigTargetVenue
-    ? [
-        ...gasPins,
-        ...repairPins,
-        {
-          x: gigTargetVenue.x,
-          z: gigTargetVenue.z,
-          color: gig?.state === "carrying" ? "#f2c658" : "#e0533f",
-          kind: "destination",
-        },
-      ]
-    : [...gasPins, ...repairPins];
+  const mapDestination: MapDestination | null = gigTargetVenue
+    ? {
+        x: gigTargetVenue.x,
+        z: gigTargetVenue.z,
+        color: gig?.state === "carrying" ? "#f2c658" : "#e0533f",
+      }
+    : null;
   // Drawn from where the car actually is, so the line leads rather than trails.
   // The route itself is searched in `handleHud`; this only slices it.
   const minimapRoute =
@@ -2995,7 +3041,8 @@ export default function SideSwapApp() {
             playerX={hud.playerX}
             playerZ={hud.playerZ}
             heading={hud.heading}
-            pins={minimapPins}
+            destination={mapDestination}
+            pois={minimapPois}
             route={minimapRoute}
             previewRoute={previewRoute ? previewRoute.points : undefined}
             previewLabel={touchFirst ? undefined : detourLabel ?? undefined}
@@ -3057,13 +3104,31 @@ export default function SideSwapApp() {
             compact={touchFirst}
           />
         )}
+        {/*
+          The two buttons the app owns on a phone, holding the top-right corner
+          while the session's camera/pause/fullscreen row starts clear of them
+          (`TOUCH_CORNER_RAIL_PX`). On touch there is no M, so the map control
+          is the only way in.
+        */}
         {touchFirst && (
-          <DriveCornerButton
-            inset={{ top: hudInset.top, right: hudInset.right }}
-            label={musicMuted ? "Unmute music" : "Mute music"}
-            pressed={musicMuted}
-            onPress={toggleMusicMuted}
-          />
+          <>
+            <DriveCornerButton
+              inset={{ top: hudInset.top, right: hudInset.right }}
+              icon={MUSIC_ICON}
+              activeIcon={MUSIC_MUTED_ICON}
+              label={musicMuted ? "Unmute music" : "Mute music"}
+              pressed={musicMuted}
+              onPress={toggleMusicMuted}
+            />
+            <DriveCornerButton
+              inset={{ top: hudInset.top, right: hudInset.right }}
+              slot={1}
+              icon={MAP_ICON}
+              label={mapOpen ? "Close the city map" : "Open the city map"}
+              pressed={mapOpen}
+              onPress={() => setMapOpen((open) => !open)}
+            />
+          </>
         )}
         {!touchFirst && (
         <DriveMoneyCluster
@@ -3091,6 +3156,14 @@ export default function SideSwapApp() {
               label: "Switch camera",
               onPress: () => pressDriveKey("KeyC"),
             },
+            // App state, so it toggles directly. `pressDriveKey` exists only
+            // for the session's own controls, which the app cannot call.
+            {
+              id: "map",
+              label: mapOpen ? "Close the city map (M)" : "Open the city map (M)",
+              pressed: mapOpen,
+              onPress: () => setMapOpen((open) => !open),
+            },
             {
               id: "pause",
               label: "Pause",
@@ -3103,6 +3176,31 @@ export default function SideSwapApp() {
           <div className="sr-only" aria-live="polite">
             Speed {hud.speed} {hud.speedUnit}, gear {hud.gear}.
           </div>
+        )}
+        {/*
+          Last of the drive overlays, so it paints over the HUD it is meant to
+          replace for as long as it is up. Anything that must outrank it closes
+          it instead — see the effect that watches `paused` and `offer`.
+        */}
+        {mapVisible && hud && (
+          <ExpandedMap
+            cityName={driveDestination.destinationName}
+            subtitle={navJob ? `${navJob.eyebrow} · ${navJob.target}` : null}
+            worldSize={runtimeMap.geometry.worldSize}
+            roadSurfaces={runtimeMap.geometry.roadSurfaces}
+            pois={mapPois}
+            destination={mapDestination}
+            // The whole line, not the remainder the corner widget draws: the
+            // question this view answers is what the journey looks like.
+            route={gpsRoute ? gpsRoute.points : undefined}
+            previewRoute={previewRoute ? previewRoute.points : undefined}
+            playerX={hud.playerX}
+            playerZ={hud.playerZ}
+            heading={hud.heading}
+            viewport={{ width: viewportWidth, height: viewportHeight }}
+            showKeyHints={!touchFirst}
+            onClose={() => setMapOpen(false)}
+          />
         )}
         {pendingConfirm === "end-day" && (
           <ConfirmDialog

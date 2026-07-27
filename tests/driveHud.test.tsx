@@ -25,6 +25,8 @@ import {
   type HudManoeuvre,
   type HudOffer,
 } from "../app/game/DriveHud";
+import { MAP_ICON, MUSIC_ICON, MUSIC_MUTED_ICON } from "../app/game/hudIcons";
+import { TOUCH_CORNER_SLOT_PX } from "../app/game/TouchDriveControls";
 import { DRIVE_LAYER } from "../app/game/driveLayers";
 
 afterEach(cleanup);
@@ -396,6 +398,7 @@ describe("the money cluster", () => {
         buttons={[
           { id: "music", label: "Mute music", pressed: false, onPress: press },
           { id: "camera", label: "Switch camera", onPress: press },
+          { id: "map", label: "Open the city map (M)", pressed: false, onPress: press },
           { id: "pause", label: "Pause", onPress: press },
         ]}
         {...props}
@@ -426,12 +429,29 @@ describe("the money cluster", () => {
     expect(gain).toHaveStyle({ opacity: "1" });
   });
 
-  it("gives the desktop the three controls it never had", () => {
+  it("gives the desktop the four controls it never had", () => {
     const press = money();
-    for (const name of ["Mute music", "Switch camera", "Pause"]) {
+    for (const name of [
+      "Mute music",
+      "Switch camera",
+      "Open the city map (M)",
+      "Pause",
+    ]) {
       fireEvent.click(screen.getByRole("button", { name }));
     }
-    expect(press).toHaveBeenCalledTimes(3);
+    expect(press).toHaveBeenCalledTimes(4);
+  });
+
+  it("shows the map control as pressed while the map is up", () => {
+    // The button is a toggle, not a launcher — pressing it again closes.
+    money({
+      buttons: [
+        { id: "map", label: "Close the city map (M)", pressed: true, onPress: vi.fn() },
+      ],
+    });
+    expect(
+      screen.getByRole("button", { name: "Close the city map (M)" }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("is a target, not a readout", () => {
@@ -456,6 +476,7 @@ describe("the money cluster", () => {
       buttons: [
         { id: "music", label: "Unmute music", pressed: true, onPress: vi.fn() },
         { id: "camera", label: "Switch camera", onPress: vi.fn() },
+        { id: "map", label: "Open the city map (M)", pressed: false, onPress: vi.fn() },
         { id: "pause", label: "Pause", onPress: vi.fn() },
       ],
     });
@@ -474,17 +495,38 @@ describe("the money cluster", () => {
     expect(button.querySelectorAll("path")).toHaveLength(3);
   });
 
-  it("never lets camera or pause borrow the muted-note treatment", () => {
-    money();
+  it("never lets the other controls borrow the muted-note treatment", () => {
+    // A pressed map button is "the map is open", not "the map is off".
+    money({
+      buttons: [
+        { id: "camera", label: "Switch camera", onPress: vi.fn() },
+        { id: "map", label: "Close the city map (M)", pressed: true, onPress: vi.fn() },
+      ],
+    });
     const camera = screen.getByRole("button", { name: "Switch camera" });
     expect(camera.querySelector("svg")).toHaveAttribute("stroke", HUD_CREAM);
     expect(camera.querySelectorAll("path")).toHaveLength(2);
+    const map = screen.getByRole("button", { name: "Close the city map (M)" });
+    expect(map.querySelector("svg")).toHaveAttribute("stroke", HUD_CREAM);
   });
 });
 
-describe("the corner button", () => {
+describe("the corner buttons", () => {
+  const music = (props: Partial<Parameters<typeof DriveCornerButton>[0]> = {}) =>
+    render(
+      <DriveCornerButton
+        inset={inset}
+        icon={MUSIC_ICON}
+        activeIcon={MUSIC_MUTED_ICON}
+        label="Mute music"
+        pressed={false}
+        onPress={vi.fn()}
+        {...props}
+      />,
+    );
+
   it("shows full-strength while playing", () => {
-    render(<DriveCornerButton inset={inset} label="Mute music" pressed={false} onPress={vi.fn()} />);
+    music();
     const button = screen.getByRole("button", { name: "Mute music" });
     const svg = button.querySelector("svg");
     expect(svg).toHaveAttribute("stroke", HUD_CREAM);
@@ -492,11 +534,27 @@ describe("the corner button", () => {
   });
 
   it("dims and strikes the note through once muted (#227)", () => {
-    render(<DriveCornerButton inset={inset} label="Unmute music" pressed onPress={vi.fn()} />);
+    music({ label: "Unmute music", pressed: true });
     const button = screen.getByRole("button", { name: "Unmute music" });
     const svg = button.querySelector("svg");
     expect(svg).not.toHaveAttribute("stroke", HUD_CREAM);
     expect(button.querySelectorAll("path")).toHaveLength(4);
+  });
+
+  it("steps a second button one slot in from the corner", () => {
+    // The app owns two of these on a phone now, and the session's row starts
+    // clear of both — `TOUCH_CORNER_RAIL_PX` is the width they agree on.
+    music({ slot: 1, icon: MAP_ICON, activeIcon: undefined, label: "Open the city map" });
+    const button = screen.getByRole("button", { name: "Open the city map" });
+    expect(button.style.right).toContain(`${TOUCH_CORNER_SLOT_PX}px`);
+  });
+
+  it("leaves a button with no active icon at full strength when pressed", () => {
+    // Pressed means "the map is open", which is not the muted note's meaning.
+    music({ icon: MAP_ICON, activeIcon: undefined, label: "Close the city map", pressed: true });
+    const button = screen.getByRole("button", { name: "Close the city map" });
+    expect(button.querySelector("svg")).toHaveAttribute("stroke", HUD_CREAM);
+    expect(button).toHaveAttribute("aria-pressed", "true");
   });
 });
 
