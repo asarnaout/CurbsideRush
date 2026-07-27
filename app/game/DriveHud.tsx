@@ -21,6 +21,7 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import { DRIVE_LAYER } from "./driveLayers";
+import { TOUCH_CORNER_SLOT_PX } from "./TouchDriveControls";
 import {
   CAMERA_ICON,
   FOOD_ICON,
@@ -1941,23 +1942,36 @@ export function DriveOfferBar({
 }
 
 /**
- * The one round button the app owns on a phone.
+ * A round button the app owns on a phone.
  *
- * `TouchDriveControls` starts its own row a button-width in from the corner
- * precisely to leave this slot — camera, pause and fullscreen are the session's,
- * music is the app's, and the two must not stack on top of each other.
+ * `TouchDriveControls` starts its own row clear of these — camera, pause and
+ * fullscreen are the session's, music and the city map are the app's, and the
+ * two sets must not stack on top of each other. `TOUCH_CORNER_RAIL_PX` is the
+ * width they agree on; a third app button means widening it.
+ *
+ * `slot` counts leftward from the corner, so slot 0 is the corner itself.
  */
 export function DriveCornerButton({
   inset,
+  slot = 0,
+  icon,
+  activeIcon,
   label,
   pressed,
   onPress,
+  testId,
 }: {
   inset: { readonly top: string; readonly right: string };
+  slot?: number;
+  icon: readonly string[];
+  /** Swapped in while `pressed`, and dimmed — the muted note's treatment. */
+  activeIcon?: readonly string[];
   label: string;
   pressed?: boolean;
   onPress: () => void;
+  testId?: string;
 }) {
+  const dimmed = Boolean(pressed && activeIcon);
   return (
     <button
       type="button"
@@ -1965,10 +1979,11 @@ export function DriveCornerButton({
       aria-pressed={pressed}
       aria-label={label}
       title={label}
+      data-testid={testId}
       style={{
         position: "absolute",
         top: inset.top,
-        right: inset.right,
+        right: `calc(${inset.right} + ${slot * TOUCH_CORNER_SLOT_PX}px)`,
         width: 44,
         height: 44,
         borderRadius: "50%",
@@ -1983,10 +1998,10 @@ export function DriveCornerButton({
       }}
     >
       <HudGlyph
-        path={pressed ? MUSIC_MUTED_ICON : MUSIC_ICON}
+        path={dimmed ? activeIcon! : icon}
         size={19}
         strokeWidth={2.75}
-        color={pressed ? MUSIC_DIM_COLOR : HUD_CREAM}
+        color={dimmed ? MUSIC_DIM_COLOR : HUD_CREAM}
       />
     </button>
   );

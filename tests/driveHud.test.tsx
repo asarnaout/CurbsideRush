@@ -25,6 +25,8 @@ import {
   type HudManoeuvre,
   type HudOffer,
 } from "../app/game/DriveHud";
+import { MAP_ICON, MUSIC_ICON, MUSIC_MUTED_ICON } from "../app/game/hudIcons";
+import { TOUCH_CORNER_SLOT_PX } from "../app/game/TouchDriveControls";
 import { DRIVE_LAYER } from "../app/game/driveLayers";
 
 afterEach(cleanup);
@@ -509,9 +511,22 @@ describe("the money cluster", () => {
   });
 });
 
-describe("the corner button", () => {
+describe("the corner buttons", () => {
+  const music = (props: Partial<Parameters<typeof DriveCornerButton>[0]> = {}) =>
+    render(
+      <DriveCornerButton
+        inset={inset}
+        icon={MUSIC_ICON}
+        activeIcon={MUSIC_MUTED_ICON}
+        label="Mute music"
+        pressed={false}
+        onPress={vi.fn()}
+        {...props}
+      />,
+    );
+
   it("shows full-strength while playing", () => {
-    render(<DriveCornerButton inset={inset} label="Mute music" pressed={false} onPress={vi.fn()} />);
+    music();
     const button = screen.getByRole("button", { name: "Mute music" });
     const svg = button.querySelector("svg");
     expect(svg).toHaveAttribute("stroke", HUD_CREAM);
@@ -519,11 +534,27 @@ describe("the corner button", () => {
   });
 
   it("dims and strikes the note through once muted (#227)", () => {
-    render(<DriveCornerButton inset={inset} label="Unmute music" pressed onPress={vi.fn()} />);
+    music({ label: "Unmute music", pressed: true });
     const button = screen.getByRole("button", { name: "Unmute music" });
     const svg = button.querySelector("svg");
     expect(svg).not.toHaveAttribute("stroke", HUD_CREAM);
     expect(button.querySelectorAll("path")).toHaveLength(4);
+  });
+
+  it("steps a second button one slot in from the corner", () => {
+    // The app owns two of these on a phone now, and the session's row starts
+    // clear of both — `TOUCH_CORNER_RAIL_PX` is the width they agree on.
+    music({ slot: 1, icon: MAP_ICON, activeIcon: undefined, label: "Open the city map" });
+    const button = screen.getByRole("button", { name: "Open the city map" });
+    expect(button.style.right).toContain(`${TOUCH_CORNER_SLOT_PX}px`);
+  });
+
+  it("leaves a button with no active icon at full strength when pressed", () => {
+    // Pressed means "the map is open", which is not the muted note's meaning.
+    music({ icon: MAP_ICON, activeIcon: undefined, label: "Close the city map", pressed: true });
+    const button = screen.getByRole("button", { name: "Close the city map" });
+    expect(button.querySelector("svg")).toHaveAttribute("stroke", HUD_CREAM);
+    expect(button).toHaveAttribute("aria-pressed", "true");
   });
 });
 

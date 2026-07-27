@@ -1595,17 +1595,21 @@ describe("dispatch: a job from offer to payout", () => {
 });
 
 describe("the whole-city map", () => {
-  const startDay = async () => {
+  const startDay = async (keepOffer = false) => {
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-start"));
     await screen.findByRole("heading", { name: /Pick today's ride/i });
     fireEvent.click(screen.getByTestId("garage-start-day"));
     const scene = await screen.findByLabelText("Mock driving scene");
-    // A snapshot, so the app has a player pose to draw the map around — and
-    // then pass the offer it comes with, since a drive opens with one waiting
-    // and an open offer is one of the two things the map yields to.
+    // One snapshot, so the app has a player pose to draw the map around. It
+    // also opens the offer every drive starts with, and an open offer is one of
+    // the two things the map yields to — so clear it unless a test wants it.
+    //
+    // Only the *opening* offer is dependable here: `startCareer` mints a random
+    // career seed, so when the next one arrives is not something a test can
+    // count on.
     fireEvent.click(screen.getByTestId("mock-hud-mid"));
-    fireEvent.click(screen.getByTestId("offer-pass"));
+    if (!keepOffer) fireEvent.click(screen.getByTestId("offer-pass"));
     return scene;
   };
 
@@ -1667,13 +1671,12 @@ describe("the whole-city map", () => {
   it("gets out of an offer's way, then returns once it is answered", async () => {
     // The offer card renders before the map at the same layer, so a map over it
     // makes ACCEPT untappable for the full fifteen seconds on a phone.
-    await startDay();
-    openMap();
-    expect(screen.getByTestId("expanded-map")).toBeVisible();
-
-    fireEvent.click(screen.getByTestId("mock-hud-past-offer"));
+    await startDay(true);
     expect(screen.getByTestId("gig-offer")).toBeVisible();
+
+    openMap();
     expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+    expect(screen.getByTestId("offer-accept")).toBeVisible();
 
     // The player never asked to close it, so answering brings it straight back.
     fireEvent.click(screen.getByTestId("offer-pass"));

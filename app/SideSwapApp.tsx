@@ -193,7 +193,13 @@ import {
   resolveHudScale,
 } from "./game/DriveHud";
 import type { HudGauge, HudJob, HudManoeuvre, HudOffer } from "./game/DriveHud";
-import { CAR_ICON, FUEL_PUMP_ICON } from "./game/hudIcons";
+import {
+  CAR_ICON,
+  FUEL_PUMP_ICON,
+  MAP_ICON,
+  MUSIC_ICON,
+  MUSIC_MUTED_ICON,
+} from "./game/hudIcons";
 import type {
   CameraMode,
   CountryProfile,
@@ -3088,13 +3094,31 @@ export default function SideSwapApp() {
             compact={touchFirst}
           />
         )}
+        {/*
+          The two buttons the app owns on a phone, holding the top-right corner
+          while the session's camera/pause/fullscreen row starts clear of them
+          (`TOUCH_CORNER_RAIL_PX`). On touch there is no M, so the map control
+          is the only way in.
+        */}
         {touchFirst && (
-          <DriveCornerButton
-            inset={{ top: hudInset.top, right: hudInset.right }}
-            label={musicMuted ? "Unmute music" : "Mute music"}
-            pressed={musicMuted}
-            onPress={toggleMusicMuted}
-          />
+          <>
+            <DriveCornerButton
+              inset={{ top: hudInset.top, right: hudInset.right }}
+              icon={MUSIC_ICON}
+              activeIcon={MUSIC_MUTED_ICON}
+              label={musicMuted ? "Unmute music" : "Mute music"}
+              pressed={musicMuted}
+              onPress={toggleMusicMuted}
+            />
+            <DriveCornerButton
+              inset={{ top: hudInset.top, right: hudInset.right }}
+              slot={1}
+              icon={MAP_ICON}
+              label={mapOpen ? "Close the city map" : "Open the city map"}
+              pressed={mapOpen}
+              onPress={() => setMapOpen((open) => !open)}
+            />
+          </>
         )}
         {!touchFirst && (
         <DriveMoneyCluster
