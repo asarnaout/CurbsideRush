@@ -217,6 +217,52 @@ const nearestSegmentHeadingDeg = (
 const headingDifferenceDeg = (left: number, right: number): number =>
   Math.abs((((left - right + 180) % 360) + 360) % 360 - 180);
 
+const nearestPointOnPath = (
+  points: readonly WorldPoint[],
+  candidate: WorldPoint,
+): WorldPoint => {
+  let best = points[0];
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const lengthSquared = dx * dx + dz * dz;
+    const amount =
+      lengthSquared > 0
+        ? Math.max(
+            0,
+            Math.min(
+              1,
+              ((candidate.x - start.x) * dx +
+                (candidate.z - start.z) * dz) /
+                lengthSquared,
+            ),
+          )
+        : 0;
+    const projected = point(start.x + dx * amount, start.z + dz * amount);
+    const distance = Math.hypot(
+      candidate.x - projected.x,
+      candidate.z - projected.z,
+    );
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = projected;
+    }
+  }
+  return best;
+};
+
+const pointAtDistance = (
+  points: readonly WorldPoint[],
+  distanceAlongM: number,
+): WorldPoint =>
+  pointAtFraction(
+    points,
+    Math.max(0, Math.min(1, distanceAlongM / lengthOf(points))),
+  );
+
 interface TestOrientedRect {
   readonly center: WorldPoint;
   readonly axisU: WorldPoint;
@@ -885,6 +931,90 @@ describe("Cairo Central Nile content", () => {
     }
   });
 
+  it("stands every signal head on its own approach's kerb, beside the bar", () => {
+    const graph = CAIRO_MAP_PACK.laneGraph;
+    const laneById = new Map(graph.lanes.map((lane) => [lane.id, lane]));
+    const signals = graph.controls.filter(
+      (control) => control.type === "signal",
+    );
+    expect(signals.length).toBeGreaterThanOrEqual(8);
+
+    for (const signal of signals) {
+      const heads = signal.installations.filter(
+        (installation) => installation.role === "primary",
+      );
+      // One head and one bar per arm. Merging the two directions of a two-way
+      // street leaves the opposing driver enforced against a signal that was
+      // never built facing them.
+      expect(heads, signal.id).toHaveLength(signal.approaches.length);
+      expect(
+        [...signal.approaches.flatMap((approach) => approach.laneIds)].sort(),
+        signal.id,
+      ).toEqual([...signal.laneIds].sort());
+
+      for (const approach of signal.approaches) {
+        const head = heads.filter((installation) =>
+          installation.approachIds?.includes(approach.id),
+        );
+        expect(head, approach.id).toHaveLength(1);
+
+        const lane = laneById.get(approach.stopLine.laneId)!;
+        expect(approach.laneIds, approach.id).toContain(lane.id);
+        // An arm is one direction of travel: every lane sharing a bar has to
+        // arrive from the same node, or the bar sits on the wrong carriageway.
+        for (const laneId of approach.laneIds) {
+          expect(laneById.get(laneId)!.from, approach.id).toBe(lane.from);
+        }
+
+        const surface = CAIRO_MAP_PACK.geometry.roadSurfaces.find(
+          (candidate) => candidate.id === lane.roadId,
+        )!;
+        const bar = pointAtDistance(
+          lane.centerline,
+          approach.stopLine.distanceAlongM,
+        );
+        const headingRad = (head[0].headingDeg * Math.PI) / 180;
+        const origin = nearestPointOnPath(
+          surface.centerline,
+          head[0].position,
+        );
+        const lateral =
+          (head[0].position.x - origin.x) * Math.cos(headingRad) +
+          (head[0].position.z - origin.z) * -Math.sin(headingRad);
+        const along =
+          (head[0].position.x - bar.x) * Math.sin(headingRad) +
+          (head[0].position.z - bar.z) * Math.cos(headingRad);
+
+        // Right-hand traffic: on the driver's own kerb, just past the kerb
+        // face. A positive-and-small offset is the whole invariant — scoring
+        // candidates by open space instead put these 13-24 m out in the plaza,
+        // most of them across the carriageway.
+        expect(lateral - surface.widthM / 2, head[0].id).toBeCloseTo(1.1, 5);
+        // Beside or just behind the bar, never past it, and never so far back
+        // that a car stopped at the line has it over its shoulder.
+        expect(along, head[0].id).toBeLessThanOrEqual(0);
+        expect(along, head[0].id).toBeGreaterThan(-13);
+        // And never standing in a carriageway.
+        const clearance = Math.min(
+          ...graph.lanes.map((candidate) => {
+            const nearest = nearestPointOnPath(
+              candidate.centerline,
+              head[0].position,
+            );
+            return (
+              Math.hypot(
+                head[0].position.x - nearest.x,
+                head[0].position.z - nearest.z,
+              ) -
+              candidate.widthM / 2
+            );
+          }),
+        );
+        expect(clearance, head[0].id).toBeGreaterThanOrEqual(0.6);
+      }
+    }
+  });
+
   it("alternates the two Cairo-only residence models at stable venues", () => {
     expect(
       (CAIRO_MAP_PACK.geometry.gigVenues ?? [])
@@ -1345,7 +1475,7 @@ describe("Cairo Central Nile content", () => {
     const first = run();
     const replay = run();
     expect(replay).toEqual(first);
-    expect(first.hash).toBe("d4b4bdae");
+    expect(first.hash).toBe("587e7fef");
     expect(first.snapshot).toMatchObject({
       tick: 1_800,
       status: "running",

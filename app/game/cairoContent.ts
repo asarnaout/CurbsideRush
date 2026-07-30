@@ -696,43 +696,96 @@ const laneClearanceAt = (candidate: WorldPoint): number =>
     ),
   );
 
+const nearestPointOnPolyline = (
+  candidate: WorldPoint,
+  polyline: readonly WorldPoint[],
+): WorldPoint => {
+  let best = polyline[0];
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < polyline.length; index += 1) {
+    const start = polyline[index - 1];
+    const end = polyline[index];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const lengthSquared = dx * dx + dz * dz;
+    const amount =
+      lengthSquared > 0
+        ? Math.max(
+            0,
+            Math.min(
+              1,
+              ((candidate.x - start.x) * dx + (candidate.z - start.z) * dz) /
+                lengthSquared,
+            ),
+          )
+        : 0;
+    const projected = point(start.x + dx * amount, start.z + dz * amount);
+    const distance = distanceBetween(candidate, projected);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = projected;
+    }
+  }
+  return best;
+};
+
+/** Just before the bar, so a car stopped at the line still has it in view. */
+const CAIRO_SIGNAL_STOP_LINE_SETBACK_M = 1;
+/** Past the kerb face, standing on the pavement rather than in the gutter. */
+const CAIRO_SIGNAL_KERB_CLEARANCE_M = 1.1;
+/** A head may never stand in a carriageway; Cairo's radial arms overlap. */
+const CAIRO_SIGNAL_LANE_CLEARANCE_M = 0.6;
+
+/**
+ * Where a kerbside primary head stands, relative to the bar it governs: beside
+ * the stop line, on the near kerb, on the driver's own side of the road. The
+ * numbers match London's hand-placed heads, which are the only ones in the
+ * project positioned by eye against the rendered scene.
+ *
+ * **Clearance is a veto here, not an objective.** The search this replaces
+ * scored candidates by `laneClearanceAt` and charged only 0.01 m per metre
+ * strayed, so the widest, furthest-back corner of its own grid always won: every
+ * head stood 13-24 m out on open ground and 17 of 21 were across the
+ * carriageway from the driver they faced. Anything that ranks "far from tarmac"
+ * above "beside the stop line" reproduces that.
+ */
 const safeSignalPosition = (
-  center: WorldPoint,
+  stopLine: WorldPoint,
   headingDeg: number,
   surface: RoadSurface,
 ): WorldPoint => {
   const headingRad = (headingDeg * Math.PI) / 180;
   const forwardX = Math.sin(headingRad);
   const forwardZ = Math.cos(headingRad);
+  // Egypt drives on the right, so the near kerb is always the driver's right.
+  // Picking the emptier side instead puts the head across the carriageway.
   const rightX = Math.cos(headingRad);
   const rightZ = -Math.sin(headingRad);
-  const baseLateral =
-    surface.widthM / 2 + (surface.sidewalkWidthM ?? 3.4) + 2.5;
-  const baseBack = surface.widthM / 2 + 2;
-  let best = center;
-  let bestScore = Number.NEGATIVE_INFINITY;
-  for (const side of [1, -1] as const) {
-    for (const lateralExtra of [0, 4, 8]) {
-      for (const backExtra of [0, 5, 10, 15]) {
-        const candidate = point(
-          center.x -
-            forwardX * (baseBack + backExtra) +
-            rightX * (baseLateral + lateralExtra) * side,
-          center.z -
-            forwardZ * (baseBack + backExtra) +
-            rightZ * (baseLateral + lateralExtra) * side,
-        );
-        const score =
-          laneClearanceAt(candidate) -
-          (lateralExtra + backExtra) * 0.01;
-        if (score > bestScore) {
-          best = candidate;
-          bestScore = score;
-        }
+  // Lateral offsets are measured from the road surface centreline, not from the
+  // approach lane: a two-way lane already sits 1.65 m off centre, and offsetting
+  // from it would push the head that much further past the kerb.
+  const origin = nearestPointOnPolyline(stopLine, surface.centerline);
+  const kerbside = surface.widthM / 2 + CAIRO_SIGNAL_KERB_CLEARANCE_M;
+  const at = (backM: number, lateralM: number): WorldPoint =>
+    point(
+      origin.x - forwardX * backM + rightX * lateralM,
+      origin.z - forwardZ * backM + rightZ * lateralM,
+    );
+  // Least displacement that clears every carriageway. Walking back along the
+  // approach retreats from the crossing road while keeping the head in the
+  // stopped driver's view, so it is tried before widening onto the pavement.
+  for (const backExtra of [0, 3, 6, 9, 12]) {
+    for (const lateralExtra of [0, 0.9, 1.8]) {
+      const candidate = at(
+        CAIRO_SIGNAL_STOP_LINE_SETBACK_M + backExtra,
+        kerbside + lateralExtra,
+      );
+      if (laneClearanceAt(candidate) >= CAIRO_SIGNAL_LANE_CLEARANCE_M) {
+        return candidate;
       }
     }
   }
-  return best;
+  return at(CAIRO_SIGNAL_STOP_LINE_SETBACK_M, kerbside);
 };
 
 const signalNodeIds = [
@@ -754,38 +807,51 @@ const cairoConflictZones: LaneGraph["conflictZones"][number][] = [];
 for (const [signalIndex, nodeId] of signalNodeIds.entries()) {
   const center = cairoNodeById.get(nodeId)!.position;
   const inbound = cairoLanes.filter((lane) => lane.to === nodeId);
-  const inboundByRoad = new Map<string, LaneSegment[]>();
+  // Keyed by the node each lane arrives *from*, so one entry is one physical
+  // arm of the junction. Grouping by road instead merges the two directions of
+  // a two-way street wherever the signal sits mid-road: the pair then shared a
+  // single stop line anchored on one direction's lane and a single head facing
+  // the other way, so the opposing driver was enforced against a signal that
+  // was never built for them. Parallel lanes of one direction still group
+  // together — they share a `from`.
+  const inboundByArm = new Map<string, LaneSegment[]>();
   for (const lane of inbound) {
-    inboundByRoad.set(lane.roadId, [
-      ...(inboundByRoad.get(lane.roadId) ?? []),
-      lane,
-    ]);
+    const armKey = `${lane.roadId}|${lane.from}`;
+    inboundByArm.set(armKey, [...(inboundByArm.get(armKey) ?? []), lane]);
   }
   const zoneId = `cairo-signal-${signalIndex + 1}-zone`;
   const approaches: TrafficControlApproach[] = [];
   const installations: TrafficControlInstallation[] = [];
 
-  for (const [roadId, lanes] of [...inboundByRoad.entries()].sort(
+  for (const [, lanes] of [...inboundByArm.entries()].sort(
     ([left], [right]) => left.localeCompare(right),
   )) {
     const lane = lanes[0];
+    const roadId = lane.roadId;
+    const armSlug = `${roadId}-${lane.from.replace(/^cairo-/, "")}`;
     const surface = cairoRoadSurfaces.find((item) => item.id === roadId)!;
     const stopDistance = Math.max(8, laneLength(lane) - 12);
     const pose = pointAlongLane(
       lane,
       Math.max(0, stopDistance - CONNECTOR_BLEND_RUN_M - 1),
     );
-    const approachId = `cairo-signal-${signalIndex + 1}-${roadId}-approach`;
+    const stopPose = pointAlongLane(lane, stopDistance);
+    const approachId = `cairo-signal-${signalIndex + 1}-${armSlug}-approach`;
     approaches.push({
       id: approachId,
       laneIds: lanes.map((item) => item.id),
       stopLine: anchor(lane.id, stopDistance),
       conflictZoneIds: [zoneId],
+      // Opposing arms of one street still run together, so the phase group
+      // stays keyed by road: splitting the approaches must not split the cycle.
       phaseGroup: `cairo-signal-${signalIndex + 1}-${roadId}`,
     });
     installations.push({
-      id: `cairo-signal-${signalIndex + 1}-${roadId}-head`,
-      position: safeSignalPosition(center, pose.headingDeg, surface),
+      id: `cairo-signal-${signalIndex + 1}-${armSlug}-head`,
+      // Positioned from the stop line, oriented by the de-blended road axis:
+      // the last few metres of a lane elbow onto the shared node, so sampling
+      // the heading at the bar itself skews the head a few degrees.
+      position: safeSignalPosition(stopPose.position, pose.headingDeg, surface),
       headingDeg: pose.headingDeg,
       mounting: "roadside_pole",
       style: "egypt_signal",
@@ -800,7 +866,7 @@ for (const [signalIndex, nodeId] of signalNodeIds.entries()) {
       ),
     );
     installations.push({
-      id: `cairo-signal-${signalIndex + 1}-${roadId}-crosswalk`,
+      id: `cairo-signal-${signalIndex + 1}-${armSlug}-crosswalk`,
       position: crosswalkPose.position,
       headingDeg: crosswalkPose.headingDeg,
       spanM: surface.widthM,

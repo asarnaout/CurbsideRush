@@ -446,11 +446,19 @@ describe("robustness across map packs", () => {
  * the same way the one-way suite above does.
  */
 describe("speed-limit signage", () => {
+  // Mirrors GameCanvas's `signInput` exactly, including the authored poles a
+  // post has to slide clear of — derive it differently and this suite stops
+  // testing what the game actually builds.
   const signsFor = (pack: ReturnType<typeof nycPack>) =>
     speedLimitSignPlacements({
       lanes: pack.laneGraph.lanes,
       roadSurfaces: pack.geometry.roadSurfaces,
       defaultRoadWidthM: pack.geometry.roadWidth,
+      occupiedPositions: pack.laneGraph.controls.flatMap((control) =>
+        (control.installations ?? [])
+          .filter((installation) => installation.mounting !== "road_marking")
+          .map((installation) => installation.position),
+      ),
     });
 
   const drivenRoadIds = (pack: ReturnType<typeof nycPack>) =>

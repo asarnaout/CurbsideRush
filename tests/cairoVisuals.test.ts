@@ -11,8 +11,10 @@ import {
   crosswalkStripeLayout,
   crowdClothingPaletteForMap,
   deterministicSceneryKeep,
+  EGYPT_SIGNAL_BORDER_BARS,
   facadeGridCells,
   generateWaterBoatPlacements,
+  SIGNAL_HOUSING_BOX,
   roadSurfaceWidthForMarking,
   roadSurfacePlacementForMarking,
   rotateBlockBuildingPlacements,
@@ -633,6 +635,67 @@ describe("Cairo street identity", () => {
         ],
       }),
     ).toEqual(new Set(["cairo-head"]));
+  });
+
+  it("borders the signal head without any surface contending for a pixel", () => {
+    // The bug this pins: the yellow surround was one box larger than the
+    // housing in all three dimensions, so it enclosed the head and the whole
+    // look depended on the black face protruding 5 mm. Depth precision beats
+    // 5 mm well inside the block, so the head rendered as a solid amber slab
+    // that flickered on approach and only settled at the bar.
+    const half = {
+      x: SIGNAL_HOUSING_BOX.width / 2,
+      y: SIGNAL_HOUSING_BOX.height / 2,
+      z: SIGNAL_HOUSING_BOX.depth / 2,
+    };
+    expect(EGYPT_SIGNAL_BORDER_BARS.length).toBeGreaterThanOrEqual(4);
+
+    for (const bar of EGYPT_SIGNAL_BORDER_BARS) {
+      // Strictly outside the housing on x or y — never merely in front of it,
+      // which is the arrangement that has to be decided by the depth buffer.
+      const clearOnX =
+        Math.abs(bar.x) - bar.width / 2 >= half.x - 1e-9;
+      const clearOnY =
+        Math.abs(bar.y) - bar.height / 2 >= half.y - 1e-9;
+      expect(clearOnX || clearOnY, `${bar.id} overlaps the housing footprint`)
+        .toBe(true);
+      // Its face stands proud of the black face and stops behind the lens
+      // plane, so the bezel reads as a bezel and touches neither. How far it
+      // reaches *back* does not matter — being clear in x/y is what keeps it
+      // out of the depth buffer's hands.
+      expect(bar.z - bar.depth / 2, bar.id).toBeLessThan(-half.z);
+      expect(bar.z - bar.depth / 2, bar.id).toBeGreaterThan(-0.25);
+    }
+
+    // The four bars still close into a continuous border, or it reads as
+    // detached tabs rather than a frame.
+    const sides = EGYPT_SIGNAL_BORDER_BARS.map((bar) => ({
+      minX: bar.x - bar.width / 2,
+      maxX: bar.x + bar.width / 2,
+      minY: bar.y - bar.height / 2,
+      maxY: bar.y + bar.height / 2,
+    }));
+    expect(Math.min(...sides.map((s) => s.minX))).toBeLessThan(-half.x);
+    expect(Math.max(...sides.map((s) => s.maxX))).toBeGreaterThan(half.x);
+    expect(Math.min(...sides.map((s) => s.minY))).toBeLessThan(-half.y);
+    expect(Math.max(...sides.map((s) => s.maxY))).toBeGreaterThan(half.y);
+    for (const corner of [
+      { x: -half.x, y: -half.y },
+      { x: -half.x, y: half.y },
+      { x: half.x, y: -half.y },
+      { x: half.x, y: half.y },
+    ]) {
+      expect(
+        sides.some(
+          (s) =>
+            corner.x >= s.minX - 1e-9 &&
+            corner.x <= s.maxX + 1e-9 &&
+            corner.y >= s.minY - 1e-9 &&
+            corner.y <= s.maxY + 1e-9,
+        ),
+        `corner ${corner.x},${corner.y} left open`,
+      ).toBe(true);
+    }
   });
 
   it("uses the non-UK signal sequence while preserving its visual style", () => {

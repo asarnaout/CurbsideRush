@@ -45,6 +45,32 @@ a third — fine on NYC's 65 signals, zero on London's 2. Ties break on
 `localeCompare`, so reordering a map's controls cannot shift the draw, and a
 `max(1)` floor guarantees a signalled city has at least one camera to find.
 
+**One `TrafficControlApproach` is one arm — one direction of travel — not one
+road.** Where a signal sits mid-road both directions of a two-way street
+terminate at that node, and grouping them by `roadId` gives the pair a single
+stop line anchored on one direction's lane and a single head facing the other
+way: the opposing driver is then enforced against a signal that was never built
+for them, silently. Group by the node each lane arrives *from* (Cairo) or by
+approach heading (NYC). Keep `phaseGroup` keyed by road, though — opposing arms
+of one street must still run together, or splitting the approaches also splits
+the cycle.
+
+**A kerbside head belongs beside its own stop line**, roughly a metre before
+the bar and a metre past the kerb face, on the traffic side. Cairo originally
+searched for the position that maximised distance from every lane, which is not
+the same objective at all: straying cost 0.01 m of score per metre, so the
+widest, furthest-back corner of the grid always won and every head stood 13–24 m
+out on open ground, most of them across the carriageway. Clearance is a **veto**
+on that ideal spot, never the thing being maximised.
+
+**Signage is derived, controls are authored, so the post is what moves.**
+`RegulatorySignInput.occupiedPositions` carries every authored pole; a
+speed-limit sign that would land within `LIMIT_FURNITURE_CLEARANCE_M` of one
+slides further down its own kerb instead. It slides rather than drops because
+dropping can silence a corridor whose only sign collided, which is exactly what
+the repeater floor exists to prevent. Omit the field and posts stand bolted to
+signal poles — nothing else reads it, and nothing warns.
+
 ## The shipped cities
 
 | Map | Lanes | Roads | Lane km | Signals | Cameras | World (x × z m) |
