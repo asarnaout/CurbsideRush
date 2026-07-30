@@ -34,6 +34,15 @@ export interface BuildingPlacementConfig {
    * axes. Measured from the merged master's wall normals (#143).
    */
   readonly squareUpYaw?: number;
+  /**
+   * Post-scale roof height (m) = native height × scale. Set only on models that
+   * should receive Cairo's rooftop clutter — the water tanks and satellite
+   * dishes that the procedural facade boxes grow and that a glb street wall
+   * would otherwise lose. Absent means "nothing goes on this roof": the KayKit
+   * walk-ups already model their own tank, and a water tank on a 60 m Corniche
+   * hotel would be wrong.
+   */
+  readonly roofY?: number;
 }
 
 // Scales/ground offsets derived from each glb's native bounds (see tools note in
@@ -83,21 +92,23 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   // Scales run taller than the NYC equivalents on purpose: Downtown Cairo and
   // Zamalek are 6-8 storeys where the Upper West Side is 4-5, and these are
   // 2-4-storey models being asked to read as the taller thing.
+  // roofY is native height × scale, so rooftop clutter lands on the parapet
+  // rather than floating over it or sinking into the top floor.
   "cairo-tower-a": { scale: 15, groundY: 0, footprintM: 18.5, frontOffset: 0 },
   "cairo-tower-b": { scale: 15, groundY: 0, footprintM: 18.5, frontOffset: 0 },
-  "cairo-block-4story": { scale: 4.6, groundY: 0, footprintM: 11.5, frontOffset: Math.PI },
-  "cairo-block-4story-centre": { scale: 4.6, groundY: 0, footprintM: 11.5, frontOffset: Math.PI },
+  "cairo-block-4story": { scale: 4.6, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 23.4 },
+  "cairo-block-4story-centre": { scale: 4.6, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 23.4 },
   // slim/small are deeper than they are wide; footprint follows the *frontage*
   // rather than max(w,d) so the wall closes up instead of leaving 5 m gaps.
-  "cairo-block-slim": { scale: 5, groundY: 0, footprintM: 6, frontOffset: Math.PI },
-  "cairo-block-small": { scale: 5, groundY: 0, footprintM: 9.8, frontOffset: Math.PI },
-  "cairo-block-colonnade": { scale: 5.2, groundY: 0, footprintM: 11.5, frontOffset: Math.PI },
-  "cairo-block-balcony": { scale: 5.2, groundY: 0, footprintM: 11.5, frontOffset: Math.PI },
-  "cairo-block-terrace": { scale: 4.8, groundY: 0, footprintM: 18.5, frontOffset: Math.PI },
+  "cairo-block-slim": { scale: 5, groundY: 0, footprintM: 6, frontOffset: Math.PI, roofY: 20 },
+  "cairo-block-small": { scale: 5, groundY: 0, footprintM: 9.8, frontOffset: Math.PI, roofY: 19.3 },
+  "cairo-block-colonnade": { scale: 5.2, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 14.4 },
+  "cairo-block-balcony": { scale: 5.2, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 15.3 },
+  "cairo-block-terrace": { scale: 4.8, groundY: 0, footprintM: 18.5, frontOffset: Math.PI, roofY: 13.2 },
   "cairo-walkup-a": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
   "cairo-walkup-b": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
   "cairo-residence-kay": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
-  "cairo-residence-quaternius": { scale: 4.8, groundY: 0, footprintM: 10.5, frontOffset: Math.PI },
+  "cairo-residence-quaternius": { scale: 4.8, groundY: 0, footprintM: 10.5, frontOffset: Math.PI, roofY: 20.2 },
 };
 
 export type BuildingSetId =
