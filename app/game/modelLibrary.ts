@@ -349,18 +349,39 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   shop: { url: `${P}/shop.glb`, scale: 4, yawOffset: Math.PI / 2 },
   residence: { url: `${P}/residence.glb`, scale: 2.6, yawOffset: Math.PI / 2 },
   // Cairo uses flat-roofed urban residences instead of the generic detached
-  // house. Both source models face +Z before glTF handedness conversion, which
-  // lands their entrance on the holder's road-facing -X side at this offset.
+  // house, and its own office/depot blocks instead of `office` below — that
+  // model is Quaternius's "Big Building" and has a hipped roof, which is a
+  // European shape Cairo's flat-roofed street simply does not have.
+  //
+  // All four import with their entrance on local +Z (measured from the
+  // Quaternius Wood/DarkWood/Glass submesh centroids; the KayKit pack is the
+  // same one buildingSets records as `frontOffset: Math.PI`). That is the
+  // opposite of the -Z the props above assume, so they take -π/2 rather than
+  // π/2 — the same correction `restaurant-pizzeria` describes, minus its
+  // mirroring half-turn. At -π/2 the entrance lands on the holder's road-facing
+  // -X side.
   "cairo-residence-kay": {
     url: `${P}/cairo-residence-kay.glb`,
     scale: 5.5,
-    yawOffset: Math.PI / 2,
+    yawOffset: -Math.PI / 2,
   },
   "cairo-residence-quaternius": {
     url: `${P}/cairo-residence-quaternius.glb`,
     scale: 3.35,
-    yawOffset: Math.PI / 2,
+    yawOffset: -Math.PI / 2,
     groundY: 0.011,
+  },
+  "cairo-office-block": {
+    url: `${P}/cairo-office-block.glb`,
+    scale: 2.4,
+    yawOffset: -Math.PI / 2,
+    groundY: 0.059,
+  },
+  "cairo-depot": {
+    url: `${P}/cairo-depot.glb`,
+    scale: 2.4,
+    yawOffset: -Math.PI / 2,
+    groundY: 0.038,
   },
   office: { url: `${P}/office.glb`, scale: 2.8, yawOffset: Math.PI / 2 },
 };

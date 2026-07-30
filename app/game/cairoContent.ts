@@ -1399,6 +1399,10 @@ const cairoGigVenues: readonly GigVenue[] = venueNames.map((name, index) => {
     cairoLaneById.get(venueLaneOverrides[index] ?? "") ??
     lanesForAnchors[(index * 7 + 3) % lanesForAnchors.length];
   const kind = venueKinds[index % venueKinds.length];
+  // Offices and depots used to share `office.glb` — Quaternius's "Big Building",
+  // whose hipped roof is a European shape Cairo does not have, placed 12 times
+  // across the map. Both now get their own flat-roofed block. `office.glb`
+  // itself still serves NYC and London.
   const modelId =
     kind === "residence"
       ? CAIRO_RESIDENCE_MODEL_IDS[
@@ -1406,8 +1410,10 @@ const cairoGigVenues: readonly GigVenue[] = venueNames.map((name, index) => {
             CAIRO_RESIDENCE_MODEL_IDS.length
         ]
       : kind === "depot"
-        ? "office"
-        : undefined;
+        ? "cairo-depot"
+        : kind === "office"
+          ? "cairo-office-block"
+          : undefined;
   return {
     id: `cairo-venue-${String(index + 1).padStart(2, "0")}`,
     kind,

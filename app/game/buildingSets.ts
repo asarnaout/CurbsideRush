@@ -11,7 +11,7 @@
  * Renderer-agnostic (no Babylon imports): GameCanvas instantiates GPU instances
  * (`instantiateModelInstanced`) at the positions/rotations produced here.
  */
-import { NYC_ENV_MODELS } from "./buildingCatalog";
+import { ALL_ENV_MODELS } from "./buildingCatalog";
 import { seededUnit, type VisualPoint } from "./visuals";
 
 /** Per-model placement: uniform scale + ground offset + post-scale footprint. */
@@ -70,6 +70,34 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   "nyc-house-b": { scale: 0.44, groundY: 0, footprintM: 11, frontOffset: Math.PI },
   // Ground-floor retail (storefront on local +Z)
   "nyc-shop-corner": { scale: 7.5, groundY: 0, footprintM: 10, frontOffset: Math.PI },
+
+  // ---- Cairo ----
+  // Every Cairo model measured square to its own axes (>=94% of wall area at 0°),
+  // so none needs a squareUpYaw, and every one sits on y=0 natively.
+  //
+  // Facing: the Quaternius pack puts its doors and ground-floor glazing on local
+  // +Z (measured from the Wood/DarkWood/Glass submesh centroids, not guessed),
+  // and the KayKit walk-ups match NYC's brownstones — so both take the half-turn.
+  // Kenney's towers are symmetrical box slabs and need none.
+  //
+  // Scales run taller than the NYC equivalents on purpose: Downtown Cairo and
+  // Zamalek are 6-8 storeys where the Upper West Side is 4-5, and these are
+  // 2-4-storey models being asked to read as the taller thing.
+  "cairo-tower-a": { scale: 15, groundY: 0, footprintM: 18.5, frontOffset: 0 },
+  "cairo-tower-b": { scale: 15, groundY: 0, footprintM: 18.5, frontOffset: 0 },
+  "cairo-block-4story": { scale: 4.6, groundY: 0, footprintM: 11.5, frontOffset: Math.PI },
+  "cairo-block-4story-centre": { scale: 4.6, groundY: 0, footprintM: 11.5, frontOffset: Math.PI },
+  // slim/small are deeper than they are wide; footprint follows the *frontage*
+  // rather than max(w,d) so the wall closes up instead of leaving 5 m gaps.
+  "cairo-block-slim": { scale: 5, groundY: 0, footprintM: 6, frontOffset: Math.PI },
+  "cairo-block-small": { scale: 5, groundY: 0, footprintM: 9.8, frontOffset: Math.PI },
+  "cairo-block-colonnade": { scale: 5.2, groundY: 0, footprintM: 11.5, frontOffset: Math.PI },
+  "cairo-block-balcony": { scale: 5.2, groundY: 0, footprintM: 11.5, frontOffset: Math.PI },
+  "cairo-block-terrace": { scale: 4.8, groundY: 0, footprintM: 18.5, frontOffset: Math.PI },
+  "cairo-walkup-a": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
+  "cairo-walkup-b": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
+  "cairo-residence-kay": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
+  "cairo-residence-quaternius": { scale: 4.8, groundY: 0, footprintM: 10.5, frontOffset: Math.PI },
 };
 
 export type BuildingSetId =
@@ -77,7 +105,11 @@ export type BuildingSetId =
   | "nyc-midrise"
   | "nyc-brownstone"
   | "nyc-house"
-  | "nyc-shop";
+  | "nyc-shop"
+  | "cairo-corniche"
+  | "cairo-downtown"
+  | "cairo-zamalek"
+  | "cairo-westbank";
 
 /** Which catalogue models make up each zone's street wall. */
 const SETS: Record<BuildingSetId, readonly string[]> = {
@@ -95,9 +127,28 @@ const SETS: Record<BuildingSetId, readonly string[]> = {
   ],
   "nyc-house": ["nyc-house-a", "nyc-house-b"],
   "nyc-shop": ["nyc-shop-corner", "nyc-brownstone-a", "nyc-tenement"],
+
+  // Cairo. Every set mixes at least four models: a Corniche run is long enough
+  // that a two-model set reads as copy-paste from the driver's seat.
+  "cairo-corniche": [
+    "cairo-tower-a", "cairo-tower-b", "cairo-block-4story",
+    "cairo-block-4story-centre", "cairo-residence-quaternius",
+  ],
+  "cairo-downtown": [
+    "cairo-block-4story", "cairo-block-4story-centre", "cairo-block-colonnade",
+    "cairo-block-slim", "cairo-residence-quaternius", "cairo-walkup-a",
+  ],
+  "cairo-zamalek": [
+    "cairo-block-balcony", "cairo-block-colonnade", "cairo-block-small",
+    "cairo-walkup-a", "cairo-walkup-b", "cairo-residence-kay",
+  ],
+  "cairo-westbank": [
+    "cairo-block-small", "cairo-block-terrace", "cairo-block-slim",
+    "cairo-walkup-b", "cairo-block-4story",
+  ],
 };
 
-const URL_BY_ID = new Map(NYC_ENV_MODELS.map((m) => [m.id, m.url]));
+const URL_BY_ID = new Map(ALL_ENV_MODELS.map((m) => [m.id, m.url]));
 
 export const ALL_BUILDING_SET_IDS = Object.keys(SETS) as BuildingSetId[];
 

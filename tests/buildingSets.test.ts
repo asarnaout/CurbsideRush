@@ -7,9 +7,9 @@ import {
   missingBuildingConfigs,
   slotBlockBuildings,
 } from "../app/game/buildingSets";
-import { NYC_ENV_MODELS } from "../app/game/buildingCatalog";
+import { ALL_ENV_MODELS } from "../app/game/buildingCatalog";
 
-const CATALOG_IDS = new Set(NYC_ENV_MODELS.map((m) => m.id));
+const CATALOG_IDS = new Set(ALL_ENV_MODELS.map((m) => m.id));
 
 describe("building sets", () => {
   it("references only catalogue models that also have a placement config", () => {

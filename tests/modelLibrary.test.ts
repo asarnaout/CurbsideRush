@@ -4,7 +4,7 @@ import path from "node:path";
 import { NullEngine, Scene, LoadAssetContainerAsync } from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
-import { NYC_ENV_MODELS } from "../app/game/buildingCatalog";
+import { ALL_ENV_MODELS } from "../app/game/buildingCatalog";
 import { MAP_PACKS } from "../app/game/content";
 import { SERVICE_MODEL_FRAME, gasStationsOf } from "../app/game/servicePoints";
 
@@ -323,7 +323,7 @@ describe("NYC environment model catalogue", () => {
   };
 
   it("gives every CC-BY model a required attribution string (and CC0 none)", () => {
-    for (const model of NYC_ENV_MODELS) {
+    for (const model of ALL_ENV_MODELS) {
       if (model.license === "CC-BY 3.0") {
         expect(model.attribution, model.id).toBeTruthy();
       } else {
@@ -332,7 +332,7 @@ describe("NYC environment model catalogue", () => {
     }
   });
 
-  it.each(NYC_ENV_MODELS.map((m) => [m.id, m.url] as const))(
+  it.each(ALL_ENV_MODELS.map((m) => [m.id, m.url] as const))(
     "ships a parseable glb for %s",
     async (_id, url) => {
       const { container, scene, engine } = await load(url);

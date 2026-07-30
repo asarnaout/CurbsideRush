@@ -33,11 +33,28 @@ export const PROP_MODEL_FOOTPRINTS_M: Readonly<
     minZ: -5.519,
     maxZ: 5.519,
   },
+  // Mirrored in x when this model's yawOffset was corrected from π/2 to -π/2
+  // (its entrance is on local +Z, so π/2 had it facing away from the road).
+  // kay's is unchanged by that turn because it is symmetric in both axes.
   "cairo-residence-quaternius": {
-    minX: -4.792,
-    maxX: 3.609,
+    minX: -3.609,
+    maxX: 4.792,
     minZ: -3.616,
     maxZ: 3.616,
+  },
+  // Cairo's flat-roofed replacements for `office`. Wide, shallow street-front
+  // terraces, so z (the facade run) is much the larger extent.
+  "cairo-office-block": {
+    minX: -2.586,
+    maxX: 3.886,
+    minZ: -8.193,
+    maxZ: 8.193,
+  },
+  "cairo-depot": {
+    minX: -2.585,
+    maxX: 2.827,
+    minZ: -8.193,
+    maxZ: 8.193,
   },
   office: { minX: -6.15, maxX: 6.15, minZ: -6.59, maxZ: 6.59 },
 };
