@@ -170,7 +170,7 @@ describe("gig launcher", () => {
     expect(scene).toHaveAttribute("data-route-count", "0");
   });
 
-  it.each(["uk-london", "us-nyc"] as const)(
+  it.each(["uk-london", "us-nyc", "eg-cairo"] as const)(
     "matches the car and road to %s (auto steering, local traffic side)",
     async (destinationId) => {
       const destination = getDestinationProfile(destinationId);
@@ -196,6 +196,26 @@ describe("gig launcher", () => {
       );
     },
   );
+
+  it("shows all six city chips and selects the cleared Cairo landing art", async () => {
+    render(<SideSwapApp />);
+    await findTagline();
+
+    const group = screen.getByRole("group", { name: "Destination" });
+    expect(within(group).getAllByRole("button")).toHaveLength(6);
+    fireEvent.click(
+      within(group).getByRole("button", {
+        name: /Cairo/i,
+      }),
+    );
+
+    const preview = screen.getByLabelText(/Cairo training preview/i);
+    expect(preview.querySelector("img")).toHaveAttribute(
+      "src",
+      "/landing/cairo.webp",
+    );
+    expect(startButton("eg-cairo")).toBeEnabled();
+  });
 
   it("keeps Settings reachable from the header", async () => {
     render(<SideSwapApp />);

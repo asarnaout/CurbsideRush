@@ -298,7 +298,7 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   // yawOffset makes the entrance face the road. The venue loop rotates the
   // holder by the lane heading `h` (the tangent, atan2(dx,dz)) plus this offset,
   // and sets the building back along `(cos h, -sin h)` — so the carriageway sits
-  // at world yaw `h - π/2` from the building. All four building glbs import with
+  // at world yaw `h - π/2` from the building. The venue glbs below import with
   // their front on local -Z (the glTF loader adds a 180° Y flip for handedness),
   // i.e. a native door facing of `h + π` at offset 0. Solving
   // `h + yawOffset + π ≡ h - π/2` gives yawOffset = π/2, which turns every
@@ -348,6 +348,20 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   },
   shop: { url: `${P}/shop.glb`, scale: 4, yawOffset: Math.PI / 2 },
   residence: { url: `${P}/residence.glb`, scale: 2.6, yawOffset: Math.PI / 2 },
+  // Cairo uses flat-roofed urban residences instead of the generic detached
+  // house. Both source models face +Z before glTF handedness conversion, which
+  // lands their entrance on the holder's road-facing -X side at this offset.
+  "cairo-residence-kay": {
+    url: `${P}/cairo-residence-kay.glb`,
+    scale: 5.5,
+    yawOffset: Math.PI / 2,
+  },
+  "cairo-residence-quaternius": {
+    url: `${P}/cairo-residence-quaternius.glb`,
+    scale: 3.35,
+    yawOffset: Math.PI / 2,
+    groundY: 0.011,
+  },
   office: { url: `${P}/office.glb`, scale: 2.8, yawOffset: Math.PI / 2 },
 };
 

@@ -26,6 +26,7 @@ const CITIES: readonly MapId[] = [
   "milton-keynes-oldbrook",
   "calais-coquelles",
   "tokyo-setagaya",
+  "cairo-central-nile",
 ];
 
 const poisFor = (id: MapId) => collectMapPois(getMapPack(id));

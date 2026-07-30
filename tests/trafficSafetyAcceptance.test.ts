@@ -540,8 +540,8 @@ describe("traffic safety acceptance", () => {
   it(
     "keeps every playable start and checkpoint safe for 60 seconds across 51 seeds",
     () => {
-      expect(PLAYABLE_PATHS).toHaveLength(5);
-      expect(new Set(PLAYABLE_PATHS.map((path) => path.id)).size).toBe(5);
+      expect(PLAYABLE_PATHS).toHaveLength(6);
+      expect(new Set(PLAYABLE_PATHS.map((path) => path.id)).size).toBe(6);
       expect(ADDITIONAL_TRAFFIC_SEEDS).toHaveLength(50);
       expect(new Set(ADDITIONAL_TRAFFIC_SEEDS).size).toBe(50);
       expect(
@@ -554,6 +554,7 @@ describe("traffic safety acceptance", () => {
         "free-uk-london": 2251,
         "free-fr": 2301,
         "free-jp": 2401,
+        "free-eg": 2601,
       });
 
       const failures: string[] = [];
@@ -622,7 +623,7 @@ describe("traffic safety acceptance", () => {
           : undefined,
       ).toEqual([]);
     },
-    // Exhaustive 60 s × 51-seed stationary check over every start on all 5
+    // Exhaustive 60 s × 51-seed stationary check over every start on all 6
     // playable free-drive paths. The guarantee (seeds, duration, positions) is
     // fixed; wall-clock scales with map size + density. This body is synchronous,
     // so the budget only labels a completed run — it never truncates coverage.

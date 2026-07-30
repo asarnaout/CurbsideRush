@@ -20,11 +20,13 @@ import {
 } from "./minimap";
 import {
   drawMapOverlay,
+  drawMapWaterBodies,
   drawPlayerMarker,
   drawRoadNetwork,
   type MapDestination,
   type MapDrawPoint,
   type MapDrawSurface,
+  type MapDrawWaterBody,
   type MapSymbolSizes,
 } from "./minimapDraw";
 
@@ -61,6 +63,7 @@ export interface ExpandedMapProps {
   readonly subtitle: string | null;
   readonly worldSize: { readonly x: number; readonly z: number };
   readonly roadSurfaces: readonly MapDrawSurface[];
+  readonly waterBodies?: readonly MapDrawWaterBody[];
   readonly pois: readonly MapPoi[];
   readonly destination?: MapDestination | null;
   /**
@@ -102,6 +105,7 @@ export function ExpandedMap({
   subtitle,
   worldSize,
   roadSurfaces,
+  waterBodies = [],
   pois,
   destination,
   route,
@@ -156,6 +160,7 @@ export function ExpandedMap({
     // is the only place that knows it.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, box.width, box.height);
+    drawMapWaterBodies(ctx, waterBodies, projector);
     drawRoadNetwork(
       ctx,
       roadSurfaces,
@@ -170,7 +175,16 @@ export function ExpandedMap({
       previewRoute,
       destination,
     });
-  }, [roadSurfaces, projector, box, dpr, route, previewRoute, destination]);
+  }, [
+    roadSurfaces,
+    waterBodies,
+    projector,
+    box,
+    dpr,
+    route,
+    previewRoute,
+    destination,
+  ]);
 
   // The car, above the place icons — see `drawPlayerMarker`.
   useEffect(() => {

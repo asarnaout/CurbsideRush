@@ -13,7 +13,7 @@ const signalControlIdsOf = (mapId: string): string[] =>
     .map((control) => control.id);
 
 const aspectAt = (
-  style: "nyc_signal" | "uk_signal",
+  style: "nyc_signal" | "uk_signal" | "egypt_signal",
   controlId: string,
   phaseGroup: string,
   phaseGroups: readonly string[],
@@ -100,12 +100,24 @@ describe("authored traffic-signal phases", () => {
     expect(aspectAt("uk_signal", "uk-test", groups[0], groups, 11.6)).toBe("all_red");
     expect(aspectAt("uk_signal", "uk-test", groups[1], groups, 12.6)).toBe("red_amber");
   });
+
+  it("uses Egypt's green, amber and all-red sequence without UK red-amber", () => {
+    const groups = ["corniche", "tahrir"];
+    expect(aspectAt("egypt_signal", "eg-test", groups[0], groups, 0.1)).toBe("green");
+    expect(aspectAt("egypt_signal", "eg-test", groups[0], groups, 7.1)).toBe("amber");
+    expect(aspectAt("egypt_signal", "eg-test", groups[0], groups, 9.1)).toBe("all_red");
+    expect(aspectAt("egypt_signal", "eg-test", groups[1], groups, 10.1)).toBe("green");
+  });
 });
 
 describe("authored traffic-signal installations", () => {
-  it("maps every NYC and London signal head to one compatible approach phase", () => {
+  it("maps every authored signal head to one compatible approach phase", () => {
     const maps = MAP_PACKS.filter((map) =>
-      ["nyc-upper-west-side", "london-south-kensington"].includes(map.id),
+      [
+        "nyc-upper-west-side",
+        "london-south-kensington",
+        "cairo-central-nile",
+      ].includes(map.id),
     );
     for (const map of maps) {
       for (const control of map.laneGraph.controls.filter(
@@ -114,7 +126,9 @@ describe("authored traffic-signal installations", () => {
         const approaches = new Map(control.approaches.map((approach) => [approach.id, approach]));
         for (const signalHead of control.installations.filter(
           (candidate) =>
-            candidate.style === "nyc_signal" || candidate.style === "uk_signal",
+            candidate.style === "nyc_signal" ||
+            candidate.style === "uk_signal" ||
+            candidate.style === "egypt_signal",
         )) {
           expect(signalHead.approachIds?.length, `${control.id}/${signalHead.id}`).toBeGreaterThan(0);
           const mappedGroups = new Set(
@@ -141,9 +155,13 @@ describe("authored traffic-signal installations", () => {
     }
   });
 
-  it("keeps every NYC and London signal-pole base outside driveable lanes", () => {
+  it("keeps every authored signal-pole base outside driveable lanes", () => {
     const maps = MAP_PACKS.filter((map) =>
-      ["nyc-upper-west-side", "london-south-kensington"].includes(map.id),
+      [
+        "nyc-upper-west-side",
+        "london-south-kensington",
+        "cairo-central-nile",
+      ].includes(map.id),
     );
     for (const map of maps) {
       for (const control of map.laneGraph.controls.filter(
@@ -151,7 +169,9 @@ describe("authored traffic-signal installations", () => {
       )) {
         for (const signalHead of control.installations.filter(
           (candidate) =>
-            candidate.style === "nyc_signal" || candidate.style === "uk_signal",
+            candidate.style === "nyc_signal" ||
+            candidate.style === "uk_signal" ||
+            candidate.style === "egypt_signal",
         )) {
           for (const lane of map.laneGraph.lanes) {
             let nearest = Number.POSITIVE_INFINITY;
@@ -176,7 +196,11 @@ describe("authored traffic-signal installations", () => {
   });
 
   it("equips a third of a city's signals with a camera", () => {
-    for (const mapId of ["nyc-upper-west-side", "london-south-kensington"]) {
+    for (const mapId of [
+      "nyc-upper-west-side",
+      "london-south-kensington",
+      "cairo-central-nile",
+    ]) {
       const ids = signalControlIdsOf(mapId);
       expect(ids.length, `${mapId} has signals`).toBeGreaterThan(0);
       const equipped = trafficCameraControlIds(ids);

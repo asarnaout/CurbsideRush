@@ -79,6 +79,8 @@ function connectorBlendSamples(
   nodePosition: WorldPoint,
   lineStart: WorldPoint,
   lineToward: WorldPoint,
+  maxBlendLateralM: number,
+  blendSteps: number,
 ): ConnectorBlend | null {
   const dirX = lineToward.x - lineStart.x;
   const dirZ = lineToward.z - lineStart.z;
@@ -93,15 +95,15 @@ function connectorBlendSamples(
   const footZ = lineStart.z + uz * footT;
   const lateralX = nodePosition.x - footX;
   const lateralZ = nodePosition.z - footZ;
-  if (Math.hypot(lateralX, lateralZ) > MAX_BLEND_LATERAL_M) return null;
+  if (Math.hypot(lateralX, lateralZ) > maxBlendLateralM) return null;
   // Usable straight run from the node's foot toward the established path; the
   // blend must finish before the line itself may bend at `lineToward`.
   const run = (lineToward.x - footX) * ux + (lineToward.z - footZ) * uz;
   const blendRun = Math.min(CONNECTOR_BLEND_RUN_M, run - 0.25);
   if (blendRun < MIN_BLEND_RUN_M) return null;
   const samples: WorldPoint[] = [];
-  for (let step = 1; step <= CONNECTOR_BLEND_STEPS; step += 1) {
-    const t = step / CONNECTOR_BLEND_STEPS;
+  for (let step = 1; step <= blendSteps; step += 1) {
+    const t = step / blendSteps;
     const lateral = 1 - smoothstep01(t);
     samples.push(
       point(
@@ -123,7 +125,17 @@ export function buildLaneTrueGeometry(
   fromPosition: WorldPoint,
   toPosition: WorldPoint,
   establishedPath: readonly WorldPoint[],
+  options: {
+    readonly maxBlendLateralM?: number;
+    readonly connectorBlendSteps?: number;
+  } = {},
 ): LaneTrueGeometry {
+  const maxBlendLateralM =
+    options.maxBlendLateralM ?? MAX_BLEND_LATERAL_M;
+  const blendSteps = Math.max(
+    2,
+    Math.floor(options.connectorBlendSteps ?? CONNECTOR_BLEND_STEPS),
+  );
   const first = establishedPath[0];
   const last = establishedPath.at(-1)!;
   const dominantHorizontal =
@@ -154,23 +166,39 @@ export function buildLaneTrueGeometry(
       ? point((first.x + last.x) / 2, (first.z + last.z) / 2)
       : null;
   const entryBlend = multiPoint
-    ? connectorBlendSamples(
-        fromPosition,
-        first,
-        sharedSegmentMidpoint ?? establishedPath[1],
-      )
+      ? connectorBlendSamples(
+          fromPosition,
+          first,
+          sharedSegmentMidpoint ?? establishedPath[1],
+          maxBlendLateralM,
+          blendSteps,
+        )
     : startEstablished === first
       ? null
-      : connectorBlendSamples(fromPosition, startEstablished, first);
+      : connectorBlendSamples(
+          fromPosition,
+          startEstablished,
+          first,
+          maxBlendLateralM,
+          blendSteps,
+        );
   const exitBlend = multiPoint
-    ? connectorBlendSamples(
-        toPosition,
-        last,
-        sharedSegmentMidpoint ?? establishedPath[establishedPath.length - 2],
-      )
+      ? connectorBlendSamples(
+          toPosition,
+          last,
+          sharedSegmentMidpoint ?? establishedPath[establishedPath.length - 2],
+          maxBlendLateralM,
+          blendSteps,
+        )
     : endEstablished === last
       ? null
-      : connectorBlendSamples(toPosition, endEstablished, last);
+      : connectorBlendSamples(
+          toPosition,
+          endEstablished,
+          last,
+          maxBlendLateralM,
+          blendSteps,
+        );
 
   const entryPoints = entryBlend
     ? [...entryBlend.samples]

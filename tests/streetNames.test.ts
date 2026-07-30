@@ -20,6 +20,7 @@ const NAMED_MAPS: readonly MapId[] = [
   "nyc-upper-west-side",
   "london-south-kensington",
   "tokyo-setagaya",
+  "cairo-central-nile",
 ];
 
 describe("street names", () => {

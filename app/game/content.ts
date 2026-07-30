@@ -42,6 +42,11 @@ import {
   LONDON_MAP_PACK,
   LONDON_RULE_REFERENCES,
 } from "./londonContent";
+import {
+  CAIRO_FREE_DRIVE,
+  CAIRO_MAP_PACK,
+  CAIRO_RULE_REFERENCES,
+} from "./cairoContent";
 import { buildLaneTrueGeometry, CONNECTOR_BLEND_RUN_M } from "./laneConnectors";
 import { speedingFineMultiplier } from "./speeding";
 import { FULL_CONDITION_PCT } from "./damage";
@@ -100,6 +105,22 @@ const TOKYO_THEME: CountryVisualTheme = {
   accent: "#e64f52",
   architecture: "compact homes, utility poles and small station-front shops",
   roadsideDetails: ["rail crossings", "bicycles", "vending machines"],
+};
+
+const CAIRO_THEME: CountryVisualTheme = {
+  sky: "#73afd1",
+  ground: "#b9a777",
+  road: "#494640",
+  laneMarking: "#f4f0dc",
+  accent: "#2f8297",
+  architecture:
+    "warm Khedivial apartments, Garden City villas and Nile-side cultural landmarks",
+  roadsideDetails: [
+    "white taxis",
+    "date palms",
+    "bilingual direction signs",
+    "Nile feluccas",
+  ],
 };
 
 const point = (x: number, z: number): WorldPoint => ({ x, z });
@@ -940,6 +961,32 @@ export const COUNTRY_PROFILES: readonly CountryProfile[] = [
     officialReferences: JP_RULES,
     reviewedOn: CONTENT_REVIEWED_ON,
   },
+  {
+    id: "eg",
+    countryCode: "EG",
+    countryName: "Egypt",
+    flagEmoji: "🇪🇬",
+    trafficSide: "right",
+    defaultSteeringSide: "left",
+    speedUnit: "kmh",
+    currency: { code: "EGP", symbol: "E£", minorUnits: 2 },
+    centreLineColor: "white",
+    lanePolicy: {
+      keepSide: "right",
+      passingSide: "left",
+      normalTravelLaneSide: "right",
+      turnOnRed: "prohibited",
+    },
+    roundaboutPolicy: {
+      circulation: "counterclockwise",
+      yieldToTrafficFrom: "left",
+      entrySide: "right",
+    },
+    priorityPolicy:
+      "Obey signals and signs, keep right, and yield to traffic already circulating at roundabouts.",
+    officialReferences: CAIRO_RULE_REFERENCES,
+    reviewedOn: CONTENT_REVIEWED_ON,
+  },
 ];
 
 export const DESTINATION_PROFILES: readonly DestinationProfile[] = [
@@ -997,6 +1044,17 @@ export const DESTINATION_PROFILES: readonly DestinationProfile[] = [
     promotion: "standard",
     cityMark: "TYO",
     visualTheme: TOKYO_THEME,
+  },
+  {
+    id: "eg-cairo",
+    countryId: "eg",
+    destinationName: "Cairo",
+    destinationSubtitle: "Tahrir, Garden City, Gezira & the Central Nile",
+    mapId: "cairo-central-nile",
+    freeDriveId: "free-eg",
+    promotion: "standard",
+    cityMark: "CAI",
+    visualTheme: CAIRO_THEME,
   },
 ];
 
@@ -1843,6 +1901,7 @@ const jpLanes: readonly LaneSegment[] = [
 
 export const MAP_PACKS: readonly MapPack[] = [
   LONDON_MAP_PACK,
+  CAIRO_MAP_PACK,
   {
     id: "nyc-upper-west-side",
     name: "NYC Upper West Side",
@@ -2429,6 +2488,7 @@ export const MAP_PACKS: readonly MapPack[] = [
 
 export const FREE_DRIVES: readonly FreeDriveDefinition[] = [
   LONDON_FREE_DRIVE,
+  CAIRO_FREE_DRIVE,
   {
     id: "free-us",
     countryId: "us",
@@ -2486,6 +2546,7 @@ export const FUEL_PRICE_PER_LITRE_BY_COUNTRY: Readonly<Record<CountryId, number>
   uk: 0.45,
   fr: 0.5,
   jp: 60,
+  eg: 20,
 };
 
 /**
@@ -2499,6 +2560,7 @@ export const GIG_FARE_BY_COUNTRY: Readonly<
   uk: { base: 4, ratePerM: 0.012 },
   fr: { base: 5, ratePerM: 0.014 },
   jp: { base: 600, ratePerM: 2 },
+  eg: { base: 200, ratePerM: 0.6 },
 };
 
 /**
@@ -2513,6 +2575,7 @@ export const PASSENGER_FARE_BY_COUNTRY: Readonly<
   uk: { base: 7, ratePerM: 0.018 },
   fr: { base: 8, ratePerM: 0.02 },
   jp: { base: 1000, ratePerM: 3 },
+  eg: { base: 350, ratePerM: 0.9 },
 };
 
 /**
@@ -2532,6 +2595,7 @@ export const FINE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   uk: 8,
   fr: 10,
   jp: 800,
+  eg: 400,
 };
 
 /**
@@ -2596,6 +2660,7 @@ export const REPAIR_RATE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   uk: 25,
   fr: 30,
   jp: 2500,
+  eg: 1250,
 };
 
 /** Where the work is done — the two ways a damaged car gets fixed. */
@@ -2651,6 +2716,7 @@ export const STARTING_WALLET_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   uk: 20,
   fr: 25,
   jp: 3000,
+  eg: 1000,
 };
 
 /** Formats an amount in a country's own currency, e.g. £1,250 or ¥3,000. */

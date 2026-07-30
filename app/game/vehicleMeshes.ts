@@ -167,6 +167,7 @@ function createPlateMaterial(
   region: PlateRegion,
   position: "front" | "rear",
   plateNumber: string,
+  role: VehicleAppearance["role"],
 ): StandardMaterial {
   const height = 128;
   const width = Math.round(height * PLATE_ASPECT);
@@ -247,6 +248,27 @@ function createPlateMaterial(
     ctx.fillStyle = "#161616";
     fitFont(plateNumber, width - band * 2 - width * 0.08, Math.round(height * 0.46), sans);
     ctx.fillText(plateNumber, width / 2, height * 0.54);
+  } else if (region === "eg") {
+    // Egyptian plates identify the vehicle class by colour: private cars use a
+    // pale field, taxis an orange field, and public/commercial transport a red
+    // one. A blue national band carries Egypt in Arabic and English.
+    const publicTransport = role === "bus" || role === "van";
+    ctx.fillStyle = publicTransport
+      ? "#b5232e"
+      : role === "taxi"
+        ? "#e7902a"
+        : "#f1f0e9";
+    ctx.fillRect(0, 0, width, height);
+    const bandHeight = Math.round(height * 0.29);
+    ctx.fillStyle = "#174c87";
+    ctx.fillRect(0, 0, width, bandHeight);
+    const arabic = "'Noto Sans Arabic', 'Geeza Pro', Arial, sans-serif";
+    ctx.fillStyle = "#ffffff";
+    fitFont("مصر   EGYPT", width * 0.84, Math.round(height * 0.18), arabic);
+    ctx.fillText("مصر   EGYPT", width / 2, bandHeight * 0.53);
+    ctx.fillStyle = publicTransport ? "#ffffff" : "#17191b";
+    fitFont(plateNumber, width * 0.86, Math.round(height * 0.44), arabic);
+    ctx.fillText(plateNumber, width / 2, height * 0.66);
   } else {
     // Japan: white ground, green legend (private car). Area line is fixed for
     // the map; plateNumber is the lower hiragana + serial line.
@@ -261,7 +283,11 @@ function createPlateMaterial(
   }
 
   const borderColor =
-    region === "jp" ? "#0b7a3a" : region === "us" ? "#123a7a" : "#22262c";
+    region === "jp"
+      ? "#0b7a3a"
+      : region === "us" || region === "eg"
+        ? "#174c87"
+        : "#22262c";
   ctx.strokeStyle = borderColor;
   ctx.lineWidth = Math.max(2, height * 0.045);
   ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, width - ctx.lineWidth, height - ctx.lineWidth);
@@ -659,7 +685,9 @@ function liveryDecalMaterial(
     true,
   );
   const ctx = texture.getContext() as unknown as CanvasRenderingContext2D;
-  const sans = "Arial, 'Helvetica Neue', sans-serif";
+  const sans = /[\u0600-\u06ff]/.test(livery.lettering)
+    ? "'Noto Sans Arabic', 'Geeza Pro', Arial, sans-serif"
+    : "Arial, 'Helvetica Neue', sans-serif";
   ctx.clearRect(0, 0, width, height);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -923,12 +951,24 @@ function buildModelVehicle(
   // bounds, so the plates land correctly whatever the model's dimensions,
   // config.scale or import orientation (see computePlatePlacements).
   const region = appearance.plateRegion;
-  const rearPlateMaterial = createPlateMaterial(scene, region, "rear", appearance.plateNumber);
+  const rearPlateMaterial = createPlateMaterial(
+    scene,
+    region,
+    "rear",
+    appearance.plateNumber,
+    appearance.role,
+  );
   // Front and rear differ only for the UK (white front / yellow rear); every
   // other region shares one texture across both plates.
   const frontPlateMaterial =
     region === "uk"
-      ? createPlateMaterial(scene, region, "front", appearance.plateNumber)
+      ? createPlateMaterial(
+          scene,
+          region,
+          "front",
+          appearance.plateNumber,
+          appearance.role,
+        )
       : rearPlateMaterial;
   const ownedPlateMaterials =
     frontPlateMaterial === rearPlateMaterial

@@ -22,6 +22,13 @@
   font-display: swap;
   src: url("/fonts/playfair-display-italic.woff2") format("woff2");
 }
+@font-face {
+  font-family: "Noto Sans Arabic";
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url("/fonts/noto-sans-arabic.woff2") format("woff2");
+}
 
 :root {
   /* ── Dark-HUD design language ─────────────────────────────────────────── */
@@ -2775,7 +2782,7 @@ canvas:focus-visible {
   .launcher-shell .app-header { min-height: 48px; }
   .launcher-page {
     /* Buy the fold back from the widest thing on the page, not the type: at
-       470px+ the five city chips wrap to two rows instead of three, which is
+       470px+ the six city chips wrap to two rows instead of three, which is
        51px — more than every font and margin cut below put together, and it
        costs no tap target. The hero keeps 300px, still the taller half. */
     grid-template-columns: minmax(470px, 1.2fr) minmax(300px, 0.8fr);
@@ -2897,8 +2904,12 @@ canvas:focus-visible {
   flex: none;
   align-content: start;
   grid-auto-rows: min-content;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
+}
+
+@media (max-width: 1180px) and (min-width: 861px) {
+  .travel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .travel-card {
@@ -3330,6 +3341,16 @@ canvas:focus-visible {
     order: 3;
     padding: 15px;
     border-radius: 15px;
+  }
+}
+
+/* Short landscape screens do not have enough vertical room for the mobile
+   flight bar to sit over the page without obscuring the heading or first
+   city. Keep the same compact card layout, but let the actions follow the
+   list in normal document flow. */
+@media (max-width: 860px) and (max-height: 480px) {
+  .travel-footer {
+    position: static;
   }
 }
 

@@ -349,6 +349,7 @@ const DESTINATION_PREVIEW_IMAGES: Record<DestinationId, string> = {
   "uk-milton-keynes": "/landing/milton-keynes.webp",
   "fr-calais": "/landing/calais.webp",
   "jp-tokyo": "/landing/tokyo.webp",
+  "eg-cairo": "/landing/cairo.webp",
 };
 
 // Horizontal focus for the cover-cropped preview. Defaults to centre; Calais is
@@ -3038,6 +3039,7 @@ export default function SideSwapApp() {
           <Minimap
             worldSize={runtimeMap.geometry.worldSize}
             roadSurfaces={runtimeMap.geometry.roadSurfaces}
+            waterBodies={runtimeMap.geometry.waterBodies}
             playerX={hud.playerX}
             playerZ={hud.playerZ}
             heading={hud.heading}
@@ -3188,6 +3190,7 @@ export default function SideSwapApp() {
             subtitle={navJob ? `${navJob.eyebrow} · ${navJob.target}` : null}
             worldSize={runtimeMap.geometry.worldSize}
             roadSurfaces={runtimeMap.geometry.roadSurfaces}
+            waterBodies={runtimeMap.geometry.waterBodies}
             pois={mapPois}
             destination={mapDestination}
             // The whole line, not the remainder the corner widget draws: the
@@ -3708,6 +3711,7 @@ function CreditsView({ onBack }: { onBack: () => void }) {
     ["Milton Keynes", "uk-milton-keynes.json"],
     ["Calais / Coquelles", "fr-calais-coquelles.json"],
     ["Tokyo Setagaya", "jp-setagaya.json"],
+    ["Cairo — Central Nile", "eg-cairo-central-nile.json"],
   ] as const;
   return (
     <section className="subpage credits-page">
@@ -3721,7 +3725,7 @@ function CreditsView({ onBack }: { onBack: () => void }) {
       </div>
       <article className="license-card">
         <h3 className="credits-section-title"><span className="settings-card-dot dot-sage" aria-hidden="true" />Map data — frozen, credited, separate from the law</h3>
-        <p>Curbside Rush includes compact snapshots for Upper West Side, South Kensington, Milton Keynes, Calais/Coquelles and Setagaya. Each extract records its bounds, freeze timestamp, source and content checksums, and importer version. The game makes no runtime map requests.</p>
+        <p>Curbside Rush includes compact snapshots for Upper West Side, South Kensington, Milton Keynes, Calais/Coquelles, Setagaya and Central Cairo. Each extract records its bounds, freeze timestamp, source and content checksums, and importer version. The game makes no runtime map requests.</p>
         <div className="map-downloads" aria-label="Download frozen map extracts">
           {extracts.map(([label, filename]) => (
             <a key={filename} href={`/map-data/${filename}`} download>

@@ -818,6 +818,10 @@ const STATIC_OBSTACLE_MESSAGES: Readonly<
     message: "Your vehicle hit a building.",
     correction: "Brake earlier and keep to the carriageway.",
   },
+  shoreline: {
+    message: "Your vehicle reached the river embankment.",
+    correction: "Follow the carriageway onto an authored bridge.",
+  },
   worldEdge: {
     message: "You have reached the edge of the city.",
     correction: "Turn back toward the streets.",

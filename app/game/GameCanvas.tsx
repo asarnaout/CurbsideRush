@@ -59,6 +59,10 @@ import {
   resolveVenuePlacement,
 } from "./simulationAdapter";
 import {
+  BRIDGE_PARAPET_PAVEMENT_CLEARANCE_M,
+  bridgePortalRailSpans,
+} from "./bridgePortalGeometry";
+import {
   DEFAULT_SERVICE_SETBACK_M,
   FUEL_PUMP_REACH_M,
   gasStationPumpPositions,
@@ -209,6 +213,11 @@ import {
   type VehicleMeshVisual,
 } from "./vehicleMeshes";
 import {
+  assertArabicCanvasFontDebug,
+  ensureArabicCanvasFontLoaded,
+  inspectArabicCanvasFont,
+} from "./arabicFont";
+import {
   policeAppearanceForMap,
   policeBeaconLamps,
   resolvePlayerVehicleAppearance,
@@ -237,6 +246,7 @@ import {
   nycVendorUrls,
   slotBlockBuildings,
   type BuildingSetId,
+  type PlacedBuilding,
   type StreetPropConfig,
 } from "./buildingSets";
 import {
@@ -672,7 +682,9 @@ export function trafficCameraHeadIds(control: {
 }): ReadonlySet<string> {
   const heads = (control.installations ?? []).filter(
     (candidate) =>
-      candidate.style === "nyc_signal" || candidate.style === "uk_signal",
+      candidate.style === "nyc_signal" ||
+      candidate.style === "uk_signal" ||
+      candidate.style === "egypt_signal",
   );
   const chosen = new Set<string>();
   for (const approach of control.approaches ?? []) {
@@ -1249,31 +1261,162 @@ export function facadeGridCells(block: {
   readonly center: { readonly x: number; readonly z: number };
   readonly size: { readonly x: number; readonly z: number };
   readonly density: number;
+  readonly headingDeg?: number;
 }): readonly {
   readonly index: number;
   readonly x: number;
   readonly z: number;
   readonly cellWidth: number;
   readonly cellDepth: number;
+  readonly rotationY: number;
 }[] {
   const count = Math.max(1, Math.round(3 + block.density * 7));
   const columns = Math.ceil(Math.sqrt(count));
   const rows = Math.ceil(count / columns);
   const cellWidth = block.size.x / columns;
   const cellDepth = block.size.z / rows;
+  const rotationY = degreesToRadians(block.headingDeg ?? 0);
+  const sin = Math.sin(rotationY);
+  const cos = Math.cos(rotationY);
   const cells = [];
   for (let index = 0; index < count; index += 1) {
     const row = Math.floor(index / columns);
     const column = index % columns;
+    const localX = -block.size.x / 2 + cellWidth * (column + 0.5);
+    const localZ = -block.size.z / 2 + cellDepth * (row + 0.5);
     cells.push({
       index,
-      x: block.center.x - block.size.x / 2 + cellWidth * (column + 0.5),
-      z: block.center.z - block.size.z / 2 + cellDepth * (row + 0.5),
+      x: block.center.x + localX * cos + localZ * sin,
+      z: block.center.z - localX * sin + localZ * cos,
       cellWidth,
       cellDepth,
+      rotationY,
     });
   }
   return cells;
+}
+
+/** Stable low-spec culling: the same seed always keeps the same scenery. */
+export function deterministicSceneryKeep(
+  key: string,
+  fraction: number,
+): boolean {
+  if (fraction >= 1) return true;
+  if (fraction <= 0) return false;
+  return hashStringToSeed(key) / 0xffff_ffff < fraction;
+}
+
+/**
+ * Pulls Cairo's procedural filler toward the nearest block edge so avenues get
+ * a continuous, dense frontage instead of a vacant apron around a centre grid.
+ * The returned footprint stays inset inside the authored rotated block.
+ */
+export interface CairoFrontagePlacement extends GameCanvasPoint {
+  readonly edgeAxis: "x" | "z";
+  readonly outwardSign: -1 | 1;
+  /** Local yaw whose +z axis points out through the street-facing wall. */
+  readonly detailYawRad: number;
+  readonly localX: number;
+  readonly localZ: number;
+}
+
+export function cairoFrontagePosition(
+  block: {
+    readonly center: GameCanvasPoint;
+    readonly size: GameCanvasPoint;
+    readonly headingDeg?: number;
+    readonly frontageAxis?: "x" | "z";
+  },
+  cell: { readonly index: number; readonly x: number; readonly z: number },
+  buildingWidthM: number,
+  buildingDepthM: number,
+): CairoFrontagePlacement {
+  const heading = degreesToRadians(block.headingDeg ?? 0);
+  const sin = Math.sin(heading);
+  const cos = Math.cos(heading);
+  const dx = cell.x - block.center.x;
+  const dz = cell.z - block.center.z;
+  let localX = dx * cos - dz * sin;
+  let localZ = dx * sin + dz * cos;
+  const halfX = block.size.x / 2;
+  const halfZ = block.size.z / 2;
+  const xScore = Math.abs(localX) / Math.max(1, halfX);
+  const zScore = Math.abs(localZ) / Math.max(1, halfZ);
+  const chooseX =
+    block.frontageAxis !== undefined
+      ? block.frontageAxis === "x"
+      : Math.abs(xScore - zScore) > 0.04
+        ? xScore > zScore
+        : cell.index % 2 === 0;
+  let outwardSign: -1 | 1;
+  if (chooseX) {
+    const side =
+      localX === 0 ? (cell.index % 4 < 2 ? -1 : 1) : Math.sign(localX);
+    outwardSign = side < 0 ? -1 : 1;
+    localX =
+      outwardSign * Math.max(0, halfX - buildingWidthM / 2 - 1.15);
+  } else {
+    const side =
+      localZ === 0 ? (cell.index % 4 < 2 ? 1 : -1) : Math.sign(localZ);
+    outwardSign = side < 0 ? -1 : 1;
+    localZ =
+      outwardSign * Math.max(0, halfZ - buildingDepthM / 2 - 1.15);
+  }
+  return {
+    x: block.center.x + localX * cos + localZ * sin,
+    z: block.center.z - localX * sin + localZ * cos,
+    edgeAxis: chooseX ? "x" : "z",
+    outwardSign,
+    detailYawRad: chooseX
+      ? outwardSign * Math.PI / 2
+      : outwardSign > 0
+        ? 0
+        : Math.PI,
+    localX,
+    localZ,
+  };
+}
+
+export interface CairoFrontageFootprint {
+  readonly placement: CairoFrontagePlacement;
+  readonly widthM: number;
+  readonly depthM: number;
+}
+
+/** All Cairo filler in one block shares its yaw, so local AABB overlap is O(1). */
+export function cairoFrontageFootprintsOverlap(
+  first: CairoFrontageFootprint,
+  second: CairoFrontageFootprint,
+  gapM = 0.6,
+): boolean {
+  return (
+    Math.abs(first.placement.localX - second.placement.localX) <
+      (first.widthM + second.widthM) / 2 + gapM &&
+    Math.abs(first.placement.localZ - second.placement.localZ) <
+      (first.depthM + second.depthM) / 2 + gapM
+  );
+}
+
+/** Rotates axis-authored street-wall slots into a block's local heading. */
+export function rotateBlockBuildingPlacements(
+  placements: readonly PlacedBuilding[],
+  center: GameCanvasPoint,
+  headingDeg = 0,
+): readonly PlacedBuilding[] {
+  if (Math.abs(headingDeg) < 0.0001) return placements;
+  const heading = (headingDeg * Math.PI) / 180;
+  const sin = Math.sin(heading);
+  const cos = Math.cos(heading);
+  return placements.map((placement) => {
+    const localX = placement.x - center.x;
+    const localZ = placement.z - center.z;
+    return {
+      ...placement,
+      x: center.x + localX * cos + localZ * sin,
+      z: center.z - localX * sin + localZ * cos,
+      yaw: placement.yaw + heading,
+    };
+  });
 }
 
 /**
@@ -1528,6 +1671,307 @@ export interface GameCanvasPoint {
   readonly z: number;
 }
 
+export interface GameCanvasWaterBody {
+  readonly id: string;
+  readonly polygon: readonly GameCanvasPoint[];
+  readonly color: string;
+  readonly flowHeadingDeg?: number;
+}
+
+export interface WaterPolygonGeometry {
+  readonly polygon: readonly GameCanvasPoint[];
+  readonly positions: readonly number[];
+  readonly indices: readonly number[];
+  readonly uvs: readonly number[];
+}
+
+function polygonSignedArea(polygon: readonly GameCanvasPoint[]): number {
+  let twiceArea = 0;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const point = polygon[index];
+    const next = polygon[(index + 1) % polygon.length];
+    twiceArea += point.x * next.z - next.x * point.z;
+  }
+  return twiceArea / 2;
+}
+
+function pointInTriangle(
+  point: GameCanvasPoint,
+  first: GameCanvasPoint,
+  second: GameCanvasPoint,
+  third: GameCanvasPoint,
+): boolean {
+  const cross = (a: GameCanvasPoint, b: GameCanvasPoint, p: GameCanvasPoint) =>
+    (b.x - a.x) * (p.z - a.z) - (b.z - a.z) * (p.x - a.x);
+  const one = cross(first, second, point);
+  const two = cross(second, third, point);
+  const three = cross(third, first, point);
+  return one >= -1e-7 && two >= -1e-7 && three >= -1e-7;
+}
+
+/**
+ * Ear-clips an authored Nile outline into a flat, upward-facing mesh. The
+ * polygons may be concave, so a centre fan would visibly bridge the riverbank.
+ */
+export function buildWaterPolygonGeometry(
+  source: readonly GameCanvasPoint[],
+  y = 0.025,
+): WaterPolygonGeometry {
+  const polygon: GameCanvasPoint[] = [];
+  for (const point of source) {
+    const previous = polygon.at(-1);
+    if (!previous || Math.hypot(point.x - previous.x, point.z - previous.z) > 1e-6) {
+      polygon.push({ x: point.x, z: point.z });
+    }
+  }
+  if (
+    polygon.length > 2 &&
+    Math.hypot(
+      polygon[0].x - polygon.at(-1)!.x,
+      polygon[0].z - polygon.at(-1)!.z,
+    ) <= 1e-6
+  ) {
+    polygon.pop();
+  }
+  if (polygon.length < 3) {
+    return { polygon, positions: [], indices: [], uvs: [] };
+  }
+
+  const remaining = polygon.map((_, index) => index);
+  if (polygonSignedArea(polygon) < 0) remaining.reverse();
+  const indices: number[] = [];
+  let guard = polygon.length * polygon.length;
+  while (remaining.length > 3 && guard > 0) {
+    guard -= 1;
+    let clipped = false;
+    for (let cursor = 0; cursor < remaining.length; cursor += 1) {
+      const previous = remaining[(cursor - 1 + remaining.length) % remaining.length];
+      const current = remaining[cursor];
+      const next = remaining[(cursor + 1) % remaining.length];
+      const a = polygon[previous];
+      const b = polygon[current];
+      const c = polygon[next];
+      const turn =
+        (b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x);
+      if (turn <= 1e-7) continue;
+      const containsVertex = remaining.some(
+        (candidate) =>
+          candidate !== previous &&
+          candidate !== current &&
+          candidate !== next &&
+          pointInTriangle(polygon[candidate], a, b, c),
+      );
+      if (containsVertex) continue;
+      // x/z counter-clockwise faces down in Babylon's x/y/z world, so reverse
+      // each accepted triangle to keep the visible face and normals upward.
+      indices.push(previous, next, current);
+      remaining.splice(cursor, 1);
+      clipped = true;
+      break;
+    }
+    if (!clipped) break;
+  }
+  if (remaining.length === 3) {
+    indices.push(remaining[0], remaining[2], remaining[1]);
+  }
+  if (indices.length !== (polygon.length - 2) * 3) {
+    indices.length = 0;
+    const clockwise =
+      polygonSignedArea(polygon) > 0
+        ? polygon.map((_, index) => index)
+        : polygon.map((_, index) => index).reverse();
+    for (let index = 1; index < clockwise.length - 1; index += 1) {
+      indices.push(clockwise[0], clockwise[index + 1], clockwise[index]);
+    }
+  }
+
+  const positions = polygon.flatMap((point) => [point.x, y, point.z]);
+  const uvs = polygon.flatMap((point) => [point.x * 0.025, point.z * 0.025]);
+  return { polygon, positions, indices, uvs };
+}
+
+export interface WaterBoatPlacement {
+  readonly x: number;
+  readonly z: number;
+  readonly heading: number;
+  readonly variant: 0 | 1 | 2;
+  /** Safe travel interval along heading, inset from the authored shoreline. */
+  readonly trackStartM: number;
+  readonly trackLengthM: number;
+  /** Stable visual phase/speed; these never consume simulation randomness. */
+  readonly phase: number;
+  readonly speedMps: number;
+}
+
+export interface WaterBoatPose {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly heading: number;
+  readonly roll: number;
+}
+
+function distanceToPolygonEdges(
+  point: GameCanvasPoint,
+  polygon: readonly GameCanvasPoint[],
+): number {
+  let nearest = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index];
+    const end = polygon[(index + 1) % polygon.length];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const lengthSq = dx * dx + dz * dz;
+    const along =
+      lengthSq > 1e-9
+        ? Math.max(
+            0,
+            Math.min(
+              1,
+              ((point.x - start.x) * dx + (point.z - start.z) * dz) /
+                lengthSq,
+            ),
+          )
+        : 0;
+    nearest = Math.min(
+      nearest,
+      Math.hypot(
+        point.x - (start.x + dx * along),
+        point.z - (start.z + dz * along),
+      ),
+    );
+  }
+  return nearest;
+}
+
+function rayDistanceToPolygonEdge(
+  origin: GameCanvasPoint,
+  direction: GameCanvasPoint,
+  polygon: readonly GameCanvasPoint[],
+): number {
+  let nearest = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index];
+    const end = polygon[(index + 1) % polygon.length];
+    const edgeX = end.x - start.x;
+    const edgeZ = end.z - start.z;
+    const denominator = direction.x * edgeZ - direction.z * edgeX;
+    if (Math.abs(denominator) < 1e-8) continue;
+    const offsetX = start.x - origin.x;
+    const offsetZ = start.z - origin.z;
+    const rayDistance = (offsetX * edgeZ - offsetZ * edgeX) / denominator;
+    const edgeAmount =
+      (offsetX * direction.z - offsetZ * direction.x) / denominator;
+    if (
+      rayDistance >= 0 &&
+      edgeAmount >= -1e-8 &&
+      edgeAmount <= 1 + 1e-8
+    ) {
+      nearest = Math.min(nearest, rayDistance);
+    }
+  }
+  return nearest;
+}
+
+/** Stable visual-only Nile traffic; never consumes the simulation PRNG. */
+export function generateWaterBoatPlacements(
+  mapId: string,
+  body: GameCanvasWaterBody,
+): readonly WaterBoatPlacement[] {
+  const polygon = buildWaterPolygonGeometry(body.polygon).polygon;
+  if (polygon.length < 3) return [];
+  const xs = polygon.map((point) => point.x);
+  const zs = polygon.map((point) => point.z);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minZ = Math.min(...zs);
+  const maxZ = Math.max(...zs);
+  const area = Math.abs(polygonSignedArea(polygon));
+  const wanted = Math.max(1, Math.min(5, Math.round(area / 28_000)));
+  const random = seededUnit(hashStringToSeed(`${mapId}-${body.id}-boats`));
+  const defaultHeadingDeg =
+    maxZ - minZ >= maxX - minX ? 0 : 90;
+  const placements: WaterBoatPlacement[] = [];
+  for (let attempt = 0; attempt < wanted * 32 && placements.length < wanted; attempt += 1) {
+    const candidate = {
+      x: minX + random() * (maxX - minX),
+      z: minZ + random() * (maxZ - minZ),
+    };
+    if (
+      !isPointInPolygon(candidate, polygon) ||
+      distanceToPolygonEdges(candidate, polygon) < 7 ||
+      placements.some(
+        (placement) =>
+          Math.hypot(placement.x - candidate.x, placement.z - candidate.z) < 28,
+      )
+    ) {
+      continue;
+    }
+    const heading =
+      ((body.flowHeadingDeg ?? defaultHeadingDeg) * Math.PI) / 180 +
+      (random() - 0.5) * 0.22;
+    const direction = { x: Math.sin(heading), z: Math.cos(heading) };
+    const forward = rayDistanceToPolygonEdge(candidate, direction, polygon);
+    const backward = rayDistanceToPolygonEdge(
+      candidate,
+      { x: -direction.x, z: -direction.z },
+      polygon,
+    );
+    const trackStartM = -(backward - 7);
+    const trackLengthM = forward + backward - 14;
+    if (
+      !Number.isFinite(trackLengthM) ||
+      trackLengthM < 24
+    ) {
+      continue;
+    }
+    const variant = Math.floor(random() * 3) as 0 | 1 | 2;
+    placements.push({
+      ...candidate,
+      heading,
+      variant,
+      trackStartM,
+      trackLengthM,
+      phase: random(),
+      // Motor launch, felucca, tour boat: restrained and intentionally
+      // different speeds, with only a small stable per-craft variation.
+      speedMps: [1.45, 0.72, 1.05][variant] * (0.9 + random() * 0.2),
+    });
+  }
+  return placements;
+}
+
+/** Ping-pong pose keeps craft inside their authored channel without teleporting. */
+export function waterBoatPoseAt(
+  placement: WaterBoatPlacement,
+  visualTimeSeconds: number,
+): WaterBoatPose {
+  const cycleLength = placement.trackLengthM * 2;
+  const cycleDistance =
+    ((placement.phase * cycleLength +
+      Math.max(0, visualTimeSeconds) * placement.speedMps) %
+      cycleLength +
+      cycleLength) %
+    cycleLength;
+  const returning = cycleDistance > placement.trackLengthM;
+  const trackDistance = returning
+    ? cycleLength - cycleDistance
+    : cycleDistance;
+  const along = placement.trackStartM + trackDistance;
+  const directionX = Math.sin(placement.heading);
+  const directionZ = Math.cos(placement.heading);
+  const wavePhase =
+    visualTimeSeconds * (placement.variant === 1 ? 0.74 : 1.12) +
+    placement.phase * Math.PI * 2;
+  return {
+    x: placement.x + directionX * along,
+    y: 0.04 + Math.sin(wavePhase) * 0.035,
+    z: placement.z + directionZ * along,
+    heading: placement.heading + (returning ? Math.PI : 0),
+    roll: Math.sin(wavePhase * 0.73 + 0.8) * 0.018,
+  };
+}
+
 export interface GameCanvasLane {
   readonly id: string;
   readonly roadId?: string;
@@ -1642,6 +2086,7 @@ export interface GameCanvasMapPack {
       readonly id: string;
       readonly centerline: readonly GameCanvasPoint[];
       readonly widthM: number;
+      readonly sidewalkWidthM?: number;
       readonly laneIds: readonly string[];
       readonly surfaceType:
         | "standard"
@@ -1667,10 +2112,19 @@ export interface GameCanvasMapPack {
       readonly id: string;
       readonly center: GameCanvasPoint;
       readonly size: GameCanvasPoint;
+      readonly headingDeg?: number;
+      readonly frontageAxis?: "x" | "z";
       readonly heightRange: readonly [number, number];
       readonly density: number;
       readonly material: string;
       readonly buildingSet?: string;
+    }[];
+    waterBodies?: readonly {
+      readonly id: string;
+      readonly polygon: readonly GameCanvasPoint[];
+      readonly color: string;
+      readonly flowHeadingDeg?: number;
+      readonly bridgePortalSurfaceIds?: readonly string[];
     }[];
     landmarks: readonly {
       readonly id: string;
@@ -1678,6 +2132,8 @@ export interface GameCanvasMapPack {
       readonly center: GameCanvasPoint;
       readonly size: GameCanvasPoint;
       readonly color: string;
+      /** Compass heading of the landmark's long axis, clockwise from +z. */
+      readonly headingDeg?: number;
     }[];
     // `kind` is the real union rather than `string` (as the neighbouring
     // structural types use), because placement resolves the lot's yaw from it —
@@ -1730,6 +2186,8 @@ export interface GameCanvasMapPack {
         readonly position: GameCanvasPoint;
         readonly headingDeg: number;
         readonly armHeadingDeg?: number;
+        /** Exact carriageway span for road markings, when authored. */
+        readonly spanM?: number;
         readonly mounting:
           | "roadside_pole"
           | "mast_arm"
@@ -1740,6 +2198,7 @@ export interface GameCanvasMapPack {
         readonly style:
           | "nyc_signal"
           | "uk_signal"
+          | "egypt_signal"
           | "stop_sign"
           | "yield_sign"
           | "restricted_lane"
@@ -1826,6 +2285,327 @@ export interface GameCanvasMapPack {
       readonly laneId?: string;
     }[];
   }>;
+}
+
+export interface CairoBridgeVisualAxis {
+  readonly center: GameCanvasPoint;
+  readonly lengthM: number;
+  readonly widthM: number;
+  /** Compass direction along the long axis, clockwise from +z. */
+  readonly headingRad: number;
+  /** Babylon yaw when the mesh's long dimension is local +x. */
+  readonly boxYawRad: number;
+}
+
+/**
+ * Keeps scenic parapets on the same axis as the road portal. A same-id road
+ * surface is authoritative; authored heading covers visual-only structures
+ * such as the elevated expressway, which deliberately has no road.
+ */
+export function cairoBridgeVisualAxis(
+  landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+): CairoBridgeVisualAxis {
+  const surface = roadSurfaces.find((candidate) => candidate.id === landmark.id);
+  const surfaceStart = surface?.centerline[0];
+  const surfaceEnd = surface?.centerline.at(-1);
+  const surfaceHeading =
+    surfaceStart && surfaceEnd
+      ? Math.atan2(
+          surfaceEnd.x - surfaceStart.x,
+          surfaceEnd.z - surfaceStart.z,
+        )
+      : undefined;
+  const longX = landmark.size.x >= landmark.size.z;
+  const headingRad =
+    surfaceHeading ??
+    (landmark.headingDeg !== undefined
+      ? degreesToRadians(landmark.headingDeg)
+      : longX
+        ? Math.PI / 2
+        : 0);
+  return {
+    center: landmark.center,
+    lengthM: Math.max(landmark.size.x, landmark.size.z),
+    widthM: Math.min(landmark.size.x, landmark.size.z),
+    headingRad,
+    boxYawRad: headingRad - Math.PI / 2,
+  };
+}
+
+/**
+ * Restricts a drivable bridge's decorative rails to its over-water deck.
+ * Bridge road surfaces continue to the neighbouring junction nodes, but rails
+ * must stop at the shore instead of crossing the shoreline carriageways.
+ */
+export function cairoBridgePortalVisualAxis(
+  landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+  waterBodies: NonNullable<GameCanvasMapPack["geometry"]["waterBodies"]>,
+): CairoBridgeVisualAxis {
+  const fallback = cairoBridgeVisualAxis(landmark, roadSurfaces);
+  const surface = roadSurfaces.find((candidate) => candidate.id === landmark.id);
+  const water = waterBodies.find((candidate) =>
+    candidate.bridgePortalSurfaceIds?.includes(landmark.id),
+  );
+  const segmentStart = surface?.centerline[0];
+  const segmentEnd = surface?.centerline.at(-1);
+  if (!surface || !water || !segmentStart || !segmentEnd) return fallback;
+
+  const longest = bridgePortalRailSpans(water, surface).reduce<
+    ReturnType<typeof bridgePortalRailSpans>[number] | undefined
+  >(
+    (current, candidate) =>
+      !current || candidate.halfLengthM > current.halfLengthM
+        ? candidate
+        : current,
+    undefined,
+  );
+  if (!longest || longest.halfLengthM < 0.5) return fallback;
+
+  const headingRad = Math.atan2(longest.ux, longest.uz);
+  const sidewalkWidthM = Math.max(0, surface.sidewalkWidthM ?? 0);
+  return {
+    center: longest.center,
+    lengthM: longest.halfLengthM * 2,
+    widthM:
+      surface.widthM +
+      2 * (sidewalkWidthM + BRIDGE_PARAPET_PAVEMENT_CLEARANCE_M),
+    headingRad,
+    boxYawRad: headingRad - Math.PI / 2,
+  };
+}
+
+export interface CairoElevatedPierPlacement {
+  readonly index: number;
+  readonly alongM: number;
+  readonly position: GameCanvasPoint;
+}
+
+/**
+ * Uniform elevated-bridge supports with deterministic omissions wherever a
+ * column would stand in an authored carriageway.
+ */
+export function cairoElevatedBridgePierPlacements(
+  axis: CairoBridgeVisualAxis,
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+): readonly CairoElevatedPierPlacement[] {
+  const pierCount = Math.max(5, Math.floor(axis.lengthM / 46));
+  const directionX = Math.sin(axis.headingRad);
+  const directionZ = Math.cos(axis.headingRad);
+  const columnClearanceM = 1.15;
+  const placements: CairoElevatedPierPlacement[] = [];
+  for (let index = 0; index <= pierCount; index += 1) {
+    const alongM = -axis.lengthM / 2 + (index / pierCount) * axis.lengthM;
+    const position = {
+      x: axis.center.x + directionX * alongM,
+      z: axis.center.z + directionZ * alongM,
+    };
+    const blocksRoad = roadSurfaces.some((surface) => {
+      const nearest = nearestPointOnPolyline(position, surface.centerline);
+      return (
+        Math.hypot(position.x - nearest.x, position.z - nearest.z) <
+        surface.widthM / 2 + columnClearanceM
+      );
+    });
+    if (!blocksRoad) placements.push({ index, alongM, position });
+  }
+  return placements;
+}
+
+export interface CairoTahrirFurnitureLayout {
+  readonly olives: readonly GameCanvasPoint[];
+  readonly benches: readonly (GameCanvasPoint & {
+    readonly rotationY: number;
+  })[];
+}
+
+export interface CairoDirectionPanelUvTransform {
+  readonly uScale: -1;
+  readonly uOffset: 1;
+  readonly vScale: -1;
+  readonly vOffset: 1;
+}
+
+/**
+ * Babylon's road-facing box face presents a canvas texture rotated 180°.
+ * Counter-rotate Cairo's legible bilingual panels in UV space while leaving
+ * the shared sign mesh and its face-road yaw convention unchanged.
+ */
+export function cairoDirectionPanelUvTransform(): CairoDirectionPanelUvTransform {
+  return {
+    uScale: -1,
+    uOffset: 1,
+    vScale: -1,
+    vOffset: 1,
+  };
+}
+
+/** Keeps Tahrir's visual-only furniture inside the plaza, clear of traffic. */
+export function cairoTahrirFurnitureLayout(
+  landmark: Pick<
+    GameCanvasMapPack["geometry"]["landmarks"][number],
+    "center" | "size"
+  >,
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+): CairoTahrirFurnitureLayout {
+  const plazaCenter = {
+    x: landmark.center.x,
+    z: landmark.center.z + 9,
+  };
+  const roadClear = (point: GameCanvasPoint, radiusM: number) =>
+    roadSurfaces.every((surface) => {
+      const nearest = nearestPointOnPolyline(point, surface.centerline);
+      return (
+        Math.hypot(point.x - nearest.x, point.z - nearest.z) >=
+        surface.widthM / 2 + radiusM
+      );
+    });
+  const settle = (
+    candidate: GameCanvasPoint,
+    radiusM: number,
+  ): GameCanvasPoint => {
+    for (let step = 0; step <= 24; step += 1) {
+      const amount = step / 24;
+      const point = {
+        x: candidate.x + (plazaCenter.x - candidate.x) * amount,
+        z: candidate.z + (plazaCenter.z - candidate.z) * amount,
+      };
+      if (roadClear(point, radiusM)) return point;
+    }
+    return plazaCenter;
+  };
+  return {
+    olives: Array.from({ length: 8 }, (_, index) => {
+      const angle = (index / 8) * Math.PI * 2;
+      return settle(
+        {
+          x: landmark.center.x + Math.sin(angle) * landmark.size.x * 0.34,
+          z:
+            landmark.center.z +
+            9 +
+            Math.cos(angle) * landmark.size.z * 0.29,
+        },
+        1.9,
+      );
+    }),
+    benches: Array.from({ length: 6 }, (_, index) => {
+      const rotationY = (index / 6) * Math.PI * 2;
+      return {
+        ...settle(
+          {
+            x:
+              landmark.center.x +
+              Math.sin(rotationY) * landmark.size.x * 0.22,
+            z:
+              landmark.center.z +
+              9 +
+              Math.cos(rotationY) * landmark.size.z * 0.18,
+          },
+          1.5,
+        ),
+        rotationY,
+      };
+    }),
+  };
+}
+
+export interface CrosswalkStripeLayout {
+  readonly center: GameCanvasPoint;
+  readonly widthM: number;
+  readonly depthM: number;
+  readonly rotationY: number;
+}
+
+/** Zebra stripes progress with traffic; each long bar spans across traffic. */
+export function crosswalkStripeLayout(
+  position: GameCanvasPoint,
+  headingDeg: number,
+  roadWidthM: number,
+): readonly CrosswalkStripeLayout[] {
+  const heading = degreesToRadians(headingDeg);
+  const travelX = Math.sin(heading);
+  const travelZ = Math.cos(heading);
+  return Array.from({ length: 7 }, (_, index) => {
+    const stripe = index - 3;
+    return {
+      center: {
+        x: position.x + travelX * stripe * 1.05,
+        z: position.z + travelZ * stripe * 1.05,
+      },
+      // A box's local +x maps to (cos yaw, -sin yaw): perpendicular to the
+      // travel vector above when yaw equals the compass heading.
+      widthM: roadWidthM * 0.82,
+      depthM: 0.62,
+      rotationY: heading,
+    };
+  });
+}
+
+export function roadSurfaceWidthForMarking(
+  mapPack: GameCanvasMapPack,
+  control: GameCanvasMapPack["laneGraph"]["controls"][number],
+  installation: NonNullable<
+    GameCanvasMapPack["laneGraph"]["controls"][number]["installations"]
+  >[number],
+): number {
+  return roadSurfacePlacementForMarking(
+    mapPack,
+    control,
+    installation,
+  ).widthM;
+}
+
+export interface RoadSurfaceMarkingPlacement {
+  readonly position: GameCanvasPoint;
+  readonly widthM: number;
+  readonly surfaceId?: string;
+}
+
+export function roadSurfacePlacementForMarking(
+  mapPack: GameCanvasMapPack,
+  control: GameCanvasMapPack["laneGraph"]["controls"][number],
+  installation: NonNullable<
+    GameCanvasMapPack["laneGraph"]["controls"][number]["installations"]
+  >[number],
+): RoadSurfaceMarkingPlacement {
+  const allowedApproaches = new Set(installation.approachIds ?? []);
+  const candidates = (control.approaches ?? [])
+    .filter(
+      (approach) =>
+        allowedApproaches.size === 0 || allowedApproaches.has(approach.id),
+    )
+    .flatMap((approach) =>
+      approach.laneIds.flatMap((laneId) => {
+        const lane = mapPack.laneGraph.lanes.find(
+          (candidate) => candidate.id === laneId,
+        );
+        if (!lane || lane.centerline.length < 2) return [];
+        const start = lane.centerline[lane.centerline.length - 2];
+        const end = lane.centerline[lane.centerline.length - 1];
+        const laneHeading = Math.atan2(end.x - start.x, end.z - start.z);
+        const target = degreesToRadians(installation.headingDeg);
+        const delta = Math.abs(
+          Math.atan2(Math.sin(laneHeading - target), Math.cos(laneHeading - target)),
+        );
+        return [{ lane, delta }];
+      }),
+    )
+    .sort((a, b) => a.delta - b.delta);
+  const lane = candidates[0]?.lane;
+  const surface = mapPack.geometry.roadSurfaces?.find(
+    (candidate) =>
+      candidate.id === lane?.roadId ||
+      (lane ? candidate.laneIds.includes(lane.id) : false),
+  );
+  return {
+    position: surface
+      ? nearestPointOnPolyline(installation.position, surface.centerline)
+      : installation.position,
+    widthM:
+      installation.spanM ?? surface?.widthM ?? mapPack.geometry.roadWidth,
+    surfaceId: surface?.id,
+  };
 }
 
 
@@ -2979,6 +3759,7 @@ const AMBIENT_CROWD_CONFIG: Readonly<
   "nyc-upper-west-side": { count: 96, innerRadiusM: 25, outerRadiusM: 130, recycleRadiusM: 170 },
   "tokyo-setagaya": { count: 56, innerRadiusM: 18, outerRadiusM: 100, recycleRadiusM: 140 },
   "london-south-kensington": { count: 64, innerRadiusM: 20, outerRadiusM: 120, recycleRadiusM: 160 },
+  "cairo-central-nile": { count: 88, innerRadiusM: 22, outerRadiusM: 125, recycleRadiusM: 165 },
 };
 
 /** Bubble radii for the scenario road users on maps with no crowd config
@@ -2997,6 +3778,24 @@ const CROWD_CLOTHING_COLORS = [
   { r: 0.7, g: 0.66, b: 0.5 },
   { r: 0.55, g: 0.3, b: 0.5 },
 ];
+
+const CAIRO_CROWD_CLOTHING_COLORS = [
+  { r: 0.12, g: 0.16, b: 0.2 },
+  { r: 0.12, g: 0.34, b: 0.37 },
+  { r: 0.32, g: 0.34, b: 0.19 },
+  { r: 0.76, g: 0.68, b: 0.51 },
+  { r: 0.56, g: 0.25, b: 0.21 },
+  { r: 0.48, g: 0.31, b: 0.43 },
+] as const;
+
+/** Contemporary warm-neutrals and deep colours for Cairo's street crowd. */
+export function crowdClothingPaletteForMap(
+  mapId: string,
+): readonly { readonly r: number; readonly g: number; readonly b: number }[] {
+  return resolveMapVisualKey(mapId) === "cairo"
+    ? CAIRO_CROWD_CLOTHING_COLORS
+    : CROWD_CLOTHING_COLORS;
+}
 
 /** Per-map roadside dressing: shared basics plus locally recognisable extras. */
 function roadsidePropKindsForMap(
@@ -3100,6 +3899,74 @@ function roadsidePropKindsForMap(
         },
         { ...PROP_TREE, spacingM: 34, minScale: 0.7, maxScale: 1 },
         PROP_SIGN,
+      ];
+    case "cairo":
+      return [
+        { ...PROP_STREETLIGHT, spacingM: 36, jitterM: 7 },
+        { ...PROP_TREE, spacingM: 54, minScale: 0.8, maxScale: 1.15 },
+        {
+          kind: "palm",
+          spacingM: 68,
+          jitterM: 16,
+          lateralMarginM: 1.2,
+          bothSides: false,
+          alternateSides: true,
+          variants: 2,
+          minScale: 0.85,
+          maxScale: 1.2,
+          faceRoad: true,
+        },
+        {
+          kind: "bollard",
+          spacingM: 42,
+          jitterM: 9,
+          lateralMarginM: 0.8,
+          bothSides: false,
+          variants: 1,
+        },
+        {
+          kind: "cairo-cart",
+          spacingM: 240,
+          jitterM: 42,
+          lateralMarginM: 1.25,
+          bothSides: false,
+          alternateSides: true,
+          variants: 2,
+          faceRoad: true,
+        },
+        {
+          kind: "microbus",
+          spacingM: 420,
+          jitterM: 58,
+          lateralMarginM: 0.9,
+          curbOffsetM: 1.15,
+          bothSides: false,
+          alternateSides: true,
+          variants: 2,
+          faceRoad: true,
+        },
+        {
+          kind: "parked-car",
+          spacingM: 300,
+          jitterM: 48,
+          lateralMarginM: 0.95,
+          curbOffsetM: 1.08,
+          bothSides: false,
+          alternateSides: true,
+          variants: 3,
+          faceRoad: true,
+        },
+        {
+          kind: "scooter",
+          spacingM: 260,
+          jitterM: 44,
+          lateralMarginM: 1.05,
+          curbOffsetM: 0.42,
+          bothSides: false,
+          variants: 2,
+          faceRoad: true,
+        },
+        { ...PROP_SIGN, spacingM: 78, variants: 2 },
       ];
     case "orientation":
     default:
@@ -4133,6 +5000,14 @@ class BabylonGameSession {
    * per-frame matrix + bounding-sync cost across ~9k meshes. Parents precede
    * children so the freeze pass computes the chain in order. */
   private readonly staticSceneryFreeze: TransformNode[] = [];
+  /** Visual-only Nile craft. Kept outside every simulation/spatial index. */
+  private readonly animatedWaterBoats: Array<{
+    readonly root: TransformNode;
+    readonly placement: WaterBoatPlacement;
+  }> = [];
+  private visualElapsedSeconds = 0;
+  /** One source mesh batches every painted zebra stripe into one draw family. */
+  private crosswalkStripeMaster: Mesh | null = null;
   /** Fraction of each block's building wall to build. 1 on desktop; thinned on
    * touch / low-core devices so phones stay playable. */
   private buildingKeepFraction = 1;
@@ -5168,7 +6043,10 @@ class BabylonGameSession {
     const sidewalkWidthM = palette.paved
       ? PAVED_SIDEWALK_WIDTH_M
       : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
-    this.pavementSidewalkWidthM = sidewalkWidthM;
+    this.pavementSidewalkWidthM = Math.min(
+      sidewalkWidthM,
+      ...surfaces.map((surface) => surface.sidewalkWidthM ?? sidewalkWidthM),
+    );
     try {
       this.pavementGraph = buildPavementGraph(surfaces, { sidewalkWidthM });
     } catch (error) {
@@ -5190,6 +6068,7 @@ class BabylonGameSession {
     if (!mapPack || !config) return;
     const graph = this.ensurePavementGraph();
     if (!graph) return;
+    const clothing = crowdClothingPaletteForMap(mapPack.id);
     const sim = createCrowdSim(graph, {
       count: Math.floor(config.count * this.buildingKeepFraction),
       seed: hashStringToSeed(`${mapPack.id}-crowd`),
@@ -5201,7 +6080,7 @@ class BabylonGameSession {
       scatterHalfWidthM: this.crowdScatterHalfM(),
       turnPauseSeconds: 1,
       modelCount: CHARACTER_MODELS.length,
-      tintCount: CROWD_CLOTHING_COLORS.length,
+      tintCount: clothing.length,
       complexionCount: this.complexionPalette().length,
       hairCount: this.hairPalette().length,
     });
@@ -5211,7 +6090,7 @@ class BabylonGameSession {
     sim.step(0, { x: this.playerState.x, z: this.playerState.z }, () => true);
     const renderer = new CrowdRenderer(this.scene);
     const built = renderer.build(sim.walkers, {
-      clothing: CROWD_CLOTHING_COLORS,
+      clothing,
       complexion: this.complexionPalette(),
       hair: this.hairPalette(),
     });
@@ -6056,6 +6935,10 @@ class BabylonGameSession {
       }
     }
 
+    if (!this.paused) {
+      this.visualElapsedSeconds += frameSeconds;
+      this.updateWaterBoatVisuals(this.visualElapsedSeconds);
+    }
     const interpolation = this.paused ? 1 : this.accumulator / FIXED_STEP;
     if (!this.paused) this.advanceCutscene(frameSeconds);
     this.updatePlayerVisuals(interpolation);
@@ -7473,12 +8356,16 @@ class BabylonGameSession {
   private buildInstancedBuildings() {
     if (this.visualPalette?.night) this.applyBuildingNightGlow();
     for (const { block, setId, buildFallback } of this.pendingBuildingBlocks) {
-      const slotted = slotBlockBuildings(
+      const slotted = rotateBlockBuildingPlacements(
+        slotBlockBuildings(
+          block.center,
+          block.size,
+          setId,
+          hashStringToSeed(`${block.id}-buildings`),
+          this.buildingKeepFraction,
+        ),
         block.center,
-        block.size,
-        setId,
-        hashStringToSeed(`${block.id}-buildings`),
-        this.buildingKeepFraction,
+        block.headingDeg,
       );
       const placements = keptStreetWallBuildings(slotted, this.buildingExclusions);
       let placed = 0;
@@ -8615,6 +9502,7 @@ class BabylonGameSession {
     const scene = this.scene;
     const mapId = mapPack.id.toLowerCase();
     const palette = resolveMapVisualPalette(mapId);
+    const cairoScene = resolveMapVisualKey(mapId) === "cairo";
     this.visualPalette = palette;
     this.createSkyAndHorizon(palette, mapId, mapPack.geometry.worldSize);
 
@@ -8735,6 +9623,7 @@ class BabylonGameSession {
     setMeshMaterial(ground, grass, true);
     ground.freezeWorldMatrix();
     this.registerMirrorSurface(ground);
+    this.buildWaterBodies(mapPack, mapId);
 
     const authoredRoadSurfaces = mapPack.geometry.roadSurfaces?.length
       ? mapPack.geometry.roadSurfaces
@@ -8742,6 +9631,7 @@ class BabylonGameSession {
           id: `legacy-${lane.id}`,
           centerline: lane.centerline,
           widthM: lane.widthM ?? mapPack.geometry.roadWidth,
+          sidewalkWidthM: undefined,
           laneIds: [lane.id],
           surfaceType: "standard" as const,
           markings: [],
@@ -8758,10 +9648,14 @@ class BabylonGameSession {
     const roadSurfaces = connectedRoadSurfaces.length
       ? connectedRoadSurfaces
       : authoredRoadSurfaces;
-    const shoulderWidth = paved
+    const defaultShoulderWidth = paved
       ? PAVED_SIDEWALK_WIDTH_M
       : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
     for (const surface of roadSurfaces) {
+      const shoulderWidth = Math.max(
+        0,
+        surface.sidewalkWidthM ?? defaultShoulderWidth,
+      );
       const surfaceMaterial =
         surface.surfaceType === "shared_space"
           ? sharedSpace
@@ -8793,9 +9687,19 @@ class BabylonGameSession {
     // Dirt-shoulder fills first (lowest), then the asphalt fills, mirroring the
     // strip layering so a junction reads as one continuous surface. Square
     // corners here: this band's outer edge is the building line.
+    const shoulderJunctionSurfaces = roadSurfaces.map((surface) => ({
+      ...surface,
+      widthM:
+        surface.widthM +
+        Math.max(
+          0,
+          surface.sidewalkWidthM ?? defaultShoulderWidth,
+        ) *
+          2,
+    }));
     for (const [index, fill] of collectRoadJunctionFills(
-      roadSurfaces,
-      shoulderWidth,
+      shoulderJunctionSurfaces,
+      0,
       0,
     ).entries()) {
       const shoulderFill = this.createRoadJunctionFill(
@@ -8909,8 +9813,70 @@ class BabylonGameSession {
       "red-brick-museum": new Color3(0.55, 0.29, 0.23),
       "london-brick": new Color3(0.49, 0.32, 0.27),
       "white-stucco": new Color3(0.82, 0.81, 0.75),
+      "cairo-cream": new Color3(0.76, 0.69, 0.57),
+      "cairo-ochre": new Color3(0.67, 0.53, 0.36),
+      "cairo-stone": new Color3(0.7, 0.63, 0.51),
+      "cairo-concrete": new Color3(0.58, 0.56, 0.5),
+      "cairo-villa": new Color3(0.77, 0.72, 0.62),
+      "cairo-modern": new Color3(0.62, 0.64, 0.62),
+      "cairo-warm-stone": new Color3(0.72, 0.61, 0.46),
+      "cairo-garden-stucco": new Color3(0.78, 0.69, 0.56),
+      "cairo-khedivial-stone": new Color3(0.68, 0.59, 0.46),
+      "cairo-gezira-cream": new Color3(0.78, 0.73, 0.63),
+      "cairo-west-bank-concrete": new Color3(0.58, 0.56, 0.5),
     };
     const facadeEmissive = makeFacadeEmissiveTexture(scene);
+    const cairoRooftopMaterial =
+      cairoScene
+        ? makeMaterial(
+            scene,
+            "cairo-rooftop-tanks",
+            new Color3(0.16, 0.19, 0.18),
+          )
+        : null;
+    const cairoDishMaterial =
+      cairoScene
+        ? makeMaterial(
+            scene,
+            "cairo-rooftop-dishes",
+            new Color3(0.64, 0.61, 0.54),
+          )
+        : null;
+    const cairoFacadeTrimMaterial = cairoScene
+      ? makeMaterial(
+          scene,
+          "cairo-facade-trim",
+          new Color3(0.8, 0.73, 0.61),
+        )
+      : null;
+    const cairoBalconyRailMaterial = cairoScene
+      ? makeMaterial(
+          scene,
+          "cairo-balcony-iron",
+          new Color3(0.16, 0.15, 0.13),
+        )
+      : null;
+    const cairoAcMaterial = cairoScene
+      ? makeMaterial(
+          scene,
+          "cairo-air-conditioners",
+          new Color3(0.68, 0.67, 0.61),
+        )
+      : null;
+    const cairoAwningMaterials = cairoScene
+      ? [
+          makeMaterial(
+            scene,
+            "cairo-awning-red",
+            new Color3(0.55, 0.18, 0.13),
+          ),
+          makeMaterial(
+            scene,
+            "cairo-awning-green",
+            new Color3(0.18, 0.35, 0.25),
+          ),
+        ]
+      : [];
     const facadeMaterials = new Map<string, StandardMaterial>();
     const facadeMaterialFor = (materialKey: string): StandardMaterial => {
       const cached = facadeMaterials.get(materialKey);
@@ -8939,9 +9905,44 @@ class BabylonGameSession {
       block: GameCanvasMapPack["geometry"]["blocks"][number],
       material: StandardMaterial,
     ) => {
-      for (const cell of facadeGridCells(block)) {
+      const isGardenCity = block.material === "cairo-garden-stucco";
+      const isWestBank = block.material === "cairo-west-bank-concrete";
+      const facadeCells = facadeGridCells(
+        isWestBank
+          ? { ...block, density: Math.min(1, block.density + 0.17) }
+          : block,
+      );
+      const freezeDetail = (mesh: Mesh) => {
+        mesh.isPickable = false;
+        this.staticSceneryFreeze.push(mesh);
+      };
+      const placedFrontages: CairoFrontageFootprint[] = [];
+      for (const cell of facadeCells) {
+        if (
+          !deterministicSceneryKeep(
+            `${mapId}:${block.id}:facade:${cell.index}`,
+            this.buildingKeepFraction,
+          )
+        ) {
+          continue;
+        }
         const width = Math.max(5, cell.cellWidth * (0.58 + random() * 0.24));
         const depth = Math.max(5, cell.cellDepth * (0.58 + random() * 0.24));
+        const frontagePlacement = mapId.includes("cairo")
+          ? cairoFrontagePosition(block, cell, width, depth)
+          : undefined;
+        const buildingPosition = frontagePlacement ?? cell;
+        const frontageFootprint = frontagePlacement
+          ? { placement: frontagePlacement, widthM: width, depthM: depth }
+          : undefined;
+        if (
+          frontageFootprint &&
+          placedFrontages.some((placed) =>
+            cairoFrontageFootprintsOverlap(placed, frontageFootprint),
+          )
+        ) {
+          continue;
+        }
         const height =
           block.heightRange[0] +
           random() * (block.heightRange[1] - block.heightRange[0]);
@@ -8950,28 +9951,241 @@ class BabylonGameSession {
         // supposed to make room for — and since the collider builder carves the
         // block rect regardless, the car drives straight through the visible
         // building rather than being stopped by it.
+        const halfWidth =
+          Math.abs(Math.cos(cell.rotationY)) * width / 2 +
+          Math.abs(Math.sin(cell.rotationY)) * depth / 2;
+        const halfDepth =
+          Math.abs(Math.sin(cell.rotationY)) * width / 2 +
+          Math.abs(Math.cos(cell.rotationY)) * depth / 2;
         if (
           isInsideKeepOut(
             this.buildingExclusions,
-            cell.x,
-            cell.z,
-            width / 2,
-            depth / 2,
+            buildingPosition.x,
+            buildingPosition.z,
+            halfWidth,
+            halfDepth,
           )
         ) {
           continue;
         }
-        this.registerShadowCaster(
-          createFacadeBox(
-            scene,
-            `building-${block.id}-${cell.index}`,
-            { width, height, depth },
-            new Vector3(cell.x, height / 2, cell.z),
-            material,
-          ),
-          cell.x,
-          cell.z,
+        if (frontageFootprint) placedFrontages.push(frontageFootprint);
+        const facade = createFacadeBox(
+          scene,
+          `building-${block.id}-${cell.index}`,
+          { width, height, depth },
+          new Vector3(buildingPosition.x, height / 2, buildingPosition.z),
+          material,
         );
+        facade.rotation.y = cell.rotationY;
+        this.registerShadowCaster(
+          facade,
+          buildingPosition.x,
+          buildingPosition.z,
+        );
+        if (
+          frontagePlacement &&
+          cairoFacadeTrimMaterial &&
+          cairoBalconyRailMaterial &&
+          cairoAcMaterial
+        ) {
+          const detailRoot = new TransformNode(
+            `building-${block.id}-${cell.index}-street-detail`,
+            scene,
+          );
+          detailRoot.parent = facade;
+          detailRoot.rotation.y = frontagePlacement.detailYawRad;
+          this.staticSceneryFreeze.push(detailRoot);
+          const frontageSpan =
+            frontagePlacement.edgeAxis === "x" ? depth : width;
+          const frontageDepth =
+            frontagePlacement.edgeAxis === "x" ? width : depth;
+          if (isGardenCity) {
+            freezeDetail(
+              createBox(
+                scene,
+                `building-${block.id}-${cell.index}-cornice`,
+                {
+                  width: width + 0.55,
+                  height: 0.48,
+                  depth: depth + 0.55,
+                },
+                new Vector3(0, height / 2 + 0.18, 0),
+                cairoFacadeTrimMaterial,
+                facade,
+              ),
+            );
+            if (cell.index % 2 === 0) {
+              const balconyWidth = Math.min(5.4, frontageSpan * 0.54);
+              const balconyY = Math.min(6.8, Math.max(4.3, height * 0.34));
+              freezeDetail(
+                createBox(
+                  scene,
+                  `building-${block.id}-${cell.index}-balcony`,
+                  { width: balconyWidth, height: 0.22, depth: 1.15 },
+                  new Vector3(
+                    0,
+                    balconyY - height / 2,
+                    frontageDepth / 2 + 0.48,
+                  ),
+                  cairoFacadeTrimMaterial,
+                  detailRoot,
+                ),
+              );
+              freezeDetail(
+                createBox(
+                  scene,
+                  `building-${block.id}-${cell.index}-balcony-rail`,
+                  { width: balconyWidth, height: 0.55, depth: 0.09 },
+                  new Vector3(
+                    0,
+                    balconyY + 0.38 - height / 2,
+                    frontageDepth / 2 + 1.02,
+                  ),
+                  cairoBalconyRailMaterial,
+                  detailRoot,
+                ),
+              );
+            }
+          } else if (cell.index % 2 === 0) {
+            const acY = Math.min(height - 2.1, Math.max(5.3, height * 0.58));
+            freezeDetail(
+              createBox(
+                scene,
+                `building-${block.id}-${cell.index}-ac`,
+                { width: 1.15, height: 0.72, depth: 0.38 },
+                new Vector3(
+                  frontageSpan * 0.24,
+                  acY - height / 2,
+                  frontageDepth / 2 + 0.18,
+                ),
+                cairoAcMaterial,
+                detailRoot,
+              ),
+            );
+          }
+          if (
+            (isWestBank || block.material === "cairo-khedivial-stone") &&
+            cell.index % 3 === 1
+          ) {
+            freezeDetail(
+              createBox(
+                scene,
+                `building-${block.id}-${cell.index}-awning`,
+                {
+                  width: Math.min(5.8, frontageSpan * 0.62),
+                  height: 0.18,
+                  depth: 1.5,
+                },
+                new Vector3(
+                  0,
+                  3.15 - height / 2,
+                  frontageDepth / 2 + 0.72,
+                ),
+                cairoAwningMaterials[cell.index % cairoAwningMaterials.length],
+                detailRoot,
+              ),
+            );
+          }
+        }
+        if (cairoRooftopMaterial && cell.index % 3 === 0) {
+          const tank = createCylinder(
+            scene,
+            `building-${block.id}-${cell.index}-roof-tank`,
+            {
+              height: 1.15,
+              diameter: Math.min(1.8, Math.max(1.1, width * 0.12)),
+              tessellation: 10,
+            },
+            new Vector3(
+              buildingPosition.x,
+              height + 0.62,
+              buildingPosition.z,
+            ),
+            cairoRooftopMaterial,
+          );
+          this.registerShadowCaster(
+            tank,
+            buildingPosition.x,
+            buildingPosition.z,
+          );
+        } else if (cairoDishMaterial && cell.index % 3 === 1) {
+          const dish = createCylinder(
+            scene,
+            `building-${block.id}-${cell.index}-roof-dish`,
+            {
+              height: 0.16,
+              diameterTop: 1.35,
+              diameterBottom: 0.75,
+              tessellation: 10,
+            },
+            new Vector3(
+              buildingPosition.x,
+              height + 0.65,
+              buildingPosition.z,
+            ),
+            cairoDishMaterial,
+          );
+          dish.rotation.x = -0.7;
+          dish.rotation.y = cell.rotationY + 0.4;
+          this.registerShadowCaster(
+            dish,
+            buildingPosition.x,
+            buildingPosition.z,
+          );
+        }
+      }
+      if (
+        isGardenCity &&
+        cairoFacadeTrimMaterial &&
+        cairoBalconyRailMaterial
+      ) {
+        // Low perimeter walls, iron gates and villa cornices distinguish the
+        // secured Garden City compounds from denser downtown street walls.
+        const compound = new TransformNode(`${block.id}-compound`, scene);
+        compound.position.set(block.center.x, 0, block.center.z);
+        compound.rotation.y = degreesToRadians(block.headingDeg ?? 0);
+        const inset = 2.2;
+        const halfX = Math.max(5, block.size.x / 2 - inset);
+        const halfZ = Math.max(5, block.size.z / 2 - inset);
+        const gateHalf = 3.3;
+        const wallHeight = 1.28;
+        for (const side of [-1, 1]) {
+          const sideWall = createBox(
+            scene,
+            `${block.id}-compound-side-${side}`,
+            { width: 0.38, height: wallHeight, depth: halfZ * 2 },
+            new Vector3(side * halfX, wallHeight / 2, 0),
+            cairoFacadeTrimMaterial,
+            compound,
+          );
+          freezeDetail(sideWall);
+          for (const half of [-1, 1]) {
+            const run = halfX - gateHalf;
+            const frontWall = createBox(
+              scene,
+              `${block.id}-compound-front-${side}-${half}`,
+              { width: run, height: wallHeight, depth: 0.38 },
+              new Vector3(
+                half * (gateHalf + run / 2),
+                wallHeight / 2,
+                side * halfZ,
+              ),
+              cairoFacadeTrimMaterial,
+              compound,
+            );
+            freezeDetail(frontWall);
+          }
+          const gate = createBox(
+            scene,
+            `${block.id}-compound-gate-${side}`,
+            { width: gateHalf * 1.65, height: 1.05, depth: 0.12 },
+            new Vector3(0, 0.53, side * halfZ),
+            cairoBalconyRailMaterial,
+            compound,
+          );
+          freezeDetail(gate);
+        }
+        this.staticSceneryFreeze.push(compound);
       }
     };
     for (const block of mapPack.geometry.blocks) {
@@ -9197,6 +10411,12 @@ class BabylonGameSession {
       if (mapId.includes("london") && this.buildLondonLandmark(landmark, material)) {
         continue;
       }
+      if (
+        resolveMapVisualKey(mapId) === "cairo" &&
+        this.buildCairoLandmark(landmark, material, mapPack)
+      ) {
+        continue;
+      }
       if (mapId.includes("orientation") && landmark.id === "yard-cones") {
         for (let index = 0; index < 9; index += 1) {
           const column = index % 3;
@@ -9347,7 +10567,11 @@ class BabylonGameSession {
                   : "roadside_pole" as const,
             style:
               control.type === "signal"
-                ? (mapId.includes("london") ? "uk_signal" as const : "nyc_signal" as const)
+                ? (resolveMapVisualKey(mapId) === "london"
+                    ? "uk_signal" as const
+                    : resolveMapVisualKey(mapId) === "cairo"
+                      ? "egypt_signal" as const
+                      : "nyc_signal" as const)
                 : control.type === "railway_signal"
                   ? "japan_railway" as const
                   : control.type === "crosswalk"
@@ -9368,7 +10592,11 @@ class BabylonGameSession {
         ...new Set((control.approaches ?? []).map((approach) => approach.phaseGroup)),
       ];
       for (const installation of installations) {
-        if (installation.style === "nyc_signal" || installation.style === "uk_signal") {
+        if (
+          installation.style === "nyc_signal" ||
+          installation.style === "uk_signal" ||
+          installation.style === "egypt_signal"
+        ) {
           const installationApproaches = (installation.approachIds ?? [])
             .map((approachId) =>
               (control.approaches ?? []).find((approach) => approach.id === approachId),
@@ -9406,9 +10634,9 @@ class BabylonGameSession {
         }
         if (installation.mounting === "road_marking") {
           this.buildRoadMarkingInstallation(
+            mapPack,
             control,
             installation,
-            mapPack.geometry.roadWidth,
             laneMaterial,
             warningYellow,
           );
@@ -9498,6 +10726,578 @@ class BabylonGameSession {
     }
     this.finishVisual = this.createFinishBeacon(mapPack);
     this.updateGuidanceVisuals();
+  }
+
+  /**
+   * Original low-poly silhouettes for central Cairo's navigation anchors.
+   * These are impressionistic procedural forms, not imported replicas.
+   */
+  private buildCairoLandmark(
+    landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+    material: StandardMaterial,
+    mapPack: GameCanvasMapPack,
+  ): boolean {
+    const scene = this.scene;
+    const paleStone = makeMaterial(
+      scene,
+      `${landmark.id}-pale-stone`,
+      new Color3(0.78, 0.7, 0.56),
+    );
+    const darkWindow = makeMaterial(
+      scene,
+      `${landmark.id}-window`,
+      new Color3(0.1, 0.19, 0.21),
+    );
+    const bronze = makeMaterial(
+      scene,
+      `${landmark.id}-bronze`,
+      new Color3(0.36, 0.25, 0.14),
+    );
+
+    if (landmark.id === "cairo-tahrir-square") {
+      const paving = makeMaterial(
+        scene,
+        `${landmark.id}-paving`,
+        new Color3(0.63, 0.57, 0.47),
+      );
+      const oliveLeaf = makeMaterial(
+        scene,
+        `${landmark.id}-olive-leaf`,
+        new Color3(0.3, 0.4, 0.24),
+      );
+      createBox(
+        scene,
+        `${landmark.id}-garden`,
+        { width: landmark.size.x, height: 0.025, depth: landmark.size.z },
+        new Vector3(landmark.center.x, 0.018, landmark.center.z),
+        material,
+      ).isPickable = false;
+      createCylinder(
+        scene,
+        `${landmark.id}-central-plaza`,
+        {
+          height: 0.055,
+          diameter: Math.min(landmark.size.x, landmark.size.z) * 0.58,
+          tessellation: 24,
+        },
+        new Vector3(landmark.center.x, 0.045, landmark.center.z + 9),
+        paving,
+      ).isPickable = false;
+      const furniture = cairoTahrirFurnitureLayout(
+        landmark,
+        mapPack.geometry.roadSurfaces ?? [],
+      );
+      for (const [index, position] of furniture.olives.entries()) {
+        const trunk = createCylinder(
+          scene,
+          `${landmark.id}-olive-${index}-trunk`,
+          {
+            height: 2.2,
+            diameterTop: 0.24,
+            diameterBottom: 0.36,
+            tessellation: 7,
+          },
+          new Vector3(position.x, 1.1, position.z),
+          bronze,
+        );
+        trunk.isPickable = false;
+        const crown = createIcoSphere(
+          scene,
+          `${landmark.id}-olive-${index}-crown`,
+          1.45,
+          new Vector3(position.x, 2.75, position.z),
+          oliveLeaf,
+        );
+        crown.scaling.set(1.25, 0.72, 1);
+        crown.isPickable = false;
+      }
+      for (const [index, position] of furniture.benches.entries()) {
+        const bench = new TransformNode(`${landmark.id}-bench-${index}`, scene);
+        bench.position.set(position.x, 0, position.z);
+        bench.rotation.y = position.rotationY;
+        createBox(
+          scene,
+          `${landmark.id}-bench-${index}-seat`,
+          { width: 2.5, height: 0.18, depth: 0.52 },
+          new Vector3(0, 0.58, 0),
+          bronze,
+          bench,
+        ).isPickable = false;
+        createBox(
+          scene,
+          `${landmark.id}-bench-${index}-back`,
+          { width: 2.5, height: 0.62, depth: 0.14 },
+          new Vector3(0, 0.9, 0.24),
+          bronze,
+          bench,
+        ).isPickable = false;
+      }
+      return true;
+    }
+
+    if (landmark.id === "cairo-tower") {
+      const height = 44;
+      createCylinder(
+        scene,
+        `${landmark.id}-core`,
+        {
+          height: height - 8,
+          diameterTop: 3.2,
+          diameterBottom: 5.2,
+          tessellation: 12,
+        },
+        new Vector3(landmark.center.x, (height - 8) / 2, landmark.center.z),
+        paleStone,
+      );
+      // Slender ribs and horizontal collars suggest the tower's open lotus
+      // lattice while staying within the game's bold low-poly language.
+      for (let rib = 0; rib < 8; rib += 1) {
+        const angle = (rib / 8) * Math.PI * 2;
+        createCylinder(
+          scene,
+          `${landmark.id}-rib-${rib}`,
+          {
+            height: height - 9,
+            diameterTop: 0.28,
+            diameterBottom: 0.42,
+            tessellation: 6,
+          },
+          new Vector3(
+            landmark.center.x + Math.sin(angle) * 2.15,
+            (height - 9) / 2,
+            landmark.center.z + Math.cos(angle) * 2.15,
+          ),
+          material,
+        );
+      }
+      for (const y of [8, 15, 22, 29]) {
+        createCylinder(
+          scene,
+          `${landmark.id}-collar-${y}`,
+          { height: 0.34, diameter: 5.1, tessellation: 12 },
+          new Vector3(landmark.center.x, y, landmark.center.z),
+          material,
+        );
+      }
+      createCylinder(
+        scene,
+        `${landmark.id}-pod`,
+        {
+          height: 4.2,
+          diameterTop: 8.1,
+          diameterBottom: 6.1,
+          tessellation: 16,
+        },
+        new Vector3(landmark.center.x, height - 6.2, landmark.center.z),
+        darkWindow,
+      );
+      createCylinder(
+        scene,
+        `${landmark.id}-crown`,
+        {
+          height: 2.4,
+          diameterTop: 5.2,
+          diameterBottom: 8.2,
+          tessellation: 16,
+        },
+        new Vector3(landmark.center.x, height - 2.9, landmark.center.z),
+        paleStone,
+      );
+      createCylinder(
+        scene,
+        `${landmark.id}-antenna`,
+        { height: 8, diameterTop: 0.1, diameterBottom: 0.38, tessellation: 8 },
+        new Vector3(landmark.center.x, height + 2.2, landmark.center.z),
+        bronze,
+      );
+      return true;
+    }
+
+    if (landmark.id === "cairo-egyptian-museum") {
+      const height = 10;
+      createBox(
+        scene,
+        landmark.id,
+        { width: landmark.size.x, height, depth: landmark.size.z },
+        new Vector3(landmark.center.x, height / 2, landmark.center.z),
+        material,
+      );
+      createBox(
+        scene,
+        `${landmark.id}-central-pavilion`,
+        {
+          width: Math.max(10, landmark.size.x * 0.27),
+          height: height + 3,
+          depth: landmark.size.z + 1.1,
+        },
+        new Vector3(landmark.center.x, (height + 3) / 2, landmark.center.z),
+        material,
+      );
+      createBox(
+        scene,
+        `${landmark.id}-cornice`,
+        {
+          width: landmark.size.x + 1.2,
+          height: 0.75,
+          depth: landmark.size.z + 1.2,
+        },
+        new Vector3(landmark.center.x, height + 0.15, landmark.center.z),
+        paleStone,
+      );
+      const facadeZ = landmark.center.z - landmark.size.z / 2 - 0.11;
+      for (let bay = -4; bay <= 4; bay += 1) {
+        if (bay === 0) continue;
+        createBox(
+          scene,
+          `${landmark.id}-window-${bay}`,
+          { width: 2.1, height: 3, depth: 0.18 },
+          new Vector3(
+            landmark.center.x + bay * (landmark.size.x / 10),
+            5.8,
+            facadeZ,
+          ),
+          darkWindow,
+        );
+      }
+      createBox(
+        scene,
+        `${landmark.id}-entrance`,
+        { width: 4.5, height: 5.5, depth: 0.28 },
+        new Vector3(landmark.center.x, 3.2, facadeZ - 0.1),
+        darkWindow,
+      );
+      return true;
+    }
+
+    if (landmark.id === "cairo-tahrir-obelisk") {
+      createBox(
+        scene,
+        `${landmark.id}-plinth`,
+        { width: 7, height: 1.1, depth: 7 },
+        new Vector3(landmark.center.x, 0.55, landmark.center.z),
+        paleStone,
+      );
+      createBox(
+        scene,
+        `${landmark.id}-base`,
+        { width: 3, height: 2.2, depth: 3 },
+        new Vector3(landmark.center.x, 2.15, landmark.center.z),
+        material,
+      );
+      createCylinder(
+        scene,
+        `${landmark.id}-shaft`,
+        {
+          height: 13,
+          diameterTop: 0.65,
+          diameterBottom: 1.8,
+          tessellation: 4,
+        },
+        new Vector3(landmark.center.x, 9.7, landmark.center.z),
+        material,
+      );
+      for (const [index, offset] of [
+        [-2.3, -2.3],
+        [2.3, -2.3],
+        [-2.3, 2.3],
+        [2.3, 2.3],
+      ].entries()) {
+        createBox(
+          scene,
+          `${landmark.id}-ram-${index}`,
+          { width: 1.05, height: 0.75, depth: 1.7 },
+          new Vector3(
+            landmark.center.x + offset[0],
+            1.35,
+            landmark.center.z + offset[1],
+          ),
+          bronze,
+        );
+        createCylinder(
+          scene,
+          `${landmark.id}-ram-head-${index}`,
+          { height: 0.8, diameter: 0.72, tessellation: 8 },
+          new Vector3(
+            landmark.center.x + offset[0],
+            1.85,
+            landmark.center.z + offset[1] - 0.65,
+          ),
+          bronze,
+        );
+      }
+      return true;
+    }
+
+    if (landmark.id === "cairo-opera-house") {
+      createBox(
+        scene,
+        landmark.id,
+        { width: landmark.size.x, height: 6.8, depth: landmark.size.z },
+        new Vector3(landmark.center.x, 3.4, landmark.center.z),
+        paleStone,
+      );
+      createBox(
+        scene,
+        `${landmark.id}-upper`,
+        {
+          width: landmark.size.x * 0.62,
+          height: 4.2,
+          depth: landmark.size.z * 0.72,
+        },
+        new Vector3(landmark.center.x, 8.9, landmark.center.z + 1),
+        material,
+      );
+      const frontZ = landmark.center.z - landmark.size.z / 2 - 1.6;
+      createBox(
+        scene,
+        `${landmark.id}-canopy`,
+        { width: landmark.size.x * 0.64, height: 0.45, depth: 4 },
+        new Vector3(landmark.center.x, 5.3, frontZ),
+        paleStone,
+      );
+      for (let column = -3; column <= 3; column += 1) {
+        createCylinder(
+          scene,
+          `${landmark.id}-column-${column}`,
+          { height: 4.8, diameter: 0.55, tessellation: 8 },
+          new Vector3(
+            landmark.center.x + column * (landmark.size.x / 9),
+            2.5,
+            frontZ,
+          ),
+          material,
+        );
+      }
+      return true;
+    }
+
+    if (
+      landmark.id === "cairo-sixth-october-bridge" ||
+      landmark.id === "cairo-sixth-october-west-ramp-stub" ||
+      landmark.id === "cairo-sixth-october-east-ramp-stub"
+    ) {
+      const axis = cairoBridgeVisualAxis(
+        landmark,
+        mapPack.geometry.roadSurfaces ?? [],
+      );
+      const length = axis.lengthM;
+      const width = axis.widthM;
+      const deckY = 7.2;
+      const root = new TransformNode(`${landmark.id}-axis`, scene);
+      root.position.set(axis.center.x, 0, axis.center.z);
+      root.rotation.y = axis.boxYawRad;
+      this.staticSceneryFreeze.push(root);
+      const concrete = makeMaterial(
+        scene,
+        `${landmark.id}-concrete`,
+        new Color3(0.52, 0.5, 0.44),
+      );
+      const expressway = makeMaterial(
+        scene,
+        `${landmark.id}-asphalt`,
+        new Color3(0.19, 0.2, 0.2),
+      );
+      const lanePaint = makeMaterial(
+        scene,
+        `${landmark.id}-lane-paint`,
+        new Color3(0.82, 0.76, 0.58),
+      );
+      const rampStub = landmark.id.endsWith("-ramp-stub");
+      if (rampStub) {
+        const highEnd = landmark.id.includes("-west-") ? 1 : -1;
+        const rise = deckY - 0.42;
+        const slopeLength = Math.hypot(length, rise);
+        const ramp = createBox(
+          scene,
+          `${landmark.id}-boundary-ramp`,
+          { width: slopeLength, height: 0.72, depth: width },
+          new Vector3(0, (deckY + 0.42) / 2, 0),
+          expressway,
+          root,
+        );
+        ramp.rotation.z = highEnd * Math.atan2(rise, length);
+        ramp.isPickable = false;
+        this.staticSceneryFreeze.push(ramp);
+        for (const side of [-1, 1]) {
+          const barrier = createBox(
+            scene,
+            `${landmark.id}-barrier-${side}`,
+            { width: slopeLength, height: 0.54, depth: 0.2 },
+            new Vector3(0, 0.56, side * (width / 2 - 0.18)),
+            concrete,
+            ramp,
+          );
+          barrier.isPickable = false;
+          this.staticSceneryFreeze.push(barrier);
+        }
+        concrete.freeze();
+        expressway.freeze();
+        lanePaint.freeze();
+        return true;
+      }
+
+      const deck = createBox(
+        scene,
+        `${landmark.id}-raised-deck`,
+        { width: length, height: 0.72, depth: width },
+        new Vector3(0, deckY, 0),
+        expressway,
+        root,
+      );
+      deck.isPickable = false;
+      this.staticSceneryFreeze.push(deck);
+
+      // Paired hammerhead piers make the expressway read as a continuous
+      // elevated structure over both Nile channels and the urban fabric.
+      const pierMaster = MeshBuilder.CreateCylinder(
+        `${landmark.id}-pier-master`,
+        {
+          height: deckY - 0.45,
+          diameterTop: 1.25,
+          diameterBottom: 1.65,
+          tessellation: 8,
+        },
+        scene,
+      );
+      setMeshMaterial(pierMaster, concrete);
+      pierMaster.isVisible = false;
+      const capMaster = MeshBuilder.CreateBox(
+        `${landmark.id}-pier-cap-master`,
+        { width: 1.25, height: 0.55, depth: width * 0.82 },
+        scene,
+      );
+      setMeshMaterial(capMaster, concrete);
+      capMaster.isVisible = false;
+      for (const pier of cairoElevatedBridgePierPlacements(
+        axis,
+        mapPack.geometry.roadSurfaces ?? [],
+      )) {
+        const column = pierMaster.createInstance(
+          `${landmark.id}-pier-${pier.index}`,
+        );
+        column.parent = root;
+        column.position.set(pier.alongM, (deckY - 0.45) / 2, 0);
+        column.isPickable = false;
+        this.staticSceneryFreeze.push(column);
+        const cap = capMaster.createInstance(
+          `${landmark.id}-pier-cap-${pier.index}`,
+        );
+        cap.parent = root;
+        cap.position.set(pier.alongM, deckY - 0.55, 0);
+        cap.isPickable = false;
+        this.staticSceneryFreeze.push(cap);
+      }
+
+      for (const side of [-1, 1]) {
+        const barrier = createBox(
+          scene,
+          `${landmark.id}-barrier-${side}`,
+          { width: length, height: 0.72, depth: 0.22 },
+          new Vector3(0, deckY + 0.62, side * (width / 2 - 0.2)),
+          concrete,
+          root,
+        );
+        barrier.isPickable = false;
+        this.staticSceneryFreeze.push(barrier);
+      }
+      const dashCount = Math.max(4, Math.floor(length / 13));
+      const dashMaster = MeshBuilder.CreateBox(
+        `${landmark.id}-dash-master`,
+        { width: 5.2, height: 0.035, depth: 0.14 },
+        scene,
+      );
+      setMeshMaterial(dashMaster, lanePaint);
+      dashMaster.isVisible = false;
+      for (let index = 0; index < dashCount; index += 1) {
+        const along =
+          -length / 2 + ((index + 0.5) / dashCount) * length;
+        const dash = dashMaster.createInstance(
+          `${landmark.id}-dash-${index}`,
+        );
+        dash.parent = root;
+        dash.position.set(along, deckY + 0.38, 0);
+        dash.isPickable = false;
+        this.staticSceneryFreeze.push(dash);
+      }
+      concrete.freeze();
+      expressway.freeze();
+      lanePaint.freeze();
+      return true;
+    }
+
+    if (
+      landmark.id === "cairo-qasr-el-nil-bridge" ||
+      landmark.id === "cairo-al-galaa-bridge"
+    ) {
+      const axis = cairoBridgePortalVisualAxis(
+        landmark,
+        mapPack.geometry.roadSurfaces ?? [],
+        mapPack.geometry.waterBodies ?? [],
+      );
+      const length = axis.lengthM;
+      const width = axis.widthM;
+      const root = new TransformNode(`${landmark.id}-axis`, scene);
+      root.position.set(axis.center.x, 0, axis.center.z);
+      root.rotation.y = axis.boxYawRad;
+      for (const side of [-1, 1]) {
+        const railing = createBox(
+          scene,
+          `${landmark.id}-railing-${side}`,
+          { width: length, height: 0.42, depth: 0.16 },
+          new Vector3(0, 0.63, side * width / 2),
+          paleStone,
+          root,
+        );
+        railing.isPickable = false;
+      }
+      const posts = Math.max(3, Math.floor(length / 12));
+      for (let post = 0; post <= posts; post += 1) {
+        const along = -length / 2 + (post / posts) * length;
+        for (const side of [-1, 1]) {
+          createCylinder(
+            scene,
+            `${landmark.id}-post-${post}-${side}`,
+            { height: 1.05, diameter: 0.18, tessellation: 8 },
+            new Vector3(along, 0.6, side * width / 2),
+            bronze,
+            root,
+          );
+        }
+      }
+      if (landmark.id === "cairo-qasr-el-nil-bridge") {
+        for (const end of [-1, 1]) {
+          for (const side of [-1, 1]) {
+            createBox(
+              scene,
+              `${landmark.id}-lion-plinth-${end}-${side}`,
+              { width: 1.5, height: 1.1, depth: 1.5 },
+              new Vector3(
+                end * (length / 2 - 2.2),
+                0.55,
+                side * (width / 2 + 0.8),
+              ),
+              paleStone,
+              root,
+            );
+            createBox(
+              scene,
+              `${landmark.id}-lion-${end}-${side}`,
+              { width: 1.05, height: 0.72, depth: 1.65 },
+              new Vector3(
+                end * (length / 2 - 2.2),
+                1.45,
+                side * (width / 2 + 0.8),
+              ),
+              bronze,
+              root,
+            );
+          }
+        }
+      }
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -9695,6 +11495,7 @@ class BabylonGameSession {
       readonly id: string;
       readonly centerline: readonly GameCanvasPoint[];
       readonly widthM: number;
+      readonly sidewalkWidthM?: number;
     }[],
     signPoints: readonly GameCanvasPoint[] = [],
   ) {
@@ -9736,10 +11537,12 @@ class BabylonGameSession {
         id: surface.id,
         centerline: surface.centerline,
         widthM: surface.widthM,
+        sidewalkWidthM: surface.sidewalkWidthM,
       })),
       blocks: mapPack.geometry.blocks.map((block) => ({
         center: block.center,
         size: block.size,
+        headingDeg: block.headingDeg,
       })),
       landmarks: [
         ...mapPack.geometry.landmarks.map((landmark) => ({
@@ -9749,7 +11552,9 @@ class BabylonGameSession {
         ...poiExclusions,
       ],
       worldSize: mapPack.geometry.worldSize,
-      shoulderWidthM: Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2),
+      shoulderWidthM: palette.paved
+        ? PAVED_SIDEWALK_WIDTH_M
+        : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2),
       seed: hashStringToSeed(`${mapId}-props`),
       kinds,
       // Hand-placed furniture and regulatory sign posts pre-seed the mutual
@@ -9814,10 +11619,75 @@ class BabylonGameSession {
       lampPool.disableDepthWrite = true;
     }
     const signPost = material("sign-post", new Color3(0.45, 0.47, 0.48));
-    const signPanels = [
-      material("sign-panel-blue", new Color3(0.1, 0.28, 0.5), night ? new Color3(0.14, 0.38, 0.72) : undefined),
-      material("sign-panel-green", new Color3(0.1, 0.35, 0.2), night ? new Color3(0.14, 0.5, 0.26) : undefined),
-    ];
+    const cairoDirectionPanel = (
+      name: string,
+      arabic: string,
+      english: string,
+      background: string,
+    ): StandardMaterial => {
+      const texture = new DynamicTexture(
+        `prop-${name}-texture`,
+        { width: 512, height: 256 },
+        scene,
+        true,
+      );
+      const context = textureContext(texture);
+      context.fillStyle = background;
+      context.fillRect(0, 0, 512, 256);
+      context.strokeStyle = "#f6f1dc";
+      context.lineWidth = 12;
+      context.strokeRect(8, 8, 496, 240);
+      context.fillStyle = "#f6f1dc";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.font =
+        "700 84px 'Noto Sans Arabic', 'Geeza Pro', Arial, sans-serif";
+      context.fillText(arabic, 256, 85);
+      context.font = "700 47px Figtree, Arial, sans-serif";
+      context.fillText(english, 256, 184);
+      texture.update();
+      const uv = cairoDirectionPanelUvTransform();
+      texture.uScale = uv.uScale;
+      texture.uOffset = uv.uOffset;
+      texture.vScale = uv.vScale;
+      texture.vOffset = uv.vOffset;
+      const panel = new StandardMaterial(`prop-${name}`, scene);
+      panel.diffuseTexture = texture;
+      panel.emissiveTexture = texture;
+      panel.emissiveColor = night
+        ? new Color3(0.38, 0.42, 0.46)
+        : new Color3(0.08, 0.08, 0.08);
+      panel.specularColor = Color3.Black();
+      return panel;
+    };
+    const signPanels =
+      key === "cairo"
+        ? [
+            cairoDirectionPanel(
+              "cairo-sign-downtown",
+              "وسط البلد",
+              "DOWNTOWN",
+              "#1b5684",
+            ),
+            cairoDirectionPanel(
+              "cairo-sign-zamalek",
+              "الزمالك",
+              "ZAMALEK",
+              "#245f42",
+            ),
+          ]
+        : [
+            material(
+              "sign-panel-blue",
+              new Color3(0.1, 0.28, 0.5),
+              night ? new Color3(0.14, 0.38, 0.72) : undefined,
+            ),
+            material(
+              "sign-panel-green",
+              new Color3(0.1, 0.35, 0.2),
+              night ? new Color3(0.14, 0.5, 0.26) : undefined,
+            ),
+          ];
     const hydrantRed = material("hydrant", new Color3(0.62, 0.1, 0.07));
     const hedgeGreen = material("hedge", new Color3(0.15, 0.32, 0.15));
     const bollardPale = material("bollard", new Color3(0.75, 0.76, 0.72));
@@ -9831,6 +11701,27 @@ class BabylonGameSession {
       "vending-panel",
       new Color3(0.55, 0.6, 0.58),
       new Color3(0.22, 0.26, 0.24),
+    );
+    const cairoCartWood = material(
+      "cairo-cart-wood",
+      new Color3(0.38, 0.23, 0.12),
+    );
+    const cairoCartCanvas = [
+      material("cairo-cart-canvas-red", new Color3(0.58, 0.16, 0.12)),
+      material("cairo-cart-canvas-blue", new Color3(0.12, 0.35, 0.45)),
+    ];
+    const cairoVehicleBodies = [
+      material("cairo-ambient-cream", new Color3(0.72, 0.69, 0.61)),
+      material("cairo-ambient-blue", new Color3(0.16, 0.33, 0.43)),
+      material("cairo-ambient-red", new Color3(0.5, 0.18, 0.13)),
+    ];
+    const cairoVehicleGlass = material(
+      "cairo-ambient-glass",
+      new Color3(0.08, 0.14, 0.16),
+    );
+    const cairoVehicleDark = material(
+      "cairo-ambient-dark",
+      new Color3(0.07, 0.07, 0.065),
     );
 
     interface PropPart {
@@ -9970,6 +11861,52 @@ class BabylonGameSession {
           }
           break;
         }
+        case "palm": {
+          // A tall faceted date palm: ringed tapering trunk and a broad pair of
+          // low-poly crowns. The compressed crown stays legible from the chase
+          // camera without introducing fragile transparent frond textures.
+          const palmLeaf = variant % 2 === 0 ? leaves[1] : leaves[0];
+          parts = [
+            {
+              master: masterCylinder(
+                `${cacheKey}-trunk`,
+                {
+                  height: 5.8,
+                  diameterTop: 0.28,
+                  diameterBottom: 0.52,
+                },
+                trunk,
+              ),
+              offset: new Vector3(0, 2.9, 0),
+            },
+            {
+              master: masterCylinder(
+                `${cacheKey}-lower-crown`,
+                {
+                  height: 0.42,
+                  diameterTop: 3.8,
+                  diameterBottom: 0.55,
+                },
+                palmLeaf,
+              ),
+              offset: new Vector3(0, 5.78, 0),
+            },
+            {
+              master: masterCylinder(
+                `${cacheKey}-upper-crown`,
+                {
+                  height: 0.38,
+                  diameterTop: 0.45,
+                  diameterBottom: 3.1,
+                },
+                palmLeaf,
+              ),
+              offset: new Vector3(0, 6.08, 0),
+              castShadow: false,
+            },
+          ];
+          break;
+        }
         case "streetlight":
           parts = [
             {
@@ -10016,10 +11953,14 @@ class BabylonGameSession {
             {
               master: masterBox(
                 `${cacheKey}-panel`,
-                { width: 0.72, height: 0.5, depth: 0.05 },
+                {
+                  width: key === "cairo" ? 1.5 : 0.72,
+                  height: key === "cairo" ? 0.78 : 0.5,
+                  depth: 0.05,
+                },
                 signPanels[variant % signPanels.length],
               ),
-              offset: new Vector3(0, 2.15, 0),
+              offset: new Vector3(0, key === "cairo" ? 2.05 : 2.15, 0),
             },
           ];
           break;
@@ -10115,6 +12056,159 @@ class BabylonGameSession {
             },
           ];
           break;
+        case "cairo-cart":
+          parts = [
+            {
+              master: masterBox(
+                `${cacheKey}-body`,
+                { width: 1.55, height: 0.72, depth: 2.25 },
+                cairoCartWood,
+              ),
+              offset: new Vector3(0, 0.62, 0),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-canopy`,
+                { width: 2.05, height: 0.18, depth: 2.65 },
+                cairoCartCanvas[variant % cairoCartCanvas.length],
+              ),
+              offset: new Vector3(0, 2.22, 0),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-canopy-post-left`,
+                { width: 0.1, height: 1.55, depth: 0.1 },
+                cairoCartWood,
+              ),
+              offset: new Vector3(-0.72, 1.45, -0.88),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-canopy-post-right`,
+                { width: 0.1, height: 1.55, depth: 0.1 },
+                cairoCartWood,
+              ),
+              offset: new Vector3(0.72, 1.45, -0.88),
+              castShadow: false,
+            },
+            ...([-1, 1] as const).map((side) => ({
+              master: masterBox(
+                `${cacheKey}-wheel-${side}`,
+                { width: 0.22, height: 0.66, depth: 0.66 },
+                cairoVehicleDark,
+              ),
+              offset: new Vector3(side * 0.86, 0.42, 0.43),
+              castShadow: false,
+            })),
+          ];
+          break;
+        case "microbus":
+          parts = [
+            {
+              master: masterBox(
+                `${cacheKey}-body`,
+                { width: 1.9, height: 2.15, depth: 5.1 },
+                cairoVehicleBodies[variant % 2],
+              ),
+              offset: new Vector3(0, 1.18, 0),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-windows`,
+                { width: 1.94, height: 0.72, depth: 3.35 },
+                cairoVehicleGlass,
+              ),
+              offset: new Vector3(0, 1.72, -0.2),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-lower`,
+                { width: 1.96, height: 0.35, depth: 4.4 },
+                cairoVehicleDark,
+              ),
+              offset: new Vector3(0, 0.42, 0),
+            },
+            ...([-1, 1] as const).flatMap((side) =>
+              ([-1.65, 1.65] as const).map((along) => ({
+                master: masterBox(
+                  `${cacheKey}-wheel-${side}-${along}`,
+                  { width: 0.24, height: 0.68, depth: 0.68 },
+                  cairoVehicleDark,
+                ),
+                offset: new Vector3(side * 0.97, 0.38, along),
+                castShadow: false,
+              })),
+            ),
+          ];
+          break;
+        case "parked-car":
+          parts = [
+            {
+              master: masterBox(
+                `${cacheKey}-body`,
+                { width: 1.76, height: 0.72, depth: 4.05 },
+                cairoVehicleBodies[variant % cairoVehicleBodies.length],
+              ),
+              offset: new Vector3(0, 0.58, 0),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-cabin`,
+                { width: 1.46, height: 0.66, depth: 2.1 },
+                cairoVehicleGlass,
+              ),
+              offset: new Vector3(0, 1.18, -0.12),
+            },
+            ...([-1, 1] as const).flatMap((side) =>
+              ([-1.28, 1.28] as const).map((along) => ({
+                master: masterBox(
+                  `${cacheKey}-wheel-${side}-${along}`,
+                  { width: 0.2, height: 0.58, depth: 0.58 },
+                  cairoVehicleDark,
+                ),
+                offset: new Vector3(side * 0.88, 0.36, along),
+                castShadow: false,
+              })),
+            ),
+          ];
+          break;
+        case "scooter":
+          parts = [
+            {
+              master: masterBox(
+                `${cacheKey}-frame`,
+                { width: 0.42, height: 0.48, depth: 1.5 },
+                cairoVehicleBodies[(variant + 1) % cairoVehicleBodies.length],
+              ),
+              offset: new Vector3(0, 0.55, 0),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-seat`,
+                { width: 0.42, height: 0.18, depth: 0.72 },
+                cairoVehicleDark,
+              ),
+              offset: new Vector3(0, 0.94, -0.2),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-handle`,
+                { width: 0.84, height: 0.1, depth: 0.1 },
+                cairoVehicleDark,
+              ),
+              offset: new Vector3(0, 1.35, 0.5),
+            },
+            ...([-0.55, 0.55] as const).map((along) => ({
+              master: masterBox(
+                `${cacheKey}-wheel-${along}`,
+                { width: 0.48, height: 0.48, depth: 0.16 },
+                cairoVehicleDark,
+              ),
+              offset: new Vector3(0, 0.31, along),
+              castShadow: false,
+            })),
+          ];
+          break;
         default:
           parts = [];
       }
@@ -10123,7 +12217,7 @@ class BabylonGameSession {
     };
 
     let instanceIndex = 0;
-    for (const placement of placements) {
+    for (const [placementIndex, placement] of placements.entries()) {
       if (placement.kind === "vendor") {
         // glb cart, not a procedural master — instantiate later once preloaded.
         const config = NYC_VENDORS[placement.variant % NYC_VENDORS.length];
@@ -10132,9 +12226,29 @@ class BabylonGameSession {
         }
         continue;
       }
+      const ambientVehicle =
+        placement.kind === "microbus" ||
+        placement.kind === "parked-car" ||
+        placement.kind === "scooter";
+      const visualOnlyStreetLife =
+        ambientVehicle || placement.kind === "cairo-cart";
+      if (
+        key === "cairo" &&
+        visualOnlyStreetLife &&
+        !deterministicSceneryKeep(
+          `${mapId}:${placement.kind}:${placementIndex}`,
+          this.buildingKeepFraction,
+        )
+      ) {
+        continue;
+      }
       const parts = partsFor(placement.kind, placement.variant);
-      const sin = Math.sin(placement.rotationY);
-      const cos = Math.cos(placement.rotationY);
+      // Prop placement "faces road" (ideal for signs/carts). Parked vehicles
+      // turn a quarter turn so their long axis runs parallel to the kerb.
+      const rotationY =
+        placement.rotationY + (ambientVehicle ? Math.PI / 2 : 0);
+      const sin = Math.sin(rotationY);
+      const cos = Math.cos(rotationY);
       const destructibleParts: DestructiblePropPart[] = [];
       for (const part of parts) {
         const instance = part.master.createInstance(
@@ -10147,7 +12261,7 @@ class BabylonGameSession {
           scaled.y,
           placement.z - scaled.x * sin + scaled.z * cos,
         );
-        instance.rotation.y = placement.rotationY;
+        instance.rotation.y = rotationY;
         instance.scaling.setAll(placement.scale);
         instance.isPickable = false;
         this.staticSceneryFreeze.push(instance);
@@ -10159,13 +12273,15 @@ class BabylonGameSession {
           isLightPool: part.master.name.includes("-pool"),
         });
       }
-      this.registerDestructibleProp(
-        placement.kind,
-        placement.x,
-        placement.z,
-        placement.scale,
-        destructibleParts,
-      );
+      if (!visualOnlyStreetLife) {
+        this.registerDestructibleProp(
+          placement.kind,
+          placement.x,
+          placement.z,
+          placement.scale,
+          destructibleParts,
+        );
+      }
     }
 
     for (const propMaterial of [
@@ -10182,6 +12298,11 @@ class BabylonGameSession {
       poleWood,
       ...vendingBodies,
       vendingPanel,
+      cairoCartWood,
+      ...cairoCartCanvas,
+      ...cairoVehicleBodies,
+      cairoVehicleGlass,
+      cairoVehicleDark,
     ]) {
       propMaterial.freeze();
     }
@@ -10665,6 +12786,160 @@ class BabylonGameSession {
       new Vector3(LONDON_POST_BOX_POSITION[0], 1.69, LONDON_POST_BOX_POSITION[1]),
       postBoxRed,
     );
+  }
+
+  /**
+   * Builds the authored Nile channels plus a sparse, deterministic set of
+   * original low-poly river craft. Water is scenery, not simulation state:
+   * boats are keyed from map/body ids and never touch the traffic PRNG.
+   */
+  private buildWaterBodies(mapPack: GameCanvasMapPack, mapId: string) {
+    const bodies = mapPack.geometry.waterBodies ?? [];
+    if (!bodies.length) return;
+    const scene = this.scene;
+    const hullMaterials = [
+      makeMaterial(scene, "nile-boat-hull-cream", new Color3(0.74, 0.67, 0.5)),
+      makeMaterial(scene, "nile-boat-hull-blue", new Color3(0.12, 0.31, 0.43)),
+      makeMaterial(scene, "nile-boat-hull-red", new Color3(0.48, 0.16, 0.11)),
+    ];
+    const boatTrim = makeMaterial(
+      scene,
+      "nile-boat-trim",
+      new Color3(0.15, 0.13, 0.1),
+    );
+    const sailMaterial = makeMaterial(
+      scene,
+      "nile-felucca-sail",
+      new Color3(0.86, 0.82, 0.7),
+    );
+    sailMaterial.backFaceCulling = false;
+
+    for (const body of bodies) {
+      const geometry = buildWaterPolygonGeometry(body.polygon);
+      if (!geometry.positions.length || !geometry.indices.length) continue;
+      const waterColor = colorFromHex(
+        body.color,
+        new Color3(0.13, 0.43, 0.55),
+      );
+      const material = makeMaterial(
+        scene,
+        `water-${body.id}`,
+        waterColor,
+        waterColor.scale(0.12),
+      );
+      material.specularColor = new Color3(0.45, 0.56, 0.58);
+      material.specularPower = 80;
+      material.backFaceCulling = false;
+      const mesh = new Mesh(`water-${body.id}`, scene);
+      const normals: number[] = [];
+      VertexData.ComputeNormals(
+        [...geometry.positions],
+        [...geometry.indices],
+        normals,
+      );
+      const data = new VertexData();
+      data.positions = [...geometry.positions];
+      data.indices = [...geometry.indices];
+      data.normals = normals;
+      data.uvs = [...geometry.uvs];
+      data.applyToMesh(mesh);
+      setMeshMaterial(mesh, material, true);
+      mesh.freezeWorldMatrix();
+      this.registerMirrorSurface(mesh);
+      material.freeze();
+
+      for (const [index, placement] of generateWaterBoatPlacements(
+        mapId,
+        body,
+      ).entries()) {
+        const root = new TransformNode(`${body.id}-boat-${index}`, scene);
+        const initialPose = waterBoatPoseAt(placement, 0);
+        root.position.set(initialPose.x, initialPose.y, initialPose.z);
+        root.rotation.set(0, initialPose.heading, initialPose.roll);
+        const hull = MeshBuilder.CreateCylinder(
+          `${body.id}-boat-${index}-hull`,
+          {
+            height: 0.55,
+            diameterTop: 1.65,
+            diameterBottom: 1.15,
+            tessellation: 4,
+          },
+          scene,
+        );
+        hull.parent = root;
+        hull.position.y = 0.3;
+        hull.scaling.z = placement.variant === 2 ? 2.75 : 2.2;
+        setMeshMaterial(hull, hullMaterials[placement.variant]);
+
+        const deck = createBox(
+          scene,
+          `${body.id}-boat-${index}-deck`,
+          {
+            width: placement.variant === 2 ? 1.35 : 1.05,
+            height: 0.12,
+            depth: placement.variant === 2 ? 3.45 : 2.65,
+          },
+          new Vector3(0, 0.61, 0),
+          boatTrim,
+          root,
+        );
+        const parts: AbstractMesh[] = [hull, deck];
+        if (placement.variant === 1) {
+          const mast = createCylinder(
+            scene,
+            `${body.id}-boat-${index}-mast`,
+            { height: 4, diameter: 0.09, tessellation: 8 },
+            new Vector3(0, 2.45, 0.05),
+            boatTrim,
+            root,
+          );
+          const sail = createChamferedPanel(
+            scene,
+            `${body.id}-boat-${index}-sail`,
+            [
+              { x: -0.05, y: -0.5 },
+              { x: 0.95, y: -0.5 },
+              { x: -0.05, y: 0.5 },
+            ],
+            2.75,
+            3.45,
+            sailMaterial,
+            root,
+          );
+          sail.position.set(0.08, 2.52, -0.03);
+          parts.push(mast, sail);
+        } else {
+          const cabin = createBox(
+            scene,
+            `${body.id}-boat-${index}-cabin`,
+            {
+              width: placement.variant === 2 ? 1.28 : 0.8,
+              height: placement.variant === 2 ? 0.85 : 0.58,
+              depth: placement.variant === 2 ? 1.8 : 0.9,
+            },
+            new Vector3(0, placement.variant === 2 ? 1.05 : 0.9, 0.15),
+            placement.variant === 2 ? sailMaterial : hullMaterials[0],
+            root,
+          );
+          parts.push(cabin);
+        }
+        for (const part of parts) {
+          part.isPickable = false;
+        }
+        this.animatedWaterBoats.push({ root, placement });
+      }
+    }
+    for (const material of [...hullMaterials, boatTrim, sailMaterial]) {
+      material.freeze();
+    }
+  }
+
+  private updateWaterBoatVisuals(visualTimeSeconds: number) {
+    for (const boat of this.animatedWaterBoats) {
+      const pose = waterBoatPoseAt(boat.placement, visualTimeSeconds);
+      boat.root.position.set(pose.x, pose.y, pose.z);
+      boat.root.rotation.set(0, pose.heading, pose.roll);
+    }
   }
 
   private createRoadSurfaceMesh(
@@ -11522,6 +13797,18 @@ class BabylonGameSession {
     const head = new TransformNode(`${name}-head`, this.scene);
     head.position.set(position.x, height, position.z);
     head.rotation.y = heading;
+    if (runtime.style === "egypt_signal") {
+      // Cairo's roadside signals commonly frame the black head in the same
+      // high-contrast yellow used on the striped support poles.
+      createBox(
+        this.scene,
+        `${name}-egypt-frame`,
+        { width: 0.7, height: 1.6, depth: 0.44 },
+        new Vector3(0, 0, 0.015),
+        materials.warningYellow,
+        head,
+      );
+    }
     createBox(
       this.scene,
       `${name}-housing`,
@@ -11588,6 +13875,35 @@ class BabylonGameSession {
       new Vector3(base.x, poleHeight / 2, base.z),
       materials.dark,
     );
+    if (runtime.style === "egypt_signal") {
+      // Thin sleeves preserve the one continuous structural pole while giving
+      // it Cairo's black/yellow municipal hazard striping.
+      const bandHeight = 0.52;
+      for (
+        let band = 0;
+        (band + 0.5) * bandHeight < poleHeight;
+        band += 2
+      ) {
+        createCylinder(
+          this.scene,
+          `${controlId}-${installation.id}-egypt-band-${band}`,
+          {
+            height: bandHeight,
+            diameter:
+              (mastArm
+                ? SIGNAL_MAST.poleDiameterM
+                : SIGNAL_MAST.kerbsidePoleDiameterM) + 0.018,
+            tessellation: 14,
+          },
+          new Vector3(
+            base.x,
+            (band + 0.5) * bandHeight,
+            base.z,
+          ),
+          materials.warningYellow,
+        );
+      }
+    }
     if (mastArm) {
       const span = Math.max(4.8, Math.min(8.5, roadWidth * 0.68));
       const sideX = Math.cos(armHeading);
@@ -11727,31 +14043,42 @@ class BabylonGameSession {
   }
 
   private buildRoadMarkingInstallation(
+    mapPack: GameCanvasMapPack,
     control: GameCanvasMapPack["laneGraph"]["controls"][number],
     installation: NonNullable<
       GameCanvasMapPack["laneGraph"]["controls"][number]["installations"]
     >[number],
-    roadWidth: number,
     laneMaterial: StandardMaterial,
     warningMaterial: StandardMaterial,
   ) {
-    const heading = degreesToRadians(installation.headingDeg);
     if (installation.style === "crosswalk") {
-      for (let stripe = -3; stripe <= 3; stripe += 1) {
-        const acrossX = Math.cos(heading) * stripe * 1.05;
-        const acrossZ = -Math.sin(heading) * stripe * 1.05;
-        const marking = createBox(
-          this.scene,
+      const surfacePlacement = roadSurfacePlacementForMarking(
+        mapPack,
+        control,
+        installation,
+      );
+      for (const [stripe, layout] of crosswalkStripeLayout(
+        surfacePlacement.position,
+        installation.headingDeg,
+        surfacePlacement.widthM,
+      ).entries()) {
+        if (!this.crosswalkStripeMaster) {
+          this.crosswalkStripeMaster = MeshBuilder.CreateBox(
+            "crosswalk-stripe-master",
+            { width: 1, height: 0.035, depth: 1 },
+            this.scene,
+          );
+          setMeshMaterial(this.crosswalkStripeMaster, laneMaterial);
+          this.crosswalkStripeMaster.isVisible = false;
+        }
+        const marking = this.crosswalkStripeMaster.createInstance(
           `${control.id}-${installation.id}-stripe-${stripe}`,
-          { width: 0.62, height: 0.035, depth: roadWidth * 0.82 },
-          new Vector3(
-            installation.position.x + acrossX,
-            0.14,
-            installation.position.z + acrossZ,
-          ),
-          laneMaterial,
         );
-        marking.rotation.y = heading;
+        marking.position.set(layout.center.x, 0.14, layout.center.z);
+        marking.rotation.y = layout.rotationY;
+        marking.scaling.set(layout.widthM, 1, layout.depthM);
+        marking.isPickable = false;
+        this.staticSceneryFreeze.push(marking);
       }
       return;
     }
@@ -13954,64 +16281,115 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
 
       let alive = true;
       let ownedSession: BabylonGameSession | null = null;
+      let perfQaTimer: number | undefined;
+      const writePerfQaSnapshot = () => {
+        const hook = (
+          window as unknown as Record<string, unknown>
+        ).__sideswapPerfDebug;
+        if (typeof hook === "function") {
+          canvas.dataset.perfQa = JSON.stringify(hook());
+        }
+      };
       setRuntimeState("loading");
       // A rebuild (lesson/mapPack change) reuses this component instance
       // rather than remounting, so the bar needs its own reset here — useState's
       // initial value only covers a fresh mount.
       setLoadProgress({ fraction: 0, label: LOADING_MODELS_LABEL });
-      try {
-        const session = new BabylonGameSession(
-          canvas,
-          {
-            trafficSide,
-            steeringSide,
-            lesson,
-            mapPack,
-            cameraMode,
-            inputCapabilities: inputCapabilitiesRef.current,
-            speedUnit,
-            paused: paused || touchPortraitGateRef.current,
-            reducedMotion,
-            steeringSensitivity: clamp(steeringSensitivity, 0.45, 1.8),
-            fieldOfView: clampHorizontalFieldOfView(fieldOfView),
-            masterVolume: clamp(masterVolume, 0, 1),
-            effectsVolume: clamp(effectsVolume, 0, 1),
-            cameraShake,
-            headBob,
-            outOfFuel,
-            carConditionPct,
-            riderVenueId,
-            gigStopId,
-            gigStopCarrying,
-            cutscene,
-            playerVehicle: playerVehicle ?? null,
-            vehiclePhysics: vehiclePhysics ?? null,
-          },
-          {
-            onHudUpdate: (snapshot) => callbackRef.current.onHudUpdate?.(snapshot),
-            onEvent: (event) => callbackRef.current.onEvent?.(event),
-            onPauseChange: (value) => callbackRef.current.onPauseChange?.(value),
-            onCameraChange: (value) => callbackRef.current.onCameraChange?.(value),
-            onInputPresentationChange: (value) => setInputPresentation(value),
-            onComplete: (score) => callbackRef.current.onComplete?.(score),
-            onReady: () => callbackRef.current.onReady?.(),
-            onContextLost: () => callbackRef.current.onContextLost?.(),
-            onContextRestored: () => callbackRef.current.onContextRestored?.(),
-            onLoadProgress: (progress) => callbackRef.current.onLoadProgress?.(progress),
-          },
-        );
-        ownedSession = session;
-        if (!alive) {
-          session.dispose();
-          return;
+      const startSession = async () => {
+        try {
+          if (mapPack?.id === "cairo-central-nile") {
+            setLoadProgress({
+              fraction: 0.02,
+              label: "Loading Cairo lettering…",
+            });
+            // DynamicTextures do not repaint after a late webfont swap. Awaiting
+            // the bundled face here guarantees every Arabic sign, plate, and
+            // patrol decal is rasterised with the intended offline font.
+            await ensureArabicCanvasFontLoaded();
+            if (!alive) return;
+            const fontDebug = inspectArabicCanvasFont();
+            assertArabicCanvasFontDebug(fontDebug);
+            (
+              window as unknown as Record<string, unknown>
+            ).__sideswapArabicFontDebug = fontDebug;
+            canvas.dataset.arabicFontQa = JSON.stringify(fontDebug);
+          }
+          const session = new BabylonGameSession(
+            canvas,
+            {
+              trafficSide,
+              steeringSide,
+              lesson,
+              mapPack,
+              cameraMode,
+              inputCapabilities: inputCapabilitiesRef.current,
+              speedUnit,
+              paused: paused || touchPortraitGateRef.current,
+              reducedMotion,
+              steeringSensitivity: clamp(steeringSensitivity, 0.45, 1.8),
+              fieldOfView: clampHorizontalFieldOfView(fieldOfView),
+              masterVolume: clamp(masterVolume, 0, 1),
+              effectsVolume: clamp(effectsVolume, 0, 1),
+              cameraShake,
+              headBob,
+              outOfFuel,
+              carConditionPct,
+              riderVenueId,
+              gigStopId,
+              gigStopCarrying,
+              cutscene,
+              playerVehicle: playerVehicle ?? null,
+              vehiclePhysics: vehiclePhysics ?? null,
+            },
+            {
+              onHudUpdate: (snapshot) =>
+                callbackRef.current.onHudUpdate?.(snapshot),
+              onEvent: (event) => callbackRef.current.onEvent?.(event),
+              onPauseChange: (value) =>
+                callbackRef.current.onPauseChange?.(value),
+              onCameraChange: (value) =>
+                callbackRef.current.onCameraChange?.(value),
+              onInputPresentationChange: (value) =>
+                setInputPresentation(value),
+              onComplete: (score) => callbackRef.current.onComplete?.(score),
+              onReady: () => callbackRef.current.onReady?.(),
+              onContextLost: () => callbackRef.current.onContextLost?.(),
+              onContextRestored: () =>
+                callbackRef.current.onContextRestored?.(),
+              onLoadProgress: (progress) =>
+                callbackRef.current.onLoadProgress?.(progress),
+            },
+          );
+          ownedSession = session;
+          if (!alive) {
+            session.dispose();
+            return;
+          }
+          sessionRef.current = session;
+          if (mapPack?.id === "cairo-central-nile") {
+            perfQaTimer = window.setTimeout(writePerfQaSnapshot, 2_500);
+          }
+        } catch (error) {
+          if (!alive) return;
+          console.error("Unable to start Curbside Rush", error);
+          setRuntimeState(
+            error instanceof Error && error.message.includes("WebGL 2")
+              ? "unsupported"
+              : "error",
+          );
         }
-        sessionRef.current = session;
-      } catch (error) {
-        console.error("Unable to start Curbside Rush", error);
-        setRuntimeState(error instanceof Error && error.message.includes("WebGL 2") ? "unsupported" : "error");
-      }
+      };
+      void startSession();
       return () => {
         alive = false;
+        if (perfQaTimer !== undefined) window.clearTimeout(perfQaTimer);
+        delete canvas.dataset.perfQa;
+        if (mapPack?.id === "cairo-central-nile") {
+          delete (
+            window as unknown as Record<string, unknown>
+          ).__sideswapArabicFontDebug;
+          delete canvas.dataset.arabicFontQa;
+        }
         if (sessionRef.current === ownedSession) sessionRef.current = null;
         ownedSession?.dispose();
       };

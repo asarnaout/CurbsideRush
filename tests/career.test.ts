@@ -37,6 +37,7 @@ import {
   nextInstallment,
   parseCareerSlice,
   PLATFORM_FEE_BY_COUNTRY,
+  ROADSIDE_CALLOUT_FEE_BY_COUNTRY,
   settleDay,
   stableStringify,
   stampCareerChecksum,
@@ -452,6 +453,54 @@ describe("checksum and slice codec", () => {
     expect(parseCareerSlice(nested)).toEqual({ state: "corrupt" });
   });
 
+  it("reopens a verified pre-Cairo winner without erasing London or its ledgers", () => {
+    const fullFleet = CAREER_VEHICLES.filter((vehicle) => vehicle.buyoutEligible).map(
+      (vehicle) => vehicle.id,
+    );
+    const legacyWinner = stampCareerChecksum({
+      ...createCareerSlice({ destinationId: "us-nyc", careerSeed: 2026 }),
+      state: "won",
+      currentDestinationId: "uk-london",
+      cities: {
+        "us-nyc": {
+          ...createCityState("us"),
+          cash: 321,
+          ownedVehicleIds: fullFleet,
+        },
+        "jp-tokyo": {
+          ...createCityState("jp"),
+          cash: 54_321,
+          ownedVehicleIds: fullFleet,
+        },
+        "uk-london": {
+          ...createCityState("uk"),
+          day: 42,
+          cash: 987,
+          ownedVehicleIds: fullFleet,
+        },
+      },
+      victoryDay: 42,
+    });
+
+    const parsed = parseCareerSlice(JSON.parse(JSON.stringify(legacyWinner)));
+    if (parsed === null || parsed.state === "corrupt") {
+      throw new Error("verified legacy winner did not migrate");
+    }
+    expect(parsed.state).toBe("active");
+    expect(parsed.victoryDay).toBeNull();
+    expect(parsed.currentDestinationId).toBe("uk-london");
+    expect(parsed.cities["eg-cairo"]).toBeUndefined();
+    expect(parsed.cities["uk-london"]).toEqual(legacyWinner.cities["uk-london"]);
+    expect(parsed.cities["us-nyc"]?.cash).toBe(321);
+    expect(computeCareerChecksum(parsed)).toBe(parsed.checksum);
+
+    const tampered = JSON.parse(JSON.stringify(legacyWinner)) as {
+      cities: Record<string, { cash: number }>;
+    };
+    tampered.cities["uk-london"].cash += 1;
+    expect(parseCareerSlice(tampered)).toEqual({ state: "corrupt" });
+  });
+
   it("is independent of key insertion order", () => {
     const reordered = JSON.parse(JSON.stringify(slice)) as Record<string, unknown>;
     const shuffled: Record<string, unknown> = {};
@@ -547,10 +596,15 @@ describe("the city ladder", () => {
     expect(CAREER_CITIES.length).toBeGreaterThan(1);
   });
 
-  it("opens in New York and runs NYC -> Tokyo -> London", () => {
+  it("opens in New York and runs NYC -> Tokyo -> Cairo -> London", () => {
     // Pins the intended route. Reordering CAREER_CITIES is a deliberate design
     // change and should update this line with it.
-    expect(CAREER_CITIES).toEqual(["us-nyc", "jp-tokyo", "uk-london"]);
+    expect(CAREER_CITIES).toEqual([
+      "us-nyc",
+      "jp-tokyo",
+      "eg-cairo",
+      "uk-london",
+    ]);
     expect(CAREER_START_CITY).toBe("us-nyc");
   });
 
@@ -562,7 +616,8 @@ describe("the city ladder", () => {
 
   it("walks forward and stops at the end", () => {
     expect(nextCareerCity("us-nyc")).toBe("jp-tokyo");
-    expect(nextCareerCity("jp-tokyo")).toBe("uk-london");
+    expect(nextCareerCity("jp-tokyo")).toBe("eg-cairo");
+    expect(nextCareerCity("eg-cairo")).toBe("uk-london");
     expect(nextCareerCity(CAREER_CITIES[CAREER_CITIES.length - 1])).toBeNull();
     expect(careerCityIndex("us-nyc")).toBe(0);
     expect(careerCityIndex("uk-milton-keynes")).toBe(-1);
@@ -577,6 +632,21 @@ describe("the city ladder", () => {
         expect(vehicle.rentByCountry[countryId]).toBeGreaterThanOrEqual(0);
       }
     }
+  });
+
+  it("pins Cairo's EGP career economy", () => {
+    expect(CAREER_STARTING_CASH_BY_COUNTRY.eg).toBe(1000);
+    expect(PLATFORM_FEE_BY_COUNTRY.eg).toBe(150);
+    expect(ROADSIDE_CALLOUT_FEE_BY_COUNTRY.eg).toBe(500);
+    expect(CAREER_VEHICLES.map((vehicle) => vehicle.rentByCountry.eg)).toEqual([
+      0,
+      500,
+      800,
+      1300,
+      1900,
+    ]);
+    expect(ticketPrice("jp-tokyo")).toBe(40_000);
+    expect(ticketPrice("eg-cairo")).toBe(20_000);
   });
 });
 
@@ -658,6 +728,41 @@ describe("tickets and travel", () => {
     expect(() => applyTicket(backRich)).toThrow(/No onward ticket/);
   });
 
+  it("keeps legacy London unlocked but makes a returning Tokyo driver buy Cairo", () => {
+    const legacy = stampCareerChecksum({
+      ...createCareerSlice({ destinationId: "us-nyc", careerSeed: 10 }),
+      currentDestinationId: "jp-tokyo",
+      cities: {
+        "us-nyc": createCityState("us"),
+        "jp-tokyo": {
+          ...createCityState("jp"),
+          cash: 40_000,
+        },
+        "uk-london": {
+          ...createCityState("uk"),
+          day: 8,
+          cash: 222,
+        },
+      },
+    });
+
+    expect(unlockedCities(legacy)).toEqual([
+      "us-nyc",
+      "jp-tokyo",
+      "uk-london",
+    ]);
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(legacy)))).toEqual(legacy);
+    expect(canBuyTicket(legacy)).toBe(true);
+    const inCairo = applyTicket(legacy);
+    expect(inCairo.currentDestinationId).toBe("eg-cairo");
+    expect(activeCity(inCairo).cash).toBe(CAREER_STARTING_CASH_BY_COUNTRY.eg);
+    expect(inCairo.cities["jp-tokyo"]?.cash).toBe(0);
+    expect(inCairo.cities["uk-london"]?.cash).toBe(222);
+    expect(travelTo(inCairo, "uk-london").currentDestinationId).toBe(
+      "uk-london",
+    );
+  });
+
   it("travels freely between cities already reached, and refuses the rest", () => {
     const price = ticketPrice("us-nyc") as number;
     const flown = applyTicket(
@@ -684,7 +789,7 @@ describe("the win condition", () => {
   const fullFleet = CAREER_VEHICLES.filter((v) => v.buyoutEligible).map(
     (v) => v.id,
   );
-  const cityWithFleet = (countryId: "us" | "jp" | "uk") => ({
+  const cityWithFleet = (countryId: "us" | "jp" | "eg" | "uk") => ({
     ...createCityState(countryId),
     ownedVehicleIds: fullFleet,
   });
@@ -848,7 +953,7 @@ describe("per-day seeds", () => {
 
 describe("vehicle catalog invariants", () => {
   it("lists rents strictly ascending in every country", () => {
-    for (const country of ["us", "uk", "fr", "jp"] as const) {
+    for (const country of ["us", "uk", "fr", "jp", "eg"] as const) {
       const rents = CAREER_VEHICLES.map((vehicle) => vehicle.rentByCountry[country]);
       for (let index = 1; index < rents.length; index += 1) {
         expect(rents[index], `${country} tier ${index}`).toBeGreaterThan(
@@ -930,7 +1035,7 @@ describe("vehicle catalog invariants", () => {
   });
 
   it("prices integer rents, fees and starting cash in every country", () => {
-    for (const country of ["us", "uk", "fr", "jp"] as const) {
+    for (const country of ["us", "uk", "fr", "jp", "eg"] as const) {
       expect(Number.isSafeInteger(CAREER_STARTING_CASH_BY_COUNTRY[country])).toBe(true);
       expect(Number.isSafeInteger(PLATFORM_FEE_BY_COUNTRY[country])).toBe(true);
       for (const vehicle of CAREER_VEHICLES) {

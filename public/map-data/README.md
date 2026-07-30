@@ -1,4 +1,4 @@
-# SideSwap frozen map data
+# Curbside Rush frozen map data
 
 The JSON files in this directory are generated from OpenStreetMap data and are
 made available under the Open Database License (ODbL) 1.0. Each file embeds its
@@ -11,10 +11,9 @@ Overpass requests for roads and buildings. Pass `--force` to refresh every pack
 or `--verify` to check IDs, bounding boxes, provenance fields, and geometry
 checksums without making a network request.
 
-These extracts supply geographic context only; SideSwap's directed lane graph,
-lesson routes, and educational traffic rules are reviewed and authored
-separately from official jurisdiction sources. A map pack is not a traffic-law
-source.
+These extracts supply geographic context only; Curbside Rush's directed lane
+graph, gameplay routes, and traffic rules are reviewed and authored separately
+from official jurisdiction sources. A map pack is not a traffic-law source.
 
 Frozen extracts:
 
@@ -23,3 +22,4 @@ Frozen extracts:
 - `uk-milton-keynes` — South Grafton and Oldbrook, Milton Keynes
 - `fr-calais-coquelles` — Calais and Coquelles terminal approach
 - `jp-setagaya` — Yamashita to Miyanosaka, Setagaya
+- `eg-cairo-central-nile` — Tahrir, Gezira and the central Nile, Cairo

@@ -1116,10 +1116,15 @@ describe("career mode flow", () => {
     expect(screen.getByTestId("travel-jp-tokyo")).toHaveTextContent(
       /DRIVES ON THE LEFT/i,
     );
-    // London is two legs away, stays locked, and cannot be picked.
+    // Cairo is two legs away and London three: both stay locked.
+    expect(screen.getByTestId("travel-eg-cairo")).toHaveTextContent(/Locked/i);
+    expect(screen.getByTestId("travel-eg-cairo")).toHaveTextContent(
+      /Fly to Tokyo first/i,
+    );
+    expect(screen.queryByTestId("travel-pick-eg-cairo")).toBeNull();
     expect(screen.getByTestId("travel-uk-london")).toHaveTextContent(/Locked/i);
     expect(screen.getByTestId("travel-uk-london")).toHaveTextContent(
-      /Fly to Tokyo first/i,
+      /Fly to Cairo first/i,
     );
     expect(screen.queryByTestId("travel-pick-uk-london")).toBeNull();
 
@@ -1167,6 +1172,48 @@ describe("career mode flow", () => {
     expect(screen.getByTestId("garage-vehicle-compact-hatch")).toHaveTextContent(
       /Owned — no rent/,
     );
+  });
+
+  it("flies from Tokyo to Cairo with a fresh EGP ledger and right-hand traffic", async () => {
+    seedProgressWithCareer(
+      careerIn("jp-tokyo", 32, {
+        cash: 50_000,
+        day: 6,
+        ownedVehicleIds: ["compact-hatch"],
+      }),
+    );
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+
+    fireEvent.click(screen.getByTestId("garage-travel"));
+    await screen.findByRole("heading", { name: /Where are you working/i });
+    expect(screen.getByTestId("travel-eg-cairo")).toHaveTextContent("¥40,000");
+    expect(screen.getByTestId("travel-eg-cairo")).toHaveTextContent(
+      /DRIVES ON THE RIGHT/i,
+    );
+    fireEvent.click(screen.getByTestId("travel-pick-eg-cairo"));
+    expect(screen.getByTestId("travel-footer-line")).toHaveTextContent(
+      "Cairo · ticket ¥40,000",
+    );
+    fireEvent.click(screen.getByTestId("travel-fly"));
+    fireEvent.click(screen.getByRole("button", { name: /Buy the ticket/i }));
+
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    expect(screen.getByTestId("garage-cash")).toHaveTextContent("E£1,000.00");
+    expect(screen.getByTestId("garage-vehicle-compact-hatch")).toHaveTextContent(
+      "E£800.00",
+    );
+    expect(screen.getByTestId("garage-buy-compact-hatch")).toHaveTextContent(
+      "E£12,000.00",
+    );
+    const flown = storedCareer() as CareerSliceV2;
+    expect(flown.currentDestinationId).toBe("eg-cairo");
+    expect(activeCity(flown).cash).toBe(1000);
+    expect(flown.cities["jp-tokyo"]?.cash).toBe(10_000);
+    expect(flown.cities["jp-tokyo"]?.ownedVehicleIds).toEqual([
+      "compact-hatch",
+    ]);
   });
 
   it("summons roadside service on an empty tank and charges the premium into the red", async () => {

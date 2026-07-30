@@ -11,7 +11,7 @@ import type { WorldPoint } from "../app/game/types";
 
 /**
  * Every service point is a square lot dropped beside a lane. It has to land in
- * the same place on all five maps: hard against the dirt shoulder, never on it
+ * the same place on all six maps: hard against the dirt shoulder, never on it
  * and never floating out in a field. Judging that by eye took hours per city,
  * so the rule is pinned down numerically here instead.
  *
@@ -26,10 +26,14 @@ import type { WorldPoint } from "../app/game/types";
 // slab overshoots the sidewalk. Off paved maps, GameCanvas floors the authored
 // width at 0.9 m when it builds the dirt band.
 const PAVED_SIDEWALK_M = 3.4;
-const shoulderWidthFor = (pack: (typeof MAP_PACKS)[number]): number =>
-  resolveMapVisualPalette(pack.id).paved
+const shoulderWidthFor = (
+  pack: (typeof MAP_PACKS)[number],
+  surface: (typeof MAP_PACKS)[number]["geometry"]["roadSurfaces"][number],
+): number =>
+  surface.sidewalkWidthM ??
+  (resolveMapVisualPalette(pack.id).paved
     ? PAVED_SIDEWALK_M
-    : Math.max(0.9, pack.geometry.shoulderWidth ?? 1.2);
+    : Math.max(0.9, pack.geometry.shoulderWidth ?? 1.2));
 // Mirrors the fallback in GameCanvas's service-point loop.
 const DEFAULT_SETBACK_M = 16;
 // A lot further than this from its nearest road reads as an orphaned slab in a
@@ -121,7 +125,6 @@ describe("service-point lots", () => {
     const reviewed: string[] = [];
 
     for (const pack of MAP_PACKS) {
-      const shoulderWidth = shoulderWidthFor(pack);
       for (const service of pack.geometry.servicePoints ?? []) {
         const pose = resolveSimulationLaneAnchor(pack.laneGraph.lanes, service.anchor);
         expect(pose, `${service.id} anchor does not resolve`).not.toBeNull();
@@ -140,7 +143,8 @@ describe("service-point lots", () => {
         let nearestSurfaceId = "";
         for (const surface of pack.geometry.roadSurfaces) {
           // The drivable strip plus its dirt shoulder, either side of centre.
-          const reach = surface.widthM / 2 + shoulderWidth;
+          const reach =
+            surface.widthM / 2 + shoulderWidthFor(pack, surface);
           for (let index = 0; index < surface.centerline.length - 1; index += 1) {
             const gap =
               segmentToLotDistance(
@@ -198,6 +202,7 @@ describe("service-point lots", () => {
       "nyc-upper-west-side": 2,
       "london-south-kensington": 1,
       "tokyo-setagaya": 1,
+      "cairo-central-nile": 2,
       "milton-keynes-oldbrook": 0,
       "calais-coquelles": 0,
     });

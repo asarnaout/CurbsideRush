@@ -341,12 +341,13 @@ const nearCollinearReverseOverlapM = (
 };
 
 describe("SideSwap content", () => {
-  it("keeps four legal country profiles and five destination profiles", () => {
+  it("keeps five legal country profiles and six destination profiles", () => {
     expect(COUNTRY_PROFILES.map((country) => country.id)).toEqual([
       "us",
       "uk",
       "fr",
       "jp",
+      "eg",
     ]);
     expect(DESTINATION_PROFILES.map((destination) => destination.id)).toEqual([
       "uk-london",
@@ -354,11 +355,12 @@ describe("SideSwap content", () => {
       "uk-milton-keynes",
       "fr-calais",
       "jp-tokyo",
+      "eg-cairo",
     ]);
     expect(DESTINATION_PROFILES[0].promotion).toBe("featured");
     expect(getDestinationProfile("uk-milton-keynes").promotion).toBe("specialist");
-    expect(FREE_DRIVES).toHaveLength(5);
-    expect(MAP_PACKS).toHaveLength(5);
+    expect(FREE_DRIVES).toHaveLength(6);
+    expect(MAP_PACKS).toHaveLength(6);
   });
 
   it("zones NYC so towers cluster clear of the residential house pocket", () => {
@@ -401,12 +403,14 @@ describe("SideSwap content", () => {
       uk: { code: "GBP", symbol: "£", minorUnits: 2 },
       fr: { code: "EUR", symbol: "€", minorUnits: 2 },
       jp: { code: "JPY", symbol: "¥", minorUnits: 0 },
+      eg: { code: "EGP", symbol: "E£", minorUnits: 2 },
     };
     for (const country of COUNTRY_PROFILES) {
       expect(country.currency, country.id).toEqual(expected[country.id]);
     }
     expect(formatMoney(1250, getCountryProfile("uk"))).toBe("£1,250.00");
     expect(formatMoney(3000, getCountryProfile("jp"))).toBe("¥3,000");
+    expect(formatMoney(1000, getCountryProfile("eg"))).toBe("E£1,000.00");
     expect(formatMoney(20, getCountryProfile("us"))).toBe("$20.00");
     expect(formatMoney(1234567.5, getCountryProfile("fr"))).toBe("€1,234,567.50");
   });
@@ -488,7 +492,7 @@ describe("SideSwap content", () => {
       expect(resolveSteeringSide("left", country)).toBe("left");
       expect(resolveSteeringSide("right", country)).toBe("right");
       expect(country.trafficSide).toBe(
-        country.id === "us" || country.id === "fr" ? "right" : "left",
+        country.id === "uk" || country.id === "jp" ? "left" : "right",
       );
     }
   });

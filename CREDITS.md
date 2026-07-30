@@ -18,6 +18,34 @@ stations) live under `public/models/props/`.
 - **props/shop.glb** ("Building") — by **Kay Lousberg** via Poly Pizza
   (<https://poly.pizza/m/EL3ePInr1N>), released **CC0 1.0**. Low-poly corner
   shop, used for shop gig venues.
+- **props/cairo-residence-kay.glb** ("Building") — by **Kay Lousberg**, from
+  the City Builder Bits pack via Poly Pizza
+  (<https://poly.pizza/m/otRsYa6pan>; creator page:
+  <https://kaylousberg.com/game-assets/city-builder-bits>; source GLB:
+  <https://static.poly.pizza/1c40976f-9fd1-4779-ba85-8105d523f3d8.glb>),
+  released **CC0 1.0**. Downloaded 2026-07-29. Source GLB SHA-256
+  `5ebaa83522c99c877e28b9c482aa8629226d574fa398dc91ba71430d4e38e290`;
+  committed GLB SHA-256
+  `0ffe7683eb228040858ba8d83e3de52008564dca303f4c4a04c889d4e95fdd4e`.
+  Modified with a muted Cairo façade palette and matte materials by
+  `tools/style-cairo-residences.mjs`; used as one of Cairo's flat-roofed urban
+  residence venues.
+- **props/cairo-residence-quaternius.glb** (`3Story_Balcony_Mat`) — by
+  **Quaternius**, from the Ultimate Textured Buildings Pack
+  (<https://quaternius.com/packs/ultimatetexturedbuildings.html>), released
+  **CC0 1.0**. Downloaded 2026-07-29 from the pack's
+  [official Google Drive](https://drive.google.com/drive/folders/1RE3qXhbE5yGS3t-xGFJ8GmOtTgCUF3LQ).
+  Source OBJ SHA-256
+  `a44feafee3fc6a6f5f891cbcdb66ad68e7114d4d379cfcae3ad5ea1fad14a345`;
+  source MTL SHA-256
+  `5454773af5b796b58e33b1774ce60429098ff50c0139c6a540b23a48f6fd69eb`;
+  bundled `License.txt` SHA-256
+  `83d8959f9fc56353ed571fbe2dc52e4bcd64508e2399501cd45ac2ce3df0bf8c`;
+  committed GLB SHA-256
+  `dd9e6487f6c5cb4480b4489c2e8152994e1b9d9a9efc3fd002f1b1046c9eee63`.
+  Converted from OBJ + MTL to self-contained quantized GLB, then given a muted
+  Cairo palette and matte materials by `tools/style-cairo-residences.mjs`;
+  used as Cairo's three-storey balcony residence variant.
 - **characters/motorbike.glb** ("Cartoony Purple Motorcycle") — by
   **AliceCassie** via Poly Pizza (<https://poly.pizza/m/j20srJUjpB>), released
   **CC0 1.0**. Career Mode's motorbike tier; the LightPurple body panels are
@@ -140,6 +168,30 @@ provided its licence text travels with the fonts (included alongside them):
 - **Playfair Display** (`playfair-display.woff2`, `playfair-display-italic.woff2`)
   — Claus Eggers Sørensen, © 2017 The Playfair Display Project Authors, Reserved
   Font Name "Playfair Display". Licence: `public/fonts/PlayfairDisplay-OFL.txt`.
+- **Noto Sans Arabic** (`noto-sans-arabic.woff2`) — The Noto Project Authors.
+  Arabic subset of the variable font distributed by Google Fonts under the SIL
+  Open Font License 1.1. Exact official source:
+  `https://fonts.gstatic.com/s/notosansarabic/v33/nwpCtLGrOAZMl5nJ_wfgRg3DrWFZWsnVBJ_sS6tlqHHFlj4wv4rqxzLIhjE.woff2`
+  (downloaded 2026-07-28; SHA-256
+  `69cdf0bf005fdc9cc13fb5a8581697eb9ba8f761aeaf255fc717d14c62c38891`).
+  Licence: `public/fonts/NotoSansArabic-OFL.txt`.
+
+## Cairo authoring references — reference only
+
+No photographs, map tiles, façades, photogrammetry, or third-party 3D models
+from the sources below are bundled in the game. The two imported CC0 Cairo
+residences are documented separately above; these references were consulted
+only to ground the original low-poly Central Nile layout, landmarks,
+public-space character, and currency naming:
+
+- [Cairo Governorate — Qasr El-Nil Bridge](https://www.cairo.gov.eg/en/culture/cairo-history/modern-landmarks/qasr-el-nil-bridge/)
+  for the bridge and its four lion sculptures.
+- [JICA — Greater Cairo Urban Transport Master Plan](https://openjicareport.jica.go.jp/pdf/11893427_03.pdf)
+  for the radial/arterial street and bridge network.
+- [The Journal of Public Space — Tahrir Square](https://www.journalpublicspace.org/index.php/jps/article/view/1248)
+  for the renovated square's landscape and public-life character.
+- [Central Bank of Egypt](https://www.cbe.org.eg/en/) for the Egyptian pound
+  (`EGP`) naming used by the economy.
 
 ## First-party — created for Curbside Rush (no third-party rights)
 
@@ -147,7 +199,9 @@ provided its licence text travels with the fonts (included alongside them):
 - **`public/landing/*.webp`** (per-city preview illustrations) — generated with
   OpenAI (ChatGPT) by the project owner, who owns the output under OpenAI's
   Terms of Use. Stylised generic city scenes; no third-party assets, logos, or
-  branding.
+  branding. `cairo.webp` was supplied separately by the project owner, who
+  confirmed commercial-use rights, and converted locally from the original
+  1672×941 PNG without changing the composition.
 - **og.jpg** (the link-preview card) — generated with OpenAI (ChatGPT) by the
   project owner on 2026-07-24, who owns the output under OpenAI's Terms of Use.
   Downloaded as `curbside-rush-og-image-generic-vehicles.jpg`. A stylised
@@ -166,19 +220,27 @@ provided its licence text travels with the fonts (included alongside them):
   horn, and collision impacts are **synthesised at runtime in Web Audio**
   (`app/game/audio/`). No sample, recording, or third-party audio asset is used
   or shipped, so there is nothing here to license.
-- **`public/audio/music/*.mp3`** (14 background tracks) — generated with
-  [Suno](https://suno.com) on 2026-07-19, 2026-07-21 and 2026-07-23 by the project owner while subscribed
-  to a paid (Pro/Premier) plan. Suno assigns the subscriber all of its right,
-  title and interest in output generated during the subscription term, including
-  commercial use, and that grant survives the subscription ending. See Suno's
+- **`public/audio/music/*.mp3`** (19 background tracks). The original 14 were
+  generated with [Suno](https://suno.com) on 2026-07-19, 2026-07-21 and
+  2026-07-23 by the project owner while subscribed to a paid (Pro/Premier)
+  plan. Suno assigns the subscriber all of its right, title and interest in
+  output generated during the subscription term, including commercial use, and
+  that grant survives the subscription ending. See Suno's
   [Terms of Service](https://suno.com/terms-of-service) and
   [rights FAQ](https://help.suno.com/en/articles/9601665). Note that rights are
   **not** granted retroactively for anything made on the free tier, which is why
   the generation date is recorded here.
 
-  Tracks are matched to the city they were written for; Milton Keynes has no
-  piece of its own and draws from the full set. Original download names are kept
-  here so the files can be traced back to the Suno account:
+  The five Cairo tracks were downloaded from Suno and supplied by the project
+  owner for this project on 2026-07-29. Their embedded artist is `rykard12`.
+  Repository filenames are ASCII and URL-safe; the Arabic source filename is
+  retained below for provenance. Tests pin each repository copy to the exact
+  SHA-256 of the supplied master.
+
+  Tracks are matched to the city they were written for. Cairo draws only from
+  its five tracks, which are excluded from every other destination; Milton
+  Keynes retains the original shared 14-track pool. Original download names are
+  kept here so the files can be traced back to the Suno account:
 
   | File | Title | City | Source |
   |---|---|---|---|
@@ -196,3 +258,8 @@ provided its licence text travels with the fonts (included alongside them):
   | `calais-coast-run-2.mp3` | Calais Coast Run | Calais | track5 |
   | `tokyo-setagaya-glide.mp3` | Setagaya Glide | Tokyo | track6 |
   | `tokyo-setagaya-morning.mp3` | Setagaya Morning | Tokyo | track8 |
+  | `cairo-maadi-road.mp3` | طريق المعادي | Cairo | طريق المعادي |
+  | `cairo-october-bridge-glide.mp3` | October Bridge Glide | Cairo | October Bridge Glide |
+  | `cairo-heliopolis-after-dark.mp3` | Heliopolis After Dark | Cairo | Heliopolis After Dark |
+  | `cairo-nile-loop-drive.mp3` | Nile Loop Drive | Cairo | Nile Loop Drive |
+  | `cairo-corniche-after-sunset.mp3` | Corniche After Sunset | Cairo | Corniche After Sunset |
