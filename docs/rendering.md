@@ -49,11 +49,21 @@ whole fleet floats or sinks.
 
 ## The glTF loader bakes a 180° Y flip
 
-Model fronts are on local −Z. This propagates into four separate offset
+Model fronts are *usually* on local −Z. This propagates into four separate offset
 conventions: props `yawOffset = π/2`, characters `π`, buildings per-model
 `frontOffset`, vehicles per-model (the van's `-π/2` is what plate placement
 derives its axes from). A Babylon box's +Z face also renders textures
 180°-rotated, so both plates present their −Z face.
+
+**−Z is a default, not a guarantee — measure it.** The KayKit and Quaternius
+building packs author their facade on **+Z**, which is what every
+`frontOffset: Math.PI` in `buildingSets.ts` and every `yawOffset: -π/2` in
+`PROP_MODEL_REGISTRY` is paying for. Assuming −Z on one of those silently turns
+the building's back to the street, which is exactly how Cairo's two residence
+venues shipped facing the wrong way. For a pack with named materials the cheap
+check is the centroid of the door/glazing submesh (`Wood`, `DarkWood`, `Glass`);
+`PROP_MODEL_FOOTPRINTS_M`'s header states the invariant the offset must satisfy —
+after `yawOffset`, +z runs along the facade and the road lies on −x.
 
 ## Rendered poses are interpolated
 
@@ -75,7 +85,14 @@ vehicles/characters/props, builds instanced buildings and the VAT crowd, and onl
 There is no procedural vehicle/character fallback any more, so **anything that
 lifts `markReady` early ships invisible cars and people.**
 
-Asset provenance and licences live in [CREDITS.md](../CREDITS.md).
+Building glbs are **map-scoped** (`buildingSetUrls` over the sets the map's blocks
+name), so Cairo never downloads NYC's towers. Venue/service props are not — every
+map pays for all of `propModelUrls()`.
+
+Asset provenance and licences live in [CREDITS.md](../CREDITS.md). An OBJ-only
+source pack goes through `tools/obj-to-glb.mjs`, which is hand-written rather
+than an npm converter because `tests/cairoAssets.test.ts` pins committed
+SHA-256s and a dependency bump must not change the bytes.
 
 ## The crowd is 3–5 meshes for a whole city
 
@@ -152,9 +169,12 @@ This is what makes mirrors cheap: `refreshRate` skips whole frames (the texture
 keeps its contents), which a viewport camera cannot do. First-person draw calls
 fell from 488 to 390 *while gaining* a wing mirror.
 
-`registerStaticCell` takes an explicit `castsShadow` flag because the NYC building
-instances deliberately cast none — flipping one silently adds it to the shadow map
-and changes every camera.
+`registerStaticCell` takes an explicit `castsShadow` flag because the instanced
+building street wall deliberately casts none — flipping one silently adds it to
+the shadow map and changes every camera. Note the two street-wall paths differ
+here: the instanced glb wall casts no sun shadow, while every procedural facade
+box does (`registerShadowCaster`). A map that moves from one to the other changes
+its shadow load as well as its draw calls.
 
 ## Render scaling
 

@@ -104,6 +104,18 @@ Its shallow roadside parcels are generated only *after* POIs exist, must clear
 roads, water, bounds, landmarks, POIs, existing blocks and the Sixth October
 corridor, and deliberately leave four Nile-facing sides open.
 
+**Cairo's `buildingSet` is derived from where a parcel landed**, by
+`cairoRoadsideBuildingSet`, rather than listed per road — so a new road picks up
+its district's fabric with no content edit. The riverfront roads get the tall
+`cairo-corniche` set; the rest zone on x/z like `cairoRoadsideStyle` does.
+
+**One roadside parcel in six deliberately keeps the procedural facade boxes**
+(`cairoParcelKeepsFacadeBoxes`), as do all the inland district parcels. That
+remainder is not leftovers: plain stucco blocks are real Cairo, and their size
+and height jitter varies in a way a fifteen-model catalogue cannot. Deleting the
+holdback would make the map *more* repetitive, not less. It is deterministic on
+the block id — `Math.random` here would desync the map between loads.
+
 ## Every road posts a speed limit
 
 Declared once per road — on its `NycRoadSpec` for the grid, in a per-city
