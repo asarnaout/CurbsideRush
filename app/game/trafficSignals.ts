@@ -1,4 +1,7 @@
-export type AuthoredSignalStyle = "nyc_signal" | "uk_signal";
+export type AuthoredSignalStyle =
+  | "nyc_signal"
+  | "uk_signal"
+  | "egypt_signal";
 
 export type AuthoredSignalAspect =
   | "green"
@@ -125,6 +128,9 @@ export function authoredSignalAspectAt({
   const groupIndex = groups.indexOf(phaseGroup);
   if (groupIndex < 0) return "red";
 
+  // Egypt follows the familiar green → amber → red sequence used by the NYC
+  // recipe here. The authored style remains distinct because its striped poles
+  // and housings are rendered differently in GameCanvas.
   const isUk = style === "uk_signal";
   const redAmberSeconds = isUk ? UK_RED_AMBER_SECONDS : 0;
   const greenSeconds = isUk ? UK_GREEN_SECONDS : NYC_GREEN_SECONDS;

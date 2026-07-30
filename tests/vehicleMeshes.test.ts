@@ -1,15 +1,17 @@
 import { readFileSync } from "node:fs";
 import {
   Matrix,
+  Mesh,
   NullEngine,
   Scene,
   SceneLoader,
+  StandardMaterial,
   TransformNode,
   Vector3,
   VertexBuffer,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   computeLightBarPlacement,
   computeLiveryPanels,
@@ -20,6 +22,7 @@ import {
   type RoofPad,
 } from "../app/game/vehicleMeshes";
 import { VEHICLE_MODEL_REGISTRY } from "../app/game/modelLibrary";
+import * as modelLibrary from "../app/game/modelLibrary";
 import {
   policeLiveryForMap,
   resolvePlayerVehicleAppearance,
@@ -43,6 +46,7 @@ describe("createVehicleMesh (no model loaded → placeholder)", () => {
     { vehicleId: "van-1", trafficSeed: 42, variant: "van", mapId: "calais-coquelles" },
     { vehicleId: "bus-1", trafficSeed: 42, variant: "bus", mapId: "tokyo-setagaya" },
     { vehicleId: "ldn-bus", trafficSeed: 42, variant: "bus", mapId: "london-south-kensington" },
+    { vehicleId: "cairo-1", trafficSeed: 42, variant: "car", mapId: "cairo-central-nile" },
   ];
   const appearances = [
     resolvePlayerVehicleAppearance("london-south-kensington"),
@@ -474,6 +478,7 @@ describe("patrol kit on the real vehicle models", () => {
       "milton-keynes-oldbrook",
       "calais-coquelles",
       "tokyo-setagaya",
+      "cairo-central-nile",
     ]) {
       const patrol = Array.from({ length: 40 }, (_, index) =>
         resolveTrafficVehicleAppearance({
@@ -495,5 +500,112 @@ describe("patrol kit on the real vehicle models", () => {
     }
     scene.dispose();
     engine.dispose();
+  }, 120_000);
+
+  it("builds Cairo's real patrol kit and drives both beacon lenses", async () => {
+    vi.stubGlobal(
+      "OffscreenCanvas",
+      class {
+        width: number;
+        height: number;
+
+        constructor(width: number, height: number) {
+          this.width = width;
+          this.height = height;
+        }
+
+        getContext() {
+          const gradient = { addColorStop() {} };
+          return {
+            arc() {},
+            beginPath() {},
+            clearRect() {},
+            createRadialGradient: () => gradient,
+            drawImage() {},
+            fill() {},
+            fillRect() {},
+            fillText() {},
+            getImageData: () => ({
+              data: new Uint8ClampedArray(this.width * this.height * 4),
+            }),
+            measureText: (text: string) => ({ width: text.length * 18 }),
+            strokeRect() {},
+            textAlign: "center",
+            textBaseline: "middle",
+          };
+        }
+      },
+    );
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const parent = new TransformNode("cairo-patrol-fleet", scene);
+    const appearance = Array.from({ length: 40 }, (_, index) =>
+      resolveTrafficVehicleAppearance({
+        vehicleId: `cairo-patrol-${index + 1}`,
+        trafficSeed: 77,
+        variant: "car",
+        mapId: "cairo-central-nile",
+      }),
+    ).find((candidate) => candidate.role === "police")!;
+    const config = VEHICLE_MODEL_REGISTRY[appearance.model]!;
+    const glb = readFileSync(`public${config.url}`);
+    const container = await SceneLoader.LoadAssetContainerAsync(
+      `data:model/gltf-binary;base64,${glb.toString("base64")}`,
+      "",
+      scene,
+      null,
+      ".glb",
+    );
+    vi.spyOn(modelLibrary, "isModelReady").mockImplementation(
+      (_scene, url) => url === config.url,
+    );
+    vi.spyOn(modelLibrary, "instantiateModel").mockImplementation(
+      (_scene, url) =>
+        url === config.url
+          ? container.instantiateModelsToScene(undefined, false, {
+              doNotInstantiate: true,
+            })
+          : null,
+    );
+
+    try {
+      const visual = createVehicleMesh(
+        scene,
+        parent,
+        "cairo-patrol",
+        appearance,
+      );
+      const descendants = visual.root.getDescendants(false);
+      const byName = (suffix: string) =>
+        descendants.find(
+          (node): node is Mesh =>
+            node instanceof Mesh && node.name.endsWith(suffix),
+        );
+      expect(byName("-light-bar-base")).toBeTruthy();
+      const red = byName("-light-bar-lens-red");
+      const blue = byName("-light-bar-lens-blue");
+      expect(red).toBeTruthy();
+      expect(blue).toBeTruthy();
+      expect(byName("-livery-left")).toBeTruthy();
+      expect(byName("-livery-right")).toBeTruthy();
+
+      const redMaterial = red!.material as StandardMaterial;
+      const blueMaterial = blue!.material as StandardMaterial;
+      const redAtRest = redMaterial.emissiveColor.r;
+      const blueAtRest = blueMaterial.emissiveColor.b;
+      visual.setBeacon(1, 0.5);
+      expect(redMaterial.emissiveColor.r).toBeGreaterThan(redAtRest);
+      expect(blueMaterial.emissiveColor.b).toBeGreaterThan(blueAtRest);
+      visual.setBeacon(0, 0);
+      expect(redMaterial.emissiveColor.r).toBeCloseTo(redAtRest, 8);
+      expect(blueMaterial.emissiveColor.b).toBeCloseTo(blueAtRest, 8);
+      visual.dispose();
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+      container.dispose();
+      scene.dispose();
+      engine.dispose();
+    }
   }, 120_000);
 });

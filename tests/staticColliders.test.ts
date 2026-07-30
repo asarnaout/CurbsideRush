@@ -235,11 +235,18 @@ describe("the drivable world stays open", () => {
     for (const world of driveWorlds) {
       const mapPack = getMapPack(world.freeDrive.mapId);
       const palette = resolveMapVisualPalette(mapPack.id);
-      const sidewalkWidthM = palette.paved
+      const defaultSidewalkWidthM = palette.paved
         ? PAVED_SIDEWALK_WIDTH_M
         : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
+      const sidewalkWidthM = Math.min(
+        defaultSidewalkWidthM,
+        ...mapPack.geometry.roadSurfaces.map(
+          (surface) =>
+            surface.sidewalkWidthM ?? defaultSidewalkWidthM,
+        ),
+      );
       const graph = buildPavementGraph(mapPack.geometry.roadSurfaces, {
-        sidewalkWidthM,
+        sidewalkWidthM: defaultSidewalkWidthM,
       });
       const lateralOffsets = [
         -(sidewalkWidthM / 2 - 0.4),
@@ -566,6 +573,10 @@ describe("the drivable world stays open", () => {
       const mapPack = getMapPack(world.freeDrive.mapId);
       for (const venue of mapPack.geometry.gigVenues ?? []) {
         const footprint = PROP_MODEL_FOOTPRINTS_M[venue.modelId ?? venue.kind];
+        expect(
+          footprint,
+          `${mapPack.id}/${venue.id} has no measured model footprint`,
+        ).toBeDefined();
         if (!footprint) continue;
         const obstacle = world.obstacles.find((o) => o.id === venue.id);
         expect(obstacle?.kind, venue.id).toBe("obb");

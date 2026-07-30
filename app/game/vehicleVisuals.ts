@@ -25,7 +25,7 @@ export type TrafficVehicleVariant = "car" | "taxi" | "bus" | "van";
 export type VehicleAppearanceRole = TrafficVehicleVariant | "player" | "police";
 
 /** Country whose number-plate design a vehicle wears, derived from the map. */
-export type PlateRegion = "uk" | "us" | "fr" | "jp";
+export type PlateRegion = "uk" | "us" | "fr" | "jp" | "eg";
 
 /**
  * Maps a map id onto the country whose plates its traffic should wear. Uses the
@@ -34,6 +34,7 @@ export type PlateRegion = "uk" | "us" | "fr" | "jp";
  */
 export function plateRegionForMap(mapId: string): PlateRegion {
   const id = mapId.toLowerCase();
+  if (id.includes("cairo") || id.includes("egypt")) return "eg";
   if (id.includes("nyc") || id.includes("new-york")) return "us";
   if (id.includes("calais")) return "fr";
   if (id.includes("tokyo")) return "jp";
@@ -45,6 +46,10 @@ export function plateRegionForMap(mapId: string): PlateRegion {
 const PLATE_LETTERS = "ABCDEFGHJKLMNPRSTUVWXYZ";
 const PLATE_DIGITS = "0123456789";
 const PLATE_KANA = "さすせそたちつてとなにぬねのはひふほまみむめもやゆよらりるれろ";
+// A compact set that stays legible on a tiny Cairo plate and avoids letters
+// whose dots collapse together at gameplay distance.
+const PLATE_ARABIC_LETTERS = "أبجدرسصطعفقكلمنهوي";
+const PLATE_ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩";
 
 /**
  * A plausible registration for one vehicle, in its country's format, derived
@@ -64,6 +69,10 @@ export function plateNumberForVehicle(region: PlateRegion, identity: string): st
       return `${c(L, 0)}${c(L, 1)}-${c(D, 2)}${c(D, 3)}${c(D, 4)}-${c(L, 5)}${c(L, 6)}`;
     case "jp":
       return `${c(PLATE_KANA, 0)} ${c(D, 1)}${c(D, 2)}-${c(D, 3)}${c(D, 4)}`;
+    case "eg":
+      // Cairo private/taxi registrations conventionally use three Arabic
+      // letters and three numerals; the plate colour carries the vehicle class.
+      return `${c(PLATE_ARABIC_LETTERS, 0)} ${c(PLATE_ARABIC_LETTERS, 1)} ${c(PLATE_ARABIC_LETTERS, 2)} · ${c(PLATE_ARABIC_DIGITS, 3)}${c(PLATE_ARABIC_DIGITS, 4)}${c(PLATE_ARABIC_DIGITS, 5)}`;
     case "uk":
     default:
       return `${c(L, 0)}${c(L, 1)}${c(D, 2)}${c(D, 3)} ${c(L, 4)}${c(L, 5)}${c(L, 6)}`;
@@ -180,6 +189,7 @@ export interface PoliceLivery {
  * - uk: Met/Thames Valley cars are white under blue-and-yellow Battenburg.
  * - fr: Police nationale runs white cars with a blue belt band.
  * - jp: patrol cars ("パトカー") are the white-over-black 白黒 scheme.
+ * - eg: Egyptian police vehicles use a white body with a dark-blue belt band.
  */
 const POLICE_LIVERIES: Readonly<Record<PlateRegion, PoliceLivery>> = {
   us: {
@@ -218,6 +228,15 @@ const POLICE_LIVERIES: Readonly<Record<PlateRegion, PoliceLivery>> = {
     lettering: "POLICE",
     letteringHex: "#eceff1",
   },
+  eg: {
+    force: "cairo-police",
+    style: "stripe",
+    bodyHex: "#f0f1ee",
+    markingHex: "#173f72",
+    secondaryHex: "#9eb4c8",
+    lettering: "شرطة",
+    letteringHex: "#173f72",
+  },
 };
 
 /** Each force's actual patrol silhouette, so the fleet reads right per country. */
@@ -226,6 +245,7 @@ const POLICE_MODELS: Readonly<Record<PlateRegion, VehicleModel>> = {
   uk: "sport-wagon", // UK response cars are estates and soft-roaders
   fr: "compact-hatch", // Police nationale patrol saloons (the id renders sedan.glb)
   jp: "electric-fastback", // patrol sedans
+  eg: "sport-sedan", // Cairo patrol fleets prominently use saloons
 };
 
 /** The livery every patrol car on `mapId` wears. */
@@ -475,6 +495,11 @@ function isNewYorkVehicle(input: TrafficVehicleAppearanceInput): boolean {
   return region.includes("nyc") || region.includes("new-york");
 }
 
+function isCairoVehicle(input: TrafficVehicleAppearanceInput): boolean {
+  const region = `${input.mapId}|${input.vehicleId}`.toLowerCase();
+  return region.includes("cairo") || region.includes("egypt");
+}
+
 /**
  * Resolves an NPC's visual identity without touching any shared random state.
  * Selection is stable even when vehicles are resolved lazily or in a different
@@ -496,11 +521,27 @@ export function resolveTrafficVehicleAppearance(
   if (input.variant === "taxi") {
     const london = isLondonVehicle(input);
     const newYork = isNewYorkVehicle(input);
+    const cairo = isCairoVehicle(input);
     return {
       model: "electric-taxi",
       role: "taxi",
-      paintHex: london ? "#20262d" : newYork ? "#f2bb24" : "#e9edef",
-      accentHex: london ? "#aeb8bf" : newYork ? "#202830" : "#276b78",
+      // Cairo's metered city taxis are white; the dark accent gives the model
+      // its recognisable checker/belt read while the orange plate distinguishes
+      // it from an ordinary white saloon.
+      paintHex: london
+        ? "#20262d"
+        : newYork
+          ? "#f2bb24"
+          : cairo
+            ? "#f2f1e9"
+            : "#e9edef",
+      accentHex: london
+        ? "#aeb8bf"
+        : newYork
+          ? "#202830"
+          : cairo
+            ? "#252b2d"
+            : "#276b78",
       dimensions: VEHICLE_DIMENSIONS["electric-taxi"],
       plateRegion,
       plateNumber,
@@ -523,15 +564,18 @@ export function resolveTrafficVehicleAppearance(
   }
 
   const london = isLondonVehicle(input);
+  const cairo = isCairoVehicle(input);
   return {
     model: london ? "london-double-decker" : "city-bus",
     role: "bus",
-    paintHex: london ? "#b21625" : "#e8edef",
+    paintHex: london ? "#b21625" : cairo ? "#e7e1d3" : "#e8edef",
     accentHex: london
       ? "#f0c8cb"
       : isNewYorkVehicle(input)
         ? "#2c6198"
-        : "#287284",
+        : cairo
+          ? "#27788a"
+          : "#287284",
     dimensions: london
       ? VEHICLE_DIMENSIONS["london-double-decker"]
       : VEHICLE_DIMENSIONS["city-bus"],

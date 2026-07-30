@@ -19,6 +19,8 @@ export interface PavementSurface {
   readonly id: string;
   readonly centerline: readonly PavementPoint[];
   readonly widthM: number;
+  /** Per-road override; omitted surfaces use the graph's default width. */
+  readonly sidewalkWidthM?: number;
 }
 
 export interface PavementConfig {
@@ -115,6 +117,7 @@ interface Rail {
   readonly closed: boolean;
   readonly railOffset: number;
   readonly carriagewayHalf: number;
+  readonly sidewalkWidthM: number;
   readonly segmentDirs: readonly Direction[];
   /** Arclength at each point; for closed surfaces `length` includes the wrap. */
   readonly cumulative: readonly number[];
@@ -155,12 +158,17 @@ function prepareSurface(
   const length = closed
     ? cumulative.at(-1)! + pointDistance(compact.at(-1)!, compact[0])
     : cumulative.at(-1)!;
+  const effectiveSidewalkWidthM = Math.max(
+    0,
+    surface.sidewalkWidthM ?? sidewalkWidthM,
+  );
   return {
     id: surface.id,
     points: compact,
     closed,
-    railOffset: surface.widthM / 2 + sidewalkWidthM / 2,
+    railOffset: surface.widthM / 2 + effectiveSidewalkWidthM / 2,
     carriagewayHalf: surface.widthM / 2,
+    sidewalkWidthM: effectiveSidewalkWidthM,
     segmentDirs,
     cumulative,
     length,
@@ -750,8 +758,8 @@ export function buildPavementGraph(
       for (const leg of group) {
         leg.reach = Math.min(
           Math.max(
-            cluster.maxRailHalf + config.sidewalkWidthM * 0.5,
-            (required.get(keeper) ?? 0) + config.sidewalkWidthM,
+            cluster.maxRailHalf + leg.rail.sidewalkWidthM * 0.5,
+            (required.get(keeper) ?? 0) + leg.rail.sidewalkWidthM,
           ),
           leg.neighbourDist * 0.9,
           leg.junctionGap * 0.45,

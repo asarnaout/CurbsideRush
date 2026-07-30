@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   MUSIC_TRACKS,
@@ -13,7 +14,63 @@ const DESTINATIONS: DestinationId[] = [
   "uk-milton-keynes",
   "fr-calais",
   "jp-tokyo",
+  "eg-cairo",
 ];
+
+const LEGACY_SHARED_TRACK_IDS = [
+  "nyc-upper-west-glide",
+  "nyc-west-end-glide",
+  "nyc-midnight-bridge-loop",
+  "nyc-midnight-bridge-loop-2",
+  "nyc-gridline-glow",
+  "nyc-wet-bridge-run",
+  "nyc-east-river-glide",
+  "nyc-tribeca-after-midnight",
+  "london-exhibition-road-glide-1",
+  "london-exhibition-road-glide-2",
+  "calais-coast-run-1",
+  "calais-coast-run-2",
+  "tokyo-setagaya-glide",
+  "tokyo-setagaya-morning",
+] as const;
+
+const CAIRO_TRACKS = [
+  {
+    id: "cairo-maadi-road",
+    url: "/audio/music/cairo-maadi-road.mp3",
+    sha256: "73754e25d47b55c6f06608e0e734dedb7d67b72dac0a09455be9ecb941dccfbb",
+  },
+  {
+    id: "cairo-october-bridge-glide",
+    url: "/audio/music/cairo-october-bridge-glide.mp3",
+    sha256: "87d334771fed23ad743a804b45cfd3a6667ebf29b0915eba704926a021b304f6",
+  },
+  {
+    id: "cairo-heliopolis-after-dark",
+    url: "/audio/music/cairo-heliopolis-after-dark.mp3",
+    sha256: "852155b1d6c57be27a4a9a41bba7c803fc4918d0fb8049996aac3ee1565620ac",
+  },
+  {
+    id: "cairo-nile-loop-drive",
+    url: "/audio/music/cairo-nile-loop-drive.mp3",
+    sha256: "982c31a8eb65cf21a5f0c8bd5aa6f339cab16373cbf148ec67187bc3b205f3f5",
+  },
+  {
+    id: "cairo-corniche-after-sunset",
+    url: "/audio/music/cairo-corniche-after-sunset.mp3",
+    sha256: "3024e7b4a49a753dceaadc4bc3a0166a33aa62a45f65a2c1d2b5722c56ad5f1d",
+  },
+] as const;
+
+const EXISTING_DESTINATION_POOLS: Readonly<
+  Record<Exclude<DestinationId, "eg-cairo">, readonly string[]>
+> = {
+  "us-nyc": LEGACY_SHARED_TRACK_IDS.slice(0, 8),
+  "uk-london": LEGACY_SHARED_TRACK_IDS.slice(8, 10),
+  "uk-milton-keynes": LEGACY_SHARED_TRACK_IDS,
+  "fr-calais": LEGACY_SHARED_TRACK_IDS.slice(10, 12),
+  "jp-tokyo": LEGACY_SHARED_TRACK_IDS.slice(12, 14),
+};
 
 /** Deterministic source so shuffle assertions do not flake. */
 const seeded = (seed: number) => {
@@ -32,7 +89,24 @@ describe("music catalogue", () => {
     }
   });
 
+  it("copies the five Cairo masters byte-for-byte under URL-safe names", () => {
+    for (const expected of CAIRO_TRACKS) {
+      const track = MUSIC_TRACKS.find(({ id }) => id === expected.id);
+      expect(track, expected.id).toMatchObject({
+        id: expected.id,
+        url: expected.url,
+        destinationId: "eg-cairo",
+        includeInFallback: false,
+      });
+      const digest = createHash("sha256")
+        .update(readFileSync(`public${expected.url}`))
+        .digest("hex");
+      expect(digest, expected.id).toBe(expected.sha256);
+    }
+  });
+
   it("has unique ids and urls", () => {
+    expect(MUSIC_TRACKS).toHaveLength(19);
     expect(new Set(MUSIC_TRACKS.map((track) => track.id)).size).toBe(MUSIC_TRACKS.length);
     expect(new Set(MUSIC_TRACKS.map((track) => track.url)).size).toBe(MUSIC_TRACKS.length);
   });
@@ -50,10 +124,45 @@ describe("city matching", () => {
     }
   });
 
-  it("falls back to the whole catalogue for Milton Keynes", () => {
-    // The only city without a piece written for it — silence would be worse.
-    expect(MUSIC_TRACKS.some((track) => track.destinationId === "uk-milton-keynes")).toBe(false);
-    expect(tracksForDestination("uk-milton-keynes")).toHaveLength(MUSIC_TRACKS.length);
+  it("reserves exactly the five new tracks for Cairo", () => {
+    const cairoIds = CAIRO_TRACKS.map(({ id }) => id);
+    expect(tracksForDestination("eg-cairo").map(({ id }) => id)).toEqual(
+      cairoIds,
+    );
+    for (const destinationId of DESTINATIONS.filter(
+      (candidate) => candidate !== "eg-cairo",
+    )) {
+      const poolIds = new Set(
+        tracksForDestination(destinationId).map(({ id }) => id),
+      );
+      for (const cairoId of cairoIds) {
+        expect(poolIds.has(cairoId), `${cairoId} in ${destinationId}`).toBe(
+          false,
+        );
+      }
+    }
+  });
+
+  it("preserves every pre-Cairo destination pool exactly", () => {
+    for (const [destinationId, expectedIds] of Object.entries(
+      EXISTING_DESTINATION_POOLS,
+    ) as [Exclude<DestinationId, "eg-cairo">, readonly string[]][]) {
+      expect(
+        tracksForDestination(destinationId).map(({ id }) => id),
+        destinationId,
+      ).toEqual(expectedIds);
+    }
+  });
+
+  it("falls back to the legacy shared catalogue where no city music ships", () => {
+    expect(
+      MUSIC_TRACKS.some(
+        (track) => track.destinationId === "uk-milton-keynes",
+      ),
+    ).toBe(false);
+    expect(
+      tracksForDestination("uk-milton-keynes").map(({ id }) => id),
+    ).toEqual(LEGACY_SHARED_TRACK_IDS);
   });
 });
 

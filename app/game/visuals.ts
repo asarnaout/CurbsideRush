@@ -53,6 +53,7 @@ export type MapVisualKey =
   | "milton"
   | "calais"
   | "tokyo"
+  | "cairo"
   | "orientation";
 
 /**
@@ -68,7 +69,8 @@ export const PAVED_SIDEWALK_WIDTH_M = 3.4;
 // grass is richer, dirt warmer, and distant silhouettes recede into a warm
 // haze rather than a cold grey. Per-map moods: NYC golden-hour, London rich
 // late-afternoon, Milton Keynes bright pastoral, Calais luminous coast,
-// Tokyo soft warm residential.
+// Tokyo soft warm residential, Cairo clear hot daylight over warm stone and
+// blue-green Nile water.
 const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
   nyc: {
     // Realistic city night: a deep navy zenith easing to a slightly lit
@@ -134,6 +136,24 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     silhouetteFar: "#cfccb8",
     sunTint: "#ffe9c2",
   },
+  cairo: {
+    // Central Cairo is bright rather than desert-orange: a hard blue sky,
+    // dusty cream haze over the dense city, warm stone/plaster, and neutral
+    // grey paving. Keeping the fog pale-blue instead of tan prevents the Nile
+    // loop from reading as a sand level.
+    skyTop: "#4c9ac8",
+    skyHorizon: "#e7d7bd",
+    fogColor: "#d8cfbd",
+    grassBase: "#3f7046",
+    grassAlt: "#5c8150",
+    dirtShoulder: "#8b795b",
+    silhouetteNear: "#8d8377",
+    silhouetteFar: "#b9aa96",
+    sunTint: "#fff0c8",
+    paved: true,
+    groundBase: "#77736a",
+    pavement: "#aaa18f",
+  },
   orientation: {
     skyTop: "#3f86c6",
     skyHorizon: "#ecdcbe",
@@ -149,6 +169,7 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
 
 export function resolveMapVisualKey(mapId: string): MapVisualKey {
   const id = mapId.toLowerCase();
+  if (id.includes("cairo")) return "cairo";
   if (id.includes("tokyo")) return "tokyo";
   if (id.includes("london")) return "london";
   if (id.includes("milton")) return "milton";
@@ -290,7 +311,8 @@ const pushRange = (
  * Deterministic, per-map skyline recipe in normalised coordinates. NYC gets
  * a dense high-rise wall, London low terraces with one tall spike and a dome
  * hump, Milton Keynes rolling hills with tree bumps, Calais dunes with an
- * open sea gap, and Tokyo hills behind mid-rises and utility pylons.
+ * open sea gap, Tokyo hills behind mid-rises and utility pylons, and Cairo a
+ * dense low/mid-rise roofline punctuated by minarets and Cairo Tower.
  */
 export function buildHorizonSilhouetteSpec(
   mapId: string,
@@ -417,6 +439,39 @@ export function buildHorizonSilhouetteSpec(
       h: 0.42 + random() * 0.14,
       layer: 0,
     }));
+    return shapes;
+  }
+
+  if (key === "cairo") {
+    pushRange(shapes, random, 36, () => ({
+      kind: "box",
+      x: random(),
+      w: 0.018 + random() * 0.035,
+      h: 0.14 + random() * 0.22,
+      layer: 1,
+    }));
+    pushRange(shapes, random, 28, () => ({
+      kind: "box",
+      x: random(),
+      w: 0.015 + random() * 0.03,
+      h: 0.2 + random() * 0.28,
+      layer: 0,
+    }));
+    // Slender mosque minarets, plus one markedly taller Cairo Tower silhouette.
+    pushRange(shapes, random, 7, () => ({
+      kind: "spike",
+      x: random(),
+      w: 0.008 + random() * 0.005,
+      h: 0.42 + random() * 0.2,
+      layer: 0,
+    }));
+    shapes.push({
+      kind: "pylon",
+      x: 0.18 + random() * 0.64,
+      w: 0.018,
+      h: 0.92,
+      layer: 0,
+    });
     return shapes;
   }
 
@@ -568,6 +623,12 @@ export interface PropKindConfig {
   readonly jitterM: number;
   /** Extra clearance beyond the road edge + shoulder, in metres (>= 0.9). */
   readonly lateralMarginM: number;
+  /**
+   * Optional centre offset beyond the carriageway edge. Used by parked
+   * vehicles that belong at the kerb, before the sidewalk rather than beyond
+   * its outer edge.
+   */
+  readonly curbOffsetM?: number;
   readonly bothSides: boolean;
   /** Alternate sides along the road (streetlight rhythm). */
   readonly alternateSides?: boolean;
@@ -582,11 +643,15 @@ export interface PropScatterRoadSurface {
   readonly id: string;
   readonly centerline: readonly VisualPoint[];
   readonly widthM: number;
+  /** Per-road pavement band; falls back to the input default when absent. */
+  readonly sidewalkWidthM?: number;
 }
 
 export interface PropScatterRect {
   readonly center: VisualPoint;
   readonly size: VisualPoint;
+  /** Clockwise yaw from +z; defaults to an axis-aligned rectangle. */
+  readonly headingDeg?: number;
 }
 
 export interface PropScatterInput {
@@ -653,9 +718,20 @@ const gridInsert = (grid: SpacingGrid, point: VisualPoint): void => {
 const isInsideInflatedRect = (
   point: VisualPoint,
   rect: PropScatterRect,
-): boolean =>
-  Math.abs(point.x - rect.center.x) <= rect.size.x / 2 + RECT_INFLATION_M &&
-  Math.abs(point.z - rect.center.z) <= rect.size.z / 2 + RECT_INFLATION_M;
+): boolean => {
+  // Transform the world point into the rectangle's local frame before testing.
+  // AABB testing diagonal Cairo blocks leaves four large false "free" wedges
+  // where trees and stalls can grow through a building.
+  const heading = ((rect.headingDeg ?? 0) * Math.PI) / 180;
+  const dx = point.x - rect.center.x;
+  const dz = point.z - rect.center.z;
+  const localX = dx * Math.cos(heading) - dz * Math.sin(heading);
+  const localZ = dx * Math.sin(heading) + dz * Math.cos(heading);
+  return (
+    Math.abs(localX) <= rect.size.x / 2 + RECT_INFLATION_M &&
+    Math.abs(localZ) <= rect.size.z / 2 + RECT_INFLATION_M
+  );
+};
 
 /**
  * Deterministic roadside prop scatter. Walks each road surface by arclength,
@@ -676,11 +752,19 @@ export function generateRoadsidePropPlacements(
   const halfWorldX = input.worldSize.x / 2 - PROP_WORLD_EDGE_MARGIN_M;
   const halfWorldZ = input.worldSize.z / 2 - PROP_WORLD_EDGE_MARGIN_M;
 
-  const isClearOfRoads = (point: VisualPoint): boolean =>
+  const isClearOfRoads = (
+    point: VisualPoint,
+    sourceSurfaceId: string,
+    curbOffsetM: number | undefined,
+  ): boolean =>
     input.roadSurfaces.every(
       (surface) =>
         distanceToPolylineM(point, surface.centerline) >=
-        surface.widthM / 2 + input.shoulderWidthM + PROP_ROAD_CLEARANCE_M,
+        surface.widthM / 2 +
+          (surface.id === sourceSurfaceId && curbOffsetM !== undefined
+            ? 0.05
+            : (surface.sidewalkWidthM ?? input.shoulderWidthM) +
+              PROP_ROAD_CLEARANCE_M),
     );
 
   for (const kindConfig of input.kinds) {
@@ -714,9 +798,11 @@ export function generateRoadsidePropPlacements(
           for (const side of sides) {
             const lateral =
               surface.widthM / 2 +
-              input.shoulderWidthM +
-              kindConfig.lateralMarginM +
-              random() * 1.5;
+              (kindConfig.curbOffsetM !== undefined
+                ? kindConfig.curbOffsetM + (random() - 0.5) * 0.12
+                : (surface.sidewalkWidthM ?? input.shoulderWidthM) +
+                  kindConfig.lateralMarginM +
+                  random() * 1.5);
             const normalX = tangentZ * side;
             const normalZ = -tangentX * side;
             const candidate = {
@@ -734,7 +820,11 @@ export function generateRoadsidePropPlacements(
             if (
               Math.abs(candidate.x) > halfWorldX ||
               Math.abs(candidate.z) > halfWorldZ ||
-              !isClearOfRoads(candidate) ||
+              !isClearOfRoads(
+                candidate,
+                surface.id,
+                kindConfig.curbOffsetM,
+              ) ||
               input.blocks.some((rect) => isInsideInflatedRect(candidate, rect)) ||
               input.landmarks.some((rect) =>
                 isInsideInflatedRect(candidate, rect),

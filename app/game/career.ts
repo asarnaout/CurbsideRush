@@ -54,6 +54,7 @@ export const ROADSIDE_PRICE_FACTOR = 1.5;
 export const CAREER_CITIES: readonly DestinationId[] = [
   "us-nyc",
   "jp-tokyo",
+  "eg-cairo",
   "uk-london",
 ];
 
@@ -95,6 +96,7 @@ export const TICKET_PRICE_BY_DESTINATION: Readonly<
 > = {
   "us-nyc": 400,
   "jp-tokyo": 40_000,
+  "eg-cairo": 20_000,
 };
 
 /**
@@ -107,6 +109,7 @@ export const CAREER_STARTING_CASH_BY_COUNTRY: Readonly<Record<CountryId, number>
   uk: 20,
   fr: 25,
   jp: 3000,
+  eg: 1000,
 };
 
 /** Flat daily platform subscription, so even a bike day has a floor to beat. */
@@ -115,6 +118,7 @@ export const PLATFORM_FEE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   uk: 3,
   fr: 4,
   jp: 300,
+  eg: 150,
 };
 
 /**
@@ -126,6 +130,7 @@ export const ROADSIDE_CALLOUT_FEE_BY_COUNTRY: Readonly<Record<CountryId, number>
   uk: 10,
   fr: 12,
   jp: 1000,
+  eg: 500,
 };
 
 // ---------------------------------------------------------------------------
@@ -227,7 +232,7 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: null,
     visualKind: "bicycle",
     owned: true,
-    rentByCountry: { us: 0, uk: 0, fr: 0, jp: 0 },
+    rentByCountry: { us: 0, uk: 0, fr: 0, jp: 0, eg: 0 },
     buyoutEligible: false,
     tankL: 0,
     fuelLPerM: 0,
@@ -259,7 +264,7 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: null,
     visualKind: "motorbike",
     owned: false,
-    rentByCountry: { us: 10, uk: 10, fr: 13, jp: 1000 },
+    rentByCountry: { us: 10, uk: 10, fr: 13, jp: 1000, eg: 500 },
     buyoutEligible: true,
     tankL: 12,
     fuelLPerM: 0.00135,
@@ -294,7 +299,7 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: "compact-hatch",
     visualKind: "car",
     owned: false,
-    rentByCountry: { us: 16, uk: 16, fr: 20, jp: 1600 },
+    rentByCountry: { us: 16, uk: 16, fr: 20, jp: 1600, eg: 800 },
     buyoutEligible: true,
     tankL: 40,
     fuelLPerM: 0.003,
@@ -310,7 +315,7 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: "delivery-van",
     visualKind: "car",
     owned: false,
-    rentByCountry: { us: 26, uk: 26, fr: 33, jp: 2600 },
+    rentByCountry: { us: 26, uk: 26, fr: 33, jp: 2600, eg: 1300 },
     buyoutEligible: true,
     tankL: 70,
     fuelLPerM: 0.0048,
@@ -342,7 +347,7 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: "sport-sedan",
     visualKind: "car",
     owned: false,
-    rentByCountry: { us: 38, uk: 38, fr: 48, jp: 3800 },
+    rentByCountry: { us: 38, uk: 38, fr: 48, jp: 3800, eg: 1900 },
     buyoutEligible: true,
     tankL: 45,
     fuelLPerM: 0.00525,
@@ -465,13 +470,14 @@ export interface CareerCorrupt {
 export type CareerPersisted = CareerSliceV2 | CareerCorrupt | null;
 
 // Mirrors the id set progress.ts hardcodes; content.test.ts pins the real list
-// at five, so drift here fails loudly rather than silently.
+// at six, so drift here fails loudly rather than silently.
 const DESTINATION_IDS: readonly DestinationId[] = [
   "us-nyc",
   "uk-london",
   "uk-milton-keynes",
   "fr-calais",
   "jp-tokyo",
+  "eg-cairo",
 ];
 
 /**
@@ -639,6 +645,18 @@ export function parseCareerSlice(value: unknown): CareerPersisted {
   const slice = value as unknown as CareerSliceV2;
   if (computeCareerChecksum(slice) !== slice.checksum) {
     return { state: "corrupt" };
+  }
+  // Cairo was inserted before London without changing the persisted shape.
+  // A verified pre-Cairo winner legitimately has no Cairo city; reopen it so
+  // the new fleet is required for completion while preserving London, every
+  // existing city ledger and the current location. This must remain after the
+  // checksum comparison: migration is never a repair path for tampered data.
+  if (slice.state === "won" && slice.cities["eg-cairo"] === undefined) {
+    return stampCareerChecksum({
+      ...slice,
+      state: "active",
+      victoryDay: null,
+    });
   }
   return slice;
 }
@@ -1217,9 +1235,9 @@ export function buyableVehicles(): readonly CareerVehicleSpec[] {
 }
 
 /**
- * Beating the game: stand in the last city on the ladder having bought every
- * buyable vehicle in *every* city. Reaching London is the midgame; owning all
- * three fleets is the end of it.
+ * Beating the game: reach the last city on the ladder and buy every buyable
+ * vehicle in *every* city. Reaching London completes the route; owning all four
+ * local fleets is the end of it.
  */
 export function careerWon(slice: CareerSliceV2): boolean {
   const finalCity = CAREER_CITIES[CAREER_CITIES.length - 1];

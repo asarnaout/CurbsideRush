@@ -15,6 +15,7 @@ const MAPS = [
   "nyc-upper-west-side",
   "london-south-kensington",
   "tokyo-setagaya",
+  "cairo-central-nile",
   "calais-coquelles",
   "milton-keynes-oldbrook",
   "orientation-yard",
@@ -108,6 +109,7 @@ describe("complexion palettes", () => {
       ["nyc-upper-west-side", 96],
       ["london-south-kensington", 64],
       ["tokyo-setagaya", 56],
+      ["cairo-central-nile", 88],
     ] as const) {
       const palette = complexionPaletteForMap(mapId);
       const drawn = Array.from(
@@ -201,6 +203,20 @@ describe("hair palettes", () => {
         (tone) => rampIndex(HAIR_RAMP, tone) === 4,
       ),
     ).toBe(true);
+  });
+
+  it("keeps Cairo predominantly dark-haired while retaining a broad complexion range", () => {
+    const hair = hairPaletteForMap("cairo-central-nile");
+    const dark = hair.filter((tone) => rampIndex(HAIR_RAMP, tone) <= 1);
+    expect(dark.length / hair.length).toBeGreaterThan(0.75);
+    expect(hair.some((tone) => rampIndex(HAIR_RAMP, tone) === 4)).toBe(false);
+    expect(
+      new Set(
+        complexionPaletteForMap("cairo-central-nile").map((tone) =>
+          rampIndex(COMPLEXION_RAMP, tone),
+        ),
+      ).size,
+    ).toBe(CHARACTER_RAMP_LENGTH);
   });
 
   it("keeps every tone a plausible, in-gamut colour", () => {

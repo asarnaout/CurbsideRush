@@ -166,6 +166,27 @@ describe("prop (environment building) model assets", () => {
     }
   });
 
+  it("uses the Cairo residence variants only on the Cairo map", () => {
+    const cairoResidenceKeys = new Set([
+      "cairo-residence-kay",
+      "cairo-residence-quaternius",
+    ]);
+    for (const pack of MAP_PACKS) {
+      const used = (pack.geometry.gigVenues ?? [])
+        .map((venue) => venue.modelId)
+        .filter(
+          (modelId): modelId is string =>
+            modelId !== undefined && cairoResidenceKeys.has(modelId),
+        );
+      if (pack.id === "cairo-central-nile") {
+        expect(new Set(used), pack.id).toEqual(cairoResidenceKeys);
+        expect(used).toHaveLength(6);
+      } else {
+        expect(used, pack.id).toEqual([]);
+      }
+    }
+  });
+
   /**
    * `servicePoints.ts` cannot import this registry — it is a leaf the pure
    * placement maths and the app both depend on, and the registry pulls in
@@ -199,6 +220,12 @@ describe("prop (environment building) model assets", () => {
     expect(PROP_MODEL_REGISTRY.shop.stripMeshPattern).toBeUndefined();
     expect(PROP_MODEL_REGISTRY.residence.roofSignMinY).toBeUndefined();
     expect(PROP_MODEL_REGISTRY.residence.signBoard).toBeUndefined();
+    expect(
+      PROP_MODEL_REGISTRY["cairo-residence-kay"].roofSignMinY,
+    ).toBeUndefined();
+    expect(
+      PROP_MODEL_REGISTRY["cairo-residence-quaternius"].signBoard,
+    ).toBeUndefined();
   });
 
   // The diner ships with tools/clean-restaurant.mjs applied: its baked cursive

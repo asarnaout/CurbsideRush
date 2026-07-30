@@ -11,6 +11,7 @@ import {
   type PavementPoint,
   type PavementSurface,
 } from "../app/game/pavementPaths";
+import { resolveMapVisualPalette } from "../app/game/visuals";
 
 type Pt = PavementPoint;
 
@@ -118,23 +119,57 @@ const CROSSROADS: PavementSurface[] = [
 ];
 const SIDEWALK = 3.4;
 
-// The three maps that keep their crowds; Calais and Milton Keynes are being
+// The four maps that keep their crowds; Calais and Milton Keynes are being
 // retired. Sidewalk widths mirror GameCanvas's shoulder derivation: paved maps
 // get the 3.4 m band, the rest max(0.9, geometry.shoulderWidth ?? 1.2).
 const TARGET_MAPS = [
   "nyc-upper-west-side",
   "tokyo-setagaya",
   "london-south-kensington",
+  "cairo-central-nile",
 ].map((id) => {
   const pack = MAP_PACKS.find((candidate) => candidate.id === id)!;
   const sidewalkWidthM =
-    id === "nyc-upper-west-side"
+    resolveMapVisualPalette(pack.id).paved
       ? 3.4
       : Math.max(0.9, pack.geometry.shoulderWidth ?? 1.2);
-  return { pack, sidewalkWidthM };
+  const surfaceSidewalkWidths = pack.geometry.roadSurfaces.map(
+    (surface) => surface.sidewalkWidthM ?? sidewalkWidthM,
+  );
+  return {
+    pack,
+    sidewalkWidthM,
+    minSidewalkWidthM: Math.min(...surfaceSidewalkWidths),
+    maxSidewalkWidthM: Math.max(...surfaceSidewalkWidths),
+  };
 });
 
 describe("buildPavementGraph", () => {
+  it("centres each rail in that road's own authored sidewalk band", () => {
+    for (const sidewalkWidthM of [2.2, 3.4, 5.8]) {
+      const surface: PavementSurface = {
+        id: `variable-${sidewalkWidthM}`,
+        centerline: [
+          { x: -30, z: 0 },
+          { x: 30, z: 0 },
+        ],
+        widthM: 8,
+        sidewalkWidthM,
+      };
+      const graph = buildPavementGraph([surface], { sidewalkWidthM: 1.2 });
+      const runs = graph.edges.filter((edge) => edge.kind === "run");
+      expect(runs).toHaveLength(2);
+      for (const run of runs) {
+        for (const point of run.points) {
+          expect(Math.abs(point.z)).toBeCloseTo(
+            surface.widthM / 2 + sidewalkWidthM / 2,
+            6,
+          );
+        }
+      }
+    }
+  });
+
   it("keeps every rail on its own pavement band", () => {
     const graph = buildPavementGraph(CROSSROADS, { sidewalkWidthM: SIDEWALK });
     for (const edge of graph.edges) {
@@ -309,12 +344,16 @@ describe("buildPavementGraph", () => {
   });
 
   it("keeps every kept map's rails off the carriageways and walkable", () => {
-    for (const { pack, sidewalkWidthM } of TARGET_MAPS) {
+    for (const { pack, sidewalkWidthM, maxSidewalkWidthM } of TARGET_MAPS) {
       const surfaces = pack.geometry.roadSurfaces;
       const graph = buildPavementGraph(surfaces, { sidewalkWidthM });
       expect(graph.edges.length, pack.id).toBeGreaterThan(0);
       const maxRailOffset = Math.max(
-        ...surfaces.map((surface) => surface.widthM / 2 + sidewalkWidthM / 2),
+        ...surfaces.map(
+          (surface) =>
+            surface.widthM / 2 +
+            (surface.sidewalkWidthM ?? sidewalkWidthM) / 2,
+        ),
       );
       for (const edge of graph.edges) {
         for (const point of edge.points) {
@@ -327,12 +366,12 @@ describe("buildPavementGraph", () => {
             ).toBe(false);
           }
           // And never wanders off past the building line either. The slack
-          // covers the squared-off miter on the outside of a right-angle bend,
-          // which legitimately sits railOffset·√2 from the bend node.
+          // covers the squared-off miter on the outside of a bend. Cairo's
+          // non-grid junctions can be acute, so use the graph's 3.25x clamp.
           expect(
             nearest,
             `${pack.id} edge ${edge.id} adrift`,
-          ).toBeLessThanOrEqual(maxRailOffset * 1.5 + sidewalkWidthM);
+          ).toBeLessThanOrEqual(maxRailOffset * 3.25 + maxSidewalkWidthM);
         }
       }
       // A rail SEGMENT must not cross a kerb line either — endpoints clear of
@@ -477,10 +516,10 @@ describe("samplePavementEdgeOffset", () => {
     // kept map, never has a foot on the asphalt. Mirrors GameCanvas's
     // crowdScatterHalfM derivation (band half-width minus standing room).
     const violations: string[] = [];
-    for (const { pack, sidewalkWidthM } of TARGET_MAPS) {
+    for (const { pack, sidewalkWidthM, minSidewalkWidthM } of TARGET_MAPS) {
       const surfaces = pack.geometry.roadSurfaces;
       const graph = buildPavementGraph(surfaces, { sidewalkWidthM });
-      const scatterHalf = Math.max(0, sidewalkWidthM / 2 - 0.55);
+      const scatterHalf = Math.max(0, minSidewalkWidthM / 2 - 0.55);
       if (scatterHalf === 0) continue;
       for (const edge of graph.edges) {
         const band = scatterHalf * EDGE_KIND_SCATTER[edge.kind];

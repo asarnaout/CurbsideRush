@@ -148,7 +148,13 @@ describe("repair-shop bays", () => {
         reviewed += 1;
       }
     }
-    expect(reviewed).toBe(4);
+    expect(reviewed).toBe(
+      MAP_PACKS.reduce(
+        (total, pack) =>
+          total + repairShopsOf(pack.geometry.servicePoints).length,
+        0,
+      ),
+    );
   });
 
   it("does not put the car in reach of a bay from the carriageway", () => {

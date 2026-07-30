@@ -35,6 +35,11 @@ const areas = [
     name: "Setagaya — Yamashita to Miyanosaka",
     bbox: [35.644, 139.64, 35.652, 139.653],
   },
+  {
+    id: "eg-cairo-central-nile",
+    name: "Cairo — Tahrir, Gezira and the central Nile",
+    bbox: [30.0305, 31.2105, 30.0565, 31.2395],
+  },
 ];
 
 const overpassEndpoints = [

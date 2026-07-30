@@ -27,6 +27,18 @@ export const PROP_MODEL_FOOTPRINTS_M: Readonly<
   "restaurant-pizzeria": { minX: -5.85, maxX: 4.87, minZ: -5.79, maxZ: 4.84 },
   shop: { minX: -4.0, maxX: 4.0, minZ: -4.0, maxZ: 4.0 },
   residence: { minX: -5.45, maxX: 4.61, minZ: -3.32, maxZ: 3.33 },
+  "cairo-residence-kay": {
+    minX: -5.5,
+    maxX: 5.5,
+    minZ: -5.519,
+    maxZ: 5.519,
+  },
+  "cairo-residence-quaternius": {
+    minX: -4.792,
+    maxX: 3.609,
+    minZ: -3.616,
+    maxZ: 3.616,
+  },
   office: { minX: -6.15, maxX: 6.15, minZ: -6.59, maxZ: 6.59 },
 };
 

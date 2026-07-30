@@ -117,6 +117,7 @@ describe("modern fleet variety", () => {
     expect(resolvePlayerVehicleAppearance("nyc-upper-west-side").plateRegion).toBe("us");
     expect(resolvePlayerVehicleAppearance("calais-coquelles").plateRegion).toBe("fr");
     expect(resolvePlayerVehicleAppearance("tokyo-setagaya").plateRegion).toBe("jp");
+    expect(resolvePlayerVehicleAppearance("cairo-central-nile").plateRegion).toBe("eg");
     // Traffic inherits the same regional plate as the map it drives on.
     expect(
       resolveTrafficVehicleAppearance({
@@ -142,6 +143,9 @@ describe("modern fleet variety", () => {
     expect(plateNumberForVehicle("us", "a")).toMatch(/^[A-Z]{3} \d{4}$/);
     expect(plateNumberForVehicle("fr", "a")).toMatch(/^[A-Z]{2}-\d{3}-[A-Z]{2}$/);
     expect(plateNumberForVehicle("jp", "a")).toMatch(/^\S \d{2}-\d{2}$/u);
+    expect(plateNumberForVehicle("eg", "a")).toMatch(
+      /^[\u0600-\u06ff] [\u0600-\u06ff] [\u0600-\u06ff] · [٠-٩]{3}$/u,
+    );
 
     // Two NPCs on the same map get different plates.
     const npc = (id: string) =>
@@ -191,6 +195,23 @@ describe("semantic and regional vehicle roles", () => {
     expect(resolve("bus", "tokyo-setagaya")).toMatchObject({
       model: "city-bus",
       role: "bus",
+    });
+  });
+
+  it("uses Cairo's white taxis and cream-and-teal city buses", () => {
+    expect(resolve("taxi", "cairo-central-nile", "cairo-taxi-4")).toMatchObject({
+      model: "electric-taxi",
+      role: "taxi",
+      paintHex: "#f2f1e9",
+      accentHex: "#252b2d",
+      plateRegion: "eg",
+    });
+    expect(resolve("bus", "cairo-central-nile", "cairo-bus-2")).toMatchObject({
+      model: "city-bus",
+      role: "bus",
+      paintHex: "#e7e1d3",
+      accentHex: "#27788a",
+      plateRegion: "eg",
     });
   });
 });
@@ -284,6 +305,7 @@ describe("patrol car liveries", () => {
     "milton-keynes-oldbrook",
     "calais-coquelles",
     "tokyo-setagaya",
+    "cairo-central-nile",
   ] as const;
 
   const patrolsOn = (mapId: string, trafficSeed = 512) =>
@@ -340,12 +362,19 @@ describe("patrol car liveries", () => {
       bodyHex: "#eceff1",
       markingHex: "#14181c",
     });
+    expect(livery("cairo-central-nile")).toMatchObject({
+      force: "cairo-police",
+      style: "stripe",
+      lettering: "شرطة",
+      bodyHex: "#f0f1ee",
+      markingHex: "#173f72",
+    });
 
     // Two UK cities share one national scheme; the four countries do not.
     expect(livery("milton-keynes-oldbrook")).toEqual(
       livery("london-south-kensington"),
     );
-    expect(new Set(CITIES.map((city) => policeLiveryForMap(city).force)).size).toBe(4);
+    expect(new Set(CITIES.map((city) => policeLiveryForMap(city).force)).size).toBe(5);
   });
 
   it("keeps patrols a minority of traffic, and only ever cars", () => {

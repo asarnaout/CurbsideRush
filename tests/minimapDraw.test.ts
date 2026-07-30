@@ -7,6 +7,7 @@ import {
 } from "../app/game/minimap";
 import {
   drawMapOverlay,
+  drawMapWaterBodies,
   drawPlayerMarker,
   drawRoadNetwork,
   minimapSymbolSizes,
@@ -149,6 +150,32 @@ describe("the road network pass", () => {
   it("takes the floor it is handed, which is what the two surfaces differ on", () => {
     drawRoadNetwork(recordingContext(), ROADS, projector(), 0.2, minimapRoadFloorPx(150));
     expect(ops.filter((entry) => entry.op === "stroke")[0].lineWidth).toBeCloseTo(8.7, 6);
+  });
+});
+
+describe("the water pass", () => {
+  it("fills each Nile polygon at projected coordinates and skips degenerates", () => {
+    drawMapWaterBodies(
+      recordingContext(),
+      [
+        {
+          color: "#24738c",
+          polygon: [
+            { x: -100, z: -200 },
+            { x: 100, z: -200 },
+            { x: 100, z: 200 },
+            { x: -100, z: 200 },
+          ],
+        },
+        { color: "#000000", polygon: [{ x: 0, z: 0 }] },
+      ],
+      projector(),
+    );
+    const fill = ops.filter((entry) => entry.op === "fill");
+    expect(fill).toHaveLength(1);
+    expect(fill[0].fillStyle).toBe("#24738c");
+    expect(ops.filter((entry) => entry.op === "lineTo")).toHaveLength(3);
+    expect(ops.filter((entry) => entry.op === "closePath")).toHaveLength(1);
   });
 });
 

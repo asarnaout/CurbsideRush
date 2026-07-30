@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "Curbside Rush",
     description:
-      "A low-poly open-world 3D driving game — run deliveries and passenger fares across five world cities, each with its own currency and side of the road.",
+      "A low-poly open-world 3D driving game — run deliveries and passenger fares across six world cities, each with its own currency and side of the road.",
     applicationName: "Curbside Rush",
     // The Fullscreen API reclaims the browser chrome mid-drive, but only while
     // the tab is open. Added to the Home Screen there is no chrome to reclaim —
@@ -56,7 +56,7 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       title: "Curbside Rush",
       description:
-        "Rise and grind — run gig deliveries and fares across low-poly cities from London to Tokyo.",
+        "Rise and grind — run gig deliveries and fares across low-poly New York, Tokyo, Cairo, London and beyond.",
       type: "website",
       siteName: "Curbside Rush",
       url: origin,
@@ -75,7 +75,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: "summary_large_image",
       title: "Curbside Rush",
       description:
-        "Rise and grind — run gig deliveries and fares across low-poly cities from London to Tokyo.",
+        "Rise and grind — run gig deliveries and fares across low-poly New York, Tokyo, Cairo, London and beyond.",
       images: [imageUrl],
     },
   };

@@ -50,6 +50,12 @@ export interface MapDrawSurface {
   readonly widthM?: number;
 }
 
+/** A filled geographic feature under the road network (currently the Nile). */
+export interface MapDrawWaterBody {
+  readonly polygon: readonly MapDrawPoint[];
+  readonly color: string;
+}
+
 /**
  * Every pixel size the overlay draws with. Named rather than derived so the two
  * surfaces can disagree about scale without disagreeing about the drawing.
@@ -92,6 +98,30 @@ export const MAP_ROUTE_COLOR = "#f2c658";
  * its own — the reason there is no junction pass anywhere in here.
  */
 const ROAD_STROKE = "rgba(170, 182, 192, 0.28)";
+
+/** Draws water before roads so bridge surfaces remain clear navigation lines. */
+export function drawMapWaterBodies(
+  ctx: CanvasRenderingContext2D,
+  waterBodies: readonly MapDrawWaterBody[],
+  projector: MinimapProjector,
+): void {
+  for (const body of waterBodies) {
+    if (body.polygon.length < 3) continue;
+    const first = projector.project(body.polygon[0].x, body.polygon[0].z);
+    ctx.fillStyle = body.color;
+    ctx.beginPath();
+    ctx.moveTo(first.x, first.y);
+    for (let index = 1; index < body.polygon.length; index += 1) {
+      const point = projector.project(
+        body.polygon[index].x,
+        body.polygon[index].z,
+      );
+      ctx.lineTo(point.x, point.y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+}
 
 /**
  * Strokes the whole road network onto `ctx`. Called once per map and size, into

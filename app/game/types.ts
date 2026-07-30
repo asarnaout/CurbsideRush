@@ -9,28 +9,31 @@ export type SpeedUnit = "mph" | "kmh";
 export type CameraMode = "first_person" | "third_person";
 export type Gear = "drive" | "reverse";
 
-export type CountryId = "us" | "uk" | "fr" | "jp";
+export type CountryId = "us" | "uk" | "fr" | "jp" | "eg";
 
 export type DestinationId =
   | "us-nyc"
   | "uk-london"
   | "uk-milton-keynes"
   | "fr-calais"
-  | "jp-tokyo";
+  | "jp-tokyo"
+  | "eg-cairo";
 
 export type MapId =
   | "nyc-upper-west-side"
   | "london-south-kensington"
   | "milton-keynes-oldbrook"
   | "calais-coquelles"
-  | "tokyo-setagaya";
+  | "tokyo-setagaya"
+  | "cairo-central-nile";
 
 export type FreeDriveId =
   | "free-us"
   | "free-uk"
   | "free-uk-london"
   | "free-fr"
-  | "free-jp";
+  | "free-jp"
+  | "free-eg";
 
 export type ScenarioId = FreeDriveId;
 
@@ -216,9 +219,30 @@ export interface RoadSurface {
   readonly id: string;
   readonly centerline: readonly WorldPoint[];
   readonly widthM: number;
+  /**
+   * Width of the walkable band beside this surface. Paved maps fall back to
+   * `PAVED_SIDEWALK_WIDTH_M` when absent, preserving every existing city.
+   */
+  readonly sidewalkWidthM?: number;
   readonly laneIds: readonly string[];
   readonly surfaceType: RoadSurfaceType;
   readonly markings: readonly RoadMarkingPath[];
+}
+
+/** A non-drivable polygonal water surface rendered beneath authored bridges. */
+export interface WaterBody {
+  readonly id: string;
+  readonly polygon: readonly WorldPoint[];
+  readonly color: string;
+  /** Cosmetic current direction for deterministic ripples and boat headings. */
+  readonly flowHeadingDeg?: number;
+  /**
+   * Road surfaces explicitly permitted to cut openings through this body's
+   * otherwise-solid shoreline. The simulation also derives parapet colliders
+   * along the over-water span of each listed surface. An absent/empty list
+   * means the shoreline has no vehicle portal.
+   */
+  readonly bridgePortalSurfaceIds?: readonly string[];
 }
 
 export interface LaneSegment {
@@ -301,6 +325,7 @@ export type TrafficControlMounting =
 export type TrafficControlVisualStyle =
   | "nyc_signal"
   | "uk_signal"
+  | "egypt_signal"
   | "stop_sign"
   | "yield_sign"
   | "restricted_lane"
@@ -314,6 +339,8 @@ export interface TrafficControlInstallation {
   readonly position: WorldPoint;
   /** Direction of travel for the approach this head faces. */
   readonly headingDeg: number;
+  /** Authored transverse span for road markings such as zebra crossings. */
+  readonly spanM?: number;
   /** Direction from a curbside support toward an over-road mast head. */
   readonly armHeadingDeg?: number;
   readonly mounting: TrafficControlMounting;
@@ -376,6 +403,14 @@ export interface ProceduralBlock {
   readonly id: string;
   readonly center: WorldPoint;
   readonly size: WorldPoint;
+  /** Clockwise yaw for diagonal/radial city blocks; defaults to zero. */
+  readonly headingDeg?: number;
+  /**
+   * Optional local edge that receives the block's façades. Roadside strips use
+   * `z` because their local x-axis follows the carriageway; ordinary parcels
+   * keep the nearest-edge heuristic when this is absent.
+   */
+  readonly frontageAxis?: "x" | "z";
   readonly heightRange: readonly [number, number];
   readonly density: number;
   readonly material: string;
@@ -396,9 +431,15 @@ export interface ProceduralLandmark {
     | "terminal"
     | "railway"
     | "tower"
-    | "shops";
+    | "shops"
+    | "museum"
+    | "monument"
+    | "cultural"
+    | "bridge";
   readonly center: WorldPoint;
   readonly size: WorldPoint;
+  /** Clockwise yaw for long diagonal landmarks such as elevated bridges. */
+  readonly headingDeg?: number;
   readonly color: string;
 }
 
@@ -462,6 +503,7 @@ export interface ProceduralMapGeometry {
   readonly roadWidth: number;
   readonly shoulderWidth: number;
   readonly roadSurfaces: readonly RoadSurface[];
+  readonly waterBodies?: readonly WaterBody[];
   readonly blocks: readonly ProceduralBlock[];
   readonly landmarks: readonly ProceduralLandmark[];
   readonly servicePoints?: readonly ServicePoint[];
@@ -507,7 +549,12 @@ export interface MapPack {
 }
 
 /** What a solid obstacle is, for collision-event evidence and messaging. */
-export type StaticObstacleTag = "building" | "landmark" | "venue" | "worldEdge";
+export type StaticObstacleTag =
+  | "building"
+  | "landmark"
+  | "venue"
+  | "shoreline"
+  | "worldEdge";
 
 /**
  * Solid, movement-blocking world geometry the simulation resolves the player
@@ -682,4 +729,3 @@ export interface PlayerProgressV2 {
   readonly lastCareerVehicleId: CareerVehicleId;
   readonly updatedAt: string;
 }
-

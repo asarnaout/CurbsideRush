@@ -53,6 +53,10 @@ const COMPLEXION_WEIGHTS: Readonly<Record<string, readonly number[]>> = {
   "nyc-upper-west-side": [4, 4, 4, 4, 4, 4],
   "london-south-kensington": [2, 3, 4, 5, 5, 5],
   "tokyo-setagaya": [0, 1, 2, 6, 8, 7],
+  // Central Cairo is a North African capital with a broad local complexion
+  // range and a visible international population. Keep every rung represented
+  // without turning the crowd into one global average.
+  "cairo-central-nile": [3, 5, 6, 5, 4, 1],
 };
 
 /** Maps with no row of their own (the orientation yard, the two cities being
@@ -86,6 +90,7 @@ const HAIR_WEIGHTS: Readonly<Record<string, readonly number[]>> = {
   "nyc-upper-west-side": [7, 6, 4, 3, 3, 1],
   "london-south-kensington": [5, 6, 5, 3, 4, 1],
   "tokyo-setagaya": [15, 5, 3, 1, 0, 0],
+  "cairo-central-nile": [12, 7, 3, 1, 0, 1],
 };
 
 const DEFAULT_HAIR_WEIGHTS: readonly number[] = [6, 6, 5, 3, 3, 1];

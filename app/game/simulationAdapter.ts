@@ -37,6 +37,11 @@ import {
 } from "./servicePoints";
 import { GAS_STATION_SOLIDS_M, PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import { REPAIR_SHOP_SOLIDS_M } from "./repairShopLayout";
+import {
+  BRIDGE_PARAPET_HALF_DEPTH_M,
+  BRIDGE_PARAPET_PAVEMENT_CLEARANCE_M,
+  bridgePortalRailSpans,
+} from "./bridgePortalGeometry";
 
 const DEFAULT_LANE_WIDTH_M = 3.5;
 // The car's top speed models a real vehicle, not a governor pinned to the
@@ -815,7 +820,15 @@ function subtractRect(base: AxisRect, cut: AxisRect): AxisRect[] {
   );
 }
 
-function sidewalkWidthForMap(mapPack: GameCanvasMapPack): number {
+function sidewalkWidthForSurface(
+  mapPack: GameCanvasMapPack,
+  surface: NonNullable<
+    GameCanvasMapPack["geometry"]["roadSurfaces"]
+  >[number],
+): number {
+  if (surface.sidewalkWidthM !== undefined) {
+    return Math.max(0, surface.sidewalkWidthM);
+  }
   return resolveMapVisualPalette(mapPack.id).paved
     ? PAVED_SIDEWALK_WIDTH_M
     : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
@@ -870,7 +883,9 @@ function pavementOuterFromPose(
   const laneOffsetTowardVenue =
     (pose.x - closestX) * rightX + (pose.z - closestZ) * rightZ;
   return (
-    surface.widthM / 2 + sidewalkWidthForMap(mapPack) - laneOffsetTowardVenue
+    surface.widthM / 2 +
+    sidewalkWidthForSurface(mapPack, surface) -
+    laneOffsetTowardVenue
   );
 }
 
@@ -1003,6 +1018,60 @@ export function buildStaticObstacles(
       });
     }
   };
+  const pushRotatedBlock = (
+    id: string,
+    block: GameCanvasMapPack["geometry"]["blocks"][number],
+  ) => {
+    const yaw = degreesToRadians(block.headingDeg ?? 0);
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    let pieces: AxisRect[] = [
+      {
+        minX: -block.size.x / 2,
+        maxX: block.size.x / 2,
+        minZ: -block.size.z / 2,
+        maxZ: block.size.z / 2,
+      },
+    ];
+    // Service lots are axis-aligned broad-phase boxes. Project their corners
+    // into block-local space and carve the conservative local AABB; the visual
+    // renderer uses the same lot keep-outs, so this errs toward open forecourt.
+    for (const { carve } of serviceLots) {
+      const corners = [
+        [carve.minX, carve.minZ],
+        [carve.minX, carve.maxZ],
+        [carve.maxX, carve.minZ],
+        [carve.maxX, carve.maxZ],
+      ] as const;
+      const local = corners.map(([x, z]) => {
+        const dx = x - block.center.x;
+        const dz = z - block.center.z;
+        return { x: dx * cos - dz * sin, z: dx * sin + dz * cos };
+      });
+      const cut: AxisRect = {
+        minX: Math.min(...local.map((point) => point.x)),
+        maxX: Math.max(...local.map((point) => point.x)),
+        minZ: Math.min(...local.map((point) => point.z)),
+        maxZ: Math.max(...local.map((point) => point.z)),
+      };
+      pieces = pieces.flatMap((piece) => subtractRect(piece, cut));
+    }
+    for (const [index, piece] of pieces.entries()) {
+      const localX = (piece.minX + piece.maxX) / 2;
+      const localZ = (piece.minZ + piece.maxZ) / 2;
+      obstacles.push({
+        kind: "obb",
+        id: pieces.length === 1 ? id : `${id}-part-${index}`,
+        tag: "building",
+        x: block.center.x + localX * cos + localZ * sin,
+        z: block.center.z - localX * sin + localZ * cos,
+        ux: cos,
+        uz: -sin,
+        halfU: (piece.maxX - piece.minX) / 2,
+        halfV: (piece.maxZ - piece.minZ) / 2,
+      });
+    }
+  };
 
   for (const block of mapPack.geometry.blocks) {
     if (london && block.material.endsWith("-museum")) {
@@ -1022,12 +1091,183 @@ export function buildStaticObstacles(
       }
       continue;
     }
+    if (Math.abs(block.headingDeg ?? 0) > 1e-6) {
+      pushRotatedBlock(block.id, block);
+      continue;
+    }
     pushBlockRect(block.id, {
       minX: block.center.x - block.size.x / 2,
       maxX: block.center.x + block.size.x / 2,
       minZ: block.center.z - block.size.z / 2,
       maxZ: block.center.z + block.size.z / 2,
     });
+  }
+
+  const portalIntervalOnShoreEdge = (
+    edgeFrom: { readonly x: number; readonly z: number },
+    edgeTo: { readonly x: number; readonly z: number },
+    roadFrom: { readonly x: number; readonly z: number },
+    roadTo: { readonly x: number; readonly z: number },
+    halfWidthM: number,
+  ): { start: number; end: number } | null => {
+    const roadX = roadTo.x - roadFrom.x;
+    const roadZ = roadTo.z - roadFrom.z;
+    const roadLength = Math.hypot(roadX, roadZ);
+    if (roadLength < 1e-8) return null;
+    const ux = roadX / roadLength;
+    const uz = roadZ / roadLength;
+    const vx = uz;
+    const vz = -ux;
+    const local = (point: { readonly x: number; readonly z: number }) => {
+      const dx = point.x - roadFrom.x;
+      const dz = point.z - roadFrom.z;
+      return { u: dx * ux + dz * uz, v: dx * vx + dz * vz };
+    };
+    const startLocal = local(edgeFrom);
+    const endLocal = local(edgeTo);
+    let low = 0;
+    let high = 1;
+    const clipAxis = (
+      start: number,
+      end: number,
+      minimum: number,
+      maximum: number,
+    ): boolean => {
+      const delta = end - start;
+      if (Math.abs(delta) < 1e-9) {
+        return start >= minimum && start <= maximum;
+      }
+      const first = (minimum - start) / delta;
+      const second = (maximum - start) / delta;
+      low = Math.max(low, Math.min(first, second));
+      high = Math.min(high, Math.max(first, second));
+      return low <= high;
+    };
+    if (!clipAxis(startLocal.u, endLocal.u, 0, roadLength)) return null;
+    if (
+      !clipAxis(
+        startLocal.v,
+        endLocal.v,
+        -halfWidthM,
+        halfWidthM,
+      )
+    ) {
+      return null;
+    }
+    return { start: Math.max(0, low), end: Math.min(1, high) };
+  };
+
+  // River polygons are visual ground, not physics. Their shorelines become
+  // thin OBB embankments. Only surfaces explicitly whitelisted by each body
+  // may cut an opening: an unrelated or accidentally overlapping road can
+  // never silently become a bridge. Whitelisted over-water spans receive
+  // paired parapet OBBs, closing the former route off the side of a bridge and
+  // onto the flat water material while leaving its travel corridor open.
+  for (const water of mapPack.geometry.waterBodies ?? []) {
+    if (water.polygon.length < 3) continue;
+    const portalSurfaceIds = new Set(
+      (
+        water as typeof water & {
+          readonly bridgePortalSurfaceIds?: readonly string[];
+        }
+      ).bridgePortalSurfaceIds ?? [],
+    );
+    const portalSurfaces = (mapPack.geometry.roadSurfaces ?? []).filter(
+      (surface) => portalSurfaceIds.has(surface.id),
+    );
+    for (let edgeIndex = 0; edgeIndex < water.polygon.length; edgeIndex += 1) {
+      const from = water.polygon[edgeIndex];
+      const to = water.polygon[(edgeIndex + 1) % water.polygon.length];
+      const edgeX = to.x - from.x;
+      const edgeZ = to.z - from.z;
+      const edgeLength = Math.hypot(edgeX, edgeZ);
+      if (edgeLength < 1) continue;
+      const openings: { start: number; end: number }[] = [];
+      for (const surface of portalSurfaces) {
+        for (let index = 0; index < surface.centerline.length - 1; index += 1) {
+          const roadFrom = surface.centerline[index];
+          const roadTo = surface.centerline[index + 1];
+          const opening = portalIntervalOnShoreEdge(
+            from,
+            to,
+            roadFrom,
+            roadTo,
+            surface.widthM / 2 +
+              sidewalkWidthForSurface(mapPack, surface) +
+              0.5,
+          );
+          if (opening === null) continue;
+          // Account for the 0.75 m physical depth of the shoreline OBB itself,
+          // so a cut remains open when the portal meets a polygon vertex.
+          const edgePaddingT = 1.25 / edgeLength;
+          openings.push({
+            start: Math.max(0, opening.start - edgePaddingT),
+            end: Math.min(1, opening.end + edgePaddingT),
+          });
+        }
+      }
+      openings.sort((left, right) => left.start - right.start);
+      const merged: { start: number; end: number }[] = [];
+      for (const opening of openings) {
+        const previous = merged[merged.length - 1];
+        if (previous && opening.start <= previous.end) {
+          previous.end = Math.max(previous.end, opening.end);
+        } else {
+          merged.push({ ...opening });
+        }
+      }
+      let cursor = 0;
+      const solidRanges: { start: number; end: number }[] = [];
+      for (const opening of merged) {
+        if (opening.start - cursor > 2 / edgeLength) {
+          solidRanges.push({ start: cursor, end: opening.start });
+        }
+        cursor = Math.max(cursor, opening.end);
+      }
+      if (1 - cursor > 2 / edgeLength) {
+        solidRanges.push({ start: cursor, end: 1 });
+      }
+      const ux = edgeX / edgeLength;
+      const uz = edgeZ / edgeLength;
+      for (const [rangeIndex, range] of solidRanges.entries()) {
+        const midpoint = (range.start + range.end) / 2;
+        obstacles.push({
+          kind: "obb",
+          id: `${water.id}-shore-${edgeIndex}-${rangeIndex}`,
+          tag: "shoreline",
+          x: from.x + edgeX * midpoint,
+          z: from.z + edgeZ * midpoint,
+          ux,
+          uz,
+          halfU: (range.end - range.start) * edgeLength / 2,
+          halfV: 0.75,
+        });
+      }
+    }
+
+    for (const surface of portalSurfaces) {
+      for (const span of bridgePortalRailSpans(water, surface)) {
+        const rightX = span.uz;
+        const rightZ = -span.ux;
+        const lateralOffset =
+          surface.widthM / 2 +
+          sidewalkWidthForSurface(mapPack, surface) +
+          BRIDGE_PARAPET_PAVEMENT_CLEARANCE_M;
+        for (const side of [-1, 1] as const) {
+          obstacles.push({
+            kind: "obb",
+            id: `${water.id}-portal-${surface.id}-${span.segmentIndex}-${span.intervalIndex}-${side < 0 ? "left" : "right"}`,
+            tag: "shoreline",
+            x: span.center.x + rightX * lateralOffset * side,
+            z: span.center.z + rightZ * lateralOffset * side,
+            ux: span.ux,
+            uz: span.uz,
+            halfU: span.halfLengthM,
+            halfV: BRIDGE_PARAPET_HALF_DEPTH_M,
+          });
+        }
+      }
+    }
   }
 
   // Each service point's own solid furniture, placed with the exact transform
@@ -1085,6 +1325,8 @@ export function buildStaticObstacles(
       case "station":
       case "terminal":
       case "shops":
+      case "museum":
+      case "cultural":
         obstacles.push({
           kind: "aabb",
           id: landmark.id,
@@ -1095,9 +1337,18 @@ export function buildStaticObstacles(
           maxZ: landmark.center.z + landmark.size.z / 2,
         });
         break;
+      case "monument":
+        obstacles.push({
+          kind: "circle",
+          id: landmark.id,
+          tag: "landmark",
+          x: landmark.center.x,
+          z: landmark.center.z,
+          radius: Math.max(1.2, Math.min(landmark.size.x, landmark.size.z) / 3),
+        });
+        break;
       default:
-        // "railway" rails lie flat on the ground; anything unknown stays open
-        // rather than raising an invisible wall.
+        // Railway tracks and scenic elevated bridges stay open at road level.
         break;
     }
   }

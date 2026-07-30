@@ -10,10 +10,12 @@ import {
 } from "./minimap";
 import {
   drawMapOverlay,
+  drawMapWaterBodies,
   drawPlayerMarker,
   drawRoadNetwork,
   minimapSymbolSizes,
   type MapDestination,
+  type MapDrawWaterBody,
 } from "./minimapDraw";
 import { MapPoiLayer } from "./MapPoiLayer";
 import type { MapPoi } from "./mapPoi";
@@ -25,6 +27,7 @@ interface MinimapProps {
     readonly centerline: readonly { readonly x: number; readonly z: number }[];
     readonly widthM?: number;
   }[];
+  readonly waterBodies?: readonly MapDrawWaterBody[];
   readonly playerX: number;
   readonly playerZ: number;
   readonly heading: number;
@@ -92,6 +95,7 @@ interface MinimapProps {
 export function Minimap({
   worldSize,
   roadSurfaces,
+  waterBodies = [],
   playerX,
   playerZ,
   heading,
@@ -138,6 +142,7 @@ export function Minimap({
     offscreen.height = sheet.height;
     const ctx = offscreen.getContext("2d");
     if (ctx) {
+      drawMapWaterBodies(ctx, waterBodies, sheet);
       drawRoadNetwork(
         ctx,
         roadSurfaces,
@@ -147,7 +152,7 @@ export function Minimap({
       );
     }
     networkRef.current = offscreen;
-  }, [roadSurfaces, sheet, scale, size]);
+  }, [roadSurfaces, waterBodies, sheet, scale, size]);
 
   // Composite the cached network, the route and the destination each update.
   useEffect(() => {

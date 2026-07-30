@@ -15,10 +15,13 @@ import {
 import {
   activeCity,
   applySettlement,
+  CAREER_VEHICLES,
   createCareerSlice,
+  createCityState,
   DEFAULT_GARAGE_VEHICLE_ID,
   emptyDayLog,
   settleDay,
+  stampCareerChecksum,
 } from "../app/game/career";
 import {
   STARTING_WALLET_BY_COUNTRY,
@@ -41,6 +44,7 @@ const fullTank = {
   uk: TANK_CAPACITY_L,
   fr: TANK_CAPACITY_L,
   jp: TANK_CAPACITY_L,
+  eg: TANK_CAPACITY_L,
 };
 
 // Lessons were removed; progress now holds only the player's preferences plus a
@@ -52,7 +56,13 @@ describe("player progress (V2 economy)", () => {
     expect(progress.version).toBe(2);
     expect(progress.walletByCountry).toEqual(STARTING_WALLET_BY_COUNTRY);
     expect(progress.fuelByCountry).toEqual(fullTank);
-    expect(progress.lifetimeEarnings).toEqual({ us: 0, uk: 0, fr: 0, jp: 0 });
+    expect(progress.lifetimeEarnings).toEqual({
+      us: 0,
+      uk: 0,
+      fr: 0,
+      jp: 0,
+      eg: 0,
+    });
     expect(progress.completedGigCount).toBe(0);
     expect(progress.lastCountryId).toBe("uk");
     expect(progress.lastDestinationId).toBe("uk-london");
@@ -103,16 +113,53 @@ describe("player progress (V2 economy)", () => {
   it("preserves an existing v2 wallet, fuel and earnings on reload", () => {
     const saved: PlayerProgressV2 = {
       ...createDefaultProgress("2026-07-10T12:00:00.000Z"),
-      walletByCountry: { us: 100, uk: 55, fr: 12, jp: 5000 },
-      fuelByCountry: { us: 10, uk: 20, fr: 30, jp: 40 },
-      lifetimeEarnings: { us: 250, uk: 0, fr: 0, jp: 8000 },
+      walletByCountry: { us: 100, uk: 55, fr: 12, jp: 5000, eg: 750 },
+      fuelByCountry: { us: 10, uk: 20, fr: 30, jp: 40, eg: 15 },
+      lifetimeEarnings: { us: 250, uk: 0, fr: 0, jp: 8000, eg: 1250 },
       completedGigCount: 7,
     };
     const storage = memoryStorage({ "sideswap:v2": JSON.stringify(saved) });
     const restored = loadProgress(storage);
-    expect(restored.walletByCountry).toEqual({ us: 100, uk: 55, fr: 12, jp: 5000 });
-    expect(restored.fuelByCountry).toEqual({ us: 10, uk: 20, fr: 30, jp: 40 });
+    expect(restored.walletByCountry).toEqual({
+      us: 100,
+      uk: 55,
+      fr: 12,
+      jp: 5000,
+      eg: 750,
+    });
+    expect(restored.fuelByCountry).toEqual({
+      us: 10,
+      uk: 20,
+      fr: 30,
+      jp: 40,
+      eg: 15,
+    });
     expect(restored.completedGigCount).toBe(7);
+  });
+
+  it("adds Egypt defaults to a pre-Cairo v2 economy without changing old balances", () => {
+    const preCairo = JSON.parse(
+      JSON.stringify(createDefaultProgress("2026-07-10T12:00:00.000Z")),
+    ) as {
+      walletByCountry: Record<string, number>;
+      fuelByCountry: Record<string, number>;
+      lifetimeEarnings: Record<string, number>;
+    };
+    preCairo.walletByCountry.us = 77;
+    preCairo.lifetimeEarnings.jp = 12_345;
+    delete preCairo.walletByCountry.eg;
+    delete preCairo.fuelByCountry.eg;
+    delete preCairo.lifetimeEarnings.eg;
+
+    const restored = loadProgress(
+      memoryStorage({ "sideswap:v2": JSON.stringify(preCairo) }),
+    );
+    expect(restored.walletByCountry.us).toBe(77);
+    expect(restored.lifetimeEarnings.jp).toBe(12_345);
+    expect(restored.walletByCountry.eg).toBe(STARTING_WALLET_BY_COUNTRY.eg);
+    expect(restored.fuelByCountry.eg).toBe(TANK_CAPACITY_L);
+    expect(restored.lifetimeEarnings.eg).toBe(0);
+    expect(isPlayerProgressV2(restored)).toBe(true);
   });
 
   it("rejects an incoherent country/destination pair", () => {
@@ -125,6 +172,20 @@ describe("player progress (V2 economy)", () => {
         lastDestinationId: "uk-london",
       }),
     ).toBe(false);
+  });
+
+  it("uses Cairo when repairing an Egypt progress destination", () => {
+    const saved = {
+      ...createDefaultProgress("2026-07-10T12:00:00.000Z"),
+      lastCountryId: "eg",
+      lastDestinationId: "uk-london",
+    };
+    const restored = loadProgress(
+      memoryStorage({ "sideswap:v2": JSON.stringify(saved) }),
+    );
+    expect(restored.lastCountryId).toBe("eg");
+    expect(restored.lastDestinationId).toBe("eg-cairo");
+    expect(isPlayerProgressV2(restored)).toBe(true);
   });
 
   it("credits earnings and debits spend, clamping the wallet at zero", () => {
@@ -235,6 +296,58 @@ describe("career slice persistence", () => {
     // has offered the reset.
     expect(saveProgress(tampered, storage)).toBe(true);
     expect(loadProgress(storage).career).toEqual({ state: "corrupt" });
+  });
+
+  it("rewrites a verified pre-Cairo win as active while preserving London", () => {
+    const fullFleet = CAREER_VEHICLES.filter((vehicle) => vehicle.buyoutEligible).map(
+      (vehicle) => vehicle.id,
+    );
+    const legacyWinner = stampCareerChecksum({
+      ...freshSlice(),
+      state: "won",
+      currentDestinationId: "uk-london",
+      cities: {
+        "us-nyc": {
+          ...createCityState("us"),
+          ownedVehicleIds: fullFleet,
+        },
+        "jp-tokyo": {
+          ...createCityState("jp"),
+          ownedVehicleIds: fullFleet,
+        },
+        "uk-london": {
+          ...createCityState("uk"),
+          day: 19,
+          cash: 444,
+          ownedVehicleIds: fullFleet,
+        },
+      },
+      victoryDay: 19,
+    });
+    const rawProgress = {
+      ...createDefaultProgress("2026-07-10T12:00:00.000Z"),
+      career: legacyWinner,
+    };
+    const storage = memoryStorage({
+      "sideswap:v2": JSON.stringify(rawProgress),
+    });
+
+    const restored = loadProgress(storage);
+    if (restored.career === null || restored.career.state === "corrupt") {
+      throw new Error("verified legacy career did not survive loading");
+    }
+    expect(restored.career.state).toBe("active");
+    expect(restored.career.victoryDay).toBeNull();
+    expect(restored.career.currentDestinationId).toBe("uk-london");
+    expect(restored.career.cities["uk-london"]?.cash).toBe(444);
+    expect(restored.career.cities["eg-cairo"]).toBeUndefined();
+
+    const rewritten = JSON.parse(storage.getItem("sideswap:v2") ?? "{}") as {
+      career: { state: string; victoryDay: number | null; checksum: string };
+    };
+    expect(rewritten.career.state).toBe("active");
+    expect(rewritten.career.victoryDay).toBeNull();
+    expect(rewritten.career.checksum).toBe(restored.career.checksum);
   });
 
   it("persists a settled (mutated) slice only through writeCareer's re-stamp", () => {

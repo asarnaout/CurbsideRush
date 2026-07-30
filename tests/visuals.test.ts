@@ -68,6 +68,7 @@ describe("map visual palettes", () => {
     expect(resolveMapVisualKey("calais-coquelles")).toBe("calais");
     expect(resolveMapVisualKey("folkestone-coquelles")).toBe("calais");
     expect(resolveMapVisualKey("tokyo-setagaya")).toBe("tokyo");
+    expect(resolveMapVisualKey("cairo-central-nile")).toBe("cairo");
     expect(resolveMapVisualKey("orientation-yard")).toBe("orientation");
   });
 
@@ -78,6 +79,7 @@ describe("map visual palettes", () => {
       "milton-keynes-oldbrook",
       "calais-coquelles",
       "tokyo-setagaya",
+      "cairo-central-nile",
       "orientation-yard",
     ]) {
       const palette = resolveMapVisualPalette(mapId);
@@ -153,6 +155,7 @@ describe("horizon silhouettes", () => {
       "milton-keynes-oldbrook",
       "calais-coquelles",
       "tokyo-setagaya",
+      "cairo-central-nile",
       "orientation-yard",
     ]) {
       const seed = hashStringToSeed(mapId);
@@ -182,6 +185,14 @@ describe("horizon silhouettes", () => {
     );
     expect(nycKinds.has("box")).toBe(true);
     expect(nycKinds.has("spike")).toBe(true);
+    const cairoKinds = new Set(
+      buildHorizonSilhouetteSpec("cairo-central-nile", seed).map(
+        (shape) => shape.kind,
+      ),
+    );
+    expect(cairoKinds.has("box")).toBe(true);
+    expect(cairoKinds.has("spike")).toBe(true);
+    expect(cairoKinds.has("pylon")).toBe(true);
     const miltonKinds = new Set(
       buildHorizonSilhouetteSpec("milton-keynes-oldbrook", seed).map(
         (shape) => shape.kind,
@@ -316,6 +327,46 @@ describe("roadside prop scatter", () => {
       occupiedPoints,
     });
     expect(placements).toEqual([]);
+  });
+
+  it("uses each road's own sidewalk width and rotated block footprint", () => {
+    const block = {
+      center: { x: 0, z: 12 },
+      size: { x: 42, z: 5 },
+      headingDeg: 38,
+    };
+    const placements = generateRoadsidePropPlacements({
+      ...SCATTER_FIXTURE,
+      roadSurfaces: [{ ...STRAIGHT_ROAD, sidewalkWidthM: 7 }],
+      blocks: [block],
+      landmarks: [],
+      worldSize: { x: 240, z: 100 },
+      kinds: [
+        {
+          kind: "palm",
+          spacingM: 9,
+          jitterM: 1,
+          lateralMarginM: 1,
+          bothSides: true,
+          variants: 2,
+        },
+      ],
+    });
+    expect(placements.length).toBeGreaterThan(4);
+    const heading = (block.headingDeg * Math.PI) / 180;
+    for (const placement of placements) {
+      expect(
+        distanceToPolylineM(placement, STRAIGHT_ROAD.centerline),
+      ).toBeGreaterThanOrEqual(STRAIGHT_ROAD.widthM / 2 + 7 + 0.6);
+      const dx = placement.x - block.center.x;
+      const dz = placement.z - block.center.z;
+      const localX = dx * Math.cos(heading) - dz * Math.sin(heading);
+      const localZ = dx * Math.sin(heading) + dz * Math.cos(heading);
+      expect(
+        Math.abs(localX) <= block.size.x / 2 + 1 &&
+          Math.abs(localZ) <= block.size.z / 2 + 1,
+      ).toBe(false);
+    }
   });
 });
 

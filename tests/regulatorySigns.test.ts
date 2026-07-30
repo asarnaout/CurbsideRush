@@ -473,15 +473,19 @@ describe("speed-limit signage", () => {
   });
 
   it("never out-numbers the signage it stands beside", () => {
-    // A count regression is how this quietly becomes a forest of posts. NYC is
-    // the dense case: a 25/30 checkerboard earns an entry sign at every
-    // junction where the two disagree.
+    // A count regression is how this quietly becomes a forest of posts. NYC
+    // and Cairo are the two full-size cities; the compact maps keep the old
+    // tighter budget.
     const nyc = signsFor(nycPack());
     expect(nyc.length).toBeLessThan(nycPlacements().length);
     expect(nyc.length).toBeLessThanOrEqual(240);
     for (const pack of MAP_PACKS) {
-      if (pack.id === "nyc-upper-west-side") continue;
-      expect(signsFor(pack).length, pack.id).toBeLessThanOrEqual(60);
+      const budget =
+        pack.id === "nyc-upper-west-side" ||
+        pack.id === "cairo-central-nile"
+          ? 240
+          : 60;
+      expect(signsFor(pack).length, pack.id).toBeLessThanOrEqual(budget);
     }
   });
 

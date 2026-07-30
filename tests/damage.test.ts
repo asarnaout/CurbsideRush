@@ -67,7 +67,9 @@ describe("damageForCollision", () => {
 });
 
 describe("repairPrice", () => {
-  const countries = (["us", "uk", "fr", "jp"] as const).map(getCountryProfile);
+  const countries = (["us", "uk", "fr", "jp", "eg"] as const).map(
+    getCountryProfile,
+  );
 
   it("prices a full rebuild noticeably above a fine in every country", () => {
     // The band the old flat tow fee was tuned to, now applied to the honest
