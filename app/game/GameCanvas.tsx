@@ -2542,6 +2542,86 @@ export function crosswalkStripeLayout(
   });
 }
 
+/** The black lamp housing every authored signal head is built around. */
+export const SIGNAL_HOUSING_BOX = {
+  width: 0.58,
+  height: 1.48,
+  depth: 0.42,
+} as const;
+
+export interface SignalBorderBar {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly width: number;
+  readonly height: number;
+  readonly depth: number;
+}
+
+/**
+ * Cairo's yellow surround, as four bars around the face rather than one box.
+ *
+ * It used to be a single 0.7 x 1.6 x 0.44 box at z +0.015 — larger than the
+ * housing in **all three** dimensions, so it enclosed the head completely and
+ * the entire black-face-with-a-yellow-border look rested on the housing's front
+ * face protruding 5 mm. Depth precision at any distance beats 5 mm, so the
+ * yellow swallowed the head: a solid amber slab that flickered as you drove and
+ * only settled once you were stopped at the bar.
+ *
+ * These bars sit strictly *outside* the housing footprint, so no two surfaces
+ * ever contend for the same pixel and there is no epsilon left to lose. They
+ * meet the housing edge-on at x ±0.29 / y ±0.74; touching faces point away from
+ * each other, which is ordinary adjacency, not overlap.
+ */
+export const EGYPT_SIGNAL_BORDER_BARS: readonly SignalBorderBar[] = (() => {
+  const thickness = 0.06;
+  const halfWidth = SIGNAL_HOUSING_BOX.width / 2;
+  const halfHeight = SIGNAL_HOUSING_BOX.height / 2;
+  // Proud of the black face (-0.21) but behind the lens plane (-0.25), so the
+  // border reads as a bezel without touching either.
+  const z = -0.19;
+  const depth = 0.08;
+  return [
+    {
+      id: "left",
+      x: -(halfWidth + thickness / 2),
+      y: 0,
+      z,
+      width: thickness,
+      height: SIGNAL_HOUSING_BOX.height + thickness * 2,
+      depth,
+    },
+    {
+      id: "right",
+      x: halfWidth + thickness / 2,
+      y: 0,
+      z,
+      width: thickness,
+      height: SIGNAL_HOUSING_BOX.height + thickness * 2,
+      depth,
+    },
+    {
+      id: "top",
+      x: 0,
+      y: halfHeight + thickness / 2,
+      z,
+      width: SIGNAL_HOUSING_BOX.width,
+      height: thickness,
+      depth,
+    },
+    {
+      id: "bottom",
+      x: 0,
+      y: -(halfHeight + thickness / 2),
+      z,
+      width: SIGNAL_HOUSING_BOX.width,
+      height: thickness,
+      depth,
+    },
+  ];
+})();
+
 export function roadSurfaceWidthForMarking(
   mapPack: GameCanvasMapPack,
   control: GameCanvasMapPack["laneGraph"]["controls"][number],
@@ -13808,19 +13888,25 @@ class BabylonGameSession {
     if (runtime.style === "egypt_signal") {
       // Cairo's roadside signals commonly frame the black head in the same
       // high-contrast yellow used on the striped support poles.
-      createBox(
-        this.scene,
-        `${name}-egypt-frame`,
-        { width: 0.7, height: 1.6, depth: 0.44 },
-        new Vector3(0, 0, 0.015),
-        materials.warningYellow,
-        head,
-      );
+      for (const bar of EGYPT_SIGNAL_BORDER_BARS) {
+        createBox(
+          this.scene,
+          `${name}-egypt-frame-${bar.id}`,
+          { width: bar.width, height: bar.height, depth: bar.depth },
+          new Vector3(bar.x, bar.y, bar.z),
+          materials.warningYellow,
+          head,
+        );
+      }
     }
     createBox(
       this.scene,
       `${name}-housing`,
-      { width: 0.58, height: 1.48, depth: 0.42 },
+      {
+        width: SIGNAL_HOUSING_BOX.width,
+        height: SIGNAL_HOUSING_BOX.height,
+        depth: SIGNAL_HOUSING_BOX.depth,
+      },
       Vector3.Zero(),
       materials.dark,
       head,
