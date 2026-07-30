@@ -26,7 +26,7 @@ stations) live under `public/models/props/`.
   released **CC0 1.0**. Downloaded 2026-07-29. Source GLB SHA-256
   `5ebaa83522c99c877e28b9c482aa8629226d574fa398dc91ba71430d4e38e290`;
   committed GLB SHA-256
-  `0ffe7683eb228040858ba8d83e3de52008564dca303f4c4a04c889d4e95fdd4e`.
+  `a5876cf61076daf42f56c89f53f475e85915a661bc5a8d2318b6411d0b2f6be1`.
   Modified with a muted Cairo façade palette and matte materials by
   `tools/style-cairo-residences.mjs`; used as one of Cairo's flat-roofed urban
   residence venues.
@@ -72,6 +72,16 @@ concrete — one per model, so a street run does not read as copy-paste), flatte
 the specular, and bakes provenance into `asset.extras.curbsideRush`. CC0 permits
 modification; re-run the script to regenerate from a fresh download.
 
+**Modified — shopfront corrections (KayKit models only).**
+`tools/cairo-shopfront.mjs` then flattens the pack's two-tone scalloped awning to
+a single colour and deletes the American fire hydrant that came bundled in the
+diorama base. Neither belongs on a Cairo street: the local vocabulary is a flat
+signboard fascia and a rigid one-colour canopy, and Cairo's roadside prop list
+places no hydrants. The stripe is geometry rather than paint (the atlas is a grid
+of gradient swatches, and the stripes are alternating faces pointed at two of
+them), so it is corrected by a UV remap of the pale faces onto the dark swatch —
+editing the texture would recolour every other surface sharing that swatch.
+
 All the Quaternius models below come from the **Ultimate Textured Buildings
 Pack** (<https://quaternius.com/packs/ultimatetexturedbuildings.html>), released
 **CC0 1.0**, downloaded 2026-07-30 from the pack's
@@ -96,6 +106,18 @@ converted from OBJ + MTL to a self-contained quantized GLB by
 `cairo-office-block` and `cairo-depot` replace the pitched-roof `office.glb`
 (Quaternius "Big Building") on the Cairo map only; NYC and London keep using it.
 
+- **props/cairo-shop.glb** ("Building") — by **Kay Lousberg**, from the City
+  Builder Bits pack via Poly Pizza (<https://poly.pizza/m/EL3ePInr1N>; creator
+  page: <https://kaylousberg.com/game-assets/city-builder-bits>), released
+  **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
+  `289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5`;
+  committed GLB SHA-256
+  `2607a442181e051cb83d77c75fd15ce0401fcbdf99d8b0c5cef26b420318842a`.
+  Cairo's copy of `shop.glb` — same source model, but recoloured to the Cairo
+  palette with the striped awning flattened and the bundled hydrant removed by
+  `tools/cairo-shopfront.mjs`. It exists as a separate file because `shop.glb`
+  is also placed by NYC and London, and `modelLibrary` keys asset containers by
+  URL, so one file cannot carry two cities' decisions. The original is unchanged.
 - **props/cairo-walkup-a.glb** ("Building") — by **Kay Lousberg**, from the City
   Builder Bits pack via Poly Pizza (<https://poly.pizza/m/qOhhGLftam>; creator
   page: <https://kaylousberg.com/game-assets/city-builder-bits>; source GLB:
@@ -103,7 +125,7 @@ converted from OBJ + MTL to a self-contained quantized GLB by
   released **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
   `a98d4fa6bf1e261da717fbdeef7937ef7578af86db3ba31a14296d814cf44e65`;
   committed GLB SHA-256
-  `14b0fe14e58217cbe5eeca8123d79c2d5d675a49bed3118ecf12c1132c2a45f5`.
+  `e646b245030ac11df8c4867c8bd65d529774993302ef3897a74506aa0e5ddced`.
   Same pack (and same flat roof + rooftop water tank) as
   `cairo-residence-kay.glb`.
 - **props/cairo-walkup-b.glb** ("Building") — by **Kay Lousberg**, same pack via
@@ -112,7 +134,7 @@ converted from OBJ + MTL to a self-contained quantized GLB by
   released **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
   `ecda4d8e3a89bb751f61e179725ca59d2a19f7f3aa88fedd4fc371eb8f0eaede`;
   committed GLB SHA-256
-  `200f8fbfee2d9b619055c62606e889bbc045c20391027db02633e22a53ee9ace`.
+  `96ffdd81e34f1624848f261a337547fd949886002fd39b7900cea90576d66159`.
   The same source model as `nyc-brownstone-b.glb`, imported separately because
   `modelLibrary` keys asset containers by URL — one file cannot carry both the
   New York and the Cairo palette.

@@ -1414,7 +1414,9 @@ const cairoGigVenues: readonly GigVenue[] = venueNames.map((name, index) => {
         ? "cairo-depot"
         : kind === "office"
           ? "cairo-office-block"
-          : undefined;
+          : kind === "shop"
+            ? "cairo-shop"
+            : undefined;
   return {
     id: `cairo-venue-${String(index + 1).padStart(2, "0")}`,
     kind,

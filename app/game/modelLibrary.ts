@@ -371,6 +371,15 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
     yawOffset: -Math.PI / 2,
     groundY: 0.011,
   },
+  // Cairo's own copy of `shop` below. Same model, but recoloured to the Cairo
+  // palette, with the pack's diner-stripe awning flattened to one colour and its
+  // bundled American fire hydrant deleted (tools/cairo-shopfront.mjs). `shop`
+  // itself is untouched because NYC and London still place it.
+  "cairo-shop": {
+    url: `${P}/cairo-shop.glb`,
+    scale: 4,
+    yawOffset: -Math.PI / 2,
+  },
   "cairo-office-block": {
     url: `${P}/cairo-office-block.glb`,
     scale: 2.4,

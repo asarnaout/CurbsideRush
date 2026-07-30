@@ -126,26 +126,39 @@ function cairoModelUrls(): { label: string; url: string }[] {
   return [...urls].map(([url, label]) => ({ url, label }));
 }
 
-const engine = new NullEngine();
-const scene = new Scene(engine);
-
-const mergedMaster = async (url: string) => {
-  const buf = fs.readFileSync(path.join(process.cwd(), "public", url));
-  const container = await LoadAssetContainerAsync(
-    "data:model/gltf-binary;base64," + buf.toString("base64"),
-    scene,
-    { pluginExtension: ".glb" },
-  );
-  const entries = container.instantiateModelsToScene(undefined, false, {
-    doNotInstantiate: true,
-  });
-  const root = entries.rootNodes[0];
-  root.computeWorldMatrix(true);
-  const meshes = root
-    .getChildMeshes(false)
-    .filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
-  for (const m of meshes) m.computeWorldMatrix(true);
-  return Mesh.MergeMeshes(meshes, true, true, undefined, false, true);
+/**
+ * A scene per model, torn down after measuring. Sharing one across the cases
+ * leaks every container and instantiated root — sixteen models' worth of
+ * geometry that is never freed — and under memory pressure that produced a
+ * degenerate merge and a false "pitched roof" on a model measuring taper 1.07.
+ * A geometry assertion must not depend on how loaded the machine is.
+ */
+const withMaster = async <T>(url: string, measure: (master: Mesh) => T): Promise<T> => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  try {
+    const buf = fs.readFileSync(path.join(process.cwd(), "public", url));
+    const container = await LoadAssetContainerAsync(
+      "data:model/gltf-binary;base64," + buf.toString("base64"),
+      scene,
+      { pluginExtension: ".glb" },
+    );
+    const entries = container.instantiateModelsToScene(undefined, false, {
+      doNotInstantiate: true,
+    });
+    const root = entries.rootNodes[0];
+    root.computeWorldMatrix(true);
+    const meshes = root
+      .getChildMeshes(false)
+      .filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
+    for (const m of meshes) m.computeWorldMatrix(true);
+    const master = Mesh.MergeMeshes(meshes, true, true, undefined, false, true);
+    expect(master, url).toBeTruthy();
+    return measure(master!);
+  } finally {
+    scene.dispose();
+    engine.dispose();
+  }
 };
 
 describe("Cairo roofs", () => {
@@ -158,14 +171,11 @@ describe("Cairo roofs", () => {
   it.each(models.map((m) => [`${m.label} ${m.url}`, m.url] as const))(
     "%s has no pitched roof",
     async (_label, url) => {
-      const master = await mergedMaster(url);
-      expect(master, url).toBeTruthy();
-      const shape = roofShape(master!)!;
+      const shape = await withMaster(url, (master) => roofShape(master)!);
       expect(
         shape.pitched,
         `${url}: taper=${shape.taper.toFixed(2)} slope=${(shape.slope * 100).toFixed(0)}%`,
       ).toBe(false);
-      master!.dispose();
     },
   );
 
@@ -174,9 +184,8 @@ describe("Cairo roofs", () => {
   // exists. If the detector stops catching it, it is not measuring anything.
   it("still recognises the pitched roof it was written to catch", async () => {
     for (const url of ["/models/props/office.glb", "/models/props/residence.glb"]) {
-      const master = await mergedMaster(url);
-      expect(roofShape(master!)!.pitched, url).toBe(true);
-      master!.dispose();
+      const shape = await withMaster(url, (master) => roofShape(master)!);
+      expect(shape.pitched, url).toBe(true);
     }
   });
 });

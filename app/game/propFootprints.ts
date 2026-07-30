@@ -26,6 +26,9 @@ export const PROP_MODEL_FOOTPRINTS_M: Readonly<
   restaurant: { minX: -5.23, maxX: 8.46, minZ: -5.82, maxZ: 10.04 },
   "restaurant-pizzeria": { minX: -5.85, maxX: 4.87, minZ: -5.79, maxZ: 4.84 },
   shop: { minX: -4.0, maxX: 4.0, minZ: -4.0, maxZ: 4.0 },
+  // Same model and scale as `shop`; its base slab is square, so the corrected
+  // yawOffset and the deleted hydrant leave the placed footprint unchanged.
+  "cairo-shop": { minX: -4.0, maxX: 4.0, minZ: -4.0, maxZ: 4.0 },
   residence: { minX: -5.45, maxX: 4.61, minZ: -3.32, maxZ: 3.33 },
   "cairo-residence-kay": {
     minX: -5.5,

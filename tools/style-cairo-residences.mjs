@@ -164,6 +164,19 @@ const TARGETS = [
   ),
 
   // ---- Walk-ups: the KayKit family, flat roofs with their own water tanks ----
+  // Cairo's own copy of the corner shop. `shop.glb` is shared with NYC and
+  // London, so Cairo cannot recolour it or take the diner stripe off its awning
+  // without changing those maps too — modelLibrary keys containers by URL.
+  {
+    id: "cairo-shop",
+    author: "Kay Lousberg",
+    title: "Building",
+    sourceUrl: "https://poly.pizza/m/EL3ePInr1N",
+    creatorUrl: "https://kaylousberg.com/game-assets/city-builder-bits",
+    sourceSha256:
+      "289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5",
+    texturePalette: true,
+  },
   {
     id: "cairo-walkup-a",
     author: "Kay Lousberg",
@@ -434,6 +447,10 @@ for (const target of TARGETS) {
   json.asset.extras = {
     ...(json.asset.extras ?? {}),
     curbsideRush: {
+      // Keep provenance keys this script does not own — notably the `shopfront`
+      // marker from tools/cairo-shopfront.mjs, which runs after this one and
+      // would otherwise redo its geometry surgery on every palette re-run.
+      ...(json.asset.extras?.curbsideRush ?? {}),
       style: STYLE_ID,
       author: target.author,
       title: target.title,

@@ -14,6 +14,7 @@ interface CairoResidenceProvenance {
   readonly creatorUrl: string;
   readonly sourceSha256: string;
   readonly modifications: string;
+  readonly shopfront?: string;
 }
 
 const parseGlbJson = (glb: Buffer): {
@@ -80,12 +81,12 @@ describe("Cairo bundled assets", () => {
     );
   });
 
-  it("pins the two CC0 Cairo residences and their auditable provenance", async () => {
+  it("pins the CC0 Cairo KayKit models and their auditable provenance", async () => {
     const assets = [
       {
         file: "cairo-residence-kay.glb",
         finalSha256:
-          "0ffe7683eb228040858ba8d83e3de52008564dca303f4c4a04c889d4e95fdd4e",
+          "a5876cf61076daf42f56c89f53f475e85915a661bc5a8d2318b6411d0b2f6be1",
         provenance: {
           style: "cairo-residence-v1",
           author: "Kay Lousberg",
@@ -97,10 +98,32 @@ describe("Cairo bundled assets", () => {
           sourceSha256:
             "5ebaa83522c99c877e28b9c482aa8629226d574fa398dc91ba71430d4e38e290",
           modifications: "Cairo palette and matte material pass",
+          shopfront: "cairo-shopfront-v1",
         },
         creditNeedles: [
           "https://static.poly.pizza/1c40976f-9fd1-4779-ba85-8105d523f3d8.glb",
         ],
+      },
+      {
+        // Cairo's own copy of shop.glb. The point of the separate file is that
+        // NYC and London keep the original, stripes, hydrant and all.
+        file: "cairo-shop.glb",
+        finalSha256:
+          "2607a442181e051cb83d77c75fd15ce0401fcbdf99d8b0c5cef26b420318842a",
+        provenance: {
+          style: "cairo-residence-v1",
+          author: "Kay Lousberg",
+          title: "Building",
+          license: "CC0-1.0",
+          sourceUrl: "https://poly.pizza/m/EL3ePInr1N",
+          creatorUrl:
+            "https://kaylousberg.com/game-assets/city-builder-bits",
+          sourceSha256:
+            "289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5",
+          modifications: "Cairo palette and matte material pass",
+          shopfront: "cairo-shopfront-v1",
+        },
+        creditNeedles: ["tools/cairo-shopfront.mjs"],
       },
       {
         file: "cairo-residence-quaternius.glb",
