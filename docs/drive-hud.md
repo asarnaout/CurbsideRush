@@ -1,0 +1,177 @@
+# The drive screen: layers, HUD, touch controls and both maps
+
+Read this before touching `DriveHud.tsx`, `TouchDriveControls.tsx`,
+`MinimapCanvas.tsx`, `ExpandedMap.tsx`, or anything that positions an overlay on
+the drive screen.
+
+## One z-order, spanning two files
+
+**`DRIVE_LAYER` in `driveLayers.ts` is the drive screen's only stacking order.**
+Controls come from `GameCanvas`, the HUD from `SideSwapApp`, and they are siblings
+in `.game-page`'s stacking context.
+
+```
+scrim 5  <  hud 10  <  touch 20  <  toast 30  <  action 40  <  curtain 50
+```
+
+Hard-coding a z-index in either file is how the steering control ended up painted
+under the status card and the pedals under the minimap for months — invisible, yet
+still tappable through the HUD's `pointerEvents: "none"`, so nothing failed and no
+test could see it.
+
+`shellStyle` must therefore **not** set `isolation: "isolate"`: that makes the
+GameCanvas subtree atomic at its own level, and no control inside could then
+outrank a HUD sibling.
+
+Two layer facts are load-bearing: the nav card is `pointerEvents: "none"` on
+`DRIVE_LAYER.hud`, and the offer card is on `action` above it — which is the only
+reason an accept button can be clicked at all.
+
+## `DriveHud.tsx` is props-pure
+
+No Babylon import, so `driveHud.test.tsx` renders it in jsdom; `SideSwapApp`
+computes every string it shows.
+
+**One set of components serves both form factors, from two comps.** Desktop is a
+fixed `HUD_DESIGN_WIDTH` (1920) × 1080 frame scaled whole (`resolveHudScale`,
+floored at `HUD_MIN_SCALE` 0.68) rather than re-derived responsively; `compact`
+swaps in the mobile comp's sizing via a metrics table per cluster (e.g. the nav
+card is 486 px desktop, 330 px mobile).
+
+Only the offer differs in kind. `DriveOfferBar` lands in the minimap's slot and
+dims the map, because there is nowhere else on a phone for something that size.
+**Its height comes from the slot between the button rail and the pedals, never
+from the comp**: the comp is drawn on a 400 px frame, the shortest landscape phone
+the rail budget admits is 320, and Safari with toolbars leaves ~343 — below
+`RAIL_MIN_SLOT_PX` (172) the detour rail drops rather than the card growing into
+DRIVE.
+
+The balance sits in the job card on touch, not the corner: that corner carries
+camera/pause/fullscreen, and fullscreen is the only way to reclaim Safari's chrome
+mid-drive.
+
+## The touch layout is one budget split across two files
+
+`TouchDriveControls.tsx` has **no Babylon import**, so
+`tests/touchDriveControls.test.tsx` can render it in jsdom.
+
+A landscape phone is ~343 px tall, not the ~390 the arithmetic wants.
+`TOUCH_TOP_RAIL_PX` / `TOUCH_MINIMAP_PX` / `TOUCH_PEDAL_BLOCK_PX` /
+`TOUCH_LEFT_RAIL_PX` are **exported** because `SideSwapApp` places the status panel
+and minimap against them, and the rail arithmetic is asserted in
+`touchDriveControls.test.tsx` — jsdom has no layout, so that test *is* the check.
+
+Two constants that look like one but are not: `TOUCH_TOP_RAIL_PX` is a **height**
+(what the minimap sits below) and `TOUCH_CORNER_SLOT_PX` a **width** (how far one
+more corner button reaches inward). They were the same constant while the app had
+exactly one button.
+
+The right edge reads top-down: buttons, minimap, pedals — which only fits because
+the pedals sit **abreast**; stacked they were ~194 px and owned the whole edge.
+
+Steering is drag-with-a-floating-origin (`touchSteering.ts`, pure); the release
+ease runs in `fixedUpdate` via `touchSteerReleasing`, never in React. **The visible
+slider is an affordance drawn *inside* the drag region, not the target** — the
+region is still the whole lower-left quadrant.
+
+## The corner minimap
+
+The widget fits the whole world only while the world is small: past
+`MINIMAP_FOLLOW_SPAN_M` (`minimap.ts`, 500 m) it keeps its scale and **scrolls**
+instead, blitting the window the car sits in the middle of out of a sheet
+rasterised once for the whole world. **Every shipped city is over the span, so the
+widget always scrolls.**
+
+Roads draw as translucent strips floored at a share of the widget
+(`minimapRoadFloorPx`, 5.8%), not at true scale, where a 10.4 m street would be
+under 2 px. At the shipped follow span that floor governs *every* authored road
+(beating it takes a carriageway over ~31 m; the widest authored anywhere is 25 m),
+so streets of different widths deliberately draw alike, and crossings brighten
+purely from the strips overlapping — there is no junction pass.
+
+## The whole-city map (`ExpandedMap`, opened with M)
+
+**It is the fitted branch, and must never touch `resolveMinimapScale`** — that
+answers `follows` for every city, and a follow-scale sheet at screen size
+rasterises NYC into ~2818×6228 px, some 70 MB.
+
+`createMinimapFitProjector` is the only way in. It takes a width *and* a height
+because the cities are nothing like square (1080×3000 for NYC against Milton
+Keynes' 1500×300), and `fitMinimapPanel` cuts the canvas to the world's own aspect
+so no part of it is spent on empty ground.
+
+Its road floor is flat pixels (`MAP_ROAD_WIDTH_FLOOR_PX`, 1.75), the **opposite
+balance to the widget**: fitted, true width governs and the floor only catches
+alleys.
+
+**Both maps share `minimapDraw.ts`** for water beneath roads as well as
+navigation, and **symbol sizes are an input to it** — the widget's
+fractions-of-its-edge rule would give a 27 px route line on a screen.
+
+It does **not** pause. It closes itself while paused (same `action` layer, and the
+app paints after the session) or while an offer is up (else ACCEPT is untappable
+on touch), and both are derived so it returns after.
+
+Key handling is asymmetric on purpose:
+
+- **M is a *bubble* listener** in `SideSwapApp`, so `ConfirmDialog`'s capture-phase
+  swallow keeps it inert.
+- **Escape needs capture + `stopImmediatePropagation`**, or `BabylonGameSession`'s
+  own Escape→`togglePause` fires and the drive pauses behind the closing map.
+  **Only Escape may be swallowed** — the car is still moving and the player still
+  needs the throttle.
+- Focus lands on the panel, never a button: Space is the handbrake.
+
+**`collectMapPois` (`mapPoi.ts`, cached per pack) is the one source of what either
+map marks**, each position coming from the resolver that already owns it (fuel
+markers sit on the pumps, not the lane anchor ~19 m out on the carriageway).
+
+Markers are DOM icons over the canvas — one `HudGlyph`, shared with the legend, and
+jsdom has no `Path2D` — so **anything drawn on the canvas is behind them**. Hence
+the car's own second canvas above the icons, and hence the place you are routed to
+drawing no marker of its own.
+
+## Viewport, fullscreen and safe areas
+
+**Mobile Safari only hides its toolbars in response to scrolling, and the drive
+screen cannot scroll** — `.game-page` is `position: fixed` with
+`overscroll-behavior: none` and `touch-action: none`. So rotating on the launcher
+(scrollable) hides the chrome and the state survives into the drive, while rotating
+once driving never can.
+
+There is no CSS route; the Fullscreen API is it, which needs a gesture, which is
+why `TouchDriveControls` carries a fullscreen **toggle** — offered whenever the API
+exists and the page is not already `display-mode: standalone`.
+
+`canFullscreen` checks **both spellings**: a `requestFullscreen` guard alone no-ops
+on any WebKit that only has `webkitRequestFullscreen`, which reads as the feature
+being unimplemented. `screen.orientation.lock()` has never shipped in Safari at
+all, so the rotate gate stays — cheap, pausing the session, never again gating
+session *construction*.
+
+`applyViewportFitCover` patches the rendered viewport meta at runtime; without it
+every `env(safe-area-inset-*)` in the HUD and controls is `0px`. See
+[build-and-deploy.md](build-and-deploy.md) for why it cannot be declared.
+
+## Launcher CSS traps
+
+- **The launcher's breakpoints are width-only, and a landscape phone is ~874 px
+  wide under `viewport-fit=cover`** — so it takes the *desktop* two-column layout,
+  not the ≤860 px column. Which side of 860 px it lands on depends on whether the
+  safe-area insets are counted, so a landscape bug can show in one iOS browser and
+  not another.
+- Hence `.launcher-shell`/`.launcher-page` size with **`min-height`, never
+  `height`**: a box shorter than its own copy column drops the
+  absolutely-positioned `.launcher-legal` out of the bottom padding band it lives
+  in and into the middle of the city chips (#204).
+- **`.app-shell` sets `overflow: hidden`, which silently disables
+  `position: sticky` anywhere below it** — it is a scroll container, so a sticky
+  child pins to *it* rather than the viewport and simply never moves. The career
+  pages override it to `overflow: clip` (clips identically, no scrollport) inside
+  the 860 px block, which lets the garage dock and portrait travel bar pin; at
+  ≤480 px high the travel bar deliberately returns to normal flow so it cannot
+  cover the heading on a landscape phone. Nothing warns; the element just sits in
+  flow.
+
+jsdom has no layout, so none of this is testable — the check is a WebKit
+screenshot at 874×402.
