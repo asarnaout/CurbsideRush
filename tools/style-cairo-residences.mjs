@@ -1,19 +1,30 @@
 /**
- * Bakes Curbside Rush's Cairo palette into the two imported CC0 residence GLBs.
+ * Bakes Curbside Rush's Cairo palette into every imported CC0 Cairo building GLB.
  *
  * Reproduce from clean sources:
- *   1. Copy Kay Lousberg's `Building` GLB to
- *      public/models/props/cairo-residence-kay.glb.
- *   2. Convert Quaternius's `3Story_Balcony_Mat.obj` to GLB (OBJ + MTL), then
- *      place it at public/models/props/cairo-residence-quaternius.glb.
+ *   1. Copy each Poly Pizza `.glb` to its `public/models/props/cairo-*.glb` name
+ *      (Kay Lousberg walk-ups, Kenney towers).
+ *   2. Convert each Quaternius `*_Mat.obj` (OBJ + MTL) with
+ *      `node tools/obj-to-glb.mjs <in.obj> <out.glb>`, writing to its
+ *      `cairo-*.glb` name.
  *   3. Run `node tools/style-cairo-residences.mjs`.
  *
- * The KayKit model uses one embedded gradient-atlas texture, so its saturated
- * toy colours are remapped while neutral windows/trim keep their shading. The
- * Quaternius model uses named solid materials, which can be assigned directly.
- * Both models are made matte and receive embedded provenance metadata.
+ * Two palette paths, picked per source pack:
+ *   - `texturePalette: true` — the model carries one embedded gradient atlas
+ *     (KayKit, Kenney). Saturated toy colours are remapped through
+ *     CAIRO_HUE_BANDS while neutral windows/trim keep their shading.
+ *   - `materialPalette` — the model has named solid materials (Quaternius), so
+ *     each is assigned a Cairo colour directly.
+ * Every model is made matte and receives embedded provenance metadata.
  *
- * Both sources are CC0 1.0; exact source URLs and checksums are in CREDITS.md.
+ * ROOF RULE: nothing with a pitched roof may be added here. Cairo's building
+ * stock is flat-roofed and a gable reads as European the moment it appears on
+ * the street wall. Quaternius names the offenders — never import a source whose
+ * filename contains `GableRoof`, `RoundRoof` or `_Roof_` — and
+ * `tests/cairoRoofs.test.ts` measures the committed geometry so a mis-picked
+ * source cannot land silently.
+ *
+ * Every source is CC0 1.0; exact source URLs and checksums are in CREDITS.md.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -25,6 +36,41 @@ const sharp = require("sharp");
 const dry = process.argv.includes("--dry");
 const PROPS = "public/models/props";
 const STYLE_ID = "cairo-residence-v1";
+
+/**
+ * Shared across the Quaternius pack — every model in it reuses the same nine or
+ * so material names, so only the wall tone needs to vary per building.
+ * `Windows` and `DarkBrown` appear on the wider models only.
+ */
+const QUATERNIUS_BASE = {
+  Black: "#292827",
+  Bricks: "#ad705e",
+  Dark: "#574b41",
+  DarkBrown: "#4b3027",
+  DarkWood: "#4b3027",
+  Glass: "#71868b",
+  Light: "#ddd0b4",
+  Main: "#c6aa79",
+  White: "#e7dece",
+  Windows: "#5d7075",
+  Wood: "#79503a",
+};
+
+/**
+ * A single sand tone repeated down a street reads as copy-paste, which is the
+ * one thing a long Corniche run cannot afford. Real Cairo renders sit in a
+ * narrow band — sand, cream, ochre, pale stone, weathered concrete — so each
+ * model gets its own point in that band rather than a random hue.
+ */
+const quaternius = (id, title, sourceSha256, wall, extra = {}) => ({
+  id,
+  author: "Quaternius",
+  title,
+  sourceUrl: "https://quaternius.com/packs/ultimatetexturedbuildings.html",
+  creatorUrl: "https://quaternius.com",
+  sourceSha256,
+  materialPalette: { ...QUATERNIUS_BASE, Main: wall, ...extra },
+});
 
 const TARGETS = [
   {
@@ -56,6 +102,133 @@ const TARGETS = [
       Main: "#c6aa79",
       White: "#e7dece",
       Wood: "#79503a",
+    },
+  },
+
+  // ---- Street-wall blocks (Quaternius, flat-roofed only) ----
+  quaternius(
+    "cairo-block-balcony",
+    "2Story_Balcony_Mat",
+    "obj:e00078c7618953cefcc39e16277b9a275cef0957e0daf081b72517fb0f790e5b;mtl:69fe57424d6ed1bf663e9a62bee02b98cc9110d7adfd529dce6609c95b060234",
+    "#d8c9a6", // cream
+  ),
+  quaternius(
+    "cairo-block-colonnade",
+    "2Story_Columns_Mat",
+    "obj:faa0b597a7f6577a447081e3dc9dc7785aa4d70000eb691c5c9f9d7dbba45799;mtl:35047f8b42ff72b66b2e815ff8092863775ba101776add759dccd0503bba675e",
+    "#cfc3a8", // pale stone
+  ),
+  quaternius(
+    "cairo-block-terrace",
+    "2Story_Wide_Mat",
+    "obj:3af55ffba86a236169814f39de768d5a496afaee63d0ad0a3aa2fd3a6d2900f5;mtl:6585298a9dacd61bc71768ab0267e72d7111aad2ea2b57e26f8a32a8bc4e27a8",
+    "#c6aa79", // sand
+  ),
+  quaternius(
+    "cairo-block-slim",
+    "3Story_Slim_Mat",
+    "obj:778673a3cd8508d7b484c2b243fde8b59ebda9b507dcbf9198daa3a02429fe3f;mtl:6f97086bad010e876d8bc35b0a51d9cabca187eca8250ce77e412a332ceb4692",
+    "#b8975e", // ochre
+  ),
+  quaternius(
+    "cairo-block-small",
+    "3Story_Small_Mat",
+    "obj:26377da6033df73d46eed0a1953ac149e07c93eb4b10d0587417e16cd7bd8863;mtl:cac01cb1df1d5022e574e03ed02e73b6c199f6f55350b1f411fb9906386390fa",
+    "#c2b49a", // warm grey
+  ),
+  quaternius(
+    "cairo-block-4story",
+    "4Story_Mat",
+    "obj:d326d20f0c29ad2499132dd7773aacab675946efadf18f56a926a5a8d004366a;mtl:df1c8f0fdff17e0fecffec423d57f240011a024d9d16b16ff092dfe8e72fb44a",
+    "#c6aa79", // sand
+  ),
+  quaternius(
+    "cairo-block-4story-centre",
+    "4Story_Center_Mat",
+    "obj:7b457088cfd108df84cb534cc46837595382a34b59fc148893a3eaec2c99462f;mtl:0c1dae7711350389ea8988da39022704821861862a81127f99120a398fe01e58",
+    "#b3ada0", // weathered concrete
+  ),
+
+  // ---- Gig-venue replacements for the pitched-roof office.glb ----
+  quaternius(
+    "cairo-office-block",
+    "4Story_Wide_2Doors_Mat",
+    "obj:d489f21bc4c06b0315ad81670f511adf44edbfcc10084668bbed83c97261b54b;mtl:39ecc25676df1db1d9b85e9041e844f28b0cc5b2587e3ef2f25ee5707b5b6ea5",
+    "#cfc3a8",
+  ),
+  quaternius(
+    "cairo-depot",
+    "2Story_Wide_2Doors_Mat",
+    "obj:eb46c1b5ef9fe4c0c91a97a5d10f082d590f7cc2c3960b94e94610ec2c818bc3;mtl:fb8b60be78ed5ec844899916136c77d512f668819403fbf0898d462c747a169a",
+    "#b3ada0",
+  ),
+
+  // ---- Walk-ups: the KayKit family, flat roofs with their own water tanks ----
+  // Cairo's own copy of the corner shop. `shop.glb` is shared with NYC and
+  // London, so Cairo cannot recolour it or take the diner stripe off its awning
+  // without changing those maps too — modelLibrary keys containers by URL.
+  {
+    id: "cairo-shop",
+    author: "Kay Lousberg",
+    title: "Building",
+    sourceUrl: "https://poly.pizza/m/EL3ePInr1N",
+    creatorUrl: "https://kaylousberg.com/game-assets/city-builder-bits",
+    sourceSha256:
+      "289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5",
+    texturePalette: true,
+  },
+  {
+    id: "cairo-walkup-a",
+    author: "Kay Lousberg",
+    title: "Building",
+    sourceUrl: "https://poly.pizza/m/qOhhGLftam",
+    creatorUrl: "https://kaylousberg.com/game-assets/city-builder-bits",
+    sourceSha256:
+      "a98d4fa6bf1e261da717fbdeef7937ef7578af86db3ba31a14296d814cf44e65",
+    texturePalette: true,
+  },
+  {
+    id: "cairo-walkup-b",
+    author: "Kay Lousberg",
+    title: "Building",
+    sourceUrl: "https://poly.pizza/m/T3oyvK6VEU",
+    creatorUrl: "https://kaylousberg.com/game-assets/city-builder-bits",
+    sourceSha256:
+      "ecda4d8e3a89bb751f61e179725ca59d2a19f7f3aa88fedd4fc371eb8f0eaede",
+    texturePalette: true,
+  },
+
+  // ---- Corniche slabs. Kenney's towers carry no texture, just named
+  // materials, so they take the direct-assignment path.
+  {
+    id: "cairo-tower-a",
+    author: "Kenney",
+    title: "Skyscraper",
+    sourceUrl: "https://poly.pizza/m/XST1j6kYsL",
+    creatorUrl: "https://kenney.nl",
+    sourceSha256:
+      "43bbf6529e19c16ecfdf7ea563c63a1a46311997c6da5508a40d0977f927750c",
+    materialPalette: {
+      _defaultMat: "#cfc3a8",
+      border: "#ded3bd",
+      window: "#4e6066",
+      door: "#4b3f36",
+    },
+  },
+  {
+    id: "cairo-tower-b",
+    author: "Kenney",
+    title: "Skyscraper",
+    sourceUrl: "https://poly.pizza/m/jIRx0AhYOR",
+    creatorUrl: "https://kenney.nl",
+    sourceSha256:
+      "6137b8892acea9711f305d8c7f2adafb0eec5d51ec489fd8c3cb754fac28b080",
+    materialPalette: {
+      _defaultMat: "#bdb3a2",
+      border: "#d5cdba",
+      window: "#4e6066",
+      door: "#4b3f36",
+      trim: "#ded3bd",
     },
   },
 ];
@@ -274,6 +447,10 @@ for (const target of TARGETS) {
   json.asset.extras = {
     ...(json.asset.extras ?? {}),
     curbsideRush: {
+      // Keep provenance keys this script does not own — notably the `shopfront`
+      // marker from tools/cairo-shopfront.mjs, which runs after this one and
+      // would otherwise redo its geometry surgery on every palette re-run.
+      ...(json.asset.extras?.curbsideRush ?? {}),
       style: STYLE_ID,
       author: target.author,
       title: target.title,

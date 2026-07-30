@@ -5080,6 +5080,17 @@ class BabylonGameSession {
    * per-frame matrix + bounding-sync cost across ~9k meshes. Parents precede
    * children so the freeze pass computes the chain in order. */
   private readonly staticSceneryFreeze: TransformNode[] = [];
+  /**
+   * Cairo's rooftop water tanks and satellite dishes, as two hidden master
+   * meshes the instanced street wall clones from. They belong to
+   * `buildEnvironment` (which owns the Cairo materials) but are consumed by
+   * `buildInstancedBuildings`, which only runs after the model preload — hence
+   * the field rather than a local.
+   */
+  private cairoRoofClutterMasters: {
+    readonly tank: Mesh;
+    readonly dish: Mesh;
+  } | null = null;
   /** Visual-only Nile craft. Kept outside every simulation/spatial index. */
   private readonly animatedWaterBoats: Array<{
     readonly root: TransformNode;
@@ -8433,6 +8444,43 @@ class BabylonGameSession {
     return material;
   }
 
+  /**
+   * Cairo's skyline is water tanks and satellite dishes, and the glb street wall
+   * has neither — the procedural facade boxes it replaced grew them per cell.
+   * Roofs are far from incidental here: the 6th October corridor is elevated, so
+   * the player looks down on them.
+   *
+   * Only models carrying a `roofY` are dressed (the KayKit walk-ups model their
+   * own tank; the Corniche hotels should not have one at all). Deterministic on
+   * the placement so a reload puts the same clutter on the same roofs.
+   */
+  private addCairoRoofClutter(building: PlacedBuilding, index: number) {
+    const masters = this.cairoRoofClutterMasters;
+    const roofY = buildingPlacementConfig(building.modelId)?.roofY;
+    if (!masters || roofY === undefined) return;
+    const roll =
+      hashStringToSeed(
+        `${building.modelId}-${Math.round(building.x)}-${Math.round(building.z)}`,
+      ) % 4;
+    if (roll >= 2) return;
+    const tank = roll === 0;
+    const master = tank ? masters.tank : masters.dish;
+    const inst = master.createInstance(`cairo-roof-${index}-${roll}`);
+    // Offset off-centre so a run of buildings does not line its tanks up in a
+    // perfectly straight row down the street.
+    const offset = ((index % 3) - 1) * 1.4;
+    inst.position.set(
+      building.x + offset,
+      roofY + (tank ? 0.8 : 0.55),
+      building.z + offset * 0.6,
+    );
+    inst.rotation.y = building.yaw + (roll === 1 ? 0.5 : 0);
+    if (!tank) inst.rotation.x = -0.7;
+    inst.isPickable = false;
+    this.staticSceneryFreeze.push(inst);
+    this.registerStaticCell(inst, building.x, building.z, false);
+  }
+
   private buildInstancedBuildings() {
     if (this.visualPalette?.night) this.applyBuildingNightGlow();
     for (const { block, setId, buildFallback } of this.pendingBuildingBlocks) {
@@ -8469,6 +8517,7 @@ class BabylonGameSession {
           // in the shadow ring — but a mirror with no street wall in it looks
           // broken, and the rear view is mostly buildings.
           this.registerStaticCell(inst, b.x, b.z, false);
+          this.addCairoRoofClutter(b, placed);
           placed += 1;
           continue;
         }
@@ -9922,6 +9971,30 @@ class BabylonGameSession {
             new Color3(0.64, 0.61, 0.54),
           )
         : null;
+    // Masters for the instanced street wall's rooftop clutter. Same shapes the
+    // facade boxes grow below, but built once and cloned, so ~600 tanks and
+    // dishes across the map cost two draw calls rather than six hundred.
+    if (cairoRooftopMaterial && cairoDishMaterial) {
+      const tank = createCylinder(
+        scene,
+        "cairo-roof-tank-master",
+        { height: 1.6, diameter: 1.7, tessellation: 10 },
+        Vector3.Zero(),
+        cairoRooftopMaterial,
+      );
+      const dish = createCylinder(
+        scene,
+        "cairo-roof-dish-master",
+        { height: 0.22, diameterTop: 1.9, diameterBottom: 1.05, tessellation: 10 },
+        Vector3.Zero(),
+        cairoDishMaterial,
+      );
+      for (const master of [tank, dish]) {
+        master.isVisible = false;
+        master.isPickable = false;
+      }
+      this.cairoRoofClutterMasters = { tank, dish };
+    }
     const cairoFacadeTrimMaterial = cairoScene
       ? makeMaterial(
           scene,

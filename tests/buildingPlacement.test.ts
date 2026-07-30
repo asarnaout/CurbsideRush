@@ -11,7 +11,7 @@ import {
   VertexBuffer,
 } from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
-import { NYC_ENV_MODELS } from "../app/game/buildingCatalog";
+import { ALL_ENV_MODELS } from "../app/game/buildingCatalog";
 import {
   buildingPlacementConfig,
   isBuildingSetId,
@@ -36,7 +36,7 @@ const scaleFor = (model: { id: string; url: string }): number | null =>
   NYC_VENDORS.find((v) => v.url === model.url)?.scale ??
   null;
 
-const PLACEABLE = NYC_ENV_MODELS.filter(
+const PLACEABLE = ALL_ENV_MODELS.filter(
   (m) => m.category !== "person" && scaleFor(m) !== null,
 );
 
@@ -163,7 +163,7 @@ describe("merged master pivot centring", () => {
   // from the pivot, which is why the recentre step is load-bearing. If the
   // asset is ever re-exported pivot-centred this test can be deleted.
   it("nyc-house-a is the off-pivot asset the recentre step exists for", async () => {
-    const model = NYC_ENV_MODELS.find((m) => m.id === "nyc-house-a")!;
+    const model = ALL_ENV_MODELS.find((m) => m.id === "nyc-house-a")!;
     const { offset } = await masterFor(model);
     expect(Math.hypot(offset.dx, offset.dz) * 0.095).toBeGreaterThan(5);
   });
@@ -193,7 +193,7 @@ describe("street-wall placement invariants on the real NYC blocks", () => {
     );
     const boxes: WorldBox[] = [];
     for (const b of placements) {
-      const model = NYC_ENV_MODELS.find((m) => m.id === b.modelId)!;
+      const model = ALL_ENV_MODELS.find((m) => m.id === b.modelId)!;
       const { master } = await masterFor(model);
       const bb = master.getBoundingInfo().boundingBox;
       const rot = Matrix.RotationY(b.yaw);

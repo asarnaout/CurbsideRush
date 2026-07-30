@@ -26,6 +26,9 @@ export const PROP_MODEL_FOOTPRINTS_M: Readonly<
   restaurant: { minX: -5.23, maxX: 8.46, minZ: -5.82, maxZ: 10.04 },
   "restaurant-pizzeria": { minX: -5.85, maxX: 4.87, minZ: -5.79, maxZ: 4.84 },
   shop: { minX: -4.0, maxX: 4.0, minZ: -4.0, maxZ: 4.0 },
+  // Same model and scale as `shop`; its base slab is square, so the corrected
+  // yawOffset and the deleted hydrant leave the placed footprint unchanged.
+  "cairo-shop": { minX: -4.0, maxX: 4.0, minZ: -4.0, maxZ: 4.0 },
   residence: { minX: -5.45, maxX: 4.61, minZ: -3.32, maxZ: 3.33 },
   "cairo-residence-kay": {
     minX: -5.5,
@@ -33,11 +36,28 @@ export const PROP_MODEL_FOOTPRINTS_M: Readonly<
     minZ: -5.519,
     maxZ: 5.519,
   },
+  // Mirrored in x when this model's yawOffset was corrected from π/2 to -π/2
+  // (its entrance is on local +Z, so π/2 had it facing away from the road).
+  // kay's is unchanged by that turn because it is symmetric in both axes.
   "cairo-residence-quaternius": {
-    minX: -4.792,
-    maxX: 3.609,
+    minX: -3.609,
+    maxX: 4.792,
     minZ: -3.616,
     maxZ: 3.616,
+  },
+  // Cairo's flat-roofed replacements for `office`. Wide, shallow street-front
+  // terraces, so z (the facade run) is much the larger extent.
+  "cairo-office-block": {
+    minX: -2.586,
+    maxX: 3.886,
+    minZ: -8.193,
+    maxZ: 8.193,
+  },
+  "cairo-depot": {
+    minX: -2.585,
+    maxX: 2.827,
+    minZ: -8.193,
+    maxZ: 8.193,
   },
   office: { minX: -6.15, maxX: 6.15, minZ: -6.59, maxZ: 6.59 },
 };
