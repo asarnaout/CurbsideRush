@@ -52,6 +52,89 @@ stations) live under `public/models/props/`.
   recoloured to the courier livery at load, and a rigged rider is seated on it
   at runtime (`setupSeatedRiderPose`).
 
+### Cairo street-wall kit (CC0)
+
+Added so Cairo's roadside frontage is built from real models instead of
+procedural windowed boxes (issue: "more buildings, no triangular roofs"). Every
+per-model source URL is also recorded in `app/game/buildingCatalog.ts`, and
+`tests/cairoRoofs.test.ts` measures the committed geometry of each one.
+
+**Selection rule — flat roofs only.** Cairo's building stock is flat-roofed;
+a gable or hip reads as European on sight. The Quaternius pack encodes its roof
+shape in the filename, so no source matching `GableRoof`, `RoundRoof` or
+`_Roof_` was taken. Two KayKit buildings that looked flat in the pack's contents
+sheet turned out to be pitched when measured, and were dropped.
+
+**Modified — recoloured and made matte.** All of these ship in colours that read
+as a toy blockset rather than a city. `tools/style-cairo-residences.mjs` assigns
+each a muted Cairo façade tone (sand, cream, ochre, pale stone, weathered
+concrete — one per model, so a street run does not read as copy-paste), flattens
+the specular, and bakes provenance into `asset.extras.curbsideRush`. CC0 permits
+modification; re-run the script to regenerate from a fresh download.
+
+All the Quaternius models below come from the **Ultimate Textured Buildings
+Pack** (<https://quaternius.com/packs/ultimatetexturedbuildings.html>), released
+**CC0 1.0**, downloaded 2026-07-30 from the pack's
+[official Google Drive](https://drive.google.com/drive/folders/1RE3qXhbE5yGS3t-xGFJ8GmOtTgCUF3LQ)
+(`Models with Materials/OBJ`), bundled `License.txt` SHA-256
+`83d8959f9fc56353ed571fbe2dc52e4bcd64508e2399501cd45ac2ce3df0bf8c`. Each was
+converted from OBJ + MTL to a self-contained quantized GLB by
+`tools/obj-to-glb.mjs` before styling.
+
+| File | Source model | Source OBJ SHA-256 | Source MTL SHA-256 | Committed GLB SHA-256 |
+|---|---|---|---|---|
+| **props/cairo-block-balcony.glb** | `2Story_Balcony_Mat` | `e00078c7618953cefcc39e16277b9a275cef0957e0daf081b72517fb0f790e5b` | `69fe57424d6ed1bf663e9a62bee02b98cc9110d7adfd529dce6609c95b060234` | `f97128e028dd57409fc0bde89fd84bd88c9d51dccc5ec83fff5cb6d954e47e99` |
+| **props/cairo-block-colonnade.glb** | `2Story_Columns_Mat` | `faa0b597a7f6577a447081e3dc9dc7785aa4d70000eb691c5c9f9d7dbba45799` | `35047f8b42ff72b66b2e815ff8092863775ba101776add759dccd0503bba675e` | `56e4cecacd7f3382f067df97da1ebab6da8774bd6cd7ba29401af100560c95de` |
+| **props/cairo-block-terrace.glb** | `2Story_Wide_Mat` | `3af55ffba86a236169814f39de768d5a496afaee63d0ad0a3aa2fd3a6d2900f5` | `6585298a9dacd61bc71768ab0267e72d7111aad2ea2b57e26f8a32a8bc4e27a8` | `7066e3a9df2eeb6e4da4ee70eb4ff596cbf45660b8e27e83cb18e46abe7f24b9` |
+| **props/cairo-block-slim.glb** | `3Story_Slim_Mat` | `778673a3cd8508d7b484c2b243fde8b59ebda9b507dcbf9198daa3a02429fe3f` | `6f97086bad010e876d8bc35b0a51d9cabca187eca8250ce77e412a332ceb4692` | `a6d45cd63cc4a1dfb04fec66c95902fd0f417372288e94b736d30457e852443c` |
+| **props/cairo-block-small.glb** | `3Story_Small_Mat` | `26377da6033df73d46eed0a1953ac149e07c93eb4b10d0587417e16cd7bd8863` | `cac01cb1df1d5022e574e03ed02e73b6c199f6f55350b1f411fb9906386390fa` | `33c751ffe82ec2b5605839192fb09523986f51dd7935866ea4ecfad3e99fc9b6` |
+| **props/cairo-block-4story.glb** | `4Story_Mat` | `d326d20f0c29ad2499132dd7773aacab675946efadf18f56a926a5a8d004366a` | `df1c8f0fdff17e0fecffec423d57f240011a024d9d16b16ff092dfe8e72fb44a` | `a36fc88b9d40eb2f854cd54b5d726f4d2d28d863da00678c243fa5b9f448f6ae` |
+| **props/cairo-block-4story-centre.glb** | `4Story_Center_Mat` | `7b457088cfd108df84cb534cc46837595382a34b59fc148893a3eaec2c99462f` | `0c1dae7711350389ea8988da39022704821861862a81127f99120a398fe01e58` | `7e056cb6b6bc02bbbebc00d1032c3038e6b4fd9315f0ce5233a9f3e98eda8445` |
+| **props/cairo-office-block.glb** | `4Story_Wide_2Doors_Mat` | `d489f21bc4c06b0315ad81670f511adf44edbfcc10084668bbed83c97261b54b` | `39ecc25676df1db1d9b85e9041e844f28b0cc5b2587e3ef2f25ee5707b5b6ea5` | `e400ad21d2207d82f295e02981baa36e01bbc1a452a1b771e9a4c3b0b1d549e6` |
+| **props/cairo-depot.glb** | `2Story_Wide_2Doors_Mat` | `eb46c1b5ef9fe4c0c91a97a5d10f082d590f7cc2c3960b94e94610ec2c818bc3` | `fb8b60be78ed5ec844899916136c77d512f668819403fbf0898d462c747a169a` | `ab7f01d005c1817f3c9a4f078a95822d966e28ca62110f062d0f2cdd4558a738` |
+
+`cairo-office-block` and `cairo-depot` replace the pitched-roof `office.glb`
+(Quaternius "Big Building") on the Cairo map only; NYC and London keep using it.
+
+- **props/cairo-walkup-a.glb** ("Building") — by **Kay Lousberg**, from the City
+  Builder Bits pack via Poly Pizza (<https://poly.pizza/m/qOhhGLftam>; creator
+  page: <https://kaylousberg.com/game-assets/city-builder-bits>; source GLB:
+  <https://static.poly.pizza/878d8f0d-cf0b-41ef-a6ab-94bd1aeb23dd.glb>),
+  released **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
+  `a98d4fa6bf1e261da717fbdeef7937ef7578af86db3ba31a14296d814cf44e65`;
+  committed GLB SHA-256
+  `14b0fe14e58217cbe5eeca8123d79c2d5d675a49bed3118ecf12c1132c2a45f5`.
+  Same pack (and same flat roof + rooftop water tank) as
+  `cairo-residence-kay.glb`.
+- **props/cairo-walkup-b.glb** ("Building") — by **Kay Lousberg**, same pack via
+  Poly Pizza (<https://poly.pizza/m/T3oyvK6VEU>; source GLB:
+  <https://static.poly.pizza/e22ccf4f-e273-4ef8-9236-760829105617.glb>),
+  released **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
+  `ecda4d8e3a89bb751f61e179725ca59d2a19f7f3aa88fedd4fc371eb8f0eaede`;
+  committed GLB SHA-256
+  `200f8fbfee2d9b619055c62606e889bbc045c20391027db02633e22a53ee9ace`.
+  The same source model as `nyc-brownstone-b.glb`, imported separately because
+  `modelLibrary` keys asset containers by URL — one file cannot carry both the
+  New York and the Cairo palette.
+- **props/cairo-tower-a.glb** ("Skyscraper") — by **Kenney**
+  (<https://kenney.nl>) via Poly Pizza (<https://poly.pizza/m/XST1j6kYsL>;
+  source GLB:
+  <https://static.poly.pizza/2bd81cbf-3d1b-4b64-935a-bc8f42896c16.glb>),
+  released **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
+  `43bbf6529e19c16ecfdf7ea563c63a1a46311997c6da5508a40d0977f927750c`;
+  committed GLB SHA-256
+  `b9f98594295da9a35052c1c42ad2dbd3de665b4a8f7bc0ed318f5b113a0e703f`.
+  Flat-topped slab for the Corniche el-Nil riverfront. Same source as
+  `nyc-tower-a.glb`; separate file for the same URL-keying reason as above.
+- **props/cairo-tower-b.glb** ("Skyscraper") — by **Kenney**, same pack via Poly
+  Pizza (<https://poly.pizza/m/jIRx0AhYOR>; source GLB:
+  <https://static.poly.pizza/ed22fd79-23e8-43cb-bf97-cc88fdd70ef0.glb>),
+  released **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
+  `6137b8892acea9711f305d8c7f2adafb0eec5d51ec489fd8c3cb754fac28b080`;
+  committed GLB SHA-256
+  `596c072f3f86d4cfae0926f42f2a18568dfb8dba8afa1467e7d0ace6f1e0e676`.
+  Second Corniche slab. Same source as `nyc-tower-c.glb`.
+
 ### NYC Nightfall environment kit (CC0)
 
 Added to dress the NYC map with dense, clustered buildings + street life. Every
