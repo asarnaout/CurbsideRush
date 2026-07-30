@@ -29,6 +29,22 @@ import type {
   WorldPoint,
 } from "../app/game/types";
 
+/**
+ * Cairo's roadside frontage, pinned so a change to the generator is a decision
+ * rather than an accident. These moved when the street wall became instanced
+ * glbs: shorter road segments now earn a parcel and long runs split more often,
+ * because the wall no longer costs one draw call per building.
+ *
+ * STREET_WALL_BLOCKS + the boxes behind FACADE_BOX_CELLS are the whole split —
+ * roughly three quarters of Cairo's buildings are now imported models and the
+ * rest are the procedural facade boxes the map used to be built from entirely.
+ */
+const BLOCK_COUNT = 297;
+const ROADSIDE_COUNT = 274;
+const ROADSIDE_LEFT = 136;
+const STREET_WALL_BLOCKS = 224;
+const FACADE_BOX_CELLS = 636;
+
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
     (total, current, index) =>
@@ -1126,27 +1142,37 @@ describe("Cairo Central Nile content", () => {
     const roadside = blocks.filter((block) =>
       block.id.includes("-roadside-"),
     );
-    expect(blocks).toHaveLength(258);
-    expect(roadside).toHaveLength(235);
+    expect(blocks).toHaveLength(BLOCK_COUNT);
+    expect(roadside).toHaveLength(ROADSIDE_COUNT);
     expect(roadside[0].id).toBe(
-      "cairo-corniche-el-nil-roadside-2-1-right",
+      "cairo-corniche-el-nil-roadside-1-2-split-2-right",
     );
     expect(roadside.at(-1)?.id).toBe(
-      "cairo-agouza-approach-roadside-1-1-split-1-right",
+      "cairo-agouza-approach-roadside-1-2-split-1-right",
     );
     expect(
       roadside.filter((block) => block.id.endsWith("-left")),
-    ).toHaveLength(114);
+    ).toHaveLength(ROADSIDE_LEFT);
     expect(
       roadside.filter((block) => block.id.endsWith("-right")),
-    ).toHaveLength(121);
+    ).toHaveLength(ROADSIDE_COUNT - ROADSIDE_LEFT);
+
+    // Most roadside frontage is now dressed with instanced glb buildings; the
+    // procedural facade grid survives on the inland district parcels and the
+    // deterministic one-in-six of roadside parcels cairoParcelKeepsFacadeBoxes
+    // holds back. This is the count for that remainder, not for the whole map.
     expect(
-      blocks.reduce(
-        (total, block) =>
-          total + Math.max(1, Math.round(3 + block.density * 7)),
-        0,
-      ),
-    ).toBe(2_301);
+      blocks
+        .filter((block) => !block.buildingSet)
+        .reduce(
+          (total, block) =>
+            total + Math.max(1, Math.round(3 + block.density * 7)),
+          0,
+        ),
+    ).toBe(FACADE_BOX_CELLS);
+    expect(blocks.filter((block) => block.buildingSet)).toHaveLength(
+      STREET_WALL_BLOCKS,
+    );
 
     const nonBridgeRoads = CAIRO_MAP_PACK.geometry.roadSurfaces.filter(
       (surface) => !surface.id.includes("-bridge"),

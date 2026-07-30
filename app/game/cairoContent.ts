@@ -1,4 +1,5 @@
 import { buildLaneTrueGeometry, CONNECTOR_BLEND_RUN_M } from "./laneConnectors";
+import { hashStringToSeed } from "./visuals";
 import type {
   FreeDriveDefinition,
   GigVenue,
@@ -1727,6 +1728,41 @@ const CAIRO_OPEN_WATERFRONT_SIDES: Readonly<
   "cairo-dokki-nile-drive": [1],
 };
 
+/**
+ * Which glb street wall a roadside parcel is dressed with. Zoning is derived
+ * from where the parcel landed rather than listed per road, so a new road picks
+ * up its district's fabric for free.
+ *
+ * The riverfront roads take the tall set on whichever side is not open water:
+ * the real Corniche el-Nil is a wall of 15-25 storey hotel and apartment slabs,
+ * and it is the one place on the map that should have a skyline.
+ */
+const cairoRoadsideBuildingSet = (
+  surfaceId: string,
+  position: WorldPoint,
+): string => {
+  if (CAIRO_OPEN_WATERFRONT_SIDES[surfaceId]) return "cairo-corniche";
+  if (position.x < -590) return "cairo-westbank";
+  if (position.x < 55) return "cairo-zamalek";
+  // Garden City: elegant low-rise blocks rather than Downtown's Khedivial bulk.
+  if (position.z < -350) return "cairo-zamalek";
+  return "cairo-downtown";
+};
+
+/**
+ * One roadside parcel in six keeps the procedural windowed boxes instead of a
+ * glb street wall.
+ *
+ * The boxes are what Cairo used to be built from entirely, and they are worth
+ * keeping in the mix — plain beige stucco blocks are a real part of the city,
+ * and a map where every single building is one of fifteen models reads as
+ * repetitive in a way the boxes' size and height jitter does not. They just
+ * cannot be the majority any more. Deterministic on the block id so the same
+ * parcels stay boxes across loads; `Math.random` here would desync the map.
+ */
+const cairoParcelKeepsFacadeBoxes = (blockId: string): boolean =>
+  hashStringToSeed(`${blockId}-street-wall`) % 6 === 0;
+
 for (const surface of cairoRoadSurfaces) {
   if (surface.id.includes("-bridge")) continue;
   for (let segmentIndex = 0; segmentIndex + 1 < surface.centerline.length; segmentIndex += 1) {
@@ -1735,21 +1771,23 @@ for (const surface of cairoRoadSurfaces) {
     const dx = end.x - start.x;
     const dz = end.z - start.z;
     const segmentLength = Math.hypot(dx, dz);
-    if (segmentLength < 48) continue;
+    if (segmentLength < 32) continue;
     const alongX = dx / segmentLength;
     const alongZ = dz / segmentLength;
     const normalX = alongZ;
     const normalZ = -alongX;
-    const endpointClearanceM = Math.min(20, segmentLength * 0.18);
+    const endpointClearanceM = Math.min(14, segmentLength * 0.14);
     const usableLengthM = segmentLength - endpointClearanceM * 2;
-    if (usableLengthM < 30) continue;
+    if (usableLengthM < 24) continue;
     // One long parcel reads as a coherent apartment frontage and costs far
-    // fewer façade meshes than several tiny strips. Only the longest segments
-    // split, so density follows what the player can see rather than carpeting
-    // the full world.
-    const runCount = Math.max(1, Math.ceil(usableLengthM / 150));
+    // fewer meshes than several tiny strips. These thresholds were loosened
+    // when the wall became instanced glbs rather than individually-drawn boxes:
+    // shorter segments now earn frontage, parcels reach closer to the junctions,
+    // and long runs split more often — Cairo is a dense city and the gaps
+    // between parcels were reading as vacant lots.
+    const runCount = Math.max(1, Math.ceil(usableLengthM / 110));
     const slotLengthM = usableLengthM / runCount;
-    const frontageLengthM = Math.max(34, Math.min(110, slotLengthM - 8));
+    const frontageLengthM = Math.max(26, Math.min(110, slotLengthM - 6));
     const headingDeg =
       (Math.atan2(dx, dz) * 180) / Math.PI - 90;
 
@@ -1780,8 +1818,13 @@ for (const surface of cairoRoadSurfaces) {
         );
         const acceptedStyle = cairoRoadsideStyle(center);
         const blockId = `${surface.id}-roadside-${segmentIndex + 1}-${runIndex + 1}`;
+        const sideId = `${blockId}-${side < 0 ? "left" : "right"}`;
+        // Decided once per parcel so a parcel and its split retries agree.
+        const buildingSet = cairoParcelKeepsFacadeBoxes(sideId)
+          ? undefined
+          : cairoRoadsideBuildingSet(surface.id, center);
         const candidate: ProceduralBlock = {
-          id: `${blockId}-${side < 0 ? "left" : "right"}`,
+          id: sideId,
           center,
           size: point(frontageLengthM, acceptedStyle.depthM),
           headingDeg,
@@ -1789,6 +1832,7 @@ for (const surface of cairoRoadSurfaces) {
           material: acceptedStyle.material,
           heightRange: acceptedStyle.heightRange,
           density: 0.82,
+          ...(buildingSet ? { buildingSet } : {}),
         };
         if (addCairoRoadsideBlock(candidate) || frontageLengthM < 70) {
           continue;
