@@ -10704,6 +10704,14 @@ class BabylonGameSession {
       lanes: mapPack.laneGraph.lanes,
       roadSurfaces: mapPack.geometry.roadSurfaces,
       defaultRoadWidthM: mapPack.geometry.roadWidth,
+      // Every authored pole, so a derived post slides clear of one rather than
+      // standing bolted to it. Road markings carry no post, so they are not
+      // ground a sign has to avoid.
+      occupiedPositions: mapPack.laneGraph.controls.flatMap((control) =>
+        (control.installations ?? [])
+          .filter((installation) => installation.mounting !== "road_marking")
+          .map((installation) => installation.position),
+      ),
     };
     const regulatorySigns =
       mapPack.id === "nyc-upper-west-side"

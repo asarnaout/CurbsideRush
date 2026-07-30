@@ -64,6 +64,14 @@ export interface RegulatorySignInput {
   readonly roadSurfaces?: readonly RegulatorySignSurfaceInput[];
   /** Carriageway width used when no surface lists an arm's lanes. */
   readonly defaultRoadWidthM: number;
+  /**
+   * Ground already claimed by authored street furniture — signal heads, their
+   * poles, stop and yield posts. Signage is derived and authored controls are
+   * not, so a post that would land on one slides down its own kerb rather than
+   * the control moving. Omitting these only risks a post sharing a square
+   * metre with a signal pole; nothing else reads them.
+   */
+  readonly occupiedPositions?: readonly WorldPoint[];
 }
 
 export type SpeedLimitSignInput = RegulatorySignInput;
@@ -111,6 +119,10 @@ export const LIMIT_REPEATER_SPACING_M = 480;
 const LIMIT_CORRIDOR_MIN_DOT = 0.7;
 /** Two posts closer than this are one post as far as a driver is concerned. */
 const LIMIT_MIN_SEPARATION_M = 4;
+/** A post this close to a signal pole reads as bolted to it. */
+const LIMIT_FURNITURE_CLEARANCE_M = 2.6;
+/** How much further down the kerb a blocked post may be stationed. */
+const LIMIT_SLIDE_STEPS_M = [0, 8, 16, 24, 32] as const;
 
 const TWO_PI = Math.PI * 2;
 
@@ -555,30 +567,58 @@ export function speedLimitSignPlacements(
     if (!visited.has(arm.id)) walk(arm);
   }
 
+  const occupied = input.occupiedPositions ?? [];
   const placements: SpeedLimitSignPlacement[] = [];
   for (const arm of eligible) {
     const reason = signed.get(arm.id);
     if (!reason) continue;
-    const station =
-      stationAlongSurface(
-        arm.surfaceCenterline,
-        arm.position,
-        arm.farPoint,
-        LIMIT_OFFSET_M,
-      ) ??
-      ({
-        x: arm.position.x + arm.ux * LIMIT_OFFSET_M,
-        z: arm.position.z + arm.uz * LIMIT_OFFSET_M,
-        tx: arm.ux,
-        tz: arm.uz,
-      } satisfies Station);
-    // Read the heading off the local tangent, not the chord: on a curve they
-    // differ by enough to swing the post across the road.
-    const heading = Math.atan2(station.tx, station.tz);
-    const side = arm.trafficSide === "left" ? -1 : 1;
-    const lateral = arm.widthM / 2 + KERB_MARGIN_M;
-    const x = station.x + Math.cos(heading) * lateral * side;
-    const z = station.z - Math.sin(heading) * lateral * side;
+    // Station at LIMIT_OFFSET_M, then further down the same kerb if authored
+    // furniture already stands there. Sliding rather than dropping is what
+    // keeps the corridor floor honest: a corridor whose only sign collided
+    // would otherwise go silent, which is exactly what the floor exists to
+    // prevent. Both ends are bounded by the arm so a post cannot walk into
+    // the next junction.
+    let posted: { x: number; z: number; heading: number } | null = null;
+    for (const slide of LIMIT_SLIDE_STEPS_M) {
+      const offset = LIMIT_OFFSET_M + slide;
+      if (slide > 0 && offset > arm.lengthM - LIMIT_OFFSET_M) break;
+      const station =
+        stationAlongSurface(
+          arm.surfaceCenterline,
+          arm.position,
+          arm.farPoint,
+          offset,
+        ) ??
+        ({
+          x: arm.position.x + arm.ux * offset,
+          z: arm.position.z + arm.uz * offset,
+          tx: arm.ux,
+          tz: arm.uz,
+        } satisfies Station);
+      // Read the heading off the local tangent, not the chord: on a curve they
+      // differ by enough to swing the post across the road.
+      const heading = Math.atan2(station.tx, station.tz);
+      const side = arm.trafficSide === "left" ? -1 : 1;
+      const lateral = arm.widthM / 2 + KERB_MARGIN_M;
+      const candidate = {
+        x: station.x + Math.cos(heading) * lateral * side,
+        z: station.z - Math.sin(heading) * lateral * side,
+        heading,
+      };
+      posted ??= candidate;
+      if (
+        occupied.every(
+          (item) =>
+            Math.hypot(item.x - candidate.x, item.z - candidate.z) >=
+            LIMIT_FURNITURE_CLEARANCE_M,
+        )
+      ) {
+        posted = candidate;
+        break;
+      }
+    }
+    if (!posted) continue;
+    const { x, z, heading } = posted;
     // Two roads that continue each other can both open a corridor at one node
     // and land their floor signs on the same square metre.
     if (
