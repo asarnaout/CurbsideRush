@@ -2420,25 +2420,29 @@ export interface CairoTahrirFurnitureLayout {
   })[];
 }
 
-export interface CairoDirectionPanelUvTransform {
-  readonly uScale: -1;
-  readonly uOffset: 1;
-  readonly vScale: -1;
-  readonly vOffset: 1;
-}
-
 /**
- * Babylon's road-facing box face presents a canvas texture rotated 180°.
- * Counter-rotate Cairo's legible bilingual panels in UV space while leaving
- * the shared sign mesh and its face-road yaw convention unchanged.
+ * Cairo's bilingual direction panel is printed on one side only, like the real
+ * thing — the back of a road sign is bare aluminium.
+ *
+ * This has to be done per face, not on the material. Rotating the whole texture
+ * 180° does land the legend upright on the road-facing face, but Babylon's two
+ * broad box faces already differ by 180°, so the same transform lands the
+ * legend on the *back* upside down — which is exactly what it used to do.
+ *
+ * So: the design occupies the top half of the canvas and the bottom half stays
+ * aluminium; face 0 (+Z, the road-facing side under the face-road yaw
+ * convention) takes the design pre-swapped, and the other five sample a small
+ * patch well inside the aluminium half, far enough from the boundary that
+ * mipmap bleed cannot drag the legend onto an edge.
  */
-export function cairoDirectionPanelUvTransform(): CairoDirectionPanelUvTransform {
-  return {
-    uScale: -1,
-    uOffset: 1,
-    vScale: -1,
-    vOffset: 1,
-  };
+export const CAIRO_DIRECTION_PANEL_DESIGN_V = 0.5;
+
+export function cairoDirectionPanelFaceUv(): readonly Vector4[] {
+  // Swapped min/max corner = the region applied 180° round, cancelling the
+  // rotation Babylon's +Z face applies. See the regulatory blade's `swapped`.
+  const printed = new Vector4(1, 1, 0, CAIRO_DIRECTION_PANEL_DESIGN_V);
+  const bare = new Vector4(0.4, 0.1, 0.6, 0.3);
+  return [printed, bare, bare, bare, bare, bare];
 }
 
 /** Keeps Tahrir's visual-only furniture inside the plaza, clear of traffic. */
@@ -11786,13 +11790,18 @@ class BabylonGameSession {
       english: string,
       background: string,
     ): StandardMaterial => {
+      // Square canvas: the legend fills the top half, the bottom half stays
+      // bare aluminium for the back and the four edges. See
+      // `cairoDirectionPanelFaceUv`.
       const texture = new DynamicTexture(
         `prop-${name}-texture`,
-        { width: 512, height: 256 },
+        { width: 512, height: 512 },
         scene,
         true,
       );
       const context = textureContext(texture);
+      context.fillStyle = "#9aa0a3";
+      context.fillRect(0, 0, 512, 512);
       context.fillStyle = background;
       context.fillRect(0, 0, 512, 256);
       context.strokeStyle = "#f6f1dc";
@@ -11807,11 +11816,6 @@ class BabylonGameSession {
       context.font = "700 47px Figtree, Arial, sans-serif";
       context.fillText(english, 256, 184);
       texture.update();
-      const uv = cairoDirectionPanelUvTransform();
-      texture.uScale = uv.uScale;
-      texture.uOffset = uv.uOffset;
-      texture.vScale = uv.vScale;
-      texture.vOffset = uv.vOffset;
       const panel = new StandardMaterial(`prop-${name}`, scene);
       panel.diffuseTexture = texture;
       panel.emissiveTexture = texture;
@@ -11892,10 +11896,19 @@ class BabylonGameSession {
     }
     const masterBox = (
       name: string,
-      dimensions: { width: number; height: number; depth: number },
+      dimensions: {
+        width: number;
+        height: number;
+        depth: number;
+        faceUV?: readonly Vector4[];
+      },
       partMaterial: StandardMaterial,
     ): Mesh => {
-      const mesh = MeshBuilder.CreateBox(`prop-master-${name}`, dimensions, scene);
+      const mesh = MeshBuilder.CreateBox(
+        `prop-master-${name}`,
+        { ...dimensions, faceUV: dimensions.faceUV?.slice() },
+        scene,
+      );
       setMeshMaterial(mesh, partMaterial);
       mesh.isVisible = false;
       return mesh;
@@ -12118,10 +12131,17 @@ class BabylonGameSession {
                   width: key === "cairo" ? 1.5 : 0.72,
                   height: key === "cairo" ? 0.78 : 0.5,
                   depth: 0.05,
+                  faceUV:
+                    key === "cairo" ? cairoDirectionPanelFaceUv() : undefined,
                 },
                 signPanels[variant % signPanels.length],
               ),
-              offset: new Vector3(0, key === "cairo" ? 2.05 : 2.15, 0),
+              // Hung on the road side of the post rather than threaded onto it:
+              // the panel is 0.05 deep and the post 0.09 across, so a coaxial
+              // panel leaves the post poking out of both faces. Same trick, and
+              // the same clearance, as the regulatory blades' -0.08 — mirrored,
+              // because those read on -Z and the scattered sign reads on +Z.
+              offset: new Vector3(0, key === "cairo" ? 2.05 : 2.15, 0.08),
             },
           ];
           break;

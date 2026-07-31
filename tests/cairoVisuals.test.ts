@@ -3,7 +3,8 @@ import {
   buildWaterPolygonGeometry,
   cairoBridgePortalVisualAxis,
   cairoBridgeVisualAxis,
-  cairoDirectionPanelUvTransform,
+  CAIRO_DIRECTION_PANEL_DESIGN_V,
+  cairoDirectionPanelFaceUv,
   cairoElevatedBridgePierPlacements,
   cairoFrontagePosition,
   cairoFrontageFootprintsOverlap,
@@ -103,16 +104,29 @@ describe("Cairo water scenery", () => {
 });
 
 describe("Cairo visual axes", () => {
-  it("counter-rotates bilingual direction panels into an upright road view", () => {
-    const uv = cairoDirectionPanelUvTransform();
-    const transform = (u: number, v: number) => ({
-      u: u * uv.uScale + uv.uOffset,
-      v: v * uv.vScale + uv.vOffset,
-    });
+  it("prints the bilingual direction panel on the road face alone", () => {
+    const faces = cairoDirectionPanelFaceUv();
+    expect(faces).toHaveLength(6);
 
-    expect(transform(0, 0)).toEqual({ u: 1, v: 1 });
-    expect(transform(1, 1)).toEqual({ u: 0, v: 0 });
-    expect(transform(0.5, 0.5)).toEqual({ u: 0.5, v: 0.5 });
+    // Face 0 is +Z, the side the face-road yaw turns at the carriageway, and
+    // the side Babylon renders 180° round — so the design region arrives with
+    // its corners swapped, which is what cancels that rotation.
+    const [printed, ...rest] = faces;
+    expect(printed.x).toBeGreaterThan(printed.z);
+    expect(printed.y).toBeGreaterThan(printed.w);
+    expect(Math.min(printed.y, printed.w)).toBeGreaterThanOrEqual(
+      CAIRO_DIRECTION_PANEL_DESIGN_V,
+    );
+
+    // Every other face — the back above all — samples the bare aluminium half,
+    // clear of the boundary so no mip level can smear the legend onto it.
+    expect(rest).toHaveLength(5);
+    for (const face of rest) {
+      expect(face).toEqual(rest[0]);
+      expect(Math.max(face.y, face.w)).toBeLessThan(
+        CAIRO_DIRECTION_PANEL_DESIGN_V,
+      );
+    }
   });
 
   it("aligns scenic bridge parapets to authored or portal-road headings", () => {
