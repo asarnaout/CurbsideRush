@@ -2,7 +2,17 @@
 
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 
-import { HudGlyph, HUD_CREAM, HUD_GLASS, HUD_SANS, HUD_SERIF } from "./DriveHud";
+import {
+  DriveOfferPanel,
+  HudGlyph,
+  HUD_CREAM,
+  HUD_GLASS,
+  HUD_SANS,
+  HUD_SERIF,
+  MOBILE_OFFER_DENSE_H,
+  MOBILE_OFFER_H,
+  type HudOffer,
+} from "./DriveHud";
 import { DRIVE_LAYER } from "./driveLayers";
 import { CLOSE_ICON } from "./hudIcons";
 import {
@@ -57,6 +67,18 @@ const TIGHT = { margin: 8, padding: 10, gap: 10 };
 /** Below this much viewport height, every spare pixel belongs to the map. */
 const TIGHT_BELOW_PX = 460;
 
+/**
+ * What the right-hand column spends before a docked offer can have any of it.
+ *
+ * Written down rather than measured: this decides a layout mid-drive, where a
+ * DOM read would cost a forced reflow every frame the card is up, and jsdom has
+ * no layout at all so a measured version could not be tested. Both numbers are
+ * the styles below added up — the city name over its eyebrow against the 34 px
+ * close button, and a legend row's glyph — so an edit to either must come here.
+ */
+const COLUMN_HEADER_PX = { roomy: 42, tight: 36 };
+const LEGEND_ROW_PX = 24;
+
 export interface ExpandedMapProps {
   readonly cityName: string;
   /** Where the player is headed, or null when they are carrying nothing. */
@@ -78,6 +100,20 @@ export interface ExpandedMapProps {
   readonly viewport: { readonly width: number; readonly height: number };
   /** Keyboard hints are a lie on a phone. */
   readonly showKeyHints?: boolean;
+  /**
+   * A live dispatch offer, docked into the column for as long as it stands.
+   * The app renders no floating card while this map is up — see the note on
+   * the column below for why the offer moves in here rather than over here.
+   *
+   * One object rather than three props so the card and its answers cannot come
+   * apart: an ACCEPT that renders without a handler is a button that silently
+   * costs the player the job.
+   */
+  readonly dockedOffer?: {
+    readonly offer: HudOffer;
+    readonly onAccept: () => void;
+    readonly onPass: () => void;
+  } | null;
   readonly onClose: () => void;
 }
 
@@ -115,6 +151,7 @@ export function ExpandedMap({
   heading,
   viewport,
   showKeyHints = false,
+  dockedOffer = null,
   onClose,
 }: ExpandedMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -249,6 +286,39 @@ export function ExpandedMap({
     Math.min(16, Math.max(11, Math.min(box.width, box.height) * 0.035)),
   );
 
+  /*
+   * Where a docked offer fits in the column, and what it costs.
+   *
+   * The card takes the column's width, so the map canvas is sized from the same
+   * `legendWidth` whether an offer is up or not — it must never resize or move
+   * under a player reading it. Height is what has to give, and the order of
+   * concessions is: keep the legend, then keep the whole card.
+   *
+   * **Neither the card nor the column may be handed less than a card needs.**
+   * The comp's type sizes are fixed, so a card in a box shorter than its own
+   * content does not scale down — its flex children shrink and the pickup's
+   * name is sliced in half by the sub-line under it. That is what a landscape
+   * phone did with the full comp (174 px against the 184 it needs), and why
+   * `dense` exists rather than a smaller `height`.
+   */
+  const columnGap = tight ? 8 : 12;
+  const legendGap = tight ? 5 : 8;
+  const legendPx =
+    MAP_POI_LEGEND.length * LEGEND_ROW_PX +
+    (MAP_POI_LEGEND.length - 1) * legendGap;
+  const offerRoomPx =
+    box.height - (tight ? COLUMN_HEADER_PX.tight : COLUMN_HEADER_PX.roomy) - columnGap;
+  const offerBesideLegendPx = offerRoomPx - legendPx - columnGap;
+  // The legend goes only when not even the dense card fits beside it — which
+  // on the shipped cities takes a letterbox panel (Milton Keynes), not a small
+  // screen. A phone keeps its key and takes the dense card.
+  const legendKeepsPlace =
+    !dockedOffer || offerBesideLegendPx >= MOBILE_OFFER_DENSE_H;
+  const offerDense =
+    Boolean(dockedOffer) &&
+    (legendKeepsPlace ? offerBesideLegendPx : offerRoomPx) < MOBILE_OFFER_H;
+  const offerHeight = offerDense ? MOBILE_OFFER_DENSE_H : MOBILE_OFFER_H;
+
   return (
     <div
       data-testid="expanded-map"
@@ -330,7 +400,7 @@ export function ExpandedMap({
             width: legendWidth,
             display: "flex",
             flexDirection: "column",
-            gap: tight ? 8 : 12,
+            gap: columnGap,
           }}
         >
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -380,76 +450,109 @@ export function ExpandedMap({
             </button>
           </div>
 
-          <ul
-            style={{
-              listStyle: "none",
-              margin: 0,
-              padding: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: tight ? 5 : 8,
-            }}
-          >
-            {MAP_POI_LEGEND.map((kind) => {
-              const family = MAP_POI_FAMILY[kind];
-              return (
-                <li
-                  key={kind}
-                  data-testid="map-legend-row"
-                  data-poi-kind={kind}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 9,
-                    // Faded where the city has none of them — Milton Keynes,
-                    // Calais and Tokyo have no traffic lights at all. Not a
-                    // tally, just the difference between "you have not found one
-                    // yet" and "there are none to find".
-                    opacity: hasAny[kind] ? 1 : 0.38,
-                  }}
-                >
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      width: 24,
-                      height: 24,
-                      flex: "none",
-                      borderRadius: "50%",
-                      background: "rgba(9,12,14,.82)",
-                      border: `1px solid ${family.color}`,
-                      display: "grid",
-                      placeItems: "center",
-                    }}
-                  >
-                    <HudGlyph path={family.icon} size={13} strokeWidth={2.3} color={family.color} />
-                  </span>
-                  <span
-                    style={{
-                      flex: 1,
-                      font: `800 ${tight ? 11 : 12}px/1 ${HUD_SANS}`,
-                      color: HUD_CREAM,
-                    }}
-                  >
-                    {family.label}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-
-          {showKeyHints && (
-            <span
-              data-testid="expanded-map-hint"
+          {legendKeepsPlace && (
+            <ul
               style={{
-                marginTop: "auto",
-                font: `700 10px/1.4 ${HUD_SANS}`,
-                letterSpacing: "1px",
-                color: "rgba(244,239,222,.42)",
+                listStyle: "none",
+                margin: 0,
+                padding: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: legendGap,
               }}
             >
-              <Keycap>M</Keycap> or <Keycap>Esc</Keycap> to close
-            </span>
+              {MAP_POI_LEGEND.map((kind) => {
+                const family = MAP_POI_FAMILY[kind];
+                return (
+                  <li
+                    key={kind}
+                    data-testid="map-legend-row"
+                    data-poi-kind={kind}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 9,
+                      // Faded where the city has none of them — Milton Keynes,
+                      // Calais and Tokyo have no traffic lights at all. Not a
+                      // tally, just the difference between "you have not found one
+                      // yet" and "there are none to find".
+                      opacity: hasAny[kind] ? 1 : 0.38,
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: 24,
+                        height: 24,
+                        flex: "none",
+                        borderRadius: "50%",
+                        background: "rgba(9,12,14,.82)",
+                        border: `1px solid ${family.color}`,
+                        display: "grid",
+                        placeItems: "center",
+                      }}
+                    >
+                      <HudGlyph path={family.icon} size={13} strokeWidth={2.3} color={family.color} />
+                    </span>
+                    <span
+                      style={{
+                        flex: 1,
+                        font: `800 ${tight ? 11 : 12}px/1 ${HUD_SANS}`,
+                        color: HUD_CREAM,
+                      }}
+                    >
+                      {family.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           )}
+
+          {/*
+            The column's foot. One `marginTop: "auto"` for the pair, or the two
+            would split the free space between them and strand the legend.
+          */}
+          <div
+            style={{
+              marginTop: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: columnGap,
+            }}
+          >
+            {dockedOffer && (
+              <div
+                style={{
+                  // Slides up into the column rather than appearing, so the
+                  // eye follows it in from the dashed detour drawn beside it.
+                  animation: "hudOfferDock .26s cubic-bezier(.2,.8,.3,1) both",
+                }}
+              >
+                <DriveOfferPanel
+                  testId="gig-offer"
+                  offer={dockedOffer.offer}
+                  width={legendWidth}
+                  height={offerHeight}
+                  dense={offerDense}
+                  onAccept={dockedOffer.onAccept}
+                  onPass={dockedOffer.onPass}
+                />
+              </div>
+            )}
+            {showKeyHints && (
+              <span
+                data-testid="expanded-map-hint"
+                style={{
+                  font: `700 10px/1.4 ${HUD_SANS}`,
+                  letterSpacing: "1px",
+                  color: "rgba(244,239,222,.42)",
+                }}
+              >
+                <Keycap>M</Keycap> or <Keycap>Esc</Keycap> to close
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>

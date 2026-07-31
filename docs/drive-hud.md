@@ -25,10 +25,11 @@ outrank a HUD sibling.
 
 Two layer facts are load-bearing: the nav card is `pointerEvents: "none"` on
 `DRIVE_LAYER.hud`, and the offer card is above it — which is the only reason an
-accept button can be clicked at all. The offer gets a rung of its own above
-`action` because `ExpandedMap` is on `action` and may be open across the whole
-screen; sharing it buried ACCEPT, and dodging that by closing the map cost the
-player the map they had just opened (#241).
+accept button can be clicked at all. The offer then gets `offer`, a rung to
+itself, because it is the only target with a countdown and the next overlay
+added below it on `action` would silently cover ACCEPT. It does **not** outrank
+`ExpandedMap`, also on `action`: see the map's own section for why that
+collision does not exist.
 
 ## `DriveHud.tsx` is props-pure
 
@@ -48,6 +49,12 @@ from the comp**: the comp is drawn on a 400 px frame, the shortest landscape pho
 the rail budget admits is 320, and Safari with toolbars leaves ~343 — below
 `RAIL_MIN_SLOT_PX` (172) the detour rail drops rather than the card growing into
 DRIVE.
+
+That rule outgrew the phone. The card is `DriveOfferPanel`, which takes a width
+and a height and knows nothing about where it is; `DriveOfferBar` is only the
+absolute placement around it, and the whole-city map is its second home. **Both
+callers must give it real numbers** — the fuse is an SVG stroke whose `viewBox`
+is those numbers, so a percentage width would letterbox or distort it.
 
 The balance sits in the job card on touch, not the corner: that corner carries
 camera/pause/fullscreen, and fullscreen is the only way to reclaim Safari's chrome
@@ -114,9 +121,35 @@ fractions-of-its-edge rule would give a 27 px route line on a screen.
 It does **not** pause. It closes itself while paused (same `action` layer, and the
 app paints after the session), derived rather than a close so it returns after.
 
-**An offer no longer closes it** — the card outranks it instead, on
-`DRIVE_LAYER.offer`. It only ever covers a corner, and the map is where an offer
-is best read: `previewRoute` is the dashed line out to the pickup.
+**An offer does not close it, and does not float over it either — it docks into
+it** (#241). While the map is up the HUD renders no card at all and
+`DriveOfferPanel` goes in the legend column, so there is exactly one `gig-offer`
+on screen and never two rectangles colliding. That is not only tidier: a card
+anchored to the viewport over a centred panel overlapped by an amount that fell
+out of the *city's aspect ratio* — Cairo clipped the legend, New York never
+touched it. And the map is where an offer is best read, because `previewRoute`
+is already drawing the dashed detour to its pickup.
+
+**The card takes the column's width, so the canvas is sized identically with an
+offer up or not** — the map must never resize under someone reading it. Height
+is what has to give, and the order of concessions is: keep the legend, then keep
+the whole card.
+
+**A card in a box shorter than its content does not scale down — it eats
+itself.** The comp's type sizes are fixed, so the flex children shrink instead
+and the pickup's name is sliced in half by the line under it; a landscape phone's
+174 px column against the comp's 184 was exactly that. Hence `dense`, a *shorter*
+card rather than a smaller one: same type, minus the pickup name, the dropoff and
+the detour rail — all three of which the map it is standing on is already showing.
+The tip moves from a chip beside the pay (which had nothing to give at 227 px and
+simply hung off the edge) down to the meta line. `DriveOfferBar` never sets it:
+out on the road there is no map to read the pickup off.
+
+`COLUMN_HEADER_PX` and `LEGEND_ROW_PX` are that arithmetic written down rather
+than measured — a DOM read here is a forced reflow per frame, and jsdom has no
+layout to measure anyway, so **those constants are the test**. The legend yields
+only when not even the dense card fits beside it, which takes a letterbox panel
+(Milton Keynes), not a small screen.
 
 Key handling is asymmetric on purpose:
 

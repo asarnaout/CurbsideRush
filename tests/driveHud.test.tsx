@@ -666,6 +666,20 @@ describe("the offer on a phone", () => {
     }
   });
 
+  it("is never the map's dense card, at any slot height", () => {
+    // The dense card belongs to the docked placement only: out here the phone
+    // has no map on screen to be reading the pickup off, so the card is the
+    // only thing that can name it. It is also what the player already knows —
+    // changing it because the *other* placement had a problem would be a
+    // regression they never asked for.
+    for (const slot of [224, RAIL_MIN_SLOT_PX - 1, 120]) {
+      cleanup();
+      bar(slot);
+      expect(screen.getByText("Amsterdam Bagels")).toBeVisible();
+      expect(screen.queryByTestId("offer-meta")).toBeNull();
+    }
+  });
+
   it("answers to a tap, with no keycaps to press", () => {
     const { onAccept, onPass } = bar(224);
     expect(screen.getByTestId("offer-accept")).not.toHaveTextContent("F");
