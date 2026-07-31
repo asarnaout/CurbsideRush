@@ -18,7 +18,6 @@ import {
   CAIRO_ELEVATED_DECK_THICKNESS_M,
   CAIRO_ELEVATED_DECK_Y,
   cairoWaterBoatObstacles,
-  PARKED_CAR_SOURCES,
   WATER_BOAT_AIR_DRAFTS_M,
   CAIRO_DECAL_MATERIAL_NAMES,
   CAIRO_DECAL_Z_OFFSET_UNITS,
@@ -668,7 +667,12 @@ describe("Cairo's rotated urban fabric", () => {
 });
 
 describe("Cairo street identity", () => {
-  it("places parked silhouettes between carriageway and outer sidewalk edge", () => {
+  // curbOffsetM parks a prop at the kerb — between the carriageway edge and the
+  // outer sidewalk edge — instead of beyond the pavement like scattered
+  // furniture. No shipped prop kind uses it now that Cairo's kerb-parked
+  // vehicles are gone; the rule is kept (and pinned here, against a fixture
+  // kind) as the placement hook any future kerb parking would need.
+  it("places a kerb-offset prop between carriageway and outer sidewalk edge", () => {
     const placements = generateRoadsidePropPlacements({
       roadSurfaces: [
         {
@@ -688,13 +692,12 @@ describe("Cairo street identity", () => {
       seed: 42,
       kinds: [
         {
-          kind: "parked-car",
+          kind: "kerb-parked-fixture",
           spacingM: 24,
           jitterM: 0,
-          lateralMarginM: 1,
-          curbOffsetM: 1.08,
+          lateralMarginM: 1.05,
+          curbOffsetM: 0.42,
           bothSides: false,
-          alternateSides: true,
           variants: 1,
           faceRoad: true,
         },
@@ -803,27 +806,6 @@ describe("Cairo street identity", () => {
     expect(
       authoredSignalAspectAt({ ...input, style: "egypt_signal" }),
     ).toBe(authoredSignalAspectAt({ ...input, style: "nyc_signal" }));
-  });
-});
-
-// The kerbside parked cars instance the traffic fleet's own glbs and tint a
-// named body material slot. A silent rename in the glb would silently un-tint
-// every parked car, so pin the names against the committed bytes.
-describe("Cairo parked-car sources", () => {
-  it("names real vehicle glbs and their body materials", () => {
-    for (const source of PARKED_CAR_SOURCES) {
-      const buf = fs.readFileSync(
-        path.join(process.cwd(), "public", source.url),
-      );
-      const jsonLen = buf.readUInt32LE(12);
-      const json = JSON.parse(
-        buf.subarray(20, 20 + jsonLen).toString("utf8"),
-      ) as { materials?: readonly { name?: string }[] };
-      expect(
-        (json.materials ?? []).map((material) => material.name),
-        source.url,
-      ).toContain(source.bodyMaterial);
-    }
   });
 });
 
