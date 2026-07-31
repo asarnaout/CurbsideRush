@@ -29,7 +29,7 @@ import it without instantiating Babylon.
 |---|---|
 | World | `x` east, `z` north, `y` up, metres, origin = map centre |
 | Lane/pose heading | `atan2(dx, dz)` — **0 = +z (north)**, +π/2 = +x |
-| `arcPoints` angles | **0 = +x (east)**, 90 = +z — standard math, *not* the heading convention |
+| `arcPoints` angles (londonContent) | **0 = +x (east)**, 90 = +z — standard math, *not* the heading convention |
 | Right-hand normal | `(cos h, -sin h)` — the **driver's right** |
 
 ## The y-layer stack is a hard global ordering
