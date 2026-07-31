@@ -624,9 +624,10 @@ export interface PropKindConfig {
   /** Extra clearance beyond the road edge + shoulder, in metres (>= 0.9). */
   readonly lateralMarginM: number;
   /**
-   * Optional centre offset beyond the carriageway edge. Used by parked
-   * vehicles that belong at the kerb, before the sidewalk rather than beyond
-   * its outer edge.
+   * Optional centre offset beyond the carriageway edge, seating a prop at the
+   * kerb — before the sidewalk rather than beyond its outer edge. No prop kind
+   * sets it today (Cairo's kerb-parked vehicles were removed); it survives as
+   * the hook anything parked at the kerb would need.
    */
   readonly curbOffsetM?: number;
   readonly bothSides: boolean;

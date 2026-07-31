@@ -17,7 +17,6 @@ import {
   Matrix,
   Mesh,
   MeshBuilder,
-  MultiMaterial,
   ParticleSystem,
   Plane,
   Quaternion,
@@ -440,22 +439,6 @@ export const CAIRO_DECAL_MATERIAL_NAMES: readonly string[] = [
   "Glass",
 ];
 export const CAIRO_STREET_WALL_URL_RE = /\/cairo-[^/]+\.glb$/;
-/**
- * Kerbside parked cars are instanced from the traffic fleet's own CC0
- * Quaternius glbs, so the parked metal matches the moving metal. Each variant
- * pairs a body with a Cairo street tint; the body slot is cloned per variant
- * because the merged master shares its container materials with live traffic.
- */
-export const PARKED_CAR_SOURCES = [
-  { url: "/models/vehicles/sedan.glb", bodyMaterial: "Blue" },
-  { url: "/models/vehicles/suv.glb", bodyMaterial: "White" },
-] as const;
-const PARKED_CAR_TINTS: readonly Color3[] = [
-  new Color3(0.82, 0.8, 0.76), // dusty white — Cairo's default car colour
-  new Color3(0.16, 0.17, 0.2), // charcoal
-  new Color3(0.45, 0.11, 0.1), // oxblood
-];
-const PARKED_CAR_LENGTH_M = 4.35;
 export function biasCairoDecalMaterials(
   materials: readonly { name: string; zOffsetUnits: number }[],
 ): number {
@@ -4223,48 +4206,13 @@ function roadsidePropKindsForMap(
           bothSides: false,
           variants: 1,
         },
-        {
-          kind: "cairo-cart",
-          spacingM: 240,
-          jitterM: 42,
-          lateralMarginM: 1.25,
-          bothSides: false,
-          alternateSides: true,
-          variants: 2,
-          faceRoad: true,
-        },
-        {
-          kind: "microbus",
-          spacingM: 420,
-          jitterM: 58,
-          lateralMarginM: 0.9,
-          curbOffsetM: 1.15,
-          bothSides: false,
-          alternateSides: true,
-          variants: 2,
-          faceRoad: true,
-        },
-        {
-          kind: "parked-car",
-          spacingM: 300,
-          jitterM: 48,
-          lateralMarginM: 0.95,
-          curbOffsetM: 1.08,
-          bothSides: false,
-          alternateSides: true,
-          variants: 3,
-          faceRoad: true,
-        },
-        {
-          kind: "scooter",
-          spacingM: 260,
-          jitterM: 44,
-          lateralMarginM: 1.05,
-          curbOffsetM: 0.42,
-          bothSides: false,
-          variants: 2,
-          faceRoad: true,
-        },
+        // Nothing parks at the Cairo kerb: the parked cars, microbuses, vendor
+        // carts and scooters that used to are all gone. They were scattered on
+        // road geometry alone, so they landed wherever the band allowed rather
+        // than where a vehicle would plausibly stand — clutter dumped on the
+        // pavement, not a parked street. The box-built ones were also badly
+        // modelled (the scooter's handlebar floated free of its frame). Any
+        // future kerb parking wants real placement, not scatter.
         { ...PROP_SIGN, spacingM: 78, variants: 2 },
       ];
     case "orientation":
@@ -5331,12 +5279,6 @@ class BabylonGameSession {
   private readonly buildingExclusions: { x: number; z: number; radius: number }[] = [];
   /** Sidewalk vendor carts to instantiate once their glbs preload. */
   private readonly pendingVendors: { config: StreetPropConfig; x: number; z: number; yaw: number }[] = [];
-  /** Kerbside parked cars to instantiate once the vehicle glbs preload. */
-  private readonly pendingParkedCars: { x: number; z: number; yaw: number; variant: number }[] = [];
-  private readonly parkedCarMasters = new Map<
-    number,
-    { mesh: Mesh; scale: number; baseY: number; longAxis: "x" | "z" } | null
-  >();
   /** River craft to instantiate once the boat glbs preload. */
   private readonly pendingWaterBoats: { bodyId: string; placement: WaterBoatPlacement }[] = [];
   private readonly waterBoatMasters = new Map<
@@ -8637,64 +8579,6 @@ class BabylonGameSession {
   }
 
   /**
-   * A merged, tinted master per parked-car variant. The base merge is shared
-   * through getBuildingMaster (one geometry upload per url); the clone carries
-   * its own MultiMaterial so the body slot can be tinted without recolouring
-   * the live traffic, which shares the container materials — the same trick as
-   * getStorefrontMaster. Scale, ground seat and kerb axis are measured from
-   * the merged bounds rather than hand-tuned.
-   */
-  private getParkedCarMaster(
-    variant: number,
-  ): { mesh: Mesh; scale: number; baseY: number; longAxis: "x" | "z" } | null {
-    const cached = this.parkedCarMasters.get(variant);
-    if (cached !== undefined) return cached;
-    const source = PARKED_CAR_SOURCES[variant % PARKED_CAR_SOURCES.length];
-    const base = this.getBuildingMaster(source.url);
-    let built:
-      | { mesh: Mesh; scale: number; baseY: number; longAxis: "x" | "z" }
-      | null = null;
-    if (base) {
-      const bounds = base.getBoundingInfo().boundingBox;
-      const extentX = bounds.maximum.x - bounds.minimum.x;
-      const extentZ = bounds.maximum.z - bounds.minimum.z;
-      const scale = PARKED_CAR_LENGTH_M / Math.max(extentX, extentZ);
-      const mesh = base.clone(`parked-car-master-${variant}`);
-      mesh.isVisible = false;
-      mesh.isPickable = false;
-      if (mesh.material instanceof MultiMaterial) {
-        const multi = mesh.material.clone(`parked-car-materials-${variant}`);
-        const slot = multi.subMaterials.findIndex(
-          (candidate) => candidate?.name === source.bodyMaterial,
-        );
-        const body =
-          slot >= 0
-            ? multi.subMaterials[slot]?.clone(`parked-car-body-${variant}`)
-            : null;
-        if (body) {
-          const tint = PARKED_CAR_TINTS[variant % PARKED_CAR_TINTS.length];
-          const paint = body as unknown as {
-            albedoColor?: Color3;
-            diffuseColor?: Color3;
-          };
-          if (paint.albedoColor) paint.albedoColor = tint.clone();
-          if (paint.diffuseColor) paint.diffuseColor = tint.clone();
-          multi.subMaterials[slot] = body;
-          mesh.material = multi;
-        }
-      }
-      built = {
-        mesh,
-        scale,
-        baseY: ROAD_SURFACE_Y - bounds.minimum.y * scale,
-        longAxis: extentX > extentZ ? "x" : "z",
-      };
-    }
-    this.parkedCarMasters.set(variant, built);
-    return built;
-  }
-
-  /**
    * A variant master for the one retail glb: same merged-master shape as
    * getBuildingMaster, but with the baked "PIZZA" lettering swapped for the
    * variant's fascia sign and awning tint (storefrontMaster.ts) so streets
@@ -8919,26 +8803,6 @@ class BabylonGameSession {
       this.animatedWaterBoats.push({ root, placement: pending.placement });
     }
     this.pendingWaterBoats.length = 0;
-
-    // Kerbside parked cars: instances of the tinted vehicle masters. Same
-    // visual-only status as the old box assembly — decoration, no collider.
-    let parkedIndex = 0;
-    for (const parked of this.pendingParkedCars) {
-      const master = this.getParkedCarMaster(parked.variant);
-      if (!master) continue;
-      const inst = master.mesh.createInstance(`prop-parked-car-${parkedIndex}`);
-      parkedIndex += 1;
-      inst.position.set(parked.x, master.baseY, parked.z);
-      // The placement yaw lays a long-z body along the kerb; a model whose
-      // long axis is x needs the extra quarter turn.
-      inst.rotation.y =
-        parked.yaw + (master.longAxis === "x" ? Math.PI / 2 : 0);
-      inst.scaling.setAll(master.scale);
-      inst.isPickable = false;
-      this.staticSceneryFreeze.push(inst);
-      this.registerShadowCaster(inst, parked.x, parked.z);
-    }
-    this.pendingParkedCars.length = 0;
 
     // Sidewalk vendor carts: glb instances via the same merged-master path, so
     // each cart is one cheap scene mesh. Frozen alongside the rest of the
@@ -12266,27 +12130,6 @@ class BabylonGameSession {
       new Color3(0.55, 0.6, 0.58),
       new Color3(0.22, 0.26, 0.24),
     );
-    const cairoCartWood = material(
-      "cairo-cart-wood",
-      new Color3(0.38, 0.23, 0.12),
-    );
-    const cairoCartCanvas = [
-      material("cairo-cart-canvas-red", new Color3(0.58, 0.16, 0.12)),
-      material("cairo-cart-canvas-blue", new Color3(0.12, 0.35, 0.45)),
-    ];
-    const cairoVehicleBodies = [
-      material("cairo-ambient-cream", new Color3(0.72, 0.69, 0.61)),
-      material("cairo-ambient-blue", new Color3(0.16, 0.33, 0.43)),
-      material("cairo-ambient-red", new Color3(0.5, 0.18, 0.13)),
-    ];
-    const cairoVehicleGlass = material(
-      "cairo-ambient-glass",
-      new Color3(0.08, 0.14, 0.16),
-    );
-    const cairoVehicleDark = material(
-      "cairo-ambient-dark",
-      new Color3(0.07, 0.07, 0.065),
-    );
 
     interface PropPart {
       readonly master: Mesh;
@@ -12636,128 +12479,6 @@ class BabylonGameSession {
             },
           ];
           break;
-        case "cairo-cart":
-          parts = [
-            {
-              master: masterBox(
-                `${cacheKey}-body`,
-                { width: 1.55, height: 0.72, depth: 2.25 },
-                cairoCartWood,
-              ),
-              offset: new Vector3(0, 0.62, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-canopy`,
-                { width: 2.05, height: 0.18, depth: 2.65 },
-                cairoCartCanvas[variant % cairoCartCanvas.length],
-              ),
-              offset: new Vector3(0, 2.22, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-canopy-post-left`,
-                { width: 0.1, height: 1.55, depth: 0.1 },
-                cairoCartWood,
-              ),
-              offset: new Vector3(-0.72, 1.45, -0.88),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-canopy-post-right`,
-                { width: 0.1, height: 1.55, depth: 0.1 },
-                cairoCartWood,
-              ),
-              offset: new Vector3(0.72, 1.45, -0.88),
-              castShadow: false,
-            },
-            ...([-1, 1] as const).map((side) => ({
-              master: masterBox(
-                `${cacheKey}-wheel-${side}`,
-                { width: 0.22, height: 0.66, depth: 0.66 },
-                cairoVehicleDark,
-              ),
-              offset: new Vector3(side * 0.86, 0.42, 0.43),
-              castShadow: false,
-            })),
-          ];
-          break;
-        case "microbus":
-          parts = [
-            {
-              master: masterBox(
-                `${cacheKey}-body`,
-                { width: 1.9, height: 2.15, depth: 5.1 },
-                cairoVehicleBodies[variant % 2],
-              ),
-              offset: new Vector3(0, 1.18, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-windows`,
-                { width: 1.94, height: 0.72, depth: 3.35 },
-                cairoVehicleGlass,
-              ),
-              offset: new Vector3(0, 1.72, -0.2),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-lower`,
-                { width: 1.96, height: 0.35, depth: 4.4 },
-                cairoVehicleDark,
-              ),
-              offset: new Vector3(0, 0.42, 0),
-            },
-            ...([-1, 1] as const).flatMap((side) =>
-              ([-1.65, 1.65] as const).map((along) => ({
-                master: masterBox(
-                  `${cacheKey}-wheel-${side}-${along}`,
-                  { width: 0.24, height: 0.68, depth: 0.68 },
-                  cairoVehicleDark,
-                ),
-                offset: new Vector3(side * 0.97, 0.38, along),
-                castShadow: false,
-              })),
-            ),
-          ];
-          break;
-        case "scooter":
-          parts = [
-            {
-              master: masterBox(
-                `${cacheKey}-frame`,
-                { width: 0.42, height: 0.48, depth: 1.5 },
-                cairoVehicleBodies[(variant + 1) % cairoVehicleBodies.length],
-              ),
-              offset: new Vector3(0, 0.55, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-seat`,
-                { width: 0.42, height: 0.18, depth: 0.72 },
-                cairoVehicleDark,
-              ),
-              offset: new Vector3(0, 0.94, -0.2),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-handle`,
-                { width: 0.84, height: 0.1, depth: 0.1 },
-                cairoVehicleDark,
-              ),
-              offset: new Vector3(0, 1.35, 0.5),
-            },
-            ...([-0.55, 0.55] as const).map((along) => ({
-              master: masterBox(
-                `${cacheKey}-wheel-${along}`,
-                { width: 0.48, height: 0.48, depth: 0.16 },
-                cairoVehicleDark,
-              ),
-              offset: new Vector3(0, 0.31, along),
-              castShadow: false,
-            })),
-          ];
-          break;
         default:
           parts = [];
       }
@@ -12766,7 +12487,7 @@ class BabylonGameSession {
     };
 
     let instanceIndex = 0;
-    for (const [placementIndex, placement] of placements.entries()) {
+    for (const placement of placements) {
       if (placement.kind === "vendor") {
         // glb cart, not a procedural master — instantiate later once preloaded.
         const config = NYC_VENDORS[placement.variant % NYC_VENDORS.length];
@@ -12775,49 +12496,12 @@ class BabylonGameSession {
         }
         continue;
       }
-      if (placement.kind === "parked-car") {
-        // Real vehicle glbs, not the old box assembly — instantiated after
-        // preload like the vendors. The perf-holdback key is unchanged so the
-        // same placements survive thinning as before.
-        if (
-          key === "cairo" &&
-          !deterministicSceneryKeep(
-            `${mapId}:${placement.kind}:${placementIndex}`,
-            this.buildingKeepFraction,
-          )
-        ) {
-          continue;
-        }
-        this.pendingParkedCars.push({
-          x: placement.x,
-          z: placement.z,
-          // faceRoad placement points across the kerb; the quarter turn lays
-          // the body parallel to it, as the box assembly did.
-          yaw: placement.rotationY + Math.PI / 2,
-          variant: placement.variant,
-        });
-        continue;
-      }
-      const ambientVehicle =
-        placement.kind === "microbus" ||
-        placement.kind === "scooter";
-      const visualOnlyStreetLife =
-        ambientVehicle || placement.kind === "cairo-cart";
-      if (
-        key === "cairo" &&
-        visualOnlyStreetLife &&
-        !deterministicSceneryKeep(
-          `${mapId}:${placement.kind}:${placementIndex}`,
-          this.buildingKeepFraction,
-        )
-      ) {
-        continue;
-      }
       const parts = partsFor(placement.kind, placement.variant);
-      // Prop placement "faces road" (ideal for signs/carts). Parked vehicles
-      // turn a quarter turn so their long axis runs parallel to the kerb.
-      const rotationY =
-        placement.rotationY + (ambientVehicle ? Math.PI / 2 : 0);
+      // Every remaining scattered prop is street furniture: it faces the road
+      // as placed, and it is knockable. The kerb-parked vehicles that needed a
+      // quarter turn onto the kerb axis — and that were decoration with no
+      // collider — are all gone, so neither special case survives.
+      const rotationY = placement.rotationY;
       const sin = Math.sin(rotationY);
       const cos = Math.cos(rotationY);
       const destructibleParts: DestructiblePropPart[] = [];
@@ -12844,15 +12528,13 @@ class BabylonGameSession {
           isLightPool: part.master.name.includes("-pool"),
         });
       }
-      if (!visualOnlyStreetLife) {
-        this.registerDestructibleProp(
-          placement.kind,
-          placement.x,
-          placement.z,
-          placement.scale,
-          destructibleParts,
-        );
-      }
+      this.registerDestructibleProp(
+        placement.kind,
+        placement.x,
+        placement.z,
+        placement.scale,
+        destructibleParts,
+      );
     }
 
     for (const propMaterial of [
@@ -12869,11 +12551,6 @@ class BabylonGameSession {
       poleWood,
       ...vendingBodies,
       vendingPanel,
-      cairoCartWood,
-      ...cairoCartCanvas,
-      ...cairoVehicleBodies,
-      cairoVehicleGlass,
-      cairoVehicleDark,
     ]) {
       propMaterial.freeze();
     }
