@@ -13441,13 +13441,20 @@ class BabylonGameSession {
       this.registerMirrorSurface(mesh);
       material.freeze();
 
-      const obstacles = cairoWaterBoatObstacles(mapPack.geometry, body);
-      for (const placement of generateWaterBoatPlacements(
-        mapId,
-        body,
-        obstacles,
-      )) {
-        this.pendingWaterBoats.push({ bodyId: body.id, placement });
+      // Boats are Cairo's. `generateWaterBoatPlacements` is not map-gated and
+      // always wants at least one craft (`max(1, ...)`), and the only two
+      // models are `cairo-felucca` and `cairo-skiff` — so any water body added
+      // to another city, such as a lake in Central Park, would quietly get an
+      // Egyptian felucca sailing round it.
+      if (resolveMapVisualKey(mapId) === "cairo") {
+        const obstacles = cairoWaterBoatObstacles(mapPack.geometry, body);
+        for (const placement of generateWaterBoatPlacements(
+          mapId,
+          body,
+          obstacles,
+        )) {
+          this.pendingWaterBoats.push({ bodyId: body.id, placement });
+        }
       }
     }
   }

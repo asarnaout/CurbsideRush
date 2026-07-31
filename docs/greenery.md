@@ -67,6 +67,14 @@ A park wall is a scored `collision` with damage (`parkEdge` in
 `PARK_WALL_HEIGHT_M` is set for that, not for realism. The lawn inside stays
 drivable; it is the boundary that stops you, not the grass.
 
+**A lake in a park is a `WaterBody`, and that buys three things free**: the
+adapter already emits a shoreline obstacle per polygon edge, the minimap
+already draws it, and `parkLayoutForLandmark` passes the same polygon in as a
+planting keep-out. Watch one trap — `generateWaterBoatPlacements` is not
+map-gated and always wants at least one craft, and the only two models are
+`cairo-felucca` and `cairo-skiff`, so a lake anywhere but Cairo would get an
+Egyptian felucca on it. `buildWaterBodies` gates the call on the map.
+
 ## A park's style is derived, and two styles can never be walled
 
 `resolveParkStyle` reads the landmark id first and its proportions second, so a

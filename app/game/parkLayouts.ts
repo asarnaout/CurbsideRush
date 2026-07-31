@@ -80,8 +80,38 @@ export interface ParkLayoutContext {
   }[];
   /** Pavement band beyond the carriageway edge that must also stay clear. */
   readonly sidewalkWidthM: number;
+  /**
+   * Water outlines, so a lake inside a park does not grow trees. The scatter is
+   * driven off the park rectangle and has nothing else to reject them with.
+   */
+  readonly waterPolygons?: readonly (readonly VisualPoint[])[];
   readonly seed: number;
 }
+
+/** Crossing-number point-in-polygon, so concave lake outlines work. */
+const isInsideWater = (
+  point: VisualPoint,
+  polygons: readonly (readonly VisualPoint[])[],
+): boolean =>
+  polygons.some((polygon) => {
+    let inside = false;
+    for (
+      let index = 0, previous = polygon.length - 1;
+      index < polygon.length;
+      previous = index, index += 1
+    ) {
+      const left = polygon[index];
+      const right = polygon[previous];
+      if (
+        left.z > point.z !== right.z > point.z &&
+        point.x <
+          ((right.x - left.x) * (point.z - left.z)) / (right.z - left.z) + left.x
+      ) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  });
 
 /** Below this, a park is a token green with no room for a path network. */
 const POCKET_GREEN_MAX_SHORT_SIDE_M = 30;
@@ -140,14 +170,6 @@ const toWorld = (
 };
 
 /**
- * The path network, in park-local coordinates.
- *
- * A long park gets a wandering spine so the eye is led down its length rather
- * than along a ruled line; a compact one gets a cross, which is what a small
- * civic green actually has. Temple grounds get a single straight approach,
- * because a Japanese shrine approach (`sandō`) is deliberately axial.
- */
-/**
  * Roughly how far apart a long park's crossings should be. Central Park's real
  * transverses sit at 65th, 79th, 86th and 96th — a few hundred metres apart —
  * and that spacing is the reason this exists rather than a fixed count.
@@ -183,6 +205,14 @@ function crossPaths(
   });
 }
 
+/**
+ * The path network, in park-local coordinates.
+ *
+ * A long park gets a wandering spine so the eye is led down its length rather
+ * than along a ruled line; a compact one gets a cross, which is what a small
+ * civic green actually has. Temple grounds get a single straight approach,
+ * because a Japanese shrine approach (`sandō`) is deliberately axial.
+ */
 function pathRecipe(
   style: ParkStyle,
   landmark: ParkLandmarkInput,
@@ -352,6 +382,7 @@ function scatterZone(
           surface.widthM / 2 + context.sidewalkWidthM + 1,
       );
       if (onRoad) continue;
+      if (isInsideWater(point, context.waterPolygons ?? [])) continue;
 
       placements.push({
         kind: zone.kind,
@@ -408,6 +439,7 @@ function pathFurniture(
             surface.widthM / 2 + context.sidewalkWidthM + 1,
         );
         if (onRoad) return;
+        if (isInsideWater(point, context.waterPolygons ?? [])) return;
         placements.push({
           kind,
           x: point.x,
@@ -587,6 +619,9 @@ export interface ParkLayoutMapPack {
   readonly id: string;
   readonly geometry: {
     readonly shoulderWidth?: number;
+    readonly waterBodies?: readonly {
+      readonly polygon: readonly VisualPoint[];
+    }[];
     readonly roadSurfaces?: readonly {
       readonly centerline: readonly VisualPoint[];
       readonly widthM: number;
@@ -622,6 +657,7 @@ export function parkLayoutForLandmark(
     sidewalkWidthM: palette.paved
       ? PAVED_SIDEWALK_WIDTH_M
       : Math.max(0.9, pack.geometry.shoulderWidth ?? 1.2),
+    waterPolygons: (pack.geometry.waterBodies ?? []).map((body) => body.polygon),
     seed: hashStringToSeed(`${mapId}-${landmark.id}-park`),
   });
   LAYOUT_CACHE.set(key, layout);
