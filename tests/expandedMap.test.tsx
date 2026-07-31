@@ -4,8 +4,8 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  MOBILE_OFFER_DENSE_H,
   MOBILE_OFFER_H,
-  MOBILE_OFFER_MIN_H,
   type HudOffer,
 } from "../app/game/DriveHud";
 import { ExpandedMap } from "../app/game/ExpandedMap";
@@ -313,41 +313,60 @@ describe("an offer docked into the map (#241)", () => {
     expect(screen.getByTestId("gig-offer").style.width).toBe("240px");
   });
 
-  it("keeps the legend on a desktop, where the column has room for both", () => {
+  it("keeps the whole comp on a desktop, where the column has room for it", () => {
     renderMap({ dockedOffer: docked() });
     expect(screen.getAllByTestId("map-legend-row")).toHaveLength(5);
-    // Tall enough for the detour rail, which is the comp at its full height.
     expect(screen.getByTestId("gig-offer").style.height).toBe(`${MOBILE_OFFER_H}px`);
+    // The whole comp: the pickup's name, the dropoff line, the detour rail.
     expect(screen.getByTestId("detour-rail")).toBeInTheDocument();
+    expect(screen.getByTestId("gig-offer")).toHaveTextContent("Amsterdam Bagels");
+    expect(screen.queryByTestId("offer-meta")).toBeNull();
   });
 
-  it("shrinks to fit beside the legend before it displaces it", () => {
+  it("takes the dense card on a landscape phone rather than a squashed one", () => {
     // jsdom has no layout, so this arithmetic *is* the check — the same reason
-    // `touchDriveControls.test.tsx` asserts the rail budget by hand. A 402 px
-    // landscape phone still holds both: New York's column is the panel's full
-    // 366, less a 36 header, five 24 px rows with 5 px between them, and two
-    // 8 px gaps. The comp gives up its last ten pixels rather than the legend
-    // its place.
+    // `touchDriveControls.test.tsx` asserts the rail budget by hand. New York's
+    // column on a 402 px phone is the panel's 366, less a 36 header, five 24 px
+    // rows with 5 px between them and two 8 px gaps: 174, against the 184 the
+    // comp needs. Ten pixels short is not a smaller card — the type sizes are
+    // fixed, so the flex children shrink and the pickup's name gets sliced in
+    // half by the line under it.
     renderMap({ dockedOffer: docked(), viewport: PHONE });
+    expect(screen.getByTestId("gig-offer").style.height).toBe(
+      `${MOBILE_OFFER_DENSE_H}px`,
+    );
+    // The legend is not what pays for it — it keeps its place.
     expect(screen.getAllByTestId("map-legend-row")).toHaveLength(5);
-    expect(screen.getByTestId("gig-offer").style.height).toBe("174px");
-    // 174 still clears RAIL_MIN_SLOT_PX, so the detour survives the squeeze.
-    expect(screen.getByTestId("detour-rail")).toBeInTheDocument();
+    // What goes is only what the map beside it is already showing: which place
+    // the job starts at, and how far out of the way it is.
+    expect(screen.getByTestId("gig-offer")).not.toHaveTextContent("Amsterdam Bagels");
+    expect(screen.queryByTestId("detour-rail")).toBeNull();
+
+    // What stays is the decision: pay, distance, and the two buttons.
+    expect(screen.getByTestId("offer-pay")).toHaveTextContent("+$12.40");
+    expect(screen.getByTestId("offer-meta")).toHaveTextContent("0.4 mi away");
+    expect(screen.getByTestId("offer-countdown")).toHaveTextContent("12s");
+    expect(screen.getByTestId("offer-accept")).toBeVisible();
+    expect(screen.getByTestId("offer-pass")).toBeVisible();
+    // The tip moves down to the meta line: at 227 px there is no room for it
+    // beside a 29 px pay, and a nowrap chip there simply hung off the edge.
+    expect(screen.getByTestId("offer-meta")).toContainElement(
+      screen.getByTestId("offer-bonus"),
+    );
   });
 
-  it("yields the legend only where the panel is too short to hold both", () => {
+  it("yields the legend only where the panel is too short even for that", () => {
     // Milton Keynes is 1500x300 — fitted, its panel is a letterbox barely
-    // taller than the card, and there is no arrangement that keeps five legend
-    // rows. A clipped ACCEPT would be far worse than a key the player has
-    // already read, so the legend is what goes.
+    // taller than the card itself, and no arrangement keeps five legend rows.
+    // A clipped ACCEPT would be far worse than a key the player has read.
     renderMap({
       dockedOffer: docked(),
       viewport: PHONE,
       worldSize: { x: 1500, z: 300 },
     });
     expect(screen.queryAllByTestId("map-legend-row")).toHaveLength(0);
-    expect(Number.parseFloat(screen.getByTestId("gig-offer").style.height)).toBe(
-      MOBILE_OFFER_MIN_H,
+    expect(screen.getByTestId("gig-offer").style.height).toBe(
+      `${MOBILE_OFFER_DENSE_H}px`,
     );
     expect(screen.getByTestId("offer-accept")).toBeVisible();
 

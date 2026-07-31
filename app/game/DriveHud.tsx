@@ -1632,6 +1632,15 @@ export const MOBILE_OFFER_W = 260;
 export const MOBILE_OFFER_H = 184;
 /** Under this the card cannot hold its own content, whatever the slot says. */
 export const MOBILE_OFFER_MIN_H = 120;
+/**
+ * The dense card's height — the comp with everything the map already tells you
+ * taken out. See `dense` on `DriveOfferPanel`.
+ *
+ * 140 against the comp's 184: 21 of padding, a 16 chip row over 6, the 29 px
+ * pay, a 13 px meta line, and the 42 px buttons over 7. The slack is what
+ * `marginBottom: "auto"` spends holding the buttons on the floor.
+ */
+export const MOBILE_OFFER_DENSE_H = 140;
 /** Slot height under which the detour rail is dropped to keep the card clear. */
 export const RAIL_MIN_SLOT_PX = 172;
 /**
@@ -1690,11 +1699,19 @@ export function DriveOfferBar({
  * read as two windows colliding, and how much it clipped the legend depended on
  * the city's aspect ratio. `width` and `height` come from whichever slot it
  * landed in; everything between them is fluid.
+ *
+ * **`dense` is not a small version of the card, it is a shorter one.** The type
+ * sizes do not move — the pay is still the hero — but the pickup's name, the
+ * dropoff and the detour rail come out, because docked on a phone the card is
+ * standing on a map that is *already* drawing the dashed line to that pickup.
+ * Nothing is lost there that is not on screen a few centimetres to the left,
+ * and the alternative was a card that shrank its own text into itself.
  */
 export function DriveOfferPanel({
   offer,
   width,
   height,
+  dense = false,
   onAccept,
   onPass,
   testId,
@@ -1702,13 +1719,15 @@ export function DriveOfferPanel({
   offer: HudOffer;
   width: number;
   height: number;
+  /** Drop what the map beside it already says — see the note above. */
+  dense?: boolean;
   onAccept: () => void;
   onPass: () => void;
   /** Set by whichever placement is the one on screen — never both at once. */
   testId?: string;
 }) {
   const food = offer.kind === "delivery";
-  const showRail = height >= RAIL_MIN_SLOT_PX;
+  const showRail = !dense && height >= RAIL_MIN_SLOT_PX;
   const fuseHot = offer.elapsed > 0.72;
   const passPx = width < NARROW_OFFER_PX ? 62 : 74;
   return (
@@ -1828,7 +1847,12 @@ export function DriveOfferPanel({
         >
           {offer.pay}
         </span>
-        {offer.bonus && (
+        {/*
+          Dense moves this to the meta line. A 260 px comp's chip does not fit
+          beside the pay in a 227 px column: it has nothing to give and simply
+          hangs off the right edge.
+        */}
+        {offer.bonus && !dense && (
           <span
             data-testid="offer-bonus"
             style={{
@@ -1845,49 +1869,98 @@ export function DriveOfferPanel({
         )}
       </div>
 
-      <div
-        style={{
-          font: `700 18px/1.05 ${HUD_SERIF}`,
-          color: HUD_INK,
-          marginTop: 2,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {offer.title}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          marginBottom: "auto",
-          font: `600 9px ${HUD_SANS}`,
-          color: "rgba(32,30,29,.55)",
-          overflow: "hidden",
-          whiteSpace: "nowrap",
-        }}
-      >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{offer.sub}</span>
-        {offer.chips[0] && (
-          <>
-            <span
-              aria-hidden="true"
-              style={{
-                width: 3,
-                height: 3,
-                borderRadius: "50%",
-                background: "rgba(32,30,29,.25)",
-                flex: "none",
-              }}
-            />
-            <span style={{ flex: "none", color: "rgba(32,30,29,.45)" }}>
-              {offer.chips[0]}
-            </span>
-          </>
-        )}
-      </div>
+      {dense && (
+        <div
+          data-testid="offer-meta"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginTop: 4,
+            marginBottom: "auto",
+            font: `800 11px ${HUD_SANS}`,
+            color: "#a8541f",
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+            {offer.chips[0]}
+          </span>
+          {offer.bonus && (
+            <>
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 3,
+                  height: 3,
+                  borderRadius: "50%",
+                  background: "rgba(32,30,29,.25)",
+                  flex: "none",
+                }}
+              />
+              <span
+                data-testid="offer-bonus"
+                style={{
+                  flex: "none",
+                  font: `700 10px ${HUD_SANS}`,
+                  color: offer.surged ? "#a8541f" : "rgba(32,30,29,.55)",
+                }}
+              >
+                {offer.bonus}
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
+      {!dense && (
+        <>
+        <div
+          style={{
+            font: `700 18px/1.05 ${HUD_SERIF}`,
+            color: HUD_INK,
+            marginTop: 2,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {offer.title}
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: "auto",
+            font: `600 9px ${HUD_SANS}`,
+            color: "rgba(32,30,29,.55)",
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{offer.sub}</span>
+          {offer.chips[0] && (
+            <>
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 3,
+                  height: 3,
+                  borderRadius: "50%",
+                  background: "rgba(32,30,29,.25)",
+                  flex: "none",
+                }}
+              />
+              <span style={{ flex: "none", color: "rgba(32,30,29,.45)" }}>
+                {offer.chips[0]}
+              </span>
+            </>
+          )}
+        </div>
+        </>
+      )}
 
       {showRail && (
         <div data-testid="detour-rail" style={{ margin: "7px 0 8px" }}>

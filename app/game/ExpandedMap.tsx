@@ -9,8 +9,8 @@ import {
   HUD_GLASS,
   HUD_SANS,
   HUD_SERIF,
-  MOBILE_OFFER_MIN_H,
-  resolveOfferPanelHeight,
+  MOBILE_OFFER_DENSE_H,
+  MOBILE_OFFER_H,
   type HudOffer,
 } from "./DriveHud";
 import { DRIVE_LAYER } from "./driveLayers";
@@ -291,13 +291,15 @@ export function ExpandedMap({
    *
    * The card takes the column's width, so the map canvas is sized from the same
    * `legendWidth` whether an offer is up or not — it must never resize or move
-   * under a player reading it. Height is the only variable, and the card gives
-   * first: it shrinks toward `MOBILE_OFFER_MIN_H`, and only when even that will
-   * not fit does the legend yield the column. A landscape phone is not what
-   * triggers that (New York still seats both, the card squeezed to 174) — a
-   * letterbox panel is, which on the shipped cities means a wide, shallow world
-   * like Milton Keynes. A clipped ACCEPT would be far worse than a key the
-   * player has already read.
+   * under a player reading it. Height is what has to give, and the order of
+   * concessions is: keep the legend, then keep the whole card.
+   *
+   * **Neither the card nor the column may be handed less than a card needs.**
+   * The comp's type sizes are fixed, so a card in a box shorter than its own
+   * content does not scale down — its flex children shrink and the pickup's
+   * name is sliced in half by the sub-line under it. That is what a landscape
+   * phone did with the full comp (174 px against the 184 it needs), and why
+   * `dense` exists rather than a smaller `height`.
    */
   const columnGap = tight ? 8 : 12;
   const legendGap = tight ? 5 : 8;
@@ -307,11 +309,15 @@ export function ExpandedMap({
   const offerRoomPx =
     box.height - (tight ? COLUMN_HEADER_PX.tight : COLUMN_HEADER_PX.roomy) - columnGap;
   const offerBesideLegendPx = offerRoomPx - legendPx - columnGap;
+  // The legend goes only when not even the dense card fits beside it — which
+  // on the shipped cities takes a letterbox panel (Milton Keynes), not a small
+  // screen. A phone keeps its key and takes the dense card.
   const legendKeepsPlace =
-    !dockedOffer || offerBesideLegendPx >= MOBILE_OFFER_MIN_H;
-  const offerHeight = resolveOfferPanelHeight(
-    legendKeepsPlace ? offerBesideLegendPx : offerRoomPx,
-  );
+    !dockedOffer || offerBesideLegendPx >= MOBILE_OFFER_DENSE_H;
+  const offerDense =
+    Boolean(dockedOffer) &&
+    (legendKeepsPlace ? offerBesideLegendPx : offerRoomPx) < MOBILE_OFFER_H;
+  const offerHeight = offerDense ? MOBILE_OFFER_DENSE_H : MOBILE_OFFER_H;
 
   return (
     <div
@@ -528,6 +534,7 @@ export function ExpandedMap({
                   offer={dockedOffer.offer}
                   width={legendWidth}
                   height={offerHeight}
+                  dense={offerDense}
                   onAccept={dockedOffer.onAccept}
                   onPass={dockedOffer.onPass}
                 />

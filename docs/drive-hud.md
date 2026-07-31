@@ -132,12 +132,24 @@ is already drawing the dashed detour to its pickup.
 
 **The card takes the column's width, so the canvas is sized identically with an
 offer up or not** — the map must never resize under someone reading it. Height
-is the only thing that gives: the card shrinks toward `MOBILE_OFFER_MIN_H` first
-and the legend yields the column only when even that will not fit, which on the
-shipped cities means a letterbox panel (Milton Keynes) rather than a small
-screen. `COLUMN_HEADER_PX` and `LEGEND_ROW_PX` are that arithmetic written down
-rather than measured — a DOM read here is a forced reflow per frame, and jsdom
-has no layout to measure anyway, so **those constants are the test**.
+is what has to give, and the order of concessions is: keep the legend, then keep
+the whole card.
+
+**A card in a box shorter than its content does not scale down — it eats
+itself.** The comp's type sizes are fixed, so the flex children shrink instead
+and the pickup's name is sliced in half by the line under it; a landscape phone's
+174 px column against the comp's 184 was exactly that. Hence `dense`, a *shorter*
+card rather than a smaller one: same type, minus the pickup name, the dropoff and
+the detour rail — all three of which the map it is standing on is already showing.
+The tip moves from a chip beside the pay (which had nothing to give at 227 px and
+simply hung off the edge) down to the meta line. `DriveOfferBar` never sets it:
+out on the road there is no map to read the pickup off.
+
+`COLUMN_HEADER_PX` and `LEGEND_ROW_PX` are that arithmetic written down rather
+than measured — a DOM read here is a forced reflow per frame, and jsdom has no
+layout to measure anyway, so **those constants are the test**. The legend yields
+only when not even the dense card fits beside it, which takes a letterbox panel
+(Milton Keynes), not a small screen.
 
 Key handling is asymmetric on purpose:
 
