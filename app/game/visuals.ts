@@ -25,6 +25,18 @@ export interface MapVisualPalette {
   readonly fogColor: string;
   readonly grassBase: string;
   readonly grassAlt: string;
+  /**
+   * The three greens are a *range*, not a base plus an accent. `grassBase` is
+   * the mid tone, `grassAlt` the lit one and `grassDeep` the shadowed one, and
+   * the blade layer draws across all three — which is what stops a lawn reading
+   * as one flat card. Keep them a genuine spread; collapsing them toward each
+   * other silently returns the ground to the flat green this replaced.
+   */
+  readonly grassDeep: string;
+  /** Sun-bleached/parched tone for the worn patches. Arid on Cairo. */
+  readonly grassDry: string;
+  /** Flower-head colour for the sparse flora dots. */
+  readonly floraAccent: string;
   readonly dirtShoulder: string;
   readonly silhouetteNear: string;
   readonly silhouetteFar: string;
@@ -79,6 +91,10 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     fogColor: "#1c2a44",
     grassBase: "#3f6a3c",
     grassAlt: "#4d7c44",
+    // Cool and deep: Central Park after dark is lit by the avenue, not the sun.
+    grassDeep: "#27492a",
+    grassDry: "#5c6b41",
+    floraAccent: "#d8dba8",
     dirtShoulder: "#6b5a3f",
     silhouetteNear: "#3a3742",
     silhouetteFar: "#6a5d55",
@@ -95,6 +111,10 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     fogColor: "#e2d0ba",
     grassBase: "#3c6444",
     grassAlt: "#4a7550",
+    // Rich and damp — a London square keeps its green through the afternoon.
+    grassDeep: "#28472f",
+    grassDry: "#6a7048",
+    floraAccent: "#e6e3d2",
     dirtShoulder: "#5f5540",
     silhouetteNear: "#a6a89f",
     silhouetteFar: "#cdc8b6",
@@ -106,6 +126,10 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     fogColor: "#e6d6bd",
     grassBase: "#40663d",
     grassAlt: "#4f7a45",
+    // Lush: Setagaya's temple gardens are watered and shaded.
+    grassDeep: "#2a4b2c",
+    grassDry: "#6d7245",
+    floraAccent: "#f0d6dd",
     dirtShoulder: "#665a3f",
     silhouetteNear: "#a9b0b0",
     silhouetteFar: "#cfccb8",
@@ -121,6 +145,11 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     fogColor: "#d8cfbd",
     grassBase: "#3f7046",
     grassAlt: "#5c8150",
+    // Arid: Cairo's greens are irrigated islands, and they show the dust. The
+    // dry tone runs much closer to the sand than the other cities' do.
+    grassDeep: "#2c5133",
+    grassDry: "#8a8552",
+    floraAccent: "#e8d59c",
     dirtShoulder: "#8b795b",
     silhouetteNear: "#8d8377",
     silhouetteFar: "#b9aa96",
@@ -135,6 +164,9 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     fogColor: "#e2d5bc",
     grassBase: "#3d673f",
     grassAlt: "#4c7a46",
+    grassDeep: "#294a2d",
+    grassDry: "#687046",
+    floraAccent: "#e4e2c6",
     dirtShoulder: "#625740",
     silhouetteNear: "#a8aca2",
     silhouetteFar: "#cdc9b6",
@@ -462,31 +494,166 @@ export function buildAsphaltTextureSpec(seed: number): AsphaltTextureSpec {
   return { noiseSeed: Math.floor(random() * 0xffff) + 1, cracks, patches };
 }
 
+/**
+ * One painted blade. `tone` indexes the painter's four-entry ramp (0 lightest
+ * → 3 darkest), and the painter draws the top `tipFraction` of the stroke one
+ * ramp step lighter, so every blade carries a light-from-above gradient. That
+ * baked gradient is deliberately doing the job a normal map would: the ground
+ * is a flat plane under a fixed sun, where a real normal map reads as static
+ * noise rather than relief.
+ */
+export interface GrassBlade {
+  readonly x: number;
+  readonly y: number;
+  /** Radians, 0 = up the tile. */
+  readonly angle: number;
+  /** Stroke length as a fraction of the tile. */
+  readonly length: number;
+  /** Stroke width in tile fractions; the painter scales it to pixels. */
+  readonly width: number;
+  readonly tone: number;
+}
+
 export interface GrassTextureSpec {
   readonly noiseSeed: number;
+  /**
+   * Large soft tonal fields. This is the layer that stops a big lawn reading
+   * as one flat card at distance, where blades have long since mipped away.
+   */
+  readonly patches: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly r: number;
+    /** 0 = deep/shadowed, 1 = lit, 2 = dry. */
+    readonly tone: number;
+  }[];
+  /** Mid-scale mottle. Retained from the two-tone spec this replaced. */
   readonly blobs: readonly {
     readonly x: number;
     readonly y: number;
     readonly r: number;
     readonly alt: boolean;
   }[];
+  /** The close-range texture — scattered singles plus clustered tuft blades. */
+  readonly blades: readonly GrassBlade[];
+  /** Worn earth showing through, in the palette's dry tone. */
+  readonly bare: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly r: number;
+  }[];
+  /** Sparse flower heads in the palette accent. */
+  readonly flora: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly r: number;
+  }[];
   readonly speckles: readonly { readonly x: number; readonly y: number }[];
 }
 
-/** Two-tone meadow spec: soft colour blobs plus sparse dirt speckles. */
+/** Blades per tile. Dense enough to read as turf rather than as scribble. */
+const GRASS_SCATTERED_BLADES = 1600;
+const GRASS_TUFTS = 150;
+const GRASS_BLADES_PER_TUFT = 6;
+
+/**
+ * Layered meadow spec: tonal patches, mid-scale mottle, a dense directional
+ * blade field, worn earth, and sparse flora.
+ *
+ * **Blades lean, they do not point randomly.** Every blade takes a small offset
+ * from one per-tile prevailing angle (and tuft blades fan about their cluster's
+ * own lean). Uniformly random angles paint visual noise — the eye reads a lawn
+ * by its combing, so the correlation is the whole effect.
+ */
 export function buildGrassTextureSpec(seed: number): GrassTextureSpec {
   const random = seededUnit(seed);
+  const prevailing = random() * Math.PI * 2;
+
+  const patches = Array.from({ length: 16 }, () => ({
+    x: random(),
+    y: random(),
+    r: 0.14 + random() * 0.24,
+    tone: Math.floor(random() * 3),
+  }));
   const blobs = Array.from({ length: 150 }, () => ({
     x: random(),
     y: random(),
     r: 0.02 + random() * 0.05,
     alt: random() < 0.5,
   }));
+
+  const blades: GrassBlade[] = [];
+  for (let index = 0; index < GRASS_SCATTERED_BLADES; index += 1) {
+    blades.push({
+      x: random(),
+      y: random(),
+      angle: prevailing + (random() - 0.5) * 1.5,
+      length: 0.006 + random() * 0.009,
+      width: 0.0013 + random() * 0.0009,
+      tone: Math.floor(random() * 4),
+    });
+  }
+  // Tufts: a shared origin and lean, so growth reads as clumped rather than
+  // evenly sown. They run longer and darker than the scattered blades.
+  for (let tuft = 0; tuft < GRASS_TUFTS; tuft += 1) {
+    const originX = random();
+    const originY = random();
+    const lean = prevailing + (random() - 0.5) * 1.1;
+    for (let blade = 0; blade < GRASS_BLADES_PER_TUFT; blade += 1) {
+      blades.push({
+        x: (originX + (random() - 0.5) * 0.016 + 1) % 1,
+        y: (originY + (random() - 0.5) * 0.016 + 1) % 1,
+        angle: lean + (random() - 0.5) * 0.9,
+        length: 0.011 + random() * 0.013,
+        width: 0.0016 + random() * 0.001,
+        tone: 2 + Math.floor(random() * 2),
+      });
+    }
+  }
+
+  const bare = Array.from({ length: 7 }, () => ({
+    x: random(),
+    y: random(),
+    r: 0.025 + random() * 0.045,
+  }));
+  const flora = Array.from({ length: 22 }, () => ({
+    x: random(),
+    y: random(),
+    r: 0.0011 + random() * 0.0012,
+  }));
   const speckles = Array.from({ length: 42 }, () => ({
     x: random(),
     y: random(),
   }));
-  return { noiseSeed: Math.floor(random() * 0xffff) + 1, blobs, speckles };
+
+  return {
+    noiseSeed: Math.floor(random() * 0xffff) + 1,
+    patches,
+    blobs,
+    blades,
+    bare,
+    flora,
+    speckles,
+  };
+}
+
+/**
+ * The second, much finer tile that `StandardMaterial.detailMap` multiplies over
+ * the base grass, so the 12 m tile stops reading as a grid. Blades only, and
+ * deliberately no tonal layers — a detail map carries high frequency; anything
+ * low-frequency in here just re-introduces a visible repeat at its own scale.
+ */
+export function buildGrassDetailSpec(seed: number): readonly GrassBlade[] {
+  const random = seededUnit(seed);
+  const prevailing = random() * Math.PI * 2;
+  return Array.from({ length: 520 }, () => ({
+    x: random(),
+    y: random(),
+    angle: prevailing + (random() - 0.5) * 1.9,
+    length: 0.018 + random() * 0.03,
+    width: 0.005 + random() * 0.004,
+    tone: Math.floor(random() * 4),
+  }));
 }
 
 /**

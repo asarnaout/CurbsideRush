@@ -193,11 +193,13 @@ import {
 } from "./trafficSignals";
 import {
   buildAsphaltTextureSpec,
+  buildGrassDetailSpec,
   buildGrassTextureSpec,
   buildHorizonSilhouetteSpec,
   buildPlanarUVs,
   generateRoadsidePropPlacements,
   hashStringToSeed,
+  mixHexColors,
   PAVED_SIDEWALK_WIDTH_M,
   resolveCameraFarPlane,
   resolveEffectiveFogRange,
@@ -205,6 +207,7 @@ import {
   resolveMapVisualPalette,
   seededUnit,
   skyGradientStops,
+  type GrassBlade,
   type MapVisualPalette,
   type PropKindConfig,
 } from "./visuals";
@@ -400,6 +403,21 @@ const ROAD_JUNCTION_FILL_Y = ROAD_SURFACE_Y + 0.0016;
 const ROAD_SHOULDER_Y = 0.045;
 const ROAD_SHOULDER_JUNCTION_FILL_Y = ROAD_SHOULDER_Y - 0.0015;
 const ROAD_POINT_EPSILON_M = 0.08;
+/**
+ * Metres of world per repeat of the grass tile. Every grass surface — the base
+ * ground and every park lawn — uses this one figure so a park never shows a
+ * seam against the ground it sits on.
+ *
+ * Small enough that individual blades read at walking distance; the visible
+ * repeat that follows from that is what `GRASS_DETAIL_TILE_M` exists to break.
+ */
+const GRASS_TILE_M = 12;
+/**
+ * The detail map's own repeat. Deliberately not a divisor of `GRASS_TILE_M` —
+ * 3.1 against 12 beats at ~37 m rather than reinforcing the base tile's grid,
+ * which is the entire point of the second layer.
+ */
+const GRASS_DETAIL_TILE_M = 3.1;
 // Lift every building so no model's base plate lands exactly on the ground
 // plane. Base plates face -Y and are back-face culled, so this is depth-buffer
 // hygiene, not a visible-flicker fix — the Cairo brick-band flicker was never
@@ -4702,37 +4720,191 @@ function createAsphaltTexture(
   return texture;
 }
 
+/**
+ * The four-tone blade ramp, lightest first. `paintGrassBlades` draws a blade in
+ * `ramp[tone]` and its tip in `ramp[tone - 1]`, so a tone-0 blade tips into
+ * pure `grassAlt`. Derived rather than authored so a palette only has to supply
+ * the three greens.
+ */
+function grassBladeRamp(palette: MapVisualPalette): readonly string[] {
+  // A deliberately tight ramp. Running the ends out to white and to the full
+  // `grassDeep` made individual strokes legible as strokes — the lawn read as
+  // scattered pine needles rather than as turf. Grass is a texture, not a set
+  // of drawn objects, so the contrast has to sit below the threshold where the
+  // eye starts counting marks.
+  return [
+    mixHexColors(palette.grassAlt, "#ffffff", 0.1),
+    palette.grassAlt,
+    palette.grassBase,
+    mixHexColors(palette.grassBase, palette.grassDeep, 0.55),
+  ];
+}
+
+/**
+ * Strokes a blade field onto a canvas. Each blade is drawn twice — full length
+ * in its own tone, then its top 45% one ramp step lighter — which is what gives
+ * a flat ground plane its light-from-above read without a normal map.
+ */
+function paintGrassBlades(
+  context: CanvasRenderingContext2D,
+  size: number,
+  blades: readonly GrassBlade[],
+  ramp: readonly string[],
+  alpha: number,
+): void {
+  context.lineCap = "round";
+  context.globalAlpha = alpha;
+  for (const blade of blades) {
+    const x = blade.x * size;
+    const y = blade.y * size;
+    const dx = Math.sin(blade.angle) * blade.length * size;
+    const dy = -Math.cos(blade.angle) * blade.length * size;
+    context.lineWidth = Math.max(0.7, blade.width * size);
+    context.strokeStyle = ramp[blade.tone] ?? ramp[ramp.length - 1];
+    context.beginPath();
+    context.moveTo(x, y);
+    context.lineTo(x + dx, y + dy);
+    context.stroke();
+    // The lit tip. Tone 0 is already the lightest, so it tips into itself.
+    context.strokeStyle = ramp[Math.max(0, blade.tone - 1)];
+    context.beginPath();
+    context.moveTo(x + dx * 0.55, y + dy * 0.55);
+    context.lineTo(x + dx, y + dy);
+    context.stroke();
+  }
+  context.globalAlpha = 1;
+}
+
+/**
+ * The base grass tile. 1024² on desktop so blades survive a mip level or two at
+ * the 12 m tile GRASS_TILE_M sets; 512² on weak devices, where the render scale
+ * would throw the detail away anyway.
+ *
+ * Note there is no `applyLuminanceNoise` pass here any more. It was a full
+ * 1M-pixel getImageData/putImageData round trip whose entire job — high
+ * frequency — the blade field now does far better, and in colour.
+ */
 function createGrassTexture(
   scene: Scene,
   name: string,
   palette: MapVisualPalette,
   seed: number,
+  highDetail: boolean,
 ): DynamicTexture {
-  const size = 512;
+  const size = highDetail ? 1024 : 512;
   const texture = new DynamicTexture(name, size, scene, true);
   const context = textureContext(texture);
+  const spec = buildGrassTextureSpec(seed);
+  const ramp = grassBladeRamp(palette);
+
   context.fillStyle = palette.grassBase;
   context.fillRect(0, 0, size, size);
 
-  const spec = buildGrassTextureSpec(seed);
+  // Large tonal fields first — the layer that still reads once blades have
+  // mipped away at distance.
+  const patchTones = [palette.grassDeep, palette.grassAlt, palette.grassDry];
+  context.globalAlpha = 0.2;
+  for (const patch of spec.patches) {
+    context.fillStyle = patchTones[patch.tone] ?? palette.grassBase;
+    context.beginPath();
+    context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  // Kept low on purpose: these are hard-edged discs, and any higher they read
+  // as circles drawn on the lawn rather than as mottling under it.
+  context.globalAlpha = 0.22;
   context.fillStyle = palette.grassAlt;
   for (const blob of spec.blobs) {
     if (!blob.alt) continue;
-    context.globalAlpha = 0.5;
     context.beginPath();
     context.arc(blob.x * size, blob.y * size, blob.r * size, 0, Math.PI * 2);
     context.fill();
   }
-  context.globalAlpha = 0.35;
+
+  context.globalAlpha = 0.3;
+  context.fillStyle = palette.grassDry;
+  for (const patch of spec.bare) {
+    context.beginPath();
+    context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.globalAlpha = 0.3;
   context.fillStyle = palette.dirtShoulder;
   for (const speckle of spec.speckles) {
     context.beginPath();
-    context.arc(speckle.x * size, speckle.y * size, 2.2, 0, Math.PI * 2);
+    context.arc(speckle.x * size, speckle.y * size, size / 232, 0, Math.PI * 2);
     context.fill();
   }
   context.globalAlpha = 1;
-  applyLuminanceNoise(context, size, spec.noiseSeed, 0.03);
+
+  paintGrassBlades(context, size, spec.blades, ramp, 0.7);
+
+  // Flora last, so a flower head sits on top of the blades rather than under.
+  // Pulled most of the way back toward the grass: at full accent these are
+  // 4-6 px on the tile, which at driving distance reads as white litter
+  // scattered over the lawn rather than as flowers.
+  context.fillStyle = mixHexColors(palette.grassAlt, palette.floraAccent, 0.55);
+  context.globalAlpha = 0.45;
+  for (const flower of spec.flora) {
+    context.beginPath();
+    context.arc(flower.x * size, flower.y * size, flower.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 1;
+
   texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
+ * The detail tile fed to `StandardMaterial.detailMap`.
+ *
+ * **A detail map is not an image — it is four independent channels, and three
+ * of them have a non-zero neutral.** `default.fragment` reads
+ * `baseColor.rgb * 2 · mix(0.5, detailColor.r, diffuseBlendLevel)`, so **R
+ * neutral is 0.5**; and `bumpFragment` reads the tangent-space normal out of
+ * **alpha and green** — `detailNormalRG = detailColor.wy * 2 - 1`, with
+ * `B = sqrt(1 - |RG|²)` — so **A and G neutral is also 0.5**.
+ *
+ * That alpha channel is the trap. A 2D canvas is fully opaque, so A = 1 decodes
+ * as normal.x = 1, which forces B to zero: a tangent normal lying flat along
+ * the surface, pointing 90° away from the sun. It does not look subtle — it
+ * turned Tokyo's grass from (24,68,25) to (3,10,0), i.e. black — and
+ * `bumpLevel = 0` cannot rescue it, because the zeroed `.xy` leaves a
+ * zero-length vector rather than an upright one.
+ *
+ * So the blades are painted as greys (carrying R) and a final pass overwrites
+ * G and A with 128, which is the flat normal. Give this a real normal only by
+ * authoring those two channels deliberately.
+ */
+function createGrassDetailTexture(
+  scene: Scene,
+  name: string,
+  seed: number,
+): DynamicTexture {
+  const size = 256;
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  context.fillStyle = "#808080";
+  context.fillRect(0, 0, size, size);
+  const ramp = ["#a8a8a8", "#949494", "#6e6e6e", "#5a5a5a"];
+  paintGrassBlades(context, size, buildGrassDetailSpec(seed), ramp, 0.55);
+
+  const image = context.getImageData(0, 0, size, size);
+  const data = image.data;
+  for (let index = 0; index < data.length; index += 4) {
+    data[index + 1] = 128; // normal.y neutral
+    data[index + 3] = 128; // normal.x neutral — NOT 255, see above
+  }
+  context.putImageData(image, 0, 0);
+
+  // `update(invertY, premulAlpha)` — premultiply must stay off, or the 0.5
+  // alpha just written would halve the red channel the diffuse blend reads.
+  texture.update(true, false);
   texture.wrapU = Texture.WRAP_ADDRESSMODE;
   texture.wrapV = Texture.WRAP_ADDRESSMODE;
   return texture;
@@ -5232,6 +5404,15 @@ class BabylonGameSession {
   /** Fraction of each block's building wall to build. 1 on desktop; thinned on
    * touch / low-core devices so phones stay playable. */
   private buildingKeepFraction = 1;
+  /**
+   * Touch or few-core device. The quality tier `buildingKeepFraction` is
+   * derived from, kept as its own field because more than one subsystem now
+   * needs the boolean rather than the fraction — the grass tile drops to 512²
+   * and the ground detail map is switched off entirely.
+   */
+  private lowSpec = false;
+  /** Shared fine grass tile for `detailMap`; built lazily, once per session. */
+  private grassDetailTexture: DynamicTexture | null = null;
   /** Keep-out circles (gas station + gig-venue lots) so the block street wall
    * never drops a scenery building on top of an interactive POI. */
   private readonly buildingExclusions: { x: number; z: number; radius: number }[] = [];
@@ -5582,6 +5763,7 @@ class BabylonGameSession {
     const cores =
       (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 8;
     const lowSpec = options.inputCapabilities.touchFirst || cores <= 4;
+    this.lowSpec = lowSpec;
     this.buildingKeepFraction = lowSpec ? 0.5 : 1;
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.68, 0.84, 0.9, 1);
@@ -9888,18 +10070,17 @@ class BabylonGameSession {
       hashStringToSeed(`${mapId}-terminal`),
     );
     // On paved maps this band is the concrete sidewalk (textured like the road
-    // but lighter); elsewhere it stays a flat dirt shoulder.
+    // but lighter); elsewhere it is a worn earth verge. Both go through the
+    // asphalt generator — its noise, soft patches and hairline cracks describe
+    // a scuffed dirt verge as well as they describe tarmac, and a flat colour
+    // beside newly detailed grass is exactly where the eye lands.
     const dirtShoulder = makeMaterial(scene, "scenario-dirt-shoulder", Color3.White());
-    if (paved) {
-      dirtShoulder.diffuseTexture = createAsphaltTexture(
-        scene,
-        "scenario-sidewalk-texture",
-        palette.pavement ?? "#6a6e71",
-        hashStringToSeed(`${mapId}-sidewalk`),
-      );
-    } else {
-      dirtShoulder.diffuseColor = Color3.FromHexString(palette.dirtShoulder);
-    }
+    dirtShoulder.diffuseTexture = createAsphaltTexture(
+      scene,
+      paved ? "scenario-sidewalk-texture" : "scenario-verge-texture",
+      paved ? palette.pavement ?? "#6a6e71" : palette.dirtShoulder,
+      hashStringToSeed(`${mapId}-${paved ? "sidewalk" : "verge"}`),
+    );
     const routeMaterial = makeMaterial(
       scene,
       "scenario-route",
@@ -9958,10 +10139,8 @@ class BabylonGameSession {
           "scenario-ground-texture",
           palette,
           hashStringToSeed(`${mapId}-grass`),
+          !this.lowSpec,
         );
-    const groundTile = paved ? 10 : 16;
-    groundTexture.uScale = groundWidth / groundTile;
-    groundTexture.vScale = groundHeight / groundTile;
     grass.diffuseColor = Color3.White();
     grass.diffuseTexture = groundTexture;
     const ground = MeshBuilder.CreateGround(
@@ -9969,6 +10148,16 @@ class BabylonGameSession {
       { width: groundWidth, height: groundHeight, subdivisions: 1 },
       scene,
     );
+    if (paved) {
+      groundTexture.uScale = groundWidth / 10;
+      groundTexture.vScale = groundHeight / 10;
+    } else {
+      // World-planar UVs instead of a uScale, so park lawns can share both the
+      // tile origin and the detail texture. The ground sits at the world origin
+      // untranslated, so its local positions are already world positions.
+      this.applyWorldPlanarGrassUVs(ground);
+      this.applyGrassDetailMap(grass, mapId);
+    }
     setMeshMaterial(ground, grass, true);
     ground.freezeWorldMatrix();
     this.registerMirrorSurface(ground);
@@ -14706,6 +14895,64 @@ class BabylonGameSession {
    * the length of an avenue, the merged lane paint, the ground, the sky.
    * There are about twenty of these in NYC, so they simply always render.
    */
+  /**
+   * Multiplies a second, much finer grass tile over a grass material so the
+   * base tile stops reading as a grid. One shared `DynamicTexture` per session
+   * — `detailMap.texture` is only a reference, and a 256² canvas per lawn would
+   * be pure waste.
+   *
+   * **`DetailMapConfiguration` is a `MaterialPluginBase`, so it adds a shader
+   * define**: every material that enables it costs one more effect compile at
+   * scene warm-up. Keep the number of materials that call this small, and note
+   * that it is off entirely on low-spec devices, where the render scale throws
+   * the detail away before the player could see it.
+   */
+  private applyGrassDetailMap(material: StandardMaterial, mapId: string) {
+    if (this.lowSpec) return;
+    if (!this.grassDetailTexture) {
+      const texture = createGrassDetailTexture(
+        this.scene,
+        "grass-detail-texture",
+        hashStringToSeed(`${mapId}-grass-detail`),
+      );
+      // One repeat of the BASE tile spans one UV unit (every grass surface is
+      // given world-planar UVs at 1/GRASS_TILE_M), so the detail scale is a
+      // single ratio shared by every caller — which is what lets one texture
+      // object serve them all. Per-mesh uScale would need a texture per mesh.
+      texture.uScale = GRASS_TILE_M / GRASS_DETAIL_TILE_M;
+      texture.vScale = texture.uScale;
+      this.grassDetailTexture = texture;
+    }
+    material.detailMap.texture = this.grassDetailTexture;
+    material.detailMap.diffuseBlendLevel = 0.22;
+    material.detailMap.isEnabled = true;
+  }
+
+  /**
+   * Rewrites a ground mesh's UVs from unit-square to world-planar, so the tile
+   * is anchored to the world rather than to the mesh. Two things depend on it:
+   * a park lawn tiles continuously with the ground plane it sits on instead of
+   * showing a seam at its edge, and every grass surface then shares one UV
+   * convention, which is what makes a single shared detail texture possible.
+   *
+   * `CreateGround` emits local positions, so a lawn that has been moved to its
+   * park centre must pass that offset — otherwise each park restarts the tile
+   * at its own corner and the seam comes straight back.
+   */
+  private applyWorldPlanarGrassUVs(mesh: Mesh, offsetX = 0, offsetZ = 0) {
+    const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+    if (!positions) return;
+    const shifted = Array.from(positions);
+    for (let index = 0; index + 2 < shifted.length; index += 3) {
+      shifted[index] += offsetX;
+      shifted[index + 2] += offsetZ;
+    }
+    mesh.setVerticesData(
+      VertexBuffer.UVKind,
+      buildPlanarUVs(shifted, 1 / GRASS_TILE_M),
+    );
+  }
+
   private registerMirrorSurface(mesh: AbstractMesh | undefined | null) {
     if (mesh) this.mirrorAlways.push(mesh);
   }
@@ -14864,9 +15111,10 @@ class BabylonGameSession {
       "yard-grass-texture",
       yardPalette,
       hashStringToSeed("yard-grass"),
+      !this.lowSpec,
     );
-    yardGrassTexture.uScale = 180 / 16;
-    yardGrassTexture.vScale = 180 / 16;
+    yardGrassTexture.uScale = 180 / GRASS_TILE_M;
+    yardGrassTexture.vScale = 180 / GRASS_TILE_M;
     grass.diffuseTexture = yardGrassTexture;
     // Yard roads are stretched boxes whose 0..1 face UVs would smear a wear
     // texture across their full length; the yard keeps clean flat asphalt.
