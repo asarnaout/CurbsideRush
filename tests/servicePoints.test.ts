@@ -45,12 +45,6 @@ const RENDERED_PUMPS: Record<string, readonly (readonly [number, number])[]> = {
     [-292.81, -504.39],
     [-292.81, -500.92],
   ],
-  "milton-keynes-oldbrook": [
-    [17.82, -105.22],
-    [21.29, -105.22],
-    [21.29, -97.81],
-    [17.82, -97.81],
-  ],
 };
 
 describe("gas-station pumps", () => {

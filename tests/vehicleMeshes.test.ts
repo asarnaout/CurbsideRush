@@ -43,7 +43,7 @@ import {
 describe("createVehicleMesh (no model loaded → placeholder)", () => {
   const trafficInputs: TrafficVehicleAppearanceInput[] = [
     { vehicleId: "npc-1", trafficSeed: 42, variant: "car", mapId: "nyc-upper-west-side" },
-    { vehicleId: "van-1", trafficSeed: 42, variant: "van", mapId: "calais-coquelles" },
+    { vehicleId: "van-1", trafficSeed: 42, variant: "van", mapId: "nyc-upper-west-side" },
     { vehicleId: "bus-1", trafficSeed: 42, variant: "bus", mapId: "tokyo-setagaya" },
     { vehicleId: "ldn-bus", trafficSeed: 42, variant: "bus", mapId: "london-south-kensington" },
     { vehicleId: "cairo-1", trafficSeed: 42, variant: "car", mapId: "cairo-central-nile" },
@@ -475,8 +475,6 @@ describe("patrol kit on the real vehicle models", () => {
     for (const mapId of [
       "nyc-upper-west-side",
       "london-south-kensington",
-      "milton-keynes-oldbrook",
-      "calais-coquelles",
       "tokyo-setagaya",
       "cairo-central-nile",
     ]) {

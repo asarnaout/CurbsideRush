@@ -17,7 +17,7 @@ nothing runs test/lint/typecheck unless you do.
 ## The fast loop
 
 `npm test` takes about two minutes and **almost all of it is one file** —
-`tests/trafficSafetyAcceptance.test.ts` (6 cities × every start/checkpoint × 51
+`tests/trafficSafetyAcceptance.test.ts` (4 cities × every start/checkpoint × 51
 seeds × 60 s of sim). Everything else runs in ~12 s. Use the fast loop while
 iterating, the full suite before committing:
 
@@ -96,7 +96,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 
 | Test | What it pins |
 |---|---|
-| `trafficSafetyAcceptance` | Determinism (trace hash over two replays) + no collisions across 6 cities × 51 seeds |
+| `trafficSafetyAcceptance` | Determinism (trace hash over two replays) + no collisions across 4 cities × 51 seeds |
 | `content` / `cairoContent` / `londonContent` | Lane-graph continuity, "every lane has somewhere legal to go" |
 | `roadRealism` | Only speed figures that country actually signs |
 | `careerBalance` | Rent + fee ≤ 4 median gig nets; tickets reachable in 3–20 days |

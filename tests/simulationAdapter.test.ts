@@ -66,7 +66,7 @@ describe("simulation runtime adapter (free-roam)", () => {
     //
     // `roadRealism.test.ts` cannot catch a mixup here on its own: its mph and
     // km/h posted-figure lists overlap on {20,30,40,50,60,70}, which is every
-    // figure Tokyo and Calais post — so a metric city quietly read as imperial
+    // figure Tokyo and Cairo post — so a metric city quietly read as imperial
     // would pass it. This is the test that fails instead.
     for (const freeDrive of FREE_DRIVES) {
       const country = getCountryProfile(freeDrive.countryId);

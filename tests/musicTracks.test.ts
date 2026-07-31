@@ -11,13 +11,11 @@ import type { DestinationId } from "../app/game/types";
 const DESTINATIONS: DestinationId[] = [
   "us-nyc",
   "uk-london",
-  "uk-milton-keynes",
-  "fr-calais",
   "jp-tokyo",
   "eg-cairo",
 ];
 
-const LEGACY_SHARED_TRACK_IDS = [
+const PRE_CAIRO_TRACK_IDS = [
   "nyc-upper-west-glide",
   "nyc-west-end-glide",
   "nyc-midnight-bridge-loop",
@@ -28,8 +26,6 @@ const LEGACY_SHARED_TRACK_IDS = [
   "nyc-tribeca-after-midnight",
   "london-exhibition-road-glide-1",
   "london-exhibition-road-glide-2",
-  "calais-coast-run-1",
-  "calais-coast-run-2",
   "tokyo-setagaya-glide",
   "tokyo-setagaya-morning",
 ] as const;
@@ -65,11 +61,9 @@ const CAIRO_TRACKS = [
 const EXISTING_DESTINATION_POOLS: Readonly<
   Record<Exclude<DestinationId, "eg-cairo">, readonly string[]>
 > = {
-  "us-nyc": LEGACY_SHARED_TRACK_IDS.slice(0, 8),
-  "uk-london": LEGACY_SHARED_TRACK_IDS.slice(8, 10),
-  "uk-milton-keynes": LEGACY_SHARED_TRACK_IDS,
-  "fr-calais": LEGACY_SHARED_TRACK_IDS.slice(10, 12),
-  "jp-tokyo": LEGACY_SHARED_TRACK_IDS.slice(12, 14),
+  "us-nyc": PRE_CAIRO_TRACK_IDS.slice(0, 8),
+  "uk-london": PRE_CAIRO_TRACK_IDS.slice(8, 10),
+  "jp-tokyo": PRE_CAIRO_TRACK_IDS.slice(10, 12),
 };
 
 /** Deterministic source so shuffle assertions do not flake. */
@@ -96,7 +90,6 @@ describe("music catalogue", () => {
         id: expected.id,
         url: expected.url,
         destinationId: "eg-cairo",
-        includeInFallback: false,
       });
       const digest = createHash("sha256")
         .update(readFileSync(`public${expected.url}`))
@@ -106,21 +99,21 @@ describe("music catalogue", () => {
   });
 
   it("has unique ids and urls", () => {
-    expect(MUSIC_TRACKS).toHaveLength(19);
+    expect(MUSIC_TRACKS).toHaveLength(17);
     expect(new Set(MUSIC_TRACKS.map((track) => track.id)).size).toBe(MUSIC_TRACKS.length);
     expect(new Set(MUSIC_TRACKS.map((track) => track.url)).size).toBe(MUSIC_TRACKS.length);
   });
 });
 
 describe("city matching", () => {
-  it("plays a city its own music where it has some", () => {
+  it("plays every city its own music, and only its own", () => {
+    // There is no shared fallback any more, so an empty pool is silence. This
+    // is the cover for a new city shipping without a soundtrack.
     for (const destinationId of DESTINATIONS) {
       const pool = tracksForDestination(destinationId);
       expect(pool.length, destinationId).toBeGreaterThan(0);
       const owned = MUSIC_TRACKS.filter((track) => track.destinationId === destinationId);
-      if (owned.length > 0) {
-        expect(pool.map((track) => track.id).sort()).toEqual(owned.map((track) => track.id).sort());
-      }
+      expect(pool.map((track) => track.id).sort()).toEqual(owned.map((track) => track.id).sort());
     }
   });
 
@@ -152,17 +145,6 @@ describe("city matching", () => {
         destinationId,
       ).toEqual(expectedIds);
     }
-  });
-
-  it("falls back to the legacy shared catalogue where no city music ships", () => {
-    expect(
-      MUSIC_TRACKS.some(
-        (track) => track.destinationId === "uk-milton-keynes",
-      ),
-    ).toBe(false);
-    expect(
-      tracksForDestination("uk-milton-keynes").map(({ id }) => id),
-    ).toEqual(LEGACY_SHARED_TRACK_IDS);
   });
 });
 
@@ -206,7 +188,7 @@ describe("shuffle bag", () => {
   });
 
   it("does not favour any track over many draws", () => {
-    const pool = tracksForDestination("uk-milton-keynes");
+    const pool = tracksForDestination("us-nyc");
     const counts = new Map<string, number>();
     const random = seeded(99);
     const rounds = 4000;

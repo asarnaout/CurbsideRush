@@ -79,8 +79,6 @@ signal poles — nothing else reads it, and nothing warns.
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
 | `tokyo-setagaya` | 56 | 20 | 5.5 | 0 | 0 | 600 × 420 |
 | `london-south-kensington` | 40 | 13 | 4.7 | 2 | 1 | 800 × 540 |
-| `milton-keynes-oldbrook` | 21 | 10 | 3.9 | 0 | 0 | 1500 × 300 |
-| `calais-coquelles` | 20 | 10 | 2.2 | 0 | 0 | 680 × 300 |
 
 ### NYC is declared as a grid, not written lane by lane
 
@@ -235,8 +233,10 @@ MK/London gas stations are anchored on far-side lanes and Tokyo's needs
 ## Private authoring helpers are duplicated per city
 
 `content.ts` and `londonContent.ts` each carry their own `point`, `node`,
-`laneTrue`, `arcPoints`, `turningLoop`, `connectorConflictZones`; Cairo has a
-separate road-spec generator. **Fixing one does not fix the others.**
+`laneTrue`, `connectorConflictZones`; Cairo has a separate road-spec generator.
+**Fixing one does not fix the others.** `arcPoints`/`turningLoop` now live only
+in `londonContent.ts` — content.ts's copies went with the maps that used them,
+so a new turning loop outside London means writing or lifting one.
 
 ## The frozen OSM data is provenance only
 

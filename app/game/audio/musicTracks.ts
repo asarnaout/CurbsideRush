@@ -1,10 +1,12 @@
 /**
  * The soundtrack, and which city each piece belongs to.
  *
- * The tracks were written per-destination, so a drive through South Kensington
- * gets the South Kensington music rather than something about Tokyo. Milton
- * Keynes has no piece of its own and retains the original shared set instead.
- * Cairo's five strongly local pieces are isolated from that fallback.
+ * The tracks are written per-destination, so a drive through South Kensington
+ * gets the South Kensington music rather than something about Tokyo. **Every
+ * city must own at least one piece**: there is no shared fallback pool any
+ * more — the one existed for Milton Keynes, which had no music of its own —
+ * so a city listed in `DestinationId` with nothing here simply drives in
+ * silence, and nothing warns. `musicTracks.test.ts` holds the cover.
  *
  * Pure: no DOM, no audio element, so the selection logic is unit-testable.
  */
@@ -16,11 +18,6 @@ export interface MusicTrack {
   readonly url: string;
   /** Null when the piece is not tied to a particular city. */
   readonly destinationId: DestinationId | null;
-  /**
-   * False for strongly local pieces that must not enter another city's shared
-   * fallback pool. Owned tracks still play normally in their destination.
-   */
-  readonly includeInFallback?: boolean;
 }
 
 const BASE = "/audio/music";
@@ -36,29 +33,18 @@ export const MUSIC_TRACKS: readonly MusicTrack[] = [
   { id: "nyc-tribeca-after-midnight", title: "Tribeca After Midnight", url: `${BASE}/nyc-tribeca-after-midnight.mp3`, destinationId: "us-nyc" },
   { id: "london-exhibition-road-glide-1", title: "Exhibition Road Glide", url: `${BASE}/london-exhibition-road-glide-1.mp3`, destinationId: "uk-london" },
   { id: "london-exhibition-road-glide-2", title: "Exhibition Road Glide (II)", url: `${BASE}/london-exhibition-road-glide-2.mp3`, destinationId: "uk-london" },
-  { id: "calais-coast-run-1", title: "Calais Coast Run", url: `${BASE}/calais-coast-run-1.mp3`, destinationId: "fr-calais" },
-  { id: "calais-coast-run-2", title: "Calais Coast Run (II)", url: `${BASE}/calais-coast-run-2.mp3`, destinationId: "fr-calais" },
   { id: "tokyo-setagaya-glide", title: "Setagaya Glide", url: `${BASE}/tokyo-setagaya-glide.mp3`, destinationId: "jp-tokyo" },
   { id: "tokyo-setagaya-morning", title: "Setagaya Morning", url: `${BASE}/tokyo-setagaya-morning.mp3`, destinationId: "jp-tokyo" },
-  { id: "cairo-maadi-road", title: "طريق المعادي", url: `${BASE}/cairo-maadi-road.mp3`, destinationId: "eg-cairo", includeInFallback: false },
-  { id: "cairo-october-bridge-glide", title: "October Bridge Glide", url: `${BASE}/cairo-october-bridge-glide.mp3`, destinationId: "eg-cairo", includeInFallback: false },
-  { id: "cairo-heliopolis-after-dark", title: "Heliopolis After Dark", url: `${BASE}/cairo-heliopolis-after-dark.mp3`, destinationId: "eg-cairo", includeInFallback: false },
-  { id: "cairo-nile-loop-drive", title: "Nile Loop Drive", url: `${BASE}/cairo-nile-loop-drive.mp3`, destinationId: "eg-cairo", includeInFallback: false },
-  { id: "cairo-corniche-after-sunset", title: "Corniche After Sunset", url: `${BASE}/cairo-corniche-after-sunset.mp3`, destinationId: "eg-cairo", includeInFallback: false },
+  { id: "cairo-maadi-road", title: "طريق المعادي", url: `${BASE}/cairo-maadi-road.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-october-bridge-glide", title: "October Bridge Glide", url: `${BASE}/cairo-october-bridge-glide.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-heliopolis-after-dark", title: "Heliopolis After Dark", url: `${BASE}/cairo-heliopolis-after-dark.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-nile-loop-drive", title: "Nile Loop Drive", url: `${BASE}/cairo-nile-loop-drive.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-corniche-after-sunset", title: "Corniche After Sunset", url: `${BASE}/cairo-corniche-after-sunset.mp3`, destinationId: "eg-cairo" },
 ];
 
-const SHARED_FALLBACK_TRACKS = MUSIC_TRACKS.filter(
-  (track) => track.includeInFallback !== false,
-);
-
-/**
- * The pool a given city draws from: its own pieces, or the shared fallback when
- * it has none. Strongly local tracks opt out so Cairo music cannot leak into
- * Milton Keynes's otherwise unchanged catalogue.
- */
+/** The pool a given city draws from: its own pieces, and nothing else. */
 export function tracksForDestination(destinationId: DestinationId): readonly MusicTrack[] {
-  const owned = MUSIC_TRACKS.filter((track) => track.destinationId === destinationId);
-  return owned.length > 0 ? owned : SHARED_FALLBACK_TRACKS;
+  return MUSIC_TRACKS.filter((track) => track.destinationId === destinationId);
 }
 
 /**

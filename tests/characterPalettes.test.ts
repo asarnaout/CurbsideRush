@@ -16,8 +16,6 @@ const MAPS = [
   "london-south-kensington",
   "tokyo-setagaya",
   "cairo-central-nile",
-  "calais-coquelles",
-  "milton-keynes-oldbrook",
   "orientation-yard",
 ];
 

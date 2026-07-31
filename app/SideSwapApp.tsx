@@ -346,17 +346,13 @@ function useGamepadUiNavigation(
 const DESTINATION_PREVIEW_IMAGES: Record<DestinationId, string> = {
   "uk-london": "/landing/london.webp",
   "us-nyc": "/landing/nyc.webp",
-  "uk-milton-keynes": "/landing/milton-keynes.webp",
-  "fr-calais": "/landing/calais.webp",
   "jp-tokyo": "/landing/tokyo.webp",
   "eg-cairo": "/landing/cairo.webp",
 };
 
-// Horizontal focus for the cover-cropped preview. Defaults to centre; Calais is
-// nudged right so the lighthouse on the image's right edge stays in frame.
-const DESTINATION_PREVIEW_FOCUS: Partial<Record<DestinationId, string>> = {
-  "fr-calais": "64% center",
-};
+// Horizontal focus for the cover-cropped preview, for a city whose subject sits
+// off-centre. Anything absent takes the default `center`.
+const DESTINATION_PREVIEW_FOCUS: Partial<Record<DestinationId, string>> = {};
 
 /**
  * Everything the travel board shows about a city, pulled from the profiles that
@@ -3725,8 +3721,6 @@ function CreditsView({ onBack }: { onBack: () => void }) {
   const extracts = [
     ["New York", "nyc-upper-west.json"],
     ["London — South Kensington", "uk-london-south-kensington.json"],
-    ["Milton Keynes", "uk-milton-keynes.json"],
-    ["Calais / Coquelles", "fr-calais-coquelles.json"],
     ["Tokyo Setagaya", "jp-setagaya.json"],
     ["Cairo — Central Nile", "eg-cairo-central-nile.json"],
   ] as const;
@@ -3742,7 +3736,7 @@ function CreditsView({ onBack }: { onBack: () => void }) {
       </div>
       <article className="license-card">
         <h3 className="credits-section-title"><span className="settings-card-dot dot-sage" aria-hidden="true" />Map data — frozen, credited, separate from the law</h3>
-        <p>Curbside Rush includes compact snapshots for Upper West Side, South Kensington, Milton Keynes, Calais/Coquelles, Setagaya and Central Cairo. Each extract records its bounds, freeze timestamp, source and content checksums, and importer version. The game makes no runtime map requests.</p>
+        <p>Curbside Rush includes compact snapshots for Upper West Side, South Kensington, Setagaya and Central Cairo. Each extract records its bounds, freeze timestamp, source and content checksums, and importer version. The game makes no runtime map requests.</p>
         <div className="map-downloads" aria-label="Download frozen map extracts">
           {extracts.map(([label, filename]) => (
             <a key={filename} href={`/map-data/${filename}`} download>

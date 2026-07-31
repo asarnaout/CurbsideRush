@@ -367,9 +367,9 @@ public-space character, and currency naming:
   retained below for provenance. Tests pin each repository copy to the exact
   SHA-256 of the supplied master.
 
-  Tracks are matched to the city they were written for. Cairo draws only from
-  its five tracks, which are excluded from every other destination; Milton
-  Keynes retains the original shared 14-track pool. Original download names are
+  Tracks are matched to the city they were written for, and a city plays only
+  its own. Two pieces written for Calais (`calais-coast-run-1/2.mp3`, Suno
+  `track4`/`track5`) were removed with that map. Original download names are
   kept here so the files can be traced back to the Suno account:
 
   | File | Title | City | Source |
@@ -384,8 +384,6 @@ public-space character, and currency naming:
   | `nyc-tribeca-after-midnight.mp3` | Tribeca After Midnight | NYC | Tribeca After Midnight |
   | `london-exhibition-road-glide-1.mp3` | Exhibition Road Glide | London | track2 |
   | `london-exhibition-road-glide-2.mp3` | Exhibition Road Glide | London | track3 |
-  | `calais-coast-run-1.mp3` | Calais Coast Run | Calais | track4 |
-  | `calais-coast-run-2.mp3` | Calais Coast Run | Calais | track5 |
   | `tokyo-setagaya-glide.mp3` | Setagaya Glide | Tokyo | track6 |
   | `tokyo-setagaya-morning.mp3` | Setagaya Morning | Tokyo | track8 |
   | `cairo-maadi-road.mp3` | طريق المعادي | Cairo | طريق المعادي |

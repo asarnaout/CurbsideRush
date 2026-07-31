@@ -52,6 +52,7 @@ import {
   type SettlementResult,
 } from "../app/game/career";
 import { DESTINATION_PROFILES } from "../app/game/content";
+import type { DestinationId } from "../app/game/types";
 
 const log = (overrides: Partial<DayLedgerInput> = {}): DayLedgerInput => ({
   ...emptyDayLog(),
@@ -608,10 +609,11 @@ describe("the city ladder", () => {
     expect(CAREER_START_CITY).toBe("us-nyc");
   });
 
-  it("leaves Milton Keynes and Calais to free drive", () => {
-    expect(isCareerCity("uk-milton-keynes")).toBe(false);
-    expect(isCareerCity("fr-calais")).toBe(false);
-    expect(nextCareerCity("fr-calais")).toBeNull();
+  it("puts every shipped destination on the ladder", () => {
+    for (const destination of DESTINATION_PROFILES) {
+      expect(isCareerCity(destination.id), destination.id).toBe(true);
+    }
+    expect(CAREER_CITIES).toHaveLength(DESTINATION_PROFILES.length);
   });
 
   it("walks forward and stops at the end", () => {
@@ -620,7 +622,7 @@ describe("the city ladder", () => {
     expect(nextCareerCity("eg-cairo")).toBe("uk-london");
     expect(nextCareerCity(CAREER_CITIES[CAREER_CITIES.length - 1])).toBeNull();
     expect(careerCityIndex("us-nyc")).toBe(0);
-    expect(careerCityIndex("uk-milton-keynes")).toBe(-1);
+    expect(careerCityIndex("nowhere-city" as DestinationId)).toBe(-1);
   });
 
   it("gives every ladder city a starting float and a full vehicle catalog", () => {
@@ -953,7 +955,7 @@ describe("per-day seeds", () => {
 
 describe("vehicle catalog invariants", () => {
   it("lists rents strictly ascending in every country", () => {
-    for (const country of ["us", "uk", "fr", "jp", "eg"] as const) {
+    for (const country of ["us", "uk", "jp", "eg"] as const) {
       const rents = CAREER_VEHICLES.map((vehicle) => vehicle.rentByCountry[country]);
       for (let index = 1; index < rents.length; index += 1) {
         expect(rents[index], `${country} tier ${index}`).toBeGreaterThan(
@@ -1035,7 +1037,7 @@ describe("vehicle catalog invariants", () => {
   });
 
   it("prices integer rents, fees and starting cash in every country", () => {
-    for (const country of ["us", "uk", "fr", "jp", "eg"] as const) {
+    for (const country of ["us", "uk", "jp", "eg"] as const) {
       expect(Number.isSafeInteger(CAREER_STARTING_CASH_BY_COUNTRY[country])).toBe(true);
       expect(Number.isSafeInteger(PLATFORM_FEE_BY_COUNTRY[country])).toBe(true);
       for (const vehicle of CAREER_VEHICLES) {
@@ -1166,21 +1168,21 @@ describe("rent and buyout", () => {
 describe("createCareerSlice", () => {
   it("starts on day 1 with the country's seed cash and a clean sheet", () => {
     const slice = createCareerSlice({
-      destinationId: "fr-calais",
+      destinationId: "eg-cairo",
       careerSeed: 5,
     });
     const city = activeCity(slice);
     expect(city.day).toBe(1);
-    expect(city.cash).toBe(CAREER_STARTING_CASH_BY_COUNTRY.fr);
+    expect(city.cash).toBe(CAREER_STARTING_CASH_BY_COUNTRY.eg);
     expect(city.loan).toBeNull();
     expect(city.finalNotice).toBe(false);
     expect(city.ownedVehicleIds).toEqual([]);
-    expect(city.countryId).toBe("fr");
+    expect(city.countryId).toBe("eg");
     expect(slice.state).toBe("active");
     expect(slice.rule).toBe("grace");
     expect(slice.victoryDay).toBeNull();
     // Only the starting city exists: presence in `cities` is the unlock.
-    expect(Object.keys(slice.cities)).toEqual(["fr-calais"]);
+    expect(Object.keys(slice.cities)).toEqual(["eg-cairo"]);
     expect(parseCareerSlice(JSON.parse(JSON.stringify(slice)))).toEqual(slice);
   });
 

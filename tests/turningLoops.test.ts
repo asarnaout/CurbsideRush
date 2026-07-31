@@ -19,15 +19,13 @@ function pointSegDist(p: Pt, a: Pt, b: Pt): number {
 const end = (cl: readonly WorldPoint[]) => cl[cl.length - 1];
 const start = (cl: readonly WorldPoint[]) => cl[0];
 
-// The four dead-end stubs that were converted into single-arm turning loops.
+// The dead-end stubs that were converted into single-arm turning loops.
 const LOOPS: ReadonlyArray<{
   map: MapId;
   prefix: string;
   arrive: string; // lane arriving at the old dead node (now feeds the loop)
   depart: string; // lane leaving the old dead node (fed by the loop's return arc)
 }> = [
-  { map: "milton-keynes-oldbrook", prefix: "uk-westloop", arrive: "uk-westgrid-out", depart: "uk-westgrid-in" },
-  { map: "calais-coquelles", prefix: "fr-westloop", arrive: "fr-westgrid-out", depart: "fr-westgrid-in" },
   { map: "london-south-kensington", prefix: "london-brompton-loop", arrive: "london-cromwell-east-3", depart: "london-cromwell-west-0" },
   { map: "london-south-kensington", prefix: "london-gloucester-loop", arrive: "london-gloucester-s-2", depart: "london-gloucester-n-1" },
 ];

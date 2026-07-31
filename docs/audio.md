@@ -23,11 +23,14 @@ Safari only honours resume/play in the same task as the gesture. **Moving either
 into an effect silently kills sound.** Two such pairings exist and both are
 load-bearing: `beginDrive` and `beginCareerDay`.
 
-## Music pools are per destination
+## Music pools are per destination, and there is no fallback
 
-`musicTracks.ts` owns them. Cairo's five pieces set `includeInFallback: false` so
-they cannot play elsewhere, while a city with no owned music keeps the legacy
-common pool.
+`musicTracks.ts` owns them: a city plays its own pieces and only those. The
+shared fallback pool (and Cairo's `includeInFallback: false` opt-out from it)
+existed for Milton Keynes, which shipped without music; both went when that map
+did. **A destination with no track listed now drives in silence** — `playNext`
+handles the empty pool without erroring, so nothing warns. `musicTracks.test.ts`
+is the cover.
 
 ## Always schedule, never assign
 

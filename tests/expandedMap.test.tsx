@@ -154,7 +154,7 @@ describe("the whole-city map", () => {
   });
 
   it("turns the same city sideways when the city is wide", () => {
-    // Milton Keynes is 1500x300. Same rule, opposite result.
+    // A 1500x300 corridor city. Same rule, opposite result.
     renderMap({ worldSize: { x: 1500, z: 300 } });
     const canvas = screen.getByTestId("expanded-map").querySelector("canvas")!;
     const width = Number.parseFloat(canvas.style.width);
@@ -215,9 +215,8 @@ describe("the whole-city map", () => {
   });
 
   it("fades a family the city has none of", () => {
-    // Milton Keynes, Calais and Tokyo have no traffic lights at all, so no
-    // cameras — worth the difference between "not found one yet" and "there
-    // are none to find".
+    // Tokyo has no traffic lights at all, so no cameras — worth the difference
+    // between "not found one yet" and "there are none to find".
     renderMap();
     const rows = screen.getAllByTestId("map-legend-row");
     const cameras = rows.find((row) => row.dataset.poiKind === "camera")!;
@@ -356,8 +355,8 @@ describe("an offer docked into the map (#241)", () => {
   });
 
   it("yields the legend only where the panel is too short even for that", () => {
-    // Milton Keynes is 1500x300 — fitted, its panel is a letterbox barely
-    // taller than the card itself, and no arrangement keeps five legend rows.
+    // Fitted, a 1500x300 corridor city's panel is a letterbox barely taller
+    // than the card itself, and no arrangement keeps five legend rows.
     // A clipped ACCEPT would be far worse than a key the player has read.
     renderMap({
       dockedOffer: docked(),

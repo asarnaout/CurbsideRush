@@ -6,8 +6,6 @@ import { describe, expect, it } from "vitest";
 const extracts = {
   "nyc-upper-west": [40.7758, -73.9848, 40.7818, -73.978],
   "uk-london-south-kensington": [51.4938, -0.1818, 51.5006, -0.1698],
-  "uk-milton-keynes": [52.0268, -0.773, 52.034, -0.761],
-  "fr-calais-coquelles": [50.929, 1.795, 50.938, 1.811],
   "jp-setagaya": [35.644, 139.64, 35.652, 139.653],
 } as const;
 

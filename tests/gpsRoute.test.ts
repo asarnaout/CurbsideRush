@@ -563,7 +563,7 @@ describe("gps legs merge on the street, not the surface", () => {
   });
 
   it("falls back to road ids when the city has no names", () => {
-    // Milton Keynes and Calais ship unnamed, and must still produce legs.
+    // A map may ship with no roadNames at all, and must still produce legs.
     const unnamed = buildGpsGraph(split);
     const route = findGpsRoute(unnamed, { x: -90, z: 0 }, HEADING_EAST, { x: 0, z: 310 });
     expect(route.legs.map((leg) => leg.roadId)).toEqual([

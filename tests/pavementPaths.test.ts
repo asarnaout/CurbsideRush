@@ -119,9 +119,8 @@ const CROSSROADS: PavementSurface[] = [
 ];
 const SIDEWALK = 3.4;
 
-// The four maps that keep their crowds; Calais and Milton Keynes are being
-// retired. Sidewalk widths mirror GameCanvas's shoulder derivation: paved maps
-// get the 3.4 m band, the rest max(0.9, geometry.shoulderWidth ?? 1.2).
+// Every shipped map. Sidewalk widths mirror GameCanvas's shoulder derivation:
+// paved maps get the 3.4 m band, the rest max(0.9, geometry.shoulderWidth ?? 1.2).
 const TARGET_MAPS = [
   "nyc-upper-west-side",
   "tokyo-setagaya",

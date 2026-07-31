@@ -3946,8 +3946,6 @@ const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructiblePropConfig>
   bollard: { radiusM: 0.25, speedScale: 0.92, damage: "light", noun: "a bollard", fall: "topple" },
   vending: { radiusM: 0.6, speedScale: 0.88, damage: "light", noun: "a vending machine", fall: "topple" },
   vendor: { radiusM: 1.15, speedScale: 0.85, damage: "light", noun: "a vendor cart", fall: "topple" },
-  hedge: { radiusM: 1.25, speedScale: 0.88, damage: "light", noun: "a hedge", fall: "squash" },
-  "dune-tuft": { radiusM: 0.5, speedScale: 1, damage: "none", noun: "a dune tuft", fall: "squash" },
   "london-lamp": { radiusM: 0.32, speedScale: 0.74, damage: "medium", noun: "a lamp post", fall: "topple" },
   "london-bollard": { radiusM: 0.25, speedScale: 0.92, damage: "light", noun: "a bollard", fall: "topple" },
   "london-planter": { radiusM: 0.58, speedScale: 0.85, damage: "light", noun: "a planter", fall: "topple" },
@@ -4025,8 +4023,8 @@ const PROP_SIGN: PropKindConfig = {
 // instances (crowdRenderer). Counts are per map — the whole crowd costs a few
 // meshes regardless, so these are set by how busy each city should feel, not
 // by a draw-call budget. Radii track each map's fog: recycling happens beyond
-// what the player can see. Maps absent here (the orientation yard, the two
-// cities being retired) have no ambient crowd.
+// what the player can see. Maps absent here (the orientation yard) have no
+// ambient crowd.
 const AMBIENT_CROWD_CONFIG: Readonly<
   Record<
     string,
@@ -4045,7 +4043,7 @@ const AMBIENT_CROWD_CONFIG: Readonly<
 };
 
 /** Bubble radii for the scenario road users on maps with no crowd config
- * (Calais, Milton Keynes): they walk the same rails, just fewer of them. */
+ * (today only the orientation yard): they walk the same rails, just fewer. */
 const DEFAULT_ROAD_USER_RADII = {
   innerRadiusM: 18,
   outerRadiusM: 110,
@@ -4118,46 +4116,6 @@ function roadsidePropKindsForMap(
       // Street lamps are hand-placed for South Kensington; scattered props
       // stay clear of them via LONDON_FURNITURE_POINTS.
       return [{ ...PROP_TREE, spacingM: 30 }, PROP_SIGN];
-    case "milton":
-      return [
-        { ...PROP_TREE, spacingM: 20 },
-        {
-          kind: "hedge",
-          spacingM: 34,
-          jitterM: 10,
-          lateralMarginM: 1.6,
-          bothSides: true,
-          variants: 1,
-          minScale: 0.9,
-          maxScale: 1.4,
-          faceRoad: true,
-        },
-        PROP_SIGN,
-        { ...PROP_STREETLIGHT, spacingM: 52 },
-      ];
-    case "calais":
-      return [
-        { ...PROP_TREE, spacingM: 42 },
-        {
-          kind: "bollard",
-          spacingM: 24,
-          jitterM: 5,
-          lateralMarginM: 0.9,
-          bothSides: true,
-          variants: 1,
-        },
-        {
-          kind: "dune-tuft",
-          spacingM: 18,
-          jitterM: 7,
-          lateralMarginM: 2.6,
-          bothSides: true,
-          variants: 1,
-          minScale: 0.7,
-          maxScale: 1.5,
-        },
-        PROP_SIGN,
-      ];
     case "tokyo":
       return [
         {
@@ -10851,33 +10809,15 @@ class BabylonGameSession {
           );
         }
       } else if (landmark.kind === "park") {
-        const isRoundaboutIsland = landmark.id.includes("roundabout");
-        if (isRoundaboutIsland) {
-          // A central island is circular and stays below the road mesh. The
-          // former raised square park overpainted the inner edge of Calais and
-          // Milton Keynes roundabouts, leaving an implausible green wedge.
-          createCylinder(
-            scene,
-            landmark.id,
-            {
-              height: 0.035,
-              diameter: Math.min(landmark.size.x, landmark.size.z),
-              tessellation: 32,
-            },
-            new Vector3(landmark.center.x, 0.018, landmark.center.z),
-            material,
-          );
-        } else {
-          // Parks sit flush with the terrain so roads retain visual priority
-          // wherever an authored surface passes their footprint.
-          createBox(
-            scene,
-            landmark.id,
-            { width: landmark.size.x, height: 0.02, depth: landmark.size.z },
-            new Vector3(landmark.center.x, 0.01, landmark.center.z),
-            material,
-          );
-        }
+        // Parks sit flush with the terrain so roads retain visual priority
+        // wherever an authored surface passes their footprint.
+        createBox(
+          scene,
+          landmark.id,
+          { width: landmark.size.x, height: 0.02, depth: landmark.size.z },
+          new Vector3(landmark.center.x, 0.01, landmark.center.z),
+          material,
+        );
         createCylinder(
           scene,
           `${landmark.id}-feature`,
@@ -12117,9 +12057,7 @@ class BabylonGameSession {
             ),
           ];
     const hydrantRed = material("hydrant", new Color3(0.62, 0.1, 0.07));
-    const hedgeGreen = material("hedge", new Color3(0.15, 0.32, 0.15));
     const bollardPale = material("bollard", new Color3(0.75, 0.76, 0.72));
-    const tuftSand = material("dune-tuft", new Color3(0.55, 0.6, 0.35));
     const poleWood = material("utility-pole", new Color3(0.35, 0.32, 0.28));
     const vendingBodies = [
       material("vending-red", new Color3(0.68, 0.14, 0.13)),
@@ -12403,14 +12341,6 @@ class BabylonGameSession {
             },
           ];
           break;
-        case "hedge":
-          parts = [
-            {
-              master: masterBox(cacheKey, { width: 2.6, height: 1.05, depth: 0.95 }, hedgeGreen),
-              offset: new Vector3(0, 0.52, 0),
-            },
-          ];
-          break;
         case "bollard":
           parts = [
             {
@@ -12420,18 +12350,6 @@ class BabylonGameSession {
                 bollardPale,
               ),
               offset: new Vector3(0, 0.43, 0),
-            },
-          ];
-          break;
-        case "dune-tuft":
-          parts = [
-            {
-              master: masterCylinder(
-                cacheKey,
-                { height: 0.55, diameterTop: 0.05, diameterBottom: 1.15 },
-                tuftSand,
-              ),
-              offset: new Vector3(0, 0.28, 0),
             },
           ];
           break;
@@ -12545,9 +12463,7 @@ class BabylonGameSession {
       signPost,
       ...signPanels,
       hydrantRed,
-      hedgeGreen,
       bollardPale,
-      tuftSand,
       poleWood,
       ...vendingBodies,
       vendingPanel,
@@ -14407,7 +14323,7 @@ class BabylonGameSession {
   /**
    * Subtle PCF sun shadows. The render list is rebuilt around the player at
    * a slow cadence so the auto-computed directional frustum stays tight even
-   * on the 1.5 km Milton Keynes corridor.
+   * on the 3 km NYC grid.
    */
   private createSunShadows(sun: DirectionalLight) {
     sun.diffuse = Color3.FromHexString(this.visualPalette.sunTint);

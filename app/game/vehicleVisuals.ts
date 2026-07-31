@@ -25,18 +25,17 @@ export type TrafficVehicleVariant = "car" | "taxi" | "bus" | "van" | "police";
 export type VehicleAppearanceRole = TrafficVehicleVariant | "player" | "police";
 
 /** Country whose number-plate design a vehicle wears, derived from the map. */
-export type PlateRegion = "uk" | "us" | "fr" | "jp" | "eg";
+export type PlateRegion = "uk" | "us" | "jp" | "eg";
 
 /**
  * Maps a map id onto the country whose plates its traffic should wear. Uses the
  * same substring convention as the taxi/bus regional styling below; the UK is
- * the default (covers London, Milton Keynes and the orientation yard).
+ * the default (covers London and the orientation yard).
  */
 export function plateRegionForMap(mapId: string): PlateRegion {
   const id = mapId.toLowerCase();
   if (id.includes("cairo") || id.includes("egypt")) return "eg";
   if (id.includes("nyc") || id.includes("new-york")) return "us";
-  if (id.includes("calais")) return "fr";
   if (id.includes("tokyo")) return "jp";
   return "uk";
 }
@@ -65,8 +64,6 @@ export function plateNumberForVehicle(region: PlateRegion, identity: string): st
   switch (region) {
     case "us":
       return `${c(L, 0)}${c(L, 1)}${c(L, 2)} ${c(D, 3)}${c(D, 4)}${c(D, 5)}${c(D, 6)}`;
-    case "fr":
-      return `${c(L, 0)}${c(L, 1)}-${c(D, 2)}${c(D, 3)}${c(D, 4)}-${c(L, 5)}${c(L, 6)}`;
     case "jp":
       return `${c(PLATE_KANA, 0)} ${c(D, 1)}${c(D, 2)}-${c(D, 3)}${c(D, 4)}`;
     case "eg":
@@ -187,7 +184,6 @@ export interface PoliceLivery {
  *
  * - us: NYPD RMPs are white with a navy belt stripe and blue "NYPD".
  * - uk: Met/Thames Valley cars are white under blue-and-yellow Battenburg.
- * - fr: Police nationale runs white cars with a blue belt band.
  * - jp: patrol cars ("パトカー") are the white-over-black 白黒 scheme.
  * - eg: Egyptian police vehicles use a white body with a dark-blue belt band.
  */
@@ -209,15 +205,6 @@ const POLICE_LIVERIES: Readonly<Record<PlateRegion, PoliceLivery>> = {
     secondaryHex: "#f5d417",
     lettering: "POLICE",
     letteringHex: "#0b4ea2",
-  },
-  fr: {
-    force: "police-nationale",
-    style: "stripe",
-    bodyHex: "#f0f2f4",
-    markingHex: "#1b3f92",
-    secondaryHex: "#c8102e",
-    lettering: "POLICE",
-    letteringHex: "#1b3f92",
   },
   jp: {
     force: "keishicho",
@@ -243,7 +230,6 @@ const POLICE_LIVERIES: Readonly<Record<PlateRegion, PoliceLivery>> = {
 const POLICE_MODELS: Readonly<Record<PlateRegion, VehicleModel>> = {
   us: "urban-crossover", // NYPD RMPs are Explorer-shaped SUVs
   uk: "sport-wagon", // UK response cars are estates and soft-roaders
-  fr: "compact-hatch", // Police nationale patrol saloons (the id renders sedan.glb)
   jp: "electric-fastback", // patrol sedans
   eg: "sport-sedan", // Cairo patrol fleets prominently use saloons
 };

@@ -67,9 +67,10 @@ shortfall→loan → bankruptcy gate. The final notice clears only on a fully cl
 settlement.
 
 `tests/careerBalance.test.ts` trips if rent + fee exceeds 4 median gig nets in any
-**ladder** city (Calais and Milton Keynes are out of scope precisely because no
-career reaches them — the van would fail there), or if a ticket stops being
-reachable in 3–20 days of driving.
+**ladder** city, or if a ticket stops being reachable in 3–20 days of driving.
+It is scoped to `CAREER_CITIES` rather than every destination because rent is
+only ever charged on the ladder; today the two sets coincide, so adding a
+free-drive-only city puts it outside this tripwire until you promote it.
 
 ### Everything is per city, keyed by destination
 

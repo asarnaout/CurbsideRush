@@ -50,8 +50,6 @@ export interface MapVisualPalette {
 export type MapVisualKey =
   | "nyc"
   | "london"
-  | "milton"
-  | "calais"
   | "tokyo"
   | "cairo"
   | "orientation";
@@ -68,9 +66,8 @@ export const PAVED_SIDEWALK_WIDTH_M = 3.4;
 // every map out); fog matches the horizon so distance reads as atmosphere;
 // grass is richer, dirt warmer, and distant silhouettes recede into a warm
 // haze rather than a cold grey. Per-map moods: NYC golden-hour, London rich
-// late-afternoon, Milton Keynes bright pastoral, Calais luminous coast,
-// Tokyo soft warm residential, Cairo clear hot daylight over warm stone and
-// blue-green Nile water.
+// late-afternoon, Tokyo soft warm residential, Cairo clear hot daylight over
+// warm stone and blue-green Nile water.
 const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
   nyc: {
     // Realistic city night: a deep navy zenith easing to a slightly lit
@@ -102,28 +99,6 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     silhouetteNear: "#a6a89f",
     silhouetteFar: "#cdc8b6",
     sunTint: "#ffe6c0",
-  },
-  milton: {
-    skyTop: "#4a90c4",
-    skyHorizon: "#eaddb8",
-    fogColor: "#e0d6ba",
-    grassBase: "#3f6b39",
-    grassAlt: "#4f7e43",
-    dirtShoulder: "#64583c",
-    silhouetteNear: "#a7b39a",
-    silhouetteFar: "#cdccae",
-    sunTint: "#ffedc6",
-  },
-  calais: {
-    skyTop: "#2f86c9",
-    skyHorizon: "#f0e3c4",
-    fogColor: "#e6ddc4",
-    grassBase: "#4a6c3d",
-    grassAlt: "#5c8049",
-    dirtShoulder: "#6f6144",
-    silhouetteNear: "#b3bfb0",
-    silhouetteFar: "#d6d1b8",
-    sunTint: "#fff0cc",
   },
   tokyo: {
     skyTop: "#4a8ec2",
@@ -172,8 +147,6 @@ export function resolveMapVisualKey(mapId: string): MapVisualKey {
   if (id.includes("cairo")) return "cairo";
   if (id.includes("tokyo")) return "tokyo";
   if (id.includes("london")) return "london";
-  if (id.includes("milton")) return "milton";
-  if (id.includes("calais") || id.includes("folkestone")) return "calais";
   if (id.includes("orientation") || id.includes("yard")) return "orientation";
   return "nyc";
 }
@@ -238,8 +211,7 @@ export interface FogRange {
 
 /**
  * Linear-fog band scaled to the map so small yards fade gently at their
- * edges while the 1.5 km Milton Keynes corridor melts into the horizon
- * instead of hard-clipping.
+ * edges while a long city melts into the horizon instead of hard-clipping.
  */
 export function resolveFogRange(worldSize: VisualPoint): FogRange {
   const maxDimension = Math.max(90, worldSize.x, worldSize.z);
@@ -310,9 +282,8 @@ const pushRange = (
 /**
  * Deterministic, per-map skyline recipe in normalised coordinates. NYC gets
  * a dense high-rise wall, London low terraces with one tall spike and a dome
- * hump, Milton Keynes rolling hills with tree bumps, Calais dunes with an
- * open sea gap, Tokyo hills behind mid-rises and utility pylons, and Cairo a
- * dense low/mid-rise roofline punctuated by minarets and Cairo Tower.
+ * hump, Tokyo hills behind mid-rises and utility pylons, and Cairo a dense
+ * low/mid-rise roofline punctuated by minarets and Cairo Tower.
  */
 export function buildHorizonSilhouetteSpec(
   mapId: string,
@@ -370,50 +341,6 @@ export function buildHorizonSilhouetteSpec(
       h: 0.78,
       layer: 0,
     });
-    return shapes;
-  }
-
-  if (key === "milton") {
-    pushRange(shapes, random, 9, () => ({
-      kind: "hill",
-      x: random(),
-      w: 0.16 + random() * 0.18,
-      h: 0.12 + random() * 0.14,
-      layer: 1,
-    }));
-    pushRange(shapes, random, 26, () => ({
-      kind: "hill",
-      x: random(),
-      w: 0.012 + random() * 0.022,
-      h: 0.05 + random() * 0.08,
-      layer: 0,
-    }));
-    return shapes;
-  }
-
-  if (key === "calais") {
-    // Leave a flat open gap around x 0.38..0.62 so the Channel reads as sea.
-    const dune = (layer: 0 | 1): SilhouetteShape => {
-      const inGapHalf = random() < 0.5;
-      const x = inGapHalf ? random() * 0.36 : 0.64 + random() * 0.36;
-      return {
-        kind: "hill",
-        x,
-        w: 0.08 + random() * 0.12,
-        h: 0.06 + random() * (layer === 1 ? 0.06 : 0.1),
-        layer,
-      };
-    };
-    pushRange(shapes, random, 8, () => dune(1));
-    pushRange(shapes, random, 8, () => dune(0));
-    pushRange(shapes, random, 4, () => ({
-      kind: "box",
-      x: 0.68 + random() * 0.26,
-      h: 0.09 + random() * 0.07,
-      w: 0.04 + random() * 0.05,
-      layer: 0,
-    }));
-    shapes.push({ kind: "spike", x: 0.08 + random() * 0.2, w: 0.014, h: 0.34, layer: 0 });
     return shapes;
   }
 

@@ -67,7 +67,7 @@ describe("damageForCollision", () => {
 });
 
 describe("repairPrice", () => {
-  const countries = (["us", "uk", "fr", "jp", "eg"] as const).map(
+  const countries = (["us", "uk", "jp", "eg"] as const).map(
     getCountryProfile,
   );
 

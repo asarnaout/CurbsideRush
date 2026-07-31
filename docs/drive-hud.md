@@ -106,8 +106,8 @@ answers `follows` for every city, and a follow-scale sheet at screen size
 rasterises NYC into ~2818×6228 px, some 70 MB.
 
 `createMinimapFitProjector` is the only way in. It takes a width *and* a height
-because the cities are nothing like square (1080×3000 for NYC against Milton
-Keynes' 1500×300), and `fitMinimapPanel` cuts the canvas to the world's own aspect
+because the cities are nothing like square (1080×3000 for NYC against London's
+800×540), and `fitMinimapPanel` cuts the canvas to the world's own aspect
 so no part of it is spent on empty ground.
 
 Its road floor is flat pixels (`MAP_ROAD_WIDTH_FLOOR_PX`, 1.75), the **opposite
@@ -149,7 +149,7 @@ out on the road there is no map to read the pickup off.
 than measured — a DOM read here is a forced reflow per frame, and jsdom has no
 layout to measure anyway, so **those constants are the test**. The legend yields
 only when not even the dense card fits beside it, which takes a letterbox panel
-(Milton Keynes), not a small screen.
+(a very wide, shallow world), not a small screen.
 
 Key handling is asymmetric on purpose:
 
