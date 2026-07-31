@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { NullEngine, Scene, LoadAssetContainerAsync } from "@babylonjs/core";
+import {
+  NullEngine,
+  Scene,
+  LoadAssetContainerAsync,
+  TransformNode,
+  Vector3,
+  VertexBuffer,
+} from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
+import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
+import { resolveVenuePlacement } from "../app/game/simulationAdapter";
 import {
   biasCairoDecalMaterials,
   buildWaterPolygonGeometry,
@@ -1045,5 +1054,126 @@ describe("Cairo decal depth bias", () => {
       scene.dispose();
       engine.dispose();
     }
+  });
+});
+
+/**
+ * Cairo's venue buildings must face the road they are anchored to.
+ *
+ * The trap this guards: a venue model's facing depends on WHICH frame you
+ * measure it in. instantiateProp overwrites the loader root's handedness
+ * scaling (1,1,-1) with a uniform scale, so only the root's 180° Y-rotation
+ * survives — an entrance authored on +Z lands on -Z in the placed frame. The
+ * street wall's merged masters keep the intact reflection instead. Measuring
+ * in the wrong frame is exactly how all 24 cairo-model venues shipped with
+ * their doors to the open land and their brick-patch backs on the pavement.
+ */
+describe("Cairo venue buildings face their road", () => {
+  // Detail (glazing/door) materials that mark the Quaternius kit's one dressed
+  // face; the KayKit atlas models have a single material, so for those the
+  // whole-mesh centroid carries the (real, measured) front bias instead.
+  const DETAIL_MATERIALS = ["Windows", "Glass", "Wood", "DarkWood", "DarkBrown"];
+  const CAIRO_VENUE_MODELS = [
+    "cairo-residence-kay",
+    "cairo-residence-quaternius",
+    "cairo-shop",
+    "cairo-office-block",
+    "cairo-depot",
+  ];
+
+  it("puts each model's entrance on the holder's road-facing -X side", async () => {
+    registerBuiltInLoaders();
+    for (const modelKey of CAIRO_VENUE_MODELS) {
+      const config = PROP_MODEL_REGISTRY[modelKey];
+      expect(config, modelKey).toBeDefined();
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const buf = fs.readFileSync(path.join(process.cwd(), "public", config.url));
+      const container = await LoadAssetContainerAsync(
+        "data:model/gltf-binary;base64," + buf.toString("base64"),
+        scene,
+        { pluginExtension: ".glb" },
+      );
+      // Replicate instantiateProp at lane heading 0: holder rotated by the
+      // yawOffset alone, root scaling overwritten (the wipe under test).
+      const entries = container.instantiateModelsToScene(undefined, false, {
+        doNotInstantiate: true,
+      });
+      const root = entries.rootNodes[0] as TransformNode;
+      const holder = new TransformNode(`probe-${modelKey}`, scene);
+      holder.rotation.y = config.yawOffset;
+      root.parent = holder;
+      root.scaling.set(config.scale, config.scale, config.scale);
+
+      let detailN = 0;
+      let detailX = 0;
+      let detailZ = 0;
+      let allN = 0;
+      let allX = 0;
+      let allZ = 0;
+      for (const mesh of root.getChildMeshes()) {
+        const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+        if (!positions) continue;
+        mesh.computeWorldMatrix(true);
+        const world = mesh.getWorldMatrix();
+        const detail = DETAIL_MATERIALS.includes(mesh.material?.name ?? "");
+        for (let i = 0; i < positions.length; i += 3) {
+          const p = Vector3.TransformCoordinates(
+            new Vector3(positions[i], positions[i + 1], positions[i + 2]),
+            world,
+          );
+          allN += 1;
+          allX += p.x;
+          allZ += p.z;
+          if (detail) {
+            detailN += 1;
+            detailX += p.x;
+            detailZ += p.z;
+          }
+        }
+      }
+      const meanX = detailN > 0 ? detailX / detailN : allX / allN;
+      const meanZ = detailN > 0 ? detailZ / detailN : allZ / allN;
+      // resolveVenuePlacement sets the building back along driver-right, so at
+      // heading 0 the carriageway lies on -X of the holder. The dressed face
+      // must lean that way, and lean x-wards, not sideways along the facade.
+      expect(meanX, `${modelKey} entrance x`).toBeLessThan(-0.5);
+      expect(Math.abs(meanZ), `${modelKey} sideways drift`).toBeLessThan(
+        Math.abs(meanX),
+      );
+      scene.dispose();
+      engine.dispose();
+    }
+  });
+
+  it("points every cairo-model venue at its anchor road", () => {
+    const pack = CAIRO_MAP_PACK as never;
+    let checked = 0;
+    for (const venue of CAIRO_MAP_PACK.geometry.gigVenues ?? []) {
+      const modelKey =
+        (venue as { modelId?: string }).modelId ?? venue.kind;
+      if (!CAIRO_VENUE_MODELS.includes(modelKey)) continue;
+      const placement = resolveVenuePlacement(pack, venue as never);
+      expect(placement, venue.id).not.toBeNull();
+      if (!placement) continue;
+      // Placed-frame front: these models author their entrance on +Z, and the
+      // instantiateProp frame (root scaling wiped, 180° root rotation kept)
+      // lands it on -Z — so the door faces holder yaw + π.
+      const front =
+        placement.heading + PROP_MODEL_REGISTRY[modelKey].yawOffset + Math.PI;
+      const toRoadX = placement.anchorX - placement.x;
+      const toRoadZ = placement.anchorZ - placement.z;
+      const length = Math.hypot(toRoadX, toRoadZ);
+      expect(length, venue.id).toBeGreaterThan(1);
+      const dot =
+        (Math.sin(front) * toRoadX + Math.cos(front) * toRoadZ) / length;
+      expect(dot, `${venue.id} (${venue.name}) faces its road`).toBeGreaterThan(
+        0.95,
+      );
+      checked += 1;
+    }
+    // 3 residences + 6 shops + 6 offices + 6 depots + 3 more residences make
+    // 24 of the 30 venues; the other 6 are restaurants on the shared diner.
+    expect(checked).toBe(24);
   });
 });

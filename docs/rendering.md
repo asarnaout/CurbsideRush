@@ -68,15 +68,19 @@ conventions: props `yawOffset = π/2`, characters `π`, buildings per-model
 derives its axes from). A Babylon box's +Z face also renders textures
 180°-rotated, so both plates present their −Z face.
 
-**−Z is a default, not a guarantee — measure it.** The KayKit and Quaternius
-building packs author their facade on **+Z**, which is what every
-`frontOffset: Math.PI` in `buildingSets.ts` and every `yawOffset: -π/2` in
-`PROP_MODEL_REGISTRY` is paying for. Assuming −Z on one of those silently turns
-the building's back to the street, which is exactly how Cairo's two residence
-venues shipped facing the wrong way. For a pack with named materials the cheap
-check is the centroid of the door/glazing submesh (`Wood`, `DarkWood`, `Glass`);
-`PROP_MODEL_FOOTPRINTS_M`'s header states the invariant the offset must satisfy —
-after `yawOffset`, +z runs along the facade and the road lies on −x.
+**A model has no one facing — each placement path has its own frame, and you
+must measure in the path's frame, not the loader's.** The loader's flip is a
+180° Y-rotation *plus* scaling `(1,1,-1)` on the same `__root__`.
+`getBuildingMaster` merges with that intact (then repairs winding), so in the
+street wall a facade authored on +Z stays +Z — `frontOffset: Math.PI`. But
+`instantiateProp` overwrites the root scaling with a uniform scale, so in the
+venue/prop frame only the rotation survives and the same +Z facade lands on
+−Z — `yawOffset: π/2`, same as every other prop. Deriving a venue offset from
+an as-loaded NullEngine measurement is how all 24 of Cairo's modelled venues
+shipped with their doors to the open land. The placed-frame measurement (door
+and glazing submesh centroids on the holder's road-facing −x, per
+`PROP_MODEL_FOOTPRINTS_M`'s header) is pinned in `tests/cairoVisuals.test.ts`
+("Cairo venue buildings face their road").
 
 ## Rendered poses are interpolated
 
