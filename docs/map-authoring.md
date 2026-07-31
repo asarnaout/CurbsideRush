@@ -109,6 +109,15 @@ corridor, and deliberately leave four Nile-facing sides open.
 its district's fabric with no content edit. The riverfront roads get the tall
 `cairo-corniche` set; the rest zone on x/z like `cairoRoadsideStyle` does.
 
+**The strips are frontage; `cairo-infill-*` is the land behind them.** Strips
+alone are a veneer — 30 m of wall backed by open ground the car drives straight
+across, because a `ProceduralBlock` is also its collider. The infill pass tiles
+the space between the roads through the same `addCairoRoadsideBlock` gate, so it
+inherits every keep-out the strips respect. Tuning the strip generator instead is
+a dead end and was measured as one: bend-only setbacks, recursive subdivision and
+every packing knob moved road coverage by under a point, because the strips
+already take every metre the exclusions leave them.
+
 **A roadside strip must name its one road-facing edge** (`streetEdges` on
 `ProceduralBlock`). `slotBlockBuildings` defaults to all four, which is right for
 a city block with roads around it and wrong for a strip: buildings are inset by

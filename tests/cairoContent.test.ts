@@ -39,11 +39,13 @@ import type {
  * roughly three quarters of Cairo's buildings are now imported models and the
  * rest are the procedural facade boxes the map used to be built from entirely.
  */
-const BLOCK_COUNT = 297;
+const BLOCK_COUNT = 416;
 const ROADSIDE_COUNT = 274;
+/** City blocks tiled into the land the roadside strips only veneer. */
+const INFILL_COUNT = 119;
 const ROADSIDE_LEFT = 136;
-const STREET_WALL_BLOCKS = 224;
-const FACADE_BOX_CELLS = 636;
+const STREET_WALL_BLOCKS = 324;
+const FACADE_BOX_CELLS = 807;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
@@ -1144,6 +1146,12 @@ describe("Cairo Central Nile content", () => {
     );
     expect(blocks).toHaveLength(BLOCK_COUNT);
     expect(roadside).toHaveLength(ROADSIDE_COUNT);
+    // The strips are frontage; the infill is the land behind them. Without it
+    // the map is a set of walls in open desert that the car drives straight
+    // through, because a block is also its collider.
+    expect(
+      blocks.filter((block) => block.id.startsWith("cairo-infill-")),
+    ).toHaveLength(INFILL_COUNT);
     expect(roadside[0].id).toBe(
       "cairo-corniche-el-nil-roadside-1-2-split-2-right",
     );

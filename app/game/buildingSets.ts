@@ -21,8 +21,20 @@ export interface BuildingPlacementConfig {
   readonly scale: number;
   /** Y offset (m) that sits the model's base on the ground (= -nativeMinY·scale). */
   readonly groundY: number;
-  /** Post-scale footprint (max of width/depth, m) used to space the street wall. */
+  /** Post-scale frontage (m) along the kerb — what spaces the street wall. */
   readonly footprintM: number;
+  /**
+   * Post-scale depth (m) into the block, when it differs from the frontage.
+   * Defaults to `footprintM`.
+   *
+   * These are two different measurements and one number cannot be both. The
+   * frontage decides how tightly buildings pack along the kerb; the depth
+   * decides how far each is inset from the block edge, and therefore whether a
+   * building on one edge reaches into a building on the next. Cairo's slim
+   * block is 5.6 m wide and 10.8 m deep — spaced by its depth it leaves a 5 m
+   * hole in the wall, inset by its frontage it stands inside its neighbour.
+   */
+  readonly depthM?: number;
   /**
    * Facing correction (radians) added to the holder yaw. The instancing path
    * rotates a building so its front faces the street; models whose authored
@@ -95,21 +107,23 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   // 2-4-storey models being asked to read as the taller thing.
   // roofY is native height × scale, so rooftop clutter lands on the parapet
   // rather than floating over it or sinking into the top floor.
-  "cairo-tower-a": { scale: 15, groundY: 0, footprintM: 18.5, frontOffset: 0 },
-  "cairo-tower-b": { scale: 15, groundY: 0, footprintM: 18.5, frontOffset: 0 },
-  "cairo-block-4story": { scale: 4.6, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 23.4 },
-  "cairo-block-4story-centre": { scale: 4.6, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 23.4 },
-  // slim/small are deeper than they are wide; footprint follows the *frontage*
-  // rather than max(w,d) so the wall closes up instead of leaving 5 m gaps.
-  "cairo-block-slim": { scale: 5, groundY: 0, footprintM: 6, frontOffset: Math.PI, roofY: 20 },
-  "cairo-block-small": { scale: 5, groundY: 0, footprintM: 9.8, frontOffset: Math.PI, roofY: 19.3 },
-  "cairo-block-colonnade": { scale: 5.2, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 14.4 },
-  "cairo-block-balcony": { scale: 5.2, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 15.3 },
-  "cairo-block-terrace": { scale: 4.8, groundY: 0, footprintM: 18.5, frontOffset: Math.PI, roofY: 13.2 },
+  "cairo-tower-a": { scale: 15, groundY: 0, footprintM: 18.7, frontOffset: 0 },
+  "cairo-tower-b": { scale: 15, groundY: 0, footprintM: 18.7, frontOffset: 0 },
+  "cairo-block-4story": { scale: 4.6, groundY: 0, footprintM: 11.2, depthM: 11.7, frontOffset: Math.PI, roofY: 23.4 },
+  "cairo-block-4story-centre": { scale: 4.6, groundY: 0, footprintM: 11.2, depthM: 11.7, frontOffset: Math.PI, roofY: 23.4 },
+  // Several of these are markedly deeper than they are wide, so they carry both
+  // measurements. Every figure is the merged master's real post-scale bound, not
+  // an estimate: the authored guesses understated slim by 4.8 m, which stood it
+  // inside whatever sat on the next edge.
+  "cairo-block-slim": { scale: 5, groundY: 0, footprintM: 5.7, depthM: 10.8, frontOffset: Math.PI, roofY: 20 },
+  "cairo-block-small": { scale: 5, groundY: 0, footprintM: 9.6, depthM: 9.9, frontOffset: Math.PI, roofY: 19.3 },
+  "cairo-block-colonnade": { scale: 5.2, groundY: 0, footprintM: 11.3, depthM: 13.0, frontOffset: Math.PI, roofY: 14.4 },
+  "cairo-block-balcony": { scale: 5.2, groundY: 0, footprintM: 11.3, depthM: 13.2, frontOffset: Math.PI, roofY: 15.3 },
+  "cairo-block-terrace": { scale: 4.8, groundY: 0, footprintM: 18.4, depthM: 10.9, frontOffset: Math.PI, roofY: 13.2 },
   "cairo-walkup-a": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
   "cairo-walkup-b": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
   "cairo-residence-kay": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
-  "cairo-residence-quaternius": { scale: 4.8, groundY: 0, footprintM: 10.5, frontOffset: Math.PI, roofY: 20.2 },
+  "cairo-residence-quaternius": { scale: 4.8, groundY: 0, footprintM: 10.4, depthM: 12.1, frontOffset: Math.PI, roofY: 20.2 },
 };
 
 export type BuildingSetId =
@@ -300,7 +314,11 @@ export function slotBlockBuildings(
   const rng = seededUnit(seed);
   const halfW = size.x / 2;
   const halfD = size.z / 2;
-  const maxFoot = Math.max(...models.map((m) => m.cfg.footprintM));
+  // The E/W trim is about how far a N/S building reaches *into* the block, so it
+  // is the deepest model that sets it, not the widest.
+  const maxDepth = Math.max(
+    ...models.map((m) => m.cfg.depthM ?? m.cfg.footprintM),
+  );
 
   const allEdges: Edge[] = [
     // North (+Z)
@@ -308,9 +326,9 @@ export function slotBlockBuildings(
     // South (-Z)
     { id: "-z", outward: Math.PI, runAxis: "x", runStart: center.x - halfW, runEnd: center.x + halfW, fixed: center.z - halfD, inX: 0, inZ: 1 },
     // East (+X), trimmed so N/S corner buildings own the corners
-    { id: "+x", outward: Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxFoot, runEnd: center.z + halfD - maxFoot, fixed: center.x + halfW, inX: -1, inZ: 0 },
+    { id: "+x", outward: Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxDepth, runEnd: center.z + halfD - maxDepth, fixed: center.x + halfW, inX: -1, inZ: 0 },
     // West (-X)
-    { id: "-x", outward: -Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxFoot, runEnd: center.z + halfD - maxFoot, fixed: center.x - halfW, inX: 1, inZ: 0 },
+    { id: "-x", outward: -Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxDepth, runEnd: center.z + halfD - maxDepth, fixed: center.x - halfW, inX: 1, inZ: 0 },
   ];
   // An empty list would silently erase the block's whole street wall, so it is
   // read as "unspecified" — same as omitting the argument.
@@ -327,6 +345,7 @@ export function slotBlockBuildings(
     while (cursor < edge.runEnd && guard++ < 256) {
       const model = models[Math.floor(rng() * models.length)];
       const foot = model.cfg.footprintM;
+      const depth = model.cfg.depthM ?? foot;
       const along = cursor + foot / 2;
       if (along + foot / 2 > edge.runEnd + 0.01) break;
       // Thin the wall on weak devices: advance the cursor regardless so spacing
@@ -336,7 +355,7 @@ export function slotBlockBuildings(
         ((slot * 2654435761) >>> 0) / 4294967296 < keepFraction;
       slot += 1;
       if (keep) {
-        const inset = foot / 2;
+        const inset = depth / 2;
         const x = edge.runAxis === "x" ? along : edge.fixed + edge.inX * inset;
         const z = edge.runAxis === "z" ? along : edge.fixed + edge.inZ * inset;
         // Front is on local -Z (glTF-loader flip); front world dir = yaw+π, so to

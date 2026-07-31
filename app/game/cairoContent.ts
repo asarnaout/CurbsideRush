@@ -1739,17 +1739,21 @@ const CAIRO_OPEN_WATERFRONT_SIDES: Readonly<
  * the real Corniche el-Nil is a wall of 15-25 storey hotel and apartment slabs,
  * and it is the one place on the map that should have a skyline.
  */
-const cairoRoadsideBuildingSet = (
-  surfaceId: string,
-  position: WorldPoint,
-): string => {
-  if (CAIRO_OPEN_WATERFRONT_SIDES[surfaceId]) return "cairo-corniche";
+const cairoDistrictBuildingSet = (position: WorldPoint): string => {
   if (position.x < -590) return "cairo-westbank";
   if (position.x < 55) return "cairo-zamalek";
   // Garden City: elegant low-rise blocks rather than Downtown's Khedivial bulk.
   if (position.z < -350) return "cairo-zamalek";
   return "cairo-downtown";
 };
+
+const cairoRoadsideBuildingSet = (
+  surfaceId: string,
+  position: WorldPoint,
+): string =>
+  CAIRO_OPEN_WATERFRONT_SIDES[surfaceId]
+    ? "cairo-corniche"
+    : cairoDistrictBuildingSet(position);
 
 /**
  * One roadside parcel in six keeps the procedural windowed boxes instead of a
@@ -1864,6 +1868,76 @@ for (const surface of cairoRoadSurfaces) {
             size: point(splitLengthM, acceptedStyle.depthM),
           });
         }
+      }
+    }
+  }
+}
+
+/**
+ * City blocks behind the roadside strips.
+ *
+ * The strips alone are a veneer: 30 m of frontage backed by open ground the
+ * player can drive straight across, which is why central Cairo read as a few
+ * walls stranded in a desert. NYC does not have this problem because its blocks
+ * *are* the land between its streets — measure the two and NYC's built area is
+ * an order of magnitude larger for a comparable road length.
+ *
+ * Cairo cannot copy that shape: it has 27 winding roads over 1770 x 1830 m, not
+ * a grid, and the road network is deliberately not up for changing. So the land
+ * between the roads is tiled instead, and every candidate is put through the
+ * same `addCairoRoadsideBlock` gate the strips use — it already rejects against
+ * roads, water, bounds, landmarks, service lots, gig venues and anything
+ * already placed, so infill cannot swallow a forecourt or a drop-off.
+ *
+ * Tuning the strip generator was tried first and is a dead end: bend-only
+ * setbacks, recursive subdivision and every packing knob moved measured road
+ * coverage by less than a point, because the strips were already taking every
+ * metre the exclusions leave them.
+ *
+ * The colliders matter as much as the buildings. A real city block cannot be
+ * driven across, and until these existed Cairo's could.
+ */
+const CAIRO_INFILL_STEP_M = 56;
+const CAIRO_INFILL_MIN_M = 26;
+
+for (
+  let x = -CAIRO_WORLD_SIZE.x / 2 + CAIRO_INFILL_STEP_M;
+  x < CAIRO_WORLD_SIZE.x / 2 - CAIRO_INFILL_STEP_M;
+  x += CAIRO_INFILL_STEP_M
+) {
+  for (
+    let z = -CAIRO_WORLD_SIZE.z / 2 + CAIRO_INFILL_STEP_M;
+    z < CAIRO_WORLD_SIZE.z / 2 - CAIRO_INFILL_STEP_M;
+    z += CAIRO_INFILL_STEP_M
+  ) {
+    const cellId = `cairo-infill-${Math.round(x)}-${Math.round(z)}`;
+    // Jittered so the infill never reads as the grid Cairo is not. Deterministic
+    // on the cell id: `Math.random` here would desync the map between loads.
+    const jitter = (salt: string, spread: number) =>
+      ((hashStringToSeed(`${cellId}-${salt}`) % 1000) / 1000 - 0.5) * spread;
+    const center = point(x + jitter("x", 18), z + jitter("z", 18));
+    const style = cairoRoadsideStyle(center);
+    // Shrink-to-fit: a block clipped by one road still fills what is clear,
+    // which is what turns a sparse scatter into a continuous fabric.
+    for (const span of [54, 44, 34, CAIRO_INFILL_MIN_M]) {
+      const size = point(span + jitter("w", 10), span + jitter("d", 10));
+      if (Math.min(size.x, size.z) < CAIRO_INFILL_MIN_M) continue;
+      const buildingSet = cairoParcelKeepsFacadeBoxes(`${cellId}-${span}`)
+        ? undefined
+        : cairoDistrictBuildingSet(center);
+      if (
+        addCairoRoadsideBlock({
+          id: cellId,
+          center,
+          size,
+          headingDeg: jitter("yaw", 24),
+          material: style.material,
+          heightRange: style.heightRange,
+          density: 0.86,
+          ...(buildingSet ? { buildingSet } : {}),
+        })
+      ) {
+        break;
       }
     }
   }
