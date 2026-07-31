@@ -62,6 +62,7 @@ Node >= 22.13. **There is no CI** — nothing runs test/lint/typecheck unless yo
 | [docs/map-authoring.md](docs/map-authoring.md) | Edit `content.ts` / `londonContent.ts` / `cairoContent.ts`, add a city, or change a road's shape, width or speed limit |
 | [docs/economy.md](docs/economy.md) | Change what work appears, what it pays, what anything costs, or what persists to `localStorage` |
 | [docs/rendering.md](docs/rendering.md) | Touch `GameCanvas.tsx`, world geometry, models, the crowd, the cockpit/mirrors, or anything performance-shaped |
+| [docs/greenery.md](docs/greenery.md) | Touch grass, a park lawn, park paths or planting — or add a park |
 | [docs/drive-hud.md](docs/drive-hud.md) | Touch `DriveHud` / `TouchDriveControls` / either map, or position any overlay on the drive screen |
 | [docs/audio.md](docs/audio.md) | Touch `app/game/audio/`, or anything that starts a drive |
 | [docs/testing.md](docs/testing.md) | Write or debug a test — especially a jsdom one, or one that imports `GameCanvas` |

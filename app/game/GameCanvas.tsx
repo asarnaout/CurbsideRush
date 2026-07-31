@@ -197,6 +197,7 @@ import {
   buildGrassTextureSpec,
   buildHorizonSilhouetteSpec,
   buildPlanarUVs,
+  distanceToPolylineM,
   generateRoadsidePropPlacements,
   hashStringToSeed,
   mixHexColors,
@@ -210,7 +211,12 @@ import {
   type GrassBlade,
   type MapVisualPalette,
   type PropKindConfig,
+  type PropPlacement,
 } from "./visuals";
+import {
+  buildParkLayout,
+  type ParkLayout,
+} from "./parkLayouts";
 import {
   createVehicleMesh,
   type VehicleMeshVisual,
@@ -424,6 +430,36 @@ const GRASS_DETAIL_TILE_M = 3.1;
  * so an authored road crossing a park keeps visual priority.
  */
 const PARK_LAWN_Y = 0.02;
+/** Park footpaths, in the ~23 mm between the lawn and the shoulder fill. */
+const PARK_PATH_Y = 0.031;
+/**
+ * Polygon offset pulling park paths toward the camera. The lawn/path gap is
+ * finer than the depth quantum at Central Park's far end, and polygon offset
+ * scales with that quantum where another millimetre of height does not — the
+ * same reasoning as `CAIRO_DECAL_Z_OFFSET_UNITS`.
+ */
+const PARK_PATH_Z_OFFSET_UNITS = -2;
+/**
+ * How close to a path a plant must be to stay an individually instanced,
+ * knockable prop. Everything beyond becomes batched scenery, which cannot be
+ * knocked down — so this is really "how far off a path a car can plausibly get
+ * before the trees stop reacting", and it wants to stay generous.
+ */
+const PARK_KNOCKABLE_REACH_M = 10;
+/**
+ * Merge-cell size for deep-park planting. Sized against the night fog band
+ * (440 m) so only a handful of cells are ever live on the 2.9 km park; smaller
+ * cells cull better but cost a mesh each.
+ */
+const PARK_THICKET_CELL_M = 120;
+
+/** One cell's worth of deep-park planting, merged into a single mesh. */
+interface ParkThicketBatch {
+  readonly id: string;
+  readonly centerX: number;
+  readonly centerZ: number;
+  readonly placements: PropPlacement[];
+}
 // Lift every building so no model's base plate lands exactly on the ground
 // plane. Base plates face -Y and are back-face culled, so this is depth-buffer
 // hygiene, not a visible-flicker fix — the Cairo brick-band flicker was never
@@ -3966,6 +4002,11 @@ const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructiblePropConfig>
   "dne-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a DO NOT ENTER sign", fall: "topple" },
   "wrongway-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a WRONG WAY sign", fall: "topple" },
   "speedlimit-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a speed limit sign", fall: "topple" },
+  // Park planting and furniture. A shrub squashes rather than topples — a bush
+  // hinging over on one edge looks like a felled tree, which it is not.
+  shrub: { radiusM: 0.55, speedScale: 0.94, damage: "none", noun: "a shrub", fall: "squash" },
+  bench: { radiusM: 0.85, speedScale: 0.86, damage: "light", noun: "a park bench", fall: "topple" },
+  lamp: { radiusM: 0.3, speedScale: 0.76, damage: "medium", noun: "a park lamp", fall: "topple" },
   hydrant: { radiusM: 0.35, speedScale: 0.9, damage: "light", noun: "a fire hydrant", fall: "topple" },
   bollard: { radiusM: 0.25, speedScale: 0.92, damage: "light", noun: "a bollard", fall: "topple" },
   vending: { radiusM: 0.6, speedScale: 0.88, damage: "light", noun: "a vending machine", fall: "topple" },
@@ -5421,6 +5462,12 @@ class BabylonGameSession {
   private grassDetailTexture: DynamicTexture | null = null;
   /** One grass material for every park on the map; built lazily. */
   private parkLawnMaterial: StandardMaterial | null = null;
+  /** Each park's layout, built once and read by both the path and prop passes. */
+  private readonly parkLayouts = new Map<string, ParkLayout>();
+  /** One gravel material for every park path on the map; built lazily. */
+  private parkPathMaterial: StandardMaterial | null = null;
+  /** Map default shoulder width, stashed for the park layout's road clearance. */
+  private parkShoulderWidthM = 1.2;
   /** Keep-out circles (gas station + gig-venue lots) so the block street wall
    * never drops a scenery building on top of an interactive POI. */
   private readonly buildingExclusions: { x: number; z: number; radius: number }[] = [];
@@ -10048,6 +10095,7 @@ class BabylonGameSession {
     // Paved cities (NYC) render the base ground as concrete and the road shoulder
     // as a wider concrete sidewalk; everywhere else keeps grass + a dirt shoulder.
     const paved = palette.paved ?? false;
+    this.parkShoulderWidthM = mapPack.geometry.shoulderWidth ?? 1.2;
 
     const grass = makeMaterial(scene, "scenario-ground", new Color3(0.24, 0.39, 0.25));
     const asphalt = makeMaterial(scene, "scenario-asphalt", Color3.White());
@@ -11007,6 +11055,7 @@ class BabylonGameSession {
         }
       } else if (landmark.kind === "park") {
         this.buildParkLawn(landmark, palette, mapId);
+        this.buildParkPaths(landmark, mapId, authoredRoadSurfaces, palette);
         createCylinder(
           scene,
           `${landmark.id}-feature`,
@@ -12039,6 +12088,170 @@ class BabylonGameSession {
    * extras) built from instanced master meshes: one draw call per part kind
    * regardless of how many props a map receives.
    */
+  /**
+   * Every park's layout, keyed by landmark id and built once. The path meshes
+   * and the planting are produced by different passes over different loops, and
+   * a layout rebuilt per pass would be a second source of truth for where a
+   * park's paths run.
+   */
+  private parkLayoutFor(
+    landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+    mapId: string,
+    roadSurfaces: readonly {
+      readonly centerline: readonly GameCanvasPoint[];
+      readonly widthM: number;
+    }[],
+    palette: MapVisualPalette,
+  ): ParkLayout {
+    const cached = this.parkLayouts.get(landmark.id);
+    if (cached) return cached;
+    const layout = buildParkLayout(landmark, resolveMapVisualKey(mapId), {
+      roadSurfaces,
+      sidewalkWidthM: palette.paved
+        ? PAVED_SIDEWALK_WIDTH_M
+        : Math.max(0.9, this.parkShoulderWidthM),
+      seed: hashStringToSeed(`${mapId}-${landmark.id}-park`),
+    });
+    this.parkLayouts.set(landmark.id, layout);
+    return layout;
+  }
+
+  /**
+   * Park planting and furniture as ordinary prop placements.
+   *
+   * Gated through `deterministicSceneryKeep` per placement: anything scattered
+   * that skips that gate silently escapes the low-spec thinning entirely, and a
+   * park is by some distance the densest thing this map scatters.
+   */
+  private collectParkPlacements(
+    mapPack: GameCanvasMapPack,
+    mapId: string,
+    roadSurfaces: readonly {
+      readonly centerline: readonly GameCanvasPoint[];
+      readonly widthM: number;
+    }[],
+    palette: MapVisualPalette,
+  ): { reachable: PropPlacement[]; interior: ParkThicketBatch[] } {
+    const reachable: PropPlacement[] = [];
+    const interior: ParkThicketBatch[] = [];
+    for (const landmark of mapPack.geometry.landmarks) {
+      if (landmark.kind !== "park") continue;
+      const layout = this.parkLayoutFor(landmark, mapId, roadSurfaces, palette);
+      const chunks = new Map<string, ParkThicketBatch>();
+      for (const [index, placement] of layout.placements.entries()) {
+        if (
+          !deterministicSceneryKeep(
+            `${landmark.id}:${placement.kind}:${index}`,
+            this.buildingKeepFraction,
+          )
+        ) {
+          continue;
+        }
+        // Anything a driver can actually reach stays an individually instanced,
+        // knockable prop. Everything deeper is scenery, and scenery in a park
+        // this size has to be batched — see `buildParkThickets`.
+        //
+        // Shrubs are never in that set however close they are. They are the
+        // densest zone by some way, and their destructible entry is `damage:
+        // "none"` / `fall: "squash"` — so paying a scene mesh each to make a
+        // bush flinch is the worst trade in the park.
+        const reachablePlacement =
+          placement.kind !== "shrub" &&
+          (placement.kind === "bench" ||
+            placement.kind === "lamp" ||
+            layout.paths.some(
+              (path) =>
+                distanceToPolylineM(placement, path.points) <=
+                path.widthM / 2 + PARK_KNOCKABLE_REACH_M,
+            ));
+        if (reachablePlacement) {
+          reachable.push(placement);
+          continue;
+        }
+        // Keyed by CELL only, not by species: everything in a cell merges into
+        // one mesh, so a cell costs one draw and one cull test no matter how
+        // many kinds of plant stand in it.
+        const column = Math.floor(placement.x / PARK_THICKET_CELL_M);
+        const row = Math.floor(placement.z / PARK_THICKET_CELL_M);
+        const key = `${column}:${row}`;
+        let batch = chunks.get(key);
+        if (!batch) {
+          batch = {
+            id: `${landmark.id}-${key}`,
+            centerX: (column + 0.5) * PARK_THICKET_CELL_M,
+            centerZ: (row + 0.5) * PARK_THICKET_CELL_M,
+            placements: [],
+          };
+          chunks.set(key, batch);
+          interior.push(batch);
+        }
+        batch.placements.push(placement);
+      }
+    }
+    return { reachable, interior };
+  }
+
+  /**
+   * Deep-park planting, merged one mesh per cell.
+   *
+   * Central Park is 58 hectares, and one `createInstance` per tree part put
+   * **9,283** extra meshes in the NYC scene — every one a per-frame frustum
+   * test in a scene that already walks ~15,000. Merging a whole cell collapses
+   * it to one mesh with one bounding box, so fog and the frustum reject the
+   * cell whole; the cell is sized against the night fog band (440 m).
+   *
+   * **Thin instances were tried first and draw nothing here.** The chunk meshes
+   * come out visible and enabled, with the right material, the right
+   * `thinInstanceCount` and correctly refreshed world bounds — Babylon submits
+   * them (draw calls rise) and not a pixel lands. It is not the multi-material
+   * merge, not `freezeWorldMatrix`, and not the `material.freeze()` at the end
+   * of this method; all three were ruled out by bisect. Merging is the path the
+   * street wall already uses, so it is the one taken here.
+   *
+   * The trade is that merged geometry is not individually addressable, so none
+   * of this is knockable — which is why anything within `PARK_KNOCKABLE_REACH_M`
+   * of a path was split out above and stays a real prop.
+   */
+  private buildParkThickets(
+    batches: readonly ParkThicketBatch[],
+    partsFor: (
+      kind: string,
+      variant: number,
+    ) => readonly { readonly master: Mesh; readonly offset: Vector3 }[],
+  ) {
+    for (const batch of batches) {
+      const pieces: Mesh[] = [];
+      for (const [index, placement] of batch.placements.entries()) {
+        const sin = Math.sin(placement.rotationY);
+        const cos = Math.cos(placement.rotationY);
+        for (const [partIndex, part] of partsFor(
+          placement.kind,
+          placement.variant,
+        ).entries()) {
+          const piece = part.master.clone(
+            `park-piece-${batch.id}-${index}-${partIndex}`,
+          );
+          const offset = part.offset.scale(placement.scale);
+          piece.position.set(
+            placement.x + offset.x * cos + offset.z * sin,
+            offset.y,
+            placement.z - offset.x * sin + offset.z * cos,
+          );
+          piece.rotation.y = placement.rotationY;
+          piece.scaling.setAll(placement.scale);
+          piece.isVisible = true;
+          pieces.push(piece);
+        }
+      }
+      if (!pieces.length) continue;
+      const merged = Mesh.MergeMeshes(pieces, true, true, undefined, false, true);
+      if (!merged) continue;
+      merged.name = `park-thicket-${batch.id}`;
+      merged.isPickable = false;
+      this.registerStaticCell(merged, batch.centerX, batch.centerZ, false);
+    }
+  }
+
   private buildRoadsideProps(
     mapPack: GameCanvasMapPack,
     palette: MapVisualPalette,
@@ -12084,7 +12297,7 @@ class BabylonGameSession {
         },
       ];
     });
-    const placements = generateRoadsidePropPlacements({
+    const roadsidePlacements = generateRoadsidePropPlacements({
       roadSurfaces: roadSurfaces.map((surface) => ({
         id: surface.id,
         centerline: surface.centerline,
@@ -12122,7 +12335,15 @@ class BabylonGameSession {
             ]
           : undefined,
     });
-    if (!placements.length) return;
+
+    // Park planting rides the same pipeline as the roadside scatter, so it
+    // shares the tree masters, the shadow-caster registration and — the point —
+    // `registerDestructibleProp`. A tree you can flatten on the street and one
+    // you cannot flatten in a park would read as a bug, and the alternative was
+    // a second, parallel prop builder.
+    const park = this.collectParkPlacements(mapPack, mapId, roadSurfaces, palette);
+    const placements = [...roadsidePlacements, ...park.reachable];
+    if (!placements.length && !park.interior.length) return;
 
     const material = (name: string, color: Color3, emissive?: Color3) =>
       makeMaterial(scene, `prop-${name}`, color, emissive);
@@ -12243,6 +12464,7 @@ class BabylonGameSession {
               night ? new Color3(0.14, 0.5, 0.26) : undefined,
             ),
           ];
+    const benchTimber = material("bench-timber", new Color3(0.35, 0.26, 0.17));
     const hydrantRed = material("hydrant", new Color3(0.62, 0.1, 0.07));
     const bollardPale = material("bollard", new Color3(0.75, 0.76, 0.72));
     const poleWood = material("utility-pole", new Color3(0.35, 0.32, 0.28));
@@ -12512,6 +12734,71 @@ class BabylonGameSession {
             },
           ];
           break;
+        case "shrub": {
+          // Two overlapping lobes at slightly different heights, so a run of
+          // them along a path reads as planting rather than as a row of balls.
+          const leaf = leaves[variant % leaves.length];
+          parts = [
+            {
+              master: masterIcoSphere(`${cacheKey}-a`, 0.62, leaf),
+              offset: new Vector3(0, 0.46, 0),
+            },
+            {
+              master: masterIcoSphere(`${cacheKey}-b`, 0.44, leaf),
+              offset: new Vector3(0.34, 0.33, 0.12),
+              castShadow: false,
+            },
+          ];
+          break;
+        }
+        case "bench":
+          parts = [
+            {
+              master: masterBox(
+                `${cacheKey}-seat`,
+                { width: 1.7, height: 0.09, depth: 0.46 },
+                benchTimber,
+              ),
+              offset: new Vector3(0, 0.45, 0),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-back`,
+                { width: 1.7, height: 0.42, depth: 0.08 },
+                benchTimber,
+              ),
+              offset: new Vector3(0, 0.68, -0.19),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-legs`,
+                { width: 1.5, height: 0.42, depth: 0.08 },
+                iron,
+              ),
+              offset: new Vector3(0, 0.22, 0),
+              castShadow: false,
+            },
+          ];
+          break;
+        case "lamp":
+          // A park lamp, not a streetlight: shorter, on a slimmer column, and
+          // without the road-facing arm.
+          parts = [
+            {
+              master: masterCylinder(
+                `${cacheKey}-column`,
+                { height: 3.1, diameterTop: 0.09, diameterBottom: 0.15 },
+                iron,
+              ),
+              offset: new Vector3(0, 1.55, 0),
+            },
+            {
+              master: masterIcoSphere(`${cacheKey}-globe`, 0.22, lampHead),
+              offset: new Vector3(0, 3.24, 0),
+              castShadow: false,
+            },
+          ];
+          break;
         case "hydrant":
           parts = [
             {
@@ -12641,6 +12928,10 @@ class BabylonGameSession {
         destructibleParts,
       );
     }
+
+    // Deep-park planting, merged per cell off the same masters the knockable
+    // props clone. Must run before the material freeze below.
+    this.buildParkThickets(park.interior, partsFor);
 
     for (const propMaterial of [
       trunk,
@@ -14979,6 +15270,56 @@ class BabylonGameSession {
     // which is the case `registerMirrorSurface` exists for.
     this.registerMirrorSurface(lawn);
     return lawn;
+  }
+
+  /**
+   * A park's footpaths, as thin road strips.
+   *
+   * They sit at `PARK_PATH_Y`, which is only 11 mm above the lawn — the whole
+   * park band is squeezed between the lawn at 0.02 and the shoulder junction
+   * fill at 0.0435, because parks are drawn *under* the roads on purpose. At
+   * Central Park's length that gap is finer than the depth buffer resolves out
+   * near the far plane, so the path material also carries a negative
+   * `zOffsetUnits`: polygon offset scales with the local depth quantum, which
+   * nudging the vertices up by another millimetre does not.
+   */
+  private buildParkPaths(
+    landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+    mapId: string,
+    roadSurfaces: readonly {
+      readonly centerline: readonly GameCanvasPoint[];
+      readonly widthM: number;
+    }[],
+    palette: MapVisualPalette,
+  ) {
+    const layout = this.parkLayoutFor(landmark, mapId, roadSurfaces, palette);
+    if (!layout.paths.length) return;
+    if (!this.parkPathMaterial) {
+      const material = makeMaterial(this.scene, "park-path", Color3.White());
+      material.diffuseTexture = createAsphaltTexture(
+        this.scene,
+        "park-path-texture",
+        // Pale gravel, not tarmac: a park walk is a hoggin or stone-dust path
+        // everywhere this game is set.
+        mixHexColors(palette.dirtShoulder, "#e8e2d2", 0.55),
+        hashStringToSeed(`${mapId}-park-path`),
+      );
+      material.zOffsetUnits = PARK_PATH_Z_OFFSET_UNITS;
+      this.parkPathMaterial = material;
+    }
+    for (const path of layout.paths) {
+      const mesh = this.createRoadSurfaceMesh(
+        `${landmark.id}-path-${path.id}`,
+        path.points,
+        path.widthM,
+        this.parkPathMaterial,
+        false,
+        PARK_PATH_Y,
+      );
+      if (!mesh) continue;
+      mesh.isPickable = false;
+      this.registerStaticCell(mesh, landmark.center.x, landmark.center.z, false);
+    }
   }
 
   private applyGrassDetailMap(material: StandardMaterial, mapId: string) {

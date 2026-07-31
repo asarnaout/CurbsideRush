@@ -58,30 +58,10 @@ the chase camera's 0.5 exists to keep millimetre offsets resolvable. Don't
 lower a `minZ` to "fix" near clipping without knowing you are spending 1/n of
 everyone's depth separation.
 
-## Grass is two tiles, and a detail map's neutral is 0.5 — including alpha
+## Grass, parks and planting are their own page
 
-Every grass surface takes world-planar UVs at `1 / GRASS_TILE_M`, so the tile is
-anchored to the world, not the mesh: a park lawn continues the ground plane's
-grass instead of restarting at its own corner. That shared convention is what
-lets **one** `DynamicTexture` serve every grass material through
-`StandardMaterial.detailMap`, at a fixed `GRASS_TILE_M / GRASS_DETAIL_TILE_M`
-ratio — per-mesh `uScale` would need a texture per mesh. The tiles are
-non-divisible (12 m against 3.1 m) so they beat rather than reinforce a grid.
-
-**A detail map is four channels, and three have a non-zero neutral.**
-`default.fragment` reads `2 · mix(0.5, detailColor.r, diffuseBlendLevel)`, so R
-neutral is 0.5 — and `bumpFragment` reads a tangent normal out of **alpha and
-green** (`detailColor.wy * 2 - 1`, `B = sqrt(1 - |RG|²)`), so those are 0.5 too.
-Alpha is the trap: a 2D canvas is opaque, and A = 1 decodes as `normal.x = 1`,
-forcing B to zero — a tangent normal lying flat along the surface, 90° off the
-sun. It took Tokyo's grass from `(24,68,25)` to `(3,10,0)`, and `bumpLevel = 0`
-cannot rescue it, since zeroing `.xy` leaves a zero-length vector rather than an
-upright one. So `createGrassDetailTexture` paints greys for R and overwrites G
-and A with 128, and keeps `premulAlpha` off in `update()` — on, it would halve
-the red the diffuse blend reads. Author a real detail normal only on purpose.
-`DetailMapConfiguration` is also a `MaterialPluginBase`, so each material
-enabling it adds a define and one more compile; it is off on `lowSpec`, which
-also drops the base tile to 512².
+Ground grass, the detail-map tile, park lawns, paths and planting all live
+in [greenery.md](greenery.md). Their y-layer rungs are in the stack above.
 
 ## The glTF loader bakes a 180° Y flip
 
