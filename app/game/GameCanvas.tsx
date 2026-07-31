@@ -405,6 +405,18 @@ const ROAD_POINT_EPSILON_M = 0.08;
 // z-fight and flicker as the camera moves. Above the sidewalk band (0.045),
 // small enough to read as flush.
 const BUILDING_GROUND_LIFT = 0.08;
+/**
+ * How far every building's base plate clears the pavement band.
+ *
+ * Both street-wall paths depend on this being positive. A base plate level with
+ * the ground plane or the pavement gives two coplanar surfaces, and the depth
+ * buffer cannot separate them: the pale ground shimmers through the dark band
+ * the facade texture paints along the bottom of every building, worse the more
+ * the camera moves. The instanced wall was lifted when it was written; the
+ * procedural boxes were not, and shipped that flicker.
+ */
+export const BUILDING_BASE_CLEARANCE_M =
+  BUILDING_GROUND_LIFT - ROAD_SHOULDER_Y;
 const MAX_ROAD_MITER_RATIO = 3.25;
 // Junctions get a kerb radius: real corners curve so a turning vehicle can hold
 // its line, and the pavement wraps that curve. Capped well inside the sidewalk
@@ -4841,6 +4853,14 @@ function createFacadeBox(
     scene,
   );
   mesh.position.copyFrom(position);
+  // Every caller passes height/2, which puts the base plate exactly on the
+  // ground plane, and coplanar surfaces flicker as the camera moves — the pale
+  // ground shimmering through the dark band the facade texture paints along the
+  // bottom of every building. The instanced glb wall has been lifted clear of
+  // this since it was written (`BUILDING_GROUND_LIFT`); the procedural boxes
+  // never were. Applied here rather than at the four call sites so a fifth
+  // cannot reintroduce it.
+  mesh.position.y += BUILDING_GROUND_LIFT;
   setMeshMaterial(mesh, material);
   return mesh;
 }
