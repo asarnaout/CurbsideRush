@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { NullEngine, Scene, LoadAssetContainerAsync } from "@babylonjs/core";
+import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import {
+  biasCairoDecalMaterials,
   buildWaterPolygonGeometry,
+  CAIRO_DECAL_MATERIAL_NAMES,
+  CAIRO_DECAL_Z_OFFSET_UNITS,
+  CAIRO_STREET_WALL_URL_RE,
   cairoBridgePortalVisualAxis,
   cairoBridgeVisualAxis,
   CAIRO_DIRECTION_PANEL_DESIGN_V,
@@ -23,6 +31,7 @@ import {
   waterBoatPoseAt,
 } from "../app/game/GameCanvas";
 import { generateRoadsidePropPlacements } from "../app/game/visuals";
+import { buildingSetUrls } from "../app/game/buildingSets";
 import { isPointInPolygon } from "../app/game/simulation";
 import { authoredSignalAspectAt } from "../app/game/trafficSignals";
 import { CAIRO_MAP_PACK } from "../app/game/cairoContent";
@@ -722,5 +731,82 @@ describe("Cairo street identity", () => {
     expect(
       authoredSignalAspectAt({ ...input, style: "egypt_signal" }),
     ).toBe(authoredSignalAspectAt({ ...input, style: "nyc_signal" }));
+  });
+});
+
+// The Quaternius street-wall models carry brick patches / base bands / glazing
+// as primitives 0.6-3.5mm proud of the wall primitives (one model exactly
+// coplanar), which z-fights from ordinary viewing distance. The renderer pulls
+// those decal materials toward the camera by two depth quanta; these pin the
+// mechanism and its reach.
+describe("Cairo decal depth bias", () => {
+  registerBuiltInLoaders();
+
+  it("pulls exactly the decal materials toward the camera", () => {
+    const names = [
+      "Bricks", "Dark", "DarkBrown", "DarkWood", "Glass",
+      "Main", "White", "Light", "Windows", "Black", "Wood", "citybits_texture",
+    ];
+    const materials = names.map((name) => ({ name, zOffsetUnits: 0 }));
+    expect(biasCairoDecalMaterials(materials)).toBe(5);
+    for (const material of materials) {
+      expect(material.zOffsetUnits, material.name).toBe(
+        CAIRO_DECAL_MATERIAL_NAMES.includes(material.name)
+          ? CAIRO_DECAL_Z_OFFSET_UNITS
+          : 0,
+      );
+    }
+    // gl.polygonOffset: negative units pull fragments toward the camera. A
+    // positive value would push the decals behind the walls they decorate.
+    expect(CAIRO_DECAL_Z_OFFSET_UNITS).toBeLessThan(0);
+  });
+
+  it("applies only to cairo model urls, never shared ones", () => {
+    expect(CAIRO_STREET_WALL_URL_RE.test("/models/props/cairo-block-slim.glb")).toBe(true);
+    expect(CAIRO_STREET_WALL_URL_RE.test("/models/props/cairo-residence-quaternius.glb")).toBe(true);
+    expect(CAIRO_STREET_WALL_URL_RE.test("/models/props/nyc-brownstone-a.glb")).toBe(false);
+    expect(CAIRO_STREET_WALL_URL_RE.test("/models/office.glb")).toBe(false);
+    expect(CAIRO_STREET_WALL_URL_RE.test("/models/shop.glb")).toBe(false);
+  });
+
+  // If a model rename ever breaks the material-name match, the bias silently
+  // stops applying and the flicker returns — so prove the names against the
+  // real bytes of every street-wall glb.
+  it("finds its decal materials inside every Quaternius street-wall glb", async () => {
+    const urls = buildingSetUrls([
+      "cairo-corniche", "cairo-downtown", "cairo-zamalek", "cairo-westbank",
+    ]);
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) {
+      expect(CAIRO_STREET_WALL_URL_RE.test(url), url).toBe(true);
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const buf = fs.readFileSync(path.join(process.cwd(), "public", url));
+      const container = await LoadAssetContainerAsync(
+        "data:model/gltf-binary;base64," + buf.toString("base64"),
+        scene,
+        { pluginExtension: ".glb" },
+      );
+      const biased = biasCairoDecalMaterials(container.materials);
+      const quaternius = container.materials.some((m) => m.name === "Main");
+      if (quaternius) {
+        // Bricks + Dark at minimum; the rest of the decal family varies per
+        // model (slim has no Glass, 4story no DarkWood).
+        expect(biased, url).toBeGreaterThanOrEqual(3);
+      } else {
+        // Towers (obj2gltf palette) and KayKit atlas models carry none of the
+        // decal names — the bias must leave them untouched.
+        expect(biased, url).toBe(0);
+      }
+      for (const material of container.materials) {
+        expect(material.zOffsetUnits, `${url} ${material.name}`).toBe(
+          CAIRO_DECAL_MATERIAL_NAMES.includes(material.name)
+            ? CAIRO_DECAL_Z_OFFSET_UNITS
+            : 0,
+        );
+      }
+      scene.dispose();
+      engine.dispose();
+    }
   });
 });

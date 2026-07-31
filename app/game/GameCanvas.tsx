@@ -400,23 +400,56 @@ const ROAD_JUNCTION_FILL_Y = ROAD_SURFACE_Y + 0.0016;
 const ROAD_SHOULDER_Y = 0.045;
 const ROAD_SHOULDER_JUNCTION_FILL_Y = ROAD_SHOULDER_Y - 0.0015;
 const ROAD_POINT_EPSILON_M = 0.08;
-// Lift instanced buildings a few cm so a model's flat base plate never sits
-// exactly coplanar with the ground/sidewalk — otherwise the two surfaces
-// z-fight and flicker as the camera moves. Above the sidewalk band (0.045),
+// Lift every building so no model's base plate lands exactly on the ground
+// plane. Base plates face -Y and are back-face culled, so this is depth-buffer
+// hygiene, not a visible-flicker fix — the Cairo brick-band flicker was never
+// here (see CAIRO_DECAL_Z_OFFSET_UNITS). Above the sidewalk band (0.045),
 // small enough to read as flush.
 const BUILDING_GROUND_LIFT = 0.08;
 /**
- * How far every building's base plate clears the pavement band.
- *
- * Both street-wall paths depend on this being positive. A base plate level with
- * the ground plane or the pavement gives two coplanar surfaces, and the depth
- * buffer cannot separate them: the pale ground shimmers through the dark band
- * the facade texture paints along the bottom of every building, worse the more
- * the camera moves. The instanced wall was lifted when it was written; the
- * procedural boxes were not, and shipped that flicker.
+ * Clearance between a procedural facade box's base plate and the pavement
+ * band: every `createFacadeBox` caller passes height/2, so the plate lands
+ * exactly at `BUILDING_GROUND_LIFT`. Keep it positive so the plate is never
+ * coplanar with the ground or the pavement. The instanced glbs get the same
+ * lift but not the same guarantee — six Cairo models' native bases dip below
+ * y=0 (cairo-block-slim and -terrace by 0.076 at placement scale), landing
+ * them just above the ground plane instead.
  */
 export const BUILDING_BASE_CLEARANCE_M =
   BUILDING_GROUND_LIFT - ROAD_SHOULDER_Y;
+/**
+ * The Quaternius Cairo street-wall models carry their brick patches, dark base
+ * bands and glazing as separate primitives floating 0.6–3.5 mm in front of the
+ * wall primitives on the same plane (cairo-residence-quaternius has pairs at
+ * exactly 0 mm — its converter's quantization grid collapsed the authored
+ * offset). A 24-bit depth buffer stops resolving gaps that small from ~15–35 m
+ * away, so the pale wall bleeds through the dark decal and flickers as the
+ * camera moves. Pulling just the decal materials toward the camera by two
+ * depth quanta (gl.polygonOffset units — negative is toward the camera, and
+ * the bias scales with the local depth quantum, unlike a geometry nudge)
+ * separates every pair at every distance. Applied per cairo-*.glb container
+ * material, so no other city's models are touched.
+ */
+export const CAIRO_DECAL_Z_OFFSET_UNITS = -2;
+export const CAIRO_DECAL_MATERIAL_NAMES: readonly string[] = [
+  "Bricks",
+  "Dark",
+  "DarkBrown",
+  "DarkWood",
+  "Glass",
+];
+export const CAIRO_STREET_WALL_URL_RE = /\/cairo-[^/]+\.glb$/;
+export function biasCairoDecalMaterials(
+  materials: readonly { name: string; zOffsetUnits: number }[],
+): number {
+  let biased = 0;
+  for (const material of materials) {
+    if (!CAIRO_DECAL_MATERIAL_NAMES.includes(material.name)) continue;
+    material.zOffsetUnits = CAIRO_DECAL_Z_OFFSET_UNITS;
+    biased += 1;
+  }
+  return biased;
+}
 const MAX_ROAD_MITER_RATIO = 3.25;
 // Junctions get a kerb radius: real corners curve so a turning vehicle can hold
 // its line, and the pavement wraps that curve. Capped well inside the sidewalk
@@ -4853,13 +4886,10 @@ function createFacadeBox(
     scene,
   );
   mesh.position.copyFrom(position);
-  // Every caller passes height/2, which puts the base plate exactly on the
-  // ground plane, and coplanar surfaces flicker as the camera moves — the pale
-  // ground shimmering through the dark band the facade texture paints along the
-  // bottom of every building. The instanced glb wall has been lifted clear of
-  // this since it was written (`BUILDING_GROUND_LIFT`); the procedural boxes
-  // never were. Applied here rather than at the four call sites so a fifth
-  // cannot reintroduce it.
+  // Every caller passes height/2; the lift keeps the base plate off the ground
+  // plane and clear of the pavement band (BUILDING_BASE_CLEARANCE_M). Applied
+  // here rather than at the four call sites so a fifth cannot reintroduce a
+  // coplanar plate.
   mesh.position.y += BUILDING_GROUND_LIFT;
   setMeshMaterial(mesh, material);
   return mesh;
@@ -5507,7 +5537,12 @@ class BabylonGameSession {
     // and nothing else reads the radius, so the limits guarded nothing.
     this.thirdCamera.lowerRadiusLimit = null;
     this.thirdCamera.upperRadiusLimit = null;
-    this.thirdCamera.minZ = 0.1;
+    // Depth precision at distance scales with the near plane (a 24-bit quantum
+    // at z metres is ~z²/(minZ·2²⁴), the far plane barely matters): 0.5 gives
+    // every surface 5× the separating power 0.1 did, which the mm-scale decal
+    // offsets in the Cairo building kit need (CAIRO_DECAL_Z_OFFSET_UNITS).
+    // Nothing valid renders within 0.5 m of this camera — its radius is 13 m.
+    this.thirdCamera.minZ = 0.5;
     this.thirdCamera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     this.thirdCamera.fov = clampHorizontalFieldOfView(options.fieldOfView);
     this.thirdCamera.layerMask = PRIMARY_CAMERA_LAYER_MASK;
@@ -5518,6 +5553,9 @@ class BabylonGameSession {
       this.scene,
     );
     this.firstCamera.inputs.clear();
+    // Stays tight: the cockpit shell renders centimetres from this camera, and
+    // the wheel-well cutaway distance is derived from minZ. Depth precision in
+    // the cockpit view is what it is.
     this.firstCamera.minZ = 0.04;
     this.firstCamera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     this.firstCamera.fov = clampHorizontalFieldOfView(options.fieldOfView);
@@ -5529,7 +5567,9 @@ class BabylonGameSession {
       this.scene,
     );
     this.rearCamera.inputs.clear();
-    this.rearCamera.minZ = 0.08;
+    // Same depth-precision reasoning as thirdCamera; the mirror shows the road
+    // behind the tail, never anything nearer than the bumper.
+    this.rearCamera.minZ = 0.25;
     this.rearCamera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     this.rearCamera.fov = (64 * Math.PI) / 180;
     this.rearCamera.layerMask = WORLD_LAYER_MASK;
@@ -8508,6 +8548,14 @@ class BabylonGameSession {
 
   private buildInstancedBuildings() {
     if (this.visualPalette?.night) this.applyBuildingNightGlow();
+    // Pull the Cairo kit's decal primitives off their wall planes; see
+    // CAIRO_DECAL_Z_OFFSET_UNITS. Container materials are shared by every
+    // instance and by the merged masters, so once per url covers the map.
+    for (const url of this.buildingModelUrls) {
+      if (CAIRO_STREET_WALL_URL_RE.test(url)) {
+        biasCairoDecalMaterials(modelMaterials(this.scene, url));
+      }
+    }
     for (const { block, setId, buildFallback } of this.pendingBuildingBlocks) {
       const slotted = rotateBlockBuildingPlacements(
         slotBlockBuildings(

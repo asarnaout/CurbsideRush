@@ -95,7 +95,9 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
 
   // ---- Cairo ----
   // Every Cairo model measured square to its own axes (>=94% of wall area at 0°),
-  // so none needs a squareUpYaw, and every one sits on y=0 natively.
+  // so none needs a squareUpYaw. Most bases sit at y=0 natively; six dip below
+  // by up to 8cm at placement scale (cairo-block-slim and -terrace the worst),
+  // which BUILDING_GROUND_LIFT still clears off the ground plane.
   //
   // Facing: the Quaternius pack puts its doors and ground-floor glazing on local
   // +Z (measured from the Wood/DarkWood/Glass submesh centroids, not guessed),
