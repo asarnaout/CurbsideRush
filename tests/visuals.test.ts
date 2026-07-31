@@ -303,6 +303,32 @@ describe("roadside prop scatter", () => {
     }
   });
 
+  // Scatter walks road geometry, so a riverside road offers candidates on its
+  // water side exactly like any other. Nothing rejected them, and Cairo grew
+  // trees in the Nile.
+  it("never stands a prop in open water", () => {
+    const river = [
+      { x: -120, z: 4 },
+      { x: 120, z: 4 },
+      { x: 120, z: 60 },
+      { x: -120, z: 60 },
+    ];
+    const placements = generateRoadsidePropPlacements({
+      ...SCATTER_FIXTURE,
+      waterPolygons: [river],
+    });
+    expect(placements.length).toBeGreaterThan(0);
+    for (const placement of placements) {
+      expect(
+        placement.z < 4 || placement.z > 60,
+        `prop at z=${placement.z.toFixed(1)} is in the river`,
+      ).toBe(true);
+    }
+    // And the dry bank still gets its share, rather than the whole road going
+    // bare because one side is water.
+    expect(placements.filter((p) => p.z < 4).length).toBeGreaterThan(4);
+  });
+
   it("respects hand-placed furniture through occupiedPoints", () => {
     const occupiedPoints: { x: number; z: number }[] = [];
     for (let x = -104; x <= 104; x += 2) {

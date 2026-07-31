@@ -11724,6 +11724,9 @@ class BabylonGameSession {
         : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2),
       seed: hashStringToSeed(`${mapId}-props`),
       kinds,
+      waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
+        (body) => body.polygon,
+      ),
       // Hand-placed furniture and regulatory sign posts pre-seed the mutual
       // spacing grid so the random scatter can never stand a prop on them.
       occupiedPoints:

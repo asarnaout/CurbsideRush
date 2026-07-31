@@ -664,6 +664,12 @@ export interface PropScatterInput {
   readonly kinds: readonly PropKindConfig[];
   /** Existing hand-placed furniture that scattered props must keep clear of. */
   readonly occupiedPoints?: readonly VisualPoint[];
+  /**
+   * Water surfaces, as world polygons. Scatter is driven off road geometry, so
+   * a riverside road offers candidates on its water side exactly like any other
+   * — and with nothing to reject them, Cairo grew trees in the Nile.
+   */
+  readonly waterPolygons?: readonly (readonly VisualPoint[])[];
 }
 
 const PROP_MIN_MUTUAL_SPACING_M = 3;
@@ -734,10 +740,39 @@ const isInsideInflatedRect = (
 };
 
 /**
+ * Is the point inside any water polygon? Crossing number, so it holds for the
+ * concave river outlines Cairo and London author.
+ */
+const isOverWater = (
+  point: VisualPoint,
+  polygons: readonly (readonly VisualPoint[])[],
+): boolean =>
+  polygons.some((polygon) => {
+    let inside = false;
+    for (
+      let index = 0, previous = polygon.length - 1;
+      index < polygon.length;
+      previous = index, index += 1
+    ) {
+      const left = polygon[index];
+      const right = polygon[previous];
+      if (
+        left.z > point.z !== right.z > point.z &&
+        point.x <
+          ((right.x - left.x) * (point.z - left.z)) / (right.z - left.z) +
+            left.x
+      ) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  });
+
+/**
  * Deterministic roadside prop scatter. Walks each road surface by arclength,
  * offsets candidates beyond the shoulder, and rejects anything that would sit
- * on a carriageway, inside authored blocks/landmarks, outside the world, or
- * too close to another prop or hand-placed furniture.
+ * on a carriageway, in open water, inside authored blocks/landmarks, outside
+ * the world, or too close to another prop or hand-placed furniture.
  */
 export function generateRoadsidePropPlacements(
   input: PropScatterInput,
@@ -825,6 +860,7 @@ export function generateRoadsidePropPlacements(
                 surface.id,
                 kindConfig.curbOffsetM,
               ) ||
+              isOverWater(candidate, input.waterPolygons ?? []) ||
               input.blocks.some((rect) => isInsideInflatedRect(candidate, rect)) ||
               input.landmarks.some((rect) =>
                 isInsideInflatedRect(candidate, rect),
