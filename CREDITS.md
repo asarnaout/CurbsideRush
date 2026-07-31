@@ -26,10 +26,11 @@ stations) live under `public/models/props/`.
   released **CC0 1.0**. Downloaded 2026-07-29. Source GLB SHA-256
   `5ebaa83522c99c877e28b9c482aa8629226d574fa398dc91ba71430d4e38e290`;
   committed GLB SHA-256
-  `a5876cf61076daf42f56c89f53f475e85915a661bc5a8d2318b6411d0b2f6be1`.
+  `2012755285875f9221074db08d58f48954a4ecb8fdfc5c1763bde421e13897ad`.
   Modified with a muted Cairo façade palette and matte materials by
-  `tools/style-cairo-residences.mjs`; used as one of Cairo's flat-roofed urban
-  residence venues.
+  `tools/style-cairo-residences.mjs`, and its red/white striped door canopy
+  deleted by `tools/cairo-shopfront.mjs` (v2); used as one of Cairo's
+  flat-roofed urban residence venues.
 - **props/cairo-residence-quaternius.glb** (`3Story_Balcony_Mat`) — by
   **Quaternius**, from the Ultimate Textured Buildings Pack
   (<https://quaternius.com/packs/ultimatetexturedbuildings.html>), released
@@ -81,6 +82,11 @@ places no hydrants. The stripe is geometry rather than paint (the atlas is a gri
 of gradient swatches, and the stripes are alternating faces pointed at two of
 them), so it is corrected by a UV remap of the pale faces onto the dark swatch —
 editing the texture would recolour every other surface sharing that swatch.
+v2 additionally deletes `cairo-residence-kay`'s striped door canopy outright: at
+29 triangles it slipped under v1's size filter, and its stripes pair two
+lower-half swatches, which the half-atlas remap could never have reached. Each
+target now declares what the filter must find, and the run refuses to stamp on
+any mismatch.
 
 All the Quaternius models below come from the **Ultimate Textured Buildings
 Pack** (<https://quaternius.com/packs/ultimatetexturedbuildings.html>), released
@@ -112,7 +118,7 @@ converted from OBJ + MTL to a self-contained quantized GLB by
   **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
   `289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5`;
   committed GLB SHA-256
-  `2607a442181e051cb83d77c75fd15ce0401fcbdf99d8b0c5cef26b420318842a`.
+  `8c4f9a9f613d5d68c0f3d001efa5191946368bbddc193790634383d73457a520`.
   Cairo's copy of `shop.glb` — same source model, but recoloured to the Cairo
   palette with the striped awning flattened and the bundled hydrant removed by
   `tools/cairo-shopfront.mjs`. It exists as a separate file because `shop.glb`
@@ -125,7 +131,7 @@ converted from OBJ + MTL to a self-contained quantized GLB by
   released **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
   `a98d4fa6bf1e261da717fbdeef7937ef7578af86db3ba31a14296d814cf44e65`;
   committed GLB SHA-256
-  `e646b245030ac11df8c4867c8bd65d529774993302ef3897a74506aa0e5ddced`.
+  `bfe108c90afb5ba5faa47b976dd8f37e1f98065f4d669a9204656bb3bd1b7ea3`.
   Same pack (and same flat roof + rooftop water tank) as
   `cairo-residence-kay.glb`.
 - **props/cairo-walkup-b.glb** ("Building") — by **Kay Lousberg**, same pack via
@@ -134,7 +140,7 @@ converted from OBJ + MTL to a self-contained quantized GLB by
   released **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
   `ecda4d8e3a89bb751f61e179725ca59d2a19f7f3aa88fedd4fc371eb8f0eaede`;
   committed GLB SHA-256
-  `96ffdd81e34f1624848f261a337547fd949886002fd39b7900cea90576d66159`.
+  `d63a6174590d3b631f7f4da7edd7b76f14032fbe4dbcdd3c05426c8928f22555`.
   The same source model as `nyc-brownstone-b.glb`, imported separately because
   `modelLibrary` keys asset containers by URL — one file cannot carry both the
   New York and the Cairo palette.

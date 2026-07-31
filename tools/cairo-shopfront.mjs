@@ -29,6 +29,15 @@
  * swatches sit exactly 0.5 apart in v, which is what makes the remap exact
  * rather than approximate.
  *
+ * v2: cairo-residence-kay's door canopy is a 29-triangle component — one
+ * triangle under v1's >=30 filter — and its stripes alternate two *lower-half*
+ * swatches (terracotta u≈0.97, white u≈0.18), so the v-0.5 remap could never
+ * have fixed it anyway. It gets deleted outright. Each target now declares
+ * what the filter must find ("darken" exactly one, "delete" exactly one,
+ * "none" zero) and the run throws on any mismatch, so the stamp means
+ * "verified", not merely "visited" — v1 stamped walkup-b and residence-kay
+ * without changing a byte, which is how the striped canopy shipped twice.
+ *
  * Run after tools/style-cairo-residences.mjs. Idempotent.
  */
 import fs from "node:fs";
@@ -40,10 +49,19 @@ const sharp = require("sharp");
 
 const dry = process.argv.includes("--dry");
 const PROPS = "public/models/props";
-const FIXUP_ID = "cairo-shopfront-v1";
+const FIXUP_ID = "cairo-shopfront-v2";
 
-/** Cairo-only files. Never add a shared one here. */
-const TARGETS = ["cairo-shop", "cairo-walkup-a", "cairo-walkup-b", "cairo-residence-kay"];
+/**
+ * Cairo-only files. Never add a shared one here. `awning` is what the filter
+ * must find: "darken" / "delete" require exactly one canopy component, "none"
+ * requires zero.
+ */
+const TARGETS = [
+  { id: "cairo-shop", awning: "darken" },
+  { id: "cairo-walkup-a", awning: "darken" },
+  { id: "cairo-walkup-b", awning: "none" },
+  { id: "cairo-residence-kay", awning: "delete" },
+];
 
 function parseGlb(buffer) {
   if (buffer.readUInt32LE(0) !== 0x46546c67) throw new Error("not a GLB");
@@ -95,7 +113,7 @@ const viewOf = (json, accessorIndex) => {
   return { accessor, view, start: (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0) };
 };
 
-for (const id of TARGETS) {
+for (const { id, awning: awningPolicy } of TARGETS) {
   const file = path.join(PROPS, `${id}.glb`);
   if (!fs.existsSync(file)) throw new Error(`missing ${file}`);
   const { json, bin } = parseGlb(fs.readFileSync(file));
@@ -209,6 +227,8 @@ for (const id of TARGETS) {
 
   // ---- 1. The awning: a wide, shallow canopy hanging off a facade, well below
   // the roofline, and big enough to be the striped canopy rather than a sill.
+  // >=25 triangles: the residence-kay door canopy has 29, and v1's >=30 let it
+  // ship striped.
   const awnings = partList.filter((p) => {
     const spanX = p.x[1] - p.x[0];
     const spanZ = p.z[1] - p.z[0];
@@ -220,12 +240,19 @@ for (const id of TARGETS) {
       Math.min(spanX, spanZ) < 0.3 &&
       p.y[0] > 0.1 &&
       p.y[1] < 0.8 &&
-      p.tris.length >= 30
+      p.tris.length >= 25
     );
   });
+  const expectedAwnings = awningPolicy === "none" ? 0 : 1;
+  if (awnings.length !== expectedAwnings) {
+    throw new Error(
+      `${id}: awning policy "${awningPolicy}" expects ${expectedAwnings} ` +
+        `canopy component(s), filter found ${awnings.length} — refusing to stamp`,
+    );
+  }
 
   const uvEdits = [];
-  for (const awning of awnings) {
+  for (const awning of awningPolicy === "darken" ? awnings : []) {
     // The pale stripe sits exactly half the atlas above the dark one. Take the
     // dark column's u from the faces already below the midline.
     const darkUs = [...awning.verts]
@@ -308,6 +335,9 @@ for (const id of TARGETS) {
   });
 
   const dropped = new Set(clutter.flatMap((p) => p.tris));
+  if (awningPolicy === "delete") {
+    for (const awning of awnings) for (const t of awning.tris) dropped.add(t);
+  }
   const keptIndices = [];
   for (let t = 0; t < indices.length; t += 3) {
     if (dropped.has(t)) continue;
@@ -315,8 +345,9 @@ for (const id of TARGETS) {
   }
 
   console.log(
-    `${id}: awnings=${awnings.length} (${uvEdits.length} uv verts remapped), ` +
-      `clutter parts removed=${clutter.length} (${(indices.length - keptIndices.length) / 3} tris)`,
+    `${id}: awning=${awningPolicy}×${awnings.length} (${uvEdits.length} uv verts remapped), ` +
+      `parts removed=${clutter.length + (awningPolicy === "delete" ? awnings.length : 0)} ` +
+      `(${(indices.length - keptIndices.length) / 3} tris)`,
   );
   for (const p of clutter) {
     console.log(
