@@ -17,6 +17,7 @@ import {
   Matrix,
   Mesh,
   MeshBuilder,
+  MultiMaterial,
   ParticleSystem,
   Plane,
   Quaternion,
@@ -400,11 +401,72 @@ const ROAD_JUNCTION_FILL_Y = ROAD_SURFACE_Y + 0.0016;
 const ROAD_SHOULDER_Y = 0.045;
 const ROAD_SHOULDER_JUNCTION_FILL_Y = ROAD_SHOULDER_Y - 0.0015;
 const ROAD_POINT_EPSILON_M = 0.08;
-// Lift instanced buildings a few cm so a model's flat base plate never sits
-// exactly coplanar with the ground/sidewalk — otherwise the two surfaces
-// z-fight and flicker as the camera moves. Above the sidewalk band (0.045),
+// Lift every building so no model's base plate lands exactly on the ground
+// plane. Base plates face -Y and are back-face culled, so this is depth-buffer
+// hygiene, not a visible-flicker fix — the Cairo brick-band flicker was never
+// here (see CAIRO_DECAL_Z_OFFSET_UNITS). Above the sidewalk band (0.045),
 // small enough to read as flush.
 const BUILDING_GROUND_LIFT = 0.08;
+/**
+ * Clearance between a procedural facade box's base plate and the pavement
+ * band: every `createFacadeBox` caller passes height/2, so the plate lands
+ * exactly at `BUILDING_GROUND_LIFT`. Keep it positive so the plate is never
+ * coplanar with the ground or the pavement. The instanced glbs get the same
+ * lift but not the same guarantee — six Cairo models' native bases dip below
+ * y=0 (cairo-block-slim and -terrace by 0.076 at placement scale), landing
+ * them just above the ground plane instead.
+ */
+export const BUILDING_BASE_CLEARANCE_M =
+  BUILDING_GROUND_LIFT - ROAD_SHOULDER_Y;
+/**
+ * The Quaternius Cairo street-wall models carry their brick patches, dark base
+ * bands and glazing as separate primitives floating 0.6–3.5 mm in front of the
+ * wall primitives on the same plane (cairo-residence-quaternius has pairs at
+ * exactly 0 mm — its converter's quantization grid collapsed the authored
+ * offset). A 24-bit depth buffer stops resolving gaps that small from ~15–35 m
+ * away, so the pale wall bleeds through the dark decal and flickers as the
+ * camera moves. Pulling just the decal materials toward the camera by two
+ * depth quanta (gl.polygonOffset units — negative is toward the camera, and
+ * the bias scales with the local depth quantum, unlike a geometry nudge)
+ * separates every pair at every distance. Applied per cairo-*.glb container
+ * material, so no other city's models are touched.
+ */
+export const CAIRO_DECAL_Z_OFFSET_UNITS = -2;
+export const CAIRO_DECAL_MATERIAL_NAMES: readonly string[] = [
+  "Bricks",
+  "Dark",
+  "DarkBrown",
+  "DarkWood",
+  "Glass",
+];
+export const CAIRO_STREET_WALL_URL_RE = /\/cairo-[^/]+\.glb$/;
+/**
+ * Kerbside parked cars are instanced from the traffic fleet's own CC0
+ * Quaternius glbs, so the parked metal matches the moving metal. Each variant
+ * pairs a body with a Cairo street tint; the body slot is cloned per variant
+ * because the merged master shares its container materials with live traffic.
+ */
+export const PARKED_CAR_SOURCES = [
+  { url: "/models/vehicles/sedan.glb", bodyMaterial: "Blue" },
+  { url: "/models/vehicles/suv.glb", bodyMaterial: "White" },
+] as const;
+const PARKED_CAR_TINTS: readonly Color3[] = [
+  new Color3(0.82, 0.8, 0.76), // dusty white — Cairo's default car colour
+  new Color3(0.16, 0.17, 0.2), // charcoal
+  new Color3(0.45, 0.11, 0.1), // oxblood
+];
+const PARKED_CAR_LENGTH_M = 4.35;
+export function biasCairoDecalMaterials(
+  materials: readonly { name: string; zOffsetUnits: number }[],
+): number {
+  let biased = 0;
+  for (const material of materials) {
+    if (!CAIRO_DECAL_MATERIAL_NAMES.includes(material.name)) continue;
+    material.zOffsetUnits = CAIRO_DECAL_Z_OFFSET_UNITS;
+    biased += 1;
+  }
+  return biased;
+}
 const MAX_ROAD_MITER_RATIO = 3.25;
 // Junctions get a kerb radius: real corners curve so a turning vehicle can hold
 // its line, and the pavement wraps that curve. Capped well inside the sidewalk
@@ -1676,6 +1738,9 @@ export interface GameCanvasWaterBody {
   readonly polygon: readonly GameCanvasPoint[];
   readonly color: string;
   readonly flowHeadingDeg?: number;
+  /** Road surfaces that cross this water — their over-water spans wall boat
+   * tracks (the drivable bridges have no underside to pass beneath). */
+  readonly bridgePortalSurfaceIds?: readonly string[];
 }
 
 export interface WaterPolygonGeometry {
@@ -1873,10 +1938,154 @@ function rayDistanceToPolygonEdge(
   return nearest;
 }
 
+/**
+ * What a boat track must never cross. The two drivable Nile bridges have no
+ * underside at all — their road surface IS the deck, at water level — so no
+ * craft passes them at any mast height; their over-water spans are hard
+ * walls. The elevated expressway is the opposite: its soffit clears every
+ * mast, and only its pier columns need avoiding.
+ */
+export interface WaterBoatObstacles {
+  readonly spans: readonly {
+    readonly x: number;
+    readonly z: number;
+    readonly ux: number;
+    readonly uz: number;
+    readonly halfLengthM: number;
+    readonly halfWidthM: number;
+  }[];
+  readonly piers: readonly {
+    readonly x: number;
+    readonly z: number;
+    readonly radiusM: number;
+  }[];
+}
+
+/** Hull lengths per variant: motor skiff, felucca, tour boat. */
+export const WATER_BOAT_LENGTHS_M = [4.6, 6.5, 6.2] as const;
+/** Highest point above the waterline per variant — the felucca's masthead at
+ * its 6.5 m hull is 5.7 m, under the elevated deck soffit
+ * (CAIRO_ELEVATED_DECK_Y − thickness/2 = 6.84). */
+export const WATER_BOAT_AIR_DRAFTS_M = [1.1, 5.7, 1.5] as const;
+/** Track clearance around obstacles: the widest half-beam plus water room. */
+export const WATER_BOAT_CLEARANCE_M = 3.6;
+/** Per-variant craft glbs: motor skiff, felucca, tour boat (the skiff again
+ * at a longer hull). Cairo-only files; CREDITS.md logs their provenance. */
+export const WATER_BOAT_MODEL_URLS = [
+  "/models/props/cairo-skiff.glb",
+  "/models/props/cairo-felucca.glb",
+  "/models/props/cairo-skiff.glb",
+] as const;
+/** How deep each hull sits below the waterline pose. */
+const WATER_BOAT_DRAUGHT_M = 0.3;
+export const CAIRO_ELEVATED_DECK_Y = 7.2;
+export const CAIRO_ELEVATED_DECK_THICKNESS_M = 0.72;
+export const CAIRO_ELEVATED_PIER_RADIUS_M = 0.825;
+
+/** The obstacle set for one water body, shared verbatim by the renderer and
+ * the tests so neither can drift from what the boats actually avoid. */
+export function cairoWaterBoatObstacles(
+  geometry: {
+    readonly roadSurfaces?: GameCanvasMapPack["geometry"]["roadSurfaces"];
+    readonly landmarks?: GameCanvasMapPack["geometry"]["landmarks"];
+  },
+  body: GameCanvasWaterBody,
+): WaterBoatObstacles {
+  const spans: WaterBoatObstacles["spans"][number][] = [];
+  for (const surfaceId of body.bridgePortalSurfaceIds ?? []) {
+    const surface = geometry.roadSurfaces?.find(
+      (candidate) => candidate.id === surfaceId,
+    );
+    if (!surface) continue;
+    for (const span of bridgePortalRailSpans(body, surface)) {
+      spans.push({
+        x: span.center.x,
+        z: span.center.z,
+        ux: span.ux,
+        uz: span.uz,
+        halfLengthM: span.halfLengthM,
+        halfWidthM: surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8),
+      });
+    }
+  }
+  const piers: WaterBoatObstacles["piers"][number][] = [];
+  const scenic = geometry.landmarks?.find(
+    (landmark) => landmark.id === "cairo-sixth-october-bridge",
+  );
+  if (scenic) {
+    const axis = cairoBridgeVisualAxis(scenic, geometry.roadSurfaces ?? []);
+    for (const pier of cairoElevatedBridgePierPlacements(
+      axis,
+      geometry.roadSurfaces ?? [],
+    )) {
+      piers.push({
+        x: pier.position.x,
+        z: pier.position.z,
+        radiusM: CAIRO_ELEVATED_PIER_RADIUS_M,
+      });
+    }
+  }
+  return { spans, piers };
+}
+
+function rayObstacleDistance(
+  origin: GameCanvasPoint,
+  direction: GameCanvasPoint,
+  obstacles: WaterBoatObstacles | undefined,
+): number {
+  if (!obstacles) return Number.POSITIVE_INFINITY;
+  let nearest = Number.POSITIVE_INFINITY;
+  for (const span of obstacles.spans) {
+    // Slab test in the span's own frame, inflated by the boat clearance.
+    const vx = -span.uz;
+    const vz = span.ux;
+    const halfU = span.halfLengthM + WATER_BOAT_CLEARANCE_M;
+    const halfV = span.halfWidthM + WATER_BOAT_CLEARANCE_M;
+    const ou = (origin.x - span.x) * span.ux + (origin.z - span.z) * span.uz;
+    const ov = (origin.x - span.x) * vx + (origin.z - span.z) * vz;
+    const du = direction.x * span.ux + direction.z * span.uz;
+    const dv = direction.x * vx + direction.z * vz;
+    let enter = -Infinity;
+    let exit = Infinity;
+    let miss = false;
+    for (const [offset, delta, half] of [
+      [ou, du, halfU],
+      [ov, dv, halfV],
+    ] as const) {
+      if (Math.abs(delta) < 1e-9) {
+        if (Math.abs(offset) > half) miss = true;
+        continue;
+      }
+      const t0 = (-half - offset) / delta;
+      const t1 = (half - offset) / delta;
+      enter = Math.max(enter, Math.min(t0, t1));
+      exit = Math.min(exit, Math.max(t0, t1));
+    }
+    if (!miss && enter <= exit && exit > 0) {
+      nearest = Math.min(nearest, Math.max(0, enter));
+    }
+  }
+  for (const pier of obstacles.piers) {
+    const radius = pier.radiusM + WATER_BOAT_CLEARANCE_M;
+    const ox = origin.x - pier.x;
+    const oz = origin.z - pier.z;
+    const b = ox * direction.x + oz * direction.z;
+    const c = ox * ox + oz * oz - radius * radius;
+    const disc = b * b - c;
+    if (disc < 0) continue;
+    const root = Math.sqrt(disc);
+    const tNear = -b - root;
+    const tFar = -b + root;
+    if (tFar > 0) nearest = Math.min(nearest, Math.max(0, tNear));
+  }
+  return nearest;
+}
+
 /** Stable visual-only Nile traffic; never consumes the simulation PRNG. */
 export function generateWaterBoatPlacements(
   mapId: string,
   body: GameCanvasWaterBody,
+  obstacles?: WaterBoatObstacles,
 ): readonly WaterBoatPlacement[] {
   const polygon = buildWaterPolygonGeometry(body.polygon).polygon;
   if (polygon.length < 3) return [];
@@ -1911,11 +2120,16 @@ export function generateWaterBoatPlacements(
       ((body.flowHeadingDeg ?? defaultHeadingDeg) * Math.PI) / 180 +
       (random() - 0.5) * 0.22;
     const direction = { x: Math.sin(heading), z: Math.cos(heading) };
-    const forward = rayDistanceToPolygonEdge(candidate, direction, polygon);
-    const backward = rayDistanceToPolygonEdge(
-      candidate,
-      { x: -direction.x, z: -direction.z },
-      polygon,
+    // A candidate already inside an obstacle's clearance can never sail out.
+    if (rayObstacleDistance(candidate, direction, obstacles) === 0) continue;
+    const forward = Math.min(
+      rayDistanceToPolygonEdge(candidate, direction, polygon),
+      rayObstacleDistance(candidate, direction, obstacles),
+    );
+    const reverse = { x: -direction.x, z: -direction.z };
+    const backward = Math.min(
+      rayDistanceToPolygonEdge(candidate, reverse, polygon),
+      rayObstacleDistance(candidate, reverse, obstacles),
     );
     const trackStartM = -(backward - 7);
     const trackLengthM = forward + backward - 14;
@@ -2114,6 +2328,7 @@ export interface GameCanvasMapPack {
       readonly size: GameCanvasPoint;
       readonly headingDeg?: number;
       readonly frontageAxis?: "x" | "z";
+      readonly streetEdges?: readonly ("+x" | "-x" | "+z" | "-z")[];
       readonly heightRange: readonly [number, number];
       readonly density: number;
       readonly material: string;
@@ -2420,25 +2635,29 @@ export interface CairoTahrirFurnitureLayout {
   })[];
 }
 
-export interface CairoDirectionPanelUvTransform {
-  readonly uScale: -1;
-  readonly uOffset: 1;
-  readonly vScale: -1;
-  readonly vOffset: 1;
-}
-
 /**
- * Babylon's road-facing box face presents a canvas texture rotated 180°.
- * Counter-rotate Cairo's legible bilingual panels in UV space while leaving
- * the shared sign mesh and its face-road yaw convention unchanged.
+ * Cairo's bilingual direction panel is printed on one side only, like the real
+ * thing — the back of a road sign is bare aluminium.
+ *
+ * This has to be done per face, not on the material. Rotating the whole texture
+ * 180° does land the legend upright on the road-facing face, but Babylon's two
+ * broad box faces already differ by 180°, so the same transform lands the
+ * legend on the *back* upside down — which is exactly what it used to do.
+ *
+ * So: the design occupies the top half of the canvas and the bottom half stays
+ * aluminium; face 0 (+Z, the road-facing side under the face-road yaw
+ * convention) takes the design pre-swapped, and the other five sample a small
+ * patch well inside the aluminium half, far enough from the boundary that
+ * mipmap bleed cannot drag the legend onto an edge.
  */
-export function cairoDirectionPanelUvTransform(): CairoDirectionPanelUvTransform {
-  return {
-    uScale: -1,
-    uOffset: 1,
-    vScale: -1,
-    vOffset: 1,
-  };
+export const CAIRO_DIRECTION_PANEL_DESIGN_V = 0.5;
+
+export function cairoDirectionPanelFaceUv(): readonly Vector4[] {
+  // Swapped min/max corner = the region applied 180° round, cancelling the
+  // rotation Babylon's +Z face applies. See the regulatory blade's `swapped`.
+  const printed = new Vector4(1, 1, 0, CAIRO_DIRECTION_PANEL_DESIGN_V);
+  const bare = new Vector4(0.4, 0.1, 0.6, 0.3);
+  return [printed, bare, bare, bare, bare, bare];
 }
 
 /** Keeps Tahrir's visual-only furniture inside the plaza, clear of traffic. */
@@ -4836,6 +5055,11 @@ function createFacadeBox(
     scene,
   );
   mesh.position.copyFrom(position);
+  // Every caller passes height/2; the lift keeps the base plate off the ground
+  // plane and clear of the pavement band (BUILDING_BASE_CLEARANCE_M). Applied
+  // here rather than at the four call sites so a fifth cannot reintroduce a
+  // coplanar plate.
+  mesh.position.y += BUILDING_GROUND_LIFT;
   setMeshMaterial(mesh, material);
   return mesh;
 }
@@ -5107,6 +5331,18 @@ class BabylonGameSession {
   private readonly buildingExclusions: { x: number; z: number; radius: number }[] = [];
   /** Sidewalk vendor carts to instantiate once their glbs preload. */
   private readonly pendingVendors: { config: StreetPropConfig; x: number; z: number; yaw: number }[] = [];
+  /** Kerbside parked cars to instantiate once the vehicle glbs preload. */
+  private readonly pendingParkedCars: { x: number; z: number; yaw: number; variant: number }[] = [];
+  private readonly parkedCarMasters = new Map<
+    number,
+    { mesh: Mesh; scale: number; baseY: number; longAxis: "x" | "z" } | null
+  >();
+  /** River craft to instantiate once the boat glbs preload. */
+  private readonly pendingWaterBoats: { bodyId: string; placement: WaterBoatPlacement }[] = [];
+  private readonly waterBoatMasters = new Map<
+    number,
+    { mesh: Mesh; scale: number; yOffset: number; yawOffset: number } | null
+  >();
   /** Knockable street furniture, bucketed for the per-step broad phase. */
   private readonly destructibleGrid = new Map<string, DestructibleProp[]>();
   private readonly activePropFalls: ActivePropFall[] = [];
@@ -5482,7 +5718,12 @@ class BabylonGameSession {
     // and nothing else reads the radius, so the limits guarded nothing.
     this.thirdCamera.lowerRadiusLimit = null;
     this.thirdCamera.upperRadiusLimit = null;
-    this.thirdCamera.minZ = 0.1;
+    // Depth precision at distance scales with the near plane (a 24-bit quantum
+    // at z metres is ~z²/(minZ·2²⁴), the far plane barely matters): 0.5 gives
+    // every surface 5× the separating power 0.1 did, which the mm-scale decal
+    // offsets in the Cairo building kit need (CAIRO_DECAL_Z_OFFSET_UNITS).
+    // Nothing valid renders within 0.5 m of this camera — its radius is 13 m.
+    this.thirdCamera.minZ = 0.5;
     this.thirdCamera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     this.thirdCamera.fov = clampHorizontalFieldOfView(options.fieldOfView);
     this.thirdCamera.layerMask = PRIMARY_CAMERA_LAYER_MASK;
@@ -5493,6 +5734,9 @@ class BabylonGameSession {
       this.scene,
     );
     this.firstCamera.inputs.clear();
+    // Stays tight: the cockpit shell renders centimetres from this camera, and
+    // the wheel-well cutaway distance is derived from minZ. Depth precision in
+    // the cockpit view is what it is.
     this.firstCamera.minZ = 0.04;
     this.firstCamera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     this.firstCamera.fov = clampHorizontalFieldOfView(options.fieldOfView);
@@ -5504,7 +5748,9 @@ class BabylonGameSession {
       this.scene,
     );
     this.rearCamera.inputs.clear();
-    this.rearCamera.minZ = 0.08;
+    // Same depth-precision reasoning as thirdCamera; the mirror shows the road
+    // behind the tail, never anything nearer than the bumper.
+    this.rearCamera.minZ = 0.25;
     this.rearCamera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     this.rearCamera.fov = (64 * Math.PI) / 180;
     this.rearCamera.layerMask = WORLD_LAYER_MASK;
@@ -8357,6 +8603,98 @@ class BabylonGameSession {
   }
 
   /**
+   * A merged master per boat variant, sized so the hull reads at its authored
+   * length and seated so the waterline sits WATER_BOAT_DRAUGHT_M up the hull.
+   * The boats sail bow-first along local +z of the wave root; a model whose
+   * long axis merged onto x gets the quarter turn.
+   */
+  private getWaterBoatMaster(
+    variant: number,
+  ): { mesh: Mesh; scale: number; yOffset: number; yawOffset: number } | null {
+    const cached = this.waterBoatMasters.get(variant);
+    if (cached !== undefined) return cached;
+    const url = WATER_BOAT_MODEL_URLS[variant % WATER_BOAT_MODEL_URLS.length];
+    const mesh = this.getBuildingMaster(url);
+    let built:
+      | { mesh: Mesh; scale: number; yOffset: number; yawOffset: number }
+      | null = null;
+    if (mesh) {
+      const bounds = mesh.getBoundingInfo().boundingBox;
+      const extentX = bounds.maximum.x - bounds.minimum.x;
+      const extentZ = bounds.maximum.z - bounds.minimum.z;
+      const scale =
+        WATER_BOAT_LENGTHS_M[variant % WATER_BOAT_LENGTHS_M.length] /
+        Math.max(extentX, extentZ);
+      built = {
+        mesh,
+        scale,
+        yOffset: -bounds.minimum.y * scale - WATER_BOAT_DRAUGHT_M,
+        yawOffset: extentX > extentZ ? Math.PI / 2 : 0,
+      };
+    }
+    this.waterBoatMasters.set(variant, built);
+    return built;
+  }
+
+  /**
+   * A merged, tinted master per parked-car variant. The base merge is shared
+   * through getBuildingMaster (one geometry upload per url); the clone carries
+   * its own MultiMaterial so the body slot can be tinted without recolouring
+   * the live traffic, which shares the container materials — the same trick as
+   * getStorefrontMaster. Scale, ground seat and kerb axis are measured from
+   * the merged bounds rather than hand-tuned.
+   */
+  private getParkedCarMaster(
+    variant: number,
+  ): { mesh: Mesh; scale: number; baseY: number; longAxis: "x" | "z" } | null {
+    const cached = this.parkedCarMasters.get(variant);
+    if (cached !== undefined) return cached;
+    const source = PARKED_CAR_SOURCES[variant % PARKED_CAR_SOURCES.length];
+    const base = this.getBuildingMaster(source.url);
+    let built:
+      | { mesh: Mesh; scale: number; baseY: number; longAxis: "x" | "z" }
+      | null = null;
+    if (base) {
+      const bounds = base.getBoundingInfo().boundingBox;
+      const extentX = bounds.maximum.x - bounds.minimum.x;
+      const extentZ = bounds.maximum.z - bounds.minimum.z;
+      const scale = PARKED_CAR_LENGTH_M / Math.max(extentX, extentZ);
+      const mesh = base.clone(`parked-car-master-${variant}`);
+      mesh.isVisible = false;
+      mesh.isPickable = false;
+      if (mesh.material instanceof MultiMaterial) {
+        const multi = mesh.material.clone(`parked-car-materials-${variant}`);
+        const slot = multi.subMaterials.findIndex(
+          (candidate) => candidate?.name === source.bodyMaterial,
+        );
+        const body =
+          slot >= 0
+            ? multi.subMaterials[slot]?.clone(`parked-car-body-${variant}`)
+            : null;
+        if (body) {
+          const tint = PARKED_CAR_TINTS[variant % PARKED_CAR_TINTS.length];
+          const paint = body as unknown as {
+            albedoColor?: Color3;
+            diffuseColor?: Color3;
+          };
+          if (paint.albedoColor) paint.albedoColor = tint.clone();
+          if (paint.diffuseColor) paint.diffuseColor = tint.clone();
+          multi.subMaterials[slot] = body;
+          mesh.material = multi;
+        }
+      }
+      built = {
+        mesh,
+        scale,
+        baseY: ROAD_SURFACE_Y - bounds.minimum.y * scale,
+        longAxis: extentX > extentZ ? "x" : "z",
+      };
+    }
+    this.parkedCarMasters.set(variant, built);
+    return built;
+  }
+
+  /**
    * A variant master for the one retail glb: same merged-master shape as
    * getBuildingMaster, but with the baked "PIZZA" lettering swapped for the
    * variant's fascia sign and awning tint (storefrontMaster.ts) so streets
@@ -8483,6 +8821,14 @@ class BabylonGameSession {
 
   private buildInstancedBuildings() {
     if (this.visualPalette?.night) this.applyBuildingNightGlow();
+    // Pull the Cairo kit's decal primitives off their wall planes; see
+    // CAIRO_DECAL_Z_OFFSET_UNITS. Container materials are shared by every
+    // instance and by the merged masters, so once per url covers the map.
+    for (const url of this.buildingModelUrls) {
+      if (CAIRO_STREET_WALL_URL_RE.test(url)) {
+        biasCairoDecalMaterials(modelMaterials(this.scene, url));
+      }
+    }
     for (const { block, setId, buildFallback } of this.pendingBuildingBlocks) {
       const slotted = rotateBlockBuildingPlacements(
         slotBlockBuildings(
@@ -8491,6 +8837,7 @@ class BabylonGameSession {
           setId,
           hashStringToSeed(`${block.id}-buildings`),
           this.buildingKeepFraction,
+          block.streetEdges,
         ),
         block.center,
         block.headingDeg,
@@ -8541,6 +8888,52 @@ class BabylonGameSession {
       if (placed === 0) buildFallback();
     }
     this.pendingBuildingBlocks.length = 0;
+
+    // River craft: merged-master instances of the CC0 boats, one cheap scene
+    // mesh per boat, parented under a root the wave animation moves. Scale and
+    // waterline seat are measured from the merged bounds, so the felucca's
+    // masthead lands exactly at its pinned air draft.
+    let boatIndex = 0;
+    for (const pending of this.pendingWaterBoats) {
+      const master = this.getWaterBoatMaster(pending.placement.variant);
+      if (!master) continue;
+      const root = new TransformNode(
+        `${pending.bodyId}-boat-${boatIndex}`,
+        this.scene,
+      );
+      boatIndex += 1;
+      const pose = waterBoatPoseAt(pending.placement, 0);
+      root.position.set(pose.x, pose.y, pose.z);
+      root.rotation.set(0, pose.heading, pose.roll);
+      const inst = master.mesh.createInstance(`${root.name}-hull`);
+      inst.parent = root;
+      inst.position.set(0, master.yOffset, 0);
+      inst.rotation.y = master.yawOffset;
+      inst.scaling.setAll(master.scale);
+      inst.isPickable = false;
+      this.animatedWaterBoats.push({ root, placement: pending.placement });
+    }
+    this.pendingWaterBoats.length = 0;
+
+    // Kerbside parked cars: instances of the tinted vehicle masters. Same
+    // visual-only status as the old box assembly — decoration, no collider.
+    let parkedIndex = 0;
+    for (const parked of this.pendingParkedCars) {
+      const master = this.getParkedCarMaster(parked.variant);
+      if (!master) continue;
+      const inst = master.mesh.createInstance(`prop-parked-car-${parkedIndex}`);
+      parkedIndex += 1;
+      inst.position.set(parked.x, master.baseY, parked.z);
+      // The placement yaw lays a long-z body along the kerb; a model whose
+      // long axis is x needs the extra quarter turn.
+      inst.rotation.y =
+        parked.yaw + (master.longAxis === "x" ? Math.PI / 2 : 0);
+      inst.scaling.setAll(master.scale);
+      inst.isPickable = false;
+      this.staticSceneryFreeze.push(inst);
+      this.registerShadowCaster(inst, parked.x, parked.z);
+    }
+    this.pendingParkedCars.length = 0;
 
     // Sidewalk vendor carts: glb instances via the same merged-master path, so
     // each cart is one cheap scene mesh. Frozen alongside the rest of the
@@ -10384,6 +10777,8 @@ class BabylonGameSession {
     this.buildingModelUrls = [
       ...buildingSetUrls(setIds),
       ...(setIds.length ? nycVendorUrls() : []),
+      // River craft ride the same preload: a map with water gets its boats.
+      ...(mapPack.geometry.waterBodies?.length ? WATER_BOAT_MODEL_URLS : []),
     ];
 
     for (const service of mapPack.geometry.servicePoints ?? []) {
@@ -11243,7 +11638,7 @@ class BabylonGameSession {
       );
       const length = axis.lengthM;
       const width = axis.widthM;
-      const deckY = 7.2;
+      const deckY = CAIRO_ELEVATED_DECK_Y;
       const root = new TransformNode(`${landmark.id}-axis`, scene);
       root.position.set(axis.center.x, 0, axis.center.z);
       root.rotation.y = axis.boxYawRad;
@@ -11300,7 +11695,7 @@ class BabylonGameSession {
       const deck = createBox(
         scene,
         `${landmark.id}-raised-deck`,
-        { width: length, height: 0.72, depth: width },
+        { width: length, height: CAIRO_ELEVATED_DECK_THICKNESS_M, depth: width },
         new Vector3(0, deckY, 0),
         expressway,
         root,
@@ -11315,7 +11710,7 @@ class BabylonGameSession {
         {
           height: deckY - 0.45,
           diameterTop: 1.25,
-          diameterBottom: 1.65,
+          diameterBottom: CAIRO_ELEVATED_PIER_RADIUS_M * 2,
           tessellation: 8,
         },
         scene,
@@ -11718,6 +12113,9 @@ class BabylonGameSession {
         : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2),
       seed: hashStringToSeed(`${mapId}-props`),
       kinds,
+      waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
+        (body) => body.polygon,
+      ),
       // Hand-placed furniture and regulatory sign posts pre-seed the mutual
       // spacing grid so the random scatter can never stand a prop on them.
       occupiedPoints:
@@ -11786,13 +12184,18 @@ class BabylonGameSession {
       english: string,
       background: string,
     ): StandardMaterial => {
+      // Square canvas: the legend fills the top half, the bottom half stays
+      // bare aluminium for the back and the four edges. See
+      // `cairoDirectionPanelFaceUv`.
       const texture = new DynamicTexture(
         `prop-${name}-texture`,
-        { width: 512, height: 256 },
+        { width: 512, height: 512 },
         scene,
         true,
       );
       const context = textureContext(texture);
+      context.fillStyle = "#9aa0a3";
+      context.fillRect(0, 0, 512, 512);
       context.fillStyle = background;
       context.fillRect(0, 0, 512, 256);
       context.strokeStyle = "#f6f1dc";
@@ -11807,11 +12210,6 @@ class BabylonGameSession {
       context.font = "700 47px Figtree, Arial, sans-serif";
       context.fillText(english, 256, 184);
       texture.update();
-      const uv = cairoDirectionPanelUvTransform();
-      texture.uScale = uv.uScale;
-      texture.uOffset = uv.uOffset;
-      texture.vScale = uv.vScale;
-      texture.vOffset = uv.vOffset;
       const panel = new StandardMaterial(`prop-${name}`, scene);
       panel.diffuseTexture = texture;
       panel.emissiveTexture = texture;
@@ -11892,10 +12290,19 @@ class BabylonGameSession {
     }
     const masterBox = (
       name: string,
-      dimensions: { width: number; height: number; depth: number },
+      dimensions: {
+        width: number;
+        height: number;
+        depth: number;
+        faceUV?: readonly Vector4[];
+      },
       partMaterial: StandardMaterial,
     ): Mesh => {
-      const mesh = MeshBuilder.CreateBox(`prop-master-${name}`, dimensions, scene);
+      const mesh = MeshBuilder.CreateBox(
+        `prop-master-${name}`,
+        { ...dimensions, faceUV: dimensions.faceUV?.slice() },
+        scene,
+      );
       setMeshMaterial(mesh, partMaterial);
       mesh.isVisible = false;
       return mesh;
@@ -12118,10 +12525,17 @@ class BabylonGameSession {
                   width: key === "cairo" ? 1.5 : 0.72,
                   height: key === "cairo" ? 0.78 : 0.5,
                   depth: 0.05,
+                  faceUV:
+                    key === "cairo" ? cairoDirectionPanelFaceUv() : undefined,
                 },
                 signPanels[variant % signPanels.length],
               ),
-              offset: new Vector3(0, key === "cairo" ? 2.05 : 2.15, 0),
+              // Hung on the road side of the post rather than threaded onto it:
+              // the panel is 0.05 deep and the post 0.09 across, so a coaxial
+              // panel leaves the post poking out of both faces. Same trick, and
+              // the same clearance, as the regulatory blades' -0.08 — mirrored,
+              // because those read on -Z and the scattered sign reads on +Z.
+              offset: new Vector3(0, key === "cairo" ? 2.05 : 2.15, 0.08),
             },
           ];
           break;
@@ -12302,37 +12716,6 @@ class BabylonGameSession {
             ),
           ];
           break;
-        case "parked-car":
-          parts = [
-            {
-              master: masterBox(
-                `${cacheKey}-body`,
-                { width: 1.76, height: 0.72, depth: 4.05 },
-                cairoVehicleBodies[variant % cairoVehicleBodies.length],
-              ),
-              offset: new Vector3(0, 0.58, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-cabin`,
-                { width: 1.46, height: 0.66, depth: 2.1 },
-                cairoVehicleGlass,
-              ),
-              offset: new Vector3(0, 1.18, -0.12),
-            },
-            ...([-1, 1] as const).flatMap((side) =>
-              ([-1.28, 1.28] as const).map((along) => ({
-                master: masterBox(
-                  `${cacheKey}-wheel-${side}-${along}`,
-                  { width: 0.2, height: 0.58, depth: 0.58 },
-                  cairoVehicleDark,
-                ),
-                offset: new Vector3(side * 0.88, 0.36, along),
-                castShadow: false,
-              })),
-            ),
-          ];
-          break;
         case "scooter":
           parts = [
             {
@@ -12387,9 +12770,31 @@ class BabylonGameSession {
         }
         continue;
       }
+      if (placement.kind === "parked-car") {
+        // Real vehicle glbs, not the old box assembly — instantiated after
+        // preload like the vendors. The perf-holdback key is unchanged so the
+        // same placements survive thinning as before.
+        if (
+          key === "cairo" &&
+          !deterministicSceneryKeep(
+            `${mapId}:${placement.kind}:${placementIndex}`,
+            this.buildingKeepFraction,
+          )
+        ) {
+          continue;
+        }
+        this.pendingParkedCars.push({
+          x: placement.x,
+          z: placement.z,
+          // faceRoad placement points across the kerb; the quarter turn lays
+          // the body parallel to it, as the box assembly did.
+          yaw: placement.rotationY + Math.PI / 2,
+          variant: placement.variant,
+        });
+        continue;
+      }
       const ambientVehicle =
         placement.kind === "microbus" ||
-        placement.kind === "parked-car" ||
         placement.kind === "scooter";
       const visualOnlyStreetLife =
         ambientVehicle || placement.kind === "cairo-cart";
@@ -12950,30 +13355,16 @@ class BabylonGameSession {
   }
 
   /**
-   * Builds the authored Nile channels plus a sparse, deterministic set of
-   * original low-poly river craft. Water is scenery, not simulation state:
-   * boats are keyed from map/body ids and never touch the traffic PRNG.
+   * Builds the authored Nile channels and computes the deterministic river
+   * craft placements. Water is scenery, not simulation state: boats are keyed
+   * from map/body ids and never touch the traffic PRNG. The craft themselves
+   * are glb instances (cairo-felucca / cairo-skiff), so like the vendor carts
+   * they are deferred to buildInstancedBuildings once the models preload.
    */
   private buildWaterBodies(mapPack: GameCanvasMapPack, mapId: string) {
     const bodies = mapPack.geometry.waterBodies ?? [];
     if (!bodies.length) return;
     const scene = this.scene;
-    const hullMaterials = [
-      makeMaterial(scene, "nile-boat-hull-cream", new Color3(0.74, 0.67, 0.5)),
-      makeMaterial(scene, "nile-boat-hull-blue", new Color3(0.12, 0.31, 0.43)),
-      makeMaterial(scene, "nile-boat-hull-red", new Color3(0.48, 0.16, 0.11)),
-    ];
-    const boatTrim = makeMaterial(
-      scene,
-      "nile-boat-trim",
-      new Color3(0.15, 0.13, 0.1),
-    );
-    const sailMaterial = makeMaterial(
-      scene,
-      "nile-felucca-sail",
-      new Color3(0.86, 0.82, 0.7),
-    );
-    sailMaterial.backFaceCulling = false;
 
     for (const body of bodies) {
       const geometry = buildWaterPolygonGeometry(body.polygon);
@@ -13009,89 +13400,14 @@ class BabylonGameSession {
       this.registerMirrorSurface(mesh);
       material.freeze();
 
-      for (const [index, placement] of generateWaterBoatPlacements(
+      const obstacles = cairoWaterBoatObstacles(mapPack.geometry, body);
+      for (const placement of generateWaterBoatPlacements(
         mapId,
         body,
-      ).entries()) {
-        const root = new TransformNode(`${body.id}-boat-${index}`, scene);
-        const initialPose = waterBoatPoseAt(placement, 0);
-        root.position.set(initialPose.x, initialPose.y, initialPose.z);
-        root.rotation.set(0, initialPose.heading, initialPose.roll);
-        const hull = MeshBuilder.CreateCylinder(
-          `${body.id}-boat-${index}-hull`,
-          {
-            height: 0.55,
-            diameterTop: 1.65,
-            diameterBottom: 1.15,
-            tessellation: 4,
-          },
-          scene,
-        );
-        hull.parent = root;
-        hull.position.y = 0.3;
-        hull.scaling.z = placement.variant === 2 ? 2.75 : 2.2;
-        setMeshMaterial(hull, hullMaterials[placement.variant]);
-
-        const deck = createBox(
-          scene,
-          `${body.id}-boat-${index}-deck`,
-          {
-            width: placement.variant === 2 ? 1.35 : 1.05,
-            height: 0.12,
-            depth: placement.variant === 2 ? 3.45 : 2.65,
-          },
-          new Vector3(0, 0.61, 0),
-          boatTrim,
-          root,
-        );
-        const parts: AbstractMesh[] = [hull, deck];
-        if (placement.variant === 1) {
-          const mast = createCylinder(
-            scene,
-            `${body.id}-boat-${index}-mast`,
-            { height: 4, diameter: 0.09, tessellation: 8 },
-            new Vector3(0, 2.45, 0.05),
-            boatTrim,
-            root,
-          );
-          const sail = createChamferedPanel(
-            scene,
-            `${body.id}-boat-${index}-sail`,
-            [
-              { x: -0.05, y: -0.5 },
-              { x: 0.95, y: -0.5 },
-              { x: -0.05, y: 0.5 },
-            ],
-            2.75,
-            3.45,
-            sailMaterial,
-            root,
-          );
-          sail.position.set(0.08, 2.52, -0.03);
-          parts.push(mast, sail);
-        } else {
-          const cabin = createBox(
-            scene,
-            `${body.id}-boat-${index}-cabin`,
-            {
-              width: placement.variant === 2 ? 1.28 : 0.8,
-              height: placement.variant === 2 ? 0.85 : 0.58,
-              depth: placement.variant === 2 ? 1.8 : 0.9,
-            },
-            new Vector3(0, placement.variant === 2 ? 1.05 : 0.9, 0.15),
-            placement.variant === 2 ? sailMaterial : hullMaterials[0],
-            root,
-          );
-          parts.push(cabin);
-        }
-        for (const part of parts) {
-          part.isPickable = false;
-        }
-        this.animatedWaterBoats.push({ root, placement });
+        obstacles,
+      )) {
+        this.pendingWaterBoats.push({ bodyId: body.id, placement });
       }
-    }
-    for (const material of [...hullMaterials, boatTrim, sailMaterial]) {
-      material.freeze();
     }
   }
 

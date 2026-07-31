@@ -399,12 +399,26 @@ export interface FrozenMapSource {
   readonly licenseUrl: string;
 }
 
+/** A block-local edge, named by the axis its outward normal points along. */
+export type BlockStreetEdge = "+x" | "-x" | "+z" | "-z";
+
 export interface ProceduralBlock {
   readonly id: string;
   readonly center: WorldPoint;
   readonly size: WorldPoint;
   /** Clockwise yaw for diagonal/radial city blocks; defaults to zero. */
   readonly headingDeg?: number;
+  /**
+   * Which block-local edges carry a street wall. Absent means all four, which
+   * is right for a city block with roads around it.
+   *
+   * A roadside strip has a road on **one** side, and naming that side is what
+   * stops the opposite row facing open ground — and, on a parcel shallower than
+   * two building depths, stops the two rows occupying the same space and
+   * z-fighting. Only the instanced glb wall reads this; the procedural facade
+   * grid has its own `frontageAxis`.
+   */
+  readonly streetEdges?: readonly BlockStreetEdge[];
   /**
    * Optional local edge that receives the block's façades. Roadside strips use
    * `z` because their local x-axis follows the carriageway; ordinary parcels

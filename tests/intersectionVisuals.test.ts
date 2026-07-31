@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getMapPack, MAP_PACKS } from "../app/game/content";
 import {
+  BUILDING_BASE_CLEARANCE_M,
   mastArmTopY,
   roadAxisHeadingNear,
   signalStopBarSegment,
@@ -430,5 +431,21 @@ describe("enforcement camera placement", () => {
       }
       expect(checked, `${mapId} cameras checked`).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * A building whose base plate is level with the ground plane or the pavement
+ * gives the depth buffer two coplanar surfaces to choose between, and it picks
+ * differently as the camera moves: the pale ground shimmers through the dark
+ * band the facade texture paints along the bottom of every building. The
+ * instanced glb wall was lifted clear when it was written. The procedural
+ * facade boxes were not, and every call site passed height/2 -- base plate
+ * exactly on y=0 -- so the clearance is applied inside `createFacadeBox` where
+ * a new call site cannot miss it.
+ */
+describe("building base clearance", () => {
+  it("keeps every facade off the ground and pavement planes", () => {
+    expect(BUILDING_BASE_CLEARANCE_M).toBeGreaterThan(0.02);
   });
 });

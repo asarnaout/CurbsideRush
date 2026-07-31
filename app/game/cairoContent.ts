@@ -1,4 +1,5 @@
 import { buildLaneTrueGeometry, CONNECTOR_BLEND_RUN_M } from "./laneConnectors";
+import { buildingSetDepthM, isBuildingSetId } from "./buildingSets";
 import { hashStringToSeed } from "./visuals";
 import type {
   FreeDriveDefinition,
@@ -824,18 +825,130 @@ for (const [signalIndex, nodeId] of signalNodeIds.entries()) {
   const approaches: TrafficControlApproach[] = [];
   const installations: TrafficControlInstallation[] = [];
 
-  for (const [, lanes] of [...inboundByArm.entries()].sort(
-    ([left], [right]) => left.localeCompare(right),
-  )) {
-    const lane = lanes[0];
+  /**
+   * Crossing setbacks are geometry, not a constant. At a grid junction the old
+   * rule — own half-width + 3.5 m from the node — worked; at Cairo's radials
+   * several arms meet at shallow angles, and a crossing set back by its OWN
+   * width still lay inside a wider or obliquer neighbour's carriageway (Qasr
+   * El Nil St is 16 m wide), so the stripes ploughed through each other. Each
+   * arm now sets back until its whole stripe envelope clears every other
+   * arm's carriageway; the stop bar retreats behind the stripes; a crossing
+   * that cannot clear within reason is dropped — an unmarked arm reads far
+   * better than two crossings through each other.
+   *
+   * The envelope mirrors crosswalkStripeLayout (7 stripes, 1.05 m pitch,
+   * 0.62 m deep, 0.82 span factor); tests/cairoContent.test.ts cross-checks
+   * these numbers against the real layout so they cannot drift apart.
+   */
+  const CROSSING_ENVELOPE_HALF_M = 3 * 1.05 + 0.62 / 2;
+  const CROSSING_SPAN_FACTOR = 0.82;
+  const CROSSING_CLEAR_M = 0.6;
+  const arms = [...inboundByArm.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, lanes]) => {
+      const lane = lanes[0];
+      const surface = cairoRoadSurfaces.find(
+        (item) => item.id === lane.roadId,
+      )!;
+      // De-blended road axis, sampled clear of the node elbow — used both to
+      // orient the signal head and to measure angles between arms.
+      const axisPose = pointAlongLane(
+        lane,
+        Math.max(0, Math.max(8, laneLength(lane) - 12) - CONNECTOR_BLEND_RUN_M - 1),
+      );
+      return { lanes, lane, surface, axisPose };
+    });
+  const armCrossings = arms.map((arm) => {
+    const ownHalfM = arm.surface.widthM / 2;
+    let requiredM = ownHalfM + 3.5;
+    const outward = ((arm.axisPose.headingDeg + 180) * Math.PI) / 180;
+    for (const other of arms) {
+      if (other === arm || other.surface.id === arm.surface.id) continue;
+      const otherOutward = ((other.axisPose.headingDeg + 180) * Math.PI) / 180;
+      let delta = Math.abs(outward - otherOutward) % (2 * Math.PI);
+      if (delta > Math.PI) delta = 2 * Math.PI - delta;
+      const sinDelta = Math.sin(delta);
+      // Near-collinear arms are the same corridor continuing under another
+      // road id; the crossing legitimately spans them like it spans its own
+      // opposing lanes.
+      if (sinDelta < 0.342) continue;
+      requiredM = Math.max(
+        requiredM,
+        (other.surface.widthM / 2 +
+          CROSSING_CLEAR_M +
+          CROSSING_ENVELOPE_HALF_M * sinDelta +
+          (CROSSING_SPAN_FACTOR / 2) *
+            arm.surface.widthM *
+            Math.abs(Math.cos(delta))) /
+          sinDelta,
+      );
+    }
+    // Beyond ~28 m the "crossing" is halfway down the block; and it must fit
+    // on the lane at all.
+    const fits = requiredM <= 28 && laneLength(arm.lane) - requiredM >= 3;
+    const pose = pointAlongLane(
+      arm.lane,
+      Math.max(3, laneLength(arm.lane) - requiredM),
+    );
+    return { requiredM, fits, pose };
+  });
+  // Belt and braces: two surviving crossings may still meet in the wedge
+  // between acute arms. Drop the later (stable sorted order) of any pair
+  // whose stripe envelopes intersect.
+  for (let a = 0; a < arms.length; a += 1) {
+    if (!armCrossings[a].fits) continue;
+    for (let b = a + 1; b < arms.length; b += 1) {
+      if (!armCrossings[b].fits) continue;
+      const rect = (index: number) => {
+        const crossing = armCrossings[index];
+        const heading = (crossing.pose.headingDeg * Math.PI) / 180;
+        return {
+          x: crossing.pose.position.x,
+          z: crossing.pose.position.z,
+          // Lane/pose heading: 0 = +z, so the travel axis is (sin h, cos h)
+          // and the across-traffic axis is the right-hand normal.
+          axes: [
+            {
+              x: Math.sin(heading),
+              z: Math.cos(heading),
+              half: CROSSING_ENVELOPE_HALF_M,
+            },
+            {
+              x: Math.cos(heading),
+              z: -Math.sin(heading),
+              half: (CROSSING_SPAN_FACTOR / 2) * arms[index].surface.widthM,
+            },
+          ],
+        };
+      };
+      const first = rect(a);
+      const second = rect(b);
+      const separated = [...first.axes, ...second.axes].some((axis) => {
+        const spread = (r: typeof first) =>
+          r.axes[0].half * Math.abs(r.axes[0].x * axis.x + r.axes[0].z * axis.z) +
+          r.axes[1].half * Math.abs(r.axes[1].x * axis.x + r.axes[1].z * axis.z);
+        return (
+          Math.abs(
+            (second.x - first.x) * axis.x + (second.z - first.z) * axis.z,
+          ) >
+          spread(first) + spread(second)
+        );
+      });
+      if (!separated) armCrossings[b] = { ...armCrossings[b], fits: false };
+    }
+  }
+
+  for (const [index, arm] of arms.entries()) {
+    const { lanes, lane, surface, axisPose } = arm;
     const roadId = lane.roadId;
     const armSlug = `${roadId}-${lane.from.replace(/^cairo-/, "")}`;
-    const surface = cairoRoadSurfaces.find((item) => item.id === roadId)!;
-    const stopDistance = Math.max(8, laneLength(lane) - 12);
-    const pose = pointAlongLane(
-      lane,
-      Math.max(0, stopDistance - CONNECTOR_BLEND_RUN_M - 1),
-    );
+    const crossing = armCrossings[index];
+    // The bar stays behind the stripes (real junctions do exactly this), and
+    // never nearer the node than the old 12 m where the crossing needs room.
+    const stopFromNodeM = crossing.fits
+      ? Math.max(12, crossing.requiredM + CROSSING_ENVELOPE_HALF_M + 0.9)
+      : 12;
+    const stopDistance = Math.max(8, laneLength(lane) - stopFromNodeM);
     const stopPose = pointAlongLane(lane, stopDistance);
     const approachId = `cairo-signal-${signalIndex + 1}-${armSlug}-approach`;
     approaches.push({
@@ -852,24 +965,22 @@ for (const [signalIndex, nodeId] of signalNodeIds.entries()) {
       // Positioned from the stop line, oriented by the de-blended road axis:
       // the last few metres of a lane elbow onto the shared node, so sampling
       // the heading at the bar itself skews the head a few degrees.
-      position: safeSignalPosition(stopPose.position, pose.headingDeg, surface),
-      headingDeg: pose.headingDeg,
+      position: safeSignalPosition(
+        stopPose.position,
+        axisPose.headingDeg,
+        surface,
+      ),
+      headingDeg: axisPose.headingDeg,
       mounting: "roadside_pole",
       style: "egypt_signal",
       role: "primary",
       approachIds: [approachId],
     });
-    const crosswalkPose = pointAlongLane(
-      lane,
-      Math.max(
-        3,
-        laneLength(lane) - (surface.widthM / 2 + 3.5),
-      ),
-    );
+    if (!crossing.fits) continue;
     installations.push({
       id: `cairo-signal-${signalIndex + 1}-${armSlug}-crosswalk`,
-      position: crosswalkPose.position,
-      headingDeg: crosswalkPose.headingDeg,
+      position: crossing.pose.position,
+      headingDeg: crossing.pose.headingDeg,
       spanM: surface.widthM,
       mounting: "road_marking",
       style: "crosswalk",
@@ -1664,7 +1775,7 @@ const addCairoRoadsideBlock = (candidate: ProceduralBlock): boolean => {
   }
   const parcelWithGap = orientedParcel(
     candidate.center,
-    point(candidate.size.x + 4, candidate.size.z + 4),
+    point(candidate.size.x + 2, candidate.size.z + 2),
     candidate.headingDeg ?? 0,
   );
   if (
@@ -1684,6 +1795,10 @@ const addCairoRoadsideBlock = (candidate: ProceduralBlock): boolean => {
   return addRoadClearBlock(candidate);
 };
 
+/** Depth of a parcel dressed with the procedural facade grid, which has no
+ * model bound of its own to derive one from. */
+const CAIRO_FACADE_PARCEL_DEPTH_M = 15;
+
 const cairoRoadsideStyle = (
   position: WorldPoint,
 ): {
@@ -1695,27 +1810,27 @@ const cairoRoadsideStyle = (
     return {
       material: "cairo-west-bank-concrete",
       heightRange: [18, 40],
-      depthM: 34,
+      depthM: 14,
     };
   }
   if (position.x < 55) {
     return {
       material: "cairo-gezira-cream",
       heightRange: [14, 34],
-      depthM: 28,
+      depthM: 14,
     };
   }
   if (position.z < -350) {
     return {
       material: "cairo-garden-stucco",
       heightRange: [12, 28],
-      depthM: 30,
+      depthM: 14,
     };
   }
   return {
     material: "cairo-khedivial-stone",
     heightRange: [20, 46],
-    depthM: 32,
+    depthM: 14,
   };
 };
 
@@ -1739,17 +1854,21 @@ const CAIRO_OPEN_WATERFRONT_SIDES: Readonly<
  * the real Corniche el-Nil is a wall of 15-25 storey hotel and apartment slabs,
  * and it is the one place on the map that should have a skyline.
  */
-const cairoRoadsideBuildingSet = (
-  surfaceId: string,
-  position: WorldPoint,
-): string => {
-  if (CAIRO_OPEN_WATERFRONT_SIDES[surfaceId]) return "cairo-corniche";
+const cairoDistrictBuildingSet = (position: WorldPoint): string => {
   if (position.x < -590) return "cairo-westbank";
   if (position.x < 55) return "cairo-zamalek";
   // Garden City: elegant low-rise blocks rather than Downtown's Khedivial bulk.
   if (position.z < -350) return "cairo-zamalek";
   return "cairo-downtown";
 };
+
+const cairoRoadsideBuildingSet = (
+  surfaceId: string,
+  position: WorldPoint,
+): string =>
+  CAIRO_OPEN_WATERFRONT_SIDES[surfaceId]
+    ? "cairo-corniche"
+    : cairoDistrictBuildingSet(position);
 
 /**
  * One roadside parcel in six keeps the procedural windowed boxes instead of a
@@ -1765,6 +1884,87 @@ const cairoRoadsideBuildingSet = (
 const cairoParcelKeepsFacadeBoxes = (blockId: string): boolean =>
   hashStringToSeed(`${blockId}-street-wall`) % 6 === 0;
 
+/**
+ * The glb street wall is one-sided: the Quaternius kit puts every door and
+ * window on local +z, so a parcel's far edge is a windowless service back.
+ * Within this margin of another road's pavement that back would be the whole
+ * view from the carriageway, so the parcel is dressed with the procedural
+ * windowed boxes instead — those glaze all four faces, and the far road sees
+ * windows rather than blank brick. Must stay below 1.5 + the shallowest set
+ * depth (15) or a parcel would trip on its own road.
+ */
+export const CAIRO_BACK_TO_ROAD_MARGIN_M = 6;
+
+const pointToSegmentM = (
+  p: WorldPoint,
+  a: WorldPoint,
+  b: WorldPoint,
+): number => {
+  const abX = b.x - a.x;
+  const abZ = b.z - a.z;
+  const lengthSq = abX * abX + abZ * abZ;
+  const t = lengthSq
+    ? Math.max(
+        0,
+        Math.min(1, ((p.x - a.x) * abX + (p.z - a.z) * abZ) / lengthSq),
+      )
+    : 0;
+  return Math.hypot(p.x - (a.x + abX * t), p.z - (a.z + abZ * t));
+};
+
+/** Exact segment-to-segment distance — no sampling, so nothing can slip
+ * between probe points on a long edge. */
+const segmentToSegmentM = (
+  a1: WorldPoint,
+  a2: WorldPoint,
+  b1: WorldPoint,
+  b2: WorldPoint,
+): number => {
+  const cross = (o: WorldPoint, p: WorldPoint, q: WorldPoint): number =>
+    (p.x - o.x) * (q.z - o.z) - (p.z - o.z) * (q.x - o.x);
+  const d1 = cross(b1, b2, a1);
+  const d2 = cross(b1, b2, a2);
+  const d3 = cross(a1, a2, b1);
+  const d4 = cross(a1, a2, b2);
+  if (
+    ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+    ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+  ) {
+    return 0;
+  }
+  return Math.min(
+    pointToSegmentM(a1, b1, b2),
+    pointToSegmentM(a2, b1, b2),
+    pointToSegmentM(b1, a1, a2),
+    pointToSegmentM(b2, a1, a2),
+  );
+};
+
+const backEdgeNearsARoad = (
+  backStart: WorldPoint,
+  backEnd: WorldPoint,
+): boolean =>
+  cairoRoadSurfaces.some((surface) => {
+    const reach =
+      surface.widthM / 2 +
+      (surface.sidewalkWidthM ?? 2.8) +
+      0.75 +
+      CAIRO_BACK_TO_ROAD_MARGIN_M;
+    for (let index = 1; index < surface.centerline.length; index += 1) {
+      if (
+        segmentToSegmentM(
+          backStart,
+          backEnd,
+          surface.centerline[index - 1],
+          surface.centerline[index],
+        ) < reach
+      ) {
+        return true;
+      }
+    }
+    return false;
+  });
+
 for (const surface of cairoRoadSurfaces) {
   if (surface.id.includes("-bridge")) continue;
   for (let segmentIndex = 0; segmentIndex + 1 < surface.centerline.length; segmentIndex += 1) {
@@ -1778,7 +1978,9 @@ for (const surface of cairoRoadSurfaces) {
     const alongZ = dz / segmentLength;
     const normalX = alongZ;
     const normalZ = -alongX;
-    const endpointClearanceM = Math.min(14, segmentLength * 0.14);
+    // min(6, 10%): at min(14, 14%) every polyline joint stood 28 m bare — the
+    // single biggest systematic kerb gap on the map.
+    const endpointClearanceM = Math.min(6, segmentLength * 0.1);
     const usableLengthM = segmentLength - endpointClearanceM * 2;
     if (usableLengthM < 24) continue;
     // One long parcel reads as a coherent apartment frontage and costs far
@@ -1808,57 +2010,129 @@ for (const surface of cairoRoadSurfaces) {
           roadPosition.x + normalX * side * 30,
           roadPosition.z + normalZ * side * 30,
         );
-        const style = cairoRoadsideStyle(provisional);
+        const blockId = `${surface.id}-roadside-${segmentIndex + 1}-${runIndex + 1}`;
+        const sideSlug = side < 0 ? "left" : "right";
+        const sideId = `${blockId}-${sideSlug}`;
+        // Zoned off the provisional point rather than the final centre: the
+        // parcel's depth decides its offset from the road, and its set decides
+        // its depth, so the set has to be known first. The zoning bands are
+        // hundreds of metres wide and the two points are ~10 m apart, so this
+        // only ever differs where a parcel already straddles a district edge.
+        // Decided once per parcel so a parcel and its retries agree.
+        const preferredSet = cairoParcelKeepsFacadeBoxes(sideId)
+          ? undefined
+          : cairoRoadsideBuildingSet(surface.id, provisional);
         const roadEnvelopeM =
           surface.widthM / 2 +
           (surface.sidewalkWidthM ?? 2.8) +
           0.75;
-        const offsetM = roadEnvelopeM + style.depthM / 2 + 1.5;
-        const center = point(
-          roadPosition.x + normalX * side * offsetM,
-          roadPosition.z + normalZ * side * offsetM,
-        );
-        const acceptedStyle = cairoRoadsideStyle(center);
-        const blockId = `${surface.id}-roadside-${segmentIndex + 1}-${runIndex + 1}`;
-        const sideId = `${blockId}-${side < 0 ? "left" : "right"}`;
-        // Decided once per parcel so a parcel and its split retries agree.
-        const buildingSet = cairoParcelKeepsFacadeBoxes(sideId)
-          ? undefined
-          : cairoRoadsideBuildingSet(surface.id, center);
-        const candidate: ProceduralBlock = {
-          id: sideId,
-          center,
-          size: point(frontageLengthM, acceptedStyle.depthM),
-          headingDeg,
-          frontageAxis: "z",
-          material: acceptedStyle.material,
-          heightRange: acceptedStyle.heightRange,
-          density: 0.82,
-          ...(buildingSet ? { buildingSet } : {}),
+        // Deep enough for the set that dresses it, and no deeper. Depth is what
+        // gets a parcel refused -- a 30 m strip needs 30 m of clear land, and
+        // wherever a junction or forecourt came nearer than that the whole
+        // frontage was lost. Derived, so retuning a model cannot silently leave
+        // it overhanging its own block.
+        //
+        // Each piece (the whole frontage, or a split half) decides its own
+        // dressing: a glb piece whose windowless back would crowd another road
+        // is demoted to the all-faces-glazed boxes, but only that piece — the
+        // other half of a split keeps the street wall its back allows.
+        const pieceFor = (
+          pieceId: string,
+          alongOffsetM: number,
+          lengthM: number,
+        ): ProceduralBlock => {
+          const build = (
+            buildingSet: string | undefined,
+          ): { readonly block: ProceduralBlock; readonly depthM: number } => {
+            const depthM =
+              buildingSet && isBuildingSetId(buildingSet)
+                ? buildingSetDepthM(buildingSet) + 1.5
+                : CAIRO_FACADE_PARCEL_DEPTH_M;
+            const offsetM = roadEnvelopeM + depthM / 2 + 1.5;
+            const center = point(
+              roadPosition.x +
+                normalX * side * offsetM +
+                alongX * alongOffsetM,
+              roadPosition.z +
+                normalZ * side * offsetM +
+                alongZ * alongOffsetM,
+            );
+            const style = cairoRoadsideStyle(center);
+            return {
+              depthM,
+              block: {
+                id: pieceId,
+                center,
+                size: point(lengthM, depthM),
+                headingDeg,
+                frontageAxis: "z",
+                // `headingDeg` puts local +x along the carriageway and local
+                // +z across it, and the parcel sits at `road + normal * side`,
+                // so the road lies exactly `side` along local +z. One edge,
+                // and it is the near one: a strip is not a city block and has
+                // no far street to face.
+                streetEdges: [side > 0 ? "+z" : "-z"],
+                material: style.material,
+                heightRange: style.heightRange,
+                density: 0.82,
+                ...(buildingSet ? { buildingSet } : {}),
+              },
+            };
+          };
+          const backCorners = (
+            blockCenter: WorldPoint,
+            depthM: number,
+          ): readonly [WorldPoint, WorldPoint] => {
+            const midX = blockCenter.x + normalX * side * (depthM / 2);
+            const midZ = blockCenter.z + normalZ * side * (depthM / 2);
+            const halfM = lengthM / 2;
+            return [
+              point(midX - alongX * halfM, midZ - alongZ * halfM),
+              point(midX + alongX * halfM, midZ + alongZ * halfM),
+            ];
+          };
+          let chosen = build(preferredSet);
+          if (
+            preferredSet &&
+            backEdgeNearsARoad(
+              ...backCorners(chosen.block.center, chosen.depthM),
+            )
+          ) {
+            chosen = build(undefined);
+          }
+          return chosen.block;
         };
-        if (addCairoRoadsideBlock(candidate) || frontageLengthM < 70) {
-          continue;
-        }
-
-        // A crossing, venue or landmark may clip only a small part of a long
-        // street-wall parcel. Retry as two shorter deterministic pieces so one
-        // local exclusion cannot erase an otherwise visible road side.
-        const splitGapM = 8;
-        const splitLengthM = (frontageLengthM - splitGapM) / 2;
-        for (const splitIndex of [0, 1] as const) {
-          const splitSign = splitIndex === 0 ? -1 : 1;
-          const splitCenterOffsetM =
-            splitSign * (splitLengthM + splitGapM) / 2;
-          addCairoRoadsideBlock({
-            ...candidate,
-            id: `${blockId}-split-${splitIndex + 1}-${side < 0 ? "left" : "right"}`,
-            center: point(
-              center.x + alongX * splitCenterOffsetM,
-              center.z + alongZ * splitCenterOffsetM,
-            ),
-            size: point(splitLengthM, acceptedStyle.depthM),
-          });
-        }
+        // One rank only, on the road's own heading. There used to be a second
+        // rank stepping back behind this one; for a one-sided building kit it
+        // was always a mistake — its facades stared at the first rank's blank
+        // back across a 4 m gap, its own back landed on whatever road ran
+        // behind (Cairo's parallel corridors are often 30-60 m apart), and,
+        // being accepted early, it consumed land that a later road's kerbside
+        // parcel needed. The land behind the wall stays open instead.
+        //
+        // A crossing, venue, landmark or an earlier road's parcel may block
+        // only part of a run, so a rejected piece keeps halving until
+        // something fits in the gaps — down to 16 m, one small building's
+        // frontage. Without the ladder, roads whose band greedy acceptance had
+        // already consumed (opera-square, zamalek-south) ended up with no
+        // frontage of their own at all.
+        const splitGapM = 6;
+        const tryPiece = (
+          pieceId: string,
+          alongOffsetM: number,
+          lengthM: number,
+        ): boolean => {
+          if (addCairoRoadsideBlock(pieceFor(pieceId, alongOffsetM, lengthM))) {
+            return true;
+          }
+          const halfLengthM = (lengthM - splitGapM) / 2;
+          if (halfLengthM < 16) return false;
+          const stepM = (halfLengthM + splitGapM) / 2;
+          const left = tryPiece(`${pieceId}-s1`, alongOffsetM - stepM, halfLengthM);
+          const right = tryPiece(`${pieceId}-s2`, alongOffsetM + stepM, halfLengthM);
+          return left || right;
+        };
+        tryPiece(sideId, 0, frontageLengthM);
       }
     }
   }
@@ -1884,14 +2158,20 @@ const cairoSpawnPoints: readonly MapSpawnPoint[] = [
     };
   }),
   ...vehicleLanes.map((lane, index) => ({
+    // Three dedicated patrol gates (indices 3, 14, 25). Without them Cairo's
+    // police presence hung on the ambient one-in-five patrol roll landing on
+    // a car-capable gate, which this seed rarely granted — whole sessions
+    // passed without a single patrol while NYC showed four or five.
     id:
-      index % 9 === 0
-        ? `cairo-bus-${index + 1}`
-        : index % 5 === 0
-          ? `cairo-taxi-${index + 1}`
-          : index % 7 === 0
-            ? `cairo-van-${index + 1}`
-            : `cairo-car-${index + 1}`,
+      index % 11 === 3
+        ? `cairo-police-${index + 1}`
+        : index % 9 === 0
+          ? `cairo-bus-${index + 1}`
+          : index % 5 === 0
+            ? `cairo-taxi-${index + 1}`
+            : index % 7 === 0
+              ? `cairo-van-${index + 1}`
+              : `cairo-car-${index + 1}`,
     kind: "vehicle" as const,
     anchor: anchor(lane.id, safeDistance(lane, 0.28 + (index % 5) * 0.1)),
   })),

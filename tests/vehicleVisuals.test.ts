@@ -397,6 +397,19 @@ describe("patrol car liveries", () => {
           expect(resolveTrafficVehicleAppearance(input).livery).toBeNull();
         }
       }
+
+      // A police-variant NPC (from a named patrol gate) is always a patrol,
+      // in the map's own livery — no hash roll involved.
+      for (let index = 0; index < 8; index += 1) {
+        const appearance = resolveTrafficVehicleAppearance({
+          vehicleId: `npc-${index}`,
+          trafficSeed: 512,
+          variant: "police",
+          mapId,
+        });
+        expect(appearance.role).toBe("police");
+        expect(appearance.livery).toEqual(policeLiveryForMap(mapId));
+      }
     }
   });
 

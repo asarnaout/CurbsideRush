@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { NullEngine, Scene, LoadAssetContainerAsync } from "@babylonjs/core";
+import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import {
+  biasCairoDecalMaterials,
   buildWaterPolygonGeometry,
+  CAIRO_ELEVATED_DECK_THICKNESS_M,
+  CAIRO_ELEVATED_DECK_Y,
+  cairoWaterBoatObstacles,
+  PARKED_CAR_SOURCES,
+  WATER_BOAT_AIR_DRAFTS_M,
+  CAIRO_DECAL_MATERIAL_NAMES,
+  CAIRO_DECAL_Z_OFFSET_UNITS,
+  CAIRO_STREET_WALL_URL_RE,
   cairoBridgePortalVisualAxis,
   cairoBridgeVisualAxis,
-  cairoDirectionPanelUvTransform,
+  CAIRO_DIRECTION_PANEL_DESIGN_V,
+  cairoDirectionPanelFaceUv,
   cairoElevatedBridgePierPlacements,
   cairoFrontagePosition,
   cairoFrontageFootprintsOverlap,
@@ -22,6 +36,7 @@ import {
   waterBoatPoseAt,
 } from "../app/game/GameCanvas";
 import { generateRoadsidePropPlacements } from "../app/game/visuals";
+import { buildingSetUrls } from "../app/game/buildingSets";
 import { isPointInPolygon } from "../app/game/simulation";
 import { authoredSignalAspectAt } from "../app/game/trafficSignals";
 import { CAIRO_MAP_PACK } from "../app/game/cairoContent";
@@ -96,23 +111,94 @@ describe("Cairo water scenery", () => {
         (geometry.polygon.length - 2) * 3,
       );
       expect(
-        generateWaterBoatPlacements(CAIRO_MAP_PACK.id, body).length,
+        generateWaterBoatPlacements(
+          CAIRO_MAP_PACK.id,
+          body,
+          cairoWaterBoatObstacles(CAIRO_MAP_PACK.geometry, body),
+        ).length,
       ).toBeGreaterThan(0);
+    }
+  });
+
+  // The two drivable bridges have no underside — their road surface IS the
+  // deck at water level — so a boat can never pass them; the elevated
+  // expressway clears every mast and only its piers matter. These run the
+  // renderer's own obstacle set through the real generator.
+  it("keeps every boat track clear of bridge spans and piers", () => {
+    const soffitY =
+      CAIRO_ELEVATED_DECK_Y - CAIRO_ELEVATED_DECK_THICKNESS_M / 2;
+    // The felucca is the only masted variant; its masthead must clear the
+    // elevated deck it is allowed to pass beneath.
+    expect(WATER_BOAT_AIR_DRAFTS_M[1]).toBeLessThan(soffitY);
+
+    const bodies = CAIRO_MAP_PACK.geometry.waterBodies ?? [];
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const body of bodies) {
+      const obstacles = cairoWaterBoatObstacles(CAIRO_MAP_PACK.geometry, body);
+      expect(obstacles.spans.length, body.id).toBeGreaterThan(0);
+      const placements = generateWaterBoatPlacements(
+        CAIRO_MAP_PACK.id,
+        body,
+        obstacles,
+      );
+      expect(placements.length, body.id).toBeGreaterThan(0);
+      for (const [index, placement] of placements.entries()) {
+        const dx = Math.sin(placement.heading);
+        const dz = Math.cos(placement.heading);
+        const steps = Math.max(2, Math.ceil(placement.trackLengthM));
+        for (let step = 0; step <= steps; step += 1) {
+          const along =
+            placement.trackStartM + (placement.trackLengthM * step) / steps;
+          const px = placement.x + dx * along;
+          const pz = placement.z + dz * along;
+          for (const span of obstacles.spans) {
+            const u = Math.abs(
+              (px - span.x) * span.ux + (pz - span.z) * span.uz,
+            );
+            const v = Math.abs(
+              (px - span.x) * -span.uz + (pz - span.z) * span.ux,
+            );
+            expect(
+              u > span.halfLengthM + 1.5 || v > span.halfWidthM + 1.5,
+              `${body.id} boat ${index} inside a bridge span at along=${along.toFixed(1)}`,
+            ).toBe(true);
+          }
+          for (const pier of obstacles.piers) {
+            expect(
+              Math.hypot(px - pier.x, pz - pier.z),
+              `${body.id} boat ${index} through a pier at along=${along.toFixed(1)}`,
+            ).toBeGreaterThan(pier.radiusM + 1.5);
+          }
+        }
+      }
     }
   });
 });
 
 describe("Cairo visual axes", () => {
-  it("counter-rotates bilingual direction panels into an upright road view", () => {
-    const uv = cairoDirectionPanelUvTransform();
-    const transform = (u: number, v: number) => ({
-      u: u * uv.uScale + uv.uOffset,
-      v: v * uv.vScale + uv.vOffset,
-    });
+  it("prints the bilingual direction panel on the road face alone", () => {
+    const faces = cairoDirectionPanelFaceUv();
+    expect(faces).toHaveLength(6);
 
-    expect(transform(0, 0)).toEqual({ u: 1, v: 1 });
-    expect(transform(1, 1)).toEqual({ u: 0, v: 0 });
-    expect(transform(0.5, 0.5)).toEqual({ u: 0.5, v: 0.5 });
+    // Face 0 is +Z, the side the face-road yaw turns at the carriageway, and
+    // the side Babylon renders 180° round — so the design region arrives with
+    // its corners swapped, which is what cancels that rotation.
+    const [printed, ...rest] = faces;
+    expect(printed.x).toBeGreaterThan(printed.z);
+    expect(printed.y).toBeGreaterThan(printed.w);
+    expect(Math.min(printed.y, printed.w)).toBeGreaterThanOrEqual(
+      CAIRO_DIRECTION_PANEL_DESIGN_V,
+    );
+
+    // Every other face — the back above all — samples the bare aluminium half,
+    // clear of the boundary so no mip level can smear the legend onto it.
+    expect(rest).toHaveLength(5);
+    for (const face of rest) {
+      expect(face).toEqual(rest[0]);
+      expect(Math.max(face.y, face.w)).toBeLessThan(
+        CAIRO_DIRECTION_PANEL_DESIGN_V,
+      );
+    }
   });
 
   it("aligns scenic bridge parapets to authored or portal-road headings", () => {
@@ -708,5 +794,256 @@ describe("Cairo street identity", () => {
     expect(
       authoredSignalAspectAt({ ...input, style: "egypt_signal" }),
     ).toBe(authoredSignalAspectAt({ ...input, style: "nyc_signal" }));
+  });
+});
+
+// The kerbside parked cars instance the traffic fleet's own glbs and tint a
+// named body material slot. A silent rename in the glb would silently un-tint
+// every parked car, so pin the names against the committed bytes.
+describe("Cairo parked-car sources", () => {
+  it("names real vehicle glbs and their body materials", () => {
+    for (const source of PARKED_CAR_SOURCES) {
+      const buf = fs.readFileSync(
+        path.join(process.cwd(), "public", source.url),
+      );
+      const jsonLen = buf.readUInt32LE(12);
+      const json = JSON.parse(
+        buf.subarray(20, 20 + jsonLen).toString("utf8"),
+      ) as { materials?: readonly { name?: string }[] };
+      expect(
+        (json.materials ?? []).map((material) => material.name),
+        source.url,
+      ).toContain(source.bodyMaterial);
+    }
+  });
+});
+
+// At Cairo's radial junctions several arms meet at shallow angles, and a
+// crossing set back by its own half-width lay inside a wider neighbour's
+// carriageway — stripes ploughed through each other. The authoring now sets
+// each arm back until its stripe envelope clears every other arm, and drops
+// what cannot clear. These assertions run on the exact stripes the renderer
+// draws (same placement snap, same heading, same layout call).
+describe("Cairo crosswalks clear the junctions they serve", () => {
+  interface StripeRect {
+    x: number;
+    z: number;
+    yaw: number;
+    halfW: number;
+    halfD: number;
+  }
+  const separated = (a: StripeRect, b: StripeRect, marginM = 0): boolean => {
+    const axesOf = (r: StripeRect) => {
+      const cos = Math.cos(r.yaw);
+      const sin = Math.sin(r.yaw);
+      return [
+        { x: cos, z: -sin, half: r.halfW },
+        { x: sin, z: cos, half: r.halfD },
+      ] as const;
+    };
+    const aAxes = axesOf(a);
+    const bAxes = axesOf(b);
+    return [...aAxes, ...bAxes].some((axis) => {
+      const radius = (axes: typeof aAxes) =>
+        axes[0].half * Math.abs(axes[0].x * axis.x + axes[0].z * axis.z) +
+        axes[1].half * Math.abs(axes[1].x * axis.x + axes[1].z * axis.z);
+      return (
+        Math.abs((b.x - a.x) * axis.x + (b.z - a.z) * axis.z) >
+        radius(aAxes) + radius(bAxes) + marginM
+      );
+    });
+  };
+  const signals = CAIRO_MAP_PACK.laneGraph.controls.filter(
+    (control) => control.type === "signal",
+  );
+  const crossingsOf = (control: (typeof signals)[number]) =>
+    (control.installations ?? [])
+      .filter((installation) => installation.style === "crosswalk")
+      .map((installation) => {
+        const placement = roadSurfacePlacementForMarking(
+          CAIRO_MAP_PACK,
+          control,
+          installation,
+        );
+        const stripes = crosswalkStripeLayout(
+          placement.position,
+          installation.headingDeg,
+          placement.widthM,
+        ).map((stripe) => ({
+          // Stripe local +x spans across traffic (widthM); +z is its depth.
+          x: stripe.center.x,
+          z: stripe.center.z,
+          yaw: stripe.rotationY,
+          halfW: stripe.widthM / 2,
+          halfD: stripe.depthM / 2,
+        }));
+        return { installation, surfaceId: placement.surfaceId, stripes };
+      });
+
+  it("pins the stripe envelope the authoring mirrors", () => {
+    const stripes = crosswalkStripeLayout({ x: 0, z: 0 }, 0, 10);
+    expect(stripes).toHaveLength(7);
+    const alongReach = Math.max(
+      ...stripes.map((stripe) => Math.abs(stripe.center.z) + stripe.depthM / 2),
+    );
+    // cairoContent's CROSSING_ENVELOPE_HALF_M and span factor must equal these
+    // or its setback maths silently diverges from what is drawn.
+    expect(alongReach).toBeCloseTo(3 * 1.05 + 0.62 / 2, 6);
+    expect(stripes[0].widthM).toBeCloseTo(10 * 0.82, 6);
+  });
+
+  it("never lets two arms' stripes touch", () => {
+    expect(signals.length).toBeGreaterThanOrEqual(8);
+    for (const control of signals) {
+      const crossings = crossingsOf(control);
+      for (let a = 0; a < crossings.length; a += 1) {
+        for (let b = a + 1; b < crossings.length; b += 1) {
+          for (const first of crossings[a].stripes) {
+            for (const second of crossings[b].stripes) {
+              expect(
+                separated(first, second),
+                `${crossings[a].installation.id} collides ${crossings[b].installation.id}`,
+              ).toBe(true);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("keeps every stripe out of the other arms' carriageways", () => {
+    for (const control of signals) {
+      const crossings = crossingsOf(control);
+      const approachRoadIds = new Set(
+        (control.approaches ?? []).flatMap((approach) =>
+          approach.laneIds.map(
+            (laneId) =>
+              CAIRO_MAP_PACK.laneGraph.lanes.find(
+                (lane) => lane.id === laneId,
+              )!.roadId,
+          ),
+        ),
+      );
+      for (const crossing of crossings) {
+        for (const roadId of approachRoadIds) {
+          if (roadId === crossing.surfaceId) continue;
+          const surface = CAIRO_MAP_PACK.geometry.roadSurfaces.find(
+            (candidate) => candidate.id === roadId,
+          )!;
+          for (
+            let index = 1;
+            index < surface.centerline.length;
+            index += 1
+          ) {
+            const start = surface.centerline[index - 1];
+            const end = surface.centerline[index];
+            const nearNode =
+              Math.hypot(
+                (start.x + end.x) / 2 - control.position.x,
+                (start.z + end.z) / 2 - control.position.z,
+              ) <
+              Math.hypot(end.x - start.x, end.z - start.z) / 2 + 60;
+            if (!nearNode) continue;
+            const segHeading = Math.atan2(end.x - start.x, end.z - start.z);
+            const band: StripeRect = {
+              x: (start.x + end.x) / 2,
+              z: (start.z + end.z) / 2,
+              yaw: segHeading,
+              halfW: surface.widthM / 2,
+              halfD: Math.hypot(end.x - start.x, end.z - start.z) / 2,
+            };
+            for (const stripe of crossing.stripes) {
+              // A near-collinear segment is the same corridor continuing under
+              // another road id; the crossing legitimately spans it the way it
+              // spans its own opposing lanes.
+              let delta = Math.abs(stripe.yaw - segHeading) % Math.PI;
+              if (delta > Math.PI / 2) delta = Math.PI - delta;
+              if (Math.sin(delta) < 0.342) continue;
+              expect(
+                separated(stripe, band),
+                `${crossing.installation.id} stripe inside ${roadId}'s carriageway`,
+              ).toBe(true);
+            }
+          }
+        }
+      }
+    }
+  });
+});
+
+// The Quaternius street-wall models carry brick patches / base bands / glazing
+// as primitives 0.6-3.5mm proud of the wall primitives (one model exactly
+// coplanar), which z-fights from ordinary viewing distance. The renderer pulls
+// those decal materials toward the camera by two depth quanta; these pin the
+// mechanism and its reach.
+describe("Cairo decal depth bias", () => {
+  registerBuiltInLoaders();
+
+  it("pulls exactly the decal materials toward the camera", () => {
+    const names = [
+      "Bricks", "Dark", "DarkBrown", "DarkWood", "Glass",
+      "Main", "White", "Light", "Windows", "Black", "Wood", "citybits_texture",
+    ];
+    const materials = names.map((name) => ({ name, zOffsetUnits: 0 }));
+    expect(biasCairoDecalMaterials(materials)).toBe(5);
+    for (const material of materials) {
+      expect(material.zOffsetUnits, material.name).toBe(
+        CAIRO_DECAL_MATERIAL_NAMES.includes(material.name)
+          ? CAIRO_DECAL_Z_OFFSET_UNITS
+          : 0,
+      );
+    }
+    // gl.polygonOffset: negative units pull fragments toward the camera. A
+    // positive value would push the decals behind the walls they decorate.
+    expect(CAIRO_DECAL_Z_OFFSET_UNITS).toBeLessThan(0);
+  });
+
+  it("applies only to cairo model urls, never shared ones", () => {
+    expect(CAIRO_STREET_WALL_URL_RE.test("/models/props/cairo-block-slim.glb")).toBe(true);
+    expect(CAIRO_STREET_WALL_URL_RE.test("/models/props/cairo-residence-quaternius.glb")).toBe(true);
+    expect(CAIRO_STREET_WALL_URL_RE.test("/models/props/nyc-brownstone-a.glb")).toBe(false);
+    expect(CAIRO_STREET_WALL_URL_RE.test("/models/office.glb")).toBe(false);
+    expect(CAIRO_STREET_WALL_URL_RE.test("/models/shop.glb")).toBe(false);
+  });
+
+  // If a model rename ever breaks the material-name match, the bias silently
+  // stops applying and the flicker returns — so prove the names against the
+  // real bytes of every street-wall glb.
+  it("finds its decal materials inside every Quaternius street-wall glb", async () => {
+    const urls = buildingSetUrls([
+      "cairo-corniche", "cairo-downtown", "cairo-zamalek", "cairo-westbank",
+    ]);
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) {
+      expect(CAIRO_STREET_WALL_URL_RE.test(url), url).toBe(true);
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const buf = fs.readFileSync(path.join(process.cwd(), "public", url));
+      const container = await LoadAssetContainerAsync(
+        "data:model/gltf-binary;base64," + buf.toString("base64"),
+        scene,
+        { pluginExtension: ".glb" },
+      );
+      const biased = biasCairoDecalMaterials(container.materials);
+      const quaternius = container.materials.some((m) => m.name === "Main");
+      if (quaternius) {
+        // Bricks + Dark at minimum; the rest of the decal family varies per
+        // model (slim has no Glass, 4story no DarkWood).
+        expect(biased, url).toBeGreaterThanOrEqual(3);
+      } else {
+        // Towers (obj2gltf palette) and KayKit atlas models carry none of the
+        // decal names — the bias must leave them untouched.
+        expect(biased, url).toBe(0);
+      }
+      for (const material of container.materials) {
+        expect(material.zOffsetUnits, `${url} ${material.name}`).toBe(
+          CAIRO_DECAL_MATERIAL_NAMES.includes(material.name)
+            ? CAIRO_DECAL_Z_OFFSET_UNITS
+            : 0,
+        );
+      }
+      scene.dispose();
+      engine.dispose();
+    }
   });
 });

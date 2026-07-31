@@ -21,7 +21,7 @@ export type VehicleModel =
   | "city-bus"
   | "london-double-decker";
 
-export type TrafficVehicleVariant = "car" | "taxi" | "bus" | "van";
+export type TrafficVehicleVariant = "car" | "taxi" | "bus" | "van" | "police";
 export type VehicleAppearanceRole = TrafficVehicleVariant | "player" | "police";
 
 /** Country whose number-plate design a vehicle wears, derived from the map. */
@@ -511,6 +511,12 @@ export function resolveTrafficVehicleAppearance(
   const plateRegion = plateRegionForMap(input.mapId);
   const plateIdentity = `${normalizedSeed(input.trafficSeed)}|${input.vehicleId}`;
   const plateNumber = plateNumberForVehicle(plateRegion, plateIdentity);
+
+  // A police-variant NPC comes from a named patrol gate and is always a
+  // patrol; ambient cars still roll the one-in-PATROL_IN_EVERY chance below.
+  if (input.variant === "police") {
+    return policeAppearance(input);
+  }
 
   if (input.variant === "car") {
     return isPatrolVehicle(input)

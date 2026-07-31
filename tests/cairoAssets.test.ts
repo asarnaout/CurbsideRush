@@ -86,7 +86,7 @@ describe("Cairo bundled assets", () => {
       {
         file: "cairo-residence-kay.glb",
         finalSha256:
-          "a5876cf61076daf42f56c89f53f475e85915a661bc5a8d2318b6411d0b2f6be1",
+          "2012755285875f9221074db08d58f48954a4ecb8fdfc5c1763bde421e13897ad",
         provenance: {
           style: "cairo-residence-v1",
           author: "Kay Lousberg",
@@ -98,7 +98,7 @@ describe("Cairo bundled assets", () => {
           sourceSha256:
             "5ebaa83522c99c877e28b9c482aa8629226d574fa398dc91ba71430d4e38e290",
           modifications: "Cairo palette and matte material pass",
-          shopfront: "cairo-shopfront-v1",
+          shopfront: "cairo-shopfront-v2",
         },
         creditNeedles: [
           "https://static.poly.pizza/1c40976f-9fd1-4779-ba85-8105d523f3d8.glb",
@@ -109,7 +109,7 @@ describe("Cairo bundled assets", () => {
         // NYC and London keep the original, stripes, hydrant and all.
         file: "cairo-shop.glb",
         finalSha256:
-          "2607a442181e051cb83d77c75fd15ce0401fcbdf99d8b0c5cef26b420318842a",
+          "8c4f9a9f613d5d68c0f3d001efa5191946368bbddc193790634383d73457a520",
         provenance: {
           style: "cairo-residence-v1",
           author: "Kay Lousberg",
@@ -121,9 +121,43 @@ describe("Cairo bundled assets", () => {
           sourceSha256:
             "289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5",
           modifications: "Cairo palette and matte material pass",
-          shopfront: "cairo-shopfront-v1",
+          shopfront: "cairo-shopfront-v2",
         },
         creditNeedles: ["tools/cairo-shopfront.mjs"],
+      },
+      {
+        file: "cairo-felucca.glb",
+        finalSha256:
+          "e7dcd4b5c2888dfd050698ca1e52966e1b55230dc80d1153b060cf96edfb2ab6",
+        provenance: {
+          style: "cairo-boat-v1",
+          author: "Quaternius",
+          title: "Sail Boat",
+          license: "CC0-1.0",
+          sourceUrl: "https://poly.pizza/m/BgSZXwmm7k",
+          creatorUrl: "https://quaternius.com",
+          sourceSha256:
+            "dd0d959f66c058e2afcfc01227f80b83347b5105d324690596a0c0eb6e65fb95",
+          modifications: "Cream lateen sail and matte material pass",
+        },
+        creditNeedles: ["tools/cairo-boats.mjs"],
+      },
+      {
+        file: "cairo-skiff.glb",
+        finalSha256:
+          "f73cbe3bbe8f001e30d5ad78b258eb7ac6f417770773b0ba07806a44ac187472",
+        provenance: {
+          style: "cairo-boat-v1",
+          author: "Quaternius",
+          title: "Boat",
+          license: "CC0-1.0",
+          sourceUrl: "https://poly.pizza/m/5UEl54KsuC",
+          creatorUrl: "https://quaternius.com",
+          sourceSha256:
+            "263e5d46f79e8b37afecd0db9056b22dc33c6456074d260589285d1891192335",
+          modifications: "Matte material pass",
+        },
+        creditNeedles: [],
       },
       {
         file: "cairo-residence-quaternius.glb",

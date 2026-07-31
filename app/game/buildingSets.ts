@@ -12,6 +12,7 @@
  * (`instantiateModelInstanced`) at the positions/rotations produced here.
  */
 import { ALL_ENV_MODELS } from "./buildingCatalog";
+import type { BlockStreetEdge } from "./types";
 import { seededUnit, type VisualPoint } from "./visuals";
 
 /** Per-model placement: uniform scale + ground offset + post-scale footprint. */
@@ -20,8 +21,20 @@ export interface BuildingPlacementConfig {
   readonly scale: number;
   /** Y offset (m) that sits the model's base on the ground (= -nativeMinY·scale). */
   readonly groundY: number;
-  /** Post-scale footprint (max of width/depth, m) used to space the street wall. */
+  /** Post-scale frontage (m) along the kerb — what spaces the street wall. */
   readonly footprintM: number;
+  /**
+   * Post-scale depth (m) into the block, when it differs from the frontage.
+   * Defaults to `footprintM`.
+   *
+   * These are two different measurements and one number cannot be both. The
+   * frontage decides how tightly buildings pack along the kerb; the depth
+   * decides how far each is inset from the block edge, and therefore whether a
+   * building on one edge reaches into a building on the next. Cairo's slim
+   * block is 5.6 m wide and 10.8 m deep — spaced by its depth it leaves a 5 m
+   * hole in the wall, inset by its frontage it stands inside its neighbour.
+   */
+  readonly depthM?: number;
   /**
    * Facing correction (radians) added to the holder yaw. The instancing path
    * rotates a building so its front faces the street; models whose authored
@@ -82,7 +95,9 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
 
   // ---- Cairo ----
   // Every Cairo model measured square to its own axes (>=94% of wall area at 0°),
-  // so none needs a squareUpYaw, and every one sits on y=0 natively.
+  // so none needs a squareUpYaw. Most bases sit at y=0 natively; six dip below
+  // by up to 8cm at placement scale (cairo-block-slim and -terrace the worst),
+  // which BUILDING_GROUND_LIFT still clears off the ground plane.
   //
   // Facing: the Quaternius pack puts its doors and ground-floor glazing on local
   // +Z (measured from the Wood/DarkWood/Glass submesh centroids, not guessed),
@@ -94,21 +109,23 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   // 2-4-storey models being asked to read as the taller thing.
   // roofY is native height × scale, so rooftop clutter lands on the parapet
   // rather than floating over it or sinking into the top floor.
-  "cairo-tower-a": { scale: 15, groundY: 0, footprintM: 18.5, frontOffset: 0 },
-  "cairo-tower-b": { scale: 15, groundY: 0, footprintM: 18.5, frontOffset: 0 },
-  "cairo-block-4story": { scale: 4.6, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 23.4 },
-  "cairo-block-4story-centre": { scale: 4.6, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 23.4 },
-  // slim/small are deeper than they are wide; footprint follows the *frontage*
-  // rather than max(w,d) so the wall closes up instead of leaving 5 m gaps.
-  "cairo-block-slim": { scale: 5, groundY: 0, footprintM: 6, frontOffset: Math.PI, roofY: 20 },
-  "cairo-block-small": { scale: 5, groundY: 0, footprintM: 9.8, frontOffset: Math.PI, roofY: 19.3 },
-  "cairo-block-colonnade": { scale: 5.2, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 14.4 },
-  "cairo-block-balcony": { scale: 5.2, groundY: 0, footprintM: 11.5, frontOffset: Math.PI, roofY: 15.3 },
-  "cairo-block-terrace": { scale: 4.8, groundY: 0, footprintM: 18.5, frontOffset: Math.PI, roofY: 13.2 },
+  "cairo-tower-a": { scale: 15, groundY: 0, footprintM: 18.7, frontOffset: 0 },
+  "cairo-tower-b": { scale: 15, groundY: 0, footprintM: 18.7, frontOffset: 0 },
+  "cairo-block-4story": { scale: 4.6, groundY: 0, footprintM: 11.2, depthM: 11.7, frontOffset: Math.PI, roofY: 23.4 },
+  "cairo-block-4story-centre": { scale: 4.6, groundY: 0, footprintM: 11.2, depthM: 11.7, frontOffset: Math.PI, roofY: 23.4 },
+  // Several of these are markedly deeper than they are wide, so they carry both
+  // measurements. Every figure is the merged master's real post-scale bound, not
+  // an estimate: the authored guesses understated slim by 4.8 m, which stood it
+  // inside whatever sat on the next edge.
+  "cairo-block-slim": { scale: 5, groundY: 0, footprintM: 5.7, depthM: 10.8, frontOffset: Math.PI, roofY: 20 },
+  "cairo-block-small": { scale: 5, groundY: 0, footprintM: 9.6, depthM: 9.9, frontOffset: Math.PI, roofY: 19.3 },
+  "cairo-block-colonnade": { scale: 5.2, groundY: 0, footprintM: 11.3, depthM: 13.0, frontOffset: Math.PI, roofY: 14.4 },
+  "cairo-block-balcony": { scale: 5.2, groundY: 0, footprintM: 11.3, depthM: 13.2, frontOffset: Math.PI, roofY: 15.3 },
+  "cairo-block-terrace": { scale: 4.8, groundY: 0, footprintM: 18.4, depthM: 10.9, frontOffset: Math.PI, roofY: 13.2 },
   "cairo-walkup-a": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
   "cairo-walkup-b": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
   "cairo-residence-kay": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
-  "cairo-residence-quaternius": { scale: 4.8, groundY: 0, footprintM: 10.5, frontOffset: Math.PI, roofY: 20.2 },
+  "cairo-residence-quaternius": { scale: 4.8, groundY: 0, footprintM: 10.4, depthM: 12.1, frontOffset: Math.PI, roofY: 20.2 },
 };
 
 export type BuildingSetId =
@@ -186,6 +203,23 @@ export function missingBuildingConfigs(): string[] {
   return [...missing];
 }
 
+/**
+ * How deep a block must be to hold this set's street wall.
+ *
+ * A parcel shallower than its deepest model does not merely look tight — the
+ * model overhangs the block on both sides, into whatever stands behind it. The
+ * Corniche set is 4.7 m deeper than the mid-rise sets, which is the difference
+ * between a clean rank gap and towers standing in each other.
+ */
+export function buildingSetDepthM(setId: BuildingSetId): number {
+  return Math.max(
+    ...SETS[setId].map((id) => {
+      const cfg = PLACEMENTS[id];
+      return cfg ? (cfg.depthM ?? cfg.footprintM) : 0;
+    }),
+  );
+}
+
 /** Placement config for a catalogue model id (for tests / tooling). */
 export function buildingPlacementConfig(
   id: string,
@@ -249,6 +283,8 @@ export interface PlacedBuilding {
 }
 
 interface Edge {
+  /** Which block-local edge this is, for `edges` filtering. */
+  readonly id: BlockStreetEdge;
   /** Outward street direction as a heading atan2(dx,dz): +Z=0, +X=π/2. */
   readonly outward: number;
   /** Fixed coordinate of the edge line + which axis it runs along. */
@@ -268,6 +304,14 @@ const GAP_M = 1.6;
  * each edge, inset so their front sits at the block edge and faces the road.
  * Deterministic in `seed`. N/S edges run full width; E/W edges are trimmed by a
  * building's reach at each end so corners don't double up.
+ *
+ * All four edges is the default because a city block has roads all round it. A
+ * roadside strip does not, and must name its one road-facing edge: buildings are
+ * inset by half their footprint, so on a parcel shallower than two footprints
+ * the opposite rows overlap — Cairo's 28-34 m strips against footprints up to
+ * 18.5 m put roughly 9 m of building inside another building, which reads as a
+ * white flicker that worsens with camera motion. The far row also faces open
+ * ground no driver ever reaches, so it is pure cost.
  */
 export function slotBlockBuildings(
   center: VisualPoint,
@@ -277,6 +321,8 @@ export function slotBlockBuildings(
   /** Fraction of the street wall to keep (1 = full). Weak devices thin it for
    * frame rate; deterministic so the same buildings survive each load. */
   keepFraction = 1,
+  /** Block-local edges to populate. Omitted/empty = all four. */
+  edges_?: readonly BlockStreetEdge[],
 ): PlacedBuilding[] {
   const models = SETS[setId]
     .map((id) => ({ id, url: URL_BY_ID.get(id), cfg: PLACEMENTS[id] }))
@@ -287,18 +333,34 @@ export function slotBlockBuildings(
   const rng = seededUnit(seed);
   const halfW = size.x / 2;
   const halfD = size.z / 2;
-  const maxFoot = Math.max(...models.map((m) => m.cfg.footprintM));
+  // The E/W trim is about how far a N/S building reaches *into* the block, so it
+  // is the deepest model that sets it, not the widest.
+  const maxDepth = Math.max(
+    ...models.map((m) => m.cfg.depthM ?? m.cfg.footprintM),
+  );
 
-  const edges: Edge[] = [
+  const allEdges: Edge[] = [
     // North (+Z)
-    { outward: 0, runAxis: "x", runStart: center.x - halfW, runEnd: center.x + halfW, fixed: center.z + halfD, inX: 0, inZ: -1 },
+    { id: "+z", outward: 0, runAxis: "x", runStart: center.x - halfW, runEnd: center.x + halfW, fixed: center.z + halfD, inX: 0, inZ: -1 },
     // South (-Z)
-    { outward: Math.PI, runAxis: "x", runStart: center.x - halfW, runEnd: center.x + halfW, fixed: center.z - halfD, inX: 0, inZ: 1 },
+    { id: "-z", outward: Math.PI, runAxis: "x", runStart: center.x - halfW, runEnd: center.x + halfW, fixed: center.z - halfD, inX: 0, inZ: 1 },
     // East (+X), trimmed so N/S corner buildings own the corners
-    { outward: Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxFoot, runEnd: center.z + halfD - maxFoot, fixed: center.x + halfW, inX: -1, inZ: 0 },
+    { id: "+x", outward: Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxDepth, runEnd: center.z + halfD - maxDepth, fixed: center.x + halfW, inX: -1, inZ: 0 },
     // West (-X)
-    { outward: -Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxFoot, runEnd: center.z + halfD - maxFoot, fixed: center.x - halfW, inX: 1, inZ: 0 },
+    { id: "-x", outward: -Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxDepth, runEnd: center.z + halfD - maxDepth, fixed: center.x - halfW, inX: 1, inZ: 0 },
   ];
+  // An empty list would silently erase the block's whole street wall, so it is
+  // read as "unspecified" — same as omitting the argument.
+  const edges = edges_?.length
+    ? allEdges.filter((edge) => edges_.includes(edge.id))
+    : allEdges;
+
+  // Cairo packs its run ends: when the drawn model would overshoot the run,
+  // redraw among the models that still fit instead of leaving up to a whole
+  // footprint of bare kerb. NYC keeps draw-or-break — its blocks are ringed by
+  // streets so the waste hides at corners, and consuming extra rng draws would
+  // silently reshuffle every shipped NYC street.
+  const packRunEnds = setId.startsWith("cairo");
 
   const placed: PlacedBuilding[] = [];
   let slot = 0;
@@ -307,8 +369,20 @@ export function slotBlockBuildings(
     // Guard against absurd loops on degenerate blocks.
     let guard = 0;
     while (cursor < edge.runEnd && guard++ < 256) {
-      const model = models[Math.floor(rng() * models.length)];
+      let model = models[Math.floor(rng() * models.length)];
+      if (
+        packRunEnds &&
+        cursor + model.cfg.footprintM > edge.runEnd + 0.01
+      ) {
+        const fitting = models.filter(
+          (m) => cursor + m.cfg.footprintM <= edge.runEnd + 0.01,
+        );
+        if (fitting.length) {
+          model = fitting[Math.floor(rng() * fitting.length)];
+        }
+      }
       const foot = model.cfg.footprintM;
+      const depth = model.cfg.depthM ?? foot;
       const along = cursor + foot / 2;
       if (along + foot / 2 > edge.runEnd + 0.01) break;
       // Thin the wall on weak devices: advance the cursor regardless so spacing
@@ -318,7 +392,7 @@ export function slotBlockBuildings(
         ((slot * 2654435761) >>> 0) / 4294967296 < keepFraction;
       slot += 1;
       if (keep) {
-        const inset = foot / 2;
+        const inset = depth / 2;
         const x = edge.runAxis === "x" ? along : edge.fixed + edge.inX * inset;
         const z = edge.runAxis === "z" ? along : edge.fixed + edge.inZ * inset;
         // Front is on local -Z (glTF-loader flip); front world dir = yaw+π, so to

@@ -47,6 +47,19 @@ Vehicle ground contact is a **two-value handshake**: nodes at `y = 0.12` and
 `LOCAL_GROUND_Y = -0.05` put tyres at exactly `0.07`. Change either alone and the
 whole fleet floats or sinks.
 
+The stack cannot save geometry that fights *inside* one model. The Quaternius
+Cairo kit authors its brick patches, base bands and glazing as primitives
+0.6–3.5 mm proud of the wall primitives — below what a 24-bit depth buffer
+resolves at street viewing distance — so `biasCairoDecalMaterials` pulls those
+five named materials (`CAIRO_DECAL_MATERIAL_NAMES`) toward the camera with
+`zOffsetUnits`, per `cairo-*.glb` container material only. Two rules fall out:
+prefer polygon offset over nudging vertices for decal-on-wall fixes (it scales
+with the local depth quantum), and treat camera `minZ` as a depth-precision
+budget — precision varies as `minZ/z²`, the far plane is almost irrelevant, and
+the chase camera's 0.5 exists to keep millimetre offsets resolvable. Don't
+lower a `minZ` to "fix" near clipping without knowing you are spending 1/n of
+everyone's depth separation.
+
 ## The glTF loader bakes a 180° Y flip
 
 Model fronts are *usually* on local −Z. This propagates into four separate offset

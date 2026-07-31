@@ -170,7 +170,10 @@ export type TrafficLightState =
   | "red"
   | "red_amber";
 export type TrafficLightSequence = "standard" | "uk";
-export type NpcVehicleVariant = "car" | "taxi" | "bus" | "van";
+// "police" is gate-assigned only (a named spawn gate), never rolled by
+// randomVehicleVariant — the simulation treats it exactly like a car and the
+// renderer dresses it as a patrol.
+export type NpcVehicleVariant = "car" | "taxi" | "bus" | "van" | "police";
 
 export interface SimulationPoint {
   readonly x: number;
