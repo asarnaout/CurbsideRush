@@ -904,6 +904,11 @@ describe("Cairo Central Nile content", () => {
     expect(
       graph.spawnPoints.filter((spawn) => spawn.kind === "vehicle").length,
     ).toBeLessThanOrEqual(32);
+    // Three dedicated patrol gates: Cairo's visible police presence must not
+    // hang on the ambient patrol roll landing on a car-capable gate.
+    expect(
+      graph.spawnPoints.filter((spawn) => spawn.id.includes("cairo-police-")),
+    ).toHaveLength(3);
     expect(graph.checkpoints).toHaveLength(10);
     expect(CAIRO_MAP_PACK.geometry.gigVenues).toHaveLength(30);
     expect(
@@ -1692,7 +1697,7 @@ describe("Cairo Central Nile content", () => {
     const first = run();
     const replay = run();
     expect(replay).toEqual(first);
-    expect(first.hash).toBe("26fc6ff8");
+    expect(first.hash).toBe("cf5ab089");
     expect(first.snapshot).toMatchObject({
       tick: 1_800,
       status: "running",

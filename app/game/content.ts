@@ -1912,10 +1912,12 @@ export const MAP_PACKS: readonly MapPack[] = [
     roadNames: nycGrid.roadNames,
     // Twelve cars is what every map got, and it is what this one had when it
     // was a fifth the size. Spread over 47 km of lane they left the streets
-    // empty, and patrols with them — a patrol is one car in five, so twelve
-    // cars is one or two police in the whole city. 32 is the simulation core's
-    // own clamp; a phone keeps a lower count because each car costs it much
-    // more, and the O(n^2) car-following work is paid per decision.
+    // empty, and patrols with them — a patrol is one in five of the *car*
+    // variant only (isPatrolVehicle), which after the bus/taxi/van gate and
+    // roll shares is roughly one vehicle in eight, so twelve vehicles is one
+    // police car in the whole city if the seed is kind. 32 is the simulation
+    // core's own clamp; a phone keeps a lower count because each car costs it
+    // much more, and the O(n^2) car-following work is paid per decision.
     ambientTraffic: { desktop: 32, touch: 16 },
     source: osmSource(
       { south: 40.7738, west: -73.9919, north: 40.7836, east: -73.9738 },

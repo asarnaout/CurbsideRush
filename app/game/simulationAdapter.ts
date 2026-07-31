@@ -251,6 +251,7 @@ function projectDistanceAlongLane(
 
 function inferVehicleVariant(spawnId: string): NpcVehicleVariant | undefined {
   const value = spawnId.toLowerCase();
+  if (value.includes("police") || value.includes("patrol")) return "police";
   if (value.includes("bus")) return "bus";
   if (value.includes("taxi") || value.includes("cab")) return "taxi";
   if (value.includes("van") || value.includes("shuttle")) return "van";

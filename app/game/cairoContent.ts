@@ -2158,14 +2158,20 @@ const cairoSpawnPoints: readonly MapSpawnPoint[] = [
     };
   }),
   ...vehicleLanes.map((lane, index) => ({
+    // Three dedicated patrol gates (indices 3, 14, 25). Without them Cairo's
+    // police presence hung on the ambient one-in-five patrol roll landing on
+    // a car-capable gate, which this seed rarely granted — whole sessions
+    // passed without a single patrol while NYC showed four or five.
     id:
-      index % 9 === 0
-        ? `cairo-bus-${index + 1}`
-        : index % 5 === 0
-          ? `cairo-taxi-${index + 1}`
-          : index % 7 === 0
-            ? `cairo-van-${index + 1}`
-            : `cairo-car-${index + 1}`,
+      index % 11 === 3
+        ? `cairo-police-${index + 1}`
+        : index % 9 === 0
+          ? `cairo-bus-${index + 1}`
+          : index % 5 === 0
+            ? `cairo-taxi-${index + 1}`
+            : index % 7 === 0
+              ? `cairo-van-${index + 1}`
+              : `cairo-car-${index + 1}`,
     kind: "vehicle" as const,
     anchor: anchor(lane.id, safeDistance(lane, 0.28 + (index % 5) * 0.1)),
   })),
