@@ -825,18 +825,130 @@ for (const [signalIndex, nodeId] of signalNodeIds.entries()) {
   const approaches: TrafficControlApproach[] = [];
   const installations: TrafficControlInstallation[] = [];
 
-  for (const [, lanes] of [...inboundByArm.entries()].sort(
-    ([left], [right]) => left.localeCompare(right),
-  )) {
-    const lane = lanes[0];
+  /**
+   * Crossing setbacks are geometry, not a constant. At a grid junction the old
+   * rule — own half-width + 3.5 m from the node — worked; at Cairo's radials
+   * several arms meet at shallow angles, and a crossing set back by its OWN
+   * width still lay inside a wider or obliquer neighbour's carriageway (Qasr
+   * El Nil St is 16 m wide), so the stripes ploughed through each other. Each
+   * arm now sets back until its whole stripe envelope clears every other
+   * arm's carriageway; the stop bar retreats behind the stripes; a crossing
+   * that cannot clear within reason is dropped — an unmarked arm reads far
+   * better than two crossings through each other.
+   *
+   * The envelope mirrors crosswalkStripeLayout (7 stripes, 1.05 m pitch,
+   * 0.62 m deep, 0.82 span factor); tests/cairoContent.test.ts cross-checks
+   * these numbers against the real layout so they cannot drift apart.
+   */
+  const CROSSING_ENVELOPE_HALF_M = 3 * 1.05 + 0.62 / 2;
+  const CROSSING_SPAN_FACTOR = 0.82;
+  const CROSSING_CLEAR_M = 0.6;
+  const arms = [...inboundByArm.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, lanes]) => {
+      const lane = lanes[0];
+      const surface = cairoRoadSurfaces.find(
+        (item) => item.id === lane.roadId,
+      )!;
+      // De-blended road axis, sampled clear of the node elbow — used both to
+      // orient the signal head and to measure angles between arms.
+      const axisPose = pointAlongLane(
+        lane,
+        Math.max(0, Math.max(8, laneLength(lane) - 12) - CONNECTOR_BLEND_RUN_M - 1),
+      );
+      return { lanes, lane, surface, axisPose };
+    });
+  const armCrossings = arms.map((arm) => {
+    const ownHalfM = arm.surface.widthM / 2;
+    let requiredM = ownHalfM + 3.5;
+    const outward = ((arm.axisPose.headingDeg + 180) * Math.PI) / 180;
+    for (const other of arms) {
+      if (other === arm || other.surface.id === arm.surface.id) continue;
+      const otherOutward = ((other.axisPose.headingDeg + 180) * Math.PI) / 180;
+      let delta = Math.abs(outward - otherOutward) % (2 * Math.PI);
+      if (delta > Math.PI) delta = 2 * Math.PI - delta;
+      const sinDelta = Math.sin(delta);
+      // Near-collinear arms are the same corridor continuing under another
+      // road id; the crossing legitimately spans them like it spans its own
+      // opposing lanes.
+      if (sinDelta < 0.342) continue;
+      requiredM = Math.max(
+        requiredM,
+        (other.surface.widthM / 2 +
+          CROSSING_CLEAR_M +
+          CROSSING_ENVELOPE_HALF_M * sinDelta +
+          (CROSSING_SPAN_FACTOR / 2) *
+            arm.surface.widthM *
+            Math.abs(Math.cos(delta))) /
+          sinDelta,
+      );
+    }
+    // Beyond ~28 m the "crossing" is halfway down the block; and it must fit
+    // on the lane at all.
+    const fits = requiredM <= 28 && laneLength(arm.lane) - requiredM >= 3;
+    const pose = pointAlongLane(
+      arm.lane,
+      Math.max(3, laneLength(arm.lane) - requiredM),
+    );
+    return { requiredM, fits, pose };
+  });
+  // Belt and braces: two surviving crossings may still meet in the wedge
+  // between acute arms. Drop the later (stable sorted order) of any pair
+  // whose stripe envelopes intersect.
+  for (let a = 0; a < arms.length; a += 1) {
+    if (!armCrossings[a].fits) continue;
+    for (let b = a + 1; b < arms.length; b += 1) {
+      if (!armCrossings[b].fits) continue;
+      const rect = (index: number) => {
+        const crossing = armCrossings[index];
+        const heading = (crossing.pose.headingDeg * Math.PI) / 180;
+        return {
+          x: crossing.pose.position.x,
+          z: crossing.pose.position.z,
+          // Lane/pose heading: 0 = +z, so the travel axis is (sin h, cos h)
+          // and the across-traffic axis is the right-hand normal.
+          axes: [
+            {
+              x: Math.sin(heading),
+              z: Math.cos(heading),
+              half: CROSSING_ENVELOPE_HALF_M,
+            },
+            {
+              x: Math.cos(heading),
+              z: -Math.sin(heading),
+              half: (CROSSING_SPAN_FACTOR / 2) * arms[index].surface.widthM,
+            },
+          ],
+        };
+      };
+      const first = rect(a);
+      const second = rect(b);
+      const separated = [...first.axes, ...second.axes].some((axis) => {
+        const spread = (r: typeof first) =>
+          r.axes[0].half * Math.abs(r.axes[0].x * axis.x + r.axes[0].z * axis.z) +
+          r.axes[1].half * Math.abs(r.axes[1].x * axis.x + r.axes[1].z * axis.z);
+        return (
+          Math.abs(
+            (second.x - first.x) * axis.x + (second.z - first.z) * axis.z,
+          ) >
+          spread(first) + spread(second)
+        );
+      });
+      if (!separated) armCrossings[b] = { ...armCrossings[b], fits: false };
+    }
+  }
+
+  for (const [index, arm] of arms.entries()) {
+    const { lanes, lane, surface, axisPose } = arm;
     const roadId = lane.roadId;
     const armSlug = `${roadId}-${lane.from.replace(/^cairo-/, "")}`;
-    const surface = cairoRoadSurfaces.find((item) => item.id === roadId)!;
-    const stopDistance = Math.max(8, laneLength(lane) - 12);
-    const pose = pointAlongLane(
-      lane,
-      Math.max(0, stopDistance - CONNECTOR_BLEND_RUN_M - 1),
-    );
+    const crossing = armCrossings[index];
+    // The bar stays behind the stripes (real junctions do exactly this), and
+    // never nearer the node than the old 12 m where the crossing needs room.
+    const stopFromNodeM = crossing.fits
+      ? Math.max(12, crossing.requiredM + CROSSING_ENVELOPE_HALF_M + 0.9)
+      : 12;
+    const stopDistance = Math.max(8, laneLength(lane) - stopFromNodeM);
     const stopPose = pointAlongLane(lane, stopDistance);
     const approachId = `cairo-signal-${signalIndex + 1}-${armSlug}-approach`;
     approaches.push({
@@ -853,24 +965,22 @@ for (const [signalIndex, nodeId] of signalNodeIds.entries()) {
       // Positioned from the stop line, oriented by the de-blended road axis:
       // the last few metres of a lane elbow onto the shared node, so sampling
       // the heading at the bar itself skews the head a few degrees.
-      position: safeSignalPosition(stopPose.position, pose.headingDeg, surface),
-      headingDeg: pose.headingDeg,
+      position: safeSignalPosition(
+        stopPose.position,
+        axisPose.headingDeg,
+        surface,
+      ),
+      headingDeg: axisPose.headingDeg,
       mounting: "roadside_pole",
       style: "egypt_signal",
       role: "primary",
       approachIds: [approachId],
     });
-    const crosswalkPose = pointAlongLane(
-      lane,
-      Math.max(
-        3,
-        laneLength(lane) - (surface.widthM / 2 + 3.5),
-      ),
-    );
+    if (!crossing.fits) continue;
     installations.push({
       id: `cairo-signal-${signalIndex + 1}-${armSlug}-crosswalk`,
-      position: crosswalkPose.position,
-      headingDeg: crosswalkPose.headingDeg,
+      position: crossing.pose.position,
+      headingDeg: crossing.pose.headingDeg,
       spanM: surface.widthM,
       mounting: "road_marking",
       style: "crosswalk",

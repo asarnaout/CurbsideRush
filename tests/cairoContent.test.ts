@@ -933,26 +933,40 @@ describe("Cairo Central Nile content", () => {
       const crosswalks = signal.installations.filter(
         (installation) => installation.style === "crosswalk",
       );
-      expect(crosswalks, signal.id).toHaveLength(signal.approaches.length);
-      for (const approach of signal.approaches) {
-        const crosswalk = crosswalks.filter((installation) =>
-          installation.approachIds?.includes(approach.id),
-        );
-        expect(crosswalk, approach.id).toHaveLength(1);
-        expect(crosswalk[0].approachIds, approach.id).toEqual([approach.id]);
+      // An arm whose crossing cannot clear the junction's other carriageways
+      // is deliberately unmarked, so crossings may number fewer than
+      // approaches — but never more, never doubled up, and most arms keep one.
+      expect(crosswalks.length, signal.id).toBeLessThanOrEqual(
+        signal.approaches.length,
+      );
+      expect(crosswalks.length, signal.id).toBeGreaterThanOrEqual(
+        signal.approaches.length - 1,
+      );
+      for (const crosswalk of crosswalks) {
+        expect(crosswalk.approachIds, crosswalk.id).toHaveLength(1);
+        const approach = signal.approaches.find(
+          (candidate) => candidate.id === crosswalk.approachIds![0],
+        )!;
+        expect(approach, crosswalk.id).toBeDefined();
+        expect(
+          crosswalks.filter((other) =>
+            other.approachIds?.includes(approach.id),
+          ),
+          approach.id,
+        ).toHaveLength(1);
         const lane = graph.lanes.find(
           (candidate) => candidate.id === approach.laneIds[0],
         )!;
         const surface = CAIRO_MAP_PACK.geometry.roadSurfaces.find(
           (candidate) => candidate.id === lane.roadId,
         )!;
-        expect(crosswalk[0].spanM, approach.id).toBe(surface.widthM);
+        expect(crosswalk.spanM, approach.id).toBe(surface.widthM);
         expect(
           headingDifferenceDeg(
-            crosswalk[0].headingDeg,
+            crosswalk.headingDeg,
             nearestSegmentHeadingDeg(
               lane.centerline,
-              crosswalk[0].position,
+              crosswalk.position,
             ),
           ),
           approach.id,
@@ -1678,7 +1692,7 @@ describe("Cairo Central Nile content", () => {
     const first = run();
     const replay = run();
     expect(replay).toEqual(first);
-    expect(first.hash).toBe("587e7fef");
+    expect(first.hash).toBe("26fc6ff8");
     expect(first.snapshot).toMatchObject({
       tick: 1_800,
       status: "running",

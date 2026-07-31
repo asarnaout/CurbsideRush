@@ -734,6 +734,159 @@ describe("Cairo street identity", () => {
   });
 });
 
+// At Cairo's radial junctions several arms meet at shallow angles, and a
+// crossing set back by its own half-width lay inside a wider neighbour's
+// carriageway — stripes ploughed through each other. The authoring now sets
+// each arm back until its stripe envelope clears every other arm, and drops
+// what cannot clear. These assertions run on the exact stripes the renderer
+// draws (same placement snap, same heading, same layout call).
+describe("Cairo crosswalks clear the junctions they serve", () => {
+  interface StripeRect {
+    x: number;
+    z: number;
+    yaw: number;
+    halfW: number;
+    halfD: number;
+  }
+  const separated = (a: StripeRect, b: StripeRect, marginM = 0): boolean => {
+    const axesOf = (r: StripeRect) => {
+      const cos = Math.cos(r.yaw);
+      const sin = Math.sin(r.yaw);
+      return [
+        { x: cos, z: -sin, half: r.halfW },
+        { x: sin, z: cos, half: r.halfD },
+      ] as const;
+    };
+    const aAxes = axesOf(a);
+    const bAxes = axesOf(b);
+    return [...aAxes, ...bAxes].some((axis) => {
+      const radius = (axes: typeof aAxes) =>
+        axes[0].half * Math.abs(axes[0].x * axis.x + axes[0].z * axis.z) +
+        axes[1].half * Math.abs(axes[1].x * axis.x + axes[1].z * axis.z);
+      return (
+        Math.abs((b.x - a.x) * axis.x + (b.z - a.z) * axis.z) >
+        radius(aAxes) + radius(bAxes) + marginM
+      );
+    });
+  };
+  const signals = CAIRO_MAP_PACK.laneGraph.controls.filter(
+    (control) => control.type === "signal",
+  );
+  const crossingsOf = (control: (typeof signals)[number]) =>
+    (control.installations ?? [])
+      .filter((installation) => installation.style === "crosswalk")
+      .map((installation) => {
+        const placement = roadSurfacePlacementForMarking(
+          CAIRO_MAP_PACK,
+          control,
+          installation,
+        );
+        const stripes = crosswalkStripeLayout(
+          placement.position,
+          installation.headingDeg,
+          placement.widthM,
+        ).map((stripe) => ({
+          // Stripe local +x spans across traffic (widthM); +z is its depth.
+          x: stripe.center.x,
+          z: stripe.center.z,
+          yaw: stripe.rotationY,
+          halfW: stripe.widthM / 2,
+          halfD: stripe.depthM / 2,
+        }));
+        return { installation, surfaceId: placement.surfaceId, stripes };
+      });
+
+  it("pins the stripe envelope the authoring mirrors", () => {
+    const stripes = crosswalkStripeLayout({ x: 0, z: 0 }, 0, 10);
+    expect(stripes).toHaveLength(7);
+    const alongReach = Math.max(
+      ...stripes.map((stripe) => Math.abs(stripe.center.z) + stripe.depthM / 2),
+    );
+    // cairoContent's CROSSING_ENVELOPE_HALF_M and span factor must equal these
+    // or its setback maths silently diverges from what is drawn.
+    expect(alongReach).toBeCloseTo(3 * 1.05 + 0.62 / 2, 6);
+    expect(stripes[0].widthM).toBeCloseTo(10 * 0.82, 6);
+  });
+
+  it("never lets two arms' stripes touch", () => {
+    expect(signals.length).toBeGreaterThanOrEqual(8);
+    for (const control of signals) {
+      const crossings = crossingsOf(control);
+      for (let a = 0; a < crossings.length; a += 1) {
+        for (let b = a + 1; b < crossings.length; b += 1) {
+          for (const first of crossings[a].stripes) {
+            for (const second of crossings[b].stripes) {
+              expect(
+                separated(first, second),
+                `${crossings[a].installation.id} collides ${crossings[b].installation.id}`,
+              ).toBe(true);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("keeps every stripe out of the other arms' carriageways", () => {
+    for (const control of signals) {
+      const crossings = crossingsOf(control);
+      const approachRoadIds = new Set(
+        (control.approaches ?? []).flatMap((approach) =>
+          approach.laneIds.map(
+            (laneId) =>
+              CAIRO_MAP_PACK.laneGraph.lanes.find(
+                (lane) => lane.id === laneId,
+              )!.roadId,
+          ),
+        ),
+      );
+      for (const crossing of crossings) {
+        for (const roadId of approachRoadIds) {
+          if (roadId === crossing.surfaceId) continue;
+          const surface = CAIRO_MAP_PACK.geometry.roadSurfaces.find(
+            (candidate) => candidate.id === roadId,
+          )!;
+          for (
+            let index = 1;
+            index < surface.centerline.length;
+            index += 1
+          ) {
+            const start = surface.centerline[index - 1];
+            const end = surface.centerline[index];
+            const nearNode =
+              Math.hypot(
+                (start.x + end.x) / 2 - control.position.x,
+                (start.z + end.z) / 2 - control.position.z,
+              ) <
+              Math.hypot(end.x - start.x, end.z - start.z) / 2 + 60;
+            if (!nearNode) continue;
+            const segHeading = Math.atan2(end.x - start.x, end.z - start.z);
+            const band: StripeRect = {
+              x: (start.x + end.x) / 2,
+              z: (start.z + end.z) / 2,
+              yaw: segHeading,
+              halfW: surface.widthM / 2,
+              halfD: Math.hypot(end.x - start.x, end.z - start.z) / 2,
+            };
+            for (const stripe of crossing.stripes) {
+              // A near-collinear segment is the same corridor continuing under
+              // another road id; the crossing legitimately spans it the way it
+              // spans its own opposing lanes.
+              let delta = Math.abs(stripe.yaw - segHeading) % Math.PI;
+              if (delta > Math.PI / 2) delta = Math.PI - delta;
+              if (Math.sin(delta) < 0.342) continue;
+              expect(
+                separated(stripe, band),
+                `${crossing.installation.id} stripe inside ${roadId}'s carriageway`,
+              ).toBe(true);
+            }
+          }
+        }
+      }
+    }
+  });
+});
+
 // The Quaternius street-wall models carry brick patches / base bands / glazing
 // as primitives 0.6-3.5mm proud of the wall primitives (one model exactly
 // coplanar), which z-fights from ordinary viewing distance. The renderer pulls
