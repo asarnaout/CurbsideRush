@@ -355,6 +355,13 @@ export function slotBlockBuildings(
     ? allEdges.filter((edge) => edges_.includes(edge.id))
     : allEdges;
 
+  // Cairo packs its run ends: when the drawn model would overshoot the run,
+  // redraw among the models that still fit instead of leaving up to a whole
+  // footprint of bare kerb. NYC keeps draw-or-break — its blocks are ringed by
+  // streets so the waste hides at corners, and consuming extra rng draws would
+  // silently reshuffle every shipped NYC street.
+  const packRunEnds = setId.startsWith("cairo");
+
   const placed: PlacedBuilding[] = [];
   let slot = 0;
   for (const edge of edges) {
@@ -362,7 +369,18 @@ export function slotBlockBuildings(
     // Guard against absurd loops on degenerate blocks.
     let guard = 0;
     while (cursor < edge.runEnd && guard++ < 256) {
-      const model = models[Math.floor(rng() * models.length)];
+      let model = models[Math.floor(rng() * models.length)];
+      if (
+        packRunEnds &&
+        cursor + model.cfg.footprintM > edge.runEnd + 0.01
+      ) {
+        const fitting = models.filter(
+          (m) => cursor + m.cfg.footprintM <= edge.runEnd + 0.01,
+        );
+        if (fitting.length) {
+          model = fitting[Math.floor(rng() * fitting.length)];
+        }
+      }
       const foot = model.cfg.footprintM;
       const depth = model.cfg.depthM ?? foot;
       const along = cursor + foot / 2;

@@ -11,6 +11,12 @@ import {
   CAIRO_ROAD_SPECS,
   CAIRO_RULE_REFERENCES,
 } from "../app/game/cairoContent";
+import {
+  buildingPlacementConfig,
+  isBuildingSetId,
+  slotBlockBuildings,
+} from "../app/game/buildingSets";
+import { hashStringToSeed } from "../app/game/visuals";
 import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
 import {
   FIXED_STEP_SECONDS,
@@ -25,7 +31,6 @@ import {
 import type {
   LaneSegment,
   MapPack,
-  ProceduralBlock,
   RoadSurface,
   WorldPoint,
 } from "../app/game/types";
@@ -44,15 +49,15 @@ import type {
  * majority of roadside parcels — if a guard change flips that balance, that is
  * a decision for a person, not a constant to re-pin in passing.
  */
-const BLOCK_COUNT = 341;
-const ROADSIDE_COUNT = 318;
-const ROADSIDE_LEFT = 162;
+const BLOCK_COUNT = 503;
+const ROADSIDE_COUNT = 480;
+const ROADSIDE_LEFT = 242;
 /** The second rank is gone — a one-sided kit means a back row can only stare
  * at the front row's service wall or plant its own on the next street over.
  * Zero, pinned, so it cannot quietly come back. */
 const ROADSIDE_RANKS = 0;
-const STREET_WALL_BLOCKS = 199;
-const FACADE_BOX_CELLS = 1257;
+const STREET_WALL_BLOCKS = 354;
+const FACADE_BOX_CELLS = 1320;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
@@ -1272,13 +1277,15 @@ describe("Cairo Central Nile content", () => {
     expect(blocks).toHaveLength(BLOCK_COUNT);
     expect(roadside).toHaveLength(ROADSIDE_COUNT);
     expect(roadside[0].id).toBe(
-      "cairo-corniche-el-nil-roadside-1-2-split-2-right",
+      "cairo-corniche-el-nil-roadside-1-1-right-s1",
     );
     expect(roadside.at(-1)?.id).toBe(
-      "cairo-agouza-approach-roadside-1-2-split-1-right",
+      "cairo-agouza-approach-roadside-1-2-right-s2-s1",
     );
+    // `includes`, not `endsWith`: the halving ladder appends -s1/-s2 after the
+    // side slug, and every piece of a left frontage still counts as left.
     expect(
-      roadside.filter((block) => block.id.endsWith("-left")),
+      roadside.filter((block) => block.id.includes("-left")),
     ).toHaveLength(ROADSIDE_LEFT);
     expect(
       roadside.filter((block) => block.id.includes("-rank-")),
@@ -1424,133 +1431,172 @@ describe("Cairo Central Nile content", () => {
     }
   });
 
-  it("keeps dense frontage in view along the full driveable network", () => {
-    const sampleStepM = 20;
+  // The old version of this test asked "is there a parcel within 45 m", which
+  // sat at 100% while drivers saw bare kerbs — proximity is not frontage. This
+  // one measures what the driver sees: the share of buildable kerb with an
+  // actual building face on it (within KERB_SETBACK_MAX_M of the pavement,
+  // spanning the sample along the road). Buildings, not parcels: glb parcels
+  // contribute their slotted placements at authored footprints (masters are
+  // recentred, so slot centre = building centre); facade parcels contribute
+  // their parcel rect, because cairoFrontagePosition packs their boxes to the
+  // parcel edge.
+  it("walls the buildable kerb with buildings, measured at the kerb", () => {
+    const KERB_SETBACK_MAX_M = 8;
     const openWaterfrontSide: Readonly<Record<string, -1 | 1>> = {
       "cairo-corniche-el-nil": -1,
       "cairo-saray-el-gezira": -1,
       "cairo-nile-island-drive": 1,
       "cairo-dokki-nile-drive": 1,
     };
-    const dot = (left: WorldPoint, right: WorldPoint): number =>
-      left.x * right.x + left.z * right.z;
-    const covers = (
-      sample: WorldPoint,
-      tangent: WorldPoint,
-      side: -1 | 1,
-      candidate: ProceduralBlock,
-    ): boolean => {
-      const normal = point(tangent.z * side, -tangent.x * side);
-      const yaw = ((candidate.headingDeg ?? 0) * Math.PI) / 180;
-      const axisU = point(Math.cos(yaw), -Math.sin(yaw));
-      const axisV = point(Math.sin(yaw), Math.cos(yaw));
-      const offset = point(
-        candidate.center.x - sample.x,
-        candidate.center.z - sample.z,
-      );
-      const lateral = dot(offset, normal);
-      const halfAlong =
-        (candidate.size.x / 2) * Math.abs(dot(axisU, tangent)) +
-        (candidate.size.z / 2) * Math.abs(dot(axisV, tangent));
-      const halfLateral =
-        (candidate.size.x / 2) * Math.abs(dot(axisU, normal)) +
-        (candidate.size.z / 2) * Math.abs(dot(axisV, normal));
-      return (
-        lateral + halfLateral > 8 &&
-        lateral - halfLateral <= 45 &&
-        Math.abs(dot(offset, tangent)) - halfAlong <= 12
-      );
-    };
+
+    interface KerbRect {
+      x: number;
+      z: number;
+      yaw: number;
+      halfW: number;
+      halfD: number;
+    }
+    const rects: KerbRect[] = [];
+    for (const block of CAIRO_MAP_PACK.geometry.blocks) {
+      const heading = ((block.headingDeg ?? 0) * Math.PI) / 180;
+      if (block.buildingSet && isBuildingSetId(block.buildingSet)) {
+        const sin = Math.sin(heading);
+        const cos = Math.cos(heading);
+        for (const b of slotBlockBuildings(
+          block.center,
+          block.size,
+          block.buildingSet,
+          hashStringToSeed(`${block.id}-buildings`),
+          1,
+          block.streetEdges,
+        )) {
+          const cfg = buildingPlacementConfig(b.modelId)!;
+          const lx = b.x - block.center.x;
+          const lz = b.z - block.center.z;
+          rects.push({
+            x: block.center.x + lx * cos + lz * sin,
+            z: block.center.z - lx * sin + lz * cos,
+            yaw: b.yaw + heading,
+            halfW: cfg.footprintM / 2,
+            halfD: (cfg.depthM ?? cfg.footprintM) / 2,
+          });
+        }
+      } else {
+        rects.push({
+          x: block.center.x,
+          z: block.center.z,
+          yaw: heading,
+          halfW: block.size.x / 2,
+          halfD: block.size.z / 2,
+        });
+      }
+    }
+    expect(rects.length).toBeGreaterThan(300);
+
+    const cellM = 40;
+    const buckets = new Map<string, KerbRect[]>();
+    for (const rect of rects) {
+      const key = `${Math.floor(rect.x / cellM)},${Math.floor(rect.z / cellM)}`;
+      const bucket = buckets.get(key);
+      if (bucket) bucket.push(rect);
+      else buckets.set(key, [rect]);
+    }
 
     interface Coverage {
       samples: number;
-      hits: number;
+      walled: number;
     }
-    let allSamples = 0;
-    let allHits = 0;
-    let eligibleSamples = 0;
-    let eligibleHits = 0;
+    let total = 0;
+    let walled = 0;
     const perRoad = new Map<string, Coverage>();
-    const perSide = new Map<string, Coverage>();
-    const blocks = CAIRO_MAP_PACK.geometry.blocks;
     const roads = CAIRO_MAP_PACK.geometry.roadSurfaces.filter(
       (surface) => !surface.id.includes("-bridge"),
     );
-
     for (const surface of roads) {
-      const road = { samples: 0, hits: 0 };
-      for (
-        let segment = 1;
-        segment < surface.centerline.length;
-        segment += 1
-      ) {
-        const start = surface.centerline[segment - 1];
-        const end = surface.centerline[segment];
+      const road: Coverage = { samples: 0, walled: 0 };
+      perRoad.set(surface.id, road);
+      const kerbOffset =
+        surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8);
+      for (let index = 1; index < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index - 1];
+        const end = surface.centerline[index];
         const dx = end.x - start.x;
         const dz = end.z - start.z;
         const length = Math.hypot(dx, dz);
         if (length < 1e-8) continue;
-        const tangent = point(dx / length, dz / length);
-        const sampleCount = Math.ceil(length / sampleStepM);
-        for (let index = 0; index < sampleCount; index += 1) {
-          const amount = (index + 0.5) / sampleCount;
-          const sample = point(
-            start.x + dx * amount,
-            start.z + dz * amount,
-          );
+        const tx = dx / length;
+        const tz = dz / length;
+        const steps = Math.max(1, Math.floor(length / 4));
+        for (let step = 0; step <= steps; step += 1) {
+          const px = start.x + dx * (step / steps);
+          const pz = start.z + dz * (step / steps);
           for (const side of [-1, 1] as const) {
-            const hit = blocks.some((candidate) =>
-              covers(sample, tangent, side, candidate),
-            );
-            allSamples += 1;
-            road.samples += 1;
-            if (hit) {
-              allHits += 1;
-              road.hits += 1;
-            }
-            const sideKey = `${surface.id}:${side}`;
-            const sideCoverage = perSide.get(sideKey) ?? {
-              samples: 0,
-              hits: 0,
-            };
-            sideCoverage.samples += 1;
-            if (hit) sideCoverage.hits += 1;
-            perSide.set(sideKey, sideCoverage);
-
             if (openWaterfrontSide[surface.id] === side) continue;
-            eligibleSamples += 1;
-            if (hit) eligibleHits += 1;
+            const inx = tz * side;
+            const inz = -tx * side;
+            const kx = px + inx * kerbOffset;
+            const kz = pz + inz * kerbOffset;
+            total += 1;
+            road.samples += 1;
+            const bx = Math.floor(kx / cellM);
+            const bz = Math.floor(kz / cellM);
+            let hit = false;
+            outer: for (let ox = -1; ox <= 1; ox += 1) {
+              for (let oz = -1; oz <= 1; oz += 1) {
+                for (const rect of buckets.get(`${bx + ox},${bz + oz}`) ??
+                  []) {
+                  const cos = Math.cos(rect.yaw);
+                  const sin = Math.sin(rect.yaw);
+                  const ux = cos;
+                  const uz = -sin;
+                  const vx = sin;
+                  const vz = cos;
+                  const offX = rect.x - kx;
+                  const offZ = rect.z - kz;
+                  const alongRadius =
+                    rect.halfW * Math.abs(ux * tx + uz * tz) +
+                    rect.halfD * Math.abs(vx * tx + vz * tz);
+                  if (Math.abs(offX * tx + offZ * tz) > alongRadius) continue;
+                  const depthIn = offX * inx + offZ * inz;
+                  const inRadius =
+                    rect.halfW * Math.abs(ux * inx + uz * inz) +
+                    rect.halfD * Math.abs(vx * inx + vz * inz);
+                  if (
+                    depthIn - inRadius <= KERB_SETBACK_MAX_M &&
+                    depthIn + inRadius >= 0
+                  ) {
+                    hit = true;
+                    break outer;
+                  }
+                }
+              }
+            }
+            if (hit) {
+              walled += 1;
+              road.walled += 1;
+            }
           }
         }
       }
-      perRoad.set(surface.id, road);
     }
 
-    expect(allHits / allSamples).toBeGreaterThanOrEqual(0.52);
-    expect(eligibleHits / eligibleSamples).toBeGreaterThanOrEqual(0.6);
+    expect(total).toBeGreaterThan(10_000);
+    // Achieved: 53.5% (44.8% before the clearance/split-ladder/pack tuning,
+    // ~28% before parcels were depth-derived). Floor sits a couple of points
+    // under so an unrelated generator nudge doesn't trip it; a return to the
+    // bare-kerb era smashes straight through it.
+    expect(walled / total).toBeGreaterThanOrEqual(0.5);
+    // Worst road today is opera-square at 34% — its frontage band is largely
+    // consumed by earlier roads' parcels under greedy acceptance, and the
+    // halving ladder recovers what fits in the gaps. No road may fall below a
+    // quarter walled, and the stragglers must not multiply.
+    let below30 = 0;
     for (const [roadId, coverage] of perRoad) {
-      expect(coverage.hits / coverage.samples, roadId).toBeGreaterThanOrEqual(
-        0.35,
-      );
+      const share = coverage.walled / coverage.samples;
+      expect(share, roadId).toBeGreaterThanOrEqual(0.25);
+      if (share < 0.3) below30 += 1;
     }
-    for (const surface of roads) {
-      for (const side of [-1, 1] as const) {
-        if (openWaterfrontSide[surface.id] === side) continue;
-        const coverage = perSide.get(`${surface.id}:${side}`)!;
-        expect(
-          coverage.hits / coverage.samples,
-          `${surface.id} ${side < 0 ? "left" : "right"} frontage`,
-        ).toBeGreaterThanOrEqual(0.4);
-      }
-    }
-    for (const [roadId, waterSide] of Object.entries(openWaterfrontSide)) {
-      const inlandSide = -waterSide as -1 | 1;
-      const coverage = perSide.get(`${roadId}:${inlandSide}`)!;
-      expect(
-        coverage.hits / coverage.samples,
-        `${roadId} inland frontage`,
-      ).toBeGreaterThanOrEqual(0.7);
-    }
+    expect(below30, "roads under 30% kerb coverage").toBeLessThanOrEqual(2);
   });
 
   it("keeps the elevated Sixth October deck and piers clear of every block OBB", () => {
