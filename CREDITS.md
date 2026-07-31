@@ -213,6 +213,51 @@ download.
   **Quaternius** via Poly Pizza, released **CC0 1.0**. Sidewalk-crowd variety
   alongside the existing person-a/b/c.
 
+### Park planting kit (CC0)
+
+Added so parks are planted with real models rather than procedural cones
+(issue #206). Placement, scoping and per-city tinting live in
+`app/game/natureCatalog.ts`; `tests/natureAssets.test.ts` pins every committed
+byte.
+
+All of these come from **Kenney**'s **Nature Kit** version 2.1
+(<https://kenney.nl/assets/nature-kit>, zip
+<https://kenney.nl/media/pages/assets/nature-kit/37ac38a37b-1677698939/kenney_nature-kit.zip>),
+downloaded 2026-07-31. Released **CC0 1.0**, stated on the pack page and in the
+`License.txt` bundled inside the zip: *"License: (Creative Commons Zero, CC0)
+… free to use in personal, educational and commercial projects. Support us by
+crediting Kenney or www.kenney.nl (this is not mandatory)."* Credit is given
+here anyway. There is no free/paid split — the whole kit is CC0.
+
+**Why this kit.** All 329 of its GLBs contain **zero textures** — materials are
+named swatches with a `baseColorFactor` and nothing else. That is what lets one
+committed file serve all four city palettes through per-instance colour, and it
+is why an atlas-textured nature pack was not taken.
+
+**Modified — matte and recoloured**, by `tools/style-nature-pack.mjs`. Two
+corrections, both to the JSON chunk only so the binary chunk stays byte-identical
+to the source: the kit ships every material at `metallicFactor: 1,
+roughnessFactor: 1`, which Babylon renders as dark plastic; and its palette is a
+toy blockset rather than a landscape — `leafsGreen` is linear (0.16, 0.79, 0.67),
+a bright turquoise, and `woodBark` is orange. Because the whole kit shares 23
+material names, one mapping by name recolours all of it consistently. Provenance
+is baked into `asset.extras.curbsideRush`. CC0 permits modification; re-run the
+script against a fresh download to regenerate.
+
+Committed as, in catalogue order: **nature-tree-broadleaf.glb**
+(`tree_default`), **nature-tree-oak.glb** (`tree_oak`), **nature-tree-tall.glb**
+(`tree_tall`), **nature-tree-small.glb** (`tree_small`),
+**nature-conifer-tall.glb** (`tree_pineTallB`), **nature-conifer-round.glb**
+(`tree_pineRoundC`), **nature-palm-tall.glb** (`tree_palmTall`),
+**nature-palm-short.glb** (`tree_palmShort`), **nature-bush.glb**
+(`plant_bush`), **nature-bush-large.glb** (`plant_bushLarge`),
+**nature-bush-clipped.glb** (`plant_bushTriangle`), **nature-flower-red.glb**
+(`flower_redA`), **nature-flower-yellow.glb** (`flower_yellowA`),
+**nature-grass-tuft.glb** (`grass`), **nature-grass-tuft-large.glb**
+(`grass_large`), **nature-rock-large.glb** (`rock_largeA`),
+**nature-rock-small.glb** (`rock_smallB`), **nature-obelisk.glb**
+(`statue_obelisk`). Eighteen files, ~170 KB in total.
+
 ## CC-BY — attribution required
 
 - **bus.glb** (single-deck city bus) — by **"jeremy"** via Poly Pizza
