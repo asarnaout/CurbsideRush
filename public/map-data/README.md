@@ -19,7 +19,5 @@ Frozen extracts:
 
 - `nyc-upper-west` — Upper West Side, New York City
 - `uk-london-south-kensington` — South Kensington Museum Quarter, London
-- `uk-milton-keynes` — South Grafton and Oldbrook, Milton Keynes
-- `fr-calais-coquelles` — Calais and Coquelles terminal approach
 - `jp-setagaya` — Yamashita to Miyanosaka, Setagaya
 - `eg-cairo-central-nile` — Tahrir, Gezira and the central Nile, Cairo

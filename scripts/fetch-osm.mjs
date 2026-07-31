@@ -16,19 +16,9 @@ const areas = [
     bbox: [40.7758, -73.9848, 40.7818, -73.978],
   },
   {
-    id: "uk-milton-keynes",
-    name: "Milton Keynes — South Grafton & Oldbrook",
-    bbox: [52.0268, -0.773, 52.034, -0.761],
-  },
-  {
     id: "uk-london-south-kensington",
     name: "London — South Kensington Museum Quarter",
     bbox: [51.4938, -0.1818, 51.5006, -0.1698],
-  },
-  {
-    id: "fr-calais-coquelles",
-    name: "Calais / Coquelles — terminal approach",
-    bbox: [50.929, 1.795, 50.938, 1.811],
   },
   {
     id: "jp-setagaya",
