@@ -574,6 +574,7 @@ export type StaticObstacleTag =
   | "landmark"
   | "venue"
   | "shoreline"
+  | "parkEdge"
   | "worldEdge";
 
 /**

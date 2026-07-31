@@ -35,6 +35,7 @@ import {
   SERVICE_MODEL_FRAME,
   type ServicePointKind,
 } from "./servicePoints";
+import { parkLayoutForLandmark } from "./parkLayouts";
 import { GAS_STATION_SOLIDS_M, PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import { REPAIR_SHOP_SOLIDS_M } from "./repairShopLayout";
 import {
@@ -786,8 +787,6 @@ function buildOvertakeExercises(
   });
 }
 
-/** The park landmark's centre feature renders as a ~4.5 m-wide conifer. */
-const PARK_FEATURE_TREE_RADIUS_M = 2.25;
 /** Venue buildings sit this far off their anchor lane unless tuned per site. */
 const DEFAULT_VENUE_SETBACK_M = 13;
 /** World-edge fences stand this far beyond the sim bounds, so the
@@ -1301,17 +1300,29 @@ export function buildStaticObstacles(
 
   for (const landmark of mapPack.geometry.landmarks) {
     switch (landmark.kind) {
-      case "park":
-        // The flat pad is drivable grass; only the centre feature tree stands.
-        obstacles.push({
-          kind: "circle",
-          id: `${landmark.id}-feature`,
-          tag: "landmark",
-          x: landmark.center.x,
-          z: landmark.center.z,
-          radius: PARK_FEATURE_TREE_RADIUS_M,
-        });
+      case "park": {
+        // The lawn stays drivable — it is the boundary that stops you, not the
+        // grass. Openings are derived (see `parkPerimeterPlan`), so a park that
+        // is too small, or whose edge a road runs along, simply gets no wall.
+        //
+        // The layout must be built with exactly the arguments the renderer
+        // uses, or the wall you crash into and the wall you can see are two
+        // different walls.
+        for (const run of parkLayoutForLandmark(mapPack, landmark).wall) {
+          obstacles.push({
+            kind: "obb",
+            id: run.id,
+            tag: "parkEdge",
+            x: run.x,
+            z: run.z,
+            ux: run.ux,
+            uz: run.uz,
+            halfU: run.halfU,
+            halfV: run.halfV,
+          });
+        }
         break;
+      }
       case "tower":
         // Rendered as a cylinder of diameter max(4, size.x * 0.4).
         obstacles.push({

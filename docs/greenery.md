@@ -46,6 +46,27 @@ refreshed bounds, Babylon submits them (draw calls rise ~7x), no pixels. Bisect
 ruled out the multi-material merge, `freezeWorldMatrix`, and the
 `material.freeze()` ending `buildRoadsideProps`. Merge, as the street wall does.
 
+## A park's gates are derived from its own paths
+
+`parkPerimeterPlan` walks each boundary edge and drops a span wherever one of
+the park's paths reaches it, or wherever the wall would come within
+`PARK_WALL_ROAD_CLEARANCE_M` of a carriageway. Nothing is authored. The path
+rule means the wall can never seal in the planting the paths lead to; the road
+rule is a **veto**, and it is what keeps `staticColliders.test.ts`'s "every lane
+corridor clear" and "never walls off the walkable pavement" green with no
+hand-listed exceptions.
+
+**"Has an opening" is the wrong invariant.** Central Park's first wall was a
+single unbroken 2,897 m run down its western edge with a gate at each far end —
+enterable, 2.9 km apart. Long parks now get crossings every
+`PARK_CROSSING_SPACING_M` (~300 m, the spacing of the real transverses), each
+of which opens a gate, and `tests/parkLayouts.test.ts` caps any single run.
+
+A park wall is a scored `collision` with damage (`parkEdge` in
+`STATIC_OBSTACLE_MESSAGES`), so it must be plainly visible at speed —
+`PARK_WALL_HEIGHT_M` is set for that, not for realism. The lawn inside stays
+drivable; it is the boundary that stops you, not the grass.
+
 ## A park's style is derived, and two styles can never be walled
 
 `resolveParkStyle` reads the landmark id first and its proportions second, so a

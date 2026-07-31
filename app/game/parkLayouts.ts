@@ -14,7 +14,15 @@
  * future city's park gets a sensible layout with no content edit.
  */
 
-import { distanceToPolylineM, seededUnit, type VisualPoint } from "./visuals";
+import {
+  distanceToPolylineM,
+  hashStringToSeed,
+  PAVED_SIDEWALK_WIDTH_M,
+  resolveMapVisualKey,
+  resolveMapVisualPalette,
+  seededUnit,
+  type VisualPoint,
+} from "./visuals";
 
 /**
  * How a park is dressed. Derived from id, map and proportions unless the
@@ -60,6 +68,8 @@ export interface ParkLayout {
   readonly style: ParkStyle;
   readonly paths: readonly ParkPath[];
   readonly placements: readonly ParkPlacement[];
+  /** Solid boundary spans. Empty for parks that must never be walled. */
+  readonly wall: readonly ParkWallRun[];
 }
 
 export interface ParkLayoutContext {
@@ -137,6 +147,42 @@ const toWorld = (
  * civic green actually has. Temple grounds get a single straight approach,
  * because a Japanese shrine approach (`sandō`) is deliberately axial.
  */
+/**
+ * Roughly how far apart a long park's crossings should be. Central Park's real
+ * transverses sit at 65th, 79th, 86th and 96th — a few hundred metres apart —
+ * and that spacing is the reason this exists rather than a fixed count.
+ *
+ * It is also load-bearing for the wall: a gate is opened wherever a path meets
+ * the boundary, so the crossings ARE the entrances. Without them Central Park
+ * came out with a single unbroken 2,897 m run down its western edge and one
+ * way in at each far end, 2.9 km apart.
+ */
+const PARK_CROSSING_SPACING_M = 300;
+const PARK_MAX_CROSSINGS = 12;
+
+/** Crossings at even intervals along a park's long axis, edge to edge. */
+function crossPaths(
+  landmark: ParkLandmarkInput,
+  widthM: number,
+): readonly ParkPath[] {
+  const longIsZ = landmark.size.z >= landmark.size.x;
+  const longSide = longIsZ ? landmark.size.z : landmark.size.x;
+  const count = Math.min(
+    PARK_MAX_CROSSINGS,
+    Math.max(1, Math.round(longSide / PARK_CROSSING_SPACING_M) - 1),
+  );
+  return Array.from({ length: count }, (_, index) => {
+    const at = (index + 1) / (count + 1) - 0.5;
+    return {
+      id: `cross-${index}`,
+      points: longIsZ
+        ? [toWorld(landmark, -0.5, at), toWorld(landmark, 0.5, at)]
+        : [toWorld(landmark, at, -0.5), toWorld(landmark, at, 0.5)],
+      widthM,
+    };
+  });
+}
+
 function pathRecipe(
   style: ParkStyle,
   landmark: ParkLandmarkInput,
@@ -179,7 +225,7 @@ function pathRecipe(
     case "riverside_strip":
       // Hugs one third rather than the centreline: a riverside park's walk runs
       // along the bank, not down the middle of the grass.
-      return [spine("promenade", -0.16, 0.05, 3.6)];
+      return [spine("promenade", -0.16, 0.05, 3.6), ...crossPaths(landmark, 2.6)];
     case "civic_plaza":
       return [
         {
@@ -188,20 +234,8 @@ function pathRecipe(
           widthM: 3.2,
         },
       ];
-    default: {
-      const paths: ParkPath[] = [spine("spine", 0, 0.14, 4.4)];
-      // Cross paths at thirds, so a long park reads as connected to its edges.
-      for (const [index, at] of [-0.28, 0.28].entries()) {
-        paths.push({
-          id: `cross-${index}`,
-          points: longIsZ
-            ? [toWorld(landmark, -0.5, at), toWorld(landmark, 0.5, at)]
-            : [toWorld(landmark, at, -0.5), toWorld(landmark, at, 0.5)],
-          widthM: 2.8,
-        });
-      }
-      return paths;
-    }
+    default:
+      return [spine("spine", 0, 0.14, 4.4), ...crossPaths(landmark, 2.8)];
   }
 }
 
@@ -399,6 +433,129 @@ function pathFurniture(
   return placements;
 }
 
+/** A solid span of a park's boundary wall, as an oriented box. */
+export interface ParkWallRun {
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  /** Unit vector along the run. */
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+}
+
+/** Styles whose parks are too small or too road-bound to carry a wall. */
+const UNWALLABLE_STYLES: readonly ParkStyle[] = ["pocket_green", "civic_plaza"];
+/** A park narrower than this has no room for a wall and a drivable interior. */
+const PARK_WALL_MIN_SHORT_SIDE_M = 30;
+/** How far inside the boundary the wall stands. */
+const PARK_WALL_INSET_M = 1.5;
+const PARK_WALL_HALF_THICKNESS_M = 0.35;
+/**
+ * Clearance a wall segment must keep from any carriageway, beyond that road's
+ * half-width and its pavement band. Comfortably wider than the 1.0 m player
+ * capsule `tests/staticColliders.test.ts` checks lane corridors with, and than
+ * the 0.3 m it allows against the walkable pavement band.
+ */
+const PARK_WALL_ROAD_CLEARANCE_M = 1.8;
+/** Half-width of the opening left where one of the park's paths reaches out. */
+const PARK_GATE_HALF_WIDTH_M = 4.5;
+/** A surviving span shorter than this is a stub, not a wall. */
+const PARK_WALL_MIN_RUN_M = 4;
+const PARK_WALL_SAMPLE_M = 1;
+
+/**
+ * Where a park's boundary wall is solid.
+ *
+ * **Openings are derived, never authored.** A span is dropped wherever one of
+ * the park's own paths reaches the boundary — that is the gate, and it means
+ * the wall can never seal in the planting and benches the paths lead to — or
+ * wherever the wall would come within `PARK_WALL_ROAD_CLEARANCE_M` of a
+ * carriageway. The second rule is a veto, not a preference: it is what keeps
+ * `staticColliders.test.ts`'s "every lane corridor clear" and "never walls off
+ * the walkable pavement" green without anyone hand-listing an exception.
+ */
+export function parkPerimeterPlan(
+  landmark: ParkLandmarkInput,
+  style: ParkStyle,
+  paths: readonly ParkPath[],
+  context: ParkLayoutContext,
+): readonly ParkWallRun[] {
+  if (UNWALLABLE_STYLES.includes(style)) return [];
+  if (Math.min(landmark.size.x, landmark.size.z) < PARK_WALL_MIN_SHORT_SIDE_M) {
+    return [];
+  }
+  const insetU = Math.max(0, 0.5 - PARK_WALL_INSET_M / landmark.size.x);
+  const insetV = Math.max(0, 0.5 - PARK_WALL_INSET_M / landmark.size.z);
+  const corners = [
+    toWorld(landmark, -insetU, -insetV),
+    toWorld(landmark, insetU, -insetV),
+    toWorld(landmark, insetU, insetV),
+    toWorld(landmark, -insetU, insetV),
+  ];
+
+  const gatePoints: VisualPoint[] = [];
+  for (const path of paths) {
+    if (path.points.length < 2) continue;
+    gatePoints.push(path.points[0], path.points[path.points.length - 1]);
+  }
+
+  const runs: ParkWallRun[] = [];
+  for (let edge = 0; edge < 4; edge += 1) {
+    const from = corners[edge];
+    const to = corners[(edge + 1) % 4];
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const length = Math.hypot(dx, dz);
+    if (length < PARK_WALL_MIN_RUN_M) continue;
+    const ux = dx / length;
+    const uz = dz / length;
+    const steps = Math.max(1, Math.ceil(length / PARK_WALL_SAMPLE_M));
+
+    let runStart: number | null = null;
+    const flush = (endAt: number) => {
+      if (runStart === null) return;
+      const span = endAt - runStart;
+      if (span >= PARK_WALL_MIN_RUN_M) {
+        const mid = runStart + span / 2;
+        runs.push({
+          id: `${landmark.id}-wall-${edge}-${runs.length}`,
+          x: from.x + ux * mid,
+          z: from.z + uz * mid,
+          ux,
+          uz,
+          halfU: span / 2,
+          halfV: PARK_WALL_HALF_THICKNESS_M,
+        });
+      }
+      runStart = null;
+    };
+
+    for (let step = 0; step <= steps; step += 1) {
+      const along = (length * step) / steps;
+      const point = { x: from.x + ux * along, z: from.z + uz * along };
+      const nearGate = gatePoints.some(
+        (gate) => Math.hypot(gate.x - point.x, gate.z - point.z) <= PARK_GATE_HALF_WIDTH_M,
+      );
+      const nearRoad = context.roadSurfaces.some(
+        (surface) =>
+          distanceToPolylineM(point, surface.centerline) <
+          surface.widthM / 2 +
+            context.sidewalkWidthM +
+            PARK_WALL_ROAD_CLEARANCE_M,
+      );
+      if (nearGate || nearRoad) {
+        flush(along);
+      } else if (runStart === null) {
+        runStart = along;
+      }
+    }
+    flush(length);
+  }
+  return runs;
+}
+
 /**
  * The whole layout for one park. Deterministic on `context.seed` — two calls
  * with the same input must agree exactly, because the renderer and the collider
@@ -417,5 +574,56 @@ export function buildParkLayout(
     placements.push(...scatterZone(landmark, zone, paths, context, random));
   }
   placements.push(...pathFurniture(paths, style, context, random));
-  return { style, paths, placements };
+  return {
+    style,
+    paths,
+    placements,
+    wall: parkPerimeterPlan(landmark, style, paths, context),
+  };
+}
+
+/** The little a map pack has to expose for its parks to be laid out. */
+export interface ParkLayoutMapPack {
+  readonly id: string;
+  readonly geometry: {
+    readonly shoulderWidth?: number;
+    readonly roadSurfaces?: readonly {
+      readonly centerline: readonly VisualPoint[];
+      readonly widthM: number;
+    }[];
+  };
+}
+
+const LAYOUT_CACHE = new Map<string, ParkLayout>();
+
+/**
+ * The one way to get a park's layout.
+ *
+ * `GameCanvas` draws the wall and `simulationAdapter` makes it solid, and they
+ * sit in different rings with no shared state — so if either derived its own
+ * context (seed, sidewalk width, road list) the wall you crash into and the
+ * wall you can see would drift apart silently. Everything that feeds the layout
+ * is decided here, once.
+ *
+ * Cached by pack id + landmark id, like `streetAddressesForMap`: map packs are
+ * frozen, so mutating one after the first call has no effect.
+ */
+export function parkLayoutForLandmark(
+  pack: ParkLayoutMapPack,
+  landmark: ParkLandmarkInput,
+): ParkLayout {
+  const key = `${pack.id}:${landmark.id}`;
+  const cached = LAYOUT_CACHE.get(key);
+  if (cached) return cached;
+  const mapId = pack.id.toLowerCase();
+  const palette = resolveMapVisualPalette(mapId);
+  const layout = buildParkLayout(landmark, resolveMapVisualKey(mapId), {
+    roadSurfaces: pack.geometry.roadSurfaces ?? [],
+    sidewalkWidthM: palette.paved
+      ? PAVED_SIDEWALK_WIDTH_M
+      : Math.max(0.9, pack.geometry.shoulderWidth ?? 1.2),
+    seed: hashStringToSeed(`${mapId}-${landmark.id}-park`),
+  });
+  LAYOUT_CACHE.set(key, layout);
+  return layout;
 }

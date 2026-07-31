@@ -825,6 +825,10 @@ const STATIC_OBSTACLE_MESSAGES: Readonly<
     message: "Your vehicle reached the river embankment.",
     correction: "Follow the carriageway onto an authored bridge.",
   },
+  parkEdge: {
+    message: "Your vehicle hit the park wall.",
+    correction: "Enter the park through one of its gates.",
+  },
   worldEdge: {
     message: "You have reached the edge of the city.",
     correction: "Turn back toward the streets.",

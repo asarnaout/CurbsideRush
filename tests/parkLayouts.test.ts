@@ -167,6 +167,86 @@ describe("park layouts", () => {
     }
   });
 
+  it("walls the big parks and never the small or road-bound ones", () => {
+    const walled = new Map<string, number>();
+    for (const { landmark, visualKey, context } of parkCases()) {
+      walled.set(
+        landmark.id,
+        buildParkLayout(landmark, visualKey, context).wall.length,
+      );
+    }
+    // A solid ring inside a 12x12 turning-loop island, or across Tahrir's
+    // road-cut rectangle, is a hazard rather than a boundary.
+    expect(walled.get("london-brompton-loop-green")).toBe(0);
+    expect(walled.get("london-gloucester-loop-green")).toBe(0);
+    expect(walled.get("cairo-tahrir-square")).toBe(0);
+    expect(walled.get("nyc-verdi-green")).toBe(0);
+    expect(walled.get("jp-temple-green")).toBe(0);
+    // The big ones do get one.
+    expect(walled.get("nyc-central-park") ?? 0).toBeGreaterThan(0);
+    expect(walled.get("nyc-riverside-park") ?? 0).toBeGreaterThan(0);
+    expect(walled.get("nyc-joan-of-arc-park") ?? 0).toBeGreaterThan(0);
+  });
+
+  it("keeps every wall run clear of every carriageway and pavement band", () => {
+    // This is the invariant `staticColliders.test.ts` will enforce against the
+    // built world; checking it here too means a failure names the park.
+    for (const { mapId, landmark, visualKey, context } of parkCases()) {
+      const layout = buildParkLayout(landmark, visualKey, context);
+      for (const run of layout.wall) {
+        for (const step of [-1, -0.5, 0, 0.5, 1]) {
+          const point = {
+            x: run.x + run.ux * run.halfU * step,
+            z: run.z + run.uz * run.halfU * step,
+          };
+          for (const surface of context.roadSurfaces) {
+            const clearance =
+              distanceToPolylineM(point, surface.centerline) -
+              surface.widthM / 2 -
+              context.sidewalkWidthM;
+            expect(
+              clearance,
+              `${mapId}/${run.id} sits ${clearance.toFixed(2)}m past the pavement band`,
+            ).toBeGreaterThan(0.3);
+          }
+        }
+      }
+    }
+  });
+
+  it("never leaves a stretch of wall too long to find a way past", () => {
+    // "Has an opening somewhere" is not the invariant that matters. Central
+    // Park first came out with a single unbroken 2,897 m run down its western
+    // edge and a gate only at each far end — technically enterable, 2.9 km
+    // apart. What has to hold is that a gate is always reasonably near.
+    const MAX_UNBROKEN_RUN_M = 420;
+    for (const { landmark, visualKey, context } of parkCases()) {
+      const layout = buildParkLayout(landmark, visualKey, context);
+      for (const run of layout.wall) {
+        expect(
+          run.halfU * 2,
+          `${run.id} is an unbroken ${(run.halfU * 2).toFixed(0)}m of wall`,
+        ).toBeLessThanOrEqual(MAX_UNBROKEN_RUN_M);
+      }
+    }
+  });
+
+  it("opens a gate wherever a path reaches the boundary", () => {
+    const central = parkCases().find((c) => c.landmark.id === "nyc-central-park");
+    expect(central).toBeDefined();
+    if (!central) return;
+    const layout = buildParkLayout(
+      central.landmark,
+      central.visualKey,
+      central.context,
+    );
+    // A 2.9 km park earns crossings at a few hundred metres, like the real
+    // transverses — and each crossing is what opens the wall.
+    const crossings = layout.paths.filter((p) => p.id.startsWith("cross-"));
+    expect(crossings.length).toBeGreaterThanOrEqual(8);
+    expect(layout.wall.length).toBeGreaterThan(crossings.length);
+  });
+
   it("honours an authored style over the derived one", () => {
     const base = parkCases()[0];
     const forced = buildParkLayout(

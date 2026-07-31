@@ -20,7 +20,9 @@ derived over those spans. **`ProceduralLandmark.color` does nothing on a
 `kind: "park"`** — every park shares one per-map grass material and nothing
 warns — and anything laid inside a park must fit the ~23 mm between the lawn
 (`PARK_LAWN_Y`, 0.02) and the shoulder junction fill at 0.0435, because parks
-sit under the roads on purpose.
+sit under the roads on purpose. A park's dressing, wall and gates are all
+derived ([greenery.md](greenery.md)); `parkStyle` is the only park field worth
+authoring, and only to overrule what would be derived.
 
 ## Everything else is derived at load time
 

@@ -214,8 +214,7 @@ import {
   type PropPlacement,
 } from "./visuals";
 import {
-  buildParkLayout,
-  type ParkLayout,
+  parkLayoutForLandmark,
 } from "./parkLayouts";
 import {
   createVehicleMesh,
@@ -439,6 +438,12 @@ const PARK_PATH_Y = 0.031;
  * same reasoning as `CAIRO_DECAL_Z_OFFSET_UNITS`.
  */
 const PARK_PATH_Z_OFFSET_UNITS = -2;
+/**
+ * Park boundary wall height. Tall enough to read as a boundary from a car at
+ * speed — a hit is a scored collision, so an edge the driver cannot see coming
+ * would be indistinguishable from an invisible wall.
+ */
+const PARK_WALL_HEIGHT_M = 0.95;
 /**
  * How close to a path a plant must be to stay an individually instanced,
  * knockable prop. Everything beyond becomes batched scenery, which cannot be
@@ -5462,12 +5467,10 @@ class BabylonGameSession {
   private grassDetailTexture: DynamicTexture | null = null;
   /** One grass material for every park on the map; built lazily. */
   private parkLawnMaterial: StandardMaterial | null = null;
-  /** Each park's layout, built once and read by both the path and prop passes. */
-  private readonly parkLayouts = new Map<string, ParkLayout>();
   /** One gravel material for every park path on the map; built lazily. */
   private parkPathMaterial: StandardMaterial | null = null;
-  /** Map default shoulder width, stashed for the park layout's road clearance. */
-  private parkShoulderWidthM = 1.2;
+  /** One stone material for every park boundary wall; built lazily. */
+  private parkWallMaterial: StandardMaterial | null = null;
   /** Keep-out circles (gas station + gig-venue lots) so the block street wall
    * never drops a scenery building on top of an interactive POI. */
   private readonly buildingExclusions: { x: number; z: number; radius: number }[] = [];
@@ -10095,7 +10098,6 @@ class BabylonGameSession {
     // Paved cities (NYC) render the base ground as concrete and the road shoulder
     // as a wider concrete sidewalk; everywhere else keeps grass + a dirt shoulder.
     const paved = palette.paved ?? false;
-    this.parkShoulderWidthM = mapPack.geometry.shoulderWidth ?? 1.2;
 
     const grass = makeMaterial(scene, "scenario-ground", new Color3(0.24, 0.39, 0.25));
     const asphalt = makeMaterial(scene, "scenario-asphalt", Color3.White());
@@ -11054,15 +11056,11 @@ class BabylonGameSession {
           );
         }
       } else if (landmark.kind === "park") {
+        // The centre "feature" cone is gone. It was the whole of a park's
+        // contents, and the thing issue #206 is a screenshot of; a park is now
+        // dressed by `parkLayouts` and bounded by its own wall.
         this.buildParkLawn(landmark, palette, mapId);
-        this.buildParkPaths(landmark, mapId, authoredRoadSurfaces, palette);
-        createCylinder(
-          scene,
-          `${landmark.id}-feature`,
-          { height: 2.2, diameterTop: 0.5, diameterBottom: 4.5 },
-          new Vector3(landmark.center.x, 1.25, landmark.center.z),
-          material,
-        );
+        this.buildParkFeatures(landmark, mapPack, palette, mapId);
       } else if (landmark.kind === "railway") {
         for (const offset of [-1.25, 1.25]) {
           createBox(
@@ -12088,33 +12086,6 @@ class BabylonGameSession {
    * extras) built from instanced master meshes: one draw call per part kind
    * regardless of how many props a map receives.
    */
-  /**
-   * Every park's layout, keyed by landmark id and built once. The path meshes
-   * and the planting are produced by different passes over different loops, and
-   * a layout rebuilt per pass would be a second source of truth for where a
-   * park's paths run.
-   */
-  private parkLayoutFor(
-    landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
-    mapId: string,
-    roadSurfaces: readonly {
-      readonly centerline: readonly GameCanvasPoint[];
-      readonly widthM: number;
-    }[],
-    palette: MapVisualPalette,
-  ): ParkLayout {
-    const cached = this.parkLayouts.get(landmark.id);
-    if (cached) return cached;
-    const layout = buildParkLayout(landmark, resolveMapVisualKey(mapId), {
-      roadSurfaces,
-      sidewalkWidthM: palette.paved
-        ? PAVED_SIDEWALK_WIDTH_M
-        : Math.max(0.9, this.parkShoulderWidthM),
-      seed: hashStringToSeed(`${mapId}-${landmark.id}-park`),
-    });
-    this.parkLayouts.set(landmark.id, layout);
-    return layout;
-  }
 
   /**
    * Park planting and furniture as ordinary prop placements.
@@ -12125,18 +12096,12 @@ class BabylonGameSession {
    */
   private collectParkPlacements(
     mapPack: GameCanvasMapPack,
-    mapId: string,
-    roadSurfaces: readonly {
-      readonly centerline: readonly GameCanvasPoint[];
-      readonly widthM: number;
-    }[],
-    palette: MapVisualPalette,
   ): { reachable: PropPlacement[]; interior: ParkThicketBatch[] } {
     const reachable: PropPlacement[] = [];
     const interior: ParkThicketBatch[] = [];
     for (const landmark of mapPack.geometry.landmarks) {
       if (landmark.kind !== "park") continue;
-      const layout = this.parkLayoutFor(landmark, mapId, roadSurfaces, palette);
+      const layout = parkLayoutForLandmark(mapPack, landmark);
       const chunks = new Map<string, ParkThicketBatch>();
       for (const [index, placement] of layout.placements.entries()) {
         if (
@@ -12341,7 +12306,7 @@ class BabylonGameSession {
     // `registerDestructibleProp`. A tree you can flatten on the street and one
     // you cannot flatten in a park would read as a bug, and the alternative was
     // a second, parallel prop builder.
-    const park = this.collectParkPlacements(mapPack, mapId, roadSurfaces, palette);
+    const park = this.collectParkPlacements(mapPack);
     const placements = [...roadsidePlacements, ...park.reachable];
     if (!placements.length && !park.interior.length) return;
 
@@ -15283,42 +15248,72 @@ class BabylonGameSession {
    * `zOffsetUnits`: polygon offset scales with the local depth quantum, which
    * nudging the vertices up by another millimetre does not.
    */
-  private buildParkPaths(
+  private buildParkFeatures(
     landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
-    mapId: string,
-    roadSurfaces: readonly {
-      readonly centerline: readonly GameCanvasPoint[];
-      readonly widthM: number;
-    }[],
+    mapPack: GameCanvasMapPack,
     palette: MapVisualPalette,
+    mapId: string,
   ) {
-    const layout = this.parkLayoutFor(landmark, mapId, roadSurfaces, palette);
-    if (!layout.paths.length) return;
-    if (!this.parkPathMaterial) {
-      const material = makeMaterial(this.scene, "park-path", Color3.White());
-      material.diffuseTexture = createAsphaltTexture(
-        this.scene,
-        "park-path-texture",
-        // Pale gravel, not tarmac: a park walk is a hoggin or stone-dust path
-        // everywhere this game is set.
-        mixHexColors(palette.dirtShoulder, "#e8e2d2", 0.55),
-        hashStringToSeed(`${mapId}-park-path`),
-      );
-      material.zOffsetUnits = PARK_PATH_Z_OFFSET_UNITS;
-      this.parkPathMaterial = material;
+    const layout = parkLayoutForLandmark(mapPack, landmark);
+
+    if (layout.paths.length) {
+      if (!this.parkPathMaterial) {
+        const material = makeMaterial(this.scene, "park-path", Color3.White());
+        material.diffuseTexture = createAsphaltTexture(
+          this.scene,
+          "park-path-texture",
+          // Pale gravel, not tarmac: a park walk is a hoggin or stone-dust
+          // path everywhere this game is set.
+          mixHexColors(palette.dirtShoulder, "#e8e2d2", 0.55),
+          hashStringToSeed(`${mapId}-park-path`),
+        );
+        material.zOffsetUnits = PARK_PATH_Z_OFFSET_UNITS;
+        this.parkPathMaterial = material;
+      }
+      for (const path of layout.paths) {
+        const mesh = this.createRoadSurfaceMesh(
+          `${landmark.id}-path-${path.id}`,
+          path.points,
+          path.widthM,
+          this.parkPathMaterial,
+          false,
+          PARK_PATH_Y,
+        );
+        if (!mesh) continue;
+        mesh.isPickable = false;
+        this.registerStaticCell(mesh, landmark.center.x, landmark.center.z, false);
+      }
     }
-    for (const path of layout.paths) {
-      const mesh = this.createRoadSurfaceMesh(
-        `${landmark.id}-path-${path.id}`,
-        path.points,
-        path.widthM,
-        this.parkPathMaterial,
-        false,
-        PARK_PATH_Y,
+
+    // The wall. A static-obstacle hit is a scored collision with damage, so it
+    // has to be plainly visible — a low kerb you cannot see would read as an
+    // invisible wall, which is exactly the complaint this is meant to avoid.
+    if (!layout.wall.length) return;
+    if (!this.parkWallMaterial) {
+      this.parkWallMaterial = makeMaterial(
+        this.scene,
+        "park-wall",
+        colorFromHex(
+          mixHexColors(palette.pavement ?? palette.dirtShoulder, "#e6ded0", 0.4),
+          new Color3(0.62, 0.6, 0.55),
+        ),
       );
-      if (!mesh) continue;
-      mesh.isPickable = false;
-      this.registerStaticCell(mesh, landmark.center.x, landmark.center.z, false);
+    }
+    for (const run of layout.wall) {
+      const wall = createBox(
+        this.scene,
+        run.id,
+        {
+          width: run.halfU * 2,
+          height: PARK_WALL_HEIGHT_M,
+          depth: run.halfV * 2,
+        },
+        new Vector3(run.x, PARK_WALL_HEIGHT_M / 2, run.z),
+        this.parkWallMaterial,
+      );
+      wall.rotation.y = Math.atan2(run.ux, run.uz);
+      wall.isPickable = false;
+      this.registerShadowCaster(wall, run.x, run.z);
     }
   }
 
