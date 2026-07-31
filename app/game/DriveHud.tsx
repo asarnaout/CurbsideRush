@@ -1270,8 +1270,7 @@ export const FUSE_SMOOTHING_MS = 200;
 /**
  * The offer card. Interactive, so it takes `DRIVE_LAYER.offer` rather than the
  * read-only HUD layer — the nav card is `pointerEvents: "none"` and an accept
- * button could never have lived inside it. That rung is above the whole-city
- * map on purpose: see `DRIVE_LAYER.offer`.
+ * button could never have lived inside it.
  *
  * The border is a fuse: one SVG stroke with `pathLength` normalised to 1000, so
  * the dash offset *is* the fraction burnt regardless of the card's real
@@ -1631,8 +1630,21 @@ export function DriveOfferGlow() {
  */
 export const MOBILE_OFFER_W = 260;
 export const MOBILE_OFFER_H = 184;
+/** Under this the card cannot hold its own content, whatever the slot says. */
+export const MOBILE_OFFER_MIN_H = 120;
 /** Slot height under which the detour rail is dropped to keep the card clear. */
 export const RAIL_MIN_SLOT_PX = 172;
+/**
+ * Below this width PASS gives up pixels so ACCEPT can still spell its word.
+ * The comp never anticipated being narrower than its own frame; docked in the
+ * map's legend column on a small landscape phone it is (~173 px there).
+ */
+const NARROW_OFFER_PX = 200;
+
+/** Clamps a slot — a phone's rail budget, or the map's column — to the comp. */
+export function resolveOfferPanelHeight(slotPx: number) {
+  return Math.min(MOBILE_OFFER_H, Math.max(MOBILE_OFFER_MIN_H, slotPx));
+}
 
 export function DriveOfferBar({
   inset,
@@ -1648,10 +1660,6 @@ export function DriveOfferBar({
   onAccept: () => void;
   onPass: () => void;
 }) {
-  const food = offer.kind === "delivery";
-  const showRail = slotHeight >= RAIL_MIN_SLOT_PX;
-  const height = Math.min(MOBILE_OFFER_H, Math.max(120, slotHeight));
-  const fuseHot = offer.elapsed > 0.72;
   return (
     <div
       data-testid="gig-offer"
@@ -1662,281 +1670,324 @@ export function DriveOfferBar({
         zIndex: DRIVE_LAYER.offer,
       }}
     >
-      <div
+      <DriveOfferPanel
+        offer={offer}
+        width={MOBILE_OFFER_W}
+        height={resolveOfferPanelHeight(slotHeight)}
+        onAccept={onAccept}
+        onPass={onPass}
+      />
+    </div>
+  );
+}
+
+/**
+ * The card itself, with no opinion about where on the screen it sits.
+ *
+ * Split out because it has two homes: floating in the minimap's slot while
+ * driving (`DriveOfferBar`), and docked into `ExpandedMap`'s legend column
+ * whenever the map is open (#241) — where a card floating over a centred panel
+ * read as two windows colliding, and how much it clipped the legend depended on
+ * the city's aspect ratio. `width` and `height` come from whichever slot it
+ * landed in; everything between them is fluid.
+ */
+export function DriveOfferPanel({
+  offer,
+  width,
+  height,
+  onAccept,
+  onPass,
+  testId,
+}: {
+  offer: HudOffer;
+  width: number;
+  height: number;
+  onAccept: () => void;
+  onPass: () => void;
+  /** Set by whichever placement is the one on screen — never both at once. */
+  testId?: string;
+}) {
+  const food = offer.kind === "delivery";
+  const showRail = height >= RAIL_MIN_SLOT_PX;
+  const fuseHot = offer.elapsed > 0.72;
+  const passPx = width < NARROW_OFFER_PX ? 62 : 74;
+  return (
+    <div
+      data-testid={testId}
+      style={{
+        position: "relative",
+        width,
+        height,
+        borderRadius: 16,
+        background: "linear-gradient(168deg,#faf4e6,#efe1c8)",
+        padding: "11px 13px 10px",
+        display: "flex",
+        flexDirection: "column",
+        boxShadow:
+          "0 24px 54px -20px rgba(0,0,0,.86), 0 0 0 1px rgba(255,255,255,.35) inset",
+      }}
+    >
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        aria-hidden="true"
         style={{
-          position: "relative",
-          width: MOBILE_OFFER_W,
-          height,
-          borderRadius: 16,
-          background: "linear-gradient(168deg,#faf4e6,#efe1c8)",
-          padding: "11px 13px 10px",
-          display: "flex",
-          flexDirection: "column",
-          boxShadow:
-            "0 24px 54px -20px rgba(0,0,0,.86), 0 0 0 1px rgba(255,255,255,.35) inset",
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          pointerEvents: "none",
+          overflow: "visible",
         }}
       >
-        <svg
-          viewBox={`0 0 ${MOBILE_OFFER_W} ${height}`}
-          aria-hidden="true"
+        <rect
+          x="1.5"
+          y="1.5"
+          width={width - 3}
+          height={height - 3}
+          rx="15"
+          fill="none"
+          stroke="rgba(32,30,29,.1)"
+          strokeWidth="3"
+        />
+        <rect
+          x="1.5"
+          y="1.5"
+          width={width - 3}
+          height={height - 3}
+          rx="15"
+          fill="none"
+          stroke={fuseHot ? "#d9614c" : HUD_INK}
+          strokeWidth="3"
+          strokeLinecap="round"
+          pathLength={1000}
+          strokeDasharray={1000}
           style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            pointerEvents: "none",
-            overflow: "visible",
+            strokeDashoffset: Math.min(1, Math.max(0, offer.elapsed)) * 1000,
+            transition: `stroke-dashoffset ${FUSE_SMOOTHING_MS}ms linear, stroke .25s ease`,
           }}
-        >
-          <rect
-            x="1.5"
-            y="1.5"
-            width={MOBILE_OFFER_W - 3}
-            height={height - 3}
-            rx="15"
-            fill="none"
-            stroke="rgba(32,30,29,.1)"
-            strokeWidth="3"
-          />
-          <rect
-            x="1.5"
-            y="1.5"
-            width={MOBILE_OFFER_W - 3}
-            height={height - 3}
-            rx="15"
-            fill="none"
-            stroke={fuseHot ? "#d9614c" : HUD_INK}
-            strokeWidth="3"
-            strokeLinecap="round"
-            pathLength={1000}
-            strokeDasharray={1000}
-            style={{
-              strokeDashoffset: Math.min(1, Math.max(0, offer.elapsed)) * 1000,
-              transition: `stroke-dashoffset ${FUSE_SMOOTHING_MS}ms linear, stroke .25s ease`,
-            }}
-          />
-        </svg>
+        />
+      </svg>
 
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 6,
+        }}
+      >
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-            marginBottom: 6,
+            gap: 5,
+            background: food ? "rgba(198,113,57,.15)" : "rgba(90,110,68,.16)",
+            borderRadius: 999,
+            padding: "3px 8px 3px 6px",
           }}
         >
-          <div
+          <HudGlyph
+            path={food ? FOOD_ICON : RIDER_ICON}
+            size={10}
+            strokeWidth={2.75}
+            color={food ? "#a8541f" : "#4e6236"}
+          />
+          <span
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              background: food ? "rgba(198,113,57,.15)" : "rgba(90,110,68,.16)",
-              borderRadius: 999,
-              padding: "3px 8px 3px 6px",
+              font: `800 8px ${HUD_SANS}`,
+              letterSpacing: "1.6px",
+              color: food ? "#a8541f" : "#4e6236",
+              whiteSpace: "nowrap",
             }}
           >
-            <HudGlyph
-              path={food ? FOOD_ICON : RIDER_ICON}
-              size={10}
-              strokeWidth={2.75}
-              color={food ? "#a8541f" : "#4e6236"}
+            {food ? "FOOD DELIVERY" : "RIDESHARE"}
+          </span>
+        </div>
+        <span
+          data-testid="offer-countdown"
+          style={{
+            font: `900 13px ${HUD_SANS}`,
+            color: "rgba(32,30,29,.45)",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {offer.secondsLeft}s
+        </span>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
+        <span
+          data-testid="offer-pay"
+          style={{
+            font: `900 29px/.9 ${HUD_SANS}`,
+            color: HUD_INK,
+            letterSpacing: "-1.1px",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {offer.pay}
+        </span>
+        {offer.bonus && (
+          <span
+            data-testid="offer-bonus"
+            style={{
+              background: offer.surged ? "rgba(168,84,31,.14)" : "rgba(32,30,29,.08)",
+              borderRadius: 999,
+              padding: "2px 7px",
+              font: `800 9px ${HUD_SANS}`,
+              color: offer.surged ? "#a8541f" : "rgba(32,30,29,.6)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {offer.bonus}
+          </span>
+        )}
+      </div>
+
+      <div
+        style={{
+          font: `700 18px/1.05 ${HUD_SERIF}`,
+          color: HUD_INK,
+          marginTop: 2,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {offer.title}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          marginBottom: "auto",
+          font: `600 9px ${HUD_SANS}`,
+          color: "rgba(32,30,29,.55)",
+          overflow: "hidden",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{offer.sub}</span>
+        {offer.chips[0] && (
+          <>
+            <span
+              aria-hidden="true"
+              style={{
+                width: 3,
+                height: 3,
+                borderRadius: "50%",
+                background: "rgba(32,30,29,.25)",
+                flex: "none",
+              }}
+            />
+            <span style={{ flex: "none", color: "rgba(32,30,29,.45)" }}>
+              {offer.chips[0]}
+            </span>
+          </>
+        )}
+      </div>
+
+      {showRail && (
+        <div data-testid="detour-rail" style={{ margin: "7px 0 8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+            <span
+              aria-hidden="true"
+              style={{ width: 7, height: 7, borderRadius: "50%", background: HUD_INK, flex: "none" }}
             />
             <span
-              style={{
-                font: `800 8px ${HUD_SANS}`,
-                letterSpacing: "1.6px",
-                color: food ? "#a8541f" : "#4e6236",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {food ? "FOOD DELIVERY" : "RIDESHARE"}
-            </span>
-          </div>
-          <span
-            data-testid="offer-countdown"
-            style={{
-              font: `900 13px ${HUD_SANS}`,
-              color: "rgba(32,30,29,.45)",
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            {offer.secondsLeft}s
-          </span>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
-          <span
-            data-testid="offer-pay"
-            style={{
-              font: `900 29px/.9 ${HUD_SANS}`,
-              color: HUD_INK,
-              letterSpacing: "-1.1px",
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            {offer.pay}
-          </span>
-          {offer.bonus && (
+              aria-hidden="true"
+              style={{ width: 17, height: 2, borderRadius: 1, background: "rgba(32,30,29,.3)" }}
+            />
             <span
-              data-testid="offer-bonus"
+              aria-hidden="true"
               style={{
-                background: offer.surged ? "rgba(168,84,31,.14)" : "rgba(32,30,29,.08)",
-                borderRadius: 999,
-                padding: "2px 7px",
-                font: `800 9px ${HUD_SANS}`,
-                color: offer.surged ? "#a8541f" : "rgba(32,30,29,.6)",
-                whiteSpace: "nowrap",
+                flex: 1,
+                height: 2,
+                borderRadius: 1,
+                background:
+                  "repeating-linear-gradient(90deg,rgba(168,84,31,.85) 0 5px,transparent 5px 10px)",
+                backgroundSize: "15px 2px",
+                animation: "hudDetourRail .8s linear infinite",
+              }}
+            />
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="#a8541f" style={{ flex: "none" }} aria-hidden="true">
+              <path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7Zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2Z" />
+            </svg>
+            <span
+              aria-hidden="true"
+              style={{ flex: 1, height: 2, borderRadius: 1, background: "rgba(32,30,29,.18)" }}
+            />
+            <span
+              aria-hidden="true"
+              style={{ width: 7, height: 7, borderRadius: 2, background: "rgba(32,30,29,.35)", flex: "none" }}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <span style={{ font: `800 7px ${HUD_SANS}`, letterSpacing: "1.2px", color: "rgba(32,30,29,.38)" }}>
+              YOU
+            </span>
+            <span
+              data-testid="detour-label"
+              style={{
+                margin: "0 auto",
+                font: `900 9px ${HUD_SANS}`,
+                color: "#a8541f",
+                fontVariantNumeric: "tabular-nums",
               }}
             >
-              {offer.bonus}
+              {offer.chips[0] ?? ""}
             </span>
-          )}
-        </div>
-
-        <div
-          style={{
-            font: `700 18px/1.05 ${HUD_SERIF}`,
-            color: HUD_INK,
-            marginTop: 2,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {offer.title}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            marginBottom: "auto",
-            font: `600 9px ${HUD_SANS}`,
-            color: "rgba(32,30,29,.55)",
-            overflow: "hidden",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{offer.sub}</span>
-          {offer.chips[0] && (
-            <>
-              <span
-                aria-hidden="true"
-                style={{
-                  width: 3,
-                  height: 3,
-                  borderRadius: "50%",
-                  background: "rgba(32,30,29,.25)",
-                  flex: "none",
-                }}
-              />
-              <span style={{ flex: "none", color: "rgba(32,30,29,.45)" }}>
-                {offer.chips[0]}
-              </span>
-            </>
-          )}
-        </div>
-
-        {showRail && (
-          <div data-testid="detour-rail" style={{ margin: "7px 0 8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
-              <span
-                aria-hidden="true"
-                style={{ width: 7, height: 7, borderRadius: "50%", background: HUD_INK, flex: "none" }}
-              />
-              <span
-                aria-hidden="true"
-                style={{ width: 17, height: 2, borderRadius: 1, background: "rgba(32,30,29,.3)" }}
-              />
-              <span
-                aria-hidden="true"
-                style={{
-                  flex: 1,
-                  height: 2,
-                  borderRadius: 1,
-                  background:
-                    "repeating-linear-gradient(90deg,rgba(168,84,31,.85) 0 5px,transparent 5px 10px)",
-                  backgroundSize: "15px 2px",
-                  animation: "hudDetourRail .8s linear infinite",
-                }}
-              />
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="#a8541f" style={{ flex: "none" }} aria-hidden="true">
-                <path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7Zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2Z" />
-              </svg>
-              <span
-                aria-hidden="true"
-                style={{ flex: 1, height: 2, borderRadius: 1, background: "rgba(32,30,29,.18)" }}
-              />
-              <span
-                aria-hidden="true"
-                style={{ width: 7, height: 7, borderRadius: 2, background: "rgba(32,30,29,.35)", flex: "none" }}
-              />
-            </div>
-            <div style={{ display: "flex", alignItems: "center" }}>
-              <span style={{ font: `800 7px ${HUD_SANS}`, letterSpacing: "1.2px", color: "rgba(32,30,29,.38)" }}>
-                YOU
-              </span>
-              <span
-                data-testid="detour-label"
-                style={{
-                  margin: "0 auto",
-                  font: `900 9px ${HUD_SANS}`,
-                  color: "#a8541f",
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {offer.chips[0] ?? ""}
-              </span>
-              <span style={{ font: `800 7px ${HUD_SANS}`, letterSpacing: "1.2px", color: "rgba(32,30,29,.38)" }}>
-                BACK ON ROUTE
-              </span>
-            </div>
+            <span style={{ font: `800 7px ${HUD_SANS}`, letterSpacing: "1.2px", color: "rgba(32,30,29,.38)" }}>
+              BACK ON ROUTE
+            </span>
           </div>
-        )}
-
-        <div style={{ display: "flex", gap: 7, marginTop: showRail ? 0 : 7 }}>
-          <button
-            type="button"
-            data-testid="offer-pass"
-            onClick={onPass}
-            aria-label="Pass on this job"
-            style={{
-              width: 74,
-              height: 42,
-              borderRadius: 12,
-              background: "rgba(32,30,29,.06)",
-              border: "1.5px solid rgba(217,97,76,.35)",
-              font: `900 11px ${HUD_SANS}`,
-              letterSpacing: "1.2px",
-              color: "#b04a34",
-              cursor: "pointer",
-            }}
-          >
-            PASS
-          </button>
-          <button
-            type="button"
-            data-testid="offer-accept"
-            onClick={onAccept}
-            aria-label="Accept this job"
-            style={{
-              flex: 1,
-              height: 42,
-              borderRadius: 12,
-              background: "linear-gradient(180deg,#9dbb7f,#7d9e63)",
-              border: "none",
-              font: `900 15px ${HUD_SANS}`,
-              letterSpacing: "1.2px",
-              color: "#16210f",
-              cursor: "pointer",
-              boxShadow:
-                "0 10px 22px -10px rgba(125,158,99,.9), inset 0 2px 0 rgba(255,255,255,.34)",
-            }}
-          >
-            ACCEPT
-          </button>
         </div>
+      )}
+
+      <div style={{ display: "flex", gap: 7, marginTop: showRail ? 0 : 7 }}>
+        <button
+          type="button"
+          data-testid="offer-pass"
+          onClick={onPass}
+          aria-label="Pass on this job"
+          style={{
+            width: passPx,
+            flex: "none",
+            height: 42,
+            borderRadius: 12,
+            background: "rgba(32,30,29,.06)",
+            border: "1.5px solid rgba(217,97,76,.35)",
+            font: `900 11px ${HUD_SANS}`,
+            letterSpacing: "1.2px",
+            color: "#b04a34",
+            cursor: "pointer",
+          }}
+        >
+          PASS
+        </button>
+        <button
+          type="button"
+          data-testid="offer-accept"
+          onClick={onAccept}
+          aria-label="Accept this job"
+          style={{
+            flex: 1,
+            height: 42,
+            borderRadius: 12,
+            background: "linear-gradient(180deg,#9dbb7f,#7d9e63)",
+            border: "none",
+            font: `900 15px ${HUD_SANS}`,
+            letterSpacing: "1.2px",
+            color: "#16210f",
+            cursor: "pointer",
+            boxShadow:
+              "0 10px 22px -10px rgba(125,158,99,.9), inset 0 2px 0 rgba(255,255,255,.34)",
+          }}
+        >
+          ACCEPT
+        </button>
       </div>
     </div>
   );

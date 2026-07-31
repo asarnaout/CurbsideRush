@@ -3379,6 +3379,16 @@ canvas:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   @keyframes hudDetourRail { to { background-position: 0 0; } }
 }
+/* An offer arriving into the open city map's column (ExpandedMap). It slides
+   rather than appears so the eye is carried to it from the map beside it; the
+   card is the only thing that moved, and it must not read as the panel
+   reflowing. */
+@keyframes hudOfferDock {
+  from { opacity: 0; transform: translateY(12px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes hudOfferDock { from { opacity: 0; } }
+}
 
 /* "Preparing your drive…" overlay (GameCanvas): the mark's continuous spin and
    the loading bar's shimmer sweep. Both inline styles reference these by name

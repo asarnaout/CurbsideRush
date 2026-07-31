@@ -1221,10 +1221,10 @@ export default function SideSwapApp() {
    * An offer no longer counts. It used to (#241): both sat at `action` and the
    * offer renders first, so a map over it buried ACCEPT for the whole fifteen
    * seconds on touch — but yielding meant a job offer could snatch away a map
-   * the player had just opened, and M did nothing at all while one was up. The
-   * card now lives a rung higher (`DRIVE_LAYER.offer`) and floats over the map,
-   * which is where the offer is best read anyway: `previewRoute` draws the
-   * dashed line out to the pickup on the very map being covered.
+   * the player had just opened, and M did nothing at all while one was up.
+   * Neither has to happen: the map stays, and the offer moves *into* it rather
+   * than over it, which is where it is best read anyway — `previewRoute` draws
+   * the dashed line out to its pickup on the map it is now docked in.
    */
   const mapVisible = mapOpen && !paused;
 
@@ -2861,7 +2861,13 @@ export default function SideSwapApp() {
             {dispatchToast.text}
           </DriveToast>
         )}
-        {hudOffer && touchFirst && (
+        {/*
+          Both placements stand down while the whole-city map is up: the offer
+          docks into the map's own column instead, so there is never a card
+          floating over a centred panel (#241). `ExpandedMap` renders the same
+          `gig-offer` card, so exactly one is on screen either way.
+        */}
+        {hudOffer && !mapVisible && touchFirst && (
           <DriveOfferBar
             inset={{
               top: `calc(${hudInset.top} + ${TOUCH_TOP_RAIL_PX}px)`,
@@ -2873,7 +2879,7 @@ export default function SideSwapApp() {
             onPass={() => answerOffer(false)}
           />
         )}
-        {hudOffer && !touchFirst && (
+        {hudOffer && !mapVisible && !touchFirst && (
           <>
             <DriveOfferGlow />
             <DriveOfferCard
@@ -3204,6 +3210,15 @@ export default function SideSwapApp() {
             heading={hud.heading}
             viewport={{ width: viewportWidth, height: viewportHeight }}
             showKeyHints={!touchFirst}
+            // The card the HUD would otherwise float, docked in the column
+            // beside the dashed detour `previewRoute` draws to its pickup.
+            dockedOffer={
+              hudOffer && {
+                offer: hudOffer,
+                onAccept: () => answerOffer(true),
+                onPass: () => answerOffer(false),
+              }
+            }
             onClose={() => setMapOpen(false)}
           />
         )}

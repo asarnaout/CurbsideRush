@@ -32,14 +32,18 @@ export const DRIVE_LAYER = Object.freeze({
   /** Refuel button, pause dialog: things you tap that outrank driving. */
   action: 40,
   /**
-   * The live offer — the one thing that outranks the whole-city map.
+   * The live offer, alone on a rung above every other target.
    *
-   * `ExpandedMap` is at `action` and renders after the offer, so on the shared
-   * rung a map left open buried ACCEPT for the whole fifteen seconds. The map
-   * used to close itself on every offer to avoid that, which cost the player
-   * the map they had deliberately opened (#241). A rung up, the card floats
-   * over the map instead and is answered while the dashed line to the pickup
-   * is on screen.
+   * It is the only thing on the drive screen with a countdown: fifteen seconds
+   * and it is gone, and on touch its buttons are the only way to answer. So it
+   * cannot be left to share `action` with the refuel button, the corner rail
+   * and the wallet, where paint order is JSX order and the next overlay added
+   * below it in `SideSwapApp` would quietly cover ACCEPT.
+   *
+   * It does **not** rank over the whole-city map, which is also on `action`.
+   * That collision is solved by not having it: while the map is open the HUD
+   * renders no card at all and the offer docks into the map's own column
+   * (#241) — see `DriveOfferPanel`.
    */
   offer: 45,
   /** Full-bleed curtains — tow, loading/critical, the rotate gate. */

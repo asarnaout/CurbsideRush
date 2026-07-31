@@ -3,6 +3,11 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  MOBILE_OFFER_H,
+  MOBILE_OFFER_MIN_H,
+  type HudOffer,
+} from "../app/game/DriveHud";
 import { ExpandedMap } from "../app/game/ExpandedMap";
 import { DRIVE_LAYER } from "../app/game/driveLayers";
 import { MAP_POI_FAMILY, type MapPoi } from "../app/game/mapPoi";
@@ -252,6 +257,119 @@ describe("the whole-city map", () => {
     expect(width).toBeGreaterThan(100);
     // The legend still gets its column — width is never what runs out.
     expect(screen.getAllByTestId("map-legend-row")).toHaveLength(5);
+  });
+});
+
+describe("an offer docked into the map (#241)", () => {
+  const OFFER: HudOffer = {
+    kind: "delivery",
+    pay: "+$12.40",
+    bonus: "+$4.10 tip",
+    title: "Amsterdam Bagels",
+    sub: "then 214 W 108th St",
+    chips: ["0.4 mi away", "3 items"],
+    footnote: "Nothing else in hand",
+    secondsLeft: 12,
+    elapsed: 0.2,
+    surged: false,
+  };
+  const docked = () => ({ offer: OFFER, onAccept: vi.fn(), onPass: vi.fn() });
+
+  it("puts the card in the column rather than over the panel", () => {
+    // The whole point of docking: one object. A card positioned against the
+    // viewport while the panel is centred overlapped by an amount that came
+    // out of the city's aspect ratio — Cairo clipped the legend, New York did
+    // not touch it.
+    renderMap({ dockedOffer: docked() });
+    const card = screen.getByTestId("gig-offer");
+    expect(screen.getByTestId("expanded-map")).toContainElement(card);
+    expect(card.style.position).not.toBe("absolute");
+    expect(card.style.zIndex).toBe("");
+  });
+
+  it("takes the column's width, and never the map's", () => {
+    // The canvas must be the same size with an offer up as without, or the
+    // map would resize under a player who is reading it.
+    const { rerender } = renderMap();
+    const before = screen.getByTestId("expanded-map").querySelector("canvas")!.style.width;
+    rerender(
+      <ExpandedMap
+        cityName="New York"
+        subtitle={null}
+        worldSize={NYC}
+        roadSurfaces={ROADS}
+        pois={POIS}
+        playerX={0}
+        playerZ={0}
+        heading={0}
+        viewport={DESKTOP}
+        dockedOffer={docked()}
+        onClose={vi.fn()}
+      />,
+    );
+    const after = screen.getByTestId("expanded-map").querySelector("canvas")!.style.width;
+    expect(after).toBe(before);
+    // 1440 * 0.26 = 374, capped at the legend's 240.
+    expect(screen.getByTestId("gig-offer").style.width).toBe("240px");
+  });
+
+  it("keeps the legend on a desktop, where the column has room for both", () => {
+    renderMap({ dockedOffer: docked() });
+    expect(screen.getAllByTestId("map-legend-row")).toHaveLength(5);
+    // Tall enough for the detour rail, which is the comp at its full height.
+    expect(screen.getByTestId("gig-offer").style.height).toBe(`${MOBILE_OFFER_H}px`);
+    expect(screen.getByTestId("detour-rail")).toBeInTheDocument();
+  });
+
+  it("shrinks to fit beside the legend before it displaces it", () => {
+    // jsdom has no layout, so this arithmetic *is* the check — the same reason
+    // `touchDriveControls.test.tsx` asserts the rail budget by hand. A 402 px
+    // landscape phone still holds both: New York's column is the panel's full
+    // 366, less a 36 header, five 24 px rows with 5 px between them, and two
+    // 8 px gaps. The comp gives up its last ten pixels rather than the legend
+    // its place.
+    renderMap({ dockedOffer: docked(), viewport: PHONE });
+    expect(screen.getAllByTestId("map-legend-row")).toHaveLength(5);
+    expect(screen.getByTestId("gig-offer").style.height).toBe("174px");
+    // 174 still clears RAIL_MIN_SLOT_PX, so the detour survives the squeeze.
+    expect(screen.getByTestId("detour-rail")).toBeInTheDocument();
+  });
+
+  it("yields the legend only where the panel is too short to hold both", () => {
+    // Milton Keynes is 1500x300 — fitted, its panel is a letterbox barely
+    // taller than the card, and there is no arrangement that keeps five legend
+    // rows. A clipped ACCEPT would be far worse than a key the player has
+    // already read, so the legend is what goes.
+    renderMap({
+      dockedOffer: docked(),
+      viewport: PHONE,
+      worldSize: { x: 1500, z: 300 },
+    });
+    expect(screen.queryAllByTestId("map-legend-row")).toHaveLength(0);
+    expect(Number.parseFloat(screen.getByTestId("gig-offer").style.height)).toBe(
+      MOBILE_OFFER_MIN_H,
+    );
+    expect(screen.getByTestId("offer-accept")).toBeVisible();
+
+    // And it is back the moment the offer is answered.
+    cleanup();
+    renderMap({ viewport: PHONE, worldSize: { x: 1500, z: 300 } });
+    expect(screen.getAllByTestId("map-legend-row")).toHaveLength(5);
+  });
+
+  it("answers from inside the map, so the drive never has to be returned to", () => {
+    const onAccept = vi.fn();
+    const onPass = vi.fn();
+    renderMap({ dockedOffer: { offer: OFFER, onAccept, onPass } });
+    fireEvent.click(screen.getByTestId("offer-accept"));
+    expect(onAccept).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("offer-pass"));
+    expect(onPass).toHaveBeenCalledTimes(1);
+  });
+
+  it("draws nothing when there is no offer", () => {
+    renderMap();
+    expect(screen.queryByTestId("gig-offer")).toBeNull();
   });
 });
 

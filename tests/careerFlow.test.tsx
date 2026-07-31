@@ -1726,11 +1726,12 @@ describe("the whole-city map", () => {
     expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
   });
 
-  it("stays open when an offer arrives, with the card floating over it (#241)", async () => {
+  it("stays open when an offer arrives, and docks the card into it (#241)", async () => {
     // It used to close itself instead, because the offer renders before it at
     // the same layer and a map over ACCEPT is untappable on a phone. Losing
     // the map you just opened every time dispatch called was the worse half of
-    // that trade; the card is a layer higher now and covers only its corner.
+    // that trade. The card comes *into* the map now rather than floating over
+    // it — one panel, and the offer sits beside the dashed line to its pickup.
     await startDay();
     openMap();
     expect(screen.getByTestId("expanded-map")).toBeVisible();
@@ -1740,18 +1741,18 @@ describe("the whole-city map", () => {
     // random career seed, so *when* the next offer opens is not a fixed number
     // — only that the quiet spell is capped at 45s, so one always arrives.
     driveUntilOffered();
-    const map = screen.getByTestId("expanded-map");
-    expect(map).toBeVisible();
+    expect(screen.getByTestId("expanded-map")).toBeVisible();
+    // `getByTestId` throws on a second match, so this also pins the rule the
+    // whole design rests on: the HUD's floating card stands down while the map
+    // is up, and exactly one offer is ever on screen.
+    const card = screen.getByTestId("gig-offer");
+    expect(screen.getByTestId("expanded-map")).toContainElement(card);
     expect(screen.getByTestId("offer-accept")).toBeVisible();
-    // jsdom has no layout, so the stacking order is the only thing that can be
-    // checked here — and it is exactly what makes ACCEPT reachable.
-    expect(Number(screen.getByTestId("gig-offer").style.zIndex)).toBeGreaterThan(
-      Number(map.style.zIndex),
-    );
 
     // Answering it leaves the map alone: it was never the offer's to close.
     fireEvent.click(screen.getByTestId("offer-pass"));
     expect(screen.getByTestId("expanded-map")).toBeVisible();
+    expect(screen.queryByTestId("gig-offer")).not.toBeInTheDocument();
   });
 
   it("opens over an offer that is already up (#241)", async () => {
