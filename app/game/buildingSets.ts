@@ -12,6 +12,7 @@
  * (`instantiateModelInstanced`) at the positions/rotations produced here.
  */
 import { ALL_ENV_MODELS } from "./buildingCatalog";
+import type { BlockStreetEdge } from "./types";
 import { seededUnit, type VisualPoint } from "./visuals";
 
 /** Per-model placement: uniform scale + ground offset + post-scale footprint. */
@@ -249,6 +250,8 @@ export interface PlacedBuilding {
 }
 
 interface Edge {
+  /** Which block-local edge this is, for `edges` filtering. */
+  readonly id: BlockStreetEdge;
   /** Outward street direction as a heading atan2(dx,dz): +Z=0, +X=π/2. */
   readonly outward: number;
   /** Fixed coordinate of the edge line + which axis it runs along. */
@@ -268,6 +271,14 @@ const GAP_M = 1.6;
  * each edge, inset so their front sits at the block edge and faces the road.
  * Deterministic in `seed`. N/S edges run full width; E/W edges are trimmed by a
  * building's reach at each end so corners don't double up.
+ *
+ * All four edges is the default because a city block has roads all round it. A
+ * roadside strip does not, and must name its one road-facing edge: buildings are
+ * inset by half their footprint, so on a parcel shallower than two footprints
+ * the opposite rows overlap — Cairo's 28-34 m strips against footprints up to
+ * 18.5 m put roughly 9 m of building inside another building, which reads as a
+ * white flicker that worsens with camera motion. The far row also faces open
+ * ground no driver ever reaches, so it is pure cost.
  */
 export function slotBlockBuildings(
   center: VisualPoint,
@@ -277,6 +288,8 @@ export function slotBlockBuildings(
   /** Fraction of the street wall to keep (1 = full). Weak devices thin it for
    * frame rate; deterministic so the same buildings survive each load. */
   keepFraction = 1,
+  /** Block-local edges to populate. Omitted/empty = all four. */
+  edges_?: readonly BlockStreetEdge[],
 ): PlacedBuilding[] {
   const models = SETS[setId]
     .map((id) => ({ id, url: URL_BY_ID.get(id), cfg: PLACEMENTS[id] }))
@@ -289,16 +302,21 @@ export function slotBlockBuildings(
   const halfD = size.z / 2;
   const maxFoot = Math.max(...models.map((m) => m.cfg.footprintM));
 
-  const edges: Edge[] = [
+  const allEdges: Edge[] = [
     // North (+Z)
-    { outward: 0, runAxis: "x", runStart: center.x - halfW, runEnd: center.x + halfW, fixed: center.z + halfD, inX: 0, inZ: -1 },
+    { id: "+z", outward: 0, runAxis: "x", runStart: center.x - halfW, runEnd: center.x + halfW, fixed: center.z + halfD, inX: 0, inZ: -1 },
     // South (-Z)
-    { outward: Math.PI, runAxis: "x", runStart: center.x - halfW, runEnd: center.x + halfW, fixed: center.z - halfD, inX: 0, inZ: 1 },
+    { id: "-z", outward: Math.PI, runAxis: "x", runStart: center.x - halfW, runEnd: center.x + halfW, fixed: center.z - halfD, inX: 0, inZ: 1 },
     // East (+X), trimmed so N/S corner buildings own the corners
-    { outward: Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxFoot, runEnd: center.z + halfD - maxFoot, fixed: center.x + halfW, inX: -1, inZ: 0 },
+    { id: "+x", outward: Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxFoot, runEnd: center.z + halfD - maxFoot, fixed: center.x + halfW, inX: -1, inZ: 0 },
     // West (-X)
-    { outward: -Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxFoot, runEnd: center.z + halfD - maxFoot, fixed: center.x - halfW, inX: 1, inZ: 0 },
+    { id: "-x", outward: -Math.PI / 2, runAxis: "z", runStart: center.z - halfD + maxFoot, runEnd: center.z + halfD - maxFoot, fixed: center.x - halfW, inX: 1, inZ: 0 },
   ];
+  // An empty list would silently erase the block's whole street wall, so it is
+  // read as "unspecified" — same as omitting the argument.
+  const edges = edges_?.length
+    ? allEdges.filter((edge) => edges_.includes(edge.id))
+    : allEdges;
 
   const placed: PlacedBuilding[] = [];
   let slot = 0;

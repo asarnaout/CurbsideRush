@@ -169,27 +169,32 @@ describe("merged master pivot centring", () => {
   });
 });
 
-describe("street-wall placement invariants on the real NYC blocks", () => {
-  interface WorldBox {
-    modelId: string;
-    edgeOutward: number;
-    x0: number;
-    x1: number;
-    z0: number;
-    z1: number;
-  }
+interface WorldBox {
+  modelId: string;
+  edgeOutward: number;
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+}
 
-  const worldBoxes = async (block: {
+/** Plan-view boxes for a block's whole street wall, in the block's own frame.
+ * Shared by the NYC and Cairo sweeps — the heading rotation is rigid, so an
+ * overlap here is an overlap in world space too. */
+const worldBoxes = async (block: {
     id: string;
     center: { x: number; z: number };
     size: { x: number; z: number };
     buildingSet?: string;
+    streetEdges?: readonly ("+x" | "-x" | "+z" | "-z")[];
   }) => {
     const placements = slotBlockBuildings(
       block.center,
       block.size,
       block.buildingSet as Parameters<typeof slotBlockBuildings>[2],
       hashStringToSeed(`${block.id}-buildings`),
+      1,
+      block.streetEdges,
     );
     const boxes: WorldBox[] = [];
     for (const b of placements) {
@@ -220,8 +225,9 @@ describe("street-wall placement invariants on the real NYC blocks", () => {
       boxes.push({ modelId: b.modelId, edgeOutward, x0, x1, z0, z1 });
     }
     return boxes;
-  };
+};
 
+describe("street-wall placement invariants on the real NYC blocks", () => {
   const setBlocks = () =>
     getMapPack("nyc-upper-west-side").geometry.blocks.filter(
       (b) => b.buildingSet && isBuildingSetId(b.buildingSet),
@@ -332,6 +338,61 @@ describe("street-wall placement invariants on the real NYC blocks", () => {
       // Enough houses across the pocket for a crooked wall to be visible at
       // all — the bug hid in a long row, not in a handful of buildings.
       expect(totalHouses, "houses across the detached-house pocket").toBeGreaterThanOrEqual(80);
+    },
+  );
+});
+
+/**
+ * A roadside strip is not a city block.
+ *
+ * Cairo's parcels are 28-34 m deep with a road on one side. Slotted as a full
+ * perimeter they got a row on each long edge, and because a building's centre is
+ * inset by half its footprint, footprints up to 18.5 m put roughly 9 m of one
+ * row inside the other — two buildings in the same space, which the renderer
+ * shows as a white flicker that worsens as the camera moves. The far row also
+ * faced open desert no driver reaches.
+ *
+ * Every parcel is swept, not a sample: the overlap depends on the footprints the
+ * seed happens to draw, so a subset can pass while the map is full of it.
+ */
+describe("Cairo roadside parcels carry one road-facing row", () => {
+  const parcels = () =>
+    getMapPack("cairo-central-nile").geometry.blocks.filter(
+      (b) => b.buildingSet && isBuildingSetId(b.buildingSet),
+    );
+
+  it("names exactly one street edge per roadside parcel", () => {
+    const roadside = parcels().filter((b) => b.id.includes("-roadside-"));
+    expect(roadside.length).toBeGreaterThan(100);
+    for (const block of roadside) {
+      expect(block.streetEdges, block.id).toHaveLength(1);
+      // Local +x runs along the carriageway, so the road is always across z.
+      expect(["+z", "-z"], block.id).toContain(block.streetEdges![0]);
+    }
+  });
+
+  it(
+    "no two buildings interpenetrate on any Cairo parcel",
+    { timeout: 120_000 },
+    async () => {
+      let total = 0;
+      for (const block of parcels()) {
+        const boxes = await worldBoxes(block);
+        total += boxes.length;
+        for (let i = 0; i < boxes.length; i += 1) {
+          for (let j = i + 1; j < boxes.length; j += 1) {
+            const a = boxes[i];
+            const b = boxes[j];
+            const ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+            const oz = Math.min(a.z1, b.z1) - Math.max(a.z0, b.z0);
+            expect(
+              ox > 0.25 && oz > 0.25,
+              `${block.id}: ${a.modelId}#${i} overlaps ${b.modelId}#${j} by ${ox.toFixed(2)}m x ${oz.toFixed(2)}m`,
+            ).toBe(false);
+          }
+        }
+      }
+      expect(total, "buildings across Cairo's street wall").toBeGreaterThan(500);
     },
   );
 });

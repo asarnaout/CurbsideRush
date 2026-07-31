@@ -109,6 +109,15 @@ corridor, and deliberately leave four Nile-facing sides open.
 its district's fabric with no content edit. The riverfront roads get the tall
 `cairo-corniche` set; the rest zone on x/z like `cairoRoadsideStyle` does.
 
+**A roadside strip must name its one road-facing edge** (`streetEdges` on
+`ProceduralBlock`). `slotBlockBuildings` defaults to all four, which is right for
+a city block with roads around it and wrong for a strip: buildings are inset by
+half their footprint, so on a parcel shallower than two footprints the opposite
+rows occupy the same ground. Cairo's 28–34 m parcels against footprints up to
+18.5 m overlapped by up to 18 m — invisible in any count, and on screen a white
+flicker that worsens with camera motion. Guarded by "no two buildings
+interpenetrate on any Cairo parcel" in `buildingPlacement.test.ts`.
+
 **One roadside parcel in six deliberately keeps the procedural facade boxes**
 (`cairoParcelKeepsFacadeBoxes`), as do all the inland district parcels. That
 remainder is not leftovers: plain stucco blocks are real Cairo, and their size

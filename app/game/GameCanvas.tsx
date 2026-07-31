@@ -2114,6 +2114,7 @@ export interface GameCanvasMapPack {
       readonly size: GameCanvasPoint;
       readonly headingDeg?: number;
       readonly frontageAxis?: "x" | "z";
+      readonly streetEdges?: readonly ("+x" | "-x" | "+z" | "-z")[];
       readonly heightRange: readonly [number, number];
       readonly density: number;
       readonly material: string;
@@ -8495,6 +8496,7 @@ class BabylonGameSession {
           setId,
           hashStringToSeed(`${block.id}-buildings`),
           this.buildingKeepFraction,
+          block.streetEdges,
         ),
         block.center,
         block.headingDeg,

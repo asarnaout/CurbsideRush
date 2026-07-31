@@ -1831,6 +1831,11 @@ for (const surface of cairoRoadSurfaces) {
           size: point(frontageLengthM, acceptedStyle.depthM),
           headingDeg,
           frontageAxis: "z",
+          // `headingDeg` puts local +x along the carriageway and local +z across
+          // it, and the parcel sits at `road + normal * side`, so the road lies
+          // exactly `side` along local +z. One edge, and it is the near one:
+          // a strip is not a city block and has no far street to face.
+          streetEdges: [side > 0 ? "+z" : "-z"],
           material: acceptedStyle.material,
           heightRange: acceptedStyle.heightRange,
           density: 0.82,
