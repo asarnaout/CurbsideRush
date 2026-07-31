@@ -70,11 +70,10 @@ function medianNet(
 // unwinnable there and this fails loudly instead.
 //
 // Scoped to CAREER_CITIES rather than every destination, because rent is only
-// ever charged in a ladder city — what a van would cost in Calais or Milton
-// Keynes is not a fact about the mode. Putting either on the ladder pulls it
-// under this assertion automatically, which is the moment the answer starts to
-// matter; be warned that the delivery van is the tier that would fail there
-// today, on gig distances short enough to hold the median fare down.
+// ever charged in a ladder city. Today every shipped city is on the ladder, so
+// the two sets coincide — but a future free-drive-only city is out of scope
+// here by design, and putting it on the ladder pulls it under this assertion
+// automatically, which is the moment the answer starts to matter.
 describe("career balance tripwire", () => {
   it("keeps rent + platform fee under four median gig nets for every vehicle and ladder city", () => {
     for (const destinationId of CAREER_CITIES) {

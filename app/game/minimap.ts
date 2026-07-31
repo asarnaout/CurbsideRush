@@ -26,10 +26,10 @@ export interface MinimapProjector {
  * fit.
  *
  * Every shipped map is past this, so the widget always scrolls: the largest
- * dimensions run 3000 m (NYC), 1500 m (Milton Keynes), 800 m (London), 680 m
- * (Calais) and 600 m (Tokyo). That is the point of the number — a 3 km city
- * squeezed into 150 px is a mesh of hairlines, and at that size the route line
- * already answers everything an overview would.
+ * dimensions run 3000 m (NYC), 1830 m (Cairo), 800 m (London) and 600 m
+ * (Tokyo). That is the point of the number — a 3 km city squeezed into 150 px
+ * is a mesh of hairlines, and at that size the route line already answers
+ * everything an overview would.
  *
  * Which is not an argument against ever seeing the whole city, only against
  * seeing it in the corner. `ExpandedMap` does exactly that, on a canvas big
@@ -175,7 +175,7 @@ export interface MinimapFitProjector extends MinimapProjector {
  * each edge), preserving aspect and flipping +z (north) to screen-up.
  *
  * Rectangular rather than square because the cities are nothing like square —
- * 1080x3000 m in New York against 1500x300 m in Milton Keynes — and a whole-city
+ * 1080x3000 m in New York against 800x540 m in London — and a whole-city
  * view boxed into a square spends most of itself on nothing. The caller sizes
  * the canvas to the world's own aspect and this fills it.
  */
@@ -210,9 +210,9 @@ export function createMinimapFitProjector(
  *
  * The whole-city map cuts its canvas to this rather than filling the space it
  * is given, so the panel *is* the city's shape — a tall column for New York, a
- * wide band for Milton Keynes — and no part of the canvas is spent on empty
- * ground. Pure, because "how big is the map on this screen" is the one number
- * the layout is built around and it should not need a browser to check.
+ * near-square for Cairo — and no part of the canvas is spent on empty ground.
+ * Pure, because "how big is the map on this screen" is the one number the
+ * layout is built around and it should not need a browser to check.
  */
 export function fitMinimapPanel(
   worldSize: MinimapWorldSize,

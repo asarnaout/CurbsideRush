@@ -64,9 +64,6 @@ describe("map visual palettes", () => {
   it("resolves the expected visual key for every shipped map", () => {
     expect(resolveMapVisualKey("nyc-upper-west-side")).toBe("nyc");
     expect(resolveMapVisualKey("london-south-kensington")).toBe("london");
-    expect(resolveMapVisualKey("milton-keynes-oldbrook")).toBe("milton");
-    expect(resolveMapVisualKey("calais-coquelles")).toBe("calais");
-    expect(resolveMapVisualKey("folkestone-coquelles")).toBe("calais");
     expect(resolveMapVisualKey("tokyo-setagaya")).toBe("tokyo");
     expect(resolveMapVisualKey("cairo-central-nile")).toBe("cairo");
     expect(resolveMapVisualKey("orientation-yard")).toBe("orientation");
@@ -76,8 +73,6 @@ describe("map visual palettes", () => {
     for (const mapId of [
       "nyc-upper-west-side",
       "london-south-kensington",
-      "milton-keynes-oldbrook",
-      "calais-coquelles",
       "tokyo-setagaya",
       "cairo-central-nile",
       "orientation-yard",
@@ -111,7 +106,7 @@ describe("fog ranges", () => {
     expect(resolveFogRange({ x: 140, z: 110 })).toEqual({ start: 70, end: 340 });
   });
 
-  it("stretches with the Milton Keynes corridor but stays bounded", () => {
+  it("stretches with a long city but stays bounded", () => {
     expect(resolveFogRange({ x: 1500, z: 300 })).toEqual({
       start: 160,
       end: 1100,
@@ -140,7 +135,7 @@ describe("camera far plane", () => {
   it("rides 20m past the effective fog end", () => {
     // Night NYC: fog fully swallows the world at 440.
     expect(resolveCameraFarPlane(true, { x: 1080, z: 3000 })).toBe(460);
-    // Day Milton Keynes corridor.
+    // A long daylit corridor, where the far plane rides the unclamped band.
     expect(resolveCameraFarPlane(false, { x: 1500, z: 300 })).toBe(1120);
     // The orientation-yard fallback world.
     expect(resolveCameraFarPlane(false, { x: 180, z: 180 })).toBe(360);
@@ -152,8 +147,6 @@ describe("horizon silhouettes", () => {
     for (const mapId of [
       "nyc-upper-west-side",
       "london-south-kensington",
-      "milton-keynes-oldbrook",
-      "calais-coquelles",
       "tokyo-setagaya",
       "cairo-central-nile",
       "orientation-yard",
@@ -193,16 +186,6 @@ describe("horizon silhouettes", () => {
     expect(cairoKinds.has("box")).toBe(true);
     expect(cairoKinds.has("spike")).toBe(true);
     expect(cairoKinds.has("pylon")).toBe(true);
-    const miltonKinds = new Set(
-      buildHorizonSilhouetteSpec("milton-keynes-oldbrook", seed).map(
-        (shape) => shape.kind,
-      ),
-    );
-    expect(miltonKinds).toEqual(new Set(["hill"]));
-    // Calais keeps an open Channel gap in the middle of the skyline.
-    for (const shape of buildHorizonSilhouetteSpec("calais-coquelles", seed)) {
-      expect(shape.x < 0.4 || shape.x > 0.6).toBe(true);
-    }
   });
 });
 

@@ -106,9 +106,9 @@ describe("minimap projection", () => {
     // — asking `resolveMinimapScale` at that size buys a ~70 MB sheet.
     for (const [name, worldSize] of [
       ["nyc", { x: 1080, z: 3000 }],
-      ["milton keynes", { x: 1500, z: 300 }],
+      ["wide corridor", { x: 1500, z: 300 }],
       ["london", { x: 800, z: 540 }],
-      ["calais", { x: 680, z: 300 }],
+      ["small town", { x: 680, z: 300 }],
       ["tokyo", { x: 600, z: 420 }],
     ] as const) {
       expect(resolveMinimapScale(worldSize, 150).follows, name).toBe(true);
@@ -205,7 +205,7 @@ describe("whole-city fit projection", () => {
   });
 
   it("letterboxes rather than distorts when the canvas is the wrong shape", () => {
-    // Milton Keynes is 5:1 wide. Dropped into a square it keeps its aspect and
+    // A 5:1 wide world. Dropped into a square it keeps its aspect and
     // leaves the slack above and below — a stretched city is not a map.
     const fit = createMinimapFitProjector(MILTON_KEYNES, 600, 600, 6);
     expect(fit.pixelsPerMetre).toBeCloseTo((600 - 12) / 1500, 6);

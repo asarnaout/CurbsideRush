@@ -310,8 +310,8 @@ export function ExpandedMap({
     box.height - (tight ? COLUMN_HEADER_PX.tight : COLUMN_HEADER_PX.roomy) - columnGap;
   const offerBesideLegendPx = offerRoomPx - legendPx - columnGap;
   // The legend goes only when not even the dense card fits beside it — which
-  // on the shipped cities takes a letterbox panel (Milton Keynes), not a small
-  // screen. A phone keeps its key and takes the dense card.
+  // takes a letterbox panel (a very wide, shallow city), not a small screen. A
+  // phone keeps its key and takes the dense card.
   const legendKeepsPlace =
     !dockedOffer || offerBesideLegendPx >= MOBILE_OFFER_DENSE_H;
   const offerDense =
@@ -472,10 +472,10 @@ export function ExpandedMap({
                       display: "flex",
                       alignItems: "center",
                       gap: 9,
-                      // Faded where the city has none of them — Milton Keynes,
-                      // Calais and Tokyo have no traffic lights at all. Not a
-                      // tally, just the difference between "you have not found one
-                      // yet" and "there are none to find".
+                      // Faded where the city has none of them — Tokyo has no
+                      // traffic lights at all. Not a tally, just the difference
+                      // between "you have not found one yet" and "there are none
+                      // to find".
                       opacity: hasAny[kind] ? 1 : 0.38,
                     }}
                   >
