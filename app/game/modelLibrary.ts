@@ -298,13 +298,15 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   // yawOffset makes the entrance face the road. The venue loop rotates the
   // holder by the lane heading `h` (the tangent, atan2(dx,dz)) plus this offset,
   // and sets the building back along `(cos h, -sin h)` — so the carriageway sits
-  // at world yaw `h - π/2` from the building. The venue glbs below import with
-  // their front on local -Z (the glTF loader adds a 180° Y flip for handedness),
-  // i.e. a native door facing of `h + π` at offset 0. Solving
-  // `h + yawOffset + π ≡ h - π/2` gives yawOffset = π/2, which turns every
-  // door/storefront to look across its verge at the road. The gas station lands
-  // at the same offset independently (its diorama forecourt faces the pumps to
-  // the lot's road edge).
+  // at world yaw `h - π/2` from the building. The frame these offsets live in
+  // is instantiateProp's, not the loader's: instantiateProp overwrites the
+  // loader root's handedness scaling (1,1,-1) with a uniform scale, so only
+  // the 180° Y-rotation half of the loader's flip survives — a front authored
+  // on +Z lands on -Z in the placed frame, i.e. a native door facing of
+  // `h + π` at offset 0. Solving `h + yawOffset + π ≡ h - π/2` gives
+  // yawOffset = π/2, which turns every door/storefront to look across its
+  // verge at the road. The gas station lands at the same offset independently
+  // (its diorama forecourt faces the pumps to the lot's road edge).
   gas_station: { url: `${P}/gas-station.glb`, scale: 2.8, yawOffset: Math.PI / 2, groundY: -1.63, roofSignMinY: 4 },
   // Enlarged from 0.045 to read at a realistic size next to the avenue buildings.
   // groundY drops it back onto the road once its raised base platform (Box001)
@@ -353,22 +355,29 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   // model is Quaternius's "Big Building" and has a hipped roof, which is a
   // European shape Cairo's flat-roofed street simply does not have.
   //
-  // All four import with their entrance on local +Z (measured from the
-  // Quaternius Wood/DarkWood/Glass submesh centroids; the KayKit pack is the
-  // same one buildingSets records as `frontOffset: Math.PI`). That is the
-  // opposite of the -Z the props above assume, so they take -π/2 rather than
-  // π/2 — the same correction `restaurant-pizzeria` describes, minus its
-  // mirroring half-turn. At -π/2 the entrance lands on the holder's road-facing
-  // -X side.
+  // All of these author their entrance on +Z — but that is measured in the
+  // glb's AS-LOADED frame, and instantiateProp does not place models in that
+  // frame. It overwrites the loader root's handedness scaling (1,1,-1) with a
+  // uniform (s,s,s), so of the loader's flip only the 180° Y-rotation on the
+  // same root survives — which turns an authored +Z entrance to -Z in the
+  // placed frame, exactly like every other prop here. So they take the same
+  // π/2 as the rest, NOT the -π/2 the as-loaded frame suggests: -π/2 stood
+  // all 24 of these venues with their doors to the open land and their blank
+  // backs on the pavement. Do not "verify" a venue yawOffset by measuring a
+  // container under NullEngine without also wiping the root scaling the way
+  // instantiateProp does — tests/cairoVisuals.test.ts now measures the placed
+  // frame itself. (The street wall is the other frame: its merged masters bake
+  // the intact reflection into vertices, hence `frontOffset: Math.PI` there
+  // for the same +Z-authored models.)
   "cairo-residence-kay": {
     url: `${P}/cairo-residence-kay.glb`,
     scale: 5.5,
-    yawOffset: -Math.PI / 2,
+    yawOffset: Math.PI / 2,
   },
   "cairo-residence-quaternius": {
     url: `${P}/cairo-residence-quaternius.glb`,
     scale: 3.35,
-    yawOffset: -Math.PI / 2,
+    yawOffset: Math.PI / 2,
     groundY: 0.011,
   },
   // Cairo's own copy of `shop` below. Same model, but recoloured to the Cairo
@@ -378,18 +387,18 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   "cairo-shop": {
     url: `${P}/cairo-shop.glb`,
     scale: 4,
-    yawOffset: -Math.PI / 2,
+    yawOffset: Math.PI / 2,
   },
   "cairo-office-block": {
     url: `${P}/cairo-office-block.glb`,
     scale: 2.4,
-    yawOffset: -Math.PI / 2,
+    yawOffset: Math.PI / 2,
     groundY: 0.059,
   },
   "cairo-depot": {
     url: `${P}/cairo-depot.glb`,
     scale: 2.4,
-    yawOffset: -Math.PI / 2,
+    yawOffset: Math.PI / 2,
     groundY: 0.038,
   },
   office: { url: `${P}/office.glb`, scale: 2.8, yawOffset: Math.PI / 2 },

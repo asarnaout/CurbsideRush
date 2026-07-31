@@ -36,26 +36,30 @@ export const PROP_MODEL_FOOTPRINTS_M: Readonly<
     minZ: -5.519,
     maxZ: 5.519,
   },
-  // Mirrored in x when this model's yawOffset was corrected from π/2 to -π/2
-  // (its entrance is on local +Z, so π/2 had it facing away from the road).
-  // kay's is unchanged by that turn because it is symmetric in both axes.
+  // The Cairo entries were once turned to -π/2 on an as-loaded NullEngine
+  // measurement ("entrance on local +Z") — but instantiateProp wipes the
+  // loader root's (1,1,-1) scaling, so the placed frame keeps only the 180°
+  // Y-rotation and that turn stood every one of these venues with its back to
+  // the road. They are back at the π/2 every other prop takes, and the three
+  // x-asymmetric footprints here are rotated 180° to match (kay and shop are
+  // symmetric in both axes, so theirs are unchanged).
   "cairo-residence-quaternius": {
-    minX: -3.609,
-    maxX: 4.792,
+    minX: -4.792,
+    maxX: 3.609,
     minZ: -3.616,
     maxZ: 3.616,
   },
   // Cairo's flat-roofed replacements for `office`. Wide, shallow street-front
   // terraces, so z (the facade run) is much the larger extent.
   "cairo-office-block": {
-    minX: -2.586,
-    maxX: 3.886,
+    minX: -3.886,
+    maxX: 2.586,
     minZ: -8.193,
     maxZ: 8.193,
   },
   "cairo-depot": {
-    minX: -2.585,
-    maxX: 2.827,
+    minX: -2.827,
+    maxX: 2.585,
     minZ: -8.193,
     maxZ: 8.193,
   },

@@ -8876,7 +8876,12 @@ class BabylonGameSession {
         holder.position.set(b.x, b.groundY + BUILDING_GROUND_LIFT, b.z);
         holder.rotation.y = b.yaw;
         root.parent = holder;
-        root.scaling.setAll(b.scale);
+        // Multiply, never setAll: the loader root carries the handedness flip
+        // as scaling (1,1,-1), and wiping it leaves only the root's 180°
+        // Y-rotation — which faces the building backwards relative to the
+        // merged masters this is a stand-in for (frontOffset is calibrated
+        // against the master frame).
+        root.scaling.scaleInPlace(b.scale);
         this.staticSceneryFreeze.push(holder);
         for (const mesh of root.getChildMeshes(false)) {
           mesh.isPickable = false;
