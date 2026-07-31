@@ -31,6 +31,17 @@ export const DRIVE_LAYER = Object.freeze({
   toast: 30,
   /** Refuel button, pause dialog: things you tap that outrank driving. */
   action: 40,
+  /**
+   * The live offer — the one thing that outranks the whole-city map.
+   *
+   * `ExpandedMap` is at `action` and renders after the offer, so on the shared
+   * rung a map left open buried ACCEPT for the whole fifteen seconds. The map
+   * used to close itself on every offer to avoid that, which cost the player
+   * the map they had deliberately opened (#241). A rung up, the card floats
+   * over the map instead and is answered while the dashed line to the pickup
+   * is on screen.
+   */
+  offer: 45,
   /** Full-bleed curtains — tow, loading/critical, the rotate gate. */
   curtain: 50,
 });
