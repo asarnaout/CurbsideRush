@@ -39,13 +39,13 @@ import type {
  * roughly three quarters of Cairo's buildings are now imported models and the
  * rest are the procedural facade boxes the map used to be built from entirely.
  */
-const BLOCK_COUNT = 416;
-const ROADSIDE_COUNT = 274;
-/** City blocks tiled into the land the roadside strips only veneer. */
-const INFILL_COUNT = 119;
-const ROADSIDE_LEFT = 136;
-const STREET_WALL_BLOCKS = 324;
-const FACADE_BOX_CELLS = 807;
+const BLOCK_COUNT = 591;
+const ROADSIDE_COUNT = 568;
+const ROADSIDE_LEFT = 158;
+/** Ranks stepping back from the kerb; only rank 1 carries the side suffix. */
+const ROADSIDE_RANKS = 256;
+const STREET_WALL_BLOCKS = 460;
+const FACADE_BOX_CELLS = 1158;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
@@ -1146,12 +1146,6 @@ describe("Cairo Central Nile content", () => {
     );
     expect(blocks).toHaveLength(BLOCK_COUNT);
     expect(roadside).toHaveLength(ROADSIDE_COUNT);
-    // The strips are frontage; the infill is the land behind them. Without it
-    // the map is a set of walls in open desert that the car drives straight
-    // through, because a block is also its collider.
-    expect(
-      blocks.filter((block) => block.id.startsWith("cairo-infill-")),
-    ).toHaveLength(INFILL_COUNT);
     expect(roadside[0].id).toBe(
       "cairo-corniche-el-nil-roadside-1-2-split-2-right",
     );
@@ -1162,8 +1156,8 @@ describe("Cairo Central Nile content", () => {
       roadside.filter((block) => block.id.endsWith("-left")),
     ).toHaveLength(ROADSIDE_LEFT);
     expect(
-      roadside.filter((block) => block.id.endsWith("-right")),
-    ).toHaveLength(ROADSIDE_COUNT - ROADSIDE_LEFT);
+      roadside.filter((block) => block.id.includes("-rank-")),
+    ).toHaveLength(ROADSIDE_RANKS);
 
     // Most roadside frontage is now dressed with instanced glb buildings; the
     // procedural facade grid survives on the inland district parcels and the
@@ -1204,7 +1198,10 @@ describe("Cairo Central Nile content", () => {
         roadside.some(
           (block) =>
             block.id.startsWith(`${surfaceId}-roadside-`) &&
-            block.id.endsWith(`-${openSide}`),
+            // `includes`, not `endsWith`: a rank behind the frontage carries
+            // the side in the middle of its id, and it must stay off the water
+            // just as the frontage does.
+            block.id.includes(`-${openSide}`),
         ),
         `${surfaceId} ${openSide} side should retain its Nile view`,
       ).toBe(false);
@@ -1241,8 +1238,13 @@ describe("Cairo Central Nile content", () => {
           );
         }),
       );
-      expect(distance, block.id).toBeGreaterThan(20);
-      expect(distance, block.id).toBeLessThan(31);
+      // The frontage rank stands just past the pavement — that is the whole
+      // point of it, and the band is tight enough to catch a parcel drifting
+      // out into open ground. Ranks behind it step back by their own depth plus
+      // the gap, so they get a wider band rather than no check at all.
+      const rank = Number(block.id.match(/-rank-(\d+)$/)?.[1] ?? 1);
+      expect(distance, block.id).toBeGreaterThan(11);
+      expect(distance, block.id).toBeLessThan(rank === 1 ? 31 : 62);
 
       const parcel = testOrientedRect(
         block.center,

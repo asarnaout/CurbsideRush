@@ -201,6 +201,23 @@ export function missingBuildingConfigs(): string[] {
   return [...missing];
 }
 
+/**
+ * How deep a block must be to hold this set's street wall.
+ *
+ * A parcel shallower than its deepest model does not merely look tight — the
+ * model overhangs the block on both sides, into whatever stands behind it. The
+ * Corniche set is 4.7 m deeper than the mid-rise sets, which is the difference
+ * between a clean rank gap and towers standing in each other.
+ */
+export function buildingSetDepthM(setId: BuildingSetId): number {
+  return Math.max(
+    ...SETS[setId].map((id) => {
+      const cfg = PLACEMENTS[id];
+      return cfg ? (cfg.depthM ?? cfg.footprintM) : 0;
+    }),
+  );
+}
+
 /** Placement config for a catalogue model id (for tests / tooling). */
 export function buildingPlacementConfig(
   id: string,

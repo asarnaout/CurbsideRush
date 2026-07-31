@@ -109,23 +109,33 @@ corridor, and deliberately leave four Nile-facing sides open.
 its district's fabric with no content edit. The riverfront roads get the tall
 `cairo-corniche` set; the rest zone on x/z like `cairoRoadsideStyle` does.
 
-**The strips are frontage; `cairo-infill-*` is the land behind them.** Strips
-alone are a veneer — 30 m of wall backed by open ground the car drives straight
-across, because a `ProceduralBlock` is also its collider. The infill pass tiles
-the space between the roads through the same `addCairoRoadsideBlock` gate, so it
-inherits every keep-out the strips respect. Tuning the strip generator instead is
-a dead end and was measured as one: bend-only setbacks, recursive subdivision and
-every packing knob moved road coverage by under a point, because the strips
-already take every metre the exclusions leave them.
+**Depth is what gets a roadside parcel refused, so it is derived, not chosen.**
+A 30 m strip needs 30 m of clear land; wherever a junction, forecourt or district
+block came nearer than that, the whole frontage was refused and the street stood
+bare. `buildingSetDepthM` gives each parcel exactly the depth its set needs, and
+the land behind is recovered by **ranks** — further parcels on the road's own
+heading, stepping back by depth + gap. Every rank is single-edge for the same
+reason the frontage is.
+
+**Measure the kerb, not the neighbourhood.** The number that matches what a
+driver sees is the share of kerb with a building standing on it, projected onto
+the road normal. A "is there a block near this road" metric says 55% where the
+exact one says 28%, and optimising the loose one produced buildings at arbitrary
+angles in the middle of open ground — more built area, plainly wrong to look at.
+Two things measured *worse* on the exact metric despite adding blocks: bend-only
+setbacks and shorter parcels. Acceptance is greedy and ordered, so extra
+candidates near junctions consume land that better-placed parcels would have
+used.
 
 **A roadside strip must name its one road-facing edge** (`streetEdges` on
 `ProceduralBlock`). `slotBlockBuildings` defaults to all four, which is right for
 a city block with roads around it and wrong for a strip: buildings are inset by
-half their footprint, so on a parcel shallower than two footprints the opposite
-rows occupy the same ground. Cairo's 28–34 m parcels against footprints up to
-18.5 m overlapped by up to 18 m — invisible in any count, and on screen a white
-flicker that worsens with camera motion. Guarded by "no two buildings
-interpenetrate on any Cairo parcel" in `buildingPlacement.test.ts`.
+half their depth, so on a parcel shallower than two depths the opposite rows
+occupy the same ground — Cairo's old 28–34 m parcels against depths up to 18.7 m
+overlapped by up to 18 m. Invisible in any count, and on screen a white flicker
+that worsens with camera motion. Guarded by "no two buildings interpenetrate on
+any Cairo parcel" in `buildingPlacement.test.ts`, which sweeps every parcel
+because the overlap depends on which models the seed draws.
 
 **One roadside parcel in six deliberately keeps the procedural facade boxes**
 (`cairoParcelKeepsFacadeBoxes`), as do all the inland district parcels. That
