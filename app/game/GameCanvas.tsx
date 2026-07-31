@@ -1738,6 +1738,9 @@ export interface GameCanvasWaterBody {
   readonly polygon: readonly GameCanvasPoint[];
   readonly color: string;
   readonly flowHeadingDeg?: number;
+  /** Road surfaces that cross this water — their over-water spans wall boat
+   * tracks (the drivable bridges have no underside to pass beneath). */
+  readonly bridgePortalSurfaceIds?: readonly string[];
 }
 
 export interface WaterPolygonGeometry {
@@ -1935,10 +1938,154 @@ function rayDistanceToPolygonEdge(
   return nearest;
 }
 
+/**
+ * What a boat track must never cross. The two drivable Nile bridges have no
+ * underside at all — their road surface IS the deck, at water level — so no
+ * craft passes them at any mast height; their over-water spans are hard
+ * walls. The elevated expressway is the opposite: its soffit clears every
+ * mast, and only its pier columns need avoiding.
+ */
+export interface WaterBoatObstacles {
+  readonly spans: readonly {
+    readonly x: number;
+    readonly z: number;
+    readonly ux: number;
+    readonly uz: number;
+    readonly halfLengthM: number;
+    readonly halfWidthM: number;
+  }[];
+  readonly piers: readonly {
+    readonly x: number;
+    readonly z: number;
+    readonly radiusM: number;
+  }[];
+}
+
+/** Hull lengths per variant: motor skiff, felucca, tour boat. */
+export const WATER_BOAT_LENGTHS_M = [4.6, 6.5, 6.2] as const;
+/** Highest point above the waterline per variant — the felucca's masthead at
+ * its 6.5 m hull is 5.7 m, under the elevated deck soffit
+ * (CAIRO_ELEVATED_DECK_Y − thickness/2 = 6.84). */
+export const WATER_BOAT_AIR_DRAFTS_M = [1.1, 5.7, 1.5] as const;
+/** Track clearance around obstacles: the widest half-beam plus water room. */
+export const WATER_BOAT_CLEARANCE_M = 3.6;
+/** Per-variant craft glbs: motor skiff, felucca, tour boat (the skiff again
+ * at a longer hull). Cairo-only files; CREDITS.md logs their provenance. */
+export const WATER_BOAT_MODEL_URLS = [
+  "/models/props/cairo-skiff.glb",
+  "/models/props/cairo-felucca.glb",
+  "/models/props/cairo-skiff.glb",
+] as const;
+/** How deep each hull sits below the waterline pose. */
+const WATER_BOAT_DRAUGHT_M = 0.3;
+export const CAIRO_ELEVATED_DECK_Y = 7.2;
+export const CAIRO_ELEVATED_DECK_THICKNESS_M = 0.72;
+export const CAIRO_ELEVATED_PIER_RADIUS_M = 0.825;
+
+/** The obstacle set for one water body, shared verbatim by the renderer and
+ * the tests so neither can drift from what the boats actually avoid. */
+export function cairoWaterBoatObstacles(
+  geometry: {
+    readonly roadSurfaces?: GameCanvasMapPack["geometry"]["roadSurfaces"];
+    readonly landmarks?: GameCanvasMapPack["geometry"]["landmarks"];
+  },
+  body: GameCanvasWaterBody,
+): WaterBoatObstacles {
+  const spans: WaterBoatObstacles["spans"][number][] = [];
+  for (const surfaceId of body.bridgePortalSurfaceIds ?? []) {
+    const surface = geometry.roadSurfaces?.find(
+      (candidate) => candidate.id === surfaceId,
+    );
+    if (!surface) continue;
+    for (const span of bridgePortalRailSpans(body, surface)) {
+      spans.push({
+        x: span.center.x,
+        z: span.center.z,
+        ux: span.ux,
+        uz: span.uz,
+        halfLengthM: span.halfLengthM,
+        halfWidthM: surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8),
+      });
+    }
+  }
+  const piers: WaterBoatObstacles["piers"][number][] = [];
+  const scenic = geometry.landmarks?.find(
+    (landmark) => landmark.id === "cairo-sixth-october-bridge",
+  );
+  if (scenic) {
+    const axis = cairoBridgeVisualAxis(scenic, geometry.roadSurfaces ?? []);
+    for (const pier of cairoElevatedBridgePierPlacements(
+      axis,
+      geometry.roadSurfaces ?? [],
+    )) {
+      piers.push({
+        x: pier.position.x,
+        z: pier.position.z,
+        radiusM: CAIRO_ELEVATED_PIER_RADIUS_M,
+      });
+    }
+  }
+  return { spans, piers };
+}
+
+function rayObstacleDistance(
+  origin: GameCanvasPoint,
+  direction: GameCanvasPoint,
+  obstacles: WaterBoatObstacles | undefined,
+): number {
+  if (!obstacles) return Number.POSITIVE_INFINITY;
+  let nearest = Number.POSITIVE_INFINITY;
+  for (const span of obstacles.spans) {
+    // Slab test in the span's own frame, inflated by the boat clearance.
+    const vx = -span.uz;
+    const vz = span.ux;
+    const halfU = span.halfLengthM + WATER_BOAT_CLEARANCE_M;
+    const halfV = span.halfWidthM + WATER_BOAT_CLEARANCE_M;
+    const ou = (origin.x - span.x) * span.ux + (origin.z - span.z) * span.uz;
+    const ov = (origin.x - span.x) * vx + (origin.z - span.z) * vz;
+    const du = direction.x * span.ux + direction.z * span.uz;
+    const dv = direction.x * vx + direction.z * vz;
+    let enter = -Infinity;
+    let exit = Infinity;
+    let miss = false;
+    for (const [offset, delta, half] of [
+      [ou, du, halfU],
+      [ov, dv, halfV],
+    ] as const) {
+      if (Math.abs(delta) < 1e-9) {
+        if (Math.abs(offset) > half) miss = true;
+        continue;
+      }
+      const t0 = (-half - offset) / delta;
+      const t1 = (half - offset) / delta;
+      enter = Math.max(enter, Math.min(t0, t1));
+      exit = Math.min(exit, Math.max(t0, t1));
+    }
+    if (!miss && enter <= exit && exit > 0) {
+      nearest = Math.min(nearest, Math.max(0, enter));
+    }
+  }
+  for (const pier of obstacles.piers) {
+    const radius = pier.radiusM + WATER_BOAT_CLEARANCE_M;
+    const ox = origin.x - pier.x;
+    const oz = origin.z - pier.z;
+    const b = ox * direction.x + oz * direction.z;
+    const c = ox * ox + oz * oz - radius * radius;
+    const disc = b * b - c;
+    if (disc < 0) continue;
+    const root = Math.sqrt(disc);
+    const tNear = -b - root;
+    const tFar = -b + root;
+    if (tFar > 0) nearest = Math.min(nearest, Math.max(0, tNear));
+  }
+  return nearest;
+}
+
 /** Stable visual-only Nile traffic; never consumes the simulation PRNG. */
 export function generateWaterBoatPlacements(
   mapId: string,
   body: GameCanvasWaterBody,
+  obstacles?: WaterBoatObstacles,
 ): readonly WaterBoatPlacement[] {
   const polygon = buildWaterPolygonGeometry(body.polygon).polygon;
   if (polygon.length < 3) return [];
@@ -1973,11 +2120,16 @@ export function generateWaterBoatPlacements(
       ((body.flowHeadingDeg ?? defaultHeadingDeg) * Math.PI) / 180 +
       (random() - 0.5) * 0.22;
     const direction = { x: Math.sin(heading), z: Math.cos(heading) };
-    const forward = rayDistanceToPolygonEdge(candidate, direction, polygon);
-    const backward = rayDistanceToPolygonEdge(
-      candidate,
-      { x: -direction.x, z: -direction.z },
-      polygon,
+    // A candidate already inside an obstacle's clearance can never sail out.
+    if (rayObstacleDistance(candidate, direction, obstacles) === 0) continue;
+    const forward = Math.min(
+      rayDistanceToPolygonEdge(candidate, direction, polygon),
+      rayObstacleDistance(candidate, direction, obstacles),
+    );
+    const reverse = { x: -direction.x, z: -direction.z };
+    const backward = Math.min(
+      rayDistanceToPolygonEdge(candidate, reverse, polygon),
+      rayObstacleDistance(candidate, reverse, obstacles),
     );
     const trackStartM = -(backward - 7);
     const trackLengthM = forward + backward - 14;
@@ -5184,6 +5336,12 @@ class BabylonGameSession {
   private readonly parkedCarMasters = new Map<
     number,
     { mesh: Mesh; scale: number; baseY: number; longAxis: "x" | "z" } | null
+  >();
+  /** River craft to instantiate once the boat glbs preload. */
+  private readonly pendingWaterBoats: { bodyId: string; placement: WaterBoatPlacement }[] = [];
+  private readonly waterBoatMasters = new Map<
+    number,
+    { mesh: Mesh; scale: number; yOffset: number; yawOffset: number } | null
   >();
   /** Knockable street furniture, bucketed for the per-step broad phase. */
   private readonly destructibleGrid = new Map<string, DestructibleProp[]>();
@@ -8445,6 +8603,40 @@ class BabylonGameSession {
   }
 
   /**
+   * A merged master per boat variant, sized so the hull reads at its authored
+   * length and seated so the waterline sits WATER_BOAT_DRAUGHT_M up the hull.
+   * The boats sail bow-first along local +z of the wave root; a model whose
+   * long axis merged onto x gets the quarter turn.
+   */
+  private getWaterBoatMaster(
+    variant: number,
+  ): { mesh: Mesh; scale: number; yOffset: number; yawOffset: number } | null {
+    const cached = this.waterBoatMasters.get(variant);
+    if (cached !== undefined) return cached;
+    const url = WATER_BOAT_MODEL_URLS[variant % WATER_BOAT_MODEL_URLS.length];
+    const mesh = this.getBuildingMaster(url);
+    let built:
+      | { mesh: Mesh; scale: number; yOffset: number; yawOffset: number }
+      | null = null;
+    if (mesh) {
+      const bounds = mesh.getBoundingInfo().boundingBox;
+      const extentX = bounds.maximum.x - bounds.minimum.x;
+      const extentZ = bounds.maximum.z - bounds.minimum.z;
+      const scale =
+        WATER_BOAT_LENGTHS_M[variant % WATER_BOAT_LENGTHS_M.length] /
+        Math.max(extentX, extentZ);
+      built = {
+        mesh,
+        scale,
+        yOffset: -bounds.minimum.y * scale - WATER_BOAT_DRAUGHT_M,
+        yawOffset: extentX > extentZ ? Math.PI / 2 : 0,
+      };
+    }
+    this.waterBoatMasters.set(variant, built);
+    return built;
+  }
+
+  /**
    * A merged, tinted master per parked-car variant. The base merge is shared
    * through getBuildingMaster (one geometry upload per url); the clone carries
    * its own MultiMaterial so the body slot can be tinted without recolouring
@@ -8696,6 +8888,32 @@ class BabylonGameSession {
       if (placed === 0) buildFallback();
     }
     this.pendingBuildingBlocks.length = 0;
+
+    // River craft: merged-master instances of the CC0 boats, one cheap scene
+    // mesh per boat, parented under a root the wave animation moves. Scale and
+    // waterline seat are measured from the merged bounds, so the felucca's
+    // masthead lands exactly at its pinned air draft.
+    let boatIndex = 0;
+    for (const pending of this.pendingWaterBoats) {
+      const master = this.getWaterBoatMaster(pending.placement.variant);
+      if (!master) continue;
+      const root = new TransformNode(
+        `${pending.bodyId}-boat-${boatIndex}`,
+        this.scene,
+      );
+      boatIndex += 1;
+      const pose = waterBoatPoseAt(pending.placement, 0);
+      root.position.set(pose.x, pose.y, pose.z);
+      root.rotation.set(0, pose.heading, pose.roll);
+      const inst = master.mesh.createInstance(`${root.name}-hull`);
+      inst.parent = root;
+      inst.position.set(0, master.yOffset, 0);
+      inst.rotation.y = master.yawOffset;
+      inst.scaling.setAll(master.scale);
+      inst.isPickable = false;
+      this.animatedWaterBoats.push({ root, placement: pending.placement });
+    }
+    this.pendingWaterBoats.length = 0;
 
     // Kerbside parked cars: instances of the tinted vehicle masters. Same
     // visual-only status as the old box assembly — decoration, no collider.
@@ -10559,6 +10777,8 @@ class BabylonGameSession {
     this.buildingModelUrls = [
       ...buildingSetUrls(setIds),
       ...(setIds.length ? nycVendorUrls() : []),
+      // River craft ride the same preload: a map with water gets its boats.
+      ...(mapPack.geometry.waterBodies?.length ? WATER_BOAT_MODEL_URLS : []),
     ];
 
     for (const service of mapPack.geometry.servicePoints ?? []) {
@@ -11418,7 +11638,7 @@ class BabylonGameSession {
       );
       const length = axis.lengthM;
       const width = axis.widthM;
-      const deckY = 7.2;
+      const deckY = CAIRO_ELEVATED_DECK_Y;
       const root = new TransformNode(`${landmark.id}-axis`, scene);
       root.position.set(axis.center.x, 0, axis.center.z);
       root.rotation.y = axis.boxYawRad;
@@ -11475,7 +11695,7 @@ class BabylonGameSession {
       const deck = createBox(
         scene,
         `${landmark.id}-raised-deck`,
-        { width: length, height: 0.72, depth: width },
+        { width: length, height: CAIRO_ELEVATED_DECK_THICKNESS_M, depth: width },
         new Vector3(0, deckY, 0),
         expressway,
         root,
@@ -11490,7 +11710,7 @@ class BabylonGameSession {
         {
           height: deckY - 0.45,
           diameterTop: 1.25,
-          diameterBottom: 1.65,
+          diameterBottom: CAIRO_ELEVATED_PIER_RADIUS_M * 2,
           tessellation: 8,
         },
         scene,
@@ -13135,30 +13355,16 @@ class BabylonGameSession {
   }
 
   /**
-   * Builds the authored Nile channels plus a sparse, deterministic set of
-   * original low-poly river craft. Water is scenery, not simulation state:
-   * boats are keyed from map/body ids and never touch the traffic PRNG.
+   * Builds the authored Nile channels and computes the deterministic river
+   * craft placements. Water is scenery, not simulation state: boats are keyed
+   * from map/body ids and never touch the traffic PRNG. The craft themselves
+   * are glb instances (cairo-felucca / cairo-skiff), so like the vendor carts
+   * they are deferred to buildInstancedBuildings once the models preload.
    */
   private buildWaterBodies(mapPack: GameCanvasMapPack, mapId: string) {
     const bodies = mapPack.geometry.waterBodies ?? [];
     if (!bodies.length) return;
     const scene = this.scene;
-    const hullMaterials = [
-      makeMaterial(scene, "nile-boat-hull-cream", new Color3(0.74, 0.67, 0.5)),
-      makeMaterial(scene, "nile-boat-hull-blue", new Color3(0.12, 0.31, 0.43)),
-      makeMaterial(scene, "nile-boat-hull-red", new Color3(0.48, 0.16, 0.11)),
-    ];
-    const boatTrim = makeMaterial(
-      scene,
-      "nile-boat-trim",
-      new Color3(0.15, 0.13, 0.1),
-    );
-    const sailMaterial = makeMaterial(
-      scene,
-      "nile-felucca-sail",
-      new Color3(0.86, 0.82, 0.7),
-    );
-    sailMaterial.backFaceCulling = false;
 
     for (const body of bodies) {
       const geometry = buildWaterPolygonGeometry(body.polygon);
@@ -13194,89 +13400,14 @@ class BabylonGameSession {
       this.registerMirrorSurface(mesh);
       material.freeze();
 
-      for (const [index, placement] of generateWaterBoatPlacements(
+      const obstacles = cairoWaterBoatObstacles(mapPack.geometry, body);
+      for (const placement of generateWaterBoatPlacements(
         mapId,
         body,
-      ).entries()) {
-        const root = new TransformNode(`${body.id}-boat-${index}`, scene);
-        const initialPose = waterBoatPoseAt(placement, 0);
-        root.position.set(initialPose.x, initialPose.y, initialPose.z);
-        root.rotation.set(0, initialPose.heading, initialPose.roll);
-        const hull = MeshBuilder.CreateCylinder(
-          `${body.id}-boat-${index}-hull`,
-          {
-            height: 0.55,
-            diameterTop: 1.65,
-            diameterBottom: 1.15,
-            tessellation: 4,
-          },
-          scene,
-        );
-        hull.parent = root;
-        hull.position.y = 0.3;
-        hull.scaling.z = placement.variant === 2 ? 2.75 : 2.2;
-        setMeshMaterial(hull, hullMaterials[placement.variant]);
-
-        const deck = createBox(
-          scene,
-          `${body.id}-boat-${index}-deck`,
-          {
-            width: placement.variant === 2 ? 1.35 : 1.05,
-            height: 0.12,
-            depth: placement.variant === 2 ? 3.45 : 2.65,
-          },
-          new Vector3(0, 0.61, 0),
-          boatTrim,
-          root,
-        );
-        const parts: AbstractMesh[] = [hull, deck];
-        if (placement.variant === 1) {
-          const mast = createCylinder(
-            scene,
-            `${body.id}-boat-${index}-mast`,
-            { height: 4, diameter: 0.09, tessellation: 8 },
-            new Vector3(0, 2.45, 0.05),
-            boatTrim,
-            root,
-          );
-          const sail = createChamferedPanel(
-            scene,
-            `${body.id}-boat-${index}-sail`,
-            [
-              { x: -0.05, y: -0.5 },
-              { x: 0.95, y: -0.5 },
-              { x: -0.05, y: 0.5 },
-            ],
-            2.75,
-            3.45,
-            sailMaterial,
-            root,
-          );
-          sail.position.set(0.08, 2.52, -0.03);
-          parts.push(mast, sail);
-        } else {
-          const cabin = createBox(
-            scene,
-            `${body.id}-boat-${index}-cabin`,
-            {
-              width: placement.variant === 2 ? 1.28 : 0.8,
-              height: placement.variant === 2 ? 0.85 : 0.58,
-              depth: placement.variant === 2 ? 1.8 : 0.9,
-            },
-            new Vector3(0, placement.variant === 2 ? 1.05 : 0.9, 0.15),
-            placement.variant === 2 ? sailMaterial : hullMaterials[0],
-            root,
-          );
-          parts.push(cabin);
-        }
-        for (const part of parts) {
-          part.isPickable = false;
-        }
-        this.animatedWaterBoats.push({ root, placement });
+        obstacles,
+      )) {
+        this.pendingWaterBoats.push({ bodyId: body.id, placement });
       }
-    }
-    for (const material of [...hullMaterials, boatTrim, sailMaterial]) {
-      material.freeze();
     }
   }
 

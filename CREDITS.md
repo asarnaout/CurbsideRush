@@ -113,6 +113,25 @@ converted from OBJ + MTL to a self-contained quantized GLB by
 `cairo-office-block` and `cairo-depot` replace the pitched-roof `office.glb`
 (Quaternius "Big Building") on the Cairo map only; NYC and London keep using it.
 
+### Nile boats (CC0)
+
+- **props/cairo-felucca.glb** ("Sail Boat") — by **Quaternius** via Poly Pizza
+  (<https://poly.pizza/m/BgSZXwmm7k>; creator: <https://quaternius.com>),
+  released **CC0 1.0**. Downloaded 2026-07-31. Source GLB SHA-256
+  `dd0d959f66c058e2afcfc01227f80b83347b5105d324690596a0c0eb6e65fb95`;
+  committed GLB SHA-256
+  `e7dcd4b5c2888dfd050698ca1e52966e1b55230dc80d1153b060cf96edfb2ab6`.
+  Sail retinted to felucca cream and all materials flattened matte by
+  `tools/cairo-boats.mjs`; instanced as the Nile's masted craft.
+- **props/cairo-skiff.glb** ("Boat") — by **Quaternius** via Poly Pizza
+  (<https://poly.pizza/m/5UEl54KsuC>; creator: <https://quaternius.com>),
+  released **CC0 1.0**. Downloaded 2026-07-31. Source GLB SHA-256
+  `263e5d46f79e8b37afecd0db9056b22dc33c6456074d260589285d1891192335`;
+  committed GLB SHA-256
+  `f73cbe3bbe8f001e30d5ad78b258eb7ac6f417770773b0ba07806a44ac187472`.
+  Materials flattened matte by `tools/cairo-boats.mjs`; instanced as the
+  motor skiff and tour boat variants.
+
 - **props/cairo-shop.glb** ("Building") — by **Kay Lousberg**, from the City
   Builder Bits pack via Poly Pizza (<https://poly.pizza/m/EL3ePInr1N>; creator
   page: <https://kaylousberg.com/game-assets/city-builder-bits>), released

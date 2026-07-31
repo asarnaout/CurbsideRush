@@ -6,7 +6,11 @@ import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import {
   biasCairoDecalMaterials,
   buildWaterPolygonGeometry,
+  CAIRO_ELEVATED_DECK_THICKNESS_M,
+  CAIRO_ELEVATED_DECK_Y,
+  cairoWaterBoatObstacles,
   PARKED_CAR_SOURCES,
+  WATER_BOAT_AIR_DRAFTS_M,
   CAIRO_DECAL_MATERIAL_NAMES,
   CAIRO_DECAL_Z_OFFSET_UNITS,
   CAIRO_STREET_WALL_URL_RE,
@@ -107,8 +111,66 @@ describe("Cairo water scenery", () => {
         (geometry.polygon.length - 2) * 3,
       );
       expect(
-        generateWaterBoatPlacements(CAIRO_MAP_PACK.id, body).length,
+        generateWaterBoatPlacements(
+          CAIRO_MAP_PACK.id,
+          body,
+          cairoWaterBoatObstacles(CAIRO_MAP_PACK.geometry, body),
+        ).length,
       ).toBeGreaterThan(0);
+    }
+  });
+
+  // The two drivable bridges have no underside — their road surface IS the
+  // deck at water level — so a boat can never pass them; the elevated
+  // expressway clears every mast and only its piers matter. These run the
+  // renderer's own obstacle set through the real generator.
+  it("keeps every boat track clear of bridge spans and piers", () => {
+    const soffitY =
+      CAIRO_ELEVATED_DECK_Y - CAIRO_ELEVATED_DECK_THICKNESS_M / 2;
+    // The felucca is the only masted variant; its masthead must clear the
+    // elevated deck it is allowed to pass beneath.
+    expect(WATER_BOAT_AIR_DRAFTS_M[1]).toBeLessThan(soffitY);
+
+    const bodies = CAIRO_MAP_PACK.geometry.waterBodies ?? [];
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const body of bodies) {
+      const obstacles = cairoWaterBoatObstacles(CAIRO_MAP_PACK.geometry, body);
+      expect(obstacles.spans.length, body.id).toBeGreaterThan(0);
+      const placements = generateWaterBoatPlacements(
+        CAIRO_MAP_PACK.id,
+        body,
+        obstacles,
+      );
+      expect(placements.length, body.id).toBeGreaterThan(0);
+      for (const [index, placement] of placements.entries()) {
+        const dx = Math.sin(placement.heading);
+        const dz = Math.cos(placement.heading);
+        const steps = Math.max(2, Math.ceil(placement.trackLengthM));
+        for (let step = 0; step <= steps; step += 1) {
+          const along =
+            placement.trackStartM + (placement.trackLengthM * step) / steps;
+          const px = placement.x + dx * along;
+          const pz = placement.z + dz * along;
+          for (const span of obstacles.spans) {
+            const u = Math.abs(
+              (px - span.x) * span.ux + (pz - span.z) * span.uz,
+            );
+            const v = Math.abs(
+              (px - span.x) * -span.uz + (pz - span.z) * span.ux,
+            );
+            expect(
+              u > span.halfLengthM + 1.5 || v > span.halfWidthM + 1.5,
+              `${body.id} boat ${index} inside a bridge span at along=${along.toFixed(1)}`,
+            ).toBe(true);
+          }
+          for (const pier of obstacles.piers) {
+            expect(
+              Math.hypot(px - pier.x, pz - pier.z),
+              `${body.id} boat ${index} through a pier at along=${along.toFixed(1)}`,
+            ).toBeGreaterThan(pier.radiusM + 1.5);
+          }
+        }
+      }
     }
   });
 });

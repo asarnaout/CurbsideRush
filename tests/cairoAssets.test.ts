@@ -126,6 +126,40 @@ describe("Cairo bundled assets", () => {
         creditNeedles: ["tools/cairo-shopfront.mjs"],
       },
       {
+        file: "cairo-felucca.glb",
+        finalSha256:
+          "e7dcd4b5c2888dfd050698ca1e52966e1b55230dc80d1153b060cf96edfb2ab6",
+        provenance: {
+          style: "cairo-boat-v1",
+          author: "Quaternius",
+          title: "Sail Boat",
+          license: "CC0-1.0",
+          sourceUrl: "https://poly.pizza/m/BgSZXwmm7k",
+          creatorUrl: "https://quaternius.com",
+          sourceSha256:
+            "dd0d959f66c058e2afcfc01227f80b83347b5105d324690596a0c0eb6e65fb95",
+          modifications: "Cream lateen sail and matte material pass",
+        },
+        creditNeedles: ["tools/cairo-boats.mjs"],
+      },
+      {
+        file: "cairo-skiff.glb",
+        finalSha256:
+          "f73cbe3bbe8f001e30d5ad78b258eb7ac6f417770773b0ba07806a44ac187472",
+        provenance: {
+          style: "cairo-boat-v1",
+          author: "Quaternius",
+          title: "Boat",
+          license: "CC0-1.0",
+          sourceUrl: "https://poly.pizza/m/5UEl54KsuC",
+          creatorUrl: "https://quaternius.com",
+          sourceSha256:
+            "263e5d46f79e8b37afecd0db9056b22dc33c6456074d260589285d1891192335",
+          modifications: "Matte material pass",
+        },
+        creditNeedles: [],
+      },
+      {
         file: "cairo-residence-quaternius.glb",
         finalSha256:
           "dd9e6487f6c5cb4480b4489c2e8152994e1b9d9a9efc3fd002f1b1046c9eee63",
