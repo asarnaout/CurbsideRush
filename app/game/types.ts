@@ -9,29 +9,23 @@ export type SpeedUnit = "mph" | "kmh";
 export type CameraMode = "first_person" | "third_person";
 export type Gear = "drive" | "reverse";
 
-export type CountryId = "us" | "uk" | "fr" | "jp" | "eg";
+export type CountryId = "us" | "uk" | "jp" | "eg";
 
 export type DestinationId =
   | "us-nyc"
   | "uk-london"
-  | "uk-milton-keynes"
-  | "fr-calais"
   | "jp-tokyo"
   | "eg-cairo";
 
 export type MapId =
   | "nyc-upper-west-side"
   | "london-south-kensington"
-  | "milton-keynes-oldbrook"
-  | "calais-coquelles"
   | "tokyo-setagaya"
   | "cairo-central-nile";
 
 export type FreeDriveId =
   | "free-us"
-  | "free-uk"
   | "free-uk-london"
-  | "free-fr"
   | "free-jp"
   | "free-eg";
 

@@ -113,9 +113,7 @@ describe("modern fleet variety", () => {
 
   it("wears the plates of whichever country's map is loaded", () => {
     expect(resolvePlayerVehicleAppearance("london-south-kensington").plateRegion).toBe("uk");
-    expect(resolvePlayerVehicleAppearance("milton-keynes-oldbrook").plateRegion).toBe("uk");
     expect(resolvePlayerVehicleAppearance("nyc-upper-west-side").plateRegion).toBe("us");
-    expect(resolvePlayerVehicleAppearance("calais-coquelles").plateRegion).toBe("fr");
     expect(resolvePlayerVehicleAppearance("tokyo-setagaya").plateRegion).toBe("jp");
     expect(resolvePlayerVehicleAppearance("cairo-central-nile").plateRegion).toBe("eg");
     // Traffic inherits the same regional plate as the map it drives on.
@@ -141,7 +139,6 @@ describe("modern fleet variety", () => {
 
     expect(plateNumberForVehicle("uk", "a")).toMatch(/^[A-Z]{2}\d{2} [A-Z]{3}$/);
     expect(plateNumberForVehicle("us", "a")).toMatch(/^[A-Z]{3} \d{4}$/);
-    expect(plateNumberForVehicle("fr", "a")).toMatch(/^[A-Z]{2}-\d{3}-[A-Z]{2}$/);
     expect(plateNumberForVehicle("jp", "a")).toMatch(/^\S \d{2}-\d{2}$/u);
     expect(plateNumberForVehicle("eg", "a")).toMatch(
       /^[\u0600-\u06ff] [\u0600-\u06ff] [\u0600-\u06ff] · [٠-٩]{3}$/u,
@@ -188,7 +185,7 @@ describe("semantic and regional vehicle roles", () => {
   });
 
   it("uses dedicated silhouettes for vans and non-London buses", () => {
-    expect(resolve("van", "calais-coquelles")).toMatchObject({
+    expect(resolve("van", "nyc-upper-west-side")).toMatchObject({
       model: "delivery-van",
       role: "van",
     });
@@ -232,7 +229,7 @@ describe("vehicle appearance data integrity", () => {
       vehicleId: "delivery-1",
       trafficSeed: 10,
       variant: "van",
-      mapId: "calais-coquelles",
+      mapId: "nyc-upper-west-side",
     }),
     resolveTrafficVehicleAppearance({
       vehicleId: "bus-1",
@@ -302,8 +299,6 @@ describe("patrol car liveries", () => {
   const CITIES = [
     "nyc-upper-west-side",
     "london-south-kensington",
-    "milton-keynes-oldbrook",
-    "calais-coquelles",
     "tokyo-setagaya",
     "cairo-central-nile",
   ] as const;
@@ -351,11 +346,6 @@ describe("patrol car liveries", () => {
       markingHex: "#0b4ea2",
       secondaryHex: "#f5d417",
     });
-    // Police nationale: white with a blue belt band.
-    expect(livery("calais-coquelles")).toMatchObject({
-      style: "stripe",
-      markingHex: "#1b3f92",
-    });
     // Japanese patrol cars are the white-over-black 白黒 scheme.
     expect(livery("tokyo-setagaya")).toMatchObject({
       style: "half-black",
@@ -370,11 +360,8 @@ describe("patrol car liveries", () => {
       markingHex: "#173f72",
     });
 
-    // Two UK cities share one national scheme; the four countries do not.
-    expect(livery("milton-keynes-oldbrook")).toEqual(
-      livery("london-south-kensington"),
-    );
-    expect(new Set(CITIES.map((city) => policeLiveryForMap(city).force)).size).toBe(5);
+    // One scheme per country, and no two countries share one.
+    expect(new Set(CITIES.map((city) => policeLiveryForMap(city).force)).size).toBe(4);
   });
 
   it("keeps patrols a minority of traffic, and only ever cars", () => {

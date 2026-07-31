@@ -23,8 +23,6 @@ import type { MapId } from "../app/game/types";
 const CITIES: readonly MapId[] = [
   "nyc-upper-west-side",
   "london-south-kensington",
-  "milton-keynes-oldbrook",
-  "calais-coquelles",
   "tokyo-setagaya",
   "cairo-central-nile",
 ];
@@ -84,16 +82,10 @@ describe("what a map marks", () => {
   });
 
   it("has no cameras to mark in the cities that have no signals", () => {
-    // Milton Keynes, Calais and Tokyo run on yields, crosswalks and a railway
-    // signal — no traffic lights, so no enforcement. The legend has to survive
-    // a family with nothing in it.
-    for (const id of [
-      "milton-keynes-oldbrook",
-      "calais-coquelles",
-      "tokyo-setagaya",
-    ] as const) {
-      expect(countMapPois(poisFor(id)).camera, id).toBe(0);
-    }
+    // Tokyo runs on yields, crosswalks and a railway signal — no traffic
+    // lights, so no enforcement. The legend has to survive a family with
+    // nothing in it.
+    expect(countMapPois(poisFor("tokyo-setagaya")).camera).toBe(0);
     // London authors two signals, and the ranked draw floors at one.
     expect(countMapPois(poisFor("london-south-kensington")).camera).toBe(1);
     expect(countMapPois(poisFor("nyc-upper-west-side")).camera).toBeGreaterThan(10);

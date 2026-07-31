@@ -42,7 +42,6 @@ function memoryStorage(seed?: Record<string, string>): ProgressStorage {
 const fullTank = {
   us: TANK_CAPACITY_L,
   uk: TANK_CAPACITY_L,
-  fr: TANK_CAPACITY_L,
   jp: TANK_CAPACITY_L,
   eg: TANK_CAPACITY_L,
 };
@@ -59,7 +58,6 @@ describe("player progress (V2 economy)", () => {
     expect(progress.lifetimeEarnings).toEqual({
       us: 0,
       uk: 0,
-      fr: 0,
       jp: 0,
       eg: 0,
     });
@@ -113,9 +111,9 @@ describe("player progress (V2 economy)", () => {
   it("preserves an existing v2 wallet, fuel and earnings on reload", () => {
     const saved: PlayerProgressV2 = {
       ...createDefaultProgress("2026-07-10T12:00:00.000Z"),
-      walletByCountry: { us: 100, uk: 55, fr: 12, jp: 5000, eg: 750 },
-      fuelByCountry: { us: 10, uk: 20, fr: 30, jp: 40, eg: 15 },
-      lifetimeEarnings: { us: 250, uk: 0, fr: 0, jp: 8000, eg: 1250 },
+      walletByCountry: { us: 100, uk: 55, jp: 5000, eg: 750 },
+      fuelByCountry: { us: 10, uk: 20, jp: 40, eg: 15 },
+      lifetimeEarnings: { us: 250, uk: 0, jp: 8000, eg: 1250 },
       completedGigCount: 7,
     };
     const storage = memoryStorage({ "sideswap:v2": JSON.stringify(saved) });
@@ -123,14 +121,12 @@ describe("player progress (V2 economy)", () => {
     expect(restored.walletByCountry).toEqual({
       us: 100,
       uk: 55,
-      fr: 12,
       jp: 5000,
       eg: 750,
     });
     expect(restored.fuelByCountry).toEqual({
       us: 10,
       uk: 20,
-      fr: 30,
       jp: 40,
       eg: 15,
     });
@@ -204,12 +200,12 @@ describe("player progress (V2 economy)", () => {
 
   it("consumes and refuels within the tank bounds", () => {
     let progress = createDefaultProgress();
-    progress = consumeFuel(progress, "fr", 1000); // clamps at empty
-    expect(progress.fuelByCountry.fr).toBe(0);
-    progress = setFuel(progress, "fr", 1000); // clamps at full
-    expect(progress.fuelByCountry.fr).toBe(TANK_CAPACITY_L);
-    progress = setFuel(progress, "fr", -5);
-    expect(progress.fuelByCountry.fr).toBe(0);
+    progress = consumeFuel(progress, "jp", 1000); // clamps at empty
+    expect(progress.fuelByCountry.jp).toBe(0);
+    progress = setFuel(progress, "jp", 1000); // clamps at full
+    expect(progress.fuelByCountry.jp).toBe(TANK_CAPACITY_L);
+    progress = setFuel(progress, "jp", -5);
+    expect(progress.fuelByCountry.jp).toBe(0);
   });
 
   it("round-trips a saved progress record", () => {

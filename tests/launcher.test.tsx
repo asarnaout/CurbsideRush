@@ -197,12 +197,12 @@ describe("gig launcher", () => {
     },
   );
 
-  it("shows all six city chips and selects the cleared Cairo landing art", async () => {
+  it("shows a chip per city and selects the cleared Cairo landing art", async () => {
     render(<SideSwapApp />);
     await findTagline();
 
     const group = screen.getByRole("group", { name: "Destination" });
-    expect(within(group).getAllByRole("button")).toHaveLength(6);
+    expect(within(group).getAllByRole("button")).toHaveLength(4);
     fireEvent.click(
       within(group).getByRole("button", {
         name: /Cairo/i,

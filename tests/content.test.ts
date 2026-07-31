@@ -9,7 +9,6 @@ import {
   PASSENGER_FARE_BY_COUNTRY,
   STARTING_WALLET_BY_COUNTRY,
   getCountryProfile,
-  getDestinationProfile,
   formatMoney,
   getMapPack,
   resolveSteeringSide,
@@ -341,26 +340,22 @@ const nearCollinearReverseOverlapM = (
 };
 
 describe("SideSwap content", () => {
-  it("keeps five legal country profiles and six destination profiles", () => {
+  it("keeps four legal country profiles and four destination profiles", () => {
     expect(COUNTRY_PROFILES.map((country) => country.id)).toEqual([
       "us",
       "uk",
-      "fr",
       "jp",
       "eg",
     ]);
     expect(DESTINATION_PROFILES.map((destination) => destination.id)).toEqual([
       "uk-london",
       "us-nyc",
-      "uk-milton-keynes",
-      "fr-calais",
       "jp-tokyo",
       "eg-cairo",
     ]);
     expect(DESTINATION_PROFILES[0].promotion).toBe("featured");
-    expect(getDestinationProfile("uk-milton-keynes").promotion).toBe("specialist");
-    expect(FREE_DRIVES).toHaveLength(6);
-    expect(MAP_PACKS).toHaveLength(6);
+    expect(FREE_DRIVES).toHaveLength(4);
+    expect(MAP_PACKS).toHaveLength(4);
   });
 
   it("zones NYC so towers cluster clear of the residential house pocket", () => {
@@ -401,7 +396,6 @@ describe("SideSwap content", () => {
     > = {
       us: { code: "USD", symbol: "$", minorUnits: 2 },
       uk: { code: "GBP", symbol: "£", minorUnits: 2 },
-      fr: { code: "EUR", symbol: "€", minorUnits: 2 },
       jp: { code: "JPY", symbol: "¥", minorUnits: 0 },
       eg: { code: "EGP", symbol: "E£", minorUnits: 2 },
     };
@@ -412,7 +406,7 @@ describe("SideSwap content", () => {
     expect(formatMoney(3000, getCountryProfile("jp"))).toBe("¥3,000");
     expect(formatMoney(1000, getCountryProfile("eg"))).toBe("E£1,000.00");
     expect(formatMoney(20, getCountryProfile("us"))).toBe("$20.00");
-    expect(formatMoney(1234567.5, getCountryProfile("fr"))).toBe("€1,234,567.50");
+    expect(formatMoney(1234567.5, getCountryProfile("us"))).toBe("$1,234,567.50");
   });
 
   it("anchors every gas station to a real lane within its bounds", () => {
@@ -1213,55 +1207,6 @@ describe("SideSwap content", () => {
       expect(start?.kind, `${freeDrive.id} → ${freeDrive.startSpawnId}`).toBe(
         "player",
       );
-    }
-  });
-
-  it("authors yield controls for every taught east and west roundabout re-entry", () => {
-    const uk = getMapPack("milton-keynes-oldbrook");
-    const france = getMapPack("calais-coquelles");
-    const ukEast = uk.laneGraph.controls.find(
-      (control) => control.id === "uk-yield-east",
-    );
-    const franceWest = france.laneGraph.controls.find(
-      (control) => control.id === "fr-yield-west",
-    );
-
-    expect(ukEast?.approaches[0]?.stopLine).toEqual({
-      laneId: "uk-entry-east",
-      distanceAlongM: 86,
-    });
-    expect(franceWest?.approaches[0]?.stopLine).toEqual({
-      laneId: "fr-entry-west",
-      distanceAlongM: 94,
-    });
-  });
-
-  it("keeps circular roundabout islands fully inside the circulating carriageway", () => {
-    for (const [mapId, surfaceId, landmarkId] of [
-      ["milton-keynes-oldbrook", "uk-roundabout", "uk-roundabout-green"],
-      ["calais-coquelles", "fr-roundabout", "fr-roundabout-green"],
-    ] as const) {
-      const map = getMapPack(mapId);
-      const surface = map.geometry.roadSurfaces.find(
-        (candidate) => candidate.id === surfaceId,
-      );
-      const island = map.geometry.landmarks.find(
-        (candidate) => candidate.id === landmarkId,
-      );
-
-      expect(surface, `${mapId}/${surfaceId}`).toBeDefined();
-      expect(island, `${mapId}/${landmarkId}`).toBeDefined();
-      if (!surface || !island) continue;
-
-      const innerKerbRadiusM = Math.min(
-        ...surface.centerline.map((point) => distanceBetween(point, island.center)),
-      ) - surface.widthM / 2;
-      const islandRadiusM = Math.min(island.size.x, island.size.z) / 2;
-      expect(island.size.x).toBe(island.size.z);
-      expect(
-        islandRadiusM,
-        `${mapId} island must leave a visible paved inner-kerb margin`,
-      ).toBeLessThanOrEqual(innerKerbRadiusM - 1);
     }
   });
 

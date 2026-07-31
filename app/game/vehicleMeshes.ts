@@ -231,23 +231,6 @@ function createPlateMaterial(
     ctx.fillStyle = "#c1901c";
     fitFont("EMPIRE STATE", width * 0.5, Math.round(height * 0.12), sans);
     ctx.fillText("EMPIRE STATE", width / 2, height * 0.87);
-  } else if (region === "fr") {
-    // France: white ground, blue EU band left (F), blue département band right.
-    ctx.fillStyle = "#f1f1ee";
-    ctx.fillRect(0, 0, width, height);
-    const band = Math.round(width * 0.1);
-    ctx.fillStyle = "#0b3aa8";
-    ctx.fillRect(0, 0, band, height);
-    ctx.fillRect(width - band, 0, band, height);
-    starRing(band / 2, height * 0.33, height * 0.12);
-    ctx.fillStyle = "#ffffff";
-    fitFont("F", band * 0.72, Math.round(height * 0.2), sans);
-    ctx.fillText("F", band / 2, height * 0.74);
-    fitFont("62", band * 0.72, Math.round(height * 0.18), sans);
-    ctx.fillText("62", width - band / 2, height * 0.3);
-    ctx.fillStyle = "#161616";
-    fitFont(plateNumber, width - band * 2 - width * 0.08, Math.round(height * 0.46), sans);
-    ctx.fillText(plateNumber, width / 2, height * 0.54);
   } else if (region === "eg") {
     // Egyptian plates identify the vehicle class by colour: private cars use a
     // pale field, taxis an orange field, and public/commercial transport a red

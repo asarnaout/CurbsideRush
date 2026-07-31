@@ -48,8 +48,9 @@ export const ROADSIDE_PRICE_FACTOR = 1.5;
  * where and what the travel page lists all follow from it. Nothing else encodes
  * the sequence.
  *
- * Milton Keynes and Calais are deliberately absent: both remain free-drive
- * cities, they are just not part of the career.
+ * Every shipped city is on it. That is not a rule — a city may ship as free
+ * drive only — it just happens that the two that were (Milton Keynes and
+ * Calais) have since been retired.
  */
 export const CAREER_CITIES: readonly DestinationId[] = [
   "us-nyc",
@@ -107,7 +108,6 @@ export const TICKET_PRICE_BY_DESTINATION: Readonly<
 export const CAREER_STARTING_CASH_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 20,
   uk: 20,
-  fr: 25,
   jp: 3000,
   eg: 1000,
 };
@@ -116,7 +116,6 @@ export const CAREER_STARTING_CASH_BY_COUNTRY: Readonly<Record<CountryId, number>
 export const PLATFORM_FEE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 3,
   uk: 3,
-  fr: 4,
   jp: 300,
   eg: 150,
 };
@@ -128,7 +127,6 @@ export const PLATFORM_FEE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
 export const ROADSIDE_CALLOUT_FEE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 10,
   uk: 10,
-  fr: 12,
   jp: 1000,
   eg: 500,
 };
@@ -232,7 +230,7 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: null,
     visualKind: "bicycle",
     owned: true,
-    rentByCountry: { us: 0, uk: 0, fr: 0, jp: 0, eg: 0 },
+    rentByCountry: { us: 0, uk: 0, jp: 0, eg: 0 },
     buyoutEligible: false,
     tankL: 0,
     fuelLPerM: 0,
@@ -264,7 +262,7 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: null,
     visualKind: "motorbike",
     owned: false,
-    rentByCountry: { us: 10, uk: 10, fr: 13, jp: 1000, eg: 500 },
+    rentByCountry: { us: 10, uk: 10, jp: 1000, eg: 500 },
     buyoutEligible: true,
     tankL: 12,
     fuelLPerM: 0.00135,
@@ -299,7 +297,7 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: "compact-hatch",
     visualKind: "car",
     owned: false,
-    rentByCountry: { us: 16, uk: 16, fr: 20, jp: 1600, eg: 800 },
+    rentByCountry: { us: 16, uk: 16, jp: 1600, eg: 800 },
     buyoutEligible: true,
     tankL: 40,
     fuelLPerM: 0.003,
@@ -315,7 +313,7 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: "delivery-van",
     visualKind: "car",
     owned: false,
-    rentByCountry: { us: 26, uk: 26, fr: 33, jp: 2600, eg: 1300 },
+    rentByCountry: { us: 26, uk: 26, jp: 2600, eg: 1300 },
     buyoutEligible: true,
     tankL: 70,
     fuelLPerM: 0.0048,
@@ -347,7 +345,7 @@ export const CAREER_VEHICLES: readonly CareerVehicleSpec[] = [
     model: "sport-sedan",
     visualKind: "car",
     owned: false,
-    rentByCountry: { us: 38, uk: 38, fr: 48, jp: 3800, eg: 1900 },
+    rentByCountry: { us: 38, uk: 38, jp: 3800, eg: 1900 },
     buyoutEligible: true,
     tankL: 45,
     fuelLPerM: 0.00525,
@@ -470,12 +468,10 @@ export interface CareerCorrupt {
 export type CareerPersisted = CareerSliceV2 | CareerCorrupt | null;
 
 // Mirrors the id set progress.ts hardcodes; content.test.ts pins the real list
-// at six, so drift here fails loudly rather than silently.
+// against DESTINATION_PROFILES, so drift here fails loudly rather than silently.
 const DESTINATION_IDS: readonly DestinationId[] = [
   "us-nyc",
   "uk-london",
-  "uk-milton-keynes",
-  "fr-calais",
   "jp-tokyo",
   "eg-cairo",
 ];

@@ -19,7 +19,6 @@ import type {
   MapSpawnPoint,
   OfficialRuleReference,
   ProceduralBlock,
-  ProceduralLandmark,
   ResolvedGameSessionConfig,
   RuleCode,
   RoadMarkingPath,
@@ -77,26 +76,6 @@ const LONDON_THEME: CountryVisualTheme = {
   roadsideDetails: ["red buses", "black cabs", "Belisha beacons"],
 };
 
-const MILTON_KEYNES_THEME: CountryVisualTheme = {
-  sky: "#a9c9d3",
-  ground: "#5f8d50",
-  road: "#3a3d42",
-  laneMarking: "#f0f0e8",
-  accent: "#e5484d",
-  architecture: "low modern estates, hedges and grid-road landscaping",
-  roadsideDetails: ["mini roundabouts", "chevron boards", "red buses"],
-};
-
-const CALAIS_THEME: CountryVisualTheme = {
-  sky: "#a8d8eb",
-  ground: "#84a65d",
-  road: "#3d4145",
-  laneMarking: "#f4f1e8",
-  accent: "#2456a6",
-  architecture: "pale coastal buildings, retail roads and terminal fencing",
-  roadsideDetails: ["blue direction signs", "bollards", "channel grassland"],
-};
-
 const TOKYO_THEME: CountryVisualTheme = {
   sky: "#acd9e9",
   ground: "#769b69",
@@ -136,18 +115,6 @@ const roadIdForLane = (id: string): string => {
   // NYC is not here: its lanes come from buildNycGrid, which knows each lane's
   // road and passes the id straight to `laneTrue`. A prefix table would have to
   // grow a branch per street and would quietly mis-assign any it missed.
-  if (id.startsWith("uk-rb-")) return "uk-roundabout";
-  if (id.includes("entry-north") || id.includes("exit-north")) return id.startsWith("fr-") ? "fr-north-approach" : "uk-north-approach";
-  if (id.includes("entry-east") || id.includes("exit-east")) return id.startsWith("fr-") ? "fr-east-approach" : "uk-east-approach";
-  if (id.includes("entry-south") || id.includes("exit-south")) return id.startsWith("fr-") ? "fr-south-approach" : "uk-south-approach";
-  if (id.includes("entry-west") || id.includes("exit-west")) return id.startsWith("fr-") ? "fr-west-approach" : "uk-west-approach";
-  if (id.startsWith("uk-dual-n-east")) return "uk-dual-carriageway";
-  if (id.startsWith("uk-east-north")) return "uk-east-link";
-  if (id.startsWith("uk-south-west") || id.startsWith("uk-west-south")) return "uk-oldbrook-loop";
-  if (id.startsWith("fr-rb-")) return "fr-roundabout";
-  if (id.startsWith("fr-south-east")) return "fr-south-east-road";
-  if (id.startsWith("fr-east-south")) return "fr-east-south-road";
-  if (id.startsWith("fr-north-west")) return "fr-north-west-road";
   if (id.startsWith("jp-south-east")) return "jp-south-road";
   if (id.startsWith("jp-curve")) return "jp-east-curve";
   if (id.startsWith("jp-center-west")) return "jp-center-road";
@@ -155,53 +122,14 @@ const roadIdForLane = (id: string): string => {
   if (id.startsWith("jp-north-east")) return "jp-north-road";
   if (id.startsWith("jp-junction-south")) return "jp-junction-road";
   if (id.startsWith("jp-narrow-north")) return "jp-narrow-road";
-  if (id.startsWith("xf-uk-approach")) return "xf-uk-road";
-  if (id.startsWith("xf-uk-terminal")) return "xf-uk-terminal-road";
-  if (id.startsWith("xf-shuttle")) return "xf-shuttle-road";
-  if (id.startsWith("xf-fr-terminal") || id.startsWith("xf-fr-exit")) return "xf-fr-terminal-road";
-  if (id.startsWith("xf-fr-road")) return "xf-fr-road-surface";
   return id;
 };
 
 const laneWidthForLane = (id: string): number => {
   if (id.startsWith("jp-")) return id.includes("narrow") ? 2.7 : 3.0;
-  if (id.startsWith("uk-dual") || id.startsWith("fr-south-east") || id.startsWith("xf-")) return 3.5;
   if (id.startsWith("nyc-")) return 3.4;
   return 3.2;
 };
-
-/**
- * The speed limit is not a parameter: it comes from `ROAD_SPEED_LIMITS` via the
- * lane's own road, so every lane of a street necessarily agrees with it. That
- * lookup is declared further down the file but only ever runs when a lane is
- * built, which is later still.
- */
-const lane = (
-  id: string,
-  from: LaneNode,
-  to: LaneNode,
-  trafficSide: TrafficSide,
-  successors: readonly string[],
-  role: LaneRole = "travel",
-  via: readonly WorldPoint[] = [],
-  adjacentLaneIds?: readonly string[],
-  roadId: string = roadIdForLane(id),
-  widthM = laneWidthForLane(id),
-  localSpeedUnit?: SpeedUnit,
-): LaneSegment => ({
-  id,
-  roadId,
-  widthM,
-  from: from.id,
-  to: to.id,
-  centerline: [from.position, ...via, to.position],
-  role,
-  trafficSide,
-  speedLimit: speedLimitForRoad(roadId),
-  ...(localSpeedUnit ? { localSpeedUnit } : {}),
-  successors,
-  ...(adjacentLaneIds ? { adjacentLaneIds } : {}),
-});
 
 const distanceBetweenPoints = (a: WorldPoint, b: WorldPoint): number =>
   Math.hypot(a.x - b.x, a.z - b.z);
@@ -210,14 +138,6 @@ const conflictZoneForNode = (nodeId: string): string => {
   if (nodeId === "nyc-b") return "nyc-conflict-72-bway";
   if (nodeId === "nyc-h") return "nyc-conflict-79-bway";
   if (nodeId === "nyc-d") return "nyc-conflict-columbus";
-  if (nodeId.startsWith("uk-") && ["uk-n", "uk-e", "uk-s", "uk-w"].includes(nodeId)) {
-    return "uk-roundabout-conflict";
-  }
-  if (nodeId.startsWith("fr-") && ["fr-n", "fr-e", "fr-s", "fr-w"].includes(nodeId)) {
-    return "fr-roundabout-conflict";
-  }
-  if (nodeId === "fr-eo") return "fr-coquelles-east-split-conflict";
-  if (nodeId === "fr-so") return "fr-coquelles-south-split-conflict";
   if (nodeId === "jp-f") return "jp-station-conflict";
   if (nodeId === "jp-d") return "jp-east-curve-junction-conflict";
   if (nodeId === "jp-e") return "jp-east-neighbourhood-junction-conflict";
@@ -306,109 +226,6 @@ const roadSurface = (
   surfaceType,
   markings,
 });
-
-/**
- * Points along a circular arc, inclusive of both endpoints. Angles are in
- * degrees with 0deg = +x (east) and 90deg = +z (north); passing a1 < a0 traces
- * the arc clockwise.
- */
-const arcPoints = (
-  center: WorldPoint,
-  radius: number,
-  a0Deg: number,
-  a1Deg: number,
-  steps = 6,
-): WorldPoint[] => {
-  const points: WorldPoint[] = [];
-  for (let index = 0; index <= steps; index += 1) {
-    const angle = ((a0Deg + ((a1Deg - a0Deg) * index) / steps) * Math.PI) / 180;
-    points.push(
-      point(center.x + radius * Math.cos(angle), center.z + radius * Math.sin(angle)),
-    );
-  }
-  return points;
-};
-
-/**
- * Turns a dead-end stub into a single-arm turning loop: a one-way ring around a
- * small central island that bulges out from the stub's end node, so cars drive
- * out, loop once and return instead of hitting a flat dead-end. The loop needs
- * no give-way (a single arm has no conflicting traffic) and circulates purely on
- * `successors`. The caller keeps the stub's end node as the connection point,
- * repoints the ARRIVING lane's successor to `${prefix}-a`, and the returning arc
- * `${prefix}-b` feeds `departLaneId` back into the network. Left-side traffic
- * circulates clockwise, right-side counter-clockwise, matching the roundabouts.
- */
-const turningLoop = (opts: {
-  prefix: string;
-  connectNode: LaneNode;
-  bulgeDeg: number;
-  radius: number;
-  side: TrafficSide;
-  departLaneId: string;
-  color: string;
-  islandRadius?: number;
-  widthM?: number;
-  speedUnit?: SpeedUnit;
-}): {
-  farNode: LaneNode;
-  firstArcId: string;
-  lanes: readonly LaneSegment[];
-  surface: RoadSurface;
-  island: ProceduralLandmark;
-} => {
-  const {
-    prefix,
-    connectNode,
-    bulgeDeg,
-    radius,
-    side,
-    departLaneId,
-    color,
-    islandRadius = Math.max(4, radius - 6),
-    widthM = 7.2,
-    speedUnit,
-  } = opts;
-  const bulge = {
-    x: Math.cos((bulgeDeg * Math.PI) / 180),
-    z: Math.sin((bulgeDeg * Math.PI) / 180),
-  };
-  const connect = connectNode.position;
-  const center = point(connect.x + bulge.x * radius, connect.z + bulge.z * radius);
-  const farNode = node(
-    `${prefix}-far`,
-    connect.x + bulge.x * radius * 2,
-    connect.z + bulge.z * radius * 2,
-  );
-  const connectAngle = bulgeDeg + 180;
-  // Left-side traffic drives clockwise (decreasing angle); right-side the other way.
-  const direction = side === "left" ? -1 : 1;
-  const arcA = arcPoints(center, radius, connectAngle, connectAngle + direction * 180);
-  const arcB = arcPoints(
-    center,
-    radius,
-    connectAngle + direction * 180,
-    connectAngle + direction * 360,
-  );
-  const firstArcId = `${prefix}-a`;
-  const secondArcId = `${prefix}-b`;
-  return {
-    farNode,
-    firstArcId,
-    lanes: [
-      lane(firstArcId, connectNode, farNode, side, [secondArcId], "roundabout", arcA.slice(1, -1), undefined, prefix, undefined, speedUnit),
-      lane(secondArcId, farNode, connectNode, side, [departLaneId], "roundabout", arcB.slice(1, -1), undefined, prefix, undefined, speedUnit),
-    ],
-    surface: roadSurface(prefix, [...arcA, ...arcB.slice(1)], widthM, [firstArcId, secondArcId], "roundabout"),
-    island: {
-      id: `${prefix}-green`,
-      kind: "park",
-      center,
-      size: point(islandRadius * 2, islandRadius * 2),
-      color,
-    },
-  };
-};
 
 const checkpoint = (
   id: string,
@@ -804,33 +621,6 @@ const UK_RULES: readonly OfficialRuleReference[] = [
   },
 ];
 
-const FR_RULES: readonly OfficialRuleReference[] = [
-  {
-    id: "fr-eu-road-rules",
-    title: "Road rules and safety — France",
-    authority: "European Commission, Your Europe",
-    jurisdiction: "France",
-    url: "https://europa.eu/youreurope/citizens/travel/driving-abroad/road-rules-and-safety/france/index_en.htm",
-    reviewedOn: CONTENT_REVIEWED_ON,
-    appliesTo: [
-      "wrong_way",
-      "red_light",
-      "speeding",
-      "incomplete_stop",
-      "missing_indicator",
-      "unsafe_gap",
-      "lane_misuse",
-      "roundabout_yield",
-      "merge",
-      "pedestrian_priority",
-      "cyclist_clearance",
-      "priority_to_right",
-      "observation",
-      "border_transition",
-    ],
-  },
-];
-
 const JP_RULES: readonly OfficialRuleReference[] = [
   {
     id: "jp-jaf-traffic-rules",
@@ -910,32 +700,6 @@ export const COUNTRY_PROFILES: readonly CountryProfile[] = [
     reviewedOn: CONTENT_REVIEWED_ON,
   },
   {
-    id: "fr",
-    countryCode: "FR",
-    countryName: "France",
-    flagEmoji: "🇫🇷",
-    trafficSide: "right",
-    defaultSteeringSide: "left",
-    speedUnit: "kmh",
-    currency: { code: "EUR", symbol: "€", minorUnits: 2 },
-    centreLineColor: "white",
-    lanePolicy: {
-      keepSide: "right",
-      passingSide: "left",
-      normalTravelLaneSide: "right",
-      turnOnRed: "prohibited",
-    },
-    roundaboutPolicy: {
-      circulation: "counterclockwise",
-      yieldToTrafficFrom: "left",
-      entrySide: "right",
-    },
-    priorityPolicy:
-      "Priority to the right applies at unsigned junctions; signs and road markings can replace that default.",
-    officialReferences: FR_RULES,
-    reviewedOn: CONTENT_REVIEWED_ON,
-  },
-  {
     id: "jp",
     countryCode: "JP",
     countryName: "Japan",
@@ -1011,28 +775,6 @@ export const DESTINATION_PROFILES: readonly DestinationProfile[] = [
     promotion: "standard",
     cityMark: "NYC",
     visualTheme: NYC_THEME,
-  },
-  {
-    id: "uk-milton-keynes",
-    countryId: "uk",
-    destinationName: "Milton Keynes",
-    destinationSubtitle: "Roundabout Academy · South Grafton & Oldbrook",
-    mapId: "milton-keynes-oldbrook",
-    freeDriveId: "free-uk",
-    promotion: "specialist",
-    cityMark: "MK",
-    visualTheme: MILTON_KEYNES_THEME,
-  },
-  {
-    id: "fr-calais",
-    countryId: "fr",
-    destinationName: "Calais & Coquelles",
-    destinationSubtitle: "Roundabouts, priority rules & terminal roads",
-    mapId: "calais-coquelles",
-    freeDriveId: "free-fr",
-    promotion: "standard",
-    cityMark: "CAL",
-    visualTheme: CALAIS_THEME,
   },
   {
     id: "jp-tokyo",
@@ -1164,52 +906,6 @@ const NYC_STREETS: readonly NycRoadSpec[] = [
 ];
 
 /**
- * Milton Keynes posts its dual carriageway at the national limit, its
- * distributor roads a rung under it, and the estate inside them at the
- * built-up default. `uk-oldbrook-loop` is that estate: it carries the Oldbrook
- * Houses venue, the only crosswalk on the map, and a green.
- *
- * The dual carriageway stays at 60 rather than taking the 70 its class would
- * allow, because 70 mph is exactly `MAX_FORWARD_SPEED_MPS_MPH` — a limit the
- * car cannot exceed is one the speeding rule can never trip, which would make
- * this the one road in the game where speeding is impossible.
- */
-const MK_ROAD_SPEED_LIMITS = {
-  "uk-dual-carriageway": 60,
-  "uk-north-approach": 50,
-  "uk-east-approach": 50,
-  "uk-south-approach": 50,
-  "uk-west-approach": 50,
-  "uk-east-link": 50,
-  "uk-westgrid": 50,
-  "uk-oldbrook-loop": 30,
-  // Both rings, and both tighter than anything else on the map: a 12 m
-  // radius is not driveable at the grid road's figure.
-  "uk-roundabout": 30,
-  "uk-westloop": 30,
-} as const satisfies Record<string, number>;
-
-/**
- * France's urban default is 50. These through-routes are posted a rung above
- * it, at a figure France does sign on urban roads that carry traffic, so a
- * town this small does not crawl; the open road out to the south-east keeps
- * the 70 its frontage earns.
- */
-const CALAIS_ROAD_SPEED_LIMITS = {
-  "fr-south-east-road": 70,
-  "fr-north-approach": 60,
-  "fr-east-approach": 60,
-  "fr-south-approach": 60,
-  "fr-west-approach": 60,
-  "fr-east-south-road": 60,
-  "fr-north-west-road": 60,
-  "fr-westgrid": 60,
-  // Same as Milton Keynes: the turning loop is a 10 m ring, not a road.
-  "fr-roundabout": 30,
-  "fr-westloop": 30,
-} as const satisfies Record<string, number>;
-
-/**
  * Setagaya-dori is the only arterial here and is posted as one; the rest of
  * the ward reads at Japan's ordinary urban figure. The three `shared_space`
  * lanes are too narrow for even that — 5.8 m of carriageway with pedestrians
@@ -1256,8 +952,6 @@ const ROAD_SPEED_LIMITS: Readonly<Record<string, number>> = {
   ...Object.fromEntries(
     [...NYC_AVENUES, ...NYC_STREETS].map((road) => [road.roadId, road.speedLimit]),
   ),
-  ...MK_ROAD_SPEED_LIMITS,
-  ...CALAIS_ROAD_SPEED_LIMITS,
   ...TOKYO_ROAD_SPEED_LIMITS,
 };
 
@@ -1696,109 +1390,6 @@ const nycLanes = nycGrid.lanes;
 const nycSignals = nycGrid.signals;
 const nycBlocks = buildNycBlocks(NYC_AVENUES, NYC_STREETS);
 
-
-const ukNodes = {
-  n: node("uk-n", 0, 34),
-  e: node("uk-e", 34, 0),
-  s: node("uk-s", 0, -34),
-  w: node("uk-w", -34, 0),
-  no: node("uk-no", 0, 118),
-  eo: node("uk-eo", 130, 0),
-  so: node("uk-so", 0, -118),
-  wo: node("uk-wo", -130, 0),
-  ne: node("uk-ne", 700, 118),
-  wgo: node("uk-wgo", -320, 0),
-};
-
-const ukLanes: readonly LaneSegment[] = [
-  // Use short arc segments instead of a diamond. The visual carriageway and
-  // the legal vehicle path now round each corner together.
-  lane("uk-rb-n-e", ukNodes.n, ukNodes.e, "left", ["uk-rb-e-s", "uk-exit-east"], "roundabout", [point(13, 31.4), point(24, 24), point(31.4, 13)]),
-  lane("uk-rb-e-s", ukNodes.e, ukNodes.s, "left", ["uk-rb-s-w", "uk-exit-south"], "roundabout", [point(31.4, -13), point(24, -24), point(13, -31.4)]),
-  lane("uk-rb-s-w", ukNodes.s, ukNodes.w, "left", ["uk-rb-w-n", "uk-exit-west"], "roundabout", [point(-13, -31.4), point(-24, -24), point(-31.4, -13)]),
-  lane("uk-rb-w-n", ukNodes.w, ukNodes.n, "left", ["uk-rb-n-e", "uk-exit-north"], "roundabout", [point(-31.4, 13), point(-24, 24), point(-13, 31.4)]),
-  laneTrue("uk-entry-north", ukNodes.no, ukNodes.n, "left", ["uk-rb-n-e"], "entry", [point(1.7, 76)], ["uk-exit-north"]),
-  laneTrue("uk-exit-north", ukNodes.n, ukNodes.no, "left", ["uk-dual-n-east"], "exit", [point(-1.7, 76)], ["uk-entry-north"]),
-  laneTrue("uk-entry-east", ukNodes.eo, ukNodes.e, "left", ["uk-rb-e-s"], "entry", [point(82, -1.7)], ["uk-exit-east"]),
-  laneTrue("uk-exit-east", ukNodes.e, ukNodes.eo, "left", ["uk-entry-east"], "exit", [point(82, 1.7)], ["uk-entry-east"]),
-  laneTrue("uk-entry-south", ukNodes.so, ukNodes.s, "left", ["uk-rb-s-w"], "entry", [point(-1.7, -76)], ["uk-exit-south"]),
-  laneTrue("uk-exit-south", ukNodes.s, ukNodes.so, "left", ["uk-south-west"], "exit", [point(1.7, -76)], ["uk-entry-south"]),
-  laneTrue("uk-entry-west", ukNodes.wo, ukNodes.w, "left", ["uk-rb-w-n"], "entry", [point(-82, 1.7)], ["uk-exit-west"]),
-  laneTrue("uk-exit-west", ukNodes.w, ukNodes.wo, "left", ["uk-west-south", "uk-westgrid-out"], "exit", [point(-82, -1.7)], ["uk-entry-west"]),
-  laneTrue("uk-dual-n-east", ukNodes.no, ukNodes.ne, "left", ["uk-east-north"], "travel", [point(80, 119.75), point(220, 119.75), point(360, 119.75), point(500, 119.75), point(620, 119.75)], ["uk-dual-n-east-pass"]),
-  laneTrue("uk-dual-n-east-pass", ukNodes.no, ukNodes.ne, "left", ["uk-east-north"], "passing", [point(80, 116.25), point(220, 116.25), point(360, 116.25), point(500, 116.25), point(620, 116.25)], ["uk-dual-n-east"]),
-  laneTrue("uk-east-north", ukNodes.ne, ukNodes.eo, "left", ["uk-entry-east"], "travel", [point(701.7, 117.5), point(701.7, 70), point(701.34, 28.95), point(600.4, -11.65), point(450.1, -31.7), point(299.86, -26.7), point(199.75, -11.68), point(130.25, -1.75)]),
-  laneTrue("uk-south-west", ukNodes.so, ukNodes.wo, "left", ["uk-entry-west"], "travel", [point(-0.5, -119.7), point(-66.1, -119.3), point(-131.49, -60.82), point(-131.7, -0.5)]),
-  laneTrue("uk-west-south", ukNodes.wo, ukNodes.so, "left", ["uk-entry-south"], "travel", [point(-128.3, -0.5), point(-128.51, -59.18), point(-64.31, -116.45), point(-0.5, -116.3)]),
-  // Westbound grid road off the roundabout's west arm. Rather than a flat
-  // dead-end it ends in a single-arm turning loop (uk-westloop) so free-drive
-  // can roam west and circle back, with genuine oncoming traffic on the way.
-  laneTrue("uk-westgrid-out", ukNodes.wo, ukNodes.wgo, "left", ["uk-westloop-a"], "travel", [point(-225, -1.7)], ["uk-westgrid-in"], "uk-westgrid", 3.2),
-  laneTrue("uk-westgrid-in", ukNodes.wgo, ukNodes.wo, "left", ["uk-entry-west"], "travel", [point(-225, 1.7)], ["uk-westgrid-out"], "uk-westgrid", 3.2),
-];
-
-// Turning loop at the west end of the Oldbrook westgrid (left-side: clockwise).
-const ukWestLoop = turningLoop({
-  prefix: "uk-westloop",
-  connectNode: ukNodes.wgo,
-  bulgeDeg: 180,
-  radius: 12,
-  side: "left",
-  departLaneId: "uk-westgrid-in",
-  color: "#608b4e",
-});
-
-const frNodes = {
-  n: node("fr-n", 0, 34),
-  e: node("fr-e", 34, 0),
-  s: node("fr-s", 0, -34),
-  w: node("fr-w", -34, 0),
-  no: node("fr-no", 0, 118),
-  eo: node("fr-eo", 138, 0),
-  so: node("fr-so", 0, -118),
-  wo: node("fr-wo", -138, 0),
-  se: node("fr-se", 92, -82),
-  wgo: node("fr-wgo", -300, 0),
-};
-
-const frLanes: readonly LaneSegment[] = [
-  // Match the French counter-clockwise circulation with smooth, driveable
-  // arcs. This also leaves a clean, consistently wide island boundary.
-  lane("fr-rb-n-w", frNodes.n, frNodes.w, "right", ["fr-rb-w-s", "fr-exit-west"], "roundabout", [point(-13, 31.4), point(-24, 24), point(-31.4, 13)]),
-  lane("fr-rb-w-s", frNodes.w, frNodes.s, "right", ["fr-rb-s-e", "fr-exit-south"], "roundabout", [point(-31.4, -13), point(-24, -24), point(-13, -31.4)]),
-  lane("fr-rb-s-e", frNodes.s, frNodes.e, "right", ["fr-rb-e-n", "fr-exit-east"], "roundabout", [point(13, -31.4), point(24, -24), point(31.4, -13)]),
-  lane("fr-rb-e-n", frNodes.e, frNodes.n, "right", ["fr-rb-n-w", "fr-exit-north"], "roundabout", [point(31.4, 13), point(24, 24), point(13, 31.4)]),
-  laneTrue("fr-entry-north", frNodes.no, frNodes.n, "right", ["fr-rb-n-w"], "entry", [point(-1.7, 76)], ["fr-exit-north"]),
-  laneTrue("fr-exit-north", frNodes.n, frNodes.no, "right", ["fr-north-west"], "exit", [point(1.7, 76)], ["fr-entry-north"]),
-  laneTrue("fr-entry-east", frNodes.eo, frNodes.e, "right", ["fr-rb-e-n"], "entry", [point(86, 1.7)], ["fr-exit-east"]),
-  laneTrue("fr-exit-east", frNodes.e, frNodes.eo, "right", ["fr-east-south"], "exit", [point(86, -1.7)], ["fr-entry-east"]),
-  laneTrue("fr-entry-south", frNodes.so, frNodes.s, "right", ["fr-rb-s-e"], "entry", [point(1.7, -76)], ["fr-exit-south"]),
-  laneTrue("fr-exit-south", frNodes.s, frNodes.so, "right", ["fr-south-east"], "exit", [point(-1.7, -76)], ["fr-entry-south"]),
-  laneTrue("fr-entry-west", frNodes.wo, frNodes.w, "right", ["fr-rb-w-s"], "entry", [point(-86, -1.7)], ["fr-exit-west"]),
-  laneTrue("fr-exit-west", frNodes.w, frNodes.wo, "right", ["fr-entry-west", "fr-westgrid-out"], "exit", [point(-86, 1.7)], ["fr-entry-west"]),
-  laneTrue("fr-south-east", frNodes.so, frNodes.eo, "right", ["fr-entry-east"], "travel", [point(0.5, -119.7), point(53, -100.7), point(94, -80.7), point(139.25, -1.25)], ["fr-south-east-pass"]),
-  laneTrue("fr-south-east-pass", frNodes.so, frNodes.eo, "right", ["fr-entry-east"], "passing", [point(-0.5, -116.3), point(53, -97.3), point(94, -77.3), point(136.25, 0.4)], ["fr-south-east"]),
-  laneTrue("fr-east-south", frNodes.eo, frNodes.so, "right", ["fr-entry-south"], "travel", [point(136.5, -0.95), point(148.31, -42.18), point(148.49, -109.21), point(103.74, -128.32), point(20.2, -128.31), point(1.3, -116.8)]),
-  laneTrue("fr-north-west", frNodes.no, frNodes.wo, "right", ["fr-entry-west"], "travel", [point(-1.23, 119.27), point(-81.1, 77.3), point(-139.05, 1.43)]),
-  // Westbound local road off the roundabout's west arm. It now ends in a
-  // single-arm turning loop (fr-westloop) instead of a flat dead-end, so
-  // right-side free-drive can roam west and circle back with oncoming traffic.
-  laneTrue("fr-westgrid-out", frNodes.wo, frNodes.wgo, "right", ["fr-westloop-a"], "travel", [point(-219, 1.7)], ["fr-westgrid-in"], "fr-westgrid", 3.2),
-  laneTrue("fr-westgrid-in", frNodes.wgo, frNodes.wo, "right", ["fr-entry-west"], "travel", [point(-219, -1.7)], ["fr-westgrid-out"], "fr-westgrid", 3.2),
-];
-
-// Turning loop at the west end of the Coquelles westgrid (right-side: counter-
-// clockwise). A tighter radius keeps it clear of the nearby west world edge.
-const frWestLoop = turningLoop({
-  prefix: "fr-westloop",
-  connectNode: frNodes.wgo,
-  bulgeDeg: 180,
-  radius: 10,
-  side: "right",
-  departLaneId: "fr-westgrid-in",
-  color: "#6d914f",
-});
-
 const jpNodes = {
   a: node("jp-a", -112, -72),
   b: node("jp-b", -30, -72),
@@ -2079,236 +1670,6 @@ export const MAP_PACKS: readonly MapPack[] = [
     ),
   },
   {
-    id: "milton-keynes-oldbrook",
-    name: "Milton Keynes — Oldbrook",
-    areaLabel: "South Grafton Roundabout and neighbouring grid roads",
-    countryIds: ["uk"],
-    source: osmSource(
-      { south: 52.0254, west: -0.7792, north: 52.0352, east: -0.7595 },
-      "https://www.openstreetmap.org/export#map=16/52.0303/-0.7694",
-      "manifest-v1:milton-keynes-oldbrook-2026-07-10",
-    ),
-    geometry: {
-      worldSize: point(1500, 300),
-      roadWidth: 9,
-      shoulderWidth: 2,
-      roadSurfaces: [
-        roadSurface("uk-roundabout", [ukNodes.n.position, point(13, 31.4), point(24, 24), point(31.4, 13), ukNodes.e.position, point(31.4, -13), point(24, -24), point(13, -31.4), ukNodes.s.position, point(-13, -31.4), point(-24, -24), point(-31.4, -13), ukNodes.w.position, point(-31.4, 13), point(-24, 24), point(-13, 31.4), ukNodes.n.position], 7.2, ["uk-rb-n-e", "uk-rb-e-s", "uk-rb-s-w", "uk-rb-w-n"], "roundabout"),
-        roadSurface("uk-north-approach", [ukNodes.n.position, ukNodes.no.position], 7.2, ["uk-entry-north", "uk-exit-north"], "standard", [roadMarking("uk-north-centre", "centre_dashed", [ukNodes.n.position, ukNodes.no.position], "white")]),
-        roadSurface("uk-east-approach", [ukNodes.e.position, ukNodes.eo.position], 7.2, ["uk-entry-east", "uk-exit-east"], "standard", [roadMarking("uk-east-centre", "centre_dashed", [ukNodes.e.position, ukNodes.eo.position], "white")]),
-        roadSurface("uk-south-approach", [ukNodes.s.position, ukNodes.so.position], 7.2, ["uk-entry-south", "uk-exit-south"], "standard", [roadMarking("uk-south-centre", "centre_dashed", [ukNodes.s.position, ukNodes.so.position], "white")]),
-        roadSurface("uk-west-approach", [ukNodes.w.position, ukNodes.wo.position], 7.2, ["uk-entry-west", "uk-exit-west"], "standard", [roadMarking("uk-west-centre", "centre_dashed", [ukNodes.w.position, ukNodes.wo.position], "white")]),
-        roadSurface("uk-dual-carriageway", [ukNodes.no.position, point(350, 118), ukNodes.ne.position], 7.4, ["uk-dual-n-east", "uk-dual-n-east-pass"], "standard", [
-          roadMarking("uk-dual-divider", "lane_dashed", [ukNodes.no.position, point(350, 118), ukNodes.ne.position], "white"),
-          roadMarking("uk-dual-left-edge", "edge_solid", [point(0, 121.7), point(350, 121.7), point(700, 121.7)], "white"),
-          roadMarking("uk-dual-right-edge", "edge_solid", [point(0, 114.3), point(350, 114.3), point(700, 114.3)], "white"),
-        ]),
-        roadSurface("uk-east-link", [ukNodes.ne.position, point(700, 70), point(700, 30), point(600, -10), point(450, -30), point(300, -25), point(200, -10), ukNodes.eo.position], 7.2, ["uk-east-north"]),
-        roadSurface("uk-oldbrook-loop", [ukNodes.so.position, point(-65, -118), point(-130, -60), ukNodes.wo.position], 7.2, ["uk-south-west", "uk-west-south"]),
-        roadSurface("uk-westgrid", [ukNodes.wo.position, ukNodes.wgo.position], 7.2, ["uk-westgrid-out", "uk-westgrid-in"], "standard", [roadMarking("uk-westgrid-centre", "centre_dashed", [ukNodes.wo.position, ukNodes.wgo.position], "white")]),
-        ukWestLoop.surface,
-      ],
-      blocks: [
-        { id: "uk-oldbrook", center: point(-78, 72), size: point(90, 72), heightRange: [5, 12], density: 0.55, material: "brick" },
-        { id: "uk-retail", center: point(84, -72), size: point(96, 70), heightRange: [6, 14], density: 0.4, material: "concrete" },
-      ],
-      servicePoints: [
-        // Anchored on the far-side lane of a left-hand-drive approach, so the
-        // lot clears the full carriageway plus a 2 m shoulder. Nudged one metre
-        // up the approach to keep its near corner off the south split's apron.
-        { id: "mk-gas", kind: "gas_station", anchor: { laneId: "uk-entry-south", distanceAlongM: 22 }, footprint: point(14, 9), label: "Grafton Fuel", setbackM: 19 },
-      ],
-      gigVenues: [
-        { id: "mk-v1", kind: "shop", anchor: { laneId: "uk-dual-n-east", distanceAlongM: 48 }, footprint: point(16, 12), name: "Grafton Retail Park" },
-        { id: "mk-v2", kind: "residence", anchor: { laneId: "uk-west-south", distanceAlongM: 48 }, footprint: point(14, 12), name: "Oldbrook Houses" },
-        { id: "mk-v3", kind: "restaurant", anchor: { laneId: "uk-exit-south", distanceAlongM: 46 }, footprint: point(14, 10), name: "South Grafton Kitchen" },
-        // Set back off the wide walkable shoulder band: at the default 13 the
-        // office's measured front stood mid-band (walkers clipped through it,
-        // and its collider read as an invisible wall on open grass).
-        { id: "mk-v4", kind: "office", anchor: { laneId: "uk-entry-south", distanceAlongM: 68 }, footprint: point(16, 14), name: "Midsummer Office", setbackM: 16 },
-      ],
-      landmarks: [
-        // The island must sit fully inside the roundabout's inner kerb, not
-        // cover the circulating lane at the cardinal approaches.
-        { id: "uk-roundabout-green", kind: "park", center: point(0, 0), size: point(32, 32), color: "#608b4e" },
-        { id: "uk-station-sign", kind: "station", center: point(82, 82), size: point(15, 8), color: "#d64045" },
-        { id: "uk-retail-parade", kind: "shops", center: point(84, -88), size: point(30, 18), color: "#c9a24b" },
-        { id: "uk-oldbrook-green", kind: "park", center: point(-95, 95), size: point(44, 30), color: "#5f9a4e" },
-        ukWestLoop.island,
-      ],
-    },
-    laneGraph: graph(
-      [...Object.values(ukNodes), ukWestLoop.farNode],
-      [...ukLanes, ...ukWestLoop.lanes],
-      [
-        control("uk-yield-south", "yield", 0, -42, 0, ["uk-entry-south"], ["uk-roundabout-conflict"],
-          [approach("uk-yield-south-approach", "uk-entry-south", 74, "yield", ["uk-roundabout-conflict"])],
-          [installation("uk-yield-south-sign", -7.5, -47, 0, "roadside_pole", "yield_sign", "primary")]),
-        control("uk-yield-north", "yield", 0, 42, 180, ["uk-entry-north"], ["uk-roundabout-conflict"],
-          [approach("uk-yield-north-approach", "uk-entry-north", 74, "yield", ["uk-roundabout-conflict"])],
-          [installation("uk-yield-north-sign", 7.5, 47, 180, "roadside_pole", "yield_sign", "primary")]),
-        control("uk-yield-east", "yield", 42, 0, 270, ["uk-entry-east"], ["uk-roundabout-conflict"],
-          [approach("uk-yield-east-approach", "uk-entry-east", 86, "yield", ["uk-roundabout-conflict"])],
-          [installation("uk-yield-east-sign", 47, -7.5, 270, "roadside_pole", "yield_sign", "primary")]),
-        control("uk-crosswalk-oldbrook", "crosswalk", -102, -102, 45, ["uk-west-south"], undefined,
-          [approach("uk-oldbrook-crosswalk-approach", "uk-west-south", 150, "crosswalk")],
-          [installation("uk-oldbrook-crosswalk-marking", -102, -102, 45, "road_marking", "crosswalk", "marking")]),
-      ],
-      [
-        { id: "uk-roundabout-conflict", laneIds: ["uk-rb-n-e", "uk-rb-e-s", "uk-rb-s-w", "uk-rb-w-n"], polygon: [point(-40, -40), point(40, -40), point(40, 40), point(-40, 40)] },
-      ],
-      [
-        anchoredSpawn("uk-player", "player", "uk-entry-south", 22),
-        anchoredSpawn("uk-car-1", "vehicle", "uk-rb-w-n", 27),
-        anchoredSpawn("uk-car-2", "vehicle", "uk-dual-n-east", 108),
-        // Oncoming/cross traffic on every two-way road. Total live NPCs stay
-        // capped by density (npcCount); these extra anchors only guarantee the
-        // player meets cars in both directions and vary the opening scene. All
-        // sit >=25 m from every checkpoint so stationary-safety staging is clean.
-        anchoredSpawn("uk-car-3", "vehicle", "uk-exit-north", 45),
-        anchoredSpawn("uk-car-4", "vehicle", "uk-entry-north", 38),
-        anchoredSpawn("uk-car-5", "vehicle", "uk-exit-east", 52),
-        anchoredSpawn("uk-car-6", "vehicle", "uk-entry-east", 44),
-        anchoredSpawn("uk-car-7", "vehicle", "uk-exit-west", 55),
-        anchoredSpawn("uk-car-8", "vehicle", "uk-entry-west", 48),
-        anchoredSpawn("uk-car-9", "vehicle", "uk-rb-e-s", 14),
-        anchoredSpawn("uk-car-10", "vehicle", "uk-rb-s-w", 22),
-        anchoredSpawn("uk-car-11", "vehicle", "uk-dual-n-east-pass", 300),
-        anchoredSpawn("uk-car-12", "vehicle", "uk-east-north", 200),
-        anchoredSpawn("uk-car-13", "vehicle", "uk-south-west", 70),
-        anchoredSpawn("uk-car-14", "vehicle", "uk-west-south", 130),
-        anchoredSpawn("uk-car-15", "vehicle", "uk-westgrid-in", 95),
-        anchoredSpawn("uk-car-16", "vehicle", "uk-westgrid-out", 110),
-        freeSpawn("uk-ped-1", "pedestrian", -104, -92, 0),
-        freeSpawn("uk-ped-2", "pedestrian", 78, -58, 180),
-        freeSpawn("uk-ped-3", "pedestrian", -68, 58, 0),
-        freeSpawn("uk-cyclist-1", "cyclist", -98, -12, 90),
-      ],
-      [
-        checkpoint("uk-start", "Oldbrook approach", "uk-entry-south", 22),
-        checkpoint("uk-roundabout", "South Grafton Roundabout approach", "uk-entry-south", 68),
-        checkpoint("uk-dual", "Dual carriageway", "uk-dual-n-east", 48),
-        checkpoint("uk-finish", "Oldbrook return", "uk-west-south", 48),
-        checkpoint("uk-south-finish", "South approach return", "uk-exit-south", 46),
-      ],
-    ),
-  },
-  {
-    id: "calais-coquelles",
-    name: "Calais & Coquelles",
-    areaLabel: "Coastal roads, terminal approaches and roundabouts",
-    countryIds: ["fr"],
-    source: osmSource(
-      { south: 50.9302, west: 1.7765, north: 50.9402, east: 1.7988 },
-      "https://www.openstreetmap.org/export#map=16/50.9352/1.7877",
-      "manifest-v1:calais-coquelles-2026-07-10",
-    ),
-    geometry: {
-      worldSize: point(680, 300),
-      roadWidth: 9,
-      shoulderWidth: 2,
-      roadSurfaces: [
-        roadSurface("fr-roundabout", [frNodes.n.position, point(-13, 31.4), point(-24, 24), point(-31.4, 13), frNodes.w.position, point(-31.4, -13), point(-24, -24), point(-13, -31.4), frNodes.s.position, point(13, -31.4), point(24, -24), point(31.4, -13), frNodes.e.position, point(31.4, 13), point(24, 24), point(13, 31.4), frNodes.n.position], 7.2, ["fr-rb-n-w", "fr-rb-w-s", "fr-rb-s-e", "fr-rb-e-n"], "roundabout"),
-        roadSurface("fr-north-approach", [frNodes.n.position, frNodes.no.position], 7.2, ["fr-entry-north", "fr-exit-north"], "standard", [roadMarking("fr-north-centre", "centre_dashed", [frNodes.n.position, frNodes.no.position], "white")]),
-        roadSurface("fr-east-approach", [frNodes.e.position, frNodes.eo.position], 7.2, ["fr-entry-east", "fr-exit-east"], "standard", [roadMarking("fr-east-centre", "centre_dashed", [frNodes.e.position, frNodes.eo.position], "white")]),
-        roadSurface("fr-south-approach", [frNodes.s.position, frNodes.so.position], 7.2, ["fr-entry-south", "fr-exit-south"], "standard", [roadMarking("fr-south-centre", "centre_dashed", [frNodes.s.position, frNodes.so.position], "white")]),
-        roadSurface("fr-west-approach", [frNodes.w.position, frNodes.wo.position], 7.2, ["fr-entry-west", "fr-exit-west"], "standard", [roadMarking("fr-west-centre", "centre_dashed", [frNodes.w.position, frNodes.wo.position], "white")]),
-        roadSurface("fr-south-east-road", [frNodes.so.position, point(53, -99), point(94, -79), frNodes.eo.position], 7.4, ["fr-south-east", "fr-south-east-pass"], "standard", [roadMarking("fr-south-east-divider", "lane_dashed", [frNodes.so.position, point(53, -99), point(94, -79), frNodes.eo.position], "white")]),
-        roadSurface("fr-east-south-road", [frNodes.eo.position, point(150, -42), point(150, -110), point(104, -130), point(20, -130), frNodes.so.position], 7.2, ["fr-east-south"]),
-        roadSurface("fr-north-west-road", [frNodes.no.position, point(-80, 76), frNodes.wo.position], 7.2, ["fr-north-west"]),
-        roadSurface("fr-westgrid", [frNodes.wo.position, frNodes.wgo.position], 7.2, ["fr-westgrid-out", "fr-westgrid-in"], "standard", [roadMarking("fr-westgrid-centre", "centre_dashed", [frNodes.wo.position, frNodes.wgo.position], "white")]),
-        frWestLoop.surface,
-      ],
-      blocks: [
-        // Keep compact scenery beside the two curved links; neither block may
-        // occupy a driving surface.
-        { id: "fr-coquelles", center: point(-88, 104), size: point(56, 20), heightRange: [5, 13], density: 0.45, material: "stucco" },
-        // Pulled north-west off the ring-road curve: at (118,-104) x 28 wide
-        // the block's south-east corner sat astride the fr-east-south sweep.
-        { id: "fr-commercial", center: point(112, -98), size: point(26, 26), heightRange: [7, 16], density: 0.38, material: "pale-concrete" },
-      ],
-      servicePoints: [
-        // Moved 10 m further up the approach: at the old anchor the lot's far
-        // corner sat astride the Coquelles link that peels off south-east, so
-        // the forecourt read as paved-over road. Up here the link is a couple
-        // of metres clear and the lot only has the south approach to meet.
-        { id: "fr-gas", kind: "gas_station", anchor: { laneId: "fr-entry-south", distanceAlongM: 32 }, footprint: point(14, 9), label: "Coquelles Carburant", setbackM: 15.6 },
-      ],
-      gigVenues: [
-        { id: "fr-v1", kind: "shop", anchor: { laneId: "fr-north-west", distanceAlongM: 82 }, footprint: point(16, 12), name: "Cité Europe Market" },
-        { id: "fr-v2", kind: "restaurant", anchor: { laneId: "fr-south-east", distanceAlongM: 70 }, footprint: point(14, 10), name: "Brasserie Coquelles" },
-        { id: "fr-v3", kind: "residence", anchor: { laneId: "fr-east-south", distanceAlongM: 70 }, footprint: point(14, 12), name: "Résidence du Port" },
-        { id: "fr-v4", kind: "office", anchor: { laneId: "fr-exit-north", distanceAlongM: 60 }, footprint: point(16, 14), name: "Terminal Offices" },
-      ],
-      landmarks: [
-        { id: "fr-terminal", kind: "terminal", center: point(-96, -82), size: point(54, 32), color: "#28569a" },
-        { id: "fr-roundabout-green", kind: "park", center: point(0, 0), size: point(32, 32), color: "#6d914f" },
-        // Rides inside fr-commercial; moved with it off the ring-road curve.
-        { id: "fr-commercial-parade", kind: "shops", center: point(112, -100), size: point(22, 12), color: "#b6803f" },
-        { id: "fr-parkway-green", kind: "park", center: point(55, 75), size: point(34, 26), color: "#5f9a4e" },
-        frWestLoop.island,
-      ],
-    },
-    laneGraph: graph(
-      [...Object.values(frNodes), frWestLoop.farNode],
-      [...frLanes, ...frWestLoop.lanes],
-      [
-        control("fr-yield-south", "yield", 0, -42, 0, ["fr-entry-south"], ["fr-roundabout-conflict"],
-          [approach("fr-yield-south-approach", "fr-entry-south", 74, "yield", ["fr-roundabout-conflict"])],
-          [installation("fr-yield-south-sign", 8, -48, 0, "roadside_pole", "yield_sign", "primary")]),
-        control("fr-yield-east", "yield", 42, 0, 270, ["fr-entry-east"], ["fr-roundabout-conflict"],
-          [approach("fr-yield-east-approach", "fr-entry-east", 94, "yield", ["fr-roundabout-conflict"])],
-          [installation("fr-yield-east-sign", 48, 8, 270, "roadside_pole", "yield_sign", "primary")]),
-        control("fr-yield-west", "yield", -42, 0, 90, ["fr-entry-west"], ["fr-roundabout-conflict"],
-          [approach("fr-yield-west-approach", "fr-entry-west", 94, "yield", ["fr-roundabout-conflict"])],
-          [installation("fr-yield-west-sign", -48, -8, 90, "roadside_pole", "yield_sign", "primary")]),
-        control("fr-priority-right", "yield", -74, 72, 225, ["fr-north-west"], undefined,
-          [approach("fr-priority-right-approach", "fr-north-west", 82, "yield")],
-          [installation("fr-priority-right-sign", -70, 65, 225, "roadside_pole", "yield_sign", "warning")]),
-      ],
-      [
-        { id: "fr-roundabout-conflict", laneIds: ["fr-rb-n-w", "fr-rb-w-s", "fr-rb-s-e", "fr-rb-e-n"], polygon: [point(-40, -40), point(40, -40), point(40, 40), point(-40, 40)] },
-        { id: "fr-coquelles-east-split-conflict", laneIds: ["fr-south-east", "fr-south-east-pass", "fr-east-south", "fr-entry-east", "fr-exit-east"], polygon: [point(126, -12), point(150, -12), point(150, 12), point(126, 12)] },
-        { id: "fr-coquelles-south-split-conflict", laneIds: ["fr-south-east", "fr-south-east-pass", "fr-east-south", "fr-entry-south", "fr-exit-south"], polygon: [point(-12, -130), point(12, -130), point(12, -106), point(-12, -106)] },
-      ],
-      [
-        anchoredSpawn("fr-player", "player", "fr-entry-south", 22),
-        anchoredSpawn("fr-car-1", "vehicle", "fr-rb-s-e", 28),
-        anchoredSpawn("fr-car-2", "vehicle", "fr-south-east", 59),
-        // Oncoming/cross traffic on every two-way road. Live NPC count stays
-        // capped by density (npcCount); these anchors only guarantee the player
-        // meets cars in both directions and vary the opening scene. All sit
-        // >=25 m from every checkpoint so stationary-safety staging is clean.
-        anchoredSpawn("fr-car-3", "vehicle", "fr-exit-north", 30),
-        anchoredSpawn("fr-car-4", "vehicle", "fr-entry-north", 50),
-        anchoredSpawn("fr-car-5", "vehicle", "fr-exit-east", 45),
-        anchoredSpawn("fr-car-6", "vehicle", "fr-entry-east", 40),
-        anchoredSpawn("fr-car-7", "vehicle", "fr-exit-west", 45),
-        anchoredSpawn("fr-car-8", "vehicle", "fr-entry-west", 50),
-        anchoredSpawn("fr-car-9", "vehicle", "fr-rb-w-s", 14),
-        anchoredSpawn("fr-car-10", "vehicle", "fr-rb-n-w", 20),
-        anchoredSpawn("fr-car-11", "vehicle", "fr-south-east-pass", 40),
-        anchoredSpawn("fr-car-12", "vehicle", "fr-east-south", 120),
-        anchoredSpawn("fr-car-13", "vehicle", "fr-north-west", 40),
-        anchoredSpawn("fr-car-14", "vehicle", "fr-westgrid-in", 85),
-        anchoredSpawn("fr-car-15", "vehicle", "fr-westgrid-out", 100),
-        freeSpawn("fr-cyclist-1", "cyclist", -74, 80, 225, "fr-north-west"),
-        freeSpawn("fr-ped-1", "pedestrian", -95, 96, 180),
-        freeSpawn("fr-ped-2", "pedestrian", 112, -92, 270),
-        freeSpawn("fr-cyclist-2", "cyclist", -70, -70, 45),
-      ],
-      [
-        checkpoint("fr-start", "Coquelles start", "fr-entry-south", 22),
-        checkpoint("fr-roundabout", "Roundabout entry", "fr-entry-south", 68),
-        checkpoint("fr-priority", "Signed local-road yield", "fr-north-west", 82),
-        checkpoint("fr-finish", "Normal travel-lane checkpoint", "fr-south-east", 70),
-        checkpoint("fr-speed-finish", "North approach finish", "fr-exit-north", 60),
-        checkpoint("fr-local-finish", "Coquelles local-road finish", "fr-east-south", 70),
-        checkpoint("fr-roundabout-finish", "South approach finish", "fr-exit-south", 46),
-      ],
-    ),
-  },
-  {
     id: "tokyo-setagaya",
     name: "Tokyo — Setagaya",
     areaLabel: "Yamashita, Miyanosaka and Gotokuji",
@@ -2502,26 +1863,6 @@ export const FREE_DRIVES: readonly FreeDriveDefinition[] = [
     trafficSeed: 2101,
   },
   {
-    id: "free-uk",
-    countryId: "uk",
-    destinationId: "uk-milton-keynes",
-    mapId: "milton-keynes-oldbrook",
-    title: "Free Drive — Milton Keynes",
-    description: "Practise left-side roads and roundabout approaches at your own pace.",
-    startSpawnId: "uk-player",
-    trafficSeed: 2201,
-  },
-  {
-    id: "free-fr",
-    countryId: "fr",
-    destinationId: "fr-calais",
-    mapId: "calais-coquelles",
-    title: "Free Drive — Calais & Coquelles",
-    description: "Explore right-side French roads, roundabouts and priority junctions.",
-    startSpawnId: "fr-player",
-    trafficSeed: 2301,
-  },
-  {
     id: "free-jp",
     countryId: "jp",
     destinationId: "jp-tokyo",
@@ -2546,7 +1887,6 @@ export const FUEL_CONSUMPTION_L_PER_M = 0.002;
 export const FUEL_PRICE_PER_LITRE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 0.4,
   uk: 0.45,
-  fr: 0.5,
   jp: 60,
   eg: 20,
 };
@@ -2560,7 +1900,6 @@ export const GIG_FARE_BY_COUNTRY: Readonly<
 > = {
   us: { base: 4, ratePerM: 0.012 },
   uk: { base: 4, ratePerM: 0.012 },
-  fr: { base: 5, ratePerM: 0.014 },
   jp: { base: 600, ratePerM: 2 },
   eg: { base: 200, ratePerM: 0.6 },
 };
@@ -2575,7 +1914,6 @@ export const PASSENGER_FARE_BY_COUNTRY: Readonly<
 > = {
   us: { base: 7, ratePerM: 0.018 },
   uk: { base: 7, ratePerM: 0.018 },
-  fr: { base: 8, ratePerM: 0.02 },
   jp: { base: 1000, ratePerM: 3 },
   eg: { base: 350, ratePerM: 0.9 },
 };
@@ -2595,7 +1933,6 @@ export const PASSENGER_FARE_BY_COUNTRY: Readonly<
 export const FINE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 8,
   uk: 8,
-  fr: 10,
   jp: 800,
   eg: 400,
 };
@@ -2660,7 +1997,6 @@ export function speedingFine(
 export const REPAIR_RATE_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 25,
   uk: 25,
-  fr: 30,
   jp: 2500,
   eg: 1250,
 };
@@ -2716,7 +2052,6 @@ export function repairPrice(
 export const STARTING_WALLET_BY_COUNTRY: Readonly<Record<CountryId, number>> = {
   us: 20,
   uk: 20,
-  fr: 25,
   jp: 3000,
   eg: 1000,
 };

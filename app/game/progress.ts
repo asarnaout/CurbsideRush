@@ -33,12 +33,10 @@ export interface ProgressStorage {
   removeItem?(key: string): void;
 }
 
-const COUNTRY_IDS = new Set<CountryId>(["us", "uk", "fr", "jp", "eg"]);
+const COUNTRY_IDS = new Set<CountryId>(["us", "uk", "jp", "eg"]);
 const DESTINATION_IDS = new Set<DestinationId>([
   "us-nyc",
   "uk-london",
-  "uk-milton-keynes",
-  "fr-calais",
   "jp-tokyo",
   "eg-cairo",
 ]);
@@ -147,7 +145,6 @@ const parseAccessibility = (value: unknown): AccessibilityPreferences => {
 const eachCountry = (value: number): Record<CountryId, number> => ({
   us: value,
   uk: value,
-  fr: value,
   jp: value,
   eg: value,
 });
@@ -187,8 +184,6 @@ const defaultDestinationForCountry = (countryId: CountryId): DestinationId => {
       return "us-nyc";
     case "uk":
       return "uk-london";
-    case "fr":
-      return "fr-calais";
     case "jp":
       return "jp-tokyo";
     case "eg":

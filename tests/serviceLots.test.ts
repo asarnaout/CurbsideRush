@@ -189,9 +189,8 @@ describe("service-point lots", () => {
       ).toBeGreaterThan(0);
     }
 
-    // Repairs are deliberately NOT everywhere. Milton Keynes and Calais are out
-    // of career scope (careerBalance.test.ts says the same of their economies),
-    // so shipping a workshop there would be content no run can reach.
+    // Repairs are not spread evenly: how many workshops a city gets tracks how
+    // much driving it holds, not a per-map quota.
     const shopsByMap = Object.fromEntries(
       MAP_PACKS.map((pack) => [
         pack.id,
@@ -203,8 +202,6 @@ describe("service-point lots", () => {
       "london-south-kensington": 1,
       "tokyo-setagaya": 1,
       "cairo-central-nile": 2,
-      "milton-keynes-oldbrook": 0,
-      "calais-coquelles": 0,
     });
   });
 

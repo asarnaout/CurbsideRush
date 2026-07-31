@@ -13,9 +13,8 @@ import type { MapId } from "../app/game/types";
  * this is the check.
  */
 
-/** The cities a player is told street names in. Milton Keynes and Calais are
- * deliberately absent: they are being retired, and guidance falls back to
- * naming no street rather than blocking on them. */
+/** The cities a player is told street names in — every shipped map. Guidance
+ * falls back to naming no street for a map absent from this list. */
 const NAMED_MAPS: readonly MapId[] = [
   "nyc-upper-west-side",
   "london-south-kensington",
@@ -64,9 +63,7 @@ describe("street names", () => {
     // road wants a name in far more cities than it wants house numbers. If the
     // names ever became the gate, every named city would start issuing gigs.
     for (const pack of MAP_PACKS.filter((p) => p.id !== "nyc-upper-west-side")) {
-      expect(Object.keys(pack.roadNames ?? {}).length > 0, pack.id).toBe(
-        pack.id !== "milton-keynes-oldbrook" && pack.id !== "calais-coquelles",
-      );
+      expect(Object.keys(pack.roadNames ?? {}).length > 0, pack.id).toBe(true);
       expect(streetAddressesForMap(pack), pack.id).toEqual([]);
       expect(addressableStreetNames(pack.roadNames), pack.id).toEqual([]);
     }
