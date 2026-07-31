@@ -392,7 +392,129 @@ describe("Cairo roadside parcels carry one road-facing row", () => {
           }
         }
       }
-      expect(total, "buildings across Cairo's street wall").toBeGreaterThan(500);
+      expect(total, "buildings across Cairo's street wall").toBeGreaterThan(400);
+    },
+  );
+
+  // The sweep above is intra-parcel; this one is the map-wide version that was
+  // missing when two parcels' rows stood through each other. World poses mirror
+  // rotateBlockBuildingPlacements (GameCanvas.tsx): world = centre + R(heading)
+  // · local with R = [[cos, sin], [-sin, cos]], yaw += heading.
+  it(
+    "no two buildings interpenetrate anywhere across Cairo's parcels",
+    { timeout: 120_000 },
+    async () => {
+      interface PlacedRect {
+        blockId: string;
+        modelId: string;
+        x: number;
+        z: number;
+        yaw: number;
+        halfW: number;
+        halfD: number;
+      }
+      const placed: PlacedRect[] = [];
+      for (const block of parcels()) {
+        const heading = (((block.headingDeg ?? 0) as number) * Math.PI) / 180;
+        const sin = Math.sin(heading);
+        const cos = Math.cos(heading);
+        const placements = slotBlockBuildings(
+          block.center,
+          block.size,
+          block.buildingSet as Parameters<typeof slotBlockBuildings>[2],
+          hashStringToSeed(`${block.id}-buildings`),
+          1,
+          block.streetEdges,
+        );
+        for (const b of placements) {
+          const model = ALL_ENV_MODELS.find((m) => m.id === b.modelId)!;
+          const { master } = await masterFor(model);
+          const bb = master.getBoundingInfo().boundingBox;
+          const lx = b.x - block.center.x;
+          const lz = b.z - block.center.z;
+          const x = block.center.x + lx * cos + lz * sin;
+          const z = block.center.z - lx * sin + lz * cos;
+          const yaw = b.yaw + heading;
+          // Carry the master's own bounding-box centre offset into world space
+          // (rotation.y maps local +x to (cos, -sin) and +z to (sin, cos)).
+          const ox = ((bb.minimum.x + bb.maximum.x) / 2) * b.scale;
+          const oz = ((bb.minimum.z + bb.maximum.z) / 2) * b.scale;
+          const yc = Math.cos(yaw);
+          const ys = Math.sin(yaw);
+          placed.push({
+            blockId: block.id,
+            modelId: b.modelId,
+            x: x + ox * yc + oz * ys,
+            z: z - ox * ys + oz * yc,
+            yaw,
+            halfW: ((bb.maximum.x - bb.minimum.x) / 2) * b.scale,
+            halfD: ((bb.maximum.z - bb.minimum.z) / 2) * b.scale,
+          });
+        }
+      }
+      expect(placed.length).toBeGreaterThan(400);
+
+      const axesOf = (p: PlacedRect) => {
+        const c = Math.cos(p.yaw);
+        const s = Math.sin(p.yaw);
+        return [
+          { x: c, z: -s, half: p.halfW },
+          { x: s, z: c, half: p.halfD },
+        ] as const;
+      };
+      const penetrationM = (a: PlacedRect, b: PlacedRect): number => {
+        const aAxes = axesOf(a);
+        const bAxes = axesOf(b);
+        let min = Infinity;
+        for (const axis of [...aAxes, ...bAxes]) {
+          const sep = Math.abs((b.x - a.x) * axis.x + (b.z - a.z) * axis.z);
+          const radius = (axes: typeof aAxes) =>
+            axes[0].half * Math.abs(axes[0].x * axis.x + axes[0].z * axis.z) +
+            axes[1].half * Math.abs(axes[1].x * axis.x + axes[1].z * axis.z);
+          const pen = radius(aAxes) + radius(bAxes) - sep;
+          if (pen <= 0) return 0;
+          min = Math.min(min, pen);
+        }
+        return min;
+      };
+
+      // Grid buckets keep the pair count linear; 48 m cells with a forward
+      // 5-cell neighbourhood cover every pair that could touch (the largest
+      // footprint half-diagonal is ~15 m).
+      const cellM = 48;
+      const buckets = new Map<string, number[]>();
+      placed.forEach((p, index) => {
+        const key = `${Math.floor(p.x / cellM)},${Math.floor(p.z / cellM)}`;
+        const bucket = buckets.get(key);
+        if (bucket) bucket.push(index);
+        else buckets.set(key, [index]);
+      });
+      const check = (i: number, j: number) => {
+        const pen = penetrationM(placed[i], placed[j]);
+        expect(
+          pen <= 0.25,
+          `${placed[i].blockId} ${placed[i].modelId} overlaps ` +
+            `${placed[j].blockId} ${placed[j].modelId} by ${pen.toFixed(2)}m`,
+        ).toBe(true);
+      };
+      for (const [key, indices] of buckets) {
+        const [cx, cz] = key.split(",").map(Number);
+        for (let a = 0; a < indices.length; a += 1) {
+          for (let b = a + 1; b < indices.length; b += 1) {
+            check(indices[a], indices[b]);
+          }
+        }
+        for (const [dx, dz] of [
+          [0, 1],
+          [1, -1],
+          [1, 0],
+          [1, 1],
+        ] as const) {
+          const other = buckets.get(`${cx + dx},${cz + dz}`);
+          if (!other) continue;
+          for (const i of indices) for (const j of other) check(i, j);
+        }
+      }
     },
   );
 });

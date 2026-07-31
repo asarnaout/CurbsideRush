@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  CAIRO_BACK_TO_ROAD_MARGIN_M,
   CAIRO_CONTENT_REVIEWED_ON,
   CAIRO_FREE_DRIVE,
   CAIRO_JUNCTION_CONNECTORS,
@@ -35,17 +36,23 @@ import type {
  * glbs: shorter road segments now earn a parcel and long runs split more often,
  * because the wall no longer costs one draw call per building.
  *
- * STREET_WALL_BLOCKS + the boxes behind FACADE_BOX_CELLS are the whole split —
- * roughly three quarters of Cairo's buildings are now imported models and the
- * rest are the procedural facade boxes the map used to be built from entirely.
+ * STREET_WALL_BLOCKS + the boxes behind FACADE_BOX_CELLS are the whole split.
+ * Boxes come from two sources: the deterministic one-in-six that
+ * cairoParcelKeepsFacadeBoxes holds back, and parcels the back-to-road guard
+ * demoted because their windowless glb back would crowd another road's
+ * pavement (CAIRO_BACK_TO_ROAD_MARGIN_M). The glb wall must stay the clear
+ * majority of roadside parcels — if a guard change flips that balance, that is
+ * a decision for a person, not a constant to re-pin in passing.
  */
-const BLOCK_COUNT = 591;
-const ROADSIDE_COUNT = 568;
-const ROADSIDE_LEFT = 158;
-/** Ranks stepping back from the kerb; only rank 1 carries the side suffix. */
-const ROADSIDE_RANKS = 256;
-const STREET_WALL_BLOCKS = 460;
-const FACADE_BOX_CELLS = 1158;
+const BLOCK_COUNT = 341;
+const ROADSIDE_COUNT = 318;
+const ROADSIDE_LEFT = 162;
+/** The second rank is gone — a one-sided kit means a back row can only stare
+ * at the front row's service wall or plant its own on the next street over.
+ * Zero, pinned, so it cannot quietly come back. */
+const ROADSIDE_RANKS = 0;
+const STREET_WALL_BLOCKS = 199;
+const FACADE_BOX_CELLS = 1257;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
@@ -1139,6 +1146,124 @@ describe("Cairo Central Nile content", () => {
     ]);
   });
 
+  // The glb kit fronts one face only, so a parcel's far edge is a windowless
+  // service back. This is the assertion that was missing when those backs
+  // shipped standing on neighbouring roads' kerbs: every glb parcel's back
+  // edge keeps CAIRO_BACK_TO_ROAD_MARGIN_M beyond every road's pavement
+  // envelope. Derived from the map data alone (own axes, nearest own road), so
+  // it verifies the generator rather than repeating it.
+  it("keeps every glb parcel's windowless back clear of other roads", () => {
+    const blocks = CAIRO_MAP_PACK.geometry.blocks;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces;
+    const glbRoadside = blocks.filter(
+      (block) => block.buildingSet && block.id.includes("-roadside-"),
+    );
+    expect(glbRoadside.length).toBeGreaterThan(150);
+
+    const pointToSegment = (
+      p: WorldPoint,
+      a: WorldPoint,
+      b: WorldPoint,
+    ): number => {
+      const abX = b.x - a.x;
+      const abZ = b.z - a.z;
+      const lengthSq = abX * abX + abZ * abZ;
+      const t = lengthSq
+        ? Math.max(
+            0,
+            Math.min(1, ((p.x - a.x) * abX + (p.z - a.z) * abZ) / lengthSq),
+          )
+        : 0;
+      return Math.hypot(p.x - (a.x + abX * t), p.z - (a.z + abZ * t));
+    };
+    const segmentToSegment = (
+      a1: WorldPoint,
+      a2: WorldPoint,
+      b1: WorldPoint,
+      b2: WorldPoint,
+    ): number => {
+      const cross = (o: WorldPoint, p: WorldPoint, q: WorldPoint): number =>
+        (p.x - o.x) * (q.z - o.z) - (p.z - o.z) * (q.x - o.x);
+      const d1 = cross(b1, b2, a1);
+      const d2 = cross(b1, b2, a2);
+      const d3 = cross(a1, a2, b1);
+      const d4 = cross(a1, a2, b2);
+      if (
+        ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+        ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+      ) {
+        return 0;
+      }
+      return Math.min(
+        pointToSegment(a1, b1, b2),
+        pointToSegment(a2, b1, b2),
+        pointToSegment(b1, a1, a2),
+        pointToSegment(b2, a1, a2),
+      );
+    };
+    const distanceToRoad = (p: WorldPoint, surface: RoadSurface): number =>
+      Math.min(
+        ...surface.centerline
+          .slice(1)
+          .map((end, index) =>
+            pointToSegment(p, surface.centerline[index], end),
+          ),
+      );
+
+    for (const block of glbRoadside) {
+      const sourceRoad = surfaces.find((surface) =>
+        block.id.startsWith(`${surface.id}-roadside-`),
+      );
+      expect(sourceRoad, block.id).toBeDefined();
+      if (!sourceRoad) continue;
+      const rect = testOrientedRect(
+        block.center,
+        block.size,
+        block.headingDeg ?? 0,
+      );
+      const edgeMid = (sign: 1 | -1): WorldPoint =>
+        point(
+          block.center.x + rect.axisV.x * rect.halfV * sign,
+          block.center.z + rect.axisV.z * rect.halfV * sign,
+        );
+      const backSign =
+        distanceToRoad(edgeMid(1), sourceRoad) >
+        distanceToRoad(edgeMid(-1), sourceRoad)
+          ? 1
+          : -1;
+      const backMid = edgeMid(backSign);
+      const backStart = point(
+        backMid.x - rect.axisU.x * rect.halfU,
+        backMid.z - rect.axisU.z * rect.halfU,
+      );
+      const backEnd = point(
+        backMid.x + rect.axisU.x * rect.halfU,
+        backMid.z + rect.axisU.z * rect.halfU,
+      );
+      for (const surface of surfaces) {
+        const envelope =
+          surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8) + 0.75;
+        const clearance =
+          Math.min(
+            ...surface.centerline
+              .slice(1)
+              .map((end, index) =>
+                segmentToSegment(
+                  backStart,
+                  backEnd,
+                  surface.centerline[index],
+                  end,
+                ),
+              ),
+          ) - envelope;
+        expect(
+          clearance,
+          `${block.id} back sits ${clearance.toFixed(1)}m off ${surface.id}'s pavement`,
+        ).toBeGreaterThanOrEqual(CAIRO_BACK_TO_ROAD_MARGIN_M - 1e-6);
+      }
+    }
+  });
+
   it("fills every drivable district with stable, two-sided roadside frontage", () => {
     const blocks = CAIRO_MAP_PACK.geometry.blocks;
     const roadside = blocks.filter((block) =>
@@ -1198,9 +1323,8 @@ describe("Cairo Central Nile content", () => {
         roadside.some(
           (block) =>
             block.id.startsWith(`${surfaceId}-roadside-`) &&
-            // `includes`, not `endsWith`: a rank behind the frontage carries
-            // the side in the middle of its id, and it must stay off the water
-            // just as the frontage does.
+            // `includes`, not `endsWith`: if a future id gains a suffix after
+            // the side slug, the waterfront must stay protected regardless.
             block.id.includes(`-${openSide}`),
         ),
         `${surfaceId} ${openSide} side should retain its Nile view`,
@@ -1238,13 +1362,10 @@ describe("Cairo Central Nile content", () => {
           );
         }),
       );
-      // The frontage rank stands just past the pavement — that is the whole
-      // point of it, and the band is tight enough to catch a parcel drifting
-      // out into open ground. Ranks behind it step back by their own depth plus
-      // the gap, so they get a wider band rather than no check at all.
-      const rank = Number(block.id.match(/-rank-(\d+)$/)?.[1] ?? 1);
+      // Every roadside parcel stands just past the pavement — the band is
+      // tight enough to catch one drifting out into open ground.
       expect(distance, block.id).toBeGreaterThan(11);
-      expect(distance, block.id).toBeLessThan(rank === 1 ? 31 : 62);
+      expect(distance, block.id).toBeLessThan(31);
 
       const parcel = testOrientedRect(
         block.center,

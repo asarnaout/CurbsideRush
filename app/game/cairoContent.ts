@@ -1774,6 +1774,87 @@ const cairoRoadsideBuildingSet = (
 const cairoParcelKeepsFacadeBoxes = (blockId: string): boolean =>
   hashStringToSeed(`${blockId}-street-wall`) % 6 === 0;
 
+/**
+ * The glb street wall is one-sided: the Quaternius kit puts every door and
+ * window on local +z, so a parcel's far edge is a windowless service back.
+ * Within this margin of another road's pavement that back would be the whole
+ * view from the carriageway, so the parcel is dressed with the procedural
+ * windowed boxes instead — those glaze all four faces, and the far road sees
+ * windows rather than blank brick. Must stay below 1.5 + the shallowest set
+ * depth (15) or a parcel would trip on its own road.
+ */
+export const CAIRO_BACK_TO_ROAD_MARGIN_M = 6;
+
+const pointToSegmentM = (
+  p: WorldPoint,
+  a: WorldPoint,
+  b: WorldPoint,
+): number => {
+  const abX = b.x - a.x;
+  const abZ = b.z - a.z;
+  const lengthSq = abX * abX + abZ * abZ;
+  const t = lengthSq
+    ? Math.max(
+        0,
+        Math.min(1, ((p.x - a.x) * abX + (p.z - a.z) * abZ) / lengthSq),
+      )
+    : 0;
+  return Math.hypot(p.x - (a.x + abX * t), p.z - (a.z + abZ * t));
+};
+
+/** Exact segment-to-segment distance — no sampling, so nothing can slip
+ * between probe points on a long edge. */
+const segmentToSegmentM = (
+  a1: WorldPoint,
+  a2: WorldPoint,
+  b1: WorldPoint,
+  b2: WorldPoint,
+): number => {
+  const cross = (o: WorldPoint, p: WorldPoint, q: WorldPoint): number =>
+    (p.x - o.x) * (q.z - o.z) - (p.z - o.z) * (q.x - o.x);
+  const d1 = cross(b1, b2, a1);
+  const d2 = cross(b1, b2, a2);
+  const d3 = cross(a1, a2, b1);
+  const d4 = cross(a1, a2, b2);
+  if (
+    ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+    ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+  ) {
+    return 0;
+  }
+  return Math.min(
+    pointToSegmentM(a1, b1, b2),
+    pointToSegmentM(a2, b1, b2),
+    pointToSegmentM(b1, a1, a2),
+    pointToSegmentM(b2, a1, a2),
+  );
+};
+
+const backEdgeNearsARoad = (
+  backStart: WorldPoint,
+  backEnd: WorldPoint,
+): boolean =>
+  cairoRoadSurfaces.some((surface) => {
+    const reach =
+      surface.widthM / 2 +
+      (surface.sidewalkWidthM ?? 2.8) +
+      0.75 +
+      CAIRO_BACK_TO_ROAD_MARGIN_M;
+    for (let index = 1; index < surface.centerline.length; index += 1) {
+      if (
+        segmentToSegmentM(
+          backStart,
+          backEnd,
+          surface.centerline[index - 1],
+          surface.centerline[index],
+        ) < reach
+      ) {
+        return true;
+      }
+    }
+    return false;
+  });
+
 for (const surface of cairoRoadSurfaces) {
   if (surface.id.includes("-bridge")) continue;
   for (let segmentIndex = 0; segmentIndex + 1 < surface.centerline.length; segmentIndex += 1) {
@@ -1826,98 +1907,103 @@ for (const surface of cairoRoadSurfaces) {
         // hundreds of metres wide and the two points are ~10 m apart, so this
         // only ever differs where a parcel already straddles a district edge.
         // Decided once per parcel so a parcel and its retries agree.
-        const buildingSet = cairoParcelKeepsFacadeBoxes(sideId)
+        const preferredSet = cairoParcelKeepsFacadeBoxes(sideId)
           ? undefined
           : cairoRoadsideBuildingSet(surface.id, provisional);
+        const roadEnvelopeM =
+          surface.widthM / 2 +
+          (surface.sidewalkWidthM ?? 2.8) +
+          0.75;
         // Deep enough for the set that dresses it, and no deeper. Depth is what
         // gets a parcel refused -- a 30 m strip needs 30 m of clear land, and
         // wherever a junction or forecourt came nearer than that the whole
         // frontage was lost. Derived, so retuning a model cannot silently leave
         // it overhanging its own block.
-        const parcelDepthM =
-          buildingSet && isBuildingSetId(buildingSet)
-            ? buildingSetDepthM(buildingSet) + 1.5
-            : CAIRO_FACADE_PARCEL_DEPTH_M;
-        const roadEnvelopeM =
-          surface.widthM / 2 +
-          (surface.sidewalkWidthM ?? 2.8) +
-          0.75;
-        const offsetM = roadEnvelopeM + parcelDepthM / 2 + 1.5;
-        const center = point(
-          roadPosition.x + normalX * side * offsetM,
-          roadPosition.z + normalZ * side * offsetM,
-        );
-        const acceptedStyle = cairoRoadsideStyle(center);
-        const candidate: ProceduralBlock = {
-          id: sideId,
-          center,
-          size: point(frontageLengthM, parcelDepthM),
-          headingDeg,
-          frontageAxis: "z",
-          // `headingDeg` puts local +x along the carriageway and local +z across
-          // it, and the parcel sits at `road + normal * side`, so the road lies
-          // exactly `side` along local +z. One edge, and it is the near one:
-          // a strip is not a city block and has no far street to face.
-          streetEdges: [side > 0 ? "+z" : "-z"],
-          material: acceptedStyle.material,
-          heightRange: acceptedStyle.heightRange,
-          density: 0.82,
-          ...(buildingSet ? { buildingSet } : {}),
-        };
-        /**
-         * Ranks of blocks stepping back from the kerb, all on the road's own
-         * heading.
-         *
-         * Depth is the thing that had to give. A 30 m parcel needs 30 m of
-         * clear land to be accepted at all, so wherever a junction, forecourt
-         * or district block came within 30 m of the kerb the whole frontage was
-         * refused and the street stood bare — measured, only 28% of Cairo's
-         * kerb carried a building. A 14 m parcel holds exactly one building and
-         * fits in far more places, and the land behind it is recovered by
-         * stacking further ranks rather than by asking for it all at once.
-         *
-         * Every rank shares the road's heading on purpose. Tiling the interior
-         * on a world grid instead put buildings at arbitrary angles in the
-         * middle of open ground — more built area by the numbers, and plainly
-         * wrong to look at, because a city block lines up with its street.
-         */
-        const rankGapM = 4;
-        for (let rank = 0; rank < 2; rank += 1) {
-          const rankOffsetM =
-            rank * (parcelDepthM + rankGapM);
-          const rankCenter = point(
-            center.x + normalX * side * rankOffsetM,
-            center.z + normalZ * side * rankOffsetM,
+        const parcelFor = (
+          buildingSet: string | undefined,
+        ): { readonly block: ProceduralBlock; readonly depthM: number } => {
+          const depthM =
+            buildingSet && isBuildingSetId(buildingSet)
+              ? buildingSetDepthM(buildingSet) + 1.5
+              : CAIRO_FACADE_PARCEL_DEPTH_M;
+          const offsetM = roadEnvelopeM + depthM / 2 + 1.5;
+          const center = point(
+            roadPosition.x + normalX * side * offsetM,
+            roadPosition.z + normalZ * side * offsetM,
           );
-          const rankBlock: ProceduralBlock = {
-            ...candidate,
-            id: rank === 0 ? sideId : `${sideId}-rank-${rank + 1}`,
-            center: rankCenter,
+          const style = cairoRoadsideStyle(center);
+          return {
+            depthM,
+            block: {
+              id: sideId,
+              center,
+              size: point(frontageLengthM, depthM),
+              headingDeg,
+              frontageAxis: "z",
+              // `headingDeg` puts local +x along the carriageway and local +z
+              // across it, and the parcel sits at `road + normal * side`, so
+              // the road lies exactly `side` along local +z. One edge, and it
+              // is the near one: a strip is not a city block and has no far
+              // street to face.
+              streetEdges: [side > 0 ? "+z" : "-z"],
+              material: style.material,
+              heightRange: style.heightRange,
+              density: 0.82,
+              ...(buildingSet ? { buildingSet } : {}),
+            },
           };
-          if (addCairoRoadsideBlock(rankBlock)) continue;
-          if (frontageLengthM < 70) continue;
+        };
+        const backEdgeCorners = (
+          blockCenter: WorldPoint,
+          depthM: number,
+        ): readonly [WorldPoint, WorldPoint] => {
+          const midX = blockCenter.x + normalX * side * (depthM / 2);
+          const midZ = blockCenter.z + normalZ * side * (depthM / 2);
+          const halfM = frontageLengthM / 2;
+          return [
+            point(midX - alongX * halfM, midZ - alongZ * halfM),
+            point(midX + alongX * halfM, midZ + alongZ * halfM),
+          ];
+        };
+        // One rank only, on the road's own heading. There used to be a second
+        // rank stepping back behind this one; for a one-sided building kit it
+        // was always a mistake — its facades stared at the first rank's blank
+        // back across a 4 m gap, its own back landed on whatever road ran
+        // behind (Cairo's parallel corridors are often 30-60 m apart), and,
+        // being accepted early, it consumed land that a later road's kerbside
+        // parcel needed. The land behind the wall stays open instead, and a
+        // glb parcel whose own back would crowd another road is demoted to the
+        // all-faces-glazed boxes.
+        let chosen = parcelFor(preferredSet);
+        if (
+          preferredSet &&
+          backEdgeNearsARoad(...backEdgeCorners(chosen.block.center, chosen.depthM))
+        ) {
+          chosen = parcelFor(undefined);
+        }
+        const candidate = chosen.block;
+        const parcelDepthM = chosen.depthM;
+        if (addCairoRoadsideBlock(candidate)) continue;
+        if (frontageLengthM < 70) continue;
 
-          // A crossing, venue or landmark may clip only part of a long parcel.
-          // Retry as two shorter deterministic pieces so one local exclusion
-          // cannot erase an otherwise visible run of frontage.
-          const splitGapM = 8;
-          const splitLengthM = (frontageLengthM - splitGapM) / 2;
-          for (const splitIndex of [0, 1] as const) {
-            const splitSign = splitIndex === 0 ? -1 : 1;
-            const splitCenterOffsetM =
-              (splitSign * (splitLengthM + splitGapM)) / 2;
-            addCairoRoadsideBlock({
-              ...rankBlock,
-              id: `${blockId}-split-${splitIndex + 1}-${sideSlug}${
-                rank === 0 ? "" : `-rank-${rank + 1}`
-              }`,
-              center: point(
-                rankCenter.x + alongX * splitCenterOffsetM,
-                rankCenter.z + alongZ * splitCenterOffsetM,
-              ),
-              size: point(splitLengthM, parcelDepthM),
-            });
-          }
+        // A crossing, venue or landmark may clip only part of a long parcel.
+        // Retry as two shorter deterministic pieces so one local exclusion
+        // cannot erase an otherwise visible run of frontage.
+        const splitGapM = 8;
+        const splitLengthM = (frontageLengthM - splitGapM) / 2;
+        for (const splitIndex of [0, 1] as const) {
+          const splitSign = splitIndex === 0 ? -1 : 1;
+          const splitCenterOffsetM =
+            (splitSign * (splitLengthM + splitGapM)) / 2;
+          addCairoRoadsideBlock({
+            ...candidate,
+            id: `${blockId}-split-${splitIndex + 1}-${sideSlug}`,
+            center: point(
+              candidate.center.x + alongX * splitCenterOffsetM,
+              candidate.center.z + alongZ * splitCenterOffsetM,
+            ),
+            size: point(splitLengthM, parcelDepthM),
+          });
         }
       }
     }

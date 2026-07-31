@@ -100,42 +100,46 @@ And `roadIdForLane` has **no NYC branches** — the generator passes each road i
 `tests/cairoContent.test.ts` pins its winding/radial headings, lane counts,
 kilometre bands, graph connectivity and stable ordering.
 
-Its shallow roadside parcels are generated only *after* POIs exist, must clear
-roads, water, bounds, landmarks, POIs, existing blocks and the Sixth October
-corridor, and deliberately leave four Nile-facing sides open.
+Its shallow roadside parcels generate only *after* POIs exist, must clear roads,
+water, bounds, landmarks, POIs, existing blocks and the Sixth October corridor,
+and deliberately leave four Nile-facing sides open.
 
-**Cairo's `buildingSet` is derived from where a parcel landed**, by
-`cairoRoadsideBuildingSet`, rather than listed per road — so a new road picks up
-its district's fabric with no content edit. The riverfront roads get the tall
-`cairo-corniche` set; the rest zone on x/z like `cairoRoadsideStyle` does.
+**Cairo's `buildingSet` is derived from where a parcel landed**
+(`cairoRoadsideBuildingSet`), not listed per road, so a new road picks up its
+district's fabric with no content edit; riverfront roads get `cairo-corniche`.
 
 **Depth is what gets a roadside parcel refused, so it is derived, not chosen.**
 A 30 m strip needs 30 m of clear land; wherever a junction, forecourt or district
 block came nearer than that, the whole frontage was refused and the street stood
-bare. `buildingSetDepthM` gives each parcel exactly the depth its set needs, and
-the land behind is recovered by **ranks** — further parcels on the road's own
-heading, stepping back by depth + gap. Every rank is single-edge for the same
-reason the frontage is.
+bare. `buildingSetDepthM` gives each parcel exactly the depth its set needs.
+There is deliberately **no second rank** behind the frontage (`ROADSIDE_RANKS`
+pins zero): the glb kit is one-sided, so a back row stared at the front row's
+service wall, planted its own back on the next street over (parallel corridors
+run 30–60 m apart), and its early acceptance blocked later roads' front rows.
 
-**Measure the kerb, not the neighbourhood.** The number that matches what a
-driver sees is the share of kerb with a building standing on it, projected onto
-the road normal. A "is there a block near this road" metric says 55% where the
-exact one says 28%, and optimising the loose one produced buildings at arbitrary
-angles in the middle of open ground — more built area, plainly wrong to look at.
-Two things measured *worse* on the exact metric despite adding blocks: bend-only
-setbacks and shorter parcels. Acceptance is greedy and ordered, so extra
-candidates near junctions consume land that better-placed parcels would have
-used.
+**A glb parcel whose windowless back would crowd another road keeps the boxes
+instead** — demoted to the all-faces-glazed facade grid when its back edge comes
+within `CAIRO_BACK_TO_ROAD_MARGIN_M` of any road's pavement envelope (exact
+segment-to-segment, `backEdgeNearsARoad`; enforced in `tests/cairoContent.test.ts`).
+Raising the margin turns the wall back into a box city — at 12 m boxes
+outnumbered glbs — so treat the glb majority as a decision, not a count.
+
+**Measure the kerb, not the neighbourhood.** What a driver sees is the share of
+kerb with a building on it, projected onto the road normal — a "block near this
+road" metric said 55% where the exact one said 28%, and optimising the loose one
+put buildings at arbitrary angles in open ground. Acceptance is greedy and
+ordered, so extra candidates near junctions can consume land better-placed
+parcels needed and make the exact metric *worse* while adding blocks.
 
 **A roadside strip must name its one road-facing edge** (`streetEdges` on
 `ProceduralBlock`). `slotBlockBuildings` defaults to all four, which is right for
 a city block with roads around it and wrong for a strip: buildings are inset by
 half their depth, so on a parcel shallower than two depths the opposite rows
 occupy the same ground — Cairo's old 28–34 m parcels against depths up to 18.7 m
-overlapped by up to 18 m. Invisible in any count, and on screen a white flicker
-that worsens with camera motion. Guarded by "no two buildings interpenetrate on
-any Cairo parcel" in `buildingPlacement.test.ts`, which sweeps every parcel
-because the overlap depends on which models the seed draws.
+overlapped by up to 18 m, invisible in any count. Guarded twice in
+`buildingPlacement.test.ts`: the per-parcel interpenetration sweep and the
+map-wide cross-parcel one, both seeded like the renderer because the overlap
+depends on which models the seed draws.
 
 **One roadside parcel in six deliberately keeps the procedural facade boxes**
 (`cairoParcelKeepsFacadeBoxes`), as do all the inland district parcels. That
