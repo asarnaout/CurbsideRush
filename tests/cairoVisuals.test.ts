@@ -6,6 +6,7 @@ import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import {
   biasCairoDecalMaterials,
   buildWaterPolygonGeometry,
+  PARKED_CAR_SOURCES,
   CAIRO_DECAL_MATERIAL_NAMES,
   CAIRO_DECAL_Z_OFFSET_UNITS,
   CAIRO_STREET_WALL_URL_RE,
@@ -731,6 +732,27 @@ describe("Cairo street identity", () => {
     expect(
       authoredSignalAspectAt({ ...input, style: "egypt_signal" }),
     ).toBe(authoredSignalAspectAt({ ...input, style: "nyc_signal" }));
+  });
+});
+
+// The kerbside parked cars instance the traffic fleet's own glbs and tint a
+// named body material slot. A silent rename in the glb would silently un-tint
+// every parked car, so pin the names against the committed bytes.
+describe("Cairo parked-car sources", () => {
+  it("names real vehicle glbs and their body materials", () => {
+    for (const source of PARKED_CAR_SOURCES) {
+      const buf = fs.readFileSync(
+        path.join(process.cwd(), "public", source.url),
+      );
+      const jsonLen = buf.readUInt32LE(12);
+      const json = JSON.parse(
+        buf.subarray(20, 20 + jsonLen).toString("utf8"),
+      ) as { materials?: readonly { name?: string }[] };
+      expect(
+        (json.materials ?? []).map((material) => material.name),
+        source.url,
+      ).toContain(source.bodyMaterial);
+    }
   });
 });
 

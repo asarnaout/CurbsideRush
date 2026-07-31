@@ -8,7 +8,8 @@ stations) live under `public/models/props/`.
 ## CC0 — public domain (no attribution required)
 
 - **sedan.glb, sports.glb, suv.glb** — Quaternius (<https://quaternius.com>),
-  released CC0. Recolourable solid-material low-poly cars.
+  released CC0. Recolourable solid-material low-poly cars; sedan and suv are
+  also instanced (retinted) as Cairo's kerbside parked cars.
 - **person-a.glb, person-b.glb, person-c.glb** (rigged, animated pedestrians) —
   Quaternius, "Animated Men Pack" (<https://quaternius.com>), released CC0.
 - **props/residence.glb** ("House") and **props/office.glb** ("Big Building") —

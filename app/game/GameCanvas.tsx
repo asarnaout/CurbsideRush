@@ -17,6 +17,7 @@ import {
   Matrix,
   Mesh,
   MeshBuilder,
+  MultiMaterial,
   ParticleSystem,
   Plane,
   Quaternion,
@@ -439,6 +440,22 @@ export const CAIRO_DECAL_MATERIAL_NAMES: readonly string[] = [
   "Glass",
 ];
 export const CAIRO_STREET_WALL_URL_RE = /\/cairo-[^/]+\.glb$/;
+/**
+ * Kerbside parked cars are instanced from the traffic fleet's own CC0
+ * Quaternius glbs, so the parked metal matches the moving metal. Each variant
+ * pairs a body with a Cairo street tint; the body slot is cloned per variant
+ * because the merged master shares its container materials with live traffic.
+ */
+export const PARKED_CAR_SOURCES = [
+  { url: "/models/vehicles/sedan.glb", bodyMaterial: "Blue" },
+  { url: "/models/vehicles/suv.glb", bodyMaterial: "White" },
+] as const;
+const PARKED_CAR_TINTS: readonly Color3[] = [
+  new Color3(0.82, 0.8, 0.76), // dusty white — Cairo's default car colour
+  new Color3(0.16, 0.17, 0.2), // charcoal
+  new Color3(0.45, 0.11, 0.1), // oxblood
+];
+const PARKED_CAR_LENGTH_M = 4.35;
 export function biasCairoDecalMaterials(
   materials: readonly { name: string; zOffsetUnits: number }[],
 ): number {
@@ -5162,6 +5179,12 @@ class BabylonGameSession {
   private readonly buildingExclusions: { x: number; z: number; radius: number }[] = [];
   /** Sidewalk vendor carts to instantiate once their glbs preload. */
   private readonly pendingVendors: { config: StreetPropConfig; x: number; z: number; yaw: number }[] = [];
+  /** Kerbside parked cars to instantiate once the vehicle glbs preload. */
+  private readonly pendingParkedCars: { x: number; z: number; yaw: number; variant: number }[] = [];
+  private readonly parkedCarMasters = new Map<
+    number,
+    { mesh: Mesh; scale: number; baseY: number; longAxis: "x" | "z" } | null
+  >();
   /** Knockable street furniture, bucketed for the per-step broad phase. */
   private readonly destructibleGrid = new Map<string, DestructibleProp[]>();
   private readonly activePropFalls: ActivePropFall[] = [];
@@ -8422,6 +8445,64 @@ class BabylonGameSession {
   }
 
   /**
+   * A merged, tinted master per parked-car variant. The base merge is shared
+   * through getBuildingMaster (one geometry upload per url); the clone carries
+   * its own MultiMaterial so the body slot can be tinted without recolouring
+   * the live traffic, which shares the container materials — the same trick as
+   * getStorefrontMaster. Scale, ground seat and kerb axis are measured from
+   * the merged bounds rather than hand-tuned.
+   */
+  private getParkedCarMaster(
+    variant: number,
+  ): { mesh: Mesh; scale: number; baseY: number; longAxis: "x" | "z" } | null {
+    const cached = this.parkedCarMasters.get(variant);
+    if (cached !== undefined) return cached;
+    const source = PARKED_CAR_SOURCES[variant % PARKED_CAR_SOURCES.length];
+    const base = this.getBuildingMaster(source.url);
+    let built:
+      | { mesh: Mesh; scale: number; baseY: number; longAxis: "x" | "z" }
+      | null = null;
+    if (base) {
+      const bounds = base.getBoundingInfo().boundingBox;
+      const extentX = bounds.maximum.x - bounds.minimum.x;
+      const extentZ = bounds.maximum.z - bounds.minimum.z;
+      const scale = PARKED_CAR_LENGTH_M / Math.max(extentX, extentZ);
+      const mesh = base.clone(`parked-car-master-${variant}`);
+      mesh.isVisible = false;
+      mesh.isPickable = false;
+      if (mesh.material instanceof MultiMaterial) {
+        const multi = mesh.material.clone(`parked-car-materials-${variant}`);
+        const slot = multi.subMaterials.findIndex(
+          (candidate) => candidate?.name === source.bodyMaterial,
+        );
+        const body =
+          slot >= 0
+            ? multi.subMaterials[slot]?.clone(`parked-car-body-${variant}`)
+            : null;
+        if (body) {
+          const tint = PARKED_CAR_TINTS[variant % PARKED_CAR_TINTS.length];
+          const paint = body as unknown as {
+            albedoColor?: Color3;
+            diffuseColor?: Color3;
+          };
+          if (paint.albedoColor) paint.albedoColor = tint.clone();
+          if (paint.diffuseColor) paint.diffuseColor = tint.clone();
+          multi.subMaterials[slot] = body;
+          mesh.material = multi;
+        }
+      }
+      built = {
+        mesh,
+        scale,
+        baseY: ROAD_SURFACE_Y - bounds.minimum.y * scale,
+        longAxis: extentX > extentZ ? "x" : "z",
+      };
+    }
+    this.parkedCarMasters.set(variant, built);
+    return built;
+  }
+
+  /**
    * A variant master for the one retail glb: same merged-master shape as
    * getBuildingMaster, but with the baked "PIZZA" lettering swapped for the
    * variant's fascia sign and awning tint (storefrontMaster.ts) so streets
@@ -8615,6 +8696,26 @@ class BabylonGameSession {
       if (placed === 0) buildFallback();
     }
     this.pendingBuildingBlocks.length = 0;
+
+    // Kerbside parked cars: instances of the tinted vehicle masters. Same
+    // visual-only status as the old box assembly — decoration, no collider.
+    let parkedIndex = 0;
+    for (const parked of this.pendingParkedCars) {
+      const master = this.getParkedCarMaster(parked.variant);
+      if (!master) continue;
+      const inst = master.mesh.createInstance(`prop-parked-car-${parkedIndex}`);
+      parkedIndex += 1;
+      inst.position.set(parked.x, master.baseY, parked.z);
+      // The placement yaw lays a long-z body along the kerb; a model whose
+      // long axis is x needs the extra quarter turn.
+      inst.rotation.y =
+        parked.yaw + (master.longAxis === "x" ? Math.PI / 2 : 0);
+      inst.scaling.setAll(master.scale);
+      inst.isPickable = false;
+      this.staticSceneryFreeze.push(inst);
+      this.registerShadowCaster(inst, parked.x, parked.z);
+    }
+    this.pendingParkedCars.length = 0;
 
     // Sidewalk vendor carts: glb instances via the same merged-master path, so
     // each cart is one cheap scene mesh. Frozen alongside the rest of the
@@ -12395,37 +12496,6 @@ class BabylonGameSession {
             ),
           ];
           break;
-        case "parked-car":
-          parts = [
-            {
-              master: masterBox(
-                `${cacheKey}-body`,
-                { width: 1.76, height: 0.72, depth: 4.05 },
-                cairoVehicleBodies[variant % cairoVehicleBodies.length],
-              ),
-              offset: new Vector3(0, 0.58, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-cabin`,
-                { width: 1.46, height: 0.66, depth: 2.1 },
-                cairoVehicleGlass,
-              ),
-              offset: new Vector3(0, 1.18, -0.12),
-            },
-            ...([-1, 1] as const).flatMap((side) =>
-              ([-1.28, 1.28] as const).map((along) => ({
-                master: masterBox(
-                  `${cacheKey}-wheel-${side}-${along}`,
-                  { width: 0.2, height: 0.58, depth: 0.58 },
-                  cairoVehicleDark,
-                ),
-                offset: new Vector3(side * 0.88, 0.36, along),
-                castShadow: false,
-              })),
-            ),
-          ];
-          break;
         case "scooter":
           parts = [
             {
@@ -12480,9 +12550,31 @@ class BabylonGameSession {
         }
         continue;
       }
+      if (placement.kind === "parked-car") {
+        // Real vehicle glbs, not the old box assembly — instantiated after
+        // preload like the vendors. The perf-holdback key is unchanged so the
+        // same placements survive thinning as before.
+        if (
+          key === "cairo" &&
+          !deterministicSceneryKeep(
+            `${mapId}:${placement.kind}:${placementIndex}`,
+            this.buildingKeepFraction,
+          )
+        ) {
+          continue;
+        }
+        this.pendingParkedCars.push({
+          x: placement.x,
+          z: placement.z,
+          // faceRoad placement points across the kerb; the quarter turn lays
+          // the body parallel to it, as the box assembly did.
+          yaw: placement.rotationY + Math.PI / 2,
+          variant: placement.variant,
+        });
+        continue;
+      }
       const ambientVehicle =
         placement.kind === "microbus" ||
-        placement.kind === "parked-car" ||
         placement.kind === "scooter";
       const visualOnlyStreetLife =
         ambientVehicle || placement.kind === "cairo-cart";
