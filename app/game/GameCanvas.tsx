@@ -418,6 +418,12 @@ const GRASS_TILE_M = 12;
  * which is the entire point of the second layer.
  */
 const GRASS_DETAIL_TILE_M = 3.1;
+/**
+ * A park lawn's surface. Was the top face of a 0.02-high box, and stays at that
+ * height: parks sit deliberately BELOW the shoulder (0.045) and the road (0.07)
+ * so an authored road crossing a park keeps visual priority.
+ */
+const PARK_LAWN_Y = 0.02;
 // Lift every building so no model's base plate lands exactly on the ground
 // plane. Base plates face -Y and are back-face culled, so this is depth-buffer
 // hygiene, not a visible-flicker fix — the Cairo brick-band flicker was never
@@ -5413,6 +5419,8 @@ class BabylonGameSession {
   private lowSpec = false;
   /** Shared fine grass tile for `detailMap`; built lazily, once per session. */
   private grassDetailTexture: DynamicTexture | null = null;
+  /** One grass material for every park on the map; built lazily. */
+  private parkLawnMaterial: StandardMaterial | null = null;
   /** Keep-out circles (gas station + gig-venue lots) so the block street wall
    * never drops a scenery building on top of an interactive POI. */
   private readonly buildingExclusions: { x: number; z: number; radius: number }[] = [];
@@ -10998,15 +11006,7 @@ class BabylonGameSession {
           );
         }
       } else if (landmark.kind === "park") {
-        // Parks sit flush with the terrain so roads retain visual priority
-        // wherever an authored surface passes their footprint.
-        createBox(
-          scene,
-          landmark.id,
-          { width: landmark.size.x, height: 0.02, depth: landmark.size.z },
-          new Vector3(landmark.center.x, 0.01, landmark.center.z),
-          material,
-        );
+        this.buildParkLawn(landmark, palette, mapId);
         createCylinder(
           scene,
           `${landmark.id}-feature`,
@@ -11319,13 +11319,11 @@ class BabylonGameSession {
         `${landmark.id}-olive-leaf`,
         new Color3(0.3, 0.4, 0.24),
       );
-      createBox(
-        scene,
-        `${landmark.id}-garden`,
-        { width: landmark.size.x, height: 0.025, depth: landmark.size.z },
-        new Vector3(landmark.center.x, 0.018, landmark.center.z),
-        material,
-      ).isPickable = false;
+      // Tahrir's garden is the same grass as every other park's — it just has a
+      // paved plaza laid over its middle. It intercepts the generic park branch
+      // for its furniture, so without this it would keep the flat untextured
+      // slab the rest of the map's greenery has now left behind.
+      this.buildParkLawn(landmark, this.visualPalette, mapPack.id.toLowerCase());
       createCylinder(
         scene,
         `${landmark.id}-central-plaza`,
@@ -14907,6 +14905,82 @@ class BabylonGameSession {
    * that it is off entirely on low-spec devices, where the render scale throws
    * the detail away before the player could see it.
    */
+  /**
+   * The one grass material every park lawn shares.
+   *
+   * Built lazily because the two paved cities need it and never build the
+   * ground-plane grass: NYC and Cairo set `paved`, so their base ground is
+   * concrete and their parks were the only green in the city — painted, until
+   * now, as a flat untextured `diffuseColor`.
+   *
+   * Deliberately **one material for every park on a map**, so a city's parks
+   * are one surface rather than eleven near-identical ones. That retires
+   * `ProceduralLandmark.color` as the thing that colours a park lawn (it still
+   * colours every other landmark kind); per-park character is meant to come
+   * from what stands on the grass, not from the shade of the grass.
+   */
+  private getParkLawnMaterial(
+    palette: MapVisualPalette,
+    mapId: string,
+  ): StandardMaterial {
+    if (this.parkLawnMaterial) return this.parkLawnMaterial;
+    const material = makeMaterial(this.scene, "park-lawn", Color3.White());
+    material.diffuseTexture = createGrassTexture(
+      this.scene,
+      "park-lawn-texture",
+      palette,
+      hashStringToSeed(`${mapId}-park-lawn`),
+      !this.lowSpec,
+    );
+    this.applyGrassDetailMap(material, mapId);
+    this.parkLawnMaterial = material;
+    return material;
+  }
+
+  /**
+   * A park's ground. Flat, because the simulation has no terrain — displacing
+   * it would float or sink the car, which is pinned to y = 0.
+   *
+   * This replaces a `createBox` whose default face UVs stretched a single tile
+   * across the whole footprint; on Central Park that was one texture over
+   * 200x2900 m, which is why giving the old box a texture would have changed
+   * nothing visible. `CreateGround` plus world-planar UVs tiles it properly and
+   * continues the surrounding ground's grass across the boundary.
+   */
+  private buildParkLawn(
+    landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+    palette: MapVisualPalette,
+    mapId: string,
+  ): Mesh {
+    const lawn = MeshBuilder.CreateGround(
+      landmark.id,
+      {
+        width: landmark.size.x,
+        height: landmark.size.z,
+        // ~25 m cells. One quad would do for a flat plane today, but the sun's
+        // shadow map and any later per-vertex tinting both need vertices to
+        // land on, and a grid this coarse costs nothing (Central Park: ~1k).
+        subdivisionsX: Math.max(1, Math.round(landmark.size.x / 25)),
+        subdivisionsY: Math.max(1, Math.round(landmark.size.z / 25)),
+      },
+      this.scene,
+    );
+    lawn.position.set(landmark.center.x, PARK_LAWN_Y, landmark.center.z);
+    if (landmark.headingDeg !== undefined) {
+      lawn.rotation.y = degreesToRadians(landmark.headingDeg);
+    }
+    // `CreateGround` emits local positions, so the park's own centre has to be
+    // folded in or every park restarts the tile at its own corner and shows a
+    // seam against the ground plane.
+    this.applyWorldPlanarGrassUVs(lawn, landmark.center.x, landmark.center.z);
+    setMeshMaterial(lawn, this.getParkLawnMaterial(palette, mapId), true);
+    lawn.freezeWorldMatrix();
+    // Too large for any spatial cull to reject — Central Park is 2.9 km long,
+    // which is the case `registerMirrorSurface` exists for.
+    this.registerMirrorSurface(lawn);
+    return lawn;
+  }
+
   private applyGrassDetailMap(material: StandardMaterial, mapId: string) {
     if (this.lowSpec) return;
     if (!this.grassDetailTexture) {

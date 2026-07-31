@@ -1,14 +1,9 @@
 # Authoring map content
 
-Read this before editing `content.ts`, `londonContent.ts` or `cairoContent.ts`,
-before adding a city, and before changing a road's width, speed limit or shape.
-
 There is **no generic procedural city generator and no runtime map import**.
 `getMapPack(id)` is a pure frozen lookup that throws on unknown ids.
 
 ## Two parallel truths that must stay in sync
-
-Every pack carries two structures:
 
 - **`laneGraph.lanes`** — directed *legal* truth. What the simulation, guidance,
   NPCs and scoring use.
@@ -21,7 +16,11 @@ Also authored: `RoadSurface.sidewalkWidthM` overrides the map default per road;
 `ProceduralBlock.headingDeg` rotates its façade slots, exclusions and OBB
 collider together; each `WaterBody` is a visual polygon whose shoreline opens
 only for its explicit `bridgePortalSurfaceIds`, with paired physical parapets
-derived over those spans.
+derived over those spans. **`ProceduralLandmark.color` does nothing on a
+`kind: "park"`** — every park shares one per-map grass material and nothing
+warns — and anything laid inside a park must fit the ~23 mm between the lawn
+(`PARK_LAWN_Y`, 0.02) and the shoulder junction fill at 0.0435, because parks
+sit under the roads on purpose.
 
 ## Everything else is derived at load time
 

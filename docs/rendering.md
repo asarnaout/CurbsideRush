@@ -1,8 +1,6 @@
 # The rendering layer
 
-`GameCanvas.tsx` and the Babylon scene. Read this before touching the session,
-the world geometry, the models/crowd, the cockpit, or anything performance-shaped.
-The 2D drive HUD is a separate concern — see [drive-hud.md](drive-hud.md).
+`GameCanvas.tsx` and the Babylon scene. The 2D drive HUD is a separate concern — see [drive-hud.md](drive-hud.md).
 
 ## Shape of the file
 
@@ -38,8 +36,8 @@ Every value is tuned to kill z-fighting, and they are spread across three module
 (`GameCanvas.tsx`, `crowdRenderer.ts`, `vehicleMeshes.ts`):
 
 ```
-0.0435 shoulder junction fill  <  0.045 shoulder/sidewalk  <  0.07 road surface
-<  0.0716 asphalt junction fill  <  0.08 walkers  <  0.1 crowd shadows
+0.02 park lawn  <  0.0435 shoulder junction fill  <  0.045 shoulder/sidewalk
+<  0.07 road surface  <  0.0716 asphalt junction fill  <  0.08 walkers  <  0.1 crowd shadows
 <  0.12 markings & vehicle nodes  <  0.144-0.147 chevrons/stop lines
 ```
 
@@ -64,7 +62,7 @@ everyone's depth separation.
 
 Every grass surface takes world-planar UVs at `1 / GRASS_TILE_M`, so the tile is
 anchored to the world, not the mesh: a park lawn continues the ground plane's
-grass instead of restarting it at its own corner. That shared convention is what
+grass instead of restarting at its own corner. That shared convention is what
 lets **one** `DynamicTexture` serve every grass material through
 `StandardMaterial.detailMap`, at a fixed `GRASS_TILE_M / GRASS_DETAIL_TILE_M`
 ratio — per-mesh `uScale` would need a texture per mesh. The tiles are
@@ -74,7 +72,6 @@ non-divisible (12 m against 3.1 m) so they beat rather than reinforce a grid.
 `default.fragment` reads `2 · mix(0.5, detailColor.r, diffuseBlendLevel)`, so R
 neutral is 0.5 — and `bumpFragment` reads a tangent normal out of **alpha and
 green** (`detailColor.wy * 2 - 1`, `B = sqrt(1 - |RG|²)`), so those are 0.5 too.
-
 Alpha is the trap: a 2D canvas is opaque, and A = 1 decodes as `normal.x = 1`,
 forcing B to zero — a tangent normal lying flat along the surface, 90° off the
 sun. It took Tokyo's grass from `(24,68,25)` to `(3,10,0)`, and `bumpLevel = 0`
