@@ -1208,24 +1208,25 @@ export default function SideSwapApp() {
   }, [view, paused]);
 
   /*
-   * Two things outrank the map, and it yields to both — but only for as long as
-   * they last, which is why this is derived rather than a close.
+   * One thing outranks the map, and it yields for as long as that lasts —
+   * which is why this is derived rather than a close.
    *
    * `paused`: GameCanvas renders the pause dialog at `DRIVE_LAYER.action` and
    * so does this, but the app's subtree paints after the session's — so a map
    * left showing would float on top of the pause screen. Covers a hidden tab
-   * too, which pauses.
-   *
-   * `offer`: the offer card is at `action` as well and renders *before* the
-   * map, so a map over it makes ACCEPT untappable for the whole fifteen
-   * seconds on touch. The phone HUD already moves the corner map out of an
-   * offer's way; this is the same courtesy.
-   *
-   * Answering the offer or resuming brings the map straight back, because the
+   * too, which pauses. Resuming brings the map straight back, because the
    * player never asked to close it. Leaving the drive is the only thing that
    * actually clears the flag — see `beginDrive`.
+   *
+   * An offer no longer counts. It used to (#241): both sat at `action` and the
+   * offer renders first, so a map over it buried ACCEPT for the whole fifteen
+   * seconds on touch — but yielding meant a job offer could snatch away a map
+   * the player had just opened, and M did nothing at all while one was up. The
+   * card now lives a rung higher (`DRIVE_LAYER.offer`) and floats over the map,
+   * which is where the offer is best read anyway: `previewRoute` draws the
+   * dashed line out to the pickup on the very map being covered.
    */
-  const mapVisible = mapOpen && !paused && !offer;
+  const mapVisible = mapOpen && !paused;
 
   useEffect(() => {
     const sync = () => {
@@ -3181,8 +3182,9 @@ export default function SideSwapApp() {
         )}
         {/*
           Last of the drive overlays, so it paints over the HUD it is meant to
-          replace for as long as it is up. Anything that must outrank it closes
-          it instead — see the effect that watches `paused` and `offer`.
+          replace for as long as it is up. The live offer is the one thing that
+          still shows over it, and it does that by sitting a layer higher; the
+          pause screen outranks it by closing it — see `mapVisible`.
         */}
         {mapVisible && hud && (
           <ExpandedMap

@@ -1649,8 +1649,9 @@ describe("the whole-city map", () => {
     fireEvent.click(screen.getByTestId("garage-start-day"));
     const scene = await screen.findByLabelText("Mock driving scene");
     // One snapshot, so the app has a player pose to draw the map around. It
-    // also opens the offer every drive starts with, and the map yields to an
-    // open offer — so pass it, leaving the screen clear.
+    // also opens the offer every drive starts with; pass it, so these tests
+    // start from a clear screen and can open their own offer when they want
+    // one.
     fireEvent.click(screen.getByTestId("mock-hud-mid"));
     fireEvent.click(screen.getByTestId("offer-pass"));
     return scene;
@@ -1725,9 +1726,11 @@ describe("the whole-city map", () => {
     expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
   });
 
-  it("gets out of an offer's way, then returns once it is answered", async () => {
-    // The offer card renders before the map at the same layer, so a map left
-    // over it makes ACCEPT untappable for the full fifteen seconds on a phone.
+  it("stays open when an offer arrives, with the card floating over it (#241)", async () => {
+    // It used to close itself instead, because the offer renders before it at
+    // the same layer and a map over ACCEPT is untappable on a phone. Losing
+    // the map you just opened every time dispatch called was the worse half of
+    // that trade; the card is a layer higher now and covers only its corner.
     await startDay();
     openMap();
     expect(screen.getByTestId("expanded-map")).toBeVisible();
@@ -1737,13 +1740,32 @@ describe("the whole-city map", () => {
     // random career seed, so *when* the next offer opens is not a fixed number
     // — only that the quiet spell is capped at 45s, so one always arrives.
     driveUntilOffered();
-    expect(screen.getByTestId("gig-offer")).toBeVisible();
-    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+    const map = screen.getByTestId("expanded-map");
+    expect(map).toBeVisible();
     expect(screen.getByTestId("offer-accept")).toBeVisible();
+    // jsdom has no layout, so the stacking order is the only thing that can be
+    // checked here — and it is exactly what makes ACCEPT reachable.
+    expect(Number(screen.getByTestId("gig-offer").style.zIndex)).toBeGreaterThan(
+      Number(map.style.zIndex),
+    );
 
-    // The player never asked to close it, so answering brings it straight back.
+    // Answering it leaves the map alone: it was never the offer's to close.
     fireEvent.click(screen.getByTestId("offer-pass"));
     expect(screen.getByTestId("expanded-map")).toBeVisible();
+  });
+
+  it("opens over an offer that is already up (#241)", async () => {
+    // The other half of the same bug: M and the HUD button both flipped the
+    // flag but nothing appeared, so the map read as broken for fifteen seconds
+    // at a stretch — the one moment the player most wants to see where the
+    // pickup is, which the map draws as a dashed line out to it.
+    await startDay();
+    driveUntilOffered();
+    expect(screen.queryByTestId("expanded-map")).not.toBeInTheDocument();
+
+    openMap();
+    expect(screen.getByTestId("expanded-map")).toBeVisible();
+    expect(screen.getByTestId("gig-offer")).toBeVisible();
   });
 
   it("marks the city's places, cameras and all", async () => {

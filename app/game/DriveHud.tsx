@@ -1268,9 +1268,10 @@ const OFFER_H = 384;
 export const FUSE_SMOOTHING_MS = 200;
 
 /**
- * The offer card. Interactive, so it takes `DRIVE_LAYER.action` rather than the
+ * The offer card. Interactive, so it takes `DRIVE_LAYER.offer` rather than the
  * read-only HUD layer — the nav card is `pointerEvents: "none"` and an accept
- * button could never have lived inside it.
+ * button could never have lived inside it. That rung is above the whole-city
+ * map on purpose: see `DRIVE_LAYER.offer`.
  *
  * The border is a fuse: one SVG stroke with `pathLength` normalised to 1000, so
  * the dash offset *is* the fraction burnt regardless of the card's real
@@ -1302,7 +1303,7 @@ export function DriveOfferCard({
       style={cluster(scale, "top right", {
         top: inset.top,
         right: inset.right,
-        zIndex: DRIVE_LAYER.action,
+        zIndex: DRIVE_LAYER.offer,
       })}
     >
       <div
@@ -1658,7 +1659,7 @@ export function DriveOfferBar({
         position: "absolute",
         top: inset.top,
         right: inset.right,
-        zIndex: DRIVE_LAYER.action,
+        zIndex: DRIVE_LAYER.offer,
       }}
     >
       <div

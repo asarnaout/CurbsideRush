@@ -378,8 +378,11 @@ describe("the offer card", () => {
       />,
     );
     const root = container.firstElementChild as HTMLElement;
-    expect(Number(root.style.zIndex)).toBe(DRIVE_LAYER.action);
-    expect(DRIVE_LAYER.action).toBeGreaterThan(DRIVE_LAYER.hud);
+    expect(Number(root.style.zIndex)).toBe(DRIVE_LAYER.offer);
+    expect(DRIVE_LAYER.offer).toBeGreaterThan(DRIVE_LAYER.hud);
+    // And above the whole-city map, which is at `action`: the player can open
+    // the map over an offer and still answer it (#241).
+    expect(DRIVE_LAYER.offer).toBeGreaterThan(DRIVE_LAYER.action);
   });
 });
 
@@ -672,7 +675,7 @@ describe("the offer on a phone", () => {
     expect(onAccept).toHaveBeenCalledTimes(1);
   });
 
-  it("outranks the map it is standing on top of", () => {
+  it("outranks both maps it is standing on top of", () => {
     const { container } = render(
       <DriveOfferBar
         inset={{ top: "64px", right: "12px" }}
@@ -683,6 +686,10 @@ describe("the offer on a phone", () => {
       />,
     );
     const root = container.firstElementChild as HTMLElement;
-    expect(Number(root.style.zIndex)).toBe(DRIVE_LAYER.action);
+    // The corner widget it borrows the slot from is at `hud`; the whole-city
+    // map, which may be open over the whole screen, is at `action`. ACCEPT has
+    // to be tappable over either (#241).
+    expect(Number(root.style.zIndex)).toBe(DRIVE_LAYER.offer);
+    expect(DRIVE_LAYER.offer).toBeGreaterThan(DRIVE_LAYER.action);
   });
 });

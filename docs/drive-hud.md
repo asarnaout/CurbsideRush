@@ -11,7 +11,7 @@ Controls come from `GameCanvas`, the HUD from `SideSwapApp`, and they are siblin
 in `.game-page`'s stacking context.
 
 ```
-scrim 5  <  hud 10  <  touch 20  <  toast 30  <  action 40  <  curtain 50
+scrim 5  <  hud 10  <  touch 20  <  toast 30  <  action 40  <  offer 45  <  curtain 50
 ```
 
 Hard-coding a z-index in either file is how the steering control ended up painted
@@ -24,8 +24,11 @@ GameCanvas subtree atomic at its own level, and no control inside could then
 outrank a HUD sibling.
 
 Two layer facts are load-bearing: the nav card is `pointerEvents: "none"` on
-`DRIVE_LAYER.hud`, and the offer card is on `action` above it — which is the only
-reason an accept button can be clicked at all.
+`DRIVE_LAYER.hud`, and the offer card is above it — which is the only reason an
+accept button can be clicked at all. The offer gets a rung of its own above
+`action` because `ExpandedMap` is on `action` and may be open across the whole
+screen; sharing it buried ACCEPT, and dodging that by closing the map cost the
+player the map they had just opened (#241).
 
 ## `DriveHud.tsx` is props-pure
 
@@ -109,8 +112,11 @@ navigation, and **symbol sizes are an input to it** — the widget's
 fractions-of-its-edge rule would give a 27 px route line on a screen.
 
 It does **not** pause. It closes itself while paused (same `action` layer, and the
-app paints after the session) or while an offer is up (else ACCEPT is untappable
-on touch), and both are derived so it returns after.
+app paints after the session), derived rather than a close so it returns after.
+
+**An offer no longer closes it** — the card outranks it instead, on
+`DRIVE_LAYER.offer`. It only ever covers a corner, and the map is where an offer
+is best read: `previewRoute` is the dashed line out to the pickup.
 
 Key handling is asymmetric on purpose:
 
