@@ -174,7 +174,7 @@ describe("minimap road width", () => {
 describe("whole-city fit projection", () => {
   // The cities are nothing like square, and nothing like each other.
   const NYC = { x: 1080, z: 3000 };
-  const MILTON_KEYNES = { x: 1500, z: 300 };
+  const WIDE_CORRIDOR = { x: 1500, z: 300 };
 
   it("fills a canvas cut to the world's own aspect", () => {
     // 1080x3000 into a panel of exactly that shape and no padding: both axes
@@ -207,9 +207,9 @@ describe("whole-city fit projection", () => {
   it("letterboxes rather than distorts when the canvas is the wrong shape", () => {
     // A 5:1 wide world. Dropped into a square it keeps its aspect and
     // leaves the slack above and below — a stretched city is not a map.
-    const fit = createMinimapFitProjector(MILTON_KEYNES, 600, 600, 6);
+    const fit = createMinimapFitProjector(WIDE_CORRIDOR, 600, 600, 6);
     expect(fit.pixelsPerMetre).toBeCloseTo((600 - 12) / 1500, 6);
-    const north = fit.project(0, MILTON_KEYNES.z / 2);
+    const north = fit.project(0, WIDE_CORRIDOR.z / 2);
     expect(north.y).toBeGreaterThan(6);
     expect(north.y).toBeLessThan(300);
     // Aspect preserved: a square of world is a square on screen.
