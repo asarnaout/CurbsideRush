@@ -176,6 +176,7 @@ import {
   type CutsceneCarPose,
   type CutsceneKind,
   type CutsceneStep,
+  type ErrandCargo,
   type PulloverPlan,
   type PulloverRoad,
 } from "./cutsceneScript";
@@ -310,6 +311,7 @@ const LANE_PAINT_STYLES = new Set([
 ]);
 import {
   buildActorVisual,
+  buildCourierVisual,
   buildCyclistVisual,
   buildMotorbikeVisual,
   buildOfficerVisual,
@@ -7118,19 +7120,31 @@ class BabylonGameSession {
             this.gigVenueCurbside.get(request.venueId))
           : undefined;
         if (door) {
+          // Which leg the courier walks with the order in hand is the only
+          // thing that tells these two scenes apart on screen — the walk
+          // itself is the same one run in opposite directions.
+          const cargo: ErrandCargo =
+            request.kind === "food_pickup" ? "collect" : "deliver";
           // On a two-wheeler the courier dismounts beside it — no doors, no
           // suspension dip — and the rider on the vehicle hides for the scene
           // so the walking actor reads as the same person.
           const twoWheelerKind = this.options.playerVehicle?.visualKind;
           script =
             twoWheelerKind === "bicycle"
-              ? buildBikeErrandScript(car, { x: door.x, z: door.z })
+              ? buildBikeErrandScript(
+                  car,
+                  { x: door.x, z: door.z },
+                  undefined,
+                  undefined,
+                  cargo,
+                )
               : twoWheelerKind === "motorbike"
                 ? buildBikeErrandScript(
                     car,
                     { x: door.x, z: door.z },
                     undefined,
                     MOTORBIKE_CUTSCENE_BODY,
+                    cargo,
                   )
                 : buildErrandScript(
                     car,
@@ -7138,6 +7152,7 @@ class BabylonGameSession {
                     { x: door.x, z: door.z },
                     undefined,
                     body,
+                    cargo,
                   );
         }
         break;
@@ -7167,7 +7182,11 @@ class BabylonGameSession {
             passengerSeed.length,
             this.passengerColors(passengerSeed),
           )
-        : buildActorVisual(
+        : // The food errands are the driver with an order to carry; every
+          // other scene is the same person with their hands free.
+          (request.kind === "food_pickup" || request.kind === "food_dropoff"
+            ? buildCourierVisual
+            : buildActorVisual)(
             this.scene,
             actorNode,
             `cutscene-driver-${request.nonce}`,
@@ -7370,6 +7389,10 @@ class BabylonGameSession {
         },
       });
     }
+    // The order is in hand for whole legs at a time, so this rides the step
+    // rather than the scene — see CutsceneStep.carrying. A no-op for every
+    // actor that is not the courier.
+    cutscene.actorVisual?.setCarrying?.(step.carrying === true);
     switch (step.action) {
       case "show":
       case "walk":
@@ -7422,6 +7445,9 @@ class BabylonGameSession {
     const cutscene = this.activeCutscene;
     if (!cutscene) return;
     cutscene.elapsedSeconds += frameSeconds;
+    // Keeps a carried bag hanging plumb as the rig's arm swings; the actor
+    // itself needs no per-frame work, so this costs nothing when hands are free.
+    cutscene.actorVisual?.update?.();
     if (cutscene.patrolVisual) {
       const lamps = policeBeaconLamps(cutscene.elapsedSeconds);
       cutscene.patrolVisual.setBeacon(lamps.red, lamps.blue);
