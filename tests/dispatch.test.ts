@@ -402,6 +402,50 @@ describe("rideshare tips", () => {
   });
 });
 
+describe("a stretched search", () => {
+  it("leaves an unstretched caller exactly where it was", () => {
+    // Free drive and a driver in good standing both pass 1, and neither may
+    // move by so much as a millisecond.
+    for (let seed = 1; seed <= 500; seed += 1) {
+      expect(searchDelayMs(seed, 1)).toBe(searchDelayMs(seed));
+    }
+    const state = createDispatch(9);
+    expect(stepDispatch(state, 0, true, 1)).toEqual(stepDispatch(state, 0, true));
+  });
+
+  it("makes the quiet spells longer without moving what is offered", () => {
+    for (const seed of [4, 88, 1_507]) {
+      const plain = searchDelayMs(seed);
+      const stretched = searchDelayMs(seed, 2.5);
+      expect(stretched).toBeGreaterThan(plain);
+      // Scaled before the rounding, so within a millisecond of the product.
+      expect(Math.abs(stretched - plain * 2.5)).toBeLessThanOrEqual(1);
+    }
+    // The seed still advances one per offer opened, so a poorly-rated driver
+    // sees the same jobs, just fewer of them in a day.
+    const opened = stepDispatch(createDispatch(3), 0, true, 3);
+    expect(opened.state.offerSeed).toBe(3);
+  });
+
+  it("never shortens a wait, whatever it is handed", () => {
+    for (const seed of [4, 88, 1_507]) {
+      expect(searchDelayMs(seed, 0)).toBe(searchDelayMs(seed));
+      expect(searchDelayMs(seed, -5)).toBe(searchDelayMs(seed));
+    }
+  });
+
+  it("holds the stretch across an expiry and an answered offer alike", () => {
+    const offered = stepDispatch(createDispatch(1), 0, true, 2).state;
+    const expired = stepDispatch(offered, OFFER_WINDOW_MS, true, 2);
+    const answered = resolveOffer(offered, OFFER_WINDOW_MS, 2);
+    expect(expired.event).toBe("expired");
+    expect(expired.state.nextOfferAtMs).toBe(answered.nextOfferAtMs);
+    expect(expired.state.nextOfferAtMs - OFFER_WINDOW_MS).toBe(
+      searchDelayMs(offered.offerSeed + 1, 2),
+    );
+  });
+});
+
 describe("customer star ratings", () => {
   const SEEDS = Array.from({ length: 4_000 }, (_, index) => index + 1);
   const onTime = { promptness: 1, violations: 0 };

@@ -130,11 +130,21 @@ const SEARCH_BIAS = 2.2;
 
 const SEARCH_SALT = 0x7a_31_c4_9b;
 
-/** How long dispatch stays quiet before opening the offer with this seed. */
-export function searchDelayMs(seed: number): number {
+/**
+ * How long dispatch stays quiet before opening the offer with this seed.
+ *
+ * `stretch` scales the wait for a career driver the city has stopped
+ * favouring; it defaults to 1, which is what free drive and a driver in good
+ * standing both get. It has to arrive as an argument rather than be read from
+ * anywhere, because this module has no state and no clock and the replay
+ * guarantee rests on that. The caller holds it fixed for a whole day, so a
+ * retried day still offers the identical sequence.
+ */
+export function searchDelayMs(seed: number, stretch = 1): number {
   const unit = hashToUnit((seed ^ SEARCH_SALT) | 0);
   return Math.round(
-    SEARCH_MIN_MS + Math.pow(unit, SEARCH_BIAS) * (SEARCH_MAX_MS - SEARCH_MIN_MS),
+    (SEARCH_MIN_MS + Math.pow(unit, SEARCH_BIAS) * (SEARCH_MAX_MS - SEARCH_MIN_MS)) *
+      Math.max(1, stretch),
   );
 }
 
@@ -179,13 +189,13 @@ export function createDispatch(baseSeed: number): DispatchState {
 }
 
 /** Closes the live (or pending) offer and arms the next one. */
-function armNext(state: DispatchState, nowMs: number): DispatchState {
+function armNext(state: DispatchState, nowMs: number, stretch: number): DispatchState {
   const offerSeed = state.offerSeed + 1;
   return {
     phase: "idle",
     offerSeed,
     offeredAtMs: 0,
-    nextOfferAtMs: nowMs + searchDelayMs(offerSeed),
+    nextOfferAtMs: nowMs + searchDelayMs(offerSeed, stretch),
   };
 }
 
@@ -197,19 +207,26 @@ function armNext(state: DispatchState, nowMs: number): DispatchState {
  * while blocked (which would fire an offer the instant a slot freed, every
  * time), the wait is continuously re-armed, so clearing the queue starts a
  * fresh quiet spell.
+ *
+ * `stretch` is how much longer the quiet spells run — see `searchDelayMs`. Hold
+ * it constant for a whole day or the sequence stops replaying.
  */
 export function stepDispatch(
   state: DispatchState,
   nowMs: number,
   canOffer: boolean,
+  stretch = 1,
 ): DispatchStep {
   if (state.phase === "offered") {
     if (nowMs - state.offeredAtMs < OFFER_WINDOW_MS) return { state, event: "none" };
-    return { state: armNext(state, nowMs), event: "expired" };
+    return { state: armNext(state, nowMs, stretch), event: "expired" };
   }
   if (!canOffer) {
     return {
-      state: { ...state, nextOfferAtMs: nowMs + searchDelayMs(state.offerSeed) },
+      state: {
+        ...state,
+        nextOfferAtMs: nowMs + searchDelayMs(state.offerSeed, stretch),
+      },
       event: "none",
     };
   }
@@ -226,9 +243,13 @@ export function stepDispatch(
  * a hidden acceptance-rate stat would punish the player for a choice the game
  * just asked them to make.
  */
-export function resolveOffer(state: DispatchState, nowMs: number): DispatchState {
+export function resolveOffer(
+  state: DispatchState,
+  nowMs: number,
+  stretch = 1,
+): DispatchState {
   if (state.phase !== "offered") return state;
-  return armNext(state, nowMs);
+  return armNext(state, nowMs, stretch);
 }
 
 /** Milliseconds left on the live offer, floored at zero. */

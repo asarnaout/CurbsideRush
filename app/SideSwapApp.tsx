@@ -79,6 +79,11 @@ import {
   PLATFORM_FEE_BY_COUNTRY,
   ROADSIDE_CALLOUT_FEE_BY_COUNTRY,
   ROADSIDE_PRICE_FACTOR,
+  averageRating,
+  ratingFareFactor,
+  ratingSearchStretch,
+  ratingStanding,
+  ratingTipFactor,
   settleDay,
   settleRating,
   vehicleRent,
@@ -238,6 +243,17 @@ interface CareerRun {
   readonly city: CareerCityView;
   readonly vehicleId: CareerVehicleId;
   readonly vehicle: CareerVehicleSpec;
+  /**
+   * The morning's standing, 0→1, resolved once and held all day.
+   *
+   * Read at the garage rather than live off the slice for three reasons, each
+   * on its own sufficient. It cannot leak feedback: work arriving faster
+   * mid-shift would tell the driver a customer had just rated them, which is
+   * exactly what the drive screen is supposed to withhold. It keeps the day
+   * replayable, since a retried day resolves the same number. And it is one
+   * read instead of three that could disagree.
+   */
+  readonly ratingStanding: number;
 }
 
 const GameCanvas = dynamic(() => import("./game/GameCanvas"), {
@@ -446,6 +462,10 @@ function nextGigFor(
  * food order was tipped when it was placed and may add a little for a quick
  * run, while a rider decides on the way — against how long the trip took and
  * how many rules were broken with them in the car.
+ *
+ * `ratingFactor` is the career driver's standing and defaults to 1, which is
+ * what free drive passes. It is applied here rather than inside `dispatch.ts`
+ * because that module is shared with free drive and knows nothing of careers.
  */
 function gigTipFor(
   gig: Gig,
@@ -454,18 +474,18 @@ function gigTipFor(
   parMs: number,
   onTime: boolean,
   violations: number,
+  ratingFactor = 1,
 ): number {
-  if (gig.kind === "passenger") {
-    return rideTip(gross, gig.seed, {
-      promptness: ridePromptness(carriedMs, parMs),
-      violations,
-      surged: gig.surged,
-    });
-  }
-  return (
-    quotedTip(gross, gig.seed, gig.surged) +
-    foodSpeedBonus(gross, gig.seed, onTime, gig.surged)
-  );
+  const base =
+    gig.kind === "passenger"
+      ? rideTip(gross, gig.seed, {
+          promptness: ridePromptness(carriedMs, parMs),
+          violations,
+          surged: gig.surged,
+        })
+      : quotedTip(gross, gig.seed, gig.surged) +
+        foodSpeedBonus(gross, gig.seed, onTime, gig.surged);
+  return Math.round(base * ratingFactor);
 }
 
 /**
@@ -688,6 +708,13 @@ export default function SideSwapApp() {
   // renders is state — the live offer with the moment it opened, the queued job
   // and the drive clock the countdown is measured against.
   const dispatchRef = useRef<DispatchState>(createDispatch(1));
+  /**
+   * How much longer this driver waits between offers. A ref beside the schedule
+   * because dispatch is stepped from `handleHud`, which cannot see React state;
+   * set once when a career day opens and back to 1 when it closes, so free
+   * drive and a well-rated driver are both unaffected.
+   */
+  const dispatchStretchRef = useRef(1);
   const [offer, setOffer] = useState<{ gig: Gig; offeredAtMs: number } | null>(
     null,
   );
@@ -1058,7 +1085,11 @@ export default function SideSwapApp() {
       // Dispatch goes quiet only when both hands are full: a job in progress
       // *and* one already queued behind it.
       const busy = gigRef.current !== null && queuedGigRef.current !== null;
-      const step = stepDispatch(dispatchRef.current, nowMs, !busy);
+      // A poor standing is felt first as an empty afternoon: the dispatcher
+      // routes work to drivers people want. Free drive, and any career driver
+      // the city has no complaint about, stretch by 1.
+      const stretch = dispatchStretchRef.current;
+      const step = stepDispatch(dispatchRef.current, nowMs, !busy, stretch);
       dispatchRef.current = step.state;
       setSurge(surgeWindowAt(driveContextRef.current.surgeSeed, nowMs));
       if (step.event === "opened") {
@@ -1070,7 +1101,7 @@ export default function SideSwapApp() {
         } else {
           // This map cannot produce a gig under the current constraints —
           // close the offer at once rather than showing an empty card.
-          dispatchRef.current = resolveOffer(step.state, nowMs);
+          dispatchRef.current = resolveOffer(step.state, nowMs, stretch);
         }
       } else if (step.event === "expired") {
         offerRef.current = null;
@@ -1136,7 +1167,11 @@ export default function SideSwapApp() {
   const answerOffer = useCallback((accepted: boolean) => {
     const current = offerRef.current;
     if (!current) return;
-    dispatchRef.current = resolveOffer(dispatchRef.current, driveElapsedRef.current);
+    dispatchRef.current = resolveOffer(
+      dispatchRef.current,
+      driveElapsedRef.current,
+      dispatchStretchRef.current,
+    );
     offerRef.current = null;
     setOffer(null);
     setPreviewRoute(null);
@@ -1165,9 +1200,15 @@ export default function SideSwapApp() {
     return promoted;
   }, []);
 
-  /** Clears every trace of the last drive's dispatch and arms the next. */
-  const resetDispatch = (baseSeed: number) => {
+  /**
+   * Clears every trace of the last drive's dispatch and arms the next.
+   *
+   * `stretch` defaults to 1, so a free drive always clears whatever standing
+   * the last career day set — there is no reputation out here.
+   */
+  const resetDispatch = (baseSeed: number, stretch = 1) => {
     dispatchRef.current = createDispatch(baseSeed);
+    dispatchStretchRef.current = stretch;
     driveElapsedRef.current = 0;
     dayElapsedBaseRef.current = 0;
     lastSimElapsedRef.current = 0;
@@ -1624,6 +1665,7 @@ export default function SideSwapApp() {
                 current.reward,
                 current.kind,
                 run.vehicle,
+                ratingFareFactor(run.ratingStanding),
               );
               // Tips are commission-free either way, but the two kinds settle
               // differently: a food order tipped when it was placed, and may
@@ -1649,6 +1691,7 @@ export default function SideSwapApp() {
                 parMs,
                 onTime,
                 carryViolationsRef.current,
+                ratingTipFactor(run.ratingStanding),
               );
               // The same trip, judged a second way. Deliberately silent: the
               // stars never reach the HUD, the toast or the payout call-out —
@@ -2098,7 +2141,13 @@ export default function SideSwapApp() {
       assistance: assistanceFromProgress(progress),
     };
     resolveSessionConfig(session);
-    const run: CareerRun = { slice: careerSlice, city: careerCity, vehicleId, vehicle };
+    const run: CareerRun = {
+      slice: careerSlice,
+      city: careerCity,
+      vehicleId,
+      vehicle,
+      ratingStanding: ratingStanding(averageRating(cityRating(careerCity))),
+    };
     careerRunRef.current = run;
     setCareerRun(run);
     // Rent is prepaid into the day-local cash; the slice itself is untouched
@@ -2135,7 +2184,7 @@ export default function SideSwapApp() {
       allowedKinds: vehicle.allowedGigKinds,
       surgeSeed: dayGigSeed,
     };
-    resetDispatch(dayGigSeed);
+    resetDispatch(dayGigSeed, ratingSearchStretch(run.ratingStanding));
     gigRef.current = null;
     setGig(null);
     carryingSinceRef.current = null;

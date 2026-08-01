@@ -907,14 +907,20 @@ export function careerGigSeedBase(
 // that is genuinely Career's: the vehicle's fare factor and the platform's cut.
 // ---------------------------------------------------------------------------
 
+/**
+ * `ratingFactor` is the driver's standing (see `ratingFareFactor`), defaulting
+ * to 1 — which is what an unrated driver, a well-rated one, and every balance
+ * test all price at.
+ */
 export function careerFare(
   baseReward: number,
   kind: GigKind,
   vehicle: CareerVehicleSpec,
+  ratingFactor = 1,
 ): { readonly gross: number; readonly net: number } {
   const factor =
     kind === "delivery" ? vehicle.fareFactors.delivery : vehicle.fareFactors.passenger;
-  const gross = Math.round(baseReward * factor);
+  const gross = Math.round(baseReward * factor * ratingFactor);
   const net = Math.round(gross * (1 - COMMISSION_RATE));
   return { gross, net };
 }

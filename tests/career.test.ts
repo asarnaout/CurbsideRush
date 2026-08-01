@@ -515,6 +515,15 @@ describe("fares", () => {
     expect(careerFare(20, "delivery", hatch)).toEqual({ gross: 20, net: 15 });
   });
 
+  it("prices a poorly-rated driver's work down, and everyone else's unchanged", () => {
+    const van = getCareerVehicle("delivery-van");
+    // The default is what free drive, an unrated driver and every balance test
+    // all price at — it must stay byte-identical.
+    expect(careerFare(21, "delivery", van, 1)).toEqual(careerFare(21, "delivery", van));
+    const worst = careerFare(100, "delivery", van, ratingFareFactor(ratingStanding(1)));
+    expect(worst.gross).toBe(113); // round(100 * 1.5 * 0.75)
+    expect(worst.gross).toBeLessThan(careerFare(100, "delivery", van).gross);
+  });
 });
 
 describe("standing", () => {
