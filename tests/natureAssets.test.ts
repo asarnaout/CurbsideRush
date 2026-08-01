@@ -148,6 +148,52 @@ describe("nature kit assets", () => {
     }
   }, 30_000);
 
+  it("scales each model to a believable world size", async () => {
+    // The kit is authored at roughly a fifth of world scale, so a scale near 1
+    // plants saplings — which is exactly what the first pass shipped. These
+    // bands are the check that a retuned scale stays in the realm of the thing
+    // it depicts.
+    const BANDS: Readonly<Record<string, readonly [number, number]>> = {
+      tree: [5, 12],
+      conifer: [5, 12],
+      palm: [5, 10],
+      shrub: [0.7, 1.8],
+      flower: [0.3, 0.9],
+      tuft: [0.3, 0.9],
+      rock: [0.3, 1.2],
+      monument: [2, 6],
+    };
+    registerBuiltInLoaders();
+    for (const model of NATURE_MODELS) {
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const bytes = await readFile(fileFor(model.url));
+      const container = await LoadAssetContainerAsync(
+        "data:model/gltf-binary;base64," + bytes.toString("base64"),
+        scene,
+        { pluginExtension: ".glb" },
+      );
+      let low = Number.POSITIVE_INFINITY;
+      let high = Number.NEGATIVE_INFINITY;
+      for (const mesh of container.meshes) {
+        if (!mesh.getTotalVertices()) continue;
+        mesh.computeWorldMatrix(true);
+        const box = mesh.getBoundingInfo().boundingBox;
+        low = Math.min(low, box.minimumWorld.y);
+        high = Math.max(high, box.maximumWorld.y);
+      }
+      const worldHeight = (high - low) * model.scale;
+      const [min, max] = BANDS[model.role];
+      expect(
+        worldHeight,
+        `${model.id} stands ${worldHeight.toFixed(1)}m as a ${model.role}`,
+      ).toBeGreaterThanOrEqual(min);
+      expect(worldHeight, `${model.id} stands ${worldHeight.toFixed(1)}m`).toBeLessThanOrEqual(max);
+      scene.dispose();
+      engine.dispose();
+    }
+  }, 30_000);
+
   it("credits the kit with its licence and source", async () => {
     const credits = await readFile(resolve(root, "CREDITS.md"), "utf8");
     expect(credits).toContain("Nature Kit");

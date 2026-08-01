@@ -75,6 +75,32 @@ map-gated and always wants at least one craft, and the only two models are
 `cairo-felucca` and `cairo-skiff`, so a lake anywhere but Cairo would get an
 Egyptian felucca on it. `buildWaterBodies` gates the call on the map.
 
+## The planting kit, and two ways it goes wrong
+
+Species come from `natureModelsForMap`, so a city plants only what it
+downloaded: Cairo's "trees" resolve to palms and Tokyo's to the temple set with
+none of that spelled out at the call site. Placements queue in
+`pendingParkProps` / `pendingParkThickets` and drain in `buildParkPlanting`
+after the preload, the way vendor carts do — glb masters do not exist when the
+scene is built.
+
+**Kenney's kit is authored at roughly a fifth of world scale.** Its trees are
+1.1–1.9 m tall in the file, not the 4–6 m their silhouettes suggest, so a scale
+near 1 plants saplings — which is exactly what the first pass shipped.
+`natureCatalog`'s scales are measured, and `tests/natureAssets.test.ts` pins the
+resulting world heights per role.
+
+**Planting must stay out of `buildingModelUrls`.** Both consumers of that list
+treat its contents as buildings, and `applyBuildingNightGlow` gives every
+material in it a warm sodium self-glow — which turned Central Park's trees tan.
+`natureModelUrls` is a separate field that rides the same preload and nothing
+else. The same reasoning gates the Cairo boat models on the map rather than on
+"has water", now that NYC has a lake.
+
+Scatter `variants` has to be wide enough to reach the whole species pool:
+`variant % pool.length` at 3 variants never got past the first three species,
+so no conifer was ever planted in a temperate park.
+
 ## A park's style is derived, and two styles can never be walled
 
 `resolveParkStyle` reads the landmark id first and its proportions second, so a

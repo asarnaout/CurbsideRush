@@ -214,7 +214,13 @@ import {
   type PropPlacement,
 } from "./visuals";
 import {
+  natureModelsForMap,
+  natureSetUrls,
+  natureSetsForMap,
+} from "./natureCatalog";
+import {
   parkLayoutForLandmark,
+  type ParkPlacement,
 } from "./parkLayouts";
 import {
   createVehicleMesh,
@@ -5422,6 +5428,13 @@ class BabylonGameSession {
   }[] = [];
   /** glb URLs of the current map's building sets, preloaded off the critical path. */
   private buildingModelUrls: string[] = [];
+  /**
+   * This map's park planting glbs. Deliberately NOT in `buildingModelUrls`,
+   * even though both are map-scoped and preloaded together: everything in that
+   * list is treated as a building, and `applyBuildingNightGlow` gives each of
+   * them a warm sodium self-glow. Trees listed there came out tan.
+   */
+  private natureModelUrls: string[] = [];
   /** Blocks that dress with instanced glb building sets once their models load;
    * `buildFallback` builds procedural facade boxes if the models never arrive. */
   private readonly pendingBuildingBlocks: {
@@ -5476,6 +5489,14 @@ class BabylonGameSession {
   private readonly buildingExclusions: { x: number; z: number; radius: number }[] = [];
   /** Sidewalk vendor carts to instantiate once their glbs preload. */
   private readonly pendingVendors: { config: StreetPropConfig; x: number; z: number; yaw: number }[] = [];
+  /**
+   * Park planting waiting on the model preload. Split at collection time:
+   * `pendingParkProps` become individual knockable instances, the thickets
+   * merge one mesh per cell. Both need glb masters, which only exist once
+   * `preloadVehicleModels` has run — the same reason vendor carts queue.
+   */
+  private readonly pendingParkProps: ParkPlacement[] = [];
+  private readonly pendingParkThickets: ParkThicketBatch[] = [];
   /** River craft to instantiate once the boat glbs preload. */
   private readonly pendingWaterBoats: { bodyId: string; placement: WaterBoatPlacement }[] = [];
   private readonly waterBoatMasters = new Map<
@@ -6301,6 +6322,7 @@ class BabylonGameSession {
           ...characterModelUrls(),
           ...propModelUrls(),
           ...this.buildingModelUrls,
+          ...this.natureModelUrls,
         ],
         (fraction) =>
           this.reportLoadProgress(fraction * LOAD_PHASE_WEIGHTS.models, LOADING_MODELS_LABEL),
@@ -9021,6 +9043,78 @@ class BabylonGameSession {
       ]);
     }
     this.pendingVendors.length = 0;
+
+    this.buildParkPlanting();
+  }
+
+  /**
+   * The imported planting, once its glbs are in.
+   *
+   * Species are chosen from what this city actually downloaded
+   * (`natureModelsForMap`), so Cairo's "trees" resolve to palms and Tokyo's to
+   * the temple set without any of that being spelled out here.
+   */
+  private buildParkPlanting() {
+    const key = resolveMapVisualKey(this.options.mapPack?.id ?? "");
+    const catalogue = natureModelsForMap(key);
+    const canopy = catalogue.filter(
+      (model) =>
+        model.role === "tree" || model.role === "conifer" || model.role === "palm",
+    );
+    const shrubs = catalogue.filter((model) => model.role === "shrub");
+    const speciesFor = (kind: string, variant: number) => {
+      const pool = kind === "shrub" ? shrubs : canopy;
+      return pool.length ? pool[variant % pool.length] : null;
+    };
+
+    let index = 0;
+    for (const placement of this.pendingParkProps) {
+      const species = speciesFor(placement.kind, placement.variant);
+      if (!species) continue;
+      const master = this.getBuildingMaster(species.url);
+      if (!master) continue;
+      const instance = master.createInstance(`park-plant-${index}`);
+      index += 1;
+      instance.position.set(placement.x, 0, placement.z);
+      instance.rotation.y = placement.rotationY;
+      instance.scaling.setAll(species.scale * placement.scale);
+      instance.isPickable = false;
+      this.staticSceneryFreeze.push(instance);
+      this.registerShadowCaster(instance, placement.x, placement.z);
+      // Knockable exactly like a street tree — that consistency is the reason
+      // park planting rides the same destructible path at all.
+      this.registerDestructibleProp(
+        placement.kind,
+        placement.x,
+        placement.z,
+        placement.scale,
+        [{ node: instance, isLightPool: false }],
+      );
+    }
+    this.pendingParkProps.length = 0;
+
+    for (const batch of this.pendingParkThickets) {
+      const pieces: Mesh[] = [];
+      for (const [item, placement] of batch.placements.entries()) {
+        const species = speciesFor(placement.kind, placement.variant);
+        if (!species) continue;
+        const master = this.getBuildingMaster(species.url);
+        if (!master) continue;
+        const piece = master.clone(`park-piece-${batch.id}-${item}`);
+        piece.position.set(placement.x, 0, placement.z);
+        piece.rotation.y = placement.rotationY;
+        piece.scaling.setAll(species.scale * placement.scale);
+        piece.isVisible = true;
+        pieces.push(piece);
+      }
+      if (!pieces.length) continue;
+      const merged = Mesh.MergeMeshes(pieces, true, true, undefined, false, true);
+      if (!merged) continue;
+      merged.name = `park-thicket-${batch.id}`;
+      merged.isPickable = false;
+      this.registerStaticCell(merged, batch.centerX, batch.centerZ, false);
+    }
+    this.pendingParkThickets.length = 0;
   }
 
   /**
@@ -10851,9 +10945,20 @@ class BabylonGameSession {
     this.buildingModelUrls = [
       ...buildingSetUrls(setIds),
       ...(setIds.length ? nycVendorUrls() : []),
-      // River craft ride the same preload: a map with water gets its boats.
-      ...(mapPack.geometry.waterBodies?.length ? WATER_BOAT_MODEL_URLS : []),
+      // River craft ride the same preload. Gated on Cairo, not on "has water":
+      // the two models are `cairo-felucca` and `cairo-skiff` and only Cairo
+      // places them, so keying off water alone made Central Park's lake pull
+      // ~50 KB of boats NYC can never use.
+      ...(resolveMapVisualKey(mapId) === "cairo" &&
+      mapPack.geometry.waterBodies?.length
+        ? WATER_BOAT_MODEL_URLS
+        : []),
     ];
+    // This map's park planting only — see `natureCatalog`. Kept in its own
+    // list so the night-glow and Cairo-decal passes above never see it.
+    this.natureModelUrls = natureSetUrls(
+      natureSetsForMap(resolveMapVisualKey(mapId)),
+    );
 
     for (const service of mapPack.geometry.servicePoints ?? []) {
       const pose = resolveSimulationLaneAnchor(
@@ -12114,7 +12219,7 @@ class BabylonGameSession {
         }
         // Anything a driver can actually reach stays an individually instanced,
         // knockable prop. Everything deeper is scenery, and scenery in a park
-        // this size has to be batched — see `buildParkThickets`.
+        // this size has to be batched — see `buildParkPlanting`.
         //
         // Shrubs are never in that set however close they are. They are the
         // densest zone by some way, and their destructible entry is `damage:
@@ -12130,7 +12235,14 @@ class BabylonGameSession {
                 path.widthM / 2 + PARK_KNOCKABLE_REACH_M,
             ));
         if (reachablePlacement) {
-          reachable.push(placement);
+          // Benches and lamps have no model in the planting kit, so they stay
+          // procedural and ride the roadside pipeline as before. Planting goes
+          // to the glb queue, which can only be drained after the preload.
+          if (placement.kind === "bench" || placement.kind === "lamp") {
+            reachable.push(placement);
+          } else {
+            this.pendingParkProps.push(placement);
+          }
           continue;
         }
         // Keyed by CELL only, not by species: everything in a cell merges into
@@ -12149,72 +12261,12 @@ class BabylonGameSession {
           };
           chunks.set(key, batch);
           interior.push(batch);
+          this.pendingParkThickets.push(batch);
         }
         batch.placements.push(placement);
       }
     }
     return { reachable, interior };
-  }
-
-  /**
-   * Deep-park planting, merged one mesh per cell.
-   *
-   * Central Park is 58 hectares, and one `createInstance` per tree part put
-   * **9,283** extra meshes in the NYC scene — every one a per-frame frustum
-   * test in a scene that already walks ~15,000. Merging a whole cell collapses
-   * it to one mesh with one bounding box, so fog and the frustum reject the
-   * cell whole; the cell is sized against the night fog band (440 m).
-   *
-   * **Thin instances were tried first and draw nothing here.** The chunk meshes
-   * come out visible and enabled, with the right material, the right
-   * `thinInstanceCount` and correctly refreshed world bounds — Babylon submits
-   * them (draw calls rise) and not a pixel lands. It is not the multi-material
-   * merge, not `freezeWorldMatrix`, and not the `material.freeze()` at the end
-   * of this method; all three were ruled out by bisect. Merging is the path the
-   * street wall already uses, so it is the one taken here.
-   *
-   * The trade is that merged geometry is not individually addressable, so none
-   * of this is knockable — which is why anything within `PARK_KNOCKABLE_REACH_M`
-   * of a path was split out above and stays a real prop.
-   */
-  private buildParkThickets(
-    batches: readonly ParkThicketBatch[],
-    partsFor: (
-      kind: string,
-      variant: number,
-    ) => readonly { readonly master: Mesh; readonly offset: Vector3 }[],
-  ) {
-    for (const batch of batches) {
-      const pieces: Mesh[] = [];
-      for (const [index, placement] of batch.placements.entries()) {
-        const sin = Math.sin(placement.rotationY);
-        const cos = Math.cos(placement.rotationY);
-        for (const [partIndex, part] of partsFor(
-          placement.kind,
-          placement.variant,
-        ).entries()) {
-          const piece = part.master.clone(
-            `park-piece-${batch.id}-${index}-${partIndex}`,
-          );
-          const offset = part.offset.scale(placement.scale);
-          piece.position.set(
-            placement.x + offset.x * cos + offset.z * sin,
-            offset.y,
-            placement.z - offset.x * sin + offset.z * cos,
-          );
-          piece.rotation.y = placement.rotationY;
-          piece.scaling.setAll(placement.scale);
-          piece.isVisible = true;
-          pieces.push(piece);
-        }
-      }
-      if (!pieces.length) continue;
-      const merged = Mesh.MergeMeshes(pieces, true, true, undefined, false, true);
-      if (!merged) continue;
-      merged.name = `park-thicket-${batch.id}`;
-      merged.isPickable = false;
-      this.registerStaticCell(merged, batch.centerX, batch.centerZ, false);
-    }
   }
 
   private buildRoadsideProps(
@@ -12893,10 +12945,6 @@ class BabylonGameSession {
         destructibleParts,
       );
     }
-
-    // Deep-park planting, merged per cell off the same masters the knockable
-    // props clone. Must run before the material freeze below.
-    this.buildParkThickets(park.interior, partsFor);
 
     for (const propMaterial of [
       trunk,

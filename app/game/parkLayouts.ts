@@ -285,7 +285,11 @@ function zoneRecipe(style: ParkStyle): readonly ScatterZone[] {
     kind: "tree" as const,
     perHectare,
     minSpacingM: 7,
-    variants: 3,
+    // Wide enough to reach the whole canopy pool a city downloads. At 3 the
+    // renderer's `variant % pool.length` never got past the first three
+    // species, so every temperate park was broadleaf/oak/tall and no conifer
+    // was ever planted.
+    variants: 8,
     minScale,
     maxScale,
   });
