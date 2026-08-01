@@ -8,6 +8,7 @@ import {
   TransformNode,
   Vector3,
   VertexBuffer,
+  VertexData,
 } from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
@@ -59,6 +60,30 @@ describe("Cairo water scenery", () => {
     { x: -40, z: 60 },
   ] as const;
 
+  /**
+   * The river is one flat sheet that nothing culls, so a flipped winding does
+   * not drop a face — it aims every normal at the riverbed, the sun and the
+   * sky half of the hemispheric light both drop out, and the Nile goes black
+   * under a noon sun. Run through Babylon's own `ComputeNormals` rather than a
+   * cross-product sign, because the sign that means "up" here is the negation
+   * of the obvious one and pinning it that way is what let this ship wrong.
+   */
+  const expectSkyFacingNormals = (geometry: {
+    readonly positions: readonly number[];
+    readonly indices: readonly number[];
+  }) => {
+    const normals: number[] = [];
+    VertexData.ComputeNormals(
+      [...geometry.positions],
+      [...geometry.indices],
+      normals,
+    );
+    expect(normals.length).toBe(geometry.positions.length);
+    for (let index = 1; index < normals.length; index += 3) {
+      expect(normals[index]).toBeCloseTo(1, 6);
+    }
+  };
+
   it("triangulates a concave riverbank without bridging outside it", () => {
     const geometry = buildWaterPolygonGeometry([
       ...concave,
@@ -67,22 +92,7 @@ describe("Cairo water scenery", () => {
     expect(geometry.polygon).toHaveLength(concave.length);
     expect(geometry.indices).toHaveLength((concave.length - 2) * 3);
     expect(geometry.positions).toHaveLength(concave.length * 3);
-    for (let index = 0; index < geometry.indices.length; index += 3) {
-      const a = geometry.indices[index] * 3;
-      const b = geometry.indices[index + 1] * 3;
-      const c = geometry.indices[index + 2] * 3;
-      const ax = geometry.positions[b] - geometry.positions[a];
-      const az = geometry.positions[b + 2] - geometry.positions[a + 2];
-      const bx = geometry.positions[c] - geometry.positions[a];
-      const bz = geometry.positions[c + 2] - geometry.positions[a + 2];
-      // Every triangle faces the sky. This is the sign of Babylon's own face
-      // normal `(p1 - p2) × (p3 - p2)`, whose y term is the negation of the
-      // x/z cross product below — so the assertion that reads as "clockwise in
-      // x/z" is exactly "normal points up", and it is the whole of the river's
-      // lighting: nothing culls this mesh, so a flipped winding does not drop
-      // a face, it just turns the Nile black.
-      expect(az * bx - ax * bz).toBeLessThan(0);
-    }
+    expectSkyFacingNormals(geometry);
   });
 
   it("places visual-only boats deterministically, in navigable water", () => {
@@ -124,6 +134,7 @@ describe("Cairo water scenery", () => {
       expect(geometry.indices).toHaveLength(
         (geometry.polygon.length - 2) * 3,
       );
+      expectSkyFacingNormals(geometry);
       expect(
         generateWaterBoatPlacements(
           CAIRO_MAP_PACK.id,

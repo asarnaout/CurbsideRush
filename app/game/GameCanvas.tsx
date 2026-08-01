@@ -1900,9 +1900,10 @@ export function buildWaterPolygonGeometry(
           pointInTriangle(polygon[candidate], a, b, c),
       );
       if (containsVertex) continue;
-      // Babylon's face normal is `(p1 - p2) × (p3 - p2)`, whose y term negates
-      // the x/z cross product — so an ear emitted in the order the clipper
-      // walks it (counter-clockwise in x/z) points *down*. Emit the reverse.
+      // Emit the ear in the order the clipper walked it. Babylon's face normal
+      // is `(p1 - p2) × (p3 - p2)`, whose y term is the *negation* of the x/z
+      // cross product, so it is this counter-clockwise winding that faces up
+      // and the reversed one — which is what shipped — that faces the riverbed.
       indices.push(previous, current, next);
       remaining.splice(cursor, 1);
       clipped = true;
