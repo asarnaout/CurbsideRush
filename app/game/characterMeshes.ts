@@ -786,6 +786,30 @@ function buildActorFromConfig(
     },
   };
   visual.setClip("idle");
+
+  // Never let the rig be seen un-posed.
+  //
+  // A skinned mesh draws its raw bind geometry — a **T-pose**, arms straight
+  // out, on these rigs — until its skeleton has actually been evaluated for it.
+  // Babylon only evaluates skeletons belonging to *active* meshes, and an actor
+  // is routinely built where nothing will make it active for a while: the
+  // waiting rider is spawned at a venue you have not driven to yet, and a
+  // cutscene actor is built with its node disabled and revealed a frame later.
+  // Both were reaching the screen mid-T-pose (rideshare passengers standing at
+  // the kerb with an arm out; the same on the exit scene's first beat).
+  //
+  // Two halves, because either alone leaves a gap: evaluate once now so the
+  // very first frame is posed, and keep the carrier permanently active so
+  // culling can never stop it being re-evaluated later. The cost is skinning
+  // one character — there are at most a couple of actors alive at a time, next
+  // to a crowd of hundreds that the VAT path draws for free.
+  if (skeleton && carrier) {
+    carrier.alwaysSelectAsActiveMesh = true;
+    carrier.computeWorldMatrix(true);
+    const idle = clips.get("idle");
+    if (idle) idle.goToFrame(idle.from);
+    skeleton.prepare(true);
+  }
   return visual;
 }
 
