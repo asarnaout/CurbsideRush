@@ -25,11 +25,21 @@ import {
   careerDayTrafficSeed,
   careerFare,
   careerGigSeedBase,
+  averageRating,
   cityRating,
   computeCareerChecksum,
   createCareerSlice,
   DAY_LENGTH_MS,
   EMPTY_RATING,
+  foldRatings,
+  RATING_MIN_RATED,
+  RATING_NEUTRAL_STARS,
+  RATING_WINDOW,
+  ratingFareFactor,
+  ratingSearchStretch,
+  ratingStanding,
+  ratingTipFactor,
+  settleRating,
   DEFAULT_GARAGE_VEHICLE_ID,
   emptyDayLog,
   garageDefaultVehicle,
@@ -48,6 +58,7 @@ import {
   vehicleRent,
   withCity,
   type CareerCityState,
+  type CityRating,
   type CareerSliceV2,
   type CareerLoan,
   type DayLedgerInput,
@@ -432,6 +443,115 @@ describe("fares", () => {
     expect(careerFare(20, "delivery", hatch)).toEqual({ gross: 20, net: 15 });
   });
 
+});
+
+describe("standing", () => {
+  const rated = (stars: readonly number[], notice = false): CityRating => ({
+    recent: stars,
+    ratedTotal: stars.length,
+    notice,
+  });
+  const repeat = (stars: number, count: number): number[] =>
+    Array.from({ length: count }, () => stars);
+
+  it("withholds an average until the city has seen enough of the driver", () => {
+    expect(averageRating(EMPTY_RATING)).toBeNull();
+    expect(averageRating(rated(repeat(1, RATING_MIN_RATED - 1)))).toBeNull();
+    expect(averageRating(rated(repeat(1, RATING_MIN_RATED)))).toBe(1);
+  });
+
+  it("averages over the window, not over the career", () => {
+    expect(averageRating(rated([5, 5, 5, 5, 4, 4, 2]))).toBeCloseTo(30 / 7, 6);
+  });
+
+  it("drops the oldest star once the window is full", () => {
+    const full = foldRatings(EMPTY_RATING, repeat(1, RATING_WINDOW));
+    const rolled = foldRatings(full, [5, 5]);
+    expect(rolled.recent).toHaveLength(RATING_WINDOW);
+    expect(rolled.recent.slice(-2)).toEqual([5, 5]);
+    // The lifetime count keeps climbing even as the window forgets.
+    expect(rolled.ratedTotal).toBe(RATING_WINDOW + 2);
+  });
+
+  it("leaves the window alone on a day nobody rated", () => {
+    const some = foldRatings(EMPTY_RATING, [4, 5]);
+    expect(foldRatings(some, [])).toBe(some);
+  });
+
+  it("holds an unrated driver at full standing", () => {
+    // No rating is not a bad rating — a first afternoon must cost nothing.
+    expect(ratingStanding(null)).toBe(1);
+    expect(ratingSearchStretch(ratingStanding(null))).toBe(1);
+    expect(ratingFareFactor(ratingStanding(null))).toBe(1);
+    expect(ratingTipFactor(ratingStanding(null))).toBe(1);
+  });
+
+  it("costs nothing at all down to the neutral mark, then ramps", () => {
+    expect(ratingStanding(5)).toBe(1);
+    expect(ratingStanding(RATING_NEUTRAL_STARS)).toBe(1);
+    expect(ratingStanding(1)).toBe(0);
+    expect(ratingStanding(0.2)).toBe(0);
+    const middling = ratingStanding(3);
+    expect(middling).toBeGreaterThan(0);
+    expect(middling).toBeLessThan(1);
+  });
+
+  it("bites hardest on tips and least on the fare", () => {
+    const worst = ratingStanding(1);
+    expect(ratingSearchStretch(worst)).toBeCloseTo(2.5, 6);
+    expect(ratingFareFactor(worst)).toBeCloseTo(0.75, 6);
+    expect(ratingTipFactor(worst)).toBeCloseTo(0.4, 6);
+    // Monotone, so improving is never punished.
+    for (const [low, high] of [[1, 2], [2, 3], [3, 4], [4, 5]]) {
+      expect(ratingSearchStretch(ratingStanding(high))).toBeLessThanOrEqual(
+        ratingSearchStretch(ratingStanding(low)),
+      );
+      expect(ratingFareFactor(ratingStanding(high))).toBeGreaterThanOrEqual(
+        ratingFareFactor(ratingStanding(low)),
+      );
+      expect(ratingTipFactor(ratingStanding(high))).toBeGreaterThanOrEqual(
+        ratingTipFactor(ratingStanding(low)),
+      );
+    }
+  });
+
+  it("cannot raise a notice on a driver the city has barely met", () => {
+    // Six flat one-star gigs is not yet an average, so it is not yet a verdict.
+    const settled = settleRating(EMPTY_RATING, repeat(1, RATING_MIN_RATED - 1));
+    expect(settled.average).toBeNull();
+    expect(settled.verdict).toBe("clear");
+    expect(settled.rating.notice).toBe(false);
+  });
+
+  it("warns once before it ends a run", () => {
+    const first = settleRating(EMPTY_RATING, repeat(1, RATING_MIN_RATED));
+    expect(first.average).toBe(1);
+    expect(first.verdict).toBe("warned");
+    expect(first.rating.notice).toBe(true);
+
+    const second = settleRating(first.rating, [1, 1]);
+    expect(second.verdict).toBe("ended");
+  });
+
+  it("lets a driver work their way back out of a standing warning", () => {
+    // The warning has to be answerable, or it is a countdown rather than a
+    // chance — unlike the loan's final notice, one good stretch clears it.
+    const warned = settleRating(EMPTY_RATING, repeat(1, RATING_MIN_RATED));
+    expect(warned.verdict).toBe("warned");
+    const recovered = settleRating(warned.rating, repeat(5, 12));
+    expect(recovered.verdict).toBe("clear");
+    expect(recovered.rating.notice).toBe(false);
+    // And the strike is genuinely spent: falling back only warns again.
+    expect(settleRating(recovered.rating, repeat(1, 60)).verdict).toBe("warned");
+  });
+
+  it("ends only at or below the threshold, never just short of it", () => {
+    const warned = rated(repeat(2, RATING_MIN_RATED), true);
+    expect(settleRating(warned, []).verdict).toBe("clear");
+    expect(
+      settleRating(rated(repeat(1, RATING_MIN_RATED), true), []).verdict,
+    ).toBe("ended");
+  });
 });
 
 describe("checksum and slice codec", () => {

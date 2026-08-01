@@ -998,6 +998,122 @@ export function garageDefaultVehicle(
 }
 
 // ---------------------------------------------------------------------------
+// Standing: what the average is, what it costs, and when it ends a city
+// ---------------------------------------------------------------------------
+
+/**
+ * The city's average, or null while there is not yet enough to average.
+ *
+ * Null is the honest answer below `RATING_MIN_RATED` and is load-bearing
+ * downstream: it is what makes a new driver unpenalised and what tells the
+ * career page there is nothing to draw yet. Do not paper over it with a 5.
+ */
+export function averageRating(rating: CityRating): number | null {
+  if (rating.recent.length < RATING_MIN_RATED) return null;
+  const total = rating.recent.reduce((sum, stars) => sum + stars, 0);
+  return total / rating.recent.length;
+}
+
+/**
+ * The average as a 0→1 standing: 1 at `RATING_NEUTRAL_STARS` and above, 0 at
+ * one star. Every penalty below is a straight interpolation across it, so
+ * retuning the curve is one edit rather than three.
+ *
+ * **An absent average stands at 1.** No rating is not a bad rating.
+ */
+export function ratingStanding(average: number | null): number {
+  if (average === null) return 1;
+  const span = RATING_NEUTRAL_STARS - 1;
+  return Math.min(1, Math.max(0, (average - 1) / span));
+}
+
+/**
+ * How much longer the quiet spells between offers run. The dispatcher routes
+ * work to drivers people want, so a poor standing is felt first as an empty
+ * afternoon rather than as a smaller number on a card.
+ */
+export function ratingSearchStretch(standing: number): number {
+  return 1 + 1.5 * (1 - standing);
+}
+
+/** What a poor standing does to the fare itself — the gentlest of the three. */
+export function ratingFareFactor(standing: number): number {
+  return 0.75 + 0.25 * standing;
+}
+
+/**
+ * And to tips, which is where it bites hardest: a tip is a customer's opinion
+ * of *this* trip, and the rating is the same opinion accumulated.
+ */
+export function ratingTipFactor(standing: number): number {
+  return 0.4 + 0.6 * standing;
+}
+
+/**
+ * Adds a day's stars to the window, dropping the oldest past `RATING_WINDOW`.
+ */
+export function foldRatings(
+  rating: CityRating,
+  dayStars: readonly number[],
+): CityRating {
+  if (dayStars.length === 0) return rating;
+  const recent = [...rating.recent, ...dayStars].slice(-RATING_WINDOW);
+  return {
+    recent,
+    ratedTotal: rating.ratedTotal + dayStars.length,
+    notice: rating.notice,
+  };
+}
+
+/**
+ * `warned` is the one strike; `ended` closes the city. Both are decided at
+ * settlement and nowhere else — a rating must never change under the driver
+ * mid-shift, or the day stops being replayable and the player starts reading
+ * their standing off how the traffic feels.
+ */
+export type RatingVerdict = "clear" | "warned" | "ended";
+
+export interface RatingSettlement {
+  /** The window with tonight's stars folded in and the notice brought up to date. */
+  readonly rating: CityRating;
+  /** The average after the fold, or null while there is still too little. */
+  readonly average: number | null;
+  readonly verdict: RatingVerdict;
+}
+
+/**
+ * The night's reckoning on standing, kept out of `settleDay` because that
+ * function is the money and this is not.
+ *
+ * A city at or below `RATING_END_THRESHOLD` raises a notice and keeps going;
+ * ending a second settlement still there is the end of the run here. Anything
+ * above clears the notice outright — one good stretch buys the strike back,
+ * unlike the loan's, which only a fully clean settlement clears. Standing is
+ * recoverable by driving well, and that has to be true or the warning is just a
+ * countdown.
+ */
+export function settleRating(
+  rating: CityRating,
+  dayStars: readonly number[],
+): RatingSettlement {
+  const folded = foldRatings(rating, dayStars);
+  const average = averageRating(folded);
+  // No average yet is not a failing one: a notice cannot be raised on a driver
+  // the city has barely met.
+  if (average === null || average > RATING_END_THRESHOLD) {
+    return {
+      rating: { ...folded, notice: false },
+      average,
+      verdict: "clear",
+    };
+  }
+  if (rating.notice) {
+    return { rating: folded, average, verdict: "ended" };
+  }
+  return { rating: { ...folded, notice: true }, average, verdict: "warned" };
+}
+
+// ---------------------------------------------------------------------------
 // Settlement
 // ---------------------------------------------------------------------------
 
