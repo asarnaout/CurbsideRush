@@ -42,23 +42,32 @@ floored at `HUD_MIN_SCALE` 0.68) rather than re-derived responsively; `compact`
 swaps in the mobile comp's sizing via a metrics table per cluster (e.g. the nav
 card is 486 px desktop, 330 px mobile).
 
+**Both comps make the offer card exactly as wide as whatever it stands over, and
+that is a rule, not a coincidence.** On a desktop that neighbour is the minimap
+(`OFFER_W` and the `size` handed to `Minimap`, both 344, or the right edge
+steps); on a phone it is the pedals, so the width is derived from
+`TOUCH_PEDAL_ROW_PX` rather than copied — resizing BRAKE cannot then leave the
+card overhanging. `OFFER_TOP_OFFSET_PX` scales with `resolveHudScale` for the
+same reason: 150 px of desktop clearance closes as the window narrows, and a
+fixed offset would put the card on the map.
+
 Only the offer differs in kind. `DriveOfferBar` lands in the minimap's slot and
 dims the map, because there is nowhere else on a phone for something that size.
 **Its height comes from the slot between the button rail and the pedals, never
 from the comp**: the comp is drawn on a 400 px frame, the shortest landscape phone
 the rail budget admits is 320, and Safari with toolbars leaves ~343 — below
-`RAIL_MIN_SLOT_PX` (172) the detour rail drops rather than the card growing into
-DRIVE.
+`RAIL_MIN_SLOT_PX` (140) the detour rail drops rather than the card growing into
+DRIVE. That constant has to stay under `MOBILE_OFFER_H`, or the rail the comp
+draws would never render at all.
 
-That rule outgrew the phone. The card is `DriveOfferPanel`, which takes a width
-and a height and knows nothing about where it is; `DriveOfferBar` is only the
-absolute placement around it, and the whole-city map is its second home. **Both
-callers must give it real numbers** — the fuse is an SVG stroke whose `viewBox`
-is those numbers, so a percentage width would letterbox or distort it.
+That rule outgrew the phone. `DriveOfferPanel` takes a width and a height and
+knows nothing about where it is; `DriveOfferBar` is only the absolute placement
+around it, and the whole-city map is its second home. **Both callers must give it
+real numbers** — the fuse is an SVG stroke whose `viewBox` is those numbers, so a
+percentage width would letterbox or distort it.
 
 The balance sits in the job card on touch, not the corner: that corner carries
-camera/pause/fullscreen, and fullscreen is the only way to reclaim Safari's chrome
-mid-drive.
+camera/pause/fullscreen, the only way to reclaim Safari's chrome mid-drive.
 
 **The career shift clock has two homes, and only one may be on screen at a
 time.** `resolveDayTimer` feeds both the numerals inside `DriveSpeedCluster` and
@@ -102,11 +111,11 @@ exactly one button.
 
 The right edge reads top-down: buttons, minimap, pedals — which only fits because
 the pedals sit **abreast**; stacked they were ~194 px and owned the whole edge.
+Abreast is also what the offer card's width is measured against, above.
 
 Steering is drag-with-a-floating-origin (`touchSteering.ts`, pure); the release
-ease runs in `fixedUpdate` via `touchSteerReleasing`, never in React. **The visible
-slider is an affordance drawn *inside* the drag region, not the target** — the
-region is still the whole lower-left quadrant.
+ease runs in `fixedUpdate` via `touchSteerReleasing`, never in React. **The
+visible slider is an affordance drawn *inside* the drag region, not the target.**
 
 ## The corner minimap
 
@@ -152,28 +161,29 @@ on screen and never two rectangles colliding. That is not only tidier: a card
 anchored to the viewport over a centred panel overlapped by an amount that fell
 out of the *city's aspect ratio* — Cairo clipped the legend, New York never
 touched it. And the map is where an offer is best read, because `previewRoute`
-is already drawing the dashed detour to its pickup.
+already draws the dashed detour to its pickup.
 
 **The card takes the column's width, so the canvas is sized identically with an
-offer up or not** — the map must never resize under someone reading it. Height
-is what has to give, and the order of concessions is: keep the legend, then keep
-the whole card.
+offer up or not** — the map must never resize under someone reading it. Height is
+what gives, and the order of concessions is: legend first, then the whole card.
 
 **A card in a box shorter than its content does not scale down — it eats
-itself.** The comp's type sizes are fixed, so the flex children shrink instead
-and the pickup's name is sliced in half by the line under it; a landscape phone's
-174 px column against the comp's 184 was exactly that. Hence `dense`, a *shorter*
+itself.** The type sizes are fixed, so the flex children shrink instead and the
+pickup's name is sliced in half by the line under it. Hence `dense`, a *shorter*
 card rather than a smaller one: same type, minus the pickup name, the dropoff and
-the detour rail — all three of which the map it is standing on is already showing.
-The tip moves from a chip beside the pay (which had nothing to give at 227 px and
-simply hung off the edge) down to the meta line. `DriveOfferBar` never sets it:
-out on the road there is no map to read the pickup off.
+the detour rail, all of which the map it stands on already shows; the tip drops
+from beside the pay to the meta line. `DriveOfferBar` never sets it — out on the
+road there is no map to read the pickup off.
+
+A landscape phone used to be what bought `dense`, at 174 px of column against the
+184 the comp then wanted. **It no longer is:** the comp is 153, so a phone keeps
+the whole card *and* the legend, and only a letterbox city (very wide, very
+shallow) still goes dense — do not delete it for want of a caller.
 
 `COLUMN_HEADER_PX` and `LEGEND_ROW_PX` are that arithmetic written down rather
 than measured — a DOM read here is a forced reflow per frame, and jsdom has no
 layout to measure anyway, so **those constants are the test**. The legend yields
-only when not even the dense card fits beside it, which takes a letterbox panel
-(a very wide, shallow world), not a small screen.
+only when not even the dense card fits beside it.
 
 Key handling is asymmetric on purpose:
 

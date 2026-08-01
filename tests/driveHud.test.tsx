@@ -32,7 +32,11 @@ import {
   type HudOffer,
 } from "../app/game/DriveHud";
 import { MAP_ICON, MUSIC_ICON, MUSIC_MUTED_ICON } from "../app/game/hudIcons";
-import { TOUCH_CORNER_RAIL_PX, TOUCH_CORNER_SLOT_PX } from "../app/game/TouchDriveControls";
+import {
+  TOUCH_CORNER_RAIL_PX,
+  TOUCH_CORNER_SLOT_PX,
+  TOUCH_PEDAL_ROW_PX,
+} from "../app/game/TouchDriveControls";
 import { DRIVE_LAYER } from "../app/game/driveLayers";
 
 afterEach(cleanup);
@@ -74,6 +78,8 @@ const offer = (patch: Partial<HudOffer> = {}): HudOffer => ({
   title: "Amsterdam Bagels",
   sub: "then 214 W 108th St",
   chips: ["0.4 mi away", "3 items"],
+  detour: "0.4 mi",
+  meta: "3 items",
   footnote: "Stacks after West 106th Grocers",
   secondsLeft: 12,
   elapsed: 0.2,
@@ -851,6 +857,7 @@ describe("the offer on a phone", () => {
       <DriveOfferBar
         inset={{ top: "64px", right: "12px" }}
         offer={offer(patch)}
+        width={TOUCH_PEDAL_ROW_PX}
         slotHeight={slotHeight}
         onAccept={onAccept}
         onPass={onPass}
@@ -870,9 +877,12 @@ describe("the offer on a phone", () => {
   it("draws the detour as a rail when there is room for one", () => {
     bar(224);
     expect(screen.getByTestId("detour-rail")).toBeVisible();
-    expect(screen.getByTestId("detour-label")).toHaveTextContent("0.4 mi away");
+    expect(screen.getByTestId("detour-label")).toHaveTextContent("0.4 mi");
     expect(screen.getByText("YOU")).toBeVisible();
     expect(screen.getByText("BACK ON ROUTE")).toBeVisible();
+    // With the rail up the sub-line carries the load instead — the comp's
+    // split, and the detour is not said twice on one card.
+    expect(screen.getByTestId("gig-offer")).toHaveTextContent("3 items");
   });
 
   it("drops the rail rather than growing down into the pedals", () => {
@@ -880,8 +890,15 @@ describe("the offer on a phone", () => {
     // ~343, and the shortest phone the rail budget admits is 320.
     bar(RAIL_MIN_SLOT_PX - 1);
     expect(screen.queryByTestId("detour-rail")).not.toBeInTheDocument();
-    // The distance it carried is still on the sub-line.
-    expect(screen.getByTestId("gig-offer")).toHaveTextContent("0.4 mi away");
+    // The distance it carried takes the sub-line back — a short phone loses
+    // the drawing, never the figure the decision turns on.
+    expect(screen.getByTestId("gig-offer")).toHaveTextContent("0.4 mi");
+  });
+
+  it("has no rail to draw when the offer came in with no route to leave", () => {
+    bar(224, { detour: null });
+    expect(screen.queryByTestId("detour-rail")).not.toBeInTheDocument();
+    expect(screen.getByTestId("gig-offer")).toHaveTextContent("3 items");
   });
 
   it("never stands taller than the slot it was given", () => {
@@ -923,6 +940,7 @@ describe("the offer on a phone", () => {
       <DriveOfferBar
         inset={{ top: "64px", right: "12px" }}
         offer={offer()}
+        width={TOUCH_PEDAL_ROW_PX}
         slotHeight={224}
         onAccept={vi.fn()}
         onPass={vi.fn()}
