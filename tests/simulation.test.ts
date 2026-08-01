@@ -31,8 +31,8 @@ describe("deterministic simulation", () => {
       reverseAccelMps2: 4.1,
       brakeBaseMps2: 3,
       brakeStrengthMps2: 8.5,
-      dragBaseMps2: 0.25,
-      dragPerMps: 0.035,
+      dragBaseMps2: 0.8,
+      dragPerMps: 0.075,
       steerBaseRate: 0.32,
       steerAuthorityRate: 0.95,
       steerAuthoritySpeedMps: 5.5,
@@ -86,6 +86,84 @@ describe("deterministic simulation", () => {
       { throttle: 1, steer: 0.2 },
     );
     expect(twitchy.signedSpeedMps).toBeLessThan(planted.signedSpeedMps - 0.5);
+  });
+
+  // #257 was filed as "the recorded speed doesn't seem realistic": lift off at
+  // 50 mph, coast ten seconds, and the speedometer still read exactly 30. The
+  // readout was correct to the last bit — the car really was doing 30, because
+  // coasting shed only 0.72 m/s^2. This pins the retuned coast-down by its
+  // behaviour rather than its literals, so a future tweak has to stay inside
+  // what a real car does instead of merely differing from the old numbers.
+  //
+  // `enforcement: "coach"` plus no lanes and no finish is what keeps this a
+  // pure physics run: a stock core resets the car at ~75 m on an out-of-bounds
+  // critical, which reads as "coasted to a stop" and is not.
+  it("coasts to rest like a car in gear, not one in neutral", () => {
+    const MPH = 2.236936;
+    const coastFrom = (mph: number) => {
+      const simulation = new SimulationCore({
+        npcCount: 0,
+        lanes: [],
+        finish: null,
+        checkpoints: [],
+        enforcement: "coach",
+        bounds: { minX: -1e5, maxX: 1e5, minZ: -1e5, maxZ: 1e5 },
+      });
+      simulation.setPlayerPose({ x: 0, z: 0, heading: 0 }, mph / MPH);
+      let ticks = 0;
+      let readoutAtTenSeconds = -1;
+      while (ticks < 120 * 60) {
+        simulation.step(1 / 60, {});
+        ticks += 1;
+        if (ticks === 10 * 60) {
+          readoutAtTenSeconds = simulation.getSnapshot().speedDisplay;
+        }
+        if (simulation.getSnapshot().player.speedMps <= 0.02) break;
+      }
+      const player = simulation.getSnapshot().player;
+      return {
+        seconds: ticks / 60,
+        metres: Math.hypot(player.x, player.z),
+        readoutAtTenSeconds,
+      };
+    };
+
+    // A real light car coasting in gear sheds 1.5-2.5 m/s^2, so 30 mph is gone
+    // in roughly 6-12 s and well inside a 240 m city block.
+    const thirty = coastFrom(30);
+    expect(thirty.seconds).toBeGreaterThan(5);
+    expect(thirty.seconds).toBeLessThan(14);
+    expect(thirty.metres).toBeLessThan(120);
+
+    // The reported symptom, stated directly: ten seconds after lifting off at
+    // 50 the car must be nowhere near still doing 30.
+    const fifty = coastFrom(50);
+    expect(fifty.readoutAtTenSeconds).toBeLessThan(20);
+    expect(fifty.metres).toBeLessThan(240);
+  });
+
+  // Braking was never the problem and must not drift while drag is retuned:
+  // 30 mph in ~7.7 m is already a shade stronger than a real car's 9-10 m.
+  it("still stops from 30 mph in a real braking distance", () => {
+    const simulation = new SimulationCore({
+      npcCount: 0,
+      lanes: [],
+      finish: null,
+      checkpoints: [],
+      enforcement: "coach",
+      bounds: { minX: -1e5, maxX: 1e5, minZ: -1e5, maxZ: 1e5 },
+    });
+    simulation.setPlayerPose({ x: 0, z: 0, heading: 0 }, 30 / 2.236936);
+    let ticks = 0;
+    while (ticks < 60 * 60) {
+      simulation.step(1 / 60, { brake: 1 });
+      ticks += 1;
+      if (simulation.getSnapshot().player.speedMps <= 0.02) break;
+    }
+    const player = simulation.getSnapshot().player;
+    expect(ticks / 60).toBeLessThan(2);
+    expect(Math.hypot(player.x, player.z)).toBeGreaterThan(5);
+    expect(Math.hypot(player.x, player.z)).toBeLessThan(11);
   });
 
   // Tick counts here are kept short on purpose: reverse far enough and the run

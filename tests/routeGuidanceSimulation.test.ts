@@ -152,7 +152,10 @@ describe("authoritative route guidance", () => {
         spawn: { x: 0.9, z: 0, heading: 0 },
       }),
     );
-    for (let tick = 0; tick < 100; tick += 1) {
+    // The tick count only has to carry the car past z=3; what is being tested
+    // is that guidance stays unsatisfied while it straddles the lane edge.
+    // It tracks the coast-down drag, which half throttle works against.
+    for (let tick = 0; tick < 140; tick += 1) {
       straddling.step(1 / 60, { throttle: 0.5 });
     }
     expect(straddling.getSnapshot().player.z).toBeGreaterThan(3);
