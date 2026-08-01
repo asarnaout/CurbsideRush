@@ -2443,9 +2443,11 @@ export default function SideSwapApp() {
               enabled: true,
             },
             {
+              // No "on credit" note: sat beside the gold cash offer, the coral
+              // and the word "Fill" carry it, and the borrowed part is the gap
+              // between the two prices on screen.
               testId: "refuel-credit-button",
               label: `Fill up — ${formatMoney(refuelCost, driveCountry)}`,
-              note: `${formatMoney(refuelCredit, driveCountry)} on credit`,
               hint: "B",
               tone: "credit",
               enabled: true,
@@ -2455,8 +2457,9 @@ export default function SideSwapApp() {
             {
               testId: "refuel-button",
               label: refuelLabel,
-              // With no cash at all the whole fill is borrowed, and saying so
-              // is the same honesty the two-offer case buys.
+              // Alone on screen the coral has nothing to be read against — the
+              // gold offer that teaches what it means is not there — so this is
+              // the one place the borrowing is still spelled out.
               note: canRefuel && refuelCredit > 0 ? "on credit" : undefined,
               hint: "ENTER",
               tone: refuelCredit > 0 ? "credit" : "primary",

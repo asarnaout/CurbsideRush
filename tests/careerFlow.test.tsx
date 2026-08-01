@@ -1306,13 +1306,15 @@ describe("career mode flow", () => {
     await shortOfAFillAtThePumps();
 
     // $4 of cash buys 10 L at $0.40; the whole 20 L fill is $8, so $4 of it
-    // would be borrowed. Both prices are on the card, and so is the borrowing.
+    // would be borrowed. Both prices are on the card and the gap between them
+    // *is* the borrowing — which is why the credit offer does not spell it out
+    // a second time. Its colour and the word "Fill" carry that.
     const topUp = await screen.findByTestId("refuel-button");
     expect(topUp).toHaveTextContent("Top up — $4.00");
     expect(topUp).toHaveTextContent("ENTER");
     const onCredit = screen.getByTestId("refuel-credit-button");
     expect(onCredit).toHaveTextContent("Fill up — $8.00");
-    expect(onCredit).toHaveTextContent("$4.00 on credit");
+    expect(onCredit).not.toHaveTextContent("credit");
     expect(onCredit).toHaveTextContent("B");
   });
 
