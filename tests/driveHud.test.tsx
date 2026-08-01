@@ -287,6 +287,29 @@ describe("the speed cluster", () => {
     expect(screen.getByTestId("speed-value").style.color).toBe("rgb(244, 239, 222)");
   });
 
+  it("reserves the speed's widest reading, so digits never move the row", () => {
+    // 0 → 37 used to widen the centred row and walk the limit plate left and
+    // the shift clock right: the whole top of the screen moving because the
+    // driver touched the throttle. jsdom has no layout, so what is checkable
+    // is the mechanism — a hidden widest-case sizer holding the box open.
+    for (const value of [0, 8, 37, 105]) {
+      cleanup();
+      speed({ speed: value, speedLimit: 30 });
+      const figure = screen.getByTestId("speed-value");
+      expect(figure).toHaveTextContent(String(value));
+      // The figure is laid over the sizer rather than laying out beside it.
+      expect(figure.style.position).toBe("absolute");
+      const slot = figure.parentElement!;
+      expect(slot).toHaveStyle({ textAlign: "right" });
+      const sizer = slot.firstElementChild!;
+      expect(sizer).toHaveTextContent("000");
+      expect(sizer).toHaveStyle({ visibility: "hidden" });
+      // Same box, same font, whatever the reading — that is the whole fix.
+      expect(slot.style.font).toContain("900 76px");
+      expect(slot.style.fontVariantNumeric).toBe("tabular-nums");
+    }
+  });
+
   it("shows no shift clock outside career, where no day is running out", () => {
     speed();
     expect(screen.queryByTestId("day-clock")).not.toBeInTheDocument();

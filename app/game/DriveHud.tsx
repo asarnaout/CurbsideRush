@@ -103,6 +103,64 @@ export function HudGlyph({
   );
 }
 
+/**
+ * A figure that takes up the same room whatever it reads.
+ *
+ * Both big readouts sit in one flex row centred with `translate: -50%`, so a
+ * numeral that grows a digit widens the row and slides *everything* — 0 → 37
+ * walked the speed-limit plate left and the shift clock right, which is the
+ * whole top of the screen moving because the driver touched the throttle.
+ *
+ * The slot is sized by a hidden copy of the widest string it will ever hold,
+ * in the same font as the figure, and the real value is laid over it. So there
+ * is no measured pixel constant to go stale: it follows the font, the weight,
+ * the letter-spacing and `compact`'s smaller type on its own. Tabular figures
+ * do the rest — every digit is the same advance, so nothing shifts *within* the
+ * slot either.
+ *
+ * Right-aligned by default, which is the one alignment that keeps the units
+ * digit — the one changing constantly — pinned, and keeps the figure welded to
+ * the unit label beside it. Centring it instead splits the slack either side
+ * and detaches the number from its "MPH".
+ */
+function HudNumeralSlot({
+  widest,
+  metrics,
+  style,
+  align = "right",
+  testId,
+  children,
+}: {
+  /** The widest value this slot must hold. Never seen, never announced. */
+  widest: string;
+  /** Font metrics, set on the box so the sizer measures exactly like the value. */
+  metrics: CSSProperties;
+  /** Colour and anything else only the visible figure wants. */
+  style?: CSSProperties;
+  align?: "right" | "center" | "left";
+  testId?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span style={{ ...metrics, position: "relative", display: "inline-block", textAlign: align }}>
+      <span aria-hidden="true" style={{ visibility: "hidden" }}>
+        {widest}
+      </span>
+      <span data-testid={testId} style={{ position: "absolute", left: 0, right: 0, top: 0, ...style }}>
+        {children}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * What the speed slot has to hold. The simulation clamps `maxForwardSpeedMps`
+ * at 50, which is 112 mph and 180 km/h, so three digits is reachable in either
+ * unit and the slot is sized for it in both — a slot that changed with the
+ * country would move the plate on landing in Tokyo.
+ */
+const WIDEST_SPEED = "000";
+
 const MUSIC_DIM_COLOR = "rgba(244,239,222,.4)";
 
 /** One arrow per manoeuvre kind, matching `GpsManoeuvreKind`. */
@@ -841,6 +899,15 @@ export const DAY_TIMER_HEADROOM_PX = 12;
  */
 export const DAY_TIMER_WIDTH_PX = 176;
 
+/**
+ * The widest each of the clock's two formats gets, sizing its numeral slot.
+ * `m:ss` is already fixed by tabular figures — a day past 9:59 would want
+ * `00:00` here and a wider block — but the bare seconds fall from two digits
+ * to one, and that is what the slot is really for.
+ */
+const WIDEST_DAY_CLOCK = "0:00";
+const WIDEST_DAY_SECONDS = "00";
+
 export type DayTimerTone = "calm" | "warn" | "critical";
 
 /** Everything the two day-timer readouts draw, resolved once. */
@@ -1111,18 +1178,18 @@ export function DriveSpeedCluster({
           textShadow: "0 3px 14px rgba(0,0,0,.85)",
         }}
       >
-        <strong
-          data-testid="speed-value"
-          style={{
+        <HudNumeralSlot
+          widest={WIDEST_SPEED}
+          testId="speed-value"
+          metrics={{
             font: `900 ${m.speed}px/.82 ${HUD_SANS}`,
-            color: speedColor,
             fontVariantNumeric: "tabular-nums",
             letterSpacing: "-2.4px",
-            transition: "color .3s ease",
           }}
+          style={{ color: speedColor, transition: "color .3s ease" }}
         >
           {speed}
-        </strong>
+        </HudNumeralSlot>
         <span
           style={{
             font: `800 ${m.unit}px ${HUD_SANS}`,
@@ -1220,18 +1287,25 @@ export function DriveSpeedCluster({
                 {dayTimer.phrase}
               </span>
             </div>
-            <strong
-              data-testid="day-clock-value"
-              style={{
+            {/*
+              The same slot as the speed, for the same reason one rung down:
+              inside the block the seconds fall 22 → 9 in the last ten of every
+              day, and without it "SEC" walks left a digit's width as they do.
+              In `m:ss` the sizer is exactly the value, so it costs nothing.
+            */}
+            <HudNumeralSlot
+              widest={dayTimer.unit ? WIDEST_DAY_SECONDS : WIDEST_DAY_CLOCK}
+              testId="day-clock-value"
+              align="left"
+              metrics={{
                 font: `900 ${m.speed}px/.82 ${HUD_SANS}`,
-                color: dayTimer.color,
                 fontVariantNumeric: "tabular-nums",
                 letterSpacing: "-2.4px",
-                transition: "color .4s ease",
               }}
+              style={{ color: dayTimer.color, transition: "color .4s ease" }}
             >
               {dayTimer.value}
-            </strong>
+            </HudNumeralSlot>
             {dayTimer.unit && (
               <span
                 data-testid="day-clock-unit"
