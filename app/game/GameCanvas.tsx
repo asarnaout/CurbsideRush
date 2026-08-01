@@ -12314,6 +12314,159 @@ class BabylonGameSession {
       return true;
     }
 
+    // The Mogamma-inspired government slab that closes Tahrir's northern
+    // horizon (the landmark comment in cairoContent.ts has the urban story).
+    // Same cost class and idiom as the Egyptian Museum branch: boxes, one
+    // cylinder run for the colonnade, no shadow casters. Every dimension
+    // derives from the landmark so re-authoring its rect reshapes the
+    // building instead of stranding it.
+    if (landmark.id === "cairo-tahrir-ministries") {
+      const centralWidth = landmark.size.x * 0.5;
+      const wingWidth = landmark.size.x * 0.25;
+      const centralHeight = 30;
+      const wingHeight = 22;
+      const southFaceZ = landmark.center.z - landmark.size.z / 2;
+      const forecourtPaving = makeMaterial(
+        scene,
+        `${landmark.id}-forecourt-paving`,
+        new Color3(0.63, 0.57, 0.47),
+      );
+      createBox(
+        scene,
+        landmark.id,
+        {
+          width: centralWidth,
+          height: centralHeight,
+          depth: landmark.size.z,
+        },
+        new Vector3(landmark.center.x, centralHeight / 2, landmark.center.z),
+        material,
+      );
+      createBox(
+        scene,
+        `${landmark.id}-cornice`,
+        { width: centralWidth + 1.2, height: 0.75, depth: landmark.size.z + 1.2 },
+        new Vector3(landmark.center.x, centralHeight + 0.15, landmark.center.z),
+        paleStone,
+      );
+      for (const side of [-1, 1] as const) {
+        const wingX =
+          landmark.center.x + side * (landmark.size.x / 2 - wingWidth / 2);
+        // Wing faces sit 3 m behind the central face and 8 m lower — the
+        // staggered silhouette keeps a 44 m slab from reading as one box.
+        createBox(
+          scene,
+          `${landmark.id}-wing-${side}`,
+          {
+            width: wingWidth,
+            height: wingHeight,
+            depth: landmark.size.z - 4,
+          },
+          new Vector3(wingX, wingHeight / 2, landmark.center.z + 1),
+          material,
+        );
+        createBox(
+          scene,
+          `${landmark.id}-wing-cornice-${side}`,
+          {
+            width: wingWidth + 1.2,
+            height: 0.75,
+            depth: landmark.size.z - 4 + 1.2,
+          },
+          new Vector3(wingX, wingHeight + 0.15, landmark.center.z + 1),
+          paleStone,
+        );
+        // Two tiers of two bays per wing.
+        for (const tier of [10, 16]) {
+          for (const bay of [-1, 1] as const) {
+            createBox(
+              scene,
+              `${landmark.id}-wing-window-${side}-${tier}-${bay}`,
+              { width: 2.1, height: 3, depth: 0.18 },
+              new Vector3(
+                wingX + bay * 2.75,
+                tier,
+                landmark.center.z + 1 - (landmark.size.z - 4) / 2 - 0.11,
+              ),
+              darkWindow,
+            );
+          }
+        }
+      }
+      // Four tiers of five bays on the central mass's park-facing face.
+      for (const [tierIndex, tier] of [12, 16.5, 21, 25.5].entries()) {
+        for (let bay = -2; bay <= 2; bay += 1) {
+          if (bay === 0 && tierIndex === 0) continue; // the entrance's bay
+          createBox(
+            scene,
+            `${landmark.id}-window-${tierIndex}-${bay}`,
+            { width: 2.1, height: 3, depth: 0.18 },
+            new Vector3(
+              landmark.center.x + bay * (centralWidth / 5.5),
+              tier,
+              southFaceZ - 0.11,
+            ),
+            darkWindow,
+          );
+        }
+      }
+      // Portico: nine columns, an entablature, the recessed entrance.
+      const porticoZ = southFaceZ - 1.1;
+      for (let column = -4; column <= 4; column += 1) {
+        createCylinder(
+          scene,
+          `${landmark.id}-column-${column}`,
+          { height: 8, diameter: 0.9, tessellation: 8 },
+          new Vector3(
+            landmark.center.x + column * (centralWidth / 8.8),
+            4,
+            porticoZ,
+          ),
+          paleStone,
+        );
+      }
+      createBox(
+        scene,
+        `${landmark.id}-entablature`,
+        { width: centralWidth - 0.5, height: 1.1, depth: 1.6 },
+        new Vector3(landmark.center.x, 8.55, porticoZ),
+        paleStone,
+      );
+      createBox(
+        scene,
+        `${landmark.id}-entrance`,
+        { width: 6, height: 7, depth: 0.28 },
+        new Vector3(landmark.center.x, 3.5, southFaceZ - 0.11),
+        darkWindow,
+      );
+      for (const side of [-1, 1] as const) {
+        createBox(
+          scene,
+          `${landmark.id}-door-${side}`,
+          { width: 1.4, height: 3.6, depth: 0.32 },
+          new Vector3(landmark.center.x + side * 1.4, 1.8, southFaceZ - 0.15),
+          bronze,
+        );
+      }
+      // Forecourt apron between the colonnade and the park. It overlaps the
+      // lawn's north edge on purpose: the apron's top sits at PARK_PATH_Y,
+      // above PARK_LAWN_Y, so the seam is the apron's own edge and no strip
+      // of bare grey ground can open between grass and forecourt. Drive-over
+      // like the plaza disc — its top stays below the tyre plane.
+      createBox(
+        scene,
+        `${landmark.id}-forecourt`,
+        { width: landmark.size.x - 4, height: 0.022, depth: southFaceZ - 5.5 },
+        new Vector3(
+          landmark.center.x,
+          PARK_PATH_Y - 0.011,
+          (southFaceZ + 5.5) / 2,
+        ),
+        forecourtPaving,
+      );
+      return true;
+    }
+
     if (landmark.id === "cairo-tahrir-obelisk") {
       createBox(
         scene,
