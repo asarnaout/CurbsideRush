@@ -31,6 +31,19 @@ export interface CutsceneCarPose {
 
 export type CutsceneAction = "walk" | "run" | "idle" | "show" | "hide";
 
+/**
+ * Which end of a delivery an errand is, and therefore which leg the courier
+ * walks with the order in hand: out to the door empty and back with it
+ * (`"collect"`), or out with it and back empty (`"deliver"`).
+ *
+ * `"none"` is the default because the errand builders are the generic
+ * shop-run choreography — a scene that has nothing to carry is a real thing to
+ * be able to script, and it keeps every existing caller's script unchanged.
+ * The food scenes are the ones that pass a real value: `food_pickup` is
+ * `"collect"` and `food_dropoff` is `"deliver"`.
+ */
+export type ErrandCargo = "none" | "collect" | "deliver";
+
 export type CutsceneSound =
   | "door"
   | "door_close"
@@ -81,6 +94,18 @@ export interface CutsceneStep {
   readonly carMoves?: readonly CutsceneCarMove[];
   /** The citation window: the app debits the fine as this step begins. */
   readonly citeWindow?: boolean;
+  /**
+   * The actor is holding the order through this step, so the session shows the
+   * delivery bag in their hand.
+   *
+   * Set per step rather than per scene because the two food scenes are the same
+   * walk run in opposite directions: the courier is empty-handed on one leg and
+   * carrying on the other, and which is which is the only thing that tells a
+   * collection apart from a delivery. Only ever set on steps the actor is
+   * visible for — a `hide` leg is the shop interior, and nothing there is on
+   * screen to hold anything.
+   */
+  readonly carrying?: boolean;
 }
 
 export const WALK_SPEED_MPS = 1.5;
@@ -410,9 +435,21 @@ export function buildExitScript(
 }
 
 /**
+ * Spreads `carrying: true` onto a step, or nothing at all. Adding the key only
+ * when it is true is what keeps a `"none"` errand's script identical to the one
+ * this builder produced before there was anything to carry.
+ */
+const heldOn = (carrying: boolean) => (carrying ? { carrying: true } : {});
+
+/**
  * The delivery errand, both ends: driver jogs from their door to the venue
  * door / address building line, disappears inside for the dwell, jogs back and
  * gets in. Long forecourts hurry rather than drag (MAX_LEG_SECONDS).
+ *
+ * `cargo` is what makes the two ends different to watch — see {@link
+ * ErrandCargo}. The bag is in hand for the whole of the loaded leg, the walk
+ * included, so it is stamped on the `show` that starts the leg as well as the
+ * `run` itself.
  */
 export function buildErrandScript(
   car: CutsceneCarPose,
@@ -420,10 +457,13 @@ export function buildErrandScript(
   buildingDoor: WorldPoint,
   dwellSeconds: number = STORE_DWELL_SECONDS,
   body: CutsceneBodyProfile = DEFAULT_CUTSCENE_BODY,
+  cargo: ErrandCargo = "none",
 ): CutsceneStep[] {
   const door = driverDoorPoint(car, steeringSide, body);
   const out = routeAroundCar(car, door, buildingDoor, body);
   const back = routeAroundCar(car, buildingDoor, door, body);
+  const outbound = cargo === "deliver";
+  const inbound = cargo === "collect";
   return [
     {
       action: "show",
@@ -431,16 +471,28 @@ export function buildErrandScript(
       seconds: 0.35,
       face: headingTo(car, door),
       sound: "door",
+      ...heldOn(outbound),
     },
     {
       action: "run",
       path: out,
       seconds: legSeconds(out, RUN_SPEED_MPS),
       sound: "door_close",
+      ...heldOn(outbound),
     },
     { action: "hide", seconds: dwellSeconds },
-    { action: "show", path: [buildingDoor], seconds: 0.15 },
-    { action: "run", path: back, seconds: legSeconds(back, RUN_SPEED_MPS) },
+    {
+      action: "show",
+      path: [buildingDoor],
+      seconds: 0.15,
+      ...heldOn(inbound),
+    },
+    {
+      action: "run",
+      path: back,
+      seconds: legSeconds(back, RUN_SPEED_MPS),
+      ...heldOn(inbound),
+    },
     { action: "hide", seconds: 0.45, sound: "door_close", carDip: true },
   ];
 }
@@ -475,28 +527,47 @@ export const MOTORBIKE_CUTSCENE_BODY: CutsceneBodyProfile = {
  * the venue door, dwell inside, run back and remount. No door sounds and no
  * suspension dip — a bike has neither; the session hides the rider on the
  * bike for the scene's duration so the walking actor reads as the same
- * person.
+ * person. `cargo` loads the same leg it loads on a car errand.
  */
 export function buildBikeErrandScript(
   bike: CutsceneCarPose,
   buildingDoor: WorldPoint,
   dwellSeconds: number = STORE_DWELL_SECONDS,
   body: CutsceneBodyProfile = BIKE_CUTSCENE_BODY,
+  cargo: ErrandCargo = "none",
 ): CutsceneStep[] {
   const mount = toWorld(bike, 0, body.doorLateralM);
   const out = routeAroundCar(bike, mount, buildingDoor, body);
   const back = routeAroundCar(bike, buildingDoor, mount, body);
+  const outbound = cargo === "deliver";
+  const inbound = cargo === "collect";
   return [
     {
       action: "show",
       path: [mount],
       seconds: 0.4,
       face: headingTo(bike, mount),
+      ...heldOn(outbound),
     },
-    { action: "run", path: out, seconds: legSeconds(out, RUN_SPEED_MPS) },
+    {
+      action: "run",
+      path: out,
+      seconds: legSeconds(out, RUN_SPEED_MPS),
+      ...heldOn(outbound),
+    },
     { action: "hide", seconds: dwellSeconds },
-    { action: "show", path: [buildingDoor], seconds: 0.15 },
-    { action: "run", path: back, seconds: legSeconds(back, RUN_SPEED_MPS) },
+    {
+      action: "show",
+      path: [buildingDoor],
+      seconds: 0.15,
+      ...heldOn(inbound),
+    },
+    {
+      action: "run",
+      path: back,
+      seconds: legSeconds(back, RUN_SPEED_MPS),
+      ...heldOn(inbound),
+    },
     { action: "hide", seconds: 0.35 },
   ];
 }
