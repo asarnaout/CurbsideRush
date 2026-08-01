@@ -36,7 +36,7 @@ npm run dev          # vinext dev + Miniflare on :3000 (NOT `next dev`)
 npm run build        # -> dist/client + dist/server
 npm run typecheck    # ~3s
 npm run lint         # ~11s, currently 0 errors / 0 warnings — keep it that way
-npm test             # 76 files, 1219 tests, ~2min
+npm test             # 79 files, 1322 tests, ~2min
 
 # the loop you actually iterate on: everything but the acceptance sweep, ~12s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
