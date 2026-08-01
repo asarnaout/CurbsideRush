@@ -32,6 +32,8 @@ import {
   cairoFrontageFootprintsOverlap,
   cairoTahrirFurnitureLayout,
   cairoTahrirLawnPolygon,
+  CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
+  CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
   crosswalkStripeLayout,
   crowdClothingPaletteForMap,
   deterministicSceneryKeep,
@@ -668,9 +670,16 @@ describe("Cairo visual axes", () => {
     )!;
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
     const polygon = cairoTahrirLawnPolygon(landmark, surfaces);
-    const minX = landmark.center.x - landmark.size.x / 2;
+    // The lawn's envelope is the authored rect plus the west/south tucks.
+    const minX = Math.min(
+      landmark.center.x - landmark.size.x / 2,
+      CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
+    );
     const maxX = landmark.center.x + landmark.size.x / 2;
-    const minZ = landmark.center.z - landmark.size.z / 2;
+    const minZ = Math.min(
+      landmark.center.z - landmark.size.z / 2,
+      CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
+    );
     const maxZ = landmark.center.z + landmark.size.z / 2;
 
     // Independent crossing detector (clamped-interval overlap rather than the
@@ -747,6 +756,81 @@ describe("Cairo visual axes", () => {
       doubledArea += current.x * next.z - next.x * current.z;
     }
     expect(Math.abs(doubledArea) / 2).toBeGreaterThanOrEqual(3000);
+  });
+
+  it("tucks Tahrir's lawn under its flanking pavement bands", () => {
+    const landmark = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-square",
+    )!;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const polygon = cairoTahrirLawnPolygon(landmark, surfaces);
+    const qasrElAiny = surfaces.find(
+      (surface) => surface.id === "cairo-qasr-el-ainy",
+    );
+    const qasrElNil = surfaces.find(
+      (surface) => surface.id === "cairo-qasr-el-nil-street",
+    );
+    expect(qasrElAiny).toBeDefined();
+    expect(qasrElNil).toBeDefined();
+    if (!qasrElAiny || !qasrElNil) return;
+
+    const westEdge = Math.min(...polygon.map((vertex) => vertex.x));
+    const southEdge = Math.min(...polygon.map((vertex) => vertex.z));
+    const northEdge = Math.max(...polygon.map((vertex) => vertex.z));
+    expect(westEdge).toBe(CAIRO_TAHRIR_LAWN_WEST_TUCK_X);
+    expect(southEdge).toBe(CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z);
+
+    const interpolate = (
+      line: readonly { x: number; z: number }[],
+      along: "x" | "z",
+      at: number,
+    ): number | null => {
+      const across = along === "x" ? "z" : "x";
+      for (let index = 0; index + 1 < line.length; index += 1) {
+        const start = line[index];
+        const end = line[index + 1];
+        const span = end[along] - start[along];
+        if (Math.abs(span) <= 1e-9) continue;
+        const amount = (at - start[along]) / span;
+        if (amount < 0 || amount > 1) continue;
+        return start[across] + (end[across] - start[across]) * amount;
+      }
+      return null;
+    };
+
+    // West edge: between Qasr El-Ainy's centreline and its band's outer
+    // edge at every z the lawn spans — covered by asphalt or band, with the
+    // visible grass seam exactly on the band edge. This is what keeps the
+    // bare grey wedge from coming back when a road node is nudged.
+    for (let z = southEdge; z <= northEdge; z += 2) {
+      const centerX = interpolate(qasrElAiny.centerline, "z", z);
+      expect(centerX, `Qasr El-Ainy at z=${z}`).not.toBeNull();
+      if (centerX === null) continue;
+      expect(westEdge, `west edge at z=${z}`).toBeGreaterThan(centerX);
+      expect(westEdge, `west edge at z=${z}`).toBeLessThanOrEqual(
+        centerX + qasrElAiny.widthM / 2 + (qasrElAiny.sidewalkWidthM ?? 3.4),
+      );
+    }
+
+    // South edge: same containment against Qasr El-Nil, along the span the
+    // lawn actually reaches (Ramses' clip owns everything east of it).
+    const southSpan = polygon
+      .filter((vertex) => Math.abs(vertex.z - southEdge) <= 1e-6)
+      .map((vertex) => vertex.x);
+    expect(southSpan.length).toBeGreaterThanOrEqual(2);
+    for (
+      let x = Math.min(...southSpan);
+      x <= Math.max(...southSpan);
+      x += 1
+    ) {
+      const centerZ = interpolate(qasrElNil.centerline, "x", x);
+      expect(centerZ, `Qasr El-Nil at x=${x}`).not.toBeNull();
+      if (centerZ === null) continue;
+      expect(southEdge, `south edge at x=${x}`).toBeGreaterThan(centerZ);
+      expect(southEdge, `south edge at x=${x}`).toBeLessThanOrEqual(
+        centerZ + qasrElNil.widthM / 2 + (qasrElNil.sidewalkWidthM ?? 3.4),
+      );
+    }
   });
 });
 

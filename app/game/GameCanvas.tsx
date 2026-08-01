@@ -2962,17 +2962,39 @@ function clipPolygonToLineSide(
 }
 
 /**
- * The lawn Tahrir actually shows: the authored rectangle, cut back to the
- * park-centre side of every road segment that crosses it.
+ * Where Tahrir's lawn tucks out under Qasr El-Ainy's pavement band. The kerb
+ * face runs x 325.1→322.9 along the park, the band outer edge 328.5→326.3,
+ * so 324.5 is under the band for most of the run and under the asphalt at
+ * the far south — painted over either way. `tests/cairoVisuals.test.ts`
+ * re-derives both bounds from the road data and pins the tuck.
+ */
+export const CAIRO_TAHRIR_LAWN_WEST_TUCK_X = 324.5;
+/**
+ * ...and out under Qasr El-Nil's band to the south, whose outer edge runs
+ * z -93.3→-92.0 across the lawn's reachable span west of Ramses.
+ */
+export const CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z = -94;
+
+/**
+ * The lawn Tahrir actually shows: the authored rectangle, tucked out under
+ * its west and south pavement bands, then cut back to the park-centre side
+ * of every road segment that crosses it.
  *
- * Ramses is authored straight through the park rectangle, and a rectangle
- * cannot hug a diagonal — rendered raw, its far corner surfaces as a grass
- * triangle on the opposite curbside. The cut runs along the *centreline*,
- * not the kerb, on purpose: the lawn draws below both the carriageway and
- * the pavement band (`PARK_LAWN_Y` under `ROAD_SHOULDER_Y` under
- * `ROAD_SURFACE_Y`), so grass up to the centreline is painted over and the
- * visible seam lands exactly on the band's outer edge — flush, with no bare
- * sliver for strip mitres or junction fans to expose.
+ * Both moves exist because Cairo's base ground is paved grey and any ground
+ * the lawn, band and asphalt leave uncovered reads as a bare strip. The
+ * lawn draws below both the carriageway and the pavement band
+ * (`PARK_LAWN_Y` under `ROAD_SHOULDER_Y` under `ROAD_SURFACE_Y`), so:
+ *
+ * - The tucked edges are painted over and the visible grass seam lands
+ *   exactly on each band's outer edge — flush, with no sliver for strip
+ *   mitres or junction fans to expose. (Authoring the tuck into the rect
+ *   itself would instead drag the park's 18 m roadside-parcel exclusion
+ *   across Qasr El-Ainy and demolish the street wall facing the park.)
+ * - Ramses is authored straight through the rectangle, and a rectangle
+ *   cannot hug a diagonal — rendered raw, its far corner surfaced as a
+ *   grass triangle on the opposite curbside. The cut runs along the
+ *   *centreline*, not the kerb: grass up to the centreline is painted over,
+ *   nothing shows past it.
  */
 export function cairoTahrirLawnPolygon(
   landmark: Pick<
@@ -2981,9 +3003,15 @@ export function cairoTahrirLawnPolygon(
   >,
   roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
 ): GameCanvasPoint[] {
-  const minX = landmark.center.x - landmark.size.x / 2;
+  const minX = Math.min(
+    landmark.center.x - landmark.size.x / 2,
+    CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
+  );
   const maxX = landmark.center.x + landmark.size.x / 2;
-  const minZ = landmark.center.z - landmark.size.z / 2;
+  const minZ = Math.min(
+    landmark.center.z - landmark.size.z / 2,
+    CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
+  );
   const maxZ = landmark.center.z + landmark.size.z / 2;
   let polygon: GameCanvasPoint[] = [
     { x: minX, z: minZ },

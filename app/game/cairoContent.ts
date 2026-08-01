@@ -1392,6 +1392,14 @@ const cairoLandmarks: readonly ProceduralLandmark[] = [
   {
     id: "cairo-tahrir-square",
     kind: "park",
+    // The rect is the park's LOGICAL envelope — scatter, exclusions and prop
+    // keep-outs all read it. The lawn the player sees is bigger and smaller
+    // at once: `cairoTahrirLawnPolygon` tucks its west and south edges out
+    // under the flanking pavement bands (Cairo's base ground is paved grey,
+    // so a gap between lawn and band reads as a bare strip) and cuts it back
+    // to the near side of Ramses, which is authored straight through here.
+    // Growing the rect itself instead would drag the 18 m roadside exclusion
+    // across Qasr El-Ainy and demolish the street wall facing the park.
     center: point(360, -35),
     size: point(62, 82),
     color: "#6e8a54",
