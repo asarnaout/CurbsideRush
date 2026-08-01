@@ -32,6 +32,7 @@ import {
   samplePavementEdge,
 } from "../app/game/pavementPaths";
 import {
+  gasStationCanopyWorld,
   gasStationPumpPositions,
   gasStationsOf,
   repairShopBayPosition,
@@ -483,6 +484,41 @@ describe("the drivable world stays open", () => {
           `${service.id} is filmed from beside the opening, not through it`,
         ).toBeLessThan(REPAIR_SHOP_BAY_CLEAR_WIDTH_M / 2 - 0.5);
         }
+      }
+    }
+  });
+
+  it("stands the canopy over the pumps it is supposed to cover", () => {
+    // GAS_STATION_CANOPY_M is measured in the holder frame, so it has to be
+    // turned by the lane heading and not by the lot yaw — the two differ by the
+    // kind's yawOffset, and a quarter-turn of a 7x13 m slab still covers *some*
+    // of the forecourt. That is the failure that would ship as "the camera fix
+    // works at some stations and not others", so pin it per station: every pump
+    // the refuel scene can stage at must be under the roof the camera ducks.
+    for (const world of driveWorlds) {
+      const mapPack = getMapPack(world.freeDrive.mapId);
+      for (const service of gasStationsOf(mapPack.geometry.servicePoints)) {
+        const canopy = gasStationCanopyWorld(mapPack.laneGraph.lanes, service);
+        expect(canopy, `${service.id} has no canopy`).not.toBeNull();
+        if (!canopy) continue;
+        for (const pump of gasStationPumpPositions(
+          mapPack.laneGraph.lanes,
+          service,
+        )) {
+          const dx = pump.x - canopy.x;
+          const dz = pump.z - canopy.z;
+          const u = Math.abs(dx * canopy.ux + dz * canopy.uz);
+          const v = Math.abs(dx * canopy.uz - dz * canopy.ux);
+          expect(u, `${service.id} pump is off the end of its canopy`).toBeLessThan(
+            canopy.halfU,
+          );
+          expect(v, `${service.id} pump is out from under its canopy`).toBeLessThan(
+            canopy.halfV,
+          );
+        }
+        // The slab stands on the pillars folded into the island boxes, so it
+        // cannot be shorter than they are tall.
+        expect(canopy.undersideY).toBeGreaterThan(3);
       }
     }
   });
