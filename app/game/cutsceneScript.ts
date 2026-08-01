@@ -657,6 +657,174 @@ export function buildRoadsideRefuelScript(
 const WORK_FORWARD_FRACTION = 0.6;
 const WORK_LATERAL_CLEARANCE_M = 0.35;
 
+// --- Where a staged scene is watched from ------------------------------------
+
+/**
+ * A solid the staged camera must not look through, as an oriented box in world
+ * space. Structurally the OBB arm of `StaticObstacle` — U is the given unit
+ * axis, V its perpendicular `(uz, -ux)` — so the session can hand its simulation
+ * obstacles straight over without converting anything.
+ *
+ * No height, because `StaticObstacle` has none: the simulation resolves a car
+ * against these and a car cannot duck. `chooseStagedShot` therefore *ranks* by
+ * how many it crosses rather than rejecting outright, so a low solid the
+ * sightline would clear — a pump island, a kerb — costs a candidate its place in
+ * the order without ever leaving the scene unframeable.
+ */
+export interface StagedBlocker {
+  readonly x: number;
+  readonly z: number;
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+}
+
+/** A blocker overhead: the same box, plus the height to stay under. */
+export interface StagedCover extends StagedBlocker {
+  readonly undersideY: number;
+}
+
+/**
+ * Azimuths tried around the scene, the first being the one the stager asked
+ * for. Twelve is 30° apart — finer than the framing is sensitive to, and the
+ * whole sweep is a few hundred flops run once when a scene starts.
+ */
+const STAGED_AZIMUTH_COUNT = 12;
+
+/**
+ * How far under a roof the camera stands when the scene it is filming is under
+ * one.
+ *
+ * Bounded on both sides, and the gap is not wide. Too low and the car's own roof
+ * hides the actor working behind it; too high and the slab's underside — and the
+ * fascia band around its edge — take the top of the frame, which is the bug this
+ * exists to fix. Under the station's 4.36 m canopy this lands at ~3.0 m, a
+ * sightline about 15° off level at the nine metres the stager pulls back.
+ */
+const STAGED_COVER_HEADROOM_M = 1.35;
+/** Below this the car is in the way whatever the cover is doing. */
+const STAGED_MIN_HEIGHT_M = 2.4;
+
+/** Is (px, pz) inside the box? */
+function pointInBlocker(px: number, pz: number, box: StagedBlocker): boolean {
+  const dx = px - box.x;
+  const dz = pz - box.z;
+  return (
+    Math.abs(dx * box.ux + dz * box.uz) <= box.halfU &&
+    Math.abs(dx * box.uz - dz * box.ux) <= box.halfV
+  );
+}
+
+/** Does the segment meet the box? `segmentCrossesRect` in the box's own frame. */
+function segmentCrossesBlocker(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  box: StagedBlocker,
+): boolean {
+  const adx = ax - box.x;
+  const adz = az - box.z;
+  const bdx = bx - box.x;
+  const bdz = bz - box.z;
+  return segmentCrossesRect(
+    adx * box.ux + adz * box.uz,
+    adx * box.uz - adz * box.ux,
+    bdx * box.ux + bdz * box.uz,
+    bdx * box.uz - bdz * box.ux,
+    box.halfU,
+    box.halfV,
+  );
+}
+
+/**
+ * Where to stand the staged camera: the same ring the generic stager has always
+ * used, but at the azimuth on it that can actually see the scene.
+ *
+ * The stager picks a perpendicular to the car–actor line and flips it to
+ * whichever side the chase camera already stands on, so the glide in never
+ * swings across the action. What it never did was ask whether anything was in
+ * the way, and on a gas station forecourt the answer is often yes: pulled nine
+ * metres along the forecourt's long axis the camera is still under a 13 m
+ * canopy, at a height above its 4.36 m underside, with a canopy pillar between
+ * it and the car. Which of the two perpendiculars that happens on depends on
+ * where the driver's door ended up, hence on how the player pulled in — which is
+ * why the same station films fine most of the time and not the rest of it.
+ *
+ * Ranked, not filtered, and the requested azimuth is candidate zero with a turn
+ * of zero. A scene nothing blocks therefore keeps the exact shot it had before
+ * this existed; only a blocked one moves, and only as far as it must.
+ */
+export function chooseStagedShot(
+  midX: number,
+  midZ: number,
+  radius: number,
+  cameraY: number,
+  /** Unit vector: the azimuth the stager would have used on its own. */
+  preferred: WorldPoint,
+  /** Points the shot exists to show — the car, and whatever the actor walks to. */
+  subjects: readonly WorldPoint[],
+  blockers: readonly StagedBlocker[],
+  cover: StagedCover | null,
+): { readonly x: number; readonly y: number; readonly z: number } {
+  // Only solids that could reach the ring are worth testing against it. One
+  // pass, so the per-candidate loop below stays over a handful rather than over
+  // every block rect and venue lot on the map.
+  const near = blockers.filter(
+    (box) =>
+      Math.hypot(box.x - midX, box.z - midZ) <=
+      radius + Math.hypot(box.halfU, box.halfV),
+  );
+  const baseAngle = Math.atan2(preferred.x, preferred.z);
+  let best: {
+    x: number;
+    z: number;
+    covered: boolean;
+    blocked: number;
+    turn: number;
+  } | null = null;
+  for (let index = 0; index < STAGED_AZIMUTH_COUNT; index += 1) {
+    const turn = (index * 2 * Math.PI) / STAGED_AZIMUTH_COUNT;
+    const angle = baseAngle + turn;
+    const x = midX + Math.sin(angle) * radius;
+    const z = midZ + Math.cos(angle) * radius;
+    const covered = cover !== null && pointInBlocker(x, z, cover);
+    let blocked = 0;
+    for (const subject of subjects) {
+      for (const box of near) {
+        if (segmentCrossesBlocker(x, z, subject.x, subject.z, box)) blocked += 1;
+      }
+    }
+    // Shortest way round, so a candidate 30° the other way is a small turn and
+    // not an eleven-twelfths one.
+    const swing = Math.min(turn, 2 * Math.PI - turn);
+    if (
+      best === null ||
+      (covered !== best.covered
+        ? !covered
+        : blocked !== best.blocked
+          ? blocked < best.blocked
+          : swing < best.turn)
+    ) {
+      best = { x, z, covered, blocked, turn: swing };
+    }
+  }
+  const under = cover
+    ? Math.max(
+        STAGED_MIN_HEIGHT_M,
+        Math.min(cameraY, cover.undersideY - STAGED_COVER_HEADROOM_M),
+      )
+    : cameraY;
+  return best
+    ? { x: best.x, y: under, z: best.z }
+    : {
+        x: midX + preferred.x * radius,
+        y: under,
+        z: midZ + preferred.z * radius,
+      };
+}
+
 /**
  * Where the repair scene is watched from, relative to the car, given which way
  * the bay's open side faces.
