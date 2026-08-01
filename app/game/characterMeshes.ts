@@ -346,7 +346,10 @@ export interface ActorVisual {
 
 /** Clip name suffixes on the shared HumanArmature rigs ("…|Man_Walk",
  * "…|Female_Idle"). Anchored so Run never matches RunningJump. */
-const ACTOR_CLIP_PATTERNS: readonly (readonly [ActorClip, RegExp])[] = [
+/** Cross-fade rate between locomotion clips, once there is a pose to leave. */
+const ACTOR_CLIP_BLEND_SPEED = 0.09;
+
+export const ACTOR_CLIP_PATTERNS: readonly (readonly [ActorClip, RegExp])[] = [
   ["idle", /_Idle$/i],
   ["walk", /_Walk$/i],
   ["run", /_Run$/i],
@@ -730,13 +733,8 @@ function buildActorFromConfig(
     const match = ACTOR_CLIP_PATTERNS.find(
       ([clip, pattern]) => !clips.has(clip) && pattern.test(group.name),
     );
-    if (match) {
-      group.enableBlending = true;
-      group.blendingSpeed = 0.09;
-      clips.set(match[0], group);
-    } else {
-      group.dispose();
-    }
+    if (match) clips.set(match[0], group);
+    else group.dispose();
   }
 
   let disposed = false;
@@ -751,6 +749,18 @@ function buildActorFromConfig(
         next.speedRatio = speedRatio;
         return;
       }
+      // Blend only when there is a pose to blend FROM.
+      //
+      // Blending exists so that a mid-scene idle→walk→run switch reads as the
+      // character changing pace rather than popping. On the *first* clip there
+      // is no previous pose, and Babylon blends the bones out of their
+      // uninitialised values instead — which walks the rig through poses that
+      // exist in no clip at all. That is the arm-stuck-out passenger: measured
+      // across all 250 frames of every rig's Idle, the hands never leave the
+      // sides (reach ≤ 0.25 m), yet the rig was rendering a hand 0.64 m out.
+      // A first clip cannot pop, so arming blending here costs nothing.
+      next.enableBlending = active !== undefined;
+      next.blendingSpeed = ACTOR_CLIP_BLEND_SPEED;
       active?.stop();
       active = next;
       next.speedRatio = speedRatio;
