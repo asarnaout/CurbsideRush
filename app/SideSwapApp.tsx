@@ -182,6 +182,7 @@ import {
 } from "./game/dispatch";
 import type { DispatchState, SurgeWindow } from "./game/dispatch";
 import {
+  DAY_TIMER_MIN_VIEWPORT_PX,
   DriveCornerButton,
   DriveDayEdge,
   DriveMoneyCluster,
@@ -2540,13 +2541,19 @@ export default function SideSwapApp() {
       ? null
       : DAY_LENGTH_MS - dayRemainingMs - dayIntroFromMs;
   // The shift clock, resolved once for the top-centre readout and the edge bar
-  // so the two can never disagree about which colour the day is. Desktop only
-  // for now: the phone still carries it inline in the job card's header, where
-  // the top band has no room for a 76px numeral.
-  const dayTimer =
-    careerRun && !touchFirst
-      ? resolveDayTimer(careerRun.city.day, dayRemainingMs, DAY_LENGTH_MS)
-      : null;
+  // so the two can never disagree about which colour the day is. Both form
+  // factors read the same numbers; only the comp's sizing differs, and that
+  // lives in `DAY_TIMER_METRICS`.
+  const dayTimer = careerRun
+    ? resolveDayTimer(careerRun.city.day, dayRemainingMs, DAY_LENGTH_MS)
+    : null;
+  // Whether the clock gets the top-centre readout or stays a line in the status
+  // card's header. On a phone that is a question of width — see
+  // `DAY_TIMER_MIN_VIEWPORT_PX` for the arithmetic the cut comes from. The edge
+  // bar is drawn either way; only the numerals need somewhere to stand.
+  const dayTimerInRow = Boolean(
+    dayTimer && (!touchFirst || viewportWidth >= DAY_TIMER_MIN_VIEWPORT_PX),
+  );
   const mapDestination: MapDestination | null = gigTargetVenue
     ? {
         x: gigTargetVenue.x,
@@ -3070,9 +3077,14 @@ export default function SideSwapApp() {
                     driveCountry,
                   ),
                   session: `+${formatMoney(sessionEarnings, driveCountry)}`,
-                  label: careerRun
-                    ? `DAY ${careerRun.city.day} · ${formatClock(dayRemainingMs)}`
-                    : "TODAY",
+                  // Normally just what the figure beside it means: the clock
+                  // left this header for the top centre when the phone got the
+                  // same readout the desktop has (#236). It comes back only on
+                  // a handset too narrow to stand one there.
+                  label:
+                    careerRun && !dayTimerInRow
+                      ? `DAY ${careerRun.city.day} · ${formatClock(dayRemainingMs)}`
+                      : "TODAY",
                 }
               : null
           }
@@ -3323,7 +3335,7 @@ export default function SideSwapApp() {
             speedUnit={hud.speedUnit}
             speedLimit={hud.speedLimit}
             gear={hud.gear}
-            dayTimer={dayTimer}
+            dayTimer={dayTimerInRow ? dayTimer : null}
             compact={touchFirst}
           />
         )}
@@ -3333,7 +3345,7 @@ export default function SideSwapApp() {
           to read, and the bar answers "how far through", which you cannot help
           seeing. Outside the scaled frame, so it always spans the viewport.
         */}
-        {hud && dayTimer && <DriveDayEdge timer={dayTimer} />}
+        {hud && dayTimer && <DriveDayEdge timer={dayTimer} compact={touchFirst} />}
         {/*
           The two buttons the app owns on a phone, holding the top-right corner
           while the session's camera/pause/fullscreen row starts clear of them

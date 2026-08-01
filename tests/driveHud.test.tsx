@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   DAY_TIMER_CRITICAL_S,
-  DAY_TIMER_HEADROOM_PX,
+  DAY_TIMER_METRICS,
+  DAY_TIMER_MIN_VIEWPORT_PX,
   DAY_TIMER_WARN_S,
-  DAY_TIMER_WIDTH_PX,
   DriveCornerButton,
   DriveDayEdge,
   DriveMoneyCluster,
@@ -32,7 +32,7 @@ import {
   type HudOffer,
 } from "../app/game/DriveHud";
 import { MAP_ICON, MUSIC_ICON, MUSIC_MUTED_ICON } from "../app/game/hudIcons";
-import { TOUCH_CORNER_SLOT_PX } from "../app/game/TouchDriveControls";
+import { TOUCH_CORNER_RAIL_PX, TOUCH_CORNER_SLOT_PX } from "../app/game/TouchDriveControls";
 import { DRIVE_LAYER } from "../app/game/driveLayers";
 
 afterEach(cleanup);
@@ -326,20 +326,67 @@ describe("the speed cluster", () => {
     expect(clock).toHaveStyle({ alignItems: "baseline" });
     // Fixed width, or every tick of the last minute slides the speedometer:
     // the row is centred on itself.
-    expect(clock.style.width).toBe(`${DAY_TIMER_WIDTH_PX}px`);
+    expect(clock.style.width).toBe(`${DAY_TIMER_METRICS.desktop.width}px`);
   });
 
   it("drops the row only far enough to clear the edge bar", () => {
     // The clock's label hangs out of flow above the numerals and lands under
     // the edge bar at the inset every other cluster uses. jsdom has no layout,
-    // so the constant is the check — see DAY_TIMER_HEADROOM_PX.
+    // so the constant is the check — see DAY_TIMER_METRICS.
     speed();
     expect(screen.getByTestId("drive-speed").style.marginTop).toBe("");
-    cleanup();
-    speed({ dayTimer: resolveDayTimer(1, 60_000, 360_000) });
-    expect(screen.getByTestId("drive-speed").style.marginTop).toBe(
-      `${DAY_TIMER_HEADROOM_PX}px`,
+    for (const compact of [false, true]) {
+      cleanup();
+      speed({ compact, dayTimer: resolveDayTimer(1, 60_000, 360_000) });
+      const t = compact ? DAY_TIMER_METRICS.compact : DAY_TIMER_METRICS.desktop;
+      expect(screen.getByTestId("drive-speed").style.marginTop).toBe(`${t.headroom}px`);
+    }
+  });
+
+  it("draws the same clock smaller on a phone, not a different one", () => {
+    // Same testids either way, so nothing downstream has to know which comp is
+    // on screen — the rule the rest of this HUD already follows.
+    for (const compact of [false, true]) {
+      cleanup();
+      speed({ compact, dayTimer: resolveDayTimer(3, 252_000, 360_000) });
+      const t = compact ? DAY_TIMER_METRICS.compact : DAY_TIMER_METRICS.desktop;
+      expect(screen.getByTestId("day-clock").style.width).toBe(`${t.width}px`);
+      expect(screen.getByTestId("day-clock-value")).toHaveTextContent("4:12");
+      expect(screen.getByTestId("day-phrase")).toHaveTextContent("ON SHIFT");
+    }
+    // The phone's column is the desktop comp halved, like the plate and the
+    // numeral beside it. Anything wider would reach the corner button rail.
+    expect(DAY_TIMER_METRICS.compact.width).toBeLessThan(
+      DAY_TIMER_METRICS.desktop.width,
     );
+  });
+
+  it("drops the day number on a phone but never the phrase", () => {
+    // The label overhangs toward the touch rail and is the widest thing in the
+    // block. Which day it is survives in the title card and the ledger; how
+    // long is left does not, so the phrase stays.
+    speed({ dayTimer: resolveDayTimer(3, 252_000, 360_000) });
+    expect(screen.getByTestId("day-clock")).toHaveTextContent("DAY 3");
+    cleanup();
+    speed({ compact: true, dayTimer: resolveDayTimer(3, 252_000, 360_000) });
+    const clock = screen.getByTestId("day-clock");
+    expect(clock).not.toHaveTextContent("DAY 3");
+    expect(screen.getByTestId("day-phrase")).toHaveTextContent("ON SHIFT");
+    // And it hangs off the right, so what it outgrows the block by spills into
+    // the gap beside the speed rather than at the rail.
+    expect((clock.firstElementChild as HTMLElement).style.right).toBe("0px");
+  });
+
+  it("keeps the phone's cut above the handsets the row cannot fit on", () => {
+    // The rail is `SAFE_RIGHT + TOUCH_CORNER_RAIL_PX + 3 utility buttons`, and
+    // SAFE_RIGHT is ~47px on whichever side a notch lands in landscape — a coin
+    // toss on rotation. That worst case is what governs: measured in WebKit,
+    // the row clears from about 836px up. 812 (iPhone X/XS/11 Pro, 12/13 mini)
+    // is below it; 844 (iPhone 12/13/14) is the first that fits.
+    expect(DAY_TIMER_MIN_VIEWPORT_PX).toBeGreaterThan(812);
+    expect(DAY_TIMER_MIN_VIEWPORT_PX).toBeLessThanOrEqual(844);
+    // The rail's own budget, so a change to either constant lands here.
+    expect(TOUCH_CORNER_RAIL_PX).toBe(104);
   });
 });
 
@@ -439,6 +486,16 @@ describe("the career shift clock", () => {
     cleanup();
     clusterWith(at(0));
     expect(screen.getByTestId("day-clock").style.animation).toBe("");
+  });
+
+  it("thins the bar on a phone, where 5px of a small screen is a band", () => {
+    render(<DriveDayEdge timer={at(90)} compact />);
+    expect(screen.getByTestId("day-edge").style.height).toBe(
+      `${DAY_TIMER_METRICS.compact.edge}px`,
+    );
+    // Real screen pixels either way: the bar spans the viewport rather than
+    // the comp's frame, so `resolveHudScale` never touches it.
+    expect(DAY_TIMER_METRICS.compact.edge).toBeLessThan(DAY_TIMER_METRICS.desktop.edge);
   });
 });
 
@@ -743,10 +800,20 @@ describe("the phone HUD", () => {
     // reclaim Safari's chrome once a drive has started.
     navCard({
       compact: true,
-      money: { balance: "$248.60", session: "+$62.10", label: "DAY 3 · 4:12" },
+      money: { balance: "$248.60", session: "+$62.10", label: "TODAY" },
     });
     expect(screen.getByTestId("day-cash")).toHaveTextContent("$248.60");
-    expect(screen.getByTestId("day-clock")).toHaveTextContent("DAY 3 · 4:12");
+    expect(screen.getByTestId("session-label")).toHaveTextContent("TODAY");
+  });
+
+  it("leaves the shift clock to the top-centre readout here too", () => {
+    // It rode in this header at 7px and 34% opacity while the desktop half of
+    // #236 was landing. The phone reads it top-centre now, same as the desktop.
+    navCard({
+      compact: true,
+      money: { balance: "$248.60", session: "+$62.10", label: "TODAY" },
+    });
+    expect(screen.queryByTestId("day-clock")).not.toBeInTheDocument();
   });
 
   it("leaves the money out on desktop, where it has its own cluster", () => {

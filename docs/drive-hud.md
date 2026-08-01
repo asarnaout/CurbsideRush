@@ -60,17 +60,29 @@ The balance sits in the job card on touch, not the corner: that corner carries
 camera/pause/fullscreen, and fullscreen is the only way to reclaim Safari's chrome
 mid-drive.
 
-**The career shift clock has two homes, and only one may be on screen at a time.**
-`resolveDayTimer` feeds the desktop pair — the 76px readout inside
-`DriveSpeedCluster` and the `DriveDayEdge` bar — and `SideSwapApp` builds it only
-when `careerRun && !touchFirst`; on a phone the clock is still the `money.label`
-string inside `DriveStatusCard`, because the top band has no room for a 76px
-numeral (#236, desktop half). Anyone doing the phone half has to retire that
-string in the same change, or the day is counted down twice.
+**The career shift clock has two homes, and only one may be on screen at a
+time.** `resolveDayTimer` feeds both the numerals inside `DriveSpeedCluster` and
+the `DriveDayEdge` bar, so the two can never disagree about what colour the day
+is. `dayTimerInRow` in `SideSwapApp` is the switch: when it is false the clock
+falls back to the `money.label` line in `DriveStatusCard`'s header, which is
+where it lived before #236.
+
+**On a phone that switch is a width question, and the constant that decides it is
+governed by `SAFE_RIGHT`, not by the obvious arithmetic.** The band's right end
+is the app's two corner buttons plus the session's utility row; a notched handset
+in landscape adds ~47px of inset on whichever side the notch lands, so half the
+time the rail arrives ~35px further in. That is why
+`DAY_TIMER_MIN_VIEWPORT_PX` sits above 812 rather than the ~784 a 12px inset
+suggests. The edge bar is never gated on it — it spans the viewport at any width.
+
+For the same reason the phone's label drops `DAY n` and hangs off the *right* of
+its block: it is the widest thing there and it points at that rail. Which day it
+is survives in the day-title card and the ledger.
 
 `DriveDayEdge` is the one HUD element `resolveHudScale` does not touch. It is
-anchored to the viewport's edges rather than laid out in the comp's 1920px frame,
-so scaling it would leave a gap at one end.
+anchored to the viewport's edges rather than laid out in the comp's frame, so
+scaling it would leave a gap at one end — which also means its height is the one
+number in `DAY_TIMER_METRICS` already in real screen pixels.
 
 ## The touch layout is one budget split across two files
 

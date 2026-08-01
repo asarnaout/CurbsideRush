@@ -394,8 +394,14 @@ export function DriveNavCard({
             >
               {money.session}
             </span>
+            {/*
+              What the figure beside it means, nothing more. The shift clock
+              used to be crammed in here at 7px and 34% opacity, which is how it
+              came to be invisible (#236); the phone reads it top-centre now,
+              the same as the desktop.
+            */}
             <span
-              data-testid="day-clock"
+              data-testid="session-label"
               style={{
                 marginLeft: "auto",
                 font: `800 ${m.label - 1}px ${HUD_SANS}`,
@@ -865,39 +871,90 @@ function manoeuvreKicker(manoeuvre: HudManoeuvre): string {
 export const DAY_TIMER_WARN_S = 120;
 export const DAY_TIMER_CRITICAL_S = 30;
 
-/** Height of the edge bar, in the comp's pixels — it is not scaled. */
-export const DAY_EDGE_HEIGHT_PX = 5;
-
 /**
- * What the top-centre row drops by once it is carrying a shift clock.
+ * The clock's own sizing, from the two comps. The phone's column is the desktop
+ * comp's halved, the same relationship the rest of this row already has (a 92px
+ * mobile numeral is drawn on a 2x frame and lands at the desktop 46px).
  *
- * The clock's `DAY n · ON SHIFT` line hangs out of flow above 76px numerals,
- * so it reaches ~11px higher than anything else in the row and lands at y=4.5
- * against `hudInset.top` — flush under the edge bar, which draws the day in
- * the same colour and so reads as one smeared object rather than two readouts.
- * The comp anchors this row at 28px rather than the 1rem the app gives every
- * other cluster; this is that difference, applied only when there is a label
- * needing the room.
+ * `width` is fixed, and that is load-bearing rather than cosmetic: the row is
+ * centred on itself, so anything that changes its width slides the speedometer
+ * — and "4:12" → "59" → "9" changes it every second for the last minute of
+ * every day. Each is sized to the widest its numerals get, plus slack. **A
+ * career day longer than 9:59 would need five characters and both re-measured**
+ * — see `DAY_LENGTH_MS`. The label above is wider still at its longest ("DAY 3
+ * · SHIFT ENDING"); that is deliberately allowed to overhang, since it is out
+ * of flow and costs no layout, and sizing the box to the label would leave a
+ * third of it empty and visibly throw the row off centre.
+ *
+ * `headroom` is what the row drops by once it is carrying a clock. The
+ * `DAY n · ON SHIFT` line hangs out of flow above the numerals, so it reaches
+ * higher than anything else in the row and lands flush under the edge bar —
+ * which draws the day in the same colour, so the two read as one smeared object
+ * rather than two readouts. Both comps anchor this row lower than the inset the
+ * app gives every other cluster; this is that difference, applied only when
+ * there is a label needing the room.
+ *
+ * `edge` is the bar's height. It is **not** multiplied by `resolveHudScale`
+ * like the rest — the bar spans the viewport rather than the comp's frame — so
+ * unlike every other number here it is already in real screen pixels.
  */
-export const DAY_TIMER_HEADROOM_PX = 12;
-
 /**
- * The clock block's fixed width, and it is fixed for a reason: the top-centre
- * row is centred on itself, so anything that changes its width slides the
- * speedometer with it — and "4:12" → "59" → "9" changes it every second for
- * the last minute of every day.
+ * Narrower than this, a phone's top band cannot hold the clock beside the
+ * speed, and it goes back to a line in the status card's header instead.
  *
- * Sized to the widest the numerals get, which is a four-character `m:ss` at
- * 163px (they are tabular, so every `m:ss` is that same width) and `59 SEC` at
- * 159px, plus slack. **A career day longer than 9:59 would need five characters
- * and this number re-measured** — see `DAY_LENGTH_MS`.
+ * The band is spoken for at both ends: the status card on the left, and on the
+ * right the app's two corner buttons (`TOUCH_CORNER_RAIL_PX`) followed by the
+ * session's camera/pause/fullscreen row. The readout row is centred, so with a
+ * clock in it it reaches `viewportWidth / 2 + 117`, and the rail starts at
+ * `viewportWidth - SAFE_RIGHT - 104 - 148`.
  *
- * The label above it is wider still at its longest ("DAY 3 · SHIFT ENDING",
- * 216px). That one is deliberately allowed to overhang: it is out of flow and
- * `nowrap`, so it costs no layout, and sizing the block to the label instead
- * would push a third of the box empty and visibly throw the row off centre.
+ * **`SAFE_RIGHT` is what sets this number, not the arithmetic at 12px.** A
+ * notched handset in landscape puts ~47px of inset on whichever side the notch
+ * lands, and it is a coin toss which way the player rotates — so the rail
+ * arrives ~35px further in half the time. At 12px the row would clear from
+ * about 784px up; at 47px it does not clear until about 836, which is why this
+ * sits above 812 (iPhone X/XS/11 Pro/12 mini/13 mini) rather than below it.
+ *
+ * The mobile comp does not have this problem: it is a 1740px frame — an ~870px
+ * phone once halved — and it never had five things in that corner. Our two app
+ * buttons are extra, and fullscreen is not negotiable on iOS.
+ *
+ * The edge bar is never gated on this. It spans the viewport at any width, and
+ * it is the half of the readout that answers "how far through" — so even the
+ * narrowest phone keeps the part you cannot help seeing.
  */
-export const DAY_TIMER_WIDTH_PX = 176;
+export const DAY_TIMER_MIN_VIEWPORT_PX = 840;
+
+export const DAY_TIMER_METRICS = Object.freeze({
+  desktop: {
+    width: 176,
+    headroom: 12,
+    edge: 5,
+    gap: 10,
+    label: 12,
+    labelTrack: "2.4px",
+    labelGap: 9,
+    labelLift: 7,
+    icon: 17,
+    dot: 3,
+    rule: 70,
+    ruleMargin: "0 10px 0 18px",
+  },
+  compact: {
+    width: 104,
+    headroom: 6,
+    edge: 3,
+    gap: 6,
+    label: 7,
+    labelTrack: "1.2px",
+    labelGap: 5,
+    labelLift: 7,
+    icon: 10,
+    dot: 2,
+    rule: 42,
+    ruleMargin: "0 6px 0 10px",
+  },
+});
 
 /**
  * The widest each of the clock's two formats gets, sizing its numeral slot.
@@ -1001,7 +1058,14 @@ export function resolveDayTimer(
  * colour keeps its transition: that changes twice a day, not eleven times a
  * second.
  */
-export function DriveDayEdge({ timer }: { timer: HudDayTimer }) {
+export function DriveDayEdge({
+  timer,
+  compact = false,
+}: {
+  timer: HudDayTimer;
+  compact?: boolean;
+}) {
+  const m = compact ? DAY_TIMER_METRICS.compact : DAY_TIMER_METRICS.desktop;
   return (
     <div
       data-testid="day-edge"
@@ -1011,7 +1075,7 @@ export function DriveDayEdge({ timer }: { timer: HudDayTimer }) {
         top: 0,
         left: 0,
         right: 0,
-        height: DAY_EDGE_HEIGHT_PX,
+        height: m.edge,
         background: "rgba(244,239,222,.08)",
         pointerEvents: "none",
         zIndex: DRIVE_LAYER.hud,
@@ -1023,7 +1087,7 @@ export function DriveDayEdge({ timer }: { timer: HudDayTimer }) {
           height: "100%",
           width: `${(timer.fraction * 100).toFixed(2)}%`,
           background: timer.color,
-          boxShadow: `0 0 16px ${timer.color}`,
+          boxShadow: `0 0 ${compact ? 10 : 16}px ${timer.color}`,
           animation:
             timer.tone === "critical" && timer.fraction > 0
               ? "hudDayEdgeFlash 1s ease-in-out infinite"
@@ -1090,6 +1154,7 @@ export function DriveSpeedCluster({
   const m = compact
     ? { plateW: 42, plateH: 53, plateRadius: 5, pad: 3, border: 1.5, cap: 7, num: 21, speed: 46, unit: 13, gap: 11, gear: 10 }
     : { plateW: 70, plateH: 88, plateRadius: 8, pad: 5, border: 2.5, cap: 11, num: 35, speed: 76, unit: 22, gap: 20, gear: 14 };
+  const t = compact ? DAY_TIMER_METRICS.compact : DAY_TIMER_METRICS.desktop;
   const over = speedLimit > 0 ? speed - speedLimit : 0;
   const band = speedOverBand(speedUnit);
   const level = over >= band.alarm ? 2 : over >= band.warn ? 1 : 0;
@@ -1108,7 +1173,7 @@ export function DriveSpeedCluster({
         top: inset.top,
         left: "50%",
         marginLeft: -0.5,
-        marginTop: dayTimer ? DAY_TIMER_HEADROOM_PX : undefined,
+        marginTop: dayTimer ? t.headroom : undefined,
         display: "flex",
         alignItems: "center",
         gap: m.gap,
@@ -1218,14 +1283,14 @@ export function DriveSpeedCluster({
           <span
             style={{
               width: 1,
-              height: 70,
+              height: t.rule,
               flex: "none",
               background: "rgba(244,239,222,.17)",
-              margin: "0 10px 0 18px",
+              margin: t.ruleMargin,
             }}
           />
           {/*
-            Fixed width — see `DAY_TIMER_WIDTH_PX` for why that is load-bearing
+            Fixed width — see `DAY_TIMER_METRICS` for why that is load-bearing
             rather than cosmetic. `transformOrigin` is the same kind of thing:
             the beat has to grow away from the divider, not from the block's own
             centre, or the pulse reads as the whole top of the screen breathing.
@@ -1234,12 +1299,12 @@ export function DriveSpeedCluster({
             data-testid="day-clock"
             style={{
               position: "relative",
-              width: DAY_TIMER_WIDTH_PX,
+              width: t.width,
               flex: "none",
               transformOrigin: "left center",
               display: "flex",
               alignItems: "baseline",
-              gap: 10,
+              gap: t.gap,
               textShadow: "0 3px 14px rgba(0,0,0,.85)",
               animation:
                 dayTimer.tone === "critical" && dayTimer.fraction > 0
@@ -1256,30 +1321,49 @@ export function DriveSpeedCluster({
               style={{
                 position: "absolute",
                 bottom: "100%",
-                left: 0,
-                marginBottom: 7,
+                // Desktop hangs the label off the left, over its own numerals.
+                // The phone anchors it right instead, so the few pixels it
+                // outgrows the block by spill left into the gap beside the
+                // speed rather than right at the touch rail.
+                ...(compact ? { right: 0 } : { left: 0 }),
+                marginBottom: t.labelLift,
                 display: "flex",
                 alignItems: "center",
-                gap: 9,
+                gap: t.labelGap,
                 whiteSpace: "nowrap",
               }}
             >
-              <HudGlyph path={STOPWATCH_ICON} size={17} strokeWidth={2.75} color={dayTimer.labelColor} />
-              <span
-                style={{
-                  font: `800 12px ${HUD_SANS}`,
-                  letterSpacing: "2.4px",
-                  color: "rgba(244,239,222,.42)",
-                }}
-              >
-                DAY {dayTimer.day}
-              </span>
-              <span style={{ width: 3, height: 3, borderRadius: "50%", background: "rgba(244,239,222,.3)" }} />
+              <HudGlyph path={STOPWATCH_ICON} size={t.icon} strokeWidth={2.75} color={dayTimer.labelColor} />
+              {/*
+                The day number is desktop-only. This label is the widest thing
+                in the block and it overhangs to the right, straight at the
+                touch rail — and on a notched handset in landscape that rail
+                comes ~35px further in than the arithmetic in
+                `DAY_TIMER_MIN_VIEWPORT_PX` assumes. Which day it is survives
+                elsewhere on a phone: the title card opens every day with it and
+                the ledger closes with it. How long is left does not.
+              */}
+              {!compact && (
+                <>
+                  <span
+                    style={{
+                      font: `800 ${t.label}px ${HUD_SANS}`,
+                      letterSpacing: t.labelTrack,
+                      color: "rgba(244,239,222,.42)",
+                    }}
+                  >
+                    DAY {dayTimer.day}
+                  </span>
+                  <span
+                    style={{ width: t.dot, height: t.dot, borderRadius: "50%", background: "rgba(244,239,222,.3)" }}
+                  />
+                </>
+              )}
               <span
                 data-testid="day-phrase"
                 style={{
-                  font: `800 12px ${HUD_SANS}`,
-                  letterSpacing: "2.4px",
+                  font: `800 ${t.label}px ${HUD_SANS}`,
+                  letterSpacing: t.labelTrack,
                   color: dayTimer.labelColor,
                   transition: "color .4s ease",
                 }}
