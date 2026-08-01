@@ -1835,6 +1835,14 @@ function pointInTriangle(
 /**
  * Ear-clips an authored Nile outline into a flat, upward-facing mesh. The
  * polygons may be concave, so a centre fan would visibly bridge the riverbank.
+ *
+ * **The triangle winding is what lights the river.** This is one flat sheet
+ * with no relief for the eye to correct against, so its vertex normals come
+ * entirely from the winding — get it backwards and `ComputeNormals` hands every
+ * vertex a downward normal, the sun and the sky half of the hemispheric light
+ * both drop out, and the Nile renders as the near-black slick that shipped for
+ * months. Nothing culls it, so there is no missing-face symptom to notice; it
+ * just goes dark.
  */
 export function buildWaterPolygonGeometry(
   source: readonly GameCanvasPoint[],
@@ -1885,9 +1893,10 @@ export function buildWaterPolygonGeometry(
           pointInTriangle(polygon[candidate], a, b, c),
       );
       if (containsVertex) continue;
-      // x/z counter-clockwise faces down in Babylon's x/y/z world, so reverse
-      // each accepted triangle to keep the visible face and normals upward.
-      indices.push(previous, next, current);
+      // Babylon's face normal is `(p1 - p2) × (p3 - p2)`, whose y term negates
+      // the x/z cross product — so an ear emitted in the order the clipper
+      // walks it (counter-clockwise in x/z) points *down*. Emit the reverse.
+      indices.push(previous, current, next);
       remaining.splice(cursor, 1);
       clipped = true;
       break;
@@ -1895,16 +1904,20 @@ export function buildWaterPolygonGeometry(
     if (!clipped) break;
   }
   if (remaining.length === 3) {
-    indices.push(remaining[0], remaining[2], remaining[1]);
+    indices.push(remaining[0], remaining[1], remaining[2]);
   }
   if (indices.length !== (polygon.length - 2) * 3) {
     indices.length = 0;
-    const clockwise =
+    const counterClockwise =
       polygonSignedArea(polygon) > 0
         ? polygon.map((_, index) => index)
         : polygon.map((_, index) => index).reverse();
-    for (let index = 1; index < clockwise.length - 1; index += 1) {
-      indices.push(clockwise[0], clockwise[index + 1], clockwise[index]);
+    for (let index = 1; index < counterClockwise.length - 1; index += 1) {
+      indices.push(
+        counterClockwise[0],
+        counterClockwise[index],
+        counterClockwise[index + 1],
+      );
     }
   }
 

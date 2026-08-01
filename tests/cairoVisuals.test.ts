@@ -75,7 +75,13 @@ describe("Cairo water scenery", () => {
       const az = geometry.positions[b + 2] - geometry.positions[a + 2];
       const bx = geometry.positions[c] - geometry.positions[a];
       const bz = geometry.positions[c + 2] - geometry.positions[a + 2];
-      expect(az * bx - ax * bz).toBeGreaterThan(0);
+      // Every triangle faces the sky. This is the sign of Babylon's own face
+      // normal `(p1 - p2) × (p3 - p2)`, whose y term is the negation of the
+      // x/z cross product below — so the assertion that reads as "clockwise in
+      // x/z" is exactly "normal points up", and it is the whole of the river's
+      // lighting: nothing culls this mesh, so a flipped winding does not drop
+      // a face, it just turns the Nile black.
+      expect(az * bx - ax * bz).toBeLessThan(0);
     }
   });
 
