@@ -119,6 +119,14 @@ lane the visible car had left. Speed is pinned to 0 through the glide — every
 collision reporter is gated on the player moving, and that is what keeps a
 scripted swerve from mowing down a crowd.
 
+**So the citation quotes a speed the car is provably no longer doing, and that is
+correct.** `monitorRoadRules` freezes `evidence.speedMps` when it clocks you; the
+glide above then parks the car, and only after it, the door and the officer's walk
+does the `cite` step render "doing 56 in a 30". A driver reads that while
+stationary, which looks like the game mismeasuring — it was reported as exactly
+that (#257). Repointing the toast at the live speed would make every ticket read
+"doing 0 in a 30". The evidence is a radar snapshot, not a readout.
+
 ### `processSimulationEvents` drops everything while any cutscene runs
 
 The choreography owns the car, so rule trips in that window are artifacts, not
