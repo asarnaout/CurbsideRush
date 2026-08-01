@@ -58,6 +58,8 @@ import {
   resolveAmbientVehicleCount,
   resolveSimulationLaneAnchor,
   resolveVenuePlacement,
+  type StaticObstacle,
+  type StaticObstacleTag,
 } from "./simulationAdapter";
 import {
   BRIDGE_PARAPET_PAVEMENT_CLEARANCE_M,
@@ -66,6 +68,7 @@ import {
 import {
   DEFAULT_SERVICE_SETBACK_M,
   FUEL_PUMP_REACH_M,
+  gasStationCanopyWorld,
   gasStationPumpPositions,
   gasStationsOf,
   distanceToRepairBay,
@@ -163,6 +166,7 @@ import {
   buildPulloverScript,
   buildRefuelScript,
   buildRepairScript,
+  chooseStagedShot,
   repairCameraPosition,
   buildRoadsideRefuelScript,
   cutsceneBodyProfile,
@@ -177,6 +181,8 @@ import {
   type CutsceneKind,
   type CutsceneStep,
   type ErrandCargo,
+  type StagedBlocker,
+  type StagedCover,
   type PulloverPlan,
   type PulloverRoad,
 } from "./cutsceneScript";
@@ -3341,6 +3347,47 @@ interface ActiveCutscene {
   elapsedSeconds: number;
 }
 
+/**
+ * The world's solids restated as things a staged camera must not look through.
+ *
+ * Two filters, both to keep the ranking honest rather than to save work. Only
+ * `building`, `venue` and `landmark` count — a shoreline, a park's kerb or the
+ * world edge stops a car and blocks nothing you can see over. And only the
+ * boxes: `circle` obstacles are a park's masonry, a monument plinth or a stone
+ * lantern, none of which is tall enough to hide a scene, and treating them as
+ * blockers would push the camera off good angles for knee-high stone.
+ *
+ * What is left is the geometry that actually ruins a shot — buildings, venue
+ * lots, and the station boxes that carry the pump islands and canopy pillars.
+ */
+const STAGED_BLOCKER_TAGS: ReadonlySet<StaticObstacleTag> = new Set([
+  "building",
+  "landmark",
+  "venue",
+]);
+
+function stagedBlockersOf(
+  obstacles: readonly StaticObstacle[],
+): readonly StagedBlocker[] {
+  const blockers: StagedBlocker[] = [];
+  for (const obstacle of obstacles) {
+    if (!STAGED_BLOCKER_TAGS.has(obstacle.tag)) continue;
+    if (obstacle.kind === "obb") {
+      blockers.push(obstacle);
+    } else if (obstacle.kind === "aabb") {
+      blockers.push({
+        x: (obstacle.minX + obstacle.maxX) / 2,
+        z: (obstacle.minZ + obstacle.maxZ) / 2,
+        ux: 1,
+        uz: 0,
+        halfU: (obstacle.maxX - obstacle.minX) / 2,
+        halfV: (obstacle.maxZ - obstacle.minZ) / 2,
+      });
+    }
+  }
+  return blockers;
+}
+
 /** The player avatar every cutscene stages: one consistent driver. Index 1 is
  * person-b — a casual short-sleeve tee, not a suit — in both the cyclist
  * roster (CYCLIST_RIDER_MODELS) and the actor roster (CHARACTER_MODELS), which
@@ -5664,6 +5711,15 @@ class BabylonGameSession {
   private readonly firstCamera: UniversalCamera;
   private readonly rearCamera: UniversalCamera;
   private readonly simulation: SimulationCore;
+  /**
+   * The same solids the simulation resolves the car against, kept so a staged
+   * cutscene can ask what is between its camera and the action.
+   *
+   * Retained here rather than read back off the core: the core takes them as
+   * config and owes nobody a view of them, and building a second set would be
+   * two answers to "what is solid" that are free to disagree.
+   */
+  private readonly stagedBlockers: readonly StagedBlocker[];
   private simulationSnapshot: SimulationSnapshot;
   private playerVehicleVisual: VehicleMeshVisual | null = null;
   /** The player-as-cyclist rig (career bicycle days); null on car days. */
@@ -6057,14 +6113,18 @@ class BabylonGameSession {
     // Per-vehicle physics land after the adapter's config so a career
     // vehicle's caps override the scenario baseline; free drive passes null
     // and keeps the adapter's numbers untouched.
+    const simulationConfig = buildSimulationCoreConfig({
+      lesson: options.lesson,
+      mapPack: options.mapPack,
+      trafficSide: this.activeTrafficSide,
+      speedUnit: options.speedUnit,
+      touchFirst: options.inputCapabilities.touchFirst,
+    });
+    this.stagedBlockers = stagedBlockersOf(
+      simulationConfig.staticObstacles ?? [],
+    );
     this.simulation = new SimulationCore({
-      ...buildSimulationCoreConfig({
-        lesson: options.lesson,
-        mapPack: options.mapPack,
-        trafficSide: this.activeTrafficSide,
-        speedUnit: options.speedUnit,
-        touchFirst: options.inputCapabilities.touchFirst,
-      }),
+      ...simulationConfig,
       ...(options.vehiclePhysics ?? {}),
     });
     if (options.paused) this.simulation.setPaused(true);
@@ -7250,6 +7310,23 @@ class BabylonGameSession {
           z: focus.z - car.z,
         })
       : null;
+    // Everything else takes the generic ring — but at the azimuth on it that
+    // can see the scene, rather than at whichever perpendicular the chase
+    // camera happened to be standing on. Both ends of the action have to stay
+    // visible: framing that clears the car and hides the pump is the wrong side
+    // to film a refuel from. See `chooseStagedShot`.
+    const shot =
+      repairShot ??
+      chooseStagedShot(
+        midX,
+        midZ,
+        radius,
+        cameraY,
+        { x: perpX, z: perpZ },
+        [{ x: stage.x, z: stage.z }, focus],
+        this.stagedBlockers,
+        this.coverOverScene(midX, midZ),
+      );
 
     const riderWasHidden = request.kind === "board" && this.riderNode !== null;
     if (riderWasHidden) this.riderNode?.setEnabled(false);
@@ -7275,9 +7352,7 @@ class BabylonGameSession {
       segmentTotal: 0,
       actorNode,
       actorVisual,
-      cameraPosition: repairShot
-        ? new Vector3(repairShot.x, repairShot.y, repairShot.z)
-        : new Vector3(midX + perpX * radius, cameraY, midZ + perpZ * radius),
+      cameraPosition: new Vector3(shot.x, shot.y, shot.z),
       // Both ends of the repair shot come off the shop: aiming at the scene's
       // own midpoint instead leaves the bay off to one side, because the
       // midpoint drifts with wherever the car stopped and whichever flank the
@@ -7638,6 +7713,36 @@ class BabylonGameSession {
         bay,
         mouth: { x: -Math.cos(pose.heading), z: Math.sin(pose.heading) },
       };
+    }
+    return null;
+  }
+
+  /**
+   * The roof over a scene playing at (x, z), if it is playing under one.
+   *
+   * Only gas station canopies exist to find today — they are the one thing the
+   * game builds that a camera has to duck and a car drives straight under, so
+   * they are the one thing the collider set deliberately does not describe. A
+   * scene anywhere else gets null and is framed exactly as it always was.
+   *
+   * Matched against the canopy's own footprint rather than the pump reach the
+   * refuel prompt uses: a traffic stop can end up on a forecourt too, and it is
+   * the roof overhead that decides the shot, not what the scene is about.
+   */
+  private coverOverScene(x: number, z: number): StagedCover | null {
+    const mapPack = this.options.mapPack;
+    if (!mapPack) return null;
+    for (const service of gasStationsOf(mapPack.geometry.servicePoints)) {
+      const canopy = gasStationCanopyWorld(mapPack.laneGraph.lanes, service);
+      if (!canopy) continue;
+      const dx = x - canopy.x;
+      const dz = z - canopy.z;
+      if (
+        Math.abs(dx * canopy.ux + dz * canopy.uz) <= canopy.halfU &&
+        Math.abs(dx * canopy.uz - dz * canopy.ux) <= canopy.halfV
+      ) {
+        return canopy;
+      }
     }
     return null;
   }

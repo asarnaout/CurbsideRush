@@ -12,7 +12,18 @@ import type {
   TrafficLightDefinition,
   TrafficLightSequence,
 } from "./simulation";
-import type { OvertakeExercise, StaticObstacle } from "./types";
+import type {
+  OvertakeExercise,
+  StaticObstacle,
+  StaticObstacleTag,
+} from "./types";
+
+// Re-exported for the same reason `servicePoints` re-exports `ServicePointKind`:
+// `GameCanvas` reads the obstacles this module builds, and otherwise keeps clear
+// of `./types` in favour of local structural types. One definition, reachable
+// from both rings — a hand copy over there would be free to drift from the
+// obstacles it is meant to describe.
+export type { StaticObstacle, StaticObstacleTag };
 import type {
   GameCanvasLane,
   GameCanvasLesson,
