@@ -1443,13 +1443,25 @@ export class SimulationCore {
       maxReverseSpeedMps: clamp(configuration.maxReverseSpeedMps ?? 7, 2, 15),
       // Defaults are the exact literals movePlayer/the collision code carried
       // before these knobs existed; the clamps bound how far a vehicle tier
-      // may push each one.
+      // may push each one. The two drag terms are the exception — see below.
       forwardAccelMps2: clamp(configuration.forwardAccelMps2 ?? 5.6, 1, 15),
       reverseAccelMps2: clamp(configuration.reverseAccelMps2 ?? 4.1, 1, 10),
       brakeBaseMps2: clamp(configuration.brakeBaseMps2 ?? 3, 1, 10),
       brakeStrengthMps2: clamp(configuration.brakeStrengthMps2 ?? 8.5, 2, 20),
-      dragBaseMps2: clamp(configuration.dragBaseMps2 ?? 0.25, 0, 2),
-      dragPerMps: clamp(configuration.dragPerMps ?? 0.035, 0, 0.2),
+      // Coasting models a car in gear, not one in neutral: rolling resistance
+      // plus engine braking, which both rise roughly with speed, hence the
+      // `base + k*v` shape. Together they give 1.8 m/s^2 at 30 mph and
+      // 2.8 at 60 — the band a real light car coasts at.
+      //
+      // These were 0.25/0.035 (0.72 m/s^2 at 30 mph, a car in neutral), which
+      // made lifting off nearly free: coasting from 50 mph took 40 s and 342 m
+      // to stop, further than a whole NYC block, and ten seconds after lifting
+      // off the speedometer still read exactly 30. That was reported as the
+      // speedometer lying (#257) when it had been telling the truth all along.
+      // Keep any retune paired with `HATCH_PHYSICS` in career.ts, which is the
+      // same handling model and must stay identical to these.
+      dragBaseMps2: clamp(configuration.dragBaseMps2 ?? 0.8, 0, 2),
+      dragPerMps: clamp(configuration.dragPerMps ?? 0.075, 0, 0.2),
       steerBaseRate: clamp(configuration.steerBaseRate ?? 0.32, 0.05, 1),
       steerAuthorityRate: clamp(configuration.steerAuthorityRate ?? 0.95, 0, 3),
       steerAuthoritySpeedMps: clamp(
