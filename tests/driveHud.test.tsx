@@ -5,7 +5,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DAY_TIMER_CRITICAL_S,
+  DAY_TIMER_HEADROOM_PX,
+  DAY_TIMER_WARN_S,
+  DAY_TIMER_WIDTH_PX,
   DriveCornerButton,
+  DriveDayEdge,
   DriveMoneyCluster,
   DriveNavCard,
   DriveOfferCard,
@@ -18,6 +23,7 @@ import {
   HUD_MIN_SCALE,
   MOBILE_OFFER_H,
   RAIL_MIN_SLOT_PX,
+  resolveDayTimer,
   resolveHudScale,
   speedOverBand,
   type HudGauge,
@@ -280,6 +286,137 @@ describe("the speed cluster", () => {
     speed({ speed: 90, speedLimit: 0 });
     expect(screen.getByTestId("speed-value").style.color).toBe("rgb(244, 239, 222)");
   });
+
+  it("shows no shift clock outside career, where no day is running out", () => {
+    speed();
+    expect(screen.queryByTestId("day-clock")).not.toBeInTheDocument();
+  });
+
+  it("puts the shift clock on the speed's own baseline", () => {
+    // The pair is why the clock lives in this cluster at all: two 76px
+    // numerals side by side must share a baseline, and the label above the
+    // clock is out of flow so it cannot push them apart.
+    speed({ dayTimer: resolveDayTimer(3, 252_000, 360_000) });
+    const clock = screen.getByTestId("day-clock");
+    expect(clock).toHaveTextContent("DAY 3");
+    expect(screen.getByTestId("day-clock-value")).toHaveTextContent("4:12");
+    expect(clock).toHaveStyle({ alignItems: "baseline" });
+    // Fixed width, or every tick of the last minute slides the speedometer:
+    // the row is centred on itself.
+    expect(clock.style.width).toBe(`${DAY_TIMER_WIDTH_PX}px`);
+  });
+
+  it("drops the row only far enough to clear the edge bar", () => {
+    // The clock's label hangs out of flow above the numerals and lands under
+    // the edge bar at the inset every other cluster uses. jsdom has no layout,
+    // so the constant is the check — see DAY_TIMER_HEADROOM_PX.
+    speed();
+    expect(screen.getByTestId("drive-speed").style.marginTop).toBe("");
+    cleanup();
+    speed({ dayTimer: resolveDayTimer(1, 60_000, 360_000) });
+    expect(screen.getByTestId("drive-speed").style.marginTop).toBe(
+      `${DAY_TIMER_HEADROOM_PX}px`,
+    );
+  });
+});
+
+describe("the career shift clock", () => {
+  const DAY_MS = 360_000;
+  const at = (secondsLeft: number) => resolveDayTimer(3, secondsLeft * 1000, DAY_MS);
+  /** The clock only ever renders inside the top-centre row. */
+  const clusterWith = (dayTimer: ReturnType<typeof at>) =>
+    render(
+      <DriveSpeedCluster
+        scale={1}
+        inset={inset}
+        speed={0}
+        speedUnit="mph"
+        speedLimit={30}
+        gear="P"
+        dayTimer={dayTimer}
+      />,
+    );
+
+  it("counts a clock down to the last minute, then bare seconds", () => {
+    // Under a minute "0:38" is still a clock face to read; "38 SEC" is a
+    // number that has nearly run out. The switch is the escalation.
+    expect(at(252).value).toBe("4:12");
+    expect(at(60).value).toBe("1:00");
+    expect(at(59).value).toBe("59");
+    expect(at(0).value).toBe("0");
+  });
+
+  it("labels the bare seconds and nothing else", () => {
+    // A `m:ss` reading needs no unit — the line above it already says what is
+    // being counted — but a lone "38" beside a speedometer does.
+    expect(at(252).unit).toBeNull();
+    expect(at(60).unit).toBeNull();
+    expect(at(59).unit).toBe("SEC");
+    expect(at(0).unit).toBe("SEC");
+
+    // And the null renders as nothing at all, not an empty span holding a gap.
+    cleanup();
+    clusterWith(at(252));
+    expect(screen.getByTestId("day-clock-value")).toHaveTextContent("4:12");
+    expect(screen.queryByTestId("day-clock-unit")).not.toBeInTheDocument();
+    cleanup();
+    clusterWith(at(38));
+    expect(screen.getByTestId("day-clock-unit")).toHaveTextContent("SEC");
+  });
+
+  it("escalates its wording and its colour together", () => {
+    expect(at(DAY_TIMER_WARN_S + 1).phrase).toBe("ON SHIFT");
+    expect(at(DAY_TIMER_WARN_S).phrase).toBe("HURRY");
+    expect(at(DAY_TIMER_CRITICAL_S).phrase).toBe("SHIFT ENDING");
+    expect(at(0).phrase).toBe("SHIFT OVER");
+    const tones = [DAY_TIMER_WARN_S + 1, DAY_TIMER_WARN_S, DAY_TIMER_CRITICAL_S].map(
+      (s) => at(s).color,
+    );
+    expect(new Set(tones).size).toBe(3);
+    expect(at(DAY_TIMER_WARN_S + 1).color).toBe(HUD_CREAM);
+  });
+
+  it("rounds the part-second up, so the readout never sits on a stale zero", () => {
+    expect(resolveDayTimer(1, 1, DAY_MS).value).toBe("1");
+    expect(resolveDayTimer(1, 0, DAY_MS).phrase).toBe("SHIFT OVER");
+    // A day that overran is still over, not negative.
+    expect(resolveDayTimer(1, -4_000, DAY_MS).value).toBe("0");
+    expect(resolveDayTimer(1, -4_000, DAY_MS).fraction).toBe(0);
+  });
+
+  it("announces whole minutes, not the ticking numerals", () => {
+    // The live region would otherwise speak eleven times a second.
+    expect(at(252).announcement).toBe("Day 3, 5 minutes left of the shift.");
+    expect(at(60).announcement).toBe("Day 3, 1 minute left of the shift.");
+    expect(at(59).announcement).toBe("Day 3, under a minute left of the shift.");
+    expect(at(0).announcement).toBe("Day 3, shift over.");
+  });
+
+  it("drains the edge bar across the whole screen, unscaled", () => {
+    render(<DriveDayEdge timer={at(90)} />);
+    const fill = screen.getByTestId("day-edge-fill");
+    // A quarter of a six-minute day left is a quarter-width bar.
+    expect(parseFloat(fill.style.width)).toBeCloseTo(25);
+    expect(fill.style.width.endsWith("%")).toBe(true);
+    // Anchored to the viewport, not laid out in the comp's 1920px frame —
+    // scaling it would leave a gap at one end.
+    const bar = screen.getByTestId("day-edge");
+    expect(bar.style.transform).toBe("");
+    expect(Number(bar.style.zIndex)).toBe(DRIVE_LAYER.hud);
+  });
+
+  it("stops pulsing at a shift that is already over", () => {
+    cleanup();
+    render(<DriveDayEdge timer={at(10)} />);
+    expect(screen.getByTestId("day-edge-fill").style.animation).toContain("hudDayEdgeFlash");
+    cleanup();
+    render(<DriveDayEdge timer={at(0)} />);
+    expect(screen.getByTestId("day-edge-fill").style.animation).toBe("");
+    // The clock beside it stops with it — a shift that is over does not beat.
+    cleanup();
+    clusterWith(at(0));
+    expect(screen.getByTestId("day-clock").style.animation).toBe("");
+  });
 });
 
 describe("the offer card", () => {
@@ -414,12 +551,14 @@ describe("the money cluster", () => {
     money();
     expect(screen.getByTestId("day-cash")).toHaveTextContent("$248.60");
     expect(screen.getByText("+$62.10")).toBeVisible();
-    expect(screen.getByTestId("day-clock")).toHaveTextContent("TODAY");
+    expect(screen.getByTestId("session-label")).toHaveTextContent("TODAY");
   });
 
-  it("carries the career day and its clock in the same line", () => {
-    money({ sessionLabel: "DAY 3 · 4:12" });
-    expect(screen.getByTestId("day-clock")).toHaveTextContent("DAY 3 · 4:12");
+  it("leaves the shift clock to the top-centre readout", () => {
+    // It used to be crammed in here at 11px and 34% opacity beside a 47px
+    // balance, which is exactly how it came to be invisible (#236).
+    money();
+    expect(screen.queryByTestId("day-clock")).not.toBeInTheDocument();
   });
 
   it("floats the gain only while there is one", () => {

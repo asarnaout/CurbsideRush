@@ -183,6 +183,7 @@ import {
 import type { DispatchState, SurgeWindow } from "./game/dispatch";
 import {
   DriveCornerButton,
+  DriveDayEdge,
   DriveMoneyCluster,
   DriveNavCard,
   DriveOfferBar,
@@ -192,6 +193,7 @@ import {
   DriveSurgeBanner,
   DriveToast,
   HUD_DESIGN_WIDTH,
+  resolveDayTimer,
   resolveHudScale,
 } from "./game/DriveHud";
 import type { HudGauge, HudJob, HudManoeuvre, HudOffer } from "./game/DriveHud";
@@ -2537,6 +2539,14 @@ export default function SideSwapApp() {
     dayIntroFromMs === null
       ? null
       : DAY_LENGTH_MS - dayRemainingMs - dayIntroFromMs;
+  // The shift clock, resolved once for the top-centre readout and the edge bar
+  // so the two can never disagree about which colour the day is. Desktop only
+  // for now: the phone still carries it inline in the job card's header, where
+  // the top band has no room for a 76px numeral.
+  const dayTimer =
+    careerRun && !touchFirst
+      ? resolveDayTimer(careerRun.city.day, dayRemainingMs, DAY_LENGTH_MS)
+      : null;
   const mapDestination: MapDestination | null = gigTargetVenue
     ? {
         x: gigTargetVenue.x,
@@ -3313,9 +3323,17 @@ export default function SideSwapApp() {
             speedUnit={hud.speedUnit}
             speedLimit={hud.speedLimit}
             gear={hud.gear}
+            dayTimer={dayTimer}
             compact={touchFirst}
           />
         )}
+        {/*
+          The same clock again as a bar across the very top of the screen. Not
+          redundancy: the numerals answer "how long", which you have to look up
+          to read, and the bar answers "how far through", which you cannot help
+          seeing. Outside the scaled frame, so it always spans the viewport.
+        */}
+        {hud && dayTimer && <DriveDayEdge timer={dayTimer} />}
         {/*
           The two buttons the app owns on a phone, holding the top-right corner
           while the session's camera/pause/fullscreen row starts clear of them
@@ -3349,11 +3367,7 @@ export default function SideSwapApp() {
           balance={formatMoney(careerRun ? dayCash : walletHere, driveCountry)}
           balanceLabel={careerRun ? "Cash today" : "Wallet"}
           session={`+${formatMoney(sessionEarnings, driveCountry)}`}
-          sessionLabel={
-            careerRun
-              ? `DAY ${careerRun.city.day} · ${formatClock(dayRemainingMs)}`
-              : "TODAY"
-          }
+          sessionLabel="TODAY"
           gain={payoutGain}
           compact={touchFirst}
           buttons={[
@@ -3387,6 +3401,18 @@ export default function SideSwapApp() {
         {hud && (
           <div className="sr-only" aria-live="polite">
             Speed {hud.speed} {hud.speedUnit}, gear {hud.gear}.
+          </div>
+        )}
+        {/*
+          The clock itself is inside the speed cluster, which is `aria-hidden`
+          — speed is announced from here too rather than read off a readout
+          that changes eleven times a second. `announcement` is deliberately
+          coarse for the same reason: it settles to whole minutes, so this
+          region speaks about once a minute instead of continuously.
+        */}
+        {dayTimer && (
+          <div className="sr-only" aria-live="polite">
+            {dayTimer.announcement}
           </div>
         )}
         {/*

@@ -60,6 +60,18 @@ The balance sits in the job card on touch, not the corner: that corner carries
 camera/pause/fullscreen, and fullscreen is the only way to reclaim Safari's chrome
 mid-drive.
 
+**The career shift clock has two homes, and only one may be on screen at a time.**
+`resolveDayTimer` feeds the desktop pair — the 76px readout inside
+`DriveSpeedCluster` and the `DriveDayEdge` bar — and `SideSwapApp` builds it only
+when `careerRun && !touchFirst`; on a phone the clock is still the `money.label`
+string inside `DriveStatusCard`, because the top band has no room for a 76px
+numeral (#236, desktop half). Anyone doing the phone half has to retire that
+string in the same change, or the day is counted down twice.
+
+`DriveDayEdge` is the one HUD element `resolveHudScale` does not touch. It is
+anchored to the viewport's edges rather than laid out in the comp's 1920px frame,
+so scaling it would leave a gap at one end.
+
 ## The touch layout is one budget split across two files
 
 `TouchDriveControls.tsx` has **no Babylon import**, so

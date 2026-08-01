@@ -3366,11 +3366,25 @@ canvas:focus-visible {
   0%, 100% { opacity: .28; }
   50% { opacity: .72; }
 }
+/* The last thirty seconds of a career day: the top-centre clock beats and the
+   edge bar flashes with it. Both are gated on DAY_TIMER_CRITICAL_S in
+   `resolveDayTimer`, and both stop dead at zero rather than pulsing at a shift
+   that is already over. */
+@keyframes hudTimerBeat {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.055); }
+}
+@keyframes hudDayEdgeFlash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .32; }
+}
 @media (prefers-reduced-motion: reduce) {
   /* A pulsing sign and a breathing screen edge are exactly what this setting
      is for. The colour change still carries the warning. */
   @keyframes hudLimitAlarm { 0%, 100% { transform: none; } }
   @keyframes hudEdgeGlow { 0%, 100% { opacity: .4; } }
+  @keyframes hudTimerBeat { 0%, 100% { transform: none; } }
+  @keyframes hudDayEdgeFlash { 0%, 100% { opacity: 1; } }
 }
 /* The offer card's detour rail: the dashed leg between you and the pickup. */
 @keyframes hudDetourRail {

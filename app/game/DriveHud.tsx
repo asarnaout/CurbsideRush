@@ -31,6 +31,7 @@ import {
   PARCEL_ICON,
   PAUSE_ICON,
   RIDER_ICON,
+  STOPWATCH_ICON,
   WALLET_ICON,
 } from "./hudIcons";
 
@@ -786,8 +787,186 @@ function manoeuvreKicker(manoeuvre: HudManoeuvre): string {
 }
 
 // ---------------------------------------------------------------------------
-// Top-centre: how fast you are going, against how fast you may
+// Top-centre: how fast you are going, against how fast you may — and, in
+// career, how long you have left to do it in
 // ---------------------------------------------------------------------------
+
+/**
+ * The shift clock lives in this row rather than in a cluster of its own for one
+ * reason: it and the speed are both 76px numerals, and two numbers that size
+ * side by side must share a baseline or the pair reads as broken. Being in one
+ * flex row is what gives them that, and it is also why the row is centred as a
+ * whole — the divider between them belongs to neither.
+ *
+ * It used to be an 11px caption at 34% opacity tucked beside the session
+ * earnings, where it read as a label for the money rather than as the hard
+ * limit the whole career day runs against (#236).
+ */
+
+/** Under this many seconds the day turns amber, and under the next, red. */
+export const DAY_TIMER_WARN_S = 120;
+export const DAY_TIMER_CRITICAL_S = 30;
+
+/** Height of the edge bar, in the comp's pixels — it is not scaled. */
+export const DAY_EDGE_HEIGHT_PX = 5;
+
+/**
+ * What the top-centre row drops by once it is carrying a shift clock.
+ *
+ * The clock's `DAY n · ON SHIFT` line hangs out of flow above 76px numerals,
+ * so it reaches ~11px higher than anything else in the row and lands at y=4.5
+ * against `hudInset.top` — flush under the edge bar, which draws the day in
+ * the same colour and so reads as one smeared object rather than two readouts.
+ * The comp anchors this row at 28px rather than the 1rem the app gives every
+ * other cluster; this is that difference, applied only when there is a label
+ * needing the room.
+ */
+export const DAY_TIMER_HEADROOM_PX = 12;
+
+/**
+ * The clock block's fixed width, and it is fixed for a reason: the top-centre
+ * row is centred on itself, so anything that changes its width slides the
+ * speedometer with it — and "4:12" → "59" → "9" changes it every second for
+ * the last minute of every day.
+ *
+ * Sized to the widest the numerals get, which is a four-character `m:ss` at
+ * 163px (they are tabular, so every `m:ss` is that same width) and `59 SEC` at
+ * 159px, plus slack. **A career day longer than 9:59 would need five characters
+ * and this number re-measured** — see `DAY_LENGTH_MS`.
+ *
+ * The label above it is wider still at its longest ("DAY 3 · SHIFT ENDING",
+ * 216px). That one is deliberately allowed to overhang: it is out of flow and
+ * `nowrap`, so it costs no layout, and sizing the block to the label instead
+ * would push a third of the box empty and visibly throw the row off centre.
+ */
+export const DAY_TIMER_WIDTH_PX = 176;
+
+export type DayTimerTone = "calm" | "warn" | "critical";
+
+/** Everything the two day-timer readouts draw, resolved once. */
+export interface HudDayTimer {
+  readonly day: number;
+  /** "4:12" while a minute or more is left, then a bare "38". */
+  readonly value: string;
+  /**
+   * "SEC" once the number has stopped being a clock, and null before that: a
+   * `m:ss` reading needs no unit, and the label above it already says what the
+   * figure is counting.
+   */
+  readonly unit: string | null;
+  /** ON SHIFT / HURRY / SHIFT ENDING / SHIFT OVER. */
+  readonly phrase: string;
+  readonly tone: DayTimerTone;
+  readonly color: string;
+  readonly labelColor: string;
+  readonly unitColor: string;
+  /** How much of the day is still to run, 0→1: the edge bar's fill. */
+  readonly fraction: number;
+  /** Read out in place of the numerals, which tick far too fast to announce. */
+  readonly announcement: string;
+}
+
+const DAY_TIMER_TONES: Readonly<
+  Record<DayTimerTone, Pick<HudDayTimer, "color" | "labelColor" | "unitColor">>
+> = {
+  calm: {
+    color: HUD_CREAM,
+    labelColor: "rgba(244,239,222,.42)",
+    unitColor: "rgba(244,239,222,.6)",
+  },
+  warn: { color: HUD_GOLD, labelColor: HUD_GOLD, unitColor: "rgba(244,200,72,.72)" },
+  critical: { color: HUD_CORAL, labelColor: HUD_CORAL, unitColor: "rgba(232,112,90,.72)" },
+};
+
+/**
+ * The whole of the timer's behaviour, kept out of the components because it is
+ * the part worth asserting: jsdom has no layout and cannot see a colour that
+ * was computed inline, but it can read this.
+ *
+ * Under a minute the readout drops the `m:ss` and counts bare seconds. That is
+ * deliberate escalation, not economy — "0:38" is still a clock face to be
+ * glanced at, where "38 SEC" is a number that is nearly up.
+ */
+export function resolveDayTimer(
+  day: number,
+  remainingMs: number,
+  totalMs: number,
+): HudDayTimer {
+  const left = Math.max(0, Math.ceil(remainingMs / 1000));
+  const tone: DayTimerTone =
+    left <= DAY_TIMER_CRITICAL_S ? "critical" : left <= DAY_TIMER_WARN_S ? "warn" : "calm";
+  const minutes = Math.ceil(left / 60);
+  return {
+    day,
+    value: left >= 60 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : String(left),
+    unit: left >= 60 ? null : "SEC",
+    phrase:
+      left === 0
+        ? "SHIFT OVER"
+        : tone === "critical"
+          ? "SHIFT ENDING"
+          : tone === "warn"
+            ? "HURRY"
+            : "ON SHIFT",
+    tone,
+    ...DAY_TIMER_TONES[tone],
+    fraction: totalMs > 0 ? Math.min(1, Math.max(0, remainingMs / totalMs)) : 0,
+    announcement:
+      left === 0
+        ? `Day ${day}, shift over.`
+        : left < 60
+          ? `Day ${day}, under a minute left of the shift.`
+          : `Day ${day}, ${minutes} minute${minutes === 1 ? "" : "s"} left of the shift.`,
+  };
+}
+
+/**
+ * The day draining across the top edge of the screen.
+ *
+ * Full-bleed and therefore the one HUD element `resolveHudScale` does not
+ * touch: it is anchored to the viewport's edges, not laid out in the comp's
+ * 1920px frame, so scaling it would leave a gap at one end.
+ *
+ * The comp eases the width over .95s, which assumes a clock that ticks once a
+ * second. `publishHud` runs at ~11Hz, so an easing that long would trail the
+ * real figure by about a second and never once arrive at it — the bar is set
+ * straight to its width instead and is smooth from the update rate alone. The
+ * colour keeps its transition: that changes twice a day, not eleven times a
+ * second.
+ */
+export function DriveDayEdge({ timer }: { timer: HudDayTimer }) {
+  return (
+    <div
+      data-testid="day-edge"
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: DAY_EDGE_HEIGHT_PX,
+        background: "rgba(244,239,222,.08)",
+        pointerEvents: "none",
+        zIndex: DRIVE_LAYER.hud,
+      }}
+    >
+      <div
+        data-testid="day-edge-fill"
+        style={{
+          height: "100%",
+          width: `${(timer.fraction * 100).toFixed(2)}%`,
+          background: timer.color,
+          boxShadow: `0 0 16px ${timer.color}`,
+          animation:
+            timer.tone === "critical" && timer.fraction > 0
+              ? "hudDayEdgeFlash 1s ease-in-out infinite"
+              : undefined,
+          transition: "background .4s ease",
+        }}
+      />
+    </div>
+  );
+}
 
 /**
  * Over the limit by this much reads as amber, and by the second as red —
@@ -823,6 +1002,7 @@ export function DriveSpeedCluster({
   speedUnit,
   speedLimit,
   gear,
+  dayTimer = null,
   compact = false,
 }: {
   scale: number;
@@ -833,6 +1013,11 @@ export function DriveSpeedCluster({
   /** Zero until the first lane projection lands, which hides the plate. */
   speedLimit: number;
   gear: string;
+  /**
+   * The career shift clock, sharing this row so the two 76px numerals sit on
+   * one baseline. Null in free drive, where there is no day to run out.
+   */
+  dayTimer?: HudDayTimer | null;
 }) {
   // Mobile halves the comp's 84x106 plate and 92px numeral.
   const m = compact
@@ -850,11 +1035,13 @@ export function DriveSpeedCluster({
   return (
     <div
       className="drive-speed"
+      data-testid="drive-speed"
       aria-hidden="true"
       style={cluster(scale, "top center", {
         top: inset.top,
         left: "50%",
         marginLeft: -0.5,
+        marginTop: dayTimer ? DAY_TIMER_HEADROOM_PX : undefined,
         display: "flex",
         alignItems: "center",
         gap: m.gap,
@@ -959,6 +1146,108 @@ export function DriveSpeedCluster({
           {gear}
         </em>
       </div>
+      {dayTimer && (
+        <>
+          <span
+            style={{
+              width: 1,
+              height: 70,
+              flex: "none",
+              background: "rgba(244,239,222,.17)",
+              margin: "0 10px 0 18px",
+            }}
+          />
+          {/*
+            Fixed width — see `DAY_TIMER_WIDTH_PX` for why that is load-bearing
+            rather than cosmetic. `transformOrigin` is the same kind of thing:
+            the beat has to grow away from the divider, not from the block's own
+            centre, or the pulse reads as the whole top of the screen breathing.
+          */}
+          <div
+            data-testid="day-clock"
+            style={{
+              position: "relative",
+              width: DAY_TIMER_WIDTH_PX,
+              flex: "none",
+              transformOrigin: "left center",
+              display: "flex",
+              alignItems: "baseline",
+              gap: 10,
+              textShadow: "0 3px 14px rgba(0,0,0,.85)",
+              animation:
+                dayTimer.tone === "critical" && dayTimer.fraction > 0
+                  ? "hudTimerBeat 1s ease-in-out infinite"
+                  : undefined,
+            }}
+          >
+            {/*
+              Out of flow, so the numerals keep the speed's baseline; the row's
+              `align-items: center` would otherwise push them down by the
+              label's height.
+            */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: "100%",
+                left: 0,
+                marginBottom: 7,
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <HudGlyph path={STOPWATCH_ICON} size={17} strokeWidth={2.75} color={dayTimer.labelColor} />
+              <span
+                style={{
+                  font: `800 12px ${HUD_SANS}`,
+                  letterSpacing: "2.4px",
+                  color: "rgba(244,239,222,.42)",
+                }}
+              >
+                DAY {dayTimer.day}
+              </span>
+              <span style={{ width: 3, height: 3, borderRadius: "50%", background: "rgba(244,239,222,.3)" }} />
+              <span
+                data-testid="day-phrase"
+                style={{
+                  font: `800 12px ${HUD_SANS}`,
+                  letterSpacing: "2.4px",
+                  color: dayTimer.labelColor,
+                  transition: "color .4s ease",
+                }}
+              >
+                {dayTimer.phrase}
+              </span>
+            </div>
+            <strong
+              data-testid="day-clock-value"
+              style={{
+                font: `900 ${m.speed}px/.82 ${HUD_SANS}`,
+                color: dayTimer.color,
+                fontVariantNumeric: "tabular-nums",
+                letterSpacing: "-2.4px",
+                transition: "color .4s ease",
+              }}
+            >
+              {dayTimer.value}
+            </strong>
+            {dayTimer.unit && (
+              <span
+                data-testid="day-clock-unit"
+                style={{
+                  font: `800 ${m.unit}px ${HUD_SANS}`,
+                  letterSpacing: "2px",
+                  color: dayTimer.unitColor,
+                  transition: "color .4s ease",
+                }}
+              >
+                {dayTimer.unit}
+              </span>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1072,8 +1361,14 @@ export function DriveMoneyCluster({
         >
           {session}
         </span>
+        {/*
+          Just what the figure beside it means. The shift clock used to be
+          crammed in here too, at 11px and 34% opacity beside a 47px balance,
+          which is how it came to be invisible (#236); it is a top-centre
+          readout now — see `resolveDayTimer`.
+        */}
         <span
-          data-testid="day-clock"
+          data-testid="session-label"
           style={{
             font: `800 ${m.label}px ${HUD_SANS}`,
             letterSpacing: "2px",
