@@ -27,6 +27,16 @@ export const CAR_ICON = [
   "M16.4 16.6a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 0 0 0-2.8",
 ];
 export const CLOCK_ICON = ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18", "M12 7v5l3.5 2"];
+/**
+ * A stopwatch, not the wall clock above — the crown bar is the whole point.
+ * It marks the one clock in the game that is counting *down* at you (the career
+ * shift), and at 17px the crown is the only thing telling the two apart.
+ */
+export const STOPWATCH_ICON = [
+  "M20 13a8 8 0 1 1-16 0 8 8 0 1 1 16 0",
+  "M12 9v4l2.5 2",
+  "M9 2h6",
+];
 export const PARCEL_ICON = [
   "m7.5 4.27 9 5.15",
   "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z",

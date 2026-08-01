@@ -5,7 +5,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DAY_TIMER_CRITICAL_S,
+  DAY_TIMER_METRICS,
+  DAY_TIMER_MIN_VIEWPORT_PX,
+  DAY_TIMER_WARN_S,
   DriveCornerButton,
+  DriveDayEdge,
   DriveMoneyCluster,
   DriveNavCard,
   DriveOfferCard,
@@ -18,6 +23,7 @@ import {
   HUD_MIN_SCALE,
   MOBILE_OFFER_H,
   RAIL_MIN_SLOT_PX,
+  resolveDayTimer,
   resolveHudScale,
   speedOverBand,
   type HudGauge,
@@ -26,7 +32,7 @@ import {
   type HudOffer,
 } from "../app/game/DriveHud";
 import { MAP_ICON, MUSIC_ICON, MUSIC_MUTED_ICON } from "../app/game/hudIcons";
-import { TOUCH_CORNER_SLOT_PX } from "../app/game/TouchDriveControls";
+import { TOUCH_CORNER_RAIL_PX, TOUCH_CORNER_SLOT_PX } from "../app/game/TouchDriveControls";
 import { DRIVE_LAYER } from "../app/game/driveLayers";
 
 afterEach(cleanup);
@@ -280,6 +286,217 @@ describe("the speed cluster", () => {
     speed({ speed: 90, speedLimit: 0 });
     expect(screen.getByTestId("speed-value").style.color).toBe("rgb(244, 239, 222)");
   });
+
+  it("reserves the speed's widest reading, so digits never move the row", () => {
+    // 0 → 37 used to widen the centred row and walk the limit plate left and
+    // the shift clock right: the whole top of the screen moving because the
+    // driver touched the throttle. jsdom has no layout, so what is checkable
+    // is the mechanism — a hidden widest-case sizer holding the box open.
+    for (const value of [0, 8, 37, 105]) {
+      cleanup();
+      speed({ speed: value, speedLimit: 30 });
+      const figure = screen.getByTestId("speed-value");
+      expect(figure).toHaveTextContent(String(value));
+      // The figure is laid over the sizer rather than laying out beside it.
+      expect(figure.style.position).toBe("absolute");
+      const slot = figure.parentElement!;
+      expect(slot).toHaveStyle({ textAlign: "right" });
+      const sizer = slot.firstElementChild!;
+      expect(sizer).toHaveTextContent("000");
+      expect(sizer).toHaveStyle({ visibility: "hidden" });
+      // Same box, same font, whatever the reading — that is the whole fix.
+      expect(slot.style.font).toContain("900 76px");
+      expect(slot.style.fontVariantNumeric).toBe("tabular-nums");
+    }
+  });
+
+  it("shows no shift clock outside career, where no day is running out", () => {
+    speed();
+    expect(screen.queryByTestId("day-clock")).not.toBeInTheDocument();
+  });
+
+  it("puts the shift clock on the speed's own baseline", () => {
+    // The pair is why the clock lives in this cluster at all: two 76px
+    // numerals side by side must share a baseline, and the label above the
+    // clock is out of flow so it cannot push them apart.
+    speed({ dayTimer: resolveDayTimer(3, 252_000, 360_000) });
+    const clock = screen.getByTestId("day-clock");
+    expect(clock).toHaveTextContent("DAY 3");
+    expect(screen.getByTestId("day-clock-value")).toHaveTextContent("4:12");
+    expect(clock).toHaveStyle({ alignItems: "baseline" });
+    // Fixed width, or every tick of the last minute slides the speedometer:
+    // the row is centred on itself.
+    expect(clock.style.width).toBe(`${DAY_TIMER_METRICS.desktop.width}px`);
+  });
+
+  it("drops the row only far enough to clear the edge bar", () => {
+    // The clock's label hangs out of flow above the numerals and lands under
+    // the edge bar at the inset every other cluster uses. jsdom has no layout,
+    // so the constant is the check — see DAY_TIMER_METRICS.
+    speed();
+    expect(screen.getByTestId("drive-speed").style.marginTop).toBe("");
+    for (const compact of [false, true]) {
+      cleanup();
+      speed({ compact, dayTimer: resolveDayTimer(1, 60_000, 360_000) });
+      const t = compact ? DAY_TIMER_METRICS.compact : DAY_TIMER_METRICS.desktop;
+      expect(screen.getByTestId("drive-speed").style.marginTop).toBe(`${t.headroom}px`);
+    }
+  });
+
+  it("draws the same clock smaller on a phone, not a different one", () => {
+    // Same testids either way, so nothing downstream has to know which comp is
+    // on screen — the rule the rest of this HUD already follows.
+    for (const compact of [false, true]) {
+      cleanup();
+      speed({ compact, dayTimer: resolveDayTimer(3, 252_000, 360_000) });
+      const t = compact ? DAY_TIMER_METRICS.compact : DAY_TIMER_METRICS.desktop;
+      expect(screen.getByTestId("day-clock").style.width).toBe(`${t.width}px`);
+      expect(screen.getByTestId("day-clock-value")).toHaveTextContent("4:12");
+      expect(screen.getByTestId("day-phrase")).toHaveTextContent("ON SHIFT");
+    }
+    // The phone's column is the desktop comp halved, like the plate and the
+    // numeral beside it. Anything wider would reach the corner button rail.
+    expect(DAY_TIMER_METRICS.compact.width).toBeLessThan(
+      DAY_TIMER_METRICS.desktop.width,
+    );
+  });
+
+  it("drops the day number on a phone but never the phrase", () => {
+    // The label overhangs toward the touch rail and is the widest thing in the
+    // block. Which day it is survives in the title card and the ledger; how
+    // long is left does not, so the phrase stays.
+    speed({ dayTimer: resolveDayTimer(3, 252_000, 360_000) });
+    expect(screen.getByTestId("day-clock")).toHaveTextContent("DAY 3");
+    cleanup();
+    speed({ compact: true, dayTimer: resolveDayTimer(3, 252_000, 360_000) });
+    const clock = screen.getByTestId("day-clock");
+    expect(clock).not.toHaveTextContent("DAY 3");
+    expect(screen.getByTestId("day-phrase")).toHaveTextContent("ON SHIFT");
+    // And it hangs off the right, so what it outgrows the block by spills into
+    // the gap beside the speed rather than at the rail.
+    expect((clock.firstElementChild as HTMLElement).style.right).toBe("0px");
+  });
+
+  it("keeps the phone's cut above the handsets the row cannot fit on", () => {
+    // The rail is `SAFE_RIGHT + TOUCH_CORNER_RAIL_PX + 3 utility buttons`, and
+    // SAFE_RIGHT is ~47px on whichever side a notch lands in landscape — a coin
+    // toss on rotation. That worst case is what governs: measured in WebKit,
+    // the row clears from about 836px up. 812 (iPhone X/XS/11 Pro, 12/13 mini)
+    // is below it; 844 (iPhone 12/13/14) is the first that fits.
+    expect(DAY_TIMER_MIN_VIEWPORT_PX).toBeGreaterThan(812);
+    expect(DAY_TIMER_MIN_VIEWPORT_PX).toBeLessThanOrEqual(844);
+    // The rail's own budget, so a change to either constant lands here.
+    expect(TOUCH_CORNER_RAIL_PX).toBe(104);
+  });
+});
+
+describe("the career shift clock", () => {
+  const DAY_MS = 360_000;
+  const at = (secondsLeft: number) => resolveDayTimer(3, secondsLeft * 1000, DAY_MS);
+  /** The clock only ever renders inside the top-centre row. */
+  const clusterWith = (dayTimer: ReturnType<typeof at>) =>
+    render(
+      <DriveSpeedCluster
+        scale={1}
+        inset={inset}
+        speed={0}
+        speedUnit="mph"
+        speedLimit={30}
+        gear="P"
+        dayTimer={dayTimer}
+      />,
+    );
+
+  it("counts a clock down to the last minute, then bare seconds", () => {
+    // Under a minute "0:38" is still a clock face to read; "38 SEC" is a
+    // number that has nearly run out. The switch is the escalation.
+    expect(at(252).value).toBe("4:12");
+    expect(at(60).value).toBe("1:00");
+    expect(at(59).value).toBe("59");
+    expect(at(0).value).toBe("0");
+  });
+
+  it("labels the bare seconds and nothing else", () => {
+    // A `m:ss` reading needs no unit — the line above it already says what is
+    // being counted — but a lone "38" beside a speedometer does.
+    expect(at(252).unit).toBeNull();
+    expect(at(60).unit).toBeNull();
+    expect(at(59).unit).toBe("SEC");
+    expect(at(0).unit).toBe("SEC");
+
+    // And the null renders as nothing at all, not an empty span holding a gap.
+    cleanup();
+    clusterWith(at(252));
+    expect(screen.getByTestId("day-clock-value")).toHaveTextContent("4:12");
+    expect(screen.queryByTestId("day-clock-unit")).not.toBeInTheDocument();
+    cleanup();
+    clusterWith(at(38));
+    expect(screen.getByTestId("day-clock-unit")).toHaveTextContent("SEC");
+  });
+
+  it("escalates its wording and its colour together", () => {
+    expect(at(DAY_TIMER_WARN_S + 1).phrase).toBe("ON SHIFT");
+    expect(at(DAY_TIMER_WARN_S).phrase).toBe("HURRY");
+    expect(at(DAY_TIMER_CRITICAL_S).phrase).toBe("SHIFT ENDING");
+    expect(at(0).phrase).toBe("SHIFT OVER");
+    const tones = [DAY_TIMER_WARN_S + 1, DAY_TIMER_WARN_S, DAY_TIMER_CRITICAL_S].map(
+      (s) => at(s).color,
+    );
+    expect(new Set(tones).size).toBe(3);
+    expect(at(DAY_TIMER_WARN_S + 1).color).toBe(HUD_CREAM);
+  });
+
+  it("rounds the part-second up, so the readout never sits on a stale zero", () => {
+    expect(resolveDayTimer(1, 1, DAY_MS).value).toBe("1");
+    expect(resolveDayTimer(1, 0, DAY_MS).phrase).toBe("SHIFT OVER");
+    // A day that overran is still over, not negative.
+    expect(resolveDayTimer(1, -4_000, DAY_MS).value).toBe("0");
+    expect(resolveDayTimer(1, -4_000, DAY_MS).fraction).toBe(0);
+  });
+
+  it("announces whole minutes, not the ticking numerals", () => {
+    // The live region would otherwise speak eleven times a second.
+    expect(at(252).announcement).toBe("Day 3, 5 minutes left of the shift.");
+    expect(at(60).announcement).toBe("Day 3, 1 minute left of the shift.");
+    expect(at(59).announcement).toBe("Day 3, under a minute left of the shift.");
+    expect(at(0).announcement).toBe("Day 3, shift over.");
+  });
+
+  it("drains the edge bar across the whole screen, unscaled", () => {
+    render(<DriveDayEdge timer={at(90)} />);
+    const fill = screen.getByTestId("day-edge-fill");
+    // A quarter of a six-minute day left is a quarter-width bar.
+    expect(parseFloat(fill.style.width)).toBeCloseTo(25);
+    expect(fill.style.width.endsWith("%")).toBe(true);
+    // Anchored to the viewport, not laid out in the comp's 1920px frame —
+    // scaling it would leave a gap at one end.
+    const bar = screen.getByTestId("day-edge");
+    expect(bar.style.transform).toBe("");
+    expect(Number(bar.style.zIndex)).toBe(DRIVE_LAYER.hud);
+  });
+
+  it("stops pulsing at a shift that is already over", () => {
+    cleanup();
+    render(<DriveDayEdge timer={at(10)} />);
+    expect(screen.getByTestId("day-edge-fill").style.animation).toContain("hudDayEdgeFlash");
+    cleanup();
+    render(<DriveDayEdge timer={at(0)} />);
+    expect(screen.getByTestId("day-edge-fill").style.animation).toBe("");
+    // The clock beside it stops with it — a shift that is over does not beat.
+    cleanup();
+    clusterWith(at(0));
+    expect(screen.getByTestId("day-clock").style.animation).toBe("");
+  });
+
+  it("thins the bar on a phone, where 5px of a small screen is a band", () => {
+    render(<DriveDayEdge timer={at(90)} compact />);
+    expect(screen.getByTestId("day-edge").style.height).toBe(
+      `${DAY_TIMER_METRICS.compact.edge}px`,
+    );
+    // Real screen pixels either way: the bar spans the viewport rather than
+    // the comp's frame, so `resolveHudScale` never touches it.
+    expect(DAY_TIMER_METRICS.compact.edge).toBeLessThan(DAY_TIMER_METRICS.desktop.edge);
+  });
 });
 
 describe("the offer card", () => {
@@ -414,12 +631,14 @@ describe("the money cluster", () => {
     money();
     expect(screen.getByTestId("day-cash")).toHaveTextContent("$248.60");
     expect(screen.getByText("+$62.10")).toBeVisible();
-    expect(screen.getByTestId("day-clock")).toHaveTextContent("TODAY");
+    expect(screen.getByTestId("session-label")).toHaveTextContent("TODAY");
   });
 
-  it("carries the career day and its clock in the same line", () => {
-    money({ sessionLabel: "DAY 3 · 4:12" });
-    expect(screen.getByTestId("day-clock")).toHaveTextContent("DAY 3 · 4:12");
+  it("leaves the shift clock to the top-centre readout", () => {
+    // It used to be crammed in here at 11px and 34% opacity beside a 47px
+    // balance, which is exactly how it came to be invisible (#236).
+    money();
+    expect(screen.queryByTestId("day-clock")).not.toBeInTheDocument();
   });
 
   it("floats the gain only while there is one", () => {
@@ -581,10 +800,20 @@ describe("the phone HUD", () => {
     // reclaim Safari's chrome once a drive has started.
     navCard({
       compact: true,
-      money: { balance: "$248.60", session: "+$62.10", label: "DAY 3 · 4:12" },
+      money: { balance: "$248.60", session: "+$62.10", label: "TODAY" },
     });
     expect(screen.getByTestId("day-cash")).toHaveTextContent("$248.60");
-    expect(screen.getByTestId("day-clock")).toHaveTextContent("DAY 3 · 4:12");
+    expect(screen.getByTestId("session-label")).toHaveTextContent("TODAY");
+  });
+
+  it("leaves the shift clock to the top-centre readout here too", () => {
+    // It rode in this header at 7px and 34% opacity while the desktop half of
+    // #236 was landing. The phone reads it top-centre now, same as the desktop.
+    navCard({
+      compact: true,
+      money: { balance: "$248.60", session: "+$62.10", label: "TODAY" },
+    });
+    expect(screen.queryByTestId("day-clock")).not.toBeInTheDocument();
   });
 
   it("leaves the money out on desktop, where it has its own cluster", () => {

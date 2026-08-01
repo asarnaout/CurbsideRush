@@ -670,6 +670,30 @@ describe("career mode flow", () => {
     expect(screen.queryByTestId("day-title")).not.toBeInTheDocument();
   });
 
+  it("runs the shift clock at the top centre, not as a caption on the money", async () => {
+    // #236: it used to be an 11px line at 34% opacity beside a 47px balance,
+    // which is not where a player looks for the limit the day runs against.
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+    fireEvent.click(screen.getByTestId("mock-hud-mid"));
+
+    // A second into a six-minute day.
+    const clock = screen.getByTestId("day-clock");
+    expect(clock).toHaveTextContent("DAY 1");
+    expect(screen.getByTestId("day-clock-value")).toHaveTextContent("5:59");
+    expect(screen.getByTestId("day-phrase")).toHaveTextContent("ON SHIFT");
+    // The corner keeps the money and gives up the clock.
+    expect(screen.getByTestId("session-label")).toHaveTextContent("TODAY");
+    expect(screen.getByTestId("session-label")).not.toHaveTextContent("5:59");
+    // And the same day drains across the top edge, all but full at one second.
+    expect(
+      parseFloat(screen.getByTestId("day-edge-fill").style.width),
+    ).toBeCloseTo((1 - 1_000 / DAY_LENGTH_MS) * 100, 1);
+  });
+
   it("charges the hatch rent up front when it is taken out instead", async () => {
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-start"));
