@@ -7,6 +7,7 @@
  */
 import {
   type AbstractMesh,
+  Animation,
   AnimationGroup,
   Color3,
   type Material,
@@ -354,6 +355,93 @@ export const ACTOR_CLIP_PATTERNS: readonly (readonly [ActorClip, RegExp])[] = [
   ["walk", /_Walk$/i],
   ["run", /_Run$/i],
 ];
+
+/** A bone channel's value: the only two property types these clips animate. */
+type RestValue = Vector3 | Quaternion;
+
+/** Which properties of which nodes a clip actually keys. */
+function keyedProperties(group: AnimationGroup): Map<object, Set<string>> {
+  const keyed = new Map<object, Set<string>>();
+  for (const { animation, target } of group.targetedAnimations) {
+    if (typeof target !== "object" || target === null) continue;
+    let properties = keyed.get(target);
+    if (!properties) keyed.set(target, (properties = new Set()));
+    properties.add(animation.targetProperty);
+  }
+  return keyed;
+}
+
+/**
+ * Pads a set of clips so each one holds every bone the *others* move, at rest.
+ *
+ * A clip only writes the channels it keys. Whatever it leaves alone keeps the
+ * value the previous clip stopped on — so a pose is silently a function of what
+ * played before it, which is a bug in every case and a glaring one here: these
+ * rigs key `Foot.L`/`Foot.R` in all eleven clips **except Idle**, and those two
+ * bones are IK targets hung off the armature root rather than off the leg
+ * chain. Walking then idling therefore left both feet stranded wherever the
+ * stride stopped — measured at up to 0.46 m from where idling alone puts them,
+ * and 0.83 m after a run — while the legs snapped to the idle pose, and the
+ * shoes, skinned across the gap, drew as long black spikes along the ground
+ * (issue #254: the driver refuelling with a stretched foot).
+ *
+ * The rest value is the right one to restore, not merely a safe one: a channel
+ * missing from a clip means the animator never keyed that bone, so the pose the
+ * clip was authored against is the one the rig rests in.
+ *
+ * Done by handing each clip a constant animation for the channels it lacks, so
+ * the engine's own blending carries the correction: the stranded foot eases
+ * home on exactly the cross-fade the legs use, where snapping it back on the
+ * switch would trade a permanent spike for a brief one. Costs a couple of dozen
+ * one-value animations per actor, and nothing per frame.
+ *
+ * Call once, before any of the clips has played — the snapshot it takes of the
+ * rest pose is only the rest pose until then.
+ */
+export function holdUnkeyedBonesAtRest(clips: Iterable<AnimationGroup>): void {
+  const groups = [...clips];
+  const keyedByGroup = new Map(groups.map((group) => [group, keyedProperties(group)]));
+
+  // Every channel any of these clips touches, with the value it rests at.
+  const rest = new Map<object, Map<string, RestValue>>();
+  for (const keyed of keyedByGroup.values()) {
+    for (const [target, properties] of keyed) {
+      for (const property of properties) {
+        const value = (target as Record<string, unknown>)[property];
+        if (!(value instanceof Vector3) && !(value instanceof Quaternion)) continue;
+        let byProperty = rest.get(target);
+        if (!byProperty) rest.set(target, (byProperty = new Map()));
+        if (!byProperty.has(property)) byProperty.set(property, value.clone());
+      }
+    }
+  }
+
+  for (const group of groups) {
+    const keyed = keyedByGroup.get(group)!;
+    // Read the range before adding anything: keys at the clip's own bounds
+    // leave `from`/`to` — and so every speedRatio and goToFrame — untouched.
+    const { from, to } = group;
+    const fps = group.targetedAnimations[0]?.animation.framePerSecond ?? CLIP_TIMELINE_FPS;
+    for (const [target, byProperty] of rest) {
+      for (const [property, value] of byProperty) {
+        if (keyed.get(target)?.has(property)) continue;
+        const animation = new Animation(
+          `${group.name}-rest-${property}`,
+          property,
+          fps,
+          value instanceof Quaternion
+            ? Animation.ANIMATIONTYPE_QUATERNION
+            : Animation.ANIMATIONTYPE_VECTOR3,
+        );
+        animation.setKeys([
+          { frame: from, value: value.clone() },
+          { frame: to, value: value.clone() },
+        ]);
+        group.addTargetedAnimation(animation, target);
+      }
+    }
+  }
+}
 
 /**
  * A character that idles, walks and runs under script control. Same clone
@@ -736,6 +824,7 @@ function buildActorFromConfig(
     if (match) clips.set(match[0], group);
     else group.dispose();
   }
+  holdUnkeyedBonesAtRest(clips.values());
 
   let disposed = false;
   let active: AnimationGroup | undefined;
