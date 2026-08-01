@@ -1330,7 +1330,12 @@ const cairoLandmarks: readonly ProceduralLandmark[] = [
   {
     id: "cairo-tahrir-obelisk",
     kind: "monument",
-    center: point(350, -10),
+    // This point doubles as the centre of Tahrir's paved plaza: the renderer
+    // rings its disc, benches and olives around the obelisk landmark, so
+    // moving it moves the whole ensemble. It sits where the full olive ring
+    // clears the pavement bands of both Ramses and Qasr El-Ainy —
+    // `tests/cairoVisuals.test.ts` pins those clearances.
+    center: point(348, -27),
     size: point(14, 14),
     color: "#c9a96f",
   },

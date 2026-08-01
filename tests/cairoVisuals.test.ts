@@ -53,6 +53,7 @@ import { buildingSetUrls } from "../app/game/buildingSets";
 import { isPointInPolygon } from "../app/game/simulation";
 import { authoredSignalAspectAt } from "../app/game/trafficSignals";
 import { CAIRO_MAP_PACK } from "../app/game/cairoContent";
+import { CAIRO_TAHRIR_PLAZA_RADIUS_M } from "../app/game/parkLayouts";
 
 describe("Cairo water scenery", () => {
   const concave = [
@@ -550,44 +551,113 @@ describe("Cairo visual axes", () => {
   });
 
   it("keeps Tahrir's visual furniture out of surrounding traffic", () => {
-    const landmark = CAIRO_MAP_PACK.geometry.landmarks.find(
+    const park = CAIRO_MAP_PACK.geometry.landmarks.find(
       (candidate) => candidate.id === "cairo-tahrir-square",
     )!;
+    const obelisk = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-obelisk",
+    )!;
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
-    const layout = cairoTahrirFurnitureLayout(landmark, surfaces);
+    const layout = cairoTahrirFurnitureLayout(obelisk.center, surfaces);
     const checks = [
       ...layout.olives.map((position) => ({ position, radius: 1.9 })),
       ...layout.benches.map((position) => ({ position, radius: 1.5 })),
     ];
+    const nearestTo = (position: { x: number; z: number }, surface: (typeof surfaces)[number]) => {
+      let nearest = Number.POSITIVE_INFINITY;
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const lengthSquared = dx * dx + dz * dz;
+        const amount = Math.max(
+          0,
+          Math.min(
+            1,
+            ((position.x - start.x) * dx + (position.z - start.z) * dz) /
+              lengthSquared,
+          ),
+        );
+        nearest = Math.min(
+          nearest,
+          Math.hypot(
+            position.x - (start.x + dx * amount),
+            position.z - (start.z + dz * amount),
+          ),
+        );
+      }
+      return nearest;
+    };
+    // Not just the carriageway: the pavement band too. A bench on the
+    // kerbside pavement reads as street clutter, not park furniture.
     for (const check of checks) {
       for (const surface of surfaces) {
-        let nearest = Number.POSITIVE_INFINITY;
-        for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
-          const start = surface.centerline[index];
-          const end = surface.centerline[index + 1];
-          const dx = end.x - start.x;
-          const dz = end.z - start.z;
-          const lengthSquared = dx * dx + dz * dz;
-          const amount = Math.max(
-            0,
-            Math.min(
-              1,
-              ((check.position.x - start.x) * dx +
-                (check.position.z - start.z) * dz) /
-                lengthSquared,
-            ),
-          );
-          nearest = Math.min(
-            nearest,
-            Math.hypot(
-              check.position.x - (start.x + dx * amount),
-              check.position.z - (start.z + dz * amount),
-            ),
-          );
-        }
-        expect(nearest).toBeGreaterThanOrEqual(
-          surface.widthM / 2 + check.radius,
+        expect(nearestTo(check.position, surface)).toBeGreaterThanOrEqual(
+          surface.widthM / 2 +
+            (surface.sidewalkWidthM ?? 2.8) +
+            check.radius +
+            1,
         );
+      }
+    }
+    // The paving disc itself clears every pavement band entirely.
+    for (const surface of surfaces) {
+      expect(
+        nearestTo(obelisk.center, surface),
+        `plaza disc vs ${surface.id}`,
+      ).toBeGreaterThanOrEqual(
+        surface.widthM / 2 +
+          (surface.sidewalkWidthM ?? 2.8) +
+          CAIRO_TAHRIR_PLAZA_RADIUS_M,
+      );
+    }
+    // The rings held as authored — settle() had nothing to rescue: benches
+    // sit on the disc facing the obelisk, olives on the grass beyond it.
+    for (const bench of layout.benches) {
+      expect(
+        Math.hypot(bench.x - obelisk.center.x, bench.z - obelisk.center.z),
+      ).toBeLessThanOrEqual(CAIRO_TAHRIR_PLAZA_RADIUS_M - 1);
+    }
+    for (const olive of layout.olives) {
+      const distance = Math.hypot(
+        olive.x - obelisk.center.x,
+        olive.z - obelisk.center.z,
+      );
+      expect(distance).toBeGreaterThanOrEqual(CAIRO_TAHRIR_PLAZA_RADIUS_M + 1);
+      expect(distance).toBeLessThanOrEqual(CAIRO_TAHRIR_PLAZA_RADIUS_M + 5);
+    }
+    // And the whole ensemble stays on the park side of the road that cuts
+    // the rectangle (Ramses) — nothing settles across the carriageway.
+    const minX = park.center.x - park.size.x / 2;
+    const maxX = park.center.x + park.size.x / 2;
+    const minZ = park.center.z - park.size.z / 2;
+    const maxZ = park.center.z + park.size.z / 2;
+    for (const surface of surfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let crosses = false;
+        for (let step = 0; step <= 200 && !crosses; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          crosses =
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3;
+        }
+        if (!crosses) continue;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const sideOf = (point: { x: number; z: number }) =>
+          Math.sign(dx * (point.z - start.z) - dz * (point.x - start.x));
+        const parkSide = sideOf(park.center);
+        expect(sideOf(obelisk.center)).toBe(parkSide);
+        for (const check of checks) {
+          expect(sideOf(check.position), `${surface.id} side`).toBe(parkSide);
+        }
       }
     }
   });

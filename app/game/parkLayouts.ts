@@ -25,6 +25,16 @@ import {
 } from "./visuals";
 
 /**
+ * Radius of the paved disc `GameCanvas.tsx` lays around Tahrir's obelisk.
+ *
+ * It lives here rather than beside the renderer branch that draws it because
+ * the scatter in this module must keep planting off the paving, and this
+ * module cannot import from `GameCanvas.tsx` — the dependency arrow points
+ * the other way.
+ */
+export const CAIRO_TAHRIR_PLAZA_RADIUS_M = 13;
+
+/**
  * How a park is dressed. Derived from id, map and proportions unless the
  * landmark names one explicitly.
  *

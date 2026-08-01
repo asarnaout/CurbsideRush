@@ -230,6 +230,7 @@ import {
   natureSetsForMap,
 } from "./natureCatalog";
 import {
+  CAIRO_TAHRIR_PLAZA_RADIUS_M,
   parkLayoutForLandmark,
   type ParkFeature,
   type ParkPlacement,
@@ -3003,24 +3004,34 @@ export function cairoTahrirLawnPolygon(
   return polygon;
 }
 
-/** Keeps Tahrir's visual-only furniture inside the plaza, clear of traffic. */
+/** Benches sit ON the paving disc, facing the obelisk at its centre... */
+export const CAIRO_TAHRIR_BENCH_RING_M = 9;
+/** ...and the olives stand on the grass just outside it. */
+export const CAIRO_TAHRIR_OLIVE_RING_M = 16.5;
+
+/**
+ * Keeps Tahrir's visual-only furniture ringed around the plaza, clear of
+ * traffic. `plazaCenter` is the `cairo-tahrir-obelisk` landmark's centre —
+ * the obelisk, the paved disc and both furniture rings share it, so the
+ * whole ensemble moves as one when the landmark is re-authored.
+ *
+ * `roadClear` demands the pavement band too, not just the carriageway: a
+ * bench standing on the kerbside pavement reads as street clutter, not park
+ * furniture. The rings are authored to clear every band outright
+ * (`tests/cairoVisuals.test.ts` pins it); `settle()` stays as the safety
+ * net for future road edits, walking a placement toward the plaza centre
+ * until it clears.
+ */
 export function cairoTahrirFurnitureLayout(
-  landmark: Pick<
-    GameCanvasMapPack["geometry"]["landmarks"][number],
-    "center" | "size"
-  >,
+  plazaCenter: GameCanvasPoint,
   roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
 ): CairoTahrirFurnitureLayout {
-  const plazaCenter = {
-    x: landmark.center.x,
-    z: landmark.center.z + 9,
-  };
   const roadClear = (point: GameCanvasPoint, radiusM: number) =>
     roadSurfaces.every((surface) => {
       const nearest = nearestPointOnPolyline(point, surface.centerline);
       return (
         Math.hypot(point.x - nearest.x, point.z - nearest.z) >=
-        surface.widthM / 2 + radiusM
+        surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8) + radiusM + 1
       );
     });
   const settle = (
@@ -3042,11 +3053,8 @@ export function cairoTahrirFurnitureLayout(
       const angle = (index / 8) * Math.PI * 2;
       return settle(
         {
-          x: landmark.center.x + Math.sin(angle) * landmark.size.x * 0.34,
-          z:
-            landmark.center.z +
-            9 +
-            Math.cos(angle) * landmark.size.z * 0.29,
+          x: plazaCenter.x + Math.sin(angle) * CAIRO_TAHRIR_OLIVE_RING_M,
+          z: plazaCenter.z + Math.cos(angle) * CAIRO_TAHRIR_OLIVE_RING_M,
         },
         1.9,
       );
@@ -3056,13 +3064,8 @@ export function cairoTahrirFurnitureLayout(
       return {
         ...settle(
           {
-            x:
-              landmark.center.x +
-              Math.sin(rotationY) * landmark.size.x * 0.22,
-            z:
-              landmark.center.z +
-              9 +
-              Math.cos(rotationY) * landmark.size.z * 0.18,
+            x: plazaCenter.x + Math.sin(rotationY) * CAIRO_TAHRIR_BENCH_RING_M,
+            z: plazaCenter.z + Math.cos(rotationY) * CAIRO_TAHRIR_BENCH_RING_M,
           },
           1.5,
         ),
@@ -12075,19 +12078,30 @@ class BabylonGameSession {
         this.visualPalette,
         mapPack.id.toLowerCase(),
       );
+      // The obelisk landmark's centre IS the plaza centre — disc, benches
+      // and olives all ring it, so re-authoring the landmark moves the whole
+      // ensemble together.
+      const plazaCenter =
+        mapPack.geometry.landmarks.find(
+          (candidate) => candidate.id === "cairo-tahrir-obelisk",
+        )?.center ?? landmark.center;
+      // Top face lands exactly on PARK_PATH_Y, inside the park's 0.02–0.0435
+      // band like every other in-park paving. The previous disc topped out at
+      // 0.0725 — above the road surface itself — so wherever it overhung a
+      // road it drew ON TOP of the asphalt.
       createCylinder(
         scene,
         `${landmark.id}-central-plaza`,
         {
-          height: 0.055,
-          diameter: Math.min(landmark.size.x, landmark.size.z) * 0.58,
-          tessellation: 24,
+          height: 0.022,
+          diameter: CAIRO_TAHRIR_PLAZA_RADIUS_M * 2,
+          tessellation: 32,
         },
-        new Vector3(landmark.center.x, 0.045, landmark.center.z + 9),
+        new Vector3(plazaCenter.x, PARK_PATH_Y - 0.011, plazaCenter.z),
         paving,
       ).isPickable = false;
       const furniture = cairoTahrirFurnitureLayout(
-        landmark,
+        plazaCenter,
         mapPack.geometry.roadSurfaces ?? [],
       );
       for (const [index, position] of furniture.olives.entries()) {
