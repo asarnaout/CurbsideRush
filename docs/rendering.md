@@ -1,8 +1,6 @@
 # The rendering layer
 
-`GameCanvas.tsx` and the Babylon scene. Read this before touching the session,
-the world geometry, the models/crowd, the cockpit, or anything performance-shaped.
-The 2D drive HUD is a separate concern — see [drive-hud.md](drive-hud.md).
+`GameCanvas.tsx` and the Babylon scene. The 2D drive HUD is a separate concern — see [drive-hud.md](drive-hud.md).
 
 ## Shape of the file
 
@@ -38,8 +36,8 @@ Every value is tuned to kill z-fighting, and they are spread across three module
 (`GameCanvas.tsx`, `crowdRenderer.ts`, `vehicleMeshes.ts`):
 
 ```
-0.0435 shoulder junction fill  <  0.045 shoulder/sidewalk  <  0.07 road surface
-<  0.0716 asphalt junction fill  <  0.08 walkers  <  0.1 crowd shadows
+0.02 park lawn  <  0.0435 shoulder junction fill  <  0.045 shoulder/sidewalk
+<  0.07 road surface  <  0.0716 asphalt junction fill  <  0.08 walkers  <  0.1 crowd shadows
 <  0.12 markings & vehicle nodes  <  0.144-0.147 chevrons/stop lines
 ```
 
@@ -59,6 +57,11 @@ budget — precision varies as `minZ/z²`, the far plane is almost irrelevant, a
 the chase camera's 0.5 exists to keep millimetre offsets resolvable. Don't
 lower a `minZ` to "fix" near clipping without knowing you are spending 1/n of
 everyone's depth separation.
+
+## Grass, parks and planting are their own page
+
+Ground grass, the detail-map tile, park lawns, paths and planting all live
+in [greenery.md](greenery.md). Their y-layer rungs are in the stack above.
 
 ## The glTF loader bakes a 180° Y flip
 

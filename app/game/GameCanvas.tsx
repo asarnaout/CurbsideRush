@@ -193,11 +193,14 @@ import {
 } from "./trafficSignals";
 import {
   buildAsphaltTextureSpec,
+  buildGrassDetailSpec,
   buildGrassTextureSpec,
   buildHorizonSilhouetteSpec,
   buildPlanarUVs,
+  distanceToPolylineM,
   generateRoadsidePropPlacements,
   hashStringToSeed,
+  mixHexColors,
   PAVED_SIDEWALK_WIDTH_M,
   resolveCameraFarPlane,
   resolveEffectiveFogRange,
@@ -205,9 +208,21 @@ import {
   resolveMapVisualPalette,
   seededUnit,
   skyGradientStops,
+  type GrassBlade,
   type MapVisualPalette,
   type PropKindConfig,
+  type PropPlacement,
 } from "./visuals";
+import {
+  natureModelsForMap,
+  natureSetUrls,
+  natureSetsForMap,
+} from "./natureCatalog";
+import {
+  parkLayoutForLandmark,
+  type ParkFeature,
+  type ParkPlacement,
+} from "./parkLayouts";
 import {
   createVehicleMesh,
   type VehicleMeshVisual,
@@ -400,6 +415,66 @@ const ROAD_JUNCTION_FILL_Y = ROAD_SURFACE_Y + 0.0016;
 const ROAD_SHOULDER_Y = 0.045;
 const ROAD_SHOULDER_JUNCTION_FILL_Y = ROAD_SHOULDER_Y - 0.0015;
 const ROAD_POINT_EPSILON_M = 0.08;
+/**
+ * Metres of world per repeat of the grass tile. Every grass surface — the base
+ * ground and every park lawn — uses this one figure so a park never shows a
+ * seam against the ground it sits on.
+ *
+ * Small enough that individual blades read at walking distance; the visible
+ * repeat that follows from that is what `GRASS_DETAIL_TILE_M` exists to break.
+ */
+const GRASS_TILE_M = 12;
+/**
+ * The detail map's own repeat. Deliberately not a divisor of `GRASS_TILE_M` —
+ * 3.1 against 12 beats at ~37 m rather than reinforcing the base tile's grid,
+ * which is the entire point of the second layer.
+ */
+const GRASS_DETAIL_TILE_M = 3.1;
+/**
+ * A park lawn's surface. Was the top face of a 0.02-high box, and stays at that
+ * height: parks sit deliberately BELOW the shoulder (0.045) and the road (0.07)
+ * so an authored road crossing a park keeps visual priority.
+ */
+const PARK_LAWN_Y = 0.02;
+/** Park footpaths, in the ~23 mm between the lawn and the shoulder fill. */
+const PARK_PATH_Y = 0.031;
+/**
+ * Polygon offset pulling park paths toward the camera. The lawn/path gap is
+ * finer than the depth quantum at Central Park's far end, and polygon offset
+ * scales with that quantum where another millimetre of height does not — the
+ * same reasoning as `CAIRO_DECAL_Z_OFFSET_UNITS`.
+ */
+const PARK_PATH_Z_OFFSET_UNITS = -2;
+/**
+ * Park boundary wall height. Tall enough to read as a boundary from a car at
+ * speed — a hit is a scored collision, so an edge the driver cannot see coming
+ * would be indistinguishable from an invisible wall.
+ */
+const PARK_WALL_HEIGHT_M = 0.95;
+
+/**
+ * Yaw that lays a box's LENGTH along a given world direction.
+ *
+ * A box's length is its `width`, which is local **+X** — so this is
+ * `atan2(uz, ux)`, and **not** the map's heading convention
+ * (`atan2(dx, dz)`, where 0 = +z). The two differ by 90°, and using the
+ * heading here is silent: the wall still draws, still sits at the right
+ * centre, and is simply turned across its own edge. Central Park's west wall
+ * came out as a 2,897 m ledge running east-west from x ≈ -1107 to +1790,
+ * straight through every avenue on the map, while its collider — which takes
+ * `ux`/`uz` directly as the OBB axis — stayed correct. Seeing and hitting
+ * disagreed, which is the worst version of this bug.
+ */
+export function boxLengthYaw(ux: number, uz: number): number {
+  return Math.atan2(uz, ux);
+}
+/**
+ * How close to a path a plant must be to stay an individually instanced,
+ * knockable prop. Everything beyond becomes batched scenery, which cannot be
+ * knocked down — so this is really "how far off a path a car can plausibly get
+ * before the trees stop reacting", and it wants to stay generous.
+ */
+const PARK_KNOCKABLE_REACH_M = 10;
 // Lift every building so no model's base plate lands exactly on the ground
 // plane. Base plates face -Y and are back-face culled, so this is depth-buffer
 // hygiene, not a visible-flicker fix — the Cairo brick-band flicker was never
@@ -3942,6 +4017,11 @@ const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructiblePropConfig>
   "dne-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a DO NOT ENTER sign", fall: "topple" },
   "wrongway-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a WRONG WAY sign", fall: "topple" },
   "speedlimit-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a speed limit sign", fall: "topple" },
+  // Park planting and furniture. A shrub squashes rather than topples — a bush
+  // hinging over on one edge looks like a felled tree, which it is not.
+  shrub: { radiusM: 0.55, speedScale: 0.94, damage: "none", noun: "a shrub", fall: "squash" },
+  bench: { radiusM: 0.85, speedScale: 0.86, damage: "light", noun: "a park bench", fall: "topple" },
+  lamp: { radiusM: 0.3, speedScale: 0.76, damage: "medium", noun: "a park lamp", fall: "topple" },
   hydrant: { radiusM: 0.35, speedScale: 0.9, damage: "light", noun: "a fire hydrant", fall: "topple" },
   bollard: { radiusM: 0.25, speedScale: 0.92, damage: "light", noun: "a bollard", fall: "topple" },
   vending: { radiusM: 0.6, speedScale: 0.88, damage: "light", noun: "a vending machine", fall: "topple" },
@@ -4702,37 +4782,191 @@ function createAsphaltTexture(
   return texture;
 }
 
+/**
+ * The four-tone blade ramp, lightest first. `paintGrassBlades` draws a blade in
+ * `ramp[tone]` and its tip in `ramp[tone - 1]`, so a tone-0 blade tips into
+ * pure `grassAlt`. Derived rather than authored so a palette only has to supply
+ * the three greens.
+ */
+function grassBladeRamp(palette: MapVisualPalette): readonly string[] {
+  // A deliberately tight ramp. Running the ends out to white and to the full
+  // `grassDeep` made individual strokes legible as strokes — the lawn read as
+  // scattered pine needles rather than as turf. Grass is a texture, not a set
+  // of drawn objects, so the contrast has to sit below the threshold where the
+  // eye starts counting marks.
+  return [
+    mixHexColors(palette.grassAlt, "#ffffff", 0.1),
+    palette.grassAlt,
+    palette.grassBase,
+    mixHexColors(palette.grassBase, palette.grassDeep, 0.55),
+  ];
+}
+
+/**
+ * Strokes a blade field onto a canvas. Each blade is drawn twice — full length
+ * in its own tone, then its top 45% one ramp step lighter — which is what gives
+ * a flat ground plane its light-from-above read without a normal map.
+ */
+function paintGrassBlades(
+  context: CanvasRenderingContext2D,
+  size: number,
+  blades: readonly GrassBlade[],
+  ramp: readonly string[],
+  alpha: number,
+): void {
+  context.lineCap = "round";
+  context.globalAlpha = alpha;
+  for (const blade of blades) {
+    const x = blade.x * size;
+    const y = blade.y * size;
+    const dx = Math.sin(blade.angle) * blade.length * size;
+    const dy = -Math.cos(blade.angle) * blade.length * size;
+    context.lineWidth = Math.max(0.7, blade.width * size);
+    context.strokeStyle = ramp[blade.tone] ?? ramp[ramp.length - 1];
+    context.beginPath();
+    context.moveTo(x, y);
+    context.lineTo(x + dx, y + dy);
+    context.stroke();
+    // The lit tip. Tone 0 is already the lightest, so it tips into itself.
+    context.strokeStyle = ramp[Math.max(0, blade.tone - 1)];
+    context.beginPath();
+    context.moveTo(x + dx * 0.55, y + dy * 0.55);
+    context.lineTo(x + dx, y + dy);
+    context.stroke();
+  }
+  context.globalAlpha = 1;
+}
+
+/**
+ * The base grass tile. 1024² on desktop so blades survive a mip level or two at
+ * the 12 m tile GRASS_TILE_M sets; 512² on weak devices, where the render scale
+ * would throw the detail away anyway.
+ *
+ * Note there is no `applyLuminanceNoise` pass here any more. It was a full
+ * 1M-pixel getImageData/putImageData round trip whose entire job — high
+ * frequency — the blade field now does far better, and in colour.
+ */
 function createGrassTexture(
   scene: Scene,
   name: string,
   palette: MapVisualPalette,
   seed: number,
+  highDetail: boolean,
 ): DynamicTexture {
-  const size = 512;
+  const size = highDetail ? 1024 : 512;
   const texture = new DynamicTexture(name, size, scene, true);
   const context = textureContext(texture);
+  const spec = buildGrassTextureSpec(seed);
+  const ramp = grassBladeRamp(palette);
+
   context.fillStyle = palette.grassBase;
   context.fillRect(0, 0, size, size);
 
-  const spec = buildGrassTextureSpec(seed);
+  // Large tonal fields first — the layer that still reads once blades have
+  // mipped away at distance.
+  const patchTones = [palette.grassDeep, palette.grassAlt, palette.grassDry];
+  context.globalAlpha = 0.2;
+  for (const patch of spec.patches) {
+    context.fillStyle = patchTones[patch.tone] ?? palette.grassBase;
+    context.beginPath();
+    context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  // Kept low on purpose: these are hard-edged discs, and any higher they read
+  // as circles drawn on the lawn rather than as mottling under it.
+  context.globalAlpha = 0.22;
   context.fillStyle = palette.grassAlt;
   for (const blob of spec.blobs) {
     if (!blob.alt) continue;
-    context.globalAlpha = 0.5;
     context.beginPath();
     context.arc(blob.x * size, blob.y * size, blob.r * size, 0, Math.PI * 2);
     context.fill();
   }
-  context.globalAlpha = 0.35;
+
+  context.globalAlpha = 0.3;
+  context.fillStyle = palette.grassDry;
+  for (const patch of spec.bare) {
+    context.beginPath();
+    context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.globalAlpha = 0.3;
   context.fillStyle = palette.dirtShoulder;
   for (const speckle of spec.speckles) {
     context.beginPath();
-    context.arc(speckle.x * size, speckle.y * size, 2.2, 0, Math.PI * 2);
+    context.arc(speckle.x * size, speckle.y * size, size / 232, 0, Math.PI * 2);
     context.fill();
   }
   context.globalAlpha = 1;
-  applyLuminanceNoise(context, size, spec.noiseSeed, 0.03);
+
+  paintGrassBlades(context, size, spec.blades, ramp, 0.7);
+
+  // Flora last, so a flower head sits on top of the blades rather than under.
+  // Pulled most of the way back toward the grass: at full accent these are
+  // 4-6 px on the tile, which at driving distance reads as white litter
+  // scattered over the lawn rather than as flowers.
+  context.fillStyle = mixHexColors(palette.grassAlt, palette.floraAccent, 0.55);
+  context.globalAlpha = 0.45;
+  for (const flower of spec.flora) {
+    context.beginPath();
+    context.arc(flower.x * size, flower.y * size, flower.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 1;
+
   texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
+ * The detail tile fed to `StandardMaterial.detailMap`.
+ *
+ * **A detail map is not an image — it is four independent channels, and three
+ * of them have a non-zero neutral.** `default.fragment` reads
+ * `baseColor.rgb * 2 · mix(0.5, detailColor.r, diffuseBlendLevel)`, so **R
+ * neutral is 0.5**; and `bumpFragment` reads the tangent-space normal out of
+ * **alpha and green** — `detailNormalRG = detailColor.wy * 2 - 1`, with
+ * `B = sqrt(1 - |RG|²)` — so **A and G neutral is also 0.5**.
+ *
+ * That alpha channel is the trap. A 2D canvas is fully opaque, so A = 1 decodes
+ * as normal.x = 1, which forces B to zero: a tangent normal lying flat along
+ * the surface, pointing 90° away from the sun. It does not look subtle — it
+ * turned Tokyo's grass from (24,68,25) to (3,10,0), i.e. black — and
+ * `bumpLevel = 0` cannot rescue it, because the zeroed `.xy` leaves a
+ * zero-length vector rather than an upright one.
+ *
+ * So the blades are painted as greys (carrying R) and a final pass overwrites
+ * G and A with 128, which is the flat normal. Give this a real normal only by
+ * authoring those two channels deliberately.
+ */
+function createGrassDetailTexture(
+  scene: Scene,
+  name: string,
+  seed: number,
+): DynamicTexture {
+  const size = 256;
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  context.fillStyle = "#808080";
+  context.fillRect(0, 0, size, size);
+  const ramp = ["#a8a8a8", "#949494", "#6e6e6e", "#5a5a5a"];
+  paintGrassBlades(context, size, buildGrassDetailSpec(seed), ramp, 0.55);
+
+  const image = context.getImageData(0, 0, size, size);
+  const data = image.data;
+  for (let index = 0; index < data.length; index += 4) {
+    data[index + 1] = 128; // normal.y neutral
+    data[index + 3] = 128; // normal.x neutral — NOT 255, see above
+  }
+  context.putImageData(image, 0, 0);
+
+  // `update(invertY, premulAlpha)` — premultiply must stay off, or the 0.5
+  // alpha just written would halve the red channel the diffuse blend reads.
+  texture.update(true, false);
   texture.wrapU = Texture.WRAP_ADDRESSMODE;
   texture.wrapV = Texture.WRAP_ADDRESSMODE;
   return texture;
@@ -5198,6 +5432,13 @@ class BabylonGameSession {
   }[] = [];
   /** glb URLs of the current map's building sets, preloaded off the critical path. */
   private buildingModelUrls: string[] = [];
+  /**
+   * This map's park planting glbs. Deliberately NOT in `buildingModelUrls`,
+   * even though both are map-scoped and preloaded together: everything in that
+   * list is treated as a building, and `applyBuildingNightGlow` gives each of
+   * them a warm sodium self-glow. Trees listed there came out tan.
+   */
+  private natureModelUrls: string[] = [];
   /** Blocks that dress with instanced glb building sets once their models load;
    * `buildFallback` builds procedural facade boxes if the models never arrive. */
   private readonly pendingBuildingBlocks: {
@@ -5232,11 +5473,34 @@ class BabylonGameSession {
   /** Fraction of each block's building wall to build. 1 on desktop; thinned on
    * touch / low-core devices so phones stay playable. */
   private buildingKeepFraction = 1;
+  /**
+   * Touch or few-core device. The quality tier `buildingKeepFraction` is
+   * derived from, kept as its own field because more than one subsystem now
+   * needs the boolean rather than the fraction — the grass tile drops to 512²
+   * and the ground detail map is switched off entirely.
+   */
+  private lowSpec = false;
+  /** Shared fine grass tile for `detailMap`; built lazily, once per session. */
+  private grassDetailTexture: DynamicTexture | null = null;
+  /** One grass material for every park on the map; built lazily. */
+  private parkLawnMaterial: StandardMaterial | null = null;
+  /** One gravel material for every park path on the map; built lazily. */
+  private parkPathMaterial: StandardMaterial | null = null;
+  /** One stone material for every park boundary wall; built lazily. */
+  private parkWallMaterial: StandardMaterial | null = null;
   /** Keep-out circles (gas station + gig-venue lots) so the block street wall
    * never drops a scenery building on top of an interactive POI. */
   private readonly buildingExclusions: { x: number; z: number; radius: number }[] = [];
   /** Sidewalk vendor carts to instantiate once their glbs preload. */
   private readonly pendingVendors: { config: StreetPropConfig; x: number; z: number; yaw: number }[] = [];
+  /**
+   * Park planting waiting on the model preload. Split at collection time:
+   * `pendingParkProps` become individual knockable instances, the thickets
+   * merge one mesh per cell. Both need glb masters, which only exist once
+   * `preloadVehicleModels` has run — the same reason vendor carts queue.
+   */
+  private readonly pendingParkProps: ParkPlacement[] = [];
+  private readonly pendingParkThickets: ParkPlacement[] = [];
   /** River craft to instantiate once the boat glbs preload. */
   private readonly pendingWaterBoats: { bodyId: string; placement: WaterBoatPlacement }[] = [];
   private readonly waterBoatMasters = new Map<
@@ -5582,6 +5846,7 @@ class BabylonGameSession {
     const cores =
       (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 8;
     const lowSpec = options.inputCapabilities.touchFirst || cores <= 4;
+    this.lowSpec = lowSpec;
     this.buildingKeepFraction = lowSpec ? 0.5 : 1;
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.68, 0.84, 0.9, 1);
@@ -6061,6 +6326,7 @@ class BabylonGameSession {
           ...characterModelUrls(),
           ...propModelUrls(),
           ...this.buildingModelUrls,
+          ...this.natureModelUrls,
         ],
         (fraction) =>
           this.reportLoadProgress(fraction * LOAD_PHASE_WEIGHTS.models, LOADING_MODELS_LABEL),
@@ -8781,6 +9047,82 @@ class BabylonGameSession {
       ]);
     }
     this.pendingVendors.length = 0;
+
+    this.buildParkPlanting();
+  }
+
+  /**
+   * The imported planting, once its glbs are in.
+   *
+   * Species are chosen from what this city actually downloaded
+   * (`natureModelsForMap`), so Cairo's "trees" resolve to palms and Tokyo's to
+   * the temple set without any of that being spelled out here.
+   */
+  private buildParkPlanting() {
+    const key = resolveMapVisualKey(this.options.mapPack?.id ?? "");
+    const catalogue = natureModelsForMap(key);
+    const canopy = catalogue.filter(
+      (model) =>
+        model.role === "tree" || model.role === "conifer" || model.role === "palm",
+    );
+    const shrubs = catalogue.filter((model) => model.role === "shrub");
+    const monuments = catalogue.filter((model) => model.role === "monument");
+    const speciesFor = (kind: string, variant: number) => {
+      const pool =
+        kind === "shrub" ? shrubs : kind === "monument" ? monuments : canopy;
+      return pool.length ? pool[variant % pool.length] : null;
+    };
+
+    let index = 0;
+    for (const placement of this.pendingParkProps) {
+      const species = speciesFor(placement.kind, placement.variant);
+      if (!species) continue;
+      const master = this.getBuildingMaster(species.url);
+      if (!master) continue;
+      const instance = master.createInstance(`park-plant-${index}`);
+      index += 1;
+      instance.position.set(placement.x, 0, placement.z);
+      instance.rotation.y = placement.rotationY;
+      instance.scaling.setAll(species.scale * placement.scale);
+      instance.isPickable = false;
+      this.staticSceneryFreeze.push(instance);
+      this.registerShadowCaster(instance, placement.x, placement.z);
+      // A monument is masonry: it stands where a tree topples.
+      if (placement.kind === "monument") continue;
+      // Knockable exactly like a street tree — that consistency is the reason
+      // park planting rides the same destructible path at all.
+      this.registerDestructibleProp(
+        placement.kind,
+        placement.x,
+        placement.z,
+        placement.scale,
+        [{ node: instance, isLightPool: false }],
+      );
+    }
+    this.pendingParkProps.length = 0;
+
+    // Deep planting is instanced, not merged. Merging a cell into one mesh
+    // duplicates its geometry per plant, and on Central Park that cost **+100
+    // MB of heap** (368 -> 468 on NYC) to save meshes. Instances share the
+    // master's geometry, and because an imported tree is ONE merged glb mesh
+    // where the procedural tree was four parts, a plant now costs a single
+    // scene mesh — so the mesh count this was avoiding never materialises.
+    for (const [thicketIndex, placement] of this.pendingParkThickets.entries()) {
+      const species = speciesFor(placement.kind, placement.variant);
+      if (!species) continue;
+      const master = this.getBuildingMaster(species.url);
+      if (!master) continue;
+      const instance = master.createInstance(`park-thicket-${thicketIndex}`);
+      instance.position.set(placement.x, 0, placement.z);
+      instance.rotation.y = placement.rotationY;
+      instance.scaling.setAll(species.scale * placement.scale);
+      instance.isPickable = false;
+      this.staticSceneryFreeze.push(instance);
+      // Deliberately no shadow: a whole woodland in the 90 m caster ring would
+      // swamp the 1024 shadow map for planting nobody can reach.
+      this.registerStaticCell(instance, placement.x, placement.z, false);
+    }
+    this.pendingParkThickets.length = 0;
   }
 
   /**
@@ -9888,18 +10230,17 @@ class BabylonGameSession {
       hashStringToSeed(`${mapId}-terminal`),
     );
     // On paved maps this band is the concrete sidewalk (textured like the road
-    // but lighter); elsewhere it stays a flat dirt shoulder.
+    // but lighter); elsewhere it is a worn earth verge. Both go through the
+    // asphalt generator — its noise, soft patches and hairline cracks describe
+    // a scuffed dirt verge as well as they describe tarmac, and a flat colour
+    // beside newly detailed grass is exactly where the eye lands.
     const dirtShoulder = makeMaterial(scene, "scenario-dirt-shoulder", Color3.White());
-    if (paved) {
-      dirtShoulder.diffuseTexture = createAsphaltTexture(
-        scene,
-        "scenario-sidewalk-texture",
-        palette.pavement ?? "#6a6e71",
-        hashStringToSeed(`${mapId}-sidewalk`),
-      );
-    } else {
-      dirtShoulder.diffuseColor = Color3.FromHexString(palette.dirtShoulder);
-    }
+    dirtShoulder.diffuseTexture = createAsphaltTexture(
+      scene,
+      paved ? "scenario-sidewalk-texture" : "scenario-verge-texture",
+      paved ? palette.pavement ?? "#6a6e71" : palette.dirtShoulder,
+      hashStringToSeed(`${mapId}-${paved ? "sidewalk" : "verge"}`),
+    );
     const routeMaterial = makeMaterial(
       scene,
       "scenario-route",
@@ -9958,10 +10299,8 @@ class BabylonGameSession {
           "scenario-ground-texture",
           palette,
           hashStringToSeed(`${mapId}-grass`),
+          !this.lowSpec,
         );
-    const groundTile = paved ? 10 : 16;
-    groundTexture.uScale = groundWidth / groundTile;
-    groundTexture.vScale = groundHeight / groundTile;
     grass.diffuseColor = Color3.White();
     grass.diffuseTexture = groundTexture;
     const ground = MeshBuilder.CreateGround(
@@ -9969,6 +10308,16 @@ class BabylonGameSession {
       { width: groundWidth, height: groundHeight, subdivisions: 1 },
       scene,
     );
+    if (paved) {
+      groundTexture.uScale = groundWidth / 10;
+      groundTexture.vScale = groundHeight / 10;
+    } else {
+      // World-planar UVs instead of a uScale, so park lawns can share both the
+      // tile origin and the detail texture. The ground sits at the world origin
+      // untranslated, so its local positions are already world positions.
+      this.applyWorldPlanarGrassUVs(ground);
+      this.applyGrassDetailMap(grass, mapId);
+    }
     setMeshMaterial(ground, grass, true);
     ground.freezeWorldMatrix();
     this.registerMirrorSurface(ground);
@@ -10604,9 +10953,20 @@ class BabylonGameSession {
     this.buildingModelUrls = [
       ...buildingSetUrls(setIds),
       ...(setIds.length ? nycVendorUrls() : []),
-      // River craft ride the same preload: a map with water gets its boats.
-      ...(mapPack.geometry.waterBodies?.length ? WATER_BOAT_MODEL_URLS : []),
+      // River craft ride the same preload. Gated on Cairo, not on "has water":
+      // the two models are `cairo-felucca` and `cairo-skiff` and only Cairo
+      // places them, so keying off water alone made Central Park's lake pull
+      // ~50 KB of boats NYC can never use.
+      ...(resolveMapVisualKey(mapId) === "cairo" &&
+      mapPack.geometry.waterBodies?.length
+        ? WATER_BOAT_MODEL_URLS
+        : []),
     ];
+    // This map's park planting only — see `natureCatalog`. Kept in its own
+    // list so the night-glow and Cairo-decal passes above never see it.
+    this.natureModelUrls = natureSetUrls(
+      natureSetsForMap(resolveMapVisualKey(mapId)),
+    );
 
     for (const service of mapPack.geometry.servicePoints ?? []) {
       const pose = resolveSimulationLaneAnchor(
@@ -10809,22 +11169,11 @@ class BabylonGameSession {
           );
         }
       } else if (landmark.kind === "park") {
-        // Parks sit flush with the terrain so roads retain visual priority
-        // wherever an authored surface passes their footprint.
-        createBox(
-          scene,
-          landmark.id,
-          { width: landmark.size.x, height: 0.02, depth: landmark.size.z },
-          new Vector3(landmark.center.x, 0.01, landmark.center.z),
-          material,
-        );
-        createCylinder(
-          scene,
-          `${landmark.id}-feature`,
-          { height: 2.2, diameterTop: 0.5, diameterBottom: 4.5 },
-          new Vector3(landmark.center.x, 1.25, landmark.center.z),
-          material,
-        );
+        // The centre "feature" cone is gone. It was the whole of a park's
+        // contents, and the thing issue #206 is a screenshot of; a park is now
+        // dressed by `parkLayouts` and bounded by its own wall.
+        this.buildParkLawn(landmark, palette, mapId);
+        this.buildParkFeatures(landmark, mapPack, palette, mapId);
       } else if (landmark.kind === "railway") {
         for (const offset of [-1.25, 1.25]) {
           createBox(
@@ -11130,13 +11479,11 @@ class BabylonGameSession {
         `${landmark.id}-olive-leaf`,
         new Color3(0.3, 0.4, 0.24),
       );
-      createBox(
-        scene,
-        `${landmark.id}-garden`,
-        { width: landmark.size.x, height: 0.025, depth: landmark.size.z },
-        new Vector3(landmark.center.x, 0.018, landmark.center.z),
-        material,
-      ).isPickable = false;
+      // Tahrir's garden is the same grass as every other park's — it just has a
+      // paved plaza laid over its middle. It intercepts the generic park branch
+      // for its furniture, so without this it would keep the flat untextured
+      // slab the rest of the map's greenery has now left behind.
+      this.buildParkLawn(landmark, this.visualPalette, mapPack.id.toLowerCase());
       createCylinder(
         scene,
         `${landmark.id}-central-plaza`,
@@ -11852,6 +12199,66 @@ class BabylonGameSession {
    * extras) built from instanced master meshes: one draw call per part kind
    * regardless of how many props a map receives.
    */
+
+  /**
+   * Park planting and furniture as ordinary prop placements.
+   *
+   * Gated through `deterministicSceneryKeep` per placement: anything scattered
+   * that skips that gate silently escapes the low-spec thinning entirely, and a
+   * park is by some distance the densest thing this map scatters.
+   */
+  private collectParkPlacements(
+    mapPack: GameCanvasMapPack,
+  ): { reachable: PropPlacement[]; interior: ParkPlacement[] } {
+    const reachable: PropPlacement[] = [];
+    const interior: ParkPlacement[] = [];
+    for (const landmark of mapPack.geometry.landmarks) {
+      if (landmark.kind !== "park") continue;
+      const layout = parkLayoutForLandmark(mapPack, landmark);
+      for (const [index, placement] of layout.placements.entries()) {
+        if (
+          !deterministicSceneryKeep(
+            `${landmark.id}:${placement.kind}:${index}`,
+            this.buildingKeepFraction,
+          )
+        ) {
+          continue;
+        }
+        // Anything a driver can actually reach stays an individually instanced,
+        // knockable prop. Everything deeper is scenery, and scenery in a park
+        // this size has to be batched — see `buildParkPlanting`.
+        //
+        // Shrubs are never in that set however close they are. They are the
+        // densest zone by some way, and their destructible entry is `damage:
+        // "none"` / `fall: "squash"` — so paying a scene mesh each to make a
+        // bush flinch is the worst trade in the park.
+        const reachablePlacement =
+          placement.kind !== "shrub" &&
+          (placement.kind === "bench" ||
+            placement.kind === "lamp" ||
+            layout.paths.some(
+              (path) =>
+                distanceToPolylineM(placement, path.points) <=
+                path.widthM / 2 + PARK_KNOCKABLE_REACH_M,
+            ));
+        if (reachablePlacement) {
+          // Benches and lamps have no model in the planting kit, so they stay
+          // procedural and ride the roadside pipeline as before. Planting goes
+          // to the glb queue, which can only be drained after the preload.
+          if (placement.kind === "bench" || placement.kind === "lamp") {
+            reachable.push(placement);
+          } else {
+            this.pendingParkProps.push(placement);
+          }
+          continue;
+        }
+        interior.push(placement);
+        this.pendingParkThickets.push(placement);
+      }
+    }
+    return { reachable, interior };
+  }
+
   private buildRoadsideProps(
     mapPack: GameCanvasMapPack,
     palette: MapVisualPalette,
@@ -11897,7 +12304,7 @@ class BabylonGameSession {
         },
       ];
     });
-    const placements = generateRoadsidePropPlacements({
+    const roadsidePlacements = generateRoadsidePropPlacements({
       roadSurfaces: roadSurfaces.map((surface) => ({
         id: surface.id,
         centerline: surface.centerline,
@@ -11935,7 +12342,15 @@ class BabylonGameSession {
             ]
           : undefined,
     });
-    if (!placements.length) return;
+
+    // Park planting rides the same pipeline as the roadside scatter, so it
+    // shares the tree masters, the shadow-caster registration and — the point —
+    // `registerDestructibleProp`. A tree you can flatten on the street and one
+    // you cannot flatten in a park would read as a bug, and the alternative was
+    // a second, parallel prop builder.
+    const park = this.collectParkPlacements(mapPack);
+    const placements = [...roadsidePlacements, ...park.reachable];
+    if (!placements.length && !park.interior.length) return;
 
     const material = (name: string, color: Color3, emissive?: Color3) =>
       makeMaterial(scene, `prop-${name}`, color, emissive);
@@ -12056,6 +12471,7 @@ class BabylonGameSession {
               night ? new Color3(0.14, 0.5, 0.26) : undefined,
             ),
           ];
+    const benchTimber = material("bench-timber", new Color3(0.35, 0.26, 0.17));
     const hydrantRed = material("hydrant", new Color3(0.62, 0.1, 0.07));
     const bollardPale = material("bollard", new Color3(0.75, 0.76, 0.72));
     const poleWood = material("utility-pole", new Color3(0.35, 0.32, 0.28));
@@ -12322,6 +12738,71 @@ class BabylonGameSession {
               // the same clearance, as the regulatory blades' -0.08 — mirrored,
               // because those read on -Z and the scattered sign reads on +Z.
               offset: new Vector3(0, key === "cairo" ? 2.05 : 2.15, 0.08),
+            },
+          ];
+          break;
+        case "shrub": {
+          // Two overlapping lobes at slightly different heights, so a run of
+          // them along a path reads as planting rather than as a row of balls.
+          const leaf = leaves[variant % leaves.length];
+          parts = [
+            {
+              master: masterIcoSphere(`${cacheKey}-a`, 0.62, leaf),
+              offset: new Vector3(0, 0.46, 0),
+            },
+            {
+              master: masterIcoSphere(`${cacheKey}-b`, 0.44, leaf),
+              offset: new Vector3(0.34, 0.33, 0.12),
+              castShadow: false,
+            },
+          ];
+          break;
+        }
+        case "bench":
+          parts = [
+            {
+              master: masterBox(
+                `${cacheKey}-seat`,
+                { width: 1.7, height: 0.09, depth: 0.46 },
+                benchTimber,
+              ),
+              offset: new Vector3(0, 0.45, 0),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-back`,
+                { width: 1.7, height: 0.42, depth: 0.08 },
+                benchTimber,
+              ),
+              offset: new Vector3(0, 0.68, -0.19),
+            },
+            {
+              master: masterBox(
+                `${cacheKey}-legs`,
+                { width: 1.5, height: 0.42, depth: 0.08 },
+                iron,
+              ),
+              offset: new Vector3(0, 0.22, 0),
+              castShadow: false,
+            },
+          ];
+          break;
+        case "lamp":
+          // A park lamp, not a streetlight: shorter, on a slimmer column, and
+          // without the road-facing arm.
+          parts = [
+            {
+              master: masterCylinder(
+                `${cacheKey}-column`,
+                { height: 3.1, diameterTop: 0.09, diameterBottom: 0.15 },
+                iron,
+              ),
+              offset: new Vector3(0, 1.55, 0),
+            },
+            {
+              master: masterIcoSphere(`${cacheKey}-globe`, 0.22, lampHead),
+              offset: new Vector3(0, 3.24, 0),
+              castShadow: false,
             },
           ];
           break;
@@ -12998,13 +13479,20 @@ class BabylonGameSession {
       this.registerMirrorSurface(mesh);
       material.freeze();
 
-      const obstacles = cairoWaterBoatObstacles(mapPack.geometry, body);
-      for (const placement of generateWaterBoatPlacements(
-        mapId,
-        body,
-        obstacles,
-      )) {
-        this.pendingWaterBoats.push({ bodyId: body.id, placement });
+      // Boats are Cairo's. `generateWaterBoatPlacements` is not map-gated and
+      // always wants at least one craft (`max(1, ...)`), and the only two
+      // models are `cairo-felucca` and `cairo-skiff` — so any water body added
+      // to another city, such as a lake in Central Park, would quietly get an
+      // Egyptian felucca sailing round it.
+      if (resolveMapVisualKey(mapId) === "cairo") {
+        const obstacles = cairoWaterBoatObstacles(mapPack.geometry, body);
+        for (const placement of generateWaterBoatPlacements(
+          mapId,
+          body,
+          obstacles,
+        )) {
+          this.pendingWaterBoats.push({ bodyId: body.id, placement });
+        }
       }
     }
   }
@@ -14706,6 +15194,362 @@ class BabylonGameSession {
    * the length of an avenue, the merged lane paint, the ground, the sky.
    * There are about twenty of these in NYC, so they simply always render.
    */
+  /**
+   * Multiplies a second, much finer grass tile over a grass material so the
+   * base tile stops reading as a grid. One shared `DynamicTexture` per session
+   * — `detailMap.texture` is only a reference, and a 256² canvas per lawn would
+   * be pure waste.
+   *
+   * **`DetailMapConfiguration` is a `MaterialPluginBase`, so it adds a shader
+   * define**: every material that enables it costs one more effect compile at
+   * scene warm-up. Keep the number of materials that call this small, and note
+   * that it is off entirely on low-spec devices, where the render scale throws
+   * the detail away before the player could see it.
+   */
+  /**
+   * The one grass material every park lawn shares.
+   *
+   * Built lazily because the two paved cities need it and never build the
+   * ground-plane grass: NYC and Cairo set `paved`, so their base ground is
+   * concrete and their parks were the only green in the city — painted, until
+   * now, as a flat untextured `diffuseColor`.
+   *
+   * Deliberately **one material for every park on a map**, so a city's parks
+   * are one surface rather than eleven near-identical ones. That retires
+   * `ProceduralLandmark.color` as the thing that colours a park lawn (it still
+   * colours every other landmark kind); per-park character is meant to come
+   * from what stands on the grass, not from the shade of the grass.
+   */
+  private getParkLawnMaterial(
+    palette: MapVisualPalette,
+    mapId: string,
+  ): StandardMaterial {
+    if (this.parkLawnMaterial) return this.parkLawnMaterial;
+    const material = makeMaterial(this.scene, "park-lawn", Color3.White());
+    material.diffuseTexture = createGrassTexture(
+      this.scene,
+      "park-lawn-texture",
+      palette,
+      hashStringToSeed(`${mapId}-park-lawn`),
+      !this.lowSpec,
+    );
+    this.applyGrassDetailMap(material, mapId);
+    this.parkLawnMaterial = material;
+    return material;
+  }
+
+  /**
+   * A park's ground. Flat, because the simulation has no terrain — displacing
+   * it would float or sink the car, which is pinned to y = 0.
+   *
+   * This replaces a `createBox` whose default face UVs stretched a single tile
+   * across the whole footprint; on Central Park that was one texture over
+   * 200x2900 m, which is why giving the old box a texture would have changed
+   * nothing visible. `CreateGround` plus world-planar UVs tiles it properly and
+   * continues the surrounding ground's grass across the boundary.
+   */
+  private buildParkLawn(
+    landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+    palette: MapVisualPalette,
+    mapId: string,
+  ): Mesh {
+    const lawn = MeshBuilder.CreateGround(
+      landmark.id,
+      {
+        width: landmark.size.x,
+        height: landmark.size.z,
+        // ~25 m cells. One quad would do for a flat plane today, but the sun's
+        // shadow map and any later per-vertex tinting both need vertices to
+        // land on, and a grid this coarse costs nothing (Central Park: ~1k).
+        subdivisionsX: Math.max(1, Math.round(landmark.size.x / 25)),
+        subdivisionsY: Math.max(1, Math.round(landmark.size.z / 25)),
+      },
+      this.scene,
+    );
+    lawn.position.set(landmark.center.x, PARK_LAWN_Y, landmark.center.z);
+    if (landmark.headingDeg !== undefined) {
+      lawn.rotation.y = degreesToRadians(landmark.headingDeg);
+    }
+    // `CreateGround` emits local positions, so the park's own centre has to be
+    // folded in or every park restarts the tile at its own corner and shows a
+    // seam against the ground plane.
+    this.applyWorldPlanarGrassUVs(lawn, landmark.center.x, landmark.center.z);
+    setMeshMaterial(lawn, this.getParkLawnMaterial(palette, mapId), true);
+    lawn.freezeWorldMatrix();
+    // Too large for any spatial cull to reject — Central Park is 2.9 km long,
+    // which is the case `registerMirrorSurface` exists for.
+    this.registerMirrorSurface(lawn);
+    return lawn;
+  }
+
+  /**
+   * A park's footpaths, as thin road strips.
+   *
+   * They sit at `PARK_PATH_Y`, which is only 11 mm above the lawn — the whole
+   * park band is squeezed between the lawn at 0.02 and the shoulder junction
+   * fill at 0.0435, because parks are drawn *under* the roads on purpose. At
+   * Central Park's length that gap is finer than the depth buffer resolves out
+   * near the far plane, so the path material also carries a negative
+   * `zOffsetUnits`: polygon offset scales with the local depth quantum, which
+   * nudging the vertices up by another millimetre does not.
+   */
+  private buildParkFeatures(
+    landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+    mapPack: GameCanvasMapPack,
+    palette: MapVisualPalette,
+    mapId: string,
+  ) {
+    const layout = parkLayoutForLandmark(mapPack, landmark);
+
+    if (layout.paths.length) {
+      if (!this.parkPathMaterial) {
+        const material = makeMaterial(this.scene, "park-path", Color3.White());
+        material.diffuseTexture = createAsphaltTexture(
+          this.scene,
+          "park-path-texture",
+          // Pale gravel, not tarmac: a park walk is a hoggin or stone-dust
+          // path everywhere this game is set.
+          mixHexColors(palette.dirtShoulder, "#e8e2d2", 0.55),
+          hashStringToSeed(`${mapId}-park-path`),
+        );
+        material.zOffsetUnits = PARK_PATH_Z_OFFSET_UNITS;
+        this.parkPathMaterial = material;
+      }
+      for (const path of layout.paths) {
+        const mesh = this.createRoadSurfaceMesh(
+          `${landmark.id}-path-${path.id}`,
+          path.points,
+          path.widthM,
+          this.parkPathMaterial,
+          false,
+          PARK_PATH_Y,
+        );
+        if (!mesh) continue;
+        mesh.isPickable = false;
+        this.registerStaticCell(mesh, landmark.center.x, landmark.center.z, false);
+      }
+    }
+
+    this.buildParkBespokeFeatures(landmark, layout.features, palette);
+
+    // The wall. A static-obstacle hit is a scored collision with damage, so it
+    // has to be plainly visible — a low kerb you cannot see would read as an
+    // invisible wall, which is exactly the complaint this is meant to avoid.
+    if (!layout.wall.length) return;
+    if (!this.parkWallMaterial) {
+      this.parkWallMaterial = makeMaterial(
+        this.scene,
+        "park-wall",
+        colorFromHex(
+          mixHexColors(palette.pavement ?? palette.dirtShoulder, "#e6ded0", 0.4),
+          new Color3(0.62, 0.6, 0.55),
+        ),
+      );
+    }
+    for (const run of layout.wall) {
+      const wall = createBox(
+        this.scene,
+        run.id,
+        {
+          width: run.halfU * 2,
+          height: PARK_WALL_HEIGHT_M,
+          depth: run.halfV * 2,
+        },
+        new Vector3(run.x, PARK_WALL_HEIGHT_M / 2, run.z),
+        this.parkWallMaterial,
+      );
+      wall.rotation.y = boxLengthYaw(run.ux, run.uz);
+      wall.isPickable = false;
+      this.registerShadowCaster(wall, run.x, run.z);
+    }
+  }
+
+  /**
+   * The pieces a named park needs that no scatter would produce.
+   *
+   * Built procedurally rather than imported: the kit has no torii, and no CC0
+   * Japanese stone lantern exists that I could find — the only matches are
+   * CC-BY, which would put an attribution string in the catalogue for two
+   * models. A lantern is a stack of boxes; this is the cheaper answer.
+   */
+  private buildParkBespokeFeatures(
+    landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+    features: readonly ParkFeature[],
+    palette: MapVisualPalette,
+  ) {
+    if (!features.length) return;
+    const scene = this.scene;
+    const material = (suffix: string, color: Color3) =>
+      makeMaterial(scene, `park-${suffix}`, color);
+    const stone = material("stone", new Color3(0.66, 0.63, 0.57));
+    // Vermilion, which is what a torii is and the one strong colour a temple
+    // garden carries.
+    const vermilion = material("torii", new Color3(0.72, 0.24, 0.16));
+    const bed = material(
+      "bed",
+      colorFromHex(
+        mixHexColors(palette.grassDeep, palette.dirtShoulder, 0.45),
+        new Color3(0.32, 0.3, 0.2),
+      ),
+    );
+
+    for (const feature of features) {
+      switch (feature.kind) {
+        case "court":
+        case "parterre": {
+          // A ground patch, on the same rung as the paths so it reads as laid
+          // rather than as a rug floating over the lawn.
+          const patch = MeshBuilder.CreateGround(
+            feature.id,
+            { width: feature.sizeX, height: feature.sizeZ },
+            scene,
+          );
+          patch.position.set(feature.x, PARK_PATH_Y, feature.z);
+          if (feature.kind === "court") {
+            this.applyWorldPlanarGrassUVs(patch, feature.x, feature.z);
+            setMeshMaterial(
+              patch,
+              this.parkPathMaterial ?? stone,
+              true,
+            );
+          } else {
+            setMeshMaterial(patch, bed, true);
+          }
+          patch.isPickable = false;
+          this.registerStaticCell(patch, feature.x, feature.z, false);
+          break;
+        }
+        case "torii": {
+          const half = feature.sizeX / 2;
+          const height = feature.sizeX * 0.95;
+          for (const side of [-1, 1]) {
+            const column = createCylinder(
+              scene,
+              `${feature.id}-column-${side > 0 ? "r" : "l"}`,
+              { height, diameterTop: 0.34, diameterBottom: 0.44, tessellation: 8 },
+              new Vector3(
+                feature.x + Math.cos(feature.rotationY) * half * side,
+                height / 2,
+                feature.z - Math.sin(feature.rotationY) * half * side,
+              ),
+              vermilion,
+            );
+            column.isPickable = false;
+            this.registerShadowCaster(column, feature.x, feature.z);
+          }
+          for (const [index, lift] of [height, height * 0.83].entries()) {
+            const beam = createBox(
+              scene,
+              `${feature.id}-beam-${index}`,
+              {
+                width: feature.sizeX * (index === 0 ? 1.28 : 1.06),
+                height: index === 0 ? 0.36 : 0.24,
+                depth: 0.34,
+              },
+              new Vector3(feature.x, lift, feature.z),
+              vermilion,
+            );
+            beam.rotation.y = feature.rotationY;
+            beam.isPickable = false;
+            this.registerShadowCaster(beam, feature.x, feature.z);
+          }
+          break;
+        }
+        case "lantern": {
+          const parts: readonly [number, number, number][] = [
+            [0.44, 0.34, 0.17],
+            [0.3, 0.5, 0.55],
+            [0.62, 0.42, 0.98],
+            [0.44, 0.16, 1.25],
+          ];
+          for (const [index, [width, tall, lift]] of parts.entries()) {
+            const block = createBox(
+              scene,
+              `${feature.id}-${index}`,
+              { width, height: tall, depth: width },
+              new Vector3(feature.x, lift, feature.z),
+              stone,
+            );
+            block.isPickable = false;
+            this.registerShadowCaster(block, feature.x, feature.z);
+          }
+          break;
+        }
+        case "plinth": {
+          const base = createBox(
+            scene,
+            `${feature.id}-base`,
+            { width: feature.sizeX, height: 1.1, depth: feature.sizeZ },
+            new Vector3(feature.x, 0.55, feature.z),
+            stone,
+          );
+          base.isPickable = false;
+          this.registerShadowCaster(base, feature.x, feature.z);
+          const shaft = createBox(
+            scene,
+            `${feature.id}-shaft`,
+            {
+              width: feature.sizeX * 0.5,
+              height: 3.2,
+              depth: feature.sizeZ * 0.5,
+            },
+            new Vector3(feature.x, 2.7, feature.z),
+            stone,
+          );
+          shaft.isPickable = false;
+          this.registerShadowCaster(shaft, feature.x, feature.z);
+          break;
+        }
+      }
+    }
+  }
+
+  private applyGrassDetailMap(material: StandardMaterial, mapId: string) {
+    if (this.lowSpec) return;
+    if (!this.grassDetailTexture) {
+      const texture = createGrassDetailTexture(
+        this.scene,
+        "grass-detail-texture",
+        hashStringToSeed(`${mapId}-grass-detail`),
+      );
+      // One repeat of the BASE tile spans one UV unit (every grass surface is
+      // given world-planar UVs at 1/GRASS_TILE_M), so the detail scale is a
+      // single ratio shared by every caller — which is what lets one texture
+      // object serve them all. Per-mesh uScale would need a texture per mesh.
+      texture.uScale = GRASS_TILE_M / GRASS_DETAIL_TILE_M;
+      texture.vScale = texture.uScale;
+      this.grassDetailTexture = texture;
+    }
+    material.detailMap.texture = this.grassDetailTexture;
+    material.detailMap.diffuseBlendLevel = 0.22;
+    material.detailMap.isEnabled = true;
+  }
+
+  /**
+   * Rewrites a ground mesh's UVs from unit-square to world-planar, so the tile
+   * is anchored to the world rather than to the mesh. Two things depend on it:
+   * a park lawn tiles continuously with the ground plane it sits on instead of
+   * showing a seam at its edge, and every grass surface then shares one UV
+   * convention, which is what makes a single shared detail texture possible.
+   *
+   * `CreateGround` emits local positions, so a lawn that has been moved to its
+   * park centre must pass that offset — otherwise each park restarts the tile
+   * at its own corner and the seam comes straight back.
+   */
+  private applyWorldPlanarGrassUVs(mesh: Mesh, offsetX = 0, offsetZ = 0) {
+    const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+    if (!positions) return;
+    const shifted = Array.from(positions);
+    for (let index = 0; index + 2 < shifted.length; index += 3) {
+      shifted[index] += offsetX;
+      shifted[index + 2] += offsetZ;
+    }
+    mesh.setVerticesData(
+      VertexBuffer.UVKind,
+      buildPlanarUVs(shifted, 1 / GRASS_TILE_M),
+    );
+  }
+
   private registerMirrorSurface(mesh: AbstractMesh | undefined | null) {
     if (mesh) this.mirrorAlways.push(mesh);
   }
@@ -14864,9 +15708,10 @@ class BabylonGameSession {
       "yard-grass-texture",
       yardPalette,
       hashStringToSeed("yard-grass"),
+      !this.lowSpec,
     );
-    yardGrassTexture.uScale = 180 / 16;
-    yardGrassTexture.vScale = 180 / 16;
+    yardGrassTexture.uScale = 180 / GRASS_TILE_M;
+    yardGrassTexture.vScale = 180 / GRASS_TILE_M;
     grass.diffuseTexture = yardGrassTexture;
     // Yard roads are stretched boxes whose 0..1 face UVs would smear a wear
     // texture across their full length; the yard keeps clean flat asphalt.

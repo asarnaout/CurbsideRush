@@ -1590,6 +1590,31 @@ export const MAP_PACKS: readonly MapPack[] = [
         { id: "nyc-v16", kind: "shop", anchor: { laneId: "nyc-106-w-amst", distanceAlongM: 80 }, footprint: point(16, 12), name: "West 106th Grocers" },
         { id: "nyc-v17", kind: "residence", anchor: { laneId: "nyc-cpw-s-96", distanceAlongM: 120 }, footprint: point(14, 12), name: "Central Park West Residences" },
       ],
+      // Central Park's lake, on the eastern half so it never fouls the
+      // promenade, and between two of the derived crossings so it never
+      // swallows a gate. A `WaterBody` rather than decoration: the adapter
+      // already emits a shoreline obstacle per polygon edge, so it is solid for
+      // free, and `parkLayouts` takes the same polygon as a planting keep-out.
+      // No `bridgePortalSurfaceIds`, so the shoreline has no vehicle opening.
+      waterBodies: [
+        {
+          id: "nyc-central-park-lake",
+          color: "#2f4a55",
+          polygon: [
+            point(490, -530),
+            point(462, -514),
+            point(450, -479),
+            point(453, -434),
+            point(459, -390),
+            point(479, -353),
+            point(505, -345),
+            point(524, -372),
+            point(530, -420),
+            point(525, -470),
+            point(512, -507),
+          ],
+        },
+      ],
       landmarks: [
         // Kept clear of the carriageways (a content test enforces this).
         { id: "nyc-verdi-green", kind: "park", center: point(-40, -455), size: point(40, 24), color: "#5c8c4b" },

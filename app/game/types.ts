@@ -1,6 +1,7 @@
 // Type-only: career.ts imports back from this module at runtime, but a
 // type-level cycle is erased at compile time.
 import type { CareerPersisted, CareerVehicleId } from "./career";
+import type { ParkStyle } from "./parkLayouts";
 
 export type TrafficSide = "left" | "right";
 export type SteeringSide = TrafficSide;
@@ -448,7 +449,18 @@ export interface ProceduralLandmark {
   readonly size: WorldPoint;
   /** Clockwise yaw for long diagonal landmarks such as elevated bridges. */
   readonly headingDeg?: number;
+  /**
+   * Ignored on `kind: "park"`, where every park shares one per-map grass
+   * material. Still colours every other landmark kind.
+   */
   readonly color: string;
+  /**
+   * Which dressing recipe a park takes (`parkLayouts.ts`). Absent means derived
+   * from the id, the map and the park's proportions, which is what lets a new
+   * city's park get a sensible layout with no content edit — set it only to
+   * overrule that.
+   */
+  readonly parkStyle?: ParkStyle;
 }
 
 /**
@@ -562,6 +574,7 @@ export type StaticObstacleTag =
   | "landmark"
   | "venue"
   | "shoreline"
+  | "parkEdge"
   | "worldEdge";
 
 /**

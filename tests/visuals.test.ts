@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAsphaltTextureSpec,
+  buildGrassDetailSpec,
   buildGrassTextureSpec,
   buildHorizonSilhouetteSpec,
   buildPlanarUVs,
@@ -205,6 +206,71 @@ describe("texture specs", () => {
     }
     const grass = buildGrassTextureSpec(11);
     expect(grass.blobs.length).toBeGreaterThan(100);
+  });
+
+  it("layers the grass spec from distance tones down to blades", () => {
+    const grass = buildGrassTextureSpec(11);
+    // Each layer answers a different viewing distance: patches survive
+    // mipping and carry the far read, blades carry the close one. Losing
+    // either is how the ground goes back to being one flat green card.
+    expect(grass.patches.length).toBeGreaterThan(8);
+    expect(grass.blades.length).toBeGreaterThan(1500);
+    expect(grass.flora.length).toBeGreaterThan(0);
+    expect(grass.bare.length).toBeGreaterThan(0);
+
+    for (const layer of [grass.patches, grass.bare, grass.flora]) {
+      for (const item of layer) {
+        expect(item.x).toBeGreaterThanOrEqual(0);
+        expect(item.x).toBeLessThan(1);
+        expect(item.y).toBeGreaterThanOrEqual(0);
+        expect(item.y).toBeLessThan(1);
+        expect(item.r).toBeGreaterThan(0);
+      }
+    }
+    for (const patch of grass.patches) {
+      expect(patch.tone).toBeGreaterThanOrEqual(0);
+      expect(patch.tone).toBeLessThan(3);
+    }
+    for (const blade of grass.blades) {
+      expect(blade.x).toBeGreaterThanOrEqual(0);
+      expect(blade.x).toBeLessThan(1);
+      expect(blade.y).toBeGreaterThanOrEqual(0);
+      expect(blade.y).toBeLessThan(1);
+      expect(blade.length).toBeGreaterThan(0);
+      expect(blade.width).toBeGreaterThan(0);
+      // The painter indexes a four-entry ramp and steps one lighter for the
+      // tip, so an out-of-range tone would silently paint the wrong colour.
+      expect(blade.tone).toBeGreaterThanOrEqual(0);
+      expect(blade.tone).toBeLessThan(4);
+    }
+  });
+
+  it("leans blades together rather than pointing them randomly", () => {
+    // A lawn is read by its combing. Uniformly random angles paint noise, so
+    // the correlation is the effect — assert it rather than trusting it.
+    const blades = buildGrassTextureSpec(11).blades;
+    const meanX =
+      blades.reduce((sum, blade) => sum + Math.cos(blade.angle), 0) /
+      blades.length;
+    const meanY =
+      blades.reduce((sum, blade) => sum + Math.sin(blade.angle), 0) /
+      blades.length;
+    // Circular mean resultant length: ~0 for uniform angles, 1 for identical.
+    expect(Math.hypot(meanX, meanY)).toBeGreaterThan(0.5);
+  });
+
+  it("builds a deterministic mid-grey detail spec", () => {
+    expect(buildGrassDetailSpec(5)).toEqual(buildGrassDetailSpec(5));
+    const detail = buildGrassDetailSpec(5);
+    expect(detail.length).toBeGreaterThan(100);
+    // Coarser than the base tile's blades: it is sampled at a ~3 m repeat
+    // against the base tile's 12 m, so equal-sized strokes would vanish.
+    const base = buildGrassTextureSpec(5).blades;
+    const mean = (values: readonly number[]) =>
+      values.reduce((sum, value) => sum + value, 0) / values.length;
+    expect(mean(detail.map((blade) => blade.width))).toBeGreaterThan(
+      mean(base.map((blade) => blade.width)),
+    );
   });
 });
 

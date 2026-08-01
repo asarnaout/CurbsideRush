@@ -8,7 +8,7 @@ npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run build:static # + prerendered index.html for a static host
 npm run typecheck    # tsc --noEmit, ~3s
 npm run lint         # eslint, ~11s
-npm test             # vitest run: 76 files, 1219 tests, ~2min
+npm test             # vitest run: 79 files, 1322 tests, ~2min
 ```
 
 Node >= 22.13 (repo currently runs v26). **There is no CI** — no `.github/`,
@@ -22,7 +22,7 @@ seeds × 60 s of sim). Everything else runs in ~12 s. Use the fast loop while
 iterating, the full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 75 files / 1217 tests in ~12s
+# everything except the acceptance test -> 78 files / 1320 tests in ~12s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts -t "reverses off"   # one file, -t filters by substring
