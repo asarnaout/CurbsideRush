@@ -32,7 +32,16 @@ import {
   FULL_CONDITION_PCT,
   damageForCollision,
 } from "../app/game/damage";
-import { careerCityIndex, careerFare, careerGigSeedBase } from "../app/game/career";
+import {
+  careerCityIndex,
+  careerFare,
+  careerGigSeedBase,
+  cityRating,
+  createCityState,
+  EMPTY_RATING,
+  RATING_MIN_RATED,
+} from "../app/game/career";
+import { gigRating } from "../app/game/dispatch";
 import { resolveGigAddresses, resolveGigVenues } from "../app/game/gigPools";
 import {
   gasStationPumpPositions,
@@ -1774,6 +1783,190 @@ describe("dispatch: a job from offer to payout", () => {
     expect(screen.queryByTestId("queued-gig")).not.toBeInTheDocument();
     expect(screen.queryByTestId("dispatch-idle")).not.toBeInTheDocument();
     expect(screen.getByTestId("drive-status-card")).toHaveTextContent("PICK UP");
+  });
+});
+
+describe("what the customers thought", () => {
+  /** The seeded career's first job is a delivery, and its customer does rate. */
+  const CAREER_SEED = 4_242;
+
+  const startSeededDay = async (slice: CareerSliceV2) => {
+    seedProgressWithCareer(slice);
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    // The bicycle is free and deliveries-only, so rent never muddies the sums.
+    fireEvent.click(screen.getByTestId("garage-vehicle-bicycle"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+  };
+
+  /** Runs the day's first offer all the way to its payout. */
+  const runFirstDelivery = (): Gig => {
+    const expected = firstOfferOf("us-nyc", CAREER_SEED);
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
+    mockStop.x = expected.pickup.x;
+    mockStop.z = expected.pickup.z;
+    fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    mockStop.x = expected.dropoff.x;
+    mockStop.z = expected.dropoff.z;
+    fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    return expected;
+  };
+
+  /** A window of flat one-star gigs — the worst a city can think of a driver. */
+  const bottomedOut = (notice: boolean) => ({
+    recent: Array.from({ length: RATING_MIN_RATED }, () => 1),
+    ratedTotal: 40,
+    notice,
+  });
+
+  it("shows the standing in the garage and only in the garage", async () => {
+    // The one place it is ever readable. Seeded well past the minimum so the
+    // card has a real average rather than its unrated state.
+    seedProgressWithCareer(
+      careerIn("us-nyc", CAREER_SEED, {
+        cash: 100,
+        rating: {
+          recent: Array.from({ length: 20 }, (_, index) => (index % 5 === 0 ? 4 : 5)),
+          ratedTotal: 31,
+          notice: false,
+          previousAverage: 4.5,
+        },
+      }),
+    );
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+
+    expect(screen.getByTestId("garage-rating-value")).toHaveTextContent("4.80");
+    expect(screen.getByTestId("garage-rating-grade")).toHaveTextContent("EXCELLENT");
+    expect(screen.getByTestId("garage-rating")).toHaveTextContent("31 RATINGS");
+    expect(screen.getByTestId("garage-rating")).toHaveTextContent("NEW YORK CITY RATING");
+
+    // Start the day and it is gone again — a driver finds out how a trip went
+    // after the day is over, never with a customer still in the back.
+    fireEvent.click(screen.getByTestId("garage-vehicle-bicycle"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+    expect(screen.queryByTestId("garage-rating")).not.toBeInTheDocument();
+    expect(document.body.textContent ?? "").not.toMatch(
+      /★|⭐|\bstars?\b|\brating\b|\brated\b/i,
+    );
+  });
+
+  it("banks the day's stars on the city and says nothing while driving", async () => {
+    await startSeededDay(careerIn("us-nyc", CAREER_SEED, { cash: 100 }));
+    const expected = runFirstDelivery();
+
+    // The whole point of the feature's shape: the trip has just been rated and
+    // the drive screen must not breathe a word of it. If someone later adds a
+    // "⭐ 5" pill to the payout toast, this is what should stop them.
+    expect(document.body.textContent ?? "").not.toMatch(
+      /★|⭐|\bstars?\b|\brating\b|\brated\b/i,
+    );
+
+    fireEvent.click(screen.getByTestId("mock-hud-end"));
+    await screen.findByRole("heading", { name: /The day's reckoning/i });
+
+    // Nothing on the ledger either — the career page is where it is read.
+    expect(document.body.textContent ?? "").not.toMatch(
+      /★|⭐|\bstars?\b|\brating\b|\brated\b/i,
+    );
+
+    const settled = activeCity(storedCareer() as CareerSliceV2);
+    const stars = gigRating("delivery", expected.seed, {
+      promptness: 1,
+      violations: 0,
+    });
+    expect(stars).toBe(5);
+    expect(cityRating(settled).recent).toEqual([5]);
+    expect(cityRating(settled).ratedTotal).toBe(1);
+    expect(cityRating(settled).notice).toBe(false);
+  });
+
+  it("leaves a day the driver quit out of unrated", async () => {
+    // Career state saves at day boundaries only, so an abandoned day must take
+    // its stars with it — otherwise a bad run could be laundered by quitting.
+    await startSeededDay(careerIn("us-nyc", CAREER_SEED, { cash: 100 }));
+    runFirstDelivery();
+    await endDayEarly();
+
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    expect(cityRating(activeCity(storedCareer() as CareerSliceV2))).toEqual(
+      EMPTY_RATING,
+    );
+  });
+
+  it("pays a poorly-rated driver less for the very same job", async () => {
+    await startSeededDay(careerIn("us-nyc", CAREER_SEED, { cash: 100 }));
+    runFirstDelivery();
+    const wellRated = screen.getByTestId("day-cash").textContent ?? "";
+    cleanup();
+    window.localStorage.clear();
+    mockClock.ms = 0;
+
+    await startSeededDay(
+      careerIn("us-nyc", CAREER_SEED, { cash: 100, rating: bottomedOut(false) }),
+    );
+    runFirstDelivery();
+    const poorlyRated = screen.getByTestId("day-cash").textContent ?? "";
+
+    // Same seed, same job, same route: the only thing that moved is standing.
+    const money = (text: string) => Number(text.replace(/[^0-9.]/g, ""));
+    expect(money(poorlyRated)).toBeLessThan(money(wellRated));
+  });
+
+  it("warns a bottomed-out driver before it takes the city off them", async () => {
+    await startSeededDay(
+      careerIn("us-nyc", CAREER_SEED, { cash: 500, rating: bottomedOut(false) }),
+    );
+    fireEvent.click(screen.getByTestId("mock-hud-end"));
+
+    // The books balance, so the only thing at stake is standing — and the first
+    // night below the line is a warning, not the end.
+    await screen.findByRole("heading", { name: /The day's reckoning/i });
+    const warned = activeCity(storedCareer() as CareerSliceV2);
+    expect(warned.day).toBe(2);
+    expect(cityRating(warned).notice).toBe(true);
+  });
+
+  it("wipes a city whose customers have given up, and leaves the rest standing", async () => {
+    const slice = careerIn("us-nyc", CAREER_SEED, {
+      cash: 500,
+      day: 12,
+      ownedVehicleIds: ["compact-hatch"],
+      rating: bottomedOut(true),
+    });
+    await startSeededDay(
+      withCity(slice, "jp-tokyo", {
+        ...createCityState("jp"),
+        cash: 77_000,
+        ownedVehicleIds: ["sport-sedan"],
+      }),
+    );
+    fireEvent.click(screen.getByTestId("mock-hud-end"));
+
+    // Deactivated rather than bankrupt: the driver was solvent, and the report
+    // must not tell them the bank called it.
+    expect(
+      await screen.findByRole("heading", { name: /stopped calling/i }),
+    ).toBeVisible();
+    expect(screen.getByText("DEACTIVATED")).toBeVisible();
+
+    const stored = storedCareer() as CareerSliceV2;
+    const wiped = activeCity(stored);
+    expect(wiped.day).toBe(1);
+    expect(wiped.cash).toBe(US_START_CASH);
+    expect(wiped.ownedVehicleIds).toEqual([]);
+    expect(cityRating(wiped)).toEqual(EMPTY_RATING);
+
+    // Tokyo never noticed.
+    expect(stored.cities["jp-tokyo"]?.cash).toBe(77_000);
+    expect(stored.cities["jp-tokyo"]?.ownedVehicleIds).toEqual(["sport-sedan"]);
   });
 });
 

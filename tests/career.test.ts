@@ -25,9 +25,21 @@ import {
   careerDayTrafficSeed,
   careerFare,
   careerGigSeedBase,
+  averageRating,
+  cityRating,
   computeCareerChecksum,
   createCareerSlice,
   DAY_LENGTH_MS,
+  EMPTY_RATING,
+  foldRatings,
+  RATING_MIN_RATED,
+  RATING_NEUTRAL_STARS,
+  RATING_WINDOW,
+  ratingFareFactor,
+  ratingSearchStretch,
+  ratingStanding,
+  ratingTipFactor,
+  settleRating,
   DEFAULT_GARAGE_VEHICLE_ID,
   emptyDayLog,
   garageDefaultVehicle,
@@ -46,6 +58,7 @@ import {
   vehicleRent,
   withCity,
   type CareerCityState,
+  type CityRating,
   type CareerSliceV2,
   type CareerLoan,
   type DayLedgerInput,
@@ -414,6 +427,78 @@ describe("applySettlement", () => {
     expect(next.state).toBe("active");
     expect(parseCareerSlice(JSON.parse(JSON.stringify(next)))).toEqual(next);
   });
+
+  it("wipes a city whose standing is spent even when the books balance", () => {
+    // The two endings are independent: a driver can be solvent and still have
+    // run out of goodwill.
+    const career = withCity(baseSlice, "us-nyc", {
+      ...activeCity(baseSlice),
+      cash: 900,
+      day: 14,
+      ownedVehicleIds: ["compact-hatch"],
+      rating: { recent: [1, 1, 1, 1, 1, 1, 1], ratedTotal: 40, notice: true },
+    });
+    const solvent = settleDay({
+      cash: 500,
+      ledger: log(),
+      loan: null,
+      finalNotice: false,
+      platformFee: PLATFORM_FEE_BY_COUNTRY.us,
+      rule: "grace",
+    });
+    expect(solvent.outcome).toBe("solvent");
+
+    const rating = settleRating(cityRating(activeCity(career)), [1, 1]);
+    expect(rating.verdict).toBe("ended");
+    const next = applySettlement(career, log(), solvent, rating);
+
+    const wiped = activeCity(next);
+    expect(wiped.cash).toBe(CAREER_STARTING_CASH_BY_COUNTRY.us);
+    expect(wiped.day).toBe(1);
+    expect(wiped.ownedVehicleIds).toEqual([]);
+    // Including the standing itself: you start over here on a clean sheet.
+    expect(cityRating(wiped)).toEqual(EMPTY_RATING);
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(next)))).toEqual(next);
+  });
+
+  it("carries the night's standing onto the city it was earned in", () => {
+    const ledger = log({ gigsCompleted: 4, ratings: [5, 4, 5] });
+    const settlement = settleDay({
+      cash: 40,
+      ledger,
+      loan: null,
+      finalNotice: false,
+      platformFee: PLATFORM_FEE_BY_COUNTRY.us,
+      rule: "grace",
+    });
+    const rating = settleRating(cityRating(activeCity(baseSlice)), ledger.ratings);
+    const next = applySettlement(baseSlice, ledger, settlement, rating);
+    expect(cityRating(activeCity(next)).recent).toEqual([5, 4, 5]);
+    expect(cityRating(activeCity(next)).ratedTotal).toBe(3);
+  });
+
+  it("leaves standing untouched when only the money is settled", () => {
+    // Every caller that predates ratings, and every test of them, still reads
+    // exactly as it did.
+    const rated = withCity(baseSlice, "us-nyc", {
+      ...activeCity(baseSlice),
+      rating: { recent: [4, 4, 4], ratedTotal: 3, notice: false },
+    });
+    const settlement = settleDay({
+      cash: 40,
+      ledger: log(),
+      loan: null,
+      finalNotice: false,
+      platformFee: PLATFORM_FEE_BY_COUNTRY.us,
+      rule: "grace",
+    });
+    const next = applySettlement(rated, log(), settlement);
+    expect(cityRating(activeCity(next))).toEqual({
+      recent: [4, 4, 4],
+      ratedTotal: 3,
+      notice: false,
+    });
+  });
 });
 
 // Tips and par times moved to dispatch.ts when free drive started paying them
@@ -430,6 +515,134 @@ describe("fares", () => {
     expect(careerFare(20, "delivery", hatch)).toEqual({ gross: 20, net: 15 });
   });
 
+  it("prices a poorly-rated driver's work down, and everyone else's unchanged", () => {
+    const van = getCareerVehicle("delivery-van");
+    // The default is what free drive, an unrated driver and every balance test
+    // all price at — it must stay byte-identical.
+    expect(careerFare(21, "delivery", van, 1)).toEqual(careerFare(21, "delivery", van));
+    const worst = careerFare(100, "delivery", van, ratingFareFactor(ratingStanding(1)));
+    expect(worst.gross).toBe(113); // round(100 * 1.5 * 0.75)
+    expect(worst.gross).toBeLessThan(careerFare(100, "delivery", van).gross);
+  });
+});
+
+describe("standing", () => {
+  const rated = (stars: readonly number[], notice = false): CityRating => ({
+    recent: stars,
+    ratedTotal: stars.length,
+    notice,
+  });
+  const repeat = (stars: number, count: number): number[] =>
+    Array.from({ length: count }, () => stars);
+
+  it("withholds an average until the city has seen enough of the driver", () => {
+    expect(averageRating(EMPTY_RATING)).toBeNull();
+    expect(averageRating(rated(repeat(1, RATING_MIN_RATED - 1)))).toBeNull();
+    expect(averageRating(rated(repeat(1, RATING_MIN_RATED)))).toBe(1);
+  });
+
+  it("averages over the window, not over the career", () => {
+    expect(averageRating(rated([5, 5, 5, 5, 4, 4, 2]))).toBeCloseTo(30 / 7, 6);
+  });
+
+  it("drops the oldest star once the window is full", () => {
+    const full = foldRatings(EMPTY_RATING, repeat(1, RATING_WINDOW));
+    const rolled = foldRatings(full, [5, 5]);
+    expect(rolled.recent).toHaveLength(RATING_WINDOW);
+    expect(rolled.recent.slice(-2)).toEqual([5, 5]);
+    // The lifetime count keeps climbing even as the window forgets.
+    expect(rolled.ratedTotal).toBe(RATING_WINDOW + 2);
+  });
+
+  it("leaves the window alone on a day nobody rated", () => {
+    const some = foldRatings(EMPTY_RATING, [4, 5]);
+    expect(foldRatings(some, [])).toBe(some);
+  });
+
+  it("remembers what the average was, so the garage can say which way it moved", () => {
+    // Captured on the way in, which is the only moment it exists — afterwards
+    // the window cannot tell which of its entries arrived last night.
+    const first = foldRatings(EMPTY_RATING, repeat(4, RATING_MIN_RATED));
+    expect(first.previousAverage).toBeNull(); // nothing to compare a first day to
+    const second = foldRatings(first, [5, 5, 5]);
+    expect(second.previousAverage).toBe(4);
+    expect(averageRating(second)).toBeGreaterThan(4);
+  });
+
+  it("holds an unrated driver at full standing", () => {
+    // No rating is not a bad rating — a first afternoon must cost nothing.
+    expect(ratingStanding(null)).toBe(1);
+    expect(ratingSearchStretch(ratingStanding(null))).toBe(1);
+    expect(ratingFareFactor(ratingStanding(null))).toBe(1);
+    expect(ratingTipFactor(ratingStanding(null))).toBe(1);
+  });
+
+  it("costs nothing at all down to the neutral mark, then ramps", () => {
+    expect(ratingStanding(5)).toBe(1);
+    expect(ratingStanding(RATING_NEUTRAL_STARS)).toBe(1);
+    expect(ratingStanding(1)).toBe(0);
+    expect(ratingStanding(0.2)).toBe(0);
+    const middling = ratingStanding(3);
+    expect(middling).toBeGreaterThan(0);
+    expect(middling).toBeLessThan(1);
+  });
+
+  it("bites hardest on tips and least on the fare", () => {
+    const worst = ratingStanding(1);
+    expect(ratingSearchStretch(worst)).toBeCloseTo(2.5, 6);
+    expect(ratingFareFactor(worst)).toBeCloseTo(0.75, 6);
+    expect(ratingTipFactor(worst)).toBeCloseTo(0.4, 6);
+    // Monotone, so improving is never punished.
+    for (const [low, high] of [[1, 2], [2, 3], [3, 4], [4, 5]]) {
+      expect(ratingSearchStretch(ratingStanding(high))).toBeLessThanOrEqual(
+        ratingSearchStretch(ratingStanding(low)),
+      );
+      expect(ratingFareFactor(ratingStanding(high))).toBeGreaterThanOrEqual(
+        ratingFareFactor(ratingStanding(low)),
+      );
+      expect(ratingTipFactor(ratingStanding(high))).toBeGreaterThanOrEqual(
+        ratingTipFactor(ratingStanding(low)),
+      );
+    }
+  });
+
+  it("cannot raise a notice on a driver the city has barely met", () => {
+    // Six flat one-star gigs is not yet an average, so it is not yet a verdict.
+    const settled = settleRating(EMPTY_RATING, repeat(1, RATING_MIN_RATED - 1));
+    expect(settled.average).toBeNull();
+    expect(settled.verdict).toBe("clear");
+    expect(settled.rating.notice).toBe(false);
+  });
+
+  it("warns once before it ends a run", () => {
+    const first = settleRating(EMPTY_RATING, repeat(1, RATING_MIN_RATED));
+    expect(first.average).toBe(1);
+    expect(first.verdict).toBe("warned");
+    expect(first.rating.notice).toBe(true);
+
+    const second = settleRating(first.rating, [1, 1]);
+    expect(second.verdict).toBe("ended");
+  });
+
+  it("lets a driver work their way back out of a standing warning", () => {
+    // The warning has to be answerable, or it is a countdown rather than a
+    // chance — unlike the loan's final notice, one good stretch clears it.
+    const warned = settleRating(EMPTY_RATING, repeat(1, RATING_MIN_RATED));
+    expect(warned.verdict).toBe("warned");
+    const recovered = settleRating(warned.rating, repeat(5, 12));
+    expect(recovered.verdict).toBe("clear");
+    expect(recovered.rating.notice).toBe(false);
+    // And the strike is genuinely spent: falling back only warns again.
+    expect(settleRating(recovered.rating, repeat(1, 60)).verdict).toBe("warned");
+  });
+
+  it("ends only at or below the threshold, never just short of it", () => {
+    const warned = rated(repeat(2, RATING_MIN_RATED), true);
+    expect(settleRating(warned, []).verdict).toBe("clear");
+    expect(
+      settleRating(rated(repeat(1, RATING_MIN_RATED), true), []).verdict,
+    ).toBe("ended");
+  });
 });
 
 describe("checksum and slice codec", () => {
@@ -500,6 +713,66 @@ describe("checksum and slice codec", () => {
     };
     tampered.cities["uk-london"].cash += 1;
     expect(parseCareerSlice(tampered)).toEqual({ state: "corrupt" });
+  });
+
+  it("still opens a career saved before ratings existed", () => {
+    // The field is optional precisely so this keeps working: a version bump
+    // would have decoded every career on disk to null and silently wiped it.
+    const legacy = JSON.parse(JSON.stringify(slice)) as {
+      cities: Record<string, Record<string, unknown>>;
+      checksum: string;
+    };
+    delete legacy.cities["uk-london"].rating;
+    legacy.checksum = computeCareerChecksum(
+      legacy as unknown as Omit<CareerSliceV2, "checksum">,
+    );
+
+    const parsed = parseCareerSlice(legacy);
+    if (parsed === null || parsed.state === "corrupt") {
+      throw new Error("a career saved before ratings should still open");
+    }
+    const city = parsed.cities["uk-london"];
+    expect(city?.rating).toBeUndefined();
+    // And reads as unrated everywhere rather than as an undefined each caller
+    // has to remember to handle.
+    expect(cityRating(city as CareerCityState)).toEqual(EMPTY_RATING);
+  });
+
+  it("carries a rating through a write, a save and a load", () => {
+    // withCity rebuilds the city through cityStateOf, which enumerates its
+    // fields — a field missing from that list is dropped on every write with
+    // no type error and no failing typecheck to show for it.
+    const rated = withCity(slice, "uk-london", {
+      ...activeCity(slice),
+      rating: { recent: [5, 4, 5, 3, 2, 5, 4], ratedTotal: 31, notice: true },
+    });
+    expect(rated.cities["uk-london"]?.rating).toEqual({
+      recent: [5, 4, 5, 3, 2, 5, 4],
+      ratedTotal: 31,
+      notice: true,
+    });
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(rated)))).toEqual(rated);
+  });
+
+  it("reads a doctored rating as corrupt rather than clamping it", () => {
+    const rated = withCity(slice, "uk-london", {
+      ...activeCity(slice),
+      rating: { recent: [1, 1, 1], ratedTotal: 3, notice: true },
+    });
+    const forged = JSON.parse(JSON.stringify(rated)) as {
+      cities: Record<string, { rating: { recent: number[] } }>;
+    };
+    forged.cities["uk-london"].rating.recent = [5, 5, 5];
+    expect(parseCareerSlice(forged)).toEqual({ state: "corrupt" });
+
+    // Out-of-range stars are structurally wrong, checksum or no checksum.
+    const impossible = withCity(slice, "uk-london", {
+      ...activeCity(slice),
+      rating: { recent: [9], ratedTotal: 1, notice: false },
+    });
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(impossible)))).toEqual({
+      state: "corrupt",
+    });
   });
 
   it("is independent of key insertion order", () => {

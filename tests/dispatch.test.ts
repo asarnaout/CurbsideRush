@@ -6,11 +6,13 @@ import {
   FOOD_TIP_MIN_RATE,
   foodSpeedBonus,
   gigParMs,
+  gigRating,
   offerElapsedFraction,
   offerRemainingMs,
   OFFER_WINDOW_MS,
   PAR_MIN_MS,
   quotedTip,
+  RATING_SILENCE_CHANCE,
   RIDE_TIP_MAX_RATE,
   ridePromptness,
   rideTip,
@@ -27,7 +29,9 @@ import {
   SURGE_TIP_FACTOR,
   surgeWindowAt,
   type DispatchState,
+  type GigRatingInputs,
 } from "../app/game/dispatch";
+import type { GigKind } from "../app/game/gigs";
 
 /** Steps dispatch forward in 100 ms ticks, the rate the HUD publishes at. */
 function run(
@@ -394,6 +398,152 @@ describe("rideshare tips", () => {
       const plain = rideTip(2_000, seed, clean);
       const surged = rideTip(2_000, seed, { ...clean, surged: true });
       if (plain > 1) expect(surged).toBeLessThan(plain);
+    }
+  });
+});
+
+describe("a stretched search", () => {
+  it("leaves an unstretched caller exactly where it was", () => {
+    // Free drive and a driver in good standing both pass 1, and neither may
+    // move by so much as a millisecond.
+    for (let seed = 1; seed <= 500; seed += 1) {
+      expect(searchDelayMs(seed, 1)).toBe(searchDelayMs(seed));
+    }
+    const state = createDispatch(9);
+    expect(stepDispatch(state, 0, true, 1)).toEqual(stepDispatch(state, 0, true));
+  });
+
+  it("makes the quiet spells longer without moving what is offered", () => {
+    for (const seed of [4, 88, 1_507]) {
+      const plain = searchDelayMs(seed);
+      const stretched = searchDelayMs(seed, 2.5);
+      expect(stretched).toBeGreaterThan(plain);
+      // Scaled before the rounding, so within a millisecond of the product.
+      expect(Math.abs(stretched - plain * 2.5)).toBeLessThanOrEqual(1);
+    }
+    // The seed still advances one per offer opened, so a poorly-rated driver
+    // sees the same jobs, just fewer of them in a day.
+    const opened = stepDispatch(createDispatch(3), 0, true, 3);
+    expect(opened.state.offerSeed).toBe(3);
+  });
+
+  it("never shortens a wait, whatever it is handed", () => {
+    for (const seed of [4, 88, 1_507]) {
+      expect(searchDelayMs(seed, 0)).toBe(searchDelayMs(seed));
+      expect(searchDelayMs(seed, -5)).toBe(searchDelayMs(seed));
+    }
+  });
+
+  it("holds the stretch across an expiry and an answered offer alike", () => {
+    const offered = stepDispatch(createDispatch(1), 0, true, 2).state;
+    const expired = stepDispatch(offered, OFFER_WINDOW_MS, true, 2);
+    const answered = resolveOffer(offered, OFFER_WINDOW_MS, 2);
+    expect(expired.event).toBe("expired");
+    expect(expired.state.nextOfferAtMs).toBe(answered.nextOfferAtMs);
+    expect(expired.state.nextOfferAtMs - OFFER_WINDOW_MS).toBe(
+      searchDelayMs(offered.offerSeed + 1, 2),
+    );
+  });
+});
+
+describe("customer star ratings", () => {
+  const SEEDS = Array.from({ length: 4_000 }, (_, index) => index + 1);
+  const onTime = { promptness: 1, violations: 0 };
+
+  /** Mean stars over every seed that produced one, so a whole curve can be read. */
+  const meanStars = (kind: GigKind, inputs: GigRatingInputs): number => {
+    const stars = SEEDS.map((seed) => gigRating(kind, seed, inputs)).filter(
+      (value): value is number => value !== null,
+    );
+    return stars.reduce((sum, value) => sum + value, 0) / stars.length;
+  };
+
+  it("gives one gig one answer, however often it is asked", () => {
+    // Load-bearing: a career day quit half-way and replayed must award the same
+    // stars, or the persisted average would depend on how often a day was
+    // abandoned rather than on how it was driven.
+    for (const seed of [1, 97, 4_513]) {
+      const first = gigRating("passenger", seed, { promptness: 0.6, violations: 2 });
+      expect(gigRating("passenger", seed, { promptness: 0.6, violations: 2 })).toBe(first);
+    }
+  });
+
+  it("is a whole number of stars in range, or nothing at all", () => {
+    for (const seed of SEEDS) {
+      for (const kind of ["passenger", "delivery"] as const) {
+        const stars = gigRating(kind, seed, { promptness: 0.4, violations: 3 });
+        if (stars === null) continue;
+        expect(Number.isInteger(stars)).toBe(true);
+        expect(stars).toBeGreaterThanOrEqual(1);
+        expect(stars).toBeLessThanOrEqual(5);
+      }
+    }
+  });
+
+  it("leaves about a quarter of customers saying nothing", () => {
+    const silent = SEEDS.filter((seed) => gigRating("passenger", seed, onTime) === null);
+    expect(silent.length / SEEDS.length).toBeCloseTo(RATING_SILENCE_CHANCE, 1);
+  });
+
+  it("decides who rates without regard to what they would have said", () => {
+    // Separate salts, so the 25% who stay quiet are not the 25% who had the
+    // worst rides — which would quietly flatter every average.
+    const silentAfterAGoodRun = SEEDS.filter(
+      (seed) => gigRating("passenger", seed, onTime) === null,
+    );
+    const silentAfterADisaster = SEEDS.filter(
+      (seed) => gigRating("passenger", seed, { promptness: 0, violations: 9 }) === null,
+    );
+    expect(silentAfterADisaster).toEqual(silentAfterAGoodRun);
+  });
+
+  it("sits near the top of the scale for a clean run on both kinds of work", () => {
+    expect(meanStars("passenger", onTime)).toBeGreaterThan(4.6);
+    expect(meanStars("delivery", onTime)).toBeGreaterThan(4.6);
+  });
+
+  it("falls with the clock on both kinds of work", () => {
+    for (const kind of ["passenger", "delivery"] as const) {
+      const fast = meanStars(kind, { promptness: 1, violations: 0 });
+      const middling = meanStars(kind, { promptness: 0.5, violations: 0 });
+      const slow = meanStars(kind, { promptness: 0, violations: 0 });
+      expect(middling).toBeLessThan(fast);
+      expect(slow).toBeLessThan(middling);
+    }
+  });
+
+  it("sinks a rider's verdict for every rule broken with them aboard", () => {
+    const none = meanStars("passenger", onTime);
+    const one = meanStars("passenger", { ...onTime, violations: 1 });
+    const three = meanStars("passenger", { ...onTime, violations: 3 });
+    expect(one).toBeLessThan(none);
+    expect(three).toBeLessThan(one);
+    // Heavily, per the brief: three rules broken on an otherwise perfect run
+    // costs a rider the better part of a star and a half.
+    expect(none - three).toBeGreaterThan(1.3);
+  });
+
+  it("does not hold the driving against a delivery customer's rating", () => {
+    // They were never in the car. All they know is when their food turned up.
+    expect(meanStars("delivery", { ...onTime, violations: 6 })).toBe(
+      meanStars("delivery", onTime),
+    );
+  });
+
+  it("can be driven to one star on either kind of work", () => {
+    // The city-ending threshold has to be reachable from both, or a courier who
+    // only ever takes deliveries could never lose their standing however badly
+    // they drove.
+    expect(meanStars("delivery", { promptness: 0, violations: 0 })).toBeLessThan(1.5);
+    expect(meanStars("passenger", { promptness: 0, violations: 8 })).toBeLessThan(1.5);
+  });
+
+  it("cannot be pushed out of range by nonsense inputs", () => {
+    for (const seed of SEEDS.slice(0, 200)) {
+      const impossible = gigRating("passenger", seed, { promptness: 9, violations: -4 });
+      const catastrophic = gigRating("passenger", seed, { promptness: -9, violations: 400 });
+      if (impossible !== null) expect(impossible).toBeLessThanOrEqual(5);
+      if (catastrophic !== null) expect(catastrophic).toBeGreaterThanOrEqual(1);
     }
   });
 });

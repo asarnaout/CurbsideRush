@@ -10,10 +10,14 @@ import type { CountryProfile, DestinationId } from "./game/types";
 import { formatMoney } from "./game/content";
 import {
   activeCity,
+  averageRating,
   buyableVehicles,
   buyoutPrice,
   canBuyVehicle,
+  cityRating,
   CAREER_CITIES,
+  RATING_END_THRESHOLD,
+  RATING_MIN_RATED,
   CAREER_STARTING_CASH_BY_COUNTRY,
   CAREER_VEHICLES,
   nextCareerCity,
@@ -26,6 +30,7 @@ import {
   type CareerCityView,
   type CareerSliceV2,
   type CareerVehicleId,
+  type CityRating,
   type LedgerLine,
   type SettlementResult,
 } from "./game/career";
@@ -35,6 +40,134 @@ export function formatClock(ms: number): string {
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+/**
+ * How the rating card reads. Five bands, worst first — `unrated` is its own,
+ * not a low score, because a driver nobody has rated yet is under no cloud.
+ */
+export type RatingTone =
+  | "unrated"
+  | "critical"
+  | "shaky"
+  | "slipping"
+  | "good"
+  | "excellent";
+
+/** Which way the average moved at the last settlement. */
+export type RatingTrend = "up" | "down" | "level";
+
+/**
+ * Everything the garage's rating card draws, already worded and rounded.
+ *
+ * Pure and flat in the style of {@link careerCardModel}, so every band and
+ * every line of copy is unit-testable without rendering a thing.
+ */
+export interface GarageRatingModel {
+  readonly tone: RatingTone;
+  /** The average to two places, or null while there is not yet one. */
+  readonly average: number | null;
+  readonly averageText: string;
+  /** 0→1 across the 1–5 scale, for the bar's fill. */
+  readonly fill: number;
+  /** Where the termination line sits on that same scale, for the bar's tick. */
+  readonly floorMark: number;
+  readonly gradeLabel: string;
+  readonly trend: RatingTrend;
+  /** What is at stake, left of the count. */
+  readonly floorLabel: string;
+  /** True while the city is one bad settlement from taking itself away. */
+  readonly atRisk: boolean;
+  /** The last warning stands — the card alarms rather than merely darkening. */
+  readonly noticed: boolean;
+  /** Null when there is no room for it, which is when the warning is longer. */
+  readonly countLabel: string | null;
+  /** Read aloud in place of the graph, which screen readers cannot use. */
+  readonly announcement: string;
+}
+
+const GRADE_LABELS: Readonly<Record<RatingTone, string>> = {
+  unrated: "UNRATED",
+  critical: "CRITICAL",
+  shaky: "SHAKY",
+  slipping: "SLIPPING",
+  good: "GOOD",
+  excellent: "EXCELLENT",
+};
+
+/** Two places everywhere: a star rating that moves in tenths reads as a guess. */
+const stars = (value: number): string => value.toFixed(2);
+
+function ratingTone(average: number | null): RatingTone {
+  if (average === null) return "unrated";
+  if (average >= 4.5) return "excellent";
+  if (average >= 4) return "good";
+  if (average >= 3) return "slipping";
+  if (average >= 2) return "shaky";
+  return "critical";
+}
+
+/**
+ * Derives the card from a city's standing.
+ *
+ * The floor copy is worded off `RATING_END_THRESHOLD` rather than a literal,
+ * because a card that names the wrong number is worse than one that names none
+ * — and that constant is meant to be tunable in `career.ts`.
+ */
+export function garageRatingModel(rating: CityRating): GarageRatingModel {
+  const average = averageRating(rating);
+  const tone = ratingTone(average);
+  const previous = rating.previousAverage;
+  const delta = average !== null && previous != null ? average - previous : 0;
+  // A hundredth is the smallest move the card can show, so anything under it is
+  // level rather than an arrow pointing at a digit that did not change.
+  const trend: RatingTrend = delta >= 0.005 ? "up" : delta <= -0.005 ? "down" : "level";
+
+  if (average === null) {
+    const togo = RATING_MIN_RATED - rating.recent.length;
+    return {
+      tone,
+      average: null,
+      averageText: "—",
+      fill: 0,
+      floorMark: (RATING_END_THRESHOLD - 1) / 4,
+      gradeLabel: GRADE_LABELS.unrated,
+      trend: "level",
+      floorLabel: `RATED AFTER ${RATING_MIN_RATED} JOBS`,
+      atRisk: false,
+      noticed: false,
+      countLabel: `${rating.recent.length} OF ${RATING_MIN_RATED}`,
+      announcement: `Not rated yet — ${togo} more rated ${togo === 1 ? "job" : "jobs"} to go.`,
+    };
+  }
+
+  // Below this the warning takes the whole line and the count gives up its
+  // place: how close the driver is to losing the city outranks how many people
+  // put them there.
+  const atRisk = average < 2.5;
+  const noticed = rating.notice;
+  const floorLabel = noticed
+    ? "ONE BAD NIGHT FROM OUT"
+    : atRisk
+      ? `${stars(average - RATING_END_THRESHOLD)} ABOVE TERMINATION`
+      : `OUT AT ${stars(RATING_END_THRESHOLD)}`;
+
+  return {
+    tone,
+    average,
+    averageText: stars(average),
+    fill: (average - 1) / 4,
+    floorMark: (RATING_END_THRESHOLD - 1) / 4,
+    gradeLabel: GRADE_LABELS[tone],
+    trend,
+    floorLabel,
+    atRisk,
+    noticed,
+    countLabel: atRisk
+      ? null
+      : `${rating.ratedTotal} ${rating.ratedTotal === 1 ? "RATING" : "RATINGS"}`,
+    announcement: `${stars(average)} stars, ${GRADE_LABELS[tone].toLowerCase()}, over ${rating.ratedTotal} rated ${rating.ratedTotal === 1 ? "job" : "jobs"}.`,
+  };
 }
 
 const LEDGER_LABELS: Record<LedgerLine["kind"], string> = {
@@ -88,6 +221,85 @@ const cardStyle: React.CSSProperties = {
   color: "inherit",
 };
 
+/**
+ * The city's opinion of the driver, shown in the garage and **only** there.
+ *
+ * This is the one place a rating is ever readable: nothing about it reaches the
+ * drive screen, by design — a driver finds out how a day went after it is over,
+ * not while a customer is still in the back.
+ *
+ * Presentational. Every band, every number and every line of copy arrives from
+ * {@link garageRatingModel}.
+ */
+export function GarageRating({
+  model,
+  cityName,
+}: {
+  model: GarageRatingModel;
+  cityName: string;
+}) {
+  return (
+    <div
+      className="garage-rating"
+      data-tone={model.tone}
+      data-noticed={model.noticed ? "true" : undefined}
+      data-testid="garage-rating"
+    >
+      <div className="garage-rating-head">
+        <span className="garage-rating-label">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
+          {cityName.toUpperCase()} RATING
+        </span>
+        <span className="garage-rating-grade" data-testid="garage-rating-grade">
+          {model.gradeLabel}
+          {model.trend !== "level" && (
+            <span
+              className="garage-rating-trend"
+              data-dir={model.trend}
+              aria-label={model.trend === "up" ? "up since yesterday" : "down since yesterday"}
+            >
+              {model.trend === "up" ? "▲" : "▼"}
+            </span>
+          )}
+        </span>
+      </div>
+
+      <div className="garage-rating-body">
+        <span className="garage-rating-score">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+          <b data-testid="garage-rating-value">{model.averageText}</b>
+        </span>
+        <div className="garage-rating-gauge">
+          {/* The bar is decoration over the announcement — a fill percentage and
+              a tick are nothing a screen reader can read out. */}
+          <div className="garage-rating-track" aria-hidden="true">
+            <div
+              className="garage-rating-fill"
+              style={{ width: `${(model.fill * 100).toFixed(1)}%` }}
+            />
+            <div
+              className="garage-rating-floor-mark"
+              style={{ left: `${(model.floorMark * 100).toFixed(1)}%` }}
+            />
+          </div>
+          <div className="garage-rating-meta">
+            <span className="garage-rating-floor">
+              {model.atRisk && (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+              )}
+              {model.floorLabel}
+            </span>
+            {model.countLabel !== null && (
+              <span className="garage-rating-count">{model.countLabel}</span>
+            )}
+          </div>
+        </div>
+      </div>
+      <span className="sr-only">{model.announcement}</span>
+    </div>
+  );
+}
+
 export function GarageView({
   slice,
   city,
@@ -139,11 +351,17 @@ export function GarageView({
             already spent. Buy one outright and the rent stops for good.
           </p>
         </div>
-        <div className="garage-cash">
-          <span className="garage-cash-label">CASH ON HAND</span>
-          <span className="garage-cash-value" data-testid="garage-cash">
-            {formatMoney(city.cash, country)}
-          </span>
+        <div className="garage-head-stats">
+          <GarageRating
+            model={garageRatingModel(cityRating(city))}
+            cityName={cityName}
+          />
+          <div className="garage-cash">
+            <span className="garage-cash-label">CASH ON HAND</span>
+            <span className="garage-cash-value" data-testid="garage-cash">
+              {formatMoney(city.cash, country)}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -640,19 +858,35 @@ export function LedgerView({
   );
 }
 
+/**
+ * Why the city was taken away. Both endings wipe identically — the difference
+ * is only what the driver is told, and telling them the bank called it when it
+ * was their customers would be a plain lie.
+ */
+export type CareerOverReason = "bankruptcy" | "rating";
+
 export function CareerOverView({
   city,
   cityName,
   country,
+  reason = "bankruptcy",
   onContinue,
 }: {
   /** The city as it stood the morning of the day that broke it. */
   city: CareerCityView;
   cityName: string;
   country: CountryProfile;
+  reason?: CareerOverReason;
   onContinue: () => void;
 }) {
   const stats = city.stats;
+  const startingOver = (
+    <>
+      Your {cityName} fleet is repossessed and you start over here on{" "}
+      {formatMoney(CAREER_STARTING_CASH_BY_COUNTRY[city.countryId], country)}
+      {" "}— but only here. Every other city is exactly as you left it.
+    </>
+  );
   const rows: readonly (readonly [string, string])[] = [
     ["Days worked here", String(stats.daysCompleted)],
     ["Gigs completed", String(stats.gigsCompleted)],
@@ -667,13 +901,23 @@ export function CareerOverView({
     <section className="subpage" aria-label="Career over">
       <div className="subpage-heading">
         <div>
-          <p className="eyebrow">WIPED OUT</p>
-          <h1>{cityName} took everything.</h1>
+          <p className="eyebrow">
+            {reason === "rating" ? "DEACTIVATED" : "WIPED OUT"}
+          </p>
+          <h1>
+            {reason === "rating"
+              ? `${cityName} stopped calling.`
+              : `${cityName} took everything.`}
+          </h1>
           <p>
-            The bank called it on day {city.day}. Your {cityName} fleet is
-            repossessed and you start over here on{" "}
-            {formatMoney(CAREER_STARTING_CASH_BY_COUNTRY[city.countryId], country)}
-            {" "}— but only here. Every other city is exactly as you left it.
+            {reason === "rating" ? (
+              <>
+                Your rating bottomed out on day {city.day} and the platform cut
+                you loose. {startingOver}
+              </>
+            ) : (
+              <>The bank called it on day {city.day}. {startingOver}</>
+            )}
           </p>
         </div>
       </div>

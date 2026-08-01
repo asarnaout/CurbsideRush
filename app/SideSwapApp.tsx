@@ -67,6 +67,7 @@ import {
   careerGigSeedBase,
   careerCityIndex,
   canBuyVehicle,
+  cityRating,
   createCareerSlice,
   ticketPrice,
   travelTo,
@@ -78,7 +79,13 @@ import {
   PLATFORM_FEE_BY_COUNTRY,
   ROADSIDE_CALLOUT_FEE_BY_COUNTRY,
   ROADSIDE_PRICE_FACTOR,
+  averageRating,
+  ratingFareFactor,
+  ratingSearchStretch,
+  ratingStanding,
+  ratingTipFactor,
   settleDay,
+  settleRating,
   vehicleRent,
 } from "./game/career";
 import type {
@@ -87,6 +94,7 @@ import type {
   CareerVehicleId,
   CareerVehicleSpec,
   DayLedgerInput,
+  RatingSettlement,
   SettlementResult,
 } from "./game/career";
 import {
@@ -171,6 +179,7 @@ import {
   createDispatch,
   foodSpeedBonus,
   gigParMs,
+  gigRating,
   OFFER_WINDOW_MS,
   quotedTip,
   SURGE_FARE_MULTIPLIER,
@@ -234,6 +243,17 @@ interface CareerRun {
   readonly city: CareerCityView;
   readonly vehicleId: CareerVehicleId;
   readonly vehicle: CareerVehicleSpec;
+  /**
+   * The morning's standing, 0→1, resolved once and held all day.
+   *
+   * Read at the garage rather than live off the slice for three reasons, each
+   * on its own sufficient. It cannot leak feedback: work arriving faster
+   * mid-shift would tell the driver a customer had just rated them, which is
+   * exactly what the drive screen is supposed to withhold. It keeps the day
+   * replayable, since a retried day resolves the same number. And it is one
+   * read instead of three that could disagree.
+   */
+  readonly ratingStanding: number;
 }
 
 const GameCanvas = dynamic(() => import("./game/GameCanvas"), {
@@ -442,6 +462,10 @@ function nextGigFor(
  * food order was tipped when it was placed and may add a little for a quick
  * run, while a rider decides on the way — against how long the trip took and
  * how many rules were broken with them in the car.
+ *
+ * `ratingFactor` is the career driver's standing and defaults to 1, which is
+ * what free drive passes. It is applied here rather than inside `dispatch.ts`
+ * because that module is shared with free drive and knows nothing of careers.
  */
 function gigTipFor(
   gig: Gig,
@@ -450,18 +474,18 @@ function gigTipFor(
   parMs: number,
   onTime: boolean,
   violations: number,
+  ratingFactor = 1,
 ): number {
-  if (gig.kind === "passenger") {
-    return rideTip(gross, gig.seed, {
-      promptness: ridePromptness(carriedMs, parMs),
-      violations,
-      surged: gig.surged,
-    });
-  }
-  return (
-    quotedTip(gross, gig.seed, gig.surged) +
-    foodSpeedBonus(gross, gig.seed, onTime, gig.surged)
-  );
+  const base =
+    gig.kind === "passenger"
+      ? rideTip(gross, gig.seed, {
+          promptness: ridePromptness(carriedMs, parMs),
+          violations,
+          surged: gig.surged,
+        })
+      : quotedTip(gross, gig.seed, gig.surged) +
+        foodSpeedBonus(gross, gig.seed, onTime, gig.surged);
+  return Math.round(base * ratingFactor);
 }
 
 /**
@@ -684,6 +708,13 @@ export default function SideSwapApp() {
   // renders is state — the live offer with the moment it opened, the queued job
   // and the drive clock the countdown is measured against.
   const dispatchRef = useRef<DispatchState>(createDispatch(1));
+  /**
+   * How much longer this driver waits between offers. A ref beside the schedule
+   * because dispatch is stepped from `handleHud`, which cannot see React state;
+   * set once when a career day opens and back to 1 when it closes, so free
+   * drive and a well-rated driver are both unaffected.
+   */
+  const dispatchStretchRef = useRef(1);
   const [offer, setOffer] = useState<{ gig: Gig; offeredAtMs: number } | null>(
     null,
   );
@@ -814,6 +845,8 @@ export default function SideSwapApp() {
      * replaced it.
      */
     readonly morningCity: CareerCityView;
+    /** Tonight's standing: what the wipe report and the career page read. */
+    readonly rating: RatingSettlement;
   } | null>(null);
   // Day-clock timestamp when the current career gig entered "carrying"; the
   // tip window (Crazy Taxi-style par time on the carrying leg) counts from it.
@@ -1052,7 +1085,11 @@ export default function SideSwapApp() {
       // Dispatch goes quiet only when both hands are full: a job in progress
       // *and* one already queued behind it.
       const busy = gigRef.current !== null && queuedGigRef.current !== null;
-      const step = stepDispatch(dispatchRef.current, nowMs, !busy);
+      // A poor standing is felt first as an empty afternoon: the dispatcher
+      // routes work to drivers people want. Free drive, and any career driver
+      // the city has no complaint about, stretch by 1.
+      const stretch = dispatchStretchRef.current;
+      const step = stepDispatch(dispatchRef.current, nowMs, !busy, stretch);
       dispatchRef.current = step.state;
       setSurge(surgeWindowAt(driveContextRef.current.surgeSeed, nowMs));
       if (step.event === "opened") {
@@ -1064,7 +1101,7 @@ export default function SideSwapApp() {
         } else {
           // This map cannot produce a gig under the current constraints —
           // close the offer at once rather than showing an empty card.
-          dispatchRef.current = resolveOffer(step.state, nowMs);
+          dispatchRef.current = resolveOffer(step.state, nowMs, stretch);
         }
       } else if (step.event === "expired") {
         offerRef.current = null;
@@ -1130,7 +1167,11 @@ export default function SideSwapApp() {
   const answerOffer = useCallback((accepted: boolean) => {
     const current = offerRef.current;
     if (!current) return;
-    dispatchRef.current = resolveOffer(dispatchRef.current, driveElapsedRef.current);
+    dispatchRef.current = resolveOffer(
+      dispatchRef.current,
+      driveElapsedRef.current,
+      dispatchStretchRef.current,
+    );
     offerRef.current = null;
     setOffer(null);
     setPreviewRoute(null);
@@ -1159,9 +1200,15 @@ export default function SideSwapApp() {
     return promoted;
   }, []);
 
-  /** Clears every trace of the last drive's dispatch and arms the next. */
-  const resetDispatch = (baseSeed: number) => {
+  /**
+   * Clears every trace of the last drive's dispatch and arms the next.
+   *
+   * `stretch` defaults to 1, so a free drive always clears whatever standing
+   * the last career day set — there is no reputation out here.
+   */
+  const resetDispatch = (baseSeed: number, stretch = 1) => {
     dispatchRef.current = createDispatch(baseSeed);
+    dispatchStretchRef.current = stretch;
     driveElapsedRef.current = 0;
     dayElapsedBaseRef.current = 0;
     lastSimElapsedRef.current = 0;
@@ -1618,6 +1665,7 @@ export default function SideSwapApp() {
                 current.reward,
                 current.kind,
                 run.vehicle,
+                ratingFareFactor(run.ratingStanding),
               );
               // Tips are commission-free either way, but the two kinds settle
               // differently: a food order tipped when it was placed, and may
@@ -1643,7 +1691,16 @@ export default function SideSwapApp() {
                 parMs,
                 onTime,
                 carryViolationsRef.current,
+                ratingTipFactor(run.ratingStanding),
               );
+              // The same trip, judged a second way. Deliberately silent: the
+              // stars never reach the HUD, the toast or the payout call-out —
+              // a driver reads their standing on the career page after the day
+              // is over, or not at all.
+              const stars = gigRating(current.kind, current.seed, {
+                promptness: ridePromptness(carriedMs, parMs),
+                violations: carryViolationsRef.current,
+              });
               carryViolationsRef.current = 0;
               carryingSinceRef.current = null;
               setCarryingSinceMs(null);
@@ -1657,6 +1714,10 @@ export default function SideSwapApp() {
                 tips: dayLogRef.current.tips + tip,
                 gigsCompleted: dayLogRef.current.gigsCompleted + 1,
                 gigsOnTime: dayLogRef.current.gigsOnTime + (onTime ? 1 : 0),
+                ratings:
+                  stars === null
+                    ? dayLogRef.current.ratings
+                    : [...dayLogRef.current.ratings, stars],
               };
               // The next job is whatever was accepted while this one ran —
               // nothing is conjured on completion any more. With an empty queue
@@ -2080,7 +2141,13 @@ export default function SideSwapApp() {
       assistance: assistanceFromProgress(progress),
     };
     resolveSessionConfig(session);
-    const run: CareerRun = { slice: careerSlice, city: careerCity, vehicleId, vehicle };
+    const run: CareerRun = {
+      slice: careerSlice,
+      city: careerCity,
+      vehicleId,
+      vehicle,
+      ratingStanding: ratingStanding(averageRating(cityRating(careerCity))),
+    };
     careerRunRef.current = run;
     setCareerRun(run);
     // Rent is prepaid into the day-local cash; the slice itself is untouched
@@ -2117,7 +2184,7 @@ export default function SideSwapApp() {
       allowedKinds: vehicle.allowedGigKinds,
       surgeSeed: dayGigSeed,
     };
-    resetDispatch(dayGigSeed);
+    resetDispatch(dayGigSeed, ratingSearchStretch(run.ratingStanding));
     gigRef.current = null;
     setGig(null);
     carryingSinceRef.current = null;
@@ -2148,13 +2215,18 @@ export default function SideSwapApp() {
       platformFee: PLATFORM_FEE_BY_COUNTRY[run.city.countryId],
       rule: run.slice.rule,
     });
-    const nextSlice = applySettlement(run.slice, ledger, settlement);
+    // Standing is settled beside the money, not inside it: the two endings are
+    // independent, and either one on its own wipes the city.
+    const rating = settleRating(cityRating(run.city), ledger.ratings);
+    const wiped = settlement.outcome === "game_over" || rating.verdict === "ended";
+    const nextSlice = applySettlement(run.slice, ledger, settlement, rating);
     const nextCity = activeCity(nextSlice);
     setLastSettlement({
       result: settlement,
       slice: nextSlice,
       city: nextCity,
       morningCity: run.city,
+      rating,
     });
     // The one mid-career save point: day boundaries only. Tomorrow keeps
     // today's ride, unless the night's reckoning put it out of reach.
@@ -2164,9 +2236,7 @@ export default function SideSwapApp() {
         // A wipe hands back a fresh sheet with the fleet repossessed: there is
         // no run left for a choice to belong to, so it reopens like a new
         // career rather than on whatever the lost one was driving.
-        settlement.outcome === "game_over"
-          ? DEFAULT_GARAGE_VEHICLE_ID
-          : garageVehicleId,
+        wiped ? DEFAULT_GARAGE_VEHICLE_ID : garageVehicleId,
       ),
       writeCareer(progress, nextSlice),
     );
@@ -2179,7 +2249,7 @@ export default function SideSwapApp() {
     clearCutscene();
     // Music keeps playing across the ledger and garage — they are part of the
     // run, and the next day's start() will pick a fresh track.
-    setView(settlement.outcome === "game_over" ? "career-over" : "career-ledger");
+    setView(wiped ? "career-over" : "career-ledger");
   };
   useEffect(() => {
     endCareerDayRef.current = endCareerDay;
@@ -3603,6 +3673,9 @@ export default function SideSwapApp() {
               .destinationName
           }
           country={careerCountry}
+          reason={
+            lastSettlement.rating.verdict === "ended" ? "rating" : "bankruptcy"
+          }
           // The wipe's fresh sheet already chose the garage's opening ride when
           // it settled, so this is only the way back to it.
           onContinue={() => setView("career-garage")}

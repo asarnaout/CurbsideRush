@@ -18,6 +18,7 @@
  */
 
 import { hashToUnit } from "./gigs";
+import type { GigKind } from "./gigs";
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
@@ -129,11 +130,21 @@ const SEARCH_BIAS = 2.2;
 
 const SEARCH_SALT = 0x7a_31_c4_9b;
 
-/** How long dispatch stays quiet before opening the offer with this seed. */
-export function searchDelayMs(seed: number): number {
+/**
+ * How long dispatch stays quiet before opening the offer with this seed.
+ *
+ * `stretch` scales the wait for a career driver the city has stopped
+ * favouring; it defaults to 1, which is what free drive and a driver in good
+ * standing both get. It has to arrive as an argument rather than be read from
+ * anywhere, because this module has no state and no clock and the replay
+ * guarantee rests on that. The caller holds it fixed for a whole day, so a
+ * retried day still offers the identical sequence.
+ */
+export function searchDelayMs(seed: number, stretch = 1): number {
   const unit = hashToUnit((seed ^ SEARCH_SALT) | 0);
   return Math.round(
-    SEARCH_MIN_MS + Math.pow(unit, SEARCH_BIAS) * (SEARCH_MAX_MS - SEARCH_MIN_MS),
+    (SEARCH_MIN_MS + Math.pow(unit, SEARCH_BIAS) * (SEARCH_MAX_MS - SEARCH_MIN_MS)) *
+      Math.max(1, stretch),
   );
 }
 
@@ -178,13 +189,13 @@ export function createDispatch(baseSeed: number): DispatchState {
 }
 
 /** Closes the live (or pending) offer and arms the next one. */
-function armNext(state: DispatchState, nowMs: number): DispatchState {
+function armNext(state: DispatchState, nowMs: number, stretch: number): DispatchState {
   const offerSeed = state.offerSeed + 1;
   return {
     phase: "idle",
     offerSeed,
     offeredAtMs: 0,
-    nextOfferAtMs: nowMs + searchDelayMs(offerSeed),
+    nextOfferAtMs: nowMs + searchDelayMs(offerSeed, stretch),
   };
 }
 
@@ -196,19 +207,26 @@ function armNext(state: DispatchState, nowMs: number): DispatchState {
  * while blocked (which would fire an offer the instant a slot freed, every
  * time), the wait is continuously re-armed, so clearing the queue starts a
  * fresh quiet spell.
+ *
+ * `stretch` is how much longer the quiet spells run — see `searchDelayMs`. Hold
+ * it constant for a whole day or the sequence stops replaying.
  */
 export function stepDispatch(
   state: DispatchState,
   nowMs: number,
   canOffer: boolean,
+  stretch = 1,
 ): DispatchStep {
   if (state.phase === "offered") {
     if (nowMs - state.offeredAtMs < OFFER_WINDOW_MS) return { state, event: "none" };
-    return { state: armNext(state, nowMs), event: "expired" };
+    return { state: armNext(state, nowMs, stretch), event: "expired" };
   }
   if (!canOffer) {
     return {
-      state: { ...state, nextOfferAtMs: nowMs + searchDelayMs(state.offerSeed) },
+      state: {
+        ...state,
+        nextOfferAtMs: nowMs + searchDelayMs(state.offerSeed, stretch),
+      },
       event: "none",
     };
   }
@@ -225,9 +243,13 @@ export function stepDispatch(
  * a hidden acceptance-rate stat would punish the player for a choice the game
  * just asked them to make.
  */
-export function resolveOffer(state: DispatchState, nowMs: number): DispatchState {
+export function resolveOffer(
+  state: DispatchState,
+  nowMs: number,
+  stretch = 1,
+): DispatchState {
   if (state.phase !== "offered") return state;
-  return armNext(state, nowMs);
+  return armNext(state, nowMs, stretch);
 }
 
 /** Milliseconds left on the live offer, floored at zero. */
@@ -365,4 +387,96 @@ export function rideTip(gross: number, seed: number, inputs: RideTipInputs): num
     Math.max(0, Math.floor(inputs.violations)),
   );
   return settle(gross, generosity * speed * behaviour, inputs.surged === true);
+}
+
+// ---------------------------------------------------------------------------
+// Star ratings (Career only — nothing here is called on a free drive)
+// ---------------------------------------------------------------------------
+
+/**
+ * What one customer awards for one finished job, 1–5 whole stars, or `null`
+ * when they never opened the app to say.
+ *
+ * A **seeded function of the gig and how it went**, exactly like the tip beside
+ * it, and for the same reason: a career day that is quit mid-way and replayed
+ * has to hand out the identical stars, or the persisted average would depend on
+ * how many times a day was abandoned. Nothing is stamped on the gig and nothing
+ * is stored per job — the answer is re-derivable from `Gig.seed` forever.
+ *
+ * It reads the same two things the tip does, because a customer's tip and their
+ * rating are two expressions of one opinion. What differs is the weighting: a
+ * rider was *in the car* for every rule broken, while a delivery customer only
+ * ever learns how long their food took.
+ */
+
+/** Share of customers who never rate at all. */
+export const RATING_SILENCE_CHANCE = 0.25;
+
+/**
+ * Share of what is left that each rule broken with a rider aboard costs. The
+ * same figure the tip uses, deliberately — a violation should not cost tip and
+ * standing on two different curves the player has to learn separately.
+ */
+export const RATING_VIOLATION_PENALTY = 0.3;
+
+/**
+ * How much of a *rider's* verdict is the clock, the rest being how it was
+ * driven. Below half because the brief is explicit that a rideshare rating
+ * turns mainly on the driving; a delivery customer weighs the clock alone.
+ *
+ * This weight is also what forgives a rider's long trip, which is why — unlike
+ * `rideTip` — nothing here floors the speed term. A floor would put a hard
+ * bottom under the average and, on delivery work where speed is the whole
+ * verdict, would leave a courier's rating unable to reach the ending threshold
+ * however badly they drove.
+ */
+export const RATING_SPEED_WEIGHT = 0.35;
+
+/**
+ * Width of the seeded mood swing added before rounding, in stars.
+ *
+ * Without it a clean on-time run scores a flat 5 every single time, and the
+ * average of a competent driver would be a constant rather than a rating. At
+ * 1.6 a perfect run still reads 4 about one time in five, so the number moves,
+ * and a good driver settles near 4.8 — comfortably clear of the neutral line.
+ */
+export const RATING_MOOD_SPREAD = 1.6;
+
+const RATING_SILENCE_SALT = 0x5b_1d_7e_04;
+const RATING_MOOD_SALT = 0x2c_84_f3_a9;
+
+export interface GigRatingInputs {
+  /** From `ridePromptness` — 1 at or inside par, 0 at twice it. */
+  readonly promptness: number;
+  /** Rules broken between pickup and drop-off. Ignored for a delivery. */
+  readonly violations: number;
+}
+
+/**
+ * The stars this customer leaves, or `null` if they leave none.
+ *
+ * Both draws hang off the gig's own seed under separate salts, so whether
+ * someone rates is independent of what they would have said.
+ */
+export function gigRating(
+  kind: GigKind,
+  seed: number,
+  inputs: GigRatingInputs,
+): number | null {
+  if (hashToUnit((seed ^ RATING_SILENCE_SALT) | 0) < RATING_SILENCE_CHANCE) {
+    return null;
+  }
+  const speed = clamp(inputs.promptness, 0, 1);
+  const satisfaction =
+    kind === "passenger"
+      ? RATING_SPEED_WEIGHT * speed +
+        (1 - RATING_SPEED_WEIGHT) *
+          Math.pow(
+            1 - RATING_VIOLATION_PENALTY,
+            Math.max(0, Math.floor(inputs.violations)),
+          )
+      : speed;
+  const mood =
+    (hashToUnit((seed ^ RATING_MOOD_SALT) | 0) - 0.5) * RATING_MOOD_SPREAD;
+  return clamp(Math.round(1 + 4 * satisfaction + mood), 1, 5);
 }

@@ -54,8 +54,10 @@ other's: `GameCanvas` never imports `content.ts`, and `SideSwapApp` only loads
 ## What the core deliberately does not know
 
 **The core knows nothing about gigs, money, fuel or damage.** Everything
-economic is an outer ring, and **no score, event history or infraction is ever
-persisted** — a wallet debit is the only durable consequence.
+economic is an outer ring, and **the core's own score and event history are
+never persisted**. Two durable consequences are derived from them outside it: a
+wallet debit, and — career only — the star a customer leaves, which counts the
+rule trips the app saw while carrying (see [economy.md](economy.md)).
 
 - **Gig arrival** is app-side: stopped inside `GIG_ARRIVAL_RADIUS_M` (14 m)
   stages an **interaction cutscene**; the gig advances when the scene's `done`
