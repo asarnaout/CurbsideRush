@@ -37,6 +37,7 @@ import {
   type CutsceneBodyProfile,
   type CutsceneCarPose,
   type CutsceneStep,
+  type ErrandCargo,
   type PulloverRoad,
 } from "../app/game/cutsceneScript";
 import type { TrafficSide, WorldPoint } from "../app/game/types";
@@ -245,6 +246,88 @@ describe("buildErrandScript", () => {
       if (step.action === "run") {
         expect(step.seconds).toBeLessThanOrEqual(MAX_LEG_SECONDS + 1e-9);
         expect(pathLength(step.path!)).toBeGreaterThan(30);
+      }
+    }
+  });
+});
+
+/**
+ * Issue #186: a collection and a delivery are the same walk run in opposite
+ * directions, so which leg the courier has the order in hand is the only thing
+ * that tells them apart on screen. Asserted against both errand builders, since
+ * a two-wheeler courier carries exactly the same bag.
+ */
+describe("errand cargo", () => {
+  const DOOR = { x: 12, z: 17 };
+  const ERRANDS: readonly (readonly [
+    string,
+    (cargo: ErrandCargo) => CutsceneStep[],
+  ])[] = [
+    [
+      "buildErrandScript",
+      (cargo) =>
+        buildErrandScript(CAR_POSES[0], "left", DOOR, undefined, undefined, cargo),
+    ],
+    [
+      "buildBikeErrandScript",
+      (cargo) =>
+        buildBikeErrandScript(CAR_POSES[0], DOOR, undefined, undefined, cargo),
+    ],
+  ];
+
+  for (const [name, build] of ERRANDS) {
+    it(`${name}: collects empty-handed and walks back carrying`, () => {
+      const script = build("collect");
+      expect(script.map((step) => step.carrying === true)).toEqual([
+        false, // out of the car
+        false, // jog to the door
+        false, // inside, off screen
+        true, // back out with the order
+        true, // jog back carrying it
+        false, // getting in
+      ]);
+    });
+
+    it(`${name}: delivers carrying and walks back empty-handed`, () => {
+      const script = build("deliver");
+      expect(script.map((step) => step.carrying === true)).toEqual([
+        true, // out of the car with the order
+        true, // jog to the door carrying it
+        false, // inside, handing it over
+        false, // back out empty
+        false, // jog back
+        false, // getting in
+      ]);
+    });
+
+    it(`${name}: carries nothing by default, and adds no key doing it`, () => {
+      // toStrictEqual, not toEqual: a leaked `carrying: undefined` would pass
+      // toEqual and is exactly the kind of drift the byte-identity tests below
+      // exist to catch.
+      expect(build("none")).toStrictEqual(
+        name === "buildErrandScript"
+          ? buildErrandScript(CAR_POSES[0], "left", DOOR)
+          : buildBikeErrandScript(CAR_POSES[0], DOOR),
+      );
+      for (const step of build("none")) {
+        expect(step).not.toHaveProperty("carrying");
+      }
+    });
+
+    it(`${name}: only ever loads a step the actor is on screen for`, () => {
+      for (const cargo of ["none", "collect", "deliver"] as const) {
+        for (const step of build(cargo)) {
+          if (step.carrying) expect(step.action).not.toBe("hide");
+        }
+      }
+    });
+  }
+
+  it("loads exactly one leg, whichever end of the delivery it is", () => {
+    for (const [, build] of ERRANDS) {
+      for (const cargo of ["collect", "deliver"] as const) {
+        const carried = build(cargo).filter((step) => step.carrying === true);
+        expect(carried).toHaveLength(2);
       }
     }
   });

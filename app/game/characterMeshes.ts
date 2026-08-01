@@ -12,6 +12,7 @@ import {
   type Material,
   Mesh,
   MeshBuilder,
+  Quaternion,
   Scene,
   type Skeleton,
   StandardMaterial,
@@ -99,9 +100,11 @@ const BICYCLE_MODEL = { url: `${C}/bicycle.glb`, scale: BIKE_SCALE, yawOffset: M
  * One merged mesh — no separable wheels, so nothing spins. */
 const MOTORBIKE_MODEL = { url: `${C}/motorbike.glb`, scale: 1.9, yawOffset: 0 } as const;
 
-/** Courier livery for the LightPurple body panels; frame/tires (DarkPurple)
- * and the yellow lamp keep their authored colours. */
-const MOTORBIKE_PAINT = new Color3(0.72, 0.21, 0.13);
+/** The courier's red. It repaints the motorbike's LightPurple body panels (the
+ * frame/tires and the yellow lamp keep their authored colours) and dresses the
+ * delivery bag, so the bike, the rider and the order they are carrying read as
+ * one courier. */
+const COURIER_RED = new Color3(0.72, 0.21, 0.13);
 
 /** Measured motorbike.glb anchors (glb-local units, from the vertex-profile
  * dissection): seat dip top, grip centroids under the bar ends, and mid-low
@@ -333,12 +336,20 @@ export type ActorClip = "idle" | "walk" | "run";
 export interface ActorVisual {
   readonly root: TransformNode;
   setClip(clip: ActorClip, speedRatio?: number): void;
+  /** Shows/hides the order in the courier's hand (courier actors only). */
+  setCarrying?(carrying: boolean): void;
+  /** Keeps bone-hung kit tracking the animating rig; call once a frame while
+   * the actor is on screen. Costs nothing when nothing is being carried. */
+  update?(): void;
   dispose(): void;
 }
 
 /** Clip name suffixes on the shared HumanArmature rigs ("…|Man_Walk",
  * "…|Female_Idle"). Anchored so Run never matches RunningJump. */
-const ACTOR_CLIP_PATTERNS: readonly (readonly [ActorClip, RegExp])[] = [
+/** Cross-fade rate between locomotion clips, once there is a pose to leave. */
+const ACTOR_CLIP_BLEND_SPEED = 0.09;
+
+export const ACTOR_CLIP_PATTERNS: readonly (readonly [ActorClip, RegExp])[] = [
   ["idle", /_Idle$/i],
   ["walk", /_Walk$/i],
   ["run", /_Run$/i],
@@ -493,13 +504,198 @@ export function buildOfficerVisual(
   );
 }
 
-/** Optional headwear/kit hung off the rig's skeleton once it is instantiated. */
+/** Kraft-paper tone for the bag's rolled rim and its handles. */
+const BAG_KRAFT = Color3.FromHexString("#8d5a3b");
+
+/**
+ * The takeaway bag, in metres — the holder restores real-world scale, so these
+ * are not rig units. Sized against the 1.8 m rigs: a two-handful carrier, big
+ * enough to read at the nine-to-fifteen metres these scenes are staged from
+ * without swinging into the courier's own legs.
+ */
+const BAG_WIDTH_M = 0.21;
+const BAG_HEIGHT_M = 0.24;
+const BAG_DEPTH_M = 0.13;
+/** Handle length: how far the bag's rim hangs below the palm. */
+const BAG_DROP_M = 0.08;
+
+/**
+ * The takeaway bag the courier carries on a food errand, built procedurally and
+ * hung off the rig's right hand.
+ *
+ * Generated rather than imported for the same reason the peaked cap is: at the
+ * distance these scenes play, a sack, a rolled rim and two handles is the whole
+ * silhouette — and `propModelUrls()` is not map-scoped, so a glb would cost all
+ * four cities their download bytes forever.
+ *
+ * Three things here are measured rather than assumed, and all three fail
+ * silently:
+ *
+ * 1. The armature scale, exactly as the cap documents it — a freshly
+ *    instantiated skeleton still carries the glb's own 100x armature transform
+ *    and knows nothing of the 0.374 the caller just applied, so the holder
+ *    divides it back out.
+ * 2. **The bone spins.** Across the Run clip `Palm.R` turns through roughly a
+ *    right angle: world-down starts at the bone's local +Y (the arm chain runs
+ *    wrist-to-fingertip, so this is already the opposite sign from the Head
+ *    bone the cap hangs on) and reaches local +X at the front of the swing. A
+ *    bag rigidly parented to that hand does not swing — it capsizes, ending up
+ *    pointing forwards out of the fist. So the holder's rotation is recomputed
+ *    each frame to cancel the bone's, leaving the bag hanging plumb while its
+ *    position still swings with the arm, which is what a carried bag does.
+ * 3. Because the holder is kept world-upright, everything below is built in
+ *    ordinary axes — Y up, the bag hanging at negative Y — rather than in the
+ *    bone's frame.
+ *
+ * The bag is deliberately symmetric front-to-back, so nothing here depends on
+ * working out which way round the rig's hand is.
+ *
+ * Exported so `tests/courierBag.test.ts` can drive it against the real rigs:
+ * every failure mode above is invisible in a still frame, and two of them are
+ * only wrong once the skeleton is moving.
+ */
+export function addDeliveryBag(
+  scene: Scene,
+  name: string,
+  skeleton: Skeleton | null,
+  carrier: AbstractMesh | undefined,
+  actorRoot: TransformNode,
+): ActorAttachmentRig | null {
+  const hand = skeleton?.bones.find((bone) => bone.name === "Palm.R");
+  if (!hand || !carrier) return null;
+
+  const paper = new StandardMaterial(`${name}-bag-paper`, scene);
+  paper.diffuseColor = COURIER_RED.clone();
+  paper.specularColor = new Color3(0.04, 0.04, 0.04);
+  const kraft = new StandardMaterial(`${name}-bag-kraft`, scene);
+  kraft.diffuseColor = BAG_KRAFT.clone();
+  kraft.specularColor = new Color3(0.04, 0.04, 0.04);
+
+  const sack = MeshBuilder.CreateBox(
+    `${name}-bag-sack`,
+    { width: BAG_WIDTH_M, height: BAG_HEIGHT_M, depth: BAG_DEPTH_M },
+    scene,
+  );
+  const rim = MeshBuilder.CreateBox(
+    `${name}-bag-rim`,
+    { width: BAG_WIDTH_M * 1.08, height: 0.035, depth: BAG_DEPTH_M * 1.12 },
+    scene,
+  );
+  const handles = [-1, 1].map((side) => {
+    const handle = MeshBuilder.CreateBox(
+      `${name}-bag-handle-${side > 0 ? "r" : "l"}`,
+      { width: 0.016, height: BAG_DROP_M, depth: 0.016 },
+      scene,
+    );
+    handle.material = kraft;
+    handle.position.set(side * BAG_WIDTH_M * 0.28, -BAG_DROP_M / 2, 0);
+    return handle;
+  });
+  sack.material = paper;
+  rim.material = kraft;
+  sack.position.y = -(BAG_DROP_M + BAG_HEIGHT_M / 2);
+  rim.position.y = -(BAG_DROP_M + 0.012);
+
+  const holder = new TransformNode(`${name}-bag`, scene);
+  const meshes = [sack, rim, ...handles];
+  for (const mesh of meshes) {
+    mesh.parent = holder;
+    mesh.isPickable = false;
+  }
+  // An empty mesh is the only thing attachToBone accepts as the follower.
+  const anchor = new Mesh(`${name}-bag-anchor`, scene);
+  anchor.isPickable = false;
+  holder.parent = anchor;
+  anchor.attachToBone(hand, carrier);
+  carrier.computeWorldMatrix(true);
+  skeleton?.prepare();
+  anchor.computeWorldMatrix(true);
+  const boneScale = new Vector3();
+  anchor.getWorldMatrix().decompose(boneScale);
+  holder.scaling.setAll(1 / (boneScale.x || 1));
+  holder.setEnabled(false);
+
+  // Scratch, so the per-frame plumb correction allocates nothing.
+  const holderRotation = Quaternion.Identity();
+  holder.rotationQuaternion = holderRotation;
+  const boneRotation = new Quaternion();
+  const rootRotation = new Quaternion();
+  const scratchScale = new Vector3();
+  const upright = new Quaternion();
+
+  /** Cancels the hand bone's rotation, leaving the bag hanging plumb and turned
+   * only to the courier's own heading — taken off the actor's root rather than
+   * the bone, whose yaw is swinging along with everything else. */
+  const hangPlumb = () => {
+    anchor.computeWorldMatrix(true);
+    anchor.getWorldMatrix().decompose(scratchScale, boneRotation);
+    actorRoot.computeWorldMatrix(true);
+    actorRoot.getWorldMatrix().decompose(scratchScale, rootRotation);
+    Quaternion.RotationYawPitchRollToRef(
+      rootRotation.toEulerAngles().y,
+      0,
+      0,
+      upright,
+    );
+    boneRotation.invertInPlace();
+    boneRotation.multiplyToRef(upright, holderRotation);
+  };
+
+  return {
+    meshes: [...meshes, anchor],
+    materials: [paper, kraft],
+    setVisible(visible) {
+      holder.setEnabled(visible);
+      // Hung correctly for the very first frame it is seen. The scene's own
+      // per-frame update runs *ahead* of the step that reveals the bag, so
+      // without this it would wear the wrist's tilt for one frame on appearing.
+      if (visible) hangPlumb();
+    },
+    update() {
+      if (holder.isEnabled()) hangPlumb();
+    },
+  };
+}
+
+/** The courier on a food errand: the driver actor with a takeaway bag in hand,
+ * shown only on the leg of the errand they are actually carrying the order. */
+export function buildCourierVisual(
+  scene: Scene,
+  parent: TransformNode,
+  name: string,
+  variant: number,
+  colors: CharacterColors,
+): ActorVisual | null {
+  const config = CHARACTER_MODELS[Math.abs(variant) % CHARACTER_MODELS.length];
+  return buildActorFromConfig(
+    scene,
+    parent,
+    name,
+    config,
+    materialOverrides(config, colors),
+    addDeliveryBag,
+  );
+}
+
+/** What an attachment hands back: what to dispose, plus whatever handles the
+ * kit needs to be driven by (the cap needs neither; the bag needs both). */
+interface ActorAttachmentRig {
+  readonly meshes: Mesh[];
+  readonly materials: StandardMaterial[];
+  setVisible?(visible: boolean): void;
+  update?(): void;
+}
+
+/** Optional headwear/kit hung off the rig's skeleton once it is instantiated.
+ * `actorRoot` is the yaw-carrying node above the model, which is where kit that
+ * must stay world-upright reads the actor's own facing from. */
 type ActorAttachment = (
   scene: Scene,
   name: string,
   skeleton: Skeleton | null,
   carrier: AbstractMesh | undefined,
-) => { meshes: Mesh[]; materials: StandardMaterial[] } | null;
+  actorRoot: TransformNode,
+) => ActorAttachmentRig | null;
 
 function buildActorFromConfig(
   scene: Scene,
@@ -530,20 +726,15 @@ function buildActorFromConfig(
   const carrier = instance.rootNodes[0]
     ?.getChildMeshes(false)
     .find((mesh) => mesh.skeleton === skeleton);
-  const attached = attachment?.(scene, name, skeleton, carrier) ?? null;
+  const attached = attachment?.(scene, name, skeleton, carrier, root) ?? null;
 
   const clips = new Map<ActorClip, AnimationGroup>();
   for (const group of instance.animationGroups) {
     const match = ACTOR_CLIP_PATTERNS.find(
       ([clip, pattern]) => !clips.has(clip) && pattern.test(group.name),
     );
-    if (match) {
-      group.enableBlending = true;
-      group.blendingSpeed = 0.09;
-      clips.set(match[0], group);
-    } else {
-      group.dispose();
-    }
+    if (match) clips.set(match[0], group);
+    else group.dispose();
   }
 
   let disposed = false;
@@ -558,10 +749,30 @@ function buildActorFromConfig(
         next.speedRatio = speedRatio;
         return;
       }
+      // Blend only when there is a pose to blend FROM.
+      //
+      // Blending exists so that a mid-scene idle→walk→run switch reads as the
+      // character changing pace rather than popping. On the *first* clip there
+      // is no previous pose, and Babylon blends the bones out of their
+      // uninitialised values instead — which walks the rig through poses that
+      // exist in no clip at all. That is the arm-stuck-out passenger: measured
+      // across all 250 frames of every rig's Idle, the hands never leave the
+      // sides (reach ≤ 0.25 m), yet the rig was rendering a hand 0.64 m out.
+      // A first clip cannot pop, so arming blending here costs nothing.
+      next.enableBlending = active !== undefined;
+      next.blendingSpeed = ACTOR_CLIP_BLEND_SPEED;
       active?.stop();
       active = next;
       next.speedRatio = speedRatio;
       next.play(true);
+    },
+    setCarrying(carrying) {
+      if (disposed) return;
+      attached?.setVisible?.(carrying);
+    },
+    update() {
+      if (disposed) return;
+      attached?.update?.();
     },
     dispose() {
       if (disposed) return;
@@ -575,6 +786,30 @@ function buildActorFromConfig(
     },
   };
   visual.setClip("idle");
+
+  // Never let the rig be seen un-posed.
+  //
+  // A skinned mesh draws its raw bind geometry — a **T-pose**, arms straight
+  // out, on these rigs — until its skeleton has actually been evaluated for it.
+  // Babylon only evaluates skeletons belonging to *active* meshes, and an actor
+  // is routinely built where nothing will make it active for a while: the
+  // waiting rider is spawned at a venue you have not driven to yet, and a
+  // cutscene actor is built with its node disabled and revealed a frame later.
+  // Both were reaching the screen mid-T-pose (rideshare passengers standing at
+  // the kerb with an arm out; the same on the exit scene's first beat).
+  //
+  // Two halves, because either alone leaves a gap: evaluate once now so the
+  // very first frame is posed, and keep the carrier permanently active so
+  // culling can never stop it being re-evaluated later. The cost is skinning
+  // one character — there are at most a couple of actors alive at a time, next
+  // to a crowd of hundreds that the VAT path draws for free.
+  if (skeleton && carrier) {
+    carrier.alwaysSelectAsActiveMesh = true;
+    carrier.computeWorldMatrix(true);
+    const idle = clips.get("idle");
+    if (idle) idle.goToFrame(idle.from);
+    skeleton.prepare(true);
+  }
   return visual;
 }
 
@@ -738,7 +973,7 @@ export function buildMotorbikeVisual(
     scene,
     `${name}-bike`,
     bikeWrap,
-    new Map([["LightPurple", MOTORBIKE_PAINT]]),
+    new Map([["LightPurple", COURIER_RED]]),
   );
 
   // Centre the bike on the pivot via its own AABB midpoint (no wheel nodes to
