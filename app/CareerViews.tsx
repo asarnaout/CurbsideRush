@@ -640,19 +640,35 @@ export function LedgerView({
   );
 }
 
+/**
+ * Why the city was taken away. Both endings wipe identically — the difference
+ * is only what the driver is told, and telling them the bank called it when it
+ * was their customers would be a plain lie.
+ */
+export type CareerOverReason = "bankruptcy" | "rating";
+
 export function CareerOverView({
   city,
   cityName,
   country,
+  reason = "bankruptcy",
   onContinue,
 }: {
   /** The city as it stood the morning of the day that broke it. */
   city: CareerCityView;
   cityName: string;
   country: CountryProfile;
+  reason?: CareerOverReason;
   onContinue: () => void;
 }) {
   const stats = city.stats;
+  const startingOver = (
+    <>
+      Your {cityName} fleet is repossessed and you start over here on{" "}
+      {formatMoney(CAREER_STARTING_CASH_BY_COUNTRY[city.countryId], country)}
+      {" "}— but only here. Every other city is exactly as you left it.
+    </>
+  );
   const rows: readonly (readonly [string, string])[] = [
     ["Days worked here", String(stats.daysCompleted)],
     ["Gigs completed", String(stats.gigsCompleted)],
@@ -667,13 +683,23 @@ export function CareerOverView({
     <section className="subpage" aria-label="Career over">
       <div className="subpage-heading">
         <div>
-          <p className="eyebrow">WIPED OUT</p>
-          <h1>{cityName} took everything.</h1>
+          <p className="eyebrow">
+            {reason === "rating" ? "DEACTIVATED" : "WIPED OUT"}
+          </p>
+          <h1>
+            {reason === "rating"
+              ? `${cityName} stopped calling.`
+              : `${cityName} took everything.`}
+          </h1>
           <p>
-            The bank called it on day {city.day}. Your {cityName} fleet is
-            repossessed and you start over here on{" "}
-            {formatMoney(CAREER_STARTING_CASH_BY_COUNTRY[city.countryId], country)}
-            {" "}— but only here. Every other city is exactly as you left it.
+            {reason === "rating" ? (
+              <>
+                Your rating bottomed out on day {city.day} and the platform cut
+                you loose. {startingOver}
+              </>
+            ) : (
+              <>The bank called it on day {city.day}. {startingOver}</>
+            )}
           </p>
         </div>
       </div>

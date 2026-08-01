@@ -3673,6 +3673,9 @@ export default function SideSwapApp() {
               .destinationName
           }
           country={careerCountry}
+          reason={
+            lastSettlement.rating.verdict === "ended" ? "rating" : "bankruptcy"
+          }
           // The wipe's fresh sheet already chose the garage's opening ride when
           // it settled, so this is only the way back to it.
           onContinue={() => setView("career-garage")}
