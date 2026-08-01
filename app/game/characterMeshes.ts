@@ -620,28 +620,36 @@ export function addDeliveryBag(
   const scratchScale = new Vector3();
   const upright = new Quaternion();
 
+  /** Cancels the hand bone's rotation, leaving the bag hanging plumb and turned
+   * only to the courier's own heading — taken off the actor's root rather than
+   * the bone, whose yaw is swinging along with everything else. */
+  const hangPlumb = () => {
+    anchor.computeWorldMatrix(true);
+    anchor.getWorldMatrix().decompose(scratchScale, boneRotation);
+    actorRoot.computeWorldMatrix(true);
+    actorRoot.getWorldMatrix().decompose(scratchScale, rootRotation);
+    Quaternion.RotationYawPitchRollToRef(
+      rootRotation.toEulerAngles().y,
+      0,
+      0,
+      upright,
+    );
+    boneRotation.invertInPlace();
+    boneRotation.multiplyToRef(upright, holderRotation);
+  };
+
   return {
     meshes: [...meshes, anchor],
     materials: [paper, kraft],
     setVisible(visible) {
       holder.setEnabled(visible);
+      // Hung correctly for the very first frame it is seen. The scene's own
+      // per-frame update runs *ahead* of the step that reveals the bag, so
+      // without this it would wear the wrist's tilt for one frame on appearing.
+      if (visible) hangPlumb();
     },
     update() {
-      if (!holder.isEnabled()) return;
-      anchor.computeWorldMatrix(true);
-      anchor.getWorldMatrix().decompose(scratchScale, boneRotation);
-      // The bag turns with the courier but never tips with their wrist. Taken
-      // off the actor's own root rather than the bone, whose yaw is swinging.
-      actorRoot.computeWorldMatrix(true);
-      actorRoot.getWorldMatrix().decompose(scratchScale, rootRotation);
-      Quaternion.RotationYawPitchRollToRef(
-        rootRotation.toEulerAngles().y,
-        0,
-        0,
-        upright,
-      );
-      boneRotation.invertInPlace();
-      boneRotation.multiplyToRef(upright, holderRotation);
+      if (holder.isEnabled()) hangPlumb();
     },
   };
 }

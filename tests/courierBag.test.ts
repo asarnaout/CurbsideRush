@@ -137,6 +137,28 @@ describe("the courier's delivery bag", () => {
     });
   }
 
+  it("is already hanging plumb on the first frame it appears", async () => {
+    // The scene's per-frame update runs ahead of the step that reveals the bag,
+    // so showing it has to hang it too — otherwise it wears the wrist's tilt
+    // for a frame at the exact moment the player's eye arrives on it.
+    const config = CHARACTER_MODELS[0];
+    const { engine, scene, root, skeleton, carrier, run } = await stageActor(
+      config.url,
+    );
+    // Mid-swing, where the wrist is furthest from upright.
+    poseAt(run!, skeleton!, 0.5);
+    const bag = addDeliveryBag(scene, "test", skeleton, carrier, root)!;
+
+    bag.setVisible!(true); // and deliberately no update() before measuring
+    const up = new Vector3();
+    const sack = bag.meshes.find((mesh) => mesh.name.endsWith("-sack"))!;
+    Vector3.Up().rotateByQuaternionToRef(worldOf(sack).rotation, up);
+    expect(up.y).toBeGreaterThan(0.999);
+
+    scene.dispose();
+    engine.dispose();
+  });
+
   it("is hidden until the courier is actually carrying something", async () => {
     const config = CHARACTER_MODELS[0];
     const { engine, scene, root, skeleton, carrier } = await stageActor(config.url);
