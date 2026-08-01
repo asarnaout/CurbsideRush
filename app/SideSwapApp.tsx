@@ -67,6 +67,7 @@ import {
   careerGigSeedBase,
   careerCityIndex,
   canBuyVehicle,
+  cityRating,
   createCareerSlice,
   ticketPrice,
   travelTo,
@@ -79,6 +80,7 @@ import {
   ROADSIDE_CALLOUT_FEE_BY_COUNTRY,
   ROADSIDE_PRICE_FACTOR,
   settleDay,
+  settleRating,
   vehicleRent,
 } from "./game/career";
 import type {
@@ -87,6 +89,7 @@ import type {
   CareerVehicleId,
   CareerVehicleSpec,
   DayLedgerInput,
+  RatingSettlement,
   SettlementResult,
 } from "./game/career";
 import {
@@ -171,6 +174,7 @@ import {
   createDispatch,
   foodSpeedBonus,
   gigParMs,
+  gigRating,
   OFFER_WINDOW_MS,
   quotedTip,
   SURGE_FARE_MULTIPLIER,
@@ -814,6 +818,8 @@ export default function SideSwapApp() {
      * replaced it.
      */
     readonly morningCity: CareerCityView;
+    /** Tonight's standing: what the wipe report and the career page read. */
+    readonly rating: RatingSettlement;
   } | null>(null);
   // Day-clock timestamp when the current career gig entered "carrying"; the
   // tip window (Crazy Taxi-style par time on the carrying leg) counts from it.
@@ -1644,6 +1650,14 @@ export default function SideSwapApp() {
                 onTime,
                 carryViolationsRef.current,
               );
+              // The same trip, judged a second way. Deliberately silent: the
+              // stars never reach the HUD, the toast or the payout call-out —
+              // a driver reads their standing on the career page after the day
+              // is over, or not at all.
+              const stars = gigRating(current.kind, current.seed, {
+                promptness: ridePromptness(carriedMs, parMs),
+                violations: carryViolationsRef.current,
+              });
               carryViolationsRef.current = 0;
               carryingSinceRef.current = null;
               setCarryingSinceMs(null);
@@ -1657,6 +1671,10 @@ export default function SideSwapApp() {
                 tips: dayLogRef.current.tips + tip,
                 gigsCompleted: dayLogRef.current.gigsCompleted + 1,
                 gigsOnTime: dayLogRef.current.gigsOnTime + (onTime ? 1 : 0),
+                ratings:
+                  stars === null
+                    ? dayLogRef.current.ratings
+                    : [...dayLogRef.current.ratings, stars],
               };
               // The next job is whatever was accepted while this one ran —
               // nothing is conjured on completion any more. With an empty queue
@@ -2148,13 +2166,18 @@ export default function SideSwapApp() {
       platformFee: PLATFORM_FEE_BY_COUNTRY[run.city.countryId],
       rule: run.slice.rule,
     });
-    const nextSlice = applySettlement(run.slice, ledger, settlement);
+    // Standing is settled beside the money, not inside it: the two endings are
+    // independent, and either one on its own wipes the city.
+    const rating = settleRating(cityRating(run.city), ledger.ratings);
+    const wiped = settlement.outcome === "game_over" || rating.verdict === "ended";
+    const nextSlice = applySettlement(run.slice, ledger, settlement, rating);
     const nextCity = activeCity(nextSlice);
     setLastSettlement({
       result: settlement,
       slice: nextSlice,
       city: nextCity,
       morningCity: run.city,
+      rating,
     });
     // The one mid-career save point: day boundaries only. Tomorrow keeps
     // today's ride, unless the night's reckoning put it out of reach.
@@ -2164,9 +2187,7 @@ export default function SideSwapApp() {
         // A wipe hands back a fresh sheet with the fleet repossessed: there is
         // no run left for a choice to belong to, so it reopens like a new
         // career rather than on whatever the lost one was driving.
-        settlement.outcome === "game_over"
-          ? DEFAULT_GARAGE_VEHICLE_ID
-          : garageVehicleId,
+        wiped ? DEFAULT_GARAGE_VEHICLE_ID : garageVehicleId,
       ),
       writeCareer(progress, nextSlice),
     );
@@ -2179,7 +2200,7 @@ export default function SideSwapApp() {
     clearCutscene();
     // Music keeps playing across the ledger and garage — they are part of the
     // run, and the next day's start() will pick a fresh track.
-    setView(settlement.outcome === "game_over" ? "career-over" : "career-ledger");
+    setView(wiped ? "career-over" : "career-ledger");
   };
   useEffect(() => {
     endCareerDayRef.current = endCareerDay;

@@ -427,6 +427,78 @@ describe("applySettlement", () => {
     expect(next.state).toBe("active");
     expect(parseCareerSlice(JSON.parse(JSON.stringify(next)))).toEqual(next);
   });
+
+  it("wipes a city whose standing is spent even when the books balance", () => {
+    // The two endings are independent: a driver can be solvent and still have
+    // run out of goodwill.
+    const career = withCity(baseSlice, "us-nyc", {
+      ...activeCity(baseSlice),
+      cash: 900,
+      day: 14,
+      ownedVehicleIds: ["compact-hatch"],
+      rating: { recent: [1, 1, 1, 1, 1, 1, 1], ratedTotal: 40, notice: true },
+    });
+    const solvent = settleDay({
+      cash: 500,
+      ledger: log(),
+      loan: null,
+      finalNotice: false,
+      platformFee: PLATFORM_FEE_BY_COUNTRY.us,
+      rule: "grace",
+    });
+    expect(solvent.outcome).toBe("solvent");
+
+    const rating = settleRating(cityRating(activeCity(career)), [1, 1]);
+    expect(rating.verdict).toBe("ended");
+    const next = applySettlement(career, log(), solvent, rating);
+
+    const wiped = activeCity(next);
+    expect(wiped.cash).toBe(CAREER_STARTING_CASH_BY_COUNTRY.us);
+    expect(wiped.day).toBe(1);
+    expect(wiped.ownedVehicleIds).toEqual([]);
+    // Including the standing itself: you start over here on a clean sheet.
+    expect(cityRating(wiped)).toEqual(EMPTY_RATING);
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(next)))).toEqual(next);
+  });
+
+  it("carries the night's standing onto the city it was earned in", () => {
+    const ledger = log({ gigsCompleted: 4, ratings: [5, 4, 5] });
+    const settlement = settleDay({
+      cash: 40,
+      ledger,
+      loan: null,
+      finalNotice: false,
+      platformFee: PLATFORM_FEE_BY_COUNTRY.us,
+      rule: "grace",
+    });
+    const rating = settleRating(cityRating(activeCity(baseSlice)), ledger.ratings);
+    const next = applySettlement(baseSlice, ledger, settlement, rating);
+    expect(cityRating(activeCity(next)).recent).toEqual([5, 4, 5]);
+    expect(cityRating(activeCity(next)).ratedTotal).toBe(3);
+  });
+
+  it("leaves standing untouched when only the money is settled", () => {
+    // Every caller that predates ratings, and every test of them, still reads
+    // exactly as it did.
+    const rated = withCity(baseSlice, "us-nyc", {
+      ...activeCity(baseSlice),
+      rating: { recent: [4, 4, 4], ratedTotal: 3, notice: false },
+    });
+    const settlement = settleDay({
+      cash: 40,
+      ledger: log(),
+      loan: null,
+      finalNotice: false,
+      platformFee: PLATFORM_FEE_BY_COUNTRY.us,
+      rule: "grace",
+    });
+    const next = applySettlement(rated, log(), settlement);
+    expect(cityRating(activeCity(next))).toEqual({
+      recent: [4, 4, 4],
+      ratedTotal: 3,
+      notice: false,
+    });
+  });
 });
 
 // Tips and par times moved to dispatch.ts when free drive started paying them

@@ -1128,6 +1128,13 @@ export interface DayLedgerInput {
   readonly rentPaid: number;
   readonly gigsCompleted: number;
   readonly gigsOnTime: number;
+  /**
+   * Stars awarded today, in the order they came in — shorter than
+   * `gigsCompleted`, since about a quarter of customers never rate. Collected
+   * here rather than written straight to the city because career state is only
+   * ever saved at a day boundary, so a day quit half-way must leave no trace.
+   */
+  readonly ratings: readonly number[];
 }
 
 export function emptyDayLog(): DayLedgerInput {
@@ -1141,6 +1148,7 @@ export function emptyDayLog(): DayLedgerInput {
     rentPaid: 0,
     gigsCompleted: 0,
     gigsOnTime: 0,
+    ratings: [],
   };
 }
 
@@ -1286,14 +1294,20 @@ export function settleDay(input: {
 
 /**
  * Folds a finished day into the current city: day counter, cash/loan/notice
- * from the settlement, stats rollup, and the terminal state on bankruptcy.
- * Only the city that was driven is touched — every other city's sheet is left
- * exactly as it was. Returns a freshly stamped slice ready to persist.
+ * from the settlement, stats rollup, standing, and the terminal state on
+ * bankruptcy or a spent rating. Only the city that was driven is touched —
+ * every other city's sheet is left exactly as it was. Returns a freshly stamped
+ * slice ready to persist.
+ *
+ * `rating` is optional so that every caller settling money alone — and the
+ * tests that do — reads unchanged. Omitting it leaves the city's standing
+ * exactly as it was.
  */
 export function applySettlement(
   slice: CareerSliceV2,
   ledger: DayLedgerInput,
   settlement: SettlementResult,
+  rating: RatingSettlement | null = null,
 ): CareerSliceV2 {
   const city = activeCity(slice);
   const borrowed =
@@ -1311,11 +1325,12 @@ export function applySettlement(
       settlement.loan?.principalRemaining ?? 0,
     ),
   };
-  if (settlement.outcome === "game_over") {
-    // Bankruptcy is local. The city is wiped back to the day you arrived —
-    // starting float, day 1, debts gone, and the fleet repossessed, which is
-    // what stops going bust from being a free bailout out of a bad loan. Every
-    // other city on the ladder is untouched and still there to fly back to.
+  if (settlement.outcome === "game_over" || rating?.verdict === "ended") {
+    // Both endings are local and land in the same place. The city is wiped back
+    // to the day you arrived — starting float, day 1, debts gone, standing
+    // cleared, and the fleet repossessed, which is what stops going bust from
+    // being a free bailout out of a bad loan. Every other city on the ladder is
+    // untouched and still there to fly back to.
     return withCity(
       slice,
       city.destinationId,
@@ -1329,6 +1344,7 @@ export function applySettlement(
     finalNotice: settlement.finalNotice,
     ownedVehicleIds: city.ownedVehicleIds,
     stats,
+    rating: rating ? rating.rating : city.rating,
   });
 }
 
