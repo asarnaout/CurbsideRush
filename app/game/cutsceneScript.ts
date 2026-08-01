@@ -206,21 +206,33 @@ function toWorld(car: CutsceneCarPose, long: number, lat: number): WorldPoint {
   };
 }
 
-/** Liang–Barsky segment-vs-rect test in the car's local frame. */
-function segmentCrossesBody(
-  a: LocalPoint,
-  b: LocalPoint,
-  body: CutsceneBodyProfile,
+/**
+ * Liang–Barsky segment-vs-rect test, in the rect's own frame: does the segment
+ * (aU, aV) → (bU, bV) meet the box centred on the origin with these half-extents?
+ *
+ * Shared by the two things that have to not go through solid objects: the
+ * driver's walk (against the car body, below) and the staged camera's sightline
+ * (against the world's obstacles, in `chooseStagedAzimuth`). One routine because
+ * they are one question, and because a second copy of clipping maths is a second
+ * chance to get a sign wrong.
+ */
+function segmentCrossesRect(
+  aU: number,
+  aV: number,
+  bU: number,
+  bV: number,
+  halfU: number,
+  halfV: number,
 ): boolean {
-  const dLong = b.long - a.long;
-  const dLat = b.lat - a.lat;
+  const dLong = bU - aU;
+  const dLat = bV - aV;
   let t0 = 0;
   let t1 = 1;
   const clips: readonly (readonly [number, number])[] = [
-    [-dLong, a.long + body.bodyHalfLongM],
-    [dLong, body.bodyHalfLongM - a.long],
-    [-dLat, a.lat + body.bodyHalfLatM],
-    [dLat, body.bodyHalfLatM - a.lat],
+    [-dLong, aU + halfU],
+    [dLong, halfU - aU],
+    [-dLat, aV + halfV],
+    [dLat, halfV - aV],
   ];
   for (const [p, q] of clips) {
     if (p === 0) {
@@ -237,6 +249,22 @@ function segmentCrossesBody(
     }
   }
   return true;
+}
+
+/** `segmentCrossesRect` against the car body, in the car's local frame. */
+function segmentCrossesBody(
+  a: LocalPoint,
+  b: LocalPoint,
+  body: CutsceneBodyProfile,
+): boolean {
+  return segmentCrossesRect(
+    a.long,
+    a.lat,
+    b.long,
+    b.lat,
+    body.bodyHalfLongM,
+    body.bodyHalfLatM,
+  );
 }
 
 /**
