@@ -44,7 +44,10 @@ import {
   trafficCameraHeadIds,
   waterBoatPoseAt,
 } from "../app/game/GameCanvas";
-import { generateRoadsidePropPlacements } from "../app/game/visuals";
+import {
+  distanceToPolylineM,
+  generateRoadsidePropPlacements,
+} from "../app/game/visuals";
 import { buildingSetUrls } from "../app/game/buildingSets";
 import { isPointInPolygon } from "../app/game/simulation";
 import { authoredSignalAspectAt } from "../app/game/trafficSignals";
@@ -92,6 +95,82 @@ describe("Cairo water scenery", () => {
     expect(geometry.polygon).toHaveLength(concave.length);
     expect(geometry.indices).toHaveLength((concave.length - 2) * 3);
     expect(geometry.positions).toHaveLength(concave.length * 3);
+    expectSkyFacingNormals(geometry);
+  });
+
+  it("rings a shore band inside the bank without moving the bank", () => {
+    const band = 4;
+    const plain = buildWaterPolygonGeometry([...concave, concave[0]]);
+    const ringed = buildWaterPolygonGeometry(
+      [...concave, concave[0]],
+      undefined,
+      band,
+    );
+    // The outline itself is untouched — the band grows inward, so nothing that
+    // reads `polygon` (boat tracks, shoreline colliders) can shift under it.
+    expect(ringed.polygon).toEqual(plain.polygon);
+    expect(ringed.positions.slice(0, plain.positions.length)).toEqual(
+      plain.positions,
+    );
+    expect(ringed.shoreFactors).toHaveLength(concave.length * 2);
+    expect(ringed.shoreFactors.slice(0, concave.length)).toEqual(
+      new Array(concave.length).fill(1),
+    );
+    expect(ringed.shoreFactors.slice(concave.length)).toEqual(
+      new Array(concave.length).fill(0),
+    );
+    expectSkyFacingNormals(ringed);
+
+    // The miter property: each inset vertex lies exactly the band's width off
+    // the *lines* of its own two edges, inside the outline, and never closer
+    // than the band to any edge. It sits further than the band from the two
+    // segments at the concave notch, which is correct — there the nearest point
+    // on each is the corner itself.
+    const lineDistance = (
+      point: { x: number; z: number },
+      from: { x: number; z: number },
+      to: { x: number; z: number },
+    ) => {
+      const dx = to.x - from.x;
+      const dz = to.z - from.z;
+      return (
+        Math.abs((point.x - from.x) * dz - (point.z - from.z) * dx) /
+        Math.hypot(dx, dz)
+      );
+    };
+    for (let index = 0; index < concave.length; index += 1) {
+      const inset = {
+        x: ringed.positions[(concave.length + index) * 3],
+        z: ringed.positions[(concave.length + index) * 3 + 2],
+      };
+      expect(isPointInPolygon(inset, concave)).toBe(true);
+      const before = concave[(index - 1 + concave.length) % concave.length];
+      const after = concave[(index + 1) % concave.length];
+      expect(lineDistance(inset, before, concave[index])).toBeCloseTo(band, 6);
+      expect(lineDistance(inset, concave[index], after)).toBeCloseTo(band, 6);
+      for (let edge = 0; edge < concave.length; edge += 1) {
+        expect(
+          distanceToPolylineM(inset, [
+            concave[edge],
+            concave[(edge + 1) % concave.length],
+          ]),
+        ).toBeGreaterThanOrEqual(band - 1e-6);
+      }
+    }
+  });
+
+  it("goes without a shore band rather than folding a tight outline", () => {
+    // A 6 m spit cannot hold a 5 m band either side of it: the inset walls
+    // cross, and a ring built on them would knot. Falls back to the bare sheet.
+    const spit = [
+      { x: -3, z: -60 },
+      { x: 3, z: -60 },
+      { x: 3, z: 60 },
+      { x: -3, z: 60 },
+    ] as const;
+    const geometry = buildWaterPolygonGeometry([...spit], undefined, 5);
+    expect(geometry.shoreFactors).toEqual([]);
+    expect(geometry.positions).toHaveLength(spit.length * 3);
     expectSkyFacingNormals(geometry);
   });
 

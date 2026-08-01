@@ -1806,10 +1806,18 @@ export interface GameCanvasWaterBody {
 }
 
 export interface WaterPolygonGeometry {
+  /** The deduplicated outline, in the order it was authored. */
   readonly polygon: readonly GameCanvasPoint[];
   readonly positions: readonly number[];
   readonly indices: readonly number[];
   readonly uvs: readonly number[];
+  /**
+   * Per vertex: 1 hard against the bank, 0 out in open water. Empty when the
+   * caller asked for no shore band, or when the outline was too tight to inset
+   * one into. The renderer turns it into vertex colours; keeping it a bare
+   * number here is what stops the geometry layer from having to know a colour.
+   */
+  readonly shoreFactors: readonly number[];
 }
 
 function polygonSignedArea(polygon: readonly GameCanvasPoint[]): number {
@@ -1840,41 +1848,22 @@ function pointInTriangle(
 export const WATER_UV_PER_M = 0.025;
 
 /**
- * Ear-clips an authored Nile outline into a flat, upward-facing mesh. The
- * polygons may be concave, so a centre fan would visibly bridge the riverbank.
+ * Ear-clips one closed outline into upward-facing triangles, as indices into
+ * `vertices` shifted by `offset`. Concave outlines are the whole reason this is
+ * not a centre fan — a fan across a river bend bridges straight over the bank.
  *
- * **The triangle winding is what lights the river.** This is one flat sheet
- * with no relief for the eye to correct against, so its vertex normals come
- * entirely from the winding — get it backwards and `ComputeNormals` hands every
- * vertex a downward normal, the sun and the sky half of the hemispheric light
- * both drop out, and the Nile renders as the near-black slick that shipped for
- * months. Nothing culls it, so there is no missing-face symptom to notice; it
- * just goes dark.
+ * **The triangle winding is what lights the water.** It is one flat sheet with
+ * no relief for the eye to correct against, so its vertex normals come entirely
+ * from the winding — get it backwards and `ComputeNormals` hands every vertex a
+ * downward normal, the sun and the sky half of the hemispheric light both drop
+ * out, and the Nile renders as the near-black slick that shipped for months.
+ * Nothing culls it, so there is no missing-face symptom to notice; it just goes
+ * dark. `tests/cairoVisuals.test.ts` pins the normals themselves.
  */
-export function buildWaterPolygonGeometry(
-  source: readonly GameCanvasPoint[],
-  y = 0.025,
-): WaterPolygonGeometry {
-  const polygon: GameCanvasPoint[] = [];
-  for (const point of source) {
-    const previous = polygon.at(-1);
-    if (!previous || Math.hypot(point.x - previous.x, point.z - previous.z) > 1e-6) {
-      polygon.push({ x: point.x, z: point.z });
-    }
-  }
-  if (
-    polygon.length > 2 &&
-    Math.hypot(
-      polygon[0].x - polygon.at(-1)!.x,
-      polygon[0].z - polygon.at(-1)!.z,
-    ) <= 1e-6
-  ) {
-    polygon.pop();
-  }
-  if (polygon.length < 3) {
-    return { polygon, positions: [], indices: [], uvs: [] };
-  }
-
+function earClipPolygonIndices(
+  polygon: readonly GameCanvasPoint[],
+  offset = 0,
+): number[] {
   const remaining = polygon.map((_, index) => index);
   if (polygonSignedArea(polygon) < 0) remaining.reverse();
   const indices: number[] = [];
@@ -1928,13 +1917,153 @@ export function buildWaterPolygonGeometry(
       );
     }
   }
+  return offset ? indices.map((index) => index + offset) : indices;
+}
 
-  const positions = polygon.flatMap((point) => [point.x, y, point.z]);
-  const uvs = polygon.flatMap((point) => [
+/** A corner sharper than this would spike its inset vertex out into open water. */
+const WATER_INSET_MITER_LIMIT = 3;
+
+/**
+ * Walks a closed outline inward by `insetM`, mitered at the corners, or gives
+ * up and returns undefined.
+ *
+ * Giving up is the point: a mitered inset is only well behaved while the offset
+ * stays small against the local feature size, and there is no cheap general
+ * answer for the cases where it isn't (a spit narrower than the band, a hairpin
+ * corner) — it folds the outline inside out and the ring self-intersects. The
+ * checks below are all cheap consequences of that folding, and a caller that
+ * gets `undefined` simply goes without a shore band rather than rendering a
+ * knot in the river.
+ */
+function insetWaterPolygon(
+  polygon: readonly GameCanvasPoint[],
+  insetM: number,
+): GameCanvasPoint[] | undefined {
+  const area = polygonSignedArea(polygon);
+  if (!Number.isFinite(area) || area === 0) return undefined;
+  // Edge normals point into the water, whichever way the outline was authored.
+  const inward = area > 0 ? 1 : -1;
+  const normals = polygon.map((point, index) => {
+    const next = polygon[(index + 1) % polygon.length];
+    const length = Math.hypot(next.x - point.x, next.z - point.z);
+    if (length <= 1e-6) return undefined;
+    return {
+      x: (-(next.z - point.z) / length) * inward,
+      z: ((next.x - point.x) / length) * inward,
+    };
+  });
+  if (normals.some((normal) => !normal)) return undefined;
+
+  const inset: GameCanvasPoint[] = [];
+  for (let index = 0; index < polygon.length; index += 1) {
+    const before = normals[(index - 1 + polygon.length) % polygon.length]!;
+    const after = normals[index]!;
+    const miterX = before.x + after.x;
+    const miterZ = before.z + after.z;
+    const miterLength = Math.hypot(miterX, miterZ);
+    if (miterLength <= 1e-6) return undefined;
+    const unitX = miterX / miterLength;
+    const unitZ = miterZ / miterLength;
+    // 1 / cos(half the corner angle): how much further the corner has to move
+    // for both of its edges to end up `insetM` in.
+    const stretch = 1 / (unitX * after.x + unitZ * after.z);
+    if (!Number.isFinite(stretch) || stretch > WATER_INSET_MITER_LIMIT) {
+      return undefined;
+    }
+    inset.push({
+      x: polygon[index].x + unitX * insetM * stretch,
+      z: polygon[index].z + unitZ * insetM * stretch,
+    });
+  }
+
+  const insetArea = polygonSignedArea(inset);
+  // Same handedness, genuinely smaller, and not eaten alive by its own band.
+  if (Math.sign(insetArea) !== Math.sign(area)) return undefined;
+  const ratio = Math.abs(insetArea) / Math.abs(area);
+  if (ratio > 0.995 || ratio < 0.25) return undefined;
+  // Every edge must still run the way it used to. A reversed one is a fold,
+  // which the area test alone can miss when two folds cancel out.
+  for (let index = 0; index < polygon.length; index += 1) {
+    const next = (index + 1) % polygon.length;
+    const originalX = polygon[next].x - polygon[index].x;
+    const originalZ = polygon[next].z - polygon[index].z;
+    const insetX = inset[next].x - inset[index].x;
+    const insetZ = inset[next].z - inset[index].z;
+    if (originalX * insetX + originalZ * insetZ <= 0) return undefined;
+  }
+  return inset;
+}
+
+/**
+ * Builds the flat mesh for one authored water outline, optionally with a shore
+ * band: a `shoreBandM`-wide ring of extra triangles just inside the bank, whose
+ * vertices come back marked in `shoreFactors`.
+ *
+ * The ring exists because **every vertex of the bare outline is a bank vertex**,
+ * so there is nowhere to hang an edge-darkening gradient — the interior has no
+ * vertices at all. Inset one ring and the water gains an inner edge to fade to.
+ */
+export function buildWaterPolygonGeometry(
+  source: readonly GameCanvasPoint[],
+  y = 0.025,
+  shoreBandM = 0,
+): WaterPolygonGeometry {
+  const polygon: GameCanvasPoint[] = [];
+  for (const point of source) {
+    const previous = polygon.at(-1);
+    if (!previous || Math.hypot(point.x - previous.x, point.z - previous.z) > 1e-6) {
+      polygon.push({ x: point.x, z: point.z });
+    }
+  }
+  if (
+    polygon.length > 2 &&
+    Math.hypot(
+      polygon[0].x - polygon.at(-1)!.x,
+      polygon[0].z - polygon.at(-1)!.z,
+    ) <= 1e-6
+  ) {
+    polygon.pop();
+  }
+  if (polygon.length < 3) {
+    return { polygon, positions: [], indices: [], uvs: [], shoreFactors: [] };
+  }
+
+  const inset =
+    shoreBandM > 0 ? insetWaterPolygon(polygon, shoreBandM) : undefined;
+  const vertices = inset ? [...polygon, ...inset] : polygon;
+  const indices: number[] = [];
+  if (inset) {
+    // The ring, one quad per bank edge. Walking the outline in its own
+    // direction and closing back along the inset keeps each quad wound like
+    // the outline itself, so an anticlockwise outline needs no fix-up and a
+    // clockwise one takes the mirrored triangle pair.
+    const clockwise = polygonSignedArea(polygon) < 0;
+    for (let index = 0; index < polygon.length; index += 1) {
+      const next = (index + 1) % polygon.length;
+      const outerA = index;
+      const outerB = next;
+      const innerA = polygon.length + index;
+      const innerB = polygon.length + next;
+      if (clockwise) {
+        indices.push(outerA, innerB, outerB, outerA, innerA, innerB);
+      } else {
+        indices.push(outerA, outerB, innerB, outerA, innerB, innerA);
+      }
+    }
+  }
+  indices.push(
+    ...earClipPolygonIndices(inset ?? polygon, inset ? polygon.length : 0),
+  );
+
+  const positions = vertices.flatMap((point) => [point.x, y, point.z]);
+  const uvs = vertices.flatMap((point) => [
     point.x * WATER_UV_PER_M,
     point.z * WATER_UV_PER_M,
   ]);
-  return { polygon, positions, indices, uvs };
+  const shoreFactors = inset
+    ? vertices.map((_, index) => (index < polygon.length ? 1 : 0))
+    : [];
+  return { polygon, positions, indices, uvs, shoreFactors };
 }
 
 export interface WaterBoatPlacement {
@@ -4846,6 +4975,18 @@ const RIVER_TILE_GAIN_NIGHT = 0.85;
 const RIVER_TROUGH_GAIN = 0.62;
 /** Crest tone: the base carried this far toward a dimmed sky. */
 const RIVER_CREST_SKY_MIX = 0.44;
+/**
+ * How far the bank's own darkening reaches into the water, and what it
+ * multiplies the tile by where it meets the stone.
+ *
+ * Deliberately *not* the pale silt fringe a beach would get. Both cities' banks
+ * are walled — a corniche parapet, a park lake's kerb — and water that deep
+ * against a vertical face reads darker and a shade greener there, from the
+ * wall's shadow and its reflection. A bright foam line on a wall looks like
+ * surf on masonry.
+ */
+const RIVER_SHORE_BAND_M = 5.5;
+const RIVER_SHORE_TINT = { r: 0.62, g: 0.73, b: 0.68 };
 
 /**
  * The river's diffuse tile: the wave field painted as a trough-to-crest ramp.
@@ -13625,7 +13766,11 @@ class BabylonGameSession {
       : RIVER_TILE_GAIN_DAY;
 
     for (const body of bodies) {
-      const geometry = buildWaterPolygonGeometry(body.polygon);
+      const geometry = buildWaterPolygonGeometry(
+        body.polygon,
+        undefined,
+        RIVER_SHORE_BAND_M,
+      );
       if (!geometry.positions.length || !geometry.indices.length) continue;
       const waterColor = colorFromHex(
         body.color,
@@ -13758,6 +13903,18 @@ class BabylonGameSession {
       data.indices = [...geometry.indices];
       data.normals = normals;
       data.uvs = [...geometry.uvs];
+      // The shore band, as a per-vertex multiplier on the tile. Vertex colour
+      // rather than a second mesh: the standard shader folds it straight into
+      // the diffuse sample, so it costs no draw call, no transparency sort and
+      // no second surface to z-fight with the water 25 mm below it.
+      if (geometry.shoreFactors.length) {
+        data.colors = geometry.shoreFactors.flatMap((factor) => [
+          1 + (RIVER_SHORE_TINT.r - 1) * factor,
+          1 + (RIVER_SHORE_TINT.g - 1) * factor,
+          1 + (RIVER_SHORE_TINT.b - 1) * factor,
+          1,
+        ]);
+      }
       data.applyToMesh(mesh);
       setMeshMaterial(mesh, material, true);
       mesh.freezeWorldMatrix();

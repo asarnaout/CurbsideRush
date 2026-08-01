@@ -127,22 +127,23 @@ you get inside-out or moonwalking pedestrians, silently.
 
 ## Water is one flat sheet, so its normals and its material do all the work
 
-`buildWaterPolygonGeometry` ear-clips a `WaterBody` into a single horizontal
-polygon with no relief, which makes two things load-bearing that are invisible
+`buildWaterPolygonGeometry` ear-clips a `WaterBody` into one horizontal sheet
+with no relief, which makes two things load-bearing that are invisible
 elsewhere. **Triangle winding is the lighting**: nothing culls the sheet, so a
-reversed winding does not drop a face — it hands every vertex a downward normal,
-drops the sun and the sky half of the hemispheric light, and turns the Nile
-near-black. And a **frozen `StandardMaterial` stops updating its texture
-matrix**, because that lives in the uniform buffer it has stopped uploading —
-so anything that scrolls a texture, here or anywhere else, must stay unfrozen.
+reversed winding does not drop a face — it points every normal at the riverbed
+and the Nile goes near-black. And a **frozen `StandardMaterial` stops updating
+its texture matrix**, which lives in the uniform buffer it stopped uploading,
+so anything that scrolls a texture must stay unfrozen.
 
-Everything else keys off `WaterBody.flowHeadingDeg`: with a current, the surface
-gets crest streaks along it (`buildRiverWaveField`), a normal-mapped chop and
-two tiles drifting downstream at different speeds; without one it is a pond —
-isotropic, no bump, frozen. The single authored `color` is a base the renderer
-derives trough, crest and a grazing sky sheen from, painted at `RIVER_TILE_GAIN_*`
-of face value because a lit horizontal plane collects ~1.5× (day) before that
-sheen is added — paint it at face value and the river reads as a swimming pool.
+Everything else keys off `WaterBody.flowHeadingDeg`: with a current the surface
+gets crest streaks along it (`buildRiverWaveField`), normal-mapped chop and two
+tiles drifting downstream at different speeds; without one it is a pond —
+isotropic, no bump, frozen. The one authored `color` is only a base, painted at
+`RIVER_TILE_GAIN_*` of face value because a lit plane collects ~1.5× (day)
+before the grazing sheen is added. The bank darkening needs geometry of its
+own, since every vertex of the bare outline *is* a bank vertex: the builder
+mitres a ring inward for the tint to fade across, and refuses outlines too
+tight to inset.
 
 ## City palettes are chosen by substring
 
