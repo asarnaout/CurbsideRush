@@ -32,19 +32,25 @@ also drops the base tile to 512².
 `parkLayouts.ts` is pure and returns paths plus placements; `GameCanvas` splits
 them. Within `PARK_KNOCKABLE_REACH_M` of a path (plus every bench and lamp) they
 join the roadside scatter's pipeline, sharing its tree masters and becoming
-knockable street furniture; deeper ones merge into one mesh per
-`PARK_THICKET_CELL_M` cell and are scenery. Shrubs are never knockable at any
+knockable street furniture; deeper ones are instanced
+scenery, unreachable and not knockable. Shrubs are never knockable at any
 distance — densest zone, and `damage: "none"` anyway.
 
-That is a perf decision: one `createInstance` per tree part put **9,283** extra
-meshes in NYC, each a per-frame frustum test in a scene already walking ~15,000.
-Merging per cell lands at ~+1,900 with the reachable planting still interactive.
+Both halves are `createInstance` off a `getBuildingMaster` merge, so they share
+geometry. Measured against `main` at the NYC free-drive spawn: **+3,298 meshes,
++23 MB heap, +3 draw calls**.
 
-**Thin instances were tried for the merged half and draw nothing here** — chunks
-come out visible, enabled, right material, right `thinInstanceCount`, correct
-refreshed bounds, Babylon submits them (draw calls rise ~7x), no pixels. Bisect
-ruled out the multi-material merge, `freezeWorldMatrix`, and the
-`material.freeze()` ending `buildRoadsideProps`. Merge, as the street wall does.
+Two routes were tried and rejected, and the numbers are why. **Merging a cell
+into one mesh** duplicates its geometry per plant: it saved 2,000 meshes and 12
+draw calls but cost **+100 MB of heap** (368 -> 468 MB on NYC), which is a bad
+trade on a phone. It was also the right answer while planting was procedural,
+because a procedural tree is four part-meshes where an imported one is a single
+merged glb — the +9,283 meshes that motivated batching never materialise now.
+**Thin instances draw nothing here at all**: chunks come out visible, enabled,
+right material, right `thinInstanceCount`, correct refreshed bounds, Babylon
+submits them (draw calls rise ~7x) and no pixels land. Bisect ruled out the
+multi-material merge, `freezeWorldMatrix`, and the `material.freeze()` ending
+`buildRoadsideProps`. Do not spend the afternoon again.
 
 ## A park's gates are derived from its own paths
 

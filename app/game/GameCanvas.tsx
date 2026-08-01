@@ -457,20 +457,6 @@ const PARK_WALL_HEIGHT_M = 0.95;
  * before the trees stop reacting", and it wants to stay generous.
  */
 const PARK_KNOCKABLE_REACH_M = 10;
-/**
- * Merge-cell size for deep-park planting. Sized against the night fog band
- * (440 m) so only a handful of cells are ever live on the 2.9 km park; smaller
- * cells cull better but cost a mesh each.
- */
-const PARK_THICKET_CELL_M = 120;
-
-/** One cell's worth of deep-park planting, merged into a single mesh. */
-interface ParkThicketBatch {
-  readonly id: string;
-  readonly centerX: number;
-  readonly centerZ: number;
-  readonly placements: PropPlacement[];
-}
 // Lift every building so no model's base plate lands exactly on the ground
 // plane. Base plates face -Y and are back-face culled, so this is depth-buffer
 // hygiene, not a visible-flicker fix — the Cairo brick-band flicker was never
@@ -5496,7 +5482,7 @@ class BabylonGameSession {
    * `preloadVehicleModels` has run — the same reason vendor carts queue.
    */
   private readonly pendingParkProps: ParkPlacement[] = [];
-  private readonly pendingParkThickets: ParkThicketBatch[] = [];
+  private readonly pendingParkThickets: ParkPlacement[] = [];
   /** River craft to instantiate once the boat glbs preload. */
   private readonly pendingWaterBoats: { bodyId: string; placement: WaterBoatPlacement }[] = [];
   private readonly waterBoatMasters = new Map<
@@ -9093,26 +9079,26 @@ class BabylonGameSession {
     }
     this.pendingParkProps.length = 0;
 
-    for (const batch of this.pendingParkThickets) {
-      const pieces: Mesh[] = [];
-      for (const [item, placement] of batch.placements.entries()) {
-        const species = speciesFor(placement.kind, placement.variant);
-        if (!species) continue;
-        const master = this.getBuildingMaster(species.url);
-        if (!master) continue;
-        const piece = master.clone(`park-piece-${batch.id}-${item}`);
-        piece.position.set(placement.x, 0, placement.z);
-        piece.rotation.y = placement.rotationY;
-        piece.scaling.setAll(species.scale * placement.scale);
-        piece.isVisible = true;
-        pieces.push(piece);
-      }
-      if (!pieces.length) continue;
-      const merged = Mesh.MergeMeshes(pieces, true, true, undefined, false, true);
-      if (!merged) continue;
-      merged.name = `park-thicket-${batch.id}`;
-      merged.isPickable = false;
-      this.registerStaticCell(merged, batch.centerX, batch.centerZ, false);
+    // Deep planting is instanced, not merged. Merging a cell into one mesh
+    // duplicates its geometry per plant, and on Central Park that cost **+100
+    // MB of heap** (368 -> 468 on NYC) to save meshes. Instances share the
+    // master's geometry, and because an imported tree is ONE merged glb mesh
+    // where the procedural tree was four parts, a plant now costs a single
+    // scene mesh — so the mesh count this was avoiding never materialises.
+    for (const [thicketIndex, placement] of this.pendingParkThickets.entries()) {
+      const species = speciesFor(placement.kind, placement.variant);
+      if (!species) continue;
+      const master = this.getBuildingMaster(species.url);
+      if (!master) continue;
+      const instance = master.createInstance(`park-thicket-${thicketIndex}`);
+      instance.position.set(placement.x, 0, placement.z);
+      instance.rotation.y = placement.rotationY;
+      instance.scaling.setAll(species.scale * placement.scale);
+      instance.isPickable = false;
+      this.staticSceneryFreeze.push(instance);
+      // Deliberately no shadow: a whole woodland in the 90 m caster ring would
+      // swamp the 1024 shadow map for planting nobody can reach.
+      this.registerStaticCell(instance, placement.x, placement.z, false);
     }
     this.pendingParkThickets.length = 0;
   }
@@ -12201,13 +12187,12 @@ class BabylonGameSession {
    */
   private collectParkPlacements(
     mapPack: GameCanvasMapPack,
-  ): { reachable: PropPlacement[]; interior: ParkThicketBatch[] } {
+  ): { reachable: PropPlacement[]; interior: ParkPlacement[] } {
     const reachable: PropPlacement[] = [];
-    const interior: ParkThicketBatch[] = [];
+    const interior: ParkPlacement[] = [];
     for (const landmark of mapPack.geometry.landmarks) {
       if (landmark.kind !== "park") continue;
       const layout = parkLayoutForLandmark(mapPack, landmark);
-      const chunks = new Map<string, ParkThicketBatch>();
       for (const [index, placement] of layout.placements.entries()) {
         if (
           !deterministicSceneryKeep(
@@ -12245,25 +12230,8 @@ class BabylonGameSession {
           }
           continue;
         }
-        // Keyed by CELL only, not by species: everything in a cell merges into
-        // one mesh, so a cell costs one draw and one cull test no matter how
-        // many kinds of plant stand in it.
-        const column = Math.floor(placement.x / PARK_THICKET_CELL_M);
-        const row = Math.floor(placement.z / PARK_THICKET_CELL_M);
-        const key = `${column}:${row}`;
-        let batch = chunks.get(key);
-        if (!batch) {
-          batch = {
-            id: `${landmark.id}-${key}`,
-            centerX: (column + 0.5) * PARK_THICKET_CELL_M,
-            centerZ: (row + 0.5) * PARK_THICKET_CELL_M,
-            placements: [],
-          };
-          chunks.set(key, batch);
-          interior.push(batch);
-          this.pendingParkThickets.push(batch);
-        }
-        batch.placements.push(placement);
+        interior.push(placement);
+        this.pendingParkThickets.push(placement);
       }
     }
     return { reachable, interior };
