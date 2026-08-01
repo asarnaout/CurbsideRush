@@ -5,6 +5,7 @@ import {
   buildGrassTextureSpec,
   buildHorizonSilhouetteSpec,
   buildPlanarUVs,
+  buildRiverWaveField,
   distanceToPolylineM,
   generateRoadsidePropPlacements,
   hashStringToSeed,
@@ -14,6 +15,7 @@ import {
   resolveFogRange,
   resolveMapVisualKey,
   resolveMapVisualPalette,
+  sampleRiverWaveField,
   seededUnit,
   skyGradientStops,
   type PropScatterInput,
@@ -271,6 +273,90 @@ describe("texture specs", () => {
     expect(mean(detail.map((blade) => blade.width))).toBeGreaterThan(
       mean(base.map((blade) => blade.width)),
     );
+  });
+});
+
+describe("river wave field", () => {
+  // The Nile's heading: 0 = +z, so 180° flows toward -z and its crests must
+  // line up with the z axis.
+  const NILE = { seed: 4242, flowHeadingRad: Math.PI };
+
+  it("quantises every component to a seamless integer lattice", () => {
+    const waves = buildRiverWaveField({ ...NILE, count: 20, minCycles: 1, maxCycles: 9 });
+    expect(waves.length).toBeGreaterThan(15);
+    for (const wave of waves) {
+      expect(Number.isInteger(wave.cyclesU)).toBe(true);
+      expect(Number.isInteger(wave.cyclesV)).toBe(true);
+      expect(wave.cyclesU === 0 && wave.cyclesV === 0).toBe(false);
+      expect(Math.hypot(wave.cyclesU, wave.cyclesV)).toBeLessThanOrEqual(10);
+      expect(wave.phase).toBeGreaterThanOrEqual(0);
+      expect(wave.phase).toBeLessThan(Math.PI * 2);
+    }
+    expect(waves).toEqual(
+      buildRiverWaveField({ ...NILE, count: 20, minCycles: 1, maxCycles: 9 }),
+    );
+  });
+
+  it("runs its crests along the current, not across it", () => {
+    const waves = buildRiverWaveField({
+      ...NILE,
+      count: 40,
+      minCycles: 2,
+      maxCycles: 8,
+      crossFraction: 0.25,
+    });
+    // A crest along the flow (here the z axis) is a wave vector across it,
+    // which for this heading means most of the energy sits on cyclesU.
+    const alongFlow = waves.filter(
+      (wave) => Math.abs(wave.cyclesU) > Math.abs(wave.cyclesV),
+    );
+    expect(alongFlow.length).toBeGreaterThan(waves.length * 0.6);
+    // ...but not all of it, or the surface reads as combed rather than choppy.
+    expect(alongFlow.length).toBeLessThan(waves.length);
+  });
+
+  it("samples a normalised tile that wraps in both axes", () => {
+    const waves = buildRiverWaveField({ ...NILE, count: 12, minCycles: 1, maxCycles: 6 });
+    const size = 32;
+    const field = sampleRiverWaveField(waves, size);
+    expect(field).toHaveLength(size * size);
+    let peak = 0;
+    for (const value of field) peak = Math.max(peak, Math.abs(value));
+    expect(peak).toBeCloseTo(1, 6);
+
+    // The separable expansion has to agree with the direct evaluation, and
+    // sampling one tile beyond the edge has to land back on the first row and
+    // column — that is what keeps a repeating tile from seaming.
+    const direct = (u: number, v: number) =>
+      waves.reduce(
+        (sum, wave) =>
+          sum +
+          wave.amplitude *
+            Math.sin(
+              2 * Math.PI * (wave.cyclesU * u + wave.cyclesV * v) + wave.phase,
+            ),
+        0,
+      );
+    let peakDirect = 0;
+    for (let v = 0; v < size; v += 1) {
+      for (let u = 0; u < size; u += 1) {
+        peakDirect = Math.max(peakDirect, Math.abs(direct(u / size, v / size)));
+      }
+    }
+    for (const [u, v] of [[0, 0], [7, 3], [31, 18], [12, 31]] as const) {
+      expect(field[v * size + u]).toBeCloseTo(
+        direct(u / size, v / size) / peakDirect,
+        5,
+      );
+      expect(direct(u / size + 1, v / size + 1)).toBeCloseTo(
+        direct(u / size, v / size),
+        6,
+      );
+    }
+  });
+
+  it("returns a flat tile rather than throwing on an empty field", () => {
+    expect([...sampleRiverWaveField([], 4)]).toEqual(new Array(16).fill(0));
   });
 });
 

@@ -125,6 +125,25 @@ pure, pinned against Babylon's own `Matrix`) — that is what keeps walkers in w
 space and winding correct despite the loader's handedness mirror. Get it wrong and
 you get inside-out or moonwalking pedestrians, silently.
 
+## Water is one flat sheet, so its normals and its material do all the work
+
+`buildWaterPolygonGeometry` ear-clips a `WaterBody` into a single horizontal
+polygon with no relief, which makes two things load-bearing that are invisible
+elsewhere. **Triangle winding is the lighting**: nothing culls the sheet, so a
+reversed winding does not drop a face — it hands every vertex a downward normal,
+drops the sun and the sky half of the hemispheric light, and turns the Nile
+near-black. And a **frozen `StandardMaterial` stops updating its texture
+matrix**, because that lives in the uniform buffer it has stopped uploading —
+so anything that scrolls a texture, here or anywhere else, must stay unfrozen.
+
+Everything else keys off `WaterBody.flowHeadingDeg`: with a current, the surface
+gets crest streaks along it (`buildRiverWaveField`), a normal-mapped chop and
+two tiles drifting downstream at different speeds; without one it is a pond —
+isotropic, no bump, frozen. The single authored `color` is a base the renderer
+derives trough, crest and a grazing sky sheen from, painted at `RIVER_TILE_GAIN_*`
+of face value because a lit horizontal plane collects ~1.5× (day) before that
+sheen is added — paint it at face value and the river reads as a swimming pool.
+
 ## City palettes are chosen by substring
 
 `resolveMapVisualKey(mapId)` is **substring matching with an `nyc` default**, and
