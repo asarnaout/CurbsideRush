@@ -20,8 +20,11 @@ spans, and whose **`flowHeadingDeg` decides river or pond**.
 **`ProceduralLandmark.color` does nothing on a `kind: "park"`** — every park
 shares one per-map grass material and nothing warns — and anything laid in a
 park must fit the ~23 mm between the lawn (`PARK_LAWN_Y`, 0.02) and the
-shoulder junction fill at 0.0435: parks sit under the roads on purpose. A
-park's dressing, wall and gates are derived ([greenery.md](greenery.md));
+shoulder junction fill at 0.0435: parks sit under the roads on purpose. That
+layering is why Tahrir's visible lawn is `cairoTahrirLawnPolygon`'s
+tuck-and-clip (out under the flanking bands, cut at Ramses' centreline); the
+authored rect stays the envelope scatter, exclusions and prop keep-outs read.
+A park's dressing, wall and gates are derived ([greenery.md](greenery.md));
 `parkStyle` is the only park field worth authoring, and only to overrule those.
 
 ## Everything else is derived at load time
@@ -57,12 +60,9 @@ of one street must still run together, or splitting the approaches also splits
 the cycle.
 
 **A kerbside head belongs beside its own stop line**, roughly a metre before
-the bar and a metre past the kerb face, on the traffic side. Cairo originally
-searched for the position that maximised distance from every lane, which is not
-the same objective at all: straying cost 0.01 m of score per metre, so the
-widest, furthest-back corner of the grid always won and every head stood 13–24 m
-out on open ground, most of them across the carriageway. Clearance is a **veto**
-on that ideal spot, never the thing being maximised.
+the bar and a metre past the kerb face, on the traffic side. Clearance is a
+**veto** on that ideal spot, never the thing being maximised — maximising it is
+how every Cairo head once stood 13–24 m out on open ground.
 
 **Signage is derived, controls are authored, so the post is what moves.**
 `RegulatorySignInput.occupiedPositions` carries every authored pole; a
