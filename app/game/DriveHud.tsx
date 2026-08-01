@@ -1701,8 +1701,29 @@ export interface HudOffer {
   readonly surged: boolean;
 }
 
-const OFFER_W = 430;
-const OFFER_H = 384;
+/**
+ * The card's frame, straight off `Curbside Driving HUD Desktop`. Every figure in
+ * `DriveOfferCard` below is that comp's, unscaled: the comp is drawn on the same
+ * 1920-wide frame `HUD_DESIGN_WIDTH` names, so a number here can be read off the
+ * comp without arithmetic.
+ *
+ * It used to be 430x384 — a third more area — which on a laptop floored at
+ * `HUD_MIN_SCALE` covered a quarter of the windscreen and left the minimap
+ * roughly six pixels of clearance beneath it. The card is a thing you glance at
+ * while driving; it does not need to be the biggest object on screen.
+ */
+const OFFER_W = 344;
+const OFFER_H = 274;
+
+/**
+ * How far below the HUD's top inset the card hangs, in comp pixels.
+ *
+ * The comp puts its top edge at 282 on a frame inset 38, so 244 is the gap it
+ * actually draws under the wallet cluster. Scaled rather than fixed because the
+ * cluster above it scales too — pinning it would close that gap on a small
+ * window and open it on a large one, and the minimap is directly below.
+ */
+export const OFFER_TOP_OFFSET_PX = 244;
 
 /**
  * How long the fuse takes to reach a new position.
@@ -1763,13 +1784,13 @@ export function DriveOfferCard({
           position: "relative",
           width: OFFER_W,
           height: OFFER_H,
-          borderRadius: 28,
+          borderRadius: 24,
           background: "linear-gradient(168deg,#faf4e6,#efe1c8)",
-          padding: "24px 26px 22px",
+          padding: "15px 17px 14px",
           display: "flex",
           flexDirection: "column",
           boxShadow:
-            "0 34px 76px -26px rgba(0,0,0,.86), 0 0 0 1px rgba(255,255,255,.35) inset, 0 0 46px -8px rgba(250,243,228,.22)",
+            "0 28px 62px -24px rgba(0,0,0,.86), 0 0 0 1px rgba(255,255,255,.35) inset, 0 0 38px -8px rgba(250,243,228,.22)",
         }}
       >
         <svg
@@ -1785,24 +1806,24 @@ export function DriveOfferCard({
           }}
         >
           <rect
-            x="2"
-            y="2"
-            width={OFFER_W - 4}
-            height={OFFER_H - 4}
-            rx="26"
+            x="1.75"
+            y="1.75"
+            width={OFFER_W - 3.5}
+            height={OFFER_H - 3.5}
+            rx="22.5"
             fill="none"
             stroke="rgba(32,30,29,.1)"
-            strokeWidth="4"
+            strokeWidth="3.5"
           />
           <rect
-            x="2"
-            y="2"
-            width={OFFER_W - 4}
-            height={OFFER_H - 4}
-            rx="26"
+            x="1.75"
+            y="1.75"
+            width={OFFER_W - 3.5}
+            height={OFFER_H - 3.5}
+            rx="22.5"
             fill="none"
             stroke={fuseHot ? "#d9614c" : HUD_INK}
-            strokeWidth="4"
+            strokeWidth="3.5"
             strokeLinecap="round"
             pathLength={1000}
             strokeDasharray={1000}
@@ -1818,30 +1839,30 @@ export function DriveOfferCard({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: 12,
-            marginBottom: 14,
+            gap: 10,
+            marginBottom: 9,
           }}
         >
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 8,
+              gap: 6,
               background: food ? "rgba(198,113,57,.15)" : "rgba(90,110,68,.16)",
               borderRadius: 999,
-              padding: "6px 14px 6px 11px",
+              padding: "4px 11px 4px 9px",
             }}
           >
             <HudGlyph
               path={food ? FOOD_ICON : RIDER_ICON}
-              size={17}
+              size={14}
               strokeWidth={2.75}
               color={food ? "#a8541f" : "#4e6236"}
             />
             <span
               style={{
-                font: `800 13px ${HUD_SANS}`,
-                letterSpacing: "2.2px",
+                font: `800 11px ${HUD_SANS}`,
+                letterSpacing: "1.7px",
                 color: food ? "#a8541f" : "#4e6236",
                 whiteSpace: "nowrap",
               }}
@@ -1849,11 +1870,11 @@ export function DriveOfferCard({
               {food ? "FOOD DELIVERY" : "RIDESHARE"}
             </span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <span
               data-testid="offer-countdown"
               style={{
-                font: `900 20px ${HUD_SANS}`,
+                font: `900 17px ${HUD_SANS}`,
                 color: "rgba(32,30,29,.45)",
                 fontVariantNumeric: "tabular-nums",
               }}
@@ -1862,8 +1883,8 @@ export function DriveOfferCard({
             </span>
             <span
               style={{
-                font: `800 12px ${HUD_SANS}`,
-                letterSpacing: "1.6px",
+                font: `800 10px ${HUD_SANS}`,
+                letterSpacing: "1.4px",
                 color: "rgba(32,30,29,.35)",
               }}
             >
@@ -1872,13 +1893,13 @@ export function DriveOfferCard({
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "baseline", gap: 11, marginBottom: 6 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 9, marginBottom: 4 }}>
           <span
             data-testid="offer-pay"
             style={{
-              font: `900 52px/.9 ${HUD_SANS}`,
+              font: `900 40px/.9 ${HUD_SANS}`,
               color: HUD_INK,
-              letterSpacing: "-2px",
+              letterSpacing: "-1.6px",
               fontVariantNumeric: "tabular-nums",
             }}
           >
@@ -1890,8 +1911,8 @@ export function DriveOfferCard({
               style={{
                 background: offer.surged ? "rgba(168,84,31,.14)" : "rgba(32,30,29,.08)",
                 borderRadius: 999,
-                padding: "4px 12px",
-                font: `800 15px ${HUD_SANS}`,
+                padding: "3px 10px",
+                font: `800 12.5px ${HUD_SANS}`,
                 color: offer.surged ? "#a8541f" : "rgba(32,30,29,.6)",
                 whiteSpace: "nowrap",
               }}
@@ -1903,9 +1924,9 @@ export function DriveOfferCard({
 
         <div
           style={{
-            font: `700 32px/1.05 ${HUD_SERIF}`,
+            font: `700 24px/1.05 ${HUD_SERIF}`,
             color: HUD_INK,
-            marginBottom: 3,
+            marginBottom: 2,
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -1915,9 +1936,9 @@ export function DriveOfferCard({
         </div>
         <div
           style={{
-            font: `600 16px ${HUD_SANS}`,
+            font: `600 13px ${HUD_SANS}`,
             color: "rgba(32,30,29,.55)",
-            marginBottom: 16,
+            marginBottom: 11,
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -1926,18 +1947,18 @@ export function DriveOfferCard({
           {offer.sub}
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: "auto", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: "auto", flexWrap: "wrap" }}>
           {offer.chips.map((chip) => (
             <span
               key={chip}
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 6,
+                gap: 5,
                 border: "1.5px solid rgba(32,30,29,.16)",
                 borderRadius: 999,
-                padding: "6px 13px",
-                font: `700 14px ${HUD_SANS}`,
+                padding: "4px 10px",
+                font: `700 11.5px ${HUD_SANS}`,
                 color: "rgba(32,30,29,.7)",
                 whiteSpace: "nowrap",
               }}
@@ -1947,38 +1968,37 @@ export function DriveOfferCard({
           ))}
         </div>
 
-        <div style={{ display: "flex", gap: 10, marginBottom: 9 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 7 }}>
           <button
             type="button"
             data-testid="offer-pass"
             onClick={onPass}
             aria-label={`Pass on this job (${passKey})`}
             style={{
-              width: 132,
-              height: 64,
-              borderRadius: 18,
+              width: 100,
+              height: 50,
+              borderRadius: 15,
               background: "rgba(32,30,29,.06)",
               border: "1.5px solid rgba(217,97,76,.35)",
               display: "flex",
-              flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              gap: 3,
+              gap: 7,
               cursor: "pointer",
             }}
           >
-            <span style={{ font: `900 17px ${HUD_SANS}`, letterSpacing: "1.2px", color: "#b04a34" }}>
+            <span style={{ font: `900 14px ${HUD_SANS}`, letterSpacing: "1px", color: "#b04a34" }}>
               PASS
             </span>
             <span
               style={{
                 display: "grid",
                 placeItems: "center",
-                minWidth: 22,
-                height: 22,
-                borderRadius: 6,
+                minWidth: 19,
+                height: 19,
+                borderRadius: 5,
                 background: "rgba(32,30,29,.12)",
-                font: `900 12px ${HUD_SANS}`,
+                font: `900 11px ${HUD_SANS}`,
                 color: "rgba(32,30,29,.6)",
               }}
             >
@@ -1992,31 +2012,31 @@ export function DriveOfferCard({
             aria-label={`Accept this job (${acceptKey})`}
             style={{
               flex: 1,
-              height: 64,
-              borderRadius: 18,
+              height: 50,
+              borderRadius: 15,
               background: "linear-gradient(180deg,#9dbb7f,#7d9e63)",
               border: "none",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: 12,
+              gap: 10,
               cursor: "pointer",
               boxShadow:
-                "0 12px 26px -12px rgba(125,158,99,.9), inset 0 2px 0 rgba(255,255,255,.34)",
+                "0 10px 22px -12px rgba(125,158,99,.9), inset 0 2px 0 rgba(255,255,255,.34)",
             }}
           >
-            <span style={{ font: `900 24px ${HUD_SANS}`, letterSpacing: "1.2px", color: "#16210f" }}>
+            <span style={{ font: `900 19px ${HUD_SANS}`, letterSpacing: "1px", color: "#16210f" }}>
               ACCEPT
             </span>
             <span
               style={{
                 display: "grid",
                 placeItems: "center",
-                minWidth: 28,
-                height: 28,
-                borderRadius: 7,
+                minWidth: 23,
+                height: 23,
+                borderRadius: 6,
                 background: "rgba(22,33,15,.22)",
-                font: `900 15px ${HUD_SANS}`,
+                font: `900 13px ${HUD_SANS}`,
                 color: "#16210f",
               }}
             >
@@ -2027,7 +2047,7 @@ export function DriveOfferCard({
         <div
           style={{
             textAlign: "center",
-            font: `600 13px ${HUD_SANS}`,
+            font: `600 11px ${HUD_SANS}`,
             color: "rgba(32,30,29,.42)",
           }}
         >

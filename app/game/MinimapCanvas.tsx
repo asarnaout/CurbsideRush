@@ -215,7 +215,26 @@ export function Minimap({
     });
   }, [projector, size, playerX, playerZ, heading]);
 
-  const radius = Math.round(size * 0.11);
+  /**
+   * The widget's chrome, as fractions of its own edge so a 344 px desktop map
+   * and a 104 px touch one keep the same proportions — the rule the detour bar
+   * below already follows.
+   *
+   * `Curbside Driving HUD Desktop` is where every fraction comes from (26 px of
+   * rounding on 344, an 18 px compass over a 2x17 tick), and at 104 px they
+   * collapse into a smudge. **Each floor is the value the touch widget had
+   * before those fractions arrived**, so the phone is pinned exactly where it
+   * was until its own comp lands.
+   */
+  const radius = Math.max(11, Math.round(size * 0.076));
+  const compass = {
+    top: Math.max(5, Math.round(size * 0.035)),
+    left: Math.max(6, Math.round(size * 0.047)),
+    gap: Math.max(3, Math.round(size * 0.02)),
+    font: Math.max(9, Math.round(size * 0.052)),
+    tickW: Math.max(1, Math.round(size * 0.006)),
+    tickH: Math.max(8, Math.round(size * 0.049)),
+  };
 
   return (
     <div
@@ -235,7 +254,7 @@ export function Minimap({
         // brighten, which only reads if what is behind them is flat and dark.
         background: "rgba(11, 14, 16, 0.92)",
         backdropFilter: "blur(14px)",
-        boxShadow: "0 18px 40px -24px rgba(0,0,0,.85)",
+        boxShadow: "0 22px 50px -26px rgba(0,0,0,.85)",
         pointerEvents: "none",
         opacity: dimmed ? 0 : 1,
         transition: "opacity .26s ease",
@@ -314,7 +333,7 @@ export function Minimap({
               whiteSpace: "nowrap",
             }}
           >
-            DETOUR
+            DETOUR PREVIEW
           </span>
           <span
             style={{
@@ -332,20 +351,20 @@ export function Minimap({
       <span
         style={{
           position: "absolute",
-          top: Math.round(size * 0.05),
-          left: Math.round(size * 0.06),
+          top: compass.top,
+          left: compass.left,
           display: "flex",
           alignItems: "center",
-          gap: 3,
-          font: '900 9px/1 "Figtree", system-ui, sans-serif',
+          gap: compass.gap,
+          font: `900 ${compass.font}px/1 "Figtree", system-ui, sans-serif`,
           color: "rgba(244,239,222,.7)",
         }}
       >
         N
         <span
           style={{
-            width: 1,
-            height: 8,
+            width: compass.tickW,
+            height: compass.tickH,
             background: "rgba(244,239,222,.4)",
           }}
         />

@@ -42,6 +42,13 @@ floored at `HUD_MIN_SCALE` 0.68) rather than re-derived responsively; `compact`
 swaps in the mobile comp's sizing via a metrics table per cluster (e.g. the nav
 card is 486 px desktop, 330 px mobile).
 
+**On a desktop the offer card and the minimap are one column, and 344 is its
+width.** The comp draws them the same width against the same right inset, so
+`OFFER_W` and the `size` `SideSwapApp` hands `Minimap` have to move together or
+the right edge steps. `OFFER_TOP_OFFSET_PX` scales with `resolveHudScale` for the
+same reason: the two are 150 px apart at full size and the clearance closes as
+the window narrows, so a fixed offset would put the card on the map.
+
 Only the offer differs in kind. `DriveOfferBar` lands in the minimap's slot and
 dims the map, because there is nowhere else on a phone for something that size.
 **Its height comes from the slot between the button rail and the pedals, never

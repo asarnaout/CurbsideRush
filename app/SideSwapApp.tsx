@@ -198,6 +198,7 @@ import {
   DriveNavCard,
   DriveOfferBar,
   DriveOfferCard,
+  OFFER_TOP_OFFSET_PX,
   DriveOfferGlow,
   DriveSpeedCluster,
   DriveSurgeBanner,
@@ -3109,7 +3110,7 @@ export default function SideSwapApp() {
             <DriveOfferCard
               scale={hudScale}
               inset={{
-                top: `calc(${hudInset.top} + ${touchFirst ? 4.5 : 9}rem)`,
+                top: `calc(${hudInset.top} + ${Math.round(OFFER_TOP_OFFSET_PX * hudScale)}px)`,
                 right: hudInset.right,
               }}
               offer={hudOffer}
@@ -3351,7 +3352,7 @@ export default function SideSwapApp() {
             previewRoute={previewRoute ? previewRoute.points : undefined}
             previewLabel={touchFirst ? undefined : detourLabel ?? undefined}
             dimmed={touchFirst && hudOffer !== null}
-            size={touchFirst ? TOUCH_MINIMAP_PX : Math.round(304 * hudScale)}
+            size={touchFirst ? TOUCH_MINIMAP_PX : Math.round(344 * hudScale)}
             anchorStyle={
               touchFirst
                 ? {
