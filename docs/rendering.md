@@ -4,7 +4,7 @@
 
 ## Shape of the file
 
-`GameCanvas.tsx` is ~16.7k lines but holds only three live objects: `class
+`GameCanvas.tsx` is ~18k lines but holds only three live objects: `class
 BabylonGameSession`, `class AdaptiveInputRouter` (which owns input-prompt
 presentation and never disables an input method), and the React component at the
 bottom.
@@ -13,9 +13,8 @@ bottom.
 session owns everything else.** No React state is driven at frame rate.
 
 The session is rebuilt only on `[trafficSide, steeringSide, lesson?.id,
-mapPack?.id]`; every other prop flows through `session.updateOptions(...)`.
-Notably *not* orientation — rotating a phone pauses the drive, it does not rebuild
-the city.
+mapPack?.id]`; every other prop flows through `session.updateOptions(...)`. Not
+orientation — rotating a phone pauses the drive, it does not rebuild the city.
 
 **Everything above `GameCanvasProps` is an exported pure geometry layer** (road
 strips, junction fills, chevron placement) — exported specifically so tests can

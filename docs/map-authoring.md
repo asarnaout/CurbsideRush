@@ -195,13 +195,12 @@ Both are now guarded by "gives every lane somewhere legal to go" in
 ## Addresses
 
 **`streetAddressesForMap` caches by `pack.id`** in a module-level Map; gig
-selection, the renderer and tests must all agree, so mutating a pack after the
-first call has no effect.
+selection, the renderer and tests must agree, so mutating a pack after the first
+call has no effect.
 
 Street addresses only exist for the NYC roads listed in `STREET_PROFILES` — a NYC
 road missing from it generates none, silently, which is what
-`addressableStreetNames` exists for the test to catch. Other maps fall back to
-authored venues.
+`addressableStreetNames` lets the test catch. Other maps use authored venues.
 
 **`STREET_PROFILES` holds numbering and is the addressability gate; display names
 live on `MapPack.roadNames`.** Deliberately split, so naming a street for GPS
@@ -211,25 +210,26 @@ named city in at once.
 
 ## Service points and venues
 
-**`ServicePoint.kind` is two kinds** (`gas_station`, `repair_shop`), and most
-machinery wants both — the block carve that keeps a lot drivable, the prop-scatter
-and address keep-outs. The gas-specific readers go through `gasStationsOf`, never
-an inline `kind ===`, or the pump maths invents four pumps on a garage forecourt.
+**`ServicePoint.kind` is two kinds** (`gas_station`, `repair_shop`) and most
+machinery wants both — the block carve that keeps a lot drivable, prop-scatter and
+address keep-outs. Gas-specific readers go through `gasStationsOf`, never an inline
+`kind ===`, or the pump maths invents four pumps on a garage forecourt.
 
 `servicePoints.ts` cannot import the model registry (Babylon), so
-`SERVICE_MODEL_FRAME` restates each kind's scale and yaw and `modelLibrary.test.ts`
-pins the two together — a copy that drifted would rotate every collider on the lot
-while the building looked right.
+`SERVICE_MODEL_FRAME` restates each kind's scale and yaw, pinned by
+`modelLibrary.test.ts`: a drifted copy rotates every collider off its building.
 
 The repair shop is the one service **authored rather than imported**
-(`repairShopLayout.ts`: no free low-poly auto shop has a drivable bay), which is
-why its colliders come off the same constants that draw it instead of being
-measured off a glb like `GAS_STATION_SOLIDS_M`.
+(`repairShopLayout.ts`: no free low-poly auto shop has a drivable bay), so its
+colliders come off the constants that draw it, not off a glb like
+`GAS_STATION_SOLIDS_M`. Either way **solids describe what stops a car, so nothing
+overhead is in them**: the canopy is excluded on purpose (it would wall off the
+forecourt) and measured into `GAS_STATION_CANOPY_M`, which is what lets a staged
+camera duck it. Anything a car drives under and a camera cannot needs both.
 
-**The setback normal is always the driver's right regardless of traffic side.**
-On left-hand-traffic maps that lands on the far side of the road — which is why
-MK/London gas stations are anchored on far-side lanes and Tokyo's needs
-`setbackM: 17.3`.
+**The setback normal is always the driver's right regardless of traffic side**,
+so on left-hand-traffic maps it lands on the far side of the road — hence
+London's gas station on a far-side lane and Tokyo's `setbackM: 17.3`.
 
 ## Private authoring helpers are duplicated per city
 
