@@ -267,6 +267,8 @@ describe("an offer docked into the map (#241)", () => {
     title: "Amsterdam Bagels",
     sub: "then 214 W 108th St",
     chips: ["0.4 mi away", "3 items"],
+    detour: "0.4 mi",
+    meta: "3 items",
     footnote: "Nothing else in hand",
     secondsLeft: 12,
     elapsed: 0.2,
@@ -322,36 +324,20 @@ describe("an offer docked into the map (#241)", () => {
     expect(screen.queryByTestId("offer-meta")).toBeNull();
   });
 
-  it("takes the dense card on a landscape phone rather than a squashed one", () => {
+  it("keeps the whole card on a landscape phone now the comp fits", () => {
     // jsdom has no layout, so this arithmetic *is* the check — the same reason
     // `touchDriveControls.test.tsx` asserts the rail budget by hand. New York's
     // column on a 402 px phone is the panel's 366, less a 36 header, five 24 px
-    // rows with 5 px between them and two 8 px gaps: 174, against the 184 the
-    // comp needs. Ten pixels short is not a smaller card — the type sizes are
-    // fixed, so the flex children shrink and the pickup's name gets sliced in
-    // half by the line under it.
+    // rows with 5 px between them and two 8 px gaps: 174. Against the old
+    // 184-tall comp that was ten pixels short and bought `dense`; against the
+    // 153 the comp is now it is room to spare, so the phone gets the pickup's
+    // name and the rail back and the legend still keeps its place.
     renderMap({ dockedOffer: docked(), viewport: PHONE });
-    expect(screen.getByTestId("gig-offer").style.height).toBe(
-      `${MOBILE_OFFER_DENSE_H}px`,
-    );
-    // The legend is not what pays for it — it keeps its place.
+    expect(screen.getByTestId("gig-offer").style.height).toBe(`${MOBILE_OFFER_H}px`);
     expect(screen.getAllByTestId("map-legend-row")).toHaveLength(5);
-    // What goes is only what the map beside it is already showing: which place
-    // the job starts at, and how far out of the way it is.
-    expect(screen.getByTestId("gig-offer")).not.toHaveTextContent("Amsterdam Bagels");
-    expect(screen.queryByTestId("detour-rail")).toBeNull();
-
-    // What stays is the decision: pay, distance, and the two buttons.
-    expect(screen.getByTestId("offer-pay")).toHaveTextContent("+$12.40");
-    expect(screen.getByTestId("offer-meta")).toHaveTextContent("0.4 mi away");
-    expect(screen.getByTestId("offer-countdown")).toHaveTextContent("12s");
-    expect(screen.getByTestId("offer-accept")).toBeVisible();
-    expect(screen.getByTestId("offer-pass")).toBeVisible();
-    // The tip moves down to the meta line: at 227 px there is no room for it
-    // beside a 29 px pay, and a nowrap chip there simply hung off the edge.
-    expect(screen.getByTestId("offer-meta")).toContainElement(
-      screen.getByTestId("offer-bonus"),
-    );
+    expect(screen.getByTestId("gig-offer")).toHaveTextContent("Amsterdam Bagels");
+    expect(screen.getByTestId("detour-rail")).toBeInTheDocument();
+    expect(screen.queryByTestId("offer-meta")).toBeNull();
   });
 
   it("yields the legend only where the panel is too short even for that", () => {

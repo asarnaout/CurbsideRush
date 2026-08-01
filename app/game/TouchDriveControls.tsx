@@ -135,6 +135,17 @@ const PEDAL_GAP = 10;
 export const TOUCH_PEDAL_BLOCK_PX = DRIVE_H;
 
 /**
+ * The two pedals plus the air between them, as a **width**.
+ *
+ * The offer card takes it. `Curbside Driving HUD Mobile` draws the card exactly
+ * as wide as BRAKE+DRIVE and against the same right inset, so the two read as
+ * one column under the thumb rather than a card that overhangs the pedals by an
+ * arbitrary margin. Exported so that stays true when a pedal is resized: the
+ * card is derived from this, never a copy of it.
+ */
+export const TOUCH_PEDAL_ROW_PX = BRAKE_W + PEDAL_GAP + DRIVE_W;
+
+/**
  * Where the left rail (the status panel) ends and the steering region begins.
  * A fixed offset rather than a percentage: the panel is a fixed height, so a
  * percentage overlaps it on exactly the short viewports that can least afford

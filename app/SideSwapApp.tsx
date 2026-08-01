@@ -162,6 +162,7 @@ import {
   TOUCH_MINIMAP_PX,
   TOUCH_OFFER_GAP_PX,
   TOUCH_PEDAL_BLOCK_PX,
+  TOUCH_PEDAL_ROW_PX,
   TOUCH_TOP_RAIL_PX,
 } from "./game/TouchDriveControls";
 import { primeAudioContext, suspendAudioContext } from "./game/audio/audioContext";
@@ -2853,6 +2854,8 @@ export default function SideSwapApp() {
           )} run`,
           offer.gig.kind === "passenger" ? "1 rider" : "1 order",
         ],
+        detour: detourLabel ?? null,
+        meta: offer.gig.kind === "passenger" ? "1 rider" : "1 order",
         footnote: activeGig
           ? `Stacks after ${gigTarget(activeGig)?.name ?? "your current job"}`
           : "Nothing else in hand",
@@ -3099,6 +3102,7 @@ export default function SideSwapApp() {
               right: hudInset.right,
             }}
             offer={hudOffer}
+            width={TOUCH_PEDAL_ROW_PX}
             slotHeight={touchOfferSlotPx}
             onAccept={() => answerOffer(true)}
             onPass={() => answerOffer(false)}

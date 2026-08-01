@@ -1694,6 +1694,18 @@ export interface HudOffer {
   readonly title: string;
   readonly sub: string;
   readonly chips: readonly string[];
+  /**
+   * How far off-route the pickup is, e.g. "0.4 mi" — or null when there is no
+   * route to leave. The phone comp draws this as a rail rather than listing it,
+   * and the desktop card carries the same figure in its first chip.
+   *
+   * Named rather than read out of `chips` because that array is positional and
+   * its first entry is only the detour *when there is one*; the rail was
+   * labelling a run distance as a detour on every offer taken while idle.
+   */
+  readonly detour: string | null;
+  /** The load — "3 items", "2 riders". What the phone hangs off the dropoff. */
+  readonly meta: string;
   readonly footnote: string;
   readonly secondsLeft: number;
   /** 0→1 of the window burnt; drives the fuse and its colour. */
@@ -2100,28 +2112,42 @@ export function DriveOfferGlow() {
  * budget admits is 320, and Safari showing its toolbars leaves ~343. Below
  * `RAIL_MIN_SLOT_PX` the rail is dropped rather than letting the card grow down
  * into the pedals; the distance it carried is on the sub-line either way.
+ *
+ * **The width is not the comp's either — it is the pedal row's.** The comp
+ * draws the card exactly as wide as BRAKE+DRIVE beneath it, which is the whole
+ * reason the two read as one column; so `DriveOfferBar` takes a width from
+ * whoever knows the pedals (`TOUCH_PEDAL_ROW_PX`) rather than carrying a copy
+ * of the comp's 212 that would drift the moment a pedal is resized.
  */
-export const MOBILE_OFFER_W = 260;
-export const MOBILE_OFFER_H = 184;
+export const MOBILE_OFFER_H = 153;
 /** Under this the card cannot hold its own content, whatever the slot says. */
 export const MOBILE_OFFER_MIN_H = 120;
 /**
  * The dense card's height — the comp with everything the map already tells you
  * taken out. See `dense` on `DriveOfferPanel`.
  *
- * 140 against the comp's 184: 21 of padding, a 16 chip row over 6, the 29 px
- * pay, a 13 px meta line, and the 42 px buttons over 7. The slack is what
- * `marginBottom: "auto"` spends holding the buttons on the floor.
+ * 116 against the comp's 153: 17.5 of padding, the header over 4, the 21 px
+ * pay, a 9 px meta line and the 31 px buttons — the pickup name, the dropoff
+ * and the whole detour rail gone. The slack is what `marginBottom: "auto"`
+ * spends holding the buttons on the floor.
  */
-export const MOBILE_OFFER_DENSE_H = 140;
-/** Slot height under which the detour rail is dropped to keep the card clear. */
-export const RAIL_MIN_SLOT_PX = 172;
+export const MOBILE_OFFER_DENSE_H = 116;
+/**
+ * Card height under which the detour rail is dropped to keep the card clear.
+ *
+ * The comp's stack with the rail in it adds up to ~139 — padding 17.5, header
+ * 17, pay 20, pickup 14, sub 9, rail 30, buttons 31 — so 140 is the point below
+ * which the rail is what has to give rather than the type. It has to stay under
+ * `MOBILE_OFFER_H` or the rail the comp draws would never render at all.
+ */
+export const RAIL_MIN_SLOT_PX = 140;
 /**
  * Below this width PASS gives up pixels so ACCEPT can still spell its word.
- * The comp never anticipated being narrower than its own frame; docked in the
- * map's legend column on a small landscape phone it is (~173 px there).
+ * Out on the road the card is the pedal row (180), which keeps the comp's PASS;
+ * docked in the map's legend column on a small landscape phone it is ~173, and
+ * that is what this catches.
  */
-const NARROW_OFFER_PX = 200;
+const NARROW_OFFER_PX = 176;
 
 /** Clamps a slot — a phone's rail budget, or the map's column — to the comp. */
 export function resolveOfferPanelHeight(slotPx: number) {
@@ -2131,12 +2157,15 @@ export function resolveOfferPanelHeight(slotPx: number) {
 export function DriveOfferBar({
   inset,
   offer,
+  width,
   slotHeight,
   onAccept,
   onPass,
 }: {
   inset: { readonly top: string; readonly right: string };
   offer: HudOffer;
+  /** The pedal row below it, so the two share both edges — see the note above. */
+  width: number;
   /** Height between the button rail and the pedals — see the note above. */
   slotHeight: number;
   onAccept: () => void;
@@ -2154,7 +2183,7 @@ export function DriveOfferBar({
     >
       <DriveOfferPanel
         offer={offer}
-        width={MOBILE_OFFER_W}
+        width={width}
         height={resolveOfferPanelHeight(slotHeight)}
         onAccept={onAccept}
         onPass={onPass}
@@ -2200,9 +2229,9 @@ export function DriveOfferPanel({
   testId?: string;
 }) {
   const food = offer.kind === "delivery";
-  const showRail = !dense && height >= RAIL_MIN_SLOT_PX;
+  const showRail = !dense && offer.detour !== null && height >= RAIL_MIN_SLOT_PX;
   const fuseHot = offer.elapsed > 0.72;
-  const passPx = width < NARROW_OFFER_PX ? 62 : 74;
+  const passPx = width < NARROW_OFFER_PX ? 48 : 57;
   return (
     <div
       data-testid={testId}
@@ -2210,13 +2239,13 @@ export function DriveOfferPanel({
         position: "relative",
         width,
         height,
-        borderRadius: 16,
+        borderRadius: 13.5,
         background: "linear-gradient(168deg,#faf4e6,#efe1c8)",
-        padding: "11px 13px 10px",
+        padding: "9px 10.5px 8.5px",
         display: "flex",
         flexDirection: "column",
         boxShadow:
-          "0 24px 54px -20px rgba(0,0,0,.86), 0 0 0 1px rgba(255,255,255,.35) inset",
+          "0 14px 31px -12px rgba(0,0,0,.86), 0 0 0 1px rgba(255,255,255,.35) inset, 0 0 19px -4px rgba(250,243,228,.22)",
       }}
     >
       <svg
@@ -2232,24 +2261,24 @@ export function DriveOfferPanel({
         }}
       >
         <rect
-          x="1.5"
-          y="1.5"
-          width={width - 3}
-          height={height - 3}
-          rx="15"
+          x="1"
+          y="1"
+          width={width - 2}
+          height={height - 2}
+          rx="12.5"
           fill="none"
           stroke="rgba(32,30,29,.1)"
-          strokeWidth="3"
+          strokeWidth="2"
         />
         <rect
-          x="1.5"
-          y="1.5"
-          width={width - 3}
-          height={height - 3}
-          rx="15"
+          x="1"
+          y="1"
+          width={width - 2}
+          height={height - 2}
+          rx="12.5"
           fill="none"
           stroke={fuseHot ? "#d9614c" : HUD_INK}
-          strokeWidth="3"
+          strokeWidth="2"
           strokeLinecap="round"
           pathLength={1000}
           strokeDasharray={1000}
@@ -2265,30 +2294,30 @@ export function DriveOfferPanel({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 8,
-          marginBottom: 6,
+          gap: 5,
+          marginBottom: 4.5,
         }}
       >
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 5,
+            gap: 3.5,
             background: food ? "rgba(198,113,57,.15)" : "rgba(90,110,68,.16)",
             borderRadius: 999,
-            padding: "3px 8px 3px 6px",
+            padding: "2.5px 6px 2.5px 5px",
           }}
         >
           <HudGlyph
             path={food ? FOOD_ICON : RIDER_ICON}
-            size={10}
+            size={7.5}
             strokeWidth={2.75}
             color={food ? "#a8541f" : "#4e6236"}
           />
           <span
             style={{
-              font: `800 8px ${HUD_SANS}`,
-              letterSpacing: "1.6px",
+              font: `800 6px ${HUD_SANS}`,
+              letterSpacing: "0.9px",
               color: food ? "#a8541f" : "#4e6236",
               whiteSpace: "nowrap",
             }}
@@ -2296,34 +2325,45 @@ export function DriveOfferPanel({
             {food ? "FOOD DELIVERY" : "RIDESHARE"}
           </span>
         </div>
-        <span
-          data-testid="offer-countdown"
-          style={{
-            font: `900 13px ${HUD_SANS}`,
-            color: "rgba(32,30,29,.45)",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {offer.secondsLeft}s
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 2.5 }}>
+          <span
+            data-testid="offer-countdown"
+            style={{
+              font: `900 9.5px ${HUD_SANS}`,
+              color: "rgba(32,30,29,.45)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {offer.secondsLeft}
+          </span>
+          <span
+            style={{
+              font: `800 5.5px ${HUD_SANS}`,
+              letterSpacing: "0.7px",
+              color: "rgba(32,30,29,.35)",
+            }}
+          >
+            S
+          </span>
+        </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
         <span
           data-testid="offer-pay"
           style={{
-            font: `900 29px/.9 ${HUD_SANS}`,
+            font: `900 21px/.9 ${HUD_SANS}`,
             color: HUD_INK,
-            letterSpacing: "-1.1px",
+            letterSpacing: "-0.85px",
             fontVariantNumeric: "tabular-nums",
           }}
         >
           {offer.pay}
         </span>
         {/*
-          Dense moves this to the meta line. A 260 px comp's chip does not fit
-          beside the pay in a 227 px column: it has nothing to give and simply
-          hangs off the right edge.
+          Dense moves this to the meta line. The comp's chip does not fit beside
+          the pay in the map's narrowest column: it has nothing to give and
+          simply hangs off the right edge.
         */}
         {offer.bonus && !dense && (
           <span
@@ -2331,8 +2371,8 @@ export function DriveOfferPanel({
             style={{
               background: offer.surged ? "rgba(168,84,31,.14)" : "rgba(32,30,29,.08)",
               borderRadius: 999,
-              padding: "2px 7px",
-              font: `800 9px ${HUD_SANS}`,
+              padding: "2px 5.5px",
+              font: `800 6.5px ${HUD_SANS}`,
               color: offer.surged ? "#a8541f" : "rgba(32,30,29,.6)",
               whiteSpace: "nowrap",
             }}
@@ -2348,25 +2388,25 @@ export function DriveOfferPanel({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
-            marginTop: 4,
+            gap: 4,
+            marginTop: 3,
             marginBottom: "auto",
-            font: `800 11px ${HUD_SANS}`,
+            font: `800 9px ${HUD_SANS}`,
             color: "#a8541f",
             overflow: "hidden",
             whiteSpace: "nowrap",
           }}
         >
           <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-            {offer.chips[0]}
+            {offer.detour ?? offer.meta}
           </span>
           {offer.bonus && (
             <>
               <span
                 aria-hidden="true"
                 style={{
-                  width: 3,
-                  height: 3,
+                  width: 2,
+                  height: 2,
                   borderRadius: "50%",
                   background: "rgba(32,30,29,.25)",
                   flex: "none",
@@ -2376,7 +2416,7 @@ export function DriveOfferPanel({
                 data-testid="offer-bonus"
                 style={{
                   flex: "none",
-                  font: `700 10px ${HUD_SANS}`,
+                  font: `700 7.5px ${HUD_SANS}`,
                   color: offer.surged ? "#a8541f" : "rgba(32,30,29,.55)",
                 }}
               >
@@ -2391,9 +2431,10 @@ export function DriveOfferPanel({
         <>
         <div
           style={{
-            font: `700 18px/1.05 ${HUD_SERIF}`,
+            font: `700 13px/1.04 ${HUD_SERIF}`,
             color: HUD_INK,
-            marginTop: 2,
+            marginTop: 1.5,
+            marginBottom: 0.5,
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -2405,29 +2446,41 @@ export function DriveOfferPanel({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
+            gap: 4,
             marginBottom: "auto",
-            font: `600 9px ${HUD_SANS}`,
+            font: `600 7px ${HUD_SANS}`,
             color: "rgba(32,30,29,.55)",
             overflow: "hidden",
             whiteSpace: "nowrap",
           }}
         >
           <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{offer.sub}</span>
-          {offer.chips[0] && (
+          {/*
+            The comp hangs the load — "3 items", "2 riders" — off the dropoff
+            here, and gives the detour to the rail below. They used to be the
+            same figure in both places, which spent a line saying nothing.
+
+            **When the rail is dropped the detour takes this slot back.** A
+            short phone loses the drawing, not the number: it is the one figure
+            on the card that decides whether the job is worth taking, and there
+            is nowhere else on that screen for it to go.
+          */}
+          {(showRail ? offer.meta : (offer.detour ?? offer.meta)) && (
             <>
               <span
                 aria-hidden="true"
                 style={{
-                  width: 3,
-                  height: 3,
+                  width: 2,
+                  height: 2,
                   borderRadius: "50%",
                   background: "rgba(32,30,29,.25)",
                   flex: "none",
                 }}
               />
-              <span style={{ flex: "none", color: "rgba(32,30,29,.45)" }}>
-                {offer.chips[0]}
+              <span
+                style={{ flex: "none", font: `700 6.5px ${HUD_SANS}`, color: "rgba(32,30,29,.45)" }}
+              >
+                {showRail ? offer.meta : (offer.detour ?? offer.meta)}
               </span>
             </>
           )}
@@ -2436,21 +2489,21 @@ export function DriveOfferPanel({
       )}
 
       {showRail && (
-        <div data-testid="detour-rail" style={{ margin: "7px 0 8px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+        <div data-testid="detour-rail" style={{ margin: "5px 0 6px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 3.5, marginBottom: 3 }}>
             <span
               aria-hidden="true"
-              style={{ width: 7, height: 7, borderRadius: "50%", background: HUD_INK, flex: "none" }}
+              style={{ width: 5, height: 5, borderRadius: "50%", background: HUD_INK, flex: "none" }}
             />
             <span
               aria-hidden="true"
-              style={{ width: 17, height: 2, borderRadius: 1, background: "rgba(32,30,29,.3)" }}
+              style={{ width: 13, height: 1.75, borderRadius: 1, background: "rgba(32,30,29,.3)" }}
             />
             <span
               aria-hidden="true"
               style={{
                 flex: 1,
-                height: 2,
+                height: 1.75,
                 borderRadius: 1,
                 background:
                   "repeating-linear-gradient(90deg,rgba(168,84,31,.85) 0 5px,transparent 5px 10px)",
@@ -2458,41 +2511,41 @@ export function DriveOfferPanel({
                 animation: "hudDetourRail .8s linear infinite",
               }}
             />
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="#a8541f" style={{ flex: "none" }} aria-hidden="true">
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="#a8541f" style={{ flex: "none" }} aria-hidden="true">
               <path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7Zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2Z" />
             </svg>
             <span
               aria-hidden="true"
-              style={{ flex: 1, height: 2, borderRadius: 1, background: "rgba(32,30,29,.18)" }}
+              style={{ flex: 1, height: 1.75, borderRadius: 1, background: "rgba(32,30,29,.18)" }}
             />
             <span
               aria-hidden="true"
-              style={{ width: 7, height: 7, borderRadius: 2, background: "rgba(32,30,29,.35)", flex: "none" }}
+              style={{ width: 5, height: 5, borderRadius: 1.5, background: "rgba(32,30,29,.35)", flex: "none" }}
             />
           </div>
           <div style={{ display: "flex", alignItems: "center" }}>
-            <span style={{ font: `800 7px ${HUD_SANS}`, letterSpacing: "1.2px", color: "rgba(32,30,29,.38)" }}>
+            <span style={{ font: `800 5.25px ${HUD_SANS}`, letterSpacing: "0.75px", color: "rgba(32,30,29,.38)" }}>
               YOU
             </span>
             <span
               data-testid="detour-label"
               style={{
                 margin: "0 auto",
-                font: `900 9px ${HUD_SANS}`,
+                font: `900 6.5px ${HUD_SANS}`,
                 color: "#a8541f",
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              {offer.chips[0] ?? ""}
+              {offer.detour}
             </span>
-            <span style={{ font: `800 7px ${HUD_SANS}`, letterSpacing: "1.2px", color: "rgba(32,30,29,.38)" }}>
+            <span style={{ font: `800 5.25px ${HUD_SANS}`, letterSpacing: "0.75px", color: "rgba(32,30,29,.38)" }}>
               BACK ON ROUTE
             </span>
           </div>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 7, marginTop: showRail ? 0 : 7 }}>
+      <div style={{ display: "flex", gap: 5, marginTop: showRail ? 0 : 5 }}>
         <button
           type="button"
           data-testid="offer-pass"
@@ -2501,12 +2554,12 @@ export function DriveOfferPanel({
           style={{
             width: passPx,
             flex: "none",
-            height: 42,
-            borderRadius: 12,
+            height: 31,
+            borderRadius: 9,
             background: "rgba(32,30,29,.06)",
             border: "1.5px solid rgba(217,97,76,.35)",
-            font: `900 11px ${HUD_SANS}`,
-            letterSpacing: "1.2px",
+            font: `900 8.5px ${HUD_SANS}`,
+            letterSpacing: "1px",
             color: "#b04a34",
             cursor: "pointer",
           }}
@@ -2520,16 +2573,16 @@ export function DriveOfferPanel({
           aria-label="Accept this job"
           style={{
             flex: 1,
-            height: 42,
-            borderRadius: 12,
+            height: 31,
+            borderRadius: 9,
             background: "linear-gradient(180deg,#9dbb7f,#7d9e63)",
             border: "none",
-            font: `900 15px ${HUD_SANS}`,
-            letterSpacing: "1.2px",
+            font: `900 11.5px ${HUD_SANS}`,
+            letterSpacing: "1px",
             color: "#16210f",
             cursor: "pointer",
             boxShadow:
-              "0 10px 22px -10px rgba(125,158,99,.9), inset 0 2px 0 rgba(255,255,255,.34)",
+              "0 6px 13px -6px rgba(125,158,99,.9), inset 0 1px 0 rgba(255,255,255,.34)",
           }}
         >
           ACCEPT
