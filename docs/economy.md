@@ -99,9 +99,10 @@ back above the threshold clears the warning.
   nothing floors the speed term the way `RIDE_TIP_SLOW_FLOOR` does: a floor would
   leave a delivery-only courier unable to reach the threshold at all.
 - **The standing is a morning snapshot** (`CareerRun.ratingStanding`), never read
-  live — work arriving faster mid-shift would tell the driver a customer had just
-  rated them. **The drive screen shows nothing about ratings**, and a `careerFlow`
-  test asserts that absence.
+  live: work arriving faster mid-shift would say a customer had just rated you.
+  **The garage alone shows it** — `GarageRating` off the pure `garageRatingModel`,
+  whose copy is worded from `RATING_END_THRESHOLD` so it cannot quote a stale
+  figure. A `careerFlow` test asserts both halves: present there, absent driving.
 
 ### Travel, bankruptcy and winning
 
@@ -178,14 +179,12 @@ currencies live):
   100% at `ROADSIDE_PRICE_FACTOR` plus `ROADSIDE_CALLOUT_FEE_BY_COUNTRY`.
 
 `MIN_REPAIRABLE_DAMAGE_PCT` (5) is where no shop bothers lifting the bonnet: five
-points is about a dollar's work in every currency, which saves inventing a
-per-country minimum-bill table.
+points is about a dollar's work in every currency, saving a per-country table.
 
 ## Fuel: the two modes price it differently on purpose
 
 **Free drive sells what the wallet covers** — `fuelPurchase` in `content.ts` caps
-the litres at the money on hand, so short money buys a short fill rather than
-being refused outright.
+the litres at the money on hand, so short money buys a short fill, not a refusal.
 
 **Career does not come through that helper, and is never capped.** Its pump will
 always sell a whole tank whatever the day cash, pushing the day into the red for

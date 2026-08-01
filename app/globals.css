@@ -40,6 +40,7 @@
   --hud-cream-60: rgba(244, 239, 222, 0.6);
   --hud-cream-50: rgba(244, 239, 222, 0.5);
   --hud-cream-40: rgba(244, 239, 222, 0.4);
+  --hud-cream-34: rgba(244, 239, 222, 0.34); /* fine print under a readout */
   --hud-sage: #8f9a7e; /* eyebrows, meta */
   --hud-sage-lt: #a9b090;
   --hud-sage-bright: #b7c79a; /* green score text */
@@ -47,6 +48,7 @@
   --hud-green: #7a8a5e; /* complete / success */
   --hud-coral: #e0787c; /* stamps, destructive */
   --hud-coral-warm: #e8705a; /* hero emphasis, live day marker */
+  --hud-salmon: #e8a08e; /* worrying, not yet alarming — one step off coral */
   --hud-orange: #f0a56a; /* capstone */
   --hud-surface: rgba(255, 255, 255, 0.05); /* card fill */
   --hud-surface-2: rgba(255, 255, 255, 0.07); /* raised card fill */
@@ -1710,8 +1712,235 @@ canvas:focus-visible {
   color: rgba(244, 239, 222, 0.55);
 }
 
+/* Rating and cash ride together on the right of the head. */
+.garage-head-stats {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  gap: 12px;
+}
+
+/* ── The city's opinion of the driver ──────────────────────────────────────
+   Five tone bands, set by `data-tone` so the colour is chosen once and every
+   part of the card follows it through `currentColor` or `--rating-tone`. The
+   red alarm is keyed on `data-noticed` instead — the persisted "one more bad
+   night" verdict — so the card only ever pulses at something actually true. */
+.garage-rating {
+  --rating-tone: var(--hud-yellow);
+  --rating-edge: rgba(244, 200, 72, 0.36);
+  --rating-skin: rgba(16, 23, 25, 0.62);
+  flex: none;
+  width: 344px;
+  padding: 14px 18px 13px;
+  border: 1px solid var(--rating-edge);
+  border-radius: 18px;
+  background: var(--rating-skin);
+  box-shadow: 0 16px 40px -24px rgba(0, 0, 0, 0.7);
+}
+
+.garage-rating[data-tone="good"] {
+  --rating-tone: var(--hud-yellow);
+  --rating-edge: rgba(244, 200, 72, 0.36);
+}
+
+/* Cream rather than a colour: slipping is not yet a warning, and tinting it
+   like one would leave nowhere to go when it really is. */
+.garage-rating[data-tone="slipping"],
+.garage-rating[data-tone="unrated"] {
+  --rating-tone: var(--hud-cream);
+  --rating-edge: rgba(255, 255, 255, 0.18);
+}
+
+.garage-rating[data-tone="shaky"] {
+  --rating-tone: var(--hud-salmon);
+  --rating-edge: rgba(232, 160, 142, 0.34);
+  --rating-skin: rgba(44, 22, 20, 0.66);
+}
+
+.garage-rating[data-tone="critical"] {
+  --rating-tone: var(--hud-coral-warm);
+  --rating-edge: rgba(232, 112, 90, 0.42);
+  --rating-skin: rgba(44, 22, 20, 0.66);
+}
+
+.garage-rating[data-noticed] {
+  box-shadow:
+    0 0 0 3px rgba(232, 112, 90, 0.1),
+    0 16px 40px -24px rgba(0, 0, 0, 0.7);
+}
+
+.garage-rating-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 9px;
+}
+
+.garage-rating-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--hud-cream-40);
+}
+
+.garage-rating-label svg { flex: none; opacity: 0.94; }
+
+.garage-rating-grade {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 3px 9px;
+  border: 1px solid var(--rating-edge);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--rating-tone) 13%, transparent);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  white-space: nowrap;
+  color: var(--rating-tone);
+}
+
+/* Takes the chip's colour rather than a green/red of its own: the chip already
+   says how good the number is, so a second hue here only ever fights it — a
+   coral arrow on a coral chip being the worst of them. The glyph carries the
+   direction on its own. */
+.garage-rating-trend { font-size: 7.5px; line-height: 1; }
+
+.garage-rating-body {
+  display: flex;
+  align-items: flex-end;
+  gap: 13px;
+}
+
+.garage-rating-score {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--rating-tone);
+}
+
+.garage-rating-score svg { transform: translateY(1px); }
+
+.garage-rating-score b {
+  font-size: 36px;
+  font-weight: 900;
+  line-height: 0.85;
+  letter-spacing: -0.033em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The placeholder dash has to read as an absence. At the score's own weight it
+   is a cream block the width of a progress bar, which is exactly the one thing
+   it must not look like. */
+.garage-rating[data-tone="unrated"] .garage-rating-score { opacity: 0.42; }
+.garage-rating[data-tone="unrated"] .garage-rating-score b { font-size: 24px; }
+
+.garage-rating-gauge {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 3px;
+}
+
+.garage-rating-track {
+  position: relative;
+  height: 5px;
+  margin-bottom: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.garage-rating-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--rating-tone) 33%, transparent),
+    var(--rating-tone)
+  );
+}
+
+/* Where the run ends, at 1.5 stars — so the bar shows the margin, not just the
+   score. A pale line inside a dark halo, because it has to stay legible on both
+   sides of a fill that crosses it: dark alone vanishes into the empty track,
+   pale alone vanishes into a yellow fill. */
+.garage-rating-floor-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--hud-cream-40);
+  box-shadow: 0 0 0 1.5px rgba(10, 14, 16, 0.85);
+}
+
+.garage-rating-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.garage-rating-floor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  color: var(--hud-cream-34);
+}
+
+.garage-rating-floor svg { flex: none; }
+
+.garage-rating[data-tone="shaky"] .garage-rating-floor,
+.garage-rating[data-tone="critical"] .garage-rating-floor {
+  font-size: 9px;
+  color: var(--hud-salmon);
+}
+
+.garage-rating[data-noticed] .garage-rating-floor {
+  color: var(--hud-coral-warm);
+  animation: ratePulse 1.5s ease-in-out infinite;
+}
+
+.garage-rating-count {
+  flex: none;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--hud-cream-34);
+}
+
+@keyframes ratePulse {
+  0%,
+  100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .garage-rating[data-noticed] .garage-rating-floor { animation: none; }
+}
+
 .garage-cash {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   padding: 14px 22px;
   border: 1px solid var(--hud-line);
   border-radius: 18px;
@@ -2199,9 +2428,16 @@ canvas:focus-visible {
   .garage-head-copy h1 { font-size: 33px; letter-spacing: -0.024em; }
   .garage-eyebrow { margin-bottom: 10px; font-size: 10px; }
   .garage-sub { max-width: none; font-size: 12.5px; }
-  /* Cash becomes a full-width bar: label left, value right. */
+  /* Holding pattern until the phone rating design lands: stack the two cards
+     and let the rating give up its authored width rather than overflow. */
+  .garage-head-stats { flex-direction: column; gap: 11px; }
+  .garage-rating { width: auto; padding: 13px 18px 12px; border-radius: 16px; }
+  /* Cash becomes a full-width bar: label left, value right. The row direction
+     is explicit because the desktop rule stacks it to match the rating card's
+     height beside it. */
   .garage-cash {
     display: flex;
+    flex-direction: row;
     align-items: center;
     justify-content: space-between;
     padding: 13px 18px;

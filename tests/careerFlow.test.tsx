@@ -1824,6 +1824,40 @@ describe("what the customers thought", () => {
     notice,
   });
 
+  it("shows the standing in the garage and only in the garage", async () => {
+    // The one place it is ever readable. Seeded well past the minimum so the
+    // card has a real average rather than its unrated state.
+    seedProgressWithCareer(
+      careerIn("us-nyc", CAREER_SEED, {
+        cash: 100,
+        rating: {
+          recent: Array.from({ length: 20 }, (_, index) => (index % 5 === 0 ? 4 : 5)),
+          ratedTotal: 31,
+          notice: false,
+          previousAverage: 4.5,
+        },
+      }),
+    );
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+
+    expect(screen.getByTestId("garage-rating-value")).toHaveTextContent("4.80");
+    expect(screen.getByTestId("garage-rating-grade")).toHaveTextContent("EXCELLENT");
+    expect(screen.getByTestId("garage-rating")).toHaveTextContent("31 RATINGS");
+    expect(screen.getByTestId("garage-rating")).toHaveTextContent("NEW YORK CITY RATING");
+
+    // Start the day and it is gone again — a driver finds out how a trip went
+    // after the day is over, never with a customer still in the back.
+    fireEvent.click(screen.getByTestId("garage-vehicle-bicycle"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+    expect(screen.queryByTestId("garage-rating")).not.toBeInTheDocument();
+    expect(document.body.textContent ?? "").not.toMatch(
+      /★|⭐|\bstars?\b|\brating\b|\brated\b/i,
+    );
+  });
+
   it("banks the day's stars on the city and says nothing while driving", async () => {
     await startSeededDay(careerIn("us-nyc", CAREER_SEED, { cash: 100 }));
     const expected = runFirstDelivery();
