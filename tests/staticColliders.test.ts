@@ -14,6 +14,7 @@ import {
   facadeGridCells,
   isInsideKeepOut,
   keptStreetWallBuildings,
+  stagedBlockersOf,
 } from "../app/game/GameCanvas";
 import {
   buildingPlacementConfig,
@@ -32,6 +33,7 @@ import {
   samplePavementEdge,
 } from "../app/game/pavementPaths";
 import {
+  gasStationCanopyWorld,
   gasStationPumpPositions,
   gasStationsOf,
   repairShopBayPosition,
@@ -39,7 +41,11 @@ import {
   resolveServicePointLot,
   SERVICE_LOT_HALF_M,
 } from "../app/game/servicePoints";
-import { repairCameraPosition } from "../app/game/cutsceneScript";
+import {
+  chooseStagedShot,
+  repairCameraPosition,
+  type StagedBlocker,
+} from "../app/game/cutsceneScript";
 import {
   REPAIR_SHOP_BAY_CLEAR_HEIGHT_M,
   REPAIR_SHOP_BACK_INNER_X,
@@ -120,6 +126,27 @@ const clearanceToNearestObstacle = (
     }
   }
   return { distance: best, id: bestId };
+};
+
+/** Segment-vs-OBB by sampling: slow, but obviously right, which is the point
+ * of a test double for the routine under test. */
+const segmentCrossesBox = (
+  from: { x: number; z: number },
+  to: { x: number; z: number },
+  box: StagedBlocker,
+): boolean => {
+  for (let step = 0; step <= 200; step += 1) {
+    const t = step / 200;
+    const dx = from.x + (to.x - from.x) * t - box.x;
+    const dz = from.z + (to.z - from.z) * t - box.z;
+    if (
+      Math.abs(dx * box.ux + dz * box.uz) <= box.halfU &&
+      Math.abs(dx * box.uz - dz * box.ux) <= box.halfV
+    ) {
+      return true;
+    }
+  }
+  return false;
 };
 
 describe("static obstacle build", () => {
@@ -485,6 +512,98 @@ describe("the drivable world stays open", () => {
         }
       }
     }
+  });
+
+  it("stands the canopy over the pumps it is supposed to cover", () => {
+    // GAS_STATION_CANOPY_M is measured in the holder frame, so it has to be
+    // turned by the lane heading and not by the lot yaw — the two differ by the
+    // kind's yawOffset, and a quarter-turn of a 7x13 m slab still covers *some*
+    // of the forecourt. That is the failure that would ship as "the camera fix
+    // works at some stations and not others", so pin it per station: every pump
+    // the refuel scene can stage at must be under the roof the camera ducks.
+    for (const world of driveWorlds) {
+      const mapPack = getMapPack(world.freeDrive.mapId);
+      for (const service of gasStationsOf(mapPack.geometry.servicePoints)) {
+        const canopy = gasStationCanopyWorld(mapPack.laneGraph.lanes, service);
+        expect(canopy, `${service.id} has no canopy`).not.toBeNull();
+        if (!canopy) continue;
+        for (const pump of gasStationPumpPositions(
+          mapPack.laneGraph.lanes,
+          service,
+        )) {
+          const dx = pump.x - canopy.x;
+          const dz = pump.z - canopy.z;
+          const u = Math.abs(dx * canopy.ux + dz * canopy.uz);
+          const v = Math.abs(dx * canopy.uz - dz * canopy.ux);
+          expect(u, `${service.id} pump is off the end of its canopy`).toBeLessThan(
+            canopy.halfU,
+          );
+          expect(v, `${service.id} pump is out from under its canopy`).toBeLessThan(
+            canopy.halfV,
+          );
+        }
+        // The slab stands on the pillars folded into the island boxes, so it
+        // cannot be shorter than they are tall.
+        expect(canopy.undersideY).toBeGreaterThan(3);
+      }
+    }
+  });
+
+  it("leaves a staged shot alone unless something is actually in the way", () => {
+    // `chooseStagedShot` now runs for every scene that takes the generic
+    // framing, not just the ones on a forecourt — so the thing worth pinning is
+    // that it is inert. Walk real kerbside poses on every map, stage a
+    // car-and-actor pair at each, and require the solve to return the azimuth
+    // the stager asked for whenever that azimuth's own sightlines are clear.
+    // Anything else and this would be quietly re-framing scenes nobody
+    // reported a problem with.
+    let clear = 0;
+    let moved = 0;
+    for (const world of driveWorlds) {
+      const blockers = stagedBlockersOf(world.obstacles);
+      for (const lane of world.lanes) {
+        for (const point of lane.points.slice(0, 6)) {
+          // The actor stands off the car's side, as every generic scene has it.
+          const focus = { x: point.x + 3, z: point.z };
+          const midX = (point.x + focus.x) / 2;
+          const midZ = (point.z + focus.z) / 2;
+          const span = 3;
+          const radius = Math.max(9, span * 0.85);
+          const preferred = { x: 0, z: 1 };
+          const wanted = {
+            x: midX + preferred.x * radius,
+            z: midZ + preferred.z * radius,
+          };
+          const subjects = [{ x: point.x, z: point.z }, focus];
+          const blocked = blockers.some((box) =>
+            subjects.some((subject) =>
+              segmentCrossesBox(wanted, subject, box),
+            ),
+          );
+          const shot = chooseStagedShot(
+            midX,
+            midZ,
+            radius,
+            4.95,
+            preferred,
+            subjects,
+            blockers,
+            null,
+          );
+          if (blocked) {
+            moved += 1;
+            continue;
+          }
+          clear += 1;
+          expect(shot.x).toBeCloseTo(wanted.x, 6);
+          expect(shot.z).toBeCloseTo(wanted.z, 6);
+          expect(shot.y).toBe(4.95);
+        }
+      }
+    }
+    // Both arms have to be exercised or the assertion above proves nothing.
+    expect(clear).toBeGreaterThan(50);
+    expect(moved).toBeGreaterThan(0);
   });
 
   it("never stands a street-wall building inside a service lot", () => {

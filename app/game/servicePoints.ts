@@ -21,7 +21,10 @@ import {
   REPAIR_SHOP_BAY_OFFSET_M,
   REPAIR_SHOP_LOT_HALF_M,
 } from "./repairShopLayout";
-import { GAS_STATION_SLAB_HALF_M } from "./propFootprints";
+import {
+  GAS_STATION_CANOPY_M,
+  GAS_STATION_SLAB_HALF_M,
+} from "./propFootprints";
 
 /**
  * The only lane fields anchor resolution needs. Both the authored `LaneSegment`
@@ -175,6 +178,46 @@ export function distanceToNearestPump(
     if (distance < nearest) nearest = distance;
   }
   return nearest;
+}
+
+/**
+ * The station's canopy in world space: an oriented box, plus the height a
+ * viewpoint under it has to stay below.
+ *
+ * Rotated by `lot.yaw - yawOffset` (i.e. the lane heading) rather than by the
+ * yaw, because `GAS_STATION_CANOPY_M` is authored in the holder frame the rest
+ * of `propFootprints` uses — the same correction `buildStaticObstacles` applies
+ * to `GAS_STATION_SOLIDS_M`. Rotating by the full yaw instead turns the canopy a
+ * quarter-turn off the pumps it covers, which reads as "the fix works at some
+ * stations and not others".
+ */
+export function gasStationCanopyWorld(
+  lanes: readonly AnchoredLane[],
+  service: AnchoredServicePoint,
+): {
+  readonly x: number;
+  readonly z: number;
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+  readonly undersideY: number;
+} | null {
+  const lot = resolveServicePointLot(lanes, service);
+  if (!lot) return null;
+  const cos = Math.cos(lot.yaw - SERVICE_MODEL_FRAME[service.kind].yawOffset);
+  const sin = Math.sin(lot.yaw - SERVICE_MODEL_FRAME[service.kind].yawOffset);
+  const centerX = (GAS_STATION_CANOPY_M.minX + GAS_STATION_CANOPY_M.maxX) / 2;
+  const centerZ = (GAS_STATION_CANOPY_M.minZ + GAS_STATION_CANOPY_M.maxZ) / 2;
+  return {
+    x: lot.x + centerX * cos + centerZ * sin,
+    z: lot.z - centerX * sin + centerZ * cos,
+    ux: cos,
+    uz: -sin,
+    halfU: (GAS_STATION_CANOPY_M.maxX - GAS_STATION_CANOPY_M.minX) / 2,
+    halfV: (GAS_STATION_CANOPY_M.maxZ - GAS_STATION_CANOPY_M.minZ) / 2,
+    undersideY: GAS_STATION_CANOPY_M.undersideY,
+  };
 }
 
 /**

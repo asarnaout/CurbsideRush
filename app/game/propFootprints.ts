@@ -83,3 +83,33 @@ export const GAS_STATION_SOLIDS_M: readonly ({
   { id: "pumps-a", minX: -1.14, maxX: 5.33, minZ: -1.93, maxZ: -0.98 },
   { id: "pumps-b", minX: -1.14, maxX: 5.33, minZ: -9.33, maxZ: -8.37 },
 ];
+
+/**
+ * The canopy roof over the pumps: the one piece of the station that is solid to
+ * a *camera* and open to a car, which is why it is its own export instead of a
+ * fourth entry in `GAS_STATION_SOLIDS_M`. Put it in that list and the forecourt
+ * stops being drivable.
+ *
+ * Same measured frame as everything above, plus the two heights, because the
+ * only question anyone asks of this rect is a vertical one: a viewpoint inside
+ * the footprint has to sit under `undersideY` or it is looking at the slab. The
+ * staged cutscene camera used to be lifted to 4.2m+ unconditionally, which put
+ * every refuel shot at or above 4.36 — see `chooseStagedAzimuth`.
+ *
+ * Recovered from `gas-station.glb` directly (accessor bounds -> world via the
+ * registry's 2.8 scale and -1.63 groundY) rather than under NullEngine like the
+ * footprints above, because a canopy has nothing at ground level for a footprint
+ * sweep to find. `tests/staticColliders.test.ts` pins it against the pillars in
+ * `pumps-a`/`pumps-b`, which the same slab sits on.
+ */
+export const GAS_STATION_CANOPY_M: PropModelFootprint & {
+  readonly undersideY: number;
+  readonly topY: number;
+} = {
+  minX: -2.65,
+  maxX: 4.58,
+  minZ: -11.68,
+  maxZ: 1.25,
+  undersideY: 4.36,
+  topY: 5.03,
+};

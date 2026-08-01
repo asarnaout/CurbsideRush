@@ -28,6 +28,7 @@ import {
   buildErrandScript,
   buildExitScript,
   buildRefuelScript,
+  chooseStagedShot,
   driverDoorPoint,
   pathLength,
   rearKerbDoorPoint,
@@ -856,5 +857,115 @@ describe("buildPulloverScript", () => {
     expect(
       Math.hypot(fast.parked.x, fast.parked.z),
     ).toBeGreaterThan(Math.hypot(slow.parked.x, slow.parked.z));
+  });
+});
+
+describe("chooseStagedShot", () => {
+  /** An axis-aligned box, so the assertions below can stay obvious. */
+  const boxAt = (x: number, z: number, halfU: number, halfV: number) => ({
+    x,
+    z,
+    ux: 1,
+    uz: 0,
+    halfU,
+    halfV,
+  });
+  /** Walks the segment and asks whether any of it is inside the box. */
+  const sightlineHits = (
+    from: { x: number; z: number },
+    to: { x: number; z: number },
+    box: ReturnType<typeof boxAt>,
+  ): boolean => {
+    for (let step = 0; step <= 400; step += 1) {
+      const t = step / 400;
+      const x = from.x + (to.x - from.x) * t;
+      const z = from.z + (to.z - from.z) * t;
+      if (
+        Math.abs(x - box.x) <= box.halfU &&
+        Math.abs(z - box.z) <= box.halfV
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const NORTH = { x: 0, z: 1 };
+  const CAR = { x: 0, z: 0 };
+
+  it("leaves an unobstructed scene exactly where the stager put it", () => {
+    // The regression guard for every scene nobody has complained about: with
+    // nothing in the way the requested azimuth is candidate zero at a turn of
+    // zero, so it wins outright and the shot is the one that already shipped.
+    const shot = chooseStagedShot(0, 0, 9, 4.7, NORTH, [CAR], [], null);
+    expect(shot.x).toBeCloseTo(0, 6);
+    expect(shot.z).toBeCloseTo(9, 6);
+    expect(shot.y).toBe(4.7);
+  });
+
+  it("steps out from under a roof the scene is standing under", () => {
+    // The reported bug: nine metres along a forecourt's long axis is still
+    // under a 13 m canopy. Anywhere off it will do; being off it is the point.
+    const cover = { ...boxAt(0, 0, 4, 12), undersideY: 4.36 };
+    const shot = chooseStagedShot(0, 0, 9, 4.7, NORTH, [CAR], [], cover);
+    const under =
+      Math.abs(shot.x - cover.x) <= cover.halfU &&
+      Math.abs(shot.z - cover.z) <= cover.halfV;
+    expect(under).toBe(false);
+  });
+
+  it("ducks under the roof when the scene it films is under one", () => {
+    // Standing clear of the slab is not enough — the actor is under it, so the
+    // sightline has to pass beneath rather than over the fascia round its edge.
+    const cover = { ...boxAt(0, 0, 4, 4), undersideY: 4.36 };
+    const shot = chooseStagedShot(0, 0, 9, 4.7, NORTH, [CAR], [], cover);
+    expect(shot.y).toBeLessThan(cover.undersideY);
+    // ...but never so low that the car is what you see instead of the actor.
+    expect(shot.y).toBeGreaterThan(2.3);
+  });
+
+  it("does not raise a shot that already sat below the roof", () => {
+    const cover = { ...boxAt(0, 0, 4, 4), undersideY: 4.36 };
+    const shot = chooseStagedShot(0, 0, 9, 2.6, NORTH, [CAR], [], cover);
+    expect(shot.y).toBe(2.6);
+  });
+
+  it("turns off an azimuth that films through a pillar", () => {
+    const pillar = boxAt(0, 4.5, 0.35, 0.35);
+    const shot = chooseStagedShot(0, 0, 9, 4.7, NORTH, [CAR], [pillar], null);
+    expect(sightlineHits(shot, CAR, pillar)).toBe(false);
+  });
+
+  it("keeps every subject in view, not just the car", () => {
+    // The actor walks away from the car, so a wall that clears the car and
+    // hides the pump is still the wrong side to film from. Without the pump in
+    // `subjects` the requested azimuth scores clean and never moves.
+    const pump = { x: 0, z: -3 };
+    const wall = boxAt(0, -9, 6, 0.5);
+    const shot = chooseStagedShot(0, 0, 9, 4.7, { x: 0, z: -1 }, [CAR, pump], [wall], null);
+    expect(sightlineHits(shot, CAR, wall)).toBe(false);
+    expect(sightlineHits(shot, pump, wall)).toBe(false);
+  });
+
+  it("takes the smallest turn that clears the shot", () => {
+    // 30° either way clears this pillar, so the tie must not send the camera
+    // round the back: a long swing is a long glide across the action.
+    const pillar = boxAt(0, 4.5, 0.35, 0.35);
+    const shot = chooseStagedShot(0, 0, 9, 4.7, NORTH, [CAR], [pillar], null);
+    const swing = Math.abs(Math.atan2(shot.x, shot.z));
+    expect(swing).toBeCloseTo((2 * Math.PI) / 12, 6);
+  });
+
+  it("still frames something when every azimuth is blocked", () => {
+    // A scene walled in on all sides has no clean answer, and returning the
+    // stager's own choice is a better one than returning nothing.
+    const ring = [
+      boxAt(0, 9, 20, 0.5),
+      boxAt(0, -9, 20, 0.5),
+      boxAt(9, 0, 0.5, 20),
+      boxAt(-9, 0, 0.5, 20),
+    ];
+    const shot = chooseStagedShot(0, 0, 9, 4.7, NORTH, [CAR], ring, null);
+    expect(Number.isFinite(shot.x) && Number.isFinite(shot.z)).toBe(true);
+    expect(Math.hypot(shot.x, shot.z)).toBeCloseTo(9, 6);
   });
 });
