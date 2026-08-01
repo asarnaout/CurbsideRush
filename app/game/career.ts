@@ -452,6 +452,15 @@ export interface CityRating {
    * end on a number the driver was never given a chance to answer.
    */
   readonly notice: boolean;
+  /**
+   * What the average was before the last settlement folded a day into it, so
+   * the garage can say which way it is moving. Null until there have been two
+   * settlements with an average to compare — there is no trend from one point.
+   *
+   * Stored rather than derived because the window has already forgotten which
+   * of its entries arrived last night.
+   */
+  readonly previousAverage?: number | null;
 }
 
 export interface CareerStats {
@@ -639,7 +648,11 @@ const isRating = (value: unknown): value is CityRating => {
     ) &&
     isInteger(value.ratedTotal) &&
     (value.ratedTotal as number) >= value.recent.length &&
-    typeof value.notice === "boolean"
+    typeof value.notice === "boolean" &&
+    (value.previousAverage === undefined ||
+      value.previousAverage === null ||
+      (typeof value.previousAverage === "number" &&
+        Number.isFinite(value.previousAverage)))
   );
 };
 
@@ -751,6 +764,7 @@ export const EMPTY_RATING: CityRating = {
   recent: [],
   ratedTotal: 0,
   notice: false,
+  previousAverage: null,
 };
 
 /**
@@ -1057,6 +1071,9 @@ export function ratingTipFactor(standing: number): number {
 
 /**
  * Adds a day's stars to the window, dropping the oldest past `RATING_WINDOW`.
+ *
+ * Records what the average was beforehand, which is the only moment it can be
+ * captured — afterwards the window has forgotten which entries arrived today.
  */
 export function foldRatings(
   rating: CityRating,
@@ -1068,6 +1085,7 @@ export function foldRatings(
     recent,
     ratedTotal: rating.ratedTotal + dayStars.length,
     notice: rating.notice,
+    previousAverage: averageRating(rating),
   };
 }
 

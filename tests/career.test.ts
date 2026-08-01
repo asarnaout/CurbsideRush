@@ -559,6 +559,16 @@ describe("standing", () => {
     expect(foldRatings(some, [])).toBe(some);
   });
 
+  it("remembers what the average was, so the garage can say which way it moved", () => {
+    // Captured on the way in, which is the only moment it exists — afterwards
+    // the window cannot tell which of its entries arrived last night.
+    const first = foldRatings(EMPTY_RATING, repeat(4, RATING_MIN_RATED));
+    expect(first.previousAverage).toBeNull(); // nothing to compare a first day to
+    const second = foldRatings(first, [5, 5, 5]);
+    expect(second.previousAverage).toBe(4);
+    expect(averageRating(second)).toBeGreaterThan(4);
+  });
+
   it("holds an unrated driver at full standing", () => {
     // No rating is not a bad rating — a first afternoon must cost nothing.
     expect(ratingStanding(null)).toBe(1);
