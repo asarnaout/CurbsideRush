@@ -70,7 +70,18 @@ of which opens a gate, and `tests/parkLayouts.test.ts` caps any single run.
 
 A park wall is a scored `collision` with damage (`parkEdge` in
 `STATIC_OBSTACLE_MESSAGES`), so it must be plainly visible at speed —
-`PARK_WALL_HEIGHT_M` is set for that, not for realism. The lawn inside stays
+`PARK_WALL_HEIGHT_M` is set for that, not for realism.
+
+**Lay a wall box with `boxLengthYaw`, not with the heading convention.** A box's
+length is its `width`, which is local +X, so the yaw is `atan2(uz, ux)` — the
+map's heading is `atan2(dx, dz)` with 0 = +z, and the two differ by exactly 90°.
+Getting it wrong is silent: the wall still draws and still sits at the right
+centre, just turned across its own edge. Central Park's west wall shipped as a
+2,897 m ledge running east-west from x ~ -1107 to +1790, through every avenue
+on the map, while its collider — which takes `ux`/`uz` straight as the OBB axis
+— stayed correct, so what you saw and what you hit were different walls.
+`tests/parkWalls.test.ts` reconstructs each mesh's world AABB from that yaw and
+requires it to stay inside its own park. The lawn inside stays
 drivable; it is the boundary that stops you, not the grass.
 
 **A lake in a park is a `WaterBody`, and that buys three things free**: the

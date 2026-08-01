@@ -451,6 +451,23 @@ const PARK_PATH_Z_OFFSET_UNITS = -2;
  * would be indistinguishable from an invisible wall.
  */
 const PARK_WALL_HEIGHT_M = 0.95;
+
+/**
+ * Yaw that lays a box's LENGTH along a given world direction.
+ *
+ * A box's length is its `width`, which is local **+X** — so this is
+ * `atan2(uz, ux)`, and **not** the map's heading convention
+ * (`atan2(dx, dz)`, where 0 = +z). The two differ by 90°, and using the
+ * heading here is silent: the wall still draws, still sits at the right
+ * centre, and is simply turned across its own edge. Central Park's west wall
+ * came out as a 2,897 m ledge running east-west from x ≈ -1107 to +1790,
+ * straight through every avenue on the map, while its collider — which takes
+ * `ux`/`uz` directly as the OBB axis — stayed correct. Seeing and hitting
+ * disagreed, which is the worst version of this bug.
+ */
+export function boxLengthYaw(ux: number, uz: number): number {
+  return Math.atan2(uz, ux);
+}
 /**
  * How close to a path a plant must be to stay an individually instanced,
  * knockable prop. Everything beyond becomes batched scenery, which cannot be
@@ -15341,7 +15358,7 @@ class BabylonGameSession {
         new Vector3(run.x, PARK_WALL_HEIGHT_M / 2, run.z),
         this.parkWallMaterial,
       );
-      wall.rotation.y = Math.atan2(run.ux, run.uz);
+      wall.rotation.y = boxLengthYaw(run.ux, run.uz);
       wall.isPickable = false;
       this.registerShadowCaster(wall, run.x, run.z);
     }
