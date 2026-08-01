@@ -2883,6 +2883,126 @@ export function cairoDirectionPanelFaceUv(): readonly Vector4[] {
   return [printed, bare, bare, bare, bare, bare];
 }
 
+/**
+ * True when any part of the segment a→b lies strictly inside the rectangle —
+ * a Liang–Barsky interval test. Grazing a corner or running along an edge
+ * does not count: a road that merely touches a park's boundary has nothing
+ * of the park on its far side, so clipping against it would only shave the
+ * lawn for no visible reason.
+ */
+function segmentCrossesRect(
+  a: GameCanvasPoint,
+  b: GameCanvasPoint,
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+): boolean {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  let enter = 0;
+  let exit = 1;
+  const bounds: readonly (readonly [number, number])[] = [
+    [-dx, a.x - minX],
+    [dx, maxX - a.x],
+    [-dz, a.z - minZ],
+    [dz, maxZ - a.z],
+  ];
+  for (const [towards, clearance] of bounds) {
+    if (Math.abs(towards) <= 1e-9) {
+      if (clearance < 0) return false;
+      continue;
+    }
+    const at = clearance / towards;
+    if (towards < 0) {
+      if (at > exit) return false;
+      if (at > enter) enter = at;
+    } else {
+      if (at < enter) return false;
+      if (at < exit) exit = at;
+    }
+  }
+  return exit - enter > 1e-9;
+}
+
+/** Sutherland–Hodgman against one line: keeps the side `anchor` is on. */
+function clipPolygonToLineSide(
+  polygon: readonly GameCanvasPoint[],
+  a: GameCanvasPoint,
+  b: GameCanvasPoint,
+  anchor: GameCanvasPoint,
+): GameCanvasPoint[] {
+  const side = (point: GameCanvasPoint) =>
+    (b.x - a.x) * (point.z - a.z) - (b.z - a.z) * (point.x - a.x);
+  const anchorSide = side(anchor);
+  // The anchor sitting on the line itself means there is no meaningful
+  // "anchor's side" — leave the polygon alone rather than guess.
+  if (Math.abs(anchorSide) <= 1e-6) return [...polygon];
+  const orient = anchorSide > 0 ? 1 : -1;
+  const clipped: GameCanvasPoint[] = [];
+  for (let index = 0; index < polygon.length; index += 1) {
+    const current = polygon[index];
+    const next = polygon[(index + 1) % polygon.length];
+    const currentSide = side(current) * orient;
+    const nextSide = side(next) * orient;
+    if (currentSide >= -1e-9) clipped.push(current);
+    if (
+      (currentSide > 1e-9 && nextSide < -1e-9) ||
+      (currentSide < -1e-9 && nextSide > 1e-9)
+    ) {
+      const amount = currentSide / (currentSide - nextSide);
+      clipped.push({
+        x: current.x + (next.x - current.x) * amount,
+        z: current.z + (next.z - current.z) * amount,
+      });
+    }
+  }
+  return clipped;
+}
+
+/**
+ * The lawn Tahrir actually shows: the authored rectangle, cut back to the
+ * park-centre side of every road segment that crosses it.
+ *
+ * Ramses is authored straight through the park rectangle, and a rectangle
+ * cannot hug a diagonal — rendered raw, its far corner surfaces as a grass
+ * triangle on the opposite curbside. The cut runs along the *centreline*,
+ * not the kerb, on purpose: the lawn draws below both the carriageway and
+ * the pavement band (`PARK_LAWN_Y` under `ROAD_SHOULDER_Y` under
+ * `ROAD_SURFACE_Y`), so grass up to the centreline is painted over and the
+ * visible seam lands exactly on the band's outer edge — flush, with no bare
+ * sliver for strip mitres or junction fans to expose.
+ */
+export function cairoTahrirLawnPolygon(
+  landmark: Pick<
+    GameCanvasMapPack["geometry"]["landmarks"][number],
+    "center" | "size"
+  >,
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+): GameCanvasPoint[] {
+  const minX = landmark.center.x - landmark.size.x / 2;
+  const maxX = landmark.center.x + landmark.size.x / 2;
+  const minZ = landmark.center.z - landmark.size.z / 2;
+  const maxZ = landmark.center.z + landmark.size.z / 2;
+  let polygon: GameCanvasPoint[] = [
+    { x: minX, z: minZ },
+    { x: maxX, z: minZ },
+    { x: maxX, z: maxZ },
+    { x: minX, z: maxZ },
+  ];
+  for (const surface of roadSurfaces) {
+    for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+      const start = surface.centerline[index];
+      const end = surface.centerline[index + 1];
+      if (Math.hypot(end.x - start.x, end.z - start.z) <= 1e-6) continue;
+      if (!segmentCrossesRect(start, end, minX, maxX, minZ, maxZ)) continue;
+      polygon = clipPolygonToLineSide(polygon, start, end, landmark.center);
+      if (polygon.length < 3) return polygon;
+    }
+  }
+  return polygon;
+}
+
 /** Keeps Tahrir's visual-only furniture inside the plaza, clear of traffic. */
 export function cairoTahrirFurnitureLayout(
   landmark: Pick<
@@ -11946,8 +12066,15 @@ class BabylonGameSession {
       // Tahrir's garden is the same grass as every other park's — it just has a
       // paved plaza laid over its middle. It intercepts the generic park branch
       // for its furniture, so without this it would keep the flat untextured
-      // slab the rest of the map's greenery has now left behind.
-      this.buildParkLawn(landmark, this.visualPalette, mapPack.id.toLowerCase());
+      // slab the rest of the map's greenery has now left behind. The lawn is
+      // the clipped polygon, not the authored rectangle: Ramses runs through
+      // the rectangle, and the raw rect surfaced as grass past the far kerb.
+      this.buildParkLawnPolygon(
+        landmark.id,
+        cairoTahrirLawnPolygon(landmark, mapPack.geometry.roadSurfaces ?? []),
+        this.visualPalette,
+        mapPack.id.toLowerCase(),
+      );
       createCylinder(
         scene,
         `${landmark.id}-central-plaza`,
@@ -15891,6 +16018,42 @@ class BabylonGameSession {
     lawn.freezeWorldMatrix();
     // Too large for any spatial cull to reject — Central Park is 2.9 km long,
     // which is the case `registerMirrorSurface` exists for.
+    this.registerMirrorSurface(lawn);
+    return lawn;
+  }
+
+  /**
+   * A park lawn with an arbitrary outline, for the one park a road is
+   * authored straight through (`cairoTahrirLawnPolygon` explains the cut).
+   * Same material and world-anchored grass tile as `buildParkLawn`; the
+   * difference is that the outline is already in world space, so the UVs
+   * come straight off the positions with no centre shift — the counterpart
+   * of the offset `applyWorldPlanarGrassUVs` needs for `CreateGround`.
+   */
+  private buildParkLawnPolygon(
+    id: string,
+    polygon: readonly GameCanvasPoint[],
+    palette: MapVisualPalette,
+    mapId: string,
+  ): Mesh | undefined {
+    if (polygon.length < 3) return undefined;
+    const positions = polygon.flatMap((point) => [
+      point.x,
+      PARK_LAWN_Y,
+      point.z,
+    ]);
+    const indices = earClipPolygonIndices(polygon);
+    const normals: number[] = [];
+    VertexData.ComputeNormals(positions, indices, normals);
+    const data = new VertexData();
+    data.positions = positions;
+    data.indices = indices;
+    data.normals = normals;
+    data.uvs = buildPlanarUVs(positions, 1 / GRASS_TILE_M);
+    const lawn = new Mesh(id, this.scene);
+    data.applyToMesh(lawn);
+    setMeshMaterial(lawn, this.getParkLawnMaterial(palette, mapId), true);
+    lawn.freezeWorldMatrix();
     this.registerMirrorSurface(lawn);
     return lawn;
   }

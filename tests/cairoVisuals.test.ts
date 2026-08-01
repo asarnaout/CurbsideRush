@@ -31,6 +31,7 @@ import {
   cairoFrontagePosition,
   cairoFrontageFootprintsOverlap,
   cairoTahrirFurnitureLayout,
+  cairoTahrirLawnPolygon,
   crosswalkStripeLayout,
   crowdClothingPaletteForMap,
   deterministicSceneryKeep,
@@ -589,6 +590,93 @@ describe("Cairo visual axes", () => {
         );
       }
     }
+  });
+
+  it("clips Tahrir's lawn to the plaza side of Ramses", () => {
+    const landmark = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-square",
+    )!;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const polygon = cairoTahrirLawnPolygon(landmark, surfaces);
+    const minX = landmark.center.x - landmark.size.x / 2;
+    const maxX = landmark.center.x + landmark.size.x / 2;
+    const minZ = landmark.center.z - landmark.size.z / 2;
+    const maxZ = landmark.center.z + landmark.size.z / 2;
+
+    // Independent crossing detector (clamped-interval overlap rather than the
+    // helper's Liang–Barsky), so a bug there cannot vouch for itself here.
+    const crossings: {
+      start: { x: number; z: number };
+      end: { x: number; z: number };
+      id: string;
+    }[] = [];
+    for (const surface of surfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let inside = false;
+        for (let step = 0; step <= 200; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          if (
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3
+          ) {
+            inside = true;
+            break;
+          }
+        }
+        if (inside) crossings.push({ start, end, id: surface.id });
+      }
+    }
+    // Ramses is authored through the park; the clip must have work to do.
+    expect(crossings.some((crossing) => crossing.id === "cairo-ramses")).toBe(
+      true,
+    );
+
+    for (const vertex of polygon) {
+      expect(vertex.x).toBeGreaterThanOrEqual(minX - 1e-6);
+      expect(vertex.x).toBeLessThanOrEqual(maxX + 1e-6);
+      expect(vertex.z).toBeGreaterThanOrEqual(minZ - 1e-6);
+      expect(vertex.z).toBeLessThanOrEqual(maxZ + 1e-6);
+    }
+    for (const crossing of crossings) {
+      const dx = crossing.end.x - crossing.start.x;
+      const dz = crossing.end.z - crossing.start.z;
+      const length = Math.hypot(dx, dz);
+      const centerSign = Math.sign(
+        dx * (landmark.center.z - crossing.start.z) -
+          dz * (landmark.center.x - crossing.start.x),
+      );
+      let onLine = 0;
+      for (const vertex of polygon) {
+        const offsetM =
+          ((dx * (vertex.z - crossing.start.z) -
+            dz * (vertex.x - crossing.start.x)) /
+            length) *
+          centerSign;
+        expect(
+          offsetM,
+          `${crossing.id} vertex (${vertex.x}, ${vertex.z})`,
+        ).toBeGreaterThanOrEqual(-1e-6);
+        if (Math.abs(offsetM) <= 1e-6) onLine += 1;
+      }
+      // The cut itself must be present: two vertices sit on the centreline.
+      expect(onLine).toBeGreaterThanOrEqual(2);
+    }
+
+    // The clip trims a corner, it must not consume the park.
+    expect(polygon.length).toBeGreaterThanOrEqual(5);
+    let doubledArea = 0;
+    for (let index = 0; index < polygon.length; index += 1) {
+      const current = polygon[index];
+      const next = polygon[(index + 1) % polygon.length];
+      doubledArea += current.x * next.z - next.x * current.z;
+    }
+    expect(Math.abs(doubledArea) / 2).toBeGreaterThanOrEqual(3000);
   });
 });
 
