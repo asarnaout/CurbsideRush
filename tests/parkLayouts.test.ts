@@ -290,6 +290,42 @@ describe("park layouts", () => {
     }
   });
 
+  it("gives the named parks their own pieces, and leaves them room", () => {
+    const featuresOf = (id: string) =>
+      parkCases().find((c) => c.landmark.id === id)?.layout.features ?? [];
+    const kinds = (id: string) => new Set(featuresOf(id).map((f) => f.kind));
+
+    // A temple approach without a torii is just a gravel path.
+    expect(kinds("jp-gotokuji-temple")).toContain("torii");
+    expect(kinds("jp-gotokuji-temple")).toContain("lantern");
+    expect(kinds("jp-gotokuji-temple")).toContain("court");
+    expect(kinds("jp-shoin-shrine")).toContain("torii");
+    expect(kinds("cairo-opera-grounds")).toContain("parterre");
+    expect(kinds("nyc-joan-of-arc-park")).toContain("plinth");
+    // Nothing bespoke for a park with no character to state.
+    expect(featuresOf("nyc-verdi-green")).toHaveLength(0);
+
+    // Every solid piece must stand clear of its park's own walks, or the
+    // driver meets masonry in the middle of a path. Monuments settle for this
+    // reason; the test is what proves the settle actually found somewhere.
+    for (const { landmark, layout } of parkCases()) {
+      const solids = [
+        ...layout.features.filter((f) => f.solid && f.kind !== "torii"),
+        ...layout.placements
+          .filter((p) => p.kind === "monument")
+          .map((p) => ({ id: `${landmark.id}-monument`, x: p.x, z: p.z, sizeX: 3, sizeZ: 3 })),
+      ];
+      for (const solid of solids) {
+        for (const path of layout.paths) {
+          expect(
+            distanceToPolylineM(solid, path.points),
+            `${solid.id} blocks the ${path.id} path`,
+          ).toBeGreaterThan(path.widthM / 2);
+        }
+      }
+    }
+  });
+
   it("honours an authored style over the derived one", () => {
     const base = parkCases()[0];
     const forced = buildParkLayout(

@@ -53,7 +53,39 @@ export interface ParkPath {
   readonly widthM: number;
 }
 
-export type ParkPropKind = "tree" | "shrub" | "bench" | "lamp";
+export type ParkPropKind = "tree" | "shrub" | "bench" | "lamp" | "monument";
+
+/**
+ * A built piece a park needs that no scatter would produce: a temple's torii
+ * and lanterns, a formal garden's parterre beds, a monument. Rendered
+ * procedurally except where a `monument` placement pulls one from the kit.
+ */
+export type ParkFeatureKind =
+  | "court"
+  | "parterre"
+  | "torii"
+  | "lantern"
+  | "plinth";
+
+export interface ParkFeature {
+  readonly id: string;
+  readonly kind: ParkFeatureKind;
+  readonly x: number;
+  readonly z: number;
+  readonly rotationY: number;
+  readonly sizeX: number;
+  readonly sizeZ: number;
+  /** Emitted as a static obstacle when true. */
+  readonly solid: boolean;
+}
+
+/** A rectangle the scatter must leave empty — a court, a bed, a lawn. */
+export interface ParkClearing {
+  readonly x: number;
+  readonly z: number;
+  readonly halfX: number;
+  readonly halfZ: number;
+}
 
 export interface ParkPlacement {
   readonly kind: ParkPropKind;
@@ -70,6 +102,8 @@ export interface ParkLayout {
   readonly placements: readonly ParkPlacement[];
   /** Solid boundary spans. Empty for parks that must never be walled. */
   readonly wall: readonly ParkWallRun[];
+  /** Built pieces — courts, beds, a torii, a plinth. */
+  readonly features: readonly ParkFeature[];
 }
 
 export interface ParkLayoutContext {
@@ -206,6 +240,166 @@ function crossPaths(
 }
 
 /**
+ * The pieces a named park needs that no scatter would ever produce.
+ *
+ * Keyed on the landmark id where a park has real character worth stating, and
+ * on its style otherwise — so a fifth city's temple grounds gets a torii and a
+ * gravel court for free, while Central Park's Great Lawn stays Central Park's.
+ *
+ * Returns clearings as well as features: a gravel court with trees growing out
+ * of it, or a Great Lawn that is not a lawn, is worse than neither.
+ */
+function bespokeFeatures(
+  landmark: ParkLandmarkInput,
+  style: ParkStyle,
+  paths: readonly ParkPath[],
+): { features: ParkFeature[]; clearings: ParkClearing[]; props: ParkPlacement[] } {
+  /**
+   * Nudge a piece of masonry sideways until it clears every walk.
+   *
+   * The same idea as `cairoTahrirFurnitureLayout`'s `settle`: the ideal spot is
+   * the axis centre, and clearance is a veto on it rather than something being
+   * maximised. Without this the Opera Grounds obelisk stood in the middle of
+   * its own spine path.
+   */
+  const settle = (u: number, v: number, radiusM: number): VisualPoint => {
+    const steps = [0, 0.1, -0.1, 0.18, -0.18, 0.26, -0.26];
+    // Both axes, nearest-first. One axis is not enough: a park short enough to
+    // get its single crossing at the centre has a path straight through the
+    // ideal spot in BOTH directions, so sliding sideways can never clear it.
+    const candidates = steps
+      .flatMap((du) => steps.map((dv) => [du, dv] as const))
+      .sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+    for (const [du, dv] of candidates) {
+      const point = toWorld(landmark, u + du, v + dv);
+      const clear = paths.every(
+        (path) =>
+          distanceToPolylineM(point, path.points) >= path.widthM / 2 + radiusM,
+      );
+      if (clear) return point;
+    }
+    return toWorld(landmark, u, v);
+  };
+  const features: ParkFeature[] = [];
+  const clearings: ParkClearing[] = [];
+  const props: ParkPlacement[] = [];
+  const id = landmark.id.toLowerCase();
+  const longIsZ = landmark.size.z >= landmark.size.x;
+
+  if (style === "temple_grounds") {
+    // A raked gravel court over the middle, and the axial approach through it.
+    const court = toWorld(landmark, 0, 0);
+    const halfX = (landmark.size.x * 0.62) / 2;
+    const halfZ = (landmark.size.z * 0.62) / 2;
+    features.push({
+      id: `${landmark.id}-court`,
+      kind: "court",
+      x: court.x,
+      z: court.z,
+      rotationY: 0,
+      sizeX: halfX * 2,
+      sizeZ: halfZ * 2,
+      solid: false,
+    });
+    clearings.push({ x: court.x, z: court.z, halfX, halfZ });
+    // The torii stands at the mouth of the approach, facing down it.
+    const gate = longIsZ ? toWorld(landmark, 0, 0.42) : toWorld(landmark, 0.42, 0);
+    features.push({
+      id: `${landmark.id}-torii`,
+      kind: "torii",
+      x: gate.x,
+      z: gate.z,
+      rotationY: longIsZ ? 0 : Math.PI / 2,
+      sizeX: Math.min(6.5, Math.min(landmark.size.x, landmark.size.z) * 0.3),
+      sizeZ: 0.5,
+      solid: true,
+    });
+    // Stone lanterns pairing off down the approach, as a sandō actually has.
+    for (let step = 0; step < 3; step += 1) {
+      const along = 0.3 - step * 0.16;
+      for (const side of [-1, 1]) {
+        const offset = 0.11 * side;
+        const point = longIsZ
+          ? toWorld(landmark, offset, along)
+          : toWorld(landmark, along, offset);
+        features.push({
+          id: `${landmark.id}-lantern-${step}-${side > 0 ? "r" : "l"}`,
+          kind: "lantern",
+          x: point.x,
+          z: point.z,
+          rotationY: 0,
+          sizeX: 0.5,
+          sizeZ: 0.5,
+          solid: true,
+        });
+      }
+    }
+  }
+
+  if (id.includes("opera")) {
+    // Four formal parterres either side of the axis, and an obelisk on it.
+    for (const [index, [u, v]] of (
+      [
+        [-0.22, -0.2],
+        [0.22, -0.2],
+        [-0.22, 0.2],
+        [0.22, 0.2],
+      ] as const
+    ).entries()) {
+      const bed = toWorld(landmark, u, v);
+      const halfX = landmark.size.x * 0.16;
+      const halfZ = landmark.size.z * 0.14;
+      features.push({
+        id: `${landmark.id}-parterre-${index}`,
+        kind: "parterre",
+        x: bed.x,
+        z: bed.z,
+        rotationY: 0,
+        sizeX: halfX * 2,
+        sizeZ: halfZ * 2,
+        solid: false,
+      });
+      clearings.push({ x: bed.x, z: bed.z, halfX, halfZ });
+    }
+    const centre = settle(0, 0, 3.5);
+    props.push({
+      kind: "monument",
+      x: centre.x,
+      z: centre.z,
+      rotationY: 0,
+      scale: 1,
+      variant: 0,
+    });
+    clearings.push({ x: centre.x, z: centre.z, halfX: 5, halfZ: 5 });
+  }
+
+  if (id.includes("joan-of-arc")) {
+    // The real park is a monument park: an equestrian statue on a plinth.
+    const centre = settle(0, 0, 4.5);
+    features.push({
+      id: `${landmark.id}-plinth`,
+      kind: "plinth",
+      x: centre.x,
+      z: centre.z,
+      rotationY: 0,
+      sizeX: 4.4,
+      sizeZ: 4.4,
+      solid: true,
+    });
+    clearings.push({ x: centre.x, z: centre.z, halfX: 9, halfZ: 9 });
+  }
+
+  if (id.includes("central-park")) {
+    // The Great Lawn is grass with nothing on it. It is a hole in the scatter,
+    // not a mesh — which is also why it costs nothing.
+    const lawn = toWorld(landmark, 0.12, 0.21);
+    clearings.push({ x: lawn.x, z: lawn.z, halfX: 78, halfZ: 115 });
+  }
+
+  return { features, clearings, props };
+}
+
+/**
  * The path network, in park-local coordinates.
  *
  * A long park gets a wandering spine so the eye is led down its length rather
@@ -331,6 +525,7 @@ function scatterZone(
   landmark: ParkLandmarkInput,
   zone: ScatterZone,
   paths: readonly ParkPath[],
+  clearings: readonly ParkClearing[],
   context: ParkLayoutContext,
   random: () => number,
 ): ParkPlacement[] {
@@ -387,6 +582,16 @@ function scatterZone(
       );
       if (onRoad) continue;
       if (isInsideWater(point, context.waterPolygons ?? [])) continue;
+      // Courts, formal beds and the Great Lawn are meant to be empty.
+      if (
+        clearings.some(
+          (clearing) =>
+            Math.abs(point.x - clearing.x) <= clearing.halfX &&
+            Math.abs(point.z - clearing.z) <= clearing.halfZ,
+        )
+      ) {
+        continue;
+      }
 
       placements.push({
         kind: zone.kind,
@@ -604,10 +809,13 @@ export function buildParkLayout(
 ): ParkLayout {
   const style = resolveParkStyle(landmark, mapVisualKey);
   const paths = pathRecipe(style, landmark);
+  const bespoke = bespokeFeatures(landmark, style, paths);
   const random = seededUnit(context.seed);
-  const placements: ParkPlacement[] = [];
+  const placements: ParkPlacement[] = [...bespoke.props];
   for (const zone of zoneRecipe(style)) {
-    placements.push(...scatterZone(landmark, zone, paths, context, random));
+    placements.push(
+      ...scatterZone(landmark, zone, paths, bespoke.clearings, context, random),
+    );
   }
   placements.push(...pathFurniture(paths, style, context, random));
   return {
@@ -615,6 +823,7 @@ export function buildParkLayout(
     paths,
     placements,
     wall: parkPerimeterPlan(landmark, style, paths, context),
+    features: bespoke.features,
   };
 }
 

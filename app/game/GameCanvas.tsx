@@ -220,6 +220,7 @@ import {
 } from "./natureCatalog";
 import {
   parkLayoutForLandmark,
+  type ParkFeature,
   type ParkPlacement,
 } from "./parkLayouts";
 import {
@@ -9048,8 +9049,10 @@ class BabylonGameSession {
         model.role === "tree" || model.role === "conifer" || model.role === "palm",
     );
     const shrubs = catalogue.filter((model) => model.role === "shrub");
+    const monuments = catalogue.filter((model) => model.role === "monument");
     const speciesFor = (kind: string, variant: number) => {
-      const pool = kind === "shrub" ? shrubs : canopy;
+      const pool =
+        kind === "shrub" ? shrubs : kind === "monument" ? monuments : canopy;
       return pool.length ? pool[variant % pool.length] : null;
     };
 
@@ -9067,6 +9070,8 @@ class BabylonGameSession {
       instance.isPickable = false;
       this.staticSceneryFreeze.push(instance);
       this.registerShadowCaster(instance, placement.x, placement.z);
+      // A monument is masonry: it stands where a tree topples.
+      if (placement.kind === "monument") continue;
       // Knockable exactly like a street tree — that consistency is the reason
       // park planting rides the same destructible path at all.
       this.registerDestructibleProp(
@@ -15308,6 +15313,8 @@ class BabylonGameSession {
       }
     }
 
+    this.buildParkBespokeFeatures(landmark, layout.features, palette);
+
     // The wall. A static-obstacle hit is a scored collision with damage, so it
     // has to be plainly visible — a low kerb you cannot see would read as an
     // invisible wall, which is exactly the complaint this is meant to avoid.
@@ -15337,6 +15344,146 @@ class BabylonGameSession {
       wall.rotation.y = Math.atan2(run.ux, run.uz);
       wall.isPickable = false;
       this.registerShadowCaster(wall, run.x, run.z);
+    }
+  }
+
+  /**
+   * The pieces a named park needs that no scatter would produce.
+   *
+   * Built procedurally rather than imported: the kit has no torii, and no CC0
+   * Japanese stone lantern exists that I could find — the only matches are
+   * CC-BY, which would put an attribution string in the catalogue for two
+   * models. A lantern is a stack of boxes; this is the cheaper answer.
+   */
+  private buildParkBespokeFeatures(
+    landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+    features: readonly ParkFeature[],
+    palette: MapVisualPalette,
+  ) {
+    if (!features.length) return;
+    const scene = this.scene;
+    const material = (suffix: string, color: Color3) =>
+      makeMaterial(scene, `park-${suffix}`, color);
+    const stone = material("stone", new Color3(0.66, 0.63, 0.57));
+    // Vermilion, which is what a torii is and the one strong colour a temple
+    // garden carries.
+    const vermilion = material("torii", new Color3(0.72, 0.24, 0.16));
+    const bed = material(
+      "bed",
+      colorFromHex(
+        mixHexColors(palette.grassDeep, palette.dirtShoulder, 0.45),
+        new Color3(0.32, 0.3, 0.2),
+      ),
+    );
+
+    for (const feature of features) {
+      switch (feature.kind) {
+        case "court":
+        case "parterre": {
+          // A ground patch, on the same rung as the paths so it reads as laid
+          // rather than as a rug floating over the lawn.
+          const patch = MeshBuilder.CreateGround(
+            feature.id,
+            { width: feature.sizeX, height: feature.sizeZ },
+            scene,
+          );
+          patch.position.set(feature.x, PARK_PATH_Y, feature.z);
+          if (feature.kind === "court") {
+            this.applyWorldPlanarGrassUVs(patch, feature.x, feature.z);
+            setMeshMaterial(
+              patch,
+              this.parkPathMaterial ?? stone,
+              true,
+            );
+          } else {
+            setMeshMaterial(patch, bed, true);
+          }
+          patch.isPickable = false;
+          this.registerStaticCell(patch, feature.x, feature.z, false);
+          break;
+        }
+        case "torii": {
+          const half = feature.sizeX / 2;
+          const height = feature.sizeX * 0.95;
+          for (const side of [-1, 1]) {
+            const column = createCylinder(
+              scene,
+              `${feature.id}-column-${side > 0 ? "r" : "l"}`,
+              { height, diameterTop: 0.34, diameterBottom: 0.44, tessellation: 8 },
+              new Vector3(
+                feature.x + Math.cos(feature.rotationY) * half * side,
+                height / 2,
+                feature.z - Math.sin(feature.rotationY) * half * side,
+              ),
+              vermilion,
+            );
+            column.isPickable = false;
+            this.registerShadowCaster(column, feature.x, feature.z);
+          }
+          for (const [index, lift] of [height, height * 0.83].entries()) {
+            const beam = createBox(
+              scene,
+              `${feature.id}-beam-${index}`,
+              {
+                width: feature.sizeX * (index === 0 ? 1.28 : 1.06),
+                height: index === 0 ? 0.36 : 0.24,
+                depth: 0.34,
+              },
+              new Vector3(feature.x, lift, feature.z),
+              vermilion,
+            );
+            beam.rotation.y = feature.rotationY;
+            beam.isPickable = false;
+            this.registerShadowCaster(beam, feature.x, feature.z);
+          }
+          break;
+        }
+        case "lantern": {
+          const parts: readonly [number, number, number][] = [
+            [0.44, 0.34, 0.17],
+            [0.3, 0.5, 0.55],
+            [0.62, 0.42, 0.98],
+            [0.44, 0.16, 1.25],
+          ];
+          for (const [index, [width, tall, lift]] of parts.entries()) {
+            const block = createBox(
+              scene,
+              `${feature.id}-${index}`,
+              { width, height: tall, depth: width },
+              new Vector3(feature.x, lift, feature.z),
+              stone,
+            );
+            block.isPickable = false;
+            this.registerShadowCaster(block, feature.x, feature.z);
+          }
+          break;
+        }
+        case "plinth": {
+          const base = createBox(
+            scene,
+            `${feature.id}-base`,
+            { width: feature.sizeX, height: 1.1, depth: feature.sizeZ },
+            new Vector3(feature.x, 0.55, feature.z),
+            stone,
+          );
+          base.isPickable = false;
+          this.registerShadowCaster(base, feature.x, feature.z);
+          const shaft = createBox(
+            scene,
+            `${feature.id}-shaft`,
+            {
+              width: feature.sizeX * 0.5,
+              height: 3.2,
+              depth: feature.sizeZ * 0.5,
+            },
+            new Vector3(feature.x, 2.7, feature.z),
+            stone,
+          );
+          shaft.isPickable = false;
+          this.registerShadowCaster(shaft, feature.x, feature.z);
+          break;
+        }
+      }
     }
   }
 

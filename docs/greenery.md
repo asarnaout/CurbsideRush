@@ -107,6 +107,28 @@ Scatter `variants` has to be wide enough to reach the whole species pool:
 `variant % pool.length` at 3 variants never got past the first three species,
 so no conifer was ever planted in a temperate park.
 
+## Named parks get pieces no scatter would produce
+
+`bespokeFeatures` keys on the landmark id where a park has real character worth
+stating and on its style otherwise — so a fifth city's temple grounds gets a
+torii, a gravel court and paired lanterns for free, while Central Park's Great
+Lawn stays Central Park's. Features come back with **clearings**: a gravel court
+with trees growing out of it, or a Great Lawn that is not a lawn, is worse than
+having neither. The Great Lawn is only a clearing, never a mesh, which is also
+why it costs nothing.
+
+Masonry `settle`s clear of the park's own walks, like
+`cairoTahrirFurnitureLayout` does, and the search runs in **both** axes: a park
+short enough to get its single crossing at the centre has a path through the
+ideal spot in both directions, so sliding sideways alone can never clear it.
+That is how the Opera Grounds obelisk first ended up standing in its own path.
+
+The torii and the lanterns are procedural because the kit has no torii, and no
+CC0 Japanese stone lantern appears to exist — the only matches are CC-BY, which
+would put an attribution string in the catalogue for two models. Solid features
+are emitted as **circles**, so they are exempt from the walkable-pavement sweep
+like other small furniture, and so a torii stays drivable *through*.
+
 ## A park's style is derived, and two styles can never be walled
 
 `resolveParkStyle` reads the landmark id first and its proportions second, so a

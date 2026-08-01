@@ -1308,7 +1308,8 @@ export function buildStaticObstacles(
         // The layout must be built with exactly the arguments the renderer
         // uses, or the wall you crash into and the wall you can see are two
         // different walls.
-        for (const run of parkLayoutForLandmark(mapPack, landmark).wall) {
+        const parkLayout = parkLayoutForLandmark(mapPack, landmark);
+        for (const run of parkLayout.wall) {
           obstacles.push({
             kind: "obb",
             id: run.id,
@@ -1319,6 +1320,36 @@ export function buildStaticObstacles(
             uz: run.uz,
             halfU: run.halfU,
             halfV: run.halfV,
+          });
+        }
+        // Masonry a park carries: a torii's columns, a stone lantern, a
+        // monument plinth. Circles rather than boxes, so they are exempt from
+        // the walkable-pavement sweep the way every other small piece of street
+        // furniture is — and so a torii stays drivable *through*, which is the
+        // whole point of a gate.
+        for (const feature of parkLayout.features) {
+          if (!feature.solid) continue;
+          if (feature.kind === "torii") {
+            const half = feature.sizeX / 2;
+            for (const side of [-1, 1] as const) {
+              obstacles.push({
+                kind: "circle",
+                id: `${feature.id}-column-${side > 0 ? "r" : "l"}`,
+                tag: "landmark",
+                x: feature.x + Math.cos(feature.rotationY) * half * side,
+                z: feature.z - Math.sin(feature.rotationY) * half * side,
+                radius: 0.32,
+              });
+            }
+            continue;
+          }
+          obstacles.push({
+            kind: "circle",
+            id: feature.id,
+            tag: "landmark",
+            x: feature.x,
+            z: feature.z,
+            radius: Math.max(feature.sizeX, feature.sizeZ) / 2,
           });
         }
         break;
