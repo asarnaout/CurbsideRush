@@ -342,13 +342,15 @@ export function rearKerbDoorPoint(
 
 /**
  * Driver walks from their door around the car to the nearest pump, fills for
- * 3–5 s (scaling with how empty the tank is), and walks back in.
+ * 3–5 s (scaling with how much fuel is going in — which is not the same as how
+ * empty the tank is, since a free-drive wallet can buy a part tank), and walks
+ * back in.
  */
 export function buildRefuelScript(
   car: CutsceneCarPose,
   steeringSide: SteeringSide,
   pump: WorldPoint,
-  missingFuelFraction: number,
+  fuelFillFraction: number,
   body: CutsceneBodyProfile = DEFAULT_CUTSCENE_BODY,
 ): CutsceneStep[] {
   const door = driverDoorPoint(car, steeringSide, body);
@@ -364,7 +366,7 @@ export function buildRefuelScript(
   const back = routeAroundCar(car, stand, door, body);
   const pumpSeconds =
     PUMP_BASE_SECONDS +
-    PUMP_EXTRA_SECONDS * Math.min(1, Math.max(0, missingFuelFraction));
+    PUMP_EXTRA_SECONDS * Math.min(1, Math.max(0, fuelFillFraction));
   return [
     {
       action: "show",

@@ -170,6 +170,45 @@ currencies live):
 five points is about a dollar's work in every currency, which is what saves
 inventing a per-country minimum-bill table.
 
+## Fuel: the two modes price it differently on purpose
+
+**Free drive sells what the wallet covers** — `fuelPurchase` in `content.ts` caps
+the litres at the money on hand, so short money buys a short fill rather than
+being refused outright (the prompt reads "Top up" instead of "Refuel", and the
+pump event pours exactly what was quoted).
+
+**Career does not come through that helper, and is never capped.** Its pump will
+always sell a whole tank whatever the day cash, pushing the day into the red for
+the night's settlement and its loans to absorb. Capping it would leave a driver
+already in the red unable to buy fuel at all while the far dearer roadside rescue
+stayed free — the same backwardness `repairPrice` avoids by never gating the shop.
+
+What career gained instead is the **choice**, since the shortfall is not free: it
+settles into a loan at `LOAN_ORIGINATION_RATE`. When the day's cash falls short,
+the prompt splits in two (`splitPrompt`) — a cash-only top-up and the full fill
+with the rest borrowed.
+
+- **Enter always takes the first entry, and the cash offer is deliberately
+  first.** Mashing Enter at a pump must never sign a driver up for a loan.
+  Pressing it twice spends the cash and then borrows, landing exactly where the
+  old single button did — by two decisions rather than none.
+- **B is the borrow key**, live only while there is something to borrow.
+- **The offer withholds itself below `MIN_REFUEL_LITRES`**, so there is never a
+  choice between a loan and a thimbleful.
+- `ServicePromptAction` is presentation only. Its callbacks close over
+  `cutsceneRef` through `beginCutscene`, and the React Compiler treats any
+  property read on an array holding one — `.length` included — as a ref access
+  during render, which costs the whole component its memoization.
+
+**Which offer was taken rides on the cutscene request's `fuelFillFraction`**, not
+a second channel: the `pump` step pours and bills that fraction of the tank. Free
+drive alone re-prices at `pump` time, because a citation can still land mid-scene
+and its wallet, unlike career's day cash, must not go negative.
+
+`MIN_REFUEL_LITRES` (0.5) is the floor under all of it: below that the tank is
+full enough or the money short enough that the prompt says so instead of staging
+a cutscene.
+
 ## The save file
 
 `PROGRESS_STORAGE_KEY` is `sideswap:v2`. `progress.ts` owns loading, migration and

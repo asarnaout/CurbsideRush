@@ -8,7 +8,7 @@ npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run build:static # + prerendered index.html for a static host
 npm run typecheck    # tsc --noEmit, ~3s
 npm run lint         # eslint, ~11s
-npm test             # vitest run: 83 files, 1366 tests, ~2min
+npm test             # vitest run: 84 files, 1390 tests, ~2min
 ```
 
 Node >= 22.13 (repo currently runs v26). **There is no CI** — no `.github/`,
@@ -22,7 +22,7 @@ seeds × 60 s of sim). Everything else runs in ~12 s. Use the fast loop while
 iterating, the full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 82 files / 1363 tests in ~14s
+# everything except the acceptance test -> 83 files / 1388 tests in ~15s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts -t "reverses off"   # one file, -t filters by substring
@@ -72,20 +72,26 @@ does — plus a **synchronous `requestAnimationFrame` stub**, or `SideSwapApp`'s
 
 Tests default to `environment: "node"`. DOM needs `// @vitest-environment jsdom` on
 line 1 and a local `@testing-library/jest-dom/vitest` import — **there is no setup
-file**. Eight test files do this today: `careerFlow`, `confirmDialog`, `driveHud`,
-`expandedMap`, `launcher`, `minimapCanvas`, `touchDriveControls`, `viewportSetup`.
+file**. Nine test files do this today: `careerFlow`, `confirmDialog`, `driveHud`,
+`expandedMap`, `freeDriveFuel`, `launcher`, `minimapCanvas`, `touchDriveControls`,
+`viewportSetup`.
 
 ## What is and isn't covered
 
 **The app shell is tested through Career and almost nowhere else.**
-`careerFlow.test.tsx` renders a real `SideSwapApp` (GameCanvas mocked) across ~45
+`careerFlow.test.tsx` renders a real `SideSwapApp` (GameCanvas mocked) across ~50
 tests: rent prepay, a fine charging only on its `cite` step, settlement, the
-quit-day discard, a tampered save, per-vehicle props, buyout, roadside refuel, and
-— through a mock that can drive to a stop — a job from offer to payout, the queue
-promoting, and accept/pass/expiry. `launcher.test.tsx` adds a dozen more.
+quit-day discard, a tampered save, per-vehicle props, buyout, roadside refuel, the
+pump's cash-or-credit split on a short day, and — through a mock that can drive to
+a stop — a job from offer to payout, the queue promoting, and accept/pass/expiry.
+`launcher.test.tsx` adds a dozen more.
 
-What no test touches: free-drive fuel drain and refuel pricing, the 8 s fine
-debounce, music mute.
+`freeDriveFuel.test.tsx` is the one free-drive economy path with cover: parking at
+a pump, what the prompt offers a wallet that cannot fill the tank, and what the
+`pump` event actually pours and bills. Its mock canvas is a cut-down `careerFlow`
+one — two buttons, no clock.
+
+What no test touches: free-drive fuel drain, the 8 s fine debounce, music mute.
 
 **`touchFirst` is false in jsdom**, so nothing rendering `SideSwapApp` ever sees
 the phone layout — `driveHud.test.tsx` passes `compact` directly instead, and the
