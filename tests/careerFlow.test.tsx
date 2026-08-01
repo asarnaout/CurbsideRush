@@ -1246,6 +1246,18 @@ describe("career mode flow", () => {
     expect(raw.walletByCountry.uk).toBe(20);
   });
 
+  /** Parks the car at the first pump on New York's map. */
+  const parkAtThePumps = () => {
+    const nycMap = getMapPack(
+      getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
+    );
+    const gasStation = gasStationsOf(nycMap.geometry.servicePoints)[0];
+    const pump = gasStationPumpPositions(nycMap.laneGraph.lanes, gasStation)[0];
+    mockStop.x = pump.x;
+    mockStop.z = pump.z;
+    fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+  };
+
   it("refuels at the pump from the keyboard, and the prompt says how (#217)", async () => {
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-start"));
@@ -1259,15 +1271,7 @@ describe("career mode flow", () => {
     // roadside_refuel rescue rather than leave the ordinary prompt to press.
     mockDrainTicks.count = 171;
     fireEvent.click(screen.getByTestId("mock-drain"));
-
-    const nycMap = getMapPack(
-      getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
-    );
-    const gasStation = gasStationsOf(nycMap.geometry.servicePoints)[0];
-    const pump = gasStationPumpPositions(nycMap.laneGraph.lanes, gasStation)[0];
-    mockStop.x = pump.x;
-    mockStop.z = pump.z;
-    fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+    parkAtThePumps();
 
     // The Enter hint only shows once pressing it would actually do something.
     const refuelButton = await screen.findByTestId("refuel-button");
@@ -1276,6 +1280,112 @@ describe("career mode flow", () => {
 
     fireEvent.keyDown(window, { code: "Enter" });
     expect(scene).toHaveAttribute("data-cutscene-kind", "refuel");
+  });
+
+  /*
+   * Career's pump splits in two when the day's cash will not cover a tank. The
+   * numbers below all come from one setup: the hatch rents at 16 out of a 20
+   * float, so the day opens on 4; draining ~20 L of its 40 L tank leaves a fill
+   * costing round(20 x 0.40) = 8, which is 4 more than the day is holding.
+   */
+  const shortOfAFillAtThePumps = async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    const scene = await screen.findByLabelText("Mock driving scene");
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("$4.00");
+    mockDrainTicks.count = 171;
+    fireEvent.click(screen.getByTestId("mock-drain"));
+    parkAtThePumps();
+    return scene;
+  };
+
+  it("offers cash and credit side by side when the day is short", async () => {
+    await shortOfAFillAtThePumps();
+
+    // $4 of cash buys 10 L at $0.40; the whole 20 L fill is $8, so $4 of it
+    // would be borrowed. Both prices are on the card, and so is the borrowing.
+    const topUp = await screen.findByTestId("refuel-button");
+    expect(topUp).toHaveTextContent("Top up — $4.00");
+    expect(topUp).toHaveTextContent("ENTER");
+    const onCredit = screen.getByTestId("refuel-credit-button");
+    expect(onCredit).toHaveTextContent("Fill up — $8.00");
+    expect(onCredit).toHaveTextContent("$4.00 on credit");
+    expect(onCredit).toHaveTextContent("B");
+  });
+
+  it("spends the cash on Enter and borrows nothing", async () => {
+    const scene = await shortOfAFillAtThePumps();
+
+    // Enter takes the FIRST offer, which is the cash one on purpose: mashing it
+    // at a pump must never quietly sign the driver up for a loan.
+    fireEvent.keyDown(window, { code: "Enter" });
+    expect(scene).toHaveAttribute("data-cutscene-kind", "refuel");
+    fireEvent.click(screen.getByTestId("mock-scene-pump"));
+
+    // 10 L bought on top of the ~20 L left: three quarters of a tank, and the
+    // day is spent out but not in debt.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("$0.00");
+    expect(screen.getByTestId("fuel-gauge")).toHaveTextContent("75%");
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+
+    // With nothing left to spend there is nothing to choose between: the card
+    // collapses to the one remaining option, and says it is all on credit.
+    parkAtThePumps();
+    const remaining = await screen.findByTestId("refuel-button");
+    expect(remaining).toHaveTextContent("Fill up — $4.00");
+    expect(remaining).toHaveTextContent("on credit");
+    expect(screen.queryByTestId("refuel-credit-button")).not.toBeInTheDocument();
+
+    // And taking it lands exactly where the old single button always did.
+    fireEvent.keyDown(window, { code: "Enter" });
+    fireEvent.click(screen.getByTestId("mock-scene-pump"));
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$4.00");
+    expect(screen.getByTestId("fuel-gauge")).toHaveTextContent("100%");
+  });
+
+  it("borrows the shortfall on B, in one press", async () => {
+    const scene = await shortOfAFillAtThePumps();
+
+    fireEvent.keyDown(window, { code: "KeyB" });
+    expect(scene).toHaveAttribute("data-cutscene-kind", "refuel");
+    fireEvent.click(screen.getByTestId("mock-scene-pump"));
+
+    // The whole $8 fill against $4 of cash: full tank, $4 in the red — which is
+    // what the day's settlement turns into a loan.
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$4.00");
+    expect(screen.getByTestId("fuel-gauge")).toHaveTextContent("100%");
+  });
+
+  it("keeps one plain offer when the day can afford the tank", async () => {
+    seedProgressWithCareer(careerIn("us-nyc", 77, { cash: 200 }));
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+
+    mockDrainTicks.count = 171;
+    fireEvent.click(screen.getByTestId("mock-drain"));
+    parkAtThePumps();
+
+    // 200 - 16 rent leaves far more than the $8 fill, so there is nothing to
+    // decide and the card stays the single pill it has always been.
+    const refuelButton = await screen.findByTestId("refuel-button");
+    expect(refuelButton).toHaveTextContent("Refuel — $8.00");
+    expect(refuelButton).not.toHaveTextContent("credit");
+    expect(screen.queryByTestId("refuel-credit-button")).not.toBeInTheDocument();
+
+    // B is career's borrow key and there is nothing to borrow: it must not be
+    // a second way to fire the pump.
+    fireEvent.keyDown(window, { code: "KeyB" });
+    expect(screen.getByLabelText("Mock driving scene")).toHaveAttribute(
+      "data-cutscene-kind",
+      "none",
+    );
   });
 
   it("leaves the prompt silent on Enter once the tank is full", async () => {

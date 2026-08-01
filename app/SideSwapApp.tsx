@@ -601,6 +601,31 @@ const DISPATCH_TOAST_COLOR = {
   lost: HUD_CORAL,
 } as const;
 
+/**
+ * One way to act on the service prompt at a pump or a repair bay.
+ *
+ * A list rather than a single action because career's pump offers two ways to
+ * pay when the day's cash falls short of a tank, and which one the driver picks
+ * is a real decision — the borrowed part settles into a loan tonight.
+ * `tone: "credit"` is what marks the offer that puts money on the slate.
+ *
+ * Presentation only, deliberately: the callbacks live beside the list as plain
+ * values (`promptEnterAct` / `promptBorrowAct`). They close over `cutsceneRef`
+ * through `beginCutscene`, and the React Compiler treats *any* property read on
+ * an array holding such a function — `.length` included — as a ref access
+ * during render, which costs the whole component its memoization.
+ */
+interface ServicePromptAction {
+  readonly testId: string;
+  readonly label: string;
+  /** Trailing qualifier, set apart from the price it qualifies. */
+  readonly note?: string;
+  /** The key that takes it, shown as a chip. Only ever "ENTER" or "B". */
+  readonly hint: "ENTER" | "B";
+  readonly tone: "primary" | "credit";
+  readonly enabled: boolean;
+}
+
 
 
 /** Lays the stat strip out two-up, the way the meters pair in the design. */
@@ -1505,7 +1530,15 @@ export default function SideSwapApp() {
             // A roadside rescue fills the whole tank at a premium plus the
             // call-out fee: the price of not planning around the gauge.
             const roadside = active.kind === "roadside_refuel";
-            const litres = Math.max(0, run.vehicle.tankL - driveFuel);
+            const missing = Math.max(0, run.vehicle.tankL - driveFuel);
+            // How much was bought is the fraction the scene was staged with —
+            // which is the whole missing tank for a full fill or a rescue, and
+            // less than that for a cash-only top-up. Carrying it on the request
+            // is what saves a second channel telling the two offers apart, and
+            // it survives the scene being restaged.
+            const litres = roadside
+              ? missing
+              : Math.min(missing, (active.fuelFillFraction ?? 1) * run.vehicle.tankL);
             const cost =
               Math.round(
                 litres *
@@ -1521,7 +1554,7 @@ export default function SideSwapApp() {
             setFuelFillMs(
               typeof evidence.durationMs === "number" ? evidence.durationMs : 0,
             );
-            setDriveFuel(run.vehicle.tankL);
+            setDriveFuel(Math.min(run.vehicle.tankL, driveFuel + litres));
             return;
           }
           // Free drive pours only what the wallet covers, so an empty-enough
@@ -2274,28 +2307,54 @@ export default function SideSwapApp() {
     litresNeeded,
     walletHere,
   );
+  // Career money is integer and priced per vehicle. The day's cash is what the
+  // driver can pay without borrowing; anything past it settles into a loan at
+  // `LOAN_ORIGINATION_RATE` tonight, which is the whole reason it is worth
+  // showing separately rather than folding into one silent charge.
+  const careerPricePerLitre =
+    FUEL_PRICE_PER_LITRE_BY_COUNTRY[driveCountry.id] *
+    (careerVehicle?.fuelPriceFactor ?? 1);
+  const careerFillCost = Math.round(litresNeeded * careerPricePerLitre);
+  const careerCashSpend = Math.max(0, Math.min(dayCash, careerFillCost));
   const refuelLitres = careerRun ? litresNeeded : affordableLitres;
-  const refuelCost = careerRun
-    ? Math.round(
-        litresNeeded *
-          FUEL_PRICE_PER_LITRE_BY_COUNTRY[driveCountry.id] *
-          (careerVehicle?.fuelPriceFactor ?? 1),
-      )
-    : affordableCost;
+  const refuelCost = careerRun ? careerFillCost : affordableCost;
+  // What the fill would put on the slate. Free drive has no credit — the wallet
+  // is the ceiling there, and `affordableCost` already respects it.
+  const refuelCredit = careerRun ? careerFillCost - careerCashSpend : 0;
   // One rule covers both modes: there has to be something worth pouring. In
   // career `refuelLitres` *is* `litresNeeded`, so this stays the tank-full
   // check it has always been; in free drive it also catches an empty wallet.
   const canRefuel = refuelLitres > MIN_REFUEL_LITRES;
   const refuelFillFraction =
     tankCapacityL > 0 ? refuelLitres / tankCapacityL : 0;
+  // The second offer, career-only and only while the day's cash falls short:
+  // take the fuel that cash buys and borrow nothing. Withheld when it would
+  // pour less than the pump bothers selling, so there is never a choice
+  // between a loan and a thimbleful.
+  const careerTopUpLitres =
+    careerPricePerLitre > 0
+      ? Math.min(litresNeeded, careerCashSpend / careerPricePerLitre)
+      : litresNeeded;
+  const cashTopUp =
+    careerRun && canRefuel && refuelCredit > 0 && careerTopUpLitres > MIN_REFUEL_LITRES
+      ? { litres: careerTopUpLitres, cost: careerCashSpend }
+      : null;
+  const cashTopUpFraction =
+    cashTopUp && tankCapacityL > 0 ? cashTopUp.litres / tankCapacityL : 0;
   // Pressing Refuel now stages the pump cutscene; the wallet debit and the
-  // fill land when the scene reports the nozzle is in (its `pump` event).
+  // fill land when the scene reports the nozzle is in (its `pump` event) — and
+  // the fraction staged here is what that step pours and bills for, so the two
+  // offers need no second channel to tell them apart.
   // useCallback (rather than a plain closure) so the Enter-key effect below
   // isn't forced to resubscribe on every fuel-gauge tick.
   const refuel = useCallback(() => {
     if (!canRefuel || cutscene || towing) return;
     beginCutscene("refuel", undefined, undefined, refuelFillFraction);
   }, [canRefuel, cutscene, towing, beginCutscene, refuelFillFraction]);
+  const topUpWithCash = useCallback(() => {
+    if (!cashTopUpFraction || cutscene || towing) return;
+    beginCutscene("refuel", undefined, undefined, cashTopUpFraction);
+  }, [cashTopUpFraction, cutscene, towing, beginCutscene]);
 
   // Measured to the bay the car has to be standing in, for the same reason the
   // fuel prompt measures to the pumps: the lane anchor is out on the road.
@@ -2334,10 +2393,6 @@ export default function SideSwapApp() {
     : activeRepairShop
       ? ("repair" as const)
       : null;
-  const promptTestId =
-    promptKind === "refuel" ? "refuel-button" : "repair-button";
-  const promptEnabled = promptKind === "refuel" ? canRefuel : canRepair;
-  const promptAct = promptKind === "refuel" ? refuel : repair;
   // "Top up" rather than "Refuel" whenever the money on hand stops short of a
   // full tank, so a gauge that comes back up short is what the button promised
   // rather than a surprise. The price shown is always what is about to be
@@ -2347,20 +2402,76 @@ export default function SideSwapApp() {
       ? `${activeGasStation?.label} · Tank full`
       : !canRefuel
         ? `${activeGasStation?.label} · No money for fuel`
-        : refuelLitres < litresNeeded
-          ? `Top up — ${formatMoney(refuelCost, driveCountry)}`
-          : `Refuel — ${formatMoney(refuelCost, driveCountry)}`;
-  const promptLabel =
-    promptKind === "refuel"
-      ? refuelLabel
-      : canRepair
-        ? `Repair — ${formatMoney(repairCost, driveCountry)}`
-        : `${activeRepairShop?.label} · Nothing to fix`;
+        : refuelCredit > 0
+          ? `Fill up — ${formatMoney(refuelCost, driveCountry)}`
+          : refuelLitres < litresNeeded
+            ? `Top up — ${formatMoney(refuelCost, driveCountry)}`
+            : `Refuel — ${formatMoney(refuelCost, driveCountry)}`;
+  /*
+   * The prompt is a list because career's pump can offer two ways to pay, and
+   * the choice between them is the point: borrowing is not free, it settles
+   * into a loan tonight. Everything else — free drive's pump, both repair
+   * cases — is a one-entry list and renders exactly as it did as one button.
+   *
+   * Enter always takes the FIRST entry, and the cash-only top-up is put first
+   * on purpose: a player who mashes Enter at a pump must not find they have
+   * quietly taken out a loan. Mashing it twice spends the cash and then borrows
+   * the rest, which is the same place the old single button landed — just
+   * arrived at deliberately.
+   */
+  const splitPrompt = promptKind === "refuel" && cashTopUp !== null;
+  const promptActions: readonly ServicePromptAction[] =
+    promptKind !== "refuel"
+      ? [
+          {
+            testId: "repair-button",
+            label: canRepair
+              ? `Repair — ${formatMoney(repairCost, driveCountry)}`
+              : `${activeRepairShop?.label} · Nothing to fix`,
+            hint: "ENTER",
+            tone: "primary",
+            enabled: canRepair,
+          },
+        ]
+      : cashTopUp
+        ? [
+            {
+              testId: "refuel-button",
+              label: `Top up — ${formatMoney(cashTopUp.cost, driveCountry)}`,
+              hint: "ENTER",
+              tone: "primary",
+              enabled: true,
+            },
+            {
+              testId: "refuel-credit-button",
+              label: `Fill up — ${formatMoney(refuelCost, driveCountry)}`,
+              note: `${formatMoney(refuelCredit, driveCountry)} on credit`,
+              hint: "B",
+              tone: "credit",
+              enabled: true,
+            },
+          ]
+        : [
+            {
+              testId: "refuel-button",
+              label: refuelLabel,
+              // With no cash at all the whole fill is borrowed, and saying so
+              // is the same honesty the two-offer case buys.
+              note: canRefuel && refuelCredit > 0 ? "on credit" : undefined,
+              hint: "ENTER",
+              tone: refuelCredit > 0 ? "credit" : "primary",
+              enabled: canRefuel,
+            },
+          ];
 
   // Enter mirrors whichever service prompt is showing, same as F/G mirror the
   // offer card — only live while the prompt itself is up, so it never fires a
-  // cutscene the player is stood too far away to see staged. Both actions
-  // already no-op when there is nothing to do.
+  // cutscene the player is stood too far away to see staged. B is career's
+  // borrow key, live only while there is something to borrow. Every action
+  // already no-ops when there is nothing to do.
+  const promptEnterAct =
+    promptKind !== "refuel" ? repair : cashTopUp ? topUpWithCash : refuel;
+  const promptBorrowAct = splitPrompt ? refuel : null;
   useEffect(() => {
     if (view !== "driving" || !promptKind) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -2373,12 +2484,15 @@ export default function SideSwapApp() {
       }
       if (event.code === "Enter" || event.code === "NumpadEnter") {
         event.preventDefault();
-        promptAct();
+        promptEnterAct();
+      } else if (promptBorrowAct && event.code === "KeyB") {
+        event.preventDefault();
+        promptBorrowAct();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [view, promptKind, promptAct]);
+  }, [view, promptKind, promptEnterAct, promptBorrowAct]);
 
   const gigTargetVenue = gig ? gigTarget(gig) : null;
   // Every marked place on this map — pumps, bays, diners, grocers, cameras —
@@ -3011,48 +3125,114 @@ export default function SideSwapApp() {
               zIndex: DRIVE_LAYER.action,
             }}
           >
-            <button
-              type="button"
-              data-testid={promptTestId}
-              onClick={promptAct}
-              disabled={!promptEnabled}
+            {/*
+              One pill when there is one way to pay, which is every case but a
+              career pump the day's cash cannot cover. Two segments share a
+              single dark shell rather than floating as two loose buttons: the
+              choice is between two prices for the same errand, and the shell is
+              what says so. The gold segment is the one that costs nothing but
+              money you have; the credit one is deliberately not gold.
+            */}
+            <div
               style={{
                 display: "flex",
-                alignItems: "center",
-                gap: "0.6rem",
-                padding: "0.65rem 1.3rem",
+                alignItems: "stretch",
+                gap: "0.25rem",
+                padding: splitPrompt ? "0.25rem" : 0,
                 borderRadius: "999px",
-                border: "none",
-                cursor: promptEnabled ? "pointer" : "not-allowed",
-                background: promptEnabled ? "#f2c658" : "rgba(60,64,70,0.85)",
-                color: promptEnabled ? "#1a1c1f" : "#f4f6f8",
-                font: "700 1rem/1 system-ui, sans-serif",
-                backdropFilter: "blur(10px)",
+                background: splitPrompt ? "rgba(18,20,23,0.78)" : "transparent",
+                border: splitPrompt
+                  ? "1px solid rgba(244,239,222,0.12)"
+                  : "none",
+                boxShadow: splitPrompt ? "0 10px 28px rgba(0,0,0,0.34)" : "none",
+                backdropFilter: splitPrompt ? "blur(10px)" : "none",
               }}
             >
-              <span>{promptLabel}</span>
-              {/* Only live while the action actually does something — same gate as the
-                  Enter-key listener above. Touch has no keyboard to hint at. */}
-              {!touchFirst && promptEnabled && (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    display: "grid",
-                    placeItems: "center",
-                    minWidth: "2.3rem",
-                    height: "1.35rem",
-                    padding: "0 0.35rem",
-                    borderRadius: 6,
-                    background: "rgba(26,28,31,0.18)",
-                    font: "800 0.68rem/1 system-ui, sans-serif",
-                    letterSpacing: "0.02em",
-                    color: "#1a1c1f",
-                  }}
-                >
-                  ENTER
-                </span>
-              )}
-            </button>
+              {promptActions.map((action, index) => {
+                const credit = action.tone === "credit";
+                return (
+                  <button
+                    key={action.testId}
+                    type="button"
+                    data-testid={action.testId}
+                    // Entry 0 is always the Enter action and entry 1, when there
+                    // is one, is always the borrow — the same two values the key
+                    // handler above binds, so a click and a keypress can never
+                    // drift apart.
+                    onClick={index === 0 ? promptEnterAct : refuel}
+                    disabled={!action.enabled}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.6rem",
+                      padding: "0.65rem 1.3rem",
+                      borderRadius: "999px",
+                      // The credit offer is tinted and outlined in the same
+                      // coral its "on credit" note is written in. Left as a
+                      // plain dark fill it was a near match for the disabled
+                      // grey, so the one offer a broke driver *can* take read
+                      // as the one thing they could not.
+                      border:
+                        action.enabled && credit
+                          ? `1px solid ${HUD_CORAL}66`
+                          : "1px solid transparent",
+                      cursor: action.enabled ? "pointer" : "not-allowed",
+                      background: !action.enabled
+                        ? "rgba(60,64,70,0.85)"
+                        : credit
+                          ? `${HUD_CORAL}24`
+                          : "#f2c658",
+                      color: !action.enabled
+                        ? "#f4f6f8"
+                        : credit
+                          ? "#f7e2dc"
+                          : "#1a1c1f",
+                      font: "700 1rem/1 system-ui, sans-serif",
+                      backdropFilter: splitPrompt ? "none" : "blur(10px)",
+                    }}
+                  >
+                    <span>{action.label}</span>
+                    {/* The borrowed part, set apart from the price so the debt
+                        is read rather than skimmed past. */}
+                    {action.note && (
+                      <span
+                        style={{
+                          font: "700 0.78rem/1 system-ui, sans-serif",
+                          letterSpacing: "0.01em",
+                          color: action.enabled ? HUD_CORAL : "#f4f6f8",
+                          opacity: action.enabled ? 1 : 0.75,
+                        }}
+                      >
+                        {action.note}
+                      </span>
+                    )}
+                    {/* Only live while the action actually does something — same gate as the
+                        Enter-key listener above. Touch has no keyboard to hint at. */}
+                    {!touchFirst && action.enabled && (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          display: "grid",
+                          placeItems: "center",
+                          minWidth: action.hint === "ENTER" ? "2.3rem" : "1.5rem",
+                          height: "1.35rem",
+                          padding: "0 0.35rem",
+                          borderRadius: 6,
+                          background: credit
+                            ? "rgba(12,13,15,0.34)"
+                            : "rgba(26,28,31,0.18)",
+                          font: "800 0.68rem/1 system-ui, sans-serif",
+                          letterSpacing: "0.02em",
+                          color: credit ? "#f4efde" : "#1a1c1f",
+                        }}
+                      >
+                        {action.hint}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
         {/*
