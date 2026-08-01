@@ -3366,7 +3366,12 @@ const STAGED_BLOCKER_TAGS: ReadonlySet<StaticObstacleTag> = new Set([
   "venue",
 ]);
 
-function stagedBlockersOf(
+/** How far past a roof's edge a scene still counts as under it — see
+ * `coverOverScene`. Roughly the walk between a car and the pump it is drawn up
+ * at, which is the span such a scene straddles the edge by. */
+const COVER_REACH_M = 3;
+
+export function stagedBlockersOf(
   obstacles: readonly StaticObstacle[],
 ): readonly StagedBlocker[] {
   const blockers: StagedBlocker[] = [];
@@ -7315,6 +7320,7 @@ class BabylonGameSession {
     // camera happened to be standing on. Both ends of the action have to stay
     // visible: framing that clears the car and hides the pump is the wrong side
     // to film a refuel from. See `chooseStagedShot`.
+    const subjects = [{ x: stage.x, z: stage.z }, focus];
     const shot =
       repairShot ??
       chooseStagedShot(
@@ -7323,9 +7329,9 @@ class BabylonGameSession {
         radius,
         cameraY,
         { x: perpX, z: perpZ },
-        [{ x: stage.x, z: stage.z }, focus],
+        subjects,
         this.stagedBlockers,
-        this.coverOverScene(midX, midZ),
+        this.coverOverScene(subjects),
       );
 
     const riderWasHidden = request.kind === "board" && this.riderNode !== null;
@@ -7718,30 +7724,48 @@ class BabylonGameSession {
   }
 
   /**
-   * The roof over a scene playing at (x, z), if it is playing under one.
+   * The roof over a staged scene, if any part of what it films is under one.
    *
    * Only gas station canopies exist to find today — they are the one thing the
    * game builds that a camera has to duck and a car drives straight under, so
    * they are the one thing the collider set deliberately does not describe. A
-   * scene anywhere else gets null and is framed exactly as it always was.
+   * scene with nothing overhead gets null and is framed exactly as it was.
    *
-   * Matched against the canopy's own footprint rather than the pump reach the
-   * refuel prompt uses: a traffic stop can end up on a forecourt too, and it is
-   * the roof overhead that decides the shot, not what the scene is about.
+   * Tests every subject rather than the scene's midpoint, and allows them a
+   * reach past the edge. The station's canopy is 7.2m across and sits off
+   * centre over its two pump rows — the outer row has only 0.6m of overhang
+   * beyond it, and the driver fills from a stand point 1.1m further out again.
+   * So a scene at that row straddles the edge: nothing about it is "under" the
+   * slab by a strict test, and the slab is still across the top of the shot.
+   * The margin is about the length of the walk between a car and the pump it is
+   * drawn up at, which is the span such a scene occupies either side of it.
+   *
+   * Only the *lookup* is generous. The rect handed on is the true one, so
+   * `chooseStagedShot` still rejects only the azimuths genuinely beneath it.
+   *
+   * Matched on footprint rather than on the pump reach the refuel prompt uses:
+   * a traffic stop can end up on a forecourt too, and what decides the shot is
+   * the roof overhead, not what the scene happens to be about.
    */
-  private coverOverScene(x: number, z: number): StagedCover | null {
+  private coverOverScene(
+    subjects: readonly { x: number; z: number }[],
+  ): StagedCover | null {
     const mapPack = this.options.mapPack;
     if (!mapPack) return null;
     for (const service of gasStationsOf(mapPack.geometry.servicePoints)) {
       const canopy = gasStationCanopyWorld(mapPack.laneGraph.lanes, service);
       if (!canopy) continue;
-      const dx = x - canopy.x;
-      const dz = z - canopy.z;
-      if (
-        Math.abs(dx * canopy.ux + dz * canopy.uz) <= canopy.halfU &&
-        Math.abs(dx * canopy.uz - dz * canopy.ux) <= canopy.halfV
-      ) {
-        return canopy;
+      for (const subject of subjects) {
+        const dx = subject.x - canopy.x;
+        const dz = subject.z - canopy.z;
+        if (
+          Math.abs(dx * canopy.ux + dz * canopy.uz) <=
+            canopy.halfU + COVER_REACH_M &&
+          Math.abs(dx * canopy.uz - dz * canopy.ux) <=
+            canopy.halfV + COVER_REACH_M
+        ) {
+          return canopy;
+        }
       }
     }
     return null;

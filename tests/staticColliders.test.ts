@@ -14,6 +14,7 @@ import {
   facadeGridCells,
   isInsideKeepOut,
   keptStreetWallBuildings,
+  stagedBlockersOf,
 } from "../app/game/GameCanvas";
 import {
   buildingPlacementConfig,
@@ -40,7 +41,11 @@ import {
   resolveServicePointLot,
   SERVICE_LOT_HALF_M,
 } from "../app/game/servicePoints";
-import { repairCameraPosition } from "../app/game/cutsceneScript";
+import {
+  chooseStagedShot,
+  repairCameraPosition,
+  type StagedBlocker,
+} from "../app/game/cutsceneScript";
 import {
   REPAIR_SHOP_BAY_CLEAR_HEIGHT_M,
   REPAIR_SHOP_BACK_INNER_X,
@@ -121,6 +126,27 @@ const clearanceToNearestObstacle = (
     }
   }
   return { distance: best, id: bestId };
+};
+
+/** Segment-vs-OBB by sampling: slow, but obviously right, which is the point
+ * of a test double for the routine under test. */
+const segmentCrossesBox = (
+  from: { x: number; z: number },
+  to: { x: number; z: number },
+  box: StagedBlocker,
+): boolean => {
+  for (let step = 0; step <= 200; step += 1) {
+    const t = step / 200;
+    const dx = from.x + (to.x - from.x) * t - box.x;
+    const dz = from.z + (to.z - from.z) * t - box.z;
+    if (
+      Math.abs(dx * box.ux + dz * box.uz) <= box.halfU &&
+      Math.abs(dx * box.uz - dz * box.ux) <= box.halfV
+    ) {
+      return true;
+    }
+  }
+  return false;
 };
 
 describe("static obstacle build", () => {
@@ -521,6 +547,63 @@ describe("the drivable world stays open", () => {
         expect(canopy.undersideY).toBeGreaterThan(3);
       }
     }
+  });
+
+  it("leaves a staged shot alone unless something is actually in the way", () => {
+    // `chooseStagedShot` now runs for every scene that takes the generic
+    // framing, not just the ones on a forecourt — so the thing worth pinning is
+    // that it is inert. Walk real kerbside poses on every map, stage a
+    // car-and-actor pair at each, and require the solve to return the azimuth
+    // the stager asked for whenever that azimuth's own sightlines are clear.
+    // Anything else and this would be quietly re-framing scenes nobody
+    // reported a problem with.
+    let clear = 0;
+    let moved = 0;
+    for (const world of driveWorlds) {
+      const blockers = stagedBlockersOf(world.obstacles);
+      for (const lane of world.lanes) {
+        for (const point of lane.points.slice(0, 6)) {
+          // The actor stands off the car's side, as every generic scene has it.
+          const focus = { x: point.x + 3, z: point.z };
+          const midX = (point.x + focus.x) / 2;
+          const midZ = (point.z + focus.z) / 2;
+          const span = 3;
+          const radius = Math.max(9, span * 0.85);
+          const preferred = { x: 0, z: 1 };
+          const wanted = {
+            x: midX + preferred.x * radius,
+            z: midZ + preferred.z * radius,
+          };
+          const subjects = [{ x: point.x, z: point.z }, focus];
+          const blocked = blockers.some((box) =>
+            subjects.some((subject) =>
+              segmentCrossesBox(wanted, subject, box),
+            ),
+          );
+          const shot = chooseStagedShot(
+            midX,
+            midZ,
+            radius,
+            4.95,
+            preferred,
+            subjects,
+            blockers,
+            null,
+          );
+          if (blocked) {
+            moved += 1;
+            continue;
+          }
+          clear += 1;
+          expect(shot.x).toBeCloseTo(wanted.x, 6);
+          expect(shot.z).toBeCloseTo(wanted.z, 6);
+          expect(shot.y).toBe(4.95);
+        }
+      }
+    }
+    // Both arms have to be exercised or the assertion above proves nothing.
+    expect(clear).toBeGreaterThan(50);
+    expect(moved).toBeGreaterThan(0);
   });
 
   it("never stands a street-wall building inside a service lot", () => {
