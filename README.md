@@ -14,7 +14,9 @@ The ⛶ control goes fullscreen, which is worth it — mobile browsers only hide
 
 **Career** is the campaign. You start in New York on the local equivalent of $20, owning nothing but a bicycle, and rent something better each morning — the garage opens on the motorbike, the cheapest ride that actually earns — paying it back over a ~6-minute working day: 25% platform commission, a daily fee, and a loan waiting if you end a day short. Pull into a pump without the cash for a tank and you pick your poison: top up with what the day has made so far, or press **B** to fill up and carry the rest to the night's reckoning. Save enough and you can buy a vehicle outright — any of them, as many as you can afford — or buy a plane ticket and start again from nothing in Tokyo, then Cairo, then London.
 
-Money and vehicles belong to the city you earned them in. Flying on means a fresh balance in the local currency and none of the fleet you built, but nothing is lost: you can fly back any time and pick that city up exactly where you left it. Going bankrupt costs you that city — its cash, its debts and its fleet — and nothing else. Owning every vehicle in every city is how you finish the game.
+Your customers are rating you the whole time, on how fast the job was and — if they were in the back — how you drove. You never see it while you are out there; you read it on your career page once the day is done. Let it slide far enough and the work dries up, the fares thin out, and eventually the platform stops calling.
+
+Money, vehicles and your rating belong to the city you earned them in. Flying on means a fresh balance in the local currency and none of the fleet you built, but nothing is lost: you can fly back any time and pick that city up exactly where you left it. Losing a city — to the bank or to your rating — costs you its cash, its debts and its fleet, and nothing else. Owning every vehicle in every city is how you finish the game.
 
 ## Taking work
 

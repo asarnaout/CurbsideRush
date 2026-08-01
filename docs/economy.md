@@ -51,7 +51,7 @@ extra `fine` is patrol-gated, so this needed no simulation change.
 
 A second mode beside free drive: a **ladder of cities**, prepaid vehicle rental,
 a ~6-minute sim-clock day, 25% commission + a flat platform fee, shortfall→3-day
-loan at +15%, one FINAL NOTICE.
+loan at +15%, one FINAL NOTICE, and a **customer rating** that can end a run.
 
 **`CAREER_CITIES` is the single knob that defines the route** — start city,
 unlock order and ticket destinations all derive from it. Today:
@@ -63,19 +63,18 @@ gigs.ts-style: vehicle catalog (physics / fuel / fares / allowed gig kinds),
 `settleDay`, seeds, checksum codec. **Tune numbers there, nowhere else.**
 
 `settleDay` order: recap → platform fee → ceil-per-remaining-day installment →
-shortfall→loan → bankruptcy gate. The final notice clears only on a fully clean
-settlement.
+shortfall→loan → bankruptcy gate; the final notice clears only on a clean one.
 
 `tests/careerBalance.test.ts` trips if rent + fee exceeds 4 median gig nets in any
-**ladder** city, or if a ticket stops being reachable in 3–20 days of driving.
-It is scoped to `CAREER_CITIES` rather than every destination because rent is
-only ever charged on the ladder; today the two sets coincide, so adding a
-free-drive-only city puts it outside this tripwire until you promote it.
+**ladder** city, or if a ticket stops being reachable in 3–20 days of driving. It
+is scoped to `CAREER_CITIES` because rent is only ever charged on the ladder; the
+two sets coincide today, so a free-drive-only city sits outside the tripwire until
+you promote it. It prices at full standing, which is what an unrated driver gets.
 
 ### Everything is per city, keyed by destination
 
-`CareerSliceV2.cities` holds cash, debt, day counter, fleet and stats. **Presence
-in that map *is* the unlock** — there is no second list.
+`CareerSliceV2.cities` holds cash, debt, day counter, fleet, stats and standing.
+**Presence in that map *is* the unlock** — there is no second list.
 
 `activeCity(slice)` returns the current one plus `destinationId`/`countryId` under
 the names the app already used, which is why the views stay props-pure; `withCity`
@@ -83,14 +82,36 @@ is the only way to edit one. Currency needs no special handling as a result: eve
 price goes through `formatMoney(amount, country)` with `country` derived from the
 active city, so Tokyo reads in yen throughout.
 
+### Standing: the second way to lose a city
+
+Career only. `gigRating` (in `dispatch.ts`, beside the tip, off the same seed and
+the same two measurements) scores every gig 1–5, bar the `RATING_SILENCE_CHANCE`
+who never rate. `settleRating` folds the day's in beside `settleDay` — money is
+not standing — and warns once before `applySettlement` wipes the city through the
+same `createCityState` bankruptcy uses. Unlike the loan's notice, any settlement
+back above the threshold clears the warning.
+
+- **The window rolls (`RATING_WINDOW`), it does not accumulate.** A lifetime
+  average freezes after ~100 gigs: the penalties stop answering to how the driver
+  drives and the ending becomes arithmetically unreachable.
+- **`RATING_END_THRESHOLD` is 1.5, not the 1.0 issue #221 asks for** — a literal
+  1.00 needs *every* gig in the window to be a flat single star. Relatedly,
+  nothing floors the speed term the way `RIDE_TIP_SLOW_FLOOR` does: a floor would
+  leave a delivery-only courier unable to reach the threshold at all.
+- **The standing is a morning snapshot** (`CareerRun.ratingStanding`), never read
+  live — work arriving faster mid-shift would tell the driver a customer had just
+  rated them. **The drive screen shows nothing about ratings**, and a `careerFlow`
+  test asserts that absence.
+
 ### Travel, bankruptcy and winning
 
 - **Travel is one-way by ticket, free thereafter.** `applyTicket` debits the
   departure city and opens the next on a fresh sheet; `travelTo` moves between
   cities already reached at no cost. Nothing crosses — money and vehicles stay
   where they were earned.
-- **Bankruptcy is local**: it resets that city (starting float, day 1, debts
-  cleared, **fleet repossessed**) and leaves the rest of the career standing. The
+- **Losing a city is local**, whether the bank calls it or the customers do: it
+  resets that city (starting float, day 1, debts cleared, standing cleared,
+  **fleet repossessed**) and leaves the rest of the career standing. The
   repossession is load-bearing — without it, going bust would be a strictly better
   exit from a bad loan than driving out of it. There is no terminal failure state.
 - **Winning is `careerWon`**: stand in the last ladder city having bought every
@@ -116,14 +137,6 @@ free-drive payout effect.
 `garageDefaultVehicle` depends on that ordering, not on price, because an owned
 vehicle rents at 0 yet is still the better ride).
 
-| id | model | rent (US) | top speed m/s |
-|---|---|---|---|
-| `bicycle` | composed rig | owned, 0 | 7.5 |
-| `motorbike` | composed rig | 10 | 28.4704 |
-| `compact-hatch` | `compact-hatch` | 16 | 26.4704 |
-| `delivery-van` | `delivery-van` | 26 | 23.4704 |
-| `sport-sedan` | `sport-sedan` | 38 | 31.4704 |
-
 **A fresh garage opens on the motorbike** (`DEFAULT_GARAGE_VEHICLE_ID`) — the
 cheapest ride that actually earns. `CAREER_STARTING_CASH_BY_COUNTRY` is held above
 its rent so that stands; the free bicycle is only the fallback.
@@ -135,19 +148,17 @@ deliberately pinned literals (they must not re-space around the player's vehicle
 
 Career top speeds are set *against* free drive's, not derived from it: the
 `BabylonGameSession` constructor spreads `vehiclePhysics` **after** the adapter's
-config, so the adapter's 31.29 m/s (70 mph) is simply overwritten. Every motorised
-career vehicle carries a +10 mph (4.4704 m/s) uplift over its original figure —
-which is why `compact-hatch` reads 26.4704 rather than the core's own default of
-22, and why the sports car (31.4704) is now a shade *faster* than free drive.
+config, so the adapter's figure is simply overwritten. Every motorised career
+vehicle carries a +10 mph uplift over its original, which is why the sports car
+is now a shade *faster* than free drive.
 
 **The catalog splits three ways visually**: three car models, plus the bicycle and
 motorbike as composed rigs (`model: null`). Both two-wheelers force third-person —
 there is no cockpit to sit in — take `buildBikeErrandScript` with their own
-`CutsceneBodyProfile` (`BIKE_CUTSCENE_BODY` / `MOTORBIKE_CUTSCENE_BODY`) instead of car doors,
-and hide the rider on the vehicle for the scene (`cutsceneBody`, `startCutscene`).
-Cars take a profile scaled from `VEHICLE_DIMENSIONS`, so a van's longer bumpers are
-skirted and its doors sit on its real flanks; free drive's own car — and any vehicle
-with no registered dimensions — falls through to `DEFAULT_CUTSCENE_BODY` unchanged.
+`CutsceneBodyProfile` instead of car doors, and hide the rider for the scene. Cars
+take a profile scaled from `VEHICLE_DIMENSIONS`, so a van's doors sit on its real
+flanks; anything with no registered dimensions falls through to
+`DEFAULT_CUTSCENE_BODY` unchanged.
 
 ## Damage, repair and towing
 
@@ -155,8 +166,8 @@ with no registered dimensions — falls through to `DEFAULT_CUTSCENE_BODY` uncha
 at `FULL_CONDITION_PCT` (100); it is **never persisted** — the bill is.
 
 `damageForCollision` reads the event's own evidence: walls and cars scale with
-impact speed (a 2 m/s scrape is free, a 15 m/s head-on takes ~40), pedestrians
-barely mark the car (their cost is the citation), props charge a flat rate by heft.
+impact speed, pedestrians barely mark the car (their cost is the citation), and
+props charge a flat rate by heft.
 
 Two ways to pay, both priced by `repairPrice` in `content.ts` (which is where the
 currencies live):
@@ -166,16 +177,15 @@ currencies live):
 - **Hit zero** — `beginTow` fires, the session resets, and the bill is the full
   100% at `ROADSIDE_PRICE_FACTOR` plus `ROADSIDE_CALLOUT_FEE_BY_COUNTRY`.
 
-`MIN_REPAIRABLE_DAMAGE_PCT` (5) is where no shop bothers lifting the bonnet —
-five points is about a dollar's work in every currency, which is what saves
-inventing a per-country minimum-bill table.
+`MIN_REPAIRABLE_DAMAGE_PCT` (5) is where no shop bothers lifting the bonnet: five
+points is about a dollar's work in every currency, which saves inventing a
+per-country minimum-bill table.
 
 ## Fuel: the two modes price it differently on purpose
 
 **Free drive sells what the wallet covers** — `fuelPurchase` in `content.ts` caps
 the litres at the money on hand, so short money buys a short fill rather than
-being refused outright (the prompt reads "Top up" instead of "Refuel", and the
-pump event pours exactly what was quoted).
+being refused outright.
 
 **Career does not come through that helper, and is never capped.** Its pump will
 always sell a whole tank whatever the day cash, pushing the day into the red for
@@ -193,31 +203,22 @@ with the rest borrowed.
   Pressing it twice spends the cash and then borrows, landing exactly where the
   old single button did — by two decisions rather than none.
 - **B is the borrow key**, live only while there is something to borrow.
-- **The offer withholds itself below `MIN_REFUEL_LITRES`**, so there is never a
-  choice between a loan and a thimbleful.
-- `ServicePromptAction` is presentation only. Its callbacks close over
-  `cutsceneRef` through `beginCutscene`, and the React Compiler treats any
-  property read on an array holding one — `.length` included — as a ref access
-  during render, which costs the whole component its memoization.
+- **The offer withholds itself below `MIN_REFUEL_LITRES`** (0.5) — below that the
+  tank is full enough or the money short enough that the prompt says so instead
+  of staging a cutscene, so there is never a choice between a loan and a thimbleful.
 
 **Which offer was taken rides on the cutscene request's `fuelFillFraction`**, not
 a second channel: the `pump` step pours and bills that fraction of the tank. Free
 drive alone re-prices at `pump` time, because a citation can still land mid-scene
 and its wallet, unlike career's day cash, must not go negative.
 
-`MIN_REFUEL_LITRES` (0.5) is the floor under all of it: below that the tank is
-full enough or the money short enough that the prompt says so instead of staging
-a cutscene.
-
 ## The save file
 
 `PROGRESS_STORAGE_KEY` is `sideswap:v2`. `progress.ts` owns loading, migration and
 every write path.
 
-`PlayerProgressV2` holds `walletByCountry`, `fuelByCountry`, `lifetimeEarnings`,
-`completedGigCount`, last country/destination, camera preference, accessibility,
-`career`, `lastCareerVehicleId` and `updatedAt`. Older keys (`sideswap:v1`,
-`sideswap:progress`, `sideswap:v0`) are migrated forward and removed.
+Older keys (`sideswap:v1`, `sideswap:progress`, `sideswap:v0`) are migrated
+forward and removed.
 
 **`migrateProgress` runs on save as well as load** and rebuilds from known keys
 only — a new field is stripped on the next write unless added there too.
@@ -229,10 +230,12 @@ re-verifies the FNV-1a checksum via `migrateProgress`, so any other mutation pat
 comes back `{state:"corrupt"}` on the next load — and that corrupt marker is
 itself persisted state.
 
-A blob with **no `version` decodes to `null`, not corrupt** — obsolete is not
-tampered with. Only *after* checksum verification, a pre-Cairo `won` slice with no
-Cairo ledger reopens as active and clears `victoryDay`; active legacy London stays
-reachable, but Cairo is created only by buying Tokyo's ticket.
+Anything whose `version` is not 2 decodes to **`null`, not corrupt** — obsolete is
+not tampered with. **That is why a new `CareerCityState` field must be optional
+rather than a version bump**, which would silently delete every career on disk;
+`stableStringify` skips undefined keys, so an older save still checksums to what
+it was stamped with. (One in-codec migration rides after checksum verification —
+see `parseCareerSlice` for the pre-Cairo winner.)
 
 Career money is day-local (`dayCash`/`dayLog` refs in `SideSwapApp`), integer-only,
 and **never touches** `walletByCountry`/`fuelByCountry`/`lifetimeEarnings`. Saves
