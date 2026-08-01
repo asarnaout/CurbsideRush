@@ -4,10 +4,14 @@ import {
   DESTINATION_PROFILES,
   FINE_BY_COUNTRY,
   FREE_DRIVES,
+  FUEL_PRICE_PER_LITRE_BY_COUNTRY,
   GIG_FARE_BY_COUNTRY,
   MAP_PACKS,
+  MIN_REFUEL_LITRES,
   PASSENGER_FARE_BY_COUNTRY,
   STARTING_WALLET_BY_COUNTRY,
+  TANK_CAPACITY_L,
+  fuelPurchase,
   getCountryProfile,
   formatMoney,
   getMapPack,
@@ -407,6 +411,80 @@ describe("SideSwap content", () => {
     expect(formatMoney(1000, getCountryProfile("eg"))).toBe("E£1,000.00");
     expect(formatMoney(20, getCountryProfile("us"))).toBe("$20.00");
     expect(formatMoney(1234567.5, getCountryProfile("us"))).toBe("$1,234,567.50");
+  });
+
+  describe("fuelPurchase", () => {
+    it("sells the whole fill when the wallet covers it", () => {
+      // 40 L x $0.40 = $16, and a fat wallet changes nothing about it.
+      expect(fuelPurchase("us", TANK_CAPACITY_L, 500)).toEqual({
+        litres: TANK_CAPACITY_L,
+        cost: 16,
+      });
+      expect(fuelPurchase("us", TANK_CAPACITY_L, 16)).toEqual({
+        litres: TANK_CAPACITY_L,
+        cost: 16,
+      });
+    });
+
+    it("sells the fraction a short wallet can pay for, at the same rate", () => {
+      // The issue's own example: $16 to fill, $4 in hand -> a quarter tank.
+      const short = fuelPurchase("us", TANK_CAPACITY_L, 4);
+      expect(short.cost).toBe(4);
+      expect(short.litres).toBe(TANK_CAPACITY_L / 4);
+      // Price per litre is untouched by how much you can afford — buying in
+      // dribs must never be cheaper or dearer than filling up.
+      expect(short.cost / short.litres).toBeCloseTo(
+        FUEL_PRICE_PER_LITRE_BY_COUNTRY.us,
+        10,
+      );
+    });
+
+    it("never bills more than the wallet holds, whatever the rounding", () => {
+      // A wallet carrying sub-minor-unit change is the case that can round the
+      // bill up past the balance; `debit` clamps at zero, so the overcharge
+      // would show up only as a price the player was quoted and never paid.
+      for (const wallet of [0.001, 0.014, 2.005, 7.999, 1234.567]) {
+        for (const country of COUNTRY_PROFILES) {
+          const { cost, litres } = fuelPurchase(
+            country.id,
+            TANK_CAPACITY_L,
+            wallet,
+          );
+          expect(cost, `${country.id} @ ${wallet}`).toBeLessThanOrEqual(wallet);
+          expect(litres, `${country.id} @ ${wallet}`).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it("sells nothing to an empty wallet or a full tank", () => {
+      expect(fuelPurchase("us", TANK_CAPACITY_L, 0)).toEqual({
+        litres: 0,
+        cost: 0,
+      });
+      expect(fuelPurchase("us", 0, 500)).toEqual({ litres: 0, cost: 0 });
+      // Negatives are clamped rather than trusted: fuel drain and the wallet
+      // are both floats, and a hair below zero must not turn into a credit.
+      expect(fuelPurchase("us", -5, -5)).toEqual({ litres: 0, cost: 0 });
+    });
+
+    it("leaves every currency a meaningful smallest useful sale", () => {
+      // The prompt refuses anything at or under MIN_REFUEL_LITRES, so in each
+      // country that floor has to be reachable from a plausible amount of
+      // pocket change rather than being priced out of existence.
+      for (const country of COUNTRY_PROFILES) {
+        const floorPrice =
+          MIN_REFUEL_LITRES * FUEL_PRICE_PER_LITRE_BY_COUNTRY[country.id];
+        expect(
+          floorPrice,
+          `${country.id} prices the smallest sale above a tenth of a tank`,
+        ).toBeLessThan(
+          (TANK_CAPACITY_L * FUEL_PRICE_PER_LITRE_BY_COUNTRY[country.id]) / 10,
+        );
+        expect(
+          fuelPurchase(country.id, TANK_CAPACITY_L, floorPrice).litres,
+        ).toBeCloseTo(MIN_REFUEL_LITRES, 10);
+      }
+    });
   });
 
   it("anchors every gas station to a real lane within its bounds", () => {

@@ -1716,8 +1716,12 @@ export interface CutsceneRequest {
   /** Stop id whose seed styles the passenger — the pickup, so the person who
    * gets out at the drop-off is the person who got in. */
   readonly actorSeedId?: string;
-  /** How empty the tank is (0..1), sizing the refuel fill window. */
-  readonly missingFuelFraction?: number;
+  /**
+   * How much of a tank is going in (0..1), sizing the refuel fill window.
+   * Career and the roadside rescue always pour what is missing; a free-drive
+   * wallet that cannot cover a whole tank pours less.
+   */
+  readonly fuelFillFraction?: number;
 }
 
 /** Structural lesson contract; existing LessonDefinition objects can be passed directly. */
@@ -7137,7 +7141,7 @@ class BabylonGameSession {
             car,
             this.options.steeringSide,
             pump,
-            request.missingFuelFraction ?? 1,
+            request.fuelFillFraction ?? 1,
             body,
           );
         }

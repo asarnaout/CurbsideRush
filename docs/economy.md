@@ -170,6 +170,24 @@ currencies live):
 five points is about a dollar's work in every currency, which is what saves
 inventing a per-country minimum-bill table.
 
+## Fuel: the two modes price it differently on purpose
+
+**Free drive sells what the wallet covers** — `fuelPurchase` in `content.ts` caps
+the litres at the money on hand, so short money buys a short fill rather than
+being refused outright (the prompt reads "Top up" instead of "Refuel", and the
+pump event pours exactly what was quoted).
+
+**Career does not come through that helper.** Its pump bills the whole missing
+tank whatever the day cash, and is allowed to push the day into the red, which is
+what the night's settlement and its loans exist to absorb. Capping it would leave
+a driver already in the red unable to buy fuel at all while the far dearer
+roadside rescue stayed free — the same backwardness `repairPrice` avoids by never
+gating the shop.
+
+`MIN_REFUEL_LITRES` (0.5) is the floor under both: below it the tank is full
+enough or the wallet empty enough that the prompt says so instead of staging a
+cutscene.
+
 ## The save file
 
 `PROGRESS_STORAGE_KEY` is `sideswap:v2`. `progress.ts` owns loading, migration and

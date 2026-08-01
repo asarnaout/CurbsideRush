@@ -21,11 +21,13 @@ import {
   FUEL_CONSUMPTION_L_PER_M,
   FUEL_PRICE_PER_LITRE_BY_COUNTRY,
   GIG_FARE_BY_COUNTRY,
+  MIN_REFUEL_LITRES,
   PASSENGER_FARE_BY_COUNTRY,
   TANK_CAPACITY_L,
   formatDistance,
   formatDistanceParts,
   formatMoney,
+  fuelPurchase,
   getCountryProfile,
   getDestinationProfile,
   getFreeDrive,
@@ -851,7 +853,7 @@ export default function SideSwapApp() {
       kind: CutsceneRequest["kind"],
       venueId?: string,
       actorSeedId?: string,
-      missingFuelFraction?: number,
+      fuelFillFraction?: number,
     ) => {
       if (cutsceneRef.current || towingRef.current) return;
       cutsceneNonceRef.current += 1;
@@ -860,7 +862,7 @@ export default function SideSwapApp() {
         kind,
         venueId,
         actorSeedId,
-        missingFuelFraction,
+        fuelFillFraction,
       };
       cutsceneRef.current = request;
       setCutscene(request);
@@ -1522,22 +1524,29 @@ export default function SideSwapApp() {
             setDriveFuel(run.vehicle.tankL);
             return;
           }
-          const litres = Math.max(0, TANK_CAPACITY_L - driveFuel);
-          const cost =
-            Math.round(
-              litres * FUEL_PRICE_PER_LITRE_BY_COUNTRY[driveCountry.id] * 100,
-            ) / 100;
-          const refueled = setFuel(
-            debit(progress, driveCountry.id, cost),
+          // Free drive pours only what the wallet covers, so an empty-enough
+          // wallet buys a part tank instead of nothing at all. Re-priced here
+          // against the wallet as it stands rather than trusting the figure the
+          // prompt quoted: a citation can still land mid-scene (a pedestrian
+          // walking into a parked car is not gated on the cutscene), and this
+          // way that re-prices the fill instead of overdrawing the wallet.
+          const purchased = fuelPurchase(
             driveCountry.id,
-            TANK_CAPACITY_L,
+            Math.max(0, TANK_CAPACITY_L - driveFuel),
+            progress.walletByCountry[driveCountry.id],
+          );
+          const filled = driveFuel + purchased.litres;
+          const refueled = setFuel(
+            debit(progress, driveCountry.id, purchased.cost),
+            driveCountry.id,
+            filled,
           );
           setProgress(refueled);
           saveProgress(refueled);
           setFuelFillMs(
             typeof evidence.durationMs === "number" ? evidence.durationMs : 0,
           );
-          setDriveFuel(TANK_CAPACITY_L);
+          setDriveFuel(filled);
           return;
         }
         if (evidence.phase === "done") {
@@ -2256,31 +2265,37 @@ export default function SideSwapApp() {
         ) ?? null
       : null;
   const litresNeeded = Math.max(0, tankCapacityL - driveFuel);
+  // Free drive sells what the wallet covers rather than refusing the sale, so a
+  // driver who cannot afford a whole tank still gets the fraction they paid for
+  // (#259). Career keeps billing the whole tank on credit — see `fuelPurchase`
+  // for why the two modes part company here.
+  const { litres: affordableLitres, cost: affordableCost } = fuelPurchase(
+    driveCountry.id,
+    litresNeeded,
+    walletHere,
+  );
+  const refuelLitres = careerRun ? litresNeeded : affordableLitres;
   const refuelCost = careerRun
     ? Math.round(
         litresNeeded *
           FUEL_PRICE_PER_LITRE_BY_COUNTRY[driveCountry.id] *
           (careerVehicle?.fuelPriceFactor ?? 1),
       )
-    : Math.round(
-        litresNeeded * FUEL_PRICE_PER_LITRE_BY_COUNTRY[driveCountry.id] * 100,
-      ) / 100;
-  const canRefuel = careerRun
-    ? litresNeeded > 0.5
-    : litresNeeded > 0.5 && walletHere >= refuelCost;
+    : affordableCost;
+  // One rule covers both modes: there has to be something worth pouring. In
+  // career `refuelLitres` *is* `litresNeeded`, so this stays the tank-full
+  // check it has always been; in free drive it also catches an empty wallet.
+  const canRefuel = refuelLitres > MIN_REFUEL_LITRES;
+  const refuelFillFraction =
+    tankCapacityL > 0 ? refuelLitres / tankCapacityL : 0;
   // Pressing Refuel now stages the pump cutscene; the wallet debit and the
   // fill land when the scene reports the nozzle is in (its `pump` event).
   // useCallback (rather than a plain closure) so the Enter-key effect below
   // isn't forced to resubscribe on every fuel-gauge tick.
   const refuel = useCallback(() => {
     if (!canRefuel || cutscene || towing) return;
-    beginCutscene(
-      "refuel",
-      undefined,
-      undefined,
-      tankCapacityL > 0 ? litresNeeded / tankCapacityL : 0,
-    );
-  }, [canRefuel, cutscene, towing, beginCutscene, tankCapacityL, litresNeeded]);
+    beginCutscene("refuel", undefined, undefined, refuelFillFraction);
+  }, [canRefuel, cutscene, towing, beginCutscene, refuelFillFraction]);
 
   // Measured to the bay the car has to be standing in, for the same reason the
   // fuel prompt measures to the pumps: the lane anchor is out on the road.
@@ -2323,13 +2338,21 @@ export default function SideSwapApp() {
     promptKind === "refuel" ? "refuel-button" : "repair-button";
   const promptEnabled = promptKind === "refuel" ? canRefuel : canRepair;
   const promptAct = promptKind === "refuel" ? refuel : repair;
+  // "Top up" rather than "Refuel" whenever the money on hand stops short of a
+  // full tank, so a gauge that comes back up short is what the button promised
+  // rather than a surprise. The price shown is always what is about to be
+  // charged — which, on a short wallet, is the whole wallet.
+  const refuelLabel =
+    litresNeeded <= MIN_REFUEL_LITRES
+      ? `${activeGasStation?.label} · Tank full`
+      : !canRefuel
+        ? `${activeGasStation?.label} · No money for fuel`
+        : refuelLitres < litresNeeded
+          ? `Top up — ${formatMoney(refuelCost, driveCountry)}`
+          : `Refuel — ${formatMoney(refuelCost, driveCountry)}`;
   const promptLabel =
     promptKind === "refuel"
-      ? litresNeeded <= 0.5
-        ? `${activeGasStation?.label} · Tank full`
-        : canRefuel
-          ? `Refuel — ${formatMoney(refuelCost, driveCountry)}`
-          : `Need ${formatMoney(refuelCost, driveCountry)} to fill up`
+      ? refuelLabel
       : canRepair
         ? `Repair — ${formatMoney(repairCost, driveCountry)}`
         : `${activeRepairShop?.label} · Nothing to fix`;
@@ -2455,6 +2478,7 @@ export default function SideSwapApp() {
       id: "fuel",
       icon: FUEL_PUMP_ICON,
       label: "Fuel",
+      testId: "fuel-gauge",
       value: driveFuel <= 0 ? "EMPTY" : `${Math.round(fuelFraction * 100)}%`,
       fill: fuelFraction,
       fillColor:

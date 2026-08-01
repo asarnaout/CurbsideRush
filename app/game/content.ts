@@ -1917,6 +1917,49 @@ export const FUEL_PRICE_PER_LITRE_BY_COUNTRY: Readonly<Record<CountryId, number>
 };
 
 /**
+ * Below this the pump has nothing worth selling — either the tank is already
+ * near enough full or the wallet is near enough empty — and the prompt says so
+ * rather than offering a fill. Half a litre is ~250 m of free-drive range, so
+ * it is not worth a cutscene either way.
+ */
+export const MIN_REFUEL_LITRES = 0.5;
+
+/**
+ * What a free-drive wallet actually buys at the pump: litres poured and price
+ * paid, at the country's flat rate per litre.
+ *
+ * Short money buys a short fill. The pump used to refuse the sale outright
+ * unless the wallet covered the whole missing tank, which stranded a driver who
+ * had *some* money and no other way to earn it back (#259); a quarter of the
+ * price now pours a quarter of the fuel.
+ *
+ * **Career deliberately does not price through here.** Its pump is ungated and
+ * its charge is allowed to push the day into the red, which is exactly what the
+ * night's settlement and its loans exist to absorb — capping it at day cash
+ * would leave a driver already in the red no way to buy fuel at all, while the
+ * far more expensive roadside rescue stayed free. Same backwardness `repairPrice`
+ * avoids by never gating the shop.
+ *
+ * `cost` is clamped to the wallet as well as derived from it: rounding to minor
+ * units must never bill a fraction more than the player is holding.
+ */
+export function fuelPurchase(
+  countryId: CountryId,
+  litresWanted: number,
+  wallet: number,
+): { readonly litres: number; readonly cost: number } {
+  const pricePerLitre = FUEL_PRICE_PER_LITRE_BY_COUNTRY[countryId];
+  const wanted = Math.max(0, litresWanted);
+  const budget = Math.max(0, wallet);
+  const litres =
+    pricePerLitre > 0 ? Math.min(wanted, budget / pricePerLitre) : wanted;
+  return {
+    litres,
+    cost: Math.min(budget, Math.round(litres * pricePerLitre * 100) / 100),
+  };
+}
+
+/**
  * Delivery reward per country: base fare plus a per-metre rate over the pickup →
  * drop-off distance, in the local currency.
  */
