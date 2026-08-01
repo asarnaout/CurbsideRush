@@ -15,14 +15,14 @@ mirror one directed lane onto each side of the surface centreline.
 Also authored: `RoadSurface.sidewalkWidthM` overrides the map default per road;
 `ProceduralBlock.headingDeg` rotates its façade slots, exclusions and OBB
 collider together; each `WaterBody` is a visual polygon whose shoreline opens
-only for its explicit `bridgePortalSurfaceIds`, with paired physical parapets
-derived over those spans. **`ProceduralLandmark.color` does nothing on a
-`kind: "park"`** — every park shares one per-map grass material and nothing
-warns — and anything laid inside a park must fit the ~23 mm between the lawn
-(`PARK_LAWN_Y`, 0.02) and the shoulder junction fill at 0.0435, because parks
-sit under the roads on purpose. A park's dressing, wall and gates are all
-derived ([greenery.md](greenery.md)); `parkStyle` is the only park field worth
-authoring, and only to overrule what would be derived.
+only for its `bridgePortalSurfaceIds`, with paired parapets derived over those
+spans, and whose **`flowHeadingDeg` decides river or pond**.
+**`ProceduralLandmark.color` does nothing on a `kind: "park"`** — every park
+shares one per-map grass material and nothing warns — and anything laid in a
+park must fit the ~23 mm between the lawn (`PARK_LAWN_Y`, 0.02) and the
+shoulder junction fill at 0.0435: parks sit under the roads on purpose. A
+park's dressing, wall and gates are derived ([greenery.md](greenery.md));
+`parkStyle` is the only park field worth authoring, and only to overrule those.
 
 ## Everything else is derived at load time
 

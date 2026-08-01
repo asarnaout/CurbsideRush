@@ -495,6 +495,130 @@ export function buildAsphaltTextureSpec(seed: number): AsphaltTextureSpec {
 }
 
 /**
+ * One sine component of a river's surface.
+ *
+ * `cyclesU`/`cyclesV` count whole waves across the tile along world +x and +z,
+ * and they are **integers on purpose**: one tile repeats over a kilometre of
+ * river, so a fractional cycle count puts a hard seam on every tile edge. A
+ * component's direction is therefore quantised to what the tile can express,
+ * which is why the builder rounds a direction into a lattice pair instead of
+ * storing the angle it wanted.
+ */
+export interface RiverWave {
+  readonly cyclesU: number;
+  readonly cyclesV: number;
+  readonly amplitude: number;
+  /** Radians. Without it, components sharing a lattice pair stack into a band. */
+  readonly phase: number;
+}
+
+export interface RiverWaveFieldOptions {
+  readonly seed: number;
+  /** Flow direction in the lane-pose convention: 0 = +z (north), +π/2 = +x. */
+  readonly flowHeadingRad: number;
+  readonly count: number;
+  /** The wavelength band, as cycles across one tile. */
+  readonly minCycles: number;
+  readonly maxCycles: number;
+  /** How far a component may fan off its nominal axis, radians. */
+  readonly spreadRad?: number;
+  /** Share of components turned broadside — chop running across the current. */
+  readonly crossFraction?: number;
+}
+
+/**
+ * Deterministic wave components for one tile of river surface.
+ *
+ * **Crests run along the current**, so most wave vectors point across it. That
+ * one choice is the difference between water that reads as a river and water
+ * that reads as a lake: a current drags its silt and foam into long downstream
+ * streaks, and the eye reads the streaks, not the ripples. `crossFraction`
+ * turns a minority broadside so the result is chop rather than combing.
+ */
+export function buildRiverWaveField(
+  options: RiverWaveFieldOptions,
+): readonly RiverWave[] {
+  const random = seededUnit(options.seed);
+  const spread = options.spreadRad ?? 0.45;
+  const crossFraction = options.crossFraction ?? 0.3;
+  // Heading (0 = +z) into the tile's own axes, where u = world +x, v = world
+  // +z and an angle is measured from +u toward +v.
+  const alongFlow = Math.PI / 2 - options.flowHeadingRad;
+  const acrossFlow = alongFlow + Math.PI / 2;
+  const waves: RiverWave[] = [];
+  for (let index = 0; index < options.count; index += 1) {
+    // A broadside component's *wave vector* runs along the flow.
+    const broadside = random() < crossFraction;
+    const angle =
+      (broadside ? alongFlow : acrossFlow) + (random() - 0.5) * 2 * spread;
+    const cycles =
+      options.minCycles + random() * (options.maxCycles - options.minCycles);
+    const cyclesU = Math.round(Math.cos(angle) * cycles);
+    const cyclesV = Math.round(Math.sin(angle) * cycles);
+    // Rounded flat: a zero pair is a constant, which would only shift the tile.
+    if (cyclesU === 0 && cyclesV === 0) continue;
+    waves.push({
+      cyclesU,
+      cyclesV,
+      // Amplitude falls with frequency, as a water spectrum does rather than as
+      // white noise: long swells carry the shape, short chop only textures it.
+      amplitude: 1 / Math.hypot(cyclesU, cyclesV),
+      phase: random() * Math.PI * 2,
+    });
+  }
+  return waves;
+}
+
+/**
+ * Rasterises a wave field into a `size × size` height tile, normalised so the
+ * strongest peak reaches ±1. Seamless in both axes by construction — see
+ * `RiverWave` for why the cycle counts have to be integers.
+ *
+ * Expanded through the angle-sum identity so each component costs `4 · size`
+ * transcendentals instead of one `Math.sin` per pixel: at 512² with a dozen
+ * components that trades ~3M sines on the map-load path for ~4k.
+ */
+export function sampleRiverWaveField(
+  waves: readonly RiverWave[],
+  size: number,
+): Float32Array {
+  const field = new Float32Array(size * size);
+  if (!waves.length || size <= 0) return field;
+  const sinU = new Float64Array(size);
+  const cosU = new Float64Array(size);
+  const sinV = new Float64Array(size);
+  const cosV = new Float64Array(size);
+  for (const wave of waves) {
+    for (let u = 0; u < size; u += 1) {
+      const angle = (2 * Math.PI * wave.cyclesU * u) / size + wave.phase;
+      sinU[u] = Math.sin(angle);
+      cosU[u] = Math.cos(angle);
+    }
+    for (let v = 0; v < size; v += 1) {
+      const angle = (2 * Math.PI * wave.cyclesV * v) / size;
+      sinV[v] = Math.sin(angle);
+      cosV[v] = Math.cos(angle);
+    }
+    for (let v = 0; v < size; v += 1) {
+      const row = v * size;
+      const sinRow = sinV[v];
+      const cosRow = cosV[v];
+      for (let u = 0; u < size; u += 1) {
+        // sin(a + b) = sin a cos b + cos a sin b
+        field[row + u] +=
+          wave.amplitude * (sinU[u] * cosRow + cosU[u] * sinRow);
+      }
+    }
+  }
+  let peak = 0;
+  for (const value of field) peak = Math.max(peak, Math.abs(value));
+  if (peak > 0) {
+    for (let index = 0; index < field.length; index += 1) field[index] /= peak;
+  }
+  return field;
+}
+
+/**
  * One painted blade. `tone` indexes the painter's four-entry ramp (0 lightest
  * → 3 darkest), and the painter draws the top `tipFraction` of the stroke one
  * ramp step lighter, so every blade carries a light-from-above gradient. That

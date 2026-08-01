@@ -11,6 +11,7 @@ import {
   DirectionalLight,
   DynamicTexture,
   Engine,
+  FresnelParameters,
   Frustum,
   HemisphericLight,
   ImageProcessingConfiguration,
@@ -197,6 +198,7 @@ import {
   buildGrassTextureSpec,
   buildHorizonSilhouetteSpec,
   buildPlanarUVs,
+  buildRiverWaveField,
   distanceToPolylineM,
   generateRoadsidePropPlacements,
   hashStringToSeed,
@@ -206,12 +208,14 @@ import {
   resolveEffectiveFogRange,
   resolveMapVisualKey,
   resolveMapVisualPalette,
+  sampleRiverWaveField,
   seededUnit,
   skyGradientStops,
   type GrassBlade,
   type MapVisualPalette,
   type PropKindConfig,
   type PropPlacement,
+  type RiverWave,
 } from "./visuals";
 import {
   natureModelsForMap,
@@ -1802,10 +1806,18 @@ export interface GameCanvasWaterBody {
 }
 
 export interface WaterPolygonGeometry {
+  /** The deduplicated outline, in the order it was authored. */
   readonly polygon: readonly GameCanvasPoint[];
   readonly positions: readonly number[];
   readonly indices: readonly number[];
   readonly uvs: readonly number[];
+  /**
+   * Per vertex: 1 hard against the bank, 0 out in open water. Empty when the
+   * caller asked for no shore band, or when the outline was too tight to inset
+   * one into. The renderer turns it into vertex colours; keeping it a bare
+   * number here is what stops the geometry layer from having to know a colour.
+   */
+  readonly shoreFactors: readonly number[];
 }
 
 function polygonSignedArea(polygon: readonly GameCanvasPoint[]): number {
@@ -1832,34 +1844,26 @@ function pointInTriangle(
   return one >= -1e-7 && two >= -1e-7 && three >= -1e-7;
 }
 
-/**
- * Ear-clips an authored Nile outline into a flat, upward-facing mesh. The
- * polygons may be concave, so a centre fan would visibly bridge the riverbank.
- */
-export function buildWaterPolygonGeometry(
-  source: readonly GameCanvasPoint[],
-  y = 0.025,
-): WaterPolygonGeometry {
-  const polygon: GameCanvasPoint[] = [];
-  for (const point of source) {
-    const previous = polygon.at(-1);
-    if (!previous || Math.hypot(point.x - previous.x, point.z - previous.z) > 1e-6) {
-      polygon.push({ x: point.x, z: point.z });
-    }
-  }
-  if (
-    polygon.length > 2 &&
-    Math.hypot(
-      polygon[0].x - polygon.at(-1)!.x,
-      polygon[0].z - polygon.at(-1)!.z,
-    ) <= 1e-6
-  ) {
-    polygon.pop();
-  }
-  if (polygon.length < 3) {
-    return { polygon, positions: [], indices: [], uvs: [] };
-  }
+/** UV units per metre baked into the water tile's world-planar UVs. */
+export const WATER_UV_PER_M = 0.025;
 
+/**
+ * Ear-clips one closed outline into upward-facing triangles, as indices into
+ * `vertices` shifted by `offset`. Concave outlines are the whole reason this is
+ * not a centre fan — a fan across a river bend bridges straight over the bank.
+ *
+ * **The triangle winding is what lights the water.** It is one flat sheet with
+ * no relief for the eye to correct against, so its vertex normals come entirely
+ * from the winding — get it backwards and `ComputeNormals` hands every vertex a
+ * downward normal, the sun and the sky half of the hemispheric light both drop
+ * out, and the Nile renders as the near-black slick that shipped for months.
+ * Nothing culls it, so there is no missing-face symptom to notice; it just goes
+ * dark. `tests/cairoVisuals.test.ts` pins the normals themselves.
+ */
+function earClipPolygonIndices(
+  polygon: readonly GameCanvasPoint[],
+  offset = 0,
+): number[] {
   const remaining = polygon.map((_, index) => index);
   if (polygonSignedArea(polygon) < 0) remaining.reverse();
   const indices: number[] = [];
@@ -1885,9 +1889,11 @@ export function buildWaterPolygonGeometry(
           pointInTriangle(polygon[candidate], a, b, c),
       );
       if (containsVertex) continue;
-      // x/z counter-clockwise faces down in Babylon's x/y/z world, so reverse
-      // each accepted triangle to keep the visible face and normals upward.
-      indices.push(previous, next, current);
+      // Emit the ear in the order the clipper walked it. Babylon's face normal
+      // is `(p1 - p2) × (p3 - p2)`, whose y term is the *negation* of the x/z
+      // cross product, so it is this counter-clockwise winding that faces up
+      // and the reversed one — which is what shipped — that faces the riverbed.
+      indices.push(previous, current, next);
       remaining.splice(cursor, 1);
       clipped = true;
       break;
@@ -1895,22 +1901,169 @@ export function buildWaterPolygonGeometry(
     if (!clipped) break;
   }
   if (remaining.length === 3) {
-    indices.push(remaining[0], remaining[2], remaining[1]);
+    indices.push(remaining[0], remaining[1], remaining[2]);
   }
   if (indices.length !== (polygon.length - 2) * 3) {
     indices.length = 0;
-    const clockwise =
+    const counterClockwise =
       polygonSignedArea(polygon) > 0
         ? polygon.map((_, index) => index)
         : polygon.map((_, index) => index).reverse();
-    for (let index = 1; index < clockwise.length - 1; index += 1) {
-      indices.push(clockwise[0], clockwise[index + 1], clockwise[index]);
+    for (let index = 1; index < counterClockwise.length - 1; index += 1) {
+      indices.push(
+        counterClockwise[0],
+        counterClockwise[index],
+        counterClockwise[index + 1],
+      );
     }
   }
+  return offset ? indices.map((index) => index + offset) : indices;
+}
 
-  const positions = polygon.flatMap((point) => [point.x, y, point.z]);
-  const uvs = polygon.flatMap((point) => [point.x * 0.025, point.z * 0.025]);
-  return { polygon, positions, indices, uvs };
+/** A corner sharper than this would spike its inset vertex out into open water. */
+const WATER_INSET_MITER_LIMIT = 3;
+
+/**
+ * Walks a closed outline inward by `insetM`, mitered at the corners, or gives
+ * up and returns undefined.
+ *
+ * Giving up is the point: a mitered inset is only well behaved while the offset
+ * stays small against the local feature size, and there is no cheap general
+ * answer for the cases where it isn't (a spit narrower than the band, a hairpin
+ * corner) — it folds the outline inside out and the ring self-intersects. The
+ * checks below are all cheap consequences of that folding, and a caller that
+ * gets `undefined` simply goes without a shore band rather than rendering a
+ * knot in the river.
+ */
+function insetWaterPolygon(
+  polygon: readonly GameCanvasPoint[],
+  insetM: number,
+): GameCanvasPoint[] | undefined {
+  const area = polygonSignedArea(polygon);
+  if (!Number.isFinite(area) || area === 0) return undefined;
+  // Edge normals point into the water, whichever way the outline was authored.
+  const inward = area > 0 ? 1 : -1;
+  const normals = polygon.map((point, index) => {
+    const next = polygon[(index + 1) % polygon.length];
+    const length = Math.hypot(next.x - point.x, next.z - point.z);
+    if (length <= 1e-6) return undefined;
+    return {
+      x: (-(next.z - point.z) / length) * inward,
+      z: ((next.x - point.x) / length) * inward,
+    };
+  });
+  if (normals.some((normal) => !normal)) return undefined;
+
+  const inset: GameCanvasPoint[] = [];
+  for (let index = 0; index < polygon.length; index += 1) {
+    const before = normals[(index - 1 + polygon.length) % polygon.length]!;
+    const after = normals[index]!;
+    const miterX = before.x + after.x;
+    const miterZ = before.z + after.z;
+    const miterLength = Math.hypot(miterX, miterZ);
+    if (miterLength <= 1e-6) return undefined;
+    const unitX = miterX / miterLength;
+    const unitZ = miterZ / miterLength;
+    // 1 / cos(half the corner angle): how much further the corner has to move
+    // for both of its edges to end up `insetM` in.
+    const stretch = 1 / (unitX * after.x + unitZ * after.z);
+    if (!Number.isFinite(stretch) || stretch > WATER_INSET_MITER_LIMIT) {
+      return undefined;
+    }
+    inset.push({
+      x: polygon[index].x + unitX * insetM * stretch,
+      z: polygon[index].z + unitZ * insetM * stretch,
+    });
+  }
+
+  const insetArea = polygonSignedArea(inset);
+  // Same handedness, genuinely smaller, and not eaten alive by its own band.
+  if (Math.sign(insetArea) !== Math.sign(area)) return undefined;
+  const ratio = Math.abs(insetArea) / Math.abs(area);
+  if (ratio > 0.995 || ratio < 0.25) return undefined;
+  // Every edge must still run the way it used to. A reversed one is a fold,
+  // which the area test alone can miss when two folds cancel out.
+  for (let index = 0; index < polygon.length; index += 1) {
+    const next = (index + 1) % polygon.length;
+    const originalX = polygon[next].x - polygon[index].x;
+    const originalZ = polygon[next].z - polygon[index].z;
+    const insetX = inset[next].x - inset[index].x;
+    const insetZ = inset[next].z - inset[index].z;
+    if (originalX * insetX + originalZ * insetZ <= 0) return undefined;
+  }
+  return inset;
+}
+
+/**
+ * Builds the flat mesh for one authored water outline, optionally with a shore
+ * band: a `shoreBandM`-wide ring of extra triangles just inside the bank, whose
+ * vertices come back marked in `shoreFactors`.
+ *
+ * The ring exists because **every vertex of the bare outline is a bank vertex**,
+ * so there is nowhere to hang an edge-darkening gradient — the interior has no
+ * vertices at all. Inset one ring and the water gains an inner edge to fade to.
+ */
+export function buildWaterPolygonGeometry(
+  source: readonly GameCanvasPoint[],
+  y = 0.025,
+  shoreBandM = 0,
+): WaterPolygonGeometry {
+  const polygon: GameCanvasPoint[] = [];
+  for (const point of source) {
+    const previous = polygon.at(-1);
+    if (!previous || Math.hypot(point.x - previous.x, point.z - previous.z) > 1e-6) {
+      polygon.push({ x: point.x, z: point.z });
+    }
+  }
+  if (
+    polygon.length > 2 &&
+    Math.hypot(
+      polygon[0].x - polygon.at(-1)!.x,
+      polygon[0].z - polygon.at(-1)!.z,
+    ) <= 1e-6
+  ) {
+    polygon.pop();
+  }
+  if (polygon.length < 3) {
+    return { polygon, positions: [], indices: [], uvs: [], shoreFactors: [] };
+  }
+
+  const inset =
+    shoreBandM > 0 ? insetWaterPolygon(polygon, shoreBandM) : undefined;
+  const vertices = inset ? [...polygon, ...inset] : polygon;
+  const indices: number[] = [];
+  if (inset) {
+    // The ring, one quad per bank edge. Walking the outline in its own
+    // direction and closing back along the inset keeps each quad wound like
+    // the outline itself, so an anticlockwise outline needs no fix-up and a
+    // clockwise one takes the mirrored triangle pair.
+    const clockwise = polygonSignedArea(polygon) < 0;
+    for (let index = 0; index < polygon.length; index += 1) {
+      const next = (index + 1) % polygon.length;
+      const outerA = index;
+      const outerB = next;
+      const innerA = polygon.length + index;
+      const innerB = polygon.length + next;
+      if (clockwise) {
+        indices.push(outerA, innerB, outerB, outerA, innerA, innerB);
+      } else {
+        indices.push(outerA, outerB, innerB, outerA, innerB, innerA);
+      }
+    }
+  }
+  indices.push(
+    ...earClipPolygonIndices(inset ?? polygon, inset ? polygon.length : 0),
+  );
+
+  const positions = vertices.flatMap((point) => [point.x, y, point.z]);
+  const uvs = vertices.flatMap((point) => [
+    point.x * WATER_UV_PER_M,
+    point.z * WATER_UV_PER_M,
+  ]);
+  const shoreFactors = inset
+    ? vertices.map((_, index) => (index < polygon.length ? 1 : 0))
+    : [];
+  return { polygon, positions, indices, uvs, shoreFactors };
 }
 
 export interface WaterBoatPlacement {
@@ -4783,6 +4936,148 @@ function createAsphaltTexture(
 }
 
 /**
+ * Metres of river under one repeat of each tile. The surface tile carries the
+ * current banding and the ripple tile the chop, so they are deliberately an
+ * awkward ratio apart — matched tiles beat against each other into a visible
+ * grid the moment both start scrolling.
+ */
+const RIVER_SURFACE_TILE_M = 31;
+const RIVER_RIPPLE_TILE_M = 12;
+/**
+ * How fast each tile drifts downstream, m/s. Far under the Nile's real ~1 m/s:
+ * the tile slides as a whole rather than deforming, and anything near walking
+ * pace reads as a conveyor belt of water instead of a current.
+ */
+const RIVER_SURFACE_DRIFT_MPS = 0.22;
+const RIVER_RIPPLE_DRIFT_MPS = 0.4;
+/**
+ * The ripple tile also creeps sideways. Two tiles drifting on exactly parallel
+ * lines stay in lockstep forever, and the eye picks that out as a single
+ * sliding sheet; a slow shear is what makes the surface look alive.
+ */
+const RIVER_RIPPLE_SHEAR_MPS = 0.06;
+/**
+ * How much of the authored water colour the tile is actually painted in.
+ *
+ * Well under 1, and that is the whole trick to water that reads as a river
+ * instead of as a swimming pool: a sunlit horizontal plane here collects about
+ * 1.5× light before the grazing sheen is added on top, so a tile painted at
+ * face value comes back a good half-stop brighter than the sky it sits under.
+ * Real water is dark stuff whose brightness is nearly all borrowed.
+ *
+ * Split day/night for the same reason `makeInteriorMaterial` is: the two
+ * lighting rigs sit the better part of a stop apart (sun 1.3 against 0.6), and
+ * one gain either bleaches the Nile or sinks Central Park's lake.
+ */
+const RIVER_TILE_GAIN_DAY = 0.52;
+const RIVER_TILE_GAIN_NIGHT = 0.85;
+/** Trough tone, as a fraction of the tile's base. */
+const RIVER_TROUGH_GAIN = 0.62;
+/** Crest tone: the base carried this far toward a dimmed sky. */
+const RIVER_CREST_SKY_MIX = 0.44;
+/**
+ * How far the bank's own darkening reaches into the water, and what it
+ * multiplies the tile by where it meets the stone.
+ *
+ * Deliberately *not* the pale silt fringe a beach would get. Both cities' banks
+ * are walled — a corniche parapet, a park lake's kerb — and water that deep
+ * against a vertical face reads darker and a shade greener there, from the
+ * wall's shadow and its reflection. A bright foam line on a wall looks like
+ * surf on masonry.
+ */
+const RIVER_SHORE_BAND_M = 5.5;
+const RIVER_SHORE_TINT = { r: 0.62, g: 0.73, b: 0.68 };
+
+/**
+ * The river's diffuse tile: the wave field painted as a trough-to-crest ramp.
+ *
+ * The two halves of the ramp are deliberately asymmetric. Troughs spread into
+ * broad soft areas of the deep tone while crests stay thin and bright, because
+ * on real water the sky only reaches the eye off the top of a wave — a
+ * symmetric ramp paints a quilt of equal light and dark blobs, which reads as
+ * marble.
+ */
+function createRiverSurfaceTexture(
+  scene: Scene,
+  name: string,
+  waves: readonly RiverWave[],
+  tones: { readonly deep: Color3; readonly base: Color3; readonly crest: Color3 },
+  size: number,
+): DynamicTexture {
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  const field = sampleRiverWaveField(waves, size);
+  const image = context.createImageData(size, size);
+  const data = image.data;
+  for (let index = 0; index < field.length; index += 1) {
+    const height = field[index];
+    const toward = height >= 0 ? tones.crest : tones.deep;
+    const amount =
+      height >= 0 ? Math.pow(height, 1.7) : Math.pow(-height, 0.75);
+    const offset = index * 4;
+    data[offset] = (tones.base.r + (toward.r - tones.base.r) * amount) * 255;
+    data[offset + 1] =
+      (tones.base.g + (toward.g - tones.base.g) * amount) * 255;
+    data[offset + 2] =
+      (tones.base.b + (toward.b - tones.base.b) * amount) * 255;
+    data[offset + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
+ * The river's normal map, from the gradient of the same kind of wave field.
+ *
+ * The grass tile argues against normal-mapping flat ground, and it is right:
+ * under a fixed sun a static normal map on a plane reads as grain, not relief.
+ * Water is the exception precisely because this one *moves* — the highlights
+ * crawling across the surface are the whole point, and they are what carries
+ * the river at close range where the diffuse tile has gone soft.
+ */
+function createRiverRippleTexture(
+  scene: Scene,
+  name: string,
+  waves: readonly RiverWave[],
+  size: number,
+  steepness: number,
+): DynamicTexture {
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  const field = sampleRiverWaveField(waves, size);
+  const image = context.createImageData(size, size);
+  const data = image.data;
+  // Central differences, wrapped — the tile repeats, so its edges have real
+  // neighbours and clamping there would ring a seam into the highlights.
+  const gradient = (steepness * size) / 2;
+  for (let v = 0; v < size; v += 1) {
+    const row = v * size;
+    const rowUp = ((v + size - 1) % size) * size;
+    const rowDown = ((v + 1) % size) * size;
+    for (let u = 0; u < size; u += 1) {
+      const left = field[row + ((u + size - 1) % size)];
+      const right = field[row + ((u + 1) % size)];
+      const x = -(right - left) * gradient;
+      const y = -(field[rowDown + u] - field[rowUp + u]) * gradient;
+      const inverse = 1 / Math.hypot(x, y, 1);
+      const offset = (row + u) * 4;
+      data[offset] = (x * inverse * 0.5 + 0.5) * 255;
+      data[offset + 1] = (y * inverse * 0.5 + 0.5) * 255;
+      data[offset + 2] = (inverse * 0.5 + 0.5) * 255;
+      data[offset + 3] = 255;
+    }
+  }
+  context.putImageData(image, 0, 0);
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
  * The four-tone blade ramp, lightest first. `paintGrassBlades` draws a blade in
  * `ramp[tone]` and its tip in `ramp[tone - 1]`, so a tone-0 blade tips into
  * pure `grassAlt`. Derived rather than authored so a palette only has to supply
@@ -5466,6 +5761,16 @@ class BabylonGameSession {
   private readonly animatedWaterBoats: Array<{
     readonly root: TransformNode;
     readonly placement: WaterBoatPlacement;
+  }> = [];
+  /**
+   * River tiles that creep downstream, in texture repeats per second. The whole
+   * of the current is in here — the surface mesh never deforms — so a body with
+   * no entry is a pond, not a river.
+   */
+  private readonly driftingWaterTextures: Array<{
+    readonly texture: Texture;
+    readonly uPerSecond: number;
+    readonly vPerSecond: number;
   }> = [];
   private visualElapsedSeconds = 0;
   /** One source mesh batches every painted zebra stripe into one draw family. */
@@ -7440,7 +7745,7 @@ class BabylonGameSession {
 
     if (!this.paused) {
       this.visualElapsedSeconds += frameSeconds;
-      this.updateWaterBoatVisuals(this.visualElapsedSeconds);
+      this.updateWaterVisuals(this.visualElapsedSeconds);
     }
     const interpolation = this.paused ? 1 : this.accumulator / FIXED_STEP;
     if (!this.paused) this.advanceCutscene(frameSeconds);
@@ -13439,27 +13744,152 @@ class BabylonGameSession {
    * from map/body ids and never touch the traffic PRNG. The craft themselves
    * are glb instances (cairo-felucca / cairo-skiff), so like the vendor carts
    * they are deferred to buildInstancedBuildings once the models preload.
+   *
+   * A body authors one colour, which the minimap draws flat and this derives a
+   * whole surface from — trough, crest and sheen. Three colours per channel in
+   * `content.ts` would only let a map author disagree with its own minimap.
    */
   private buildWaterBodies(mapPack: GameCanvasMapPack, mapId: string) {
     const bodies = mapPack.geometry.waterBodies ?? [];
     if (!bodies.length) return;
     const scene = this.scene;
+    const palette = this.visualPalette;
+    // What the surface hands back at a graze: the zenith pulled most of the way
+    // to the horizon haze, which is the band of sky a driver's-eye view of a
+    // river actually reflects.
+    const skyTone = colorFromHex(
+      mixHexColors(palette.skyTop, palette.skyHorizon, 0.45),
+      new Color3(0.57, 0.71, 0.76),
+    );
+    const tileGain = palette.night
+      ? RIVER_TILE_GAIN_NIGHT
+      : RIVER_TILE_GAIN_DAY;
 
     for (const body of bodies) {
-      const geometry = buildWaterPolygonGeometry(body.polygon);
+      const geometry = buildWaterPolygonGeometry(
+        body.polygon,
+        undefined,
+        RIVER_SHORE_BAND_M,
+      );
       if (!geometry.positions.length || !geometry.indices.length) continue;
       const waterColor = colorFromHex(
         body.color,
         new Color3(0.13, 0.43, 0.55),
       );
-      const material = makeMaterial(
+      const seed = hashStringToSeed(`${mapId}-${body.id}-river`);
+      // `flowHeadingDeg` is what separates a river from a pond, and everything
+      // below forks on it: still water gets no dominant streak axis, nothing
+      // drifting and no chop — Central Park's lake must not run south, and a
+      // normal map that never moves is the static grain the grass tile warns
+      // about rather than a surface.
+      const flowHeadingRad =
+        body.flowHeadingDeg === undefined
+          ? undefined
+          : (body.flowHeadingDeg * Math.PI) / 180;
+      const baseTone = waterColor.scale(tileGain);
+      // The tile carries the colour, so the material's own diffuse is white.
+      const material = makeMaterial(scene, `water-${body.id}`, Color3.White());
+      const surface = createRiverSurfaceTexture(
         scene,
-        `water-${body.id}`,
-        waterColor,
-        waterColor.scale(0.12),
+        `water-${body.id}-surface`,
+        buildRiverWaveField({
+          seed,
+          flowHeadingRad: flowHeadingRad ?? 0,
+          count: 14,
+          minCycles: 1,
+          maxCycles: 5,
+          // Fanned to a full half-turn either side, which is isotropic: with
+          // no current there is nothing for the ripples to line up along.
+          spreadRad: flowHeadingRad === undefined ? Math.PI / 2 : 0.5,
+          crossFraction: flowHeadingRad === undefined ? 0.5 : 0.25,
+        }),
+        {
+          deep: baseTone.scale(RIVER_TROUGH_GAIN),
+          base: baseTone,
+          crest: Color3.Lerp(
+            baseTone,
+            skyTone.scale(tileGain),
+            RIVER_CREST_SKY_MIX,
+          ),
+        },
+        this.lowSpec ? 256 : 512,
       );
-      material.specularColor = new Color3(0.45, 0.56, 0.58);
-      material.specularPower = 80;
+      surface.uScale = 1 / (WATER_UV_PER_M * RIVER_SURFACE_TILE_M);
+      surface.vScale = surface.uScale;
+      // A river is seen almost entirely edge-on, which is the case trilinear
+      // filtering handles worst: without this the surface picks a mip for its
+      // *short* axis and a hundred metres of water shimmers.
+      surface.anisotropicFilteringLevel = 8;
+      material.diffuseTexture = surface;
+      if (flowHeadingRad !== undefined) {
+        const flowX = Math.sin(flowHeadingRad);
+        const flowZ = Math.cos(flowHeadingRad);
+        this.driftingWaterTextures.push({
+          texture: surface,
+          uPerSecond: (-flowX * RIVER_SURFACE_DRIFT_MPS) / RIVER_SURFACE_TILE_M,
+          vPerSecond: (-flowZ * RIVER_SURFACE_DRIFT_MPS) / RIVER_SURFACE_TILE_M,
+        });
+        // Fill cost, on a surface that can own most of the screen from the
+        // corniche: weak devices get the banding and the glint but no
+        // per-pixel chop. The drift stays, so the river still reads as moving.
+        if (!this.lowSpec) {
+          const ripples = createRiverRippleTexture(
+            scene,
+            `water-${body.id}-ripples`,
+            buildRiverWaveField({
+              seed: seed ^ 0x5eed,
+              flowHeadingRad,
+              count: 16,
+              minCycles: 3,
+              maxCycles: 13,
+              spreadRad: 0.7,
+              crossFraction: 0.4,
+            }),
+            256,
+            0.02,
+          );
+          ripples.uScale = 1 / (WATER_UV_PER_M * RIVER_RIPPLE_TILE_M);
+          ripples.vScale = ripples.uScale;
+          ripples.anisotropicFilteringLevel = 8;
+          material.bumpTexture = ripples;
+          this.driftingWaterTextures.push({
+            texture: ripples,
+            uPerSecond:
+              -(
+                flowX * RIVER_RIPPLE_DRIFT_MPS -
+                flowZ * RIVER_RIPPLE_SHEAR_MPS
+              ) / RIVER_RIPPLE_TILE_M,
+            vPerSecond:
+              -(
+                flowZ * RIVER_RIPPLE_DRIFT_MPS +
+                flowX * RIVER_RIPPLE_SHEAR_MPS
+              ) / RIVER_RIPPLE_TILE_M,
+          });
+        }
+      }
+      // Emissive as illumination, or the standard shader folds it in *before*
+      // the diffuse texture multiply — where the sheen can only brighten the
+      // water within its own hue instead of lifting it toward the sky's.
+      material.useEmissiveAsIllumination = true;
+      material.emissiveColor = Color3.Lerp(waterColor, skyTone, 0.78).scale(
+        0.16,
+      );
+      // Water is dark stuff that happens to be a mirror: nearly all of what
+      // you see off a river at distance is sky, and almost none of it is when
+      // you look straight down. `leftColor` is the grazing end, `rightColor`
+      // the facing one — the shader's fresnel term runs 1 at face-on.
+      material.emissiveFresnelParameters = new FresnelParameters({
+        bias: 0.05,
+        power: 1.6,
+        leftColor: Color3.White(),
+        rightColor: new Color3(0.2, 0.2, 0.2),
+      });
+      // A broad, weak highlight rather than a tight bright one. The sun on a
+      // rippled plane is a field of sub-pixel glints, and any highlight sharp
+      // enough to land inside one texel aliases into crawling sequins the
+      // moment either the tile or the camera moves.
+      material.specularColor = new Color3(0.42, 0.47, 0.48);
+      material.specularPower = 60;
       material.backFaceCulling = false;
       const mesh = new Mesh(`water-${body.id}`, scene);
       const normals: number[] = [];
@@ -13473,11 +13903,29 @@ class BabylonGameSession {
       data.indices = [...geometry.indices];
       data.normals = normals;
       data.uvs = [...geometry.uvs];
+      // The shore band, as a per-vertex multiplier on the tile. Vertex colour
+      // rather than a second mesh: the standard shader folds it straight into
+      // the diffuse sample, so it costs no draw call, no transparency sort and
+      // no second surface to z-fight with the water 25 mm below it.
+      if (geometry.shoreFactors.length) {
+        data.colors = geometry.shoreFactors.flatMap((factor) => [
+          1 + (RIVER_SHORE_TINT.r - 1) * factor,
+          1 + (RIVER_SHORE_TINT.g - 1) * factor,
+          1 + (RIVER_SHORE_TINT.b - 1) * factor,
+          1,
+        ]);
+      }
       data.applyToMesh(mesh);
       setMeshMaterial(mesh, material, true);
       mesh.freezeWorldMatrix();
       this.registerMirrorSurface(mesh);
-      material.freeze();
+      // Flowing water is deliberately *not* frozen, unlike every other static
+      // material here. A frozen StandardMaterial stops re-uploading its
+      // uniform buffer, and the texture matrix lives in that buffer — so
+      // `uOffset` would be read once and the river would set solid. Two
+      // unfrozen materials is a cost worth paying; there is no cheaper way to
+      // move a texture. Still water has nothing to update, so it freezes.
+      if (flowHeadingRad === undefined) material.freeze();
 
       // Boats are Cairo's. `generateWaterBoatPlacements` is not map-gated and
       // always wants at least one craft (`max(1, ...)`), and the only two
@@ -13497,11 +13945,17 @@ class BabylonGameSession {
     }
   }
 
-  private updateWaterBoatVisuals(visualTimeSeconds: number) {
+  private updateWaterVisuals(visualTimeSeconds: number) {
     for (const boat of this.animatedWaterBoats) {
       const pose = waterBoatPoseAt(boat.placement, visualTimeSeconds);
       boat.root.position.set(pose.x, pose.y, pose.z);
       boat.root.rotation.set(0, pose.heading, pose.roll);
+    }
+    for (const drift of this.driftingWaterTextures) {
+      // Wrapped every repeat. The offsets are otherwise unbounded, and a drive
+      // long enough to run one into float noise would stutter the current.
+      drift.texture.uOffset = (drift.uPerSecond * visualTimeSeconds) % 1;
+      drift.texture.vOffset = (drift.vPerSecond * visualTimeSeconds) % 1;
     }
   }
 
