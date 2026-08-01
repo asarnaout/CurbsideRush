@@ -1295,6 +1295,26 @@ for (const [index, parcel] of [
   );
 }
 
+// One deliberate parcel where the roadside generator cannot go: Tahrir's 18 m
+// exclusion blanks Ramses' north-west frontage beside the park, which is
+// exactly the frontage that closes the square's north-east corner — without
+// it the ministries slab ends and the horizon leaks back in over the gap.
+// Khedivial street wall facing the park (south), depth 14.5 = the
+// cairo-downtown set's 13 m plus the roadside convention's 1.5; its east end
+// keeps ~0.9 m past Ramses' block envelope, which the horizon test pins.
+addRoadClearBlock({
+  id: "cairo-tahrir-frontage-block",
+  center: point(391, 28),
+  size: point(32, 14.5),
+  headingDeg: 0,
+  frontageAxis: "z",
+  streetEdges: ["-z"],
+  material: "cairo-khedivial-stone",
+  heightRange: [20, 46],
+  density: 0.82,
+  buildingSet: "cairo-downtown",
+});
+
 const cairoWaterBodies: readonly WaterBody[] = [
   {
     id: "cairo-nile-west-channel",
@@ -1338,6 +1358,20 @@ const cairoLandmarks: readonly ProceduralLandmark[] = [
     center: point(348, -27),
     size: point(14, 14),
     color: "#c9a96f",
+  },
+  {
+    id: "cairo-tahrir-ministries",
+    kind: "cultural",
+    // Closes the horizon due north of the obelisk. The east-bank district
+    // grid deliberately skips the wedge between Qasr El-Ainy and Ramses, so
+    // the view past the park ran 215 m to the scenic Sixth October deck and
+    // stopped at sky. A Mogamma-like government slab on the obelisk's axis:
+    // wide enough to occlude the whole empty sector from ground level, its
+    // west edge clear of Qasr El-Ainy's block envelope and its east corner
+    // clear of Ramses'. Rendered bespoke in `buildCairoLandmark`.
+    center: point(350, 30),
+    size: point(44, 22),
+    color: "#c9b18f",
   },
   {
     id: "cairo-opera-house",
