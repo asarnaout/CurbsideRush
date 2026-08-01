@@ -25,9 +25,11 @@ import {
   careerDayTrafficSeed,
   careerFare,
   careerGigSeedBase,
+  cityRating,
   computeCareerChecksum,
   createCareerSlice,
   DAY_LENGTH_MS,
+  EMPTY_RATING,
   DEFAULT_GARAGE_VEHICLE_ID,
   emptyDayLog,
   garageDefaultVehicle,
@@ -500,6 +502,66 @@ describe("checksum and slice codec", () => {
     };
     tampered.cities["uk-london"].cash += 1;
     expect(parseCareerSlice(tampered)).toEqual({ state: "corrupt" });
+  });
+
+  it("still opens a career saved before ratings existed", () => {
+    // The field is optional precisely so this keeps working: a version bump
+    // would have decoded every career on disk to null and silently wiped it.
+    const legacy = JSON.parse(JSON.stringify(slice)) as {
+      cities: Record<string, Record<string, unknown>>;
+      checksum: string;
+    };
+    delete legacy.cities["uk-london"].rating;
+    legacy.checksum = computeCareerChecksum(
+      legacy as unknown as Omit<CareerSliceV2, "checksum">,
+    );
+
+    const parsed = parseCareerSlice(legacy);
+    if (parsed === null || parsed.state === "corrupt") {
+      throw new Error("a career saved before ratings should still open");
+    }
+    const city = parsed.cities["uk-london"];
+    expect(city?.rating).toBeUndefined();
+    // And reads as unrated everywhere rather than as an undefined each caller
+    // has to remember to handle.
+    expect(cityRating(city as CareerCityState)).toEqual(EMPTY_RATING);
+  });
+
+  it("carries a rating through a write, a save and a load", () => {
+    // withCity rebuilds the city through cityStateOf, which enumerates its
+    // fields — a field missing from that list is dropped on every write with
+    // no type error and no failing typecheck to show for it.
+    const rated = withCity(slice, "uk-london", {
+      ...activeCity(slice),
+      rating: { recent: [5, 4, 5, 3, 2, 5, 4], ratedTotal: 31, notice: true },
+    });
+    expect(rated.cities["uk-london"]?.rating).toEqual({
+      recent: [5, 4, 5, 3, 2, 5, 4],
+      ratedTotal: 31,
+      notice: true,
+    });
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(rated)))).toEqual(rated);
+  });
+
+  it("reads a doctored rating as corrupt rather than clamping it", () => {
+    const rated = withCity(slice, "uk-london", {
+      ...activeCity(slice),
+      rating: { recent: [1, 1, 1], ratedTotal: 3, notice: true },
+    });
+    const forged = JSON.parse(JSON.stringify(rated)) as {
+      cities: Record<string, { rating: { recent: number[] } }>;
+    };
+    forged.cities["uk-london"].rating.recent = [5, 5, 5];
+    expect(parseCareerSlice(forged)).toEqual({ state: "corrupt" });
+
+    // Out-of-range stars are structurally wrong, checksum or no checksum.
+    const impossible = withCity(slice, "uk-london", {
+      ...activeCity(slice),
+      rating: { recent: [9], ratedTotal: 1, notice: false },
+    });
+    expect(parseCareerSlice(JSON.parse(JSON.stringify(impossible)))).toEqual({
+      state: "corrupt",
+    });
   });
 
   it("is independent of key insertion order", () => {
