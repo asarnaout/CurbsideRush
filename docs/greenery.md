@@ -68,6 +68,13 @@ enterable, 2.9 km apart. Long parks now get crossings every
 `PARK_CROSSING_SPACING_M` (~300 m, the spacing of the real transverses), each
 of which opens a gate, and `tests/parkLayouts.test.ts` caps any single run.
 
+Where a road crosses the park itself, the boundary follows the road: each
+divider lays a rail parallel to the carriageway at the same clearance the
+road veto enforces, clipped to the inset rect — the rect edge beside a
+crossing road is otherwise vetoed down to stubs and the park stands open to
+the street. Gates fall out of the same path rule, so the opera's cross-east
+street entrance opens its rail exactly like the west gate.
+
 A park wall is a scored `collision` with damage (`parkEdge` in
 `STATIC_OBSTACLE_MESSAGES`), so it must be plainly visible at speed —
 `PARK_WALL_HEIGHT_M` is set for that, not for realism.

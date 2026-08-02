@@ -620,6 +620,50 @@ describe("opera grounds formal garden", () => {
     }
   });
 
+  it("rails the corridor side with an angled wall gated at the street walk", () => {
+    // The rect's east edge is road-vetoed down to stubs, so the boundary
+    // follows the road instead: a rail parallel to the corridor at the same
+    // clearance the veto enforces, opened where the cross-east walk exits
+    // to the street — exactly like the west gate.
+    const found = opera();
+    const surface = corridor();
+    if (!found || !surface) return;
+    const roadRuns = found.layout.wall.filter((run) =>
+      run.id.includes("-wall-road-"),
+    );
+    expect(roadRuns.length).toBeGreaterThanOrEqual(2);
+    const endsOf = (run: (typeof roadRuns)[number]) => [
+      { x: run.x - run.ux * run.halfU, z: run.z - run.uz * run.halfU },
+      { x: run.x + run.ux * run.halfU, z: run.z + run.uz * run.halfU },
+    ];
+    // The gate splits the rail: whole runs both north and south of it.
+    expect(
+      roadRuns.some((run) =>
+        endsOf(run).every((end) => end.z > CAIRO_OPERA_CROSS_Z),
+      ),
+    ).toBe(true);
+    expect(
+      roadRuns.some((run) =>
+        endsOf(run).every((end) => end.z < CAIRO_OPERA_CROSS_Z),
+      ),
+    ).toBe(true);
+    const gate = { x: CAIRO_OPERA_STREET_GATE_X, z: CAIRO_OPERA_CROSS_Z };
+    for (const run of roadRuns) {
+      const ends = endsOf(run);
+      // Parallel to the corridor at a constant clearance past the walkable
+      // band — recomputed from road data, so a road nudge fails by name.
+      for (const point of [ends[0], { x: run.x, z: run.z }, ends[1]]) {
+        const clearance = distanceToPolylineM(point, surface.centerline);
+        expect(clearance).toBeGreaterThanOrEqual(
+          surface.widthM / 2 + 3.4 + 1.8 - 1e-6,
+        );
+        expect(clearance).toBeLessThanOrEqual(surface.widthM / 2 + 3.4 + 3);
+      }
+      // The street-walk gate stays open.
+      expect(distanceToPolylineM(gate, ends)).toBeGreaterThan(4);
+    }
+  });
+
   it("centres the plaza, obelisk, benches and allée on the opera axis", () => {
     const found = opera();
     const surface = corridor();

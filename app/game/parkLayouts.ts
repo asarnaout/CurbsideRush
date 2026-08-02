@@ -196,6 +196,8 @@ interface ParkRoadDivider {
   readonly dz: number;
   /** Sign of the segment cross product on the park-centre side. */
   readonly keepSign: number;
+  /** The crossing road's carriageway width — the wall it carries needs it. */
+  readonly widthM: number;
 }
 
 /** True when any part of a→b lies strictly inside the axis-aligned rect. */
@@ -259,7 +261,14 @@ const crossingRoadDividers = (
         dx * (landmark.center.z - start.z) - dz * (landmark.center.x - start.x),
       );
       if (keepSign === 0) continue;
-      dividers.push({ x: start.x, z: start.z, dx, dz, keepSign });
+      dividers.push({
+        x: start.x,
+        z: start.z,
+        dx,
+        dz,
+        keepSign,
+        widthM: surface.widthM,
+      });
     }
   }
   return dividers;
@@ -1072,13 +1081,22 @@ export function parkPerimeterPlan(
   }
 
   const runs: ParkWallRun[] = [];
-  for (let edge = 0; edge < 4; edge += 1) {
-    const from = corners[edge];
-    const to = corners[(edge + 1) % 4];
+  const insideInset = (point: VisualPoint): boolean =>
+    Math.abs(point.x - landmark.center.x) <=
+      landmark.size.x / 2 - PARK_WALL_INSET_M + 1e-6 &&
+    Math.abs(point.z - landmark.center.z) <=
+      landmark.size.z / 2 - PARK_WALL_INSET_M + 1e-6;
+
+  const layBoundaryLine = (
+    from: VisualPoint,
+    to: VisualPoint,
+    label: string,
+    clipToRect: boolean,
+  ) => {
     const dx = to.x - from.x;
     const dz = to.z - from.z;
     const length = Math.hypot(dx, dz);
-    if (length < PARK_WALL_MIN_RUN_M) continue;
+    if (length < PARK_WALL_MIN_RUN_M) return;
     const ux = dx / length;
     const uz = dz / length;
     const steps = Math.max(1, Math.ceil(length / PARK_WALL_SAMPLE_M));
@@ -1090,7 +1108,7 @@ export function parkPerimeterPlan(
       if (span >= PARK_WALL_MIN_RUN_M) {
         const mid = runStart + span / 2;
         runs.push({
-          id: `${landmark.id}-wall-${edge}-${runs.length}`,
+          id: `${landmark.id}-wall-${label}-${runs.length}`,
           x: from.x + ux * mid,
           z: from.z + uz * mid,
           ux,
@@ -1105,6 +1123,7 @@ export function parkPerimeterPlan(
     for (let step = 0; step <= steps; step += 1) {
       const along = (length * step) / steps;
       const point = { x: from.x + ux * along, z: from.z + uz * along };
+      const outside = clipToRect && !insideInset(point);
       const nearGate = gatePoints.some(
         (gate) => Math.hypot(gate.x - point.x, gate.z - point.z) <= PARK_GATE_HALF_WIDTH_M,
       );
@@ -1119,13 +1138,74 @@ export function parkPerimeterPlan(
       // road-proximity veto alone left the Opera Grounds a 4 m orphan run
       // across its corridor, where the rest of that edge was rightly dropped.
       const farSide = dividers.some((divider) => acrossDivider(divider, point));
-      if (nearGate || nearRoad || farSide) {
+      if (outside || nearGate || nearRoad || farSide) {
         flush(along);
       } else if (runStart === null) {
         runStart = along;
       }
     }
     flush(length);
+  };
+
+  for (let edge = 0; edge < 4; edge += 1) {
+    layBoundaryLine(corners[edge], corners[(edge + 1) % 4], String(edge), false);
+  }
+  // A crossing road takes the boundary with it: the rect edge beside it is
+  // road-vetoed down to stubs, so the wall follows the road instead — a run
+  // parallel to each divider, offset to the park side by the same clearance
+  // the road veto enforces (plus the wall's own half thickness), clipped to
+  // the inset rectangle. Gates fall out of the same path rule the rect edges
+  // use, so a walk that exits through it — the opera's cross-east street
+  // entrance — opens the rail exactly like the west gate. Axis-aligned rect
+  // clip, like `crossingRoadDividers`: a rotated park would need the line
+  // mapped into park-local space first.
+  for (const [index, divider] of dividers.entries()) {
+    const length = Math.hypot(divider.dx, divider.dz);
+    if (length <= 1e-6) continue;
+    const offset =
+      divider.widthM / 2 +
+      context.sidewalkWidthM +
+      PARK_WALL_ROAD_CLEARANCE_M +
+      PARK_WALL_HALF_THICKNESS_M +
+      0.1;
+    const nx = (-divider.dz / length) * divider.keepSign;
+    const nz = (divider.dx / length) * divider.keepSign;
+    const from = { x: divider.x + nx * offset, z: divider.z + nz * offset };
+    // Clip the rail's line to the inset rectangle EXACTLY before walking it.
+    // The sampled walk flushes at the vetoing sample, so leaving the clip to
+    // the inside-veto let the rail's tip poke up to a sample past the
+    // boundary wall line — read in game as the rail jutting toward the
+    // street at the corner it should meet the wall.
+    const minX = landmark.center.x - landmark.size.x / 2 + PARK_WALL_INSET_M;
+    const maxX = landmark.center.x + landmark.size.x / 2 - PARK_WALL_INSET_M;
+    const minZ = landmark.center.z - landmark.size.z / 2 + PARK_WALL_INSET_M;
+    const maxZ = landmark.center.z + landmark.size.z / 2 - PARK_WALL_INSET_M;
+    let enter = 0;
+    let exit = 1;
+    for (const [towards, clearance] of [
+      [-divider.dx, from.x - minX],
+      [divider.dx, maxX - from.x],
+      [-divider.dz, from.z - minZ],
+      [divider.dz, maxZ - from.z],
+    ] as const) {
+      if (Math.abs(towards) <= 1e-9) {
+        if (clearance < 0) exit = -1;
+        continue;
+      }
+      const at = clearance / towards;
+      if (towards < 0) {
+        if (at > enter) enter = at;
+      } else if (at < exit) {
+        exit = at;
+      }
+    }
+    if (exit <= enter) continue;
+    layBoundaryLine(
+      { x: from.x + divider.dx * enter, z: from.z + divider.dz * enter },
+      { x: from.x + divider.dx * exit, z: from.z + divider.dz * exit },
+      `road-${index}`,
+      true,
+    );
   }
   return runs;
 }
