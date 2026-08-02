@@ -1290,7 +1290,6 @@ describe("SideSwap content", () => {
 
   it("keeps moved parks and street furniture clear of driveable surfaces", () => {
     const checks = [
-      ["nyc-upper-west-side", "nyc-verdi-green"],
       ["nyc-upper-west-side", "nyc-subway"],
       ["tokyo-setagaya", "jp-temple-green"],
       ["london-south-kensington", "london-exhibition-road-public-space"],

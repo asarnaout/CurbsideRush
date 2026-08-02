@@ -68,11 +68,11 @@ const parkCases = (): readonly ParkCase[] => {
 
 describe("park layouts", () => {
   it("covers every authored park on every shipped map", () => {
-    // The twelve parks this was written against — four NYC, three Tokyo, two
+    // The eleven parks this was written against — three NYC, three Tokyo, two
     // Cairo, and London's Exhibition Road strip plus its two roundabout
     // islands, which are generated rather than listed and are easy to forget.
     // Pinned so adding a park is a deliberate act, not a surprise.
-    expect(parkCases().length).toBe(12);
+    expect(parkCases().length).toBe(11);
   });
 
   it("is deterministic — two builds are identical", () => {
@@ -91,7 +91,6 @@ describe("park layouts", () => {
       return found ? resolveParkStyle(found.landmark, found.visualKey) : null;
     };
     expect(styleOf("nyc-joan-of-arc-park")).toBe("urban_greensward");
-    expect(styleOf("nyc-verdi-green")).toBe("pocket_green");
     expect(styleOf("jp-gotokuji-temple")).toBe("temple_grounds");
     expect(styleOf("jp-shoin-shrine")).toBe("temple_grounds");
     expect(styleOf("cairo-tahrir-square")).toBe("civic_plaza");
@@ -316,7 +315,7 @@ describe("park layouts", () => {
     }
   });
 
-  it("gives a big park a path network and a token green none of the furniture", () => {
+  it("gives a big park a path network and full furniture", () => {
     const central = parkCases().find((c) => c.landmark.id === "nyc-central-park");
     expect(central).toBeDefined();
     if (central) {
@@ -331,16 +330,6 @@ describe("park layouts", () => {
       expect(layout.placements.some((p) => p.kind === "bench")).toBe(true);
       expect(layout.placements.some((p) => p.kind === "lamp")).toBe(true);
     }
-
-    const verdi = parkCases().find((c) => c.landmark.id === "nyc-verdi-green");
-    expect(verdi).toBeDefined();
-    if (verdi) {
-      const layout = buildParkLayout(verdi.landmark, verdi.visualKey, verdi.context);
-      // A 40x24 traffic green has no room for a lamp-lit walk.
-      expect(layout.placements.some((p) => p.kind === "bench")).toBe(false);
-      expect(layout.placements.some((p) => p.kind === "lamp")).toBe(false);
-      expect(layout.placements.some((p) => p.kind === "tree")).toBe(true);
-    }
   });
 
   it("walls the big parks and never the small or road-bound ones", () => {
@@ -353,7 +342,6 @@ describe("park layouts", () => {
     expect(walled.get("london-brompton-loop-green")).toBe(0);
     expect(walled.get("london-gloucester-loop-green")).toBe(0);
     expect(walled.get("cairo-tahrir-square")).toBe(0);
-    expect(walled.get("nyc-verdi-green")).toBe(0);
     expect(walled.get("jp-temple-green")).toBe(0);
     // The big ones do get one.
     expect(walled.get("nyc-central-park") ?? 0).toBeGreaterThan(0);
@@ -470,8 +458,6 @@ describe("park layouts", () => {
     expect(kinds("jp-shoin-shrine")).toContain("torii");
     expect(kinds("cairo-opera-grounds")).toContain("parterre");
     expect(kinds("nyc-joan-of-arc-park")).toContain("plinth");
-    // Nothing bespoke for a park with no character to state.
-    expect(featuresOf("nyc-verdi-green")).toHaveLength(0);
 
     // Every solid piece must stand clear of its park's own walks, or the
     // driver meets masonry in the middle of a path. Monuments settle for this
