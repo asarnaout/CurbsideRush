@@ -4,10 +4,14 @@
 
 ## Shape of the file
 
-`GameCanvas.tsx` is ~18k lines but holds only three live objects: `class
-BabylonGameSession`, `class AdaptiveInputRouter` (which owns input-prompt
-presentation and never disables an input method), and the React component at the
-bottom.
+`GameCanvas.tsx` is mid-decomposition (`.claude/refactor-plan.md`, gitignored):
+today it holds `class BabylonGameSession`, the React component at the bottom,
+and a residual band of session-adjacent helpers no phase has claimed yet.
+`class AdaptiveInputRouter` has already moved out, to `adaptiveInputRouter.ts`,
+and the pure geometry/render layer to sibling directories — `geometry/` (zero
+`@babylonjs` imports, enforced by `tests/architecture.test.ts`) and `render/`
+(Babylon-owning, no session state) — both exported so tests import them
+without instantiating Babylon. Contract types live in `sessionContract.ts`.
 
 **React owns the canvas element, the props, and one 10 Hz HUD snapshot; the
 session owns everything else.** No React state is driven at frame rate.
@@ -15,10 +19,6 @@ session owns everything else.** No React state is driven at frame rate.
 The session is rebuilt only on `[trafficSide, steeringSide, lesson?.id,
 mapPack?.id]`; every other prop flows through `session.updateOptions(...)`. Not
 orientation — rotating a phone pauses the drive, it does not rebuild the city.
-
-**Everything above `GameCanvasProps` is an exported pure geometry layer** (road
-strips, junction fills, chevron placement) — exported specifically so tests can
-import it without instantiating Babylon. The shared contract types (`GameHudSnapshot`, `GameCanvasLesson`, `GameCanvasMapPack`, ...) live in `sessionContract.ts` instead.
 
 ## Three angle conventions coexist
 

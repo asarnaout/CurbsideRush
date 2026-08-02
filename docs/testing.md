@@ -8,7 +8,7 @@ npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run build:static # + prerendered index.html for a static host
 npm run typecheck    # tsc --noEmit, ~3s
 npm run lint         # eslint, ~11s
-npm test             # vitest run: 84 files, 1390 tests, ~2min
+npm test             # vitest run: 88 files, 1512 tests, ~2min
 ```
 
 Node >= 22.13 (repo currently runs v26). **There is no CI** — no `.github/`,
@@ -22,7 +22,7 @@ seeds × 60 s of sim). Everything else runs in ~12 s. Use the fast loop while
 iterating, the full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 83 files / 1388 tests in ~15s
+# everything except the acceptance test -> 87 files / 1510 tests in ~15s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts -t "reverses off"   # one file, -t filters by substring
@@ -46,26 +46,38 @@ accumulates silently rather than failing anything.
 Next preset, where `build/` means output), so `build/sites-vite-plugin.ts` is never
 linted.
 
-## Twelve test files import `GameCanvas.tsx` for real, in node
+## One test file still imports `GameCanvas.tsx` for real, in node
 
-`architecture`, `cairoPromenade`, `cairoVisuals`, `content`, `gameCanvasInput`,
-`guidanceCoverage`, `intersectionVisuals`, `parkWalls`, `pavementPaths`,
-`roadJunctions`, `roadMarkings`, `staticColliders`.
+The god-file decomposition (`.claude/refactor-plan.md`, gitignored) is
+steadily hollowing this list out: as of Phase 2, only `gameCanvasInput.test.ts`
+still pulls runtime symbols directly from `GameCanvas.tsx`
+(`isAuthoredCheckpointCrossing`, `resolveNpcVisualSlotAssignments` — both
+session-adjacent code not yet claimed by any phase). Everything the eleven
+other former importers needed — road strips, water/facade/parkland geometry,
+route guidance, procedural textures, mesh primitives, the prop/crowd catalogue
+— now lives under `geometry/` or `render/` instead, and `sessionContract.ts`
+holds the shared contract types. `architecture.test.ts` reads
+`GameCanvas.tsx` as text (`fs.readFileSync`), not as an ES import, and does
+not count here.
 
-Adding a top-level side effect touching `window`/`document`/WebGL therefore breaks
-tests that have nothing to do with rendering.
+Adding a top-level side effect touching `window`/`document`/WebGL to
+`GameCanvas.tsx` therefore breaks `gameCanvasInput.test.ts` and
+`gameCanvasSession.test.tsx` (below) — nothing else in the pure-symbol tests
+touches it any more.
 
-Four more *name* the module but use `import type` and never load it —
-`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`,
-`trafficSafetyAcceptance` — as do all three app-side importers (`SideSwapApp`,
-`simulationAdapter`, `freeDriveLesson`). **Grep alone misleads here**; check
-whether the import is type-only.
+**Grep for `from ".../GameCanvas"` still misleads on one axis**: several test
+files (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`,
+`trafficSafetyAcceptance`, plus app-side `SideSwapApp`/`simulationAdapter`/
+`freeDriveLesson`) use `GameCanvasLesson` and friends but import them from
+`sessionContract.ts`, not `GameCanvas.tsx` — the type names survived Phase 1's
+move, the import specifier didn't. Check the specifier, not just the symbol
+name.
 
-`gameCanvasSession.test.tsx` (jsdom) is different in kind from the twelve
-above, and is the one other runtime load besides `SideSwapApp`'s lazy
-`dynamic()`: it deliberately mounts the real component, session and a
-`NullEngine`, so a `window`/`document`/WebGL touch is what it exists to
-exercise, not a hazard. See the guardrails table below.
+`gameCanvasSession.test.tsx` (jsdom) is different in kind from
+`gameCanvasInput.test.ts` above, and is the one other runtime load besides
+`SideSwapApp`'s lazy `dynamic()`: it deliberately mounts the real component,
+session and a `NullEngine`, so a `window`/`document`/WebGL touch is what it
+exists to exercise, not a hazard. See the guardrails table below.
 
 ## DOM tests
 
