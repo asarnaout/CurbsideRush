@@ -72,6 +72,18 @@ A park wall is a scored `collision` with damage (`parkEdge` in
 `STATIC_OBSTACLE_MESSAGES`), so it must be plainly visible at speed —
 `PARK_WALL_HEIGHT_M` is set for that, not for realism.
 
+## Park ground is four polygon-offset tiers
+
+Walks, courts and parterre beds once all shared `PARK_PATH_Y`, and any two
+that overlapped were a coplanar fight the depth buffer resolved as shimmer —
+the Opera Grounds' spine through its beds, and its crossing where the two
+walks met. Beds and courts now sit at `PARK_BED_Y` between lawn and walks, and
+the stack is backed by polygon-offset tiers: crossing paths (-4) over spines
+(-2) over beds and courts (-1) over the ground rung (lawn, plaza discs,
+terraces). Two park surfaces may overlap only when they differ in tier — which
+is also why a formal garden's arms *terminate* at its plaza disc and lap it by
+half a metre rather than crossing each other.
+
 **Lay a wall box with `boxLengthYaw`, not with the heading convention.** A box's
 length is its `width`, which is local +X, so the yaw is `atan2(uz, ux)` — the
 map's heading is `atan2(dx, dz)` with 0 = +z, and the two differ by exactly 90°.
@@ -95,8 +107,8 @@ Egyptian felucca on it. `buildWaterBodies` gates the call on the map.
 ## The planting kit, and two ways it goes wrong
 
 Species come from `natureModelsForMap`, so a city plants only what it
-downloaded: Cairo's "trees" resolve to palms and Tokyo's to the temple set with
-none of that spelled out at the call site. Placements queue in
+downloaded: Tokyo its temple set, Cairo a palm-heavy mix, with none of that
+spelled out at the call site. Placements queue in
 `pendingParkProps` / `pendingParkThickets` and drain in `buildParkPlanting`
 after the preload, the way vendor carts do — glb masters do not exist when the
 scene is built.
@@ -116,7 +128,10 @@ else. The same reasoning gates the Cairo boat models on the map rather than on
 
 Scatter `variants` has to be wide enough to reach the whole species pool:
 `variant % pool.length` at 3 variants never got past the first three species,
-so no conifer was ever planted in a temperate park.
+so no conifer was ever planted in a temperate park. The inverse trap: a
+bespoke piece that means ONE species must pick its pool index deliberately —
+Cairo's canopy pool leads with broadleaf and oak, so the opera allée at
+`variant: 0` planted ten broadleaves down the axis.
 
 ## Named parks get pieces no scatter would produce
 
@@ -132,7 +147,9 @@ Masonry `settle`s clear of the park's own walks, like
 `cairoTahrirFurnitureLayout` does, and the search runs in **both** axes: a park
 short enough to get its single crossing at the centre has a path through the
 ideal spot in both directions, so sliding sideways alone can never clear it.
-That is how the Opera Grounds obelisk first ended up standing in its own path.
+Joan of Arc's plinth is the surviving customer — the Opera Grounds obelisk
+needed it too, until that garden was recomposed to put a plaza disc under the
+monument and stop every walk at the disc's rim.
 
 The torii and the lanterns are procedural because the kit has no torii, and no
 CC0 Japanese stone lantern appears to exist — the only matches are CC-BY, which
@@ -150,14 +167,24 @@ perimeter: London's islands are 12x12 inside a radius-12 turning loop, and roads
 cut Tahrir's authored rectangle. Tahrir's plaza ensemble — paved disc, benches,
 olives — rings the `cairo-tahrir-obelisk` landmark's centre, with rings authored
 to clear every pavement band outright; `cairoTahrirFurnitureLayout`'s `settle()`
-remains only as the safety net for future road edits.
+remains only as the safety net for future road edits. The Opera Grounds keep
+their greensward style but not its walks: an id-keyed recipe
+(`operaGardenPaths`) lays four straight arms on the opera house's axis — not
+the park's own centre — ending at the plaza disc, with the east arm tucked
+half a metre under the corridor's pavement band so the seam reads as a street
+entrance.
 
-Two scatter rules exist for the same reason. `civic_plaza` planting keeps to the
-park-centre side of any road crossing the rectangle (the lawn mesh is clipped at
-that centreline — `cairoTahrirLawnPolygon` — so the far side is bare ground, and
-a palm there passed the plain distance veto). And non-park landmarks standing in
-any park become scatter keep-outs via `landmarkClearings`, with the obelisk
-keyed to the paved disc's radius rather than its plinth.
+Two scatter rules exist for the same reason, and the first generalises by id.
+`civic_plaza` planting keeps to the park-centre side of any road crossing the
+rectangle (the lawn mesh is clipped at that centreline —
+`cairoTahrirLawnPolygon` — so the far side is bare ground, and a palm there
+passed the plain distance veto); `ROAD_DIVIDED_PARK_IDS` opts other road-cut
+parks into the whole side-aware family — lawn clip (`roadSideParkLawnPolygon`),
+scatter, path furniture AND `parkPerimeterPlan`, whose road-proximity veto
+alone left the Opera Grounds a 4 m orphan wall run on the far kerbside of its
+corridor. And non-park landmarks standing in any park become scatter keep-outs
+via `landmarkClearings`, with the obelisk keyed to the paved disc's radius
+rather than its plinth.
 
 There are **twelve** authored parks, not the ten you get by reading the content
 files: London's two roundabout islands are generated by its turning-loop helper
