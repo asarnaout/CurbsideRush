@@ -103,10 +103,8 @@ import {
   createFlowerbedTexture,
   createGrassDetailTexture,
   createGrassTexture,
-  createHorizonSilhouetteTexture,
   createRiverRippleTexture,
   createRiverSurfaceTexture,
-  createSkyGradientTexture,
   makeFacadeEmissiveTexture,
   makeInstrumentClusterTexture,
 } from "./render/proceduralTextures";
@@ -145,6 +143,7 @@ import {
   type DestructibleProp,
   type DestructiblePropPart,
 } from "./render/propCatalog";
+import { createSkyAndHorizon, createSunShadows } from "./render/skyAndShadows";
 import {
   crosswalkStripeLayout,
   EGYPT_SIGNAL_BORDER_BARS,
@@ -355,8 +354,6 @@ import {
   hashStringToSeed,
   mixHexColors,
   PAVED_SIDEWALK_WIDTH_M,
-  resolveCameraFarPlane,
-  resolveEffectiveFogRange,
   resolveMapVisualKey,
   resolveMapVisualPalette,
   seededUnit,
@@ -6407,7 +6404,12 @@ class BabylonGameSession {
     const palette = resolveMapVisualPalette(mapId);
     const cairoScene = resolveMapVisualKey(mapId) === "cairo";
     this.visualPalette = palette;
-    this.createSkyAndHorizon(palette, mapId, mapPack.geometry.worldSize);
+    this.cameraFarPlaneM = createSkyAndHorizon(
+      { scene, registerMirrorSurface: (mesh) => this.registerMirrorSurface(mesh) },
+      palette,
+      mapId,
+      mapPack.geometry.worldSize,
+    ).cameraFarPlaneM;
 
     // Paved cities (NYC) render the base ground as concrete and the road shoulder
     // as a wider concrete sidewalk; everywhere else keeps grass + a dirt shoulder.
@@ -6495,7 +6497,15 @@ class BabylonGameSession {
     const sun = new DirectionalLight("scenario-sun", new Vector3(-0.42, -1, 0.48), scene);
     sun.intensity = night ? 0.6 : 1.3;
     if (night) scene.ambientColor = new Color3(0.23, 0.22, 0.26);
-    this.createSunShadows(sun);
+    const scenarioSunShadows = createSunShadows(
+      {
+        visualPalette: this.visualPalette,
+        touchFirst: this.options.inputCapabilities.touchFirst,
+      },
+      sun,
+    );
+    this.shadowGenerator = scenarioSunShadows.shadowGenerator;
+    this.shadowRefreshSeconds = scenarioSunShadows.shadowRefreshSeconds;
 
     const groundWidth = Math.max(90, mapPack.geometry.worldSize.x + 36);
     const groundHeight = Math.max(90, mapPack.geometry.worldSize.z + 36);
@@ -11442,125 +11452,6 @@ class BabylonGameSession {
   }
 
   /**
-   * Camera-following gradient sky dome, distance fog matched to the horizon,
-   * and a low-poly skyline ring. Both atmosphere meshes use infiniteDistance
-   * so they work identically on every world size; their world matrices are
-   * therefore recomputed per frame and must never be frozen.
-   */
-  private createSkyAndHorizon(
-    palette: MapVisualPalette,
-    mapId: string,
-    worldSize: GameCanvasPoint,
-  ) {
-    const scene = this.scene;
-    const horizon = Color3.FromHexString(palette.skyHorizon);
-    scene.clearColor = new Color4(horizon.r, horizon.g, horizon.b, 1);
-    // The night tightening and the palette's own day cap (Cairo's dust haze)
-    // live inside resolveEffectiveFogRange so the fog and the camera far
-    // plane can never disagree about where the world ends.
-    const fogRange = resolveEffectiveFogRange(
-      palette.night === true,
-      worldSize,
-      palette.fogEndCapM,
-    );
-    scene.fogMode = Scene.FOGMODE_LINEAR;
-    scene.fogColor = Color3.FromHexString(palette.fogColor);
-    scene.fogStart = fogRange.start;
-    scene.fogEnd = fogRange.end;
-    // Everything past fogEnd is fully fogged, so clipping there culls the
-    // rest of the city for free. Stored on the session because the cameras
-    // are built after the environment; the constructor applies it to all
-    // three. The sky dome and horizon ring follow the camera
-    // (infiniteDistance), so their angular look is scale-invariant — shrink
-    // them to sit inside the far plane instead of being clipped by it.
-    this.cameraFarPlaneM = resolveCameraFarPlane(
-      palette.night === true,
-      worldSize,
-      palette.fogEndCapM,
-    );
-    const domeScale = Math.min(1, (this.cameraFarPlaneM * 0.98) / 950);
-
-    const skyMaterial = new StandardMaterial("sky-dome-material", scene);
-    skyMaterial.emissiveTexture = createSkyGradientTexture(scene, palette);
-    skyMaterial.diffuseColor = Color3.Black();
-    skyMaterial.specularColor = Color3.Black();
-    skyMaterial.disableLighting = true;
-    skyMaterial.fogEnabled = false;
-    const skyDome = MeshBuilder.CreateSphere(
-      "sky-dome",
-      {
-        diameter: 1900 * domeScale,
-        segments: 12,
-        sideOrientation: Mesh.BACKSIDE,
-      },
-      scene,
-    );
-    skyDome.material = skyMaterial;
-    skyDome.infiniteDistance = true;
-    skyDome.isPickable = false;
-    skyDome.applyFog = false;
-    skyMaterial.freeze();
-    this.registerMirrorSurface(skyDome);
-
-    const ringMaterial = new StandardMaterial("horizon-ring-material", scene);
-    const silhouette = createHorizonSilhouetteTexture(scene, mapId, palette);
-    // hasAlpha on the diffuse texture opts into alpha *testing*: crisp
-    // silhouette edges with no blend-sorting concerns against the sky dome.
-    ringMaterial.diffuseTexture = silhouette;
-    ringMaterial.emissiveTexture = silhouette;
-    ringMaterial.diffuseColor = Color3.Black();
-    ringMaterial.specularColor = Color3.Black();
-    ringMaterial.disableLighting = true;
-    ringMaterial.fogEnabled = false;
-    const ring = MeshBuilder.CreateCylinder(
-      "horizon-ring",
-      {
-        height: 110 * domeScale,
-        diameter: 1700 * domeScale,
-        tessellation: 48,
-        cap: Mesh.NO_CAP,
-        sideOrientation: Mesh.BACKSIDE,
-      },
-      scene,
-    );
-    ring.material = ringMaterial;
-    ring.position.y = 26 * domeScale;
-    ring.infiniteDistance = true;
-    ring.isPickable = false;
-    ring.applyFog = false;
-    ringMaterial.freeze();
-    this.registerMirrorSurface(ring);
-  }
-
-  /**
-   * Subtle PCF sun shadows. The render list is rebuilt around the player at
-   * a slow cadence so the auto-computed directional frustum stays tight even
-   * on the 3 km NYC grid.
-   */
-  private createSunShadows(sun: DirectionalLight) {
-    sun.diffuse = Color3.FromHexString(this.visualPalette.sunTint);
-    sun.position = sun.direction.scale(-260);
-    sun.autoUpdateExtends = true;
-    sun.autoCalcShadowZBounds = true;
-    // 1024 (was 2048): the dense city re-renders this shadow map every frame,
-    // so quartering its pixels frees real per-frame budget; night shadows are
-    // soft + dim enough that the lower resolution isn't noticeable.
-    // Percentage-closer filtering is the per-pixel cost here, and on a phone it
-    // is paid on every shadowed fragment in a dense city. The softness
-    // difference is invisible at a phone's viewing distance.
-    const generator = new ShadowGenerator(1024, sun);
-    generator.usePercentageCloserFiltering = true;
-    generator.filteringQuality = this.options.inputCapabilities.touchFirst
-      ? ShadowGenerator.QUALITY_LOW
-      : ShadowGenerator.QUALITY_MEDIUM;
-    generator.bias = 0.015;
-    generator.normalBias = 0.4;
-    generator.setDarkness(0.42);
-    this.shadowGenerator = generator;
-    this.shadowRefreshSeconds = Number.POSITIVE_INFINITY;
-  }
-
-  /**
    * The rear-view mirror, as a throttled render target on a camera-locked quad.
    *
    * It used to be a third camera rendered straight into a screen-space viewport
@@ -12556,7 +12447,12 @@ class BabylonGameSession {
     const scene = this.scene;
     const yardPalette = resolveMapVisualPalette("orientation-yard");
     this.visualPalette = yardPalette;
-    this.createSkyAndHorizon(yardPalette, "orientation-yard", { x: 180, z: 180 });
+    this.cameraFarPlaneM = createSkyAndHorizon(
+      { scene, registerMirrorSurface: (mesh) => this.registerMirrorSurface(mesh) },
+      yardPalette,
+      "orientation-yard",
+      { x: 180, z: 180 },
+    ).cameraFarPlaneM;
     const grass = makeMaterial(scene, "grass", Color3.White());
     const yardGrassTexture = createGrassTexture(
       scene,
@@ -12606,7 +12502,15 @@ class BabylonGameSession {
     hemi.groundColor = new Color3(0.34, 0.3, 0.24);
     const sun = new DirectionalLight("sun", new Vector3(-0.4, -1, 0.55), scene);
     sun.intensity = 1.3;
-    this.createSunShadows(sun);
+    const yardSunShadows = createSunShadows(
+      {
+        visualPalette: this.visualPalette,
+        touchFirst: this.options.inputCapabilities.touchFirst,
+      },
+      sun,
+    );
+    this.shadowGenerator = yardSunShadows.shadowGenerator;
+    this.shadowRefreshSeconds = yardSunShadows.shadowRefreshSeconds;
 
     const ground = MeshBuilder.CreateGround(
       "training-ground",
