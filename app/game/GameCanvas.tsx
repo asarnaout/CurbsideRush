@@ -3095,12 +3095,13 @@ export function cairoOperaTerracePolygon(
 
 /**
  * A rect cut back to `anchor`'s side of every road-centreline segment that
- * crosses it. The shared core of Tahrir's lawn and forecourt polygons: both
- * lean on the same fact — the surface drawn from the result sits below the
- * carriageway and the pavement band, so running the rect out to a road's
- * centreline paints a seam exactly on the band's outer edge.
+ * crosses it. The shared core of Tahrir's lawn and forecourt polygons, the
+ * road-divided park lawns and the opera parterre quadrants: all lean on the
+ * same fact — the surface drawn from the result sits below the carriageway
+ * and the pavement band, so running the rect out to a road's centreline
+ * paints a seam exactly on the band's outer edge.
  */
-function clipRectToRoadSide(
+export function clipRectToRoadSide(
   minX: number,
   maxX: number,
   minZ: number,
@@ -16657,7 +16658,13 @@ class BabylonGameSession {
       }
     }
 
-    this.buildParkBespokeFeatures(landmark, layout.features, palette, mapId);
+    this.buildParkBespokeFeatures(
+      landmark,
+      layout.features,
+      palette,
+      mapId,
+      mapPack.geometry.roadSurfaces ?? [],
+    );
 
     // The wall. A static-obstacle hit is a scored collision with damage, so it
     // has to be plainly visible — a low kerb you cannot see would read as an
@@ -16704,6 +16711,7 @@ class BabylonGameSession {
     features: readonly ParkFeature[],
     palette: MapVisualPalette,
     mapId: string,
+    roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
   ) {
     if (!features.length) return;
     const scene = this.scene;
@@ -16718,12 +16726,10 @@ class BabylonGameSession {
 
     for (const feature of features) {
       switch (feature.kind) {
-        case "court":
-        case "parterre": {
+        case "court": {
           // A ground patch on the bed rung, 5.5 mm UNDER the walks: a path
-          // may cross a court or graze a parterre, and the walk must win —
-          // sharing the paths' rung was a coplanar fight the depth buffer
-          // resolved as shimmer.
+          // may cross a court, and the walk must win — sharing the paths'
+          // rung was a coplanar fight the depth buffer resolved as shimmer.
           const patch = MeshBuilder.CreateGround(
             feature.id,
             { width: feature.sizeX, height: feature.sizeZ },
@@ -16731,32 +16737,55 @@ class BabylonGameSession {
           );
           patch.position.set(feature.x, PARK_BED_Y, feature.z);
           this.applyWorldPlanarGrassUVs(patch, feature.x, feature.z);
-          if (feature.kind === "court") {
-            if (!this.parkCourtMaterial) {
-              const court = makeMaterial(scene, "park-court", Color3.White());
-              court.diffuseTexture = this.ensureParkPathTexture(palette, mapId);
-              court.zOffsetUnits = PARK_BED_Z_OFFSET_UNITS;
-              this.parkCourtMaterial = court;
-            }
-            setMeshMaterial(patch, this.parkCourtMaterial, true);
-          } else {
-            if (!this.parkBedMaterial) {
-              // Planted colour, not lawn: a parterre reads as groundcover
-              // with flower heads, sharing only the palette.
-              const bedMaterial = makeMaterial(scene, "park-bed", Color3.White());
-              bedMaterial.diffuseTexture = createFlowerbedTexture(
-                scene,
-                "park-bed-texture",
-                palette,
-                hashStringToSeed(`${mapId}-park-bed`),
-              );
-              bedMaterial.zOffsetUnits = PARK_BED_Z_OFFSET_UNITS;
-              this.parkBedMaterial = bedMaterial;
-            }
-            setMeshMaterial(patch, this.parkBedMaterial, true);
+          if (!this.parkCourtMaterial) {
+            const court = makeMaterial(scene, "park-court", Color3.White());
+            court.diffuseTexture = this.ensureParkPathTexture(palette, mapId);
+            court.zOffsetUnits = PARK_BED_Z_OFFSET_UNITS;
+            this.parkCourtMaterial = court;
           }
+          setMeshMaterial(patch, this.parkCourtMaterial, true);
           patch.isPickable = false;
           this.registerStaticCell(patch, feature.x, feature.z, false);
+          break;
+        }
+        case "parterre": {
+          // Same bed rung as a court, but a polygon: a parterre's authored
+          // rect deliberately runs under the walks, the plaza disc and any
+          // crossing road — everything above paints over it, so every
+          // visible bed edge lands flush on a walk edge, the disc rim, or a
+          // pavement band. The clip cuts the rect back to the park side of
+          // a crossing road's centreline, exactly like the lawn: a
+          // rectangle cannot hug a diagonal street.
+          if (!this.parkBedMaterial) {
+            // Planted colour, not lawn: a parterre reads as groundcover
+            // with flower heads, sharing only the palette.
+            const bedMaterial = makeMaterial(scene, "park-bed", Color3.White());
+            bedMaterial.diffuseTexture = createFlowerbedTexture(
+              scene,
+              "park-bed-texture",
+              palette,
+              hashStringToSeed(`${mapId}-park-bed`),
+            );
+            bedMaterial.zOffsetUnits = PARK_BED_Z_OFFSET_UNITS;
+            this.parkBedMaterial = bedMaterial;
+          }
+          const bed = this.buildFlatPolygonMesh(
+            feature.id,
+            clipRectToRoadSide(
+              feature.x - feature.sizeX / 2,
+              feature.x + feature.sizeX / 2,
+              feature.z - feature.sizeZ / 2,
+              feature.z + feature.sizeZ / 2,
+              landmark.center,
+              roadSurfaces,
+            ),
+            PARK_BED_Y,
+            this.parkBedMaterial,
+          );
+          if (bed) {
+            bed.isPickable = false;
+            this.registerStaticCell(bed, feature.x, feature.z, false);
+          }
           break;
         }
         case "plaza": {

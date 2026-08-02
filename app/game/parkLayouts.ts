@@ -47,7 +47,12 @@ export const CAIRO_TAHRIR_PLAZA_RADIUS_M = 13;
  */
 export const CAIRO_OPERA_AXIS_X = -275;
 export const CAIRO_OPERA_CROSS_Z = -250;
-export const CAIRO_OPERA_PLAZA_RADIUS_M = 7;
+/**
+ * Big enough that the four benches ring the obelisk ON the paving: the
+ * quadrants around the disc are planted parterre, and a bench standing in
+ * flowers reads as a mistake.
+ */
+export const CAIRO_OPERA_PLAZA_RADIUS_M = 8.5;
 /**
  * Where the east arm ends: 0.5–1.1 m inside the corridor's pavement band
  * (outer edge x ≈ -254.6…-254.0 across the arm's width). The band draws
@@ -482,21 +487,33 @@ function bespokeFeatures(
   }
 
   if (id.includes("opera")) {
-    // A formal forecourt garden for the opera house: four quadrant parterres
-    // framed by the walk arms (`operaGardenPaths`), a paved plaza disc where
-    // the arms meet, the obelisk dead-centre on it, four benches ringing it,
-    // and a date-palm allée down the axis. World coordinates, anchored —
-    // like the walks — to the opera house's axis rather than the park's own
-    // centre; each derivation names its constraint.
+    // A formal forecourt garden for the opera house: the four quadrants ARE
+    // the parterres — each bed runs from the walk centrelines out to the
+    // park rectangle, and everything above it (walks at the path tier, the
+    // plaza disc, the terrace, the corridor's band and carriageway) paints
+    // over it, so every visible bed edge lands flush on something real.
+    // Straight-edged beds floating in lawn were tried first: nothing in the
+    // frame explained their edges, and against the diagonal street the gap
+    // tapered — "not aligned with the roads" was the complaint, verbatim.
+    // World coordinates, anchored — like the walks (`operaGardenPaths`) —
+    // to the opera house's axis rather than the park's own centre.
+    const minX = landmark.center.x - landmark.size.x / 2;
+    const maxX = landmark.center.x + landmark.size.x / 2;
+    const minZ = landmark.center.z - landmark.size.z / 2;
+    const maxZ = landmark.center.z + landmark.size.z / 2;
+    const spans = (from: number, to: number) =>
+      [(from + to) / 2, (to - from) / 2] as const;
+    const [westX, westHalf] = spans(minX, CAIRO_OPERA_AXIS_X);
+    const [eastX, eastHalf] = spans(CAIRO_OPERA_AXIS_X, maxX);
+    const [southZ, southHalf] = spans(minZ, CAIRO_OPERA_CROSS_Z);
+    const [northZ, northHalf] = spans(CAIRO_OPERA_CROSS_Z, maxZ);
     const beds = [
-      // West beds: inner edge 2.4 m off the axis walk's edge at x -277.2.
-      { x: -285.6, z: -226.5, halfX: 6, halfZ: 11.5 },
-      // The north-east bed is narrower: El Gezira Street's pavement band
-      // passes 1.4 m east of its nearest corner at z -215.
-      { x: -266.2, z: -226.5, halfX: 4.2, halfZ: 11.5 },
-      // South beds end 3.5 m short of the terrace line at z -283.
-      { x: -285.6, z: -268.5, halfX: 6, halfZ: 11 },
-      { x: -264.4, z: -268.5, halfX: 6, halfZ: 11 },
+      { x: westX, z: northZ, halfX: westHalf, halfZ: northHalf },
+      // The renderer clips the east quadrants to the park side of the
+      // corridor, exactly like the lawn — a rectangle cannot hug a diagonal.
+      { x: eastX, z: northZ, halfX: eastHalf, halfZ: northHalf },
+      { x: westX, z: southZ, halfX: westHalf, halfZ: southHalf },
+      { x: eastX, z: southZ, halfX: eastHalf, halfZ: southHalf },
     ];
     for (const [index, bed] of beds.entries()) {
       features.push({
@@ -509,6 +526,9 @@ function bespokeFeatures(
         sizeZ: bed.halfZ * 2,
         solid: false,
       });
+      // Full-quadrant clearings: scatter and path furniture have no ground
+      // left here, which is the point — everything this garden shows is
+      // authored below.
       clearings.push({
         x: bed.x,
         z: bed.z,
@@ -536,16 +556,10 @@ function bespokeFeatures(
       scale: 1,
       variant: 0,
     });
-    clearings.push({
-      x: CAIRO_OPERA_AXIS_X,
-      z: CAIRO_OPERA_CROSS_Z,
-      halfX: CAIRO_OPERA_PLAZA_RADIUS_M + 2,
-      halfZ: CAIRO_OPERA_PLAZA_RADIUS_M + 2,
-    });
-    // Four benches just off the disc's rim at the diagonals, facing the
-    // obelisk. Pushed directly: the plaza clearing vetoes scatter, not
-    // bespoke pieces.
-    const benchRadius = CAIRO_OPERA_PLAZA_RADIUS_M + 1.6;
+    // Four benches ON the disc at the diagonals, facing the obelisk — the
+    // ground beyond the rim is planted bed now, and a bench in flowers
+    // reads as a mistake.
+    const benchRadius = CAIRO_OPERA_PLAZA_RADIUS_M - 1.7;
     for (const [benchU, benchV] of [
       [-1, -1],
       [1, -1],
@@ -566,18 +580,30 @@ function bespokeFeatures(
         variant: 0,
       });
     }
-    // A date-palm allée flanking the axis walk: 3.6 m off its centreline —
-    // 1.4 m off its edge, close enough that every palm rides the knockable
-    // pipeline like a street tree. Rows break where the cross walk and the
-    // plaza pass.
+    // Authored lamps in the borders beside the walks. The quadrant
+    // clearings veto `pathFurniture`'s rolls wholesale, so without these
+    // the garden would go dark at night.
+    for (const lamp of [
+      { x: CAIRO_OPERA_AXIS_X - 2.75, z: -216, rotationY: Math.PI / 2 },
+      { x: CAIRO_OPERA_AXIS_X + 2.75, z: -216, rotationY: -Math.PI / 2 },
+      { x: CAIRO_OPERA_AXIS_X - 2.75, z: -235, rotationY: Math.PI / 2 },
+      { x: CAIRO_OPERA_AXIS_X + 2.75, z: -235, rotationY: -Math.PI / 2 },
+      { x: -288, z: CAIRO_OPERA_CROSS_Z - 2.15, rotationY: 0 },
+      { x: -288, z: CAIRO_OPERA_CROSS_Z + 2.15, rotationY: Math.PI },
+    ]) {
+      props.push({ kind: "lamp", ...lamp, scale: 1, variant: 0 });
+    }
+    // A date-palm allée rising from the beds beside the axis walk: 3.6 m
+    // off its centreline — 1.4 m off its edge, close enough that every palm
+    // rides the knockable pipeline like a street tree. Rows break where the
+    // cross walk and the plaza pass.
     for (const [row, alleeZ] of [
       -212.5, -226.5, -240.5, -262.5, -274.5,
     ].entries()) {
       for (const side of [-1, 1] as const) {
-        const alleeX = CAIRO_OPERA_AXIS_X + side * 3.6;
         props.push({
           kind: "tree",
-          x: alleeX,
+          x: CAIRO_OPERA_AXIS_X + side * 3.6,
           z: alleeZ,
           // Varied yaw so ten instances of one palm read as ten palms.
           rotationY: (row * 2 + (side > 0 ? 1 : 0)) * 2.4,
@@ -587,12 +613,8 @@ function bespokeFeatures(
           // planted ten broadleaves down the axis.
           variant: 2,
         });
-        clearings.push({ x: alleeX, z: alleeZ, halfX: 2.5, halfZ: 2.5 });
       }
     }
-    // Scatter must not stand on the terrace lip either: the opera house's
-    // own landmark clearing stops at z -284, the paving runs on to -283.
-    clearings.push({ x: -275, z: -290.5, halfX: 18, halfZ: 8 });
   }
 
   if (id.includes("joan-of-arc")) {

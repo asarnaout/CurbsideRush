@@ -172,7 +172,11 @@ their greensward style but not its walks: an id-keyed recipe
 (`operaGardenPaths`) lays four straight arms on the opera house's axis — not
 the park's own centre — ending at the plaza disc, with the east arm tucked
 half a metre under the corridor's pavement band so the seam reads as a street
-entrance.
+entrance. Its parterres ARE the quadrants: each bed runs from the walk
+centrelines to the park rectangle and everything above paints over it, so a
+bed edge can only land on a walk, the disc rim, the terrace or the band —
+straight-edged beds floating in lawn read as unaligned with all of them, and
+against the diagonal street the gap visibly tapered.
 
 Two scatter rules exist for the same reason, and the first generalises by id.
 `civic_plaza` planting keeps to the park-centre side of any road crossing the

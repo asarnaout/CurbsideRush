@@ -576,54 +576,46 @@ describe("opera grounds formal garden", () => {
     }
   });
 
-  it("frames the parterres between the walks with real margins", () => {
+  it("tiles the four parterre quadrants edge to edge", () => {
+    // The beds ARE the quadrants: each runs from the walk centrelines out
+    // to the park rectangle, and everything above — walks, disc, terrace,
+    // the corridor's band — paints over it, so every visible bed edge is
+    // flush with something real. The renderer clips the east pair to the
+    // corridor's park side; the authored rects deliberately cross it.
     const found = opera();
-    const surface = corridor();
-    if (!found || !surface) return;
+    if (!found) return;
     const beds = found.layout.features.filter(
       (feature) => feature.kind === "parterre",
     );
     expect(beds).toHaveLength(4);
-    const halfX = found.landmark.size.x / 2;
-    const halfZ = found.landmark.size.z / 2;
-    for (const bed of beds) {
-      for (const cornerU of [-1, 1]) {
-        for (const cornerV of [-1, 1]) {
-          const corner = {
-            x: bed.x + (cornerU * bed.sizeX) / 2,
-            z: bed.z + (cornerV * bed.sizeZ) / 2,
-          };
-          // Inside the park with at least the wall inset to spare...
-          expect(Math.abs(corner.x - found.landmark.center.x)).toBeLessThanOrEqual(
-            halfX - 1.9,
-          );
-          expect(Math.abs(corner.z - found.landmark.center.z)).toBeLessThanOrEqual(
-            halfZ - 1.9,
-          );
-          // ...a gravel margin off every walk...
-          for (const path of found.layout.paths) {
-            expect(
-              distanceToPolylineM(corner, path.points),
-              `${bed.id} corner sits against the ${path.id} walk`,
-            ).toBeGreaterThanOrEqual(path.widthM / 2 + 1.2);
-          }
-          // ...clear of the plaza disc...
-          expect(
-            Math.hypot(
-              corner.x - CAIRO_OPERA_AXIS_X,
-              corner.z - CAIRO_OPERA_CROSS_Z,
-            ),
-          ).toBeGreaterThanOrEqual(CAIRO_OPERA_PLAZA_RADIUS_M + 1.2);
-          // ...and clear of the corridor's rendered pavement band, on the
-          // park side. Recomputed from road data so a road nudge fails here
-          // by name rather than as a silent overlap.
-          expect(
-            distanceToPolylineM(corner, surface.centerline),
-            `${bed.id} corner reaches the corridor's band`,
-          ).toBeGreaterThanOrEqual(
-            surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8) + 1.2,
-          );
-        }
+    const minX = found.landmark.center.x - found.landmark.size.x / 2;
+    const maxX = found.landmark.center.x + found.landmark.size.x / 2;
+    const minZ = found.landmark.center.z - found.landmark.size.z / 2;
+    const maxZ = found.landmark.center.z + found.landmark.size.z / 2;
+    const spans = beds.map((bed) => ({
+      minX: bed.x - bed.sizeX / 2,
+      maxX: bed.x + bed.sizeX / 2,
+      minZ: bed.z - bed.sizeZ / 2,
+      maxZ: bed.z + bed.sizeZ / 2,
+    }));
+    for (const xSide of [
+      [minX, CAIRO_OPERA_AXIS_X],
+      [CAIRO_OPERA_AXIS_X, maxX],
+    ]) {
+      for (const zSide of [
+        [minZ, CAIRO_OPERA_CROSS_Z],
+        [CAIRO_OPERA_CROSS_Z, maxZ],
+      ]) {
+        expect(
+          spans.filter(
+            (span) =>
+              Math.abs(span.minX - xSide[0]) < 1e-6 &&
+              Math.abs(span.maxX - xSide[1]) < 1e-6 &&
+              Math.abs(span.minZ - zSide[0]) < 1e-6 &&
+              Math.abs(span.maxZ - zSide[1]) < 1e-6,
+          ),
+          `no bed spans x[${xSide[0]}, ${xSide[1]}] z[${zSide[0]}, ${zSide[1]}]`,
+        ).toHaveLength(1);
       }
     }
   });
@@ -649,7 +641,8 @@ describe("opera grounds formal garden", () => {
     expect(monuments[0].x).toBe(CAIRO_OPERA_AXIS_X);
     expect(monuments[0].z).toBe(CAIRO_OPERA_CROSS_Z);
 
-    // Four benches ring the disc at the diagonals, each facing the obelisk.
+    // Four benches ON the disc at the diagonals, each facing the obelisk —
+    // the ground beyond the rim is planted bed, not lawn.
     const ringBenches = found.layout.placements.filter(
       (placement) =>
         placement.kind === "bench" &&
@@ -658,7 +651,7 @@ describe("opera grounds formal garden", () => {
             placement.x - CAIRO_OPERA_AXIS_X,
             placement.z - CAIRO_OPERA_CROSS_Z,
           ) -
-            (CAIRO_OPERA_PLAZA_RADIUS_M + 1.6),
+            (CAIRO_OPERA_PLAZA_RADIUS_M - 1.7),
         ) < 1e-6,
     );
     expect(ringBenches).toHaveLength(4);
@@ -671,6 +664,23 @@ describe("opera grounds formal garden", () => {
         6,
       );
     }
+
+    // The quadrant clearings starve pathFurniture, so the lamps are
+    // authored: two pairs bracketing the axis walk, one pair on the cross.
+    const lamps = found.layout.placements.filter(
+      (placement) => placement.kind === "lamp",
+    );
+    expect(lamps).toHaveLength(6);
+    expect(
+      lamps.filter(
+        (lamp) => Math.abs(Math.abs(lamp.x - CAIRO_OPERA_AXIS_X) - 2.75) < 1e-6,
+      ),
+    ).toHaveLength(4);
+    expect(
+      lamps.filter(
+        (lamp) => Math.abs(Math.abs(lamp.z - CAIRO_OPERA_CROSS_Z) - 2.15) < 1e-6,
+      ),
+    ).toHaveLength(2);
 
     // Ten allée palms, five a side, mirrored about the axis.
     const palms = found.layout.placements.filter(
