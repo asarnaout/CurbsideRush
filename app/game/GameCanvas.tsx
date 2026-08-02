@@ -16582,6 +16582,8 @@ class BabylonGameSession {
     // Vermilion, which is what a torii is and the one strong colour a temple
     // garden carries.
     const vermilion = material("torii", new Color3(0.72, 0.24, 0.16));
+    // The warm paving Tahrir's plaza and the ministries esplanade set.
+    const plaza = material("plaza", new Color3(0.63, 0.57, 0.47));
 
     for (const feature of features) {
       switch (feature.kind) {
@@ -16624,6 +16626,25 @@ class BabylonGameSession {
           }
           patch.isPickable = false;
           this.registerStaticCell(patch, feature.x, feature.z, false);
+          break;
+        }
+        case "plaza": {
+          // The paved disc a formal garden's walk arms terminate at —
+          // Tahrir's disc idiom: top face exactly at PARK_PATH_Y, ground
+          // tier, so each arm's half-metre lap draws over its rim.
+          const disc = createCylinder(
+            scene,
+            feature.id,
+            {
+              height: 0.022,
+              diameter: feature.sizeX,
+              tessellation: 32,
+            },
+            new Vector3(feature.x, PARK_PATH_Y - 0.011, feature.z),
+            plaza,
+          );
+          disc.isPickable = false;
+          this.registerStaticCell(disc, feature.x, feature.z, false);
           break;
         }
         case "torii": {

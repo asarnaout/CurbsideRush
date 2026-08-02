@@ -35,6 +35,33 @@ import {
 export const CAIRO_TAHRIR_PLAZA_RADIUS_M = 13;
 
 /**
+ * The Opera Grounds' formal garden, in world coordinates.
+ *
+ * The composition is anchored to the OPERA HOUSE's axis (its centre x is
+ * -275), not the park's own centre (-270): the main walk must arrive centred
+ * on the facade, and the leftover asymmetry sits on the east side, where El
+ * Gezira Street eats the margin anyway. The cross walk meets it at the
+ * park's mid-height, and the four arms terminate at the plaza disc — walks
+ * that CROSS at one y-level are a coplanar fight, so here they only ever
+ * touch the disc's rim.
+ */
+export const CAIRO_OPERA_AXIS_X = -275;
+export const CAIRO_OPERA_CROSS_Z = -250;
+export const CAIRO_OPERA_PLAZA_RADIUS_M = 7;
+/**
+ * Where the east arm ends: 0.5–1.1 m inside the corridor's pavement band
+ * (outer edge x ≈ -254.6…-254.0 across the arm's width). The band draws
+ * above the path, so the seam lands exactly on the band's outer edge and the
+ * walk reads as a street entrance — the Tahrir tuck logic.
+ */
+export const CAIRO_OPERA_STREET_GATE_X = -253.5;
+/**
+ * Where the terrace the renderer paves in front of the opera house begins;
+ * the south arm ends 0.5 m past it so path laps terrace, never gaps it.
+ */
+export const CAIRO_OPERA_TERRACE_NORTH_Z = -283;
+
+/**
  * How a park is dressed. Derived from id, map and proportions unless the
  * landmark names one explicitly.
  *
@@ -75,7 +102,8 @@ export type ParkFeatureKind =
   | "parterre"
   | "torii"
   | "lantern"
-  | "plinth";
+  | "plinth"
+  | "plaza";
 
 export interface ParkFeature {
   readonly id: string;
@@ -375,8 +403,9 @@ function bespokeFeatures(
    *
    * The same idea as `cairoTahrirFurnitureLayout`'s `settle`: the ideal spot is
    * the axis centre, and clearance is a veto on it rather than something being
-   * maximised. Without this the Opera Grounds obelisk stood in the middle of
-   * its own spine path.
+   * maximised. Joan of Arc's plinth is the surviving customer — the Opera
+   * Grounds obelisk once needed it too, until that garden was recomposed to
+   * put a plaza disc under the monument instead of a walk through it.
    */
   const settle = (u: number, v: number, radiusM: number): VisualPoint => {
     const steps = [0, 0.1, -0.1, 0.18, -0.18, 0.26, -0.26];
@@ -453,40 +482,114 @@ function bespokeFeatures(
   }
 
   if (id.includes("opera")) {
-    // Four formal parterres either side of the axis, and an obelisk on it.
-    for (const [index, [u, v]] of (
-      [
-        [-0.22, -0.2],
-        [0.22, -0.2],
-        [-0.22, 0.2],
-        [0.22, 0.2],
-      ] as const
-    ).entries()) {
-      const bed = toWorld(landmark, u, v);
-      const halfX = landmark.size.x * 0.16;
-      const halfZ = landmark.size.z * 0.14;
+    // A formal forecourt garden for the opera house: four quadrant parterres
+    // framed by the walk arms (`operaGardenPaths`), a paved plaza disc where
+    // the arms meet, the obelisk dead-centre on it, four benches ringing it,
+    // and a date-palm allée down the axis. World coordinates, anchored —
+    // like the walks — to the opera house's axis rather than the park's own
+    // centre; each derivation names its constraint.
+    const beds = [
+      // West beds: inner edge 2.4 m off the axis walk's edge at x -277.2.
+      { x: -285.6, z: -226.5, halfX: 6, halfZ: 11.5 },
+      // The north-east bed is narrower: El Gezira Street's pavement band
+      // passes 1.4 m east of its nearest corner at z -215.
+      { x: -266.2, z: -226.5, halfX: 4.2, halfZ: 11.5 },
+      // South beds end 3.5 m short of the terrace line at z -283.
+      { x: -285.6, z: -268.5, halfX: 6, halfZ: 11 },
+      { x: -264.4, z: -268.5, halfX: 6, halfZ: 11 },
+    ];
+    for (const [index, bed] of beds.entries()) {
       features.push({
         id: `${landmark.id}-parterre-${index}`,
         kind: "parterre",
         x: bed.x,
         z: bed.z,
         rotationY: 0,
-        sizeX: halfX * 2,
-        sizeZ: halfZ * 2,
+        sizeX: bed.halfX * 2,
+        sizeZ: bed.halfZ * 2,
         solid: false,
       });
-      clearings.push({ x: bed.x, z: bed.z, halfX, halfZ });
+      clearings.push({
+        x: bed.x,
+        z: bed.z,
+        halfX: bed.halfX,
+        halfZ: bed.halfZ,
+      });
     }
-    const centre = settle(0, 0, 3.5);
+    features.push({
+      id: `${landmark.id}-plaza`,
+      kind: "plaza",
+      x: CAIRO_OPERA_AXIS_X,
+      z: CAIRO_OPERA_CROSS_Z,
+      rotationY: 0,
+      sizeX: CAIRO_OPERA_PLAZA_RADIUS_M * 2,
+      sizeZ: CAIRO_OPERA_PLAZA_RADIUS_M * 2,
+      solid: false,
+    });
+    // Dead-centre and no `settle`: the disc exists so the monument stands on
+    // paving, not in a walk — the walks stop at the rim by construction.
     props.push({
       kind: "monument",
-      x: centre.x,
-      z: centre.z,
+      x: CAIRO_OPERA_AXIS_X,
+      z: CAIRO_OPERA_CROSS_Z,
       rotationY: 0,
       scale: 1,
       variant: 0,
     });
-    clearings.push({ x: centre.x, z: centre.z, halfX: 5, halfZ: 5 });
+    clearings.push({
+      x: CAIRO_OPERA_AXIS_X,
+      z: CAIRO_OPERA_CROSS_Z,
+      halfX: CAIRO_OPERA_PLAZA_RADIUS_M + 2,
+      halfZ: CAIRO_OPERA_PLAZA_RADIUS_M + 2,
+    });
+    // Four benches just off the disc's rim at the diagonals, facing the
+    // obelisk. Pushed directly: the plaza clearing vetoes scatter, not
+    // bespoke pieces.
+    const benchRadius = CAIRO_OPERA_PLAZA_RADIUS_M + 1.6;
+    for (const [benchU, benchV] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ] as const) {
+      const benchX = CAIRO_OPERA_AXIS_X + (benchU * benchRadius) / Math.SQRT2;
+      const benchZ = CAIRO_OPERA_CROSS_Z + (benchV * benchRadius) / Math.SQRT2;
+      props.push({
+        kind: "bench",
+        x: benchX,
+        z: benchZ,
+        rotationY: Math.atan2(
+          CAIRO_OPERA_AXIS_X - benchX,
+          CAIRO_OPERA_CROSS_Z - benchZ,
+        ),
+        scale: 1,
+        variant: 0,
+      });
+    }
+    // A date-palm allée flanking the axis walk: 3.6 m off its centreline —
+    // 1.4 m off its edge, close enough that every palm rides the knockable
+    // pipeline like a street tree. Rows break where the cross walk and the
+    // plaza pass.
+    for (const [row, alleeZ] of [
+      -212.5, -226.5, -240.5, -262.5, -274.5,
+    ].entries()) {
+      for (const side of [-1, 1] as const) {
+        const alleeX = CAIRO_OPERA_AXIS_X + side * 3.6;
+        props.push({
+          kind: "tree",
+          x: alleeX,
+          z: alleeZ,
+          // Varied yaw so ten instances of one palm read as ten palms.
+          rotationY: (row * 2 + (side > 0 ? 1 : 0)) * 2.4,
+          scale: 1.05,
+          variant: 0,
+        });
+        clearings.push({ x: alleeX, z: alleeZ, halfX: 2.5, halfZ: 2.5 });
+      }
+    }
+    // Scatter must not stand on the terrace lip either: the opera house's
+    // own landmark clearing stops at z -284, the paving runs on to -283.
+    clearings.push({ x: -275, z: -290.5, halfX: 18, halfZ: 8 });
   }
 
   if (id.includes("joan-of-arc")) {
@@ -513,6 +616,57 @@ function bespokeFeatures(
   }
 
   return { features, clearings, props };
+}
+
+/**
+ * The Opera Grounds' four walk arms, in world coordinates.
+ *
+ * Every arm stops `CAIRO_OPERA_PLAZA_RADIUS_M - 0.5` from the plaza centre:
+ * the half-metre lap rides ONTO the disc (path tier -2 over ground tier 0),
+ * so no arm ever overlaps another arm. The east arm ends tucked just inside
+ * the corridor's pavement band — painted over from above, the seam lands on
+ * the band's outer edge and the walk reads as a street entrance. The south
+ * arm ends lapping the opera terrace the renderer paves; the north and west
+ * arms end on the rect edge, where the perimeter wall opens a gate for them.
+ */
+function operaGardenPaths(landmark: ParkLandmarkInput): readonly ParkPath[] {
+  const tip = CAIRO_OPERA_PLAZA_RADIUS_M - 0.5;
+  const northEdgeZ = landmark.center.z + landmark.size.z / 2;
+  const westEdgeX = landmark.center.x - landmark.size.x / 2;
+  return [
+    {
+      id: "axis-north",
+      points: [
+        { x: CAIRO_OPERA_AXIS_X, z: northEdgeZ },
+        { x: CAIRO_OPERA_AXIS_X, z: CAIRO_OPERA_CROSS_Z + tip },
+      ],
+      widthM: 4.4,
+    },
+    {
+      id: "axis-south",
+      points: [
+        { x: CAIRO_OPERA_AXIS_X, z: CAIRO_OPERA_CROSS_Z - tip },
+        { x: CAIRO_OPERA_AXIS_X, z: CAIRO_OPERA_TERRACE_NORTH_Z - 0.5 },
+      ],
+      widthM: 4.4,
+    },
+    {
+      id: "cross-west",
+      points: [
+        { x: westEdgeX, z: CAIRO_OPERA_CROSS_Z },
+        { x: CAIRO_OPERA_AXIS_X - tip, z: CAIRO_OPERA_CROSS_Z },
+      ],
+      widthM: 3.2,
+    },
+    {
+      id: "cross-east",
+      points: [
+        { x: CAIRO_OPERA_AXIS_X + tip, z: CAIRO_OPERA_CROSS_Z },
+        { x: CAIRO_OPERA_STREET_GATE_X, z: CAIRO_OPERA_CROSS_Z },
+      ],
+      widthM: 3.2,
+    },
+  ];
 }
 
 /**
@@ -546,6 +700,15 @@ function pathRecipe(
     }
     return { id, points, widthM };
   };
+
+  // Keyed on id like `bespokeFeatures`: the Opera Grounds keep their
+  // greensward style (and its scatter and wall rules) but not the greensward
+  // walks — the wandering spine plowed through all four parterres, and its
+  // crossing met it at one y-level. A formal garden is made of straight arms
+  // that only ever touch the plaza disc.
+  if (landmark.id.toLowerCase().includes("opera")) {
+    return operaGardenPaths(landmark);
+  }
 
   switch (style) {
     case "pocket_green":
