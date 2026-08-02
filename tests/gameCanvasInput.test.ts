@@ -10,9 +10,7 @@ import {
   PRIMARY_CAMERA_LAYER_MASK,
   TOUCH_CONTROL_DIM_DELAY_MS,
   WORLD_LAYER_MASK,
-  buildRoadSurfaceStripGeometry,
   clampHorizontalFieldOfView,
-  collectRoadJunctionFills,
   guidanceCueOverlapsCheckpoint,
   isAuthoredCheckpointCrossing,
   isLaneGuidanceDistanceAllowed,
@@ -22,9 +20,13 @@ import {
   resolveCheckpointTargetWidth,
   resolveRouteChevronHalfSpan,
   resolveNpcVisualSlotAssignments,
-  smoothClosedRoadCenterline,
   type AdaptiveInputPresentation,
 } from "../app/game/GameCanvas";
+import {
+  buildRoadSurfaceStripGeometry,
+  collectRoadJunctionFills,
+  smoothClosedRoadCenterline,
+} from "../app/game/geometry/roadStrips";
 import {
   COCKPIT_DASH_DRIVER_Z,
   MAX_STEERING_WHEEL_SPIN,

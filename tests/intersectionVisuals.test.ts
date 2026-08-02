@@ -3,13 +3,13 @@ import { getMapPack, MAP_PACKS } from "../app/game/content";
 import {
   BUILDING_BASE_CLEARANCE_M,
   mastArmTopY,
-  roadAxisHeadingNear,
   signalStopBarSegment,
   SIGNAL_MAST,
   TRAFFIC_CAMERA_BODY,
   trafficCameraHeadIds,
   trafficCameraPlacement,
 } from "../app/game/GameCanvas";
+import { roadAxisHeadingNear } from "../app/game/geometry/roadStrips";
 import { trafficCameraControlIds } from "../app/game/trafficSignals";
 import type { LaneSegment, MapPack } from "../app/game/types";
 

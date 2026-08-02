@@ -3,7 +3,7 @@ import { MAP_PACKS } from "../app/game/content";
 import {
   collectRoadJunctionFills,
   type RoadJunctionSource,
-} from "../app/game/GameCanvas";
+} from "../app/game/geometry/roadStrips";
 
 type Pt = { x: number; z: number };
 
