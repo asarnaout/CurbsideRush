@@ -1865,7 +1865,13 @@ const cairoRoadsideExclusions: readonly RoadsideExclusion[] = [
         rect.center,
         rect.size,
         heading,
-        landmark.kind === "park" ? 18 : landmark.kind === "bridge" ? 4 : 12,
+        // Bridges get no margin: their decks are elevated, the scenic deck has
+        // its own ground guard (sixthOctoberCorridor, checked with every other
+        // road envelope in addRoadClearBlock), and drivable bridges are also
+        // RoadSurfaces whose envelopes addRoadClearBlock enforces. The old
+        // 4 m margin on the 1500 m scenic deck blanked a band across every
+        // road it crossed — real Cairo builds hard against its flyovers.
+        landmark.kind === "park" ? 18 : landmark.kind === "bridge" ? 0 : 12,
       ),
     };
   }),
