@@ -1152,6 +1152,49 @@ const nearestPointOnOrientedParcel = (
   );
 };
 
+/** Sutherland–Hodgman clip of a convex polygon to an oriented parcel's four
+ * halfplanes. Returns [] when nothing survives. */
+const clipToOrientedParcel = (
+  corners: readonly WorldPoint[],
+  parcel: OrientedParcel,
+): WorldPoint[] => {
+  let output: WorldPoint[] = [...corners];
+  for (const plane of [
+    { x: parcel.axisU.x, z: parcel.axisU.z, limit: parcel.halfU },
+    { x: -parcel.axisU.x, z: -parcel.axisU.z, limit: parcel.halfU },
+    { x: parcel.axisV.x, z: parcel.axisV.z, limit: parcel.halfV },
+    { x: -parcel.axisV.x, z: -parcel.axisV.z, limit: parcel.halfV },
+  ]) {
+    const input = output;
+    output = [];
+    for (let index = 0; index < input.length; index += 1) {
+      const current = input[index];
+      const previous = input[(index + input.length - 1) % input.length];
+      const currentDepth =
+        (current.x - parcel.center.x) * plane.x +
+        (current.z - parcel.center.z) * plane.z -
+        plane.limit;
+      const previousDepth =
+        (previous.x - parcel.center.x) * plane.x +
+        (previous.z - parcel.center.z) * plane.z -
+        plane.limit;
+      const currentInside = currentDepth <= 0;
+      if (currentInside !== previousDepth <= 0) {
+        const t = previousDepth / (previousDepth - currentDepth);
+        output.push(
+          point(
+            previous.x + (current.x - previous.x) * t,
+            previous.z + (current.z - previous.z) * t,
+          ),
+        );
+      }
+      if (currentInside) output.push(current);
+    }
+    if (output.length === 0) return output;
+  }
+  return output;
+};
+
 const sixthOctoberCorridor = orientedParcel(
   CAIRO_SIXTH_OCTOBER_SCENIC_BRIDGE.center,
   point(
@@ -2351,6 +2394,307 @@ for (const surface of cairoRoadSurfaces) {
           return left || right;
         };
         tryPiece(sideId, 0, frontageLengthM);
+      }
+    }
+  }
+}
+
+/**
+ * Gap-fill pass. The slot pass above lays frontage on a fixed per-segment
+ * grid and its halving ladder splits refusals at midpoints — halves cannot
+ * slide sideways into an offset gap, and a road visited late in spec order
+ * inherits a band already eaten by earlier roads' parcels (opera-square lost
+ * most of its kerb this way). This pass measures the bare intervals that
+ * actually remain along every buildable kerb and tiles pieces into them
+ * directly. It also visits segments the slot pass skips as too short, down
+ * to 18 m, which previously stayed bare end to end. Ids carry -g<n> where
+ * the slot pass carries a run index, so everything filtering on
+ * `-roadside-` and the side slug treats both passes alike.
+ */
+for (const surface of cairoRoadSurfaces) {
+  if (surface.id.includes("-bridge")) continue;
+  for (
+    let segmentIndex = 0;
+    segmentIndex + 1 < surface.centerline.length;
+    segmentIndex += 1
+  ) {
+    const start = surface.centerline[segmentIndex];
+    const end = surface.centerline[segmentIndex + 1];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const segmentLength = Math.hypot(dx, dz);
+    if (segmentLength < 18) continue;
+    const alongX = dx / segmentLength;
+    const alongZ = dz / segmentLength;
+    const normalX = alongZ;
+    const normalZ = -alongX;
+    const endpointClearanceM = Math.min(6, segmentLength * 0.1);
+    const headingDeg = (Math.atan2(dx, dz) * 180) / Math.PI - 90;
+    const roadEnvelopeM =
+      surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8) + 0.75;
+    for (const side of [-1, 1] as const) {
+      if (CAIRO_OPEN_WATERFRONT_SIDES[surface.id]?.includes(side)) {
+        continue;
+      }
+      const sideSlug = side < 0 ? "left" : "right";
+      // Occupied intervals: every accepted block whose rect reaches this
+      // side's frontage band, projected onto the segment axis. Blocks, not
+      // exclusions — a piece dropped over a venue or landmark margin simply
+      // fails tryGapPiece and splits around it. The band is exactly as deep
+      // as the deepest parcel this road can host (district glb set or the
+      // facade-box depth) plus the 2 m sibling gap on each face — and no
+      // deeper: a wider band reads the NEXT street's parcel backs as
+      // occupying this kerb (el-gabalaya's backs sit ~26 m from Saray's kerb
+      // and a 25 m band blanked 180 m of it).
+      const midpointSet = cairoRoadsideBuildingSet(
+        surface.id,
+        point(
+          (start.x + end.x) / 2 + normalX * side * 30,
+          (start.z + end.z) / 2 + normalZ * side * 30,
+        ),
+      );
+      const deepestParcelM = Math.max(
+        CAIRO_FACADE_PARCEL_DEPTH_M,
+        isBuildingSetId(midpointSet) ? buildingSetDepthM(midpointSet) + 1.5 : 0,
+      );
+      const bandInnerM = roadEnvelopeM + 1.5 - 2;
+      const bandDepthM = deepestParcelM + 4;
+      const band = orientedParcel(
+        point(
+          (start.x + end.x) / 2 +
+            normalX * side * (bandInnerM + bandDepthM / 2),
+          (start.z + end.z) / 2 +
+            normalZ * side * (bandInnerM + bandDepthM / 2),
+        ),
+        point(segmentLength, bandDepthM),
+        headingDeg,
+      );
+      const occupied: { from: number; to: number }[] = [];
+      // Project only the part of a shape inside the band: a long parcel on a
+      // parallel road grazing the band's outer edge by a metre must cast a
+      // metre's shadow, not its whole hundred-metre length. The band lies
+      // strictly on this side of the road, so clipping to it doubles as the
+      // side test for exclusions — a cross-road envelope never reaches it.
+      const pushClippedInterval = (parcel: OrientedParcel): void => {
+        if (!orientedParcelsOverlap(band, parcel)) return;
+        const corners: WorldPoint[] = [];
+        for (const [signU, signV] of [
+          [-1, -1],
+          [1, -1],
+          [1, 1],
+          [-1, 1],
+        ] as const) {
+          corners.push(
+            point(
+              parcel.center.x +
+                parcel.axisU.x * parcel.halfU * signU +
+                parcel.axisV.x * parcel.halfV * signV,
+              parcel.center.z +
+                parcel.axisU.z * parcel.halfU * signU +
+                parcel.axisV.z * parcel.halfV * signV,
+            ),
+          );
+        }
+        const clipped = clipToOrientedParcel(corners, band);
+        if (clipped.length < 3) return;
+        let min = Number.POSITIVE_INFINITY;
+        let max = Number.NEGATIVE_INFINITY;
+        for (const vertex of clipped) {
+          const along =
+            (vertex.x - start.x) * alongX + (vertex.z - start.z) * alongZ;
+          min = Math.min(min, along);
+          max = Math.max(max, along);
+        }
+        occupied.push({ from: min, to: max });
+      };
+      for (const existing of cairoBlocks) {
+        pushClippedInterval(
+          orientedParcel(
+            existing.center,
+            existing.size,
+            existing.headingDeg ?? 0,
+          ),
+        );
+      }
+      // Tile around venue aprons, service forecourts and landmark margins
+      // rather than dropping pieces onto them only to have every attempt
+      // refused mid-lot.
+      for (const exclusion of cairoRoadsideExclusions) {
+        pushClippedInterval(exclusion.inflated);
+      }
+      occupied.sort((first, second) => first.from - second.from);
+      const merged: { from: number; to: number }[] = [];
+      for (const interval of occupied) {
+        const last = merged.at(-1);
+        if (last && interval.from <= last.to + 0.5) {
+          last.to = Math.max(last.to, interval.to);
+        } else {
+          merged.push({ ...interval });
+        }
+      }
+      const usableFrom = endpointClearanceM;
+      const usableTo = segmentLength - endpointClearanceM;
+      const gaps: { from: number; to: number }[] = [];
+      let cursor = usableFrom;
+      for (const interval of merged) {
+        if (interval.to <= cursor) continue;
+        if (interval.from >= usableTo) break;
+        if (interval.from > cursor) {
+          gaps.push({ from: cursor, to: Math.min(interval.from, usableTo) });
+        }
+        cursor = Math.max(cursor, interval.to);
+        if (cursor >= usableTo) break;
+      }
+      if (cursor < usableTo) gaps.push({ from: cursor, to: usableTo });
+
+      let gapPieceIndex = 0;
+      for (const gap of gaps) {
+        // Two metres off each neighbour that bounds the gap; the slot pass
+        // spaces siblings by 4-6 m, so fill reads as the same street wall.
+        const fillFrom = gap.from + 2;
+        const fillTo = gap.to - 2;
+        const fillLength = fillTo - fillFrom;
+        if (fillLength < 12) continue;
+        const pieceCount = Math.max(1, Math.ceil(fillLength / 114));
+        const slotLengthM =
+          (fillLength - (pieceCount - 1) * 4) / pieceCount;
+        for (let slot = 0; slot < pieceCount; slot += 1) {
+          gapPieceIndex += 1;
+          const pieceBaseId = `${surface.id}-roadside-${segmentIndex + 1}-g${gapPieceIndex}-${sideSlug}`;
+          const centerAlongM =
+            fillFrom + slot * (slotLengthM + 4) + slotLengthM / 2;
+          const provisional = point(
+            start.x + alongX * centerAlongM + normalX * side * 30,
+            start.z + alongZ * centerAlongM + normalZ * side * 30,
+          );
+          const preferredSet = cairoParcelKeepsFacadeBoxes(pieceBaseId)
+            ? undefined
+            : cairoRoadsideBuildingSet(surface.id, provisional);
+          // The corniche set is 21.7 m deep and the island's parallel roads
+          // often leave a strip a metre too shallow for it — where the tall
+          // riverfront slab cannot fit, the district's ordinary fabric can.
+          const districtSet = cairoDistrictBuildingSet(provisional);
+          const fallbackSet =
+            preferredSet && districtSet !== preferredSet
+              ? districtSet
+              : undefined;
+          const pieceFor = (
+            pieceId: string,
+            alongM: number,
+            lengthM: number,
+            dressing: string | undefined,
+            boxDepthM?: number,
+          ): ProceduralBlock => {
+            const build = (
+              buildingSet: string | undefined,
+            ): {
+              readonly block: ProceduralBlock;
+              readonly depthM: number;
+            } => {
+              const depthM =
+                buildingSet && isBuildingSetId(buildingSet)
+                  ? buildingSetDepthM(buildingSet) + 1.5
+                  : (boxDepthM ?? CAIRO_FACADE_PARCEL_DEPTH_M);
+              const offsetM = roadEnvelopeM + depthM / 2 + 1.5;
+              const center = point(
+                start.x + alongX * alongM + normalX * side * offsetM,
+                start.z + alongZ * alongM + normalZ * side * offsetM,
+              );
+              const style = cairoRoadsideStyle(center);
+              return {
+                depthM,
+                block: {
+                  id: pieceId,
+                  center,
+                  size: point(lengthM, depthM),
+                  headingDeg,
+                  frontageAxis: "z",
+                  streetEdges: [side > 0 ? "+z" : "-z"],
+                  material: style.material,
+                  heightRange: style.heightRange,
+                  density: 0.82,
+                  ...(buildingSet ? { buildingSet } : {}),
+                },
+              };
+            };
+            let chosen = build(dressing);
+            if (dressing) {
+              const backMidX =
+                chosen.block.center.x + normalX * side * (chosen.depthM / 2);
+              const backMidZ =
+                chosen.block.center.z + normalZ * side * (chosen.depthM / 2);
+              const halfM = lengthM / 2;
+              if (
+                backEdgeNearsARoad(
+                  point(backMidX - alongX * halfM, backMidZ - alongZ * halfM),
+                  point(backMidX + alongX * halfM, backMidZ + alongZ * halfM),
+                )
+              ) {
+                chosen = build(undefined);
+              }
+            }
+            return chosen.block;
+          };
+          // Dressing ladder, deepest first. The island's parallel streets sit
+          // ~30 m apart in places, which misses the room for a full-depth
+          // parcel by well under a metre — Cairo's own answer is the sliver
+          // building, so shallow all-glazed box parcels close what no glb
+          // set can.
+          const attempts: readonly {
+            readonly set?: string;
+            readonly boxDepthM?: number;
+          }[] = [
+            preferredSet ? { set: preferredSet } : {},
+            ...(fallbackSet ? [{ set: fallbackSet }] : []),
+            { boxDepthM: 12 },
+            { boxDepthM: 9 },
+          ];
+          const tryGapPiece = (
+            pieceId: string,
+            alongM: number,
+            lengthM: number,
+          ): boolean => {
+            const sideContext: RoadsideSideContext = {
+              origin: point(
+                start.x + alongX * alongM,
+                start.z + alongZ * alongM,
+              ),
+              outX: normalX * side,
+              outZ: normalZ * side,
+            };
+            for (const attempt of attempts) {
+              if (
+                addCairoRoadsideBlock(
+                  pieceFor(
+                    pieceId,
+                    alongM,
+                    lengthM,
+                    attempt.set,
+                    attempt.boxDepthM,
+                  ),
+                  sideContext,
+                )
+              ) {
+                return true;
+              }
+            }
+            const halfLengthM = (lengthM - 4) / 2;
+            if (halfLengthM < 12) return false;
+            const stepM = (halfLengthM + 4) / 2;
+            const left = tryGapPiece(
+              `${pieceId}-s1`,
+              alongM - stepM,
+              halfLengthM,
+            );
+            const right = tryGapPiece(
+              `${pieceId}-s2`,
+              alongM + stepM,
+              halfLengthM,
+            );
+            return left || right;
+          };
+          tryGapPiece(pieceBaseId, centerAlongM, Math.min(110, slotLengthM));
+        }
       }
     }
   }

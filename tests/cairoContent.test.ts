@@ -50,15 +50,15 @@ import type {
  * majority of roadside parcels — if a guard change flips that balance, that is
  * a decision for a person, not a constant to re-pin in passing.
  */
-const BLOCK_COUNT = 588;
-const ROADSIDE_COUNT = 564;
-const ROADSIDE_LEFT = 288;
+const BLOCK_COUNT = 650;
+const ROADSIDE_COUNT = 626;
+const ROADSIDE_LEFT = 313;
 /** The second rank is gone — a one-sided kit means a back row can only stare
  * at the front row's service wall or plant its own on the next street over.
  * Zero, pinned, so it cannot quietly come back. */
 const ROADSIDE_RANKS = 0;
-const STREET_WALL_BLOCKS = 423;
-const FACADE_BOX_CELLS = 1464;
+const STREET_WALL_BLOCKS = 471;
+const FACADE_BOX_CELLS = 1590;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
@@ -1301,7 +1301,7 @@ describe("Cairo Central Nile content", () => {
       "cairo-corniche-el-nil-roadside-1-1-right-s1",
     );
     expect(roadside.at(-1)?.id).toBe(
-      "cairo-agouza-approach-roadside-1-2-right-s2-s1",
+      "cairo-west-nile-street-roadside-2-g1-right",
     );
     // `includes`, not `endsWith`: the halving ladder appends -s1/-s2 after the
     // side slug, and every piece of a left frontage still counts as left.
