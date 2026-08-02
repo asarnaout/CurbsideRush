@@ -620,6 +620,7 @@ describe("the money cluster", () => {
         balanceLabel="Wallet"
         session="+$62.10"
         sessionLabel="TODAY"
+        sessionVisible
         gain={null}
         buttons={[
           { id: "music", label: "Mute music", pressed: false, onPress: press },
@@ -638,6 +639,16 @@ describe("the money cluster", () => {
     expect(screen.getByTestId("day-cash")).toHaveTextContent("$248.60");
     expect(screen.getByText("+$62.10")).toBeVisible();
     expect(screen.getByTestId("session-label")).toHaveTextContent("TODAY");
+  });
+
+  it("reserves the shift line's place but hides it on an exactly even day (#267)", () => {
+    money({ session: "+$0.00", sessionVisible: false });
+    const label = screen.getByTestId("session-label");
+    expect(label).not.toBeVisible();
+    expect(screen.getByText("+$0.00")).not.toBeVisible();
+    // Hidden via `visibility`, not unmounted or `display: none` — the row
+    // still occupies its line, so the balance above it never jumps down.
+    expect(label.parentElement).toHaveStyle({ visibility: "hidden" });
   });
 
   it("leaves the shift clock to the top-centre readout", () => {
@@ -691,6 +702,7 @@ describe("the money cluster", () => {
         balanceLabel="Wallet"
         session="+$0.00"
         sessionLabel="TODAY"
+        sessionVisible={false}
         gain={null}
         buttons={[]}
       />,
@@ -806,10 +818,22 @@ describe("the phone HUD", () => {
     // reclaim Safari's chrome once a drive has started.
     navCard({
       compact: true,
-      money: { balance: "$248.60", session: "+$62.10", label: "TODAY" },
+      money: { balance: "$248.60", session: "+$62.10", sessionVisible: true, label: "TODAY" },
     });
     expect(screen.getByTestId("day-cash")).toHaveTextContent("$248.60");
     expect(screen.getByTestId("session-label")).toHaveTextContent("TODAY");
+  });
+
+  it("reserves the shift figure's place but hides it on an exactly even day (#267)", () => {
+    // Unlike the desktop cluster, the label here can be the only clock a
+    // narrow phone has room for (`dayTimerInRow`) — so only the amount hides,
+    // never the caption beside it.
+    navCard({
+      compact: true,
+      money: { balance: "$248.60", session: "+$0.00", sessionVisible: false, label: "TODAY" },
+    });
+    expect(screen.getByText("+$0.00")).not.toBeVisible();
+    expect(screen.getByTestId("session-label")).toBeVisible();
   });
 
   it("leaves the shift clock to the top-centre readout here too", () => {
@@ -817,7 +841,7 @@ describe("the phone HUD", () => {
     // #236 was landing. The phone reads it top-centre now, same as the desktop.
     navCard({
       compact: true,
-      money: { balance: "$248.60", session: "+$62.10", label: "TODAY" },
+      money: { balance: "$248.60", session: "+$62.10", sessionVisible: true, label: "TODAY" },
     });
     expect(screen.queryByTestId("day-clock")).not.toBeInTheDocument();
   });

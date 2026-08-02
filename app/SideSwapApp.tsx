@@ -3152,6 +3152,7 @@ export default function SideSwapApp() {
                     driveCountry,
                   ),
                   session: `+${formatMoney(sessionEarnings, driveCountry)}`,
+                  sessionVisible: sessionEarnings !== 0,
                   // Normally just what the figure beside it means: the clock
                   // left this header for the top centre when the phone got the
                   // same readout the desktop has (#236). It comes back only on
@@ -3455,6 +3456,7 @@ export default function SideSwapApp() {
           balanceLabel={careerRun ? "Cash today" : "Wallet"}
           session={`+${formatMoney(sessionEarnings, driveCountry)}`}
           sessionLabel="TODAY"
+          sessionVisible={sessionEarnings !== 0}
           gain={payoutGain}
           compact={touchFirst}
           buttons={[
