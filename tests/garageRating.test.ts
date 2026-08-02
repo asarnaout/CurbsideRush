@@ -23,13 +23,24 @@ describe("the garage's rating card", () => {
     expect(model.tone).toBe("unrated");
     expect(model.average).toBeNull();
     expect(model.averageText).toBe("—");
+    expect(model.jobsDone).toBe(3);
+    expect(model.jobsNeed).toBe(RATING_MIN_RATED);
     expect(model.fill).toBe(0);
-    expect(model.countLabel).toBe(`3 OF ${RATING_MIN_RATED}`);
-    expect(model.floorLabel).toBe(`RATED AFTER ${RATING_MIN_RATED} JOBS`);
+    expect(model.countLabel).toBe("4 JOBS TO GO");
+    expect(model.floorLabel).toBe("FIRST RATING PENDING");
     // Unrated is not a bad rating: no warning, no alarm.
     expect(model.atRisk).toBe(false);
     expect(model.noticed).toBe(false);
     expect(model.announcement).toMatch(/4 more rated jobs/);
+  });
+
+  it("doesn't pluralise the last job standing between it and an average", () => {
+    const model = garageRatingModel({
+      ...EMPTY_RATING,
+      recent: Array(RATING_MIN_RATED - 1).fill(4),
+      ratedTotal: RATING_MIN_RATED - 1,
+    });
+    expect(model.countLabel).toBe("1 JOB TO GO");
   });
 
   it("starts reading the moment there are enough", () => {
