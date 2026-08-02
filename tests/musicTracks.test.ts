@@ -47,21 +47,75 @@ const CAIRO_TRACKS = [
     sha256: "852155b1d6c57be27a4a9a41bba7c803fc4918d0fb8049996aac3ee1565620ac",
   },
   {
-    id: "cairo-nile-loop-drive",
-    url: "/audio/music/cairo-nile-loop-drive.mp3",
-    sha256: "982c31a8eb65cf21a5f0c8bd5aa6f339cab16373cbf148ec67187bc3b205f3f5",
-  },
-  {
     id: "cairo-corniche-after-sunset",
     url: "/audio/music/cairo-corniche-after-sunset.mp3",
     sha256: "3024e7b4a49a753dceaadc4bc3a0166a33aa62a45f65a2c1d2b5722c56ad5f1d",
   },
 ] as const;
 
+/**
+ * Second batch: three more Cairo pieces and one NYC piece, added after the
+ * original Cairo batch above. Same embedded Suno artist (`rykard12`) as that
+ * batch — see CREDITS.md.
+ */
+const NEW_CAIRO_TRACKS = [
+  {
+    id: "cairo-flyover-dawn",
+    url: "/audio/music/cairo-flyover-dawn.mp3",
+    sha256: "9a9a3e9d416ed0f0b110d607e4147d24c5fe0afac3ba2dbe25a73c561a6f215a",
+  },
+  {
+    id: "cairo-dokki-before-dawn",
+    url: "/audio/music/cairo-dokki-before-dawn.mp3",
+    sha256: "38903a7f13855b9b82eb5636ec899be24d258c6954aaf87ab7d4f37ee46c0910",
+  },
+  {
+    id: "cairo-corniche-loop",
+    url: "/audio/music/cairo-corniche-loop.mp3",
+    sha256: "fef24b89b001b027fab29186b846c2443ff3cc94f7874c88b1eb58be808d46fc",
+  },
+] as const;
+
+const NYC_GLASS_ARCADE_TRACK = {
+  id: "nyc-glass-arcade-drift",
+  url: "/audio/music/nyc-glass-arcade-drift.mp3",
+  sha256: "ae593d3e9a7e78e2e4dcbf01e808be4756c23436f2d6c26ee0d3805930703bdb",
+} as const;
+
+/**
+ * Third batch: four more Cairo-only pieces. Same embedded Suno artist
+ * (`rykard12`) as the earlier batches — see CREDITS.md. The first master's
+ * original download name was Arabic (`ليالي القاهرة.mp3`, "Cairo Nights");
+ * it was renamed before import so every repository and Downloads copy stays
+ * ASCII-referenceable.
+ */
+const THIRD_BATCH_CAIRO_TRACKS = [
+  {
+    id: "cairo-nights",
+    url: "/audio/music/cairo-nights.mp3",
+    sha256: "16722ffb9cbf1bb8c6cfd65d364fce310f2500d996467605c4134c8711d27d5f",
+  },
+  {
+    id: "cairo-dokki-after-midnight",
+    url: "/audio/music/cairo-dokki-after-midnight.mp3",
+    sha256: "e8e907a93f707054ad050753e8fec5d6463037c49220923b46779dbfc85038f8",
+  },
+  {
+    id: "cairo-after-midnight",
+    url: "/audio/music/cairo-after-midnight.mp3",
+    sha256: "d5671bd0e28c6ec0653c94b883bfa16545891a3205bb54cbf28afd316c5e9a42",
+  },
+  {
+    id: "cairo-after-midnight-2",
+    url: "/audio/music/cairo-after-midnight-2.mp3",
+    sha256: "4b7964ed84d37ac35e0263b04f28ee9704110afbbbf6207424b2beaf59db343d",
+  },
+] as const;
+
+/** Only London and Tokyo are untouched by either Cairo batch or the NYC add. */
 const EXISTING_DESTINATION_POOLS: Readonly<
-  Record<Exclude<DestinationId, "eg-cairo">, readonly string[]>
+  Record<"uk-london" | "jp-tokyo", readonly string[]>
 > = {
-  "us-nyc": PRE_CAIRO_TRACK_IDS.slice(0, 8),
   "uk-london": PRE_CAIRO_TRACK_IDS.slice(8, 10),
   "jp-tokyo": PRE_CAIRO_TRACK_IDS.slice(10, 12),
 };
@@ -83,7 +137,7 @@ describe("music catalogue", () => {
     }
   });
 
-  it("copies the five Cairo masters byte-for-byte under URL-safe names", () => {
+  it("copies the four surviving original-Cairo masters byte-for-byte under URL-safe names", () => {
     for (const expected of CAIRO_TRACKS) {
       const track = MUSIC_TRACKS.find(({ id }) => id === expected.id);
       expect(track, expected.id).toMatchObject({
@@ -98,8 +152,37 @@ describe("music catalogue", () => {
     }
   });
 
+  it("copies the second batch byte-for-byte under URL-safe names", () => {
+    for (const expected of [...NEW_CAIRO_TRACKS, NYC_GLASS_ARCADE_TRACK]) {
+      const track = MUSIC_TRACKS.find(({ id }) => id === expected.id);
+      expect(track, expected.id).toMatchObject({
+        id: expected.id,
+        url: expected.url,
+      });
+      const digest = createHash("sha256")
+        .update(readFileSync(`public${expected.url}`))
+        .digest("hex");
+      expect(digest, expected.id).toBe(expected.sha256);
+    }
+  });
+
+  it("copies the third batch byte-for-byte under URL-safe names", () => {
+    for (const expected of THIRD_BATCH_CAIRO_TRACKS) {
+      const track = MUSIC_TRACKS.find(({ id }) => id === expected.id);
+      expect(track, expected.id).toMatchObject({
+        id: expected.id,
+        url: expected.url,
+        destinationId: "eg-cairo",
+      });
+      const digest = createHash("sha256")
+        .update(readFileSync(`public${expected.url}`))
+        .digest("hex");
+      expect(digest, expected.id).toBe(expected.sha256);
+    }
+  });
+
   it("has unique ids and urls", () => {
-    expect(MUSIC_TRACKS).toHaveLength(17);
+    expect(MUSIC_TRACKS).toHaveLength(24);
     expect(new Set(MUSIC_TRACKS.map((track) => track.id)).size).toBe(MUSIC_TRACKS.length);
     expect(new Set(MUSIC_TRACKS.map((track) => track.url)).size).toBe(MUSIC_TRACKS.length);
   });
@@ -117,8 +200,12 @@ describe("city matching", () => {
     }
   });
 
-  it("reserves exactly the five new tracks for Cairo", () => {
-    const cairoIds = CAIRO_TRACKS.map(({ id }) => id);
+  it("reserves exactly its own tracks for Cairo, across all batches", () => {
+    const cairoIds = [
+      ...CAIRO_TRACKS,
+      ...NEW_CAIRO_TRACKS,
+      ...THIRD_BATCH_CAIRO_TRACKS,
+    ].map(({ id }) => id);
     expect(tracksForDestination("eg-cairo").map(({ id }) => id)).toEqual(
       cairoIds,
     );
@@ -136,10 +223,27 @@ describe("city matching", () => {
     }
   });
 
-  it("preserves every pre-Cairo destination pool exactly", () => {
+  it("adds Glass Arcade Drift to NYC, and only NYC", () => {
+    expect(tracksForDestination("us-nyc").map(({ id }) => id)).toEqual([
+      ...PRE_CAIRO_TRACK_IDS.slice(0, 8),
+      NYC_GLASS_ARCADE_TRACK.id,
+    ]);
+    for (const destinationId of DESTINATIONS.filter(
+      (candidate) => candidate !== "us-nyc",
+    )) {
+      expect(
+        tracksForDestination(destinationId).some(
+          (track) => track.id === NYC_GLASS_ARCADE_TRACK.id,
+        ),
+        destinationId,
+      ).toBe(false);
+    }
+  });
+
+  it("preserves the untouched London and Tokyo pools exactly", () => {
     for (const [destinationId, expectedIds] of Object.entries(
       EXISTING_DESTINATION_POOLS,
-    ) as [Exclude<DestinationId, "eg-cairo">, readonly string[]][]) {
+    ) as ["uk-london" | "jp-tokyo", readonly string[]][]) {
       expect(
         tracksForDestination(destinationId).map(({ id }) => id),
         destinationId,

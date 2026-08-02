@@ -31,6 +31,7 @@ export const MUSIC_TRACKS: readonly MusicTrack[] = [
   { id: "nyc-wet-bridge-run", title: "Wet Bridge Run", url: `${BASE}/nyc-wet-bridge-run.mp3`, destinationId: "us-nyc" },
   { id: "nyc-east-river-glide", title: "East River Glide", url: `${BASE}/nyc-east-river-glide.mp3`, destinationId: "us-nyc" },
   { id: "nyc-tribeca-after-midnight", title: "Tribeca After Midnight", url: `${BASE}/nyc-tribeca-after-midnight.mp3`, destinationId: "us-nyc" },
+  { id: "nyc-glass-arcade-drift", title: "Glass Arcade Drift", url: `${BASE}/nyc-glass-arcade-drift.mp3`, destinationId: "us-nyc" },
   { id: "london-exhibition-road-glide-1", title: "Exhibition Road Glide", url: `${BASE}/london-exhibition-road-glide-1.mp3`, destinationId: "uk-london" },
   { id: "london-exhibition-road-glide-2", title: "Exhibition Road Glide (II)", url: `${BASE}/london-exhibition-road-glide-2.mp3`, destinationId: "uk-london" },
   { id: "tokyo-setagaya-glide", title: "Setagaya Glide", url: `${BASE}/tokyo-setagaya-glide.mp3`, destinationId: "jp-tokyo" },
@@ -38,8 +39,14 @@ export const MUSIC_TRACKS: readonly MusicTrack[] = [
   { id: "cairo-maadi-road", title: "طريق المعادي", url: `${BASE}/cairo-maadi-road.mp3`, destinationId: "eg-cairo" },
   { id: "cairo-october-bridge-glide", title: "October Bridge Glide", url: `${BASE}/cairo-october-bridge-glide.mp3`, destinationId: "eg-cairo" },
   { id: "cairo-heliopolis-after-dark", title: "Heliopolis After Dark", url: `${BASE}/cairo-heliopolis-after-dark.mp3`, destinationId: "eg-cairo" },
-  { id: "cairo-nile-loop-drive", title: "Nile Loop Drive", url: `${BASE}/cairo-nile-loop-drive.mp3`, destinationId: "eg-cairo" },
   { id: "cairo-corniche-after-sunset", title: "Corniche After Sunset", url: `${BASE}/cairo-corniche-after-sunset.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-flyover-dawn", title: "Flyover Dawn", url: `${BASE}/cairo-flyover-dawn.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-dokki-before-dawn", title: "Dokki Before Dawn", url: `${BASE}/cairo-dokki-before-dawn.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-corniche-loop", title: "Corniche Loop", url: `${BASE}/cairo-corniche-loop.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-nights", title: "Cairo Nights", url: `${BASE}/cairo-nights.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-dokki-after-midnight", title: "Dokki After Midnight", url: `${BASE}/cairo-dokki-after-midnight.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-after-midnight", title: "After Midnight Cairo", url: `${BASE}/cairo-after-midnight.mp3`, destinationId: "eg-cairo" },
+  { id: "cairo-after-midnight-2", title: "After Midnight Cairo (Second Edition)", url: `${BASE}/cairo-after-midnight-2.mp3`, destinationId: "eg-cairo" },
 ];
 
 /** The pool a given city draws from: its own pieces, and nothing else. */
