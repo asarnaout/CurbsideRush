@@ -132,6 +132,28 @@ describe("fog ranges", () => {
       end: 340,
     });
   });
+
+  it("lets a day palette cap its own far end — Cairo's dust haze", () => {
+    // Cairo's world size with its palette cap: the 1100 m formula result
+    // hazes down to 650, start untouched.
+    expect(resolveEffectiveFogRange(false, { x: 1770, z: 1830 }, 650)).toEqual({
+      start: 160,
+      end: 650,
+    });
+    // A cap wider than the formula's band is a no-op.
+    expect(resolveEffectiveFogRange(false, { x: 1770, z: 1830 }, 2000)).toEqual(
+      resolveFogRange({ x: 1770, z: 1830 }),
+    );
+    // No cap: unchanged behaviour.
+    expect(resolveEffectiveFogRange(false, { x: 1770, z: 1830 })).toEqual(
+      resolveFogRange({ x: 1770, z: 1830 }),
+    );
+    // The cap composes with night's own tightening rather than fighting it.
+    expect(resolveEffectiveFogRange(true, { x: 1770, z: 1830 }, 650)).toEqual({
+      start: 100,
+      end: 440,
+    });
+  });
 });
 
 describe("camera far plane", () => {
@@ -142,6 +164,8 @@ describe("camera far plane", () => {
     expect(resolveCameraFarPlane(false, { x: 1500, z: 300 })).toBe(1120);
     // The orientation-yard fallback world.
     expect(resolveCameraFarPlane(false, { x: 180, z: 180 })).toBe(360);
+    // Cairo's palette-capped haze: 650 + the 20 m margin.
+    expect(resolveCameraFarPlane(false, { x: 1770, z: 1830 }, 650)).toBe(670);
   });
 });
 

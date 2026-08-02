@@ -16135,9 +16135,14 @@ class BabylonGameSession {
     const scene = this.scene;
     const horizon = Color3.FromHexString(palette.skyHorizon);
     scene.clearColor = new Color4(horizon.r, horizon.g, horizon.b, 1);
-    // The night tightening lives inside resolveEffectiveFogRange so the fog
-    // and the camera far plane can never disagree about where the world ends.
-    const fogRange = resolveEffectiveFogRange(palette.night === true, worldSize);
+    // The night tightening and the palette's own day cap (Cairo's dust haze)
+    // live inside resolveEffectiveFogRange so the fog and the camera far
+    // plane can never disagree about where the world ends.
+    const fogRange = resolveEffectiveFogRange(
+      palette.night === true,
+      worldSize,
+      palette.fogEndCapM,
+    );
     scene.fogMode = Scene.FOGMODE_LINEAR;
     scene.fogColor = Color3.FromHexString(palette.fogColor);
     scene.fogStart = fogRange.start;
@@ -16151,6 +16156,7 @@ class BabylonGameSession {
     this.cameraFarPlaneM = resolveCameraFarPlane(
       palette.night === true,
       worldSize,
+      palette.fogEndCapM,
     );
     const domeScale = Math.min(1, (this.cameraFarPlaneM * 0.98) / 950);
 

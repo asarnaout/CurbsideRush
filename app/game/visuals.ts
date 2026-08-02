@@ -57,6 +57,13 @@ export interface MapVisualPalette {
    * itself. The sky/fog/silhouette colours above are authored dark to match.
    */
   readonly night?: boolean;
+  /**
+   * Day map's own ceiling on the fog's far end (metres). The size formula
+   * hands a large day map up to 1100 m of draw; a palette that wants an
+   * atmosphere shorter than its geography — Cairo's dust haze — caps it here,
+   * and the camera far plane follows (resolveEffectiveFogRange).
+   */
+  readonly fogEndCapM?: number;
 }
 
 export type MapVisualKey =
@@ -157,6 +164,10 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     paved: true,
     groundBase: "#77736a",
     pavement: "#aaa18f",
+    // Cairo's famous dust haze, and the perf budget for its dense street
+    // wall: the 1770x1830 world would otherwise draw to 1100 m — 2.4x the
+    // radius NYC's density was priced under.
+    fogEndCapM: 650,
   },
   orientation: {
     skyTop: "#3f86c6",
@@ -256,19 +267,25 @@ export function resolveFogRange(worldSize: VisualPoint): FogRange {
 /**
  * The fog band the scene actually runs. Night maps tighten it: the far end of
  * a long avenue fades out so a corner turn onto a canyon draws far fewer
- * buildings (the worst-case spike), and it deepens the night mood. This is
- * the single source of that tightening — the sky builder and the camera far
- * plane must agree on where the world ends.
+ * buildings (the worst-case spike), and it deepens the night mood. A day map
+ * may cap its own far end through the palette's `fogEndCapM` — Cairo runs a
+ * dust haze at 650 m where the size formula alone would see 1100 m, both for
+ * the look (the city IS hazy) and because its density was never priced for
+ * 2.4× NYC's draw radius. This is the single source of both tightenings —
+ * the sky builder and the camera far plane must agree on where the world ends.
  */
 export function resolveEffectiveFogRange(
   night: boolean,
   worldSize: VisualPoint,
+  fogEndCapM?: number,
 ): FogRange {
   const range = resolveFogRange(worldSize);
-  if (!night) return range;
+  const cappedEnd =
+    fogEndCapM !== undefined ? Math.min(range.end, fogEndCapM) : range.end;
+  if (!night) return { start: Math.min(range.start, cappedEnd), end: cappedEnd };
   return {
-    start: Math.min(range.start, 100),
-    end: Math.min(range.end, 440),
+    start: Math.min(range.start, 100, cappedEnd),
+    end: Math.min(cappedEnd, 440),
   };
 }
 
@@ -282,8 +299,9 @@ export function resolveEffectiveFogRange(
 export function resolveCameraFarPlane(
   night: boolean,
   worldSize: VisualPoint,
+  fogEndCapM?: number,
 ): number {
-  return resolveEffectiveFogRange(night, worldSize).end + 20;
+  return resolveEffectiveFogRange(night, worldSize, fogEndCapM).end + 20;
 }
 
 export type SilhouetteShapeKind = "box" | "hill" | "spike" | "pylon";
