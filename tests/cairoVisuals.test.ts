@@ -46,6 +46,7 @@ import {
   PARK_LAWN_Y,
   PARK_PATH_Y,
   SIGNAL_HOUSING_BOX,
+  roadSideParkLawnPolygon,
   roadSurfaceWidthForMarking,
   roadSurfacePlacementForMarking,
   rotateBlockBuildingPlacements,
@@ -964,6 +965,96 @@ describe("Cairo visual axes", () => {
         `(${sample.x}, ${sample.z}) is unpaved`,
       ).toBe(true);
     }
+  });
+
+  it("clips the opera lawn to the park side of Montazah Al Gezira", () => {
+    // El Gezira Street is authored diagonally through the Opera Grounds
+    // rect; rendered raw, the rectangle surfaced as a grass wedge on the far
+    // kerbside. The polygon must hug the rect everywhere except the corridor
+    // cut, which runs along the centreline.
+    const park = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (landmark) => landmark.id === "cairo-opera-grounds",
+    );
+    expect(park).toBeDefined();
+    if (!park) return;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const polygon = roadSideParkLawnPolygon(park, surfaces);
+    expect(polygon.length).toBeGreaterThanOrEqual(5);
+
+    const minX = park.center.x - park.size.x / 2;
+    const maxX = park.center.x + park.size.x / 2;
+    const minZ = park.center.z - park.size.z / 2;
+    const maxZ = park.center.z + park.size.z / 2;
+    for (const vertex of polygon) {
+      expect(vertex.x).toBeGreaterThanOrEqual(minX - 1e-6);
+      expect(vertex.x).toBeLessThanOrEqual(maxX + 1e-6);
+      expect(vertex.z).toBeGreaterThanOrEqual(minZ - 1e-6);
+      expect(vertex.z).toBeLessThanOrEqual(maxZ + 1e-6);
+    }
+
+    // The three rect corners no road touches survive the clip...
+    for (const corner of [
+      { x: minX, z: minZ },
+      { x: minX, z: maxZ },
+      { x: maxX, z: minZ },
+    ]) {
+      expect(
+        polygon.some(
+          (vertex) =>
+            Math.hypot(vertex.x - corner.x, vertex.z - corner.z) < 1e-6,
+        ),
+        `corner (${corner.x}, ${corner.z}) was clipped away`,
+      ).toBe(true);
+    }
+
+    // ...and every vertex stays on the park side of every crossing segment.
+    let crossings = 0;
+    for (const surface of surfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let crosses = false;
+        for (let step = 0; step <= 200 && !crosses; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          crosses =
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3;
+        }
+        if (!crosses) continue;
+        crossings += 1;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const cross = (point: { x: number; z: number }) =>
+          dx * (point.z - start.z) - dz * (point.x - start.x);
+        const parkSign = Math.sign(cross(park.center));
+        let onLine = 0;
+        for (const vertex of polygon) {
+          const value = cross(vertex);
+          expect(
+            Math.sign(value) === parkSign || Math.abs(value) < 1e-4,
+            `vertex (${vertex.x.toFixed(2)}, ${vertex.z.toFixed(2)}) is across the corridor`,
+          ).toBe(true);
+          if (Math.abs(value) < 1e-4) onLine += 1;
+        }
+        // The cut itself must exist: at least two vertices ride the line.
+        expect(onLine).toBeGreaterThanOrEqual(2);
+      }
+    }
+    expect(crossings).toBeGreaterThan(0);
+
+    // The cut pulls the north-east corner well off the rect's east edge —
+    // the centreline meets the north edge near x -256.5.
+    const northVertices = polygon.filter(
+      (vertex) => Math.abs(vertex.z - maxZ) < 1e-6,
+    );
+    expect(northVertices.length).toBeGreaterThan(0);
+    expect(Math.max(...northVertices.map((vertex) => vertex.x))).toBeLessThan(
+      -256,
+    );
   });
 
   it("stacks park beds strictly between lawn and paths", () => {

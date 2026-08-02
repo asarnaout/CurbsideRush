@@ -5,6 +5,7 @@ import {
   CAIRO_TAHRIR_PLAZA_RADIUS_M,
   parkLayoutForLandmark,
   resolveParkStyle,
+  ROAD_DIVIDED_PARK_IDS,
   type ParkLandmarkInput,
   type ParkLayout,
   type ParkLayoutContext,
@@ -178,6 +179,70 @@ describe("park layouts", () => {
             sideOf(placement),
             `${placement.kind} at (${placement.x.toFixed(1)}, ${placement.z.toFixed(1)}) is across the road`,
           ).toBe(parkSide);
+        }
+      }
+    }
+    // Vacuous without the road that motivates the rule.
+    expect(crossings).toBeGreaterThan(0);
+  });
+
+  it("keeps opera-grounds planting, furniture and walls on the park side of the crossing corridor", () => {
+    // El Gezira Street is authored through the Opera Grounds rectangle and
+    // the lawn is clipped at its centreline. The park is in
+    // ROAD_DIVIDED_PARK_IDS, so scatter, benches, lamps AND the perimeter
+    // wall must all stay on the park-centre side — the road-proximity veto
+    // alone once left a 4 m orphan wall run across the corridor.
+    const opera = parkCases().find(
+      (c) => c.landmark.id === "cairo-opera-grounds",
+    );
+    expect(opera).toBeDefined();
+    if (!opera) return;
+    expect(ROAD_DIVIDED_PARK_IDS.has(opera.landmark.id)).toBe(true);
+    const { landmark, context, layout } = opera;
+    const minX = landmark.center.x - landmark.size.x / 2;
+    const maxX = landmark.center.x + landmark.size.x / 2;
+    const minZ = landmark.center.z - landmark.size.z / 2;
+    const maxZ = landmark.center.z + landmark.size.z / 2;
+    let crossings = 0;
+    for (const surface of context.roadSurfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let crosses = false;
+        for (let step = 0; step <= 200 && !crosses; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          crosses =
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3;
+        }
+        if (!crosses) continue;
+        crossings += 1;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const sideOf = (point: { x: number; z: number }) =>
+          Math.sign(dx * (point.z - start.z) - dz * (point.x - start.x));
+        const parkSide = sideOf(landmark.center);
+        for (const placement of layout.placements) {
+          expect(
+            sideOf(placement),
+            `${placement.kind} at (${placement.x.toFixed(1)}, ${placement.z.toFixed(1)}) is across the road`,
+          ).toBe(parkSide);
+        }
+        for (const run of layout.wall) {
+          for (const step of [-1, -0.5, 0, 0.5, 1]) {
+            const point = {
+              x: run.x + run.ux * run.halfU * step,
+              z: run.z + run.uz * run.halfU * step,
+            };
+            expect(
+              sideOf(point),
+              `wall run ${run.id} reaches (${point.x.toFixed(1)}, ${point.z.toFixed(1)}) across the road`,
+            ).toBe(parkSide);
+          }
         }
       }
     }

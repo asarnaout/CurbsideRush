@@ -139,6 +139,18 @@ export interface ParkLayoutContext {
 }
 
 /**
+ * Parks that a road is authored straight through, beyond the one
+ * `civic_plaza`. Everything side-aware honours the membership: scatter,
+ * path furniture, the perimeter wall — and the renderer clips the lawn mesh
+ * to the same rule (`roadSideParkLawnPolygon`). An id set rather than a
+ * style rule on purpose: a loop road's chord across a pocket green must
+ * never halve it.
+ */
+export const ROAD_DIVIDED_PARK_IDS: ReadonlySet<string> = new Set([
+  "cairo-opera-grounds",
+]);
+
+/**
  * A line a crossing road draws through a park. `civic_plaza` scatter keeps to
  * the park-centre side of every one: the lawn mesh is clipped there too
  * (`cairoTahrirLawnPolygon`), so a palm passing the plain distance-to-road
@@ -850,6 +862,7 @@ export function parkPerimeterPlan(
   style: ParkStyle,
   paths: readonly ParkPath[],
   context: ParkLayoutContext,
+  dividers: readonly ParkRoadDivider[] = [],
 ): readonly ParkWallRun[] {
   if (UNWALLABLE_STYLES.includes(style)) return [];
   if (Math.min(landmark.size.x, landmark.size.z) < PARK_WALL_MIN_SHORT_SIDE_M) {
@@ -914,7 +927,11 @@ export function parkPerimeterPlan(
             context.sidewalkWidthM +
             PARK_WALL_ROAD_CLEARANCE_M,
       );
-      if (nearGate || nearRoad) {
+      // A wall span past a crossing road stands on the far kerbside — the
+      // road-proximity veto alone left the Opera Grounds a 4 m orphan run
+      // across its corridor, where the rest of that edge was rightly dropped.
+      const farSide = dividers.some((divider) => acrossDivider(divider, point));
+      if (nearGate || nearRoad || farSide) {
         flush(along);
       } else if (runStart === null) {
         runStart = along;
@@ -939,10 +956,11 @@ export function buildParkLayout(
   const paths = pathRecipe(style, landmark);
   const bespoke = bespokeFeatures(landmark, style, paths);
   const clearings = [...bespoke.clearings, ...(context.clearings ?? [])];
-  // Only civic_plaza splits: a road authored through any other park style is
-  // a graze, and a loop road's chord across a pocket green must not halve it.
+  // Splitting is opt-in — civic_plaza by style, others by id: a road authored
+  // through any other park style is a graze, and a loop road's chord across a
+  // pocket green must not halve it.
   const dividers =
-    style === "civic_plaza"
+    style === "civic_plaza" || ROAD_DIVIDED_PARK_IDS.has(landmark.id)
       ? crossingRoadDividers(landmark, context.roadSurfaces)
       : [];
   const random = seededUnit(context.seed);
@@ -959,7 +977,7 @@ export function buildParkLayout(
     style,
     paths,
     placements,
-    wall: parkPerimeterPlan(landmark, style, paths, context),
+    wall: parkPerimeterPlan(landmark, style, paths, context, dividers),
     features: bespoke.features,
   };
 }

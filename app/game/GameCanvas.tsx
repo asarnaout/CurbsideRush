@@ -232,6 +232,7 @@ import {
 import {
   CAIRO_TAHRIR_PLAZA_RADIUS_M,
   parkLayoutForLandmark,
+  ROAD_DIVIDED_PARK_IDS,
   type ParkFeature,
   type ParkPlacement,
 } from "./parkLayouts";
@@ -3034,6 +3035,30 @@ export function cairoTahrirLawnPolygon(
     maxX,
     minZ,
     maxZ,
+    landmark.center,
+    roadSurfaces,
+  );
+}
+
+/**
+ * The lawn of a `ROAD_DIVIDED_PARK_IDS` park: the authored rectangle cut back
+ * to the park-centre side of every road segment crossing it — Tahrir's clip
+ * without Tahrir's band tucks, for parks whose other edges no road grazes.
+ * Rendered raw, the Opera Grounds' rectangle surfaced as a grass wedge on the
+ * far kerbside of the corridor authored through it.
+ */
+export function roadSideParkLawnPolygon(
+  landmark: Pick<
+    GameCanvasMapPack["geometry"]["landmarks"][number],
+    "center" | "size"
+  >,
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+): GameCanvasPoint[] {
+  return clipRectToRoadSide(
+    landmark.center.x - landmark.size.x / 2,
+    landmark.center.x + landmark.size.x / 2,
+    landmark.center.z - landmark.size.z / 2,
+    landmark.center.z + landmark.size.z / 2,
     landmark.center,
     roadSurfaces,
   );
@@ -11937,7 +11962,21 @@ class BabylonGameSession {
         // The centre "feature" cone is gone. It was the whole of a park's
         // contents, and the thing issue #206 is a screenshot of; a park is now
         // dressed by `parkLayouts` and bounded by its own wall.
-        this.buildParkLawn(landmark, palette, mapId);
+        if (ROAD_DIVIDED_PARK_IDS.has(landmark.id)) {
+          // A road is authored through this rect; the raw rectangle would
+          // surface as grass on the far kerbside.
+          this.buildParkLawnPolygon(
+            landmark.id,
+            roadSideParkLawnPolygon(
+              landmark,
+              mapPack.geometry.roadSurfaces ?? [],
+            ),
+            palette,
+            mapId,
+          );
+        } else {
+          this.buildParkLawn(landmark, palette, mapId);
+        }
         this.buildParkFeatures(landmark, mapPack, palette, mapId);
       } else if (landmark.kind === "railway") {
         for (const offset of [-1.25, 1.25]) {
