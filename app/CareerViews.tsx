@@ -68,13 +68,17 @@ export interface GarageRatingModel {
   /** The average to two places, or null while there is not yet one. */
   readonly average: number | null;
   readonly averageText: string;
+  /** How many rated jobs the window has seen so far; null once there is an average. */
+  readonly jobsDone: number | null;
+  /** The rated-jobs threshold behind that count; null once there is an average. */
+  readonly jobsNeed: number | null;
   /** 0→1 across the 1–5 scale, for the bar's fill. */
   readonly fill: number;
   /** Where the termination line sits on that same scale, for the bar's tick. */
   readonly floorMark: number;
   readonly gradeLabel: string;
   readonly trend: RatingTrend;
-  /** What is at stake, left of the count. */
+  /** Left-of-the-count status text: a warning once rated, the pending notice before. */
   readonly floorLabel: string;
   /** True while the city is one bad settlement from taking itself away. */
   readonly atRisk: boolean;
@@ -129,14 +133,16 @@ export function garageRatingModel(rating: CityRating): GarageRatingModel {
       tone,
       average: null,
       averageText: "—",
+      jobsDone: rating.recent.length,
+      jobsNeed: RATING_MIN_RATED,
       fill: 0,
       floorMark: (RATING_END_THRESHOLD - 1) / 4,
       gradeLabel: GRADE_LABELS.unrated,
       trend: "level",
-      floorLabel: `RATED AFTER ${RATING_MIN_RATED} JOBS`,
+      floorLabel: "FIRST RATING PENDING",
       atRisk: false,
       noticed: false,
-      countLabel: `${rating.recent.length} OF ${RATING_MIN_RATED}`,
+      countLabel: `${togo} ${togo === 1 ? "JOB" : "JOBS"} TO GO`,
       announcement: `Not rated yet — ${togo} more rated ${togo === 1 ? "job" : "jobs"} to go.`,
     };
   }
@@ -156,6 +162,8 @@ export function garageRatingModel(rating: CityRating): GarageRatingModel {
     tone,
     average,
     averageText: stars(average),
+    jobsDone: null,
+    jobsNeed: null,
     fill: (average - 1) / 4,
     floorMark: (RATING_END_THRESHOLD - 1) / 4,
     gradeLabel: GRADE_LABELS[tone],
@@ -265,35 +273,70 @@ export function GarageRating({
       </div>
 
       <div className="garage-rating-body">
-        <span className="garage-rating-score">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
-          <b data-testid="garage-rating-value">{model.averageText}</b>
-        </span>
-        <div className="garage-rating-gauge">
-          {/* The bar is decoration over the announcement — a fill percentage and
-              a tick are nothing a screen reader can read out. */}
-          <div className="garage-rating-track" aria-hidden="true">
-            <div
-              className="garage-rating-fill"
-              style={{ width: `${(model.fill * 100).toFixed(1)}%` }}
-            />
-            <div
-              className="garage-rating-floor-mark"
-              style={{ left: `${(model.floorMark * 100).toFixed(1)}%` }}
-            />
-          </div>
-          <div className="garage-rating-meta">
-            <span className="garage-rating-floor">
-              {model.atRisk && (
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
-              )}
-              {model.floorLabel}
+        {model.tone === "unrated" ? (
+          <>
+            <span className="garage-rating-tally">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+              <b data-testid="garage-rating-value">{model.jobsDone}</b>
+              <em>/{model.jobsNeed}</em>
             </span>
-            {model.countLabel !== null && (
-              <span className="garage-rating-count">{model.countLabel}</span>
-            )}
-          </div>
-        </div>
+            <div className="garage-rating-gauge">
+              {/* Pips are decoration over the announcement, same as the rated
+                  bar below — a row of on/off segments reads to nobody but a
+                  sighted user. */}
+              <div className="garage-rating-pips" aria-hidden="true">
+                {Array.from({ length: model.jobsNeed ?? 0 }, (_, i) => (
+                  <span
+                    key={i}
+                    className={
+                      i < (model.jobsDone ?? 0)
+                        ? "garage-rating-pip garage-rating-pip-filled"
+                        : "garage-rating-pip"
+                    }
+                  />
+                ))}
+              </div>
+              <div className="garage-rating-meta">
+                <span className="garage-rating-floor">{model.floorLabel}</span>
+                {model.countLabel !== null && (
+                  <span className="garage-rating-count">{model.countLabel}</span>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="garage-rating-score">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+              <b data-testid="garage-rating-value">{model.averageText}</b>
+            </span>
+            <div className="garage-rating-gauge">
+              {/* The bar is decoration over the announcement — a fill percentage and
+                  a tick are nothing a screen reader can read out. */}
+              <div className="garage-rating-track" aria-hidden="true">
+                <div
+                  className="garage-rating-fill"
+                  style={{ width: `${(model.fill * 100).toFixed(1)}%` }}
+                />
+                <div
+                  className="garage-rating-floor-mark"
+                  style={{ left: `${(model.floorMark * 100).toFixed(1)}%` }}
+                />
+              </div>
+              <div className="garage-rating-meta">
+                <span className="garage-rating-floor">
+                  {model.atRisk && (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+                  )}
+                  {model.floorLabel}
+                </span>
+                {model.countLabel !== null && (
+                  <span className="garage-rating-count">{model.countLabel}</span>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
       <span className="sr-only">{model.announcement}</span>
     </div>

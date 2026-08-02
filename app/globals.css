@@ -1745,10 +1745,17 @@ canvas:focus-visible {
 
 /* Cream rather than a colour: slipping is not yet a warning, and tinting it
    like one would leave nowhere to go when it really is. */
-.garage-rating[data-tone="slipping"],
-.garage-rating[data-tone="unrated"] {
+.garage-rating[data-tone="slipping"] {
   --rating-tone: var(--hud-cream);
   --rating-edge: rgba(255, 255, 255, 0.18);
+}
+
+/* Sage, not cream: unrated isn't "no news yet" the way slipping is — there is
+   no verdict to be quiet about, so it gets its own waiting-room colour instead
+   of sharing the "band with an average" cream. */
+.garage-rating[data-tone="unrated"] {
+  --rating-tone: var(--hud-sage-lt);
+  --rating-edge: color-mix(in srgb, var(--hud-sage-lt) 34%, transparent);
 }
 
 .garage-rating[data-tone="shaky"] {
@@ -1839,11 +1846,42 @@ canvas:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-/* The placeholder dash has to read as an absence. At the score's own weight it
-   is a cream block the width of a progress bar, which is exactly the one thing
-   it must not look like. */
-.garage-rating[data-tone="unrated"] .garage-rating-score { opacity: 0.42; }
-.garage-rating[data-tone="unrated"] .garage-rating-score b { font-size: 24px; }
+/* Unrated's own headline: a job tally rather than a placeholder dash, so
+   "how close" reads before there is anything to average. Cream, not the sage
+   tone — the count is a plain fact, not a verdict, so it stays neutral while
+   sage marks the waiting state around it (the chip, the pips, the label). */
+.garage-rating-tally {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.garage-rating-tally svg {
+  flex: none;
+  opacity: 0.5;
+  color: var(--hud-sage-lt);
+  transform: translateY(1px);
+}
+
+.garage-rating-tally b {
+  font-size: 36px;
+  font-weight: 900;
+  line-height: 0.85;
+  letter-spacing: -0.033em;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--hud-cream) 80%, transparent);
+}
+
+.garage-rating-tally em {
+  font-style: normal;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 0.85;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--hud-cream) 30%, transparent);
+}
 
 .garage-rating-gauge {
   flex: 1;
@@ -1884,6 +1922,26 @@ canvas:focus-visible {
   box-shadow: 0 0 0 1.5px rgba(10, 14, 16, 0.85);
 }
 
+/* Unrated's gauge: discrete pips rather than a continuous fill. There is no
+   termination line to mark and no in-between to interpolate — a job either
+   counts toward the average yet or it doesn't, so the bar says so in steps. */
+.garage-rating-pips {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.garage-rating-pip {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.garage-rating-pip-filled {
+  background: var(--hud-sage-lt);
+}
+
 .garage-rating-meta {
   display: flex;
   align-items: center;
@@ -1911,6 +1969,10 @@ canvas:focus-visible {
 .garage-rating[data-tone="critical"] .garage-rating-floor {
   font-size: 9px;
   color: var(--hud-salmon);
+}
+
+.garage-rating[data-tone="unrated"] .garage-rating-floor {
+  color: color-mix(in srgb, var(--hud-sage-lt) 75%, transparent);
 }
 
 .garage-rating[data-noticed] .garage-rating-floor {
@@ -2428,10 +2490,16 @@ canvas:focus-visible {
   .garage-head-copy h1 { font-size: 33px; letter-spacing: -0.024em; }
   .garage-eyebrow { margin-bottom: 10px; font-size: 10px; }
   .garage-sub { max-width: none; font-size: 12.5px; }
-  /* Holding pattern until the phone rating design lands: stack the two cards
-     and let the rating give up its authored width rather than overflow. */
+  /* The phone rating design reuses the desktop card at its own width rather
+     than a layout of its own, so cash and rating simply stack instead of
+     sitting side by side. */
   .garage-head-stats { flex-direction: column; gap: 11px; }
   .garage-rating { width: auto; padding: 13px 18px 12px; border-radius: 16px; }
+  /* The phone unrated tally: the same shape as desktop's, one size down —
+     freeing width for the pips beside it, which stay the same at any size. */
+  .garage-rating-tally svg { width: 14px; height: 14px; }
+  .garage-rating-tally b { font-size: 27px; }
+  .garage-rating-tally em { font-size: 14px; }
   /* Cash becomes a full-width bar: label left, value right. The row direction
      is explicit because the desktop rule stacks it to match the rating card's
      height beside it. */
