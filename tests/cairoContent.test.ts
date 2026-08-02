@@ -1549,31 +1549,26 @@ describe("Cairo Central Nile content", () => {
     ).toBeGreaterThanOrEqual(40);
   });
 
-  // The old version of this test asked "is there a parcel within 45 m", which
-  // sat at 100% while drivers saw bare kerbs — proximity is not frontage. This
-  // one measures what the driver sees: the share of buildable kerb with an
-  // actual building face on it (within KERB_SETBACK_MAX_M of the pavement,
-  // spanning the sample along the road). Buildings, not parcels: glb parcels
-  // contribute their slotted placements at authored footprints (masters are
-  // recentred, so slot centre = building centre); facade parcels contribute
-  // their parcel rect, because cairoFrontagePosition packs their boxes to the
-  // parcel edge.
-  it("walls the buildable kerb with buildings, measured at the kerb", () => {
-    const KERB_SETBACK_MAX_M = 8;
-    const openWaterfrontSide: Readonly<Record<string, -1 | 1>> = {
-      "cairo-corniche-el-nil": -1,
-      "cairo-saray-el-gezira": -1,
-      "cairo-nile-island-drive": 1,
-      "cairo-dokki-nile-drive": 1,
-    };
+  interface KerbRect {
+    x: number;
+    z: number;
+    yaw: number;
+    halfW: number;
+    halfD: number;
+  }
 
-    interface KerbRect {
-      x: number;
-      z: number;
-      yaw: number;
-      halfW: number;
-      halfD: number;
-    }
+  const OPEN_WATERFRONT_SIDE: Readonly<Record<string, -1 | 1>> = {
+    "cairo-corniche-el-nil": -1,
+    "cairo-saray-el-gezira": -1,
+    "cairo-nile-island-drive": 1,
+    "cairo-dokki-nile-drive": 1,
+  };
+
+  /** Every building face on the map as an oriented rect: glb parcels via
+   * their slotted placements at authored footprints, facade parcels as the
+   * parcel rect (cairoFrontagePosition packs their boxes to the street
+   * edge). */
+  const collectStreetWallRects = (): KerbRect[] => {
     const rects: KerbRect[] = [];
     for (const block of CAIRO_MAP_PACK.geometry.blocks) {
       const heading = ((block.headingDeg ?? 0) * Math.PI) / 180;
@@ -1609,16 +1604,151 @@ describe("Cairo Central Nile content", () => {
         });
       }
     }
-    expect(rects.length).toBeGreaterThan(300);
+    return rects;
+  };
 
-    const cellM = 40;
+  /** Authored content that fills the view from a kerb without being a street
+   * wall: landmark rects (parks, museums, the tower — not the elevated
+   * bridges) and venue / service lots at their resolved lane poses. */
+  const collectVisualExtraRects = (): KerbRect[] => {
+    const rects: KerbRect[] = [];
+    for (const landmark of CAIRO_MAP_PACK.geometry.landmarks) {
+      if (landmark.kind === "bridge" || landmark.kind === "railway") continue;
+      rects.push({
+        x: landmark.center.x,
+        z: landmark.center.z,
+        yaw: 0,
+        halfW: landmark.size.x / 2,
+        halfD: landmark.size.z / 2,
+      });
+    }
+    const laneById = new Map(
+      CAIRO_MAP_PACK.laneGraph.lanes.map((lane) => [lane.id, lane]),
+    );
+    const lotAt = (
+      laneId: string,
+      distanceAlongM: number,
+      setbackM: number,
+      halfM: number,
+    ): KerbRect | null => {
+      const lane = laneById.get(laneId);
+      if (!lane) return null;
+      let remaining = distanceAlongM;
+      const line = lane.centerline;
+      for (let index = 1; index < line.length; index += 1) {
+        const from = line[index - 1];
+        const to = line[index];
+        const segment = Math.hypot(to.x - from.x, to.z - from.z);
+        if (remaining <= segment || index === line.length - 1) {
+          const t = segment > 0 ? Math.min(1, remaining / segment) : 0;
+          const hx = (to.x - from.x) / (segment || 1);
+          const hz = (to.z - from.z) / (segment || 1);
+          // Driver's-right normal, the side resolveVenuePlacement uses.
+          return {
+            x: from.x + (to.x - from.x) * t + hz * setbackM,
+            z: from.z + (to.z - from.z) * t - hx * setbackM,
+            yaw: 0,
+            halfW: halfM,
+            halfD: halfM,
+          };
+        }
+        remaining -= segment;
+      }
+      return null;
+    };
+    for (const service of CAIRO_MAP_PACK.geometry.servicePoints ?? []) {
+      const rect = lotAt(
+        service.anchor.laneId,
+        service.anchor.distanceAlongM,
+        service.setbackM ?? 16,
+        (Math.max(service.footprint.x, service.footprint.z) + 8) / 2,
+      );
+      if (rect) rects.push(rect);
+    }
+    for (const venue of CAIRO_MAP_PACK.geometry.gigVenues ?? []) {
+      const rect = lotAt(
+        venue.anchor.laneId,
+        venue.anchor.distanceAlongM,
+        venue.setbackM ?? 13,
+        (Math.max(venue.footprint.x, venue.footprint.z) + 4) / 2,
+      );
+      if (rect) rects.push(rect);
+    }
+    return rects;
+  };
+
+  /** 40 m spatial hash checked over a 3x3 window: sound while no rect's half
+   * extent exceeds 80 m (the longest today is a 60 m district-block half). */
+  const KERB_CELL_M = 40;
+  const bucketKerbRects = (
+    rects: readonly KerbRect[],
+  ): Map<string, KerbRect[]> => {
     const buckets = new Map<string, KerbRect[]>();
     for (const rect of rects) {
-      const key = `${Math.floor(rect.x / cellM)},${Math.floor(rect.z / cellM)}`;
+      const key = `${Math.floor(rect.x / KERB_CELL_M)},${Math.floor(rect.z / KERB_CELL_M)}`;
       const bucket = buckets.get(key);
       if (bucket) bucket.push(rect);
       else buckets.set(key, [rect]);
     }
+    return buckets;
+  };
+
+  /** Does any rect span this kerb sample along the road while reaching within
+   * setbackM of the kerb line (and not sitting behind it)? */
+  const kerbSampleCovered = (
+    buckets: ReadonlyMap<string, readonly KerbRect[]>,
+    kx: number,
+    kz: number,
+    tx: number,
+    tz: number,
+    inx: number,
+    inz: number,
+    setbackM: number,
+  ): boolean => {
+    const bx = Math.floor(kx / KERB_CELL_M);
+    const bz = Math.floor(kz / KERB_CELL_M);
+    for (let ox = -1; ox <= 1; ox += 1) {
+      for (let oz = -1; oz <= 1; oz += 1) {
+        for (const rect of buckets.get(`${bx + ox},${bz + oz}`) ?? []) {
+          const cos = Math.cos(rect.yaw);
+          const sin = Math.sin(rect.yaw);
+          const ux = cos;
+          const uz = -sin;
+          const vx = sin;
+          const vz = cos;
+          const offX = rect.x - kx;
+          const offZ = rect.z - kz;
+          const alongRadius =
+            rect.halfW * Math.abs(ux * tx + uz * tz) +
+            rect.halfD * Math.abs(vx * tx + vz * tz);
+          if (Math.abs(offX * tx + offZ * tz) > alongRadius) continue;
+          const depthIn = offX * inx + offZ * inz;
+          const inRadius =
+            rect.halfW * Math.abs(ux * inx + uz * inz) +
+            rect.halfD * Math.abs(vx * inx + vz * inz);
+          if (depthIn - inRadius <= setbackM && depthIn + inRadius >= 0) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  // The old version of this test asked "is there a parcel within 45 m", which
+  // sat at 100% while drivers saw bare kerbs — proximity is not frontage. This
+  // one measures what the driver sees: the share of buildable kerb with an
+  // actual building face on it (within KERB_SETBACK_MAX_M of the pavement,
+  // spanning the sample along the road). Buildings, not parcels: glb parcels
+  // contribute their slotted placements at authored footprints (masters are
+  // recentred, so slot centre = building centre); facade parcels contribute
+  // their parcel rect, because cairoFrontagePosition packs their boxes to the
+  // parcel edge.
+  it("walls the buildable kerb with buildings, measured at the kerb", () => {
+    const KERB_SETBACK_MAX_M = 8;
+    const rects = collectStreetWallRects();
+    expect(rects.length).toBeGreaterThan(300);
+    const buckets = bucketKerbRects(rects);
 
     interface Coverage {
       samples: number;
@@ -1649,47 +1779,25 @@ describe("Cairo Central Nile content", () => {
           const px = start.x + dx * (step / steps);
           const pz = start.z + dz * (step / steps);
           for (const side of [-1, 1] as const) {
-            if (openWaterfrontSide[surface.id] === side) continue;
+            if (OPEN_WATERFRONT_SIDE[surface.id] === side) continue;
             const inx = tz * side;
             const inz = -tx * side;
             const kx = px + inx * kerbOffset;
             const kz = pz + inz * kerbOffset;
             total += 1;
             road.samples += 1;
-            const bx = Math.floor(kx / cellM);
-            const bz = Math.floor(kz / cellM);
-            let hit = false;
-            outer: for (let ox = -1; ox <= 1; ox += 1) {
-              for (let oz = -1; oz <= 1; oz += 1) {
-                for (const rect of buckets.get(`${bx + ox},${bz + oz}`) ??
-                  []) {
-                  const cos = Math.cos(rect.yaw);
-                  const sin = Math.sin(rect.yaw);
-                  const ux = cos;
-                  const uz = -sin;
-                  const vx = sin;
-                  const vz = cos;
-                  const offX = rect.x - kx;
-                  const offZ = rect.z - kz;
-                  const alongRadius =
-                    rect.halfW * Math.abs(ux * tx + uz * tz) +
-                    rect.halfD * Math.abs(vx * tx + vz * tz);
-                  if (Math.abs(offX * tx + offZ * tz) > alongRadius) continue;
-                  const depthIn = offX * inx + offZ * inz;
-                  const inRadius =
-                    rect.halfW * Math.abs(ux * inx + uz * inz) +
-                    rect.halfD * Math.abs(vx * inx + vz * inz);
-                  if (
-                    depthIn - inRadius <= KERB_SETBACK_MAX_M &&
-                    depthIn + inRadius >= 0
-                  ) {
-                    hit = true;
-                    break outer;
-                  }
-                }
-              }
-            }
-            if (hit) {
+            if (
+              kerbSampleCovered(
+                buckets,
+                kx,
+                kz,
+                tx,
+                tz,
+                inx,
+                inz,
+                KERB_SETBACK_MAX_M,
+              )
+            ) {
               walled += 1;
               road.walled += 1;
             }
@@ -1699,22 +1807,108 @@ describe("Cairo Central Nile content", () => {
     }
 
     expect(total).toBeGreaterThan(10_000);
-    // Achieved: 53.5% (44.8% before the clearance/split-ladder/pack tuning,
+    // Achieved: 59.6% (53.5% before the side-aware exclusions, gap-fill pass
+    // and sliver ladder; 44.8% before the clearance/split-ladder/pack tuning;
     // ~28% before parcels were depth-derived). Floor sits a couple of points
     // under so an unrelated generator nudge doesn't trip it; a return to the
     // bare-kerb era smashes straight through it.
-    expect(walled / total).toBeGreaterThanOrEqual(0.5);
-    // Worst road today is opera-square at 34% — its frontage band is largely
+    expect(walled / total).toBeGreaterThanOrEqual(0.575);
+    // Worst road today is opera-square at 39.8% — its frontage band is largely
     // consumed by earlier roads' parcels under greedy acceptance, and the
-    // halving ladder recovers what fits in the gaps. No road may fall below a
-    // quarter walled, and the stragglers must not multiply.
-    let below30 = 0;
+    // gap-fill pass recovers what physically fits between them. No road may
+    // fall below 37% walled, and the stragglers must not multiply.
+    let below42 = 0;
     for (const [roadId, coverage] of perRoad) {
       const share = coverage.walled / coverage.samples;
-      expect(share, roadId).toBeGreaterThanOrEqual(0.25);
-      if (share < 0.3) below30 += 1;
+      expect(share, roadId).toBeGreaterThanOrEqual(0.37);
+      if (share < 0.42) below42 += 1;
     }
-    expect(below30, "roads under 30% kerb coverage").toBeLessThanOrEqual(2);
+    expect(below42, "roads under 42% kerb coverage").toBeLessThanOrEqual(2);
+  });
+
+  // The user-facing complaint this guards: driving Cairo past long swaths of
+  // bare grey ground. Coverage here is VISUAL, not just buildings — a park,
+  // museum, venue lot or fuel forecourt fills the view from the kerb exactly
+  // as a facade does — and the setback is looser (16 m) because a building
+  // standing 14 m back still closes the street wall to the eye. What it
+  // refuses to tolerate is a long contiguous run with nothing at all: the
+  // pre-2026 map had 379 m of it beside the opera corridor alone. The 125 m
+  // ceiling leaves room for the one authored exception — the pinched strip
+  // between Saray and El Gabalaya (the island's club edge, ~120 m) — while
+  // any re-opened void of the old kind fails with named coordinates.
+  it("leaves no long bare run on any built-up kerb", () => {
+    const VISUAL_SETBACK_M = 16;
+    const MAX_BARE_RUN_M = 125;
+    const MIN_SIDE_SHARE = 0.42;
+    const rects = [...collectStreetWallRects(), ...collectVisualExtraRects()];
+    const buckets = bucketKerbRects(rects);
+    const failures: string[] = [];
+    for (const surface of CAIRO_MAP_PACK.geometry.roadSurfaces) {
+      if (surface.id.includes("-bridge")) continue;
+      const kerbOffset =
+        surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8);
+      for (const side of [-1, 1] as const) {
+        if (OPEN_WATERFRONT_SIDE[surface.id] === side) continue;
+        let samples = 0;
+        let covered = 0;
+        let run = 0;
+        let runStart: readonly [number, number] | null = null;
+        const worst: {
+          run: number;
+          start: readonly [number, number] | null;
+        } = { run: 0, start: null };
+        const endRun = () => {
+          if (run > worst.run) {
+            worst.run = run;
+            worst.start = runStart;
+          }
+          run = 0;
+          runStart = null;
+        };
+        for (let index = 1; index < surface.centerline.length; index += 1) {
+          const start = surface.centerline[index - 1];
+          const end = surface.centerline[index];
+          const dx = end.x - start.x;
+          const dz = end.z - start.z;
+          const length = Math.hypot(dx, dz);
+          if (length < 1e-8) continue;
+          const tx = dx / length;
+          const tz = dz / length;
+          const steps = Math.max(1, Math.floor(length / 4));
+          for (let step = 0; step <= steps; step += 1) {
+            const px = start.x + dx * (step / steps);
+            const pz = start.z + dz * (step / steps);
+            const inx = tz * side;
+            const inz = -tx * side;
+            const kx = px + inx * kerbOffset;
+            const kz = pz + inz * kerbOffset;
+            samples += 1;
+            if (
+              kerbSampleCovered(buckets, kx, kz, tx, tz, inx, inz, VISUAL_SETBACK_M)
+            ) {
+              covered += 1;
+              endRun();
+            } else {
+              if (run === 0) runStart = [kx, kz];
+              run += 4;
+            }
+          }
+        }
+        endRun();
+        const sideName = side < 0 ? "left" : "right";
+        if (worst.run > MAX_BARE_RUN_M && worst.start) {
+          failures.push(
+            `${surface.id} ${sideName}: ${worst.run}m bare from (${worst.start[0].toFixed(0)}, ${worst.start[1].toFixed(0)})`,
+          );
+        }
+        if (samples > 0 && covered / samples < MIN_SIDE_SHARE) {
+          failures.push(
+            `${surface.id} ${sideName}: only ${((covered / samples) * 100).toFixed(1)}% visually fronted`,
+          );
+        }
+      }
+    }
+    expect(failures.slice(0, 10)).toEqual([]);
   });
 
   it("keeps the elevated Sixth October deck and piers clear of every block OBB", () => {
