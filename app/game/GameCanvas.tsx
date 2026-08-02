@@ -18928,6 +18928,10 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       }
     }, []);
 
+    // Two-wheelers have no cockpit — see `toggleCamera` on the session class —
+    // so the button that would switch into one is withheld rather than left
+    // as a dead tap.
+    const cameraSwitchable = !playerVehicle || playerVehicle.visualKind === "car";
     const touchVisible =
       inputPresentation.touchFirst || inputPresentation.touchRevealed;
     const touchPortraitGate = inputPresentation.touchFirst && isPortrait;
@@ -18948,6 +18952,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
         {touchVisible && runtimeState === "ready" && !isPortrait && (
           <TouchDriveControls
             cameraMode={hud.cameraMode}
+            cameraSwitchable={cameraSwitchable}
             dimmed={inputPresentation.touchControlsDimmed}
             reducedMotion={reducedMotion}
             onSteer={(value) => sessionRef.current?.setTouchSteer(value)}

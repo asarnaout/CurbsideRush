@@ -208,7 +208,13 @@ import {
   resolveDayTimer,
   resolveHudScale,
 } from "./game/DriveHud";
-import type { HudGauge, HudJob, HudManoeuvre, HudOffer } from "./game/DriveHud";
+import type {
+  DriveMoneyClusterButton,
+  HudGauge,
+  HudJob,
+  HudManoeuvre,
+  HudOffer,
+} from "./game/DriveHud";
 import {
   CAR_ICON,
   FUEL_PUMP_ICON,
@@ -2355,6 +2361,36 @@ export default function SideSwapApp() {
   // affording it — the charge just pushes the day-cash negative.
   const walletHere = progress.walletByCountry[driveCountry.id];
   const careerVehicle = careerRun?.vehicle ?? null;
+  // Two-wheelers have no cockpit — see `toggleCamera` in GameCanvas — so the
+  // button that would switch into one is withheld rather than left dead.
+  const cameraSwitchable =
+    !careerVehicle || careerVehicle.visualKind === "car";
+  const moneyClusterButtons: DriveMoneyClusterButton[] = [
+    {
+      id: "music",
+      label: musicMuted ? "Unmute music" : "Mute music",
+      pressed: musicMuted,
+      onPress: toggleMusicMuted,
+    },
+    // Omitted outright for a vehicle with no cockpit to switch into, rather
+    // than kept as a no-op — see `toggleCamera` in GameCanvas.
+    ...(cameraSwitchable
+      ? [{ id: "camera", label: "Switch camera", onPress: () => pressDriveKey("KeyC") } as const]
+      : []),
+    // App state, so it toggles directly. `pressDriveKey` exists only for the
+    // session's own controls, which the app cannot call.
+    {
+      id: "map",
+      label: mapOpen ? "Close the city map (M)" : "Open the city map (M)",
+      pressed: mapOpen,
+      onPress: () => setMapOpen((open) => !open),
+    },
+    {
+      id: "pause",
+      label: "Pause",
+      onPress: () => pressDriveKey("KeyP"),
+    },
+  ];
   const tankCapacityL = careerVehicle ? careerVehicle.tankL : TANK_CAPACITY_L;
   const fuelFraction = tankCapacityL > 0 ? driveFuel / tankCapacityL : 0;
   // Measured to the pumps, not to the lane anchor: the station model is set
@@ -3459,32 +3495,7 @@ export default function SideSwapApp() {
           sessionVisible={sessionEarnings !== 0}
           gain={payoutGain}
           compact={touchFirst}
-          buttons={[
-            {
-              id: "music",
-              label: musicMuted ? "Unmute music" : "Mute music",
-              pressed: musicMuted,
-              onPress: toggleMusicMuted,
-            },
-            {
-              id: "camera",
-              label: "Switch camera",
-              onPress: () => pressDriveKey("KeyC"),
-            },
-            // App state, so it toggles directly. `pressDriveKey` exists only
-            // for the session's own controls, which the app cannot call.
-            {
-              id: "map",
-              label: mapOpen ? "Close the city map (M)" : "Open the city map (M)",
-              pressed: mapOpen,
-              onPress: () => setMapOpen((open) => !open),
-            },
-            {
-              id: "pause",
-              label: "Pause",
-              onPress: () => pressDriveKey("KeyP"),
-            },
-          ]}
+          buttons={moneyClusterButtons}
         />
         )}
         {hud && (
