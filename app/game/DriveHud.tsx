@@ -197,6 +197,13 @@ export interface HudManoeuvre {
   readonly destinationDistance: string;
 }
 
+export interface DriveMoneyClusterButton {
+  readonly id: "music" | "camera" | "map" | "pause";
+  readonly label: string;
+  readonly pressed?: boolean;
+  readonly onPress: () => void;
+}
+
 export interface HudGauge {
   readonly id: string;
   readonly icon: readonly string[];
@@ -1421,7 +1428,7 @@ export function DriveSpeedCluster({
 }
 
 // ---------------------------------------------------------------------------
-// Top-right: the money, and the three things you can press
+// Top-right: the money, and what you can press
 // ---------------------------------------------------------------------------
 
 export function DriveMoneyCluster({
@@ -1452,12 +1459,7 @@ export function DriveMoneyCluster({
   sessionVisible: boolean;
   /** The `+$x.xx` that floats up on a payout, cleared once it has run. */
   gain: string | null;
-  buttons: readonly {
-    readonly id: "music" | "camera" | "map" | "pause";
-    readonly label: string;
-    readonly pressed?: boolean;
-    readonly onPress: () => void;
-  }[];
+  buttons: readonly DriveMoneyClusterButton[];
 }) {
   const icon = {
     music: MUSIC_ICON,

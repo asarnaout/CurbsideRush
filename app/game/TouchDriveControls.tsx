@@ -43,6 +43,9 @@ import {
 
 export interface TouchDriveControlsProps {
   readonly cameraMode: "first" | "third";
+  /** False for a vehicle with no cockpit to switch into (a two-wheeler) —
+   * the button that would toggle it is omitted rather than left as a no-op. */
+  readonly cameraSwitchable: boolean;
   readonly dimmed: boolean;
   readonly reducedMotion: boolean;
   /** -1..1, already shaped. The session owns the release ease. */
@@ -223,6 +226,7 @@ type HeldControl = "drive" | "brake" | "horn";
 
 export function TouchDriveControls({
   cameraMode,
+  cameraSwitchable,
   dimmed,
   reducedMotion,
   onSteer,
@@ -648,12 +652,14 @@ export function TouchDriveControls({
           pointerEvents: "auto",
         }}
       >
-        <button type="button" style={UTILITY_BUTTON} aria-label="Change camera" onClick={onCamera}>
-          <Glyph>
-            <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3Z" />
-            <circle cx="12" cy="13" r="3.5" />
-          </Glyph>
-        </button>
+        {cameraSwitchable && (
+          <button type="button" style={UTILITY_BUTTON} aria-label="Change camera" onClick={onCamera}>
+            <Glyph>
+              <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3Z" />
+              <circle cx="12" cy="13" r="3.5" />
+            </Glyph>
+          </button>
+        )}
         <button type="button" style={UTILITY_BUTTON} aria-label="Pause" onClick={onPause}>
           <Glyph>
             <rect x="6" y="4" width="4" height="16" rx="1" />

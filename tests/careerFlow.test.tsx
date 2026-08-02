@@ -991,6 +991,10 @@ describe("career mode flow", () => {
     // Rent prepaid (50 - 10), and the 12 L tank gets a fuel gauge.
     expect(screen.getByTestId("day-cash")).toHaveTextContent("£40.00");
     expect(screen.getByText(/^Fuel$/)).toBeInTheDocument();
+    // No cockpit on a two-wheeler, so the HUD offers no way into one (#238).
+    expect(
+      screen.queryByRole("button", { name: "Switch camera" }),
+    ).not.toBeInTheDocument();
 
     await endDayEarly();
     await screen.findByRole("heading", { name: /Pick today's ride/i });
@@ -1013,6 +1017,10 @@ describe("career mode flow", () => {
     const scene = await screen.findByLabelText("Mock driving scene");
     expect(scene).toHaveAttribute("data-player-model", "delivery-van");
     expect(scene).toHaveAttribute("data-max-speed", "23.4704");
+    // A van has a cockpit, unlike the two-wheelers (#238).
+    expect(
+      screen.getByRole("button", { name: "Switch camera" }),
+    ).toBeInTheDocument();
 
     await endDayEarly();
     await screen.findByRole("heading", { name: /Pick today's ride/i });
@@ -1048,6 +1056,10 @@ describe("career mode flow", () => {
     fireEvent.click(screen.getByTestId("garage-start-day"));
     await screen.findByLabelText("Mock driving scene");
     expect(screen.getByTestId("day-cash")).toHaveTextContent("£0.00");
+    // No cockpit on the bike either (#238).
+    expect(
+      screen.queryByRole("button", { name: "Switch camera" }),
+    ).not.toBeInTheDocument();
 
     // Earn nothing: fee 3 + installment 10 on 0 cash under the notice = wiped.
     fireEvent.click(screen.getByTestId("mock-hud-end"));

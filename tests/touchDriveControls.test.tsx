@@ -44,6 +44,7 @@ function renderControls(overrides: Partial<Parameters<typeof TouchDriveControls>
   render(
     <TouchDriveControls
       cameraMode="third"
+      cameraSwitchable
       dimmed={false}
       reducedMotion={false}
       {...handlers}
@@ -129,6 +130,16 @@ describe("touch driving controls", () => {
     expect(screen.getByLabelText("Look left")).toBeInTheDocument();
     expect(screen.getByLabelText("Look right")).toBeInTheDocument();
     expect(screen.queryByLabelText("Left indicator")).not.toBeInTheDocument();
+  });
+
+  it("omits the camera toggle for a vehicle with no cockpit to switch into", () => {
+    renderControls();
+    expect(screen.getByLabelText("Change camera")).toBeInTheDocument();
+
+    cleanup();
+    const handlers = renderControls({ cameraSwitchable: false });
+    expect(screen.queryByLabelText("Change camera")).not.toBeInTheDocument();
+    expect(handlers.onCamera).not.toHaveBeenCalled();
   });
 
   it("keeps the cockpit look controls out of the top row", () => {
