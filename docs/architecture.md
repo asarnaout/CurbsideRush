@@ -15,14 +15,24 @@ simulation.ts       SimulationCore — physics, traffic, rules, scoring
 simulationAdapter   authored MapPack + lesson -> core config (build-time only)
 ```
 
+The props/HUD/event types on the SideSwapApp<->GameCanvas edge — including
+`GameHudSnapshot` and `GameRuntimeEvent` above — live in
+`app/game/sessionContract.ts`, not in `GameCanvas.tsx` itself. It is
+types-only (enforced by `tests/architecture.test.ts`) and sits outside the
+ring diagram: everything that needs the shared vocabulary imports it
+directly, including `GameCanvas.tsx` and `simulationAdapter.ts`, without
+that making either of them a dependency of the other.
+
 `simulation.ts` imports **only** `./types` — no React, DOM, Babylon,
 `Math.random`, or `Date.now`. That purity is the load-bearing property of the
 whole design and is guarded by `tests/architecture.test.ts`, which also pins
 the ring arrows above (GameCanvas never reaches `content.ts`; SideSwapApp
-touches GameCanvas only through one `dynamic()` literal or a type-only
-import). See [simulation-core.md](simulation-core.md).
+touches GameCanvas only through one `dynamic()` literal, plus at most one
+type-only import which today it has none of, having moved everything to
+`sessionContract.ts`). See [simulation-core.md](simulation-core.md).
 
-`simulationAdapter.ts` imports `GameCanvas` **type-only**, so there is no cycle;
+`simulationAdapter.ts` imports `sessionContract.ts` **type-only** for the
+lesson/map-pack shapes it consumes, so there is no cycle with `GameCanvas.tsx`;
 it also pulls `content.ts` and `visuals.ts` at runtime, which is why it is a
 build-time translator and never runs in the frame loop.
 
