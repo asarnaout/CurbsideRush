@@ -1617,7 +1617,6 @@ export const MAP_PACKS: readonly MapPack[] = [
       ],
       landmarks: [
         // Kept clear of the carriageways (a content test enforces this).
-        { id: "nyc-verdi-green", kind: "park", center: point(-40, -455), size: point(40, 24), color: "#5c8c4b" },
         { id: "nyc-subway", kind: "station", center: point(-92, -455), size: point(8, 5), color: "#2d2f33" },
         // Central Park runs the whole east edge now the grid does, and is no
         // longer a 38 m token: at 200 m it reads as the park the avenue is
