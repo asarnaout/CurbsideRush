@@ -15,19 +15,11 @@ import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
 import { resolveVenuePlacement } from "../app/game/simulationAdapter";
 import {
   biasCairoDecalMaterials,
-  buildWaterPolygonGeometry,
-  CAIRO_ELEVATED_DECK_THICKNESS_M,
-  CAIRO_ELEVATED_DECK_Y,
-  cairoWaterBoatObstacles,
-  WATER_BOAT_AIR_DRAFTS_M,
   CAIRO_DECAL_MATERIAL_NAMES,
   CAIRO_DECAL_Z_OFFSET_UNITS,
   CAIRO_STREET_WALL_URL_RE,
-  cairoBridgePortalVisualAxis,
-  cairoBridgeVisualAxis,
   CAIRO_DIRECTION_PANEL_DESIGN_V,
   cairoDirectionPanelFaceUv,
-  cairoElevatedBridgePierPlacements,
   cairoFrontagePosition,
   cairoFrontageFootprintsOverlap,
   cairoOperaTerracePolygon,
@@ -42,13 +34,11 @@ import {
   crowdClothingPaletteForMap,
   deterministicSceneryKeep,
   facadeGridCells,
-  generateWaterBoatPlacements,
   PARK_BED_Y,
   PARK_LAWN_Y,
   PARK_PATH_Y,
   roadSideParkLawnPolygon,
   rotateBlockBuildingPlacements,
-  waterBoatPoseAt,
 } from "../app/game/GameCanvas";
 import {
   crosswalkStripeLayout,
@@ -58,6 +48,18 @@ import {
   SIGNAL_HOUSING_BOX,
   trafficCameraHeadIds,
 } from "../app/game/geometry/roadFurnitureLayout";
+import {
+  buildWaterPolygonGeometry,
+  CAIRO_ELEVATED_DECK_THICKNESS_M,
+  CAIRO_ELEVATED_DECK_Y,
+  cairoBridgePortalVisualAxis,
+  cairoBridgeVisualAxis,
+  cairoElevatedBridgePierPlacements,
+  cairoWaterBoatObstacles,
+  generateWaterBoatPlacements,
+  WATER_BOAT_AIR_DRAFTS_M,
+  waterBoatPoseAt,
+} from "../app/game/geometry/waterGeometry";
 import {
   distanceToPolylineM,
   generateRoadsidePropPlacements,
