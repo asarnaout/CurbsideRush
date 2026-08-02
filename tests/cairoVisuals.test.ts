@@ -20,8 +20,6 @@ import {
   CAIRO_STREET_WALL_URL_RE,
   CAIRO_DIRECTION_PANEL_DESIGN_V,
   cairoDirectionPanelFaceUv,
-  cairoFrontagePosition,
-  cairoFrontageFootprintsOverlap,
   cairoOperaTerracePolygon,
   cairoTahrirForecourtPolygon,
   clipRectToRoadSide,
@@ -32,13 +30,10 @@ import {
   CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
   CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
   crowdClothingPaletteForMap,
-  deterministicSceneryKeep,
-  facadeGridCells,
   PARK_BED_Y,
   PARK_LAWN_Y,
   PARK_PATH_Y,
   roadSideParkLawnPolygon,
-  rotateBlockBuildingPlacements,
 } from "../app/game/GameCanvas";
 import {
   crosswalkStripeLayout,
@@ -48,6 +43,13 @@ import {
   SIGNAL_HOUSING_BOX,
   trafficCameraHeadIds,
 } from "../app/game/geometry/roadFurnitureLayout";
+import {
+  cairoFrontageFootprintsOverlap,
+  cairoFrontagePosition,
+  deterministicSceneryKeep,
+  facadeGridCells,
+  rotateBlockBuildingPlacements,
+} from "../app/game/geometry/facadesAndKeepouts";
 import {
   buildWaterPolygonGeometry,
   CAIRO_ELEVATED_DECK_THICKNESS_M,
