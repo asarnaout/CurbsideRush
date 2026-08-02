@@ -3013,6 +3013,31 @@ export function cairoTahrirLawnPolygon(
     CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
   );
   const maxZ = landmark.center.z + landmark.size.z / 2;
+  return clipRectToRoadSide(
+    minX,
+    maxX,
+    minZ,
+    maxZ,
+    landmark.center,
+    roadSurfaces,
+  );
+}
+
+/**
+ * A rect cut back to `anchor`'s side of every road-centreline segment that
+ * crosses it. The shared core of Tahrir's lawn and forecourt polygons: both
+ * lean on the same fact — the surface drawn from the result sits below the
+ * carriageway and the pavement band, so running the rect out to a road's
+ * centreline paints a seam exactly on the band's outer edge.
+ */
+function clipRectToRoadSide(
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+  anchor: GameCanvasPoint,
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+): GameCanvasPoint[] {
   let polygon: GameCanvasPoint[] = [
     { x: minX, z: minZ },
     { x: maxX, z: minZ },
@@ -3025,11 +3050,55 @@ export function cairoTahrirLawnPolygon(
       const end = surface.centerline[index + 1];
       if (Math.hypot(end.x - start.x, end.z - start.z) <= 1e-6) continue;
       if (!segmentCrossesRect(start, end, minX, maxX, minZ, maxZ)) continue;
-      polygon = clipPolygonToLineSide(polygon, start, end, landmark.center);
+      polygon = clipPolygonToLineSide(polygon, start, end, anchor);
       if (polygon.length < 3) return polygon;
     }
   }
   return polygon;
+}
+
+/**
+ * How far the ministries' esplanade laps over the park lawn's north edge.
+ * The two surfaces sit 11 mm apart in y, so an exactly-shared edge would let
+ * a glancing camera see the grey base ground through the parallax gap; a
+ * hand's width of overlap closes it, and at that size the paving edge reads
+ * as kissing the grass, not covering it.
+ */
+export const CAIRO_TAHRIR_FORECOURT_LAWN_LAP_M = 0.3;
+
+/**
+ * The paved esplanade between Tahrir's lawn and the ministries frontage —
+ * the whole pocket, not a floating slab-front apron. Cairo's base ground is
+ * paved grey, and every edge of this polygon lands on a real boundary so no
+ * grey can show and no paving edge floats in open ground:
+ *
+ * - south: the park lawn's north edge (plus a small lap, above), so grass
+ *   meets paving the way it meets the sidewalks;
+ * - west: the same in-band tuck line as the lawn — Qasr El-Ainy's pavement
+ *   covers the edge and the visible seam is the band's outer edge;
+ * - north: under the ministries and frontage buildings;
+ * - east: run generously past Ramses and cut back to its centreline by
+ *   `clipRectToRoadSide`, exactly like the lawn.
+ */
+export function cairoTahrirForecourtPolygon(
+  ministries: Pick<
+    GameCanvasMapPack["geometry"]["landmarks"][number],
+    "center" | "size"
+  >,
+  parkNorthEdgeZ: number,
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+): GameCanvasPoint[] {
+  // Past Ramses' centreline at every z the esplanade spans; the clip owns
+  // the real east boundary.
+  const eastSeedX = 436;
+  return clipRectToRoadSide(
+    CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
+    eastSeedX,
+    parkNorthEdgeZ - CAIRO_TAHRIR_FORECOURT_LAWN_LAP_M,
+    ministries.center.z + ministries.size.z / 2,
+    ministries.center,
+    roadSurfaces,
+  );
 }
 
 /** Benches sit ON the paving disc, facing the obelisk at its centre... */
@@ -12448,20 +12517,21 @@ class BabylonGameSession {
           bronze,
         );
       }
-      // Forecourt apron between the colonnade and the park. It overlaps the
-      // lawn's north edge on purpose: the apron's top sits at PARK_PATH_Y,
-      // above PARK_LAWN_Y, so the seam is the apron's own edge and no strip
-      // of bare grey ground can open between grass and forecourt. Drive-over
-      // like the plaza disc — its top stays below the tyre plane.
-      createBox(
-        scene,
+      // The esplanade between the lawn and the frontage — the whole pocket,
+      // not a slab-front apron; `cairoTahrirForecourtPolygon` explains where
+      // each edge lands. Drive-over like the plaza disc: its top sits at
+      // PARK_PATH_Y, below the tyre plane.
+      const park = mapPack.geometry.landmarks.find(
+        (candidate) => candidate.id === "cairo-tahrir-square",
+      );
+      this.buildFlatPolygonMesh(
         `${landmark.id}-forecourt`,
-        { width: landmark.size.x - 4, height: 0.022, depth: southFaceZ - 5.5 },
-        new Vector3(
-          landmark.center.x,
-          PARK_PATH_Y - 0.011,
-          (southFaceZ + 5.5) / 2,
+        cairoTahrirForecourtPolygon(
+          landmark,
+          park ? park.center.z + park.size.z / 2 : southFaceZ - 13.5,
+          mapPack.geometry.roadSurfaces ?? [],
         ),
+        PARK_PATH_Y,
         forecourtPaving,
       );
       return true;
@@ -16218,25 +16288,20 @@ class BabylonGameSession {
   }
 
   /**
-   * A park lawn with an arbitrary outline, for the one park a road is
-   * authored straight through (`cairoTahrirLawnPolygon` explains the cut).
-   * Same material and world-anchored grass tile as `buildParkLawn`; the
-   * difference is that the outline is already in world space, so the UVs
-   * come straight off the positions with no centre shift — the counterpart
-   * of the offset `applyWorldPlanarGrassUVs` needs for `CreateGround`.
+   * A flat ground polygon at `y`, ear-clipped, with world-planar UVs — the
+   * shared builder behind Tahrir's clipped lawn and its forecourt esplanade.
+   * The outline is already in world space, so the UVs come straight off the
+   * positions with no centre shift — the counterpart of the offset
+   * `applyWorldPlanarGrassUVs` needs for `CreateGround`.
    */
-  private buildParkLawnPolygon(
+  private buildFlatPolygonMesh(
     id: string,
     polygon: readonly GameCanvasPoint[],
-    palette: MapVisualPalette,
-    mapId: string,
+    y: number,
+    material: StandardMaterial,
   ): Mesh | undefined {
     if (polygon.length < 3) return undefined;
-    const positions = polygon.flatMap((point) => [
-      point.x,
-      PARK_LAWN_Y,
-      point.z,
-    ]);
+    const positions = polygon.flatMap((point) => [point.x, y, point.z]);
     const indices = earClipPolygonIndices(polygon);
     const normals: number[] = [];
     VertexData.ComputeNormals(positions, indices, normals);
@@ -16245,12 +16310,31 @@ class BabylonGameSession {
     data.indices = indices;
     data.normals = normals;
     data.uvs = buildPlanarUVs(positions, 1 / GRASS_TILE_M);
-    const lawn = new Mesh(id, this.scene);
-    data.applyToMesh(lawn);
-    setMeshMaterial(lawn, this.getParkLawnMaterial(palette, mapId), true);
-    lawn.freezeWorldMatrix();
-    this.registerMirrorSurface(lawn);
-    return lawn;
+    const mesh = new Mesh(id, this.scene);
+    data.applyToMesh(mesh);
+    setMeshMaterial(mesh, material, true);
+    mesh.freezeWorldMatrix();
+    this.registerMirrorSurface(mesh);
+    return mesh;
+  }
+
+  /**
+   * A park lawn with an arbitrary outline, for the one park a road is
+   * authored straight through (`cairoTahrirLawnPolygon` explains the cut).
+   * Same material and world-anchored grass tile as `buildParkLawn`.
+   */
+  private buildParkLawnPolygon(
+    id: string,
+    polygon: readonly GameCanvasPoint[],
+    palette: MapVisualPalette,
+    mapId: string,
+  ): Mesh | undefined {
+    return this.buildFlatPolygonMesh(
+      id,
+      polygon,
+      PARK_LAWN_Y,
+      this.getParkLawnMaterial(palette, mapId),
+    );
   }
 
   /**

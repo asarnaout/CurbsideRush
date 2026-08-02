@@ -30,8 +30,10 @@ import {
   cairoElevatedBridgePierPlacements,
   cairoFrontagePosition,
   cairoFrontageFootprintsOverlap,
+  cairoTahrirForecourtPolygon,
   cairoTahrirFurnitureLayout,
   cairoTahrirLawnPolygon,
+  CAIRO_TAHRIR_FORECOURT_LAWN_LAP_M,
   CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
   CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
   crosswalkStripeLayout,
@@ -830,6 +832,134 @@ describe("Cairo visual axes", () => {
       expect(southEdge, `south edge at x=${x}`).toBeLessThanOrEqual(
         centerZ + qasrElNil.widthM / 2 + (qasrElNil.sidewalkWidthM ?? 3.4),
       );
+    }
+  });
+
+  it("paves the ministries esplanade out to its sidewalks and the lawn", () => {
+    const park = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-square",
+    )!;
+    const ministries = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-ministries",
+    )!;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const parkNorthZ = park.center.z + park.size.z / 2;
+    const polygon = cairoTahrirForecourtPolygon(ministries, parkNorthZ, surfaces);
+    expect(polygon.length).toBeGreaterThanOrEqual(4);
+
+    // Every edge lands on a real boundary. South: the lawn line plus the
+    // small anti-parallax lap; north: under the buildings; west: the same
+    // in-band tuck as the lawn.
+    const minX = Math.min(...polygon.map((vertex) => vertex.x));
+    const minZ = Math.min(...polygon.map((vertex) => vertex.z));
+    const maxZ = Math.max(...polygon.map((vertex) => vertex.z));
+    expect(minZ).toBeCloseTo(
+      parkNorthZ - CAIRO_TAHRIR_FORECOURT_LAWN_LAP_M,
+      6,
+    );
+    expect(CAIRO_TAHRIR_FORECOURT_LAWN_LAP_M).toBeLessThanOrEqual(0.5);
+    expect(maxZ).toBeCloseTo(
+      ministries.center.z + ministries.size.z / 2,
+      6,
+    );
+    expect(minX).toBe(CAIRO_TAHRIR_LAWN_WEST_TUCK_X);
+    const qasrElAiny = surfaces.find(
+      (surface) => surface.id === "cairo-qasr-el-ainy",
+    )!;
+    for (let z = Math.ceil(minZ); z <= maxZ; z += 2) {
+      let centerX: number | null = null;
+      for (
+        let index = 0;
+        index + 1 < qasrElAiny.centerline.length;
+        index += 1
+      ) {
+        const start = qasrElAiny.centerline[index];
+        const end = qasrElAiny.centerline[index + 1];
+        const span = end.z - start.z;
+        if (Math.abs(span) <= 1e-9) continue;
+        const amount = (z - start.z) / span;
+        if (amount < 0 || amount > 1) continue;
+        centerX = start.x + (end.x - start.x) * amount;
+        break;
+      }
+      expect(centerX, `Qasr El-Ainy at z=${z}`).not.toBeNull();
+      if (centerX === null) continue;
+      expect(minX, `west edge at z=${z}`).toBeGreaterThan(
+        centerX + qasrElAiny.widthM / 2,
+      );
+      expect(minX, `west edge at z=${z}`).toBeLessThanOrEqual(
+        centerX + qasrElAiny.widthM / 2 + (qasrElAiny.sidewalkWidthM ?? 3.4),
+      );
+    }
+
+    // East: never past any crossing road's centreline — the seam is the
+    // band's outer edge, same as the lawn's Ramses cut.
+    const maxX = Math.max(...polygon.map((vertex) => vertex.x));
+    for (const surface of surfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let crosses = false;
+        for (let step = 0; step <= 200 && !crosses; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          crosses =
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3;
+        }
+        if (!crosses) continue;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const anchorSign = Math.sign(
+          dx * (ministries.center.z - start.z) -
+            dz * (ministries.center.x - start.x),
+        );
+        for (const vertex of polygon) {
+          const offset =
+            (dx * (vertex.z - start.z) - dz * (vertex.x - start.x)) *
+            anchorSign;
+          expect(
+            offset,
+            `${surface.id} vertex (${vertex.x.toFixed(1)}, ${vertex.z.toFixed(1)})`,
+          ).toBeGreaterThanOrEqual(-1e-6);
+        }
+      }
+    }
+
+    // And it actually fills the pocket: the strip west of the wing, the
+    // colonnade front, the stretch before the frontage block, the alley.
+    const inside = (point: { x: number; z: number }) => {
+      let hit = false;
+      for (
+        let index = 0, previous = polygon.length - 1;
+        index < polygon.length;
+        previous = index, index += 1
+      ) {
+        const a = polygon[index];
+        const b = polygon[previous];
+        if (
+          a.z > point.z !== b.z > point.z &&
+          point.x <
+            ((b.x - a.x) * (point.z - a.z)) / (b.z - a.z) + a.x
+        ) {
+          hit = !hit;
+        }
+      }
+      return hit;
+    };
+    for (const sample of [
+      { x: 327, z: 12 },
+      { x: 350, z: 12 },
+      { x: 395, z: 12 },
+      { x: 373.5, z: 25 },
+    ]) {
+      expect(
+        inside(sample),
+        `(${sample.x}, ${sample.z}) is unpaved`,
+      ).toBe(true);
     }
   });
 });
