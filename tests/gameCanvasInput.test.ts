@@ -1,15 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VertexData } from "@babylonjs/core";
 import {
+  isAuthoredCheckpointCrossing,
+  resolveNpcVisualSlotAssignments,
+} from "../app/game/GameCanvas";
+import {
   AdaptiveInputRouter,
   INPUT_PROMPT_SWITCH_COOLDOWN_MS,
   TOUCH_CONTROL_DIM_DELAY_MS,
-  isAuthoredCheckpointCrossing,
   isCameraStackActive,
   resolveCockpitCameraPoses,
-  resolveNpcVisualSlotAssignments,
   type AdaptiveInputPresentation,
-} from "../app/game/GameCanvas";
+} from "../app/game/adaptiveInputRouter";
 import {
   buildRoadSurfaceStripGeometry,
   collectRoadJunctionFills,
