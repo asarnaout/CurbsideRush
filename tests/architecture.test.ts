@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { EGYPT_SIGNAL_BORDER_BARS } from "../app/game/GameCanvas";
+import { EGYPT_SIGNAL_BORDER_BARS } from "../app/game/geometry/roadFurnitureLayout";
 
 /**
  * Guards the dependency-arrow rules the god-file decomposition program relies
