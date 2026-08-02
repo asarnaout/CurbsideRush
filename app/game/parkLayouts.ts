@@ -35,6 +35,38 @@ import {
 export const CAIRO_TAHRIR_PLAZA_RADIUS_M = 13;
 
 /**
+ * The Opera Grounds' formal garden, in world coordinates.
+ *
+ * The composition is anchored to the OPERA HOUSE's axis (its centre x is
+ * -275), not the park's own centre (-270): the main walk must arrive centred
+ * on the facade, and the leftover asymmetry sits on the east side, where El
+ * Gezira Street eats the margin anyway. The cross walk meets it at the
+ * park's mid-height, and the four arms terminate at the plaza disc — walks
+ * that CROSS at one y-level are a coplanar fight, so here they only ever
+ * touch the disc's rim.
+ */
+export const CAIRO_OPERA_AXIS_X = -275;
+export const CAIRO_OPERA_CROSS_Z = -250;
+/**
+ * Big enough that the four benches ring the obelisk ON the paving: the
+ * quadrants around the disc are planted parterre, and a bench standing in
+ * flowers reads as a mistake.
+ */
+export const CAIRO_OPERA_PLAZA_RADIUS_M = 8.5;
+/**
+ * Where the east arm ends: 0.5–1.1 m inside the corridor's pavement band
+ * (outer edge x ≈ -254.6…-254.0 across the arm's width). The band draws
+ * above the path, so the seam lands exactly on the band's outer edge and the
+ * walk reads as a street entrance — the Tahrir tuck logic.
+ */
+export const CAIRO_OPERA_STREET_GATE_X = -253.5;
+/**
+ * Where the terrace the renderer paves in front of the opera house begins;
+ * the south arm ends 0.5 m past it so path laps terrace, never gaps it.
+ */
+export const CAIRO_OPERA_TERRACE_NORTH_Z = -283;
+
+/**
  * How a park is dressed. Derived from id, map and proportions unless the
  * landmark names one explicitly.
  *
@@ -75,7 +107,8 @@ export type ParkFeatureKind =
   | "parterre"
   | "torii"
   | "lantern"
-  | "plinth";
+  | "plinth"
+  | "plaza";
 
 export interface ParkFeature {
   readonly id: string;
@@ -139,6 +172,18 @@ export interface ParkLayoutContext {
 }
 
 /**
+ * Parks that a road is authored straight through, beyond the one
+ * `civic_plaza`. Everything side-aware honours the membership: scatter,
+ * path furniture, the perimeter wall — and the renderer clips the lawn mesh
+ * to the same rule (`roadSideParkLawnPolygon`). An id set rather than a
+ * style rule on purpose: a loop road's chord across a pocket green must
+ * never halve it.
+ */
+export const ROAD_DIVIDED_PARK_IDS: ReadonlySet<string> = new Set([
+  "cairo-opera-grounds",
+]);
+
+/**
  * A line a crossing road draws through a park. `civic_plaza` scatter keeps to
  * the park-centre side of every one: the lawn mesh is clipped there too
  * (`cairoTahrirLawnPolygon`), so a palm passing the plain distance-to-road
@@ -151,6 +196,8 @@ interface ParkRoadDivider {
   readonly dz: number;
   /** Sign of the segment cross product on the park-centre side. */
   readonly keepSign: number;
+  /** The crossing road's carriageway width — the wall it carries needs it. */
+  readonly widthM: number;
 }
 
 /** True when any part of a→b lies strictly inside the axis-aligned rect. */
@@ -214,7 +261,14 @@ const crossingRoadDividers = (
         dx * (landmark.center.z - start.z) - dz * (landmark.center.x - start.x),
       );
       if (keepSign === 0) continue;
-      dividers.push({ x: start.x, z: start.z, dx, dz, keepSign });
+      dividers.push({
+        x: start.x,
+        z: start.z,
+        dx,
+        dz,
+        keepSign,
+        widthM: surface.widthM,
+      });
     }
   }
   return dividers;
@@ -363,8 +417,9 @@ function bespokeFeatures(
    *
    * The same idea as `cairoTahrirFurnitureLayout`'s `settle`: the ideal spot is
    * the axis centre, and clearance is a veto on it rather than something being
-   * maximised. Without this the Opera Grounds obelisk stood in the middle of
-   * its own spine path.
+   * maximised. Joan of Arc's plinth is the surviving customer — the Opera
+   * Grounds obelisk once needed it too, until that garden was recomposed to
+   * put a plaza disc under the monument instead of a walk through it.
    */
   const settle = (u: number, v: number, radiusM: number): VisualPoint => {
     const steps = [0, 0.1, -0.1, 0.18, -0.18, 0.26, -0.26];
@@ -441,40 +496,134 @@ function bespokeFeatures(
   }
 
   if (id.includes("opera")) {
-    // Four formal parterres either side of the axis, and an obelisk on it.
-    for (const [index, [u, v]] of (
-      [
-        [-0.22, -0.2],
-        [0.22, -0.2],
-        [-0.22, 0.2],
-        [0.22, 0.2],
-      ] as const
-    ).entries()) {
-      const bed = toWorld(landmark, u, v);
-      const halfX = landmark.size.x * 0.16;
-      const halfZ = landmark.size.z * 0.14;
+    // A formal forecourt garden for the opera house: the four quadrants ARE
+    // the parterres — each bed runs from the walk centrelines out to the
+    // park rectangle, and everything above it (walks at the path tier, the
+    // plaza disc, the terrace, the corridor's band and carriageway) paints
+    // over it, so every visible bed edge lands flush on something real.
+    // Straight-edged beds floating in lawn were tried first: nothing in the
+    // frame explained their edges, and against the diagonal street the gap
+    // tapered — "not aligned with the roads" was the complaint, verbatim.
+    // World coordinates, anchored — like the walks (`operaGardenPaths`) —
+    // to the opera house's axis rather than the park's own centre.
+    const minX = landmark.center.x - landmark.size.x / 2;
+    const maxX = landmark.center.x + landmark.size.x / 2;
+    const minZ = landmark.center.z - landmark.size.z / 2;
+    const maxZ = landmark.center.z + landmark.size.z / 2;
+    const spans = (from: number, to: number) =>
+      [(from + to) / 2, (to - from) / 2] as const;
+    const [westX, westHalf] = spans(minX, CAIRO_OPERA_AXIS_X);
+    const [eastX, eastHalf] = spans(CAIRO_OPERA_AXIS_X, maxX);
+    const [southZ, southHalf] = spans(minZ, CAIRO_OPERA_CROSS_Z);
+    const [northZ, northHalf] = spans(CAIRO_OPERA_CROSS_Z, maxZ);
+    const beds = [
+      { x: westX, z: northZ, halfX: westHalf, halfZ: northHalf },
+      // The renderer clips the east quadrants to the park side of the
+      // corridor, exactly like the lawn — a rectangle cannot hug a diagonal.
+      { x: eastX, z: northZ, halfX: eastHalf, halfZ: northHalf },
+      { x: westX, z: southZ, halfX: westHalf, halfZ: southHalf },
+      { x: eastX, z: southZ, halfX: eastHalf, halfZ: southHalf },
+    ];
+    for (const [index, bed] of beds.entries()) {
       features.push({
         id: `${landmark.id}-parterre-${index}`,
         kind: "parterre",
         x: bed.x,
         z: bed.z,
         rotationY: 0,
-        sizeX: halfX * 2,
-        sizeZ: halfZ * 2,
+        sizeX: bed.halfX * 2,
+        sizeZ: bed.halfZ * 2,
         solid: false,
       });
-      clearings.push({ x: bed.x, z: bed.z, halfX, halfZ });
+      // Full-quadrant clearings: scatter and path furniture have no ground
+      // left here, which is the point — everything this garden shows is
+      // authored below.
+      clearings.push({
+        x: bed.x,
+        z: bed.z,
+        halfX: bed.halfX,
+        halfZ: bed.halfZ,
+      });
     }
-    const centre = settle(0, 0, 3.5);
+    features.push({
+      id: `${landmark.id}-plaza`,
+      kind: "plaza",
+      x: CAIRO_OPERA_AXIS_X,
+      z: CAIRO_OPERA_CROSS_Z,
+      rotationY: 0,
+      sizeX: CAIRO_OPERA_PLAZA_RADIUS_M * 2,
+      sizeZ: CAIRO_OPERA_PLAZA_RADIUS_M * 2,
+      solid: false,
+    });
+    // Dead-centre and no `settle`: the disc exists so the monument stands on
+    // paving, not in a walk — the walks stop at the rim by construction.
     props.push({
       kind: "monument",
-      x: centre.x,
-      z: centre.z,
+      x: CAIRO_OPERA_AXIS_X,
+      z: CAIRO_OPERA_CROSS_Z,
       rotationY: 0,
       scale: 1,
       variant: 0,
     });
-    clearings.push({ x: centre.x, z: centre.z, halfX: 5, halfZ: 5 });
+    // Four benches ON the disc at the diagonals, facing the obelisk — the
+    // ground beyond the rim is planted bed now, and a bench in flowers
+    // reads as a mistake.
+    const benchRadius = CAIRO_OPERA_PLAZA_RADIUS_M - 1.7;
+    for (const [benchU, benchV] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ] as const) {
+      const benchX = CAIRO_OPERA_AXIS_X + (benchU * benchRadius) / Math.SQRT2;
+      const benchZ = CAIRO_OPERA_CROSS_Z + (benchV * benchRadius) / Math.SQRT2;
+      props.push({
+        kind: "bench",
+        x: benchX,
+        z: benchZ,
+        rotationY: Math.atan2(
+          CAIRO_OPERA_AXIS_X - benchX,
+          CAIRO_OPERA_CROSS_Z - benchZ,
+        ),
+        scale: 1,
+        variant: 0,
+      });
+    }
+    // Authored lamps in the borders beside the walks. The quadrant
+    // clearings veto `pathFurniture`'s rolls wholesale, so without these
+    // the garden would go dark at night.
+    for (const lamp of [
+      { x: CAIRO_OPERA_AXIS_X - 2.75, z: -216, rotationY: Math.PI / 2 },
+      { x: CAIRO_OPERA_AXIS_X + 2.75, z: -216, rotationY: -Math.PI / 2 },
+      { x: CAIRO_OPERA_AXIS_X - 2.75, z: -235, rotationY: Math.PI / 2 },
+      { x: CAIRO_OPERA_AXIS_X + 2.75, z: -235, rotationY: -Math.PI / 2 },
+      { x: -288, z: CAIRO_OPERA_CROSS_Z - 2.15, rotationY: 0 },
+      { x: -288, z: CAIRO_OPERA_CROSS_Z + 2.15, rotationY: Math.PI },
+    ]) {
+      props.push({ kind: "lamp", ...lamp, scale: 1, variant: 0 });
+    }
+    // A date-palm allée rising from the beds beside the axis walk: 3.6 m
+    // off its centreline — 1.4 m off its edge, close enough that every palm
+    // rides the knockable pipeline like a street tree. Rows break where the
+    // cross walk and the plaza pass.
+    for (const [row, alleeZ] of [
+      -212.5, -226.5, -240.5, -262.5, -274.5,
+    ].entries()) {
+      for (const side of [-1, 1] as const) {
+        props.push({
+          kind: "tree",
+          x: CAIRO_OPERA_AXIS_X + side * 3.6,
+          z: alleeZ,
+          // Varied yaw so ten instances of one palm read as ten palms.
+          rotationY: (row * 2 + (side > 0 ? 1 : 0)) * 2.4,
+          scale: 1.05,
+          // Cairo's canopy pool is broadleaf, oak, tall palm, short palm —
+          // index 2 is the tall palm, which is what an allée is. Variant 0
+          // planted ten broadleaves down the axis.
+          variant: 2,
+        });
+      }
+    }
   }
 
   if (id.includes("joan-of-arc")) {
@@ -504,6 +653,57 @@ function bespokeFeatures(
 }
 
 /**
+ * The Opera Grounds' four walk arms, in world coordinates.
+ *
+ * Every arm stops `CAIRO_OPERA_PLAZA_RADIUS_M - 0.5` from the plaza centre:
+ * the half-metre lap rides ONTO the disc (path tier -2 over ground tier 0),
+ * so no arm ever overlaps another arm. The east arm ends tucked just inside
+ * the corridor's pavement band — painted over from above, the seam lands on
+ * the band's outer edge and the walk reads as a street entrance. The south
+ * arm ends lapping the opera terrace the renderer paves; the north and west
+ * arms end on the rect edge, where the perimeter wall opens a gate for them.
+ */
+function operaGardenPaths(landmark: ParkLandmarkInput): readonly ParkPath[] {
+  const tip = CAIRO_OPERA_PLAZA_RADIUS_M - 0.5;
+  const northEdgeZ = landmark.center.z + landmark.size.z / 2;
+  const westEdgeX = landmark.center.x - landmark.size.x / 2;
+  return [
+    {
+      id: "axis-north",
+      points: [
+        { x: CAIRO_OPERA_AXIS_X, z: northEdgeZ },
+        { x: CAIRO_OPERA_AXIS_X, z: CAIRO_OPERA_CROSS_Z + tip },
+      ],
+      widthM: 4.4,
+    },
+    {
+      id: "axis-south",
+      points: [
+        { x: CAIRO_OPERA_AXIS_X, z: CAIRO_OPERA_CROSS_Z - tip },
+        { x: CAIRO_OPERA_AXIS_X, z: CAIRO_OPERA_TERRACE_NORTH_Z - 0.5 },
+      ],
+      widthM: 4.4,
+    },
+    {
+      id: "cross-west",
+      points: [
+        { x: westEdgeX, z: CAIRO_OPERA_CROSS_Z },
+        { x: CAIRO_OPERA_AXIS_X - tip, z: CAIRO_OPERA_CROSS_Z },
+      ],
+      widthM: 3.2,
+    },
+    {
+      id: "cross-east",
+      points: [
+        { x: CAIRO_OPERA_AXIS_X + tip, z: CAIRO_OPERA_CROSS_Z },
+        { x: CAIRO_OPERA_STREET_GATE_X, z: CAIRO_OPERA_CROSS_Z },
+      ],
+      widthM: 3.2,
+    },
+  ];
+}
+
+/**
  * The path network, in park-local coordinates.
  *
  * A long park gets a wandering spine so the eye is led down its length rather
@@ -518,7 +718,11 @@ function pathRecipe(
   const longIsZ = landmark.size.z >= landmark.size.x;
   const spine = (id: string, offset: number, amplitude: number, widthM: number) => {
     const points: VisualPoint[] = [];
-    const steps = 24;
+    // Chords ≤ 1.5 m. A fixed 24 steps put 4 m chords on the wander — ~15°
+    // corners on a ribbon barely 4 m wide, which renders as a staircase.
+    // Capped so Central Park does not buy two thousand vertices of smoothness.
+    const longSide = Math.max(landmark.size.x, landmark.size.z);
+    const steps = Math.min(96, Math.max(24, Math.ceil(longSide / 1.5)));
     for (let step = 0; step <= steps; step += 1) {
       const t = step / steps - 0.5;
       const wander = Math.sin(t * Math.PI * 3) * amplitude;
@@ -530,6 +734,15 @@ function pathRecipe(
     }
     return { id, points, widthM };
   };
+
+  // Keyed on id like `bespokeFeatures`: the Opera Grounds keep their
+  // greensward style (and its scatter and wall rules) but not the greensward
+  // walks — the wandering spine plowed through all four parterres, and its
+  // crossing met it at one y-level. A formal garden is made of straight arms
+  // that only ever touch the plaza disc.
+  if (landmark.id.toLowerCase().includes("opera")) {
+    return operaGardenPaths(landmark);
+  }
 
   switch (style) {
     case "pocket_green":
@@ -846,6 +1059,7 @@ export function parkPerimeterPlan(
   style: ParkStyle,
   paths: readonly ParkPath[],
   context: ParkLayoutContext,
+  dividers: readonly ParkRoadDivider[] = [],
 ): readonly ParkWallRun[] {
   if (UNWALLABLE_STYLES.includes(style)) return [];
   if (Math.min(landmark.size.x, landmark.size.z) < PARK_WALL_MIN_SHORT_SIDE_M) {
@@ -867,13 +1081,22 @@ export function parkPerimeterPlan(
   }
 
   const runs: ParkWallRun[] = [];
-  for (let edge = 0; edge < 4; edge += 1) {
-    const from = corners[edge];
-    const to = corners[(edge + 1) % 4];
+  const insideInset = (point: VisualPoint): boolean =>
+    Math.abs(point.x - landmark.center.x) <=
+      landmark.size.x / 2 - PARK_WALL_INSET_M + 1e-6 &&
+    Math.abs(point.z - landmark.center.z) <=
+      landmark.size.z / 2 - PARK_WALL_INSET_M + 1e-6;
+
+  const layBoundaryLine = (
+    from: VisualPoint,
+    to: VisualPoint,
+    label: string,
+    clipToRect: boolean,
+  ) => {
     const dx = to.x - from.x;
     const dz = to.z - from.z;
     const length = Math.hypot(dx, dz);
-    if (length < PARK_WALL_MIN_RUN_M) continue;
+    if (length < PARK_WALL_MIN_RUN_M) return;
     const ux = dx / length;
     const uz = dz / length;
     const steps = Math.max(1, Math.ceil(length / PARK_WALL_SAMPLE_M));
@@ -885,7 +1108,7 @@ export function parkPerimeterPlan(
       if (span >= PARK_WALL_MIN_RUN_M) {
         const mid = runStart + span / 2;
         runs.push({
-          id: `${landmark.id}-wall-${edge}-${runs.length}`,
+          id: `${landmark.id}-wall-${label}-${runs.length}`,
           x: from.x + ux * mid,
           z: from.z + uz * mid,
           ux,
@@ -900,6 +1123,7 @@ export function parkPerimeterPlan(
     for (let step = 0; step <= steps; step += 1) {
       const along = (length * step) / steps;
       const point = { x: from.x + ux * along, z: from.z + uz * along };
+      const outside = clipToRect && !insideInset(point);
       const nearGate = gatePoints.some(
         (gate) => Math.hypot(gate.x - point.x, gate.z - point.z) <= PARK_GATE_HALF_WIDTH_M,
       );
@@ -910,13 +1134,78 @@ export function parkPerimeterPlan(
             context.sidewalkWidthM +
             PARK_WALL_ROAD_CLEARANCE_M,
       );
-      if (nearGate || nearRoad) {
+      // A wall span past a crossing road stands on the far kerbside — the
+      // road-proximity veto alone left the Opera Grounds a 4 m orphan run
+      // across its corridor, where the rest of that edge was rightly dropped.
+      const farSide = dividers.some((divider) => acrossDivider(divider, point));
+      if (outside || nearGate || nearRoad || farSide) {
         flush(along);
       } else if (runStart === null) {
         runStart = along;
       }
     }
     flush(length);
+  };
+
+  for (let edge = 0; edge < 4; edge += 1) {
+    layBoundaryLine(corners[edge], corners[(edge + 1) % 4], String(edge), false);
+  }
+  // A crossing road takes the boundary with it: the rect edge beside it is
+  // road-vetoed down to stubs, so the wall follows the road instead — a run
+  // parallel to each divider, offset to the park side by the same clearance
+  // the road veto enforces (plus the wall's own half thickness), clipped to
+  // the inset rectangle. Gates fall out of the same path rule the rect edges
+  // use, so a walk that exits through it — the opera's cross-east street
+  // entrance — opens the rail exactly like the west gate. Axis-aligned rect
+  // clip, like `crossingRoadDividers`: a rotated park would need the line
+  // mapped into park-local space first.
+  for (const [index, divider] of dividers.entries()) {
+    const length = Math.hypot(divider.dx, divider.dz);
+    if (length <= 1e-6) continue;
+    const offset =
+      divider.widthM / 2 +
+      context.sidewalkWidthM +
+      PARK_WALL_ROAD_CLEARANCE_M +
+      PARK_WALL_HALF_THICKNESS_M +
+      0.1;
+    const nx = (-divider.dz / length) * divider.keepSign;
+    const nz = (divider.dx / length) * divider.keepSign;
+    const from = { x: divider.x + nx * offset, z: divider.z + nz * offset };
+    // Clip the rail's line to the inset rectangle EXACTLY before walking it.
+    // The sampled walk flushes at the vetoing sample, so leaving the clip to
+    // the inside-veto let the rail's tip poke up to a sample past the
+    // boundary wall line — read in game as the rail jutting toward the
+    // street at the corner it should meet the wall.
+    const minX = landmark.center.x - landmark.size.x / 2 + PARK_WALL_INSET_M;
+    const maxX = landmark.center.x + landmark.size.x / 2 - PARK_WALL_INSET_M;
+    const minZ = landmark.center.z - landmark.size.z / 2 + PARK_WALL_INSET_M;
+    const maxZ = landmark.center.z + landmark.size.z / 2 - PARK_WALL_INSET_M;
+    let enter = 0;
+    let exit = 1;
+    for (const [towards, clearance] of [
+      [-divider.dx, from.x - minX],
+      [divider.dx, maxX - from.x],
+      [-divider.dz, from.z - minZ],
+      [divider.dz, maxZ - from.z],
+    ] as const) {
+      if (Math.abs(towards) <= 1e-9) {
+        if (clearance < 0) exit = -1;
+        continue;
+      }
+      const at = clearance / towards;
+      if (towards < 0) {
+        if (at > enter) enter = at;
+      } else if (at < exit) {
+        exit = at;
+      }
+    }
+    if (exit <= enter) continue;
+    layBoundaryLine(
+      { x: from.x + divider.dx * enter, z: from.z + divider.dz * enter },
+      { x: from.x + divider.dx * exit, z: from.z + divider.dz * exit },
+      `road-${index}`,
+      true,
+    );
   }
   return runs;
 }
@@ -935,10 +1224,11 @@ export function buildParkLayout(
   const paths = pathRecipe(style, landmark);
   const bespoke = bespokeFeatures(landmark, style, paths);
   const clearings = [...bespoke.clearings, ...(context.clearings ?? [])];
-  // Only civic_plaza splits: a road authored through any other park style is
-  // a graze, and a loop road's chord across a pocket green must not halve it.
+  // Splitting is opt-in — civic_plaza by style, others by id: a road authored
+  // through any other park style is a graze, and a loop road's chord across a
+  // pocket green must not halve it.
   const dividers =
-    style === "civic_plaza"
+    style === "civic_plaza" || ROAD_DIVIDED_PARK_IDS.has(landmark.id)
       ? crossingRoadDividers(landmark, context.roadSurfaces)
       : [];
   const random = seededUnit(context.seed);
@@ -955,7 +1245,7 @@ export function buildParkLayout(
     style,
     paths,
     placements,
-    wall: parkPerimeterPlan(landmark, style, paths, context),
+    wall: parkPerimeterPlan(landmark, style, paths, context, dividers),
     features: bespoke.features,
   };
 }

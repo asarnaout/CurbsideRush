@@ -35,9 +35,9 @@ Every value is tuned to kill z-fighting, and they are spread across three module
 (`GameCanvas.tsx`, `crowdRenderer.ts`, `vehicleMeshes.ts`):
 
 ```
-0.02 park lawn  <  0.0435 shoulder junction fill  <  0.045 shoulder/sidewalk
-<  0.07 road surface  <  0.0716 asphalt junction fill  <  0.08 walkers  <  0.1 crowd shadows
-<  0.12 markings & vehicle nodes  <  0.144-0.147 chevrons/stop lines
+0.02 park lawn  <  0.0255 park beds  <  0.031 park paths/terraces  <  0.0435 shoulder junction fill
+<  0.045 shoulder/sidewalk  <  0.07 road surface  <  0.0716 asphalt junction fill  <  0.08 walkers
+<  0.1 crowd shadows  <  0.12 markings & vehicle nodes  <  0.144-0.147 chevrons/stop lines
 ```
 
 Vehicle ground contact is a **two-value handshake**: nodes at `y = 0.12` and

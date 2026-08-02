@@ -230,8 +230,10 @@ import {
   natureSetsForMap,
 } from "./natureCatalog";
 import {
+  CAIRO_OPERA_TERRACE_NORTH_Z,
   CAIRO_TAHRIR_PLAZA_RADIUS_M,
   parkLayoutForLandmark,
+  ROAD_DIVIDED_PARK_IDS,
   type ParkFeature,
   type ParkPlacement,
 } from "./parkLayouts";
@@ -448,9 +450,16 @@ const GRASS_DETAIL_TILE_M = 3.1;
  * height: parks sit deliberately BELOW the shoulder (0.045) and the road (0.07)
  * so an authored road crossing a park keeps visual priority.
  */
-const PARK_LAWN_Y = 0.02;
+export const PARK_LAWN_Y = 0.02;
+/**
+ * Parterre and court ground patches, on their own rung UNDER the walks: a path
+ * may cross a court or graze a bed, and the walk must win. They once shared
+ * `PARK_PATH_Y`, which is a coplanar fight the depth buffer cannot settle —
+ * the Opera Grounds shipped shimmering because of it.
+ */
+export const PARK_BED_Y = 0.0255;
 /** Park footpaths, in the ~23 mm between the lawn and the shoulder fill. */
-const PARK_PATH_Y = 0.031;
+export const PARK_PATH_Y = 0.031;
 /**
  * Polygon offset pulling park paths toward the camera. The lawn/path gap is
  * finer than the depth quantum at Central Park's far end, and polygon offset
@@ -458,6 +467,15 @@ const PARK_PATH_Y = 0.031;
  * same reasoning as `CAIRO_DECAL_Z_OFFSET_UNITS`.
  */
 const PARK_PATH_Z_OFFSET_UNITS = -2;
+/**
+ * The park ground stack is FOUR offset tiers, one per rung: crossing paths
+ * (-4) over spines (-2) over beds/courts (-1) over the ground rung (0: lawn,
+ * plaza discs, terraces). Two park surfaces may overlap only when they differ
+ * in tier — a crossing lies over the spine it meets at the same y, and a
+ * spine lies over the bed it grazes 5.5 mm below.
+ */
+const PARK_BED_Z_OFFSET_UNITS = -1;
+const PARK_PATH_CROSS_Z_OFFSET_UNITS = -4;
 /**
  * Park boundary wall height. Tall enough to read as a boundary from a car at
  * speed — a hit is a scored collision, so an edge the driver cannot see coming
@@ -468,18 +486,23 @@ const PARK_WALL_HEIGHT_M = 0.95;
 /**
  * Yaw that lays a box's LENGTH along a given world direction.
  *
- * A box's length is its `width`, which is local **+X** — so this is
- * `atan2(uz, ux)`, and **not** the map's heading convention
- * (`atan2(dx, dz)`, where 0 = +z). The two differ by 90°, and using the
- * heading here is silent: the wall still draws, still sits at the right
- * centre, and is simply turned across its own edge. Central Park's west wall
- * came out as a 2,897 m ledge running east-west from x ≈ -1107 to +1790,
- * straight through every avenue on the map, while its collider — which takes
- * `ux`/`uz` directly as the OBB axis — stayed correct. Seeing and hitting
- * disagreed, which is the worst version of this bug.
+ * A box's length is its `width`, which is local **+X**, and under
+ * `rotation.y = θ` this engine lays local +X along world **(cos θ, −sin θ)**
+ * — the same convention the torii builder and its adapter collider both
+ * encode. Two ways this has gone wrong, both silent:
+ *
+ * - Using the map's heading convention (`atan2(dx, dz)`, 0 = +z), which is
+ *   90° off: Central Park's west wall drew as a 2,897 m east-west ledge
+ *   straight through every avenue while its collider — which takes
+ *   `ux`/`uz` directly as the OBB axis — stayed correct.
+ * - Using `atan2(uz, ux)`, which mirrors the direction in z. That slept for
+ *   as long as every wall run was axis-aligned (a box turned −90° is the
+ *   box turned +90°) and surfaced the day the Opera Grounds laid the first
+ *   road-parallel rail: drawn rotated ~20° off the street it was authored
+ *   flush with, collider correct, seeing and hitting disagreeing again.
  */
 export function boxLengthYaw(ux: number, uz: number): number {
-  return Math.atan2(uz, ux);
+  return Math.atan2(-uz, ux);
 }
 /**
  * How close to a path a plant must be to stay an individually instanced,
@@ -2974,11 +2997,19 @@ export const CAIRO_TAHRIR_LAWN_WEST_TUCK_X = 324.5;
  * z -93.3→-92.0 across the lawn's reachable span west of Ramses.
  */
 export const CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z = -94;
+/**
+ * ...and out under Ramses' band to the east. The rect edge at x 391 left a
+ * bare triangle against the diagonal band north of the centreline cut —
+ * Ramses' band-west edge climbs from x 391 (z -6.5) to 401.6 (z 6) while
+ * the rect edge stands still. 402 sits past the band edge over that whole
+ * span, and above z 5.7 the ministries esplanade takes over.
+ */
+export const CAIRO_TAHRIR_LAWN_EAST_TUCK_X = 402;
 
 /**
  * The lawn Tahrir actually shows: the authored rectangle, tucked out under
- * its west and south pavement bands, then cut back to the park-centre side
- * of every road segment that crosses it.
+ * its west, south and east pavement bands, then cut back to the park-centre
+ * side of every road segment that crosses it.
  *
  * Both moves exist because Cairo's base ground is paved grey and any ground
  * the lawn, band and asphalt leave uncovered reads as a bare strip. The
@@ -3007,7 +3038,10 @@ export function cairoTahrirLawnPolygon(
     landmark.center.x - landmark.size.x / 2,
     CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
   );
-  const maxX = landmark.center.x + landmark.size.x / 2;
+  const maxX = Math.max(
+    landmark.center.x + landmark.size.x / 2,
+    CAIRO_TAHRIR_LAWN_EAST_TUCK_X,
+  );
   const minZ = Math.min(
     landmark.center.z - landmark.size.z / 2,
     CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
@@ -3024,13 +3058,66 @@ export function cairoTahrirLawnPolygon(
 }
 
 /**
- * A rect cut back to `anchor`'s side of every road-centreline segment that
- * crosses it. The shared core of Tahrir's lawn and forecourt polygons: both
- * lean on the same fact — the surface drawn from the result sits below the
- * carriageway and the pavement band, so running the rect out to a road's
- * centreline paints a seam exactly on the band's outer edge.
+ * The lawn of a `ROAD_DIVIDED_PARK_IDS` park: the authored rectangle cut back
+ * to the park-centre side of every road segment crossing it — Tahrir's clip
+ * without Tahrir's band tucks, for parks whose other edges no road grazes.
+ * Rendered raw, the Opera Grounds' rectangle surfaced as a grass wedge on the
+ * far kerbside of the corridor authored through it.
  */
-function clipRectToRoadSide(
+export function roadSideParkLawnPolygon(
+  landmark: Pick<
+    GameCanvasMapPack["geometry"]["landmarks"][number],
+    "center" | "size"
+  >,
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+): GameCanvasPoint[] {
+  return clipRectToRoadSide(
+    landmark.center.x - landmark.size.x / 2,
+    landmark.center.x + landmark.size.x / 2,
+    landmark.center.z - landmark.size.z / 2,
+    landmark.center.z + landmark.size.z / 2,
+    landmark.center,
+    roadSurfaces,
+  );
+}
+
+/**
+ * The paved terrace between the opera house's garden colonnade and the
+ * formal garden. The building's north 12 m stand inside the park rect, so
+ * the paving must run from under its face (x inset 2 m from each flank)
+ * north past the rect line to `CAIRO_OPERA_TERRACE_NORTH_Z`, where the
+ * garden's axis walk laps it by half a metre. Clipped to the opera house's
+ * side of any crossing road — a no-op against today's corridor, but a road
+ * nudge fails the seam test instead of paving the far kerbside.
+ */
+export function cairoOperaTerracePolygon(
+  operaHouse: Pick<
+    GameCanvasMapPack["geometry"]["landmarks"][number],
+    "center" | "size"
+  >,
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+): GameCanvasPoint[] {
+  return clipRectToRoadSide(
+    operaHouse.center.x - operaHouse.size.x / 2 - 2,
+    operaHouse.center.x + operaHouse.size.x / 2 + 2,
+    // 12 m south of the building's north face — the park's own south line,
+    // so the paving covers exactly the strip the building borrows from it.
+    operaHouse.center.z + operaHouse.size.z / 2 - 12,
+    CAIRO_OPERA_TERRACE_NORTH_Z,
+    operaHouse.center,
+    roadSurfaces,
+  );
+}
+
+/**
+ * A rect cut back to `anchor`'s side of every road-centreline segment that
+ * crosses it. The shared core of Tahrir's lawn and forecourt polygons, the
+ * road-divided park lawns and the opera parterre quadrants: all lean on the
+ * same fact — the surface drawn from the result sits below the carriageway
+ * and the pavement band, so running the rect out to a road's centreline
+ * paints a seam exactly on the band's outer edge.
+ */
+export function clipRectToRoadSide(
   minX: number,
   maxX: number,
   minZ: number,
@@ -5496,6 +5583,63 @@ function createGrassTexture(
 }
 
 /**
+ * A parterre bed's groundcover, one tile.
+ *
+ * Deliberately NOT the lawn texture: a bed is planted colour — darker foliage
+ * carrying flower heads at full strength, where the lawn pulls its flora most
+ * of the way back so it reads as chance. Shares the lawn's spec so the drift
+ * pattern is the same species of noise, just dressed differently.
+ */
+function createFlowerbedTexture(
+  scene: Scene,
+  name: string,
+  palette: MapVisualPalette,
+  seed: number,
+): DynamicTexture {
+  const size = 512;
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  const spec = buildGrassTextureSpec(seed);
+
+  context.fillStyle = mixHexColors(palette.grassDeep, palette.dirtShoulder, 0.25);
+  context.fillRect(0, 0, size, size);
+
+  // Foliage mottling — the lawn's discs, denser and darker.
+  context.globalAlpha = 0.2;
+  context.fillStyle = palette.grassAlt;
+  for (const blob of spec.blobs) {
+    context.beginPath();
+    context.arc(blob.x * size, blob.y * size, blob.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 0.25;
+  context.fillStyle = palette.grassDeep;
+  for (const patch of spec.patches) {
+    context.beginPath();
+    context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  // Flower heads, two tones so the drift reads as planting rather than noise.
+  context.globalAlpha = 0.8;
+  for (const [index, head] of [...spec.flora, ...spec.speckles].entries()) {
+    context.fillStyle =
+      index % 2 === 0
+        ? palette.floraAccent
+        : mixHexColors(palette.floraAccent, "#ffffff", 0.35);
+    context.beginPath();
+    context.arc(head.x * size, head.y * size, size / 90, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 1;
+
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
  * The detail tile fed to `StandardMaterial.detailMap`.
  *
  * **A detail map is not an image — it is four independent channels, and three
@@ -6078,6 +6222,14 @@ class BabylonGameSession {
   private parkLawnMaterial: StandardMaterial | null = null;
   /** One gravel material for every park path on the map; built lazily. */
   private parkPathMaterial: StandardMaterial | null = null;
+  /** The gravel tile those materials share; built lazily with the first. */
+  private parkPathTexture: DynamicTexture | null = null;
+  /** Crossing-path sibling of `parkPathMaterial`, one offset tier deeper. */
+  private parkPathCrossMaterial: StandardMaterial | null = null;
+  /** Gravel again, on the bed tier — temple courts a path may cross. */
+  private parkCourtMaterial: StandardMaterial | null = null;
+  /** Flowerbed groundcover for parterres; built lazily. */
+  private parkBedMaterial: StandardMaterial | null = null;
   /** One stone material for every park boundary wall; built lazily. */
   private parkWallMaterial: StandardMaterial | null = null;
   /** Keep-out circles (gas station + gig-venue lots) so the block street wall
@@ -11856,7 +12008,21 @@ class BabylonGameSession {
         // The centre "feature" cone is gone. It was the whole of a park's
         // contents, and the thing issue #206 is a screenshot of; a park is now
         // dressed by `parkLayouts` and bounded by its own wall.
-        this.buildParkLawn(landmark, palette, mapId);
+        if (ROAD_DIVIDED_PARK_IDS.has(landmark.id)) {
+          // A road is authored through this rect; the raw rectangle would
+          // surface as grass on the far kerbside.
+          this.buildParkLawnPolygon(
+            landmark.id,
+            roadSideParkLawnPolygon(
+              landmark,
+              mapPack.geometry.roadSurfaces ?? [],
+            ),
+            palette,
+            mapId,
+          );
+        } else {
+          this.buildParkLawn(landmark, palette, mapId);
+        }
         this.buildParkFeatures(landmark, mapPack, palette, mapId);
       } else if (landmark.kind === "railway") {
         for (const offset of [-1.25, 1.25]) {
@@ -12597,45 +12763,147 @@ class BabylonGameSession {
     }
 
     if (landmark.id === "cairo-opera-house") {
+      // The public face is the NORTH one, onto the Opera Grounds' formal
+      // garden — the walk axis arrives centred on it. It is also the face
+      // the sun never reaches (+z normals are unlit under this map's sun),
+      // which is why the old plain box read as a black monolith looming
+      // over the park: articulation alone cannot rescue an unlit face, so
+      // the stone gets a small emissive lift too. Both materials here are
+      // per-landmark (`${landmark.id}-…`), so the lift cannot leak to
+      // another building.
+      paleStone.emissiveColor = new Color3(0.055, 0.05, 0.04);
+      material.emissiveColor = new Color3(0.05, 0.047, 0.04);
+      const centerX = landmark.center.x;
+      const northFaceZ = landmark.center.z + landmark.size.z / 2;
+      // Main hall in front, taller stage house behind — the fly-tower step
+      // every opera house silhouette carries.
+      const hallDepth = landmark.size.z - 14;
+      const hallCenterZ = northFaceZ - hallDepth / 2;
       createBox(
         scene,
         landmark.id,
-        { width: landmark.size.x, height: 6.8, depth: landmark.size.z },
-        new Vector3(landmark.center.x, 3.4, landmark.center.z),
-        paleStone,
-      );
-      createBox(
-        scene,
-        `${landmark.id}-upper`,
-        {
-          width: landmark.size.x * 0.62,
-          height: 4.2,
-          depth: landmark.size.z * 0.72,
-        },
-        new Vector3(landmark.center.x, 8.9, landmark.center.z + 1),
+        { width: landmark.size.x, height: 9, depth: hallDepth },
+        new Vector3(centerX, 4.5, hallCenterZ),
         material,
       );
-      const frontZ = landmark.center.z - landmark.size.z / 2 - 1.6;
       createBox(
         scene,
-        `${landmark.id}-canopy`,
-        { width: landmark.size.x * 0.64, height: 0.45, depth: 4 },
-        new Vector3(landmark.center.x, 5.3, frontZ),
+        `${landmark.id}-cornice`,
+        { width: landmark.size.x + 1.2, height: 0.75, depth: hallDepth + 1.2 },
+        new Vector3(centerX, 9.15, hallCenterZ),
         paleStone,
       );
-      for (let column = -3; column <= 3; column += 1) {
+      const stageCenterZ = northFaceZ - hallDepth - 7;
+      createBox(
+        scene,
+        `${landmark.id}-stage-house`,
+        { width: landmark.size.x - 6, height: 13, depth: 14 },
+        new Vector3(centerX, 6.5, stageCenterZ),
+        material,
+      );
+      createBox(
+        scene,
+        `${landmark.id}-stage-cornice`,
+        { width: landmark.size.x - 6 + 1.2, height: 0.75, depth: 15.2 },
+        new Vector3(centerX, 13.15, stageCenterZ),
+        paleStone,
+      );
+      // A set-back attic carrying the low faceted dome the real Cairo Opera
+      // House wears; the icosphere's lower half is buried in the attic.
+      createBox(
+        scene,
+        `${landmark.id}-attic`,
+        { width: 22.4, height: 4, depth: 30 },
+        new Vector3(centerX, 11, northFaceZ - 20),
+        material,
+      );
+      const dome = createIcoSphere(
+        scene,
+        `${landmark.id}-dome`,
+        8,
+        new Vector3(centerX, 13, northFaceZ - 20),
+        paleStone,
+      );
+      dome.scaling.set(1, 0.45, 1);
+      // Garden colonnade: nine columns an arm's reach proud of the face,
+      // side-lit even when the wall behind them is not.
+      const colonnadeZ = northFaceZ + 1.1;
+      for (let column = -4; column <= 4; column += 1) {
         createCylinder(
           scene,
           `${landmark.id}-column-${column}`,
-          { height: 4.8, diameter: 0.55, tessellation: 8 },
+          { height: 7, diameter: 0.85, tessellation: 8 },
           new Vector3(
-            landmark.center.x + column * (landmark.size.x / 9),
-            2.5,
-            frontZ,
+            centerX + column * (landmark.size.x / 8.8),
+            3.5,
+            colonnadeZ,
           ),
-          material,
+          paleStone,
         );
       }
+      createBox(
+        scene,
+        `${landmark.id}-entablature`,
+        { width: landmark.size.x - 1.5, height: 1.2, depth: 1.6 },
+        new Vector3(centerX, 7.6, colonnadeZ),
+        paleStone,
+      );
+      // Ground-tier bays between the columns, the attic's window row above,
+      // and the recessed entrance with its bronze doors on the axis.
+      for (let bay = -4; bay <= 3; bay += 1) {
+        if (bay === -1 || bay === 0) continue; // the entrance's span
+        createBox(
+          scene,
+          `${landmark.id}-bay-${bay}`,
+          { width: 2.2, height: 3.4, depth: 0.18 },
+          new Vector3(
+            centerX + (bay + 0.5) * (landmark.size.x / 8.8),
+            4.2,
+            northFaceZ + 0.11,
+          ),
+          darkWindow,
+        );
+      }
+      for (let window = -2; window <= 2; window += 1) {
+        createBox(
+          scene,
+          `${landmark.id}-attic-window-${window}`,
+          { width: 2.1, height: 2.6, depth: 0.18 },
+          new Vector3(centerX + window * 4, 10.8, northFaceZ - 5 + 0.11),
+          darkWindow,
+        );
+      }
+      createBox(
+        scene,
+        `${landmark.id}-entrance`,
+        { width: 6, height: 6.4, depth: 0.28 },
+        new Vector3(centerX, 3.2, northFaceZ + 0.11),
+        darkWindow,
+      );
+      for (const side of [-1, 1] as const) {
+        createBox(
+          scene,
+          `${landmark.id}-door-${side}`,
+          { width: 1.4, height: 3.6, depth: 0.32 },
+          new Vector3(centerX + side * 1.4, 1.8, northFaceZ + 0.15),
+          bronze,
+        );
+      }
+      // The terrace between the facade and the garden. The building's north
+      // 12 m stand INSIDE the park rect, so without this the colonnade met
+      // raw lawn; the paving runs from under the building face out past the
+      // rect line to meet the axis walk, whose half-metre lap draws over it.
+      const terracePaving = makeMaterial(
+        scene,
+        `${landmark.id}-terrace-paving`,
+        new Color3(0.63, 0.57, 0.47),
+      );
+      this.buildFlatPolygonMesh(
+        `${landmark.id}-terrace`,
+        cairoOperaTerracePolygon(landmark, mapPack.geometry.roadSurfaces ?? []),
+        PARK_PATH_Y,
+        terracePaving,
+      );
       return true;
     }
 
@@ -16337,6 +16605,21 @@ class BabylonGameSession {
     );
   }
 
+  /** The gravel tile shared by walk, crossing and court materials. */
+  private ensureParkPathTexture(palette: MapVisualPalette, mapId: string) {
+    if (!this.parkPathTexture) {
+      this.parkPathTexture = createAsphaltTexture(
+        this.scene,
+        "park-path-texture",
+        // Pale gravel, not tarmac: a park walk is a hoggin or stone-dust
+        // path everywhere this game is set.
+        mixHexColors(palette.dirtShoulder, "#e8e2d2", 0.55),
+        hashStringToSeed(`${mapId}-park-path`),
+      );
+    }
+    return this.parkPathTexture;
+  }
+
   /**
    * A park's footpaths, as thin road strips.
    *
@@ -16357,25 +16640,31 @@ class BabylonGameSession {
     const layout = parkLayoutForLandmark(mapPack, landmark);
 
     if (layout.paths.length) {
-      if (!this.parkPathMaterial) {
+      if (!this.parkPathMaterial || !this.parkPathCrossMaterial) {
+        const texture = this.ensureParkPathTexture(palette, mapId);
         const material = makeMaterial(this.scene, "park-path", Color3.White());
-        material.diffuseTexture = createAsphaltTexture(
-          this.scene,
-          "park-path-texture",
-          // Pale gravel, not tarmac: a park walk is a hoggin or stone-dust
-          // path everywhere this game is set.
-          mixHexColors(palette.dirtShoulder, "#e8e2d2", 0.55),
-          hashStringToSeed(`${mapId}-park-path`),
-        );
+        material.diffuseTexture = texture;
         material.zOffsetUnits = PARK_PATH_Z_OFFSET_UNITS;
         this.parkPathMaterial = material;
+        // Two walks of one park may cross at the same y; the deeper tier
+        // decides the winner where height cannot.
+        const crossing = makeMaterial(
+          this.scene,
+          "park-path-crossing",
+          Color3.White(),
+        );
+        crossing.diffuseTexture = texture;
+        crossing.zOffsetUnits = PARK_PATH_CROSS_Z_OFFSET_UNITS;
+        this.parkPathCrossMaterial = crossing;
       }
       for (const path of layout.paths) {
         const mesh = this.createRoadSurfaceMesh(
           `${landmark.id}-path-${path.id}`,
           path.points,
           path.widthM,
-          this.parkPathMaterial,
+          path.id.startsWith("cross")
+            ? this.parkPathCrossMaterial
+            : this.parkPathMaterial,
           false,
           PARK_PATH_Y,
         );
@@ -16385,7 +16674,13 @@ class BabylonGameSession {
       }
     }
 
-    this.buildParkBespokeFeatures(landmark, layout.features, palette);
+    this.buildParkBespokeFeatures(
+      landmark,
+      layout.features,
+      palette,
+      mapId,
+      mapPack.geometry.roadSurfaces ?? [],
+    );
 
     // The wall. A static-obstacle hit is a scored collision with damage, so it
     // has to be plainly visible — a low kerb you cannot see would read as an
@@ -16431,6 +16726,8 @@ class BabylonGameSession {
     landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
     features: readonly ParkFeature[],
     palette: MapVisualPalette,
+    mapId: string,
+    roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
   ) {
     if (!features.length) return;
     const scene = this.scene;
@@ -16440,38 +16737,90 @@ class BabylonGameSession {
     // Vermilion, which is what a torii is and the one strong colour a temple
     // garden carries.
     const vermilion = material("torii", new Color3(0.72, 0.24, 0.16));
-    const bed = material(
-      "bed",
-      colorFromHex(
-        mixHexColors(palette.grassDeep, palette.dirtShoulder, 0.45),
-        new Color3(0.32, 0.3, 0.2),
-      ),
-    );
+    // The warm paving Tahrir's plaza and the ministries esplanade set.
+    const plaza = material("plaza", new Color3(0.63, 0.57, 0.47));
 
     for (const feature of features) {
       switch (feature.kind) {
-        case "court":
-        case "parterre": {
-          // A ground patch, on the same rung as the paths so it reads as laid
-          // rather than as a rug floating over the lawn.
+        case "court": {
+          // A ground patch on the bed rung, 5.5 mm UNDER the walks: a path
+          // may cross a court, and the walk must win — sharing the paths'
+          // rung was a coplanar fight the depth buffer resolved as shimmer.
           const patch = MeshBuilder.CreateGround(
             feature.id,
             { width: feature.sizeX, height: feature.sizeZ },
             scene,
           );
-          patch.position.set(feature.x, PARK_PATH_Y, feature.z);
-          if (feature.kind === "court") {
-            this.applyWorldPlanarGrassUVs(patch, feature.x, feature.z);
-            setMeshMaterial(
-              patch,
-              this.parkPathMaterial ?? stone,
-              true,
-            );
-          } else {
-            setMeshMaterial(patch, bed, true);
+          patch.position.set(feature.x, PARK_BED_Y, feature.z);
+          this.applyWorldPlanarGrassUVs(patch, feature.x, feature.z);
+          if (!this.parkCourtMaterial) {
+            const court = makeMaterial(scene, "park-court", Color3.White());
+            court.diffuseTexture = this.ensureParkPathTexture(palette, mapId);
+            court.zOffsetUnits = PARK_BED_Z_OFFSET_UNITS;
+            this.parkCourtMaterial = court;
           }
+          setMeshMaterial(patch, this.parkCourtMaterial, true);
           patch.isPickable = false;
           this.registerStaticCell(patch, feature.x, feature.z, false);
+          break;
+        }
+        case "parterre": {
+          // Same bed rung as a court, but a polygon: a parterre's authored
+          // rect deliberately runs under the walks, the plaza disc and any
+          // crossing road — everything above paints over it, so every
+          // visible bed edge lands flush on a walk edge, the disc rim, or a
+          // pavement band. The clip cuts the rect back to the park side of
+          // a crossing road's centreline, exactly like the lawn: a
+          // rectangle cannot hug a diagonal street.
+          if (!this.parkBedMaterial) {
+            // Planted colour, not lawn: a parterre reads as groundcover
+            // with flower heads, sharing only the palette.
+            const bedMaterial = makeMaterial(scene, "park-bed", Color3.White());
+            bedMaterial.diffuseTexture = createFlowerbedTexture(
+              scene,
+              "park-bed-texture",
+              palette,
+              hashStringToSeed(`${mapId}-park-bed`),
+            );
+            bedMaterial.zOffsetUnits = PARK_BED_Z_OFFSET_UNITS;
+            this.parkBedMaterial = bedMaterial;
+          }
+          const bed = this.buildFlatPolygonMesh(
+            feature.id,
+            clipRectToRoadSide(
+              feature.x - feature.sizeX / 2,
+              feature.x + feature.sizeX / 2,
+              feature.z - feature.sizeZ / 2,
+              feature.z + feature.sizeZ / 2,
+              landmark.center,
+              roadSurfaces,
+            ),
+            PARK_BED_Y,
+            this.parkBedMaterial,
+          );
+          if (bed) {
+            bed.isPickable = false;
+            this.registerStaticCell(bed, feature.x, feature.z, false);
+          }
+          break;
+        }
+        case "plaza": {
+          // The paved disc a formal garden's walk arms terminate at —
+          // Tahrir's disc idiom: top face exactly at PARK_PATH_Y, ground
+          // tier, so each arm's half-metre lap draws over its rim.
+          const disc = createCylinder(
+            scene,
+            feature.id,
+            {
+              height: 0.022,
+              diameter: feature.sizeX,
+              tessellation: 32,
+            },
+            new Vector3(feature.x, PARK_PATH_Y - 0.011, feature.z),
+            plaza,
+          );
+          disc.isPickable = false;
+          this.registerStaticCell(disc, feature.x, feature.z, false);
           break;
         }
         case "torii": {
