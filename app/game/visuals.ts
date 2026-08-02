@@ -1111,6 +1111,163 @@ export function generateRoadsidePropPlacements(
   return placements;
 }
 
+export interface PromenadeDecorInput {
+  /** Every road surface on the map — non-open surfaces gap the promenade at
+   * junctions and bridge approaches. */
+  readonly roadSurfaces: readonly {
+    readonly id: string;
+    readonly centerline: readonly VisualPoint[];
+    readonly widthM: number;
+    readonly sidewalkWidthM?: number;
+  }[];
+  readonly waterPolygons: readonly (readonly VisualPoint[])[];
+  /** Road side(s) that face open water (cairoContent's
+   * CAIRO_OPEN_WATERFRONT_SIDES shape). */
+  readonly openSides: Readonly<
+    Partial<Record<string, readonly (-1 | 1)[]>>
+  >;
+  readonly sidewalkWidthM: number;
+  readonly worldSize: VisualPoint;
+  readonly seed: number;
+}
+
+/**
+ * The corniche promenade: palms, lamps and benches on the bank strip between
+ * an open-waterfront road and its parapet. The roadside scatter never reaches
+ * this ground — its lateral offsets hug the pavement while the water sits
+ * 10-60 m out — so the signature of the real Corniche el-Nil (a palm line at
+ * the parapet, benches facing the river) has to be laid deliberately.
+ * Deterministic on `seed`; placements ride the same masters, shadow and
+ * destructible registration as every other roadside prop.
+ *
+ * Rhythm per ~13 m station along each open side: palms every second station
+ * at 3.2 m off the waterline, lamps every fourth at 2.6 m, benches every
+ * fifth at 4.5 m facing the water, and — where the bank runs deeper than
+ * 20 m — a kerbside palm row every fourth station, the double line the real
+ * Corniche plants. Stations gap themselves at any other road's envelope
+ * (junctions, bridge portals) and wherever the bank pinches under 6 m.
+ */
+export function generatePromenadeDecor(
+  input: PromenadeDecorInput,
+): PropPlacement[] {
+  const placements: PropPlacement[] = [];
+  const random = seededUnit(input.seed);
+  const halfWorldX = input.worldSize.x / 2 - 4;
+  const halfWorldZ = input.worldSize.z / 2 - 4;
+  const STATION_M = 13;
+  for (const surface of input.roadSurfaces) {
+    const sides = input.openSides[surface.id];
+    if (!sides?.length) continue;
+    const envelope =
+      surface.widthM / 2 + (surface.sidewalkWidthM ?? input.sidewalkWidthM);
+    for (const side of sides) {
+      let station = 0;
+      let nextAt = STATION_M / 2;
+      let travelled = 0;
+      for (
+        let index = 1;
+        index < surface.centerline.length;
+        index += 1
+      ) {
+        const start = surface.centerline[index - 1];
+        const end = surface.centerline[index];
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const segmentLength = Math.hypot(dx, dz);
+        if (segmentLength < 1e-6) continue;
+        const alongX = dx / segmentLength;
+        const alongZ = dz / segmentLength;
+        const outX = alongZ * side;
+        const outZ = -alongX * side;
+        while (nextAt <= travelled + segmentLength) {
+          const alongM = nextAt - travelled + (random() - 0.5) * 6;
+          nextAt += STATION_M;
+          const stationIndex = station;
+          station += 1;
+          const baseX =
+            start.x + alongX * Math.max(0, Math.min(segmentLength, alongM));
+          const baseZ =
+            start.z + alongZ * Math.max(0, Math.min(segmentLength, alongM));
+          // Walk outward to the waterline; the strip between the pavement
+          // and the water is the promenade.
+          let waterDistM = 0;
+          for (let reach = envelope + 1; reach <= 70; reach += 0.5) {
+            if (
+              isOverWater(
+                { x: baseX + outX * reach, z: baseZ + outZ * reach },
+                input.waterPolygons,
+              )
+            ) {
+              waterDistM = reach;
+              break;
+            }
+          }
+          if (!waterDistM || waterDistM - envelope < 6) continue;
+          // Gap at every other road's envelope: junctions and the bridge
+          // approaches carry their own furniture and their own openings.
+          const clearOfOtherRoads = input.roadSurfaces.every((other) => {
+            if (other.id === surface.id) return true;
+            const otherEnvelope =
+              other.widthM / 2 +
+              (other.sidewalkWidthM ?? input.sidewalkWidthM) +
+              2;
+            return (
+              distanceToPolylineM({ x: baseX, z: baseZ }, other.centerline) >
+              otherEnvelope + 6
+            );
+          });
+          if (!clearOfOtherRoads) continue;
+          const drop = (
+            kind: string,
+            offsetM: number,
+            rotationY: number,
+            scale: number,
+            variant: number,
+          ): void => {
+            const x = baseX + outX * offsetM;
+            const z = baseZ + outZ * offsetM;
+            if (Math.abs(x) > halfWorldX || Math.abs(z) > halfWorldZ) return;
+            if (isOverWater({ x, z }, input.waterPolygons)) return;
+            placements.push({ kind, x, z, rotationY, scale, variant });
+          };
+          if (stationIndex % 2 === 0) {
+            drop(
+              "palm",
+              waterDistM - 3.2,
+              random() * Math.PI * 2,
+              0.95 + random() * 0.25,
+              stationIndex % 4 === 0 ? 0 : 1,
+            );
+            if (stationIndex % 4 === 0 && waterDistM - envelope > 20) {
+              drop(
+                "palm",
+                envelope + 5,
+                random() * Math.PI * 2,
+                0.9 + random() * 0.2,
+                1,
+              );
+            }
+          }
+          if (stationIndex % 4 === 1) {
+            drop(
+              "streetlight",
+              waterDistM - 2.6,
+              Math.atan2(-outX, -outZ),
+              1,
+              0,
+            );
+          }
+          if (stationIndex % 5 === 3) {
+            drop("bench", waterDistM - 4.5, Math.atan2(outX, outZ), 1, 0);
+          }
+        }
+        travelled += segmentLength;
+      }
+    }
+  }
+  return placements;
+}
+
 /** Small deterministic hash so per-map prop scatter is stable across runs. */
 export function hashStringToSeed(value: string): number {
   let hash = 2166136261;

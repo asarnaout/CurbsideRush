@@ -2081,7 +2081,10 @@ const cairoRoadsideStyle = (
 
 // These carriageway sides face directly onto a Nile channel. Preserve their
 // promenade, trees and open water view; density belongs on the inland side.
-const CAIRO_OPEN_WATERFRONT_SIDES: Readonly<
+// Exported for the renderer's promenade decor (generatePromenadeDecor), which
+// dresses exactly these sides; the kerb tests keep their own literal copy so
+// a change here is a two-place decision.
+export const CAIRO_OPEN_WATERFRONT_SIDES: Readonly<
   Partial<Record<string, readonly (-1 | 1)[]>>
 > = {
   "cairo-corniche-el-nil": [-1],

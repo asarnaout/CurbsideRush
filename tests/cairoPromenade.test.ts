@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { shorelineParapetRuns } from "../app/game/GameCanvas";
+import { CAIRO_OPEN_WATERFRONT_SIDES } from "../app/game/cairoContent";
 import { getMapPack } from "../app/game/content";
 import { buildStaticObstacles } from "../app/game/simulationAdapter";
+import {
+  generatePromenadeDecor,
+  hashStringToSeed,
+  PAVED_SIDEWALK_WIDTH_M,
+  type VisualPoint,
+} from "../app/game/visuals";
 
 /**
  * The corniche parapet renders the shoreline colliders verbatim, so these
@@ -128,6 +135,133 @@ describe("Cairo corniche parapet", () => {
       expect(samples, surfaceId).toBeGreaterThan(2);
       expect(railed / samples, surfaceId).toBeGreaterThanOrEqual(0.8);
     }
+  });
+
+  const promenadeInput = {
+    roadSurfaces: pack.geometry.roadSurfaces.map((surface) => ({
+      id: surface.id,
+      centerline: surface.centerline,
+      widthM: surface.widthM,
+      sidewalkWidthM: surface.sidewalkWidthM,
+    })),
+    waterPolygons: (pack.geometry.waterBodies ?? []).map(
+      (body) => body.polygon,
+    ),
+    openSides: CAIRO_OPEN_WATERFRONT_SIDES,
+    sidewalkWidthM: PAVED_SIDEWALK_WIDTH_M,
+    worldSize: pack.geometry.worldSize,
+    // The renderer's exact seed for this map.
+    seed: hashStringToSeed("cairo-central-nile-promenade"),
+  };
+  const decor = generatePromenadeDecor(promenadeInput);
+
+  it("plants a stable promenade of palms, lamps and benches", () => {
+    const byKind = new Map<string, number>();
+    for (const placement of decor) {
+      byKind.set(placement.kind, (byKind.get(placement.kind) ?? 0) + 1);
+    }
+    // Achieved: ~500 pieces over ~6.8 km of open waterfront — a palm line
+    // with interleaved lamps and benches. A collapse means the walk or the
+    // water probe broke; a blow-up means the rhythm constants regressed.
+    expect(decor.length).toBeGreaterThan(300);
+    expect(decor.length).toBeLessThan(750);
+    for (const kind of ["palm", "streetlight", "bench"]) {
+      expect(byKind.get(kind) ?? 0, kind).toBeGreaterThan(30);
+    }
+    expect([...byKind.keys()].sort()).toEqual([
+      "bench",
+      "palm",
+      "streetlight",
+    ]);
+    expect(generatePromenadeDecor(promenadeInput)).toEqual(decor);
+  });
+
+  it("keeps every piece on dry land, off every carriageway", () => {
+    const overWater = (point: VisualPoint): boolean =>
+      promenadeInput.waterPolygons.some((polygon) => {
+        let inside = false;
+        for (
+          let index = 0, previous = polygon.length - 1;
+          index < polygon.length;
+          previous = index, index += 1
+        ) {
+          const left = polygon[index];
+          const right = polygon[previous];
+          if (
+            left.z > point.z !== right.z > point.z &&
+            point.x <
+              ((right.x - left.x) * (point.z - left.z)) /
+                (right.z - left.z) +
+                left.x
+          ) {
+            inside = !inside;
+          }
+        }
+        return inside;
+      });
+    const failures: string[] = [];
+    for (const placement of decor) {
+      if (overWater(placement)) {
+        failures.push(
+          `${placement.kind} in the water at (${placement.x.toFixed(1)}, ${placement.z.toFixed(1)})`,
+        );
+      }
+      for (const surface of pack.geometry.roadSurfaces) {
+        let nearest = Number.POSITIVE_INFINITY;
+        for (let index = 1; index < surface.centerline.length; index += 1) {
+          const from = surface.centerline[index - 1];
+          const to = surface.centerline[index];
+          const dx = to.x - from.x;
+          const dz = to.z - from.z;
+          const lengthSq = dx * dx + dz * dz;
+          const t =
+            lengthSq > 0
+              ? Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    ((placement.x - from.x) * dx +
+                      (placement.z - from.z) * dz) /
+                      lengthSq,
+                  ),
+                )
+              : 0;
+          nearest = Math.min(
+            nearest,
+            Math.hypot(
+              placement.x - (from.x + dx * t),
+              placement.z - (from.z + dz * t),
+            ),
+          );
+        }
+        if (nearest < surface.widthM / 2 + 0.6) {
+          failures.push(
+            `${placement.kind} on ${surface.id} at (${placement.x.toFixed(1)}, ${placement.z.toFixed(1)})`,
+          );
+        }
+      }
+    }
+    expect(failures.slice(0, 10)).toEqual([]);
+  });
+
+  it("stands clear of the parapet wall", () => {
+    const failures: string[] = [];
+    for (const placement of decor) {
+      for (const run of runs) {
+        const dx = placement.x - run.x;
+        const dz = placement.z - run.z;
+        const along = dx * run.ux + dz * run.uz;
+        const across = dx * -run.uz + dz * run.ux;
+        const outsideU = Math.max(0, Math.abs(along) - run.halfU);
+        const outsideV = Math.max(0, Math.abs(across) - run.halfV);
+        if (Math.hypot(outsideU, outsideV) < 1.2) {
+          failures.push(
+            `${placement.kind} against ${run.id} at (${placement.x.toFixed(1)}, ${placement.z.toFixed(1)})`,
+          );
+        }
+      }
+    }
+    expect(failures.slice(0, 10)).toEqual([]);
   });
 
   it("leaves both drivable bridge portals unwalled", () => {

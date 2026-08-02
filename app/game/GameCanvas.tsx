@@ -78,6 +78,7 @@ import {
   type ServicePointKind,
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
+import { CAIRO_OPEN_WATERFRONT_SIDES } from "./cairoContent";
 import {
   REPAIR_BAY_REACH_M,
   REPAIR_SHOP_LOT_HALF_M,
@@ -207,6 +208,7 @@ import {
   buildPlanarUVs,
   buildRiverWaveField,
   distanceToPolylineM,
+  generatePromenadeDecor,
   generateRoadsidePropPlacements,
   hashStringToSeed,
   mixHexColors,
@@ -4575,6 +4577,9 @@ interface DestructiblePropConfig {
 
 const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructiblePropConfig>> = {
   tree: { radiusM: 0.5, speedScale: 0.7, damage: "medium", noun: "a street tree", fall: "topple" },
+  // Absent from this table, palms were silently indestructible — an un-hittable
+  // tree on a promenade full of hittable ones reads as a bug.
+  palm: { radiusM: 0.5, speedScale: 0.72, damage: "medium", noun: "a palm tree", fall: "topple" },
   streetlight: { radiusM: 0.32, speedScale: 0.74, damage: "medium", noun: "a streetlight", fall: "topple" },
   "utility-pole": { radiusM: 0.35, speedScale: 0.72, damage: "medium", noun: "a utility pole", fall: "topple" },
   sign: { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a signpost", fall: "topple" },
@@ -13521,6 +13526,27 @@ class BabylonGameSession {
         },
       ];
     });
+    // The corniche promenade is laid before the random scatter so its points
+    // pre-seed the spacing grid — scatter can jitter around the palm line but
+    // never stand a tree inside it.
+    const promenadePlacements =
+      key === "cairo"
+        ? generatePromenadeDecor({
+            roadSurfaces: roadSurfaces.map((surface) => ({
+              id: surface.id,
+              centerline: surface.centerline,
+              widthM: surface.widthM,
+              sidewalkWidthM: surface.sidewalkWidthM,
+            })),
+            waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
+              (body) => body.polygon,
+            ),
+            openSides: CAIRO_OPEN_WATERFRONT_SIDES,
+            sidewalkWidthM: PAVED_SIDEWALK_WIDTH_M,
+            worldSize: mapPack.geometry.worldSize,
+            seed: hashStringToSeed(`${mapId}-promenade`),
+          })
+        : [];
     const roadsidePlacements = generateRoadsidePropPlacements({
       roadSurfaces: roadSurfaces.map((surface) => ({
         id: surface.id,
@@ -13549,13 +13575,15 @@ class BabylonGameSession {
       waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
         (body) => body.polygon,
       ),
-      // Hand-placed furniture and regulatory sign posts pre-seed the mutual
-      // spacing grid so the random scatter can never stand a prop on them.
+      // Hand-placed furniture, regulatory sign posts and the promenade line
+      // pre-seed the mutual spacing grid so the random scatter can never
+      // stand a prop on them.
       occupiedPoints:
-        key === "london" || signPoints.length
+        key === "london" || signPoints.length || promenadePlacements.length
           ? [
               ...(key === "london" ? LONDON_FURNITURE_POINTS : []),
               ...signPoints,
+              ...promenadePlacements,
             ]
           : undefined,
     });
@@ -13566,7 +13594,11 @@ class BabylonGameSession {
     // you cannot flatten in a park would read as a bug, and the alternative was
     // a second, parallel prop builder.
     const park = this.collectParkPlacements(mapPack);
-    const placements = [...roadsidePlacements, ...park.reachable];
+    const placements = [
+      ...roadsidePlacements,
+      ...promenadePlacements,
+      ...park.reachable,
+    ];
     if (!placements.length && !park.interior.length) return;
 
     const material = (name: string, color: Color3, emissive?: Color3) =>
