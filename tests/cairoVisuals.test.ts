@@ -36,6 +36,7 @@ import {
   cairoTahrirFurnitureLayout,
   cairoTahrirLawnPolygon,
   CAIRO_TAHRIR_FORECOURT_LAWN_LAP_M,
+  CAIRO_TAHRIR_LAWN_EAST_TUCK_X,
   CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
   CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
   crosswalkStripeLayout,
@@ -684,12 +685,15 @@ describe("Cairo visual axes", () => {
     )!;
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
     const polygon = cairoTahrirLawnPolygon(landmark, surfaces);
-    // The lawn's envelope is the authored rect plus the west/south tucks.
+    // The lawn's envelope is the authored rect plus the west/south/east tucks.
     const minX = Math.min(
       landmark.center.x - landmark.size.x / 2,
       CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
     );
-    const maxX = landmark.center.x + landmark.size.x / 2;
+    const maxX = Math.max(
+      landmark.center.x + landmark.size.x / 2,
+      CAIRO_TAHRIR_LAWN_EAST_TUCK_X,
+    );
     const minZ = Math.min(
       landmark.center.z - landmark.size.z / 2,
       CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
@@ -843,6 +847,28 @@ describe("Cairo visual axes", () => {
       expect(southEdge, `south edge at x=${x}`).toBeGreaterThan(centerZ);
       expect(southEdge, `south edge at x=${x}`).toBeLessThanOrEqual(
         centerZ + qasrElNil.widthM / 2 + (qasrElNil.sidewalkWidthM ?? 3.4),
+      );
+    }
+
+    // East edge: inside Ramses' band footprint wherever the lawn reaches it.
+    // The rect edge at x 391 stood still while the diagonal band climbed
+    // away, leaving a bare triangle north of the centreline cut — the tuck
+    // fills it and the band paints the seam.
+    const eastEdge = Math.max(...polygon.map((vertex) => vertex.x));
+    expect(eastEdge).toBe(CAIRO_TAHRIR_LAWN_EAST_TUCK_X);
+    const ramses = surfaces.find((surface) => surface.id === "cairo-ramses");
+    expect(ramses).toBeDefined();
+    if (!ramses) return;
+    const eastSpan = polygon
+      .filter((vertex) => Math.abs(vertex.x - eastEdge) <= 1e-6)
+      .map((vertex) => vertex.z);
+    expect(eastSpan.length).toBeGreaterThanOrEqual(2);
+    for (let z = Math.min(...eastSpan); z <= Math.max(...eastSpan); z += 1) {
+      expect(
+        distanceToPolylineM({ x: eastEdge, z }, ramses.centerline),
+        `east edge at z=${z.toFixed(1)}`,
+      ).toBeLessThanOrEqual(
+        ramses.widthM / 2 + (ramses.sidewalkWidthM ?? 3.4),
       );
     }
   });

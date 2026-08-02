@@ -2992,11 +2992,19 @@ export const CAIRO_TAHRIR_LAWN_WEST_TUCK_X = 324.5;
  * z -93.3→-92.0 across the lawn's reachable span west of Ramses.
  */
 export const CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z = -94;
+/**
+ * ...and out under Ramses' band to the east. The rect edge at x 391 left a
+ * bare triangle against the diagonal band north of the centreline cut —
+ * Ramses' band-west edge climbs from x 391 (z -6.5) to 401.6 (z 6) while
+ * the rect edge stands still. 402 sits past the band edge over that whole
+ * span, and above z 5.7 the ministries esplanade takes over.
+ */
+export const CAIRO_TAHRIR_LAWN_EAST_TUCK_X = 402;
 
 /**
  * The lawn Tahrir actually shows: the authored rectangle, tucked out under
- * its west and south pavement bands, then cut back to the park-centre side
- * of every road segment that crosses it.
+ * its west, south and east pavement bands, then cut back to the park-centre
+ * side of every road segment that crosses it.
  *
  * Both moves exist because Cairo's base ground is paved grey and any ground
  * the lawn, band and asphalt leave uncovered reads as a bare strip. The
@@ -3025,7 +3033,10 @@ export function cairoTahrirLawnPolygon(
     landmark.center.x - landmark.size.x / 2,
     CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
   );
-  const maxX = landmark.center.x + landmark.size.x / 2;
+  const maxX = Math.max(
+    landmark.center.x + landmark.size.x / 2,
+    CAIRO_TAHRIR_LAWN_EAST_TUCK_X,
+  );
   const minZ = Math.min(
     landmark.center.z - landmark.size.z / 2,
     CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
