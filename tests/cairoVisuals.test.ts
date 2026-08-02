@@ -14,12 +14,18 @@ import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
 import { resolveVenuePlacement } from "../app/game/simulationAdapter";
 import {
+  CAIRO_DIRECTION_PANEL_DESIGN_V,
+  cairoDirectionPanelFaceUv,
+  crowdClothingPaletteForMap,
+  PARK_BED_Y,
+  PARK_LAWN_Y,
+  PARK_PATH_Y,
+} from "../app/game/GameCanvas";
+import {
   biasCairoDecalMaterials,
   CAIRO_DECAL_MATERIAL_NAMES,
   CAIRO_DECAL_Z_OFFSET_UNITS,
   CAIRO_STREET_WALL_URL_RE,
-  CAIRO_DIRECTION_PANEL_DESIGN_V,
-  cairoDirectionPanelFaceUv,
   cairoOperaTerracePolygon,
   cairoTahrirForecourtPolygon,
   clipRectToRoadSide,
@@ -29,12 +35,8 @@ import {
   CAIRO_TAHRIR_LAWN_EAST_TUCK_X,
   CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
   CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
-  crowdClothingPaletteForMap,
-  PARK_BED_Y,
-  PARK_LAWN_Y,
-  PARK_PATH_Y,
   roadSideParkLawnPolygon,
-} from "../app/game/GameCanvas";
+} from "../app/game/geometry/cairoParkland";
 import {
   crosswalkStripeLayout,
   EGYPT_SIGNAL_BORDER_BARS,
