@@ -111,6 +111,8 @@ converted from OBJ + MTL to a self-contained quantized GLB by
 
 `cairo-office-block` and `cairo-depot` replace the pitched-roof `office.glb`
 (Quaternius "Big Building") on the Cairo map only; NYC and London keep using it.
+Both are also placed by the Cairo street wall (`buildingSets.ts`) as long
+ministry/warehouse frontage runs, at street-wall scales of their own.
 
 ### Nile boats (CC0)
 
@@ -143,6 +145,8 @@ converted from OBJ + MTL to a self-contained quantized GLB by
   `tools/cairo-shopfront.mjs`. It exists as a separate file because `shop.glb`
   is also placed by NYC and London, and `modelLibrary` keys asset containers by
   URL, so one file cannot carry two cities' decisions. The original is unchanged.
+  Also placed by the Zamalek street wall (`buildingSets.ts`) as the corner
+  shop breaking up the walk-up runs.
 - **props/cairo-walkup-a.glb** ("Building") — by **Kay Lousberg**, from the City
   Builder Bits pack via Poly Pizza (<https://poly.pizza/m/qOhhGLftam>; creator
   page: <https://kaylousberg.com/game-assets/city-builder-bits>; source GLB:
