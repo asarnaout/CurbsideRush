@@ -2314,11 +2314,14 @@ for (const surface of cairoRoadSurfaces) {
         //
         // A crossing, venue, landmark or an earlier road's parcel may block
         // only part of a run, so a rejected piece keeps halving until
-        // something fits in the gaps — down to 16 m, one small building's
-        // frontage. Without the ladder, roads whose band greedy acceptance had
-        // already consumed (opera-square, zamalek-south) ended up with no
-        // frontage of their own at all.
-        const splitGapM = 6;
+        // something fits in the gaps — down to 12 m, one small building's
+        // frontage (cairo-block-small packs at 9.6 m). Without the ladder,
+        // roads whose band greedy acceptance had already consumed
+        // (opera-square, zamalek-south) ended up with no frontage of their
+        // own at all. The floor was 16 m with 6 m split gaps; that quantised
+        // every ~22 m obstruction into a 30-50 m hole, which is how a city
+        // reads as vacant lots.
+        const splitGapM = 4;
         const tryPiece = (
           pieceId: string,
           alongOffsetM: number,
@@ -2341,7 +2344,7 @@ for (const surface of cairoRoadSurfaces) {
             return true;
           }
           const halfLengthM = (lengthM - splitGapM) / 2;
-          if (halfLengthM < 16) return false;
+          if (halfLengthM < 12) return false;
           const stepM = (halfLengthM + splitGapM) / 2;
           const left = tryPiece(`${pieceId}-s1`, alongOffsetM - stepM, halfLengthM);
           const right = tryPiece(`${pieceId}-s2`, alongOffsetM + stepM, halfLengthM);
