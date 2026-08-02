@@ -25,6 +25,16 @@ import {
 } from "./visuals";
 
 /**
+ * Radius of the paved disc `GameCanvas.tsx` lays around Tahrir's obelisk.
+ *
+ * It lives here rather than beside the renderer branch that draws it because
+ * the scatter in this module must keep planting off the paving, and this
+ * module cannot import from `GameCanvas.tsx` — the dependency arrow points
+ * the other way.
+ */
+export const CAIRO_TAHRIR_PLAZA_RADIUS_M = 13;
+
+/**
  * How a park is dressed. Derived from id, map and proportions unless the
  * landmark names one explicitly.
  *
@@ -119,8 +129,102 @@ export interface ParkLayoutContext {
    * driven off the park rectangle and has nothing else to reject them with.
    */
   readonly waterPolygons?: readonly (readonly VisualPoint[])[];
+  /**
+   * Rectangles other landmarks claim inside this park — Tahrir's paved plaza,
+   * a monument's plinth. Derived in `parkLayoutForLandmark`; a hand-built
+   * context may omit it and simply gets no such keep-outs.
+   */
+  readonly clearings?: readonly ParkClearing[];
   readonly seed: number;
 }
+
+/**
+ * A line a crossing road draws through a park. `civic_plaza` scatter keeps to
+ * the park-centre side of every one: the lawn mesh is clipped there too
+ * (`cairoTahrirLawnPolygon`), so a palm passing the plain distance-to-road
+ * veto could still stand on bare ground on the far kerbside.
+ */
+interface ParkRoadDivider {
+  readonly x: number;
+  readonly z: number;
+  readonly dx: number;
+  readonly dz: number;
+  /** Sign of the segment cross product on the park-centre side. */
+  readonly keepSign: number;
+}
+
+/** True when any part of a→b lies strictly inside the axis-aligned rect. */
+const segmentCrossesRect = (
+  a: VisualPoint,
+  b: VisualPoint,
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+): boolean => {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  let enter = 0;
+  let exit = 1;
+  for (const [towards, clearance] of [
+    [-dx, a.x - minX],
+    [dx, maxX - a.x],
+    [-dz, a.z - minZ],
+    [dz, maxZ - a.z],
+  ] as const) {
+    if (Math.abs(towards) <= 1e-9) {
+      if (clearance < 0) return false;
+      continue;
+    }
+    const at = clearance / towards;
+    if (towards < 0) {
+      if (at > exit) return false;
+      if (at > enter) enter = at;
+    } else {
+      if (at < enter) return false;
+      if (at < exit) exit = at;
+    }
+  }
+  return exit - enter > 1e-9;
+};
+
+/**
+ * Every road segment that crosses the park rectangle, as a divider. The rect
+ * is taken axis-aligned, like the only `civic_plaza` park; a rotated plaza
+ * would need the segments mapped into park-local space first.
+ */
+const crossingRoadDividers = (
+  landmark: ParkLandmarkInput,
+  roadSurfaces: ParkLayoutContext["roadSurfaces"],
+): ParkRoadDivider[] => {
+  const minX = landmark.center.x - landmark.size.x / 2;
+  const maxX = landmark.center.x + landmark.size.x / 2;
+  const minZ = landmark.center.z - landmark.size.z / 2;
+  const maxZ = landmark.center.z + landmark.size.z / 2;
+  const dividers: ParkRoadDivider[] = [];
+  for (const surface of roadSurfaces) {
+    for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+      const start = surface.centerline[index];
+      const end = surface.centerline[index + 1];
+      const dx = end.x - start.x;
+      const dz = end.z - start.z;
+      if (Math.hypot(dx, dz) <= 1e-6) continue;
+      if (!segmentCrossesRect(start, end, minX, maxX, minZ, maxZ)) continue;
+      const keepSign = Math.sign(
+        dx * (landmark.center.z - start.z) - dz * (landmark.center.x - start.x),
+      );
+      if (keepSign === 0) continue;
+      dividers.push({ x: start.x, z: start.z, dx, dz, keepSign });
+    }
+  }
+  return dividers;
+};
+
+/** On the far side of the divider from the park centre. On the line is fine. */
+const acrossDivider = (divider: ParkRoadDivider, point: VisualPoint): boolean =>
+  Math.sign(
+    divider.dx * (point.z - divider.z) - divider.dz * (point.x - divider.x),
+  ) === -divider.keepSign;
 
 /** Crossing-number point-in-polygon, so concave lake outlines work. */
 const isInsideWater = (
@@ -526,6 +630,7 @@ function scatterZone(
   zone: ScatterZone,
   paths: readonly ParkPath[],
   clearings: readonly ParkClearing[],
+  dividers: readonly ParkRoadDivider[],
   context: ParkLayoutContext,
   random: () => number,
 ): ParkPlacement[] {
@@ -581,6 +686,10 @@ function scatterZone(
           surface.widthM / 2 + context.sidewalkWidthM + 1,
       );
       if (onRoad) continue;
+      // A crossing road's far side is outside the plaza in every way that
+      // matters — the lawn is clipped there — even though it is still inside
+      // the authored rectangle.
+      if (dividers.some((divider) => acrossDivider(divider, point))) continue;
       if (isInsideWater(point, context.waterPolygons ?? [])) continue;
       // Courts, formal beds and the Great Lawn are meant to be empty.
       if (
@@ -610,6 +719,8 @@ function scatterZone(
 function pathFurniture(
   paths: readonly ParkPath[],
   style: ParkStyle,
+  clearings: readonly ParkClearing[],
+  dividers: readonly ParkRoadDivider[],
   context: ParkLayoutContext,
   random: () => number,
 ): ParkPlacement[] {
@@ -648,6 +759,19 @@ function pathFurniture(
             surface.widthM / 2 + context.sidewalkWidthM + 1,
         );
         if (onRoad) return;
+        if (dividers.some((divider) => acrossDivider(divider, point))) return;
+        // A path may lawfully skirt a court or the plaza disc; its bench must
+        // not stand in one. Rolls are drawn before this veto, so dropping a
+        // seat never re-deals the ones after it.
+        if (
+          clearings.some(
+            (clearing) =>
+              Math.abs(point.x - clearing.x) <= clearing.halfX &&
+              Math.abs(point.z - clearing.z) <= clearing.halfZ,
+          )
+        ) {
+          return;
+        }
         if (isInsideWater(point, context.waterPolygons ?? [])) return;
         placements.push({
           kind,
@@ -810,14 +934,23 @@ export function buildParkLayout(
   const style = resolveParkStyle(landmark, mapVisualKey);
   const paths = pathRecipe(style, landmark);
   const bespoke = bespokeFeatures(landmark, style, paths);
+  const clearings = [...bespoke.clearings, ...(context.clearings ?? [])];
+  // Only civic_plaza splits: a road authored through any other park style is
+  // a graze, and a loop road's chord across a pocket green must not halve it.
+  const dividers =
+    style === "civic_plaza"
+      ? crossingRoadDividers(landmark, context.roadSurfaces)
+      : [];
   const random = seededUnit(context.seed);
   const placements: ParkPlacement[] = [...bespoke.props];
   for (const zone of zoneRecipe(style)) {
     placements.push(
-      ...scatterZone(landmark, zone, paths, bespoke.clearings, context, random),
+      ...scatterZone(landmark, zone, paths, clearings, dividers, context, random),
     );
   }
-  placements.push(...pathFurniture(paths, style, context, random));
+  placements.push(
+    ...pathFurniture(paths, style, clearings, dividers, context, random),
+  );
   return {
     style,
     paths,
@@ -839,8 +972,55 @@ export interface ParkLayoutMapPack {
       readonly centerline: readonly VisualPoint[];
       readonly widthM: number;
     }[];
+    readonly landmarks?: readonly {
+      readonly id: string;
+      readonly kind: string;
+      readonly center: VisualPoint;
+      readonly size: VisualPoint;
+    }[];
   };
 }
+
+/**
+ * What other landmarks claim inside this park, as scatter keep-outs. Without
+ * this, Tahrir's shrubs stood on its paved plaza: the disc is renderer-side
+ * and the scatter had no way to know it was there.
+ *
+ * Linear spans — a railway, a bridge deck — are left out: their axis-aligned
+ * rect (heading ignored) would blanket a park, and nothing plants at their
+ * ground level anyway.
+ */
+const landmarkClearings = (
+  pack: ParkLayoutMapPack,
+  park: ParkLandmarkInput,
+): ParkClearing[] => {
+  const parkHalfX = park.size.x / 2;
+  const parkHalfZ = park.size.z / 2;
+  const clearings: ParkClearing[] = [];
+  for (const other of pack.geometry.landmarks ?? []) {
+    if (other.id === park.id || other.kind === "park") continue;
+    if (other.kind === "railway" || other.kind === "bridge") continue;
+    const halfX =
+      other.id === "cairo-tahrir-obelisk"
+        ? // The renderer rings a paved disc of CAIRO_TAHRIR_PLAZA_RADIUS_M
+          // around the obelisk (GameCanvas's Tahrir branch); the clearing is
+          // that disc plus a skirt, not the 7 m plinth.
+          CAIRO_TAHRIR_PLAZA_RADIUS_M + 2
+        : other.size.x / 2 + 2;
+    const halfZ =
+      other.id === "cairo-tahrir-obelisk"
+        ? CAIRO_TAHRIR_PLAZA_RADIUS_M + 2
+        : other.size.z / 2 + 2;
+    if (
+      Math.abs(other.center.x - park.center.x) >= parkHalfX + halfX ||
+      Math.abs(other.center.z - park.center.z) >= parkHalfZ + halfZ
+    ) {
+      continue;
+    }
+    clearings.push({ x: other.center.x, z: other.center.z, halfX, halfZ });
+  }
+  return clearings;
+};
 
 const LAYOUT_CACHE = new Map<string, ParkLayout>();
 
@@ -871,6 +1051,7 @@ export function parkLayoutForLandmark(
       ? PAVED_SIDEWALK_WIDTH_M
       : Math.max(0.9, pack.geometry.shoulderWidth ?? 1.2),
     waterPolygons: (pack.geometry.waterBodies ?? []).map((body) => body.polygon),
+    clearings: landmarkClearings(pack, landmark),
     seed: hashStringToSeed(`${mapId}-${landmark.id}-park`),
   });
   LAYOUT_CACHE.set(key, layout);

@@ -30,7 +30,12 @@ import {
   cairoElevatedBridgePierPlacements,
   cairoFrontagePosition,
   cairoFrontageFootprintsOverlap,
+  cairoTahrirForecourtPolygon,
   cairoTahrirFurnitureLayout,
+  cairoTahrirLawnPolygon,
+  CAIRO_TAHRIR_FORECOURT_LAWN_LAP_M,
+  CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
+  CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
   crosswalkStripeLayout,
   crowdClothingPaletteForMap,
   deterministicSceneryKeep,
@@ -52,6 +57,7 @@ import { buildingSetUrls } from "../app/game/buildingSets";
 import { isPointInPolygon } from "../app/game/simulation";
 import { authoredSignalAspectAt } from "../app/game/trafficSignals";
 import { CAIRO_MAP_PACK } from "../app/game/cairoContent";
+import { CAIRO_TAHRIR_PLAZA_RADIUS_M } from "../app/game/parkLayouts";
 
 describe("Cairo water scenery", () => {
   const concave = [
@@ -549,45 +555,411 @@ describe("Cairo visual axes", () => {
   });
 
   it("keeps Tahrir's visual furniture out of surrounding traffic", () => {
-    const landmark = CAIRO_MAP_PACK.geometry.landmarks.find(
+    const park = CAIRO_MAP_PACK.geometry.landmarks.find(
       (candidate) => candidate.id === "cairo-tahrir-square",
     )!;
+    const obelisk = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-obelisk",
+    )!;
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
-    const layout = cairoTahrirFurnitureLayout(landmark, surfaces);
+    const layout = cairoTahrirFurnitureLayout(obelisk.center, surfaces);
     const checks = [
       ...layout.olives.map((position) => ({ position, radius: 1.9 })),
       ...layout.benches.map((position) => ({ position, radius: 1.5 })),
     ];
-    for (const check of checks) {
-      for (const surface of surfaces) {
-        let nearest = Number.POSITIVE_INFINITY;
-        for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
-          const start = surface.centerline[index];
-          const end = surface.centerline[index + 1];
-          const dx = end.x - start.x;
-          const dz = end.z - start.z;
-          const lengthSquared = dx * dx + dz * dz;
-          const amount = Math.max(
-            0,
-            Math.min(
-              1,
-              ((check.position.x - start.x) * dx +
-                (check.position.z - start.z) * dz) /
-                lengthSquared,
-            ),
-          );
-          nearest = Math.min(
-            nearest,
-            Math.hypot(
-              check.position.x - (start.x + dx * amount),
-              check.position.z - (start.z + dz * amount),
-            ),
-          );
-        }
-        expect(nearest).toBeGreaterThanOrEqual(
-          surface.widthM / 2 + check.radius,
+    const nearestTo = (position: { x: number; z: number }, surface: (typeof surfaces)[number]) => {
+      let nearest = Number.POSITIVE_INFINITY;
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const lengthSquared = dx * dx + dz * dz;
+        const amount = Math.max(
+          0,
+          Math.min(
+            1,
+            ((position.x - start.x) * dx + (position.z - start.z) * dz) /
+              lengthSquared,
+          ),
+        );
+        nearest = Math.min(
+          nearest,
+          Math.hypot(
+            position.x - (start.x + dx * amount),
+            position.z - (start.z + dz * amount),
+          ),
         );
       }
+      return nearest;
+    };
+    // Not just the carriageway: the pavement band too. A bench on the
+    // kerbside pavement reads as street clutter, not park furniture.
+    for (const check of checks) {
+      for (const surface of surfaces) {
+        expect(nearestTo(check.position, surface)).toBeGreaterThanOrEqual(
+          surface.widthM / 2 +
+            (surface.sidewalkWidthM ?? 2.8) +
+            check.radius +
+            1,
+        );
+      }
+    }
+    // The paving disc itself clears every pavement band entirely.
+    for (const surface of surfaces) {
+      expect(
+        nearestTo(obelisk.center, surface),
+        `plaza disc vs ${surface.id}`,
+      ).toBeGreaterThanOrEqual(
+        surface.widthM / 2 +
+          (surface.sidewalkWidthM ?? 2.8) +
+          CAIRO_TAHRIR_PLAZA_RADIUS_M,
+      );
+    }
+    // The rings held as authored — settle() had nothing to rescue: benches
+    // sit on the disc facing the obelisk, olives on the grass beyond it.
+    for (const bench of layout.benches) {
+      expect(
+        Math.hypot(bench.x - obelisk.center.x, bench.z - obelisk.center.z),
+      ).toBeLessThanOrEqual(CAIRO_TAHRIR_PLAZA_RADIUS_M - 1);
+    }
+    for (const olive of layout.olives) {
+      const distance = Math.hypot(
+        olive.x - obelisk.center.x,
+        olive.z - obelisk.center.z,
+      );
+      expect(distance).toBeGreaterThanOrEqual(CAIRO_TAHRIR_PLAZA_RADIUS_M + 1);
+      expect(distance).toBeLessThanOrEqual(CAIRO_TAHRIR_PLAZA_RADIUS_M + 5);
+    }
+    // And the whole ensemble stays on the park side of the road that cuts
+    // the rectangle (Ramses) — nothing settles across the carriageway.
+    const minX = park.center.x - park.size.x / 2;
+    const maxX = park.center.x + park.size.x / 2;
+    const minZ = park.center.z - park.size.z / 2;
+    const maxZ = park.center.z + park.size.z / 2;
+    for (const surface of surfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let crosses = false;
+        for (let step = 0; step <= 200 && !crosses; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          crosses =
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3;
+        }
+        if (!crosses) continue;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const sideOf = (point: { x: number; z: number }) =>
+          Math.sign(dx * (point.z - start.z) - dz * (point.x - start.x));
+        const parkSide = sideOf(park.center);
+        expect(sideOf(obelisk.center)).toBe(parkSide);
+        for (const check of checks) {
+          expect(sideOf(check.position), `${surface.id} side`).toBe(parkSide);
+        }
+      }
+    }
+  });
+
+  it("clips Tahrir's lawn to the plaza side of Ramses", () => {
+    const landmark = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-square",
+    )!;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const polygon = cairoTahrirLawnPolygon(landmark, surfaces);
+    // The lawn's envelope is the authored rect plus the west/south tucks.
+    const minX = Math.min(
+      landmark.center.x - landmark.size.x / 2,
+      CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
+    );
+    const maxX = landmark.center.x + landmark.size.x / 2;
+    const minZ = Math.min(
+      landmark.center.z - landmark.size.z / 2,
+      CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
+    );
+    const maxZ = landmark.center.z + landmark.size.z / 2;
+
+    // Independent crossing detector (clamped-interval overlap rather than the
+    // helper's Liang–Barsky), so a bug there cannot vouch for itself here.
+    const crossings: {
+      start: { x: number; z: number };
+      end: { x: number; z: number };
+      id: string;
+    }[] = [];
+    for (const surface of surfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let inside = false;
+        for (let step = 0; step <= 200; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          if (
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3
+          ) {
+            inside = true;
+            break;
+          }
+        }
+        if (inside) crossings.push({ start, end, id: surface.id });
+      }
+    }
+    // Ramses is authored through the park; the clip must have work to do.
+    expect(crossings.some((crossing) => crossing.id === "cairo-ramses")).toBe(
+      true,
+    );
+
+    for (const vertex of polygon) {
+      expect(vertex.x).toBeGreaterThanOrEqual(minX - 1e-6);
+      expect(vertex.x).toBeLessThanOrEqual(maxX + 1e-6);
+      expect(vertex.z).toBeGreaterThanOrEqual(minZ - 1e-6);
+      expect(vertex.z).toBeLessThanOrEqual(maxZ + 1e-6);
+    }
+    for (const crossing of crossings) {
+      const dx = crossing.end.x - crossing.start.x;
+      const dz = crossing.end.z - crossing.start.z;
+      const length = Math.hypot(dx, dz);
+      const centerSign = Math.sign(
+        dx * (landmark.center.z - crossing.start.z) -
+          dz * (landmark.center.x - crossing.start.x),
+      );
+      let onLine = 0;
+      for (const vertex of polygon) {
+        const offsetM =
+          ((dx * (vertex.z - crossing.start.z) -
+            dz * (vertex.x - crossing.start.x)) /
+            length) *
+          centerSign;
+        expect(
+          offsetM,
+          `${crossing.id} vertex (${vertex.x}, ${vertex.z})`,
+        ).toBeGreaterThanOrEqual(-1e-6);
+        if (Math.abs(offsetM) <= 1e-6) onLine += 1;
+      }
+      // The cut itself must be present: two vertices sit on the centreline.
+      expect(onLine).toBeGreaterThanOrEqual(2);
+    }
+
+    // The clip trims a corner, it must not consume the park.
+    expect(polygon.length).toBeGreaterThanOrEqual(5);
+    let doubledArea = 0;
+    for (let index = 0; index < polygon.length; index += 1) {
+      const current = polygon[index];
+      const next = polygon[(index + 1) % polygon.length];
+      doubledArea += current.x * next.z - next.x * current.z;
+    }
+    expect(Math.abs(doubledArea) / 2).toBeGreaterThanOrEqual(3000);
+  });
+
+  it("tucks Tahrir's lawn under its flanking pavement bands", () => {
+    const landmark = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-square",
+    )!;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const polygon = cairoTahrirLawnPolygon(landmark, surfaces);
+    const qasrElAiny = surfaces.find(
+      (surface) => surface.id === "cairo-qasr-el-ainy",
+    );
+    const qasrElNil = surfaces.find(
+      (surface) => surface.id === "cairo-qasr-el-nil-street",
+    );
+    expect(qasrElAiny).toBeDefined();
+    expect(qasrElNil).toBeDefined();
+    if (!qasrElAiny || !qasrElNil) return;
+
+    const westEdge = Math.min(...polygon.map((vertex) => vertex.x));
+    const southEdge = Math.min(...polygon.map((vertex) => vertex.z));
+    const northEdge = Math.max(...polygon.map((vertex) => vertex.z));
+    expect(westEdge).toBe(CAIRO_TAHRIR_LAWN_WEST_TUCK_X);
+    expect(southEdge).toBe(CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z);
+
+    const interpolate = (
+      line: readonly { x: number; z: number }[],
+      along: "x" | "z",
+      at: number,
+    ): number | null => {
+      const across = along === "x" ? "z" : "x";
+      for (let index = 0; index + 1 < line.length; index += 1) {
+        const start = line[index];
+        const end = line[index + 1];
+        const span = end[along] - start[along];
+        if (Math.abs(span) <= 1e-9) continue;
+        const amount = (at - start[along]) / span;
+        if (amount < 0 || amount > 1) continue;
+        return start[across] + (end[across] - start[across]) * amount;
+      }
+      return null;
+    };
+
+    // West edge: between Qasr El-Ainy's centreline and its band's outer
+    // edge at every z the lawn spans — covered by asphalt or band, with the
+    // visible grass seam exactly on the band edge. This is what keeps the
+    // bare grey wedge from coming back when a road node is nudged.
+    for (let z = southEdge; z <= northEdge; z += 2) {
+      const centerX = interpolate(qasrElAiny.centerline, "z", z);
+      expect(centerX, `Qasr El-Ainy at z=${z}`).not.toBeNull();
+      if (centerX === null) continue;
+      expect(westEdge, `west edge at z=${z}`).toBeGreaterThan(centerX);
+      expect(westEdge, `west edge at z=${z}`).toBeLessThanOrEqual(
+        centerX + qasrElAiny.widthM / 2 + (qasrElAiny.sidewalkWidthM ?? 3.4),
+      );
+    }
+
+    // South edge: same containment against Qasr El-Nil, along the span the
+    // lawn actually reaches (Ramses' clip owns everything east of it).
+    const southSpan = polygon
+      .filter((vertex) => Math.abs(vertex.z - southEdge) <= 1e-6)
+      .map((vertex) => vertex.x);
+    expect(southSpan.length).toBeGreaterThanOrEqual(2);
+    for (
+      let x = Math.min(...southSpan);
+      x <= Math.max(...southSpan);
+      x += 1
+    ) {
+      const centerZ = interpolate(qasrElNil.centerline, "x", x);
+      expect(centerZ, `Qasr El-Nil at x=${x}`).not.toBeNull();
+      if (centerZ === null) continue;
+      expect(southEdge, `south edge at x=${x}`).toBeGreaterThan(centerZ);
+      expect(southEdge, `south edge at x=${x}`).toBeLessThanOrEqual(
+        centerZ + qasrElNil.widthM / 2 + (qasrElNil.sidewalkWidthM ?? 3.4),
+      );
+    }
+  });
+
+  it("paves the ministries esplanade out to its sidewalks and the lawn", () => {
+    const park = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-square",
+    )!;
+    const ministries = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-ministries",
+    )!;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const parkNorthZ = park.center.z + park.size.z / 2;
+    const polygon = cairoTahrirForecourtPolygon(ministries, parkNorthZ, surfaces);
+    expect(polygon.length).toBeGreaterThanOrEqual(4);
+
+    // Every edge lands on a real boundary. South: the lawn line plus the
+    // small anti-parallax lap; north: under the buildings; west: the same
+    // in-band tuck as the lawn.
+    const minX = Math.min(...polygon.map((vertex) => vertex.x));
+    const minZ = Math.min(...polygon.map((vertex) => vertex.z));
+    const maxZ = Math.max(...polygon.map((vertex) => vertex.z));
+    expect(minZ).toBeCloseTo(
+      parkNorthZ - CAIRO_TAHRIR_FORECOURT_LAWN_LAP_M,
+      6,
+    );
+    expect(CAIRO_TAHRIR_FORECOURT_LAWN_LAP_M).toBeLessThanOrEqual(0.5);
+    expect(maxZ).toBeCloseTo(
+      ministries.center.z + ministries.size.z / 2,
+      6,
+    );
+    expect(minX).toBe(CAIRO_TAHRIR_LAWN_WEST_TUCK_X);
+    const qasrElAiny = surfaces.find(
+      (surface) => surface.id === "cairo-qasr-el-ainy",
+    )!;
+    for (let z = Math.ceil(minZ); z <= maxZ; z += 2) {
+      let centerX: number | null = null;
+      for (
+        let index = 0;
+        index + 1 < qasrElAiny.centerline.length;
+        index += 1
+      ) {
+        const start = qasrElAiny.centerline[index];
+        const end = qasrElAiny.centerline[index + 1];
+        const span = end.z - start.z;
+        if (Math.abs(span) <= 1e-9) continue;
+        const amount = (z - start.z) / span;
+        if (amount < 0 || amount > 1) continue;
+        centerX = start.x + (end.x - start.x) * amount;
+        break;
+      }
+      expect(centerX, `Qasr El-Ainy at z=${z}`).not.toBeNull();
+      if (centerX === null) continue;
+      expect(minX, `west edge at z=${z}`).toBeGreaterThan(
+        centerX + qasrElAiny.widthM / 2,
+      );
+      expect(minX, `west edge at z=${z}`).toBeLessThanOrEqual(
+        centerX + qasrElAiny.widthM / 2 + (qasrElAiny.sidewalkWidthM ?? 3.4),
+      );
+    }
+
+    // East: never past any crossing road's centreline — the seam is the
+    // band's outer edge, same as the lawn's Ramses cut.
+    const maxX = Math.max(...polygon.map((vertex) => vertex.x));
+    for (const surface of surfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let crosses = false;
+        for (let step = 0; step <= 200 && !crosses; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          crosses =
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3;
+        }
+        if (!crosses) continue;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const anchorSign = Math.sign(
+          dx * (ministries.center.z - start.z) -
+            dz * (ministries.center.x - start.x),
+        );
+        for (const vertex of polygon) {
+          const offset =
+            (dx * (vertex.z - start.z) - dz * (vertex.x - start.x)) *
+            anchorSign;
+          expect(
+            offset,
+            `${surface.id} vertex (${vertex.x.toFixed(1)}, ${vertex.z.toFixed(1)})`,
+          ).toBeGreaterThanOrEqual(-1e-6);
+        }
+      }
+    }
+
+    // And it actually fills the pocket: the strip west of the wing, the
+    // colonnade front, the stretch before the frontage block, the alley.
+    const inside = (point: { x: number; z: number }) => {
+      let hit = false;
+      for (
+        let index = 0, previous = polygon.length - 1;
+        index < polygon.length;
+        previous = index, index += 1
+      ) {
+        const a = polygon[index];
+        const b = polygon[previous];
+        if (
+          a.z > point.z !== b.z > point.z &&
+          point.x <
+            ((b.x - a.x) * (point.z - a.z)) / (b.z - a.z) + a.x
+        ) {
+          hit = !hit;
+        }
+      }
+      return hit;
+    };
+    for (const sample of [
+      { x: 327, z: 12 },
+      { x: 350, z: 12 },
+      { x: 395, z: 12 },
+      { x: 373.5, z: 25 },
+    ]) {
+      expect(
+        inside(sample),
+        `(${sample.x}, ${sample.z}) is unpaved`,
+      ).toBe(true);
     }
   });
 });

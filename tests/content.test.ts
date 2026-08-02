@@ -1294,6 +1294,8 @@ describe("SideSwap content", () => {
       ["nyc-upper-west-side", "nyc-subway"],
       ["tokyo-setagaya", "jp-temple-green"],
       ["london-south-kensington", "london-exhibition-road-public-space"],
+      ["cairo-central-nile", "cairo-tahrir-obelisk"],
+      ["cairo-central-nile", "cairo-tahrir-ministries"],
     ] as const;
 
     for (const [mapId, landmarkId] of checks) {

@@ -27,6 +27,7 @@ import {
   buildSimulationCoreConfig,
   buildStaticObstacles,
   distanceToStaticObstacle,
+  resolveVenuePlacement,
 } from "../app/game/simulationAdapter";
 import type {
   LaneSegment,
@@ -49,14 +50,14 @@ import type {
  * majority of roadside parcels — if a guard change flips that balance, that is
  * a decision for a person, not a constant to re-pin in passing.
  */
-const BLOCK_COUNT = 503;
+const BLOCK_COUNT = 504;
 const ROADSIDE_COUNT = 480;
 const ROADSIDE_LEFT = 242;
 /** The second rank is gone — a one-sided kit means a back row can only stare
  * at the front row's service wall or plant its own on the next street over.
  * Zero, pinned, so it cannot quietly come back. */
 const ROADSIDE_RANKS = 0;
-const STREET_WALL_BLOCKS = 354;
+const STREET_WALL_BLOCKS = 355;
 const FACADE_BOX_CELLS = 1320;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
@@ -1135,6 +1136,7 @@ describe("Cairo Central Nile content", () => {
         "cairo-tower",
         "cairo-egyptian-museum",
         "cairo-tahrir-obelisk",
+        "cairo-tahrir-ministries",
         "cairo-opera-house",
         "cairo-qasr-el-nil-bridge",
         "cairo-al-galaa-bridge",
@@ -1448,6 +1450,103 @@ describe("Cairo Central Nile content", () => {
         ).toBe(false);
       }
     }
+  });
+
+  it("closes Tahrir's northern horizon without touching a road envelope", () => {
+    const ministries = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (landmark) => landmark.id === "cairo-tahrir-ministries",
+    );
+    const frontage = CAIRO_MAP_PACK.geometry.blocks.find(
+      (block) => block.id === "cairo-tahrir-frontage-block",
+    );
+    expect(ministries).toBeDefined();
+    expect(frontage).toBeDefined();
+    if (!ministries || !frontage) return;
+
+    // Both footprints obey the sampled envelope rule addRoadClearBlock holds
+    // generated parcels to — the landmark never passes through it, so this
+    // test is what holds the slab's clearance.
+    const footprints = [
+      { id: ministries.id, center: ministries.center, size: ministries.size },
+      { id: frontage.id, center: frontage.center, size: frontage.size },
+    ];
+    for (const surface of CAIRO_MAP_PACK.geometry.roadSurfaces) {
+      if (surface.id.includes("-bridge")) continue;
+      const clearance =
+        surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8) + 0.75;
+      for (const footprint of footprints) {
+        for (let index = 1; index < surface.centerline.length; index += 1) {
+          const start = surface.centerline[index - 1];
+          const end = surface.centerline[index];
+          const steps = Math.max(
+            1,
+            Math.ceil(Math.hypot(end.x - start.x, end.z - start.z) / 2),
+          );
+          for (let step = 0; step <= steps; step += 1) {
+            const amount = step / steps;
+            const x = start.x + (end.x - start.x) * amount;
+            const z = start.z + (end.z - start.z) * amount;
+            expect(
+              Math.abs(x - footprint.center.x) <=
+                footprint.size.x / 2 + clearance &&
+                Math.abs(z - footprint.center.z) <=
+                  footprint.size.z / 2 + clearance,
+              `${footprint.id} reaches ${surface.id}'s envelope at (${x.toFixed(1)}, ${z.toFixed(1)})`,
+            ).toBe(false);
+          }
+        }
+      }
+    }
+
+    // No gig venue's lot stands inside either footprint. The wedge was empty
+    // of blocks and landmarks when the backdrop was authored, but venues are
+    // neither — this is the check that keeps a lane-anchored model from ever
+    // standing inside the slab. Escape hatch if a venue moves here:
+    // `venueLaneOverrides`.
+    for (const venue of CAIRO_MAP_PACK.geometry.gigVenues ?? []) {
+      const placement = resolveVenuePlacement(CAIRO_MAP_PACK, venue);
+      expect(placement, venue.id).not.toBeNull();
+      if (!placement) continue;
+      const lotHalf = Math.max(venue.footprint.x, venue.footprint.z) / 2 + 2;
+      for (const footprint of footprints) {
+        expect(
+          Math.abs(placement.x - footprint.center.x) >=
+            footprint.size.x / 2 + lotHalf ||
+            Math.abs(placement.z - footprint.center.z) >=
+              footprint.size.z / 2 + lotHalf,
+          `${venue.id}'s lot overlaps ${footprint.id}`,
+        ).toBe(true);
+      }
+    }
+
+    // And it does close the sector: from the obelisk, the slab's south face
+    // plus the frontage block span past both ends of the bearing range that
+    // used to run empty to the scenic Sixth October deck (~355°–35°).
+    const obelisk = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (landmark) => landmark.id === "cairo-tahrir-obelisk",
+    );
+    expect(obelisk).toBeDefined();
+    if (!obelisk) return;
+    const bearing = (x: number, z: number) =>
+      (Math.atan2(x - obelisk.center.x, z - obelisk.center.z) * 180) / Math.PI;
+    expect(
+      bearing(
+        ministries.center.x - ministries.size.x / 2,
+        ministries.center.z - ministries.size.z / 2,
+      ),
+    ).toBeLessThanOrEqual(-15);
+    expect(
+      bearing(
+        ministries.center.x + ministries.size.x / 2,
+        ministries.center.z - ministries.size.z / 2,
+      ),
+    ).toBeGreaterThanOrEqual(15);
+    expect(
+      bearing(
+        frontage.center.x + frontage.size.x / 2,
+        frontage.center.z - frontage.size.z / 2,
+      ),
+    ).toBeGreaterThanOrEqual(40);
   });
 
   // The old version of this test asked "is there a parcel within 45 m", which

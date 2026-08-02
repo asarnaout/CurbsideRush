@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getMapPack } from "../app/game/content";
 import {
   buildParkLayout,
+  CAIRO_TAHRIR_PLAZA_RADIUS_M,
   parkLayoutForLandmark,
   resolveParkStyle,
   type ParkLandmarkInput,
@@ -131,6 +132,80 @@ describe("park layouts", () => {
           ).toBeGreaterThanOrEqual(surface.widthM / 2);
         }
       }
+    }
+  });
+
+  it("keeps civic-plaza planting on the plaza side of a crossing road", () => {
+    // Ramses is authored through Tahrir's rectangle and the lawn is clipped
+    // at its centreline — so a palm that clears the carriageway by distance
+    // can still stand on bare ground on the far kerbside. Everything must
+    // stay on the park-centre side of every crossing segment.
+    const tahrir = parkCases().find(
+      (c) => c.landmark.id === "cairo-tahrir-square",
+    );
+    expect(tahrir).toBeDefined();
+    if (!tahrir) return;
+    const { landmark, context, layout } = tahrir;
+    const minX = landmark.center.x - landmark.size.x / 2;
+    const maxX = landmark.center.x + landmark.size.x / 2;
+    const minZ = landmark.center.z - landmark.size.z / 2;
+    const maxZ = landmark.center.z + landmark.size.z / 2;
+    let crossings = 0;
+    for (const surface of context.roadSurfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let crosses = false;
+        for (let step = 0; step <= 200 && !crosses; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          crosses =
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3;
+        }
+        if (!crosses) continue;
+        crossings += 1;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const sideOf = (point: { x: number; z: number }) =>
+          Math.sign(dx * (point.z - start.z) - dz * (point.x - start.x));
+        const parkSide = sideOf(landmark.center);
+        for (const placement of layout.placements) {
+          expect(
+            sideOf(placement),
+            `${placement.kind} at (${placement.x.toFixed(1)}, ${placement.z.toFixed(1)}) is across the road`,
+          ).toBe(parkSide);
+        }
+      }
+    }
+    // Vacuous without the road that motivates the rule.
+    expect(crossings).toBeGreaterThan(0);
+  });
+
+  it("keeps planting off Tahrir's paved plaza", () => {
+    // The disc is renderer-side (GameCanvas's Tahrir branch), ringed on the
+    // obelisk landmark; `landmarkClearings` is what tells the scatter.
+    const tahrir = parkCases().find(
+      (c) => c.landmark.id === "cairo-tahrir-square",
+    );
+    expect(tahrir).toBeDefined();
+    if (!tahrir) return;
+    const obelisk = getMapPack("cairo-central-nile").geometry.landmarks.find(
+      (candidate) => candidate.id === "cairo-tahrir-obelisk",
+    );
+    expect(obelisk).toBeDefined();
+    if (!obelisk) return;
+    for (const placement of tahrir.layout.placements) {
+      expect(
+        Math.hypot(
+          placement.x - obelisk.center.x,
+          placement.z - obelisk.center.z,
+        ),
+        `${placement.kind} stands on the plaza paving`,
+      ).toBeGreaterThanOrEqual(CAIRO_TAHRIR_PLAZA_RADIUS_M + 1);
     }
   });
 
