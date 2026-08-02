@@ -30,6 +30,7 @@ import {
   cairoElevatedBridgePierPlacements,
   cairoFrontagePosition,
   cairoFrontageFootprintsOverlap,
+  cairoOperaTerracePolygon,
   cairoTahrirForecourtPolygon,
   cairoTahrirFurnitureLayout,
   cairoTahrirLawnPolygon,
@@ -61,7 +62,11 @@ import { buildingSetUrls } from "../app/game/buildingSets";
 import { isPointInPolygon } from "../app/game/simulation";
 import { authoredSignalAspectAt } from "../app/game/trafficSignals";
 import { CAIRO_MAP_PACK } from "../app/game/cairoContent";
-import { CAIRO_TAHRIR_PLAZA_RADIUS_M } from "../app/game/parkLayouts";
+import {
+  CAIRO_OPERA_TERRACE_NORTH_Z,
+  CAIRO_TAHRIR_PLAZA_RADIUS_M,
+  parkLayoutForLandmark,
+} from "../app/game/parkLayouts";
 
 describe("Cairo water scenery", () => {
   const concave = [
@@ -1065,6 +1070,60 @@ describe("Cairo visual axes", () => {
     expect(PARK_LAWN_Y).toBeLessThan(PARK_BED_Y);
     expect(PARK_BED_Y).toBeLessThan(PARK_PATH_Y);
     expect(PARK_PATH_Y).toBeLessThan(0.0435);
+  });
+
+  it("paves the opera terrace from the facade to the garden", () => {
+    const operaHouse = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (landmark) => landmark.id === "cairo-opera-house",
+    );
+    const park = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (landmark) => landmark.id === "cairo-opera-grounds",
+    );
+    expect(operaHouse).toBeDefined();
+    expect(park).toBeDefined();
+    if (!operaHouse || !park) return;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const polygon = cairoOperaTerracePolygon(operaHouse, surfaces);
+    expect(polygon.length).toBeGreaterThanOrEqual(4);
+
+    // Extents: two metres past each building flank, the park's own south
+    // line, and the terrace line the garden's axis walk laps.
+    const xs = polygon.map((vertex) => vertex.x);
+    const zs = polygon.map((vertex) => vertex.z);
+    expect(Math.min(...xs)).toBeCloseTo(
+      operaHouse.center.x - operaHouse.size.x / 2 - 2,
+      6,
+    );
+    expect(Math.max(...xs)).toBeCloseTo(
+      operaHouse.center.x + operaHouse.size.x / 2 + 2,
+      6,
+    );
+    expect(Math.min(...zs)).toBeCloseTo(park.center.z - park.size.z / 2, 6);
+    expect(Math.max(...zs)).toBeCloseTo(CAIRO_OPERA_TERRACE_NORTH_Z, 6);
+
+    // The garden's south walk arm ends lapping the paving by half a metre —
+    // a gap here is a grey strip between walk and terrace.
+    const layout = parkLayoutForLandmark(CAIRO_MAP_PACK, park);
+    const axisSouth = layout.paths.find((path) => path.id === "axis-south");
+    expect(axisSouth).toBeDefined();
+    if (!axisSouth) return;
+    const southEnd = Math.min(...axisSouth.points.map((point) => point.z));
+    expect(southEnd).toBeCloseTo(CAIRO_OPERA_TERRACE_NORTH_Z - 0.5, 6);
+
+    // The clip against the corridor is a no-op today and must stay one:
+    // every vertex keeps a margin past the rendered pavement band,
+    // recomputed from road data.
+    for (const vertex of polygon) {
+      for (const surface of surfaces) {
+        if (!surface.id.includes("opera-corridor")) continue;
+        expect(
+          distanceToPolylineM(vertex, surface.centerline),
+          `terrace vertex (${vertex.x.toFixed(1)}, ${vertex.z.toFixed(1)}) crowds the corridor`,
+        ).toBeGreaterThanOrEqual(
+          surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8) + 1.2,
+        );
+      }
+    }
   });
 });
 

@@ -230,6 +230,7 @@ import {
   natureSetsForMap,
 } from "./natureCatalog";
 import {
+  CAIRO_OPERA_TERRACE_NORTH_Z,
   CAIRO_TAHRIR_PLAZA_RADIUS_M,
   parkLayoutForLandmark,
   ROAD_DIVIDED_PARK_IDS,
@@ -3060,6 +3061,34 @@ export function roadSideParkLawnPolygon(
     landmark.center.z - landmark.size.z / 2,
     landmark.center.z + landmark.size.z / 2,
     landmark.center,
+    roadSurfaces,
+  );
+}
+
+/**
+ * The paved terrace between the opera house's garden colonnade and the
+ * formal garden. The building's north 12 m stand inside the park rect, so
+ * the paving must run from under its face (x inset 2 m from each flank)
+ * north past the rect line to `CAIRO_OPERA_TERRACE_NORTH_Z`, where the
+ * garden's axis walk laps it by half a metre. Clipped to the opera house's
+ * side of any crossing road — a no-op against today's corridor, but a road
+ * nudge fails the seam test instead of paving the far kerbside.
+ */
+export function cairoOperaTerracePolygon(
+  operaHouse: Pick<
+    GameCanvasMapPack["geometry"]["landmarks"][number],
+    "center" | "size"
+  >,
+  roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
+): GameCanvasPoint[] {
+  return clipRectToRoadSide(
+    operaHouse.center.x - operaHouse.size.x / 2 - 2,
+    operaHouse.center.x + operaHouse.size.x / 2 + 2,
+    // 12 m south of the building's north face — the park's own south line,
+    // so the paving covers exactly the strip the building borrows from it.
+    operaHouse.center.z + operaHouse.size.z / 2 - 12,
+    CAIRO_OPERA_TERRACE_NORTH_Z,
+    operaHouse.center,
     roadSurfaces,
   );
 }
@@ -12717,45 +12746,147 @@ class BabylonGameSession {
     }
 
     if (landmark.id === "cairo-opera-house") {
+      // The public face is the NORTH one, onto the Opera Grounds' formal
+      // garden — the walk axis arrives centred on it. It is also the face
+      // the sun never reaches (+z normals are unlit under this map's sun),
+      // which is why the old plain box read as a black monolith looming
+      // over the park: articulation alone cannot rescue an unlit face, so
+      // the stone gets a small emissive lift too. Both materials here are
+      // per-landmark (`${landmark.id}-…`), so the lift cannot leak to
+      // another building.
+      paleStone.emissiveColor = new Color3(0.055, 0.05, 0.04);
+      material.emissiveColor = new Color3(0.05, 0.047, 0.04);
+      const centerX = landmark.center.x;
+      const northFaceZ = landmark.center.z + landmark.size.z / 2;
+      // Main hall in front, taller stage house behind — the fly-tower step
+      // every opera house silhouette carries.
+      const hallDepth = landmark.size.z - 14;
+      const hallCenterZ = northFaceZ - hallDepth / 2;
       createBox(
         scene,
         landmark.id,
-        { width: landmark.size.x, height: 6.8, depth: landmark.size.z },
-        new Vector3(landmark.center.x, 3.4, landmark.center.z),
-        paleStone,
-      );
-      createBox(
-        scene,
-        `${landmark.id}-upper`,
-        {
-          width: landmark.size.x * 0.62,
-          height: 4.2,
-          depth: landmark.size.z * 0.72,
-        },
-        new Vector3(landmark.center.x, 8.9, landmark.center.z + 1),
+        { width: landmark.size.x, height: 9, depth: hallDepth },
+        new Vector3(centerX, 4.5, hallCenterZ),
         material,
       );
-      const frontZ = landmark.center.z - landmark.size.z / 2 - 1.6;
       createBox(
         scene,
-        `${landmark.id}-canopy`,
-        { width: landmark.size.x * 0.64, height: 0.45, depth: 4 },
-        new Vector3(landmark.center.x, 5.3, frontZ),
+        `${landmark.id}-cornice`,
+        { width: landmark.size.x + 1.2, height: 0.75, depth: hallDepth + 1.2 },
+        new Vector3(centerX, 9.15, hallCenterZ),
         paleStone,
       );
-      for (let column = -3; column <= 3; column += 1) {
+      const stageCenterZ = northFaceZ - hallDepth - 7;
+      createBox(
+        scene,
+        `${landmark.id}-stage-house`,
+        { width: landmark.size.x - 6, height: 13, depth: 14 },
+        new Vector3(centerX, 6.5, stageCenterZ),
+        material,
+      );
+      createBox(
+        scene,
+        `${landmark.id}-stage-cornice`,
+        { width: landmark.size.x - 6 + 1.2, height: 0.75, depth: 15.2 },
+        new Vector3(centerX, 13.15, stageCenterZ),
+        paleStone,
+      );
+      // A set-back attic carrying the low faceted dome the real Cairo Opera
+      // House wears; the icosphere's lower half is buried in the attic.
+      createBox(
+        scene,
+        `${landmark.id}-attic`,
+        { width: 22.4, height: 4, depth: 30 },
+        new Vector3(centerX, 11, northFaceZ - 20),
+        material,
+      );
+      const dome = createIcoSphere(
+        scene,
+        `${landmark.id}-dome`,
+        8,
+        new Vector3(centerX, 13, northFaceZ - 20),
+        paleStone,
+      );
+      dome.scaling.set(1, 0.45, 1);
+      // Garden colonnade: nine columns an arm's reach proud of the face,
+      // side-lit even when the wall behind them is not.
+      const colonnadeZ = northFaceZ + 1.1;
+      for (let column = -4; column <= 4; column += 1) {
         createCylinder(
           scene,
           `${landmark.id}-column-${column}`,
-          { height: 4.8, diameter: 0.55, tessellation: 8 },
+          { height: 7, diameter: 0.85, tessellation: 8 },
           new Vector3(
-            landmark.center.x + column * (landmark.size.x / 9),
-            2.5,
-            frontZ,
+            centerX + column * (landmark.size.x / 8.8),
+            3.5,
+            colonnadeZ,
           ),
-          material,
+          paleStone,
         );
       }
+      createBox(
+        scene,
+        `${landmark.id}-entablature`,
+        { width: landmark.size.x - 1.5, height: 1.2, depth: 1.6 },
+        new Vector3(centerX, 7.6, colonnadeZ),
+        paleStone,
+      );
+      // Ground-tier bays between the columns, the attic's window row above,
+      // and the recessed entrance with its bronze doors on the axis.
+      for (let bay = -4; bay <= 3; bay += 1) {
+        if (bay === -1 || bay === 0) continue; // the entrance's span
+        createBox(
+          scene,
+          `${landmark.id}-bay-${bay}`,
+          { width: 2.2, height: 3.4, depth: 0.18 },
+          new Vector3(
+            centerX + (bay + 0.5) * (landmark.size.x / 8.8),
+            4.2,
+            northFaceZ + 0.11,
+          ),
+          darkWindow,
+        );
+      }
+      for (let window = -2; window <= 2; window += 1) {
+        createBox(
+          scene,
+          `${landmark.id}-attic-window-${window}`,
+          { width: 2.1, height: 2.6, depth: 0.18 },
+          new Vector3(centerX + window * 4, 10.8, northFaceZ - 5 + 0.11),
+          darkWindow,
+        );
+      }
+      createBox(
+        scene,
+        `${landmark.id}-entrance`,
+        { width: 6, height: 6.4, depth: 0.28 },
+        new Vector3(centerX, 3.2, northFaceZ + 0.11),
+        darkWindow,
+      );
+      for (const side of [-1, 1] as const) {
+        createBox(
+          scene,
+          `${landmark.id}-door-${side}`,
+          { width: 1.4, height: 3.6, depth: 0.32 },
+          new Vector3(centerX + side * 1.4, 1.8, northFaceZ + 0.15),
+          bronze,
+        );
+      }
+      // The terrace between the facade and the garden. The building's north
+      // 12 m stand INSIDE the park rect, so without this the colonnade met
+      // raw lawn; the paving runs from under the building face out past the
+      // rect line to meet the axis walk, whose half-metre lap draws over it.
+      const terracePaving = makeMaterial(
+        scene,
+        `${landmark.id}-terrace-paving`,
+        new Color3(0.63, 0.57, 0.47),
+      );
+      this.buildFlatPolygonMesh(
+        `${landmark.id}-terrace`,
+        cairoOperaTerracePolygon(landmark, mapPack.geometry.roadSurfaces ?? []),
+        PARK_PATH_Y,
+        terracePaving,
+      );
       return true;
     }
 
