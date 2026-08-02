@@ -93,7 +93,9 @@ the entity streaks for a frame; `shouldSnapPose` catches >2.5 m jumps
 automatically.
 
 The far plane rides the fog band (`resolveCameraFarPlane`) — raise fog and you
-raise draw distance with it.
+raise draw distance with it. A day palette may cap its own fog end
+(`fogEndCapM`): Cairo's 650 m dust haze is both the look and the perf budget
+for its dense street wall (draw calls/frame −31% vs the uncapped 1100 m).
 
 ## Models load in two phases
 
@@ -210,20 +212,19 @@ fell from 488 to 390 *while gaining* a wing mirror.
 
 `registerStaticCell` takes an explicit `castsShadow` flag because the instanced
 building street wall deliberately casts none — flipping one silently adds it to
-the shadow map and changes every camera. Note the two street-wall paths differ
-here: the instanced glb wall casts no sun shadow, while every procedural facade
-box does (`registerShadowCaster`). A map that moves from one to the other changes
-its shadow load as well as its draw calls.
+the shadow map and changes every camera. The instanced glb wall casts no sun
+shadow while every procedural facade box does (`registerShadowCaster`); the
+corniche parapet follows the instanced rule, rendering Cairo's shoreline
+collider OBBs verbatim (`shorelineParapetRuns`) — you see the wall you hit.
 
 ## Render scaling
 
 **`hardwareScalingLevel` is CSS pixels per rendered pixel — higher is blurrier —
 and `setHardwareScalingLevel` *overwrites* what `adaptToDeviceRatio: true`
-computed rather than composing with it.** A level derived from `devicePixelRatio`
-therefore double-counts it; the old `min(1.65, dpr / 1.2)` pinned every phone to
-1.65, a 516×238 buffer on a DPR-3 landscape iPhone. `resize()` does **not** reset
-the level in Babylon 9.16.1 (it only rescales on a real DPR change), so a level set
-once persists.
+computed rather than composing with it.** A level derived from
+`devicePixelRatio` double-counts it (the old `min(1.65, dpr/1.2)` pinned every
+phone to a 516×238 buffer). `resize()` does **not** reset the level in Babylon
+9.16.1, so a level set once persists.
 
 Touch also swaps 4× MSAA for FXAA, since the pipeline's offscreen target bypasses
 engine MSAA anyway.

@@ -137,6 +137,9 @@ export const CAIRO_ENV_MODELS: readonly EnvModelMeta[] = [
   // the two the map already had stop being rarities.
   { id: "cairo-residence-kay", url: `${P}/cairo-residence-kay.glb`, category: "brownstone", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("otRsYa6pan") },
   { id: "cairo-residence-quaternius", url: `${P}/cairo-residence-quaternius.glb`, category: "midrise", title: "3Story_Balcony_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "cairo-office-block", url: `${P}/cairo-office-block.glb`, category: "midrise", title: "4Story_Wide_2Doors_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "cairo-depot", url: `${P}/cairo-depot.glb`, category: "brownstone", title: "2Story_Wide_2Doors_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "cairo-shop", url: `${P}/cairo-shop.glb`, category: "shop", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("EL3ePInr1N") },
 ];
 
 /** Every catalogued environment model, both maps' kits. */

@@ -78,6 +78,7 @@ import {
   type ServicePointKind,
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
+import { CAIRO_OPEN_WATERFRONT_SIDES } from "./cairoContent";
 import {
   REPAIR_BAY_REACH_M,
   REPAIR_SHOP_LOT_HALF_M,
@@ -207,6 +208,7 @@ import {
   buildPlanarUVs,
   buildRiverWaveField,
   distanceToPolylineM,
+  generatePromenadeDecor,
   generateRoadsidePropPlacements,
   hashStringToSeed,
   mixHexColors,
@@ -504,6 +506,53 @@ const PARK_WALL_HEIGHT_M = 0.95;
 export function boxLengthYaw(ux: number, uz: number): number {
   return Math.atan2(-uz, ux);
 }
+
+/** Corniche parapet height — a masonry balustrade you read instantly at
+ * speed, taller than the 0.95 m park wall by a lean. */
+const CORNICHE_PARAPET_HEIGHT_M = 1.05;
+
+/** One straight run of visible corniche parapet, in the same frame as the
+ * shoreline collider OBB it renders. */
+export interface ShorelineParapetRun {
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+}
+
+/**
+ * The corniche parapet's layout is exactly the shoreline embankment colliders
+ * the simulation already stands along every Nile bank (`buildStaticObstacles`
+ * tags them "shoreline"): rendering those runs means the wall you see IS the
+ * wall the car stops at, and every bridge portal stays open because the
+ * colliders already gap it. Excluded: `-portal-` runs (the drivable bridges
+ * draw their own railings), runs hugging the world edge (|z| > 905 — collider
+ * plumbing along the map border, not a visible bank), and slivers under 2 m.
+ */
+export function shorelineParapetRuns(
+  obstacles: readonly StaticObstacle[],
+): ShorelineParapetRun[] {
+  const runs: ShorelineParapetRun[] = [];
+  for (const obstacle of obstacles) {
+    if (obstacle.kind !== "obb" || obstacle.tag !== "shoreline") continue;
+    if (!obstacle.id.includes("-shore-")) continue;
+    if (Math.abs(obstacle.z) > 905 || obstacle.halfU < 2) continue;
+    runs.push({
+      id: obstacle.id,
+      x: obstacle.x,
+      z: obstacle.z,
+      ux: obstacle.ux,
+      uz: obstacle.uz,
+      halfU: obstacle.halfU,
+      halfV: obstacle.halfV,
+    });
+  }
+  return runs;
+}
+
 /**
  * How close to a path a plant must be to stay an individually instanced,
  * knockable prop. Everything beyond becomes batched scenery, which cannot be
@@ -4528,6 +4577,9 @@ interface DestructiblePropConfig {
 
 const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructiblePropConfig>> = {
   tree: { radiusM: 0.5, speedScale: 0.7, damage: "medium", noun: "a street tree", fall: "topple" },
+  // Absent from this table, palms were silently indestructible — an un-hittable
+  // tree on a promenade full of hittable ones reads as a bug.
+  palm: { radiusM: 0.5, speedScale: 0.72, damage: "medium", noun: "a palm tree", fall: "topple" },
   streetlight: { radiusM: 0.32, speedScale: 0.74, damage: "medium", noun: "a streetlight", fall: "topple" },
   "utility-pole": { radiusM: 0.35, speedScale: 0.72, damage: "medium", noun: "a utility pole", fall: "topple" },
   sign: { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a signpost", fall: "topple" },
@@ -6093,6 +6145,9 @@ class BabylonGameSession {
    * two answers to "what is solid" that are free to disagree.
    */
   private readonly stagedBlockers: readonly StagedBlocker[];
+  /** The scenario's full solid set, kept so scenery that renders a collider
+   * (the corniche parapet) reads the SAME source the simulation stands on. */
+  private readonly scenarioStaticObstacles: readonly StaticObstacle[];
   private simulationSnapshot: SimulationSnapshot;
   private playerVehicleVisual: VehicleMeshVisual | null = null;
   /** The player-as-cyclist rig (career bicycle days); null on car days. */
@@ -6504,6 +6559,7 @@ class BabylonGameSession {
     this.stagedBlockers = stagedBlockersOf(
       simulationConfig.staticObstacles ?? [],
     );
+    this.scenarioStaticObstacles = simulationConfig.staticObstacles ?? [];
     this.simulation = new SimulationCore({
       ...simulationConfig,
       ...(options.vehiclePhysics ?? {}),
@@ -11159,6 +11215,48 @@ class BabylonGameSession {
     this.registerMirrorSurface(ground);
     this.buildWaterBodies(mapPack, mapId);
 
+    // The corniche parapet: one hidden unit-box master, one instance per
+    // shoreline collider run, scaled to the collider's exact plan footprint —
+    // ~35 instances for both Nile banks at one draw call, versus the park
+    // walls' box-per-run. Cairo only: London's shoreline runs belong to a
+    // park lake whose kerb the park already dresses.
+    if (cairoScene) {
+      const parapetRuns = shorelineParapetRuns(this.scenarioStaticObstacles);
+      if (parapetRuns.length) {
+        const parapetMaterial = makeMaterial(
+          scene,
+          "corniche-parapet",
+          colorFromHex(
+            mixHexColors(palette.pavement ?? "#aaa18f", "#e8dcc2", 0.45),
+            new Color3(0.71, 0.66, 0.57),
+          ),
+        );
+        const parapetMaster = createBox(
+          scene,
+          "corniche-parapet-master",
+          { width: 1, height: 1, depth: 1 },
+          Vector3.Zero(),
+          parapetMaterial,
+        );
+        parapetMaster.isVisible = false;
+        parapetMaster.isPickable = false;
+        for (const run of parapetRuns) {
+          const parapet = parapetMaster.createInstance(`${run.id}-parapet`);
+          parapet.position.set(run.x, CORNICHE_PARAPET_HEIGHT_M / 2, run.z);
+          parapet.scaling.set(
+            run.halfU * 2,
+            CORNICHE_PARAPET_HEIGHT_M,
+            run.halfV * 2,
+          );
+          parapet.rotation.y = boxLengthYaw(run.ux, run.uz);
+          parapet.isPickable = false;
+          this.staticSceneryFreeze.push(parapet);
+          this.registerStaticCell(parapet, run.x, run.z, false);
+        }
+        parapetMaterial.freeze();
+      }
+    }
+
     const authoredRoadSurfaces = mapPack.geometry.roadSurfaces?.length
       ? mapPack.geometry.roadSurfaces
       : mapPack.laneGraph.lanes.map((lane) => ({
@@ -13428,6 +13526,27 @@ class BabylonGameSession {
         },
       ];
     });
+    // The corniche promenade is laid before the random scatter so its points
+    // pre-seed the spacing grid — scatter can jitter around the palm line but
+    // never stand a tree inside it.
+    const promenadePlacements =
+      key === "cairo"
+        ? generatePromenadeDecor({
+            roadSurfaces: roadSurfaces.map((surface) => ({
+              id: surface.id,
+              centerline: surface.centerline,
+              widthM: surface.widthM,
+              sidewalkWidthM: surface.sidewalkWidthM,
+            })),
+            waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
+              (body) => body.polygon,
+            ),
+            openSides: CAIRO_OPEN_WATERFRONT_SIDES,
+            sidewalkWidthM: PAVED_SIDEWALK_WIDTH_M,
+            worldSize: mapPack.geometry.worldSize,
+            seed: hashStringToSeed(`${mapId}-promenade`),
+          })
+        : [];
     const roadsidePlacements = generateRoadsidePropPlacements({
       roadSurfaces: roadSurfaces.map((surface) => ({
         id: surface.id,
@@ -13456,13 +13575,15 @@ class BabylonGameSession {
       waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
         (body) => body.polygon,
       ),
-      // Hand-placed furniture and regulatory sign posts pre-seed the mutual
-      // spacing grid so the random scatter can never stand a prop on them.
+      // Hand-placed furniture, regulatory sign posts and the promenade line
+      // pre-seed the mutual spacing grid so the random scatter can never
+      // stand a prop on them.
       occupiedPoints:
-        key === "london" || signPoints.length
+        key === "london" || signPoints.length || promenadePlacements.length
           ? [
               ...(key === "london" ? LONDON_FURNITURE_POINTS : []),
               ...signPoints,
+              ...promenadePlacements,
             ]
           : undefined,
     });
@@ -13473,7 +13594,11 @@ class BabylonGameSession {
     // you cannot flatten in a park would read as a bug, and the alternative was
     // a second, parallel prop builder.
     const park = this.collectParkPlacements(mapPack);
-    const placements = [...roadsidePlacements, ...park.reachable];
+    const placements = [
+      ...roadsidePlacements,
+      ...promenadePlacements,
+      ...park.reachable,
+    ];
     if (!placements.length && !park.interior.length) return;
 
     const material = (name: string, color: Color3, emissive?: Color3) =>
@@ -16010,9 +16135,14 @@ class BabylonGameSession {
     const scene = this.scene;
     const horizon = Color3.FromHexString(palette.skyHorizon);
     scene.clearColor = new Color4(horizon.r, horizon.g, horizon.b, 1);
-    // The night tightening lives inside resolveEffectiveFogRange so the fog
-    // and the camera far plane can never disagree about where the world ends.
-    const fogRange = resolveEffectiveFogRange(palette.night === true, worldSize);
+    // The night tightening and the palette's own day cap (Cairo's dust haze)
+    // live inside resolveEffectiveFogRange so the fog and the camera far
+    // plane can never disagree about where the world ends.
+    const fogRange = resolveEffectiveFogRange(
+      palette.night === true,
+      worldSize,
+      palette.fogEndCapM,
+    );
     scene.fogMode = Scene.FOGMODE_LINEAR;
     scene.fogColor = Color3.FromHexString(palette.fogColor);
     scene.fogStart = fogRange.start;
@@ -16026,6 +16156,7 @@ class BabylonGameSession {
     this.cameraFarPlaneM = resolveCameraFarPlane(
       palette.night === true,
       worldSize,
+      palette.fogEndCapM,
     );
     const domeScale = Math.min(1, (this.cameraFarPlaneM * 0.98) / 950);
 

@@ -57,6 +57,13 @@ export interface MapVisualPalette {
    * itself. The sky/fog/silhouette colours above are authored dark to match.
    */
   readonly night?: boolean;
+  /**
+   * Day map's own ceiling on the fog's far end (metres). The size formula
+   * hands a large day map up to 1100 m of draw; a palette that wants an
+   * atmosphere shorter than its geography — Cairo's dust haze — caps it here,
+   * and the camera far plane follows (resolveEffectiveFogRange).
+   */
+  readonly fogEndCapM?: number;
 }
 
 export type MapVisualKey =
@@ -157,6 +164,10 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     paved: true,
     groundBase: "#77736a",
     pavement: "#aaa18f",
+    // Cairo's famous dust haze, and the perf budget for its dense street
+    // wall: the 1770x1830 world would otherwise draw to 1100 m — 2.4x the
+    // radius NYC's density was priced under.
+    fogEndCapM: 650,
   },
   orientation: {
     skyTop: "#3f86c6",
@@ -256,19 +267,25 @@ export function resolveFogRange(worldSize: VisualPoint): FogRange {
 /**
  * The fog band the scene actually runs. Night maps tighten it: the far end of
  * a long avenue fades out so a corner turn onto a canyon draws far fewer
- * buildings (the worst-case spike), and it deepens the night mood. This is
- * the single source of that tightening — the sky builder and the camera far
- * plane must agree on where the world ends.
+ * buildings (the worst-case spike), and it deepens the night mood. A day map
+ * may cap its own far end through the palette's `fogEndCapM` — Cairo runs a
+ * dust haze at 650 m where the size formula alone would see 1100 m, both for
+ * the look (the city IS hazy) and because its density was never priced for
+ * 2.4× NYC's draw radius. This is the single source of both tightenings —
+ * the sky builder and the camera far plane must agree on where the world ends.
  */
 export function resolveEffectiveFogRange(
   night: boolean,
   worldSize: VisualPoint,
+  fogEndCapM?: number,
 ): FogRange {
   const range = resolveFogRange(worldSize);
-  if (!night) return range;
+  const cappedEnd =
+    fogEndCapM !== undefined ? Math.min(range.end, fogEndCapM) : range.end;
+  if (!night) return { start: Math.min(range.start, cappedEnd), end: cappedEnd };
   return {
-    start: Math.min(range.start, 100),
-    end: Math.min(range.end, 440),
+    start: Math.min(range.start, 100, cappedEnd),
+    end: Math.min(cappedEnd, 440),
   };
 }
 
@@ -282,8 +299,9 @@ export function resolveEffectiveFogRange(
 export function resolveCameraFarPlane(
   night: boolean,
   worldSize: VisualPoint,
+  fogEndCapM?: number,
 ): number {
-  return resolveEffectiveFogRange(night, worldSize).end + 20;
+  return resolveEffectiveFogRange(night, worldSize, fogEndCapM).end + 20;
 }
 
 export type SilhouetteShapeKind = "box" | "hill" | "spike" | "pylon";
@@ -1103,6 +1121,163 @@ export function generateRoadsidePropPlacements(
             2,
             kindConfig.spacingM + (random() - 0.5) * 2 * kindConfig.jitterM,
           );
+        }
+        travelled += segmentLength;
+      }
+    }
+  }
+  return placements;
+}
+
+export interface PromenadeDecorInput {
+  /** Every road surface on the map — non-open surfaces gap the promenade at
+   * junctions and bridge approaches. */
+  readonly roadSurfaces: readonly {
+    readonly id: string;
+    readonly centerline: readonly VisualPoint[];
+    readonly widthM: number;
+    readonly sidewalkWidthM?: number;
+  }[];
+  readonly waterPolygons: readonly (readonly VisualPoint[])[];
+  /** Road side(s) that face open water (cairoContent's
+   * CAIRO_OPEN_WATERFRONT_SIDES shape). */
+  readonly openSides: Readonly<
+    Partial<Record<string, readonly (-1 | 1)[]>>
+  >;
+  readonly sidewalkWidthM: number;
+  readonly worldSize: VisualPoint;
+  readonly seed: number;
+}
+
+/**
+ * The corniche promenade: palms, lamps and benches on the bank strip between
+ * an open-waterfront road and its parapet. The roadside scatter never reaches
+ * this ground — its lateral offsets hug the pavement while the water sits
+ * 10-60 m out — so the signature of the real Corniche el-Nil (a palm line at
+ * the parapet, benches facing the river) has to be laid deliberately.
+ * Deterministic on `seed`; placements ride the same masters, shadow and
+ * destructible registration as every other roadside prop.
+ *
+ * Rhythm per ~13 m station along each open side: palms every second station
+ * at 3.2 m off the waterline, lamps every fourth at 2.6 m, benches every
+ * fifth at 4.5 m facing the water, and — where the bank runs deeper than
+ * 20 m — a kerbside palm row every fourth station, the double line the real
+ * Corniche plants. Stations gap themselves at any other road's envelope
+ * (junctions, bridge portals) and wherever the bank pinches under 6 m.
+ */
+export function generatePromenadeDecor(
+  input: PromenadeDecorInput,
+): PropPlacement[] {
+  const placements: PropPlacement[] = [];
+  const random = seededUnit(input.seed);
+  const halfWorldX = input.worldSize.x / 2 - 4;
+  const halfWorldZ = input.worldSize.z / 2 - 4;
+  const STATION_M = 13;
+  for (const surface of input.roadSurfaces) {
+    const sides = input.openSides[surface.id];
+    if (!sides?.length) continue;
+    const envelope =
+      surface.widthM / 2 + (surface.sidewalkWidthM ?? input.sidewalkWidthM);
+    for (const side of sides) {
+      let station = 0;
+      let nextAt = STATION_M / 2;
+      let travelled = 0;
+      for (
+        let index = 1;
+        index < surface.centerline.length;
+        index += 1
+      ) {
+        const start = surface.centerline[index - 1];
+        const end = surface.centerline[index];
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const segmentLength = Math.hypot(dx, dz);
+        if (segmentLength < 1e-6) continue;
+        const alongX = dx / segmentLength;
+        const alongZ = dz / segmentLength;
+        const outX = alongZ * side;
+        const outZ = -alongX * side;
+        while (nextAt <= travelled + segmentLength) {
+          const alongM = nextAt - travelled + (random() - 0.5) * 6;
+          nextAt += STATION_M;
+          const stationIndex = station;
+          station += 1;
+          const baseX =
+            start.x + alongX * Math.max(0, Math.min(segmentLength, alongM));
+          const baseZ =
+            start.z + alongZ * Math.max(0, Math.min(segmentLength, alongM));
+          // Walk outward to the waterline; the strip between the pavement
+          // and the water is the promenade.
+          let waterDistM = 0;
+          for (let reach = envelope + 1; reach <= 70; reach += 0.5) {
+            if (
+              isOverWater(
+                { x: baseX + outX * reach, z: baseZ + outZ * reach },
+                input.waterPolygons,
+              )
+            ) {
+              waterDistM = reach;
+              break;
+            }
+          }
+          if (!waterDistM || waterDistM - envelope < 6) continue;
+          // Gap at every other road's envelope: junctions and the bridge
+          // approaches carry their own furniture and their own openings.
+          const clearOfOtherRoads = input.roadSurfaces.every((other) => {
+            if (other.id === surface.id) return true;
+            const otherEnvelope =
+              other.widthM / 2 +
+              (other.sidewalkWidthM ?? input.sidewalkWidthM) +
+              2;
+            return (
+              distanceToPolylineM({ x: baseX, z: baseZ }, other.centerline) >
+              otherEnvelope + 6
+            );
+          });
+          if (!clearOfOtherRoads) continue;
+          const drop = (
+            kind: string,
+            offsetM: number,
+            rotationY: number,
+            scale: number,
+            variant: number,
+          ): void => {
+            const x = baseX + outX * offsetM;
+            const z = baseZ + outZ * offsetM;
+            if (Math.abs(x) > halfWorldX || Math.abs(z) > halfWorldZ) return;
+            if (isOverWater({ x, z }, input.waterPolygons)) return;
+            placements.push({ kind, x, z, rotationY, scale, variant });
+          };
+          if (stationIndex % 2 === 0) {
+            drop(
+              "palm",
+              waterDistM - 3.2,
+              random() * Math.PI * 2,
+              0.95 + random() * 0.25,
+              stationIndex % 4 === 0 ? 0 : 1,
+            );
+            if (stationIndex % 4 === 0 && waterDistM - envelope > 20) {
+              drop(
+                "palm",
+                envelope + 5,
+                random() * Math.PI * 2,
+                0.9 + random() * 0.2,
+                1,
+              );
+            }
+          }
+          if (stationIndex % 4 === 1) {
+            drop(
+              "streetlight",
+              waterDistM - 2.6,
+              Math.atan2(-outX, -outZ),
+              1,
+              0,
+            );
+          }
+          if (stationIndex % 5 === 3) {
+            drop("bench", waterDistM - 4.5, Math.atan2(outX, outZ), 1, 0);
+          }
         }
         travelled += segmentLength;
       }

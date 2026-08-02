@@ -42,22 +42,19 @@ A park's dressing, wall and gates are derived ([greenery.md](greenery.md));
 | enforcement cameras | `controls` of `type: "signal"` | `trafficCameraControlIds` |
 
 **A third of every map's signals carry an enforcement camera**
-(`TRAFFIC_CAMERA_RATE`, the one knob — a new map wants a third too). Ranked by
-salted FNV-1a hash and **cut at the count**, never authored, so a new city gets
-them for free and needs no content edit. A threshold draw would give only *about*
-a third — fine on NYC's 65 signals, zero on London's 2. Ties break on
-`localeCompare`, so reordering a map's controls cannot shift the draw, and a
-`max(1)` floor guarantees a signalled city has at least one camera to find.
+(`TRAFFIC_CAMERA_RATE`, the one knob). Ranked by salted FNV-1a hash and **cut at
+the count**, never authored or threshold-drawn (a threshold gives *about* a
+third — zero on London's 2 signals). Ties break on `localeCompare` so
+reordering controls cannot shift the draw; a `max(1)` floor guarantees a
+signalled city has at least one camera to find.
 
 **One `TrafficControlApproach` is one arm — one direction of travel — not one
-road.** Where a signal sits mid-road both directions of a two-way street
-terminate at that node, and grouping them by `roadId` gives the pair a single
-stop line anchored on one direction's lane and a single head facing the other
-way: the opposing driver is then enforced against a signal that was never built
-for them, silently. Group by the node each lane arrives *from* (Cairo) or by
-approach heading (NYC). Keep `phaseGroup` keyed by road, though — opposing arms
-of one street must still run together, or splitting the approaches also splits
-the cycle.
+road.** Grouping a two-way street's arms by `roadId` gives the pair one stop
+line on one direction's lane and one head facing the other way: the opposing
+driver is enforced against a signal never built for them, silently. Group by
+the node each lane arrives *from* (Cairo) or by approach heading (NYC). Keep
+`phaseGroup` keyed by road, though — opposing arms of one street must still
+run together, or splitting the approaches also splits the cycle.
 
 **A kerbside head belongs beside its own stop line**, roughly a metre before
 the bar and a metre past the kerb face, on the traffic side. Clearance is a
@@ -99,19 +96,25 @@ And `roadIdForLane` has **no NYC branches** — the generator passes each road i
 `tests/cairoContent.test.ts` pins its winding/radial headings, lane counts,
 kilometre bands, graph connectivity and stable ordering.
 
-Its shallow roadside parcels generate only *after* POIs exist, must clear roads,
-water, bounds, landmarks, POIs, existing blocks and the Sixth October corridor,
-and deliberately leave four Nile-facing sides open.
+Its shallow roadside parcels generate only *after* POIs exist, and must clear
+roads, water, bounds, existing blocks, the Sixth October corridor and every
+authored exclusion — but an exclusion's inflated margin counts only against
+parcels on its **own side** of the fronted road (`RoadsideExclusion`'s
+raw/inflated pair + `nearestPointOnOrientedParcel`): the opera park's margin
+once erased the kerb *across the street* from itself. A road-divided park's
+exclusion is first clipped to the side its centre is on. Four Nile-facing
+sides stay building-free (`CAIRO_OPEN_WATERFRONT_SIDES`, exported) and carry
+the derived corniche promenade instead: a parapet rendered verbatim from the
+shoreline colliders (`shorelineParapetRuns`) plus `generatePromenadeDecor`'s
+palm/lamp/bench line — see docs/rendering.md for the render side.
 
 **Cairo's `buildingSet` is derived from where a parcel landed**
 (`cairoRoadsideBuildingSet`), not listed per road, so a new road picks up its
 district's fabric with no content edit; riverfront roads get `cairo-corniche`.
 
-**Depth is what gets a roadside parcel refused, so it is derived, not chosen.**
-A 30 m strip needs 30 m of clear land; wherever a junction, forecourt or district
-block came nearer than that, the whole frontage was refused and the street stood
-bare. `buildingSetDepthM` gives each parcel exactly the depth its set needs.
-There is deliberately **no second rank** behind the frontage (`ROADSIDE_RANKS`
+**Depth is what gets a roadside parcel refused, so it is derived, not chosen**
+(`buildingSetDepthM` gives each parcel exactly the depth its set needs), and
+there is deliberately **no second rank** behind the frontage (`ROADSIDE_RANKS`
 pins zero): the glb kit is one-sided, so a back row stared at the front row's
 service wall, planted its own back on the next street over (parallel corridors
 run 30–60 m apart), and its early acceptance blocked later roads' front rows.
@@ -125,27 +128,30 @@ outnumbered glbs — so treat the glb majority as a decision, not a count.
 
 **Measure the kerb, not the neighbourhood.** What a driver sees is the share of
 kerb with a building on it, projected onto the road normal — a "block near this
-road" metric said 55% where the exact one said 28%, and optimising the loose one
-put buildings at arbitrary angles in open ground. Acceptance is greedy and
-ordered, so extra candidates near junctions can consume land better-placed
-parcels needed and make the exact metric *worse* while adding blocks.
+road" metric said 55% where the exact one said 28%. Acceptance is greedy and
+ordered, so a road visited late inherits an eaten band; the **gap-fill pass**
+after the slot pass projects everything standing in each kerb's own band
+(parcels and same-side exclusion envelopes, clipped so a grazing corner casts
+only its real shadow) and tiles pieces into the true bare intervals — halving
+down to 12 m, stepping the dressing down to 12 m and 9 m sliver boxes where
+parallel streets pinch below full parcel depth. The audit is two-tier in
+`tests/cairoContent.test.ts`: walled-kerb floors, and "leaves no long bare
+run" — anything authored within 16 m counts as visual frontage, and no
+buildable side may run more than 125 m with nothing at all.
 
 **A roadside strip must name its one road-facing edge** (`streetEdges` on
-`ProceduralBlock`). `slotBlockBuildings` defaults to all four, which is right for
-a city block with roads around it and wrong for a strip: buildings are inset by
-half their depth, so on a parcel shallower than two depths the opposite rows
-occupy the same ground — Cairo's old 28–34 m parcels against depths up to 18.7 m
-overlapped by up to 18 m, invisible in any count. Guarded twice in
-`buildingPlacement.test.ts`: the per-parcel interpenetration sweep and the
-map-wide cross-parcel one, both seeded like the renderer because the overlap
-depends on which models the seed draws.
+`ProceduralBlock`). `slotBlockBuildings` defaults to all four, which is right
+for a city block and wrong for a strip: buildings inset by half their depth,
+so on a parcel shallower than two depths the opposite rows occupy the same
+ground. Guarded twice in `buildingPlacement.test.ts` — the per-parcel and the
+map-wide cross-parcel interpenetration sweeps, both seeded like the renderer
+because the overlap depends on which models the seed draws.
 
 **One roadside parcel in six deliberately keeps the procedural facade boxes**
-(`cairoParcelKeepsFacadeBoxes`), as do all the inland district parcels. That
-remainder is not leftovers: plain stucco blocks are real Cairo, and their size
-and height jitter varies in a way a fifteen-model catalogue cannot. Deleting the
-holdback would make the map *more* repetitive, not less. It is deterministic on
-the block id — `Math.random` here would desync the map between loads.
+(`cairoParcelKeepsFacadeBoxes`), as do all the inland district parcels: plain
+stucco blocks are real Cairo, and their size/height jitter varies in a way the
+model catalogue cannot — deleting the holdback would make the map *more*
+repetitive. Deterministic on the block id; `Math.random` would desync loads.
 
 ## Every road posts a speed limit
 
@@ -155,21 +161,17 @@ road's lanes** rather than taking as a parameter, so a street cannot disagree
 with itself. An unposted road throws on import.
 
 The figure is the one on the sign, in the country's own `speedUnit`, never a
-canonical unit. Choose it from:
-
-1. **Frontage** — housing, park, school, shared space lower it.
-2. **Class** — arterial > through street > local > mews/service/roundabout.
-3. **Geometry** — width, lane count, curvature, junction density.
-
-…and never a number that country does not sign.
+canonical unit — chosen from frontage (housing/park/school lower it), class
+(arterial > through > local > mews) and geometry (width, curvature, junction
+density), and never a number that country does not sign.
 
 NPCs cruise at 68–92% of the limit, drawn once at spawn and re-applied at every
 road change, so **the limits are what actually paces traffic** — raising one
 speeds up the city and is the one content edit that can move
 `trafficSafetyAcceptance`.
 
-**London's flat 20 is researched, not lazy**: RBKC is 20 borough-wide, and TfL's
-2023 order took the A4 through it down too. Both are cited in
+**London's flat 20 is researched, not lazy**: RBKC is 20 borough-wide and TfL's
+2023 order took the A4 through it down too — both cited in
 `LONDON_RULE_REFERENCES` *and shown to the player*, so raising it would put the
 map at odds with the game's own sources.
 
@@ -194,13 +196,11 @@ Both are now guarded by "gives every lane somewhere legal to go" in
 
 ## Addresses
 
-**`streetAddressesForMap` caches by `pack.id`** in a module-level Map; gig
-selection, the renderer and tests must agree, so mutating a pack after the first
-call has no effect.
-
-Street addresses only exist for the NYC roads listed in `STREET_PROFILES` — a NYC
-road missing from it generates none, silently, which is what
-`addressableStreetNames` lets the test catch. Other maps use authored venues.
+**`streetAddressesForMap` caches by `pack.id`** in a module-level Map (mutating
+a pack after the first call has no effect), and addresses exist only for the
+NYC roads listed in `STREET_PROFILES` — a road missing from it generates none,
+silently (`addressableStreetNames` catches this). Other maps use authored
+venues.
 
 **`STREET_PROFILES` holds numbering and is the addressability gate; display names
 live on `MapPack.roadNames`.** Deliberately split, so naming a street for GPS
@@ -241,10 +241,10 @@ so a new turning loop outside London means writing or lifting one.
 
 ## The frozen OSM data is provenance only
 
-The JSON in `public/map-data/` — see its own
-[README](../public/map-data/README.md) — is never read at runtime.
-`scripts/fetch-osm.mjs` is a manually-run, one-off freezer, not part of any build.
-
+The JSON in `public/map-data/` (see its own
+[README](../public/map-data/README.md)) is never read at runtime;
+`scripts/fetch-osm.mjs` is a manually-run, one-off freezer.
 `tests/map-data.test.ts` recomputes a sha256 over
-`JSON.stringify({roads, buildings})`, so **reformatting or reordering keys breaks
-the checksum even when the geometry is identical**. Regenerate; never hand-edit.
+`JSON.stringify({roads, buildings})`, so **reformatting or reordering keys
+breaks the checksum even when geometry is identical**. Regenerate; never
+hand-edit.

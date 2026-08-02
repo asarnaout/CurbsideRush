@@ -126,6 +126,14 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   "cairo-walkup-b": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
   "cairo-residence-kay": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
   "cairo-residence-quaternius": { scale: 4.8, groundY: 0, footprintM: 10.4, depthM: 12.1, frontOffset: Math.PI, roofY: 20.2 },
+  // Long, shallow Quaternius terraces (native 6.83 wide x ~2.3-2.7 deep) that
+  // previously served only as venue props. As street wall they read as one
+  // continuous ministry/warehouse run — depth kept under every host set's
+  // buildingSetDepthM so promoting them cannot move a single parcel.
+  "cairo-office-block": { scale: 3.6, groundY: 0.09, footprintM: 24.6, depthM: 9.8, frontOffset: Math.PI, roofY: 18.5 },
+  "cairo-depot": { scale: 4, groundY: 0.07, footprintM: 27.4, depthM: 9.1, frontOffset: Math.PI, roofY: 10.9 },
+  // KayKit corner shop at its venue scale; models its own awning, no roofY.
+  "cairo-shop": { scale: 4, groundY: 0, footprintM: 8, frontOffset: Math.PI },
 };
 
 export type BuildingSetId =
@@ -165,14 +173,17 @@ const SETS: Record<BuildingSetId, readonly string[]> = {
   "cairo-downtown": [
     "cairo-block-4story", "cairo-block-4story-centre", "cairo-block-colonnade",
     "cairo-block-slim", "cairo-residence-quaternius", "cairo-walkup-a",
+    "cairo-office-block",
   ],
   "cairo-zamalek": [
     "cairo-block-balcony", "cairo-block-colonnade", "cairo-block-small",
     "cairo-walkup-a", "cairo-walkup-b", "cairo-residence-kay",
+    "cairo-shop",
   ],
   "cairo-westbank": [
     "cairo-block-small", "cairo-block-terrace", "cairo-block-slim",
-    "cairo-walkup-b", "cairo-block-4story",
+    "cairo-walkup-b", "cairo-block-4story", "cairo-office-block",
+    "cairo-depot",
   ],
 };
 
