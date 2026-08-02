@@ -223,6 +223,30 @@ describe("park layouts", () => {
     }
   });
 
+  it("keeps park walks smooth at driving scale", () => {
+    // The spine wander was once sampled at a fixed 24 steps regardless of
+    // park length — 4 m chords with ~15° corners on a ribbon barely 4 m wide,
+    // which renders as a staircase. The chord budget scales with the park now.
+    const limit = (8 * Math.PI) / 180;
+    for (const { landmark, layout } of parkCases()) {
+      for (const path of layout.paths) {
+        for (let index = 0; index + 2 < path.points.length; index += 1) {
+          const a = path.points[index];
+          const b = path.points[index + 1];
+          const c = path.points[index + 2];
+          const into = Math.atan2(b.x - a.x, b.z - a.z);
+          const outOf = Math.atan2(c.x - b.x, c.z - b.z);
+          let turn = Math.abs(outOf - into);
+          if (turn > Math.PI) turn = 2 * Math.PI - turn;
+          expect(
+            turn,
+            `${landmark.id}/${path.id}: ${((turn * 180) / Math.PI).toFixed(1)}° corner at point ${index + 1}`,
+          ).toBeLessThanOrEqual(limit);
+        }
+      }
+    }
+  });
+
   it("gives a big park a path network and a token green none of the furniture", () => {
     const central = parkCases().find((c) => c.landmark.id === "nyc-central-park");
     expect(central).toBeDefined();

@@ -42,6 +42,9 @@ import {
   EGYPT_SIGNAL_BORDER_BARS,
   facadeGridCells,
   generateWaterBoatPlacements,
+  PARK_BED_Y,
+  PARK_LAWN_Y,
+  PARK_PATH_Y,
   SIGNAL_HOUSING_BOX,
   roadSurfaceWidthForMarking,
   roadSurfacePlacementForMarking,
@@ -961,6 +964,16 @@ describe("Cairo visual axes", () => {
         `(${sample.x}, ${sample.z}) is unpaved`,
       ).toBe(true);
     }
+  });
+
+  it("stacks park beds strictly between lawn and paths", () => {
+    // The bed rung exists so a walk can cross a parterre or court without a
+    // coplanar fight — the shimmer the Opera Grounds shipped with. Above the
+    // paths the shoulder junction fill (0.0435) takes over; the whole park
+    // band must stay under it.
+    expect(PARK_LAWN_Y).toBeLessThan(PARK_BED_Y);
+    expect(PARK_BED_Y).toBeLessThan(PARK_PATH_Y);
+    expect(PARK_PATH_Y).toBeLessThan(0.0435);
   });
 });
 

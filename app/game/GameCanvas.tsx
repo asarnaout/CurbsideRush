@@ -448,9 +448,16 @@ const GRASS_DETAIL_TILE_M = 3.1;
  * height: parks sit deliberately BELOW the shoulder (0.045) and the road (0.07)
  * so an authored road crossing a park keeps visual priority.
  */
-const PARK_LAWN_Y = 0.02;
+export const PARK_LAWN_Y = 0.02;
+/**
+ * Parterre and court ground patches, on their own rung UNDER the walks: a path
+ * may cross a court or graze a bed, and the walk must win. They once shared
+ * `PARK_PATH_Y`, which is a coplanar fight the depth buffer cannot settle —
+ * the Opera Grounds shipped shimmering because of it.
+ */
+export const PARK_BED_Y = 0.0255;
 /** Park footpaths, in the ~23 mm between the lawn and the shoulder fill. */
-const PARK_PATH_Y = 0.031;
+export const PARK_PATH_Y = 0.031;
 /**
  * Polygon offset pulling park paths toward the camera. The lawn/path gap is
  * finer than the depth quantum at Central Park's far end, and polygon offset
@@ -458,6 +465,15 @@ const PARK_PATH_Y = 0.031;
  * same reasoning as `CAIRO_DECAL_Z_OFFSET_UNITS`.
  */
 const PARK_PATH_Z_OFFSET_UNITS = -2;
+/**
+ * The park ground stack is FOUR offset tiers, one per rung: crossing paths
+ * (-4) over spines (-2) over beds/courts (-1) over the ground rung (0: lawn,
+ * plaza discs, terraces). Two park surfaces may overlap only when they differ
+ * in tier — a crossing lies over the spine it meets at the same y, and a
+ * spine lies over the bed it grazes 5.5 mm below.
+ */
+const PARK_BED_Z_OFFSET_UNITS = -1;
+const PARK_PATH_CROSS_Z_OFFSET_UNITS = -4;
 /**
  * Park boundary wall height. Tall enough to read as a boundary from a car at
  * speed — a hit is a scored collision, so an edge the driver cannot see coming
@@ -5496,6 +5512,63 @@ function createGrassTexture(
 }
 
 /**
+ * A parterre bed's groundcover, one tile.
+ *
+ * Deliberately NOT the lawn texture: a bed is planted colour — darker foliage
+ * carrying flower heads at full strength, where the lawn pulls its flora most
+ * of the way back so it reads as chance. Shares the lawn's spec so the drift
+ * pattern is the same species of noise, just dressed differently.
+ */
+function createFlowerbedTexture(
+  scene: Scene,
+  name: string,
+  palette: MapVisualPalette,
+  seed: number,
+): DynamicTexture {
+  const size = 512;
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  const spec = buildGrassTextureSpec(seed);
+
+  context.fillStyle = mixHexColors(palette.grassDeep, palette.dirtShoulder, 0.25);
+  context.fillRect(0, 0, size, size);
+
+  // Foliage mottling — the lawn's discs, denser and darker.
+  context.globalAlpha = 0.2;
+  context.fillStyle = palette.grassAlt;
+  for (const blob of spec.blobs) {
+    context.beginPath();
+    context.arc(blob.x * size, blob.y * size, blob.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 0.25;
+  context.fillStyle = palette.grassDeep;
+  for (const patch of spec.patches) {
+    context.beginPath();
+    context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  // Flower heads, two tones so the drift reads as planting rather than noise.
+  context.globalAlpha = 0.8;
+  for (const [index, head] of [...spec.flora, ...spec.speckles].entries()) {
+    context.fillStyle =
+      index % 2 === 0
+        ? palette.floraAccent
+        : mixHexColors(palette.floraAccent, "#ffffff", 0.35);
+    context.beginPath();
+    context.arc(head.x * size, head.y * size, size / 90, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 1;
+
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
  * The detail tile fed to `StandardMaterial.detailMap`.
  *
  * **A detail map is not an image — it is four independent channels, and three
@@ -6078,6 +6151,14 @@ class BabylonGameSession {
   private parkLawnMaterial: StandardMaterial | null = null;
   /** One gravel material for every park path on the map; built lazily. */
   private parkPathMaterial: StandardMaterial | null = null;
+  /** The gravel tile those materials share; built lazily with the first. */
+  private parkPathTexture: DynamicTexture | null = null;
+  /** Crossing-path sibling of `parkPathMaterial`, one offset tier deeper. */
+  private parkPathCrossMaterial: StandardMaterial | null = null;
+  /** Gravel again, on the bed tier — temple courts a path may cross. */
+  private parkCourtMaterial: StandardMaterial | null = null;
+  /** Flowerbed groundcover for parterres; built lazily. */
+  private parkBedMaterial: StandardMaterial | null = null;
   /** One stone material for every park boundary wall; built lazily. */
   private parkWallMaterial: StandardMaterial | null = null;
   /** Keep-out circles (gas station + gig-venue lots) so the block street wall
@@ -16337,6 +16418,21 @@ class BabylonGameSession {
     );
   }
 
+  /** The gravel tile shared by walk, crossing and court materials. */
+  private ensureParkPathTexture(palette: MapVisualPalette, mapId: string) {
+    if (!this.parkPathTexture) {
+      this.parkPathTexture = createAsphaltTexture(
+        this.scene,
+        "park-path-texture",
+        // Pale gravel, not tarmac: a park walk is a hoggin or stone-dust
+        // path everywhere this game is set.
+        mixHexColors(palette.dirtShoulder, "#e8e2d2", 0.55),
+        hashStringToSeed(`${mapId}-park-path`),
+      );
+    }
+    return this.parkPathTexture;
+  }
+
   /**
    * A park's footpaths, as thin road strips.
    *
@@ -16357,25 +16453,31 @@ class BabylonGameSession {
     const layout = parkLayoutForLandmark(mapPack, landmark);
 
     if (layout.paths.length) {
-      if (!this.parkPathMaterial) {
+      if (!this.parkPathMaterial || !this.parkPathCrossMaterial) {
+        const texture = this.ensureParkPathTexture(palette, mapId);
         const material = makeMaterial(this.scene, "park-path", Color3.White());
-        material.diffuseTexture = createAsphaltTexture(
-          this.scene,
-          "park-path-texture",
-          // Pale gravel, not tarmac: a park walk is a hoggin or stone-dust
-          // path everywhere this game is set.
-          mixHexColors(palette.dirtShoulder, "#e8e2d2", 0.55),
-          hashStringToSeed(`${mapId}-park-path`),
-        );
+        material.diffuseTexture = texture;
         material.zOffsetUnits = PARK_PATH_Z_OFFSET_UNITS;
         this.parkPathMaterial = material;
+        // Two walks of one park may cross at the same y; the deeper tier
+        // decides the winner where height cannot.
+        const crossing = makeMaterial(
+          this.scene,
+          "park-path-crossing",
+          Color3.White(),
+        );
+        crossing.diffuseTexture = texture;
+        crossing.zOffsetUnits = PARK_PATH_CROSS_Z_OFFSET_UNITS;
+        this.parkPathCrossMaterial = crossing;
       }
       for (const path of layout.paths) {
         const mesh = this.createRoadSurfaceMesh(
           `${landmark.id}-path-${path.id}`,
           path.points,
           path.widthM,
-          this.parkPathMaterial,
+          path.id.startsWith("cross")
+            ? this.parkPathCrossMaterial
+            : this.parkPathMaterial,
           false,
           PARK_PATH_Y,
         );
@@ -16385,7 +16487,7 @@ class BabylonGameSession {
       }
     }
 
-    this.buildParkBespokeFeatures(landmark, layout.features, palette);
+    this.buildParkBespokeFeatures(landmark, layout.features, palette, mapId);
 
     // The wall. A static-obstacle hit is a scored collision with damage, so it
     // has to be plainly visible — a low kerb you cannot see would read as an
@@ -16431,6 +16533,7 @@ class BabylonGameSession {
     landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
     features: readonly ParkFeature[],
     palette: MapVisualPalette,
+    mapId: string,
   ) {
     if (!features.length) return;
     const scene = this.scene;
@@ -16440,35 +16543,45 @@ class BabylonGameSession {
     // Vermilion, which is what a torii is and the one strong colour a temple
     // garden carries.
     const vermilion = material("torii", new Color3(0.72, 0.24, 0.16));
-    const bed = material(
-      "bed",
-      colorFromHex(
-        mixHexColors(palette.grassDeep, palette.dirtShoulder, 0.45),
-        new Color3(0.32, 0.3, 0.2),
-      ),
-    );
 
     for (const feature of features) {
       switch (feature.kind) {
         case "court":
         case "parterre": {
-          // A ground patch, on the same rung as the paths so it reads as laid
-          // rather than as a rug floating over the lawn.
+          // A ground patch on the bed rung, 5.5 mm UNDER the walks: a path
+          // may cross a court or graze a parterre, and the walk must win —
+          // sharing the paths' rung was a coplanar fight the depth buffer
+          // resolved as shimmer.
           const patch = MeshBuilder.CreateGround(
             feature.id,
             { width: feature.sizeX, height: feature.sizeZ },
             scene,
           );
-          patch.position.set(feature.x, PARK_PATH_Y, feature.z);
+          patch.position.set(feature.x, PARK_BED_Y, feature.z);
+          this.applyWorldPlanarGrassUVs(patch, feature.x, feature.z);
           if (feature.kind === "court") {
-            this.applyWorldPlanarGrassUVs(patch, feature.x, feature.z);
-            setMeshMaterial(
-              patch,
-              this.parkPathMaterial ?? stone,
-              true,
-            );
+            if (!this.parkCourtMaterial) {
+              const court = makeMaterial(scene, "park-court", Color3.White());
+              court.diffuseTexture = this.ensureParkPathTexture(palette, mapId);
+              court.zOffsetUnits = PARK_BED_Z_OFFSET_UNITS;
+              this.parkCourtMaterial = court;
+            }
+            setMeshMaterial(patch, this.parkCourtMaterial, true);
           } else {
-            setMeshMaterial(patch, bed, true);
+            if (!this.parkBedMaterial) {
+              // Planted colour, not lawn: a parterre reads as groundcover
+              // with flower heads, sharing only the palette.
+              const bedMaterial = makeMaterial(scene, "park-bed", Color3.White());
+              bedMaterial.diffuseTexture = createFlowerbedTexture(
+                scene,
+                "park-bed-texture",
+                palette,
+                hashStringToSeed(`${mapId}-park-bed`),
+              );
+              bedMaterial.zOffsetUnits = PARK_BED_Z_OFFSET_UNITS;
+              this.parkBedMaterial = bedMaterial;
+            }
+            setMeshMaterial(patch, this.parkBedMaterial, true);
           }
           patch.isPickable = false;
           this.registerStaticCell(patch, feature.x, feature.z, false);

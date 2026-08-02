@@ -518,7 +518,11 @@ function pathRecipe(
   const longIsZ = landmark.size.z >= landmark.size.x;
   const spine = (id: string, offset: number, amplitude: number, widthM: number) => {
     const points: VisualPoint[] = [];
-    const steps = 24;
+    // Chords ≤ 1.5 m. A fixed 24 steps put 4 m chords on the wander — ~15°
+    // corners on a ribbon barely 4 m wide, which renders as a staircase.
+    // Capped so Central Park does not buy two thousand vertices of smoothness.
+    const longSide = Math.max(landmark.size.x, landmark.size.z);
+    const steps = Math.min(96, Math.max(24, Math.ceil(longSide / 1.5)));
     for (let step = 0; step <= steps; step += 1) {
       const t = step / steps - 0.5;
       const wander = Math.sin(t * Math.PI * 3) * amplitude;
