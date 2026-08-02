@@ -399,7 +399,7 @@ public-space character, and currency naming:
   horn, and collision impacts are **synthesised at runtime in Web Audio**
   (`app/game/audio/`). No sample, recording, or third-party audio asset is used
   or shipped, so there is nothing here to license.
-- **`public/audio/music/*.mp3`** (19 background tracks). The original 14 were
+- **`public/audio/music/*.mp3`** (24 tracks currently shipped). The original 14 were
   generated with [Suno](https://suno.com) on 2026-07-19, 2026-07-21 and
   2026-07-23 by the project owner while subscribed to a paid (Pro/Premier)
   plan. Suno assigns the subscriber all of its right, title and interest in
@@ -416,9 +416,28 @@ public-space character, and currency naming:
   retained below for provenance. Tests pin each repository copy to the exact
   SHA-256 of the supplied master.
 
+  A second batch — three more Cairo pieces and one NYC piece — was downloaded
+  from Suno and supplied by the project owner for this project on 2026-08-02.
+  Same embedded artist, `rykard12`, and the same paid-plan terms as the batch
+  above. Tests pin each repository copy to the exact SHA-256 of the supplied
+  master, as with the first Cairo batch.
+
+  A third batch — four more Cairo-only pieces — was downloaded from Suno and
+  supplied by the project owner for this project on 2026-08-02, same embedded
+  artist and paid-plan terms again. One master's original download name was
+  Arabic (`ليالي القاهرة.mp3`, "Cairo Nights"); unlike `cairo-maadi-road.mp3`
+  above, this time both the filename *and* the title were made English before
+  import — the Downloads copy was renamed to `Cairo Nights.mp3` first, so nothing
+  Arabic exists in either location. Tests pin each repository copy to the exact
+  SHA-256 of the supplied master.
+
   Tracks are matched to the city they were written for, and a city plays only
   its own. Two pieces written for Calais (`calais-coast-run-1/2.mp3`, Suno
-  `track4`/`track5`) were removed with that map. Original download names are
+  `track4`/`track5`) were removed with that map. One Cairo piece,
+  `cairo-nile-loop-drive.mp3` (Suno source `Nile Loop Drive`, part of the
+  2026-07-29 batch), was pulled from Cairo's pool and deleted from the repo on
+  2026-08-02 at the project owner's request — no map change involved, the
+  owner simply no longer wanted it in rotation. Original download names are
   kept here so the files can be traced back to the Suno account:
 
   | File | Title | City | Source |
@@ -438,5 +457,12 @@ public-space character, and currency naming:
   | `cairo-maadi-road.mp3` | طريق المعادي | Cairo | طريق المعادي |
   | `cairo-october-bridge-glide.mp3` | October Bridge Glide | Cairo | October Bridge Glide |
   | `cairo-heliopolis-after-dark.mp3` | Heliopolis After Dark | Cairo | Heliopolis After Dark |
-  | `cairo-nile-loop-drive.mp3` | Nile Loop Drive | Cairo | Nile Loop Drive |
   | `cairo-corniche-after-sunset.mp3` | Corniche After Sunset | Cairo | Corniche After Sunset |
+  | `cairo-flyover-dawn.mp3` | Flyover Dawn | Cairo | Flyover Dawn |
+  | `cairo-dokki-before-dawn.mp3` | Dokki Before Dawn | Cairo | Dokki Before Dawn |
+  | `cairo-corniche-loop.mp3` | Corniche Loop | Cairo | Corniche Loop |
+  | `nyc-glass-arcade-drift.mp3` | Glass Arcade Drift | NYC | Glass Arcade Drift |
+  | `cairo-nights.mp3` | Cairo Nights | Cairo | ليالي القاهرة |
+  | `cairo-dokki-after-midnight.mp3` | Dokki After Midnight | Cairo | Dokki After Midnight |
+  | `cairo-after-midnight.mp3` | After Midnight Cairo | Cairo | After Midnight Cairo |
+  | `cairo-after-midnight-2.mp3` | After Midnight Cairo (Second Edition) | Cairo | After Midnight Cairo - Second Edition |
