@@ -486,18 +486,23 @@ const PARK_WALL_HEIGHT_M = 0.95;
 /**
  * Yaw that lays a box's LENGTH along a given world direction.
  *
- * A box's length is its `width`, which is local **+X** — so this is
- * `atan2(uz, ux)`, and **not** the map's heading convention
- * (`atan2(dx, dz)`, where 0 = +z). The two differ by 90°, and using the
- * heading here is silent: the wall still draws, still sits at the right
- * centre, and is simply turned across its own edge. Central Park's west wall
- * came out as a 2,897 m ledge running east-west from x ≈ -1107 to +1790,
- * straight through every avenue on the map, while its collider — which takes
- * `ux`/`uz` directly as the OBB axis — stayed correct. Seeing and hitting
- * disagreed, which is the worst version of this bug.
+ * A box's length is its `width`, which is local **+X**, and under
+ * `rotation.y = θ` this engine lays local +X along world **(cos θ, −sin θ)**
+ * — the same convention the torii builder and its adapter collider both
+ * encode. Two ways this has gone wrong, both silent:
+ *
+ * - Using the map's heading convention (`atan2(dx, dz)`, 0 = +z), which is
+ *   90° off: Central Park's west wall drew as a 2,897 m east-west ledge
+ *   straight through every avenue while its collider — which takes
+ *   `ux`/`uz` directly as the OBB axis — stayed correct.
+ * - Using `atan2(uz, ux)`, which mirrors the direction in z. That slept for
+ *   as long as every wall run was axis-aligned (a box turned −90° is the
+ *   box turned +90°) and surfaced the day the Opera Grounds laid the first
+ *   road-parallel rail: drawn rotated ~20° off the street it was authored
+ *   flush with, collider correct, seeing and hitting disagreeing again.
  */
 export function boxLengthYaw(ux: number, uz: number): number {
-  return Math.atan2(uz, ux);
+  return Math.atan2(-uz, ux);
 }
 /**
  * How close to a path a plant must be to stay an individually instanced,

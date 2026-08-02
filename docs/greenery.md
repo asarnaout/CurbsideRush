@@ -92,16 +92,17 @@ is also why a formal garden's arms *terminate* at its plaza disc and lap it by
 half a metre rather than crossing each other.
 
 **Lay a wall box with `boxLengthYaw`, not with the heading convention.** A box's
-length is its `width`, which is local +X, so the yaw is `atan2(uz, ux)` — the
-map's heading is `atan2(dx, dz)` with 0 = +z, and the two differ by exactly 90°.
-Getting it wrong is silent: the wall still draws and still sits at the right
-centre, just turned across its own edge. Central Park's west wall shipped as a
-2,897 m ledge running east-west from x ~ -1107 to +1790, through every avenue
-on the map, while its collider — which takes `ux`/`uz` straight as the OBB axis
-— stayed correct, so what you saw and what you hit were different walls.
-`tests/parkWalls.test.ts` reconstructs each mesh's world AABB from that yaw and
-requires it to stay inside its own park. The lawn inside stays
-drivable; it is the boundary that stops you, not the grass.
+length is its `width`, which is local +X, and `rotation.y = θ` lays local +X
+along world **(cos θ, −sin θ)** — so the yaw is `atan2(-uz, ux)`, not the map's
+heading (`atan2(dx, dz)`, 0 = +z, 90° off — Central Park's west wall shipped as
+a 2,897 m ledge through every avenue) and not `atan2(uz, ux)` (z-mirrored,
+invisible on axis-aligned runs and ~20° crooked on the opera rail, the first
+angled one). In both failures the collider — which takes `ux`/`uz` straight as
+the OBB axis — stayed correct, so what you saw and what you hit were different
+walls. `tests/parkWalls.test.ts` pins the sign on a diagonal, since
+axis-aligned pins cannot, and requires each mesh's world AABB to stay inside
+its own park. The lawn inside stays drivable; it is the boundary that stops
+you, not the grass.
 
 **A lake in a park is a `WaterBody`, and that buys three things free**: the
 adapter already emits a shoreline obstacle per polygon edge, the minimap
