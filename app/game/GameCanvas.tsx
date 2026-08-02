@@ -534,19 +534,6 @@ const BUILDING_GROUND_LIFT = 0.08;
  */
 export const BUILDING_BASE_CLEARANCE_M =
   BUILDING_GROUND_LIFT - ROAD_SHOULDER_Y;
-/**
- * The Quaternius Cairo street-wall models carry their brick patches, dark base
- * bands and glazing as separate primitives floating 0.6–3.5 mm in front of the
- * wall primitives on the same plane (cairo-residence-quaternius has pairs at
- * exactly 0 mm — its converter's quantization grid collapsed the authored
- * offset). A 24-bit depth buffer stops resolving gaps that small from ~15–35 m
- * away, so the pale wall bleeds through the dark decal and flickers as the
- * camera moves. Pulling just the decal materials toward the camera by two
- * depth quanta (gl.polygonOffset units — negative is toward the camera, and
- * the bias scales with the local depth quantum, unlike a geometry nudge)
- * separates every pair at every distance. Applied per cairo-*.glb container
- * material, so no other city's models are touched.
- */
 
 /** Keeps a checkpoint target wholly inside its authored lane. */
 export function resolveCheckpointTargetWidth(laneWidthM: number): number {
