@@ -12,7 +12,7 @@ import {
 } from "../app/game/simulation";
 import { buildSimulationCoreConfig } from "../app/game/simulationAdapter";
 import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
-import type { GameCanvasLesson } from "../app/game/GameCanvas";
+import type { GameCanvasLesson } from "../app/game/sessionContract";
 import type { FreeDriveDefinition, LaneSegment } from "../app/game/types";
 
 /**

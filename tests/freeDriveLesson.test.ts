@@ -5,7 +5,7 @@ import {
   buildCareerDayLesson,
   buildFreeDriveLesson,
 } from "../app/game/freeDriveLesson";
-import type { GameCanvasLesson } from "../app/game/GameCanvas";
+import type { GameCanvasLesson } from "../app/game/sessionContract";
 
 // The factory replaced five hand-rolled copies of this literal (SideSwapApp +
 // four simulation-facing tests). This pin is the contract: any field change to

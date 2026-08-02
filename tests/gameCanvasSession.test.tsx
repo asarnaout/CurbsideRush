@@ -56,10 +56,8 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
   return { ...mod, Engine: HeadlessEngine };
 });
 
-import GameCanvas, {
-  type GameCanvasHandle,
-  type GameHudSnapshot,
-} from "../app/game/GameCanvas";
+import GameCanvas, { type GameCanvasHandle } from "../app/game/GameCanvas";
+import type { GameHudSnapshot } from "../app/game/sessionContract";
 import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
 import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/londonContent";
 

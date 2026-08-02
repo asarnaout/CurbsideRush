@@ -30,7 +30,7 @@ import type {
   GameCanvasMapPack,
   SpeedUnit as CanvasSpeedUnit,
   TrafficSide,
-} from "./GameCanvas";
+} from "./sessionContract";
 import { SCORING_CONFIG, getCountryProfile } from "./content";
 import {
   PAVED_SIDEWALK_WIDTH_M,

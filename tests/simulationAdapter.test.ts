@@ -10,7 +10,7 @@ import {
   resolveSimulationStartPose,
 } from "../app/game/simulationAdapter";
 import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
-import type { GameCanvasLesson } from "../app/game/GameCanvas";
+import type { GameCanvasLesson } from "../app/game/sessionContract";
 import type { FreeDriveDefinition } from "../app/game/types";
 
 // Lessons were removed in the gig overhaul, so the adapter now only ever
