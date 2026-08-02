@@ -504,6 +504,53 @@ const PARK_WALL_HEIGHT_M = 0.95;
 export function boxLengthYaw(ux: number, uz: number): number {
   return Math.atan2(-uz, ux);
 }
+
+/** Corniche parapet height — a masonry balustrade you read instantly at
+ * speed, taller than the 0.95 m park wall by a lean. */
+const CORNICHE_PARAPET_HEIGHT_M = 1.05;
+
+/** One straight run of visible corniche parapet, in the same frame as the
+ * shoreline collider OBB it renders. */
+export interface ShorelineParapetRun {
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+}
+
+/**
+ * The corniche parapet's layout is exactly the shoreline embankment colliders
+ * the simulation already stands along every Nile bank (`buildStaticObstacles`
+ * tags them "shoreline"): rendering those runs means the wall you see IS the
+ * wall the car stops at, and every bridge portal stays open because the
+ * colliders already gap it. Excluded: `-portal-` runs (the drivable bridges
+ * draw their own railings), runs hugging the world edge (|z| > 905 — collider
+ * plumbing along the map border, not a visible bank), and slivers under 2 m.
+ */
+export function shorelineParapetRuns(
+  obstacles: readonly StaticObstacle[],
+): ShorelineParapetRun[] {
+  const runs: ShorelineParapetRun[] = [];
+  for (const obstacle of obstacles) {
+    if (obstacle.kind !== "obb" || obstacle.tag !== "shoreline") continue;
+    if (!obstacle.id.includes("-shore-")) continue;
+    if (Math.abs(obstacle.z) > 905 || obstacle.halfU < 2) continue;
+    runs.push({
+      id: obstacle.id,
+      x: obstacle.x,
+      z: obstacle.z,
+      ux: obstacle.ux,
+      uz: obstacle.uz,
+      halfU: obstacle.halfU,
+      halfV: obstacle.halfV,
+    });
+  }
+  return runs;
+}
+
 /**
  * How close to a path a plant must be to stay an individually instanced,
  * knockable prop. Everything beyond becomes batched scenery, which cannot be
@@ -6093,6 +6140,9 @@ class BabylonGameSession {
    * two answers to "what is solid" that are free to disagree.
    */
   private readonly stagedBlockers: readonly StagedBlocker[];
+  /** The scenario's full solid set, kept so scenery that renders a collider
+   * (the corniche parapet) reads the SAME source the simulation stands on. */
+  private readonly scenarioStaticObstacles: readonly StaticObstacle[];
   private simulationSnapshot: SimulationSnapshot;
   private playerVehicleVisual: VehicleMeshVisual | null = null;
   /** The player-as-cyclist rig (career bicycle days); null on car days. */
@@ -6504,6 +6554,7 @@ class BabylonGameSession {
     this.stagedBlockers = stagedBlockersOf(
       simulationConfig.staticObstacles ?? [],
     );
+    this.scenarioStaticObstacles = simulationConfig.staticObstacles ?? [];
     this.simulation = new SimulationCore({
       ...simulationConfig,
       ...(options.vehiclePhysics ?? {}),
@@ -11158,6 +11209,48 @@ class BabylonGameSession {
     ground.freezeWorldMatrix();
     this.registerMirrorSurface(ground);
     this.buildWaterBodies(mapPack, mapId);
+
+    // The corniche parapet: one hidden unit-box master, one instance per
+    // shoreline collider run, scaled to the collider's exact plan footprint —
+    // ~35 instances for both Nile banks at one draw call, versus the park
+    // walls' box-per-run. Cairo only: London's shoreline runs belong to a
+    // park lake whose kerb the park already dresses.
+    if (cairoScene) {
+      const parapetRuns = shorelineParapetRuns(this.scenarioStaticObstacles);
+      if (parapetRuns.length) {
+        const parapetMaterial = makeMaterial(
+          scene,
+          "corniche-parapet",
+          colorFromHex(
+            mixHexColors(palette.pavement ?? "#aaa18f", "#e8dcc2", 0.45),
+            new Color3(0.71, 0.66, 0.57),
+          ),
+        );
+        const parapetMaster = createBox(
+          scene,
+          "corniche-parapet-master",
+          { width: 1, height: 1, depth: 1 },
+          Vector3.Zero(),
+          parapetMaterial,
+        );
+        parapetMaster.isVisible = false;
+        parapetMaster.isPickable = false;
+        for (const run of parapetRuns) {
+          const parapet = parapetMaster.createInstance(`${run.id}-parapet`);
+          parapet.position.set(run.x, CORNICHE_PARAPET_HEIGHT_M / 2, run.z);
+          parapet.scaling.set(
+            run.halfU * 2,
+            CORNICHE_PARAPET_HEIGHT_M,
+            run.halfV * 2,
+          );
+          parapet.rotation.y = boxLengthYaw(run.ux, run.uz);
+          parapet.isPickable = false;
+          this.staticSceneryFreeze.push(parapet);
+          this.registerStaticCell(parapet, run.x, run.z, false);
+        }
+        parapetMaterial.freeze();
+      }
+    }
 
     const authoredRoadSurfaces = mapPack.geometry.roadSurfaces?.length
       ? mapPack.geometry.roadSurfaces
