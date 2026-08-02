@@ -107,12 +107,44 @@ import {
   createRiverRippleTexture,
   createRiverSurfaceTexture,
   createSkyGradientTexture,
-  FACADE_WIN_H_M,
-  FACADE_WIN_W_M,
-  makeFacadeDiffuseTexture,
   makeFacadeEmissiveTexture,
   makeInstrumentClusterTexture,
 } from "./render/proceduralTextures";
+import {
+  appendDashedMarkingBoxes,
+  appendSolidMarkingBoxes,
+  createBox,
+  createChamferedPanel,
+  createCylinder,
+  createExtrudedPrism,
+  createFacadeBox,
+  createIcoSphere,
+  createMarkingGeometry,
+  makeFacadeMaterial,
+  type MarkingGeometry,
+} from "./render/meshPrimitives";
+import {
+  AMBIENT_CROWD_CONFIG,
+  crowdClothingPaletteForMap,
+  DEFAULT_ROAD_USER_RADII,
+  DESTRUCTIBLE_GRID_CELL_M,
+  DESTRUCTIBLE_PROP_CONFIGS,
+  LONDON_BOLLARD_POSITIONS,
+  LONDON_FURNITURE_POINTS,
+  LONDON_LAMP_POSITIONS,
+  LONDON_PLANTER_POSITIONS,
+  LONDON_POST_BOX_POSITION,
+  PLAYER_CAPSULE_HALF_LENGTH_M,
+  PLAYER_CAPSULE_RADIUS_M,
+  PROP_MAX_ACTIVE_TOPPLES,
+  PROP_MIN_STRIKE_SPEED_MPS,
+  PROP_TOPPLE_MAX_ANGLE_RAD,
+  PROP_TOPPLE_SECONDS,
+  roadsidePropKindsForMap,
+  type ActivePropFall,
+  type DestructibleProp,
+  type DestructiblePropPart,
+} from "./render/propCatalog";
 import {
   crosswalkStripeLayout,
   EGYPT_SIGNAL_BORDER_BARS,
@@ -148,8 +180,6 @@ import {
   cairoFrontageFootprintsOverlap,
   cairoFrontagePosition,
   deterministicSceneryKeep,
-  FACADE_COLS,
-  FACADE_ROWS,
   facadeGridCells,
   isInsideKeepOut,
   keptStreetWallBuildings,
@@ -331,7 +361,6 @@ import {
   resolveMapVisualPalette,
   seededUnit,
   type MapVisualPalette,
-  type PropKindConfig,
   type PropPlacement,
 } from "./visuals";
 import {
@@ -859,118 +888,6 @@ function appearanceVisualKey(appearance: VehicleAppearance): string {
  * stable slots, leaving tail slots for scripted/non-numeric vehicles. This
  * prevents a newly activated ambient car from evicting a maneuver lead.
  */
-/**
- * Merged road-paint geometry. Every dash and solid run used to be its own
- * unfrozen CreateBox — ~1,100 meshes on the NYC grid, each a per-frame
- * frustum test and draw call. These accumulators collect the exact same
- * boxes (same dash phase walk, same +0.25 depth pad and height rule, same
- * winding via Babylon's own box data, rotated and translated) so the session
- * can pour one mesh per paint colour. Pure and exported for node tests.
- */
-export interface MarkingGeometry {
-  positions: number[];
-  normals: number[];
-  indices: number[];
-}
-
-export function createMarkingGeometry(): MarkingGeometry {
-  return { positions: [], normals: [], indices: [] };
-}
-
-/** One paint box, replicating createFlatSegment's dimensions exactly. */
-export function appendMarkingBox(
-  geometry: MarkingGeometry,
-  start: GameCanvasPoint,
-  end: GameCanvasPoint,
-  width: number,
-  y: number,
-): void {
-  const dx = end.x - start.x;
-  const dz = end.z - start.z;
-  const length = Math.hypot(dx, dz);
-  if (length < 0.01) return;
-  const heading = Math.atan2(dx, dz);
-  const box = VertexData.CreateBox({
-    width,
-    height: Math.max(0.025, y * 0.45),
-    depth: length + 0.25,
-  });
-  const centerX = (start.x + end.x) / 2;
-  const centerZ = (start.z + end.z) / 2;
-  const sin = Math.sin(heading);
-  const cos = Math.cos(heading);
-  const indexBase = geometry.positions.length / 3;
-  const positions = box.positions as number[];
-  const normals = box.normals as number[];
-  for (let i = 0; i < positions.length; i += 3) {
-    const px = positions[i];
-    const py = positions[i + 1];
-    const pz = positions[i + 2];
-    // rotation.y = heading, as Babylon applies it to a mesh.
-    geometry.positions.push(
-      centerX + px * cos + pz * sin,
-      y + py,
-      centerZ - px * sin + pz * cos,
-    );
-    const nx = normals[i];
-    const nz = normals[i + 2];
-    geometry.normals.push(nx * cos + nz * sin, normals[i + 1], -nx * sin + nz * cos);
-  }
-  for (const index of box.indices as number[]) {
-    geometry.indices.push(indexBase + index);
-  }
-}
-
-/** The dash walk from createDashedPath, phase carry-over and all. */
-export function appendDashedMarkingBoxes(
-  geometry: MarkingGeometry,
-  points: readonly GameCanvasPoint[],
-  width: number,
-  y: number,
-  dashLength = 3,
-  gapLength = 4,
-): void {
-  let phase = 0;
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const start = points[index];
-    const end = points[index + 1];
-    const dx = end.x - start.x;
-    const dz = end.z - start.z;
-    const length = Math.hypot(dx, dz);
-    if (length < 0.01) continue;
-    const ux = dx / length;
-    const uz = dz / length;
-    for (
-      let distance = -phase;
-      distance < length;
-      distance += dashLength + gapLength
-    ) {
-      const from = Math.max(0, distance);
-      const to = Math.min(length, distance + dashLength);
-      if (to - from > 0.2) {
-        appendMarkingBox(
-          geometry,
-          { x: start.x + ux * from, z: start.z + uz * from },
-          { x: start.x + ux * to, z: start.z + uz * to },
-          width,
-          y,
-        );
-      }
-    }
-    phase = (phase + length) % (dashLength + gapLength);
-  }
-}
-
-export function appendSolidMarkingBoxes(
-  geometry: MarkingGeometry,
-  points: readonly GameCanvasPoint[],
-  width: number,
-  y: number,
-): void {
-  for (let index = 0; index < points.length - 1; index += 1) {
-    appendMarkingBox(geometry, points[index], points[index + 1], width, y);
-  }
-}
 
 export function resolveNpcVisualSlotAssignments(
   slots: readonly Readonly<{ simulationId?: string }>[],
@@ -1170,313 +1087,6 @@ const eventNow = () =>
 
 const degreesToRadians = (degrees: number) => (degrees * Math.PI) / 180;
 
-const LONDON_LAMP_POSITIONS: readonly (readonly [number, number])[] = [
-  [-83, -52],
-  [-50, -52],
-  [-2, -52],
-  [25, -52],
-  [28, 2],
-  [56, 18],
-  [28, 60],
-  [56, 72],
-];
-
-const LONDON_BOLLARD_POSITIONS: readonly (readonly [number, number])[] = [
-  -2, 22, 46, 70,
-].flatMap((z) => [
-  [32, z] as const,
-  [52, z] as const,
-]);
-
-const LONDON_PLANTER_POSITIONS: readonly (readonly [number, number])[] = [
-  [57, -8],
-  [57, 36],
-  [57, 68],
-];
-
-// Mirrored as a solid circle obstacle in simulationAdapter (cast iron beats
-// car); move both together.
-const LONDON_POST_BOX_POSITION = [122, 87] as const;
-
-/** Hand-placed South Kensington furniture that scattered props must avoid. */
-const LONDON_FURNITURE_POINTS: readonly GameCanvasPoint[] = [
-  ...LONDON_LAMP_POSITIONS,
-  ...LONDON_BOLLARD_POSITIONS,
-  ...LONDON_PLANTER_POSITIONS,
-  LONDON_POST_BOX_POSITION,
-].map(([x, z]) => ({ x, z }));
-
-/**
- * Street furniture the car can knock over. Every scattered prop, vendor cart
- * and piece of hand-placed London furniture registers here; a hit scrubs the
- * player's speed via the sim's external-contact path (which is also what the
- * damage/fine layers listen to), topples or squashes the prop in place, and
- * leaves the wreckage lying for the rest of the drive. `damage: "none"` props
- * (grass tufts) are a purely visual crunch — no event, no speed change. The
- * London post box is deliberately absent: cast iron wins, it is a solid
- * obstacle in the core instead.
- */
-interface DestructiblePropConfig {
-  readonly radiusM: number;
-  readonly speedScale: number;
-  readonly damage: "none" | "light" | "medium";
-  readonly noun: string;
-  readonly fall: "topple" | "squash";
-}
-
-const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructiblePropConfig>> = {
-  tree: { radiusM: 0.5, speedScale: 0.7, damage: "medium", noun: "a street tree", fall: "topple" },
-  // Absent from this table, palms were silently indestructible — an un-hittable
-  // tree on a promenade full of hittable ones reads as a bug.
-  palm: { radiusM: 0.5, speedScale: 0.72, damage: "medium", noun: "a palm tree", fall: "topple" },
-  streetlight: { radiusM: 0.32, speedScale: 0.74, damage: "medium", noun: "a streetlight", fall: "topple" },
-  "utility-pole": { radiusM: 0.35, speedScale: 0.72, damage: "medium", noun: "a utility pole", fall: "topple" },
-  sign: { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a signpost", fall: "topple" },
-  "oneway-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a ONE WAY sign", fall: "topple" },
-  "dne-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a DO NOT ENTER sign", fall: "topple" },
-  "wrongway-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a WRONG WAY sign", fall: "topple" },
-  "speedlimit-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a speed limit sign", fall: "topple" },
-  // Park planting and furniture. A shrub squashes rather than topples — a bush
-  // hinging over on one edge looks like a felled tree, which it is not.
-  shrub: { radiusM: 0.55, speedScale: 0.94, damage: "none", noun: "a shrub", fall: "squash" },
-  bench: { radiusM: 0.85, speedScale: 0.86, damage: "light", noun: "a park bench", fall: "topple" },
-  lamp: { radiusM: 0.3, speedScale: 0.76, damage: "medium", noun: "a park lamp", fall: "topple" },
-  hydrant: { radiusM: 0.35, speedScale: 0.9, damage: "light", noun: "a fire hydrant", fall: "topple" },
-  bollard: { radiusM: 0.25, speedScale: 0.92, damage: "light", noun: "a bollard", fall: "topple" },
-  vending: { radiusM: 0.6, speedScale: 0.88, damage: "light", noun: "a vending machine", fall: "topple" },
-  vendor: { radiusM: 1.15, speedScale: 0.85, damage: "light", noun: "a vendor cart", fall: "topple" },
-  "london-lamp": { radiusM: 0.32, speedScale: 0.74, damage: "medium", noun: "a lamp post", fall: "topple" },
-  "london-bollard": { radiusM: 0.25, speedScale: 0.92, damage: "light", noun: "a bollard", fall: "topple" },
-  "london-planter": { radiusM: 0.58, speedScale: 0.85, damage: "light", noun: "a planter", fall: "topple" },
-};
-
-interface DestructiblePropPart {
-  readonly node: TransformNode;
-  /** The streetlight's ground light pool: sinks away instead of rotating. */
-  readonly isLightPool: boolean;
-}
-
-interface DestructibleProp {
-  readonly kind: string;
-  readonly config: DestructiblePropConfig;
-  readonly x: number;
-  readonly z: number;
-  readonly radiusM: number;
-  readonly parts: readonly DestructiblePropPart[];
-  state: "standing" | "falling" | "down";
-}
-
-interface ActivePropFall {
-  readonly prop: DestructibleProp;
-  readonly pivot: TransformNode;
-  readonly poolParts: readonly TransformNode[];
-  progress: number;
-}
-
-/** Grid cell for the prop broad phase; must exceed the largest prop radius
- * plus the car capsule reach so a 3x3 neighbourhood always suffices. */
-const DESTRUCTIBLE_GRID_CELL_M = 8;
-const PROP_TOPPLE_SECONDS = 0.5;
-const PROP_TOPPLE_MAX_ANGLE_RAD = 1.46;
-const PROP_MIN_STRIKE_SPEED_MPS = 0.8;
-/** Above this many simultaneous falls, further strikes settle instantly. */
-const PROP_MAX_ACTIVE_TOPPLES = 8;
-
-const PLAYER_CAPSULE_HALF_LENGTH_M = 1.15;
-const PLAYER_CAPSULE_RADIUS_M = 1.0;
-
-const PROP_TREE: PropKindConfig = {
-  kind: "tree",
-  spacingM: 26,
-  jitterM: 8,
-  lateralMarginM: 2.2,
-  bothSides: true,
-  variants: 3,
-  minScale: 0.85,
-  maxScale: 1.3,
-};
-
-const PROP_STREETLIGHT: PropKindConfig = {
-  kind: "streetlight",
-  spacingM: 38,
-  jitterM: 6,
-  lateralMarginM: 1,
-  bothSides: false,
-  alternateSides: true,
-  variants: 1,
-  faceRoad: true,
-};
-
-const PROP_SIGN: PropKindConfig = {
-  kind: "sign",
-  spacingM: 66,
-  jitterM: 18,
-  lateralMarginM: 1.2,
-  bothSides: false,
-  variants: 2,
-  faceRoad: true,
-};
-
-// The ambient sidewalk crowd: walkers simulated on the pavement rail graph
-// (crowdWalkers) inside a bubble around the player, drawn as GPU-animated thin
-// instances (crowdRenderer). Counts are per map — the whole crowd costs a few
-// meshes regardless, so these are set by how busy each city should feel, not
-// by a draw-call budget. Radii track each map's fog: recycling happens beyond
-// what the player can see. Maps absent here (the orientation yard) have no
-// ambient crowd.
-const AMBIENT_CROWD_CONFIG: Readonly<
-  Record<
-    string,
-    {
-      count: number;
-      innerRadiusM: number;
-      outerRadiusM: number;
-      recycleRadiusM: number;
-    }
-  >
-> = {
-  "nyc-upper-west-side": { count: 96, innerRadiusM: 25, outerRadiusM: 130, recycleRadiusM: 170 },
-  "tokyo-setagaya": { count: 56, innerRadiusM: 18, outerRadiusM: 100, recycleRadiusM: 140 },
-  "london-south-kensington": { count: 64, innerRadiusM: 20, outerRadiusM: 120, recycleRadiusM: 160 },
-  "cairo-central-nile": { count: 88, innerRadiusM: 22, outerRadiusM: 125, recycleRadiusM: 165 },
-};
-
-/** Bubble radii for the scenario road users on maps with no crowd config
- * (today only the orientation yard): they walk the same rails, just fewer. */
-const DEFAULT_ROAD_USER_RADII = {
-  innerRadiusM: 18,
-  outerRadiusM: 110,
-  recycleRadiusM: 150,
-};
-
-/** Clothing tints shared by the crowd and the scenario/yard pedestrians. */
-const CROWD_CLOTHING_COLORS = [
-  { r: 0.82, g: 0.21, b: 0.15 },
-  { r: 0.2, g: 0.35, b: 0.6 },
-  { r: 0.3, g: 0.5, b: 0.35 },
-  { r: 0.7, g: 0.66, b: 0.5 },
-  { r: 0.55, g: 0.3, b: 0.5 },
-];
-
-const CAIRO_CROWD_CLOTHING_COLORS = [
-  { r: 0.12, g: 0.16, b: 0.2 },
-  { r: 0.12, g: 0.34, b: 0.37 },
-  { r: 0.32, g: 0.34, b: 0.19 },
-  { r: 0.76, g: 0.68, b: 0.51 },
-  { r: 0.56, g: 0.25, b: 0.21 },
-  { r: 0.48, g: 0.31, b: 0.43 },
-] as const;
-
-/** Contemporary warm-neutrals and deep colours for Cairo's street crowd. */
-export function crowdClothingPaletteForMap(
-  mapId: string,
-): readonly { readonly r: number; readonly g: number; readonly b: number }[] {
-  return resolveMapVisualKey(mapId) === "cairo"
-    ? CAIRO_CROWD_CLOTHING_COLORS
-    : CROWD_CLOTHING_COLORS;
-}
-
-/** Per-map roadside dressing: shared basics plus locally recognisable extras. */
-function roadsidePropKindsForMap(
-  key: ReturnType<typeof resolveMapVisualKey>,
-): readonly PropKindConfig[] {
-  switch (key) {
-    case "nyc":
-      return [
-        PROP_STREETLIGHT,
-        { ...PROP_TREE, spacingM: 30 },
-        {
-          kind: "hydrant",
-          spacingM: 58,
-          jitterM: 14,
-          lateralMarginM: 0.9,
-          bothSides: false,
-          variants: 1,
-          faceRoad: true,
-        },
-        PROP_SIGN,
-        // Street vendor carts, curbside and alternating sides. The placement is
-        // computed here but the carts are glb instances (routed out of the
-        // procedural-prop loop into pendingVendors), not master boxes.
-        {
-          // Sparser than one-per-frontage: a dumpster/cart every ~130 m curbside,
-          // not outside every building (which read as unrealistic clutter).
-          kind: "vendor",
-          spacingM: 130,
-          jitterM: 24,
-          lateralMarginM: 1.4,
-          bothSides: false,
-          alternateSides: true,
-          variants: Math.max(1, NYC_VENDORS.length),
-          faceRoad: true,
-        },
-      ];
-    case "london":
-      // Street lamps are hand-placed for South Kensington; scattered props
-      // stay clear of them via LONDON_FURNITURE_POINTS.
-      return [{ ...PROP_TREE, spacingM: 30 }, PROP_SIGN];
-    case "tokyo":
-      return [
-        {
-          kind: "utility-pole",
-          spacingM: 32,
-          jitterM: 5,
-          lateralMarginM: 0.9,
-          bothSides: false,
-          alternateSides: true,
-          variants: 1,
-          faceRoad: true,
-        },
-        {
-          kind: "vending",
-          spacingM: 74,
-          jitterM: 20,
-          lateralMarginM: 1,
-          bothSides: false,
-          variants: 2,
-          faceRoad: true,
-        },
-        { ...PROP_TREE, spacingM: 34, minScale: 0.7, maxScale: 1 },
-        PROP_SIGN,
-      ];
-    case "cairo":
-      return [
-        { ...PROP_STREETLIGHT, spacingM: 36, jitterM: 7 },
-        { ...PROP_TREE, spacingM: 54, minScale: 0.8, maxScale: 1.15 },
-        {
-          kind: "palm",
-          spacingM: 68,
-          jitterM: 16,
-          lateralMarginM: 1.2,
-          bothSides: false,
-          alternateSides: true,
-          variants: 2,
-          minScale: 0.85,
-          maxScale: 1.2,
-          faceRoad: true,
-        },
-        {
-          kind: "bollard",
-          spacingM: 42,
-          jitterM: 9,
-          lateralMarginM: 0.8,
-          bothSides: false,
-          variants: 1,
-        },
-        // Nothing parks at the Cairo kerb: the parked cars, microbuses, vendor
-        // carts and scooters that used to are all gone. They were scattered on
-        // road geometry alone, so they landed wherever the band allowed rather
-        // than where a vehicle would plausibly stand — clutter dumped on the
-        // pavement, not a parked street. The box-built ones were also badly
-        // modelled (the scooter's handlebar floated free of its frame). Any
-        // future kerb parking wants real placement, not scatter.
-        { ...PROP_SIGN, spacingM: 78, variants: 2 },
-      ];
-    case "orientation":
-    default:
-      return [{ ...PROP_TREE, spacingM: 24 }];
-  }
-}
 
 function colorFromHex(value: string, fallback: Color3): Color3 {
   const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(value);
@@ -1785,227 +1395,6 @@ const RIVER_CREST_SKY_MIX = 0.44;
  */
 const RIVER_SHORE_BAND_M = 5.5;
 const RIVER_SHORE_TINT = { r: 0.62, g: 0.73, b: 0.68 };
-
-function createBox(
-  scene: Scene,
-  name: string,
-  dimensions: { width: number; height: number; depth: number },
-  position: Vector3,
-  material: StandardMaterial,
-  parent?: TransformNode,
-): Mesh {
-  const mesh = MeshBuilder.CreateBox(name, dimensions, scene);
-  mesh.position.copyFrom(position);
-  mesh.parent = parent ?? null;
-  setMeshMaterial(mesh, material);
-  return mesh;
-}
-
-function createCylinder(
-  scene: Scene,
-  name: string,
-  options: {
-    height: number;
-    diameter?: number;
-    diameterTop?: number;
-    diameterBottom?: number;
-    tessellation?: number;
-  },
-  position: Vector3,
-  material: StandardMaterial,
-  parent?: TransformNode,
-): Mesh {
-  const mesh = MeshBuilder.CreateCylinder(
-    name,
-    { tessellation: 8, ...options },
-    scene,
-  );
-  mesh.position.copyFrom(position);
-  mesh.parent = parent ?? null;
-  setMeshMaterial(mesh, material);
-  return mesh;
-}
-
-function createIcoSphere(
-  scene: Scene,
-  name: string,
-  radius: number,
-  position: Vector3,
-  material: StandardMaterial,
-  parent?: TransformNode,
-): Mesh {
-  const mesh = MeshBuilder.CreateIcoSphere(
-    name,
-    { radius, subdivisions: 1 },
-    scene,
-  );
-  mesh.position.copyFrom(position);
-  mesh.parent = parent ?? null;
-  setMeshMaterial(mesh, material);
-  return mesh;
-}
-
-function facadeFaceUV(width: number, height: number, depth: number): Vector4[] {
-  // Whole window rows/cols sized in real-world metres, so windows stay a
-  // consistent size whether the building is short or a tower (the V/U ranges
-  // land on exact row/column boundaries, so no half-windows at the roofline).
-  const rows = Math.max(2, Math.round(height / FACADE_WIN_H_M));
-  const cols = (span: number) => Math.max(2, Math.round(span / FACADE_WIN_W_M));
-  const v = rows / FACADE_ROWS;
-  const faceUV: Vector4[] = [];
-  for (let i = 0; i < 6; i += 1) faceUV.push(new Vector4(0, 0, 0, 0));
-  faceUV[0] = new Vector4(0, 0, cols(width) / FACADE_COLS, v);
-  faceUV[1] = new Vector4(0, 0, cols(width) / FACADE_COLS, v);
-  faceUV[2] = new Vector4(0, 0, cols(depth) / FACADE_COLS, v);
-  faceUV[3] = new Vector4(0, 0, cols(depth) / FACADE_COLS, v);
-  faceUV[4] = new Vector4(0, 0, 0.02, 0.02);
-  faceUV[5] = new Vector4(0, 0, 0.02, 0.02);
-  return faceUV;
-}
-
-function makeFacadeMaterial(
-  scene: Scene,
-  name: string,
-  wallColor: Color3,
-  emissive: DynamicTexture,
-): StandardMaterial {
-  const material = new StandardMaterial(name, scene);
-  material.diffuseColor = new Color3(1, 1, 1);
-  material.diffuseTexture = makeFacadeDiffuseTexture(scene, `${name}-diffuse`, wallColor);
-  material.emissiveTexture = emissive;
-  material.emissiveColor = new Color3(1, 1, 1);
-  material.specularColor = new Color3(0.05, 0.05, 0.05);
-  return material;
-}
-
-function createFacadeBox(
-  scene: Scene,
-  name: string,
-  dimensions: { width: number; height: number; depth: number },
-  position: Vector3,
-  material: StandardMaterial,
-): Mesh {
-  const mesh = MeshBuilder.CreateBox(
-    name,
-    {
-      ...dimensions,
-      faceUV: facadeFaceUV(dimensions.width, dimensions.height, dimensions.depth),
-      wrap: true,
-    },
-    scene,
-  );
-  mesh.position.copyFrom(position);
-  // Every caller passes height/2; the lift keeps the base plate off the ground
-  // plane and clear of the pavement band (BUILDING_BASE_CLEARANCE_M). Applied
-  // here rather than at the four call sites so a fifth cannot reintroduce a
-  // coplanar plate.
-  mesh.position.y += BUILDING_GROUND_LIFT;
-  setMeshMaterial(mesh, material);
-  return mesh;
-}
-
-/**
- * A flat panel with a chamfered outline, facing -Z, with planar UVs.
- *
- * Neither existing primitive can carry a mirror image on a shape with cut
- * corners: `MeshBuilder.CreatePlane` only makes rectangles, and
- * `createExtrudedPrism` wraps its UVs around the section rather than across the
- * face, so a texture on it comes out smeared. This fans a convex outline from
- * its centre and takes UVs straight off the vertex positions, so the reflection
- * sits square on the glass whatever the outline is.
- */
-function createChamferedPanel(
-  scene: Scene,
-  name: string,
-  outline: readonly Readonly<{ x: number; y: number }>[],
-  width: number,
-  height: number,
-  material: StandardMaterial,
-  parent?: TransformNode,
-): Mesh {
-  const positions: number[] = [0, 0, 0];
-  const uvs: number[] = [0.5, 0.5];
-  for (const point of outline) {
-    positions.push((point.x * width) / 2, (point.y * height) / 2, 0);
-    uvs.push(point.x / 2 + 0.5, point.y / 2 + 0.5);
-  }
-  const indices: number[] = [];
-  for (let index = 0; index < outline.length; index += 1) {
-    const next = ((index + 1) % outline.length) + 1;
-    indices.push(0, next, index + 1);
-  }
-  const normals: number[] = [];
-  VertexData.ComputeNormals(positions, indices, normals);
-  const mesh = new Mesh(name, scene);
-  const vertexData = new VertexData();
-  vertexData.positions = positions;
-  vertexData.indices = indices;
-  vertexData.normals = normals;
-  vertexData.uvs = uvs;
-  vertexData.applyToMesh(mesh);
-  mesh.parent = parent ?? null;
-  setMeshMaterial(mesh, material);
-  return mesh;
-}
-
-function createExtrudedPrism(
-  scene: Scene,
-  name: string,
-  width: number,
-  crossSection: readonly Readonly<{ y: number; z: number }>[],
-  material: StandardMaterial,
-  parent?: TransformNode,
-): Mesh {
-  const positions: number[] = [];
-  const indices: number[] = [];
-  const halfWidth = width / 2;
-  const pointCount = crossSection.length;
-
-  for (const x of [-halfWidth, halfWidth]) {
-    for (const point of crossSection) {
-      positions.push(x, point.y, point.z);
-    }
-  }
-
-  for (let index = 0; index < pointCount; index += 1) {
-    const next = (index + 1) % pointCount;
-    const left = index;
-    const leftNext = next;
-    const right = pointCount + index;
-    const rightNext = pointCount + next;
-    indices.push(left, right, rightNext, left, rightNext, leftNext);
-  }
-  for (let index = 1; index < pointCount - 1; index += 1) {
-    indices.push(0, index, index + 1);
-    indices.push(pointCount, pointCount + index + 1, pointCount + index);
-  }
-
-  // A planar unwrap round the section. Nothing built from a prism is textured
-  // today, but Babylon refuses to merge meshes whose attribute sets differ, and
-  // every MeshBuilder primitive carries UVs — so a prism without them cannot be
-  // merged with a box, which is exactly what the cockpit does.
-  const uvs: number[] = [];
-  const lastPoint = Math.max(1, pointCount - 1);
-  for (const v of [0, 1]) {
-    for (let index = 0; index < pointCount; index += 1) {
-      uvs.push(index / lastPoint, v);
-    }
-  }
-
-  const normals: number[] = [];
-  VertexData.ComputeNormals(positions, indices, normals);
-  const mesh = new Mesh(name, scene);
-  const vertexData = new VertexData();
-  vertexData.positions = positions;
-  vertexData.indices = indices;
-  vertexData.normals = normals;
-  vertexData.uvs = uvs;
-  vertexData.applyToMesh(mesh);
-  mesh.convertToFlatShadedMesh();
-  mesh.parent = parent ?? null;
-  setMeshMaterial(mesh, material);
-  return mesh;
-}
 
 const LOADING_MODELS_LABEL = "Loading models…";
 const FINISHING_TOUCHES_LABEL = "Finishing touches…";

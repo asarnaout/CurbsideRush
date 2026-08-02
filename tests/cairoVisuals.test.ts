@@ -13,8 +13,8 @@ import {
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
 import { resolveVenuePlacement } from "../app/game/simulationAdapter";
-import { crowdClothingPaletteForMap } from "../app/game/GameCanvas";
 import { PARK_BED_Y, PARK_LAWN_Y, PARK_PATH_Y } from "../app/game/render/renderConstants";
+import { crowdClothingPaletteForMap } from "../app/game/render/propCatalog";
 import {
   CAIRO_DIRECTION_PANEL_DESIGN_V,
   cairoDirectionPanelFaceUv,
