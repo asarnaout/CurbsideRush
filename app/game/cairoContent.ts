@@ -1,5 +1,6 @@
 import { buildLaneTrueGeometry, CONNECTOR_BLEND_RUN_M } from "./laneConnectors";
 import { buildingSetDepthM, isBuildingSetId } from "./buildingSets";
+import { ROAD_DIVIDED_PARK_IDS } from "./parkLayouts";
 import { hashStringToSeed } from "./visuals";
 import type {
   FreeDriveDefinition,
@@ -1125,6 +1126,32 @@ const orientedParcelsOverlap = (
   );
 };
 
+/**
+ * Closest point of an oriented parcel to `target`, by clamping in the parcel's
+ * own frame. Used to decide which side of a road an exclusion's body lies on —
+ * centres are useless for that once the shape is long (the scenic deck's
+ * centre sits 200+ m from most of the roads it crosses).
+ */
+const nearestPointOnOrientedParcel = (
+  parcel: OrientedParcel,
+  target: WorldPoint,
+): WorldPoint => {
+  const dx = target.x - parcel.center.x;
+  const dz = target.z - parcel.center.z;
+  const u = Math.max(
+    -parcel.halfU,
+    Math.min(parcel.halfU, dx * parcel.axisU.x + dz * parcel.axisU.z),
+  );
+  const v = Math.max(
+    -parcel.halfV,
+    Math.min(parcel.halfV, dx * parcel.axisV.x + dz * parcel.axisV.z),
+  );
+  return point(
+    parcel.center.x + parcel.axisU.x * u + parcel.axisV.x * v,
+    parcel.center.z + parcel.axisU.z * u + parcel.axisV.z * v,
+  );
+};
+
 const sixthOctoberCorridor = orientedParcel(
   CAIRO_SIXTH_OCTOBER_SCENIC_BRIDGE.center,
   point(
@@ -1751,15 +1778,97 @@ const roadsideExclusionParcel = (
     headingDeg,
   );
 
-const cairoRoadsideExclusions: readonly OrientedParcel[] = [
-  ...cairoLandmarks.map((landmark) =>
-    roadsideExclusionParcel(
-      landmark.center,
-      landmark.size,
-      landmark.headingDeg === undefined ? 0 : landmark.headingDeg - 90,
-      landmark.kind === "park" ? 18 : landmark.kind === "bridge" ? 4 : 12,
-    ),
-  ),
+/**
+ * A roadside parcel keeps clear of authored content — but only content that
+ * shares its side of the street. The inflated margins below are breathing room
+ * for a frontage approaching a landmark, not a moat around it: when the
+ * exclusion's body sits across the carriageway, the road itself is the
+ * separation and the margin vetoes nothing. Before the side rule, the opera
+ * park's 18 m envelope reached over Montazah Al Gezira Street and erased the
+ * OPPOSITE kerb for ~175 m, and every venue blanked ~40 m of the far side of
+ * its own street — the driver faced bare ground exactly where a wall of
+ * buildings should have faced the park. `raw` is the physical footprint
+ * (landmark rect, service forecourt, venue lot); touching it refuses the
+ * parcel regardless of side.
+ */
+interface RoadsideExclusion {
+  readonly raw: OrientedParcel;
+  readonly inflated: OrientedParcel;
+}
+
+/**
+ * A road-divided park's rect straddles its street, but everything the park
+ * renders — lawn, walls, planting — is clipped to the side its centre is on
+ * (`roadSideParkLawnPolygon`). The rect strip on the far side is bare
+ * carved-off ground, and across the street from a park is exactly where a city
+ * builds, so the exclusion must not claim it. Shrink the rect at each crossing
+ * segment to the centre's side; the same-side inflated margin still guards the
+ * approximation's lost wedge.
+ */
+const dividedParkExclusionRect = (
+  landmark: ProceduralLandmark,
+): { readonly center: WorldPoint; readonly size: WorldPoint } => {
+  let minX = landmark.center.x - landmark.size.x / 2;
+  let maxX = landmark.center.x + landmark.size.x / 2;
+  let minZ = landmark.center.z - landmark.size.z / 2;
+  let maxZ = landmark.center.z + landmark.size.z / 2;
+  for (const surface of cairoRoadSurfaces) {
+    for (let index = 1; index < surface.centerline.length; index += 1) {
+      const from = surface.centerline[index - 1];
+      const to = surface.centerline[index];
+      const length = Math.hypot(to.x - from.x, to.z - from.z);
+      if (length < 1e-6) continue;
+      const inside: WorldPoint[] = [];
+      const steps = Math.max(2, Math.ceil(length / 4));
+      for (let step = 0; step <= steps; step += 1) {
+        const x = from.x + ((to.x - from.x) * step) / steps;
+        const z = from.z + ((to.z - from.z) * step) / steps;
+        if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
+          inside.push(point(x, z));
+        }
+      }
+      if (inside.length < 2) continue;
+      const xs = inside.map((sample) => sample.x);
+      const zs = inside.map((sample) => sample.z);
+      const spanX = Math.max(...xs) - Math.min(...xs);
+      const spanZ = Math.max(...zs) - Math.min(...zs);
+      if (spanZ >= spanX) {
+        if (landmark.center.x <= Math.min(...xs)) {
+          maxX = Math.min(maxX, Math.min(...xs));
+        } else if (landmark.center.x >= Math.max(...xs)) {
+          minX = Math.max(minX, Math.max(...xs));
+        }
+      } else if (landmark.center.z <= Math.min(...zs)) {
+        maxZ = Math.min(maxZ, Math.min(...zs));
+      } else if (landmark.center.z >= Math.max(...zs)) {
+        minZ = Math.max(minZ, Math.max(...zs));
+      }
+    }
+  }
+  return {
+    center: point((minX + maxX) / 2, (minZ + maxZ) / 2),
+    size: point(Math.max(0, maxX - minX), Math.max(0, maxZ - minZ)),
+  };
+};
+
+const cairoRoadsideExclusions: readonly RoadsideExclusion[] = [
+  ...cairoLandmarks.map((landmark) => {
+    const heading =
+      landmark.headingDeg === undefined ? 0 : landmark.headingDeg - 90;
+    const rect =
+      landmark.kind === "park" && ROAD_DIVIDED_PARK_IDS.has(landmark.id)
+        ? dividedParkExclusionRect(landmark)
+        : { center: landmark.center, size: landmark.size };
+    return {
+      raw: roadsideExclusionParcel(rect.center, rect.size, heading, 0),
+      inflated: roadsideExclusionParcel(
+        rect.center,
+        rect.size,
+        heading,
+        landmark.kind === "park" ? 18 : landmark.kind === "bridge" ? 4 : 12,
+      ),
+    };
+  }),
   ...cairoServicePoints.flatMap((service) => {
     const lane = cairoLaneById.get(service.anchor.laneId);
     if (!lane) return [];
@@ -1770,10 +1879,16 @@ const cairoRoadsideExclusions: readonly OrientedParcel[] = [
       pose.position.x + Math.cos(heading) * setback,
       pose.position.z - Math.sin(heading) * setback,
     );
+    const lotSpan = Math.max(service.footprint.x, service.footprint.z) + 8;
     const span =
       Math.max(service.footprint.x, service.footprint.z) +
       (service.kind === "gas_station" ? 42 : 28);
-    return [roadsideExclusionParcel(center, point(span, span))];
+    return [
+      {
+        raw: roadsideExclusionParcel(center, point(lotSpan, lotSpan)),
+        inflated: roadsideExclusionParcel(center, point(span, span)),
+      },
+    ];
   }),
   ...cairoGigVenues.flatMap((venue) => {
     const lane = cairoLaneById.get(venue.anchor.laneId);
@@ -1785,12 +1900,31 @@ const cairoRoadsideExclusions: readonly OrientedParcel[] = [
       pose.position.x + Math.cos(heading) * setback,
       pose.position.z - Math.sin(heading) * setback,
     );
+    const lotSpan = Math.max(venue.footprint.x, venue.footprint.z) + 4;
     const span = Math.max(venue.footprint.x, venue.footprint.z) + 30;
-    return [roadsideExclusionParcel(center, point(span, span))];
+    return [
+      {
+        raw: roadsideExclusionParcel(center, point(lotSpan, lotSpan)),
+        inflated: roadsideExclusionParcel(center, point(span, span)),
+      },
+    ];
   }),
 ];
 
-const addCairoRoadsideBlock = (candidate: ProceduralBlock): boolean => {
+/** Which side of its road a candidate parcel fronts: a point on the road's
+ * centreline at the parcel's own station, and the unit normal toward the
+ * parcel. Lets the exclusion check ignore margins whose body is across the
+ * carriageway. */
+interface RoadsideSideContext {
+  readonly origin: WorldPoint;
+  readonly outX: number;
+  readonly outZ: number;
+}
+
+const addCairoRoadsideBlock = (
+  candidate: ProceduralBlock,
+  sideContext?: RoadsideSideContext,
+): boolean => {
   const parcel = orientedParcel(
     candidate.center,
     candidate.size,
@@ -1814,9 +1948,24 @@ const addCairoRoadsideBlock = (candidate: ProceduralBlock): boolean => {
     return false;
   }
   if (
-    cairoRoadsideExclusions.some((exclusion) =>
-      orientedParcelsOverlap(parcel, exclusion),
-    )
+    cairoRoadsideExclusions.some((exclusion) => {
+      if (!orientedParcelsOverlap(parcel, exclusion.inflated)) return false;
+      if (orientedParcelsOverlap(parcel, exclusion.raw)) return true;
+      if (!sideContext) return true;
+      // Margin-only contact: honour it only when the exclusion's body reaches
+      // meaningfully past the centreline toward this parcel. A body across the
+      // road — or grazing the carriageway itself — is separated by the road;
+      // the raw-overlap check above still refuses genuine contact.
+      const nearest = nearestPointOnOrientedParcel(
+        exclusion.raw,
+        candidate.center,
+      );
+      return (
+        (nearest.x - sideContext.origin.x) * sideContext.outX +
+          (nearest.z - sideContext.origin.z) * sideContext.outZ >
+        1.5
+      );
+    })
   ) {
     return false;
   }
@@ -2169,7 +2318,20 @@ for (const surface of cairoRoadSurfaces) {
           alongOffsetM: number,
           lengthM: number,
         ): boolean => {
-          if (addCairoRoadsideBlock(pieceFor(pieceId, alongOffsetM, lengthM))) {
+          const sideContext: RoadsideSideContext = {
+            origin: point(
+              roadPosition.x + alongX * alongOffsetM,
+              roadPosition.z + alongZ * alongOffsetM,
+            ),
+            outX: normalX * side,
+            outZ: normalZ * side,
+          };
+          if (
+            addCairoRoadsideBlock(
+              pieceFor(pieceId, alongOffsetM, lengthM),
+              sideContext,
+            )
+          ) {
             return true;
           }
           const halfLengthM = (lengthM - splitGapM) / 2;

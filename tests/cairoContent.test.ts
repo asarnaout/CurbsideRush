@@ -50,14 +50,14 @@ import type {
  * majority of roadside parcels — if a guard change flips that balance, that is
  * a decision for a person, not a constant to re-pin in passing.
  */
-const BLOCK_COUNT = 504;
-const ROADSIDE_COUNT = 480;
-const ROADSIDE_LEFT = 242;
+const BLOCK_COUNT = 509;
+const ROADSIDE_COUNT = 485;
+const ROADSIDE_LEFT = 245;
 /** The second rank is gone — a one-sided kit means a back row can only stare
  * at the front row's service wall or plant its own on the next street over.
  * Zero, pinned, so it cannot quietly come back. */
 const ROADSIDE_RANKS = 0;
-const STREET_WALL_BLOCKS = 355;
+const STREET_WALL_BLOCKS = 360;
 const FACADE_BOX_CELLS = 1320;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
