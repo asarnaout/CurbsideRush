@@ -144,6 +144,12 @@ import { createSkyAndHorizon, createSunShadows } from "./render/skyAndShadows";
 import { buildCairoLandmark } from "./render/cairoLandmarks";
 import { buildRoadsideProps } from "./render/roadsideProps";
 import {
+  buildRepairShop,
+  collectBuildingExclusions,
+  instantiateProp,
+  placeProp,
+} from "./render/venueProps";
+import {
   crosswalkStripeLayout,
   EGYPT_SIGNAL_BORDER_BARS,
   LANE_PAINT_STYLES,
@@ -168,7 +174,6 @@ import {
   type WaterBoatPlacement,
 } from "./geometry/waterGeometry";
 import {
-  buildingKeepOuts,
   cairoFrontageFootprintsOverlap,
   cairoFrontagePosition,
   deterministicSceneryKeep,
@@ -214,11 +219,7 @@ import {
   resolveServicePointLot,
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
-import {
-  REPAIR_BAY_REACH_M,
-  REPAIR_SHOP_PARTS,
-  type RepairShopSurface,
-} from "./repairShopLayout";
+import { REPAIR_BAY_REACH_M } from "./repairShopLayout";
 import { DRIVE_LAYER } from "./driveLayers";
 import { INPUT_GUIDANCE } from "./inputGuidance";
 import {
@@ -376,11 +377,8 @@ import {
   disposeModels,
   instantiateModel,
   instantiateModelInstanced,
-  isModelReady,
   modelMaterials,
-  PROP_MODEL_REGISTRY,
   preloadModels,
-  type PropModelConfig,
   propModelUrls,
   vehicleModelUrls,
 } from "./modelLibrary";
@@ -4368,467 +4366,6 @@ class BabylonGameSession {
     return false;
   }
 
-  /**
-   * Places the low-poly building glb registered under `modelKey` at (x, z),
-   * facing the road via the lane `heading` + the model's yaw offset. Returns
-   * false when the key has no registered model or its glb has not preloaded,
-   * signalling the caller to keep its procedural box.
-   *
-   * `modelKey` is usually the venue/service kind, but a venue may name a
-   * variant instead so two restaurants on one map are different buildings. The
-   * per-model quirks (a base slab to strip, where a name board sits) live on
-   * the registry config rather than being switched on here — otherwise every
-   * new variant silently inherits surgery meant for a different glb.
-   */
-  private instantiateProp(
-    modelKey: string,
-    x: number,
-    z: number,
-    heading: number,
-    label?: string,
-  ): boolean {
-    const config = PROP_MODEL_REGISTRY[modelKey];
-    if (!config || !isModelReady(this.scene, config.url)) return false;
-    const instance = instantiateModel(this.scene, config.url);
-    const root = instance?.rootNodes[0] as TransformNode | undefined;
-    if (!instance || !root) return false;
-    const holder = new TransformNode(
-      `prop-${modelKey}-${Math.round(x)}-${Math.round(z)}`,
-      this.scene,
-    );
-    holder.position.set(x, config.groundY ?? 0, z);
-    holder.rotation.y = heading + config.yawOffset;
-    root.parent = holder;
-    root.scaling.set(
-      config.mirrorX ? -config.scale : config.scale,
-      config.scale,
-      config.scale,
-    );
-    if (config.stripMeshPattern) {
-      // Drop a diorama base slab so the building sits on the ground like a
-      // normal storefront rather than on a plinth.
-      const pattern = new RegExp(config.stripMeshPattern);
-      for (const mesh of root.getChildMeshes()) {
-        if (pattern.test(mesh.name)) mesh.dispose();
-      }
-    }
-    if (label && config.signBoard) {
-      // The model's sign surface is known exactly (declared in native units),
-      // so letter the venue name straight onto it.
-      this.addBoardSign(holder, root, label, config.signBoard);
-    } else if (label && config.roofSignMinY !== undefined) {
-      // These models bake mirrored lettering; overlay a legible name on the
-      // board so it reads as the venue rather than as gibberish.
-      this.addRoofSign(holder, root, label, config.roofSignMinY);
-    }
-    return true;
-  }
-
-  /**
-   * Letters the venue name onto a model's own sign surface, declared as a
-   * native-units box in the registry (see PropModelConfig.signBoard). The box
-   * corners are pushed through the imported root's transform into holder space
-   * — which absorbs the loader's handedness flip and the registry scale — and
-   * one text plane is laid a few cm proud of the face that corresponds to the
-   * box's native +Z-max side (the face the model's own signage occupies; its
-   * reverse is typically unpainted). The lettering is drawn on a transparent
-   * texture, so what renders is red lettering sitting on the model's own board
-   * rather than a pasted-on billboard.
-   */
-  private addBoardSign(
-    holder: TransformNode,
-    root: TransformNode,
-    label: string,
-    board: NonNullable<PropModelConfig["signBoard"]>,
-  ): void {
-    holder.computeWorldMatrix(true);
-    root.computeWorldMatrix(true);
-    const toHolder = Matrix.Invert(holder.getWorldMatrix());
-    const toWorld = root.getWorldMatrix();
-    const inHolder = (x: number, y: number, z: number) =>
-      Vector3.TransformCoordinates(
-        Vector3.TransformCoordinates(new Vector3(x, y, z), toWorld),
-        toHolder,
-      );
-    const min = new Vector3(Infinity, Infinity, Infinity);
-    const max = new Vector3(-Infinity, -Infinity, -Infinity);
-    for (const corner of [0, 1, 2, 3, 4, 5, 6, 7]) {
-      const local = inHolder(
-        corner & 1 ? board.max[0] : board.min[0],
-        corner & 2 ? board.max[1] : board.min[1],
-        corner & 4 ? board.max[2] : board.min[2],
-      );
-      min.minimizeInPlace(local);
-      max.maximizeInPlace(local);
-    }
-    // Which holder-space side of the box the native front (+Z-max) face landed
-    // on — the imports rotate by multiples of 90°, so it maps to a box face.
-    const front = inHolder(
-      (board.min[0] + board.max[0]) / 2,
-      (board.min[1] + board.max[1]) / 2,
-      board.max[2],
-    );
-
-    const spanX = max.x - min.x;
-    const spanZ = max.z - min.z;
-    const alongX = spanX >= spanZ;
-    const width = alongX ? spanX : spanZ;
-    const height = max.y - min.y;
-    const centre = min.add(max).scale(0.5);
-    const side = alongX
-      ? Math.sign(front.z - centre.z)
-      : Math.sign(front.x - centre.x);
-
-    const textureHeight =
-      Math.max(64, Math.round((1024 * height) / width / 2)) * 2;
-    const texture = new DynamicTexture(
-      `${holder.name}-board-texture`,
-      { width: 1024, height: textureHeight },
-      this.scene,
-      true,
-    );
-    texture.hasAlpha = true;
-    const context = texture.getContext();
-    const text = label.toUpperCase();
-    let fontSize = Math.round(textureHeight * 0.62);
-    context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
-    while (fontSize > 40 && context.measureText(text).width > 1024 * 0.9) {
-      fontSize -= 10;
-      context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
-    }
-    // null clear colour: the canvas stays transparent outside the glyphs.
-    texture.drawText(
-      text,
-      null,
-      null,
-      `bold ${fontSize}px Figtree, Arial, sans-serif`,
-      "#a63527",
-      null,
-      true,
-    );
-    texture.update();
-
-    const material = new StandardMaterial(
-      `${holder.name}-board-material`,
-      this.scene,
-    );
-    material.diffuseTexture = texture;
-    material.useAlphaFromDiffuseTexture = true;
-    // Emissive from the same texture so the lettering reads on the night maps
-    // (bloom picks it up like the rest of the signage).
-    material.emissiveTexture = texture;
-    material.specularColor = Color3.Black();
-
-    const faceOffset = (alongX ? spanZ : spanX) / 2 + 0.05;
-    const plane = MeshBuilder.CreatePlane(
-      `${holder.name}-board-sign`,
-      { width, height },
-      this.scene,
-    );
-    plane.parent = holder;
-    // Babylon planes face -z natively, so the +side face needs the π flip.
-    if (alongX) {
-      plane.position.set(centre.x, centre.y, centre.z + faceOffset * side);
-      plane.rotation.y = side === 1 ? Math.PI : 0;
-    } else {
-      plane.position.set(centre.x + faceOffset * side, centre.y, centre.z);
-      plane.rotation.y = side === 1 ? -Math.PI / 2 : Math.PI / 2;
-    }
-    plane.material = material;
-  }
-
-  /**
-   * Overlays a legible name on a model's roof board — used where the glb has a
-   * free-standing board the venue name can cover whole (the gas station's
-   * billboard). The board is found geometrically (the largest elevated thin
-   * plate above `minCentreY`, in holder space so the search works at any yaw),
-   * then a text plane is laid over each of its two big faces. Models whose sign
-   * surface is merged into a larger primitive — invisible to this search —
-   * declare it as `signBoard` instead (the diner, see addBoardSign).
-   */
-  private addRoofSign(
-    holder: TransformNode,
-    root: TransformNode,
-    label: string,
-    minCentreY: number,
-  ): void {
-    holder.computeWorldMatrix(true);
-    const toHolder = Matrix.Invert(holder.getWorldMatrix());
-    let board: { area: number; min: Vector3; max: Vector3 } | null = null;
-    for (const mesh of root.getChildMeshes()) {
-      mesh.computeWorldMatrix(true);
-      const corners = mesh.getBoundingInfo().boundingBox.vectorsWorld;
-      const min = new Vector3(Infinity, Infinity, Infinity);
-      const max = new Vector3(-Infinity, -Infinity, -Infinity);
-      for (const corner of corners) {
-        const local = Vector3.TransformCoordinates(corner, toHolder);
-        min.minimizeInPlace(local);
-        max.maximizeInPlace(local);
-      }
-      const spanX = max.x - min.x;
-      const spanY = max.y - min.y;
-      const spanZ = max.z - min.z;
-      const thin = Math.min(spanX, spanZ);
-      const wide = Math.max(spanX, spanZ);
-      const centreY = (min.y + max.y) / 2;
-      if (centreY > minCentreY && spanY > 1.2 && thin < 2.2 && wide > 3) {
-        const area = wide * spanY;
-        if (!board || area > board.area) board = { area, min, max };
-      }
-    }
-    if (!board) return;
-
-    const texture = new DynamicTexture(
-      `${holder.name}-sign-texture`,
-      { width: 1024, height: 384 },
-      this.scene,
-      true,
-    );
-    const context = texture.getContext();
-    const text = label.toUpperCase();
-    let fontSize = 170;
-    context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
-    while (fontSize > 40 && context.measureText(text).width > 1024 * 0.84) {
-      fontSize -= 10;
-      context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
-    }
-    texture.drawText(
-      text,
-      null,
-      null,
-      `bold ${fontSize}px Figtree, Arial, sans-serif`,
-      "#a63527",
-      "#ece7da",
-      true,
-    );
-    context.strokeStyle = "#a63527";
-    context.lineWidth = 14;
-    context.strokeRect(20, 20, 1024 - 40, 384 - 40);
-    texture.update();
-
-    const material = new StandardMaterial(
-      `${holder.name}-sign-material`,
-      this.scene,
-    );
-    material.diffuseTexture = texture;
-    material.emissiveColor = new Color3(0.55, 0.55, 0.55);
-    material.specularColor = Color3.Black();
-    // Each face gets its own plane sitting proud of the opaque board, so
-    // rendering both sides costs nothing and sidesteps winding-order surprises.
-    material.backFaceCulling = false;
-
-    const spanX = board.max.x - board.min.x;
-    const spanZ = board.max.z - board.min.z;
-    const alongX = spanX >= spanZ;
-    const width = (alongX ? spanX : spanZ) * 0.94;
-    const height = (board.max.y - board.min.y) * 0.86;
-    const centre = board.min.add(board.max).scale(0.5);
-    const faceOffset = (alongX ? spanZ : spanX) / 2 + 0.05;
-    for (const side of [1, -1]) {
-      const plane = MeshBuilder.CreatePlane(
-        `${holder.name}-sign-${side}`,
-        { width, height },
-        this.scene,
-      );
-      plane.parent = holder;
-      // Babylon planes face -z natively, so the +side face needs the π flip.
-      if (alongX) {
-        plane.position.set(centre.x, centre.y, centre.z + faceOffset * side);
-        plane.rotation.y = side === 1 ? Math.PI : 0;
-      } else {
-        plane.position.set(centre.x + faceOffset * side, centre.y, centre.z);
-        plane.rotation.y = side === 1 ? -Math.PI / 2 : Math.PI / 2;
-      }
-      plane.material = material;
-    }
-  }
-
-  /**
-   * Places a venue/station: the imported model when its glb has preloaded, else
-   * the caller's procedural fallback (built under a holder node) recorded so
-   * upgradePropsToModels can swap it for the model once preload finishes. The
-   * environment is built during construction — before the async model preload —
-   * so at first pass the model is never ready and every prop starts procedural.
-   */
-  private placeProp(
-    kind: string,
-    x: number,
-    z: number,
-    heading: number,
-    id: string,
-    buildFallback: (parent: TransformNode) => void,
-    label?: string,
-  ) {
-    if (this.instantiateProp(kind, x, z, heading, label)) return;
-    const fallback = new TransformNode(`prop-fallback-${id}`, this.scene);
-    buildFallback(fallback);
-    this.deferredProps.push({ kind, x, z, heading, fallback, label });
-  }
-
-  /**
-   * The circles the street wall must not build inside: every service point's
-   * lot and every gig venue's plot.
-   *
-   * Collected up front rather than as each is placed, because the procedural
-   * facade grid runs inline while the instanced glb wall is deferred until
-   * after preload — so a keep-out added during placement arrives in time for
-   * one path and far too late for the other. That asymmetry stood a terrace
-   * straight through London's and Tokyo's repair shops, and it was only ever
-   * latent for the gas stations because every one of them happens to sit on
-   * ground no block covers.
-   */
-  private collectBuildingExclusions(mapPack: GameCanvasMapPack) {
-    this.buildingExclusions.push(...buildingKeepOuts(mapPack));
-  }
-
-  /**
-   * Builds a repair shop out of `REPAIR_SHOP_PARTS`.
-   *
-   * The one service building with no glb behind it (see `repairShopLayout.ts`
-   * for why), so it is assembled here from the same constants the collider
-   * builder reads — which is what makes the wall you can see and the wall that
-   * stops you the same wall.
-   *
-   * The holder is rotated by the lane **heading**, not by the lot's yaw: the
-   * parts are authored in the frame `propFootprints.ts` documents, which already
-   * has the service yaw offset baked in. Rotating by the full yaw would turn the
-   * building a further quarter-turn out of its own colliders.
-   */
-  private buildRepairShop(
-    id: string,
-    lot: { x: number; z: number },
-    heading: number,
-    label: string,
-  ) {
-    const scene = this.scene;
-    const holder = new TransformNode(`repair-shop-${id}`, scene);
-    holder.position.set(lot.x, 0, lot.z);
-    holder.rotation.y = heading;
-
-    // A workshop reads as a workshop mostly by being lit inside while the street
-    // is not, so the bay surfaces carry their own emissive rather than relying on
-    // a lamp that the night city's fog would swallow anyway.
-    const materials: Record<RepairShopSurface, StandardMaterial> = {
-      shell: makeMaterial(scene, `${id}-shell`, new Color3(0.34, 0.36, 0.4)),
-      trim: makeMaterial(
-        scene,
-        `${id}-trim`,
-        new Color3(0.82, 0.36, 0.16),
-        new Color3(0.24, 0.1, 0.03),
-      ),
-      floor: makeMaterial(
-        scene,
-        `${id}-floor`,
-        new Color3(0.27, 0.28, 0.3),
-        new Color3(0.16, 0.14, 0.1),
-      ),
-      apron: makeMaterial(scene, `${id}-apron`, new Color3(0.3, 0.31, 0.33)),
-      door: makeMaterial(scene, `${id}-door`, new Color3(0.24, 0.26, 0.29)),
-      glass: makeMaterial(
-        scene,
-        `${id}-glass`,
-        new Color3(0.5, 0.6, 0.66),
-        new Color3(0.3, 0.34, 0.28),
-      ),
-      shutter: makeMaterial(scene, `${id}-shutter`, new Color3(0.55, 0.57, 0.6)),
-    };
-
-    for (const part of REPAIR_SHOP_PARTS) {
-      createBox(
-        scene,
-        `${id}-${part.id}`,
-        {
-          width: part.maxX - part.minX,
-          height: part.maxY - part.minY,
-          depth: part.maxZ - part.minZ,
-        },
-        new Vector3(
-          (part.minX + part.maxX) / 2,
-          (part.minY + part.maxY) / 2,
-          (part.minZ + part.maxZ) / 2,
-        ),
-        materials[part.surface],
-        holder,
-      );
-    }
-
-    this.addRepairShopSign(holder, id, label);
-  }
-
-  /**
-   * Letters the shop's name across its fascia.
-   *
-   * Deliberately not `addRoofSign`'s geometric board search: that hunts for the
-   * largest thin elevated plate, which on a bare shell can just as easily latch
-   * onto the roof and render a name plane the size of a wall. Here the fascia is
-   * a known part, so the sign is placed off the same box that draws it.
-   */
-  private addRepairShopSign(
-    holder: TransformNode,
-    id: string,
-    label: string,
-  ): void {
-    const fascia = REPAIR_SHOP_PARTS.find((part) => part.id === "fascia");
-    if (!fascia) return;
-    // Inset so the lettering sits on the band rather than running into the
-    // corners of the building.
-    const width = (fascia.maxZ - fascia.minZ) * 0.86;
-    const height = (fascia.maxY - fascia.minY) * 0.62;
-
-    const textureHeight =
-      Math.max(64, Math.round((1024 * height) / width / 2)) * 2;
-    const texture = new DynamicTexture(
-      `${id}-fascia-texture`,
-      { width: 1024, height: textureHeight },
-      this.scene,
-      true,
-    );
-    texture.hasAlpha = true;
-    const context = texture.getContext();
-    const text = label.toUpperCase();
-    let fontSize = Math.round(textureHeight * 0.72);
-    context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
-    while (fontSize > 40 && context.measureText(text).width > 1024 * 0.92) {
-      fontSize -= 10;
-      context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
-    }
-    // null clear colour: the canvas stays transparent outside the glyphs.
-    texture.drawText(
-      text,
-      null,
-      null,
-      `bold ${fontSize}px Figtree, Arial, sans-serif`,
-      "#f6f1e4",
-      null,
-      true,
-    );
-    texture.update();
-
-    const material = new StandardMaterial(`${id}-fascia-material`, this.scene);
-    material.diffuseTexture = texture;
-    material.useAlphaFromDiffuseTexture = true;
-    // Emissive from the same texture so the name reads on the night maps, the
-    // way every other bit of signage in the city does.
-    material.emissiveTexture = texture;
-    material.specularColor = Color3.Black();
-
-    const plane = MeshBuilder.CreatePlane(
-      `${id}-fascia-sign`,
-      { width, height },
-      this.scene,
-    );
-    plane.parent = holder;
-    plane.position.set(
-      fascia.minX - 0.03,
-      (fascia.minY + fascia.maxY) / 2,
-      (fascia.minZ + fascia.maxZ) / 2,
-    );
-    // A Babylon plane faces -z natively; a quarter turn about Y points it down
-    // -x, which is the side the road is on in this frame.
-    plane.rotation.y = Math.PI / 2;
-    plane.material = material;
-  }
-
   /** Once the prop glbs preload, replace each procedural venue/station box with
    * its imported model, disposing the fallback. Kinds whose glb never loaded stay
    * procedural. Mirrors upgradeRoadUsersToModels for the environment props. */
@@ -4836,7 +4373,14 @@ class BabylonGameSession {
     const stillProcedural: typeof this.deferredProps = [];
     for (const prop of this.deferredProps) {
       if (
-        this.instantiateProp(prop.kind, prop.x, prop.z, prop.heading, prop.label)
+        instantiateProp(
+          { scene: this.scene },
+          prop.kind,
+          prop.x,
+          prop.z,
+          prop.heading,
+          prop.label,
+        )
       ) {
         prop.fallback.dispose(false, false);
       } else {
@@ -6857,7 +6401,10 @@ class BabylonGameSession {
     // because it is deferred until after preload; the procedural facade grid
     // below runs inline, so a keep-out pushed later in this method would arrive
     // after the boxes it was meant to exclude were already standing.
-    this.collectBuildingExclusions(mapPack);
+    collectBuildingExclusions(
+      { scene, deferredProps: this.deferredProps, buildingExclusions: this.buildingExclusions },
+      mapPack,
+    );
 
     const placeFacadeGrid = (
       block: GameCanvasMapPack["geometry"]["blocks"][number],
@@ -7224,48 +6771,61 @@ class BabylonGameSession {
         // No glb to wait on, so this is built outright rather than going through
         // placeProp — a deferred prop with no model would be retried after every
         // preload forever, and never upgrade.
-        this.buildRepairShop(service.id, lot, pose.heading, service.label);
+        buildRepairShop({ scene }, service.id, lot, pose.heading, service.label);
         continue;
       }
-      this.placeProp(service.kind, px, pz, pose.heading, service.id, (parent) => {
-        const trim = makeMaterial(
+      placeProp(
+        {
           scene,
-          `${service.id}-trim`,
-          new Color3(0.86, 0.24, 0.18),
-        );
-        createBox(
-          scene,
-          `${service.id}-pad`,
-          { width: service.footprint.x, height: 0.06, depth: service.footprint.z },
-          new Vector3(px, 0.04, pz),
-          makeMaterial(scene, `${service.id}-pad`, new Color3(0.2, 0.21, 0.23)),
-          parent,
-        );
-        createBox(
-          scene,
-          `${service.id}-canopy`,
-          { width: service.footprint.x, height: 0.35, depth: service.footprint.z },
-          new Vector3(px, 3.6, pz),
-          trim,
-          parent,
-        );
-        createBox(
-          scene,
-          `${service.id}-pillar`,
-          { width: 0.5, height: 3.6, depth: 0.5 },
-          new Vector3(px, 1.8, pz),
-          trim,
-          parent,
-        );
-        createBox(
-          scene,
-          `${service.id}-sign`,
-          { width: 1.6, height: 1.6, depth: 0.24 },
-          new Vector3(px, 5.4, pz),
-          makeMaterial(scene, `${service.id}-sign`, new Color3(0.96, 0.86, 0.16)),
-          parent,
-        );
-      }, service.label);
+          deferredProps: this.deferredProps,
+          buildingExclusions: this.buildingExclusions,
+        },
+        service.kind,
+        px,
+        pz,
+        pose.heading,
+        service.id,
+        (parent) => {
+          const trim = makeMaterial(
+            scene,
+            `${service.id}-trim`,
+            new Color3(0.86, 0.24, 0.18),
+          );
+          createBox(
+            scene,
+            `${service.id}-pad`,
+            { width: service.footprint.x, height: 0.06, depth: service.footprint.z },
+            new Vector3(px, 0.04, pz),
+            makeMaterial(scene, `${service.id}-pad`, new Color3(0.2, 0.21, 0.23)),
+            parent,
+          );
+          createBox(
+            scene,
+            `${service.id}-canopy`,
+            { width: service.footprint.x, height: 0.35, depth: service.footprint.z },
+            new Vector3(px, 3.6, pz),
+            trim,
+            parent,
+          );
+          createBox(
+            scene,
+            `${service.id}-pillar`,
+            { width: 0.5, height: 3.6, depth: 0.5 },
+            new Vector3(px, 1.8, pz),
+            trim,
+            parent,
+          );
+          createBox(
+            scene,
+            `${service.id}-sign`,
+            { width: 1.6, height: 1.6, depth: 0.24 },
+            new Vector3(px, 5.4, pz),
+            makeMaterial(scene, `${service.id}-sign`, new Color3(0.96, 0.86, 0.16)),
+            parent,
+          );
+        },
+        service.label,
+      );
     }
 
     const gigVenueColor: Record<string, Color3> = {
@@ -7323,34 +6883,47 @@ class BabylonGameSession {
       // A venue may name a specific building model; its kind still drives the
       // procedural fallback colour and everything gameplay-facing.
       const modelKey = venue.modelId ?? venue.kind;
-      this.placeProp(modelKey, px, pz, pose.heading, venue.id, (parent) => {
-        const height = 6;
-        createBox(
+      placeProp(
+        {
           scene,
-          `${venue.id}-body`,
-          { width: venue.footprint.x, height, depth: venue.footprint.z },
-          new Vector3(px, height / 2, pz),
-          makeMaterial(
+          deferredProps: this.deferredProps,
+          buildingExclusions: this.buildingExclusions,
+        },
+        modelKey,
+        px,
+        pz,
+        pose.heading,
+        venue.id,
+        (parent) => {
+          const height = 6;
+          createBox(
             scene,
             `${venue.id}-body`,
-            gigVenueColor[venue.kind] ?? new Color3(0.6, 0.6, 0.62),
-          ),
-          parent,
-        );
-        // Bright rooftop marker so venues read on approach.
-        createBox(
-          scene,
-          `${venue.id}-roof`,
-          {
-            width: venue.footprint.x * 0.5,
-            height: 0.6,
-            depth: venue.footprint.z * 0.5,
-          },
-          new Vector3(px, height + 0.3, pz),
-          makeMaterial(scene, `${venue.id}-roof`, new Color3(0.95, 0.82, 0.3)),
-          parent,
-        );
-      }, venue.name);
+            { width: venue.footprint.x, height, depth: venue.footprint.z },
+            new Vector3(px, height / 2, pz),
+            makeMaterial(
+              scene,
+              `${venue.id}-body`,
+              gigVenueColor[venue.kind] ?? new Color3(0.6, 0.6, 0.62),
+            ),
+            parent,
+          );
+          // Bright rooftop marker so venues read on approach.
+          createBox(
+            scene,
+            `${venue.id}-roof`,
+            {
+              width: venue.footprint.x * 0.5,
+              height: 0.6,
+              depth: venue.footprint.z * 0.5,
+            },
+            new Vector3(px, height + 0.3, pz),
+            makeMaterial(scene, `${venue.id}-roof`, new Color3(0.95, 0.82, 0.3)),
+            parent,
+          );
+        },
+        venue.name,
+      );
     }
 
     // Generated street addresses are drop-off points, not buildings — they get a
