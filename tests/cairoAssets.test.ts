@@ -50,7 +50,7 @@ describe("Cairo bundled assets", () => {
   });
 
   it("bundles the Arabic font, licence, and offline Cairo sign usage", async () => {
-    const [font, licence, css, gameCanvas, credits] = await Promise.all([
+    const [font, licence, css, gameCanvas, roadsideProps, credits] = await Promise.all([
       readFile(
         resolve(root, "public", "fonts", "noto-sans-arabic.woff2"),
       ),
@@ -60,6 +60,7 @@ describe("Cairo bundled assets", () => {
       ),
       readFile(resolve(root, "app", "globals.css"), "utf8"),
       readFile(resolve(root, "app", "game", "GameCanvas.tsx"), "utf8"),
+      readFile(resolve(root, "app", "game", "render", "roadsideProps.ts"), "utf8"),
       readFile(resolve(root, "CREDITS.md"), "utf8"),
     ]);
 
@@ -68,10 +69,10 @@ describe("Cairo bundled assets", () => {
     expect(licence).toContain("SIL OPEN FONT LICENSE Version 1.1");
     expect(css).toContain('font-family: "Noto Sans Arabic"');
     expect(css).toContain('url("/fonts/noto-sans-arabic.woff2")');
-    expect(gameCanvas).toContain("'Noto Sans Arabic'");
     expect(gameCanvas).toContain("await ensureArabicCanvasFontLoaded()");
-    expect(gameCanvas).toContain("وسط البلد");
-    expect(gameCanvas).toContain("الزمالك");
+    expect(roadsideProps).toContain("'Noto Sans Arabic'");
+    expect(roadsideProps).toContain("وسط البلد");
+    expect(roadsideProps).toContain("الزمالك");
     expect(credits).toContain(
       "https://fonts.gstatic.com/s/notosansarabic/v33/nwpCtLGrOAZMl5nJ_wfgRg3DrWFZWsnVBJ_sS6tlqHHFlj4wv4rqxzLIhjE.woff2",
     );

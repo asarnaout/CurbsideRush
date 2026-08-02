@@ -98,7 +98,6 @@ import {
   type AdaptiveInputPresentation,
 } from "./adaptiveInputRouter";
 import {
-  cairoDirectionPanelFaceUv,
   createAsphaltTexture,
   createFlowerbedTexture,
   createGrassDetailTexture,
@@ -128,7 +127,6 @@ import {
   DESTRUCTIBLE_GRID_CELL_M,
   DESTRUCTIBLE_PROP_CONFIGS,
   LONDON_BOLLARD_POSITIONS,
-  LONDON_FURNITURE_POINTS,
   LONDON_LAMP_POSITIONS,
   LONDON_PLANTER_POSITIONS,
   LONDON_POST_BOX_POSITION,
@@ -138,13 +136,13 @@ import {
   PROP_MIN_STRIKE_SPEED_MPS,
   PROP_TOPPLE_MAX_ANGLE_RAD,
   PROP_TOPPLE_SECONDS,
-  roadsidePropKindsForMap,
   type ActivePropFall,
   type DestructibleProp,
   type DestructiblePropPart,
 } from "./render/propCatalog";
 import { createSkyAndHorizon, createSunShadows } from "./render/skyAndShadows";
 import { buildCairoLandmark } from "./render/cairoLandmarks";
+import { buildRoadsideProps } from "./render/roadsideProps";
 import {
   crosswalkStripeLayout,
   EGYPT_SIGNAL_BORDER_BARS,
@@ -206,7 +204,6 @@ import {
   type StaticObstacle,
 } from "./simulationAdapter";
 import {
-  DEFAULT_SERVICE_SETBACK_M,
   FUEL_PUMP_REACH_M,
   gasStationCanopyWorld,
   gasStationPumpPositions,
@@ -217,7 +214,6 @@ import {
   resolveServicePointLot,
 } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
-import { CAIRO_OPEN_WATERFRONT_SIDES } from "./cairoContent";
 import {
   REPAIR_BAY_REACH_M,
   REPAIR_SHOP_PARTS,
@@ -339,9 +335,6 @@ import {
 import {
   buildPlanarUVs,
   buildRiverWaveField,
-  distanceToPolylineM,
-  generatePromenadeDecor,
-  generateRoadsidePropPlacements,
   hashStringToSeed,
   mixHexColors,
   PAVED_SIDEWALK_WIDTH_M,
@@ -349,7 +342,6 @@ import {
   resolveMapVisualPalette,
   seededUnit,
   type MapVisualPalette,
-  type PropPlacement,
 } from "./visuals";
 import {
   natureModelsForMap,
@@ -396,7 +388,6 @@ import {
   buildingPlacementConfig,
   buildingSetUrls,
   isBuildingSetId,
-  NYC_VENDORS,
   nycVendorUrls,
   slotBlockBuildings,
   type BuildingSetId,
@@ -516,15 +507,6 @@ const PARK_WALL_HEIGHT_M = 0.95;
 /** Corniche parapet height — a masonry balustrade you read instantly at
  * speed, taller than the 0.95 m park wall by a lean. */
 const CORNICHE_PARAPET_HEIGHT_M = 1.05;
-
-
-/**
- * How close to a path a plant must be to stay an individually instanced,
- * knockable prop. Everything beyond becomes batched scenery, which cannot be
- * knocked down — so this is really "how far off a path a car can plausibly get
- * before the trees stop reacting", and it wants to stay generous.
- */
-const PARK_KNOCKABLE_REACH_M = 10;
 
 /** Third-person follow framing per player vehicle; the default is the values
  * the chase camera has always used for the car. */
@@ -7709,10 +7691,25 @@ class BabylonGameSession {
     if (speedLimitSigns.length) {
       this.buildSpeedLimitSigns(speedLimitSigns, mapPack.countryIds?.[0] ?? "us");
     }
-    this.buildRoadsideProps(mapPack, palette, mapId, roadSurfaces, [
-      ...regulatorySigns,
-      ...speedLimitSigns,
-    ]);
+    buildRoadsideProps(
+      {
+        scene,
+        staticSceneryFreeze: this.staticSceneryFreeze,
+        pendingVendors: this.pendingVendors,
+        pendingParkProps: this.pendingParkProps,
+        pendingParkThickets: this.pendingParkThickets,
+        buildingKeepFraction: this.buildingKeepFraction,
+        registerShadowCaster: (mesh, x, z) =>
+          this.registerShadowCaster(mesh, x, z),
+        registerDestructibleProp: (kind, x, z, scale, parts) =>
+          this.registerDestructibleProp(kind, x, z, scale, parts),
+      },
+      mapPack,
+      palette,
+      mapId,
+      roadSurfaces,
+      [...regulatorySigns, ...speedLimitSigns],
+    );
 
     for (const checkpoint of this.authoredCheckpoints) {
       this.checkpointVisuals.push(
@@ -7903,792 +7900,6 @@ class BabylonGameSession {
     }
 
     return false;
-  }
-
-  /**
-   * Deterministic roadside dressing (trees, streetlights, signs plus per-map
-   * extras) built from instanced master meshes: one draw call per part kind
-   * regardless of how many props a map receives.
-   */
-
-  /**
-   * Park planting and furniture as ordinary prop placements.
-   *
-   * Gated through `deterministicSceneryKeep` per placement: anything scattered
-   * that skips that gate silently escapes the low-spec thinning entirely, and a
-   * park is by some distance the densest thing this map scatters.
-   */
-  private collectParkPlacements(
-    mapPack: GameCanvasMapPack,
-  ): { reachable: PropPlacement[]; interior: ParkPlacement[] } {
-    const reachable: PropPlacement[] = [];
-    const interior: ParkPlacement[] = [];
-    for (const landmark of mapPack.geometry.landmarks) {
-      if (landmark.kind !== "park") continue;
-      const layout = parkLayoutForLandmark(mapPack, landmark);
-      for (const [index, placement] of layout.placements.entries()) {
-        if (
-          !deterministicSceneryKeep(
-            `${landmark.id}:${placement.kind}:${index}`,
-            this.buildingKeepFraction,
-          )
-        ) {
-          continue;
-        }
-        // Anything a driver can actually reach stays an individually instanced,
-        // knockable prop. Everything deeper is scenery, and scenery in a park
-        // this size has to be batched — see `buildParkPlanting`.
-        //
-        // Shrubs are never in that set however close they are. They are the
-        // densest zone by some way, and their destructible entry is `damage:
-        // "none"` / `fall: "squash"` — so paying a scene mesh each to make a
-        // bush flinch is the worst trade in the park.
-        const reachablePlacement =
-          placement.kind !== "shrub" &&
-          (placement.kind === "bench" ||
-            placement.kind === "lamp" ||
-            layout.paths.some(
-              (path) =>
-                distanceToPolylineM(placement, path.points) <=
-                path.widthM / 2 + PARK_KNOCKABLE_REACH_M,
-            ));
-        if (reachablePlacement) {
-          // Benches and lamps have no model in the planting kit, so they stay
-          // procedural and ride the roadside pipeline as before. Planting goes
-          // to the glb queue, which can only be drained after the preload.
-          if (placement.kind === "bench" || placement.kind === "lamp") {
-            reachable.push(placement);
-          } else {
-            this.pendingParkProps.push(placement);
-          }
-          continue;
-        }
-        interior.push(placement);
-        this.pendingParkThickets.push(placement);
-      }
-    }
-    return { reachable, interior };
-  }
-
-  private buildRoadsideProps(
-    mapPack: GameCanvasMapPack,
-    palette: MapVisualPalette,
-    mapId: string,
-    roadSurfaces: readonly {
-      readonly id: string;
-      readonly centerline: readonly GameCanvasPoint[];
-      readonly widthM: number;
-      readonly sidewalkWidthM?: number;
-    }[],
-    signPoints: readonly GameCanvasPoint[] = [],
-  ) {
-    const scene = this.scene;
-    const key = resolveMapVisualKey(mapId);
-    const kinds = roadsidePropKindsForMap(key);
-    if (!kinds.length || !roadSurfaces.length) return;
-
-    // Keep scattered trees / street furniture off the gas-station forecourts and
-    // venue lots — those models already fill that ground, and a tree sprouting on
-    // a forecourt reads as a bug. Treated as extra avoid-rectangles at each POI's
-    // set-back model centre.
-    const poiExclusions: { center: GameCanvasPoint; size: GameCanvasPoint }[] = [
-      ...(mapPack.geometry.servicePoints ?? []).map((sp) => ({
-        anchor: sp.anchor,
-        setback: sp.setbackM ?? DEFAULT_SERVICE_SETBACK_M,
-        span: 22,
-      })),
-      ...(mapPack.geometry.gigVenues ?? []).map((venue) => ({
-        anchor: venue.anchor,
-        setback: venue.setbackM ?? 13,
-        span: 13,
-      })),
-    ].flatMap((poi) => {
-      const pose = resolveSimulationLaneAnchor(mapPack.laneGraph.lanes, poi.anchor);
-      if (!pose) return [];
-      return [
-        {
-          center: {
-            x: pose.x + Math.cos(pose.heading) * poi.setback,
-            z: pose.z - Math.sin(pose.heading) * poi.setback,
-          },
-          size: { x: poi.span, z: poi.span },
-        },
-      ];
-    });
-    // The corniche promenade is laid before the random scatter so its points
-    // pre-seed the spacing grid — scatter can jitter around the palm line but
-    // never stand a tree inside it.
-    const promenadePlacements =
-      key === "cairo"
-        ? generatePromenadeDecor({
-            roadSurfaces: roadSurfaces.map((surface) => ({
-              id: surface.id,
-              centerline: surface.centerline,
-              widthM: surface.widthM,
-              sidewalkWidthM: surface.sidewalkWidthM,
-            })),
-            waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
-              (body) => body.polygon,
-            ),
-            openSides: CAIRO_OPEN_WATERFRONT_SIDES,
-            sidewalkWidthM: PAVED_SIDEWALK_WIDTH_M,
-            worldSize: mapPack.geometry.worldSize,
-            seed: hashStringToSeed(`${mapId}-promenade`),
-          })
-        : [];
-    const roadsidePlacements = generateRoadsidePropPlacements({
-      roadSurfaces: roadSurfaces.map((surface) => ({
-        id: surface.id,
-        centerline: surface.centerline,
-        widthM: surface.widthM,
-        sidewalkWidthM: surface.sidewalkWidthM,
-      })),
-      blocks: mapPack.geometry.blocks.map((block) => ({
-        center: block.center,
-        size: block.size,
-        headingDeg: block.headingDeg,
-      })),
-      landmarks: [
-        ...mapPack.geometry.landmarks.map((landmark) => ({
-          center: landmark.center,
-          size: landmark.size,
-        })),
-        ...poiExclusions,
-      ],
-      worldSize: mapPack.geometry.worldSize,
-      shoulderWidthM: palette.paved
-        ? PAVED_SIDEWALK_WIDTH_M
-        : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2),
-      seed: hashStringToSeed(`${mapId}-props`),
-      kinds,
-      waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
-        (body) => body.polygon,
-      ),
-      // Hand-placed furniture, regulatory sign posts and the promenade line
-      // pre-seed the mutual spacing grid so the random scatter can never
-      // stand a prop on them.
-      occupiedPoints:
-        key === "london" || signPoints.length || promenadePlacements.length
-          ? [
-              ...(key === "london" ? LONDON_FURNITURE_POINTS : []),
-              ...signPoints,
-              ...promenadePlacements,
-            ]
-          : undefined,
-    });
-
-    // Park planting rides the same pipeline as the roadside scatter, so it
-    // shares the tree masters, the shadow-caster registration and — the point —
-    // `registerDestructibleProp`. A tree you can flatten on the street and one
-    // you cannot flatten in a park would read as a bug, and the alternative was
-    // a second, parallel prop builder.
-    const park = this.collectParkPlacements(mapPack);
-    const placements = [
-      ...roadsidePlacements,
-      ...promenadePlacements,
-      ...park.reachable,
-    ];
-    if (!placements.length && !park.interior.length) return;
-
-    const material = (name: string, color: Color3, emissive?: Color3) =>
-      makeMaterial(scene, `prop-${name}`, color, emissive);
-    const trunk = material("trunk", new Color3(0.3, 0.19, 0.1));
-    const leaves = [
-      material("leaves-0", new Color3(0.16, 0.36, 0.19)),
-      material("leaves-1", new Color3(0.2, 0.42, 0.2)),
-      material("leaves-2", new Color3(0.13, 0.3, 0.17)),
-    ];
-    const iron = material("iron", new Color3(0.09, 0.1, 0.11));
-    // Streetlights blaze warm at night (bloom turns them into glowing points);
-    // by day they carry only a faint warm cast.
-    const night = palette.night ?? false;
-    const lampHead = material(
-      "lamp-head",
-      new Color3(0.85, 0.66, 0.4),
-      // Warm sodium-vapour orange at night (blooms into a soft glow); a faint
-      // warm cast by day.
-      night ? new Color3(1.5, 0.86, 0.34) : new Color3(0.3, 0.26, 0.12),
-    );
-    // At night each streetlight drops a soft warm pool of light on the pavement
-    // (a radial-gradient decal) — the signature "sodium spill" of a dusk street.
-    let lampPool: StandardMaterial | null = null;
-    if (night) {
-      const poolTex = new DynamicTexture(
-        "lamp-pool-tex",
-        { width: 128, height: 128 },
-        scene,
-        true,
-      );
-      const pctx = textureContext(poolTex);
-      const grad = pctx.createRadialGradient(64, 64, 3, 64, 64, 62);
-      grad.addColorStop(0, "rgba(255,190,110,0.85)");
-      grad.addColorStop(0.4, "rgba(255,155,80,0.42)");
-      grad.addColorStop(1, "rgba(255,140,60,0)");
-      pctx.fillStyle = grad;
-      pctx.fillRect(0, 0, 128, 128);
-      poolTex.update();
-      poolTex.hasAlpha = true;
-      lampPool = new StandardMaterial("lamp-pool", scene);
-      // Dim warm tint (not white) so the pool reads as a soft sodium spill and
-      // its centre stays below the bloom threshold instead of blowing out.
-      lampPool.emissiveColor = new Color3(0.72, 0.44, 0.19);
-      lampPool.emissiveTexture = poolTex;
-      lampPool.opacityTexture = poolTex;
-      lampPool.diffuseColor = Color3.Black();
-      lampPool.specularColor = Color3.Black();
-      lampPool.disableLighting = true;
-      lampPool.disableDepthWrite = true;
-    }
-    const signPost = material("sign-post", new Color3(0.45, 0.47, 0.48));
-    const cairoDirectionPanel = (
-      name: string,
-      arabic: string,
-      english: string,
-      background: string,
-    ): StandardMaterial => {
-      // Square canvas: the legend fills the top half, the bottom half stays
-      // bare aluminium for the back and the four edges. See
-      // `cairoDirectionPanelFaceUv`.
-      const texture = new DynamicTexture(
-        `prop-${name}-texture`,
-        { width: 512, height: 512 },
-        scene,
-        true,
-      );
-      const context = textureContext(texture);
-      context.fillStyle = "#9aa0a3";
-      context.fillRect(0, 0, 512, 512);
-      context.fillStyle = background;
-      context.fillRect(0, 0, 512, 256);
-      context.strokeStyle = "#f6f1dc";
-      context.lineWidth = 12;
-      context.strokeRect(8, 8, 496, 240);
-      context.fillStyle = "#f6f1dc";
-      context.textAlign = "center";
-      context.textBaseline = "middle";
-      context.font =
-        "700 84px 'Noto Sans Arabic', 'Geeza Pro', Arial, sans-serif";
-      context.fillText(arabic, 256, 85);
-      context.font = "700 47px Figtree, Arial, sans-serif";
-      context.fillText(english, 256, 184);
-      texture.update();
-      const panel = new StandardMaterial(`prop-${name}`, scene);
-      panel.diffuseTexture = texture;
-      panel.emissiveTexture = texture;
-      panel.emissiveColor = night
-        ? new Color3(0.38, 0.42, 0.46)
-        : new Color3(0.08, 0.08, 0.08);
-      panel.specularColor = Color3.Black();
-      return panel;
-    };
-    const signPanels =
-      key === "cairo"
-        ? [
-            cairoDirectionPanel(
-              "cairo-sign-downtown",
-              "وسط البلد",
-              "DOWNTOWN",
-              "#1b5684",
-            ),
-            cairoDirectionPanel(
-              "cairo-sign-zamalek",
-              "الزمالك",
-              "ZAMALEK",
-              "#245f42",
-            ),
-          ]
-        : [
-            material(
-              "sign-panel-blue",
-              new Color3(0.1, 0.28, 0.5),
-              night ? new Color3(0.14, 0.38, 0.72) : undefined,
-            ),
-            material(
-              "sign-panel-green",
-              new Color3(0.1, 0.35, 0.2),
-              night ? new Color3(0.14, 0.5, 0.26) : undefined,
-            ),
-          ];
-    const benchTimber = material("bench-timber", new Color3(0.35, 0.26, 0.17));
-    const hydrantRed = material("hydrant", new Color3(0.62, 0.1, 0.07));
-    const bollardPale = material("bollard", new Color3(0.75, 0.76, 0.72));
-    const poleWood = material("utility-pole", new Color3(0.35, 0.32, 0.28));
-    const vendingBodies = [
-      material("vending-red", new Color3(0.68, 0.14, 0.13)),
-      material("vending-white", new Color3(0.82, 0.83, 0.82)),
-    ];
-    const vendingPanel = material(
-      "vending-panel",
-      new Color3(0.55, 0.6, 0.58),
-      new Color3(0.22, 0.26, 0.24),
-    );
-
-    interface PropPart {
-      readonly master: Mesh;
-      readonly offset: Vector3;
-      readonly castShadow?: boolean;
-    }
-    const masterBox = (
-      name: string,
-      dimensions: {
-        width: number;
-        height: number;
-        depth: number;
-        faceUV?: readonly Vector4[];
-      },
-      partMaterial: StandardMaterial,
-    ): Mesh => {
-      const mesh = MeshBuilder.CreateBox(
-        `prop-master-${name}`,
-        { ...dimensions, faceUV: dimensions.faceUV?.slice() },
-        scene,
-      );
-      setMeshMaterial(mesh, partMaterial);
-      mesh.isVisible = false;
-      return mesh;
-    };
-    const masterCylinder = (
-      name: string,
-      options: {
-        height: number;
-        diameter?: number;
-        diameterTop?: number;
-        diameterBottom?: number;
-      },
-      partMaterial: StandardMaterial,
-    ): Mesh => {
-      const mesh = MeshBuilder.CreateCylinder(
-        `prop-master-${name}`,
-        { tessellation: 8, ...options },
-        scene,
-      );
-      setMeshMaterial(mesh, partMaterial);
-      mesh.isVisible = false;
-      return mesh;
-    };
-    const masterIcoSphere = (
-      name: string,
-      radius: number,
-      partMaterial: StandardMaterial,
-    ): Mesh => {
-      const mesh = MeshBuilder.CreateIcoSphere(
-        `prop-master-${name}`,
-        { radius, subdivisions: 1 },
-        scene,
-      );
-      setMeshMaterial(mesh, partMaterial);
-      mesh.isVisible = false;
-      return mesh;
-    };
-
-    const masters = new Map<string, readonly PropPart[]>();
-    const partsFor = (kind: string, variant: number): readonly PropPart[] => {
-      const cacheKey = `${kind}:${variant}`;
-      const cached = masters.get(cacheKey);
-      if (cached) return cached;
-      let parts: readonly PropPart[];
-      switch (kind) {
-        case "tree": {
-          // Leafy canopy from overlapping faceted lobes (variants 0/2) or a
-          // stacked-cone conifer (variant 1); secondary lobes skip shadow
-          // casting since they sit inside the primary crown's shadow.
-          const leaf =
-            variant === 1 ? leaves[2] : variant === 2 ? leaves[1] : leaves[0];
-          const lobe = (
-            suffix: string,
-            radius: number,
-            offset: Vector3,
-            castShadow?: boolean,
-          ): PropPart => ({
-            master: masterIcoSphere(`${cacheKey}-${suffix}`, radius, leaf),
-            offset,
-            castShadow,
-          });
-          if (variant === 1) {
-            parts = [
-              {
-                master: masterCylinder(
-                  `${cacheKey}-trunk`,
-                  { height: 1.5, diameter: 0.28 },
-                  trunk,
-                ),
-                offset: new Vector3(0, 0.75, 0),
-              },
-              {
-                master: masterCylinder(
-                  `${cacheKey}-t0`,
-                  { height: 2, diameterTop: 0, diameterBottom: 2.5 },
-                  leaf,
-                ),
-                offset: new Vector3(0, 2.2, 0),
-              },
-              {
-                master: masterCylinder(
-                  `${cacheKey}-t1`,
-                  { height: 1.7, diameterTop: 0, diameterBottom: 1.9 },
-                  leaf,
-                ),
-                offset: new Vector3(0, 3.29, 0),
-              },
-              {
-                master: masterCylinder(
-                  `${cacheKey}-t2`,
-                  { height: 1.3, diameterTop: 0, diameterBottom: 1.2 },
-                  leaf,
-                ),
-                offset: new Vector3(0, 4.14, 0),
-              },
-            ];
-          } else if (variant === 2) {
-            parts = [
-              {
-                master: masterCylinder(
-                  `${cacheKey}-trunk`,
-                  { height: 2.4, diameterTop: 0.24, diameterBottom: 0.35 },
-                  trunk,
-                ),
-                offset: new Vector3(0, 1.2, 0),
-              },
-              lobe("c0", 1.4, new Vector3(0, 3.17, 0)),
-              lobe("c1", 1.05, new Vector3(0.59, 3.87, -0.25), false),
-            ];
-          } else {
-            parts = [
-              {
-                master: masterCylinder(
-                  `${cacheKey}-trunk`,
-                  { height: 2, diameterTop: 0.27, diameterBottom: 0.39 },
-                  trunk,
-                ),
-                offset: new Vector3(0, 1, 0),
-              },
-              lobe("c0", 1.7, new Vector3(0, 2.94, 0)),
-              lobe("c1", 1.15, new Vector3(0.71, 3.79, -0.31), false),
-              lobe("c2", 1, new Vector3(-0.77, 3.42, 0.51), false),
-            ];
-          }
-          break;
-        }
-        case "palm": {
-          // A tall faceted date palm: ringed tapering trunk and a broad pair of
-          // low-poly crowns. The compressed crown stays legible from the chase
-          // camera without introducing fragile transparent frond textures.
-          const palmLeaf = variant % 2 === 0 ? leaves[1] : leaves[0];
-          parts = [
-            {
-              master: masterCylinder(
-                `${cacheKey}-trunk`,
-                {
-                  height: 5.8,
-                  diameterTop: 0.28,
-                  diameterBottom: 0.52,
-                },
-                trunk,
-              ),
-              offset: new Vector3(0, 2.9, 0),
-            },
-            {
-              master: masterCylinder(
-                `${cacheKey}-lower-crown`,
-                {
-                  height: 0.42,
-                  diameterTop: 3.8,
-                  diameterBottom: 0.55,
-                },
-                palmLeaf,
-              ),
-              offset: new Vector3(0, 5.78, 0),
-            },
-            {
-              master: masterCylinder(
-                `${cacheKey}-upper-crown`,
-                {
-                  height: 0.38,
-                  diameterTop: 0.45,
-                  diameterBottom: 3.1,
-                },
-                palmLeaf,
-              ),
-              offset: new Vector3(0, 6.08, 0),
-              castShadow: false,
-            },
-          ];
-          break;
-        }
-        case "streetlight":
-          parts = [
-            {
-              master: masterCylinder(cacheKey, { height: 5.2, diameter: 0.16 }, iron),
-              offset: new Vector3(0, 2.6, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-arm`,
-                { width: 0.09, height: 0.09, depth: 1.4 },
-                iron,
-              ),
-              offset: new Vector3(0, 5.15, 0.6),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-head`,
-                { width: 0.26, height: 0.12, depth: 0.55 },
-                lampHead,
-              ),
-              offset: new Vector3(0, 5.08, 1.25),
-            },
-            ...(lampPool
-              ? [
-                  {
-                    master: masterBox(
-                      `${cacheKey}-pool`,
-                      { width: 7, height: 0.02, depth: 7 },
-                      lampPool,
-                    ),
-                    offset: new Vector3(0, 0.07, 1.1),
-                    castShadow: false,
-                  },
-                ]
-              : []),
-          ];
-          break;
-        case "sign":
-          parts = [
-            {
-              master: masterCylinder(cacheKey, { height: 2.4, diameter: 0.09 }, signPost),
-              offset: new Vector3(0, 1.2, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-panel`,
-                {
-                  width: key === "cairo" ? 1.5 : 0.72,
-                  height: key === "cairo" ? 0.78 : 0.5,
-                  depth: 0.05,
-                  faceUV:
-                    key === "cairo" ? cairoDirectionPanelFaceUv() : undefined,
-                },
-                signPanels[variant % signPanels.length],
-              ),
-              // Hung on the road side of the post rather than threaded onto it:
-              // the panel is 0.05 deep and the post 0.09 across, so a coaxial
-              // panel leaves the post poking out of both faces. Same trick, and
-              // the same clearance, as the regulatory blades' -0.08 — mirrored,
-              // because those read on -Z and the scattered sign reads on +Z.
-              offset: new Vector3(0, key === "cairo" ? 2.05 : 2.15, 0.08),
-            },
-          ];
-          break;
-        case "shrub": {
-          // Two overlapping lobes at slightly different heights, so a run of
-          // them along a path reads as planting rather than as a row of balls.
-          const leaf = leaves[variant % leaves.length];
-          parts = [
-            {
-              master: masterIcoSphere(`${cacheKey}-a`, 0.62, leaf),
-              offset: new Vector3(0, 0.46, 0),
-            },
-            {
-              master: masterIcoSphere(`${cacheKey}-b`, 0.44, leaf),
-              offset: new Vector3(0.34, 0.33, 0.12),
-              castShadow: false,
-            },
-          ];
-          break;
-        }
-        case "bench":
-          parts = [
-            {
-              master: masterBox(
-                `${cacheKey}-seat`,
-                { width: 1.7, height: 0.09, depth: 0.46 },
-                benchTimber,
-              ),
-              offset: new Vector3(0, 0.45, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-back`,
-                { width: 1.7, height: 0.42, depth: 0.08 },
-                benchTimber,
-              ),
-              offset: new Vector3(0, 0.68, -0.19),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-legs`,
-                { width: 1.5, height: 0.42, depth: 0.08 },
-                iron,
-              ),
-              offset: new Vector3(0, 0.22, 0),
-              castShadow: false,
-            },
-          ];
-          break;
-        case "lamp":
-          // A park lamp, not a streetlight: shorter, on a slimmer column, and
-          // without the road-facing arm.
-          parts = [
-            {
-              master: masterCylinder(
-                `${cacheKey}-column`,
-                { height: 3.1, diameterTop: 0.09, diameterBottom: 0.15 },
-                iron,
-              ),
-              offset: new Vector3(0, 1.55, 0),
-            },
-            {
-              master: masterIcoSphere(`${cacheKey}-globe`, 0.22, lampHead),
-              offset: new Vector3(0, 3.24, 0),
-              castShadow: false,
-            },
-          ];
-          break;
-        case "hydrant":
-          parts = [
-            {
-              master: masterCylinder(cacheKey, { height: 0.7, diameter: 0.4 }, hydrantRed),
-              offset: new Vector3(0, 0.36, 0),
-            },
-            {
-              master: masterCylinder(
-                `${cacheKey}-cap`,
-                { height: 0.16, diameterTop: 0.12, diameterBottom: 0.34 },
-                hydrantRed,
-              ),
-              offset: new Vector3(0, 0.78, 0),
-            },
-          ];
-          break;
-        case "bollard":
-          parts = [
-            {
-              master: masterCylinder(
-                cacheKey,
-                { height: 0.85, diameterTop: 0.16, diameterBottom: 0.2 },
-                bollardPale,
-              ),
-              offset: new Vector3(0, 0.43, 0),
-            },
-          ];
-          break;
-        case "utility-pole":
-          parts = [
-            {
-              master: masterCylinder(cacheKey, { height: 7.4, diameter: 0.22 }, poleWood),
-              offset: new Vector3(0, 3.7, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-arm-top`,
-                { width: 1.7, height: 0.09, depth: 0.09 },
-                iron,
-              ),
-              offset: new Vector3(0, 6.8, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-arm-low`,
-                { width: 1.25, height: 0.08, depth: 0.08 },
-                iron,
-              ),
-              offset: new Vector3(0, 6.25, 0),
-            },
-          ];
-          break;
-        case "vending":
-          parts = [
-            {
-              master: masterBox(
-                cacheKey,
-                { width: 0.92, height: 1.7, depth: 0.72 },
-                vendingBodies[variant % vendingBodies.length],
-              ),
-              offset: new Vector3(0, 0.85, 0),
-            },
-            {
-              master: masterBox(
-                `${cacheKey}-panel`,
-                { width: 0.78, height: 1.15, depth: 0.05 },
-                vendingPanel,
-              ),
-              offset: new Vector3(0, 0.95, 0.37),
-            },
-          ];
-          break;
-        default:
-          parts = [];
-      }
-      masters.set(cacheKey, parts);
-      return parts;
-    };
-
-    let instanceIndex = 0;
-    for (const placement of placements) {
-      if (placement.kind === "vendor") {
-        // glb cart, not a procedural master — instantiate later once preloaded.
-        const config = NYC_VENDORS[placement.variant % NYC_VENDORS.length];
-        if (config) {
-          this.pendingVendors.push({ config, x: placement.x, z: placement.z, yaw: placement.rotationY });
-        }
-        continue;
-      }
-      const parts = partsFor(placement.kind, placement.variant);
-      // Every remaining scattered prop is street furniture: it faces the road
-      // as placed, and it is knockable. The kerb-parked vehicles that needed a
-      // quarter turn onto the kerb axis — and that were decoration with no
-      // collider — are all gone, so neither special case survives.
-      const rotationY = placement.rotationY;
-      const sin = Math.sin(rotationY);
-      const cos = Math.cos(rotationY);
-      const destructibleParts: DestructiblePropPart[] = [];
-      for (const part of parts) {
-        const instance = part.master.createInstance(
-          `prop-${placement.kind}-${instanceIndex}`,
-        );
-        instanceIndex += 1;
-        const scaled = part.offset.scale(placement.scale);
-        instance.position.set(
-          placement.x + scaled.x * cos + scaled.z * sin,
-          scaled.y,
-          placement.z - scaled.x * sin + scaled.z * cos,
-        );
-        instance.rotation.y = rotationY;
-        instance.scaling.setAll(placement.scale);
-        instance.isPickable = false;
-        this.staticSceneryFreeze.push(instance);
-        if (part.castShadow !== false) {
-          this.registerShadowCaster(instance, placement.x, placement.z);
-        }
-        destructibleParts.push({
-          node: instance,
-          isLightPool: part.master.name.includes("-pool"),
-        });
-      }
-      this.registerDestructibleProp(
-        placement.kind,
-        placement.x,
-        placement.z,
-        placement.scale,
-        destructibleParts,
-      );
-    }
-
-    for (const propMaterial of [
-      trunk,
-      ...leaves,
-      iron,
-      lampHead,
-      signPost,
-      ...signPanels,
-      hydrantRed,
-      bollardPale,
-      poleWood,
-      ...vendingBodies,
-      vendingPanel,
-    ]) {
-      propMaterial.freeze();
-    }
   }
 
   /**
