@@ -324,7 +324,13 @@ export function DriveNavCard({
    * to reclaim Safari's chrome mid-drive, so it is not negotiable. Beside the
    * job is where the numbers that change together belong anyway.
    */
-  money?: { readonly balance: string; readonly session: string; readonly label: string } | null;
+  money?: {
+    readonly balance: string;
+    readonly session: string;
+    /** False on an exactly-even shift — see `DriveMoneyCluster`'s prop of the same name (#267). */
+    readonly sessionVisible: boolean;
+    readonly label: string;
+  } | null;
 }) {
   const m = compact ? NAV_MOBILE : NAV_DESKTOP;
   const railColor = job ? (job.kind === "passenger" ? HUD_SAGE : HUD_CORAL) : "rgba(244,239,222,.28)";
@@ -390,6 +396,10 @@ export function DriveNavCard({
                 font: `900 ${m.nextDistance}px ${HUD_SANS}`,
                 color: HUD_GOLD,
                 fontVariantNumeric: "tabular-nums",
+                // Reserved, not removed, on an exactly-even shift — the label
+                // after it (sometimes the only clock this width has, see
+                // `dayTimerInRow`) must not slide left to close the gap (#267).
+                visibility: money.sessionVisible ? "visible" : "hidden",
               }}
             >
               {money.session}
@@ -1421,6 +1431,7 @@ export function DriveMoneyCluster({
   balanceLabel,
   session,
   sessionLabel,
+  sessionVisible,
   gain,
   buttons,
   compact = false,
@@ -1432,6 +1443,13 @@ export function DriveMoneyCluster({
   balanceLabel: string;
   session: string;
   sessionLabel: string;
+  /**
+   * False while today's total is exactly zero. The row stays mounted at its
+   * usual size — only `visibility` toggles — so the balance above it never
+   * jumps down to fill the gap the instant a shift starts, then back up the
+   * moment it ends in an even wash (#267).
+   */
+  sessionVisible: boolean;
   /** The `+$x.xx` that floats up on a payout, cleared once it has run. */
   gain: string | null;
   buttons: readonly {
@@ -1508,7 +1526,18 @@ export function DriveMoneyCluster({
           {balance}
         </span>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          // Hidden, not unmounted: an even shift has nothing worth reporting,
+          // but the row still has to hold its line so the balance above it
+          // doesn't drop down to meet the buttons the moment there's nothing
+          // to show (#267).
+          visibility: sessionVisible ? "visible" : "hidden",
+        }}
+      >
         <span
           style={{
             font: `900 ${m.session}px ${HUD_SANS}`,
