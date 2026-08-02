@@ -582,7 +582,10 @@ function bespokeFeatures(
           // Varied yaw so ten instances of one palm read as ten palms.
           rotationY: (row * 2 + (side > 0 ? 1 : 0)) * 2.4,
           scale: 1.05,
-          variant: 0,
+          // Cairo's canopy pool is broadleaf, oak, tall palm, short palm —
+          // index 2 is the tall palm, which is what an allée is. Variant 0
+          // planted ten broadleaves down the axis.
+          variant: 2,
         });
         clearings.push({ x: alleeX, z: alleeZ, halfX: 2.5, halfZ: 2.5 });
       }
