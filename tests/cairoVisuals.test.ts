@@ -17,10 +17,8 @@ import {
   CAIRO_DIRECTION_PANEL_DESIGN_V,
   cairoDirectionPanelFaceUv,
   crowdClothingPaletteForMap,
-  PARK_BED_Y,
-  PARK_LAWN_Y,
-  PARK_PATH_Y,
 } from "../app/game/GameCanvas";
+import { PARK_BED_Y, PARK_LAWN_Y, PARK_PATH_Y } from "../app/game/render/renderConstants";
 import {
   biasCairoDecalMaterials,
   CAIRO_DECAL_MATERIAL_NAMES,

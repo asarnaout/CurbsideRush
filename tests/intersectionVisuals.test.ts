@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getMapPack, MAP_PACKS } from "../app/game/content";
-import { BUILDING_BASE_CLEARANCE_M } from "../app/game/GameCanvas";
+import { BUILDING_BASE_CLEARANCE_M } from "../app/game/render/renderConstants";
 import { roadAxisHeadingNear } from "../app/game/geometry/roadStrips";
 import {
   mastArmTopY,

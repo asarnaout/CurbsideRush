@@ -22,7 +22,7 @@ import type {
   LaneSegment,
   WorldPoint,
 } from "../app/game/types";
-import { resolveCheckpointTargetWidth } from "../app/game/GameCanvas";
+import { resolveCheckpointTargetWidth } from "../app/game/geometry/routeGuidance";
 import { gasStationsOf } from "../app/game/servicePoints";
 
 const GEOMETRY_EPSILON = 1e-5;

@@ -66,6 +66,31 @@ import {
   type RoadJunctionFill,
 } from "./geometry/roadStrips";
 import {
+  clampHorizontalFieldOfView,
+  computeRouteChevronPlacements,
+  guidanceCueOverlapsCheckpoint,
+  resolveAuthoritativeRouteIndex,
+  resolveCheckpointTargetWidth,
+  resolveRouteChevronHalfSpan,
+} from "./geometry/routeGuidance";
+import {
+  BUILDING_GROUND_LIFT,
+  COCKPIT_LAYER_MASK,
+  DEFAULT_HORIZONTAL_FOV,
+  GUIDANCE_LAYER_MASK,
+  GUIDANCE_LATERAL_CLEARANCE_M,
+  PARK_BED_Y,
+  PARK_LAWN_Y,
+  PARK_PATH_Y,
+  PLAYER_GUIDANCE_HALF_WIDTH_M,
+  PRIMARY_CAMERA_LAYER_MASK,
+  ROAD_JUNCTION_FILL_Y,
+  ROAD_SHOULDER_JUNCTION_FILL_Y,
+  ROAD_SHOULDER_Y,
+  ROAD_SURFACE_Y,
+  WORLD_LAYER_MASK,
+} from "./render/renderConstants";
+import {
   crosswalkStripeLayout,
   EGYPT_SIGNAL_BORDER_BARS,
   LANE_PAINT_STYLES,
@@ -124,7 +149,6 @@ import {
 } from "./geometry/cairoParkland";
 import {
   FIXED_STEP_SECONDS,
-  isPointInPolygon,
   SimulationCore,
   type NpcVehicleVariant,
   type SimulationInput,
@@ -419,38 +443,9 @@ import {
 import { buildPavementGraph, type PavementGraph } from "./pavementPaths";
 import { PED_TURN_PAUSE_S, stepStroll } from "./pedestrianStroll";
 
-export const MIN_HORIZONTAL_FOV = (55 * Math.PI) / 180;
-export const MAX_HORIZONTAL_FOV = (100 * Math.PI) / 180;
-export const DEFAULT_HORIZONTAL_FOV = (72 * Math.PI) / 180;
-export const PLAYER_GUIDANCE_HALF_WIDTH_M = 0.91;
-export const GUIDANCE_LATERAL_CLEARANCE_M = 0.3;
-export const WORLD_LAYER_MASK = 0x0fffffff;
-export const GUIDANCE_LAYER_MASK = 0x10000000;
-/**
- * The cabin's own bit, so the rear-view camera never sees it.
- *
- * First person renders the whole scene twice — once full-screen, once into the
- * mirror strip — and the mirror looks backwards from a point behind the
- * dashboard. Every cockpit mesh submitted to that pass is work with no possible
- * effect on a pixel. Same trick the guidance arrows already use to stay out of
- * the mirror.
- */
-export const COCKPIT_LAYER_MASK = 0x20000000;
-export const PRIMARY_CAMERA_LAYER_MASK =
-  WORLD_LAYER_MASK | GUIDANCE_LAYER_MASK | COCKPIT_LAYER_MASK;
 /** Mirrors the simulation's standstill threshold, for deciding which pedal is
  * driving and which is braking when the audio reads the controls. */
 const STOPPED_AUDIO_SPEED_MPS = 0.2;
-const ROAD_SURFACE_Y = 0.07;
-// The asphalt junction fill sits a hair ABOVE the carriageway strips so it wins
-// the depth test across the whole crossing: it caps the two coplanar road strips
-// that would otherwise z-fight where they overlap, and it paves over any dirt
-// shoulder that a crossing road's wider strip pushes into the junction throat.
-// The dirt-shoulder junction fill stays just below its shoulder strips, forming
-// the thin tan apron that rings the paved junction.
-const ROAD_JUNCTION_FILL_Y = ROAD_SURFACE_Y + 0.0016;
-const ROAD_SHOULDER_Y = 0.045;
-const ROAD_SHOULDER_JUNCTION_FILL_Y = ROAD_SHOULDER_Y - 0.0015;
 /**
  * Metres of world per repeat of the grass tile. Every grass surface — the base
  * ground and every park lawn — uses this one figure so a park never shows a
@@ -466,21 +461,6 @@ const GRASS_TILE_M = 12;
  * which is the entire point of the second layer.
  */
 const GRASS_DETAIL_TILE_M = 3.1;
-/**
- * A park lawn's surface. Was the top face of a 0.02-high box, and stays at that
- * height: parks sit deliberately BELOW the shoulder (0.045) and the road (0.07)
- * so an authored road crossing a park keeps visual priority.
- */
-export const PARK_LAWN_Y = 0.02;
-/**
- * Parterre and court ground patches, on their own rung UNDER the walks: a path
- * may cross a court or graze a bed, and the walk must win. They once shared
- * `PARK_PATH_Y`, which is a coplanar fight the depth buffer cannot settle —
- * the Opera Grounds shipped shimmering because of it.
- */
-export const PARK_BED_Y = 0.0255;
-/** Park footpaths, in the ~23 mm between the lawn and the shoulder fill. */
-export const PARK_PATH_Y = 0.031;
 /**
  * Polygon offset pulling park paths toward the camera. The lawn/path gap is
  * finer than the depth quantum at Central Park's far end, and polygon offset
@@ -517,155 +497,6 @@ const CORNICHE_PARAPET_HEIGHT_M = 1.05;
  * before the trees stop reacting", and it wants to stay generous.
  */
 const PARK_KNOCKABLE_REACH_M = 10;
-// Lift every building so no model's base plate lands exactly on the ground
-// plane. Base plates face -Y and are back-face culled, so this is depth-buffer
-// hygiene, not a visible-flicker fix — the Cairo brick-band flicker was never
-// here (see CAIRO_DECAL_Z_OFFSET_UNITS). Above the sidewalk band (0.045),
-// small enough to read as flush.
-const BUILDING_GROUND_LIFT = 0.08;
-/**
- * Clearance between a procedural facade box's base plate and the pavement
- * band: every `createFacadeBox` caller passes height/2, so the plate lands
- * exactly at `BUILDING_GROUND_LIFT`. Keep it positive so the plate is never
- * coplanar with the ground or the pavement. The instanced glbs get the same
- * lift but not the same guarantee — six Cairo models' native bases dip below
- * y=0 (cairo-block-slim and -terrace by 0.076 at placement scale), landing
- * them just above the ground plane instead.
- */
-export const BUILDING_BASE_CLEARANCE_M =
-  BUILDING_GROUND_LIFT - ROAD_SHOULDER_Y;
-
-/** Keeps a checkpoint target wholly inside its authored lane. */
-export function resolveCheckpointTargetWidth(laneWidthM: number): number {
-  return Math.max(0, Math.min(2.4, laneWidthM - 0.6));
-}
-
-/** Keeps each chevron, including its stroke, inside the guidance envelope. */
-export function resolveRouteChevronHalfSpan(laneWidthM: number): number {
-  return Math.max(0.32, Math.min(0.72, (laneWidthM - 0.8) / 2 - 0.12));
-}
-
-/**
- * Resolves the single simulation-owned route occurrence whose chevrons may be
- * rendered. Overtaking owns the guidance channel while active and suppresses
- * the normal route stream so two competing lanes are never highlighted.
- */
-export function resolveAuthoritativeRouteIndex(
-  routeLength: number,
-  guidance: Pick<SimulationSnapshot["guidance"], "owner" | "status" | "blockingReason">,
-): number | null {
-  if (
-    routeLength <= 0 ||
-    guidance.status === "inactive" ||
-    guidance.status === "complete" ||
-    guidance.owner?.kind !== "route"
-  ) {
-    return null;
-  }
-  const authoritativeIndex = guidance.owner.routeIndex;
-  if (
-    authoritativeIndex !== null &&
-    authoritativeIndex >= 0 &&
-    authoritativeIndex < routeLength
-  ) {
-    return authoritativeIndex;
-  }
-  return null;
-}
-
-/** Avoids stacking an amber lane cue directly on the active cyan checkpoint. */
-export function guidanceCueOverlapsCheckpoint(
-  cue: Pick<NonNullable<SimulationSnapshot["guidance"]["cue"]>, "laneId" | "distanceAlongM"> | null,
-  checkpoint: Pick<AuthoredCheckpoint, "laneId" | "distanceAlongM"> | null,
-): boolean {
-  return Boolean(
-    cue &&
-      checkpoint &&
-      checkpoint.laneId === cue.laneId &&
-      checkpoint.distanceAlongM !== null &&
-      Math.abs(checkpoint.distanceAlongM - cue.distanceAlongM) <= 2.5,
-  );
-}
-
-export function clampHorizontalFieldOfView(value: number): number {
-  return clamp(value, MIN_HORIZONTAL_FOV, MAX_HORIZONTAL_FOV);
-}
-
-/** Connector tapers are navigation-free junction geometry, not lane targets. */
-export function isLaneGuidanceDistanceAllowed(
-  lane: GameCanvasLane,
-  distanceAlongM: number,
-): boolean {
-  return !(lane.connectorRanges ?? []).some(
-    (range) =>
-      distanceAlongM >= range.startDistanceAlongM - 0.05 &&
-      distanceAlongM <= range.endDistanceAlongM + 0.05,
-  );
-}
-
-export interface RouteChevronPlacement {
-  readonly distanceAlongM: number;
-  readonly tip: GameCanvasPoint;
-  readonly back: GameCanvasPoint;
-  readonly sideX: number;
-  readonly sideZ: number;
-}
-
-/**
- * Deterministic chevron layout for one route lane. Arrows march every 12 m,
- * skipping junction connectors and compact conflict zones; roundabout rings
- * are exempt from the conflict-zone rule because their priority zone covers
- * the whole circle and would otherwise erase every arrow on the ring. Pure so
- * per-lesson guidance coverage can be asserted in tests.
- */
-export function computeRouteChevronPlacements(
-  lane: GameCanvasLane,
-  conflictZones: GameCanvasMapPack["laneGraph"]["conflictZones"],
-): readonly RouteChevronPlacement[] {
-  const placements: RouteChevronPlacement[] = [];
-  let travelled = 0;
-  let nextChevronAt = 7;
-  for (let segmentIndex = 0; segmentIndex < lane.centerline.length - 1; segmentIndex += 1) {
-    const start = lane.centerline[segmentIndex];
-    const end = lane.centerline[segmentIndex + 1];
-    const dx = end.x - start.x;
-    const dz = end.z - start.z;
-    const length = Math.hypot(dx, dz);
-    if (length < 0.01) continue;
-    const ux = dx / length;
-    const uz = dz / length;
-    while (nextChevronAt <= travelled + length) {
-      const along = nextChevronAt - travelled;
-      const tip = { x: start.x + ux * along, z: start.z + uz * along };
-      const back = { x: tip.x - ux * 1.45, z: tip.z - uz * 1.45 };
-      const inConnectorRange = !isLaneGuidanceDistanceAllowed(
-        lane,
-        nextChevronAt,
-      );
-      const inConflictZone =
-        lane.role !== "roundabout" &&
-        conflictZones.some(
-          (zone) =>
-            zone.laneIds.includes(lane.id) &&
-            (isPointInPolygon(tip, zone.polygon) || isPointInPolygon(back, zone.polygon)),
-        );
-      if (!inConnectorRange && !inConflictZone) {
-        placements.push({
-          distanceAlongM: nextChevronAt,
-          tip,
-          back,
-          sideX: uz,
-          sideZ: -ux,
-        });
-      }
-      nextChevronAt += 12;
-    }
-    travelled += length;
-  }
-  return placements;
-}
-
-
 
 /**
  * Cairo's bilingual direction panel is printed on one side only, like the real
