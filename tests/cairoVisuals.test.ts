@@ -30,10 +30,13 @@ import {
   cairoElevatedBridgePierPlacements,
   cairoFrontagePosition,
   cairoFrontageFootprintsOverlap,
+  cairoOperaTerracePolygon,
   cairoTahrirForecourtPolygon,
+  clipRectToRoadSide,
   cairoTahrirFurnitureLayout,
   cairoTahrirLawnPolygon,
   CAIRO_TAHRIR_FORECOURT_LAWN_LAP_M,
+  CAIRO_TAHRIR_LAWN_EAST_TUCK_X,
   CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
   CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
   crosswalkStripeLayout,
@@ -42,7 +45,11 @@ import {
   EGYPT_SIGNAL_BORDER_BARS,
   facadeGridCells,
   generateWaterBoatPlacements,
+  PARK_BED_Y,
+  PARK_LAWN_Y,
+  PARK_PATH_Y,
   SIGNAL_HOUSING_BOX,
+  roadSideParkLawnPolygon,
   roadSurfaceWidthForMarking,
   roadSurfacePlacementForMarking,
   rotateBlockBuildingPlacements,
@@ -57,7 +64,13 @@ import { buildingSetUrls } from "../app/game/buildingSets";
 import { isPointInPolygon } from "../app/game/simulation";
 import { authoredSignalAspectAt } from "../app/game/trafficSignals";
 import { CAIRO_MAP_PACK } from "../app/game/cairoContent";
-import { CAIRO_TAHRIR_PLAZA_RADIUS_M } from "../app/game/parkLayouts";
+import {
+  CAIRO_OPERA_AXIS_X,
+  CAIRO_OPERA_CROSS_Z,
+  CAIRO_OPERA_TERRACE_NORTH_Z,
+  CAIRO_TAHRIR_PLAZA_RADIUS_M,
+  parkLayoutForLandmark,
+} from "../app/game/parkLayouts";
 
 describe("Cairo water scenery", () => {
   const concave = [
@@ -672,12 +685,15 @@ describe("Cairo visual axes", () => {
     )!;
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
     const polygon = cairoTahrirLawnPolygon(landmark, surfaces);
-    // The lawn's envelope is the authored rect plus the west/south tucks.
+    // The lawn's envelope is the authored rect plus the west/south/east tucks.
     const minX = Math.min(
       landmark.center.x - landmark.size.x / 2,
       CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
     );
-    const maxX = landmark.center.x + landmark.size.x / 2;
+    const maxX = Math.max(
+      landmark.center.x + landmark.size.x / 2,
+      CAIRO_TAHRIR_LAWN_EAST_TUCK_X,
+    );
     const minZ = Math.min(
       landmark.center.z - landmark.size.z / 2,
       CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
@@ -833,6 +849,28 @@ describe("Cairo visual axes", () => {
         centerZ + qasrElNil.widthM / 2 + (qasrElNil.sidewalkWidthM ?? 3.4),
       );
     }
+
+    // East edge: inside Ramses' band footprint wherever the lawn reaches it.
+    // The rect edge at x 391 stood still while the diagonal band climbed
+    // away, leaving a bare triangle north of the centreline cut — the tuck
+    // fills it and the band paints the seam.
+    const eastEdge = Math.max(...polygon.map((vertex) => vertex.x));
+    expect(eastEdge).toBe(CAIRO_TAHRIR_LAWN_EAST_TUCK_X);
+    const ramses = surfaces.find((surface) => surface.id === "cairo-ramses");
+    expect(ramses).toBeDefined();
+    if (!ramses) return;
+    const eastSpan = polygon
+      .filter((vertex) => Math.abs(vertex.x - eastEdge) <= 1e-6)
+      .map((vertex) => vertex.z);
+    expect(eastSpan.length).toBeGreaterThanOrEqual(2);
+    for (let z = Math.min(...eastSpan); z <= Math.max(...eastSpan); z += 1) {
+      expect(
+        distanceToPolylineM({ x: eastEdge, z }, ramses.centerline),
+        `east edge at z=${z.toFixed(1)}`,
+      ).toBeLessThanOrEqual(
+        ramses.widthM / 2 + (ramses.sidewalkWidthM ?? 3.4),
+      );
+    }
   });
 
   it("paves the ministries esplanade out to its sidewalks and the lawn", () => {
@@ -960,6 +998,237 @@ describe("Cairo visual axes", () => {
         inside(sample),
         `(${sample.x}, ${sample.z}) is unpaved`,
       ).toBe(true);
+    }
+  });
+
+  it("clips the opera lawn to the park side of Montazah Al Gezira", () => {
+    // El Gezira Street is authored diagonally through the Opera Grounds
+    // rect; rendered raw, the rectangle surfaced as a grass wedge on the far
+    // kerbside. The polygon must hug the rect everywhere except the corridor
+    // cut, which runs along the centreline.
+    const park = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (landmark) => landmark.id === "cairo-opera-grounds",
+    );
+    expect(park).toBeDefined();
+    if (!park) return;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const polygon = roadSideParkLawnPolygon(park, surfaces);
+    expect(polygon.length).toBeGreaterThanOrEqual(5);
+
+    const minX = park.center.x - park.size.x / 2;
+    const maxX = park.center.x + park.size.x / 2;
+    const minZ = park.center.z - park.size.z / 2;
+    const maxZ = park.center.z + park.size.z / 2;
+    for (const vertex of polygon) {
+      expect(vertex.x).toBeGreaterThanOrEqual(minX - 1e-6);
+      expect(vertex.x).toBeLessThanOrEqual(maxX + 1e-6);
+      expect(vertex.z).toBeGreaterThanOrEqual(minZ - 1e-6);
+      expect(vertex.z).toBeLessThanOrEqual(maxZ + 1e-6);
+    }
+
+    // The three rect corners no road touches survive the clip...
+    for (const corner of [
+      { x: minX, z: minZ },
+      { x: minX, z: maxZ },
+      { x: maxX, z: minZ },
+    ]) {
+      expect(
+        polygon.some(
+          (vertex) =>
+            Math.hypot(vertex.x - corner.x, vertex.z - corner.z) < 1e-6,
+        ),
+        `corner (${corner.x}, ${corner.z}) was clipped away`,
+      ).toBe(true);
+    }
+
+    // ...and every vertex stays on the park side of every crossing segment.
+    let crossings = 0;
+    for (const surface of surfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let crosses = false;
+        for (let step = 0; step <= 200 && !crosses; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          crosses =
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3;
+        }
+        if (!crosses) continue;
+        crossings += 1;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const cross = (point: { x: number; z: number }) =>
+          dx * (point.z - start.z) - dz * (point.x - start.x);
+        const parkSign = Math.sign(cross(park.center));
+        let onLine = 0;
+        for (const vertex of polygon) {
+          const value = cross(vertex);
+          expect(
+            Math.sign(value) === parkSign || Math.abs(value) < 1e-4,
+            `vertex (${vertex.x.toFixed(2)}, ${vertex.z.toFixed(2)}) is across the corridor`,
+          ).toBe(true);
+          if (Math.abs(value) < 1e-4) onLine += 1;
+        }
+        // The cut itself must exist: at least two vertices ride the line.
+        expect(onLine).toBeGreaterThanOrEqual(2);
+      }
+    }
+    expect(crossings).toBeGreaterThan(0);
+
+    // The cut pulls the north-east corner well off the rect's east edge —
+    // the centreline meets the north edge near x -256.5.
+    const northVertices = polygon.filter(
+      (vertex) => Math.abs(vertex.z - maxZ) < 1e-6,
+    );
+    expect(northVertices.length).toBeGreaterThan(0);
+    expect(Math.max(...northVertices.map((vertex) => vertex.x))).toBeLessThan(
+      -256,
+    );
+  });
+
+  it("clips the east parterre quadrants at the corridor's centreline", () => {
+    // The quadrant beds are authored across the road on purpose — the
+    // renderer cuts each back to the park side with clipRectToRoadSide, the
+    // same clip the lawn takes, so the visible bed seam lands on the band's
+    // outer edge instead of tapering against the diagonal street.
+    const park = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (landmark) => landmark.id === "cairo-opera-grounds",
+    );
+    expect(park).toBeDefined();
+    if (!park) return;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const maxX = park.center.x + park.size.x / 2;
+    const quadrants = [
+      { minZ: CAIRO_OPERA_CROSS_Z, maxZ: park.center.z + park.size.z / 2 },
+      { minZ: park.center.z - park.size.z / 2, maxZ: CAIRO_OPERA_CROSS_Z },
+    ];
+    let crossings = 0;
+    for (const quadrant of quadrants) {
+      const polygon = clipRectToRoadSide(
+        CAIRO_OPERA_AXIS_X,
+        maxX,
+        quadrant.minZ,
+        quadrant.maxZ,
+        park.center,
+        surfaces,
+      );
+      expect(polygon.length).toBeGreaterThanOrEqual(4);
+      for (const surface of surfaces) {
+        if (!surface.id.includes("opera-corridor")) continue;
+        for (
+          let index = 0;
+          index + 1 < surface.centerline.length;
+          index += 1
+        ) {
+          const start = surface.centerline[index];
+          const end = surface.centerline[index + 1];
+          // Only segments that actually cross this quadrant clip it — a
+          // far-away segment's infinite line proves nothing.
+          let crosses = false;
+          for (let step = 0; step <= 200 && !crosses; step += 1) {
+            const amount = step / 200;
+            const x = start.x + (end.x - start.x) * amount;
+            const z = start.z + (end.z - start.z) * amount;
+            crosses =
+              x > CAIRO_OPERA_AXIS_X + 1e-3 &&
+              x < maxX - 1e-3 &&
+              z > quadrant.minZ + 1e-3 &&
+              z < quadrant.maxZ - 1e-3;
+          }
+          if (!crosses) continue;
+          crossings += 1;
+          const dx = end.x - start.x;
+          const dz = end.z - start.z;
+          const cross = (point: { x: number; z: number }) =>
+            dx * (point.z - start.z) - dz * (point.x - start.x);
+          const parkSign = Math.sign(cross(park.center));
+          for (const vertex of polygon) {
+            const value = cross(vertex);
+            expect(
+              Math.sign(value) === parkSign || Math.abs(value) < 1e-4,
+              `bed vertex (${vertex.x.toFixed(2)}, ${vertex.z.toFixed(2)}) is across the corridor`,
+            ).toBe(true);
+          }
+        }
+      }
+      // The clip actually bit: the corridor runs west of x -245 through
+      // both quadrants' z-ranges, so each rect's north-east corner is gone.
+      expect(
+        polygon.every(
+          (vertex) => Math.hypot(vertex.x - maxX, vertex.z - quadrant.maxZ) > 1,
+        ),
+      ).toBe(true);
+    }
+    // Vacuous without the road that motivates the clip.
+    expect(crossings).toBeGreaterThan(0);
+  });
+
+  it("stacks park beds strictly between lawn and paths", () => {
+    // The bed rung exists so a walk can cross a parterre or court without a
+    // coplanar fight — the shimmer the Opera Grounds shipped with. Above the
+    // paths the shoulder junction fill (0.0435) takes over; the whole park
+    // band must stay under it.
+    expect(PARK_LAWN_Y).toBeLessThan(PARK_BED_Y);
+    expect(PARK_BED_Y).toBeLessThan(PARK_PATH_Y);
+    expect(PARK_PATH_Y).toBeLessThan(0.0435);
+  });
+
+  it("paves the opera terrace from the facade to the garden", () => {
+    const operaHouse = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (landmark) => landmark.id === "cairo-opera-house",
+    );
+    const park = CAIRO_MAP_PACK.geometry.landmarks.find(
+      (landmark) => landmark.id === "cairo-opera-grounds",
+    );
+    expect(operaHouse).toBeDefined();
+    expect(park).toBeDefined();
+    if (!operaHouse || !park) return;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+    const polygon = cairoOperaTerracePolygon(operaHouse, surfaces);
+    expect(polygon.length).toBeGreaterThanOrEqual(4);
+
+    // Extents: two metres past each building flank, the park's own south
+    // line, and the terrace line the garden's axis walk laps.
+    const xs = polygon.map((vertex) => vertex.x);
+    const zs = polygon.map((vertex) => vertex.z);
+    expect(Math.min(...xs)).toBeCloseTo(
+      operaHouse.center.x - operaHouse.size.x / 2 - 2,
+      6,
+    );
+    expect(Math.max(...xs)).toBeCloseTo(
+      operaHouse.center.x + operaHouse.size.x / 2 + 2,
+      6,
+    );
+    expect(Math.min(...zs)).toBeCloseTo(park.center.z - park.size.z / 2, 6);
+    expect(Math.max(...zs)).toBeCloseTo(CAIRO_OPERA_TERRACE_NORTH_Z, 6);
+
+    // The garden's south walk arm ends lapping the paving by half a metre —
+    // a gap here is a grey strip between walk and terrace.
+    const layout = parkLayoutForLandmark(CAIRO_MAP_PACK, park);
+    const axisSouth = layout.paths.find((path) => path.id === "axis-south");
+    expect(axisSouth).toBeDefined();
+    if (!axisSouth) return;
+    const southEnd = Math.min(...axisSouth.points.map((point) => point.z));
+    expect(southEnd).toBeCloseTo(CAIRO_OPERA_TERRACE_NORTH_Z - 0.5, 6);
+
+    // The clip against the corridor is a no-op today and must stay one:
+    // every vertex keeps a margin past the rendered pavement band,
+    // recomputed from road data.
+    for (const vertex of polygon) {
+      for (const surface of surfaces) {
+        if (!surface.id.includes("opera-corridor")) continue;
+        expect(
+          distanceToPolylineM(vertex, surface.centerline),
+          `terrace vertex (${vertex.x.toFixed(1)}, ${vertex.z.toFixed(1)}) crowds the corridor`,
+        ).toBeGreaterThanOrEqual(
+          surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8) + 1.2,
+        );
+      }
     }
   });
 });

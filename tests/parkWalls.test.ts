@@ -13,17 +13,24 @@ const MAPS: readonly MapId[] = [
 
 describe("park wall meshes lie along their own runs", () => {
   it("lays a box's length down the direction it is given", () => {
-    // A box's length is `width`, which is local +X — NOT the map's heading
-    // convention (`atan2(dx, dz)`, 0 = +z). The two differ by exactly 90°, and
-    // getting it wrong is silent: the wall draws, sits at the right centre, and
-    // is simply turned across its own edge.
+    // A box's length is `width`, which is local +X, and rotation.y = θ lays
+    // local +X along world (cos θ, −sin θ) — the torii builder's convention.
+    // Axis-aligned directions cannot pin the SIGN of the yaw (a box turned
+    // −90° is the box turned +90°), which is how a z-mirroring atan2(uz, ux)
+    // slept until the first angled wall run — so pin a diagonal too.
     expect(boxLengthYaw(1, 0)).toBeCloseTo(0, 9);
-    expect(boxLengthYaw(0, 1)).toBeCloseTo(Math.PI / 2, 9);
-    expect(boxLengthYaw(-1, 0)).toBeCloseTo(Math.PI, 9);
-    // The heading convention would give the opposite answers, so this pins the
-    // difference rather than just the values.
-    expect(boxLengthYaw(1, 0)).not.toBeCloseTo(Math.atan2(1, 0), 3);
-    expect(boxLengthYaw(0, 1)).not.toBeCloseTo(Math.atan2(0, 1), 3);
+    expect(boxLengthYaw(0, 1)).toBeCloseTo(-Math.PI / 2, 9);
+    const railLength = Math.hypot(-45, 250);
+    for (const [ux, uz] of [
+      [-1, 0], // atan2's ±π branch — assert the direction, not the angle
+      [0.6, 0.8],
+      [0.6, -0.8],
+      [-45 / railLength, 250 / railLength], // the opera rail's own direction
+    ] as const) {
+      const yaw = boxLengthYaw(ux, uz);
+      expect(Math.cos(yaw)).toBeCloseTo(ux, 9);
+      expect(-Math.sin(yaw)).toBeCloseTo(uz, 9);
+    }
   });
 
   it("keeps every wall's drawn footprint inside its own park", () => {

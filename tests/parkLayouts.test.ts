@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import { getMapPack } from "../app/game/content";
 import {
   buildParkLayout,
+  CAIRO_OPERA_AXIS_X,
+  CAIRO_OPERA_CROSS_Z,
+  CAIRO_OPERA_PLAZA_RADIUS_M,
+  CAIRO_OPERA_STREET_GATE_X,
   CAIRO_TAHRIR_PLAZA_RADIUS_M,
   parkLayoutForLandmark,
   resolveParkStyle,
+  ROAD_DIVIDED_PARK_IDS,
   type ParkLandmarkInput,
   type ParkLayout,
   type ParkLayoutContext,
@@ -185,6 +190,70 @@ describe("park layouts", () => {
     expect(crossings).toBeGreaterThan(0);
   });
 
+  it("keeps opera-grounds planting, furniture and walls on the park side of the crossing corridor", () => {
+    // El Gezira Street is authored through the Opera Grounds rectangle and
+    // the lawn is clipped at its centreline. The park is in
+    // ROAD_DIVIDED_PARK_IDS, so scatter, benches, lamps AND the perimeter
+    // wall must all stay on the park-centre side — the road-proximity veto
+    // alone once left a 4 m orphan wall run across the corridor.
+    const opera = parkCases().find(
+      (c) => c.landmark.id === "cairo-opera-grounds",
+    );
+    expect(opera).toBeDefined();
+    if (!opera) return;
+    expect(ROAD_DIVIDED_PARK_IDS.has(opera.landmark.id)).toBe(true);
+    const { landmark, context, layout } = opera;
+    const minX = landmark.center.x - landmark.size.x / 2;
+    const maxX = landmark.center.x + landmark.size.x / 2;
+    const minZ = landmark.center.z - landmark.size.z / 2;
+    const maxZ = landmark.center.z + landmark.size.z / 2;
+    let crossings = 0;
+    for (const surface of context.roadSurfaces) {
+      for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        let crosses = false;
+        for (let step = 0; step <= 200 && !crosses; step += 1) {
+          const amount = step / 200;
+          const x = start.x + (end.x - start.x) * amount;
+          const z = start.z + (end.z - start.z) * amount;
+          crosses =
+            x > minX + 1e-3 &&
+            x < maxX - 1e-3 &&
+            z > minZ + 1e-3 &&
+            z < maxZ - 1e-3;
+        }
+        if (!crosses) continue;
+        crossings += 1;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const sideOf = (point: { x: number; z: number }) =>
+          Math.sign(dx * (point.z - start.z) - dz * (point.x - start.x));
+        const parkSide = sideOf(landmark.center);
+        for (const placement of layout.placements) {
+          expect(
+            sideOf(placement),
+            `${placement.kind} at (${placement.x.toFixed(1)}, ${placement.z.toFixed(1)}) is across the road`,
+          ).toBe(parkSide);
+        }
+        for (const run of layout.wall) {
+          for (const step of [-1, -0.5, 0, 0.5, 1]) {
+            const point = {
+              x: run.x + run.ux * run.halfU * step,
+              z: run.z + run.uz * run.halfU * step,
+            };
+            expect(
+              sideOf(point),
+              `wall run ${run.id} reaches (${point.x.toFixed(1)}, ${point.z.toFixed(1)}) across the road`,
+            ).toBe(parkSide);
+          }
+        }
+      }
+    }
+    // Vacuous without the road that motivates the rule.
+    expect(crossings).toBeGreaterThan(0);
+  });
+
   it("keeps planting off Tahrir's paved plaza", () => {
     // The disc is renderer-side (GameCanvas's Tahrir branch), ringed on the
     // obelisk landmark; `landmarkClearings` is what tells the scatter.
@@ -218,6 +287,30 @@ describe("park layouts", () => {
             distanceToPolylineM(placement, path.points),
             `${landmark.id}: ${placement.kind} stands on the ${path.id} path`,
           ).toBeGreaterThan(path.widthM / 2);
+        }
+      }
+    }
+  });
+
+  it("keeps park walks smooth at driving scale", () => {
+    // The spine wander was once sampled at a fixed 24 steps regardless of
+    // park length — 4 m chords with ~15° corners on a ribbon barely 4 m wide,
+    // which renders as a staircase. The chord budget scales with the park now.
+    const limit = (8 * Math.PI) / 180;
+    for (const { landmark, layout } of parkCases()) {
+      for (const path of layout.paths) {
+        for (let index = 0; index + 2 < path.points.length; index += 1) {
+          const a = path.points[index];
+          const b = path.points[index + 1];
+          const c = path.points[index + 2];
+          const into = Math.atan2(b.x - a.x, b.z - a.z);
+          const outOf = Math.atan2(c.x - b.x, c.z - b.z);
+          let turn = Math.abs(outOf - into);
+          if (turn > Math.PI) turn = 2 * Math.PI - turn;
+          expect(
+            turn,
+            `${landmark.id}/${path.id}: ${((turn * 180) / Math.PI).toFixed(1)}° corner at point ${index + 1}`,
+          ).toBeLessThanOrEqual(limit);
         }
       }
     }
@@ -409,5 +502,255 @@ describe("park layouts", () => {
       base.context,
     );
     expect(forced.style).toBe("temple_grounds");
+  });
+});
+
+describe("opera grounds formal garden", () => {
+  const opera = () => {
+    const found = parkCases().find(
+      (c) => c.landmark.id === "cairo-opera-grounds",
+    );
+    expect(found).toBeDefined();
+    return found;
+  };
+  const corridor = () => {
+    const surface = getMapPack("cairo-central-nile").geometry.roadSurfaces?.find(
+      (candidate) => candidate.id === "cairo-opera-corridor",
+    );
+    expect(surface).toBeDefined();
+    return surface;
+  };
+
+  it("lays four straight arms that stop at the plaza rim", () => {
+    const found = opera();
+    if (!found) return;
+    const ids = found.layout.paths.map((path) => path.id).sort();
+    expect(ids).toEqual([
+      "axis-north",
+      "axis-south",
+      "cross-east",
+      "cross-west",
+    ]);
+    for (const path of found.layout.paths) {
+      expect(path.points, path.id).toHaveLength(2);
+      // Each arm's plaza-facing tip laps the disc by exactly half a metre.
+      const nearest = Math.min(
+        ...path.points.map((point) =>
+          Math.hypot(
+            point.x - CAIRO_OPERA_AXIS_X,
+            point.z - CAIRO_OPERA_CROSS_Z,
+          ),
+        ),
+      );
+      expect(nearest, path.id).toBeCloseTo(CAIRO_OPERA_PLAZA_RADIUS_M - 0.5, 6);
+    }
+    for (const arm of found.layout.paths) {
+      if (!arm.id.startsWith("axis")) continue;
+      for (const point of arm.points) {
+        expect(point.x, arm.id).toBe(CAIRO_OPERA_AXIS_X);
+      }
+    }
+    // No arm's ribbon touches another arm's: the walks only ever meet the
+    // disc, which is the whole reason the crossing flicker is gone.
+    for (const first of found.layout.paths) {
+      for (const second of found.layout.paths) {
+        if (first.id >= second.id) continue;
+        let closest = Infinity;
+        for (let step = 0; step <= 50; step += 1) {
+          const amount = step / 50;
+          const [a, b] = first.points;
+          const sample = {
+            x: a.x + (b.x - a.x) * amount,
+            z: a.z + (b.z - a.z) * amount,
+          };
+          closest = Math.min(
+            closest,
+            distanceToPolylineM(sample, second.points),
+          );
+        }
+        expect(
+          closest,
+          `${first.id} ribbon reaches ${second.id}`,
+        ).toBeGreaterThan(first.widthM / 2 + second.widthM / 2);
+      }
+    }
+  });
+
+  it("tiles the four parterre quadrants edge to edge", () => {
+    // The beds ARE the quadrants: each runs from the walk centrelines out
+    // to the park rectangle, and everything above — walks, disc, terrace,
+    // the corridor's band — paints over it, so every visible bed edge is
+    // flush with something real. The renderer clips the east pair to the
+    // corridor's park side; the authored rects deliberately cross it.
+    const found = opera();
+    if (!found) return;
+    const beds = found.layout.features.filter(
+      (feature) => feature.kind === "parterre",
+    );
+    expect(beds).toHaveLength(4);
+    const minX = found.landmark.center.x - found.landmark.size.x / 2;
+    const maxX = found.landmark.center.x + found.landmark.size.x / 2;
+    const minZ = found.landmark.center.z - found.landmark.size.z / 2;
+    const maxZ = found.landmark.center.z + found.landmark.size.z / 2;
+    const spans = beds.map((bed) => ({
+      minX: bed.x - bed.sizeX / 2,
+      maxX: bed.x + bed.sizeX / 2,
+      minZ: bed.z - bed.sizeZ / 2,
+      maxZ: bed.z + bed.sizeZ / 2,
+    }));
+    for (const xSide of [
+      [minX, CAIRO_OPERA_AXIS_X],
+      [CAIRO_OPERA_AXIS_X, maxX],
+    ]) {
+      for (const zSide of [
+        [minZ, CAIRO_OPERA_CROSS_Z],
+        [CAIRO_OPERA_CROSS_Z, maxZ],
+      ]) {
+        expect(
+          spans.filter(
+            (span) =>
+              Math.abs(span.minX - xSide[0]) < 1e-6 &&
+              Math.abs(span.maxX - xSide[1]) < 1e-6 &&
+              Math.abs(span.minZ - zSide[0]) < 1e-6 &&
+              Math.abs(span.maxZ - zSide[1]) < 1e-6,
+          ),
+          `no bed spans x[${xSide[0]}, ${xSide[1]}] z[${zSide[0]}, ${zSide[1]}]`,
+        ).toHaveLength(1);
+      }
+    }
+  });
+
+  it("rails the corridor side with an angled wall gated at the street walk", () => {
+    // The rect's east edge is road-vetoed down to stubs, so the boundary
+    // follows the road instead: a rail parallel to the corridor at the same
+    // clearance the veto enforces, opened where the cross-east walk exits
+    // to the street — exactly like the west gate.
+    const found = opera();
+    const surface = corridor();
+    if (!found || !surface) return;
+    const roadRuns = found.layout.wall.filter((run) =>
+      run.id.includes("-wall-road-"),
+    );
+    expect(roadRuns.length).toBeGreaterThanOrEqual(2);
+    const endsOf = (run: (typeof roadRuns)[number]) => [
+      { x: run.x - run.ux * run.halfU, z: run.z - run.uz * run.halfU },
+      { x: run.x + run.ux * run.halfU, z: run.z + run.uz * run.halfU },
+    ];
+    // The gate splits the rail: whole runs both north and south of it.
+    expect(
+      roadRuns.some((run) =>
+        endsOf(run).every((end) => end.z > CAIRO_OPERA_CROSS_Z),
+      ),
+    ).toBe(true);
+    expect(
+      roadRuns.some((run) =>
+        endsOf(run).every((end) => end.z < CAIRO_OPERA_CROSS_Z),
+      ),
+    ).toBe(true);
+    const gate = { x: CAIRO_OPERA_STREET_GATE_X, z: CAIRO_OPERA_CROSS_Z };
+    for (const run of roadRuns) {
+      const ends = endsOf(run);
+      // Parallel to the corridor at a constant clearance past the walkable
+      // band — recomputed from road data, so a road nudge fails by name.
+      for (const point of [ends[0], { x: run.x, z: run.z }, ends[1]]) {
+        const clearance = distanceToPolylineM(point, surface.centerline);
+        expect(clearance).toBeGreaterThanOrEqual(
+          surface.widthM / 2 + 3.4 + 1.8 - 1e-6,
+        );
+        expect(clearance).toBeLessThanOrEqual(surface.widthM / 2 + 3.4 + 3);
+      }
+      // The street-walk gate stays open.
+      expect(distanceToPolylineM(gate, ends)).toBeGreaterThan(4);
+    }
+  });
+
+  it("centres the plaza, obelisk, benches and allée on the opera axis", () => {
+    const found = opera();
+    const surface = corridor();
+    if (!found || !surface) return;
+    const plaza = found.layout.features.find(
+      (feature) => feature.kind === "plaza",
+    );
+    expect(plaza).toBeDefined();
+    if (!plaza) return;
+    expect(plaza.solid).toBe(false);
+    expect(plaza.x).toBe(CAIRO_OPERA_AXIS_X);
+    expect(plaza.z).toBe(CAIRO_OPERA_CROSS_Z);
+    expect(plaza.sizeX).toBe(CAIRO_OPERA_PLAZA_RADIUS_M * 2);
+
+    const monuments = found.layout.placements.filter(
+      (placement) => placement.kind === "monument",
+    );
+    expect(monuments).toHaveLength(1);
+    expect(monuments[0].x).toBe(CAIRO_OPERA_AXIS_X);
+    expect(monuments[0].z).toBe(CAIRO_OPERA_CROSS_Z);
+
+    // Four benches ON the disc at the diagonals, each facing the obelisk —
+    // the ground beyond the rim is planted bed, not lawn.
+    const ringBenches = found.layout.placements.filter(
+      (placement) =>
+        placement.kind === "bench" &&
+        Math.abs(
+          Math.hypot(
+            placement.x - CAIRO_OPERA_AXIS_X,
+            placement.z - CAIRO_OPERA_CROSS_Z,
+          ) -
+            (CAIRO_OPERA_PLAZA_RADIUS_M - 1.7),
+        ) < 1e-6,
+    );
+    expect(ringBenches).toHaveLength(4);
+    for (const bench of ringBenches) {
+      expect(bench.rotationY).toBeCloseTo(
+        Math.atan2(
+          CAIRO_OPERA_AXIS_X - bench.x,
+          CAIRO_OPERA_CROSS_Z - bench.z,
+        ),
+        6,
+      );
+    }
+
+    // The quadrant clearings starve pathFurniture, so the lamps are
+    // authored: two pairs bracketing the axis walk, one pair on the cross.
+    const lamps = found.layout.placements.filter(
+      (placement) => placement.kind === "lamp",
+    );
+    expect(lamps).toHaveLength(6);
+    expect(
+      lamps.filter(
+        (lamp) => Math.abs(Math.abs(lamp.x - CAIRO_OPERA_AXIS_X) - 2.75) < 1e-6,
+      ),
+    ).toHaveLength(4);
+    expect(
+      lamps.filter(
+        (lamp) => Math.abs(Math.abs(lamp.z - CAIRO_OPERA_CROSS_Z) - 2.15) < 1e-6,
+      ),
+    ).toHaveLength(2);
+
+    // Ten allée palms, five a side, mirrored about the axis.
+    const palms = found.layout.placements.filter(
+      (placement) =>
+        placement.kind === "tree" &&
+        Math.abs(Math.abs(placement.x - CAIRO_OPERA_AXIS_X) - 3.6) < 1e-9,
+    );
+    expect(palms).toHaveLength(10);
+    const westRows = palms
+      .filter((palm) => palm.x < CAIRO_OPERA_AXIS_X)
+      .map((palm) => palm.z)
+      .sort((a, b) => a - b);
+    const eastRows = palms
+      .filter((palm) => palm.x > CAIRO_OPERA_AXIS_X)
+      .map((palm) => palm.z)
+      .sort((a, b) => a - b);
+    expect(westRows).toEqual(eastRows);
+    expect(westRows).toHaveLength(5);
+
+    // The east arm's street gate ends inside the corridor's pavement band —
+    // proven against the road's own data, not the constant.
+    const gate = { x: CAIRO_OPERA_STREET_GATE_X, z: CAIRO_OPERA_CROSS_Z };
+    const gateDistance = distanceToPolylineM(gate, surface.centerline);
+    expect(gateDistance).toBeGreaterThan(surface.widthM / 2);
+    expect(gateDistance).toBeLessThanOrEqual(
+      surface.widthM / 2 + (surface.sidewalkWidthM ?? 2.8),
+    );
   });
 });
