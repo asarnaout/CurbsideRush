@@ -8,7 +8,7 @@ npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run build:static # + prerendered index.html for a static host
 npm run typecheck    # tsc --noEmit, ~3s
 npm run lint         # eslint, ~11s
-npm test             # vitest run: 88 files, 1512 tests, ~2min
+npm test             # vitest run: 89 files, 1513 tests, ~2min
 ```
 
 Node >= 22.13 (repo currently runs v26). **There is no CI** — no `.github/`,
@@ -22,7 +22,7 @@ seeds × 60 s of sim). Everything else runs in ~12 s. Use the fast loop while
 iterating, the full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 87 files / 1510 tests in ~15s
+# everything except the acceptance test -> 88 files / 1511 tests in ~15s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts -t "reverses off"   # one file, -t filters by substring
@@ -61,9 +61,9 @@ holds the shared contract types. `architecture.test.ts` reads
 not count here.
 
 Adding a top-level side effect touching `window`/`document`/WebGL to
-`GameCanvas.tsx` therefore breaks `gameCanvasInput.test.ts` and
-`gameCanvasSession.test.tsx` (below) — nothing else in the pure-symbol tests
-touches it any more.
+`GameCanvas.tsx` therefore breaks `gameCanvasInput.test.ts` and the two
+full-mount tests (below) — nothing else in the pure-symbol tests touches it
+any more.
 
 **Grep for `from ".../GameCanvas"` still misleads on one axis**: several test
 files (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`,
@@ -73,11 +73,16 @@ files (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`,
 move, the import specifier didn't. Check the specifier, not just the symbol
 name.
 
-`gameCanvasSession.test.tsx` (jsdom) is different in kind from
-`gameCanvasInput.test.ts` above, and is the one other runtime load besides
-`SideSwapApp`'s lazy `dynamic()`: it deliberately mounts the real component,
-session and a `NullEngine`, so a `window`/`document`/WebGL touch is what it
-exists to exercise, not a hazard. See the guardrails table below.
+`gameCanvasSession.test.tsx` and `cockpitCharacterization.test.tsx` (both
+jsdom) are different in kind from `gameCanvasInput.test.ts` above, and are
+the only other runtime loads besides `SideSwapApp`'s lazy `dynamic()`: both
+deliberately mount the real component, session and a `NullEngine` (copying
+the same jsdom-gap workarounds — see the first file's header for why), so a
+`window`/`document`/WebGL touch is what they exist to exercise, not a
+hazard. The second exists solely to characterize `buildCockpit` before the
+god-file decomposition reaches it (`.claude/refactor-plan.md`, gitignored) —
+it mounts with `cameraMode="first"`, since `playerCockpit` starts disabled
+and the default mount never observes it. See the guardrails table below.
 
 ## DOM tests
 
@@ -89,9 +94,11 @@ does — plus a **synchronous `requestAnimationFrame` stub**, or `SideSwapApp`'s
 
 Tests default to `environment: "node"`. DOM needs `// @vitest-environment jsdom` on
 line 1 and a local `@testing-library/jest-dom/vitest` import — **there is no setup
-file**. Nine test files do this today: `careerFlow`, `confirmDialog`, `driveHud`,
-`expandedMap`, `freeDriveFuel`, `launcher`, `minimapCanvas`, `touchDriveControls`,
-`viewportSetup`.
+file**. Eleven test files do this today: `careerFlow`, `cockpitCharacterization`,
+`confirmDialog`, `driveHud`, `expandedMap`, `freeDriveFuel`, `gameCanvasSession`,
+`launcher`, `minimapCanvas`, `touchDriveControls`, `viewportSetup` — the last two
+of those (`gameCanvasSession`, `cockpitCharacterization`) are the full-mount
+Babylon tests discussed above, not ordinary component tests.
 
 ## What is and isn't covered
 
@@ -122,6 +129,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | `trafficSafetyAcceptance` | Determinism (trace hash over two replays) + no collisions across 4 cities × 51 seeds |
 | `architecture` | simulation.ts purity + the ring rules the god-file decomposition depends on |
 | `gameCanvasSession` | `BabylonGameSession` actually constructs, ticks, pauses, resets and disposes (headless, NullEngine) |
+| `cockpitCharacterization` | `buildCockpit`'s exact mesh/merge output (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `content` / `cairoContent` / `londonContent` | Lane-graph continuity, "every lane has somewhere legal to go" |
 | `roadRealism` | Only speed figures that country actually signs |
 | `careerBalance` | Rent + fee ≤ 4 median gig nets; tickets reachable in 3–20 days |
