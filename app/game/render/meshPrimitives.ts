@@ -25,11 +25,13 @@ import { FACADE_WIN_H_M, FACADE_WIN_W_M, makeFacadeDiffuseTexture } from "./proc
  * `append*` builders) — pure vertex-array assembly that borrows
  * `VertexData.CreateBox` for its numbers rather than building a `Mesh`.
  *
- * `setMeshMaterial` is duplicated from GameCanvas.tsx rather than shared, per
- * house convention.
+ * `setMeshMaterial` is duplicated from GameCanvas.tsx rather than shared with
+ * it, per house convention — but exported for sibling render/ files (e.g.
+ * cairoLandmarks.ts) to import, since that's an ordinary same-ring import
+ * rather than a reach back into the god file.
  */
 
-function setMeshMaterial(
+export function setMeshMaterial(
   mesh: Mesh,
   material: StandardMaterial,
   receiveShadows = false,
