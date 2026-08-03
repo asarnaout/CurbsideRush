@@ -39,13 +39,18 @@ import type { GameCanvasMapPack } from "../sessionContract";
  *
  * `signPostMaster`'s memoized post mesh — shared by both sign families,
  * whichever builds first — was a `this.signPost` field read/written nowhere
- * else in the class; it becomes a module-level `let` here rather than a ctx
- * field, since ctx is for session state, not this file's own cache.
- * `registerShadowCaster`/`registerDestructibleProp` are threaded as ctx
- * callbacks (shared class-wide); `staticSceneryFreeze` passes through ctx as
- * a live array reference. `makeMaterial`/`setMeshMaterial`/`textureContext`
- * are duplicated or imported per the same house convention every prior
- * commit has used.
+ * else in the class; it becomes a cache here rather than a ctx field, since
+ * ctx is for session state, not this file's own cache. Keyed by `Scene`
+ * (`WeakMap`, not a bare module-level `let`): a session is rebuilt on map,
+ * traffic-side, steering-side or lesson-id changes, each rebuild gets a
+ * fresh `Scene`, and a bare `let` would keep returning the previous scene's
+ * (by then disposed) mesh — confirmed empirically, a second London mount
+ * silently produced posts for neither sign family, half the expected
+ * instances, no thrown error. `registerShadowCaster`/`registerDestructibleProp`
+ * are threaded as ctx callbacks (shared class-wide); `staticSceneryFreeze`
+ * passes through ctx as a live array reference. `makeMaterial`/
+ * `setMeshMaterial`/`textureContext` are duplicated or imported per the same
+ * house convention every prior commit has used.
  */
 
 function makeMaterial(
@@ -61,7 +66,7 @@ function makeMaterial(
   return material;
 }
 
-let signPostMasterCache: Mesh | null = null;
+const signPostMasterCache = new WeakMap<Scene, Mesh>();
 
 export interface LondonLandmarksCtx {
   readonly scene: Scene;
@@ -490,7 +495,8 @@ export function buildRegulatorySigns(
  * means the second family's posts cost no extra draw call.
  */
 function signPostMaster(ctx: LondonLandmarksCtx): Mesh {
-  if (signPostMasterCache) return signPostMasterCache;
+  const cached = signPostMasterCache.get(ctx.scene);
+  if (cached) return cached;
   const material = makeMaterial(
     ctx.scene,
     "regsign-post",
@@ -504,7 +510,7 @@ function signPostMaster(ctx: LondonLandmarksCtx): Mesh {
   setMeshMaterial(post, material);
   post.isVisible = false;
   material.freeze();
-  signPostMasterCache = post;
+  signPostMasterCache.set(ctx.scene, post);
   return post;
 }
 
