@@ -19,7 +19,6 @@ import {
   MeshBuilder,
   ParticleSystem,
   Plane,
-  RenderTargetTexture,
   Scene,
   ShadowGenerator,
   StandardMaterial,
@@ -73,7 +72,6 @@ import {
 } from "./geometry/routeGuidance";
 import {
   BUILDING_GROUND_LIFT,
-  COCKPIT_LAYER_MASK,
   DEFAULT_HORIZONTAL_FOV,
   GRASS_DETAIL_TILE_M,
   GRASS_TILE_M,
@@ -104,9 +102,7 @@ import {
   appendDashedMarkingBoxes,
   appendSolidMarkingBoxes,
   createBox,
-  createChamferedPanel,
   createCylinder,
-  createExtrudedPrism,
   createFacadeBox,
   createIcoSphere,
   createMarkingGeometry,
@@ -155,6 +151,11 @@ import {
   buildParkLawnPolygon,
   createParksRenderMasters,
 } from "./render/parksRender";
+import {
+  type MirrorFrameInputs,
+  MirrorRig,
+  type MirrorRigCtx,
+} from "./render/mirrorRig";
 import {
   LANE_PAINT_STYLES,
   signalStopBarSegment,
@@ -209,24 +210,12 @@ import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import { REPAIR_BAY_REACH_M } from "./repairShopLayout";
 import { DRIVE_LAYER } from "./driveLayers";
 import { INPUT_GUIDANCE } from "./inputGuidance";
-import {
-  MIRROR_RADIUS_M,
-  mirrorCandidatesAreStale,
-  mirrorCells,
-} from "./mirrorRenderList";
+import { MIRROR_RADIUS_M } from "./mirrorRenderList";
 import {
   COCKPIT_SPEEDO_MAX_MPS,
-  COCKPIT_WING_MIRROR,
-  WING_MIRROR_SAIL_PROFILE,
-  REAR_VIEW_VIEWPORT,
-  cameraPanelPlacement,
   resolveGaugeNeedleAngle,
   resolveSteeringWheelSpin,
   resolveWingMirrorPose,
-  wingMirrorHeadRotation,
-  wingMirrorIsVisible,
-  wingMirrorOutline,
-  wingMirrorSide,
 } from "./cockpitLayout";
 import { TouchDriveControls } from "./TouchDriveControls";
 import { releaseTouchSteer } from "./touchSteering";
@@ -1346,6 +1335,10 @@ class BabylonGameSession {
   private readonly pendingParkProps: ParkPlacement[] = [];
   private readonly pendingParkThickets: ParkPlacement[] = [];
   private destructibles: Destructibles | null = null;
+  // Built in the constructor, unlike every other collaborator (built in
+  // buildScenarioEnvironment): the rear-view mirror must exist before
+  // setCameraMode's first applyCameraStack call registers its render target.
+  private mirrorRig: MirrorRig | null = null;
   private impactPuffs: ParticleSystem | null = null;
   /** Decaying camera-kick amplitude fed by collision events. */
   private impactKick = 0;
@@ -1529,26 +1522,7 @@ class BabylonGameSession {
   private shadowStaticAnchorX = Number.POSITIVE_INFINITY;
   private shadowStaticAnchorZ = Number.POSITIVE_INFINITY;
   private shadowRefreshSeconds = Number.POSITIVE_INFINITY;
-  // Mirror render lists. `mirrorAlways` holds the map-spanning surfaces that no
-  // spatial cull can meaningfully reject — an avenue's road mesh is hundreds of
-  // metres long, and the sky is everywhere. `mirrorCandidates` is the ring
-  // gathered from the cell hash, re-gathered on movement; `mirrorRenderList` is
-  // that ring frustum-tested against the mirror camera, rebuilt in place per
-  // render. Babylon's ObjectRenderer culls nothing, so this is the whole cull.
-  private readonly mirrorAlways: AbstractMesh[] = [];
-  private readonly mirrorCandidates: AbstractMesh[] = [];
-  private readonly mirrorRenderList: AbstractMesh[] = [];
-  private mirrorGatheredX = Number.POSITIVE_INFINITY;
-  private mirrorGatheredZ = Number.POSITIVE_INFINITY;
-  private mirrorGatheredHeading = Number.POSITIVE_INFINITY;
-  private rearViewTexture: RenderTargetTexture | null = null;
-  private mirrorRenderCount = 0;
-  /** Cleared by the blurriest render rung, which sheds the mirrors entirely. */
-  private mirrorsAllowed = true;
-  private rearViewPanel: Mesh | null = null;
-  private wingMirrorTexture: RenderTargetTexture | null = null;
   private wingMirrorCamera: UniversalCamera | null = null;
-  private wingMirrorRig: TransformNode | null = null;
   private effectsPipeline: DefaultRenderingPipeline | null = null;
 
   constructor(
@@ -1698,6 +1672,10 @@ class BabylonGameSession {
     this.playerCockpit = new TransformNode("player-cockpit", this.scene);
     this.playerExterior.parent = this.player;
     this.playerCockpit.parent = this.player;
+    // Before buildEnvironment: buildScenarioEnvironment builds the cockpit,
+    // which calls back into buildWingMirror before this constructor ever
+    // reaches the rear-view mirror's own build() call further down.
+    this.mirrorRig = new MirrorRig(this.scene);
     this.buildEnvironment();
     this.buildPlayerCar();
     this.buildTraffic();
@@ -1776,7 +1754,7 @@ class BabylonGameSession {
     this.createEffectsPipeline();
     // Before setCameraMode: applyCameraStack registers the render targets, and
     // it can only register what already exists.
-    this.buildRearViewMirror();
+    this.mirrorRig.build(this.mirrorRigCtx());
     this.setCameraMode(this.cameraMode, false);
     this.installListeners();
     this.installDebugHooks();
@@ -1833,7 +1811,7 @@ class BabylonGameSession {
     this.firstCamera.fov = clampHorizontalFieldOfView(this.options.fieldOfView);
     // The mirror quad's size is derived from that field of view, so it has to
     // follow the slider or it drifts out from under its own HUD housing.
-    this.layoutMirrorPanels();
+    this.mirrorRig?.layoutPanels(this.mirrorRigCtx());
     if (options.cameraMode) this.setCameraMode(options.cameraMode, false);
     if (typeof options.paused === "boolean") this.setPaused(options.paused, false);
     this.audio?.setVolumes({
@@ -1927,27 +1905,7 @@ class BabylonGameSession {
     this.scene.activeCameras = [
       firstPerson ? this.firstCamera : this.thirdCamera,
     ];
-    this.setMirrorsActive(firstPerson);
-  }
-
-  /**
-   * Registers or withdraws the mirror render targets.
-   *
-   * An RTT only renders if something asks for it, and a texture used as an
-   * `emissiveTexture` is never discovered by the scene — only `reflectionTexture`
-   * and `refractionTexture` are. So it lives or dies by this list, which is also
-   * exactly what we want: in third person there is no mirror on screen and no
-   * reason to pay for one.
-   */
-  private setMirrorsActive(active: boolean) {
-    const targets = this.scene.customRenderTargets;
-    active = active && this.mirrorsAllowed;
-    for (const texture of [this.rearViewTexture, this.wingMirrorTexture]) {
-      if (!texture) continue;
-      const index = targets.indexOf(texture);
-      if (active && index === -1) targets.push(texture);
-      else if (!active && index !== -1) targets.splice(index, 1);
-    }
+    this.mirrorRig?.setActive(firstPerson);
   }
 
   setCameraMode(mode: CameraMode, notify = true) {
@@ -2087,11 +2045,8 @@ class BabylonGameSession {
     // Withdraw the mirrors before the scene goes: a render target left in
     // customRenderTargets keeps its render list — and through it the whole
     // scene graph — alive past dispose.
-    this.setMirrorsActive(false);
-    this.rearViewTexture?.dispose();
-    this.rearViewTexture = null;
-    this.wingMirrorTexture?.dispose();
-    this.wingMirrorTexture = null;
+    this.mirrorRig?.dispose();
+    this.mirrorRig = null;
     this.simulation.dispose();
     this.inputRouter.dispose();
     this.clearHeldInputs();
@@ -3416,13 +3371,14 @@ class BabylonGameSession {
         shadowGenerator: this.shadowGenerator,
         windscreenParts: this.windscreenParts,
         cameraMode: this.cameraMode,
-        rearViewPanel: this.rearViewPanel,
-        wingMirrorRig: this.wingMirrorRig,
+        rearViewPanel: this.mirrorRig?.rearViewPanel ?? null,
+        wingMirrorRig: this.mirrorRig?.wingMirrorRig ?? null,
         setMirrorsAllowed: (allowed) => {
-          this.mirrorsAllowed = allowed;
+          if (this.mirrorRig) this.mirrorRig.mirrorsAllowed = allowed;
         },
-        setMirrorsActive: (active) => this.setMirrorsActive(active),
-        syncWingMirrorVisibility: () => this.syncWingMirrorVisibility(),
+        setMirrorsActive: (active) => this.mirrorRig?.setActive(active),
+        syncWingMirrorVisibility: () =>
+          this.mirrorRig?.syncVisibility(this.mirrorRigCtx()),
       },
       now,
     );
@@ -5467,7 +5423,7 @@ class BabylonGameSession {
       masters: createParksRenderMasters(),
       lowSpec: this.lowSpec,
       registerMirrorSurface: (mesh: AbstractMesh | undefined | null) =>
-        this.registerMirrorSurface(mesh),
+        this.mirrorRig?.registerSurface(mesh),
       applyGrassDetailMap: (material: StandardMaterial, id: string) =>
         this.applyGrassDetailMap(material, id),
       applyWorldPlanarGrassUVs: (mesh: Mesh, offsetX?: number, offsetZ?: number) =>
@@ -5494,7 +5450,7 @@ class BabylonGameSession {
         ),
     };
     this.cameraFarPlaneM = createSkyAndHorizon(
-      { scene, registerMirrorSurface: (mesh) => this.registerMirrorSurface(mesh) },
+      { scene, registerMirrorSurface: (mesh) => this.mirrorRig?.registerSurface(mesh) },
       palette,
       mapId,
       mapPack.geometry.worldSize,
@@ -5631,12 +5587,12 @@ class BabylonGameSession {
     }
     setMeshMaterial(ground, grass, true);
     ground.freezeWorldMatrix();
-    this.registerMirrorSurface(ground);
+    this.mirrorRig?.registerSurface(ground);
     const waterLayer = new WaterLayer(scene);
     waterLayer.build(mapPack, mapId, {
       palette: this.visualPalette,
       lowSpec: this.lowSpec,
-      registerMirrorSurface: (mesh) => this.registerMirrorSurface(mesh),
+      registerMirrorSurface: (mesh) => this.mirrorRig?.registerSurface(mesh),
     });
     this.waterLayer = waterLayer;
 
@@ -5721,7 +5677,7 @@ class BabylonGameSession {
             : asphalt;
       // A slightly wider dirt band under each carriageway grounds the road
       // in the landscape instead of letting it float on the green plane.
-      this.registerMirrorSurface(
+      this.mirrorRig?.registerSurface(
         this.createRoadSurfaceMesh(
           `road-shoulder-${surface.id}`,
           surface.centerline,
@@ -5731,7 +5687,7 @@ class BabylonGameSession {
           ROAD_SHOULDER_Y,
         ),
       );
-      this.registerMirrorSurface(
+      this.mirrorRig?.registerSurface(
         this.createRoadSurfaceMesh(
           `road-${surface.id}`,
           surface.centerline,
@@ -5833,10 +5789,10 @@ class BabylonGameSession {
         }
       }
     }
-    this.registerMirrorSurface(
+    this.mirrorRig?.registerSurface(
       this.buildMergedMarkingMesh("road-markings-white", whitePaint, laneMaterial),
     );
-    this.registerMirrorSurface(
+    this.mirrorRig?.registerSurface(
       this.buildMergedMarkingMesh(
         "road-markings-yellow",
         yellowPaint,
@@ -7401,9 +7357,9 @@ class BabylonGameSession {
         // the frustum test against the mirror camera. A zero in either — or a
         // render count that stops climbing — is the silent failure mode, since
         // a mirror stuck on a stale texture looks plausible until you watch it.
-        mirrorRenders: this.mirrorRenderCount,
-        mirrorCandidates: this.mirrorCandidates.length,
-        mirrorDrawn: this.mirrorRenderList.length,
+        mirrorRenders: this.mirrorRig?.renderCount ?? 0,
+        mirrorCandidates: this.mirrorRig?.candidateCount ?? 0,
+        mirrorDrawn: this.mirrorRig?.drawnCount ?? 0,
         crowdInstances: this.crowdRenderer?.instanceCount ?? 0,
         crowdMeshes: this.crowdRenderer?.meshCount ?? 0,
         // Substage timings since the previous poll — reading resets the
@@ -7654,327 +7610,6 @@ class BabylonGameSession {
     };
   }
 
-  /**
-   * The rear-view mirror, as a throttled render target on a camera-locked quad.
-   *
-   * It used to be a third camera rendered straight into a screen-space viewport
-   * — a full extra scene pass, every frame, for a strip 23% of the screen wide.
-   * A viewport camera cannot be throttled (skip a frame and the strip shows
-   * whatever the main camera drew there), but a render target can: on a skipped
-   * frame Babylon does nothing at all and the texture keeps its contents. That
-   * is what makes a second mirror affordable.
-   *
-   * Deliberately no mipmaps — Babylon runs a full `gl.generateMipmap` on every
-   * render otherwise, and this is sampled at roughly 1:1.
-   */
-  private buildRearViewMirror() {
-    const scene = this.scene;
-    const texture = new RenderTargetTexture(
-      "rear-view-mirror",
-      { width: 256, height: 160 },
-      scene,
-      false,
-    );
-    texture.activeCamera = this.rearCamera;
-    texture.refreshRate = 2;
-    // A supplied render list bypasses Babylon's layer-mask check unless this is
-    // set, and without it the cabin would be drawn into its own mirror.
-    texture.forceLayerMaskCheck = true;
-    texture.clearColor = this.scene.clearColor.clone();
-    texture.getCustomRenderList = () =>
-      this.updateMirrorRenderList(this.rearCamera);
-    texture.onAfterRenderObservable.add(() => {
-      this.mirrorRenderCount += 1;
-    });
-    this.rearViewTexture = texture;
-
-    // Both slots, like the number plates and the instrument cluster. Emissive
-    // alone is not enough: StandardMaterial multiplies its lit result by the
-    // diffuse base, so a black diffuse leaves nothing for the reflection to
-    // modulate and the panel renders as its flat emissive colour.
-    const material = makeMaterial(
-      scene,
-      "rear-view-glass",
-      Color3.White(),
-      new Color3(0.72, 0.72, 0.72),
-    );
-    material.diffuseTexture = texture;
-    material.emissiveTexture = texture;
-    material.disableLighting = true;
-
-    const panel = MeshBuilder.CreatePlane(
-      "rear-view-panel",
-      { width: 1, height: 1 },
-      scene,
-    );
-    panel.parent = this.firstCamera;
-    setMeshMaterial(panel, material);
-    panel.layerMask = COCKPIT_LAYER_MASK;
-    panel.alwaysSelectAsActiveMesh = true;
-    panel.doNotSyncBoundingInfo = true;
-    this.rearViewPanel = panel;
-    this.layoutMirrorPanels();
-  }
-
-  /**
-   * The driver's wing mirror: a stalk, a shell, and glass showing its own
-   * render target.
-   *
-   * Unlike the rear view this is a real object out beside the door, so it moves
-   * with the cabin and is framed by the field of view like anything else — and
-   * at a narrow FOV it slides off the edge of the screen, at which point the
-   * whole thing including its render target is switched off rather than drawn
-   * as a sliver.
-   *
-   * Its camera looks back *and outboard*: the lane beside you is the one thing
-   * the rear-view mirror cannot show, and the only reason to have this at all.
-   */
-  private buildWingMirror(steeringRubber: StandardMaterial, shell: StandardMaterial) {
-    const scene = this.scene;
-    const side = wingMirrorSide(this.options.steeringSide);
-    // The rig sits at the cabin's own origin so the mount can be authored in
-    // plain cockpit coordinates alongside the door and pillar it has to meet;
-    // only the head is moved out to the mirror.
-    const rig = new TransformNode("wing-mirror", scene);
-    rig.parent = this.playerCockpit;
-    this.wingMirrorRig = rig;
-
-    const sail = createExtrudedPrism(
-      scene,
-      "wing-mirror-sail",
-      COCKPIT_WING_MIRROR.sailThickness,
-      WING_MIRROR_SAIL_PROFILE,
-      steeringRubber,
-      rig,
-    );
-    sail.position.x = side * COCKPIT_WING_MIRROR.sailX;
-
-    // The head carries the turn toward the seat, so the shell and the glass
-    // cannot come apart: both hang off it at zero rotation.
-    const head = new TransformNode("wing-mirror-head", scene);
-    head.parent = rig;
-    head.position.set(
-      side * COCKPIT_WING_MIRROR.lateral,
-      COCKPIT_WING_MIRROR.y,
-      COCKPIT_WING_MIRROR.z,
-    );
-    const headRotation = wingMirrorHeadRotation(this.options.steeringSide);
-    head.rotation.set(headRotation.x, headRotation.y, 0);
-
-    // Inboard in the head's space is -side: the yaw mirrors between drive
-    // sides, so local +x points inboard on the left of the car and outboard on
-    // the right. It starts inside the housing, so there is no seam where the
-    // two meet, and it clears the A-pillar, which has climbed well above this
-    // height by the z the arm reaches.
-    createBox(
-      scene,
-      "wing-mirror-arm",
-      {
-        width: COCKPIT_WING_MIRROR.armLength,
-        height: COCKPIT_WING_MIRROR.armHeight,
-        depth: COCKPIT_WING_MIRROR.armDepth,
-      },
-      new Vector3(
-        (-side * COCKPIT_WING_MIRROR.armLength) / 2,
-        COCKPIT_WING_MIRROR.armLocalY,
-        COCKPIT_WING_MIRROR.armLocalZ,
-      ),
-      shell,
-      head,
-    );
-    // Sized to hide behind the bezel from the front while still giving the
-    // housing real depth from any other angle.
-    createBox(
-      scene,
-      "wing-mirror-shell",
-      {
-        width: COCKPIT_WING_MIRROR.glassWidth * 0.88,
-        height: COCKPIT_WING_MIRROR.glassHeight * 0.86,
-        depth: 0.055,
-      },
-      Vector3.Zero(),
-      shell,
-      head,
-    );
-    const outline = wingMirrorOutline(this.options.steeringSide);
-    const bezelMargin = 1 + COCKPIT_WING_MIRROR.bezelMargin;
-    createChamferedPanel(
-      scene,
-      "wing-mirror-bezel",
-      outline,
-      COCKPIT_WING_MIRROR.glassWidth * bezelMargin,
-      COCKPIT_WING_MIRROR.glassHeight * bezelMargin,
-      shell,
-      head,
-    ).position.z = -0.026;
-
-    const camera = new UniversalCamera(
-      "wing-mirror-camera",
-      Vector3.Zero(),
-      scene,
-    );
-    camera.inputs.clear();
-    camera.minZ = 0.08;
-    camera.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
-    camera.fov = (58 * Math.PI) / 180;
-    camera.layerMask = WORLD_LAYER_MASK;
-    camera.maxZ = Math.min(this.cameraFarPlaneM, MIRROR_RADIUS_M);
-    this.wingMirrorCamera = camera;
-
-    const texture = new RenderTargetTexture(
-      "wing-mirror",
-      { width: 192, height: 128 },
-      scene,
-      false,
-    );
-    texture.activeCamera = camera;
-    // A third of the rear view's rate. It is a smaller image further into the
-    // corner of the eye, and staggering the two means they never both render on
-    // the same frame — otherwise frame times spike in lockstep instead of
-    // staying flat, which is worse than either cost on its own.
-    texture.refreshRate = 3;
-    texture.forceLayerMaskCheck = true;
-    texture.clearColor = this.scene.clearColor.clone();
-    texture.getCustomRenderList = () => this.updateMirrorRenderList(camera);
-    this.wingMirrorTexture = texture;
-
-    const glassMaterial = makeMaterial(
-      scene,
-      "wing-mirror-glass",
-      Color3.White(),
-      new Color3(0.62, 0.62, 0.62),
-    );
-    glassMaterial.diffuseTexture = texture;
-    glassMaterial.emissiveTexture = texture;
-    glassMaterial.disableLighting = true;
-
-    const glass = createChamferedPanel(
-      scene,
-      "wing-mirror-glass",
-      outline,
-      COCKPIT_WING_MIRROR.glassWidth,
-      COCKPIT_WING_MIRROR.glassHeight,
-      glassMaterial,
-      head,
-    );
-    glass.position.z = -0.029;
-  }
-
-  /** Hides the wing mirror, and stops rendering it, when the field of view has
-   * pushed it off the side of the screen. */
-  private syncWingMirrorVisibility() {
-    const rig = this.wingMirrorRig;
-    if (!rig) return;
-    const visible = wingMirrorIsVisible(
-      this.firstCamera.fov,
-      this.options.steeringSide,
-    );
-    if (rig.isEnabled(false) !== visible) rig.setEnabled(visible);
-  }
-
-  /**
-   * Sizes the mirror quad to the viewport rectangle it stands in for.
-   *
-   * Must run whenever the field of view or the canvas shape changes, or the
-   * image slides out from under the HUD housing drawn around it.
-   */
-  private layoutMirrorPanels() {
-    const panel = this.rearViewPanel;
-    if (!panel) return;
-    const distance = this.firstCamera.minZ * 3;
-    const placement = cameraPanelPlacement(
-      REAR_VIEW_VIEWPORT,
-      this.firstCamera.fov,
-      this.viewportAspectRatio(),
-      distance,
-    );
-    panel.scaling.set(placement.width, placement.height, 1);
-    panel.position.set(placement.x, placement.y, distance);
-    this.syncWingMirrorVisibility();
-  }
-
-  private viewportAspectRatio(): number {
-    const width = this.engine.getRenderWidth();
-    const height = this.engine.getRenderHeight();
-    return height > 0 ? width / height : 2;
-  }
-
-  /**
-   * Re-gathers the ring of static meshes a mirror could possibly see.
-   *
-   * Amortised: only when the player has covered ground or swung round a
-   * junction. The result is a candidate set of a few hundred, which
-   * `updateMirrorRenderList` then frustum-tests per render.
-   */
-  private refreshMirrorCandidates() {
-    const heading = this.displayedHeading;
-    if (
-      !mirrorCandidatesAreStale(
-        this.mirrorGatheredX,
-        this.mirrorGatheredZ,
-        this.displayedX,
-        this.displayedZ,
-        heading - this.mirrorGatheredHeading,
-      )
-    ) {
-      return;
-    }
-    this.mirrorGatheredX = this.displayedX;
-    this.mirrorGatheredZ = this.displayedZ;
-    this.mirrorGatheredHeading = heading;
-    this.mirrorCandidates.length = 0;
-    // One cone wide enough to cover every mirror on the car, rather than a ring
-    // per mirror: the gather is the expensive half and the frustum test below
-    // is what actually decides. A car's mirrors all point broadly backwards.
-    const cells = mirrorCells(BabylonGameSession.SHADOW_CELL_M, {
-      x: this.displayedX,
-      z: this.displayedZ,
-      dirX: -Math.sin(heading),
-      dirZ: -Math.cos(heading),
-      halfAngleRad: (105 * Math.PI) / 180,
-      radiusM: MIRROR_RADIUS_M,
-    });
-    for (const cell of cells) {
-      const bucket = this.shadowCasterCells.get(`${cell.cellX}:${cell.cellZ}`);
-      if (!bucket) continue;
-      for (const entry of bucket) this.mirrorCandidates.push(entry.mesh);
-    }
-  }
-
-  /**
-   * Rebuilds what a mirror actually draws, in place.
-   *
-   * Babylon's ObjectRenderer frustum-culls nothing — it draws whatever list it
-   * is handed — so this does the job `Scene._evaluateActiveMeshes` does for a
-   * real camera, but over a few hundred pre-gathered candidates instead of the
-   * fifteen thousand meshes in the city. That difference is the entire reason a
-   * mirror can be a render target here rather than a second full scene pass.
-   */
-  private updateMirrorRenderList(camera: UniversalCamera): AbstractMesh[] {
-    this.refreshMirrorCandidates();
-    const list = this.mirrorRenderList;
-    list.length = 0;
-    for (const mesh of this.mirrorAlways) list.push(mesh);
-    camera.computeWorldMatrix();
-    const planes = Frustum.GetPlanes(
-      camera.getViewMatrix().multiply(camera.getProjectionMatrix(true)),
-    );
-    for (const mesh of this.mirrorCandidates) {
-      if (!mesh.isEnabled()) continue;
-      if (mesh.isInFrustum(planes)) list.push(mesh);
-    }
-    if (this.playerVehicleVisual) {
-      for (const mesh of this.playerVehicleVisual.shadowCasters) list.push(mesh);
-    }
-    for (const npc of this.npcVehicles) {
-      if (npc.active === false) continue;
-      for (const mesh of npc.visual.shadowCasters) {
-        if (mesh.isInFrustum(planes)) list.push(mesh);
-      }
-    }
-    return list;
-  }
-
   /** Static casters never move again, so their world matrices freeze here. */
   private registerShadowCaster(mesh: AbstractMesh, x: number, z: number) {
     this.registerStaticCell(mesh, x, z, true);
@@ -8071,8 +7706,38 @@ class BabylonGameSession {
     );
   }
 
-  private registerMirrorSurface(mesh: AbstractMesh | undefined | null) {
-    if (mesh) this.mirrorAlways.push(mesh);
+  /** Every field `MirrorRig`'s build/layout/visibility methods read off the
+   * session; constructed fresh at every call site rather than cached, since
+   * `steeringSide`/camera FOV/viewport size all change under it. */
+  private mirrorRigCtx(): MirrorRigCtx {
+    return {
+      firstCamera: this.firstCamera,
+      rearCamera: this.rearCamera,
+      playerCockpit: this.playerCockpit,
+      cameraFarPlaneM: this.cameraFarPlaneM,
+      steeringSide: this.options.steeringSide,
+      engineRenderWidth: this.engine.getRenderWidth(),
+      engineRenderHeight: this.engine.getRenderHeight(),
+      gatherFrameState: () => this.gatherMirrorFrameState(),
+    };
+  }
+
+  /** Captured by `MirrorRig`'s `texture.getCustomRenderList` closures at
+   * build time; Babylon calls it on its own schedule for the texture's
+   * lifetime, so every read here must be live session state, never a
+   * snapshot taken once. */
+  private gatherMirrorFrameState(): MirrorFrameInputs {
+    return {
+      displayedX: this.displayedX,
+      displayedZ: this.displayedZ,
+      displayedHeading: this.displayedHeading,
+      shadowCellM: BabylonGameSession.SHADOW_CELL_M,
+      shadowCasterCells: this.shadowCasterCells,
+      playerShadowCasters: this.playerVehicleVisual?.shadowCasters ?? [],
+      activeNpcShadowCasters: this.npcVehicles
+        .filter((npc) => npc.active !== false)
+        .map((npc) => npc.visual.shadowCasters),
+    };
   }
 
   private static readonly SHADOW_CASTER_RADIUS_M = 90;
@@ -8223,7 +7888,7 @@ class BabylonGameSession {
     const yardPalette = resolveMapVisualPalette("orientation-yard");
     this.visualPalette = yardPalette;
     this.cameraFarPlaneM = createSkyAndHorizon(
-      { scene, registerMirrorSurface: (mesh) => this.registerMirrorSurface(mesh) },
+      { scene, registerMirrorSurface: (mesh) => this.mirrorRig?.registerSurface(mesh) },
       yardPalette,
       "orientation-yard",
       { x: 180, z: 180 },
@@ -8404,8 +8069,17 @@ class BabylonGameSession {
       playerCockpit: this.playerCockpit,
       visualPalette: this.visualPalette,
       steeringSide: this.options.steeringSide,
-      buildWingMirror: (steeringRubber, shell) =>
-        this.buildWingMirror(steeringRubber, shell),
+      buildWingMirror: (steeringRubber, shell) => {
+        // updateCamera positions this every frame via resolveWingMirrorPose,
+        // so the session needs the reference back — buildWingMirror lives on
+        // the collaborator, but the camera itself stays session-resident.
+        const camera = this.mirrorRig?.buildWingMirror(
+          this.mirrorRigCtx(),
+          steeringRubber,
+          shell,
+        );
+        if (camera) this.wingMirrorCamera = camera;
+      },
     });
     this.steeringAssembly = cockpit.steeringAssembly;
     this.gaugeNeedles = cockpit.gaugeNeedles;
@@ -8828,7 +8502,7 @@ class BabylonGameSession {
     };
     const onResize = () => {
       this.engine.resize();
-      this.layoutMirrorPanels();
+      this.mirrorRig?.layoutPanels(this.mirrorRigCtx());
     };
     const onOrientationChange = () => {
       this.engine.resize();
