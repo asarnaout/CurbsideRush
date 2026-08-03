@@ -15,7 +15,6 @@ import type {
   GameRuntimeEvent,
 } from "./game/sessionContract";
 import {
-  COUNTRY_PROFILES,
   DESTINATION_PROFILES,
   getCountryProfile,
   getDestinationProfile,
@@ -111,6 +110,9 @@ import {
 } from "./CareerViews";
 import type { TravelCityFacts } from "./CareerViews";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { MobilePlayTips } from "./MobilePlayTips";
+import { SettingsView } from "./SettingsView";
+import { CreditsView } from "./CreditsView";
 import {
   FULL_CONDITION_PCT,
   MIN_REPAIRABLE_DAMAGE_PCT,
@@ -275,13 +277,6 @@ const GameCanvas = dynamic(() => import("./game/GameCanvas"), {
   ),
 });
 
-type ChoiceOption<T extends string> = {
-  readonly value: T;
-  readonly symbol: string;
-  readonly label: string;
-  readonly hint: string;
-};
-
 /**
  * Short commit ref of the running build, frozen in by `vite.config.ts` from
  * Netlify's `COMMIT_REF`. `"dev"` locally. Declared rather than imported
@@ -291,19 +286,11 @@ declare const __BUILD_REF__: string;
 const BUILD_REF: string =
   typeof __BUILD_REF__ === "string" ? __BUILD_REF__ : "dev";
 
-const CAMERA_CHOICES: readonly ChoiceOption<CameraMode>[] = [
-  { value: "first_person", symbol: "1P", label: "Driver view", hint: "First person" },
-  { value: "third_person", symbol: "3P", label: "Chase view", hint: "Third person" },
-];
-
 const toCanvasCamera = (camera: CameraMode): "first" | "third" =>
   camera === "first_person" ? "first" : "third";
 
 const fromCanvasCamera = (camera: "first" | "third"): CameraMode =>
   camera === "first" ? "first_person" : "third_person";
-
-const clamp = (value: number, minimum: number, maximum: number) =>
-  Math.min(maximum, Math.max(minimum, value));
 
 function useGamepadUiNavigation(
   enabled: boolean,
@@ -3887,225 +3874,3 @@ export default function SideSwapApp() {
   );
 }
 
-/**
- * Sets expectations before the drive rather than after it.
- *
- * Neither piece of advice can be replaced by code on an iPhone. Safari has
- * never shipped `ScreenOrientation.lock()`, so the rotate gate is unavoidable;
- * and it has no Fullscreen API for anything but `<video>`, while its own
- * toolbar hiding only responds to scrolling — which the drive screen, being
- * `position: fixed` with `touch-action: none`, structurally cannot do. Added to
- * the Home Screen there is no browser chrome in the first place, so on that
- * device this is the whole answer rather than a nicety.
- */
-function MobilePlayTips({ needsHomeScreen }: { needsHomeScreen: boolean }) {
-  // Styled in `globals.css` (`.launcher-tip`) rather than inline, unlike the
-  // driving HUD: these are launcher chrome, and a landscape phone hides the
-  // rotate line — which an inline `display` would have outranked.
-  return (
-    <>
-      <p className="launcher-tip launcher-tip-rotate">
-        <span aria-hidden="true">↻</span>
-        Best played with your phone sideways.
-      </p>
-      {needsHomeScreen && (
-        <p className="launcher-tip" data-testid="home-screen-tip">
-          <span aria-hidden="true">⤴</span>
-          <span>
-            For a full screen with no browser bars, tap <strong>Share</strong>{" "}
-            then <strong>Add to Home Screen</strong>, and open it from there.
-          </span>
-        </p>
-      )}
-    </>
-  );
-}
-
-function OptionPicker<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-  hint,
-}: {
-  label: string;
-  value: T;
-  options: readonly ChoiceOption<T>[];
-  onChange: (value: T) => void;
-  hint?: string;
-}) {
-  return (
-    <fieldset className="choice-control">
-      <legend>{label}</legend>
-      <div className={`choice-control-options columns-${options.length}`}>
-        {options.map((option) => {
-          const selected = value === option.value;
-          return (
-            <button
-              key={option.value}
-              className="choice-control-option"
-              type="button"
-              aria-pressed={selected}
-              onClick={() => onChange(option.value)}
-            >
-              <span className="choice-control-symbol" aria-hidden="true">{option.symbol}</span>
-              <span className="choice-control-copy">
-                <strong>{option.label}</strong>
-                <small>{option.hint}</small>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      {hint && <p className="choice-control-hint">{hint}</p>}
-    </fieldset>
-  );
-}
-
-function RangeControl({
-  label,
-  value,
-  min,
-  max,
-  step,
-  formatValue,
-  ariaValueText,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  formatValue: (value: number) => string;
-  ariaValueText: (value: number) => string;
-  onChange: (value: number) => void;
-}) {
-  const progress = clamp(((value - min) / (max - min)) * 100, 0, 100);
-  return (
-    <label className="range-control">
-      <span><strong>{label}</strong><output>{formatValue(value)}</output></span>
-      <input
-        aria-label={label}
-        aria-valuetext={ariaValueText(value)}
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        style={{ "--range-progress": `${progress}%` } as CSSProperties}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-    </label>
-  );
-}
-
-function SettingsView({ progress, onSave, onReset, onBack }: { progress: PlayerProgressV2; onSave: (value: PlayerProgressV2) => void; onReset: () => void; onBack: () => void }) {
-  const [draft, setDraft] = useState(progress);
-  const updateAccessibility = (patch: Partial<PlayerProgressV2["accessibility"]>) => setDraft((current) => ({ ...current, accessibility: { ...current.accessibility, ...patch } }));
-  return (
-    <section className="subpage settings-page">
-      <div className="settings-grid">
-        <section className="settings-card" aria-labelledby="driving-preferences-title">
-          <div className="settings-card-head">
-            <h2 id="driving-preferences-title"><span className="settings-card-dot dot-yellow" aria-hidden="true" />Driving preferences</h2>
-            <p className="settings-card-sub">How the car handles and frames the road.</p>
-          </div>
-          <OptionPicker<CameraMode>
-            label="Default camera"
-            value={draft.preferredCamera}
-            options={CAMERA_CHOICES}
-            onChange={(preferredCamera) => setDraft((current) => ({ ...current, preferredCamera }))}
-          />
-          <div className="settings-toggle-stack">
-            <Toggle label="Camera shake" checked={draft.accessibility.cameraShake} onChange={(checked) => updateAccessibility({ cameraShake: checked })} />
-            <Toggle label="First-person head bob" checked={draft.accessibility.headBob} onChange={(checked) => updateAccessibility({ headBob: checked })} />
-          </div>
-        </section>
-        <section className="settings-card" aria-labelledby="accessibility-audio-title">
-          <div className="settings-card-head">
-            <h2 id="accessibility-audio-title"><span className="settings-card-dot dot-sage" aria-hidden="true" />Accessibility &amp; audio</h2>
-            <p className="settings-card-sub">Readability cues and sound.</p>
-          </div>
-          <div className="settings-toggle-stack">
-            <Toggle label="Subtitles" checked={draft.accessibility.subtitles} onChange={(checked) => updateAccessibility({ subtitles: checked })} />
-            <Toggle label="Visual honk cue" checked={draft.accessibility.visualHonkIndicator} onChange={(checked) => updateAccessibility({ visualHonkIndicator: checked })} />
-            <Toggle label="Reduced motion" checked={draft.accessibility.reducedMotion} onChange={(checked) => updateAccessibility({ reducedMotion: checked })} />
-          </div>
-          <div className="settings-range-stack">
-            <RangeControl label="Steering sensitivity" value={draft.accessibility.steeringSensitivity} min={0.5} max={2} step={0.1} formatValue={(value) => `${value.toFixed(1)}×`} ariaValueText={(value) => `${value.toFixed(1)} times`} onChange={(steeringSensitivity) => updateAccessibility({ steeringSensitivity })} />
-            <RangeControl label="Field of view" value={draft.accessibility.fieldOfView} min={55} max={100} step={1} formatValue={(value) => `${value}°`} ariaValueText={(value) => `${value} degrees`} onChange={(fieldOfView) => updateAccessibility({ fieldOfView })} />
-            <RangeControl label="Master volume" value={draft.accessibility.masterVolume} min={0} max={1} step={0.05} formatValue={(value) => `${Math.round(value * 100)}%`} ariaValueText={(value) => `${Math.round(value * 100)} percent`} onChange={(masterVolume) => updateAccessibility({ masterVolume })} />
-            <RangeControl label="Effects volume" value={draft.accessibility.effectsVolume} min={0} max={1} step={0.05} formatValue={(value) => `${Math.round(value * 100)}%`} ariaValueText={(value) => `${Math.round(value * 100)} percent`} onChange={(effectsVolume) => updateAccessibility({ effectsVolume })} />
-            <RangeControl label="Music volume" value={draft.accessibility.musicVolume} min={0} max={1} step={0.05} formatValue={(value) => `${Math.round(value * 100)}%`} ariaValueText={(value) => `${Math.round(value * 100)} percent`} onChange={(musicVolume) => updateAccessibility({ musicVolume })} />
-          </div>
-        </section>
-      </div>
-      <div className="settings-actions">
-        <button className="secondary-button" type="button" onClick={onBack}>Back to Homepage</button>
-        <button type="button" className="danger-button" onClick={onReset}>Reset local progress</button>
-        <button type="button" className="primary-button" onClick={() => { onSave({ ...draft, updatedAt: new Date().toISOString() }); onBack(); }}>Save settings</button>
-      </div>
-    </section>
-  );
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return <label className="toggle-row"><strong>{label}</strong><input className="sr-only" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i aria-hidden="true" /></label>;
-}
-
-function CreditsView({ onBack }: { onBack: () => void }) {
-  const references = Array.from(new Map(COUNTRY_PROFILES.flatMap((country) => country.officialReferences).map((reference) => [reference.id, reference])).values());
-  const extracts = [
-    ["New York", "nyc-upper-west.json"],
-    ["London — South Kensington", "uk-london-south-kensington.json"],
-    ["Tokyo Setagaya", "jp-setagaya.json"],
-    ["Cairo — Central Nile", "eg-cairo-central-nile.json"],
-  ] as const;
-  return (
-    <section className="subpage credits-page">
-      <div className="subpage-heading">
-        <div>
-          <p className="eyebrow">SOURCES &amp; CREDITS</p>
-          <h1>Rules should have receipts.</h1>
-          <p>Every assessed rule is tied to an official source and review date. OpenStreetMap supplies geography only.</p>
-        </div>
-        <button className="secondary-button" type="button" onClick={onBack}>Back to Homepage</button>
-      </div>
-      <article className="license-card">
-        <h3 className="credits-section-title"><span className="settings-card-dot dot-sage" aria-hidden="true" />Map data — frozen, credited, separate from the law</h3>
-        <p>Curbside Rush includes compact snapshots for Upper West Side, South Kensington, Setagaya and Central Cairo. Each extract records its bounds, freeze timestamp, source and content checksums, and importer version. The game makes no runtime map requests.</p>
-        <div className="map-downloads" aria-label="Download frozen map extracts">
-          {extracts.map(([label, filename]) => (
-            <a key={filename} href={`/map-data/${filename}`} download>
-              <span className="map-glyph" aria-hidden="true">{"{ }"}</span>
-              <span className="map-copy"><strong>{label}</strong><small>JSON · importer v2</small></span>
-            </a>
-          ))}
-        </div>
-        <a className="osm-link" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">Map data © OpenStreetMap contributors · ODbL 1.0 ↗</a>
-      </article>
-      <h3 className="credits-section-title with-count">
-        <span className="settings-card-dot dot-yellow" aria-hidden="true" />Rule sources
-        <span className="credits-count">· {references.length} official references</span>
-      </h3>
-      <div className="source-groups">
-        {COUNTRY_PROFILES.map((country) => (
-          <section className="source-group" key={country.id}>
-            <div className="source-group-head"><span className="flag">{country.flagEmoji}</span> {country.countryName}</div>
-            {country.officialReferences.map((reference) => (
-              <a className="source-row" key={reference.id} href={reference.url} target="_blank" rel="noreferrer">
-                <span className="source-row-copy">
-                  <span className="source-juris">{reference.jurisdiction}</span>
-                  <strong>{reference.title}</strong>
-                  <small>{reference.authority} · reviewed {reference.reviewedOn}</small>
-                </span>
-                <b className="source-arrow" aria-hidden="true">↗</b>
-              </a>
-            ))}
-          </section>
-        ))}
-      </div>
-    </section>
-  );
-}
