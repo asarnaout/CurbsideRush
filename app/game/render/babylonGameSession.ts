@@ -105,7 +105,6 @@ import {
   type DestructiblePropPart,
 } from "./propCatalog";
 import { createSkyAndHorizon, createSunShadows } from "./skyAndShadows";
-import { buildCairoLandmark } from "./cairoLandmarks";
 import { buildRoadsideProps } from "./roadsideProps";
 import {
   buildRepairShop,
@@ -113,12 +112,11 @@ import {
   instantiateProp,
   placeProp,
 } from "./venueProps";
+import { buildRegulatorySigns, buildSpeedLimitSigns } from "./londonLandmarks";
 import {
-  buildLondonLandmark,
-  buildLondonStreetFurniture,
-  buildRegulatorySigns,
-  buildSpeedLimitSigns,
-} from "./londonLandmarks";
+  cityRenderRegistryFor,
+  type CityRenderRegistryCtx,
+} from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
 import { buildCockpit } from "./cockpitBuilder";
 import { governRenderScaling } from "./perfGovernor";
@@ -4515,6 +4513,18 @@ export class BabylonGameSession {
           surfaceY,
         ),
     };
+    const cityRenderCtx: CityRenderRegistryCtx = {
+      scene,
+      staticSceneryFreeze: this.staticSceneryFreeze,
+      visualPalette: palette,
+      registerShadowCaster: (mesh, x, z) => this.registerShadowCaster(mesh, x, z),
+      registerDestructibleProp: (kind, x, z, scale, parts) =>
+        this.destructibles?.register(kind, x, z, scale, parts),
+      buildFlatPolygonMesh: (id, polygon, y, polygonMaterial) =>
+        buildFlatPolygonMesh(parksRenderCtx, id, polygon, y, polygonMaterial),
+      buildParkLawnPolygon: (id, polygon, polygonPalette, mapPackId) =>
+        buildParkLawnPolygon(parksRenderCtx, id, polygon, polygonPalette, mapPackId),
+    };
     this.cameraFarPlaneM = createSkyAndHorizon(
       { scene, registerMirrorSurface: (mesh) => this.mirrorRig?.registerSurface(mesh) },
       palette,
@@ -5553,40 +5563,8 @@ export class BabylonGameSession {
     for (const landmark of mapPack.geometry.landmarks) {
       const color = colorFromHex(landmark.color, new Color3(0.35, 0.5, 0.4));
       const material = makeMaterial(scene, `landmark-${landmark.id}`, color);
-      if (
-        mapId.includes("london") &&
-        buildLondonLandmark(
-          {
-            scene,
-            staticSceneryFreeze: this.staticSceneryFreeze,
-            registerShadowCaster: (mesh, x, z) =>
-              this.registerShadowCaster(mesh, x, z),
-            registerDestructibleProp: (kind, x, z, scale, parts) =>
-              this.destructibles?.register(kind, x, z, scale, parts),
-          },
-          landmark,
-          material,
-        )
-      ) {
-        continue;
-      }
-      if (
-        resolveMapVisualKey(mapId) === "cairo" &&
-        buildCairoLandmark(
-          {
-            scene,
-            visualPalette: this.visualPalette,
-            staticSceneryFreeze: this.staticSceneryFreeze,
-            buildFlatPolygonMesh: (id, polygon, y, polygonMaterial) =>
-              buildFlatPolygonMesh(parksRenderCtx, id, polygon, y, polygonMaterial),
-            buildParkLawnPolygon: (id, polygon, palette, mapPackId) =>
-              buildParkLawnPolygon(parksRenderCtx, id, polygon, palette, mapPackId),
-          },
-          landmark,
-          material,
-          mapPack,
-        )
-      ) {
+      const cityLandmarks = cityRenderRegistryFor(mapId)?.landmarks;
+      if (cityLandmarks && cityLandmarks(cityRenderCtx, landmark, material, mapPack)) {
         continue;
       }
       if (mapId.includes("orientation") && landmark.id === "yard-cones") {
@@ -5660,16 +5638,7 @@ export class BabylonGameSession {
       }
     }
 
-    if (mapId.includes("london")) {
-      buildLondonStreetFurniture({
-        scene,
-        staticSceneryFreeze: this.staticSceneryFreeze,
-        registerShadowCaster: (mesh, x, z) =>
-          this.registerShadowCaster(mesh, x, z),
-        registerDestructibleProp: (kind, x, z, scale, parts) =>
-          this.destructibles?.register(kind, x, z, scale, parts),
-      });
-    }
+    cityRenderRegistryFor(mapId)?.streetFurniture?.(cityRenderCtx);
 
     const redLamp = makeMaterial(scene, "scenario-signal-red", new Color3(0.45, 0.02, 0.01));
     const amberLamp = makeMaterial(scene, "scenario-signal-amber", new Color3(0.55, 0.27, 0.015));
