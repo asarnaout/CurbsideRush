@@ -23,6 +23,19 @@ everything the ring label above describes — the Babylon scene, input,
 cameras, audio and the fixed-step pump. See rendering.md's "Shape of the
 file" for the split.
 
+The outer ring is split too, since the Phase 5 god-file decomposition:
+`SideSwapApp.tsx` stays the state owner (progress, career, dispatch, the
+view switch) and composes `app/LauncherView.tsx`, `app/SettingsView.tsx`,
+`app/CreditsView.tsx` and `app/DriveScreen.tsx` — each a props-pure child
+component, all state and derived values threaded down rather than read
+from context. `app/uiControls.tsx` and `app/MobilePlayTips.tsx` hold
+`LauncherView`'s/`SettingsView`'s own shared form controls;
+`app/useGamepadUiNavigation.ts` is a standalone hook. `handleGameEvent`
+(the `GameRuntimeEvent` switch) stays inline in `SideSwapApp.tsx` — its
+closure surface (38 distinct state/ref/callback bindings) is well past
+the ~15-entry threshold the decomposition plan set for extracting it
+into a free function.
+
 The props/HUD/event types on the SideSwapApp<->GameCanvas edge — including
 `GameHudSnapshot` and `GameRuntimeEvent` above — live in
 `app/game/sessionContract.ts`, not in `GameCanvas.tsx` itself. It is
@@ -36,9 +49,10 @@ another.
 `Math.random`, or `Date.now`. That purity is the load-bearing property of the
 whole design and is guarded by `tests/architecture.test.ts`, which also pins
 the ring arrows above (`BabylonGameSession` never reaches `content.ts`;
-SideSwapApp touches GameCanvas only through one `dynamic()` literal, plus at
-most one type-only import which today it has none of, having moved
-everything to `sessionContract.ts`). See [simulation-core.md](simulation-core.md).
+`app/DriveScreen.tsx` — the drive screen `SideSwapApp.tsx` renders GameCanvas
+through, since the Phase 5 god-file decomposition — holds the one `dynamic()`
+literal; `SideSwapApp.tsx` itself has zero references to GameCanvas, not
+even type-only). See [simulation-core.md](simulation-core.md).
 
 `simulationAdapter.ts` imports `sessionContract.ts` **type-only** for the
 lesson/map-pack shapes it consumes, so there is no cycle with

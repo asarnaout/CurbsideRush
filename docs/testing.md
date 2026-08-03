@@ -82,7 +82,7 @@ name.
 test.tsx`, `mirrorRigCharacterization.test.tsx` and
 `cutsceneDirectorCharacterization.test.tsx` (all jsdom) are different in
 kind from `gameCanvasInput.test.ts` above, and are the only other runtime
-loads besides `SideSwapApp`'s lazy `dynamic()`: all six deliberately mount
+loads besides `DriveScreen`'s lazy `dynamic()`: all six deliberately mount
 the real component, session and a `NullEngine` (copying the same jsdom-gap
 workarounds — see the first file's header for why), so a
 `window`/`document`/WebGL touch is what they exist to exercise, not a
