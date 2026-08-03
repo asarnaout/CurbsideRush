@@ -7,8 +7,9 @@ the drive screen.
 ## One z-order, spanning two files
 
 **`DRIVE_LAYER` in `driveLayers.ts` is the drive screen's only stacking order.**
-Controls come from `GameCanvas`, the HUD from `SideSwapApp`, and they are siblings
-in `.game-page`'s stacking context.
+Controls come from `GameCanvas`, the HUD from `DriveScreen.tsx` (the drive
+screen `SideSwapApp.tsx` renders, since the Phase 5 god-file decomposition),
+and they are siblings in `.game-page`'s stacking context.
 
 ```
 scrim 5  <  hud 10  <  touch 20  <  toast 30  <  action 40  <  offer 45  <  curtain 50
@@ -72,9 +73,9 @@ camera/pause/fullscreen, the only way to reclaim Safari's chrome mid-drive.
 **The career shift clock has two homes, and only one may be on screen at a
 time.** `resolveDayTimer` feeds both the numerals inside `DriveSpeedCluster` and
 the `DriveDayEdge` bar, so the two can never disagree about what colour the day
-is. `dayTimerInRow` in `SideSwapApp` is the switch: when it is false the clock
-falls back to the `money.label` line in `DriveStatusCard`'s header, which is
-where it lived before #236.
+is. `dayTimerInRow` (`SideSwapApp.tsx` computes it, `DriveScreen.tsx` reads it)
+is the switch: when false, the clock falls back to the `money.label` line in
+`DriveStatusCard`'s header, which is where it lived before #236.
 
 **On a phone that switch is a width question, and the constant that decides it is
 governed by `SAFE_RIGHT`, not by the obvious arithmetic.** The band's right end
@@ -100,8 +101,8 @@ number in `DAY_TIMER_METRICS` already in real screen pixels.
 
 A landscape phone is ~343 px tall, not the ~390 the arithmetic wants.
 `TOUCH_TOP_RAIL_PX` / `TOUCH_MINIMAP_PX` / `TOUCH_PEDAL_BLOCK_PX` /
-`TOUCH_LEFT_RAIL_PX` are **exported** because `SideSwapApp` places the status panel
-and minimap against them, and the rail arithmetic is asserted in
+`TOUCH_LEFT_RAIL_PX` are **exported** because `DriveScreen.tsx` places the status
+panel and minimap against them, and the rail arithmetic is asserted in
 `touchDriveControls.test.tsx` — jsdom has no layout, so that test *is* the check.
 
 Two constants that look like one but are not: `TOUCH_TOP_RAIL_PX` is a **height**

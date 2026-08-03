@@ -101,26 +101,27 @@ describe("ring boundaries hold today", () => {
     expect(dependencySpecifiers(source)).not.toContain("../content");
   });
 
-  it("SideSwapApp's only static reference to GameCanvas is a type-only import, alongside exactly one dynamic() literal", () => {
-    const source = read("app", "SideSwapApp.tsx");
-
+  it("DriveScreen holds the one dynamic() literal for GameCanvas; SideSwapApp has no static reference to it at all", () => {
+    // The mount moved from SideSwapApp.tsx to DriveScreen.tsx in the Phase 5
+    // god-file decomposition (DriveScreen is GameCanvas's only remaining
+    // render site) — this asserts the invariant against its new home rather
+    // than dropping it.
+    const driveScreenSource = stripComments(read("app", "DriveScreen.tsx"));
     const dynamicLiterals = [
-      ...source.matchAll(
+      ...driveScreenSource.matchAll(
         /dynamic\(\s*\(\)\s*=>\s*import\(\s*["']\.\/game\/GameCanvas["']\s*\)/g,
       ),
     ];
     expect(dynamicLiterals).toHaveLength(1);
 
-    // At most one — SideSwapApp may hold zero (every prop/callback type now
-    // lives in sessionContract.ts) or one static reference, and if one
-    // exists it must be type-only; either way, no runtime value import.
-    const staticImports = importStatements(source).filter((statement) =>
-      statement.includes("./game/GameCanvas"),
+    // SideSwapApp no longer references GameCanvas at all — not even
+    // type-only, unlike the pre-DriveScreen era where it could hold a
+    // type-only import of the props it passed straight through.
+    const sideSwapAppSource = read("app", "SideSwapApp.tsx");
+    const staticImports = importStatements(sideSwapAppSource).filter(
+      (statement) => statement.includes("./game/GameCanvas"),
     );
-    expect(staticImports.length).toBeLessThanOrEqual(1);
-    if (staticImports.length === 1) {
-      expect(staticImports[0].startsWith("import type")).toBe(true);
-    }
+    expect(staticImports).toHaveLength(0);
   });
 
   it("nothing under app/game imports the app shell", () => {
