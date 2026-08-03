@@ -15,7 +15,7 @@ import {
   isInsideKeepOut,
   keptStreetWallBuildings,
   stagedBlockersOf,
-} from "../app/game/GameCanvas";
+} from "../app/game/geometry/facadesAndKeepouts";
 import {
   buildingPlacementConfig,
   isBuildingSetId,

@@ -6,7 +6,7 @@ import {
   appendSolidMarkingBoxes,
   createMarkingGeometry,
   type MarkingGeometry,
-} from "../app/game/GameCanvas";
+} from "../app/game/render/meshPrimitives";
 import {
   splitMarkingAtCrossings,
   type MarkingPoint,

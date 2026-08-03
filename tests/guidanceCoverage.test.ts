@@ -3,7 +3,7 @@ import { MAP_PACKS } from "../app/game/content";
 import {
   buildRoadSurfaceStripGeometry,
   smoothClosedRoadCenterline,
-} from "../app/game/GameCanvas";
+} from "../app/game/geometry/roadStrips";
 
 interface Point {
   readonly x: number;

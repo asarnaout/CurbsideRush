@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { EGYPT_SIGNAL_BORDER_BARS } from "../app/game/GameCanvas";
+import { EGYPT_SIGNAL_BORDER_BARS } from "../app/game/geometry/roadFurnitureLayout";
+import { buildFacadeLayout } from "../app/game/geometry/facadesAndKeepouts";
 
 /**
  * Guards the dependency-arrow rules the god-file decomposition program relies
@@ -221,6 +222,20 @@ describe("import-time computations are pinned before they move", () => {
     expect(bottom.depth).toBeCloseTo(0.08, 9);
   });
 
-  // FACADE_LAYOUT (buildFacadeLayout(0x9e3779b1)) is not exported today —
-  // commit 2.4 exports it and must add its pin here alongside this one.
+  it("buildFacadeLayout(0x9e3779b1) keeps its deterministic window pattern", () => {
+    const cells = buildFacadeLayout(0x9e3779b1);
+    expect(cells).toHaveLength(24);
+
+    const first = cells[0];
+    expect(first.row).toBe(0);
+    expect(first.col).toBe(0);
+    expect(first.lit).toBe(true);
+    expect(first.shade).toBe(44);
+
+    const last = cells[cells.length - 1];
+    expect(last.row).toBe(5);
+    expect(last.col).toBe(3);
+    expect(last.lit).toBe(false);
+    expect(last.shade).toBe(52);
+  });
 });

@@ -13,23 +13,17 @@ import {
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
 import { resolveVenuePlacement } from "../app/game/simulationAdapter";
+import { PARK_BED_Y, PARK_LAWN_Y, PARK_PATH_Y } from "../app/game/render/renderConstants";
+import { crowdClothingPaletteForMap } from "../app/game/render/propCatalog";
+import {
+  CAIRO_DIRECTION_PANEL_DESIGN_V,
+  cairoDirectionPanelFaceUv,
+} from "../app/game/render/proceduralTextures";
 import {
   biasCairoDecalMaterials,
-  buildWaterPolygonGeometry,
-  CAIRO_ELEVATED_DECK_THICKNESS_M,
-  CAIRO_ELEVATED_DECK_Y,
-  cairoWaterBoatObstacles,
-  WATER_BOAT_AIR_DRAFTS_M,
   CAIRO_DECAL_MATERIAL_NAMES,
   CAIRO_DECAL_Z_OFFSET_UNITS,
   CAIRO_STREET_WALL_URL_RE,
-  cairoBridgePortalVisualAxis,
-  cairoBridgeVisualAxis,
-  CAIRO_DIRECTION_PANEL_DESIGN_V,
-  cairoDirectionPanelFaceUv,
-  cairoElevatedBridgePierPlacements,
-  cairoFrontagePosition,
-  cairoFrontageFootprintsOverlap,
   cairoOperaTerracePolygon,
   cairoTahrirForecourtPolygon,
   clipRectToRoadSide,
@@ -39,23 +33,35 @@ import {
   CAIRO_TAHRIR_LAWN_EAST_TUCK_X,
   CAIRO_TAHRIR_LAWN_SOUTH_TUCK_Z,
   CAIRO_TAHRIR_LAWN_WEST_TUCK_X,
-  crosswalkStripeLayout,
-  crowdClothingPaletteForMap,
-  deterministicSceneryKeep,
-  EGYPT_SIGNAL_BORDER_BARS,
-  facadeGridCells,
-  generateWaterBoatPlacements,
-  PARK_BED_Y,
-  PARK_LAWN_Y,
-  PARK_PATH_Y,
-  SIGNAL_HOUSING_BOX,
   roadSideParkLawnPolygon,
-  roadSurfaceWidthForMarking,
+} from "../app/game/geometry/cairoParkland";
+import {
+  crosswalkStripeLayout,
+  EGYPT_SIGNAL_BORDER_BARS,
   roadSurfacePlacementForMarking,
-  rotateBlockBuildingPlacements,
+  roadSurfaceWidthForMarking,
+  SIGNAL_HOUSING_BOX,
   trafficCameraHeadIds,
+} from "../app/game/geometry/roadFurnitureLayout";
+import {
+  cairoFrontageFootprintsOverlap,
+  cairoFrontagePosition,
+  deterministicSceneryKeep,
+  facadeGridCells,
+  rotateBlockBuildingPlacements,
+} from "../app/game/geometry/facadesAndKeepouts";
+import {
+  buildWaterPolygonGeometry,
+  CAIRO_ELEVATED_DECK_THICKNESS_M,
+  CAIRO_ELEVATED_DECK_Y,
+  cairoBridgePortalVisualAxis,
+  cairoBridgeVisualAxis,
+  cairoElevatedBridgePierPlacements,
+  cairoWaterBoatObstacles,
+  generateWaterBoatPlacements,
+  WATER_BOAT_AIR_DRAFTS_M,
   waterBoatPoseAt,
-} from "../app/game/GameCanvas";
+} from "../app/game/geometry/waterGeometry";
 import {
   distanceToPolylineM,
   generateRoadsidePropPlacements,

@@ -64,6 +64,17 @@ their invariants can be pinned without an engine:
 other's: `GameCanvas` never imports `content.ts`, and `SideSwapApp` only loads
 `GameCanvas` lazily through `next/dynamic`.
 
+**`app/game/geometry/*.ts`** (six files — `roadStrips`, `roadFurnitureLayout`,
+`waterGeometry`, `facadesAndKeepouts`, `cairoParkland`, `routeGuidance`) is
+the same kind of pure module, moved out of `GameCanvas.tsx` by the god-file
+decomposition. It isn't hand-listed above because its purity is mechanically
+enforced rather than a fact to remember: `tests/architecture.test.ts` fails
+the suite if any file under `geometry/` gains an `@babylonjs` import. Their
+Babylon-owning counterpart, `app/game/render/*.ts`, has no such guarantee —
+`renderConstants.ts` is genuinely import-free but the rest construct real
+Babylon objects (`DynamicTexture`, `VertexData`, `MeshBuilder`) and belong on
+the render side of the ring, not this table.
+
 ## What the core deliberately does not know
 
 **The core knows nothing about gigs, money, fuel or damage.** Everything

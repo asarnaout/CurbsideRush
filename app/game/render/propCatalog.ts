@@ -1,0 +1,323 @@
+import type { TransformNode } from "@babylonjs/core";
+import { NYC_VENDORS } from "../buildingSets";
+import type { GameCanvasPoint } from "../sessionContract";
+import { resolveMapVisualKey, type PropKindConfig } from "../visuals";
+
+/**
+ * Hand-placed London street furniture, the destructible-prop catalogue (what
+ * breaks, how, and the broad-phase grid it breaks in), the ambient/scenario
+ * crowd config and clothing palettes, and each city's roadside dressing kinds.
+ *
+ * Pure data — no Babylon. `roadsidePropKindsForMap` and
+ * `crowdClothingPaletteForMap` are the only functions; everything else is a
+ * catalogue entry or lookup table read by the render/session code that places
+ * these props and crowd members.
+ */
+
+export const LONDON_LAMP_POSITIONS: readonly (readonly [number, number])[] = [
+  [-83, -52],
+  [-50, -52],
+  [-2, -52],
+  [25, -52],
+  [28, 2],
+  [56, 18],
+  [28, 60],
+  [56, 72],
+];
+
+export const LONDON_BOLLARD_POSITIONS: readonly (readonly [number, number])[] = [
+  -2, 22, 46, 70,
+].flatMap((z) => [
+  [32, z] as const,
+  [52, z] as const,
+]);
+
+export const LONDON_PLANTER_POSITIONS: readonly (readonly [number, number])[] = [
+  [57, -8],
+  [57, 36],
+  [57, 68],
+];
+
+// Mirrored as a solid circle obstacle in simulationAdapter (cast iron beats
+// car); move both together.
+export const LONDON_POST_BOX_POSITION = [122, 87] as const;
+
+/** Hand-placed South Kensington furniture that scattered props must avoid. */
+export const LONDON_FURNITURE_POINTS: readonly GameCanvasPoint[] = [
+  ...LONDON_LAMP_POSITIONS,
+  ...LONDON_BOLLARD_POSITIONS,
+  ...LONDON_PLANTER_POSITIONS,
+  LONDON_POST_BOX_POSITION,
+].map(([x, z]) => ({ x, z }));
+
+/**
+ * Street furniture the car can knock over. Every scattered prop, vendor cart
+ * and piece of hand-placed London furniture registers here; a hit scrubs the
+ * player's speed via the sim's external-contact path (which is also what the
+ * damage/fine layers listen to), topples or squashes the prop in place, and
+ * leaves the wreckage lying for the rest of the drive. `damage: "none"` props
+ * (grass tufts) are a purely visual crunch — no event, no speed change. The
+ * London post box is deliberately absent: cast iron wins, it is a solid
+ * obstacle in the core instead.
+ */
+interface DestructiblePropConfig {
+  readonly radiusM: number;
+  readonly speedScale: number;
+  readonly damage: "none" | "light" | "medium";
+  readonly noun: string;
+  readonly fall: "topple" | "squash";
+}
+
+export const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructiblePropConfig>> = {
+  tree: { radiusM: 0.5, speedScale: 0.7, damage: "medium", noun: "a street tree", fall: "topple" },
+  // Absent from this table, palms were silently indestructible — an un-hittable
+  // tree on a promenade full of hittable ones reads as a bug.
+  palm: { radiusM: 0.5, speedScale: 0.72, damage: "medium", noun: "a palm tree", fall: "topple" },
+  streetlight: { radiusM: 0.32, speedScale: 0.74, damage: "medium", noun: "a streetlight", fall: "topple" },
+  "utility-pole": { radiusM: 0.35, speedScale: 0.72, damage: "medium", noun: "a utility pole", fall: "topple" },
+  sign: { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a signpost", fall: "topple" },
+  "oneway-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a ONE WAY sign", fall: "topple" },
+  "dne-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a DO NOT ENTER sign", fall: "topple" },
+  "wrongway-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a WRONG WAY sign", fall: "topple" },
+  "speedlimit-sign": { radiusM: 0.28, speedScale: 0.93, damage: "light", noun: "a speed limit sign", fall: "topple" },
+  // Park planting and furniture. A shrub squashes rather than topples — a bush
+  // hinging over on one edge looks like a felled tree, which it is not.
+  shrub: { radiusM: 0.55, speedScale: 0.94, damage: "none", noun: "a shrub", fall: "squash" },
+  bench: { radiusM: 0.85, speedScale: 0.86, damage: "light", noun: "a park bench", fall: "topple" },
+  lamp: { radiusM: 0.3, speedScale: 0.76, damage: "medium", noun: "a park lamp", fall: "topple" },
+  hydrant: { radiusM: 0.35, speedScale: 0.9, damage: "light", noun: "a fire hydrant", fall: "topple" },
+  bollard: { radiusM: 0.25, speedScale: 0.92, damage: "light", noun: "a bollard", fall: "topple" },
+  vending: { radiusM: 0.6, speedScale: 0.88, damage: "light", noun: "a vending machine", fall: "topple" },
+  vendor: { radiusM: 1.15, speedScale: 0.85, damage: "light", noun: "a vendor cart", fall: "topple" },
+  "london-lamp": { radiusM: 0.32, speedScale: 0.74, damage: "medium", noun: "a lamp post", fall: "topple" },
+  "london-bollard": { radiusM: 0.25, speedScale: 0.92, damage: "light", noun: "a bollard", fall: "topple" },
+  "london-planter": { radiusM: 0.58, speedScale: 0.85, damage: "light", noun: "a planter", fall: "topple" },
+};
+
+export interface DestructiblePropPart {
+  readonly node: TransformNode;
+  /** The streetlight's ground light pool: sinks away instead of rotating. */
+  readonly isLightPool: boolean;
+}
+
+export interface DestructibleProp {
+  readonly kind: string;
+  readonly config: DestructiblePropConfig;
+  readonly x: number;
+  readonly z: number;
+  readonly radiusM: number;
+  readonly parts: readonly DestructiblePropPart[];
+  state: "standing" | "falling" | "down";
+}
+
+export interface ActivePropFall {
+  readonly prop: DestructibleProp;
+  readonly pivot: TransformNode;
+  readonly poolParts: readonly TransformNode[];
+  progress: number;
+}
+
+/** Grid cell for the prop broad phase; must exceed the largest prop radius
+ * plus the car capsule reach so a 3x3 neighbourhood always suffices. */
+export const DESTRUCTIBLE_GRID_CELL_M = 8;
+export const PROP_TOPPLE_SECONDS = 0.5;
+export const PROP_TOPPLE_MAX_ANGLE_RAD = 1.46;
+export const PROP_MIN_STRIKE_SPEED_MPS = 0.8;
+/** Above this many simultaneous falls, further strikes settle instantly. */
+export const PROP_MAX_ACTIVE_TOPPLES = 8;
+
+export const PLAYER_CAPSULE_HALF_LENGTH_M = 1.15;
+export const PLAYER_CAPSULE_RADIUS_M = 1.0;
+
+const PROP_TREE: PropKindConfig = {
+  kind: "tree",
+  spacingM: 26,
+  jitterM: 8,
+  lateralMarginM: 2.2,
+  bothSides: true,
+  variants: 3,
+  minScale: 0.85,
+  maxScale: 1.3,
+};
+
+const PROP_STREETLIGHT: PropKindConfig = {
+  kind: "streetlight",
+  spacingM: 38,
+  jitterM: 6,
+  lateralMarginM: 1,
+  bothSides: false,
+  alternateSides: true,
+  variants: 1,
+  faceRoad: true,
+};
+
+const PROP_SIGN: PropKindConfig = {
+  kind: "sign",
+  spacingM: 66,
+  jitterM: 18,
+  lateralMarginM: 1.2,
+  bothSides: false,
+  variants: 2,
+  faceRoad: true,
+};
+
+// The ambient sidewalk crowd: walkers simulated on the pavement rail graph
+// (crowdWalkers) inside a bubble around the player, drawn as GPU-animated thin
+// instances (crowdRenderer). Counts are per map — the whole crowd costs a few
+// meshes regardless, so these are set by how busy each city should feel, not
+// by a draw-call budget. Radii track each map's fog: recycling happens beyond
+// what the player can see. Maps absent here (the orientation yard) have no
+// ambient crowd.
+export const AMBIENT_CROWD_CONFIG: Readonly<
+  Record<
+    string,
+    {
+      count: number;
+      innerRadiusM: number;
+      outerRadiusM: number;
+      recycleRadiusM: number;
+    }
+  >
+> = {
+  "nyc-upper-west-side": { count: 96, innerRadiusM: 25, outerRadiusM: 130, recycleRadiusM: 170 },
+  "tokyo-setagaya": { count: 56, innerRadiusM: 18, outerRadiusM: 100, recycleRadiusM: 140 },
+  "london-south-kensington": { count: 64, innerRadiusM: 20, outerRadiusM: 120, recycleRadiusM: 160 },
+  "cairo-central-nile": { count: 88, innerRadiusM: 22, outerRadiusM: 125, recycleRadiusM: 165 },
+};
+
+/** Bubble radii for the scenario road users on maps with no crowd config
+ * (today only the orientation yard): they walk the same rails, just fewer. */
+export const DEFAULT_ROAD_USER_RADII = {
+  innerRadiusM: 18,
+  outerRadiusM: 110,
+  recycleRadiusM: 150,
+};
+
+/** Clothing tints shared by the crowd and the scenario/yard pedestrians. */
+const CROWD_CLOTHING_COLORS = [
+  { r: 0.82, g: 0.21, b: 0.15 },
+  { r: 0.2, g: 0.35, b: 0.6 },
+  { r: 0.3, g: 0.5, b: 0.35 },
+  { r: 0.7, g: 0.66, b: 0.5 },
+  { r: 0.55, g: 0.3, b: 0.5 },
+];
+
+const CAIRO_CROWD_CLOTHING_COLORS = [
+  { r: 0.12, g: 0.16, b: 0.2 },
+  { r: 0.12, g: 0.34, b: 0.37 },
+  { r: 0.32, g: 0.34, b: 0.19 },
+  { r: 0.76, g: 0.68, b: 0.51 },
+  { r: 0.56, g: 0.25, b: 0.21 },
+  { r: 0.48, g: 0.31, b: 0.43 },
+] as const;
+
+/** Contemporary warm-neutrals and deep colours for Cairo's street crowd. */
+export function crowdClothingPaletteForMap(
+  mapId: string,
+): readonly { readonly r: number; readonly g: number; readonly b: number }[] {
+  return resolveMapVisualKey(mapId) === "cairo"
+    ? CAIRO_CROWD_CLOTHING_COLORS
+    : CROWD_CLOTHING_COLORS;
+}
+
+/** Per-map roadside dressing: shared basics plus locally recognisable extras. */
+export function roadsidePropKindsForMap(
+  key: ReturnType<typeof resolveMapVisualKey>,
+): readonly PropKindConfig[] {
+  switch (key) {
+    case "nyc":
+      return [
+        PROP_STREETLIGHT,
+        { ...PROP_TREE, spacingM: 30 },
+        {
+          kind: "hydrant",
+          spacingM: 58,
+          jitterM: 14,
+          lateralMarginM: 0.9,
+          bothSides: false,
+          variants: 1,
+          faceRoad: true,
+        },
+        PROP_SIGN,
+        // Street vendor carts, curbside and alternating sides. The placement is
+        // computed here but the carts are glb instances (routed out of the
+        // procedural-prop loop into pendingVendors), not master boxes.
+        {
+          // Sparser than one-per-frontage: a dumpster/cart every ~130 m curbside,
+          // not outside every building (which read as unrealistic clutter).
+          kind: "vendor",
+          spacingM: 130,
+          jitterM: 24,
+          lateralMarginM: 1.4,
+          bothSides: false,
+          alternateSides: true,
+          variants: Math.max(1, NYC_VENDORS.length),
+          faceRoad: true,
+        },
+      ];
+    case "london":
+      // Street lamps are hand-placed for South Kensington; scattered props
+      // stay clear of them via LONDON_FURNITURE_POINTS.
+      return [{ ...PROP_TREE, spacingM: 30 }, PROP_SIGN];
+    case "tokyo":
+      return [
+        {
+          kind: "utility-pole",
+          spacingM: 32,
+          jitterM: 5,
+          lateralMarginM: 0.9,
+          bothSides: false,
+          alternateSides: true,
+          variants: 1,
+          faceRoad: true,
+        },
+        {
+          kind: "vending",
+          spacingM: 74,
+          jitterM: 20,
+          lateralMarginM: 1,
+          bothSides: false,
+          variants: 2,
+          faceRoad: true,
+        },
+        { ...PROP_TREE, spacingM: 34, minScale: 0.7, maxScale: 1 },
+        PROP_SIGN,
+      ];
+    case "cairo":
+      return [
+        { ...PROP_STREETLIGHT, spacingM: 36, jitterM: 7 },
+        { ...PROP_TREE, spacingM: 54, minScale: 0.8, maxScale: 1.15 },
+        {
+          kind: "palm",
+          spacingM: 68,
+          jitterM: 16,
+          lateralMarginM: 1.2,
+          bothSides: false,
+          alternateSides: true,
+          variants: 2,
+          minScale: 0.85,
+          maxScale: 1.2,
+          faceRoad: true,
+        },
+        {
+          kind: "bollard",
+          spacingM: 42,
+          jitterM: 9,
+          lateralMarginM: 0.8,
+          bothSides: false,
+          variants: 1,
+        },
+        // Nothing parks at the Cairo kerb: the parked cars, microbuses, vendor
+        // carts and scooters that used to are all gone. They were scattered on
+        // road geometry alone, so they landed wherever the band allowed rather
+        // than where a vehicle would plausibly stand — clutter dumped on the
+        // pavement, not a parked street. The box-built ones were also badly
+        // modelled (the scooter's handlebar floated free of its frame). Any
+        // future kerb parking wants real placement, not scatter.
+        { ...PROP_SIGN, spacingM: 78, variants: 2 },
+      ];
+    case "orientation":
+    default:
+      return [{ ...PROP_TREE, spacingM: 24 }];
+  }
+}

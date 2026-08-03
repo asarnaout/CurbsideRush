@@ -1,0 +1,756 @@
+import {
+  Color3,
+  DynamicTexture,
+  type Scene,
+  Texture,
+  Vector4,
+} from "@babylonjs/core";
+import { COCKPIT_CLUSTER_TEXTURE, COCKPIT_GAUGE_CENTRES, COCKPIT_GAUGE_RADIUS } from "../cockpitLayout";
+import { FACADE_COLS, FACADE_LAYOUT, FACADE_ROWS } from "../geometry/facadesAndKeepouts";
+import {
+  buildAsphaltTextureSpec,
+  buildGrassDetailSpec,
+  buildGrassTextureSpec,
+  buildHorizonSilhouetteSpec,
+  type GrassBlade,
+  hashStringToSeed,
+  type MapVisualPalette,
+  mixHexColors,
+  type RiverWave,
+  sampleRiverWaveField,
+  seededUnit,
+  skyGradientStops,
+} from "../visuals";
+
+/**
+ * Procedural `DynamicTexture` factories: sky gradient, horizon silhouette,
+ * asphalt, river surface/ripple, grass/flowerbed/grass-detail, the cockpit
+ * instrument cluster face, the Cairo direction-panel face UVs, and the
+ * building-facade window textures.
+ *
+ * All Babylon-owning (draws on a 2D canvas context, one raster per call —
+ * see each factory's own header for why nothing here repaints per frame).
+ * `textureContext` is duplicated from GameCanvas.tsx rather than shared, and
+ * `makeMaterial`/`setMeshMaterial` stay in GameCanvas.tsx untouched — neither
+ * is called by anything in this file, despite sitting beside this cluster in
+ * the original source. The eleven `RIVER_*` tuning constants also stay
+ * behind: they belong to the not-yet-extracted water-building code (Phase
+ * 3.6), which resolves them into the `tones`/`waves` parameters the river
+ * texture factories below actually take.
+ */
+
+function textureContext(texture: DynamicTexture): CanvasRenderingContext2D {
+  return texture.getContext() as unknown as CanvasRenderingContext2D;
+}
+
+/**
+ * Cairo's bilingual direction panel is printed on one side only, like the real
+ * thing — the back of a road sign is bare aluminium.
+ *
+ * This has to be done per face, not on the material. Rotating the whole texture
+ * 180° does land the legend upright on the road-facing face, but Babylon's two
+ * broad box faces already differ by 180°, so the same transform lands the
+ * legend on the *back* upside down — which is exactly what it used to do.
+ *
+ * So: the design occupies the top half of the canvas and the bottom half stays
+ * aluminium; face 0 (+Z, the road-facing side under the face-road yaw
+ * convention) takes the design pre-swapped, and the other five sample a small
+ * patch well inside the aluminium half, far enough from the boundary that
+ * mipmap bleed cannot drag the legend onto an edge.
+ */
+export const CAIRO_DIRECTION_PANEL_DESIGN_V = 0.5;
+
+export function cairoDirectionPanelFaceUv(): readonly Vector4[] {
+  // Swapped min/max corner = the region applied 180° round, cancelling the
+  // rotation Babylon's +Z face applies. See the regulatory blade's `swapped`.
+  const printed = new Vector4(1, 1, 0, CAIRO_DIRECTION_PANEL_DESIGN_V);
+  const bare = new Vector4(0.4, 0.1, 0.6, 0.3);
+  return [printed, bare, bare, bare, bare, bare];
+}
+
+/**
+ * The instrument cluster's faceplate, drawn once.
+ *
+ * Everything on it is static: the dial rings, their ticks, the centre readout
+ * bars. The two things that actually move are needles, and they are meshes that
+ * rotate — nothing in this game repaints a DynamicTexture per frame and this is
+ * not the place to start. A 512x160 re-raster plus upload every frame would cost
+ * more than the whole rest of the cockpit put together, to animate two lines.
+ *
+ * Ring colours are the reference's: teal for road speed, amber for revs.
+ */
+export function makeInstrumentClusterTexture(scene: Scene): DynamicTexture {
+  const { width, height } = COCKPIT_CLUSTER_TEXTURE;
+  const texture = new DynamicTexture(
+    "instrument-cluster-face",
+    { width, height },
+    scene,
+    true,
+  );
+  const context = textureContext(texture);
+  context.fillStyle = "#080b0d";
+  context.fillRect(0, 0, width, height);
+
+  const centreY = height / 2;
+  const radius = height * COCKPIT_GAUGE_RADIUS;
+  const sweepStart = (135 * Math.PI) / 180;
+  const sweepEnd = (405 * Math.PI) / 180;
+
+  COCKPIT_GAUGE_CENTRES.forEach((centre, index) => {
+    const centreX = centre * width;
+    const accent = index === 0 ? "#3fd8c4" : "#f2a02a";
+
+    context.fillStyle = "#0d1417";
+    context.beginPath();
+    context.arc(centreX, centreY, radius * 0.92, 0, Math.PI * 2);
+    context.fill();
+
+    context.strokeStyle = accent;
+    context.lineWidth = 4;
+    context.setLineDash([7, 6]);
+    context.beginPath();
+    context.arc(centreX, centreY, radius, sweepStart, sweepEnd);
+    context.stroke();
+    context.setLineDash([]);
+
+    // A finer ring of ticks inside the accent, every 13.5 degrees of the sweep.
+    context.strokeStyle = "rgba(206, 216, 220, 0.55)";
+    context.lineWidth = 2;
+    for (let tick = 0; tick <= 20; tick += 1) {
+      const angle = sweepStart + ((sweepEnd - sweepStart) * tick) / 20;
+      const long = tick % 5 === 0;
+      const inner = radius * (long ? 0.62 : 0.72);
+      const outer = radius * 0.8;
+      context.beginPath();
+      context.moveTo(
+        centreX + Math.cos(angle) * inner,
+        centreY + Math.sin(angle) * inner,
+      );
+      context.lineTo(
+        centreX + Math.cos(angle) * outer,
+        centreY + Math.sin(angle) * outer,
+      );
+      context.stroke();
+    }
+  });
+
+  // The centre stack: a gear/readout block between the dials.
+  context.fillStyle = "#3fd8c4";
+  for (const offset of [-20, 0, 20]) {
+    context.fillRect(width / 2 - 21, centreY + offset - 2, 42, 4);
+  }
+
+  texture.update(false);
+  return texture;
+}
+
+export function createSkyGradientTexture(
+  scene: Scene,
+  palette: MapVisualPalette,
+): DynamicTexture {
+  const height = 256;
+  const texture = new DynamicTexture(
+    "sky-gradient",
+    { width: 4, height },
+    scene,
+    false,
+  );
+  const context = textureContext(texture);
+  // Canvas bottom samples the dome's top pole (v=0 after the flipped upload),
+  // so the zenith stop is anchored at the bottom row.
+  const gradient = context.createLinearGradient(0, height, 0, 0);
+  for (const stop of skyGradientStops(palette)) {
+    gradient.addColorStop(stop.offset, stop.color);
+  }
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 4, height);
+  texture.update();
+  texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+  texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+  return texture;
+}
+
+export function createHorizonSilhouetteTexture(
+  scene: Scene,
+  mapId: string,
+  palette: MapVisualPalette,
+): DynamicTexture {
+  const width = 2048;
+  const height = 256;
+  const texture = new DynamicTexture(
+    "horizon-silhouette",
+    { width, height },
+    scene,
+    true,
+  );
+  texture.hasAlpha = true;
+  const context = textureContext(texture);
+  context.clearRect(0, 0, width, height);
+
+  const shapes = buildHorizonSilhouetteSpec(mapId, hashStringToSeed(mapId));
+  // Keep the shared terrain band shallow: a tall band reads as a wall around
+  // the map instead of a distant skyline.
+  const baseBandHeight = height * 0.1;
+  const usableHeight = height - baseBandHeight;
+
+  const drawShape = (
+    shape: (typeof shapes)[number],
+    offsetX: number,
+  ): void => {
+    const centerX = (shape.x + offsetX) * width;
+    const shapeWidth = Math.max(2, shape.w * width);
+    const top = height - baseBandHeight - shape.h * usableHeight;
+    if (shape.kind === "box") {
+      context.fillRect(centerX - shapeWidth / 2, top, shapeWidth, height - top);
+      return;
+    }
+    if (shape.kind === "spike") {
+      context.beginPath();
+      context.moveTo(centerX - shapeWidth / 2, height);
+      context.lineTo(centerX, top);
+      context.lineTo(centerX + shapeWidth / 2, height);
+      context.closePath();
+      context.fill();
+      return;
+    }
+    if (shape.kind === "pylon") {
+      const mastWidth = Math.max(2, shapeWidth * 0.3);
+      context.fillRect(centerX - mastWidth / 2, top, mastWidth, height - top);
+      const armWidth = shapeWidth * 4;
+      const armHeight = Math.max(2, height * 0.012);
+      context.fillRect(centerX - armWidth / 2, top + usableHeight * 0.08, armWidth, armHeight);
+      context.fillRect(
+        centerX - armWidth * 0.375,
+        top + usableHeight * 0.2,
+        armWidth * 0.75,
+        armHeight,
+      );
+      return;
+    }
+    const radiusX = Math.max(3, shapeWidth / 2);
+    context.beginPath();
+    context.ellipse(
+      centerX,
+      height - baseBandHeight,
+      radiusX,
+      Math.max(2, shape.h * usableHeight),
+      0,
+      Math.PI,
+      Math.PI * 2,
+    );
+    context.closePath();
+    context.fill();
+    context.fillRect(
+      centerX - radiusX,
+      height - baseBandHeight,
+      radiusX * 2,
+      baseBandHeight,
+    );
+  };
+
+  // A continuous distant-terrain band keeps the ring base seamless where the
+  // fogged ground meets the sky, with skyline shapes rising above it.
+  context.fillStyle = palette.silhouetteFar;
+  context.fillRect(0, height - baseBandHeight, width, baseBandHeight);
+  for (const layer of [1, 0] as const) {
+    context.fillStyle =
+      layer === 1 ? palette.silhouetteFar : palette.silhouetteNear;
+    for (const shape of shapes) {
+      if (shape.layer !== layer) continue;
+      // Draw wrapped copies so shapes crossing the seam stay continuous.
+      drawShape(shape, -1);
+      drawShape(shape, 0);
+      drawShape(shape, 1);
+    }
+  }
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+  return texture;
+}
+
+function applyLuminanceNoise(
+  context: CanvasRenderingContext2D,
+  size: number,
+  seed: number,
+  amplitude: number,
+): void {
+  const image = context.getImageData(0, 0, size, size);
+  const random = seededUnit(seed);
+  const data = image.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const factor = 1 + (random() - 0.5) * 2 * amplitude;
+    data[index] = Math.min(255, Math.max(0, data[index] * factor));
+    data[index + 1] = Math.min(255, Math.max(0, data[index + 1] * factor));
+    data[index + 2] = Math.min(255, Math.max(0, data[index + 2] * factor));
+  }
+  context.putImageData(image, 0, 0);
+}
+
+export function createAsphaltTexture(
+  scene: Scene,
+  name: string,
+  baseColorHex: string,
+  seed: number,
+): DynamicTexture {
+  const size = 512;
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  context.fillStyle = baseColorHex;
+  context.fillRect(0, 0, size, size);
+
+  const spec = buildAsphaltTextureSpec(seed);
+  applyLuminanceNoise(context, size, spec.noiseSeed, 0.03);
+  context.fillStyle = "rgba(255, 255, 255, 1)";
+  for (const patch of spec.patches) {
+    context.globalAlpha = patch.lighten;
+    context.beginPath();
+    context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 1;
+  context.strokeStyle = "rgba(0, 0, 0, 0.14)";
+  context.lineWidth = 2;
+  context.lineJoin = "round";
+  for (const crack of spec.cracks) {
+    context.beginPath();
+    for (const [pointIndex, point] of crack.points.entries()) {
+      // Cracks that wrap the tile edge would draw a long straight artefact;
+      // break the stroke on large jumps instead.
+      const previous = crack.points[pointIndex - 1];
+      if (
+        pointIndex === 0 ||
+        (previous &&
+          (Math.abs(point.x - previous.x) > 0.5 ||
+            Math.abs(point.y - previous.y) > 0.5))
+      ) {
+        context.moveTo(point.x * size, point.y * size);
+        continue;
+      }
+      context.lineTo(point.x * size, point.y * size);
+    }
+    context.stroke();
+  }
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
+ * The river's diffuse tile: the wave field painted as a trough-to-crest ramp.
+ *
+ * The two halves of the ramp are deliberately asymmetric. Troughs spread into
+ * broad soft areas of the deep tone while crests stay thin and bright, because
+ * on real water the sky only reaches the eye off the top of a wave — a
+ * symmetric ramp paints a quilt of equal light and dark blobs, which reads as
+ * marble.
+ */
+export function createRiverSurfaceTexture(
+  scene: Scene,
+  name: string,
+  waves: readonly RiverWave[],
+  tones: { readonly deep: Color3; readonly base: Color3; readonly crest: Color3 },
+  size: number,
+): DynamicTexture {
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  const field = sampleRiverWaveField(waves, size);
+  const image = context.createImageData(size, size);
+  const data = image.data;
+  for (let index = 0; index < field.length; index += 1) {
+    const height = field[index];
+    const toward = height >= 0 ? tones.crest : tones.deep;
+    const amount =
+      height >= 0 ? Math.pow(height, 1.7) : Math.pow(-height, 0.75);
+    const offset = index * 4;
+    data[offset] = (tones.base.r + (toward.r - tones.base.r) * amount) * 255;
+    data[offset + 1] =
+      (tones.base.g + (toward.g - tones.base.g) * amount) * 255;
+    data[offset + 2] =
+      (tones.base.b + (toward.b - tones.base.b) * amount) * 255;
+    data[offset + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
+ * The river's normal map, from the gradient of the same kind of wave field.
+ *
+ * The grass tile argues against normal-mapping flat ground, and it is right:
+ * under a fixed sun a static normal map on a plane reads as grain, not relief.
+ * Water is the exception precisely because this one *moves* — the highlights
+ * crawling across the surface are the whole point, and they are what carries
+ * the river at close range where the diffuse tile has gone soft.
+ */
+export function createRiverRippleTexture(
+  scene: Scene,
+  name: string,
+  waves: readonly RiverWave[],
+  size: number,
+  steepness: number,
+): DynamicTexture {
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  const field = sampleRiverWaveField(waves, size);
+  const image = context.createImageData(size, size);
+  const data = image.data;
+  // Central differences, wrapped — the tile repeats, so its edges have real
+  // neighbours and clamping there would ring a seam into the highlights.
+  const gradient = (steepness * size) / 2;
+  for (let v = 0; v < size; v += 1) {
+    const row = v * size;
+    const rowUp = ((v + size - 1) % size) * size;
+    const rowDown = ((v + 1) % size) * size;
+    for (let u = 0; u < size; u += 1) {
+      const left = field[row + ((u + size - 1) % size)];
+      const right = field[row + ((u + 1) % size)];
+      const x = -(right - left) * gradient;
+      const y = -(field[rowDown + u] - field[rowUp + u]) * gradient;
+      const inverse = 1 / Math.hypot(x, y, 1);
+      const offset = (row + u) * 4;
+      data[offset] = (x * inverse * 0.5 + 0.5) * 255;
+      data[offset + 1] = (y * inverse * 0.5 + 0.5) * 255;
+      data[offset + 2] = (inverse * 0.5 + 0.5) * 255;
+      data[offset + 3] = 255;
+    }
+  }
+  context.putImageData(image, 0, 0);
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
+ * The four-tone blade ramp, lightest first. `paintGrassBlades` draws a blade in
+ * `ramp[tone]` and its tip in `ramp[tone - 1]`, so a tone-0 blade tips into
+ * pure `grassAlt`. Derived rather than authored so a palette only has to supply
+ * the three greens.
+ */
+function grassBladeRamp(palette: MapVisualPalette): readonly string[] {
+  // A deliberately tight ramp. Running the ends out to white and to the full
+  // `grassDeep` made individual strokes legible as strokes — the lawn read as
+  // scattered pine needles rather than as turf. Grass is a texture, not a set
+  // of drawn objects, so the contrast has to sit below the threshold where the
+  // eye starts counting marks.
+  return [
+    mixHexColors(palette.grassAlt, "#ffffff", 0.1),
+    palette.grassAlt,
+    palette.grassBase,
+    mixHexColors(palette.grassBase, palette.grassDeep, 0.55),
+  ];
+}
+
+/**
+ * Strokes a blade field onto a canvas. Each blade is drawn twice — full length
+ * in its own tone, then its top 45% one ramp step lighter — which is what gives
+ * a flat ground plane its light-from-above read without a normal map.
+ */
+function paintGrassBlades(
+  context: CanvasRenderingContext2D,
+  size: number,
+  blades: readonly GrassBlade[],
+  ramp: readonly string[],
+  alpha: number,
+): void {
+  context.lineCap = "round";
+  context.globalAlpha = alpha;
+  for (const blade of blades) {
+    const x = blade.x * size;
+    const y = blade.y * size;
+    const dx = Math.sin(blade.angle) * blade.length * size;
+    const dy = -Math.cos(blade.angle) * blade.length * size;
+    context.lineWidth = Math.max(0.7, blade.width * size);
+    context.strokeStyle = ramp[blade.tone] ?? ramp[ramp.length - 1];
+    context.beginPath();
+    context.moveTo(x, y);
+    context.lineTo(x + dx, y + dy);
+    context.stroke();
+    // The lit tip. Tone 0 is already the lightest, so it tips into itself.
+    context.strokeStyle = ramp[Math.max(0, blade.tone - 1)];
+    context.beginPath();
+    context.moveTo(x + dx * 0.55, y + dy * 0.55);
+    context.lineTo(x + dx, y + dy);
+    context.stroke();
+  }
+  context.globalAlpha = 1;
+}
+
+/**
+ * The base grass tile. 1024² on desktop so blades survive a mip level or two at
+ * the 12 m tile GRASS_TILE_M sets; 512² on weak devices, where the render scale
+ * would throw the detail away anyway.
+ *
+ * Note there is no `applyLuminanceNoise` pass here any more. It was a full
+ * 1M-pixel getImageData/putImageData round trip whose entire job — high
+ * frequency — the blade field now does far better, and in colour.
+ */
+export function createGrassTexture(
+  scene: Scene,
+  name: string,
+  palette: MapVisualPalette,
+  seed: number,
+  highDetail: boolean,
+): DynamicTexture {
+  const size = highDetail ? 1024 : 512;
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  const spec = buildGrassTextureSpec(seed);
+  const ramp = grassBladeRamp(palette);
+
+  context.fillStyle = palette.grassBase;
+  context.fillRect(0, 0, size, size);
+
+  // Large tonal fields first — the layer that still reads once blades have
+  // mipped away at distance.
+  const patchTones = [palette.grassDeep, palette.grassAlt, palette.grassDry];
+  context.globalAlpha = 0.2;
+  for (const patch of spec.patches) {
+    context.fillStyle = patchTones[patch.tone] ?? palette.grassBase;
+    context.beginPath();
+    context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  // Kept low on purpose: these are hard-edged discs, and any higher they read
+  // as circles drawn on the lawn rather than as mottling under it.
+  context.globalAlpha = 0.22;
+  context.fillStyle = palette.grassAlt;
+  for (const blob of spec.blobs) {
+    if (!blob.alt) continue;
+    context.beginPath();
+    context.arc(blob.x * size, blob.y * size, blob.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.globalAlpha = 0.3;
+  context.fillStyle = palette.grassDry;
+  for (const patch of spec.bare) {
+    context.beginPath();
+    context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.globalAlpha = 0.3;
+  context.fillStyle = palette.dirtShoulder;
+  for (const speckle of spec.speckles) {
+    context.beginPath();
+    context.arc(speckle.x * size, speckle.y * size, size / 232, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 1;
+
+  paintGrassBlades(context, size, spec.blades, ramp, 0.7);
+
+  // Flora last, so a flower head sits on top of the blades rather than under.
+  // Pulled most of the way back toward the grass: at full accent these are
+  // 4-6 px on the tile, which at driving distance reads as white litter
+  // scattered over the lawn rather than as flowers.
+  context.fillStyle = mixHexColors(palette.grassAlt, palette.floraAccent, 0.55);
+  context.globalAlpha = 0.45;
+  for (const flower of spec.flora) {
+    context.beginPath();
+    context.arc(flower.x * size, flower.y * size, flower.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 1;
+
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
+ * A parterre bed's groundcover, one tile.
+ *
+ * Deliberately NOT the lawn texture: a bed is planted colour — darker foliage
+ * carrying flower heads at full strength, where the lawn pulls its flora most
+ * of the way back so it reads as chance. Shares the lawn's spec so the drift
+ * pattern is the same species of noise, just dressed differently.
+ */
+export function createFlowerbedTexture(
+  scene: Scene,
+  name: string,
+  palette: MapVisualPalette,
+  seed: number,
+): DynamicTexture {
+  const size = 512;
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  const spec = buildGrassTextureSpec(seed);
+
+  context.fillStyle = mixHexColors(palette.grassDeep, palette.dirtShoulder, 0.25);
+  context.fillRect(0, 0, size, size);
+
+  // Foliage mottling — the lawn's discs, denser and darker.
+  context.globalAlpha = 0.2;
+  context.fillStyle = palette.grassAlt;
+  for (const blob of spec.blobs) {
+    context.beginPath();
+    context.arc(blob.x * size, blob.y * size, blob.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 0.25;
+  context.fillStyle = palette.grassDeep;
+  for (const patch of spec.patches) {
+    context.beginPath();
+    context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  // Flower heads, two tones so the drift reads as planting rather than noise.
+  context.globalAlpha = 0.8;
+  for (const [index, head] of [...spec.flora, ...spec.speckles].entries()) {
+    context.fillStyle =
+      index % 2 === 0
+        ? palette.floraAccent
+        : mixHexColors(palette.floraAccent, "#ffffff", 0.35);
+    context.beginPath();
+    context.arc(head.x * size, head.y * size, size / 90, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.globalAlpha = 1;
+
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+/**
+ * The detail tile fed to `StandardMaterial.detailMap`.
+ *
+ * **A detail map is not an image — it is four independent channels, and three
+ * of them have a non-zero neutral.** `default.fragment` reads
+ * `baseColor.rgb * 2 · mix(0.5, detailColor.r, diffuseBlendLevel)`, so **R
+ * neutral is 0.5**; and `bumpFragment` reads the tangent-space normal out of
+ * **alpha and green** — `detailNormalRG = detailColor.wy * 2 - 1`, with
+ * `B = sqrt(1 - |RG|²)` — so **A and G neutral is also 0.5**.
+ *
+ * That alpha channel is the trap. A 2D canvas is fully opaque, so A = 1 decodes
+ * as normal.x = 1, which forces B to zero: a tangent normal lying flat along
+ * the surface, pointing 90° away from the sun. It does not look subtle — it
+ * turned Tokyo's grass from (24,68,25) to (3,10,0), i.e. black — and
+ * `bumpLevel = 0` cannot rescue it, because the zeroed `.xy` leaves a
+ * zero-length vector rather than an upright one.
+ *
+ * So the blades are painted as greys (carrying R) and a final pass overwrites
+ * G and A with 128, which is the flat normal. Give this a real normal only by
+ * authoring those two channels deliberately.
+ */
+export function createGrassDetailTexture(
+  scene: Scene,
+  name: string,
+  seed: number,
+): DynamicTexture {
+  const size = 256;
+  const texture = new DynamicTexture(name, size, scene, true);
+  const context = textureContext(texture);
+  context.fillStyle = "#808080";
+  context.fillRect(0, 0, size, size);
+  const ramp = ["#a8a8a8", "#949494", "#6e6e6e", "#5a5a5a"];
+  paintGrassBlades(context, size, buildGrassDetailSpec(seed), ramp, 0.55);
+
+  const image = context.getImageData(0, 0, size, size);
+  const data = image.data;
+  for (let index = 0; index < data.length; index += 4) {
+    data[index + 1] = 128; // normal.y neutral
+    data[index + 3] = 128; // normal.x neutral — NOT 255, see above
+  }
+  context.putImageData(image, 0, 0);
+
+  // `update(invertY, premulAlpha)` — premultiply must stay off, or the 0.5
+  // alpha just written would halve the red channel the diffuse blend reads.
+  texture.update(true, false);
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+// --- Building facades ------------------------------------------------------
+// Boxes get windows from a tiled facade texture: one "tile" is a grid of window
+// cells, and each box repeats it via faceUV so window size stays roughly
+// constant regardless of building size. The wall colour is baked into a
+// per-palette diffuse texture (dark glass + warm lit panes); a single shared
+// emissive texture lights the same lit panes so cities glow at dusk.
+export const FACADE_WIN_W_M = 3;
+export const FACADE_WIN_H_M = 3.2;
+const FACADE_TEX_W = 256;
+const FACADE_TEX_H = 384;
+
+
+function facadeColorHex(color: Color3): string {
+  const channel = (value: number) =>
+    Math.max(0, Math.min(255, Math.round(value * 255)))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(color.r)}${channel(color.g)}${channel(color.b)}`;
+}
+
+function facadeCellMetrics() {
+  const cellW = FACADE_TEX_W / FACADE_COLS;
+  const cellH = FACADE_TEX_H / FACADE_ROWS;
+  const marginX = cellW * 0.24;
+  const marginY = cellH * 0.2;
+  return { cellW, cellH, marginX, marginY, winW: cellW - marginX * 2, winH: cellH - marginY * 2 };
+}
+
+export function makeFacadeEmissiveTexture(scene: Scene): DynamicTexture {
+  const texture = new DynamicTexture(
+    "facade-emissive",
+    { width: FACADE_TEX_W, height: FACADE_TEX_H },
+    scene,
+    true,
+  );
+  const ctx = textureContext(texture);
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, FACADE_TEX_W, FACADE_TEX_H);
+  const { cellW, cellH, marginX, marginY, winW, winH } = facadeCellMetrics();
+  for (const cell of FACADE_LAYOUT) {
+    if (!cell.lit) continue;
+    ctx.fillStyle = "rgb(255,208,138)";
+    ctx.fillRect(cell.col * cellW + marginX, cell.row * cellH + marginY, winW, winH);
+  }
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}
+
+export function makeFacadeDiffuseTexture(
+  scene: Scene,
+  name: string,
+  wallColor: Color3,
+): DynamicTexture {
+  const texture = new DynamicTexture(
+    name,
+    { width: FACADE_TEX_W, height: FACADE_TEX_H },
+    scene,
+    true,
+  );
+  const ctx = textureContext(texture);
+  ctx.fillStyle = facadeColorHex(wallColor);
+  ctx.fillRect(0, 0, FACADE_TEX_W, FACADE_TEX_H);
+  const { cellW, cellH, marginX, marginY, winW, winH } = facadeCellMetrics();
+  for (const cell of FACADE_LAYOUT) {
+    const x = cell.col * cellW + marginX;
+    const y = cell.row * cellH + marginY;
+    if (cell.lit) {
+      ctx.fillStyle = "#e8c684";
+    } else {
+      const s = cell.shade;
+      ctx.fillStyle = `rgb(${s},${s + 8},${s + 18})`;
+    }
+    ctx.fillRect(x, y, winW, winH);
+  }
+  texture.update();
+  texture.wrapU = Texture.WRAP_ADDRESSMODE;
+  texture.wrapV = Texture.WRAP_ADDRESSMODE;
+  return texture;
+}

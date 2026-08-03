@@ -1,30 +1,38 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VertexData } from "@babylonjs/core";
 import {
-  AdaptiveInputRouter,
-  DEFAULT_HORIZONTAL_FOV,
-  GUIDANCE_LAYER_MASK,
-  INPUT_PROMPT_SWITCH_COOLDOWN_MS,
-  MAX_HORIZONTAL_FOV,
-  MIN_HORIZONTAL_FOV,
-  PRIMARY_CAMERA_LAYER_MASK,
-  TOUCH_CONTROL_DIM_DELAY_MS,
-  WORLD_LAYER_MASK,
-  buildRoadSurfaceStripGeometry,
-  clampHorizontalFieldOfView,
-  collectRoadJunctionFills,
-  guidanceCueOverlapsCheckpoint,
   isAuthoredCheckpointCrossing,
-  isLaneGuidanceDistanceAllowed,
+  resolveNpcVisualSlotAssignments,
+} from "../app/game/GameCanvas";
+import {
+  AdaptiveInputRouter,
+  INPUT_PROMPT_SWITCH_COOLDOWN_MS,
+  TOUCH_CONTROL_DIM_DELAY_MS,
   isCameraStackActive,
   resolveCockpitCameraPoses,
+  type AdaptiveInputPresentation,
+} from "../app/game/adaptiveInputRouter";
+import {
+  buildRoadSurfaceStripGeometry,
+  collectRoadJunctionFills,
+  smoothClosedRoadCenterline,
+} from "../app/game/geometry/roadStrips";
+import {
+  clampHorizontalFieldOfView,
+  guidanceCueOverlapsCheckpoint,
+  isLaneGuidanceDistanceAllowed,
   resolveAuthoritativeRouteIndex,
   resolveCheckpointTargetWidth,
   resolveRouteChevronHalfSpan,
-  resolveNpcVisualSlotAssignments,
-  smoothClosedRoadCenterline,
-  type AdaptiveInputPresentation,
-} from "../app/game/GameCanvas";
+} from "../app/game/geometry/routeGuidance";
+import {
+  DEFAULT_HORIZONTAL_FOV,
+  GUIDANCE_LAYER_MASK,
+  MAX_HORIZONTAL_FOV,
+  MIN_HORIZONTAL_FOV,
+  PRIMARY_CAMERA_LAYER_MASK,
+  WORLD_LAYER_MASK,
+} from "../app/game/render/renderConstants";
 import {
   COCKPIT_DASH_DRIVER_Z,
   MAX_STEERING_WHEEL_SPIN,

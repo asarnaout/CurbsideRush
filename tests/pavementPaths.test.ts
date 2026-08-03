@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAP_PACKS } from "../app/game/content";
-import { collectRoadJunctionFills } from "../app/game/GameCanvas";
+import { collectRoadJunctionFills } from "../app/game/geometry/roadStrips";
 import {
   buildPavementGraph,
   EDGE_KIND_SCATTER,

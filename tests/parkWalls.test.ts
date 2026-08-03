@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxLengthYaw } from "../app/game/GameCanvas";
+import { boxLengthYaw } from "../app/game/geometry/cairoParkland";
 import { getMapPack } from "../app/game/content";
 import { parkLayoutForLandmark } from "../app/game/parkLayouts";
 import type { MapId } from "../app/game/types";
