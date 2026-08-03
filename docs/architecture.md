@@ -17,7 +17,10 @@ simulationAdapter   authored MapPack + lesson -> core config (build-time only)
 
 `simulation.ts` imports **only** `./types` — no React, DOM, Babylon,
 `Math.random`, or `Date.now`. That purity is the load-bearing property of the
-whole design and is guarded by tests. See [simulation-core.md](simulation-core.md).
+whole design and is guarded by `tests/architecture.test.ts`, which also pins
+the ring arrows above (GameCanvas never reaches `content.ts`; SideSwapApp
+touches GameCanvas only through one `dynamic()` literal or a type-only
+import). See [simulation-core.md](simulation-core.md).
 
 `simulationAdapter.ts` imports `GameCanvas` **type-only**, so there is no cycle;
 it also pulls `content.ts` and `visuals.ts` at runtime, which is why it is a

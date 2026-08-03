@@ -46,11 +46,11 @@ accumulates silently rather than failing anything.
 Next preset, where `build/` means output), so `build/sites-vite-plugin.ts` is never
 linted.
 
-## Nine test files import `GameCanvas.tsx` for real, in node
+## Twelve test files import `GameCanvas.tsx` for real, in node
 
-`cairoVisuals`, `content`, `gameCanvasInput`, `guidanceCoverage`,
-`intersectionVisuals`, `pavementPaths`, `roadJunctions`, `roadMarkings`,
-`staticColliders`.
+`architecture`, `cairoPromenade`, `cairoVisuals`, `content`, `gameCanvasInput`,
+`guidanceCoverage`, `intersectionVisuals`, `parkWalls`, `pavementPaths`,
+`roadJunctions`, `roadMarkings`, `staticColliders`.
 
 Adding a top-level side effect touching `window`/`document`/WebGL therefore breaks
 tests that have nothing to do with rendering.
@@ -58,9 +58,14 @@ tests that have nothing to do with rendering.
 Four more *name* the module but use `import type` and never load it —
 `freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`,
 `trafficSafetyAcceptance` — as do all three app-side importers (`SideSwapApp`,
-`simulationAdapter`, `freeDriveLesson`). So the only other runtime load is
-`SideSwapApp`'s lazy `dynamic()`. **Grep alone misleads here**; check whether the
-import is type-only.
+`simulationAdapter`, `freeDriveLesson`). **Grep alone misleads here**; check
+whether the import is type-only.
+
+`gameCanvasSession.test.tsx` (jsdom) is different in kind from the twelve
+above, and is the one other runtime load besides `SideSwapApp`'s lazy
+`dynamic()`: it deliberately mounts the real component, session and a
+`NullEngine`, so a `window`/`document`/WebGL touch is what it exists to
+exercise, not a hazard. See the guardrails table below.
 
 ## DOM tests
 
@@ -103,6 +108,8 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | Test | What it pins |
 |---|---|
 | `trafficSafetyAcceptance` | Determinism (trace hash over two replays) + no collisions across 4 cities × 51 seeds |
+| `architecture` | simulation.ts purity + the ring rules the god-file decomposition depends on |
+| `gameCanvasSession` | `BabylonGameSession` actually constructs, ticks, pauses, resets and disposes (headless, NullEngine) |
 | `content` / `cairoContent` / `londonContent` | Lane-graph continuity, "every lane has somewhere legal to go" |
 | `roadRealism` | Only speed figures that country actually signs |
 | `careerBalance` | Rent + fee ≤ 4 median gig nets; tickets reachable in 3–20 days |
