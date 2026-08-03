@@ -102,7 +102,7 @@ characterizes only run once Babylon's render loop is actually ticking, not
 at construction. `cutsceneDirectorCharacterization` drives the scene the
 same way the app does — a `cutscene` prop rerender with a bumped nonce, not
 an imperative test hook — and only exercises `pullover` and `repair`: per
-`startCutscene`'s own comments, those two "need no map data to stage" (a
+`CutsceneDirector.start`'s own comments, those two "need no map data to stage" (a
 heading-relative park; the car's own wing), so they are the only kinds
 guaranteed to stage from an arbitrary free-drive spawn without also being
 near the venue/pump/door the other five kinds require. Its repair case runs

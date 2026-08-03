@@ -156,6 +156,7 @@ import {
   MirrorRig,
   type MirrorRigCtx,
 } from "./render/mirrorRig";
+import { CutsceneDirector, type CutsceneDirectorCtx } from "./render/cutsceneDirector";
 import {
   LANE_PAINT_STYLES,
   signalStopBarSegment,
@@ -196,18 +197,8 @@ import {
   resolveVenuePlacement,
   type StaticObstacle,
 } from "./simulationAdapter";
-import {
-  FUEL_PUMP_REACH_M,
-  gasStationCanopyWorld,
-  gasStationPumpPositions,
-  gasStationsOf,
-  distanceToRepairBay,
-  repairShopBayPosition,
-  repairShopsOf,
-  resolveServicePointLot,
-} from "./servicePoints";
+import { resolveServicePointLot } from "./servicePoints";
 import { PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
-import { REPAIR_BAY_REACH_M } from "./repairShopLayout";
 import { DRIVE_LAYER } from "./driveLayers";
 import { INPUT_GUIDANCE } from "./inputGuidance";
 import { MIRROR_RADIUS_M } from "./mirrorRenderList";
@@ -245,35 +236,7 @@ import {
   TOUCH_TARGET_FPS,
   type RenderScalingState,
 } from "./renderScaling";
-import {
-  BIKE_CUTSCENE_BODY,
-  buildBikeErrandScript,
-  buildBoardScript,
-  buildErrandScript,
-  buildExitScript,
-  buildPulloverScript,
-  buildRefuelScript,
-  buildRepairScript,
-  chooseStagedShot,
-  repairCameraPosition,
-  buildRoadsideRefuelScript,
-  cutsceneBodyProfile,
-  DEFAULT_CUTSCENE_BODY,
-  lerpCarPose,
-  MOTORBIKE_CUTSCENE_BODY,
-  projectOntoPolyline,
-  scriptFocusPoint,
-  settleEase,
-  type CutsceneBodyProfile,
-  type CutsceneCarPose,
-  type CutsceneKind,
-  type CutsceneStep,
-  type ErrandCargo,
-  type StagedBlocker,
-  type StagedCover,
-  type PulloverPlan,
-  type PulloverRoad,
-} from "./cutsceneScript";
+import { type StagedBlocker } from "./cutsceneScript";
 import { DriveAudio } from "./audio/DriveAudio";
 import {
   ENGINE,
@@ -315,11 +278,9 @@ import {
   inspectArabicCanvasFont,
 } from "./arabicFont";
 import {
-  policeAppearanceForMap,
   policeBeaconLamps,
   resolvePlayerVehicleAppearance,
   resolveTrafficVehicleAppearance,
-  VEHICLE_DIMENSIONS,
   type VehicleAppearance,
   type VehicleModel,
 } from "./vehicleVisuals";
@@ -370,10 +331,8 @@ import {
 
 import {
   buildActorVisual,
-  buildCourierVisual,
   buildCyclistVisual,
   buildMotorbikeVisual,
-  buildOfficerVisual,
   buildPedestrianVisual,
   characterModelUrls,
   CHARACTER_MODELS,
@@ -570,49 +529,6 @@ const CUTSCENE_LOCKED_INPUT: Readonly<AnalogInput> = Object.freeze({
   quickLook: 0,
 });
 
-/** Execution state of the interaction cutscene being performed. */
-interface ActiveCutscene {
-  readonly nonce: number;
-  readonly kind: CutsceneKind;
-  readonly script: readonly CutsceneStep[];
-  stepIndex: number;
-  stepElapsed: number;
-  stepStarted: boolean;
-  /** Cumulative polyline lengths for the current walk/run step. */
-  segmentLengths: number[];
-  segmentTotal: number;
-  readonly actorNode: TransformNode;
-  readonly actorVisual: ActorVisual | null;
-  /** The staged wide shot, framing the car and the farthest scene point. */
-  readonly cameraPosition: Vector3;
-  readonly cameraTarget: Vector3;
-  /** The plane the actor's feet walk on (forecourt slab vs walker plane). */
-  readonly groundY: number;
-  /** The waiting rider was hidden for a boarding scene (restored on cancel). */
-  riderWasHidden: boolean;
-  /** The player's own bike rider was hidden for a dismount (restored on cancel). */
-  playerRiderHidden: boolean;
-  pumpEmitted: boolean;
-  repairEmitted: boolean;
-  /**
-   * The traffic stop's second car: a scene-owned patrol rig rather than the
-   * ambient patrol that clocked you, because that one is still being driven by
-   * the simulation and would not hold a mark. The ambient one is hidden by id
-   * for the scene's duration (see `hiddenNpcSimulationId`) so there is never a
-   * pair of them on screen.
-   */
-  readonly patrolNode: TransformNode | null;
-  readonly patrolVisual: VehicleMeshVisual | null;
-  citeEmitted: boolean;
-  /** Seconds since the scene began, driving the patrol's light bar. */
-  elapsedSeconds: number;
-}
-
-/** How far past a roof's edge a scene still counts as under it — see
- * `coverOverScene`. Roughly the walk between a car and the pump it is drawn up
- * at, which is the span such a scene straddles the edge by. */
-const COVER_REACH_M = 3;
-
 /** The player avatar every cutscene stages: one consistent driver. Index 1 is
  * person-b — a casual short-sleeve tee, not a suit — in both the cyclist
  * roster (CYCLIST_RIDER_MODELS) and the actor roster (CHARACTER_MODELS), which
@@ -629,56 +545,13 @@ const DRIVER_ACTOR_COLORS: CharacterColors = {
 /** Matches the waiting-rider tint so the boarding actor is the same person. */
 const RIDER_CLOTHING_TINT = new Color3(0.92, 0.55, 0.2);
 
-/** How deep and how long the suspension dips when somebody gets in or out. */
-const CUTSCENE_DIP_SECONDS = 0.42;
-const CUTSCENE_DIP_DEPTH_M = 0.05;
-
 /** Characters stand on the walker plane of the y-stack (matches the ambient
  * crowd's WALKER_Y and the scenario pedestrians), not on y=0 — the road tops
  * out at 0.07, so feet placed at zero read as buried to the ankles. */
 const ACTOR_WALK_Y = 0.08;
-/** The gas station's forecourt slab tops out at ~0.095 (measured world AABB
- * of the placed model), so the refuel scene walks a touch higher still. */
-const FORECOURT_WALK_Y = 0.1;
-
-/**
- * The ground plane each scene's actor walks on, where it is not the road.
- *
- * A lookup rather than the ternary this started as, so a scene added without a
- * thought about what it stands on gets the road rather than the gas station's
- * slab. The repair shop's bay floor tops out at 0.07 — flush with the road, so
- * it wants no entry at all.
- */
-const CUTSCENE_GROUND_Y: Partial<Record<CutsceneKind, number>> = {
-  refuel: FORECOURT_WALK_Y,
-};
-
-/**
- * What the scene reports on its way out, per kind.
- *
- * A full `Record` rather than the ternary chain this was, so adding a kind is a
- * compile error here instead of silently inheriting whichever branch happened
- * to be last ("Order delivered.", as it went).
- */
-const CUTSCENE_DONE_MESSAGE: Record<CutsceneKind, string> = {
-  refuel: "Tank filled; back behind the wheel.",
-  roadside_refuel: "Tank filled; back behind the wheel.",
-  repair: "Repaired; back on the road.",
-  board: "Rider aboard.",
-  exit: "Rider dropped off.",
-  pullover: "Ticket written; you're free to go.",
-  food_pickup: "Order collected.",
-  food_dropoff: "Order delivered.",
-};
 
 /** How far inside the pavement a street address's "front door" sits. */
 const STREET_DOOR_INSET_M = 3.2;
-
-/** How far off a carriageway centreline the traffic stop will still measure its
- * kerb from that road. Beyond it (a car deep in a car park or on the grass) the
- * stop parks heading-relative instead of dragging the car back to a street it
- * has left. Half a wide road plus a pavement. */
-const PULLOVER_ROAD_REACH_M = 14;
 
 interface PlayerState {
   x: number;
@@ -1247,21 +1120,9 @@ class BabylonGameSession {
    * street address's building line. Where the delivery errand actor vanishes.
    */
   private readonly gigVenueDoors = new Map<string, { x: number; z: number }>();
-  /** The interaction cutscene being performed, if any. While set, driving
-   * input reads as zero and the third-person camera holds the staged shot. */
-  private activeCutscene: ActiveCutscene | null = null;
+  private cutsceneDirector: CutsceneDirector | null = null;
   /** Highest request nonce already staged, so option echoes can't restart. */
   private handledCutsceneNonce = 0;
-  /**
-   * Ambient vehicle held off screen for the running scene, keyed by simulation
-   * id rather than render slot: the traffic stop stands its own patrol in for
-   * the one that clocked you, and a slot can recycle into a different vehicle
-   * within the ten seconds the scene lasts.
-   */
-  private hiddenNpcSimulationId: string | null = null;
-  /** Suspension dip when somebody gets in/out: half-sine over its window. */
-  private cutsceneDipSeconds = 0;
-  private cutsceneDipOffset = 0;
   private gigMarkerNode: TransformNode | null = null;
   private gigMarkerPlaced: string | null = null;
   private gigMarkerCarrying = false;
@@ -1676,6 +1537,7 @@ class BabylonGameSession {
     // which calls back into buildWingMirror before this constructor ever
     // reaches the rear-view mirror's own build() call further down.
     this.mirrorRig = new MirrorRig(this.scene);
+    this.cutsceneDirector = new CutsceneDirector(this.scene);
     this.buildEnvironment();
     this.buildPlayerCar();
     this.buildTraffic();
@@ -1824,7 +1686,7 @@ class BabylonGameSession {
     const cutsceneRequest = this.options.cutscene;
     if (cutsceneRequest && cutsceneRequest.nonce !== this.handledCutsceneNonce) {
       this.handledCutsceneNonce = cutsceneRequest.nonce;
-      this.startCutscene(cutsceneRequest);
+      this.cutsceneDirector?.start(this.cutsceneDirectorCtx(), cutsceneRequest);
     }
   }
 
@@ -1913,7 +1775,7 @@ class BabylonGameSession {
       this.scene.activeCameras?.map((camera) => camera.name) ?? [];
     if (
       this.cameraMode === mode &&
-      (this.activeCutscene !== null ||
+      (this.cutsceneDirector?.isActive ||
         isCameraStackActive(
           mode,
           this.scene.activeCamera?.name ?? null,
@@ -1926,7 +1788,7 @@ class BabylonGameSession {
     const firstPerson = mode === "first";
     // A running cutscene keeps its staged third-person stack; the recorded
     // mode is honoured the moment the scene ends.
-    if (!this.activeCutscene) this.applyCameraStack(firstPerson);
+    if (!this.cutsceneDirector?.isActive) this.applyCameraStack(firstPerson);
     if (notify) {
       this.callbacks.onCameraChange?.(mode);
       this.emit("camera", `${firstPerson ? "First" : "Third"}-person camera selected.`);
@@ -1936,7 +1798,7 @@ class BabylonGameSession {
 
   toggleCamera() {
     // The staged shot owns the camera while an interaction scene plays.
-    if (this.activeCutscene) return;
+    if (this.cutsceneDirector?.isActive) return;
     // No cockpit on a two-wheeler; the toggle is a no-op rather than a lie.
     const kind = this.options.playerVehicle?.visualKind;
     if (kind && kind !== "car") return;
@@ -1986,7 +1848,7 @@ class BabylonGameSession {
   }
 
   reset(incidentMessage?: string) {
-    this.cancelCutscene();
+    this.cutsceneDirector?.cancel(this.cutsceneDirectorCtx());
     if (incidentMessage) {
       this.simulation.reportExternalCollision(
         incidentMessage,
@@ -2040,7 +1902,7 @@ class BabylonGameSession {
         delete debugWindow[key];
       }
     }
-    this.cancelCutscene();
+    this.cutsceneDirector?.dispose(this.cutsceneDirectorCtx());
     this.engine.stopRenderLoop(this.renderFrame);
     // Withdraw the mirrors before the scene goes: a render target left in
     // customRenderTargets keeps its render list — and through it the whole
@@ -2496,732 +2358,6 @@ class BabylonGameSession {
   }
 
   /**
-   * Stages one interaction cutscene: builds the choreography for the request,
-   * spawns its actor, and swings the camera to a wide shot of the car and the
-   * scene's far point. While `activeCutscene` is set, `mergedInput` reads as
-   * all-zero (the "game is unplayable" contract) and `updateCamera` holds the
-   * staged shot. Anything unstageable resolves as an instant `done` so the
-   * app-side effects (fuel, gig state) are never lost.
-   */
-  /**
-   * The walk-path envelope for interaction scenes, sized to whatever the
-   * player is actually driving so a van's longer bumpers are skirted and its
-   * doors sit on its real flanks. The flagship (and any vehicle without
-   * registered dimensions) reproduces the long-standing default exactly.
-   */
-  private cutsceneBody(): CutsceneBodyProfile {
-    const kind = this.options.playerVehicle?.visualKind;
-    if (kind === "bicycle") return BIKE_CUTSCENE_BODY;
-    if (kind === "motorbike") return MOTORBIKE_CUTSCENE_BODY;
-    const model = this.options.playerVehicle?.model;
-    const dimensions = model ? VEHICLE_DIMENSIONS[model] : undefined;
-    if (!dimensions) return DEFAULT_CUTSCENE_BODY;
-    return cutsceneBodyProfile(dimensions.length, dimensions.width);
-  }
-
-  private startCutscene(request: CutsceneRequest) {
-    this.cancelCutscene();
-    const car = {
-      x: this.playerState.x,
-      z: this.playerState.z,
-      heading: this.playerState.heading,
-    };
-    const body = this.cutsceneBody();
-    let script: readonly CutsceneStep[] | null = null;
-    let passengerSeed: string | null = null;
-    let pullover: PulloverPlan | null = null;
-    switch (request.kind) {
-      case "pullover": {
-        // Needs no map data to stage — pulloverPose falls back to a heading-
-        // relative park — so this branch always yields a script. The app leans
-        // on that: the fine is debited on the scene's citation step, so a
-        // traffic stop that could not be staged would be a violation that
-        // silently cost nothing.
-        pullover = buildPulloverScript(
-          car,
-          Math.max(0, this.playerState.speedMps),
-          this.options.steeringSide,
-          this.options.trafficSide,
-          this.pulloverRoadAt(car.x, car.z),
-          body,
-        );
-        script = pullover.steps;
-        // Stand the scene's own patrol in for the one that clocked you: the
-        // ambient car is still under the simulation's control and would drive
-        // off mid-scene, so it goes off screen for the duration rather than
-        // being commandeered. Wider than the 35 m witness radius because the
-        // stop is staged a render frame or two after the violation.
-        this.hiddenNpcSimulationId =
-          this.patrolNearPlayer(60)?.simulationId ?? null;
-        break;
-      }
-      case "refuel": {
-        const pump = this.nearestPumpTo(car.x, car.z);
-        if (pump) {
-          script = buildRefuelScript(
-            car,
-            this.options.steeringSide,
-            pump,
-            request.fuelFillFraction ?? 1,
-            body,
-          );
-        }
-        break;
-      }
-      case "roadside_refuel": {
-        // No pump needed: the rescue plays wherever the tank ran dry.
-        script = buildRoadsideRefuelScript(car, this.options.steeringSide, body);
-        break;
-      }
-      case "repair": {
-        // Likewise needs no map data — the work happens at the car's own front
-        // wing, so this branch always yields a script. Deliberate: the bill
-        // is charged on the scene's repair step, so a shop visit that could not
-        // be staged would be a repair that silently cost nothing.
-        script = buildRepairScript(car, this.options.steeringSide, body);
-        break;
-      }
-      case "board": {
-        const spot = request.venueId
-          ? this.gigVenueCurbside.get(request.venueId)
-          : undefined;
-        if (spot) {
-          const from = this.riderNode
-            ? { x: this.riderNode.position.x, z: this.riderNode.position.z }
-            : { x: spot.x, z: spot.z };
-          script = buildBoardScript(car, this.options.trafficSide, from, body);
-          passengerSeed = request.actorSeedId ?? request.venueId ?? null;
-        }
-        break;
-      }
-      case "exit": {
-        // The passenger always walks straight off the car's own kerb side, so
-        // the scene needs nothing but the car pose. Routing to a fixed venue
-        // spot instead sent them around the car on an off-square park (#128-era
-        // "walks away then comes back"); a car-relative walk-off can't.
-        script = buildExitScript(car, this.options.trafficSide, body);
-        passengerSeed = request.actorSeedId ?? request.venueId ?? null;
-        break;
-      }
-      case "food_pickup":
-      case "food_dropoff": {
-        const door = request.venueId
-          ? (this.gigVenueDoors.get(request.venueId) ??
-            this.gigVenueCurbside.get(request.venueId))
-          : undefined;
-        if (door) {
-          // Which leg the courier walks with the order in hand is the only
-          // thing that tells these two scenes apart on screen — the walk
-          // itself is the same one run in opposite directions.
-          const cargo: ErrandCargo =
-            request.kind === "food_pickup" ? "collect" : "deliver";
-          // On a two-wheeler the courier dismounts beside it — no doors, no
-          // suspension dip — and the rider on the vehicle hides for the scene
-          // so the walking actor reads as the same person.
-          const twoWheelerKind = this.options.playerVehicle?.visualKind;
-          script =
-            twoWheelerKind === "bicycle"
-              ? buildBikeErrandScript(
-                  car,
-                  { x: door.x, z: door.z },
-                  undefined,
-                  undefined,
-                  cargo,
-                )
-              : twoWheelerKind === "motorbike"
-                ? buildBikeErrandScript(
-                    car,
-                    { x: door.x, z: door.z },
-                    undefined,
-                    MOTORBIKE_CUTSCENE_BODY,
-                    cargo,
-                  )
-                : buildErrandScript(
-                    car,
-                    this.options.steeringSide,
-                    { x: door.x, z: door.z },
-                    undefined,
-                    body,
-                    cargo,
-                  );
-        }
-        break;
-      }
-    }
-    if (!script || script.length === 0) {
-      // Nothing staged, so nothing may stay hidden: without this an unstageable
-      // scene would leave a patrol permanently off screen.
-      this.hiddenNpcSimulationId = null;
-      this.emitCutsceneDone(request.nonce, request.kind);
-      return;
-    }
-
-    const actorNode = new TransformNode(`cutscene-actor-${request.nonce}`, this.scene);
-    actorNode.setEnabled(false);
-    const actorVisual = pullover
-      ? buildOfficerVisual(
-          this.scene,
-          actorNode,
-          `cutscene-officer-${request.nonce}`,
-        )
-      : passengerSeed
-        ? buildActorVisual(
-            this.scene,
-            actorNode,
-            `cutscene-passenger-${request.nonce}`,
-            passengerSeed.length,
-            this.passengerColors(passengerSeed),
-          )
-        : // The food errands are the driver with an order to carry; every
-          // other scene is the same person with their hands free.
-          (request.kind === "food_pickup" || request.kind === "food_dropoff"
-            ? buildCourierVisual
-            : buildActorVisual)(
-            this.scene,
-            actorNode,
-            `cutscene-driver-${request.nonce}`,
-            DRIVER_ACTOR_VARIANT,
-            DRIVER_ACTOR_COLORS,
-          );
-
-    const patrolRig = pullover ? this.buildPatrolRig(request.nonce, pullover) : null;
-
-    // The staged shot: a static wide framing of the car and the scene's far
-    // point, from whichever side the camera is already on so the glide in
-    // never swings across the action.
-    //
-    // A traffic stop frames the *parked* poses, not where the car happened to
-    // be when it was clocked: the car drives into this shot over the first few
-    // seconds, and framing it from the violation point would leave the camera
-    // stranded up the road once it had. Both cars have to fit, so the span is
-    // taken across the pair and the pull-back is wider than the one-actor
-    // scenes need.
-    const stage: CutsceneCarPose = pullover?.parked ?? car;
-    const focus = pullover
-      ? { x: pullover.patrol.x, z: pullover.patrol.z }
-      : scriptFocusPoint(car, script);
-    const midX = (stage.x + focus.x) / 2;
-    const midZ = (stage.z + focus.z) / 2;
-    const span = Math.hypot(focus.x - stage.x, focus.z - stage.z);
-    let perpX = focus.z - stage.z;
-    let perpZ = -(focus.x - stage.x);
-    const perpLength = Math.hypot(perpX, perpZ);
-    if (perpLength < 0.001) {
-      perpX = Math.cos(stage.heading);
-      perpZ = -Math.sin(stage.heading);
-    } else {
-      perpX /= perpLength;
-      perpZ /= perpLength;
-    }
-    const towardCameraX = this.thirdCamera.position.x - midX;
-    const towardCameraZ = this.thirdCamera.position.z - midZ;
-    if (perpX * towardCameraX + perpZ * towardCameraZ < 0) {
-      perpX = -perpX;
-      perpZ = -perpZ;
-    }
-    const radius = pullover
-      ? Math.max(14, span * 1.25)
-      : Math.max(9, span * 0.85);
-    const cameraY = 4.2 + span * 0.25;
-
-    // The repair scene is the one that plays inside a building, so it does not
-    // take the generic framing — see `repairCameraPosition`.
-    const framing =
-      request.kind === "repair"
-        ? this.repairBayFramingAt(car.x, car.z)
-        : null;
-    // Measured from the BAY's centre, not from the scene's own midpoint. The
-    // midpoint is already pulled toward the actor, so offsetting from it
-    // compounds and walks the camera out past the flank — where it films the
-    // outside of the wall. The shot is a property of the shop.
-    const repairShot = framing
-      ? repairCameraPosition(framing.bay.x, framing.bay.z, framing.mouth, {
-          x: focus.x - car.x,
-          z: focus.z - car.z,
-        })
-      : null;
-    // Everything else takes the generic ring — but at the azimuth on it that
-    // can see the scene, rather than at whichever perpendicular the chase
-    // camera happened to be standing on. Both ends of the action have to stay
-    // visible: framing that clears the car and hides the pump is the wrong side
-    // to film a refuel from. See `chooseStagedShot`.
-    const subjects = [{ x: stage.x, z: stage.z }, focus];
-    const shot =
-      repairShot ??
-      chooseStagedShot(
-        midX,
-        midZ,
-        radius,
-        cameraY,
-        { x: perpX, z: perpZ },
-        subjects,
-        this.stagedBlockers,
-        this.coverOverScene(subjects),
-      );
-
-    const riderWasHidden = request.kind === "board" && this.riderNode !== null;
-    if (riderWasHidden) this.riderNode?.setEnabled(false);
-    const playerRiderHidden =
-      // A stopped cyclist stays on the bike — they are being spoken to, not
-      // dismounting — so the traffic stop is the one scene that keeps the
-      // player's own rider on their vehicle.
-      request.kind !== "pullover" &&
-      this.options.playerVehicle !== null &&
-      this.options.playerVehicle !== undefined &&
-      this.options.playerVehicle.visualKind !== "car" &&
-      this.playerCyclistVisual !== null;
-    if (playerRiderHidden) this.playerCyclistVisual?.setRiderVisible?.(false);
-
-    this.activeCutscene = {
-      nonce: request.nonce,
-      kind: request.kind,
-      script,
-      stepIndex: 0,
-      stepElapsed: 0,
-      stepStarted: false,
-      segmentLengths: [],
-      segmentTotal: 0,
-      actorNode,
-      actorVisual,
-      cameraPosition: new Vector3(shot.x, shot.y, shot.z),
-      // Both ends of the repair shot come off the shop: aiming at the scene's
-      // own midpoint instead leaves the bay off to one side, because the
-      // midpoint drifts with wherever the car stopped and whichever flank the
-      // driver is working on.
-      cameraTarget: framing
-        ? new Vector3(framing.bay.x, 1.0, framing.bay.z)
-        : new Vector3(midX, 1.0, midZ),
-      groundY: CUTSCENE_GROUND_Y[request.kind] ?? ACTOR_WALK_Y,
-      riderWasHidden,
-      playerRiderHidden,
-      pumpEmitted: false,
-      repairEmitted: false,
-      patrolNode: patrolRig?.node ?? null,
-      patrolVisual: patrolRig?.visual ?? null,
-      citeEmitted: false,
-      elapsedSeconds: 0,
-    };
-    this.applyCameraStack(false);
-  }
-
-  /**
-   * The carriageway the traffic stop parks against: the road surface nearest
-   * the car, projected onto rather than looked up by lane, because the pose has
-   * to be measured from the *street's* centreline to land at its kerb — a lane
-   * id would only say which half of it the car is on. Out of reach (a car well
-   * off the map's roads) yields null and the scene parks heading-relative.
-   */
-  private pulloverRoadAt(x: number, z: number): PulloverRoad | null {
-    const surfaces = this.options.mapPack?.geometry.roadSurfaces;
-    if (!surfaces?.length) return null;
-    let best: PulloverRoad | null = null;
-    let bestDistance = PULLOVER_ROAD_REACH_M;
-    for (const surface of surfaces) {
-      const hit = projectOntoPolyline(surface.centerline, x, z);
-      if (!hit || hit.distance > bestDistance) continue;
-      bestDistance = hit.distance;
-      best = {
-        centerline: surface.centerline,
-        halfWidthM: surface.widthM / 2,
-      };
-    }
-    return best;
-  }
-
-  /** The traffic stop's own patrol car, spawned at its run-up pose with the
-   * light bar already going. Wears the local force's livery like any other
-   * patrol on the map. */
-  private buildPatrolRig(
-    nonce: number,
-    plan: PulloverPlan,
-  ): { node: TransformNode; visual: VehicleMeshVisual } {
-    const node = new TransformNode(`cutscene-patrol-${nonce}`, this.scene);
-    node.position.set(plan.patrolStart.x, 0.12, plan.patrolStart.z);
-    node.rotation.y = plan.patrolStart.heading;
-    const visual = createVehicleMesh(
-      this.scene,
-      node,
-      `cutscene-patrol-${nonce}`,
-      policeAppearanceForMap(
-        this.options.mapPack?.id ?? "orientation-yard",
-        `pullover-${nonce}`,
-        this.options.lesson?.trafficSeed ?? 0,
-      ),
-    );
-    visual.setDetailVisible(true);
-    return { node, visual };
-  }
-
-  /** Fired at a step's first frame: placement, visibility, clip, foley, dip. */
-  private beginCutsceneStep(cutscene: ActiveCutscene, step: CutsceneStep) {
-    const path = step.path ?? [];
-    cutscene.segmentLengths = [];
-    cutscene.segmentTotal = 0;
-    for (let index = 1; index < path.length; index += 1) {
-      cutscene.segmentTotal += Math.hypot(
-        path[index].x - path[index - 1].x,
-        path[index].z - path[index - 1].z,
-      );
-      cutscene.segmentLengths.push(cutscene.segmentTotal);
-    }
-    if (step.sound) this.audio?.foley(step.sound);
-    if (step.carDip) this.cutsceneDipSeconds = CUTSCENE_DIP_SECONDS;
-    if (step.citeWindow && !cutscene.citeEmitted) {
-      // The officer is at the window: this is the moment the fine is written,
-      // the same way the refuel scene pays for its fuel when the nozzle goes
-      // in rather than when the button was pressed.
-      cutscene.citeEmitted = true;
-      this.emit("cutscene", "Licence and registration.", "warning", {
-        evidence: { phase: "cite", nonce: cutscene.nonce },
-      });
-    }
-    if (step.fuelWindow && !cutscene.pumpEmitted) {
-      cutscene.pumpEmitted = true;
-      this.emit("cutscene", "Filling the tank.", "info", {
-        evidence: {
-          phase: "pump",
-          nonce: cutscene.nonce,
-          durationMs: Math.round(step.seconds * 1000),
-        },
-      });
-    }
-    if (step.repairWindow && !cutscene.repairEmitted) {
-      cutscene.repairEmitted = true;
-      this.emit("cutscene", "Panels straightened, lights replaced.", "info", {
-        evidence: {
-          phase: "repair",
-          nonce: cutscene.nonce,
-          durationMs: Math.round(step.seconds * 1000),
-        },
-      });
-    }
-    // The order is in hand for whole legs at a time, so this rides the step
-    // rather than the scene — see CutsceneStep.carrying. A no-op for every
-    // actor that is not the courier.
-    cutscene.actorVisual?.setCarrying?.(step.carrying === true);
-    switch (step.action) {
-      case "show":
-      case "walk":
-      case "run": {
-        const at = path[0];
-        if (at) cutscene.actorNode.position.set(at.x, cutscene.groundY, at.z);
-        if (step.face !== undefined) cutscene.actorNode.rotation.y = step.face;
-        cutscene.actorNode.setEnabled(true);
-        if (step.action === "show") {
-          cutscene.actorVisual?.setClip("idle");
-        } else {
-          const speed =
-            step.seconds > 0 ? cutscene.segmentTotal / step.seconds : 0;
-          if (step.action === "walk") {
-            cutscene.actorVisual?.setClip("walk", clamp(speed / 1.4, 0.5, 1.8));
-          } else {
-            cutscene.actorVisual?.setClip("run", clamp(speed / 3.0, 0.6, 1.6));
-          }
-        }
-        break;
-      }
-      case "idle":
-        if (step.face !== undefined) cutscene.actorNode.rotation.y = step.face;
-        cutscene.actorVisual?.setClip("idle");
-        break;
-      case "hide":
-        cutscene.actorNode.setEnabled(false);
-        break;
-    }
-  }
-
-  /**
-   * Advances the running cutscene by one rendered frame: moves the actor along
-   * the current step's polyline, then rolls completed steps forward (several
-   * can elapse in one slow frame). Also decays the suspension dip — that keeps
-   * settling even after the scene ends.
-   */
-  private advanceCutscene(frameSeconds: number) {
-    if (this.cutsceneDipSeconds > 0) {
-      this.cutsceneDipSeconds = Math.max(
-        0,
-        this.cutsceneDipSeconds - frameSeconds,
-      );
-      this.cutsceneDipOffset =
-        Math.sin(Math.PI * (1 - this.cutsceneDipSeconds / CUTSCENE_DIP_SECONDS)) *
-        CUTSCENE_DIP_DEPTH_M;
-    } else {
-      this.cutsceneDipOffset = 0;
-    }
-    const cutscene = this.activeCutscene;
-    if (!cutscene) return;
-    cutscene.elapsedSeconds += frameSeconds;
-    // Keeps a carried bag hanging plumb as the rig's arm swings; the actor
-    // itself needs no per-frame work, so this costs nothing when hands are free.
-    cutscene.actorVisual?.update?.();
-    if (cutscene.patrolVisual) {
-      const lamps = policeBeaconLamps(cutscene.elapsedSeconds);
-      cutscene.patrolVisual.setBeacon(lamps.red, lamps.blue);
-    }
-    let step = cutscene.script[cutscene.stepIndex];
-    if (!cutscene.stepStarted) {
-      cutscene.stepStarted = true;
-      this.beginCutsceneStep(cutscene, step);
-    }
-    cutscene.stepElapsed += frameSeconds;
-    while (cutscene.stepElapsed >= step.seconds) {
-      // Land the outgoing step's cars exactly on their marks before rolling
-      // forward: a slow frame can skip a whole step, and a car left a metre
-      // short of the kerb is where the officer would then be walking to.
-      this.applyCutsceneCarMoves(cutscene, step, 1);
-      cutscene.stepElapsed -= step.seconds;
-      cutscene.stepIndex += 1;
-      if (cutscene.stepIndex >= cutscene.script.length) {
-        this.finishCutscene(cutscene);
-        return;
-      }
-      step = cutscene.script[cutscene.stepIndex];
-      this.beginCutsceneStep(cutscene, step);
-    }
-    if (step.carMoves && step.seconds > 0) {
-      this.applyCutsceneCarMoves(
-        cutscene,
-        step,
-        cutscene.stepElapsed / step.seconds,
-      );
-    }
-    if (
-      (step.action === "walk" || step.action === "run") &&
-      cutscene.segmentTotal > 0 &&
-      step.seconds > 0
-    ) {
-      const path = step.path ?? [];
-      const along =
-        cutscene.segmentTotal * Math.min(1, cutscene.stepElapsed / step.seconds);
-      let segment = 0;
-      while (
-        segment < cutscene.segmentLengths.length - 1 &&
-        along > cutscene.segmentLengths[segment]
-      ) {
-        segment += 1;
-      }
-      const segmentStart = segment === 0 ? 0 : cutscene.segmentLengths[segment - 1];
-      const segmentLength = cutscene.segmentLengths[segment] - segmentStart;
-      const a = path[segment];
-      const b = path[segment + 1];
-      const t = segmentLength > 0 ? (along - segmentStart) / segmentLength : 1;
-      cutscene.actorNode.position.set(
-        a.x + (b.x - a.x) * t,
-        cutscene.groundY,
-        a.z + (b.z - a.z) * t,
-      );
-      if (segmentLength > 0.01) {
-        cutscene.actorNode.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
-      }
-    }
-  }
-
-  /**
-   * Carries the step's cars to their pose at `t`, eased so each settles into
-   * its stop.
-   *
-   * The player's car is written straight through to the simulation as well as
-   * to the render mirror: the core owns the pose everything else reads from
-   * (traffic clearance, road state, the minimap), so leaving it behind while
-   * the visible car glides to the kerb would have NPCs steering around a ghost
-   * in the lane and the car snapping back the moment the scene released. Speed
-   * stays zero throughout, which is what keeps the collision reporters — all
-   * gated on the player actually moving — quiet while the choreography drives.
-   */
-  private applyCutsceneCarMoves(
-    cutscene: ActiveCutscene,
-    step: CutsceneStep,
-    t: number,
-  ) {
-    if (!step.carMoves) return;
-    const eased = settleEase(t);
-    for (const move of step.carMoves) {
-      const pose = lerpCarPose(move.from, move.to, eased);
-      if (move.vehicle === "player") {
-        this.simulation.setPlayerPose(pose);
-        // The glide already advances at render rate; pin prev to the same
-        // pose so the interpolated car sits exactly on the choreography
-        // rather than one blend step behind it.
-        this.playerState.previousX = pose.x;
-        this.playerState.previousZ = pose.z;
-        this.playerState.previousHeading = pose.heading;
-        this.playerState.x = pose.x;
-        this.playerState.z = pose.z;
-        this.playerState.heading = pose.heading;
-        this.playerState.speedMps = 0;
-      } else if (cutscene.patrolNode) {
-        cutscene.patrolNode.position.set(pose.x, 0.12, pose.z);
-        cutscene.patrolNode.rotation.y = pose.heading;
-      }
-    }
-  }
-
-  private finishCutscene(cutscene: ActiveCutscene) {
-    // Boarding leaves the rider hidden: the app flips the gig to "carrying" on
-    // this event, which clears riderVenueId and disposes the waiting mesh —
-    // re-enabling it here would flash the double for a frame.
-    cutscene.actorVisual?.dispose();
-    cutscene.actorNode.dispose(false, false);
-    this.disposePatrolRig(cutscene);
-    // The player's own bike rider is the opposite case: the courier always
-    // remounts when the errand ends, on completion just as on abort. Missing
-    // this here (it only lived in cancelCutscene) shipped a ghost bike after
-    // every successful pickup.
-    if (cutscene.playerRiderHidden) {
-      this.playerCyclistVisual?.setRiderVisible?.(true);
-    }
-    this.activeCutscene = null;
-    this.applyCameraStack(this.cameraMode === "first");
-    this.audio?.foley("chime");
-    this.emitCutsceneDone(cutscene.nonce, cutscene.kind);
-  }
-
-  /** Tears a scene down without a `done` event: tow reset, session dispose. */
-  private cancelCutscene() {
-    const cutscene = this.activeCutscene;
-    if (!cutscene) return;
-    this.activeCutscene = null;
-    cutscene.actorVisual?.dispose();
-    cutscene.actorNode.dispose(false, false);
-    this.disposePatrolRig(cutscene);
-    if (cutscene.riderWasHidden) this.riderNode?.setEnabled(true);
-    if (cutscene.playerRiderHidden) {
-      this.playerCyclistVisual?.setRiderVisible?.(true);
-    }
-    if (cutscene.pumpEmitted) this.audio?.foley("pump_stop");
-    this.cutsceneDipSeconds = 0;
-    this.cutsceneDipOffset = 0;
-    this.applyCameraStack(this.cameraMode === "first");
-  }
-
-  /** Tears down the traffic stop's own patrol car and lets the ambient one
-   * that clocked you back on screen. Safe on every other scene, which has
-   * neither. */
-  private disposePatrolRig(cutscene: ActiveCutscene) {
-    cutscene.patrolVisual?.dispose();
-    cutscene.patrolNode?.dispose(false, false);
-    this.hiddenNpcSimulationId = null;
-  }
-
-  private emitCutsceneDone(nonce: number, kind: CutsceneKind) {
-    this.emit("cutscene", CUTSCENE_DONE_MESSAGE[kind], "info", {
-      evidence: { phase: "done", nonce, kind },
-    });
-  }
-
-  /**
-   * Which way the open side of the repair bay the car is standing in faces —
-   * a unit vector, or null if the car is not in one.
-   *
-   * The shop is set back along the lane's driver-right normal and turned to
-   * face back the way it came, so its mouth points along exactly the opposite
-   * of that normal. That is a fact about the building, which is what makes it
-   * the right thing to frame the scene against: how the driver got in — nose
-   * first, reversed, or slewed across the bay — tells you nothing about where
-   * the wall is.
-   */
-  private repairBayFramingAt(
-    x: number,
-    z: number,
-  ): {
-    readonly bay: { readonly x: number; readonly z: number };
-    readonly mouth: { readonly x: number; readonly z: number };
-  } | null {
-    const mapPack = this.options.mapPack;
-    if (!mapPack) return null;
-    for (const service of repairShopsOf(mapPack.geometry.servicePoints)) {
-      const reach = distanceToRepairBay(mapPack.laneGraph.lanes, service, x, z);
-      // Slack over the prompt's own reach: the scene stages a frame or two
-      // after the button, and a car rolling to a stop may have drifted.
-      if (reach > REPAIR_BAY_REACH_M + 2) continue;
-      const bay = repairShopBayPosition(mapPack.laneGraph.lanes, service);
-      const pose = resolveSimulationLaneAnchor(
-        mapPack.laneGraph.lanes,
-        service.anchor,
-      );
-      if (!bay || !pose) continue;
-      return {
-        bay,
-        mouth: { x: -Math.cos(pose.heading), z: Math.sin(pose.heading) },
-      };
-    }
-    return null;
-  }
-
-  /**
-   * The roof over a staged scene, if any part of what it films is under one.
-   *
-   * Only gas station canopies exist to find today — they are the one thing the
-   * game builds that a camera has to duck and a car drives straight under, so
-   * they are the one thing the collider set deliberately does not describe. A
-   * scene with nothing overhead gets null and is framed exactly as it was.
-   *
-   * Tests every subject rather than the scene's midpoint, and allows them a
-   * reach past the edge. The station's canopy is 7.2m across and sits off
-   * centre over its two pump rows — the outer row has only 0.6m of overhang
-   * beyond it, and the driver fills from a stand point 1.1m further out again.
-   * So a scene at that row straddles the edge: nothing about it is "under" the
-   * slab by a strict test, and the slab is still across the top of the shot.
-   * The margin is about the length of the walk between a car and the pump it is
-   * drawn up at, which is the span such a scene occupies either side of it.
-   *
-   * Only the *lookup* is generous. The rect handed on is the true one, so
-   * `chooseStagedShot` still rejects only the azimuths genuinely beneath it.
-   *
-   * Matched on footprint rather than on the pump reach the refuel prompt uses:
-   * a traffic stop can end up on a forecourt too, and what decides the shot is
-   * the roof overhead, not what the scene happens to be about.
-   */
-  private coverOverScene(
-    subjects: readonly { x: number; z: number }[],
-  ): StagedCover | null {
-    const mapPack = this.options.mapPack;
-    if (!mapPack) return null;
-    for (const service of gasStationsOf(mapPack.geometry.servicePoints)) {
-      const canopy = gasStationCanopyWorld(mapPack.laneGraph.lanes, service);
-      if (!canopy) continue;
-      for (const subject of subjects) {
-        const dx = subject.x - canopy.x;
-        const dz = subject.z - canopy.z;
-        if (
-          Math.abs(dx * canopy.ux + dz * canopy.uz) <=
-            canopy.halfU + COVER_REACH_M &&
-          Math.abs(dx * canopy.uz - dz * canopy.ux) <=
-            canopy.halfV + COVER_REACH_M
-        ) {
-          return canopy;
-        }
-      }
-    }
-    return null;
-  }
-
-  /** The pump the refuel scene plays at: nearest to the car, within the same
-   * reach the refuel prompt uses (plus slack for the car's own footprint). */
-  private nearestPumpTo(
-    x: number,
-    z: number,
-  ): { x: number; z: number } | null {
-    const mapPack = this.options.mapPack;
-    if (!mapPack) return null;
-    let best: { x: number; z: number } | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    for (const service of gasStationsOf(mapPack.geometry.servicePoints)) {
-      for (const pump of gasStationPumpPositions(
-        mapPack.laneGraph.lanes,
-        service,
-      )) {
-        const distance = Math.hypot(x - pump.x, z - pump.z);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          best = pump;
-        }
-      }
-    }
-    return bestDistance <= FUEL_PUMP_REACH_M + 3 ? best : null;
-  }
-
-  /**
    * Places (or clears) a lit beacon on the kerb of the stop the gig is heading
    * for. Authored venues announce themselves with a building; a street address
    * is just a spot outside a row of brownstones that look like every other row,
@@ -3328,7 +2464,9 @@ class BabylonGameSession {
       this.waterLayer?.update(this.visualElapsedSeconds);
     }
     const interpolation = this.paused ? 1 : this.accumulator / FIXED_STEP;
-    if (!this.paused) this.advanceCutscene(frameSeconds);
+    if (!this.paused) {
+      this.cutsceneDirector?.advance(this.cutsceneDirectorCtx(), frameSeconds);
+    }
     this.updatePlayerVisuals(interpolation);
     this.updateNpcVisuals(interpolation);
     let mark = performance.now();
@@ -3772,7 +2910,7 @@ class BabylonGameSession {
     // The "game is unplayable" contract while an interaction scene plays:
     // every consumer (sim input, engine audio, steering visual, quick-look)
     // reads through here, so one gate locks them all.
-    if (this.activeCutscene) return CUTSCENE_LOCKED_INPUT;
+    if (this.cutsceneDirector?.isActive) return CUTSCENE_LOCKED_INPUT;
     // Reuses one scratch object: this runs ~5x per frame and every consumer
     // reads it synchronously — nothing may hold the result across frames.
     const merged = this.mergedInputScratch;
@@ -4721,7 +3859,7 @@ class BabylonGameSession {
       // standing its own rig in for). Keyed on the simulation id rather than
       // the render slot, and re-applied every tick because this loop enables
       // every active vehicle from scratch.
-      npc.node.setEnabled(vehicle.id !== this.hiddenNpcSimulationId);
+      npc.node.setEnabled(vehicle.id !== this.cutsceneDirector?.hiddenNpcSimulationId);
       // Shift the pose pair for updateNpcVisuals' render-rate blend. A slot
       // that changed cars, or a car that jumped a teleport-sized gap, snaps —
       // blending across either would streak the vehicle through the map.
@@ -4823,7 +3961,7 @@ class BabylonGameSession {
     // voiced, scored or charged for. It also closes the obvious loop: without
     // this, the pull-over's own kerb-side park would read as leaving the road
     // and summon a second pull-over the moment the first ended.
-    if (this.activeCutscene) return;
+    if (this.cutsceneDirector?.isActive) return;
     for (const event of events) {
       const prompt = this.options.lesson?.coachPrompts.find(
         (candidate) =>
@@ -5077,7 +4215,7 @@ class BabylonGameSession {
     );
     this.player.position.set(
       this.displayedX,
-      0.12 - this.cutsceneDipOffset,
+      0.12 - (this.cutsceneDirector?.dipOffset ?? 0),
       this.displayedZ,
     );
     this.player.rotation.y = this.displayedHeading;
@@ -5210,17 +4348,19 @@ class BabylonGameSession {
     const look = this.mergedInput().quickLook;
     const quickLookAngle = Math.abs(look) > 1.5 ? Math.PI : look * 1.18;
 
-    if (this.activeCutscene) {
+    const cutsceneCameraPosition = this.cutsceneDirector?.cameraPosition ?? null;
+    const cutsceneCameraTarget = this.cutsceneDirector?.cameraTarget ?? null;
+    if (cutsceneCameraPosition && cutsceneCameraTarget) {
       // The staged wide shot: glide to it on the same lerp the chase camera
       // uses (slower, for a cinematic ease); the chase/cockpit pose resumes
       // through the same smoothing when the scene ends.
       if (this.options.reducedMotion) {
-        this.thirdCamera.position.copyFrom(this.activeCutscene.cameraPosition);
+        this.thirdCamera.position.copyFrom(cutsceneCameraPosition);
       } else {
         const smooth = 1 - Math.exp(-3.5 * dt);
         Vector3.LerpToRef(
           this.thirdCamera.position,
-          this.activeCutscene.cameraPosition,
+          cutsceneCameraPosition,
           smooth,
           this.thirdCamera.position,
         );
@@ -5228,11 +4368,7 @@ class BabylonGameSession {
       // allowSamePosition: see the camera scratch fields — without it a
       // retained target object suppresses the spherical rebuild and the
       // position writes above are clobbered.
-      this.thirdCamera.setTarget(
-        this.activeCutscene.cameraTarget,
-        undefined,
-        true,
-      );
+      this.thirdCamera.setTarget(cutsceneCameraTarget, undefined, true);
     } else if (this.cameraMode === "first") {
       const seatSide = this.options.steeringSide === "left" ? -0.46 : 0.46;
       const headBob =
@@ -7370,46 +6506,13 @@ class BabylonGameSession {
       // actually runs, where its actor is, and that the camera stack and the
       // control lock restore when it ends.
       debugWindow.__sideswapCutsceneDebug = () => ({
-        active: this.activeCutscene
-          ? {
-              kind: this.activeCutscene.kind,
-              nonce: this.activeCutscene.nonce,
-              step: this.activeCutscene.stepIndex,
-              action:
-                this.activeCutscene.script[this.activeCutscene.stepIndex]
-                  ?.action ?? null,
-              actorX:
-                Math.round(this.activeCutscene.actorNode.position.x * 100) /
-                100,
-              actorZ:
-                Math.round(this.activeCutscene.actorNode.position.z * 100) /
-                100,
-              actorVisible: this.activeCutscene.actorNode.isEnabled(),
-              // Where the scene is watched from. A staged shot that ends up
-              // inside a wall looks like a rendering bug and is really a
-              // placement one, and there is no way to tell from a screenshot
-              // which wall you are inside of.
-              cameraX: Math.round(this.activeCutscene.cameraPosition.x * 100) / 100,
-              cameraY: Math.round(this.activeCutscene.cameraPosition.y * 100) / 100,
-              cameraZ: Math.round(this.activeCutscene.cameraPosition.z * 100) / 100,
-              // The traffic stop's second car, so QA can assert it actually
-              // pulls in behind rather than parking on top of the player.
-              patrolX: this.activeCutscene.patrolNode
-                ? Math.round(this.activeCutscene.patrolNode.position.x * 100) /
-                  100
-                : null,
-              patrolZ: this.activeCutscene.patrolNode
-                ? Math.round(this.activeCutscene.patrolNode.position.z * 100) /
-                  100
-                : null,
-            }
-          : null,
+        active: this.cutsceneDirector?.debugSnapshot() ?? null,
         playerX: Math.round(this.playerState.x * 100) / 100,
         playerZ: Math.round(this.playerState.z * 100) / 100,
         playerHeading: Math.round(this.playerState.heading * 1000) / 1000,
         cameraMode: this.cameraMode,
         activeCamera: this.scene.activeCamera?.name ?? null,
-        dip: Math.round(this.cutsceneDipOffset * 1000) / 1000,
+        dip: Math.round((this.cutsceneDirector?.dipOffset ?? 0) * 1000) / 1000,
       });
       // Rear-lamp glow per side, so QA can assert the signalling lens actually
       // flashes bright while the other keeps the resting glow, numerically.
@@ -7719,6 +6822,32 @@ class BabylonGameSession {
       engineRenderWidth: this.engine.getRenderWidth(),
       engineRenderHeight: this.engine.getRenderHeight(),
       gatherFrameState: () => this.gatherMirrorFrameState(),
+    };
+  }
+
+  private cutsceneDirectorCtx(): CutsceneDirectorCtx {
+    return {
+      playerState: this.playerState,
+      steeringSide: this.options.steeringSide,
+      trafficSide: this.options.trafficSide,
+      playerVehicle: this.options.playerVehicle,
+      mapPack: this.options.mapPack,
+      lessonTrafficSeed: this.options.lesson?.trafficSeed,
+      thirdCameraX: this.thirdCamera.position.x,
+      thirdCameraZ: this.thirdCamera.position.z,
+      stagedBlockers: this.stagedBlockers,
+      cameraMode: this.cameraMode,
+      riderNode: this.riderNode,
+      playerCyclistVisual: this.playerCyclistVisual,
+      gigVenueCurbside: this.gigVenueCurbside,
+      gigVenueDoors: this.gigVenueDoors,
+      playFoley: (sound) => this.audio?.foley(sound),
+      setPlayerPose: (pose) => this.simulation.setPlayerPose(pose),
+      applyCameraStack: (firstPerson) => this.applyCameraStack(firstPerson),
+      patrolSimulationIdNear: (radiusM) =>
+        this.patrolNearPlayer(radiusM)?.simulationId ?? null,
+      passengerColors: (seedId) => this.passengerColors(seedId),
+      emit: (type, message, severity, rule) => this.emit(type, message, severity, rule),
     };
   }
 
