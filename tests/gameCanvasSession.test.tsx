@@ -59,7 +59,7 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
 import GameCanvas, { type GameCanvasHandle } from "../app/game/GameCanvas";
 import type { GameHudSnapshot } from "../app/game/sessionContract";
 import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
-import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/londonContent";
+import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/cities/london";
 
 /** installDebugHooks' exact set (GameCanvas.tsx, `dispose()`). */
 const SIDESWAP_DEBUG_HOOKS = [

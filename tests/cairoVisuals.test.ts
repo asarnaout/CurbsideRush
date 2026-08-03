@@ -69,7 +69,7 @@ import {
 import { buildingSetUrls } from "../app/game/buildingSets";
 import { isPointInPolygon } from "../app/game/simulation";
 import { authoredSignalAspectAt } from "../app/game/trafficSignals";
-import { CAIRO_MAP_PACK } from "../app/game/cairoContent";
+import { CAIRO_MAP_PACK } from "../app/game/cities/cairo";
 import {
   CAIRO_OPERA_AXIS_X,
   CAIRO_OPERA_CROSS_Z,

@@ -21,12 +21,12 @@ import {
   LONDON_FREE_DRIVE,
   LONDON_MAP_PACK,
   LONDON_RULE_REFERENCES,
-} from "./londonContent";
+} from "./cities/london";
 import {
   CAIRO_FREE_DRIVE,
   CAIRO_MAP_PACK,
   CAIRO_RULE_REFERENCES,
-} from "./cairoContent";
+} from "./cities/cairo";
 import { NYC_FREE_DRIVE, NYC_MAP_PACK } from "./cities/nyc";
 import { TOKYO_FREE_DRIVE, TOKYO_MAP_PACK } from "./cities/tokyo";
 import { speedingFineMultiplier } from "./speeding";

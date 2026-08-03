@@ -95,8 +95,9 @@ describe("simulation.ts stays pure", () => {
 describe("ring boundaries hold today", () => {
   it("BabylonGameSession never imports the content registry", () => {
     const source = read("app", "game", "render", "babylonGameSession.ts");
-    // It DOES import cairoContent.ts for authored Cairo constants — that is
-    // existing and allowed. The ban is on the registry module specifically.
+    // Other render/ files (e.g. roadsideProps.ts) DO import cities/cairo.ts
+    // for authored Cairo constants — that is existing and allowed. The ban
+    // is on the registry module specifically.
     expect(dependencySpecifiers(source)).not.toContain("../content");
   });
 
@@ -180,8 +181,8 @@ describe("forward-looking module boundaries (pass vacuously before these directo
   });
 
   it("render/ and geometry/ never import the content registry directly", () => {
-    // render/ MAY import cities/ (GameCanvas already imports cairoContent
-    // today) — the ban is on the registry module specifically.
+    // render/ MAY import cities/ (roadsideProps.ts already imports
+    // cities/cairo.ts today) — the ban is on the registry module specifically.
     const offenders: string[] = [];
     const files = [...listFilesRecursive(renderDir), ...listFilesRecursive(geometryDir)].filter(
       (f) => /\.tsx?$/.test(f),

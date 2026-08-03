@@ -19,8 +19,8 @@ import type {
   TrafficControlApproach,
   TrafficControlInstallation,
   WorldPoint,
-} from "./types";
-import { buildLaneTrueGeometry } from "./laneConnectors";
+} from "../types";
+import { buildLaneTrueGeometry } from "../laneConnectors";
 
 export const LONDON_CONTENT_REVIEWED_ON = "2026-07-11";
 

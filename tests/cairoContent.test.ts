@@ -10,7 +10,7 @@ import {
   CAIRO_MAP_PACK,
   CAIRO_ROAD_SPECS,
   CAIRO_RULE_REFERENCES,
-} from "../app/game/cairoContent";
+} from "../app/game/cities/cairo";
 import {
   buildingPlacementConfig,
   isBuildingSetId,

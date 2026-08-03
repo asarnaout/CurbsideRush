@@ -4,7 +4,7 @@ import {
   LONDON_MAP_PACK,
   LONDON_RULE_REFERENCES,
   LONDON_SCENARIO_CLOCK,
-} from "../app/game/londonContent";
+} from "../app/game/cities/london";
 
 const officialHosts = new Set([
   "www.gov.uk",

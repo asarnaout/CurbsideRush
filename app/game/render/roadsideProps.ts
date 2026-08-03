@@ -11,7 +11,7 @@ import {
   type Vector4,
 } from "@babylonjs/core";
 import { NYC_VENDORS, type StreetPropConfig } from "../buildingSets";
-import { CAIRO_OPEN_WATERFRONT_SIDES } from "../cairoContent";
+import { CAIRO_OPEN_WATERFRONT_SIDES } from "../cities/cairo";
 import { deterministicSceneryKeep } from "../geometry/facadesAndKeepouts";
 import { type ParkPlacement, parkLayoutForLandmark } from "../parkLayouts";
 import {
