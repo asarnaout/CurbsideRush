@@ -15,7 +15,6 @@ import type {
   GameRuntimeEvent,
 } from "./game/sessionContract";
 import {
-  DESTINATION_PROFILES,
   getCountryProfile,
   getDestinationProfile,
   getFreeDrive,
@@ -100,7 +99,6 @@ import type {
 } from "./game/career";
 import {
   CareerOverView,
-  CareerSetupPanel,
   formatClock,
   travelBoard,
   travelSummary,
@@ -110,9 +108,9 @@ import {
 } from "./CareerViews";
 import type { TravelCityFacts } from "./CareerViews";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { MobilePlayTips } from "./MobilePlayTips";
 import { SettingsView } from "./SettingsView";
 import { CreditsView } from "./CreditsView";
+import { LauncherView, DESTINATION_PREVIEW_IMAGES } from "./LauncherView";
 import {
   FULL_CONDITION_PCT,
   MIN_REPAIRABLE_DAMAGE_PCT,
@@ -235,7 +233,7 @@ import type {
   ScenarioId,
 } from "./game/types";
 
-type View =
+export type View =
   | "launcher"
   | "driving"
   | "settings"
@@ -276,15 +274,6 @@ const GameCanvas = dynamic(() => import("./game/GameCanvas"), {
     </div>
   ),
 });
-
-/**
- * Short commit ref of the running build, frozen in by `vite.config.ts` from
- * Netlify's `COMMIT_REF`. `"dev"` locally. Declared rather than imported
- * because it is a compile-time `define`, not a module.
- */
-declare const __BUILD_REF__: string;
-const BUILD_REF: string =
-  typeof __BUILD_REF__ === "string" ? __BUILD_REF__ : "dev";
 
 const toCanvasCamera = (camera: CameraMode): "first" | "third" =>
   camera === "first_person" ? "first" : "third";
@@ -364,17 +353,6 @@ function useGamepadUiNavigation(
     return () => window.clearInterval(interval);
   }, [enabled, onBack]);
 }
-
-const DESTINATION_PREVIEW_IMAGES: Record<DestinationId, string> = {
-  "uk-london": "/landing/london.webp",
-  "us-nyc": "/landing/nyc.webp",
-  "jp-tokyo": "/landing/tokyo.webp",
-  "eg-cairo": "/landing/cairo.webp",
-};
-
-// Horizontal focus for the cover-cropped preview, for a city whose subject sits
-// off-centre. Anything absent takes the default `center`.
-const DESTINATION_PREVIEW_FOCUS: Partial<Record<DestinationId, string>> = {};
 
 /**
  * Everything the travel board shows about a city, pulled from the profiles that
@@ -3690,147 +3668,28 @@ export default function SideSwapApp() {
       )}
 
       {effectiveView === "launcher" && (
-        <section className="launcher-page">
-          <div className="launcher-copy">
-            <p className="eyebrow">READY TO EARN</p>
-            <h1 aria-label="Rise and Grind">
-              <>Rise and <em>Grind</em></>
-            </h1>
-
-            <div className="mode-toggle" role="group" aria-label="Game mode">
-              {(
-                [
-                  ["free", "Free drive"],
-                  ["career", "Career"],
-                ] as const
-              ).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={gameMode === mode ? "active" : ""}
-                  data-testid={`mode-${mode}`}
-                  aria-pressed={gameMode === mode}
-                  onClick={() => setGameMode(mode)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {gameMode === "free" && (
-            <>
-            <p className="launcher-pick-label">Choose a city</p>
-            <div
-              className="launcher-destinations"
-              role="group"
-              aria-label="Destination"
-            >
-              {DESTINATION_PROFILES.map((item) => {
-                const itemCountry = getCountryProfile(item.countryId);
-                return (
-                <button
-                  key={item.id}
-                  ref={(node) => {
-                    if (node) destinationRefs.current.set(item.id, node);
-                    else destinationRefs.current.delete(item.id);
-                  }}
-                  type="button"
-                  className={`${destinationId === item.id ? "active" : ""} ${item.promotion}`}
-                  aria-label={`${item.destinationName}. ${item.destinationSubtitle}`}
-                  aria-pressed={destinationId === item.id}
-                  onClick={() => chooseDestination(item.id)}
-                >
-                  <span>{itemCountry.flagEmoji}</span>
-                  <strong>{item.destinationName}</strong>
-                  <small>{item.destinationSubtitle}</small>
-                </button>
-                );
-              })}
-            </div>
-            </>
-            )}
-
-            {gameMode === "free" ? (
-              <div className="launcher-actions">
-                <button
-                  className="primary-button launcher-primary"
-                  type="button"
-                  aria-label={`Start driving in ${destination.destinationName}`}
-                  onClick={() => beginDrive(destination.freeDriveId, destination.id)}
-                >
-                  Start driving
-                  <span aria-hidden="true">→</span>
-                </button>
-              </div>
-            ) : (
-              <CareerSetupPanel
-                career={progress.career}
-                city={careerCity}
-                cityName={
-                  getDestinationProfile(careerLauncherDestinationId)
-                    .destinationName
-                }
-                country={
-                  careerCountry ??
-                  getCountryProfile(careerCountryOf(CAREER_START_CITY))
-                }
-                onStartCareer={startCareer}
-                onContinue={() => {
-                  // The one entry that reaches the garage across a reload, so
-                  // it is where the remembered ride gets re-priced: a career
-                  // resumed after a bad night may no longer afford what it was
-                  // last showing.
-                  if (careerCity) {
-                    commitGarageVehicle(
-                      garageDefaultVehicle(careerCity, garageVehicleId),
-                    );
-                  }
-                  setView("career-garage");
-                }}
-                onResetCorrupt={() => resetCareer("launcher")}
-              />
-            )}
-            {/* Before the drive, not after: on iPhone neither the rotate gate
-                nor the browser chrome can be removed by code, so the only
-                honest move is to say so where it can still be acted on. */}
-            {touchFirst && (
-              <MobilePlayTips needsHomeScreen={needsHomeScreenForFullscreen} />
-            )}
-          </div>
-
-          <div
-            className="launcher-road-visual"
-            aria-label={`${launcherDestination.destinationName} training preview`}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- static preview art in /public; next/image adds no value for a fixed, non-critical hero */}
-            <img
-              className="launcher-photo"
-              src={DESTINATION_PREVIEW_IMAGES[launcherDestination.id]}
-              style={{
-                objectPosition: DESTINATION_PREVIEW_FOCUS[launcherDestination.id],
-              }}
-              alt=""
-              aria-hidden="true"
-              draggable={false}
-            />
-            <div className="launcher-place">
-              <span>{launcherCountry.flagEmoji} {launcherCountry.countryName}</span>
-              <strong>{launcherDestination.destinationName}</strong>
-              <em>{launcherDestination.destinationSubtitle}</em>
-              <small>Keeps {launcherCountry.trafficSide}</small>
-            </div>
-          </div>
-          <p className="launcher-legal">
-            Familiarisation only—not legal advice or driver instruction. Map data © OpenStreetMap contributors.{" "}
-            {/* Which build you are actually looking at. Mobile Safari will
-                happily keep serving a cached page long after a deploy, and
-                without this there is no way to tell that apart from the deploy
-                having failed. */}
-            <span data-testid="build-ref" style={{ opacity: 0.55 }}>
-              build {BUILD_REF}
-            </span>
-          </p>
-        </section>
+        <LauncherView
+          destinationId={destinationId}
+          gameMode={gameMode}
+          needsHomeScreenForFullscreen={needsHomeScreenForFullscreen}
+          progress={progress}
+          touchFirst={touchFirst}
+          setGameMode={setGameMode}
+          setView={setView}
+          destinationRefs={destinationRefs}
+          beginDrive={beginDrive}
+          careerCity={careerCity}
+          careerCountry={careerCountry}
+          careerLauncherDestinationId={careerLauncherDestinationId}
+          chooseDestination={chooseDestination}
+          commitGarageVehicle={commitGarageVehicle}
+          destination={destination}
+          garageVehicleId={garageVehicleId}
+          launcherCountry={launcherCountry}
+          launcherDestination={launcherDestination}
+          resetCareer={resetCareer}
+          startCareer={startCareer}
+        />
       )}
 
       {effectiveView !== "launcher" && (
