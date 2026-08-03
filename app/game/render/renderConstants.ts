@@ -77,3 +77,18 @@ export const BUILDING_GROUND_LIFT = 0.08;
  */
 export const BUILDING_BASE_CLEARANCE_M =
   BUILDING_GROUND_LIFT - ROAD_SHOULDER_Y;
+/**
+ * Metres of world per repeat of the grass tile. Every grass surface — the base
+ * ground and every park lawn — uses this one figure so a park never shows a
+ * seam against the ground it sits on.
+ *
+ * Small enough that individual blades read at walking distance; the visible
+ * repeat that follows from that is what `GRASS_DETAIL_TILE_M` exists to break.
+ */
+export const GRASS_TILE_M = 12;
+/**
+ * The detail map's own repeat. Deliberately not a divisor of `GRASS_TILE_M` —
+ * 3.1 against 12 beats at ~37 m rather than reinforcing the base tile's grid,
+ * which is the entire point of the second layer.
+ */
+export const GRASS_DETAIL_TILE_M = 3.1;
