@@ -27,7 +27,7 @@ rotating a phone pauses the drive, it does not rebuild the city.
 |---|---|
 | World | `x` east, `z` north, `y` up, metres, origin = map centre |
 | Lane/pose heading | `atan2(dx, dz)` — **0 = +z (north)**, +π/2 = +x |
-| `arcPoints` angles (londonContent) | **0 = +x (east)**, 90 = +z — standard math, *not* the heading convention |
+| `arcPoints` angles (cities/london) | **0 = +x (east)**, 90 = +z — standard math, *not* the heading convention |
 | Right-hand normal | `(cos h, -sin h)` — the **driver's right** |
 
 ## The y-layer stack is a hard global ordering
@@ -150,7 +150,8 @@ tight to inset.
 `resolveMapVisualKey(mapId)` is **substring matching with an `nyc` default**, and
 Cairo must match explicitly before that fallback. A typo'd or new map id silently
 gets NYC's night+paved palette, changing lighting, fog, ground texture, sidewalk
-width *and* the crowd's rail geometry.
+width *and* the crowd's rail geometry — `cityRenderRegistry.ts`'s landmark
+dispatch has no such default, an unmapped id gets nothing.
 
 ## The first-person cabin
 

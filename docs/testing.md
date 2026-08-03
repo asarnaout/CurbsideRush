@@ -8,7 +8,7 @@ npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run build:static # + prerendered index.html for a static host
 npm run typecheck    # tsc --noEmit, ~3s
 npm run lint         # eslint, ~11s
-npm test             # vitest run: 93 files, 1519 tests, ~2min
+npm test             # vitest run: 94 files, 1524 tests, ~2min
 ```
 
 Node >= 22.13 (repo currently runs v26). **There is no CI** — no `.github/`,
@@ -22,7 +22,7 @@ seeds × 60 s of sim). Everything else runs in ~20 s. Use the fast loop while
 iterating, the full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 92 files / 1517 tests in ~20s
+# everything except the acceptance test -> 93 files / 1522 tests in ~20s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts -t "reverses off"   # one file, -t filters by substring
@@ -168,6 +168,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | `parksRenderCharacterization` | Park lawn/path/wall/court/torii/lantern exact mesh output for Tokyo's temple parks (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `mirrorRigCharacterization` | Rear-view/wing-mirror exact mesh output, plus non-zero render/candidate/drawn counts after ticking (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `cutsceneDirectorCharacterization` | Pullover (patrol rig, actor visibility/position) and repair (runs to completion, emits its `done` event, clears itself) staged via a real `cutscene` prop rerender (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
+| `cityRenderRegistry` | The right landmark/street-furniture builder is wired to each city's real map id, and an unrecognised id gets no entry — the Phase 4.5 registry's safety net |
 | `content` / `cairoContent` / `londonContent` | Lane-graph continuity, "every lane has somewhere legal to go" |
 | `roadRealism` | Only speed figures that country actually signs |
 | `careerBalance` | Rent + fee ≤ 4 median gig nets; tickets reachable in 3–20 days |

@@ -231,13 +231,20 @@ camera duck it. Anything a car drives under and a camera cannot needs both.
 so on left-hand-traffic maps it lands on the far side of the road — hence
 London's gas station on a far-side lane and Tokyo's `setbackM: 17.3`.
 
-## Private authoring helpers are duplicated per city
+## Private authoring helpers are duplicated per city, not shared
 
-`content.ts` and `londonContent.ts` each carry their own `point`, `node`,
-`laneTrue`, `connectorConflictZones`; Cairo has a separate road-spec generator.
-**Fixing one does not fix the others.** `arcPoints`/`turningLoop` now live only
-in `londonContent.ts` — content.ts's copies went with the maps that used them,
-so a new turning loop outside London means writing or lifting one.
+`cities/nyc.ts`, `cities/tokyo.ts` and `cities/london.ts` each carry their own
+`point`, `node`, `laneTrue`, `connectorConflictZones`; `content.ts` carries
+none of it, and Cairo has a separate road-spec generator instead. **Fixing
+one city's copy does not fix the others.** `arcPoints`/`turningLoop` live
+only in `cities/london.ts` — a turning loop outside London means writing or
+lifting one.
+
+**Adding a city**: a `cities/<city>.ts` (own `*_MAP_PACK`/`*_FREE_DRIVE`, own
+helpers or generator); a row each in `content.ts`'s `MAP_PACKS`/
+`FREE_DRIVES`/`COUNTRY_PROFILES`/`DESTINATION_PROFILES`; a column on every
+`economyTables.ts` per-country table; map assets; and, only for bespoke
+landmarks or street furniture, a row in `render/cityRenderRegistry.ts`.
 
 ## The frozen OSM data is provenance only
 

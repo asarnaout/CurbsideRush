@@ -46,6 +46,16 @@ lesson/map-pack shapes it consumes, so there is no cycle with
 at runtime, which is why it is a build-time translator and never runs in the
 frame loop.
 
+`content.ts` is a registry over per-city data in `app/game/cities/`
+(`nyc.ts`, `tokyo.ts`, `london.ts`, `cairo.ts`) — each exports its own map
+pack, free-drive definition and (London/Cairo) rule references; `content.ts`
+imports and re-exports them, never the other way. `render/` may import
+`cities/` (`roadsideProps.ts` reads Cairo's `CAIRO_OPEN_WATERFRONT_SIDES`;
+`render/cityRenderRegistry.ts` maps a mapId to that city's own landmark and
+street-furniture builders — see [rendering.md](rendering.md)) — enforced by
+the same `tests/architecture.test.ts` that bans `render/`/`geometry/` from
+importing `content.ts` directly.
+
 ## Pure modules and what "pure" buys
 
 These have no Babylon, no DOM and no clock, so their tests run in plain node and
@@ -65,14 +75,15 @@ their invariants can be pinned without an engine:
 | `damage.ts` | *none* | Collision → condition loss |
 | `dispatch.ts` | `hashToUnit` from `gigs` | When work appears, surge, tips |
 | `career.ts` | types only | The whole career economy |
+| `economyTables.ts` | `FULL_CONDITION_PCT`/`speedingFineMultiplier`/`ROADSIDE_*` from `damage`/`speeding`/`career` | Per-country pricing (fuel, fares, fines, repairs, starting cash, scoring weights) + money/distance formatters |
 | `speeding.ts` | types only | Citation band + excess measurement |
 | `cockpitLayout.ts` | types only | Every cabin number |
 | `cutsceneScript.ts` | types only | Cutscene choreography |
 | `audioMath.ts` | `seededUnit` from `visuals` | The entire car sound model |
 
 `speeding.ts` is pure *because* both rings need it and neither can reach the
-other's: `GameCanvas` never imports `content.ts`, and `SideSwapApp` only loads
-`GameCanvas` lazily through `next/dynamic`.
+other's: `GameCanvas` never imports `economyTables.ts`, and `SideSwapApp` only
+loads `GameCanvas` lazily through `next/dynamic`.
 
 **`app/game/geometry/*.ts`** (six files — `roadStrips`, `roadFurnitureLayout`,
 `waterGeometry`, `facadesAndKeepouts`, `cairoParkland`, `routeGuidance`) is
