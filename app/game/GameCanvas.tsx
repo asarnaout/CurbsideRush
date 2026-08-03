@@ -147,6 +147,7 @@ import {
 } from "./render/londonLandmarks";
 import { WaterLayer } from "./render/waterLayer";
 import { buildCockpit } from "./render/cockpitBuilder";
+import { governRenderScaling } from "./render/perfGovernor";
 import {
   crosswalkStripeLayout,
   EGYPT_SIGNAL_BORDER_BARS,
@@ -255,10 +256,7 @@ import {
   createRenderScalingState,
   desktopHardwareScalingLevel,
   RENDER_SCALING_WARMUP_MS,
-  RENDER_SCALING_WINDOW_MS,
   renderScalingLevel,
-  stepRenderScaling,
-  TOUCH_SCALING_LADDER,
   TOUCH_TARGET_FPS,
   type RenderScalingState,
 } from "./renderScaling";
@@ -3511,7 +3509,30 @@ class BabylonGameSession {
     // resize can leave the bloom blurs recompiling; doing it here means the
     // very next thing that happens is a full redraw into the new buffer,
     // rather than the frame being presented mid-rebuild.
-    this.governRenderScaling(now);
+    const scalingResult = governRenderScaling(
+      {
+        renderScaling: this.renderScaling,
+        paused: this.paused,
+        contextLost: this.contextLost,
+        renderScalingArmedAt: this.renderScalingArmedAt,
+        lastRenderScalingCheck: this.lastRenderScalingCheck,
+        engine: this.engine,
+        shadowGenerator: this.shadowGenerator,
+        windscreenParts: this.windscreenParts,
+        cameraMode: this.cameraMode,
+        rearViewPanel: this.rearViewPanel,
+        wingMirrorRig: this.wingMirrorRig,
+        setMirrorsAllowed: (allowed) => {
+          this.mirrorsAllowed = allowed;
+        },
+        setMirrorsActive: (active) => this.setMirrorsActive(active),
+        syncWingMirrorVisibility: () => this.syncWingMirrorVisibility(),
+      },
+      now,
+    );
+    if (scalingResult) {
+      this.lastRenderScalingCheck = scalingResult.lastRenderScalingCheck;
+    }
     const drawCallsBefore = this.engineDrawCallCount();
     mark = performance.now();
     this.scene.render();
@@ -3523,59 +3544,6 @@ class BabylonGameSession {
     this.perfFrames += 1;
     if (now - this.lastHudTime >= 100) this.publishHud();
   };
-
-  /**
-   * Trades resolution against frame rate, on touch only.
-   *
-   * Quiet while paused — a stalled frame rate would read as a device in
-   * trouble and blur the scene the player is staring at — and quiet for the
-   * first seconds after ready, where the frame rate still carries model upload
-   * and shader warm-up rather than anything about the device.
-   */
-  private governRenderScaling(now: number) {
-    if (!this.renderScaling || this.paused || this.contextLost) return;
-    if (now < this.renderScalingArmedAt) return;
-    if (now - this.lastRenderScalingCheck < RENDER_SCALING_WINDOW_MS) return;
-    this.lastRenderScalingCheck = now;
-    const level = stepRenderScaling(this.renderScaling, this.engine.getFps());
-    if (level !== this.engine.getHardwareScalingLevel()) {
-      this.engine.setHardwareScalingLevel(level);
-    }
-    this.applyPerfRung(this.renderScaling.index);
-  }
-
-  /**
-   * Non-resolution costs stepped with the touch ladder. Only the blurriest
-   * rung sheds the sun shadows — a device that cannot hold the softest
-   * resolution needs its per-frame budget back more than shadow polish; the
-   * governor restores them the moment it climbs. Toggling light.shadowEnabled
-   * skips the shadow-map render without any resize, so unlike the resolution
-   * rungs it can never flash (flashes come from setHardwareScalingLevel's
-   * resize recompiling the bloom kernels — see renderScaling.ts).
-   */
-  private applyPerfRung(rungIndex: number) {
-    const topRung = rungIndex < TOUCH_SCALING_LADDER.length - 1;
-    const light = this.shadowGenerator?.getLight();
-    if (light && light.shadowEnabled !== topRung) {
-      light.shadowEnabled = topRung;
-    }
-    // The windscreen panes are the cabin's only fill-rate cost: two large
-    // alpha-blended quads across most of the frame. Everything else in there is
-    // a handful of opaque triangles, so this is the only cockpit detail worth
-    // shedding, and the wipers go with the glass because a wiper resting on
-    // nothing reads as a bug.
-    for (const part of this.windscreenParts) {
-      if (part.isEnabled(false) !== topRung) part.setEnabled(topRung);
-    }
-    // The mirrors are render targets: a device that cannot hold the softest
-    // resolution should not be rendering the scene a second and third time for
-    // two small panels, however cheap the cull has made them.
-    this.mirrorsAllowed = topRung;
-    this.setMirrorsActive(topRung && this.cameraMode === "first");
-    this.rearViewPanel?.setEnabled(topRung);
-    if (!topRung) this.wingMirrorRig?.setEnabled(false);
-    else this.syncWingMirrorVisibility();
-  }
 
   private perfSample(stage: number, ms: number) {
     this.perfSumMs[stage] += ms;
