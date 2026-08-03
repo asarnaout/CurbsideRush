@@ -8,7 +8,7 @@ npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run build:static # + prerendered index.html for a static host
 npm run typecheck    # tsc --noEmit, ~3s
 npm run lint         # eslint, ~11s
-npm test             # vitest run: 92 files, 1517 tests, ~2min
+npm test             # vitest run: 93 files, 1519 tests, ~2min
 ```
 
 Node >= 22.13 (repo currently runs v26). **There is no CI** — no `.github/`,
@@ -18,11 +18,11 @@ nothing runs test/lint/typecheck unless you do.
 
 `npm test` takes about two minutes and **almost all of it is one file** —
 `tests/trafficSafetyAcceptance.test.ts` (4 cities × every start/checkpoint × 51
-seeds × 60 s of sim). Everything else runs in ~12 s. Use the fast loop while
+seeds × 60 s of sim). Everything else runs in ~20 s. Use the fast loop while
 iterating, the full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 91 files / 1515 tests in ~15s
+# everything except the acceptance test -> 92 files / 1517 tests in ~20s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts -t "reverses off"   # one file, -t filters by substring
@@ -75,13 +75,14 @@ name.
 
 `gameCanvasSession.test.tsx`, `cockpitCharacterization.test.tsx`,
 `trafficControlCharacterization.test.tsx`, `parksRenderCharacterization.
-test.tsx` and `mirrorRigCharacterization.test.tsx` (all jsdom) are different
-in kind from `gameCanvasInput.test.ts` above, and are the only other runtime
-loads besides `SideSwapApp`'s lazy `dynamic()`: all five deliberately mount
+test.tsx`, `mirrorRigCharacterization.test.tsx` and
+`cutsceneDirectorCharacterization.test.tsx` (all jsdom) are different in
+kind from `gameCanvasInput.test.ts` above, and are the only other runtime
+loads besides `SideSwapApp`'s lazy `dynamic()`: all six deliberately mount
 the real component, session and a `NullEngine` (copying the same jsdom-gap
 workarounds — see the first file's header for why), so a
 `window`/`document`/WebGL touch is what they exist to exercise, not a
-hazard. The other four exist solely to characterize a builder before the
+hazard. The other five exist solely to characterize a builder before the
 god-file decomposition reaches it (`.claude/refactor-plan.md`, gitignored) —
 `cockpitCharacterization` and `mirrorRigCharacterization` both mount with
 `cameraMode="first"`, since `playerCockpit` starts disabled (the wing-mirror
@@ -98,7 +99,16 @@ authored map) for one feature kind. `mirrorRigCharacterization` also ticks
 the mounted session briefly and reads `__sideswapPerfDebug`'s mirror
 counters, since the render-target `getCustomRenderList` closures it
 characterizes only run once Babylon's render loop is actually ticking, not
-at construction. See the guardrails table below.
+at construction. `cutsceneDirectorCharacterization` drives the scene the
+same way the app does — a `cutscene` prop rerender with a bumped nonce, not
+an imperative test hook — and only exercises `pullover` and `repair`: per
+`startCutscene`'s own comments, those two "need no map data to stage" (a
+heading-relative park; the car's own wing), so they are the only kinds
+guaranteed to stage from an arbitrary free-drive spawn without also being
+near the venue/pump/door the other five kinds require. Its repair case runs
+the real wall-clock scripted show to completion (~10 s) to prove the scene
+actually finishes and clears itself, not just that it starts. See the
+guardrails table below.
 
 ## DOM tests
 
@@ -110,13 +120,15 @@ does — plus a **synchronous `requestAnimationFrame` stub**, or `SideSwapApp`'s
 
 Tests default to `environment: "node"`. DOM needs `// @vitest-environment jsdom` on
 line 1 and a local `@testing-library/jest-dom/vitest` import — **there is no setup
-file**. Fourteen test files do this today: `careerFlow`, `cockpitCharacterization`,
-`confirmDialog`, `driveHud`, `expandedMap`, `freeDriveFuel`, `gameCanvasSession`,
-`launcher`, `minimapCanvas`, `mirrorRigCharacterization`, `parksRenderCharacterization`,
-`touchDriveControls`, `trafficControlCharacterization`, `viewportSetup` — five of
-those (`gameCanvasSession`, `cockpitCharacterization`, `trafficControlCharacterization`,
-`parksRenderCharacterization`, `mirrorRigCharacterization`) are the full-mount
-Babylon tests discussed above, not ordinary component tests.
+file**. Fifteen test files do this today: `careerFlow`, `cockpitCharacterization`,
+`confirmDialog`, `cutsceneDirectorCharacterization`, `driveHud`, `expandedMap`,
+`freeDriveFuel`, `gameCanvasSession`, `launcher`, `minimapCanvas`,
+`mirrorRigCharacterization`, `parksRenderCharacterization`, `touchDriveControls`,
+`trafficControlCharacterization`, `viewportSetup` — six of those
+(`gameCanvasSession`, `cockpitCharacterization`, `trafficControlCharacterization`,
+`parksRenderCharacterization`, `mirrorRigCharacterization`,
+`cutsceneDirectorCharacterization`) are the full-mount Babylon tests discussed
+above, not ordinary component tests.
 
 ## What is and isn't covered
 
@@ -151,6 +163,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | `trafficControlCharacterization` | Signal/camera/railway-crossing/road-marking exact mesh output across London + Tokyo (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `parksRenderCharacterization` | Park lawn/path/wall/court/torii/lantern exact mesh output for Tokyo's temple parks (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `mirrorRigCharacterization` | Rear-view/wing-mirror exact mesh output, plus non-zero render/candidate/drawn counts after ticking (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
+| `cutsceneDirectorCharacterization` | Pullover (patrol rig, actor visibility/position) and repair (runs to completion, emits its `done` event, clears itself) staged via a real `cutscene` prop rerender (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `content` / `cairoContent` / `londonContent` | Lane-graph continuity, "every lane has somewhere legal to go" |
 | `roadRealism` | Only speed figures that country actually signs |
 | `careerBalance` | Rent + fee ≤ 4 median gig nets; tickets reachable in 3–20 days |
