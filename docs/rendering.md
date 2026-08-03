@@ -187,8 +187,9 @@ wrong half of the world and looks plausible until you watch it.
 So the caller culls: `mirrorRenderList.ts` picks a ring out of the same spatial
 hash the shadow casters use (amortised on movement, deliberately conservative —
 a false positive costs one frustum test, a false negative is a hole in the
-mirror), and `updateMirrorRenderList` frustum-tests those few hundred candidates
-per render instead of the ~15,000 meshes in the scene.
+mirror), and `MirrorRig`'s `getRenderList` (`render/mirrorRig.ts`) frustum-tests
+those few hundred candidates per render instead of the ~15,000 meshes in the
+scene.
 
 Supply it through **`getCustomRenderList`**:
 
