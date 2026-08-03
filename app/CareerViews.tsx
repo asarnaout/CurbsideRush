@@ -7,7 +7,7 @@ import { useState } from "react";
 // show arrives as data, so tests render them directly without the app shell.
 
 import type { CountryProfile, DestinationId } from "./game/types";
-import { formatMoney } from "./game/content";
+import { formatMoney } from "./game/economyTables";
 import {
   activeCity,
   averageRating,

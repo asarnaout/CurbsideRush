@@ -36,7 +36,7 @@ npm run dev          # vinext dev + Miniflare on :3000 (NOT `next dev`)
 npm run build        # -> dist/client + dist/server
 npm run typecheck    # ~3s
 npm run lint         # ~11s, currently 0 errors / 0 warnings — keep it that way
-npm test             # 93 files, ~1519 tests, ~2min
+npm test             # 94 files, ~1524 tests, ~2min
 
 # the loop you actually iterate on: everything but the acceptance sweep, ~20s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
@@ -59,7 +59,7 @@ Node >= 22.13. **There is no CI** — nothing runs test/lint/typecheck unless yo
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Add a module, move a responsibility between rings, or delete a subsystem |
 | [docs/simulation-core.md](docs/simulation-core.md) | Touch `simulation.ts` / `simulationAdapter.ts`, change NPC behaviour, or add/reprice a `RuleCode` or a fine |
-| [docs/map-authoring.md](docs/map-authoring.md) | Edit `content.ts` / `londonContent.ts` / `cairoContent.ts`, add a city, or change a road's shape, width or speed limit |
+| [docs/map-authoring.md](docs/map-authoring.md) | Edit `content.ts` or a `cities/*.ts`, add a city, or change a road's shape, width or speed limit |
 | [docs/economy.md](docs/economy.md) | Change what work appears, what it pays, what anything costs, or what persists to `localStorage` |
 | [docs/rendering.md](docs/rendering.md) | Touch `GameCanvas.tsx`, world geometry, water, models, the crowd, the cockpit/mirrors, or anything performance-shaped |
 | [docs/greenery.md](docs/greenery.md) | Touch grass, a park lawn, park paths or planting — or add a park |

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatDistance, getCountryProfile } from "../app/game/content";
+import { getCountryProfile } from "../app/game/content";
+import { formatDistance } from "../app/game/economyTables";
 
 const us = getCountryProfile("us");
 const uk = getCountryProfile("uk");

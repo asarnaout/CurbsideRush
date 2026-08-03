@@ -170,8 +170,8 @@ at `FULL_CONDITION_PCT` (100); it is **never persisted** — the bill is.
 impact speed, pedestrians barely mark the car (their cost is the citation), and
 props charge a flat rate by heft.
 
-Two ways to pay, both priced by `repairPrice` in `content.ts` (which is where the
-currencies live):
+Two ways to pay, both priced by `repairPrice` in `economyTables.ts` (which is
+where the currencies live):
 
 - **Drive into a repair shop's bay** — the `repair` cutscene step pays and mends
   atomically, billed on the damage carried, with no session reset.
@@ -183,8 +183,9 @@ points is about a dollar's work in every currency, saving a per-country table.
 
 ## Fuel: the two modes price it differently on purpose
 
-**Free drive sells what the wallet covers** — `fuelPurchase` in `content.ts` caps
-the litres at the money on hand, so short money buys a short fill, not a refusal.
+**Free drive sells what the wallet covers** — `fuelPurchase` in `economyTables.ts`
+caps the litres at the money on hand, so short money buys a short fill, not a
+refusal.
 
 **Career does not come through that helper, and is never capped.** Its pump will
 always sell a whole tank whatever the day cash, pushing the day into the red for

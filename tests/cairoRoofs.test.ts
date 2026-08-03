@@ -22,7 +22,7 @@ import {
   VertexBuffer,
 } from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
-import { CAIRO_MAP_PACK } from "../app/game/cairoContent";
+import { CAIRO_MAP_PACK } from "../app/game/cities/cairo";
 import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
 import { buildingSetUrls, isBuildingSetId } from "../app/game/buildingSets";
 

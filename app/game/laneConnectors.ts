@@ -19,8 +19,8 @@
  * — and the blend stays short enough that signal stop gates (authored 6 m
  * before the node) still sit on the straight lane line.
  *
- * Shared by `content.ts` and `londonContent.ts`, which otherwise carry private
- * copies of their lane builders.
+ * Shared by every file under `cities/`, which otherwise carry private copies
+ * of their lane builders.
  */
 import type { WorldPoint } from "./types";
 

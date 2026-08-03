@@ -10,12 +10,14 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  FUEL_PRICE_PER_LITRE_BY_COUNTRY,
-  TANK_CAPACITY_L,
   getDestinationProfile,
   getFreeDrive,
   getMapPack,
 } from "../app/game/content";
+import {
+  FUEL_PRICE_PER_LITRE_BY_COUNTRY,
+  TANK_CAPACITY_L,
+} from "../app/game/economyTables";
 import {
   gasStationPumpPositions,
   gasStationsOf,

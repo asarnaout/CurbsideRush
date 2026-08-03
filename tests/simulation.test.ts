@@ -3,7 +3,7 @@ import {
   SimulationCore,
   isRestrictionWindowActive,
 } from "../app/game/simulation";
-import { SCORING_CONFIG } from "../app/game/content";
+import { SCORING_CONFIG } from "../app/game/economyTables";
 
 describe("deterministic simulation", () => {
   it("produces the same snapshots for the same seed and inputs", () => {

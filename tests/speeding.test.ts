@@ -8,13 +8,12 @@ import {
   speedingFineMultiplier,
   speedingWarrantsCitation,
 } from "../app/game/speeding";
+import { COUNTRY_PROFILES, getCountryProfile } from "../app/game/content";
 import {
-  COUNTRY_PROFILES,
   FINE_BY_COUNTRY,
-  getCountryProfile,
   postedSpeed,
   speedingFine,
-} from "../app/game/content";
+} from "../app/game/economyTables";
 
 describe("what a patrol writes a ticket for", () => {
   // 30 mph in m/s — the figure the raised NYC avenues now post.

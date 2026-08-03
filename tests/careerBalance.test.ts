@@ -14,12 +14,14 @@ import {
 import {
   DESTINATION_PROFILES,
   getDestinationProfile,
-  GIG_FARE_BY_COUNTRY,
-  PASSENGER_FARE_BY_COUNTRY,
   getCountryProfile,
   getFreeDrive,
   getMapPack,
 } from "../app/game/content";
+import {
+  GIG_FARE_BY_COUNTRY,
+  PASSENGER_FARE_BY_COUNTRY,
+} from "../app/game/economyTables";
 import { gigReward, MIN_GIG_DISTANCE_M, selectGigPools } from "../app/game/gigs";
 import type { GigKind, GigVenuePosition } from "../app/game/gigs";
 import { resolveGigAddresses, resolveGigVenues } from "../app/game/gigPools";

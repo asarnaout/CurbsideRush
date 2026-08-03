@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { shorelineParapetRuns } from "../app/game/geometry/cairoParkland";
-import { CAIRO_OPEN_WATERFRONT_SIDES } from "../app/game/cairoContent";
+import { CAIRO_OPEN_WATERFRONT_SIDES } from "../app/game/cities/cairo";
 import { getMapPack } from "../app/game/content";
 import { buildStaticObstacles } from "../app/game/simulationAdapter";
 import {

@@ -3,8 +3,8 @@
 //
 // Pure and money-free, because both rings need it and neither can reach the
 // other's: `GameCanvas` decides whether a patrol acts and deliberately knows
-// nothing of `content.ts`, while `SideSwapApp` decides what it costs and only
-// ever loads `GameCanvas` lazily. Pricing lives in `content.ts`'s
+// nothing of `economyTables.ts`, while `SideSwapApp` decides what it costs and
+// only ever loads `GameCanvas` lazily. Pricing lives in `economyTables.ts`'s
 // `speedingFine`, which is the one part that needs a currency.
 
 import type { SpeedUnit } from "./types";

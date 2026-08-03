@@ -2,21 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
   COUNTRY_PROFILES,
   DESTINATION_PROFILES,
-  FINE_BY_COUNTRY,
   FREE_DRIVES,
+  MAP_PACKS,
+  getCountryProfile,
+  getMapPack,
+  resolveSteeringSide,
+} from "../app/game/content";
+import {
+  FINE_BY_COUNTRY,
   FUEL_PRICE_PER_LITRE_BY_COUNTRY,
   GIG_FARE_BY_COUNTRY,
-  MAP_PACKS,
   MIN_REFUEL_LITRES,
   PASSENGER_FARE_BY_COUNTRY,
   STARTING_WALLET_BY_COUNTRY,
   TANK_CAPACITY_L,
   fuelPurchase,
-  getCountryProfile,
   formatMoney,
-  getMapPack,
-  resolveSteeringSide,
-} from "../app/game/content";
+} from "../app/game/economyTables";
 import type {
   LaneAnchor,
   LaneSegment,

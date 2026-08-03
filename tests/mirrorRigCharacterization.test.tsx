@@ -55,7 +55,7 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
 
 import GameCanvas, { type GameCanvasHandle } from "../app/game/GameCanvas";
 import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
-import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/londonContent";
+import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/cities/london";
 
 function createFake2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const noop = () => {};

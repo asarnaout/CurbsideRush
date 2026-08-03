@@ -26,7 +26,7 @@ import {
 import {
   STARTING_WALLET_BY_COUNTRY,
   TANK_CAPACITY_L,
-} from "../app/game/content";
+} from "../app/game/economyTables";
 import type { PlayerProgressV2 } from "../app/game/types";
 import type { ProgressStorage } from "../app/game/progress";
 

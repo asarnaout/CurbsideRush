@@ -19,8 +19,8 @@ import type {
   TrafficControlApproach,
   TrafficControlInstallation,
   WorldPoint,
-} from "./types";
-import { buildLaneTrueGeometry } from "./laneConnectors";
+} from "../types";
+import { buildLaneTrueGeometry } from "../laneConnectors";
 
 export const LONDON_CONTENT_REVIEWED_ON = "2026-07-11";
 
@@ -157,7 +157,8 @@ const conflictZoneForNode = (nodeId: string): string => {
  * well. Both are cited in `LONDON_RULE_REFERENCES` above. Do not "fix" this into a 30.
  *
  * A road declares its limit once, here, and `laneTrue` stamps it onto every
- * lane of that road; see `content.ts` for the factors that choose the figure.
+ * lane of that road; see `cities/nyc.ts` or `cities/tokyo.ts` for the factors
+ * that choose the figure.
  */
 const LONDON_ROAD_SPEED_LIMITS = {
   "london-queen-gate": 20,
@@ -175,7 +176,7 @@ const LONDON_ROAD_SPEED_LIMITS = {
   "london-gloucester-loop": 20,
 } as const satisfies Record<string, number>;
 
-/** Throws rather than defaulting — see the twin in `content.ts`. */
+/** Throws rather than defaulting — see the twin in `cities/nyc.ts` / `cities/tokyo.ts`. */
 const speedLimitForRoad = (roadId: string): number => {
   const limit: number | undefined =
     LONDON_ROAD_SPEED_LIMITS[roadId as keyof typeof LONDON_ROAD_SPEED_LIMITS];

@@ -5,11 +5,8 @@ import {
   stampCareerChecksum,
 } from "./career";
 import type { CareerPersisted, CareerVehicleId } from "./career";
-import {
-  STARTING_WALLET_BY_COUNTRY,
-  TANK_CAPACITY_L,
-  getDestinationProfile,
-} from "./content";
+import { getDestinationProfile } from "./content";
+import { STARTING_WALLET_BY_COUNTRY, TANK_CAPACITY_L } from "./economyTables";
 import type {
   AccessibilityPreferences,
   CameraMode,

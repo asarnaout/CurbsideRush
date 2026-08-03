@@ -5,7 +5,7 @@
  * repair shop for a bill proportional to the damage, and when it reaches zero
  * the car is towed and rebuilt at a premium — the wallet stays the only durable
  * consequence, matching the fine and fuel loops. What either costs is
- * `repairPrice` in `content.ts`, which is where the currencies live.
+ * `repairPrice` in `economyTables.ts`, which is where the currencies live.
  *
  * Pure module: no imports, so the tuning is unit-testable in isolation.
  */

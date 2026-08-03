@@ -54,8 +54,8 @@ open world.
 rule.** `penaltyFor` is `scoring.penalties[code] ?? fallback`, and `penalties` is
 typed `Partial`, so the mechanism is real; but both scoring configs that can
 reach it cover all 21 codes with identical values — `SCORING_CONFIG` in
-`content.ts`, and `DEFAULT_SCORING` in `simulation.ts` when a caller omits
-`scoring`. Editing `penalty: 6` at a call site changes nothing; edit
+`economyTables.ts`, and `DEFAULT_SCORING` in `simulation.ts` when a caller
+omits `scoring`. Editing `penalty: 6` at a call site changes nothing; edit
 `SCORING_CONFIG`.
 
 Keep the fallbacks in mind when **adding** a `RuleCode`: miss it in both maps and
@@ -96,8 +96,8 @@ The monitor's tolerance is set to *coach* — `max(1.3, limit * 0.08)`, about
 3 mph on a 30 — far too tight to take money at; a patrol inside 35 m would stop
 you for drifting. `speedingWarrantsCitation` (`speeding.ts`) draws the wider band
 a ticket costs (`CITATION_TOLERANCE_MPS` 2.2, or 15% of the limit, whichever is
-larger), and `content.ts`'s `speedingFine` scales the flat fine 1x→2x over the
-excess (full scale at 20 mph / 32 km/h over).
+larger), and `economyTables.ts`'s `speedingFine` scales the flat fine 1x→2x
+over the excess (full scale at 20 mph / 32 km/h over).
 
 The amount is settled **where the stop is staged**, not at `cite` — that is where
 the evidence is.
