@@ -40,6 +40,7 @@ import {
   type CSSProperties,
 } from "react";
 import type {
+  AuthoredSignalHeadVisual,
   CameraMode,
   CutsceneRequest,
   DriveGear,
@@ -51,6 +52,7 @@ import type {
   GameRuntimeEvent,
   PlayerVehicleOption,
   PlayerVehiclePhysics,
+  RailwayCrossingVisual,
   SpeedUnit,
   SteeringSide,
   TrafficSide,
@@ -149,16 +151,17 @@ import { WaterLayer } from "./render/waterLayer";
 import { buildCockpit } from "./render/cockpitBuilder";
 import { governRenderScaling } from "./render/perfGovernor";
 import {
-  crosswalkStripeLayout,
-  EGYPT_SIGNAL_BORDER_BARS,
+  buildRailwayCrossingInstallation,
+  buildRoadMarkingInstallation,
+  buildSignalInstallation,
+  buildTerminalPortal,
+  createTrafficControlMasters,
+  type TrafficControlMaterials,
+} from "./render/trafficControlRender";
+import {
   LANE_PAINT_STYLES,
-  roadSurfacePlacementForMarking,
-  SIGNAL_HOUSING_BOX,
-  SIGNAL_MAST,
   signalStopBarSegment,
-  TRAFFIC_CAMERA_BODY,
   trafficCameraHeadIds,
-  trafficCameraPlacement,
 } from "./geometry/roadFurnitureLayout";
 import {
   earClipPolygonIndices,
@@ -300,7 +303,6 @@ import {
   authoredSignalAspectAt,
   trafficCameraControlIds,
   type AuthoredSignalAspect,
-  type AuthoredSignalStyle,
 } from "./trafficSignals";
 import {
   buildPlanarUVs,
@@ -920,48 +922,6 @@ interface RouteChevronVisual {
   readonly meshes: readonly Mesh[];
 }
 
-interface TrafficControlMaterials {
-  readonly dark: StandardMaterial;
-  readonly pale: StandardMaterial;
-  readonly redLamp: StandardMaterial;
-  readonly amberLamp: StandardMaterial;
-  readonly greenLamp: StandardMaterial;
-  readonly stopRed: StandardMaterial;
-  readonly yieldGold: StandardMaterial;
-  readonly warningYellow: StandardMaterial;
-  readonly restrictedBlue: StandardMaterial;
-}
-
-interface AuthoredSignalHeadVisual {
-  readonly controlId: string;
-  readonly trafficLightIds: readonly string[];
-  readonly phaseGroup: string;
-  readonly phaseGroups: readonly string[];
-  readonly style: AuthoredSignalStyle;
-  // Live handles into the shared lens master's per-instance color buffer —
-  // writing one recolours that lens on the next draw. One master mesh + one
-  // material serve every lens in the city; the per-head material clones they
-  // replaced put ~750 unbatchable materials in the scene.
-  readonly redColor: Color4;
-  readonly amberColor: Color4;
-  readonly greenColor: Color4;
-  /** Cache for resolvedSignalLight; see that helper for the contract. */
-  resolvedLightIndex?: number;
-  /** Last aspect written to the lens colors — writes are skipped until it changes. */
-  lastAspect?: AuthoredSignalAspect;
-}
-
-interface RailwayCrossingVisual {
-  readonly trafficLightIds: readonly string[];
-  /** Per-instance color handles, same contract as AuthoredSignalHeadVisual. */
-  readonly lampColors: readonly Color4[];
-  readonly barrierPivot: TransformNode;
-  /** Cache for resolvedSignalLight; see that helper for the contract. */
-  resolvedLightIndex?: number;
-  lastWarningActive?: boolean;
-  lastFlashIndex?: number;
-}
-
 interface RouteProjection {
   readonly segmentIndex: number;
   readonly x: number;
@@ -1406,8 +1366,6 @@ class BabylonGameSession {
     readonly dish: Mesh;
   } | null = null;
   private visualElapsedSeconds = 0;
-  /** One source mesh batches every painted zebra stripe into one draw family. */
-  private crosswalkStripeMaster: Mesh | null = null;
   /** Fraction of each block's building wall to build. 1 on desktop; thinned on
    * touch / low-core devices so phones stay playable. */
   private buildingKeepFraction = 1;
@@ -1498,8 +1456,6 @@ class BabylonGameSession {
    * null = merge failed for that url (falls back to the multi-mesh path). */
   private readonly buildingMasters = new Map<string, Mesh | null>();
   private readonly storefrontSignMaterials = new Map<string, StandardMaterial>();
-  private signalLensMaster: Mesh | null = null;
-  private trafficCameraMaster: Mesh | null = null;
   private signalRedMaterial: StandardMaterial | null = null;
   private signalAmberMaterial: StandardMaterial | null = null;
   private signalGreenMaterial: StandardMaterial | null = null;
@@ -6862,6 +6818,23 @@ class BabylonGameSession {
     this.signalRedMaterial = redLamp;
     this.signalAmberMaterial = amberLamp;
     this.signalGreenMaterial = greenLamp;
+    const trafficControlMasters = createTrafficControlMasters();
+    const trafficControlRenderCtx = {
+      scene,
+      masters: trafficControlMasters,
+      staticSceneryFreeze: this.staticSceneryFreeze,
+      authoredSignalHeads: this.authoredSignalHeads,
+      railwayCrossingVisuals: this.railwayCrossingVisuals,
+      optionsMapPack: this.options.mapPack,
+      createFlatSegment: (
+        name: string,
+        start: GameCanvasPoint,
+        end: GameCanvasPoint,
+        width: number,
+        y: number,
+        material: StandardMaterial,
+      ) => this.createFlatSegment(name, start, end, width, y, material),
+    };
     const cameraControlIds = trafficCameraControlIds(
       mapPack.laneGraph.controls
         .filter((control) => control.type === "signal")
@@ -6938,7 +6911,8 @@ class BabylonGameSession {
               (control.approaches ?? []).find((approach) => approach.id === approachId),
             )
             .filter((approach): approach is NonNullable<typeof approach> => Boolean(approach));
-          this.buildSignalInstallation(
+          buildSignalInstallation(
+            trafficControlRenderCtx,
             control.id,
             installation,
             mapPack.geometry.roadWidth,
@@ -6958,7 +6932,8 @@ class BabylonGameSession {
           continue;
         }
         if (installation.style === "japan_railway") {
-          this.buildRailwayCrossingInstallation(
+          buildRailwayCrossingInstallation(
+            trafficControlRenderCtx,
             control.id,
             installation,
             controlMaterials,
@@ -6969,7 +6944,8 @@ class BabylonGameSession {
           continue;
         }
         if (installation.mounting === "road_marking") {
-          this.buildRoadMarkingInstallation(
+          buildRoadMarkingInstallation(
+            trafficControlRenderCtx,
             mapPack,
             control,
             installation,
@@ -6979,7 +6955,8 @@ class BabylonGameSession {
           continue;
         }
         if (installation.style === "side_swap_gate") {
-          this.buildTerminalPortal(
+          buildTerminalPortal(
+            trafficControlRenderCtx,
             control.id,
             installation,
             mapPack.geometry.roadWidth,
@@ -7824,504 +7801,6 @@ class BabylonGameSession {
         gateMaterial.dispose();
       },
     };
-  }
-
-  /**
-   * The one mesh + one material behind every signal and railway lens in the
-   * city. Each lens is a plain instance whose registered color buffer IS its
-   * lamp state — lighting disabled, white emissive, so the shader's
-   * per-instance color multiply lands the exact color written. The per-head
-   * StandardMaterial clones this replaces (three per head) were ~750 unique
-   * materials on the NYC grid, one draw call each.
-   */
-  private getSignalLensMaster(): Mesh {
-    if (this.signalLensMaster) return this.signalLensMaster;
-    const material = new StandardMaterial("signal-lens-material", this.scene);
-    material.diffuseColor = Color3.Black();
-    material.specularColor = Color3.Black();
-    material.emissiveColor = Color3.White();
-    material.disableLighting = true;
-    const master = MeshBuilder.CreateCylinder(
-      "signal-lens-master",
-      { height: 0.1, diameter: 0.25, tessellation: 18 },
-      this.scene,
-    );
-    master.material = material;
-    master.isVisible = false;
-    master.isPickable = false;
-    master.registerInstancedBuffer(VertexBuffer.ColorKind, 4);
-    master.instancedBuffers.color = new Color4(0, 0, 0, 1);
-    this.signalLensMaster = master;
-    return master;
-  }
-
-  /**
-   * The one hidden mesh behind every enforcement camera in the city.
-   *
-   * Merged down to a single mesh on a single material on purpose: Babylon
-   * batches instances of one mesh into one draw call, and a MultiMaterial merge
-   * would have cost one per submesh per camera instead. Sixteen cameras on the
-   * New York grid are therefore one draw call, and the glass on the front is an
-   * instance of the signal lens master, so it joins a batch that already exists
-   * and costs nothing at all.
-   *
-   * Built from boxes rather than a downloaded glb: the CC0 sets have generic
-   * security cameras and no enforcement camera, and an imported one would have
-   * carried a licence entry, a registry entry, preload weight and an art style
-   * at odds with the hand-built signal head it bolts to.
-   */
-  private getTrafficCameraMaster(material: StandardMaterial): Mesh | null {
-    if (this.trafficCameraMaster) return this.trafficCameraMaster;
-    const { housing, hood } = TRAFFIC_CAMERA_BODY;
-    const parts = [
-      createBox(this.scene, "traffic-camera-housing", housing, Vector3.Zero(), material),
-      createBox(
-        this.scene,
-        "traffic-camera-hood",
-        hood,
-        new Vector3(0, housing.height / 2 + hood.height / 2, -0.07),
-        material,
-      ),
-    ];
-    const master = Mesh.MergeMeshes(parts, true, true, undefined, false, false);
-    if (!master) return null;
-    master.name = "prop-master-traffic-camera";
-    master.isVisible = false;
-    master.isPickable = false;
-    this.trafficCameraMaster = master;
-    return master;
-  }
-
-  /** Stands a camera on `installation`, looking back down the approach it watches. */
-  private buildTrafficCamera(
-    controlId: string,
-    installation: {
-      readonly position: GameCanvasPoint;
-      readonly headingDeg: number;
-      readonly armHeadingDeg?: number;
-      readonly mounting: string;
-    },
-    poleHeight: number,
-    armSpanM: number,
-    materials: TrafficControlMaterials,
-  ) {
-    const master = this.getTrafficCameraMaster(materials.dark);
-    if (!master) return;
-    const placement = trafficCameraPlacement(installation, poleHeight, armSpanM);
-    const body = master.createInstance(`prop-traffic-camera-${controlId}`);
-    body.position.set(placement.x, placement.y, placement.z);
-    body.rotation.y = placement.yaw;
-    body.isPickable = false;
-    this.staticSceneryFreeze.push(body);
-    const lens = this.getSignalLensMaster().createInstance(
-      `prop-traffic-camera-${controlId}-lens`,
-    );
-    lens.position.set(placement.lens.x, placement.lens.y, placement.lens.z);
-    lens.rotation.x = Math.PI / 2;
-    lens.rotation.y = placement.yaw;
-    // The master lens is 0.25 across; a camera's glass is a smaller, flatter
-    // disc. Its colour is the standby glow, written once — there is no flash to
-    // drive, because the citation is a toast on the HUD and a camera you have
-    // already passed is behind you by the time it would fire.
-    lens.scaling.set(0.62, 0.6, 0.62);
-    lens.isPickable = false;
-    lens.instancedBuffers.color = new Color4(0.16, 0.012, 0.01, 1);
-    this.staticSceneryFreeze.push(lens);
-  }
-
-  /** A lens instance parented to `head`; returns its live color handle. */
-  private createSignalLens(
-    name: string,
-    head: TransformNode,
-    localPosition: Vector3,
-    dimColor: Color4,
-    scale?: Vector3,
-  ): Color4 {
-    const lens = this.getSignalLensMaster().createInstance(name);
-    lens.parent = head;
-    lens.position.copyFrom(localPosition);
-    lens.rotation.x = Math.PI / 2;
-    if (scale) lens.scaling.copyFrom(scale);
-    lens.isPickable = false;
-    lens.instancedBuffers.color = dimColor;
-    return dimColor;
-  }
-
-  private createSignalHead(
-    name: string,
-    position: GameCanvasPoint,
-    heading: number,
-    height: number,
-    materials: TrafficControlMaterials,
-    runtime: Pick<
-      AuthoredSignalHeadVisual,
-      "controlId" | "trafficLightIds" | "phaseGroup" | "phaseGroups" | "style"
-    >,
-  ) {
-    const head = new TransformNode(`${name}-head`, this.scene);
-    head.position.set(position.x, height, position.z);
-    head.rotation.y = heading;
-    if (runtime.style === "egypt_signal") {
-      // Cairo's roadside signals commonly frame the black head in the same
-      // high-contrast yellow used on the striped support poles.
-      for (const bar of EGYPT_SIGNAL_BORDER_BARS) {
-        createBox(
-          this.scene,
-          `${name}-egypt-frame-${bar.id}`,
-          { width: bar.width, height: bar.height, depth: bar.depth },
-          new Vector3(bar.x, bar.y, bar.z),
-          materials.warningYellow,
-          head,
-        );
-      }
-    }
-    createBox(
-      this.scene,
-      `${name}-housing`,
-      {
-        width: SIGNAL_HOUSING_BOX.width,
-        height: SIGNAL_HOUSING_BOX.height,
-        depth: SIGNAL_HOUSING_BOX.depth,
-      },
-      Vector3.Zero(),
-      materials.dark,
-      head,
-    );
-    this.authoredSignalHeads.push({
-      ...runtime,
-      redColor: this.createSignalLens(
-        `${name}-red`,
-        head,
-        new Vector3(0, 0.43, -0.25),
-        new Color4(0.08, 0.005, 0.005, 1),
-      ),
-      amberColor: this.createSignalLens(
-        `${name}-amber`,
-        head,
-        new Vector3(0, 0, -0.25),
-        new Color4(0.08, 0.04, 0.005, 1),
-      ),
-      greenColor: this.createSignalLens(
-        `${name}-green`,
-        head,
-        new Vector3(0, -0.43, -0.25),
-        new Color4(0.005, 0.06, 0.012, 1),
-      ),
-    });
-  }
-
-  private buildSignalInstallation(
-    controlId: string,
-    installation: NonNullable<
-      GameCanvasMapPack["laneGraph"]["controls"][number]["installations"]
-    >[number],
-    roadWidth: number,
-    materials: TrafficControlMaterials,
-    runtime: Pick<
-      AuthoredSignalHeadVisual,
-      "trafficLightIds" | "phaseGroup" | "phaseGroups" | "style"
-    >,
-    hasCamera: boolean,
-  ) {
-    const headHeading = degreesToRadians(installation.headingDeg);
-    const armHeading = degreesToRadians(
-      installation.armHeadingDeg ?? installation.headingDeg,
-    );
-    const base = installation.position;
-    const mastArm = installation.mounting === "mast_arm";
-    const poleHeight = mastArm
-      ? SIGNAL_MAST.poleHeightM
-      : SIGNAL_MAST.kerbsidePoleHeightM;
-    createCylinder(
-      this.scene,
-      `${controlId}-${installation.id}-pole`,
-      {
-        height: poleHeight,
-        diameter: mastArm
-          ? SIGNAL_MAST.poleDiameterM
-          : SIGNAL_MAST.kerbsidePoleDiameterM,
-        tessellation: 14,
-      },
-      new Vector3(base.x, poleHeight / 2, base.z),
-      materials.dark,
-    );
-    if (runtime.style === "egypt_signal") {
-      // Thin sleeves preserve the one continuous structural pole while giving
-      // it Cairo's black/yellow municipal hazard striping.
-      const bandHeight = 0.52;
-      for (
-        let band = 0;
-        (band + 0.5) * bandHeight < poleHeight;
-        band += 2
-      ) {
-        createCylinder(
-          this.scene,
-          `${controlId}-${installation.id}-egypt-band-${band}`,
-          {
-            height: bandHeight,
-            diameter:
-              (mastArm
-                ? SIGNAL_MAST.poleDiameterM
-                : SIGNAL_MAST.kerbsidePoleDiameterM) + 0.018,
-            tessellation: 14,
-          },
-          new Vector3(
-            base.x,
-            (band + 0.5) * bandHeight,
-            base.z,
-          ),
-          materials.warningYellow,
-        );
-      }
-    }
-    if (mastArm) {
-      const span = Math.max(4.8, Math.min(8.5, roadWidth * 0.68));
-      const sideX = Math.cos(armHeading);
-      const sideZ = -Math.sin(armHeading);
-      const arm = createBox(
-        this.scene,
-        `${controlId}-${installation.id}-mast-arm`,
-        {
-          width: span,
-          height: SIGNAL_MAST.armThicknessM,
-          depth: SIGNAL_MAST.armThicknessM,
-        },
-        // Hung a full thickness below the top, so its upper surface — what the
-        // camera stands on — is at `mastArmTopY(poleHeight)`.
-        new Vector3(
-          base.x + sideX * span / 2,
-          poleHeight - SIGNAL_MAST.armThicknessM,
-          base.z + sideZ * span / 2,
-        ),
-        materials.dark,
-      );
-      arm.rotation.y = armHeading;
-      this.createSignalHead(
-        `${controlId}-${installation.id}`,
-        { x: base.x + sideX * (span - 0.45), z: base.z + sideZ * (span - 0.45) },
-        headHeading,
-        poleHeight - 0.95,
-        materials,
-        { controlId, ...runtime },
-      );
-      if (hasCamera) {
-        this.buildTrafficCamera(
-          `${controlId}-${installation.id}`,
-          installation,
-          poleHeight,
-          span,
-          materials,
-        );
-      }
-      return;
-    }
-    this.createSignalHead(
-      `${controlId}-${installation.id}`,
-      base,
-      headHeading,
-      poleHeight - 0.95,
-      materials,
-      { controlId, ...runtime },
-    );
-    if (hasCamera) {
-      this.buildTrafficCamera(
-        `${controlId}-${installation.id}`,
-        installation,
-        poleHeight,
-        0,
-        materials,
-      );
-    }
-  }
-
-  private buildRailwayCrossingInstallation(
-    controlId: string,
-    installation: NonNullable<
-      GameCanvasMapPack["laneGraph"]["controls"][number]["installations"]
-    >[number],
-    materials: TrafficControlMaterials,
-    trafficLightIds: readonly string[],
-  ) {
-    const heading = degreesToRadians(installation.headingDeg);
-    const base = installation.position;
-    const poleHeight = 3.4;
-    createCylinder(
-      this.scene,
-      `${controlId}-${installation.id}-rail-pole`,
-      { height: poleHeight, diameter: 0.18, tessellation: 14 },
-      new Vector3(base.x, poleHeight / 2, base.z),
-      materials.dark,
-    );
-    const crossbuck = new TransformNode(`${controlId}-${installation.id}-crossbuck`, this.scene);
-    crossbuck.position.set(base.x, 3.15, base.z);
-    crossbuck.rotation.y = heading;
-    for (const angle of [-0.63, 0.63]) {
-      const bar = createBox(
-        this.scene,
-        `${controlId}-${installation.id}-crossbuck-${angle}`,
-        { width: 1.6, height: 0.14, depth: 0.08 },
-        Vector3.Zero(),
-        materials.pale,
-        crossbuck,
-      );
-      bar.rotation.z = angle;
-    }
-    const sideX = Math.cos(heading);
-    const sideZ = -Math.sin(heading);
-    const lampColors: Color4[] = [];
-    for (const side of [-1, 1]) {
-      const lamp = this.getSignalLensMaster().createInstance(
-        `${controlId}-${installation.id}-warning-${side}`,
-      );
-      lamp.position.set(
-        base.x + sideX * side * 0.34,
-        2.38,
-        base.z + sideZ * side * 0.34,
-      );
-      lamp.rotation.x = Math.PI / 2;
-      lamp.rotation.y = heading;
-      // The master lens is 0.25across x 0.1 tall; the crossing lamp is a
-      // wider, slightly deeper disc.
-      lamp.scaling.set(1.4, 1.1, 1.4);
-      lamp.isPickable = false;
-      const color = new Color4(0.08, 0.005, 0.005, 1);
-      lamp.instancedBuffers.color = color;
-      lampColors.push(color);
-    }
-    const barrierLength = 4.6;
-    const barrierPivot = new TransformNode(
-      `${controlId}-${installation.id}-barrier-pivot`,
-      this.scene,
-    );
-    barrierPivot.position.set(base.x, 1.25, base.z);
-    barrierPivot.rotation.y = heading;
-    const barrier = createBox(
-      this.scene,
-      `${controlId}-${installation.id}-barrier`,
-      { width: barrierLength, height: 0.14, depth: 0.14 },
-      new Vector3(barrierLength / 2, 0, 0),
-      materials.warningYellow,
-      barrierPivot,
-    );
-    barrier.rotation.y = 0;
-    barrierPivot.rotation.z = -1.22;
-    this.railwayCrossingVisuals.push({
-      trafficLightIds,
-      lampColors,
-      barrierPivot,
-    });
-  }
-
-  private buildRoadMarkingInstallation(
-    mapPack: GameCanvasMapPack,
-    control: GameCanvasMapPack["laneGraph"]["controls"][number],
-    installation: NonNullable<
-      GameCanvasMapPack["laneGraph"]["controls"][number]["installations"]
-    >[number],
-    laneMaterial: StandardMaterial,
-    warningMaterial: StandardMaterial,
-  ) {
-    if (installation.style === "crosswalk") {
-      const surfacePlacement = roadSurfacePlacementForMarking(
-        mapPack,
-        control,
-        installation,
-      );
-      for (const [stripe, layout] of crosswalkStripeLayout(
-        surfacePlacement.position,
-        installation.headingDeg,
-        surfacePlacement.widthM,
-      ).entries()) {
-        if (!this.crosswalkStripeMaster) {
-          this.crosswalkStripeMaster = MeshBuilder.CreateBox(
-            "crosswalk-stripe-master",
-            { width: 1, height: 0.035, depth: 1 },
-            this.scene,
-          );
-          setMeshMaterial(this.crosswalkStripeMaster, laneMaterial);
-          this.crosswalkStripeMaster.isVisible = false;
-        }
-        const marking = this.crosswalkStripeMaster.createInstance(
-          `${control.id}-${installation.id}-stripe-${stripe}`,
-        );
-        marking.position.set(layout.center.x, 0.14, layout.center.z);
-        marking.rotation.y = layout.rotationY;
-        marking.scaling.set(layout.widthM, 1, layout.depthM);
-        marking.isPickable = false;
-        this.staticSceneryFreeze.push(marking);
-      }
-      return;
-    }
-    if (installation.style !== "box_junction") return;
-    const zones = this.options.mapPack?.laneGraph.conflictZones ?? [];
-    for (const zoneId of control.conflictZoneIds ?? []) {
-      const zone = zones.find((candidate) => candidate.id === zoneId);
-      if (!zone || zone.polygon.length < 3) continue;
-      for (let index = 0; index < zone.polygon.length; index += 1) {
-        this.createFlatSegment(
-          `${control.id}-${installation.id}-box-edge-${index}`,
-          zone.polygon[index],
-          zone.polygon[(index + 1) % zone.polygon.length],
-          0.18,
-          0.145,
-          warningMaterial,
-        );
-      }
-      const minX = Math.min(...zone.polygon.map((point) => point.x));
-      const maxX = Math.max(...zone.polygon.map((point) => point.x));
-      const minZ = Math.min(...zone.polygon.map((point) => point.z));
-      const maxZ = Math.max(...zone.polygon.map((point) => point.z));
-      const span = Math.max(maxX - minX, maxZ - minZ);
-      for (let offset = -span; offset <= span; offset += 3) {
-        const start = { x: Math.max(minX, minX + offset), z: Math.max(minZ, minZ - offset) };
-        const end = { x: Math.min(maxX, maxX + offset), z: Math.min(maxZ, maxZ - offset) };
-        if (Math.hypot(end.x - start.x, end.z - start.z) > 1) {
-          this.createFlatSegment(
-            `${control.id}-${installation.id}-box-hatch-${offset}`,
-            start,
-            end,
-            0.12,
-            0.144,
-            warningMaterial,
-          );
-        }
-      }
-    }
-  }
-
-  private buildTerminalPortal(
-    controlId: string,
-    installation: NonNullable<
-      GameCanvasMapPack["laneGraph"]["controls"][number]["installations"]
-    >[number],
-    roadWidth: number,
-    materials: TrafficControlMaterials,
-  ) {
-    const heading = degreesToRadians(installation.headingDeg);
-    const sideX = Math.cos(heading);
-    const sideZ = -Math.sin(heading);
-    const span = Math.max(6, roadWidth * 0.82);
-    for (const side of [-1, 1]) {
-      createCylinder(
-        this.scene,
-        `${controlId}-${installation.id}-portal-post-${side}`,
-        { height: 4.8, diameter: 0.28, tessellation: 14 },
-        new Vector3(
-          installation.position.x + sideX * side * span / 2,
-          2.4,
-          installation.position.z + sideZ * side * span / 2,
-        ),
-        materials.dark,
-      );
-    }
-    const beam = createBox(
-      this.scene,
-      `${controlId}-${installation.id}-portal-beam`,
-      { width: span + 0.3, height: 0.32, depth: 0.32 },
-      new Vector3(installation.position.x, 4.65, installation.position.z),
-      materials.warningYellow,
-    );
-    beam.rotation.y = heading;
   }
 
   /**
