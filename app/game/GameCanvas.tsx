@@ -19,7 +19,6 @@ import {
   MeshBuilder,
   ParticleSystem,
   Plane,
-  Quaternion,
   RenderTargetTexture,
   Scene,
   ShadowGenerator,
@@ -120,15 +119,7 @@ import {
   AMBIENT_CROWD_CONFIG,
   crowdClothingPaletteForMap,
   DEFAULT_ROAD_USER_RADII,
-  DESTRUCTIBLE_GRID_CELL_M,
-  DESTRUCTIBLE_PROP_CONFIGS,
-  PLAYER_CAPSULE_HALF_LENGTH_M,
-  PLAYER_CAPSULE_RADIUS_M,
-  PROP_MAX_ACTIVE_TOPPLES,
   PROP_MIN_STRIKE_SPEED_MPS,
-  PROP_TOPPLE_MAX_ANGLE_RAD,
-  PROP_TOPPLE_SECONDS,
-  type ActivePropFall,
   type DestructibleProp,
   type DestructiblePropPart,
 } from "./render/propCatalog";
@@ -158,6 +149,7 @@ import {
   createTrafficControlMasters,
   type TrafficControlMaterials,
 } from "./render/trafficControlRender";
+import { Destructibles } from "./render/destructibles";
 import {
   LANE_PAINT_STYLES,
   signalStopBarSegment,
@@ -1405,9 +1397,7 @@ class BabylonGameSession {
    */
   private readonly pendingParkProps: ParkPlacement[] = [];
   private readonly pendingParkThickets: ParkPlacement[] = [];
-  /** Knockable street furniture, bucketed for the per-step broad phase. */
-  private readonly destructibleGrid = new Map<string, DestructibleProp[]>();
-  private readonly activePropFalls: ActivePropFall[] = [];
+  private destructibles: Destructibles | null = null;
   private impactPuffs: ParticleSystem | null = null;
   /** Decaying camera-kick amplitude fed by collision events. */
   private impactKick = 0;
@@ -2179,6 +2169,8 @@ class BabylonGameSession {
     this.crowdSim = null;
     this.waterLayer?.dispose();
     this.waterLayer = null;
+    this.destructibles?.dispose();
+    this.destructibles = null;
     disposeModels(this.scene);
     this.scene.dispose();
     this.engine.dispose();
@@ -3439,7 +3431,7 @@ class BabylonGameSession {
     let mark = performance.now();
     this.updateGuidanceVisuals();
     this.perfSample(PERF_GUIDANCE, performance.now() - mark);
-    if (!this.paused) this.updatePropFalls(frameSeconds);
+    if (!this.paused) this.destructibles?.update(frameSeconds);
     if (this.damageSmoke?.isStarted()) {
       // Trail the smoke from the engine bay, wherever the car is facing.
       this.damageSmokeEmitter.set(
@@ -4490,7 +4482,7 @@ class BabylonGameSession {
       inst.scaling.setAll(vendor.config.scale);
       inst.isPickable = false;
       this.staticSceneryFreeze.push(inst);
-      this.registerDestructibleProp("vendor", vendor.x, vendor.z, 1, [
+      this.destructibles?.register("vendor", vendor.x, vendor.z, 1, [
         { node: inst, isLightPool: false },
       ]);
     }
@@ -4539,7 +4531,7 @@ class BabylonGameSession {
       if (placement.kind === "monument") continue;
       // Knockable exactly like a street tree — that consistency is the reason
       // park planting rides the same destructible path at all.
-      this.registerDestructibleProp(
+      this.destructibles?.register(
         placement.kind,
         placement.x,
         placement.z,
@@ -4597,70 +4589,33 @@ class BabylonGameSession {
     this.staticSceneryFreeze.length = 0;
   }
 
-  private destructibleCellKey(x: number, z: number): string {
-    return `${Math.floor(x / DESTRUCTIBLE_GRID_CELL_M)}:${Math.floor(z / DESTRUCTIBLE_GRID_CELL_M)}`;
-  }
-
-  /** Enrols a placed prop as knockable. Unknown kinds are silently ignored so
-   * a new scatter kind fails soft (indestructible) rather than crashing. */
-  private registerDestructibleProp(
-    kind: string,
-    x: number,
-    z: number,
-    scale: number,
-    parts: readonly DestructiblePropPart[],
-  ) {
-    const config = DESTRUCTIBLE_PROP_CONFIGS[kind];
-    if (!config || !parts.length) return;
-    const prop: DestructibleProp = {
-      kind,
-      config,
-      x,
-      z,
-      radiusM: config.radiusM * scale,
-      parts,
-      state: "standing",
-    };
-    const key = this.destructibleCellKey(x, z);
-    const bucket = this.destructibleGrid.get(key);
-    if (bucket) bucket.push(prop);
-    else this.destructibleGrid.set(key, [prop]);
-  }
-
-  /** The car's two capsule circles against every standing prop nearby. */
+  /** The car's two capsule circles against every standing prop nearby. Grid
+   * walk, contact math and the fall animation live in the `Destructibles`
+   * collaborator; the simulation report (and its audio/event side effects)
+   * stay here, since render/ must never depend on simulation.ts or audio —
+   * threaded in as `reportDestructibleStrike`, which returns whether the
+   * strike should actually animate. */
   private checkDestructiblePropCollisions() {
     if (
       this.simulationSnapshot.status !== "running" ||
-      this.playerState.speedMps < PROP_MIN_STRIKE_SPEED_MPS ||
-      this.destructibleGrid.size === 0
+      this.playerState.speedMps < PROP_MIN_STRIKE_SPEED_MPS
     ) {
       return;
     }
-    const { x, z, heading } = this.playerState;
-    const forwardX = Math.sin(heading);
-    const forwardZ = Math.cos(heading);
-    const column = Math.floor(x / DESTRUCTIBLE_GRID_CELL_M);
-    const row = Math.floor(z / DESTRUCTIBLE_GRID_CELL_M);
-    for (let dc = -1; dc <= 1; dc += 1) {
-      for (let dr = -1; dr <= 1; dr += 1) {
-        const bucket = this.destructibleGrid.get(`${column + dc}:${row + dr}`);
-        if (!bucket) continue;
-        for (const prop of bucket) {
-          if (prop.state !== "standing") continue;
-          const reach = prop.radiusM + PLAYER_CAPSULE_RADIUS_M;
-          let contact = false;
-          for (let end = -1; end <= 1 && !contact; end += 2) {
-            const cx = x + forwardX * PLAYER_CAPSULE_HALF_LENGTH_M * end;
-            const cz = z + forwardZ * PLAYER_CAPSULE_HALF_LENGTH_M * end;
-            contact = Math.hypot(cx - prop.x, cz - prop.z) < reach;
-          }
-          if (contact) this.strikeDestructibleProp(prop);
-        }
-      }
-    }
+    this.destructibles?.checkCollisions(
+      this.playerState.x,
+      this.playerState.z,
+      this.playerState.heading,
+      (prop) => this.reportDestructibleStrike(prop),
+      (x, y, z, count) => this.emitImpactBurst(x, y, z, count),
+    );
   }
 
-  private strikeDestructibleProp(prop: DestructibleProp) {
+  /** Reports a destructible-prop strike to the simulation and plays its
+   * audio; returns whether `Destructibles` should animate the fall (true for
+   * every accepted or damage-"none" strike, false only when the simulation
+   * declines to report it). */
+  private reportDestructibleStrike(prop: DestructibleProp): boolean {
     const impactSpeed = this.playerState.speedMps;
     if (prop.config.damage !== "none") {
       const reported = this.simulation.reportExternalContact(
@@ -4675,7 +4630,7 @@ class BabylonGameSession {
           impactSpeedMps: Math.round(impactSpeed * 10) / 10,
         },
       );
-      if (!reported) return;
+      if (!reported) return false;
       const snapshot = this.simulation.getSnapshot();
       this.applySimulationSnapshot(snapshot);
       this.processSimulationEvents(this.simulation.drainEvents());
@@ -4683,92 +4638,7 @@ class BabylonGameSession {
     } else {
       this.audio?.impact(Math.min(impactSpeed * 0.2, 1.5), eventNow());
     }
-    prop.state = "falling";
-
-    // Fall away from the car; a dead-centre hit falls along the travel dir.
-    let fallX = prop.x - this.playerState.x;
-    let fallZ = prop.z - this.playerState.z;
-    const fallLength = Math.hypot(fallX, fallZ);
-    if (fallLength > 1e-3) {
-      fallX /= fallLength;
-      fallZ /= fallLength;
-    } else {
-      fallX = Math.sin(this.playerState.heading);
-      fallZ = Math.cos(this.playerState.heading);
-    }
-
-    const pivot = new TransformNode(`prop-fall-${prop.kind}`, this.scene);
-    pivot.position.set(prop.x, 0, prop.z);
-    const poolParts: TransformNode[] = [];
-    for (const part of prop.parts) {
-      part.node.unfreezeWorldMatrix();
-      if (part.isLightPool) {
-        poolParts.push(part.node);
-        continue;
-      }
-      part.node.setParent(pivot);
-    }
-    if (prop.config.fall === "topple") {
-      // Rotating about this horizontal axis tips the top toward (fallX, fallZ).
-      pivot.rotationQuaternion = Quaternion.Identity();
-      pivot.metadata = { axis: new Vector3(fallZ, 0, -fallX) };
-    }
-    const fall: ActivePropFall = { prop, pivot, poolParts, progress: 0 };
-    if (this.activePropFalls.length >= PROP_MAX_ACTIVE_TOPPLES) {
-      fall.progress = 1;
-      this.applyPropFallPose(fall);
-      this.settlePropFall(fall);
-      return;
-    }
-    this.activePropFalls.push(fall);
-    this.emitImpactBurst(prop.x, 0.7, prop.z, prop.config.damage === "none" ? 6 : 14);
-  }
-
-  private applyPropFallPose(fall: ActivePropFall) {
-    const { prop, pivot } = fall;
-    // Ease out with a small overshoot so the fall lands with a bounce.
-    const t = Math.min(1, fall.progress);
-    const eased = 1 - (1 - t) * (1 - t);
-    const overshoot = t < 0.72 ? eased * 1.07 : 1.07 - ((t - 0.72) / 0.28) * 0.07;
-    if (prop.config.fall === "squash") {
-      pivot.scaling.y = 1 - 0.68 * eased;
-      pivot.scaling.x = 1 + 0.22 * eased;
-      pivot.scaling.z = 1 + 0.22 * eased;
-      return;
-    }
-    const axis = (pivot.metadata as { axis: Vector3 }).axis;
-    Quaternion.RotationAxisToRef(
-      axis,
-      PROP_TOPPLE_MAX_ANGLE_RAD * overshoot,
-      pivot.rotationQuaternion!,
-    );
-    pivot.position.y = -0.06 * eased;
-    for (const pool of fall.poolParts) {
-      pool.position.y = 0.07 - 1.4 * eased;
-    }
-  }
-
-  private settlePropFall(fall: ActivePropFall) {
-    fall.prop.state = "down";
-    // Refreeze at the settled pose so the wreckage costs nothing per frame.
-    fall.pivot.computeWorldMatrix(true);
-    for (const part of fall.prop.parts) {
-      part.node.computeWorldMatrix(true);
-      part.node.freezeWorldMatrix();
-    }
-  }
-
-  private updatePropFalls(frameSeconds: number) {
-    if (!this.activePropFalls.length) return;
-    for (let index = this.activePropFalls.length - 1; index >= 0; index -= 1) {
-      const fall = this.activePropFalls[index];
-      fall.progress += frameSeconds / PROP_TOPPLE_SECONDS;
-      this.applyPropFallPose(fall);
-      if (fall.progress >= 1) {
-        this.settlePropFall(fall);
-        this.activePropFalls.splice(index, 1);
-      }
-    }
+    return true;
   }
 
   /** Shared one-shot burst system for prop crunches and hard impacts. */
@@ -5643,6 +5513,7 @@ class BabylonGameSession {
     const palette = resolveMapVisualPalette(mapId);
     const cairoScene = resolveMapVisualKey(mapId) === "cairo";
     this.visualPalette = palette;
+    this.destructibles = new Destructibles(scene);
     this.cameraFarPlaneM = createSkyAndHorizon(
       { scene, registerMirrorSurface: (mesh) => this.registerMirrorSurface(mesh) },
       palette,
@@ -6690,7 +6561,7 @@ class BabylonGameSession {
             registerShadowCaster: (mesh, x, z) =>
               this.registerShadowCaster(mesh, x, z),
             registerDestructibleProp: (kind, x, z, scale, parts) =>
-              this.registerDestructibleProp(kind, x, z, scale, parts),
+              this.destructibles?.register(kind, x, z, scale, parts),
           },
           landmark,
           material,
@@ -6794,7 +6665,7 @@ class BabylonGameSession {
         registerShadowCaster: (mesh, x, z) =>
           this.registerShadowCaster(mesh, x, z),
         registerDestructibleProp: (kind, x, z, scale, parts) =>
-          this.registerDestructibleProp(kind, x, z, scale, parts),
+          this.destructibles?.register(kind, x, z, scale, parts),
       });
     }
 
@@ -7042,7 +6913,7 @@ class BabylonGameSession {
         z: number,
         scale: number,
         parts: readonly DestructiblePropPart[],
-      ) => this.registerDestructibleProp(kind, x, z, scale, parts),
+      ) => this.destructibles?.register(kind, x, z, scale, parts),
     };
     if (regulatorySigns.length) {
       buildRegulatorySigns(londonLandmarksCtx, regulatorySigns);
@@ -7065,7 +6936,7 @@ class BabylonGameSession {
         registerShadowCaster: (mesh, x, z) =>
           this.registerShadowCaster(mesh, x, z),
         registerDestructibleProp: (kind, x, z, scale, parts) =>
-          this.registerDestructibleProp(kind, x, z, scale, parts),
+          this.destructibles?.register(kind, x, z, scale, parts),
       },
       mapPack,
       palette,
