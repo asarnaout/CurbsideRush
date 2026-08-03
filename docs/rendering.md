@@ -18,7 +18,7 @@ orientation — rotating a phone pauses the drive, it does not rebuild the city.
 
 **Everything above `GameCanvasProps` is an exported pure geometry layer** (road
 strips, junction fills, chevron placement) — exported specifically so tests can
-import it without instantiating Babylon.
+import it without instantiating Babylon. The shared contract types (`GameHudSnapshot`, `GameCanvasLesson`, `GameCanvasMapPack`, ...) live in `sessionContract.ts` instead.
 
 ## Three angle conventions coexist
 

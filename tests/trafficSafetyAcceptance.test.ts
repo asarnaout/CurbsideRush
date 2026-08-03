@@ -5,7 +5,7 @@ import {
   getMapPack,
 } from "../app/game/content";
 import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
-import type { GameCanvasLesson, SpeedUnit as CanvasSpeedUnit } from "../app/game/GameCanvas";
+import type { GameCanvasLesson, SpeedUnit as CanvasSpeedUnit } from "../app/game/sessionContract";
 import {
   FIXED_STEP_SECONDS,
   SimulationCore,

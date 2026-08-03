@@ -109,11 +109,16 @@ describe("ring boundaries hold today", () => {
     ];
     expect(dynamicLiterals).toHaveLength(1);
 
+    // At most one — SideSwapApp may hold zero (every prop/callback type now
+    // lives in sessionContract.ts) or one static reference, and if one
+    // exists it must be type-only; either way, no runtime value import.
     const staticImports = importStatements(source).filter((statement) =>
       statement.includes("./game/GameCanvas"),
     );
-    expect(staticImports).toHaveLength(1);
-    expect(staticImports[0].startsWith("import type")).toBe(true);
+    expect(staticImports.length).toBeLessThanOrEqual(1);
+    if (staticImports.length === 1) {
+      expect(staticImports[0].startsWith("import type")).toBe(true);
+    }
   });
 
   it("nothing under app/game imports the app shell", () => {

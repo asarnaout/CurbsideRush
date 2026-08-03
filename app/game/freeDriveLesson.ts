@@ -1,4 +1,4 @@
-import type { GameCanvasLesson } from "./GameCanvas";
+import type { GameCanvasLesson } from "./sessionContract";
 import type { FreeDriveDefinition, TrafficSide } from "./types";
 
 /**

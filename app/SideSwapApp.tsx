@@ -13,7 +13,7 @@ import type {
   GameCanvasLesson,
   GameHudSnapshot,
   GameRuntimeEvent,
-} from "./game/GameCanvas";
+} from "./game/sessionContract";
 import {
   COUNTRY_PROFILES,
   DESTINATION_PROFILES,

@@ -8,7 +8,7 @@ import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
 import type {
   GameCanvasLesson,
   SpeedUnit as CanvasSpeedUnit,
-} from "../app/game/GameCanvas";
+} from "../app/game/sessionContract";
 import {
   buildingKeepOuts,
   facadeGridCells,
