@@ -1,6 +1,8 @@
+import type { Color4, TransformNode } from "@babylonjs/core";
 import type { CutsceneKind } from "./cutsceneScript";
 import type { ServicePointKind } from "./servicePoints";
 import type { SimulationCoreConfig } from "./simulation";
+import type { AuthoredSignalAspect, AuthoredSignalStyle } from "./trafficSignals";
 import type { VehicleModel } from "./vehicleVisuals";
 
 /**
@@ -478,3 +480,41 @@ export type PlayerVehiclePhysics = Pick<
   | "playerCapsuleHalfLengthM"
   | "playerCapsuleRadiusM"
 >;
+
+/**
+ * Session-owned per-frame visual state for one signal head or railway
+ * crossing: built by `render/trafficControlRender.ts`'s installation
+ * builders, then read and mutated every frame by the session's own
+ * `updateAuthoredSignalVisuals`/`resolvedSignalLight` — the reason these
+ * live here rather than in that render module, which never touches them
+ * again once built.
+ */
+export interface AuthoredSignalHeadVisual {
+  readonly controlId: string;
+  readonly trafficLightIds: readonly string[];
+  readonly phaseGroup: string;
+  readonly phaseGroups: readonly string[];
+  readonly style: AuthoredSignalStyle;
+  // Live handles into the shared lens master's per-instance color buffer —
+  // writing one recolours that lens on the next draw. One master mesh + one
+  // material serve every lens in the city; the per-head material clones they
+  // replaced put ~750 unbatchable materials in the scene.
+  readonly redColor: Color4;
+  readonly amberColor: Color4;
+  readonly greenColor: Color4;
+  /** Cache for resolvedSignalLight; see that helper for the contract. */
+  resolvedLightIndex?: number;
+  /** Last aspect written to the lens colors — writes are skipped until it changes. */
+  lastAspect?: AuthoredSignalAspect;
+}
+
+export interface RailwayCrossingVisual {
+  readonly trafficLightIds: readonly string[];
+  /** Per-instance color handles, same contract as AuthoredSignalHeadVisual. */
+  readonly lampColors: readonly Color4[];
+  readonly barrierPivot: TransformNode;
+  /** Cache for resolvedSignalLight; see that helper for the contract. */
+  resolvedLightIndex?: number;
+  lastWarningActive?: boolean;
+  lastFlashIndex?: number;
+}

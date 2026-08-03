@@ -29,8 +29,9 @@ also drops the base tile to 512².
 
 ## Park planting is split by what a driver can reach
 
-`parkLayouts.ts` is pure and returns paths plus placements; `GameCanvas` splits
-them. Within `PARK_KNOCKABLE_REACH_M` of a path (plus every bench and lamp) they
+`parkLayouts.ts` is pure and returns paths plus placements; `roadsideProps.ts`'s
+`collectParkPlacements` splits them. Within `PARK_KNOCKABLE_REACH_M` of a path
+(plus every bench and lamp) they
 join the roadside scatter's pipeline, sharing its tree masters and becoming
 knockable street furniture; deeper ones are instanced
 scenery, unreachable and not knockable. Shrubs are never knockable at any

@@ -30,16 +30,18 @@ import {
  *
  * All Babylon-owning (draws on a 2D canvas context, one raster per call —
  * see each factory's own header for why nothing here repaints per frame).
- * `textureContext` is duplicated from GameCanvas.tsx rather than shared, and
- * `makeMaterial`/`setMeshMaterial` stay in GameCanvas.tsx untouched — neither
- * is called by anything in this file, despite sitting beside this cluster in
- * the original source. The eleven `RIVER_*` tuning constants also stay
- * behind: they belong to the not-yet-extracted water-building code (Phase
- * 3.6), which resolves them into the `tones`/`waves` parameters the river
- * texture factories below actually take.
+ * `textureContext` is duplicated from GameCanvas.tsx rather than shared with
+ * it, and `makeMaterial`/`setMeshMaterial` stay in GameCanvas.tsx untouched —
+ * neither is called by anything in this file, despite sitting beside this
+ * cluster in the original source. The eleven `RIVER_*` tuning constants also
+ * stay behind: they belong to the not-yet-extracted water-building code
+ * (Phase 3.6), which resolves them into the `tones`/`waves` parameters the
+ * river texture factories below actually take. `textureContext` is exported
+ * for sibling render/ files (e.g. roadsideProps.ts) that need the same
+ * ad-hoc `DynamicTexture`-drawing pattern — an ordinary same-ring import.
  */
 
-function textureContext(texture: DynamicTexture): CanvasRenderingContext2D {
+export function textureContext(texture: DynamicTexture): CanvasRenderingContext2D {
   return texture.getContext() as unknown as CanvasRenderingContext2D;
 }
 

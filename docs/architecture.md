@@ -15,26 +15,36 @@ simulation.ts       SimulationCore — physics, traffic, rules, scoring
 simulationAdapter   authored MapPack + lesson -> core config (build-time only)
 ```
 
+This ring's own implementation is split across two files:
+`GameCanvas.tsx` is the React wrapper (props/handle contract, canvas
+element, load/fullscreen UI) that constructs and disposes the session; the
+exported `class BabylonGameSession`, in `render/babylonGameSession.ts`, is
+everything the ring label above describes — the Babylon scene, input,
+cameras, audio and the fixed-step pump. See rendering.md's "Shape of the
+file" for the split.
+
 The props/HUD/event types on the SideSwapApp<->GameCanvas edge — including
 `GameHudSnapshot` and `GameRuntimeEvent` above — live in
 `app/game/sessionContract.ts`, not in `GameCanvas.tsx` itself. It is
 types-only (enforced by `tests/architecture.test.ts`) and sits outside the
 ring diagram: everything that needs the shared vocabulary imports it
-directly, including `GameCanvas.tsx` and `simulationAdapter.ts`, without
-that making either of them a dependency of the other.
+directly, including `GameCanvas.tsx`, `render/babylonGameSession.ts` and
+`simulationAdapter.ts`, without that making any of them a dependency of
+another.
 
 `simulation.ts` imports **only** `./types` — no React, DOM, Babylon,
 `Math.random`, or `Date.now`. That purity is the load-bearing property of the
 whole design and is guarded by `tests/architecture.test.ts`, which also pins
-the ring arrows above (GameCanvas never reaches `content.ts`; SideSwapApp
-touches GameCanvas only through one `dynamic()` literal, plus at most one
-type-only import which today it has none of, having moved everything to
-`sessionContract.ts`). See [simulation-core.md](simulation-core.md).
+the ring arrows above (`BabylonGameSession` never reaches `content.ts`;
+SideSwapApp touches GameCanvas only through one `dynamic()` literal, plus at
+most one type-only import which today it has none of, having moved
+everything to `sessionContract.ts`). See [simulation-core.md](simulation-core.md).
 
 `simulationAdapter.ts` imports `sessionContract.ts` **type-only** for the
-lesson/map-pack shapes it consumes, so there is no cycle with `GameCanvas.tsx`;
-it also pulls `content.ts` and `visuals.ts` at runtime, which is why it is a
-build-time translator and never runs in the frame loop.
+lesson/map-pack shapes it consumes, so there is no cycle with
+`render/babylonGameSession.ts`; it also pulls `content.ts` and `visuals.ts`
+at runtime, which is why it is a build-time translator and never runs in the
+frame loop.
 
 ## Pure modules and what "pure" buys
 

@@ -8,7 +8,7 @@ npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run build:static # + prerendered index.html for a static host
 npm run typecheck    # tsc --noEmit, ~3s
 npm run lint         # eslint, ~11s
-npm test             # vitest run: 88 files, 1512 tests, ~2min
+npm test             # vitest run: 93 files, 1519 tests, ~2min
 ```
 
 Node >= 22.13 (repo currently runs v26). **There is no CI** — no `.github/`,
@@ -18,11 +18,11 @@ nothing runs test/lint/typecheck unless you do.
 
 `npm test` takes about two minutes and **almost all of it is one file** —
 `tests/trafficSafetyAcceptance.test.ts` (4 cities × every start/checkpoint × 51
-seeds × 60 s of sim). Everything else runs in ~12 s. Use the fast loop while
+seeds × 60 s of sim). Everything else runs in ~20 s. Use the fast loop while
 iterating, the full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 87 files / 1510 tests in ~15s
+# everything except the acceptance test -> 92 files / 1517 tests in ~20s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts -t "reverses off"   # one file, -t filters by substring
@@ -46,24 +46,28 @@ accumulates silently rather than failing anything.
 Next preset, where `build/` means output), so `build/sites-vite-plugin.ts` is never
 linted.
 
-## One test file still imports `GameCanvas.tsx` for real, in node
+## No test file imports runtime symbols from `GameCanvas.tsx` itself any more
 
-The god-file decomposition (`.claude/refactor-plan.md`, gitignored) is
-steadily hollowing this list out: as of Phase 2, only `gameCanvasInput.test.ts`
-still pulls runtime symbols directly from `GameCanvas.tsx`
-(`isAuthoredCheckpointCrossing`, `resolveNpcVisualSlotAssignments` — both
-session-adjacent code not yet claimed by any phase). Everything the eleven
-other former importers needed — road strips, water/facade/parkland geometry,
-route guidance, procedural textures, mesh primitives, the prop/crowd catalogue
-— now lives under `geometry/` or `render/` instead, and `sessionContract.ts`
-holds the shared contract types. `architecture.test.ts` reads
-`GameCanvas.tsx` as text (`fs.readFileSync`), not as an ES import, and does
-not count here.
+The god-file decomposition (`.claude/refactor-plan.md`, gitignored) finished
+Phase 3 by moving `class BabylonGameSession` itself out to
+`render/babylonGameSession.ts` (`export`ed). `gameCanvasInput.test.ts` —
+previously the one holdout still pulling runtime symbols directly from
+`GameCanvas.tsx` — now imports `isAuthoredCheckpointCrossing` and
+`resolveNpcVisualSlotAssignments` from `render/babylonGameSession.ts`
+instead; both moved with the class as session-adjacent code no phase before
+3.14 had claimed. Everything else earlier importers needed — road strips,
+water/facade/parkland geometry, route guidance, procedural textures, mesh
+primitives, the prop/crowd catalogue — lives under `geometry/` or `render/`,
+and `sessionContract.ts` holds the shared contract types.
+`architecture.test.ts` reads `GameCanvas.tsx` as text (`fs.readFileSync`),
+not as an ES import, and does not count here.
 
-Adding a top-level side effect touching `window`/`document`/WebGL to
-`GameCanvas.tsx` therefore breaks `gameCanvasInput.test.ts` and
-`gameCanvasSession.test.tsx` (below) — nothing else in the pure-symbol tests
-touches it any more.
+`GameCanvas.tsx` today is genuinely thin — `GameCanvasProps`/
+`GameCanvasHandle`, the shell/canvas styles, and the `forwardRef` component
+— so a top-level side effect touching `window`/`document`/WebGL there would
+only affect that component and the six full-mount tests (below); a similar
+side effect in `render/babylonGameSession.ts` is now the one that would
+break `gameCanvasInput.test.ts`.
 
 **Grep for `from ".../GameCanvas"` still misleads on one axis**: several test
 files (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`,
@@ -73,11 +77,42 @@ files (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`,
 move, the import specifier didn't. Check the specifier, not just the symbol
 name.
 
-`gameCanvasSession.test.tsx` (jsdom) is different in kind from
-`gameCanvasInput.test.ts` above, and is the one other runtime load besides
-`SideSwapApp`'s lazy `dynamic()`: it deliberately mounts the real component,
-session and a `NullEngine`, so a `window`/`document`/WebGL touch is what it
-exists to exercise, not a hazard. See the guardrails table below.
+`gameCanvasSession.test.tsx`, `cockpitCharacterization.test.tsx`,
+`trafficControlCharacterization.test.tsx`, `parksRenderCharacterization.
+test.tsx`, `mirrorRigCharacterization.test.tsx` and
+`cutsceneDirectorCharacterization.test.tsx` (all jsdom) are different in
+kind from `gameCanvasInput.test.ts` above, and are the only other runtime
+loads besides `SideSwapApp`'s lazy `dynamic()`: all six deliberately mount
+the real component, session and a `NullEngine` (copying the same jsdom-gap
+workarounds — see the first file's header for why), so a
+`window`/`document`/WebGL touch is what they exist to exercise, not a
+hazard. The other five exist solely to characterize a builder before the
+god-file decomposition reaches it (`.claude/refactor-plan.md`, gitignored) —
+`cockpitCharacterization` and `mirrorRigCharacterization` both mount with
+`cameraMode="first"`, since `playerCockpit` starts disabled (the wing-mirror
+rig is parented to it) and the default mount never observes what's parented
+there; `trafficControlCharacterization` mounts London and Tokyo, since no
+single shipped map exercises every installation style it builds;
+`parksRenderCharacterization` mounts Tokyo only — Cairo's Opera Grounds
+(`parterre`/`plaza` features) can't mount here at all, since
+`assertArabicCanvasFontDebug` needs the canvas 2D context to actually
+rasterise and shape Arabic text, which this suite's fake context (no real
+font rendering — jsdom has none) cannot provide; NYC's Joan of Arc park
+(`plinth`) was skipped as disproportionate (Upper West Side is the largest
+authored map) for one feature kind. `mirrorRigCharacterization` also ticks
+the mounted session briefly and reads `__sideswapPerfDebug`'s mirror
+counters, since the render-target `getCustomRenderList` closures it
+characterizes only run once Babylon's render loop is actually ticking, not
+at construction. `cutsceneDirectorCharacterization` drives the scene the
+same way the app does — a `cutscene` prop rerender with a bumped nonce, not
+an imperative test hook — and only exercises `pullover` and `repair`: per
+`CutsceneDirector.start`'s own comments, those two "need no map data to stage" (a
+heading-relative park; the car's own wing), so they are the only kinds
+guaranteed to stage from an arbitrary free-drive spawn without also being
+near the venue/pump/door the other five kinds require. Its repair case runs
+the real wall-clock scripted show to completion (~10 s) to prove the scene
+actually finishes and clears itself, not just that it starts. See the
+guardrails table below.
 
 ## DOM tests
 
@@ -89,9 +124,15 @@ does — plus a **synchronous `requestAnimationFrame` stub**, or `SideSwapApp`'s
 
 Tests default to `environment: "node"`. DOM needs `// @vitest-environment jsdom` on
 line 1 and a local `@testing-library/jest-dom/vitest` import — **there is no setup
-file**. Nine test files do this today: `careerFlow`, `confirmDialog`, `driveHud`,
-`expandedMap`, `freeDriveFuel`, `launcher`, `minimapCanvas`, `touchDriveControls`,
-`viewportSetup`.
+file**. Fifteen test files do this today: `careerFlow`, `cockpitCharacterization`,
+`confirmDialog`, `cutsceneDirectorCharacterization`, `driveHud`, `expandedMap`,
+`freeDriveFuel`, `gameCanvasSession`, `launcher`, `minimapCanvas`,
+`mirrorRigCharacterization`, `parksRenderCharacterization`, `touchDriveControls`,
+`trafficControlCharacterization`, `viewportSetup` — six of those
+(`gameCanvasSession`, `cockpitCharacterization`, `trafficControlCharacterization`,
+`parksRenderCharacterization`, `mirrorRigCharacterization`,
+`cutsceneDirectorCharacterization`) are the full-mount Babylon tests discussed
+above, not ordinary component tests.
 
 ## What is and isn't covered
 
@@ -122,6 +163,11 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | `trafficSafetyAcceptance` | Determinism (trace hash over two replays) + no collisions across 4 cities × 51 seeds |
 | `architecture` | simulation.ts purity + the ring rules the god-file decomposition depends on |
 | `gameCanvasSession` | `BabylonGameSession` actually constructs, ticks, pauses, resets and disposes (headless, NullEngine) |
+| `cockpitCharacterization` | `buildCockpit`'s exact mesh/merge output (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
+| `trafficControlCharacterization` | Signal/camera/railway-crossing/road-marking exact mesh output across London + Tokyo (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
+| `parksRenderCharacterization` | Park lawn/path/wall/court/torii/lantern exact mesh output for Tokyo's temple parks (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
+| `mirrorRigCharacterization` | Rear-view/wing-mirror exact mesh output, plus non-zero render/candidate/drawn counts after ticking (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
+| `cutsceneDirectorCharacterization` | Pullover (patrol rig, actor visibility/position) and repair (runs to completion, emits its `done` event, clears itself) staged via a real `cutscene` prop rerender (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `content` / `cairoContent` / `londonContent` | Lane-graph continuity, "every lane has somewhere legal to go" |
 | `roadRealism` | Only speed figures that country actually signs |
 | `careerBalance` | Rent + fee ≤ 4 median gig nets; tickets reachable in 3–20 days |

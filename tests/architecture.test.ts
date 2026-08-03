@@ -93,11 +93,11 @@ describe("simulation.ts stays pure", () => {
 });
 
 describe("ring boundaries hold today", () => {
-  it("GameCanvas.tsx never imports the content registry", () => {
-    const source = read("app", "game", "GameCanvas.tsx");
+  it("BabylonGameSession never imports the content registry", () => {
+    const source = read("app", "game", "render", "babylonGameSession.ts");
     // It DOES import cairoContent.ts for authored Cairo constants — that is
     // existing and allowed. The ban is on the registry module specifically.
-    expect(dependencySpecifiers(source)).not.toContain("./content");
+    expect(dependencySpecifiers(source)).not.toContain("../content");
   });
 
   it("SideSwapApp's only static reference to GameCanvas is a type-only import, alongside exactly one dynamic() literal", () => {
