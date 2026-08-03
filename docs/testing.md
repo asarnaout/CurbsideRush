@@ -8,7 +8,7 @@ npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run build:static # + prerendered index.html for a static host
 npm run typecheck    # tsc --noEmit, ~3s
 npm run lint         # eslint, ~11s
-npm test             # vitest run: 89 files, 1513 tests, ~2min
+npm test             # vitest run: 90 files, 1515 tests, ~2min
 ```
 
 Node >= 22.13 (repo currently runs v26). **There is no CI** — no `.github/`,
@@ -22,7 +22,7 @@ seeds × 60 s of sim). Everything else runs in ~12 s. Use the fast loop while
 iterating, the full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 88 files / 1511 tests in ~15s
+# everything except the acceptance test -> 89 files / 1513 tests in ~15s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts -t "reverses off"   # one file, -t filters by substring
@@ -73,16 +73,20 @@ files (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`,
 move, the import specifier didn't. Check the specifier, not just the symbol
 name.
 
-`gameCanvasSession.test.tsx` and `cockpitCharacterization.test.tsx` (both
-jsdom) are different in kind from `gameCanvasInput.test.ts` above, and are
-the only other runtime loads besides `SideSwapApp`'s lazy `dynamic()`: both
-deliberately mount the real component, session and a `NullEngine` (copying
-the same jsdom-gap workarounds — see the first file's header for why), so a
+`gameCanvasSession.test.tsx`, `cockpitCharacterization.test.tsx` and
+`trafficControlCharacterization.test.tsx` (all jsdom) are different in kind
+from `gameCanvasInput.test.ts` above, and are the only other runtime loads
+besides `SideSwapApp`'s lazy `dynamic()`: all three deliberately mount the
+real component, session and a `NullEngine` (copying the same jsdom-gap
+workarounds — see the first file's header for why), so a
 `window`/`document`/WebGL touch is what they exist to exercise, not a
-hazard. The second exists solely to characterize `buildCockpit` before the
+hazard. The other two exist solely to characterize a builder before the
 god-file decomposition reaches it (`.claude/refactor-plan.md`, gitignored) —
-it mounts with `cameraMode="first"`, since `playerCockpit` starts disabled
-and the default mount never observes it. See the guardrails table below.
+`cockpitCharacterization` mounts with `cameraMode="first"`, since
+`playerCockpit` starts disabled and the default mount never observes it;
+`trafficControlCharacterization` mounts London and Tokyo, since no single
+shipped map exercises every installation style it builds. See the
+guardrails table below.
 
 ## DOM tests
 
@@ -94,11 +98,12 @@ does — plus a **synchronous `requestAnimationFrame` stub**, or `SideSwapApp`'s
 
 Tests default to `environment: "node"`. DOM needs `// @vitest-environment jsdom` on
 line 1 and a local `@testing-library/jest-dom/vitest` import — **there is no setup
-file**. Eleven test files do this today: `careerFlow`, `cockpitCharacterization`,
+file**. Twelve test files do this today: `careerFlow`, `cockpitCharacterization`,
 `confirmDialog`, `driveHud`, `expandedMap`, `freeDriveFuel`, `gameCanvasSession`,
-`launcher`, `minimapCanvas`, `touchDriveControls`, `viewportSetup` — the last two
-of those (`gameCanvasSession`, `cockpitCharacterization`) are the full-mount
-Babylon tests discussed above, not ordinary component tests.
+`launcher`, `minimapCanvas`, `touchDriveControls`, `trafficControlCharacterization`,
+`viewportSetup` — three of those (`gameCanvasSession`, `cockpitCharacterization`,
+`trafficControlCharacterization`) are the full-mount Babylon tests discussed above,
+not ordinary component tests.
 
 ## What is and isn't covered
 
@@ -130,6 +135,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | `architecture` | simulation.ts purity + the ring rules the god-file decomposition depends on |
 | `gameCanvasSession` | `BabylonGameSession` actually constructs, ticks, pauses, resets and disposes (headless, NullEngine) |
 | `cockpitCharacterization` | `buildCockpit`'s exact mesh/merge output (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
+| `trafficControlCharacterization` | Signal/camera/railway-crossing/road-marking exact mesh output across London + Tokyo (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `content` / `cairoContent` / `londonContent` | Lane-graph continuity, "every lane has somewhere legal to go" |
 | `roadRealism` | Only speed figures that country actually signs |
 | `careerBalance` | Rent + fee ≤ 4 median gig nets; tickets reachable in 3–20 days |
