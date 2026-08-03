@@ -1,24 +1,25 @@
 # The rendering layer
 
-`GameCanvas.tsx` and the Babylon scene. The 2D drive HUD is a separate concern — see [drive-hud.md](drive-hud.md).
+`GameCanvas.tsx` + `render/babylonGameSession.ts` and the Babylon scene. The 2D drive HUD is a separate concern — see [drive-hud.md](drive-hud.md).
 
 ## Shape of the file
 
-`GameCanvas.tsx` is mid-decomposition (`.claude/refactor-plan.md`, gitignored):
-today it holds `class BabylonGameSession`, the React component at the bottom,
-and a residual band of session-adjacent helpers no phase has claimed yet.
-`class AdaptiveInputRouter` has already moved out, to `adaptiveInputRouter.ts`,
-and the pure geometry/render layer to sibling directories — `geometry/` (zero
-`@babylonjs` imports, enforced by `tests/architecture.test.ts`) and `render/`
-(Babylon-owning, no session state) — both exported so tests import them
-without instantiating Babylon. Contract types live in `sessionContract.ts`.
+`GameCanvas.tsx` is now the thin React half of the god-file decomposition
+(`.claude/refactor-plan.md`, gitignored): props/handle types, shell/canvas
+styles, and the `forwardRef` component, nothing Babylon-owning of its own.
+The exported `class BabylonGameSession` lives in `render/babylonGameSession.ts`
+instead (Phase 3's last commit; `tests/gameCanvasInput.test.ts` imports its
+two pure exports from there directly). `AdaptiveInputRouter` moved out
+earlier to `adaptiveInputRouter.ts`; the pure geometry/render layer sits in
+`geometry/` (zero `@babylonjs`, enforced by `tests/architecture.test.ts`) and
+`render/` (Babylon-owning, no session state), both exported for Babylon-free
+tests; contract types are in `sessionContract.ts`. **React owns the canvas
+element, the props, and one 10 Hz HUD snapshot; the session owns everything
+else, and no React state is driven at frame rate.**
 
-**React owns the canvas element, the props, and one 10 Hz HUD snapshot; the
-session owns everything else.** No React state is driven at frame rate.
-
-The session is rebuilt only on `[trafficSide, steeringSide, lesson?.id,
-mapPack?.id]`; every other prop flows through `session.updateOptions(...)`. Not
-orientation — rotating a phone pauses the drive, it does not rebuild the city.
+The session is rebuilt only on `[trafficSide, steeringSide, lesson?.id, mapPack?.id]`;
+every other prop flows through `session.updateOptions(...)`. Not orientation —
+rotating a phone pauses the drive, it does not rebuild the city.
 
 ## Three angle conventions coexist
 
@@ -32,7 +33,7 @@ orientation — rotating a phone pauses the drive, it does not rebuild the city.
 ## The y-layer stack is a hard global ordering
 
 Every value is tuned to kill z-fighting, and they are spread across three modules
-(`GameCanvas.tsx`, `crowdRenderer.ts`, `vehicleMeshes.ts`):
+(`render/babylonGameSession.ts`, `crowdRenderer.ts`, `vehicleMeshes.ts`):
 
 ```
 0.02 park lawn  <  0.0255 park beds  <  0.031 park paths/terraces  <  0.0435 shoulder junction fill
@@ -59,8 +60,7 @@ everyone's depth separation.
 
 ## Grass, parks and planting are their own page
 
-Ground grass, the detail-map tile, park lawns, paths and planting all live
-in [greenery.md](greenery.md). Their y-layer rungs are in the stack above.
+Ground grass, park lawns, paths and planting live in [greenery.md](greenery.md); their y-layer rungs are in the stack above.
 
 ## The glTF loader bakes a 180° Y flip
 
@@ -101,10 +101,9 @@ for its dense street wall (draw calls/frame −31% vs the uncapped 1100 m).
 
 Everything starts as an empty placeholder; an async preload then upgrades
 vehicles/characters/props, builds instanced buildings and the VAT crowd, and only
-*then* calls `markReady()` — which is what lifts the React loading gate.
-
-There is no procedural vehicle/character fallback any more, so **anything that
-lifts `markReady` early ships invisible cars and people.**
+*then* calls `markReady()` — which is what lifts the React loading gate. There is
+no procedural vehicle/character fallback any more, so **anything that lifts
+`markReady` early ships invisible cars and people.**
 
 Building glbs are **map-scoped** (`buildingSetUrls` over the sets the map's blocks
 name), so Cairo never downloads NYC's towers. Venue/service props are not — every

@@ -46,24 +46,28 @@ accumulates silently rather than failing anything.
 Next preset, where `build/` means output), so `build/sites-vite-plugin.ts` is never
 linted.
 
-## One test file still imports `GameCanvas.tsx` for real, in node
+## No test file imports runtime symbols from `GameCanvas.tsx` itself any more
 
-The god-file decomposition (`.claude/refactor-plan.md`, gitignored) is
-steadily hollowing this list out: as of Phase 2, only `gameCanvasInput.test.ts`
-still pulls runtime symbols directly from `GameCanvas.tsx`
-(`isAuthoredCheckpointCrossing`, `resolveNpcVisualSlotAssignments` — both
-session-adjacent code not yet claimed by any phase). Everything the eleven
-other former importers needed — road strips, water/facade/parkland geometry,
-route guidance, procedural textures, mesh primitives, the prop/crowd catalogue
-— now lives under `geometry/` or `render/` instead, and `sessionContract.ts`
-holds the shared contract types. `architecture.test.ts` reads
-`GameCanvas.tsx` as text (`fs.readFileSync`), not as an ES import, and does
-not count here.
+The god-file decomposition (`.claude/refactor-plan.md`, gitignored) finished
+Phase 3 by moving `class BabylonGameSession` itself out to
+`render/babylonGameSession.ts` (`export`ed). `gameCanvasInput.test.ts` —
+previously the one holdout still pulling runtime symbols directly from
+`GameCanvas.tsx` — now imports `isAuthoredCheckpointCrossing` and
+`resolveNpcVisualSlotAssignments` from `render/babylonGameSession.ts`
+instead; both moved with the class as session-adjacent code no phase before
+3.14 had claimed. Everything else earlier importers needed — road strips,
+water/facade/parkland geometry, route guidance, procedural textures, mesh
+primitives, the prop/crowd catalogue — lives under `geometry/` or `render/`,
+and `sessionContract.ts` holds the shared contract types.
+`architecture.test.ts` reads `GameCanvas.tsx` as text (`fs.readFileSync`),
+not as an ES import, and does not count here.
 
-Adding a top-level side effect touching `window`/`document`/WebGL to
-`GameCanvas.tsx` therefore breaks `gameCanvasInput.test.ts` and the two
-full-mount tests (below) — nothing else in the pure-symbol tests touches it
-any more.
+`GameCanvas.tsx` today is genuinely thin — `GameCanvasProps`/
+`GameCanvasHandle`, the shell/canvas styles, and the `forwardRef` component
+— so a top-level side effect touching `window`/`document`/WebGL there would
+only affect that component and the six full-mount tests (below); a similar
+side effect in `render/babylonGameSession.ts` is now the one that would
+break `gameCanvasInput.test.ts`.
 
 **Grep for `from ".../GameCanvas"` still misleads on one axis**: several test
 files (`freeDriveLesson`, `npcTurnSmoothness`, `simulationAdapter`,

@@ -3,7 +3,7 @@ import { VertexData } from "@babylonjs/core";
 import {
   isAuthoredCheckpointCrossing,
   resolveNpcVisualSlotAssignments,
-} from "../app/game/GameCanvas";
+} from "../app/game/render/babylonGameSession";
 import {
   AdaptiveInputRouter,
   INPUT_PROMPT_SWITCH_COOLDOWN_MS,
