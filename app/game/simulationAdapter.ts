@@ -31,7 +31,8 @@ import type {
   SpeedUnit as CanvasSpeedUnit,
   TrafficSide,
 } from "./sessionContract";
-import { SCORING_CONFIG, getCountryProfile } from "./content";
+import { getCountryProfile } from "./content";
+import { SCORING_CONFIG } from "./economyTables";
 import {
   PAVED_SIDEWALK_WIDTH_M,
   resolveMapVisualPalette,

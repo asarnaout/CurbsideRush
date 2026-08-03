@@ -5,11 +5,8 @@ import {
   SMOKE_LIGHT_CONDITION_PCT,
   damageForCollision,
 } from "../app/game/damage";
-import {
-  FINE_BY_COUNTRY,
-  getCountryProfile,
-  repairPrice,
-} from "../app/game/content";
+import { getCountryProfile } from "../app/game/content";
+import { FINE_BY_COUNTRY, repairPrice } from "../app/game/economyTables";
 
 describe("damageForCollision", () => {
   it("charges pedestrians and cyclists a small flat rate — the citation is the cost", () => {

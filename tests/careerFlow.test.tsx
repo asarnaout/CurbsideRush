@@ -23,11 +23,13 @@ import {
   getDestinationProfile,
   getFreeDrive,
   getMapPack,
+} from "../app/game/content";
+import {
   GIG_FARE_BY_COUNTRY,
   PASSENGER_FARE_BY_COUNTRY,
   formatMoney,
   repairPrice,
-} from "../app/game/content";
+} from "../app/game/economyTables";
 import {
   FULL_CONDITION_PCT,
   damageForCollision,

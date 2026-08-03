@@ -17,6 +17,14 @@ import type {
 import {
   COUNTRY_PROFILES,
   DESTINATION_PROFILES,
+  getCountryProfile,
+  getDestinationProfile,
+  getFreeDrive,
+  getMapPack,
+  resolveSessionConfig,
+  resolveSteeringSide,
+} from "./game/content";
+import {
   FINE_BY_COUNTRY,
   FUEL_CONSUMPTION_L_PER_M,
   FUEL_PRICE_PER_LITRE_BY_COUNTRY,
@@ -28,16 +36,10 @@ import {
   formatDistanceParts,
   formatMoney,
   fuelPurchase,
-  getCountryProfile,
-  getDestinationProfile,
-  getFreeDrive,
-  getMapPack,
   postedSpeed,
-  resolveSessionConfig,
-  resolveSteeringSide,
   repairPrice,
   speedingFine,
-} from "./game/content";
+} from "./game/economyTables";
 import {
   SPEEDING_STOP_GRACE_MS,
   speedingExcessMps,
