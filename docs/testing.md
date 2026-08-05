@@ -8,11 +8,12 @@ npm run build        # -> dist/client + dist/server (Cloudflare Worker + assets)
 npm run build:static # + prerendered index.html for a static host
 npm run typecheck    # tsc --noEmit, ~3s
 npm run lint         # eslint, ~11s
-npm test             # vitest run: 94 files, 1524 tests, ~2min
+npm test             # vitest run: 95 files, 1527 tests, ~2min
 ```
 
-Node >= 22.13 (repo currently runs v26). **There is no CI** — no `.github/`,
-nothing runs test/lint/typecheck unless you do.
+Node >= 22.13 (repo currently runs v26). GitHub Actions runs typecheck, lint,
+and the full test suite on pull requests and pushes to `main`; run the same
+checks locally before committing.
 
 ## The fast loop
 
@@ -22,7 +23,7 @@ seeds × 60 s of sim). Everything else runs in ~20 s. Use the fast loop while
 iterating, the full suite before committing:
 
 ```bash
-# everything except the acceptance test -> 93 files / 1522 tests in ~20s
+# everything except the acceptance test -> 94 files / 1525 tests in ~20s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts -t "reverses off"   # one file, -t filters by substring
@@ -39,8 +40,10 @@ still lands inside it; a test that blows past 30 s is hung, not merely thorough.
 
 ## Lint is clean and must stay clean
 
-0 errors, 0 warnings today. Unused vars are **warnings, not errors**, so dead code
-accumulates silently rather than failing anything.
+0 errors, 0 warnings today. `npm run lint` uses `--max-warnings 0`, so warnings
+fail the local gate and CI just like errors do. Unused variables are still
+reported at warning severity, but they can no longer accumulate behind a green
+lint command.
 
 `build/` is a *source* directory but is in ESLint's ignore list (inherited from the
 Next preset, where `build/` means output), so `build/sites-vite-plugin.ts` is never

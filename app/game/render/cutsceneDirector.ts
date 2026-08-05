@@ -281,6 +281,7 @@ export interface CutsceneDebugSnapshot {
   readonly cameraZ: number;
   readonly patrolX: number | null;
   readonly patrolZ: number | null;
+  readonly patrolVisualPresent: boolean;
 }
 
 export class CutsceneDirector {
@@ -337,6 +338,10 @@ export class CutsceneDirector {
       patrolZ: cutscene.patrolNode
         ? Math.round(cutscene.patrolNode.position.z * 100) / 100
         : null,
+      // Assert the rig through its owned visual handle rather than through
+      // the whole scene's mutable mesh count. Headless tests deliberately use
+      // an empty vehicle placeholder when public model URLs are unavailable.
+      patrolVisualPresent: cutscene.patrolVisual !== null,
     };
   }
 

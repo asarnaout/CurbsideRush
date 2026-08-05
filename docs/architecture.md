@@ -47,12 +47,12 @@ another.
 
 `simulation.ts` imports **only** `./types` — no React, DOM, Babylon,
 `Math.random`, or `Date.now`. That purity is the load-bearing property of the
-whole design and is guarded by `tests/architecture.test.ts`, which also pins
-the ring arrows above (`BabylonGameSession` never reaches `content.ts`;
-`app/DriveScreen.tsx` — the drive screen `SideSwapApp.tsx` renders GameCanvas
-through, since the Phase 5 god-file decomposition — holds the one `dynamic()`
-literal; `SideSwapApp.tsx` itself has zero references to GameCanvas, not
-even type-only). See [simulation-core.md](simulation-core.md).
+whole design and is guarded by `tests/architecture.test.ts`. Dependency arrows
+and forbidden content/app-shell imports are enforced by the flat ESLint config;
+the architecture test retains source-shape checks ESLint cannot express:
+`app/DriveScreen.tsx` holds the one `dynamic()` GameCanvas literal and
+`SideSwapApp.tsx` has no GameCanvas reference, even type-only. See
+[simulation-core.md](simulation-core.md).
 
 `simulationAdapter.ts` imports `sessionContract.ts` **type-only** for the
 lesson/map-pack shapes it consumes, so there is no cycle with
@@ -67,7 +67,7 @@ imports and re-exports them, never the other way. `render/` may import
 `cities/` (`roadsideProps.ts` reads Cairo's `CAIRO_OPEN_WATERFRONT_SIDES`;
 `render/cityRenderRegistry.ts` maps a mapId to that city's own landmark and
 street-furniture builders — see [rendering.md](rendering.md)) — enforced by
-the same `tests/architecture.test.ts` that bans `render/`/`geometry/` from
+`import/no-restricted-paths`, which also bans `render/`/`geometry/` from
 importing `content.ts` directly.
 
 ## Pure modules and what "pure" buys
@@ -103,8 +103,8 @@ loads `GameCanvas` lazily through `next/dynamic`.
 `waterGeometry`, `facadesAndKeepouts`, `cairoParkland`, `routeGuidance`) is
 the same kind of pure module, moved out of `GameCanvas.tsx` by the god-file
 decomposition. It isn't hand-listed above because its purity is mechanically
-enforced rather than a fact to remember: `tests/architecture.test.ts` fails
-the suite if any file under `geometry/` gains an `@babylonjs` import. Their
+enforced rather than a fact to remember: ESLint rejects Babylon/React imports
+and browser or DOM globals in every file under `geometry/`. Their
 Babylon-owning counterpart, `app/game/render/*.ts`, has no such guarantee —
 `renderConstants.ts` is genuinely import-free but the rest construct real
 Babylon objects (`DynamicTexture`, `VertexData`, `MeshBuilder`) and belong on
@@ -164,10 +164,11 @@ a lane end. The tests are the real guardrail. See
 
 ## Sharp edges that cut across rings
 
-- **Unreachable code does not warn.** `tsconfig` has no `noUnusedLocals` and
-  ESLint treats unused vars as warnings, so a `private` method that loses its
-  last caller just sits there. When you supersede a subsystem, delete its old
-  path in the same change. Two traps that will recur:
+- **Some unreachable code is invisible to the gates.** ESLint warnings now fail
+  the lint command, but `tsconfig` has no `noUnusedLocals`, and a `private`
+  method that loses its last caller can still sit there without a diagnostic.
+  When you supersede a subsystem, delete its old path in the same change. Two
+  traps that will recur:
   - **Duplicate names across layers.** `buildConnectedNpcPath` is *both* a
     `BabylonGameSession` private wrapper and a live module-level function in
     `npcPaths.ts`. Never delete or rename by name alone.

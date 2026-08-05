@@ -187,6 +187,7 @@ interface CutsceneActiveDebug {
   readonly cameraZ: number;
   readonly patrolX: number | null;
   readonly patrolZ: number | null;
+  readonly patrolVisualPresent: boolean;
 }
 
 interface CutsceneDebugSnapshot {
@@ -226,10 +227,8 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
       const debugWindow = window as unknown as Record<string, unknown>;
       const cutsceneDebug = () =>
         (debugWindow.__sideswapCutsceneDebug as () => CutsceneDebugSnapshot)();
-      const meshCount = () => (debugWindow.__sideswapMeshes as () => unknown[])().length;
 
       expect(cutsceneDebug().active).toBeNull();
-      const meshesBefore = meshCount();
 
       rerender(
         <GameCanvas
@@ -256,7 +255,7 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
       // whether any NPC was actually nearby.
       expect(staged?.patrolX).not.toBeNull();
       expect(staged?.patrolZ).not.toBeNull();
-      expect(meshCount()).toBeGreaterThan(meshesBefore);
+      expect(staged?.patrolVisualPresent).toBe(true);
 
       // beginCutsceneStep only fires from inside advanceCutscene (the render
       // loop), so the actor is not enabled until at least one real frame has
