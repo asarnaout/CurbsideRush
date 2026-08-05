@@ -5,20 +5,13 @@ import { EGYPT_SIGNAL_BORDER_BARS } from "../app/game/geometry/roadFurnitureLayo
 import { buildFacadeLayout } from "../app/game/geometry/facadesAndKeepouts";
 
 /**
- * Guards the dependency-arrow rules the god-file decomposition program relies
- * on (see .claude/refactor-plan.md, gitignored). Two things make this file
- * necessary rather than aspirational: docs/architecture.md has long claimed
- * simulation.ts's purity was "guarded by tests" when no such test existed,
- * and the coming extraction of GameCanvas.tsx into geometry/render/cities
- * sub-directories has no other mechanical check that a "pure" module stays
- * pure or that an inward-only ring stays inward-only. Source-text scanning
- * (not a bundler/lint rule) keeps this dependency-free and fast; it is not a
- * substitute for real import-boundary tooling (follow-up #9).
+ * Pins architecture invariants that ESLint cannot express. Import boundaries
+ * belong to eslint.config.mjs, where they also run in editors and on every
+ * lint invocation; this file is reserved for source-shape and runtime-purity
+ * checks plus deterministic import-time computations.
  */
 
 const root = process.cwd();
-const gameDir = path.join(root, "app", "game");
-const contentPathNoExt = path.join(gameDir, "content");
 
 const read = (...segments: string[]) => fs.readFileSync(path.join(root, ...segments), "utf8");
 
@@ -27,38 +20,11 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 }
 
-/** Every file under `dir`, or `[]` if it doesn't exist yet — several rules
- * below are forward-looking and must stay green before Phase 1+ creates
- * their target directory. */
-function listFilesRecursive(dir: string): string[] {
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const files: string[] = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) files.push(...listFilesRecursive(full));
-    else files.push(full);
-  }
-  return files;
-}
-
 /** Full text of every top-level `import ...;` statement. Brace lists wrap
  * across lines in this codebase, so the match spans newlines up to the
  * terminating semicolon. */
 function importStatements(source: string): string[] {
   return [...source.matchAll(/^[ \t]*import\b[^;]*?;/gm)].map((m) => m[0]);
-}
-
-/** Every module specifier reached via a top-level `import` or `export ...
- * from` — the full set of this file's outgoing dependency arrows. */
-function dependencySpecifiers(source: string): string[] {
-  return [
-    ...source.matchAll(/^[ \t]*(?:import|export)\b[^;]*?\bfrom\s+["']([^"']+)["'];/gm),
-  ].map((m) => m[1]);
 }
 
 describe("simulation.ts stays pure", () => {
@@ -92,15 +58,7 @@ describe("simulation.ts stays pure", () => {
   });
 });
 
-describe("ring boundaries hold today", () => {
-  it("BabylonGameSession never imports the content registry", () => {
-    const source = read("app", "game", "render", "babylonGameSession.ts");
-    // Other render/ files (e.g. roadsideProps.ts) DO import cities/cairo.ts
-    // for authored Cairo constants — that is existing and allowed. The ban
-    // is on the registry module specifically.
-    expect(dependencySpecifiers(source)).not.toContain("../content");
-  });
-
+describe("GameCanvas has one client-only mount site", () => {
   it("DriveScreen holds the one dynamic() literal for GameCanvas; SideSwapApp has no static reference to it at all", () => {
     // The mount moved from SideSwapApp.tsx to DriveScreen.tsx in the Phase 5
     // god-file decomposition (DriveScreen is GameCanvas's only remaining
@@ -123,37 +81,10 @@ describe("ring boundaries hold today", () => {
     );
     expect(staticImports).toHaveLength(0);
   });
-
-  it("nothing under app/game imports the app shell", () => {
-    const offenders: string[] = [];
-    for (const file of listFilesRecursive(gameDir).filter((f) => /\.tsx?$/.test(f))) {
-      for (const specifier of dependencySpecifiers(fs.readFileSync(file, "utf8"))) {
-        const base = specifier.split("/").pop();
-        if (base === "SideSwapApp" || base === "CareerViews") {
-          offenders.push(`${path.relative(root, file)} -> ${specifier}`);
-        }
-      }
-    }
-    expect(offenders).toEqual([]);
-  });
 });
 
-describe("forward-looking module boundaries (pass vacuously before these directories exist)", () => {
-  const geometryDir = path.join(gameDir, "geometry");
-  const renderDir = path.join(gameDir, "render");
-  const citiesDir = path.join(gameDir, "cities");
-  const sessionContractPath = path.join(gameDir, "sessionContract.ts");
-
-  it("geometry/ stays free of Babylon and the DOM", () => {
-    for (const file of listFilesRecursive(geometryDir).filter((f) => /\.tsx?$/.test(f))) {
-      const stripped = stripComments(fs.readFileSync(file, "utf8"));
-      const label = path.relative(root, file);
-      expect(stripped, label).not.toMatch(/@babylonjs/);
-      expect(stripped, label).not.toMatch(/\bdocument\./);
-      expect(stripped, label).not.toMatch(/\baddEventListener\b/);
-      expect(stripped, label).not.toMatch(/\blocalStorage\b/);
-    }
-  });
+describe("the shared session contract stays types-only", () => {
+  const sessionContractPath = path.join(root, "app", "game", "sessionContract.ts");
 
   it.skipIf(!fs.existsSync(sessionContractPath))(
     "sessionContract.ts stays types-only",
@@ -162,43 +93,6 @@ describe("forward-looking module boundaries (pass vacuously before these directo
       expect(stripped).not.toMatch(/export\s+(const|function|class|let)\b/);
     },
   );
-
-  it("render/ and cities/ never import above app/game", () => {
-    const offenders: string[] = [];
-    const files = [...listFilesRecursive(renderDir), ...listFilesRecursive(citiesDir)].filter(
-      (f) => /\.tsx?$/.test(f),
-    );
-    for (const file of files) {
-      for (const specifier of dependencySpecifiers(fs.readFileSync(file, "utf8"))) {
-        if (!specifier.startsWith(".")) continue; // bare package specifiers are fine
-        const resolved = path.resolve(path.dirname(file), specifier);
-        const rel = path.relative(gameDir, resolved);
-        if (rel.startsWith("..")) {
-          offenders.push(`${path.relative(root, file)} -> ${specifier}`);
-        }
-      }
-    }
-    expect(offenders).toEqual([]);
-  });
-
-  it("render/ and geometry/ never import the content registry directly", () => {
-    // render/ MAY import cities/ (roadsideProps.ts already imports
-    // cities/cairo.ts today) — the ban is on the registry module specifically.
-    const offenders: string[] = [];
-    const files = [...listFilesRecursive(renderDir), ...listFilesRecursive(geometryDir)].filter(
-      (f) => /\.tsx?$/.test(f),
-    );
-    for (const file of files) {
-      for (const specifier of dependencySpecifiers(fs.readFileSync(file, "utf8"))) {
-        if (!specifier.startsWith(".")) continue;
-        const resolved = path.resolve(path.dirname(file), specifier);
-        if (resolved === contentPathNoExt) {
-          offenders.push(`${path.relative(root, file)} -> ${specifier}`);
-        }
-      }
-    }
-    expect(offenders).toEqual([]);
-  });
 });
 
 describe("import-time computations are pinned before they move", () => {
