@@ -2,16 +2,19 @@
 
 import "@testing-library/jest-dom/vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CAREER_STARTING_CASH_BY_COUNTRY,
   activeCity,
   createCareerSlice,
+  getCareerVehicle,
   withCity,
   type CareerCityState,
   type CareerVehicleId,
@@ -27,6 +30,7 @@ import {
 import {
   GIG_FARE_BY_COUNTRY,
   PASSENGER_FARE_BY_COUNTRY,
+  formatDistance,
   formatMoney,
   repairPrice,
 } from "../app/game/economyTables";
@@ -43,7 +47,7 @@ import {
   EMPTY_RATING,
   RATING_MIN_RATED,
 } from "../app/game/career";
-import { gigRating } from "../app/game/dispatch";
+import { gigRating, rideTip } from "../app/game/dispatch";
 import { resolveGigAddresses, resolveGigVenues } from "../app/game/gigPools";
 import {
   gasStationPumpPositions,
@@ -56,6 +60,11 @@ import {
   pickGigKindAvoidingStreak,
   selectGigPools,
 } from "../app/game/gigs";
+import {
+  findGpsRoute,
+  gpsGraphForLanes,
+  routeProgress,
+} from "../app/game/gpsRoute";
 import type { Gig } from "../app/game/gigs";
 import {
   createDefaultProgress,
@@ -95,6 +104,11 @@ vi.mock("next/dynamic", () => ({
       } | null;
       cutscene?: { readonly nonce: number; readonly kind: string } | null;
       vehiclePhysics?: { readonly maxForwardSpeedMps?: number } | null;
+      carConditionPct?: number;
+      resetNonce?: number;
+      riderVenueId?: string | null;
+      gigStopId?: string | null;
+      gigStopCarrying?: boolean;
       paused?: boolean;
       onHudUpdate?: (snapshot: Record<string, unknown>) => void;
       onEvent?: (event: Record<string, unknown>) => void;
@@ -130,6 +144,11 @@ vi.mock("next/dynamic", () => ({
           data-player-model={props.playerVehicle?.model ?? "default"}
           data-visual-kind={props.playerVehicle?.visualKind ?? "none"}
           data-max-speed={props.vehiclePhysics?.maxForwardSpeedMps ?? "default"}
+          data-condition={props.carConditionPct ?? 100}
+          data-reset-nonce={props.resetNonce ?? 0}
+          data-rider-venue={props.riderVenueId ?? "none"}
+          data-gig-stop={props.gigStopId ?? "none"}
+          data-gig-stop-carrying={String(props.gigStopCarrying ?? false)}
           data-cutscene-kind={props.cutscene?.kind ?? "none"}
           // What the session was actually told to do. The whole-city map must
           // never move this: it is an overlay, not a pause.
@@ -472,6 +491,7 @@ async function endDayEarly() {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -1547,6 +1567,54 @@ describe("career mode flow", () => {
       /nothing to fix/i,
     );
   });
+
+  it("charges a write-off once, then resets the session with a repaired car", async () => {
+    seedProgressWithCareer(careerIn("us-nyc", 808, { cash: 200 }));
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-continue"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    const scene = await screen.findByLabelText("Mock driving scene");
+
+    const cashBefore = Number(
+      screen.getByTestId("day-cash").textContent!.replace(/[^0-9.-]/g, ""),
+    );
+    const fee = repairPrice(
+      getCountryProfile("us"),
+      FULL_CONDITION_PCT,
+      "tow",
+    );
+    vi.useFakeTimers();
+
+    // Four 12 m/s wall strikes remove 32 condition each. The fourth crosses
+    // zero and starts the automatic tow; back-to-back events must debit once.
+    for (let index = 0; index < 4; index += 1) {
+      fireEvent.click(screen.getByTestId("mock-collision"));
+    }
+    expect(screen.getByText("Your car's a write-off.")).toBeVisible();
+    expect(screen.getByText(/Towed & repaired/)).toHaveTextContent(
+      formatMoney(fee, getCountryProfile("us")),
+    );
+    expect(scene).toHaveAttribute("data-condition", "0");
+    expect(scene).toHaveAttribute("data-reset-nonce", "0");
+    expect(
+      Number(screen.getByTestId("day-cash").textContent!.replace(/[^0-9.-]/g, "")),
+    ).toBe(cashBefore - fee);
+
+    // The first timer is the GameCanvas reset contract: a nonce bump and a
+    // fully repaired app state. The curtain stays up until the second timer.
+    act(() => vi.advanceTimersByTime(900));
+    expect(scene).toHaveAttribute("data-reset-nonce", "1");
+    expect(scene).toHaveAttribute("data-condition", "100");
+    expect(screen.getByText("Your car's a write-off.")).toBeVisible();
+
+    act(() => vi.advanceTimersByTime(1_500));
+    expect(screen.queryByText("Your car's a write-off.")).not.toBeInTheDocument();
+    expect(
+      Number(screen.getByTestId("day-cash").textContent!.replace(/[^0-9.-]/g, "")),
+    ).toBe(cashBefore - fee);
+  });
 });
 
 // The gig↔app seam had no coverage at all before dispatch landed: nothing
@@ -1691,13 +1759,15 @@ function firstOfferOf(destinationId: "us-nyc" | "uk-london", careerSeed: number)
 
 describe("dispatch: a job from offer to payout", () => {
   /** The seeded career's first job, and the day started on the free bicycle. */
-  const startSeededDay = async (careerSeed: number) => {
+  const startSeededDay = async (
+    careerSeed: number,
+    vehicleId: CareerVehicleId = "bicycle",
+  ) => {
     seedProgressWithCareer(careerIn("us-nyc", careerSeed, { cash: 100 }));
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-continue"));
     await screen.findByRole("heading", { name: /Pick today's ride/i });
-    // The bicycle is free and deliveries-only, so rent never muddies the sums.
-    fireEvent.click(screen.getByTestId("garage-vehicle-bicycle"));
+    fireEvent.click(screen.getByTestId(`garage-vehicle-${vehicleId}`));
     fireEvent.click(screen.getByTestId("garage-start-day"));
     await screen.findByLabelText("Mock driving scene");
   };
@@ -1751,6 +1821,125 @@ describe("dispatch: a job from offer to payout", () => {
     expect(screen.getByTestId("dispatch-idle")).toBeVisible();
   });
 
+  it("boards and exits a passenger before revealing and banking the fare", async () => {
+    const CAREER_SEED = 2;
+    const expected = firstOfferOf("us-nyc", CAREER_SEED);
+    expect(expected.kind).toBe("passenger");
+
+    await startSeededDay(CAREER_SEED, "compact-hatch");
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    expect(screen.getByTestId("gig-offer")).toHaveTextContent("RIDESHARE");
+    fireEvent.click(screen.getByTestId("offer-accept"));
+
+    const scene = screen.getByLabelText("Mock driving scene");
+    expect(scene).toHaveAttribute("data-rider-venue", expected.pickup.id);
+    expect(scene).toHaveAttribute("data-gig-stop", expected.pickup.id);
+
+    driveTo(expected.pickup);
+    expect(scene).toHaveAttribute("data-cutscene-kind", "board");
+    expect(screen.getByTestId("drive-status-card")).toHaveTextContent("PICK UP");
+
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    expect(scene).toHaveAttribute("data-cutscene-kind", "none");
+    expect(scene).toHaveAttribute("data-rider-venue", "none");
+    expect(scene).toHaveAttribute("data-gig-stop", expected.dropoff.id);
+    expect(scene).toHaveAttribute("data-gig-stop-carrying", "true");
+    expect(screen.getByTestId("drive-status-card")).toHaveTextContent("DROP OFF");
+
+    const money = (text: string | null): number =>
+      Number((text ?? "").replace(/[^0-9.-]/g, ""));
+    const cashBefore = money(screen.getByTestId("day-cash").textContent);
+    driveTo(expected.dropoff);
+    expect(scene).toHaveAttribute("data-cutscene-kind", "exit");
+    expect(screen.getByTestId("day-cash")).toHaveTextContent(
+      formatMoney(cashBefore, getCountryProfile("us")),
+    );
+
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    const vehicle = getCareerVehicle("compact-hatch");
+    const { gross, net } = careerFare(expected.reward, "passenger", vehicle);
+    const tip = rideTip(gross, expected.seed, {
+      promptness: 1,
+      violations: 0,
+      surged: expected.surged,
+    });
+    expect(money(screen.getByTestId("day-cash").textContent)).toBe(
+      cashBefore + net + tip,
+    );
+    expect(screen.getByTestId("dispatch-toast")).toHaveTextContent(
+      formatMoney(net, getCountryProfile("us")),
+    );
+    expect(screen.getByTestId("dispatch-toast")).toHaveTextContent(
+      `TIP +${formatMoney(tip, getCountryProfile("us"))}`,
+    );
+    expect(screen.getByTestId("dispatch-idle")).toBeVisible();
+  });
+
+  it("re-searches the live GPS route after the car leaves its current line", async () => {
+    const CAREER_SEED = 4_242;
+    const expected = firstOfferOf("us-nyc", CAREER_SEED);
+    let routeClockMs = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => routeClockMs);
+
+    await startSeededDay(CAREER_SEED);
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
+    // A second snapshot sees the newly accepted target and performs the first
+    // search from the mock session's origin.
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+
+    const map = getMapPack(
+      getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
+    );
+    const graph = gpsGraphForLanes(map.laneGraph.lanes, map.roadNames);
+    const initial = findGpsRoute(graph, { x: 0, z: 0 }, 0, expected.pickup);
+    expect(initial.points.length).toBeGreaterThan(1);
+    const country = getCountryProfile("us");
+    expect(screen.getByTestId("destination-distance")).toHaveTextContent(
+      formatDistance(routeProgress(initial, 0, 0).remainingM, country),
+    );
+
+    // Pick the authored lane point furthest from that line. This derives a
+    // stable wrong turn from the actual map instead of baking in coordinates
+    // that will become meaningless when city authoring helpers move.
+    const offRoute = map.laneGraph.lanes
+      .flatMap((lane) => lane.centerline)
+      .reduce(
+        (furthest, point) => {
+          const deviation = routeProgress(initial, point.x, point.z).deviationM;
+          return deviation > furthest.deviation ? { point, deviation } : furthest;
+        },
+        { point: { x: 0, z: 0 }, deviation: 0 },
+      );
+    expect(offRoute.deviation).toBeGreaterThan(30);
+    routeClockMs = 2_000;
+    mockStop.x = offRoute.point.x;
+    mockStop.z = offRoute.point.z;
+    fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+
+    const rerouted = findGpsRoute(graph, offRoute.point, 0, expected.pickup);
+    expect(rerouted.points.length).toBeGreaterThan(1);
+    const reroutedProgress = routeProgress(
+      rerouted,
+      offRoute.point.x,
+      offRoute.point.z,
+    );
+    expect(screen.getByTestId("destination-distance")).toHaveTextContent(
+      formatDistance(reroutedProgress.remainingM, country),
+    );
+    expect(rerouted.points).not.toEqual(initial.points);
+
+    const next = reroutedProgress.next;
+    expect(next).not.toBeNull();
+    const expectedStreet =
+      next?.kind === "arrive"
+        ? expected.pickup.name
+        : map.roadNames?.[next?.ontoRoadId ?? ""] ?? next?.ontoRoadId;
+    expect(screen.getByTestId("manoeuvre-street")).toHaveTextContent(
+      expectedStreet ?? "",
+    );
+  });
+
   it("does not pay the same drop-off twice", async () => {
     const CAREER_SEED = 4_242;
     const expected = firstOfferOf("us-nyc", CAREER_SEED);
@@ -1797,6 +1986,76 @@ describe("dispatch: a job from offer to payout", () => {
     expect(screen.queryByTestId("queued-gig")).not.toBeInTheDocument();
     expect(screen.queryByTestId("dispatch-idle")).not.toBeInTheDocument();
     expect(screen.getByTestId("drive-status-card")).toHaveTextContent("PICK UP");
+  });
+});
+
+describe("free-drive gig settlement", () => {
+  it("pays and persists a completed gig outside career mode", async () => {
+    const startingWallet = 50;
+    const initial = createDefaultProgress();
+    window.localStorage.setItem(
+      PROGRESS_STORAGE_KEY,
+      JSON.stringify({
+        ...initial,
+        walletByCountry: {
+          ...initial.walletByCountry,
+          us: startingWallet,
+        },
+      }),
+    );
+    render(<SideSwapApp />);
+    await findTagline();
+
+    const destination = getDestinationProfile("us-nyc");
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Destination" })).getByRole(
+        "button",
+        { name: new RegExp(destination.destinationName, "i") },
+      ),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: new RegExp(`Start driving in ${destination.destinationName}`, "i"),
+      }),
+    );
+    const scene = await screen.findByLabelText("Mock driving scene");
+
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    // NYC's authored free-drive seed deterministically opens on a delivery.
+    expect(screen.getByTestId("gig-offer")).toHaveTextContent("FOOD DELIVERY");
+    fireEvent.click(screen.getByTestId("offer-accept"));
+
+    const map = getMapPack(getFreeDrive(destination.freeDriveId).mapId);
+    const stops = [...resolveGigVenues(map), ...resolveGigAddresses(map)];
+    const driveToCurrentStop = () => {
+      const id = scene.getAttribute("data-gig-stop");
+      const stop = stops.find((candidate) => candidate.id === id);
+      if (!stop) throw new Error(`missing authored gig stop ${id ?? "<null>"}`);
+      mockStop.x = stop.x;
+      mockStop.z = stop.z;
+      fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+    };
+
+    driveToCurrentStop();
+    expect(scene).toHaveAttribute("data-cutscene-kind", "food_pickup");
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    expect(scene).toHaveAttribute("data-gig-stop-carrying", "true");
+
+    driveToCurrentStop();
+    expect(scene).toHaveAttribute("data-cutscene-kind", "food_dropoff");
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+
+    const stored = JSON.parse(
+      window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
+    ) as {
+      walletByCountry: Record<string, number>;
+      completedGigCount: number;
+    };
+    expect(stored.completedGigCount).toBe(1);
+    expect(stored.walletByCountry.us).toBeGreaterThan(startingWallet);
+    expect(screen.getByTestId("dispatch-toast")).toHaveTextContent(/^\+/);
+    expect(screen.getByTestId("session-label")).not.toHaveTextContent("$0.00");
+    expect(screen.getByTestId("dispatch-idle")).toBeVisible();
   });
 });
 
