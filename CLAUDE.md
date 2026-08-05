@@ -36,13 +36,14 @@ npm run dev          # vinext dev + Miniflare on :3000 (NOT `next dev`)
 npm run build        # -> dist/client + dist/server
 npm run typecheck    # ~3s
 npm run lint         # ~11s, currently 0 errors / 0 warnings — keep it that way
-npm test             # 94 files, ~1524 tests, ~2min
+npm test             # 95 files, ~1527 tests, ~2min
 
 # the loop you actually iterate on: everything but the acceptance sweep, ~20s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 ```
 
-Node >= 22.13. **There is no CI** — nothing runs test/lint/typecheck unless you do.
+Node >= 22.13. CI runs typecheck, lint, and the full test suite on pull requests
+and pushes to `main`; run the same checks locally before committing.
 
 ## Two things to know before reading any file
 

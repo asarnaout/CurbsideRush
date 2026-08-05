@@ -7,13 +7,11 @@
 `GameCanvas.tsx` is now the thin React half of the god-file decomposition
 (`.claude/refactor-plan.md`, gitignored): props/handle types, shell/canvas
 styles, and the `forwardRef` component, nothing Babylon-owning of its own.
-The exported `class BabylonGameSession` lives in `render/babylonGameSession.ts`
-instead (Phase 3's last commit; `tests/gameCanvasInput.test.ts` imports its
-two pure exports from there directly). `AdaptiveInputRouter` moved out
-earlier to `adaptiveInputRouter.ts`; the pure geometry/render layer sits in
-`geometry/` (zero `@babylonjs`, enforced by `tests/architecture.test.ts`) and
-`render/` (Babylon-owning, no session state), both exported for Babylon-free
-tests; contract types are in `sessionContract.ts`. **React owns the canvas
+The exported `class BabylonGameSession` lives in `render/babylonGameSession.ts` instead (Phase 3's last commit;
+`tests/gameCanvasInput.test.ts` imports its two pure exports there). `AdaptiveInputRouter` moved to `adaptiveInputRouter.ts`;
+the pure geometry/render layer sits in `geometry/` (zero `@babylonjs`, enforced
+by the flat ESLint config) and `render/` (Babylon-owning, no session state), both
+exported for Babylon-free tests; contract types are in `sessionContract.ts`. **React owns the canvas
 element, the props, and one 10 Hz HUD snapshot; the session owns everything
 else, and no React state is driven at frame rate.**
 

@@ -50,7 +50,8 @@ npm run build
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 ```
 
-There is no CI — nothing runs these unless you do.
+CI runs typecheck, lint, and the full test suite on pull requests and pushes to
+`main`; run the same checks locally before committing.
 
 One vehicle model, `public/models/vehicles/london-double-decker.glb`, is a purchased asset whose licence forbids redistribution, so it is not in the repo. In a clone without it, London's buses stand in with the committed single-deck city bus recoloured to the same red. To build the real one from your own purchased OBJ, run `node tools/build-london-bus.mjs <path-to.obj>`.
 
