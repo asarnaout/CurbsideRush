@@ -19,6 +19,29 @@ The session is rebuilt only on `[trafficSide, steeringSide, scenario.id, mapPack
 every other prop flows through `session.updateOptions(...)`. Not orientation —
 rotating a phone pauses the drive, it does not rebuild the city.
 
+## `buildScenarioEnvironment` is a frozen-order hub
+
+Wires together every render-side builder for a scenario in a **frozen
+order**, because that order is also the seeded-random consumption sequence:
+`const random = seededUnit(trafficSeed)` is built exactly once, right there
+in the method, and reordering any two of its consumers silently gives the
+same-named mesh a different width/height/depth. Extracting a piece of the
+hub into its own collaborator must never change *when* in the sequence its
+work happens, only *which file* it lives in.
+
+Two seeding mechanisms coexist: `seededUnit` (`visuals.ts`) is a stateful
+*stream* whose call order is part of its output; `hashStringToSeed` is a
+*pure* per-string hash every other seeded choice in the method uses instead,
+order-independent by construction. `ProceduralFacades`
+(`render/proceduralFacades.ts`) is the **only** permitted consumer of
+`random`, reached directly from the block loop or, later, from
+`BuildingLayer`'s deferred glb-failure fallback —
+`tests/facadeGridDrawOrderCharacterization.test.tsx` gates it by
+fingerprinting per-mesh output rather than raw `seededUnit` values, since a
+consumer permutation that preserves each one's draw count is invisible to a
+raw-sequence recording (an LCG's output depends on the seed and the count of
+draws so far, never on which call site asks).
+
 ## Three angle conventions coexist
 
 | Thing | Convention |
