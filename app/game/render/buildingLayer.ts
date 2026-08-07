@@ -81,11 +81,12 @@ import { hashStringToSeed } from "../visuals";
  * - **`buildingExclusions`**. Written by `collectBuildingExclusions` and by
  *   every `placeProp`/`buildRepairShop` call across `buildScenarioEnvironment`
  *   (gas stations, gig venues, the repair shop), not just by buildings, and
- *   read by the *procedural* facade grid fallback (`placeFacadeGrid`, which
- *   stays behind in `buildScenarioEnvironment` — seeded, deeply-closed-over
- *   local state, out of this issue's scope) as well as by this class. A
- *   session-owned array both sides read is simpler than either copying it or
- *   this class reaching back into the session for it.
+ *   read by the *procedural* facade grid fallback
+ *   (`ProceduralFacades.placeBlock`, extracted into
+ *   `render/proceduralFacades.ts` by issue #304 — it reaches this array
+ *   through `ProceduralFacadesCtx` rather than off the session) as well as by
+ *   this class. A session-owned array both sides read is simpler than either
+ *   copying it or either class reaching back into the session for it.
  * - **`cairoRoofClutterMasters`**. The two hidden tank/dish master meshes are
  *   built alongside the rest of Cairo's procedural materials in
  *   `buildScenarioEnvironment` (same `cairoScene` gate, same neighbourhood of
@@ -99,10 +100,10 @@ import { hashStringToSeed } from "../visuals";
  * shared seeded-random stream to do it: `slotBlockBuildings` and
  * `pickStorefrontVariant` each derive their own local seed from
  * `hashStringToSeed` (a pure per-string hash), never from the render-side
- * `seededUnit(...)` counter `buildScenarioEnvironment`'s procedural fallback
- * consumes — so nothing here can perturb that counter's downstream draws no
- * matter when it runs, and this class's queue (populated synchronously,
- * consumed later, after preload) was already the shape that made that true.
+ * `seededUnit(...)` counter `ProceduralFacades` consumes — so nothing here
+ * can perturb that counter's downstream draws no matter when it runs, and
+ * this class's queue (populated synchronously, consumed later, after preload)
+ * was already the shape that made that true.
  */
 
 type MapBlock = GameCanvasMapPack["geometry"]["blocks"][number];

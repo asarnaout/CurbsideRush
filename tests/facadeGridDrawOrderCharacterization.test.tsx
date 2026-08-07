@@ -8,13 +8,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Characterizes the render-side `seededUnit` draw order inside
- * `buildScenarioEnvironment`, before issue #304 extracts its procedural
- * facade-grid closure (`placeFacadeGrid`) into its own collaborator
- * (`render/proceduralFacades.ts`). That extraction moves *where* the three
- * `random()` calls per surviving facade cell live, but must not change
- * *when* they fire relative to one another — the render side's seeded-random
- * consumption order is load-bearing for every downstream draw, for every
- * city, silently, if it drifts (see docs/rendering.md).
+ * `buildScenarioEnvironment`. Every baseline below was recorded against the
+ * pre-extraction session, while the procedural facade grid was still a
+ * closure (`placeFacadeGrid`) living in that method, and reproduced
+ * unchanged after issue #304 moved it to `ProceduralFacades.placeBlock`
+ * (`render/proceduralFacades.ts`). That extraction moved *where* the three
+ * `random()` calls per surviving facade cell live; this suite exists to keep
+ * anything from changing *when* they fire relative to one another — the
+ * render side's seeded-random consumption order is load-bearing for every
+ * downstream draw, for every city, silently, if it drifts (see
+ * docs/rendering.md).
  *
  * A sibling to `fourCityRenderCharacterization.test.tsx`, not an extension
  * of it — this codebase's convention for these suites is to duplicate the
@@ -23,9 +26,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * Deliberately reuses that file's *unloaded*-model `preloadModels` mock, not
  * `buildingLayerCharacterization.test.tsx`'s real-glb one: every
  * building-set block must fail to place so it falls through to
- * `BuildingLayer`'s deferred fallback (`placeFacadeGrid`, called from
- * `BuildingLayer.instantiate()` well after the block loop's own direct
- * calls have run), exercising *both* of `placeFacadeGrid`'s call sites for
+ * `BuildingLayer`'s deferred fallback (`ProceduralFacades.placeBlock` again,
+ * called from `BuildingLayer.instantiate()` well after the block loop's own
+ * direct calls have run), exercising *both* of that method's call sites for
  * all four cities in one pass.
  *
  * Two independent signals, pinned together:
@@ -51,7 +54,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *   an LCG's raw output sequence (v1, v2, v3, ...) is completely determined
  *   by the seed and how many draws have happened so far — it does not
  *   depend on *which call site* asked for the next value. Proven locally
- *   (see this commit's message): reversing the block loop's iteration order
+ *   (see this file's introducing commit): reversing the block loop's order
  *   changes which building gets which width/depth/height (a real,
  *   observable regression — every facade box after the first reordered
  *   block would silently get somebody else's dimensions) while leaving the
@@ -61,8 +64,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *   landed — is sensitive to that class of bug, which is exactly the class
  *   `buildScenarioEnvironment`'s "frozen call order" warning is about.
  *
- * Non-vacuousness was proven locally (not committed — see this commit's
- * message): temporarily reversing the block loop's iteration order turned
+ * Non-vacuousness was proven locally (not committed — see this file's
+ * introducing commit): temporarily reversing the block loop's order turned
  * `facadeMeshFingerprint` red for every city with more than one relevant
  * block, with `drawCount` unchanged — proving this suite is sensitive to
  * *draw-to-mesh assignment*, not just draw count, before trusting it as a
@@ -222,11 +225,11 @@ const CITIES: readonly AuthoredCity[] = [
   },
 ];
 
-// Recorded against the pre-extraction BabylonGameSession (issue #304, before
-// `placeFacadeGrid` moves into `render/proceduralFacades.ts`). Must stay
-// byte-for-byte identical afterward — a change here without an explained
-// reason means the extraction changed which draw landed on which mesh, not
-// just relocated the call sites.
+// Recorded against the pre-extraction BabylonGameSession (issue #304, while
+// the grid was still `placeFacadeGrid` inside `buildScenarioEnvironment`) and
+// reproduced byte-for-byte by `ProceduralFacades`. A change here without an
+// explained reason means something changed which draw landed on which mesh,
+// not merely where the call sites live.
 const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
   "nyc-upper-west-side": {
     drawCount: 1_659,
@@ -419,14 +422,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// Matches every mesh `placeFacadeGrid` (or its London-museum-wing sibling
-// branch, which shares the same block loop) produces: the facade box itself
-// (`building-<blockId>-<cellIndex>`), its Cairo street-detail children
-// (`-cornice`, `-balcony`, `-balcony-rail`, `-ac`, `-awning`,
-// `-roof-tank`/`-roof-dish`), the museum wings (`-wing-<side>`) — all
-// `building-`-prefixed — and the Garden City compound walls/gates, the one
-// family placeFacadeGrid names off the bare block id instead
-// (`<blockId>-compound-side/front/gate-...`).
+// Matches every mesh `ProceduralFacades.placeBlock` (or its
+// London-museum-wing sibling branch, which shares the same block loop)
+// produces: the facade box itself (`building-<blockId>-<cellIndex>`), its
+// Cairo street-detail children (`-cornice`, `-balcony`, `-balcony-rail`,
+// `-ac`, `-awning`, `-roof-tank`/`-roof-dish`), the museum wings
+// (`-wing-<side>`) — all `building-`-prefixed — and the Garden City compound
+// walls/gates, the one family `placeBlock` names off the bare block id
+// instead (`<blockId>-compound-side/front/gate-...`).
 const FACADE_MESH_NAME_RE = /^building-|-compound-/;
 
 function facadeMeshFingerprint(meshes: readonly DebugMesh[]): string {
@@ -464,7 +467,16 @@ describe("facade-grid draw-order characterization (#304 safety net)", () => {
 
         await flushUntilReady();
 
-        const draws = seededUnitDraws.get(city.freeDrive.trafficSeed)?.[0] ?? [];
+        // `[0]` below is positional, so assert the shape it assumes before
+        // reading it: exactly two streams share this seed
+        // (`buildScenarioEnvironment`'s, then `buildScenarioTraffic`'s). If a
+        // third consumer appears — or something starts drawing from this seed
+        // ahead of the environment build — this fails saying so, instead of
+        // silently pinning the wrong stream and reporting a baffling baseline
+        // mismatch.
+        const streams = seededUnitDraws.get(city.freeDrive.trafficSeed) ?? [];
+        expect(streams, `${city.id}: seededUnit streams for this seed`).toHaveLength(2);
+        const draws = streams[0];
         const debugWindow = window as unknown as Record<string, unknown>;
         const readMeshes = debugWindow.__sideswapMeshes as () => DebugMesh[];
         baselines[city.id] = {

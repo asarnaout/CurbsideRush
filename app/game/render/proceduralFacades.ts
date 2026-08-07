@@ -86,6 +86,22 @@ import type { GameCanvasMapPack } from "../sessionContract";
 
 type MapBlock = GameCanvasMapPack["geometry"]["blocks"][number];
 
+/**
+ * Unlike `BuildingLayerInstantiateCtx` — which is rebuilt per `instantiate()`
+ * call precisely so it can never drift — one of these is built once, before
+ * the block loop, and reused by *both* of `placeBlock`'s call sites: the
+ * immediate one, and `BuildingLayer`'s deferred fallback that runs after
+ * preload. So mind which fields are references and which are values. The two
+ * arrays (`staticSceneryFreeze`, `buildingExclusions`) are the session's own,
+ * captured by reference, so writes after this object is built are visible to
+ * the deferred call exactly as they were when this code read them off `this`.
+ * `buildingKeepFraction` is a number, and therefore frozen at construction —
+ * safe only because `BabylonGameSession` assigns it exactly once, in its
+ * constructor, from the device's core count. Make that value dynamic (a
+ * runtime quality toggle, say) and the deferred fallback would keep thinning
+ * its grid by the stale fraction while everything else used the live one;
+ * rebuild the ctx per call if that day comes.
+ */
 export interface ProceduralFacadesCtx {
   /** The session's shared seeded-random stream for this scenario
    * (`seededUnit(trafficSeed)`), constructed once inside

@@ -3618,7 +3618,14 @@ export class BabylonGameSession {
     this.visualPalette = palette;
     this.destructibles = new Destructibles(scene);
     this.buildingLayer = new BuildingLayer(scene);
-    this.proceduralFacades = new ProceduralFacades(scene);
+    // Held as a local too, so the block loop and the landmark loop below can
+    // use it without a null check the field's type would otherwise force. The
+    // deferred fallback the block loop queues may capture it: that callback
+    // runs from buildInstancedBuildings, which preloadVehicleModels reaches
+    // only past an `if (this.disposed) return;`, so it can never outlive the
+    // session and touch a disposed scene.
+    const proceduralFacades = new ProceduralFacades(scene);
+    this.proceduralFacades = proceduralFacades;
     const parksRenderCtx = {
       scene,
       masters: createParksRenderMasters(),
@@ -4093,7 +4100,7 @@ export class BabylonGameSession {
       buildingExclusions: this.buildingExclusions,
     };
     for (const block of mapPack.geometry.blocks) {
-      const material = this.proceduralFacades!.materialFor(block.material);
+      const material = proceduralFacades.materialFor(block.material);
       const isLondonMuseumBlock =
         mapId.includes("london") && block.material.endsWith("-museum");
       if (isLondonMuseumBlock) {
@@ -4121,15 +4128,15 @@ export class BabylonGameSession {
       if (block.buildingSet && isBuildingSetId(block.buildingSet)) {
         const setId = block.buildingSet;
         this.buildingLayer?.enqueueBlock(block, setId, () =>
-          this.proceduralFacades?.placeBlock(
+          proceduralFacades.placeBlock(
             block,
-            this.proceduralFacades!.materialFor(block.material),
+            proceduralFacades.materialFor(block.material),
             proceduralFacadesCtx,
           ),
         );
         continue;
       }
-      this.proceduralFacades?.placeBlock(block, material, proceduralFacadesCtx);
+      proceduralFacades.placeBlock(block, material, proceduralFacadesCtx);
     }
     // Preload just this map's building-set glbs (not every map's) off the
     // critical path; buildInstancedBuildings consumes them once ready. City
@@ -4413,7 +4420,7 @@ export class BabylonGameSession {
             // Shares ProceduralFacades' single emissive texture instance
             // rather than building a second, wastefully duplicate one — see
             // that class's doc comment.
-            this.proceduralFacades!.emissiveTexture,
+            proceduralFacades.emissiveTexture,
           ),
         );
       }
