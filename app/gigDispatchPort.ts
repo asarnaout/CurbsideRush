@@ -26,6 +26,16 @@
  * free-drive payout effect) verbatim in two places — the textbook case the
  * issue's "read the existing code for places that already do a pair" advice
  * is pointing at.
+ *
+ * `recordViolation`/`markGigPaid` exist for a different reason than the rest
+ * of this port's methods: `useGameEventHandler.ts` receives this port as a
+ * plain argument, and the React Compiler's ESLint rules forbid mutating
+ * anything reachable from a hook's own arguments, `ref.current` included —
+ * so the two solo-ref writes that switch used to make directly
+ * (`carryViolationsRef.current += 1`, `paidGigRef.current = id`) had to move
+ * behind a method too, even though neither pairs with a state value. Reads
+ * are unaffected; both refs stay exposed for the free-drive payout effect
+ * (still plain `SideSwapApp` code) to read directly.
  */
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { formatMoney } from "./game/economyTables";
@@ -56,9 +66,13 @@ export interface GigDispatchPort {
   startCarrying(atMs: number): void;
   /** Ends the carrying leg: violations and carrying-since both reset. */
   endCarryingLeg(): void;
+  /** A rule tripped (witnessed or not) while carrying — one more against the tip. */
+  recordViolation(): void;
 
   /** Guards a free-drive drop-off from being credited twice. */
   readonly paidGigRef: MutableRefObject<string | null>;
+  /** Marks `id` as paid, guarding a double credit if the scene re-fires `done`. */
+  markGigPaid(id: string): void;
 
   readonly sessionEarnings: number;
   setSessionEarnings(updater: number | ((total: number) => number)): void;
@@ -101,8 +115,14 @@ export function useGigDispatchPort(driveCountry: CountryProfile): GigDispatchPor
     carryingSinceRef.current = null;
     setCarryingSinceMs(null);
   }, []);
+  const recordViolation = useCallback(() => {
+    carryViolationsRef.current += 1;
+  }, []);
 
   const paidGigRef = useRef<string | null>(null);
+  const markGigPaid = useCallback((id: string) => {
+    paidGigRef.current = id;
+  }, []);
 
   const [sessionEarnings, setSessionEarnings] = useState(0);
   const [payoutGain, setPayoutGain] = useState<string | null>(null);
@@ -137,7 +157,9 @@ export function useGigDispatchPort(driveCountry: CountryProfile): GigDispatchPor
     carryViolationsRef,
     startCarrying,
     endCarryingLeg,
+    recordViolation,
     paidGigRef,
+    markGigPaid,
     sessionEarnings,
     setSessionEarnings,
     payoutGain,

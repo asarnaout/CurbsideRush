@@ -9,18 +9,18 @@
  * are three separate ports rather than one: none of what is here is read
  * outside the driving screen, and none of it survives a drive.
  *
- * Condition, tow and cutscene state expose their writes as atomic ref+state
- * methods (`setCarCondition`, `startTow`/`pulseTowReset`/`endTow`,
- * `beginCutscene`/`clearCutscene`) because the pre-port code paired
- * `xRef.current = y; setX(y)` by hand at every call site — folding the pair
- * into one method is what makes a future caller unable to write one without
- * the other. The citation dedupe timers below have no state mirror to pair
- * (nothing renders them directly), so they stay raw refs; the asymmetric,
- * per-mechanism dedupe logic that reads them lives in `useGameEventHandler`,
- * carried over unchanged rather than flattened into a generic method that
- * would risk losing the asymmetry (see that file's header for why it is
- * asymmetric — the pedestrian-collision path and the generic fine-event path
- * check a different subset of these clocks, in a different order).
+ * Every write is a method, including the citation timers, which have no
+ * state mirror to pair and so look like a case for a raw exposed ref. They
+ * are not one: `useGameEventHandler.ts` receives this port as a plain
+ * argument, and the React Compiler's ESLint rules refuse to let a hook
+ * mutate anything reachable from its own arguments, `ref.current` included —
+ * only a ref created by a *local* `useRef` in the hook that owns it is
+ * provably safe to mutate, which is exactly why these are `useRef` calls in
+ * here and methods everywhere else. Reads are unaffected (an argument's
+ * `.current` may still be read freely), so callers needing the live value —
+ * `useGameEventHandler`'s cutscene-nonce check, `handleHud`'s tow/cutscene
+ * guard — still read `drive.cutsceneRef.current`/`drive.towingRef.current`
+ * directly.
  */
 import { useCallback, useRef, useState, type MutableRefObject } from "react";
 import { FULL_CONDITION_PCT } from "./game/damage";
@@ -67,17 +67,27 @@ export interface DriveStatusPort {
 
   readonly fineToast: DriveFineToast | null;
   setFineToast(toast: DriveFineToast | null): void;
-  /** The shortest gap between two fines from *any* source (3s). */
+  /** The shortest gap between two fines from *any* source (3s) — read live. */
   readonly lastAnyFineAtRef: MutableRefObject<number>;
-  /** A witnessed (non-speeding) violation's own re-arm clock (8s). */
+  /** A witnessed (non-speeding) violation's own re-arm clock (8s) — read live. */
   readonly lastFineAtRef: MutableRefObject<number>;
-  /** Striking a pedestrian or cyclist's own clock (4s). */
+  /** Striking a pedestrian or cyclist's own clock (4s) — read live. */
   readonly lastPedFineAtRef: MutableRefObject<number>;
-  /** A speeding stop's much longer grace period. */
+  /** A speeding stop's much longer grace period — read live. */
   readonly lastSpeedingFineAtRef: MutableRefObject<number>;
   /** Why and how much the staged pull-over will charge at its `cite` step. */
   readonly pendingFineReasonRef: MutableRefObject<string | null>;
   readonly pendingFineAmountRef: MutableRefObject<number | null>;
+  /** Stamps the shared any-mechanism clock — the one every fine path touches. */
+  stampAnyFineAt(nowMs: number): void;
+  /** Stamps a witnessed (non-speeding) violation's own re-arm clock. */
+  stampFineAt(nowMs: number): void;
+  /** Stamps striking-a-pedestrian-or-cyclist's own clock. */
+  stampPedFineAt(nowMs: number): void;
+  /** Stamps a speeding stop's clock. */
+  stampSpeedingFineAt(nowMs: number): void;
+  /** Stages what the pull-over's `cite` step will charge, together. */
+  stagePendingFine(amount: number | null, reason: string): void;
 }
 
 export function useDriveStatusPort(): DriveStatusPort {
@@ -147,6 +157,25 @@ export function useDriveStatusPort(): DriveStatusPort {
   const lastSpeedingFineAtRef = useRef(0);
   const pendingFineReasonRef = useRef<string | null>(null);
   const pendingFineAmountRef = useRef<number | null>(null);
+  const stampAnyFineAt = useCallback((nowMs: number) => {
+    lastAnyFineAtRef.current = nowMs;
+  }, []);
+  const stampFineAt = useCallback((nowMs: number) => {
+    lastFineAtRef.current = nowMs;
+  }, []);
+  const stampPedFineAt = useCallback((nowMs: number) => {
+    lastPedFineAtRef.current = nowMs;
+  }, []);
+  const stampSpeedingFineAt = useCallback((nowMs: number) => {
+    lastSpeedingFineAtRef.current = nowMs;
+  }, []);
+  const stagePendingFine = useCallback(
+    (amount: number | null, reason: string) => {
+      pendingFineAmountRef.current = amount;
+      pendingFineReasonRef.current = reason;
+    },
+    [],
+  );
 
   return {
     carCondition,
@@ -173,5 +202,10 @@ export function useDriveStatusPort(): DriveStatusPort {
     lastSpeedingFineAtRef,
     pendingFineReasonRef,
     pendingFineAmountRef,
+    stampAnyFineAt,
+    stampFineAt,
+    stampPedFineAt,
+    stampSpeedingFineAt,
+    stagePendingFine,
   };
 }

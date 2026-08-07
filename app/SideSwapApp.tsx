@@ -11,7 +11,6 @@ import type {
   CutsceneRequest,
   DriveScenario,
   GameHudSnapshot,
-  GameRuntimeEvent,
 } from "./game/sessionContract";
 import {
   getCountryProfile,
@@ -20,7 +19,6 @@ import {
   getMapPack,
 } from "./game/content";
 import {
-  FINE_BY_COUNTRY,
   FUEL_CONSUMPTION_L_PER_M,
   FUEL_PRICE_PER_LITRE_BY_COUNTRY,
   GIG_FARE_BY_COUNTRY,
@@ -31,19 +29,12 @@ import {
   formatDistanceParts,
   formatMoney,
   fuelPurchase,
-  postedSpeed,
   repairPrice,
-  speedingFine,
 } from "./game/economyTables";
-import {
-  SPEEDING_STOP_GRACE_MS,
-  speedingExcessMps,
-} from "./game/speeding";
 import {
   clearCareer,
   createDefaultProgress,
   credit,
-  debit,
   loadProgress,
   resetProgress,
   saveProgress,
@@ -60,7 +51,6 @@ import {
   careerCountryOf,
   nextCareerCity,
   careerDayTrafficSeed,
-  careerFare,
   careerGigSeedBase,
   careerCityIndex,
   canBuyVehicle,
@@ -74,13 +64,9 @@ import {
   garageDefaultVehicle,
   getCareerVehicle,
   PLATFORM_FEE_BY_COUNTRY,
-  ROADSIDE_CALLOUT_FEE_BY_COUNTRY,
-  ROADSIDE_PRICE_FACTOR,
   averageRating,
-  ratingFareFactor,
   ratingSearchStretch,
   ratingStanding,
-  ratingTipFactor,
   settleDay,
   settleRating,
   vehicleRent,
@@ -112,10 +98,10 @@ import { DriveScreen } from "./DriveScreen";
 import { useDriveStatusPort } from "./drivePort";
 import { useCareerPort } from "./careerPort";
 import { useGigDispatchPort } from "./gigDispatchPort";
+import { useGameEventHandler } from "./useGameEventHandler";
 import {
   FULL_CONDITION_PCT,
   MIN_REPAIRABLE_DAMAGE_PCT,
-  damageForCollision,
 } from "./game/damage";
 import { REPAIR_BAY_REACH_M } from "./game/repairShopLayout";
 import {
@@ -177,7 +163,6 @@ import {
   createDispatch,
   foodSpeedBonus,
   gigParMs,
-  gigRating,
   OFFER_WINDOW_MS,
   quotedTip,
   SURGE_FARE_MULTIPLIER,
@@ -318,8 +303,13 @@ function nextGigFor(
  * `ratingFactor` is the career driver's standing and defaults to 1, which is
  * what free drive passes. It is applied here rather than inside `dispatch.ts`
  * because that module is shared with free drive and knows nothing of careers.
+ *
+ * Exported for `useGameEventHandler.ts`, which needs it for career's
+ * synchronous payout — the free-drive payout effect below is the other
+ * caller, which is why this stayed a standalone function rather than folding
+ * into either one.
  */
-function gigTipFor(
+export function gigTipFor(
   gig: Gig,
   gross: number,
   carriedMs: number,
@@ -386,56 +376,6 @@ const ROUTE_DEVIATION_LIMIT_M = 30;
  * would otherwise search on every one of the 10 HUD snapshots a second.
  */
 const ROUTE_RESEARCH_INTERVAL_MS = 1500;
-
-/**
- * Human-readable reason for a fine toast, from the violation's rule code.
- *
- * Speeding is the only one that cites figures, because it is the only one
- * whose fine moves: a driver told they were charged "for speeding" cannot see
- * that the amount tracked the offence, and would read two different tickets as
- * a bug. "Doing 42 in a 30" makes the scaling legible without a second line of
- * UI. Both figures come out of the event's own evidence, so what the officer
- * says and what the wallet loses are computed from one measurement.
- */
-/**
- * The shortest gap between two fines from *any* source.
- *
- * Short on purpose. It is here to stop one incident being charged twice — a
- * swerve that leaves the road and hits someone trips two rules in the same
- * breath, and two different mechanisms answer them — not to re-pace a driver
- * who reoffends a few seconds later, which each mechanism's own clock already
- * governs.
- */
-const FINE_MIN_SPACING_MS = 3000;
-
-function fineReason(
-  code: string | undefined,
-  evidence: Readonly<Record<string, string | number | boolean>> | undefined,
-  country: CountryProfile,
-): string {
-  switch (code) {
-    case "wrong_way":
-      return "driving on the wrong side";
-    case "out_of_bounds":
-      return "leaving the road";
-    case "red_light":
-      return "running a red light";
-    case "collision":
-      return "careless driving";
-    case "speeding": {
-      const speed = evidence?.speedMps;
-      const limit = evidence?.limitMps;
-      if (typeof speed !== "number" || typeof limit !== "number") {
-        return "speeding";
-      }
-      return `doing ${Math.round(postedSpeed(speed, country))} in a ${Math.round(
-        postedSpeed(limit, country),
-      )}`;
-    }
-    default:
-      return "a road violation";
-  }
-}
 
 /*
  * ── Drive HUD ───────────────────────────────────────────────────────────────
@@ -537,32 +477,23 @@ export default function SideSwapApp() {
   // interaction cutscene, and citation dedupe bookkeeping. See
   // `app/drivePort.ts`'s header for why this is a separate port from career
   // money and the active gig.
+  const drive = useDriveStatusPort();
   const {
     carCondition,
-    carConditionRef,
     setCarCondition,
     towing,
     towingRef,
     towFee,
     towResetNonce,
-    startTow,
-    pulseTowReset,
     endTow,
     cutscene,
     cutsceneRef,
     beginCutscene,
     clearCutscene,
     fuelFillMs,
-    setFuelFillMs,
     fineToast,
     setFineToast,
-    lastAnyFineAtRef,
-    lastFineAtRef,
-    lastPedFineAtRef,
-    lastSpeedingFineAtRef,
-    pendingFineReasonRef,
-    pendingFineAmountRef,
-  } = useDriveStatusPort();
+  } = drive;
   // Hoisted up from beside `chargeFine` (its original spot) so `driveCountry`
   // is available for `useGigDispatchPort` below — both are pure functions of
   // `destinationId`, so where they run within the render makes no difference.
@@ -574,6 +505,7 @@ export default function SideSwapApp() {
   // how a completed one gets announced. See `app/gigDispatchPort.ts`'s
   // header for why this is a separate port from drive status and career
   // money, and deliberately narrower than "the dispatch subsystem."
+  const gigDispatch = useGigDispatchPort(driveCountry);
   const {
     gig,
     gigRef,
@@ -585,7 +517,6 @@ export default function SideSwapApp() {
     carryingSinceMs,
     carryingSinceRef,
     carryViolationsRef,
-    startCarrying,
     endCarryingLeg,
     paidGigRef,
     sessionEarnings,
@@ -595,7 +526,7 @@ export default function SideSwapApp() {
     dispatchToast,
     setDispatchToast,
     announcePayout,
-  } = useGigDispatchPort(driveCountry);
+  } = gigDispatch;
   const lastPoseRef = useRef<{ x: number; z: number } | null>(null);
   const lastHeadingRef = useRef(0);
   // The kinds offered so far this drive, newest last, capped to the streak
@@ -647,6 +578,7 @@ export default function SideSwapApp() {
   // the day clock, and the flags that coordinate settlement with whatever
   // else is on screen when the whistle blows. See `app/careerPort.ts`'s
   // header for why this is a separate port from drive status and the gig.
+  const career = useCareerPort();
   const {
     careerRun,
     careerRunRef,
@@ -654,7 +586,6 @@ export default function SideSwapApp() {
     dayCash,
     dayCashRef,
     setDayCash,
-    chargeCareer,
     dayLogRef,
     dayElapsedBaseRef,
     lastSimElapsedRef,
@@ -665,7 +596,7 @@ export default function SideSwapApp() {
     pendingSettleRef,
     dayActiveRef,
     endCareerDayRef,
-  } = useCareerPort();
+  } = career;
   const [lastSettlement, setLastSettlement] = useState<{
     readonly result: SettlementResult;
     readonly slice: CareerSliceV2;
@@ -1178,430 +1109,25 @@ export default function SideSwapApp() {
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
-  /**
-   * The one place money is taken for a violation, whoever wrote it — the
-   * officer at the window, the camera over the junction, or the app's own
-   * citation for striking someone.
-   *
-   * Career fines are day-local like every other career charge and may push the
-   * day negative; free drive debits the country wallet and persists. Those two
-   * branches were copied at all three sites, which is exactly where they would
-   * have drifted apart. Stamping the shared clock here means it marks money
-   * actually moving rather than an intention to charge.
-   */
-  const chargeFine = useCallback(
-    (amount: number, reason: string, issuedBy: "patrol" | "camera") => {
-      lastAnyFineAtRef.current = Date.now();
-      if (careerRunRef.current) {
-        chargeCareer(amount, (log) => ({
-          ...log,
-          finesTotal: log.finesTotal + amount,
-        }));
-      } else {
-        const fined = debit(progress, driveCountry.id, amount);
-        setProgress(fined);
-        saveProgress(fined);
-      }
-      setFineToast({ amount, reason, issuedBy });
-    },
-    [
-      progress,
-      driveCountry,
-      chargeCareer,
-      lastAnyFineAtRef,
-      setFineToast,
-      careerRunRef,
-    ],
-  );
-
   const activeSteeringSide = driveCountry.defaultSteeringSide;
 
-  // The car is a write-off: fade to the tow overlay, debit the repair bill,
-  // snap the car back to its spawn repaired, and fade back in. No button, no
-  // modal — the drive itself never stops being playable for long.
-  const beginTow = useCallback(() => {
-    if (towingRef.current) return;
-    // A scene in flight is torn down by the session's reset; drop the app
-    // side too so nothing waits on a `done` that will never come.
-    clearCutscene();
-    // A write-off is billed for all 100 points at the roadside premium, so it
-    // always costs strictly more than driving into a shop would have. Stashed
-    // in state rather than re-derived by the overlay below: the two used to
-    // read the same flat constant independently, which was harmless only for
-    // as long as the price was constant.
-    const fee = repairPrice(driveCountry, FULL_CONDITION_PCT, "tow");
-    startTow(fee);
-    if (careerRunRef.current) {
-      // Day-local money: the repair bill can push the day negative.
-      chargeCareer(fee, (log) => ({
-        ...log,
-        repairsTotal: log.repairsTotal + fee,
-      }));
-    } else {
-      const paid = debit(progress, driveCountry.id, fee);
-      setProgress(paid);
-      saveProgress(paid);
-    }
-    const reduced = progress.accessibility.reducedMotion;
-    window.setTimeout(() => {
-      pulseTowReset();
-    }, reduced ? 80 : 900);
-    window.setTimeout(() => {
-      endTow();
-      // The whistle blew during the tow: settle now that the overlay is gone.
-      if (pendingSettleRef.current && careerRunRef.current) {
-        pendingSettleRef.current = false;
-        endCareerDayRef.current();
-      }
-    }, reduced ? 500 : 2400);
-  }, [
+  // The drive session's `GameRuntimeEvent` switch — ready handling, rider
+  // violations, the cutscene sub-switch (cite/repair/pump/done), collisions
+  // and fines — grouped into the three ports above (drive status, career,
+  // gig/dispatch) and extracted to `useGameEventHandler.ts` (issue #289).
+  // `beginTow` lives inside it too now, folded in for the same reason
+  // `chargeFine` was: neither had any caller besides this switch, and both
+  // reach into more than one port depending on whether a career is running.
+  const handleGameEvent = useGameEventHandler({
+    drive,
+    career,
+    gigDispatch,
     progress,
+    setProgress,
     driveCountry,
-    clearCutscene,
-    chargeCareer,
-    startTow,
-    pulseTowReset,
-    endTow,
-    towingRef,
-    careerRunRef,
-    pendingSettleRef,
-    endCareerDayRef,
-  ]);
-
-  // Collision events wear the car down (and striking a person is cited on the
-  // spot); a fine event reaches us only when a patrol witnessed the violation.
-  // Both debit the local wallet and flash the toast, mirroring the refuel path.
-  const handleGameEvent = useCallback(
-    (event: GameRuntimeEvent) => {
-      if (event.type === "ready") {
-        // The scene is built and GameCanvas's overlay has cleared, so the title
-        // now has somewhere to land. Anchored to the day clock rather than to
-        // wall time so it fades on the same clock it is measured against.
-        setDayIntroFromMs(dayElapsedBaseRef.current + lastSimElapsedRef.current);
-        return;
-      }
-      // A rider in the back sees everything, witnessed or not, so the tip reads
-      // the rule stream rather than the fine stream. Every violation surfaces
-      // exactly once as coaching/collision; the `fine` that may follow
-      // is the same offence again, which is why it is excluded here.
-      if (
-        (event.type === "coaching" || event.type === "collision") &&
-        gigRef.current?.state === "carrying"
-      ) {
-        carryViolationsRef.current += 1;
-      }
-      if (event.type === "cutscene") {
-        const active = cutsceneRef.current;
-        if (!active || event.nonce !== active.nonce) return;
-        if (event.phase === "cite") {
-          // The officer is at the window. The amount was settled when the stop
-          // was staged — a speeding ticket is priced off the excess, everything
-          // else is the flat fine.
-          chargeFine(
-            pendingFineAmountRef.current ?? FINE_BY_COUNTRY[driveCountry.id],
-            pendingFineReasonRef.current ??
-              fineReason(undefined, undefined, driveCountry),
-            "patrol",
-          );
-          return;
-        }
-        if (event.phase === "repair") {
-          // The bonnet is up: pay and mend atomically, the same contract the
-          // pump step keeps. An aborted scene after this point was still a
-          // completed repair; before it, nothing happened.
-          //
-          // Damage comes off the ref, not the `carCondition` state: the ref is
-          // what the collision handler decrements, and the state can be a
-          // render behind a shunt taken on the way in.
-          const damage = Math.max(
-            0,
-            FULL_CONDITION_PCT - carConditionRef.current,
-          );
-          const price = repairPrice(driveCountry, damage, "shop");
-          if (careerRunRef.current) {
-            chargeCareer(price, (log) => ({
-              ...log,
-              repairsTotal: log.repairsTotal + price,
-            }));
-          } else {
-            const paid = debit(progress, driveCountry.id, price);
-            setProgress(paid);
-            saveProgress(paid);
-          }
-          // No session reset, unlike the tow — the car is mended where it
-          // stands, in the bay it drove into.
-          carConditionRef.current = FULL_CONDITION_PCT;
-          setCarCondition(FULL_CONDITION_PCT);
-          return;
-        }
-        if (event.phase === "pump") {
-          // The nozzle is in: pay and fill atomically, and stretch the fuel
-          // bar's transition across the fill window so the gauge pours while
-          // the driver pumps. An aborted scene after this point was still a
-          // completed purchase; before it, nothing happened.
-          const run = careerRunRef.current;
-          if (run) {
-            // Career fuel is integer, priced per vehicle, and never gated on
-            // being able to afford it — the charge may push the day negative.
-            // A roadside rescue fills the whole tank at a premium plus the
-            // call-out fee: the price of not planning around the gauge.
-            const roadside = active.kind === "roadside_refuel";
-            const missing = Math.max(0, run.vehicle.tankL - driveFuel);
-            // How much was bought is the fraction the scene was staged with —
-            // which is the whole missing tank for a full fill or a rescue, and
-            // less than that for a cash-only top-up. Carrying it on the request
-            // is what saves a second channel telling the two offers apart, and
-            // it survives the scene being restaged.
-            const litres = roadside
-              ? missing
-              : Math.min(missing, (active.fuelFillFraction ?? 1) * run.vehicle.tankL);
-            const cost =
-              Math.round(
-                litres *
-                  FUEL_PRICE_PER_LITRE_BY_COUNTRY[run.city.countryId] *
-                  run.vehicle.fuelPriceFactor *
-                  (roadside ? ROADSIDE_PRICE_FACTOR : 1),
-              ) +
-              (roadside ? ROADSIDE_CALLOUT_FEE_BY_COUNTRY[run.city.countryId] : 0);
-            chargeCareer(cost, (log) => ({
-              ...log,
-              fuelSpendTotal: log.fuelSpendTotal + cost,
-            }));
-            setFuelFillMs(event.durationMs ?? 0);
-            setDriveFuel(Math.min(run.vehicle.tankL, driveFuel + litres));
-            return;
-          }
-          // Free drive pours only what the wallet covers, so an empty-enough
-          // wallet buys a part tank instead of nothing at all. Re-priced here
-          // against the wallet as it stands rather than trusting the figure the
-          // prompt quoted: a citation can still land mid-scene (a pedestrian
-          // walking into a parked car is not gated on the cutscene), and this
-          // way that re-prices the fill instead of overdrawing the wallet.
-          const purchased = fuelPurchase(
-            driveCountry.id,
-            Math.max(0, TANK_CAPACITY_L - driveFuel),
-            progress.walletByCountry[driveCountry.id],
-          );
-          const filled = driveFuel + purchased.litres;
-          const refueled = setFuel(
-            debit(progress, driveCountry.id, purchased.cost),
-            driveCountry.id,
-            filled,
-          );
-          setProgress(refueled);
-          saveProgress(refueled);
-          setFuelFillMs(event.durationMs ?? 0);
-          setDriveFuel(filled);
-          return;
-        }
-        if (event.phase === "done") {
-          clearCutscene();
-          if (active.kind === "board" || active.kind === "food_pickup") {
-            setGig((current) =>
-              current && current.state === "enroute_pickup"
-                ? { ...current, state: "carrying" }
-                : current,
-            );
-            // The carrying leg starts here in both modes: free drive tips too
-            // now, and both the par clock and the rider's patience run from
-            // the moment the job is actually in the car.
-            const elapsed =
-              dayElapsedBaseRef.current + lastSimElapsedRef.current;
-            startCarrying(elapsed);
-          } else if (active.kind === "exit" || active.kind === "food_dropoff") {
-            const run = careerRunRef.current;
-            const current = gigRef.current;
-            if (
-              run &&
-              current &&
-              current.state === "carrying" &&
-              paidGigRef.current !== current.id
-            ) {
-              // Career pays synchronously in the scene's done event (not via
-              // the free-drive payout effect) so a drop-off finishing right at
-              // the whistle is credited before the settlement below runs.
-              paidGigRef.current = current.id;
-              const { gross, net } = careerFare(
-                current.reward,
-                current.kind,
-                run.vehicle,
-                ratingFareFactor(run.ratingStanding),
-              );
-              // Tips are commission-free either way, but the two kinds settle
-              // differently: a food order tipped when it was placed, and may
-              // add something if it arrived hot; a rider decides on the way and
-              // pays for how the trip went. Late still pays the fare — no hard
-              // fail.
-              const parMs = gigParMs(
-                Math.hypot(
-                  current.dropoff.x - current.pickup.x,
-                  current.dropoff.z - current.pickup.z,
-                ),
-                run.vehicle.paceFactor,
-              );
-              const elapsedNow =
-                dayElapsedBaseRef.current + lastSimElapsedRef.current;
-              const since = carryingSinceRef.current;
-              const carriedMs = since === null ? parMs : elapsedNow - since;
-              const onTime = since !== null && carriedMs <= parMs;
-              const tip = gigTipFor(
-                current,
-                gross,
-                carriedMs,
-                parMs,
-                onTime,
-                carryViolationsRef.current,
-                ratingTipFactor(run.ratingStanding),
-              );
-              // The same trip, judged a second way. Deliberately silent: the
-              // stars never reach the HUD, the toast or the payout call-out —
-              // a driver reads their standing on the career page after the day
-              // is over, or not at all.
-              const stars = gigRating(current.kind, current.seed, {
-                promptness: ridePromptness(carriedMs, parMs),
-                violations: carryViolationsRef.current,
-              });
-              endCarryingLeg();
-              dayCashRef.current += net + tip;
-              setDayCash(dayCashRef.current);
-              announcePayout(net, tip);
-              dayLogRef.current = {
-                ...dayLogRef.current,
-                grossFares: dayLogRef.current.grossFares + gross,
-                netFares: dayLogRef.current.netFares + net,
-                tips: dayLogRef.current.tips + tip,
-                gigsCompleted: dayLogRef.current.gigsCompleted + 1,
-                gigsOnTime: dayLogRef.current.gigsOnTime + (onTime ? 1 : 0),
-                ratings:
-                  stars === null
-                    ? dayLogRef.current.ratings
-                    : [...dayLogRef.current.ratings, stars],
-              };
-              // The next job is whatever was accepted while this one ran —
-              // nothing is conjured on completion any more. With an empty queue
-              // the driver goes idle until dispatch offers again.
-              promoteQueuedGig();
-            } else if (!run) {
-              setGig((existing) =>
-                existing && existing.state === "carrying"
-                  ? { ...existing, state: "delivered" }
-                  : existing,
-              );
-            }
-          }
-          // The day ended while this scene played out: settle now that its
-          // durable effects (including the payout above) have landed.
-          if (pendingSettleRef.current && careerRunRef.current && !towingRef.current) {
-            pendingSettleRef.current = false;
-            endCareerDayRef.current();
-          }
-        }
-        return;
-      }
-      if (event.type === "collision") {
-        const evidence = event.evidence ?? {};
-        const damage = damageForCollision(evidence);
-        if (damage > 0 && !towingRef.current) {
-          const next = Math.max(0, carConditionRef.current - damage);
-          carConditionRef.current = next;
-          setCarCondition(next);
-          if (next <= 0) beginTow();
-        }
-        const roadUser = evidence.roadUserType;
-        if (roadUser === "pedestrian" || roadUser === "cyclist") {
-          const now = Date.now();
-          if (now - lastPedFineAtRef.current < 4000) return;
-          if (now - lastAnyFineAtRef.current < FINE_MIN_SPACING_MS) return;
-          lastPedFineAtRef.current = now;
-          chargeFine(
-            FINE_BY_COUNTRY[driveCountry.id],
-            roadUser === "cyclist"
-              ? "striking a cyclist"
-              : "striking a pedestrian",
-            "patrol",
-          );
-        }
-        return;
-      }
-      if (event.type !== "fine") return;
-      const now = Date.now();
-      if (now - lastAnyFineAtRef.current < FINE_MIN_SPACING_MS) return;
-      if (now - lastFineAtRef.current < 8000) return;
-      const speeding = event.ruleCode === "speeding";
-      if (speeding && now - lastSpeedingFineAtRef.current < SPEEDING_STOP_GRACE_MS) {
-        return;
-      }
-      // A scene already running (or a tow) means the violation goes uncited
-      // rather than queueing behind it — every clock below is stamped only once
-      // the citation is really under way, so the next one is not swallowed too.
-      if (cutsceneRef.current || towingRef.current) return;
-      lastFineAtRef.current = now;
-      if (speeding) lastSpeedingFineAtRef.current = now;
-      // Price it here, not at `cite`: this is where the measurement is. A
-      // speeding ticket scales with the excess; every other violation is
-      // binary and pays the flat fine.
-      const excessMps = speeding ? speedingExcessMps(event.evidence) : null;
-      const amount =
-        excessMps === null
-          ? null
-          : speedingFine(driveCountry, postedSpeed(excessMps, driveCountry));
-      const reason = fineReason(event.ruleCode, event.evidence, driveCountry);
-      if (event.issuedBy === "camera") {
-        // Nobody to pull you over, so there is no scene and no `cite` step to
-        // carry the amount to: the camera posts the ticket where the driver
-        // stands, the way striking someone is charged. The pull-over is the
-        // better moment when there is an officer to stage it, which is why
-        // GameCanvas only reaches for a camera when there is not.
-        chargeFine(amount ?? FINE_BY_COUNTRY[driveCountry.id], reason, "camera");
-        return;
-      }
-      // The stop *is* the citation: stage the pull-over and let its `cite`
-      // step debit, the same way the pump scene pays for its fuel.
-      lastAnyFineAtRef.current = now;
-      pendingFineAmountRef.current = amount;
-      pendingFineReasonRef.current = reason;
-      beginCutscene("pullover");
-    },
-    [
-      progress,
-      driveCountry,
-      driveFuel,
-      beginTow,
-      beginCutscene,
-      clearCutscene,
-      chargeCareer,
-      chargeFine,
-      promoteQueuedGig,
-      announcePayout,
-      carConditionRef,
-      cutsceneRef,
-      towingRef,
-      lastAnyFineAtRef,
-      lastFineAtRef,
-      lastPedFineAtRef,
-      lastSpeedingFineAtRef,
-      pendingFineAmountRef,
-      pendingFineReasonRef,
-      setCarCondition,
-      setFuelFillMs,
-      careerRunRef,
-      dayCashRef,
-      dayElapsedBaseRef,
-      dayLogRef,
-      endCareerDayRef,
-      lastSimElapsedRef,
-      pendingSettleRef,
-      setDayCash,
-      setDayIntroFromMs,
-      carryViolationsRef,
-      carryingSinceRef,
-      endCarryingLeg,
-      gigRef,
-      paidGigRef,
-      setGig,
-      startCarrying,
-    ],
-  );
+    driveFuel,
+    setDriveFuel,
+  });
 
   // Auto-dismiss the fine toast a few seconds after it appears.
   useEffect(() => {
