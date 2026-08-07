@@ -407,7 +407,7 @@ describe("four-city render characterization (#293 safety net)", () => {
             steeringSide={city.steeringSide}
             scenario={scenario}
             mapPack={city.mapPack}
-            cameraMode="first"
+            cameraMode="first_person"
             paused
             onHudUpdate={() => {}}
           />,

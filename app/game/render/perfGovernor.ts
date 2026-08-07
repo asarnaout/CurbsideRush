@@ -103,7 +103,7 @@ function applyPerfRung(ctx: PerfGovernorCtx, rungIndex: number): void {
   // resolution should not be rendering the scene a second and third time for
   // two small panels, however cheap the cull has made them.
   ctx.setMirrorsAllowed(topRung);
-  ctx.setMirrorsActive(topRung && ctx.cameraMode === "first");
+  ctx.setMirrorsActive(topRung && ctx.cameraMode === "first_person");
   ctx.rearViewPanel?.setEnabled(topRung);
   if (!topRung) ctx.wingMirrorRig?.setEnabled(false);
   else ctx.syncWingMirrorVisibility();

@@ -3,6 +3,7 @@ import type { CutsceneKind } from "./cutsceneScript";
 import type { ServicePointKind } from "./servicePoints";
 import type { SimulationCoreConfig } from "./simulation";
 import type { AuthoredSignalAspect, AuthoredSignalStyle } from "./trafficSignals";
+import type { CameraMode, SpeedUnit } from "./types";
 import type { VehicleModel } from "./vehicleVisuals";
 
 /**
@@ -12,23 +13,23 @@ import type { VehicleModel } from "./vehicleVisuals";
  * runtime `export` here. `GameCanvasProps` stays in `GameCanvas.tsx` as the
  * component's own signature, not shared contract.
  *
- * Several of these unions deliberately DIFFER from same-named types in
- * `./types` (the simulation-facing contract): `CameraMode` here is
- * `"first" | "third"` vs `types.ts`'s `"first_person" | "third_person"`, and
- * `SpeedUnit` here is `"mph" | "km/h"` vs `types.ts`'s `"mph" | "kmh"`.
- * `SideSwapApp` bridges the two with `toCanvasCamera`/`fromCanvasCamera`.
- * This is not an oversight — unifying them is tracked as a follow-up, not a
- * drive-by fix, because the divergence is exactly what makes importing the
- * wrong module's version of one of these a compile error rather than a
- * silent bug.
+ * `CameraMode` and `SpeedUnit` are re-exported from `./types` (the
+ * simulation-facing contract) rather than declared here: they used to be
+ * separate, deliberately mismatched literal unions — `"first"/"third"` vs
+ * `"first_person"/"third_person"`, `"km/h"` vs `"kmh"` — specifically so a
+ * wrong-module import would fail typecheck instead of compiling silently.
+ * That trade stopped paying for itself once `sessionContract.ts`'s copies
+ * were the *only* thing keeping the two vocabularies apart; unified as
+ * issue #285. `"km/h"` (with the slash) still exists, but only as HUD
+ * display text formatted from the canonical `"kmh"`, not as a type.
  */
+
+export type { CameraMode, SpeedUnit };
 
 export type TrafficSide = "left" | "right";
 export type SteeringSide = "left" | "right";
-export type CameraMode = "first" | "third";
 export type DriveGear = "D" | "R";
 export type TurnIndicator = "left" | "right" | "off";
-export type SpeedUnit = "mph" | "km/h";
 
 export interface GameHudSnapshot {
   speed: number;
@@ -151,7 +152,7 @@ export interface GameCanvasLane {
   readonly role?: string;
   readonly trafficSide?: TrafficSide;
   readonly speedLimit?: number;
-  readonly localSpeedUnit?: "mph" | "kmh" | "km/h";
+  readonly localSpeedUnit?: SpeedUnit;
   readonly successors?: readonly string[];
   readonly adjacentLaneIds?: readonly string[];
   readonly connectorRanges?: readonly {

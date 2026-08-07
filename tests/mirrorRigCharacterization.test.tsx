@@ -203,7 +203,7 @@ describe("mirror rig characterization (Phase 3.12 safety net)", () => {
           scenario={scenario}
           mapPack={LONDON_MAP_PACK}
           paused={false}
-          cameraMode="first"
+          cameraMode="first_person"
           onHudUpdate={() => {}}
         />,
       );

@@ -1970,7 +1970,7 @@ describe("Cairo Central Nile content", () => {
       scenario,
       mapPack: CAIRO_MAP_PACK,
       trafficSide: "right",
-      speedUnit: "km/h",
+      speedUnit: "kmh",
     });
     const run = (): {
       readonly hash: string;

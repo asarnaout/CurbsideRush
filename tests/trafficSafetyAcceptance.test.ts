@@ -5,10 +5,7 @@ import {
   getMapPack,
 } from "../app/game/content";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
-import type {
-  DriveScenario,
-  SpeedUnit as CanvasSpeedUnit,
-} from "../app/game/sessionContract";
+import type { DriveScenario, SpeedUnit } from "../app/game/sessionContract";
 import {
   FIXED_STEP_SECONDS,
   SimulationCore,
@@ -52,7 +49,7 @@ interface PlayablePath {
   readonly scenario: DriveScenario;
   readonly mapPack: MapPack;
   readonly trafficSide: TrafficSide;
-  readonly speedUnit: CanvasSpeedUnit;
+  readonly speedUnit: SpeedUnit;
 }
 
 interface TrafficRunCase {
@@ -72,9 +69,6 @@ interface TrafficRunResult {
   readonly peakNpcCount: number;
 }
 
-const toCanvasSpeedUnit = (speedUnit: "mph" | "kmh"): CanvasSpeedUnit =>
-  speedUnit === "mph" ? "mph" : "km/h";
-
 const freeDrivePath = (freeDrive: FreeDriveDefinition): PlayablePath => {
   const country = getCountryProfile(freeDrive.countryId);
   const mapPack = getMapPack(freeDrive.mapId);
@@ -84,7 +78,7 @@ const freeDrivePath = (freeDrive: FreeDriveDefinition): PlayablePath => {
     scenario: buildFreeDriveScenario(freeDrive),
     mapPack,
     trafficSide: country.trafficSide,
-    speedUnit: toCanvasSpeedUnit(country.speedUnit),
+    speedUnit: country.speedUnit,
   };
 };
 

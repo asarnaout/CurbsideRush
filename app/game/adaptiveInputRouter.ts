@@ -51,7 +51,7 @@ export function isCameraStackActive(
   // now belongs to a render target instead and never joins the scene's own
   // list, which is what lets the mirror be throttled.
   const mainCameraName =
-    mode === "first" ? "first-person-camera" : "third-person-camera";
+    mode === "first_person" ? "first-person-camera" : "third-person-camera";
   return (
     activeCameraName === mainCameraName &&
     activeCameraNames.length === 1 &&

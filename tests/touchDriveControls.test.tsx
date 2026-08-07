@@ -43,7 +43,7 @@ function renderControls(overrides: Partial<Parameters<typeof TouchDriveControls>
   stubPointerPlumbing();
   render(
     <TouchDriveControls
-      cameraMode="third"
+      cameraMode="third_person"
       cameraSwitchable
       dimmed={false}
       reducedMotion={false}
@@ -126,7 +126,7 @@ describe("touch driving controls", () => {
     expect(screen.queryByLabelText("Left indicator")).not.toBeInTheDocument();
 
     cleanup();
-    renderControls({ cameraMode: "first" });
+    renderControls({ cameraMode: "first_person" });
     expect(screen.getByLabelText("Look left")).toBeInTheDocument();
     expect(screen.getByLabelText("Look right")).toBeInTheDocument();
     expect(screen.queryByLabelText("Left indicator")).not.toBeInTheDocument();
@@ -145,7 +145,7 @@ describe("touch driving controls", () => {
   it("keeps the cockpit look controls out of the top row", () => {
     // They used to extend the top row leftward, which on a 734px-wide phone ran
     // REAR straight under the centred speed readout.
-    renderControls({ cameraMode: "first" });
+    renderControls({ cameraMode: "first_person" });
     const utilityRow = screen.getByTestId("utility-row");
     const lookRow = screen.getByTestId("look-row");
     expect(utilityRow).not.toContainElement(screen.getByLabelText("Look behind"));
@@ -155,7 +155,7 @@ describe("touch driving controls", () => {
   });
 
   it("looks left as negative and right as positive", () => {
-    const handlers = renderControls({ cameraMode: "first" });
+    const handlers = renderControls({ cameraMode: "first_person" });
     fireEvent.pointerDown(screen.getByLabelText("Look left"), pointer(0));
     expect(handlers.onQuickLook).toHaveBeenLastCalledWith(-1);
     fireEvent.pointerDown(screen.getByLabelText("Look right"), pointer(0));
@@ -166,7 +166,7 @@ describe("touch driving controls", () => {
     // quickLook is an angle selector, not an axis: only magnitudes above 1.5
     // mean "over your shoulder". Sending REAR through the -1..1 setter is how
     // the old button ended up behaving as a second "look right".
-    const handlers = renderControls({ cameraMode: "first" });
+    const handlers = renderControls({ cameraMode: "first_person" });
     fireEvent.pointerDown(screen.getByLabelText("Look behind"), pointer(0));
     expect(handlers.onLookBehind).toHaveBeenLastCalledWith(true);
     expect(handlers.onQuickLook).not.toHaveBeenCalled();

@@ -1087,7 +1087,7 @@ export class BabylonGameSession {
     // be a car-interior lie, so bike and motorbike days are third-person only.
     this.cameraMode =
       options.playerVehicle && options.playerVehicle.visualKind !== "car"
-        ? "third"
+        ? "third_person"
         : options.cameraMode;
     this.inputRouter = new AdaptiveInputRouter(
       options.inputCapabilities,
@@ -1432,7 +1432,7 @@ export class BabylonGameSession {
       return;
     }
     this.cameraMode = mode;
-    const firstPerson = mode === "first";
+    const firstPerson = mode === "first_person";
     // A running cutscene keeps its staged third-person stack; the recorded
     // mode is honoured the moment the scene ends.
     if (!this.cutsceneDirector?.isActive) this.applyCameraStack(firstPerson);
@@ -1446,7 +1446,9 @@ export class BabylonGameSession {
     // No cockpit on a two-wheeler; the toggle is a no-op rather than a lie.
     const kind = this.options.playerVehicle?.visualKind;
     if (kind && kind !== "car") return;
-    this.setCameraMode(this.cameraMode === "first" ? "third" : "first");
+    this.setCameraMode(
+      this.cameraMode === "first_person" ? "third_person" : "first_person",
+    );
   }
 
   setIndicator(indicator: TurnIndicator) {
@@ -1897,7 +1899,7 @@ export class BabylonGameSession {
 
   private refreshCrowdFrustum(): void {
     const camera =
-      this.cameraMode === "first" ? this.firstCamera : this.thirdCamera;
+      this.cameraMode === "first_person" ? this.firstCamera : this.thirdCamera;
     camera
       .getViewMatrix()
       .multiplyToRef(camera.getProjectionMatrix(), this.crowdFrustumMatrix);
@@ -2240,7 +2242,7 @@ export class BabylonGameSession {
       steer: clamp(input.steer * this.options.steeringSensitivity, -1, 1),
       offRoad: this.simulationSnapshot.road.offRoad,
       outOfFuel: this.options.outOfFuel,
-      firstPerson: this.cameraMode === "first",
+      firstPerson: this.cameraMode === "first_person",
     });
   }
 
@@ -3720,7 +3722,7 @@ export class BabylonGameSession {
       // retained target object suppresses the spherical rebuild and the
       // position writes above are clobbered.
       this.thirdCamera.setTarget(cutsceneCameraTarget, undefined, true);
-    } else if (this.cameraMode === "first") {
+    } else if (this.cameraMode === "first_person") {
       const seatSide = this.options.steeringSide === "left" ? -0.46 : 0.46;
       const headBob =
         this.options.headBob && !this.options.reducedMotion
@@ -3816,7 +3818,7 @@ export class BabylonGameSession {
         const jab = Math.sin(this.impactShakeSeconds * 47) * 0.24 * kick;
         const lift = Math.cos(this.impactShakeSeconds * 39) * 0.11 * kick;
         const camera =
-          this.cameraMode === "first" ? this.firstCamera : this.thirdCamera;
+          this.cameraMode === "first_person" ? this.firstCamera : this.thirdCamera;
         right.scaleAndAddToRef(jab, camera.position);
         camera.position.y += lift;
       }
@@ -6341,11 +6343,9 @@ export class BabylonGameSession {
     if (!force && now - this.lastHudTime < 90) return;
     this.lastHudTime = now;
     const speed = this.simulationSnapshot.speedDisplay;
-    const speedUnit: SpeedUnit =
-      this.simulationSnapshot.speedUnit === "kmh" ? "km/h" : "mph";
     this.callbacks.onHudUpdate?.({
       speed: Math.round(speed),
-      speedUnit,
+      speedUnit: this.simulationSnapshot.speedUnit,
       gear: this.playerState.gear,
       cameraMode: this.cameraMode,
       instruction: this.instruction,
@@ -6353,7 +6353,7 @@ export class BabylonGameSession {
       // The horn now sustains while held, so the visual cue has to follow the
       // hold rather than the fixed window the old fire-and-forget blip used.
       honking: this.hornHeld || now < this.hornUntil,
-      rearViewVisible: this.cameraMode === "first",
+      rearViewVisible: this.cameraMode === "first_person",
       playerX: this.playerState.x,
       playerZ: this.playerState.z,
       heading: this.playerState.heading,

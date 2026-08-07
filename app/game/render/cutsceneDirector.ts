@@ -901,7 +901,7 @@ export class CutsceneDirector {
       ctx.playerCyclistVisual?.setRiderVisible?.(true);
     }
     this.active = null;
-    ctx.applyCameraStack(ctx.cameraMode === "first");
+    ctx.applyCameraStack(ctx.cameraMode === "first_person");
     ctx.playFoley("chime");
     this.emitCutsceneDone(ctx, cutscene.nonce);
   }
@@ -921,7 +921,7 @@ export class CutsceneDirector {
     if (cutscene.pumpEmitted) ctx.playFoley("pump_stop");
     this.dipSeconds = 0;
     this.dipOffsetField = 0;
-    ctx.applyCameraStack(ctx.cameraMode === "first");
+    ctx.applyCameraStack(ctx.cameraMode === "first_person");
   }
 
   /** Tears down the traffic stop's own patrol car and lets the ambient one

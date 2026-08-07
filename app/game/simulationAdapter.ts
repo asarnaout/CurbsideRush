@@ -21,7 +21,7 @@ import type {
   DriveScenario,
   GameCanvasLane,
   GameCanvasMapPack,
-  SpeedUnit as CanvasSpeedUnit,
+  SpeedUnit,
   TrafficSide,
 } from "./sessionContract";
 import {
@@ -62,7 +62,7 @@ export interface SimulationAdapterOptions {
   readonly scenario: DriveScenario;
   readonly mapPack: GameCanvasMapPack;
   readonly trafficSide: TrafficSide;
-  readonly speedUnit: CanvasSpeedUnit;
+  readonly speedUnit: SpeedUnit;
   readonly touchFirst?: boolean;
 }
 
@@ -71,7 +71,7 @@ const degreesToRadians = (degrees: number): number =>
 
 const speedToMetresPerSecond = (
   speed: number,
-  speedUnit: CanvasSpeedUnit,
+  speedUnit: SpeedUnit,
 ): number => (speedUnit === "mph" ? speed / 2.236936 : speed / 3.6);
 
 const laneLength = (lane: GameCanvasLane): number =>
@@ -1303,7 +1303,7 @@ export function buildSimulationCoreConfig({
       speedLimitMps: speedToMetresPerSecond(
         lane.speedLimit ??
           ((lane.localSpeedUnit ?? speedUnit) === "mph" ? 30 : 50),
-        (lane.localSpeedUnit ?? speedUnit) === "mph" ? "mph" : "km/h",
+        lane.localSpeedUnit ?? speedUnit,
       ),
       adjacentLaneId: adjacentLaneIdForSimulation(lane, sourceLanesById),
       successorLaneIds: lane.successors ?? [],
