@@ -461,6 +461,10 @@ export function cairoBridgeVisualAxis(
  * Restricts a drivable bridge's decorative rails to its over-water deck.
  * Bridge road surfaces continue to the neighbouring junction nodes, but rails
  * must stop at the shore instead of crossing the shoreline carriageways.
+ *
+ * The `cairo` prefix is historical, not a scope limit — it takes a landmark,
+ * road surfaces and water bodies, nothing Cairo-specific, so `nycLandmarks
+ * .ts`'s Queensview/Harborline dressing calls it too.
  */
 export function cairoBridgePortalVisualAxis(
   landmark: GameCanvasMapPack["geometry"]["landmarks"][number],

@@ -327,7 +327,7 @@ export const DESTINATION_PROFILES: readonly DestinationProfile[] = [
     id: "us-nyc",
     countryId: "us",
     destinationName: "New York City",
-    destinationSubtitle: "Upper West Side · Broadway & West 72nd Street",
+    destinationSubtitle: "Upper West Side to the East River",
     mapId: "nyc-upper-west-side",
     freeDriveId: "free-us",
     promotion: "standard",

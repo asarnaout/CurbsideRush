@@ -80,14 +80,21 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 ### NYC is declared as a grid, not written lane by lane
 
 `NYC_AVENUES` / `NYC_STREETS` state each road's coordinate, width, one-way
-direction, lanes per direction and crossings reached. `buildNycGrid` derives the
-lanes, offsets, successors, surfaces and a signal at every crossing fed by two
-roads; `buildNycBlocks` derives the blocks — zoned by column and latitude, so
+direction, lanes per direction and which cross-roads it reaches — an omitted
+`crossings` defaults to *every* road on the other axis, so any street that
+doesn't span the grid's full width (a park transverse's neighbour, a bank
+street) must list its crossings explicitly or silently reach through
+whatever should have stopped it. `buildNycGrid` derives the lanes, offsets,
+successors, surfaces and a control at every crossing fed by two roads — a
+signal when at least two arriving roads are signal-class, else a stop.
+`buildNycBlocks` derives the blocks — zoned by column and latitude, so
 inserting a street splits a cell without changing what stands on either half.
 
 Hence **lane ids name the crossing each block starts at** (`nyc-we-n-72`):
 numbering *spans* would rename every lane on a road the moment one crosses it,
-and `roadIdForLane` has **no NYC branches** — the generator passes each road id.
+and `roadIdForLane` has **no NYC branches** — the generator passes each road
+id; a bridge's landmark id must equal its own road id the same way, for the
+dressing builder and the water body's `bridgePortalSurfaceIds` to find it.
 
 ### Cairo is the non-grid equivalent
 
