@@ -73,7 +73,6 @@ import {
   createAsphaltTexture,
   createGrassDetailTexture,
   createGrassTexture,
-  makeFacadeEmissiveTexture,
 } from "./proceduralTextures";
 import {
   appendDashedMarkingBoxes,
@@ -108,6 +107,10 @@ import {
 } from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
 import { BuildingLayer } from "./buildingLayer";
+import {
+  ProceduralFacades,
+  type ProceduralFacadesCtx,
+} from "./proceduralFacades";
 import { buildCockpit } from "./cockpitBuilder";
 import { governRenderScaling } from "./perfGovernor";
 import {
@@ -137,15 +140,7 @@ import {
   trafficCameraHeadIds,
 } from "../geometry/roadFurnitureLayout";
 import { WATER_BOAT_MODEL_URLS } from "../geometry/waterGeometry";
-import {
-  cairoFrontageFootprintsOverlap,
-  cairoFrontagePosition,
-  deterministicSceneryKeep,
-  facadeGridCells,
-  isInsideKeepOut,
-  stagedBlockersOf,
-  type CairoFrontageFootprint,
-} from "../geometry/facadesAndKeepouts";
+import { stagedBlockersOf } from "../geometry/facadesAndKeepouts";
 import {
   boxLengthYaw,
   roadSideParkLawnPolygon,
@@ -854,6 +849,12 @@ export class BabylonGameSession {
    * see `render/buildingLayer.ts`. Built once per scenario, alongside
    * `destructibles`/`waterLayer`. */
   private buildingLayer: BuildingLayer | null = null;
+  /** Owns the procedural windowed-facade-box grid (the block loop's fallback
+   * filler, and `buildingLayer`'s own deferred-glb-failure fallback) and its
+   * memoized facade materials — see `render/proceduralFacades.ts`. The sole
+   * permitted consumer of this method's `random` stream. Built once per
+   * scenario, alongside `buildingLayer`/`destructibles`/`waterLayer`. */
+  private proceduralFacades: ProceduralFacades | null = null;
   /** Static scenery (instanced buildings + roadside props) whose world matrices
    * are frozen once after the first render, so the dense city stops paying a
    * per-frame matrix + bounding-sync cost across ~9k meshes. Parents precede
@@ -1551,6 +1552,8 @@ export class BabylonGameSession {
     this.destructibles = null;
     this.buildingLayer?.dispose();
     this.buildingLayer = null;
+    this.proceduralFacades?.dispose();
+    this.proceduralFacades = null;
     disposeModels(this.scene);
     this.scene.dispose();
     this.engine.dispose();
@@ -3615,6 +3618,7 @@ export class BabylonGameSession {
     this.visualPalette = palette;
     this.destructibles = new Destructibles(scene);
     this.buildingLayer = new BuildingLayer(scene);
+    this.proceduralFacades = new ProceduralFacades(scene);
     const parksRenderCtx = {
       scene,
       masters: createParksRenderMasters(),
@@ -3983,35 +3987,11 @@ export class BabylonGameSession {
         yellowMarkingMaterial,
       ),
     );
+    // Stateful, order-sensitive stream — only `ProceduralFacades` (via
+    // `ProceduralFacadesCtx.random`) may draw from it; every other seeded
+    // choice below and after uses the pure, order-independent
+    // `hashStringToSeed` instead. See docs/rendering.md.
     const random = seededUnit(this.options.scenario.trafficSeed);
-    const buildingPalette: Record<string, Color3> = {
-      brick: new Color3(0.54, 0.29, 0.22),
-      sandstone: new Color3(0.7, 0.61, 0.46),
-      stone: new Color3(0.52, 0.53, 0.51),
-      concrete: new Color3(0.48, 0.51, 0.52),
-      stucco: new Color3(0.74, 0.67, 0.55),
-      "pale-concrete": new Color3(0.68, 0.69, 0.66),
-      plaster: new Color3(0.72, 0.7, 0.63),
-      tile: new Color3(0.48, 0.52, 0.55),
-      "wood-plaster": new Color3(0.58, 0.49, 0.39),
-      "terracotta-museum": new Color3(0.63, 0.34, 0.25),
-      "pale-stone-museum": new Color3(0.77, 0.76, 0.71),
-      "red-brick-museum": new Color3(0.55, 0.29, 0.23),
-      "london-brick": new Color3(0.49, 0.32, 0.27),
-      "white-stucco": new Color3(0.82, 0.81, 0.75),
-      "cairo-cream": new Color3(0.76, 0.69, 0.57),
-      "cairo-ochre": new Color3(0.67, 0.53, 0.36),
-      "cairo-stone": new Color3(0.7, 0.63, 0.51),
-      "cairo-concrete": new Color3(0.58, 0.56, 0.5),
-      "cairo-villa": new Color3(0.77, 0.72, 0.62),
-      "cairo-modern": new Color3(0.62, 0.64, 0.62),
-      "cairo-warm-stone": new Color3(0.72, 0.61, 0.46),
-      "cairo-garden-stucco": new Color3(0.78, 0.69, 0.56),
-      "cairo-khedivial-stone": new Color3(0.68, 0.59, 0.46),
-      "cairo-gezira-cream": new Color3(0.78, 0.73, 0.63),
-      "cairo-west-bank-concrete": new Color3(0.58, 0.56, 0.5),
-    };
-    const facadeEmissive = makeFacadeEmissiveTexture(scene);
     const cairoRooftopMaterial =
       cairoScene
         ? makeMaterial(
@@ -4087,322 +4067,33 @@ export class BabylonGameSession {
           ),
         ]
       : [];
-    const facadeMaterials = new Map<string, StandardMaterial>();
-    const facadeMaterialFor = (materialKey: string): StandardMaterial => {
-      const cached = facadeMaterials.get(materialKey);
-      if (cached) return cached;
-      const wallColor =
-        buildingPalette[materialKey] ?? new Color3(0.56, 0.5, 0.43);
-      const created = makeFacadeMaterial(
-        scene,
-        `facade-${materialKey}`,
-        wallColor,
-        facadeEmissive,
-      );
-      facadeMaterials.set(materialKey, created);
-      return created;
-    };
-    // The procedural windowed-facade-box grid: the classic filler, and the
-    // fallback for any block whose building-set glbs never load.
-    // Every keep-out has to be known before a single building is dressed.
-    // The instanced street wall gets away with collecting these as it goes,
-    // because it is deferred until after preload; the procedural facade grid
-    // below runs inline, so a keep-out pushed later in this method would arrive
-    // after the boxes it was meant to exclude were already standing.
+    // Every keep-out has to be known before the block loop below dresses a
+    // single block: the instanced street wall gets away with collecting
+    // these as it goes, because it is deferred until after preload, but the
+    // procedural facade grid (`ProceduralFacades.placeBlock`) runs inline,
+    // so a keep-out pushed later in this method would arrive after the
+    // boxes it was meant to exclude were already standing.
     collectBuildingExclusions(
       { scene, deferredProps: this.deferredProps, buildingExclusions: this.buildingExclusions },
       mapPack,
     );
 
-    const placeFacadeGrid = (
-      block: GameCanvasMapPack["geometry"]["blocks"][number],
-      material: StandardMaterial,
-    ) => {
-      const isGardenCity = block.material === "cairo-garden-stucco";
-      const isWestBank = block.material === "cairo-west-bank-concrete";
-      const facadeCells = facadeGridCells(
-        isWestBank
-          ? { ...block, density: Math.min(1, block.density + 0.17) }
-          : block,
-      );
-      const freezeDetail = (mesh: Mesh) => {
-        mesh.isPickable = false;
-        this.staticSceneryFreeze.push(mesh);
-      };
-      const placedFrontages: CairoFrontageFootprint[] = [];
-      for (const cell of facadeCells) {
-        if (
-          !deterministicSceneryKeep(
-            `${mapId}:${block.id}:facade:${cell.index}`,
-            this.buildingKeepFraction,
-          )
-        ) {
-          continue;
-        }
-        const width = Math.max(5, cell.cellWidth * (0.58 + random() * 0.24));
-        const depth = Math.max(5, cell.cellDepth * (0.58 + random() * 0.24));
-        const frontagePlacement = mapId.includes("cairo")
-          ? cairoFrontagePosition(block, cell, width, depth)
-          : undefined;
-        const buildingPosition = frontagePlacement ?? cell;
-        const frontageFootprint = frontagePlacement
-          ? { placement: frontagePlacement, widthM: width, depthM: depth }
-          : undefined;
-        if (
-          frontageFootprint &&
-          placedFrontages.some((placed) =>
-            cairoFrontageFootprintsOverlap(placed, frontageFootprint),
-          )
-        ) {
-          continue;
-        }
-        const height =
-          block.heightRange[0] +
-          random() * (block.heightRange[1] - block.heightRange[0]);
-        // Same keep-outs the instanced street wall respects. Without this a
-        // terrace box stands inside the gas station or the repair shop it was
-        // supposed to make room for — and since the collider builder carves the
-        // block rect regardless, the car drives straight through the visible
-        // building rather than being stopped by it.
-        const halfWidth =
-          Math.abs(Math.cos(cell.rotationY)) * width / 2 +
-          Math.abs(Math.sin(cell.rotationY)) * depth / 2;
-        const halfDepth =
-          Math.abs(Math.sin(cell.rotationY)) * width / 2 +
-          Math.abs(Math.cos(cell.rotationY)) * depth / 2;
-        if (
-          isInsideKeepOut(
-            this.buildingExclusions,
-            buildingPosition.x,
-            buildingPosition.z,
-            halfWidth,
-            halfDepth,
-          )
-        ) {
-          continue;
-        }
-        if (frontageFootprint) placedFrontages.push(frontageFootprint);
-        const facade = createFacadeBox(
-          scene,
-          `building-${block.id}-${cell.index}`,
-          { width, height, depth },
-          new Vector3(buildingPosition.x, height / 2, buildingPosition.z),
-          material,
-        );
-        facade.rotation.y = cell.rotationY;
-        this.registerShadowCaster(
-          facade,
-          buildingPosition.x,
-          buildingPosition.z,
-        );
-        if (
-          frontagePlacement &&
-          cairoFacadeTrimMaterial &&
-          cairoBalconyRailMaterial &&
-          cairoAcMaterial
-        ) {
-          const detailRoot = new TransformNode(
-            `building-${block.id}-${cell.index}-street-detail`,
-            scene,
-          );
-          detailRoot.parent = facade;
-          detailRoot.rotation.y = frontagePlacement.detailYawRad;
-          this.staticSceneryFreeze.push(detailRoot);
-          const frontageSpan =
-            frontagePlacement.edgeAxis === "x" ? depth : width;
-          const frontageDepth =
-            frontagePlacement.edgeAxis === "x" ? width : depth;
-          if (isGardenCity) {
-            freezeDetail(
-              createBox(
-                scene,
-                `building-${block.id}-${cell.index}-cornice`,
-                {
-                  width: width + 0.55,
-                  height: 0.48,
-                  depth: depth + 0.55,
-                },
-                new Vector3(0, height / 2 + 0.18, 0),
-                cairoFacadeTrimMaterial,
-                facade,
-              ),
-            );
-            if (cell.index % 2 === 0) {
-              const balconyWidth = Math.min(5.4, frontageSpan * 0.54);
-              const balconyY = Math.min(6.8, Math.max(4.3, height * 0.34));
-              freezeDetail(
-                createBox(
-                  scene,
-                  `building-${block.id}-${cell.index}-balcony`,
-                  { width: balconyWidth, height: 0.22, depth: 1.15 },
-                  new Vector3(
-                    0,
-                    balconyY - height / 2,
-                    frontageDepth / 2 + 0.48,
-                  ),
-                  cairoFacadeTrimMaterial,
-                  detailRoot,
-                ),
-              );
-              freezeDetail(
-                createBox(
-                  scene,
-                  `building-${block.id}-${cell.index}-balcony-rail`,
-                  { width: balconyWidth, height: 0.55, depth: 0.09 },
-                  new Vector3(
-                    0,
-                    balconyY + 0.38 - height / 2,
-                    frontageDepth / 2 + 1.02,
-                  ),
-                  cairoBalconyRailMaterial,
-                  detailRoot,
-                ),
-              );
-            }
-          } else if (cell.index % 2 === 0) {
-            const acY = Math.min(height - 2.1, Math.max(5.3, height * 0.58));
-            freezeDetail(
-              createBox(
-                scene,
-                `building-${block.id}-${cell.index}-ac`,
-                { width: 1.15, height: 0.72, depth: 0.38 },
-                new Vector3(
-                  frontageSpan * 0.24,
-                  acY - height / 2,
-                  frontageDepth / 2 + 0.18,
-                ),
-                cairoAcMaterial,
-                detailRoot,
-              ),
-            );
-          }
-          if (
-            (isWestBank || block.material === "cairo-khedivial-stone") &&
-            cell.index % 3 === 1
-          ) {
-            freezeDetail(
-              createBox(
-                scene,
-                `building-${block.id}-${cell.index}-awning`,
-                {
-                  width: Math.min(5.8, frontageSpan * 0.62),
-                  height: 0.18,
-                  depth: 1.5,
-                },
-                new Vector3(
-                  0,
-                  3.15 - height / 2,
-                  frontageDepth / 2 + 0.72,
-                ),
-                cairoAwningMaterials[cell.index % cairoAwningMaterials.length],
-                detailRoot,
-              ),
-            );
-          }
-        }
-        if (cairoRooftopMaterial && cell.index % 3 === 0) {
-          const tank = createCylinder(
-            scene,
-            `building-${block.id}-${cell.index}-roof-tank`,
-            {
-              height: 1.15,
-              diameter: Math.min(1.8, Math.max(1.1, width * 0.12)),
-              tessellation: 10,
-            },
-            new Vector3(
-              buildingPosition.x,
-              height + 0.62,
-              buildingPosition.z,
-            ),
-            cairoRooftopMaterial,
-          );
-          this.registerShadowCaster(
-            tank,
-            buildingPosition.x,
-            buildingPosition.z,
-          );
-        } else if (cairoDishMaterial && cell.index % 3 === 1) {
-          const dish = createCylinder(
-            scene,
-            `building-${block.id}-${cell.index}-roof-dish`,
-            {
-              height: 0.16,
-              diameterTop: 1.35,
-              diameterBottom: 0.75,
-              tessellation: 10,
-            },
-            new Vector3(
-              buildingPosition.x,
-              height + 0.65,
-              buildingPosition.z,
-            ),
-            cairoDishMaterial,
-          );
-          dish.rotation.x = -0.7;
-          dish.rotation.y = cell.rotationY + 0.4;
-          this.registerShadowCaster(
-            dish,
-            buildingPosition.x,
-            buildingPosition.z,
-          );
-        }
-      }
-      if (
-        isGardenCity &&
-        cairoFacadeTrimMaterial &&
-        cairoBalconyRailMaterial
-      ) {
-        // Low perimeter walls, iron gates and villa cornices distinguish the
-        // secured Garden City compounds from denser downtown street walls.
-        const compound = new TransformNode(`${block.id}-compound`, scene);
-        compound.position.set(block.center.x, 0, block.center.z);
-        compound.rotation.y = degreesToRadians(block.headingDeg ?? 0);
-        const inset = 2.2;
-        const halfX = Math.max(5, block.size.x / 2 - inset);
-        const halfZ = Math.max(5, block.size.z / 2 - inset);
-        const gateHalf = 3.3;
-        const wallHeight = 1.28;
-        for (const side of [-1, 1]) {
-          const sideWall = createBox(
-            scene,
-            `${block.id}-compound-side-${side}`,
-            { width: 0.38, height: wallHeight, depth: halfZ * 2 },
-            new Vector3(side * halfX, wallHeight / 2, 0),
-            cairoFacadeTrimMaterial,
-            compound,
-          );
-          freezeDetail(sideWall);
-          for (const half of [-1, 1]) {
-            const run = halfX - gateHalf;
-            const frontWall = createBox(
-              scene,
-              `${block.id}-compound-front-${side}-${half}`,
-              { width: run, height: wallHeight, depth: 0.38 },
-              new Vector3(
-                half * (gateHalf + run / 2),
-                wallHeight / 2,
-                side * halfZ,
-              ),
-              cairoFacadeTrimMaterial,
-              compound,
-            );
-            freezeDetail(frontWall);
-          }
-          const gate = createBox(
-            scene,
-            `${block.id}-compound-gate-${side}`,
-            { width: gateHalf * 1.65, height: 1.05, depth: 0.12 },
-            new Vector3(0, 0.53, side * halfZ),
-            cairoBalconyRailMaterial,
-            compound,
-          );
-          freezeDetail(gate);
-        }
-        this.staticSceneryFreeze.push(compound);
-      }
+    const proceduralFacadesCtx: ProceduralFacadesCtx = {
+      random,
+      mapId,
+      cairoFacadeTrimMaterial,
+      cairoBalconyRailMaterial,
+      cairoAcMaterial,
+      cairoAwningMaterials,
+      cairoRooftopMaterial,
+      cairoDishMaterial,
+      staticSceneryFreeze: this.staticSceneryFreeze,
+      registerShadowCaster: (mesh, x, z) => this.registerShadowCaster(mesh, x, z),
+      buildingKeepFraction: this.buildingKeepFraction,
+      buildingExclusions: this.buildingExclusions,
     };
     for (const block of mapPack.geometry.blocks) {
-      const material = facadeMaterialFor(block.material);
+      const material = this.proceduralFacades!.materialFor(block.material);
       const isLondonMuseumBlock =
         mapId.includes("london") && block.material.endsWith("-museum");
       if (isLondonMuseumBlock) {
@@ -4430,11 +4121,15 @@ export class BabylonGameSession {
       if (block.buildingSet && isBuildingSetId(block.buildingSet)) {
         const setId = block.buildingSet;
         this.buildingLayer?.enqueueBlock(block, setId, () =>
-          placeFacadeGrid(block, facadeMaterialFor(block.material)),
+          this.proceduralFacades?.placeBlock(
+            block,
+            this.proceduralFacades!.materialFor(block.material),
+            proceduralFacadesCtx,
+          ),
         );
         continue;
       }
-      placeFacadeGrid(block, material);
+      this.proceduralFacades?.placeBlock(block, material, proceduralFacadesCtx);
     }
     // Preload just this map's building-set glbs (not every map's) off the
     // critical path; buildInstancedBuildings consumes them once ready. City
@@ -4711,7 +4406,15 @@ export class BabylonGameSession {
           landmark.id,
           { width: landmark.size.x, height, depth: landmark.size.z },
           new Vector3(landmark.center.x, height / 2, landmark.center.z),
-          makeFacadeMaterial(scene, `landmark-facade-${landmark.id}`, color, facadeEmissive),
+          makeFacadeMaterial(
+            scene,
+            `landmark-facade-${landmark.id}`,
+            color,
+            // Shares ProceduralFacades' single emissive texture instance
+            // rather than building a second, wastefully duplicate one — see
+            // that class's doc comment.
+            this.proceduralFacades!.emissiveTexture,
+          ),
         );
       }
     }
