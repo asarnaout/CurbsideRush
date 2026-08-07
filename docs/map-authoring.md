@@ -42,11 +42,11 @@ A park's dressing, wall and gates are derived ([greenery.md](greenery.md));
 | enforcement cameras | `controls` of `type: "signal"` | `trafficCameraControlIds` |
 
 **A third of every map's signals carry an enforcement camera**
-(`TRAFFIC_CAMERA_RATE`, the one knob). Ranked by salted FNV-1a hash and **cut at
-the count**, never authored or threshold-drawn (a threshold gives *about* a
-third — zero on London's 2 signals). Ties break on `localeCompare` so
+(`TRAFFIC_CAMERA_RATE`, the one knob). Ranked by salted FNV-1a hash and **cut
+at the count**, never authored or threshold-drawn (a threshold gives *about*
+a third — zero on London's 2 signals). Ties break on `localeCompare` so
 reordering controls cannot shift the draw; a `max(1)` floor guarantees a
-signalled city has at least one camera to find.
+signalled city always has one to find.
 
 **One `TrafficControlApproach` is one arm — one direction of travel — not one
 road.** Grouping a two-way street's arms by `roadId` gives the pair one stop
@@ -63,11 +63,10 @@ how every Cairo head once stood 13–24 m out on open ground.
 
 **Signage is derived, controls are authored, so the post is what moves.**
 `RegulatorySignInput.occupiedPositions` carries every authored pole; a
-speed-limit sign that would land within `LIMIT_FURNITURE_CLEARANCE_M` of one
-slides further down its own kerb instead. It slides rather than drops because
-dropping can silence a corridor whose only sign collided, which is exactly what
-the repeater floor exists to prevent. Omit the field and posts stand bolted to
-signal poles — nothing else reads it, and nothing warns.
+speed-limit sign landing within `LIMIT_FURNITURE_CLEARANCE_M` of one slides
+further down its own kerb instead of dropping — dropping could silence a
+corridor whose only sign collided, which the repeater floor exists to prevent.
+Omit the field and posts stand bolted to signal poles, unread and unwarned.
 
 ## The shipped cities
 
@@ -87,8 +86,8 @@ roads; `buildNycBlocks` derives the blocks — zoned by column and latitude, so
 inserting a street splits a cell without changing what stands on either half.
 
 Hence **lane ids name the crossing each block starts at** (`nyc-we-n-72`):
-numbering *spans* would rename every lane on a road the moment one crosses it.
-And `roadIdForLane` has **no NYC branches** — the generator passes each road id.
+numbering *spans* would rename every lane on a road the moment one crosses it,
+and `roadIdForLane` has **no NYC branches** — the generator passes each road id.
 
 ### Cairo is the non-grid equivalent
 
@@ -101,17 +100,16 @@ roads, water, bounds, existing blocks, the Sixth October corridor and every
 authored exclusion — but an exclusion's inflated margin counts only against
 parcels on its **own side** of the fronted road (`RoadsideExclusion`'s
 raw/inflated pair + `nearestPointOnOrientedParcel`): the opera park's margin
-once erased the kerb *across the street* from itself. A road-divided park's
+once erased the kerb *across the street* from itself, so a road-divided park's
 exclusion is first clipped to the side its centre is on. Four Nile-facing
 sides stay building-free (`CAIRO_OPEN_WATERFRONT_SIDES`, exported) and carry
-the derived corniche promenade instead: a parapet rendered verbatim from the
-shoreline colliders (`shorelineParapetRuns`) plus `generatePromenadeDecor`'s
-palm/lamp/bench line — see docs/rendering.md for the render side.
+the derived corniche promenade instead — a parapet off the shoreline colliders
+(`shorelineParapetRuns`) plus `generatePromenadeDecor`'s palm/lamp/bench line;
+see docs/rendering.md for the render side.
 
 **Cairo's `buildingSet` is derived from where a parcel landed**
 (`cairoRoadsideBuildingSet`), not listed per road, so a new road picks up its
 district's fabric with no content edit; riverfront roads get `cairo-corniche`.
-
 **Depth is what gets a roadside parcel refused, so it is derived, not chosen**
 (`buildingSetDepthM` gives each parcel exactly the depth its set needs), and
 there is deliberately **no second rank** behind the frontage (`ROADSIDE_RANKS`
@@ -130,14 +128,13 @@ outnumbered glbs — so treat the glb majority as a decision, not a count.
 kerb with a building on it, projected onto the road normal — a "block near this
 road" metric said 55% where the exact one said 28%. Acceptance is greedy and
 ordered, so a road visited late inherits an eaten band; the **gap-fill pass**
-after the slot pass projects everything standing in each kerb's own band
-(parcels and same-side exclusion envelopes, clipped so a grazing corner casts
-only its real shadow) and tiles pieces into the true bare intervals — halving
-down to 12 m, stepping the dressing down to 12 m and 9 m sliver boxes where
-parallel streets pinch below full parcel depth. The audit is two-tier in
+after the slot pass projects everything in each kerb's own band (parcels and
+same-side exclusions, clipped so a grazing corner casts only its real shadow)
+and tiles the true bare intervals — halving to 12 m, then 12 m and 9 m sliver
+boxes where parallel streets pinch below full parcel depth. Two-tier audit in
 `tests/cairoContent.test.ts`: walled-kerb floors, and "leaves no long bare
-run" — anything authored within 16 m counts as visual frontage, and no
-buildable side may run more than 125 m with nothing at all.
+run" — anything within 16 m counts as frontage, no buildable side runs more
+than 125 m bare.
 
 **A roadside strip must name its one road-facing edge** (`streetEdges` on
 `ProceduralBlock`). `slotBlockBuildings` defaults to all four, which is right
@@ -146,7 +143,6 @@ so on a parcel shallower than two depths the opposite rows occupy the same
 ground. Guarded twice in `buildingPlacement.test.ts` — the per-parcel and the
 map-wide cross-parcel interpenetration sweeps, both seeded like the renderer
 because the overlap depends on which models the seed draws.
-
 **One roadside parcel in six deliberately keeps the procedural facade boxes**
 (`cairoParcelKeepsFacadeBoxes`), as do all the inland district parcels: plain
 stucco blocks are real Cairo, and their size/height jitter varies in a way the
@@ -156,7 +152,7 @@ repetitive. Deterministic on the block id; `Math.random` would desync loads.
 ## Every road posts a speed limit
 
 Declared once per road — on its `NycRoadSpec` for the grid, in a per-city
-`*_ROAD_SPEED_LIMITS` table elsewhere — which `lane`/`laneTrue` **stamp onto that
+`*_ROAD_SPEED_LIMITS` table elsewhere — which `laneTrue` **stamps onto that
 road's lanes** rather than taking as a parameter, so a street cannot disagree
 with itself. An unposted road throws on import.
 
@@ -164,91 +160,83 @@ The figure is the one on the sign, in the country's own `speedUnit`, never a
 canonical unit — chosen from frontage (housing/park/school lower it), class
 (arterial > through > local > mews) and geometry (width, curvature, junction
 density), and never a number that country does not sign.
-
 NPCs cruise at 68–92% of the limit, drawn once at spawn and re-applied at every
 road change, so **the limits are what actually paces traffic** — raising one
 speeds up the city and is the one content edit that can move
-`trafficSafetyAcceptance`.
+`trafficSafetyAcceptance`. **London's flat 20 is researched, not lazy**: RBKC
+is 20 borough-wide and TfL's 2023 order took the A4 through it down too — both
+cited in `LONDON_RULE_REFERENCES` *and shown to the player*.
 
-**London's flat 20 is researched, not lazy**: RBKC is 20 borough-wide and TfL's
-2023 order took the A4 through it down too — both cited in
-`LONDON_RULE_REFERENCES` *and shown to the player*, so raising it would put the
-map at odds with the game's own sources.
-
-`roadRealism.test.ts` holds the rest: only figures that country signs, one figure
-per road, and nothing non-`standard` out-ranking an ordinary road.
+`roadRealism.test.ts` holds the rest: only figures that country signs, one
+figure per road, nothing non-`standard` out-ranking an ordinary road.
 
 ## Two authoring tolerances that fail silently
 
 - **`0.08 m` is the definition of "shared node"** for junction fills
   (`ROAD_POINT_EPSILON_M`), pavement rails (`DEFAULT_NODE_EPSILON_M`) *and* both
   sign families (`NODE_EPSILON_M`). A shared endpoint authored 0.1 m apart yields
-  no junction fill (grass through the crossing), no pavement trim (walkers on the
-  asphalt) and no signage at that mouth.
+  no junction fill (grass through the crossing), no pavement trim (walkers on
+  the asphalt) and no signage at that mouth.
 - **Successors must be geometrically continuous** — tests require 0.01 m and
   the simulation rejects transitions beyond 0.5 m. Break it and traffic queues
   for respawn rather than snapping across the map. An **empty** successor list
-  does the same thing, wherever the
-  player happens to be looking: London's bus lane dead-ended at a signal and the
-  double-decker blinked out every green (#128).
+  does the same, wherever the player happens to be looking: London's bus lane
+  dead-ended at a signal and the double-decker blinked out every green (#128).
 
-Both are now guarded by "gives every lane somewhere legal to go" in
-`content.test.ts`.
+Both guarded by `content.test.ts`'s "gives every lane somewhere legal to go"
+and `roadRealism.test.ts`'s per-pack circuit walk.
 
 ## Addresses
 
 **`streetAddressesForMap` caches by `pack.id`** in a module-level Map (mutating
-a pack after the first call has no effect), and addresses exist only for the
-NYC roads listed in `STREET_PROFILES` — a road missing from it generates none,
-silently (`addressableStreetNames` catches this). Other maps use authored
-venues.
+a pack after the first call has no effect); addresses exist only for NYC roads
+listed in `STREET_PROFILES` — a road missing from it generates none, silently
+(`addressableStreetNames` catches this). Other maps use authored venues.
 
-**`STREET_PROFILES` holds numbering and is the addressability gate; display names
-live on `MapPack.roadNames`.** Deliberately split, so naming a street for GPS
-directions cannot start issuing gigs on it, and so whole named cities (London,
-Tokyo, Cairo) stay address-free. Gating on the names instead would opt every
-named city in at once.
+**`STREET_PROFILES` holds numbering and gates addressability; display names
+live on `MapPack.roadNames`.** Split deliberately, so naming a street for GPS
+cannot start issuing gigs on it, and named cities (London, Tokyo, Cairo) stay
+address-free without every one opting in via names alone.
 
 ## Service points and venues
 
-**`ServicePoint.kind` is two kinds** (`gas_station`, `repair_shop`) and most
-machinery wants both — the block carve that keeps a lot drivable, prop-scatter and
-address keep-outs. Gas-specific readers go through `gasStationsOf`, never an inline
-`kind ===`, or the pump maths invents four pumps on a garage forecourt.
+**`ServicePoint.kind` is two kinds** (`gas_station`, `repair_shop`); most
+machinery wants both — the block carve, prop-scatter and address keep-outs.
+Gas-specific readers go through `gasStationsOf`, never an inline `kind ===`,
+or the pump maths invents four pumps on a garage forecourt.
 
 `servicePoints.ts` cannot import the model registry (Babylon), so
 `SERVICE_MODEL_FRAME` restates each kind's scale and yaw, pinned by
 `modelLibrary.test.ts`: a drifted copy rotates every collider off its building.
 
-The repair shop is the one service **authored rather than imported**
-(`repairShopLayout.ts`: no free low-poly auto shop has a drivable bay), so its
-colliders come off the constants that draw it, not off a glb like
-`GAS_STATION_SOLIDS_M`. Either way **solids describe what stops a car, so nothing
-overhead is in them**: the canopy is excluded on purpose (it would wall off the
-forecourt) and measured into `GAS_STATION_CANOPY_M`, which is what lets a staged
-camera duck it. Anything a car drives under and a camera cannot needs both.
+The repair shop is authored rather than imported (`repairShopLayout.ts`: no
+free low-poly auto shop has a drivable bay), so its colliders come off the
+constants that draw it, not a glb like `GAS_STATION_SOLIDS_M`. Either way,
+solids describe what stops a car: the canopy is excluded (it would wall off
+the forecourt) and measured into `GAS_STATION_CANOPY_M` instead, for a staged
+camera to duck.
 
-**The setback normal is always the driver's right regardless of traffic side**,
-so on left-hand-traffic maps it lands on the far side of the road — hence
-London's gas station on a far-side lane and Tokyo's `setbackM: 17.3`.
+**The setback normal is always the driver's right regardless of traffic
+side** — hence London's gas station on a far-side lane and Tokyo's
+`setbackM: 17.3`.
 
-## Private authoring helpers are duplicated per city, not shared
+## Private authoring helpers live in one shared module
 
-`cities/nyc.ts`, `cities/tokyo.ts` and `cities/london.ts` each carry their own
-`point`, `node`, `laneTrue`, `connectorConflictZones`; `content.ts` carries
-none of it, and Cairo has a separate road-spec generator instead. **Fixing
-one city's copy does not fix the others.** `arcPoints`/`turningLoop` live
-only in `cities/london.ts` — a turning loop outside London means writing or
-lifting one.
+`cities/nyc.ts`, `cities/tokyo.ts` and `cities/london.ts` import common
+primitives (`point`, `node`, `roadMarking`, `control`, `connectorConflictZones`
+and more) from `cities/cityAuthoringHelpers.ts`; Cairo's separate road-spec
+generator imports none of it. `laneTrue`, `roadIdForLane`, `laneWidthForLane`
+and `conflictZoneForNode` stay file-local where a city's values genuinely
+differ (London's lane widths, hardcoded left-hand `trafficSide`); NYC/Tokyo's
+identical copies share `makeLaneTrue`, closed over each file's own
+`speedLimitForRoad`. `arcPoints`/`turningLoop` stay London-only.
 
-**Adding a city**: a `cities/<city>.ts` (own `*_MAP_PACK`/`*_FREE_DRIVE`, own
-helpers or generator); a row each in `content.ts`'s `MAP_PACKS`/
-`FREE_DRIVES`/`COUNTRY_PROFILES`/`DESTINATION_PROFILES`; a row, keyed on the
-exact new `mapId`, in `visuals.ts`'s `MAP_VISUAL_PROFILES` — there is no
-palette fallback, so a map with no row there throws the moment it loads,
-rather than quietly rendering with someone else's lighting; a column on every
-`economyTables.ts` per-country table; map assets; and, only for bespoke
-landmarks or street furniture, a row in `render/cityRenderRegistry.ts`.
+**Adding a city**: a `cities/<city>.ts` importing shared helpers where they
+fit; rows in `content.ts` (`MAP_PACKS`/`FREE_DRIVES`/`COUNTRY_PROFILES`/
+`DESTINATION_PROFILES`) and `visuals.ts`'s `MAP_VISUAL_PROFILES`, keyed on the
+exact `mapId` — no fallback, a missing row throws on load; a column on every
+`economyTables.ts` table; map assets; and, for bespoke landmarks, a row in
+`render/cityRenderRegistry.ts`.
 
 ## The frozen OSM data is provenance only
 
