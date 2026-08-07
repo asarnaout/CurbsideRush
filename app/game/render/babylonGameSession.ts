@@ -107,6 +107,7 @@ import {
   type CityRenderRegistryCtx,
 } from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
+import { BuildingLayer } from "./buildingLayer";
 import { buildCockpit } from "./cockpitBuilder";
 import { governRenderScaling } from "./perfGovernor";
 import {
@@ -142,15 +143,11 @@ import {
   deterministicSceneryKeep,
   facadeGridCells,
   isInsideKeepOut,
-  keptStreetWallBuildings,
-  rotateBlockBuildingPlacements,
   stagedBlockersOf,
   type CairoFrontageFootprint,
 } from "../geometry/facadesAndKeepouts";
 import {
-  biasCairoDecalMaterials,
   boxLengthYaw,
-  CAIRO_STREET_WALL_URL_RE,
   roadSideParkLawnPolygon,
   shorelineParapetRuns,
 } from "../geometry/cairoParkland";
@@ -237,20 +234,14 @@ import {
 import {
   disposeModels,
   instantiateModel,
-  instantiateModelInstanced,
-  modelMaterials,
   preloadModels,
   propModelUrls,
   vehicleModelUrls,
 } from "../modelLibrary";
 import {
-  buildingPlacementConfig,
   buildingSetUrls,
   isBuildingSetId,
   nycVendorUrls,
-  slotBlockBuildings,
-  type BuildingSetId,
-  type PlacedBuilding,
   type StreetPropConfig,
 } from "../buildingSets";
 import {
@@ -258,12 +249,6 @@ import {
   recentreMergedMasterXZ,
   squareUpMergedMaster,
 } from "../buildingWinding";
-import {
-  pickStorefrontVariant,
-  STOREFRONT_MODEL_ID,
-  type StorefrontVariant,
-} from "../storefronts";
-import { assembleStorefrontVariantMaster } from "../storefrontMaster";
 import { streetAddressesForMap } from "../streetAddresses";
 import { speedingWarrantsCitation } from "../speeding";
 import {
@@ -353,13 +338,17 @@ const CHASE_TUNING_BY_MODEL: Partial<Record<VehicleModel, ChaseTuning>> = {
  * scenario.id, mapPack.id]` combination; every other prop flows through
  * `updateOptions`. See rendering.md's "Shape of the file" for the ring this
  * sits in and why it stays one file rather than splitting further: at
- * ~7,450 lines it is still one class with ~190 fields, and the plan
- * deliberately treats that as a documented, deferred follow-up rather than a
- * Phase 3 goal — every builder with its own well-scoped seam (mirrors, water,
- * cutscenes, traffic control, parks, cockpit, destructibles, sky, landmarks,
- * props, perf governing) already moved out over the preceding thirteen
- * commits; what's left is the orchestrator that wires them together, plus
- * the simulation/input/audio/camera/HUD machinery no single seam owns.
+ * ~6,100 lines it is still one class with a couple hundred fields, and the
+ * plan deliberately treats further splitting as a documented, deferred
+ * follow-up rather than a Phase 3 goal — every builder with its own
+ * well-scoped seam (mirrors, water, cutscenes, traffic control, parks,
+ * cockpit, destructibles, sky, landmarks, props, perf governing) already
+ * moved out over Phase 3's own thirteen commits; buildings (procedural/
+ * instanced placement, storefront variants, night glow, Cairo roof clutter)
+ * followed later as its own post-Phase-3 follow-up (issue #288,
+ * `render/buildingLayer.ts`). What's left is the orchestrator that wires
+ * every collaborator together, plus the simulation/input/audio/camera/HUD
+ * machinery no single seam owns.
  */
 /** 0..1, monotonically non-decreasing over one load — see LOAD_PHASE_WEIGHTS. */
 export interface LoadProgress {
@@ -856,17 +845,15 @@ export class BabylonGameSession {
   /**
    * This map's park planting glbs. Deliberately NOT in `buildingModelUrls`,
    * even though both are map-scoped and preloaded together: everything in that
-   * list is treated as a building, and `applyBuildingNightGlow` gives each of
-   * them a warm sodium self-glow. Trees listed there came out tan.
+   * list is treated as a building, and `BuildingLayer`'s night-glow pass gives
+   * each of them a warm sodium self-glow. Trees listed there came out tan.
    */
   private natureModelUrls: string[] = [];
-  /** Blocks that dress with instanced glb building sets once their models load;
-   * `buildFallback` builds procedural facade boxes if the models never arrive. */
-  private readonly pendingBuildingBlocks: {
-    block: GameCanvasMapPack["geometry"]["blocks"][number];
-    setId: BuildingSetId;
-    buildFallback: () => void;
-  }[] = [];
+  /** Owns the queue of building-set blocks awaiting an instanced glb street
+   * wall, the storefront re-branding caches, and the placement pass itself —
+   * see `render/buildingLayer.ts`. Built once per scenario, alongside
+   * `destructibles`/`waterLayer`. */
+  private buildingLayer: BuildingLayer | null = null;
   /** Static scenery (instanced buildings + roadside props) whose world matrices
    * are frozen once after the first render, so the dense city stops paying a
    * per-frame matrix + bounding-sync cost across ~9k meshes. Parents precede
@@ -874,10 +861,12 @@ export class BabylonGameSession {
   private readonly staticSceneryFreeze: TransformNode[] = [];
   /**
    * Cairo's rooftop water tanks and satellite dishes, as two hidden master
-   * meshes the instanced street wall clones from. They belong to
-   * `buildEnvironment` (which owns the Cairo materials) but are consumed by
-   * `buildInstancedBuildings`, which only runs after the model preload — hence
-   * the field rather than a local.
+   * meshes the instanced street wall clones from. They belong here (this
+   * method owns the Cairo materials) but are consumed by `BuildingLayer`,
+   * which only runs its placement pass after the model preload settles —
+   * hence the field rather than a local, and why it is passed into
+   * `buildingLayer.instantiate` rather than owned by that class (see
+   * `render/buildingLayer.ts`'s own doc comment).
    */
   private cairoRoofClutterMasters: {
     readonly tank: Mesh;
@@ -954,14 +943,18 @@ export class BabylonGameSession {
     kind: "pedestrian" | "cyclist";
     index: number;
   }> = [];
-  /** Per-url merged building master mesh (all submeshes baked into one, keeping
-   * a MultiMaterial), built lazily and hidden. Every placement is a single
-   * `createInstance` of it, so a building costs one scene mesh (one cull check)
-   * instead of ~15 — the fix for the culling spike on fast/turning driving.
-   * Keys are the url, or `url#variantId` for re-branded storefront masters.
-   * null = merge failed for that url (falls back to the multi-mesh path). */
+  /** Per-url merged instancing master mesh (all submeshes baked into one,
+   * keeping a MultiMaterial), built lazily and hidden. Every placement is a
+   * single `createInstance` of it, so a building costs one scene mesh (one
+   * cull check) instead of ~15 — the fix for the culling spike on
+   * fast/turning driving. Despite the name this is not building-only: water
+   * craft, vendor carts and park planting all share it through
+   * `getBuildingMaster` too (see `render/buildingLayer.ts`'s doc comment for
+   * why). Re-branded storefront masters keep their own cache on
+   * `BuildingLayer` instead of a `url#variantId` entry here — nothing outside
+   * that class ever built one. null = merge failed for that url (falls back
+   * to the multi-mesh path). */
   private readonly buildingMasters = new Map<string, Mesh | null>();
-  private readonly storefrontSignMaterials = new Map<string, StandardMaterial>();
   private signalRedMaterial: StandardMaterial | null = null;
   private signalAmberMaterial: StandardMaterial | null = null;
   private signalGreenMaterial: StandardMaterial | null = null;
@@ -1556,6 +1549,8 @@ export class BabylonGameSession {
     this.waterLayer = null;
     this.destructibles?.dispose();
     this.destructibles = null;
+    this.buildingLayer?.dispose();
+    this.buildingLayer = null;
     disposeModels(this.scene);
     this.scene.dispose();
     this.engine.dispose();
@@ -2611,68 +2606,6 @@ export class BabylonGameSession {
   }
 
   /**
-   * After preload, dress each building-set block with a street wall of instanced
-   * glb buildings. Every placement of a given model shares one uploaded geometry
-   * (instantiateModelInstanced), so hundreds of buildings cost a handful of draw
-   * calls rather than hundreds. A block whose set never loaded (offline) falls
-   * back to its procedural facade-box grid so it is never left empty.
-   */
-  /**
-   * Night city: make every building material glow its own albedo/texture, so
-   * facades and painted windows read as lit-from-within under the dim moonlight
-   * (the low-poly glbs have no emissive of their own). Bloom does the rest.
-   * Mutates the shared container materials once — all instances light up.
-   */
-  private applyBuildingNightGlow() {
-    // Warm sodium/incandescent colour for lit windows (blue-hour amber). Kept
-    // below pure white so bloom softens it to a glow instead of blowing it out.
-    const WARM = new Color3(0.95, 0.6, 0.29);
-    for (const url of this.buildingModelUrls) {
-      const mats = modelMaterials(this.scene, url);
-      // Models with a dedicated window material get the realistic treatment:
-      // light only the windows, keep the walls dark (lit by moonlight +
-      // streetlights). Single-texture models (windows baked into one texture)
-      // can't isolate windows, so they get a dim warm self-glow — enough to read
-      // as lit without blowing the whole facade out to white.
-      const hasWindowMat = mats.some((mm) =>
-        /window|glass/.test((mm.name ?? "").toLowerCase()),
-      );
-      for (const mat of mats) {
-        const name = (mat.name ?? "").toLowerCase();
-        const m = mat as unknown as {
-          albedoColor?: Color3;
-          diffuseColor?: Color3;
-          albedoTexture?: unknown;
-          diffuseTexture?: unknown;
-          emissiveColor?: Color3;
-          emissiveTexture?: unknown;
-          emissiveIntensity?: number;
-        };
-        if (hasWindowMat) {
-          const isWindow = /window|glass|trim/.test(name);
-          if (isWindow) {
-            // A lit window is a dark pane that only glows warm — otherwise the
-            // pane's own (light) albedo, lit by the sky, washes it out to white.
-            const dark = new Color3(0.05, 0.045, 0.04);
-            if (m.albedoColor) m.albedoColor = dark;
-            if (m.diffuseColor) m.diffuseColor = dark;
-            m.emissiveColor = WARM.clone();
-            if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 0.72;
-          } else {
-            m.emissiveColor = new Color3(0, 0, 0);
-            if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 0;
-          }
-        } else {
-          const tex = m.albedoTexture ?? m.diffuseTexture;
-          m.emissiveColor = new Color3(0.42, 0.32, 0.19);
-          if (tex) m.emissiveTexture = tex;
-          if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 0.32;
-        }
-      }
-    }
-  }
-
-  /**
    * The merged single-mesh master for a building url (built once, hidden). All
    * of the glb's submeshes are baked into one mesh with a MultiMaterial, folding
    * in the loader's 180° flip, so a placement is a single createInstance. Returns
@@ -2713,204 +2646,31 @@ export class BabylonGameSession {
   }
 
   /**
-   * A variant master for the one retail glb: same merged-master shape as
-   * getBuildingMaster, but with the baked "PIZZA" lettering swapped for the
-   * variant's fascia sign and awning tint (storefrontMaster.ts) so streets
-   * carry a mix of businesses instead of a row of identical pizzerias (#146).
-   * Any assembly failure falls back to the plain master — baked pizza beats a
-   * missing building.
+   * After preload, dress each building-set block queued into `buildingLayer`
+   * with a street wall of instanced glb buildings, via
+   * `BuildingLayer.instantiate` — see that class's own doc comment for what
+   * it owns outright versus what this method still assembles and passes in
+   * (the shared model-master cache, the low-spec keep fraction, the keep-out
+   * circles, Cairo's roof-clutter masters, and the shared static-scenery/
+   * shadow-ring registration). Then instantiates every other deferred-model
+   * queue that piggybacks on this same "models are ready now" moment: river
+   * craft, vendor carts, and park planting. Called from the exact point in
+   * the async preload-completion sequence this method has always run from —
+   * that position, and the order of the calls inside it, is load-bearing for
+   * seeded-render determinism (see `render/buildingLayer.ts`'s doc comment).
    */
-  private getStorefrontMaster(url: string, variant: StorefrontVariant): Mesh | null {
-    const key = `${url}#${variant.id}`;
-    const cached = this.buildingMasters.get(key);
-    if (cached !== undefined) return cached;
-    let master: Mesh | null = null;
-    const instance = instantiateModel(this.scene, url); // real clones, mergeable
-    const root = instance?.rootNodes[0] as TransformNode | undefined;
-    if (root) {
-      root.computeWorldMatrix(true);
-      const meshes = root
-        .getChildMeshes(false)
-        .filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
-      for (const mesh of meshes) mesh.computeWorldMatrix(true);
-      master = meshes.length
-        ? assembleStorefrontVariantMaster(
-            this.scene,
-            meshes,
-            variant,
-            this.getStorefrontSignMaterial(variant),
-            { nightGlow: this.visualPalette?.night ?? false },
-          )
-        : null;
-      root.dispose(false, false);
-      if (master) {
-        master.isVisible = false;
-        master.isPickable = false;
-      }
-    }
-    master ??= this.getBuildingMaster(url);
-    this.buildingMasters.set(key, master);
-    return master;
-  }
-
-  /** One DynamicTexture sign material per variant, shared by both of its
-   * fascia planes and every instance — the addRoofSign recipe (emissive so it
-   * reads on the night map, no culling so a winding flip can't drop it). */
-  private getStorefrontSignMaterial(variant: StorefrontVariant): StandardMaterial {
-    const cached = this.storefrontSignMaterials.get(variant.id);
-    if (cached) return cached;
-    const texture = new DynamicTexture(
-      `storefront-sign-${variant.id}-texture`,
-      { width: 512, height: 128 },
-      this.scene,
-      true,
-    );
-    const context = texture.getContext();
-    let fontSize = 88;
-    context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
-    while (
-      fontSize > 24 &&
-      context.measureText(variant.signText).width > 512 * 0.86
-    ) {
-      fontSize -= 6;
-      context.font = `bold ${fontSize}px Figtree, Arial, sans-serif`;
-    }
-    texture.drawText(
-      variant.signText,
-      null,
-      null,
-      `bold ${fontSize}px Figtree, Arial, sans-serif`,
-      variant.signFg,
-      variant.signBg,
-      true,
-    );
-    context.strokeStyle = variant.signFg;
-    context.lineWidth = 6;
-    context.strokeRect(8, 8, 512 - 16, 128 - 16);
-    texture.update();
-    const material = new StandardMaterial(
-      `storefront-sign-${variant.id}`,
-      this.scene,
-    );
-    material.diffuseTexture = texture;
-    material.emissiveColor = new Color3(0.55, 0.55, 0.55);
-    material.specularColor = Color3.Black();
-    material.backFaceCulling = false;
-    this.storefrontSignMaterials.set(variant.id, material);
-    return material;
-  }
-
-  /**
-   * Cairo's skyline is water tanks and satellite dishes, and the glb street wall
-   * has neither — the procedural facade boxes it replaced grew them per cell.
-   * Roofs are far from incidental here: the 6th October corridor is elevated, so
-   * the player looks down on them.
-   *
-   * Only models carrying a `roofY` are dressed (the KayKit walk-ups model their
-   * own tank; the Corniche hotels should not have one at all). Deterministic on
-   * the placement so a reload puts the same clutter on the same roofs.
-   */
-  private addCairoRoofClutter(building: PlacedBuilding, index: number) {
-    const masters = this.cairoRoofClutterMasters;
-    const roofY = buildingPlacementConfig(building.modelId)?.roofY;
-    if (!masters || roofY === undefined) return;
-    const roll =
-      hashStringToSeed(
-        `${building.modelId}-${Math.round(building.x)}-${Math.round(building.z)}`,
-      ) % 4;
-    if (roll >= 2) return;
-    const tank = roll === 0;
-    const master = tank ? masters.tank : masters.dish;
-    const inst = master.createInstance(`cairo-roof-${index}-${roll}`);
-    // Offset off-centre so a run of buildings does not line its tanks up in a
-    // perfectly straight row down the street.
-    const offset = ((index % 3) - 1) * 1.4;
-    inst.position.set(
-      building.x + offset,
-      roofY + (tank ? 0.8 : 0.55),
-      building.z + offset * 0.6,
-    );
-    inst.rotation.y = building.yaw + (roll === 1 ? 0.5 : 0);
-    if (!tank) inst.rotation.x = -0.7;
-    inst.isPickable = false;
-    this.staticSceneryFreeze.push(inst);
-    this.registerStaticCell(inst, building.x, building.z, false);
-  }
-
   private buildInstancedBuildings() {
-    if (this.visualPalette?.night) this.applyBuildingNightGlow();
-    // Pull the Cairo kit's decal primitives off their wall planes; see
-    // CAIRO_DECAL_Z_OFFSET_UNITS. Container materials are shared by every
-    // instance and by the merged masters, so once per url covers the map.
-    for (const url of this.buildingModelUrls) {
-      if (CAIRO_STREET_WALL_URL_RE.test(url)) {
-        biasCairoDecalMaterials(modelMaterials(this.scene, url));
-      }
-    }
-    for (const { block, setId, buildFallback } of this.pendingBuildingBlocks) {
-      const slotted = rotateBlockBuildingPlacements(
-        slotBlockBuildings(
-          block.center,
-          block.size,
-          setId,
-          hashStringToSeed(`${block.id}-buildings`),
-          this.buildingKeepFraction,
-          block.streetEdges,
-        ),
-        block.center,
-        block.headingDeg,
-      );
-      const placements = keptStreetWallBuildings(slotted, this.buildingExclusions);
-      let placed = 0;
-      for (const b of placements) {
-        const master =
-          b.modelId === STOREFRONT_MODEL_ID
-            ? this.getStorefrontMaster(b.url, pickStorefrontVariant(b.x, b.z))
-            : this.getBuildingMaster(
-                b.url,
-                buildingPlacementConfig(b.modelId)?.squareUpYaw ?? 0,
-              );
-        if (master) {
-          // Fast path: one instance = one scene mesh = one cull check.
-          const inst = master.createInstance(`bldg-${block.id}-${placed}`);
-          inst.position.set(b.x, b.groundY + BUILDING_GROUND_LIFT, b.z);
-          inst.rotation.y = b.yaw;
-          inst.scaling.setAll(b.scale);
-          inst.isPickable = false;
-          this.staticSceneryFreeze.push(inst);
-          // Mirror-only: these deliberately cast no sun shadow, so they are not
-          // in the shadow ring — but a mirror with no street wall in it looks
-          // broken, and the rear view is mostly buildings.
-          this.registerStaticCell(inst, b.x, b.z, false);
-          this.addCairoRoofClutter(b, placed);
-          placed += 1;
-          continue;
-        }
-        // Fallback: the glb wouldn't merge — place it as a multi-mesh instance.
-        const instance = instantiateModelInstanced(this.scene, b.url);
-        const root = instance?.rootNodes[0] as TransformNode | undefined;
-        if (!root) continue;
-        const holder = new TransformNode(`bldg-${block.id}-${placed}`, this.scene);
-        holder.position.set(b.x, b.groundY + BUILDING_GROUND_LIFT, b.z);
-        holder.rotation.y = b.yaw;
-        root.parent = holder;
-        // Multiply, never setAll: the loader root carries the handedness flip
-        // as scaling (1,1,-1), and wiping it leaves only the root's 180°
-        // Y-rotation — which faces the building backwards relative to the
-        // merged masters this is a stand-in for (frontOffset is calibrated
-        // against the master frame).
-        root.scaling.scaleInPlace(b.scale);
-        this.staticSceneryFreeze.push(holder);
-        for (const mesh of root.getChildMeshes(false)) {
-          mesh.isPickable = false;
-          this.staticSceneryFreeze.push(mesh);
-          this.registerStaticCell(mesh, b.x, b.z, false);
-        }
-        placed += 1;
-      }
-      if (placed === 0) buildFallback();
-    }
-    this.pendingBuildingBlocks.length = 0;
+    this.buildingLayer?.instantiate({
+      night: this.visualPalette?.night ?? false,
+      buildingModelUrls: this.buildingModelUrls,
+      buildingKeepFraction: this.buildingKeepFraction,
+      buildingExclusions: this.buildingExclusions,
+      cairoRoofClutterMasters: this.cairoRoofClutterMasters,
+      staticSceneryFreeze: this.staticSceneryFreeze,
+      getBuildingMaster: (url, squareUpYaw) => this.getBuildingMaster(url, squareUpYaw),
+      registerStaticCell: (mesh, x, z, castsShadow) =>
+        this.registerStaticCell(mesh, x, z, castsShadow),
+    });
 
     this.waterLayer?.instantiatePendingBoats((url) => this.getBuildingMaster(url));
 
@@ -3854,6 +3614,7 @@ export class BabylonGameSession {
     const cairoScene = resolveMapVisualKey(mapId) === "cairo";
     this.visualPalette = palette;
     this.destructibles = new Destructibles(scene);
+    this.buildingLayer = new BuildingLayer(scene);
     const parksRenderCtx = {
       scene,
       masters: createParksRenderMasters(),
@@ -4664,14 +4425,13 @@ export class BabylonGameSession {
         continue;
       }
       // Building-set blocks are dressed with instanced glb street walls after
-      // preload (buildInstancedBuildings); box grid is the offline fallback.
+      // preload (buildInstancedBuildings, via buildingLayer.instantiate); box
+      // grid is the offline fallback.
       if (block.buildingSet && isBuildingSetId(block.buildingSet)) {
         const setId = block.buildingSet;
-        this.pendingBuildingBlocks.push({
-          block,
-          setId,
-          buildFallback: () => placeFacadeGrid(block, facadeMaterialFor(block.material)),
-        });
+        this.buildingLayer?.enqueueBlock(block, setId, () =>
+          placeFacadeGrid(block, facadeMaterialFor(block.material)),
+        );
         continue;
       }
       placeFacadeGrid(block, material);
@@ -4679,7 +4439,7 @@ export class BabylonGameSession {
     // Preload just this map's building-set glbs (not every map's) off the
     // critical path; buildInstancedBuildings consumes them once ready. City
     // maps (those with building sets) also get the sidewalk vendor carts.
-    const setIds = [...new Set(this.pendingBuildingBlocks.map((e) => e.setId))];
+    const setIds = this.buildingLayer?.queuedSetIds ?? [];
     this.buildingModelUrls = [
       ...buildingSetUrls(setIds),
       ...(setIds.length ? nycVendorUrls() : []),

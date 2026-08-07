@@ -3,21 +3,41 @@
 
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { EngineStore, type Scene } from "@babylonjs/core";
+import { EngineStore, type AssetContainer, type Scene } from "@babylonjs/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Four-city NullEngine safety net for issue #293's retired-curriculum purge.
+ * Building-specific NullEngine safety net for issue #288's `BuildingLayer`
+ * extraction. A sibling to `fourCityRenderCharacterization.test.tsx`, not an
+ * extension of it, because it needs a materially different model-loading
+ * setup: that suite deliberately keeps every model unloaded (see its own
+ * header comment), which means every building there takes the procedural
+ * facade-grid fallback and never exercises the *instanced* glb path
+ * (`getBuildingMaster` / `getStorefrontMaster` / `addCairoRoofClutter`) at
+ * all — exactly the code this issue moves.
  *
- * Model preloading is intentionally replaced with an immediate, empty result:
- * this makes the characterization independent of a local dev server and of
- * network timing. The test still constructs the real GameCanvas,
- * BabylonGameSession, SimulationCore and complete authored environment. The
- * browser parity pass covers the corresponding loaded-GLB scene.
+ * This suite instead real-loads, from `public/` on disk (no network, no dev
+ * server — the same data-URI recipe `tests/buildingPlacement.test.ts` and
+ * `tests/cairoRoofs.test.ts` already use), every glb any shipped building set
+ * references, so the instanced path actually runs. Everything else (vehicles,
+ * characters, generic props, nature, river craft, vendor carts) stays
+ * unloaded exactly as in the four-city suite, so this stays scoped and fast —
+ * loading the ~30 distinct building-set glbs this way costs ~1-2s total (see
+ * `buildingPlacement.test.ts`, which loads a similar set).
  *
- * `scenario-route` and `scenario-checkpoint` were the two unused lesson-only
- * materials removed by #293. Their absence is pinned separately; the
- * fingerprint of every surviving material remains byte-for-byte stable.
+ * Pins three per-city facts specific enough to catch a wrong building set or
+ * a missing roof-clutter pass, not just an aggregate total:
+ *  - `buildingInstanceCount` — placed `bldg-*` meshes. Only NYC and Cairo
+ *    author any `buildingSet` block; London and Tokyo are pinned at zero.
+ *  - `cairoRoofClutterInstanceCount` — placed `cairo-roof-<n>-<roll>` meshes.
+ *    Nonzero only for Cairo (the only map with roof-clutter masters).
+ *  - `storefrontSignMaterialCount` — distinct `storefront-sign-*` materials,
+ *    i.e. how many different re-branded variants actually got picked.
+ *    Nonzero only for NYC (the only map whose building sets reference
+ *    `STOREFRONT_MODEL_ID`); Cairo's own sets never place it.
+ *
+ * Landed before the extraction, per issue #288's explicit instruction; must
+ * stay byte-for-byte identical afterward.
  */
 
 vi.mock("@babylonjs/core", async (importOriginal) => {
@@ -36,15 +56,79 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
 
 vi.mock("../app/game/modelLibrary", async (importOriginal) => {
   const mod = await importOriginal<typeof import("../app/game/modelLibrary")>();
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const babylon = await import("@babylonjs/core");
+  const { buildingSetUrls, ALL_BUILDING_SET_IDS } = await import(
+    "../app/game/buildingSets"
+  );
+  // The only urls this suite actually loads from disk — every glb any
+  // shipped building set references. Everything else (vehicles, characters,
+  // props, nature, river craft) is left unmapped, exactly like the four-city
+  // suite's blanket empty preload.
+  const REAL_URLS = new Set(buildingSetUrls(ALL_BUILDING_SET_IDS));
+  const containers = new WeakMap<Scene, Map<string, AssetContainer>>();
+  const containersFor = (scene: Scene): Map<string, AssetContainer> => {
+    let map = containers.get(scene);
+    if (!map) {
+      map = new Map();
+      containers.set(scene, map);
+    }
+    return map;
+  };
+  let loadersRegistered = false;
+  const ensureLoaders = async () => {
+    if (loadersRegistered) return;
+    const { registerBuiltInLoaders } = await import("@babylonjs/loaders/dynamic");
+    registerBuiltInLoaders();
+    loadersRegistered = true;
+  };
+
   return {
     ...mod,
     preloadModels: async (
-      _scene: Scene,
-      _urls: readonly string[],
+      scene: Scene,
+      urls: readonly string[],
       onProgress?: (fraction: number) => void,
     ) => {
+      await ensureLoaders();
+      const map = containersFor(scene);
+      for (const url of new Set(urls)) {
+        if (!REAL_URLS.has(url) || map.has(url)) continue;
+        try {
+          const buf = fs.readFileSync(path.join(process.cwd(), "public", url));
+          const dataUrl = "data:model/gltf-binary;base64," + buf.toString("base64");
+          const container = await babylon.LoadAssetContainerAsync(dataUrl, scene, {
+            pluginExtension: ".glb",
+          });
+          if (scene.isDisposed) {
+            container.dispose();
+            continue;
+          }
+          map.set(url, container);
+        } catch {
+          // Same soft-fail as production preloadModels: leave this url
+          // unmapped, its callers fall back to whatever they do without it.
+        }
+      }
       onProgress?.(1);
     },
+    instantiateModel: (scene: Scene, url: string) => {
+      const container = containersFor(scene).get(url);
+      if (!container) return null;
+      return container.instantiateModelsToScene(undefined, false, {
+        doNotInstantiate: true,
+      });
+    },
+    instantiateModelInstanced: (scene: Scene, url: string) => {
+      const container = containersFor(scene).get(url);
+      if (!container) return null;
+      return container.instantiateModelsToScene(undefined, false, {
+        doNotInstantiate: false,
+      });
+    },
+    modelMaterials: (scene: Scene, url: string) =>
+      containersFor(scene).get(url)?.materials ?? [],
   };
 });
 
@@ -87,35 +171,10 @@ import type {
   TrafficSide,
 } from "../app/game/types";
 
-interface RenderBaseline {
-  readonly totalMeshes: number;
-  readonly enabledMeshes: number;
-  readonly activeMeshes: number;
-  readonly materials: number;
-  readonly drawCallsPerFrame: number;
-  readonly drawCallsOverSixFrames: number;
-  readonly mirrorRendersOverSixFrames: number;
-  readonly mirrorCandidates: number;
-  readonly mirrorDrawn: number;
-  readonly mirrorMeshNames: readonly string[];
-  readonly crowdInstances: number;
-  readonly crowdMeshes: number;
-  readonly retiredGuidanceMaterialNames: readonly string[];
-  readonly survivingMaterialNamesFingerprint: string;
-}
-
-interface PerfDebug {
-  readonly totalMeshes: number;
-  readonly activeMeshes: number;
-  readonly materials: number;
-  readonly drawCallsCumulative: number | null;
-  readonly mirrorRenders: number;
-  readonly mirrorCandidates: number;
-  readonly mirrorDrawn: number;
-  readonly crowdInstances: number;
-  readonly crowdMeshes: number;
-  readonly drawCallsPerFrame: number;
-  readonly perfWindowFrames: number;
+interface BuildingBaseline {
+  readonly buildingInstanceCount: number;
+  readonly cairoRoofClutterInstanceCount: number;
+  readonly storefrontSignMaterialCount: number;
 }
 
 interface AuthoredCity {
@@ -157,84 +216,30 @@ const CITIES: readonly AuthoredCity[] = [
   },
 ];
 
-const RETIRED_GUIDANCE_MATERIALS = new Set([
-  "scenario-checkpoint",
-  "scenario-route",
-]);
-
-const EXPECTED_MIRROR_MESH_NAMES = [
-  "rear-view-panel",
-  "wing-mirror-arm",
-  "wing-mirror-bezel",
-  "wing-mirror-glass",
-  "wing-mirror-sail",
-  "wing-mirror-shell",
-];
-
-const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
+// Recorded against the pre-extraction BabylonGameSession (issue #288). Must
+// stay byte-for-byte identical once the building-placement code moves into
+// BuildingLayer — a change here without an explained reason means the
+// extraction altered behaviour, not just address.
+const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
   "nyc-upper-west-side": {
-    totalMeshes: 11_908,
-    enabledMeshes: 11_908,
-    activeMeshes: 802,
-    materials: 130,
-    drawCallsPerFrame: 0,
-    drawCallsOverSixFrames: 0,
-    mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 87,
-    mirrorDrawn: 73,
-    mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
-    crowdInstances: 0,
-    crowdMeshes: 0,
-    retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "bd2603e2",
+    buildingInstanceCount: 2_598,
+    cairoRoofClutterInstanceCount: 0,
+    storefrontSignMaterialCount: 12,
   },
   "london-south-kensington": {
-    totalMeshes: 908,
-    enabledMeshes: 908,
-    activeMeshes: 137,
-    materials: 115,
-    drawCallsPerFrame: 0,
-    drawCallsOverSixFrames: 0,
-    mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 77,
-    mirrorDrawn: 36,
-    mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
-    crowdInstances: 0,
-    crowdMeshes: 0,
-    retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "af80928b",
+    buildingInstanceCount: 0,
+    cairoRoofClutterInstanceCount: 0,
+    storefrontSignMaterialCount: 0,
   },
   "tokyo-setagaya": {
-    totalMeshes: 1_086,
-    enabledMeshes: 1_086,
-    activeMeshes: 293,
-    materials: 96,
-    drawCallsPerFrame: 0,
-    drawCallsOverSixFrames: 0,
-    mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 166,
-    mirrorDrawn: 71,
-    mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
-    crowdInstances: 0,
-    crowdMeshes: 0,
-    retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "417377ea",
+    buildingInstanceCount: 0,
+    cairoRoofClutterInstanceCount: 0,
+    storefrontSignMaterialCount: 0,
   },
   "cairo-central-nile": {
-    totalMeshes: 17_660,
-    enabledMeshes: 17_660,
-    activeMeshes: 3_008,
-    materials: 217,
-    drawCallsPerFrame: 0,
-    drawCallsOverSixFrames: 0,
-    mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 64,
-    mirrorDrawn: 87,
-    mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
-    crowdInstances: 0,
-    crowdMeshes: 0,
-    retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "a7ebaba1",
+    buildingInstanceCount: 1_396,
+    cairoRoofClutterInstanceCount: 464,
+    storefrontSignMaterialCount: 0,
   },
 };
 
@@ -327,37 +332,27 @@ async function flushAnimationFrame(): Promise<void> {
   pendingRaf.clear();
   for (const callback of callbacks) callback(performance.now());
   await Promise.resolve();
-  // Babylon queues the next render through a macrotask on some engines. Give
-  // that scheduler turn a chance to publish the next controlled RAF so this
-  // characterization remains deterministic when other test files are busy.
+  // Babylon queues the next render through a macrotask on some engines; give
+  // that scheduler turn a chance to publish the next controlled RAF — see
+  // fourCityRenderCharacterization.test.tsx's identical workaround.
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
 async function flushUntilReady(): Promise<void> {
-  for (let frame = 0; frame < 40; frame += 1) {
+  for (let frame = 0; frame < 60; frame += 1) {
     await act(flushAnimationFrame);
     if (!screen.queryByRole("status")) return;
   }
-  throw new Error("GameCanvas did not become ready within 40 controlled frames.");
-}
-
-function fingerprint(names: readonly string[]): string {
-  let hash = 0x811c9dc5;
-  for (const codeUnit of names.join("\0")) {
-    hash ^= codeUnit.charCodeAt(0);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
+  throw new Error("GameCanvas did not become ready within 60 controlled frames.");
 }
 
 beforeEach(() => {
   installLocalStorage();
   window.localStorage.clear();
-  // BabylonGameSession halves its building count (`buildingKeepFraction`) below
-  // 5 CPU cores, so these mesh counts are only host-independent once this is
-  // pinned above that threshold. jsdom's own default already reads 8, but GitHub
-  // Actions' runner reports 4 — which silently cut every EXPECTED_BASELINES
-  // total by the low-spec building wall until this was pinned explicitly.
+  // BabylonGameSession halves its building count (`buildingKeepFraction`)
+  // below 5 CPU cores — see the `hardware-concurrency-lowspec-building`
+  // finding from #295/#293. Pinned above that threshold for a host-
+  // independent count, exactly like fourCityRenderCharacterization.test.tsx.
   Object.defineProperty(window.navigator, "hardwareConcurrency", {
     configurable: true,
     value: 8,
@@ -373,23 +368,12 @@ beforeEach(() => {
   vi.stubGlobal("cancelAnimationFrame", (id: number) => {
     pendingRaf.delete(id);
   });
-  // GameCanvas's Cairo-only perf-QA snapshot (`writePerfQaSnapshot`, a
-  // one-shot `window.setTimeout(..., 2_500)`) reads the same
-  // `__sideswapPerfDebug` hook this suite drains for its own 6-frame window
-  // below — and unlike requestAnimationFrame, real timers are not on the
-  // controlled clock above: they fire on the actual wall clock regardless of
-  // how many `flushAnimationFrame`s have run. Under heavy parallel test
-  // load, a slow-enough run can let that real 2.5 s timer land *during* the
-  // 6-frame window and drain it early, silently undercounting
-  // `perfWindowFrames` — a genuine, reproduced (locally, under synthetic
-  // CPU contention matching a busy CI host) cause of a flaky `expected N to
-  // be 6` failure that has nothing to do with frame scheduling. Nothing in
-  // this suite's own code ever delays a real timer beyond the single 0 ms
-  // tick `flushAnimationFrame` yields, so any longer real delay is
-  // unambiguously not this suite's — suppress those specifically (never
-  // schedule them for real) rather than faking timers wholesale, which
-  // would also have to account for every timer Babylon's own engine/audio
-  // code might set.
+  // This mounts Cairo too, so it can in principle race the same real
+  // (non-RAF) `window.setTimeout(..., 2_500)` perf-QA snapshot timer
+  // `fourCityRenderCharacterization.test.tsx` diagnosed and suppresses —
+  // see that file's identical comment for the full mechanism. This suite's
+  // own assertions don't depend on an exact frame count, but there is no
+  // reason to leave a real 2.5 s timer free to fire mid-test here either.
   nativeSetTimeout = globalThis.setTimeout;
   vi.stubGlobal(
     "setTimeout",
@@ -419,11 +403,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("four-city render characterization (#293 safety net)", () => {
+describe("building-layer characterization (#288 safety net)", () => {
   it(
-    "pins the headless scene while isolating the two retired guidance materials",
+    "places real-loaded instanced buildings, Cairo roof clutter, and NYC storefront variants identically per city",
     async () => {
-      const baselines: Record<string, RenderBaseline> = {};
+      const baselines: Record<string, BuildingBaseline> = {};
 
       for (const city of CITIES) {
         const scenario = buildFreeDriveScenario(city.freeDrive);
@@ -440,48 +424,23 @@ describe("four-city render characterization (#293 safety net)", () => {
         );
 
         await flushUntilReady();
-        const debugWindow = window as unknown as Record<string, unknown>;
-        const readPerf = debugWindow.__sideswapPerfDebug as () => PerfDebug;
-        const readMeshes = debugWindow.__sideswapMeshes as () => { n: string }[];
-        const before = readPerf();
-        for (let frame = 0; frame < 6; frame += 1) {
-          await act(flushAnimationFrame);
-        }
-        const after = readPerf();
-        expect(after.perfWindowFrames).toBe(6);
 
+        const debugWindow = window as unknown as Record<string, unknown>;
+        const readMeshes = debugWindow.__sideswapMeshes as () => { n: string }[];
+        const meshNames = readMeshes().map((mesh) => mesh.n);
         const scene = EngineStore.LastCreatedScene;
         if (!scene) throw new Error(`No Babylon scene was created for ${city.id}.`);
-        const materialNames = scene.materials.map((material) => material.name).sort();
-        const retiredGuidanceMaterialNames = materialNames.filter((name) =>
-          RETIRED_GUIDANCE_MATERIALS.has(name),
-        );
-        const survivingMaterialNames = materialNames.filter(
-          (name) => !RETIRED_GUIDANCE_MATERIALS.has(name),
-        );
-        const mirrorMeshNames = readMeshes()
-          .map((mesh) => mesh.n)
-          .filter((name) => /mirror|rear-view/i.test(name))
-          .sort();
+        const materialNames = scene.materials.map((material) => material.name);
 
         baselines[city.id] = {
-          totalMeshes: after.totalMeshes,
-          enabledMeshes: readMeshes().length,
-          activeMeshes: after.activeMeshes,
-          materials: after.materials,
-          drawCallsPerFrame: after.drawCallsPerFrame,
-          drawCallsOverSixFrames:
-            after.drawCallsCumulative === null || before.drawCallsCumulative === null
-              ? -1
-              : after.drawCallsCumulative - before.drawCallsCumulative,
-          mirrorRendersOverSixFrames: after.mirrorRenders - before.mirrorRenders,
-          mirrorCandidates: after.mirrorCandidates,
-          mirrorDrawn: after.mirrorDrawn,
-          mirrorMeshNames,
-          crowdInstances: after.crowdInstances,
-          crowdMeshes: after.crowdMeshes,
-          retiredGuidanceMaterialNames,
-          survivingMaterialNamesFingerprint: fingerprint(survivingMaterialNames),
+          buildingInstanceCount: meshNames.filter((name) => name.startsWith("bldg-"))
+            .length,
+          cairoRoofClutterInstanceCount: meshNames.filter((name) =>
+            /^cairo-roof-\d+-\d+$/.test(name),
+          ).length,
+          storefrontSignMaterialCount: new Set(
+            materialNames.filter((name) => name.startsWith("storefront-sign-")),
+          ).size,
         };
 
         view.unmount();

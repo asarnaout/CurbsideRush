@@ -129,8 +129,8 @@ near 1 plants saplings — which is exactly what the first pass shipped.
 resulting world heights per role.
 
 **Planting must stay out of `buildingModelUrls`.** Both consumers of that list
-treat its contents as buildings, and `applyBuildingNightGlow` gives every
-material in it a warm sodium self-glow — which turned Central Park's trees tan.
+treat its contents as buildings, and `BuildingLayer`'s night-glow pass gives
+every material in it a warm sodium self-glow — which turned Central Park's trees tan.
 `natureModelUrls` is a separate field that rides the same preload and nothing
 else. The same reasoning gates the Cairo boat models on the map rather than on
 "has water", now that NYC has a lake.

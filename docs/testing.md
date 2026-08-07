@@ -56,19 +56,28 @@ modules, never runtime symbols from `GameCanvas.tsx`. In particular,
 `gameCanvasInput.test.ts` exercises road geometry, input math, cockpit math and
 NPC visual-slot assignment without mounting React or starting WebGL.
 
-Seven jsdom suites deliberately cross that boundary:
+Eight jsdom suites deliberately cross that boundary:
 `gameCanvasSession`, `cockpitCharacterization`,
 `trafficControlCharacterization`, `parksRenderCharacterization`,
-`mirrorRigCharacterization`, `cutsceneDirectorCharacterization` and
-`fourCityRenderCharacterization`. They mount the real component and
-`BabylonGameSession` against a `NullEngine`, copying the jsdom-gap workarounds
-documented in `gameCanvasSession.test.tsx`. The four-city suite pins the complete
-authored scene shape; the focused suites make failures easier to localize.
+`mirrorRigCharacterization`, `cutsceneDirectorCharacterization`,
+`fourCityRenderCharacterization` and `buildingLayerCharacterization`. They
+mount the real component and `BabylonGameSession` against a `NullEngine`,
+copying the jsdom-gap workarounds documented in `gameCanvasSession.test.tsx`.
+The four-city suite pins the complete authored scene shape; the focused
+suites make failures easier to localize.
 
 `mirrorRigCharacterization` ticks the session because mirror render-list
 closures run only once Babylon renders. `cutsceneDirectorCharacterization` uses
 the real prop/nonce flow and lets the repair script finish, so it proves cleanup
-as well as staging.
+as well as staging. `buildingLayerCharacterization` mocks `modelLibrary.ts`
+more deeply than its siblings: every other full-mount suite (including
+`fourCityRenderCharacterization`) keeps every model unloaded, which routes
+every building through the procedural facade-grid fallback and never
+exercises the *instanced* glb path at all. This suite instead real-loads
+every shipped building-set glb from `public/` on disk (the data-URI recipe
+`buildingPlacement.test.ts`/`cairoRoofs.test.ts` use, no network) so
+`BuildingLayer`'s actual placement, storefront-variant and Cairo-roof-clutter
+logic runs for real.
 
 ## DOM tests
 
@@ -80,13 +89,14 @@ does — plus a **synchronous `requestAnimationFrame` stub**, or `SideSwapApp`'s
 
 Tests default to `environment: "node"`. DOM needs `// @vitest-environment jsdom` on
 line 1 and a local `@testing-library/jest-dom/vitest` import — **there is no setup
-file**. Sixteen test files do this today: `careerFlow`,
-`cockpitCharacterization`, `confirmDialog`, `cutsceneDirectorCharacterization`,
-`driveHud`, `expandedMap`, `fourCityRenderCharacterization`, `freeDriveFuel`,
-`gameCanvasSession`, `launcher`, `minimapCanvas`, `mirrorRigCharacterization`,
+file**. Seventeen test files do this today: `buildingLayerCharacterization`,
+`careerFlow`, `cockpitCharacterization`, `confirmDialog`,
+`cutsceneDirectorCharacterization`, `driveHud`, `expandedMap`,
+`fourCityRenderCharacterization`, `freeDriveFuel`, `gameCanvasSession`,
+`launcher`, `minimapCanvas`, `mirrorRigCharacterization`,
 `parksRenderCharacterization`, `touchDriveControls`,
-`trafficControlCharacterization`, `viewportSetup`. The seven full-mount Babylon
-tests are listed above; the rest are ordinary component tests.
+`trafficControlCharacterization`, `viewportSetup`. The eight full-mount
+Babylon tests are listed above; the rest are ordinary component tests.
 
 ## What is and isn't covered
 
@@ -123,6 +133,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | `mirrorRigCharacterization` | Rear-view/wing-mirror exact mesh output, plus non-zero render/candidate/drawn counts after ticking (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `cutsceneDirectorCharacterization` | Pullover (patrol rig, actor visibility/position) and repair (runs to completion, emits its `done` event, clears itself) staged via a real `cutscene` prop rerender (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `fourCityRenderCharacterization` | Exact four-city mesh/material fingerprint, cockpit mirror names, and mirror render activity (headless, NullEngine) |
+| `buildingLayerCharacterization` | Real-loaded (from disk) instanced-building placement counts, Cairo roof-clutter instance counts, and NYC storefront-variant sign material counts, per city (headless, NullEngine) — the issue #288 `BuildingLayer` extraction's safety net |
 | `cityRenderRegistry` | The right landmark/street-furniture builder is wired to each city's real map id, and an unrecognised id gets no entry — the Phase 4.5 registry's safety net |
 | `visuals` (per-city visual profile) | `MAP_VISUAL_PROFILES`'s buildingSets/natureSets/weights are internally consistent and its buildingSets allow-list matches every real MapPack's blocks — the issue #291 registry's safety net |
 | `content` / `cairoContent` / `londonContent` | Lane-graph continuity, "every lane has somewhere legal to go" |
