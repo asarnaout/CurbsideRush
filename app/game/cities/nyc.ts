@@ -311,12 +311,17 @@ export interface NycRoadSpec {
 export const NYC_AVENUES: readonly NycRoadSpec[] = [
   // Riverside Drive begins at 72nd, as it really does, so it skips the southern
   // rows and the grid's west edge steps in below them.
-  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", name: "Riverside Dr", speedLimit: 25, coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96", "100", "106"] },
-  { key: "we", nodeKey: "we", roadId: "nyc-west-end", name: "West End Ave", speedLimit: 25, coordinate: -320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
-  { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", name: "Broadway", speedLimit: 30, coordinate: -120, widthM: 11, oneWay: null, lanesPerDirection: 1 },
-  { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", name: "Amsterdam Ave", speedLimit: 30, coordinate: 40, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
-  { key: "col", nodeKey: "col", roadId: "nyc-columbus", name: "Columbus Ave", speedLimit: 30, coordinate: 180, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1 },
-  { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", name: "Central Park West", speedLimit: 25, coordinate: 320, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  //
+  // Coordinates are shifted -700 from the original west-only grid so the map
+  // can grow east of Central Park with the world bounds still origin-centred
+  // (there is no world-offset field) — see the NYC east expansion plan,
+  // .claude/nyc-east-expansion-plan.md section 3.1.
+  { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", name: "Riverside Dr", speedLimit: 25, coordinate: -1160, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96", "100", "106"] },
+  { key: "we", nodeKey: "we", roadId: "nyc-west-end", name: "West End Ave", speedLimit: 25, coordinate: -1020, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "bway", nodeKey: "bw", roadId: "nyc-broadway", name: "Broadway", speedLimit: 30, coordinate: -820, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", name: "Amsterdam Ave", speedLimit: 30, coordinate: -660, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
+  { key: "col", nodeKey: "col", roadId: "nyc-columbus", name: "Columbus Ave", speedLimit: 30, coordinate: -520, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1 },
+  { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", name: "Central Park West", speedLimit: 25, coordinate: -380, widthM: 11, oneWay: null, lanesPerDirection: 1 },
 ];
 
 /**
@@ -882,7 +887,7 @@ export const NYC_MAP_PACK: MapPack = {
     // Grid runs W 65th to W 96th across six avenues; bounds have to cover it
     // with room for the margin blocks, or everything outside reads as
     // out_of_bounds the moment the player drives onto it.
-    worldSize: point(1080, 3000),
+    worldSize: point(2600, 3000),
     roadWidth: 11,
     shoulderWidth: 1.5,
     roadSurfaces: nycGrid.roadSurfaces,
@@ -891,8 +896,8 @@ export const NYC_MAP_PACK: MapPack = {
       // generates because they have grid on one side only. The north one is
       // wider: Riverside Drive reaches W 96th, so there is more frontage up
       // there than below W 65th.
-      { id: "nyc-block-south-margin", center: point(0, -1475), size: point(614, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
-      { id: "nyc-block-north-margin", center: point(-70, 1475), size: point(754, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
+      { id: "nyc-block-south-margin", center: point(-700, -1475), size: point(614, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
+      { id: "nyc-block-north-margin", center: point(-770, 1475), size: point(754, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
     ]),
     servicePoints: [
       // West 72nd is a wide two-way, and NYC is a paved city, so the lot must
@@ -964,37 +969,37 @@ export const NYC_MAP_PACK: MapPack = {
         id: "nyc-central-park-lake",
         color: "#2f4a55",
         polygon: [
-          point(490, -530),
-          point(462, -514),
-          point(450, -479),
-          point(453, -434),
-          point(459, -390),
-          point(479, -353),
-          point(505, -345),
-          point(524, -372),
-          point(530, -420),
-          point(525, -470),
-          point(512, -507),
+          point(-210, -530),
+          point(-238, -514),
+          point(-250, -479),
+          point(-247, -434),
+          point(-241, -390),
+          point(-221, -353),
+          point(-195, -345),
+          point(-176, -372),
+          point(-170, -420),
+          point(-175, -470),
+          point(-188, -507),
         ],
       },
     ],
     landmarks: [
       // Kept clear of the carriageways (a content test enforces this).
-      { id: "nyc-subway", kind: "station", center: point(-92, -455), size: point(8, 5), color: "#2d2f33" },
+      { id: "nyc-subway", kind: "station", center: point(-792, -455), size: point(8, 5), color: "#2d2f33" },
       // Central Park runs the whole east edge now the grid does, and is no
       // longer a 38 m token: at 200 m it reads as the park the avenue is
       // named after rather than a verge. Its west edge stays clear of
       // Central Park West's kerb, which is what keeps addresses off it.
-      { id: "nyc-central-park", kind: "park", center: point(440, 0), size: point(200, 2900), color: "#4f7a3d" },
-      { id: "nyc-amnh", kind: "shops", center: point(250, 240), size: point(100, 420), color: "#caa76f" },
+      { id: "nyc-central-park", kind: "park", center: point(-260, 0), size: point(200, 2900), color: "#4f7a3d" },
+      { id: "nyc-amnh", kind: "shops", center: point(-450, 240), size: point(100, 420), color: "#caa76f" },
       // Riverside Park fills the far side of Riverside Drive, where the land
       // really does fall away to the Hudson — so the west edge of the map is
       // green rather than another row of brownstones.
-      { id: "nyc-riverside-park", kind: "park", center: point(-506, 480), size: point(66, 1934), color: "#4f7a3d" },
+      { id: "nyc-riverside-park", kind: "park", center: point(-1206, 480), size: point(66, 1934), color: "#4f7a3d" },
       // Joan of Arc Park: a real triangle off Riverside Drive at W 93rd,
       // here given the whole block between W 91st and W 96th so it has road
       // on all four sides and can be driven round — about a 760 m lap.
-      { id: "nyc-joan-of-arc-park", kind: "park", center: point(-390, 840), size: point(104, 204), color: "#5c8c4b" },
+      { id: "nyc-joan-of-arc-park", kind: "park", center: point(-1090, 840), size: point(104, 204), color: "#5c8c4b" },
     ],
   },
   laneGraph: graph(
@@ -1027,20 +1032,20 @@ export const NYC_MAP_PACK: MapPack = {
       anchoredSpawn("nyc-bus-15", "vehicle", "nyc-106-e-we", 80),
       anchoredSpawn("nyc-car-16", "vehicle", "nyc-cpw-s-96", 120),
       anchoredSpawn("nyc-car-17", "vehicle", "nyc-riv-s-91", 120),
-      freeSpawn("nyc-ped-1", "pedestrian", -100, 12, 0),
-      freeSpawn("nyc-ped-2", "pedestrian", -132, -10, 180),
-      freeSpawn("nyc-ped-3", "pedestrian", 28, 12, 0),
-      freeSpawn("nyc-ped-4", "pedestrian", 168, -12, 180),
-      freeSpawn("nyc-ped-5", "pedestrian", -308, 10, 0),
+      freeSpawn("nyc-ped-1", "pedestrian", -800, 12, 0),
+      freeSpawn("nyc-ped-2", "pedestrian", -832, -10, 180),
+      freeSpawn("nyc-ped-3", "pedestrian", -672, 12, 0),
+      freeSpawn("nyc-ped-4", "pedestrian", -532, -12, 180),
+      freeSpawn("nyc-ped-5", "pedestrian", -1008, 10, 0),
       // The ambient crowd is a bubble that follows the car, so it covers the
       // new streets for free. These are the scenario road users, which are
       // placed: a few uptown and downtown so the ends are not bare on arrival.
-      freeSpawn("nyc-ped-6", "pedestrian", -100, -1092, 0),
-      freeSpawn("nyc-ped-7", "pedestrian", 168, 1088, 180),
-      freeSpawn("nyc-ped-8", "pedestrian", -448, 600, 0),
-      freeSpawn("nyc-cyclist-1", "cyclist", -318, -200, 0, "nyc-we-n-72"),
-      freeSpawn("nyc-cyclist-2", "cyclist", 38.3, -200, 0, "nyc-amst-n-1-72"),
-      freeSpawn("nyc-cyclist-3", "cyclist", -458, 600, 0, "nyc-riv-n-86"),
+      freeSpawn("nyc-ped-6", "pedestrian", -800, -1092, 0),
+      freeSpawn("nyc-ped-7", "pedestrian", -532, 1088, 180),
+      freeSpawn("nyc-ped-8", "pedestrian", -1148, 600, 0),
+      freeSpawn("nyc-cyclist-1", "cyclist", -1018, -200, 0, "nyc-we-n-72"),
+      freeSpawn("nyc-cyclist-2", "cyclist", -661.7, -200, 0, "nyc-amst-n-1-72"),
+      freeSpawn("nyc-cyclist-3", "cyclist", -1158, 600, 0, "nyc-riv-n-86"),
     ],
   ),
 };

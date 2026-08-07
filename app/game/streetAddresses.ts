@@ -246,10 +246,13 @@ interface StreetProfile {
  * it, and the cross streets start from the park and count west.
  */
 const AVENUE = { axis: "z", numbersPerM: 0.3 } as const;
-/** Cross streets number west from the park, and far faster than an avenue. */
+/** Cross streets number west from the park, and far faster than an avenue.
+ * `baseNumber` is rebased for the -700 x-shift in `cities/nyc.ts` (200 -
+ * 0.55*700 = -185) so every existing address number is preserved exactly —
+ * see .claude/nyc-east-expansion-plan.md section 3.1. */
 const CROSS_STREET = {
   axis: "x",
-  baseNumber: 200,
+  baseNumber: -185,
   axisSign: -1,
   numbersPerM: 0.55,
 } as const;
