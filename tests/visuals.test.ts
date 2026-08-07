@@ -15,6 +15,7 @@ import {
   resolveFogRange,
   resolveMapVisualKey,
   resolveMapVisualPalette,
+  resolveMapVisualProfile,
   sampleRiverWaveField,
   seededUnit,
   skyGradientStops,
@@ -69,6 +70,18 @@ describe("map visual palettes", () => {
     expect(resolveMapVisualKey("london-south-kensington")).toBe("london");
     expect(resolveMapVisualKey("tokyo-setagaya")).toBe("tokyo");
     expect(resolveMapVisualKey("cairo-central-nile")).toBe("cairo");
+  });
+
+  it("throws on an id with no registered profile instead of guessing", () => {
+    // The trap this replaced: a substring match that fell back to "nyc" for
+    // anything it didn't recognise, so a typo'd or new map id silently
+    // borrowed NYC's palette. A misspelling of a real id must fail exactly
+    // like a wholly unrelated one — "close but wrong" is still wrong.
+    for (const badId of ["", "nyc", "nyc-upper-west-sid", "mars-base-one"]) {
+      expect(() => resolveMapVisualKey(badId)).toThrow(badId || undefined);
+      expect(() => resolveMapVisualPalette(badId)).toThrow();
+      expect(() => resolveMapVisualProfile(badId)).toThrow();
+    }
   });
 
   it("provides complete hex palettes and ordered sky gradients", () => {
