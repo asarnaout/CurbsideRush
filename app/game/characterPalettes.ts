@@ -5,8 +5,15 @@
  * decided by which rig a walker wore — five complexions in a narrow mid-brown
  * band, five near-black hair colours. These palettes override them per instance,
  * which widens each range and decouples it from the model, so the same rig turns
- * up across the whole ramp. Weights are per map so a crowd reads as belonging to
- * its city rather than to one global average.
+ * up across the whole ramp.
+ *
+ * The per-map *weights* (how many of each ramp entry a city's crowd gets) live
+ * in `visuals.ts`'s `MAP_VISUAL_PROFILES` — the shared per-city registry issue
+ * #291 widened to hold this alongside plate/building/nature selectors — not
+ * here; this file owns the ramps themselves and the expansion/shuffle that
+ * turns a weight row into a full palette. Folding the weights into that
+ * registry retired this file's own silent per-map fallback: an unmapped map id
+ * now fails the same way for every visual fact, not just some.
  *
  * Tones are linear RGB, the same space as the glbs' `baseColorFactor` (what
  * `readAlbedo` hands back and what the materials already carry), so a
@@ -19,7 +26,7 @@
  * ramp authored to look right flat collapses into the murk this exists to break
  * up.
  */
-import { hashStringToSeed, seededUnit } from "./visuals";
+import { hashStringToSeed, resolveMapVisualProfile, seededUnit } from "./visuals";
 
 export interface CharacterTone {
   readonly r: number;
@@ -42,28 +49,6 @@ export const COMPLEXION_RAMP: readonly CharacterTone[] = [
 ];
 
 /**
- * How many complexion slots each ramp entry gets, per map. A row is a rough
- * read of who actually walks that neighbourhood: the Upper West Side draws flat
- * across the ramp, South Kensington leans a little lighter, and Setagaya — a
- * ward of a city that is overwhelmingly Japanese, with a visible but small
- * international population — sits mostly in the upper half without emptying the
- * lower one.
- */
-const COMPLEXION_WEIGHTS: Readonly<Record<string, readonly number[]>> = {
-  "nyc-upper-west-side": [4, 4, 4, 4, 4, 4],
-  "london-south-kensington": [2, 3, 4, 5, 5, 5],
-  "tokyo-setagaya": [0, 1, 2, 6, 8, 7],
-  // Central Cairo is a North African capital with a broad local complexion
-  // range and a visible international population. Keep every rung represented
-  // without turning the crowd into one global average.
-  "cairo-central-nile": [3, 5, 6, 5, 4, 1],
-};
-
-/** Maps with no row of their own still get a spread rather than the rigs' five
- * baked values. */
-const DEFAULT_COMPLEXION_WEIGHTS: readonly number[] = [1, 2, 3, 5, 6, 7];
-
-/**
  * Black, dark brown, mid brown, light brown, blonde, grey. Hair reads mostly as
  * silhouette at street distance, which is why leaving it one near-black value
  * per rig kept crowds looking uniform however much the complexions varied.
@@ -78,22 +63,6 @@ export const HAIR_RAMP: readonly CharacterTone[] = [
   { r: 0.620, g: 0.470, b: 0.230 },
   { r: 0.400, g: 0.395, b: 0.390 },
 ];
-
-/**
- * Hair weights per map. Deliberately not conditioned on a walker's complexion:
- * dyed and bleached hair is ordinary in all of these cities, so pairing the two
- * ramps would encode an assumption the streets do not bear out. Setagaya is
- * nearly all black and dark brown — with the brown that dyeing actually makes
- * common there, and none of the blonde it does not.
- */
-const HAIR_WEIGHTS: Readonly<Record<string, readonly number[]>> = {
-  "nyc-upper-west-side": [7, 6, 4, 3, 3, 1],
-  "london-south-kensington": [5, 6, 5, 3, 4, 1],
-  "tokyo-setagaya": [15, 5, 3, 1, 0, 0],
-  "cairo-central-nile": [12, 7, 3, 1, 0, 1],
-};
-
-const DEFAULT_HAIR_WEIGHTS: readonly number[] = [6, 6, 5, 3, 3, 1];
 
 /**
  * Expands a weight row into one tone per palette slot. Consumers take a slot by
@@ -122,11 +91,11 @@ function expandPalette(
 }
 
 export function complexionWeightsForMap(mapId: string): readonly number[] {
-  return COMPLEXION_WEIGHTS[mapId] ?? DEFAULT_COMPLEXION_WEIGHTS;
+  return resolveMapVisualProfile(mapId).complexionWeights;
 }
 
 export function hairWeightsForMap(mapId: string): readonly number[] {
-  return HAIR_WEIGHTS[mapId] ?? DEFAULT_HAIR_WEIGHTS;
+  return resolveMapVisualProfile(mapId).hairWeights;
 }
 
 export function complexionPaletteForMap(mapId: string): readonly CharacterTone[] {

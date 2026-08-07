@@ -58,16 +58,20 @@ export const NATURE_MODELS: readonly NatureModel[] = [
   { id: "obelisk", url: `${P}/nature-obelisk.glb`, sets: ["arid", "civic"], scale: 5.0, role: "monument" },
 ];
 
-/** Which planting sets a city draws on, by `MapVisualKey`. */
+/**
+ * Which planting sets a city draws on, by `MapVisualKey`. NYC and London both
+ * fall to the shared temperate/civic default rather than each getting a row —
+ * kept as an explicit fallback (not a third table entry) because that is
+ * genuinely what both want, not a placeholder for a row nobody wrote yet.
+ */
+const NATURE_SETS_BY_VISUAL_KEY: Readonly<Record<string, readonly NatureSetId[]>> = {
+  cairo: ["arid", "civic"],
+  tokyo: ["temple", "temperate"],
+};
+const DEFAULT_NATURE_SETS: readonly NatureSetId[] = ["temperate", "civic"];
+
 export function natureSetsForMap(mapVisualKey: string): readonly NatureSetId[] {
-  switch (mapVisualKey) {
-    case "cairo":
-      return ["arid", "civic"];
-    case "tokyo":
-      return ["temple", "temperate"];
-    default:
-      return ["temperate", "civic"];
-  }
+  return NATURE_SETS_BY_VISUAL_KEY[mapVisualKey] ?? DEFAULT_NATURE_SETS;
 }
 
 /** De-duplicated glb URLs for the given sets, for a map-scoped preload. */

@@ -6,6 +6,7 @@
  * replay. Every choice below is therefore derived independently from a stable
  * string key containing the traffic seed and simulation vehicle id.
  */
+import { resolveMapVisualKey, resolveMapVisualProfile, type MapVisualKey } from "./visuals";
 
 export type PassengerVehicleStyle =
   | "electric-fastback"
@@ -28,16 +29,13 @@ export type VehicleAppearanceRole = TrafficVehicleVariant | "player" | "police";
 export type PlateRegion = "uk" | "us" | "jp" | "eg";
 
 /**
- * Maps a map id onto the country whose plates its traffic should wear. Uses the
- * same substring convention as the taxi/bus regional styling below; the UK is
- * the default.
+ * The country whose plates a map's traffic should wear, from the shared
+ * per-city visual registry (visuals.ts) rather than a local substring guess —
+ * the same fix #286 made for resolveMapVisualKey, and for the same reason: an
+ * unmapped or typo'd id must fail loudly, not silently borrow the UK's format.
  */
 export function plateRegionForMap(mapId: string): PlateRegion {
-  const id = mapId.toLowerCase();
-  if (id.includes("cairo") || id.includes("egypt")) return "eg";
-  if (id.includes("nyc") || id.includes("new-york")) return "us";
-  if (id.includes("tokyo")) return "jp";
-  return "uk";
+  return resolveMapVisualProfile(mapId).plateRegion;
 }
 
 // Plate registration characters. Letters drop I/O/Q (ambiguous with 1/0); the
@@ -471,20 +469,54 @@ export function policeAppearanceForMap(
   return policeAppearance({ mapId, vehicleId, trafficSeed, variant: "car" });
 }
 
-function isLondonVehicle(input: TrafficVehicleAppearanceInput): boolean {
-  const region = `${input.mapId}|${input.vehicleId}`.toLowerCase();
-  return region.includes("london");
+/**
+ * Per-city taxi paint and bus paint/silhouette. Replaces three mapId-substring
+ * boolean functions (`isLondonVehicle`/`isNewYorkVehicle`/`isCairoVehicle`)
+ * with one table keyed by the shared `MapVisualKey` (visuals.ts). This is
+ * vehicle-paint *content*, not city *identity*, so — unlike `plateRegion` —
+ * it stays local to this file rather than folding into visuals.ts's per-mapId
+ * registry: it mirrors how `POLICE_LIVERIES`/`POLICE_MODELS` above are
+ * already small tables keyed by a shared closed union, colocated with the
+ * rest of this module's vehicle-paint data.
+ */
+interface CityVehiclePolicy {
+  readonly taxiPaintHex: string;
+  readonly taxiAccentHex: string;
+  readonly busModel: "city-bus" | "london-double-decker";
+  readonly busPaintHex: string;
+  readonly busAccentHex: string;
 }
 
-function isNewYorkVehicle(input: TrafficVehicleAppearanceInput): boolean {
-  const region = `${input.mapId}|${input.vehicleId}`.toLowerCase();
-  return region.includes("nyc") || region.includes("new-york");
-}
-
-function isCairoVehicle(input: TrafficVehicleAppearanceInput): boolean {
-  const region = `${input.mapId}|${input.vehicleId}`.toLowerCase();
-  return region.includes("cairo") || region.includes("egypt");
-}
+const CITY_VEHICLE_POLICY: Readonly<Record<MapVisualKey, CityVehiclePolicy>> = {
+  nyc: {
+    taxiPaintHex: "#f2bb24",
+    taxiAccentHex: "#202830",
+    busModel: "city-bus",
+    busPaintHex: "#e8edef",
+    busAccentHex: "#2c6198",
+  },
+  london: {
+    taxiPaintHex: "#20262d",
+    taxiAccentHex: "#aeb8bf",
+    busModel: "london-double-decker",
+    busPaintHex: "#b21625",
+    busAccentHex: "#f0c8cb",
+  },
+  tokyo: {
+    taxiPaintHex: "#e9edef",
+    taxiAccentHex: "#276b78",
+    busModel: "city-bus",
+    busPaintHex: "#e8edef",
+    busAccentHex: "#287284",
+  },
+  cairo: {
+    taxiPaintHex: "#f2f1e9",
+    taxiAccentHex: "#252b2d",
+    busModel: "city-bus",
+    busPaintHex: "#e7e1d3",
+    busAccentHex: "#27788a",
+  },
+};
 
 /**
  * Resolves an NPC's visual identity without touching any shared random state.
@@ -511,29 +543,15 @@ export function resolveTrafficVehicleAppearance(
   }
 
   if (input.variant === "taxi") {
-    const london = isLondonVehicle(input);
-    const newYork = isNewYorkVehicle(input);
-    const cairo = isCairoVehicle(input);
+    const policy = CITY_VEHICLE_POLICY[resolveMapVisualKey(input.mapId)];
     return {
       model: "electric-taxi",
       role: "taxi",
       // Cairo's metered city taxis are white; the dark accent gives the model
       // its recognisable checker/belt read while the orange plate distinguishes
       // it from an ordinary white saloon.
-      paintHex: london
-        ? "#20262d"
-        : newYork
-          ? "#f2bb24"
-          : cairo
-            ? "#f2f1e9"
-            : "#e9edef",
-      accentHex: london
-        ? "#aeb8bf"
-        : newYork
-          ? "#202830"
-          : cairo
-            ? "#252b2d"
-            : "#276b78",
+      paintHex: policy.taxiPaintHex,
+      accentHex: policy.taxiAccentHex,
       dimensions: VEHICLE_DIMENSIONS["electric-taxi"],
       plateRegion,
       plateNumber,
@@ -555,22 +573,13 @@ export function resolveTrafficVehicleAppearance(
     };
   }
 
-  const london = isLondonVehicle(input);
-  const cairo = isCairoVehicle(input);
+  const policy = CITY_VEHICLE_POLICY[resolveMapVisualKey(input.mapId)];
   return {
-    model: london ? "london-double-decker" : "city-bus",
+    model: policy.busModel,
     role: "bus",
-    paintHex: london ? "#b21625" : cairo ? "#e7e1d3" : "#e8edef",
-    accentHex: london
-      ? "#f0c8cb"
-      : isNewYorkVehicle(input)
-        ? "#2c6198"
-        : cairo
-          ? "#27788a"
-          : "#287284",
-    dimensions: london
-      ? VEHICLE_DIMENSIONS["london-double-decker"]
-      : VEHICLE_DIMENSIONS["city-bus"],
+    paintHex: policy.busPaintHex,
+    accentHex: policy.busAccentHex,
+    dimensions: VEHICLE_DIMENSIONS[policy.busModel],
     plateRegion,
     plateNumber,
     livery: null,

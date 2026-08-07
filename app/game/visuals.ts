@@ -4,7 +4,20 @@
  * texture specs, planar UVs, and roadside prop placement. Everything here is
  * renderer-agnostic (no Babylon imports) so it can be unit-tested directly;
  * GameCanvas owns the canvas painting and mesh construction.
+ *
+ * This is also the per-city *identity* registry (issue #291): `MapVisualProfile`
+ * carries the small selector facts every render-side seam needs to pick its own
+ * per-city data (which plate region, which building-set catalogues, which nature
+ * sets, which character weights) — never the bulky content tables themselves
+ * (paint hex codes, model catalogues, colour ramps stay in their domain file).
+ * `BuildingSetId`/`PlateRegion` are imported type-only, so this file's back-
+ * reference to `buildingSets.ts`/`vehicleVisuals.ts` is erased at compile time
+ * and never becomes a runtime import cycle, even though both of those files
+ * import real values from here.
  */
+import { natureSetsForMap, type NatureSetId } from "./natureCatalog";
+import type { BuildingSetId } from "./buildingSets";
+import type { PlateRegion } from "./vehicleVisuals";
 
 export function seededUnit(seed: number) {
   let value = (Math.trunc(seed) || 1) >>> 0;
@@ -168,19 +181,81 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
 
 /**
  * Per-city visual profile, keyed by the map's exact, authored id. Deliberately
- * a record rather than a bare `mapId -> MapVisualKey` map: issue #291 widens
- * this same entry with palette/vehicle/nature/building/character fields, and
- * must not need a second table alongside this one. `visualKey` stays first.
+ * a record rather than a bare `mapId -> MapVisualKey` map: widened in place by
+ * issue #291 with the palette/vehicle/nature/building/character selectors every
+ * render-side seam needs, rather than each seam keeping its own mapId-sniffing
+ * union or switch. `visualKey` stays first.
+ *
+ * `buildingSets`/`natureSets` are *allow-lists*, not full catalogues — the
+ * catalogues (glb urls, placement configs) stay in `buildingSets.ts` /
+ * `natureCatalog.ts`. `plateRegion` replaces `vehicleVisuals.ts`'s old
+ * substring-matched `plateRegionForMap`; vehicle paint/model policy (which is
+ * *content*, not identity) stays a small table in `vehicleVisuals.ts` itself,
+ * keyed by `visualKey`. `complexionWeights`/`hairWeights` are moved here
+ * verbatim from `characterPalettes.ts`, which was already keyed by this same
+ * exact mapId — folding them in retires its separate silent-default fallback,
+ * so an unmapped city now fails the same way for every field, not just some.
  */
 export interface MapVisualProfile {
   readonly visualKey: MapVisualKey;
+  /** Country whose plate format this map's vehicles wear. */
+  readonly plateRegion: PlateRegion;
+  /** Instanced building-set catalogues (`buildingSets.ts`) this city's block
+   * content may draw from. Empty for cities (London, Tokyo) whose buildings
+   * are all procedural facades / landmark dispatch rather than instanced sets. */
+  readonly buildingSets: readonly BuildingSetId[];
+  /** Park-planting catalogues (`natureCatalog.ts`) this city draws from. */
+  readonly natureSets: readonly NatureSetId[];
+  /**
+   * How many of each `characterPalettes.ts` ramp entry a walker pool gets;
+   * both sum to `CHARACTER_PALETTE_SLOTS`. A row is a rough read of who
+   * actually walks that neighbourhood: the Upper West Side draws flat across
+   * the complexion ramp, South Kensington leans a little lighter, Setagaya —
+   * a ward of a city that is overwhelmingly Japanese, with a visible but
+   * small international population — sits mostly in the upper half without
+   * emptying the lower one, and Central Cairo keeps a broad local range with
+   * a visible international population. Hair is deliberately not conditioned
+   * on complexion (dyed/bleached hair is ordinary in all four cities), but
+   * Setagaya and Cairo are both weighted almost entirely to black/dark brown,
+   * with none of the blonde their populations don't bear out.
+   */
+  readonly complexionWeights: readonly number[];
+  readonly hairWeights: readonly number[];
 }
 
 const MAP_VISUAL_PROFILES: Readonly<Record<string, MapVisualProfile>> = {
-  "nyc-upper-west-side": { visualKey: "nyc" },
-  "london-south-kensington": { visualKey: "london" },
-  "tokyo-setagaya": { visualKey: "tokyo" },
-  "cairo-central-nile": { visualKey: "cairo" },
+  "nyc-upper-west-side": {
+    visualKey: "nyc",
+    plateRegion: "us",
+    buildingSets: ["nyc-downtown", "nyc-midrise", "nyc-brownstone", "nyc-house", "nyc-shop"],
+    natureSets: natureSetsForMap("nyc"),
+    complexionWeights: [4, 4, 4, 4, 4, 4],
+    hairWeights: [7, 6, 4, 3, 3, 1],
+  },
+  "london-south-kensington": {
+    visualKey: "london",
+    plateRegion: "uk",
+    buildingSets: [],
+    natureSets: natureSetsForMap("london"),
+    complexionWeights: [2, 3, 4, 5, 5, 5],
+    hairWeights: [5, 6, 5, 3, 4, 1],
+  },
+  "tokyo-setagaya": {
+    visualKey: "tokyo",
+    plateRegion: "jp",
+    buildingSets: [],
+    natureSets: natureSetsForMap("tokyo"),
+    complexionWeights: [0, 1, 2, 6, 8, 7],
+    hairWeights: [15, 5, 3, 1, 0, 0],
+  },
+  "cairo-central-nile": {
+    visualKey: "cairo",
+    plateRegion: "eg",
+    buildingSets: ["cairo-corniche", "cairo-downtown", "cairo-zamalek", "cairo-westbank"],
+    natureSets: natureSetsForMap("cairo"),
+    complexionWeights: [3, 5, 6, 5, 4, 1],
+    hairWeights: [12, 7, 3, 1, 0, 1],
+  },
 };
 
 /**
