@@ -110,6 +110,7 @@ import { CreditsView } from "./CreditsView";
 import { LauncherView, DESTINATION_PREVIEW_IMAGES } from "./LauncherView";
 import { useGamepadUiNavigation } from "./useGamepadUiNavigation";
 import { DriveScreen } from "./DriveScreen";
+import { useDriveStatusPort } from "./drivePort";
 import {
   FULL_CONDITION_PCT,
   MIN_REPAIRABLE_DAMAGE_PCT,
@@ -531,6 +532,36 @@ export default function SideSwapApp() {
   >(null);
   const [hud, setHud] = useState<GameHudSnapshot | null>(null);
   const [driveFuel, setDriveFuel] = useState(TANK_CAPACITY_L);
+  // The one drive session's own status: vehicle condition, tow, the staged
+  // interaction cutscene, and citation dedupe bookkeeping. See
+  // `app/drivePort.ts`'s header for why this is a separate port from career
+  // money and the active gig.
+  const {
+    carCondition,
+    carConditionRef,
+    setCarCondition,
+    towing,
+    towingRef,
+    towFee,
+    towResetNonce,
+    startTow,
+    pulseTowReset,
+    endTow,
+    cutscene,
+    cutsceneRef,
+    beginCutscene,
+    clearCutscene,
+    fuelFillMs,
+    setFuelFillMs,
+    fineToast,
+    setFineToast,
+    lastAnyFineAtRef,
+    lastFineAtRef,
+    lastPedFineAtRef,
+    lastSpeedingFineAtRef,
+    pendingFineReasonRef,
+    pendingFineAmountRef,
+  } = useDriveStatusPort();
   const lastPoseRef = useRef<{ x: number; z: number } | null>(null);
   const lastHeadingRef = useRef(0);
   const [gig, setGig] = useState<Gig | null>(null);
@@ -594,59 +625,6 @@ export default function SideSwapApp() {
   // HUD has to know how wide the window is. Only on resize — never per frame.
   const [viewportWidth, setViewportWidth] = useState(HUD_DESIGN_WIDTH);
   const [viewportHeight, setViewportHeight] = useState(1080);
-  const [fineToast, setFineToast] = useState<{
-    amount: number;
-    reason: string;
-    issuedBy: "patrol" | "camera";
-  } | null>(null);
-  const lastFineAtRef = useRef(0);
-  // Per-drive car condition (100 = pristine). Collision events wear it down;
-  // at zero the car is towed and repaired for a fee. Never persisted — like
-  // the score, the wallet debit is the only durable consequence. The ref
-  // mirrors the state so back-to-back collision events in one frame all
-  // subtract from the live value.
-  const [carCondition, setCarCondition] = useState(FULL_CONDITION_PCT);
-  const carConditionRef = useRef(FULL_CONDITION_PCT);
-  const [towing, setTowing] = useState(false);
-  const towingRef = useRef(false);
-  // What the tow actually charged, so the overlay quotes the bill rather than
-  // re-deriving one. State, not a ref: the overlay is React-rendered.
-  const [towFee, setTowFee] = useState(0);
-  const towResetNonceRef = useRef(0);
-  const [towResetNonce, setTowResetNonce] = useState(0);
-  const lastPedFineAtRef = useRef(0);
-  // A speeding stop has a cooldown of its own, far longer than the 8s every
-  // other violation gets. The rule re-arms after 8s in the core and the app
-  // debounce is another 8, so a driver holding well over on a long avenue
-  // would be pulled roughly every ten seconds — more often than any other
-  // fineable rule can fire, and unrecognisable as policing. The officer just
-  // dealt with you.
-  const lastSpeedingFineAtRef = useRef(0);
-  // One moment, one charge — across every mechanism that can take money, which
-  // the three clocks above cannot see between them. Three things now fine the
-  // driver: a patrol stop, a camera, and striking someone. A swerve onto the
-  // pavement that hits a pedestrian is a single incident that trips
-  // `out_of_bounds` and `collision` in the same breath, and without this it
-  // pays for both. Deliberately short — it exists to collapse one incident, not
-  // to slow down a driver who genuinely reoffends, whose pacing stays with the
-  // per-mechanism clocks.
-  const lastAnyFineAtRef = useRef(0);
-  // Why the patrol pulled you over and what it will cost, both carried from
-  // the `fine` event that staged the stop to the citation step that charges
-  // for it. The amount is settled here rather than at `cite` because the
-  // evidence arrives with the event and the scene step carries only a nonce.
-  const pendingFineReasonRef = useRef<string | null>(null);
-  const pendingFineAmountRef = useRef<number | null>(null);
-  // The interaction cutscene being performed (refuel, boarding, an errand).
-  // While set, the canvas locks driving input; its `done` event applies the
-  // durable effect (gig state flip) and clears this. The ref mirrors the
-  // state so the 10 Hz HUD path and event handler read the live value.
-  const [cutscene, setCutscene] = useState<CutsceneRequest | null>(null);
-  const cutsceneRef = useRef<CutsceneRequest | null>(null);
-  const cutsceneNonceRef = useRef(0);
-  // While the pump runs, the fuel bar's CSS transition is stretched to the
-  // fill window so the gauge glides while the driver holds the nozzle.
-  const [fuelFillMs, setFuelFillMs] = useState(0);
   // ---- Career Mode day state. Money is day-local (dayCash/dayLog) and only
   // lands in the persisted slice at settlement — quitting mid-day redoes the
   // day from the morning. Refs mirror state so multiple money events in one
@@ -742,33 +720,6 @@ export default function SideSwapApp() {
     [],
   );
 
-  const clearCutscene = useCallback(() => {
-    cutsceneRef.current = null;
-    setCutscene(null);
-    setFuelFillMs(0);
-  }, []);
-
-  const beginCutscene = useCallback(
-    (
-      kind: CutsceneRequest["kind"],
-      venueId?: string,
-      actorSeedId?: string,
-      fuelFillFraction?: number,
-    ) => {
-      if (cutsceneRef.current || towingRef.current) return;
-      cutsceneNonceRef.current += 1;
-      const request: CutsceneRequest = {
-        nonce: cutsceneNonceRef.current,
-        kind,
-        venueId,
-        actorSeedId,
-        fuelFillFraction,
-      };
-      cutsceneRef.current = request;
-      setCutscene(request);
-    },
-    [],
-  );
   // Lives out here rather than inside GameCanvas, which remounts mid-session
   // whenever the destination or steering side changes — music placed in there
   // would restart at apparently random moments.
@@ -995,7 +946,7 @@ export default function SideSwapApp() {
         }
       }
     }
-  }, [updateGpsRoute, stepDispatchNow]);
+  }, [updateGpsRoute, stepDispatchNow, cutsceneRef, towingRef]);
 
   /**
    * Answers the live offer. Accepting takes the job now, or parks it behind the
@@ -1263,7 +1214,7 @@ export default function SideSwapApp() {
       }
       setFineToast({ amount, reason, issuedBy });
     },
-    [progress, driveCountry, chargeCareer],
+    [progress, driveCountry, chargeCareer, lastAnyFineAtRef, setFineToast],
   );
 
   /**
@@ -1293,8 +1244,6 @@ export default function SideSwapApp() {
   // modal — the drive itself never stops being playable for long.
   const beginTow = useCallback(() => {
     if (towingRef.current) return;
-    towingRef.current = true;
-    setTowing(true);
     // A scene in flight is torn down by the session's reset; drop the app
     // side too so nothing waits on a `done` that will never come.
     clearCutscene();
@@ -1304,7 +1253,7 @@ export default function SideSwapApp() {
     // read the same flat constant independently, which was harmless only for
     // as long as the price was constant.
     const fee = repairPrice(driveCountry, FULL_CONDITION_PCT, "tow");
-    setTowFee(fee);
+    startTow(fee);
     if (careerRunRef.current) {
       // Day-local money: the repair bill can push the day negative.
       chargeCareer(fee, (log) => ({
@@ -1318,21 +1267,26 @@ export default function SideSwapApp() {
     }
     const reduced = progress.accessibility.reducedMotion;
     window.setTimeout(() => {
-      towResetNonceRef.current += 1;
-      setTowResetNonce(towResetNonceRef.current);
-      carConditionRef.current = FULL_CONDITION_PCT;
-      setCarCondition(FULL_CONDITION_PCT);
+      pulseTowReset();
     }, reduced ? 80 : 900);
     window.setTimeout(() => {
-      towingRef.current = false;
-      setTowing(false);
+      endTow();
       // The whistle blew during the tow: settle now that the overlay is gone.
       if (pendingSettleRef.current && careerRunRef.current) {
         pendingSettleRef.current = false;
         endCareerDayRef.current();
       }
     }, reduced ? 500 : 2400);
-  }, [progress, driveCountry, clearCutscene, chargeCareer]);
+  }, [
+    progress,
+    driveCountry,
+    clearCutscene,
+    chargeCareer,
+    startTow,
+    pulseTowReset,
+    endTow,
+    towingRef,
+  ]);
 
   // Collision events wear the car down (and striking a person is cited on the
   // spot); a fine event reaches us only when a patrol witnessed the violation.
@@ -1643,6 +1597,17 @@ export default function SideSwapApp() {
       chargeFine,
       promoteQueuedGig,
       announcePayout,
+      carConditionRef,
+      cutsceneRef,
+      towingRef,
+      lastAnyFineAtRef,
+      lastFineAtRef,
+      lastPedFineAtRef,
+      lastSpeedingFineAtRef,
+      pendingFineAmountRef,
+      pendingFineReasonRef,
+      setCarCondition,
+      setFuelFillMs,
     ],
   );
 
@@ -1651,7 +1616,7 @@ export default function SideSwapApp() {
     if (!fineToast) return;
     const timer = window.setTimeout(() => setFineToast(null), 3400);
     return () => window.clearTimeout(timer);
-  }, [fineToast]);
+  }, [fineToast, setFineToast]);
 
   // On a phone the bottom of the screen belongs to thumbs. The HUD has to know,
   // because it used to lay the wallet card straight over the steering control
@@ -1808,10 +1773,8 @@ export default function SideSwapApp() {
     setHud(null);
     setPaused(false);
     setMapOpen(false);
-    carConditionRef.current = FULL_CONDITION_PCT;
     setCarCondition(FULL_CONDITION_PCT);
-    towingRef.current = false;
-    setTowing(false);
+    endTow();
     clearCutscene();
     setView("driving");
   };
@@ -1982,10 +1945,8 @@ export default function SideSwapApp() {
     setHud(null);
     setPaused(false);
     setMapOpen(false);
-    carConditionRef.current = FULL_CONDITION_PCT;
     setCarCondition(FULL_CONDITION_PCT);
-    towingRef.current = false;
-    setTowing(false);
+    endTow();
     clearCutscene();
     setLastSettlement(null);
     setView("driving");
