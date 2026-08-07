@@ -378,6 +378,23 @@ vi.mock("next/dynamic", () => ({
           >
             collision
           </button>
+          {/* A rule the sim caught but no patrol witnessed — the rider in the
+              back sees it happen either way, which is the whole reason the
+              tip/rating stream reads every rule trip rather than just the
+              fine stream (see `docs/economy.md`). No `fine` event follows, so
+              nothing should ever move in the wallet from this alone. */}
+          <button
+            type="button"
+            data-testid="mock-coaching"
+            onClick={() =>
+              props.onEvent?.({
+                type: "coaching",
+                ruleCode: "lane_discipline",
+              })
+            }
+          >
+            coaching
+          </button>
           <button
             type="button"
             data-testid="mock-scene-done"
@@ -915,6 +932,85 @@ describe("career mode flow", () => {
     expect(screen.getByTestId("forecast-installment")).toHaveTextContent(
       "$3.00",
     );
+  });
+
+  // The whistle can blow while a scene is still playing out — see
+  // `docs/economy.md`'s "Whistle mid-cutscene defers settlement" note. Every
+  // other settlement test in this file reaches `mock-hud-end` with no active
+  // cutscene, so the immediate branch is all they exercise; this drives the
+  // deferred one, `pendingSettleRef`, directly.
+  it("defers settlement until an in-flight citation scene resolves", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+
+    fireEvent.click(screen.getByTestId("mock-fine"));
+    fireEvent.click(screen.getByTestId("mock-scene-cite"));
+    // The citation has already been charged, but the scene itself — the
+    // officer still at the window — has not resolved yet.
+    expect(screen.getByLabelText("Mock driving scene")).toHaveAttribute(
+      "data-cutscene-kind",
+      "pullover",
+    );
+
+    fireEvent.click(screen.getByTestId("mock-hud-end"));
+    // The whistle blew mid-scene: nothing settles yet, and the drive itself
+    // keeps running underneath the pull-over.
+    expect(
+      screen.queryByRole("heading", { name: /The day's reckoning/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Mock driving scene")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    // The scene resolved: the deferred settlement now runs.
+    expect(
+      await screen.findByRole("heading", { name: /The day's reckoning/i }),
+    ).toBeVisible();
+  });
+
+  // The other scene that can outlast the whistle: an automatic tow, which
+  // runs on its own two-timer schedule rather than a player-driven cutscene.
+  it("defers settlement until the tow overlay resolves", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+
+    vi.useFakeTimers();
+    // Four 12 m/s wall strikes write the car off and start the automatic tow
+    // (see "charges a write-off once…" above for the per-hit condition math).
+    for (let index = 0; index < 4; index += 1) {
+      fireEvent.click(screen.getByTestId("mock-collision"));
+    }
+    expect(screen.getByText("Your car's a write-off.")).toBeVisible();
+
+    fireEvent.click(screen.getByTestId("mock-hud-end"));
+    expect(
+      screen.queryByRole("heading", { name: /The day's reckoning/i }),
+    ).not.toBeInTheDocument();
+    // Still mid-tow: the overlay has not resolved either of its two timers.
+    expect(screen.getByText("Your car's a write-off.")).toBeVisible();
+
+    // The reset pulse (car repaired, session nonce bumped) at 900ms; the
+    // overlay itself clears at 2400 — the same two beats "charges a
+    // write-off once…" exercises, just with a day-end already waiting.
+    act(() => vi.advanceTimersByTime(900));
+    expect(
+      screen.queryByRole("heading", { name: /The day's reckoning/i }),
+    ).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1_500));
+
+    // The overlay resolved: the deferred settlement now runs. Synchronous,
+    // like the rest of this test — `findBy`'s polling wait needs real timers,
+    // and the state update already flushed inside the `act` above.
+    expect(
+      screen.getByRole("heading", { name: /The day's reckoning/i }),
+    ).toBeVisible();
   });
 
   it("discards a quit day: same slice, same day, back at the garage", async () => {
@@ -1843,6 +1939,97 @@ describe("dispatch: a job from offer to payout", () => {
       `TIP +${formatMoney(tip, getCountryProfile("us"))}`,
     );
     expect(screen.getByTestId("dispatch-idle")).toBeVisible();
+  });
+
+  // `handleGameEvent`'s very first branch: a rider in the back sees every
+  // rule trip while carrying, witnessed or not, and it costs a share of the
+  // tip — see `docs/economy.md`'s "Tips live here" section. Nothing else in
+  // the suite dispatches a bare `coaching` event or checks that the count it
+  // leaves behind (`carryViolationsRef`) actually reaches the payout.
+  it("counts a rider-witnessed coaching violation toward the tip, once carrying", async () => {
+    const CAREER_SEED = 2;
+    const expected = firstOfferOf("us-nyc", CAREER_SEED);
+    expect(expected.kind).toBe("passenger");
+
+    await startSeededDay(CAREER_SEED, "compact-hatch");
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
+    driveTo(expected.pickup);
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+    expect(screen.getByLabelText("Mock driving scene")).toHaveAttribute(
+      "data-gig-stop-carrying",
+      "true",
+    );
+
+    const money = (text: string | null): number =>
+      Number((text ?? "").replace(/[^0-9.-]/g, ""));
+    const cashBefore = money(screen.getByTestId("day-cash").textContent);
+    fireEvent.click(screen.getByTestId("mock-coaching"));
+    // A coaching note is not a citation — nothing witnessed it, so nothing is
+    // charged. Only the rider's own tally moved.
+    expect(money(screen.getByTestId("day-cash").textContent)).toBe(cashBefore);
+
+    driveTo(expected.dropoff);
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+
+    const vehicle = getCareerVehicle("compact-hatch");
+    const { gross, net } = careerFare(expected.reward, "passenger", vehicle);
+    const tip = rideTip(gross, expected.seed, {
+      promptness: 1,
+      violations: 1,
+      surged: expected.surged,
+    });
+    expect(tip).toBeLessThan(
+      rideTip(gross, expected.seed, {
+        promptness: 1,
+        violations: 0,
+        surged: expected.surged,
+      }),
+    );
+    expect(money(screen.getByTestId("day-cash").textContent)).toBe(
+      cashBefore + net + tip,
+    );
+  });
+
+  // The other half of that same first branch: a collision while carrying
+  // counts toward the rider's tip on top of whatever it does to the car.
+  it("counts a collision while carrying toward the tip too, on top of the damage it does", async () => {
+    const CAREER_SEED = 2;
+    const expected = firstOfferOf("us-nyc", CAREER_SEED);
+    expect(expected.kind).toBe("passenger");
+
+    await startSeededDay(CAREER_SEED, "compact-hatch");
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
+    driveTo(expected.pickup);
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+
+    const scene = screen.getByLabelText("Mock driving scene");
+    expect(scene).toHaveAttribute("data-condition", "100");
+    fireEvent.click(screen.getByTestId("mock-collision"));
+    // The same shunt that dents the car also counts against the rider's tip
+    // — one event, two independent effects.
+    expect(scene).not.toHaveAttribute("data-condition", "100");
+
+    driveTo(expected.dropoff);
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+
+    const vehicle = getCareerVehicle("compact-hatch");
+    const { gross } = careerFare(expected.reward, "passenger", vehicle);
+    const tipWithViolation = rideTip(gross, expected.seed, {
+      promptness: 1,
+      violations: 1,
+      surged: expected.surged,
+    });
+    const tipClean = rideTip(gross, expected.seed, {
+      promptness: 1,
+      violations: 0,
+      surged: expected.surged,
+    });
+    expect(tipWithViolation).toBeLessThan(tipClean);
+    expect(screen.getByTestId("dispatch-toast")).toHaveTextContent(
+      `TIP +${formatMoney(tipWithViolation, getCountryProfile("us"))}`,
+    );
   });
 
   it("re-searches the live GPS route after the car leaves its current line", async () => {
