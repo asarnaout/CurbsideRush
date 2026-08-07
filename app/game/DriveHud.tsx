@@ -1,42 +1,50 @@
 /**
- * The desktop drive HUD, built to the `Curbside Driving HUD Desktop` design.
+ * The desktop and mobile drive HUD, built to the `Curbside Driving HUD
+ * Desktop`/`Curbside Driving HUD Mobile` designs.
  *
- * Props-pure and deliberately free of any Babylon import, so `tests/driveHud.
- * test.tsx` can render it in jsdom the way `touchDriveControls.test.tsx`
- * renders the controls. It knows nothing about gigs, dispatch or career — the
- * app hands it finished strings and numbers.
+ * This file is a compatibility barrel (#290): every symbol it exported before
+ * the split still exports from here unchanged, so no importer needs to
+ * change its path (`tests/driveHud.test.tsx`, `tests/expandedMap.test.tsx`,
+ * `DriveScreen.tsx`, `SideSwapApp.tsx`, `ExpandedMap.tsx` and
+ * `MapPoiLayer.tsx` all still import from `./game/DriveHud` /
+ * `./DriveHud`). The implementation now lives in `driveHud/`, split along
+ * measured coupling — which components/helpers actually shared which local
+ * constants, types and helpers — rather than along the original file's
+ * section comments; see the PR description for the coupling table. Order
+ * below follows the dependency graph the measurement produced:
  *
- * **Every layer here takes its z-index from `DRIVE_LAYER`.** The HUD and the
+ * - `driveHud/tokens.tsx` — palette, type, `resolveHudScale`, `HudGlyph`, and
+ *   the internal `cluster()`/`MUSIC_DIM_COLOR` helpers. The one module every
+ *   other one below depends on; it depends on nothing else here.
+ * - `driveHud/navCard.tsx` — `DriveNavCard` and the manoeuvre/job/gauge
+ *   shapes it alone consumes. (These were grouped under a "Shared shapes"
+ *   heading in the original file, but were never actually shared with
+ *   another component in it — only with callers outside the file.)
+ * - `driveHud/dayTimer.tsx` — the career shift clock's shared resolution
+ *   (`resolveDayTimer`, `HudDayTimer`, `DAY_TIMER_METRICS`) and its
+ *   full-bleed edge-bar home, `DriveDayEdge`.
+ * - `driveHud/speed.tsx` — `DriveSpeedCluster`, the clock's other home.
+ *   Imports `driveHud/dayTimer.tsx`'s `DAY_TIMER_METRICS`/`HudDayTimer`;
+ *   `driveHud/dayTimer.tsx` depends on nothing from here in return.
+ * - `driveHud/money.tsx` — `DriveMoneyCluster` and its button shape.
+ * - `driveHud/alerts.tsx` — `DriveSurgeBanner` and the generic `DriveToast`.
+ * - `driveHud/offer.tsx` — the gig offer: `HudOffer`, `DriveOfferCard`,
+ *   `DriveOfferGlow`, `DriveOfferBar`, `DriveOfferPanel`.
+ * - `driveHud/cornerButton.tsx` — `DriveCornerButton`, the phone's own
+ *   music/map row.
+ *
+ * Every module above is props-pure and free of any Babylon import, same as
+ * this file always was, so `tests/driveHud.test.tsx` and
+ * `tests/expandedMap.test.tsx` still render them in jsdom. See
+ * `docs/drive-hud.md` for the layering and positioning invariants that
+ * shaped where each cluster's boundary was allowed to fall.
+ *
+ * **Every layer takes its z-index from `DRIVE_LAYER`.** The HUD and the
  * driving controls are z-order siblings in one stacking context spread across
  * two files, and hard-coding a number in either is how the pedals ended up
  * painted under the minimap for months — invisible, still tappable, and
  * untestable. See `driveLayers.ts`.
- *
- * The comp is a fixed 1920x1080 frame and every cluster is corner-anchored, so
- * each is laid out at the comp's own pixel sizes and then scaled as a whole
- * (`scale`, from `resolveHudScale`). That keeps one set of numbers to check
- * against the design instead of a second responsive arithmetic to get wrong.
  */
-
-import type { CSSProperties, ReactNode } from "react";
-
-import { DRIVE_LAYER } from "./driveLayers";
-import { TOUCH_CORNER_SLOT_PX } from "./TouchDriveControls";
-import {
-  CAMERA_ICON,
-  FOOD_ICON,
-  MAP_ICON,
-  MUSIC_ICON,
-  MUSIC_MUTED_ICON,
-  PARCEL_ICON,
-  PAUSE_ICON,
-  RIDER_ICON,
-  STOPWATCH_ICON,
-  WALLET_ICON,
-} from "./hudIcons";
-
-
-import { HUD_CREAM, HudGlyph, MUSIC_DIM_COLOR } from "./driveHud/tokens";
 
 export {
   HUD_CREAM,
@@ -53,6 +61,9 @@ export {
   HudGlyph,
 } from "./driveHud/tokens";
 
+export { DriveNavCard } from "./driveHud/navCard";
+export type { HudManoeuvre, HudGauge, HudJob } from "./driveHud/navCard";
+
 export {
   DAY_TIMER_WARN_S,
   DAY_TIMER_CRITICAL_S,
@@ -65,9 +76,6 @@ export type { DayTimerTone, HudDayTimer } from "./driveHud/dayTimer";
 
 export { SPEED_OVER_BANDS, speedOverBand, DriveSpeedCluster } from "./driveHud/speed";
 export type { SpeedOverBand } from "./driveHud/speed";
-
-export { DriveNavCard } from "./driveHud/navCard";
-export type { HudManoeuvre, HudGauge, HudJob } from "./driveHud/navCard";
 
 export { DriveMoneyCluster } from "./driveHud/money";
 export type { DriveMoneyClusterButton } from "./driveHud/money";
@@ -89,80 +97,4 @@ export {
 } from "./driveHud/offer";
 export type { HudOffer } from "./driveHud/offer";
 
-
-// ---------------------------------------------------------------------------
-// Top-centre: how fast you are going, against how fast you may — and, in
-// career, how long you have left to do it in
-// ---------------------------------------------------------------------------
-
-
-// ---------------------------------------------------------------------------
-// Top-right: the money, and what you can press
-// ---------------------------------------------------------------------------
-
-
-/**
- * A round button the app owns on a phone.
- *
- * `TouchDriveControls` starts its own row clear of these — camera, pause and
- * fullscreen are the session's, music and the city map are the app's, and the
- * two sets must not stack on top of each other. `TOUCH_CORNER_RAIL_PX` is the
- * width they agree on; a third app button means widening it.
- *
- * `slot` counts leftward from the corner, so slot 0 is the corner itself.
- */
-export function DriveCornerButton({
-  inset,
-  slot = 0,
-  icon,
-  activeIcon,
-  label,
-  pressed,
-  onPress,
-  testId,
-}: {
-  inset: { readonly top: string; readonly right: string };
-  slot?: number;
-  icon: readonly string[];
-  /** Swapped in while `pressed`, and dimmed — the muted note's treatment. */
-  activeIcon?: readonly string[];
-  label: string;
-  pressed?: boolean;
-  onPress: () => void;
-  testId?: string;
-}) {
-  const dimmed = Boolean(pressed && activeIcon);
-  return (
-    <button
-      type="button"
-      onClick={onPress}
-      aria-pressed={pressed}
-      aria-label={label}
-      title={label}
-      data-testid={testId}
-      style={{
-        position: "absolute",
-        top: inset.top,
-        right: `calc(${inset.right} + ${slot * TOUCH_CORNER_SLOT_PX}px)`,
-        width: 44,
-        height: 44,
-        borderRadius: "50%",
-        background: "rgba(11,15,17,.6)",
-        backdropFilter: "blur(14px)",
-        border: "1px solid rgba(255,255,255,.1)",
-        display: "grid",
-        placeItems: "center",
-        padding: 0,
-        cursor: "pointer",
-        zIndex: DRIVE_LAYER.action,
-      }}
-    >
-      <HudGlyph
-        path={dimmed ? activeIcon! : icon}
-        size={19}
-        strokeWidth={2.75}
-        color={dimmed ? MUSIC_DIM_COLOR : HUD_CREAM}
-      />
-    </button>
-  );
-}
+export { DriveCornerButton } from "./driveHud/cornerButton";
