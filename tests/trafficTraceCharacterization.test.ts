@@ -94,7 +94,7 @@ describe("ambient traffic trace characterization", () => {
         ]),
       ),
     ).toEqual({
-      "free-us": "53de2bfc",
+      "free-us": "ea720991",
       "free-uk-london": "45e4c559",
       "free-jp": "997675a9",
       "free-eg": "eb350f99",

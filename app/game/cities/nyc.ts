@@ -196,7 +196,16 @@ const intersectionStop = (
     // same convention `buildNycGrid` uses for lane offsets.
     const rightX = Math.cos(rad);
     const rightZ = -Math.sin(rad);
-    const poleOffset = arm.widthM / 2 + 2.2;
+    // stopPoint already sits NYC_LANE_OFFSET_M off the road centreline (it's
+    // a point on the lane, not the road), so only the remainder to the kerb
+    // plus a small stand-off is needed here — adding the full half-width on
+    // top double-counted that offset and, on a wide two-way stop-class road,
+    // pushed the pole 2-3 m further out than a real one ever stands. Only
+    // mattered once a one-way stop-class street's DO NOT ENTER sign could
+    // land in that overshoot (regulatorySigns.test.ts, the borough's bank
+    // streets) — every prior stop-class road was too narrow, or had nothing
+    // else authored nearby, to expose it.
+    const poleOffset = arm.widthM / 2 - NYC_LANE_OFFSET_M + 2.2;
     const approachId = `${id}-${arm.laneId}-app`;
     approaches.push(approach(approachId, arm.laneId, stopDistance, `${id}-stop`, [zoneId]));
     installations.push(
@@ -396,10 +405,15 @@ const NYC_TRANSVERSE_CROSSINGS = [...NYC_WEST_STREET_CROSSINGS, ...NYC_EAST_STRE
  * bank. Two street specs sharing both a latitude AND a crossing avenue would
  * mint two disconnected lane-graph nodes at that physical corner (node ids
  * are per road-pair), so the bridge and its approach would never actually
- * connect. `vern`/`cres`/`stein` don't exist until Phase 5; listing them now
- * is inert until then, same as `third`'s own reach into these two keys.
+ * connect. One spec crossing all four of `third`/`vern`/`cres`/`stein` is
+ * what makes the bridge itself the only "approach road" on either bank.
  */
 const NYC_BRIDGE_CROSSINGS = ["third", "vern", "cres", "stein"] as const;
+/**
+ * The borough's own cross streets stop at Steinway — they never reach Third
+ * Ave, so they get their own list rather than NYC_EAST_STREET_CROSSINGS.
+ */
+const NYC_BOROUGH_STREET_CROSSINGS = ["vern", "cres", "stein"] as const;
 
 export const NYC_STREETS: readonly NycRoadSpec[] = [
   { key: "59", nodeKey: "59", roadId: "nyc-west-59", name: "W 59th St", speedLimit: 30, coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
@@ -410,6 +424,18 @@ export const NYC_STREETS: readonly NycRoadSpec[] = [
   // are added, and traffic vanishes there (#128's failure mode) — see
   // .claude/nyc-east-expansion-plan.md section 3.2 and pitfall 15.
   { key: "e61", nodeKey: "e61", roadId: "nyc-east-61", name: "E 61st St", speedLimit: 30, coordinate: -1200, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
+  // Bank streets bk40/bk44/bk48/bk52/bk56 are the borough's own cross
+  // streets — stop-class, so the neighbourhood reads residential rather than
+  // a Manhattan copy (nycZoneFor's "vern-cres"/"cres-stein" comment). bk40
+  // and bk56 bound the borough at its south and north edges and MUST be
+  // two-way, the same dead-corner trap E 61st/E 100th guard against: staying
+  // one-way eastbound only saves Vernon's corner (its arrival can still turn
+  // onto the one-way flow heading into the grid) — Steinway is the last
+  // avenue, so its own through-traffic arriving at either bank street has
+  // nowhere to turn onto once nothing lies further east to receive it. Walked
+  // all four corners by hand after this change; content.test.ts caught it
+  // first when it was one-way.
+  { key: "bk40", nodeKey: "bk40", roadId: "nyc-bank-40", name: "40th Ave", speedLimit: 25, coordinate: -1080, widthM: 9, oneWay: null, lanesPerDirection: 1, crossings: NYC_BOROUGH_STREET_CROSSINGS, junctionControl: "stop" },
   // W/E 65th, 79th and 96th are the park transverses: real crossings, so
   // they run the park's full width rather than stopping at its edge.
   { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", speedLimit: 30, coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_TRANSVERSE_CROSSINGS },
@@ -430,18 +456,22 @@ export const NYC_STREETS: readonly NycRoadSpec[] = [
   { key: "68", nodeKey: "68", roadId: "nyc-west-68", name: "W 68th St", speedLimit: 25, coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   { key: "72", nodeKey: "72", roadId: "nyc-west-72", name: "W 72nd St", speedLimit: 30, coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   { key: "e72", nodeKey: "e72", roadId: "nyc-east-72", name: "E 72nd St", speedLimit: 25, coordinate: -480, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
+  { key: "bk44", nodeKey: "bk44", roadId: "nyc-bank-44", name: "44th Ave", speedLimit: 25, coordinate: -360, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_BOROUGH_STREET_CROSSINGS, junctionControl: "stop" },
   { key: "75", nodeKey: "75", roadId: "nyc-west-75", name: "W 75th St", speedLimit: 25, coordinate: -240, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   { key: "79", nodeKey: "79", roadId: "nyc-west-79", name: "W 79th St", speedLimit: 30, coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_TRANSVERSE_CROSSINGS },
+  { key: "bk48", nodeKey: "bk48", roadId: "nyc-bank-48", name: "48th Ave", speedLimit: 25, coordinate: 120, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_BOROUGH_STREET_CROSSINGS, junctionControl: "stop" },
   // W 82nd stops at Columbus: the museum and its grounds fill the block through
   // to Central Park West, exactly as they interrupt the real street grid there.
   { key: "82", nodeKey: "82", roadId: "nyc-west-82", name: "W 82nd St", speedLimit: 25, coordinate: 240, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: ["riv", "we", "bway", "amst", "col"] },
   { key: "86", nodeKey: "86", roadId: "nyc-west-86", name: "W 86th St", speedLimit: 30, coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   { key: "e86", nodeKey: "e86", roadId: "nyc-east-86", name: "E 86th St", speedLimit: 25, coordinate: 480, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
+  { key: "bk52", nodeKey: "bk52", roadId: "nyc-bank-52", name: "52nd Ave", speedLimit: 25, coordinate: 600, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_BOROUGH_STREET_CROSSINGS, junctionControl: "stop" },
   { key: "91", nodeKey: "91", roadId: "nyc-west-91", name: "W 91st St", speedLimit: 25, coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   { key: "e91", nodeKey: "e91", roadId: "nyc-east-91", name: "E 91st St", speedLimit: 25, coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
   // Harborline Bridge: two-way, one lane each way — the quieter crossing.
   { key: "hlb", nodeKey: "hlb", roadId: "nyc-harborline-bridge", name: "Harborline Bridge", speedLimit: 40, coordinate: 840, widthM: 12, oneWay: null, lanesPerDirection: 1, crossings: NYC_BRIDGE_CROSSINGS },
   { key: "96", nodeKey: "96", roadId: "nyc-west-96", name: "W 96th St", speedLimit: 30, coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_TRANSVERSE_CROSSINGS },
+  { key: "bk56", nodeKey: "bk56", roadId: "nyc-bank-56", name: "56th Ave", speedLimit: 25, coordinate: 1080, widthM: 9, oneWay: null, lanesPerDirection: 1, crossings: NYC_BOROUGH_STREET_CROSSINGS, junctionControl: "stop" },
   { key: "100", nodeKey: "100", roadId: "nyc-west-100", name: "W 100th St", speedLimit: 25, coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   // E 100th bounds the east grid on its north edge — two-way for the same
   // reason E 61st is on the south.
@@ -868,12 +898,13 @@ const nycZoneFor = (columnKey: string, centreZ: number): NycZone | null => {
       // comment above points back to.
       return null;
     case "vern-cres":
+      // Queensbridge Green (nyc-queensbridge-green) owns the 44th–48th Ave
+      // row, same museum-cell pattern as "col-cpw" and "fifth-mad" above.
+      if (centreZ > -360 && centreZ < 120) return null;
+      return NYC_ZONES.houses;
     case "cres-stein":
       // The borough: houses only, no tall buildings, per the owner's
-      // explicit requirement (NYC east expansion section 3.7). Until the
-      // borough phase's bank streets split these into proper rows, each is
-      // one giant block spanning the two bridges — still houses-zoned,
-      // just very deep ones.
+      // explicit requirement (NYC east expansion section 3.7).
       return NYC_ZONES.houses;
     default:
       // Every real column is listed above by name on purpose: a forgotten
@@ -965,6 +996,7 @@ function buildNycBlocks(
   // West-margin strips are a grid-edge concept, not a per-column one: still
   // walks globally consecutive streets to find each row's westmost reaching
   // avenue, same as the whole function did before the column split above.
+  const westAvenueKeys: readonly string[] = NYC_WEST_STREET_CROSSINGS;
   for (let row = 0; row + 1 < streets.length; row += 1) {
     const south = streets[row];
     const north = streets[row + 1];
@@ -975,9 +1007,14 @@ function buildNycBlocks(
       (avenue) => reaches(avenue, south) && reaches(avenue, north),
     );
     const westmost = present[0];
-    if (!westmost) continue;
-    // Riverside Drive's far side is Riverside Park, not frontage.
-    if (westmost.key === "riv") continue;
+    // A row only an east avenue reaches (the bridge-flanking rows, where
+    // only Third's crossings list stretches that far south/north of the
+    // bridgehead) has no real west-grid frontage missing — "westmost" here
+    // is an artifact of a crossings-list gap, not the map edge, and a margin
+    // beyond it would land inside Central Park (west of Fifth) or double up
+    // on the lex-third column's own block (west of Third). Riverside Drive's
+    // far side is Riverside Park, not frontage, so it is excluded too.
+    if (!westmost || !westAvenueKeys.includes(westmost.key) || westmost.key === "riv") continue;
     tagged.push({
       block: {
         id: `nyc-block-west-margin-${Math.round(centreZ)}`,
@@ -994,6 +1031,44 @@ function buildNycBlocks(
       streetIndex: row,
       avenueIndex: avenues.length,
     });
+  }
+
+  // East-margin strips: the mirror case, but only past Steinway — the
+  // borough's own east edge. Manhattan's east avenues never need this
+  // (Third Ave's far side is the river, itself null-zoned in nycZoneFor).
+  // Walking globally-consecutive streets (like the west loop above) doesn't
+  // work here: the bank streets each sit at a z the Manhattan grid doesn't
+  // use, so an ordinary street always falls between one bank street and the
+  // next in `streets`, and consecutive-pair present-filtering never finds
+  // two Steinway-reaching streets next to each other. Filter to Steinway's
+  // own reach first — same fix the per-column loop above needed to walk a
+  // column's rows instead of the whole grid's.
+  const stein = avenues.find((avenue) => avenue.key === "stein");
+  if (stein) {
+    const steinStreets = streets.filter((street) => reaches(stein, street));
+    for (let row = 0; row + 1 < steinStreets.length; row += 1) {
+      const south = steinStreets[row];
+      const north = steinStreets[row + 1];
+      const centreZ = (south.coordinate + north.coordinate) / 2;
+      const depthZ = north.coordinate - south.coordinate - NYC_BLOCK_INSET_M * 2;
+      if (depthZ <= 0) continue;
+      tagged.push({
+        block: {
+          id: `nyc-block-east-margin-${Math.round(centreZ)}`,
+          center: point(
+            stein.coordinate + NYC_BLOCK_INSET_M + NYC_MARGIN_DEPTH_M / 2,
+            centreZ,
+          ),
+          size: point(NYC_MARGIN_DEPTH_M, depthZ),
+          heightRange: NYC_ZONES.houses.heightRange,
+          density: NYC_ZONES.houses.density,
+          material: NYC_ZONES.houses.material,
+          buildingSet: NYC_ZONES.houses.buildingSet,
+        },
+        streetIndex: streets.indexOf(south),
+        avenueIndex: avenues.length + 1,
+      });
+    }
   }
 
   tagged.sort((a, b) => a.streetIndex - b.streetIndex || a.avenueIndex - b.avenueIndex);
@@ -1081,6 +1156,11 @@ export const NYC_MAP_PACK: MapPack = {
       // driver's right, and northbound's right is east — off the edge of
       // the developed grid, this phase, with no block to land on at all.
       { id: "nyc-repair-east", kind: "repair_shop", anchor: { laneId: "nyc-third-s-e91", distanceAlongM: 140 }, footprint: point(10, 8), label: "East Side Auto", setbackM: 12.1 },
+      // The borough's own station, on Vernon's southbound lane so the
+      // setback (always the driver's right) throws the lot west onto the
+      // open riverbank rather than east into the houses — same southbound
+      // trick as nyc-repair-east above, for the same reason.
+      { id: "nyc-gas-bank", kind: "gas_station", anchor: { laneId: "nyc-vern-s-bk52", distanceAlongM: 240 }, footprint: point(14, 9), label: "Queensview Fuel", setbackM: 18.7 },
     ],
     gigVenues: [
       { id: "nyc-v1", kind: "restaurant", anchor: { laneId: "nyc-amst-n-1-75", distanceAlongM: 22 }, footprint: point(28, 20), name: "Amsterdam Diner", setbackM: 18 },
@@ -1125,6 +1205,16 @@ export const NYC_MAP_PACK: MapPack = {
       // Down by the SE tower cluster (lex-third/fifth-mad, z < -960).
       { id: "nyc-v24", kind: "office", anchor: { laneId: "nyc-third-n-e61", distanceAlongM: 100 }, footprint: point(16, 14), name: "Third Avenue Towers Offices" },
       { id: "nyc-v25", kind: "residence", anchor: { laneId: "nyc-pk-n-e91", distanceAlongM: 20 }, footprint: point(14, 12), name: "Park Avenue at 91st" },
+      // The borough (NYC east expansion, section 3.8) — kept off the
+      // bk44-bk48 row Queensbridge Green owns, same discipline as everywhere
+      // else a landmark claims a cell.
+      { id: "nyc-v26", kind: "restaurant", anchor: { laneId: "nyc-vern-n-qvb", distanceAlongM: 240 }, footprint: point(28, 20), name: "Vernon Diner", setbackM: 18 },
+      { id: "nyc-v27", kind: "shop", anchor: { laneId: "nyc-cres-n-bk52", distanceAlongM: 100 }, footprint: point(16, 12), name: "Bridgeview Grocers" },
+      { id: "nyc-v28", kind: "residence", anchor: { laneId: "nyc-cres-n-bk48", distanceAlongM: 300 }, footprint: point(14, 12), name: "Crescent Street Residences" },
+      { id: "nyc-v29", kind: "residence", anchor: { laneId: "nyc-bk48-e-cres", distanceAlongM: 15 }, footprint: point(14, 12), name: "48th Avenue Houses" },
+      { id: "nyc-v30", kind: "restaurant", anchor: { laneId: "nyc-stein-n-bk52", distanceAlongM: 100 }, footprint: point(14, 14), name: "Steinway Pizzeria", modelId: "restaurant-pizzeria" },
+      // Queensview Bridge's own plaza, the grander of the two crossings.
+      { id: "nyc-v31", kind: "office", anchor: { laneId: "nyc-vern-s-qvb", distanceAlongM: 100 }, footprint: point(16, 14), name: "Bridge Plaza Offices" },
     ],
     // Central Park's lake, on the eastern half so it never fouls the
     // promenade, and between two of the derived crossings so it never
@@ -1227,6 +1317,12 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-esplanade-south", kind: "park", center: point(500, -1158), size: point(95, 604), color: "#4f7a3d" },
       { id: "nyc-esplanade", kind: "park", center: point(500, 0), size: point(95, 1640), color: "#4f7a3d" },
       { id: "nyc-esplanade-north", kind: "park", center: point(500, 1158), size: point(95, 604), color: "#4f7a3d" },
+      // Queensbridge Green: the borough's own park, wholly inside the
+      // vern-cres column (x 820..930 sits within the 813..937 interior) and
+      // clear of 44th/48th Aves by 140 m either side of its z-span. The
+      // vern-cres cell under it is null-zoned in nycZoneFor (the museum-cell
+      // pattern) so no house block shares its ground.
+      { id: "nyc-queensbridge-green", kind: "park", center: point(875, -120), size: point(110, 200), color: "#5c8c4b" },
       // Riverside Park fills the far side of Riverside Drive, where the land
       // really does fall away to the Hudson — so the west edge of the map is
       // green rather than another row of brownstones.
@@ -1276,6 +1372,14 @@ export const NYC_MAP_PACK: MapPack = {
       anchoredSpawn("nyc-cab-22", "vehicle", "nyc-lex-s-1-79", 200),
       anchoredSpawn("nyc-car-23", "vehicle", "nyc-third-n-79", 200),
       anchoredSpawn("nyc-van-24", "vehicle", "nyc-third-s-e86", 150),
+      // The borough (NYC east expansion, section 3.9) — one gate per bridge
+      // deck so a crossing car is a common sight, not a coincidence, plus
+      // Vernon and Steinway so the residential streets are not silent.
+      anchoredSpawn("nyc-car-25", "vehicle", "nyc-qvb-e-third", 180),
+      anchoredSpawn("nyc-cab-26", "vehicle", "nyc-hlb-w-vern", 180),
+      anchoredSpawn("nyc-van-27", "vehicle", "nyc-vern-n-bk44", 200),
+      anchoredSpawn("nyc-car-28", "vehicle", "nyc-vern-s-bk52", 100),
+      anchoredSpawn("nyc-car-29", "vehicle", "nyc-stein-n-bk48", 200),
       freeSpawn("nyc-ped-1", "pedestrian", -800, 12, 0),
       freeSpawn("nyc-ped-2", "pedestrian", -832, -10, 180),
       freeSpawn("nyc-ped-3", "pedestrian", -672, 12, 0),

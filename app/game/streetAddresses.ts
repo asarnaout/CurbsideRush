@@ -268,6 +268,19 @@ const EAST_CROSS_STREET = {
   numbersPerM: 0.55,
 } as const;
 
+/**
+ * Bank streets number east from Vernon Blvd, the same shape as
+ * `EAST_CROSS_STREET` but anchored so house #1 lands at Vernon (x 800):
+ * 1 - round(800 * 0.42) = -335. Numbers run slower per metre than
+ * Manhattan's side streets — a wider borough block, not a narrow one.
+ */
+const BOROUGH_CROSS_STREET = {
+  axis: "x",
+  baseNumber: -335,
+  axisSign: 1,
+  numbersPerM: 0.42,
+} as const;
+
 const STREET_PROFILES: Record<string, StreetProfile> = {
   "nyc-riverside": { ...AVENUE, baseNumber: 250 },
   "nyc-west-end": { ...AVENUE, baseNumber: 500 },
@@ -302,6 +315,18 @@ const STREET_PROFILES: Record<string, StreetProfile> = {
   "nyc-east-86": EAST_CROSS_STREET,
   "nyc-east-91": EAST_CROSS_STREET,
   "nyc-east-100": EAST_CROSS_STREET,
+  // The borough (NYC east expansion, section 3.8). Four-digit bases read as
+  // a different numbering district from Manhattan's, the way the real outer
+  // boroughs' addresses do. Bridges and the esplanade stay unprofiled
+  // deliberately — no doors open over water.
+  "nyc-vernon": { ...AVENUE, baseNumber: 4000 },
+  "nyc-crescent": { ...AVENUE, baseNumber: 4050 },
+  "nyc-steinway": { ...AVENUE, baseNumber: 4100 },
+  "nyc-bank-40": BOROUGH_CROSS_STREET,
+  "nyc-bank-44": BOROUGH_CROSS_STREET,
+  "nyc-bank-48": BOROUGH_CROSS_STREET,
+  "nyc-bank-52": BOROUGH_CROSS_STREET,
+  "nyc-bank-56": BOROUGH_CROSS_STREET,
 };
 
 /**

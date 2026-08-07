@@ -148,7 +148,7 @@ describe("what the corner widget carries", () => {
     const counts = countMapPois(widget);
     expect(counts.food).toBe(0);
     expect(counts.shop).toBe(0);
-    expect(counts.fuel).toBe(2);
+    expect(counts.fuel).toBe(3);
     expect(counts.repair).toBe(3);
     expect(widget.length).toBeLessThan(poisFor("nyc-upper-west-side").length);
   });
