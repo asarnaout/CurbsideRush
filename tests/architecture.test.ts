@@ -64,10 +64,10 @@ function expectNoImpureTokens(source: string, label: string): void {
 }
 
 const simulationDir = path.join(root, "app", "game", "simulation");
-/** Every seam module issue #284 split out of `simulation.ts` — `roadNetwork.ts`,
- * `mathUtils.ts`, and (as later commits land) `playerDynamics.ts`,
- * `trafficSystem.ts`, `roadRuleMonitor.ts`. Discovered by directory listing,
- * not hand-enumerated, so a new module is covered automatically. */
+/** Every seam module issue #284 split out of `simulation.ts` —
+ * `mathUtils.ts`, `roadNetwork.ts`, `playerDynamics.ts`, `trafficSystem.ts`,
+ * `roadRuleMonitor.ts`. Discovered by directory listing, not
+ * hand-enumerated, so a module added later is covered automatically. */
 const simulationSeamFiles = fs
   .readdirSync(simulationDir)
   .filter((name) => name.endsWith(".ts"))
