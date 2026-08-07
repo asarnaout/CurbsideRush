@@ -111,6 +111,7 @@ import { useGamepadUiNavigation } from "./useGamepadUiNavigation";
 import { DriveScreen } from "./DriveScreen";
 import { useDriveStatusPort } from "./drivePort";
 import { useCareerPort } from "./careerPort";
+import { useGigDispatchPort } from "./gigDispatchPort";
 import {
   FULL_CONDITION_PCT,
   MIN_REPAIRABLE_DAMAGE_PCT,
@@ -562,16 +563,47 @@ export default function SideSwapApp() {
     pendingFineReasonRef,
     pendingFineAmountRef,
   } = useDriveStatusPort();
+  // Hoisted up from beside `chargeFine` (its original spot) so `driveCountry`
+  // is available for `useGigDispatchPort` below — both are pure functions of
+  // `destinationId`, so where they run within the render makes no difference.
+  const destination = getDestinationProfile(destinationId);
+  const country = getCountryProfile(destination.countryId);
+  const driveDestination = getDestinationProfile(destinationId);
+  const driveCountry = getCountryProfile(driveDestination.countryId);
+  // The job currently being carried out, whatever is queued behind it, and
+  // how a completed one gets announced. See `app/gigDispatchPort.ts`'s
+  // header for why this is a separate port from drive status and career
+  // money, and deliberately narrower than "the dispatch subsystem."
+  const {
+    gig,
+    gigRef,
+    setGig,
+    queuedGig,
+    queuedGigRef,
+    setQueuedGig,
+    promoteQueuedGig,
+    carryingSinceMs,
+    carryingSinceRef,
+    carryViolationsRef,
+    startCarrying,
+    endCarryingLeg,
+    paidGigRef,
+    sessionEarnings,
+    setSessionEarnings,
+    payoutGain,
+    setPayoutGain,
+    dispatchToast,
+    setDispatchToast,
+    announcePayout,
+  } = useGigDispatchPort(driveCountry);
   const lastPoseRef = useRef<{ x: number; z: number } | null>(null);
   const lastHeadingRef = useRef(0);
-  const [gig, setGig] = useState<Gig | null>(null);
   // The kinds offered so far this drive, newest last, capped to the streak
   // window. Threaded into nextGigFor so no drive opens on a long run of one
   // kind — NYC's trafficSeed otherwise hashes to eight deliveries before the
   // first fare. Counted per *offer* rather than per gig served: a player who
   // passes on four deliveries has still been shown four deliveries.
   const gigKindHistoryRef = useRef<GigKind[]>([]);
-  const paidGigRef = useRef<string | null>(null);
   // ── Dispatch ─────────────────────────────────────────────────────────────
   // The schedule lives in a ref, not state: while the queue is full it re-arms
   // on every snapshot, which as state would be a set-per-tick for nothing. What
@@ -590,12 +622,6 @@ export default function SideSwapApp() {
   );
   const offerRef = useRef<Gig | null>(null);
   const [driveElapsedMs, setDriveElapsedMs] = useState(0);
-  const [queuedGig, setQueuedGig] = useState<Gig | null>(null);
-  const queuedGigRef = useRef<Gig | null>(null);
-  const [dispatchToast, setDispatchToast] = useState<{
-    text: string;
-    tone: "accept" | "pass" | "lost" | "paid";
-  } | null>(null);
   // Everything building an offer needs, parked where the `[]`-deps HUD
   // callback can reach it — same reason `careerRunRef` exists.
   const driveContextRef = useRef<{
@@ -606,8 +632,6 @@ export default function SideSwapApp() {
   } | null>(null);
   /** Sim-clock ms since the drive began, folded across tow resets. */
   const driveElapsedRef = useRef(0);
-  /** Rules broken since the current job was picked up — the rider is watching. */
-  const carryViolationsRef = useRef(0);
   const [surge, setSurge] = useState<SurgeWindow | null>(null);
   /**
    * The dashed line to a live offer's pickup — how far out of the way it is,
@@ -615,12 +639,6 @@ export default function SideSwapApp() {
    * once when the offer opens, never per frame.
    */
   const [previewRoute, setPreviewRoute] = useState<GpsRoute | null>(null);
-  // What this drive has earned, fare and tips together. Career reads its day
-  // cash from the ledger, but free drive had no running total at all — only a
-  // wallet that quietly went up.
-  const [sessionEarnings, setSessionEarnings] = useState(0);
-  /** The `+$x.xx` that floats off the balance on a payout, then clears. */
-  const [payoutGain, setPayoutGain] = useState<string | null>(null);
   // The comp is a fixed 1920 frame and its clusters are scaled to fit, so the
   // HUD has to know how wide the window is. Only on resize — never per frame.
   const [viewportWidth, setViewportWidth] = useState(HUD_DESIGN_WIDTH);
@@ -648,7 +666,6 @@ export default function SideSwapApp() {
     dayActiveRef,
     endCareerDayRef,
   } = useCareerPort();
-  const gigRef = useRef<Gig | null>(null);
   const [lastSettlement, setLastSettlement] = useState<{
     readonly result: SettlementResult;
     readonly slice: CareerSliceV2;
@@ -662,10 +679,6 @@ export default function SideSwapApp() {
     /** Tonight's standing: what the wipe report and the career page read. */
     readonly rating: RatingSettlement;
   } | null>(null);
-  // Day-clock timestamp when the current career gig entered "carrying"; the
-  // tip window (Crazy Taxi-style par time on the carrying leg) counts from it.
-  const [carryingSinceMs, setCarryingSinceMs] = useState<number | null>(null);
-  const carryingSinceRef = useRef<number | null>(null);
   // The garage's selection has no state of its own: it lives in `progress` so
   // that it survives a reload, and reading it from one place is what keeps the
   // stored preference and the highlighted card from ever disagreeing.
@@ -703,10 +716,6 @@ export default function SideSwapApp() {
   const [touchFirst, setTouchFirst] = useState(false);
   const [needsHomeScreenForFullscreen, setNeedsHomeScreenForFullscreen] =
     useState(false);
-
-  useEffect(() => {
-    gigRef.current = gig;
-  }, [gig]);
 
   // Lives out here rather than inside GameCanvas, which remounts mid-session
   // whenever the destination or steering side changes — music placed in there
@@ -802,7 +811,7 @@ export default function SideSwapApp() {
       : null;
     setGpsProgress(gpsProgressRef.current);
     setGpsRoute(route);
-  }, []);
+  }, [gigRef]);
 
   /**
    * One route from where the car stands to anywhere, over the same cached lane
@@ -884,7 +893,7 @@ export default function SideSwapApp() {
         setDispatchToast({ text: "OFFER LOST", tone: "lost" });
       }
     },
-    [buildOffer],
+    [buildOffer, gigRef, queuedGigRef, setDispatchToast],
   );
 
   const handleHud = useCallback((snapshot: GameHudSnapshot) => {
@@ -974,17 +983,7 @@ export default function SideSwapApp() {
       setGig(current);
       setDispatchToast({ text: "JOB ACCEPTED", tone: "accept" });
     }
-  }, []);
-
-  /** Hands the queued job over on a drop-off, or leaves the driver idle. */
-  const promoteQueuedGig = useCallback((): Gig | null => {
-    const promoted = queuedGigRef.current;
-    queuedGigRef.current = null;
-    setQueuedGig(null);
-    gigRef.current = promoted;
-    setGig(promoted);
-    return promoted;
-  }, []);
+  }, [gigRef, queuedGigRef, setDispatchToast, setGig, setQueuedGig]);
 
   /**
    * Clears every trace of the last drive's dispatch and arms the next.
@@ -1101,13 +1100,13 @@ export default function SideSwapApp() {
     if (!payoutGain) return;
     const timer = window.setTimeout(() => setPayoutGain(null), 1_250);
     return () => window.clearTimeout(timer);
-  }, [payoutGain]);
+  }, [payoutGain, setPayoutGain]);
 
   useEffect(() => {
     if (!dispatchToast) return;
     const timer = window.setTimeout(() => setDispatchToast(null), 1700);
     return () => window.clearTimeout(timer);
-  }, [dispatchToast]);
+  }, [dispatchToast, setDispatchToast]);
 
   // Arriving at a gig stop now means actually stopping there: inside the
   // arrival radius at walking pace. That starts the matching interaction
@@ -1179,11 +1178,6 @@ export default function SideSwapApp() {
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
-  const destination = getDestinationProfile(destinationId);
-  const country = getCountryProfile(destination.countryId);
-  const driveDestination = getDestinationProfile(destinationId);
-  const driveCountry = getCountryProfile(driveDestination.countryId);
-
   /**
    * The one place money is taken for a violation, whoever wrote it — the
    * officer at the window, the camera over the junction, or the app's own
@@ -1218,26 +1212,6 @@ export default function SideSwapApp() {
       setFineToast,
       careerRunRef,
     ],
-  );
-
-  /**
-   * Says what a finished job actually paid. A rideshare tip is unknown right up
-   * to the drop-off, so without this the reveal — the whole point of hiding it —
-   * would be a number quietly ticking up in the corner.
-   */
-  const announcePayout = useCallback(
-    (fare: number, tip: number) => {
-      setSessionEarnings((total) => total + fare + tip);
-      setPayoutGain(`+${formatMoney(fare + tip, driveCountry)}`);
-      setDispatchToast({
-        text:
-          tip > 0
-            ? `+${formatMoney(fare, driveCountry)} · TIP +${formatMoney(tip, driveCountry)}`
-            : `+${formatMoney(fare, driveCountry)}`,
-        tone: "paid",
-      });
-    },
-    [driveCountry],
   );
 
   const activeSteeringSide = driveCountry.defaultSteeringSide;
@@ -1433,9 +1407,7 @@ export default function SideSwapApp() {
             // the moment the job is actually in the car.
             const elapsed =
               dayElapsedBaseRef.current + lastSimElapsedRef.current;
-            carryingSinceRef.current = elapsed;
-            setCarryingSinceMs(elapsed);
-            carryViolationsRef.current = 0;
+            startCarrying(elapsed);
           } else if (active.kind === "exit" || active.kind === "food_dropoff") {
             const run = careerRunRef.current;
             const current = gigRef.current;
@@ -1489,9 +1461,7 @@ export default function SideSwapApp() {
                 promptness: ridePromptness(carriedMs, parMs),
                 violations: carryViolationsRef.current,
               });
-              carryViolationsRef.current = 0;
-              carryingSinceRef.current = null;
-              setCarryingSinceMs(null);
+              endCarryingLeg();
               dayCashRef.current += net + tip;
               setDayCash(dayCashRef.current);
               announcePayout(net, tip);
@@ -1623,6 +1593,13 @@ export default function SideSwapApp() {
       pendingSettleRef,
       setDayCash,
       setDayIntroFromMs,
+      carryViolationsRef,
+      carryingSinceRef,
+      endCarryingLeg,
+      gigRef,
+      paidGigRef,
+      setGig,
+      startCarrying,
     ],
   );
 
@@ -1736,9 +1713,7 @@ export default function SideSwapApp() {
       onTime,
       carryViolationsRef.current,
     );
-    carryViolationsRef.current = 0;
-    carryingSinceRef.current = null;
-    setCarryingSinceMs(null);
+    endCarryingLeg();
     const settled = credit(progress, driveCountry.id, gig.reward + tip);
     setProgress(settled);
     saveProgress(settled);
@@ -1751,6 +1726,10 @@ export default function SideSwapApp() {
     promoteQueuedGig,
     announcePayout,
     careerRunRef,
+    carryViolationsRef,
+    carryingSinceRef,
+    endCarryingLeg,
+    paidGigRef,
   ]);
 
   const chooseDestination = (id: DestinationId) => {
@@ -1962,8 +1941,11 @@ export default function SideSwapApp() {
     resetDispatch(dayGigSeed, ratingSearchStretch(run.ratingStanding));
     gigRef.current = null;
     setGig(null);
-    carryingSinceRef.current = null;
-    setCarryingSinceMs(null);
+    // `endCarryingLeg` also zeroes carryViolationsRef, which beginCareerDay
+    // never touched directly before this port existed — harmless, since
+    // nothing reads it before the day's first `startCarrying` overwrites it
+    // anyway (a quit day leaves both stale in exactly the same way).
+    endCarryingLeg();
     setHud(null);
     setPaused(false);
     setMapOpen(false);
