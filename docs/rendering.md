@@ -143,13 +143,17 @@ own, since every vertex of the bare outline *is* a bank vertex: the builder
 mitres a ring inward for the tint to fade across, and refuses outlines too
 tight to inset.
 
-## City palettes are chosen by substring
+## City palettes are an explicit registry, and fail loudly on a miss
 
-`resolveMapVisualKey(mapId)` is **substring matching with an `nyc` default**, and
-Cairo must match explicitly before that fallback. A typo'd or new map id silently
-gets NYC's night+paved palette, changing lighting, fog, ground texture, sidewalk
-width *and* the crowd's rail geometry — `cityRenderRegistry.ts`'s landmark
-dispatch has no such default, an unmapped id gets nothing.
+`resolveMapVisualKey(mapId)` resolves through `MAP_VISUAL_PROFILES`
+(`visuals.ts`), an exact-mapId record — no substring matching, no default.
+An unmapped or misspelled id throws immediately, naming the id, rather than
+silently borrowing NYC's palette (lighting, fog, ground texture, sidewalk
+width and the crowd's rail geometry all changed with it — why the old
+substring-and-fallback was dangerous). Adding a city means adding its row
+here. `cityRenderRegistry.ts`'s landmark dispatch stays `undefined`-on-miss,
+not a throw: a landmark with no dispatcher is a supported no-op, where a map
+with no palette can't render at all.
 
 ## The first-person cabin
 

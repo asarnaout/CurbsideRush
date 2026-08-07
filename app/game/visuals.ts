@@ -166,12 +166,42 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
   },
 };
 
+/**
+ * Per-city visual profile, keyed by the map's exact, authored id. Deliberately
+ * a record rather than a bare `mapId -> MapVisualKey` map: issue #291 widens
+ * this same entry with palette/vehicle/nature/building/character fields, and
+ * must not need a second table alongside this one. `visualKey` stays first.
+ */
+export interface MapVisualProfile {
+  readonly visualKey: MapVisualKey;
+}
+
+const MAP_VISUAL_PROFILES: Readonly<Record<string, MapVisualProfile>> = {
+  "nyc-upper-west-side": { visualKey: "nyc" },
+  "london-south-kensington": { visualKey: "london" },
+  "tokyo-setagaya": { visualKey: "tokyo" },
+  "cairo-central-nile": { visualKey: "cairo" },
+};
+
+/**
+ * Throws on an unrecognised id rather than guessing. The substring match
+ * this replaced (`id.includes("cairo")`, falling back to `"nyc"` for anything
+ * else) meant a typo'd or new map id silently borrowed NYC's night+paved
+ * palette — lighting, fog, ground texture, sidewalk width and the crowd's
+ * rail geometry all change with it — with nothing to say so.
+ */
+export function resolveMapVisualProfile(mapId: string): MapVisualProfile {
+  const profile = MAP_VISUAL_PROFILES[mapId];
+  if (!profile) {
+    throw new Error(
+      `resolveMapVisualProfile: no visual profile registered for map id ${JSON.stringify(mapId)}. Add an entry to MAP_VISUAL_PROFILES in visuals.ts.`,
+    );
+  }
+  return profile;
+}
+
 export function resolveMapVisualKey(mapId: string): MapVisualKey {
-  const id = mapId.toLowerCase();
-  if (id.includes("cairo")) return "cairo";
-  if (id.includes("tokyo")) return "tokyo";
-  if (id.includes("london")) return "london";
-  return "nyc";
+  return resolveMapVisualProfile(mapId).visualKey;
 }
 
 export function resolveMapVisualPalette(mapId: string): MapVisualPalette {

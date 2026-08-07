@@ -5161,8 +5161,9 @@ export class BabylonGameSession {
 
     // Both sign families derive from the lane graph, so signage can never
     // disagree with the rules the simulation enforces. One-way signage is US
-    // MUTCD and stays NYC-only (and resolveMapVisualKey falls back to "nyc"
-    // for unknown ids, so gate on the pack id); every city posts its speed
+    // MUTCD and stays NYC-only — gated on the pack id directly rather than
+    // resolveMapVisualKey, since this is a fact about which map this is, not
+    // about which palette it renders with; every city posts its speed
     // limits, in its own country's design.
     const signInput = {
       lanes: mapPack.laneGraph.lanes,

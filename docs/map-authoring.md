@@ -243,7 +243,10 @@ lifting one.
 
 **Adding a city**: a `cities/<city>.ts` (own `*_MAP_PACK`/`*_FREE_DRIVE`, own
 helpers or generator); a row each in `content.ts`'s `MAP_PACKS`/
-`FREE_DRIVES`/`COUNTRY_PROFILES`/`DESTINATION_PROFILES`; a column on every
+`FREE_DRIVES`/`COUNTRY_PROFILES`/`DESTINATION_PROFILES`; a row, keyed on the
+exact new `mapId`, in `visuals.ts`'s `MAP_VISUAL_PROFILES` — there is no
+palette fallback, so a map with no row there throws the moment it loads,
+rather than quietly rendering with someone else's lighting; a column on every
 `economyTables.ts` per-country table; map assets; and, only for bespoke
 landmarks or street furniture, a row in `render/cityRenderRegistry.ts`.
 

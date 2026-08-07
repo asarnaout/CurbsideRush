@@ -18,13 +18,16 @@ import type { MapVisualPalette } from "../visuals";
  * change in an otherwise move-only decomposition program,
  * `.claude/refactor-plan.md`, gitignored).
  *
- * An unrecognised mapId gets `undefined` back, never a default city's look.
- * `resolveMapVisualKey` (`../visuals`) silently falls back to `"nyc"` for its
- * own palette purposes — that fallback is deliberately not inherited here: a
- * landmark on a map with no row renders through `buildScenarioEnvironment`'s
+ * An unrecognised mapId gets `undefined` back, never a default city's look —
+ * a landmark on a map with no row renders through `buildScenarioEnvironment`'s
  * own generic `landmark.kind` fallback (park / railway / tower / plain
  * facade), same as it always has, rather than borrowing NYC's or anyone
- * else's silhouettes.
+ * else's silhouettes. `resolveMapVisualKey` (`../visuals`) makes the same
+ * choice a different way, since it exists for a different reason: every map
+ * needs *some* palette to render at all, so instead of a silent default it
+ * throws on an unrecognised id — a landmark with no row here is a supported,
+ * silent no-op, but a map with no palette is a configuration bug that should
+ * fail loudly the moment it loads.
  *
  * `buildLondonLandmark`/`buildCairoLandmark` are per-landmark dispatchers —
  * called once for each entry in `mapPack.geometry.landmarks`, returning
