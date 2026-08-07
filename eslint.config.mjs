@@ -5,6 +5,7 @@ import importPlugin from "eslint-plugin-import";
 
 const gameFiles = ["app/game/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"];
 const geometryFiles = ["app/game/geometry/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"];
+const simulationFiles = ["app/game/simulation/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"];
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -29,10 +30,10 @@ const eslintConfig = defineConfig([
                 "Game modules must not import the app shell; pass app-owned data through the game boundary instead.",
             },
             {
-              target: ["./app/game/render", "./app/game/geometry"],
+              target: ["./app/game/render", "./app/game/geometry", "./app/game/simulation"],
               from: "./app/game/content.ts",
               message:
-                "Render and geometry modules must receive authored content through their inputs, not import the content registry.",
+                "Render, geometry, and simulation modules must receive authored content through their inputs, not import the content registry.",
             },
             {
               target: ["./app/game/render", "./app/game/cities"],
@@ -94,6 +95,64 @@ const eslintConfig = defineConfig([
         ].map((name) => ({
           name,
           message: "Geometry modules must remain independent of browser and DOM APIs.",
+        })),
+      ],
+    },
+  },
+  {
+    name: "curbside-rush/simulation-purity",
+    files: simulationFiles,
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "react",
+              message: "simulation.ts and its seam modules must remain framework-independent.",
+            },
+            {
+              name: "react-dom",
+              message: "simulation.ts and its seam modules must remain framework-independent.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["@babylonjs/**"],
+              message:
+                "simulation.ts and its seam modules must remain independent of the Babylon renderer.",
+            },
+            {
+              group: ["react/**", "react-dom/**"],
+              message: "simulation.ts and its seam modules must remain framework-independent.",
+            },
+          ],
+        },
+      ],
+      // Deliberately omits "window" from this list, unlike geometry-purity's
+      // otherwise-identical set: simulation/roadRuleMonitor.ts has a local
+      // RestrictionWindow parameter named `window` (a schedule window, not
+      // the DOM global — see tests/architecture.test.ts's matching carve-out
+      // for the same reason). ESLint's own scope analysis would not actually
+      // false-positive on that shadowing parameter, but the other ten
+      // browser/DOM globals below cover the real risk without relying on it.
+      "no-restricted-globals": [
+        "error",
+        ...[
+          "document",
+          "localStorage",
+          "sessionStorage",
+          "navigator",
+          "location",
+          "history",
+          "addEventListener",
+          "removeEventListener",
+          "requestAnimationFrame",
+          "cancelAnimationFrame",
+        ].map((name) => ({
+          name,
+          message:
+            "simulation.ts and its seam modules must remain independent of browser and DOM APIs.",
         })),
       ],
     },
