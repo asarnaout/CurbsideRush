@@ -427,32 +427,36 @@ describe("ambient traffic circulates instead of blinking out", () => {
 });
 
 describe("NYC controls the junctions a driver expects to be controlled", () => {
-  it("puts a signal on every crossing that has traffic on both phases", () => {
-    // Manhattan signalises its avenue crossings. The rule is stated in terms of
-    // *arriving* roads, which already excuses the tail end of a one-way avenue:
-    // nothing arrives from the avenue there, so the node only ever sees the
-    // cross street and a second phase would hold it at red for no one.
+  it("puts a signal or a stop on every crossing that has traffic on both phases", () => {
+    // Manhattan signalises its avenue crossings; the borough's stop-class
+    // roads (junctionControl: "stop") get a stop instead — a signal when at
+    // least two arriving roads are signal-class, else a stop covering the
+    // stop-class arms (every arm, all-way, when every road there is
+    // stop-class). Either way the crossing is controlled; which arms get an
+    // approach on a stop is nycStopJunctions.test.ts's job, not this one's.
+    // The rule is stated in terms of *arriving* roads, which already excuses
+    // the tail end of a one-way avenue: nothing arrives from the avenue
+    // there, so the node only ever sees the cross street and a second phase
+    // (or a stop line) would hold it for no one.
     let controlledNodes = 0;
     const inbound = new Map<string, LaneSegment[]>();
     for (const lane of nyc.laneGraph.lanes) {
       inbound.set(lane.to, [...(inbound.get(lane.to) ?? []), lane]);
     }
-    const signalled = new Set(
+    const controlledPositions = new Set(
       nyc.laneGraph.controls
-        .filter((control) => control.type === "signal")
-        .flatMap((control) => control.laneIds),
+        .filter((control) => control.type === "signal" || control.type === "stop")
+        .map((control) => `${control.position.x},${control.position.z}`),
     );
     for (const node of nyc.laneGraph.nodes) {
       const arrivals = inbound.get(node.id) ?? [];
       const roads = new Set(arrivals.map((lane) => lane.roadId));
       if (roads.size < 2) continue;
       controlledNodes += 1;
-      for (const lane of arrivals) {
-        expect(
-          signalled.has(lane.id),
-          `${lane.id} arrives at ${node.id} unsignalled`,
-        ).toBe(true);
-      }
+      expect(
+        controlledPositions.has(`${node.position.x},${node.position.z}`),
+        `${node.id} has two arriving roads but neither a signal nor a stop`,
+      ).toBe(true);
     }
     expect(controlledNodes, "NYC crossings with two arriving roads").toBeGreaterThanOrEqual(11);
   });

@@ -7,6 +7,7 @@ import type {
 } from "@babylonjs/core";
 import { buildCairoLandmark } from "./cairoLandmarks";
 import { buildLondonLandmark, buildLondonStreetFurniture } from "./londonLandmarks";
+import { buildNycLandmark } from "./nycLandmarks";
 import type { DestructiblePropPart } from "./propCatalog";
 import type { GameCanvasMapPack, GameCanvasPoint } from "../sessionContract";
 import type { MapVisualPalette } from "../visuals";
@@ -86,6 +87,9 @@ export const CITY_RENDER_REGISTRY: Readonly<Record<string, CityRenderRegistryEnt
   },
   "cairo-central-nile": {
     landmarks: buildCairoLandmark,
+  },
+  "nyc-upper-west-side": {
+    landmarks: buildNycLandmark,
   },
 };
 

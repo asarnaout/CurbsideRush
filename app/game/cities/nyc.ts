@@ -345,8 +345,30 @@ export const NYC_AVENUES: readonly NycRoadSpec[] = [
   { key: "fifth", nodeKey: "fifth", roadId: "nyc-fifth", name: "Fifth Ave", speedLimit: 25, coordinate: -140, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
   { key: "mad", nodeKey: "mad", roadId: "nyc-madison", name: "Madison Ave", speedLimit: 25, coordinate: 0, widthM: 9, oneWay: "forward", lanesPerDirection: 2, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
   { key: "pk", nodeKey: "pk", roadId: "nyc-park-ave", name: "Park Ave", speedLimit: 30, coordinate: 160, widthM: 12, oneWay: null, lanesPerDirection: 1, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
-  { key: "lex", nodeKey: "lex", roadId: "nyc-lexington", name: "Lexington Ave", speedLimit: 30, coordinate: 300, widthM: 9, oneWay: "backward", lanesPerDirection: 2, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
-  { key: "third", nodeKey: "third", roadId: "nyc-third", name: "Third Ave", speedLimit: 30, coordinate: 440, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
+  // 25, not Park/Third's 30: with Third, E 100th and Lexington all at one
+  // limit, a same-limit run near their shared corner outran
+  // LIMIT_REPEATER_SPACING_M (regulatorySigns.test.ts, "leaves no long drive
+  // without a posted limit") — corridors are same-limit by construction, so
+  // a driver only gets an entry sign where a *change* happens, and this
+  // three-avenue cluster shared none nearby.
+  { key: "lex", nodeKey: "lex", roadId: "nyc-lexington", name: "Lexington Ave", speedLimit: 25, coordinate: 300, widthM: 9, oneWay: "backward", lanesPerDirection: 2, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
+  // Third additionally reaches the two bridges — it is the road they
+  // continue from, over the river (NYC east expansion section 3.3).
+  { key: "third", nodeKey: "third", roadId: "nyc-third", name: "Third Ave", speedLimit: 30, coordinate: 440, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100", "qvb", "hlb"] },
+  // The borough's three avenues (NYC east expansion section 3.2/5), added
+  // here rather than in the borough phase: a bridge with only one real
+  // crossing (Third) has fewer than the two it needs to form even one lane
+  // span, which leaves its road surface empty and trips roadRealism.test.ts,
+  // pavementPaths.test.ts and guidanceCoverage.test.ts alike — a bridge
+  // is only structurally real once it lands somewhere. The bank streets
+  // (crossing these three), houses zoning, green and gas station stay in
+  // the borough phase; today these reach only the two bridges, which is
+  // enough for one real span each (`buildNycBlocks` derives one giant block
+  // per column until the bank streets split it into rows — the per-column
+  // generator upgrade is exactly what makes that safe).
+  { key: "vern", nodeKey: "vern", roadId: "nyc-vernon", name: "Vernon Blvd", speedLimit: 25, coordinate: 800, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "cres", nodeKey: "cres", roadId: "nyc-crescent", name: "Crescent St", speedLimit: 25, coordinate: 950, widthM: 9, oneWay: "forward", lanesPerDirection: 1, junctionControl: "stop" },
+  { key: "stein", nodeKey: "stein", roadId: "nyc-steinway", name: "Steinway Ave", speedLimit: 25, coordinate: 1100, widthM: 10.4, oneWay: null, lanesPerDirection: 1, junctionControl: "stop" },
 ];
 
 /**
@@ -368,6 +390,16 @@ const NYC_EAST_STREET_CROSSINGS = ["fifth", "mad", "pk", "lex", "third"] as cons
  */
 const NYC_WEST_STREET_CROSSINGS = ["riv", "we", "bway", "amst", "col", "cpw"] as const;
 const NYC_TRANSVERSE_CROSSINGS = [...NYC_WEST_STREET_CROSSINGS, ...NYC_EAST_STREET_CROSSINGS];
+/**
+ * A bridge is one continuous road spanning Third Ave, the river, and the
+ * borough — not a separate "approach" road meeting a river-only span at the
+ * bank. Two street specs sharing both a latitude AND a crossing avenue would
+ * mint two disconnected lane-graph nodes at that physical corner (node ids
+ * are per road-pair), so the bridge and its approach would never actually
+ * connect. `vern`/`cres`/`stein` don't exist until Phase 5; listing them now
+ * is inert until then, same as `third`'s own reach into these two keys.
+ */
+const NYC_BRIDGE_CROSSINGS = ["third", "vern", "cres", "stein"] as const;
 
 export const NYC_STREETS: readonly NycRoadSpec[] = [
   { key: "59", nodeKey: "59", roadId: "nyc-west-59", name: "W 59th St", speedLimit: 30, coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
@@ -381,6 +413,20 @@ export const NYC_STREETS: readonly NycRoadSpec[] = [
   // W/E 65th, 79th and 96th are the park transverses: real crossings, so
   // they run the park's full width rather than stopping at its edge.
   { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", speedLimit: 30, coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_TRANSVERSE_CROSSINGS },
+  // Queensview Bridge: two-way, the grander of the two river crossings (NYC
+  // east expansion section 3.3) — wider than Harborline, but still one lane
+  // each way, not the plan's two. Two lanes on the same side of a two-way
+  // carriageway sit at different offsets from the centreline (1.7 m and
+  // 3.4 m), so their junction connector curves ease out over different arc
+  // lengths and their stop lines land ~1.5 m out of line — intersectionVisuals
+  // .test.ts's "parallel lanes' bars merge into one line" catches it,
+  // correctly: a one-way multi-lane road's two lanes are symmetric
+  // (-1.7 m/+1.7 m) with equal, mirrored arc lengths, so that case never hits
+  // this. Fixing it generally means changing the shared junction-connector
+  // curve math everything else relies on, for one bridge's flavour — the
+  // plan is explicit that flavour, not fidelity, is the goal, so the width
+  // difference alone carries "grander" instead.
+  { key: "qvb", nodeKey: "qvb", roadId: "nyc-queensview-bridge", name: "Queensview Bridge", speedLimit: 40, coordinate: -840, widthM: 14, oneWay: null, lanesPerDirection: 1, crossings: NYC_BRIDGE_CROSSINGS },
   { key: "68", nodeKey: "68", roadId: "nyc-west-68", name: "W 68th St", speedLimit: 25, coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   { key: "72", nodeKey: "72", roadId: "nyc-west-72", name: "W 72nd St", speedLimit: 30, coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   { key: "e72", nodeKey: "e72", roadId: "nyc-east-72", name: "E 72nd St", speedLimit: 25, coordinate: -480, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
@@ -393,6 +439,8 @@ export const NYC_STREETS: readonly NycRoadSpec[] = [
   { key: "e86", nodeKey: "e86", roadId: "nyc-east-86", name: "E 86th St", speedLimit: 25, coordinate: 480, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
   { key: "91", nodeKey: "91", roadId: "nyc-west-91", name: "W 91st St", speedLimit: 25, coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   { key: "e91", nodeKey: "e91", roadId: "nyc-east-91", name: "E 91st St", speedLimit: 25, coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
+  // Harborline Bridge: two-way, one lane each way — the quieter crossing.
+  { key: "hlb", nodeKey: "hlb", roadId: "nyc-harborline-bridge", name: "Harborline Bridge", speedLimit: 40, coordinate: 840, widthM: 12, oneWay: null, lanesPerDirection: 1, crossings: NYC_BRIDGE_CROSSINGS },
   { key: "96", nodeKey: "96", roadId: "nyc-west-96", name: "W 96th St", speedLimit: 30, coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_TRANSVERSE_CROSSINGS },
   { key: "100", nodeKey: "100", roadId: "nyc-west-100", name: "W 100th St", speedLimit: 25, coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   // E 100th bounds the east grid on its north edge — two-way for the same
@@ -814,6 +862,19 @@ const nycZoneFor = (columnKey: string, centreZ: number): NycZone | null => {
       if (centreZ < 480) return NYC_ZONES.midrise;
       if (centreZ < 960) return NYC_ZONES.retail;
       return NYC_ZONES.brownstone;
+    case "third-vern":
+      // This "column" is the river. A missed null here generates a midrise
+      // block floating on the water — exactly the trap the "cpw-fifth"
+      // comment above points back to.
+      return null;
+    case "vern-cres":
+    case "cres-stein":
+      // The borough: houses only, no tall buildings, per the owner's
+      // explicit requirement (NYC east expansion section 3.7). Until the
+      // borough phase's bank streets split these into proper rows, each is
+      // one giant block spanning the two bridges — still houses-zoned,
+      // just very deep ones.
+      return NYC_ZONES.houses;
     default:
       // Every real column is listed above by name on purpose: a forgotten
       // one used to fall through to midrise silently (a block floating on
@@ -1089,6 +1150,42 @@ export const NYC_MAP_PACK: MapPack = {
           point(-188, -507),
         ],
       },
+      // The East River. Gently irregular, not a rectangle — a perfect
+      // rectangle reads as a canal. Both shores stay clear of Third Ave's
+      // and (from Phase 5) Vernon Blvd's carriageways and sidewalks (Third
+      // centreline 440, Vernon 800). `flowHeadingDeg: 0` is what makes this
+      // a river rather than a static pond (crest streaks, chop, drifting
+      // tiles) — omitting it would make a giant still pond instead.
+      // `bridgePortalSurfaceIds` is what opens the shoreline for exactly
+      // Queensview and Harborline, and derives their parapet spans — every
+      // other metre of shoreline stays a solid collider for free.
+      {
+        id: "nyc-east-river",
+        color: "#24404d",
+        flowHeadingDeg: 0,
+        bridgePortalSurfaceIds: [
+          "nyc-queensview-bridge",
+          "nyc-harborline-bridge",
+        ],
+        polygon: [
+          point(560, -1500),
+          point(566, -1100),
+          point(557, -700),
+          point(569, -300),
+          point(556, 100),
+          point(573, 600),
+          point(559, 1100),
+          point(565, 1500),
+          point(735, 1500),
+          point(728, 1100),
+          point(743, 600),
+          point(729, 100),
+          point(744, -300),
+          point(726, -700),
+          point(741, -1100),
+          point(731, -1500),
+        ],
+      },
     ],
     landmarks: [
       // Kept clear of the carriageways (a content test enforces this).
@@ -1116,6 +1213,20 @@ export const NYC_MAP_PACK: MapPack = {
       // and E 86th — the same "landmark owns the cell, zoning nulls it"
       // pattern the AMNH uses on the west side.
       { id: "nyc-gallery", kind: "museum", center: point(-60, 240), size: point(90, 160), color: "#caa76f" },
+      // Bridge landmarks: id equals the bridge's own road id — that
+      // identity is how the waterGeometry helpers and render/nycLandmarks.ts
+      // find the right road surface and clip rails/pylons to the over-water
+      // span. Rendered bespoke (render/nycLandmarks.ts via
+      // cityRenderRegistry.ts); the generic landmark fallback would draw a
+      // windowed facade box, which is wrong for a bridge.
+      { id: "nyc-queensview-bridge", kind: "bridge", center: point(650, -840), size: point(240, 14), headingDeg: 90, color: "#c9b48a" },
+      { id: "nyc-harborline-bridge", kind: "bridge", center: point(650, 840), size: point(240, 12), headingDeg: 90, color: "#b8ac95" },
+      // East River Esplanade: the Manhattan bank between Third Ave's
+      // frontage and the west shore (452.5..547.5), split around the two
+      // bridges so no park segment tries to grow over a bridge deck.
+      { id: "nyc-esplanade-south", kind: "park", center: point(500, -1158), size: point(95, 604), color: "#4f7a3d" },
+      { id: "nyc-esplanade", kind: "park", center: point(500, 0), size: point(95, 1640), color: "#4f7a3d" },
+      { id: "nyc-esplanade-north", kind: "park", center: point(500, 1158), size: point(95, 604), color: "#4f7a3d" },
       // Riverside Park fills the far side of Riverside Drive, where the land
       // really does fall away to the Hudson — so the west edge of the map is
       // green rather than another row of brownstones.
