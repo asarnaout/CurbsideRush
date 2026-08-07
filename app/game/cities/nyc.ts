@@ -59,6 +59,24 @@ const laneHeadingAtDistanceDeg = (lane: LaneSegment, distanceAlongM: number): nu
   return 0;
 };
 
+/** World point on the lane's centreline at a given arclength. */
+const lanePointAtDistance = (lane: LaneSegment, distanceAlongM: number): WorldPoint => {
+  let accumulated = 0;
+  for (let index = 0; index < lane.centerline.length - 1; index += 1) {
+    const a = lane.centerline[index];
+    const b = lane.centerline[index + 1];
+    const segmentLength = distanceBetweenPoints(a, b);
+    if (accumulated + segmentLength >= distanceAlongM || index === lane.centerline.length - 2) {
+      const amount = segmentLength > 1e-9
+        ? Math.max(0, Math.min(1, (distanceAlongM - accumulated) / segmentLength))
+        : 0;
+      return point(a.x + (b.x - a.x) * amount, a.z + (b.z - a.z) * amount);
+    }
+    accumulated += segmentLength;
+  }
+  return lane.centerline[0];
+};
+
 /**
  * Builds a signalised junction from the lanes that arrive at it. Each arriving
  * lane gets a stop-line approach 6 m short of the node; each approach
@@ -143,6 +161,73 @@ const intersectionSignal = (
   };
 };
 
+/**
+ * Builds a stop-controlled junction from whichever arms the caller says are
+ * stop-class — every arm for an all-way stop, or only the minor road's for a
+ * two-way/one-way stop, leaving a signal-class through road uncontrolled and
+ * in priority. Each arm gets a stop line 6 m short of the node (matching
+ * `intersectionSignal`) and a roadside pole just past its own kerb, beside
+ * its own stop line — a plain sign needs no arm reaching back over the road
+ * the way a mast head does, so it stands at the near corner rather than the
+ * far one. Shares the signal builder's ±7 m conflict zone.
+ */
+const intersectionStop = (
+  id: string,
+  center: WorldPoint,
+  arms: readonly { readonly laneId: string; readonly widthM: number }[],
+  lanes: readonly LaneSegment[],
+): { readonly control: TrafficControl; readonly zone: LaneGraph["conflictZones"][number] } => {
+  const laneById = new Map(lanes.map((lane) => [lane.id, lane]));
+  const zoneId = `${id}-zone`;
+  const laneIds = arms.map((arm) => arm.laneId);
+  const approaches: TrafficControlApproach[] = [];
+  const installations: TrafficControlInstallation[] = [];
+  for (const arm of arms) {
+    const lane = laneById.get(arm.laneId);
+    if (!lane) continue;
+    const stopDistance = Math.max(0, laneLengthOf(lane) - 6);
+    const headingDeg = laneHeadingAtDistanceDeg(
+      lane,
+      Math.max(0, stopDistance - CONNECTOR_BLEND_RUN_M - 1),
+    );
+    const stopPoint = lanePointAtDistance(lane, stopDistance);
+    const rad = (headingDeg * Math.PI) / 180;
+    // Right-hand normal of the direction of travel — the driver's right,
+    // same convention `buildNycGrid` uses for lane offsets.
+    const rightX = Math.cos(rad);
+    const rightZ = -Math.sin(rad);
+    const poleOffset = arm.widthM / 2 + 2.2;
+    const approachId = `${id}-${arm.laneId}-app`;
+    approaches.push(approach(approachId, arm.laneId, stopDistance, `${id}-stop`, [zoneId]));
+    installations.push(
+      installation(
+        `${id}-${arm.laneId}-sign`,
+        stopPoint.x + rightX * poleOffset,
+        stopPoint.z + rightZ * poleOffset,
+        headingDeg,
+        "roadside_pole",
+        "stop_sign",
+        "primary",
+        [approachId],
+      ),
+    );
+  }
+  const half = 7;
+  return {
+    control: control(id, "stop", center.x, center.z, 0, laneIds, [zoneId], approaches, installations),
+    zone: {
+      id: zoneId,
+      laneIds,
+      polygon: [
+        point(center.x - half, center.z - half),
+        point(center.x + half, center.z - half),
+        point(center.x + half, center.z + half),
+        point(center.x - half, center.z + half),
+      ],
+    },
+  };
+};
+
 // Upper West Side grid. x = east, z = north. Three two-way avenues — West End
 // (x=-320), Broadway (x=-120), Central Park West (x=320) — cross three two-way
 // streets — West 72nd (z=-480), 79th (z=0), 86th (z=480). ~640 m x 960 m.
@@ -171,7 +256,7 @@ const NYC_MAX_TURN_RAD = (120 * Math.PI) / 180;
 
 type NycAxis = "avenue" | "street";
 
-interface NycRoadSpec {
+export interface NycRoadSpec {
   /** Lane-id fragment: "we" gives nyc-we-n-1. */
   readonly key: string;
   /** Node-id fragment. Broadway's nodes are `bw` while its lanes are `bway`. */
@@ -209,10 +294,21 @@ interface NycRoadSpec {
    * Riverside Drive is the short one, starting at 72nd as it really does.
    */
   readonly crossings?: readonly string[];
+  /**
+   * Which control class this road contributes at its crossings. A crossing
+   * signalises when at least two of its arriving roads are "signal"
+   * (the default); otherwise it gets a stop instead — on every arm when all
+   * of them are "stop" (an all-way stop), or only on the "stop" arms when a
+   * "signal" road also arrives there, which then keeps priority and runs
+   * through uncontrolled, same as a real neighbourhood signs a minor street
+   * meeting a boulevard. Purely a furniture/enforcement choice: it never
+   * changes which lanes exist or where they may legally go.
+   */
+  readonly junctionControl?: "signal" | "stop";
 }
 
 /** West to east. */
-const NYC_AVENUES: readonly NycRoadSpec[] = [
+export const NYC_AVENUES: readonly NycRoadSpec[] = [
   // Riverside Drive begins at 72nd, as it really does, so it skips the southern
   // rows and the grid's west edge steps in below them.
   { key: "riv", nodeKey: "riv", roadId: "nyc-riverside", name: "Riverside Dr", speedLimit: 25, coordinate: -460, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["72", "75", "79", "82", "86", "91", "96", "100", "106"] },
@@ -230,7 +326,7 @@ const NYC_AVENUES: readonly NycRoadSpec[] = [
  * They exist so there is somewhere to turn: without them the avenues run 480 m
  * (six real blocks) between junctions.
  */
-const NYC_STREETS: readonly NycRoadSpec[] = [
+export const NYC_STREETS: readonly NycRoadSpec[] = [
   { key: "59", nodeKey: "59", roadId: "nyc-west-59", name: "W 59th St", speedLimit: 30, coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
   { key: "61", nodeKey: "61", roadId: "nyc-west-61", name: "W 61st St", speedLimit: 25, coordinate: -1200, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
   { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", speedLimit: 30, coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
@@ -297,14 +393,14 @@ const nycKerbsideLaneNo = (road: NycRoadSpec): number =>
  * may legally make there, one carriageway surface per road, and a signal at
  * every crossing fed by more than one road.
  */
-function buildNycGrid(
+export function buildNycGrid(
   avenues: readonly NycRoadSpec[],
   streets: readonly NycRoadSpec[],
 ): {
   readonly nodes: readonly LaneNode[];
   readonly lanes: readonly LaneSegment[];
   readonly roadSurfaces: readonly RoadSurface[];
-  readonly signals: readonly ReturnType<typeof intersectionSignal>[];
+  readonly controls: readonly ReturnType<typeof intersectionSignal>[];
   readonly roadNames: Readonly<Record<string, string>>;
 } {
   const reaches = (avenue: NycRoadSpec, street: NycRoadSpec): boolean =>
@@ -537,21 +633,45 @@ function buildNycGrid(
     );
   });
 
-  // Manhattan signalises every crossing where two carriageways meet. A node
-  // fed by only one road — the tail of a one-way avenue, where nothing arrives
-  // from the avenue at all — would just hold the cross street at red for a
-  // phase nobody is using.
-  const signals = nodeOrder.flatMap((junction) => {
+  // Manhattan controls every crossing where two carriageways meet: a signal
+  // when at least two of the arriving roads are signal-class, else a stop —
+  // all-way when every arm is stop-class, two-way/one-way (with the
+  // signal-class road running through uncontrolled, in priority) when only
+  // some are. A node fed by only one road — the tail of a one-way avenue,
+  // where nothing arrives from the avenue at all — gets neither: it would
+  // just hold the cross street for a phase or a stop nobody needs.
+  const controls = nodeOrder.flatMap((junction) => {
     const arrivals = arrivalsByNode.get(junction.id) ?? [];
-    if (new Set(arrivals.map((lane) => lane.road.key)).size < 2) return [];
+    const arrivingRoads = new Map(arrivals.map((lane) => [lane.road.key, lane.road]));
+    if (arrivingRoads.size < 2) return [];
+    const signalClassRoads = [...arrivingRoads.values()].filter(
+      (road) => (road.junctionControl ?? "signal") === "signal",
+    );
+    if (signalClassRoads.length >= 2) {
+      return [
+        intersectionSignal(
+          `nyc-sig-${junction.id.replace(/^nyc-/, "")}`,
+          junction.position,
+          arrivals.map((lane) => ({
+            laneId: lane.id,
+            phase: lane.axis === "avenue" ? ("ns" as const) : ("ew" as const),
+          })),
+          lanes,
+        ),
+      ];
+    }
+    // Whatever's left after the signal check is stop-class by construction
+    // (arrivingRoads.size >= 2 and fewer than 2 are signal-class), so this
+    // is every arm when every road is stop-class (all-way) and only the
+    // minor road's arms when one signal-class road also arrives (two-way).
+    const stopArms = arrivals.filter(
+      (lane) => (lane.road.junctionControl ?? "signal") === "stop",
+    );
     return [
-      intersectionSignal(
-        `nyc-sig-${junction.id.replace(/^nyc-/, "")}`,
+      intersectionStop(
+        `nyc-stop-${junction.id.replace(/^nyc-/, "")}`,
         junction.position,
-        arrivals.map((lane) => ({
-          laneId: lane.id,
-          phase: lane.axis === "avenue" ? ("ns" as const) : ("ew" as const),
-        })),
+        stopArms.map((lane) => ({ laneId: lane.id, widthM: lane.road.widthM })),
         lanes,
       ),
     ];
@@ -559,7 +679,7 @@ function buildNycGrid(
 
   const roadNames: Record<string, string> = {};
   for (const road of [...avenues, ...streets]) roadNames[road.roadId] = road.name;
-  return { nodes: nodeOrder, lanes, roadSurfaces, signals, roadNames };
+  return { nodes: nodeOrder, lanes, roadSurfaces, controls, roadNames };
 }
 
 /** How a grid cell is built up. `buildingSet` picks the instanced glb wall. */
@@ -635,7 +755,67 @@ function buildNycBlocks(
     (avenue.crossings ?? streets.map((s) => s.key)).includes(street.key) &&
     (street.crossings ?? avenues.map((a) => a.key)).includes(avenue.key);
 
-  const blocks: ProceduralBlock[] = [];
+  // Every block is collected with a (streetIndex, avenueIndex) sort key
+  // rather than pushed straight into the result, so the final order can
+  // match the old globally-consecutive-row algorithm's exact
+  // south-to-north-then-west-to-east reading order regardless of which pass
+  // below found it — the render side walks `geometry.blocks` in array order
+  // to feed a fallback facade box's seeded-random draw
+  // (docs/rendering.md's frozen-order rule), so a generator refactor that
+  // only changes iteration order still reshuffles that draw. A row's west
+  // margin sorts after that row's real columns, matching where the old
+  // single loop appended it — `avenues.length` is past every real column
+  // index (0..avenues.length-2).
+  const tagged: {
+    readonly block: ProceduralBlock;
+    readonly streetIndex: number;
+    readonly avenueIndex: number;
+  }[] = [];
+
+  // One column (adjacent avenue pair) at a time: its rows are the streets
+  // BOTH of that column's avenues reach, in z order — not globally
+  // consecutive streets. A street only part of the grid reaches (an
+  // east-only cross street, say) then splits only the columns it actually
+  // touches, instead of erasing every row it appears in for every other
+  // column too (it simply merges that column's two neighbouring rows into
+  // one taller block, same as W 82nd already does against Central Park West
+  // today, where the museum block owns the merged cell).
+  for (let column = 0; column + 1 < avenues.length; column += 1) {
+    const west = avenues[column];
+    const east = avenues[column + 1];
+    const shared = streets.filter(
+      (street) => reaches(west, street) && reaches(east, street),
+    );
+    for (let row = 0; row + 1 < shared.length; row += 1) {
+      const south = shared[row];
+      const north = shared[row + 1];
+      const centreZ = (south.coordinate + north.coordinate) / 2;
+      const depthZ = north.coordinate - south.coordinate - NYC_BLOCK_INSET_M * 2;
+      if (depthZ <= 0) continue;
+      const columnKey = `${west.key}-${east.key}`;
+      const zone = nycZoneFor(columnKey, centreZ);
+      if (!zone) continue;
+      const widthX = east.coordinate - west.coordinate - NYC_BLOCK_INSET_M * 2;
+      if (widthX <= 0) continue;
+      tagged.push({
+        block: {
+          id: `nyc-block-${columnKey}-${Math.round(centreZ)}`,
+          center: point((west.coordinate + east.coordinate) / 2, centreZ),
+          size: point(widthX, depthZ),
+          heightRange: zone.heightRange,
+          density: zone.density,
+          material: zone.material,
+          buildingSet: zone.buildingSet,
+        },
+        streetIndex: streets.indexOf(south),
+        avenueIndex: column,
+      });
+    }
+  }
+
+  // West-margin strips are a grid-edge concept, not a per-column one: still
+  // walks globally consecutive streets to find each row's westmost reaching
+  // avenue, same as the whole function did before the column split above.
   for (let row = 0; row + 1 < streets.length; row += 1) {
     const south = streets[row];
     const north = streets[row + 1];
@@ -645,47 +825,35 @@ function buildNycBlocks(
     const present = avenues.filter(
       (avenue) => reaches(avenue, south) && reaches(avenue, north),
     );
-    for (let column = 0; column + 1 < present.length; column += 1) {
-      const west = present[column];
-      const east = present[column + 1];
-      const columnKey = `${west.key}-${east.key}`;
-      const zone = nycZoneFor(columnKey, centreZ);
-      if (!zone) continue;
-      const widthX = east.coordinate - west.coordinate - NYC_BLOCK_INSET_M * 2;
-      if (widthX <= 0) continue;
-      blocks.push({
-        id: `nyc-block-${columnKey}-${Math.round(centreZ)}`,
-        center: point((west.coordinate + east.coordinate) / 2, centreZ),
-        size: point(widthX, depthZ),
-        heightRange: zone.heightRange,
-        density: zone.density,
-        material: zone.material,
-        buildingSet: zone.buildingSet,
-      });
-    }
     const westmost = present[0];
     if (!westmost) continue;
     // Riverside Drive's far side is Riverside Park, not frontage.
     if (westmost.key === "riv") continue;
-    blocks.push({
-      id: `nyc-block-west-margin-${Math.round(centreZ)}`,
-      center: point(
-        westmost.coordinate - NYC_BLOCK_INSET_M - NYC_MARGIN_DEPTH_M / 2,
-        centreZ,
-      ),
-      size: point(NYC_MARGIN_DEPTH_M, depthZ),
-      heightRange: NYC_ZONES.brownstone.heightRange,
-      density: NYC_ZONES.brownstone.density,
-      material: NYC_ZONES.brownstone.material,
-      buildingSet: NYC_ZONES.brownstone.buildingSet,
+    tagged.push({
+      block: {
+        id: `nyc-block-west-margin-${Math.round(centreZ)}`,
+        center: point(
+          westmost.coordinate - NYC_BLOCK_INSET_M - NYC_MARGIN_DEPTH_M / 2,
+          centreZ,
+        ),
+        size: point(NYC_MARGIN_DEPTH_M, depthZ),
+        heightRange: NYC_ZONES.brownstone.heightRange,
+        density: NYC_ZONES.brownstone.density,
+        material: NYC_ZONES.brownstone.material,
+        buildingSet: NYC_ZONES.brownstone.buildingSet,
+      },
+      streetIndex: row,
+      avenueIndex: avenues.length,
     });
   }
-  return blocks;
+
+  tagged.sort((a, b) => a.streetIndex - b.streetIndex || a.avenueIndex - b.avenueIndex);
+  return tagged.map((entry) => entry.block);
 }
 
 const nycGrid = buildNycGrid(NYC_AVENUES, NYC_STREETS);
 const nycLanes = nycGrid.lanes;
-const nycSignals = nycGrid.signals;
+const nycControls = nycGrid.controls;
 const nycBlocks = buildNycBlocks(NYC_AVENUES, NYC_STREETS);
 
 export const NYC_MAP_PACK: MapPack = {
@@ -832,8 +1000,8 @@ export const NYC_MAP_PACK: MapPack = {
   laneGraph: graph(
     nycGrid.nodes,
     nycLanes,
-    nycSignals.map((signal) => signal.control),
-    nycSignals.map((signal) => signal.zone),
+    nycControls.map((entry) => entry.control),
+    nycControls.map((entry) => entry.zone),
     [
       anchoredSpawn("nyc-player-1way", "player", "nyc-72-e-we", 30),
       anchoredSpawn("nyc-player-signals", "player", "nyc-bway-n-72", 30),
