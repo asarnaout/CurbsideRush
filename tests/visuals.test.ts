@@ -21,6 +21,15 @@ import {
   skyGradientStops,
   type PropScatterInput,
 } from "../app/game/visuals";
+import { ALL_BUILDING_SET_IDS, isBuildingSetId } from "../app/game/buildingSets";
+import {
+  CHARACTER_PALETTE_SLOTS,
+  CHARACTER_RAMP_LENGTH,
+} from "../app/game/characterPalettes";
+import { CAIRO_MAP_PACK } from "../app/game/cities/cairo";
+import { LONDON_MAP_PACK } from "../app/game/cities/london";
+import { NYC_MAP_PACK } from "../app/game/cities/nyc";
+import { TOKYO_MAP_PACK } from "../app/game/cities/tokyo";
 
 const HEX_PATTERN = /^#[\da-f]{6}$/i;
 
@@ -112,6 +121,85 @@ describe("map visual palettes", () => {
     expect(mixHexColors("#204060", "#204060", 0.7)).toBe("#204060");
     expect(mixHexColors("#000000", "#ffffff", 0)).toBe("#000000");
     expect(mixHexColors("#000000", "#ffffff", 1)).toBe("#ffffff");
+  });
+});
+
+// Issue #291: the per-city visual profile widened from #286's bare
+// `{ visualKey }` to also carry the plate/building/nature/character
+// selectors every render-side seam used to derive with its own mapId-sniffing
+// switch or substring match. These are the registry's own data-integrity
+// checks; per-seam behaviour parity (which paint/model/palette a seam
+// actually renders) stays pinned in that seam's own test file
+// (vehicleVisuals.test.ts, characterPalettes.test.ts, natureAssets.test.ts)
+// plus the four-city mesh/material fingerprint in
+// fourCityRenderCharacterization.test.tsx.
+describe("per-city visual profile", () => {
+  const REAL_MAP_PACKS = [NYC_MAP_PACK, LONDON_MAP_PACK, TOKYO_MAP_PACK, CAIRO_MAP_PACK];
+
+  it("gives every shipped map a plate region, drawn from the real four", () => {
+    expect(resolveMapVisualProfile("nyc-upper-west-side").plateRegion).toBe("us");
+    expect(resolveMapVisualProfile("london-south-kensington").plateRegion).toBe("uk");
+    expect(resolveMapVisualProfile("tokyo-setagaya").plateRegion).toBe("jp");
+    expect(resolveMapVisualProfile("cairo-central-nile").plateRegion).toBe("eg");
+  });
+
+  it("only lists real building-set ids, and only for the cities that use instanced sets", () => {
+    for (const mapPack of REAL_MAP_PACKS) {
+      const profile = resolveMapVisualProfile(mapPack.id);
+      for (const setId of profile.buildingSets) {
+        expect(isBuildingSetId(setId), `${mapPack.id} -> ${setId}`).toBe(true);
+        // A city's allow-list may only name sets that share its own prefix —
+        // this is exactly the leak the registry exists to make impossible:
+        // NYC content quietly drawing from a Cairo catalogue or vice versa.
+        expect(setId.startsWith(profile.visualKey === "nyc" ? "nyc-" : "cairo-")).toBe(
+          true,
+        );
+      }
+    }
+    expect(resolveMapVisualProfile("london-south-kensington").buildingSets).toEqual([]);
+    expect(resolveMapVisualProfile("tokyo-setagaya").buildingSets).toEqual([]);
+    // Every catalogued set belongs to exactly one city's allow-list.
+    const claimed = REAL_MAP_PACKS.flatMap(
+      (mapPack) => resolveMapVisualProfile(mapPack.id).buildingSets,
+    );
+    expect([...claimed].sort()).toEqual([...ALL_BUILDING_SET_IDS].sort());
+  });
+
+  it("never lets a city's authored blocks reference another city's building set", () => {
+    // The invariant `buildingSets.ts` alone cannot check: SETS only knows
+    // model catalogues, not which map is allowed to point at which set. A
+    // typo'd cross-city buildingSet on a block would previously render
+    // silently (or drop the block if the id were bogus); this at least makes
+    // a *wrong-but-valid* set id fail a test instead of shipping quietly.
+    for (const mapPack of REAL_MAP_PACKS) {
+      const allowed = new Set(resolveMapVisualProfile(mapPack.id).buildingSets);
+      for (const block of mapPack.geometry.blocks) {
+        if (!block.buildingSet) continue;
+        expect(
+          allowed.has(block.buildingSet as (typeof ALL_BUILDING_SET_IDS)[number]),
+          `${mapPack.id} block ${block.id} references ${block.buildingSet}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("gives every shipped map a non-empty nature-set draw list", () => {
+    for (const mapPack of REAL_MAP_PACKS) {
+      expect(resolveMapVisualProfile(mapPack.id).natureSets.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("gives every shipped map complexion/hair weight rows that sum to a full palette", () => {
+    for (const mapPack of REAL_MAP_PACKS) {
+      const profile = resolveMapVisualProfile(mapPack.id);
+      for (const weights of [profile.complexionWeights, profile.hairWeights]) {
+        expect(weights).toHaveLength(CHARACTER_RAMP_LENGTH);
+        expect(weights.reduce((total, weight) => total + weight, 0)).toBe(
+          CHARACTER_PALETTE_SLOTS,
+        );
+        for (const weight of weights) expect(weight).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
 });
 
