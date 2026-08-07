@@ -69,7 +69,6 @@ describe("map visual palettes", () => {
     expect(resolveMapVisualKey("london-south-kensington")).toBe("london");
     expect(resolveMapVisualKey("tokyo-setagaya")).toBe("tokyo");
     expect(resolveMapVisualKey("cairo-central-nile")).toBe("cairo");
-    expect(resolveMapVisualKey("orientation-yard")).toBe("orientation");
   });
 
   it("provides complete hex palettes and ordered sky gradients", () => {
@@ -78,7 +77,6 @@ describe("map visual palettes", () => {
       "london-south-kensington",
       "tokyo-setagaya",
       "cairo-central-nile",
-      "orientation-yard",
     ]) {
       const palette = resolveMapVisualPalette(mapId);
       for (const value of Object.values(palette)) {
@@ -162,7 +160,7 @@ describe("camera far plane", () => {
     expect(resolveCameraFarPlane(true, { x: 1080, z: 3000 })).toBe(460);
     // A long daylit corridor, where the far plane rides the unclamped band.
     expect(resolveCameraFarPlane(false, { x: 1500, z: 300 })).toBe(1120);
-    // The orientation-yard fallback world.
+    // A compact daylit world remains inside the base range.
     expect(resolveCameraFarPlane(false, { x: 180, z: 180 })).toBe(360);
     // Cairo's palette-capped haze: 650 + the 20 m margin.
     expect(resolveCameraFarPlane(false, { x: 1770, z: 1830 }, 650)).toBe(670);
@@ -176,7 +174,6 @@ describe("horizon silhouettes", () => {
       "london-south-kensington",
       "tokyo-setagaya",
       "cairo-central-nile",
-      "orientation-yard",
     ]) {
       const seed = hashStringToSeed(mapId);
       const first = buildHorizonSilhouetteSpec(mapId, seed);

@@ -6,7 +6,6 @@ import type {
   LaneNode,
   LaneRole,
   LaneSegment,
-  MapCheckpoint,
   MapPack,
   MapSpawnPoint,
   ProceduralBlock,
@@ -152,17 +151,6 @@ const roadSurface = (
   laneIds,
   surfaceType,
   markings,
-});
-
-const checkpoint = (
-  id: string,
-  label: string,
-  laneId: string,
-  distanceAlongM: number,
-): MapCheckpoint => ({
-  id,
-  label,
-  anchor: anchor(laneId, distanceAlongM),
 });
 
 const anchoredSpawn = (
@@ -413,14 +401,12 @@ const graph = (
   controls: LaneGraph["controls"],
   conflictZones: LaneGraph["conflictZones"],
   spawnPoints: LaneGraph["spawnPoints"],
-  checkpoints: LaneGraph["checkpoints"],
 ): LaneGraph => ({
   nodes,
   lanes,
   controls,
   conflictZones: connectorConflictZones(lanes, conflictZones),
   spawnPoints,
-  checkpoints,
 });
 
 const osmSource = (
@@ -497,7 +483,7 @@ interface NycRoadSpec {
    * Which lane number sits against the kerb on a multi-lane one-way, and so
    * takes the right turns. Defaults to the outermost. Amsterdam and Columbus
    * were authored numbering from opposite sides and their ids are referred to
-   * by venues, spawns and checkpoints, so the numbering is recorded rather
+   * by venues and spawns, so the numbering is recorded rather
    * than normalised.
    */
   readonly kerbsideLaneNo?: number;
@@ -1181,18 +1167,6 @@ export const NYC_MAP_PACK: MapPack = {
       freeSpawn("nyc-cyclist-2", "cyclist", 38.3, -200, 0, "nyc-amst-n-1-72"),
       freeSpawn("nyc-cyclist-3", "cyclist", -458, 600, 0, "nyc-riv-n-86"),
     ],
-    [
-      checkpoint("nyc-r1-start", "West 72nd & West End", "nyc-72-e-we", 30),
-      checkpoint("nyc-r1-amst", "Amsterdam Avenue northbound", "nyc-amst-n-1-75", 120),
-      checkpoint("nyc-r1-86", "West 86th Street", "nyc-86-e-amst", 70),
-      checkpoint("nyc-r1-finish", "Columbus & 72nd", "nyc-col-s-1-75", 205),
-      checkpoint("nyc-r2-start", "Broadway & 72nd", "nyc-bway-n-72", 30),
-      checkpoint("nyc-r2-signal", "Broadway & 79th signal", "nyc-bway-n-75", 205),
-      checkpoint("nyc-r2-finish", "West 86th & Broadway", "nyc-86-w-bway", 180),
-      checkpoint("nyc-r3-start", "West End & 72nd", "nyc-we-n-72", 30),
-      checkpoint("nyc-r3-mid", "West End & 79th", "nyc-we-n-79", 200),
-      checkpoint("nyc-r3-finish", "West 86th & Central Park West", "nyc-86-e-bway", 145),
-    ],
   ),
 };
 
@@ -1201,8 +1175,6 @@ export const NYC_FREE_DRIVE: FreeDriveDefinition = {
   countryId: "us",
   destinationId: "us-nyc",
   mapId: "nyc-upper-west-side",
-  title: "Free Drive — New York City",
-  description: "Explore the Upper West Side miniature with coaching available but no fixed route.",
   startSpawnId: "nyc-player-1way",
   trafficSeed: 2101,
 };

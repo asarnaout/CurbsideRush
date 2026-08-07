@@ -36,9 +36,8 @@ import {
  * and beside them; abreast, the tallest is ~102px and the map gets its corner
  * back.
  *
- * Turn indicators are deliberately absent. They only ever mattered for authored
- * maneuvers, of which free drive and career days have none, and they were
- * occupying the best real estate on the screen.
+ * Turn indicators are deliberately absent: keyboard and vehicle inputs still
+ * drive them, while the touch HUD reserves its limited space for navigation.
  */
 
 export interface TouchDriveControlsProps {

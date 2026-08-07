@@ -42,7 +42,6 @@ export function SettingsView({ progress, onSave, onReset, onBack }: { progress: 
             <p className="settings-card-sub">Readability cues and sound.</p>
           </div>
           <div className="settings-toggle-stack">
-            <Toggle label="Subtitles" checked={draft.accessibility.subtitles} onChange={(checked) => updateAccessibility({ subtitles: checked })} />
             <Toggle label="Visual honk cue" checked={draft.accessibility.visualHonkIndicator} onChange={(checked) => updateAccessibility({ visualHonkIndicator: checked })} />
             <Toggle label="Reduced motion" checked={draft.accessibility.reducedMotion} onChange={(checked) => updateAccessibility({ reducedMotion: checked })} />
           </div>
@@ -58,7 +57,7 @@ export function SettingsView({ progress, onSave, onReset, onBack }: { progress: 
       <div className="settings-actions">
         <button className="secondary-button" type="button" onClick={onBack}>Back to Homepage</button>
         <button type="button" className="danger-button" onClick={onReset}>Reset local progress</button>
-        <button type="button" className="primary-button" onClick={() => { onSave({ ...draft, updatedAt: new Date().toISOString() }); onBack(); }}>Save settings</button>
+        <button type="button" className="primary-button" onClick={() => { onSave(draft); onBack(); }}>Save settings</button>
       </div>
     </section>
   );

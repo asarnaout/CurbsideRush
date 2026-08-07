@@ -4,18 +4,18 @@
 
 ## Shape of the file
 
-`GameCanvas.tsx` is now the thin React half of the god-file decomposition
-(`.claude/refactor-plan.md`, gitignored): props/handle types, shell/canvas
-styles, and the `forwardRef` component, nothing Babylon-owning of its own.
-The exported `class BabylonGameSession` lives in `render/babylonGameSession.ts` instead (Phase 3's last commit;
-`tests/gameCanvasInput.test.ts` imports its two pure exports there). `AdaptiveInputRouter` moved to `adaptiveInputRouter.ts`;
+`GameCanvas.tsx` is the thin React half of the god-file decomposition
+(`.claude/refactor-plan.md`, gitignored): props, shell/canvas styles, and the
+component lifecycle, nothing Babylon-owning of its own. The exported
+`class BabylonGameSession` lives in `render/babylonGameSession.ts` instead.
+`AdaptiveInputRouter` lives in `adaptiveInputRouter.ts`;
 the pure geometry/render layer sits in `geometry/` (zero `@babylonjs`, enforced
 by the flat ESLint config) and `render/` (Babylon-owning, no session state), both
 exported for Babylon-free tests; contract types are in `sessionContract.ts`. **React owns the canvas
 element, the props, and one 10 Hz HUD snapshot; the session owns everything
 else, and no React state is driven at frame rate.**
 
-The session is rebuilt only on `[trafficSide, steeringSide, lesson?.id, mapPack?.id]`;
+The session is rebuilt only on `[trafficSide, steeringSide, scenario.id, mapPack.id]`;
 every other prop flows through `session.updateOptions(...)`. Not orientation —
 rotating a phone pauses the drive, it does not rebuild the city.
 

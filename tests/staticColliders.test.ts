@@ -4,11 +4,8 @@ import {
   getCountryProfile,
   getMapPack,
 } from "../app/game/content";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
-import type {
-  GameCanvasLesson,
-  SpeedUnit as CanvasSpeedUnit,
-} from "../app/game/sessionContract";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
+import type { SpeedUnit as CanvasSpeedUnit } from "../app/game/sessionContract";
 import {
   buildingKeepOuts,
   facadeGridCells,
@@ -75,12 +72,6 @@ const LANE_SAMPLE_SPACING_M = 2;
 const toCanvasSpeedUnit = (speedUnit: "mph" | "kmh"): CanvasSpeedUnit =>
   speedUnit === "mph" ? "mph" : "km/h";
 
-const freeDriveLesson = (freeDrive: FreeDriveDefinition): GameCanvasLesson =>
-  buildFreeDriveLesson(
-    freeDrive,
-    getCountryProfile(freeDrive.countryId).trafficSide,
-  );
-
 interface DriveWorld {
   readonly freeDrive: FreeDriveDefinition;
   readonly obstacles: readonly StaticObstacle[];
@@ -95,7 +86,7 @@ interface DriveWorld {
 const driveWorlds: DriveWorld[] = FREE_DRIVES.map((freeDrive) => {
   const country = getCountryProfile(freeDrive.countryId);
   const config = buildSimulationCoreConfig({
-    lesson: freeDriveLesson(freeDrive),
+    scenario: buildFreeDriveScenario(freeDrive),
     mapPack: getMapPack(freeDrive.mapId),
     trafficSide: country.trafficSide,
     speedUnit: toCanvasSpeedUnit(country.speedUnit),

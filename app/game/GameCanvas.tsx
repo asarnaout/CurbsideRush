@@ -1,10 +1,8 @@
 "use client";
 
 import {
-  forwardRef,
   useCallback,
   useEffect,
-  useImperativeHandle,
   useRef,
   useState,
   type CSSProperties,
@@ -18,8 +16,10 @@ import {
   type AdaptiveInputPresentation,
   createInitialInputPresentation,
 } from "./adaptiveInputRouter";
-import { DEFAULT_HORIZONTAL_FOV } from "./render/renderConstants";
-import { clampHorizontalFieldOfView } from "./geometry/routeGuidance";
+import {
+  clampHorizontalFieldOfView,
+  DEFAULT_HORIZONTAL_FOV,
+} from "./render/renderConstants";
 import { DRIVE_LAYER } from "./driveLayers";
 import { INPUT_GUIDANCE } from "./inputGuidance";
 import { TouchDriveControls } from "./TouchDriveControls";
@@ -40,11 +40,10 @@ import {
   ensureArabicCanvasFontLoaded,
   inspectArabicCanvasFont,
 } from "./arabicFont";
-import type { SimulationScoreSnapshot } from "./simulation";
 import type {
   CameraMode,
   CutsceneRequest,
-  GameCanvasLesson,
+  DriveScenario,
   GameCanvasMapPack,
   GameHudSnapshot,
   GameRuntimeEvent,
@@ -53,16 +52,15 @@ import type {
   SpeedUnit,
   SteeringSide,
   TrafficSide,
-  TurnIndicator,
 } from "./sessionContract";
 
 export interface GameCanvasProps {
   trafficSide: TrafficSide;
   steeringSide: SteeringSide;
-  /** Selected authored lesson. Pass the domain LessonDefinition directly. */
-  lesson?: GameCanvasLesson;
-  /** Selected authored map. Pass the domain MapPack directly. */
-  mapPack?: GameCanvasMapPack;
+  /** Reproducible inputs for this authored, non-terminating drive. */
+  scenario: DriveScenario;
+  /** Selected authored map. */
+  mapPack: GameCanvasMapPack;
   cameraMode?: CameraMode;
   speedUnit?: SpeedUnit;
   paused?: boolean;
@@ -104,16 +102,6 @@ export interface GameCanvasProps {
   onCameraChange?: (mode: CameraMode) => void;
   /** Called when the player chooses Exit from the pause dialog. */
   onExit?: () => void;
-  onComplete?: (score: SimulationScoreSnapshot) => void;
-}
-
-export interface GameCanvasHandle {
-  reset: () => void;
-  toggleCamera: () => void;
-  togglePause: () => void;
-  horn: () => void;
-  setIndicator: (indicator: TurnIndicator) => void;
-  focus: () => void;
 }
 
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -171,12 +159,10 @@ const actionButtonStyle: CSSProperties = {
   userSelect: "none",
 };
 
-export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
-  function GameCanvas(
-    {
+export function GameCanvas({
       trafficSide,
       steeringSide,
-      lesson,
+      scenario,
       mapPack,
       cameraMode = "third",
       speedUnit = "mph",
@@ -204,18 +190,16 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       onPauseChange,
       onCameraChange,
       onExit,
-      onComplete,
-    },
-    ref,
-  ) {
+    }: GameCanvasProps) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const sessionRef = useRef<BabylonGameSession | null>(null);
     const callbackRef = useRef<SessionCallbacks>({});
     const viewportReadyRef = useRef(false);
     const touchPortraitGateRef = useRef(false);
-    const inputCapabilitiesRef = useRef<InputCapabilities>(
-      readInputCapabilities(),
+    const [initialInputCapabilities] = useState<InputCapabilities>(
+      readInputCapabilities,
     );
+    const inputCapabilitiesRef = useRef(initialInputCapabilities);
     const [runtimeState, setRuntimeState] = useState<
       "loading" | "ready" | "unsupported" | "context-lost" | "error"
     >("loading");
@@ -230,48 +214,40 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
     const [fullscreenOffered, setFullscreenOffered] = useState(false);
     const [inputPresentation, setInputPresentation] =
       useState<AdaptiveInputPresentation>(() =>
-        createInitialInputPresentation(inputCapabilitiesRef.current),
+        createInitialInputPresentation(initialInputCapabilities),
       );
     const [hud, setHud] = useState<GameHudSnapshot>({
       speed: 0,
       speedUnit,
       gear: "D",
       cameraMode,
-      indicator: "off",
-      score: 100,
-      objectiveProgress: 0,
-      instruction: "Preparing the training yard…",
+      instruction: "Preparing your drive…",
       paused,
       honking: false,
       rearViewVisible: cameraMode === "first",
-      scenarioId: lesson?.id ?? "orientation-yard",
-      scenarioTitle: lesson?.title ?? "Free drive",
-      objective:
-        lesson?.objectives[0]?.label ??
-        "Reach the end of the training route",
-      checkpoint: "Start",
-      trafficSide: lesson?.trafficSide ?? trafficSide,
       playerX: 0,
       playerZ: 0,
       heading: 0,
       simElapsedMs: 0,
       speedLimit: 0,
+      scenarioClock: scenario.scenarioClock?.label,
     });
 
-    callbackRef.current = {
-      onHudUpdate: (snapshot: GameHudSnapshot) => {
-        setHud(snapshot);
-        onHudUpdate?.(snapshot);
-      },
-      onEvent,
-      onPauseChange,
-      onCameraChange,
-      onComplete,
-      onReady: () => setRuntimeState("ready"),
-      onContextLost: () => setRuntimeState("context-lost"),
-      onContextRestored: () => setRuntimeState("ready"),
-      onLoadProgress: (progress: LoadProgress) => setLoadProgress(progress),
-    };
+    useEffect(() => {
+      callbackRef.current = {
+        onHudUpdate: (snapshot: GameHudSnapshot) => {
+          setHud(snapshot);
+          onHudUpdate?.(snapshot);
+        },
+        onEvent,
+        onPauseChange,
+        onCameraChange,
+        onReady: () => setRuntimeState("ready"),
+        onContextLost: () => setRuntimeState("context-lost"),
+        onContextRestored: () => setRuntimeState("ready"),
+        onLoadProgress: (progress: LoadProgress) => setLoadProgress(progress),
+      };
+    }, [onCameraChange, onEvent, onHudUpdate, onPauseChange]);
 
     // The gate pauses the drive; it does not tear it down. It used to keep the
     // session-creation effect from running at all, so every rotation rebuilt
@@ -318,6 +294,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       }
       const testCanvas = document.createElement("canvas");
       if (!testCanvas.getContext("webgl2")) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setRuntimeState("unsupported");
         return;
       }
@@ -334,13 +311,13 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
         }
       };
       setRuntimeState("loading");
-      // A rebuild (lesson/mapPack change) reuses this component instance
+      // A rebuild (scenario/mapPack change) reuses this component instance
       // rather than remounting, so the bar needs its own reset here — useState's
       // initial value only covers a fresh mount.
       setLoadProgress({ fraction: 0, label: LOADING_MODELS_LABEL });
       const startSession = async () => {
         try {
-          if (mapPack?.id === "cairo-central-nile") {
+          if (mapPack.id === "cairo-central-nile") {
             setLoadProgress({
               fraction: 0.02,
               label: "Loading Cairo lettering…",
@@ -362,7 +339,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
             {
               trafficSide,
               steeringSide,
-              lesson,
+              scenario,
               mapPack,
               cameraMode,
               inputCapabilities: inputCapabilitiesRef.current,
@@ -394,7 +371,6 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
                 callbackRef.current.onCameraChange?.(value),
               onInputPresentationChange: (value) =>
                 setInputPresentation(value),
-              onComplete: (score) => callbackRef.current.onComplete?.(score),
               onReady: () => callbackRef.current.onReady?.(),
               onContextLost: () => callbackRef.current.onContextLost?.(),
               onContextRestored: () =>
@@ -409,7 +385,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
             return;
           }
           sessionRef.current = session;
-          if (mapPack?.id === "cairo-central-nile") {
+          if (mapPack.id === "cairo-central-nile") {
             perfQaTimer = window.setTimeout(writePerfQaSnapshot, 2_500);
           }
         } catch (error) {
@@ -427,7 +403,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
         alive = false;
         if (perfQaTimer !== undefined) window.clearTimeout(perfQaTimer);
         delete canvas.dataset.perfQa;
-        if (mapPack?.id === "cairo-central-nile") {
+        if (mapPack.id === "cairo-central-nile") {
           delete (
             window as unknown as Record<string, unknown>
           ).__sideswapArabicFontDebug;
@@ -440,7 +416,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       // Notably not orientation: rotating a phone pauses the drive, it does not
       // rebuild the city.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [trafficSide, steeringSide, lesson?.id, mapPack?.id]);
+    }, [trafficSide, steeringSide, scenario.id, mapPack.id]);
 
     useEffect(() => {
       sessionRef.current?.updateOptions({
@@ -472,25 +448,14 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
       sessionRef.current?.reset();
     }, [resetNonce]);
 
-    useImperativeHandle(
-      ref,
-      () => ({
-        reset: () => sessionRef.current?.reset(),
-        toggleCamera: () => sessionRef.current?.toggleCamera(),
-        togglePause: () => sessionRef.current?.togglePause(),
-        horn: () => sessionRef.current?.horn(),
-        setIndicator: (indicator) => sessionRef.current?.setIndicator(indicator),
-        focus: () => canvasRef.current?.focus(),
-      }),
-      [],
-    );
-
     // Mobile Safari only collapses its toolbars in response to scrolling, and
     // the drive screen cannot scroll by design — so on a phone this control is
     // the only way to reclaim the strip the address bar and tab bar occupy.
     // Pointless where the browser is already chrome-less (added to the Home
     // Screen) or has no Fullscreen API at all.
     useEffect(() => {
+      // Browser capability detection has to happen after the DOM exists.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFullscreenOffered(canFullscreen() && !isStandaloneDisplay());
       const sync = () => setFullscreen(isFullscreen());
       sync();
@@ -650,16 +615,16 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
               <strong style={{ display: "block", marginBottom: 9, fontSize: 23 }}>
                 {runtimeState === "unsupported" && "This browser cannot start the 3D drive"}
                 {runtimeState === "context-lost" && "The 3D view was interrupted"}
-                {runtimeState === "error" && "The training yard could not load"}
+                {runtimeState === "error" && "The drive could not load"}
                 {runtimeState === "loading" && "Preparing your drive…"}
               </strong>
               <span style={{ opacity: 0.72, fontSize: 14, lineHeight: 1.5 }}>
                 {runtimeState === "unsupported"
                   ? "Curbside Rush needs WebGL 2 with hardware acceleration. Try an up-to-date Chrome, Edge, Firefox, or Safari browser."
                   : runtimeState === "context-lost"
-                    ? "Your position is safe. The lesson is paused while the browser restores graphics."
+                    ? "Your position is safe. The drive is paused while the browser restores graphics."
                     : runtimeState === "error"
-                      ? "Refresh the page to rebuild the lesson. Your saved progress is unaffected."
+                      ? "Refresh the page to rebuild the drive."
                       : "Building roads, traffic, and your cockpit."}
               </span>
               {runtimeState === "loading" && (
@@ -770,9 +735,6 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(
         )}
       </div>
     );
-  },
-);
-
-GameCanvas.displayName = "GameCanvas";
+}
 
 export default GameCanvas;

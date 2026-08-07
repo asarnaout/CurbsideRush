@@ -9,18 +9,12 @@ import {
   buildSimulationCoreConfig,
   resolveSimulationStartPose,
 } from "../app/game/simulationAdapter";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
-import type { GameCanvasLesson } from "../app/game/sessionContract";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
+import type {
+  DriveScenario,
+  GameCanvasMapPack,
+} from "../app/game/sessionContract";
 import type { FreeDriveDefinition } from "../app/game/types";
-
-// Lessons were removed in the gig overhaul, so the adapter now only ever
-// receives free drives — the same contract SideSwapApp assembles for an
-// open-world session.
-const freeDriveLesson = (freeDrive: FreeDriveDefinition): GameCanvasLesson =>
-  buildFreeDriveLesson(
-    freeDrive,
-    getCountryProfile(freeDrive.countryId).trafficSide,
-  );
 
 const canvasSpeedUnit = (freeDrive: FreeDriveDefinition) =>
   getCountryProfile(freeDrive.countryId).speedUnit === "kmh" ? "km/h" : "mph";
@@ -28,17 +22,14 @@ const canvasSpeedUnit = (freeDrive: FreeDriveDefinition) =>
 describe("simulation runtime adapter (free-roam)", () => {
   it("spawns each city drive on its authored player lane, on-lane and legal", () => {
     for (const freeDrive of FREE_DRIVES) {
-      const lesson = freeDriveLesson(freeDrive);
+      const scenario = buildFreeDriveScenario(freeDrive);
+      const country = getCountryProfile(freeDrive.countryId);
       const mapPack = getMapPack(freeDrive.mapId);
-      const start = resolveSimulationStartPose(
-        lesson,
-        mapPack,
-        lesson.trafficSide,
-      );
+      const start = resolveSimulationStartPose(scenario, mapPack);
       const config = buildSimulationCoreConfig({
-        lesson,
+        scenario,
         mapPack,
-        trafficSide: lesson.trafficSide,
+        trafficSide: country.trafficSide,
         speedUnit: canvasSpeedUnit(freeDrive),
       });
 
@@ -48,9 +39,6 @@ describe("simulation runtime adapter (free-roam)", () => {
         heading: start.heading,
       });
       expect((config.lanes ?? []).length, freeDrive.id).toBeGreaterThan(0);
-      // Free drives carry no route guidance and no forced finish line.
-      expect(config.routeGuidance, freeDrive.id).toEqual([]);
-      expect(config.finish, freeDrive.id).toBeNull();
 
       const snapshot = new SimulationCore(config).getSnapshot();
       expect(snapshot.road.wrongWay, freeDrive.id).toBe(false);
@@ -71,12 +59,12 @@ describe("simulation runtime adapter (free-roam)", () => {
     for (const freeDrive of FREE_DRIVES) {
       const country = getCountryProfile(freeDrive.countryId);
       const mapPack = getMapPack(freeDrive.mapId);
-      const lesson = freeDriveLesson(freeDrive);
+      const scenario = buildFreeDriveScenario(freeDrive);
       const snapshot = new SimulationCore(
         buildSimulationCoreConfig({
-          lesson,
+          scenario,
           mapPack,
-          trafficSide: lesson.trafficSide,
+          trafficSide: country.trafficSide,
           speedUnit: canvasSpeedUnit(freeDrive),
         }),
       ).getSnapshot();
@@ -95,13 +83,14 @@ describe("simulation runtime adapter (free-roam)", () => {
 
   it("keeps a stationary player safe from authored traffic in every city", () => {
     for (const freeDrive of FREE_DRIVES) {
+      const country = getCountryProfile(freeDrive.countryId);
       const mapPack = getMapPack(freeDrive.mapId);
-      const lesson = freeDriveLesson(freeDrive);
+      const scenario = buildFreeDriveScenario(freeDrive);
       const simulation = new SimulationCore(
         buildSimulationCoreConfig({
-          lesson,
+          scenario,
           mapPack,
-          trafficSide: lesson.trafficSide,
+          trafficSide: country.trafficSide,
           speedUnit: canvasSpeedUnit(freeDrive),
         }),
       );
@@ -110,9 +99,9 @@ describe("simulation runtime adapter (free-roam)", () => {
       }
       const snapshot = simulation.getSnapshot();
       expect(
-        snapshot.activeIncident,
-        `${freeDrive.id} caused an incident while the player remained stationary`,
-      ).toBeNull();
+        simulation.getEvents().some((event) => event.code === "collision"),
+        `${freeDrive.id} recorded a collision while the player remained stationary`,
+      ).toBe(false);
       expect(snapshot.status).toBe("running");
     }
   });
@@ -131,12 +120,13 @@ describe("simulation runtime adapter (free-roam)", () => {
     );
     expect(freeDrive).toBeDefined();
     if (!freeDrive) return;
-    const lesson = freeDriveLesson(freeDrive);
+    const country = getCountryProfile(freeDrive.countryId);
+    const scenario = buildFreeDriveScenario(freeDrive);
     const simulation = new SimulationCore(
       buildSimulationCoreConfig({
-        lesson,
+        scenario,
         mapPack: getMapPack(freeDrive.mapId),
-        trafficSide: lesson.trafficSide,
+        trafficSide: country.trafficSide,
         speedUnit: canvasSpeedUnit(freeDrive),
       }),
     );
@@ -174,12 +164,13 @@ describe("simulation runtime adapter (free-roam)", () => {
     // throw, no failing render, just a rule that never charges.
     let signalControls = 0;
     for (const freeDrive of FREE_DRIVES) {
-      const lesson = freeDriveLesson(freeDrive);
+      const country = getCountryProfile(freeDrive.countryId);
+      const scenario = buildFreeDriveScenario(freeDrive);
       const mapPack = getMapPack(freeDrive.mapId);
       const config = buildSimulationCoreConfig({
-        lesson,
+        scenario,
         mapPack,
-        trafficSide: lesson.trafficSide,
+        trafficSide: country.trafficSide,
         speedUnit: canvasSpeedUnit(freeDrive),
       });
       const lightIds = new Set((config.trafficLights ?? []).map((light) => light.id));
@@ -206,5 +197,141 @@ describe("simulation runtime adapter (free-roam)", () => {
       }
     }
     expect(signalControls).toBeGreaterThan(0);
+  });
+
+  describe("authored player start validation", () => {
+    const freeDrive = FREE_DRIVES[0];
+    const baseScenario = buildFreeDriveScenario(freeDrive);
+    const baseMap = getMapPack(freeDrive.mapId);
+    type SpawnPoint = GameCanvasMapPack["laneGraph"]["spawnPoints"][number];
+
+    const scenarioWithStart = (startSpawnId: string): DriveScenario => ({
+      ...baseScenario,
+      startSpawnId,
+    });
+    const mapWith = (
+      spawn: SpawnPoint,
+      lanes = baseMap.laneGraph.lanes,
+    ): GameCanvasMapPack => ({
+      ...baseMap,
+      laneGraph: {
+        ...baseMap.laneGraph,
+        lanes,
+        spawnPoints: [spawn, ...baseMap.laneGraph.spawnPoints],
+      },
+    });
+
+    it("requires both a scenario and map data", () => {
+      expect(() =>
+        resolveSimulationStartPose(
+          undefined as unknown as DriveScenario,
+          baseMap,
+        ),
+      ).toThrow(/drive scenario is required/i);
+      expect(() =>
+        resolveSimulationStartPose(
+          baseScenario,
+          undefined as unknown as GameCanvasMapPack,
+        ),
+      ).toThrow(/requires map data/i);
+    });
+
+    it("rejects an empty authored start id", () => {
+      expect(() =>
+        resolveSimulationStartPose(scenarioWithStart("  "), baseMap),
+      ).toThrow(/missing an authored start spawn id/i);
+    });
+
+    it("rejects a missing start id instead of selecting a fallback", () => {
+      expect(() =>
+        resolveSimulationStartPose(scenarioWithStart("missing-start"), baseMap),
+      ).toThrow(/missing start spawn "missing-start"/i);
+    });
+
+    it("rejects a matching non-player spawn", () => {
+      const spawn: SpawnPoint = {
+        id: "pedestrian-start",
+        kind: "pedestrian",
+        pose: { position: { x: 0, z: 0 }, headingDeg: 0 },
+      };
+      expect(() =>
+        resolveSimulationStartPose(
+          scenarioWithStart(spawn.id),
+          mapWith(spawn),
+        ),
+      ).toThrow(/not a player spawn/i);
+    });
+
+    it("rejects an invalid authored anchor", () => {
+      const spawn: SpawnPoint = {
+        id: "invalid-anchor-start",
+        kind: "player",
+        anchor: {
+          laneId: baseMap.laneGraph.lanes[0].id,
+          distanceAlongM: Number.NaN,
+        },
+      };
+      expect(() =>
+        resolveSimulationStartPose(
+          scenarioWithStart(spawn.id),
+          mapWith(spawn),
+        ),
+      ).toThrow(/invalid lane anchor/i);
+    });
+
+    it("rejects an anchor whose lane does not exist", () => {
+      const spawn: SpawnPoint = {
+        id: "missing-lane-start",
+        kind: "player",
+        anchor: { laneId: "missing-lane", distanceAlongM: 0 },
+      };
+      expect(() =>
+        resolveSimulationStartPose(
+          scenarioWithStart(spawn.id),
+          mapWith(spawn),
+        ),
+      ).toThrow(/references missing lane "missing-lane"/i);
+    });
+
+    it("rejects an invalid authored lane", () => {
+      const invalidLane = {
+        ...baseMap.laneGraph.lanes[0],
+        id: "invalid-start-lane",
+        centerline: [{ x: 0, z: 0 }],
+      };
+      const spawn: SpawnPoint = {
+        id: "invalid-lane-start",
+        kind: "player",
+        anchor: { laneId: invalidLane.id, distanceAlongM: 0 },
+      };
+      expect(() =>
+        resolveSimulationStartPose(
+          scenarioWithStart(spawn.id),
+          mapWith(spawn, [invalidLane, ...baseMap.laneGraph.lanes]),
+        ),
+      ).toThrow(/references invalid lane "invalid-start-lane"/i);
+    });
+
+    it("rejects an authored anchor that cannot be resolved", () => {
+      const unresolvedLane = {
+        ...baseMap.laneGraph.lanes[0],
+        id: "unresolved-start-lane",
+        centerline: [
+          { x: 4, z: 7 },
+          { x: 4, z: 7 },
+        ],
+      };
+      const spawn: SpawnPoint = {
+        id: "unresolved-anchor-start",
+        kind: "player",
+        anchor: { laneId: unresolvedLane.id, distanceAlongM: 0 },
+      };
+      expect(() =>
+        resolveSimulationStartPose(
+          scenarioWithStart(spawn.id),
+          mapWith(spawn, [unresolvedLane, ...baseMap.laneGraph.lanes]),
+        ),
+      ).toThrow(/could not resolve authored start anchor/i);
+    });
   });
 });

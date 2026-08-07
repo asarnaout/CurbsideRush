@@ -108,24 +108,6 @@ const CUTSCENE_GROUND_Y: Partial<Record<CutsceneKind, number>> = {
   refuel: FORECOURT_WALK_Y,
 };
 
-/**
- * What the scene reports on its way out, per kind.
- *
- * A full `Record` rather than the ternary chain this was, so adding a kind is a
- * compile error here instead of silently inheriting whichever branch happened
- * to be last ("Order delivered.", as it went).
- */
-const CUTSCENE_DONE_MESSAGE: Record<CutsceneKind, string> = {
-  refuel: "Tank filled; back behind the wheel.",
-  roadside_refuel: "Tank filled; back behind the wheel.",
-  repair: "Repaired; back on the road.",
-  board: "Rider aboard.",
-  exit: "Rider dropped off.",
-  pullover: "Ticket written; you're free to go.",
-  food_pickup: "Order collected.",
-  food_dropoff: "Order delivered.",
-};
-
 /** How far off a carriageway centreline the traffic stop will still measure its
  * kerb from that road. Beyond it (a car deep in a car park or on the grass) the
  * stop parks heading-relative instead of dragging the car back to a street it
@@ -227,8 +209,8 @@ export interface CutsceneDirectorCtx {
   readonly steeringSide: SteeringSide;
   readonly trafficSide: TrafficSide;
   readonly playerVehicle: PlayerVehicleOption | null | undefined;
-  readonly mapPack: GameCanvasMapPack | undefined;
-  readonly lessonTrafficSeed: number | undefined;
+  readonly mapPack: GameCanvasMapPack;
+  readonly scenarioTrafficSeed: number;
   readonly thirdCameraX: number;
   readonly thirdCameraZ: number;
   readonly stagedBlockers: readonly StagedBlocker[];
@@ -252,12 +234,7 @@ export interface CutsceneDirectorCtx {
   readonly applyCameraStack: (firstPerson: boolean) => void;
   readonly patrolSimulationIdNear: (radiusM: number) => string | null;
   readonly passengerColors: (seedId: string) => CharacterColors;
-  readonly emit: (
-    type: GameRuntimeEvent["type"],
-    message: string,
-    severity?: GameRuntimeEvent["severity"],
-    rule?: Pick<GameRuntimeEvent, "ruleCode" | "penalty" | "evidence" | "issuedBy">,
-  ) => void;
+  readonly emit: (event: GameRuntimeEvent) => void;
 }
 
 /**
@@ -501,7 +478,7 @@ export class CutsceneDirector {
       // Nothing staged, so nothing may stay hidden: without this an unstageable
       // scene would leave a patrol permanently off screen.
       this.hiddenNpcId = null;
-      this.emitCutsceneDone(ctx, request.nonce, request.kind);
+      this.emitCutsceneDone(ctx, request.nonce);
       return;
     }
 
@@ -665,7 +642,7 @@ export class CutsceneDirector {
     x: number,
     z: number,
   ): PulloverRoad | null {
-    const surfaces = ctx.mapPack?.geometry.roadSurfaces;
+    const surfaces = ctx.mapPack.geometry.roadSurfaces;
     if (!surfaces?.length) return null;
     let best: PulloverRoad | null = null;
     let bestDistance = PULLOVER_ROAD_REACH_M;
@@ -697,9 +674,9 @@ export class CutsceneDirector {
       node,
       `cutscene-patrol-${nonce}`,
       policeAppearanceForMap(
-        ctx.mapPack?.id ?? "orientation-yard",
+        ctx.mapPack.id,
         `pullover-${nonce}`,
-        ctx.lessonTrafficSeed ?? 0,
+        ctx.scenarioTrafficSeed,
       ),
     );
     visual.setDetailVisible(true);
@@ -729,28 +706,24 @@ export class CutsceneDirector {
       // the same way the refuel scene pays for its fuel when the nozzle goes
       // in rather than when the button was pressed.
       cutscene.citeEmitted = true;
-      ctx.emit("cutscene", "Licence and registration.", "warning", {
-        evidence: { phase: "cite", nonce: cutscene.nonce },
-      });
+      ctx.emit({ type: "cutscene", phase: "cite", nonce: cutscene.nonce });
     }
     if (step.fuelWindow && !cutscene.pumpEmitted) {
       cutscene.pumpEmitted = true;
-      ctx.emit("cutscene", "Filling the tank.", "info", {
-        evidence: {
-          phase: "pump",
-          nonce: cutscene.nonce,
-          durationMs: Math.round(step.seconds * 1000),
-        },
+      ctx.emit({
+        type: "cutscene",
+        phase: "pump",
+        nonce: cutscene.nonce,
+        durationMs: Math.round(step.seconds * 1000),
       });
     }
     if (step.repairWindow && !cutscene.repairEmitted) {
       cutscene.repairEmitted = true;
-      ctx.emit("cutscene", "Panels straightened, lights replaced.", "info", {
-        evidence: {
-          phase: "repair",
-          nonce: cutscene.nonce,
-          durationMs: Math.round(step.seconds * 1000),
-        },
+      ctx.emit({
+        type: "cutscene",
+        phase: "repair",
+        nonce: cutscene.nonce,
+        durationMs: Math.round(step.seconds * 1000),
       });
     }
     // The order is in hand for whole legs at a time, so this rides the step
@@ -921,7 +894,7 @@ export class CutsceneDirector {
     cutscene.actorNode.dispose(false, false);
     this.disposePatrolRig(cutscene);
     // The player's own bike rider is the opposite case: the courier always
-    // remounts when the errand ends, on completion just as on abort. Missing
+    // remounts when the errand ends, after a normal finish just as on abort. Missing
     // this here (it only lived in cancelCutscene) shipped a ghost bike after
     // every successful pickup.
     if (cutscene.playerRiderHidden) {
@@ -930,7 +903,7 @@ export class CutsceneDirector {
     this.active = null;
     ctx.applyCameraStack(ctx.cameraMode === "first");
     ctx.playFoley("chime");
-    this.emitCutsceneDone(ctx, cutscene.nonce, cutscene.kind);
+    this.emitCutsceneDone(ctx, cutscene.nonce);
   }
 
   /** Tears a scene down without a `done` event: tow reset, session dispose. */
@@ -963,11 +936,8 @@ export class CutsceneDirector {
   private emitCutsceneDone(
     ctx: CutsceneDirectorCtx,
     nonce: number,
-    kind: CutsceneKind,
   ): void {
-    ctx.emit("cutscene", CUTSCENE_DONE_MESSAGE[kind], "info", {
-      evidence: { phase: "done", nonce, kind },
-    });
+    ctx.emit({ type: "cutscene", phase: "done", nonce });
   }
 
   /**

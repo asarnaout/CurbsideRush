@@ -36,7 +36,7 @@ npm run dev          # vinext dev + Miniflare on :3000 (NOT `next dev`)
 npm run build        # -> dist/client + dist/server
 npm run typecheck    # ~3s
 npm run lint         # ~11s, currently 0 errors / 0 warnings — keep it that way
-npm test             # 95 files, ~1527 tests, ~2min
+npm test             # full suite, ~2min
 
 # the loop you actually iterate on: everything but the acceptance sweep, ~20s
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
@@ -47,10 +47,10 @@ and pushes to `main`; run the same checks locally before committing.
 
 ## Two things to know before reading any file
 
-- **`lesson` does not mean a lesson.** The game pivoted from a driving curriculum
-  to an open-world gig driver, but the vocabulary survives: `GameCanvasLesson` is
-  the runtime scenario contract and the only kind left is `"free_drive"`. Details
-  and the surviving vestigial branches: [docs/architecture.md](docs/architecture.md).
+- **Every drive has explicit authored inputs.** `DriveScenario` and its map pack
+  are required, and the scenario's player spawn must resolve to a valid lane
+  anchor. There is no synthetic city or start-position fallback. Details:
+  [docs/architecture.md](docs/architecture.md).
 - **Dependency arrows only point inward**, and `simulation.ts` imports nothing but
   its own types. Breaking that breaks the determinism the whole design rests on.
 

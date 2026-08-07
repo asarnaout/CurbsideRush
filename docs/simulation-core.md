@@ -1,8 +1,8 @@
 # The simulation core
 
-`app/game/simulation.ts` — physics, traffic, road-rule enforcement and scoring.
+`app/game/simulation.ts` — physics, traffic and road-rule events.
 Read this before touching the core, the adapter, or anything that changes NPC
-behaviour, and before adding or repricing a `RuleCode`.
+behaviour, and before adding a `RuleCode`.
 
 ## Determinism contract
 
@@ -11,7 +11,7 @@ clamps delta to 0.25 s and drops the excess — under stall the sim runs slow
 rather than exploding. `step(0, action)` is the sanctioned way to inject a
 one-shot edge-triggered input.
 
-One xorshift32 PRNG seeded from `lesson.trafficSeed`, consumed in exactly two
+One xorshift32 PRNG seeded from `scenario.trafficSeed`, consumed in exactly two
 places: initial NPC spawn, and the 10 Hz decision pass. **Everything else is
 deterministically tie-broken, not randomized** — gates sort by `localeCompare`;
 crossing priority and successor-lane choice parse digits out of the NPC id
@@ -25,50 +25,25 @@ iteration order, id naming, or lane ordering fails it. **Geometry edits that loo
 purely visual can move the hash**, because supplemental oncoming gates are
 derived from road-surface lane membership.
 
-## Rules, severity and enforcement
+## Rule events never end a drive
 
-There are 21 `RuleCode`s (`app/game/types.ts`) and three severities: `coach`,
-`minor`, `critical`.
+There are 20 `RuleCode`s (`app/game/types.ts`). Road monitors enqueue
+non-terminating events; the app decides whether an event affects a rider rating,
+damage or a witnessed fine. The core has no score, completion state, authored
+route or reset-enforcement mode.
 
-**Under `"coach"` enforcement nothing hard-resets the player — including
-collisions.** `buildSimulationCoreConfig` picks `"coach"` iff
-`lesson.kind === "free_drive"`, which is every free drive *and* every career day.
+Static and NPC collisions still resolve physically: bodies separate, speed is
+scrubbed and an NPC can be knocked askew. Pedestrian, cyclist and prop contact
+enters through `reportExternalContact`, which also scrubs speed before emitting
+the collision. None of those paths teleports the player.
 
-- `flagCritical` softens all four codes it is ever called with — `collision`
-  against static geometry (`resolveStaticCollisions`), `wrong_way` and
-  `out_of_bounds` (`monitorRoadRules`), `red_light` (`checkStopLines`) — into
-  non-terminating `minor` events.
-- NPC-vehicle collisions are softened inline in `checkCollisions`: separate the
-  bodies, scrub speed, knock the NPC askew, `continue`.
-- Pedestrian/cyclist/prop contact is softened in `reportExternalContact`.
-
-The one unconditional `triggerCritical` entry point left is
-`reportExternalCollision`, reachable only through the session's
-`reset(incidentMessage)` — and **no caller passes that argument**, so it is dead
-in practice. Wiring it up would silently resurrect checkpoint-teleporting in the
-open world.
-
-## Penalties
-
-**Inline `penalty:` fallbacks at `emitEvent` call sites never fire — for any
-rule.** `penaltyFor` is `scoring.penalties[code] ?? fallback`, and `penalties` is
-typed `Partial`, so the mechanism is real; but both scoring configs that can
-reach it cover all 21 codes with identical values — `SCORING_CONFIG` in
-`economyTables.ts`, and `DEFAULT_SCORING` in `simulation.ts` when a caller
-omits `scoring`. Editing `penalty: 6` at a call site changes nothing; edit
-`SCORING_CONFIG`.
-
-Keep the fallbacks in mind when **adding** a `RuleCode`: miss it in both maps and
-the inline number silently becomes live.
-
-## Reading the event stream
-
-**`snapshot.recentEvents` is always empty in production** — `GameCanvas` calls
-`drainEvents()` every fixed update. Use `drainEvents()` or `latestEvent`.
+`BabylonGameSession` drains the queue every fixed update with `drainEvents()`;
+events are deliberately absent from `SimulationSnapshot`.
 
 ## Policing: who can fine you, and for what
 
-The chain runs core → `GameCanvas.processSimulationEvents` → `SideSwapApp`.
+The chain runs core → `BabylonGameSession.processSimulationEvents` →
+`SideSwapApp`.
 
 **A fine needs a witness or a camera, and one violation is answered once.**
 `processSimulationEvents` emits a `fine` runtime event for `wrong_way`,
@@ -92,7 +67,7 @@ can never see the `collision` event a pedestrian fine rides on.
 
 ### Speeding is the one fineable rule with two thresholds and a price
 
-The monitor's tolerance is set to *coach* — `max(1.3, limit * 0.08)`, about
+The monitor's tolerance is `max(1.3, limit * 0.08)`, about
 3 mph on a 30 — far too tight to take money at; a patrol inside 35 m would stop
 you for drifting. `speedingWarrantsCitation` (`speeding.ts`) draws the wider band
 a ticket costs (`CITATION_TOLERANCE_MPS` 2.2, or 15% of the limit, whichever is
@@ -138,7 +113,7 @@ you mid-scene does no damage either.
 
 **Count comes from `resolveAmbientVehicleCount`** (`simulationAdapter.ts`) — one
 source for both sim and renderer, which allocate separately and must agree. A map
-sets `ambientTraffic` when its size makes the lesson's density band wrong; NYC
+sets `ambientTraffic` when its size makes the scenario's density band wrong; NYC
 and Cairo do (32 desktop / 16 touch, against the core's clamp of 32).
 
 **Patrols are not authored.** `isPatrolVehicle` (`vehicleVisuals.ts`) marks one

@@ -5,7 +5,6 @@ import type { ParkStyle } from "./parkLayouts";
 
 export type TrafficSide = "left" | "right";
 export type SteeringSide = TrafficSide;
-export type SteeringPreference = "auto" | SteeringSide;
 export type SpeedUnit = "mph" | "kmh";
 export type CameraMode = "first_person" | "third_person";
 export type Gear = "drive" | "reverse";
@@ -30,8 +29,6 @@ export type FreeDriveId =
   | "free-jp"
   | "free-eg";
 
-export type ScenarioId = FreeDriveId;
-
 export type RuleCode =
   | "collision"
   | "wrong_way"
@@ -51,11 +48,7 @@ export type RuleCode =
   | "pedestrian_priority"
   | "cyclist_clearance"
   | "railway_crossing"
-  | "priority_to_right"
-  | "observation"
-  | "border_transition";
-
-export type RuleSeverity = "coach" | "minor" | "critical";
+  | "observation";
 
 export interface WorldPoint {
   readonly x: number;
@@ -176,8 +169,8 @@ export interface LaneAnchor {
 
 /**
  * A short junction transition inside an otherwise established running lane.
- * Guidance and spawn/checkpoint validation treat this range as connector
- * geometry rather than as a legal settled-lane position.
+ * Spawn and routing validation treat this range as connector geometry rather
+ * than as a legal settled-lane position.
  */
 export interface LaneConnectorRange {
   readonly startDistanceAlongM: number;
@@ -189,8 +182,7 @@ export type RoadSurfaceType =
   | "standard"
   | "roundabout"
   | "shared_space"
-  | "terminal"
-  | "orientation";
+  | "terminal";
 
 export type RoadMarkingStyle =
   | "centre_dashed"
@@ -264,8 +256,7 @@ export type TrafficControlType =
   | "crosswalk"
   | "railway_signal"
   | "box_junction"
-  | "restricted_lane"
-  | "side_swap_gate";
+  | "restricted_lane";
 
 export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 
@@ -287,7 +278,6 @@ export interface LaneRestriction {
   readonly ruleCode: "restricted_lane";
   readonly activeWindows: readonly RestrictionWindow[];
   readonly sourceReferenceId: string;
-  readonly message: string;
 }
 
 export interface TrafficControl {
@@ -314,8 +304,7 @@ export type TrafficControlMounting =
   | "mast_arm"
   | "secondary_pole"
   | "railway_crossing"
-  | "road_marking"
-  | "terminal_portal";
+  | "road_marking";
 
 export type TrafficControlVisualStyle =
   | "nyc_signal"
@@ -326,8 +315,7 @@ export type TrafficControlVisualStyle =
   | "restricted_lane"
   | "crosswalk"
   | "box_junction"
-  | "japan_railway"
-  | "side_swap_gate";
+  | "japan_railway";
 
 export interface TrafficControlInstallation {
   readonly id: string;
@@ -366,19 +354,12 @@ export interface FreeMapSpawnPoint {
 
 export type MapSpawnPoint = AnchoredMapSpawnPoint | FreeMapSpawnPoint;
 
-export interface MapCheckpoint {
-  readonly id: string;
-  readonly label: string;
-  readonly anchor: LaneAnchor;
-}
-
 export interface LaneGraph {
   readonly nodes: readonly LaneNode[];
   readonly lanes: readonly LaneSegment[];
   readonly controls: readonly TrafficControl[];
   readonly conflictZones: readonly ConflictZone[];
   readonly spawnPoints: readonly MapSpawnPoint[];
-  readonly checkpoints: readonly MapCheckpoint[];
   readonly restrictions?: readonly LaneRestriction[];
 }
 
@@ -531,7 +512,7 @@ export interface ProceduralMapGeometry {
 }
 
 /**
- * How many ambient cars a map carries, when its size makes the lesson's
+ * How many ambient cars a map carries when its size makes the scenario's
  * density band the wrong answer.
  *
  * Density is authored per drive ("moderate"), not per city, so every map got
@@ -559,7 +540,7 @@ export interface MapPack {
    * Display names for this city's streets, keyed by `RoadSurface.id` (which is
    * the same key space as `LaneSegment.roadId`).
    *
-   * Optional, and deliberately partial: guidance falls back to naming no street
+   * Optional, and deliberately partial: navigation falls back to naming no street
    * at all rather than blocking on a city nobody has named yet. Names live on
    * the pack rather than in one global table because they are authored content
    * like the geometry beside them — a central table would have to be kept in
@@ -614,99 +595,23 @@ export type StaticObstacle =
       readonly radius: number;
     };
 
-export type ManeuverPhase =
-  | "approach"
-  | "observe"
-  | "pass"
-  | "establish_clearance"
-  | "return"
-  | "complete";
-
-export interface OvertakeExercise {
-  readonly id: string;
-  readonly kind: "overtake";
-  readonly normalLaneId: string;
-  readonly passingLaneId: string;
-  readonly corridorStart: LaneAnchor;
-  readonly corridorEnd: LaneAnchor;
-  readonly leadVehicleStart: LaneAnchor;
-  readonly leadVehicleSpeedFactor: number;
-  readonly phaseAnchors: Readonly<{
-    approach: LaneAnchor;
-    observe: LaneAnchor;
-    pass: LaneAnchor;
-    return: LaneAnchor;
-    complete: LaneAnchor;
-  }>;
-  readonly predictedClearSeconds: number;
-  readonly returnStandstillGapM: number;
-  readonly returnHeadwaySeconds: number;
-  readonly sourceReferenceIds: readonly string[];
-}
-
 export interface FreeDriveDefinition {
   readonly id: FreeDriveId;
   readonly countryId: CountryId;
   readonly destinationId: DestinationId;
   readonly mapId: MapId;
-  readonly title: string;
-  readonly description: string;
   readonly startSpawnId: string;
   readonly trafficSeed: number;
   readonly scenarioClock?: ScenarioClock;
 }
 
-export interface AssistanceSettings {
-  readonly coachPrompts: boolean;
-  readonly subtitles: boolean;
-  readonly wrongSideWarnings: boolean;
-  readonly autoResetAfterCriticalError: boolean;
-  readonly reducedMotion: boolean;
-}
-
-export interface GameSessionConfig {
-  readonly countryId: CountryId;
-  readonly destinationId: DestinationId;
-  readonly scenarioId: ScenarioId;
-  readonly familiarTrafficSide: TrafficSide;
-  readonly steeringPreference: SteeringPreference;
-  readonly camera: CameraMode;
-  readonly assistance: AssistanceSettings;
-}
-
-export interface ResolvedGameSessionConfig extends GameSessionConfig {
-  readonly countryId: CountryId;
-  readonly trafficSide: TrafficSide;
-  readonly steeringSide: SteeringSide;
-  readonly speedUnit: SpeedUnit;
-}
-
 export interface RuleEvent {
-  readonly id: string;
   readonly code: RuleCode;
-  readonly severity: RuleSeverity;
-  readonly timestampMs: number;
-  readonly message: string;
   readonly correction: string;
-  readonly penalty: number;
   readonly evidence: Readonly<Record<string, string | number | boolean>>;
-  readonly checkpointId?: string;
-}
-
-export interface ScoringConfig {
-  readonly weights: Readonly<{
-    safety: number;
-    ruleUse: number;
-    vehicleControl: number;
-  }>;
-  readonly masteryThreshold: number;
-  readonly masteryAllowsCriticalErrors: boolean;
-  readonly criticalRuleCodes: readonly RuleCode[];
-  readonly penalties: Readonly<Partial<Record<RuleCode, number>>>;
 }
 
 export interface AccessibilityPreferences {
-  readonly subtitles: boolean;
   readonly visualHonkIndicator: boolean;
   readonly reducedMotion: boolean;
   readonly cameraShake: boolean;
@@ -726,10 +631,6 @@ export interface PlayerProgressV2 {
   readonly walletByCountry: Readonly<Record<CountryId, number>>;
   /** Litres of fuel in the car, tracked per country. */
   readonly fuelByCountry: Readonly<Record<CountryId, number>>;
-  /** Lifetime gig earnings per country (a running stat, never spent). */
-  readonly lifetimeEarnings: Readonly<Record<CountryId, number>>;
-  readonly completedGigCount: number;
-  readonly lastCountryId: CountryId;
   readonly lastDestinationId: DestinationId;
   readonly preferredCamera: CameraMode;
   readonly accessibility: AccessibilityPreferences;
@@ -748,5 +649,4 @@ export interface PlayerProgressV2 {
    * restores the ride the driver was actually looking at.
    */
   readonly lastCareerVehicleId: CareerVehicleId;
-  readonly updatedAt: string;
 }

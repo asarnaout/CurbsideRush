@@ -222,7 +222,7 @@ const CARRIAGEWAY_CLEARANCE_M = 0.5;
  * **Presence in `STREET_PROFILES` is what makes a street addressable**, so this
  * table gates gig drop-offs and is not merely descriptive. The display name
  * deliberately does *not* live here any more: it moved to `MapPack.roadNames`
- * so that naming a street for turn-by-turn guidance cannot silently start
+ * so that naming a street for turn-by-turn navigation cannot silently start
  * generating gigs on it. Keep the two apart — a road wants a name in far more
  * cities than it wants house numbers.
  */
@@ -283,7 +283,7 @@ const STREET_PROFILES: Record<string, StreetProfile> = {
  * Every street the generator is opted into, by display name.
  *
  * Derived from the profiles **intersected with the map's names**, not from the
- * names alone: a street can be named for guidance in a city that generates no
+ * names alone: a street can be named for navigation in a city that generates no
  * addresses at all, and listing those here would claim addresses that never
  * appear. A road with no profile produces nothing, silently, so this is
  * exported for tests to assert each profiled street really does yield some —

@@ -1,13 +1,12 @@
 /**
  * Per-country pricing for the open world: fuel, gig/passenger fares, fines,
- * repairs, starting cash and the scoring weights, plus the formatters that
+ * repairs and starting cash, plus the formatters that
  * put an amount or a distance in front of the player. Out of `content.ts`
  * (Phase 4.4), which keeps only the country/destination/map/free-drive
- * registries and the getters over them — it imports `SCORING_CONFIG` back
- * from here for `getPenaltyForRule`.
+ * registries and the getters over them.
  */
 
-import type { CountryId, CountryProfile, ScoringConfig } from "./types";
+import type { CountryId, CountryProfile } from "./types";
 import { speedingFineMultiplier } from "./speeding";
 import { FULL_CONDITION_PCT } from "./damage";
 import {
@@ -259,7 +258,7 @@ export function formatMoney(amount: number, country: CountryProfile): string {
  * drives in, and it is right for all of them — the mph countries sign in miles,
  * the km/h ones in metres and kilometres.
  *
- * The rounding is deliberately coarse. A guidance readout refreshes ten times a
+ * The rounding is deliberately coarse. A navigation readout refreshes ten times a
  * second, and a string that changes every one of those re-lays-out a text node
  * for no benefit — nobody reads a drop-off as 0.37 mi. Quantising to a tenth of
  * a mile or ten metres changes it about once a second, which is also how a real
@@ -272,7 +271,7 @@ export function formatDistance(metres: number, country: CountryProfile): string 
 
 /**
  * The same figure with the number and the unit kept apart, for a readout that
- * sets them at different sizes — a guidance banner puts the distance at display
+ * sets them at different sizes — a navigation banner puts the distance at display
  * weight and the unit small beside it. Splitting `formatDistance`'s string on a
  * space would work today and break the first time a unit has one in it.
  */
@@ -303,37 +302,3 @@ export function formatDistanceParts(
   }
   return { value: (value / 1000).toFixed(1), unit: "km" };
 }
-
-export const SCORING_CONFIG: ScoringConfig = {
-  weights: {
-    safety: 0.5,
-    ruleUse: 0.35,
-    vehicleControl: 0.15,
-  },
-  masteryThreshold: 80,
-  masteryAllowsCriticalErrors: false,
-  criticalRuleCodes: ["collision", "wrong_way", "red_light", "out_of_bounds"],
-  penalties: {
-    collision: 50,
-    wrong_way: 35,
-    red_light: 35,
-    out_of_bounds: 30,
-    speeding: 6,
-    incomplete_stop: 8,
-    missing_indicator: 4,
-    unsafe_gap: 12,
-    following_distance: 7,
-    lane_misuse: 6,
-    one_way: 20,
-    roundabout_yield: 12,
-    merge: 10,
-    pedestrian_priority: 18,
-    cyclist_clearance: 12,
-    railway_crossing: 20,
-    priority_to_right: 10,
-    observation: 6,
-    border_transition: 15,
-    box_junction: 6,
-    restricted_lane: 4,
-  },
-};

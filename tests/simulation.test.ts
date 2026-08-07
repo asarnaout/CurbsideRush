@@ -3,9 +3,17 @@ import {
   SimulationCore,
   isRestrictionWindowActive,
 } from "../app/game/simulation";
-import { SCORING_CONFIG } from "../app/game/economyTables";
 
 describe("deterministic simulation", () => {
+  it("does not synthesize retired fallback roads, signals, or traffic", () => {
+    const simulation = new SimulationCore({ seed: 42, npcCount: 10 });
+    const snapshot = simulation.getSnapshot();
+
+    expect(snapshot.road.laneId).toBeNull();
+    expect(snapshot.trafficLights).toEqual([]);
+    expect(snapshot.npcs).toEqual([]);
+  });
+
   it("produces the same snapshots for the same seed and inputs", () => {
     const left = new SimulationCore({ seed: 42, npcCount: 6 });
     const right = new SimulationCore({ seed: 42, npcCount: 6 });
@@ -73,15 +81,14 @@ describe("deterministic simulation", () => {
     const bikeCap = runFor({ maxForwardSpeedMps: 7.5 }, 600, { throttle: 1 });
     expect(bikeCap.signedSpeedMps).toBeLessThanOrEqual(7.5 + 1e-9);
     // A lower instability threshold scrubs speed under a sustained fast turn
-    // where a planted setup keeps its grip. Coach enforcement so the circling
-    // car is not teleport-reset for leaving the yard mid-comparison.
+    // where a planted setup keeps its grip.
     const twitchy = runFor(
-      { instabilityLateralMps2: 3, enforcement: "coach" },
+      { instabilityLateralMps2: 3 },
       150,
       { throttle: 1, steer: 0.2 },
     );
     const planted = runFor(
-      { instabilityLateralMps2: 30, enforcement: "coach" },
+      { instabilityLateralMps2: 30 },
       150,
       { throttle: 1, steer: 0.2 },
     );
@@ -95,18 +102,13 @@ describe("deterministic simulation", () => {
   // behaviour rather than its literals, so a future tweak has to stay inside
   // what a real car does instead of merely differing from the old numbers.
   //
-  // `enforcement: "coach"` plus no lanes and no finish is what keeps this a
-  // pure physics run: a stock core resets the car at ~75 m on an out-of-bounds
-  // critical, which reads as "coasted to a stop" and is not.
+  // Wide bounds keep this a pure physics run, isolated from road-rule events.
   it("coasts to rest like a car in gear, not one in neutral", () => {
     const MPH = 2.236936;
     const coastFrom = (mph: number) => {
       const simulation = new SimulationCore({
         npcCount: 0,
         lanes: [],
-        finish: null,
-        checkpoints: [],
-        enforcement: "coach",
         bounds: { minX: -1e5, maxX: 1e5, minZ: -1e5, maxZ: 1e5 },
       });
       simulation.setPlayerPose({ x: 0, z: 0, heading: 0 }, mph / MPH);
@@ -148,9 +150,6 @@ describe("deterministic simulation", () => {
     const simulation = new SimulationCore({
       npcCount: 0,
       lanes: [],
-      finish: null,
-      checkpoints: [],
-      enforcement: "coach",
       bounds: { minX: -1e5, maxX: 1e5, minZ: -1e5, maxZ: 1e5 },
     });
     simulation.setPlayerPose({ x: 0, z: 0, heading: 0 }, 30 / 2.236936);
@@ -166,9 +165,6 @@ describe("deterministic simulation", () => {
     expect(Math.hypot(player.x, player.z)).toBeLessThan(11);
   });
 
-  // Tick counts here are kept short on purpose: reverse far enough and the run
-  // ends in an incident and respawns the car, which would read as "speed 0" and
-  // quietly stop testing what these say they test. Hence the status assertions.
   it("never reverses off the brake pedal, however long it is held", () => {
     const simulation = new SimulationCore({ npcCount: 0 });
     for (let index = 0; index < 60; index += 1) {
@@ -234,34 +230,49 @@ describe("deterministic simulation", () => {
     expect(Math.abs(simulation.getSnapshot().player.signedSpeedMps)).toBeLessThan(0.05);
   });
 
-  it("keeps snapshots serializable and uses weighted scoring", () => {
+  it("keeps snapshots serializable and preserves scenario metadata", () => {
     const simulation = new SimulationCore({
+      scenarioId: "tokyo-free-drive",
       trafficSide: "left",
       speedUnit: "kmh",
       seed: 7,
     });
     const snapshot = simulation.step(1 / 30, { throttle: 0.4 });
     expect(() => JSON.stringify(snapshot)).not.toThrow();
+    expect(snapshot.scenarioId).toBe("tokyo-free-drive");
     expect(snapshot.trafficSide).toBe("left");
     expect(snapshot.speedUnit).toBe("kmh");
-    expect(snapshot.score.total).toBe(
-      Math.round(
-        snapshot.score.safety * 0.5 +
-          snapshot.score.ruleUse * 0.35 +
-          snapshot.score.vehicleControl * 0.15,
-      ),
-    );
   });
 
   it("maps the passing lane to the jurisdiction-appropriate side", () => {
     const rightTraffic = new SimulationCore({
       trafficSide: "right",
       npcCount: 0,
+      lanes: [
+        {
+          id: "right-passing",
+          points: [
+            { x: 1.75, z: -90 },
+            { x: 1.75, z: 90 },
+          ],
+          role: "passing",
+        },
+      ],
       spawn: { x: 1.75, z: -75, heading: 0 },
     });
     const leftTraffic = new SimulationCore({
       trafficSide: "left",
       npcCount: 0,
+      lanes: [
+        {
+          id: "left-passing",
+          points: [
+            { x: -1.75, z: -90 },
+            { x: -1.75, z: 90 },
+          ],
+          role: "passing",
+        },
+      ],
       spawn: { x: -1.75, z: -75, heading: 0 },
     });
     expect(rightTraffic.getSnapshot().road.laneRole).toBe("passing");
@@ -270,53 +281,14 @@ describe("deterministic simulation", () => {
     expect(leftTraffic.getSnapshot().player.x).toBeLessThan(0);
   });
 
-  it("pauses on sustained wrong-way driving and explains recovery", () => {
+  it("keeps driving after a wrong-way violation and emits a rule event", () => {
+    // Open-world drives never freeze or snap the car back. The violation is
+    // still recorded for traffic-law fines. Heading π drives toward -z,
+    // against this lane's +z legal direction.
     const simulation = new SimulationCore({
-      lessonId: "wrong-way-check",
+      scenarioId: "wrong-way-open-world",
       trafficSide: "right",
       npcCount: 0,
-      lanes: [
-        {
-          id: "wide-lane",
-          points: [
-            { x: 0, z: -100 },
-            { x: 0, z: 100 },
-          ],
-          width: 20,
-          speedLimitMps: 20,
-          loop: false,
-        },
-      ],
-      spawn: { x: 0, z: 0, heading: Math.PI },
-      bounds: { minX: -30, maxX: 30, minZ: -120, maxZ: 120 },
-    });
-
-    for (let index = 0; index < 240; index += 1) {
-      simulation.step(1 / 60, { throttle: 1 });
-      if (simulation.getSnapshot().status === "incident") break;
-    }
-
-    const snapshot = simulation.getSnapshot();
-    expect(snapshot.status).toBe("incident");
-    expect(snapshot.activeIncident?.code).toBe("wrong_way");
-    expect(snapshot.activeIncident?.penalty).toBe(
-      SCORING_CONFIG.penalties.wrong_way,
-    );
-    expect(snapshot.activeIncident?.correction).toContain("Keep to the right");
-    expect(snapshot.score.criticalErrors).toBe(1);
-    expect(snapshot.player.speedMps).toBe(0);
-  });
-
-  it("under coach enforcement keeps driving on a wrong-way violation instead of resetting", () => {
-    // Same wrong-way setup as above, but open-world / gig enforcement: the drive
-    // must never freeze or snap the car back. The violation is still recorded as
-    // a non-terminating event so the future police-fine hook has something to act
-    // on. (heading π drives the car toward -z, against the +z lane direction.)
-    const simulation = new SimulationCore({
-      lessonId: "wrong-way-coach",
-      trafficSide: "right",
-      npcCount: 0,
-      enforcement: "coach",
       lanes: [
         {
           id: "wide-lane",
@@ -338,42 +310,40 @@ describe("deterministic simulation", () => {
     }
 
     const snapshot = simulation.getSnapshot();
-    // Never terminates: no incident, no frozen sim, no counted critical error.
     expect(snapshot.status).toBe("running");
-    expect(snapshot.activeIncident).toBeNull();
-    expect(snapshot.score.criticalErrors).toBe(0);
-    // The car kept travelling the wrong way rather than being reset to spawn.
     expect(snapshot.player.speedMps).toBeGreaterThan(0);
     expect(snapshot.player.z).toBeLessThan(-5);
-    // The violation is still surfaced as a non-terminating "minor" event.
     const wrongWayEvents = simulation
       .drainEvents()
       .filter((event) => event.code === "wrong_way");
     expect(wrongWayEvents.length).toBeGreaterThan(0);
-    expect(wrongWayEvents.every((event) => event.severity === "minor")).toBe(
-      true,
-    );
+    expect(wrongWayEvents[0]?.correction).toContain("Keep to the right");
   });
 
-  it("returns to an authored checkpoint without clearing earned score", () => {
-    const simulation = new SimulationCore({ npcCount: 0 });
-    simulation.setCheckpoint({ id: "safe-turn", x: 5.25, z: -20, heading: 0 });
+  it("returns to the authored spawn without restarting the world clock", () => {
+    const simulation = new SimulationCore({
+      scenarioId: "authored-spawn-reset",
+      npcCount: 0,
+      spawn: { x: 5.25, z: -20, heading: 0.4 },
+    });
     for (let index = 0; index < 90; index += 1) {
       simulation.step(1 / 60, { throttle: 0.7 });
     }
-    const scoreBefore = simulation.getSnapshot().score.total;
-    simulation.resetToCheckpoint();
+    const before = simulation.getSnapshot();
+    simulation.resetToSpawn();
     const restored = simulation.getSnapshot();
-    expect(restored.checkpointId).toBe("safe-turn");
+    expect(restored.scenarioId).toBe("authored-spawn-reset");
     expect(restored.player.x).toBe(5.25);
     expect(restored.player.z).toBe(-20);
+    expect(restored.player.heading).toBeCloseTo(0.4);
     expect(restored.player.speedMps).toBe(0);
-    expect(restored.score.total).toBe(scoreBefore);
+    expect(restored.tick).toBe(before.tick);
+    expect(restored.elapsedMs).toBe(before.elapsedMs);
   });
 
   it("assesses a blocked box-junction exit once the player enters the conflict zone", () => {
     const simulation = new SimulationCore({
-      lessonId: "london-box-test",
+      scenarioId: "london-box-test",
       seed: 12,
       npcCount: 1,
       lanes: [
@@ -420,20 +390,15 @@ describe("deterministic simulation", () => {
     const event = simulation
       .getEvents()
       .find((candidate) => candidate.code === "box_junction");
-    expect(event?.severity).toBe("minor");
-    expect(event?.penalty).toBe(SCORING_CONFIG.penalties.box_junction);
-    expect(event?.message).toContain("exit was clear");
+    expect(event?.correction).toContain("enough room to clear it completely");
     expect(event?.evidence).toMatchObject({
       junctionId: "cromwell-yellow-box",
       laneId: "cromwell-east",
       blockingVehicleId: "npc-1",
     });
-    expect(simulation.getSnapshot().score.ruleUse).toBe(
-      100 - (SCORING_CONFIG.penalties.box_junction ?? 0),
-    );
   });
 
-  it("does not penalize a box-junction entry when its exit is clear", () => {
+  it("does not emit a box-junction event when its exit is clear", () => {
     const simulation = new SimulationCore({
       npcCount: 0,
       lanes: [
@@ -467,12 +432,11 @@ describe("deterministic simulation", () => {
       simulation.step(1 / 60, { throttle: 0.8 });
     }
     expect(simulation.getEvents().some((event) => event.code === "box_junction")).toBe(false);
-    expect(simulation.getSnapshot().score.ruleUse).toBe(100);
   });
 
   it("uses the fixed scenario clock for sustained restricted-lane assessment and cooldown", () => {
     const simulation = new SimulationCore({
-      lessonId: "london-restricted-lane-test",
+      scenarioId: "london-restricted-lane-test",
       npcCount: 0,
       lanes: [
         {
@@ -506,7 +470,6 @@ describe("deterministic simulation", () => {
             },
           ],
           sourceReferenceId: "uk-highway-code-140",
-          message: "This signed lane is restricted at the displayed lesson time.",
         },
       ],
     });
@@ -526,7 +489,6 @@ describe("deterministic simulation", () => {
       sustainedSeconds: 2.5,
     });
     expect(simulation.getSnapshot().scenarioClock?.label).toBe("Monday 08:30");
-    expect(simulation.getSnapshot().score.ruleUse).toBe(96);
 
     for (let index = 0; index < 300; index += 1) {
       simulation.step(1 / 60, { throttle: 0.55 });
@@ -771,11 +733,10 @@ describe("deterministic simulation", () => {
     for (let index = 0; index < 60 * 60; index += 1) simulation.step(1 / 60);
     const snapshot = simulation.getSnapshot();
     expect(snapshot.status).toBe("running");
-    expect(snapshot.score.criticalErrors).toBe(0);
     expect(snapshot.npcs[0].z).toBeLessThanOrEqual(95);
   });
 
-  it("requeues traffic that conflicts with a restored checkpoint", () => {
+  it("requeues traffic that conflicts with the restored authored spawn", () => {
     const simulation = new SimulationCore({
       npcCount: 1,
       minRuntimeSpawnDistanceM: 200,
@@ -786,18 +747,25 @@ describe("deterministic simulation", () => {
           loop: false,
         },
       ],
-      spawn: { x: 0, z: 100, heading: 0 },
+      spawn: { x: 0, z: 22, heading: 0 },
       bounds: { minX: -10, maxX: 10, minZ: -10, maxZ: 310 },
       trafficGates: [
         { id: "recovery-gate", laneId: "recovery-lane", distance: 20, desiredSpeedMps: 4 },
       ],
     });
-    expect(simulation.getSnapshot().npcs).toHaveLength(1);
-    simulation.setCheckpoint({ id: "near-traffic", x: 0, z: 22, heading: 0 });
-    simulation.resetToCheckpoint();
+    // Initially queued because its gate overlaps the authored player spawn.
     expect(simulation.getSnapshot().npcs).toHaveLength(0);
     expect(simulation.getSnapshot().queuedNpcCount).toBe(1);
-    expect(simulation.getSnapshot().score.criticalErrors).toBe(0);
+
+    // With the player safely away, the runtime gate may activate.
+    simulation.setPlayerPose({ x: 0, z: 260, heading: 0 });
+    for (let tick = 0; tick < 12; tick += 1) simulation.step(1 / 60);
+    expect(simulation.getSnapshot().npcs).toHaveLength(1);
+
+    simulation.resetToSpawn();
+    expect(simulation.getSnapshot().npcs).toHaveLength(0);
+    expect(simulation.getSnapshot().queuedNpcCount).toBe(1);
+    expect(simulation.getSnapshot().player).toMatchObject({ x: 0, z: 22 });
   });
 
   it("supports UK red-amber and all-red clearance phases per approach", () => {
@@ -910,7 +878,6 @@ describe("deterministic simulation", () => {
       ...sharedConfig,
       spawn: { x: 0, z: 10, heading: 0 },
       npcCount: 0,
-      scoring: SCORING_CONFIG,
     });
     for (let tick = 0; tick < 5 * 60; tick += 1) {
       player.step(1 / 60, { throttle: 1 });
@@ -918,9 +885,7 @@ describe("deterministic simulation", () => {
     const railwayEvent = player
       .getEvents()
       .find((event) => event.code === "railway_crossing");
-    expect(railwayEvent?.penalty).toBe(
-      SCORING_CONFIG.penalties.railway_crossing,
-    );
+    expect(railwayEvent?.correction).toContain("Stop before the line");
     expect(railwayEvent?.evidence).toMatchObject({ warningActive: true });
   });
 
@@ -1041,15 +1006,11 @@ describe("static world collision", () => {
     loop: false,
   };
 
-  const wallAhead = (
-    enforcement: "coach" | "reset",
-    maxForwardSpeedMps = 22,
-  ) =>
+  const wallAhead = (maxForwardSpeedMps = 22) =>
     new SimulationCore({
-      lessonId: "wall-test",
+      scenarioId: "wall-test",
       trafficSide: "right",
       npcCount: 0,
-      enforcement,
       lanes: [NORTH_LANE],
       spawn: { x: 0, z: 0, heading: 0 },
       bounds: { minX: -60, maxX: 60, minZ: -120, maxZ: 120 },
@@ -1067,21 +1028,20 @@ describe("static world collision", () => {
       ],
     });
 
-  it("stops the car at a wall in coach mode without ending the drive", () => {
-    const simulation = wallAhead("coach");
+  it("stops the car at a wall without ending the drive", () => {
+    const simulation = wallAhead();
     for (let index = 0; index < 480; index += 1) {
       simulation.step(1 / 60, { throttle: 1 });
     }
     const snapshot = simulation.getSnapshot();
     expect(snapshot.status).toBe("running");
-    expect(snapshot.score.criticalErrors).toBe(0);
     // Capsule front circle (centre + 1.15 + radius 1.0) rests on the face.
     expect(snapshot.player.z).toBeLessThanOrEqual(40 - 2.15 + 0.01);
     expect(snapshot.player.z).toBeGreaterThan(35);
     const collision = simulation
       .getEvents()
       .find((event) => event.code === "collision");
-    expect(collision?.severity).toBe("minor");
+    expect(collision?.correction).toContain("keep to the carriageway");
     expect(collision?.evidence).toMatchObject({ obstacle: "building" });
     expect(
       typeof collision?.evidence.impactSpeedMps === "number" &&
@@ -1090,7 +1050,7 @@ describe("static world collision", () => {
   });
 
   it("never tunnels through a wall even at the physics ceiling", () => {
-    const simulation = wallAhead("coach", 50);
+    const simulation = wallAhead(50);
     for (let index = 0; index < 900; index += 1) {
       simulation.step(1 / 60, { throttle: 1 });
       expect(simulation.getSnapshot().player.z).toBeLessThan(40 - 1.0);
@@ -1098,7 +1058,7 @@ describe("static world collision", () => {
   });
 
   it("bonks back off a hard head-on hit", () => {
-    const simulation = wallAhead("coach");
+    const simulation = wallAhead();
     let sawRebound = false;
     for (let index = 0; index < 480; index += 1) {
       simulation.step(1 / 60, { throttle: 1 });
@@ -1111,7 +1071,7 @@ describe("static world collision", () => {
   });
 
   it("lets the car reverse away after a head-on stop", () => {
-    const simulation = wallAhead("coach");
+    const simulation = wallAhead();
     for (let index = 0; index < 360; index += 1) {
       simulation.step(1 / 60, { throttle: 1 });
     }
@@ -1125,10 +1085,9 @@ describe("static world collision", () => {
 
   it("slides along a wall met at a shallow angle instead of sticking", () => {
     const simulation = new SimulationCore({
-      lessonId: "slide-test",
+      scenarioId: "slide-test",
       trafficSide: "right",
       npcCount: 0,
-      enforcement: "coach",
       lanes: [NORTH_LANE],
       // Slight angle toward the wall on the right.
       spawn: { x: 0, z: -80, heading: 0.18 },
@@ -1155,22 +1114,8 @@ describe("static world collision", () => {
     expect(snapshot.player.z).toBeGreaterThan(-30);
   });
 
-  it("keeps the classic critical incident in reset enforcement", () => {
-    const simulation = wallAhead("reset");
-    for (let index = 0; index < 480; index += 1) {
-      simulation.step(1 / 60, { throttle: 1 });
-      if (simulation.getSnapshot().status === "incident") break;
-    }
-    const snapshot = simulation.getSnapshot();
-    expect(snapshot.status).toBe("incident");
-    expect(snapshot.activeIncident?.code).toBe("collision");
-    expect(snapshot.score.criticalErrors).toBe(1);
-    // Snapped back to the spawn checkpoint.
-    expect(Math.abs(snapshot.player.z)).toBeLessThan(1);
-  });
-
   it("emits at most one collision event per contact burst", () => {
-    const simulation = wallAhead("coach");
+    const simulation = wallAhead();
     let firstEventAt: number | null = null;
     for (let index = 0; index < 600; index += 1) {
       simulation.step(1 / 60, { throttle: 1 });
@@ -1191,8 +1136,8 @@ describe("static world collision", () => {
   });
 
   it("is deterministic with obstacles present", () => {
-    const left = wallAhead("coach");
-    const right = wallAhead("coach");
+    const left = wallAhead();
+    const right = wallAhead();
     for (let index = 0; index < 600; index += 1) {
       const input = { throttle: 1, steer: index > 300 ? -0.4 : 0 };
       left.step(1 / 60, input);
@@ -1202,14 +1147,13 @@ describe("static world collision", () => {
   });
 });
 
-describe("coach-mode crash response with traffic", () => {
+describe("open-world crash response with traffic", () => {
   const crashConfig = () =>
     new SimulationCore({
-      lessonId: "npc-crash-test",
+      scenarioId: "npc-crash-test",
       trafficSide: "right",
       seed: 7,
       npcCount: 1,
-      enforcement: "coach",
       lanes: [
         {
           id: "crash-lane",
@@ -1252,7 +1196,6 @@ describe("coach-mode crash response with traffic", () => {
     expect(crashTick).not.toBeNull();
     const atCrash = simulation.getSnapshot();
     expect(atCrash.status).toBe("running");
-    expect(atCrash.score.criticalErrors).toBe(0);
     const struck = atCrash.npcs[0];
     expect(struck).toBeDefined();
     // Knocked visibly askew relative to the lane heading (0 = due north).
@@ -1294,7 +1237,7 @@ describe("coach-mode crash response with traffic", () => {
     expect(postImpactSpeed).toBeLessThan(preImpactSpeed * 0.3);
   });
 
-  it("still recovers NPC-fault contacts without a penalty", () => {
+  it("still recovers NPC-fault contacts without emitting a player collision", () => {
     // Mirrors the stationary-player invariant the acceptance suite relies on:
     // a legally stopped player rear-ended by traffic must never be penalised.
     const simulation = crashConfig();
@@ -1303,7 +1246,6 @@ describe("coach-mode crash response with traffic", () => {
     }
     const snapshot = simulation.getSnapshot();
     expect(snapshot.status).toBe("running");
-    expect(snapshot.score.criticalErrors).toBe(0);
     expect(
       simulation.getEvents().filter((event) => event.code === "collision"),
     ).toHaveLength(0);
@@ -1323,7 +1265,6 @@ describe("ambient traffic reads the limit of the road it is on", () => {
     new SimulationCore({
       seed: 11,
       npcCount: 1,
-      enforcement: "coach",
       lanes: [
         {
           id: "fast",
@@ -1390,18 +1331,14 @@ describe("ambient traffic reads the limit of the road it is on", () => {
 });
 
 describe("reportExternalContact", () => {
-  it("scrubs speed and records a minor event under coach enforcement", () => {
-    const simulation = new SimulationCore({
-      npcCount: 0,
-      enforcement: "coach",
-    });
+  it("scrubs speed and records a collision event", () => {
+    const simulation = new SimulationCore({ npcCount: 0 });
     for (let index = 0; index < 120; index += 1) {
       simulation.step(1 / 60, { throttle: 1 });
     }
     const before = simulation.getSnapshot().player.signedSpeedMps;
     expect(before).toBeGreaterThan(3);
     const reported = simulation.reportExternalContact(
-      "Your vehicle struck a pedestrian on the pavement.",
       "Keep the car off the kerb and clear of people on foot.",
       0.75,
       { roadUserType: "pedestrian", impactSpeedMps: Math.round(before) },
@@ -1413,22 +1350,20 @@ describe("reportExternalContact", () => {
     const collision = simulation
       .getEvents()
       .find((event) => event.code === "collision");
-    expect(collision?.severity).toBe("minor");
+    expect(collision?.correction).toBe(
+      "Keep the car off the kerb and clear of people on foot.",
+    );
     expect(collision?.evidence).toMatchObject({ externalRoadUser: true });
   });
 
   it("still applies the physical scrub when the event cooldown swallows a repeat", () => {
-    const simulation = new SimulationCore({
-      npcCount: 0,
-      enforcement: "coach",
-    });
+    const simulation = new SimulationCore({ npcCount: 0 });
     for (let index = 0; index < 120; index += 1) {
       simulation.step(1 / 60, { throttle: 1 });
     }
-    simulation.reportExternalContact("First contact.", "Slow down.", 0.75);
+    simulation.reportExternalContact("Slow down.", 0.75);
     const between = simulation.getSnapshot().player.signedSpeedMps;
     const again = simulation.reportExternalContact(
-      "Second contact.",
       "Slow down.",
       0.5,
     );
@@ -1440,24 +1375,5 @@ describe("reportExternalContact", () => {
     expect(
       simulation.getEvents().filter((event) => event.code === "collision"),
     ).toHaveLength(1);
-  });
-
-  it("escalates to the classic incident under reset enforcement", () => {
-    const simulation = new SimulationCore({
-      npcCount: 0,
-      enforcement: "reset",
-    });
-    for (let index = 0; index < 120; index += 1) {
-      simulation.step(1 / 60, { throttle: 1 });
-    }
-    const reported = simulation.reportExternalContact(
-      "Your vehicle struck a pedestrian.",
-      "Yield to people on foot.",
-      0.75,
-    );
-    expect(reported).toBe(true);
-    const snapshot = simulation.getSnapshot();
-    expect(snapshot.status).toBe("incident");
-    expect(snapshot.activeIncident?.code).toBe("collision");
   });
 });

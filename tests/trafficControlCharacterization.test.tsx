@@ -2,7 +2,6 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -22,10 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * railway crossings and both road-marking kinds. Not covered by any shipped
  * map: nyc_signal and egypt_signal (style-only variants of the same signal
  * builder London already exercises — NYC's own grid is large enough that
- * mounting it would make this test slow for redundant coverage) and
- * "side_swap_gate" (confirmed dead: no map authors it — `buildTerminalPortal`
- * moves verbatim per the program's move-only/log-don't-delete rule, logged
- * as a follow-up, uncharacterized).
+ * mounting it would make this test slow for redundant coverage).
  *
  * The exact mesh name sets below are not derived from reading the source —
  * they are what a real run of this harness produced, on the pre-extraction
@@ -49,8 +45,8 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
   return { ...mod, Engine: HeadlessEngine };
 });
 
-import GameCanvas, { type GameCanvasHandle } from "../app/game/GameCanvas";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
+import GameCanvas from "../app/game/GameCanvas";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/cities/london";
 import { FREE_DRIVES, MAP_PACKS } from "../app/game/content";
 
@@ -306,14 +302,12 @@ describe("traffic control characterization (Phase 3.9 safety net)", () => {
   it(
     "London: signal heads, cameras, crosswalk stripes, box-junction markings",
     async () => {
-      const ref = createRef<GameCanvasHandle>();
-      const lesson = buildFreeDriveLesson(LONDON_FREE_DRIVE, "left");
+      const scenario = buildFreeDriveScenario(LONDON_FREE_DRIVE);
       const meshes = await mountAndCollectTrafficControlMeshes(
         <GameCanvas
-          ref={ref}
           trafficSide="left"
           steeringSide="right"
-          lesson={lesson}
+          scenario={scenario}
           mapPack={LONDON_MAP_PACK}
           paused={false}
           onHudUpdate={() => {}}
@@ -335,19 +329,17 @@ describe("traffic control characterization (Phase 3.9 safety net)", () => {
   it(
     "Tokyo: railway crossings, crosswalk stripes",
     async () => {
-      const ref = createRef<GameCanvasHandle>();
       const tokyoFreeDrive = FREE_DRIVES.find((freeDrive) => freeDrive.id === "free-jp");
       const tokyoMapPack = MAP_PACKS.find((pack) => pack.id === "tokyo-setagaya");
       if (!tokyoFreeDrive || !tokyoMapPack) {
         throw new Error("Tokyo free-drive/map pack not found in content.ts");
       }
-      const lesson = buildFreeDriveLesson(tokyoFreeDrive, "left");
+      const scenario = buildFreeDriveScenario(tokyoFreeDrive);
       const meshes = await mountAndCollectTrafficControlMeshes(
         <GameCanvas
-          ref={ref}
           trafficSide="left"
           steeringSide="right"
-          lesson={lesson}
+          scenario={scenario}
           mapPack={tokyoMapPack}
           paused={false}
           onHudUpdate={() => {}}

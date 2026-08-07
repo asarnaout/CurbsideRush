@@ -16,7 +16,6 @@ const MAPS = [
   "london-south-kensington",
   "tokyo-setagaya",
   "cairo-central-nile",
-  "orientation-yard",
 ];
 
 const lightness = (tone: CharacterTone) => (tone.r + tone.g + tone.b) / 3;

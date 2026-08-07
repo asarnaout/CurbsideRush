@@ -181,8 +181,8 @@ export function buildGpsGraph(
       // An unresolvable successor is authored data that degrades quietly
       // elsewhere too; drop the edge rather than throwing on a live map. The
       // same goes for one whose geometry does not actually meet its
-      // predecessor — the break `buildConnectedNpcPath` guards against, checked
-      // here once at build time instead of on every edge relaxation.
+      // predecessor. Check it here once at build time instead of on every edge
+      // relaxation.
       if (successor === undefined) continue;
       if (!isContinuous(lanes[index], lanes[successor])) continue;
       edges.push(successor);
@@ -828,8 +828,7 @@ function searchLaneSequence(
   return null;
 }
 
-/** Guards the same break `buildConnectedNpcPath` guards: an authored successor
- * whose geometry does not actually meet its predecessor. */
+/** Rejects an authored successor whose geometry misses its predecessor. */
 function isContinuous(lane: GpsLane, successor: GpsLane): boolean {
   const end = lane.centerline[lane.centerline.length - 1];
   const start = successor.centerline[0];

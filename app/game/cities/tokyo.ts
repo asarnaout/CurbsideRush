@@ -6,7 +6,6 @@ import type {
   LaneNode,
   LaneRole,
   LaneSegment,
-  MapCheckpoint,
   MapPack,
   MapSpawnPoint,
   RoadMarkingPath,
@@ -148,17 +147,6 @@ const roadSurface = (
   laneIds,
   surfaceType,
   markings,
-});
-
-const checkpoint = (
-  id: string,
-  label: string,
-  laneId: string,
-  distanceAlongM: number,
-): MapCheckpoint => ({
-  id,
-  label,
-  anchor: anchor(laneId, distanceAlongM),
 });
 
 const anchoredSpawn = (
@@ -303,14 +291,12 @@ const graph = (
   controls: LaneGraph["controls"],
   conflictZones: LaneGraph["conflictZones"],
   spawnPoints: LaneGraph["spawnPoints"],
-  checkpoints: LaneGraph["checkpoints"],
 ): LaneGraph => ({
   nodes,
   lanes,
   controls,
   conflictZones: connectorConflictZones(lanes, conflictZones),
   spawnPoints,
-  checkpoints,
 });
 
 const osmSource = (
@@ -654,20 +640,6 @@ export const TOKYO_MAP_PACK: MapPack = {
       freeSpawn("jp-cyclist-uptown", "cyclist", -31.35, 120, 0, "jp-narrowhill-north"),
       freeSpawn("jp-cyclist-dori", "cyclist", -145, -166.5, 90, "jp-dori-east-1"),
     ],
-    [
-      checkpoint("jp-start", "Setagaya start", "jp-south-east-1", 18),
-      checkpoint("jp-rail", "Setagaya Line crossing", "jp-south-east-2", 38),
-      checkpoint("jp-rail-clear", "Clear of the Setagaya Line", "jp-south-east-2", 60),
-      checkpoint("jp-stop", "Narrow-street stop line", "jp-narrow-north-1", 82),
-      checkpoint("jp-uptown", "Uptown Miyanosaka turn", "jp-uptown-east-2", 40),
-      checkpoint("jp-station", "Gotokuji station crossing", "jp-center-west-2", 76),
-      checkpoint("jp-finish", "Neighbourhood finish", "jp-north-east-2", 54),
-      checkpoint("jp-local-finish", "Neighbourhood street finish", "jp-center-west-3", 54),
-      checkpoint("jp-west-finish", "Yamashita west-side finish", "jp-northrow-west-e", 70),
-      checkpoint("jp-dori", "Setagaya-dori arterial", "jp-dori-east-2", 60),
-      checkpoint("jp-hill-finish", "Miyanosaka hill finish", "jp-westhill-south", 45),
-      checkpoint("jp-vru-finish", "Patient-space exercise finish", "jp-southrow-west-e", 70),
-    ],
   ),
 };
 
@@ -676,8 +648,6 @@ export const TOKYO_FREE_DRIVE: FreeDriveDefinition = {
   countryId: "jp",
   destinationId: "jp-tokyo",
   mapId: "tokyo-setagaya",
-  title: "Free Drive — Tokyo Setagaya",
-  description: "Navigate narrow left-side neighbourhood streets with patient local traffic.",
   startSpawnId: "jp-player",
   trafficSeed: 2401,
 };

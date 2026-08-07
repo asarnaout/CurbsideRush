@@ -16,7 +16,7 @@ import { formatMoney } from "./game/economyTables";
 import { formatClock } from "./CareerViews";
 import type {
   CutsceneRequest,
-  GameCanvasLesson,
+  DriveScenario,
   GameHudSnapshot,
   GameRuntimeEvent,
 } from "./game/sessionContract";
@@ -162,7 +162,7 @@ export function DriveScreen({
   promptKind,
   refuel,
   riderVenueId,
-  runtimeLesson,
+  runtimeScenario,
   runtimeMap,
   splitPrompt,
   tankCapacityL,
@@ -238,7 +238,7 @@ export function DriveScreen({
   promptKind: "refuel" | "repair" | null;
   refuel: () => void;
   riderVenueId: string | null;
-  runtimeLesson: GameCanvasLesson;
+  runtimeScenario: DriveScenario;
   runtimeMap: MapPack;
   splitPrompt: boolean;
   tankCapacityL: number;
@@ -250,13 +250,13 @@ export function DriveScreen({
     return (
       <main className="game-page" style={themeStyle}>
         <GameCanvas
-          key={`${driveDestination.id}-${runtimeLesson.id}-${activeSteeringSide}${
+          key={`${driveDestination.id}-${runtimeScenario.id}-${activeSteeringSide}${
             careerRun ? `-${careerRun.vehicleId}` : ""
           }`}
           className="game-canvas"
-          trafficSide={runtimeLesson.trafficSide}
+          trafficSide={driveCountry.trafficSide}
           steeringSide={activeSteeringSide}
-          lesson={runtimeLesson}
+          scenario={runtimeScenario}
           mapPack={runtimeMap}
           cameraMode={toCanvasCamera(camera)}
           speedUnit={driveCountry.speedUnit === "kmh" ? "km/h" : "mph"}

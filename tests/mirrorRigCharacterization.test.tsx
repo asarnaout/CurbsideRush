@@ -2,7 +2,6 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -20,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *
  * London only: the mirror rig itself has no per-map variation (unlike
  * traffic control or parks) — it is built once, identically, regardless of
- * which map or lesson is active.
+ * which map or scenario is active.
  *
  * The exact mesh name set and the `sx`/`sy`/`sz` non-degeneracy expectations
  * below are not derived from reading the source — they are what a real run
@@ -53,8 +52,8 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
   return { ...mod, Engine: HeadlessEngine };
 });
 
-import GameCanvas, { type GameCanvasHandle } from "../app/game/GameCanvas";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
+import GameCanvas from "../app/game/GameCanvas";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/cities/london";
 
 function createFake2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
@@ -195,15 +194,13 @@ describe("mirror rig characterization (Phase 3.12 safety net)", () => {
   it(
     "builds the rear-view and wing mirrors, and actually renders through them once ticking",
     async () => {
-      const ref = createRef<GameCanvasHandle>();
-      const lesson = buildFreeDriveLesson(LONDON_FREE_DRIVE, "left");
+      const scenario = buildFreeDriveScenario(LONDON_FREE_DRIVE);
 
       render(
         <GameCanvas
-          ref={ref}
           trafficSide="left"
           steeringSide="right"
-          lesson={lesson}
+          scenario={scenario}
           mapPack={LONDON_MAP_PACK}
           paused={false}
           cameraMode="first"

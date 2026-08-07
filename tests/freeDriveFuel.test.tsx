@@ -29,6 +29,10 @@ import {
   setFuel,
 } from "../app/game/progress";
 import SideSwapApp from "../app/SideSwapApp";
+import type {
+  GameHudSnapshot,
+  GameRuntimeEvent,
+} from "../app/game/sessionContract";
 
 // Free-drive fuelling had no test at all (it is the one economy path career
 // never exercises), which is how the pump could refuse a sale to a player with
@@ -40,15 +44,15 @@ const mockStop = { x: 0, z: 0 };
 vi.mock("next/dynamic", () => ({
   default: () =>
     function MockGameCanvas(props: {
-      lesson?: { readonly id: string };
+      scenario?: { readonly id: string };
       cutscene?: { readonly nonce: number; readonly kind: string } | null;
-      onHudUpdate?: (snapshot: Record<string, unknown>) => void;
-      onEvent?: (event: Record<string, unknown>) => void;
+      onHudUpdate?: (snapshot: GameHudSnapshot) => void;
+      onEvent?: (event: GameRuntimeEvent) => void;
     }) {
       return (
         <section
           aria-label="Mock driving scene"
-          data-scenario={props.lesson?.id}
+          data-scenario={props.scenario?.id}
           data-cutscene-kind={props.cutscene?.kind ?? "none"}
         >
           <button
@@ -60,22 +64,15 @@ vi.mock("next/dynamic", () => ({
                 speedUnit: "mph",
                 gear: "D",
                 cameraMode: "third",
-                indicator: "off",
-                score: 100,
-                objectiveProgress: 0,
                 instruction: "",
                 paused: false,
                 honking: false,
                 rearViewVisible: false,
-                scenarioId: props.lesson?.id ?? "",
-                scenarioTitle: "",
-                objective: "",
-                checkpoint: "",
-                trafficSide: "right",
                 playerX: mockStop.x,
                 playerZ: mockStop.z,
                 heading: 0,
                 simElapsedMs: 1_000,
+                speedLimit: 30,
               })
             }
           >
@@ -87,13 +84,9 @@ vi.mock("next/dynamic", () => ({
             onClick={() =>
               props.onEvent?.({
                 type: "cutscene",
-                message: "pump",
-                timestamp: 2,
-                evidence: {
-                  nonce: props.cutscene?.nonce ?? -1,
-                  phase: "pump",
-                  durationMs: 4_000,
-                },
+                nonce: props.cutscene?.nonce ?? -1,
+                phase: "pump",
+                durationMs: 4_000,
               })
             }
           >

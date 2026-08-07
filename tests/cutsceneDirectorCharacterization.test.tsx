@@ -2,7 +2,6 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -44,8 +43,8 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
   return { ...mod, Engine: HeadlessEngine };
 });
 
-import GameCanvas, { type GameCanvasHandle } from "../app/game/GameCanvas";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
+import GameCanvas from "../app/game/GameCanvas";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/cities/london";
 import type { GameRuntimeEvent } from "../app/game/sessionContract";
 
@@ -204,15 +203,13 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
   it(
     "stages a pullover: patrol rig present, actor becomes visible and moves",
     async () => {
-      const ref = createRef<GameCanvasHandle>();
-      const lesson = buildFreeDriveLesson(LONDON_FREE_DRIVE, "left");
+      const scenario = buildFreeDriveScenario(LONDON_FREE_DRIVE);
 
       const { rerender } = render(
         <GameCanvas
-          ref={ref}
           trafficSide="left"
           steeringSide="right"
-          lesson={lesson}
+          scenario={scenario}
           mapPack={LONDON_MAP_PACK}
           paused={false}
           onHudUpdate={() => {}}
@@ -232,10 +229,9 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
 
       rerender(
         <GameCanvas
-          ref={ref}
           trafficSide="left"
           steeringSide="right"
-          lesson={lesson}
+          scenario={scenario}
           mapPack={LONDON_MAP_PACK}
           paused={false}
           cutscene={{ nonce: 1, kind: "pullover" }}
@@ -276,16 +272,14 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
   it(
     "stages and completes a repair cutscene end to end, emitting its done event and clearing the rig",
     async () => {
-      const ref = createRef<GameCanvasHandle>();
-      const lesson = buildFreeDriveLesson(LONDON_FREE_DRIVE, "left");
+      const scenario = buildFreeDriveScenario(LONDON_FREE_DRIVE);
       const events: GameRuntimeEvent[] = [];
 
       const { rerender } = render(
         <GameCanvas
-          ref={ref}
           trafficSide="left"
           steeringSide="right"
-          lesson={lesson}
+          scenario={scenario}
           mapPack={LONDON_MAP_PACK}
           paused={false}
           onHudUpdate={() => {}}
@@ -304,10 +298,9 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
 
       rerender(
         <GameCanvas
-          ref={ref}
           trafficSide="left"
           steeringSide="right"
-          lesson={lesson}
+          scenario={scenario}
           mapPack={LONDON_MAP_PACK}
           paused={false}
           cutscene={{ nonce: 1, kind: "repair" }}
@@ -331,18 +324,20 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
           expect(
             events.some(
               (event) =>
-                event.type === "cutscene" && event.evidence?.phase === "done",
+                event.type === "cutscene" && event.phase === "done",
             ),
           ).toBe(true),
         { timeout: 20_000 },
       );
 
       const doneEvent = events.find(
-        (event) => event.type === "cutscene" && event.evidence?.phase === "done",
+        (event) => event.type === "cutscene" && event.phase === "done",
       );
-      expect(doneEvent?.message).toBe("Repaired; back on the road.");
-      expect(doneEvent?.evidence?.kind).toBe("repair");
-      expect(doneEvent?.evidence?.nonce).toBe(1);
+      expect(doneEvent).toMatchObject({
+        type: "cutscene",
+        phase: "done",
+        nonce: 1,
+      });
 
       // finishCutscene clears the rig once the scene ends.
       expect(cutsceneDebug().active).toBeNull();

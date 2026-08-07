@@ -31,7 +31,7 @@ const degreesToRadians = (degrees: number) => (degrees * Math.PI) / 180;
 /**
  * The physical props for lane-graph "controls": signal heads (three regional
  * styles), enforcement cameras, railway crossings, road-surface junction
- * markings (crosswalk stripes, box-junction hatching) and terminal portals.
+ * markings (crosswalk stripes and box-junction hatching).
  * De-methodized out of `BabylonGameSession` (Phase 3.9, characterized ahead
  * of time by `tests/trafficControlCharacterization.test.tsx` — coupling 14,
  * over the plan's >= 9 threshold).
@@ -58,14 +58,9 @@ const degreesToRadians = (degrees: number) => (degrees * Math.PI) / 180;
  * previous, by-then-disposed scene's master mesh), and a `Scene`-keyed
  * `WeakMap` would work but a per-pass object is simpler and makes the
  * lifetime obvious at the call site. `createFlatSegment` is threaded as a
- * ctx callback — it's shared well beyond this cargo (guidance-cue targets,
+ * ctx callback — it's shared well beyond this cargo (traffic-control targets,
  * route chevrons, the inline stop-line loop that stays in
  * `buildScenarioEnvironment`), not owned by any one Phase 3 file.
- *
- * `buildTerminalPortal` (style "side_swap_gate") is unreachable from every
- * shipped map today — none authors that style. Moved verbatim rather than
- * dropped, per the program's move-only/log-don't-delete rule; logged as a
- * dead-code follow-up.
  */
 
 export interface TrafficControlMaterials {
@@ -584,40 +579,4 @@ export function buildRoadMarkingInstallation(
       }
     }
   }
-}
-
-export function buildTerminalPortal(
-  ctx: TrafficControlRenderCtx,
-  controlId: string,
-  installation: NonNullable<
-    GameCanvasMapPack["laneGraph"]["controls"][number]["installations"]
-  >[number],
-  roadWidth: number,
-  materials: TrafficControlMaterials,
-) {
-  const heading = degreesToRadians(installation.headingDeg);
-  const sideX = Math.cos(heading);
-  const sideZ = -Math.sin(heading);
-  const span = Math.max(6, roadWidth * 0.82);
-  for (const side of [-1, 1]) {
-    createCylinder(
-      ctx.scene,
-      `${controlId}-${installation.id}-portal-post-${side}`,
-      { height: 4.8, diameter: 0.28, tessellation: 14 },
-      new Vector3(
-        installation.position.x + sideX * side * span / 2,
-        2.4,
-        installation.position.z + sideZ * side * span / 2,
-      ),
-      materials.dark,
-    );
-  }
-  const beam = createBox(
-    ctx.scene,
-    `${controlId}-${installation.id}-portal-beam`,
-    { width: span + 0.3, height: 0.32, depth: 0.32 },
-    new Vector3(installation.position.x, 4.65, installation.position.z),
-    materials.warningYellow,
-  );
-  beam.rotation.y = heading;
 }

@@ -4,8 +4,11 @@ import {
   getCountryProfile,
   getMapPack,
 } from "../app/game/content";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
-import type { GameCanvasLesson, SpeedUnit as CanvasSpeedUnit } from "../app/game/sessionContract";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
+import type {
+  DriveScenario,
+  SpeedUnit as CanvasSpeedUnit,
+} from "../app/game/sessionContract";
 import {
   FIXED_STEP_SECONDS,
   SimulationCore,
@@ -46,7 +49,7 @@ const ADDITIONAL_TRAFFIC_SEEDS = Array.from(
 interface PlayablePath {
   readonly id: string;
   readonly authoredSeed: number;
-  readonly lesson: GameCanvasLesson;
+  readonly scenario: DriveScenario;
   readonly mapPack: MapPack;
   readonly trafficSide: TrafficSide;
   readonly speedUnit: CanvasSpeedUnit;
@@ -78,7 +81,7 @@ const freeDrivePath = (freeDrive: FreeDriveDefinition): PlayablePath => {
   return {
     id: freeDrive.id,
     authoredSeed: freeDrive.trafficSeed,
-    lesson: buildFreeDriveLesson(freeDrive, country.trafficSide),
+    scenario: buildFreeDriveScenario(freeDrive),
     mapPack,
     trafficSide: country.trafficSide,
     speedUnit: toCanvasSpeedUnit(country.speedUnit),
@@ -145,8 +148,8 @@ const stationaryFailure = (
     const expectedTick = sample * STATIONARY_SAMPLE_TICKS;
     const timeLabel = `${(sample * STATIONARY_SAMPLE_SECONDS).toFixed(2)}s`;
 
-    if (snapshot.status !== "running" || snapshot.activeIncident) {
-      return `at ${timeLabel}: status=${snapshot.status}, incident=${snapshot.activeIncident?.code ?? "none"}, evidence=${JSON.stringify(snapshot.activeIncident?.evidence ?? {})}`;
+    if (snapshot.status !== "running") {
+      return `at ${timeLabel}: status=${snapshot.status}`;
     }
     if (snapshot.tick !== expectedTick) {
       return `at ${timeLabel}: tick ${snapshot.tick} != ${expectedTick} (reset or halted run)`;
@@ -154,17 +157,13 @@ const stationaryFailure = (
     if (snapshot.elapsedMs !== Math.round((expectedTick * 1_000) / 60)) {
       return `at ${timeLabel}: elapsedMs ${snapshot.elapsedMs} did not progress continuously`;
     }
-    if (snapshot.score.criticalErrors !== 0) {
-      return `at ${timeLabel}: ${snapshot.score.criticalErrors} critical error(s)`;
-    }
     if (
       distance(snapshot.player, expectedPose) > POSITION_TOLERANCE_M ||
       Math.abs(snapshot.player.heading - expectedPose.heading) > POSITION_TOLERANCE_M ||
       snapshot.player.distanceTravelledM !== 0 ||
-      snapshot.player.speedMps !== 0 ||
-      snapshot.checkpointId !== "start"
+      snapshot.player.speedMps !== 0
     ) {
-      return `at ${timeLabel}: stationary pose/checkpoint changed (reset or unintended movement)`;
+      return `at ${timeLabel}: stationary pose changed (reset or unintended movement)`;
     }
 
     const overlap = firstPlayerOverlap(snapshot);
@@ -185,13 +184,7 @@ const stationaryFailure = (
     }
     previous = snapshot;
   }
-
-  const criticalEvent = simulation
-    .getEvents()
-    .find((event) => event.severity === "critical");
-  return criticalEvent
-    ? `recorded critical event ${criticalEvent.code}`
-    : null;
+  return null;
 };
 
 const mixHash = (hash: number, value: number): number =>
@@ -263,10 +256,10 @@ const auditTrafficRun = (
     traceHash = traceSnapshot(traceHash, snapshot);
     peakNpcCount = Math.max(peakNpcCount, snapshot.npcs.length);
 
-    // A critical incident intentionally restores the checkpoint and may reflow
+    // A critical incident intentionally restores the authored spawn and may reflow
     // queued NPCs in that same fixed update. Report the incident itself without
     // misclassifying recovery placement as an ordinary lane transition/jump.
-    if (snapshot.status !== "running" || snapshot.activeIncident) {
+    if (snapshot.status !== "running") {
       if (validateSafety) {
         if (snapshot.tick !== tick) {
           report(
@@ -275,15 +268,9 @@ const auditTrafficRun = (
           );
         }
         report(
-          `tick ${tick}: status=${snapshot.status}, incident=${snapshot.activeIncident?.code ?? "none"}, evidence=${JSON.stringify(snapshot.activeIncident?.evidence ?? {})}`,
-          "incident",
+          `tick ${tick}: status=${snapshot.status}`,
+          "status",
         );
-        if (snapshot.score.criticalErrors !== 0) {
-          report(
-            `tick ${tick}: ${snapshot.score.criticalErrors} critical error(s)`,
-            "critical-errors",
-          );
-        }
       }
       previous = snapshot;
       break;
@@ -343,12 +330,6 @@ const auditTrafficRun = (
         report(
           `tick ${tick}: core tick is ${snapshot.tick} (reset or halted run)`,
           "tick-progression",
-        );
-      }
-      if (snapshot.score.criticalErrors !== 0) {
-        report(
-          `tick ${tick}: ${snapshot.score.criticalErrors} critical error(s)`,
-          "critical-errors",
         );
       }
       if (
@@ -474,7 +455,6 @@ const syntheticTrafficCases = (): readonly TrafficRunCase[] => {
             desiredSpeedMps: 9,
           },
         ],
-        finish: null,
       },
     },
     {
@@ -508,7 +488,6 @@ const syntheticTrafficCases = (): readonly TrafficRunCase[] => {
             desiredSpeedMps: 10,
           },
         ],
-        finish: null,
       },
     },
   ];
@@ -520,7 +499,7 @@ const authoredTrafficCase = (): TrafficRunCase => {
   );
   if (!path) throw new Error("Missing London traffic acceptance path");
   const adapted = buildSimulationCoreConfig({
-    lesson: path.lesson,
+    scenario: path.scenario,
     mapPack: path.mapPack,
     trafficSide: path.trafficSide,
     speedUnit: path.speedUnit,
@@ -530,15 +509,13 @@ const authoredTrafficCase = (): TrafficRunCase => {
     config: {
       ...adapted,
       seed: 1252,
-      checkpoints: [],
-      finish: null,
     },
   };
 };
 
 describe("traffic safety acceptance", () => {
   it(
-    "keeps every playable start and checkpoint safe for 60 seconds across 51 seeds",
+    "keeps every authored playable start safe for 60 seconds across 51 seeds",
     () => {
       expect(PLAYABLE_PATHS).toHaveLength(4);
       expect(new Set(PLAYABLE_PATHS.map((path) => path.id)).size).toBe(4);
@@ -558,7 +535,7 @@ describe("traffic safety acceptance", () => {
       const failures: string[] = [];
       pathLoop: for (const path of PLAYABLE_PATHS) {
         const adapted = buildSimulationCoreConfig({
-          lesson: path.lesson,
+          scenario: path.scenario,
           mapPack: path.mapPack,
           trafficSide: path.trafficSide,
           speedUnit: path.speedUnit,
@@ -567,49 +544,14 @@ describe("traffic safety acceptance", () => {
           failures.push(`${path.id}: adapter did not resolve a start pose`);
           continue;
         }
-        const adaptedCheckpointIds = new Set(
-          (adapted.checkpoints ?? []).map((checkpoint) => checkpoint.id),
-        );
-        const missingCheckpointIds = path.lesson.checkpoints.filter(
-          (checkpointId) => !adaptedCheckpointIds.has(checkpointId),
-        );
-        if (missingCheckpointIds.length) {
-          failures.push(
-            `${path.id}: adapter did not resolve checkpoint(s) ${missingCheckpointIds.join(", ")}`,
-          );
-          continue;
-        }
-        const positions = [
-          { id: "path-start", ...adapted.spawn },
-          ...(adapted.checkpoints ?? []).map((checkpoint) => ({
-            id: `checkpoint:${checkpoint.id}`,
-            x: checkpoint.x,
-            z: checkpoint.z,
-            heading: checkpoint.heading,
-          })),
-        ];
         const seeds = [path.authoredSeed, ...ADDITIONAL_TRAFFIC_SEEDS];
 
-        for (const position of positions) {
-          for (const seed of seeds) {
-            const config: SimulationCoreConfig = {
-              ...adapted,
-              seed,
-              spawn: {
-                x: position.x,
-                z: position.z,
-                heading: position.heading,
-              },
-              checkpoints: [],
-              finish: null,
-            };
-            const failure = stationaryFailure(new SimulationCore(config), config);
-            if (failure) {
-              failures.push(
-                `${path.id} / ${position.id} / seed ${seed}: ${failure}`,
-              );
-              if (failures.length >= MAX_REPORTED_FAILURES) break pathLoop;
-            }
+        for (const seed of seeds) {
+          const config: SimulationCoreConfig = { ...adapted, seed };
+          const failure = stationaryFailure(new SimulationCore(config), config);
+          if (failure) {
+            failures.push(`${path.id} / path-start / seed ${seed}: ${failure}`);
+            if (failures.length >= MAX_REPORTED_FAILURES) break pathLoop;
           }
         }
       }
@@ -621,8 +563,8 @@ describe("traffic safety acceptance", () => {
           : undefined,
       ).toEqual([]);
     },
-    // Exhaustive 60 s × 51-seed stationary check over every start on all 6
-    // playable free-drive paths. The guarantee (seeds, duration, positions) is
+    // Exhaustive 60 s × 51-seed stationary check over all four authored starts.
+    // The guarantee (seeds, duration, positions) is
     // fixed; wall-clock scales with map size + density. This body is synchronous,
     // so the budget only labels a completed run — it never truncates coverage.
     2_700_000,

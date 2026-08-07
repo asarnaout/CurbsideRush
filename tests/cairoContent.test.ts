@@ -17,7 +17,7 @@ import {
   slotBlockBuildings,
 } from "../app/game/buildingSets";
 import { hashStringToSeed } from "../app/game/visuals";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import {
   FIXED_STEP_SECONDS,
   SimulationCore,
@@ -910,7 +910,6 @@ describe("Cairo Central Nile content", () => {
     expect(
       graph.spawnPoints.filter((spawn) => spawn.id.includes("cairo-police-")),
     ).toHaveLength(3);
-    expect(graph.checkpoints).toHaveLength(10);
     expect(CAIRO_MAP_PACK.geometry.gigVenues).toHaveLength(30);
     expect(
       CAIRO_MAP_PACK.geometry.servicePoints?.filter(
@@ -1966,9 +1965,9 @@ describe("Cairo Central Nile content", () => {
   });
 
   it("pins the authored Cairo traffic replay", () => {
-    const lesson = buildFreeDriveLesson(CAIRO_FREE_DRIVE, "right");
+    const scenario = buildFreeDriveScenario(CAIRO_FREE_DRIVE);
     const configuration = buildSimulationCoreConfig({
-      lesson,
+      scenario,
       mapPack: CAIRO_MAP_PACK,
       trafficSide: "right",
       speedUnit: "km/h",

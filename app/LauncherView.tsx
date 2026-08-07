@@ -11,7 +11,6 @@ import type {
   DestinationId,
   DestinationProfile,
   PlayerProgressV2,
-  ScenarioId,
 } from "./game/types";
 import type { CareerCityView, CareerVehicleId } from "./game/career";
 import { CAREER_START_CITY, careerCountryOf, garageDefaultVehicle } from "./game/career";
@@ -70,7 +69,7 @@ export function LauncherView({
   setGameMode: (mode: "free" | "career") => void;
   setView: (view: View) => void;
   destinationRefs: MutableRefObject<Map<DestinationId, HTMLButtonElement>>;
-  beginDrive: (scenarioId: ScenarioId, nextDestinationId?: DestinationId) => void;
+  beginDrive: (destinationId: DestinationId) => void;
   careerCity: CareerCityView | null;
   careerCountry: CountryProfile | null;
   careerLauncherDestinationId: DestinationId;
@@ -150,7 +149,7 @@ export function LauncherView({
               className="primary-button launcher-primary"
               type="button"
               aria-label={`Start driving in ${destination.destinationName}`}
-              onClick={() => beginDrive(destination.freeDriveId, destination.id)}
+              onClick={() => beginDrive(destination.id)}
             >
               Start driving
               <span aria-hidden="true">→</span>
@@ -194,7 +193,7 @@ export function LauncherView({
 
       <div
         className="launcher-road-visual"
-        aria-label={`${launcherDestination.destinationName} training preview`}
+        aria-label={`${launcherDestination.destinationName} driving preview`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- static preview art in /public; next/image adds no value for a fixed, non-critical hero */}
         <img
@@ -215,7 +214,7 @@ export function LauncherView({
         </div>
       </div>
       <p className="launcher-legal">
-        Familiarisation only—not legal advice or driver instruction. Map data © OpenStreetMap contributors.{" "}
+        For entertainment—not legal advice or driver instruction. Map data © OpenStreetMap contributors.{" "}
         {/* Which build you are actually looking at. Mobile Safari will
             happily keep serving a cached page long after a deploy, and
             without this there is no way to tell that apart from the deploy

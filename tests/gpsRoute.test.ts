@@ -107,8 +107,8 @@ describe("gps route search", () => {
   });
 
   it("drops a successor whose geometry does not meet its predecessor", () => {
-    // buildConnectedNpcPath tolerates 2.5 m; beyond that the chain is broken
-    // authored data and traffic despawns rather than teleporting. Same here.
+    // The graph tolerates 2.5 m; beyond that the chain is broken authored data
+    // and routing must reject it rather than teleporting.
     const broken: readonly GpsLane[] = [
       lane("a", { x: 0, z: 0 }, { x: 50, z: 0 }, ["b"]),
       lane("b", { x: 50, z: 40 }, { x: 100, z: 40 }, []),

@@ -1,22 +1,15 @@
 import type {
   NpcVehicleVariant,
   SimulationBoxJunctionDefinition,
-  SimulationCheckpoint,
   SimulationCoreConfig,
   SimulationLane,
-  SimulationOvertakeExerciseConfig,
   SimulationPoint,
-  SimulationRouteGuidanceStepConfig,
   SimulationTrafficGate,
   StopLineDefinition,
   TrafficLightDefinition,
   TrafficLightSequence,
 } from "./simulation";
-import type {
-  OvertakeExercise,
-  StaticObstacle,
-  StaticObstacleTag,
-} from "./types";
+import type { StaticObstacle, StaticObstacleTag } from "./types";
 
 // Re-exported for the same reason `servicePoints` re-exports `ServicePointKind`:
 // `GameCanvas` reads the obstacles this module builds, and otherwise keeps clear
@@ -25,14 +18,12 @@ import type {
 // obstacles it is meant to describe.
 export type { StaticObstacle, StaticObstacleTag };
 import type {
+  DriveScenario,
   GameCanvasLane,
-  GameCanvasLesson,
   GameCanvasMapPack,
   SpeedUnit as CanvasSpeedUnit,
   TrafficSide,
 } from "./sessionContract";
-import { getCountryProfile } from "./content";
-import { SCORING_CONFIG } from "./economyTables";
 import {
   PAVED_SIDEWALK_WIDTH_M,
   resolveMapVisualPalette,
@@ -61,15 +52,15 @@ const DEFAULT_LANE_WIDTH_M = 3.5;
 // posted limit. It tops out at a clean round number in each country's own unit
 // — 70 mph where speeds read in mph, 113 km/h (its equivalent) where they read
 // in km/h — leaving generous headroom above every urban route so a driver can
-// physically exceed the limit. Going over is scored as speeding, never
+// physically exceed the limit. Going over is reported as speeding, never
 // silently prevented.
 const MAX_FORWARD_SPEED_MPS_MPH = 70 / 2.236936; // 70 mph ≈ 31.29 m/s
 const MAX_FORWARD_SPEED_MPS_KMH = 113 / 3.6; // 113 km/h ≈ 31.39 m/s (~70 mph)
 const DEFAULT_MAX_REVERSE_SPEED_MPS = 6;
 
 export interface SimulationAdapterOptions {
-  readonly lesson?: GameCanvasLesson;
-  readonly mapPack?: GameCanvasMapPack;
+  readonly scenario: DriveScenario;
+  readonly mapPack: GameCanvasMapPack;
   readonly trafficSide: TrafficSide;
   readonly speedUnit: CanvasSpeedUnit;
   readonly touchFirst?: boolean;
@@ -103,71 +94,79 @@ export {
 } from "./laneAnchors";
 
 export function resolveSimulationStartPose(
-  lesson: GameCanvasLesson | undefined,
-  mapPack: GameCanvasMapPack | undefined,
-  trafficSide: TrafficSide,
+  scenario: DriveScenario,
+  mapPack: GameCanvasMapPack,
 ): ResolvedSimulationAnchor {
-  if (lesson && mapPack) {
-    const firstLaneId = lesson.route[0];
-    const usesAuthoredSpawn = Boolean(lesson.startSpawnId);
-    const spawn = usesAuthoredSpawn
-      ? mapPack.laneGraph.spawnPoints.find(
-          (point) => point.kind === "player" && point.id === lesson.startSpawnId,
-        )
-      : mapPack.laneGraph.spawnPoints.find(
-          (point) =>
-            point.kind === "player" &&
-            ("anchor" in point
-              ? point.anchor?.laneId === firstLaneId
-              : point.laneId === firstLaneId),
-        );
-    if (spawn) {
-      if (
-        "anchor" in spawn &&
-        spawn.anchor &&
-        (usesAuthoredSpawn || !firstLaneId || spawn.anchor.laneId === firstLaneId)
-      ) {
-        const anchored = resolveSimulationLaneAnchor(
-          mapPack.laneGraph.lanes,
-          spawn.anchor,
-        );
-        if (anchored) return anchored;
-      }
-      if (
-        spawn.pose &&
-        (usesAuthoredSpawn || !firstLaneId || spawn.laneId === firstLaneId)
-      ) {
-        return {
-          x: spawn.pose.position.x,
-          z: spawn.pose.position.z,
-          heading: degreesToRadians(spawn.pose.headingDeg),
-          segmentIndex: 0,
-          distanceOnSegment: 0,
-        };
-      }
-    }
-    const lane = mapPack.laneGraph.lanes.find(
-      (candidate) => candidate.id === firstLaneId,
-    );
-    if (lane?.centerline.length) {
-      const first = lane.centerline[0];
-      const next = lane.centerline[1] ?? { x: first.x, z: first.z + 1 };
-      return {
-        x: first.x,
-        z: first.z,
-        heading: Math.atan2(next.x - first.x, next.z - first.z),
-        segmentIndex: 0,
-        distanceOnSegment: 0,
-      };
-    }
+  if (!scenario) {
+    throw new Error("A drive scenario is required to resolve the authored start.");
   }
-  return {
-    x: trafficSide === "right" ? 2.75 : -2.75,
-    z: -52,
-    heading: 0,
-    segmentIndex: 0,
-    distanceOnSegment: 0,
-  };
+  if (!mapPack) {
+    throw new Error(
+      `Drive scenario "${scenario.id}" requires map data to resolve its authored start.`,
+    );
+  }
+  const startSpawnId = scenario.startSpawnId?.trim();
+  if (!startSpawnId) {
+    throw new Error(
+      `Drive scenario "${scenario.id}" is missing an authored start spawn id.`,
+    );
+  }
+  const spawn = mapPack.laneGraph.spawnPoints.find(
+    (candidate) => candidate.id === startSpawnId,
+  );
+  if (!spawn) {
+    throw new Error(
+      `Drive scenario "${scenario.id}" references missing start spawn "${startSpawnId}" in map "${mapPack.id}".`,
+    );
+  }
+  if (spawn.kind !== "player") {
+    throw new Error(
+      `Drive scenario "${scenario.id}" start spawn "${startSpawnId}" in map "${mapPack.id}" is not a player spawn.`,
+    );
+  }
+  const anchor = "anchor" in spawn ? spawn.anchor : undefined;
+  if (!anchor) {
+    throw new Error(
+      `Player start spawn "${startSpawnId}" in map "${mapPack.id}" does not define a lane anchor.`,
+    );
+  }
+  if (!anchor.laneId?.trim() || !Number.isFinite(anchor.distanceAlongM)) {
+    throw new Error(
+      `Player start spawn "${startSpawnId}" in map "${mapPack.id}" has an invalid lane anchor.`,
+    );
+  }
+  const lane = mapPack.laneGraph.lanes.find(
+    (candidate) => candidate.id === anchor.laneId,
+  );
+  if (!lane) {
+    throw new Error(
+      `Player start spawn "${startSpawnId}" in map "${mapPack.id}" references missing lane "${anchor.laneId}".`,
+    );
+  }
+  if (
+    lane.centerline.length < 2 ||
+    lane.centerline.some(
+      (point) => !Number.isFinite(point.x) || !Number.isFinite(point.z),
+    )
+  ) {
+    throw new Error(
+      `Player start spawn "${startSpawnId}" in map "${mapPack.id}" references invalid lane "${lane.id}".`,
+    );
+  }
+  const distanceAlongM = anchor.distanceAlongM;
+  const authoredLaneLength = laneLength(lane);
+  if (distanceAlongM < 0 || distanceAlongM > authoredLaneLength) {
+    throw new Error(
+      `Player start spawn "${startSpawnId}" in map "${mapPack.id}" has invalid anchor distance ${distanceAlongM} on lane "${lane.id}".`,
+    );
+  }
+  const resolved = resolveSimulationLaneAnchor(mapPack.laneGraph.lanes, anchor);
+  if (!resolved) {
+    throw new Error(
+      `Could not resolve authored start anchor for player spawn "${startSpawnId}" on lane "${lane.id}" in map "${mapPack.id}".`,
+    );
+  }
+  return resolved;
 }
 
 function coreLaneRole(role: string | undefined): SimulationLane["role"] {
@@ -401,15 +400,8 @@ function buildStopAndYieldLines(
 }
 
 function buildBoxJunctions(
-  lesson: GameCanvasLesson,
   mapPack: GameCanvasMapPack,
 ): SimulationBoxJunctionDefinition[] {
-  if (
-    lesson.kind !== "free_drive" &&
-    !lesson.assessedRules?.includes("box_junction")
-  ) {
-    return [];
-  }
   const zonesById = new Map(
     mapPack.laneGraph.conflictZones.map((zone) => [zone.id, zone]),
   );
@@ -489,30 +481,14 @@ function buildTrafficGates(
 
   const authoredGates: SimulationTrafficGate[] = mapPack.laneGraph.spawnPoints.flatMap((spawn) => {
     if (spawn.kind !== "vehicle") return [];
-    const anchor = "anchor" in spawn ? spawn.anchor : undefined;
-    if (anchor && laneIds.has(anchor.laneId)) {
-      return [{
-        id: spawn.id,
-        laneId: anchor.laneId,
-        distance: anchor.distanceAlongM,
-        variant: inferVehicleVariant(spawn.id),
-      }];
-    }
-    const laneId = spawn.laneId;
-    const lane = laneId
-      ? lanes.find((candidate) => candidate.id === laneId)
-      : undefined;
-    const distance = lane && spawn.pose
-      ? projectDistanceAlongLane(lane, spawn.pose.position)
-      : null;
-    return lane && distance !== null
-      ? [{
-          id: spawn.id,
-          laneId: lane.id,
-          distance,
-          variant: inferVehicleVariant(spawn.id),
-        }]
-      : [];
+    const { anchor } = spawn;
+    if (!laneIds.has(anchor.laneId)) return [];
+    return [{
+      id: spawn.id,
+      laneId: anchor.laneId,
+      distance: anchor.distanceAlongM,
+      variant: inferVehicleVariant(spawn.id),
+    }];
   });
 
   // Give every TWO-WAY road oncoming traffic. Authored vehicle spawns only ever
@@ -558,245 +534,6 @@ function buildTrafficGates(
     }
   }
   return [...authoredGates, ...supplementalGates];
-}
-
-function pointInPolygon(
-  point: SimulationPoint,
-  polygon: readonly SimulationPoint[],
-): boolean {
-  let inside = false;
-  for (
-    let index = 0, previous = polygon.length - 1;
-    index < polygon.length;
-    previous = index, index += 1
-  ) {
-    const currentPoint = polygon[index];
-    const previousPoint = polygon[previous];
-    const intersects =
-      currentPoint.z > point.z !== previousPoint.z > point.z &&
-      point.x <
-        ((previousPoint.x - currentPoint.x) * (point.z - currentPoint.z)) /
-          (previousPoint.z - currentPoint.z || Number.EPSILON) +
-          currentPoint.x;
-    if (intersects) inside = !inside;
-  }
-  return inside;
-}
-
-function routeCueDistance(
-  lane: GameCanvasLane,
-  mapPack: GameCanvasMapPack,
-  completionDistance: number,
-): number | null {
-  const length = laneLength(lane);
-  const maximum = Math.max(0, length - 1);
-  const firstCandidate = Math.min(
-    maximum,
-    Math.max(completionDistance, Math.min(7, length / 2)),
-  );
-  const candidateIsSafe = (distance: number): boolean => {
-    if (
-      (lane.connectorRanges ?? []).some(
-        (range) =>
-          distance >= range.startDistanceAlongM - 0.05 &&
-          distance <= range.endDistanceAlongM + 0.05,
-      )
-    ) {
-      return false;
-    }
-    const pose = resolveSimulationLaneAnchor(mapPack.laneGraph.lanes, {
-      laneId: lane.id,
-      distanceAlongM: distance,
-    });
-    if (!pose) return false;
-    return !mapPack.laneGraph.conflictZones.some(
-      (zone) => zone.laneIds.includes(lane.id) && pointInPolygon(pose, zone.polygon),
-    );
-  };
-  for (let distance = firstCandidate; distance <= maximum; distance += 2) {
-    if (candidateIsSafe(distance)) return distance;
-  }
-  return candidateIsSafe(completionDistance) ? completionDistance : null;
-}
-
-function routeGuidanceLabel(lane: GameCanvasLane): string {
-  if (lane.role === "exit") return "TAKE THIS EXIT";
-  if (lane.role === "entry") return "USE THIS ENTRY LANE";
-  if (lane.role === "roundabout") return "FOLLOW ROUNDABOUT LANE";
-  if (lane.role === "passing") return "PASSING LANE";
-  if (lane.role === "normal") return "NORMAL TRAVEL LANE";
-  return "FOLLOW THIS LANE";
-}
-
-function buildRouteGuidance(
-  lesson: GameCanvasLesson,
-  mapPack: GameCanvasMapPack,
-): SimulationRouteGuidanceStepConfig[] {
-  // Free drive deliberately permits arbitrary exploration; its borrowed route
-  // is not an assessed sequence and therefore must not gate progress.
-  if (lesson.kind === "free_drive") return [];
-  const lanes = new Map(mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]));
-  const start = resolveSimulationStartPose(lesson, mapPack, lesson.trafficSide);
-  return lesson.route.map((targetLaneId, routeIndex) => {
-    const fromLaneId = routeIndex > 0 ? lesson.route[routeIndex - 1] : null;
-    const fromLane = fromLaneId ? lanes.get(fromLaneId) : null;
-    const targetLane = lanes.get(targetLaneId);
-    if ((fromLaneId && !fromLane) || !targetLane) {
-      throw new Error(
-        `Route occurrence ${routeIndex} in lesson ${lesson.id} references a missing lane.`,
-      );
-    }
-    if (fromLane && !(fromLane.successors ?? []).includes(targetLane.id)) {
-      throw new Error(
-        `Route occurrence ${routeIndex} in lesson ${lesson.id} is not a legal successor transition (${fromLane.id} -> ${targetLane.id}).`,
-      );
-    }
-    const targetLength = laneLength(targetLane);
-    const startDistance =
-      routeIndex === 0 ? projectDistanceAlongLane(targetLane, start) ?? 0 : 0;
-    const finalCheckpoint =
-      routeIndex === lesson.route.length - 1
-        ? [...lesson.checkpoints]
-            .reverse()
-            .map((checkpointId) =>
-              mapPack.laneGraph.checkpoints.find(
-                (checkpoint) => checkpoint.id === checkpointId,
-              ),
-            )
-            .find(
-              (checkpoint) => checkpoint?.anchor?.laneId === targetLane.id,
-            )
-        : null;
-    const desiredCompletionDistance =
-      Math.max(
-        startDistance + 3,
-        targetLength - 3,
-        finalCheckpoint?.anchor?.distanceAlongM ?? 0,
-      );
-    const completionDistance = Math.min(
-      Math.max(0, targetLength - 0.05),
-      desiredCompletionDistance,
-    );
-    const cueDistance = routeCueDistance(
-      targetLane,
-      mapPack,
-      completionDistance,
-    );
-    return {
-      id: `${lesson.id}:route:${routeIndex}`,
-      routeIndex,
-      fromLaneId: fromLane?.id ?? null,
-      targetLaneId: targetLane.id,
-      completionAnchor: {
-        laneId: targetLane.id,
-        distance: completionDistance,
-      },
-      ...(cueDistance === null
-        ? {}
-        : {
-            cueAnchor: {
-              laneId: targetLane.id,
-              distance: cueDistance,
-            },
-          }),
-      label: routeIndex === 0 ? "KEEP THIS LANE" : routeGuidanceLabel(targetLane),
-      required: true,
-    };
-  });
-}
-
-function buildOvertakeExercises(
-  lesson: GameCanvasLesson,
-  mapPack: GameCanvasMapPack,
-): SimulationOvertakeExerciseConfig[] {
-  const authored = (
-    lesson as GameCanvasLesson & {
-      readonly maneuvers?: readonly OvertakeExercise[];
-    }
-  ).maneuvers ?? [];
-  const lanes = new Map(mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]));
-  const anchor = (value: {
-    readonly laneId: string;
-    readonly distanceAlongM: number;
-  }) => ({
-    laneId: value.laneId,
-    distance: value.distanceAlongM,
-  });
-  return authored.map((maneuver) => {
-    if (maneuver.kind !== "overtake") {
-      throw new Error(
-        `Unsupported maneuver ${maneuver.id} in lesson ${lesson.id}.`,
-      );
-    }
-    if (
-      !lanes.has(maneuver.normalLaneId) ||
-      !lanes.has(maneuver.passingLaneId)
-    ) {
-      throw new Error(
-        `Maneuver ${maneuver.id} in lesson ${lesson.id} references a missing running lane.`,
-      );
-    }
-    const referencedAnchors = [
-      maneuver.corridorStart,
-      maneuver.corridorEnd,
-      maneuver.leadVehicleStart,
-      maneuver.phaseAnchors.approach,
-      maneuver.phaseAnchors.observe,
-      maneuver.phaseAnchors.pass,
-      maneuver.phaseAnchors.return,
-      maneuver.phaseAnchors.complete,
-    ];
-    if (
-      referencedAnchors.some((candidate) => {
-        const lane = lanes.get(candidate.laneId);
-        return (
-          !lane ||
-          !Number.isFinite(candidate.distanceAlongM) ||
-          candidate.distanceAlongM < 0 ||
-          candidate.distanceAlongM > laneLength(lane)
-        );
-      })
-    ) {
-      throw new Error(
-        `Maneuver ${maneuver.id} in lesson ${lesson.id} has an invalid lane anchor.`,
-      );
-    }
-    const anchorsUseExpectedLanes =
-      maneuver.corridorStart.laneId === maneuver.normalLaneId &&
-      maneuver.corridorEnd.laneId === maneuver.normalLaneId &&
-      maneuver.leadVehicleStart.laneId === maneuver.normalLaneId &&
-      maneuver.phaseAnchors.approach.laneId === maneuver.normalLaneId &&
-      maneuver.phaseAnchors.observe.laneId === maneuver.normalLaneId &&
-      maneuver.phaseAnchors.pass.laneId === maneuver.passingLaneId &&
-      maneuver.phaseAnchors.return.laneId === maneuver.passingLaneId &&
-      maneuver.phaseAnchors.complete.laneId === maneuver.normalLaneId;
-    if (!anchorsUseExpectedLanes) {
-      throw new Error(
-        `Maneuver ${maneuver.id} in lesson ${lesson.id} places a phase on the wrong lane.`,
-      );
-    }
-    return {
-      id: maneuver.id,
-      kind: "overtake" as const,
-      normalLaneId: maneuver.normalLaneId,
-      passingLaneId: maneuver.passingLaneId,
-      corridorStart: anchor(maneuver.corridorStart),
-      corridorEnd: anchor(maneuver.corridorEnd),
-      leadVehicleStart: anchor(maneuver.leadVehicleStart),
-      leadVehicleSpeedFactor: maneuver.leadVehicleSpeedFactor,
-      phaseAnchors: {
-        approach: anchor(maneuver.phaseAnchors.approach),
-        observe: anchor(maneuver.phaseAnchors.observe),
-        pass: anchor(maneuver.phaseAnchors.pass),
-        return: anchor(maneuver.phaseAnchors.return),
-        complete: anchor(maneuver.phaseAnchors.complete),
-      },
-      predictedClearSeconds: maneuver.predictedClearSeconds,
-      returnStandstillGapM: maneuver.returnStandstillGapM,
-      returnHeadwaySeconds: maneuver.returnHeadwaySeconds,
-      sourceReferenceIds: maneuver.sourceReferenceIds,
-    };
-  });
 }
 
 /** Venue buildings sit this far off their anchor lane unless tuned per site. */
@@ -1539,7 +1276,7 @@ export function distanceToStaticObstacle(
 }
 
 export function buildSimulationCoreConfig({
-  lesson,
+  scenario,
   mapPack,
   trafficSide,
   speedUnit,
@@ -1551,17 +1288,7 @@ export function buildSimulationCoreConfig({
       ? MAX_FORWARD_SPEED_MPS_MPH
       : MAX_FORWARD_SPEED_MPS_KMH;
 
-  if (!lesson || !mapPack) {
-    return {
-      trafficSide,
-      speedUnit: normalizedSpeedUnit,
-      npcCount: touchFirst ? 8 : 10,
-      maxForwardSpeedMps: baseMaxForwardSpeedMps,
-      maxReverseSpeedMps: DEFAULT_MAX_REVERSE_SPEED_MPS,
-    };
-  }
-
-  const start = resolveSimulationStartPose(lesson, mapPack, trafficSide);
+  const start = resolveSimulationStartPose(scenario, mapPack);
   const sourceLanesById = new Map(
     mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]),
   );
@@ -1582,43 +1309,6 @@ export function buildSimulationCoreConfig({
       successorLaneIds: lane.successors ?? [],
       loop: false,
     }));
-  const checkpoints: SimulationCheckpoint[] = lesson.checkpoints.flatMap((id) => {
-    const checkpoint = mapPack.laneGraph.checkpoints.find(
-      (candidate) => candidate.id === id,
-    );
-    if (!checkpoint) return [];
-    const anchored = checkpoint.anchor
-      ? resolveSimulationLaneAnchor(mapPack.laneGraph.lanes, checkpoint.anchor)
-      : null;
-    const checkpointLane = checkpoint.anchor
-      ? sourceLanesById.get(checkpoint.anchor.laneId)
-      : undefined;
-    if (anchored && checkpoint.anchor && checkpointLane) {
-      return [{
-        id: checkpoint.id,
-        x: anchored.x,
-        z: anchored.z,
-        heading: anchored.heading,
-        radius: 6,
-        laneId: checkpointLane.id,
-        width: checkpointLane.widthM ?? DEFAULT_LANE_WIDTH_M,
-        distance: checkpoint.anchor.distanceAlongM,
-      }];
-    }
-    return checkpoint.pose
-      ? [{
-          id: checkpoint.id,
-          x: checkpoint.pose.position.x,
-          z: checkpoint.pose.position.z,
-          heading: degreesToRadians(checkpoint.pose.headingDeg),
-          radius: 6,
-        }]
-      : [];
-  });
-  const routeEndLane = mapPack.laneGraph.lanes.find(
-    (lane) => lane.id === lesson.route.at(-1),
-  );
-  const routeEnd = routeEndLane?.centerline.at(-1);
   const traffic = buildTrafficLights(mapPack);
   const stopLines = [
     ...traffic.stopLines,
@@ -1626,13 +1316,10 @@ export function buildSimulationCoreConfig({
   ];
   const npcCount = resolveAmbientVehicleCount(
     mapPack,
-    lesson.trafficDensity,
+    scenario.trafficDensity,
     touchFirst,
   );
-  const restrictions =
-    lesson.kind === "free_drive" || lesson.assessedRules?.includes("restricted_lane")
-      ? mapPack.laneGraph.restrictions ?? []
-      : [];
+  const restrictions = mapPack.laneGraph.restrictions ?? [];
   const boundsPadding = Math.max(2, mapPack.geometry.shoulderWidth ?? 0);
   const bounds = {
     minX: -mapPack.geometry.worldSize.x / 2 - boundsPadding,
@@ -1640,61 +1327,24 @@ export function buildSimulationCoreConfig({
     minZ: -mapPack.geometry.worldSize.z / 2 - boundsPadding,
     maxZ: mapPack.geometry.worldSize.z / 2 + boundsPadding,
   };
-  const routeLaneIds = new Set(lesson.route);
-  const routeSpeedLimitMps = lanes.reduce(
-    (maximum, lane) =>
-      routeLaneIds.has(lane.id)
-        ? Math.max(maximum, lane.speedLimitMps ?? 0)
-        : maximum,
-    0,
-  );
-
   return {
     trafficSide,
     speedUnit: normalizedSpeedUnit,
-    seed: lesson.trafficSeed,
-    lessonId: lesson.id,
-    // Open-world free drives never terminate on a violation; guided lessons keep
-    // the reset-to-checkpoint behaviour. See SimulationCoreConfig.enforcement.
-    enforcement: lesson.kind === "free_drive" ? "coach" : "reset",
+    seed: scenario.trafficSeed,
+    scenarioId: scenario.id,
     lanes,
     bounds,
     staticObstacles: buildStaticObstacles(mapPack, bounds),
     spawn: { x: start.x, z: start.z, heading: start.heading },
-    checkpoints,
-    routeGuidance: buildRouteGuidance(lesson, mapPack),
-    maneuvers: buildOvertakeExercises(lesson, mapPack),
-    finish:
-      lesson.kind !== "free_drive" && routeEnd
-        ? { x: routeEnd.x, z: routeEnd.z, radius: 7 }
-        : null,
     trafficLights: traffic.lights,
     stopLines,
     trafficGates: buildTrafficGates(mapPack),
     minRuntimeSpawnDistanceM: 70,
-    scenarioClock: lesson.scenarioClock,
-    scoring: SCORING_CONFIG,
-    profileTransitions: (lesson.profileTransitions ?? []).map((transition) => {
-      const destination = getCountryProfile(
-        transition.toCountryId as Parameters<typeof getCountryProfile>[0],
-      );
-      return {
-        checkpointId: transition.checkpointId,
-        trafficSide: destination.trafficSide,
-        speedUnit: destination.speedUnit,
-      };
-    }),
+    scenarioClock: scenario.scenarioClock,
     laneRestrictions: restrictions,
-    boxJunctions: buildBoxJunctions(lesson, mapPack),
+    boxJunctions: buildBoxJunctions(mapPack),
     npcCount,
-    // Top speed is the greater of the car's normal ceiling and the route's
-    // fastest posted limit. The default already sits well above urban limits so
-    // the car never feels governed; the Math.max only lifts it further on rare
-    // routes posting above 90 mph, keeping any authored overtake feasible.
-    maxForwardSpeedMps: Math.max(
-      baseMaxForwardSpeedMps,
-      routeSpeedLimitMps,
-    ),
+    maxForwardSpeedMps: baseMaxForwardSpeedMps,
     maxReverseSpeedMps: DEFAULT_MAX_REVERSE_SPEED_MPS,
   };
 }

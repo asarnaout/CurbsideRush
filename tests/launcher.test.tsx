@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getCountryProfile,
   getDestinationProfile,
+  getFreeDrive,
 } from "../app/game/content";
 import { PROGRESS_STORAGE_KEY } from "../app/game/progress";
 import SideSwapApp from "../app/SideSwapApp";
@@ -19,19 +20,19 @@ import SideSwapApp from "../app/SideSwapApp";
 // The gig launcher drops the player straight into a city's open free drive. The
 // mock exposes the scenario plus the resolved driving parameters as data
 // attributes, so we can assert the free-roam handoff (correct scenario, local
-// traffic side, auto steering, built-in HUD off) without a real Babylon canvas.
+// traffic side and auto steering) without a real Babylon canvas.
 vi.mock("next/dynamic", () => ({
   default: () =>
     function MockGameCanvas({
-      lesson,
+      scenario,
       trafficSide,
       steeringSide,
       cameraMode,
     }: {
-      lesson?: {
+      scenario?: {
         readonly id: string;
-        readonly title: string;
-        readonly route?: readonly string[];
+        readonly startSpawnId: string;
+        readonly trafficSeed: number;
       };
       trafficSide?: string;
       steeringSide?: string;
@@ -40,14 +41,13 @@ vi.mock("next/dynamic", () => ({
       return (
         <section
           aria-label="Mock driving scene"
-          data-scenario={lesson?.id}
-          data-route-count={lesson?.route?.length ?? 0}
+          data-scenario={scenario?.id}
+          data-start-spawn={scenario?.startSpawnId}
+          data-traffic-seed={scenario?.trafficSeed}
           data-traffic-side={trafficSide}
           data-steering-side={steeringSide}
           data-camera={cameraMode}
-        >
-          <span>{lesson?.title}</span>
-        </section>
+        />
       );
     },
 }));
@@ -139,11 +139,11 @@ const startButton = (destinationId: Parameters<typeof getDestinationProfile>[0])
   });
 
 describe("gig launcher", () => {
-  it("shows the gig tagline and hides all lesson, setup and passport chrome", async () => {
+  it("shows the gig tagline and hides all retired curriculum and setup chrome", async () => {
     render(<SideSwapApp />);
 
     expect(await findTagline()).toBeVisible();
-    // The lesson hub, wheel/camera choosers, passport and capstone are gone.
+    // The retired drive curriculum, setup choosers and passport are gone.
     expect(
       screen.queryByRole("button", { name: /Browse all drives/i }),
     ).not.toBeInTheDocument();
@@ -162,12 +162,17 @@ describe("gig launcher", () => {
     await findTagline();
 
     const london = getDestinationProfile("uk-london");
+    const freeDrive = getFreeDrive(london.freeDriveId);
     fireEvent.click(startButton("uk-london"));
 
     const scene = await screen.findByLabelText("Mock driving scene");
-    // Launches the free drive directly — no lesson id, no route, no finish.
+    // Launches the authored, non-terminating scenario directly.
     expect(scene).toHaveAttribute("data-scenario", london.freeDriveId);
-    expect(scene).toHaveAttribute("data-route-count", "0");
+    expect(scene).toHaveAttribute("data-start-spawn", freeDrive.startSpawnId);
+    expect(scene).toHaveAttribute(
+      "data-traffic-seed",
+      String(freeDrive.trafficSeed),
+    );
   });
 
   it.each(["uk-london", "us-nyc", "eg-cairo"] as const)(
@@ -209,7 +214,7 @@ describe("gig launcher", () => {
       }),
     );
 
-    const preview = screen.getByLabelText(/Cairo training preview/i);
+    const preview = screen.getByLabelText(/Cairo driving preview/i);
     expect(preview.querySelector("img")).toHaveAttribute(
       "src",
       "/landing/cairo.webp",

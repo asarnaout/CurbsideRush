@@ -6,15 +6,9 @@ import type {
   DestinationProfile,
   FreeDriveDefinition,
   FreeDriveId,
-  GameSessionConfig,
   MapId,
   MapPack,
   OfficialRuleReference,
-  ResolvedGameSessionConfig,
-  RuleCode,
-  ScenarioId,
-  SteeringPreference,
-  SteeringSide,
 } from "./types";
 import {
   LONDON_FREE_DRIVE,
@@ -28,7 +22,6 @@ import {
 } from "./cities/cairo";
 import { NYC_FREE_DRIVE, NYC_MAP_PACK } from "./cities/nyc";
 import { TOKYO_FREE_DRIVE, TOKYO_MAP_PACK } from "./cities/tokyo";
-import { SCORING_CONFIG } from "./economyTables";
 
 export const CONTENT_REVIEWED_ON = "2026-07-10";
 
@@ -428,51 +421,6 @@ export function getFreeDriveForDestination(
   return freeDrive;
 }
 
-/**
- * Validates the launch tuple: the chosen free drive must belong to the exact
- * destination, country and map the player selected.
- */
-export function isScenarioCompatibleWithDestination(
-  scenarioId: ScenarioId,
-  destinationId: DestinationId,
-): boolean {
-  const destination = getDestinationProfile(destinationId);
-  const freeDrive = getFreeDrive(scenarioId);
-  return (
-    freeDrive.destinationId === destinationId &&
-    freeDrive.countryId === destination.countryId &&
-    freeDrive.mapId === destination.mapId
-  );
-}
-
-export function resolveSteeringSide(
-  preference: SteeringPreference,
-  profile: CountryProfile,
-): SteeringSide {
-  return preference === "auto" ? profile.defaultSteeringSide : preference;
-}
-
-export function resolveSessionConfig(config: GameSessionConfig): ResolvedGameSessionConfig {
-  const profile = getCountryProfile(config.countryId);
-  const destination = getDestinationProfile(config.destinationId);
-  if (destination.countryId !== config.countryId) {
-    throw new Error(
-      `SideSwap destination ${config.destinationId} is not compatible with country ${config.countryId}`,
-    );
-  }
-  if (!isScenarioCompatibleWithDestination(config.scenarioId, config.destinationId)) {
-    throw new Error(
-      `SideSwap scenario ${config.scenarioId} is not compatible with destination ${config.destinationId}`,
-    );
-  }
-  return {
-    ...config,
-    trafficSide: profile.trafficSide,
-    steeringSide: resolveSteeringSide(config.steeringPreference, profile),
-    speedUnit: profile.speedUnit,
-  };
-}
-
 export function getRuleReference(referenceId: string): OfficialRuleReference | undefined {
   for (const profile of COUNTRY_PROFILES) {
     const reference = profile.officialReferences.find((item) => item.id === referenceId);
@@ -481,12 +429,4 @@ export function getRuleReference(referenceId: string): OfficialRuleReference | u
     }
   }
   return undefined;
-}
-
-export function isFreeDriveId(value: string): value is FreeDriveId {
-  return freeDriveById.has(value as FreeDriveId);
-}
-
-export function getPenaltyForRule(code: RuleCode): number {
-  return SCORING_CONFIG.penalties[code] ?? 0;
 }

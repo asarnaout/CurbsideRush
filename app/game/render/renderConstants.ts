@@ -1,5 +1,5 @@
 /**
- * Camera/guidance layer masks, field-of-view bounds, and the y-layer stack
+ * Camera layer masks, field-of-view bounds, and the y-layer stack
  * that keeps the whole scene from z-fighting.
  *
  * The y-layer values below are the definitive ordering (see
@@ -19,22 +19,20 @@
 export const MIN_HORIZONTAL_FOV = (55 * Math.PI) / 180;
 export const MAX_HORIZONTAL_FOV = (100 * Math.PI) / 180;
 export const DEFAULT_HORIZONTAL_FOV = (72 * Math.PI) / 180;
-export const PLAYER_GUIDANCE_HALF_WIDTH_M = 0.91;
-export const GUIDANCE_LATERAL_CLEARANCE_M = 0.3;
+export const clampHorizontalFieldOfView = (value: number) =>
+  Math.min(Math.max(value, MIN_HORIZONTAL_FOV), MAX_HORIZONTAL_FOV);
 export const WORLD_LAYER_MASK = 0x0fffffff;
-export const GUIDANCE_LAYER_MASK = 0x10000000;
 /**
  * The cabin's own bit, so the rear-view camera never sees it.
  *
  * First person renders the whole scene twice — once full-screen, once into the
  * mirror strip — and the mirror looks backwards from a point behind the
  * dashboard. Every cockpit mesh submitted to that pass is work with no possible
- * effect on a pixel. Same trick the guidance arrows already use to stay out of
- * the mirror.
+ * effect on a pixel.
  */
 export const COCKPIT_LAYER_MASK = 0x20000000;
 export const PRIMARY_CAMERA_LAYER_MASK =
-  WORLD_LAYER_MASK | GUIDANCE_LAYER_MASK | COCKPIT_LAYER_MASK;
+  WORLD_LAYER_MASK | COCKPIT_LAYER_MASK;
 export const ROAD_SURFACE_Y = 0.07;
 // The asphalt junction fill sits a hair ABOVE the carriageway strips so it wins
 // the depth test across the whole crossing: it caps the two coplanar road strips

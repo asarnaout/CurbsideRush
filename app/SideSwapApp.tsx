@@ -9,7 +9,7 @@ import {
 } from "react";
 import type {
   CutsceneRequest,
-  GameCanvasLesson,
+  DriveScenario,
   GameHudSnapshot,
   GameRuntimeEvent,
 } from "./game/sessionContract";
@@ -18,8 +18,6 @@ import {
   getDestinationProfile,
   getFreeDrive,
   getMapPack,
-  resolveSessionConfig,
-  resolveSteeringSide,
 } from "./game/content";
 import {
   FINE_BY_COUNTRY,
@@ -119,9 +117,9 @@ import {
 } from "./game/damage";
 import { REPAIR_BAY_REACH_M } from "./game/repairShopLayout";
 import {
-  buildCareerDayLesson,
-  buildFreeDriveLesson,
-} from "./game/freeDriveLesson";
+  buildCareerDayScenario,
+  buildFreeDriveScenario,
+} from "./game/driveScenario";
 import {
   FUEL_PUMP_REACH_M,
   distanceToNearestPump,
@@ -206,9 +204,7 @@ import type {
   CameraMode,
   CountryProfile,
   DestinationId,
-  GameSessionConfig,
   PlayerProgressV2,
-  ScenarioId,
 } from "./game/types";
 
 export type View =
@@ -258,17 +254,6 @@ function describeTravelCity(destinationId: DestinationId): TravelCityFacts {
     imageSrc: DESTINATION_PREVIEW_IMAGES[destinationId],
   };
 }
-
-const assistanceFromProgress = (
-  progress: PlayerProgressV2,
-): GameSessionConfig["assistance"] => ({
-  coachPrompts: true,
-  subtitles: progress.accessibility.subtitles,
-  wrongSideWarnings: true,
-  autoResetAfterCriticalError: true,
-  reducedMotion: progress.accessibility.reducedMotion,
-});
-
 
 /**
  * Builds the next gig for a drive. The kind (delivery vs. passenger) is a
@@ -530,9 +515,6 @@ export default function SideSwapApp() {
   const [destinationId, setDestinationId] =
     useState<DestinationId>("uk-london");
   const [camera, setCamera] = useState<CameraMode>("third_person");
-  const [activeSession, setActiveSession] = useState<GameSessionConfig | null>(
-    null,
-  );
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const destinationRefs = useRef(
     new Map<DestinationId, HTMLButtonElement>(),
@@ -718,7 +700,7 @@ export default function SideSwapApp() {
   const [gpsRoute, setGpsRoute] = useState<GpsRoute | null>(null);
   const gpsRouteRef = useRef<GpsRoute | null>(null);
   // Next manoeuvre and distance to it, refreshed by the same projection that
-  // measures deviation. Mirrored into state for the guidance banner; the ref is
+  // measures deviation. Mirrored into state for the navigation banner; the ref is
   // what `handleHud` writes, since that callback cannot read state.
   const gpsProgressRef = useRef<GpsProgress | null>(null);
   const [gpsProgress, setGpsProgress] = useState<GpsProgress | null>(null);
@@ -1252,9 +1234,7 @@ export default function SideSwapApp() {
 
   const destination = getDestinationProfile(destinationId);
   const country = getCountryProfile(destination.countryId);
-  const driveDestination = getDestinationProfile(
-    activeSession?.destinationId ?? destinationId,
-  );
+  const driveDestination = getDestinationProfile(destinationId);
   const driveCountry = getCountryProfile(driveDestination.countryId);
 
   /**
@@ -1306,10 +1286,7 @@ export default function SideSwapApp() {
     [driveCountry],
   );
 
-  const activeSteeringSide = resolveSteeringSide(
-    activeSession?.steeringPreference ?? "auto",
-    driveCountry,
-  );
+  const activeSteeringSide = driveCountry.defaultSteeringSide;
 
   // The car is a write-off: fade to the tow overlay, debit the repair bill,
   // snap the car back to its spawn repaired, and fade back in. No button, no
@@ -1371,20 +1348,18 @@ export default function SideSwapApp() {
       }
       // A rider in the back sees everything, witnessed or not, so the tip reads
       // the rule stream rather than the fine stream. Every violation surfaces
-      // exactly once as coaching/collision/incident; the `fine` that may follow
+      // exactly once as coaching/collision; the `fine` that may follow
       // is the same offence again, which is why it is excluded here.
       if (
-        event.type !== "fine" &&
-        event.ruleCode &&
+        (event.type === "coaching" || event.type === "collision") &&
         gigRef.current?.state === "carrying"
       ) {
         carryViolationsRef.current += 1;
       }
       if (event.type === "cutscene") {
         const active = cutsceneRef.current;
-        const evidence = event.evidence ?? {};
-        if (!active || evidence.nonce !== active.nonce) return;
-        if (evidence.phase === "cite") {
+        if (!active || event.nonce !== active.nonce) return;
+        if (event.phase === "cite") {
           // The officer is at the window. The amount was settled when the stop
           // was staged — a speeding ticket is priced off the excess, everything
           // else is the flat fine.
@@ -1396,7 +1371,7 @@ export default function SideSwapApp() {
           );
           return;
         }
-        if (evidence.phase === "repair") {
+        if (event.phase === "repair") {
           // The bonnet is up: pay and mend atomically, the same contract the
           // pump step keeps. An aborted scene after this point was still a
           // completed repair; before it, nothing happened.
@@ -1425,7 +1400,7 @@ export default function SideSwapApp() {
           setCarCondition(FULL_CONDITION_PCT);
           return;
         }
-        if (evidence.phase === "pump") {
+        if (event.phase === "pump") {
           // The nozzle is in: pay and fill atomically, and stretch the fuel
           // bar's transition across the fill window so the gauge pours while
           // the driver pumps. An aborted scene after this point was still a
@@ -1458,9 +1433,7 @@ export default function SideSwapApp() {
               ...log,
               fuelSpendTotal: log.fuelSpendTotal + cost,
             }));
-            setFuelFillMs(
-              typeof evidence.durationMs === "number" ? evidence.durationMs : 0,
-            );
+            setFuelFillMs(event.durationMs ?? 0);
             setDriveFuel(Math.min(run.vehicle.tankL, driveFuel + litres));
             return;
           }
@@ -1483,13 +1456,11 @@ export default function SideSwapApp() {
           );
           setProgress(refueled);
           saveProgress(refueled);
-          setFuelFillMs(
-            typeof evidence.durationMs === "number" ? evidence.durationMs : 0,
-          );
+          setFuelFillMs(event.durationMs ?? 0);
           setDriveFuel(filled);
           return;
         }
-        if (evidence.phase === "done") {
+        if (event.phase === "done") {
           clearCutscene();
           if (active.kind === "board" || active.kind === "food_pickup") {
             setGig((current) =>
@@ -1714,8 +1685,7 @@ export default function SideSwapApp() {
     if (view !== "driving" || driveFuel > 0 || cutscene || towing) return;
     beginCutscene("roadside_refuel", undefined, undefined, 1);
   }, [careerRun, view, driveFuel, cutscene, towing, beginCutscene]);
-  const activeScenarioId = activeSession?.scenarioId ?? destination.freeDriveId;
-  const activeFreeDrive = getFreeDrive(activeScenarioId);
+  const activeFreeDrive = getFreeDrive(destination.freeDriveId);
   const runtimeMap = getMapPack(activeFreeDrive.mapId);
   // `handleHud` searches the lane graph but is a `[]`-deps callback, so the
   // active city reaches it the way `gig` does — through a ref kept in step.
@@ -1726,10 +1696,9 @@ export default function SideSwapApp() {
   // A career day is the same open-world scenario under a per-day identity and
   // seed, so the remount key rolls the world over between days and a retried
   // day replays identically.
-  const runtimeLesson: GameCanvasLesson = careerRun
-    ? buildCareerDayLesson(
+  const runtimeScenario: DriveScenario = careerRun
+    ? buildCareerDayScenario(
         activeFreeDrive,
-        driveCountry.trafficSide,
         careerRun.city.day,
         careerDayTrafficSeed(
           careerRun.slice.careerSeed,
@@ -1737,7 +1706,7 @@ export default function SideSwapApp() {
           careerCityIndex(careerRun.city.destinationId),
         ),
       )
-    : buildFreeDriveLesson(activeFreeDrive, driveCountry.trafficSide);
+    : buildFreeDriveScenario(activeFreeDrive);
 
   const themeDestination = view === "driving" ? driveDestination : destination;
   const themeStyle = {
@@ -1790,10 +1759,7 @@ export default function SideSwapApp() {
     carryViolationsRef.current = 0;
     carryingSinceRef.current = null;
     setCarryingSinceMs(null);
-    const settled: PlayerProgressV2 = {
-      ...credit(progress, driveCountry.id, gig.reward + tip),
-      completedGigCount: progress.completedGigCount + 1,
-    };
+    const settled = credit(progress, driveCountry.id, gig.reward + tip);
     setProgress(settled);
     saveProgress(settled);
     announcePayout(gig.reward, tip);
@@ -1804,10 +1770,7 @@ export default function SideSwapApp() {
     setDestinationId(id);
   };
 
-  const beginDrive = (
-    scenarioId: ScenarioId,
-    nextDestinationId = destinationId,
-  ) => {
+  const beginDrive = (nextDestinationId: DestinationId) => {
     // All three synchronously, inside the click that got us here: Safari only
     // honours an audio resume and a play() in the same task as the gesture that
     // triggered them, and the fullscreen/orientation request has the identical
@@ -1818,34 +1781,17 @@ export default function SideSwapApp() {
     if (touchFirst) requestImmersiveLandscape(document.documentElement);
     const nextDestination = getDestinationProfile(nextDestinationId);
     const nextCountryId = nextDestination.countryId;
-    const session: GameSessionConfig = {
-      countryId: nextCountryId,
-      destinationId: nextDestinationId,
-      scenarioId,
-      // The car now always matches the local convention; the wheel side is
-      // resolved from the country profile, never chosen on the landing page.
-      familiarTrafficSide: getCountryProfile(nextCountryId).trafficSide,
-      steeringPreference: "auto",
-      camera,
-      assistance: assistanceFromProgress(progress),
-    };
-    // Fail fast if a UI regression ever pairs a scenario with a destination
-    // whose jurisdiction does not match.
-    resolveSessionConfig(session);
     const committedProgress: PlayerProgressV2 = {
       ...progress,
-      lastCountryId: nextCountryId,
       lastDestinationId: nextDestinationId,
       preferredCamera: camera,
-      updatedAt: new Date().toISOString(),
     };
     setProgress(committedProgress);
     saveProgress(committedProgress);
     setDestinationId(nextDestinationId);
-    setActiveSession(session);
     setDriveFuel(committedProgress.fuelByCountry[nextCountryId]);
     lastPoseRef.current = null;
-    const nextFreeDrive = getFreeDrive(scenarioId);
+    const nextFreeDrive = getFreeDrive(nextDestination.freeDriveId);
     gigKindHistoryRef.current = [];
     paidGigRef.current = null;
     // A drive opens with an offer waiting rather than a job assigned — the
@@ -1882,7 +1828,6 @@ export default function SideSwapApp() {
     setGig(null);
     setPaused(false);
     setMapOpen(false);
-    setActiveSession(null);
     clearCutscene();
     music.stop();
     suspendAudioContext();
@@ -1903,7 +1848,6 @@ export default function SideSwapApp() {
     setGig(null);
     setPaused(false);
     setMapOpen(false);
-    setActiveSession(null);
     clearCutscene();
     music.stop();
     // Parked, not closed — the player will almost certainly start another drive,
@@ -1988,16 +1932,6 @@ export default function SideSwapApp() {
     music.start(careerCity.destinationId);
     if (touchFirst) requestImmersiveLandscape(document.documentElement);
     const destinationProfile = getDestinationProfile(careerCity.destinationId);
-    const session: GameSessionConfig = {
-      countryId: careerCity.countryId,
-      destinationId: careerCity.destinationId,
-      scenarioId: destinationProfile.freeDriveId,
-      familiarTrafficSide: getCountryProfile(careerCity.countryId).trafficSide,
-      steeringPreference: "auto",
-      camera,
-      assistance: assistanceFromProgress(progress),
-    };
-    resolveSessionConfig(session);
     const run: CareerRun = {
       slice: careerSlice,
       city: careerCity,
@@ -2022,7 +1956,6 @@ export default function SideSwapApp() {
     pendingSettleRef.current = false;
     dayActiveRef.current = true;
     setDestinationId(careerCity.destinationId);
-    setActiveSession(session);
     // Rentals come with a full tank, included in the rent; nothing persists.
     setDriveFuel(vehicle.tankL);
     lastPoseRef.current = null;
@@ -2102,7 +2035,6 @@ export default function SideSwapApp() {
     setGig(null);
     setPaused(false);
     setMapOpen(false);
-    setActiveSession(null);
     clearCutscene();
     // Music keeps playing across the ledger and garage — they are part of the
     // run, and the next day's start() will pick a fresh track.
@@ -2834,7 +2766,7 @@ export default function SideSwapApp() {
         promptKind={promptKind}
         refuel={refuel}
         riderVenueId={riderVenueId}
-        runtimeLesson={runtimeLesson}
+        runtimeScenario={runtimeScenario}
         runtimeMap={runtimeMap}
         splitPrompt={splitPrompt}
         tankCapacityL={tankCapacityL}
@@ -3046,4 +2978,3 @@ export default function SideSwapApp() {
     </main>
   );
 }
-
