@@ -352,6 +352,15 @@ function fingerprint(names: readonly string[]): string {
 beforeEach(() => {
   installLocalStorage();
   window.localStorage.clear();
+  // BabylonGameSession halves its building count (`buildingKeepFraction`) below
+  // 5 CPU cores, so these mesh counts are only host-independent once this is
+  // pinned above that threshold. jsdom's own default already reads 8, but GitHub
+  // Actions' runner reports 4 — which silently cut every EXPECTED_BASELINES
+  // total by the low-spec building wall until this was pinned explicitly.
+  Object.defineProperty(window.navigator, "hardwareConcurrency", {
+    configurable: true,
+    value: 8,
+  });
   vi.stubGlobal("matchMedia", vi.fn(desktopMatchMedia));
   vi.stubGlobal("ResizeObserver", StubResizeObserver);
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
