@@ -138,10 +138,11 @@ is no junction pass.
 
 **It is the fitted branch, and must never touch `resolveMinimapScale`** — that
 answers `follows` for every city, and a follow-scale sheet at screen size
-rasterises NYC into ~2818×6228 px, some 70 MB.
+rasterises NYC's full 2600×3000 m world into a multi-megapixel sheet for a
+view meant to show the whole thing at once anyway.
 
 `createMinimapFitProjector` is the only way in. It takes a width *and* a height
-because the cities are nothing like square (1080×3000 for NYC against London's
+because the cities are nothing like square (2600×3000 for NYC against London's
 800×540), and `fitMinimapPanel` cuts the canvas to the world's own aspect
 so no part of it is spent on empty ground.
 

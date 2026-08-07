@@ -124,8 +124,9 @@ export interface ExpandedMapProps {
  * fixed 500 m span it can never answer "where am I" or "where is the nearest
  * pump". This is that answer, and it is deliberately the *fitted* projection —
  * `resolveMinimapScale` reports `follows` for every shipped city, and a
- * follow-scale sheet at this size would rasterise New York into roughly
- * 2818x6228 px, some 70 MB. `createMinimapFitProjector` is the only way in.
+ * follow-scale sheet at this size would rasterise New York's full
+ * 2600×3000 m into a multi-megapixel sheet for a view meant to show the
+ * whole thing at once anyway. `createMinimapFitProjector` is the only way in.
  *
  * The drive keeps running behind it. That is a decision, not an oversight: the
  * car still steers, so the panel must not trap keys, must not claim to be modal,
