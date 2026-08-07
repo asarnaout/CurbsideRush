@@ -10,13 +10,13 @@ SideSwapApp.tsx     views, economy, gigs, fuel, damage, music, localStorage
    | props                    ^ GameHudSnapshot (10 Hz) + GameRuntimeEvent
 GameCanvas.tsx      Babylon scene, input, cameras, audio, own fixed-step pump
    | SimulationInput          ^ SimulationSnapshot (plain data)
-simulation.ts       SimulationCore — physics, traffic, rules, scoring
+simulation.ts       SimulationCore — physics, traffic, rule events
    ^ SimulationCoreConfig
-simulationAdapter   authored MapPack + lesson -> core config (build-time only)
+simulationAdapter   authored MapPack + DriveScenario -> core config (once)
 ```
 
 This ring's own implementation is split across two files:
-`GameCanvas.tsx` is the React wrapper (props/handle contract, canvas
+`GameCanvas.tsx` is the React wrapper (props contract, canvas
 element, load/fullscreen UI) that constructs and disposes the session; the
 exported `class BabylonGameSession`, in `render/babylonGameSession.ts`, is
 everything the ring label above describes — the Babylon scene, input,
@@ -55,7 +55,7 @@ the architecture test retains source-shape checks ESLint cannot express:
 [simulation-core.md](simulation-core.md).
 
 `simulationAdapter.ts` imports `sessionContract.ts` **type-only** for the
-lesson/map-pack shapes it consumes, so there is no cycle with
+scenario/map-pack shapes it consumes, so there is no cycle with
 `render/babylonGameSession.ts`; it also pulls `content.ts` and `visuals.ts`
 at runtime, which is why it is a build-time translator and never runs in the
 frame loop.
@@ -89,7 +89,7 @@ their invariants can be pinned without an engine:
 | `damage.ts` | *none* | Collision → condition loss |
 | `dispatch.ts` | `hashToUnit` from `gigs` | When work appears, surge, tips |
 | `career.ts` | types only | The whole career economy |
-| `economyTables.ts` | `FULL_CONDITION_PCT`/`speedingFineMultiplier`/`ROADSIDE_*` from `damage`/`speeding`/`career` | Per-country pricing (fuel, fares, fines, repairs, starting cash, scoring weights) + money/distance formatters |
+| `economyTables.ts` | `FULL_CONDITION_PCT`/`speedingFineMultiplier`/`ROADSIDE_*` from `damage`/`speeding`/`career` | Per-country pricing (fuel, fares, fines, repairs, starting cash) + money/distance formatters |
 | `speeding.ts` | types only | Citation band + excess measurement |
 | `cockpitLayout.ts` | types only | Every cabin number |
 | `cutsceneScript.ts` | types only | Cutscene choreography |
@@ -99,8 +99,8 @@ their invariants can be pinned without an engine:
 other's: `GameCanvas` never imports `economyTables.ts`, and `SideSwapApp` only
 loads `GameCanvas` lazily through `next/dynamic`.
 
-**`app/game/geometry/*.ts`** (six files — `roadStrips`, `roadFurnitureLayout`,
-`waterGeometry`, `facadesAndKeepouts`, `cairoParkland`, `routeGuidance`) is
+**`app/game/geometry/*.ts`** (`roadStrips`, `roadFurnitureLayout`,
+`waterGeometry`, `facadesAndKeepouts`, `cairoParkland`) is
 the same kind of pure module, moved out of `GameCanvas.tsx` by the god-file
 decomposition. It isn't hand-listed above because its purity is mechanically
 enforced rather than a fact to remember: ESLint rejects Babylon/React imports
@@ -113,10 +113,9 @@ the render side of the ring, not this table.
 ## What the core deliberately does not know
 
 **The core knows nothing about gigs, money, fuel or damage.** Everything
-economic is an outer ring, and **the core's own score and event history are
-never persisted**. Two durable consequences are derived from them outside it: a
-wallet debit, and — career only — the star a customer leaves, which counts the
-rule trips the app saw while carrying (see [economy.md](economy.md)).
+economic is an outer ring. Wallet debits and — career only — customer ratings
+are derived from the rule events the app sees while driving (see
+[economy.md](economy.md)).
 
 - **Gig arrival** is app-side: stopped inside `GIG_ARRIVAL_RADIUS_M` (14 m)
   stages an **interaction cutscene**; the gig advances when the scene's `done`
@@ -133,33 +132,24 @@ rule trips the app saw while carrying (see [economy.md](economy.md)).
   since a grid offers many equal-cost staircases. It shares no state with
   `routeDistanceAhead`, the hot in-sim lane search.
 
-## `lesson` does not mean a lesson
+## A drive always starts from authored data
 
-The game pivoted from a driving curriculum to an open-world gig driver. The
-lessons were deleted; the save key is `sideswap:v2` (`PROGRESS_STORAGE_KEY`).
+`DriveScenario` is the minimal runtime contract: identity, a player spawn id,
+traffic seed/density and an optional scenario clock. `buildFreeDriveScenario`
+and `buildCareerDayScenario` (`app/game/driveScenario.ts`) are the factories;
+do not hand-roll copies in the app.
 
-**`lesson` survives as internal vocabulary.** `GameCanvasLesson` is the *runtime
-scenario contract*, and the only scenario type left is free drive.
-`buildFreeDriveLesson` / `buildCareerDayLesson` (`app/game/freeDriveLesson.ts`,
-pinned by `tests/freeDriveLesson.test.ts`) both produce `kind: "free_drive"` with
-empty `route`/`checkpoints`/`coachPrompts`, and `SideSwapApp` builds
-`runtimeLesson` from one of them every render. **Don't hand-roll the literal
-again** — five copies is what the factory replaced.
-
-Vestigial branches for retired content survive (`yard-*`/`xf-*` lane ids,
-`RoadSurfaceType`'s `"orientation"`, `GameCanvas`'s `"orientation-yard"`
-default). No such map exists.
+Both `scenario` and `mapPack` are required by `GameCanvas`. The adapter resolves
+`startSpawnId` through the map's player spawns and lane anchors and throws a
+descriptive error for a missing, non-player, malformed or out-of-range start.
+There is no synthetic map or start-position fallback.
 
 ## The build-time boundary
 
 `buildSimulationCoreConfig` runs **once**, in the `BabylonGameSession`
-constructor — never in the frame loop. It translates lanes, infers single-lane
-adjacency, synthesizes signal phases and supplemental oncoming traffic gates.
-
-Its throws all sit on route/maneuver validation, **which free drive skips** — so
-on a live map it does not reject bad data, it degrades quietly: short lanes are
-filtered out, unresolvable checkpoints dropped, out-of-range anchors clamped to
-a lane end. The tests are the real guardrail. See
+constructor — never in the frame loop. It validates the authored player start,
+translates lanes, infers single-lane adjacency, and synthesizes signal phases
+and supplemental oncoming traffic gates. See
 [map-authoring.md](map-authoring.md).
 
 ## Sharp edges that cut across rings
@@ -167,24 +157,18 @@ a lane end. The tests are the real guardrail. See
 - **Some unreachable code is invisible to the gates.** ESLint warnings now fail
   the lint command, but `tsconfig` has no `noUnusedLocals`, and a `private`
   method that loses its last caller can still sit there without a diagnostic.
-  When you supersede a subsystem, delete its old path in the same change. Two
-  traps that will recur:
-  - **Duplicate names across layers.** `buildConnectedNpcPath` is *both* a
-    `BabylonGameSession` private wrapper and a live module-level function in
-    `npcPaths.ts`. Never delete or rename by name alone.
-  - **Write-only struct fields**, which nothing flags at all — `NpcVehicle`
-    once carried ten that were assigned at spawn and read only by a dead subtree.
+  When you supersede a subsystem, delete its old path in the same change.
+  Write-only struct fields are a recurring trap because nothing flags them.
 - **A new field usually has to be declared in a second place, or it is silently
   dropped.** Any new mutable field on `SimulationCore` must be reset in
-  `reset()` (and usually `restoreCheckpointPose()`); `reset()` is called from the
+  `reset()`; `reset()` is called from the
   constructor, so its fields must be initialized above that line.
-  `migrateProgress` runs on **save as well as load** and rebuilds from known keys
-  only, so a new field on `PlayerProgressV2` is stripped on the next write unless
-  added there too.
+  `saveProgress` normalizes through the current-schema `parseProgress`, so a new
+  field on `PlayerProgressV2` is stripped on the next write unless added there
+  too.
 - **`window.__sideswap*` debug hooks install once in `installDebugHooks`** and
   are deleted in `dispose()`. A new hook must be added to both, or it leaks the
   disposed session.
-- **`app/globals.css` is ~3.4k lines and substantially dead** (removed lesson
-  hub, passport, results views) — roughly a third of its class selectors have no
-  reference left in any `.tsx`. The drive HUD is inline styles, not CSS; only
-  `@keyframes` live there, since a style object cannot express one.
+- **The drive HUD is inline styles, not CSS.** Its shared animations live in
+  `app/globals.css`, since a style object cannot express `@keyframes`; new HUD
+  layout selectors do not belong there.

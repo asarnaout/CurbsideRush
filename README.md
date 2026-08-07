@@ -44,7 +44,7 @@ npm test
 npm run build
 ```
 
-`npm test` takes about two minutes, almost all of it in the traffic-safety acceptance test (every start position across four cities, 51 seeds, 60 seconds of simulation each). Everything else runs in about twelve seconds, so while iterating, skip it:
+`npm test` takes about two minutes, almost all of it in the traffic-safety acceptance test (all four cities, 51 seeds, 60 seconds of simulation each). Everything else runs in about twelve seconds, so while iterating, skip it:
 
 ```bash
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
@@ -89,10 +89,10 @@ Full detail, including the `vinext` metadata quirks: [docs/build-and-deploy.md](
 
 Four rings, with dependency arrows pointing only inward: `SideSwapApp.tsx` (views, economy, saves) → `GameCanvas.tsx` (the Babylon scene) → `simulation.ts` (the deterministic core) ← `simulationAdapter.ts` (authored map → core config, once, before the drive starts).
 
-- `app/game/simulation.ts` is the deterministic fixed-step simulation: vehicle physics, traffic, road-rule enforcement and scoring. It imports nothing but its own types — no React, no Babylon, no clock, no unseeded randomness — so a drive replays bit-exactly from a seed.
+- `app/game/simulation.ts` is the deterministic fixed-step simulation: vehicle physics, traffic, and road-rule events. It imports nothing but its own types — no React, no Babylon, no clock, no unseeded randomness — so a drive replays bit-exactly from a seed.
 - `app/game/GameCanvas.tsx` owns the client-only Babylon.js scene, cameras, input, audio and strict cleanup.
 - `app/game/content.ts`, `londonContent.ts`, and `cairoContent.ts` define country profiles, official references, and the map packs. A map pack pairs a directed lane graph (the legal truth the simulation drives on) with road-surface centrelines (the visual truth); road meshes, junctions, kerbs, pavements, markings, signage, addresses and pedestrian routes are all derived from those two at load time. Cairo derives its lanes and surfaces from one irregular road specification plus an explicit junction-turn table; its polygonal Nile bodies whitelist the two drivable bridge portals, from which shoreline gaps and physical parapets are derived. Deterministic shallow parcels line every non-bridge road with dense, rotated frontage while rejecting roads, water, landmarks, POIs and unseen world margins; four Nile-facing carriageway sides remain open for waterfront views. Rotated city blocks keep their façades and colliders on the same heading.
-- `app/game/gigs.ts` generates the jobs and `app/game/dispatch.ts` decides when they are offered, what they tip and when the city surges — both pure and seeded, so a career day replays exactly. `app/game/gpsRoute.ts` finds the minimap's route and its turn-by-turn directions across the lane graph, `app/game/DriveHud.tsx` is the drive screen's readout, `app/game/career.ts` is Career Mode's pure economy (the city ladder, rentals, loans, tickets and the win condition), and `app/game/progress.ts` validates and migrates the versioned `sideswap:v2` local save.
+- `app/game/gigs.ts` generates the jobs and `app/game/dispatch.ts` decides when they are offered, what they tip and when the city surges — both pure and seeded, so a career day replays exactly. `app/game/gpsRoute.ts` finds the minimap's route and its turn-by-turn directions across the lane graph, `app/game/DriveHud.tsx` is the drive screen's readout, `app/game/career.ts` is Career Mode's pure economy (the city ladder, rentals, loans, tickets and the win condition), and `app/game/progress.ts` validates and normalizes the current `sideswap:v2` local save.
 - `app/game/regulatorySigns.ts` works out where a city posts its one-way and speed-limit signs, from the same lane graph the rules run on, so what a street tells you can never disagree with what it fines you for. `app/game/speeding.ts` decides what a patrol will actually stop you for, and `app/game/trafficSignals.ts` picks which junctions carry an enforcement camera.
 - `public/map-data/` contains frozen, checksummed OpenStreetMap extracts kept for provenance and attribution. Nothing reads them at runtime; the drivable geography is authored separately.
 

@@ -123,7 +123,7 @@ back above the threshold clears the warning.
 
 ### A day is a GameCanvas remount
 
-`buildCareerDayLesson` gives each day its own lesson id + traffic seed, and the
+`buildCareerDayScenario` gives each day its own scenario id + traffic seed, and the
 React key carries `-d${day}-${vehicleId}`. The day clock rides
 `GameHudSnapshot.simElapsedMs` (sim time — pauses with the sim; the app folds it
 across tow resets).
@@ -214,19 +214,15 @@ and its wallet, unlike career's day cash, must not go negative.
 
 ## The save file
 
-`PROGRESS_STORAGE_KEY` is `sideswap:v2`. `progress.ts` owns loading, migration and
-every write path.
-
-Older keys (`sideswap:v1`, `sideswap:progress`, `sideswap:v0`) are migrated
-forward and removed.
-
-**`migrateProgress` runs on save as well as load** and rebuilds from known keys
-only — a new field is stripped on the next write unless added there too.
+`PROGRESS_STORAGE_KEY` is `sideswap:v2`. `progress.ts` owns loading,
+current-schema normalization, and every write path. Older keys are ignored; the
+unreleased game carries no save migration. Load and save both rebuild from the
+known current fields, repairing malformed values and stripping unknown ones.
 
 ### Career persists inside `PlayerProgressV2.career`
 
 `writeCareer`/`clearCareer` are the **ONLY** sanctioned write paths. `saveProgress`
-re-verifies the FNV-1a checksum via `migrateProgress`, so any other mutation path
+re-verifies the FNV-1a checksum via the current-schema parser, so any other mutation path
 comes back `{state:"corrupt"}` on the next load — and that corrupt marker is
 itself persisted state.
 
@@ -238,7 +234,7 @@ it was stamped with. (One in-codec migration rides after checksum verification �
 see `parseCareerSlice` for the pre-Cairo winner.)
 
 Career money is day-local (`dayCash`/`dayLog` refs in `SideSwapApp`), integer-only,
-and **never touches** `walletByCountry`/`fuelByCountry`/`lifetimeEarnings`. Saves
+and **never touches** `walletByCountry`/`fuelByCountry`. Saves
 happen at **day boundaries only** — a mid-day quit redoes the day, with per-day
 seeds from `careerDayTrafficSeed`, which folds in the city index so day 3 in Tokyo
 is not day 3 in New York.

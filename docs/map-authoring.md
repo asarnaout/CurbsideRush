@@ -5,8 +5,8 @@ There is **no generic procedural city generator and no runtime map import**.
 
 ## Two parallel truths that must stay in sync
 
-- **`laneGraph.lanes`** — directed *legal* truth. What the simulation, guidance,
-  NPCs and scoring use.
+- **`laneGraph.lanes`** — directed *legal* truth. What the simulation, GPS
+  routing and NPCs use.
 - **`geometry.roadSurfaces`** — *visual* truth. Centrelines + markings.
 
 Linked only by `LaneSegment.roadId` ↔ `RoadSurface.id`/`laneIds`. Two-way streets
@@ -34,7 +34,7 @@ A park's dressing, wall and gates are derived ([greenery.md](greenery.md));
 | asphalt strips, kerb/junction fills | `roadSurfaces` | `buildRoadSurfaceStripGeometry`, `collectRoadJunctionFills` |
 | paint broken at junctions | `roadSurfaces` | `splitMarkingAtCrossings` |
 | walkable pavement rails | `roadSurfaces` | `buildPavementGraph` |
-| ambient traffic routes | `lanes.successors` | `buildConnectedNpcPath` |
+| ambient traffic routes | `lanes.successors` | `SimulationCore.advanceNpcAlongLegalRoute` |
 | gig drop-off addresses | `lanes` + `blocks` | `generateStreetAddresses` |
 | instanced building street wall | `blocks.buildingSet` | `slotBlockBuildings` |
 | signal phase clock | `controls.phaseGroup` | `authoredSignalAspectAt` |
@@ -185,9 +185,10 @@ per road, and nothing non-`standard` out-ranking an ordinary road.
   sign families (`NODE_EPSILON_M`). A shared endpoint authored 0.1 m apart yields
   no junction fill (grass through the crossing), no pavement trim (walkers on the
   asphalt) and no signage at that mouth.
-- **Successors must be geometrically continuous** — tests require 0.01 m;
-  `buildConnectedNpcPath` requires 2.5 m. Break it and traffic *despawns* rather
-  than errors. An **empty** successor list does the same thing, wherever the
+- **Successors must be geometrically continuous** — tests require 0.01 m and
+  the simulation rejects transitions beyond 0.5 m. Break it and traffic queues
+  for respawn rather than snapping across the map. An **empty** successor list
+  does the same thing, wherever the
   player happens to be looking: London's bus lane dead-ended at a signal and the
   double-decker blinked out every green (#128).
 
@@ -204,7 +205,7 @@ venues.
 
 **`STREET_PROFILES` holds numbering and is the addressability gate; display names
 live on `MapPack.roadNames`.** Deliberately split, so naming a street for GPS
-guidance cannot start issuing gigs on it, and so whole named cities (London,
+directions cannot start issuing gigs on it, and so whole named cities (London,
 Tokyo, Cairo) stay address-free. Gating on the names instead would opt every
 named city in at once.
 
