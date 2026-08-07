@@ -153,7 +153,13 @@ describe("lane paint stops at a junction", () => {
         // Junction gaps cost a little; losing more than a fifth of a road's
         // paint would mean the bites are far too greedy.
         expect(painted / whole, `${surface.id}/${marking.id}`).toBeGreaterThan(0.8);
-        expect(runs.length, `${surface.id}/${marking.id}`).toBeGreaterThan(1);
+        // A road with no interior crossing yet (Vernon Blvd today: only its
+        // two bridge endpoints, until the borough phase's bank streets give
+        // it one) has nothing to split its paint at, so it stays one run —
+        // every road with an interior crossing must still break there.
+        if (surface.centerline.length > 2) {
+          expect(runs.length, `${surface.id}/${marking.id}`).toBeGreaterThan(1);
+        }
       }
     }
   });

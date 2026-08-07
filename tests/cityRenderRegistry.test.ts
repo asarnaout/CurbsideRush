@@ -8,6 +8,7 @@ import {
   buildLondonLandmark,
   buildLondonStreetFurniture,
 } from "../app/game/render/londonLandmarks";
+import { buildNycLandmark } from "../app/game/render/nycLandmarks";
 import { LONDON_MAP_PACK } from "../app/game/cities/london";
 import { CAIRO_MAP_PACK } from "../app/game/cities/cairo";
 import { NYC_MAP_PACK } from "../app/game/cities/nyc";
@@ -39,8 +40,13 @@ describe("cityRenderRegistry", () => {
     expect(entry?.streetFurniture).toBeUndefined();
   });
 
-  it("has no row for NYC or Tokyo's real map ids — their landmarks fall through to the generic kind-based rendering", () => {
-    expect(cityRenderRegistryFor(NYC_MAP_PACK.id)).toBeUndefined();
+  it("routes NYC's real map id to its own landmark builder, with no street-furniture entry", () => {
+    const entry = cityRenderRegistryFor(NYC_MAP_PACK.id);
+    expect(entry?.landmarks).toBe(buildNycLandmark);
+    expect(entry?.streetFurniture).toBeUndefined();
+  });
+
+  it("has no row for Tokyo's real map id — its landmarks fall through to the generic kind-based rendering", () => {
     expect(cityRenderRegistryFor(TOKYO_MAP_PACK.id)).toBeUndefined();
   });
 
@@ -51,7 +57,7 @@ describe("cityRenderRegistry", () => {
 
   it("CITY_RENDER_REGISTRY's own keys are exactly the cities with a real dispatch", () => {
     expect(Object.keys(CITY_RENDER_REGISTRY).sort()).toEqual(
-      [CAIRO_MAP_PACK.id, LONDON_MAP_PACK.id].sort(),
+      [CAIRO_MAP_PACK.id, LONDON_MAP_PACK.id, NYC_MAP_PACK.id].sort(),
     );
   });
 });

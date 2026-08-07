@@ -68,13 +68,13 @@ const parkCases = (): readonly ParkCase[] => {
 
 describe("park layouts", () => {
   it("covers every authored park on every shipped map", () => {
-    // Fourteen — NYC's three original (Central Park now split into four
-    // segments around its transverse roads, net +3) plus Riverside and Joan
-    // of Arc, three Tokyo, two Cairo, and London's Exhibition Road strip
-    // plus its two roundabout islands, which are generated rather than
-    // listed and are easy to forget. Pinned so adding a park is a
-    // deliberate act, not a surprise.
-    expect(parkCases().length).toBe(14);
+    // Seventeen — NYC's three original (Central Park now split into four
+    // segments, net +3) plus Riverside and Joan of Arc plus the three-part
+    // East River Esplanade, three Tokyo, two Cairo, and London's Exhibition
+    // Road strip plus its two roundabout islands, which are generated
+    // rather than listed and are easy to forget. Pinned so adding a park is
+    // a deliberate act, not a surprise.
+    expect(parkCases().length).toBe(17);
   });
 
   it("is deterministic — two builds are identical", () => {
