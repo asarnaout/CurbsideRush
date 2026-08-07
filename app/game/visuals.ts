@@ -66,12 +66,7 @@ export interface MapVisualPalette {
   readonly fogEndCapM?: number;
 }
 
-export type MapVisualKey =
-  | "nyc"
-  | "london"
-  | "tokyo"
-  | "cairo"
-  | "orientation";
+export type MapVisualKey = "nyc" | "london" | "tokyo" | "cairo";
 
 /**
  * How wide the concrete sidewalk band renders on `paved` maps. Shared by the
@@ -169,20 +164,6 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     // radius NYC's density was priced under.
     fogEndCapM: 650,
   },
-  orientation: {
-    skyTop: "#3f86c6",
-    skyHorizon: "#ecdcbe",
-    fogColor: "#e2d5bc",
-    grassBase: "#3d673f",
-    grassAlt: "#4c7a46",
-    grassDeep: "#294a2d",
-    grassDry: "#687046",
-    floraAccent: "#e4e2c6",
-    dirtShoulder: "#625740",
-    silhouetteNear: "#a8aca2",
-    silhouetteFar: "#cdc9b6",
-    sunTint: "#ffe9c4",
-  },
 };
 
 export function resolveMapVisualKey(mapId: string): MapVisualKey {
@@ -190,7 +171,6 @@ export function resolveMapVisualKey(mapId: string): MapVisualKey {
   if (id.includes("cairo")) return "cairo";
   if (id.includes("tokyo")) return "tokyo";
   if (id.includes("london")) return "london";
-  if (id.includes("orientation") || id.includes("yard")) return "orientation";
   return "nyc";
 }
 
@@ -253,7 +233,7 @@ export interface FogRange {
 }
 
 /**
- * Linear-fog band scaled to the map so small yards fade gently at their
+ * Linear-fog band scaled to the map so small worlds fade gently at their
  * edges while a long city melts into the horizon instead of hard-clipping.
  */
 export function resolveFogRange(worldSize: VisualPoint): FogRange {
@@ -419,53 +399,35 @@ export function buildHorizonSilhouetteSpec(
     return shapes;
   }
 
-  if (key === "cairo") {
-    pushRange(shapes, random, 36, () => ({
-      kind: "box",
-      x: random(),
-      w: 0.018 + random() * 0.035,
-      h: 0.14 + random() * 0.22,
-      layer: 1,
-    }));
-    pushRange(shapes, random, 28, () => ({
-      kind: "box",
-      x: random(),
-      w: 0.015 + random() * 0.03,
-      h: 0.2 + random() * 0.28,
-      layer: 0,
-    }));
-    // Slender mosque minarets, plus one markedly taller Cairo Tower silhouette.
-    pushRange(shapes, random, 7, () => ({
-      kind: "spike",
-      x: random(),
-      w: 0.008 + random() * 0.005,
-      h: 0.42 + random() * 0.2,
-      layer: 0,
-    }));
-    shapes.push({
-      kind: "pylon",
-      x: 0.18 + random() * 0.64,
-      w: 0.018,
-      h: 0.92,
-      layer: 0,
-    });
-    return shapes;
-  }
-
-  pushRange(shapes, random, 10, () => ({
-    kind: "hill",
+  pushRange(shapes, random, 36, () => ({
+    kind: "box",
     x: random(),
-    w: 0.14 + random() * 0.18,
-    h: 0.08 + random() * 0.12,
+    w: 0.018 + random() * 0.035,
+    h: 0.14 + random() * 0.22,
     layer: 1,
   }));
-  pushRange(shapes, random, 14, () => ({
-    kind: "hill",
+  pushRange(shapes, random, 28, () => ({
+    kind: "box",
     x: random(),
-    w: 0.01 + random() * 0.02,
-    h: 0.05 + random() * 0.07,
+    w: 0.015 + random() * 0.03,
+    h: 0.2 + random() * 0.28,
     layer: 0,
   }));
+  // Slender mosque minarets, plus one markedly taller Cairo Tower silhouette.
+  pushRange(shapes, random, 7, () => ({
+    kind: "spike",
+    x: random(),
+    w: 0.008 + random() * 0.005,
+    h: 0.42 + random() * 0.2,
+    layer: 0,
+  }));
+  shapes.push({
+    kind: "pylon",
+    x: 0.18 + random() * 0.64,
+    w: 0.018,
+    h: 0.92,
+    layer: 0,
+  });
   return shapes;
 }
 

@@ -5,7 +5,6 @@ import type {
   LaneNode,
   LaneRole,
   LaneSegment,
-  MapCheckpoint,
   MapPack,
   MapSpawnPoint,
   OfficialRuleReference,
@@ -25,7 +24,7 @@ import { buildLaneTrueGeometry } from "../laneConnectors";
 export const LONDON_CONTENT_REVIEWED_ON = "2026-07-11";
 
 /**
- * Official references used by the London curriculum. OpenStreetMap is kept
+ * Official references used by the London map. OpenStreetMap is kept
  * exclusively on the map source record below and is never used as a rule
  * authority.
  */
@@ -425,17 +424,6 @@ const turningLoop = (opts: {
   };
 };
 
-const checkpoint = (
-  id: string,
-  label: string,
-  laneId: string,
-  distanceAlongM: number,
-): MapCheckpoint => ({
-  id,
-  label,
-  anchor: anchor(laneId, distanceAlongM),
-});
-
 const anchoredSpawn = (
   id: string,
   kind: "player" | "vehicle",
@@ -581,7 +569,7 @@ const cromwellBusLaneConnectorM = distanceBetweenPoints(
 );
 
 const londonLanes: readonly LaneSegment[] = [
-  // A calm local loop west of Queen's Gate. It is used for the first lesson.
+  // A calm local loop west of Queen's Gate.
   laneTrue(
     "london-local-west",
     londonNodes.queenGateSouth,
@@ -674,7 +662,7 @@ const londonLanes: readonly LaneSegment[] = [
   ),
 
   // Cromwell Road's eastbound general lane sits beside a signed, timed bus
-  // lane. The restriction is active at the fixed Tuesday 08:30 lesson clock.
+  // lane. The restriction is active at the fixed Tuesday 08:30 scenario clock.
   laneTrue(
     "london-cromwell-east-1",
     londonNodes.queenGateCromwell,
@@ -1030,8 +1018,6 @@ const londonLaneGraph: LaneGraph = {
         },
       ],
       sourceReferenceId: "uk-london-highway-code-general",
-      message:
-        "The signed bus lane operates 07:00–19:00 Monday to Friday in this training scenario. At Tuesday 08:30, use the adjacent general lane.",
     },
   ],
   spawnPoints: [
@@ -1077,21 +1063,6 @@ const londonLaneGraph: LaneGraph = {
       90,
       "london-cromwell-east-2",
     ),
-  ],
-  checkpoints: [
-    checkpoint(
-      "london-quiet-start",
-      "Queen's Gate start",
-      "london-local-west",
-      LONDON_QUIET_START_DISTANCE_M,
-    ),
-    checkpoint("london-quiet-crosswalk", "Quiet-street crossing", "london-quiet-north", 36),
-    checkpoint("london-cromwell-signal", "Cromwell Road signal approach", "london-cromwell-east-1", 136),
-    checkpoint("london-box-junction", "Box-junction approach", "london-cromwell-east-1", 125),
-    checkpoint("london-bus-lane", "Signed bus-lane approach", "london-cromwell-east-1", 44),
-    checkpoint("london-shared-space", "Exhibition Road shared space", "london-exhibition-shared-1", 48),
-    checkpoint("london-exhibition-one-way", "Signed one-way training section", "london-exhibition-shared-2", 27),
-    checkpoint("london-finish", "Queen's Gate return", "london-queen-gate-south-2", 50),
   ],
 };
 
@@ -1302,9 +1273,6 @@ export const LONDON_FREE_DRIVE: FreeDriveDefinition = {
   countryId: "uk",
   destinationId: "uk-london",
   mapId: "london-south-kensington",
-  title: "Free Drive — London",
-  description:
-    "Explore South Kensington's museum streets with optional coaching, a fixed Tuesday morning clock and no prescribed route.",
   startSpawnId: "london-player",
   trafficSeed: 2251,
   scenarioClock: LONDON_SCENARIO_CLOCK,

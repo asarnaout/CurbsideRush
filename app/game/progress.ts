@@ -5,7 +5,6 @@ import {
   stampCareerChecksum,
 } from "./career";
 import type { CareerPersisted, CareerVehicleId } from "./career";
-import { getDestinationProfile } from "./content";
 import { STARTING_WALLET_BY_COUNTRY, TANK_CAPACITY_L } from "./economyTables";
 import type {
   AccessibilityPreferences,
@@ -16,11 +15,6 @@ import type {
 } from "./types";
 
 export const PROGRESS_STORAGE_KEY = "sideswap:v2";
-
-// Older keys are migrated forward and then removed. "sideswap:v1" held the
-// (now-retired) lesson progress; its preference fields are preserved, its lesson
-// data discarded, and a fresh per-country wallet + full fuel tank are seeded.
-const LEGACY_STORAGE_KEYS = ["sideswap:v1", "sideswap:progress", "sideswap:v0"] as const;
 
 const WALLET_MAX = Number.MAX_SAFE_INTEGER;
 
@@ -39,7 +33,6 @@ const DESTINATION_IDS = new Set<DestinationId>([
 ]);
 
 const DEFAULT_ACCESSIBILITY: AccessibilityPreferences = {
-  subtitles: true,
   visualHonkIndicator: true,
   reducedMotion: false,
   cameraShake: false,
@@ -68,15 +61,6 @@ const clamp = (value: unknown, minimum: number, maximum: number, fallback: numbe
 const asBoolean = (value: unknown, fallback: boolean): boolean =>
   typeof value === "boolean" ? value : fallback;
 
-const asIsoDate = (value: unknown, fallback: string): string => {
-  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
-    return fallback;
-  }
-  return new Date(value).toISOString();
-};
-
-const nowIso = (): string => new Date().toISOString();
-
 const getDefaultStorage = (): ProgressStorage | undefined => {
   if (typeof window === "undefined") {
     return undefined;
@@ -88,14 +72,6 @@ const getDefaultStorage = (): ProgressStorage | undefined => {
   }
 };
 
-const readNestedRecord = (record: UnknownRecord, key: string): UnknownRecord =>
-  isRecord(record[key]) ? record[key] : {};
-
-const parseCountryId = (value: unknown): CountryId | undefined =>
-  typeof value === "string" && COUNTRY_IDS.has(value as CountryId)
-    ? (value as CountryId)
-    : undefined;
-
 const parseDestinationId = (value: unknown): DestinationId | undefined =>
   typeof value === "string" && DESTINATION_IDS.has(value as DestinationId)
     ? (value as DestinationId)
@@ -104,17 +80,12 @@ const parseDestinationId = (value: unknown): DestinationId | undefined =>
 const parseCareerVehicleId = (value: unknown): CareerVehicleId =>
   isCareerVehicleId(value) ? value : DEFAULT_GARAGE_VEHICLE_ID;
 
-const parseCamera = (value: unknown): CameraMode => {
-  if (value === "first_person" || value === "first" || value === "cockpit") {
-    return "first_person";
-  }
-  return "third_person";
-};
+const parseCamera = (value: unknown): CameraMode =>
+  value === "first_person" ? "first_person" : "third_person";
 
 const parseAccessibility = (value: unknown): AccessibilityPreferences => {
   const record = isRecord(value) ? value : {};
   return {
-    subtitles: asBoolean(record.subtitles, DEFAULT_ACCESSIBILITY.subtitles),
     visualHonkIndicator: asBoolean(
       record.visualHonkIndicator,
       DEFAULT_ACCESSIBILITY.visualHonkIndicator,
@@ -131,9 +102,6 @@ const parseAccessibility = (value: unknown): AccessibilityPreferences => {
     fieldOfView: clamp(record.fieldOfView, 55, 100, DEFAULT_ACCESSIBILITY.fieldOfView),
     masterVolume: clamp(record.masterVolume, 0, 1, DEFAULT_ACCESSIBILITY.masterVolume),
     effectsVolume: clamp(record.effectsVolume, 0, 1, DEFAULT_ACCESSIBILITY.effectsVolume),
-    // Saved blobs from before the coach was removed carry a `coachVolume` that
-    // simply falls away here — this builds a fresh object from known keys, so no
-    // progress-version bump is needed to retire it.
     musicVolume: clamp(record.musicVolume, 0, 1, DEFAULT_ACCESSIBILITY.musicVolume),
     musicMuted: asBoolean(record.musicMuted, DEFAULT_ACCESSIBILITY.musicMuted),
   };
@@ -163,7 +131,9 @@ const parseCountryNumberMap = (
   return result;
 };
 
-const isCountryNumberMap = (value: unknown): boolean => {
+const isCountryNumberMap = (
+  value: unknown,
+): value is Record<CountryId, number> => {
   if (!isRecord(value)) {
     return false;
   }
@@ -175,72 +145,25 @@ const isCountryNumberMap = (value: unknown): boolean => {
   return true;
 };
 
-const defaultDestinationForCountry = (countryId: CountryId): DestinationId => {
-  switch (countryId) {
-    case "us":
-      return "us-nyc";
-    case "uk":
-      return "uk-london";
-    case "jp":
-      return "jp-tokyo";
-    case "eg":
-      return "eg-cairo";
-  }
-};
-
-const inferLastDestinationId = (
-  explicitDestinationId: unknown,
-  lastCountryId: CountryId,
-): DestinationId => {
-  const parsedDestinationId = parseDestinationId(explicitDestinationId);
-  if (
-    parsedDestinationId &&
-    getDestinationProfile(parsedDestinationId).countryId === lastCountryId
-  ) {
-    return parsedDestinationId;
-  }
-  return defaultDestinationForCountry(lastCountryId);
-};
-
-export function createDefaultProgress(now: string = nowIso()): PlayerProgressV2 {
-  const updatedAt = asIsoDate(now, nowIso());
+export function createDefaultProgress(): PlayerProgressV2 {
   return {
     version: 2,
     walletByCountry: { ...STARTING_WALLET_BY_COUNTRY },
     fuelByCountry: eachCountry(TANK_CAPACITY_L),
-    lifetimeEarnings: eachCountry(0),
-    completedGigCount: 0,
-    lastCountryId: "uk",
     lastDestinationId: "uk-london",
     preferredCamera: "third_person",
     accessibility: { ...DEFAULT_ACCESSIBILITY },
     career: null,
     lastCareerVehicleId: DEFAULT_GARAGE_VEHICLE_ID,
-    updatedAt,
   };
 }
 
-/**
- * Normalizes any prior progress blob (v2, the lesson-era v1, or older) into the
- * current V2 shape. Preferences (last city, camera, accessibility) are carried
- * across; wallet/fuel/earnings are preserved when present and otherwise seeded
- * to the starting balance + a full tank. Unknown fields are discarded.
- */
-export function migrateProgress(value: unknown, now: string = nowIso()): PlayerProgressV2 {
-  const fallback = createDefaultProgress(now);
-  if (!isRecord(value)) {
+/** Parses only the current save schema, repairing malformed fields to defaults. */
+const parseProgress = (value: unknown): PlayerProgressV2 => {
+  const fallback = createDefaultProgress();
+  if (!isRecord(value) || value.version !== 2) {
     return fallback;
   }
-
-  const settings = readNestedRecord(value, "settings");
-  const preferences = readNestedRecord(value, "preferences");
-  const updatedAt = asIsoDate(value.updatedAt, fallback.updatedAt);
-  const lastCountryId = parseCountryId(value.lastCountryId) ?? fallback.lastCountryId;
-  const lastDestinationId = inferLastDestinationId(value.lastDestinationId, lastCountryId);
-  const cameraCandidate =
-    value.preferredCamera ?? settings.camera ?? preferences.camera ?? preferences.preferredCamera;
-  const accessibilityCandidate =
-    value.accessibility ?? settings.accessibility ?? preferences.accessibility;
 
   return {
     version: 2,
@@ -254,25 +177,35 @@ export function migrateProgress(value: unknown, now: string = nowIso()): PlayerP
       eachCountry(TANK_CAPACITY_L),
       TANK_CAPACITY_L,
     ),
-    lifetimeEarnings: parseCountryNumberMap(
-      value.lifetimeEarnings,
-      eachCountry(0),
-      WALLET_MAX,
-    ),
-    completedGigCount: Math.round(clamp(value.completedGigCount, 0, WALLET_MAX, 0)),
-    lastCountryId,
-    lastDestinationId,
-    preferredCamera: parseCamera(cameraCandidate),
-    accessibility: parseAccessibility(accessibilityCandidate),
-    // Absent on pre-career saves -> null; checksum mismatches surface as the
-    // persisted corrupt marker rather than being silently rebuilt away.
+    lastDestinationId:
+      parseDestinationId(value.lastDestinationId) ?? fallback.lastDestinationId,
+    preferredCamera: parseCamera(value.preferredCamera),
+    accessibility: parseAccessibility(value.accessibility),
     career: parseCareerSlice(value.career),
-    // A save from before the garage remembered anything falls to the same ride
-    // a new career opens on; affordability is re-checked at the garage anyway.
     lastCareerVehicleId: parseCareerVehicleId(value.lastCareerVehicleId),
-    updatedAt,
   };
-}
+};
+
+const isNumberInRange = (value: unknown, minimum: number, maximum: number): boolean =>
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  value >= minimum &&
+  value <= maximum;
+
+const isAccessibilityPreferences = (
+  value: unknown,
+): value is AccessibilityPreferences =>
+  isRecord(value) &&
+  typeof value.visualHonkIndicator === "boolean" &&
+  typeof value.reducedMotion === "boolean" &&
+  typeof value.cameraShake === "boolean" &&
+  typeof value.headBob === "boolean" &&
+  isNumberInRange(value.steeringSensitivity, 0.5, 2) &&
+  isNumberInRange(value.fieldOfView, 55, 100) &&
+  isNumberInRange(value.masterVolume, 0, 1) &&
+  isNumberInRange(value.effectsVolume, 0, 1) &&
+  isNumberInRange(value.musicVolume, 0, 1) &&
+  typeof value.musicMuted === "boolean";
 
 export function isPlayerProgressV2(value: unknown): value is PlayerProgressV2 {
   if (!isRecord(value) || value.version !== 2) {
@@ -280,22 +213,17 @@ export function isPlayerProgressV2(value: unknown): value is PlayerProgressV2 {
   }
   if (
     !isCountryNumberMap(value.walletByCountry) ||
-    !isCountryNumberMap(value.fuelByCountry) ||
-    !isCountryNumberMap(value.lifetimeEarnings)
+    !isCountryNumberMap(value.fuelByCountry)
   ) {
     return false;
   }
-  if (typeof value.completedGigCount !== "number") {
-    return false;
-  }
-  if (typeof value.lastCountryId !== "string" || !COUNTRY_IDS.has(value.lastCountryId as CountryId)) {
-    return false;
+  for (const id of COUNTRY_IDS) {
+    if (!isNumberInRange(value.walletByCountry[id], 0, WALLET_MAX)) return false;
+    if (!isNumberInRange(value.fuelByCountry[id], 0, TANK_CAPACITY_L)) return false;
   }
   if (
     typeof value.lastDestinationId !== "string" ||
-    !DESTINATION_IDS.has(value.lastDestinationId as DestinationId) ||
-    getDestinationProfile(value.lastDestinationId as DestinationId).countryId !==
-      value.lastCountryId
+    !DESTINATION_IDS.has(value.lastDestinationId as DestinationId)
   ) {
     return false;
   }
@@ -305,7 +233,10 @@ export function isPlayerProgressV2(value: unknown): value is PlayerProgressV2 {
   if (value.career !== null && !isRecord(value.career)) {
     return false;
   }
-  return isRecord(value.accessibility) && typeof value.updatedAt === "string";
+  return (
+    isAccessibilityPreferences(value.accessibility) &&
+    isCareerVehicleId(value.lastCareerVehicleId)
+  );
 }
 
 export function loadProgress(
@@ -316,21 +247,9 @@ export function loadProgress(
     return fallback;
   }
 
-  let raw: string | null = null;
-  let sourceKey: string = PROGRESS_STORAGE_KEY;
-
+  let raw: string | null;
   try {
     raw = storage.getItem(PROGRESS_STORAGE_KEY);
-    if (raw === null) {
-      for (const legacyKey of LEGACY_STORAGE_KEYS) {
-        const legacyRaw = storage.getItem(legacyKey);
-        if (legacyRaw !== null) {
-          raw = legacyRaw;
-          sourceKey = legacyKey;
-          break;
-        }
-      }
-    }
   } catch {
     return fallback;
   }
@@ -340,14 +259,11 @@ export function loadProgress(
   }
 
   try {
-    const progress = migrateProgress(JSON.parse(raw), fallback.updatedAt);
+    const progress = parseProgress(JSON.parse(raw));
     const serializedProgress = JSON.stringify(progress);
-    if (sourceKey !== PROGRESS_STORAGE_KEY || raw !== serializedProgress) {
+    if (raw !== serializedProgress) {
       try {
         storage.setItem(PROGRESS_STORAGE_KEY, serializedProgress);
-        if (sourceKey !== PROGRESS_STORAGE_KEY) {
-          storage.removeItem?.(sourceKey);
-        }
       } catch {
         // Reading remains useful when storage is full or write access is denied.
       }
@@ -355,7 +271,7 @@ export function loadProgress(
     return progress;
   } catch {
     try {
-      storage.removeItem?.(sourceKey);
+      storage.removeItem?.(PROGRESS_STORAGE_KEY);
     } catch {
       // A broken storage implementation should never prevent the game from loading.
     }
@@ -371,7 +287,7 @@ export function saveProgress(
     return false;
   }
   try {
-    const normalized = migrateProgress(progress, progress.updatedAt);
+    const normalized = parseProgress(progress);
     storage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(normalized));
     return true;
   } catch {
@@ -386,9 +302,6 @@ export function resetProgress(
   if (storage) {
     try {
       storage.removeItem?.(PROGRESS_STORAGE_KEY);
-      for (const legacyKey of LEGACY_STORAGE_KEYS) {
-        storage.removeItem?.(legacyKey);
-      }
     } catch {
       // Reset still succeeds in memory when browser storage is unavailable.
     }
@@ -402,7 +315,7 @@ const withCountryValue = (
   next: number,
 ): Record<CountryId, number> => ({ ...map, [countryId]: next });
 
-/** Adds gig income to a country's wallet (and lifetime earnings). Immutable. */
+/** Adds gig income to a country's wallet. Immutable. */
 export function credit(
   progress: PlayerProgressV2,
   countryId: CountryId,
@@ -416,12 +329,6 @@ export function credit(
       countryId,
       progress.walletByCountry[countryId] + gain,
     ),
-    lifetimeEarnings: withCountryValue(
-      progress.lifetimeEarnings,
-      countryId,
-      progress.lifetimeEarnings[countryId] + gain,
-    ),
-    updatedAt: nowIso(),
   };
 }
 
@@ -439,7 +346,6 @@ export function debit(
       countryId,
       Math.max(0, progress.walletByCountry[countryId] - spend),
     ),
-    updatedAt: nowIso(),
   };
 }
 
@@ -457,14 +363,13 @@ export function consumeFuel(
       countryId,
       Math.max(0, progress.fuelByCountry[countryId] - used),
     ),
-    updatedAt: nowIso(),
   };
 }
 
 /**
  * Replaces the career slice, re-stamping its checksum. The ONLY sanctioned
  * write path for the field: saveProgress re-verifies the checksum through
- * migrateProgress, so a slice mutated any other way would come back as
+ * the current-schema parser, so a slice mutated any other way would come back as
  * corrupt on the next load.
  */
 export function writeCareer(
@@ -475,12 +380,12 @@ export function writeCareer(
     career !== null && career.state !== "corrupt"
       ? stampCareerChecksum(career)
       : career;
-  return { ...progress, career: stamped, updatedAt: nowIso() };
+  return { ...progress, career: stamped };
 }
 
 /** Abandons the career (bankruptcy restart or manual reset). Immutable. */
 export function clearCareer(progress: PlayerProgressV2): PlayerProgressV2 {
-  return { ...progress, career: null, updatedAt: nowIso() };
+  return { ...progress, career: null };
 }
 
 /** Sets a country's fuel level, clamped to [0, tank capacity]. Immutable. */
@@ -496,6 +401,5 @@ export function setFuel(
       countryId,
       Math.min(TANK_CAPACITY_L, Math.max(0, litres)),
     ),
-    updatedAt: nowIso(),
   };
 }

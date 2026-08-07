@@ -72,6 +72,10 @@ import {
   writeCareer,
 } from "../app/game/progress";
 import SideSwapApp from "../app/SideSwapApp";
+import type {
+  GameHudSnapshot,
+  GameRuntimeEvent,
+} from "../app/game/sessionContract";
 
 /** Sim-clock the mock canvas advances, so a test can run time forward. */
 const mockClock = { ms: 0 };
@@ -97,7 +101,7 @@ const advanceWallClock = (ms: number) => {
 vi.mock("next/dynamic", () => ({
   default: () =>
     function MockGameCanvas(props: {
-      lesson?: { readonly id: string };
+      scenario?: { readonly id: string };
       playerVehicle?: {
         readonly model: string | null;
         readonly visualKind?: string;
@@ -110,37 +114,34 @@ vi.mock("next/dynamic", () => ({
       gigStopId?: string | null;
       gigStopCarrying?: boolean;
       paused?: boolean;
-      onHudUpdate?: (snapshot: Record<string, unknown>) => void;
-      onEvent?: (event: Record<string, unknown>) => void;
+      onHudUpdate?: (snapshot: GameHudSnapshot) => void;
+      onEvent?: (event: GameRuntimeEvent) => void;
       onPauseChange?: (paused: boolean) => void;
       onExit?: () => void;
     }) {
-      const snapshot = (simElapsedMs: number, playerX = 0, playerZ = 0) => ({
+      const snapshot = (
+        simElapsedMs: number,
+        playerX = 0,
+        playerZ = 0,
+      ): GameHudSnapshot => ({
         speed: 0,
         speedUnit: "mph",
         gear: "D",
         cameraMode: "third",
-        indicator: "off",
-        score: 100,
-        objectiveProgress: 0,
         instruction: "",
         paused: false,
         honking: false,
         rearViewVisible: false,
-        scenarioId: props.lesson?.id ?? "",
-        scenarioTitle: "",
-        objective: "",
-        checkpoint: "",
-        trafficSide: "left",
         playerX,
         playerZ,
         heading: 0,
         simElapsedMs,
+        speedLimit: 30,
       });
       return (
         <section
           aria-label="Mock driving scene"
-          data-scenario={props.lesson?.id}
+          data-scenario={props.scenario?.id}
           data-player-model={props.playerVehicle?.model ?? "default"}
           data-visual-kind={props.playerVehicle?.visualKind ?? "none"}
           data-max-speed={props.vehiclePhysics?.maxForwardSpeedMps ?? "default"}
@@ -215,11 +216,7 @@ vi.mock("next/dynamic", () => ({
             type="button"
             data-testid="mock-ready"
             onClick={() =>
-              props.onEvent?.({
-                type: "ready",
-                message: "Training yard ready.",
-                timestamp: 0,
-              })
+              props.onEvent?.({ type: "ready" })
             }
           >
             ready
@@ -230,9 +227,8 @@ vi.mock("next/dynamic", () => ({
             onClick={() =>
               props.onEvent?.({
                 type: "fine",
-                message: "Fined",
-                timestamp: 1,
                 ruleCode: "red_light",
+                issuedBy: "patrol",
               })
             }
           >
@@ -252,10 +248,9 @@ vi.mock("next/dynamic", () => ({
               onClick={() =>
                 props.onEvent?.({
                   type: "fine",
-                  message: "Fined",
-                  timestamp: 1,
                   ruleCode: "speeding",
                   evidence: { speedMps, limitMps: 13.4 },
+                  issuedBy: "patrol",
                 })
               }
             >
@@ -271,8 +266,6 @@ vi.mock("next/dynamic", () => ({
             onClick={() =>
               props.onEvent?.({
                 type: "fine",
-                message: "A traffic camera caught the violation.",
-                timestamp: 1,
                 ruleCode: "red_light",
                 issuedBy: "camera",
               })
@@ -286,8 +279,6 @@ vi.mock("next/dynamic", () => ({
             onClick={() =>
               props.onEvent?.({
                 type: "fine",
-                message: "A traffic camera caught the violation.",
-                timestamp: 1,
                 ruleCode: "speeding",
                 evidence: { speedMps: 13.4 + 12, limitMps: 13.4 },
                 issuedBy: "camera",
@@ -304,9 +295,6 @@ vi.mock("next/dynamic", () => ({
             onClick={() =>
               props.onEvent?.({
                 type: "collision",
-                message: "You struck a pedestrian.",
-                timestamp: 1,
-                ruleCode: "collision",
                 evidence: {
                   roadUserType: "pedestrian",
                   externalRoadUser: true,
@@ -343,13 +331,9 @@ vi.mock("next/dynamic", () => ({
             onClick={() =>
               props.onEvent?.({
                 type: "cutscene",
-                message: "pump",
-                timestamp: 2,
-                evidence: {
-                  nonce: props.cutscene?.nonce ?? -1,
-                  phase: "pump",
-                  durationMs: 4_000,
-                },
+                nonce: props.cutscene?.nonce ?? -1,
+                phase: "pump",
+                durationMs: 4_000,
               })
             }
           >
@@ -361,12 +345,8 @@ vi.mock("next/dynamic", () => ({
             onClick={() =>
               props.onEvent?.({
                 type: "cutscene",
-                message: "cite",
-                timestamp: 2,
-                evidence: {
-                  nonce: props.cutscene?.nonce ?? -1,
-                  phase: "cite",
-                },
+                nonce: props.cutscene?.nonce ?? -1,
+                phase: "cite",
               })
             }
           >
@@ -378,13 +358,9 @@ vi.mock("next/dynamic", () => ({
             onClick={() =>
               props.onEvent?.({
                 type: "cutscene",
-                message: "repair",
-                timestamp: 2,
-                evidence: {
-                  nonce: props.cutscene?.nonce ?? -1,
-                  phase: "repair",
-                  durationMs: 5_000,
-                },
+                nonce: props.cutscene?.nonce ?? -1,
+                phase: "repair",
+                durationMs: 5_000,
               })
             }
           >
@@ -396,8 +372,6 @@ vi.mock("next/dynamic", () => ({
             onClick={() =>
               props.onEvent?.({
                 type: "collision",
-                message: "bang",
-                timestamp: 2,
                 evidence: { obstacle: "building", impactSpeedMps: 12 },
               })
             }
@@ -410,12 +384,8 @@ vi.mock("next/dynamic", () => ({
             onClick={() =>
               props.onEvent?.({
                 type: "cutscene",
-                message: "done",
-                timestamp: 3,
-                evidence: {
-                  nonce: props.cutscene?.nonce ?? -1,
-                  phase: "done",
-                },
+                nonce: props.cutscene?.nonce ?? -1,
+                phase: "done",
               })
             }
           >
@@ -2049,9 +2019,7 @@ describe("free-drive gig settlement", () => {
       window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
     ) as {
       walletByCountry: Record<string, number>;
-      completedGigCount: number;
     };
-    expect(stored.completedGigCount).toBe(1);
     expect(stored.walletByCountry.us).toBeGreaterThan(startingWallet);
     expect(screen.getByTestId("dispatch-toast")).toHaveTextContent(/^\+/);
     expect(screen.getByTestId("session-label")).not.toHaveTextContent("$0.00");

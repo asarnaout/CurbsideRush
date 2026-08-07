@@ -11,9 +11,8 @@ import {
   type SimulationCoreConfig,
 } from "../app/game/simulation";
 import { buildSimulationCoreConfig } from "../app/game/simulationAdapter";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
-import type { GameCanvasLesson } from "../app/game/sessionContract";
-import type { FreeDriveDefinition, LaneSegment } from "../app/game/types";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
+import type { LaneSegment } from "../app/game/types";
 
 /**
  * Issue #19: NPCs snapped through wild rotations at junctions — approach,
@@ -202,13 +201,6 @@ describe("junction geometry stays smooth (#19)", () => {
   });
 });
 
-// The runtime free-drive contract SideSwapApp assembles.
-const freeDriveLesson = (freeDrive: FreeDriveDefinition): GameCanvasLesson =>
-  buildFreeDriveLesson(
-    freeDrive,
-    getCountryProfile(freeDrive.countryId).trafficSide,
-  );
-
 describe("NPC heading dynamics (#19)", () => {
   // The physical yaw-rate cap in simulation.ts (NPC_YAW_RATE_MAX_RAD_S); the
   // invariant below is what makes it a contract.
@@ -223,21 +215,20 @@ describe("NPC heading dynamics (#19)", () => {
   // ~5 s of pure simulation stepping alone; generous headroom for a loaded
   // parallel test run.
   it("never yaws an NYC car faster than its steering allows", { timeout: 120_000 }, () => {
-    const lesson = freeDriveLesson(nycFreeDrive);
+    const scenario = buildFreeDriveScenario(nycFreeDrive);
+    const country = getCountryProfile(nycFreeDrive.countryId);
     const mapPack = getMapPack(nycFreeDrive.mapId);
     const adapted = buildSimulationCoreConfig({
-      lesson,
+      scenario,
       mapPack,
-      trafficSide: lesson.trafficSide,
+      trafficSide: country.trafficSide,
       speedUnit: "mph",
     });
     let sweptTurnTicks = 0;
     for (const seedOffset of SEEDS) {
       const config: SimulationCoreConfig = {
         ...adapted,
-        seed: (lesson.trafficSeed + seedOffset) >>> 0,
-        checkpoints: [],
-        finish: null,
+        seed: (scenario.trafficSeed + seedOffset) >>> 0,
       };
       const core = new SimulationCore(config);
       const previousById = new Map<

@@ -2,7 +2,6 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -49,8 +48,8 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
   return { ...mod, Engine: HeadlessEngine };
 });
 
-import GameCanvas, { type GameCanvasHandle } from "../app/game/GameCanvas";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
+import GameCanvas from "../app/game/GameCanvas";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { FREE_DRIVES, MAP_PACKS } from "../app/game/content";
 
 function createFake2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
@@ -295,20 +294,18 @@ describe("parks render characterization (Phase 3.11 safety net)", () => {
   it(
     "Tokyo: park lawn, footpath, wall and temple-grounds bespoke features",
     async () => {
-      const ref = createRef<GameCanvasHandle>();
       const tokyoFreeDrive = FREE_DRIVES.find((freeDrive) => freeDrive.id === "free-jp");
       const tokyoMapPack = MAP_PACKS.find((pack) => pack.id === "tokyo-setagaya");
       if (!tokyoFreeDrive || !tokyoMapPack) {
         throw new Error("Tokyo free-drive/map pack not found in content.ts");
       }
-      const lesson = buildFreeDriveLesson(tokyoFreeDrive, "left");
+      const scenario = buildFreeDriveScenario(tokyoFreeDrive);
 
       render(
         <GameCanvas
-          ref={ref}
           trafficSide="left"
           steeringSide="right"
-          lesson={lesson}
+          scenario={scenario}
           mapPack={tokyoMapPack}
           paused={false}
           onHudUpdate={() => {}}

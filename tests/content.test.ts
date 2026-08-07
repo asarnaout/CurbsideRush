@@ -6,7 +6,6 @@ import {
   MAP_PACKS,
   getCountryProfile,
   getMapPack,
-  resolveSteeringSide,
 } from "../app/game/content";
 import {
   FINE_BY_COUNTRY,
@@ -24,7 +23,6 @@ import type {
   LaneSegment,
   WorldPoint,
 } from "../app/game/types";
-import { resolveCheckpointTargetWidth } from "../app/game/geometry/routeGuidance";
 import { gasStationsOf } from "../app/game/servicePoints";
 
 const GEOMETRY_EPSILON = 1e-5;
@@ -138,25 +136,6 @@ const distanceToLaneCenterline = (
   point: WorldPoint,
   lane: LaneSegment,
 ): number => distanceToPolyline(point, lane.centerline);
-
-const nearestLaneProjection = (
-  point: WorldPoint,
-  lane: LaneSegment,
-): { readonly distanceM: number; readonly headingRad: number } => {
-  let best = { distanceM: Number.POSITIVE_INFINITY, headingRad: 0 };
-  for (let index = 1; index < lane.centerline.length; index += 1) {
-    const start = lane.centerline[index - 1];
-    const end = lane.centerline[index];
-    const distanceM = distanceToSegment(point, start, end);
-    if (distanceM < best.distanceM) {
-      best = {
-        distanceM,
-        headingRad: Math.atan2(end.x - start.x, end.z - start.z),
-      };
-    }
-  }
-  return best;
-};
 
 const samplePolyline = (
   centerline: readonly WorldPoint[],
@@ -554,17 +533,12 @@ describe("SideSwap content", () => {
     expect(us.defaultSteeringSide).toBe("left");
     expect(uk.trafficSide).toBe("left");
     expect(uk.defaultSteeringSide).toBe("right");
-    expect(resolveSteeringSide("right", us)).toBe("right");
     expect(us.trafficSide).toBe("right");
   });
 
-  it("resolves every traffic-side and steering-side combination independently", () => {
+  it("authors the local steering wheel and traffic side independently", () => {
     for (const country of COUNTRY_PROFILES) {
-      expect(resolveSteeringSide("auto", country)).toBe(
-        country.defaultSteeringSide,
-      );
-      expect(resolveSteeringSide("left", country)).toBe("left");
-      expect(resolveSteeringSide("right", country)).toBe("right");
+      expect(["left", "right"]).toContain(country.defaultSteeringSide);
       expect(country.trafficSide).toBe(
         country.id === "uk" || country.id === "jp" ? "left" : "right",
       );
@@ -624,7 +598,7 @@ describe("SideSwap content", () => {
     expect(strandedLanes).toEqual([]);
   });
 
-  it("validates lane references, legal successors, controls, and checkpoints", () => {
+  it("validates lane references, legal successors, controls, and spawns", () => {
     const invalidSuccessors: string[] = [];
     for (const map of MAP_PACKS) {
       const lanes = new Map(map.laneGraph.lanes.map((lane) => [lane.id, lane]));
@@ -676,14 +650,6 @@ describe("SideSwap content", () => {
           expect(controlApproach.stopLine.distanceAlongM).toBeGreaterThanOrEqual(0);
         }
         expect(control.installations.length, control.id).toBeGreaterThan(0);
-      }
-
-      for (const checkpoint of map.laneGraph.checkpoints) {
-        expect(
-          lanes.has(checkpoint.anchor.laneId),
-          `${checkpoint.id} → ${checkpoint.anchor.laneId}`,
-        ).toBe(true);
-        expect(checkpoint.anchor.distanceAlongM).toBeGreaterThan(0);
       }
 
       for (const spawn of map.laneGraph.spawnPoints) {
@@ -812,17 +778,11 @@ describe("SideSwap content", () => {
           }
         }
       }
-      const anchors = [
-        ...map.laneGraph.spawnPoints.flatMap((spawn) =>
-          spawn.kind === "player"
-            ? [{ id: spawn.id, anchor: spawn.anchor }]
-            : [],
-        ),
-        ...map.laneGraph.checkpoints.map((item) => ({
-          id: item.id,
-          anchor: item.anchor,
-        })),
-      ];
+      const anchors = map.laneGraph.spawnPoints.flatMap((spawn) =>
+        spawn.kind === "player"
+          ? [{ id: spawn.id, anchor: spawn.anchor }]
+          : [],
+      );
 
       for (const item of anchors) {
         const lane = lanes.get(item.anchor.laneId);
@@ -896,17 +856,11 @@ describe("SideSwap content", () => {
       const surfaces = new Map(
         map.geometry.roadSurfaces.map((surface) => [surface.id, surface]),
       );
-      const anchors = [
-        ...map.laneGraph.spawnPoints.flatMap((spawn) =>
-          spawn.kind === "player"
-            ? [{ id: spawn.id, anchor: spawn.anchor }]
-            : [],
-        ),
-        ...map.laneGraph.checkpoints.map((item) => ({
-          id: item.id,
-          anchor: item.anchor,
-        })),
-      ];
+      const anchors = map.laneGraph.spawnPoints.flatMap((spawn) =>
+        spawn.kind === "player"
+          ? [{ id: spawn.id, anchor: spawn.anchor }]
+          : [],
+      );
 
       for (const item of anchors) {
         const lane = lanes.get(item.anchor.laneId);
@@ -943,163 +897,9 @@ describe("SideSwap content", () => {
     expect(unsafeAnchors).toEqual([]);
   });
 
-  it("keeps rendered checkpoint brackets and route chevrons out of dividers, shoulders, and other lanes", () => {
-    const violations: string[] = [];
-    const dividerStyles = new Set([
-      "centre_dashed",
-      "centre_solid",
-      "lane_dashed",
-      "lane_solid",
-    ]);
-    const checkGuidancePoint = (
-      map: (typeof MAP_PACKS)[number],
-      lane: LaneSegment,
-      point: WorldPoint,
-      strokeRadiusM: number,
-      label: string,
-      headingRad: number,
-      restrictedLaneIds: ReadonlySet<string>,
-    ) => {
-      const surface = map.geometry.roadSurfaces.find(
-        (candidate) => candidate.id === lane.roadId,
-      );
-      if (!surface) {
-        violations.push(`${map.id}/${label} has no road surface`);
-        return;
-      }
-      const edgeClearanceM =
-        surface.widthM / 2 - distanceToPolyline(point, surface.centerline);
-      if (edgeClearanceM < strokeRadiusM - GEOMETRY_EPSILON) {
-        violations.push(
-          `${map.id}/${label} enters the shoulder by ${(strokeRadiusM - edgeClearanceM).toFixed(2)}m`,
-        );
-      }
-      for (const marking of surface.markings) {
-        if (
-          dividerStyles.has(marking.style) &&
-          distanceToPolyline(point, marking.points) <
-            strokeRadiusM - GEOMETRY_EPSILON
-        ) {
-          violations.push(`${map.id}/${label} intersects ${marking.id}`);
-        }
-      }
-      for (const otherLane of map.laneGraph.lanes) {
-        if (otherLane.id === lane.id) continue;
-        const otherProjection = nearestLaneProjection(point, otherLane);
-        const opposing =
-          Math.cos(otherProjection.headingRad - headingRad) < -0.5;
-        if (!opposing && !restrictedLaneIds.has(otherLane.id)) continue;
-        const otherEnvelopeM = otherLane.widthM / 2 + strokeRadiusM;
-        if (
-          otherProjection.distanceM <
-          otherEnvelopeM - GEOMETRY_EPSILON
-        ) {
-          violations.push(`${map.id}/${label} enters ${otherLane.id}`);
-        }
-      }
-    };
-
-    for (const map of MAP_PACKS) {
-      const laneById = new Map(
-        map.laneGraph.lanes.map((lane) => [lane.id, lane]),
-      );
-      const restrictedLaneIds = new Set(
-        (map.laneGraph.restrictions ?? []).map(
-          (restriction) => restriction.laneId,
-        ),
-      );
-      for (const checkpoint of map.laneGraph.checkpoints) {
-        const lane = laneById.get(checkpoint.anchor.laneId);
-        if (!lane) continue;
-        if (restrictedLaneIds.has(lane.id)) {
-          violations.push(`${map.id}/${checkpoint.id} targets a restricted lane`);
-        }
-        const resolved = resolveAnchor(lane, checkpoint.anchor);
-        const heading = (resolved.headingDeg * Math.PI) / 180;
-        const forward = { x: Math.sin(heading), z: Math.cos(heading) };
-        const side = { x: Math.cos(heading), z: -Math.sin(heading) };
-        const targetWidthM = resolveCheckpointTargetWidth(lane.widthM);
-        const halfWidthM = targetWidthM / 2;
-        const halfLengthM = 0.72;
-        const armLengthM = Math.min(0.42, targetWidthM * 0.22);
-        const bracketPoint = (alongM: number, lateralM: number): WorldPoint => ({
-          x:
-            resolved.position.x +
-            forward.x * alongM +
-            side.x * lateralM,
-          z:
-            resolved.position.z +
-            forward.z * alongM +
-            side.z * lateralM,
-        });
-
-        for (const alongSign of [-1, 1]) {
-          for (const sideSign of [-1, 1]) {
-            const alongM = alongSign * halfLengthM;
-            const lateralM = sideSign * halfWidthM;
-            const corner = bracketPoint(alongM, lateralM);
-            const bracketSegments = [
-              [
-                corner,
-                bracketPoint(
-                  alongM - alongSign * armLengthM,
-                  lateralM,
-                ),
-              ],
-              [
-                corner,
-                bracketPoint(
-                  alongM,
-                  lateralM - sideSign * armLengthM,
-                ),
-              ],
-            ] as const;
-
-            for (const [segmentIndex, [start, end]] of bracketSegments.entries()) {
-              // Production renders each arm as a 0.13 m flat segment. Sampling
-              // the endpoints and interior covers the complete L-bracket path;
-              // the 0.065 m radius below accounts for its rendered footprint.
-              for (const [sampleIndex, amount] of [0, 0.25, 0.5, 0.75, 1].entries()) {
-                checkGuidancePoint(
-                  map,
-                  lane,
-                  {
-                    x: start.x + (end.x - start.x) * amount,
-                    z: start.z + (end.z - start.z) * amount,
-                  },
-                  0.065,
-                  `${checkpoint.id}/bracket-${alongSign}-${sideSign}-${segmentIndex}-${sampleIndex}`,
-                  heading,
-                  restrictedLaneIds,
-                );
-              }
-            }
-          }
-        }
-      }
-
-    }
-
-    expect(violations).toEqual([]);
-  });
-
-  it("resolves every checkpoint, stop line, and anchored spawn within its lane", () => {
+  it("resolves every stop line and anchored spawn within its lane", () => {
     for (const map of MAP_PACKS) {
       const lanes = new Map(map.laneGraph.lanes.map((lane) => [lane.id, lane]));
-
-      for (const checkpoint of map.laneGraph.checkpoints) {
-        const lane = lanes.get(checkpoint.anchor.laneId);
-        expect(
-          lane,
-          `${map.id}/${checkpoint.id} → ${checkpoint.anchor.laneId}`,
-        ).toBeDefined();
-        if (!lane) {
-          continue;
-        }
-        const resolved = resolveAnchor(lane, checkpoint.anchor);
-        expect(Number.isFinite(resolved.headingDeg), checkpoint.id).toBe(true);
-        expect(checkpoint).not.toHaveProperty("pose");
-      }
 
       for (const control of map.laneGraph.controls) {
         for (const controlApproach of control.approaches) {
@@ -1251,12 +1051,8 @@ describe("SideSwap content", () => {
     for (const map of MAP_PACKS) {
       for (const control of map.laneGraph.controls) {
         for (const installation of control.installations) {
-          // Road markings belong on the carriageway, while the side-swap
-          // portal is explicitly an overhead structure spanning its lane.
-          if (
-            installation.mounting === "road_marking" ||
-            installation.mounting === "terminal_portal"
-          ) {
+          // Road markings belong on the carriageway.
+          if (installation.mounting === "road_marking") {
             continue;
           }
           physicalInstallationCount += 1;

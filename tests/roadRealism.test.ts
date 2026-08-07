@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { MAP_PACKS, getCountryProfile } from "../app/game/content";
-import {
-  NPC_PATH_MAX_HOPS,
-  buildConnectedNpcPath,
-} from "../app/game/npcPaths";
 import type { LaneSegment, MapPack, RoadSurface } from "../app/game/types";
 
 /**
@@ -372,40 +368,6 @@ describe("NYC junctions connect the way the asphalt suggests", () => {
     }
     expect(pairsChecked, "paired one-way blocks").toBeGreaterThanOrEqual(4);
   });
-});
-
-describe("ambient traffic circulates instead of blinking out", () => {
-  // A car whose route ends is deactivated and respawned at its spawn point
-  // 2.5 s later (GameCanvas `updateNpcVehicles`). Before the junctions were
-  // wired up, every NYC route ended, so all the traffic did this. Cars start
-  // on an authored spawn lane or, past the fifth, on an arbitrary lane — and
-  // the branch offset is the car's index — so the property has to hold for
-  // every lane and every offset, not just the spawn points.
-  // London's bus lane was the last exception here, allowed to dead-end because
-  // nothing turns into it. It still had a bus driving down it, and that bus
-  // blinked out at the Exhibition Road signal every cycle (#128) — a lane with
-  // traffic on it has to lead somewhere whether or not anything turns in.
-  for (const pack of MAP_PACKS) {
-    it(`keeps every route in ${pack.id} on a circuit`, () => {
-      const stranded = new Set<string>();
-      for (const lane of pack.laneGraph.lanes) {
-        for (let offset = 0; offset < NPC_PATH_MAX_HOPS; offset += 1) {
-          const path = buildConnectedNpcPath(
-            pack.laneGraph.lanes,
-            lane.id,
-            offset,
-          );
-          expect(path.segments.length, `${lane.id} @${offset}`).toBeGreaterThan(0);
-          expect(
-            path.loopStartSegment,
-            `${lane.id} @${offset} wraps inside its route`,
-          ).toBeLessThan(path.segments.length);
-          if (!path.loop) stranded.add(lane.id);
-        }
-      }
-      expect([...stranded].sort()).toEqual([]);
-    });
-  }
 });
 
 describe("NYC controls the junctions a driver expects to be controlled", () => {

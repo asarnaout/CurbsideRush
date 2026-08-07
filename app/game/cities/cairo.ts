@@ -9,7 +9,6 @@ import type {
   LaneGraph,
   LaneNode,
   LaneSegment,
-  MapCheckpoint,
   MapPack,
   MapSpawnPoint,
   OfficialRuleReference,
@@ -2742,57 +2741,12 @@ const cairoSpawnPoints: readonly MapSpawnPoint[] = [
   })),
 ];
 
-const checkpointRoads = [
-  "cairo-corniche-el-nil",
-  "cairo-qasr-el-ainy",
-  "cairo-tahrir-approach",
-  "cairo-qasr-el-nil-street",
-  "cairo-saray-el-gezira",
-  "cairo-opera-corridor",
-  "cairo-qasr-el-nil-bridge",
-  "cairo-al-galaa-bridge",
-  "cairo-west-nile-street",
-  "cairo-dokki-nile-drive",
-] as const;
-const checkpointLabels = [
-  "Corniche riverside traffic",
-  "Garden City arterial",
-  "Tahrir radial approach",
-  "Downtown crossing",
-  "South Zamalek streets",
-  "Opera grounds",
-  "Qasr El-Nil Bridge",
-  "Al-Galaa Bridge",
-  "West-bank river road",
-  "Dokki return",
-] as const;
-
-const cairoCheckpoints: readonly MapCheckpoint[] = checkpointRoads.map(
-  (roadId, index) => {
-    const lane = cairoLanes.find(
-      (candidate) =>
-        candidate.roadId === roadId &&
-        (candidate.id.includes("-forward-") ||
-          !cairoLanes.some(
-            (item) =>
-              item.roadId === roadId && item.id.includes("-forward-"),
-          )),
-    )!;
-    return {
-      id: `cairo-checkpoint-${index + 1}`,
-      label: checkpointLabels[index],
-      anchor: anchor(lane.id, safeDistance(lane, 0.55)),
-    };
-  },
-);
-
 const cairoLaneGraph: LaneGraph = {
   nodes: cairoNodes,
   lanes: cairoLanes,
   controls: cairoControls,
   conflictZones: cairoConflictZones,
   spawnPoints: cairoSpawnPoints,
-  checkpoints: cairoCheckpoints,
 };
 
 export const CAIRO_MAP_PACK: MapPack = {
@@ -2838,9 +2792,6 @@ export const CAIRO_FREE_DRIVE: FreeDriveDefinition = {
   countryId: "eg",
   destinationId: "eg-cairo",
   mapId: "cairo-central-nile",
-  title: "Free Drive — Cairo",
-  description:
-    "Explore Tahrir, Garden City, Gezira and the central Nile on right-hand roads with metric signs.",
   startSpawnId: "cairo-player-1",
   trafficSeed: 2601,
   scenarioClock: CAIRO_SCENARIO_CLOCK,

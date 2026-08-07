@@ -4,7 +4,7 @@ import {
   getCountryProfile,
   getMapPack,
 } from "../app/game/content";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import {
   FIXED_STEP_SECONDS,
   SimulationCore,
@@ -67,10 +67,10 @@ const mixTrafficSnapshot = (
 
 const trafficTraceHash = (freeDrive: (typeof FREE_DRIVES)[number]): string => {
   const country = getCountryProfile(freeDrive.countryId);
-  const lesson = buildFreeDriveLesson(freeDrive, country.trafficSide);
+  const scenario = buildFreeDriveScenario(freeDrive);
   const simulation = new SimulationCore(
     buildSimulationCoreConfig({
-      lesson,
+      scenario,
       mapPack: getMapPack(freeDrive.mapId),
       trafficSide: country.trafficSide,
       speedUnit: country.speedUnit === "kmh" ? "km/h" : "mph",

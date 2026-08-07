@@ -166,8 +166,7 @@ const PROP_SIGN: PropKindConfig = {
 // instances (crowdRenderer). Counts are per map — the whole crowd costs a few
 // meshes regardless, so these are set by how busy each city should feel, not
 // by a draw-call budget. Radii track each map's fog: recycling happens beyond
-// what the player can see. Maps absent here (the orientation yard) have no
-// ambient crowd.
+// what the player can see. Maps absent here have no ambient crowd.
 export const AMBIENT_CROWD_CONFIG: Readonly<
   Record<
     string,
@@ -185,15 +184,14 @@ export const AMBIENT_CROWD_CONFIG: Readonly<
   "cairo-central-nile": { count: 88, innerRadiusM: 22, outerRadiusM: 125, recycleRadiusM: 165 },
 };
 
-/** Bubble radii for the scenario road users on maps with no crowd config
- * (today only the orientation yard): they walk the same rails, just fewer. */
+/** Bubble radii for scenario road users on maps with no crowd config. */
 export const DEFAULT_ROAD_USER_RADII = {
   innerRadiusM: 18,
   outerRadiusM: 110,
   recycleRadiusM: 150,
 };
 
-/** Clothing tints shared by the crowd and the scenario/yard pedestrians. */
+/** Clothing tints shared by the ambient and scripted pedestrians. */
 const CROWD_CLOTHING_COLORS = [
   { r: 0.82, g: 0.21, b: 0.15 },
   { r: 0.2, g: 0.35, b: 0.6 },
@@ -316,8 +314,5 @@ export function roadsidePropKindsForMap(
         // future kerb parking wants real placement, not scatter.
         { ...PROP_SIGN, spacingM: 78, variants: 2 },
       ];
-    case "orientation":
-    default:
-      return [{ ...PROP_TREE, spacingM: 24 }];
   }
 }

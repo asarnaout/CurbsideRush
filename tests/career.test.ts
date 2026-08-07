@@ -825,7 +825,7 @@ describe("checksum and slice codec", () => {
   });
 
   it("treats a pre-per-city save as absent rather than damaged", () => {
-    // The lesson-era flat shape: recognisable, obsolete, not tampered with. The
+    // The pre-per-city flat shape is recognisable, obsolete, and not tampered with. The
     // player should get a clean start, not a damaged-save alarm.
     const legacy = {
       state: "active",

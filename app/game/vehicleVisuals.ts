@@ -30,7 +30,7 @@ export type PlateRegion = "uk" | "us" | "jp" | "eg";
 /**
  * Maps a map id onto the country whose plates its traffic should wear. Uses the
  * same substring convention as the taxi/bus regional styling below; the UK is
- * the default (covers London and the orientation yard).
+ * the default.
  */
 export function plateRegionForMap(mapId: string): PlateRegion {
   const id = mapId.toLowerCase();

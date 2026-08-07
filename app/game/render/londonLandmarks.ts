@@ -42,7 +42,7 @@ import type { GameCanvasMapPack } from "../sessionContract";
  * else in the class; it becomes a cache here rather than a ctx field, since
  * ctx is for session state, not this file's own cache. Keyed by `Scene`
  * (`WeakMap`, not a bare module-level `let`): a session is rebuilt on map,
- * traffic-side, steering-side or lesson-id changes, each rebuild gets a
+ * traffic-side, steering-side or scenario-id changes, each rebuild gets a
  * fresh `Scene`, and a bare `let` would keep returning the previous scene's
  * (by then disposed) mesh — confirmed empirically, a second London mount
  * silently produced posts for neither sign family, half the expected

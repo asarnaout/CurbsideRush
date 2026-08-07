@@ -30,9 +30,9 @@ import type {
   AuthoredSignalHeadVisual,
   CameraMode,
   CutsceneRequest,
+  DriveScenario,
   DriveGear,
   GameCanvasLane,
-  GameCanvasLesson,
   GameCanvasMapPack,
   GameCanvasPoint,
   GameHudSnapshot,
@@ -52,20 +52,10 @@ import {
   type RoadJunctionFill,
 } from "../geometry/roadStrips";
 import {
-  clampHorizontalFieldOfView,
-  computeRouteChevronPlacements,
-  guidanceCueOverlapsCheckpoint,
-  resolveAuthoritativeRouteIndex,
-  resolveCheckpointTargetWidth,
-  resolveRouteChevronHalfSpan,
-} from "../geometry/routeGuidance";
-import {
   BUILDING_GROUND_LIFT,
+  clampHorizontalFieldOfView,
   GRASS_DETAIL_TILE_M,
   GRASS_TILE_M,
-  GUIDANCE_LAYER_MASK,
-  GUIDANCE_LATERAL_CLEARANCE_M,
-  PLAYER_GUIDANCE_HALF_WIDTH_M,
   PRIMARY_CAMERA_LAYER_MASK,
   ROAD_JUNCTION_FILL_Y,
   ROAD_SHOULDER_JUNCTION_FILL_Y,
@@ -91,7 +81,6 @@ import {
   createBox,
   createCylinder,
   createFacadeBox,
-  createIcoSphere,
   createMarkingGeometry,
   makeFacadeMaterial,
   type MarkingGeometry,
@@ -124,7 +113,6 @@ import {
   buildRailwayCrossingInstallation,
   buildRoadMarkingInstallation,
   buildSignalInstallation,
-  buildTerminalPortal,
   createTrafficControlMasters,
   type TrafficControlMaterials,
 } from "./trafficControlRender";
@@ -172,7 +160,6 @@ import {
   type NpcVehicleVariant,
   type SimulationInput,
   type SimulationRuleEvent,
-  type SimulationScoreSnapshot,
   type SimulationSnapshot,
 } from "../simulation";
 import {
@@ -287,10 +274,6 @@ import {
   speedLimitSignPlacements,
 } from "../regulatorySigns";
 import {
-  buildConnectedNpcPath,
-  type NpcPathSegment as NpcPathSegmentData,
-} from "../npcPaths";
-import {
   splitMarkingAtCrossings,
   type MarkingPoint,
 } from "../roadMarkings";
@@ -368,9 +351,9 @@ const CHASE_TUNING_BY_MODEL: Partial<Record<VehicleModel, ChaseTuning>> = {
  * de-methodization, since the class doesn't change shape, only address.
  *
  * `GameCanvas.tsx` keeps just the React side — `GameCanvasProps`/
- * `GameCanvasHandle`, the `forwardRef` component, and the shell/canvas
+ * the component and the shell/canvas
  * styles — and constructs this class once per `[trafficSide, steeringSide,
- * lesson?.id, mapPack?.id]` combination; every other prop flows through
+ * scenario.id, mapPack.id]` combination; every other prop flows through
  * `updateOptions`. See rendering.md's "Shape of the file" for the ring this
  * sits in and why it stays one file rather than splitting further: at
  * ~7,450 lines it is still one class with ~190 fields, and the plan
@@ -393,7 +376,6 @@ export interface SessionCallbacks {
   onPauseChange?: (paused: boolean) => void;
   onCameraChange?: (mode: CameraMode) => void;
   onInputPresentationChange?: (presentation: AdaptiveInputPresentation) => void;
-  onComplete?: (score: SimulationScoreSnapshot) => void;
   onReady?: () => void;
   onContextLost?: () => void;
   onContextRestored?: () => void;
@@ -422,8 +404,8 @@ interface SessionOptions {
   cutscene: CutsceneRequest | null;
   playerVehicle: PlayerVehicleOption | null;
   vehiclePhysics: PlayerVehiclePhysics | null;
-  lesson?: GameCanvasLesson;
-  mapPack?: GameCanvasMapPack;
+  scenario: DriveScenario;
+  mapPack: GameCanvasMapPack;
 }
 
 interface AnalogInput {
@@ -493,8 +475,6 @@ interface PlayerState {
   indicator: TurnIndicator;
 }
 
-type NpcPathSegment = NpcPathSegmentData;
-
 /** How long a patrol strobes after clocking a violation (~6s at 60 Hz). */
 const PATROL_BEACON_TICKS = 360;
 
@@ -516,7 +496,6 @@ interface NpcVehicle {
   visualVehicleId: string;
   visualVariant: NpcVehicleVariant;
   simulationId?: string;
-  direction: 1 | -1;
   speed: number;
   z: number;
   laneX: number;
@@ -528,7 +507,6 @@ interface NpcVehicle {
   prevPoseX: number;
   prevPoseZ: number;
   prevPoseHeading: number;
-  laneId?: string;
   active?: boolean;
   currentSpeed?: number;
   signal?: TurnIndicator;
@@ -561,7 +539,7 @@ function appearanceVisualKey(appearance: VehicleAppearance): string {
  * Reconciles authoritative simulation ids with a fixed pool of render roots.
  * Existing live associations win first, then numeric `npc-N` ids claim their
  * stable slots, leaving tail slots for scripted/non-numeric vehicles. This
- * prevents a newly activated ambient car from evicting a maneuver lead.
+ * prevents a newly activated ambient car from evicting a scripted vehicle.
  */
 
 export function resolveNpcVisualSlotAssignments(
@@ -642,48 +620,7 @@ interface Pedestrian {
   colors?: CharacterColors;
 }
 
-interface AuthoredCheckpoint {
-  readonly id: string;
-  readonly label: string;
-  readonly x: number;
-  readonly z: number;
-  readonly heading: number;
-  readonly laneId: string | null;
-  readonly laneWidthM: number;
-  readonly distanceAlongM: number | null;
-}
-
-interface GuidanceVisual {
-  readonly id: string;
-  readonly meshes: readonly Mesh[];
-  readonly dispose?: () => void;
-}
-
-interface RouteChevronVisual {
-  readonly routeIndex: number;
-  readonly laneId: string;
-  readonly distanceAlongM: number;
-  readonly meshes: readonly Mesh[];
-}
-
-interface RouteProjection {
-  readonly segmentIndex: number;
-  readonly x: number;
-  readonly z: number;
-  readonly heading: number;
-  readonly distance: number;
-  readonly distanceAlong: number;
-}
-
-interface ScenarioLaneProjection extends RouteProjection {
-  readonly laneId: string;
-  readonly speedLimit?: number;
-}
-
 const FIXED_STEP = 1 / 60;
-const START_Z = -52;
-const FINISH_Z = 72;
-const LANE_CENTER = 2.75;
 
 // Frame-budget accounting drained by __sideswapPerfDebug. Indices into the
 // session's perfSumMs/perfMaxMs arrays; the first four are per-fixed-step
@@ -698,16 +635,14 @@ const PERF_SIM_STEP = 0;
 const PERF_SNAPSHOT_APPLY = 1;
 const PERF_CROWD = 2;
 const PERF_COLLISION = 3;
-const PERF_GUIDANCE = 4;
-const PERF_CAMERA = 5;
-const PERF_SCENE_RENDER = 6;
-const PERF_STAGE_COUNT = 7;
+const PERF_CAMERA = 4;
+const PERF_SCENE_RENDER = 5;
+const PERF_STAGE_COUNT = 6;
 const PERF_STAGE_NAMES = [
   "simStepMs",
   "snapshotApplyMs",
   "crowdMs",
   "collisionMs",
-  "guidanceMs",
   "cameraMs",
   "sceneRenderMs",
 ] as const;
@@ -731,108 +666,10 @@ function colorFromHex(value: string, fallback: Color3): Color3 {
   );
 }
 
-function scenarioRoutePoints(
-  lesson: GameCanvasLesson | undefined,
-  mapPack: GameCanvasMapPack | undefined,
-): GameCanvasPoint[] {
-  if (!lesson || !mapPack) return [];
-  const lanes = new Map(mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]));
-  const points: GameCanvasPoint[] = [];
-  for (const laneId of lesson.route) {
-    const lane = lanes.get(laneId);
-    if (!lane) continue;
-    for (const point of lane.centerline) {
-      const previous = points.at(-1);
-      if (!previous || Math.hypot(point.x - previous.x, point.z - previous.z) > 0.01) {
-        points.push({ x: point.x, z: point.z });
-      }
-    }
-  }
-  return points;
-}
-
 interface ResolvedLaneAnchor extends GameCanvasPoint {
   readonly heading: number;
   readonly segmentIndex: number;
   readonly distanceOnSegment: number;
-}
-
-interface LanePointProjection {
-  readonly distance: number;
-  readonly distanceAlongM: number;
-  readonly heading: number;
-}
-
-function projectPointToLane(
-  lane: GameCanvasLane,
-  point: GameCanvasPoint,
-): LanePointProjection | null {
-  let accumulated = 0;
-  let best: LanePointProjection | null = null;
-  for (let index = 0; index < lane.centerline.length - 1; index += 1) {
-    const start = lane.centerline[index];
-    const end = lane.centerline[index + 1];
-    const dx = end.x - start.x;
-    const dz = end.z - start.z;
-    const length = Math.hypot(dx, dz);
-    if (length < 0.001) continue;
-    const amount = clamp(
-      ((point.x - start.x) * dx + (point.z - start.z) * dz) / (length * length),
-      0,
-      1,
-    );
-    const x = start.x + dx * amount;
-    const z = start.z + dz * amount;
-    const distance = Math.hypot(point.x - x, point.z - z);
-    if (!best || distance < best.distance) {
-      best = {
-        distance,
-        distanceAlongM: accumulated + length * amount,
-        heading: Math.atan2(dx, dz),
-      };
-    }
-    accumulated += length;
-  }
-  return best;
-}
-
-export interface CheckpointCrossingInput {
-  readonly lane: GameCanvasLane;
-  readonly distanceAlongM: number;
-  readonly previous: GameCanvasPoint;
-  readonly current: GameCanvasPoint;
-}
-
-/**
- * Requires a forward crossing while the vehicle centre is inside the authored
- * lane envelope. Merely approaching from the adjacent lane never activates it.
- */
-export function isAuthoredCheckpointCrossing({
-  lane,
-  distanceAlongM,
-  previous,
-  current,
-}: CheckpointCrossingInput): boolean {
-  const previousProjection = projectPointToLane(lane, previous);
-  const currentProjection = projectPointToLane(lane, current);
-  if (!previousProjection || !currentProjection) return false;
-  const lateralTolerance = Math.max(
-    0.1,
-    (lane.widthM ?? 3.2) / 2 -
-      PLAYER_GUIDANCE_HALF_WIDTH_M -
-      GUIDANCE_LATERAL_CLEARANCE_M,
-  );
-  if (
-    previousProjection.distance > lateralTolerance ||
-    currentProjection.distance > lateralTolerance
-  ) {
-    return false;
-  }
-  const crossingSlopM = 0.12;
-  return (
-    previousProjection.distanceAlongM < distanceAlongM - crossingSlopM &&
-    currentProjection.distanceAlongM >= distanceAlongM - crossingSlopM
-  );
 }
 
 function resolveLaneAnchor(
@@ -861,54 +698,6 @@ function resolveLaneAnchor(
     remaining -= length;
   }
   return null;
-}
-
-function scenarioCheckpoints(
-  lesson: GameCanvasLesson | undefined,
-  mapPack: GameCanvasMapPack | undefined,
-): AuthoredCheckpoint[] {
-  if (!lesson || !mapPack) return [];
-  const byId = new Map(
-    mapPack.laneGraph.checkpoints.map((checkpoint) => [checkpoint.id, checkpoint]),
-  );
-  return lesson.checkpoints.flatMap((id) => {
-    const checkpoint = byId.get(id);
-    if (!checkpoint) return [];
-    const anchored = checkpoint.anchor
-      ? resolveLaneAnchor(mapPack.laneGraph.lanes, checkpoint.anchor)
-      : null;
-    if (anchored) {
-      const lane = mapPack.laneGraph.lanes.find(
-        (candidate) => candidate.id === checkpoint.anchor?.laneId,
-      );
-      return [{
-        id: checkpoint.id,
-        label: checkpoint.label,
-        x: anchored.x,
-        z: anchored.z,
-        heading: anchored.heading,
-        laneId: checkpoint.anchor?.laneId ?? null,
-        laneWidthM: lane?.widthM ?? 3.2,
-        distanceAlongM: checkpoint.anchor?.distanceAlongM ?? null,
-      }];
-    }
-    const legacyLaneId = checkpoint.laneId ?? null;
-    const legacyLane = legacyLaneId
-      ? mapPack.laneGraph.lanes.find((candidate) => candidate.id === legacyLaneId)
-      : null;
-    return checkpoint.pose
-      ? [{
-          id: checkpoint.id,
-          label: checkpoint.label,
-          x: checkpoint.pose.position.x,
-          z: checkpoint.pose.position.z,
-          heading: degreesToRadians(checkpoint.pose.headingDeg),
-          laneId: legacyLaneId,
-          laneWidthM: legacyLane?.widthM ?? 3.2,
-          distanceAlongM: null,
-        }]
-      : [];
-  });
 }
 
 function makeMaterial(
@@ -1198,7 +987,6 @@ export class BabylonGameSession {
   private cameraMode: CameraMode;
   private paused: boolean;
   private disposed = false;
-  private completed = false;
   private contextLost = false;
   private accumulator = 0;
   private lastFrameTime = 0;
@@ -1212,30 +1000,9 @@ export class BabylonGameSession {
   private perfFrames = 0;
   private perfFixedSteps = 0;
   private perfDrawCalls = 0;
-  private lastSpeedingEvent = -10_000;
   private collisionGraceUntil = 0;
-  private wrongSideSeconds = 0;
-  private offRoadSeconds = 0;
-  private score = 100;
   private ruleElapsedSeconds = 0;
-  private readonly authoredRuleCooldownUntil = new Map<string, number>();
-  private readonly restrictedLaneSeconds = new Map<string, number>();
-  private checkpoint = { x: 0, z: START_Z, heading: 0 };
-  private instruction = "Settle into the correct lane and drive toward the first junction.";
-  private readonly routePoints: readonly GameCanvasPoint[];
-  private readonly authoredCheckpoints: readonly AuthoredCheckpoint[];
-  private readonly checkpointVisuals: GuidanceVisual[] = [];
-  private finishVisual: GuidanceVisual | null = null;
-  private readonly routeChevronVisuals: RouteChevronVisual[] = [];
-  private guidanceCueVisual: GuidanceVisual | null = null;
-  private guidanceCueKey: string | null = null;
-  private readonly maneuverPhases = new Map<string, string>();
-  private readonly triggeredPrompts = new Set<string>();
-  private routeLength = 0;
-  private routeProgress = 0;
-  private routeSegment = 0;
-  private checkpointIndex = 0;
-  private checkpointLabel = "Start";
+  private instruction = "Explore the city.";
   private activeTrafficSide: TrafficSide;
   private hornUntil = 0;
   private audio: DriveAudio | null = null;
@@ -1262,17 +1029,12 @@ export class BabylonGameSession {
   private swipeStartX = 0;
   private playerState: PlayerState;
   private displayedX = 0;
-  private displayedZ = START_Z;
+  private displayedZ = 0;
   private displayedHeading = 0;
   private cameraMotionSeconds = 0;
   // Set by createSkyAndHorizon from the map's fog band, applied to every
   // camera in the constructor. Babylon's default far plane is 10km.
   private cameraFarPlaneM = 10_000;
-  /** Lane lookup for per-frame guidance code; null on the yard fallback. */
-  private readonly laneById: Map<
-    string,
-    GameCanvasMapPack["laneGraph"]["lanes"][number]
-  > | null;
   // mergedInput's reused result — its consumers all read synchronously.
   private readonly mergedInputScratch: AnalogInput = {
     throttle: 0,
@@ -1295,8 +1057,7 @@ export class BabylonGameSession {
   private readonly cameraTargetScratch = new Vector3();
   private readonly cameraDesiredScratch = new Vector3();
   private lastSimulationHonkActive = false;
-  private lastSimulationCoachMessage: string | null = null;
-  private visualPalette: MapVisualPalette = resolveMapVisualPalette("orientation-yard");
+  private visualPalette: MapVisualPalette;
   private shadowGenerator: ShadowGenerator | null = null;
   // Static shadow casters bucketed by cell, so the periodic refresh queries
   // a ring instead of scanning every registered caster in the city. The
@@ -1334,20 +1095,13 @@ export class BabylonGameSession {
       (presentation) => this.callbacks.onInputPresentationChange?.(presentation),
     );
     this.paused = options.paused;
-    this.activeTrafficSide = options.lesson?.trafficSide ?? options.trafficSide;
-    this.routePoints = scenarioRoutePoints(options.lesson, options.mapPack);
-    this.authoredCheckpoints = scenarioCheckpoints(options.lesson, options.mapPack);
-    for (let index = 0; index < this.routePoints.length - 1; index += 1) {
-      this.routeLength += Math.hypot(
-        this.routePoints[index + 1].x - this.routePoints[index].x,
-        this.routePoints[index + 1].z - this.routePoints[index].z,
-      );
-    }
+    this.activeTrafficSide = options.trafficSide;
+    this.visualPalette = resolveMapVisualPalette(options.mapPack.id);
     // Per-vehicle physics land after the adapter's config so a career
     // vehicle's caps override the scenario baseline; free drive passes null
     // and keeps the adapter's numbers untouched.
     const simulationConfig = buildSimulationCoreConfig({
-      lesson: options.lesson,
+      scenario: options.scenario,
       mapPack: options.mapPack,
       trafficSide: this.activeTrafficSide,
       speedUnit: options.speedUnit,
@@ -1375,35 +1129,10 @@ export class BabylonGameSession {
       gear: "D",
       indicator: "off",
     };
-    this.laneById = options.mapPack
-      ? new Map(options.mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]))
-      : null;
     this.collisionGraceUntil = eventNow() + 2_000;
-    this.checkpoint = { ...start };
     this.displayedX = start.x;
     this.displayedZ = start.z;
     this.displayedHeading = start.heading;
-    while (
-      this.checkpointIndex < this.authoredCheckpoints.length &&
-      Math.hypot(
-        start.x - this.authoredCheckpoints[this.checkpointIndex].x,
-        start.z - this.authoredCheckpoints[this.checkpointIndex].z,
-      ) < 2.5
-    ) {
-      this.checkpointLabel = this.authoredCheckpoints[this.checkpointIndex].label;
-      this.checkpointIndex += 1;
-    }
-    this.checkpointLabel =
-      this.authoredCheckpoints[Math.max(0, this.checkpointIndex - 1)]?.label ??
-      "Start";
-    const startPrompt = options.lesson?.coachPrompts.find(
-      (prompt) => prompt.trigger.type === "start",
-    );
-    this.instruction =
-      startPrompt?.message ??
-      options.lesson?.objectives[0]?.label ??
-      this.instruction;
-    if (startPrompt) this.triggeredPrompts.add(startPrompt.id);
 
     const touchFirst = options.inputCapabilities.touchFirst;
     this.engine = new Engine(
@@ -1584,12 +1313,8 @@ export class BabylonGameSession {
     // judging the device on it drops resolution the instant the scene appears.
     this.renderScalingArmedAt = performance.now() + RENDER_SCALING_WARMUP_MS;
     this.callbacks.onReady?.();
-    this.emit("ready", "Training yard ready.");
+    this.emit({ type: "ready" });
     this.publishHud(true);
-  }
-
-  updateCallbacks(callbacks: SessionCallbacks) {
-    this.callbacks = callbacks;
   }
 
   updateOptions(options: Partial<SessionOptions>) {
@@ -1667,13 +1392,7 @@ export class BabylonGameSession {
   setPaused(paused: boolean, notify = true) {
     if (this.paused === paused) return;
     this.paused = paused;
-    if (paused) {
-      this.simulation.setPaused(true);
-    } else if (this.simulation.getSnapshot().status === "incident") {
-      this.simulation.resumeAfterIncident();
-    } else {
-      this.simulation.setPaused(false);
-    }
+    this.simulation.setPaused(paused);
     this.applySimulationSnapshot(this.simulation.getSnapshot());
     this.clearHeldInputs();
     this.audio?.setPaused(paused);
@@ -1717,10 +1436,7 @@ export class BabylonGameSession {
     // A running cutscene keeps its staged third-person stack; the recorded
     // mode is honoured the moment the scene ends.
     if (!this.cutsceneDirector?.isActive) this.applyCameraStack(firstPerson);
-    if (notify) {
-      this.callbacks.onCameraChange?.(mode);
-      this.emit("camera", `${firstPerson ? "First" : "Third"}-person camera selected.`);
-    }
+    if (notify) this.callbacks.onCameraChange?.(mode);
     this.publishHud(true);
   }
 
@@ -1744,12 +1460,6 @@ export class BabylonGameSession {
     this.simulationSnapshot = this.simulation.step(0, {});
     this.applySimulationSnapshot(this.simulationSnapshot);
     this.indicatorBlinkSeconds = 0;
-    this.emit(
-      "indicator",
-      this.playerState.indicator === "off"
-        ? "Indicators cancelled."
-        : `${this.playerState.indicator === "left" ? "Left" : "Right"} indicator on.`,
-    );
     this.publishHud(true);
   }
 
@@ -1764,7 +1474,6 @@ export class BabylonGameSession {
     this.simulationSnapshot = this.simulation.step(0, {});
     this.applySimulationSnapshot(this.simulationSnapshot);
     this.audio?.hornPress();
-    this.emit("horn", "Horn sounded.");
     this.publishHud(true);
   }
 
@@ -1775,22 +1484,14 @@ export class BabylonGameSession {
     this.publishHud(true);
   }
 
-  reset(incidentMessage?: string) {
+  reset() {
     this.cutsceneDirector?.cancel(this.cutsceneDirectorCtx());
-    if (incidentMessage) {
-      this.simulation.reportExternalCollision(
-        incidentMessage,
-        "Review the incident, then continue from the safe checkpoint.",
-        { source: "legacy-runtime-bridge" },
-      );
-    } else {
-      this.simulation.resetToCheckpoint();
-    }
+    this.simulation.resetToSpawn();
     this.applySimulationSnapshot(this.simulation.getSnapshot());
     this.processSimulationEvents(this.simulation.drainEvents());
     this.clearHeldInputs();
-    // A checkpoint can sit under the snap threshold; pin the blend pair
-    // explicitly so the first frame after a reset shows the reset pose.
+    // Pin the blend pair explicitly so the first frame after a reset shows the
+    // authored spawn pose.
     this.playerState.previousX = this.playerState.x;
     this.playerState.previousZ = this.playerState.z;
     this.playerState.previousHeading = this.playerState.heading;
@@ -1798,26 +1499,18 @@ export class BabylonGameSession {
     this.displayedZ = this.playerState.z;
     this.displayedHeading = this.playerState.heading;
     this.snapChaseCameraToPose();
-    if (incidentMessage) {
-      this.instruction = incidentMessage;
-      this.setPaused(true);
-    } else {
-      this.instruction = "Reset to the last safe checkpoint.";
-      this.emit("reset", this.instruction);
-    }
+    this.instruction = "Reset to the authored start.";
     this.publishHud(true);
   }
 
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    // The per-frame QA hooks (installed in updateGuidanceVisuals) close over
-    // this session; left on window after dispose they pin the disposed scene
+    // QA hooks close over this session; left on window after dispose they pin the disposed scene
     // graph — and hand QA a dead session — until the next mount overwrites them.
     if (typeof window !== "undefined") {
       const debugWindow = window as unknown as Record<string, unknown>;
       for (const key of [
-        "__sideswapGuidanceDebug",
         "__sideswapDriveControl",
         "__sideswapAudioDebug",
         "__sideswapMeshes",
@@ -2000,13 +1693,13 @@ export class BabylonGameSession {
         this.playerExterior,
         "player",
         resolvePlayerVehicleAppearance(
-          this.options.mapPack?.id ?? "orientation-yard",
+          this.options.mapPack.id,
           this.options.playerVehicle,
         ),
       );
     }
-    const trafficSeed = this.options.lesson?.trafficSeed ?? 0;
-    const mapId = this.options.mapPack?.id ?? "orientation-yard";
+    const trafficSeed = this.options.scenario.trafficSeed;
+    const mapId = this.options.mapPack.id;
     for (const npc of this.npcVehicles) {
       if (!npc.visualVehicleId) continue;
       npc.visual.dispose();
@@ -2040,7 +1733,7 @@ export class BabylonGameSession {
   }
 
   private paletteMapId(): string {
-    return this.options.mapPack?.id ?? "orientation-yard";
+    return this.options.mapPack.id;
   }
 
   /** Palette slots for a road user, by its index among the ones this map
@@ -2120,14 +1813,13 @@ export class BabylonGameSession {
    * motion) simply leaves the map without an ambient crowd.
    */
   /** The map's pavement rail graph, built once and shared by the ambient
-   * crowd and the scenario road users. Null when the map has no roads (the
-   * orientation yard) or the build fails — callers fall back gracefully. */
+   * crowd and the scenario road users. */
   private ensurePavementGraph(): PavementGraph | null {
     if (this.pavementGraph !== undefined) return this.pavementGraph;
     this.pavementGraph = null;
     const mapPack = this.options.mapPack;
-    const surfaces = mapPack?.geometry.roadSurfaces;
-    if (!mapPack || !surfaces?.length) return null;
+    const surfaces = mapPack.geometry.roadSurfaces;
+    if (!surfaces?.length) return null;
     const palette = resolveMapVisualPalette(mapPack.id);
     // The exact sidewalk band the environment renders, so walkers stay on it.
     const sidewalkWidthM = palette.paved
@@ -2397,9 +2089,6 @@ export class BabylonGameSession {
     }
     this.updatePlayerVisuals(interpolation);
     this.updateNpcVisuals(interpolation);
-    let mark = performance.now();
-    this.updateGuidanceVisuals();
-    this.perfSample(PERF_GUIDANCE, performance.now() - mark);
     if (!this.paused) this.destructibles?.update(frameSeconds);
     if (this.damageSmoke?.isStarted()) {
       // Trail the smoke from the engine bay, wherever the car is facing.
@@ -2409,7 +2098,7 @@ export class BabylonGameSession {
         this.displayedZ + Math.cos(this.displayedHeading) * 1.05,
       );
     }
-    mark = performance.now();
+    let mark = performance.now();
     this.updateCamera(frameSeconds);
     this.perfSample(PERF_CAMERA, performance.now() - mark);
     this.updateIndicatorLights(frameSeconds);
@@ -2576,12 +2265,6 @@ export class BabylonGameSession {
         1,
       ),
       viewHeading: this.playerState.heading + quickLookAngle,
-      observe:
-        input.quickLook <= -0.55
-          ? "left"
-          : input.quickLook >= 0.55 && input.quickLook < 1.5
-            ? "right"
-            : undefined,
     };
     let mark = performance.now();
     const snapshot = this.simulation.step(dt, simulationInput);
@@ -2591,7 +2274,6 @@ export class BabylonGameSession {
     this.perfSample(PERF_SNAPSHOT_APPLY, performance.now() - mark);
     const events = this.simulation.drainEvents();
     this.processSimulationEvents(events);
-    if (events.length === 0) this.publishSimulationCoachMessage(snapshot);
     mark = performance.now();
     this.animatePedestrians(dt);
     if (this.crowdSim || this.railRoadUsers.length) this.refreshCrowdFrustum();
@@ -2602,7 +2284,6 @@ export class BabylonGameSession {
     mark = performance.now();
     this.reportVulnerableRoadUserCollision();
     this.checkDestructiblePropCollisions();
-    this.evaluateAuthoredProgress();
     this.perfSample(PERF_COLLISION, performance.now() - mark);
     this.perfFixedSteps += 1;
   }
@@ -2628,11 +2309,6 @@ export class BabylonGameSession {
       }
       const cyclist = roadUser.kind === "cyclist";
       const reported = this.simulation.reportExternalContact(
-        cyclist
-          ? "Your vehicle collided with a cyclist."
-          : roadUser.railMode
-            ? "Your vehicle struck a pedestrian on the pavement."
-            : "Your vehicle entered an occupied pedestrian crossing.",
         cyclist
           ? "Leave more clearance and wait for a safe opportunity to pass."
           : roadUser.railMode
@@ -2672,7 +2348,6 @@ export class BabylonGameSession {
         continue;
       }
       const reported = this.simulation.reportExternalContact(
-        "Your vehicle struck a pedestrian on the pavement.",
         "Keep the car off the kerb and clear of people on foot.",
         0.75,
         {
@@ -2756,84 +2431,6 @@ export class BabylonGameSession {
     }
   }
 
-  private evaluateAuthoredProgress() {
-    const lesson = this.options.lesson;
-    const mapPack = this.options.mapPack;
-    if (!lesson || !mapPack || this.routePoints.length < 2) {
-      this.completeFromSimulationIfNeeded();
-      return;
-    }
-    const state = this.playerState;
-    const routeProjection = this.projectToAuthoredRoute(state.x, state.z);
-    const roadProjection = this.projectToScenarioLanes(
-      state.x,
-      state.z,
-      mapPack.laneGraph.lanes,
-    );
-    const projectedLane = roadProjection
-      ? this.laneById?.get(roadProjection.laneId) ?? null
-      : null;
-    const roadTolerance =
-      (projectedLane?.widthM ?? Math.min(3.5, mapPack.geometry.roadWidth * 0.45)) / 2 +
-      (mapPack.geometry.shoulderWidth ?? 1);
-
-    if (routeProjection && routeProjection.distance < roadTolerance * 1.4) {
-      this.routeSegment = Math.max(this.routeSegment, routeProjection.segmentIndex);
-      const candidateProgress =
-        this.routeLength > 0 ? routeProjection.distanceAlong / this.routeLength : 0;
-      if (candidateProgress <= this.routeProgress + 0.2) {
-        this.routeProgress = Math.max(
-          this.routeProgress,
-          clamp(candidateProgress, 0, 1),
-        );
-      }
-    }
-
-    this.advanceAuthoredCheckpoints(lesson);
-    for (const prompt of lesson.coachPrompts) {
-      if (
-        prompt.trigger.type === "route_progress" &&
-        this.routeProgress >= prompt.trigger.value &&
-        !this.triggeredPrompts.has(prompt.id)
-      ) {
-        this.triggeredPrompts.add(prompt.id);
-        this.coach(prompt.message);
-      }
-    }
-
-    if (lesson.kind === "free_drive") return;
-    const endpoint = this.routePoints[this.routePoints.length - 1];
-    const endpointReached = Math.hypot(state.x - endpoint.x, state.z - endpoint.z) <= 7;
-    const checkpointsComplete =
-      this.authoredCheckpoints.length === 0 ||
-      this.checkpointIndex >= this.authoredCheckpoints.length;
-    const maneuversComplete = (this.simulationSnapshot.maneuvers ?? []).every(
-      (maneuver) => maneuver.phase === "complete",
-    );
-    if (
-      this.simulationSnapshot.status !== "complete" &&
-      checkpointsComplete &&
-      maneuversComplete &&
-      (endpointReached || this.routeProgress >= 0.97)
-    ) {
-      this.simulation.completeLesson();
-      this.applySimulationSnapshot(this.simulation.getSnapshot());
-    }
-    this.completeFromSimulationIfNeeded();
-  }
-
-  private completeFromSimulationIfNeeded() {
-    if (this.completed || this.simulationSnapshot.status !== "complete") return;
-    this.completed = true;
-    this.routeProgress = 1;
-    this.instruction = this.options.lesson
-      ? `${this.options.lesson.title} complete — review your score and incident timeline.`
-      : "Orientation complete — safe positioning achieved.";
-    this.emit("complete", this.instruction);
-    this.callbacks.onComplete?.({ ...this.simulationSnapshot.score });
-    this.publishHud(true);
-  }
-
   private mergedInput(): AnalogInput {
     // The "game is unplayable" contract while an interaction scene plays:
     // every consumer (sim input, engine audio, steering visual, quick-look)
@@ -2868,126 +2465,6 @@ export class BabylonGameSession {
       this.gamepad.quickLook,
     );
     return merged;
-  }
-
-  private advanceAuthoredCheckpoints(lesson: GameCanvasLesson) {
-    const reachedCheckpointIds = new Set(
-      this.simulationSnapshot.reachedCheckpointIds,
-    );
-    while (this.checkpointIndex < this.authoredCheckpoints.length) {
-      const next = this.authoredCheckpoints[this.checkpointIndex];
-      if (!reachedCheckpointIds.has(next.id)) break;
-      this.checkpoint = { x: next.x, z: next.z, heading: next.heading };
-      this.checkpointLabel = next.label;
-      this.checkpointIndex += 1;
-      this.updateGuidanceVisuals();
-      this.emit("coaching", `Checkpoint: ${next.label}.`);
-      const checkpointPrompt = lesson.coachPrompts.find(
-        (prompt) =>
-          prompt.trigger.type === "checkpoint" &&
-          prompt.trigger.checkpointId === next.id &&
-          !this.triggeredPrompts.has(prompt.id),
-      );
-      if (checkpointPrompt) {
-        this.triggeredPrompts.add(checkpointPrompt.id);
-        this.coach(checkpointPrompt.message);
-      }
-      const transition = lesson.profileTransitions?.find(
-        (item) => item.checkpointId === next.id,
-      );
-      if (transition) {
-        this.instruction = transition.message;
-        this.emit("coaching", transition.message, "warning");
-      }
-    }
-  }
-
-  private projectToAuthoredRoute(x: number, z: number): RouteProjection | null {
-    if (this.routePoints.length < 2) return null;
-    let best: RouteProjection | null = null;
-    let accumulated = 0;
-    for (let index = 0; index < this.routePoints.length - 1; index += 1) {
-      const start = this.routePoints[index];
-      const end = this.routePoints[index + 1];
-      const dx = end.x - start.x;
-      const dz = end.z - start.z;
-      const length = Math.max(0.0001, Math.hypot(dx, dz));
-      const amount = clamp(
-        ((x - start.x) * dx + (z - start.z) * dz) / (length * length),
-        0,
-        1,
-      );
-      const projectedX = start.x + dx * amount;
-      const projectedZ = start.z + dz * amount;
-      const distance = Math.hypot(x - projectedX, z - projectedZ);
-      const nearCurrentRoute =
-        index >= Math.max(0, this.routeSegment - 1) &&
-        index <= this.routeSegment + 5;
-      if (nearCurrentRoute && (!best || distance < best.distance)) {
-        best = {
-          segmentIndex: index,
-          x: projectedX,
-          z: projectedZ,
-          heading: Math.atan2(dx, dz),
-          distance,
-          distanceAlong: accumulated + length * amount,
-        };
-      }
-      accumulated += length;
-    }
-    return best;
-  }
-
-  private projectToScenarioLanes(
-    x: number,
-    z: number,
-    lanes: readonly GameCanvasLane[],
-  ): ScenarioLaneProjection | null {
-    let best: ScenarioLaneProjection | null = null;
-    for (const lane of lanes) {
-      let accumulated = 0;
-      for (let index = 0; index < lane.centerline.length - 1; index += 1) {
-        const start = lane.centerline[index];
-        const end = lane.centerline[index + 1];
-        const dx = end.x - start.x;
-        const dz = end.z - start.z;
-        const length = Math.max(0.0001, Math.hypot(dx, dz));
-        const amount = clamp(
-          ((x - start.x) * dx + (z - start.z) * dz) / (length * length),
-          0,
-          1,
-        );
-        const projectedX = start.x + dx * amount;
-        const projectedZ = start.z + dz * amount;
-        const distance = Math.hypot(x - projectedX, z - projectedZ);
-        if (!best || distance < best.distance) {
-          best = {
-            laneId: lane.id,
-            segmentIndex: index,
-            x: projectedX,
-            z: projectedZ,
-            heading: Math.atan2(dx, dz),
-            distance,
-            distanceAlong: accumulated + length * amount,
-            speedLimit: lane.speedLimit,
-          };
-        }
-        accumulated += length;
-      }
-    }
-    return best;
-  }
-
-  private buildConnectedNpcPath(
-    mapPack: GameCanvasMapPack,
-    startLaneId: string,
-    branchOffset: number,
-  ): { segments: NpcPathSegment[]; loop: boolean; loopStartSegment: number } {
-    return buildConnectedNpcPath(
-      mapPack.laneGraph.lanes,
-      startLaneId,
-      branchOffset,
-    );
   }
 
   private isNpcPositionSafe(
@@ -3039,9 +2516,9 @@ export class BabylonGameSession {
     }
     const appearance = resolveTrafficVehicleAppearance({
       vehicleId,
-      trafficSeed: this.options.lesson?.trafficSeed ?? 0,
+      trafficSeed: this.options.scenario.trafficSeed,
       variant,
-      mapId: this.options.mapPack?.id ?? "orientation-yard",
+      mapId: this.options.mapPack.id,
     });
     const visualKey = appearanceVisualKey(appearance);
     npc.visualVehicleId = vehicleId;
@@ -3469,7 +2946,7 @@ export class BabylonGameSession {
    * the temple set without any of that being spelled out here.
    */
   private buildParkPlanting() {
-    const key = resolveMapVisualKey(this.options.mapPack?.id ?? "");
+    const key = resolveMapVisualKey(this.options.mapPack.id);
     const catalogue = natureModelsForMap(key);
     const canopy = catalogue.filter(
       (model) =>
@@ -3589,9 +3066,6 @@ export class BabylonGameSession {
     const impactSpeed = this.playerState.speedMps;
     if (prop.config.damage !== "none") {
       const reported = this.simulation.reportExternalContact(
-        prop.config.fall === "squash"
-          ? `You drove through ${prop.config.noun}.`
-          : `You knocked over ${prop.config.noun}.`,
         "Mind the kerbside furniture.",
         prop.config.speedScale,
         {
@@ -3756,7 +3230,6 @@ export class BabylonGameSession {
       npc.simulationId = vehicle.id;
       this.ensureNpcVehicleVisual(npc, vehicle.id, vehicle.variant);
       npc.active = true;
-      npc.laneId = vehicle.laneId;
       npc.currentSpeed = vehicle.speedMps;
       npc.speed = vehicle.speedMps;
       npc.signal = vehicle.signal;
@@ -3820,8 +3293,8 @@ export class BabylonGameSession {
     const previousZ = this.playerState.z;
     const previousHeading = this.playerState.heading;
     this.simulationSnapshot = snapshot;
-    // A gap no legal drive can produce is a teleport (tow reset, checkpoint
-    // restore): snap the pair together so the render blend never streaks the
+    // A gap no legal drive can produce is a teleport (for example a tow
+    // reset): snap the pair together so the render blend never streaks the
     // car across the map for a frame.
     if (
       shouldSnapPose(
@@ -3846,11 +3319,9 @@ export class BabylonGameSession {
     this.playerState.speedMps = snapshot.player.speedMps;
     this.playerState.gear = snapshot.player.gear === "drive" ? "D" : "R";
     this.playerState.indicator = snapshot.player.signal;
-    this.score = snapshot.score.total;
     this.activeTrafficSide = snapshot.trafficSide;
     this.applySimulationNpcSnapshots(snapshot);
     this.updateAuthoredSignalVisuals();
-    this.updateManeuverCoaching(snapshot);
 
     const npcHonkActive = snapshot.honk.active;
     if (npcHonkActive && !this.lastSimulationHonkActive) {
@@ -3860,25 +3331,6 @@ export class BabylonGameSession {
       this.audio?.hornBlip(0.6, snapshot.tick);
     }
     this.lastSimulationHonkActive = npcHonkActive;
-  }
-
-  private updateManeuverCoaching(snapshot: SimulationSnapshot) {
-    for (const maneuver of snapshot.maneuvers ?? []) {
-      const previousPhase = this.maneuverPhases.get(maneuver.id);
-      if (previousPhase === maneuver.phase) continue;
-      this.maneuverPhases.set(maneuver.id, maneuver.phase);
-      const prompt = this.options.lesson?.coachPrompts.find(
-        (candidate) =>
-          candidate.trigger.type === "maneuver_phase" &&
-          candidate.trigger.maneuverId === maneuver.id &&
-          candidate.trigger.phase === maneuver.phase &&
-          !this.triggeredPrompts.has(candidate.id),
-      );
-      if (!prompt) continue;
-      this.triggeredPrompts.add(prompt.id);
-      this.instruction = prompt.message;
-      this.emit("coaching", prompt.message, "info");
-    }
   }
 
   private processSimulationEvents(events: readonly SimulationRuleEvent[]) {
@@ -3891,16 +3343,8 @@ export class BabylonGameSession {
     // and summon a second pull-over the moment the first ended.
     if (this.cutsceneDirector?.isActive) return;
     for (const event of events) {
-      const prompt = this.options.lesson?.coachPrompts.find(
-        (candidate) =>
-          candidate.trigger.type === "rule_event" &&
-          candidate.trigger.ruleCode === event.code &&
-          !this.triggeredPrompts.has(candidate.id),
-      );
-      if (prompt) this.triggeredPrompts.add(prompt.id);
-      const correction = prompt?.message ?? event.correction;
+      const correction = event.correction;
       this.instruction = correction;
-      this.lastSimulationCoachMessage = correction;
       if (event.code === "collision") {
         const impact = event.evidence?.impactSpeedMps;
         const impactMps = typeof impact === "number" ? impact : 0;
@@ -3916,22 +3360,15 @@ export class BabylonGameSession {
         );
       }
       this.emit(
-        event.severity === "critical"
-          ? "incident"
-          : event.code === "collision"
-            ? "collision"
-            : "coaching",
-        `${event.message} ${correction}`,
-        event.severity === "critical" ? "critical" : "warning",
-        {
-          ruleCode: event.code,
-          penalty: event.penalty,
-          evidence: event.evidence,
-        },
+        event.code === "collision"
+          ? { type: "collision", evidence: event.evidence }
+          : {
+              type: "coaching",
+              ruleCode: event.code,
+              evidence: event.evidence,
+            },
       );
-      if (event.severity === "critical") {
-        this.setPaused(true);
-      } else if (
+      if (
         event.code === "wrong_way" ||
         event.code === "out_of_bounds" ||
         event.code === "red_light" ||
@@ -3954,7 +3391,8 @@ export class BabylonGameSession {
           // The evidence rides along because the app prices a speeding ticket
           // off how far over the driver was, and the `cite` step it lands on
           // carries nothing but a nonce.
-          this.emit("fine", "A patrol clocked the violation.", "warning", {
+          this.emit({
+            type: "fine",
             ruleCode: event.code,
             evidence: event.evidence,
             issuedBy: "patrol",
@@ -3965,7 +3403,8 @@ export class BabylonGameSession {
           // stop is the better moment, and this is what makes being charged
           // twice for one offence structurally impossible rather than a matter
           // of two debounce clocks agreeing.
-          this.emit("fine", "A traffic camera caught the violation.", "warning", {
+          this.emit({
+            type: "fine",
             ruleCode: event.code,
             evidence: event.evidence,
             issuedBy: "camera",
@@ -3973,14 +3412,6 @@ export class BabylonGameSession {
         }
       }
     }
-  }
-
-  private publishSimulationCoachMessage(snapshot: SimulationSnapshot) {
-    const message = snapshot.coachingMessage;
-    if (!message || message === this.lastSimulationCoachMessage) return;
-    this.lastSimulationCoachMessage = message;
-    this.instruction = message;
-    this.emit("coaching", message, "info");
   }
 
   /**
@@ -4247,18 +3678,10 @@ export class BabylonGameSession {
   }
 
   private updateCamera(dt: number) {
-    const routeHeading =
-      this.playerState.speedMps < 0.2
-        ? this.projectToAuthoredRoute(this.displayedX, this.displayedZ)
-        : null;
-    const chaseHeading =
-      routeHeading && routeHeading.distance < 5
-        ? routeHeading.heading
-        : this.displayedHeading;
     const forward = this.cameraForwardScratch.set(
-      Math.sin(chaseHeading),
+      Math.sin(this.displayedHeading),
       0,
-      Math.cos(chaseHeading),
+      Math.cos(this.displayedHeading),
     );
     const right = this.cameraRightScratch.set(forward.z, 0, -forward.x);
     const base = this.cameraBaseScratch.set(
@@ -4425,56 +3848,6 @@ export class BabylonGameSession {
     }
   }
 
-  /**
-   * Lane ids the active lesson can actually reach, walking successors and
-   * adjacency as an undirected graph out from the route. Returns null when the
-   * lesson has no route (free drive), meaning "show everything". Used to drop
-   * road surfaces on a disconnected practice track—e.g. the orientation yard's
-   * opposite-side loop—so they don't sit beside the route as a phantom
-   * oncoming carriageway.
-   */
-  private lessonReachableLaneIds(
-    mapPack: GameCanvasMapPack,
-  ): Set<string> | null {
-    const route = this.options.lesson?.route ?? [];
-    if (!route.length) return null;
-    const neighbors = new Map<string, Set<string>>();
-    const link = (from: string, to: string) => {
-      const bucket = neighbors.get(from) ?? new Set<string>();
-      bucket.add(to);
-      neighbors.set(from, bucket);
-    };
-    for (const lane of mapPack.laneGraph.lanes) {
-      for (const successor of lane.successors ?? []) {
-        link(lane.id, successor);
-        link(successor, lane.id);
-      }
-      for (const adjacent of lane.adjacentLaneIds ?? []) {
-        link(lane.id, adjacent);
-        link(adjacent, lane.id);
-      }
-    }
-    const laneExists = new Set(mapPack.laneGraph.lanes.map((lane) => lane.id));
-    const reachable = new Set<string>();
-    const queue: string[] = [];
-    for (const laneId of route) {
-      if (laneExists.has(laneId) && !reachable.has(laneId)) {
-        reachable.add(laneId);
-        queue.push(laneId);
-      }
-    }
-    while (queue.length) {
-      const current = queue.shift()!;
-      for (const next of neighbors.get(current) ?? []) {
-        if (!reachable.has(next)) {
-          reachable.add(next);
-          queue.push(next);
-        }
-      }
-    }
-    return reachable;
-  }
-
   private buildScenarioEnvironment(mapPack: GameCanvasMapPack) {
     const scene = this.scene;
     const mapId = mapPack.id.toLowerCase();
@@ -4576,13 +3949,6 @@ export class BabylonGameSession {
       paved ? palette.pavement ?? "#6a6e71" : palette.dirtShoulder,
       hashStringToSeed(`${mapId}-${paved ? "sidewalk" : "verge"}`),
     );
-    const routeMaterial = makeMaterial(
-      scene,
-      "scenario-route",
-      new Color3(0.86, 0.66, 0.19),
-      new Color3(0.08, 0.045, 0.005),
-    );
-    routeMaterial.alpha = 0.58;
     const laneMaterial = makeMaterial(scene, "scenario-marking", new Color3(0.88, 0.88, 0.79));
     const yellowMarkingMaterial = makeMaterial(
       scene,
@@ -4592,13 +3958,6 @@ export class BabylonGameSession {
     const dark = makeMaterial(scene, "scenario-fixture", new Color3(0.08, 0.1, 0.1));
     const stopRed = makeMaterial(scene, "scenario-stop", new Color3(0.72, 0.08, 0.06));
     const yieldGold = makeMaterial(scene, "scenario-yield", new Color3(0.92, 0.68, 0.13));
-    const checkpointMaterial = makeMaterial(
-      scene,
-      "scenario-checkpoint",
-      new Color3(0.12, 0.68, 0.62),
-      new Color3(0.025, 0.16, 0.13),
-    );
-
     // Night cities dim to a cool moonlight so the city's own emissive glow
     // (lit building facades, streetlights, signage) carries the scene.
     const night = palette.night ?? false;
@@ -4725,18 +4084,7 @@ export class BabylonGameSession {
           surfaceType: "standard" as const,
           markings: [],
         }));
-    // Drop surfaces the lesson can never reach so a disconnected practice track
-    // stops reading as an oncoming carriageway. Falls back to everything if the
-    // filter would empty the map (route/surface id mismatch).
-    const reachableLaneIds = this.lessonReachableLaneIds(mapPack);
-    const connectedRoadSurfaces = reachableLaneIds
-      ? authoredRoadSurfaces.filter((surface) =>
-          surface.laneIds.some((laneId) => reachableLaneIds.has(laneId)),
-        )
-      : authoredRoadSurfaces;
-    const roadSurfaces = connectedRoadSurfaces.length
-      ? connectedRoadSurfaces
-      : authoredRoadSurfaces;
+    const roadSurfaces = authoredRoadSurfaces;
     const defaultShoulderWidth = paved
       ? PAVED_SIDEWALK_WIDTH_M
       : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
@@ -4875,18 +4223,7 @@ export class BabylonGameSession {
         yellowMarkingMaterial,
       ),
     );
-    for (const [routeIndex, laneId] of (this.options.lesson?.route ?? []).entries()) {
-      const lane = mapPack.laneGraph.lanes.find((candidate) => candidate.id === laneId);
-      if (!lane || lane.role === "connector") continue;
-      this.createRouteChevrons(
-        lane,
-        routeMaterial,
-        routeIndex,
-        mapPack.laneGraph.conflictZones,
-      );
-    }
-
-    const random = seededUnit(this.options.lesson?.trafficSeed ?? 47);
+    const random = seededUnit(this.options.scenario.trafficSeed);
     const buildingPalette: Record<string, Color3> = {
       brick: new Color3(0.54, 0.29, 0.22),
       sandstone: new Color3(0.7, 0.61, 0.46),
@@ -5567,23 +4904,7 @@ export class BabylonGameSession {
       if (cityLandmarks && cityLandmarks(cityRenderCtx, landmark, material, mapPack)) {
         continue;
       }
-      if (mapId.includes("orientation") && landmark.id === "yard-cones") {
-        for (let index = 0; index < 9; index += 1) {
-          const column = index % 3;
-          const row = Math.floor(index / 3);
-          createCylinder(
-            scene,
-            `${landmark.id}-${index}`,
-            { height: 0.9, diameterTop: 0.08, diameterBottom: 0.58, tessellation: 8 },
-            new Vector3(
-              landmark.center.x - 3 + column * 3,
-              0.48,
-              landmark.center.z - 2.5 + row * 2.5,
-            ),
-            material,
-          );
-        }
-      } else if (landmark.kind === "park") {
+      if (landmark.kind === "park") {
         // The centre "feature" cone is gone. It was the whole of a park's
         // contents, and the thing issue #206 is a screenshot of; a park is now
         // dressed by `parkLayouts` and bounded by its own wall.
@@ -5731,11 +5052,9 @@ export class BabylonGameSession {
                       ? "box_junction" as const
                       : control.type === "restricted_lane"
                         ? "restricted_lane" as const
-                        : control.type === "side_swap_gate"
-                          ? "side_swap_gate" as const
-                          : control.type === "yield"
-                            ? "yield_sign" as const
-                            : "stop_sign" as const,
+                        : control.type === "yield"
+                          ? "yield_sign" as const
+                          : "stop_sign" as const,
             role: "primary" as const,
             approachIds: (control.approaches ?? []).map((approach) => approach.id),
           }];
@@ -5793,16 +5112,6 @@ export class BabylonGameSession {
             installation,
             laneMaterial,
             warningYellow,
-          );
-          continue;
-        }
-        if (installation.style === "side_swap_gate") {
-          buildTerminalPortal(
-            trafficControlRenderCtx,
-            control.id,
-            installation,
-            mapPack.geometry.roadWidth,
-            controlMaterials,
           );
           continue;
         }
@@ -5916,13 +5225,6 @@ export class BabylonGameSession {
       [...regulatorySigns, ...speedLimitSigns],
     );
 
-    for (const checkpoint of this.authoredCheckpoints) {
-      this.checkpointVisuals.push(
-        this.createCheckpointTarget(checkpoint, checkpointMaterial),
-      );
-    }
-    this.finishVisual = this.createFinishBeacon(mapPack);
-    this.updateGuidanceVisuals();
   }
 
   private createRoadSurfaceMesh(
@@ -5937,8 +5239,8 @@ export class BabylonGameSession {
       ? smoothClosedRoadCenterline(centerline)
       : centerline;
     // Smoothed roundabout rings arrive deduplicated and must force closure;
-    // every other centreline relies on auto-detection so authored loops (for
-    // example the orientation-yard rectangles) get mitered corners instead of
+    // every other centreline relies on auto-detection so authored loops get
+    // mitered corners instead of
     // two dead-end caps at their shared first/last point.
     const geometry = buildRoadSurfaceStripGeometry(
       renderedCenterline,
@@ -6054,285 +5356,11 @@ export class BabylonGameSession {
     return segment;
   }
 
-  private createRouteChevrons(
-    lane: GameCanvasLane,
-    material: StandardMaterial,
-    routeIndex: number,
-    conflictZones: GameCanvasMapPack["laneGraph"]["conflictZones"],
-  ) {
-    const halfSpan = resolveRouteChevronHalfSpan(lane.widthM ?? 3.2);
-    for (const [index, placement] of computeRouteChevronPlacements(
-      lane,
-      conflictZones,
-    ).entries()) {
-      const { tip, back, sideX, sideZ } = placement;
-      const left = this.createFlatSegment(
-        `route-chevron-${lane.id}-${index}-left`,
-        { x: back.x + sideX * halfSpan, z: back.z + sideZ * halfSpan },
-        tip,
-        0.22,
-        0.145,
-        material,
-      );
-      const right = this.createFlatSegment(
-        `route-chevron-${lane.id}-${index}-right`,
-        { x: back.x - sideX * halfSpan, z: back.z - sideZ * halfSpan },
-        tip,
-        0.22,
-        0.145,
-        material,
-      );
-      const meshes = [left, right].filter((mesh): mesh is Mesh => Boolean(mesh));
-      for (const mesh of meshes) mesh.layerMask = GUIDANCE_LAYER_MASK;
-      this.routeChevronVisuals.push({
-        routeIndex,
-        laneId: lane.id,
-        distanceAlongM: placement.distanceAlongM,
-        meshes,
-      });
-    }
-  }
-
-  private createCheckpointTarget(
-    checkpoint: AuthoredCheckpoint,
-    material: StandardMaterial,
-    labelText = "◆  CHECKPOINT",
-  ): GuidanceVisual {
-    const meshes: Mesh[] = [];
-    const targetWidth = resolveCheckpointTargetWidth(checkpoint.laneWidthM);
-    const halfWidth = targetWidth / 2;
-    const halfLength = 0.72;
-    const armLength = Math.min(0.42, targetWidth * 0.22);
-    const forward = {
-      x: Math.sin(checkpoint.heading),
-      z: Math.cos(checkpoint.heading),
-    };
-    const side = { x: forward.z, z: -forward.x };
-    const point = (along: number, lateral: number): GameCanvasPoint => ({
-      x: checkpoint.x + forward.x * along + side.x * lateral,
-      z: checkpoint.z + forward.z * along + side.z * lateral,
-    });
-    for (const alongSign of [-1, 1]) {
-      for (const sideSign of [-1, 1]) {
-        const along = alongSign * halfLength;
-        const lateral = sideSign * halfWidth;
-        const alongArm = this.createFlatSegment(
-          `checkpoint-${checkpoint.id}-${alongSign}-${sideSign}-along`,
-          point(along, lateral),
-          point(along - alongSign * armLength, lateral),
-          0.13,
-          0.155,
-          material,
-        );
-        const sideArm = this.createFlatSegment(
-          `checkpoint-${checkpoint.id}-${alongSign}-${sideSign}-side`,
-          point(along, lateral),
-          point(along, lateral - sideSign * armLength),
-          0.13,
-          0.155,
-          material,
-        );
-        if (alongArm) meshes.push(alongArm);
-        if (sideArm) meshes.push(sideArm);
-      }
-    }
-
-    const texture = new DynamicTexture(
-      `checkpoint-${checkpoint.id}-label-texture`,
-      { width: 512, height: 128 },
-      this.scene,
-      false,
-    );
-    texture.hasAlpha = true;
-    const context = texture.getContext() as unknown as CanvasRenderingContext2D;
-    context.clearRect(0, 0, 512, 128);
-    context.fillStyle = "rgba(8, 29, 31, 0.88)";
-    context.beginPath();
-    context.roundRect(10, 12, 492, 104, 24);
-    context.fill();
-    context.fillStyle = "#81fff0";
-    context.font = "700 38px Arial";
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.fillText(labelText, 256, 64);
-    texture.update(false);
-    const labelMaterial = new StandardMaterial(
-      `checkpoint-${checkpoint.id}-label-material`,
-      this.scene,
-    );
-    labelMaterial.diffuseTexture = texture;
-    labelMaterial.opacityTexture = texture;
-    labelMaterial.emissiveTexture = texture;
-    labelMaterial.disableLighting = true;
-    labelMaterial.backFaceCulling = false;
-    const label = MeshBuilder.CreatePlane(
-      `checkpoint-${checkpoint.id}-label`,
-      { width: Math.min(1.75, targetWidth * 0.78), height: 0.44 },
-      this.scene,
-    );
-    label.position.set(
-      checkpoint.x - forward.x * 0.03,
-      0.165,
-      checkpoint.z - forward.z * 0.03,
-    );
-    label.rotation.x = Math.PI / 2;
-    label.rotation.y = checkpoint.heading;
-    setMeshMaterial(label, labelMaterial);
-    meshes.push(label);
-    for (const mesh of meshes) mesh.layerMask = GUIDANCE_LAYER_MASK;
-    return { id: checkpoint.id, meshes };
-  }
-
-  /**
-   * A gold "FINISH" target at the end of the route's last lane. The route end
-   * is otherwise unmarked—on a loop lesson it coincides with the spawn corner—
-   * so it stays hidden until every checkpoint is passed, then signposts exactly
-   * where the drive completes.
-   */
-  private createFinishBeacon(
-    mapPack: GameCanvasMapPack,
-  ): GuidanceVisual | null {
-    const route = this.options.lesson?.route ?? [];
-    const lastLaneId = route.at(-1);
-    if (!lastLaneId) return null;
-    const lane = mapPack.laneGraph.lanes.find(
-      (candidate) => candidate.id === lastLaneId,
-    );
-    const centerline = lane?.centerline;
-    if (!lane || !centerline || centerline.length < 2) return null;
-    const end = centerline[centerline.length - 1];
-    const prev = centerline[centerline.length - 2];
-    const finishMaterial = makeMaterial(
-      this.scene,
-      "scenario-finish",
-      new Color3(0.95, 0.78, 0.25),
-      new Color3(0.4, 0.3, 0.05),
-    );
-    return this.createCheckpointTarget(
-      {
-        id: "__route_finish__",
-        label: "Finish",
-        x: end.x,
-        z: end.z,
-        heading: Math.atan2(end.x - prev.x, end.z - prev.z),
-        laneId: lane.id,
-        laneWidthM: lane.widthM ?? mapPack.geometry.roadWidth ?? 3.2,
-        distanceAlongM: null,
-      },
-      finishMaterial,
-      "◆  FINISH",
-    );
-  }
-
-  private updateGuidanceVisuals() {
-    for (const [index, visual] of this.checkpointVisuals.entries()) {
-      const enabled =
-        index === this.checkpointIndex &&
-        this.simulationSnapshot.nextCheckpointId === visual.id;
-      for (const mesh of visual.meshes) mesh.setEnabled(enabled);
-    }
-    if (this.finishVisual) {
-      const showFinish =
-        this.checkpointIndex >= this.authoredCheckpoints.length &&
-        !this.completed;
-      for (const mesh of this.finishVisual.meshes) mesh.setEnabled(showFinish);
-    }
-
-    const lesson = this.options.lesson;
-    const mapPack = this.options.mapPack;
-    if (!lesson || !mapPack) {
-      this.updateGuidanceCueVisual();
-      return;
-    }
-    const visibleRouteIndex = resolveAuthoritativeRouteIndex(
-      lesson.route.length,
-      this.simulationSnapshot.guidance,
-    );
-    const currentLaneId =
-      visibleRouteIndex === null ? null : lesson.route[visibleRouteIndex];
-    // Map lookup, and none at all off-route: the find() this replaces
-    // scanned every lane in the city per frame — including on free drive,
-    // where currentLaneId is always null and it found nothing.
-    const currentLane =
-      currentLaneId != null ? this.laneById?.get(currentLaneId) : undefined;
-    const currentProjection = currentLane
-      ? projectPointToLane(currentLane, {
-          x: this.playerState.x,
-          z: this.playerState.z,
-        })
-      : null;
-    const playerOccupiesVisibleLane = Boolean(
-      currentProjection &&
-        currentLane &&
-        currentProjection.distance <= (currentLane.widthM ?? 3.2) / 2 + 0.5,
-    );
-    for (const visual of this.routeChevronVisuals) {
-      let enabled = false;
-      if (visual.routeIndex === visibleRouteIndex) {
-        enabled =
-          playerOccupiesVisibleLane && currentProjection
-            ? visual.distanceAlongM > currentProjection.distanceAlongM + 2 &&
-              visual.distanceAlongM < currentProjection.distanceAlongM + 58
-            : visual.distanceAlongM < 42;
-      } else if (
-        visibleRouteIndex !== null &&
-        visual.routeIndex === visibleRouteIndex + 1
-      ) {
-        // Preview the start of the next route occurrence so a turn is
-        // signposted before the current lane's arrows run out; without this
-        // every junction hand-off left a blind gap in the guidance.
-        enabled = visual.distanceAlongM < 42;
-      }
-      for (const mesh of visual.meshes) mesh.setEnabled(enabled);
-    }
-    this.updateGuidanceCueVisual();
-  }
-
-  /**
-   * QA's window hooks (__sideswap*), installed once per session. They lived
-   * at the tail of updateGuidanceVisuals for years, re-allocating eight
-   * closures — plus a guidance object with a per-chevron .map() — every
-   * frame. Each hook now computes on call; dispose() still deletes the full
-   * list, so the install/delete pairing rule is unchanged.
-   */
+  /** QA's window hooks, installed once per session and removed on dispose. */
   private installDebugHooks() {
     if (typeof window === "undefined") return;
     {
       const debugWindow = window as unknown as Record<string, unknown>;
-      debugWindow.__sideswapGuidanceDebug = () => {
-        const lesson = this.options.lesson;
-        const visibleRouteIndex = lesson
-          ? resolveAuthoritativeRouteIndex(
-              lesson.route.length,
-              this.simulationSnapshot.guidance,
-            )
-          : null;
-        return {
-          owner: this.simulationSnapshot.guidance.owner,
-          status: this.simulationSnapshot.guidance.status,
-          blockingReason:
-            this.simulationSnapshot.guidance.blockingReason ?? null,
-          cue: this.simulationSnapshot.guidance.cue ?? null,
-          visibleRouteIndex,
-          paused: this.paused,
-          player: {
-            x: Math.round(this.playerState.x * 100) / 100,
-            z: Math.round(this.playerState.z * 100) / 100,
-            heading: Math.round(this.playerState.heading * 1000) / 1000,
-            speed: Math.round(this.playerState.speedMps * 100) / 100,
-          },
-          checkpoint: this.simulationSnapshot.nextCheckpointId ?? null,
-          instruction: this.instruction,
-          chevrons: this.routeChevronVisuals.map((visual) => ({
-            routeIndex: visual.routeIndex,
-            laneId: visual.laneId,
-            d: Math.round(visual.distanceAlongM),
-            x: Math.round((visual.meshes[0]?.position.x ?? 0) * 10) / 10,
-            z: Math.round((visual.meshes[0]?.position.z ?? 0) * 10) / 10,
-            on: visual.meshes[0]?.isEnabled() ?? false,
-          })),
-        };
-      };
       debugWindow.__sideswapDriveControl = (input: {
         throttle?: number;
         brake?: number;
@@ -6484,134 +5512,6 @@ export class BabylonGameSession {
     }
   }
 
-  private updateGuidanceCueVisual() {
-    const guidance = this.simulationSnapshot.guidance;
-    const activeCheckpoint = this.authoredCheckpoints.find(
-      (checkpoint) => checkpoint.id === this.simulationSnapshot.nextCheckpointId,
-    ) ?? null;
-    const cue =
-      guidance.owner?.kind === "route" &&
-      guidanceCueOverlapsCheckpoint(guidance.cue, activeCheckpoint)
-        ? null
-        : guidance.cue;
-    const key = guidance.owner && cue
-      ? `${guidance.owner.kind}:${cue.id}:${cue.label}:${cue.laneId}:${cue.distanceAlongM}:${guidance.status}`
-      : null;
-    if (key !== this.guidanceCueKey) {
-      if (this.guidanceCueVisual) {
-        if (this.guidanceCueVisual.dispose) {
-          this.guidanceCueVisual.dispose();
-        } else {
-          for (const mesh of this.guidanceCueVisual.meshes) mesh.dispose();
-        }
-      }
-      this.guidanceCueVisual =
-        guidance.owner && cue
-          ? this.createGuidanceCueTarget(cue, guidance.owner.kind)
-          : null;
-      this.guidanceCueKey = key;
-    }
-    if (!this.guidanceCueVisual || !cue || !guidance.owner) return;
-    const enabled =
-      guidance.owner.kind === "route" || guidance.status === "ready";
-    for (const mesh of this.guidanceCueVisual.meshes) {
-      mesh.setEnabled(enabled);
-    }
-  }
-
-  private createGuidanceCueTarget(
-    cue: NonNullable<SimulationSnapshot["guidance"]["cue"]>,
-    ownerKind: NonNullable<SimulationSnapshot["guidance"]["owner"]>["kind"],
-  ): GuidanceVisual {
-    const meshes: Mesh[] = [];
-    const width = resolveCheckpointTargetWidth(cue.widthM);
-    const halfWidth = width / 2;
-    const forward = { x: Math.sin(cue.heading), z: Math.cos(cue.heading) };
-    const side = { x: forward.z, z: -forward.x };
-    const point = (along: number, lateral: number): GameCanvasPoint => ({
-      x: cue.x + forward.x * along + side.x * lateral,
-      z: cue.z + forward.z * along + side.z * lateral,
-    });
-    const isRoute = ownerKind === "route";
-    const gateMaterial = makeMaterial(
-      this.scene,
-      `guidance-${cue.id}-material`,
-      isRoute ? new Color3(0.96, 0.64, 0.12) : new Color3(0.12, 0.75, 0.68),
-      isRoute ? new Color3(0.23, 0.12, 0.025) : new Color3(0.025, 0.18, 0.14),
-    );
-    const threshold = this.createFlatSegment(
-      `guidance-${cue.id}-threshold`,
-      point(0, -halfWidth),
-      point(0, halfWidth),
-      0.16,
-      0.16,
-      gateMaterial,
-    );
-    if (threshold) meshes.push(threshold);
-    for (const sideSign of [-1, 1]) {
-      const upright = this.createFlatSegment(
-        `guidance-${cue.id}-edge-${sideSign}`,
-        point(-0.45, sideSign * halfWidth),
-        point(0.45, sideSign * halfWidth),
-        0.16,
-        0.16,
-        gateMaterial,
-      );
-      if (upright) meshes.push(upright);
-    }
-    const texture = new DynamicTexture(
-      `guidance-${cue.id}-texture`,
-      { width: 512, height: 128 },
-      this.scene,
-      false,
-    );
-    texture.hasAlpha = true;
-    const context = texture.getContext() as unknown as CanvasRenderingContext2D;
-    context.clearRect(0, 0, 512, 128);
-    context.fillStyle = "rgba(8, 29, 31, 0.9)";
-    context.fillRect(8, 10, 496, 108);
-    context.fillStyle = isRoute ? "#ffd15b" : "#81fff0";
-    context.font = "700 34px Arial";
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.fillText(cue.label, 256, 64);
-    texture.update(false);
-    const labelMaterial = new StandardMaterial(
-      `guidance-${cue.id}-label-material`,
-      this.scene,
-    );
-    labelMaterial.diffuseTexture = texture;
-    labelMaterial.opacityTexture = texture;
-    labelMaterial.emissiveTexture = texture;
-    labelMaterial.disableLighting = true;
-    labelMaterial.backFaceCulling = false;
-    const labelMesh = MeshBuilder.CreatePlane(
-      `guidance-${cue.id}-label`,
-      { width: Math.min(2.05, width * 0.9), height: 0.48 },
-      this.scene,
-    );
-    labelMesh.position.set(
-      cue.x - forward.x * 0.44,
-      0.17,
-      cue.z - forward.z * 0.44,
-    );
-    labelMesh.rotation.x = Math.PI / 2;
-    labelMesh.rotation.y = cue.heading;
-    setMeshMaterial(labelMesh, labelMaterial);
-    meshes.push(labelMesh);
-    for (const mesh of meshes) mesh.layerMask = GUIDANCE_LAYER_MASK;
-    return {
-      id: cue.id,
-      meshes,
-      dispose: () => {
-        for (const mesh of meshes) mesh.dispose();
-        labelMaterial.dispose();
-        texture.dispose();
-        gateMaterial.dispose();
-      },
-    };
-  }
-
   /** Static casters never move again, so their world matrices freeze here. */
   private registerShadowCaster(mesh: AbstractMesh, x: number, z: number) {
     this.registerStaticCell(mesh, x, z, true);
@@ -6731,7 +5631,7 @@ export class BabylonGameSession {
       trafficSide: this.options.trafficSide,
       playerVehicle: this.options.playerVehicle,
       mapPack: this.options.mapPack,
-      lessonTrafficSeed: this.options.lesson?.trafficSeed,
+      scenarioTrafficSeed: this.options.scenario.trafficSeed,
       thirdCameraX: this.thirdCamera.position.x,
       thirdCameraZ: this.thirdCamera.position.z,
       stagedBlockers: this.stagedBlockers,
@@ -6746,7 +5646,7 @@ export class BabylonGameSession {
       patrolSimulationIdNear: (radiusM) =>
         this.patrolNearPlayer(radiusM)?.simulationId ?? null,
       passengerColors: (seedId) => this.passengerColors(seedId),
-      emit: (type, message, severity, rule) => this.emit(type, message, severity, rule),
+      emit: (event) => this.emit(event),
     };
   }
 
@@ -6908,172 +5808,7 @@ export class BabylonGameSession {
   }
 
   private buildEnvironment() {
-    if (this.options.mapPack && this.options.lesson) {
-      this.buildScenarioEnvironment(this.options.mapPack);
-      return;
-    }
-    const scene = this.scene;
-    const yardPalette = resolveMapVisualPalette("orientation-yard");
-    this.visualPalette = yardPalette;
-    this.cameraFarPlaneM = createSkyAndHorizon(
-      { scene, registerMirrorSurface: (mesh) => this.mirrorRig?.registerSurface(mesh) },
-      yardPalette,
-      "orientation-yard",
-      { x: 180, z: 180 },
-    ).cameraFarPlaneM;
-    const grass = makeMaterial(scene, "grass", Color3.White());
-    const yardGrassTexture = createGrassTexture(
-      scene,
-      "yard-grass-texture",
-      yardPalette,
-      hashStringToSeed("yard-grass"),
-      !this.lowSpec,
-    );
-    yardGrassTexture.uScale = 180 / GRASS_TILE_M;
-    yardGrassTexture.vScale = 180 / GRASS_TILE_M;
-    grass.diffuseTexture = yardGrassTexture;
-    // Yard roads are stretched boxes whose 0..1 face UVs would smear a wear
-    // texture across their full length; the yard keeps clean flat asphalt.
-    const asphalt = makeMaterial(scene, "asphalt", new Color3(0.21, 0.24, 0.26));
-    const paleAsphalt = makeMaterial(scene, "junction-asphalt", new Color3(0.25, 0.28, 0.3));
-    const white = makeMaterial(scene, "road-white", new Color3(0.88, 0.87, 0.76));
-    const yellow = makeMaterial(scene, "road-yellow", new Color3(0.96, 0.67, 0.13));
-    const curb = makeMaterial(scene, "curb", new Color3(0.62, 0.64, 0.61));
-    const trunk = makeMaterial(scene, "tree-trunk", new Color3(0.3, 0.19, 0.1));
-    const leaves = makeMaterial(scene, "tree-leaves", new Color3(0.12, 0.32, 0.16));
-    const lampDark = makeMaterial(scene, "lamp-dark", new Color3(0.08, 0.1, 0.1));
-    const redLamp = makeMaterial(
-      scene,
-      "signal-red",
-      new Color3(0.5, 0.03, 0.02),
-      new Color3(0.35, 0.01, 0.01),
-    );
-    const greenLamp = makeMaterial(
-      scene,
-      "signal-green",
-      new Color3(0.03, 0.42, 0.15),
-      new Color3(0.01, 0.18, 0.04),
-    );
-    const amberLamp = makeMaterial(
-      scene,
-      "signal-amber",
-      new Color3(0.58, 0.3, 0.02),
-      new Color3(0.08, 0.04, 0.005),
-    );
-    this.signalRedMaterial = redLamp;
-    this.signalAmberMaterial = amberLamp;
-    this.signalGreenMaterial = greenLamp;
-
-    const hemi = new HemisphericLight("soft-sky", new Vector3(0.2, 1, 0.1), scene);
-    hemi.intensity = 0.5;
-    hemi.diffuse = new Color3(0.82, 0.88, 0.98);
-    hemi.groundColor = new Color3(0.34, 0.3, 0.24);
-    const sun = new DirectionalLight("sun", new Vector3(-0.4, -1, 0.55), scene);
-    sun.intensity = 1.3;
-    const yardSunShadows = createSunShadows(
-      {
-        visualPalette: this.visualPalette,
-        touchFirst: this.options.inputCapabilities.touchFirst,
-      },
-      sun,
-    );
-    this.shadowGenerator = yardSunShadows.shadowGenerator;
-    this.shadowRefreshSeconds = yardSunShadows.shadowRefreshSeconds;
-
-    const ground = MeshBuilder.CreateGround(
-      "training-ground",
-      { width: 180, height: 180, subdivisions: 1 },
-      scene,
-    );
-    setMeshMaterial(ground, grass, true);
-    createBox(scene, "main-road", { width: 13, height: 0.08, depth: 170 }, new Vector3(0, 0.04, 4), asphalt).receiveShadows = true;
-    createBox(scene, "cross-road", { width: 100, height: 0.09, depth: 13 }, new Vector3(0, 0.05, 0), paleAsphalt).receiveShadows = true;
-
-    const roundaboutRoad = MeshBuilder.CreateTorus(
-      "roundabout-road",
-      { diameter: 17, thickness: 5.6, tessellation: 40 },
-      scene,
-    );
-    roundaboutRoad.position.set(0, 0.05, 32);
-    roundaboutRoad.scaling.y = 0.025;
-    setMeshMaterial(roundaboutRoad, asphalt);
-    createCylinder(scene, "roundabout-island", { height: 0.34, diameter: 10.5, tessellation: 24 }, new Vector3(0, 0.18, 32), grass);
-    createCylinder(scene, "roundabout-curb", { height: 0.18, diameter: 11.3, tessellation: 24 }, new Vector3(0, 0.09, 32), curb);
-    createCylinder(scene, "roundabout-grass", { height: 0.22, diameter: 10.3, tessellation: 24 }, new Vector3(0, 0.22, 32), grass);
-
-    for (let z = -74; z <= 82; z += 8) {
-      if (z > 21 && z < 43) continue;
-      createBox(scene, `center-dash-${z}`, { width: 0.14, height: 0.03, depth: 4 }, new Vector3(0, 0.105, z), white);
-    }
-    for (let x = -45; x <= 45; x += 8) {
-      if (Math.abs(x) < 8) continue;
-      createBox(scene, `cross-dash-${x}`, { width: 4, height: 0.03, depth: 0.14 }, new Vector3(x, 0.11, 0), white);
-    }
-    for (const side of [-1, 1]) {
-      createBox(scene, `edge-${side}`, { width: 0.16, height: 0.025, depth: 168 }, new Vector3(side * 6.15, 0.105, 4), white);
-    }
-    if (this.options.trafficSide === "right") {
-      createBox(scene, "jurisdiction-line", { width: 0.12, height: 0.035, depth: 168 }, new Vector3(-0.18, 0.11, 4), yellow);
-    }
-
-    for (let x = -5; x <= 5; x += 1.45) {
-      createBox(scene, `crosswalk-${x}`, { width: 0.75, height: 0.035, depth: 3.2 }, new Vector3(x, 0.12, 4.5), white);
-    }
-    createBox(scene, "stop-line", { width: 5.8, height: 0.04, depth: 0.32 }, new Vector3(this.options.trafficSide === "right" ? 3 : -3, 0.125, -4), white);
-
-    for (const x of [-8, 8]) {
-      const pole = createCylinder(scene, `signal-pole-${x}`, { height: 4.6, diameter: 0.19 }, new Vector3(x, 2.3, -5), lampDark);
-      const box = createBox(scene, `signal-box-${x}`, { width: 0.7, height: 1.75, depth: 0.55 }, new Vector3(0, 1.5, 0), lampDark, pole);
-      createCylinder(scene, `red-${x}`, { height: 0.12, diameter: 0.31 }, new Vector3(0, 0.45, -0.31), redLamp, box).rotation.x = Math.PI / 2;
-      createCylinder(scene, `green-${x}`, { height: 0.12, diameter: 0.31 }, new Vector3(0, -0.45, -0.31), greenLamp, box).rotation.x = Math.PI / 2;
-    }
-
-    const buildingColors = [
-      new Color3(0.72, 0.42, 0.31),
-      new Color3(0.72, 0.67, 0.51),
-      new Color3(0.35, 0.53, 0.59),
-      new Color3(0.57, 0.43, 0.61),
-    ];
-    const skylineEmissive = makeFacadeEmissiveTexture(scene);
-    const skylineMaterials = buildingColors.map((color, index) =>
-      makeFacadeMaterial(scene, `skyline-facade-${index}`, color, skylineEmissive),
-    );
-    for (let index = 0; index < 24; index += 1) {
-      const side = index % 2 === 0 ? -1 : 1;
-      const z = -68 + Math.floor(index / 2) * 13;
-      const height = 6 + ((index * 7) % 9);
-      const buildingX = side * (13 + (index % 3) * 2);
-      this.registerShadowCaster(
-        createFacadeBox(
-          scene,
-          `building-${index}`,
-          { width: 8 + (index % 3), height, depth: 8 },
-          new Vector3(buildingX, height / 2, z),
-          skylineMaterials[index % skylineMaterials.length],
-        ),
-        buildingX,
-        z,
-      );
-    }
-
-    for (let index = 0; index < 18; index += 1) {
-      const side = index % 2 === 0 ? -1 : 1;
-      const z = -70 + index * 8.5;
-      const tree = new TransformNode(`tree-${index}`, scene);
-      tree.position.set(side * 8.7, 0, z);
-      this.registerShadowCaster(
-        createCylinder(scene, `trunk-${index}`, { height: 2, diameterTop: 0.27, diameterBottom: 0.39 }, new Vector3(0, 1, 0), trunk, tree),
-        side * 8.7,
-        z,
-      );
-      this.registerShadowCaster(
-        createIcoSphere(scene, `crown-${index}`, 1.7, new Vector3(0, 2.94, 0), leaves, tree),
-        side * 8.7,
-        z,
-      );
-      createIcoSphere(scene, `crown-b-${index}`, 1.15, new Vector3(0.71, 3.79, -0.31), leaves, tree);
-      createIcoSphere(scene, `crown-c-${index}`, 1, new Vector3(-0.77, 3.42, 0.51), leaves, tree);
-    }
+    this.buildScenarioEnvironment(this.options.mapPack);
   }
 
   private buildPlayerCar() {
@@ -7087,7 +5822,7 @@ export class BabylonGameSession {
         this.playerExterior,
         "player",
         resolvePlayerVehicleAppearance(
-          this.options.mapPack?.id ?? "orientation-yard",
+          this.options.mapPack.id,
           this.options.playerVehicle,
         ),
       );
@@ -7115,80 +5850,18 @@ export class BabylonGameSession {
   }
 
   private buildTraffic() {
-    if (this.options.mapPack && this.options.lesson) {
-      this.buildScenarioTraffic(this.options.mapPack, this.options.lesson);
-      return;
-    }
-    const scene = this.scene;
-    const playerLaneSign = this.options.trafficSide === "right" ? 1 : -1;
-    for (let index = 0; index < 8; index += 1) {
-      const sameDirection = index % 2 === 0;
-      const direction: 1 | -1 = sameDirection ? 1 : -1;
-      const laneX = direction > 0
-        ? playerLaneSign * LANE_CENTER
-        : -playerLaneSign * LANE_CENTER;
-      const z = -35 + index * 20 + (sameDirection ? 25 : 0);
-      const node = new TransformNode(`npc-${index}`, scene);
-      const vehicleId = `npc-${index + 1}`;
-      const initialSnapshot = this.simulationSnapshot.npcs.find(
-        (vehicle) => vehicle.id === vehicleId,
-      );
-      const appearance = resolveTrafficVehicleAppearance({
-        vehicleId,
-        trafficSeed: 0,
-        variant: initialSnapshot?.variant ?? "car",
-        mapId: "orientation-yard",
-      });
-      const visual = createVehicleMesh(
-        scene,
-        node,
-        `fallback-${vehicleId}`,
-        appearance,
-      );
-      const spawnHeading = direction > 0 ? 0 : Math.PI;
-      this.npcVehicles.push({
-        node,
-        visual,
-        visualKey: appearanceVisualKey(appearance),
-        visualVehicleId: vehicleId,
-        visualVariant: initialSnapshot?.variant ?? "car",
-        direction,
-        speed: 5.5 + (index % 4) * 0.65,
-        z,
-        laneX,
-        poseX: laneX,
-        poseZ: z,
-        poseHeading: spawnHeading,
-        prevPoseX: laneX,
-        prevPoseZ: z,
-        prevPoseHeading: spawnHeading,
-      });
-      node.position.set(laneX, 0.12, z);
-      node.rotation.y = spawnHeading;
-    }
-
-    const clothes = [new Color3(0.83, 0.38, 0.22), new Color3(0.2, 0.45, 0.72), new Color3(0.68, 0.28, 0.62)];
-    for (let index = 0; index < 4; index += 1) {
-      const node = new TransformNode(`pedestrian-${index}`, scene);
-      const colors = this.characterColorsAt(index, clothes[index % clothes.length]);
-      const speed = 1.2 + index * 0.12;
-      const visual = this.buildRoadUserVisual(node, `yard-pedestrian-${index}`, false, index, colors, speed);
-      const z = index < 2 ? 4.5 : -10.5;
-      const distanceM = (index * 4.1) % 16;
-      this.pedestrians.push({ node, distanceM, speed, z, visual, variant: index, colors });
-      node.position.set(-8 + distanceM, 0.08, z);
-    }
+    this.buildScenarioTraffic(this.options.mapPack, this.options.scenario);
   }
 
   private buildScenarioTraffic(
     mapPack: GameCanvasMapPack,
-    lesson: GameCanvasLesson,
+    scenario: DriveScenario,
   ) {
     const scene = this.scene;
-    const random = seededUnit(lesson.trafficSeed);
+    const random = seededUnit(scenario.trafficSeed);
     const count = resolveAmbientVehicleCount(
       mapPack,
-      lesson.trafficDensity,
+      scenario.trafficDensity,
       this.options.inputCapabilities.touchFirst,
     );
     const usableLanes = mapPack.laneGraph.lanes.filter((lane) => lane.centerline.length >= 2);
@@ -7210,53 +5883,21 @@ export class BabylonGameSession {
           ? spawn.anchor
           : null;
       const legacyLaneId = spawn && "laneId" in spawn ? spawn.laneId : undefined;
-      const lane =
-        ((authoredAnchor?.laneId ?? legacyLaneId) &&
-          usableLanes.find(
-            (candidate) => candidate.id === (authoredAnchor?.laneId ?? legacyLaneId),
-          )) ||
-        usableLanes[(index * 3 + Math.floor(random() * usableLanes.length)) % usableLanes.length];
-      const connectedPath = this.buildConnectedNpcPath(mapPack, lane.id, index);
-      if (connectedPath.segments.length === 0) continue;
-      const anchored = authoredAnchor
-        ? resolveLaneAnchor(mapPack.laneGraph.lanes, authoredAnchor)
-        : null;
-      const legacyPose = spawn && "pose" in spawn ? spawn.pose : undefined;
-      let segment = anchored?.segmentIndex ?? Math.floor(random() * connectedPath.segments.length);
-      if (segment >= connectedPath.segments.length) segment = connectedPath.segments.length - 1;
-      let pathSegment = connectedPath.segments[segment];
-      let initialDistance = anchored?.distanceOnSegment ?? random() * pathSegment.length;
-      if (legacyPose && index < vehicleSpawns.length && !anchored) {
-        let bestDistance = Number.POSITIVE_INFINITY;
-        for (let candidateIndex = 0; candidateIndex < connectedPath.segments.length; candidateIndex += 1) {
-          const candidate = connectedPath.segments[candidateIndex];
-          const dx = candidate.end.x - candidate.start.x;
-          const dz = candidate.end.z - candidate.start.z;
-          const amount = clamp(
-            ((legacyPose.position.x - candidate.start.x) * dx +
-              (legacyPose.position.z - candidate.start.z) * dz) /
-              Math.max(0.001, candidate.length * candidate.length),
-            0,
-            1,
-          );
-          const x = candidate.start.x + dx * amount;
-          const z = candidate.start.z + dz * amount;
-          const distance = Math.hypot(legacyPose.position.x - x, legacyPose.position.z - z);
-          if (distance < bestDistance) {
-            bestDistance = distance;
-            segment = candidateIndex;
-            pathSegment = candidate;
-            initialDistance = candidate.length * amount;
-          }
-        }
+      const requestedLaneId = authoredAnchor?.laneId ?? legacyLaneId;
+      if (
+        !requestedLaneId ||
+        !usableLanes.some((candidate) => candidate.id === requestedLaneId)
+      ) {
+        random();
       }
-      const start = pathSegment.start;
-      const end = pathSegment.end;
-      const segmentLength = pathSegment.length;
-      const amount = initialDistance / segmentLength;
-      const x = start.x + (end.x - start.x) * amount;
-      const z = start.z + (end.z - start.z) * amount;
-      const heading = Math.atan2(end.x - start.x, end.z - start.z);
+      if (!authoredAnchor) {
+        random();
+        random();
+      }
+      // Ambient movement and routing now belong exclusively to SimulationCore.
+      // Retain the old slot-builder's draw count before vulnerable-road-user
+      // placement so their seeded positions do not move during this purge.
+      random();
       const node = new TransformNode(`scenario-npc-${index}`, scene);
       const vehicleId = `npc-${index + 1}`;
       const initialSnapshot = this.simulationSnapshot.npcs.find(
@@ -7266,7 +5907,7 @@ export class BabylonGameSession {
         initialSnapshot?.variant ?? inferSpawnVehicleVariant(spawn?.id);
       const appearance = resolveTrafficVehicleAppearance({
         vehicleId,
-        trafficSeed: lesson.trafficSeed,
+        trafficSeed: scenario.trafficSeed,
         variant: initialVariant,
         mapId: mapPack.id,
       });
@@ -7276,20 +5917,18 @@ export class BabylonGameSession {
         `scenario-${vehicleId}`,
         appearance,
       );
-      const displayLimit = lane.speedLimit ?? (this.options.speedUnit === "mph" ? 30 : 50);
-      const limitMps = this.options.speedUnit === "mph"
-        ? displayLimit / 2.236936
-        : displayLimit / 3.6;
-      const cruiseSpeed = Math.max(3.5, limitMps * (0.58 + random() * 0.22));
+      const x = initialSnapshot?.x ?? 0;
+      const z = initialSnapshot?.z ?? 0;
+      const heading = initialSnapshot?.heading ?? 0;
+      const speed = initialSnapshot?.speedMps ?? 0;
       const npc: NpcVehicle = {
         node,
         visual,
         visualKey: appearanceVisualKey(appearance),
         visualVehicleId: vehicleId,
         visualVariant: initialVariant,
-        direction: 1,
-        speed: cruiseSpeed,
-        currentSpeed: cruiseSpeed,
+        speed,
+        currentSpeed: speed,
         z,
         laneX: x,
         poseX: x,
@@ -7298,22 +5937,25 @@ export class BabylonGameSession {
         prevPoseX: x,
         prevPoseZ: z,
         prevPoseHeading: heading,
-        laneId: pathSegment.laneId,
-        active: true,
+        active: Boolean(initialSnapshot),
       };
-      const safeAtStart = this.isNpcPositionSafe(npc, x, z, heading, false);
-      npc.active = safeAtStart;
       node.position.set(x, 0.12, z);
       node.rotation.y = heading;
-      node.setEnabled(safeAtStart);
+      node.setEnabled(Boolean(initialSnapshot));
       // Patrol status rides on the appearance (light bar + livery are built into
       // the vehicle visual); a nearby violation becomes a fine (phase 10).
       npc.police = appearance.role === "police";
       this.npcVehicles.push(npc);
     }
 
-    const requestedPedestrians = Math.min(10, lesson.vulnerableRoadUsers?.pedestrians ?? 0);
-    const requestedCyclists = Math.min(5, lesson.vulnerableRoadUsers?.cyclists ?? 0);
+    const requestedPedestrians = Math.min(
+      10,
+      scenario.vulnerableRoadUsers?.pedestrians ?? 0,
+    );
+    const requestedCyclists = Math.min(
+      5,
+      scenario.vulnerableRoadUsers?.cyclists ?? 0,
+    );
     const authoredSpawns = mapPack.laneGraph.spawnPoints.filter(
       (spawn) => spawn.kind === "pedestrian" || spawn.kind === "cyclist",
     );
@@ -7376,7 +6018,7 @@ export class BabylonGameSession {
       const authored = authoredSpawns[index % Math.max(1, authoredSpawns.length)];
       const authoredPose = authored && "pose" in authored ? authored.pose : undefined;
       const crosswalk = crosswalks[index % Math.max(1, crosswalks.length)];
-      const source = walker ?? authoredPose?.position ?? crosswalk?.position ?? this.routePoints[index % Math.max(1, this.routePoints.length)] ?? { x: 0, z: 0 };
+      const source = walker ?? authoredPose?.position ?? crosswalk?.position ?? { x: 0, z: 0 };
       const heading = walker
         ? walker.headingRad
         : authoredPose
@@ -7542,13 +6184,11 @@ export class BabylonGameSession {
       event.preventDefault();
       this.contextLost = true;
       this.setPaused(true);
-      this.emit("context-lost", "Graphics context lost. Curbside Rush is waiting to recover.", "warning");
       this.callbacks.onContextLost?.();
     };
     const onContextRestored = () => {
       this.contextLost = false;
       this.lastFrameTime = performance.now();
-      this.emit("context-restored", "Graphics restored. Review your position before continuing.");
       this.callbacks.onContextRestored?.();
     };
     const onPointerDown = (event: PointerEvent) => {
@@ -7677,7 +6317,6 @@ export class BabylonGameSession {
       fallback === "touch"
         ? "Controller disconnected. Drive paused — use the touch controls to continue."
         : "Controller disconnected. Drive paused — use the keyboard to continue.";
-    this.emit("coaching", this.instruction, "warning");
     this.setPaused(true);
     this.publishHud(true);
   }
@@ -7692,25 +6331,8 @@ export class BabylonGameSession {
     this.hornRelease();
   }
 
-  private coach(message: string) {
-    this.instruction = message;
-    this.emit("coaching", message, "warning");
-    this.publishHud(true);
-  }
-
-  private emit(
-    type: GameRuntimeEvent["type"],
-    message: string,
-    severity: GameRuntimeEvent["severity"] = "info",
-    rule?: Pick<GameRuntimeEvent, "ruleCode" | "penalty" | "evidence" | "issuedBy">,
-  ) {
-    this.callbacks.onEvent?.({
-      type,
-      message,
-      severity,
-      timestamp: eventNow(),
-      ...rule,
-    });
+  private emit(event: GameRuntimeEvent) {
+    this.callbacks.onEvent?.(event);
   }
 
   private publishHud(force = false) {
@@ -7720,47 +6342,23 @@ export class BabylonGameSession {
     const speed = this.simulationSnapshot.speedDisplay;
     const speedUnit: SpeedUnit =
       this.simulationSnapshot.speedUnit === "kmh" ? "km/h" : "mph";
-    const objectives = this.options.lesson?.objectives ?? [];
-    const objectiveIndex = objectives.length
-      ? Math.min(
-          objectives.length - 1,
-          Math.floor(this.routeProgress * objectives.length),
-        )
-      : 0;
-    const scenarioProgress = this.options.lesson
-      ? this.routeProgress
-      : clamp(
-          (this.playerState.z - START_Z) / (FINISH_Z - START_Z),
-          0,
-          1,
-        );
     this.callbacks.onHudUpdate?.({
       speed: Math.round(speed),
       speedUnit,
       gear: this.playerState.gear,
       cameraMode: this.cameraMode,
-      indicator: this.playerState.indicator,
-      score: Math.round(this.score),
-      objectiveProgress: scenarioProgress,
       instruction: this.instruction,
       paused: this.paused,
       // The horn now sustains while held, so the visual cue has to follow the
       // hold rather than the fixed window the old fire-and-forget blip used.
       honking: this.hornHeld || now < this.hornUntil,
       rearViewVisible: this.cameraMode === "first",
-      scenarioId: this.options.lesson?.id ?? "orientation-yard",
-      scenarioTitle: this.options.lesson?.title ?? "Free drive",
-      objective:
-        objectives[objectiveIndex]?.label ??
-        "Reach the end of the training route",
-      checkpoint: this.checkpointLabel,
-      trafficSide: this.simulationSnapshot.trafficSide,
       playerX: this.playerState.x,
       playerZ: this.playerState.z,
       heading: this.playerState.heading,
       simElapsedMs: this.simulationSnapshot.elapsedMs,
       speedLimit: this.postedSpeedLimit(),
-      scenarioClock: this.options.lesson?.scenarioClock?.label,
+      scenarioClock: this.options.scenario.scenarioClock?.label,
     });
   }
 

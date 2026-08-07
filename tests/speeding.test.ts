@@ -55,7 +55,7 @@ describe("what a patrol writes a ticket for", () => {
     expect(speedingExcessMps(undefined)).toBeNull();
     expect(speedingExcessMps({ speedMps: 20 })).toBeNull();
     expect(speedingExcessMps({ speedMps: 20, limitMps: 0 })).toBeNull();
-    expect(speedingWarrantsCitation({ maneuverId: "pass-1" })).toBe(false);
+    expect(speedingWarrantsCitation({ unrelated: "value" })).toBe(false);
   });
 
   it("reports the excess the fine is priced from", () => {

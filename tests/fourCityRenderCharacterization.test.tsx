@@ -15,9 +15,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * BabylonGameSession, SimulationCore and complete authored environment. The
  * browser parity pass covers the corresponding loaded-GLB scene.
  *
- * `scenario-route` and `scenario-checkpoint` are the two unused lesson-only
- * materials #293 is expected to remove. Their names are recorded separately;
- * the fingerprint of every other material must remain byte-for-byte stable.
+ * `scenario-route` and `scenario-checkpoint` were the two unused lesson-only
+ * materials removed by #293. Their absence is pinned separately; the
+ * fingerprint of every surviving material remains byte-for-byte stable.
  */
 
 vi.mock("@babylonjs/core", async (importOriginal) => {
@@ -79,7 +79,7 @@ import {
   TOKYO_FREE_DRIVE,
   TOKYO_MAP_PACK,
 } from "../app/game/cities/tokyo";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import type {
   FreeDriveDefinition,
   MapPack,
@@ -176,7 +176,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     totalMeshes: 11_908,
     enabledMeshes: 11_908,
     activeMeshes: 802,
-    materials: 132,
+    materials: 130,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -185,17 +185,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
-    retiredGuidanceMaterialNames: [
-      "scenario-checkpoint",
-      "scenario-route",
-    ],
+    retiredGuidanceMaterialNames: [],
     survivingMaterialNamesFingerprint: "bd2603e2",
   },
   "london-south-kensington": {
     totalMeshes: 908,
     enabledMeshes: 908,
     activeMeshes: 137,
-    materials: 117,
+    materials: 115,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -204,17 +201,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
-    retiredGuidanceMaterialNames: [
-      "scenario-checkpoint",
-      "scenario-route",
-    ],
+    retiredGuidanceMaterialNames: [],
     survivingMaterialNamesFingerprint: "af80928b",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
     enabledMeshes: 1_086,
     activeMeshes: 293,
-    materials: 98,
+    materials: 96,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -223,17 +217,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
-    retiredGuidanceMaterialNames: [
-      "scenario-checkpoint",
-      "scenario-route",
-    ],
+    retiredGuidanceMaterialNames: [],
     survivingMaterialNamesFingerprint: "417377ea",
   },
   "cairo-central-nile": {
     totalMeshes: 17_660,
     enabledMeshes: 17_660,
     activeMeshes: 3_008,
-    materials: 219,
+    materials: 217,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -242,10 +233,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
-    retiredGuidanceMaterialNames: [
-      "scenario-checkpoint",
-      "scenario-route",
-    ],
+    retiredGuidanceMaterialNames: [],
     survivingMaterialNamesFingerprint: "a7ebaba1",
   },
 };
@@ -338,6 +326,10 @@ async function flushAnimationFrame(): Promise<void> {
   pendingRaf.clear();
   for (const callback of callbacks) callback(performance.now());
   await Promise.resolve();
+  // Babylon queues the next render through a macrotask on some engines. Give
+  // that scheduler turn a chance to publish the next controlled RAF so this
+  // characterization remains deterministic when other test files are busy.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
 async function flushUntilReady(): Promise<void> {
@@ -399,12 +391,12 @@ describe("four-city render characterization (#293 safety net)", () => {
       const baselines: Record<string, RenderBaseline> = {};
 
       for (const city of CITIES) {
-        const lesson = buildFreeDriveLesson(city.freeDrive, city.trafficSide);
+        const scenario = buildFreeDriveScenario(city.freeDrive);
         const view = render(
           <GameCanvas
             trafficSide={city.trafficSide}
             steeringSide={city.steeringSide}
-            lesson={lesson}
+            scenario={scenario}
             mapPack={city.mapPack}
             cameraMode="first"
             paused

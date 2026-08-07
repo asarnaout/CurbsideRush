@@ -7,13 +7,13 @@ import {
 import type { MapId } from "../app/game/types";
 
 /**
- * Street names exist so guidance can say "turn right onto Broadway". They are
+ * Street names exist so navigation can say "turn right onto Broadway". They are
  * keyed on `RoadSurface.id`, which `content.test.ts` already proves is the same
  * key space as every lane's `roadId` — so a name table is fully checkable, and
  * this is the check.
  */
 
-/** The cities a player is told street names in — every shipped map. Guidance
+/** The cities a player is told street names in — every shipped map. Navigation
  * falls back to naming no street for a map absent from this list. */
 const NAMED_MAPS: readonly MapId[] = [
   "nyc-upper-west-side",

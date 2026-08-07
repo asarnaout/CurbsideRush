@@ -9,9 +9,8 @@ import type { VehicleModel } from "./vehicleVisuals";
  * The public contract between `SideSwapApp` and `GameCanvas`: everything a
  * caller needs to describe a drive, and everything the session reports back.
  * Types only — enforced by `tests/architecture.test.ts`, which fails on any
- * runtime `export` here. `GameCanvasProps`/`GameCanvasHandle` are NOT here;
- * they stay in `GameCanvas.tsx` as the component's own signature, not shared
- * contract.
+ * runtime `export` here. `GameCanvasProps` stays in `GameCanvas.tsx` as the
+ * component's own signature, not shared contract.
  *
  * Several of these unions deliberately DIFFER from same-named types in
  * `./types` (the simulation-facing contract): `CameraMode` here is
@@ -36,18 +35,10 @@ export interface GameHudSnapshot {
   speedUnit: SpeedUnit;
   gear: DriveGear;
   cameraMode: CameraMode;
-  indicator: TurnIndicator;
-  score: number;
-  objectiveProgress: number;
   instruction: string;
   paused: boolean;
   honking: boolean;
   rearViewVisible: boolean;
-  scenarioId: string;
-  scenarioTitle: string;
-  objective: string;
-  checkpoint: string;
-  trafficSide: TrafficSide;
   /** Player world position and heading (radians), for the corner minimap. */
   playerX: number;
   playerZ: number;
@@ -67,36 +58,35 @@ export interface GameHudSnapshot {
   scenarioClock?: string;
 }
 
-export interface GameRuntimeEvent {
-  type:
-    | "ready"
-    | "camera"
-    | "indicator"
-    | "horn"
-    | "coaching"
-    | "collision"
-    | "cutscene"
-    | "fine"
-    | "incident"
-    | "reset"
-    | "complete"
-    | "context-lost"
-    | "context-restored";
-  message: string;
-  severity?: "info" | "warning" | "critical";
-  timestamp: number;
-  ruleCode?: string;
-  penalty?: number;
-  evidence?: Readonly<Record<string, string | number | boolean>>;
-  /**
-   * On a `fine`, who wrote it. A patrol means a traffic stop, and the money
-   * moves on that scene's `cite` step; a camera has nobody to stage, so the app
-   * debits where it stands. Deliberately its own field rather than a key inside
-   * `evidence`, which is what the simulation measured about the driving — who
-   * happened to be watching is not.
-   */
-  issuedBy?: "patrol" | "camera";
-}
+type GameRuntimeEvidence = Readonly<
+  Record<string, string | number | boolean>
+>;
+
+/** Only events with a live app-layer consumer cross the canvas boundary. */
+export type GameRuntimeEvent =
+  | { readonly type: "ready" }
+  | {
+      readonly type: "coaching";
+      readonly ruleCode: string;
+      readonly evidence?: GameRuntimeEvidence;
+    }
+  | {
+      readonly type: "collision";
+      readonly evidence?: GameRuntimeEvidence;
+    }
+  | {
+      readonly type: "fine";
+      readonly ruleCode: string;
+      readonly evidence?: GameRuntimeEvidence;
+      /** A patrol stages a stop; a camera debits immediately. */
+      readonly issuedBy: "patrol" | "camera";
+    }
+  | {
+      readonly type: "cutscene";
+      readonly nonce: number;
+      readonly phase: "cite" | "pump" | "repair" | "done";
+      readonly durationMs?: number;
+    };
 
 /**
  * One interaction cutscene the app wants played: the driver refuelling, the
@@ -121,82 +111,21 @@ export interface CutsceneRequest {
   readonly fuelFillFraction?: number;
 }
 
-/** Structural lesson contract; existing LessonDefinition objects can be passed directly. */
-export interface GameCanvasLesson {
+/** The live inputs that make one authored, non-terminating drive reproducible. */
+export interface DriveScenario {
   readonly id: string;
-  readonly title: string;
-  readonly kind: "orientation" | "guided" | "transition" | "free_drive";
-  readonly trafficSide: TrafficSide;
-  readonly startSpawnId?: string;
-  readonly route: readonly string[];
-  readonly objectives: readonly {
-    readonly id: string;
-    readonly label: string;
-    readonly ruleCode?: string;
-  }[];
+  readonly startSpawnId: string;
   readonly trafficSeed: number;
   readonly trafficDensity: "none" | "light" | "moderate" | "busy";
   readonly vulnerableRoadUsers?: Readonly<{
     pedestrians: number;
     cyclists: number;
   }>;
-  readonly checkpoints: readonly string[];
-  readonly coachPrompts: readonly {
-    readonly id: string;
-    readonly message: string;
-    readonly trigger:
-      | { readonly type: "start" }
-      | { readonly type: "route_progress"; readonly value: number }
-      | { readonly type: "checkpoint"; readonly checkpointId: string }
-      | {
-          readonly type: "maneuver_phase";
-          readonly maneuverId: string;
-          readonly phase:
-            | "approach"
-            | "observe"
-            | "pass"
-            | "establish_clearance"
-            | "return"
-            | "complete";
-        }
-      | { readonly type: "rule_event"; readonly ruleCode: string };
-  }[];
-  readonly assessedRules?: readonly string[];
   readonly scenarioClock?: Readonly<{
     readonly weekday: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
     readonly minutesAfterMidnight: number;
     readonly label: string;
   }>;
-  readonly profileTransitions?: readonly {
-    readonly checkpointId: string;
-    readonly fromCountryId: string;
-    readonly toCountryId: string;
-    readonly message: string;
-  }[];
-  readonly maneuvers?: readonly {
-    readonly id: string;
-    readonly kind: "overtake";
-    readonly normalLaneId: string;
-    readonly passingLaneId: string;
-    readonly corridorStart: { readonly laneId: string; readonly distanceAlongM: number };
-    readonly corridorEnd: { readonly laneId: string; readonly distanceAlongM: number };
-    readonly leadVehicleStart: {
-      readonly laneId: string;
-      readonly distanceAlongM: number;
-    };
-    readonly leadVehicleSpeedFactor: number;
-    readonly phaseAnchors: Readonly<{
-      approach: { readonly laneId: string; readonly distanceAlongM: number };
-      observe: { readonly laneId: string; readonly distanceAlongM: number };
-      pass: { readonly laneId: string; readonly distanceAlongM: number };
-      return: { readonly laneId: string; readonly distanceAlongM: number };
-      complete: { readonly laneId: string; readonly distanceAlongM: number };
-    }>;
-    readonly predictedClearSeconds: number;
-    readonly returnStandstillGapM: number;
-    readonly returnHeadwaySeconds: number;
-    readonly sourceReferenceIds: readonly string[];
-  }[];
 }
 
 export interface GameCanvasPoint {
@@ -260,8 +189,7 @@ export interface GameCanvasMapPack {
         | "standard"
         | "roundabout"
         | "shared_space"
-        | "terminal"
-        | "orientation";
+        | "terminal";
       readonly markings: readonly {
         readonly id: string;
         readonly style:
@@ -362,8 +290,7 @@ export interface GameCanvasMapPack {
           | "mast_arm"
           | "secondary_pole"
           | "railway_crossing"
-          | "road_marking"
-          | "terminal_portal";
+          | "road_marking";
         readonly style:
           | "nyc_signal"
           | "uk_signal"
@@ -373,8 +300,7 @@ export interface GameCanvasMapPack {
           | "restricted_lane"
           | "crosswalk"
           | "box_junction"
-          | "japan_railway"
-          | "side_swap_gate";
+          | "japan_railway";
         readonly role: "primary" | "secondary" | "companion" | "warning" | "marking";
         readonly approachIds?: readonly string[];
       }[];
@@ -402,7 +328,6 @@ export interface GameCanvasMapPack {
         readonly endMinutes: number;
       }[];
       readonly sourceReferenceId: string;
-      readonly message: string;
     }[];
     spawnPoints: readonly (
       | {
@@ -412,12 +337,6 @@ export interface GameCanvasMapPack {
             readonly laneId: string;
             readonly distanceAlongM: number;
           };
-          /** Legacy map compatibility during the v1 map migration. */
-          readonly pose?: {
-            readonly position: GameCanvasPoint;
-            readonly headingDeg: number;
-          };
-          readonly laneId?: string;
         }
       | {
           readonly id: string;
@@ -429,30 +348,7 @@ export interface GameCanvasMapPack {
           readonly laneId?: string;
           readonly anchor?: never;
         }
-      | {
-          readonly id: string;
-          readonly kind: "player" | "vehicle";
-          readonly pose: {
-            readonly position: GameCanvasPoint;
-            readonly headingDeg: number;
-          };
-          readonly laneId?: string;
-          readonly anchor?: never;
-        }
     )[];
-    checkpoints: readonly {
-      readonly id: string;
-      readonly label: string;
-      readonly anchor?: {
-        readonly laneId: string;
-        readonly distanceAlongM: number;
-      };
-      readonly pose?: {
-        readonly position: GameCanvasPoint;
-        readonly headingDeg: number;
-      };
-      readonly laneId?: string;
-    }[];
   }>;
 }
 

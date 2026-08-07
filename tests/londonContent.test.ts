@@ -35,7 +35,7 @@ describe("London flagship content", () => {
     });
   });
 
-  it("keeps every lane, control, restriction and checkpoint reference valid", () => {
+  it("keeps every lane, control, and restriction reference valid", () => {
     const graph = LONDON_MAP_PACK.laneGraph;
     const lanes = new Map(graph.lanes.map((lane) => [lane.id, lane]));
     const conflicts = new Set(graph.conflictZones.map((zone) => zone.id));
@@ -77,13 +77,6 @@ describe("London flagship content", () => {
       for (const controlApproach of control.approaches) {
         expect(lanes.has(controlApproach.stopLine.laneId)).toBe(true);
       }
-    }
-
-    for (const checkpoint of graph.checkpoints) {
-      expect(
-        lanes.has(checkpoint.anchor.laneId),
-        `${checkpoint.id} → ${checkpoint.anchor.laneId}`,
-      ).toBe(true);
     }
 
     for (const spawn of graph.spawnPoints) {
@@ -143,23 +136,6 @@ describe("London flagship content", () => {
         distanceAlongM: 12.27,
       });
     }
-  });
-
-  it("orders the Cromwell box decision before the signal approach", () => {
-    const checkpoints = new Map(
-      LONDON_MAP_PACK.laneGraph.checkpoints.map((checkpoint) => [
-        checkpoint.id,
-        checkpoint,
-      ]),
-    );
-    expect(checkpoints.get("london-box-junction")?.anchor).toEqual({
-      laneId: "london-cromwell-east-1",
-      distanceAlongM: 125,
-    });
-    expect(checkpoints.get("london-cromwell-signal")?.anchor).toEqual({
-      laneId: "london-cromwell-east-1",
-      distanceAlongM: 136,
-    });
   });
 
   it("assesses the Exhibition Road approach to the Thurloe crossing", () => {

@@ -2,7 +2,6 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -44,9 +43,9 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
   return { ...mod, Engine: HeadlessEngine };
 });
 
-import GameCanvas, { type GameCanvasHandle } from "../app/game/GameCanvas";
+import GameCanvas from "../app/game/GameCanvas";
 import type { GameHudSnapshot } from "../app/game/sessionContract";
-import { buildFreeDriveLesson } from "../app/game/freeDriveLesson";
+import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/cities/london";
 
 function createFake2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
@@ -205,15 +204,13 @@ describe("cockpit characterization (Phase 3.7 safety net)", () => {
     "builds and merges the first-person cabin into the expected mesh set",
     async () => {
       const hudSnapshots: GameHudSnapshot[] = [];
-      const ref = createRef<GameCanvasHandle>();
-      const lesson = buildFreeDriveLesson(LONDON_FREE_DRIVE, "left");
+      const scenario = buildFreeDriveScenario(LONDON_FREE_DRIVE);
 
       render(
         <GameCanvas
-          ref={ref}
           trafficSide="left"
           steeringSide="right"
-          lesson={lesson}
+          scenario={scenario}
           mapPack={LONDON_MAP_PACK}
           paused={false}
           cameraMode="first"

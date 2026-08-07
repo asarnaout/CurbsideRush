@@ -59,8 +59,8 @@ const COMPLEXION_WEIGHTS: Readonly<Record<string, readonly number[]>> = {
   "cairo-central-nile": [3, 5, 6, 5, 4, 1],
 };
 
-/** Maps with no row of their own (the orientation yard, the two cities being
- * retired) still get a spread rather than the rigs' five baked values. */
+/** Maps with no row of their own still get a spread rather than the rigs' five
+ * baked values. */
 const DEFAULT_COMPLEXION_WEIGHTS: readonly number[] = [1, 2, 3, 5, 6, 7];
 
 /**
