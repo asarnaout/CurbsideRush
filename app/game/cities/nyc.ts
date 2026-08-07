@@ -237,25 +237,35 @@ const intersectionStop = (
   };
 };
 
-// Upper West Side grid. x = east, z = north. Three two-way avenues — West End
-// (x=-320), Broadway (x=-120), Central Park West (x=320) — cross three two-way
-// streets — West 72nd (z=-480), 79th (z=0), 86th (z=480). ~640 m x 960 m.
+// Manhattan's Upper West Side, real streets from a frozen OSM extract, grown
+// east past Central Park into invented geography: five more avenues (Fifth
+// through Third), the park's own transverses, the East River and two
+// bridges, and a residential borough on the far bank. x = east, z = north.
+// Avenues span Riverside Drive (x=-1160) to Steinway Ave (x=1100); streets
+// span W 59th (z=-1440) to 56th Ave (z=1440). ~2600 m x 3000 m.
 // ---------------------------------------------------------------------------
 // NYC is declared as a grid, not written out lane by lane.
 //
-// The Upper West Side is rectangular, so the map states its avenues and cross
-// streets once and derives the ~200 lanes, their lateral offsets, their
-// successors, the carriageway surfaces and the signals from that. Hand-writing
-// successors at this size goes wrong silently: a lane with no legal
-// continuation makes its traffic vanish wherever the player happens to be
-// looking (#128), and nothing about the authored literal looks wrong. Derived,
-// "every lane leads somewhere legal" holds by construction.
+// Both halves are rectangular, so the map states its avenues and cross
+// streets once and derives the ~415 lanes, their lateral offsets, their
+// successors, the carriageway surfaces and the signals or stop controls from
+// that. Hand-writing successors at this size goes wrong silently: a lane
+// with no legal continuation makes its traffic vanish wherever the player
+// happens to be looking (#128), and nothing about the authored literal looks
+// wrong. Derived, "every lane leads somewhere legal" holds by construction.
 //
-// Geography follows the frozen OSM extract in public/map-data/nyc-upper-west
-// .json and the real grid: avenues west to east are Riverside Drive, West End,
-// Broadway, Amsterdam, Columbus and Central Park West; Amsterdam runs one-way
-// uptown and Columbus one-way downtown; the major crosstown streets are
-// two-way; the side streets alternate, even eastbound and odd westbound.
+// The west half's geography follows the frozen OSM extract in
+// public/map-data/nyc-upper-west.json and the real grid: avenues west to
+// east are Riverside Drive, West End, Broadway, Amsterdam, Columbus and
+// Central Park West; Amsterdam runs one-way uptown and Columbus one-way
+// downtown; the major crosstown streets are two-way; the side streets
+// alternate, even eastbound and odd westbound. East of the park is invented
+// — no second extract was frozen for it — seeded by Upper East Side and
+// Long Island City flavour rather than a real survey: Fifth through Third
+// mirror the west side's one-way-pair pattern, the borough's bank streets
+// are stop-controlled rather than signalled so it reads as residential
+// rather than a Manhattan copy, and Vernon/Crescent/Steinway borrow real LIC
+// street names without claiming their real-world alignment.
 // ---------------------------------------------------------------------------
 
 /** Lateral offset of a lane line from its carriageway centreline. */
@@ -1082,20 +1092,24 @@ const nycBlocks = buildNycBlocks(NYC_AVENUES, NYC_STREETS);
 
 export const NYC_MAP_PACK: MapPack = {
   id: "nyc-upper-west-side",
-  name: "NYC Upper West Side",
-  areaLabel: "Broadway, West 72nd Street & nearby avenues",
+  name: "NYC — Park to River",
+  areaLabel: "Broadway, Central Park & the East River",
   countryIds: ["us"],
   // Derived from the road specs rather than listed again, so a new street
   // still carries its name on the one line that declares it.
   roadNames: nycGrid.roadNames,
   // Twelve cars is what every map got, and it is what this one had when it
-  // was a fifth the size. Spread over 47 km of lane they left the streets
-  // empty, and patrols with them — a patrol is one in five of the *car*
-  // variant only (isPatrolVehicle), which after the bus/taxi/van gate and
-  // roll shares is roughly one vehicle in eight, so twelve vehicles is one
-  // police car in the whole city if the seed is kind. 32 is the simulation
-  // core's own clamp; a phone keeps a lower count because each car costs it
-  // much more, and the O(n^2) car-following work is paid per decision.
+  // was a fifth the size (47 km of lane, the west grid alone). Spread that
+  // thin they left the streets empty, and patrols with them — a patrol is
+  // one in five of the *car* variant only (isPatrolVehicle), which after the
+  // bus/taxi/van gate and roll shares is roughly one vehicle in eight, so
+  // twelve vehicles is one police car in the whole city if the seed is kind.
+  // 32 is the simulation core's own clamp; a phone keeps a lower count
+  // because each car costs it much more, and the O(n^2) car-following work
+  // is paid per decision. The east expansion doubled the lane total again
+  // (96 km) without raising the clamp: the same fleet spreads thinner still,
+  // topped up near the vehicle gates (nyc-car-18 on) so arrival scenes east
+  // of the park and in the borough are not bare.
   ambientTraffic: { desktop: 32, touch: 16 },
   source: osmSource(
     { south: 40.7738, west: -73.9919, north: 40.7836, east: -73.9738 },
@@ -1394,11 +1408,22 @@ export const NYC_MAP_PACK: MapPack = {
       // Museum steps outside the gallery, and the E 86th retail spine.
       freeSpawn("nyc-ped-9", "pedestrian", -155, 240, 90),
       freeSpawn("nyc-ped-10", "pedestrian", 220, 480, 90),
+      // The esplanade's own paths, and the borough (NYC east expansion,
+      // section 3.9) — the last two "~6" pedestrians the plan calls for.
+      freeSpawn("nyc-ped-11", "pedestrian", 500, -400, 0),
+      freeSpawn("nyc-ped-12", "pedestrian", 500, 400, 180),
+      freeSpawn("nyc-ped-13", "pedestrian", 850, -100, 90),
+      freeSpawn("nyc-ped-14", "pedestrian", 1080, 680, 270),
       freeSpawn("nyc-cyclist-1", "cyclist", -1018, -200, 0, "nyc-we-n-72"),
       freeSpawn("nyc-cyclist-2", "cyclist", -661.7, -200, 0, "nyc-amst-n-1-72"),
       freeSpawn("nyc-cyclist-3", "cyclist", -1158, 600, 0, "nyc-riv-n-86"),
       freeSpawn("nyc-cyclist-4", "cyclist", 440, 100, 0, "nyc-third-n-79"),
       freeSpawn("nyc-cyclist-5", "cyclist", 230, 0, 90, "nyc-79-e-pk"),
+      // The borough (NYC east expansion, section 3.9): Vernon Blvd and
+      // Crescent St, the last two of the "3-4" cyclists the plan calls for
+      // (Third and a transverse are already covered above).
+      freeSpawn("nyc-cyclist-6", "cyclist", 800, 700, 0, "nyc-vern-n-bk52"),
+      freeSpawn("nyc-cyclist-7", "cyclist", 950, 300, 0, "nyc-cres-n-bk48"),
     ],
   ),
 };
