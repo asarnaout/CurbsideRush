@@ -30,11 +30,32 @@ view switch) and composes `app/LauncherView.tsx`, `app/SettingsView.tsx`,
 component, all state and derived values threaded down rather than read
 from context. `app/uiControls.tsx` and `app/MobilePlayTips.tsx` hold
 `LauncherView`'s/`SettingsView`'s own shared form controls;
-`app/useGamepadUiNavigation.ts` is a standalone hook. `handleGameEvent`
-(the `GameRuntimeEvent` switch) stays inline in `SideSwapApp.tsx` — its
-closure surface (38 distinct state/ref/callback bindings) is well past
-the ~15-entry threshold the decomposition plan set for extracting it
-into a free function.
+`app/useGamepadUiNavigation.ts` is a standalone hook.
+
+`handleGameEvent` (the `GameRuntimeEvent` switch) no longer stays inline: its
+38-binding closure (issue #289) is grouped into three app-layer
+state-action **ports**, each a hook returning live state plus atomic mutator
+methods — `app/drivePort.ts` (vehicle condition, tow, the staged cutscene,
+citation dedupe), `app/careerPort.ts` (the in-flight career day: cash,
+ledger, day clock, settlement coordination) and `app/gigDispatchPort.ts`
+(the active gig, its queue slot, carrying-leg bookkeeping, payout). The
+switch itself is `useGameEventHandler` in `app/useGameEventHandler.ts`,
+called with the three ports plus the few bindings with no port to belong to
+(`progress`/`driveFuel`, both plain `SideSwapApp` state). `SideSwapApp`
+still calls all three port hooks itself and destructures their fields under
+the same names its other code already used, so only `useGameEventHandler`
+needed the `port.field` form throughout.
+
+**Every port write is a method, never an exposed ref setter** — not a style
+preference, a hard requirement. `useGameEventHandler` receives the three
+ports as plain arguments, and the React Compiler's ESLint rules
+(`react-hooks/immutability`) forbid mutating anything reachable from a
+hook's own arguments, `ref.current` writes included; only a ref created by
+a *local* `useRef` in the hook that owns it is provably safe to mutate. This
+bit even single dedupe timestamps with no paired state (e.g.
+`drivePort.ts`'s `stampFineAt`) — reads are unaffected, so a port's refs
+stay exposed for direct reading, but every write from outside the port that
+created it must go through a method.
 
 The props/HUD/event types on the SideSwapApp<->GameCanvas edge — including
 `GameHudSnapshot` and `GameRuntimeEvent` above — live in
