@@ -90,8 +90,8 @@ import { hashStringToSeed } from "../visuals";
  *   built alongside the rest of Cairo's procedural materials in
  *   `buildScenarioEnvironment` (same `cairoScene` gate, same neighbourhood of
  *   code) but only ever consumed here — passed in unchanged, matching the
- *   field's own long-standing doc comment ("they belong to buildEnvironment
- *   ... but are consumed by buildInstancedBuildings").
+ *   field's own doc comment on `BabylonGameSession` (they belong where the
+ *   Cairo materials are built, but are consumed by this class).
  *
  * **Call-order note, because it is load-bearing:** `instantiate()` must run
  * from the exact point `buildInstancedBuildings`'s own body used to — this
