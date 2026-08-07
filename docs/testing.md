@@ -124,6 +124,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | `cutsceneDirectorCharacterization` | Pullover (patrol rig, actor visibility/position) and repair (runs to completion, emits its `done` event, clears itself) staged via a real `cutscene` prop rerender (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `fourCityRenderCharacterization` | Exact four-city mesh/material fingerprint, cockpit mirror names, and mirror render activity (headless, NullEngine) |
 | `cityRenderRegistry` | The right landmark/street-furniture builder is wired to each city's real map id, and an unrecognised id gets no entry — the Phase 4.5 registry's safety net |
+| `visuals` (per-city visual profile) | `MAP_VISUAL_PROFILES`'s buildingSets/natureSets/weights are internally consistent and its buildingSets allow-list matches every real MapPack's blocks — the issue #291 registry's safety net |
 | `content` / `cairoContent` / `londonContent` | Lane-graph continuity, "every lane has somewhere legal to go" |
 | `roadRealism` | Only speed figures that country actually signs |
 | `careerBalance` | Rent + fee ≤ 4 median gig nets; tickets reachable in 3–20 days |

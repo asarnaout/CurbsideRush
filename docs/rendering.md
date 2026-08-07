@@ -143,17 +143,18 @@ own, since every vertex of the bare outline *is* a bank vertex: the builder
 mitres a ring inward for the tint to fade across, and refuses outlines too
 tight to inset.
 
-## City palettes are an explicit registry, and fail loudly on a miss
+## The per-city registry is an explicit, exact-mapId record, and fails loudly on a miss
 
-`resolveMapVisualKey(mapId)` resolves through `MAP_VISUAL_PROFILES`
-(`visuals.ts`), an exact-mapId record — no substring matching, no default.
-An unmapped or misspelled id throws immediately, naming the id, rather than
-silently borrowing NYC's palette (lighting, fog, ground texture, sidewalk
-width and the crowd's rail geometry all changed with it — why the old
-substring-and-fallback was dangerous). Adding a city means adding its row
-here. `cityRenderRegistry.ts`'s landmark dispatch stays `undefined`-on-miss,
-not a throw: a landmark with no dispatcher is a supported no-op, where a map
-with no palette can't render at all.
+`MAP_VISUAL_PROFILES` (`visuals.ts`) is the one per-city identity table —
+palette key, plate region, allowed building sets, nature sets, and crowd
+complexion/hair weights, keyed by the map's exact authored id, no substring
+matching, no default. `resolveMapVisualProfile`/`resolveMapVisualKey` throw
+immediately on an unmapped id, naming it, rather than silently borrowing
+NYC's look. It carries only *selectors*; the content each indexes into
+stays in its own domain file, so adding a city is one new row here, never a
+second mapId-keyed table. `cityRenderRegistry.ts`'s landmark dispatch stays
+`undefined`-on-miss instead: a landmark with no dispatcher is a supported
+no-op, where a map with no profile can't render at all.
 
 ## The first-person cabin
 
