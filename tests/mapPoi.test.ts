@@ -149,7 +149,7 @@ describe("what the corner widget carries", () => {
     expect(counts.food).toBe(0);
     expect(counts.shop).toBe(0);
     expect(counts.fuel).toBe(2);
-    expect(counts.repair).toBe(2);
+    expect(counts.repair).toBe(3);
     expect(widget.length).toBeLessThan(poisFor("nyc-upper-west-side").length);
   });
 });

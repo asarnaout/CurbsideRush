@@ -211,9 +211,16 @@ describe("procedural street addresses", () => {
 
   it("leaves the Central Park side of Central Park West empty", () => {
     // CPW's northbound kerb faces east into the park. Nothing should front it.
+    // Scoped to CPW's own addresses, not every address on the map: once the
+    // east side exists, plenty of real addresses legitimately sit east of
+    // the park (Fifth Avenue and beyond) without being anywhere near CPW.
     const park = nyc.geometry.landmarks.find((l) => l.id === "nyc-central-park")!;
     const parkWestEdge = park.center.x - park.size.x / 2;
-    for (const address of nycAddresses) {
+    const cpwAddresses = nycAddresses.filter(
+      (address) => address.roadId === "nyc-central-park-west",
+    );
+    expect(cpwAddresses.length).toBeGreaterThan(0);
+    for (const address of cpwAddresses) {
       expect(address.kerbX, address.name).toBeLessThan(parkWestEdge);
     }
   });
