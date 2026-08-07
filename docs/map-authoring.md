@@ -72,7 +72,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 
 | Map | Lanes | Roads | Lane km | Signals | Cameras | World (x × z m) |
 |---|---|---|---|---|---|---|
-| `nyc-upper-west-side` | 227 | 19 | 47.4 | 65 | 22 | 1080 × 3000 |
+| `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
 | `tokyo-setagaya` | 56 | 20 | 5.5 | 0 | 0 | 600 × 420 |
 | `london-south-kensington` | 40 | 13 | 4.7 | 2 | 1 | 800 × 540 |

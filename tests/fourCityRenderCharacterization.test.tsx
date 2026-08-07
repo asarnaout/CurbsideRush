@@ -173,20 +173,20 @@ const EXPECTED_MIRROR_MESH_NAMES = [
 
 const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
   "nyc-upper-west-side": {
-    totalMeshes: 21_565,
-    enabledMeshes: 21_565,
-    activeMeshes: 858,
-    materials: 172,
+    totalMeshes: 23_000,
+    enabledMeshes: 23_000,
+    activeMeshes: 846,
+    materials: 188,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 67,
-    mirrorDrawn: 101,
+    mirrorCandidates: 81,
+    mirrorDrawn: 116,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "197d0439",
+    survivingMaterialNamesFingerprint: "bbe0c887",
   },
   "london-south-kensington": {
     totalMeshes: 908,
