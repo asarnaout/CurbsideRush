@@ -13,7 +13,6 @@ import type {
   ScenarioClock,
   SpeedUnit,
   StaticObstacle,
-  StaticObstacleTag,
   TrafficSide,
 } from "./types";
 import {
@@ -55,13 +54,27 @@ import {
   smoothStep,
   wrapAngle,
 } from "./simulation/mathUtils";
+import {
+  movePlayer as movePlayerImpl,
+  normalizeStaticObstacle,
+  PLAYER_CAPSULE_HALF_LENGTH_M,
+  PLAYER_CAPSULE_RADIUS_M,
+  PLAYER_RADIUS_METRES,
+  resolveStaticCollisions as resolveStaticCollisionsImpl,
+  setPlayerSignal,
+  STATIC_BONK_MIN_MPS,
+  STATIC_BONK_REBOUND_FRACTION,
+  STATIC_BONK_REBOUND_MAX_MPS,
+  STOPPED_SPEED_MPS,
+  type PlayerPhysicsState,
+  type StaticObstacleInternal,
+} from "./simulation/playerDynamics";
 
 export const SIMULATION_HZ = 60;
 export const FIXED_STEP_SECONDS = 1 / SIMULATION_HZ;
 
 const TRAFFIC_DECISION_SECONDS = 0.1;
 const MAX_FRAME_SECONDS = 0.25;
-const PLAYER_RADIUS_METRES = 1.05;
 const NPC_RADIUS_METRES = 1.0;
 const NPC_MIN_BUMPER_CLEARANCE_M = 3;
 // Historically PLAYER_RADIUS + NPC_RADIUS + 4 — pinned to that value: this
@@ -129,26 +142,9 @@ const NPC_CORNER_ARC_SAMPLES = 10;
 // chord is never longer than the window, by the triangle inequality through
 // the node).
 const NPC_CORNER_MAX_ARC_STRETCH = 1.1;
-// The static world resolves against a two-circle capsule rather than the
-// single traffic disc: the visible car is ~4.4 m long, and one centre circle
-// would let the bonnet bury itself a metre deep into a facade before contact.
-const PLAYER_CAPSULE_HALF_LENGTH_M = 1.15;
-const PLAYER_CAPSULE_RADIUS_M = 1.0;
-// Below this normal approach speed a wall contact is a silent scrape (still
-// resolved, never penalised); above it a collision event is emitted.
-const STATIC_IMPACT_EVENT_MIN_MPS = 2;
-// Near-head-on contacts (approach direction mostly into the wall) rebound
-// slightly instead of sliding: an arcade "bonk" that reads as a crash without
-// ping-ponging the car around on touch controls.
-const STATIC_BONK_DOT = 0.72;
-const STATIC_BONK_MIN_MPS = 6;
-const STATIC_BONK_REBOUND_FRACTION = 0.08;
-const STATIC_BONK_REBOUND_MAX_MPS = 1.2;
-// Scraping a wall bleeds speed at this per-second rate scaled by how head-on
-// the contact is. The push-out already cancels the into-wall displacement, so
-// a shallow graze keeps most of its pace while a 45° grind slows hard —
-// applied per fixed step, it must stay a rate, never a flat factor.
-const STATIC_SCRAPE_FRICTION_PER_S = 3.5;
+// PLAYER_CAPSULE_HALF_LENGTH_M, PLAYER_CAPSULE_RADIUS_M, and every
+// STATIC_* wall-contact constant moved to simulation/playerDynamics.ts with
+// resolveStaticCollisions, the only thing that reads them.
 // Never recycle (vanish) a jammed car this close to the player; hold it visible
 // until they have moved on, so traffic never pops out of existence beside them.
 const NPC_INCIDENT_PLAYER_CLEARANCE_M = 26;
@@ -159,7 +155,6 @@ export const RUNTIME_FORWARD_VISIBILITY_DISTANCE_M = 180;
 export const RUNTIME_REAR_VISIBILITY_DISTANCE_M = 115;
 const RUNTIME_FORWARD_HALF_ANGLE_RAD = (58 * Math.PI) / 180;
 const RUNTIME_REAR_HALF_ANGLE_RAD = (42 * Math.PI) / 180;
-const STOPPED_SPEED_MPS = 0.2;
 const MAX_EVENT_HISTORY = 80;
 
 export type SimulationRuleEvent = RuleEvent;
@@ -358,7 +353,11 @@ export interface SimulationSnapshot {
   }>;
 }
 
-interface MutablePose {
+// Exported (unlike simulation.ts's other internal types) only so
+// simulation/playerDynamics.ts can reference the shape of the mutable pose
+// it operates on via a type-only back-reference — the same sanctioned
+// pattern as importing SimulationPoint/SimulationPose/TurnSignal.
+export interface MutablePose {
   x: number;
   z: number;
   heading: number;
@@ -457,99 +456,6 @@ interface RoadState {
   projection: LaneProjection | null;
   wrongWay: boolean;
   offRoad: boolean;
-}
-
-/**
- * A solid obstacle normalized for the 60 Hz narrow phase: boxes become
- * centre + explicit U/V axes (an AABB is just an axis-aligned OBB), circles
- * keep a radius, and every entry carries broad-phase reject bounds already
- * inflated by the capsule reach so the hot loop is one rectangle test.
- */
-interface StaticObstacleInternal {
-  readonly id: string;
-  readonly tag: StaticObstacleTag;
-  readonly x: number;
-  readonly z: number;
-  readonly ux: number;
-  readonly uz: number;
-  readonly halfU: number;
-  readonly halfV: number;
-  readonly radius: number;
-  readonly minX: number;
-  readonly maxX: number;
-  readonly minZ: number;
-  readonly maxZ: number;
-}
-
-const STATIC_OBSTACLE_CORRECTIONS: Readonly<Record<StaticObstacleTag, string>> = {
-  building: "Brake earlier and keep to the carriageway.",
-  landmark: "Brake earlier and keep to the carriageway.",
-  venue: "Brake earlier and keep to the carriageway.",
-  shoreline: "Follow the carriageway onto an authored bridge.",
-  parkEdge: "Enter the park through one of its gates.",
-  worldEdge: "Turn back toward the streets.",
-};
-
-function normalizeStaticObstacle(
-  obstacle: StaticObstacle,
-  inflateM: number,
-): StaticObstacleInternal {
-  if (obstacle.kind === "circle") {
-    return {
-      id: obstacle.id,
-      tag: obstacle.tag,
-      x: obstacle.x,
-      z: obstacle.z,
-      ux: 1,
-      uz: 0,
-      halfU: 0,
-      halfV: 0,
-      radius: Math.max(0, obstacle.radius),
-      minX: obstacle.x - obstacle.radius - inflateM,
-      maxX: obstacle.x + obstacle.radius + inflateM,
-      minZ: obstacle.z - obstacle.radius - inflateM,
-      maxZ: obstacle.z + obstacle.radius + inflateM,
-    };
-  }
-  if (obstacle.kind === "aabb") {
-    return {
-      id: obstacle.id,
-      tag: obstacle.tag,
-      x: (obstacle.minX + obstacle.maxX) / 2,
-      z: (obstacle.minZ + obstacle.maxZ) / 2,
-      ux: 1,
-      uz: 0,
-      halfU: Math.max(0, (obstacle.maxX - obstacle.minX) / 2),
-      halfV: Math.max(0, (obstacle.maxZ - obstacle.minZ) / 2),
-      radius: 0,
-      minX: obstacle.minX - inflateM,
-      maxX: obstacle.maxX + inflateM,
-      minZ: obstacle.minZ - inflateM,
-      maxZ: obstacle.maxZ + inflateM,
-    };
-  }
-  const axisLength = Math.hypot(obstacle.ux, obstacle.uz) || 1;
-  const ux = obstacle.ux / axisLength;
-  const uz = obstacle.uz / axisLength;
-  const reach =
-    Math.abs(ux) * obstacle.halfU + Math.abs(uz) * obstacle.halfV;
-  const reachZ =
-    Math.abs(uz) * obstacle.halfU + Math.abs(ux) * obstacle.halfV;
-  return {
-    id: obstacle.id,
-    tag: obstacle.tag,
-    x: obstacle.x,
-    z: obstacle.z,
-    ux,
-    uz,
-    halfU: Math.max(0, obstacle.halfU),
-    halfV: Math.max(0, obstacle.halfV),
-    radius: 0,
-    minX: obstacle.x - reach - inflateM,
-    maxX: obstacle.x + reach + inflateM,
-    minZ: obstacle.z - reachZ - inflateM,
-    maxZ: obstacle.z + reachZ + inflateM,
-  };
 }
 
 const RULE_COOLDOWNS: Readonly<Partial<Record<RuleCode, number>>> = {
@@ -712,12 +618,12 @@ export class SimulationCore {
   private readonly initialSeed: number;
 
   private random: SeededRandom;
-  private player: MutablePose;
-  private signedSpeedMps = 0;
-  private gear: Gear = "drive";
-  private signal: TurnSignal = "off";
-  private signalStartHeading = 0;
-  private signalAutoCancelSeconds = 0;
+  /** Player pose, speed, gear, signal, and the two accumulators
+   * `movePlayer` owns — see `simulation/playerDynamics.ts`. Assigned once
+   * in the constructor and never reassigned wholesale afterward (`reset()`
+   * and `restoreSpawnPose()` only reassign its `.player` sub-property), so
+   * it is safe for anything holding a reference to read through at any time. */
+  private readonly playerState: PlayerPhysicsState;
   private continuousInput: ContinuousInput = { throttle: 0, brake: 0, reverse: 0, steer: 0 };
   private viewHeading = 0;
   private previousActions: Record<string, boolean> = {};
@@ -735,13 +641,11 @@ export class SimulationCore {
     wrongWay: false,
     offRoad: false,
   };
-  private distanceTravelledM = 0;
   private wrongWaySeconds = 0;
   private offRoadSeconds = 0;
   private speedingSeconds = 0;
   private followingSeconds = 0;
   private passingLaneSeconds = 0;
-  private unstableControlSeconds = 0;
   private honkSeconds = 0;
   private honkSourceNpcId: string | null = null;
   private playerHornSeconds = 0;
@@ -901,7 +805,19 @@ export class SimulationCore {
     );
 
     this.random = new SeededRandom(this.initialSeed);
-    this.player = { ...spawn };
+    // Matches the pre-split field initializers exactly (signalStartHeading
+    // was `= 0`, not spawn-derived) — inert either way, since reset() below
+    // immediately overwrites every one of these except `player` itself.
+    this.playerState = {
+      player: { ...spawn },
+      signedSpeedMps: 0,
+      gear: "drive",
+      signal: "off",
+      signalStartHeading: 0,
+      signalAutoCancelSeconds: 0,
+      distanceTravelledM: 0,
+      unstableControlSeconds: 0,
+    };
     this.reset();
   }
 
@@ -939,15 +855,15 @@ export class SimulationCore {
 
   /** Selects the other gear, but only while the vehicle is stopped. */
   toggleGear(): boolean {
-    return this.selectGear(this.gear === "drive" ? "reverse" : "drive");
+    return this.selectGear(this.playerState.gear === "drive" ? "reverse" : "drive");
   }
 
   selectGear(nextGear: Gear): boolean {
-    if (Math.abs(this.signedSpeedMps) > STOPPED_SPEED_MPS) {
+    if (Math.abs(this.playerState.signedSpeedMps) > STOPPED_SPEED_MPS) {
       return false;
     }
-    this.gear = nextGear;
-    this.signedSpeedMps = 0;
+    this.playerState.gear = nextGear;
+    this.playerState.signedSpeedMps = 0;
     return true;
   }
 
@@ -955,14 +871,14 @@ export class SimulationCore {
   reset(): SimulationSnapshot {
     if (this.disposed) return this.getSnapshot();
     this.random = new SeededRandom(this.initialSeed);
-    this.player = { ...this.config.spawn };
-    this.signedSpeedMps = 0;
-    this.gear = "drive";
-    this.signal = "off";
-    this.signalStartHeading = this.player.heading;
-    this.signalAutoCancelSeconds = 0;
+    this.playerState.player = { ...this.config.spawn };
+    this.playerState.signedSpeedMps = 0;
+    this.playerState.gear = "drive";
+    this.playerState.signal = "off";
+    this.playerState.signalStartHeading = this.playerState.player.heading;
+    this.playerState.signalAutoCancelSeconds = 0;
     this.continuousInput = { throttle: 0, brake: 0, reverse: 0, steer: 0 };
-    this.viewHeading = this.player.heading;
+    this.viewHeading = this.playerState.player.heading;
     this.previousActions = {};
     this.accumulatorSeconds = 0;
     this.trafficDecisionAccumulator = 0;
@@ -975,13 +891,13 @@ export class SimulationCore {
     this.npcDigitCache.clear();
     this.events = [];
     this.ruleCooldowns.clear();
-    this.distanceTravelledM = 0;
+    this.playerState.distanceTravelledM = 0;
     this.wrongWaySeconds = 0;
     this.offRoadSeconds = 0;
     this.speedingSeconds = 0;
     this.followingSeconds = 0;
     this.passingLaneSeconds = 0;
-    this.unstableControlSeconds = 0;
+    this.playerState.unstableControlSeconds = 0;
     this.honkSeconds = 0;
     this.honkSourceNpcId = null;
     this.playerHornSeconds = 0;
@@ -1004,11 +920,11 @@ export class SimulationCore {
    * is actually on.
    */
   setPlayerPose(pose: SimulationPose, speedMps = 0): void {
-    this.player.x = pose.x;
-    this.player.z = pose.z;
-    this.player.heading = wrapAngle(pose.heading);
-    this.signedSpeedMps = speedMps;
-    this.viewHeading = this.player.heading;
+    this.playerState.player.x = pose.x;
+    this.playerState.player.z = pose.z;
+    this.playerState.player.heading = wrapAngle(pose.heading);
+    this.playerState.signedSpeedMps = speedMps;
+    this.viewHeading = this.playerState.player.heading;
     this.updateRoadState();
   }
 
@@ -1039,7 +955,7 @@ export class SimulationCore {
     evidence: Readonly<Record<string, string | number | boolean>> = {},
   ): boolean {
     if (this.disposed || this.status !== "running") return false;
-    this.signedSpeedMps *= clamp(speedScale, 0, 1);
+    this.playerState.signedSpeedMps *= clamp(speedScale, 0, 1);
     this.emitEvent({
       code: "collision",
       correction,
@@ -1072,18 +988,18 @@ export class SimulationCore {
       scenarioClock: this.config.scenarioClock
         ? { ...this.config.scenarioClock }
         : null,
-      speedDisplay: this.toDisplaySpeed(Math.abs(this.signedSpeedMps)),
+      speedDisplay: this.toDisplaySpeed(Math.abs(this.playerState.signedSpeedMps)),
       player: {
-        x: this.player.x,
-        z: this.player.z,
-        heading: this.player.heading,
-        speedMps: Math.abs(this.signedSpeedMps),
-        signedSpeedMps: this.signedSpeedMps,
-        gear: this.gear,
-        signal: this.signal,
+        x: this.playerState.player.x,
+        z: this.playerState.player.z,
+        heading: this.playerState.player.heading,
+        speedMps: Math.abs(this.playerState.signedSpeedMps),
+        signedSpeedMps: this.playerState.signedSpeedMps,
+        gear: this.playerState.gear,
+        signal: this.playerState.signal,
         hornActive: this.playerHornSeconds > 0,
-        canChangeGear: Math.abs(this.signedSpeedMps) <= STOPPED_SPEED_MPS,
-        distanceTravelledM: this.distanceTravelledM,
+        canChangeGear: Math.abs(this.playerState.signedSpeedMps) <= STOPPED_SPEED_MPS,
+        distanceTravelledM: this.playerState.distanceTravelledM,
       },
       road: {
         laneId: projection?.lane.id ?? null,
@@ -1144,7 +1060,7 @@ export class SimulationCore {
     this.elapsedSeconds += deltaSeconds;
     this.updateTimers(deltaSeconds);
 
-    const oldPlayer = { ...this.player };
+    const oldPlayer = { ...this.playerState.player };
     const previousProjection = this.roadNetwork.projectToRoad(oldPlayer.x, oldPlayer.z);
     this.movePlayer(deltaSeconds);
 
@@ -1183,16 +1099,14 @@ export class SimulationCore {
     if (action("selectDrive")) this.selectGear("drive");
     if (action("selectReverse")) this.selectGear("reverse");
     if (action("toggleGear")) this.toggleGear();
-    if (action("signalLeft")) this.setSignal(this.signal === "left" ? "off" : "left");
-    if (action("signalRight")) this.setSignal(this.signal === "right" ? "off" : "right");
+    if (action("signalLeft")) this.setSignal(this.playerState.signal === "left" ? "off" : "left");
+    if (action("signalRight")) this.setSignal(this.playerState.signal === "right" ? "off" : "right");
     if (action("cancelSignal")) this.setSignal("off");
     if (action("horn")) this.playerHornSeconds = 0.35;
   }
 
   private setSignal(signal: TurnSignal): void {
-    this.signal = signal;
-    this.signalStartHeading = this.player.heading;
-    this.signalAutoCancelSeconds = 0;
+    setPlayerSignal(this.playerState, signal);
   }
 
   private clearActiveInput(): void {
@@ -1201,114 +1115,15 @@ export class SimulationCore {
   }
 
   private movePlayer(deltaSeconds: number): void {
-    const forward = this.continuousInput.throttle;
-    const backward = this.continuousInput.reverse;
-    const speed = this.signedSpeedMps;
-
-    // Each pedal states a direction the driver wants to travel. Pressed against
-    // the way the car is already rolling it is a brake; once the car has come to
-    // rest the same pedal pulls away that way. So holding the reverse pedal
-    // brings the car to a stop and then backs it up, with no gear to select —
-    // and the brake pedal proper still only ever slows the car down.
-    const opposed =
-      (speed > STOPPED_SPEED_MPS ? backward : 0) +
-      (speed < -STOPPED_SPEED_MPS ? forward : 0);
-    const brake = Math.max(this.continuousInput.brake, Math.min(1, opposed));
-    const drive =
-      speed > STOPPED_SPEED_MPS
-        ? forward
-        : speed < -STOPPED_SPEED_MPS
-          ? -backward
-          : forward - backward;
-
-    if (brake > 0) {
-      this.signedSpeedMps = moveTowards(
-        this.signedSpeedMps,
-        0,
-        (this.config.brakeBaseMps2 + brake * this.config.brakeStrengthMps2) *
-          deltaSeconds,
-      );
-    } else {
-      const acceleration =
-        drive >= 0
-          ? this.config.forwardAccelMps2
-          : this.config.reverseAccelMps2;
-      this.signedSpeedMps += drive * acceleration * deltaSeconds;
-      const drag =
-        this.config.dragBaseMps2 +
-        Math.abs(this.signedSpeedMps) * this.config.dragPerMps;
-      this.signedSpeedMps = moveTowards(
-        this.signedSpeedMps,
-        0,
-        drag * deltaSeconds,
-      );
-    }
-
-    this.signedSpeedMps = clamp(
-      this.signedSpeedMps,
-      -this.config.maxReverseSpeedMps,
-      this.config.maxForwardSpeedMps,
+    movePlayerImpl(
+      this.playerState,
+      deltaSeconds,
+      this.continuousInput,
+      this.config,
+      this.staticObstacles,
+      this.status,
+      (details) => this.emitEvent(details),
     );
-    if (Math.abs(this.signedSpeedMps) < 0.015 && drive === 0) {
-      this.signedSpeedMps = 0;
-    }
-    // The gear is now a readout of which way the car is actually travelling
-    // rather than something the driver selects. It latches, so a car rolling to
-    // a halt keeps reading R until it next pulls away forwards.
-    if (this.signedSpeedMps > STOPPED_SPEED_MPS) this.gear = "drive";
-    else if (this.signedSpeedMps < -STOPPED_SPEED_MPS) this.gear = "reverse";
-
-    const absoluteSpeed = Math.abs(this.signedSpeedMps);
-    if (absoluteSpeed > 0.04) {
-      const steeringAuthority = Math.min(
-        1,
-        absoluteSpeed / this.config.steerAuthoritySpeedMps,
-      );
-      const reverseSteering = this.signedSpeedMps < 0 ? -1 : 1;
-      this.player.heading = wrapAngle(
-        this.player.heading +
-          this.continuousInput.steer *
-            reverseSteering *
-            (this.config.steerBaseRate +
-              steeringAuthority * this.config.steerAuthorityRate) *
-            deltaSeconds,
-      );
-    }
-    const travelled = this.signedSpeedMps * deltaSeconds;
-    this.player.x += Math.sin(this.player.heading) * travelled;
-    this.player.z += Math.cos(this.player.heading) * travelled;
-    this.distanceTravelledM += Math.abs(travelled);
-    this.resolveStaticCollisions(true);
-
-    const lateralAcceleration =
-      (Math.abs(this.continuousInput.steer) * absoluteSpeed * absoluteSpeed) / 3.1;
-    if (lateralAcceleration > this.config.instabilityLateralMps2) {
-      this.unstableControlSeconds += deltaSeconds;
-      this.signedSpeedMps *= 1 - 0.12 * deltaSeconds;
-    } else {
-      this.unstableControlSeconds = Math.max(
-        0,
-        this.unstableControlSeconds - deltaSeconds * 2,
-      );
-    }
-    if (this.unstableControlSeconds >= 0.7) {
-      this.emitEvent({
-        code: "observation",
-        correction: "Ease off the accelerator before making a strong steering input.",
-        evidence: { lateralAccelerationMps2: Math.round(lateralAcceleration * 10) / 10 },
-      });
-      this.unstableControlSeconds = 0;
-    }
-
-    if (this.signal !== "off") {
-      if (Math.abs(angleDifference(this.player.heading, this.signalStartHeading)) > 0.48) {
-        this.signalAutoCancelSeconds = Math.max(this.signalAutoCancelSeconds, 1.1);
-      }
-      if (this.signalAutoCancelSeconds > 0) {
-        this.signalAutoCancelSeconds -= deltaSeconds;
-        if (this.signalAutoCancelSeconds <= 0) this.setSignal("off");
-      }
-    }
   }
 
   /**
@@ -1323,141 +1138,15 @@ export class SimulationCore {
    * Allocation-free: everything below is scalar arithmetic on locals.
    */
   private resolveStaticCollisions(allowEvents: boolean): void {
-    if (!this.staticObstacles.length) return;
-    const forwardX = Math.sin(this.player.heading);
-    const forwardZ = Math.cos(this.player.heading);
-    let maxApproachMps = 0;
-    let hitTag: StaticObstacleTag | null = null;
-    let hitId = "";
-
-    for (let iteration = 0; iteration < 3; iteration += 1) {
-      let deepest = 0;
-      let normalX = 0;
-      let normalZ = 0;
-      const px = this.player.x;
-      const pz = this.player.z;
-      for (const obstacle of this.staticObstacles) {
-        if (
-          px < obstacle.minX ||
-          px > obstacle.maxX ||
-          pz < obstacle.minZ ||
-          pz > obstacle.maxZ
-        ) {
-          continue;
-        }
-        for (let end = -1; end <= 1; end += 2) {
-          const cx = px + forwardX * this.config.playerCapsuleHalfLengthM * end;
-          const cz = pz + forwardZ * this.config.playerCapsuleHalfLengthM * end;
-          const dx = cx - obstacle.x;
-          const dz = cz - obstacle.z;
-          let penetration: number;
-          let nx: number;
-          let nz: number;
-          if (obstacle.radius > 0) {
-            const distance = Math.hypot(dx, dz);
-            penetration =
-              obstacle.radius + this.config.playerCapsuleRadiusM - distance;
-            if (penetration <= deepest) continue;
-            if (distance > 1e-6) {
-              nx = dx / distance;
-              nz = dz / distance;
-            } else {
-              nx = forwardX;
-              nz = forwardZ;
-            }
-          } else {
-            const du = dx * obstacle.ux + dz * obstacle.uz;
-            // V is the U axis rotated a quarter turn: (uz, -ux).
-            const dv = dx * obstacle.uz - dz * obstacle.ux;
-            const insideU = obstacle.halfU - Math.abs(du);
-            const insideV = obstacle.halfV - Math.abs(dv);
-            if (insideU > 0 && insideV > 0) {
-              // Centre inside the box: exit along the shallower face.
-              if (insideU < insideV) {
-                const sign = du >= 0 ? 1 : -1;
-                nx = obstacle.ux * sign;
-                nz = obstacle.uz * sign;
-                penetration = insideU + this.config.playerCapsuleRadiusM;
-              } else {
-                const sign = dv >= 0 ? 1 : -1;
-                nx = obstacle.uz * sign;
-                nz = -obstacle.ux * sign;
-                penetration = insideV + this.config.playerCapsuleRadiusM;
-              }
-            } else {
-              const qu = Math.max(-obstacle.halfU, Math.min(obstacle.halfU, du));
-              const qv = Math.max(-obstacle.halfV, Math.min(obstacle.halfV, dv));
-              const gapX = dx - (obstacle.ux * qu + obstacle.uz * qv);
-              const gapZ = dz - (obstacle.uz * qu - obstacle.ux * qv);
-              const distance = Math.hypot(gapX, gapZ);
-              penetration = this.config.playerCapsuleRadiusM - distance;
-              if (penetration <= deepest) continue;
-              if (distance > 1e-6) {
-                nx = gapX / distance;
-                nz = gapZ / distance;
-              } else {
-                nx = forwardX;
-                nz = forwardZ;
-              }
-            }
-          }
-          if (penetration > deepest) {
-            deepest = penetration;
-            normalX = nx;
-            normalZ = nz;
-            hitTag = obstacle.tag;
-            hitId = obstacle.id;
-          }
-        }
-      }
-      if (deepest <= 0) break;
-
-      this.player.x += normalX * deepest;
-      this.player.z += normalZ * deepest;
-      const travelSign = this.signedSpeedMps >= 0 ? 1 : -1;
-      const directionDot =
-        (forwardX * normalX + forwardZ * normalZ) * travelSign;
-      if (directionDot < 0) {
-        const approachMps = -directionDot * Math.abs(this.signedSpeedMps);
-        maxApproachMps = Math.max(maxApproachMps, approachMps);
-        if (-directionDot >= STATIC_BONK_DOT) {
-          this.signedSpeedMps =
-            approachMps >= STATIC_BONK_MIN_MPS
-              ? -travelSign *
-                Math.min(
-                  STATIC_BONK_REBOUND_MAX_MPS,
-                  approachMps * STATIC_BONK_REBOUND_FRACTION,
-                )
-              : // Pressing head-on below bonk speed: the wall wins outright.
-                this.signedSpeedMps * (1 + directionDot);
-        } else {
-          this.signedSpeedMps *= Math.max(
-            0,
-            1 +
-              STATIC_SCRAPE_FRICTION_PER_S *
-                directionDot *
-                FIXED_STEP_SECONDS,
-          );
-        }
-      }
-    }
-
-    if (
-      allowEvents &&
-      hitTag &&
-      maxApproachMps >= STATIC_IMPACT_EVENT_MIN_MPS &&
-      this.status === "running"
-    ) {
-      this.emitEvent({
-        code: "collision",
-        correction: STATIC_OBSTACLE_CORRECTIONS[hitTag],
-        evidence: {
-          obstacle: hitTag,
-          obstacleId: hitId,
-          impactSpeedMps: Math.round(maxApproachMps * 10) / 10,
-        },
-      });
-    }
+    resolveStaticCollisionsImpl(
+      this.playerState,
+      this.config,
+      this.staticObstacles,
+      allowEvents,
+      this.status,
+      (details) => this.emitEvent(details),
+      FIXED_STEP_SECONDS,
+    );
   }
 
   private spawnNpcs(): void {
@@ -1552,12 +1241,12 @@ export class SimulationCore {
     if (!lane) return false;
     const pose = this.roadNetwork.pointOnLane(lane, gate.distance);
     const desiredSpeedMps = gate.desiredSpeedMps ?? npc.desiredSpeedMps;
-    const playerDistanceM = Math.sqrt(distanceSquared(pose, this.player));
+    const playerDistanceM = Math.sqrt(distanceSquared(pose, this.playerState.player));
     if (playerDistanceM < INITIAL_CROSS_LANE_CLEARANCE_M) return false;
     if (!initial && playerDistanceM < this.config.minRuntimeSpawnDistanceM) return false;
     if (!initial && this.isInsidePlayerVisibilityEnvelope(pose)) return false;
 
-    const playerProjection = this.roadNetwork.projectToRoad(this.player.x, this.player.z);
+    const playerProjection = this.roadNetwork.projectToRoad(this.playerState.player.x, this.playerState.player.z);
     if (playerProjection?.lane.id === lane.id && playerProjection.distance < lane.width) {
       const aheadOfPlayer = this.roadNetwork.distanceAhead(
         lane,
@@ -1586,8 +1275,8 @@ export class SimulationCore {
       this.config.playerRadiusM + NPC_RADIUS_METRES + 1.5;
     if (
       distanceToSegmentSquared(
-        this.player.x,
-        this.player.z,
+        this.playerState.player.x,
+        this.playerState.player.z,
         pose.x,
         pose.z,
         predictedPose.x,
@@ -1623,8 +1312,8 @@ export class SimulationCore {
   }
 
   private isInsidePlayerVisibilityEnvelope(point: SimulationPoint): boolean {
-    const dx = point.x - this.player.x;
-    const dz = point.z - this.player.z;
+    const dx = point.x - this.playerState.player.x;
+    const dz = point.z - this.playerState.player.z;
     const distance = Math.hypot(dx, dz);
     if (distance <= Number.EPSILON) return true;
     const bearing = Math.atan2(dx, dz);
@@ -1636,7 +1325,7 @@ export class SimulationCore {
       return true;
     }
     const rearAngle = Math.abs(
-      angleDifference(bearing, wrapAngle(this.player.heading + Math.PI)),
+      angleDifference(bearing, wrapAngle(this.playerState.player.heading + Math.PI)),
     );
     return (
       distance <= RUNTIME_REAR_VISIBILITY_DISTANCE_M &&
@@ -2213,7 +1902,7 @@ export class SimulationCore {
       npc.jamSeconds += deltaSeconds;
       if (
         npc.jamSeconds >= NPC_INCIDENT_STUCK_SECONDS &&
-        distanceSquared(npc, this.player) >
+        distanceSquared(npc, this.playerState.player) >
           NPC_INCIDENT_PLAYER_CLEARANCE_M * NPC_INCIDENT_PLAYER_CLEARANCE_M
       ) {
         this.deactivateNpc(npc);
@@ -2373,7 +2062,7 @@ export class SimulationCore {
   ): boolean {
     const playerCheckRadius = this.playerTrafficClearanceM() + travel + 5;
     if (
-      distanceSquared(npc, this.player) >
+      distanceSquared(npc, this.playerState.player) >
       playerCheckRadius * playerCheckRadius
     ) {
       return true;
@@ -2384,7 +2073,7 @@ export class SimulationCore {
         this.isSweptNpcClearOfPoint(
           npc,
           candidate,
-          this.player,
+          this.playerState.player,
           this.playerTrafficClearanceM(),
         ),
     );
@@ -2506,14 +2195,14 @@ export class SimulationCore {
       }
     }
     return (
-      distanceSquared(this.player, targetStart) >=
+      distanceSquared(this.playerState.player, targetStart) >=
       (this.config.playerRadiusM + NPC_RADIUS_METRES + 4) ** 2
     );
   }
 
   private monitorRoadRules(deltaSeconds: number): void {
     const projection = this.roadState.projection;
-    const speed = Math.abs(this.signedSpeedMps);
+    const speed = Math.abs(this.playerState.signedSpeedMps);
 
     if (this.roadState.wrongWay && speed > 1.4) {
       this.wrongWaySeconds += deltaSeconds;
@@ -2568,13 +2257,13 @@ export class SimulationCore {
 
   private checkBoxJunctions(previousPlayer: SimulationPoint): void {
     const projection = this.roadState.projection;
-    if (!projection || Math.abs(this.signedSpeedMps) < 0.5) return;
+    if (!projection || Math.abs(this.playerState.signedSpeedMps) < 0.5) return;
 
     for (const junction of this.boxJunctions) {
       if (!junction.laneIds.includes(projection.lane.id)) continue;
       const entered =
         !isPointInPolygon(previousPlayer, junction.polygon) &&
-        isPointInPolygon(this.player, junction.polygon);
+        isPointInPolygon(this.playerState.player, junction.polygon);
       if (!entered) continue;
 
       const blockingNpc = this.findBlockedBoxExit(junction, projection);
@@ -2589,7 +2278,7 @@ export class SimulationCore {
           laneId: projection.lane.id,
           blockingVehicleId: blockingNpc.id,
           exitClearanceM: Math.round(clearance * 10) / 10,
-          speedMps: Math.round(Math.abs(this.signedSpeedMps) * 10) / 10,
+          speedMps: Math.round(Math.abs(this.playerState.signedSpeedMps) * 10) / 10,
         },
       });
     }
@@ -2629,7 +2318,7 @@ export class SimulationCore {
         Boolean(clock) &&
         projection?.lane.id === restriction.laneId &&
         projection.distance <= projection.lane.width / 2 + 0.75 &&
-        Math.abs(this.signedSpeedMps) >= 0.8 &&
+        Math.abs(this.playerState.signedSpeedMps) >= 0.8 &&
         isLaneRestrictionActive(restriction, clock);
       const sustainedSeconds = usingRestrictedLane
         ? (this.restrictedLaneSeconds.get(restriction.id) ?? 0) + deltaSeconds
@@ -2664,7 +2353,7 @@ export class SimulationCore {
     projection: LaneProjection,
     deltaSeconds: number,
   ): void {
-    const speed = Math.abs(this.signedSpeedMps);
+    const speed = Math.abs(this.playerState.signedSpeedMps);
     if (speed < 2 || projection.distance > projection.lane.width) {
       this.followingSeconds = 0;
       return;
@@ -2691,7 +2380,7 @@ export class SimulationCore {
     projection: LaneProjection,
     deltaSeconds: number,
   ): void {
-    const speed = Math.abs(this.signedSpeedMps);
+    const speed = Math.abs(this.playerState.signedSpeedMps);
     const lane = projection.lane;
     const follower = this.followingNpc(lane, projection.distanceAlong);
     const adjacent = lane.adjacentLaneId
@@ -2739,7 +2428,7 @@ export class SimulationCore {
       currentProjection.lane.id,
     );
     if (!laneStopLines) return;
-    const speed = Math.abs(this.signedSpeedMps);
+    const speed = Math.abs(this.playerState.signedSpeedMps);
     for (const stopLine of laneStopLines) {
       const distanceAhead = stopLine.distance - currentProjection.distanceAlong;
       if (distanceAhead >= 0 && distanceAhead <= 14) {
@@ -2815,11 +2504,11 @@ export class SimulationCore {
         }
       }
 
-      if (stopLine.turnDirection && this.signal !== stopLine.turnDirection) {
+      if (stopLine.turnDirection && this.playerState.signal !== stopLine.turnDirection) {
         this.emitEvent({
           code: "missing_indicator",
           correction: "Signal early enough for other road users to understand your intention.",
-          evidence: { expectedSignal: stopLine.turnDirection, actualSignal: this.signal },
+          evidence: { expectedSignal: stopLine.turnDirection, actualSignal: this.playerState.signal },
         });
       }
       this.stopApproachSpeeds.delete(stopLine.id);
@@ -2832,8 +2521,8 @@ export class SimulationCore {
       if (!npc.active) continue;
       const relativeOldX = oldPlayer.x - npc.previousX;
       const relativeOldZ = oldPlayer.z - npc.previousZ;
-      const relativeNewX = this.player.x - npc.x;
-      const relativeNewZ = this.player.z - npc.z;
+      const relativeNewX = this.playerState.player.x - npc.x;
+      const relativeNewZ = this.playerState.player.z - npc.z;
       const sweptDistanceSquared = distanceToSegmentSquared(
         0,
         0,
@@ -2845,42 +2534,42 @@ export class SimulationCore {
       if (sweptDistanceSquared < collisionRadius * collisionRadius) {
         if (this.isNpcFaultCollision(npc)) {
           this.deactivateNpc(npc);
-          this.signedSpeedMps = 0;
+          this.playerState.signedSpeedMps = 0;
           continue;
         }
         const evidence = {
           vehicleId: npc.id,
           laneId: npc.laneId,
           npcSpeedMps: Math.round(npc.speedMps * 10) / 10,
-          impactSpeedMps: Math.round(Math.abs(this.signedSpeedMps) * 10) / 10,
+          impactSpeedMps: Math.round(Math.abs(this.playerState.signedSpeedMps) * 10) / 10,
         };
         {
           // A crash is physical, not terminal. Separate the cars,
           // scrub the player's speed (a hard hit bonks back a touch), and sit
           // the struck car knocked askew for a few seconds; the ordinary jam
           // machinery clears any pile-up that forms behind it.
-          const dx = this.player.x - npc.x;
-          const dz = this.player.z - npc.z;
+          const dx = this.playerState.player.x - npc.x;
+          const dz = this.playerState.player.z - npc.z;
           const distance = Math.hypot(dx, dz);
           const nx =
-            distance > 1e-6 ? dx / distance : Math.sin(this.player.heading);
+            distance > 1e-6 ? dx / distance : Math.sin(this.playerState.player.heading);
           const nz =
-            distance > 1e-6 ? dz / distance : Math.cos(this.player.heading);
+            distance > 1e-6 ? dz / distance : Math.cos(this.playerState.player.heading);
           const overlap = collisionRadius - distance;
           if (overlap > 0) {
-            this.player.x += nx * overlap;
-            this.player.z += nz * overlap;
+            this.playerState.player.x += nx * overlap;
+            this.playerState.player.z += nz * overlap;
           }
-          const closingMps = Math.abs(this.signedSpeedMps) + npc.speedMps;
-          const travelSign = this.signedSpeedMps >= 0 ? 1 : -1;
-          this.signedSpeedMps =
+          const closingMps = Math.abs(this.playerState.signedSpeedMps) + npc.speedMps;
+          const travelSign = this.playerState.signedSpeedMps >= 0 ? 1 : -1;
+          this.playerState.signedSpeedMps =
             closingMps >= STATIC_BONK_MIN_MPS
               ? -travelSign *
                 Math.min(
                   STATIC_BONK_REBOUND_MAX_MPS,
                   closingMps * STATIC_BONK_REBOUND_FRACTION,
                 )
-              : this.signedSpeedMps * 0.25;
+              : this.playerState.signedSpeedMps * 0.25;
           npc.struckUntilTick = this.tick + NPC_STRUCK_TICKS;
           npc.speedMps = 0;
           npc.targetSpeedMps = 0;
@@ -2908,7 +2597,7 @@ export class SimulationCore {
       return true;
     }
     if (
-      Math.abs(this.signedSpeedMps) > STOPPED_SPEED_MPS ||
+      Math.abs(this.playerState.signedSpeedMps) > STOPPED_SPEED_MPS ||
       this.roadState.offRoad ||
       this.roadState.wrongWay
     ) {
@@ -2921,22 +2610,22 @@ export class SimulationCore {
   }
 
   private updateRoadState(): void {
-    const projection = this.roadNetwork.projectToRoad(this.player.x, this.player.z);
+    const projection = this.roadNetwork.projectToRoad(this.playerState.player.x, this.playerState.player.z);
     const withinBounds =
-      this.player.x >= this.config.bounds.minX &&
-      this.player.x <= this.config.bounds.maxX &&
-      this.player.z >= this.config.bounds.minZ &&
-      this.player.z <= this.config.bounds.maxZ;
+      this.playerState.player.x >= this.config.bounds.minX &&
+      this.playerState.player.x <= this.config.bounds.maxX &&
+      this.playerState.player.z >= this.config.bounds.minZ &&
+      this.playerState.player.z <= this.config.bounds.maxZ;
     if (!projection) {
       this.roadState = { projection: null, wrongWay: false, offRoad: true };
       return;
     }
     const effectiveHeading =
-      this.signedSpeedMps < -STOPPED_SPEED_MPS
-        ? wrapAngle(this.player.heading + Math.PI)
-        : this.player.heading;
+      this.playerState.signedSpeedMps < -STOPPED_SPEED_MPS
+        ? wrapAngle(this.playerState.player.heading + Math.PI)
+        : this.playerState.player.heading;
     const wrongWay =
-      Math.abs(this.signedSpeedMps) > 1.2 &&
+      Math.abs(this.playerState.signedSpeedMps) > 1.2 &&
       Math.abs(angleDifference(effectiveHeading, projection.heading)) > Math.PI / 2;
     const allowedDistance = projection.lane.width / 2 + 2.1;
     this.roadState = {
@@ -3102,21 +2791,21 @@ export class SimulationCore {
 
 
   private restoreSpawnPose(): void {
-    this.player = { ...this.config.spawn };
-    this.signedSpeedMps = 0;
-    this.gear = "drive";
-    this.signal = "off";
-    this.signalStartHeading = this.player.heading;
-    this.signalAutoCancelSeconds = 0;
+    this.playerState.player = { ...this.config.spawn };
+    this.playerState.signedSpeedMps = 0;
+    this.playerState.gear = "drive";
+    this.playerState.signal = "off";
+    this.playerState.signalStartHeading = this.playerState.player.heading;
+    this.playerState.signalAutoCancelSeconds = 0;
     this.continuousInput = { throttle: 0, brake: 0, reverse: 0, steer: 0 };
-    this.viewHeading = this.player.heading;
+    this.viewHeading = this.playerState.player.heading;
     this.accumulatorSeconds = 0;
     this.wrongWaySeconds = 0;
     this.offRoadSeconds = 0;
     this.speedingSeconds = 0;
     this.followingSeconds = 0;
     this.passingLaneSeconds = 0;
-    this.unstableControlSeconds = 0;
+    this.playerState.unstableControlSeconds = 0;
     this.honkSeconds = 0;
     this.honkSourceNpcId = null;
     this.playerHornSeconds = 0;
