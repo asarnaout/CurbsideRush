@@ -180,7 +180,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 87,
+    mirrorCandidates: 88,
     mirrorDrawn: 73,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
