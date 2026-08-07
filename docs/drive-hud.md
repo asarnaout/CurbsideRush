@@ -1,8 +1,8 @@
 # The drive screen: layers, HUD, touch controls and both maps
 
-Read this before touching `DriveHud.tsx`, `TouchDriveControls.tsx`,
-`MinimapCanvas.tsx`, `ExpandedMap.tsx`, or anything that positions an overlay on
-the drive screen.
+Read this before touching `DriveHud.tsx` (or the `driveHud/` modules it
+re-exports), `TouchDriveControls.tsx`, `MinimapCanvas.tsx`, `ExpandedMap.tsx`,
+or anything positioning an overlay on the drive screen.
 
 ## One z-order, spanning two files
 
@@ -32,10 +32,15 @@ added below it on `action` would silently cover ACCEPT. It does **not** outrank
 `ExpandedMap`, also on `action`: see the map's own section for why that
 collision does not exist.
 
-## `DriveHud.tsx` is props-pure
+## `DriveHud.tsx` is a barrel over `driveHud/`, and every module is props-pure
 
-No Babylon import, so `driveHud.test.tsx` renders it in jsdom; `SideSwapApp`
-computes every string it shows.
+`DriveHud.tsx` holds no implementation (#290) — it re-exports eight
+`driveHud/*.tsx` modules (tokens, navCard, dayTimer, speed, money, alerts,
+offer, cornerButton), split along measured coupling rather than this doc's
+section layout, so grep for a symbol rather than guessing its file from
+subject matter; every importer still uses `./game/DriveHud` unchanged. No
+module has a Babylon import, so `driveHud.test.tsx` renders all of them in
+jsdom; `SideSwapApp` computes every string they show.
 
 **One set of components serves both form factors, from two comps.** Desktop is a
 fixed `HUD_DESIGN_WIDTH` (1920) × 1080 frame scaled whole (`resolveHudScale`,
@@ -50,10 +55,9 @@ steps); on a phone it is the pedals, so the width is derived from
 `TOUCH_PEDAL_ROW_PX` rather than copied — resizing BRAKE cannot then leave the
 card overhanging. `OFFER_TOP_OFFSET_PX` scales with `resolveHudScale` for the
 same reason: 150 px of desktop clearance closes as the window narrows, and a
-fixed offset would put the card on the map.
-
-Only the offer differs in kind. `DriveOfferBar` lands in the minimap's slot and
-dims the map, because there is nowhere else on a phone for something that size.
+fixed offset would put the card on the map. Only the offer differs in kind.
+`DriveOfferBar` lands in the minimap's slot and dims the map, because there
+is nowhere else on a phone for something that size.
 **Its height comes from the slot between the button rail and the pedals, never
 from the comp**: the comp is drawn on a 400 px frame, the shortest landscape phone
 the rail budget admits is 320, and Safari with toolbars leaves ~343 — below
@@ -87,19 +91,17 @@ suggests. The edge bar is never gated on it — it spans the viewport at any wid
 
 For the same reason the phone's label drops `DAY n` and hangs off the *right* of
 its block: it is the widest thing there and it points at that rail. Which day it
-is survives in the day-title card and the ledger.
-
-`DriveDayEdge` is the one HUD element `resolveHudScale` does not touch. It is
-anchored to the viewport's edges rather than laid out in the comp's frame, so
-scaling it would leave a gap at one end — which also means its height is the one
-number in `DAY_TIMER_METRICS` already in real screen pixels.
+is survives in the day-title card and the ledger. `DriveDayEdge` itself is the
+one HUD element `resolveHudScale` does not touch: it is anchored to the
+viewport's edges rather than laid out in the comp's frame, so scaling it would
+leave a gap at one end — which also means its height is the one number in
+`DAY_TIMER_METRICS` already in real screen pixels.
 
 ## The touch layout is one budget split across two files
 
 `TouchDriveControls.tsx` has **no Babylon import**, so
-`tests/touchDriveControls.test.tsx` can render it in jsdom.
-
-A landscape phone is ~343 px tall, not the ~390 the arithmetic wants.
+`tests/touchDriveControls.test.tsx` can render it in jsdom. A landscape phone
+is ~343 px tall, not the ~390 the arithmetic wants.
 `TOUCH_TOP_RAIL_PX` / `TOUCH_MINIMAP_PX` / `TOUCH_PEDAL_BLOCK_PX` /
 `TOUCH_LEFT_RAIL_PX` are **exported** because `DriveScreen.tsx` places the status
 panel and minimap against them, and the rail arithmetic is asserted in
@@ -123,15 +125,14 @@ visible slider is an affordance drawn *inside* the drag region, not the target.*
 The widget fits the whole world only while the world is small: past
 `MINIMAP_FOLLOW_SPAN_M` (`minimap.ts`, 500 m) it keeps its scale and **scrolls**
 instead, blitting the window the car sits in the middle of out of a sheet
-rasterised once for the whole world. **Every shipped city is over the span, so the
-widget always scrolls.**
-
-Roads draw as translucent strips floored at a share of the widget
-(`minimapRoadFloorPx`, 5.8%), not at true scale, where a 10.4 m street would be
-under 2 px. At the shipped follow span that floor governs *every* authored road
-(beating it takes a carriageway over ~31 m; the widest authored anywhere is 25 m),
-so streets of different widths deliberately draw alike, and crossings brighten
-purely from the strips overlapping — there is no junction pass.
+rasterised once for the whole world. **Every shipped city is over the span, so
+the widget always scrolls.** Roads draw as translucent strips floored at a
+share of the widget (`minimapRoadFloorPx`, 5.8%), not at true scale, where a
+10.4 m street would be under 2 px. At the shipped follow span that floor
+governs *every* authored road (beating it takes a carriageway over ~31 m; the
+widest authored anywhere is 25 m), so streets of different widths deliberately
+draw alike, and crossings brighten purely from the strips overlapping — there
+is no junction pass.
 
 ## The whole-city map (`ExpandedMap`, opened with M)
 
@@ -174,12 +175,11 @@ pickup's name is sliced in half by the line under it. Hence `dense`, a *shorter*
 card rather than a smaller one: same type, minus the pickup name, the dropoff and
 the detour rail, all of which the map it stands on already shows; the tip drops
 from beside the pay to the meta line. `DriveOfferBar` never sets it — out on the
-road there is no map to read the pickup off.
-
-A landscape phone used to be what bought `dense`, at 174 px of column against the
-184 the comp then wanted. **It no longer is:** the comp is 153, so a phone keeps
-the whole card *and* the legend, and only a letterbox city (very wide, very
-shallow) still goes dense — do not delete it for want of a caller.
+road there is no map to read the pickup off. A landscape phone used to be what
+bought `dense`, at 174 px of column against the 184 the comp then wanted. **It
+no longer is:** the comp is 153, so a phone keeps the whole card *and* the
+legend, and only a letterbox city (very wide, very shallow) still goes dense —
+do not delete it for want of a caller.
 
 `COLUMN_HEADER_PX` and `LEGEND_ROW_PX` are that arithmetic written down rather
 than measured — a DOM read here is a forced reflow per frame, and jsdom has no
@@ -199,11 +199,10 @@ Key handling is asymmetric on purpose:
 **`collectMapPois` (`mapPoi.ts`, cached per pack) is the one source of what either
 map marks**, each position coming from the resolver that already owns it (fuel
 markers sit on the pumps, not the lane anchor ~19 m out on the carriageway).
-
-Markers are DOM icons over the canvas — one `HudGlyph`, shared with the legend, and
-jsdom has no `Path2D` — so **anything drawn on the canvas is behind them**. Hence
-the car's own second canvas above the icons, and hence the place you are routed to
-drawing no marker of its own.
+Markers are DOM icons over the canvas — one `HudGlyph`, shared with the
+legend, and jsdom has no `Path2D` — so **anything drawn on the canvas is
+behind them**. Hence the car's own second canvas above the icons, and hence
+the place you are routed to drawing no marker of its own.
 
 ## Viewport, fullscreen and safe areas
 
@@ -211,11 +210,10 @@ drawing no marker of its own.
 screen cannot scroll** — `.game-page` is `position: fixed` with
 `overscroll-behavior: none` and `touch-action: none`. So rotating on the launcher
 (scrollable) hides the chrome and the state survives into the drive, while rotating
-once driving never can.
-
-There is no CSS route; the Fullscreen API is it, which needs a gesture, which is
-why `TouchDriveControls` carries a fullscreen **toggle** — offered whenever the API
-exists and the page is not already `display-mode: standalone`.
+once driving never can. There is no CSS route; the Fullscreen API is it, which
+needs a gesture, which is why `TouchDriveControls` carries a fullscreen
+**toggle** — offered whenever the API exists and the page is not already
+`display-mode: standalone`.
 
 `canFullscreen` checks **both spellings**: a `requestFullscreen` guard alone no-ops
 on any WebKit that only has `webkitRequestFullscreen`, which reads as the feature
