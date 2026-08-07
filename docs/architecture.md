@@ -66,14 +66,25 @@ directly, including `GameCanvas.tsx`, `render/babylonGameSession.ts` and
 `simulationAdapter.ts`, without that making any of them a dependency of
 another.
 
-`simulation.ts` imports **only** `./types` — no React, DOM, Babylon,
-`Math.random`, or `Date.now`. That purity is the load-bearing property of the
-whole design and is guarded by `tests/architecture.test.ts`. Dependency arrows
-and forbidden content/app-shell imports are enforced by the flat ESLint config;
-the architecture test retains source-shape checks ESLint cannot express:
-`app/DriveScreen.tsx` holds the one `dynamic()` GameCanvas literal and
-`SideSwapApp.tsx` has no GameCanvas reference, even type-only. See
-[simulation-core.md](simulation-core.md).
+`simulation.ts` is itself split across a stable facade (`SimulationCore`, the
+fixed-step tick order, and the public API) and four seam modules under
+`app/game/simulation/` — `roadNetwork.ts`, `playerDynamics.ts`,
+`trafficSystem.ts`, `roadRuleMonitor.ts` — see
+[simulation-core.md](simulation-core.md) for what each owns. The purity that
+matters spans the whole set, not just the facade file: every one of the five
+imports only from `./types`/`../types`, a sibling `simulation/*.ts` module,
+or — type-only — back to the facade for shared vocabulary
+(`SimulationPoint`/`TurnSignal`/`MutablePose`, the same pattern #291 used for
+`MAP_VISUAL_PROFILES`). No React, DOM, Babylon, `Math.random`, or `Date.now`
+anywhere in the set. That purity is the load-bearing property of the whole
+design and is guarded by `tests/architecture.test.ts`, which walks every file
+in `app/game/simulation/` rather than hand-checking `simulation.ts` alone.
+Dependency arrows and forbidden content/app-shell imports are enforced by the
+flat ESLint config (`curbside-rush/game-boundaries` and
+`curbside-rush/simulation-purity`); the architecture test retains
+source-shape checks ESLint cannot express: `app/DriveScreen.tsx` holds the
+one `dynamic()` GameCanvas literal and `SideSwapApp.tsx` has no GameCanvas
+reference, even type-only.
 
 `simulationAdapter.ts` imports `sessionContract.ts` **type-only** for the
 scenario/map-pack shapes it consumes, so there is no cycle with

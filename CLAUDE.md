@@ -51,8 +51,10 @@ and pushes to `main`; run the same checks locally before committing.
   are required, and the scenario's player spawn must resolve to a valid lane
   anchor. There is no synthetic city or start-position fallback. Details:
   [docs/architecture.md](docs/architecture.md).
-- **Dependency arrows only point inward**, and `simulation.ts` imports nothing but
-  its own types. Breaking that breaks the determinism the whole design rests on.
+- **Dependency arrows only point inward.** `simulation.ts` and its
+  `app/game/simulation/*.ts` seam modules import only their own types and each
+  other — no DOM, Babylon, React, wall-clock or unseeded randomness anywhere
+  in the set. Breaking that breaks the determinism the whole design rests on.
 
 ## Where to read next
 

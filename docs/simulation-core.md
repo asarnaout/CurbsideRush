@@ -1,8 +1,63 @@
 # The simulation core
 
-`app/game/simulation.ts` — physics, traffic and road-rule events.
+`app/game/simulation.ts` — physics, traffic and road-rule events, as the
+stable public facade over four seam modules under `app/game/simulation/`.
 Read this before touching the core, the adapter, or anything that changes NPC
 behaviour, and before adding a `RuleCode`.
+
+## The seam split
+
+`SimulationCore` owns the fixed-step tick order (`fixedUpdate`) and every
+field the public API (`step`, `getSnapshot`, `reportExternalContact`, ...)
+touches directly, but delegates to four collaborators, each `SimulationCore`
+holds as a field and constructs once:
+
+- **`simulation/roadNetwork.ts`** (`RoadNetwork`) — the lane graph, traffic
+  lights, stop lines, and every pure geometry/timing query against them
+  (`pointOnLane`, `projectToRoad`, `routeDistanceAhead`, `trafficLightTiming`,
+  ...). Read-only after construction bar its own route-search scratch
+  buffers. The one seam every other seam and the facade itself all depend on.
+- **`simulation/playerDynamics.ts`** — pedal/steer integration (`movePlayer`)
+  and static-world collision (`resolveStaticCollisions`), operating on a
+  plain `PlayerPhysicsState` object `SimulationCore` holds and passes by
+  reference (not a class — the player's pose and speed are read from too
+  many unrelated places in `simulation.ts` for method-wrapping to buy
+  anything).
+- **`simulation/trafficSystem.ts`** (`TrafficSystem`) — seeded NPC spawn,
+  gate safety, decisions, movement, corner-arc rendering, lane changes, and
+  jam/incident recovery. Owns the PRNG (`SeededRandom`) outright: both
+  places it is ever consumed (initial spawn, the 10 Hz decision pass) are
+  internal to this class.
+- **`simulation/roadRuleMonitor.ts`** (`RoadRuleMonitor`) — open-world rule
+  detection: speeding, wrong-way, out-of-bounds, following distance, passing
+  lane, box junctions, restricted lanes, and every stop-line kind. Reports
+  through an `emitEvent` callback rather than owning the event queue itself
+  — `events`/`ruleCooldowns` stay on `SimulationCore`, since
+  `playerDynamics.ts`'s two collision paths and `reportExternalContact` all
+  report into the same queue.
+
+**`checkCollisions` (the player/NPC impact resolver) stays on `SimulationCore`
+itself**, not in any seam: it reads and writes both the player's physical
+state and an NPC's internal state in one atomic pass (separating the two
+bodies, rebounding the player, marking the NPC struck) plus calls
+`resolveStaticCollisions` so the separation shove can't bury the player in a
+wall — genuinely the intersection of two seams, not cleanly either one.
+
+Every seam-owned piece of per-tick-volatile state
+(`viewHeading`/`roadState`/`elapsedSeconds`/`tick`) is threaded through as an
+explicit `TrafficTickCtx`, built fresh by `simulation.ts` at each call site —
+`RoadNetwork` and the stable parts of `TrafficSystem`/`RoadRuleMonitor`
+(themselves, `playerState`, `config`) are captured once at construction
+instead, since none of those three are ever reassigned wholesale.
+
+The purity guard (`tests/architecture.test.ts`) that used to check only
+`simulation.ts` now walks every file in `app/game/simulation/`: each may
+import type-only from `../types`, type-only back to `../simulation` itself
+(for shared vocabulary like `SimulationPoint`/`TurnSignal`/`MutablePose` —
+the same pattern issue #291 used for `MAP_VISUAL_PROFILES`), or freely from
+a sibling `simulation/*.ts` module — nothing else, and the same forbidden-
+token check (no `Math.random`, `Date.now(`, `@babylonjs`, ...) applies to
+every file, not just `simulation.ts`.
 
 ## Determinism contract
 
@@ -11,12 +66,13 @@ clamps delta to 0.25 s and drops the excess — under stall the sim runs slow
 rather than exploding. `step(0, action)` is the sanctioned way to inject a
 one-shot edge-triggered input.
 
-One xorshift32 PRNG seeded from `scenario.trafficSeed`, consumed in exactly two
-places: initial NPC spawn, and the 10 Hz decision pass. **Everything else is
-deterministically tie-broken, not randomized** — gates sort by `localeCompare`;
-crossing priority and successor-lane choice parse digits out of the NPC id
-string. So **NPC ids are load-bearing data**: renaming the `npc-${n}` scheme
-changes traffic behaviour.
+One xorshift32 PRNG (`SeededRandom`, in `trafficSystem.ts`) seeded from
+`scenario.trafficSeed`, consumed in exactly two places: initial NPC spawn,
+and the 10 Hz decision pass. **Everything else is deterministically
+tie-broken, not randomized** — gates sort by `localeCompare`; crossing
+priority and successor-lane choice parse digits out of the NPC id string. So
+**NPC ids are load-bearing data**: renaming the `npc-${n}` scheme changes
+traffic behaviour.
 
 There is no float discipline — plain doubles. Determinism holds only because the
 same operations happen in the same order. `tests/trafficSafetyAcceptance.test.ts`

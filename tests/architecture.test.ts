@@ -27,34 +27,115 @@ function importStatements(source: string): string[] {
   return [...source.matchAll(/^[ \t]*import\b[^;]*?;/gm)].map((m) => m[0]);
 }
 
+/** The quoted module specifier an `import ...;` statement resolves, or null
+ * for the (unused in this codebase's pure modules) bare `import "x";` form. */
+function importSource(statement: string): string | null {
+  const match = statement.match(/from\s+["']([^"']+)["'];\s*$/);
+  return match ? match[1] : null;
+}
+
+/**
+ * No impure runtime API, DOM, Babylon, or React token, textually, in
+ * `source`. Shared by every purity check below (`simulation.ts` and every
+ * `app/game/simulation/*.ts` seam module alike) so a new module can't
+ * quietly reintroduce impurity the same way `simulation.ts` itself is
+ * guarded. Deliberately NOT checking bare "window." — `simulation.ts` (and,
+ * after the #284 split, `simulation/roadRuleMonitor.ts`) has a local
+ * `RestrictionWindow` parameter named `window`, a schedule window rather
+ * than the DOM global, and a naive grep would false-positive on it forever.
+ * Any future module with its own locally-named `window`/`document`/etc.
+ * parameter needs the same care.
+ */
+function expectNoImpureTokens(source: string, label: string): void {
+  const stripped = stripComments(source);
+  const forbidden = [
+    "Math.random",
+    "Date.now(",
+    "performance.",
+    "document.",
+    "localStorage",
+    "addEventListener",
+    "@babylonjs",
+    'from "react',
+  ];
+  for (const token of forbidden) {
+    expect(stripped.includes(token), `${label}: ${token}`).toBe(false);
+  }
+}
+
+const simulationDir = path.join(root, "app", "game", "simulation");
+/** Every seam module issue #284 split out of `simulation.ts` —
+ * `mathUtils.ts`, `roadNetwork.ts`, `playerDynamics.ts`, `trafficSystem.ts`,
+ * `roadRuleMonitor.ts`. Discovered by directory listing, not
+ * hand-enumerated, so a module added later is covered automatically. */
+const simulationSeamFiles = fs
+  .readdirSync(simulationDir)
+  .filter((name) => name.endsWith(".ts"))
+  .sort();
+
 describe("simulation.ts stays pure", () => {
   const source = read("app", "game", "simulation.ts");
 
-  it("imports only types, and only from ./types", () => {
+  it("imports only types from ./types, or from its own simulation/ seams", () => {
     const statements = importStatements(source);
-    expect(statements).toHaveLength(1);
-    expect(statements[0].startsWith("import type")).toBe(true);
-    expect(statements[0]).toMatch(/from\s+["']\.\/types["'];$/);
+    expect(statements.length).toBeGreaterThan(0);
+    for (const statement of statements) {
+      const source = importSource(statement);
+      const fromTypes = source === "./types";
+      const fromOwnSeam = source?.startsWith("./simulation/") ?? false;
+      expect(fromTypes || fromOwnSeam, statement).toBe(true);
+      // The ./types import is itself still type-only — simulation.ts owns
+      // no runtime dependency on anything outside its own seam modules.
+      if (fromTypes) expect(statement.startsWith("import type")).toBe(true);
+    }
   });
 
   it("touches no impure runtime API, DOM, Babylon, or React", () => {
-    const stripped = stripComments(source);
-    // Deliberately NOT checking bare "window." — simulation.ts has a local
-    // RestrictionWindow parameter named `window` (a schedule window, not the
-    // global), and a naive grep would false-positive on it forever.
-    const forbidden = [
-      "Math.random",
-      "Date.now(",
-      "performance.",
-      "document.",
-      "localStorage",
-      "addEventListener",
-      "@babylonjs",
-      'from "react',
-    ];
-    for (const token of forbidden) {
-      expect(stripped.includes(token), token).toBe(false);
-    }
+    expectNoImpureTokens(source, "simulation.ts");
+  });
+});
+
+describe("simulation/*.ts seam modules stay pure", () => {
+  it("found at least the roadNetwork and mathUtils seams (sanity-check the directory listing itself)", () => {
+    expect(simulationSeamFiles).toEqual(
+      expect.arrayContaining(["roadNetwork.ts", "mathUtils.ts"]),
+    );
+  });
+
+  for (const file of simulationSeamFiles) {
+    const source = read("app", "game", "simulation", file);
+
+    it(`${file}: imports only ../types, a type-only reference back to ../simulation, or a sibling simulation/*.ts module`, () => {
+      const statements = importStatements(source);
+      for (const statement of statements) {
+        const importedFrom = importSource(statement);
+        const fromTypes = importedFrom === "../types";
+        // A type-only back-reference to the facade for shared vocabulary
+        // (SimulationPoint, SimulationPose, TurnSignal, ...) is the same
+        // sanctioned pattern issue #291 used to widen MAP_VISUAL_PROFILES:
+        // import type is erased at compile time, so this is not a runtime
+        // cycle even though simulation.ts imports this module's exports too.
+        const fromFacade = importedFrom === "../simulation";
+        const fromSibling = importedFrom?.startsWith("./") ?? false;
+        expect(fromTypes || fromFacade || fromSibling, `${file}: ${statement}`).toBe(
+          true,
+        );
+        if (fromFacade) {
+          expect(statement.startsWith("import type"), `${file}: ${statement}`).toBe(
+            true,
+          );
+        }
+      }
+    });
+
+    it(`${file}: touches no impure runtime API, DOM, Babylon, or React`, () => {
+      expectNoImpureTokens(source, file);
+    });
+  }
+
+  it("mathUtils.ts is a true leaf: zero imports", () => {
+    const source = read("app", "game", "simulation", "mathUtils.ts");
+    expect(importStatements(source)).toHaveLength(0);
   });
 });
 
