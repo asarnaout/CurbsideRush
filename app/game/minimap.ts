@@ -35,7 +35,8 @@ export interface MinimapProjector {
  * seeing it in the corner. `ExpandedMap` does exactly that, on a canvas big
  * enough for it — and it must reach `createMinimapFitProjector` directly rather
  * than through `resolveMinimapScale`, which would answer `follows` here and
- * rasterise New York into a ~70 MB sheet.
+ * rasterise New York's full 2600×3000 m into a multi-megapixel sheet for a
+ * view that only ever shows a 500 m window of it.
  */
 export const MINIMAP_FOLLOW_SPAN_M = 500;
 
@@ -175,7 +176,7 @@ export interface MinimapFitProjector extends MinimapProjector {
  * each edge), preserving aspect and flipping +z (north) to screen-up.
  *
  * Rectangular rather than square because the cities are nothing like square —
- * 1080x3000 m in New York against 800x540 m in London — and a whole-city
+ * 2600x3000 m in New York against 800x540 m in London — and a whole-city
  * view boxed into a square spends most of itself on nothing. The caller sizes
  * the canvas to the world's own aspect and this fills it.
  */
@@ -209,8 +210,9 @@ export function createMinimapFitProjector(
  * The largest box with the world's own aspect that fits inside `available`.
  *
  * The whole-city map cuts its canvas to this rather than filling the space it
- * is given, so the panel *is* the city's shape — a tall column for New York, a
- * near-square for Cairo — and no part of the canvas is spent on empty ground.
+ * is given, so the panel *is* the city's shape — a slightly-tall rectangle
+ * for New York, a wide letterbox for London — and no part of the canvas is
+ * spent on empty ground.
  * Pure, because "how big is the map on this screen" is the one number the
  * layout is built around and it should not need a browser to check.
  */
