@@ -85,3 +85,58 @@ export function distanceToSegmentSquared(
   const pz = pointZ - nearestZ;
   return px * px + pz * pz;
 }
+
+/** Boundary points count as inside so entry detection is stable at 60 Hz. */
+export function isPointInPolygon(
+  point: { readonly x: number; readonly z: number },
+  polygon: readonly { readonly x: number; readonly z: number }[],
+): boolean {
+  if (polygon.length < 3) return false;
+  let inside = false;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
+    const start = polygon[previous];
+    const end = polygon[index];
+    if (
+      distanceToSegmentSquared(
+        point.x,
+        point.z,
+        start.x,
+        start.z,
+        end.x,
+        end.z,
+      ) <= 1e-8
+    ) {
+      return true;
+    }
+    const crosses =
+      (end.z > point.z) !== (start.z > point.z) &&
+      point.x <
+        ((start.x - end.x) * (point.z - end.z)) / (start.z - end.z) + end.x;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+export function distanceToPolygon(
+  point: { readonly x: number; readonly z: number },
+  polygon: readonly { readonly x: number; readonly z: number }[],
+): number {
+  if (isPointInPolygon(point, polygon)) return 0;
+  let bestSquared = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index];
+    const end = polygon[(index + 1) % polygon.length];
+    bestSquared = Math.min(
+      bestSquared,
+      distanceToSegmentSquared(
+        point.x,
+        point.z,
+        start.x,
+        start.z,
+        end.x,
+        end.z,
+      ),
+    );
+  }
+  return Math.sqrt(bestSquared);
+}

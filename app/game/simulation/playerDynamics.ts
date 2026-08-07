@@ -180,11 +180,17 @@ export interface PlayerDynamicsConfig {
   readonly playerCapsuleRadiusM: number;
 }
 
+// Return type is `unknown`, not `void`: this seam's two call sites (movePlayer,
+// resolveStaticCollisions) never look at the result, but roadRuleMonitor.ts's
+// monitorPassingLane needs to know whether the event actually fired (emitEvent
+// returns null when a cooldown swallows it) before honking — `unknown` (unlike
+// `void`) still supports a truthiness check, and the real SimulationCore.emitEvent
+// (returning SimulationRuleEvent | null) satisfies either.
 export type EmitEventFn = (details: {
   code: RuleCode;
   correction: string;
   evidence: Record<string, string | number | boolean>;
-}) => void;
+}) => unknown;
 
 /** Same three-line body as `SimulationCore.setSignal` used to be — shared
  * so the discrete-input path (turn-signal lever) and `movePlayer`'s own

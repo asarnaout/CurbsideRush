@@ -256,7 +256,15 @@ class SeededRandom {
  * see the class doc comment for why these four specifically cannot be. */
 export interface TrafficTickCtx {
   readonly viewHeading: number;
-  readonly roadState: { readonly projection: LaneProjection | null };
+  // Widened to the facade's full RoadState shape (not just `projection`) so
+  // simulation/roadRuleMonitor.ts can reuse this exact ctx type and the same
+  // per-tick ctx object simulation.ts already builds — TrafficSystem's own
+  // methods still only ever read `.projection` off it.
+  readonly roadState: {
+    readonly projection: LaneProjection | null;
+    readonly wrongWay: boolean;
+    readonly offRoad: boolean;
+  };
   readonly elapsedSeconds: number;
   readonly tick: number;
 }
