@@ -14,6 +14,7 @@ import {
   updateTouchSteer,
   type TouchSteerState,
 } from "./touchSteering";
+import type { CameraMode } from "./types";
 
 /**
  * The on-screen driving controls.
@@ -41,7 +42,7 @@ import {
  */
 
 export interface TouchDriveControlsProps {
-  readonly cameraMode: "first" | "third";
+  readonly cameraMode: CameraMode;
   /** False for a vehicle with no cockpit to switch into (a two-wheeler) —
    * the button that would toggle it is omitted rather than left as a no-op. */
   readonly cameraSwitchable: boolean;
@@ -478,7 +479,7 @@ export function TouchDriveControls({
           pointerEvents: "auto",
         }}
       >
-        {cameraMode === "first" && (
+        {cameraMode === "first_person" && (
           <div
             data-testid="look-row"
             style={{ display: "flex", flexDirection: "row-reverse", gap: 8 }}

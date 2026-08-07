@@ -215,15 +215,15 @@ describe("continuous road-surface rendering", () => {
 describe("cockpit camera tracking", () => {
   it("does not mistake Babylon's initially active chase camera for cockpit mode", () => {
     expect(
-      isCameraStackActive("first", "third-person-camera", []),
+      isCameraStackActive("first_person", "third-person-camera", []),
     ).toBe(false);
     expect(
-      isCameraStackActive("first", "first-person-camera", [
+      isCameraStackActive("first_person", "first-person-camera", [
         "first-person-camera",
       ]),
     ).toBe(true);
     expect(
-      isCameraStackActive("third", "third-person-camera", [
+      isCameraStackActive("third_person", "third-person-camera", [
         "third-person-camera",
       ]),
     ).toBe(true);
@@ -234,7 +234,7 @@ describe("cockpit camera tracking", () => {
     // scene.activeCameras again, the mirror is back to a full un-throttled
     // scene pass every frame and the whole point has been undone.
     expect(
-      isCameraStackActive("first", "first-person-camera", [
+      isCameraStackActive("first_person", "first-person-camera", [
         "first-person-camera",
         "rear-view-camera",
       ]),

@@ -213,7 +213,7 @@ describe("cockpit characterization (Phase 3.7 safety net)", () => {
           scenario={scenario}
           mapPack={LONDON_MAP_PACK}
           paused={false}
-          cameraMode="first"
+          cameraMode="first_person"
           onHudUpdate={(snapshot) => hudSnapshots.push(snapshot)}
         />,
       );

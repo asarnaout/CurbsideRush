@@ -127,7 +127,7 @@ vi.mock("next/dynamic", () => ({
         speed: 0,
         speedUnit: "mph",
         gear: "D",
-        cameraMode: "third",
+        cameraMode: "third_person",
         instruction: "",
         paused: false,
         honking: false,

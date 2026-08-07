@@ -73,7 +73,7 @@ const trafficTraceHash = (freeDrive: (typeof FREE_DRIVES)[number]): string => {
       scenario,
       mapPack: getMapPack(freeDrive.mapId),
       trafficSide: country.trafficSide,
-      speedUnit: country.speedUnit === "kmh" ? "km/h" : "mph",
+      speedUnit: country.speedUnit,
     }),
   );
   let hash = mixTrafficSnapshot(FNV_OFFSET_BASIS, simulation.getSnapshot());

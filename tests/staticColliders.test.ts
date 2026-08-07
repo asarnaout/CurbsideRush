@@ -5,7 +5,6 @@ import {
   getMapPack,
 } from "../app/game/content";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
-import type { SpeedUnit as CanvasSpeedUnit } from "../app/game/sessionContract";
 import {
   buildingKeepOuts,
   facadeGridCells,
@@ -69,9 +68,6 @@ const PLAYER_CAPSULE_RADIUS_M = 1.0;
 const PLAYER_CAPSULE_HALF_LENGTH_M = 1.15;
 const LANE_SAMPLE_SPACING_M = 2;
 
-const toCanvasSpeedUnit = (speedUnit: "mph" | "kmh"): CanvasSpeedUnit =>
-  speedUnit === "mph" ? "mph" : "km/h";
-
 interface DriveWorld {
   readonly freeDrive: FreeDriveDefinition;
   readonly obstacles: readonly StaticObstacle[];
@@ -89,7 +85,7 @@ const driveWorlds: DriveWorld[] = FREE_DRIVES.map((freeDrive) => {
     scenario: buildFreeDriveScenario(freeDrive),
     mapPack: getMapPack(freeDrive.mapId),
     trafficSide: country.trafficSide,
-    speedUnit: toCanvasSpeedUnit(country.speedUnit),
+    speedUnit: country.speedUnit,
   });
   if (!config.staticObstacles || !config.lanes || !config.spawn) {
     throw new Error(`free drive ${freeDrive.id} produced an incomplete config`);

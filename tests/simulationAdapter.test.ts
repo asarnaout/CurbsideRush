@@ -14,10 +14,6 @@ import type {
   DriveScenario,
   GameCanvasMapPack,
 } from "../app/game/sessionContract";
-import type { FreeDriveDefinition } from "../app/game/types";
-
-const canvasSpeedUnit = (freeDrive: FreeDriveDefinition) =>
-  getCountryProfile(freeDrive.countryId).speedUnit === "kmh" ? "km/h" : "mph";
 
 describe("simulation runtime adapter (free-roam)", () => {
   it("spawns each city drive on its authored player lane, on-lane and legal", () => {
@@ -30,7 +26,7 @@ describe("simulation runtime adapter (free-roam)", () => {
         scenario,
         mapPack,
         trafficSide: country.trafficSide,
-        speedUnit: canvasSpeedUnit(freeDrive),
+        speedUnit: country.speedUnit,
       });
 
       expect(config.spawn, freeDrive.id).toEqual({
@@ -65,7 +61,7 @@ describe("simulation runtime adapter (free-roam)", () => {
           scenario,
           mapPack,
           trafficSide: country.trafficSide,
-          speedUnit: canvasSpeedUnit(freeDrive),
+          speedUnit: country.speedUnit,
         }),
       ).getSnapshot();
 
@@ -91,7 +87,7 @@ describe("simulation runtime adapter (free-roam)", () => {
           scenario,
           mapPack,
           trafficSide: country.trafficSide,
-          speedUnit: canvasSpeedUnit(freeDrive),
+          speedUnit: country.speedUnit,
         }),
       );
       for (let tick = 0; tick < 60 * 15; tick += 1) {
@@ -127,7 +123,7 @@ describe("simulation runtime adapter (free-roam)", () => {
         scenario,
         mapPack: getMapPack(freeDrive.mapId),
         trafficSide: country.trafficSide,
-        speedUnit: canvasSpeedUnit(freeDrive),
+        speedUnit: country.speedUnit,
       }),
     );
 
@@ -171,7 +167,7 @@ describe("simulation runtime adapter (free-roam)", () => {
         scenario,
         mapPack,
         trafficSide: country.trafficSide,
-        speedUnit: canvasSpeedUnit(freeDrive),
+        speedUnit: country.speedUnit,
       });
       const lightIds = new Set((config.trafficLights ?? []).map((light) => light.id));
       for (const control of mapPack.laneGraph.controls) {

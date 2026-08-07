@@ -26,6 +26,7 @@ import type {
   DestinationProfile,
   MapPack,
   PlayerProgressV2,
+  SpeedUnit,
   SteeringSide,
 } from "./game/types";
 import type { CareerVehicleSpec } from "./game/career";
@@ -80,11 +81,9 @@ const GameCanvas = dynamic(() => import("./game/GameCanvas"), {
   ),
 });
 
-const toCanvasCamera = (camera: CameraMode): "first" | "third" =>
-  camera === "first_person" ? "first" : "third";
-
-const fromCanvasCamera = (camera: "first" | "third"): CameraMode =>
-  camera === "first" ? "first_person" : "third_person";
+/** "kmh" is the canonical unit everywhere except the HUD's own display text. */
+const formatSpeedUnit = (unit: SpeedUnit): string =>
+  unit === "kmh" ? "km/h" : unit;
 
 /** How each dispatch outcome reads: taken, paid, passed over, or lost. */
 const DISPATCH_TOAST_COLOR = {
@@ -258,8 +257,8 @@ export function DriveScreen({
           steeringSide={activeSteeringSide}
           scenario={runtimeScenario}
           mapPack={runtimeMap}
-          cameraMode={toCanvasCamera(camera)}
-          speedUnit={driveCountry.speedUnit === "kmh" ? "km/h" : "mph"}
+          cameraMode={camera}
+          speedUnit={driveCountry.speedUnit}
           paused={paused}
           reducedMotion={progress.accessibility.reducedMotion}
           steeringSensitivity={progress.accessibility.steeringSensitivity}
@@ -287,7 +286,7 @@ export function DriveScreen({
           onHudUpdate={handleHud}
           onEvent={handleGameEvent}
           onPauseChange={setPaused}
-          onCameraChange={(mode) => setCamera(fromCanvasCamera(mode))}
+          onCameraChange={setCamera}
           onExit={exitDrive}
         />
         {/*
@@ -775,7 +774,7 @@ export function DriveScreen({
             scale={hudScale}
             inset={{ top: hudInset.top }}
             speed={hud.speed}
-            speedUnit={hud.speedUnit}
+            speedUnit={formatSpeedUnit(hud.speedUnit)}
             speedLimit={hud.speedLimit}
             gear={hud.gear}
             dayTimer={dayTimerInRow ? dayTimer : null}
@@ -831,7 +830,7 @@ export function DriveScreen({
         )}
         {hud && (
           <div className="sr-only" aria-live="polite">
-            Speed {hud.speed} {hud.speedUnit}, gear {hud.gear}.
+            Speed {hud.speed} {formatSpeedUnit(hud.speedUnit)}, gear {hud.gear}.
           </div>
         )}
         {/*
