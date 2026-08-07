@@ -325,6 +325,7 @@ class StubResizeObserver {
 let originalGetContext: typeof HTMLCanvasElement.prototype.getContext;
 let nextRafId = 1;
 const pendingRaf = new Map<number, FrameRequestCallback>();
+let nativeSetTimeout: typeof globalThis.setTimeout;
 
 async function flushAnimationFrame(): Promise<void> {
   const callbacks = [...pendingRaf.values()];
@@ -367,6 +368,20 @@ beforeEach(() => {
   vi.stubGlobal("cancelAnimationFrame", (id: number) => {
     pendingRaf.delete(id);
   });
+  // This mounts Cairo too, so it can in principle race the same real
+  // (non-RAF) `window.setTimeout(..., 2_500)` perf-QA snapshot timer
+  // `fourCityRenderCharacterization.test.tsx` diagnosed and suppresses —
+  // see that file's identical comment for the full mechanism. This suite's
+  // own assertions don't depend on an exact frame count, but there is no
+  // reason to leave a real 2.5 s timer free to fire mid-test here either.
+  nativeSetTimeout = globalThis.setTimeout;
+  vi.stubGlobal(
+    "setTimeout",
+    ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
+      typeof timeout === "number" && timeout >= 1_000
+        ? -1
+        : nativeSetTimeout(handler as never, timeout, ...args)) as typeof setTimeout,
+  );
 
   originalGetContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (

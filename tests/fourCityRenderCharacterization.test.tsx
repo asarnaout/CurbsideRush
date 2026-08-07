@@ -320,6 +320,7 @@ class StubResizeObserver {
 let originalGetContext: typeof HTMLCanvasElement.prototype.getContext;
 let nextRafId = 1;
 const pendingRaf = new Map<number, FrameRequestCallback>();
+let nativeSetTimeout: typeof globalThis.setTimeout;
 
 async function flushAnimationFrame(): Promise<void> {
   const callbacks = [...pendingRaf.values()];
@@ -372,6 +373,31 @@ beforeEach(() => {
   vi.stubGlobal("cancelAnimationFrame", (id: number) => {
     pendingRaf.delete(id);
   });
+  // GameCanvas's Cairo-only perf-QA snapshot (`writePerfQaSnapshot`, a
+  // one-shot `window.setTimeout(..., 2_500)`) reads the same
+  // `__sideswapPerfDebug` hook this suite drains for its own 6-frame window
+  // below — and unlike requestAnimationFrame, real timers are not on the
+  // controlled clock above: they fire on the actual wall clock regardless of
+  // how many `flushAnimationFrame`s have run. Under heavy parallel test
+  // load, a slow-enough run can let that real 2.5 s timer land *during* the
+  // 6-frame window and drain it early, silently undercounting
+  // `perfWindowFrames` — a genuine, reproduced (locally, under synthetic
+  // CPU contention matching a busy CI host) cause of a flaky `expected N to
+  // be 6` failure that has nothing to do with frame scheduling. Nothing in
+  // this suite's own code ever delays a real timer beyond the single 0 ms
+  // tick `flushAnimationFrame` yields, so any longer real delay is
+  // unambiguously not this suite's — suppress those specifically (never
+  // schedule them for real) rather than faking timers wholesale, which
+  // would also have to account for every timer Babylon's own engine/audio
+  // code might set.
+  nativeSetTimeout = globalThis.setTimeout;
+  vi.stubGlobal(
+    "setTimeout",
+    ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
+      typeof timeout === "number" && timeout >= 1_000
+        ? -1
+        : nativeSetTimeout(handler as never, timeout, ...args)) as typeof setTimeout,
+  );
 
   originalGetContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (
