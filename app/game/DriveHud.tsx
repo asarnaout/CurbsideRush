@@ -35,73 +35,24 @@ import {
   WALLET_ICON,
 } from "./hudIcons";
 
-// ---------------------------------------------------------------------------
-// Palette and type. These repeat globals.css's `--hud-*` custom properties as
-// literals for the same reason the rest of the drive screen does: it is styled
-// inline throughout, and splitting it across a stylesheet is what caused the
-// z-order bug driveLayers.ts exists to prevent.
-// ---------------------------------------------------------------------------
 
-export const HUD_CREAM = "#f4efde";
-export const HUD_GOLD = "#f4c848";
-export const HUD_CORAL = "#e8705a";
-export const HUD_SAGE = "#8fae72";
-export const HUD_GLASS = "rgba(11,15,17,.78)";
-export const HUD_SANS = '"Figtree", system-ui, sans-serif';
-export const HUD_SERIF = '"Playfair Display", Georgia, serif';
-/** The ink and paper of the offer card, the one light surface on the screen. */
-export const HUD_INK = "#201e1d";
+import { HUD_CORAL, HUD_CREAM, HUD_GLASS, HUD_GOLD, HUD_INK, HUD_SAGE, HUD_SANS, HUD_SERIF, HudGlyph, MUSIC_DIM_COLOR, cluster } from "./driveHud/tokens";
 
-/** Width the comp was drawn at. Everything below is in its pixels. */
-export const HUD_DESIGN_WIDTH = 1920;
-/** Below this the clusters would eat the road, so scaling stops. */
-export const HUD_MIN_SCALE = 0.68;
+export {
+  HUD_CREAM,
+  HUD_GOLD,
+  HUD_CORAL,
+  HUD_SAGE,
+  HUD_GLASS,
+  HUD_SANS,
+  HUD_SERIF,
+  HUD_INK,
+  HUD_DESIGN_WIDTH,
+  HUD_MIN_SCALE,
+  resolveHudScale,
+  HudGlyph,
+} from "./driveHud/tokens";
 
-/**
- * How much to shrink the HUD for a viewport narrower than the comp.
- *
- * A 486px nav card is a quarter of a 1920 screen and well over a third of a
- * 1280 one, which is the difference between a readout and an obstruction.
- */
-export function resolveHudScale(viewportWidth: number): number {
-  if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return 1;
-  return Math.min(1, Math.max(HUD_MIN_SCALE, viewportWidth / HUD_DESIGN_WIDTH));
-}
-
-// ---------------------------------------------------------------------------
-// Icons — Lucide at stroke-width 2.75, the design system's own convention.
-// ---------------------------------------------------------------------------
-
-export function HudGlyph({
-  path,
-  size = 14,
-  color = "rgba(244,239,222,.55)",
-  strokeWidth = 2.4,
-}: {
-  path: readonly string[];
-  size?: number;
-  color?: string;
-  strokeWidth?: number;
-}) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      style={{ display: "block", flex: "none" }}
-    >
-      {path.map((d) => (
-        <path key={d} d={d} />
-      ))}
-    </svg>
-  );
-}
 
 /**
  * A figure that takes up the same room whatever it reads.
@@ -161,7 +112,6 @@ function HudNumeralSlot({
  */
 const WIDEST_SPEED = "000";
 
-const MUSIC_DIM_COLOR = "rgba(244,239,222,.4)";
 
 /** One arrow per manoeuvre kind, matching `GpsManoeuvreKind`. */
 const MANOEUVRE_ICON: Readonly<Record<string, readonly string[]>> = {
@@ -230,13 +180,6 @@ export interface HudJob {
   readonly surged: boolean;
 }
 
-const cluster = (scale: number, origin: string, rest: CSSProperties): CSSProperties => ({
-  position: "absolute",
-  transform: scale === 1 ? undefined : `scale(${scale})`,
-  transformOrigin: origin,
-  zIndex: DRIVE_LAYER.hud,
-  ...rest,
-});
 
 // ---------------------------------------------------------------------------
 // Top-left: where you are going, and what you are carrying
