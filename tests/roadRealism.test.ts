@@ -370,6 +370,62 @@ describe("NYC junctions connect the way the asphalt suggests", () => {
   });
 });
 
+describe("ambient traffic circulates instead of blinking out", () => {
+  // A car whose route ends is deactivated and respawned at its spawn point
+  // 2.5 s later (GameCanvas `updateNpcVehicles`). Before the junctions were
+  // wired up, every NYC route ended, so all the traffic did this. Cars start
+  // on an authored spawn lane or, past the fifth, on an arbitrary lane — and
+  // the branch offset is the car's index — so the property has to hold for
+  // every lane and every offset, not just the spawn points.
+  // London's bus lane was the last exception here, allowed to dead-end because
+  // nothing turns into it. It still had a bus driving down it, and that bus
+  // blinked out at the Exhibition Road signal every cycle (#128) — a lane with
+  // traffic on it has to lead somewhere whether or not anything turns in.
+  //
+  // This walks `successors` directly on the authored lane graph rather than
+  // through a router (the render-layer traffic system that owned this walk,
+  // `npcPaths.ts`, was retired in #293 — live traffic is SimulationCore's).
+  // A walk that never runs out of successors must revisit a lane within
+  // `lanes.length` hops (there are only that many distinct ids to visit), so
+  // "reaches a cycle" and "never hits a dead end" are the same property here.
+  const BRANCH_OFFSETS = 160;
+
+  const walkReachesCycle = (
+    lanesById: Map<string, LaneSegment>,
+    startLaneId: string,
+    branchOffset: number,
+    maxHops: number,
+  ): boolean => {
+    const visited = new Set<string>();
+    let laneId = startLaneId;
+    for (let hop = 0; hop < maxHops; hop += 1) {
+      if (visited.has(laneId)) return true;
+      visited.add(laneId);
+      const lane = lanesById.get(laneId);
+      if (!lane || lane.successors.length === 0) return false;
+      laneId = lane.successors[(branchOffset + hop) % lane.successors.length];
+    }
+    return false;
+  };
+
+  for (const pack of MAP_PACKS) {
+    it(`keeps every route in ${pack.id} on a circuit`, () => {
+      const lanes = pack.laneGraph.lanes;
+      const lanesById = new Map(lanes.map((lane) => [lane.id, lane]));
+      const maxHops = lanes.length + 5;
+      const stranded = new Set<string>();
+      for (const lane of lanes) {
+        for (let offset = 0; offset < BRANCH_OFFSETS; offset += 1) {
+          if (!walkReachesCycle(lanesById, lane.id, offset, maxHops)) {
+            stranded.add(`${lane.id}@${offset}`);
+          }
+        }
+      }
+      expect([...stranded].sort()).toEqual([]);
+    });
+  }
+});
+
 describe("NYC controls the junctions a driver expects to be controlled", () => {
   it("puts a signal on every crossing that has traffic on both phases", () => {
     // Manhattan signalises its avenue crossings. The rule is stated in terms of
