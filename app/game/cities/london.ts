@@ -1,25 +1,31 @@
 import type {
   FreeDriveDefinition,
-  LaneAnchor,
   LaneGraph,
   LaneNode,
   LaneRole,
   LaneSegment,
   MapPack,
-  MapSpawnPoint,
   OfficialRuleReference,
   ProceduralLandmark,
-  RoadMarkingPath,
-  RoadMarkingStyle,
   RoadSurface,
-  RoadSurfaceType,
   ScenarioClock,
-  TrafficControl,
-  TrafficControlApproach,
-  TrafficControlInstallation,
   WorldPoint,
 } from "../types";
 import { buildLaneTrueGeometry } from "../laneConnectors";
+import {
+  anchoredSpawn,
+  approach,
+  connectorConflictZones,
+  control,
+  distanceBetweenPoints,
+  freeSpawn,
+  installation,
+  makeSpeedLimitForRoad,
+  node,
+  point,
+  roadMarking,
+  roadSurface,
+} from "./cityAuthoringHelpers";
 
 export const LONDON_CONTENT_REVIEWED_ON = "2026-07-11";
 
@@ -117,13 +123,6 @@ export const LONDON_SCENARIO_CLOCK: ScenarioClock = {
   label: "Tuesday · 08:30",
 };
 
-const point = (x: number, z: number): WorldPoint => ({ x, z });
-
-const node = (id: string, x: number, z: number): LaneNode => ({
-  id,
-  position: point(x, z),
-});
-
 const roadIdForLane = (id: string): string => {
   if (id.startsWith("london-local") || id.startsWith("london-quiet") || id.startsWith("london-cromwell-local")) return "london-quiet-loop";
   if (id.startsWith("london-queen-gate")) return "london-queen-gate";
@@ -134,9 +133,6 @@ const roadIdForLane = (id: string): string => {
   if (id.startsWith("london-exhibition")) return "london-exhibition-road";
   return id;
 };
-
-const distanceBetweenPoints = (a: WorldPoint, b: WorldPoint): number =>
-  Math.hypot(a.x - b.x, a.z - b.z);
 
 const conflictZoneForNode = (nodeId: string): string => {
   if (nodeId === "london-node-queen-gate-cromwell") {
@@ -175,15 +171,7 @@ const LONDON_ROAD_SPEED_LIMITS = {
   "london-gloucester-loop": 20,
 } as const satisfies Record<string, number>;
 
-/** Throws rather than defaulting — see the twin in `cities/nyc.ts` / `cities/tokyo.ts`. */
-const speedLimitForRoad = (roadId: string): number => {
-  const limit: number | undefined =
-    LONDON_ROAD_SPEED_LIMITS[roadId as keyof typeof LONDON_ROAD_SPEED_LIMITS];
-  if (limit === undefined) {
-    throw new Error(`No speed limit posted for road "${roadId}"`);
-  }
-  return limit;
-};
+const speedLimitForRoad = makeSpeedLimitForRoad(LONDON_ROAD_SPEED_LIMITS);
 
 const laneTrue = (
   id: string,
@@ -230,89 +218,11 @@ const laneTrue = (
   };
 };
 
-const CONNECTOR_ZONE_RADIUS_M = 2.1;
-
-const connectorConflictZones = (
-  lanes: readonly LaneSegment[],
-  authoredZones: LaneGraph["conflictZones"],
-): LaneGraph["conflictZones"] => {
-  const connectorLaneIds = new Map<string, Set<string>>();
-  const generatedCenters = new Map<string, WorldPoint>();
-  const authoredIds = new Set(authoredZones.map((zone) => zone.id));
-
-  for (const lane of lanes) {
-    for (const range of lane.connectorRanges ?? []) {
-      const conflictZoneId = range.conflictZoneId;
-      if (!conflictZoneId) continue;
-      const laneIds = connectorLaneIds.get(conflictZoneId) ?? new Set<string>();
-      laneIds.add(lane.id);
-      connectorLaneIds.set(conflictZoneId, laneIds);
-      if (!authoredIds.has(conflictZoneId)) {
-        generatedCenters.set(
-          conflictZoneId,
-          range.startDistanceAlongM <= 1e-6
-            ? lane.centerline[0]
-            : lane.centerline.at(-1)!,
-        );
-      }
-    }
-  }
-
-  const authored = authoredZones.map((zone) => ({
-    ...zone,
-    laneIds: [
-      ...new Set([
-        ...zone.laneIds,
-        ...(connectorLaneIds.get(zone.id) ?? []),
-      ]),
-    ],
-  }));
-  const generated = [...generatedCenters].map(([id, center]) => ({
-    id,
-    laneIds: [...(connectorLaneIds.get(id) ?? [])],
-    polygon: [
-      point(center.x - CONNECTOR_ZONE_RADIUS_M, center.z - CONNECTOR_ZONE_RADIUS_M),
-      point(center.x + CONNECTOR_ZONE_RADIUS_M, center.z - CONNECTOR_ZONE_RADIUS_M),
-      point(center.x + CONNECTOR_ZONE_RADIUS_M, center.z + CONNECTOR_ZONE_RADIUS_M),
-      point(center.x - CONNECTOR_ZONE_RADIUS_M, center.z + CONNECTOR_ZONE_RADIUS_M),
-    ],
-  }));
-  return [...authored, ...generated];
-};
-
-const anchor = (laneId: string, distanceAlongM: number): LaneAnchor => ({
-  laneId,
-  distanceAlongM,
-});
-
 // Distances include the eased junction connector before each established
 // running lane. These anchors resolve to the requested lane-true starts at
 // approximately (-121.98, -105.8) and (-109.7, -92).
 const LONDON_QUIET_START_DISTANCE_M = 14.29;
 const LONDON_QUEEN_GATE_START_DISTANCE_M = 12.27;
-
-const roadMarking = (
-  id: string,
-  style: RoadMarkingStyle,
-  points: readonly WorldPoint[],
-  color?: RoadMarkingPath["color"],
-): RoadMarkingPath => ({ id, style, points, ...(color ? { color } : {}) });
-
-const roadSurface = (
-  id: string,
-  centerline: readonly WorldPoint[],
-  widthM: number,
-  laneIds: readonly string[],
-  surfaceType: RoadSurfaceType = "standard",
-  markings: readonly RoadMarkingPath[] = [],
-): RoadSurface => ({
-  id,
-  centerline,
-  widthM,
-  laneIds,
-  surfaceType,
-  markings,
-});
 
 /**
  * Points along a circular arc, inclusive of both endpoints. Angles in degrees,
@@ -423,85 +333,6 @@ const turningLoop = (opts: {
     },
   };
 };
-
-const anchoredSpawn = (
-  id: string,
-  kind: "player" | "vehicle",
-  laneId: string,
-  distanceAlongM: number,
-): MapSpawnPoint => ({
-  id,
-  kind,
-  anchor: anchor(laneId, distanceAlongM),
-});
-
-const freeSpawn = (
-  id: string,
-  kind: "pedestrian" | "cyclist",
-  x: number,
-  z: number,
-  headingDeg: number,
-  laneId?: string,
-): MapSpawnPoint => ({
-  id,
-  kind,
-  pose: { position: point(x, z), headingDeg },
-  ...(laneId ? { laneId } : {}),
-});
-
-const approach = (
-  id: string,
-  laneId: string,
-  distanceAlongM: number,
-  phaseGroup: string,
-  conflictZoneIds?: readonly string[],
-): TrafficControlApproach => ({
-  id,
-  laneIds: [laneId],
-  stopLine: anchor(laneId, distanceAlongM),
-  phaseGroup,
-  ...(conflictZoneIds ? { conflictZoneIds } : {}),
-});
-
-const installation = (
-  id: string,
-  x: number,
-  z: number,
-  headingDeg: number,
-  mounting: TrafficControlInstallation["mounting"],
-  style: TrafficControlInstallation["style"],
-  role: TrafficControlInstallation["role"],
-  approachIds?: readonly string[],
-): TrafficControlInstallation => ({
-  id,
-  position: point(x, z),
-  headingDeg,
-  mounting,
-  style,
-  role,
-  ...(approachIds ? { approachIds } : {}),
-});
-
-const control = (
-  id: string,
-  type: TrafficControl["type"],
-  x: number,
-  z: number,
-  headingDeg: number,
-  laneIds: readonly string[],
-  conflictZoneIds?: readonly string[],
-  approaches: readonly TrafficControlApproach[] = [],
-  installations: readonly TrafficControlInstallation[] = [],
-): TrafficControl => ({
-  id,
-  type,
-  position: point(x, z),
-  headingDeg,
-  laneIds,
-  ...(conflictZoneIds ? { conflictZoneIds } : {}),
-  approaches,
-  installations,
-});
 
 const londonNodes = {
   queenGateSouth: node("london-node-queen-gate-south", -108, -104),

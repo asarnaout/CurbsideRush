@@ -1,26 +1,33 @@
 import type {
   FreeDriveDefinition,
-  FrozenMapSource,
-  LaneAnchor,
   LaneGraph,
   LaneNode,
-  LaneRole,
   LaneSegment,
   MapPack,
-  MapSpawnPoint,
   ProceduralBlock,
-  RoadMarkingPath,
-  RoadMarkingStyle,
   RoadSurface,
-  RoadSurfaceType,
-  SpeedUnit,
   TrafficControl,
   TrafficControlApproach,
   TrafficControlInstallation,
-  TrafficSide,
   WorldPoint,
 } from "../types";
-import { buildLaneTrueGeometry, CONNECTOR_BLEND_RUN_M } from "../laneConnectors";
+import { CONNECTOR_BLEND_RUN_M } from "../laneConnectors";
+import {
+  anchoredSpawn,
+  approach,
+  control,
+  distanceBetweenPoints,
+  freeSpawn,
+  graph,
+  installation,
+  makeLaneTrue,
+  makeOsmSource,
+  makeSpeedLimitForRoad,
+  node,
+  point,
+  roadMarking,
+  roadSurface,
+} from "./cityAuthoringHelpers";
 
 /** This file's own last-reviewed date — was `content.ts`'s `CONTENT_REVIEWED_ON`
  * (still "2026-07-10" as of the move) before this content had its own file;
@@ -28,211 +35,7 @@ import { buildLaneTrueGeometry, CONNECTOR_BLEND_RUN_M } from "../laneConnectors"
  * (`content.ts` imports `NYC_MAP_PACK` from here). */
 export const NYC_CONTENT_REVIEWED_ON = "2026-07-10";
 
-const point = (x: number, z: number): WorldPoint => ({ x, z });
-
-const node = (id: string, x: number, z: number): LaneNode => ({
-  id,
-  position: point(x, z),
-});
-
-const roadIdForLane = (id: string): string => {
-  if (id.startsWith("yard-r-")) return "yard-right-loop";
-  if (id.startsWith("yard-l-")) return "yard-left-loop";
-  // NYC is not here: its lanes come from buildNycGrid, which knows each lane's
-  // road and passes the id straight to `laneTrue`. A prefix table would have to
-  // grow a branch per street and would quietly mis-assign any it missed.
-  if (id.startsWith("jp-south-east")) return "jp-south-road";
-  if (id.startsWith("jp-curve")) return "jp-east-curve";
-  if (id.startsWith("jp-center-west")) return "jp-center-road";
-  if (id.startsWith("jp-west-north")) return "jp-west-road";
-  if (id.startsWith("jp-north-east")) return "jp-north-road";
-  if (id.startsWith("jp-junction-south")) return "jp-junction-road";
-  if (id.startsWith("jp-narrow-north")) return "jp-narrow-road";
-  return id;
-};
-
-const laneWidthForLane = (id: string): number => {
-  if (id.startsWith("jp-")) return id.includes("narrow") ? 2.7 : 3.0;
-  if (id.startsWith("nyc-")) return 3.4;
-  return 3.2;
-};
-
-const distanceBetweenPoints = (a: WorldPoint, b: WorldPoint): number =>
-  Math.hypot(a.x - b.x, a.z - b.z);
-
-const conflictZoneForNode = (nodeId: string): string => {
-  if (nodeId === "nyc-b") return "nyc-conflict-72-bway";
-  if (nodeId === "nyc-h") return "nyc-conflict-79-bway";
-  if (nodeId === "nyc-d") return "nyc-conflict-columbus";
-  if (nodeId === "jp-f") return "jp-station-conflict";
-  if (nodeId === "jp-d") return "jp-east-curve-junction-conflict";
-  if (nodeId === "jp-e") return "jp-east-neighbourhood-junction-conflict";
-  return `junction-${nodeId}`;
-};
-
-/**
- * Keeps an authored lateral lane offset all the way to a junction, easing any
- * convergence on a shared node through a sampled S-curve blend (see
- * `laneConnectors.ts`) so segment headings never jump junction-crossing NPCs
- * sideways (#19). The logical graph nodes remain shared so existing route IDs
- * and deterministic successor routing stay stable.
- */
-const laneTrue = (
-  id: string,
-  from: LaneNode,
-  to: LaneNode,
-  trafficSide: TrafficSide,
-  successors: readonly string[],
-  role: LaneRole,
-  establishedPath: readonly WorldPoint[],
-  adjacentLaneIds?: readonly string[],
-  roadId: string = roadIdForLane(id),
-  widthM = laneWidthForLane(id),
-  localSpeedUnit?: SpeedUnit,
-): LaneSegment => {
-  const { centerline, startConnectorLengthM, endConnectorLengthM, totalLengthM } =
-    buildLaneTrueGeometry(from.position, to.position, establishedPath);
-
-  return {
-    id,
-    roadId,
-    widthM,
-    from: from.id,
-    to: to.id,
-    centerline,
-    role,
-    trafficSide,
-    speedLimit: speedLimitForRoad(roadId),
-    ...(localSpeedUnit ? { localSpeedUnit } : {}),
-    successors,
-    ...(adjacentLaneIds ? { adjacentLaneIds } : {}),
-    connectorRanges: [
-      {
-        startDistanceAlongM: 0,
-        endDistanceAlongM: startConnectorLengthM,
-        ...(conflictZoneForNode(from.id)
-          ? { conflictZoneId: conflictZoneForNode(from.id) }
-          : {}),
-      },
-      {
-        startDistanceAlongM: totalLengthM - endConnectorLengthM,
-        endDistanceAlongM: totalLengthM,
-        ...(conflictZoneForNode(to.id)
-          ? { conflictZoneId: conflictZoneForNode(to.id) }
-          : {}),
-      },
-    ],
-  };
-};
-
-const anchor = (laneId: string, distanceAlongM: number): LaneAnchor => ({
-  laneId,
-  distanceAlongM,
-});
-
-const roadMarking = (
-  id: string,
-  style: RoadMarkingStyle,
-  points: readonly WorldPoint[],
-  color?: RoadMarkingPath["color"],
-): RoadMarkingPath => ({ id, style, points, ...(color ? { color } : {}) });
-
-const roadSurface = (
-  id: string,
-  centerline: readonly WorldPoint[],
-  widthM: number,
-  laneIds: readonly string[],
-  surfaceType: RoadSurfaceType = "standard",
-  markings: readonly RoadMarkingPath[] = [],
-): RoadSurface => ({
-  id,
-  centerline,
-  widthM,
-  laneIds,
-  surfaceType,
-  markings,
-});
-
-const anchoredSpawn = (
-  id: string,
-  kind: "player" | "vehicle",
-  laneId: string,
-  distanceAlongM: number,
-): MapSpawnPoint => ({
-  id,
-  kind,
-  anchor: anchor(laneId, distanceAlongM),
-});
-
-const freeSpawn = (
-  id: string,
-  kind: "pedestrian" | "cyclist",
-  x: number,
-  z: number,
-  headingDeg: number,
-  laneId?: string,
-): MapSpawnPoint => ({
-  id,
-  kind,
-  pose: { position: point(x, z), headingDeg },
-  ...(laneId ? { laneId } : {}),
-});
-
-const approach = (
-  id: string,
-  laneId: string,
-  distanceAlongM: number,
-  phaseGroup: string,
-  conflictZoneIds?: readonly string[],
-): TrafficControlApproach => ({
-  id,
-  laneIds: [laneId],
-  stopLine: anchor(laneId, distanceAlongM),
-  phaseGroup,
-  ...(conflictZoneIds ? { conflictZoneIds } : {}),
-});
-
-const installation = (
-  id: string,
-  x: number,
-  z: number,
-  headingDeg: number,
-  mounting: TrafficControlInstallation["mounting"],
-  style: TrafficControlInstallation["style"],
-  role: TrafficControlInstallation["role"],
-  approachIds?: readonly string[],
-  armHeadingDeg?: number,
-): TrafficControlInstallation => ({
-  id,
-  position: point(x, z),
-  headingDeg,
-  mounting,
-  style,
-  role,
-  ...(approachIds ? { approachIds } : {}),
-  ...(armHeadingDeg === undefined ? {} : { armHeadingDeg }),
-});
-
-const control = (
-  id: string,
-  type: TrafficControl["type"],
-  x: number,
-  z: number,
-  headingDeg: number,
-  laneIds: readonly string[],
-  conflictZoneIds?: readonly string[],
-  approaches: readonly TrafficControlApproach[] = [],
-  installations: readonly TrafficControlInstallation[] = [],
-): TrafficControl => ({
-  id,
-  type,
-  position: point(x, z),
-  headingDeg,
-  laneIds,
-  ...(conflictZoneIds ? { conflictZoneIds } : {}),
-  approaches,
-  installations,
-});
+const osmSource = makeOsmSource(NYC_CONTENT_REVIEWED_ON);
 
 const laneLengthOf = (lane: LaneSegment): number =>
   lane.centerline.slice(1).reduce(
@@ -339,92 +142,6 @@ const intersectionSignal = (
     },
   };
 };
-
-const CONNECTOR_ZONE_RADIUS_M = 2.1;
-
-/**
- * Declares a compact conflict zone around every generic graph junction used
- * by an explicit connector range. Authored signal/roundabout zones keep their
- * wider polygons, while their lane membership is augmented automatically.
- */
-const connectorConflictZones = (
-  lanes: readonly LaneSegment[],
-  authoredZones: LaneGraph["conflictZones"],
-): LaneGraph["conflictZones"] => {
-  const connectorLaneIds = new Map<string, Set<string>>();
-  const generatedCenters = new Map<string, WorldPoint>();
-  const authoredIds = new Set(authoredZones.map((zone) => zone.id));
-
-  for (const lane of lanes) {
-    for (const range of lane.connectorRanges ?? []) {
-      const conflictZoneId = range.conflictZoneId;
-      if (!conflictZoneId) continue;
-      const laneIds = connectorLaneIds.get(conflictZoneId) ?? new Set<string>();
-      laneIds.add(lane.id);
-      connectorLaneIds.set(conflictZoneId, laneIds);
-      if (!authoredIds.has(conflictZoneId)) {
-        generatedCenters.set(
-          conflictZoneId,
-          range.startDistanceAlongM <= 1e-6
-            ? lane.centerline[0]
-            : lane.centerline.at(-1)!,
-        );
-      }
-    }
-  }
-
-  const authored = authoredZones.map((zone) => ({
-    ...zone,
-    laneIds: [
-      ...new Set([
-        ...zone.laneIds,
-        ...(connectorLaneIds.get(zone.id) ?? []),
-      ]),
-    ],
-  }));
-  const generated = [...generatedCenters].map(([id, center]) => ({
-    id,
-    laneIds: [...(connectorLaneIds.get(id) ?? [])],
-    polygon: [
-      point(center.x - CONNECTOR_ZONE_RADIUS_M, center.z - CONNECTOR_ZONE_RADIUS_M),
-      point(center.x + CONNECTOR_ZONE_RADIUS_M, center.z - CONNECTOR_ZONE_RADIUS_M),
-      point(center.x + CONNECTOR_ZONE_RADIUS_M, center.z + CONNECTOR_ZONE_RADIUS_M),
-      point(center.x - CONNECTOR_ZONE_RADIUS_M, center.z + CONNECTOR_ZONE_RADIUS_M),
-    ],
-  }));
-  return [...authored, ...generated];
-};
-
-const graph = (
-  nodes: readonly LaneNode[],
-  lanes: readonly LaneSegment[],
-  controls: LaneGraph["controls"],
-  conflictZones: LaneGraph["conflictZones"],
-  spawnPoints: LaneGraph["spawnPoints"],
-): LaneGraph => ({
-  nodes,
-  lanes,
-  controls,
-  conflictZones: connectorConflictZones(lanes, conflictZones),
-  spawnPoints,
-});
-
-const osmSource = (
-  boundingBox: FrozenMapSource["boundingBox"],
-  sourceUrl: string,
-  checksum: string,
-  additionalBoundingBoxes?: readonly FrozenMapSource["boundingBox"][],
-): FrozenMapSource => ({
-  boundingBox,
-  ...(additionalBoundingBoxes ? { additionalBoundingBoxes } : {}),
-  capturedOn: NYC_CONTENT_REVIEWED_ON,
-  sourceUrl,
-  checksum,
-  importerVersion: "sideswap-procedural-1.0.0",
-  attribution: "© OpenStreetMap contributors",
-  licenseName: "Open Data Commons Open Database License 1.0",
-  licenseUrl: "https://www.openstreetmap.org/copyright",
-});
 
 // Upper West Side grid. x = east, z = north. Three two-way avenues — West End
 // (x=-320), Broadway (x=-120), Central Park West (x=320) — cross three two-way
@@ -547,18 +264,8 @@ const ROAD_SPEED_LIMITS: Readonly<Record<string, number>> = Object.fromEntries(
   [...NYC_AVENUES, ...NYC_STREETS].map((road) => [road.roadId, road.speedLimit]),
 );
 
-/** Throws rather than defaulting — a road with no posted limit is an
- * authoring omission, and a silent fallback would put ambient traffic
- * through it at whatever the guess happened to be. Runs at module scope, so
- * the failure lands on import — every test at once, naming the road. Same
- * shape as `tokyo.ts`'s and `londonContent.ts`'s own copies. */
-const speedLimitForRoad = (roadId: string): number => {
-  const limit = ROAD_SPEED_LIMITS[roadId];
-  if (limit === undefined) {
-    throw new Error(`No speed limit posted for road "${roadId}"`);
-  }
-  return limit;
-};
+const speedLimitForRoad = makeSpeedLimitForRoad(ROAD_SPEED_LIMITS);
+const laneTrue = makeLaneTrue(speedLimitForRoad);
 
 interface NycGridLane {
   readonly id: string;
