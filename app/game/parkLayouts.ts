@@ -642,9 +642,16 @@ function bespokeFeatures(
     clearings.push({ x: centre.x, z: centre.z, halfX: 9, halfZ: 9 });
   }
 
-  if (id.includes("central-park")) {
+  if (id === "nyc-central-park") {
     // The Great Lawn is grass with nothing on it. It is a hole in the scatter,
     // not a mesh — which is also why it costs nothing.
+    //
+    // Exact match, not `includes`: NYC's Central Park is four landmarks
+    // sharing this id as a common prefix (`nyc-central-park-south`,
+    // `-lakeside`, `-north`) once the park is split into segments around
+    // the transverse roads, and a substring match would carve this same
+    // Great-Lawn-shaped hole — sized and positioned for the original single
+    // 2,900 m-tall rectangle — out of every one of them too.
     const lawn = toWorld(landmark, 0.12, 0.21);
     clearings.push({ x: lawn.x, z: lawn.z, halfX: 78, halfZ: 115 });
   }

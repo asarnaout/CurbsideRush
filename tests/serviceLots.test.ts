@@ -198,7 +198,7 @@ describe("service-point lots", () => {
       ]),
     );
     expect(shopsByMap).toEqual({
-      "nyc-upper-west-side": 2,
+      "nyc-upper-west-side": 3,
       "london-south-kensington": 1,
       "tokyo-setagaya": 1,
       "cairo-central-nile": 2,

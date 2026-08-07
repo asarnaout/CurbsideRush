@@ -1947,7 +1947,11 @@ describe("dispatch: a job from offer to payout", () => {
   // the suite dispatches a bare `coaching` event or checks that the count it
   // leaves behind (`carryViolationsRef`) actually reaches the payout.
   it("counts a rider-witnessed coaching violation toward the tip, once carrying", async () => {
-    const CAREER_SEED = 2;
+    // Seed 2's first us-nyc passenger offer now pays little enough (the
+    // east-side venue/address pool changed which gig lands first) that the
+    // violation penalty rounds to the same whole-dollar tip either way —
+    // seed 7 keeps a comfortable, distinguishable gap.
+    const CAREER_SEED = 7;
     const expected = firstOfferOf("us-nyc", CAREER_SEED);
     expect(expected.kind).toBe("passenger");
 
@@ -1994,7 +1998,9 @@ describe("dispatch: a job from offer to payout", () => {
   // The other half of that same first branch: a collision while carrying
   // counts toward the rider's tip on top of whatever it does to the car.
   it("counts a collision while carrying toward the tip too, on top of the damage it does", async () => {
-    const CAREER_SEED = 2;
+    // Same reasoning as the coaching-violation test above: seed 7 keeps the
+    // violation penalty distinguishable at whole-dollar rounding.
+    const CAREER_SEED = 7;
     const expected = firstOfferOf("us-nyc", CAREER_SEED);
     expect(expected.kind).toBe("passenger");
 

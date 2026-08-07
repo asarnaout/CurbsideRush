@@ -68,11 +68,13 @@ const parkCases = (): readonly ParkCase[] => {
 
 describe("park layouts", () => {
   it("covers every authored park on every shipped map", () => {
-    // The eleven parks this was written against — three NYC, three Tokyo, two
-    // Cairo, and London's Exhibition Road strip plus its two roundabout
-    // islands, which are generated rather than listed and are easy to forget.
-    // Pinned so adding a park is a deliberate act, not a surprise.
-    expect(parkCases().length).toBe(11);
+    // Fourteen — NYC's three original (Central Park now split into four
+    // segments around its transverse roads, net +3) plus Riverside and Joan
+    // of Arc, three Tokyo, two Cairo, and London's Exhibition Road strip
+    // plus its two roundabout islands, which are generated rather than
+    // listed and are easy to forget. Pinned so adding a park is a
+    // deliberate act, not a surprise.
+    expect(parkCases().length).toBe(14);
   });
 
   it("is deterministic — two builds are identical", () => {
@@ -399,10 +401,14 @@ describe("park layouts", () => {
       central.visualKey,
       central.context,
     );
-    // A 2.9 km park earns crossings at a few hundred metres, like the real
-    // transverses — and each crossing is what opens the wall.
+    // A long park earns crossings at a few hundred metres. Central Park
+    // itself is now four shorter segments (one per side of the three real
+    // transverse roads, which run through the gaps between segments rather
+    // than through any one of them), so this landmark's own internal
+    // crossings are fewer than when it was one 2.9 km rectangle — but it
+    // still earns some, and each crossing is what opens the wall.
     const crossings = layout.paths.filter((p) => p.id.startsWith("cross-"));
-    expect(crossings.length).toBeGreaterThanOrEqual(8);
+    expect(crossings.length).toBeGreaterThanOrEqual(2);
     expect(layout.wall.length).toBeGreaterThan(crossings.length);
   });
 

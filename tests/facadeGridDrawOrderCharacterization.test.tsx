@@ -232,8 +232,8 @@ const CITIES: readonly AuthoredCity[] = [
 // not merely where the call sites live.
 const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
   "nyc-upper-west-side": {
-    drawCount: 1_659,
-    facadeMeshFingerprint: "e08c8d0a",
+    drawCount: 2_490,
+    facadeMeshFingerprint: "68733e00",
   },
   "london-south-kensington": {
     drawCount: 48,

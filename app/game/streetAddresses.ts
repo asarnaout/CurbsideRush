@@ -257,6 +257,17 @@ const CROSS_STREET = {
   numbersPerM: 0.55,
 } as const;
 
+/**
+ * East cross streets number east from Fifth Avenue, the mirror of the west
+ * rule — house #1 lands at Fifth (x -140): 78 + round(-140 * 0.55) = 1.
+ */
+const EAST_CROSS_STREET = {
+  axis: "x",
+  baseNumber: 78,
+  axisSign: 1,
+  numbersPerM: 0.55,
+} as const;
+
 const STREET_PROFILES: Record<string, StreetProfile> = {
   "nyc-riverside": { ...AVENUE, baseNumber: 250 },
   "nyc-west-end": { ...AVENUE, baseNumber: 500 },
@@ -280,6 +291,17 @@ const STREET_PROFILES: Record<string, StreetProfile> = {
   "nyc-west-96": CROSS_STREET,
   "nyc-west-100": CROSS_STREET,
   "nyc-west-106": CROSS_STREET,
+  // East of the park (NYC east expansion, section 3.8). UES-ish magnitudes.
+  "nyc-fifth": { ...AVENUE, baseNumber: 990 },
+  "nyc-madison": { ...AVENUE, baseNumber: 940 },
+  "nyc-park-ave": { ...AVENUE, baseNumber: 760 },
+  "nyc-lexington": { ...AVENUE, baseNumber: 1140 },
+  "nyc-third": { ...AVENUE, baseNumber: 1310 },
+  "nyc-east-61": EAST_CROSS_STREET,
+  "nyc-east-72": EAST_CROSS_STREET,
+  "nyc-east-86": EAST_CROSS_STREET,
+  "nyc-east-91": EAST_CROSS_STREET,
+  "nyc-east-100": EAST_CROSS_STREET,
 };
 
 /**

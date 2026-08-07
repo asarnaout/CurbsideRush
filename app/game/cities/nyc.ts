@@ -322,6 +322,31 @@ export const NYC_AVENUES: readonly NycRoadSpec[] = [
   { key: "amst", nodeKey: "amst", roadId: "nyc-amsterdam", name: "Amsterdam Ave", speedLimit: 30, coordinate: -660, widthM: 9, oneWay: "forward", lanesPerDirection: 2 },
   { key: "col", nodeKey: "col", roadId: "nyc-columbus", name: "Columbus Ave", speedLimit: 30, coordinate: -520, widthM: 9, oneWay: "backward", lanesPerDirection: 2, kerbsideLaneNo: 1 },
   { key: "cpw", nodeKey: "cpw", roadId: "nyc-central-park-west", name: "Central Park West", speedLimit: 25, coordinate: -380, widthM: 11, oneWay: null, lanesPerDirection: 1 },
+  // East of the park (issue: NYC east expansion, .claude/nyc-east-expansion-plan.md
+  // section 3.2). All five share one crossings list — the three park
+  // transverses plus the five east-only streets — so none of them
+  // accidentally reach a west-side street the way an omitted `crossings`
+  // would. Third additionally gains the two bridge keys once Phase 4 adds
+  // them.
+  //
+  // Fifth and Third are the outer edge of this sub-grid the way Riverside
+  // and Central Park West are the west grid's, and for the same
+  // graph-correctness reason both of those are two-way (docs' "dead corner"
+  // rule, section 9 pitfall 15): a one-way avenue's arrival end, sat at a
+  // map edge, offers nothing for the boundary street's traffic to turn
+  // onto there, and the generator never offers a same-road reversal.
+  // Content.test.ts's "every lane has somewhere legal to go" caught it at
+  // both true corners (fifth x e61, third x e100) the moment E 61st/E 100th
+  // existed to arrive there — one-way Fifth/Third read as more authentic
+  // Manhattan, but the plan is explicit that flavour, not real-world
+  // fidelity, is the goal, and two-way is what the west grid's own
+  // precedent already resolves this with. Madison/Lexington keep the
+  // one-way pair.
+  { key: "fifth", nodeKey: "fifth", roadId: "nyc-fifth", name: "Fifth Ave", speedLimit: 25, coordinate: -140, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
+  { key: "mad", nodeKey: "mad", roadId: "nyc-madison", name: "Madison Ave", speedLimit: 25, coordinate: 0, widthM: 9, oneWay: "forward", lanesPerDirection: 2, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
+  { key: "pk", nodeKey: "pk", roadId: "nyc-park-ave", name: "Park Ave", speedLimit: 30, coordinate: 160, widthM: 12, oneWay: null, lanesPerDirection: 1, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
+  { key: "lex", nodeKey: "lex", roadId: "nyc-lexington", name: "Lexington Ave", speedLimit: 30, coordinate: 300, widthM: 9, oneWay: "backward", lanesPerDirection: 2, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
+  { key: "third", nodeKey: "third", roadId: "nyc-third", name: "Third Ave", speedLimit: 30, coordinate: 440, widthM: 11, oneWay: null, lanesPerDirection: 1, crossings: ["e61", "65", "e72", "79", "e86", "e91", "96", "e100"] },
 ];
 
 /**
@@ -331,22 +356,49 @@ export const NYC_AVENUES: readonly NycRoadSpec[] = [
  * They exist so there is somewhere to turn: without them the avenues run 480 m
  * (six real blocks) between junctions.
  */
+// East-only streets (crossings: the five east avenue keys only) share this
+// list so a typo in one doesn't drift from the rest.
+const NYC_EAST_STREET_CROSSINGS = ["fifth", "mad", "pk", "lex", "third"] as const;
+/**
+ * Every west avenue plus (from Phase 3 on) every east avenue — a transverse's
+ * full reach. Streets that stop at the park (everything else here) instead
+ * get the west-only list explicitly: an omitted `crossings` means "every
+ * avenue that reaches this street", which after the five east avenues exist
+ * would silently drive every side street straight through the park.
+ */
+const NYC_WEST_STREET_CROSSINGS = ["riv", "we", "bway", "amst", "col", "cpw"] as const;
+const NYC_TRANSVERSE_CROSSINGS = [...NYC_WEST_STREET_CROSSINGS, ...NYC_EAST_STREET_CROSSINGS];
+
 export const NYC_STREETS: readonly NycRoadSpec[] = [
-  { key: "59", nodeKey: "59", roadId: "nyc-west-59", name: "W 59th St", speedLimit: 30, coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "61", nodeKey: "61", roadId: "nyc-west-61", name: "W 61st St", speedLimit: 25, coordinate: -1200, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", speedLimit: 30, coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "68", nodeKey: "68", roadId: "nyc-west-68", name: "W 68th St", speedLimit: 25, coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
-  { key: "72", nodeKey: "72", roadId: "nyc-west-72", name: "W 72nd St", speedLimit: 30, coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "75", nodeKey: "75", roadId: "nyc-west-75", name: "W 75th St", speedLimit: 25, coordinate: -240, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "79", nodeKey: "79", roadId: "nyc-west-79", name: "W 79th St", speedLimit: 30, coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "59", nodeKey: "59", roadId: "nyc-west-59", name: "W 59th St", speedLimit: 30, coordinate: -1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
+  { key: "61", nodeKey: "61", roadId: "nyc-west-61", name: "W 61st St", speedLimit: 25, coordinate: -1200, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
+  // E 61st bounds the east grid on its south edge and MUST be two-way: a
+  // one-way boundary street leaves the grid's south-east and south-west
+  // corners with arrivals but no legal departure once the one-way avenues
+  // are added, and traffic vanishes there (#128's failure mode) — see
+  // .claude/nyc-east-expansion-plan.md section 3.2 and pitfall 15.
+  { key: "e61", nodeKey: "e61", roadId: "nyc-east-61", name: "E 61st St", speedLimit: 30, coordinate: -1200, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
+  // W/E 65th, 79th and 96th are the park transverses: real crossings, so
+  // they run the park's full width rather than stopping at its edge.
+  { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", speedLimit: 30, coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_TRANSVERSE_CROSSINGS },
+  { key: "68", nodeKey: "68", roadId: "nyc-west-68", name: "W 68th St", speedLimit: 25, coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
+  { key: "72", nodeKey: "72", roadId: "nyc-west-72", name: "W 72nd St", speedLimit: 30, coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
+  { key: "e72", nodeKey: "e72", roadId: "nyc-east-72", name: "E 72nd St", speedLimit: 25, coordinate: -480, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
+  { key: "75", nodeKey: "75", roadId: "nyc-west-75", name: "W 75th St", speedLimit: 25, coordinate: -240, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
+  { key: "79", nodeKey: "79", roadId: "nyc-west-79", name: "W 79th St", speedLimit: 30, coordinate: 0, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_TRANSVERSE_CROSSINGS },
   // W 82nd stops at Columbus: the museum and its grounds fill the block through
   // to Central Park West, exactly as they interrupt the real street grid there.
   { key: "82", nodeKey: "82", roadId: "nyc-west-82", name: "W 82nd St", speedLimit: 25, coordinate: 240, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: ["riv", "we", "bway", "amst", "col"] },
-  { key: "86", nodeKey: "86", roadId: "nyc-west-86", name: "W 86th St", speedLimit: 30, coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "91", nodeKey: "91", roadId: "nyc-west-91", name: "W 91st St", speedLimit: 25, coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1 },
-  { key: "96", nodeKey: "96", roadId: "nyc-west-96", name: "W 96th St", speedLimit: 30, coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
-  { key: "100", nodeKey: "100", roadId: "nyc-west-100", name: "W 100th St", speedLimit: 25, coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1 },
-  { key: "106", nodeKey: "106", roadId: "nyc-west-106", name: "W 106th St", speedLimit: 30, coordinate: 1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1 },
+  { key: "86", nodeKey: "86", roadId: "nyc-west-86", name: "W 86th St", speedLimit: 30, coordinate: 480, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
+  { key: "e86", nodeKey: "e86", roadId: "nyc-east-86", name: "E 86th St", speedLimit: 25, coordinate: 480, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
+  { key: "91", nodeKey: "91", roadId: "nyc-west-91", name: "W 91st St", speedLimit: 25, coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
+  { key: "e91", nodeKey: "e91", roadId: "nyc-east-91", name: "E 91st St", speedLimit: 25, coordinate: 720, widthM: 9, oneWay: "backward", lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
+  { key: "96", nodeKey: "96", roadId: "nyc-west-96", name: "W 96th St", speedLimit: 30, coordinate: 960, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_TRANSVERSE_CROSSINGS },
+  { key: "100", nodeKey: "100", roadId: "nyc-west-100", name: "W 100th St", speedLimit: 25, coordinate: 1200, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
+  // E 100th bounds the east grid on its north edge — two-way for the same
+  // reason E 61st is on the south.
+  { key: "e100", nodeKey: "e100", roadId: "nyc-east-100", name: "E 100th St", speedLimit: 30, coordinate: 1200, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
+  { key: "106", nodeKey: "106", roadId: "nyc-west-106", name: "W 106th St", speedLimit: 30, coordinate: 1440, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
 ];
 
 /**
@@ -735,8 +787,39 @@ const nycZoneFor = (columnKey: string, centreZ: number): NycZone | null => {
       // would stand inside the authored landmark.
       if (centreZ > 0 && centreZ < 480) return null;
       return centreZ < 480 ? NYC_ZONES.midrise : NYC_ZONES.brownstone;
+    // East of the park (NYC east expansion, section 3.7).
+    case "cpw-fifth":
+      // This "column" is Central Park itself — a missed null here would
+      // generate a block floating on the lawn, the same trap "third-vern"
+      // (added in a later phase) guards against over the river.
+      return null;
+    case "fifth-mad":
+      // A midtown-ish rise at the park's SE corner; the Fifth Avenue Gallery
+      // (section 3.6) owns the 79th–86th cell the same way the AMNH does on
+      // the west side.
+      if (centreZ > 0 && centreZ < 480) return null;
+      return centreZ < -960 ? NYC_ZONES.towers : NYC_ZONES.midrise;
+    case "mad-pk":
+      // Carnegie Hill reads brownstone above the museum mile; midtown
+      // office/apartment mix below it.
+      return centreZ < 0 ? NYC_ZONES.midrise : NYC_ZONES.brownstone;
+    case "pk-lex":
+      return centreZ < 0
+        ? NYC_ZONES.brownstone
+        : centreZ < 960
+          ? NYC_ZONES.retail // the E 86th shopping spine
+          : NYC_ZONES.midrise;
+    case "lex-third":
+      if (centreZ < -960) return NYC_ZONES.towers;
+      if (centreZ < 480) return NYC_ZONES.midrise;
+      if (centreZ < 960) return NYC_ZONES.retail;
+      return NYC_ZONES.brownstone;
     default:
-      return NYC_ZONES.midrise;
+      // Every real column is listed above by name on purpose: a forgotten
+      // one used to fall through to midrise silently (a block floating on
+      // the river, once the river column existed), and this way it throws
+      // at import time instead.
+      throw new Error(`nycZoneFor: unhandled column "${columnKey}"`);
   }
 };
 
@@ -898,6 +981,11 @@ export const NYC_MAP_PACK: MapPack = {
       // there than below W 65th.
       { id: "nyc-block-south-margin", center: point(-700, -1475), size: point(614, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
       { id: "nyc-block-north-margin", center: point(-770, 1475), size: point(754, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
+      // Same pattern, east side: strips beyond E 61st and E 100th, the two
+      // bounding streets of the east grid, inset 13 m off their coordinate
+      // and spanning Fifth's to Third's kerb (-140-13=-153 to 440+13=453).
+      { id: "nyc-block-east-south-margin", center: point(150, -1235), size: point(606, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
+      { id: "nyc-block-east-north-margin", center: point(150, 1235), size: point(606, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
     ]),
     servicePoints: [
       // West 72nd is a wide two-way, and NYC is a paved city, so the lot must
@@ -926,6 +1014,12 @@ export const NYC_MAP_PACK: MapPack = {
       // than the eighteens for the same kerb gap on the same street.
       { id: "nyc-repair-downtown", kind: "repair_shop", anchor: { laneId: "nyc-65-e-col", distanceAlongM: 36 }, footprint: point(10, 8), label: "West 65th Auto", setbackM: 11.8 },
       { id: "nyc-repair-uptown", kind: "repair_shop", anchor: { laneId: "nyc-bway-n-91", distanceAlongM: 60 }, footprint: point(10, 8), label: "Broadway Auto", setbackM: 12.1 },
+      // Third Ave's E 86th-91st block sits in the lex-third retail band —
+      // commercial frontage, not between houses (serviceLots.test.ts). The
+      // southbound lane, deliberately: the setback normal is always the
+      // driver's right, and northbound's right is east — off the edge of
+      // the developed grid, this phase, with no block to land on at all.
+      { id: "nyc-repair-east", kind: "repair_shop", anchor: { laneId: "nyc-third-s-e91", distanceAlongM: 140 }, footprint: point(10, 8), label: "East Side Auto", setbackM: 12.1 },
     ],
     gigVenues: [
       { id: "nyc-v1", kind: "restaurant", anchor: { laneId: "nyc-amst-n-1-75", distanceAlongM: 22 }, footprint: point(28, 20), name: "Amsterdam Diner", setbackM: 18 },
@@ -957,6 +1051,19 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-v15", kind: "restaurant", anchor: { laneId: "nyc-amst-n-2-86", distanceAlongM: 120 }, footprint: point(14, 14), name: "Amsterdam Noodle Bar", modelId: "restaurant-pizzeria" },
       { id: "nyc-v16", kind: "shop", anchor: { laneId: "nyc-106-w-amst", distanceAlongM: 80 }, footprint: point(16, 12), name: "West 106th Grocers" },
       { id: "nyc-v17", kind: "residence", anchor: { laneId: "nyc-cpw-s-96", distanceAlongM: 120 }, footprint: point(14, 12), name: "Central Park West Residences" },
+      // East of the park (NYC east expansion, section 3.8) — kinds and
+      // models cycled so no two neighbouring venues match, same discipline
+      // as the west side.
+      { id: "nyc-v18", kind: "restaurant", anchor: { laneId: "nyc-lex-s-1-e86", distanceAlongM: 200 }, footprint: point(28, 20), name: "Lexington Diner", setbackM: 18 },
+      { id: "nyc-v19", kind: "restaurant", anchor: { laneId: "nyc-e86-e-lex", distanceAlongM: 70 }, footprint: point(14, 14), name: "E 86th Pizzeria", modelId: "restaurant-pizzeria" },
+      // Fifth Avenue Gallery's café — right by the museum's own block.
+      { id: "nyc-v20", kind: "restaurant", anchor: { laneId: "nyc-fifth-s-e86", distanceAlongM: 240 }, footprint: point(14, 14), name: "Gallery Café" },
+      { id: "nyc-v21", kind: "shop", anchor: { laneId: "nyc-mad-n-1-79", distanceAlongM: 150 }, footprint: point(16, 12), name: "Madison Bodega" },
+      { id: "nyc-v22", kind: "shop", anchor: { laneId: "nyc-third-s-e86", distanceAlongM: 200 }, footprint: point(16, 12), name: "Third Avenue Grocers" },
+      { id: "nyc-v23", kind: "office", anchor: { laneId: "nyc-pk-n-e72", distanceAlongM: 200 }, footprint: point(16, 14), name: "Park Avenue Offices" },
+      // Down by the SE tower cluster (lex-third/fifth-mad, z < -960).
+      { id: "nyc-v24", kind: "office", anchor: { laneId: "nyc-third-n-e61", distanceAlongM: 100 }, footprint: point(16, 14), name: "Third Avenue Towers Offices" },
+      { id: "nyc-v25", kind: "residence", anchor: { laneId: "nyc-pk-n-e91", distanceAlongM: 20 }, footprint: point(14, 12), name: "Park Avenue at 91st" },
     ],
     // Central Park's lake, on the eastern half so it never fouls the
     // promenade, and between two of the derived crossings so it never
@@ -990,8 +1097,25 @@ export const NYC_MAP_PACK: MapPack = {
       // longer a 38 m token: at 200 m it reads as the park the avenue is
       // named after rather than a verge. Its west edge stays clear of
       // Central Park West's kerb, which is what keeps addresses off it.
-      { id: "nyc-central-park", kind: "park", center: point(-260, 0), size: point(200, 2900), color: "#4f7a3d" },
+      //
+      // Split into four segments rather than one road-divided rectangle:
+      // `ROAD_DIVIDED_PARK_IDS`'s side-aware clipping composes badly with
+      // three transverse crossings, so each 14 m gap between segments (28 m
+      // total either side of a transverse) clears that carriageway plus its
+      // shoulders instead, and the transverses just run through open ground
+      // between two landmarks rather than across one. The legacy id stays on
+      // the Great Lawn's own segment (14..946) so parkLayouts.ts's bespoke
+      // Central Park feature — and the lake, which sits inside `-lakeside`,
+      // matched geometrically either way — keep attaching by id.
+      { id: "nyc-central-park-south", kind: "park", center: point(-260, -1212), size: point(200, 476), color: "#4f7a3d" },
+      { id: "nyc-central-park-lakeside", kind: "park", center: point(-260, -480), size: point(200, 932), color: "#4f7a3d" },
+      { id: "nyc-central-park", kind: "park", center: point(-260, 480), size: point(200, 932), color: "#4f7a3d" },
+      { id: "nyc-central-park-north", kind: "park", center: point(-260, 1212), size: point(200, 476), color: "#4f7a3d" },
       { id: "nyc-amnh", kind: "shops", center: point(-450, 240), size: point(100, 420), color: "#caa76f" },
+      // Fifth Avenue Gallery: the Met's slot, fronting Fifth between E 72nd
+      // and E 86th — the same "landmark owns the cell, zoning nulls it"
+      // pattern the AMNH uses on the west side.
+      { id: "nyc-gallery", kind: "museum", center: point(-60, 240), size: point(90, 160), color: "#caa76f" },
       // Riverside Park fills the far side of Riverside Drive, where the land
       // really does fall away to the Hudson — so the west edge of the map is
       // green rather than another row of brownstones.
@@ -1032,6 +1156,15 @@ export const NYC_MAP_PACK: MapPack = {
       anchoredSpawn("nyc-bus-15", "vehicle", "nyc-106-e-we", 80),
       anchoredSpawn("nyc-car-16", "vehicle", "nyc-cpw-s-96", 120),
       anchoredSpawn("nyc-car-17", "vehicle", "nyc-riv-s-91", 120),
+      // East of the park (NYC east expansion, section 3.9) — the same
+      // fleet spread thinner over a bigger city, denser near gates.
+      anchoredSpawn("nyc-car-18", "vehicle", "nyc-fifth-n-79", 200),
+      anchoredSpawn("nyc-car-19", "vehicle", "nyc-mad-n-1-e72", 200),
+      anchoredSpawn("nyc-car-20", "vehicle", "nyc-pk-s-79", 150),
+      anchoredSpawn("nyc-car-21", "vehicle", "nyc-pk-n-e86", 100),
+      anchoredSpawn("nyc-cab-22", "vehicle", "nyc-lex-s-1-79", 200),
+      anchoredSpawn("nyc-car-23", "vehicle", "nyc-third-n-79", 200),
+      anchoredSpawn("nyc-van-24", "vehicle", "nyc-third-s-e86", 150),
       freeSpawn("nyc-ped-1", "pedestrian", -800, 12, 0),
       freeSpawn("nyc-ped-2", "pedestrian", -832, -10, 180),
       freeSpawn("nyc-ped-3", "pedestrian", -672, 12, 0),
@@ -1043,9 +1176,14 @@ export const NYC_MAP_PACK: MapPack = {
       freeSpawn("nyc-ped-6", "pedestrian", -800, -1092, 0),
       freeSpawn("nyc-ped-7", "pedestrian", -532, 1088, 180),
       freeSpawn("nyc-ped-8", "pedestrian", -1148, 600, 0),
+      // Museum steps outside the gallery, and the E 86th retail spine.
+      freeSpawn("nyc-ped-9", "pedestrian", -155, 240, 90),
+      freeSpawn("nyc-ped-10", "pedestrian", 220, 480, 90),
       freeSpawn("nyc-cyclist-1", "cyclist", -1018, -200, 0, "nyc-we-n-72"),
       freeSpawn("nyc-cyclist-2", "cyclist", -661.7, -200, 0, "nyc-amst-n-1-72"),
       freeSpawn("nyc-cyclist-3", "cyclist", -1158, 600, 0, "nyc-riv-n-86"),
+      freeSpawn("nyc-cyclist-4", "cyclist", 440, 100, 0, "nyc-third-n-79"),
+      freeSpawn("nyc-cyclist-5", "cyclist", 230, 0, 90, "nyc-79-e-pk"),
     ],
   ),
 };
