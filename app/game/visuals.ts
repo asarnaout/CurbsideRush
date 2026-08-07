@@ -206,8 +206,19 @@ export interface MapVisualProfile {
   readonly buildingSets: readonly BuildingSetId[];
   /** Park-planting catalogues (`natureCatalog.ts`) this city draws from. */
   readonly natureSets: readonly NatureSetId[];
-  /** Crowd complexion/hair ramp weights (`characterPalettes.ts`); both sum to
-   * `CHARACTER_PALETTE_SLOTS`. */
+  /**
+   * How many of each `characterPalettes.ts` ramp entry a walker pool gets;
+   * both sum to `CHARACTER_PALETTE_SLOTS`. A row is a rough read of who
+   * actually walks that neighbourhood: the Upper West Side draws flat across
+   * the complexion ramp, South Kensington leans a little lighter, Setagaya —
+   * a ward of a city that is overwhelmingly Japanese, with a visible but
+   * small international population — sits mostly in the upper half without
+   * emptying the lower one, and Central Cairo keeps a broad local range with
+   * a visible international population. Hair is deliberately not conditioned
+   * on complexion (dyed/bleached hair is ordinary in all four cities), but
+   * Setagaya and Cairo are both weighted almost entirely to black/dark brown,
+   * with none of the blonde their populations don't bear out.
+   */
   readonly complexionWeights: readonly number[];
   readonly hairWeights: readonly number[];
 }
