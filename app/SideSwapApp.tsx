@@ -90,7 +90,6 @@ import type {
   CareerSliceV2,
   CareerVehicleId,
   CareerVehicleSpec,
-  DayLedgerInput,
   RatingSettlement,
   SettlementResult,
 } from "./game/career";
@@ -111,6 +110,7 @@ import { LauncherView, DESTINATION_PREVIEW_IMAGES } from "./LauncherView";
 import { useGamepadUiNavigation } from "./useGamepadUiNavigation";
 import { DriveScreen } from "./DriveScreen";
 import { useDriveStatusPort } from "./drivePort";
+import { useCareerPort } from "./careerPort";
 import {
   FULL_CONDITION_PCT,
   MIN_REPAIRABLE_DAMAGE_PCT,
@@ -625,32 +625,29 @@ export default function SideSwapApp() {
   // HUD has to know how wide the window is. Only on resize — never per frame.
   const [viewportWidth, setViewportWidth] = useState(HUD_DESIGN_WIDTH);
   const [viewportHeight, setViewportHeight] = useState(1080);
-  // ---- Career Mode day state. Money is day-local (dayCash/dayLog) and only
-  // lands in the persisted slice at settlement — quitting mid-day redoes the
-  // day from the morning. Refs mirror state so multiple money events in one
-  // frame all subtract from the live value (same pattern as carConditionRef).
-  const [careerRun, setCareerRun] = useState<CareerRun | null>(null);
-  const careerRunRef = useRef<CareerRun | null>(null);
-  const [dayCash, setDayCash] = useState(0);
-  const dayCashRef = useRef(0);
-  const dayLogRef = useRef<DayLedgerInput>(emptyDayLog());
-  // The day clock accumulates sim time across session resets (a tow zeroes the
-  // sim's elapsedMs): on decrease, fold the last-seen value into the base.
-  const dayElapsedBaseRef = useRef(0);
-  const lastSimElapsedRef = useRef(0);
-  const [dayRemainingMs, setDayRemainingMs] = useState(DAY_LENGTH_MS);
-  // Day elapsed at the moment GameCanvas lifted its loading gate, or null while
-  // it is still building. The "DAY n" title waits for this and then times its
-  // 2.6s from it, because the sim — and so the day clock — starts stepping as
-  // soon as the session is constructed, well before the models finish
-  // preloading. Timed from zero instead, the card spends its whole window
-  // underneath "Preparing your drive…" and is half over, or missed entirely, by
-  // the time there is a city to see it against (#178 follow-up).
-  const [dayIntroFromMs, setDayIntroFromMs] = useState<number | null>(null);
-  // The whistle blew mid-cutscene/tow: settle as soon as the scene resolves.
-  const pendingSettleRef = useRef(false);
-  // Guards double settlement from the 10 Hz HUD stream.
-  const dayActiveRef = useRef(false);
+  // The in-flight career day: which run is live, its day-local cash/ledger,
+  // the day clock, and the flags that coordinate settlement with whatever
+  // else is on screen when the whistle blows. See `app/careerPort.ts`'s
+  // header for why this is a separate port from drive status and the gig.
+  const {
+    careerRun,
+    careerRunRef,
+    setCareerRun,
+    dayCash,
+    dayCashRef,
+    setDayCash,
+    chargeCareer,
+    dayLogRef,
+    dayElapsedBaseRef,
+    lastSimElapsedRef,
+    dayRemainingMs,
+    setDayRemainingMs,
+    dayIntroFromMs,
+    setDayIntroFromMs,
+    pendingSettleRef,
+    dayActiveRef,
+    endCareerDayRef,
+  } = useCareerPort();
   const gigRef = useRef<Gig | null>(null);
   const [lastSettlement, setLastSettlement] = useState<{
     readonly result: SettlementResult;
@@ -711,15 +708,6 @@ export default function SideSwapApp() {
     gigRef.current = gig;
   }, [gig]);
 
-  const chargeCareer = useCallback(
-    (amount: number, log?: (current: DayLedgerInput) => DayLedgerInput) => {
-      dayCashRef.current -= amount;
-      setDayCash(dayCashRef.current);
-      if (log) dayLogRef.current = log(dayLogRef.current);
-    },
-    [],
-  );
-
   // Lives out here rather than inside GameCanvas, which remounts mid-session
   // whenever the destination or steering side changes — music placed in there
   // would restart at apparently random moments.
@@ -744,10 +732,6 @@ export default function SideSwapApp() {
       return next;
     });
   }, []);
-
-  // Assigned each render so the 10 Hz HUD callback below always calls the
-  // freshest closure without itself needing to be rebuilt.
-  const endCareerDayRef = useRef<() => void>(() => {});
 
   // Drain fuel by the distance the car actually moved between HUD samples, then
   // mirror the pose for the next delta. Fuel lives in the drive session and is
@@ -946,7 +930,19 @@ export default function SideSwapApp() {
         }
       }
     }
-  }, [updateGpsRoute, stepDispatchNow, cutsceneRef, towingRef]);
+  }, [
+    updateGpsRoute,
+    stepDispatchNow,
+    cutsceneRef,
+    towingRef,
+    careerRunRef,
+    dayActiveRef,
+    dayElapsedBaseRef,
+    lastSimElapsedRef,
+    pendingSettleRef,
+    endCareerDayRef,
+    setDayRemainingMs,
+  ]);
 
   /**
    * Answers the live offer. Accepting takes the job now, or parks it behind the
@@ -1214,7 +1210,14 @@ export default function SideSwapApp() {
       }
       setFineToast({ amount, reason, issuedBy });
     },
-    [progress, driveCountry, chargeCareer, lastAnyFineAtRef, setFineToast],
+    [
+      progress,
+      driveCountry,
+      chargeCareer,
+      lastAnyFineAtRef,
+      setFineToast,
+      careerRunRef,
+    ],
   );
 
   /**
@@ -1286,6 +1289,9 @@ export default function SideSwapApp() {
     pulseTowReset,
     endTow,
     towingRef,
+    careerRunRef,
+    pendingSettleRef,
+    endCareerDayRef,
   ]);
 
   // Collision events wear the car down (and striking a person is cited on the
@@ -1608,6 +1614,15 @@ export default function SideSwapApp() {
       pendingFineReasonRef,
       setCarCondition,
       setFuelFillMs,
+      careerRunRef,
+      dayCashRef,
+      dayElapsedBaseRef,
+      dayLogRef,
+      endCareerDayRef,
+      lastSimElapsedRef,
+      pendingSettleRef,
+      setDayCash,
+      setDayIntroFromMs,
     ],
   );
 
@@ -1729,7 +1744,14 @@ export default function SideSwapApp() {
     saveProgress(settled);
     announcePayout(gig.reward, tip);
     promoteQueuedGig();
-  }, [gig, progress, driveCountry, promoteQueuedGig, announcePayout]);
+  }, [
+    gig,
+    progress,
+    driveCountry,
+    promoteQueuedGig,
+    announcePayout,
+    careerRunRef,
+  ]);
 
   const chooseDestination = (id: DestinationId) => {
     setDestinationId(id);
