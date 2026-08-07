@@ -214,14 +214,11 @@ import {
   PAVED_SIDEWALK_WIDTH_M,
   resolveMapVisualKey,
   resolveMapVisualPalette,
+  resolveMapVisualProfile,
   seededUnit,
   type MapVisualPalette,
 } from "../visuals";
-import {
-  natureModelsForMap,
-  natureSetUrls,
-  natureSetsForMap,
-} from "../natureCatalog";
+import { natureModelsForMap, natureSetUrls } from "../natureCatalog";
 import {
   ROAD_DIVIDED_PARK_IDS,
   type ParkPlacement,
@@ -4697,9 +4694,7 @@ export class BabylonGameSession {
     ];
     // This map's park planting only — see `natureCatalog`. Kept in its own
     // list so the night-glow and Cairo-decal passes above never see it.
-    this.natureModelUrls = natureSetUrls(
-      natureSetsForMap(resolveMapVisualKey(mapId)),
-    );
+    this.natureModelUrls = natureSetUrls(resolveMapVisualProfile(mapId).natureSets);
 
     for (const service of mapPack.geometry.servicePoints ?? []) {
       const pose = resolveSimulationLaneAnchor(
