@@ -406,13 +406,6 @@ export function DriveNavCard({
           </>
         ) : null}
 
-        {manoeuvre && (
-          <div
-            aria-hidden="true"
-            style={{ height: 1, background: "rgba(255,255,255,.09)", marginBottom: m.rowGap - 1 }}
-          />
-        )}
-
         {job ? (
           <div
             style={{
