@@ -98,8 +98,8 @@ describe("ambient traffic trace characterization", () => {
       // Moves on any sim-visible London content change: the south-west
       // expansion (fourteen streets, three signals, both turning loops gone),
       // then the river (both embankments, the south bank, three bridges and
-      // four more signals).
-      "free-uk-london": "c784386f",
+      // four more signals), then Sloane Circus and its three give-ways.
+      "free-uk-london": "c6996e7c",
       "free-jp": "997675a9",
       "free-eg": "eb350f99",
     });

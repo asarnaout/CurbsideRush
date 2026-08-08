@@ -39,6 +39,7 @@ import {
   type ServicePointKind,
 } from "./servicePoints";
 import { parkLayoutForLandmark } from "./parkLayouts";
+import { COUNTRY_PROFILES } from "./content";
 import { GAS_STATION_SOLIDS_M, PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import { REPAIR_SHOP_SOLIDS_M } from "./repairShopLayout";
 import {
@@ -358,12 +359,42 @@ function buildTrafficLights(
   return { lights, stopLines };
 }
 
+/**
+ * Which side a give-way line's circulating traffic comes from, for this map's
+ * country — and the one thing that reads `CountryProfile.roundaboutPolicy`,
+ * which was authored for all four countries and consulted by nothing.
+ *
+ * Null when the map names no country the profiles know, which leaves every
+ * yield line the plain omnidirectional give-way it has always been.
+ */
+function roundaboutYieldSideFor(
+  mapPack: GameCanvasMapPack,
+): "left" | "right" | null {
+  for (const countryId of mapPack.countryIds ?? []) {
+    const profile = COUNTRY_PROFILES.find(
+      (candidate) => candidate.id === countryId,
+    );
+    if (profile) return profile.roundaboutPolicy.yieldToTrafficFrom;
+  }
+  return null;
+}
+
 function buildStopAndYieldLines(
   mapPack: GameCanvasMapPack,
 ): StopLineDefinition[] {
   const lanesById = new Map(
     mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]),
   );
+  const yieldSide = roundaboutYieldSideFor(mapPack);
+  /**
+   * A give-way line becomes a *roundabout* give-way when its own lane leads
+   * straight onto a ring. Derived from the lane graph rather than authored on
+   * the control, so a roundabout cannot be built with its entries mislabelled.
+   */
+  const entersRoundabout = (laneId: string): boolean =>
+    (lanesById.get(laneId)?.successors ?? []).some(
+      (successorId) => lanesById.get(successorId)?.role === "roundabout",
+    );
   const result: StopLineDefinition[] = [];
   for (const control of mapPack.laneGraph.controls) {
     if (control.type !== "stop" && control.type !== "yield") continue;
@@ -392,6 +423,9 @@ function buildStopAndYieldLines(
           distance: approach.stopLine.distanceAlongM,
           kind,
           conflictRadius: kind === "yield" ? 14 : undefined,
+          ...(kind === "yield" && yieldSide && entersRoundabout(laneId)
+            ? { roundaboutYieldFrom: yieldSide }
+            : {}),
         });
       }
     }

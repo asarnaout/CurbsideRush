@@ -176,11 +176,15 @@ afterEach(() => {
 });
 
 /** Signal heads (pole/housing/lens triplet), enforcement cameras,
- * railway-crossing furniture, crosswalk stripes and box-junction markings —
- * everything this cargo builds. Excludes the inline stop-line meshes (see
- * file header) even though several share a name prefix with these. */
+ * railway-crossing furniture, give-way triangles, crosswalk stripes and
+ * box-junction markings — everything this cargo builds. Excludes the inline
+ * stop-line meshes (see file header) even though several share a name prefix
+ * with these.
+ *
+ * Give-way road markings themselves are not here and cannot be: they merge
+ * into the one `road-markings-white` mesh with every other line on the map. */
 const TRAFFIC_CONTROL_MESH_PATTERN =
-  /signal|camera-|crossbuck|rail-pole|barrier|stripe|box-edge|box-hatch|portal/i;
+  /signal|camera-|crossbuck|rail-pole|barrier|stripe|box-edge|box-hatch|portal|give-way/i;
 const isTrafficControlMesh = (name: string) =>
   TRAFFIC_CONTROL_MESH_PATTERN.test(name) && !name.endsWith("-stop-line");
 
@@ -193,6 +197,12 @@ const isTrafficControlMesh = (name: string) =>
  *
  * 127 -> 186 meshes: both ends of Westminster Bridge and Tower Bridge are
  * signalled too, and a third of nine signals is three cameras.
+ *
+ * 186 -> 192 meshes: Sloane Circus. Three give-way controls, each a roadside
+ * triangle on a pole — the first `yield_sign` any city has authored. The
+ * pattern above gained `give-way` with them, so they are pinned rather than
+ * silently skipped; their painted transverse dashes cannot be, having merged
+ * into the map-wide white-marking mesh.
  */
 const EXPECTED_LONDON_TRAFFIC_CONTROL_MESH_NAMES = [
   "crosswalk-stripe-master",
@@ -282,11 +292,11 @@ const EXPECTED_LONDON_TRAFFIC_CONTROL_MESH_NAMES = [
   "london-signal-kings-queens-london-kings-road-kings-gloucester-head-housing",
   "london-signal-kings-queens-london-kings-road-kings-gloucester-head-pole",
   "london-signal-kings-queens-london-kings-road-kings-gloucester-head-red",
-  "london-signal-kings-queens-london-kings-road-kings-sloane-head-amber",
-  "london-signal-kings-queens-london-kings-road-kings-sloane-head-green",
-  "london-signal-kings-queens-london-kings-road-kings-sloane-head-housing",
-  "london-signal-kings-queens-london-kings-road-kings-sloane-head-pole",
-  "london-signal-kings-queens-london-kings-road-kings-sloane-head-red",
+  "london-signal-kings-queens-london-kings-road-sloane-arm-kings-head-amber",
+  "london-signal-kings-queens-london-kings-road-sloane-arm-kings-head-green",
+  "london-signal-kings-queens-london-kings-road-sloane-arm-kings-head-housing",
+  "london-signal-kings-queens-london-kings-road-sloane-arm-kings-head-pole",
+  "london-signal-kings-queens-london-kings-road-sloane-arm-kings-head-red",
   "london-signal-queen-gate-cromwell-london-cromwell-west-primary-amber",
   "london-signal-queen-gate-cromwell-london-cromwell-west-primary-green",
   "london-signal-queen-gate-cromwell-london-cromwell-west-primary-housing",
@@ -362,6 +372,12 @@ const EXPECTED_LONDON_TRAFFIC_CONTROL_MESH_NAMES = [
   "london-signal-westminster-south-london-westminster-bridge-westminster-north-head-housing",
   "london-signal-westminster-south-london-westminster-bridge-westminster-north-head-pole",
   "london-signal-westminster-south-london-westminster-bridge-westminster-north-head-red",
+  "london-sloane-circus-give-way-sloane-arm-kings-london-sloane-circus-give-way-sloane-arm-kings-sign-pole",
+  "london-sloane-circus-give-way-sloane-arm-kings-london-sloane-circus-give-way-sloane-arm-kings-sign-sign",
+  "london-sloane-circus-give-way-sloane-arm-smith-london-sloane-circus-give-way-sloane-arm-smith-sign-pole",
+  "london-sloane-circus-give-way-sloane-arm-smith-london-sloane-circus-give-way-sloane-arm-smith-sign-sign",
+  "london-sloane-circus-give-way-sloane-arm-sydney-london-sloane-circus-give-way-sloane-arm-sydney-sign-pole",
+  "london-sloane-circus-give-way-sloane-arm-sydney-london-sloane-circus-give-way-sloane-arm-sydney-sign-sign",
   "prop-traffic-camera-london-signal-cromwell-exhibition-london-exhibition-primary",
   "prop-traffic-camera-london-signal-cromwell-exhibition-london-exhibition-primary-lens",
   "prop-traffic-camera-london-signal-cromwell-exhibition-london-exhibition-secondary",

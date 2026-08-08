@@ -211,20 +211,23 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // carry parapets, guardrails and a lamp line. The 18 new materials are
     // four per bridge (deck steel, parapet stone, lamp glow, trim) plus the
     // water and park additions.
-    totalMeshes: 3_680,
-    enabledMeshes: 3_680,
+    //
+    // 3_680 -> 3_703: Sloane Circus — its ring, its island, and a give-way
+    // triangle on a pole at each of its three mouths.
+    totalMeshes: 3_703,
+    enabledMeshes: 3_703,
     activeMeshes: 963,
-    materials: 134,
+    materials: 138,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 98,
-    mirrorDrawn: 88,
+    mirrorCandidates: 102,
+    mirrorDrawn: 91,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "5bc9ae28",
+    survivingMaterialNamesFingerprint: "9de593a5",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
