@@ -125,7 +125,13 @@ visible slider is an affordance drawn *inside* the drag region, not the target.*
 The widget fits the whole world only while the world is small: past
 `MINIMAP_FOLLOW_SPAN_M` (`minimap.ts`, 500 m) it keeps its scale and **scrolls**
 instead, blitting the window the car sits in the middle of out of a sheet
-rasterised once for the whole world. **Every shipped city is over the span, so
+rasterised once for the whole world. The sheet lays down park fills first
+(`drawMapParks` — green rects for every `kind: "park"` landmark over a
+short-side floor that hides roundabout islands), then water, then roads, so a
+lake inside its park reads as water over green and bridges stay clear road
+lines. Both maps take `parks` the same way they take `waterBodies`; the caller
+derives the list through `parksFromLandmarks`, whose per-landmark-array cache
+is what keeps this sheet from re-rasterising every HUD frame. **Every shipped city is over the span, so
 the widget always scrolls.** Roads draw as translucent strips floored at a
 share of the widget (`minimapRoadFloorPx`, 5.8%), not at true scale, where a
 10.4 m street would be under 2 px. At the shipped follow span that floor

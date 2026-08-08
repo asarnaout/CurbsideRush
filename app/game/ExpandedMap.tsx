@@ -30,12 +30,14 @@ import {
 } from "./minimap";
 import {
   drawMapOverlay,
+  drawMapParks,
   drawMapWaterBodies,
   drawPlayerMarker,
   drawRoadNetwork,
   type MapDestination,
   type MapDrawPoint,
   type MapDrawSurface,
+  type MapDrawPark,
   type MapDrawWaterBody,
   type MapSymbolSizes,
 } from "./minimapDraw";
@@ -86,6 +88,8 @@ export interface ExpandedMapProps {
   readonly worldSize: { readonly x: number; readonly z: number };
   readonly roadSurfaces: readonly MapDrawSurface[];
   readonly waterBodies?: readonly MapDrawWaterBody[];
+  /** Park rectangles, drawn as green fills under the water and the roads. */
+  readonly parks?: readonly MapDrawPark[];
   readonly pois: readonly MapPoi[];
   readonly destination?: MapDestination | null;
   /**
@@ -143,6 +147,7 @@ export function ExpandedMap({
   worldSize,
   roadSurfaces,
   waterBodies = [],
+  parks = [],
   pois,
   destination,
   route,
@@ -198,6 +203,7 @@ export function ExpandedMap({
     // is the only place that knows it.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, box.width, box.height);
+    drawMapParks(ctx, parks, projector);
     drawMapWaterBodies(ctx, waterBodies, projector);
     drawRoadNetwork(
       ctx,
@@ -216,6 +222,7 @@ export function ExpandedMap({
   }, [
     roadSurfaces,
     waterBodies,
+    parks,
     projector,
     box,
     dpr,

@@ -42,7 +42,7 @@ import {
 } from "./game/TouchDriveControls";
 import { ExpandedMap } from "./game/ExpandedMap";
 import { Minimap } from "./game/MinimapCanvas";
-import type { MapDestination } from "./game/minimapDraw";
+import { parksFromLandmarks, type MapDestination } from "./game/minimapDraw";
 import type { MapPoi } from "./game/mapPoi";
 import {
   DriveCornerButton,
@@ -711,6 +711,7 @@ export function DriveScreen({
             worldSize={runtimeMap.geometry.worldSize}
             roadSurfaces={runtimeMap.geometry.roadSurfaces}
             waterBodies={runtimeMap.geometry.waterBodies}
+            parks={parksFromLandmarks(runtimeMap.geometry.landmarks)}
             playerX={hud.playerX}
             playerZ={hud.playerZ}
             heading={hud.heading}
@@ -855,6 +856,7 @@ export function DriveScreen({
             worldSize={runtimeMap.geometry.worldSize}
             roadSurfaces={runtimeMap.geometry.roadSurfaces}
             waterBodies={runtimeMap.geometry.waterBodies}
+            parks={parksFromLandmarks(runtimeMap.geometry.landmarks)}
             pois={mapPois}
             destination={mapDestination}
             // The whole line, not the remainder the corner widget draws: the

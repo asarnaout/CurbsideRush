@@ -75,7 +75,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
 | `tokyo-setagaya` | 56 | 20 | 5.5 | 0 | 0 | 600 × 420 |
-| `london-south-kensington` | 312 | 69 | 55.7 | 12 | 4 | 2950 × 2000 |
+| `london-south-kensington` | 338 | 73 | 61.3 | 12 | 4 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane
 
@@ -112,7 +112,13 @@ halves meet at shared nodes: a generated lane picks up the quarter's lanes as
 successors from the whitelist, and `withGeneratedSuccessors` gives the
 quarter's hand-authored lanes the same turns back, append-only. **Never write a
 generated lane id into a hand-authored `successors` literal** — the id encodes
-a segment index nobody can keep true.
+a segment index nobody can keep true. The same index arithmetic is why **a new
+road's termini should be existing nodes**: inserting a node into a shipped
+spec's polyline renumbers every later segment's lane ids, and venue anchors
+and spawns name those ids with distances. Serpentine Road and the Notting
+Hill grid land exclusively on nodes that already existed (the park corner,
+`bayswater-mid`, `kensington-exhibition`, the Nevern Place tees) for exactly
+this reason.
 
 **A junction's arms must stay ~45° apart.** `buildPavementGraph` mitres a
 junction's rails apart only down to about 40° (Cairo's tightest shipped

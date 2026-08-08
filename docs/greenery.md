@@ -208,7 +208,15 @@ passed the plain distance veto); `ROAD_DIVIDED_PARK_IDS` opts other road-cut
 parks into the whole side-aware family — lawn clip (`roadSideParkLawnPolygon`),
 scatter, path furniture AND `parkPerimeterPlan`, whose road-proximity veto
 alone left the Opera Grounds a 4 m orphan wall run on the far kerbside of its
-corridor. And non-park landmarks standing in any park become scatter keep-outs
+corridor. **A park drive wants the opposite**: London's Serpentine Road
+crosses the royal park with the park deliberately NOT in
+`ROAD_DIVIDED_PARK_IDS`, so the full-rect lawn runs under the asphalt (roads
+draw above it in the y-stack), planting and benches keep clear through the
+plain distance veto, and the perimeter wall's road veto opens gates where the
+drive punches the boundary — grass on both sides of the car is the point. The
+lake crossing is the same portal machinery as the Thames bridges: the water
+body whitelists the road's surface id or the shoreline collider stays an
+unbroken invisible wall across the deck. And non-park landmarks standing in any park become scatter keep-outs
 via `landmarkClearings`, with the obelisk keyed to the paved disc's radius
 rather than its plinth.
 

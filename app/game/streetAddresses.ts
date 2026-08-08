@@ -392,6 +392,12 @@ const STREET_PROFILES: Record<string, StreetProfile> = {
   "london-smith-street": { ...LONDON_NS, baseNumber: 30 },
   "london-cheyne-mews": { ...LONDON_EW, baseNumber: 40 },
   "london-nevern-place": { ...LONDON_EW, baseNumber: 50 },
+  // The Notting Hill grid. Serpentine Road stays unprofiled on purpose: a
+  // park drive has no letterboxes, and a profiled street that yields no
+  // addresses fails `streetNames`.
+  "london-notting-hill": { ...LONDON_EW, baseNumber: 1 },
+  "london-porchester": { ...LONDON_NS, baseNumber: 2 },
+  "london-westbourne": { ...LONDON_NS, baseNumber: 1 },
   "london-pembroke-crescent": { ...LONDON_EW, baseNumber: 70 },
   "london-lots-road": { ...LONDON_NS, baseNumber: 50 },
   "london-oakley-street": { ...LONDON_NS, baseNumber: 40 },
