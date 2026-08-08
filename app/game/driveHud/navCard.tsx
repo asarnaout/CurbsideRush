@@ -100,7 +100,6 @@ interface NavMetrics {
   readonly barMargin: string;
   readonly rowGap: number;
   readonly label: number;
-  readonly nextStreet: number;
   readonly nextDistance: number;
   readonly icon: number;
   readonly jobName: number;
@@ -118,7 +117,7 @@ const NAV_DESKTOP: NavMetrics = {
   plate: 74, plateRadius: 21, arrow: 42,
   dist: 35, unit: 15, kicker: 11, street: 30,
   bar: 3, barMargin: "12px 0 11px", rowGap: 12,
-  label: 11, nextStreet: 15, nextDistance: 13, icon: 16,
+  label: 11, nextDistance: 13, icon: 16,
   jobName: 18, pay: 17, payPad: "3px 13px",
   gaugeValue: 15, gaugeValueWidth: 46, gaugeBar: 6, gap: 16,
 };
@@ -129,7 +128,7 @@ const NAV_MOBILE: NavMetrics = {
   plate: 46, plateRadius: 13, arrow: 27,
   dist: 23, unit: 10, kicker: 8, street: 19,
   bar: 2, barMargin: "7px 0 6px", rowGap: 7,
-  label: 8, nextStreet: 10, nextDistance: 9, icon: 10,
+  label: 8, nextDistance: 9, icon: 10,
   jobName: 12, pay: 11, payPad: "2px 8px",
   gaugeValue: 10, gaugeValueWidth: 28, gaugeBar: 4, gap: 9,
 };
@@ -139,7 +138,6 @@ export function DriveNavCard({
   scale,
   inset,
   manoeuvre,
-  nextManoeuvre,
   job,
   idleLabel,
   gauges,
@@ -152,7 +150,6 @@ export function DriveNavCard({
   /** Sizes the card from the mobile comp instead of the desktop one. */
   compact?: boolean;
   manoeuvre: HudManoeuvre | null;
-  nextManoeuvre: { readonly kind: HudManoeuvre["kind"]; readonly street: string; readonly distance: string } | null;
   job: HudJob | null;
   /** Shown in the job's place when there is nothing in hand. */
   idleLabel: string | null;
@@ -409,57 +406,7 @@ export function DriveNavCard({
           </>
         ) : null}
 
-        {nextManoeuvre && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 9,
-              marginBottom: m.rowGap,
-            }}
-          >
-            <span
-              style={{
-                font: `800 ${m.label}px ${HUD_SANS}`,
-                letterSpacing: "2.2px",
-                color: "rgba(244,239,222,.3)",
-              }}
-            >
-              NEXT
-            </span>
-            <HudGlyph
-              path={MANOEUVRE_ICON[nextManoeuvre.kind] ?? MANOEUVRE_ICON.straight}
-              size={m.icon - 1}
-              strokeWidth={2.8}
-              color="rgba(244,239,222,.44)"
-            />
-            <span
-              style={{
-                font: `600 ${m.nextStreet}px ${HUD_SANS}`,
-                color: "rgba(244,239,222,.56)",
-                minWidth: 0,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {nextManoeuvre.street}
-            </span>
-            <span
-              style={{
-                marginLeft: "auto",
-                font: `700 ${m.nextDistance}px ${HUD_SANS}`,
-                color: "rgba(244,239,222,.32)",
-                fontVariantNumeric: "tabular-nums",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {nextManoeuvre.distance}
-            </span>
-          </div>
-        )}
-
-        {(manoeuvre || nextManoeuvre) && (
+        {manoeuvre && (
           <div
             aria-hidden="true"
             style={{ height: 1, background: "rgba(255,255,255,.09)", marginBottom: m.rowGap - 1 }}

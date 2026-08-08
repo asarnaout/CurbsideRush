@@ -93,7 +93,6 @@ const navCard = (props: Partial<Parameters<typeof DriveNavCard>[0]> = {}) =>
       scale={1}
       inset={inset}
       manoeuvre={manoeuvre()}
-      nextManoeuvre={null}
       job={job()}
       idleLabel="Waiting for a job…"
       gauges={gauges}

@@ -2072,25 +2072,6 @@ export default function SideSwapApp() {
         })()
       : null;
 
-  const followingManoeuvre = (() => {
-    const next = gpsProgress?.next;
-    if (!next || !gpsRoute) return null;
-    const index = gpsRoute.manoeuvres.indexOf(next);
-    const following = index >= 0 ? gpsRoute.manoeuvres[index + 1] : undefined;
-    if (!following) return null;
-    return {
-      kind: following.kind,
-      street:
-        following.kind === "arrive"
-          ? (activeGig ? gigTarget(activeGig)?.name ?? "your stop" : "your stop")
-          : streetOf(following.ontoRoadId),
-      distance: formatDistance(
-        Math.max(0, following.alongM - next.alongM),
-        driveCountry,
-      ),
-    };
-  })();
-
   const navJob: HudJob | null = activeGig
     ? {
         kind: activeGig.kind,
@@ -2234,7 +2215,6 @@ export default function SideSwapApp() {
         driveDestination={driveDestination}
         exitDrive={exitDrive}
         finishCareerDayExit={finishCareerDayExit}
-        followingManoeuvre={followingManoeuvre}
         gigStopCarrying={gigStopCarrying}
         gigStopId={gigStopId}
         handleGameEvent={handleGameEvent}
