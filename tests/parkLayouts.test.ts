@@ -87,8 +87,11 @@ describe("park layouts", () => {
     // kerb green run its road end to end — the Cromwell ribbon's east half,
     // Notting Hill Gate's south ribbon in two segment-aligned rects, The
     // Mall's ribbon split into its own two, and the pocket that closes the
-    // Gloucester / Kensington / West Carriage corner.
-    expect(parkCases().length).toBe(39);
+    // Gloucester / Kensington / West Carriage corner. 39 -> 43: the museums'
+    // four forecourt lawns, the one place on this map where the answer to a
+    // bare kerb is planting rather than a street wall (the buildings behind
+    // are already the frontage, and they are landmarks, not parcels).
+    expect(parkCases().length).toBe(43);
   });
 
   it("is deterministic — two builds are identical", () => {

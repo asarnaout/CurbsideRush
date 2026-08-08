@@ -246,8 +246,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // the coverage sweep's fills (235 blocks all told). -> 2_979: the kerb
     // greens' backing rows — one new terrace band behind the Cromwell
     // ribbon's west half, one new Mall band, and the ends of five existing
-    // bands moved so the ribbons could reach their junctions.
-    buildingInstanceCount: 2_979,
+    // bands moved so the ribbons could reach their junctions. -> 3_091: the
+    // emptiness round's west fills — eleven bare-kerb parcels, the quiet
+    // loop's island, and four corner fabric rects at the map's west and
+    // river edges.
+    buildingInstanceCount: 3_091,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

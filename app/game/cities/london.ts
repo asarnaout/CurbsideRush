@@ -1866,7 +1866,11 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-hospital-n-1", "london-royal-hospital-road", nodeAt("london-node-hospital-west"), nodeAt("london-node-hospital-mid"), -1, 8, 40, LONDON_STUCCO, [12, 20], 0.72),
   roadsideParcel("london-block-hospital-s-1", "london-royal-hospital-road", nodeAt("london-node-hospital-west"), nodeAt("london-node-hospital-mid"), 1, 8, 34, LONDON_RED_BRICK, [11, 18], 0.68),
   roadsideParcel("london-block-hospital-n-2", "london-royal-hospital-road", nodeAt("london-node-hospital-mid"), nodeAt("london-node-hospital-east"), -1, 8, 38, LONDON_STUCCO, [12, 21], 0.74),
-  roadsideParcel("london-block-hospital-s-2", "london-royal-hospital-road", nodeAt("london-node-hospital-mid"), nodeAt("london-node-hospital-east"), 1, 8, 32, LONDON_STOCK_BRICK, [11, 18], 0.68),
+    // 32 -> 58 m deep: the band between this road and the Chelsea/Victoria
+  // embankment bend was 80 m of open ground with a 32 m block at the top of
+  // it, and the bend read as a 120-degree hole. The far edge still clears
+  // the embankment by 15 m at its tightest.
+  roadsideParcel("london-block-hospital-s-2", "london-royal-hospital-road", nodeAt("london-node-hospital-mid"), nodeAt("london-node-hospital-east"), 1, 8, 58, LONDON_STOCK_BRICK, [11, 18], 0.68),
   roadsideParcel("london-block-cheyne-s", "london-cheyne-mews", nodeAt("london-node-cheyne-1"), nodeAt("london-node-cheyne-2"), 1, 6.8, 26, LONDON_RED_BRICK, [9, 15], 0.66),
 
   // --- Chelsea's north-south links. ---------------------------------------
@@ -1899,7 +1903,10 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-warwick-e-3", "london-warwick-road", nodeAt("london-node-warwick-south"), nodeAt("london-node-kings-west"), -1, 8.6, 38, LONDON_RED_BRICK, [10, 16], 0.68),
 
   // --- Nevern Place and the crescent's outer arc. --------------------------
-  roadsideParcel("london-block-nevern-n", "london-nevern-place", nodeAt("london-node-warwick-north"), nodeAt("london-node-nevern-mid"), -1, 7.2, 32, LONDON_STOCK_BRICK, [10, 16], 0.68),
+    // Authored 8 m west of the corner node so the band reaches the junction:
+  // the helper insets 12 m from each authored end, which left this corner
+  // open through a 135-degree arc.
+  roadsideParcel("london-block-nevern-n", "london-nevern-place", point(-1160, 250), nodeAt("london-node-nevern-mid"), -1, 7.2, 32, LONDON_STOCK_BRICK, [10, 16], 0.68),
   roadsideParcel("london-block-nevern-n-2", "london-nevern-place", nodeAt("london-node-nevern-mid"), nodeAt("london-node-earls-nevern"), -1, 7.2, 32, LONDON_STUCCO, [10, 17], 0.7),
   roadsideParcel("london-block-nevern-s", "london-nevern-place", nodeAt("london-node-warwick-north"), nodeAt("london-node-nevern-mid"), 1, 7.2, 30, LONDON_RED_BRICK, [10, 16], 0.68),
   roadsideParcel("london-block-nevern-s-2", "london-nevern-place", nodeAt("london-node-nevern-mid"), nodeAt("london-node-earls-nevern"), 1, 7.2, 30, LONDON_STOCK_BRICK, [10, 16], 0.68),
@@ -2140,6 +2147,39 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-crescent-o-2", "london-pembroke-crescent", nodeAt("london-node-crescent-2"), nodeAt("london-node-crescent-3"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
   roadsideParcel("london-block-crescent-o-3", "london-pembroke-crescent", nodeAt("london-node-crescent-3"), nodeAt("london-node-crescent-4"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
   roadsideParcel("london-block-crescent-o-4", "london-pembroke-crescent", nodeAt("london-node-crescent-4"), nodeAt("london-node-crescent-5"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
+  // --- The emptiness round's fills. The 70 m bare-kerb rule the sweep above
+  // ran to let every one of the play-test's eight complaints through; the bar
+  // is now 28 m, with no road exempt (the old sweep skipped the quiet loop,
+  // which is where the owner spawns and the first thing he photographed).
+  // Every span below came out of the audit as a measured start and end on the
+  // centreline; `roadsideParcel` insets 12 m from each authored end, so the
+  // arguments are the bare run plus 12 m either way. ---------------------
+  roadsideParcel("london-block-cromwell-fw-s", "london-cromwell-far-west", point(-196, -32), point(-270, -32), -1, 7.2, 36, LONDON_RED_BRICK, [12, 19], 0.72),
+  roadsideParcel("london-block-exhibition-north-fill-l", "london-exhibition-north", point(42, 115), point(42, 184), -1, 7.2, 32, LONDON_STUCCO, [12, 19], 0.72),
+  roadsideParcel("london-block-gloucester-s-fill-e", "london-gloucester-south", nodeAt("london-node-gloucester-south"), point(-304, -166), -1, 7.8, 38, LONDON_RED_BRICK, [11, 18], 0.7),
+  roadsideParcel("london-block-gloucester-s-fill-w", "london-gloucester-south", point(-305, -181.8), point(-308.4, -257), 1, 7.8, 40, LONDON_STUCCO, [12, 20], 0.72),
+  roadsideParcel("london-block-drayton-fill-r", "london-drayton-gardens", point(-104.9, -166.9), point(-101.9, -228), 1, 7.4, 36, LONDON_STOCK_BRICK, [11, 18], 0.72),
+  // East end pulled 4 m back off the authored bare run: the Chelsea garden
+  // green's west tip is the next thing along this kerb and a block may not
+  // stand in a park. Any further and the parcel drops below the 26 m the
+  // helper needs to ship it at all.
+  roadsideParcel("london-block-kings-fill-s", "london-kings-road", point(-580.4, -332.3), point(-527.2, -325.2), 1, 9.4, 36, LONDON_STOCK_BRICK, [11, 18], 0.72),
+  // Thurloe Place east of Exhibition Road needs its own parcel: Exhibition
+  // Road tees into this kerb's band, and the trimmer can only retreat ends,
+  // so one parcel spanning the junction gets cut back to the junction.
+  roadsideParcel("london-block-thurloe-fill-n-e", "london-thurloe-place", point(127.0, 82.0), point(49.7, 82.0), 1, 7.2, 34, LONDON_STUCCO, [12, 20], 0.74),
+  // Riverbank's land side west of Battersea Park, ending 2 m off the park.
+  roadsideParcel("london-block-riverbank-fill-w", "london-riverbank", point(-992, -811.5), point(-934, -807.2), 1, 10.4, 32, LONDON_STOCK_BRICK, [10, 17], 0.68),
+  roadsideParcel("london-block-smith-fill-w", "london-smith-street", point(122.4, -370.3), point(166, -338), -1, 7.6, 32, LONDON_STUCCO, [11, 18], 0.7),
+  roadsideParcel("london-block-oakley-fill-w", "london-oakley-street", nodeAt("london-node-hospital-west"), point(-341, -491.3), 1, 8, 34, LONDON_RED_BRICK, [11, 18], 0.7),
+  roadsideParcel("london-block-parkgate-fill-w", "london-parkgate", point(-347, -803), point(-347, -857), 1, 7.6, 32, LONDON_STOCK_BRICK, [10, 16], 0.68),
+  // Pembroke Crescent's south-east arm: 139 m of bare kerb on the outer side
+  // opening straight into an 83,000 m2 void, and the exact view in the
+  // owner's "sea of concrete" photograph. Authored on the straight
+  // crescent-5 -> earls-crescent segment like o-1..o-4; one parcel across
+  // the arc would clip its own carriageway.
+  roadsideParcel("london-block-crescent-o-5", "london-pembroke-crescent", nodeAt("london-node-crescent-5"), nodeAt("london-node-earls-crescent"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
+
   // The Mall's south side is St James's: a lawn ribbon on the kerb and the
   // civic stone set back behind it — the same boulevard grammar as the
   // museum quarter's west environs.
@@ -2175,6 +2215,27 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-bayswater-band-a", center: point(-480, 800), size: point(300, 36), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
   { id: "london-block-bayswater-band-b", center: point(-480, 640), size: point(300, 36), heightRange: [11, 18] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-bayswater-band-c", center: point(-480, 375), size: point(300, 34), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  // The quiet loop's island — the 42 x 58 m of open ground the loop, Queen's
+  // Gate and Cromwell's far-west reach enclose. This is where the player
+  // spawns and it is the first thing the play-test photographed: "emptiness
+  // here... I want buildings there please against this right angle". Faces
+  // four different roads, so it walls all four edges and cannot come from
+  // `roadsideParcel`; each edge sits at that road's own `blockInsetFor`
+  // distance. The gas station and the office venue on the loop's west leg
+  // carve their own keep-outs out of it.
+  { id: "london-block-quiet-island", center: point(-136.1, -68), size: point(39, 55.2), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  // The pocket between Queen's Gate and the Science Museum, which backs the
+  // museum forecourt lawn below.
+  { id: "london-block-museum-west", center: point(-91, 30), size: point(17, 60), heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  // Three corners at the map's western and river edges where two roads meet
+  // and everything beyond them was open ground — a driver arriving at any of
+  // them looked into 135, 210 and 240 degrees of nothing. Fabric rather than
+  // parcels: they face no kerb, they exist to close a horizon, and past 22 m
+  // from a lane they generate no addresses.
+  { id: "london-block-earls-nw-fab", center: point(-1195, 284), size: point(70, 52), heightRange: [10, 17] as const, density: 0.68, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-lots-sw-fab-a", center: point(-1273, -565), size: point(54, 40), heightRange: [10, 16] as const, density: 0.66, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-lots-sw-fab-b", center: point(-1275, -607.5), size: point(50, 45), heightRange: [10, 16] as const, density: 0.66, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-riverbank-sw-fab", center: point(-1356, -822.5), size: point(88, 55), heightRange: [9, 15] as const, density: 0.64, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
 ].filter((block): block is ProceduralBlock => block !== null);
 
 // ---------------------------------------------------------------------------
@@ -3435,6 +3496,44 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         center: point(-950, 120),
         size: point(80, 28),
+        color: "#5f9a4e",
+      },
+      // The museums' forecourts. Cromwell Road's north kerb runs 17-20 m of
+      // bare ground between the pavement and the museum walls for its whole
+      // length through the quarter — the one place on this map where the
+      // right answer is planting rather than a street wall, because the
+      // buildings behind are already the frontage. Two rects, one per road:
+      // the west one hugs Cromwell West's wider pavement band, the east one
+      // Cromwell East's.
+      {
+        id: "london-museum-forecourt-west",
+        kind: "park",
+        center: point(-32.7, -11.7),
+        size: point(134.8, 18.4),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-museum-forecourt-east",
+        kind: "park",
+        center: point(94.15, -14.5),
+        size: point(89.7, 20),
+        color: "#5f9a4e",
+      },
+      // ...and the matching pair on the south kerb, in front of the natural
+      // history museum and the Cromwell terraces. Without these the museums'
+      // own crossroads read as 135 degrees of open ground to the south.
+      {
+        id: "london-museum-forecourt-south-west",
+        kind: "park",
+        center: point(-32.7, -46.1),
+        size: point(134.8, 12.8),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-museum-forecourt-south-east",
+        kind: "park",
+        center: point(96.15, -45.7),
+        size: point(93.7, 13.6),
         color: "#5f9a4e",
       },
       {
