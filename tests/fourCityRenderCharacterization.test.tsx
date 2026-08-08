@@ -354,10 +354,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // Kensington lawn and Battersea Park gain the wall runs their road-
     // facing edges used to have deleted, which is where the two materials
     // and part of the mesh delta come from.
-    totalMeshes: 7_116,
-    enabledMeshes: 7_116,
+    // 7_116 -> 7_094 (270 materials): the Science Museum's north forecourt,
+    // the fourth side of the quarter's planting. Lawn displacing scatter
+    // again — a green costs one material and saves more meshes than it adds.
+    totalMeshes: 7_094,
+    enabledMeshes: 7_094,
     activeMeshes: 561,
-    materials: 269,
+    materials: 270,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -372,9 +375,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // spawn, which sits on the quiet loop one street away; 84 -> 35 / 181 ->
     // 186 once the quiet loop's island fills the block the spawn's mirrors
     // look straight into, which occludes most of what used to be candidates;
-    // 186 -> 189 with the eastern fills, 189 -> 191 with the walls.
+    // 186 -> 189 with the eastern fills, 189 -> 192 with the walls and the
+    // museum quarter's fourth forecourt.
     mirrorCandidates: 35,
-    mirrorDrawn: 191,
+    mirrorDrawn: 192,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -388,8 +392,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "49bcd9ee": the museums' four forecourt lawns. -> "7afcaa41": St
     // James's and the palace garden, the map's two new walled greenswards.
     // -> "62a24fe0": the royal park's, the Kensington lawn's and Battersea
-    // Park's restored boundary walls.
-    survivingMaterialNamesFingerprint: "62a24fe0",
+    // Park's restored boundary walls. -> "303918a2": the Science Museum's
+    // north forecourt.
+    survivingMaterialNamesFingerprint: "303918a2",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

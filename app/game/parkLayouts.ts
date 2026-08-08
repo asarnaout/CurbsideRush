@@ -1089,6 +1089,11 @@ const PARK_WALL_SAMPLE_M = 1;
  * carriageway. The second rule is a veto, not a preference: it is what keeps
  * `staticColliders.test.ts`'s "every lane corridor clear" and "never walls off
  * the walkable pavement" green without anyone hand-listing an exception.
+ *
+ * A park tucked to its pavements can opt out of the blanket figure with
+ * `wallsFollowRoadEdges` and clear each road's own band by the tightest legal
+ * margin instead — see `PARK_WALL_ALONGSIDE_ROAD_CLEARANCE_M`, and the west
+ * wall London's royal park spent four rounds of play-testing without.
  */
 export function parkPerimeterPlan(
   landmark: ParkLandmarkInput,

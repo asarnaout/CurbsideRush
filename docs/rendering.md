@@ -85,7 +85,18 @@ Every value is tuned to kill z-fighting, and they are spread across three module
 
 Vehicle ground contact is a **two-value handshake**: nodes at `y = 0.12` and
 `LOCAL_GROUND_Y = -0.05` put tyres at exactly `0.07`. Change either alone and the
-whole fleet floats or sinks.
+whole fleet floats or sinks. Lawn sitting at the bottom of the stack is also
+usable: a park rect may run out under a pavement or a carriageway, which is how
+an island lawn meets its kerbs with no fringe (docs/greenery.md).
+
+**A junction outline tapers a width change, it does not step it.** In
+`collectRoadJunctionFills`, two legs pointing away from each other are one road
+running *through* the node rather than a corner, so the outline bridges
+straight between the two arms' outer corners. Chamfering them to the node
+instead puts both kerb offsets at the same point and jumps the whole width
+difference over a few centimetres — 0.7 m in the middle of an otherwise
+straight pavement where Bayswater Road's 10.4 m meets Notting Hill Gate's 9 m
+at a 1.6° bend, which play-tested as the sidewalk "suddenly breaking".
 
 The stack cannot save geometry that fights *inside* one model. The Quaternius
 Cairo kit authors its brick patches, base bands and glazing as primitives

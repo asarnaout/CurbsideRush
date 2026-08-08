@@ -120,25 +120,38 @@ Hill grid land exclusively on nodes that already existed (the park corner,
 `bayswater-mid`, `kensington-exhibition`, the Nevern Place tees) for exactly
 this reason.
 
-**Every road side must be covered, and a sweep exists to prove it.** The
-play-tested failure mode is a kerb with nothing along it for a hundred metres
-— "massive swaths of emptiness". A scratchpad sweep (walk every surface side
-in 10 m steps; a block, park, water or venue circle within the 8–48 m band is
-coverage; river walks and world-edge margins are exempt) is how the London
-overhaul closed them all, and is the tool to re-run after any road or parcel
-change. Three related traps: `roadsideParcel`'s trimmer clears *foreign
-roads only* — a parcel spanning its own road's **bend** chords across its own
-carriageway (give it per-segment endpoints), it does not know parks (the
-block-vs-park invariant in `content.test.ts` is the net), and neighbouring
-parcels tile corners by overlapping — which this map's visual language
-absorbs as corner mass and ships everywhere, so treat block-block overlap as
-a diagnostic, not a defect. Where a wall against the kerb is wrong, the
-**boulevard grammar** applies: a 14 m lawn ribbon on the kerb (a pocket
-park, rotated to the road's bearing via the park `headingDeg` if the road is
-off-axis) and the parcel behind it through `roadsideParcel`'s `extraInsetM`
-— the museum quarter's west environs and The Mall's St James's side are the
-shipped examples. Parcels pushed past the address probe's 22 m reach simply
-yield no letterboxes.
+**Emptiness is audited by six detectors, not by one rule.** The play-tested
+failure mode is ground a driver can see with nothing on it. A single
+"no kerb bare over 70 m" sweep passed all eight complaints of the round that
+produced the current standard, so the bar is now: **(A)** flood-filled void
+blobs ≥1,200 m²; **(B)** open horizon on a 24 m ring at every junction, fixed
+above 100°; **(C)** kerb bare over **28 m**, with **no road exempt** — the old
+sweep skipped the quiet loop by regex, which is where the player spawns and
+was the first thing photographed; **(D)** a kerb green that stops mid-road;
+**(E)** a kerb green with nothing within ~3 m behind it, which reads as
+emptiness wearing a green hat; **(F)** a park wall run ending short of a
+pavement. Standing exemptions, and only these: a frontage whose outward ray
+reaches the Thames before any building (encode it, do not hand-list it), the
+world-edge margin, park interiors, and the deep core of a blob that no kerb or
+junction can see into — B and C going clean at its edges is the proof.
+
+Three parcel traps: `roadsideParcel`'s trimmer clears *foreign roads only* —
+a parcel spanning its own road's **bend** chords across its own carriageway
+(give it per-segment endpoints; Victoria Street's 70° turn caught this twice),
+it does not know parks (the block-vs-park invariant in `content.test.ts` is
+the net), and neighbouring parcels tile corners by overlapping — which this
+map's visual language absorbs as corner mass and ships everywhere, so treat
+block-block overlap as a diagnostic, not a defect.
+
+Where a wall against the kerb is wrong, the **boulevard grammar** applies: a
+14 m lawn ribbon on the kerb (a pocket park, rotated to the road's bearing via
+the park `headingDeg` if the road is off-axis) and the parcel behind it through
+`roadsideParcel`'s `extraInsetM`. It comes with two obligations — the ribbon
+runs its road **junction to junction**, and it has a building row tucked behind
+it for its whole length. A road that bends needs **one rect per centreline
+segment**, butt-joined on an exact shared edge where the headings match and
+left a ≤0.4 m seam where they cannot; two coplanar lawns must never overlap.
+Parcels pushed past the address probe's 22 m reach simply yield no letterboxes.
 
 **Parks rotate the other way from blocks.** A block's `headingDeg` maps
 local +x to world (cos, −sin); a park's maps it to **(cos, +sin)**
