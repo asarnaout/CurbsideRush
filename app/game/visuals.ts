@@ -155,6 +155,20 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     silhouetteNear: "#a6a89f",
     silhouetteFar: "#cdc8b6",
     sunTint: "#ffe6c0",
+    // London is a paved city. Its ground was the grass plane until the map
+    // grew past the museum quarter, and that single missing flag was most of
+    // why a "London" drive read as parkland: the base plane painted grass
+    // between the roads and `defaultSidewalkWidthM` collapsed to the 1.5 m
+    // unpaved fallback, so there was barely a kerb to walk on.
+    //
+    // Cooler and darker than Cairo's sun-bleached concrete: British asphalt is
+    // a blue-grey, and the pavement is Portland-ish stone rather than dust.
+    // The warm late-afternoon sky above stays exactly as authored — grey
+    // streets under golden light IS the London look, and washing the ground
+    // warm to match the sky would throw that contrast away.
+    paved: true,
+    groundBase: "#494b4f",
+    pavement: "#8b8d89",
   },
   tokyo: {
     skyTop: "#4a8ec2",

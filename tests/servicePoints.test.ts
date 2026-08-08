@@ -33,11 +33,14 @@ const stationFor = (packId: string): { pack: (typeof MAP_PACKS)[number]; station
  * drifts, these stop matching what the player actually drives up to.
  */
 const RENDERED_PUMPS: Record<string, readonly (readonly [number, number])[]> = {
+  // Moved 1.90 m west and 2.01 m south with the forecourt itself when London
+  // became a `paved` city: both of its kerbs gained 1.9 m of pavement, so the
+  // lot had to give way to stay hard against them (see `london-gas`).
   "london-south-kensington": [
-    [-181.32, -39.84],
-    [-184.79, -39.84],
-    [-184.79, -47.25],
-    [-181.32, -47.25],
+    [-183.22, -41.85],
+    [-186.69, -41.85],
+    [-186.69, -49.25],
+    [-183.22, -49.25],
   ],
   "nyc-upper-west-side": [
     [-1000.22, -500.92],
