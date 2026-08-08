@@ -138,7 +138,6 @@ export function DriveScreen({
   driveDestination,
   exitDrive,
   finishCareerDayExit,
-  followingManoeuvre,
   gigStopCarrying,
   gigStopId,
   handleGameEvent,
@@ -214,7 +213,6 @@ export function DriveScreen({
   driveDestination: DestinationProfile;
   exitDrive: () => void;
   finishCareerDayExit: () => void;
-  followingManoeuvre: { readonly kind: HudManoeuvre["kind"]; readonly street: string; readonly distance: string } | null;
   gigStopCarrying: boolean;
   gigStopId: string | null;
   handleGameEvent: (event: GameRuntimeEvent) => void;
@@ -503,7 +501,6 @@ export function DriveScreen({
           scale={hudScale}
           inset={{ top: hudInset.top, left: hudInset.left }}
           manoeuvre={navManoeuvre}
-          nextManoeuvre={followingManoeuvre}
           job={navJob}
           idleLabel={
             offer ? "Offer waiting…" : "Waiting for a job…"
