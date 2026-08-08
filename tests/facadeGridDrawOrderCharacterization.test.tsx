@@ -262,7 +262,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // independently; three parcels that could never clear symmetrically
     // survive (148 -> 151 blocks) and every junction-adjacent parcel grew
     // back toward its clear end.
-    drawCount: 3_654,
+    // -> 4_104 with the void fill: fourteen new roadside parcels on the
+    // audit's bare kerbs plus seven off-network fabric rects (151 -> 170
+    // blocks).
+    drawCount: 4_104,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -272,8 +275,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // department store's parcel) -> "2701a59f" (the 41 venue and service lots
     // carved out of the blocks behind them) -> "43cb7474" (the parcel-side
     // truth pass moved ~30 parcels to their id-named kerbs) -> "19732aee"
-    // (per-end trimming re-centred nearly every junction-adjacent parcel).
-    facadeMeshFingerprint: "19732aee",
+    // (per-end trimming re-centred nearly every junction-adjacent parcel)
+    // -> "20bc11a6" (the void-fill's 19 new blocks).
+    facadeMeshFingerprint: "20bc11a6",
   },
   "tokyo-setagaya": {
     drawCount: 216,
