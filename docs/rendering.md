@@ -258,6 +258,14 @@ This is what makes mirrors cheap: `refreshRate` skips whole frames (the texture
 keeps its contents), which a viewport camera cannot do. First-person draw calls
 fell from 488 to 390 *while gaining* a wing mirror.
 
+London's kerbside parked cars are the vendor-cart recipe at street scale:
+one table (`LONDON_PARKED_CARS` in `londonStreetFurniture.ts`, solver-placed)
+read by the session's build (merged-master `createInstance` per car off the
+traffic fleet's own four glbs) and by the scatter keep-out, **knockable via
+`DESTRUCTIBLE_PROP_CONFIGS`, never solid** — the lane-corridor and
+walkable-band collider tests reserve the kerbside, and a shunted car reads
+better than an invisible wall. Measured cost of all 182: ~27 draw calls.
+
 `registerStaticCell` takes an explicit `castsShadow` flag because the instanced
 building street wall deliberately casts none — flipping one silently adds it to
 the shadow map and changes every camera. The instanced glb wall casts no sun

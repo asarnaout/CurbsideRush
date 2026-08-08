@@ -120,6 +120,32 @@ Hill grid land exclusively on nodes that already existed (the park corner,
 `bayswater-mid`, `kensington-exhibition`, the Nevern Place tees) for exactly
 this reason.
 
+**Every road side must be covered, and a sweep exists to prove it.** The
+play-tested failure mode is a kerb with nothing along it for a hundred metres
+— "massive swaths of emptiness". A scratchpad sweep (walk every surface side
+in 10 m steps; a block, park, water or venue circle within the 8–48 m band is
+coverage; river walks and world-edge margins are exempt) is how the London
+overhaul closed them all, and is the tool to re-run after any road or parcel
+change. Three related traps: `roadsideParcel`'s trimmer clears *foreign
+roads only* — a parcel spanning its own road's **bend** chords across its own
+carriageway (give it per-segment endpoints), it does not know parks (the
+block-vs-park invariant in `content.test.ts` is the net), and neighbouring
+parcels tile corners by overlapping — which this map's visual language
+absorbs as corner mass and ships everywhere, so treat block-block overlap as
+a diagnostic, not a defect. Where a wall against the kerb is wrong, the
+**boulevard grammar** applies: a 14 m lawn ribbon on the kerb (a pocket
+park, rotated to the road's bearing via the park `headingDeg` if the road is
+off-axis) and the parcel behind it through `roadsideParcel`'s `extraInsetM`
+— the museum quarter's west environs and The Mall's St James's side are the
+shipped examples. Parcels pushed past the address probe's 22 m reach simply
+yield no letterboxes.
+
+**Parks rotate the other way from blocks.** A block's `headingDeg` maps
+local +x to world (cos, −sin); a park's maps it to **(cos, +sin)**
+(`parkLayouts`' `toWorld` and the lawn's `rotation.y` agree). The divergence
+was invisible until the first rotated park (the Chelsea green) and cost both
+`content.test.ts` park boxes a sign fix.
+
 **A junction's arms must stay ~45° apart.** `buildPavementGraph` mitres a
 junction's rails apart only down to about 40° (Cairo's tightest shipped
 corner); below that the surviving rail walks straight through the neighbouring
