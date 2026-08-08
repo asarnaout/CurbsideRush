@@ -249,8 +249,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // bands moved so the ribbons could reach their junctions. -> 3_091: the
     // emptiness round's west fills — eleven bare-kerb parcels, the quiet
     // loop's island, and four corner fabric rects at the map's west and
-    // river edges.
-    buildingInstanceCount: 3_091,
+    // river edges. -> 3_181: the eastern half — ten more bare-kerb parcels
+    // from Knightsbridge to Euston Road, and four corner fabric rects.
+    buildingInstanceCount: 3_181,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

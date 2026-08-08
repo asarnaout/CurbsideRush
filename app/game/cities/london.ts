@@ -2125,7 +2125,9 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-whitehall-fill-l", "london-whitehall", point(778.9, -202.5), point(750.8, -270.2), -1, 10.4, 36, LONDON_PORTLAND_STONE, [18, 29], 0.78),
   roadsideParcel("london-block-thurloe-fill-n", "london-thurloe-place", point(106.0, 82.0), point(-70.0, 82.0), 1, 7.2, 34, LONDON_STUCCO, [12, 20], 0.74),
   roadsideParcel("london-block-cromwell-east-fill-l", "london-cromwell-east", point(146.0, -32.0), point(286.0, -32.0), -1, 7.6, 36, LONDON_RED_BRICK, [12, 20], 0.74),
-  roadsideParcel("london-block-cromwell-east-fill-r", "london-cromwell-east", point(154.0, -32.0), point(266.0, -32.0), 1, 7.6, 36, LONDON_STUCCO, [12, 20], 0.74),
+    // West end brought to x144 so the museum quarter's south forecourt has
+  // something to butt against rather than stopping in open ground.
+  roadsideParcel("london-block-cromwell-east-fill-r", "london-cromwell-east", point(132.0, -32.0), point(266.0, -32.0), 1, 7.6, 36, LONDON_STUCCO, [12, 20], 0.74),
   roadsideParcel("london-block-east-road-fill-r", "london-east-road", point(150.0, 24.0), point(150.0, 82.0), 1, 7.2, 34, LONDON_STOCK_BRICK, [11, 18], 0.72),
   roadsideParcel("london-block-queen-gate-fill-r", "london-queen-gate", point(-108.0, 72.0), point(-108.0, 168.0), 1, 7.6, 34, LONDON_STUCCO, [12, 20], 0.74),
   roadsideParcel("london-block-queen-gate-fill-l", "london-queen-gate", point(-108.0, 84.0), point(-108.0, 156.0), -1, 7.6, 30, LONDON_RED_BRICK, [12, 19], 0.72),
@@ -2167,7 +2169,7 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // Thurloe Place east of Exhibition Road needs its own parcel: Exhibition
   // Road tees into this kerb's band, and the trimmer can only retreat ends,
   // so one parcel spanning the junction gets cut back to the junction.
-  roadsideParcel("london-block-thurloe-fill-n-e", "london-thurloe-place", point(127.0, 82.0), point(49.7, 82.0), 1, 7.2, 34, LONDON_STUCCO, [12, 20], 0.74),
+  roadsideParcel("london-block-thurloe-fill-n-e", "london-thurloe-place", point(156.0, 82.0), point(49.7, 82.0), 1, 7.2, 34, LONDON_STUCCO, [12, 20], 0.74),
   // Riverbank's land side west of Battersea Park, ending 2 m off the park.
   roadsideParcel("london-block-riverbank-fill-w", "london-riverbank", point(-992, -811.5), point(-934, -807.2), 1, 10.4, 32, LONDON_STOCK_BRICK, [10, 17], 0.68),
   roadsideParcel("london-block-smith-fill-w", "london-smith-street", point(122.4, -370.3), point(166, -338), -1, 7.6, 32, LONDON_STUCCO, [11, 18], 0.7),
@@ -2179,6 +2181,26 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // crescent-5 -> earls-crescent segment like o-1..o-4; one parcel across
   // the arc would clip its own carriageway.
   roadsideParcel("london-block-crescent-o-5", "london-pembroke-crescent", nodeAt("london-node-crescent-5"), nodeAt("london-node-earls-crescent"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
+
+  // --- The same sweep, east of the park. Knightsbridge's north band runs to
+  // Wellington Circus 68 m deep, which is the width of the band between that
+  // road and the royal park's south edge and closes Park Lane's west kerb in
+  // the same stroke. --------------------------------------------------------
+  roadsideParcel("london-block-knights-n-3", "london-knightsbridge", point(538, 220), point(607, 220), -1, 10.4, 68, LONDON_RED_BRICK, [15, 24], 0.78),
+  roadsideParcel("london-block-buckingham-fill-se", "london-buckingham-palace-road", point(493.2, -149.9), point(552.3, -64.3), 1, 9.6, 36, LONDON_STUCCO, [14, 23], 0.76),
+  roadsideParcel("london-block-buckingham-fill-nw", "london-buckingham-palace-road", point(324.6, -194.3), point(425.8, -166.9), -1, 9.6, 38, LONDON_RED_BRICK, [14, 23], 0.76),
+  roadsideParcel("london-block-buckingham-fill-nw-2", "london-buckingham-palace-road", point(513, -121.2), point(556, -58.9), -1, 9.6, 36, LONDON_STUCCO, [14, 23], 0.76),
+  roadsideParcel("london-block-whitehall-w-2", "london-whitehall", point(782.7, -193.5), point(746.6, -280.3), 1, 10.4, 40, LONDON_PORTLAND_STONE, [18, 29], 0.78),
+  roadsideParcel("london-block-victoria-street-fill-e", "london-victoria-street", point(503.3, -210.1), point(499.4, -128), 1, 10.4, 36, LONDON_PORTLAND_STONE, [17, 28], 0.78),
+  // Authored along the northern segment ONLY. Victoria Street turns 70
+  // degrees at (505,-248) and the trimmer exempts a parcel's own road, so a
+  // span across that bend chords straight through the carriageway —
+  // `staticColliders` caught it 1.6 m from the lane.
+  roadsideParcel("london-block-victoria-street-fill-w", "london-victoria-street", point(505.5, -260), point(502.3, -191), -1, 10.4, 36, LONDON_STUCCO, [16, 26], 0.78),
+  roadsideParcel("london-block-regent-w-4", "london-regent", point(918.3, 461.6), point(904.3, 554.9), -1, 10.4, 40, LONDON_STOCK_BRICK, [17, 27], 0.8),
+  roadsideParcel("london-block-regent-e-4", "london-regent", point(918.3, 461.6), point(904.3, 554.9), 1, 10.4, 40, LONDON_STUCCO, [17, 27], 0.8),
+  roadsideParcel("london-block-euston-s-0", "london-euston", point(673, 941.6), point(781.9, 944.9), 1, 11.4, 46, LONDON_RED_BRICK, [15, 26], 0.78),
+
 
   // The Mall's south side is St James's: a lawn ribbon on the kerb and the
   // civic stone set back behind it — the same boulevard grammar as the
@@ -2236,6 +2258,10 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-lots-sw-fab-a", center: point(-1273, -565), size: point(54, 40), heightRange: [10, 16] as const, density: 0.66, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-lots-sw-fab-b", center: point(-1275, -607.5), size: point(50, 45), heightRange: [10, 16] as const, density: 0.66, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-riverbank-sw-fab", center: point(-1356, -822.5), size: point(88, 55), heightRange: [9, 15] as const, density: 0.64, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-thurloe-ne-fab", center: point(196, 112.5), size: point(88, 45), heightRange: [13, 21] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-palace-east", center: point(506, -55), size: point(52, 22), heightRange: [13, 21] as const, density: 0.74, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-whitehall-ne-fab", center: point(843, 19), size: point(114, 82), heightRange: [17, 27] as const, density: 0.78, material: LONDON_PORTLAND_STONE },
+  { id: "london-block-canonbury-ne-fab", center: point(1394, 861), size: point(36, 138), heightRange: [12, 20] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
 ].filter((block): block is ProceduralBlock => block !== null);
 
 // ---------------------------------------------------------------------------
@@ -3525,15 +3551,53 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-museum-forecourt-south-west",
         kind: "park",
-        center: point(-32.7, -46.1),
-        size: point(134.8, 12.8),
+        center: point(-25.4, -46.1),
+        size: point(149.4, 12.8),
         color: "#5f9a4e",
       },
       {
         id: "london-museum-forecourt-south-east",
         kind: "park",
-        center: point(96.15, -45.7),
-        size: point(93.7, 13.6),
+        center: point(96.4, -45.7),
+        size: point(94.2, 13.6),
+        color: "#5f9a4e",
+      },
+      // The two greens this half of the sweep chose over a street wall. Both
+      // are what the real city puts here, both are big enough to derive walls
+      // and gates, and both close a void that no amount of kerb frontage
+      // could reach into: the owner's rule is that an enclosed block reads as
+      // one thing, and 30,000 m2 of nothing behind a terrace row is still
+      // nothing.
+      //
+      // St James's: the wedge between The Mall's set-back civic stone and
+      // Whitehall's, clear of Victoria Street's diagonal by 30 m at its
+      // tightest corner.
+      {
+        id: "london-st-james-park",
+        kind: "park",
+        center: point(650, -154),
+        size: point(100, 72),
+        color: "#4f7a3d",
+      },
+      // The palace garden, north of the palace itself and tucked between
+      // Brompton Road's diagonal and Grosvenor Place.
+      {
+        id: "london-palace-garden",
+        kind: "park",
+        // 98 m wide, not the band's full 140: Brompton Road's east parcel
+        // reaches x414.7 on one side and Grosvenor's fill x523 on the other,
+        // and a park may not stand in a block.
+        center: point(469, 30),
+        size: point(98, 140),
+        color: "#4f7a3d",
+      },
+      // The V&A's north forecourt, the fourth side of the museum quarter's
+      // planting.
+      {
+        id: "london-museum-forecourt-north-east",
+        kind: "park",
+        center: point(98, 66.9),
+        size: point(82, 12.8),
         color: "#5f9a4e",
       },
       {
