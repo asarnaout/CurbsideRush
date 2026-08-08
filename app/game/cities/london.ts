@@ -1826,15 +1826,27 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // left as open ground, and the play-test called the result out twice:
   // "massive swaths of emptiness". The venue keep-out machinery carves the
   // quarter's shops and the gas station out of these walls automatically. --
-  roadsideParcel("london-block-gloucester-w-2", "london-gloucester", nodeAt("london-node-gloucester-cromwell"), nodeAt("london-node-gloucester-kensington"), -1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74, 13.5),
+  // Starts at z-60, not the Cromwell node: the Gloucester west ribbon runs
+  // down to z-48 and the band behind it stopped at z-20, leaving 28 m of
+  // green with a grey field behind it.
+  roadsideParcel("london-block-gloucester-w-2", "london-gloucester", point(-300, -60), nodeAt("london-node-gloucester-kensington"), -1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74, 13.5),
   roadsideParcel("london-block-gloucester-e-1", "london-gloucester", nodeAt("london-node-gloucester-south"), nodeAt("london-node-gloucester-cromwell"), 1, 7.2, 36, LONDON_RED_BRICK, [11, 18], 0.72),
   // Starts at z=-4, not the Cromwell node: the parcel trimmer clears roads,
   // not park strips, and from the node this band ran under the Cromwell
   // boulevard strip's east reach.
   roadsideParcel("london-block-gloucester-e-2", "london-gloucester", point(-300, -4), nodeAt("london-node-gloucester-kensington"), 1, 7.2, 42, LONDON_RED_BRICK, [12, 19], 0.74, 13.5),
   // Explicit span: the Queen's Gate terraces own the east corner and
-  // gloucester-e-2's band the west one.
-  roadsideParcel("london-block-cromwell-fw-n", "london-cromwell-far-west", point(-166, -32), point(-228, -32), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76, 13.5),
+  // gloucester-e-2's band the west one. The east end runs to x-157 (0.4 m
+  // off the terraces) rather than x-178, because the ribbon behind which it
+  // stands now continues past it and a green needs a back for its whole
+  // length.
+  roadsideParcel("london-block-cromwell-fw-n", "london-cromwell-far-west", point(-145, -32), point(-228, -32), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76, 13.5),
+  // The ribbon's west half had nothing behind it for 60 m — a green strip
+  // with a grey field behind it, which the owner called out as emptiness in
+  // its own right. 17.5 m deep, not the usual 40: Gloucester Road's east
+  // band (z8..208) starts 0.6 m behind this row, and a terrace row only
+  // needs to be one house deep.
+  roadsideParcel("london-block-cromwell-fw-n-w", "london-cromwell-far-west", point(-205, -32), point(-289, -32), 1, 7.2, 17.5, LONDON_STOCK_BRICK, [12, 19], 0.74, 13.5),
   roadsideParcel("london-block-quiet-w", "london-quiet-loop", nodeAt("london-node-quiet-west-south"), nodeAt("london-node-quiet-west-north"), -1, 7.2, 34, LONDON_STOCK_BRICK, [10, 16], 0.68),
   roadsideParcel("london-block-kensington-s-w", "london-kensington", point(-226, 220), nodeAt("london-node-queen-gate-far-north"), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76),
   roadsideParcel("london-block-kensington-s-e", "london-kensington", nodeAt("london-node-queen-gate-far-north"), nodeAt("london-node-kensington-exhibition"), 1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74),
@@ -1982,7 +1994,13 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-oxford-s-2", "london-oxford-street", nodeAt("london-node-oxford-mid"), nodeAt("london-node-regent-oxford"), 1, 10.4, 46, LONDON_STOCK_BRICK, [16, 27], 0.8),
   roadsideParcel("london-block-bayswater-n-1", "london-bayswater", nodeAt("london-node-park-corner-north-west"), nodeAt("london-node-bayswater-mid"), -1, 10.4, 46, LONDON_STUCCO, [14, 23], 0.76),
   roadsideParcel("london-block-bayswater-n-2", "london-bayswater", nodeAt("london-node-bayswater-mid"), nodeAt("london-node-park-corner-north-east"), -1, 10.4, 46, LONDON_RED_BRICK, [14, 23], 0.76),
-  roadsideParcel("london-block-park-west-w", "london-park-west", nodeAt("london-node-gloucester-kensington"), nodeAt("london-node-park-corner-north-west"), -1, 9, 44, LONDON_STOCK_BRICK, [13, 22], 0.74),
+  // Stops at z929 rather than the corner node: Notting Hill Gate's south
+  // ribbon wraps this corner, and its far edge runs 22.2 m off that road's
+  // centreline. Every parcel on a street that tees into the ribbon retreats
+  // the same way — the crossing street's terraces begin behind the green,
+  // which is what "all the buildings behind it and tucked right against it"
+  // means at a junction.
+  roadsideParcel("london-block-park-west-w", "london-park-west", nodeAt("london-node-gloucester-kensington"), point(-300, 928), -1, 9, 44, LONDON_STOCK_BRICK, [13, 22], 0.74),
 
   // --- Belgravia and Westminster: Portland-stone civic frontage. -----------
   roadsideParcel("london-block-grosvenor-w", "london-grosvenor", nodeAt("london-node-wellington-arm-grosvenor"), nodeAt("london-node-grosvenor-mid"), 1, 9.6, 44, LONDON_STUCCO, [16, 26], 0.78),
@@ -1993,7 +2011,12 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-mall-n", "london-mall", nodeAt("london-node-victoria-arm-mall"), nodeAt("london-node-mall-mid"), -1, 10.4, 42, LONDON_PORTLAND_STONE, [18, 28], 0.78),
   roadsideParcel("london-block-mall-n-2", "london-mall", nodeAt("london-node-mall-mid"), nodeAt("london-node-mall-east"), -1, 10.4, 42, LONDON_PORTLAND_STONE, [18, 28], 0.78),
   roadsideParcel("london-block-whitehall-e", "london-whitehall", nodeAt("london-node-mall-east"), nodeAt("london-node-whitehall-mid"), -1, 10.4, 44, LONDON_PORTLAND_STONE, [19, 30], 0.8),
-  roadsideParcel("london-block-whitehall-w", "london-whitehall", nodeAt("london-node-mall-east"), nodeAt("london-node-whitehall-mid"), 1, 10.4, 44, LONDON_PORTLAND_STONE, [19, 30], 0.8),
+  // Retreated 22 m down Whitehall so St James's ribbon can run to the end of
+  // The Mall. 44 m deep and near-perpendicular to The Mall, this band's FAR
+  // corner is what binds the retreat, not its near one — it swings 54 m west,
+  // deep into The Mall's frontage. The corner it gives up is covered by
+  // `london-block-mall-s-e` behind the ribbon.
+  roadsideParcel("london-block-whitehall-w", "london-whitehall", point(797.3, -61.6), nodeAt("london-node-whitehall-mid"), 1, 10.4, 44, LONDON_PORTLAND_STONE, [19, 30], 0.8),
   roadsideParcel("london-block-victoria-st-n", "london-victoria-street", nodeAt("london-node-victoria-street-1"), nodeAt("london-node-victoria-street-2"), 1, 10.4, 44, LONDON_PORTLAND_STONE, [18, 29], 0.8),
   roadsideParcel("london-block-victoria-st-s", "london-victoria-street", nodeAt("london-node-victoria-street-1"), nodeAt("london-node-victoria-street-2"), -1, 10.4, 44, LONDON_STOCK_BRICK, [16, 26], 0.78),
 
@@ -2046,15 +2069,26 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // westward (right normal = north) — the side signs below follow the
   // driver's-right rule, not the compass. -----------------------------------
   roadsideParcel("london-block-notting-n-1", "london-notting-hill", nodeAt("london-node-park-corner-north-west"), nodeAt("london-node-westbourne-corner"), 1, 9, 42, LONDON_STUCCO, [12, 20], 0.74),
-  roadsideParcel("london-block-notting-s-1", "london-notting-hill", nodeAt("london-node-park-corner-north-west"), nodeAt("london-node-westbourne-corner"), -1, 9, 40, LONDON_STOCK_BRICK, [12, 19], 0.72),
+  // The two south-side bands carry the ribbon's 13.5 m set-back (the museum
+  // quarter's boulevard grammar): the royal park's lawn used to end at the
+  // park's west edge and the very next terrace stood hard against the
+  // pavement, which the owner called out — "the green strip on the left
+  // abruptly ends... extend that green strip till the very end of the road
+  // and have all the buildings behind it and tucked right against it".
+  roadsideParcel("london-block-notting-s-1", "london-notting-hill", nodeAt("london-node-park-corner-north-west"), nodeAt("london-node-westbourne-corner"), -1, 9, 40, LONDON_STOCK_BRICK, [12, 19], 0.72, 13.5),
   roadsideParcel("london-block-notting-n-2", "london-notting-hill", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-porchester-corner"), 1, 9, 40, LONDON_RED_BRICK, [11, 18], 0.72),
-  roadsideParcel("london-block-notting-s-2", "london-notting-hill", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-porchester-corner"), -1, 9, 40, LONDON_STUCCO, [12, 19], 0.74),
+  roadsideParcel("london-block-notting-s-2", "london-notting-hill", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-porchester-corner"), -1, 9, 40, LONDON_STUCCO, [12, 19], 0.74, 13.5),
   roadsideParcel("london-block-porchester-w-1", "london-porchester", nodeAt("london-node-porchester-corner"), nodeAt("london-node-porchester-1"), 1, 8.6, 38, LONDON_STOCK_BRICK, [11, 18], 0.72),
-  roadsideParcel("london-block-porchester-e-1", "london-porchester", nodeAt("london-node-porchester-corner"), nodeAt("london-node-porchester-1"), -1, 8.6, 38, LONDON_RED_BRICK, [11, 18], 0.72),
+  // Retreated 10.4 m down Porchester Road so the ribbon can wrap this corner.
+  roadsideParcel("london-block-porchester-e-1", "london-porchester", point(-1000, 914.6), nodeAt("london-node-porchester-1"), -1, 8.6, 38, LONDON_RED_BRICK, [11, 18], 0.72),
   roadsideParcel("london-block-porchester-w-2", "london-porchester", nodeAt("london-node-porchester-1"), nodeAt("london-node-porchester-2"), 1, 8.6, 36, LONDON_RED_BRICK, [10, 17], 0.7),
   roadsideParcel("london-block-porchester-e-2", "london-porchester", nodeAt("london-node-porchester-1"), nodeAt("london-node-porchester-2"), -1, 8.6, 36, LONDON_STUCCO, [11, 18], 0.72),
-  roadsideParcel("london-block-westbourne-w-1", "london-westbourne", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-westbourne-1"), 1, 8.6, 38, LONDON_STUCCO, [12, 19], 0.74),
-  roadsideParcel("london-block-westbourne-e-1", "london-westbourne", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-westbourne-1"), -1, 8.6, 38, LONDON_STOCK_BRICK, [11, 18], 0.72),
+  // Both retreated down Westbourne Grove for the ribbon's corner wrap, the
+  // west side further than the east: the street leans ~10 degrees west as it
+  // runs south, which swings the west band's far corner back toward Notting
+  // Hill Gate while the east band's swings away from it.
+  roadsideParcel("london-block-westbourne-w-1", "london-westbourne", point(-663.5, 910.3), nodeAt("london-node-westbourne-1"), 1, 8.6, 38, LONDON_STUCCO, [12, 19], 0.74),
+  roadsideParcel("london-block-westbourne-e-1", "london-westbourne", point(-661.6, 921), nodeAt("london-node-westbourne-1"), -1, 8.6, 38, LONDON_STOCK_BRICK, [11, 18], 0.72),
   roadsideParcel("london-block-westbourne-w-2", "london-westbourne", nodeAt("london-node-westbourne-1"), nodeAt("london-node-westbourne-2"), 1, 8.6, 36, LONDON_RED_BRICK, [11, 18], 0.72),
   roadsideParcel("london-block-westbourne-e-2", "london-westbourne", nodeAt("london-node-westbourne-1"), nodeAt("london-node-westbourne-2"), -1, 8.6, 36, LONDON_STOCK_BRICK, [11, 18], 0.72),
   roadsideParcel("london-block-westbourne-w-3", "london-westbourne", nodeAt("london-node-westbourne-2"), nodeAt("london-node-earls-nevern"), 1, 8.6, 34, LONDON_STUCCO, [11, 18], 0.72),
@@ -2109,7 +2143,12 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // The Mall's south side is St James's: a lawn ribbon on the kerb and the
   // civic stone set back behind it — the same boulevard grammar as the
   // museum quarter's west environs.
-  roadsideParcel("london-block-mall-s", "london-mall", point(580.0, -58.3), point(735.9, -43.8), 1, 10.4, 34, LONDON_PORTLAND_STONE, [16, 26], 0.76, 13.5),
+  // One band per centreline segment, so the set-back stone follows the road's
+  // 2.4-degree bend the way the ribbon in front of it does. The single
+  // straight band this replaces covered 132 m of a 224 m road and left the
+  // last stretch before Whitehall with the stone hard against the kerb.
+  roadsideParcel("london-block-mall-s", "london-mall", point(568, -59.9), nodeAt("london-node-mall-mid"), 1, 10.4, 34, LONDON_PORTLAND_STONE, [16, 26], 0.76, 13.5),
+  roadsideParcel("london-block-mall-s-e", "london-mall", nodeAt("london-node-mall-mid"), nodeAt("london-node-mall-east"), 1, 10.4, 34, LONDON_PORTLAND_STONE, [16, 26], 0.76, 13.5),
 
   // --- Off-network fabric: NYC's margin-strip pattern. These rects sit on no
   // road (roadsideParcel cannot derive them), so their positions are solved
@@ -2993,13 +3032,19 @@ export const LONDON_MAP_PACK: MapPack = {
       },
       {
         id: "london-queen-gate-terraces",
-        center: point(-136, 28),
+        // 84 -> 80.2 m deep, south face z-14 -> z-10.2: the Cromwell ribbon
+        // now runs the road's full length and its far edge is z-10.7, so the
+        // old south face overlapped it by 3.3 m. Giving the 3.8 m back puts
+        // the terrace frontage 0.5 m behind the lawn — the owner's rule that
+        // buildings behind a grass strip stand tucked right against it —
+        // instead of 11 m back with bare ground in between.
+        center: point(-136, 29.9),
         // 42 -> 41.2 m wide: Queen's Gate's pavement widened to 3.4 m with the
         // `paved` flip, and its outer walking edge now runs at x-114.8 — the
         // old 42 m block put a solid terrace face 0.2 m from it. The 0.4 m
         // trimmed off each side leaves the frontage flush behind both
         // pavements (the quiet loop's inner edge is at x-157.4).
-        size: point(41.2, 84),
+        size: point(41.2, 80.2),
         heightRange: [12, 24],
         density: 0.72,
         material: "white-stucco",
@@ -3201,14 +3246,31 @@ export const LONDON_MAP_PACK: MapPack = {
       // block list above deliberately skips the King's Road's south kerb
       // between Gloucester and Beaufort.
       // St James's ribbon: the lawn between The Mall and its set-back civic
-      // stone (london-block-mall-s carries the matching extraInsetM), rotated
-      // to the road's own 5.3-degree bearing like the Chelsea green.
+      // stone (london-block-mall-s / -s-e carry the matching extraInsetM),
+      // one rect per centreline segment at that segment's own bearing. The
+      // single 130 m rect at a compromise 5.3 degrees this replaces covered
+      // 130 m of a 224 m road and stopped dead at both ends — the road ran
+      // on to Victoria Circus one way and Whitehall the other with the stone
+      // hard against the kerb. Butt-joined on the shared edge at the mid
+      // node; two lawns at one layer Y must never overlap.
       {
         id: "london-st-james-strip",
         kind: "park",
-        center: point(659.6, -66.3),
-        size: point(130, 14),
-        headingDeg: 5.3,
+        // 1.4 m short of the mid node: the two bearings differ by 2.4
+        // degrees, so rects that both reached it would overlap by ~1 m on the
+        // inside of the bend. A 0.4 m seam is invisible; two coplanar lawns
+        // fighting for the same pixels are not.
+        center: point(641.46, -67.98),
+        size: point(118.15, 14),
+        headingDeg: 5.85,
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-st-james-strip-east",
+        kind: "park",
+        center: point(744.26, -59.27),
+        size: point(86.78, 14),
+        headingDeg: 3.43,
         color: "#5f9a4e",
       },
       // Boulevard strips for the museum quarter's west environs — the owner
@@ -3231,11 +3293,43 @@ export const LONDON_MAP_PACK: MapPack = {
         size: point(14, 237.4),
         color: "#5f9a4e",
       },
+      // The outside corner where Gloucester Road, Kensington Road and West
+      // Carriage Drive meet: a 13 x 19 m pocket that no parcel can reach
+      // (the trimmer holds park-west's band back to z227.7) and that the
+      // west ribbon stops 8 m short of. Butt-joined to that ribbon's north
+      // edge at z212.7 and to park-west's band at z231.5; its east edge
+      // stops 0.3 m off West Carriage Drive's pavement, which is 0.9 m
+      // further out than the ribbon's because that road is the wider of the
+      // two.
+      {
+        id: "london-gloucester-kensington-corner-green",
+        kind: "park",
+        center: point(-314.75, 222.1),
+        size: point(13.1, 18.8),
+        color: "#5f9a4e",
+      },
       {
         id: "london-cromwell-fw-north-strip",
         kind: "park",
         center: point(-222.35, -17.7),
         size: point(112.7, 14),
+        color: "#5f9a4e",
+      },
+      // The same ribbon carried east to the end of the road. It used to stop
+      // at x-166 with 58 m of Cromwell's north kerb still to run, which
+      // play-tested as "the strip of grass just abruptly ends in the middle
+      // there". Butt-joined to the rect above on the exact shared edge
+      // x=-166 (two lawns at one layer Y must never overlap) and ended 0.3 m
+      // short of Queen's Gate's pavement band. The Queen's Gate terraces
+      // behind it gave up 3.8 m of their south edge to make room, so the
+      // ribbon keeps its full 14 m depth the whole way and the terrace
+      // frontage stands 0.5 m behind it rather than 11 m back across bare
+      // ground.
+      {
+        id: "london-cromwell-fw-north-strip-east",
+        kind: "park",
+        center: point(-140.75, -17.7),
+        size: point(50.5, 14),
         color: "#5f9a4e",
       },
       // The lawn between Kensington Road and the royal park's south edge —
@@ -3260,6 +3354,30 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         center: point(824, 820),
         size: point(32, 26),
+        color: "#5f9a4e",
+      },
+      // Notting Hill Gate's south ribbon, in two rects because the road bends
+      // 0.75 degrees at Westbourne Grove and one axis-aligned rect beside a
+      // road that drifts cannot sit tucked (the Chelsea green's lesson).
+      // Each carries its own segment's bearing, near edge 0.3 m past the
+      // pavement band, ends 0.3 m off the crossing streets' pavements. The
+      // royal park's lawn hands over to this ribbon at the park-west corner
+      // and it runs to Porchester Road, so a driver heading west never sees
+      // the green stop and the terraces jump to the kerb.
+      {
+        id: "london-notting-hill-south-strip-east",
+        kind: "park",
+        center: point(-480.78, 919.77),
+        size: point(344.74, 14),
+        headingDeg: -178.41,
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-notting-hill-south-strip-west",
+        kind: "park",
+        center: point(-832.08, 912.27),
+        size: point(319.64, 14),
+        headingDeg: -179.16,
         color: "#5f9a4e",
       },
       // The Notting Hill district's two squares: a walled garden square in

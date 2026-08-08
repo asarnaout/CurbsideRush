@@ -270,7 +270,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // (187 -> 190; the play-test's "tiny patch in a sea of concrete").
     // -> 4_824 with the museum-quarter environs' ten parcels (190 -> 200).
     // -> 5_667 with the coverage sweep's fills (200 -> 235 blocks).
-    drawCount: 5_667,
+    // -> 5_715 with the kerb-green round: two new backing bands and six
+    // existing ones re-spanned so every ribbon reaches its junctions
+    // (235 -> 237 blocks).
+    drawCount: 5_715,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -289,8 +292,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // drawCount itself is unchanged) -> "07bc0342" (the Bayswater band rows
     // and the two reworked greens) -> "691daf05" (the quarter environs) ->
     // "21059cb0" (the coverage sweep) -> "b388672d" (the tuck-and-connect
-    // pass moved the boulevard parcels 2.1 m kerbward with their strips).
-    facadeMeshFingerprint: "b388672d",
+    // pass moved the boulevard parcels 2.1 m kerbward with their strips)
+    // -> "5d77fb7e" (the kerb-green round: the Notting Hill and Mall
+    // bands took the boulevard set-back, and the corner parcels on the
+    // streets that tee into those ribbons retreated behind them).
+    facadeMeshFingerprint: "5d77fb7e",
   },
   "tokyo-setagaya": {
     drawCount: 216,
