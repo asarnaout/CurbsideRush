@@ -82,7 +82,9 @@ describe("park layouts", () => {
     // the museum quarter's three boulevard strips — lawn ribbons between
     // Gloucester Road / Cromwell's far-west reach and the set-back terraces
     // behind them (the owner's requested arrangement for that corner).
-    expect(parkCases().length).toBe(33);
+    // 33 -> 34: the St James's ribbon along The Mall's south kerb, the same
+    // boulevard grammar at the palace.
+    expect(parkCases().length).toBe(34);
   });
 
   it("is deterministic — two builds are identical", () => {

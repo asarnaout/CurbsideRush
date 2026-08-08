@@ -28,6 +28,10 @@ The one London asset that is not ours is the double-decker bus, already
 recorded below: a purchased model whose licence forbids redistribution, so it
 is not in the repo and the committed single-deck bus stands in for it.
 
+London's kerbside parked cars reuse the committed traffic-fleet glbs
+(`sedan`, `sports`, `suv` — CC0; `van` — CC-BY, credit below) as static
+street dressing; no new files and no new licences are involved.
+
 ## CC0 — public domain (no attribution required)
 
 - **sedan.glb, sports.glb, suv.glb** — Quaternius (<https://quaternius.com>),

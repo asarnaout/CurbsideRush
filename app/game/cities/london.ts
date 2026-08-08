@@ -1826,19 +1826,18 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // left as open ground, and the play-test called the result out twice:
   // "massive swaths of emptiness". The venue keep-out machinery carves the
   // quarter's shops and the gas station out of these walls automatically. --
-  roadsideParcel("london-block-gloucester-w-1", "london-gloucester", nodeAt("london-node-gloucester-south"), nodeAt("london-node-gloucester-cromwell"), -1, 7.2, 38, LONDON_STUCCO, [12, 20], 0.74, 15.6),
   roadsideParcel("london-block-gloucester-w-2", "london-gloucester", nodeAt("london-node-gloucester-cromwell"), nodeAt("london-node-gloucester-kensington"), -1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74, 15.6),
   roadsideParcel("london-block-gloucester-e-1", "london-gloucester", nodeAt("london-node-gloucester-south"), nodeAt("london-node-gloucester-cromwell"), 1, 7.2, 36, LONDON_RED_BRICK, [11, 18], 0.72),
   // Starts at z=-4, not the Cromwell node: the parcel trimmer clears roads,
   // not park strips, and from the node this band ran under the Cromwell
   // boulevard strip's east reach.
   roadsideParcel("london-block-gloucester-e-2", "london-gloucester", point(-300, -4), nodeAt("london-node-gloucester-kensington"), 1, 7.2, 42, LONDON_RED_BRICK, [12, 19], 0.74, 15.6),
-  roadsideParcel("london-block-cromwell-fw-n", "london-cromwell-far-west", nodeAt("london-node-queen-gate-cromwell"), nodeAt("london-node-gloucester-cromwell"), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76, 15.6),
-  roadsideParcel("london-block-cromwell-fw-s", "london-cromwell-far-west", nodeAt("london-node-queen-gate-cromwell"), nodeAt("london-node-gloucester-cromwell"), -1, 7.2, 38, LONDON_RED_BRICK, [12, 19], 0.72),
+  // Explicit span: the Queen's Gate terraces own the east corner and
+  // gloucester-e-2's band the west one.
+  roadsideParcel("london-block-cromwell-fw-n", "london-cromwell-far-west", point(-166, -32), point(-228, -32), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76, 15.6),
   roadsideParcel("london-block-quiet-w", "london-quiet-loop", nodeAt("london-node-quiet-west-south"), nodeAt("london-node-quiet-west-north"), -1, 7.2, 34, LONDON_STOCK_BRICK, [10, 16], 0.68),
-  roadsideParcel("london-block-kensington-s-w", "london-kensington", nodeAt("london-node-gloucester-kensington"), nodeAt("london-node-queen-gate-far-north"), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76),
+  roadsideParcel("london-block-kensington-s-w", "london-kensington", point(-226, 220), nodeAt("london-node-queen-gate-far-north"), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76),
   roadsideParcel("london-block-kensington-s-e", "london-kensington", nodeAt("london-node-queen-gate-far-north"), nodeAt("london-node-kensington-exhibition"), 1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74),
-  roadsideParcel("london-block-cromwell-w-s", "london-cromwell-west", point(-108, -30.3), point(42, -30.3), 1, 11.4, 36, LONDON_RED_BRICK, [12, 20], 0.74),
 
   // --- The King's Road: a continuous shopping street wall, both kerbs. -----
   roadsideParcel("london-block-kings-n-1", "london-kings-road", nodeAt("london-node-kings-west"), nodeAt("london-node-kings-earls"), -1, 9.4, 46, LONDON_STOCK_BRICK, [11, 19], 0.74),
@@ -2060,6 +2059,57 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-westbourne-e-2", "london-westbourne", nodeAt("london-node-westbourne-1"), nodeAt("london-node-westbourne-2"), -1, 8.6, 36, LONDON_STOCK_BRICK, [11, 18], 0.72),
   roadsideParcel("london-block-westbourne-w-3", "london-westbourne", nodeAt("london-node-westbourne-2"), nodeAt("london-node-earls-nevern"), 1, 8.6, 34, LONDON_STUCCO, [11, 18], 0.72),
   roadsideParcel("london-block-westbourne-e-3", "london-westbourne", nodeAt("london-node-westbourne-2"), nodeAt("london-node-earls-nevern"), -1, 8.6, 34, LONDON_RED_BRICK, [11, 18], 0.72),
+
+  // --- The whole-map coverage sweep's fills (scratchpad coverage.mjs walks
+  // every road side in 10 m steps; these close every uncovered run over
+  // ~70 m that is not a river walk, a park edge or a world-edge margin).
+  // Materials follow each district; the crescent fills per straight segment
+  // because one straight parcel across a curve would clip its own road. ----
+  roadsideParcel("london-block-minories-fill-l", "london-minories", point(1391.7, -131.3), point(1260.0, -310.0), -1, 8.6, 36, LONDON_STOCK_BRICK, [16, 27], 0.78),
+  roadsideParcel("london-block-minories-fill-r", "london-minories", point(1429.4, 91.0), point(1401.5, -109.0), 1, 8.6, 36, LONDON_RED_BRICK, [15, 25], 0.76),
+  roadsideParcel("london-block-king-william-fill-r", "london-king-william", point(1229.7, -118.4), point(1193.3, 52.1), 1, 9.6, 36, LONDON_GLASS_CURTAIN, [22, 38], 0.8),
+  roadsideParcel("london-block-king-william-fill-l", "london-king-william", point(1248.5, -236.9), point(1228.8, -114.1), -1, 9.6, 36, LONDON_PORTLAND_STONE, [18, 30], 0.78),
+  roadsideParcel("london-block-cornmarket-fill-l", "london-cornmarket", point(1074.9, 181.5), point(1064.2, 315.6), -1, 8.6, 36, LONDON_PORTLAND_STONE, [18, 30], 0.78),
+  roadsideParcel("london-block-leadenhall-fill-r", "london-leadenhall", point(1323.2, 104.7), point(1415.6, 96.3), 1, 8.6, 36, LONDON_STOCK_BRICK, [16, 26], 0.78),
+  roadsideParcel("london-block-shoreditch-fill-l", "london-shoreditch", point(1383.1, 659.1), point(1207.3, 577.3), -1, 8, 36, LONDON_STOCK_BRICK, [11, 19], 0.72),
+  roadsideParcel("london-block-shoreditch-fill-r", "london-shoreditch", point(1368.3, 766.6), point(1379.5, 695.5), 1, 8, 34, LONDON_RED_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-great-portland-fill-l", "london-great-portland", point(812.2, 833.4), point(819.3, 935.7), -1, 8.6, 36, LONDON_RED_BRICK, [14, 23], 0.74),
+  roadsideParcel("london-block-grosvenor-fill-l", "london-grosvenor", point(615.3, 194.5), point(588.5, 54.2), -1, 9.6, 36, LONDON_STUCCO, [15, 24], 0.76),
+  roadsideParcel("london-block-grosvenor-fill-r", "london-grosvenor", point(589.2, 56.9), point(564.3, -42.8), 1, 9.6, 36, LONDON_PORTLAND_STONE, [16, 26], 0.76),
+  // Snapped to the straight buckingham-1..2 segment: the generator's chord
+  // spanned the road's bend and crossed its own carriageway (the trimmer
+  // exempts the parcel's own road).
+  roadsideParcel("london-block-buckingham-fill-r", "london-buckingham-palace-road", nodeAt("london-node-buckingham-1"), nodeAt("london-node-buckingham-2"), 1, 9.6, 36, LONDON_STUCCO, [14, 23], 0.76),
+  roadsideParcel("london-block-victoria-street-fill-r", "london-victoria-street", point(710.2, -293.1), point(594.2, -273.4), 1, 10.4, 36, LONDON_PORTLAND_STONE, [17, 28], 0.78),
+  roadsideParcel("london-block-whitehall-fill-l", "london-whitehall", point(778.9, -202.5), point(750.8, -270.2), -1, 10.4, 36, LONDON_PORTLAND_STONE, [18, 29], 0.78),
+  roadsideParcel("london-block-thurloe-fill-n", "london-thurloe-place", point(106.0, 82.0), point(-70.0, 82.0), 1, 7.2, 34, LONDON_STUCCO, [12, 20], 0.74),
+  roadsideParcel("london-block-cromwell-east-fill-l", "london-cromwell-east", point(146.0, -32.0), point(286.0, -32.0), -1, 7.6, 36, LONDON_RED_BRICK, [12, 20], 0.74),
+  roadsideParcel("london-block-cromwell-east-fill-r", "london-cromwell-east", point(154.0, -32.0), point(266.0, -32.0), 1, 7.6, 36, LONDON_STUCCO, [12, 20], 0.74),
+  roadsideParcel("london-block-east-road-fill-r", "london-east-road", point(150.0, 24.0), point(150.0, 82.0), 1, 7.2, 34, LONDON_STOCK_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-queen-gate-fill-r", "london-queen-gate", point(-108.0, 72.0), point(-108.0, 168.0), 1, 7.6, 34, LONDON_STUCCO, [12, 20], 0.74),
+  roadsideParcel("london-block-queen-gate-fill-l", "london-queen-gate", point(-108.0, 84.0), point(-108.0, 156.0), -1, 7.6, 30, LONDON_RED_BRICK, [12, 19], 0.72),
+  roadsideParcel("london-block-brompton-road-fill-r", "london-brompton-road", point(389.0, 110.6), point(414.2, 178.0), 1, 10.4, 30, LONDON_STUCCO, [13, 21], 0.74),
+  roadsideParcel("london-block-exhibition-north-fill-r", "london-exhibition-north", point(42.0, 86.0), point(42.0, 158.0), 1, 7.2, 32, LONDON_RED_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-smith-street-fill-l", "london-smith-street", point(146.0, -350.0), point(222.7, -280.3), -1, 7.6, 32, LONDON_STOCK_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-smith-street-fill-r", "london-smith-street", point(211.7, -304.2), point(247.4, -225.6), 1, 7.6, 32, LONDON_RED_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-sydney-fill-l", "london-sydney-street", point(328.7, -35.8), point(297.0, -125.2), -1, 7.8, 34, LONDON_RED_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-sydney-fill-r", "london-sydney-street", point(299.5, -120.9), point(257.0, -193.9), 1, 7.8, 34, LONDON_STOCK_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-drayton-fill-l", "london-drayton-gardens", point(-107.8, -108.0), point(-103.2, -202.0), -1, 7.4, 34, LONDON_STUCCO, [11, 18], 0.72),
+  roadsideParcel("london-block-hospital-fill-l", "london-royal-hospital-road", point(-316.0, -419.0), point(-234.2, -413.2), -1, 8, 34, LONDON_RED_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-warwick-fill-r", "london-warwick-road", point(-1164.3, -193.4), point(-1180.0, -392.0), 1, 8.6, 36, LONDON_STOCK_BRICK, [10, 17], 0.7),
+  roadsideParcel("london-block-lots-fill-l", "london-lots-road", point(-1194.8, -433.4), point(-1218.7, -505.6), -1, 8, 34, LONDON_RED_BRICK, [10, 16], 0.68),
+  roadsideParcel("london-block-lots-fill-r", "london-lots-road", point(-1215.0, -489.9), point(-1230.2, -554.2), 1, 8, 34, LONDON_STOCK_BRICK, [10, 16], 0.68),
+  roadsideParcel("london-block-lombard-fill-r", "london-lombard-lane", point(-1298.7, -823.8), point(-1260.0, -935.0), 1, 7.4, 34, LONDON_RED_BRICK, [9, 15], 0.66),
+  roadsideParcel("london-block-riverbank-fill-r", "london-riverbank", point(-433.0, -771.0), point(-341.1, -764.0), 1, 10.4, 34, LONDON_RED_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-battersea-fill-l", "london-battersea-road", point(-426.9, -889.9), point(-341.1, -884.1), -1, 8.6, 32, LONDON_STOCK_BRICK, [9, 16], 0.68),
+  roadsideParcel("london-block-crescent-o-1", "london-pembroke-crescent", point(-1010, 160), nodeAt("london-node-crescent-2"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
+  roadsideParcel("london-block-crescent-o-2", "london-pembroke-crescent", nodeAt("london-node-crescent-2"), nodeAt("london-node-crescent-3"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
+  roadsideParcel("london-block-crescent-o-3", "london-pembroke-crescent", nodeAt("london-node-crescent-3"), nodeAt("london-node-crescent-4"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
+  roadsideParcel("london-block-crescent-o-4", "london-pembroke-crescent", nodeAt("london-node-crescent-4"), nodeAt("london-node-crescent-5"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
+  // The Mall's south side is St James's: a lawn ribbon on the kerb and the
+  // civic stone set back behind it — the same boulevard grammar as the
+  // museum quarter's west environs.
+  roadsideParcel("london-block-mall-s", "london-mall", point(580.0, -58.3), point(735.9, -43.8), 1, 10.4, 34, LONDON_PORTLAND_STONE, [16, 26], 0.76, 15.6),
 
   // --- Off-network fabric: NYC's margin-strip pattern. These rects sit on no
   // road (roadsideParcel cannot derive them), so their positions are solved
@@ -3146,6 +3196,17 @@ export const LONDON_MAP_PACK: MapPack = {
       // Mews and Chelsea Manor Street that carries no street wall, so the
       // block list above deliberately skips the King's Road's south kerb
       // between Gloucester and Beaufort.
+      // St James's ribbon: the lawn between The Mall and its set-back civic
+      // stone (london-block-mall-s carries the matching extraInsetM), rotated
+      // to the road's own 5.3-degree bearing like the Chelsea green.
+      {
+        id: "london-st-james-strip",
+        kind: "park",
+        center: point(659.5, -67.2),
+        size: point(130, 14),
+        headingDeg: 5.3,
+        color: "#5f9a4e",
+      },
       // Boulevard strips for the museum quarter's west environs — the owner
       // asked for greenery between the road and the street wall here rather
       // than buildings hard against the kerb: a 14 m lawn ribbon hugs each

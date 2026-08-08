@@ -317,10 +317,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // NET DOWN because the strips' lawns displace roadside scatter while the
     // new walls pack into wide facade boxes; the material adds are the strip
     // lawns' planting variants.
-    totalMeshes: 8_073,
-    enabledMeshes: 8_073,
+    // 8_073 -> 7_774, 254 -> 255 materials: the whole-map coverage sweep.
+    // Thirty-odd fill parcels close every uncovered run over ~70 m that is
+    // not a river walk, a park edge or a world-edge margin (the City's east
+    // flank, the palace wedge, the Thurloe band, both Cromwell East kerbs,
+    // the crescent's outer arc...), with the St James's ribbon along The
+    // Mall. Meshes NET DOWN again: the fills' wide facade boxes replace
+    // denser roadside scatter, and the two deleted quarter parcels
+    // (museum-covered kerbs) go with them.
+    totalMeshes: 7_774,
+    enabledMeshes: 7_774,
     activeMeshes: 641,
-    materials: 254,
+    materials: 255,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -329,9 +337,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // with the set zoning's build-order change; 97 -> 117 / 170 -> 172 with
     // the denser tree scatter around the spawn; 117 -> 101 / 172 -> 175 as
     // the quarter-environs walls and strips re-deal what stands nearest the
-    // spawn's mirrors.
-    mirrorCandidates: 101,
-    mirrorDrawn: 175,
+    // spawn's mirrors; 101 -> 95 / 175 -> 176 with the coverage-sweep fills.
+    mirrorCandidates: 95,
+    mirrorDrawn: 176,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -339,8 +347,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "4717fd7e" -> "ad7cd6ad": the Kensington lawn's greensward pair joins
     // the surviving-material set (void-fill pass). -> "92cde486": the
     // Serpentine bridge's deck/parapet/lamp materials. -> "5d87b546": the
-    // boulevard strips' planting variants (quarter-environs pass).
-    survivingMaterialNamesFingerprint: "5d87b546",
+    // boulevard strips' planting variants (quarter-environs pass). ->
+    // "589935fd": the coverage sweep's fills and the St James's ribbon.
+    survivingMaterialNamesFingerprint: "589935fd",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
