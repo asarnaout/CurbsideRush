@@ -258,9 +258,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the far half of the city stops being drawn. Measured in-browser that
     // is 412 draw calls down to 171 — the map's tree and thicket layer alone
     // is 45% of its meshes, and most of it is a kilometre away.
-    totalMeshes: 6_358,
-    enabledMeshes: 6_358,
-    activeMeshes: 569,
+    //
+    // 6_358 -> 6_508 (and 569 -> 567 active): the parcel-side truth pass.
+    // `roadsideParcel`'s `side` is driver's-right-of-authoring-direction and
+    // ~30 call sites read it as a compass, so on north/west-authored roads
+    // parcels stood on the wrong kerb — seven of them inside parks. The fix
+    // RAISES the mesh count with one parcel fewer: relocated single-sided
+    // parcels (Park Lane's three, West Carriage Drive's, Great Portland's...)
+    // landed on kerbs with fewer junction constraints and derived longer
+    // street walls, which is exactly the point.
+    totalMeshes: 6_508,
+    enabledMeshes: 6_508,
+    activeMeshes: 567,
     materials: 243,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

@@ -1251,6 +1251,126 @@ describe("SideSwap content", () => {
     expect(violations).toEqual([]);
   });
 
+  it("keeps every authored block out of every park and out of the water", () => {
+    // The sibling gap to the venue check above, found the same way — after the
+    // fact. `roadsideParcel`'s `side` is the sign of the road's right-hand
+    // normal travelling from->to, but call sites read it as a compass, which
+    // inverts on every road authored northward or westward: seven London
+    // parcels shipped standing up to 39 m inside a park (three of them through
+    // the royal park's perimeter wall), and nothing failed. Unlike the venue
+    // check this is NOT gated on walled parks: a block over a pocket green
+    // puts a facade grid on the lawn regardless of whether a wall exists
+    // (King's Road's parcel had swallowed the Chelsea square green whole).
+    //
+    // The boxes tested are the colliders the adapter already emits (tag
+    // "building" — full block rects, including the museum wings and the
+    // service-lot subtractions), not a re-derivation.
+    const violations: string[] = [];
+    for (const pack of MAP_PACKS) {
+      const parks = pack.geometry.landmarks.filter(
+        (landmark) => landmark.kind === "park",
+      );
+      const half = {
+        x: pack.geometry.worldSize.x / 2,
+        z: pack.geometry.worldSize.z / 2,
+      };
+      const blocks = buildStaticObstacles(pack, {
+        minX: -half.x,
+        maxX: half.x,
+        minZ: -half.z,
+        maxZ: half.z,
+      }).filter((obstacle) => obstacle.tag === "building");
+      for (const block of blocks) {
+        const box =
+          block.kind === "obb"
+            ? {
+                x: block.x,
+                z: block.z,
+                ux: block.ux,
+                uz: block.uz,
+                halfU: block.halfU,
+                halfV: block.halfV,
+              }
+            : block.kind === "aabb"
+              ? {
+                  x: (block.minX + block.maxX) / 2,
+                  z: (block.minZ + block.maxZ) / 2,
+                  ux: 0,
+                  uz: 1,
+                  halfU: (block.maxZ - block.minZ) / 2,
+                  halfV: (block.maxX - block.minX) / 2,
+                }
+              : null;
+        if (!box) continue;
+        for (const park of parks) {
+          const yawRad = degreesToRadians(park.headingDeg ?? 0);
+          const overlapM = orientedBoxOverlapM(box, {
+            x: park.center.x,
+            z: park.center.z,
+            ux: Math.sin(yawRad),
+            uz: Math.cos(yawRad),
+            halfU: park.size.z / 2,
+            halfV: park.size.x / 2,
+          });
+          if (overlapM > 0) {
+            violations.push(
+              `${block.id} stands ${overlapM.toFixed(2)} m inside ${park.id}`,
+            );
+          }
+        }
+        // Water: a block corner in a water polygon means a facade grid in the
+        // river. Corner containment is sufficient here — a polygon thin enough
+        // to pass between a block's corners while crossing it does not exist
+        // on these maps, and the embankment parcels this guards are authored
+        // landward-only precisely because the trimmer measures roads, not
+        // water.
+        const corners = [
+          { u: box.halfU, v: box.halfV },
+          { u: -box.halfU, v: box.halfV },
+          { u: -box.halfU, v: -box.halfV },
+          { u: box.halfU, v: -box.halfV },
+        ].map(({ u, v }) => ({
+          x: box.x + box.ux * u + box.uz * v,
+          z: box.z + box.uz * u - box.ux * v,
+        }));
+        for (const water of pack.geometry.waterBodies ?? []) {
+          const inside = corners.some((corner) => {
+            let contained = false;
+            const poly = water.polygon;
+            for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+              if (
+                poly[i].z > corner.z !== poly[j].z > corner.z &&
+                corner.x <
+                  ((poly[j].x - poly[i].x) * (corner.z - poly[i].z)) /
+                    (poly[j].z - poly[i].z) +
+                    poly[i].x
+              ) {
+                contained = !contained;
+              }
+            }
+            return contained;
+          });
+          if (inside) {
+            violations.push(`${block.id} has a corner in ${water.id}`);
+          }
+        }
+      }
+    }
+    // Pre-existing debt this gate discovered outside London, pinned EXACTLY:
+    // two NYC margin strips nip 0.5 m into the esplanade's split rects and one
+    // Cairo generated roadside strip reaches 2.81 m into the opera grounds.
+    // All three are edge-nips a player has never noticed, they belong to other
+    // cities' content (out of scope for the London work that added this gate),
+    // and pinning them verbatim means they can neither grow nor multiply
+    // silently. Fixing them in their own cities' next content pass is welcome —
+    // delete the entry here when you do.
+    expect(violations).toEqual([
+      "cairo-opera-corridor-roadside-3-3-right stands 2.81 m inside cairo-opera-grounds",
+      "nyc-block-east-south-margin stands 0.50 m inside nyc-esplanade-south",
+      "nyc-block-east-north-margin stands 0.50 m inside nyc-esplanade-north",
+    ]);
+  });
+
   it("aligns the visible Tokyo railway and controls both crossing directions", () => {
     const tokyo = getMapPack("tokyo-setagaya");
     const railway = tokyo.geometry.landmarks.find(
