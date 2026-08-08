@@ -1826,15 +1826,15 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // left as open ground, and the play-test called the result out twice:
   // "massive swaths of emptiness". The venue keep-out machinery carves the
   // quarter's shops and the gas station out of these walls automatically. --
-  roadsideParcel("london-block-gloucester-w-2", "london-gloucester", nodeAt("london-node-gloucester-cromwell"), nodeAt("london-node-gloucester-kensington"), -1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74, 15.6),
+  roadsideParcel("london-block-gloucester-w-2", "london-gloucester", nodeAt("london-node-gloucester-cromwell"), nodeAt("london-node-gloucester-kensington"), -1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74, 13.5),
   roadsideParcel("london-block-gloucester-e-1", "london-gloucester", nodeAt("london-node-gloucester-south"), nodeAt("london-node-gloucester-cromwell"), 1, 7.2, 36, LONDON_RED_BRICK, [11, 18], 0.72),
   // Starts at z=-4, not the Cromwell node: the parcel trimmer clears roads,
   // not park strips, and from the node this band ran under the Cromwell
   // boulevard strip's east reach.
-  roadsideParcel("london-block-gloucester-e-2", "london-gloucester", point(-300, -4), nodeAt("london-node-gloucester-kensington"), 1, 7.2, 42, LONDON_RED_BRICK, [12, 19], 0.74, 15.6),
+  roadsideParcel("london-block-gloucester-e-2", "london-gloucester", point(-300, -4), nodeAt("london-node-gloucester-kensington"), 1, 7.2, 42, LONDON_RED_BRICK, [12, 19], 0.74, 13.5),
   // Explicit span: the Queen's Gate terraces own the east corner and
   // gloucester-e-2's band the west one.
-  roadsideParcel("london-block-cromwell-fw-n", "london-cromwell-far-west", point(-166, -32), point(-228, -32), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76, 15.6),
+  roadsideParcel("london-block-cromwell-fw-n", "london-cromwell-far-west", point(-166, -32), point(-228, -32), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76, 13.5),
   roadsideParcel("london-block-quiet-w", "london-quiet-loop", nodeAt("london-node-quiet-west-south"), nodeAt("london-node-quiet-west-north"), -1, 7.2, 34, LONDON_STOCK_BRICK, [10, 16], 0.68),
   roadsideParcel("london-block-kensington-s-w", "london-kensington", point(-226, 220), nodeAt("london-node-queen-gate-far-north"), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76),
   roadsideParcel("london-block-kensington-s-e", "london-kensington", nodeAt("london-node-queen-gate-far-north"), nodeAt("london-node-kensington-exhibition"), 1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74),
@@ -2109,7 +2109,7 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // The Mall's south side is St James's: a lawn ribbon on the kerb and the
   // civic stone set back behind it — the same boulevard grammar as the
   // museum quarter's west environs.
-  roadsideParcel("london-block-mall-s", "london-mall", point(580.0, -58.3), point(735.9, -43.8), 1, 10.4, 34, LONDON_PORTLAND_STONE, [16, 26], 0.76, 15.6),
+  roadsideParcel("london-block-mall-s", "london-mall", point(580.0, -58.3), point(735.9, -43.8), 1, 10.4, 34, LONDON_PORTLAND_STONE, [16, 26], 0.76, 13.5),
 
   // --- Off-network fabric: NYC's margin-strip pattern. These rects sit on no
   // road (roadsideParcel cannot derive them), so their positions are solved
@@ -3188,8 +3188,12 @@ export const LONDON_MAP_PACK: MapPack = {
         // one sat 30-32 m off, a concrete moat). The south edge stays at
         // z=300: the round hall and the Knightsbridge station stand in that
         // band, and the Kensington lawn closes it instead.
-        center: point(159, 610.5),
-        size: point(882, 621),
+        // Tucked to the pavements (outer edge + 0.3) on all three road sides
+        // — the ~10 m NYC-parity gap read as an untucked concrete moat in
+        // play-testing. The perimeter wall's road-clearance veto opens the
+        // road-facing edges into plain lawn, which is the point.
+        center: point(158.65, 615.55),
+        size: point(901.7, 631.1),
         color: "#4f7a3d",
       },
       // Chelsea's garden square: the pocket between the King's Road, Cheyne
@@ -3202,7 +3206,7 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-st-james-strip",
         kind: "park",
-        center: point(659.5, -67.2),
+        center: point(659.6, -66.3),
         size: point(130, 14),
         headingDeg: 5.3,
         color: "#5f9a4e",
@@ -3216,22 +3220,22 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-gloucester-west-strip",
         kind: "park",
-        center: point(-315.2, 70),
-        size: point(14, 236),
+        center: point(-314.3, 82.35),
+        size: point(14, 260.7),
         color: "#5f9a4e",
       },
       {
         id: "london-gloucester-east-strip",
         kind: "park",
-        center: point(-284.8, 102),
-        size: point(14, 132),
+        center: point(-285.7, 94),
+        size: point(14, 237.4),
         color: "#5f9a4e",
       },
       {
         id: "london-cromwell-fw-north-strip",
         kind: "park",
-        center: point(-214, -16.8),
-        size: point(92, 14),
+        center: point(-222.35, -17.7),
+        size: point(112.7, 14),
         color: "#5f9a4e",
       },
       // The lawn between Kensington Road and the royal park's south edge —
@@ -3243,8 +3247,10 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-kensington-lawn",
         kind: "park",
-        center: point(-189, 264),
-        size: point(198, 64),
+        // Tucked to Kensington Road's pavement and stretched to the full
+        // stretch — West Carriage Drive's kerb to the round hall's clearing.
+        center: point(-186.4, 261.65),
+        size: point(212.7, 68.7),
         color: "#4f7a3d",
       },
       // A pocket green in the Fitzrovia infill, in the gap between Great
@@ -3299,7 +3305,7 @@ export const LONDON_MAP_PACK: MapPack = {
         // style pin below `POCKET_GREEN_MAX_SHORT_SIDE_M` is deliberate — a
         // garden green along the King's Road is a railed lawn, not a walled
         // park, and this park's style is hand-pinned as pocket_green.
-        center: point(-450, -338.6),
+        center: point(-449.9, -337.8),
         size: point(170, 28),
         headingDeg: 8.2,
         color: "#5f9a4e",
