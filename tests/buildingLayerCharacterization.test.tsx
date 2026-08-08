@@ -222,7 +222,11 @@ const CITIES: readonly AuthoredCity[] = [
 // extraction altered behaviour, not just address.
 const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
   "nyc-upper-west-side": {
-    buildingInstanceCount: 5_314,
+    // 5_314 before #314 moved three venues to the other kerb of their own
+    // avenue to get them out of a park. A venue carries a `buildingKeepOuts`
+    // circle, so relocating one re-decides which street-wall buildings survive
+    // on both the block it left and the block it landed on; −7 net.
+    buildingInstanceCount: 5_307,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 12,
   },

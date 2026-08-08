@@ -232,8 +232,13 @@ const CITIES: readonly AuthoredCity[] = [
 // not merely where the call sites live.
 const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
   "nyc-upper-west-side": {
+    // `drawCount` deliberately does NOT move: #314 relocated three venues, so
+    // the facade grid's keep-outs land elsewhere and different meshes come out
+    // (fingerprint "95d9fc4f" -> "2b2a3d27"), but the number of `random()`
+    // draws is a property of the block set, which is untouched. A drawCount
+    // change here would mean something else.
     drawCount: 2_868,
-    facadeMeshFingerprint: "95d9fc4f",
+    facadeMeshFingerprint: "2b2a3d27",
   },
   "london-south-kensington": {
     drawCount: 48,

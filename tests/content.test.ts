@@ -24,6 +24,8 @@ import type {
   WorldPoint,
 } from "../app/game/types";
 import { gasStationsOf } from "../app/game/servicePoints";
+import { buildStaticObstacles } from "../app/game/simulationAdapter";
+import { parkLayoutForLandmark } from "../app/game/parkLayouts";
 
 const GEOMETRY_EPSILON = 1e-5;
 const ROAD_ENVELOPE_SAMPLE_INTERVAL_M = 0.25;
@@ -93,6 +95,45 @@ const resolveAnchor = (
   }
 
   throw new Error(`${lane.id} does not contain a non-zero centreline segment`);
+};
+
+const degreesToRadians = (degrees: number): number =>
+  (degrees * Math.PI) / 180;
+
+interface OrientedBox {
+  readonly x: number;
+  readonly z: number;
+  /** Unit vector along the box's own `halfU` axis. */
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+}
+
+/**
+ * Separating-axis overlap of two oriented rectangles, as the smallest
+ * penetration depth over the four candidate axes — positive when they
+ * intersect, negative (the widest gap) when they do not. Reported in metres so
+ * a failure says how far in the offender actually is.
+ */
+const orientedBoxOverlapM = (a: OrientedBox, b: OrientedBox): number => {
+  const axes = [
+    { x: a.ux, z: a.uz },
+    { x: -a.uz, z: a.ux },
+    { x: b.ux, z: b.uz },
+    { x: -b.uz, z: b.ux },
+  ];
+  const extentOn = (box: OrientedBox, axis: { x: number; z: number }): number =>
+    Math.abs(box.ux * axis.x + box.uz * axis.z) * box.halfU +
+    Math.abs(-box.uz * axis.x + box.ux * axis.z) * box.halfV;
+  return Math.min(
+    ...axes.map((axis) => {
+      const centreGapM = Math.abs(
+        (b.x - a.x) * axis.x + (b.z - a.z) * axis.z,
+      );
+      return extentOn(a, axis) + extentOn(b, axis) - centreGapM;
+    }),
+  );
 };
 
 const distanceToSegment = (
@@ -1129,6 +1170,85 @@ describe("SideSwap content", () => {
         `${mapId}/${landmarkId} overlaps a road surface`,
       ).toBeGreaterThanOrEqual(-GEOMETRY_EPSILON);
     }
+  });
+
+  it("keeps every venue building out of every walled park", () => {
+    // Nothing geometrically stops one. A venue is thrown to the **driver's
+    // right** of its anchor lane, so which side of an avenue it lands on is
+    // decided entirely by whether the anchor names the northbound or the
+    // southbound lane — and on a park-flanking avenue the wrong one plants the
+    // building in the park, straddling the perimeter wall. `buildingKeepOuts`
+    // covers the street wall against venues, `parkPerimeterPlan` vetoes the
+    // wall against *roads*, and `landmarkClearings` skips parks outright, so
+    // no existing gate was looking at this pair at all. Two venues had shipped
+    // inside a park when this was written: the Gallery Café through Central
+    // Park's east wall, and Third Avenue Towers Offices through the
+    // esplanade's.
+    //
+    // Gated on parks that actually grow a wall, which is the derived answer to
+    // "does this park have a boundary at all". A `pocket_green` or a
+    // `civic_plaza` deliberately has none — London's 8 x 40 m Exhibition Road
+    // planting strip is meant to run up against the shopfronts beside a
+    // shared-space street, and calling that a violation would be wrong.
+    //
+    // The box tested is the collider the adapter already emits, not a
+    // re-derivation: `buildingKeepOuts` sizes its circle from the *authored*
+    // `footprint` while the collider and the visual both come from
+    // `PROP_MODEL_FOOTPRINTS_M`, and it was the measured one sticking out into
+    // the lawn.
+    const violations: string[] = [];
+    for (const pack of MAP_PACKS) {
+      const walledParks = pack.geometry.landmarks.filter(
+        (landmark) =>
+          landmark.kind === "park" &&
+          parkLayoutForLandmark(pack, landmark).wall.length > 0,
+      );
+      if (walledParks.length === 0) continue;
+      const half = {
+        x: pack.geometry.worldSize.x / 2,
+        z: pack.geometry.worldSize.z / 2,
+      };
+      const venues = buildStaticObstacles(pack, {
+        minX: -half.x,
+        maxX: half.x,
+        minZ: -half.z,
+        maxZ: half.z,
+      }).filter(
+        (obstacle) => obstacle.kind === "obb" && obstacle.tag === "venue",
+      );
+      expect(venues.length, `${pack.id} venue colliders`).toBeGreaterThan(0);
+
+      for (const venue of venues) {
+        if (venue.kind !== "obb") continue;
+        for (const park of walledParks) {
+          const yawRad = degreesToRadians(park.headingDeg ?? 0);
+          const overlapM = orientedBoxOverlapM(
+            {
+              x: venue.x,
+              z: venue.z,
+              ux: venue.ux,
+              uz: venue.uz,
+              halfU: venue.halfU,
+              halfV: venue.halfV,
+            },
+            {
+              x: park.center.x,
+              z: park.center.z,
+              ux: Math.sin(yawRad),
+              uz: Math.cos(yawRad),
+              halfU: park.size.z / 2,
+              halfV: park.size.x / 2,
+            },
+          );
+          if (overlapM > 0) {
+            violations.push(
+              `${venue.id} stands ${overlapM.toFixed(2)} m inside ${park.id}`,
+            );
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
   });
 
   it("aligns the visible Tokyo railway and controls both crossing directions", () => {
