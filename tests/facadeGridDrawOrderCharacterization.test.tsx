@@ -288,8 +288,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // closure, which lands them at a different point in the draw order —
     // drawCount itself is unchanged) -> "07bc0342" (the Bayswater band rows
     // and the two reworked greens) -> "691daf05" (the quarter environs) ->
-    // "21059cb0" (the coverage sweep).
-    facadeMeshFingerprint: "21059cb0",
+    // "21059cb0" (the coverage sweep) -> "b388672d" (the tuck-and-connect
+    // pass moved the boulevard parcels 2.1 m kerbward with their strips).
+    facadeMeshFingerprint: "b388672d",
   },
   "tokyo-setagaya": {
     drawCount: 216,
