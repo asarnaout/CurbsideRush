@@ -913,8 +913,11 @@ const nycZoneFor = (columnKey: string, centreZ: number): NycZone | null => {
       if (centreZ > -360 && centreZ < 120) return null;
       return NYC_ZONES.houses;
     case "cres-stein":
+    case "stein-margin":
       // The borough: houses only, no tall buildings, per the owner's
       // explicit requirement (NYC east expansion section 3.7).
+      // "stein-margin" is the fill strip beyond Steinway — Steinway's far
+      // kerb, so it takes the same zoning as the column on its near one.
       return NYC_ZONES.houses;
     default:
       // Every real column is listed above by name on purpose: a forgotten
@@ -1062,6 +1065,12 @@ function buildNycBlocks(
       const centreZ = (south.coordinate + north.coordinate) / 2;
       const depthZ = north.coordinate - south.coordinate - NYC_BLOCK_INSET_M * 2;
       if (depthZ <= 0) continue;
+      // Zoned through `nycZoneFor` under its own column name rather than
+      // hardcoded, so Steinway's two kerbs cannot drift apart: this strip is
+      // the far kerb of the same street `cres-stein` fronts, and a rezoning
+      // that reached one and not the other would put shops opposite houses.
+      const zone = nycZoneFor("stein-margin", centreZ);
+      if (!zone) continue;
       tagged.push({
         block: {
           id: `nyc-block-east-margin-${Math.round(centreZ)}`,
@@ -1070,10 +1079,10 @@ function buildNycBlocks(
             centreZ,
           ),
           size: point(NYC_MARGIN_DEPTH_M, depthZ),
-          heightRange: NYC_ZONES.houses.heightRange,
-          density: NYC_ZONES.houses.density,
-          material: NYC_ZONES.houses.material,
-          buildingSet: NYC_ZONES.houses.buildingSet,
+          heightRange: zone.heightRange,
+          density: zone.density,
+          material: zone.material,
+          buildingSet: zone.buildingSet,
         },
         streetIndex: streets.indexOf(south),
         avenueIndex: avenues.length + 1,
