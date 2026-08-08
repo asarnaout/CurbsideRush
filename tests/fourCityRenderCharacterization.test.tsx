@@ -196,23 +196,28 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
   "london-south-kensington": {
     // 908 -> 887: London became a `paved` city, and a paved map draws a
     // concrete ground plane instead of the grass blade/patch layer — 21
-    // scatter meshes the map no longer has any use for. Materials are
-    // unchanged (the ground swaps texture, not material count) and so is the
+    // scatter meshes the map no longer has any use for.
+    //
+    // 887 -> 1_988: the south-west expansion. Fourteen generated streets from
+    // Chelsea out to Earls Court, 43 roadside parcels of procedural facades
+    // along them, three signalled junctions, two garden squares — and two
+    // turning-loop rings retired. The one new material is the London stock
+    // brick those terraces are built out of, which is also what moves the
     // surviving-material fingerprint.
-    totalMeshes: 887,
-    enabledMeshes: 887,
-    activeMeshes: 132,
-    materials: 115,
+    totalMeshes: 1_988,
+    enabledMeshes: 1_988,
+    activeMeshes: 772,
+    materials: 116,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 77,
-    mirrorDrawn: 36,
+    mirrorCandidates: 94,
+    mirrorDrawn: 60,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "af80928b",
+    survivingMaterialNamesFingerprint: "ce984879",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

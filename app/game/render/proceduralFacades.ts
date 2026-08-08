@@ -154,6 +154,9 @@ export class ProceduralFacades {
     "pale-stone-museum": new Color3(0.77, 0.76, 0.71),
     "red-brick-museum": new Color3(0.55, 0.29, 0.23),
     "london-brick": new Color3(0.49, 0.32, 0.27),
+    // London stock brick: the yellow-grey most of the city west of the City
+    // is actually built out of, beside the redder Victorian brick above.
+    "london-stock-brick": new Color3(0.63, 0.56, 0.44),
     "white-stucco": new Color3(0.82, 0.81, 0.75),
     "cairo-cream": new Color3(0.76, 0.69, 0.57),
     "cairo-ochre": new Color3(0.67, 0.53, 0.36),

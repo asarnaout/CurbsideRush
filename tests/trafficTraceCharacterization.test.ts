@@ -95,7 +95,10 @@ describe("ambient traffic trace characterization", () => {
       ),
     ).toEqual({
       "free-us": "ea720991",
-      "free-uk-london": "45e4c559",
+      // Moves on any sim-visible London content change; the south-west
+      // expansion is one — fourteen new streets, three new signals, and the
+      // two turning loops gone.
+      "free-uk-london": "46cb9c81",
       "free-jp": "997675a9",
       "free-eg": "eb350f99",
     });
