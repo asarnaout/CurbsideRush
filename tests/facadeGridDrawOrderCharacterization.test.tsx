@@ -278,8 +278,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // truth pass moved ~30 parcels to their id-named kerbs) -> "19732aee"
     // (per-end trimming re-centred nearly every junction-adjacent parcel)
     // -> "20bc11a6" (the void-fill's 19 new blocks) -> "9bd856fe" (the
-    // Notting Hill grid's parcels and fabric).
-    facadeMeshFingerprint: "9bd856fe",
+    // Notting Hill grid's parcels and fabric) -> "6aae7b1a" (set zoning:
+    // under this suite's unloaded-model mock the zoned blocks fall back to
+    // the same facade rects, but through the building layer's deferred
+    // closure, which lands them at a different point in the draw order —
+    // drawCount itself is unchanged).
+    facadeMeshFingerprint: "6aae7b1a",
   },
   "tokyo-setagaya": {
     drawCount: 216,

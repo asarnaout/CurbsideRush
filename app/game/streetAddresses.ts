@@ -463,7 +463,11 @@ const KINDS_BY_BUILDING_SET: Record<string, readonly GigVenueKind[]> = {
   // table wins over KINDS_BY_BLOCK_MATERIAL the moment a block names a set, so
   // a set without a row here silently re-zones the whole block to plain
   // residences. Same kinds the material table assigns those districts today.
-  "london-terrace": ["residence"],
+  // Terraces keep the corner-shop mix the stock-brick material row carried
+  // before the sets took over the zoning — a terrace street with the odd
+  // shop is the reference-photo look, and dropping it would quietly shrink
+  // the delivery pool.
+  "london-terrace": ["residence", "residence", "shop"],
   "london-stucco": ["residence"],
   "london-highstreet": ["shop", "residence"],
   "london-city": ["office", "office", "residence"],
