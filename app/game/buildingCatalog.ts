@@ -142,11 +142,60 @@ export const CAIRO_ENV_MODELS: readonly EnvModelMeta[] = [
   { id: "cairo-shop", url: `${P}/cairo-shop.glb`, category: "shop", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("EL3ePInr1N") },
 ];
 
-/** Every catalogued environment model, both maps' kits. */
+/**
+ * The London street-wall kit. London shipped its expansion on the procedural
+ * facade grid alone; these exist to replace the coloured boxes with modelled
+ * terraces, stucco squares, shopfronts and City towers.
+ *
+ * **Pitched roofs on purpose — the inverse of Cairo's rule.** The five
+ * Quaternius sources here are exactly the `GableRoof` / `RoundRoof` / `_Roof_`
+ * models Cairo's ROOF RULE bans, because a gable reads as European on sight
+ * and London is the map that wants it to. Do not widen `tests/cairoRoofs.test.ts`
+ * to cover these.
+ *
+ * The stucco family re-converts the same OBJ sources into separate files, and
+ * the towers/shopfronts copy committed NYC/Cairo files: `modelLibrary` keys
+ * asset containers by URL, so one file cannot carry two cities' palettes.
+ * Every file is regenerable via `tools/style-london-{terraces,towers,shops}.mjs`
+ * (recipes in each header; hashes in CREDITS.md).
+ */
+export const LONDON_ENV_MODELS: readonly EnvModelMeta[] = [
+  // ---- Brick terraces (Quaternius, Ultimate Textured Buildings — pitched) ----
+  { id: "london-terrace-a", url: `${P}/london-terrace-a.glb`, category: "brownstone", title: "2Story_GableRoof_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "london-terrace-b", url: `${P}/london-terrace-b.glb`, category: "brownstone", title: "2Story_RoundRoof_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "london-terrace-c", url: `${P}/london-terrace-c.glb`, category: "midrise", title: "4Story_Wide_2Doors_Roof_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "london-terrace-d", url: `${P}/london-terrace-d.glb`, category: "brownstone", title: "1Story_GableRoof_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "london-terrace-e", url: `${P}/london-terrace-e.glb`, category: "brownstone", title: "1Story_RoundRoof_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+
+  // ---- White-stucco variants of the same sources (Chelsea / Belgravia) ----
+  { id: "london-stucco-a", url: `${P}/london-stucco-a.glb`, category: "brownstone", title: "2Story_GableRoof_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "london-stucco-b", url: `${P}/london-stucco-b.glb`, category: "brownstone", title: "2Story_RoundRoof_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "london-stucco-c", url: `${P}/london-stucco-c.glb`, category: "midrise", title: "4Story_Wide_2Doors_Roof_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "london-stucco-d", url: `${P}/london-stucco-d.glb`, category: "brownstone", title: "1Story_GableRoof_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+
+  // ---- City towers (Kenney; copies of the committed nyc-tower files) ----
+  { id: "london-tower-a", url: `${P}/london-tower-a.glb`, category: "tower", title: "Skyscraper", author: "Kenney", license: "CC0 1.0", sourceUrl: src("XST1j6kYsL") },
+  { id: "london-tower-b", url: `${P}/london-tower-b.glb`, category: "tower", title: "Skyscraper", author: "Kenney", license: "CC0 1.0", sourceUrl: src("JTsKOSB23Y") },
+  { id: "london-tower-c", url: `${P}/london-tower-c.glb`, category: "tower", title: "Skyscraper", author: "Kenney", license: "CC0 1.0", sourceUrl: src("jIRx0AhYOR") },
+
+  // ---- High-street shopfronts (Kay Lousberg; copies of the committed Cairo
+  // files, so tools/cairo-shopfront.mjs's awning/hydrant surgery carries over)
+  { id: "london-shop", url: `${P}/london-shop.glb`, category: "shop", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("EL3ePInr1N") },
+  { id: "london-walkup-a", url: `${P}/london-walkup-a.glb`, category: "brownstone", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("qOhhGLftam") },
+  { id: "london-walkup-b", url: `${P}/london-walkup-b.glb`, category: "brownstone", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("T3oyvK6VEU") },
+];
+
+/** Every catalogued environment model, all three kitted maps. */
 export const ALL_ENV_MODELS: readonly EnvModelMeta[] = [
   ...NYC_ENV_MODELS,
   ...CAIRO_ENV_MODELS,
+  ...LONDON_ENV_MODELS,
 ];
+
+/** De-duplicated London street-wall URLs, for map-scoped preload/tests. */
+export function londonEnvModelUrls(): string[] {
+  return [...new Set(LONDON_ENV_MODELS.map((m) => m.url))];
+}
 
 /** De-duplicated Cairo street-wall URLs, for map-scoped preload/tests. */
 export function cairoEnvModelUrls(): string[] {

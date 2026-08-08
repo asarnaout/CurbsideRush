@@ -150,13 +150,20 @@ describe("per-city visual profile", () => {
         expect(isBuildingSetId(setId), `${mapPack.id} -> ${setId}`).toBe(true);
         // A city's allow-list may only name sets that share its own prefix —
         // this is exactly the leak the registry exists to make impossible:
-        // NYC content quietly drawing from a Cairo catalogue or vice versa.
-        expect(setId.startsWith(profile.visualKey === "nyc" ? "nyc-" : "cairo-")).toBe(
-          true,
-        );
+        // one city's content quietly drawing from another's catalogue. Set ids
+        // are prefixed by their city's visualKey (nyc-, cairo-, london-), so
+        // the check generalises instead of hardcoding a two-way ternary.
+        expect(
+          setId.startsWith(`${profile.visualKey}-`),
+          `${mapPack.id} claims ${setId}`,
+        ).toBe(true);
       }
     }
-    expect(resolveMapVisualProfile("london-south-kensington").buildingSets).toEqual([]);
+    // London gained its four sets in the visual-overhaul work; Tokyo remains
+    // the one all-procedural city.
+    expect(
+      resolveMapVisualProfile("london-south-kensington").buildingSets.length,
+    ).toBe(4);
     expect(resolveMapVisualProfile("tokyo-setagaya").buildingSets).toEqual([]);
     // Every catalogued set belongs to exactly one city's allow-list.
     const claimed = REAL_MAP_PACKS.flatMap(

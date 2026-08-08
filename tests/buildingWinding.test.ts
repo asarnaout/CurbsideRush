@@ -8,16 +8,19 @@ import {
   Scene,
 } from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
-import { NYC_ENV_MODELS } from "../app/game/buildingCatalog";
+import { ALL_ENV_MODELS } from "../app/game/buildingCatalog";
 import {
   orientMergedFacesOutward,
   windingAgreement,
 } from "../app/game/buildingWinding";
 
 // Every environment model placed through the renderer's merged-building path
-// (getBuildingMaster) — the building sets and street vendors. The skinned people
-// are never merged, so they're excluded.
-const MERGED = NYC_ENV_MODELS.filter((m) => m.category !== "person");
+// (getBuildingMaster) — the building sets and street vendors, in all three
+// kitted cities. The merge bake that inverts faces is set-agnostic, so the
+// guard covers the whole catalogue rather than one city's slice (it was
+// NYC-only until London's kit landed unchecked by it). The skinned people are
+// never merged, so they're excluded.
+const MERGED = ALL_ENV_MODELS.filter((m) => m.category !== "person");
 
 describe("merged building winding", () => {
   registerBuiltInLoaders();
@@ -46,29 +49,53 @@ describe("merged building winding", () => {
     return { master, scene, engine };
   };
 
+  // A handful of Quaternius sources carry exactly two triangles whose authored
+  // normals oppose their winding — an authoring slip in the pack, present in
+  // the shipped Cairo conversions of the same sources and invisible in-game
+  // (the majority-vote flip leaves a 2-tri sliver back-face culled). Pinned
+  // EXACTLY per model, discovered when this suite widened from NYC-only to the
+  // whole catalogue: a model absent here must be perfectly one-sided, and a
+  // stray count that moves means the source or the converter changed.
+  const KNOWN_STRAY_TRIS: Readonly<Record<string, number>> = {
+    "cairo-block-slim": 2,
+    "cairo-block-terrace": 2,
+    "cairo-office-block": 2,
+    "cairo-depot": 2,
+    "london-terrace-a": 2,
+    "london-terrace-b": 2,
+    "london-terrace-d": 2,
+    "london-terrace-e": 2,
+    "london-stucco-a": 2,
+    "london-stucco-b": 2,
+    "london-stucco-d": 2,
+  };
+
   // The guard: after the winding fix every merged building's outward faces are
   // the ones drawn, so none render inside-out ("hollow"). Several models (the
   // brownstones, the farm house, the tenement) come out inverted from the merge
   // and rely on this fix — that inversion is the bug this test locks down.
   it.each(MERGED.map((m) => [m.id, m.url] as const))(
     "orients %s so its outward faces are drawn (not hollow)",
-    async (_id, url) => {
+    async (id, url) => {
       const { master, scene, engine } = await mergeLikeRenderer(url);
 
-      // These low-poly models are cleanly one-sided: pre-fix a model is either
-      // already correct or fully inverted, never a mix. A mixed model would mean
-      // a single flip can't fix it and needs a closer look.
+      // Pre-fix a model is either already correct or fully inverted, up to its
+      // pinned stray triangles. More mixing than that would mean a single flip
+      // can't fix it and needs a closer look.
+      const strays = KNOWN_STRAY_TRIS[id] ?? 0;
       const before = windingAgreement(master);
       expect(
-        before.agree === 0 || before.disagree === 0,
+        Math.min(before.agree, before.disagree),
         `${url} winding is mixed (agree=${before.agree}, disagree=${before.disagree})`,
-      ).toBe(true);
+      ).toBe(strays);
 
       orientMergedFacesOutward(master);
 
+      // The majority orientation must be outward; only the pinned strays may
+      // remain culled, and they must be exactly the minority that went in.
       const after = windingAgreement(master);
-      expect(after.agree, url).toBeGreaterThan(0);
-      expect(after.disagree, url).toBe(0);
+      expect(after.agree, url).toBe(Math.max(before.agree, before.disagree));
+      expect(after.disagree, url).toBe(strays);
 
       scene.dispose();
       engine.dispose();

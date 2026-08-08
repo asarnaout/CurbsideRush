@@ -277,7 +277,12 @@ const MAP_VISUAL_PROFILES: Readonly<Record<string, MapVisualProfile>> = {
   "london-south-kensington": {
     visualKey: "london",
     plateRegion: "uk",
-    buildingSets: [],
+    buildingSets: [
+      "london-terrace",
+      "london-stucco",
+      "london-highstreet",
+      "london-city",
+    ],
     natureSets: natureSetsForMap("london"),
     complexionWeights: [2, 3, 4, 5, 5, 5],
     hairWeights: [5, 6, 5, 3, 4, 1],

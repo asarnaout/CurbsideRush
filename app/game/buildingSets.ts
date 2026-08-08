@@ -134,6 +134,40 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   "cairo-depot": { scale: 4, groundY: 0.07, footprintM: 27.4, depthM: 9.1, frontOffset: Math.PI, roofY: 10.9 },
   // KayKit corner shop at its venue scale; models its own awning, no roofY.
   "cairo-shop": { scale: 4, groundY: 0, footprintM: 8, frontOffset: Math.PI },
+
+  // ---- London ----
+  // Every figure is the glb's measured post-scale bound (accessor min/max folded
+  // through node transforms), not an estimate — the Cairo slim block's 4.8 m
+  // understatement is the shipped lesson. Facing follows the packs' conventions
+  // verified for Cairo: Quaternius and KayKit doors sit on local +Z (half-turn),
+  // Kenney towers are symmetric slabs. No roofY anywhere: rooftop clutter is
+  // Cairo's, and nothing sits on a pitched roof.
+  //
+  // Scales pick real London heights: 2-storey-plus-roof sources at ~4x read as
+  // the 3-4 storey Victorian terraces of the reference streets; the wide
+  // 4-storey source lands at mansion-block height; the 1-storey sources stay
+  // low on purpose (mews cottages and corner pubs between the terraces).
+  "london-terrace-a": { scale: 4, groundY: 0.06, footprintM: 8.6, depthM: 9.5, frontOffset: Math.PI },
+  "london-terrace-b": { scale: 4.2, groundY: 0.06, footprintM: 8.9, depthM: 8.9, frontOffset: Math.PI },
+  "london-terrace-c": { scale: 3.4, groundY: 0.08, footprintM: 23.2, depthM: 9.2, frontOffset: Math.PI },
+  "london-terrace-d": { scale: 3.4, groundY: 0.02, footprintM: 7.2, depthM: 8.1, frontOffset: Math.PI },
+  "london-terrace-e": { scale: 3.5, groundY: 0.05, footprintM: 7.3, depthM: 7.4, frontOffset: Math.PI },
+  // Stucco runs a touch grander than brick — Chelsea's terraces stand taller
+  // than Earls Court's, and the extra height keeps the two districts from
+  // reading as a palette swap of each other.
+  "london-stucco-a": { scale: 4.4, groundY: 0.07, footprintM: 9.5, depthM: 10.5, frontOffset: Math.PI },
+  "london-stucco-b": { scale: 4.4, groundY: 0.07, footprintM: 9.3, depthM: 9.4, frontOffset: Math.PI },
+  "london-stucco-c": { scale: 3.5, groundY: 0.09, footprintM: 23.9, depthM: 9.4, frontOffset: Math.PI },
+  "london-stucco-d": { scale: 3.6, groundY: 0.02, footprintM: 7.6, depthM: 8.6, frontOffset: Math.PI },
+  // City towers: 46-63 m — above NYC's downtown (scale 13) and level with
+  // Cairo's Corniche (15), which is what a City cluster wants.
+  "london-tower-a": { scale: 15, groundY: 0, footprintM: 18.6, frontOffset: 0 },
+  "london-tower-b": { scale: 14, groundY: 0, footprintM: 17.4, frontOffset: 0 },
+  "london-tower-c": { scale: 16, groundY: 0, footprintM: 19.8, frontOffset: 0 },
+  // KayKit shopfronts at their Cairo scales — identical source geometry.
+  "london-shop": { scale: 4, groundY: 0, footprintM: 8, frontOffset: Math.PI },
+  "london-walkup-a": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
+  "london-walkup-b": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
 };
 
 export type BuildingSetId =
@@ -145,7 +179,11 @@ export type BuildingSetId =
   | "cairo-corniche"
   | "cairo-downtown"
   | "cairo-zamalek"
-  | "cairo-westbank";
+  | "cairo-westbank"
+  | "london-terrace"
+  | "london-stucco"
+  | "london-highstreet"
+  | "london-city";
 
 /** Which catalogue models make up each zone's street wall. */
 const SETS: Record<BuildingSetId, readonly string[]> = {
@@ -185,6 +223,24 @@ const SETS: Record<BuildingSetId, readonly string[]> = {
     "cairo-walkup-b", "cairo-block-4story", "cairo-office-block",
     "cairo-depot",
   ],
+
+  // London. Brick and stucco are the same five pitched sources in two renders —
+  // separate files, separate sets, so Chelsea and Earls Court never blend on
+  // one street. The high street interleaves a brick terrace between shopfronts,
+  // which is how the real thing reads (shops at ground level, homes above and
+  // between); the City's three Kenney slabs cover only eight glass parcels, so
+  // three variants carry it.
+  "london-terrace": [
+    "london-terrace-a", "london-terrace-b", "london-terrace-c",
+    "london-terrace-d", "london-terrace-e",
+  ],
+  "london-stucco": [
+    "london-stucco-a", "london-stucco-b", "london-stucco-c", "london-stucco-d",
+  ],
+  "london-highstreet": [
+    "london-shop", "london-walkup-a", "london-walkup-b", "london-terrace-a",
+  ],
+  "london-city": ["london-tower-a", "london-tower-b", "london-tower-c"],
 };
 
 const URL_BY_ID = new Map(ALL_ENV_MODELS.map((m) => [m.id, m.url]));
@@ -366,12 +422,17 @@ export function slotBlockBuildings(
     ? allEdges.filter((edge) => edges_.includes(edge.id))
     : allEdges;
 
-  // Cairo packs its run ends: when the drawn model would overshoot the run,
-  // redraw among the models that still fit instead of leaving up to a whole
-  // footprint of bare kerb. NYC keeps draw-or-break — its blocks are ringed by
-  // streets so the waste hides at corners, and consuming extra rng draws would
-  // silently reshuffle every shipped NYC street.
-  const packRunEnds = setId.startsWith("cairo");
+  // Cairo and London pack their run ends: when the drawn model would overshoot
+  // the run, redraw among the models that still fit instead of leaving up to a
+  // whole footprint of bare kerb — a terrace with a random gap at one end is
+  // exactly the broken-tooth look a London street cannot have. NYC keeps
+  // draw-or-break — its blocks are ringed by streets so the waste hides at
+  // corners, and consuming extra rng draws would silently reshuffle every
+  // shipped NYC street. (London opted in while zero blocks referenced its sets,
+  // for the same reason: this flag changes the rng draw sequence, so it is
+  // free exactly once.)
+  const packRunEnds =
+    setId.startsWith("cairo") || setId.startsWith("london");
 
   const placed: PlacedBuilding[] = [];
   let slot = 0;
