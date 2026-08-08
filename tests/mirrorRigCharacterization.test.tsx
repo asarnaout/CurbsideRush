@@ -220,7 +220,14 @@ describe("mirror rig characterization (Phase 3.12 safety net)", () => {
         sy: number;
         sz: number;
       }[])();
-      const mirrorMeshes = meshes.filter((mesh) => /mirror|rear-view/i.test(mesh.n));
+      // The player's rig only. A vehicle glb carries its own wing-mirror
+      // primitives, and every ambient car instantiates them as "Clone of
+      // mirrors_primitiveN" — so this matched twelve meshes rather than six
+      // the moment London's ambient traffic went from twelve cars to
+      // thirty-two. Those are model parts, not the rig this test is about.
+      const mirrorMeshes = meshes.filter(
+        (mesh) => /mirror|rear-view/i.test(mesh.n) && !mesh.n.startsWith("Clone of "),
+      );
 
       expect(mirrorMeshes.map((mesh) => mesh.n).sort()).toEqual(
         EXPECTED_MIRROR_MESH_NAMES,

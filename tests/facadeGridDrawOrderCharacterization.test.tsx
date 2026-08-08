@@ -248,14 +248,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // anything about how they are dressed.
     // 1_032 -> 1_800 with the river: the embankments, the riverside spine and
     // Battersea Park Road brought 33 more parcels.
-    // -> 2_751 with the West End, Westminster and the park's frontage.
-    drawCount: 2_751,
+    // -> 2_751 with the West End, Westminster and the park's frontage, ->
+    // 3_633 with the City and the north east.
+    drawCount: 3_633,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
     // "456e4b36" (Smith Street bent to reach Sloane Circus from the south,
-    // moving the parcel beside it) -> "3b66a749" (the West End).
-    facadeMeshFingerprint: "3b66a749",
+    // moving the parcel beside it) -> "3b66a749" (the West End) ->
+    // "e2618729" (the City and the north east).
+    facadeMeshFingerprint: "e2618729",
   },
   "tokyo-setagaya": {
     drawCount: 216,
