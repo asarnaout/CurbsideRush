@@ -258,8 +258,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // "456e4b36" (Smith Street bent to reach Sloane Circus from the south,
     // moving the parcel beside it) -> "3b66a749" (the West End) ->
     // "e2618729" (the City and the north east) -> "42a3be46" (the
-    // department store's parcel).
-    facadeMeshFingerprint: "42a3be46",
+    // department store's parcel) -> "2701a59f" (the 41 venue and service lots
+    // carved out of the blocks behind them).
+    facadeMeshFingerprint: "2701a59f",
   },
   "tokyo-setagaya": {
     drawCount: 216,

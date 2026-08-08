@@ -37,6 +37,9 @@ export interface AddressLane {
   readonly roadId?: string;
   readonly centerline: readonly WorldPoint[];
   readonly role?: string;
+  /** Which side of the road this lane's traffic keeps to. Absent means the
+   * right, which is what every map but London drives on. */
+  readonly trafficSide?: string;
 }
 
 /** A zoned city block. `ProceduralBlock` satisfies it. */
@@ -44,6 +47,10 @@ export interface AddressBlock {
   readonly center: WorldPoint;
   readonly size: WorldPoint;
   readonly buildingSet?: string;
+  /** Clockwise yaw, for a parcel that follows a street rather than an axis. */
+  readonly headingDeg?: number;
+  /** Facade material, which is how a city with no building sets zones. */
+  readonly material?: string;
 }
 
 /** A park/museum/station footprint that must never host an address. */
@@ -281,6 +288,14 @@ const BOROUGH_CROSS_STREET = {
   numbersPerM: 0.42,
 } as const;
 
+/**
+ * London numbers modestly and slowly: a few hundred at most on a long street,
+ * rather than Manhattan's four digits. Each road picks its own base so two
+ * neighbouring streets do not read as the same numbers twice.
+ */
+const LONDON_EW = { axis: "x", numbersPerM: 0.2 } as const;
+const LONDON_NS = { axis: "z", numbersPerM: 0.2 } as const;
+
 const STREET_PROFILES: Record<string, StreetProfile> = {
   "nyc-riverside": { ...AVENUE, baseNumber: 250 },
   "nyc-west-end": { ...AVENUE, baseNumber: 500 },
@@ -327,6 +342,69 @@ const STREET_PROFILES: Record<string, StreetProfile> = {
   "nyc-bank-48": BOROUGH_CROSS_STREET,
   "nyc-bank-52": BOROUGH_CROSS_STREET,
   "nyc-bank-56": BOROUGH_CROSS_STREET,
+
+  // London. Every road here is one a driver would recognise by name, which is
+  // the point: a delivery reads "84 King's Road", not "the second block past
+  // the roundabout". The quarter's three Cromwell Road surfaces share a name
+  // and so share a number line; the generator steps past a collision rather
+  // than dropping the address, so no two doors carry the same one.
+  "london-cromwell-far-west": { ...LONDON_EW, baseNumber: 260 },
+  "london-cromwell-west": { ...LONDON_EW, baseNumber: 260 },
+  "london-cromwell-east": { ...LONDON_EW, baseNumber: 260 },
+  "london-queen-gate": { ...LONDON_NS, baseNumber: 120 },
+  "london-gloucester": { ...LONDON_NS, baseNumber: 150 },
+  "london-gloucester-south": { ...LONDON_NS, baseNumber: 150 },
+  "london-kensington": { ...LONDON_EW, baseNumber: 210 },
+  "london-drayton-gardens": { ...LONDON_NS, baseNumber: 90 },
+  "london-kings-road": { ...LONDON_EW, baseNumber: 330 },
+  "london-old-brompton": { ...LONDON_EW, baseNumber: 340 },
+  "london-earls-court-road": { ...LONDON_NS, baseNumber: 190 },
+  "london-warwick-road": { ...LONDON_NS, baseNumber: 230 },
+  "london-royal-hospital-road": { ...LONDON_EW, baseNumber: 190 },
+  "london-sydney-street": { ...LONDON_NS, baseNumber: 70 },
+  "london-chelsea-embankment": { ...LONDON_EW, baseNumber: 360 },
+  "london-victoria-embankment": { ...LONDON_EW, baseNumber: 120 },
+  "london-riverbank": { ...LONDON_EW, baseNumber: 340 },
+  "london-battersea-road": { ...LONDON_EW, baseNumber: 380 },
+  "london-knightsbridge": { ...LONDON_EW, baseNumber: 150 },
+  "london-brompton-road": { ...LONDON_NS, baseNumber: 130 },
+  "london-park-lane": { ...LONDON_NS, baseNumber: 40 },
+  "london-bayswater": { ...LONDON_EW, baseNumber: 220 },
+  "london-piccadilly": { ...LONDON_EW, baseNumber: 60 },
+  "london-regent": { ...LONDON_NS, baseNumber: 100 },
+  "london-oxford-street": { ...LONDON_EW, baseNumber: 90 },
+  "london-euston": { ...LONDON_EW, baseNumber: 260 },
+  "london-great-portland": { ...LONDON_NS, baseNumber: 60 },
+  "london-buckingham-palace-road": { ...LONDON_EW, baseNumber: 180 },
+  "london-victoria-street": { ...LONDON_EW, baseNumber: 100 },
+  "london-whitehall": { ...LONDON_NS, baseNumber: 70 },
+  "london-bishopsgate": { ...LONDON_NS, baseNumber: 110 },
+  "london-london-wall": { ...LONDON_EW, baseNumber: 80 },
+  "london-leadenhall": { ...LONDON_EW, baseNumber: 60 },
+  "london-upper-street": { ...LONDON_NS, baseNumber: 130 },
+  "london-canonbury": { ...LONDON_EW, baseNumber: 60 },
+  "london-shoreditch": { ...LONDON_NS, baseNumber: 80 },
+  // The back streets. Left out at first and the map's drop-offs clustered on
+  // the arterials, which is the same mistake NYC made with its side streets:
+  // a residential address belongs on a residential street.
+  "london-chelsea-manor": { ...LONDON_NS, baseNumber: 40 },
+  "london-flood-street": { ...LONDON_NS, baseNumber: 30 },
+  "london-smith-street": { ...LONDON_NS, baseNumber: 30 },
+  "london-cheyne-mews": { ...LONDON_EW, baseNumber: 40 },
+  "london-nevern-place": { ...LONDON_EW, baseNumber: 50 },
+  "london-pembroke-crescent": { ...LONDON_EW, baseNumber: 70 },
+  "london-lots-road": { ...LONDON_NS, baseNumber: 50 },
+  "london-oakley-street": { ...LONDON_NS, baseNumber: 40 },
+  "london-parkgate": { ...LONDON_NS, baseNumber: 40 },
+  "london-nine-elms": { ...LONDON_NS, baseNumber: 60 },
+  "london-tooley-street": { ...LONDON_NS, baseNumber: 60 },
+  "london-cornmarket": { ...LONDON_NS, baseNumber: 40 },
+  "london-king-william": { ...LONDON_NS, baseNumber: 50 },
+  "london-minories": { ...LONDON_NS, baseNumber: 40 },
+  "london-grosvenor": { ...LONDON_NS, baseNumber: 60 },
+  "london-mall": { ...LONDON_EW, baseNumber: 30 },
+  // No profile for a bridge: no doors open over water (the same rule keeps
+  // NYC's two crossings address-free).
 };
 
 /**
@@ -353,6 +431,21 @@ export function addressableStreetNames(
 }
 
 /** What a block's zoning makes the people living on its frontage. */
+/**
+ * London zones by facade *material* rather than by building set, because it
+ * has no instanced sets: its street wall is procedural, and the material is
+ * exactly what says which district a parcel is in. Consulted only when a
+ * block names no building set, so it cannot change any NYC or Cairo address.
+ */
+const KINDS_BY_BLOCK_MATERIAL: Record<string, readonly GigVenueKind[]> = {
+  "london-brick": ["residence"],
+  "london-stock-brick": ["residence", "residence", "shop"],
+  "white-stucco": ["residence"],
+  // Whitehall and the City: offices, with the odd flat above.
+  "london-portland-stone": ["office", "office", "residence"],
+  "london-glass-curtain": ["office"],
+};
+
 const KINDS_BY_BUILDING_SET: Record<string, readonly GigVenueKind[]> = {
   "nyc-brownstone": ["residence"],
   "nyc-house": ["residence"],
@@ -369,12 +462,35 @@ const polylineLength = (points: readonly WorldPoint[]): number =>
     0,
   );
 
+/**
+ * Rotation-aware, because London's roadside parcels are rotated: they follow
+ * streets that bend, so `headingDeg` is the norm rather than the exception
+ * there. An axis-aligned test against a long thin parcel lying at 40 degrees
+ * answers for a bounding box twice its area — it finds frontage across the
+ * road and misses frontage right in front of the probe.
+ */
 const isInsideRect = (
   point: WorldPoint,
-  rect: { readonly center: WorldPoint; readonly size: WorldPoint },
-): boolean =>
-  Math.abs(point.x - rect.center.x) <= rect.size.x / 2 &&
-  Math.abs(point.z - rect.center.z) <= rect.size.z / 2;
+  rect: {
+    readonly center: WorldPoint;
+    readonly size: WorldPoint;
+    readonly headingDeg?: number;
+  },
+): boolean => {
+  const dx = point.x - rect.center.x;
+  const dz = point.z - rect.center.z;
+  if (!rect.headingDeg) {
+    return Math.abs(dx) <= rect.size.x / 2 && Math.abs(dz) <= rect.size.z / 2;
+  }
+  // Same convention the collider builder uses: local +x maps to world
+  // (cos, -sin), so projecting a world point back is (cos, +sin).
+  const yaw = (rect.headingDeg * Math.PI) / 180;
+  const along = dx * Math.cos(yaw) - dz * Math.sin(yaw);
+  const across = dx * Math.sin(yaw) + dz * Math.cos(yaw);
+  return (
+    Math.abs(along) <= rect.size.x / 2 && Math.abs(across) <= rect.size.z / 2
+  );
+};
 
 /**
  * A house number for a kerb point. Derived from the world position rather than
@@ -450,9 +566,20 @@ export function generateStreetAddresses(
       });
       if (!pose) continue;
 
-      // The kerb is the lane's right-hand normal, matching venue set-back.
-      const normalX = Math.cos(pose.heading);
-      const normalZ = -Math.sin(pose.heading);
+      // The kerb is the lane's NEARSIDE — the driver's right where traffic
+      // drives on the right, and their left where it drives on the left.
+      //
+      // Venue set-back is always the driver's right regardless (an authored
+      // venue picks its kerb by choosing which direction's lane to anchor
+      // on), but an address has no author to make that choice: the generator
+      // walks every addressable lane and has to find the kerb *that lane*
+      // actually runs beside. On a two-way British street the right-hand
+      // normal points across the centreline into the opposing carriageway,
+      // so every probe landed in live traffic and was rejected — London
+      // generated no addresses at all on any two-way road.
+      const nearside = lane.trafficSide === "left" ? -1 : 1;
+      const normalX = Math.cos(pose.heading) * nearside;
+      const normalZ = -Math.sin(pose.heading) * nearside;
       const kerb = {
         x: pose.x + normalX * KERB_OFFSET_M,
         z: pose.z + normalZ * KERB_OFFSET_M,
@@ -506,7 +633,10 @@ export function generateStreetAddresses(
         continue;
       }
 
-      const kinds = KINDS_BY_BUILDING_SET[block.buildingSet ?? ""] ?? ["residence"];
+      const kinds =
+        KINDS_BY_BUILDING_SET[block.buildingSet ?? ""] ??
+        KINDS_BY_BLOCK_MATERIAL[block.material ?? ""] ??
+        ["residence"];
       // Two kerbs a block apart can round to the same number. Step along the
       // street's own parity until one is free rather than dropping the address,
       // so every name the HUD prints identifies exactly one place.

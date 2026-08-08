@@ -2699,12 +2699,65 @@ export const LONDON_MAP_PACK: MapPack = {
       // the lot west onto the terrace block rather than into the carriageway.
       // setbackM 13.8 = the old 11.9 plus the same 1.9 m of new pavement.
       { id: "london-repair", kind: "repair_shop", anchor: { laneId: "london-queen-gate-south-1", distanceAlongM: 52 }, footprint: point(10, 8), label: "Queen's Gate Motors", setbackM: 13.8 },
+      // Placed the same way as the venues above. Four pumps and three
+      // garages across 56 lane-km: enough that running dry is a detour
+      // rather than a walk home.
+      { id: "london-gas-embankment", kind: "gas_station", anchor: { laneId: "london-victoria-embankment-4-forward-1", distanceAlongM: 26 }, footprint: point(12, 8), label: "Embankment Petrol", setbackM: 22.55 },
+      { id: "london-gas-city", kind: "gas_station", anchor: { laneId: "london-euston-3-reverse-1", distanceAlongM: 80 }, footprint: point(12, 8), label: "Euston Road Petrol", setbackM: 22.55 },
+      { id: "london-gas-riverside", kind: "gas_station", anchor: { laneId: "london-battersea-road-1-reverse-1", distanceAlongM: 26 }, footprint: point(12, 8), label: "Riverside Petrol", setbackM: 21.15 },
+      { id: "london-repair-bankside", kind: "repair_shop", anchor: { laneId: "london-riverbank-4-forward-1", distanceAlongM: 202 }, footprint: point(10, 8), label: "Bankside MOT Centre", setbackM: 15.2 },
+      { id: "london-repair-wallside", kind: "repair_shop", anchor: { laneId: "london-canonbury-1-forward-1", distanceAlongM: 54 }, footprint: point(10, 8), label: "Wallside Motors", setbackM: 14 },
     ],
     gigVenues: [
       { id: "london-v1", kind: "restaurant", anchor: { laneId: "london-cromwell-east-1", distanceAlongM: 44 }, footprint: point(14, 10), name: "Cromwell Cafe" },
       { id: "london-v2", kind: "shop", anchor: { laneId: "london-exhibition-shared-1", distanceAlongM: 48 }, footprint: point(14, 10), name: "Exhibition Road Shops" },
       { id: "london-v3", kind: "residence", anchor: { laneId: "london-queen-gate-south-2", distanceAlongM: 50 }, footprint: point(14, 12), name: "Queen's Gate Flats" },
       { id: "london-v4", kind: "office", anchor: { laneId: "london-quiet-north", distanceAlongM: 36 }, footprint: point(14, 12), name: "South Ken Office" },
+      // Every anchor lane, distance and set-back below is SOLVED, not
+      // eyeballed: a venue's building lands on the driver's RIGHT of its
+      // anchor lane, which on a left-hand-traffic map is the far kerb, and no
+      // `distanceAlongM` can rescue an anchor pointing the wrong way. Six of
+      // NYC's shipped venues stood on the wrong kerb — inside a park wall, or
+      // as a shopfront among detached houses — and every one of those defects
+      // was lateral. These are placed against the geometry itself: clear of
+      // every lane envelope, clear of every park and of the river, and clear
+      // of each other.
+      { id: "london-v5", kind: "restaurant", anchor: { laneId: "london-kings-road-4-forward-1", distanceAlongM: 30 }, footprint: point(16, 12), name: "The Grapes & Anchor", setbackM: 17.5 },
+      { id: "london-v6", kind: "shop", anchor: { laneId: "london-kings-road-5-forward-1", distanceAlongM: 154 }, footprint: point(14, 10), name: "Chelsea Green Grocers", setbackM: 34 },
+      { id: "london-v7", kind: "residence", anchor: { laneId: "london-royal-hospital-road-1-forward-1", distanceAlongM: 184 }, footprint: point(14, 12), name: "Chelsea Mansions", setbackM: 34 },
+      { id: "london-v8", kind: "restaurant", anchor: { laneId: "london-old-brompton-1-forward-1", distanceAlongM: 222 }, footprint: point(14, 14), name: "Full English Cafe", setbackM: 31.5, modelId: "restaurant-pizzeria" },
+      { id: "london-v9", kind: "shop", anchor: { laneId: "london-earls-court-road-3-forward-1", distanceAlongM: 30 }, footprint: point(14, 10), name: "Corner Shop & News", setbackM: 17 },
+      { id: "london-v10", kind: "office", anchor: { laneId: "london-warwick-road-2-forward-1", distanceAlongM: 80 }, footprint: point(14, 12), name: "Warwick Road Studios", setbackM: 17 },
+      { id: "london-v11", kind: "restaurant", anchor: { laneId: "london-riverbank-2-forward-1", distanceAlongM: 300 }, footprint: point(14, 10), name: "Golden Fry Fish & Chips", setbackM: 18 },
+      { id: "london-v12", kind: "shop", anchor: { laneId: "london-battersea-road-3-reverse-1", distanceAlongM: 220 }, footprint: point(14, 10), name: "Riverside Minimart", setbackM: 20 },
+      { id: "london-v13", kind: "residence", anchor: { laneId: "london-battersea-road-5-reverse-1", distanceAlongM: 352 }, footprint: point(14, 12), name: "Battersea Rise Flats", setbackM: 17 },
+      { id: "london-v14", kind: "restaurant", anchor: { laneId: "london-riverbank-5-reverse-1", distanceAlongM: 156 }, footprint: point(16, 12), name: "Borough Kitchen", setbackM: 18 },
+      { id: "london-v15", kind: "restaurant", anchor: { laneId: "london-riverbank-7-reverse-1", distanceAlongM: 210 }, footprint: point(14, 10), name: "The Kings Arms", setbackM: 18 },
+      { id: "london-v16", kind: "office", anchor: { laneId: "london-riverbank-6-forward-1", distanceAlongM: 120 }, footprint: point(16, 14), name: "Bankside Works", setbackM: 18 },
+      { id: "london-v17", kind: "shop", anchor: { laneId: "london-chelsea-embankment-1-reverse-1", distanceAlongM: 26 }, footprint: point(14, 10), name: "Embankment Stores", setbackM: 18 },
+      { id: "london-v18", kind: "restaurant", anchor: { laneId: "london-victoria-embankment-1-reverse-1", distanceAlongM: 26 }, footprint: point(14, 10), name: "Embankment Espresso", setbackM: 18.5 },
+      { id: "london-v19", kind: "office", anchor: { laneId: "london-whitehall-1-reverse-1", distanceAlongM: 62 }, footprint: point(16, 14), name: "Whitehall Offices", setbackM: 18 },
+      { id: "london-v20", kind: "office", anchor: { laneId: "london-victoria-street-1-reverse-1", distanceAlongM: 26 }, footprint: point(16, 14), name: "Victoria Street Chambers", setbackM: 18 },
+      { id: "london-v21", kind: "residence", anchor: { laneId: "london-buckingham-palace-road-2-forward-1", distanceAlongM: 26 }, footprint: point(14, 12), name: "Palace Gardens Flats", setbackM: 17.5 },
+      { id: "london-v22", kind: "shop", anchor: { laneId: "london-knightsbridge-1-forward-1", distanceAlongM: 238 }, footprint: point(14, 10), name: "Knightsbridge Provisions", setbackM: 18 },
+      { id: "london-v23", kind: "restaurant", anchor: { laneId: "london-brompton-road-2-forward-1", distanceAlongM: 26 }, footprint: point(14, 14), name: "Brompton Brasserie", setbackM: 18, modelId: "restaurant-pizzeria" },
+      { id: "london-v24", kind: "shop", anchor: { laneId: "london-oxford-street-1-reverse-1", distanceAlongM: 26 }, footprint: point(14, 10), name: "High Street Grocers", setbackM: 18 },
+      { id: "london-v25", kind: "restaurant", anchor: { laneId: "london-regent-4-forward-1", distanceAlongM: 26 }, footprint: point(14, 10), name: "Regent Corner Cafe", setbackM: 18 },
+      { id: "london-v26", kind: "office", anchor: { laneId: "london-regent-5-reverse-1", distanceAlongM: 28 }, footprint: point(16, 14), name: "Regent Corner Offices", setbackM: 18 },
+      { id: "london-v27", kind: "restaurant", anchor: { laneId: "london-piccadilly-1-reverse-1", distanceAlongM: 26 }, footprint: point(16, 12), name: "Piccadilly Brasserie", setbackM: 18 },
+      { id: "london-v28", kind: "shop", anchor: { laneId: "london-park-lane-1-forward-2", distanceAlongM: 240 }, footprint: point(14, 10), name: "Park Lane Pantry", setbackM: 24 },
+      { id: "london-v29", kind: "residence", anchor: { laneId: "london-euston-2-reverse-1", distanceAlongM: 26 }, footprint: point(14, 12), name: "Euston Terrace", setbackM: 18.5 },
+      { id: "london-v30", kind: "restaurant", anchor: { laneId: "london-upper-street-1-forward-1", distanceAlongM: 88 }, footprint: point(14, 10), name: "The Boot & Bell", setbackM: 17.5 },
+      { id: "london-v31", kind: "shop", anchor: { laneId: "london-upper-street-1-forward-1", distanceAlongM: 48 }, footprint: point(14, 10), name: "Islington Corner Store", setbackM: 17.5 },
+      { id: "london-v32", kind: "residence", anchor: { laneId: "london-canonbury-1-forward-1", distanceAlongM: 114 }, footprint: point(14, 12), name: "Islington Terrace", setbackM: 17 },
+      { id: "london-v33", kind: "restaurant", anchor: { laneId: "london-shoreditch-1-reverse-1", distanceAlongM: 60 }, footprint: point(14, 14), name: "Brick Court Balti House", setbackM: 17, modelId: "restaurant-pizzeria" },
+      { id: "london-v34", kind: "office", anchor: { laneId: "london-london-wall-2-forward-1", distanceAlongM: 26 }, footprint: point(16, 14), name: "City Point Offices", setbackM: 18 },
+      { id: "london-v35", kind: "restaurant", anchor: { laneId: "london-bishopsgate-1-reverse-1", distanceAlongM: 120 }, footprint: point(14, 10), name: "The Guildsman", setbackM: 18 },
+      { id: "london-v36", kind: "shop", anchor: { laneId: "london-leadenhall-1-reverse-1", distanceAlongM: 26 }, footprint: point(14, 10), name: "Minute Market", setbackM: 17 },
+      { id: "london-v37", kind: "shop", anchor: { laneId: "london-cornmarket-1-reverse-1", distanceAlongM: 26 }, footprint: point(14, 10), name: "Guild Lane Pharmacy", setbackM: 17 },
+      { id: "london-v38", kind: "residence", anchor: { laneId: "london-minories-2-forward-1", distanceAlongM: 26 }, footprint: point(14, 12), name: "Wallside Estate", setbackM: 17 },
+      { id: "london-v39", kind: "restaurant", anchor: { laneId: "london-oxford-street-3-forward-1", distanceAlongM: 70 }, footprint: point(16, 12), name: "Marble Row Grill", setbackM: 18 },
+      { id: "london-v40", kind: "shop", anchor: { laneId: "london-gloucester-south-1-reverse-1", distanceAlongM: 26 }, footprint: point(14, 10), name: "Sloane Grocers", setbackM: 17 },
     ],
     landmarks: [
       {

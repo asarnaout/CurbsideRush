@@ -242,10 +242,17 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // colours and its own id in the name — 78 of them for the parks alone.
     // They are shared now, which is a draw-call saving as much as a memory
     // one.
-    totalMeshes: 6_221,
-    enabledMeshes: 6_221,
-    activeMeshes: 983,
-    materials: 144,
+    //
+    // 6_221 -> 6_226 and 144 -> 241 materials: 36 more gig venues and five
+    // more service points. Almost all of that is materials rather than
+    // meshes, and it is inherent: a venue's name board, hanging sign and
+    // fascia each carry a dynamic texture with *that venue's own name*
+    // painted on it, so unlike the landmark trio they cannot be shared. NYC
+    // pays the same ~3 per venue for its 31.
+    totalMeshes: 6_226,
+    enabledMeshes: 6_226,
+    activeMeshes: 984,
+    materials: 241,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -255,7 +262,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "0dfe99c0",
+    survivingMaterialNamesFingerprint: "a7989b18",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

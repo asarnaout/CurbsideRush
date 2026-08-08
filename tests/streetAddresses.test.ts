@@ -249,9 +249,76 @@ describe("procedural street addresses", () => {
   });
 
   it("generates nothing for maps that have not opted in", () => {
-    for (const pack of MAP_PACKS.filter((p) => p.id !== nyc.id)) {
+    // Tokyo and Cairo are named but unprofiled, which is the whole point of
+    // keeping `STREET_PROFILES` separate from `MapPack.roadNames`: naming a
+    // street for turn-by-turn navigation must not start issuing gigs on it.
+    // London opted in when it grew into a full city.
+    const OPTED_IN = new Set(["nyc-upper-west-side", "london-south-kensington"]);
+    for (const pack of MAP_PACKS.filter((p) => !OPTED_IN.has(p.id))) {
       expect(streetAddressesForMap(pack), pack.id).toEqual([]);
     }
+  });
+
+  it("gives London a spread of addresses on the kerb its traffic keeps to", () => {
+    const london = MAP_PACKS.find((p) => p.id === "london-south-kensington")!;
+    const addresses = streetAddressesForMap(london);
+    // Enough to make a delivery land somewhere new each time, across enough
+    // streets that they are not all on one arterial.
+    expect(addresses.length).toBeGreaterThan(120);
+    const streets = new Set(addresses.map((a) => a.name.replace(/^\d+\s/, "")));
+    expect(streets.size).toBeGreaterThan(30);
+    // Zoned off the facade material, since London has no building sets: the
+    // City's glass yields offices and the terraces yield homes.
+    const kinds = new Set(addresses.map((a) => a.kind));
+    expect(kinds).toContain("residence");
+    expect(kinds).toContain("office");
+    expect(kinds).toContain("shop");
+    // And every rider is standing on a pavement, not in the opposing
+    // carriageway — the failure mode that gave London zero addresses on every
+    // two-way road until the probe learned which kerb its traffic keeps to.
+    // The address's own x/z is the lane point the car pulls up at; `kerbX`/
+    // `kerbZ` is where the rider waits, and that is what must be off the
+    // asphalt.
+    for (const address of addresses) {
+      const nearest = Math.min(
+        ...london.geometry.roadSurfaces.map((surface) => {
+          let best = Number.POSITIVE_INFINITY;
+          for (let index = 1; index < surface.centerline.length; index += 1) {
+            const a = surface.centerline[index - 1];
+            const b = surface.centerline[index];
+            const dx = b.x - a.x;
+            const dz = b.z - a.z;
+            const lengthSquared = dx * dx + dz * dz;
+            const t =
+              lengthSquared > 0
+                ? Math.max(
+                    0,
+                    Math.min(
+                      1,
+                      ((address.kerbX - a.x) * dx + (address.kerbZ - a.z) * dz) /
+                        lengthSquared,
+                    ),
+                  )
+                : 0;
+            best = Math.min(
+              best,
+              Math.hypot(
+                address.kerbX - (a.x + dx * t),
+                address.kerbZ - (a.z + dz * t),
+              ) - surface.widthM / 2,
+            );
+          }
+          return best;
+        }),
+      );
+      expect(nearest, address.name).toBeGreaterThan(0);
+    }
+    // Both kerbs of the two-way streets get doors, which is the signal that
+    // the nearside probe is genuinely reading the lane's own side rather than
+    // one arbitrary normal.
+    expect(new Set(addresses.map((address) => address.side))).toEqual(
+      new Set([-1, 1]),
+    );
   });
 
   /**

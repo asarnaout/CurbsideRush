@@ -62,11 +62,19 @@ describe("street names", () => {
     // The whole point of splitting the name table from `STREET_PROFILES`: a
     // road wants a name in far more cities than it wants house numbers. If the
     // names ever became the gate, every named city would start issuing gigs.
-    for (const pack of MAP_PACKS.filter((p) => p.id !== "nyc-upper-west-side")) {
+    const OPTED_IN = new Set(["nyc-upper-west-side", "london-south-kensington"]);
+    for (const pack of MAP_PACKS.filter((p) => !OPTED_IN.has(p.id))) {
       expect(Object.keys(pack.roadNames ?? {}).length > 0, pack.id).toBe(true);
       expect(streetAddressesForMap(pack), pack.id).toEqual([]);
       expect(addressableStreetNames(pack.roadNames), pack.id).toEqual([]);
     }
+    // London names far more streets than it profiles — the bridges and the
+    // ring roads have names and no doors — so naming still is not the gate.
+    const london = MAP_PACKS.find((p) => p.id === "london-south-kensington")!;
+    expect(addressableStreetNames(london.roadNames).length).toBeGreaterThan(0);
+    expect(addressableStreetNames(london.roadNames).length).toBeLessThan(
+      Object.keys(london.roadNames ?? {}).length,
+    );
   });
 
   it("claims addresses only on streets that produce them", () => {
