@@ -181,7 +181,11 @@ export const AMBIENT_CROWD_CONFIG: Readonly<
 > = {
   "nyc-upper-west-side": { count: 96, innerRadiusM: 25, outerRadiusM: 130, recycleRadiusM: 170 },
   "tokyo-setagaya": { count: 56, innerRadiusM: 18, outerRadiusM: 100, recycleRadiusM: 140 },
-  "london-south-kensington": { count: 64, innerRadiusM: 20, outerRadiusM: 120, recycleRadiusM: 160 },
+  // 64 -> 104: sixty-four walkers were right for an 800 m museum quarter and
+  // read as a quiet Sunday once the map ran from Earls Court to Islington.
+  // The crowd is 3-5 meshes total whatever the count — this is CPU stepping,
+  // not draw calls.
+  "london-south-kensington": { count: 104, innerRadiusM: 22, outerRadiusM: 130, recycleRadiusM: 170 },
   "cairo-central-nile": { count: 88, innerRadiusM: 22, outerRadiusM: 125, recycleRadiusM: 165 },
 };
 

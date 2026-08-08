@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LONDON_BELISHA_BEACONS } from "../app/game/londonStreetFurniture";
 import {
   LONDON_CONTENT_REVIEWED_ON,
   LONDON_MAP_PACK,
@@ -151,5 +152,36 @@ describe("London flagship content", () => {
       laneId: "london-exhibition-shared-2",
       distanceAlongM: 50,
     });
+  });
+
+  it("flanks every zebra crossing with a pair of Belisha beacons", () => {
+    // The beacon positions are written down rather than derived at load, so
+    // this is what keeps them attached to the crossings they belong to: move
+    // a road and the pair stops straddling its stripes, loudly.
+    const crossings = LONDON_MAP_PACK.laneGraph.controls.filter(
+      (control) =>
+        control.type === "crosswalk" && control.id.startsWith("london-crossing-"),
+    );
+    expect(crossings).toHaveLength(6);
+    for (const crossing of crossings) {
+      const slug = crossing.id.replace("london-crossing-", "");
+      const pair = LONDON_BELISHA_BEACONS.filter((beacon) =>
+        beacon.id.startsWith(`london-beacon-${slug}-`),
+      );
+      expect(pair, crossing.id).toHaveLength(2);
+      // One either side of the crossing's own centre, within a carriageway's
+      // width of it — not both on the same kerb, and not out in a field.
+      const offsets = pair.map((beacon) => {
+        const dx = beacon.position.x - crossing.position.x;
+        const dz = beacon.position.z - crossing.position.z;
+        const rad = (crossing.headingDeg * Math.PI) / 180;
+        return dx * Math.cos(rad) - dz * Math.sin(rad);
+      });
+      expect(Math.sign(offsets[0]) * Math.sign(offsets[1]), crossing.id).toBe(-1);
+      for (const offset of offsets) {
+        expect(Math.abs(offset), crossing.id).toBeGreaterThan(3);
+        expect(Math.abs(offset), crossing.id).toBeLessThan(12);
+      }
+    }
   });
 });

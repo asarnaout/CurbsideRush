@@ -74,7 +74,41 @@ export const LONDON_PHONE_BOXES: readonly LondonFurniturePlacement[] = [
   at("london-phone-box-islington", 1181.3, 840.7, 285),
 ];
 
+/**
+ * Belisha beacons — the amber globe on a black-and-white pole that flanks a
+ * zebra crossing, and one of the few things that says "Britain" from inside a
+ * car. One pair per authored crossing, standing a metre past each kerb.
+ *
+ * Derived from the crossings' own stop-line anchors rather than typed by
+ * hand — then nudged, on two of the twelve, half a metre further past the
+ * kerb: a lane is offset to its own side of the centreline, so the offside
+ * beacon of a pair sits marginally closer to the opposing carriageway than
+ * the nearside one. Both are written down here so the renderer and the
+ * collider builder read one table; `tests/londonContent.test.ts` checks each pair still
+ * straddles the crossing it belongs to, which is what stops them drifting
+ * apart if a road ever moves.
+ */
+export const LONDON_BELISHA_BEACONS: readonly LondonFurniturePlacement[] = [
+  at("london-beacon-kings-road-near", -192.2, -271.3, 83),
+  at("london-beacon-kings-road-far", -190.5, -284.7, 83),
+  at("london-beacon-knightsbridge-near", 221.7, 228.5, 90),
+  at("london-beacon-knightsbridge-far", 221.7, 214.9, 90),
+  at("london-beacon-oxford-near", 889.7, 708.5, 90),
+  at("london-beacon-oxford-far", 889.7, 694.9, 90),
+  at("london-beacon-bishopsgate-near", 1159, 490, 2),
+  at("london-beacon-bishopsgate-far", 1172.6, 489.5, 2),
+  at("london-beacon-upper-street-near", 1157.7, 832.7, 7),
+  at("london-beacon-upper-street-far", 1171.2, 831.1, 7),
+  at("london-beacon-riverbank-near", 747.3, -595.8, 82),
+  at("london-beacon-riverbank-far", 749.1, -609.3, 82),
+];
+
+/**
+ * Everything London stands on its pavements that a car cannot drive through.
+ * A beacon pole is slimmer than a pillar box but no more forgiving.
+ */
 export const LONDON_STREET_FURNITURE: readonly LondonFurniturePlacement[] = [
   ...LONDON_PILLAR_BOXES,
   ...LONDON_PHONE_BOXES,
+  ...LONDON_BELISHA_BEACONS,
 ];

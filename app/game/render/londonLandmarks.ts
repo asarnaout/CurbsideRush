@@ -19,6 +19,7 @@ import {
   type DestructiblePropPart,
 } from "./propCatalog";
 import {
+  LONDON_BELISHA_BEACONS,
   LONDON_PHONE_BOXES,
   LONDON_PILLAR_BOXES,
 } from "../londonStreetFurniture";
@@ -1445,6 +1446,39 @@ export function buildLondonStreetFurniture(ctx: LondonLandmarksCtx) {
       new Vector3(box.position.x, 1.69, box.position.z),
       postBoxRed,
     );
+  }
+
+  // Belisha beacons: a banded black-and-white pole with an amber globe, one
+  // pair per zebra crossing. The globe is emissive because the real ones
+  // flash, and a dark ball on a pole reads as nothing at all.
+  const beaconWhite = makeMaterial(scene, "london-beacon-white", new Color3(0.88, 0.87, 0.83));
+  const beaconAmber = makeMaterial(
+    scene,
+    "london-beacon-amber",
+    new Color3(0.85, 0.55, 0.08),
+    new Color3(0.7, 0.42, 0.05),
+  );
+  for (const beacon of LONDON_BELISHA_BEACONS) {
+    for (let band = 0; band < 6; band += 1) {
+      const segment = createCylinder(
+        scene,
+        `${beacon.id}-band-${band}`,
+        { height: 0.42, diameter: 0.15, tessellation: 8 },
+        new Vector3(beacon.position.x, 0.21 + band * 0.42, beacon.position.z),
+        band % 2 === 0 ? iron : beaconWhite,
+      );
+      segment.isPickable = false;
+      ctx.staticSceneryFreeze.push(segment);
+    }
+    const globe = createCylinder(
+      scene,
+      `${beacon.id}-globe`,
+      { height: 0.46, diameter: 0.42, tessellation: 10 },
+      new Vector3(beacon.position.x, 2.78, beacon.position.z),
+      beaconAmber,
+    );
+    globe.isPickable = false;
+    ctx.staticSceneryFreeze.push(globe);
   }
 
   const kioskGlass = makeMaterial(
