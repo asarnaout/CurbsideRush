@@ -271,7 +271,10 @@ export const TOKYO_MAP_PACK: MapPack = {
       // lane): the old north-1@82 corner plot overlapped both the centre
       // road's south edge and the Gotokuji station box.
       { id: "jp-v1", kind: "restaurant", anchor: { laneId: "jp-narrow-south-1", distanceAlongM: 13 }, footprint: point(12, 9), name: "Gotokuji Bento" },
-      { id: "jp-v2", kind: "shop", anchor: { laneId: "jp-uptown-east-2", distanceAlongM: 40 }, footprint: point(12, 9), name: "Miyanosaka Market" },
+      // 20 m, not 40: eastbound's right is south, and past x = -5 the temple
+      // grounds start — at 40 m the market's corner stood half a metre inside
+      // them.
+      { id: "jp-v2", kind: "shop", anchor: { laneId: "jp-uptown-east-2", distanceAlongM: 20 }, footprint: point(12, 9), name: "Miyanosaka Market" },
       { id: "jp-v3", kind: "residence", anchor: { laneId: "jp-north-east-2", distanceAlongM: 54 }, footprint: point(12, 10), name: "Setagaya Residence" },
       { id: "jp-v4", kind: "office", anchor: { laneId: "jp-dori-east-2", distanceAlongM: 60 }, footprint: point(14, 12), name: "Setagaya-dori Office" },
     ],

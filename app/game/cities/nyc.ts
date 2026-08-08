@@ -1201,7 +1201,10 @@ export const NYC_MAP_PACK: MapPack = {
       // Uptown, above the museum
       { id: "nyc-v11", kind: "shop", anchor: { laneId: "nyc-riv-n-79", distanceAlongM: 120 }, footprint: point(16, 12), name: "Riverside Market" },
       { id: "nyc-v12", kind: "restaurant", anchor: { laneId: "nyc-bway-s-100", distanceAlongM: 120 }, footprint: point(28, 20), name: "Straus Park Bagels", setbackM: 18 },
-      { id: "nyc-v13", kind: "residence", anchor: { laneId: "nyc-we-s-96", distanceAlongM: 120 }, footprint: point(14, 12), name: "West 96th Apartments" },
+      // Northbound, not southbound: West End's west kerb here is Joan of Arc
+      // Park's east edge, and the driver's-right setback put the block's flank
+      // 1.4 m through the park wall. Same latitude, other kerb.
+      { id: "nyc-v13", kind: "residence", anchor: { laneId: "nyc-we-n-91", distanceAlongM: 120 }, footprint: point(14, 12), name: "West 96th Apartments" },
       { id: "nyc-v14", kind: "office", anchor: { laneId: "nyc-col-s-1-100", distanceAlongM: 120 }, footprint: point(16, 14), name: "Columbus Uptown Offices" },
       { id: "nyc-v15", kind: "restaurant", anchor: { laneId: "nyc-amst-n-2-86", distanceAlongM: 120 }, footprint: point(14, 14), name: "Amsterdam Noodle Bar", modelId: "restaurant-pizzeria" },
       { id: "nyc-v16", kind: "shop", anchor: { laneId: "nyc-106-w-amst", distanceAlongM: 80 }, footprint: point(16, 12), name: "West 106th Grocers" },
@@ -1211,13 +1214,22 @@ export const NYC_MAP_PACK: MapPack = {
       // as the west side.
       { id: "nyc-v18", kind: "restaurant", anchor: { laneId: "nyc-lex-s-1-e86", distanceAlongM: 200 }, footprint: point(28, 20), name: "Lexington Diner", setbackM: 18 },
       { id: "nyc-v19", kind: "restaurant", anchor: { laneId: "nyc-e86-e-lex", distanceAlongM: 70 }, footprint: point(14, 14), name: "E 86th Pizzeria", modelId: "restaurant-pizzeria" },
-      // Fifth Avenue Gallery's café — right by the museum's own block.
-      { id: "nyc-v20", kind: "restaurant", anchor: { laneId: "nyc-fifth-s-e86", distanceAlongM: 240 }, footprint: point(14, 14), name: "Gallery Café" },
+      // Fifth Avenue Gallery's café — right by the museum's own block, which
+      // is what the northbound lane buys: a venue goes to the driver's right,
+      // so the southbound anchor this shipped with threw the café across
+      // Fifth and 3 m into Central Park, straddling the perimeter wall. The
+      // whole west kerb of Fifth is the park, so no distance along a
+      // southbound lane could have been right.
+      { id: "nyc-v20", kind: "restaurant", anchor: { laneId: "nyc-fifth-n-79", distanceAlongM: 240 }, footprint: point(14, 14), name: "Gallery Café" },
       { id: "nyc-v21", kind: "shop", anchor: { laneId: "nyc-mad-n-1-79", distanceAlongM: 150 }, footprint: point(16, 12), name: "Madison Bodega" },
       { id: "nyc-v22", kind: "shop", anchor: { laneId: "nyc-third-s-e86", distanceAlongM: 200 }, footprint: point(16, 12), name: "Third Avenue Grocers" },
       { id: "nyc-v23", kind: "office", anchor: { laneId: "nyc-pk-n-e72", distanceAlongM: 200 }, footprint: point(16, 14), name: "Park Avenue Offices" },
       // Down by the SE tower cluster (lex-third/fifth-mad, z < -960).
-      { id: "nyc-v24", kind: "office", anchor: { laneId: "nyc-third-n-e61", distanceAlongM: 100 }, footprint: point(16, 14), name: "Third Avenue Towers Offices" },
+      // Southbound, so the setback lands it on the lex-third tower cell it is
+      // named for. Northbound's right is east, which here is the East River
+      // Esplanade — the same hazard `nyc-repair-east` records below, and it
+      // had put this block 9 m inside the esplanade's west wall.
+      { id: "nyc-v24", kind: "office", anchor: { laneId: "nyc-third-s-65", distanceAlongM: 140 }, footprint: point(16, 14), name: "Third Avenue Towers Offices" },
       { id: "nyc-v25", kind: "residence", anchor: { laneId: "nyc-pk-n-e91", distanceAlongM: 20 }, footprint: point(14, 12), name: "Park Avenue at 91st" },
       // The borough (NYC east expansion, section 3.8) — kept off the
       // bk44-bk48 row Queensbridge Green owns, same discipline as everywhere

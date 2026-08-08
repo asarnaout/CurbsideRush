@@ -80,6 +80,19 @@ A park wall is a scored `collision` with damage (`parkEdge` in
 `STATIC_OBSTACLE_MESSAGES`), so it must be plainly visible at speed —
 `PARK_WALL_HEIGHT_M` is set for that, not for realism.
 
+**Nothing geometrically keeps a building out of a park.** The wall's vetoes
+read roads; `landmarkClearings` skips parks and feeds planting only;
+`buildingKeepOuts` guards the street wall against venues, not venues against
+parks. And a venue lands on the **driver's right of its anchor lane**, so which
+kerb of a park-flanking avenue it takes is decided by whether the anchor names
+the northbound or the southbound lane — pick the wrong one and no
+`distanceAlongM` can save it, because that whole kerb is park. Four venues
+across NYC and Tokyo had shipped inside one. `content.test.ts`'s "keeps every
+venue building out of every walled park" is the guard, against the collider box
+(`PROP_MODEL_FOOTPRINTS_M`, what you see and hit) rather than the authored
+`footprint` (what sizes the keep-out circle), and gated on parks that actually
+grow a wall so a `pocket_green` beside a shared-space street still may.
+
 ## Park ground is four polygon-offset tiers
 
 Walks, courts and parterre beds once all shared `PARK_PATH_Y`, and any two
