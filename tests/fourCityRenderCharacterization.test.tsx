@@ -291,16 +291,23 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // four-road Notting Hill grid with sixteen parcels, two more greens, and
     // three fabric rects. Active meshes 533 -> 570: the grown park's planting
     // and the new drive sit inside the 800 m fog cap at spawn.
-    totalMeshes: 6_635,
-    enabledMeshes: 6_635,
-    activeMeshes: 570,
+    // 6_635 -> 6_634 under THIS suite's unloaded-model mock: zoning the sets
+    // reroutes ~170 blocks through the building layer, whose fallback closure
+    // redraws the same facade rects when the glbs are absent — the real
+    // street wall's 2_561 instances are pinned in
+    // buildingLayerCharacterization, which real-loads the kits. Active/mirror
+    // counts wobble a few meshes from the changed build order.
+    totalMeshes: 6_634,
+    enabledMeshes: 6_634,
+    activeMeshes: 574,
     materials: 251,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     // 102 -> 104 and 160 -> 170: the Kensington lawn and the drive's south
-    // approach sit within the spawn's mirror candidate radius.
-    mirrorCandidates: 104,
+    // approach sit within the spawn's mirror candidate radius. 104 -> 97
+    // with the set zoning's build-order change.
+    mirrorCandidates: 97,
     mirrorDrawn: 170,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,

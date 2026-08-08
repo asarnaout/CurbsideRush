@@ -233,7 +233,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     storefrontSignMaterialCount: 12,
   },
   "london-south-kensington": {
-    buildingInstanceCount: 0,
+    // 0 -> 2_561: the London visual overhaul zoned the street wall onto the
+    // four imported sets (terrace/stucco/highstreet/city). Roadside parcels
+    // are one-sided strips, so each walls only its road-facing edge — which
+    // is why London's count sits at half NYC's despite having more blocks.
+    // Whitehall's Portland-stone parcels and the museum quarter stay on the
+    // procedural grid deliberately. Sign materials stay 0: the storefront
+    // re-branding pipeline derives its fascia rects from nyc-shop-corner's
+    // baked lettering, which the Kay london-shop model does not have.
+    buildingInstanceCount: 2_561,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

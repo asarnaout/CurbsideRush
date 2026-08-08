@@ -174,7 +174,11 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     // park's planting alone is 4_400 meshes — measured in-browser, the whole
     // map's tree and thicket layer is 45% of its mesh count. 800 m of soft
     // haze is both the atmosphere London actually has and the one lever that
-    // does not cost the city anything you can see from a car.
+    // does not cost the city anything you can see from a car. (A 700 m cap
+    // was tried when the instanced street wall landed and bought only ~5
+    // draw calls — the first-person camera's extra cost is the mirrors
+    // re-rendering the spawn's near-field wall, not the far plane — so the
+    // 800 m look stays.)
     fogEndCapM: 800,
   },
   tokyo: {

@@ -1735,6 +1735,12 @@ const roadsideParcel = (
     const violation = worstViolation(lo, hi);
     if (!violation) {
       const mid = (lo + hi) / 2;
+      // A parcel is a one-sided strip, so a set block must name its single
+      // road-facing edge or `slotBlockBuildings` walls all four (and on a
+      // strip shallower than two footprints the far row stands inside the
+      // near one). The road sits at local +z when side is +1: the block's
+      // local z-axis is the NEGATED right normal the centre was offset along.
+      const buildingSet = londonBuildingSetFor(roadId, material);
       return {
         id,
         center: point(centerX + ux * mid, centerZ + uz * mid),
@@ -1744,6 +1750,9 @@ const roadsideParcel = (
         heightRange,
         density,
         material,
+        ...(buildingSet
+          ? { buildingSet, streetEdges: [side === 1 ? "+z" : "-z"] as const }
+          : {}),
       };
     }
     // Retreat only the end the violation is nearer to — the whole point.
@@ -1771,6 +1780,38 @@ const LONDON_RED_BRICK = "london-brick";
 const LONDON_PORTLAND_STONE = "london-portland-stone";
 /** The City's glass. The only material on the map that goes above 40 m. */
 const LONDON_GLASS_CURTAIN = "london-glass-curtain";
+
+/**
+ * Which instanced street-wall set dresses a parcel — London's equivalent of
+ * `NYC_ZONES`, decided by road first and facade material second: the three
+ * shopping spines take the high-street kit whatever their brick, the City's
+ * glass takes the towers, brick takes the terraces, stucco its white render.
+ * **Portland stone is the deliberate absence** — Whitehall's civic slabs stay
+ * on the procedural facade grid (the owner's one keep), as does the museum
+ * quarter, which never passes through `roadsideParcel` at all.
+ *
+ * `KINDS_BY_BUILDING_SET` in `streetAddresses.ts` must keep a row per set id
+ * named here: a block with a set skips `KINDS_BY_BLOCK_MATERIAL` entirely,
+ * and a set without a row silently re-zones its addresses to bare residences.
+ */
+const LONDON_HIGHSTREET_ROAD_IDS: ReadonlySet<string> = new Set([
+  "london-kings-road",
+  "london-oxford-street",
+  "london-upper-street",
+]);
+const LONDON_SET_BY_MATERIAL: Readonly<Record<string, string>> = {
+  [LONDON_RED_BRICK]: "london-terrace",
+  [LONDON_STOCK_BRICK]: "london-terrace",
+  [LONDON_STUCCO]: "london-stucco",
+  [LONDON_GLASS_CURTAIN]: "london-city",
+};
+const londonBuildingSetFor = (
+  roadId: string,
+  material: string,
+): string | undefined =>
+  LONDON_HIGHSTREET_ROAD_IDS.has(roadId) && material !== LONDON_GLASS_CURTAIN
+    ? "london-highstreet"
+    : LONDON_SET_BY_MATERIAL[material];
 
 const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // --- The King's Road: a continuous shopping street wall, both kerbs. -----
@@ -2002,16 +2043,16 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // Battersea triangle between Lombard Lane and the two south-bank spines,
   // the strip west of Warwick Road out to the world edge, and the Fitzrovia
   // hole between Oxford Street's and Euston Road's parcel rows. ------------
-  { id: "london-block-battersea-fab-a", center: point(-1120, -845), size: point(280, 36), headingDeg: -1.5, heightRange: [10, 17] as const, density: 0.7, material: LONDON_STOCK_BRICK },
-  { id: "london-block-battersea-fab-b", center: point(-1112, -893), size: point(264, 36), headingDeg: -2.5, heightRange: [9, 16] as const, density: 0.68, material: LONDON_RED_BRICK },
-  { id: "london-block-westmargin-a", center: point(-1330, -120), size: point(38, 300), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK },
-  { id: "london-block-westmargin-b", center: point(-1330, 170), size: point(38, 220), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK },
-  { id: "london-block-westmargin-c", center: point(-1290, -480), size: point(40, 160), heightRange: [10, 17] as const, density: 0.68, material: LONDON_RED_BRICK },
-  { id: "london-block-fitzrovia-a", center: point(975, 795), size: point(260, 36), heightRange: [14, 22] as const, density: 0.76, material: LONDON_STOCK_BRICK },
-  { id: "london-block-fitzrovia-b", center: point(975, 848), size: point(260, 36), heightRange: [14, 22] as const, density: 0.76, material: LONDON_RED_BRICK },
-  { id: "london-block-nw-fab-a", center: point(-1150, 700), size: point(34, 240), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK },
-  { id: "london-block-nw-fab-b", center: point(-1150, 420), size: point(34, 200), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK },
-  { id: "london-block-nw-fab-c", center: point(-1240, 810), size: point(180, 36), heightRange: [10, 17] as const, density: 0.68, material: LONDON_STUCCO },
+  { id: "london-block-battersea-fab-a", center: point(-1120, -845), size: point(280, 36), headingDeg: -1.5, heightRange: [10, 17] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-battersea-fab-b", center: point(-1112, -893), size: point(264, 36), headingDeg: -2.5, heightRange: [9, 16] as const, density: 0.68, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-westmargin-a", center: point(-1330, -120), size: point(38, 300), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-westmargin-b", center: point(-1330, 170), size: point(38, 220), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-westmargin-c", center: point(-1290, -480), size: point(40, 160), heightRange: [10, 17] as const, density: 0.68, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-fitzrovia-a", center: point(975, 795), size: point(260, 36), heightRange: [14, 22] as const, density: 0.76, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-fitzrovia-b", center: point(975, 848), size: point(260, 36), heightRange: [14, 22] as const, density: 0.76, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-nw-fab-a", center: point(-1150, 700), size: point(34, 240), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-nw-fab-b", center: point(-1150, 420), size: point(34, 200), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-nw-fab-c", center: point(-1240, 810), size: point(180, 36), heightRange: [10, 17] as const, density: 0.68, material: LONDON_STUCCO, buildingSet: "london-stucco" },
 ].filter((block): block is ProceduralBlock => block !== null);
 
 // ---------------------------------------------------------------------------
