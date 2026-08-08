@@ -1007,7 +1007,12 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-queen-gate-terraces",
         center: point(-136, 28),
-        size: point(42, 84),
+        // 42 -> 41.2 m wide: Queen's Gate's pavement widened to 3.4 m with the
+        // `paved` flip, and its outer walking edge now runs at x-114.8 — the
+        // old 42 m block put a solid terrace face 0.2 m from it. The 0.4 m
+        // trimmed off each side leaves the frontage flush behind both
+        // pavements (the quiet loop's inner edge is at x-157.4).
+        size: point(41.2, 84),
         heightRange: [12, 24],
         density: 0.72,
         material: "white-stucco",
@@ -1026,11 +1031,13 @@ export const LONDON_MAP_PACK: MapPack = {
       // Road's far-west run meets the loop's straight west leg. Both edges are
       // straight here, so unlike the mitered Queen's Gate corner a square
       // 23.3 m slab can sit flush against the pair of them.
-      // setbackM 18.6: the southbound lane sits at x-162.2 and the loop's west
-      // shoulder ends at x-169.1, putting the slab's east edge at x≈-169.16.
-      // distanceAlongM 17.09 does the same to the north: Cromwell's south
-      // shoulder ends at z-37.1 and the slab's north edge lands at z≈-37.15.
-      { id: "london-gas", kind: "gas_station", anchor: { laneId: "london-quiet-south-opposite", distanceAlongM: 17.09 }, footprint: point(12, 8), label: "Cromwell Fuel", setbackM: 18.6 },
+      // Both figures grew by the 1.9 m London's pavements gained when the map
+      // went `paved` (1.5 m dirt shoulder -> PAVED_SIDEWALK_WIDTH_M 3.4).
+      // setbackM 20.5: the southbound lane sits at x-162.2 and the loop's west
+      // pavement now ends at x-171.0, putting the slab's east edge at x≈-171.06.
+      // distanceAlongM 19.1 does the same to the north, clearing Cromwell's
+      // south pavement at z-39.0.
+      { id: "london-gas", kind: "gas_station", anchor: { laneId: "london-quiet-south-opposite", distanceAlongM: 19.1 }, footprint: point(12, 8), label: "Cromwell Fuel", setbackM: 20.5 },
       // Behind Queen's Gate, tucked into the terraces — the one frontage on
       // this map with room for it. Everything else is museum block (whose
       // forecourt has to stay open) or a venue lot, and a shop on the open
@@ -1039,7 +1046,8 @@ export const LONDON_MAP_PACK: MapPack = {
       // repair trade here is behind the terraces, not on Cromwell Road.
       // Anchored on the southbound lane so the driver's-right set-back throws
       // the lot west onto the terrace block rather than into the carriageway.
-      { id: "london-repair", kind: "repair_shop", anchor: { laneId: "london-queen-gate-south-1", distanceAlongM: 52 }, footprint: point(10, 8), label: "Queen's Gate Motors", setbackM: 11.9 },
+      // setbackM 13.8 = the old 11.9 plus the same 1.9 m of new pavement.
+      { id: "london-repair", kind: "repair_shop", anchor: { laneId: "london-queen-gate-south-1", distanceAlongM: 52 }, footprint: point(10, 8), label: "Queen's Gate Motors", setbackM: 13.8 },
     ],
     gigVenues: [
       { id: "london-v1", kind: "restaurant", anchor: { laneId: "london-cromwell-east-1", distanceAlongM: 44 }, footprint: point(14, 10), name: "Cromwell Cafe" },

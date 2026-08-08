@@ -243,7 +243,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
   },
   "london-south-kensington": {
     drawCount: 48,
-    facadeMeshFingerprint: "c189cd29",
+    // "c189cd29" -> "0d1c5374": `london-queen-gate-terraces` lost 0.8 m of
+    // width so its frontage clears the pavement London gained when the map
+    // went `paved`. Same block count and the same rectangles-driven draw
+    // count; the facade meshes on that one block moved 0.4 m each way.
+    facadeMeshFingerprint: "0d1c5374",
   },
   "tokyo-setagaya": {
     drawCount: 216,

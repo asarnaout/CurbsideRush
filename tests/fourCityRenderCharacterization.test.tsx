@@ -194,9 +194,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     survivingMaterialNamesFingerprint: "bbe0c887",
   },
   "london-south-kensington": {
-    totalMeshes: 908,
-    enabledMeshes: 908,
-    activeMeshes: 137,
+    // 908 -> 887: London became a `paved` city, and a paved map draws a
+    // concrete ground plane instead of the grass blade/patch layer — 21
+    // scatter meshes the map no longer has any use for. Materials are
+    // unchanged (the ground swaps texture, not material count) and so is the
+    // surviving-material fingerprint.
+    totalMeshes: 887,
+    enabledMeshes: 887,
+    activeMeshes: 132,
     materials: 115,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
