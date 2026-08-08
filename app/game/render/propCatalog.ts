@@ -1,6 +1,9 @@
 import type { TransformNode } from "@babylonjs/core";
 import { NYC_VENDORS } from "../buildingSets";
-import { LONDON_STREET_FURNITURE } from "../londonStreetFurniture";
+import {
+  LONDON_PARKED_CARS,
+  LONDON_STREET_FURNITURE,
+} from "../londonStreetFurniture";
 import type { GameCanvasPoint } from "../sessionContract";
 import { resolveMapVisualKey, type PropKindConfig } from "../visuals";
 
@@ -49,6 +52,9 @@ export const LONDON_FURNITURE_POINTS: readonly GameCanvasPoint[] = [
     ...LONDON_PLANTER_POSITIONS,
   ].map(([x, z]) => ({ x, z })),
   ...LONDON_STREET_FURNITURE.map((item) => item.position),
+  // Parked cars join the keep-out so the roadside scatter never grows a tree
+  // through a bonnet. They are knockable scenery, not solid obstacles.
+  ...LONDON_PARKED_CARS.map((car) => car.position),
 ];
 
 /**
@@ -93,6 +99,10 @@ export const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructibleProp
   "london-lamp": { radiusM: 0.32, speedScale: 0.74, damage: "medium", noun: "a lamp post", fall: "topple" },
   "london-bollard": { radiusM: 0.25, speedScale: 0.92, damage: "light", noun: "a bollard", fall: "topple" },
   "london-planter": { radiusM: 0.58, speedScale: 0.85, damage: "light", noun: "a planter", fall: "topple" },
+  // Kerbside parked cars are knockable, never solid — the lane-corridor and
+  // walkable-band collider tests reserve both, and a shunted car reads better
+  // than an invisible wall. Heavy to hit: half the player's speed survives.
+  "london-parked-car": { radiusM: 1.2, speedScale: 0.5, damage: "medium", noun: "a parked car", fall: "topple" },
 };
 
 export interface DestructiblePropPart {
@@ -260,8 +270,11 @@ export function roadsidePropKindsForMap(
       ];
     case "london":
       // Street lamps are hand-placed for South Kensington; scattered props
-      // stay clear of them via LONDON_FURNITURE_POINTS.
-      return [{ ...PROP_TREE, spacingM: 30 }, PROP_SIGN];
+      // stay clear of them via LONDON_FURNITURE_POINTS. 30 -> 20 m spacing
+      // with the street-life pass: the reference streets keep a plane tree
+      // every few doors, and the fog cap means the extra canopy is only ever
+      // drawn near the car.
+      return [{ ...PROP_TREE, spacingM: 20 }, PROP_SIGN];
     case "tokyo":
       return [
         {

@@ -104,8 +104,14 @@ describe("ambient traffic trace characterization", () => {
       // scenario's twelve cars to its own thirty-two — then Serpentine Road
       // through the royal park (with its Serpentine bridge) and the four-road
       // Notting Hill grid, which added ~30 lanes and reshaped the successor
-      // sets at six junctions.
-      "free-uk-london": "b7c28279",
+      // sets at six junctions — then three more double-decker gates on the
+      // high streets (append-only, but three more named gates shift every
+      // later NPC's gate assignment; the first cut duplicated two existing
+      // gate ids and phased a 1.999 m graze into the acceptance replay, so
+      // the final gates run Oxford east / Bishopsgate / King's Road plus a
+      // Notting Hill cab — the fourth gate's count change re-deals the
+      // recycler and is what actually dissolved the graze).
+      "free-uk-london": "e57b53ee",
       "free-jp": "997675a9",
       "free-eg": "eb350f99",
     });

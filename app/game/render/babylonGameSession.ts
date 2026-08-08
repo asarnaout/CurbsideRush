@@ -101,6 +101,7 @@ import {
   placeProp,
 } from "./venueProps";
 import { buildRegulatorySigns, buildSpeedLimitSigns } from "./londonLandmarks";
+import { LONDON_PARKED_CARS } from "../londonStreetFurniture";
 import {
   cityRenderRegistryFor,
   type CityRenderRegistryCtx,
@@ -2693,6 +2694,38 @@ export class BabylonGameSession {
       ]);
     }
     this.pendingVendors.length = 0;
+
+    // London's kerbside parked cars: the traffic fleet's own glbs through the
+    // same merged-master path as the vendors, one cheap instance each,
+    // knockable via the destructibles grid (never solid — the lane-corridor
+    // collider test reserves the kerbside, and a shunted car reads better
+    // than an invisible wall). The van's -90-degree authored yaw comes from
+    // VEHICLE_MODEL_REGISTRY's own row.
+    if (resolveMapVisualKey(this.options.mapPack.id) === "london") {
+      const PARKED_MODELS: Record<
+        string,
+        { readonly url: string; readonly scale: number; readonly yawOffset: number }
+      > = {
+        sedan: { url: "/models/vehicles/sedan.glb", scale: 1, yawOffset: 0 },
+        sports: { url: "/models/vehicles/sports.glb", scale: 1.08, yawOffset: 0 },
+        suv: { url: "/models/vehicles/suv.glb", scale: 1, yawOffset: 0 },
+        van: { url: "/models/vehicles/van.glb", scale: 0.85, yawOffset: -Math.PI / 2 },
+      };
+      for (const car of LONDON_PARKED_CARS) {
+        const model = PARKED_MODELS[car.model];
+        const master = this.getBuildingMaster(model.url);
+        if (!master) continue;
+        const inst = master.createInstance(`parked-${car.id}`);
+        inst.position.set(car.position.x, BUILDING_GROUND_LIFT, car.position.z);
+        inst.rotation.y = degreesToRadians(car.headingDeg) + model.yawOffset;
+        inst.scaling.setAll(model.scale);
+        inst.isPickable = false;
+        this.staticSceneryFreeze.push(inst);
+        this.destructibles?.register("london-parked-car", car.position.x, car.position.z, 1, [
+          { node: inst, isLightPool: false },
+        ]);
+      }
+    }
 
     this.buildParkPlanting();
   }

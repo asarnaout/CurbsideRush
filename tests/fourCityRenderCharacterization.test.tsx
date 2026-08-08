@@ -297,26 +297,50 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // street wall's 2_561 instances are pinned in
     // buildingLayerCharacterization, which real-loads the kits. Active/mirror
     // counts wobble a few meshes from the changed build order.
-    totalMeshes: 6_634,
-    enabledMeshes: 6_634,
-    activeMeshes: 574,
-    materials: 251,
+    // 6_634 -> 8_195: the street-life pass. Tree scatter tightened 30 -> 20 m
+    // (the reference streets keep a plane tree every few doors — most of the
+    // gain is trees, each 2-3 procedural parts), 42 solver-placed guardrail
+    // runs at the roundabout mouths, and 182 kerbside parked cars (one
+    // merged-master instance each; the four masters are the traffic fleet's
+    // own glbs). Active 574 -> 673: the spawn's streets got their trees.
+    // 8_195 -> 8_207 (active 673 -> 661): the play-test de-slop pass. The
+    // Chelsea green rotated to King's Road's own 8.2-degree bearing and grew
+    // from a floating 56 x 28 stamp into a 170 x 28 pavement-hugging lawn
+    // (the map's first rotated park); the Westbourne green grew likewise,
+    // and three Bayswater-band fabric rows closed the bare strip west of
+    // the royal park.
+    // 8_207 -> 8_073, 251 -> 254 materials: the museum-quarter environs.
+    // Ten parcels line Gloucester Road, Cromwell's far-west reach, the quiet
+    // loop, Kensington Road's south side and Cromwell West's south side —
+    // with three boulevard lawn strips between the west environs' kerbs and
+    // their set-back terraces (the owner's requested arrangement). Meshes
+    // NET DOWN because the strips' lawns displace roadside scatter while the
+    // new walls pack into wide facade boxes; the material adds are the strip
+    // lawns' planting variants.
+    totalMeshes: 8_073,
+    enabledMeshes: 8_073,
+    activeMeshes: 641,
+    materials: 254,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     // 102 -> 104 and 160 -> 170: the Kensington lawn and the drive's south
     // approach sit within the spawn's mirror candidate radius. 104 -> 97
-    // with the set zoning's build-order change.
-    mirrorCandidates: 97,
-    mirrorDrawn: 170,
+    // with the set zoning's build-order change; 97 -> 117 / 170 -> 172 with
+    // the denser tree scatter around the spawn; 117 -> 101 / 172 -> 175 as
+    // the quarter-environs walls and strips re-deal what stands nearest the
+    // spawn's mirrors.
+    mirrorCandidates: 101,
+    mirrorDrawn: 175,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
     // "4717fd7e" -> "ad7cd6ad": the Kensington lawn's greensward pair joins
     // the surviving-material set (void-fill pass). -> "92cde486": the
-    // Serpentine bridge's deck/parapet/lamp materials.
-    survivingMaterialNamesFingerprint: "92cde486",
+    // Serpentine bridge's deck/parapet/lamp materials. -> "5d87b546": the
+    // boulevard strips' planting variants (quarter-environs pass).
+    survivingMaterialNamesFingerprint: "5d87b546",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

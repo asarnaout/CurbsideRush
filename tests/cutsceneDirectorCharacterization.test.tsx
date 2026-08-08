@@ -45,7 +45,12 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
 
 import GameCanvas from "../app/game/GameCanvas";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
-import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/cities/london";
+// Mounted on Tokyo, the smallest map. This suite asserts cutscene behaviour,
+// not city specifics, and it lived on London only because London USED to be
+// the smallest — after the London visual overhaul (8k+ meshes) its build cost
+// tipped this suite past its 30 s budget under full-suite contention, exactly
+// the remount case the expansion plan reserved for the four small-map suites.
+import { TOKYO_FREE_DRIVE, TOKYO_MAP_PACK } from "../app/game/cities/tokyo";
 import type { GameRuntimeEvent } from "../app/game/sessionContract";
 
 function createFake2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
@@ -203,14 +208,14 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
   it(
     "stages a pullover: patrol rig present, actor becomes visible and moves",
     async () => {
-      const scenario = buildFreeDriveScenario(LONDON_FREE_DRIVE);
+      const scenario = buildFreeDriveScenario(TOKYO_FREE_DRIVE);
 
       const { rerender } = render(
         <GameCanvas
           trafficSide="left"
           steeringSide="right"
           scenario={scenario}
-          mapPack={LONDON_MAP_PACK}
+          mapPack={TOKYO_MAP_PACK}
           paused={false}
           onHudUpdate={() => {}}
         />,
@@ -232,7 +237,7 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
           trafficSide="left"
           steeringSide="right"
           scenario={scenario}
-          mapPack={LONDON_MAP_PACK}
+          mapPack={TOKYO_MAP_PACK}
           paused={false}
           cutscene={{ nonce: 1, kind: "pullover" }}
           onHudUpdate={() => {}}
@@ -272,7 +277,7 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
   it(
     "stages and completes a repair cutscene end to end, emitting its done event and clearing the rig",
     async () => {
-      const scenario = buildFreeDriveScenario(LONDON_FREE_DRIVE);
+      const scenario = buildFreeDriveScenario(TOKYO_FREE_DRIVE);
       const events: GameRuntimeEvent[] = [];
 
       const { rerender } = render(
@@ -280,7 +285,7 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
           trafficSide="left"
           steeringSide="right"
           scenario={scenario}
-          mapPack={LONDON_MAP_PACK}
+          mapPack={TOKYO_MAP_PACK}
           paused={false}
           onHudUpdate={() => {}}
           onEvent={(event) => events.push(event)}
@@ -301,7 +306,7 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
           trafficSide="left"
           steeringSide="right"
           scenario={scenario}
-          mapPack={LONDON_MAP_PACK}
+          mapPack={TOKYO_MAP_PACK}
           paused={false}
           cutscene={{ nonce: 1, kind: "repair" }}
           onHudUpdate={() => {}}
@@ -312,7 +317,7 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
       const staged = cutsceneDebug().active;
       expect(staged?.kind).toBe("repair");
       // Repair plays at the car's own wing, not a shop building (no map pack
-      // has a repair bay under LONDON_FREE_DRIVE's spawn), so it never has a
+      // has a repair bay under TOKYO_FREE_DRIVE's spawn), so it never has a
       // patrol rig either way.
       expect(staged?.patrolX).toBeNull();
 

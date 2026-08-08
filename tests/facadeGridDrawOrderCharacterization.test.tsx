@@ -265,8 +265,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // -> 4_104 with the void fill: fourteen new roadside parcels on the
     // audit's bare kerbs plus seven off-network fabric rects (151 -> 170
     // blocks). -> 4_512 with the Notting Hill grid's sixteen parcels and
-    // three north-west fabric rects (170 -> 187).
-    drawCount: 4_512,
+    // three north-west fabric rects (170 -> 187). -> 4_584 with the three
+    // Bayswater-band rows that close the bare strip west of the royal park
+    // (187 -> 190; the play-test's "tiny patch in a sea of concrete").
+    // -> 4_824 with the museum-quarter environs' ten parcels (190 -> 200).
+    drawCount: 4_824,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -282,8 +285,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // under this suite's unloaded-model mock the zoned blocks fall back to
     // the same facade rects, but through the building layer's deferred
     // closure, which lands them at a different point in the draw order —
-    // drawCount itself is unchanged).
-    facadeMeshFingerprint: "6aae7b1a",
+    // drawCount itself is unchanged) -> "07bc0342" (the Bayswater band rows
+    // and the two reworked greens) -> "691daf05" (the quarter environs).
+    facadeMeshFingerprint: "691daf05",
   },
   "tokyo-setagaya": {
     drawCount: 216,

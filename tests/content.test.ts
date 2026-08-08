@@ -1234,7 +1234,10 @@ describe("SideSwap content", () => {
             {
               x: park.center.x,
               z: park.center.z,
-              ux: Math.sin(yawRad),
+              // Park convention (parkLayouts toWorld / the lawn's
+              // rotation.y): local +z maps to (-sin, cos). The sign only
+              // started mattering with the first rotated park.
+              ux: -Math.sin(yawRad),
               uz: Math.cos(yawRad),
               halfU: park.size.z / 2,
               halfV: park.size.x / 2,
@@ -1307,7 +1310,8 @@ describe("SideSwap content", () => {
           const overlapM = orientedBoxOverlapM(box, {
             x: park.center.x,
             z: park.center.z,
-            ux: Math.sin(yawRad),
+            // Same park-convention sign as the venue check above.
+            ux: -Math.sin(yawRad),
             uz: Math.cos(yawRad),
             halfU: park.size.z / 2,
             halfV: park.size.x / 2,
