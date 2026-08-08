@@ -274,8 +274,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // existing ones re-spanned so every ribbon reaches its junctions
     // (235 -> 237 blocks). -> 6_144 with the emptiness round's west fills
     // (237 -> 253 blocks: eleven bare-kerb parcels, the quiet loop's island,
-    // the museums' west pocket and four corner fabric rects).
-    drawCount: 6_144,
+    // the museums' west pocket and four corner fabric rects). -> 6_486 with
+    // the eastern half (253 -> 267 blocks).
+    drawCount: 6_486,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -299,8 +300,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // bands took the boulevard set-back, and the corner parcels on the
     // streets that tee into those ribbons retreated behind them) ->
     // "1a7bec1f" (the west fills, plus Royal Hospital Road's south band
-    // deepened 32 -> 58 m to close the embankment bend).
-    facadeMeshFingerprint: "1a7bec1f",
+    // deepened 32 -> 58 m to close the embankment bend) -> "95fb04ad" (the
+    // eastern fills, and Victoria Street's west band re-authored onto a
+    // single segment after the first cut chorded through its own 70-degree
+    // bend).
+    facadeMeshFingerprint: "95fb04ad",
   },
   "tokyo-setagaya": {
     drawCount: 216,

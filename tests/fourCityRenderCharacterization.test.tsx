@@ -344,10 +344,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // added: a parcel's instanced street wall replaces the loose roadside
     // scatter that stood on the bare ground before it, and the museums' four
     // forecourt lawns do the same over a wider area than they cost.
-    totalMeshes: 7_144,
-    enabledMeshes: 7_144,
-    activeMeshes: 604,
-    materials: 264,
+    // 7_144 -> 7_166 (active 604 -> 606, 264 -> 267 materials): the eastern
+    // half of the sweep. Fourteen more blocks, and three new lawns — the
+    // V&A's north forecourt plus St James's and the palace garden, whose
+    // greensward planting and derived walls are most of the mesh add.
+    totalMeshes: 7_166,
+    enabledMeshes: 7_166,
+    activeMeshes: 606,
+    materials: 267,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -361,9 +365,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // Queen's Gate terraces' new south face re-deal what stands nearest the
     // spawn, which sits on the quiet loop one street away; 84 -> 35 / 181 ->
     // 186 once the quiet loop's island fills the block the spawn's mirrors
-    // look straight into, which occludes most of what used to be candidates.
+    // look straight into, which occludes most of what used to be candidates;
+    // 186 -> 189 with the eastern fills.
     mirrorCandidates: 35,
-    mirrorDrawn: 186,
+    mirrorDrawn: 189,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -374,8 +379,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // boulevard strips' planting variants (quarter-environs pass). ->
     // "589935fd": the coverage sweep's fills and the St James's ribbon. ->
     // "b15509ee": the five new kerb greens' planting variants. ->
-    // "49bcd9ee": the museums' four forecourt lawns.
-    survivingMaterialNamesFingerprint: "49bcd9ee",
+    // "49bcd9ee": the museums' four forecourt lawns. -> "7afcaa41": St
+    // James's and the palace garden, the map's two new walled greenswards.
+    survivingMaterialNamesFingerprint: "7afcaa41",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

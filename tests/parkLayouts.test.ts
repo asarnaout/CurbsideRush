@@ -91,7 +91,12 @@ describe("park layouts", () => {
     // four forecourt lawns, the one place on this map where the answer to a
     // bare kerb is planting rather than a street wall (the buildings behind
     // are already the frontage, and they are landmarks, not parcels).
-    expect(parkCases().length).toBe(43);
+    // 43 -> 46: the V&A's north forecourt, and the two greens the eastern
+    // half of that sweep chose over a street wall — St James's between The
+    // Mall's civic stone and Whitehall's, and the palace garden. Both are
+    // walled greenswards: the rule that an enclosed block reads as one thing
+    // applies to a 30,000 m2 void as much as to a roundabout island.
+    expect(parkCases().length).toBe(46);
   });
 
   it("is deterministic — two builds are identical", () => {
