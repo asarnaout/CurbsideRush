@@ -83,8 +83,12 @@ describe("park layouts", () => {
     // Gloucester Road / Cromwell's far-west reach and the set-back terraces
     // behind them (the owner's requested arrangement for that corner).
     // 33 -> 34: the St James's ribbon along The Mall's south kerb, the same
-    // boulevard grammar at the palace.
-    expect(parkCases().length).toBe(34);
+    // boulevard grammar at the palace. 34 -> 39: the round that made every
+    // kerb green run its road end to end — the Cromwell ribbon's east half,
+    // Notting Hill Gate's south ribbon in two segment-aligned rects, The
+    // Mall's ribbon split into its own two, and the pocket that closes the
+    // Gloucester / Kensington / West Carriage corner.
+    expect(parkCases().length).toBe(39);
   });
 
   it("is deterministic — two builds are identical", () => {

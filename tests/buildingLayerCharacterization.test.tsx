@@ -243,8 +243,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // baked lettering, which the Kay london-shop model does not have.
     // 2_561 -> 2_698: the Bayswater-band fabric rows wall all four edges.
     // -> 2_791: the museum-quarter environs' ten zoned parcels. -> 2_971:
-    // the coverage sweep's fills (235 blocks all told).
-    buildingInstanceCount: 2_971,
+    // the coverage sweep's fills (235 blocks all told). -> 2_979: the kerb
+    // greens' backing rows — one new terrace band behind the Cromwell
+    // ribbon's west half, one new Mall band, and the ends of five existing
+    // bands moved so the ribbons could reach their junctions.
+    buildingInstanceCount: 2_979,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

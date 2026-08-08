@@ -332,10 +332,17 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // junction and butt-join at the Gloucester x Cromwell corner; the
     // Kensington lawn stretches to its full road span. Meshes DROP because
     // the grown lawns displace hundreds of roadside scatter placements.
-    totalMeshes: 7_288,
-    enabledMeshes: 7_288,
-    activeMeshes: 629,
-    materials: 255,
+    // 7_288 -> 7_282 (active 629 -> 635, 255 -> 260 materials): the kerb
+    // greens complete their roads. Five new ribbons — Cromwell's east half,
+    // Notting Hill Gate's south side in two segment-aligned rects, The Mall's
+    // split into its own two, and the Gloucester x Kensington corner pocket —
+    // with backing rows behind them. Same trade as the pass above: lawn
+    // displaces roadside scatter, so meshes edge DOWN while the materials
+    // each new green's planting variants need go up.
+    totalMeshes: 7_282,
+    enabledMeshes: 7_282,
+    activeMeshes: 635,
+    materials: 260,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -344,9 +351,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // with the set zoning's build-order change; 97 -> 117 / 170 -> 172 with
     // the denser tree scatter around the spawn; 117 -> 101 / 172 -> 175 as
     // the quarter-environs walls and strips re-deal what stands nearest the
-    // spawn's mirrors; 101 -> 95 / 175 -> 176 with the coverage-sweep fills.
-    mirrorCandidates: 95,
-    mirrorDrawn: 176,
+    // spawn's mirrors; 101 -> 95 / 175 -> 176 with the coverage-sweep fills;
+    // 95 -> 84 / 176 -> 181 as the Cromwell ribbon's east half and the
+    // Queen's Gate terraces' new south face re-deal what stands nearest the
+    // spawn, which sits on the quiet loop one street away.
+    mirrorCandidates: 84,
+    mirrorDrawn: 181,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -355,8 +365,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the surviving-material set (void-fill pass). -> "92cde486": the
     // Serpentine bridge's deck/parapet/lamp materials. -> "5d87b546": the
     // boulevard strips' planting variants (quarter-environs pass). ->
-    // "589935fd": the coverage sweep's fills and the St James's ribbon.
-    survivingMaterialNamesFingerprint: "589935fd",
+    // "589935fd": the coverage sweep's fills and the St James's ribbon. ->
+    // "b15509ee": the five new kerb greens' planting variants.
+    survivingMaterialNamesFingerprint: "b15509ee",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
