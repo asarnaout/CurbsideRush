@@ -42,6 +42,18 @@ consumer permutation that preserves each one's draw count is invisible to a
 raw-sequence recording (an LCG's output depends on the seed and the count of
 draws so far, never on which call site asks).
 
+## Fog is the draw-distance budget
+
+A day map's fog range comes from its world size, and a palette that wants a
+shorter atmosphere than its geography caps it with `fogEndCapM` — the camera's
+far plane follows. It is the cheapest lever in the renderer and the two big
+day maps both pull it: Cairo's dust haze at 650 m, London's at 800 m.
+
+Measured on London, capping it took **412 draw calls to 171** and active
+meshes from 984 to 569, with no change to what the map contains. Its tree and
+thicket layer alone is 45% of its mesh count, and most of that is a kilometre
+away behind haze.
+
 ## London's landmarks share one material trio
 
 Every landmark in `render/londonLandmarks.ts` dresses itself with the same

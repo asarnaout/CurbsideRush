@@ -2557,9 +2557,9 @@ export const LONDON_MAP_PACK: MapPack = {
   // city — and patrols with them, since a patrol is one ambient car in five.
   // The core clamps at 32.
   ambientTraffic: { desktop: 32, touch: 16 },
-  name: "London — South Kensington Museum Quarter",
+  name: "London — Kensington to the City",
   areaLabel:
-    "Queen's Gate, Cromwell Road, Exhibition Road and Thurloe Place",
+    "Kensington, Chelsea, Westminster, the South Bank and the City",
   countryIds: ["uk"],
   // The quarter's names, plus every generated road's own. Naming is
   // many-to-one here: Cromwell Road and Exhibition Road are each modelled as
