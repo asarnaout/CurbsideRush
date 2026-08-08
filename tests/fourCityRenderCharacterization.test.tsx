@@ -173,8 +173,11 @@ const EXPECTED_MIRROR_MESH_NAMES = [
 
 const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
   "nyc-upper-west-side": {
-    totalMeshes: 23_000,
-    enabledMeshes: 23_000,
+    // +4 over the pre-#313 23_000: one kerbside guardrail per side on each of
+    // the two drivable bridges. Nothing else moved — same materials, same
+    // fingerprint — because the rest of that change relocates existing meshes.
+    totalMeshes: 23_004,
+    enabledMeshes: 23_004,
     activeMeshes: 846,
     materials: 188,
     drawCallsPerFrame: 0,

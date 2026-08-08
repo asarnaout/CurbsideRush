@@ -88,6 +88,27 @@ export type MapVisualKey = "nyc" | "london" | "tokyo" | "cairo";
  */
 export const PAVED_SIDEWALK_WIDTH_M = 3.4;
 
+/**
+ * What a road surface's pavement band is worth when it authors no
+ * `sidewalkWidthM` of its own.
+ *
+ * Every consumer that measures out from a carriageway centreline has to agree
+ * on this, because they are describing one physical kerb from different
+ * angles: the drawn shoulder strip, the walkable pavement rails, the venue
+ * setback clamp, and a drivable bridge's parapet — which exists twice over, as
+ * a mesh in `render/` and as a collider in `simulationAdapter`. A private copy
+ * that resolved the fallback as `?? 0` is what put both NYC bridges' visible
+ * rail 3.4 m inboard of the wall the car actually hits.
+ */
+export function defaultSidewalkWidthM(mapPack: {
+  readonly id: string;
+  readonly geometry: { readonly shoulderWidth?: number };
+}): number {
+  return resolveMapVisualPalette(mapPack.id).paved
+    ? PAVED_SIDEWALK_WIDTH_M
+    : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
+}
+
 // Warm cinematic low-poly palette. Each sky is a saturated blue zenith that
 // warms into a COLORED horizon (retiring the old near-white haze that washed
 // every map out); fog matches the horizon so distance reads as atmosphere;
