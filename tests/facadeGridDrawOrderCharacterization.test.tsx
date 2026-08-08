@@ -251,7 +251,21 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // -> 2_751 with the West End, Westminster and the park's frontage, ->
     // 3_633 with the City and the north east, -> 3_606 once the
     // Knightsbridge parcel gave way to the department store standing on it.
-    drawCount: 3_606,
+    // -> 3_582 with the parcel-side truth pass: `roadsideParcel`'s `side` is
+    // driver's-right-of-authoring-direction, but ~30 call sites read it as a
+    // compass (inverted on north/west-authored roads) — seven parcels stood
+    // inside parks. One parcel retired outright (Battersea Park now fronts
+    // its road), one re-spanned west of the park, the rest swapped kerbs.
+    // -> 3_654 with per-end parcel trimming: the shrink loop used to be
+    // symmetric about the segment midpoint, so clearing a tight junction at
+    // one end threw away the same length at the clear end. Ends now retreat
+    // independently; three parcels that could never clear symmetrically
+    // survive (148 -> 151 blocks) and every junction-adjacent parcel grew
+    // back toward its clear end.
+    // -> 4_104 with the void fill: fourteen new roadside parcels on the
+    // audit's bare kerbs plus seven off-network fabric rects (151 -> 170
+    // blocks).
+    drawCount: 4_104,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -259,8 +273,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // moving the parcel beside it) -> "3b66a749" (the West End) ->
     // "e2618729" (the City and the north east) -> "42a3be46" (the
     // department store's parcel) -> "2701a59f" (the 41 venue and service lots
-    // carved out of the blocks behind them).
-    facadeMeshFingerprint: "2701a59f",
+    // carved out of the blocks behind them) -> "43cb7474" (the parcel-side
+    // truth pass moved ~30 parcels to their id-named kerbs) -> "19732aee"
+    // (per-end trimming re-centred nearly every junction-adjacent parcel)
+    // -> "20bc11a6" (the void-fill's 19 new blocks).
+    facadeMeshFingerprint: "20bc11a6",
   },
   "tokyo-setagaya": {
     drawCount: 216,

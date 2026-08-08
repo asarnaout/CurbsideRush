@@ -258,20 +258,51 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the far half of the city stops being drawn. Measured in-browser that
     // is 412 draw calls down to 171 — the map's tree and thicket layer alone
     // is 45% of its meshes, and most of it is a kilometre away.
-    totalMeshes: 6_358,
-    enabledMeshes: 6_358,
-    activeMeshes: 569,
-    materials: 243,
+    //
+    // 6_358 -> 6_508 (and 569 -> 567 active): the parcel-side truth pass.
+    // `roadsideParcel`'s `side` is driver's-right-of-authoring-direction and
+    // ~30 call sites read it as a compass, so on north/west-authored roads
+    // parcels stood on the wrong kerb — seven of them inside parks. The fix
+    // RAISES the mesh count with one parcel fewer: relocated single-sided
+    // parcels (Park Lane's three, West Carriage Drive's, Great Portland's...)
+    // landed on kerbs with fewer junction constraints and derived longer
+    // street walls, which is exactly the point.
+    //
+    // 6_508 -> 6_416 (and 148 -> 151 blocks): per-end parcel trimming. Ends
+    // retreat independently instead of symmetrically about the midpoint, so
+    // junction aprons stop paying double; three parcels that could never
+    // clear symmetrically now survive. Total meshes DIP slightly while the
+    // street wall grows because the facade grid re-packs longer runs into
+    // wider, fewer boxes.
+    //
+    // 6_416 -> 6_361, 243 -> 245 materials, 151 -> 170 blocks: the void
+    // fill. Fourteen new roadside parcels on the audit's bare kerbs, seven
+    // off-network fabric rects (Battersea triangle, the strip west of
+    // Warwick Road, the Fitzrovia hole), the Kensington lawn (a walled
+    // greensward closing the 70 m concrete band under the royal park) and a
+    // Fitzrovia pocket green; Battersea Park deepened 44 -> 65 m to meet
+    // both its roads. Meshes NET DOWN because the deepened Battersea lawn
+    // swallowed a parcel band's worth of facade boxes while the new blocks
+    // pack into fewer, wider ones; the two new materials are the lawn
+    // pair the Kensington greensward mints.
+    totalMeshes: 6_361,
+    enabledMeshes: 6_361,
+    activeMeshes: 533,
+    materials: 245,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     mirrorCandidates: 102,
-    mirrorDrawn: 158,
+    // 158 -> 160: the relocated Queen's-Gate-adjacent parcels put two more
+    // facade meshes inside the mirror's candidate radius at spawn.
+    mirrorDrawn: 160,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "4717fd7e",
+    // "4717fd7e" -> "ad7cd6ad": the Kensington lawn's greensward pair joins
+    // the surviving-material set (void-fill pass).
+    survivingMaterialNamesFingerprint: "ad7cd6ad",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

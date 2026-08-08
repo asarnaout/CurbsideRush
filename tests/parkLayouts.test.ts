@@ -68,14 +68,17 @@ const parkCases = (): readonly ParkCase[] => {
 
 describe("park layouts", () => {
   it("covers every authored park on every shipped map", () => {
-    // Twenty-six — NYC's three original (Central Park now split into four
+    // Twenty-eight — NYC's three original (Central Park now split into four
     // segments, net +3) plus Riverside and Joan of Arc plus the three-part
     // East River Esplanade plus Queensbridge Green, three Tokyo, two Cairo,
     // and London's Exhibition Road strip, its two garden squares and
     // Battersea Park, the royal park, and the islands of all six
     // roundabouts. Pinned so adding a park is a deliberate act, not a
-    // surprise.
-    expect(parkCases().length).toBe(26);
+    // surprise. 26 -> 28: the Kensington lawn (the walled greensward that
+    // closes the 70 m concrete band between Kensington Road and the royal
+    // park) and the Fitzrovia pocket green in the infill between Oxford
+    // Street's and Euston Road's parcel rows.
+    expect(parkCases().length).toBe(28);
   });
 
   it("is deterministic — two builds are identical", () => {
