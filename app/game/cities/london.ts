@@ -1518,16 +1518,23 @@ const MIN_PARCEL_HALF_LENGTH_M = 13;
 /**
  * A parcel running alongside one side of one road segment. `side` is the sign
  * of the road's right-hand normal, so +1 is the kerb on the driver's right
- * travelling `from`->`to` and -1 the other one.
+ * travelling `from`->`to` and -1 the other one — it is NOT a compass. On a
+ * road authored northward or westward the compass reading inverts, which is
+ * exactly how seven parcels once shipped standing inside parks; the
+ * block-vs-park invariant in `tests/content.test.ts` now holds the line.
  *
- * **The parcel's length is derived, not authored.** London's streets meet at
- * whatever angle they meet at, and on the inside of a shallow corner a deep
- * parcel's far corner swings a long way past the junction — far enough, on
- * Smith Street, to land on the other side of the King's Road. So the parcel
- * starts as long as its segment and is shortened until all four corners clear
- * every *other* road's carriageway and pavement. A parcel that cannot reach
- * `MIN_PARCEL_HALF_LENGTH_M` is dropped rather than shipped as a slab in the
- * road; the caller filters those out.
+ * **The parcel's length is derived, not authored, and each end is trimmed
+ * independently.** London's streets meet at whatever angle they meet at, and
+ * on the inside of a shallow corner a deep parcel's far corner swings a long
+ * way past the junction — far enough, on Smith Street, to land on the other
+ * side of the King's Road. The parcel starts as long as its segment and the
+ * end nearer each violation retreats a metre at a time until every foreign
+ * road's carriageway and pavement is clear. The first version shrank
+ * symmetrically about the segment midpoint, which threw away exactly as much
+ * street wall at the clear end as the tight corner demanded at the other —
+ * doubling every junction's bare apron for no reason. A parcel that cannot
+ * keep `MIN_PARCEL_HALF_LENGTH_M` a side is dropped rather than shipped as a
+ * slab in the road; the caller filters those out.
  *
  * `headingDeg` is the block-local yaw the collider builder and the facade grid
  * both read: local +x maps to world (cos, -sin), so a block whose long axis
@@ -1565,50 +1572,61 @@ const roadsideParcel = (
         PARCEL_FOREIGN_ROAD_CLEARANCE_M,
     }));
   /**
-   * Distance from a road segment to the parcel rectangle, both expressed in
-   * the parcel's own frame. Testing the four corners instead is not enough
-   * and was the first thing tried: a parcel whose long side straddles a
-   * crossing road has both corners comfortably clear of it, one on each side.
+   * Distance from a road segment to the parcel span [lo, hi] × ±depth/2, all
+   * in the parcel's own frame (u along the road from the segment midpoint),
+   * plus the u of the contact so the caller knows WHICH end to trim. Testing
+   * the four corners instead is not enough and was the first thing tried: a
+   * parcel whose long side straddles a crossing road has both corners
+   * comfortably clear of it, one on each side.
    */
-  const segmentToRect = (
+  const segmentToSpan = (
     a: WorldPoint,
     b: WorldPoint,
-    halfLength: number,
-  ): number => {
+    lo: number,
+    hi: number,
+  ): { readonly d: number; readonly u: number } => {
     const local = (p: WorldPoint) => ({
       u: (p.x - centerX) * ux + (p.z - centerZ) * uz,
       v: (p.x - centerX) * rightX + (p.z - centerZ) * rightZ,
     });
     const halfDepth = depthM / 2;
+    const clampU = (u: number) => Math.max(lo, Math.min(hi, u));
     const first = local(a);
     const second = local(b);
-    // Separating-axis test on the rect's own axes and the segment's normal.
     const inside = (p: { u: number; v: number }) =>
-      Math.abs(p.u) <= halfLength && Math.abs(p.v) <= halfDepth;
-    if (inside(first) || inside(second)) return 0;
+      p.u >= lo && p.u <= hi && Math.abs(p.v) <= halfDepth;
+    if (inside(first)) return { d: 0, u: first.u };
+    if (inside(second)) return { d: 0, u: second.u };
     const du = second.u - first.u;
     const dv = second.v - first.v;
     const overlapsU =
-      Math.min(first.u, second.u) <= halfLength &&
-      Math.max(first.u, second.u) >= -halfLength;
+      Math.min(first.u, second.u) <= hi && Math.max(first.u, second.u) >= lo;
     const overlapsV =
       Math.min(first.v, second.v) <= halfDepth &&
       Math.max(first.v, second.v) >= -halfDepth;
     if (overlapsU && overlapsV) {
+      // Separating-axis test on the segment's own normal: express the span as
+      // its centre + half-extents so the corner-spread arithmetic still holds.
+      const mid = (lo + hi) / 2;
+      const halfLength = (hi - lo) / 2;
       const normalLength = Math.hypot(du, dv);
       if (normalLength > 1e-9) {
         const nu = dv / normalLength;
         const nv = -du / normalLength;
-        const offset = first.u * nu + first.v * nv;
+        const offset = (first.u - mid) * nu + first.v * nv;
         const spread = Math.abs(nu) * halfLength + Math.abs(nv) * halfDepth;
-        if (Math.abs(offset) <= spread) return 0;
+        if (Math.abs(offset) <= spread) {
+          return { d: 0, u: clampU((first.u + second.u) / 2) };
+        }
       }
     }
-    const pointToRect = (p: { u: number; v: number }) =>
-      Math.hypot(
-        Math.max(0, Math.abs(p.u) - halfLength),
+    const pointToSpan = (p: { u: number; v: number }) => ({
+      d: Math.hypot(
+        Math.max(0, Math.max(lo - p.u, p.u - hi)),
         Math.max(0, Math.abs(p.v) - halfDepth),
-      );
+      ),
+      u: clampU(p.u),
+    });
     const cornerToSegment = (cu: number, cv: number) => {
       const lengthSquared = du * du + dv * dv;
       const t =
@@ -1618,45 +1636,70 @@ const roadsideParcel = (
               Math.min(1, ((cu - first.u) * du + (cv - first.v) * dv) / lengthSquared),
             )
           : 0;
-      return Math.hypot(cu - (first.u + du * t), cv - (first.v + dv * t));
+      return {
+        d: Math.hypot(cu - (first.u + du * t), cv - (first.v + dv * t)),
+        u: cu,
+      };
     };
-    return Math.min(
-      pointToRect(first),
-      pointToRect(second),
-      cornerToSegment(halfLength, halfDepth),
-      cornerToSegment(halfLength, -halfDepth),
-      cornerToSegment(-halfLength, halfDepth),
-      cornerToSegment(-halfLength, -halfDepth),
-    );
+    const candidates = [
+      pointToSpan(first),
+      pointToSpan(second),
+      cornerToSegment(hi, halfDepth),
+      cornerToSegment(hi, -halfDepth),
+      cornerToSegment(lo, halfDepth),
+      cornerToSegment(lo, -halfDepth),
+    ];
+    let best = candidates[0];
+    for (const candidate of candidates) {
+      if (candidate.d < best.d) best = candidate;
+    }
+    return best;
   };
-  const clears = (halfLength: number): boolean =>
-    foreign.every((road) => {
+  /** Nearest violating contact across every foreign road, or null if clear. */
+  const worstViolation = (
+    lo: number,
+    hi: number,
+  ): { readonly u: number } | null => {
+    let worst: { margin: number; u: number } | null = null;
+    for (const road of foreign) {
       for (let index = 1; index < road.centerline.length; index += 1) {
-        if (
-          segmentToRect(road.centerline[index - 1], road.centerline[index], halfLength) <
-          road.reach
-        ) {
-          return false;
+        const { d, u } = segmentToSpan(
+          road.centerline[index - 1],
+          road.centerline[index],
+          lo,
+          hi,
+        );
+        const margin = d - road.reach;
+        if (margin < 0 && (!worst || margin < worst.margin)) {
+          worst = { margin, u };
         }
       }
-      return true;
-    });
-  for (
-    let halfLength = length / 2 - 12;
-    halfLength >= MIN_PARCEL_HALF_LENGTH_M;
-    halfLength -= 1
-  ) {
-    if (clears(halfLength)) {
+    }
+    return worst;
+  };
+  let lo = -(length / 2 - 12);
+  let hi = length / 2 - 12;
+  let guard = 0;
+  while (hi - lo >= MIN_PARCEL_HALF_LENGTH_M * 2 && guard++ < 2048) {
+    const violation = worstViolation(lo, hi);
+    if (!violation) {
+      const mid = (lo + hi) / 2;
       return {
         id,
-        center: point(centerX, centerZ),
-        size: point(halfLength * 2, depthM),
+        center: point(centerX + ux * mid, centerZ + uz * mid),
+        size: point(hi - lo, depthM),
         headingDeg: (Math.atan2(-uz, ux) * 180) / Math.PI,
         frontageAxis: "z",
         heightRange,
         density,
         material,
       };
+    }
+    // Retreat only the end the violation is nearer to — the whole point.
+    if (violation.u >= (lo + hi) / 2) {
+      hi -= 1;
+    } else {
+      lo += 1;
     }
   }
   return null;

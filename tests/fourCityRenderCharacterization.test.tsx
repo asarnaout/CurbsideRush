@@ -267,9 +267,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // parcels (Park Lane's three, West Carriage Drive's, Great Portland's...)
     // landed on kerbs with fewer junction constraints and derived longer
     // street walls, which is exactly the point.
-    totalMeshes: 6_508,
-    enabledMeshes: 6_508,
-    activeMeshes: 567,
+    //
+    // 6_508 -> 6_416 (and 148 -> 151 blocks): per-end parcel trimming. Ends
+    // retreat independently instead of symmetrically about the midpoint, so
+    // junction aprons stop paying double; three parcels that could never
+    // clear symmetrically now survive. Total meshes DIP slightly while the
+    // street wall grows because the facade grid re-packs longer runs into
+    // wider, fewer boxes.
+    totalMeshes: 6_416,
+    enabledMeshes: 6_416,
+    activeMeshes: 564,
     materials: 243,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

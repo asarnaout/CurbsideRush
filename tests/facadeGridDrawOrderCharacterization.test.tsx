@@ -256,7 +256,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // compass (inverted on north/west-authored roads) — seven parcels stood
     // inside parks. One parcel retired outright (Battersea Park now fronts
     // its road), one re-spanned west of the park, the rest swapped kerbs.
-    drawCount: 3_582,
+    // -> 3_654 with per-end parcel trimming: the shrink loop used to be
+    // symmetric about the segment midpoint, so clearing a tight junction at
+    // one end threw away the same length at the clear end. Ends now retreat
+    // independently; three parcels that could never clear symmetrically
+    // survive (148 -> 151 blocks) and every junction-adjacent parcel grew
+    // back toward its clear end.
+    drawCount: 3_654,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -265,8 +271,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // "e2618729" (the City and the north east) -> "42a3be46" (the
     // department store's parcel) -> "2701a59f" (the 41 venue and service lots
     // carved out of the blocks behind them) -> "43cb7474" (the parcel-side
-    // truth pass moved ~30 parcels to their id-named kerbs).
-    facadeMeshFingerprint: "43cb7474",
+    // truth pass moved ~30 parcels to their id-named kerbs) -> "19732aee"
+    // (per-end trimming re-centred nearly every junction-adjacent parcel).
+    facadeMeshFingerprint: "19732aee",
   },
   "tokyo-setagaya": {
     drawCount: 216,
