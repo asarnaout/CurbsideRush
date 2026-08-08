@@ -63,6 +63,22 @@ rule is a **veto**, and it is what keeps `staticColliders.test.ts`'s "every lane
 corridor clear" and "never walls off the walkable pavement" green with no
 hand-listed exceptions.
 
+**A park tucked to its pavements needs `wallsFollowRoadEdges`.** The blanket
+1.8 m veto deletes a whole road-facing edge for any park whose rect sits at the
+kerb, and it does so silently. London's royal park shipped with no west wall
+at all — 9.3 m off West Carriage Drive's centreline against a 9.7 m threshold
+— and its north and east walls survived only because their distance came out at
+exactly 10.4 against a threshold of exactly 10.4 and the comparison is a strict
+`<`. Four walls should not hang on a float tie. The opt-in clears each road's
+**own** pavement band (`sidewalkWidthM`, not the map default — Serpentine
+Road's is 2.4 m against London's 3.4) by the 0.3 m `staticColliders` allows
+plus the wall's half thickness. A road alongside the edge then cannot delete
+it; a road crossing it still opens a gap exactly as wide as its own pavements,
+so the wall **ends where the sidewalk begins** instead of floating short of it.
+Opted-in runs also bisect for their true end rather than stopping at the last
+whole-metre sample. Leave it off for a park held well back: the blanket veto is
+the safer default and every other city relies on it.
+
 **"Has an opening" is the wrong invariant.** Central Park's first wall was a
 single unbroken 2,897 m run down its western edge with a gate at each far end —
 enterable, 2.9 km apart. Long parks now get crossings every
@@ -141,12 +157,11 @@ near 1 plants saplings — which is exactly what the first pass shipped.
 `natureCatalog`'s scales are measured, and `tests/natureAssets.test.ts` pins the
 resulting world heights per role.
 
-**Planting must stay out of `buildingModelUrls`.** Both consumers of that list
-treat its contents as buildings, and `BuildingLayer`'s night-glow pass gives
-every material in it a warm sodium self-glow — which turned Central Park's trees tan.
-`natureModelUrls` is a separate field that rides the same preload and nothing
-else. The same reasoning gates the Cairo boat models on the map rather than on
-"has water", now that NYC has a lake.
+**Planting must stay out of `buildingModelUrls`.** Both consumers treat that
+list as buildings, and `BuildingLayer`'s night-glow pass gives every material in
+it a warm sodium self-glow — which turned Central Park's trees tan.
+`natureModelUrls` rides the same preload and nothing else; the same reasoning
+gates the Cairo boat models on the map rather than on "has water".
 
 Scatter `variants` has to be wide enough to reach the whole species pool:
 `variant % pool.length` at 3 variants never got past the first three species,
@@ -184,7 +199,18 @@ like other small furniture, and so a torii stays drivable *through*.
 `resolveParkStyle` reads the landmark id first and its proportions second, so a
 named `jp-temple-green` stays temple grounds at 24x28 m where the size gate
 alone would call it a token green. `ProceduralLandmark.parkStyle` overrules
-both. `pocket_green` and `civic_plaza` are the two that must never grow a solid
+both — Pembroke Crescent's island is three 186x146-and-smaller tiles that would
+each derive as walled greenswards, and a stepped wall following the inside of a
+crescent reads as broken, so every tile is pinned `pocket_green`.
+
+**An island enclosed by a road loop is one lawn or none.** A small green
+floating in it reads as "a random strip of green surrounded by concrete" — the
+play-test's words for an 80x28 stamp in a 250x195 island. Tile the whole thing
+with butt-joined rects, and let each tile run out to the surrounding roads'
+**centrelines**: lawn draws at y0.02, under the pavement band at 0.045 and the
+carriageway at 0.07, so the visible edge is the kerb itself and there is no
+fringe of bare ground to leave. Past the centreline it would surface on the far
+side, which is the limit to solve against. `pocket_green` and `civic_plaza` are the two that must never grow a solid
 perimeter: London's garden squares are 28 m across the short side inside a
 Chelsea block, and roads cut Tahrir's authored rectangle. Tahrir's plaza ensemble — paved disc, benches,
 olives — rings the `cairo-tahrir-obelisk` landmark's centre, with rings authored

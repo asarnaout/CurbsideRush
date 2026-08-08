@@ -3638,6 +3638,16 @@ export const LONDON_MAP_PACK: MapPack = {
       },
       // The V&A's north forecourt, the fourth side of the museum quarter's
       // planting.
+      // The fourth side: the band between the Science Museum's north wall and
+      // Thurloe Place, which is the last ground in the quarter a driver can
+      // see with nothing on it.
+      {
+        id: "london-museum-forecourt-north-west",
+        kind: "park",
+        center: point(-33, 68.6),
+        size: point(134, 12.2),
+        color: "#5f9a4e",
+      },
       {
         id: "london-museum-forecourt-north-east",
         kind: "park",

@@ -102,7 +102,10 @@ describe("park layouts", () => {
     // applies to a 30,000 m2 void as much as to a roundabout island.
     // 46 -> 48: Pembroke Crescent's island became three butt-joined lawn
     // tiles in place of the one 80 x 28 stamp that used to float in it.
-    expect(parkCases().length).toBe(48);
+    // 48 -> 49: the Science Museum's north forecourt, the fourth side of the
+    // museum quarter's planting and the last ground in it a driver could see
+    // with nothing on it.
+    expect(parkCases().length).toBe(49);
   });
 
   it("is deterministic — two builds are identical", () => {
