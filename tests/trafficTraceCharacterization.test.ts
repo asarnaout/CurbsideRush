@@ -101,8 +101,11 @@ describe("ambient traffic trace characterization", () => {
       // four more signals), then Sloane Circus and its three give-ways, then
       // the West End with two more roundabouts and a signalled gyratory, then
       // the City — which also took London's ambient traffic from the
-      // scenario's twelve cars to its own thirty-two.
-      "free-uk-london": "69618e84",
+      // scenario's twelve cars to its own thirty-two — then Serpentine Road
+      // through the royal park (with its Serpentine bridge) and the four-road
+      // Notting Hill grid, which added ~30 lanes and reshaped the successor
+      // sets at six junctions.
+      "free-uk-london": "b7c28279",
       "free-jp": "997675a9",
       "free-eg": "eb350f99",
     });

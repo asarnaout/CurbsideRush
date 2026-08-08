@@ -323,6 +323,39 @@ const londonCentreNodes = {
   parkCornerNorthEast: node("london-node-park-corner-north-east", 620, 940),
   bayswaterMid: node("london-node-bayswater-mid", 200, 940),
   parkCornerNorthWest: node("london-node-park-corner-north-west", -300, 940),
+  // Serpentine Road — the drive through the royal park, Bayswater down to
+  // the Kensington/Knightsbridge corner. Gentle bearings (every bend <= 10
+  // degrees) because its south end lands as a fourth arm at
+  // kensington-exhibition, where the near-straight handover into Exhibition
+  // Road's arm must clear the 25-degrees-reads-as-a-continuation /
+  // 30-degree-jolt gate in `npcTurnSmoothness`. The bridge node sits where
+  // the road crosses the Serpentine at ~83 degrees to the lake's long axis.
+  serpentineNorth: node("london-node-serpentine-north", 196, 760),
+  serpentineBridge: node("london-node-serpentine-bridge", 170, 560),
+  serpentineSouth: node("london-node-serpentine-south", 120, 400),
+  // x=44, not 60: the final leg into kensington-exhibition must run within a
+  // couple of degrees of Exhibition Road's own departure bearing, because the
+  // handover reads as a continuation (<25 degrees) and the 30-degree jolt
+  // budget has to absorb both roads' lane offsets on top of the bearing gap
+  // (36 degrees at x=60; ~17 at x=44).
+  serpentineHyde: node("london-node-serpentine-hyde", 44, 265),
+  // The Notting-Hill-ish grid west of the park. Every terminus is an
+  // EXISTING node (park corner, nevern-mid, earls-nevern) so no shipped
+  // road's positional lane ids renumber; the two north-south streets arrive
+  // at their tees heading due south so the arm gaps stay >= 86 degrees for
+  // the pavement mitre and Westbourne Grove's arrival reads as Earls Court
+  // Road continuing (0-degree handover).
+  westbourneCorner: node("london-node-westbourne-corner", -660, 930),
+  porchesterCorner: node("london-node-porchester-corner", -1000, 925),
+  porchester1: node("london-node-porchester-1", -1000, 590),
+  porchester2: node("london-node-porchester-2", -980, 300),
+  westbourne1: node("london-node-westbourne-1", -720, 590),
+  // Bearings down Westbourne Grove run 190 -> 197 -> 190 degrees (bends of
+  // ~7 degrees each), because its arrival at earls-nevern is a continuation
+  // into Earls Court Road and the 30-degree jolt budget must absorb ~14
+  // degrees of lane-offset blend on top of the bearing gap. The first
+  // authored shape bent 19 degrees at the last vertex and failed at 33.5.
+  westbourne2: node("london-node-westbourne-2", -800, 330),
   // Piccadilly east toward the West End (a frontier until the City lands).
   piccadillyMid: node("london-node-piccadilly-mid", 800, 300),
   piccadillyEast: node("london-node-piccadilly-east", 950, 380),
@@ -512,6 +545,20 @@ export const LONDON_ROAD_SPECS: readonly LondonRoadSpec[] = [
   road("london-brompton-road", "Brompton Road", ["london-node-cromwell-far-east", "london-node-brompton-rise", "london-node-knights-brompton"], 2, 10.4, { arterial: true }),
   road("london-park-lane", "Park Lane", ["london-node-wellington-arm-park", "london-node-park-lane-mid", "london-node-park-lane-oxford", "london-node-park-corner-north-east"], 4, 13.6, { arterial: true }),
   road("london-bayswater", "Bayswater Road", ["london-node-park-corner-north-west", "london-node-bayswater-mid", "london-node-park-corner-north-east"], 2, 10.4, { arterial: true }),
+  // The drive through the royal park. Its middle third is a bridge over the
+  // Serpentine: the water body whitelists this surface id, the deck landmark
+  // shares it, and `sidewalkWidthM` is authored explicitly because the rail
+  // and the parapet collider both resolve the pavement band through it (the
+  // NYC 3.4 m rail/collider mismatch is the lesson). Unprofiled on purpose —
+  // a park drive has no letterboxes, and a profiled street that yields no
+  // addresses fails `streetNames`.
+  road("london-serpentine-road", "Serpentine Road", ["london-node-bayswater-mid", "london-node-serpentine-north", "london-node-serpentine-bridge", "london-node-serpentine-south", "london-node-serpentine-hyde", "london-node-kensington-exhibition"], 2, 8, { sidewalkWidthM: 2.4 }),
+  // The Notting-Hill-ish grid. Notting Hill Gate hangs west off the park's
+  // north-west corner; Porchester Terrace and Westbourne Grove run south off
+  // it into the existing Nevern Place tees.
+  road("london-notting-hill", "Notting Hill Gate", ["london-node-park-corner-north-west", "london-node-westbourne-corner", "london-node-porchester-corner"], 2, 9),
+  road("london-porchester", "Porchester Terrace", ["london-node-porchester-corner", "london-node-porchester-1", "london-node-porchester-2", "london-node-nevern-mid"], 2, 8.6),
+  road("london-westbourne", "Westbourne Grove", ["london-node-westbourne-corner", "london-node-westbourne-1", "london-node-westbourne-2", "london-node-earls-nevern"], 2, 8.6),
   road("london-park-west", "West Carriage Drive", ["london-node-gloucester-kensington", "london-node-park-corner-north-west"], 2, 9),
   road("london-piccadilly", "Piccadilly", ["london-node-wellington-arm-piccadilly", "london-node-piccadilly-mid", "london-node-piccadilly-east"], 2, 10.4, { arterial: true }),
   road("london-grosvenor", "Grosvenor Place", ["london-node-wellington-arm-grosvenor", "london-node-grosvenor-mid", "london-node-victoria-arm-grosvenor"], 2, 9.6),
@@ -609,7 +656,11 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-sloane-smith", "london-node-sloane-arm-smith", ["london-smith-street", "london-sloane-circus"]),
   junction("london-junction-sloane-sydney", "london-node-sloane-arm-sydney", ["london-sydney-street", "london-sloane-circus"]),
   junction("london-junction-warwick-nevern", "london-node-warwick-north", ["london-warwick-road", "london-nevern-place"]),
-  junction("london-junction-earls-nevern", "london-node-earls-nevern", ["london-earls-court-road", "london-nevern-place"]),
+  junction("london-junction-earls-nevern", "london-node-earls-nevern", ["london-earls-court-road", "london-nevern-place", "london-westbourne"]),
+  junction("london-junction-nevern-porchester", "london-node-nevern-mid", ["london-nevern-place", "london-porchester"]),
+  junction("london-junction-westbourne-corner", "london-node-westbourne-corner", ["london-notting-hill", "london-westbourne"]),
+  junction("london-junction-porchester-corner", "london-node-porchester-corner", ["london-notting-hill", "london-porchester"]),
+  junction("london-junction-bayswater-serpentine", "london-node-bayswater-mid", ["london-bayswater", "london-serpentine-road"]),
   junction("london-junction-earls-crescent-north", "london-node-earls-north", ["london-earls-court-road", "london-pembroke-crescent"]),
   junction("london-junction-earls-crescent-south", "london-node-earls-crescent", ["london-earls-court-road", "london-pembroke-crescent"]),
   junction("london-junction-earls-brompton", "london-node-earls-brompton", ["london-earls-court-road", "london-old-brompton"]),
@@ -638,7 +689,7 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-battersea-nine", "london-node-battersea-nine", ["london-battersea-road", "london-nine-elms"]),
   junction("london-junction-battersea-east", "london-node-battersea-east", ["london-battersea-road", "london-tooley-street"]),
   // --- Knightsbridge, Mayfair, the park and Westminster. ---------------------
-  junction("london-junction-kensington-knightsbridge", "london-node-kensington-exhibition", ["london-kensington", "london-exhibition-north", "london-knightsbridge"]),
+  junction("london-junction-kensington-knightsbridge", "london-node-kensington-exhibition", ["london-kensington", "london-exhibition-north", "london-knightsbridge", "london-serpentine-road"]),
   junction("london-junction-knights-brompton", "london-node-knights-brompton", ["london-knightsbridge", "london-brompton-road"]),
   junction("london-junction-cromwell-brompton", "london-node-cromwell-far-east", ["london-cromwell-east", "london-sydney-street", "london-brompton-road"]),
   junction("london-junction-wellington-knights", "london-node-wellington-arm-knights", ["london-knightsbridge", "london-wellington-circus"]),
@@ -646,7 +697,7 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-wellington-piccadilly", "london-node-wellington-arm-piccadilly", ["london-piccadilly", "london-wellington-circus"]),
   junction("london-junction-wellington-grosvenor", "london-node-wellington-arm-grosvenor", ["london-grosvenor", "london-wellington-circus"]),
   junction("london-junction-park-north-east", "london-node-park-corner-north-east", ["london-park-lane", "london-bayswater"]),
-  junction("london-junction-park-north-west", "london-node-park-corner-north-west", ["london-bayswater", "london-park-west"]),
+  junction("london-junction-park-north-west", "london-node-park-corner-north-west", ["london-bayswater", "london-park-west", "london-notting-hill"]),
   junction("london-junction-park-south-west", "london-node-gloucester-kensington", ["london-gloucester", "london-kensington", "london-park-west"]),
   junction("london-junction-victoria-grosvenor", "london-node-victoria-arm-grosvenor", ["london-grosvenor", "london-victoria-circus"]),
   junction("london-junction-victoria-mall", "london-node-victoria-arm-mall", ["london-mall", "london-victoria-circus"]),
@@ -1924,6 +1975,25 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-shoreditch-w", "london-shoreditch", nodeAt("london-node-shoreditch-mid"), nodeAt("london-node-bishopsgate-2"), 1, 8, 38, LONDON_RED_BRICK, [11, 19], 0.74),
   roadsideParcel("london-block-lombard-e", "london-lombard-lane", nodeAt("london-node-riverbank-west"), nodeAt("london-node-battersea-west"), -1, 7.4, 30, LONDON_RED_BRICK, [9, 15], 0.64),
 
+  // --- The Notting-Hill-ish grid west of the park. Both new north-south
+  // streets are authored southward (right normal = west), Notting Hill Gate
+  // westward (right normal = north) — the side signs below follow the
+  // driver's-right rule, not the compass. -----------------------------------
+  roadsideParcel("london-block-notting-n-1", "london-notting-hill", nodeAt("london-node-park-corner-north-west"), nodeAt("london-node-westbourne-corner"), 1, 9, 42, LONDON_STUCCO, [12, 20], 0.74),
+  roadsideParcel("london-block-notting-s-1", "london-notting-hill", nodeAt("london-node-park-corner-north-west"), nodeAt("london-node-westbourne-corner"), -1, 9, 40, LONDON_STOCK_BRICK, [12, 19], 0.72),
+  roadsideParcel("london-block-notting-n-2", "london-notting-hill", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-porchester-corner"), 1, 9, 40, LONDON_RED_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-notting-s-2", "london-notting-hill", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-porchester-corner"), -1, 9, 40, LONDON_STUCCO, [12, 19], 0.74),
+  roadsideParcel("london-block-porchester-w-1", "london-porchester", nodeAt("london-node-porchester-corner"), nodeAt("london-node-porchester-1"), 1, 8.6, 38, LONDON_STOCK_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-porchester-e-1", "london-porchester", nodeAt("london-node-porchester-corner"), nodeAt("london-node-porchester-1"), -1, 8.6, 38, LONDON_RED_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-porchester-w-2", "london-porchester", nodeAt("london-node-porchester-1"), nodeAt("london-node-porchester-2"), 1, 8.6, 36, LONDON_RED_BRICK, [10, 17], 0.7),
+  roadsideParcel("london-block-porchester-e-2", "london-porchester", nodeAt("london-node-porchester-1"), nodeAt("london-node-porchester-2"), -1, 8.6, 36, LONDON_STUCCO, [11, 18], 0.72),
+  roadsideParcel("london-block-westbourne-w-1", "london-westbourne", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-westbourne-1"), 1, 8.6, 38, LONDON_STUCCO, [12, 19], 0.74),
+  roadsideParcel("london-block-westbourne-e-1", "london-westbourne", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-westbourne-1"), -1, 8.6, 38, LONDON_STOCK_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-westbourne-w-2", "london-westbourne", nodeAt("london-node-westbourne-1"), nodeAt("london-node-westbourne-2"), 1, 8.6, 36, LONDON_RED_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-westbourne-e-2", "london-westbourne", nodeAt("london-node-westbourne-1"), nodeAt("london-node-westbourne-2"), -1, 8.6, 36, LONDON_STOCK_BRICK, [11, 18], 0.72),
+  roadsideParcel("london-block-westbourne-w-3", "london-westbourne", nodeAt("london-node-westbourne-2"), nodeAt("london-node-earls-nevern"), 1, 8.6, 34, LONDON_STUCCO, [11, 18], 0.72),
+  roadsideParcel("london-block-westbourne-e-3", "london-westbourne", nodeAt("london-node-westbourne-2"), nodeAt("london-node-earls-nevern"), -1, 8.6, 34, LONDON_RED_BRICK, [11, 18], 0.72),
+
   // --- Off-network fabric: NYC's margin-strip pattern. These rects sit on no
   // road (roadsideParcel cannot derive them), so their positions are solved
   // against every road's kerb+pavement reach by the parcel-side audit script
@@ -1939,6 +2009,9 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-westmargin-c", center: point(-1290, -480), size: point(40, 160), heightRange: [10, 17] as const, density: 0.68, material: LONDON_RED_BRICK },
   { id: "london-block-fitzrovia-a", center: point(975, 795), size: point(260, 36), heightRange: [14, 22] as const, density: 0.76, material: LONDON_STOCK_BRICK },
   { id: "london-block-fitzrovia-b", center: point(975, 848), size: point(260, 36), heightRange: [14, 22] as const, density: 0.76, material: LONDON_RED_BRICK },
+  { id: "london-block-nw-fab-a", center: point(-1150, 700), size: point(34, 240), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK },
+  { id: "london-block-nw-fab-b", center: point(-1150, 420), size: point(34, 200), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK },
+  { id: "london-block-nw-fab-c", center: point(-1240, 810), size: point(180, 36), heightRange: [10, 17] as const, density: 0.68, material: LONDON_STUCCO },
 ].filter((block): block is ProceduralBlock => block !== null);
 
 // ---------------------------------------------------------------------------
@@ -2701,6 +2774,9 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-serpentine",
         color: "#33555e",
+        // Serpentine Road crosses on a ~46 m bridge; without the portal the
+        // shoreline collider is an unbroken invisible wall across the deck.
+        bridgePortalSurfaceIds: ["london-serpentine-road"],
         polygon: [
           point(-40, 556),
           point(60, 572),
@@ -2922,6 +2998,11 @@ export const LONDON_MAP_PACK: MapPack = {
       // find the right road surface and clip rails to the over-water span.
       // Rendered bespoke; the generic landmark fallback would draw a windowed
       // facade box across the river.
+      // The Serpentine Bridge — the deck where Serpentine Road crosses the
+      // lake. Same id-equals-road-id rule as the Thames three; the renderer
+      // derives the real over-water span itself, so center/size here are the
+      // crossing's approximate footprint.
+      { id: "london-serpentine-road", kind: "bridge", center: point(165, 545), size: point(60, 8), headingDeg: 0, color: "#b9b3a6" },
       { id: "london-albert-bridge", kind: "bridge", center: point(-347, -647), size: point(236, 9), headingDeg: 0, color: "#cbb9c6" },
       { id: "london-westminster-bridge", kind: "bridge", center: point(780, -482), size: point(236, 12), headingDeg: 0, color: "#5c7a55" },
       { id: "london-tower-bridge", kind: "bridge", center: point(1260, -428), size: point(236, 11), headingDeg: 0, color: "#c8bda4" },
@@ -2963,8 +3044,13 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-royal-park",
         kind: "park",
-        center: point(160, 600),
-        size: point(840, 600),
+        // Grown to ~10 m off the Bayswater, Park Lane and West Carriage
+        // Drive kerbs (NYC holds its parks 3.6-11 m off the pavement; this
+        // one sat 30-32 m off, a concrete moat). The south edge stays at
+        // z=300: the round hall and the Knightsbridge station stand in that
+        // band, and the Kensington lawn closes it instead.
+        center: point(159, 610.5),
+        size: point(882, 621),
         color: "#4f7a3d",
       },
       // Chelsea's garden square: the pocket between the King's Road, Cheyne
@@ -2991,6 +3077,26 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         center: point(824, 820),
         size: point(32, 26),
+        color: "#5f9a4e",
+      },
+      // The Notting Hill district's two squares: a walled garden square in
+      // the grid's heart and a pocket green between Westbourne Grove and the
+      // royal park's west band.
+      {
+        id: "london-notting-square",
+        kind: "park",
+        center: point(-830, 758),
+        // Under POCKET_GREEN_MAX_SHORT_SIDE_M like the other garden squares:
+        // at exactly 30 it graduates to a walled greensward and grows a walk
+        // spine that kinks at this size.
+        size: point(46, 28),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-westbourne-green",
+        kind: "park",
+        center: point(-530, 470),
+        size: point(40, 28),
         color: "#5f9a4e",
       },
       {

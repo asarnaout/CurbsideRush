@@ -285,24 +285,31 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // swallowed a parcel band's worth of facade boxes while the new blocks
     // pack into fewer, wider ones; the two new materials are the lawn
     // pair the Kensington greensward mints.
-    totalMeshes: 6_361,
-    enabledMeshes: 6_361,
-    activeMeshes: 533,
-    materials: 245,
+    // 6_361 -> 6_635, 245 -> 251 materials: Serpentine Road through the
+    // grown royal park (its bridge deck, parapets, guardrails and lamp line
+    // are the material adds, same four-per-bridge as the Thames three), the
+    // four-road Notting Hill grid with sixteen parcels, two more greens, and
+    // three fabric rects. Active meshes 533 -> 570: the grown park's planting
+    // and the new drive sit inside the 800 m fog cap at spawn.
+    totalMeshes: 6_635,
+    enabledMeshes: 6_635,
+    activeMeshes: 570,
+    materials: 251,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 102,
-    // 158 -> 160: the relocated Queen's-Gate-adjacent parcels put two more
-    // facade meshes inside the mirror's candidate radius at spawn.
-    mirrorDrawn: 160,
+    // 102 -> 104 and 160 -> 170: the Kensington lawn and the drive's south
+    // approach sit within the spawn's mirror candidate radius.
+    mirrorCandidates: 104,
+    mirrorDrawn: 170,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
     // "4717fd7e" -> "ad7cd6ad": the Kensington lawn's greensward pair joins
-    // the surviving-material set (void-fill pass).
-    survivingMaterialNamesFingerprint: "ad7cd6ad",
+    // the surviving-material set (void-fill pass). -> "92cde486": the
+    // Serpentine bridge's deck/parapet/lamp materials.
+    survivingMaterialNamesFingerprint: "92cde486",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
