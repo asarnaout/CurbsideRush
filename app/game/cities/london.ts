@@ -2370,6 +2370,28 @@ const londonLaneGraph: LaneGraph = {
       [approach("london-museum-crosswalk-approach", "london-exhibition-shared-1", 48, "crosswalk")],
       [installation("london-museum-crosswalk-marking", 42, 20, 0, "road_marking", "crosswalk", "marking")],
     ),
+    // Zebra crossings on the high streets, each flanked by a pair of Belisha
+    // beacons (`londonStreetFurniture.ts`). Six of them, spread from Chelsea
+    // to Islington: a striped crossing with an amber globe either side is one
+    // of the few things that says "Britain" from inside a car.
+    control("london-crossing-kings-road", "crosswalk", -191.4, -277.6, 83, ["london-kings-road-4-forward-1", "london-kings-road-4-reverse-1"], undefined,
+      [approach("london-crossing-kings-road-approach", "london-kings-road-4-forward-1", 120, "crosswalk")],
+      [installation("london-crossing-kings-road-marking", -191.4, -277.6, 83, "road_marking", "crosswalk", "marking")]),
+    control("london-crossing-knightsbridge", "crosswalk", 221.7, 221.7, 90, ["london-knightsbridge-1-forward-1", "london-knightsbridge-1-reverse-1"], undefined,
+      [approach("london-crossing-knightsbridge-approach", "london-knightsbridge-1-forward-1", 180, "crosswalk")],
+      [installation("london-crossing-knightsbridge-marking", 221.7, 221.7, 90, "road_marking", "crosswalk", "marking")]),
+    control("london-crossing-oxford", "crosswalk", 889.7, 701.7, 90, ["london-oxford-street-2-forward-1", "london-oxford-street-2-reverse-1"], undefined,
+      [approach("london-crossing-oxford-approach", "london-oxford-street-2-forward-1", 90, "crosswalk")],
+      [installation("london-crossing-oxford-marking", 889.7, 701.7, 90, "road_marking", "crosswalk", "marking")]),
+    control("london-crossing-bishopsgate", "crosswalk", 1165.8, 489.8, 2, ["london-bishopsgate-2-forward-1", "london-bishopsgate-2-reverse-1"], undefined,
+      [approach("london-crossing-bishopsgate-approach", "london-bishopsgate-2-forward-1", 70, "crosswalk")],
+      [installation("london-crossing-bishopsgate-marking", 1165.8, 489.8, 2, "road_marking", "crosswalk", "marking")]),
+    control("london-crossing-upper-street", "crosswalk", 1164, 832, 7, ["london-upper-street-1-forward-1", "london-upper-street-1-reverse-1"], undefined,
+      [approach("london-crossing-upper-street-approach", "london-upper-street-1-forward-1", 120, "crosswalk")],
+      [installation("london-crossing-upper-street-marking", 1164, 832, 7, "road_marking", "crosswalk", "marking")]),
+    control("london-crossing-riverbank", "crosswalk", 748.2, -602.5, 82, ["london-riverbank-5-forward-1", "london-riverbank-5-reverse-1"], undefined,
+      [approach("london-crossing-riverbank-approach", "london-riverbank-5-forward-1", 150, "crosswalk")],
+      [installation("london-crossing-riverbank-marking", 748.2, -602.5, 82, "road_marking", "crosswalk", "marking")]),
     control(
       "london-crosswalk-thurloe",
       "crosswalk",
@@ -2504,6 +2526,27 @@ const londonLaneGraph: LaneGraph = {
     anchoredSpawn("london-car-upper-street", "vehicle", "london-upper-street-1-forward-1", 60),
     anchoredSpawn("london-police-embankment", "vehicle", "london-chelsea-embankment-3-forward-1", 100),
     anchoredSpawn("london-police-city", "vehicle", "london-london-wall-1-forward-1", 70),
+    // People. The ambient crowd bubble follows the player and covers whatever
+    // street they are actually on; these are the scripted few that make a
+    // named place look like somewhere worth arriving at.
+    freeSpawn("london-ped-kings-road", "pedestrian", -188, -286, 270),
+    freeSpawn("london-ped-chelsea", "pedestrian", -318, -412, 90),
+    freeSpawn("london-ped-earls-court", "pedestrian", -822, -30, 0),
+    freeSpawn("london-ped-battersea", "pedestrian", -690, -812, 90),
+    freeSpawn("london-ped-southbank", "pedestrian", 838, -588, 270),
+    freeSpawn("london-ped-eye-queue", "pedestrian", 900, -584, 180),
+    freeSpawn("london-ped-westminster", "pedestrian", 792, -344, 0),
+    freeSpawn("london-ped-whitehall", "pedestrian", 796, -170, 180),
+    freeSpawn("london-ped-piccadilly", "pedestrian", 808, 284, 90),
+    freeSpawn("london-ped-oxford", "pedestrian", 886, 710, 270),
+    freeSpawn("london-ped-city", "pedestrian", 1160, 320, 0),
+    freeSpawn("london-ped-islington", "pedestrian", 1176, 826, 180),
+    freeSpawn("london-cyclist-embankment", "cyclist", 388, -404, 78, "london-victoria-embankment-1-forward-1"),
+    freeSpawn("london-cyclist-kings-road", "cyclist", -160, -272, 82, "london-kings-road-4-forward-1"),
+    freeSpawn("london-cyclist-regent", "cyclist", 918, 500, 350, "london-regent-2-forward-1"),
+    freeSpawn("london-cyclist-bishopsgate", "cyclist", 1163, 380, 358, "london-bishopsgate-2-forward-1"),
+    freeSpawn("london-cyclist-park", "cyclist", -302, 460, 0, "london-park-west-1-forward-1"),
+    freeSpawn("london-cyclist-riverbank", "cyclist", 300, -690, 80, "london-riverbank-4-forward-1"),
   ],
 };
 

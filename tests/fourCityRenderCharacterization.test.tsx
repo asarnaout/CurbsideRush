@@ -249,10 +249,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // fascia each carry a dynamic texture with *that venue's own name*
     // painted on it, so unlike the landmark trio they cannot be shared. NYC
     // pays the same ~3 per venue for its 31.
-    totalMeshes: 6_226,
-    enabledMeshes: 6_226,
+    //
+    // 6_226 -> 6_358: six zebra crossings, and the pair of Belisha beacons
+    // flanking each — a banded pole and an amber globe apiece.
+    totalMeshes: 6_358,
+    enabledMeshes: 6_358,
     activeMeshes: 984,
-    materials: 241,
+    materials: 243,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -262,7 +265,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "a7989b18",
+    survivingMaterialNamesFingerprint: "4717fd7e",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
