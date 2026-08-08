@@ -130,9 +130,6 @@ function londonTone(r, g, b) {
   return hslToRgb(band.hue, band.saturation, lightness);
 }
 
-const srgbToLinear = (value) =>
-  value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
-
 function parseGlb(buffer) {
   if (buffer.readUInt32LE(0) !== 0x46546c67) {
     throw new Error("not a GLB");

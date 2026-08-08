@@ -8,14 +8,21 @@ stations) live under `public/models/props/`.
 
 ## London
 
-London's expansion imports **no new third-party assets**. Its street wall is
-the procedural facade grid in five London materials; its clock tower,
-observation wheel, Gherkin, Shard, palace, department store, Monument, power
-station, round hall, station fronts, bridge decks and towers, pillar boxes,
-telephone kiosks and Belisha beacons are all built from primitives in
-`render/londonLandmarks.ts`. Nothing on that list is worth a licence to
-verify, and building it procedurally is also what keeps it stylistically of a
-piece with the rest of the map.
+London's street wall is built from the **London street-wall kit** below — 15
+CC0 glbs (Quaternius pitched-roof terraces in brick and stucco renders, Kenney
+towers in City glass, Kay Lousberg shopfronts) — plus the procedural facade
+grid, which Whitehall's Portland-stone blocks and the museum quarter keep on
+purpose. Every licence was verified on its source page at import time and
+every file's provenance is hashed below and baked into the glb itself
+(`asset.extras.curbsideRush`); `tests/londonAssets.test.ts` pins the committed
+bytes.
+
+London's landmarks stay procedural: the clock tower, observation wheel,
+Gherkin, Shard, palace, department store, Monument, power station, round hall,
+station fronts, bridge decks and towers, pillar boxes, telephone kiosks and
+Belisha beacons are all built from primitives in `render/londonLandmarks.ts` —
+nothing on that list is worth a licence to verify, and building it
+procedurally keeps it stylistically of a piece.
 
 The one London asset that is not ours is the double-decker bus, already
 recorded below: a purchased model whose licence forbids redistribution, so it
@@ -129,6 +136,87 @@ converted from OBJ + MTL to a self-contained quantized GLB by
 (Quaternius "Big Building") on the Cairo map only; NYC and London keep using it.
 Both are also placed by the Cairo street wall (`buildingSets.ts`) as long
 ministry/warehouse frontage runs, at street-wall scales of their own.
+
+### London street-wall kit (CC0)
+
+Added so London's roadside frontage is built from real models instead of
+procedural windowed boxes. Per-model source URLs are also in
+`app/game/buildingCatalog.ts` (`LONDON_ENV_MODELS`), and
+`tests/londonAssets.test.ts` byte-pins every committed file.
+
+**Selection rule — pitched roofs on purpose, the inverse of Cairo's.** The five
+Quaternius sources are exactly the `GableRoof` / `RoundRoof` / `_Roof_` models
+the Cairo kit bans: a gable reads as European on sight, which is what a London
+terrace wants. The stucco family re-converts the same five sources into
+separate files (`modelLibrary` keys asset containers by URL, so one file cannot
+carry both the brick and the stucco palette).
+
+**Modified — recoloured and made matte.** `tools/style-london-terraces.mjs`
+assigns the terrace family Victorian-red/stock-brick walls with slate roofs and
+the stucco family a white-cream render with dark joinery;
+`tools/style-london-towers.mjs` gives the towers three steel-blue glass
+families; `tools/style-london-shops.mjs` remaps the shopfront atlases to brick,
+cream fascia and slate. All three flatten the specular and bake provenance into
+`asset.extras.curbsideRush`. CC0 permits modification; re-run each script to
+regenerate.
+
+The Quaternius models come from the **Ultimate Textured Buildings Pack**
+(<https://quaternius.com/packs/ultimatetexturedbuildings.html> — licence page
+re-verified CC0 on 2026-08-08), downloaded 2026-08-08 from the pack's
+[official Google Drive](https://drive.google.com/drive/folders/1RE3qXhbE5yGS3t-xGFJ8GmOtTgCUF3LQ)
+(`Models with Materials/OBJ`), bundled `License.txt` SHA-256
+`83d8959f9fc56353ed571fbe2dc52e4bcd64508e2399501cd45ac2ce3df0bf8c` —
+byte-identical to the copy hashed at the Cairo import. Each was converted from
+OBJ + MTL by `tools/obj-to-glb.mjs` before styling.
+
+| File | Source model | Source OBJ SHA-256 | Source MTL SHA-256 | Committed GLB SHA-256 |
+|---|---|---|---|---|
+| **props/london-terrace-a.glb** | `2Story_GableRoof_Mat` | `ed3a11cfdbf637d0f3512a52022122d6f7a7ef24a92e828ea6b812894234daca` | `452d56b002916ca9844e338b6d032d85cd1a8e9a56c213c9b4733181057ceecd` | `640b69020bbf84cc28376079619fd3d82dba87d9615d816f09d63b7004deb7e5` |
+| **props/london-terrace-b.glb** | `2Story_RoundRoof_Mat` | `50b109ea88d34c300f0b80a5c81c6f688e3b53f69f25723e58ec547b36ec0355` | `2e2fe28fe6b7ed72133a4e851f4164b93e72ce1202f93724926a7c514ee0a6a9` | `91116d70319cf1f02523ee55724e00af57d73e2e13fe0705d6e0cab495171e9b` |
+| **props/london-terrace-c.glb** | `4Story_Wide_2Doors_Roof_Mat` | `03984e13c98fee5009d5345b39a2da2239eca8ddee9fe9ab6170c12cebfd7f4e` | `a2987b6683c57feb333af6c6bb34387722a946c9a8b463f722fa8411c447b3a9` | `12f9f5ea8fb870f61b4616a0ec7937df778902c3e8aa24af0fae428a42f16643` |
+| **props/london-terrace-d.glb** | `1Story_GableRoof_Mat` | `647671a27dd10b7d9e3246fb792dfbf4c4c1b5a71197d5e7809006239d0cda5f` | `cf360867b3cd427b7de605b58495a5361cfff2132d7551f16af8f80032ed4bb8` | `194994bcb7a9adac6778be430e218cbc3ba14b7d6f9d7d98e409ceda3047e414` |
+| **props/london-terrace-e.glb** | `1Story_RoundRoof_Mat` | `7e2977c8df40757b5b4accac0477c844f1a607413b0425a447aec97ffe94ed75` | `1163516abcd47ddb81cbfdbf17046e006ebc64979d03530ecc0bc17669f3a424` | `20ab00901e2ab83c0c646a6a0274f0be7d7222fdbaa9b68457f08f1315710566` |
+| **props/london-stucco-a.glb** | `2Story_GableRoof_Mat` | (as terrace-a) | (as terrace-a) | `6a1775b3d9f9373bab3387174500c71aed692cae371aac1ce361436c2f20ee56` |
+| **props/london-stucco-b.glb** | `2Story_RoundRoof_Mat` | (as terrace-b) | (as terrace-b) | `1574c95fbcfc5070778e8c69271d33c1feee2adce32e55151b03ab8e4cc294fd` |
+| **props/london-stucco-c.glb** | `4Story_Wide_2Doors_Roof_Mat` | (as terrace-c) | (as terrace-c) | `f7574c4acb2e8cc4bb34b3ee793fa0c818d6461cffe679f90171414524ccf371` |
+| **props/london-stucco-d.glb** | `1Story_GableRoof_Mat` | (as terrace-d) | (as terrace-d) | `b1d1684c682e39044a063d8f7bfd7c6ad4ee5e88ef5265c3254ece41843da809` |
+
+- **props/london-tower-a.glb, london-tower-b.glb, london-tower-c.glb**
+  ("Skyscraper" ×3) — by **Kenney** (<https://kenney.nl>) via Poly Pizza
+  (<https://poly.pizza/m/XST1j6kYsL>, <https://poly.pizza/m/JTsKOSB23Y>,
+  <https://poly.pizza/m/jIRx0AhYOR>), released **CC0 1.0**. Copied 2026-08-08
+  from the committed `nyc-tower-{a,b,c}.glb`, each verified **byte-identical to
+  its original Poly Pizza source GLB** (tower-b's original re-downloaded from
+  <https://static.poly.pizza/11f09e73-8df5-4ad8-b721-ff1315948a5e.glb> to
+  confirm). Source SHA-256s
+  `43bbf6529e19c16ecfdf7ea563c63a1a46311997c6da5508a40d0977f927750c`,
+  `9e4587c640afbb45b3def91b3a9fd40c7b705391c9668e304f245886d1cb1cdd`,
+  `6137b8892acea9711f305d8c7f2adafb0eec5d51ec489fd8c3cb754fac28b080`;
+  committed GLB SHA-256s
+  `8a7de989d38632dad453f96c0d9924bbcec00acf5fda77090fde3ce2aba4c91a`,
+  `49c6d1317007b5bf396d4ab88041509924ceccc7ce1a11d6cf51cd9543fc54a7`,
+  `b0ad5bc830ca8c0255734e100515d7bc02bc6ca509e40a149001ce5a62cc04cc`.
+  Restyled steel-blue by `tools/style-london-towers.mjs`; the City of London's
+  tower cluster.
+- **props/london-shop.glb, london-walkup-a.glb, london-walkup-b.glb**
+  ("Building" ×3) — by **Kay Lousberg**, City Builder Bits pack via Poly Pizza
+  (<https://poly.pizza/m/EL3ePInr1N>, <https://poly.pizza/m/qOhhGLftam>,
+  <https://poly.pizza/m/T3oyvK6VEU>; creator page
+  <https://kaylousberg.com/game-assets/city-builder-bits> — licence line
+  re-verified CC0 on 2026-08-08), released **CC0 1.0**. Copied 2026-08-08 from
+  the committed `cairo-shop.glb` / `cairo-walkup-{a,b}.glb` (SHA-256s
+  `8c4f9a9f613d5d68c0f3d001efa5191946368bbddc193790634383d73457a520`,
+  `bfe108c90afb5ba5faa47b976dd8f37e1f98065f4d669a9204656bb3bd1b7ea3`,
+  `d63a6174590d3b631f7f4da7edd7b76f14032fbe4dbcdd3c05426c8928f22555`) so that
+  `tools/cairo-shopfront.mjs`'s corrections — the flattened awning stripe and
+  the deleted American fire hydrant, neither of which belongs on a London
+  street either — carry over; original download hashes are recorded in those
+  files' own entries above. Committed GLB SHA-256s
+  `1b70d4b0ade5a59d9542e157ca801ce0b2d438907dc04c802c8bf1bf31a88cee`,
+  `5bb3c8791147a503045d626ac83e6ae7eaada83be6da8f04859f75cb9c066496`,
+  `bb94180b3fdf24859c12fac98e207ca538f95915fe22ea494a4e4a3fd926c2da`.
+  Remapped to the London high-street palette by `tools/style-london-shops.mjs`;
+  shopfront parades on the high streets.
 
 ### Nile boats (CC0)
 
