@@ -493,17 +493,49 @@ export class RoadRuleMonitor {
       } else if (stopLine.kind === "yield") {
         const conflictRadius = stopLine.conflictRadius ?? 12;
         const linePose = this.roadNetwork.pointOnLane(currentProjection.lane, stopLine.distance);
-        const conflictingNpc = this.trafficSystem.npcs.find(
-          (npc) =>
-            npc.active &&
-            distanceSquared(npc, linePose) < conflictRadius * conflictRadius,
-        );
+        const rightX = Math.cos(linePose.heading);
+        const rightZ = -Math.sin(linePose.heading);
+        const conflictingNpc = this.trafficSystem.npcs.find((npc) => {
+          if (!npc.active) return false;
+          // Queueing behind a car that happens to be across the give-way line
+          // is not failing to give way. `TrafficSystem.yieldGapForLane` has
+          // always had this filter; its absence here meant a player following
+          // traffic through a mouth was fined for the car in front of them.
+          if (npc.laneId === currentProjection.lane.id) return false;
+          if (distanceSquared(npc, linePose) >= conflictRadius * conflictRadius) {
+            return false;
+          }
+          if (!stopLine.roundaboutYieldFrom) return true;
+          const npcLane = this.roadNetwork.lanesById.get(npc.laneId);
+          if (npcLane?.kind !== "roundabout") return false;
+          const side = (npc.x - linePose.x) * rightX + (npc.z - linePose.z) * rightZ;
+          return stopLine.roundaboutYieldFrom === "right" ? side > -2.5 : side < 2.5;
+        });
         if (conflictingNpc && speed > 1.5) {
-          emitEvent({
-            code: "unsafe_gap",
-            correction: "Reduce speed, observe the conflict area, and wait for a larger gap.",
-            evidence: { conflictingVehicleId: conflictingNpc.id, speedMps: Math.round(speed * 10) / 10 },
-          });
+          // A roundabout entry has its own rule code, and the Highway Code
+          // reference already lists it. Deliberately NOT in the fineable set:
+          // a give-way lapse coaches, it does not ticket.
+          emitEvent(
+            stopLine.roundaboutYieldFrom
+              ? {
+                  code: "roundabout_yield",
+                  correction:
+                    "Give way to traffic already on the roundabout and wait for a gap in the circulating stream.",
+                  evidence: {
+                    conflictingVehicleId: conflictingNpc.id,
+                    speedMps: Math.round(speed * 10) / 10,
+                  },
+                }
+              : {
+                  code: "unsafe_gap",
+                  correction:
+                    "Reduce speed, observe the conflict area, and wait for a larger gap.",
+                  evidence: {
+                    conflictingVehicleId: conflictingNpc.id,
+                    speedMps: Math.round(speed * 10) / 10,
+                  },
+                },
+          );
         }
       }
 

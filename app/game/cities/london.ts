@@ -1,5 +1,6 @@
 import type {
   ConflictZone,
+  ProceduralLandmark,
   FreeDriveDefinition,
   LaneGraph,
   LaneNode,
@@ -190,7 +191,6 @@ const londonSouthWestNodes = {
   kingsBeaufort: node("london-node-kings-beaufort", -560, -330),
   kingsGloucester: node("london-node-kings-gloucester", -310, -294),
   kingsQueens: node("london-node-kings-queens", -100, -268),
-  kingsSloane: node("london-node-kings-sloane", 250, -206),
   // Gloucester Road south of the quarter, and Drayton Gardens beside it.
   gloucesterMid: node("london-node-gloucester-mid", -306, -200),
   draytonMid: node("london-node-drayton-mid", -104, -186),
@@ -224,6 +224,25 @@ const londonSouthWestNodes = {
   cheyne2: node("london-node-cheyne-2", -164, -350),
   floodMid: node("london-node-flood-mid", -113, -360),
   sydneyMid: node("london-node-sydney-mid", 300, -120),
+  // Sloane Circus, where the King's Road ends against Sydney Street and
+  // Smith Street. The arm nodes sit on the running circle itself (radius 14
+  // about the island at 250,-206) so an approach hands over to a ring arc
+  // with no lateral step, and they are spread 80 degrees or more apart:
+  // `buildPavementGraph` trims each rail back at a junction but never further
+  // than the gap to the next one, and two arms closer than that leave the
+  // ring's outer rail walking through the approach's carriageway.
+  //
+  // Bearings from the island: King's Road 260, Smith Street due south, Sydney
+  // Street 30. Smith Street gained a node so its last run comes in straight
+  // from the south rather than 42 degrees off the King's Road.
+  sloaneArmKings: node("london-node-sloane-arm-kings", 236.2, -208.4),
+  sloaneArmSmith: node("london-node-sloane-arm-smith", 250, -220),
+  sloaneArmSydney: node("london-node-sloane-arm-sydney", 257, -193.9),
+  // Smith Street leaves Royal Hospital Road 29 degrees off its bearing, not
+  // 21: under 25 and `npcTurnSmoothness.test.ts` reads the pair as one road
+  // continuing and holds the hand-over to a 30-degree heading step, which a
+  // corner this tight cannot meet. Over 25 it is what it looks like — a turn.
+  smithApproach: node("london-node-smith-approach", 212, -304),
 };
 
 /**
@@ -314,6 +333,18 @@ export interface LondonRoadSpec {
   /** Painted with a solid rather than dashed centre line, and signalled. */
   readonly arterial?: boolean;
   readonly oneWay?: "forward" | "reverse";
+  /**
+   * A circulating ring rather than a street. Its `nodeIds` are the arm nodes
+   * in **clockwise** order (left-hand traffic circulates clockwise), and its
+   * lanes are arcs about `center` rather than straight runs between nodes, so
+   * the generic derivation below skips it and `londonRoundaboutArcs` builds
+   * it instead.
+   */
+  readonly roundabout?: {
+    readonly center: WorldPoint;
+    readonly radiusM: number;
+    readonly islandRadiusM: number;
+  };
 }
 
 const road = (
@@ -322,11 +353,7 @@ const road = (
   nodeIds: readonly string[],
   laneCount: 1 | 2 | 4,
   widthM: number,
-  options: {
-    readonly sidewalkWidthM?: number;
-    readonly arterial?: boolean;
-    readonly oneWay?: "forward" | "reverse";
-  } = {},
+  options: Omit<LondonRoadSpec, "id" | "name" | "nodeIds" | "laneCount" | "widthM"> = {},
 ): LondonRoadSpec => ({ id, name, nodeIds, laneCount, widthM, ...options });
 
 /**
@@ -335,7 +362,7 @@ const road = (
  * lane carries its road id explicitly.
  */
 export const LONDON_ROAD_SPECS: readonly LondonRoadSpec[] = [
-  road("london-kings-road", "King's Road", ["london-node-kings-west", "london-node-kings-earls", "london-node-kings-beaufort", "london-node-kings-gloucester", "london-node-kings-queens", "london-node-kings-sloane"], 2, 9.4, { arterial: true }),
+  road("london-kings-road", "King's Road", ["london-node-kings-west", "london-node-kings-earls", "london-node-kings-beaufort", "london-node-kings-gloucester", "london-node-kings-queens", "london-node-sloane-arm-kings"], 2, 9.4, { arterial: true }),
   road("london-old-brompton", "Old Brompton Road", ["london-node-earls-brompton", "london-node-brompton-mid", "london-node-gloucester-south"], 2, 8.6, { arterial: true }),
   road("london-gloucester-south", "Gloucester Road", ["london-node-gloucester-south", "london-node-gloucester-mid", "london-node-kings-gloucester"], 2, 7.8),
   road("london-drayton-gardens", "Drayton Gardens", ["london-node-queen-gate-south", "london-node-drayton-mid", "london-node-kings-queens"], 2, 7.4),
@@ -350,8 +377,8 @@ export const LONDON_ROAD_SPECS: readonly LondonRoadSpec[] = [
   // Two-way despite being a Chelsea back street: one-way northbound left the
   // westbound half of Royal Hospital Road's eastern segment with nothing
   // arriving at it, so no route could ever reach it.
-  road("london-smith-street", "Smith Street", ["london-node-hospital-east", "london-node-kings-sloane"], 2, 7.6),
-  road("london-sydney-street", "Sydney Street", ["london-node-cromwell-far-east", "london-node-sydney-mid", "london-node-kings-sloane"], 2, 7.8),
+  road("london-smith-street", "Smith Street", ["london-node-hospital-east", "london-node-smith-approach", "london-node-sloane-arm-smith"], 2, 7.6),
+  road("london-sydney-street", "Sydney Street", ["london-node-cromwell-far-east", "london-node-sydney-mid", "london-node-sloane-arm-sydney"], 2, 7.8),
 
   // --- The river. -----------------------------------------------------------
   road("london-lots-road", "Lots Road", ["london-node-kings-west", "london-node-lots-mid", "london-node-chelsea-emb-west"], 2, 8),
@@ -370,6 +397,12 @@ export const LONDON_ROAD_SPECS: readonly LondonRoadSpec[] = [
   road("london-parkgate", "Parkgate Road", ["london-node-albert-south", "london-node-battersea-albert"], 2, 7.6),
   road("london-nine-elms", "Nine Elms Lane", ["london-node-riverbank-3", "london-node-battersea-nine"], 2, 7.6),
   road("london-tooley-street", "Tooley Street", ["london-node-battersea-east", "london-node-riverbank-east"], 2, 7.6),
+
+  // --- Roundabouts. ---------------------------------------------------------
+  road("london-sloane-circus", "Sloane Circus", ["london-node-sloane-arm-sydney", "london-node-sloane-arm-smith", "london-node-sloane-arm-kings"], 1, 7, {
+    oneWay: "forward",
+    roundabout: { center: point(250, -206), radiusM: 14, islandRadiusM: 8 },
+  }),
 ];
 
 interface LondonConnectorMovement {
@@ -410,7 +443,9 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-kings-gloucester", "london-node-kings-gloucester", ["london-kings-road", "london-gloucester-south", "london-chelsea-manor", "london-cheyne-mews"]),
   junction("london-junction-kings-queens", "london-node-kings-queens", ["london-kings-road", "london-drayton-gardens", "london-flood-street"]),
   junction("london-junction-flood-cheyne", "london-node-flood-mid", ["london-flood-street", "london-cheyne-mews"]),
-  junction("london-junction-kings-sloane", "london-node-kings-sloane", ["london-kings-road", "london-smith-street", "london-sydney-street"]),
+  junction("london-junction-sloane-kings", "london-node-sloane-arm-kings", ["london-kings-road", "london-sloane-circus"]),
+  junction("london-junction-sloane-smith", "london-node-sloane-arm-smith", ["london-smith-street", "london-sloane-circus"]),
+  junction("london-junction-sloane-sydney", "london-node-sloane-arm-sydney", ["london-sydney-street", "london-sloane-circus"]),
   junction("london-junction-warwick-nevern", "london-node-warwick-north", ["london-warwick-road", "london-nevern-place"]),
   junction("london-junction-earls-nevern", "london-node-earls-nevern", ["london-earls-court-road", "london-nevern-place"]),
   junction("london-junction-earls-crescent-north", "london-node-earls-north", ["london-earls-court-road", "london-pembroke-crescent"]),
@@ -905,7 +940,100 @@ interface LondonRawLane extends LaneSegment {
 }
 
 const londonRawLanes: LondonRawLane[] = [];
+/**
+ * Points along a circular arc, inclusive of both endpoints. Angles in degrees,
+ * 0deg = +x (east), 90deg = +z (north) — standard maths, NOT the heading
+ * convention the rest of the file uses; `a1 < a0` traces the arc clockwise,
+ * which is the way left-hand traffic circulates.
+ */
+const arcPoints = (
+  center: WorldPoint,
+  radius: number,
+  a0Deg: number,
+  a1Deg: number,
+  steps: number,
+): WorldPoint[] => {
+  const points: WorldPoint[] = [];
+  for (let index = 0; index <= steps; index += 1) {
+    const angle = ((a0Deg + ((a1Deg - a0Deg) * index) / steps) * Math.PI) / 180;
+    points.push(
+      point(center.x + radius * Math.cos(angle), center.z + radius * Math.sin(angle)),
+    );
+  }
+  return points;
+};
+
+/** Maths angle of an arm node about its roundabout's centre, in degrees. */
+const armAngleDeg = (center: WorldPoint, armNodeId: string): number => {
+  const position = londonNodeById.get(armNodeId)!.position;
+  return (
+    (Math.atan2(position.z - center.z, position.x - center.x) * 180) / Math.PI
+  );
+};
+
+/**
+ * Every roundabout's circulating arcs, one per pair of consecutive arms,
+ * clockwise. Computed once and used twice — for the ring's lanes and for its
+ * carriageway surface — so the surface's polyline passes through exactly the
+ * arm nodes the approach roads end on. Built any other way (a circle sampled
+ * at regular angles, say) the arms land mid-segment on the ring's asphalt and
+ * the pavement graph finds junctions the asphalt fill never paved.
+ *
+ * Arc sampling is deliberately coarse: segment count is the simulation's
+ * dominant cost, and a mini-roundabout read from a car is a curve, not a
+ * polygon.
+ */
+const londonRoundaboutArcs = new Map<
+  string,
+  readonly { readonly from: LaneNode; readonly to: LaneNode; readonly points: readonly WorldPoint[] }[]
+>();
 for (const spec of LONDON_ROAD_SPECS) {
+  if (!spec.roundabout) continue;
+  const { center, radiusM } = spec.roundabout;
+  const arcs: { from: LaneNode; to: LaneNode; points: readonly WorldPoint[] }[] = [];
+  for (let index = 0; index < spec.nodeIds.length; index += 1) {
+    const from = londonNodeById.get(spec.nodeIds[index])!;
+    const to = londonNodeById.get(spec.nodeIds[(index + 1) % spec.nodeIds.length])!;
+    const startAngle = armAngleDeg(center, from.id);
+    let endAngle = armAngleDeg(center, to.id);
+    while (endAngle >= startAngle) endAngle -= 360;
+    const sweepRad = ((startAngle - endAngle) * Math.PI) / 180;
+    const steps = Math.max(2, Math.round((sweepRad * radiusM) / 9));
+    arcs.push({
+      from,
+      to,
+      points: [
+        from.position,
+        ...arcPoints(center, radiusM, startAngle, endAngle, steps).slice(1, -1),
+        to.position,
+      ],
+    });
+  }
+  londonRoundaboutArcs.set(spec.id, arcs);
+}
+
+for (const spec of LONDON_ROAD_SPECS) {
+  const arcs = londonRoundaboutArcs.get(spec.id);
+  if (arcs) {
+    for (const [index, arc] of arcs.entries()) {
+      londonRawLanes.push({
+        id: `${spec.id}-arc-${index + 1}`,
+        reverseKey: `${spec.id}:arc-${index}`,
+        direction: "forward",
+        laneIndex: 0,
+        roadId: spec.id,
+        widthM: LONDON_LANE_WIDTH_M,
+        from: arc.from.id,
+        to: arc.to.id,
+        centerline: arc.points,
+        role: "roundabout",
+        trafficSide: "left",
+        speedLimit: speedLimitForRoad(spec.id),
+        successors: [],
+      });
+    }
+    continue;
+  }
   if (!spec.oneWay && spec.laneCount % 2 !== 0) {
     throw new Error(`${spec.id} two-way laneCount must be even`);
   }
@@ -1052,6 +1180,24 @@ const londonLanes: readonly LaneSegment[] = [
 
 const londonGeneratedSurfaces: readonly RoadSurface[] = LONDON_ROAD_SPECS.map(
   (spec) => {
+    const arcs = londonRoundaboutArcs.get(spec.id);
+    if (arcs) {
+      // The same arcs the ring's lanes ride, joined into one closed polyline.
+      // `surfaceType: "roundabout"` is what strips the centre line off a
+      // circulating carriageway.
+      const ring = arcs.flatMap((arc, index) =>
+        index === 0 ? [...arc.points] : arc.points.slice(1),
+      );
+      return roadSurface(
+        spec.id,
+        ring,
+        spec.widthM,
+        londonGeneratedLanes
+          .filter((lane) => lane.roadId === spec.id)
+          .map((lane) => lane.id),
+        "roundabout",
+      );
+    }
     const centerline = spec.nodeIds.map(
       (id) => londonNodeById.get(id)!.position,
     );
@@ -1321,8 +1467,8 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-kings-n-3", "london-kings-road", nodeAt("london-node-kings-beaufort"), nodeAt("london-node-kings-gloucester"), -1, 9.4, 44, LONDON_STOCK_BRICK, [12, 22], 0.78),
   roadsideParcel("london-block-kings-n-4", "london-kings-road", nodeAt("london-node-kings-gloucester"), nodeAt("london-node-kings-queens"), -1, 9.4, 46, LONDON_STUCCO, [13, 22], 0.78),
   roadsideParcel("london-block-kings-s-4", "london-kings-road", nodeAt("london-node-kings-gloucester"), nodeAt("london-node-kings-queens"), 1, 9.4, 34, LONDON_STUCCO, [12, 20], 0.7),
-  roadsideParcel("london-block-kings-n-5", "london-kings-road", nodeAt("london-node-kings-queens"), nodeAt("london-node-kings-sloane"), -1, 9.4, 48, LONDON_RED_BRICK, [13, 23], 0.78),
-  roadsideParcel("london-block-kings-s-5", "london-kings-road", nodeAt("london-node-kings-queens"), nodeAt("london-node-kings-sloane"), 1, 9.4, 36, LONDON_STOCK_BRICK, [12, 20], 0.72),
+  roadsideParcel("london-block-kings-n-5", "london-kings-road", nodeAt("london-node-kings-queens"), nodeAt("london-node-sloane-arm-kings"), -1, 9.4, 48, LONDON_RED_BRICK, [13, 23], 0.78),
+  roadsideParcel("london-block-kings-s-5", "london-kings-road", nodeAt("london-node-kings-queens"), nodeAt("london-node-sloane-arm-kings"), 1, 9.4, 36, LONDON_STOCK_BRICK, [12, 20], 0.72),
 
   // --- Chelsea below the King's Road: stucco terraces round the mews. ------
   roadsideParcel("london-block-hospital-n-1", "london-royal-hospital-road", nodeAt("london-node-hospital-west"), nodeAt("london-node-hospital-mid"), -1, 8, 40, LONDON_STUCCO, [12, 20], 0.72),
@@ -1335,7 +1481,7 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-manor-w", "london-chelsea-manor", nodeAt("london-node-kings-gloucester"), nodeAt("london-node-hospital-west"), 1, 7.4, 34, LONDON_STUCCO, [12, 20], 0.72),
   roadsideParcel("london-block-flood-e", "london-flood-street", nodeAt("london-node-kings-queens"), nodeAt("london-node-flood-mid"), -1, 7.2, 36, LONDON_STUCCO, [12, 20], 0.72),
   roadsideParcel("london-block-flood-e-2", "london-flood-street", nodeAt("london-node-flood-mid"), nodeAt("london-node-hospital-mid"), -1, 7.2, 32, LONDON_RED_BRICK, [11, 18], 0.7),
-  roadsideParcel("london-block-smith-e", "london-smith-street", nodeAt("london-node-hospital-east"), nodeAt("london-node-kings-sloane"), -1, 7.6, 34, LONDON_RED_BRICK, [12, 20], 0.72),
+  roadsideParcel("london-block-smith-e", "london-smith-street", nodeAt("london-node-hospital-east"), nodeAt("london-node-smith-approach"), -1, 7.6, 34, LONDON_RED_BRICK, [12, 20], 0.72),
 
   // --- Gloucester Road / Drayton Gardens / Sydney Street. ------------------
   roadsideParcel("london-block-gloucester-s-w", "london-gloucester-south", nodeAt("london-node-gloucester-south"), nodeAt("london-node-gloucester-mid"), 1, 7.8, 40, LONDON_STUCCO, [12, 21], 0.74),
@@ -1343,7 +1489,7 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-drayton-w", "london-drayton-gardens", nodeAt("london-node-queen-gate-south"), nodeAt("london-node-drayton-mid"), 1, 7.4, 38, LONDON_STUCCO, [12, 21], 0.74),
   roadsideParcel("london-block-drayton-e", "london-drayton-gardens", nodeAt("london-node-drayton-mid"), nodeAt("london-node-kings-queens"), -1, 7.4, 40, LONDON_RED_BRICK, [11, 19], 0.72),
   roadsideParcel("london-block-sydney-w", "london-sydney-street", nodeAt("london-node-cromwell-far-east"), nodeAt("london-node-sydney-mid"), 1, 7.8, 36, LONDON_RED_BRICK, [11, 19], 0.72),
-  roadsideParcel("london-block-sydney-e", "london-sydney-street", nodeAt("london-node-sydney-mid"), nodeAt("london-node-kings-sloane"), -1, 7.8, 34, LONDON_STOCK_BRICK, [11, 18], 0.7),
+  roadsideParcel("london-block-sydney-e", "london-sydney-street", nodeAt("london-node-sydney-mid"), nodeAt("london-node-sloane-arm-sydney"), -1, 7.8, 34, LONDON_STOCK_BRICK, [11, 18], 0.7),
 
   // --- Earls Court and Warwick Road: brick terraces, tighter and lower. ----
   roadsideParcel("london-block-earls-w-1", "london-earls-court-road", nodeAt("london-node-earls-nevern"), nodeAt("london-node-earls-north"), 1, 8.6, 40, LONDON_STOCK_BRICK, [11, 18], 0.74),
@@ -1587,6 +1733,147 @@ const londonGeneratedSignals = [
   londonSignal("london-signal-tower-south", "london-node-tower-south"),
 ];
 
+/** Where a give-way bar sits, measured back from its arm node. */
+const LONDON_GIVE_WAY_SETBACK_M = 6;
+
+/**
+ * A give-way control on every arm of every roundabout, plus the triangle and
+ * the transverse dashes that say so.
+ *
+ * The control is `yield` rather than `stop`: British roundabouts give way,
+ * they do not stop, and the type has been fully plumbed through the
+ * simulation — stop lines, NPC holding, player enforcement, the roadside
+ * triangle — since long before any city authored one. What makes these
+ * *roundabout* give-ways rather than plain ones is derived rather than
+ * authored: `buildStopAndYieldLines` marks a yield line whose lane leads
+ * straight onto a ring, so an entry cannot be built with its give-way
+ * mislabelled.
+ */
+const londonRoundaboutGiveWays = LONDON_ROAD_SPECS.flatMap((spec) => {
+  if (!spec.roundabout) return [];
+  const controls: TrafficControl[] = [];
+  const markings: { readonly surfaceId: string; readonly marking: RoadMarkingPath }[] = [];
+  for (const armNodeId of spec.nodeIds) {
+    const entering = londonGeneratedLanes.filter(
+      (lane) => lane.to === armNodeId && lane.roadId !== spec.id,
+    );
+    if (entering.length === 0) continue;
+    const lane = entering[0];
+    const stopDistance = Math.max(
+      3,
+      laneLengthOf(lane) - LONDON_GIVE_WAY_SETBACK_M,
+    );
+    const axis = posePointAlongLane(
+      lane,
+      Math.max(0, stopDistance - CONNECTOR_BLEND_RUN_M - 1),
+    );
+    const stopPose = posePointAlongLane(lane, stopDistance);
+    const rad = (axis.headingDeg * Math.PI) / 180;
+    const leftX = -Math.cos(rad);
+    const leftZ = Math.sin(rad);
+    const rightX = Math.cos(rad);
+    const rightZ = -Math.sin(rad);
+    const surface = londonSurfaceById.get(lane.roadId)!;
+    const kerbside = surface.widthM / 2 + 1.2 - LONDON_LANE_OFFSET_M;
+    const slug = armNodeId.replace("london-node-", "");
+    const controlId = `${spec.id}-give-way-${slug}`;
+    const approachId = `${controlId}-app`;
+    controls.push(
+      control(
+        controlId,
+        "yield",
+        stopPose.position.x,
+        stopPose.position.z,
+        axis.headingDeg,
+        entering.map((item) => item.id),
+        undefined,
+        [
+          {
+            id: approachId,
+            laneIds: entering.map((item) => item.id),
+            stopLine: anchor(lane.id, stopDistance),
+            phaseGroup: controlId,
+          },
+        ],
+        [
+          installation(
+            `${controlId}-sign`,
+            stopPose.position.x + leftX * kerbside,
+            stopPose.position.z + leftZ * kerbside,
+            axis.headingDeg,
+            "roadside_pole",
+            "yield_sign",
+            "primary",
+            [approachId],
+          ),
+        ],
+      ),
+    );
+    // The painted give-way line itself, across the whole mouth rather than
+    // across one lane: `RoadMarkingStyle "give_way"` has rendered since it
+    // was declared and no city had ever authored one.
+    markings.push({
+      surfaceId: lane.roadId,
+      marking: roadMarking(
+        `${controlId}-marking`,
+        "give_way",
+        [
+          point(
+            stopPose.position.x + rightX * surface.widthM * 0.5,
+            stopPose.position.z + rightZ * surface.widthM * 0.5,
+          ),
+          point(
+            stopPose.position.x + leftX * surface.widthM * 0.5,
+            stopPose.position.z + leftZ * surface.widthM * 0.5,
+          ),
+        ],
+        "white",
+      ),
+    });
+  }
+  return [{ controls, markings }];
+});
+
+const londonGiveWayControls = londonRoundaboutGiveWays.flatMap(
+  (roundabout) => roundabout.controls,
+);
+const londonGiveWayMarkingsBySurface = new Map<string, RoadMarkingPath[]>();
+for (const roundabout of londonRoundaboutGiveWays) {
+  for (const { surfaceId, marking } of roundabout.markings) {
+    londonGiveWayMarkingsBySurface.set(surfaceId, [
+      ...(londonGiveWayMarkingsBySurface.get(surfaceId) ?? []),
+      marking,
+    ]);
+  }
+}
+
+const londonSurfacesWithGiveWay: readonly RoadSurface[] =
+  londonGeneratedSurfaces.map((surface) => {
+    const extra = londonGiveWayMarkingsBySurface.get(surface.id);
+    return extra
+      ? { ...surface, markings: [...surface.markings, ...extra] }
+      : surface;
+  });
+
+/** Painted islands at the centre of every roundabout. */
+const londonRoundaboutIslands: readonly ProceduralLandmark[] =
+  LONDON_ROAD_SPECS.flatMap((spec) =>
+    spec.roundabout
+      ? [
+          {
+            id: `${spec.id}-island`,
+            kind: "park" as const,
+            center: spec.roundabout.center,
+            size: point(
+              spec.roundabout.islandRadiusM * 2,
+              spec.roundabout.islandRadiusM * 2,
+            ),
+            color: "#5f9a4e",
+          },
+        ]
+      : [],
+  );
+
 const londonLaneGraph: LaneGraph = {
   nodes: [
     ...Object.values(londonNodes),
@@ -1596,6 +1883,7 @@ const londonLaneGraph: LaneGraph = {
   lanes: londonLanes,
   controls: [
     ...londonGeneratedSignals.map((signal) => signal.control),
+    ...londonGiveWayControls,
     control(
       "london-crosswalk-quiet",
       "crosswalk",
@@ -1850,7 +2138,7 @@ export const LONDON_MAP_PACK: MapPack = {
     shoulderWidth: 1.5,
     roadSurfaces: [
       ...londonQuarterSurfaces,
-      ...londonGeneratedSurfaces,
+      ...londonSurfacesWithGiveWay,
     ],
     // The Thames, crossing the whole map west to east. Gently irregular on
     // both shores — a perfect rectangle reads as a canal, not a river. Both
@@ -2035,6 +2323,7 @@ export const LONDON_MAP_PACK: MapPack = {
         size: point(500, 44),
         color: "#4f7a3d",
       },
+      ...londonRoundaboutIslands,
       // Chelsea's garden square: the pocket between the King's Road, Cheyne
       // Mews and Chelsea Manor Street that carries no street wall, so the
       // block list above deliberately skips the King's Road's south kerb

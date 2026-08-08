@@ -324,6 +324,7 @@ const RULE_COOLDOWNS: Readonly<Partial<Record<RuleCode, number>>> = {
   missing_indicator: 5,
   incomplete_stop: 5,
   unsafe_gap: 5,
+  roundabout_yield: 5,
   observation: 8,
   // Grinding along a wall or a knocked car re-contacts every step; one event
   // per contact burst is what the damage/fine layers upstream want to see.

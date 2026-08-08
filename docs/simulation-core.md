@@ -96,6 +96,28 @@ the collision. None of those paths teleports the player.
 `BabylonGameSession` drains the queue every fixed update with `drainEvents()`;
 events are deliberately absent from `SimulationSnapshot`.
 
+## A roundabout give-way is a filtered yield line
+
+A `yield` stop line holds for **any** vehicle inside its conflict radius, from
+any direction. That is right for a plain give-way and wrong for a roundabout:
+entering and circulating traffic block each other, and the enterer — an
+ordinary road lane, so unlike a ring lane *not* exempt from the jam recycler —
+visibly teleports away instead of giving way.
+
+So a yield line whose own lane leads straight onto a `role: "roundabout"` lane
+carries `roundaboutYieldFrom`, and both readers (`TrafficSystem.yieldGapForLane`
+for NPCs, `RoadRuleMonitor.checkStopLines` for the player) then hold only for
+traffic that is **on a roundabout-kind lane** and **on the named side** of the
+bar. The side comes from `CountryProfile.roundaboutPolicy.yieldToTrafficFrom`,
+which until then was authored for all four countries and read by nothing;
+`buildStopAndYieldLines` derives the flag from the lane graph, so an entry
+cannot be authored with its give-way mislabelled.
+
+The player's lapse emits `roundabout_yield`, not `unsafe_gap`, and it
+**coaches rather than fines** — it is not in the fineable set. Queueing behind
+a car that happens to be across the line is not failing to give way: both
+readers filter out vehicles on the player's own lane.
+
 ## Policing: who can fine you, and for what
 
 The chain runs core → `BabylonGameSession.processSimulationEvents` →

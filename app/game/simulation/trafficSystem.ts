@@ -167,6 +167,12 @@ const NPC_BODY_CLEARANCE_M = 3.8;
 // knock rather than two cars politely halted in line.
 const NPC_INCIDENT_KNOCK_SECONDS = 2.5;
 const NPC_INCIDENT_STUCK_SECONDS = 6;
+/**
+ * How far *behind* the give-way bar a circulating vehicle may already be and
+ * still hold an entering one. Zero would let a driver enter alongside a car
+ * that is level with the mouth and about to sweep across it.
+ */
+const ROUNDABOUT_YIELD_SIDE_ALLOWANCE_M = 2.5;
 // Exported: simulation.ts's own checkCollisions applies the same askew-knock
 // lean to a player-struck car.
 export const NPC_INCIDENT_KNOCK_RAD = 0.16;
@@ -1421,12 +1427,31 @@ export class TrafficSystem {
       if (stopLine.kind !== "yield") continue;
       const linePose = this.roadNetwork.pointOnLane(lane, stopLine.distance);
       const conflictRadius = stopLine.conflictRadius ?? 12;
-      const hasConflict = this.npcsList.some(
-        (other) =>
-          other.active &&
-          other.laneId !== lane.id &&
-          distanceSquared(other, linePose) < conflictRadius * conflictRadius,
-      );
+      // The driver's right-hand normal at the bar, for the roundabout case
+      // below. Same convention as everywhere else: heading 0 is +z.
+      const rightX = Math.cos(linePose.heading);
+      const rightZ = -Math.sin(linePose.heading);
+      const hasConflict = this.npcsList.some((other) => {
+        if (!other.active || other.laneId === lane.id) return false;
+        if (distanceSquared(other, linePose) >= conflictRadius * conflictRadius) {
+          return false;
+        }
+        if (!stopLine.roundaboutYieldFrom) return true;
+        // A roundabout entry gives way to the *circulating* stream only.
+        // Traffic queueing on the arm opposite, or crossing somewhere else
+        // inside the radius, is not what holds a driver at a give-way line.
+        const otherLane = this.roadNetwork.lanesById.get(other.laneId);
+        if (otherLane?.kind !== "roundabout") return false;
+        // ...and only from the side the country's roundabouts circulate
+        // from. The small negative allowance keeps a car level with the mouth
+        // — already committed across it — in the hold rather than letting an
+        // entering driver cut in beside it.
+        const side =
+          (other.x - linePose.x) * rightX + (other.z - linePose.z) * rightZ;
+        return stopLine.roundaboutYieldFrom === "right"
+          ? side > -ROUNDABOUT_YIELD_SIDE_ALLOWANCE_M
+          : side < ROUNDABOUT_YIELD_SIDE_ALLOWANCE_M;
+      });
       if (!hasConflict) continue;
       const gap = this.roadNetwork.distanceAhead(lane, distance, stopLine.distance);
       if (gap < best) best = gap;

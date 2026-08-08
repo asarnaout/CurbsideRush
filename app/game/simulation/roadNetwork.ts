@@ -71,6 +71,19 @@ export interface StopLineDefinition {
   readonly trafficLightId?: string;
   readonly turnDirection?: Exclude<TurnSignal, "off">;
   readonly conflictRadius?: number;
+  /**
+   * Set only on a give-way line whose own lane leads onto a roundabout ring,
+   * and naming the side the circulating stream comes from — "right" wherever
+   * traffic drives on the left.
+   *
+   * Without it a yield line holds for *any* vehicle inside its conflict
+   * radius, from any direction, which is right for a plain give-way and wrong
+   * for a roundabout: entering and circulating traffic would mutually block,
+   * and the enterer — an ordinary road lane, so not exempt from the jam
+   * recycler the way a ring lane is — would visibly teleport away rather than
+   * give way.
+   */
+  readonly roundaboutYieldFrom?: "left" | "right";
 }
 
 export interface NormalizedLane {

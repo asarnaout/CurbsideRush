@@ -166,6 +166,15 @@ describe("junction geometry stays smooth (#19)", () => {
           if (Math.abs(degrees(wrapRad(successorBearing - laneBearing))) > 25) {
             continue; // a genuine turn, not a continuation
           }
+          // Nor is entering or leaving a roundabout, whatever the chords
+          // happen to say. An arc's straight-line chord is not its direction
+          // of travel: a 130-degree sweep can leave a chord within 25 degrees
+          // of the road either feeding it or leaving it, while the ring's
+          // tangent at that mouth is square to both. Every roundabout mouth
+          // is a turn by construction.
+          if (lane.role === "roundabout" || successor.role === "roundabout") {
+            continue;
+          }
           const startHeading = segmentHeadings(successor)[0];
           if (startHeading === undefined) continue;
           checked += 1;

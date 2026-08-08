@@ -5,6 +5,148 @@ import {
 } from "../app/game/simulation";
 
 describe("deterministic simulation", () => {
+  /**
+   * A roundabout give-way, from both sides of the glass.
+   *
+   * The geometry is the smallest thing that is really a roundabout: a
+   * north-bound entry arm ending on a ring node, and a circulating ring lane
+   * (`role: "roundabout"`, which the adapter maps to `kind: "roundabout"`)
+   * sweeping past that node from the entry driver's right — the side a
+   * left-hand-traffic country gives way to. `roundaboutYieldFrom` is what
+   * separates this from a plain give-way, and `buildStopAndYieldLines`
+   * derives it from the lane graph rather than taking it on trust.
+   */
+  const roundaboutFixture = (options: { readonly ringNpc: boolean }) => ({
+    seed: 11,
+    lanes: [
+      {
+        id: "entry-arm",
+        points: [
+          { x: 0, z: -60 },
+          { x: 0, z: -14 },
+        ],
+        width: 3.2,
+        speedLimitMps: 12,
+        successorLaneIds: ["ring-arc"],
+        loop: false,
+      },
+      {
+        id: "ring-arc",
+        points: [
+          { x: 0, z: -14 },
+          { x: 10, z: -4 },
+          { x: 0, z: 6 },
+        ],
+        width: 3.2,
+        speedLimitMps: 8,
+        kind: "roundabout" as const,
+        successorLaneIds: ["ring-arc"],
+        loop: false,
+      },
+      {
+        // Creeps past the mouth from the entry driver's right, slowly enough
+        // to still be beside the give-way line when the player reaches it.
+        id: "ring-feed",
+        points: [
+          { x: 6, z: -34 },
+          { x: 6, z: -16 },
+          { x: 10, z: -4 },
+        ],
+        width: 3.2,
+        speedLimitMps: 3,
+        kind: "roundabout" as const,
+        successorLaneIds: ["ring-arc"],
+        loop: false,
+      },
+    ],
+    bounds: { minX: -40, maxX: 60, minZ: -80, maxZ: 40 },
+    stopLines: [
+      {
+        id: "entry-give-way",
+        laneId: "entry-arm",
+        distance: 40,
+        kind: "yield" as const,
+        conflictRadius: 14,
+        roundaboutYieldFrom: "right" as const,
+      },
+    ],
+    ...(options.ringNpc
+      ? {
+          npcCount: 1,
+          trafficGates: [
+            { id: "ring-gate", laneId: "ring-feed", distance: 1, desiredSpeedMps: 2.5 },
+          ],
+        }
+      : { npcCount: 0 }),
+  });
+
+  it("holds an entering NPC for circulating traffic, and lets it go when the ring is clear", () => {
+    // Two NPCs: one already circulating, one arriving on the arm. The
+    // arriving car must slow at the give-way line rather than drive on
+    // through, and — the trap this whole mechanism exists for — must still be
+    // on the map when it does. An entering lane is an ordinary road lane, so
+    // unlike a ring lane it is NOT exempt from the jam recycler: two cars
+    // mutually blocking is exactly how an entering car teleports away instead
+    // of giving way.
+    const busy = new SimulationCore({
+      ...roundaboutFixture({ ringNpc: true }),
+      npcCount: 2,
+      trafficGates: [
+        { id: "ring-gate", laneId: "ring-feed", distance: 1, desiredSpeedMps: 2.5 },
+        { id: "entry-gate", laneId: "entry-arm", distance: 6, desiredSpeedMps: 9 },
+      ],
+      spawn: { x: -30, z: -70, heading: 0 },
+    });
+    let held = false;
+    for (let tick = 0; tick < 10 * 60; tick += 1) {
+      busy.step(1 / 60);
+      const entering = busy
+        .getSnapshot()
+        .npcs.find((npc) => npc.id.includes("2"));
+      if (entering && entering.z > -34 && entering.z < -14 && entering.speedMps < 2) {
+        held = true;
+      }
+    }
+    expect(held, "entering NPC gave way to the circulating stream").toBe(true);
+    expect(busy.getSnapshot().npcs).toHaveLength(2);
+
+    // With nothing on the ring the same arm runs free: a give-way line that
+    // held regardless would just be a stop sign.
+    const clear = new SimulationCore({
+      ...roundaboutFixture({ ringNpc: false }),
+      npcCount: 1,
+      trafficGates: [
+        { id: "entry-gate", laneId: "entry-arm", distance: 6, desiredSpeedMps: 9 },
+      ],
+      spawn: { x: -30, z: -70, heading: 0 },
+    });
+    let heldOnAnEmptyRing = false;
+    for (let tick = 0; tick < 10 * 60; tick += 1) {
+      clear.step(1 / 60);
+      const npc = clear.getSnapshot().npcs[0];
+      if (npc && npc.z > -34 && npc.z < -14 && npc.speedMps < 2) {
+        heldOnAnEmptyRing = true;
+      }
+    }
+    expect(heldOnAnEmptyRing, "nothing to give way to").toBe(false);
+  });
+
+  it("coaches the player for crossing a live give-way line onto a roundabout", () => {
+    const simulation = new SimulationCore({
+      ...roundaboutFixture({ ringNpc: true }),
+      spawn: { x: 0, z: -58, heading: 0 },
+    });
+    for (let tick = 0; tick < 8 * 60; tick += 1) {
+      simulation.step(1 / 60, { throttle: 1 });
+    }
+    const events = simulation.getEvents();
+    const yieldEvent = events.find((event) => event.code === "roundabout_yield");
+    expect(yieldEvent?.correction).toContain("Give way to traffic already on the roundabout");
+    // The generic give-way code stays for give-way lines that are not
+    // roundabout entries; a roundabout entry must not emit both.
+    expect(events.some((event) => event.code === "unsafe_gap")).toBe(false);
+  });
+
   it("does not synthesize retired fallback roads, signals, or traffic", () => {
     const simulation = new SimulationCore({ seed: 42, npcCount: 10 });
     const snapshot = simulation.getSnapshot();
