@@ -42,6 +42,16 @@ consumer permutation that preserves each one's draw count is invisible to a
 raw-sequence recording (an LCG's output depends on the seed and the count of
 draws so far, never on which call site asks).
 
+## London's landmarks share one material trio
+
+Every landmark in `render/londonLandmarks.ts` dresses itself with the same
+pale trim, dark glazing and dark roof. They used to be minted per landmark
+with the id baked into the name and identical colours every time — 78 of them
+for the parks alone, and materials are GPU state changes. `landmarkPalette`
+caches the trio per `Scene` (not a module-level `let`: a session rebuild gets
+a fresh scene, and the second mount would otherwise get the first's disposed
+materials).
+
 ## Three angle conventions coexist
 
 | Thing | Convention |

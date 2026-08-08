@@ -39,6 +39,10 @@ import {
   type ServicePointKind,
 } from "./servicePoints";
 import { parkLayoutForLandmark } from "./parkLayouts";
+import {
+  LONDON_FURNITURE_RADIUS_M,
+  LONDON_STREET_FURNITURE,
+} from "./londonStreetFurniture";
 import { COUNTRY_PROFILES } from "./content";
 import { GAS_STATION_SOLIDS_M, PROP_MODEL_FOOTPRINTS_M } from "./propFootprints";
 import { REPAIR_SHOP_SOLIDS_M } from "./repairShopLayout";
@@ -1235,18 +1239,22 @@ export function buildStaticObstacles(
   }
 
   if (london) {
-    // The cast-iron pillar box on Queen's Gate (GameCanvas
-    // LONDON_POST_BOX_POSITION). Every other piece of street furniture is
-    // knockable renderer-side; Royal Mail wins, so it is a solid here and the
-    // renderer deliberately leaves it out of the destructible registry.
-    obstacles.push({
-      kind: "circle",
-      id: "london-post-box",
-      tag: "landmark",
-      x: 122,
-      z: 87,
-      radius: 0.45,
-    });
+    // Pillar boxes and telephone kiosks. Cast iron and a quarter-tonne of
+    // glazed kiosk both beat a car, so unlike every other piece of street
+    // furniture these are solids here rather than knockable renderer-side.
+    // Positions come from the one module the renderer reads too — they used
+    // to be a literal on each side with a comment asking the next reader to
+    // move both together.
+    for (const item of LONDON_STREET_FURNITURE) {
+      obstacles.push({
+        kind: "circle",
+        id: item.id,
+        tag: "landmark",
+        x: item.position.x,
+        z: item.position.z,
+        radius: LONDON_FURNITURE_RADIUS_M,
+      });
+    }
   }
 
   const fenceMinX = bounds.minX - WORLD_EDGE_STANDOFF_M;

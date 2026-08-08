@@ -1,0 +1,80 @@
+import type { WorldPoint } from "./types";
+
+/**
+ * London's hand-placed pillar boxes and telephone kiosks, and the one place
+ * their positions are written down.
+ *
+ * They exist twice over in the running game — as meshes in
+ * `render/londonLandmarks.ts` and as solid circles in `simulationAdapter.ts`
+ * — and the two used to be independent literals: the single Queen's Gate
+ * pillar box was `LONDON_POST_BOX_POSITION` in `render/propCatalog.ts` and a
+ * hardcoded `(122, 87)` in the adapter's obstacle builder, with a comment on
+ * each asking the next reader to move both together. That is exactly the
+ * shape of drift that put NYC's bridge parapets 3.4 m off their own
+ * colliders, and it does not scale to sixteen of them.
+ *
+ * Both are **solid, not knockable**: cast iron and a quarter-tonne of glazed
+ * kiosk both beat a car, so neither is in `DESTRUCTIBLE_PROP_CONFIGS`.
+ *
+ * Every position is on a pavement and nowhere else: at least 2.9 m clear of
+ * every lane envelope, between 0.9 m and 3.2 m past the nearest kerb, and
+ * 0.8 m clear of any block. `staticColliders.test.ts` allows small circles to
+ * stand on the walkable band — walkers route around them — but not on the
+ * asphalt, and hand-picked coordinates put six of these in a carriageway
+ * before the constraint was solved for rather than eyeballed.
+ */
+export interface LondonFurniturePlacement {
+  readonly id: string;
+  readonly position: WorldPoint;
+  /** Clockwise yaw; a kiosk's door faces the pavement it stands on. */
+  readonly headingDeg: number;
+}
+
+/** Collider radius shared by both families — a pillar box and a K6 kiosk are
+ * within a few centimetres of each other in plan. */
+export const LONDON_FURNITURE_RADIUS_M = 0.62;
+
+const at = (
+  id: string,
+  x: number,
+  z: number,
+  headingDeg: number,
+): LondonFurniturePlacement => ({ id, position: { x, z }, headingDeg });
+
+/**
+ * Royal Mail pillar boxes. The Queen's Gate one keeps its original position
+ * to the centimetre — it is the only piece of London street furniture that
+ * has ever been a solid obstacle, and moving it would move a landmark players
+ * have been driving past since the map shipped.
+ */
+export const LONDON_PILLAR_BOXES: readonly LondonFurniturePlacement[] = [
+  at("london-post-box", 122, 87, 0),
+  at("london-post-box-kings-road", -303.0, -281.0, 100),
+  at("london-post-box-earls-court", -818.0, 62.0, 270),
+  at("london-post-box-embankment", -338.0, -512.0, 15),
+  at("london-post-box-knightsbridge", 323.3, 211.7, 190),
+  at("london-post-box-oxford", 813.7, 691.6, 180),
+  at("london-post-box-bishopsgate", 1162.5, 300.0, 265),
+  at("london-post-box-riverbank", 447.2, -650.4, 5),
+];
+
+/**
+ * K6-style telephone kiosks. Deliberately procedural rather than imported:
+ * a red box with glazing bars and a crown frieze is a handful of primitives,
+ * and nothing about it is worth a licence to verify.
+ */
+export const LONDON_PHONE_BOXES: readonly LondonFurniturePlacement[] = [
+  at("london-phone-box-queens-gate", -114.5, 34.0, 90),
+  at("london-phone-box-kings-road", -106.0, -278.3, 100),
+  at("london-phone-box-chelsea", -321.5, -406.0, 350),
+  at("london-phone-box-earls-court", -815.5, -100.0, 270),
+  at("london-phone-box-piccadilly", 805.5, 293.5, 200),
+  at("london-phone-box-whitehall", 790.1, -186.4, 180),
+  at("london-phone-box-city", 1177.0, 344.0, 245),
+  at("london-phone-box-islington", 1181.3, 840.7, 285),
+];
+
+export const LONDON_STREET_FURNITURE: readonly LondonFurniturePlacement[] = [
+  ...LONDON_PILLAR_BOXES,
+  ...LONDON_PHONE_BOXES,
+];

@@ -1,5 +1,6 @@
 import type { TransformNode } from "@babylonjs/core";
 import { NYC_VENDORS } from "../buildingSets";
+import { LONDON_STREET_FURNITURE } from "../londonStreetFurniture";
 import type { GameCanvasPoint } from "../sessionContract";
 import { resolveMapVisualKey, type PropKindConfig } from "../visuals";
 
@@ -38,17 +39,17 @@ export const LONDON_PLANTER_POSITIONS: readonly (readonly [number, number])[] = 
   [57, 68],
 ];
 
-// Mirrored as a solid circle obstacle in simulationAdapter (cast iron beats
-// car); move both together.
-export const LONDON_POST_BOX_POSITION = [122, 87] as const;
-
-/** Hand-placed South Kensington furniture that scattered props must avoid. */
+/** Hand-placed London furniture that scattered props must avoid. Pillar
+ * boxes and telephone kiosks live in `londonStreetFurniture.ts`, which the
+ * simulation adapter reads too — they are solid obstacles, not scenery. */
 export const LONDON_FURNITURE_POINTS: readonly GameCanvasPoint[] = [
-  ...LONDON_LAMP_POSITIONS,
-  ...LONDON_BOLLARD_POSITIONS,
-  ...LONDON_PLANTER_POSITIONS,
-  LONDON_POST_BOX_POSITION,
-].map(([x, z]) => ({ x, z }));
+  ...[
+    ...LONDON_LAMP_POSITIONS,
+    ...LONDON_BOLLARD_POSITIONS,
+    ...LONDON_PLANTER_POSITIONS,
+  ].map(([x, z]) => ({ x, z })),
+  ...LONDON_STREET_FURNITURE.map((item) => item.position),
+];
 
 /**
  * Street furniture the car can knock over. Every scattered prop, vendor cart
