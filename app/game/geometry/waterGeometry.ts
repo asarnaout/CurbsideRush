@@ -465,11 +465,23 @@ export function cairoBridgeVisualAxis(
  * The `cairo` prefix is historical, not a scope limit — it takes a landmark,
  * road surfaces and water bodies, nothing Cairo-specific, so `nycLandmarks
  * .ts`'s Queensview/Harborline dressing calls it too.
+ *
+ * **`widthM` here and `simulationAdapter`'s `-portal-` parapet collider offset
+ * are one formula living in two files**, and they must resolve the deck's
+ * pavement width the same way or the rail you see and the wall you hit come
+ * apart. `defaultSidewalkWidthM` is required rather than defaulted for exactly
+ * that reason: it used to be `surface.sidewalkWidthM ?? 0`, which agreed with
+ * the adapter only on maps that author a width on every surface (Cairo does,
+ * NYC does not), so both NYC bridges drew their parapet 3.4 m inboard at the
+ * kerb while the collider stood — invisibly — out at the deck edge, leaving
+ * the footway apparently open to the water. Pass the same value
+ * `sidewalkWidthForSurface` would fall back to.
  */
 export function cairoBridgePortalVisualAxis(
   landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
   roadSurfaces: NonNullable<GameCanvasMapPack["geometry"]["roadSurfaces"]>,
   waterBodies: NonNullable<GameCanvasMapPack["geometry"]["waterBodies"]>,
+  defaultSidewalkWidthM: number,
 ): CairoBridgeVisualAxis {
   const fallback = cairoBridgeVisualAxis(landmark, roadSurfaces);
   const surface = roadSurfaces.find((candidate) => candidate.id === landmark.id);
@@ -492,7 +504,10 @@ export function cairoBridgePortalVisualAxis(
   if (!longest || longest.halfLengthM < 0.5) return fallback;
 
   const headingRad = Math.atan2(longest.ux, longest.uz);
-  const sidewalkWidthM = Math.max(0, surface.sidewalkWidthM ?? 0);
+  const sidewalkWidthM = Math.max(
+    0,
+    surface.sidewalkWidthM ?? defaultSidewalkWidthM,
+  );
   return {
     center: longest.center,
     lengthM: longest.halfLengthM * 2,

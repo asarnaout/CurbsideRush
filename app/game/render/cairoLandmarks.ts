@@ -25,7 +25,7 @@ import {
 import { CAIRO_TAHRIR_PLAZA_RADIUS_M } from "../parkLayouts";
 import { PARK_PATH_Y } from "./renderConstants";
 import type { GameCanvasMapPack, GameCanvasPoint } from "../sessionContract";
-import type { MapVisualPalette } from "../visuals";
+import { defaultSidewalkWidthM, type MapVisualPalette } from "../visuals";
 
 /**
  * Original low-poly silhouettes for central Cairo's navigation anchors.
@@ -852,6 +852,7 @@ export function buildCairoLandmark(
       landmark,
       mapPack.geometry.roadSurfaces ?? [],
       mapPack.geometry.waterBodies ?? [],
+      defaultSidewalkWidthM(mapPack),
     );
     const length = axis.lengthM;
     const width = axis.widthM;

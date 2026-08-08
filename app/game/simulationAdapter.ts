@@ -25,7 +25,7 @@ import type {
   TrafficSide,
 } from "./sessionContract";
 import {
-  PAVED_SIDEWALK_WIDTH_M,
+  defaultSidewalkWidthM,
   resolveMapVisualPalette,
 } from "./visuals";
 import {
@@ -578,9 +578,7 @@ function sidewalkWidthForSurface(
   if (surface.sidewalkWidthM !== undefined) {
     return Math.max(0, surface.sidewalkWidthM);
   }
-  return resolveMapVisualPalette(mapPack.id).paved
-    ? PAVED_SIDEWALK_WIDTH_M
-    : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
+  return defaultSidewalkWidthM(mapPack);
 }
 
 type VenueLike = NonNullable<

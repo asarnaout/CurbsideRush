@@ -63,6 +63,7 @@ import {
   waterBoatPoseAt,
 } from "../app/game/geometry/waterGeometry";
 import {
+  defaultSidewalkWidthM,
   distanceToPolylineM,
   generateRoadsidePropPlacements,
 } from "../app/game/visuals";
@@ -376,6 +377,7 @@ describe("Cairo visual axes", () => {
         landmark,
         surfaces,
         waters,
+        defaultSidewalkWidthM(CAIRO_MAP_PACK),
       );
       const surface = surfaces.find((candidate) => candidate.id === id)!;
       const travel = {

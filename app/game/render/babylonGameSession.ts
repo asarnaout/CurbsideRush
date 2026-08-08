@@ -201,9 +201,9 @@ import {
 } from "../trafficSignals";
 import {
   buildPlanarUVs,
+  defaultSidewalkWidthM,
   hashStringToSeed,
   mixHexColors,
-  PAVED_SIDEWALK_WIDTH_M,
   resolveMapVisualKey,
   resolveMapVisualPalette,
   resolveMapVisualProfile,
@@ -1817,11 +1817,8 @@ export class BabylonGameSession {
     const mapPack = this.options.mapPack;
     const surfaces = mapPack.geometry.roadSurfaces;
     if (!surfaces?.length) return null;
-    const palette = resolveMapVisualPalette(mapPack.id);
     // The exact sidewalk band the environment renders, so walkers stay on it.
-    const sidewalkWidthM = palette.paved
-      ? PAVED_SIDEWALK_WIDTH_M
-      : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
+    const sidewalkWidthM = defaultSidewalkWidthM(mapPack);
     this.pavementSidewalkWidthM = Math.min(
       sidewalkWidthM,
       ...surfaces.map((surface) => surface.sidewalkWidthM ?? sidewalkWidthM),
@@ -3856,9 +3853,7 @@ export class BabylonGameSession {
           markings: [],
         }));
     const roadSurfaces = authoredRoadSurfaces;
-    const defaultShoulderWidth = paved
-      ? PAVED_SIDEWALK_WIDTH_M
-      : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
+    const defaultShoulderWidth = defaultSidewalkWidthM(mapPack);
     for (const surface of roadSurfaces) {
       const shoulderWidth = Math.max(
         0,
