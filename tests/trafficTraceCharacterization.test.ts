@@ -99,8 +99,10 @@ describe("ambient traffic trace characterization", () => {
       // expansion (fourteen streets, three signals, both turning loops gone),
       // then the river (both embankments, the south bank, three bridges and
       // four more signals), then Sloane Circus and its three give-ways, then
-      // the West End with two more roundabouts and a signalled gyratory.
-      "free-uk-london": "2ee03716",
+      // the West End with two more roundabouts and a signalled gyratory, then
+      // the City — which also took London's ambient traffic from the
+      // scenario's twelve cars to its own thirty-two.
+      "free-uk-london": "69618e84",
       "free-jp": "997675a9",
       "free-eg": "eb350f99",
     });

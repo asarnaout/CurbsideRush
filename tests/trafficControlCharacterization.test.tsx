@@ -207,9 +207,20 @@ const isTrafficControlMesh = (name: string) =>
  * 192 -> 228 meshes: the West End. Parliament Square's three signalled
  * gyratory arms (a fourth derived camera with them), and give-way triangles
  * on the seven mouths of Wellington, Victoria and Sloane circuses.
+ *
+ * 228 -> 252 meshes: Bank Circus and Islington Circus bring seven more
+ * give-way mouths between them.
  */
 const EXPECTED_LONDON_TRAFFIC_CONTROL_MESH_NAMES = [
   "crosswalk-stripe-master",
+  "london-bank-circus-give-way-bank-arm-east-london-bank-circus-give-way-bank-arm-east-sign-pole",
+  "london-bank-circus-give-way-bank-arm-east-london-bank-circus-give-way-bank-arm-east-sign-sign",
+  "london-bank-circus-give-way-bank-arm-north-london-bank-circus-give-way-bank-arm-north-sign-pole",
+  "london-bank-circus-give-way-bank-arm-north-london-bank-circus-give-way-bank-arm-north-sign-sign",
+  "london-bank-circus-give-way-bank-arm-south-london-bank-circus-give-way-bank-arm-south-sign-pole",
+  "london-bank-circus-give-way-bank-arm-south-london-bank-circus-give-way-bank-arm-south-sign-sign",
+  "london-bank-circus-give-way-bank-arm-west-london-bank-circus-give-way-bank-arm-west-sign-pole",
+  "london-bank-circus-give-way-bank-arm-west-london-bank-circus-give-way-bank-arm-west-sign-sign",
   "london-box-cromwell-exhibition-london-box-marking-box-edge-0",
   "london-box-cromwell-exhibition-london-box-marking-box-edge-1",
   "london-box-cromwell-exhibition-london-box-marking-box-edge-2",
@@ -241,6 +252,12 @@ const EXPECTED_LONDON_TRAFFIC_CONTROL_MESH_NAMES = [
   "london-crosswalk-thurloe-london-thurloe-crosswalk-marking-stripe-4",
   "london-crosswalk-thurloe-london-thurloe-crosswalk-marking-stripe-5",
   "london-crosswalk-thurloe-london-thurloe-crosswalk-marking-stripe-6",
+  "london-islington-circus-give-way-islington-arm-north-london-islington-circus-give-way-islington-arm-north-sign-pole",
+  "london-islington-circus-give-way-islington-arm-north-london-islington-circus-give-way-islington-arm-north-sign-sign",
+  "london-islington-circus-give-way-islington-arm-south-london-islington-circus-give-way-islington-arm-south-sign-pole",
+  "london-islington-circus-give-way-islington-arm-south-london-islington-circus-give-way-islington-arm-south-sign-sign",
+  "london-islington-circus-give-way-islington-arm-west-london-islington-circus-give-way-islington-arm-west-sign-pole",
+  "london-islington-circus-give-way-islington-arm-west-london-islington-circus-give-way-islington-arm-west-sign-sign",
   "london-signal-cromwell-exhibition-london-exhibition-primary-amber",
   "london-signal-cromwell-exhibition-london-exhibition-primary-green",
   "london-signal-cromwell-exhibition-london-exhibition-primary-housing",
@@ -336,6 +353,16 @@ const EXPECTED_LONDON_TRAFFIC_CONTROL_MESH_NAMES = [
   "london-signal-queen-gate-cromwell-london-queen-gate-secondary-housing",
   "london-signal-queen-gate-cromwell-london-queen-gate-secondary-pole",
   "london-signal-queen-gate-cromwell-london-queen-gate-secondary-red",
+  "london-signal-tower-north-london-king-william-king-william-mid-head-amber",
+  "london-signal-tower-north-london-king-william-king-william-mid-head-green",
+  "london-signal-tower-north-london-king-william-king-william-mid-head-housing",
+  "london-signal-tower-north-london-king-william-king-william-mid-head-pole",
+  "london-signal-tower-north-london-king-william-king-william-mid-head-red",
+  "london-signal-tower-north-london-minories-minories-mid-head-amber",
+  "london-signal-tower-north-london-minories-minories-mid-head-green",
+  "london-signal-tower-north-london-minories-minories-mid-head-housing",
+  "london-signal-tower-north-london-minories-minories-mid-head-pole",
+  "london-signal-tower-north-london-minories-minories-mid-head-red",
   "london-signal-tower-north-london-tower-bridge-tower-south-head-amber",
   "london-signal-tower-north-london-tower-bridge-tower-south-head-green",
   "london-signal-tower-north-london-tower-bridge-tower-south-head-housing",

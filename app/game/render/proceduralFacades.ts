@@ -160,6 +160,9 @@ export class ProceduralFacades {
     // Whitehall's Portland stone: pale, grey-cream, and only the civic
     // quarter is built out of it.
     "london-portland-stone": new Color3(0.79, 0.78, 0.72),
+    // The City's glass curtain wall: steel-blue, and the only London material
+    // that goes above 40 m.
+    "london-glass-curtain": new Color3(0.42, 0.5, 0.56),
     "white-stucco": new Color3(0.82, 0.81, 0.75),
     "cairo-cream": new Color3(0.76, 0.69, 0.57),
     "cairo-ochre": new Color3(0.67, 0.53, 0.36),

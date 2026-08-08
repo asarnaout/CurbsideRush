@@ -222,20 +222,27 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // Street; Wellington and Victoria circuses and the Parliament Square
     // gyratory; the royal park and the Serpentine; 36 more parcels. The new
     // material is Whitehall's Portland stone.
-    totalMeshes: 5_087,
-    enabledMeshes: 5_087,
-    activeMeshes: 984,
-    materials: 156,
+    //
+    // 5_087 -> 5_965: the City and the north east. Oxford Street and Euston
+    // Road close the northern loop; London Wall, Bishopsgate, King William
+    // Street, Cornmarket, Leadenhall and the Minories fill the City around
+    // Bank Circus; Upper Street, Canonbury Road and Shoreditch Lane run out
+    // past Islington Circus. 36 more parcels, and one new material — the
+    // City's glass curtain wall, the only London material above 40 m.
+    totalMeshes: 5_965,
+    enabledMeshes: 5_965,
+    activeMeshes: 974,
+    materials: 165,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 96,
-    mirrorDrawn: 130,
+    mirrorCandidates: 102,
+    mirrorDrawn: 158,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "4ffed323",
+    survivingMaterialNamesFingerprint: "f8723ed8",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
