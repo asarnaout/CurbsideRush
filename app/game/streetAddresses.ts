@@ -453,6 +453,14 @@ const KINDS_BY_BUILDING_SET: Record<string, readonly GigVenueKind[]> = {
   "nyc-midrise": ["residence", "residence", "office"],
   "nyc-downtown": ["office", "office", "residence"],
   "nyc-shop": ["shop", "residence"],
+  // London's rows landed WITH the sets, before any block referenced them: this
+  // table wins over KINDS_BY_BLOCK_MATERIAL the moment a block names a set, so
+  // a set without a row here silently re-zones the whole block to plain
+  // residences. Same kinds the material table assigns those districts today.
+  "london-terrace": ["residence"],
+  "london-stucco": ["residence"],
+  "london-highstreet": ["shop", "residence"],
+  "london-city": ["office", "office", "residence"],
 };
 
 const polylineLength = (points: readonly WorldPoint[]): number =>
