@@ -1602,6 +1602,11 @@ const roadsideParcel = (
   material: string,
   heightRange: readonly [number, number],
   density: number,
+  /** Pushes the parcel back from the kerb — for boulevard bands where a lawn
+   * strip sits between the road and the street wall (the museum quarter's
+   * west environs). A parcel behind a strip usually sits past the address
+   * frontage probe's 22 m reach and simply yields no letterboxes. */
+  extraInsetM = 0,
 ): ProceduralBlock | null => {
   const dx = to.x - from.x;
   const dz = to.z - from.z;
@@ -1610,7 +1615,7 @@ const roadsideParcel = (
   const uz = dz / length;
   const rightX = uz;
   const rightZ = -ux;
-  const offset = blockInsetFor(roadWidthM) + depthM / 2;
+  const offset = blockInsetFor(roadWidthM) + extraInsetM + depthM / 2;
   const centerX = (from.x + to.x) / 2 + rightX * side * offset;
   const centerZ = (from.z + to.z) / 2 + rightZ * side * offset;
   const foreign = [...londonQuarterSurfaces, ...londonGeneratedSurfaces]
@@ -1814,6 +1819,27 @@ const londonBuildingSetFor = (
     : LONDON_SET_BY_MATERIAL[material];
 
 const londonSouthWestBlocks: readonly ProceduralBlock[] = [
+  // --- The museum quarter's environs. The quarter's five museum blocks and
+  // the Queen's Gate terraces were preserved byte-for-byte through the
+  // expansion, but its OTHER kerbs — Gloucester Road, Cromwell's far-west
+  // reach, the quiet loop's outer leg, Kensington Road's south side — were
+  // left as open ground, and the play-test called the result out twice:
+  // "massive swaths of emptiness". The venue keep-out machinery carves the
+  // quarter's shops and the gas station out of these walls automatically. --
+  roadsideParcel("london-block-gloucester-w-1", "london-gloucester", nodeAt("london-node-gloucester-south"), nodeAt("london-node-gloucester-cromwell"), -1, 7.2, 38, LONDON_STUCCO, [12, 20], 0.74, 15.6),
+  roadsideParcel("london-block-gloucester-w-2", "london-gloucester", nodeAt("london-node-gloucester-cromwell"), nodeAt("london-node-gloucester-kensington"), -1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74, 15.6),
+  roadsideParcel("london-block-gloucester-e-1", "london-gloucester", nodeAt("london-node-gloucester-south"), nodeAt("london-node-gloucester-cromwell"), 1, 7.2, 36, LONDON_RED_BRICK, [11, 18], 0.72),
+  // Starts at z=-4, not the Cromwell node: the parcel trimmer clears roads,
+  // not park strips, and from the node this band ran under the Cromwell
+  // boulevard strip's east reach.
+  roadsideParcel("london-block-gloucester-e-2", "london-gloucester", point(-300, -4), nodeAt("london-node-gloucester-kensington"), 1, 7.2, 42, LONDON_RED_BRICK, [12, 19], 0.74, 15.6),
+  roadsideParcel("london-block-cromwell-fw-n", "london-cromwell-far-west", nodeAt("london-node-queen-gate-cromwell"), nodeAt("london-node-gloucester-cromwell"), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76, 15.6),
+  roadsideParcel("london-block-cromwell-fw-s", "london-cromwell-far-west", nodeAt("london-node-queen-gate-cromwell"), nodeAt("london-node-gloucester-cromwell"), -1, 7.2, 38, LONDON_RED_BRICK, [12, 19], 0.72),
+  roadsideParcel("london-block-quiet-w", "london-quiet-loop", nodeAt("london-node-quiet-west-south"), nodeAt("london-node-quiet-west-north"), -1, 7.2, 34, LONDON_STOCK_BRICK, [10, 16], 0.68),
+  roadsideParcel("london-block-kensington-s-w", "london-kensington", nodeAt("london-node-gloucester-kensington"), nodeAt("london-node-queen-gate-far-north"), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76),
+  roadsideParcel("london-block-kensington-s-e", "london-kensington", nodeAt("london-node-queen-gate-far-north"), nodeAt("london-node-kensington-exhibition"), 1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74),
+  roadsideParcel("london-block-cromwell-w-s", "london-cromwell-west", point(-108, -30.3), point(42, -30.3), 1, 11.4, 36, LONDON_RED_BRICK, [12, 20], 0.74),
+
   // --- The King's Road: a continuous shopping street wall, both kerbs. -----
   roadsideParcel("london-block-kings-n-1", "london-kings-road", nodeAt("london-node-kings-west"), nodeAt("london-node-kings-earls"), -1, 9.4, 46, LONDON_STOCK_BRICK, [11, 19], 0.74),
   roadsideParcel("london-block-kings-s-1", "london-kings-road", nodeAt("london-node-kings-west"), nodeAt("london-node-kings-earls"), 1, 9.4, 40, LONDON_RED_BRICK, [10, 17], 0.7),
@@ -3120,6 +3146,33 @@ export const LONDON_MAP_PACK: MapPack = {
       // Mews and Chelsea Manor Street that carries no street wall, so the
       // block list above deliberately skips the King's Road's south kerb
       // between Gloucester and Beaufort.
+      // Boulevard strips for the museum quarter's west environs — the owner
+      // asked for greenery between the road and the street wall here rather
+      // than buildings hard against the kerb: a 14 m lawn ribbon hugs each
+      // kerb (near edge ~1.2 m past the pavement band) and the parcels
+      // behind carry a 15.6 m extraInsetM so the terraces rise behind the
+      // green. All four are pockets (unwalled); planting derives.
+      {
+        id: "london-gloucester-west-strip",
+        kind: "park",
+        center: point(-315.2, 70),
+        size: point(14, 236),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-gloucester-east-strip",
+        kind: "park",
+        center: point(-284.8, 102),
+        size: point(14, 132),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-cromwell-fw-north-strip",
+        kind: "park",
+        center: point(-214, -16.8),
+        size: point(92, 14),
+        color: "#5f9a4e",
+      },
       // The lawn between Kensington Road and the royal park's south edge —
       // the 70 m band a driver on Kensington Road used to see as bare
       // concrete with the park's trees somewhere beyond it. A walled

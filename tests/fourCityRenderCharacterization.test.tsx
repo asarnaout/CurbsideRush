@@ -309,27 +309,38 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (the map's first rotated park); the Westbourne green grew likewise,
     // and three Bayswater-band fabric rows closed the bare strip west of
     // the royal park.
-    totalMeshes: 8_207,
-    enabledMeshes: 8_207,
-    activeMeshes: 661,
-    materials: 251,
+    // 8_207 -> 8_073, 251 -> 254 materials: the museum-quarter environs.
+    // Ten parcels line Gloucester Road, Cromwell's far-west reach, the quiet
+    // loop, Kensington Road's south side and Cromwell West's south side —
+    // with three boulevard lawn strips between the west environs' kerbs and
+    // their set-back terraces (the owner's requested arrangement). Meshes
+    // NET DOWN because the strips' lawns displace roadside scatter while the
+    // new walls pack into wide facade boxes; the material adds are the strip
+    // lawns' planting variants.
+    totalMeshes: 8_073,
+    enabledMeshes: 8_073,
+    activeMeshes: 641,
+    materials: 254,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     // 102 -> 104 and 160 -> 170: the Kensington lawn and the drive's south
     // approach sit within the spawn's mirror candidate radius. 104 -> 97
     // with the set zoning's build-order change; 97 -> 117 / 170 -> 172 with
-    // the denser tree scatter around the spawn.
-    mirrorCandidates: 117,
-    mirrorDrawn: 172,
+    // the denser tree scatter around the spawn; 117 -> 101 / 172 -> 175 as
+    // the quarter-environs walls and strips re-deal what stands nearest the
+    // spawn's mirrors.
+    mirrorCandidates: 101,
+    mirrorDrawn: 175,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
     // "4717fd7e" -> "ad7cd6ad": the Kensington lawn's greensward pair joins
     // the surviving-material set (void-fill pass). -> "92cde486": the
-    // Serpentine bridge's deck/parapet/lamp materials.
-    survivingMaterialNamesFingerprint: "92cde486",
+    // Serpentine bridge's deck/parapet/lamp materials. -> "5d87b546": the
+    // boulevard strips' planting variants (quarter-environs pass).
+    survivingMaterialNamesFingerprint: "5d87b546",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

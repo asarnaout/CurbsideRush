@@ -242,7 +242,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // re-branding pipeline derives its fascia rects from nyc-shop-corner's
     // baked lettering, which the Kay london-shop model does not have.
     // 2_561 -> 2_698: the Bayswater-band fabric rows wall all four edges.
-    buildingInstanceCount: 2_698,
+    // -> 2_791: the museum-quarter environs' ten zoned parcels.
+    buildingInstanceCount: 2_791,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

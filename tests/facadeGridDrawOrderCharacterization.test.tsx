@@ -268,7 +268,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // three north-west fabric rects (170 -> 187). -> 4_584 with the three
     // Bayswater-band rows that close the bare strip west of the royal park
     // (187 -> 190; the play-test's "tiny patch in a sea of concrete").
-    drawCount: 4_584,
+    // -> 4_824 with the museum-quarter environs' ten parcels (190 -> 200).
+    drawCount: 4_824,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -285,8 +286,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // the same facade rects, but through the building layer's deferred
     // closure, which lands them at a different point in the draw order —
     // drawCount itself is unchanged) -> "07bc0342" (the Bayswater band rows
-    // and the two reworked greens).
-    facadeMeshFingerprint: "07bc0342",
+    // and the two reworked greens) -> "691daf05" (the quarter environs).
+    facadeMeshFingerprint: "691daf05",
   },
   "tokyo-setagaya": {
     drawCount: 216,

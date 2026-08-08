@@ -78,8 +78,11 @@ describe("park layouts", () => {
     // closes the 70 m concrete band between Kensington Road and the royal
     // park) and the Fitzrovia pocket green in the infill between Oxford
     // Street's and Euston Road's parcel rows. 28 -> 30: the Notting Hill
-    // district's garden square and the Westbourne pocket green.
-    expect(parkCases().length).toBe(30);
+    // district's garden square and the Westbourne pocket green. 30 -> 33:
+    // the museum quarter's three boulevard strips — lawn ribbons between
+    // Gloucester Road / Cromwell's far-west reach and the set-back terraces
+    // behind them (the owner's requested arrangement for that corner).
+    expect(parkCases().length).toBe(33);
   });
 
   it("is deterministic — two builds are identical", () => {
