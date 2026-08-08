@@ -5,6 +5,22 @@ glTF (`.glb`) assets, all free for commercial use. Vehicles + people live under
 `public/models/{vehicles,characters}/`; environment buildings (gig venues + gas
 stations) live under `public/models/props/`.
 
+
+## London
+
+London's expansion imports **no new third-party assets**. Its street wall is
+the procedural facade grid in five London materials; its clock tower,
+observation wheel, Gherkin, Shard, palace, department store, Monument, power
+station, round hall, station fronts, bridge decks and towers, pillar boxes,
+telephone kiosks and Belisha beacons are all built from primitives in
+`render/londonLandmarks.ts`. Nothing on that list is worth a licence to
+verify, and building it procedurally is also what keeps it stylistically of a
+piece with the rest of the map.
+
+The one London asset that is not ours is the double-decker bus, already
+recorded below: a purchased model whose licence forbids redistribution, so it
+is not in the repo and the committed single-deck bus stands in for it.
+
 ## CC0 — public domain (no attribution required)
 
 - **sedan.glb, sports.glb, suv.glb** — Quaternius (<https://quaternius.com>),

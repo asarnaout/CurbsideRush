@@ -9,7 +9,7 @@ export function CreditsView({ onBack }: { onBack: () => void }) {
   const references = Array.from(new Map(COUNTRY_PROFILES.flatMap((country) => country.officialReferences).map((reference) => [reference.id, reference])).values());
   const extracts = [
     ["New York", "nyc-upper-west.json"],
-    ["London — South Kensington", "uk-london-south-kensington.json"],
+    ["London — Kensington to the City", "uk-london-south-kensington.json"],
     ["Tokyo Setagaya", "jp-setagaya.json"],
     ["Cairo — Central Nile", "eg-cairo-central-nile.json"],
   ] as const;

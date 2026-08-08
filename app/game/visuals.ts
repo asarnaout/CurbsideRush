@@ -167,8 +167,15 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     // streets under golden light IS the London look, and washing the ground
     // warm to match the sky would throw that contrast away.
     paved: true,
-    groundBase: "#494b4f",
+    groundBase: "#54565b",
     pavement: "#8b8d89",
+    // London haze, and the draw-call budget. A 2950x2000 world would
+    // otherwise draw to the size formula's 1100 m ceiling, and the royal
+    // park's planting alone is 4_400 meshes — measured in-browser, the whole
+    // map's tree and thicket layer is 45% of its mesh count. 800 m of soft
+    // haze is both the atmosphere London actually has and the one lever that
+    // does not cost the city anything you can see from a car.
+    fogEndCapM: 800,
   },
   tokyo: {
     skyTop: "#4a8ec2",

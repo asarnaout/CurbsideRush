@@ -316,7 +316,7 @@ export const DESTINATION_PROFILES: readonly DestinationProfile[] = [
     id: "uk-london",
     countryId: "uk",
     destinationName: "London",
-    destinationSubtitle: "South Kensington Museum Quarter",
+    destinationSubtitle: "Kensington to the City",
     mapId: "london-south-kensington",
     freeDriveId: "free-uk-london",
     promotion: "featured",

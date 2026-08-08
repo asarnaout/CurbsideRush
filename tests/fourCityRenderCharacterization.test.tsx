@@ -252,9 +252,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     //
     // 6_226 -> 6_358: six zebra crossings, and the pair of Belisha beacons
     // flanking each — a banded pole and an amber globe apiece.
+    //
+    // Active meshes 984 -> 569 with no change to the totals: the palette
+    // caps London's fog at 800 m, so the camera's far plane follows it and
+    // the far half of the city stops being drawn. Measured in-browser that
+    // is 412 draw calls down to 171 — the map's tree and thicket layer alone
+    // is 45% of its meshes, and most of it is a kilometre away.
     totalMeshes: 6_358,
     enabledMeshes: 6_358,
-    activeMeshes: 984,
+    activeMeshes: 569,
     materials: 243,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
