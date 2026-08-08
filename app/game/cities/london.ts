@@ -292,11 +292,79 @@ const londonRiverNodes = {
   batterseaEast: node("london-node-battersea-east", 1440, -664),
 };
 
+/**
+ * Knightsbridge, Mayfair, the royal park and Westminster. Two more
+ * roundabouts land here — Wellington Circus where five roads meet at the
+ * park's corner, and Victoria Circus outside the palace — plus Parliament
+ * Square, which is a roundabout whose arms are signalled rather than given
+ * way to, because that is what the real one is.
+ */
+const londonCentreNodes = {
+  // Knightsbridge east from the museum quarter, and Brompton Road up to it.
+  knightsBrompton: node("london-node-knights-brompton", 430, 220),
+  knightsSloane: node("london-node-knights-sloane", 560, 220),
+  bromptonRise: node("london-node-brompton-rise", 370, 60),
+  // Wellington Circus, radius 22 about (620,220). Five roads meet here in
+  // life; four do on the ring, with Brompton Road joining Knightsbridge just
+  // short of it.
+  wellingtonArmKnights: node("london-node-wellington-arm-knights", 598, 220),
+  wellingtonArmPark: node("london-node-wellington-arm-park", 621.3, 242),
+  wellingtonArmPiccadilly: node("london-node-wellington-arm-piccadilly", 640.1, 229),
+  wellingtonArmGrosvenor: node("london-node-wellington-arm-grosvenor", 616, 198.4),
+  // Park Lane up the park's east side, Bayswater Road across its top, West
+  // Carriage Drive down its west side.
+  // Park Lane is dead straight from Wellington Circus to the park's north
+  // east corner, and these two nodes sit exactly on that line. A bend of even
+  // six degrees is enough to fail `npcTurnSmoothness` on a four-lane road:
+  // the outer lane sits 4.9 m off centre and has to sweep all of it across
+  // the six-metre junction blend.
+  parkLaneMid: node("london-node-park-lane-mid", 620.7, 560),
+  parkLaneOxford: node("london-node-park-lane-oxford", 620.4, 700),
+  parkCornerNorthEast: node("london-node-park-corner-north-east", 620, 940),
+  bayswaterMid: node("london-node-bayswater-mid", 200, 940),
+  parkCornerNorthWest: node("london-node-park-corner-north-west", -300, 940),
+  // Piccadilly east toward the West End (a frontier until the City lands).
+  piccadillyMid: node("london-node-piccadilly-mid", 800, 300),
+  piccadillyEast: node("london-node-piccadilly-east", 950, 380),
+  // Regent Street's quadrant — the famous sweep, and the reason the West End
+  // does not read as a grid. Four nodes, not two: the curve is the point.
+  regent1: node("london-node-regent-1", 928, 430),
+  regent2: node("london-node-regent-2", 914, 483),
+  regent3: node("london-node-regent-3", 906, 538),
+  regent4: node("london-node-regent-4", 907, 593),
+  regent5: node("london-node-regent-5", 915, 647),
+  regentOxford: node("london-node-regent-oxford", 930, 700),
+  oxfordMid: node("london-node-oxford-mid", 800, 700),
+  // Grosvenor Place down to Victoria Circus, radius 16 about (560,-60).
+  grosvenorMid: node("london-node-grosvenor-mid", 590, 60),
+  victoriaArmGrosvenor: node("london-node-victoria-arm-grosvenor", 563.9, -44.5),
+  victoriaArmMall: node("london-node-victoria-arm-mall", 576, -58.7),
+  victoriaArmBuckingham: node("london-node-victoria-arm-buckingham", 548, -70.5),
+  // Buckingham Palace Road west to Sloane Circus's fourth arm.
+  sloaneArmBuckingham: node("london-node-sloane-arm-buckingham", 263.5, -209.6),
+  // Five degrees off the run either side of it, not eighteen: under 25 the
+  // pair reads as one road continuing, and a 1.7 m lane offset cannot hand
+  // over across a bend that sharp inside the 30-degree budget.
+  buckingham1: node("london-node-buckingham-1", 400, -175),
+  buckingham2: node("london-node-buckingham-2", 500, -140),
+  // The Mall east, then Whitehall south to Parliament Square.
+  mallMid: node("london-node-mall-mid", 700, -46),
+  mallEast: node("london-node-mall-east", 800, -40),
+  whitehallMid: node("london-node-whitehall-mid", 780, -200),
+  // Parliament Square, radius 26 about (740,-296).
+  parliamentArmWhitehall: node("london-node-parliament-arm-whitehall", 750, -272),
+  parliamentArmBridge: node("london-node-parliament-arm-bridge", 753.2, -318.4),
+  parliamentArmVictoria: node("london-node-parliament-arm-victoria", 714.1, -293.7),
+  victoriaStreet1: node("london-node-victoria-street-1", 600, -275),
+  victoriaStreet2: node("london-node-victoria-street-2", 505, -248),
+};
+
 const londonNodeById = new Map(
   [
     ...Object.values(londonNodes),
     ...Object.values(londonSouthWestNodes),
     ...Object.values(londonRiverNodes),
+    ...Object.values(londonCentreNodes),
   ].map((item) => [item.id, item]),
 );
 
@@ -344,6 +412,9 @@ export interface LondonRoadSpec {
     readonly center: WorldPoint;
     readonly radiusM: number;
     readonly islandRadiusM: number;
+    /** Arms get signals instead of give-ways — a gyratory rather than a
+     * roundabout. */
+    readonly signalled?: boolean;
   };
 }
 
@@ -398,10 +469,42 @@ export const LONDON_ROAD_SPECS: readonly LondonRoadSpec[] = [
   road("london-nine-elms", "Nine Elms Lane", ["london-node-riverbank-3", "london-node-battersea-nine"], 2, 7.6),
   road("london-tooley-street", "Tooley Street", ["london-node-battersea-east", "london-node-riverbank-east"], 2, 7.6),
 
+  // --- Knightsbridge, Mayfair, the park and Westminster. ---------------------
+  road("london-knightsbridge", "Knightsbridge", ["london-node-kensington-exhibition", "london-node-knights-brompton", "london-node-knights-sloane", "london-node-wellington-arm-knights"], 2, 10.4, { arterial: true }),
+  road("london-brompton-road", "Brompton Road", ["london-node-cromwell-far-east", "london-node-brompton-rise", "london-node-knights-brompton"], 2, 10.4, { arterial: true }),
+  road("london-park-lane", "Park Lane", ["london-node-wellington-arm-park", "london-node-park-lane-mid", "london-node-park-lane-oxford", "london-node-park-corner-north-east"], 4, 13.6, { arterial: true }),
+  road("london-bayswater", "Bayswater Road", ["london-node-park-corner-north-west", "london-node-bayswater-mid", "london-node-park-corner-north-east"], 2, 10.4, { arterial: true }),
+  road("london-park-west", "West Carriage Drive", ["london-node-gloucester-kensington", "london-node-park-corner-north-west"], 2, 9),
+  road("london-piccadilly", "Piccadilly", ["london-node-wellington-arm-piccadilly", "london-node-piccadilly-mid", "london-node-piccadilly-east"], 2, 10.4, { arterial: true }),
+  road("london-grosvenor", "Grosvenor Place", ["london-node-wellington-arm-grosvenor", "london-node-grosvenor-mid", "london-node-victoria-arm-grosvenor"], 2, 9.6),
+  road("london-buckingham-palace-road", "Buckingham Palace Road", ["london-node-sloane-arm-buckingham", "london-node-buckingham-1", "london-node-buckingham-2", "london-node-victoria-arm-buckingham"], 2, 9.6),
+  road("london-mall", "The Mall", ["london-node-victoria-arm-mall", "london-node-mall-mid", "london-node-mall-east"], 2, 10.4, { arterial: true }),
+  road("london-whitehall", "Whitehall", ["london-node-mall-east", "london-node-whitehall-mid", "london-node-parliament-arm-whitehall"], 2, 10.4, { arterial: true }),
+  road("london-bridge-street", "Bridge Street", ["london-node-parliament-arm-bridge", "london-node-westminster-north"], 2, 10.4),
+  road("london-regent", "Regent Street", ["london-node-piccadilly-east", "london-node-regent-1", "london-node-regent-2", "london-node-regent-3", "london-node-regent-4", "london-node-regent-5", "london-node-regent-oxford"], 2, 10.4, { arterial: true }),
+  road("london-oxford-street", "Oxford Street", ["london-node-park-lane-oxford", "london-node-oxford-mid", "london-node-regent-oxford"], 2, 10.4, { arterial: true }),
+  road("london-victoria-street", "Victoria Street", ["london-node-parliament-arm-victoria", "london-node-victoria-street-1", "london-node-victoria-street-2", "london-node-buckingham-2"], 2, 10.4, { arterial: true }),
+
   // --- Roundabouts. ---------------------------------------------------------
-  road("london-sloane-circus", "Sloane Circus", ["london-node-sloane-arm-sydney", "london-node-sloane-arm-smith", "london-node-sloane-arm-kings"], 1, 7, {
+  road("london-sloane-circus", "Sloane Circus", ["london-node-sloane-arm-sydney", "london-node-sloane-arm-buckingham", "london-node-sloane-arm-smith", "london-node-sloane-arm-kings"], 1, 7, {
     oneWay: "forward",
     roundabout: { center: point(250, -206), radiusM: 14, islandRadiusM: 8 },
+  }),
+  road("london-wellington-circus", "Wellington Circus", ["london-node-wellington-arm-park", "london-node-wellington-arm-piccadilly", "london-node-wellington-arm-grosvenor", "london-node-wellington-arm-knights"], 2, 11, {
+    oneWay: "forward",
+    roundabout: { center: point(620, 220), radiusM: 22, islandRadiusM: 14 },
+  }),
+  road("london-victoria-circus", "Victoria Circus", ["london-node-victoria-arm-grosvenor", "london-node-victoria-arm-mall", "london-node-victoria-arm-buckingham"], 1, 8, {
+    oneWay: "forward",
+    roundabout: { center: point(560, -60), radiusM: 16, islandRadiusM: 10 },
+  }),
+  // Parliament Square is a gyratory, not a give-way roundabout: a clockwise
+  // one-way ring around a green whose every arm is signalled. Authentically
+  // London, and built entirely out of the same primitives — `signalled` only
+  // says which control the arms get.
+  road("london-parliament-square", "Parliament Square", ["london-node-parliament-arm-whitehall", "london-node-parliament-arm-bridge", "london-node-parliament-arm-victoria"], 2, 11, {
+    oneWay: "forward",
+    roundabout: { center: point(740, -296), radiusM: 26, islandRadiusM: 14, signalled: true },
   }),
 ];
 
@@ -475,6 +578,30 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-battersea-albert", "london-node-battersea-albert", ["london-battersea-road", "london-parkgate"]),
   junction("london-junction-battersea-nine", "london-node-battersea-nine", ["london-battersea-road", "london-nine-elms"]),
   junction("london-junction-battersea-east", "london-node-battersea-east", ["london-battersea-road", "london-tooley-street"]),
+  // --- Knightsbridge, Mayfair, the park and Westminster. ---------------------
+  junction("london-junction-kensington-knightsbridge", "london-node-kensington-exhibition", ["london-kensington", "london-exhibition-north", "london-knightsbridge"]),
+  junction("london-junction-knights-brompton", "london-node-knights-brompton", ["london-knightsbridge", "london-brompton-road"]),
+  junction("london-junction-cromwell-brompton", "london-node-cromwell-far-east", ["london-cromwell-east", "london-sydney-street", "london-brompton-road"]),
+  junction("london-junction-wellington-knights", "london-node-wellington-arm-knights", ["london-knightsbridge", "london-wellington-circus"]),
+  junction("london-junction-wellington-park", "london-node-wellington-arm-park", ["london-park-lane", "london-wellington-circus"]),
+  junction("london-junction-wellington-piccadilly", "london-node-wellington-arm-piccadilly", ["london-piccadilly", "london-wellington-circus"]),
+  junction("london-junction-wellington-grosvenor", "london-node-wellington-arm-grosvenor", ["london-grosvenor", "london-wellington-circus"]),
+  junction("london-junction-park-north-east", "london-node-park-corner-north-east", ["london-park-lane", "london-bayswater"]),
+  junction("london-junction-park-north-west", "london-node-park-corner-north-west", ["london-bayswater", "london-park-west"]),
+  junction("london-junction-park-south-west", "london-node-gloucester-kensington", ["london-gloucester", "london-kensington", "london-park-west"]),
+  junction("london-junction-victoria-grosvenor", "london-node-victoria-arm-grosvenor", ["london-grosvenor", "london-victoria-circus"]),
+  junction("london-junction-victoria-mall", "london-node-victoria-arm-mall", ["london-mall", "london-victoria-circus"]),
+  junction("london-junction-victoria-buckingham", "london-node-victoria-arm-buckingham", ["london-buckingham-palace-road", "london-victoria-circus"]),
+  junction("london-junction-sloane-buckingham", "london-node-sloane-arm-buckingham", ["london-buckingham-palace-road", "london-sloane-circus"]),
+  junction("london-junction-buckingham-victoria-street", "london-node-buckingham-2", ["london-buckingham-palace-road", "london-victoria-street"]),
+  junction("london-junction-mall-whitehall", "london-node-mall-east", ["london-mall", "london-whitehall"]),
+  junction("london-junction-parliament-whitehall", "london-node-parliament-arm-whitehall", ["london-whitehall", "london-parliament-square"]),
+  junction("london-junction-parliament-bridge", "london-node-parliament-arm-bridge", ["london-bridge-street", "london-parliament-square"]),
+  junction("london-junction-parliament-victoria", "london-node-parliament-arm-victoria", ["london-victoria-street", "london-parliament-square"]),
+  junction("london-junction-piccadilly-regent", "london-node-piccadilly-east", ["london-piccadilly", "london-regent"]),
+  junction("london-junction-regent-oxford", "london-node-regent-oxford", ["london-regent", "london-oxford-street"]),
+  junction("london-junction-park-lane-oxford", "london-node-park-lane-oxford", ["london-park-lane", "london-oxford-street"]),
+  junction("london-junction-westminster-bridge-street", "london-node-westminster-north", ["london-victoria-embankment", "london-westminster-bridge", "london-bridge-street"]),
 ];
 
 /**
@@ -1068,7 +1195,17 @@ for (const spec of LONDON_ROAD_SPECS) {
           // is the number that comment promises. Cairo needed the extra
           // sampling for its shallow radial junction angles; London's streets
           // bend, but they meet at ordinary corners.
-          { maxBlendLateralM: 5.25 },
+          {
+            maxBlendLateralM: 5.25,
+            // Only a four-lane road needs Cairo's finer sampling, and it
+            // genuinely needs it: its outer lane sits 4.9 m off centre and
+            // sweeps all of that across the six-metre junction blend. At the
+            // module default of 6 steps the very first segment already
+            // carries most of the smoothstep's slope — a 40-degree heading
+            // jolt handing over at a node. Every other London road stays at
+            // 6, because segment count is the simulation's dominant cost.
+            ...(spec.laneCount === 4 ? { connectorBlendSteps: 12 } : {}),
+          },
         );
         londonRawLanes.push({
           id: `${spec.id}-${segment + 1}-${direction}-${laneIndex + 1}`,
@@ -1457,6 +1594,8 @@ const nodeAt = (id: string): WorldPoint => londonNodeById.get(id)!.position;
 const LONDON_STOCK_BRICK = "london-stock-brick";
 const LONDON_STUCCO = "white-stucco";
 const LONDON_RED_BRICK = "london-brick";
+/** Whitehall's stone. Only the civic quarter is built out of it. */
+const LONDON_PORTLAND_STONE = "london-portland-stone";
 
 const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // --- The King's Road: a continuous shopping street wall, both kerbs. -----
@@ -1556,6 +1695,50 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-parkgate-e", "london-parkgate", nodeAt("london-node-albert-south"), nodeAt("london-node-battersea-albert"), -1, 7.6, 32, LONDON_RED_BRICK, [10, 17], 0.7),
   roadsideParcel("london-block-nine-elms-e", "london-nine-elms", nodeAt("london-node-riverbank-3"), nodeAt("london-node-battersea-nine"), -1, 7.6, 32, LONDON_STOCK_BRICK, [11, 19], 0.72),
   roadsideParcel("london-block-tooley-w", "london-tooley-street", nodeAt("london-node-battersea-east"), nodeAt("london-node-riverbank-east"), 1, 7.6, 32, LONDON_RED_BRICK, [11, 19], 0.72),
+
+  // --- Knightsbridge and Brompton: mansion blocks and shopfronts. ----------
+  roadsideParcel("london-block-knights-s-1", "london-knightsbridge", nodeAt("london-node-kensington-exhibition"), nodeAt("london-node-knights-brompton"), 1, 10.4, 48, LONDON_RED_BRICK, [16, 26], 0.8),
+  roadsideParcel("london-block-knights-n-1", "london-knightsbridge", nodeAt("london-node-kensington-exhibition"), nodeAt("london-node-knights-brompton"), -1, 10.4, 44, LONDON_STUCCO, [15, 24], 0.78),
+  roadsideParcel("london-block-knights-s-2", "london-knightsbridge", nodeAt("london-node-knights-brompton"), nodeAt("london-node-knights-sloane"), 1, 10.4, 46, LONDON_STUCCO, [16, 26], 0.8),
+  roadsideParcel("london-block-knights-n-2", "london-knightsbridge", nodeAt("london-node-knights-brompton"), nodeAt("london-node-knights-sloane"), -1, 10.4, 42, LONDON_RED_BRICK, [15, 24], 0.78),
+  roadsideParcel("london-block-brompton-rd-e", "london-brompton-road", nodeAt("london-node-cromwell-far-east"), nodeAt("london-node-brompton-rise"), -1, 10.4, 44, LONDON_RED_BRICK, [14, 23], 0.78),
+  roadsideParcel("london-block-brompton-rd-w", "london-brompton-road", nodeAt("london-node-cromwell-far-east"), nodeAt("london-node-brompton-rise"), 1, 10.4, 40, LONDON_STUCCO, [14, 22], 0.76),
+  roadsideParcel("london-block-brompton-rd-e2", "london-brompton-road", nodeAt("london-node-brompton-rise"), nodeAt("london-node-knights-brompton"), -1, 10.4, 42, LONDON_STOCK_BRICK, [15, 24], 0.78),
+
+  // --- Mayfair and the West End. ------------------------------------------
+  roadsideParcel("london-block-park-lane-e-1", "london-park-lane", nodeAt("london-node-wellington-arm-park"), nodeAt("london-node-park-lane-mid"), -1, 13.6, 52, LONDON_STUCCO, [18, 30], 0.8),
+  roadsideParcel("london-block-park-lane-e-2", "london-park-lane", nodeAt("london-node-park-lane-mid"), nodeAt("london-node-park-lane-oxford"), -1, 13.6, 50, LONDON_RED_BRICK, [17, 28], 0.8),
+  roadsideParcel("london-block-park-lane-e-3", "london-park-lane", nodeAt("london-node-park-lane-oxford"), nodeAt("london-node-park-corner-north-east"), -1, 13.6, 50, LONDON_STOCK_BRICK, [16, 27], 0.78),
+  roadsideParcel("london-block-piccadilly-s-1", "london-piccadilly", nodeAt("london-node-wellington-arm-piccadilly"), nodeAt("london-node-piccadilly-mid"), 1, 10.4, 46, LONDON_STUCCO, [16, 27], 0.8),
+  roadsideParcel("london-block-piccadilly-n-1", "london-piccadilly", nodeAt("london-node-wellington-arm-piccadilly"), nodeAt("london-node-piccadilly-mid"), -1, 10.4, 46, LONDON_RED_BRICK, [16, 26], 0.8),
+  roadsideParcel("london-block-piccadilly-s-2", "london-piccadilly", nodeAt("london-node-piccadilly-mid"), nodeAt("london-node-piccadilly-east"), 1, 10.4, 44, LONDON_RED_BRICK, [16, 27], 0.8),
+  roadsideParcel("london-block-piccadilly-n-2", "london-piccadilly", nodeAt("london-node-piccadilly-mid"), nodeAt("london-node-piccadilly-east"), -1, 10.4, 44, LONDON_STOCK_BRICK, [16, 26], 0.8),
+  roadsideParcel("london-block-regent-w-1", "london-regent", nodeAt("london-node-regent-1"), nodeAt("london-node-regent-2"), 1, 10.4, 40, LONDON_STUCCO, [17, 27], 0.8),
+  roadsideParcel("london-block-regent-e-1", "london-regent", nodeAt("london-node-regent-1"), nodeAt("london-node-regent-2"), -1, 10.4, 40, LONDON_STUCCO, [17, 27], 0.8),
+  roadsideParcel("london-block-regent-w-2", "london-regent", nodeAt("london-node-regent-3"), nodeAt("london-node-regent-4"), 1, 10.4, 40, LONDON_RED_BRICK, [17, 27], 0.8),
+  roadsideParcel("london-block-regent-e-2", "london-regent", nodeAt("london-node-regent-3"), nodeAt("london-node-regent-4"), -1, 10.4, 40, LONDON_STOCK_BRICK, [17, 27], 0.8),
+  roadsideParcel("london-block-regent-w-3", "london-regent", nodeAt("london-node-regent-4"), nodeAt("london-node-regent-5"), 1, 10.4, 38, LONDON_STUCCO, [17, 27], 0.8),
+  roadsideParcel("london-block-regent-e-3", "london-regent", nodeAt("london-node-regent-4"), nodeAt("london-node-regent-5"), -1, 10.4, 38, LONDON_RED_BRICK, [17, 27], 0.8),
+  roadsideParcel("london-block-oxford-n-1", "london-oxford-street", nodeAt("london-node-park-lane-oxford"), nodeAt("london-node-oxford-mid"), -1, 10.4, 46, LONDON_STOCK_BRICK, [16, 26], 0.8),
+  roadsideParcel("london-block-oxford-s-1", "london-oxford-street", nodeAt("london-node-park-lane-oxford"), nodeAt("london-node-oxford-mid"), 1, 10.4, 46, LONDON_RED_BRICK, [16, 26], 0.8),
+  roadsideParcel("london-block-oxford-n-2", "london-oxford-street", nodeAt("london-node-oxford-mid"), nodeAt("london-node-regent-oxford"), -1, 10.4, 46, LONDON_STUCCO, [16, 27], 0.8),
+  roadsideParcel("london-block-oxford-s-2", "london-oxford-street", nodeAt("london-node-oxford-mid"), nodeAt("london-node-regent-oxford"), 1, 10.4, 46, LONDON_STOCK_BRICK, [16, 27], 0.8),
+  roadsideParcel("london-block-bayswater-n-1", "london-bayswater", nodeAt("london-node-park-corner-north-west"), nodeAt("london-node-bayswater-mid"), -1, 10.4, 46, LONDON_STUCCO, [14, 23], 0.76),
+  roadsideParcel("london-block-bayswater-n-2", "london-bayswater", nodeAt("london-node-bayswater-mid"), nodeAt("london-node-park-corner-north-east"), -1, 10.4, 46, LONDON_RED_BRICK, [14, 23], 0.76),
+  roadsideParcel("london-block-park-west-w", "london-park-west", nodeAt("london-node-gloucester-kensington"), nodeAt("london-node-park-corner-north-west"), 1, 9, 44, LONDON_STOCK_BRICK, [13, 22], 0.74),
+
+  // --- Belgravia and Westminster: Portland-stone civic frontage. -----------
+  roadsideParcel("london-block-grosvenor-w", "london-grosvenor", nodeAt("london-node-wellington-arm-grosvenor"), nodeAt("london-node-grosvenor-mid"), 1, 9.6, 44, LONDON_STUCCO, [16, 26], 0.78),
+  roadsideParcel("london-block-grosvenor-e", "london-grosvenor", nodeAt("london-node-grosvenor-mid"), nodeAt("london-node-victoria-arm-grosvenor"), -1, 9.6, 40, LONDON_PORTLAND_STONE, [17, 28], 0.78),
+  roadsideParcel("london-block-buckingham-s-1", "london-buckingham-palace-road", nodeAt("london-node-sloane-arm-buckingham"), nodeAt("london-node-buckingham-1"), 1, 9.6, 40, LONDON_STUCCO, [14, 23], 0.76),
+  roadsideParcel("london-block-buckingham-s-2", "london-buckingham-palace-road", nodeAt("london-node-buckingham-1"), nodeAt("london-node-buckingham-2"), 1, 9.6, 40, LONDON_RED_BRICK, [14, 23], 0.76),
+  roadsideParcel("london-block-buckingham-n-1", "london-buckingham-palace-road", nodeAt("london-node-buckingham-1"), nodeAt("london-node-buckingham-2"), -1, 9.6, 36, LONDON_PORTLAND_STONE, [16, 26], 0.78),
+  roadsideParcel("london-block-mall-n", "london-mall", nodeAt("london-node-victoria-arm-mall"), nodeAt("london-node-mall-mid"), -1, 10.4, 42, LONDON_PORTLAND_STONE, [18, 28], 0.78),
+  roadsideParcel("london-block-mall-n-2", "london-mall", nodeAt("london-node-mall-mid"), nodeAt("london-node-mall-east"), -1, 10.4, 42, LONDON_PORTLAND_STONE, [18, 28], 0.78),
+  roadsideParcel("london-block-whitehall-e", "london-whitehall", nodeAt("london-node-mall-east"), nodeAt("london-node-whitehall-mid"), -1, 10.4, 44, LONDON_PORTLAND_STONE, [19, 30], 0.8),
+  roadsideParcel("london-block-whitehall-w", "london-whitehall", nodeAt("london-node-mall-east"), nodeAt("london-node-whitehall-mid"), 1, 10.4, 44, LONDON_PORTLAND_STONE, [19, 30], 0.8),
+  roadsideParcel("london-block-victoria-st-n", "london-victoria-street", nodeAt("london-node-victoria-street-1"), nodeAt("london-node-victoria-street-2"), -1, 10.4, 44, LONDON_PORTLAND_STONE, [18, 29], 0.8),
+  roadsideParcel("london-block-victoria-st-s", "london-victoria-street", nodeAt("london-node-victoria-street-1"), nodeAt("london-node-victoria-street-2"), 1, 10.4, 44, LONDON_STOCK_BRICK, [16, 26], 0.78),
 ].filter((block): block is ProceduralBlock => block !== null);
 
 // ---------------------------------------------------------------------------
@@ -1601,6 +1784,79 @@ const posePointAlongLane = (
 
 /** Where the stop bar sits, measured back from the junction node. */
 const LONDON_SIGNAL_STOP_SETBACK_M = 6;
+/** A pole base must stand this clear of every lane's envelope. */
+const LONDON_POLE_LANE_CLEARANCE_M = 2.2;
+
+const distanceToLaneEnvelope = (candidate: WorldPoint): number =>
+  Math.min(
+    ...londonLanes.map((lane) => {
+      let best = Number.POSITIVE_INFINITY;
+      for (let index = 1; index < lane.centerline.length; index += 1) {
+        const start = lane.centerline[index - 1];
+        const end = lane.centerline[index];
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const lengthSquared = dx * dx + dz * dz;
+        const amount =
+          lengthSquared > 0
+            ? Math.max(
+                0,
+                Math.min(
+                  1,
+                  ((candidate.x - start.x) * dx + (candidate.z - start.z) * dz) /
+                    lengthSquared,
+                ),
+              )
+            : 0;
+        best = Math.min(
+          best,
+          Math.hypot(
+            candidate.x - (start.x + dx * amount),
+            candidate.z - (start.z + dz * amount),
+          ),
+        );
+      }
+      return best - lane.widthM / 2;
+    }),
+  );
+
+/**
+ * Where a kerbside pole stands: beside its own bar, on the nearside kerb —
+ * which is the driver's LEFT, because this is London — walking back along its
+ * own approach until it clears every carriageway.
+ *
+ * **Clearance is a veto here, not an objective.** Ranking candidates by "far
+ * from tarmac" is what put Cairo's every head 13-24 m out on open ground; the
+ * first candidate that clears wins, and the least-displaced one is tried
+ * first. Retreating along the approach is tried before widening onto the
+ * pavement, because it keeps the head in the stopped driver's view.
+ */
+const londonKerbsidePole = (
+  stopPose: { readonly position: WorldPoint; readonly headingDeg: number },
+  headingDeg: number,
+  surfaceWidthM: number,
+): WorldPoint => {
+  const rad = (headingDeg * Math.PI) / 180;
+  const leftX = -Math.cos(rad);
+  const leftZ = Math.sin(rad);
+  const forwardX = Math.sin(rad);
+  const forwardZ = Math.cos(rad);
+  const kerbside = surfaceWidthM / 2 + 1.2 - LONDON_LANE_OFFSET_M;
+  const at = (backM: number, lateralM: number): WorldPoint =>
+    point(
+      stopPose.position.x - forwardX * backM + leftX * lateralM,
+      stopPose.position.z - forwardZ * backM + leftZ * lateralM,
+    );
+  for (const back of [1, 4, 7, 10, 13]) {
+    for (const extra of [0, 0.9, 1.8]) {
+      const candidate = at(back, kerbside + extra);
+      if (distanceToLaneEnvelope(candidate) >= LONDON_POLE_LANE_CLEARANCE_M) {
+        return candidate;
+      }
+    }
+  }
+  return at(1, kerbside);
+};
 
 /**
  * A signalised London junction, built from whichever generated lanes arrive at
@@ -1626,7 +1882,13 @@ const londonSignal = (
 } => {
   const center = londonNodeById.get(nodeId)!.position;
   const zoneId = `${id}-zone`;
-  const inbound = londonGeneratedLanes.filter((lane) => lane.to === nodeId);
+  // Circulating traffic is never stopped: a signalled gyratory signals its
+  // *entries* and lets the ring flow. Sampling a ring arc's heading for a
+  // signal head also puts the head 20 degrees off the bar it governs, since
+  // an arc has no straight axis to sample.
+  const inbound = londonGeneratedLanes.filter(
+    (lane) => lane.to === nodeId && lane.role !== "roundabout",
+  );
   const armLanes = new Map<string, LaneSegment[]>();
   for (const lane of inbound) {
     const key = `${lane.roadId}|${lane.from}`;
@@ -1651,15 +1913,7 @@ const londonSignal = (
       Math.max(0, stopDistance - CONNECTOR_BLEND_RUN_M - 1),
     );
     const stopPose = posePointAlongLane(lane, stopDistance);
-    const rad = (axis.headingDeg * Math.PI) / 180;
-    const leftX = -Math.cos(rad);
-    const leftZ = Math.sin(rad);
-    const forwardX = Math.sin(rad);
-    const forwardZ = Math.cos(rad);
-    // Measured from the carriageway centreline, not from the lane: a two-way
-    // lane already sits LONDON_LANE_OFFSET_M off centre on this same side, and
-    // offsetting from it would push the head that much further past the kerb.
-    const kerbside = surface.widthM / 2 + 1.2 - LONDON_LANE_OFFSET_M;
+    const pole = londonKerbsidePole(stopPose, axis.headingDeg, surface.widthM);
     const armSlug = key.replace(/\|/g, "-").replace(/london-node-/g, "");
     const approachId = `${id}-${armSlug}-app`;
     approaches.push({
@@ -1672,8 +1926,8 @@ const londonSignal = (
     installations.push(
       installation(
         `${armSlug}-head`,
-        stopPose.position.x + leftX * kerbside - forwardX * 1,
-        stopPose.position.z + leftZ * kerbside - forwardZ * 1,
+        pole.x,
+        pole.z,
         axis.headingDeg,
         "roadside_pole",
         "uk_signal",
@@ -1731,6 +1985,18 @@ const londonGeneratedSignals = [
   londonSignal("london-signal-westminster-south", "london-node-westminster-south"),
   londonSignal("london-signal-tower-north", "london-node-tower-north"),
   londonSignal("london-signal-tower-south", "london-node-tower-south"),
+  // Parliament Square's arms. A gyratory is a signalled ring, which is why
+  // its spec asks for signals rather than give-ways.
+  ...LONDON_ROAD_SPECS.flatMap((spec) =>
+    spec.roundabout?.signalled
+      ? spec.nodeIds.map((armNodeId) =>
+          londonSignal(
+            `london-signal-${armNodeId.replace("london-node-", "")}`,
+            armNodeId,
+          ),
+        )
+      : [],
+  ),
 ];
 
 /** Where a give-way bar sits, measured back from its arm node. */
@@ -1750,7 +2016,7 @@ const LONDON_GIVE_WAY_SETBACK_M = 6;
  * mislabelled.
  */
 const londonRoundaboutGiveWays = LONDON_ROAD_SPECS.flatMap((spec) => {
-  if (!spec.roundabout) return [];
+  if (!spec.roundabout || spec.roundabout.signalled) return [];
   const controls: TrafficControl[] = [];
   const markings: { readonly surfaceId: string; readonly marking: RoadMarkingPath }[] = [];
   for (const armNodeId of spec.nodeIds) {
@@ -1774,7 +2040,7 @@ const londonRoundaboutGiveWays = LONDON_ROAD_SPECS.flatMap((spec) => {
     const rightX = Math.cos(rad);
     const rightZ = -Math.sin(rad);
     const surface = londonSurfaceById.get(lane.roadId)!;
-    const kerbside = surface.widthM / 2 + 1.2 - LONDON_LANE_OFFSET_M;
+    const pole = londonKerbsidePole(stopPose, axis.headingDeg, surface.widthM);
     const slug = armNodeId.replace("london-node-", "");
     const controlId = `${spec.id}-give-way-${slug}`;
     const approachId = `${controlId}-app`;
@@ -1798,8 +2064,8 @@ const londonRoundaboutGiveWays = LONDON_ROAD_SPECS.flatMap((spec) => {
         [
           installation(
             `${controlId}-sign`,
-            stopPose.position.x + leftX * kerbside,
-            stopPose.position.z + leftZ * kerbside,
+            pole.x,
+            pole.z,
             axis.headingDeg,
             "roadside_pole",
             "yield_sign",
@@ -1879,6 +2145,7 @@ const londonLaneGraph: LaneGraph = {
     ...Object.values(londonNodes),
     ...Object.values(londonSouthWestNodes),
     ...Object.values(londonRiverNodes),
+    ...Object.values(londonCentreNodes),
   ],
   lanes: londonLanes,
   controls: [
@@ -2155,6 +2422,25 @@ export const LONDON_MAP_PACK: MapPack = {
     // felucca on the Thames is exactly the trap `docs/greenery.md` records.
     // `buildWaterBodies` gates them to Cairo.
     waterBodies: [
+      // The Serpentine: a lake inside the royal park, so no `flowHeadingDeg`
+      // (that would make it a river) and no portal ids (nothing drives over
+      // it). The shoreline is a collider and a planting keep-out for free.
+      {
+        id: "london-serpentine",
+        color: "#33555e",
+        polygon: [
+          point(-40, 556),
+          point(60, 572),
+          point(170, 566),
+          point(280, 580),
+          point(360, 566),
+          point(372, 528),
+          point(286, 512),
+          point(172, 522),
+          point(58, 510),
+          point(-42, 522),
+        ],
+      },
       {
         id: "london-thames",
         color: "#3a4d52",
@@ -2324,6 +2610,17 @@ export const LONDON_MAP_PACK: MapPack = {
         color: "#4f7a3d",
       },
       ...londonRoundaboutIslands,
+      // The royal park, filling everything Park Lane, Bayswater Road, West
+      // Carriage Drive and Kensington Road enclose. Big enough to be walled,
+      // with derived gates wherever a crossing reaches it, and the map's one
+      // real expanse of green now that the streets are asphalt.
+      {
+        id: "london-royal-park",
+        kind: "park",
+        center: point(160, 580),
+        size: point(840, 640),
+        color: "#4f7a3d",
+      },
       // Chelsea's garden square: the pocket between the King's Road, Cheyne
       // Mews and Chelsea Manor Street that carries no street wall, so the
       // block list above deliberately skips the King's Road's south kerb

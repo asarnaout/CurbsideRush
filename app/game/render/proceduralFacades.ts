@@ -157,6 +157,9 @@ export class ProceduralFacades {
     // London stock brick: the yellow-grey most of the city west of the City
     // is actually built out of, beside the redder Victorian brick above.
     "london-stock-brick": new Color3(0.63, 0.56, 0.44),
+    // Whitehall's Portland stone: pale, grey-cream, and only the civic
+    // quarter is built out of it.
+    "london-portland-stone": new Color3(0.79, 0.78, 0.72),
     "white-stucco": new Color3(0.82, 0.81, 0.75),
     "cairo-cream": new Color3(0.76, 0.69, 0.57),
     "cairo-ochre": new Color3(0.67, 0.53, 0.36),

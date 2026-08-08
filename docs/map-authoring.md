@@ -75,7 +75,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
 | `tokyo-setagaya` | 56 | 20 | 5.5 | 0 | 0 | 600 × 420 |
-| `london-south-kensington` | 168 | 39 | 34.4 | 9 | 3 | 2950 × 2000 |
+| `london-south-kensington` | 251 | 56 | 47.5 | 12 | 4 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane
 
@@ -130,7 +130,19 @@ junctions the asphalt fill never paved. **Keep the arms ~80° apart**:
 `buildPavementGraph` trims a rail back at a junction but never further than
 the gap to the next one, so two close arms leave the ring's outer rail walking
 through an approach's carriageway. Entries are `yield` controls; what makes
-them *roundabout* give-ways is derived (docs/simulation-core.md).
+them *roundabout* give-ways is derived (docs/simulation-core.md). A
+`signalled` roundabout is a **gyratory** — Parliament Square — and signals its
+entries instead; circulating lanes are never controlled either way, and a
+signal head sampled on a ring arc would face 20° off the bar it governs.
+
+**A bend under 25° is a *continuation*, and continuations get 30° of heading
+budget across the node** (`npcTurnSmoothness.test.ts`). A 1.7 m lane offset
+cannot hand over across a 16° bend inside that budget, so London's shape nodes
+either straighten (Park Lane is dead straight; Regent Street's quadrant is a
+real 397 m arc sampled every 8°) or turn properly (Smith Street leaves Royal
+Hospital Road at 29°). A **four-lane** road additionally needs Cairo's
+`connectorBlendSteps: 12`: its outer lane sits 4.9 m off centre and sweeps all
+of it across the six-metre blend.
 
 **Only the landward kerb of a riverside road carries a street wall.** The
 parcel trimmer measures against roads, not water, so a parcel on the river

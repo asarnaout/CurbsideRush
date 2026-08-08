@@ -214,20 +214,28 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     //
     // 3_680 -> 3_703: Sloane Circus — its ring, its island, and a give-way
     // triangle on a pole at each of its three mouths.
-    totalMeshes: 3_703,
-    enabledMeshes: 3_703,
-    activeMeshes: 963,
-    materials: 138,
+    //
+    // 3_703 -> 5_087: the West End and Westminster. Knightsbridge, Brompton
+    // Road, Park Lane, Bayswater Road, West Carriage Drive, Piccadilly,
+    // Regent Street's quadrant, Oxford Street's west end, Grosvenor Place,
+    // Buckingham Palace Road, The Mall, Whitehall, Bridge Street and Victoria
+    // Street; Wellington and Victoria circuses and the Parliament Square
+    // gyratory; the royal park and the Serpentine; 36 more parcels. The new
+    // material is Whitehall's Portland stone.
+    totalMeshes: 5_087,
+    enabledMeshes: 5_087,
+    activeMeshes: 984,
+    materials: 156,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 102,
-    mirrorDrawn: 91,
+    mirrorCandidates: 96,
+    mirrorDrawn: 130,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "9de593a5",
+    survivingMaterialNamesFingerprint: "4ffed323",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
