@@ -1780,7 +1780,6 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // --- Knightsbridge and Brompton: mansion blocks and shopfronts. ----------
   roadsideParcel("london-block-knights-s-1", "london-knightsbridge", nodeAt("london-node-kensington-exhibition"), nodeAt("london-node-knights-brompton"), 1, 10.4, 48, LONDON_RED_BRICK, [16, 26], 0.8),
   roadsideParcel("london-block-knights-n-1", "london-knightsbridge", nodeAt("london-node-kensington-exhibition"), nodeAt("london-node-knights-brompton"), -1, 10.4, 44, LONDON_STUCCO, [15, 24], 0.78),
-  roadsideParcel("london-block-knights-s-2", "london-knightsbridge", nodeAt("london-node-knights-brompton"), nodeAt("london-node-knights-sloane"), 1, 10.4, 46, LONDON_STUCCO, [16, 26], 0.8),
   roadsideParcel("london-block-knights-n-2", "london-knightsbridge", nodeAt("london-node-knights-brompton"), nodeAt("london-node-knights-sloane"), -1, 10.4, 42, LONDON_RED_BRICK, [15, 24], 0.78),
   roadsideParcel("london-block-brompton-rd-e", "london-brompton-road", nodeAt("london-node-cromwell-far-east"), nodeAt("london-node-brompton-rise"), -1, 10.4, 44, LONDON_RED_BRICK, [14, 23], 0.78),
   roadsideParcel("london-block-brompton-rd-w", "london-brompton-road", nodeAt("london-node-cromwell-far-east"), nodeAt("london-node-brompton-rise"), 1, 10.4, 40, LONDON_STUCCO, [14, 22], 0.76),
@@ -2762,6 +2761,23 @@ export const LONDON_MAP_PACK: MapPack = {
         color: "#4f7a3d",
       },
       ...londonRoundaboutIslands,
+      // --- Bespoke silhouettes. Every one of these is procedural, drawn by
+      // `render/londonLandmarks.ts` and dispatched by id; the generic
+      // landmark fallback would put a windowed facade box where the clock
+      // tower is. None needs a licence to verify, and between them they are
+      // most of what makes a drive read as London rather than as a grey city.
+      { id: "london-clock-tower", kind: "tower", center: point(778, -330), size: point(14, 14), color: "#c3b492" },
+      { id: "london-eye-wheel", kind: "monument", center: point(870, -572), size: point(90, 8), color: "#9fb6c4" },
+      { id: "london-power-station", kind: "shops", center: point(-250, -810), size: point(110, 54), color: "#8b4f3d" },
+      { id: "london-round-hall", kind: "cultural", center: point(-30, 262), size: point(74, 56), color: "#a9634b" },
+      { id: "london-glass-gherkin", kind: "tower", center: point(1230, 170), size: point(34, 34), color: "#4d6b78" },
+      { id: "london-shard-spire", kind: "tower", center: point(1330, -580), size: point(38, 38), color: "#7d97a5" },
+      { id: "london-palace", kind: "cultural", center: point(430, -70), size: point(90, 46), color: "#c9bb96" },
+      { id: "london-department-store", kind: "shops", center: point(495, 187), size: point(110, 44), color: "#a05a44" },
+      { id: "london-monument-column", kind: "monument", center: point(1150, -130), size: point(12, 12), color: "#cfc3a4" },
+      { id: "london-knightsbridge-station", kind: "station", center: point(268, 244), size: point(18, 11), color: "#8e3b46" },
+      { id: "london-city-station", kind: "station", center: point(1104, 466), size: point(18, 11), color: "#8e3b46" },
+      { id: "london-islington-station", kind: "station", center: point(1198, 776), size: point(18, 11), color: "#8e3b46" },
       // The royal park, filling everything Park Lane, Bayswater Road, West
       // Carriage Drive and Kensington Road enclose. Big enough to be walled,
       // with derived gates wherever a crossing reaches it, and the map's one
@@ -2769,8 +2785,8 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-royal-park",
         kind: "park",
-        center: point(160, 580),
-        size: point(840, 640),
+        center: point(160, 600),
+        size: point(840, 600),
         color: "#4f7a3d",
       },
       // Chelsea's garden square: the pocket between the King's Road, Cheyne

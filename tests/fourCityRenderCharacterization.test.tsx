@@ -229,10 +229,23 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // Bank Circus; Upper Street, Canonbury Road and Shoreditch Lane run out
     // past Islington Circus. 36 more parcels, and one new material — the
     // City's glass curtain wall, the only London material above 40 m.
-    totalMeshes: 5_965,
-    enabledMeshes: 5_965,
-    activeMeshes: 974,
-    materials: 165,
+    //
+    // 5_965 -> 6_221: the bespoke silhouettes. A clock tower with four faces
+    // frozen at the scenario's 08:30, a 90 m observation wheel, the power
+    // station's four chimneys, the round hall, the Gherkin, the Shard, the
+    // palace, the department store, the Monument, Tower Bridge's towers and
+    // high walkways, three tube-station fronts, and sixteen pillar boxes and
+    // telephone kiosks.
+    //
+    // Materials go DOWN, 165 -> 144, and that is the point: every landmark
+    // used to mint its own trim/glazing/roof material with the same three
+    // colours and its own id in the name — 78 of them for the parks alone.
+    // They are shared now, which is a draw-call saving as much as a memory
+    // one.
+    totalMeshes: 6_221,
+    enabledMeshes: 6_221,
+    activeMeshes: 983,
+    materials: 144,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -242,7 +255,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "f8723ed8",
+    survivingMaterialNamesFingerprint: "0dfe99c0",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
