@@ -204,20 +204,27 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // turning-loop rings retired. The one new material is the London stock
     // brick those terraces are built out of, which is also what moves the
     // surviving-material fingerprint.
-    totalMeshes: 1_988,
-    enabledMeshes: 1_988,
-    activeMeshes: 772,
-    materials: 116,
+    //
+    // 1_988 -> 3_680: the Thames. Both embankments, the riverside spine and
+    // Battersea Park Road behind it, four link streets, 33 more roadside
+    // parcels, Battersea Park, and three drivable bridges whose decks each
+    // carry parapets, guardrails and a lamp line. The 18 new materials are
+    // four per bridge (deck steel, parapet stone, lamp glow, trim) plus the
+    // water and park additions.
+    totalMeshes: 3_680,
+    enabledMeshes: 3_680,
+    activeMeshes: 963,
+    materials: 134,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 94,
-    mirrorDrawn: 60,
+    mirrorCandidates: 98,
+    mirrorDrawn: 88,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "ce984879",
+    survivingMaterialNamesFingerprint: "5bc9ae28",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

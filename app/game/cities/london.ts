@@ -226,10 +226,58 @@ const londonSouthWestNodes = {
   sydneyMid: node("london-node-sydney-mid", 300, -120),
 };
 
+/**
+ * The river. Both embankments run about 48 m back from their own shore, and
+ * the three bridges each span 236 m between two junctions that already exist
+ * on the road either side — a bridge is only structurally real once it lands
+ * somewhere.
+ */
+const londonRiverNodes = {
+  // North bank: Chelsea Embankment, then Victoria Embankment past Westminster
+  // and the Tower. The two meet head-on at `embankmentJoin`, which is a street
+  // changing name rather than a junction.
+  lotsMid: node("london-node-lots-mid", -1215, -490),
+  chelseaEmbWest: node("london-node-chelsea-emb-west", -1240, -596),
+  chelseaEmb1: node("london-node-chelsea-emb-1", -1000, -586),
+  chelseaEmb2: node("london-node-chelsea-emb-2", -700, -566),
+  // Oakley Street runs dead straight into Chelsea Manor Street's bearing
+  // (9 degrees) rather than merely near it. `npcTurnSmoothness.test.ts`
+  // treats anything under 25 degrees apart as one road continuing, and holds
+  // the heading jolt across the shared node to 30 — two lanes each offset to
+  // their own left cannot meet that unless the two runs are genuinely
+  // parallel. Albert Bridge, and the river crossing with it, moved 33 m west
+  // to put them there.
+  albertNorth: node("london-node-albert-north", -347, -529),
+  chelseaEmb3: node("london-node-chelsea-emb-3", -100, -484),
+  embankmentJoin: node("london-node-embankment-join", 100, -455),
+  victoriaEmb1: node("london-node-victoria-emb-1", 400, -412),
+  westminsterNorth: node("london-node-westminster-north", 780, -364),
+  victoriaEmb2: node("london-node-victoria-emb-2", 1020, -336),
+  towerNorth: node("london-node-tower-north", 1260, -310),
+  // South bank: the riverside spine, and a back street behind it.
+  riverbankWest: node("london-node-riverbank-west", -1300, -820),
+  riverbank1: node("london-node-riverbank-1", -1000, -812),
+  albertSouth: node("london-node-albert-south", -347, -765),
+  riverbank2: node("london-node-riverbank-2", 100, -690),
+  riverbank3: node("london-node-riverbank-3", 600, -624),
+  westminsterSouth: node("london-node-westminster-south", 780, -600),
+  riverbank4: node("london-node-riverbank-4", 1020, -572),
+  towerSouth: node("london-node-tower-south", 1260, -546),
+  riverbankEast: node("london-node-riverbank-east", 1450, -528),
+  batterseaWest: node("london-node-battersea-west", -1260, -935),
+  battersea1: node("london-node-battersea-1", -880, -918),
+  batterseaAlbert: node("london-node-battersea-albert", -347, -885),
+  battersea2: node("london-node-battersea-2", 120, -816),
+  batterseaNine: node("london-node-battersea-nine", 600, -756),
+  battersea3: node("london-node-battersea-3", 1050, -706),
+  batterseaEast: node("london-node-battersea-east", 1440, -664),
+};
+
 const londonNodeById = new Map(
   [
     ...Object.values(londonNodes),
     ...Object.values(londonSouthWestNodes),
+    ...Object.values(londonRiverNodes),
   ].map((item) => [item.id, item]),
 );
 
@@ -255,6 +303,14 @@ export interface LondonRoadSpec {
   /** Total legal lanes across the carriageway (even, unless one-way). */
   readonly laneCount: 1 | 2 | 4;
   readonly widthM: number;
+  /**
+   * Authored pavement width. Left off, a road takes the map's paved default —
+   * which is right for a street and wrong for a bridge: the parapet collider
+   * and the drawn rail both resolve the deck's footway through this field,
+   * and NYC shipped a 3.4 m visual/collider mismatch by letting one side fall
+   * back while the other did not.
+   */
+  readonly sidewalkWidthM?: number;
   /** Painted with a solid rather than dashed centre line, and signalled. */
   readonly arterial?: boolean;
   readonly oneWay?: "forward" | "reverse";
@@ -267,6 +323,7 @@ const road = (
   laneCount: 1 | 2 | 4,
   widthM: number,
   options: {
+    readonly sidewalkWidthM?: number;
     readonly arterial?: boolean;
     readonly oneWay?: "forward" | "reverse";
   } = {},
@@ -295,6 +352,24 @@ export const LONDON_ROAD_SPECS: readonly LondonRoadSpec[] = [
   // arriving at it, so no route could ever reach it.
   road("london-smith-street", "Smith Street", ["london-node-hospital-east", "london-node-kings-sloane"], 2, 7.6),
   road("london-sydney-street", "Sydney Street", ["london-node-cromwell-far-east", "london-node-sydney-mid", "london-node-kings-sloane"], 2, 7.8),
+
+  // --- The river. -----------------------------------------------------------
+  road("london-lots-road", "Lots Road", ["london-node-kings-west", "london-node-lots-mid", "london-node-chelsea-emb-west"], 2, 8),
+  road("london-chelsea-embankment", "Chelsea Embankment", ["london-node-chelsea-emb-west", "london-node-chelsea-emb-1", "london-node-chelsea-emb-2", "london-node-albert-north", "london-node-chelsea-emb-3", "london-node-embankment-join"], 2, 10.4, { arterial: true }),
+  road("london-victoria-embankment", "Victoria Embankment", ["london-node-embankment-join", "london-node-victoria-emb-1", "london-node-westminster-north", "london-node-victoria-emb-2", "london-node-tower-north"], 2, 11.4, { arterial: true }),
+  road("london-oakley-street", "Oakley Street", ["london-node-hospital-west", "london-node-albert-north"], 2, 8),
+  // Each bridge is ONE spec spanning both banks. Two specs meeting at a bank
+  // mint two disconnected nodes at what looks like one junction, and the deck
+  // then leads nowhere.
+  road("london-albert-bridge", "Albert Bridge", ["london-node-albert-north", "london-node-albert-south"], 2, 9, { sidewalkWidthM: 2.4 }),
+  road("london-westminster-bridge", "Westminster Bridge", ["london-node-westminster-north", "london-node-westminster-south"], 2, 12, { sidewalkWidthM: 3.4, arterial: true }),
+  road("london-tower-bridge", "Tower Bridge", ["london-node-tower-north", "london-node-tower-south"], 2, 11, { sidewalkWidthM: 3, arterial: true }),
+  road("london-riverbank", "Riverbank Road", ["london-node-riverbank-west", "london-node-riverbank-1", "london-node-albert-south", "london-node-riverbank-2", "london-node-riverbank-3", "london-node-westminster-south", "london-node-riverbank-4", "london-node-tower-south", "london-node-riverbank-east"], 2, 10.4, { arterial: true }),
+  road("london-battersea-road", "Battersea Park Road", ["london-node-battersea-west", "london-node-battersea-1", "london-node-battersea-albert", "london-node-battersea-2", "london-node-battersea-nine", "london-node-battersea-3", "london-node-battersea-east"], 2, 8.6),
+  road("london-lombard-lane", "Lombard Lane", ["london-node-riverbank-west", "london-node-battersea-west"], 2, 7.4),
+  road("london-parkgate", "Parkgate Road", ["london-node-albert-south", "london-node-battersea-albert"], 2, 7.6),
+  road("london-nine-elms", "Nine Elms Lane", ["london-node-riverbank-3", "london-node-battersea-nine"], 2, 7.6),
+  road("london-tooley-street", "Tooley Street", ["london-node-battersea-east", "london-node-riverbank-east"], 2, 7.6),
 ];
 
 interface LondonConnectorMovement {
@@ -347,6 +422,24 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-hospital-west", "london-node-hospital-west", ["london-royal-hospital-road", "london-chelsea-manor"]),
   junction("london-junction-hospital-flood", "london-node-hospital-mid", ["london-royal-hospital-road", "london-flood-street"]),
   junction("london-junction-hospital-smith", "london-node-hospital-east", ["london-royal-hospital-road", "london-smith-street"]),
+  // --- The river. -----------------------------------------------------------
+  junction("london-junction-kings-lots", "london-node-kings-west", ["london-kings-road", "london-warwick-road", "london-lots-road"]),
+  junction("london-junction-lots-embankment", "london-node-chelsea-emb-west", ["london-lots-road", "london-chelsea-embankment"]),
+  junction("london-junction-albert-north", "london-node-albert-north", ["london-chelsea-embankment", "london-oakley-street", "london-albert-bridge"]),
+  junction("london-junction-oakley-hospital", "london-node-hospital-west", ["london-royal-hospital-road", "london-chelsea-manor", "london-oakley-street"]),
+  junction("london-junction-embankment-join", "london-node-embankment-join", ["london-chelsea-embankment", "london-victoria-embankment"]),
+  junction("london-junction-westminster-north", "london-node-westminster-north", ["london-victoria-embankment", "london-westminster-bridge"]),
+  junction("london-junction-tower-north", "london-node-tower-north", ["london-victoria-embankment", "london-tower-bridge"]),
+  junction("london-junction-albert-south", "london-node-albert-south", ["london-riverbank", "london-albert-bridge", "london-parkgate"]),
+  junction("london-junction-westminster-south", "london-node-westminster-south", ["london-riverbank", "london-westminster-bridge"]),
+  junction("london-junction-tower-south", "london-node-tower-south", ["london-riverbank", "london-tower-bridge"]),
+  junction("london-junction-riverbank-west", "london-node-riverbank-west", ["london-riverbank", "london-lombard-lane"]),
+  junction("london-junction-riverbank-east", "london-node-riverbank-east", ["london-riverbank", "london-tooley-street"]),
+  junction("london-junction-nine-elms-north", "london-node-riverbank-3", ["london-riverbank", "london-nine-elms"]),
+  junction("london-junction-battersea-west", "london-node-battersea-west", ["london-battersea-road", "london-lombard-lane"]),
+  junction("london-junction-battersea-albert", "london-node-battersea-albert", ["london-battersea-road", "london-parkgate"]),
+  junction("london-junction-battersea-nine", "london-node-battersea-nine", ["london-battersea-road", "london-nine-elms"]),
+  junction("london-junction-battersea-east", "london-node-battersea-east", ["london-battersea-road", "london-tooley-street"]),
 ];
 
 /**
@@ -977,7 +1070,7 @@ const londonGeneratedSurfaces: readonly RoadSurface[] = LONDON_ROAD_SPECS.map(
             "white",
           ),
         ];
-    return roadSurface(
+    const surface = roadSurface(
       spec.id,
       centerline,
       spec.widthM,
@@ -987,6 +1080,9 @@ const londonGeneratedSurfaces: readonly RoadSurface[] = LONDON_ROAD_SPECS.map(
       "standard",
       markings,
     );
+    return spec.sidewalkWidthM === undefined
+      ? surface
+      : { ...surface, sidewalkWidthM: spec.sidewalkWidthM };
   },
 );
 
@@ -1274,6 +1370,46 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-brompton-s-1", "london-old-brompton", nodeAt("london-node-earls-brompton"), nodeAt("london-node-brompton-mid"), 1, 8.6, 40, LONDON_RED_BRICK, [10, 18], 0.72),
   roadsideParcel("london-block-brompton-n-2", "london-old-brompton", nodeAt("london-node-brompton-mid"), nodeAt("london-node-gloucester-south"), -1, 8.6, 44, LONDON_STUCCO, [12, 20], 0.76),
   roadsideParcel("london-block-brompton-s-2", "london-old-brompton", nodeAt("london-node-brompton-mid"), nodeAt("london-node-gloucester-south"), 1, 8.6, 40, LONDON_STOCK_BRICK, [11, 19], 0.74),
+
+  // --- The embankments. Only the landward kerb carries a street wall: the
+  // parcel trimmer measures against roads, not water, so a parcel on the
+  // river side would be shortened by nothing and end up in the Thames. Both
+  // embankments run west to east, whose right-hand normal points south, so
+  // the landward side is -1 on the north bank and +1 on the south. ---------
+  roadsideParcel("london-block-chelsea-emb-1", "london-chelsea-embankment", nodeAt("london-node-chelsea-emb-west"), nodeAt("london-node-chelsea-emb-1"), -1, 10.4, 44, LONDON_RED_BRICK, [12, 20], 0.72),
+  roadsideParcel("london-block-chelsea-emb-2", "london-chelsea-embankment", nodeAt("london-node-chelsea-emb-1"), nodeAt("london-node-chelsea-emb-2"), -1, 10.4, 46, LONDON_STUCCO, [14, 24], 0.76),
+  roadsideParcel("london-block-chelsea-emb-3", "london-chelsea-embankment", nodeAt("london-node-chelsea-emb-2"), nodeAt("london-node-albert-north"), -1, 10.4, 46, LONDON_STUCCO, [14, 24], 0.78),
+  roadsideParcel("london-block-chelsea-emb-4", "london-chelsea-embankment", nodeAt("london-node-albert-north"), nodeAt("london-node-chelsea-emb-3"), -1, 10.4, 44, LONDON_RED_BRICK, [13, 22], 0.76),
+  roadsideParcel("london-block-chelsea-emb-5", "london-chelsea-embankment", nodeAt("london-node-chelsea-emb-3"), nodeAt("london-node-embankment-join"), -1, 10.4, 42, LONDON_STOCK_BRICK, [12, 21], 0.74),
+  roadsideParcel("london-block-victoria-emb-1", "london-victoria-embankment", nodeAt("london-node-embankment-join"), nodeAt("london-node-victoria-emb-1"), -1, 11.4, 48, LONDON_STOCK_BRICK, [14, 24], 0.76),
+  roadsideParcel("london-block-victoria-emb-2", "london-victoria-embankment", nodeAt("london-node-victoria-emb-1"), nodeAt("london-node-westminster-north"), -1, 11.4, 50, LONDON_STUCCO, [15, 26], 0.78),
+  roadsideParcel("london-block-victoria-emb-3", "london-victoria-embankment", nodeAt("london-node-westminster-north"), nodeAt("london-node-victoria-emb-2"), -1, 11.4, 50, LONDON_STUCCO, [15, 26], 0.78),
+  roadsideParcel("london-block-victoria-emb-4", "london-victoria-embankment", nodeAt("london-node-victoria-emb-2"), nodeAt("london-node-tower-north"), -1, 11.4, 48, LONDON_RED_BRICK, [14, 24], 0.76),
+  roadsideParcel("london-block-lots-w", "london-lots-road", nodeAt("london-node-kings-west"), nodeAt("london-node-lots-mid"), 1, 8, 36, LONDON_RED_BRICK, [10, 17], 0.7),
+  roadsideParcel("london-block-oakley-e", "london-oakley-street", nodeAt("london-node-hospital-west"), nodeAt("london-node-albert-north"), -1, 8, 34, LONDON_STUCCO, [12, 20], 0.72),
+
+  // --- The south bank. ----------------------------------------------------
+  roadsideParcel("london-block-riverbank-1", "london-riverbank", nodeAt("london-node-riverbank-1"), nodeAt("london-node-albert-south"), 1, 10.4, 44, LONDON_RED_BRICK, [10, 18], 0.7),
+  roadsideParcel("london-block-riverbank-2", "london-riverbank", nodeAt("london-node-albert-south"), nodeAt("london-node-riverbank-2"), 1, 10.4, 46, LONDON_STOCK_BRICK, [11, 19], 0.72),
+  roadsideParcel("london-block-riverbank-3", "london-riverbank", nodeAt("london-node-riverbank-2"), nodeAt("london-node-riverbank-3"), 1, 10.4, 46, LONDON_RED_BRICK, [12, 20], 0.74),
+  roadsideParcel("london-block-riverbank-4", "london-riverbank", nodeAt("london-node-riverbank-3"), nodeAt("london-node-westminster-south"), 1, 10.4, 44, LONDON_STOCK_BRICK, [12, 21], 0.74),
+  roadsideParcel("london-block-riverbank-5", "london-riverbank", nodeAt("london-node-westminster-south"), nodeAt("london-node-riverbank-4"), 1, 10.4, 46, LONDON_STUCCO, [13, 22], 0.76),
+  roadsideParcel("london-block-riverbank-6", "london-riverbank", nodeAt("london-node-riverbank-4"), nodeAt("london-node-tower-south"), 1, 10.4, 46, LONDON_RED_BRICK, [12, 21], 0.74),
+  roadsideParcel("london-block-riverbank-7", "london-riverbank", nodeAt("london-node-tower-south"), nodeAt("london-node-riverbank-east"), 1, 10.4, 42, LONDON_STOCK_BRICK, [11, 19], 0.72),
+  roadsideParcel("london-block-battersea-n-1", "london-battersea-road", nodeAt("london-node-battersea-1"), nodeAt("london-node-battersea-albert"), -1, 8.6, 34, LONDON_RED_BRICK, [9, 15], 0.66),
+  roadsideParcel("london-block-battersea-s-1", "london-battersea-road", nodeAt("london-node-battersea-west"), nodeAt("london-node-battersea-1"), 1, 8.6, 38, LONDON_STOCK_BRICK, [9, 16], 0.68),
+  roadsideParcel("london-block-battersea-s-2", "london-battersea-road", nodeAt("london-node-battersea-1"), nodeAt("london-node-battersea-albert"), 1, 8.6, 38, LONDON_RED_BRICK, [9, 16], 0.68),
+  roadsideParcel("london-block-battersea-n-2", "london-battersea-road", nodeAt("london-node-battersea-albert"), nodeAt("london-node-battersea-2"), -1, 8.6, 36, LONDON_STOCK_BRICK, [10, 17], 0.7),
+  roadsideParcel("london-block-battersea-s-3", "london-battersea-road", nodeAt("london-node-battersea-albert"), nodeAt("london-node-battersea-2"), 1, 8.6, 38, LONDON_STUCCO, [10, 17], 0.7),
+  roadsideParcel("london-block-battersea-n-3", "london-battersea-road", nodeAt("london-node-battersea-2"), nodeAt("london-node-battersea-nine"), -1, 8.6, 36, LONDON_RED_BRICK, [10, 18], 0.7),
+  roadsideParcel("london-block-battersea-s-4", "london-battersea-road", nodeAt("london-node-battersea-2"), nodeAt("london-node-battersea-nine"), 1, 8.6, 38, LONDON_STOCK_BRICK, [10, 18], 0.7),
+  roadsideParcel("london-block-battersea-n-4", "london-battersea-road", nodeAt("london-node-battersea-nine"), nodeAt("london-node-battersea-3"), -1, 8.6, 36, LONDON_STUCCO, [11, 19], 0.72),
+  roadsideParcel("london-block-battersea-s-5", "london-battersea-road", nodeAt("london-node-battersea-nine"), nodeAt("london-node-battersea-3"), 1, 8.6, 38, LONDON_RED_BRICK, [10, 18], 0.7),
+  roadsideParcel("london-block-battersea-n-5", "london-battersea-road", nodeAt("london-node-battersea-3"), nodeAt("london-node-battersea-east"), -1, 8.6, 36, LONDON_STOCK_BRICK, [11, 19], 0.72),
+  roadsideParcel("london-block-battersea-s-6", "london-battersea-road", nodeAt("london-node-battersea-3"), nodeAt("london-node-battersea-east"), 1, 8.6, 38, LONDON_STUCCO, [11, 19], 0.72),
+  roadsideParcel("london-block-parkgate-e", "london-parkgate", nodeAt("london-node-albert-south"), nodeAt("london-node-battersea-albert"), -1, 7.6, 32, LONDON_RED_BRICK, [10, 17], 0.7),
+  roadsideParcel("london-block-nine-elms-e", "london-nine-elms", nodeAt("london-node-riverbank-3"), nodeAt("london-node-battersea-nine"), -1, 7.6, 32, LONDON_STOCK_BRICK, [11, 19], 0.72),
+  roadsideParcel("london-block-tooley-w", "london-tooley-street", nodeAt("london-node-battersea-east"), nodeAt("london-node-riverbank-east"), 1, 7.6, 32, LONDON_RED_BRICK, [11, 19], 0.72),
 ].filter((block): block is ProceduralBlock => block !== null);
 
 // ---------------------------------------------------------------------------
@@ -1443,12 +1579,19 @@ const londonGeneratedSignals = [
   londonSignal("london-signal-kings-gloucester", "london-node-kings-gloucester"),
   londonSignal("london-signal-kings-queens", "london-node-kings-queens"),
   londonSignal("london-signal-earls-brompton", "london-node-earls-brompton"),
+  // Both ends of the two big bridges. A bridgehead is where the map's traffic
+  // actually collects, and an unsignalled one reads as a slip road.
+  londonSignal("london-signal-westminster-north", "london-node-westminster-north"),
+  londonSignal("london-signal-westminster-south", "london-node-westminster-south"),
+  londonSignal("london-signal-tower-north", "london-node-tower-north"),
+  londonSignal("london-signal-tower-south", "london-node-tower-south"),
 ];
 
 const londonLaneGraph: LaneGraph = {
   nodes: [
     ...Object.values(londonNodes),
     ...Object.values(londonSouthWestNodes),
+    ...Object.values(londonRiverNodes),
   ],
   lanes: londonLanes,
   controls: [
@@ -1709,6 +1852,58 @@ export const LONDON_MAP_PACK: MapPack = {
       ...londonQuarterSurfaces,
       ...londonGeneratedSurfaces,
     ],
+    // The Thames, crossing the whole map west to east. Gently irregular on
+    // both shores — a perfect rectangle reads as a canal, not a river. Both
+    // shores stay ~48 m off their own embankment's centreline, and the polygon
+    // runs past the world edges so the river arrives from somewhere.
+    //
+    // `flowHeadingDeg` is what makes this a river rather than a giant still
+    // pond (crest streaks, chop, drifting tiles); `bridgePortalSurfaceIds`
+    // opens the otherwise-solid shoreline for exactly the three bridge road
+    // surfaces and derives their parapet spans. Every other metre of shoreline
+    // stays a collider for free.
+    //
+    // No boats: the only two models are a felucca and a skiff, and an Egyptian
+    // felucca on the Thames is exactly the trap `docs/greenery.md` records.
+    // `buildWaterBodies` gates them to Cairo.
+    waterBodies: [
+      {
+        id: "london-thames",
+        color: "#3a4d52",
+        flowHeadingDeg: 90,
+        bridgePortalSurfaceIds: [
+          "london-albert-bridge",
+          "london-westminster-bridge",
+          "london-tower-bridge",
+        ],
+        polygon: [
+          point(-1500, -654),
+          point(-1240, -644),
+          point(-1000, -638),
+          point(-700, -610),
+          point(-347, -581),
+          point(-100, -528),
+          point(100, -507),
+          point(400, -456),
+          point(780, -416),
+          point(1020, -380),
+          point(1260, -362),
+          point(1500, -334),
+          point(1500, -474),
+          point(1260, -502),
+          point(1020, -520),
+          point(780, -556),
+          point(400, -596),
+          point(100, -646),
+          point(-100, -668),
+          point(-347, -713),
+          point(-700, -760),
+          point(-1000, -768),
+          point(-1240, -776),
+          point(-1500, -786),
+        ],
+      },
+    ],
     blocks: [
       {
         id: "london-natural-history-museum-block",
@@ -1821,6 +2016,24 @@ export const LONDON_MAP_PACK: MapPack = {
         center: point(132, 96),
         size: point(18, 10),
         color: "#b9303f",
+      },
+      // Bridge landmarks: the id equals the bridge's own road id, and that
+      // identity is how the water helpers and `render/londonLandmarks.ts`
+      // find the right road surface and clip rails to the over-water span.
+      // Rendered bespoke; the generic landmark fallback would draw a windowed
+      // facade box across the river.
+      { id: "london-albert-bridge", kind: "bridge", center: point(-347, -647), size: point(236, 9), headingDeg: 0, color: "#cbb9c6" },
+      { id: "london-westminster-bridge", kind: "bridge", center: point(780, -482), size: point(236, 12), headingDeg: 0, color: "#5c7a55" },
+      { id: "london-tower-bridge", kind: "bridge", center: point(1260, -428), size: point(236, 11), headingDeg: 0, color: "#c8bda4" },
+      // Battersea Park, filling the strip between the riverside spine and the
+      // back street behind it. Big enough to be walled, which is what the
+      // south bank needs to stop reading as one long terrace.
+      {
+        id: "london-battersea-park",
+        kind: "park",
+        center: point(-690, -845),
+        size: point(500, 44),
+        color: "#4f7a3d",
       },
       // Chelsea's garden square: the pocket between the King's Road, Cheyne
       // Mews and Chelsea Manor Street that carries no street wall, so the

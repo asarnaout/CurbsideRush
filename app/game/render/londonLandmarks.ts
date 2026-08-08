@@ -6,7 +6,7 @@ import {
   MeshBuilder,
   type Scene,
   StandardMaterial,
-  type TransformNode,
+  TransformNode,
   Vector3,
   Vector4,
 } from "@babylonjs/core";
@@ -28,6 +28,8 @@ import {
   type SpeedLimitSignPlacement,
 } from "../regulatorySigns";
 import type { GameCanvasMapPack } from "../sessionContract";
+import { cairoBridgePortalVisualAxis } from "../geometry/waterGeometry";
+import { defaultSidewalkWidthM } from "../visuals";
 
 /**
  * London-specific landmark silhouettes, its hand-placed street furniture, and
@@ -89,12 +91,147 @@ export interface LondonLandmarksCtx {
  * Gives the South Kensington miniature a readable silhouette without using
  * imagery, branding, or detailed replicas of the real museum buildings.
  */
+/** Deck-edge parapet, between the footway and the river. */
+const BRIDGE_PARAPET_HEIGHT_M = 1;
+/** Kerbside guardrail, between the carriageway and the footway. */
+const BRIDGE_GUARDRAIL_HEIGHT_M = 0.5;
+const BRIDGE_LAMP_SPACING_M = 24;
+const BRIDGE_DECK_LEVEL_M = 0.65;
+
+/**
+ * A drivable Thames bridge's deck dressing: the parapet the driver actually
+ * hits, a kerbside guardrail, and a lamp line along both footways.
+ *
+ * Two invariants, both learned the hard way on NYC's pair:
+ *
+ * - **The parapet is drawn on the same line as the `-portal-` collider
+ *   `simulationAdapter` emits**, which resolves the deck's footway through
+ *   `sidewalkWidthM`. Every London bridge authors that field explicitly; a
+ *   silent fallback on one side of the two is what put a visible rail 3.4 m
+ *   inboard of the wall the car hits.
+ * - **The guardrail is visual only.** There is no collider at the kerb and
+ *   never was, so the deck stays exactly as drivable as the carriageway
+ *   either side of it.
+ *
+ * Each bridge's own character — Albert's cable stays, Westminster's arches,
+ * the Tower's stone towers and high walkways — is built on top of this by the
+ * caller.
+ */
+function buildLondonBridgeDeck(
+  ctx: LondonLandmarksCtx,
+  landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+  mapPack: GameCanvasMapPack,
+): {
+  readonly root: TransformNode;
+  readonly axis: ReturnType<typeof cairoBridgePortalVisualAxis>;
+  readonly carriagewayWidthM: number;
+  readonly steel: StandardMaterial;
+} {
+  const scene = ctx.scene;
+  const roadSurfaces = mapPack.geometry.roadSurfaces ?? [];
+  const axis = cairoBridgePortalVisualAxis(
+    landmark,
+    roadSurfaces,
+    mapPack.geometry.waterBodies ?? [],
+    defaultSidewalkWidthM(mapPack),
+  );
+  const length = axis.lengthM;
+  const width = axis.widthM;
+  const carriagewayWidthM =
+    roadSurfaces.find((surface) => surface.id === landmark.id)?.widthM ?? width;
+  const root = new TransformNode(`${landmark.id}-axis`, scene);
+  root.position.set(axis.center.x, 0, axis.center.z);
+  root.rotation.y = axis.boxYawRad;
+  ctx.staticSceneryFreeze.push(root);
+
+  const steel = makeMaterial(
+    scene,
+    `${landmark.id}-steel`,
+    Color3.FromHexString(landmark.color),
+  );
+  const parapetStone = makeMaterial(
+    scene,
+    `${landmark.id}-parapet-stone`,
+    new Color3(0.53, 0.51, 0.47),
+  );
+  const lampGlow = makeMaterial(
+    scene,
+    `${landmark.id}-lamp`,
+    new Color3(0.09, 0.09, 0.08),
+    new Color3(0.95, 0.86, 0.6),
+  );
+
+  for (const side of [-1, 1] as const) {
+    const parapet = createBox(
+      scene,
+      `${landmark.id}-parapet-${side}`,
+      { width: length, height: BRIDGE_PARAPET_HEIGHT_M, depth: 0.24 },
+      new Vector3(0, BRIDGE_PARAPET_HEIGHT_M / 2, (side * width) / 2),
+      parapetStone,
+      root,
+    );
+    parapet.isPickable = false;
+    ctx.staticSceneryFreeze.push(parapet);
+    const guardrail = createBox(
+      scene,
+      `${landmark.id}-guardrail-${side}`,
+      { width: length, height: BRIDGE_GUARDRAIL_HEIGHT_M, depth: 0.16 },
+      new Vector3(
+        0,
+        BRIDGE_GUARDRAIL_HEIGHT_M / 2,
+        side * (carriagewayWidthM / 2 + 0.3),
+      ),
+      steel,
+      root,
+    );
+    guardrail.isPickable = false;
+    ctx.staticSceneryFreeze.push(guardrail);
+  }
+
+  const lampCount = Math.max(2, Math.round(length / BRIDGE_LAMP_SPACING_M));
+  for (let index = 0; index <= lampCount; index += 1) {
+    const alongM = -length / 2 + (index / lampCount) * length;
+    for (const side of [-1, 1] as const) {
+      const lateralM = side * (width / 2 - 1.2);
+      const pole = createCylinder(
+        scene,
+        `${landmark.id}-lamp-pole-${index}-${side}`,
+        { height: 3.4, diameter: 0.14, tessellation: 6 },
+        new Vector3(alongM, BRIDGE_DECK_LEVEL_M + 1.7, lateralM),
+        steel,
+        root,
+      );
+      pole.isPickable = false;
+      ctx.staticSceneryFreeze.push(pole);
+      const head = createBox(
+        scene,
+        `${landmark.id}-lamp-head-${index}-${side}`,
+        { width: 0.36, height: 0.4, depth: 0.36 },
+        new Vector3(alongM, BRIDGE_DECK_LEVEL_M + 3.5, lateralM),
+        lampGlow,
+        root,
+      );
+      head.isPickable = false;
+      ctx.staticSceneryFreeze.push(head);
+    }
+  }
+
+  return { root, axis, carriagewayWidthM, steel };
+}
+
 export function buildLondonLandmark(
   ctx: LondonLandmarksCtx,
   landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
   material: StandardMaterial,
+  mapPack: GameCanvasMapPack,
 ): boolean {
   const scene = ctx.scene;
+
+  if (landmark.kind === "bridge") {
+    buildLondonBridgeDeck(ctx, landmark, mapPack);
+    return true;
+  }
+
   const trim = makeMaterial(scene, `${landmark.id}-trim`, new Color3(0.82, 0.76, 0.65));
   const windows = makeMaterial(scene, `${landmark.id}-windows`, new Color3(0.12, 0.2, 0.23));
   const roof = makeMaterial(scene, `${landmark.id}-roof`, new Color3(0.25, 0.22, 0.2));

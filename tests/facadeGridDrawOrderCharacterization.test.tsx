@@ -246,11 +246,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // blocks to forty-eight. The draw count is a property of the block
     // *rectangles*, so it moves with the parcels themselves rather than with
     // anything about how they are dressed.
-    drawCount: 1_032,
+    // 1_032 -> 1_800 with the river: the embankments, the riverside spine and
+    // Battersea Park Road brought 33 more parcels.
+    drawCount: 1_800,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
-    // (the 43 new roadside parcels).
-    facadeMeshFingerprint: "63ee7ce2",
+    // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones).
+    facadeMeshFingerprint: "cba25d85",
   },
   "tokyo-setagaya": {
     drawCount: 216,
