@@ -481,16 +481,19 @@ describe("speed-limit signage", () => {
   });
 
   it("never out-numbers the signage it stands beside", () => {
-    // A count regression is how this quietly becomes a forest of posts. NYC
-    // and Cairo are the two full-size cities; the compact maps keep the old
-    // tighter budget.
+    // A count regression is how this quietly becomes a forest of posts. NYC,
+    // Cairo and now London are the full-size cities; Tokyo keeps the old
+    // tighter budget. London joined them when it grew past the museum quarter
+    // — its signs are all 20 mph repeaters, so the count tracks road length
+    // rather than any change in what it posts.
     const nyc = signsFor(nycPack());
     expect(nyc.length).toBeLessThan(nycPlacements().length);
     expect(nyc.length).toBeLessThanOrEqual(240);
     for (const pack of MAP_PACKS) {
       const budget =
         pack.id === "nyc-upper-west-side" ||
-        pack.id === "cairo-central-nile"
+        pack.id === "cairo-central-nile" ||
+        pack.id === "london-south-kensington"
           ? 240
           : 60;
       expect(signsFor(pack).length, pack.id).toBeLessThanOrEqual(budget);

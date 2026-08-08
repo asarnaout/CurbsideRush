@@ -75,7 +75,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
 | `tokyo-setagaya` | 56 | 20 | 5.5 | 0 | 0 | 600 × 420 |
-| `london-south-kensington` | 99 | 25 | 15.3 | 5 | 2 | 2950 × 2000 |
+| `london-south-kensington` | 165 | 38 | 34.4 | 9 | 3 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane
 
@@ -120,6 +120,10 @@ corner); below that the surviving rail walks straight through the neighbouring
 carriageway, and `pavementPaths.test.ts` catches it. Cheyne Mews originally
 met the King's Road 16° off Chelsea Manor Street's arm and had to be rerouted
 to join Flood Street instead.
+
+**Only the landward kerb of a riverside road carries a street wall.** The
+parcel trimmer measures against roads, not water, so a parcel on the river
+side is shortened by nothing and ends up in the Thames.
 
 **A roadside parcel's *length* is derived, not authored** (`roadsideParcel`):
 it starts as long as its road segment and shortens until the whole rectangle
