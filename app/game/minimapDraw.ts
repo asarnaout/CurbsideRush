@@ -57,6 +57,103 @@ export interface MapDrawWaterBody {
 }
 
 /**
+ * A park rectangle, drawn as a green fill under the water and the roads.
+ * `headingDeg` matches the landmark convention (local +x maps to world
+ * (cos, -sin)); every shipped park is axis-aligned today, but the corners are
+ * built through the rotation so a future rotated green just works.
+ */
+export interface MapDrawPark {
+  readonly center: MapDrawPoint;
+  readonly size: MapDrawPoint;
+  readonly headingDeg?: number;
+}
+
+/** One muted green for every park — the map reads land use, not species. */
+const PARK_FILL = "rgba(96, 138, 88, 0.42)";
+
+const mapParksCache = new WeakMap<object, readonly MapDrawPark[]>();
+
+/**
+ * The park rectangles of a landmark list, referentially stable per list.
+ *
+ * The corner widget re-rasterises its whole offscreen sheet whenever its
+ * `parks` prop changes identity, and the caller (`DriveScreen`) renders at HUD
+ * rate — a bare `.filter()` at the call site would rebuild the sheet every
+ * frame. Map-pack geometry is frozen, so caching on the landmarks array itself
+ * is exact.
+ */
+export function parksFromLandmarks(
+  landmarks: readonly {
+    readonly kind?: string;
+    readonly center: MapDrawPoint;
+    readonly size: MapDrawPoint;
+    readonly headingDeg?: number;
+  }[],
+): readonly MapDrawPark[] {
+  const cached = mapParksCache.get(landmarks);
+  if (cached) return cached;
+  const parks = landmarks
+    .filter((landmark) => landmark.kind === "park")
+    .map((landmark) => ({
+      center: landmark.center,
+      size: landmark.size,
+      headingDeg: landmark.headingDeg,
+    }));
+  mapParksCache.set(landmarks, parks);
+  return parks;
+}
+
+/**
+ * Roundabout islands are parks too, 15-28 m squares that would rasterise to
+ * near-invisible specks and just fuzz the junctions — the maps skip anything
+ * whose short side is under this.
+ */
+const MAP_PARK_MIN_SHORT_SIDE_M = 24;
+
+/**
+ * Draws park fills before `drawMapWaterBodies` so a lake sitting inside its
+ * park (the Serpentine) reads as water over green, and roads read over both.
+ * Until this existed neither map drew parks at all — the royal park was a
+ * void in the road network, which is exactly how "why is the park so hidden"
+ * reads on a map screen.
+ */
+export function drawMapParks(
+  ctx: CanvasRenderingContext2D,
+  parks: readonly MapDrawPark[],
+  projector: MinimapProjector,
+): void {
+  ctx.fillStyle = PARK_FILL;
+  for (const park of parks) {
+    if (Math.min(park.size.x, park.size.z) < MAP_PARK_MIN_SHORT_SIDE_M) {
+      continue;
+    }
+    const rad = ((park.headingDeg ?? 0) * Math.PI) / 180;
+    const axisX = { x: Math.cos(rad), z: -Math.sin(rad) };
+    const axisZ = { x: Math.sin(rad), z: Math.cos(rad) };
+    const halfX = park.size.x / 2;
+    const halfZ = park.size.z / 2;
+    const corners = [
+      { u: halfX, v: halfZ },
+      { u: -halfX, v: halfZ },
+      { u: -halfX, v: -halfZ },
+      { u: halfX, v: -halfZ },
+    ].map(({ u, v }) =>
+      projector.project(
+        park.center.x + axisX.x * u + axisZ.x * v,
+        park.center.z + axisX.z * u + axisZ.z * v,
+      ),
+    );
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    for (let index = 1; index < corners.length; index += 1) {
+      ctx.lineTo(corners[index].x, corners[index].y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+/**
  * Every pixel size the overlay draws with. Named rather than derived so the two
  * surfaces can disagree about scale without disagreeing about the drawing.
  */
