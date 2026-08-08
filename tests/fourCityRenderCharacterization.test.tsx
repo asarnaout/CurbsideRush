@@ -339,10 +339,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // with backing rows behind them. Same trade as the pass above: lawn
     // displaces roadside scatter, so meshes edge DOWN while the materials
     // each new green's planting variants need go up.
-    totalMeshes: 7_282,
-    enabledMeshes: 7_282,
-    activeMeshes: 635,
-    materials: 260,
+    // 7_282 -> 7_144 (active 635 -> 604, 260 -> 264 materials): the emptiness
+    // round's west fills. Meshes DOWN by 138 even though sixteen blocks were
+    // added: a parcel's instanced street wall replaces the loose roadside
+    // scatter that stood on the bare ground before it, and the museums' four
+    // forecourt lawns do the same over a wider area than they cost.
+    totalMeshes: 7_144,
+    enabledMeshes: 7_144,
+    activeMeshes: 604,
+    materials: 264,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -354,9 +359,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // spawn's mirrors; 101 -> 95 / 175 -> 176 with the coverage-sweep fills;
     // 95 -> 84 / 176 -> 181 as the Cromwell ribbon's east half and the
     // Queen's Gate terraces' new south face re-deal what stands nearest the
-    // spawn, which sits on the quiet loop one street away.
-    mirrorCandidates: 84,
-    mirrorDrawn: 181,
+    // spawn, which sits on the quiet loop one street away; 84 -> 35 / 181 ->
+    // 186 once the quiet loop's island fills the block the spawn's mirrors
+    // look straight into, which occludes most of what used to be candidates.
+    mirrorCandidates: 35,
+    mirrorDrawn: 186,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -366,8 +373,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // Serpentine bridge's deck/parapet/lamp materials. -> "5d87b546": the
     // boulevard strips' planting variants (quarter-environs pass). ->
     // "589935fd": the coverage sweep's fills and the St James's ribbon. ->
-    // "b15509ee": the five new kerb greens' planting variants.
-    survivingMaterialNamesFingerprint: "b15509ee",
+    // "b15509ee": the five new kerb greens' planting variants. ->
+    // "49bcd9ee": the museums' four forecourt lawns.
+    survivingMaterialNamesFingerprint: "49bcd9ee",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
