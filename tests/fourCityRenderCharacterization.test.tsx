@@ -325,9 +325,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // Mall. Meshes NET DOWN again: the fills' wide facade boxes replace
     // denser roadside scatter, and the two deleted quarter parcels
     // (museum-covered kerbs) go with them.
-    totalMeshes: 7_774,
-    enabledMeshes: 7_774,
-    activeMeshes: 641,
+    // 7_774 -> 7_288 (active 641 -> 629): the tuck-and-connect pass. Every
+    // kerb green's near edge moves to pavement + 0.3 and the royal park's
+    // three road edges come all the way in (the 10 m NYC-parity gap read as
+    // a concrete moat in play-testing); the boulevard strips run junction to
+    // junction and butt-join at the Gloucester x Cromwell corner; the
+    // Kensington lawn stretches to its full road span. Meshes DROP because
+    // the grown lawns displace hundreds of roadside scatter placements.
+    totalMeshes: 7_288,
+    enabledMeshes: 7_288,
+    activeMeshes: 629,
     materials: 255,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
