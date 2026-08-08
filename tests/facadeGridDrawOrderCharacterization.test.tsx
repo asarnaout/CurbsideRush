@@ -275,8 +275,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // (235 -> 237 blocks). -> 6_144 with the emptiness round's west fills
     // (237 -> 253 blocks: eleven bare-kerb parcels, the quiet loop's island,
     // the museums' west pocket and four corner fabric rects). -> 6_486 with
-    // the eastern half (253 -> 267 blocks).
-    drawCount: 6_486,
+    // the eastern half (253 -> 267 blocks). -> 6_366 with the crescent
+    // island's five blocks retired for its lawn (267 -> 262).
+    drawCount: 6_366,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -303,8 +304,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // deepened 32 -> 58 m to close the embankment bend) -> "95fb04ad" (the
     // eastern fills, and Victoria Street's west band re-authored onto a
     // single segment after the first cut chorded through its own 70-degree
-    // bend).
-    facadeMeshFingerprint: "95fb04ad",
+    // bend) -> "d48b5787" (the crescent island's blocks retired).
+    facadeMeshFingerprint: "d48b5787",
   },
   "tokyo-setagaya": {
     drawCount: 216,

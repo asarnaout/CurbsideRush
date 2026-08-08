@@ -43,9 +43,13 @@ const parkCases = (): readonly ParkCase[] => {
   const cases: ParkCase[] = [];
   for (const mapId of MAPS) {
     const pack = getMapPack(mapId);
+    // sidewalkWidthM travels with the surface: `parkLayoutForLandmark` passes
+    // the pack's own road list through, so a context that drops it measures a
+    // different pavement band than the layout it is checking.
     const roadSurfaces = (pack.geometry.roadSurfaces ?? []).map((surface) => ({
       centerline: surface.centerline,
       widthM: surface.widthM,
+      sidewalkWidthM: surface.sidewalkWidthM,
     }));
     for (const landmark of pack.geometry.landmarks) {
       if (landmark.kind !== "park") continue;
@@ -96,7 +100,9 @@ describe("park layouts", () => {
     // Mall's civic stone and Whitehall's, and the palace garden. Both are
     // walled greenswards: the rule that an enclosed block reads as one thing
     // applies to a 30,000 m2 void as much as to a roundabout island.
-    expect(parkCases().length).toBe(46);
+    // 46 -> 48: Pembroke Crescent's island became three butt-joined lawn
+    // tiles in place of the one 80 x 28 stamp that used to float in it.
+    expect(parkCases().length).toBe(48);
   });
 
   it("is deterministic — two builds are identical", () => {
@@ -387,10 +393,18 @@ describe("park layouts", () => {
             z: run.z + run.uz * run.halfU * step,
           };
           for (const surface of context.roadSurfaces) {
+            // Each road's OWN pavement width where it has one, not the map's
+            // default. Serpentine Road's is 2.4 m against London's 3.4, and
+            // once the royal park opted into `wallsFollowRoadEdges` — walls
+            // that clear the pavement band by the tightest legal margin
+            // rather than a blanket 1.8 m — the map-wide figure stopped being
+            // a conservative proxy and started failing walls that genuinely
+            // clear the pavement. `staticColliders.test.ts` samples the real
+            // band and remains the net that matters.
             const clearance =
               distanceToPolylineM(point, surface.centerline) -
               surface.widthM / 2 -
-              context.sidewalkWidthM;
+              (surface.sidewalkWidthM ?? context.sidewalkWidthM);
             expect(
               clearance,
               `${mapId}/${run.id} sits ${clearance.toFixed(2)}m past the pavement band`,

@@ -348,10 +348,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // half of the sweep. Fourteen more blocks, and three new lawns — the
     // V&A's north forecourt plus St James's and the palace garden, whose
     // greensward planting and derived walls are most of the mesh add.
-    totalMeshes: 7_166,
-    enabledMeshes: 7_166,
-    activeMeshes: 606,
-    materials: 267,
+    // 7_166 -> 7_116 (active 606 -> 561, 267 -> 269 materials): the crescent
+    // island, the park walls and the junction fill. The island trades five
+    // blocks of terraces for three lawn tiles; the royal park, the
+    // Kensington lawn and Battersea Park gain the wall runs their road-
+    // facing edges used to have deleted, which is where the two materials
+    // and part of the mesh delta come from.
+    totalMeshes: 7_116,
+    enabledMeshes: 7_116,
+    activeMeshes: 561,
+    materials: 269,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -366,9 +372,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // spawn, which sits on the quiet loop one street away; 84 -> 35 / 181 ->
     // 186 once the quiet loop's island fills the block the spawn's mirrors
     // look straight into, which occludes most of what used to be candidates;
-    // 186 -> 189 with the eastern fills.
+    // 186 -> 189 with the eastern fills, 189 -> 191 with the walls.
     mirrorCandidates: 35,
-    mirrorDrawn: 189,
+    mirrorDrawn: 191,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -381,7 +387,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "b15509ee": the five new kerb greens' planting variants. ->
     // "49bcd9ee": the museums' four forecourt lawns. -> "7afcaa41": St
     // James's and the palace garden, the map's two new walled greenswards.
-    survivingMaterialNamesFingerprint: "7afcaa41",
+    // -> "62a24fe0": the royal park's, the Kensington lawn's and Battersea
+    // Park's restored boundary walls.
+    survivingMaterialNamesFingerprint: "62a24fe0",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

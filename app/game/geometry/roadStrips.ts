@@ -24,6 +24,14 @@ const JUNCTION_KERB_MAX_RADIUS_M = 3.5;
 const JUNCTION_KERB_ARC_STEPS = 4;
 // Below this the corner is a gore, not a street corner, and stays a sharp point.
 const JUNCTION_KERB_MIN_WEDGE_RAD = (70 * Math.PI) / 180;
+/**
+ * How nearly opposite two legs have to be for the road to count as running
+ * straight THROUGH the node rather than turning at it — 25 degrees of slack,
+ * the same tolerance the park walls use to tell alongside from crossing.
+ * Bayswater Road bends 1.6 degrees into Notting Hill Gate; a genuine corner on
+ * this map is never shallower than 45.
+ */
+const STRAIGHT_THROUGH_COS = Math.cos((25 * Math.PI) / 180);
 
 export interface RoadSurfaceStripGeometry {
   /** Two vertices per authored centreline point: positive and negative lateral offsets. */
@@ -337,6 +345,19 @@ function junctionCornerVertices(
     z: node.z + leg.lateral.z * leg.half * lateralSign + leg.direction.z * along,
   });
   const chamfer = [at(a, 1, 0), at(b, -1, 0)];
+  // Two legs pointing away from each other are one road running THROUGH the
+  // node, not a corner. If they are also different widths the chamfer puts
+  // both kerb offsets at the node itself, so the kerb line jumps the width
+  // difference over the few centimetres between them: at Bayswater Road's
+  // west end (10.4 m) meeting Notting Hill Gate (9 m) at a 1.6-degree bend
+  // that is a 0.7 m step in the middle of an otherwise straight pavement,
+  // which play-tested as "the sidewalk suddenly breaks and is not meshing
+  // nicely with the rest of it". Bridging straight from one arm's outer
+  // corner to the other's spreads the same 0.7 m over the fill's whole
+  // length, where it reads as the taper a real street would have.
+  if (dotRoadDirections(a.direction, b.direction) <= -STRAIGHT_THROUGH_COS) {
+    return [];
+  }
   const meeting = junctionKerbCorner(a, b);
   if (!meeting) return chamfer;
   if (meeting.alongA < 1e-3 && meeting.alongB < 1e-3) {

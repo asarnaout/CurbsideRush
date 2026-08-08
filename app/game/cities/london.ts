@@ -1890,7 +1890,8 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // --- Earls Court and Warwick Road: brick terraces, tighter and lower. ----
   roadsideParcel("london-block-earls-w-1", "london-earls-court-road", nodeAt("london-node-earls-nevern"), nodeAt("london-node-earls-north"), 1, 8.6, 40, LONDON_STOCK_BRICK, [11, 18], 0.74),
   roadsideParcel("london-block-earls-e-1", "london-earls-court-road", nodeAt("london-node-earls-nevern"), nodeAt("london-node-earls-north"), -1, 8.6, 44, LONDON_RED_BRICK, [10, 17], 0.72),
-  roadsideParcel("london-block-earls-w-2", "london-earls-court-road", nodeAt("london-node-earls-north"), nodeAt("london-node-earls-crescent"), 1, 8.6, 42, LONDON_RED_BRICK, [11, 18], 0.74),
+  // (No london-block-earls-w-2: that stretch of Earls Court Road's west kerb
+  // is the crescent island, and the island is lawn.)
   roadsideParcel("london-block-earls-e-2", "london-earls-court-road", nodeAt("london-node-earls-north"), nodeAt("london-node-earls-crescent"), -1, 8.6, 46, LONDON_STOCK_BRICK, [11, 19], 0.74),
   roadsideParcel("london-block-earls-w-3", "london-earls-court-road", nodeAt("london-node-earls-crescent"), nodeAt("london-node-earls-brompton"), 1, 8.6, 40, LONDON_STOCK_BRICK, [10, 17], 0.72),
   roadsideParcel("london-block-earls-e-3", "london-earls-court-road", nodeAt("london-node-earls-crescent"), nodeAt("london-node-earls-brompton"), -1, 8.6, 44, LONDON_STUCCO, [11, 19], 0.74),
@@ -1910,10 +1911,8 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-nevern-n-2", "london-nevern-place", nodeAt("london-node-nevern-mid"), nodeAt("london-node-earls-nevern"), -1, 7.2, 32, LONDON_STUCCO, [10, 17], 0.7),
   roadsideParcel("london-block-nevern-s", "london-nevern-place", nodeAt("london-node-warwick-north"), nodeAt("london-node-nevern-mid"), 1, 7.2, 30, LONDON_RED_BRICK, [10, 16], 0.68),
   roadsideParcel("london-block-nevern-s-2", "london-nevern-place", nodeAt("london-node-nevern-mid"), nodeAt("london-node-earls-nevern"), 1, 7.2, 30, LONDON_STOCK_BRICK, [10, 16], 0.68),
-  roadsideParcel("london-block-crescent-1", "london-pembroke-crescent", nodeAt("london-node-crescent-1"), nodeAt("london-node-crescent-2"), -1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.74),
-  roadsideParcel("london-block-crescent-2", "london-pembroke-crescent", nodeAt("london-node-crescent-2"), nodeAt("london-node-crescent-3"), -1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.74),
-  roadsideParcel("london-block-crescent-3", "london-pembroke-crescent", nodeAt("london-node-crescent-3"), nodeAt("london-node-crescent-4"), -1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.74),
-  roadsideParcel("london-block-crescent-4", "london-pembroke-crescent", nodeAt("london-node-crescent-4"), nodeAt("london-node-crescent-5"), -1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.74),
+  // The crescent's INNER kerb carries no street wall on purpose: the whole
+  // island is one lawn. Four terrace bands used to stand in there.
 
   // --- Old Brompton Road back east to Gloucester Road. ---------------------
   roadsideParcel("london-block-brompton-n-1", "london-old-brompton", nodeAt("london-node-earls-brompton"), nodeAt("london-node-brompton-mid"), -1, 8.6, 44, LONDON_STOCK_BRICK, [11, 19], 0.74),
@@ -3286,6 +3285,7 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-battersea-park",
         kind: "park",
+        wallsFollowRoadEdges: true,
         center: point(-690, -847.5),
         size: point(500, 65),
         color: "#4f7a3d",
@@ -3315,6 +3315,13 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-royal-park",
         kind: "park",
+        // Walled on all four edges. The west wall — the one the play-test
+        // drew a red line along — was silently vetoed by 0.4 m, and the
+        // north and east walls survived only on an exact float tie. See
+        // `PARK_WALL_ALONGSIDE_ROAD_CLEARANCE_M`. Serpentine Road crosses
+        // the north and south edges at 78 degrees and still opens its two
+        // gates.
+        wallsFollowRoadEdges: true,
         // Grown to ~10 m off the Bayswater, Park Lane and West Carriage
         // Drive kerbs (NYC holds its parks 3.6-11 m off the pavement; this
         // one sat 30-32 m off, a concrete moat). The south edge stays at
@@ -3428,6 +3435,7 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-kensington-lawn",
         kind: "park",
+        wallsFollowRoadEdges: true,
         // Tucked to Kensington Road's pavement and stretched to the full
         // stretch — West Carriage Drive's kerb to the round hall's clearing.
         center: point(-186.4, 261.65),
@@ -3516,12 +3524,49 @@ export const LONDON_MAP_PACK: MapPack = {
         color: "#5f9a4e",
       },
       // The green inside Pembroke Crescent's arc — the reason to build a
-      // crescent at all.
+      // crescent at all, and now the whole of it. Three butt-joined tiles
+      // (every shared edge exact, every heading 0, so no two lawns ever
+      // overlap) cover 95% of what the crescent and Earls Court Road enclose.
+      // Park lawns draw at y0.02, UNDER the pavement band at 0.045 and the
+      // carriageway at 0.07, so a tile may run out to the road centreline:
+      // the visible lawn is then tucked hard against every inner kerb with no
+      // fringe of bare ground at all. Past the centreline it would surface on
+      // the far side, which is the limit these are solved against.
+      //
+      // Four terrace bands used to stand in here around a floating 80 x 28
+      // stamp of grass — 6% of the island — which play-tested as "a random
+      // strip of green surrounded by concrete". An enclosed island reads as
+      // one thing or as nothing.
+      //
+      // Every tile is style-pinned `pocket_green`. The big one is 186 x 146
+      // and would otherwise derive as a walled greensward with a walk spine,
+      // and a stepped wall following the inside of a crescent is exactly the
+      // "sloppy" the play-test has called out twice. `parkStyle` is the
+      // authored override that beats both the id and the size gates; this is
+      // the map's first use of it, and the right shape for a decision that
+      // should not hang on a size threshold.
       {
         id: "london-pembroke-green",
         kind: "park",
-        center: point(-950, 120),
-        size: point(80, 28),
+        parkStyle: "pocket_green",
+        center: point(-912, 82),
+        size: point(186, 146),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-w",
+        kind: "park",
+        parkStyle: "pocket_green",
+        center: point(-1028, 92),
+        size: point(46, 98),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-n",
+        kind: "park",
+        parkStyle: "pocket_green",
+        center: point(-924, 172),
+        size: point(110, 34),
         color: "#5f9a4e",
       },
       // The museums' forecourts. Cromwell Road's north kerb runs 17-20 m of

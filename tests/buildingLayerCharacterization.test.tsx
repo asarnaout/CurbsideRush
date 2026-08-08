@@ -251,7 +251,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // loop's island, and four corner fabric rects at the map's west and
     // river edges. -> 3_181: the eastern half — ten more bare-kerb parcels
     // from Knightsbridge to Euston Road, and four corner fabric rects.
-    buildingInstanceCount: 3_181,
+    // -> 3_153: Pembroke Crescent's island gave up its four inner terrace
+    // bands and Earls Court Road's west band along it, to become one lawn.
+    buildingInstanceCount: 3_153,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },
