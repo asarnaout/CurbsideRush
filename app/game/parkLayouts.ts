@@ -87,6 +87,17 @@ export interface ParkLandmarkInput {
   readonly size: VisualPoint;
   readonly headingDeg?: number;
   readonly parkStyle?: ParkStyle;
+  /**
+   * Opt in to a boundary wall that clears each road's own pavement band by the
+   * tightest legal margin instead of by a blanket 1.8 m. See
+   * `parkPerimeterPlan`. A road running ALONGSIDE an edge can then no longer
+   * delete it — the park is what stands behind that pavement — while a road
+   * CROSSING it still opens a gap exactly as wide as its own pavements, so the
+   * wall ends where the sidewalk begins. Off by default: for a park held well
+   * back from its roads the blanket veto is the safer rule, and every other
+   * city relies on it.
+   */
+  readonly wallsFollowRoadEdges?: boolean;
 }
 
 export interface ParkPath {
@@ -154,6 +165,8 @@ export interface ParkLayoutContext {
   readonly roadSurfaces: readonly {
     readonly centerline: readonly VisualPoint[];
     readonly widthM: number;
+    /** This road's own pavement width, where it differs from the map's. */
+    readonly sidewalkWidthM?: number;
   }[];
   /** Pavement band beyond the carriageway edge that must also stay clear. */
   readonly sidewalkWidthM: number;
@@ -1044,6 +1057,22 @@ const PARK_WALL_HALF_THICKNESS_M = 0.35;
  * the 0.3 m it allows against the walkable pavement band.
  */
 const PARK_WALL_ROAD_CLEARANCE_M = 1.8;
+/**
+ * The clearance a wall keeps from a road it runs ALONGSIDE, for parks that opt
+ * in with `wallsFollowRoadEdges`. 0.3 m past the pavement band is the margin
+ * `staticColliders.test.ts` demands, and the wall's own half thickness is
+ * measured from its centre line, so this is the tightest legal value rather
+ * than a comfortable one.
+ *
+ * The blanket 1.8 m above deletes a whole road-facing edge for any park tucked
+ * to its pavements, which is how London's royal park came to have no west wall
+ * at all: that edge sits 9.3 m off West Carriage Drive's centreline against a
+ * 9.7 m threshold. Worse, its north and east walls survived only because their
+ * distance came out at exactly 10.4 against a threshold of exactly 10.4 and
+ * the comparison is a strict `<`. A park's four walls should not depend on a
+ * float coincidence, so the opt-in below replaces it.
+ */
+const PARK_WALL_ALONGSIDE_ROAD_CLEARANCE_M = 0.3 + PARK_WALL_HALF_THICKNESS_M;
 /** Half-width of the opening left where one of the park's paths reaches out. */
 const PARK_GATE_HALF_WIDTH_M = 4.5;
 /** A surviving span shorter than this is a stub, not a wall. */
@@ -1094,6 +1123,40 @@ export function parkPerimeterPlan(
     Math.abs(point.z - landmark.center.z) <=
       landmark.size.z / 2 - PARK_WALL_INSET_M + 1e-6;
 
+  /**
+   * True when a road is close enough to this sample to delete the wall there.
+   * Segment by segment rather than polyline by polyline, because the answer
+   * depends on the angle between the road and the edge being laid: a road
+   * running alongside the edge only has to clear the pavement band (the park
+   * IS the thing behind that pavement), while a road crossing it needs the
+   * full clearance so the opening reads as a gate. Parks that have not opted
+   * in keep the blanket veto on both.
+   */
+  const vetoedByRoad = (point: VisualPoint): boolean => {
+    if (!landmark.wallsFollowRoadEdges) {
+      return context.roadSurfaces.some(
+        (surface) =>
+          distanceToPolylineM(point, surface.centerline) <
+          surface.widthM / 2 +
+            context.sidewalkWidthM +
+            PARK_WALL_ROAD_CLEARANCE_M,
+      );
+    }
+    // Opted in: clear each road's OWN pavement band by the tightest legal
+    // margin and nothing more. A road running alongside the edge is then no
+    // longer able to delete it — the park is the thing behind that pavement —
+    // while a road crossing it still opens a gap exactly as wide as its own
+    // pavements, so the wall ends where the sidewalk begins instead of
+    // floating two or three metres short of it.
+    return context.roadSurfaces.some(
+      (surface) =>
+        distanceToPolylineM(point, surface.centerline) <
+        surface.widthM / 2 +
+          (surface.sidewalkWidthM ?? context.sidewalkWidthM) +
+          PARK_WALL_ALONGSIDE_ROAD_CLEARANCE_M,
+    );
+  };
+
   const layBoundaryLine = (
     from: VisualPoint,
     to: VisualPoint,
@@ -1107,6 +1170,41 @@ export function parkPerimeterPlan(
     const ux = dx / length;
     const uz = dz / length;
     const steps = Math.max(1, Math.ceil(length / PARK_WALL_SAMPLE_M));
+
+    const blockedAt = (along: number): boolean => {
+      const point = { x: from.x + ux * along, z: from.z + uz * along };
+      if (clipToRect && !insideInset(point)) return true;
+      if (
+        gatePoints.some(
+          (gate) =>
+            Math.hypot(gate.x - point.x, gate.z - point.z) <=
+            PARK_GATE_HALF_WIDTH_M,
+        )
+      ) {
+        return true;
+      }
+      if (vetoedByRoad(point)) return true;
+      return dividers.some((divider) => acrossDivider(divider, point));
+    };
+    /**
+     * Where the run really stops, between the last clear sample and the first
+     * blocked one. The walk samples every metre, so without this a wall can
+     * end up to a metre short of the pavement it should reach — which is
+     * precisely what "those two barriers don't end right at the sidewalk"
+     * described. Opted-in parks only: bisecting every other city's walls would
+     * move them all for a defect none of them has.
+     */
+    const refine = (clear: number, blocked: number): number => {
+      if (!landmark.wallsFollowRoadEdges) return clear;
+      let lo = clear;
+      let hi = blocked;
+      for (let iteration = 0; iteration < 8; iteration += 1) {
+        const mid = (lo + hi) / 2;
+        if (blockedAt(mid)) hi = mid;
+        else lo = mid;
+      }
+      return lo;
+    };
 
     let runStart: number | null = null;
     const flush = (endAt: number) => {
@@ -1127,29 +1225,20 @@ export function parkPerimeterPlan(
       runStart = null;
     };
 
+    // `blockedAt` folds the four vetoes together: outside the inset rect, in a
+    // path's gate, too near a carriageway, or past a crossing-road divider —
+    // that last one because a span beyond a divider stands on the far
+    // kerbside, which once left the Opera Grounds a 4 m orphan run across its
+    // corridor where the rest of that edge was rightly dropped.
+    let previousAlong = 0;
     for (let step = 0; step <= steps; step += 1) {
       const along = (length * step) / steps;
-      const point = { x: from.x + ux * along, z: from.z + uz * along };
-      const outside = clipToRect && !insideInset(point);
-      const nearGate = gatePoints.some(
-        (gate) => Math.hypot(gate.x - point.x, gate.z - point.z) <= PARK_GATE_HALF_WIDTH_M,
-      );
-      const nearRoad = context.roadSurfaces.some(
-        (surface) =>
-          distanceToPolylineM(point, surface.centerline) <
-          surface.widthM / 2 +
-            context.sidewalkWidthM +
-            PARK_WALL_ROAD_CLEARANCE_M,
-      );
-      // A wall span past a crossing road stands on the far kerbside — the
-      // road-proximity veto alone left the Opera Grounds a 4 m orphan run
-      // across its corridor, where the rest of that edge was rightly dropped.
-      const farSide = dividers.some((divider) => acrossDivider(divider, point));
-      if (outside || nearGate || nearRoad || farSide) {
-        flush(along);
+      if (blockedAt(along)) {
+        flush(runStart === null ? along : refine(previousAlong, along));
       } else if (runStart === null) {
-        runStart = along;
+        runStart = step === 0 ? along : refine(along, previousAlong);
       }
+      previousAlong = along;
     }
     flush(length);
   };
@@ -1268,6 +1357,7 @@ export interface ParkLayoutMapPack {
     readonly roadSurfaces?: readonly {
       readonly centerline: readonly VisualPoint[];
       readonly widthM: number;
+      readonly sidewalkWidthM?: number;
     }[];
     readonly landmarks?: readonly {
       readonly id: string;

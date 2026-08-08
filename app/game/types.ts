@@ -442,6 +442,13 @@ export interface ProceduralLandmark {
    * overrule that.
    */
   readonly parkStyle?: ParkStyle;
+  /**
+   * Opt in to a boundary wall that follows the roads it runs alongside rather
+   * than being deleted by them — see `parkPerimeterPlan`. A park tucked to its
+   * pavements needs this; one held well back does not, and the blanket veto is
+   * the safer default.
+   */
+  readonly wallsFollowRoadEdges?: boolean;
 }
 
 /**
