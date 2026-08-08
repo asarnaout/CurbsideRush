@@ -841,6 +841,12 @@ const NYC_ZONES = {
   brownstone: { buildingSet: "nyc-brownstone", heightRange: [12, 22], density: 0.9, material: "brick" },
   houses: { buildingSet: "nyc-house", heightRange: [8, 14], density: 0.88, material: "brick" },
   retail: { buildingSet: "nyc-shop", heightRange: [10, 18], density: 0.93, material: "brick" },
+  // The borough's own shopping street. Same set as Manhattan's retail spines
+  // but capped lower and thinned, because a six-storey wall of shops two
+  // streets from a row of detached houses is the thing this zone exists to
+  // avoid: the point is a low-rise neighbourhood main street, not a second
+  // E 86th.
+  boroughRetail: { buildingSet: "nyc-shop", heightRange: [9, 14], density: 0.9, material: "brick" },
 } as const satisfies Record<string, NycZone>;
 
 /**
@@ -914,10 +920,21 @@ const nycZoneFor = (columnKey: string, centreZ: number): NycZone | null => {
       return NYC_ZONES.houses;
     case "cres-stein":
     case "stein-margin":
-      // The borough: houses only, no tall buildings, per the owner's
-      // explicit requirement (NYC east expansion section 3.7).
-      // "stein-margin" is the fill strip beyond Steinway — Steinway's far
-      // kerb, so it takes the same zoning as the column on its near one.
+      // The borough: houses, no tall buildings, per the owner's explicit
+      // requirement (NYC east expansion section 3.7) — except for one
+      // shopping street at the top of Steinway, 52nd to 56th Ave.
+      //
+      // Both cases together are what makes it a street rather than a row:
+      // "stein-margin" is the fill strip beyond Steinway, i.e. Steinway's far
+      // kerb, so it has to answer this question the same way the column on
+      // its near kerb does or the shops face houses across the road. The
+      // Harborline Bridge crosses at z = 840 and splits the 52nd-56th row in
+      // two, so this band covers two cells (centres 720 and 960), not one.
+      //
+      // Vernon and Crescent stay houses end to end. That is the whole point:
+      // the borough's shops used to stand among its homes, and moving them
+      // out needed somewhere to move them *to*.
+      if (centreZ > 600 && centreZ < 1080) return NYC_ZONES.boroughRetail;
       return NYC_ZONES.houses;
     default:
       // Every real column is listed above by name on purpose: a forgotten
@@ -1208,8 +1225,13 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-v9", kind: "residence", anchor: { laneId: "nyc-amst-n-1-59", distanceAlongM: 120 }, footprint: point(14, 12), name: "Amsterdam Residences" },
       { id: "nyc-v10", kind: "restaurant", anchor: { laneId: "nyc-65-e-bway", distanceAlongM: 80 }, footprint: point(14, 14), name: "West 65th Taqueria", modelId: "restaurant-pizzeria" },
       // Uptown, above the museum
-      { id: "nyc-v11", kind: "shop", anchor: { laneId: "nyc-riv-n-79", distanceAlongM: 120 }, footprint: point(16, 12), name: "Riverside Market" },
-      { id: "nyc-v12", kind: "restaurant", anchor: { laneId: "nyc-bway-s-100", distanceAlongM: 120 }, footprint: point(28, 20), name: "Straus Park Bagels", setbackM: 18 },
+      // Below 79th, because `riv-we` is the detached-house belt above it and
+      // Riverside's other kerb is the park — so unlike most of these, no
+      // change of lane direction could fix it, only a change of latitude.
+      { id: "nyc-v11", kind: "shop", anchor: { laneId: "nyc-riv-n-75", distanceAlongM: 120 }, footprint: point(16, 12), name: "Riverside Market" },
+      // Broadway's east kerb: uptown of 86th that is the retail spine, while
+      // the west kerb is the `we-bway` house belt. Same latitude, other side.
+      { id: "nyc-v12", kind: "restaurant", anchor: { laneId: "nyc-bway-n-96", distanceAlongM: 120 }, footprint: point(28, 20), name: "Straus Park Bagels", setbackM: 18 },
       // Northbound, not southbound: West End's west kerb here is Joan of Arc
       // Park's east edge, and the driver's-right setback put the block's flank
       // 1.4 m through the park wall. Same latitude, other kerb.
@@ -1243,8 +1265,13 @@ export const NYC_MAP_PACK: MapPack = {
       // The borough (NYC east expansion, section 3.8) — kept off the
       // bk44-bk48 row Queensbridge Green owns, same discipline as everywhere
       // else a landmark claims a cell.
-      { id: "nyc-v26", kind: "restaurant", anchor: { laneId: "nyc-vern-n-qvb", distanceAlongM: 240 }, footprint: point(28, 20), name: "Vernon Diner", setbackM: 18 },
-      { id: "nyc-v27", kind: "shop", anchor: { laneId: "nyc-cres-n-bk52", distanceAlongM: 100 }, footprint: point(16, 12), name: "Bridgeview Grocers" },
+      //
+      // Every shop and kitchen here sits on the Steinway band (52nd to 56th),
+      // both kerbs, and nothing commercial stands on Vernon or Crescent. The
+      // diner and the grocer used to; a restaurant among detached houses is
+      // what the borough looked wrong for. `content.test.ts` holds the line.
+      { id: "nyc-v26", kind: "restaurant", anchor: { laneId: "nyc-stein-n-hlb", distanceAlongM: 120 }, footprint: point(28, 20), name: "Steinway Diner", setbackM: 18 },
+      { id: "nyc-v27", kind: "shop", anchor: { laneId: "nyc-stein-s-hlb", distanceAlongM: 80 }, footprint: point(16, 12), name: "Bridgeview Grocers" },
       { id: "nyc-v28", kind: "residence", anchor: { laneId: "nyc-cres-n-bk48", distanceAlongM: 300 }, footprint: point(14, 12), name: "Crescent Street Residences" },
       { id: "nyc-v29", kind: "residence", anchor: { laneId: "nyc-bk48-e-cres", distanceAlongM: 15 }, footprint: point(14, 12), name: "48th Avenue Houses" },
       { id: "nyc-v30", kind: "restaurant", anchor: { laneId: "nyc-stein-n-bk52", distanceAlongM: 100 }, footprint: point(14, 14), name: "Steinway Pizzeria", modelId: "restaurant-pizzeria" },

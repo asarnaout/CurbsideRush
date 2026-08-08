@@ -225,7 +225,13 @@ camera to duck.
 
 **The setback normal is always the driver's right regardless of traffic
 side** — hence London's gas station on a far-side lane and Tokyo's
-`setbackM: 17.3`.
+`setbackM: 17.3`. So **the anchor lane's direction picks the kerb**, and on an
+avenue whose two sides differ — park against street wall, houses against shops
+— the wrong one cannot be rescued by any `distanceAlongM`. Six venues had
+shipped on the wrong side. Two rules hold it now: nothing inside a walled park
+(`content.test.ts`) and no shopfront on a detached-house block
+(`serviceLots.test.ts`, deliberately not brownstone — a corner bodega on a
+brownstone street is Manhattan).
 
 ## Private authoring helpers live in one shared module
 
