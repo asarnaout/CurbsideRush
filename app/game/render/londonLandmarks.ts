@@ -20,6 +20,7 @@ import {
 } from "./propCatalog";
 import {
   LONDON_BELISHA_BEACONS,
+  LONDON_GUARDRAILS,
   LONDON_PHONE_BOXES,
   LONDON_PILLAR_BOXES,
 } from "../londonStreetFurniture";
@@ -1426,6 +1427,42 @@ export function buildLondonStreetFurniture(ctx: LondonLandmarksCtx) {
     ctx.registerDestructibleProp("london-planter", x, z, 1, [
       { node: planterBody, isLightPool: false },
     ]);
+  }
+
+  // Pedestrian guardrails at the roundabout mouths — the black railed
+  // barriers that hem a real London junction. Deliberately visual-only, like
+  // the bridge kerbside guardrails: no collider registration of any kind.
+  // Yaw convention: headingDeg is the run's clockwise world yaw, so the long
+  // axis direction is (sin, cos) of it — NOT the block-local heading map.
+  for (const run of LONDON_GUARDRAILS) {
+    const yawRad = (run.headingDeg * Math.PI) / 180;
+    const ax = Math.sin(yawRad);
+    const az = Math.cos(yawRad);
+    for (const railY of [0.55, 0.95]) {
+      const bar = createBox(
+        scene,
+        `${run.id}-bar-${railY}`,
+        { width: 0.06, height: 0.05, depth: run.lengthM },
+        new Vector3(run.position.x, railY, run.position.z),
+        iron,
+      );
+      bar.rotation.y = yawRad;
+    }
+    const postCount = Math.max(2, Math.round(run.lengthM / 2.7));
+    for (let index = 0; index < postCount; index += 1) {
+      const t = postCount === 1 ? 0 : index / (postCount - 1) - 0.5;
+      createCylinder(
+        scene,
+        `${run.id}-post-${index}`,
+        { height: 1.02, diameter: 0.07 },
+        new Vector3(
+          run.position.x + ax * t * run.lengthM,
+          0.51,
+          run.position.z + az * t * run.lengthM,
+        ),
+        iron,
+      );
+    }
   }
 
   // Pillar boxes and K6-style telephone kiosks, from the same module the

@@ -2719,6 +2719,21 @@ const londonLaneGraph: LaneGraph = {
     anchoredSpawn("london-car-upper-street", "vehicle", "london-upper-street-1-forward-1", 60),
     anchoredSpawn("london-police-embankment", "vehicle", "london-chelsea-embankment-3-forward-1", 100),
     anchoredSpawn("london-police-city", "vehicle", "london-london-wall-1-forward-1", 70),
+    // Three more double-decker gates (street-life pass), on stretches the
+    // four existing bus gates never reach: Oxford Street's east end, the
+    // Bishopsgate spine, and the King's Road shopping run. A named `bus`
+    // gate guarantees the model, and a high street reads wrong without one
+    // in sight. Append-only — spawn order is determinism-load-bearing — and
+    // ids must not repeat the four gates above (the first cut of this list
+    // duplicated two of them).
+    anchoredSpawn("london-bus-oxford-east", "vehicle", "london-oxford-street-4-forward-1", 40),
+    anchoredSpawn("london-bus-bishopsgate", "vehicle", "london-bishopsgate-2-forward-1", 90),
+    anchoredSpawn("london-bus-kings-road", "vehicle", "london-kings-road-2-forward-1", 85),
+    // A cab for the Notting Hill grid — and the gate-count change this adds
+    // is deliberate: recycling deals gates by index, and the 23-gate deal
+    // phased two ambient NPCs into a 1.999 m graze at Drayton Gardens x
+    // Queen's Gate five and a half minutes into the acceptance replay.
+    anchoredSpawn("london-cab-notting-hill", "vehicle", "london-notting-hill-1-forward-1", 70),
     // People. The ambient crowd bubble follows the player and covers whatever
     // street they are actually on; these are the scripted few that make a
     // named place look like somewhere worth arriving at.

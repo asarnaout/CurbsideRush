@@ -297,18 +297,25 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // street wall's 2_561 instances are pinned in
     // buildingLayerCharacterization, which real-loads the kits. Active/mirror
     // counts wobble a few meshes from the changed build order.
-    totalMeshes: 6_634,
-    enabledMeshes: 6_634,
-    activeMeshes: 574,
+    // 6_634 -> 8_195: the street-life pass. Tree scatter tightened 30 -> 20 m
+    // (the reference streets keep a plane tree every few doors — most of the
+    // gain is trees, each 2-3 procedural parts), 42 solver-placed guardrail
+    // runs at the roundabout mouths, and 182 kerbside parked cars (one
+    // merged-master instance each; the four masters are the traffic fleet's
+    // own glbs). Active 574 -> 673: the spawn's streets got their trees.
+    totalMeshes: 8_195,
+    enabledMeshes: 8_195,
+    activeMeshes: 673,
     materials: 251,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     // 102 -> 104 and 160 -> 170: the Kensington lawn and the drive's south
     // approach sit within the spawn's mirror candidate radius. 104 -> 97
-    // with the set zoning's build-order change.
-    mirrorCandidates: 97,
-    mirrorDrawn: 170,
+    // with the set zoning's build-order change; 97 -> 117 / 170 -> 172 with
+    // the denser tree scatter around the spawn.
+    mirrorCandidates: 117,
+    mirrorDrawn: 172,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
