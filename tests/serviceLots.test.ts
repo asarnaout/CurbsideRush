@@ -202,7 +202,10 @@ describe("service-point lots", () => {
     );
     expect(shopsByMap).toEqual({
       "nyc-upper-west-side": 3,
-      "london-south-kensington": 1,
+      // 1 -> 3: London is a full-size city now. One mews garage in South
+      // Kensington was right for an 800 m quarter and is a very long tow
+      // from Islington.
+      "london-south-kensington": 3,
       "tokyo-setagaya": 1,
       "cairo-central-nile": 2,
     });

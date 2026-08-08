@@ -260,8 +260,23 @@ listed in `STREET_PROFILES` — a road missing from it generates none, silently
 
 **`STREET_PROFILES` holds numbering and gates addressability; display names
 live on `MapPack.roadNames`.** Split deliberately, so naming a street for GPS
-cannot start issuing gigs on it, and named cities (London, Tokyo, Cairo) stay
-address-free without every one opting in via names alone.
+cannot start issuing gigs on it: Tokyo and Cairo are named and address-free,
+and London names far more streets (bridges, ring roads) than it profiles.
+
+**The frontage probe walks the lane's NEARSIDE kerb**, which is the driver's
+right where traffic drives on the right and their left where it drives on the
+left. Venue set-back is always the driver's right — an author picks the kerb
+by choosing which direction's lane to anchor on — but the generator has no
+author to make that choice, so it must find the kerb *that lane* runs beside.
+Using the right-hand normal on a two-way British street points across the
+centreline into the opposing carriageway, and London generated no addresses at
+all until this was fixed.
+
+**A city with no building sets zones its addresses by facade material**
+(`KINDS_BY_BLOCK_MATERIAL`, consulted only when a block names no set): the
+City's glass yields offices, stock brick yields homes and the odd shop.
+`isInsideRect` is rotation-aware for the same reason — London's parcels follow
+streets that bend.
 
 ## Service points and venues
 
