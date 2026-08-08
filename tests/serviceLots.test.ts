@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { MAP_PACKS } from "../app/game/content";
-import { resolveSimulationLaneAnchor } from "../app/game/simulationAdapter";
+import {
+  resolveSimulationLaneAnchor,
+  resolveVenuePlacement,
+} from "../app/game/simulationAdapter";
 import { resolveMapVisualPalette } from "../app/game/visuals";
 import {
   SERVICE_LOT_HALF_M,
@@ -236,5 +239,47 @@ describe("service-point lots", () => {
         `${shop.id} is in the ${block?.buildingSet} zone — a garage between homes`,
       ).toBe(false);
     }
+  });
+
+  it("keeps the shops and kitchens off the detached-house blocks", () => {
+    // The workshop rule above, for gig venues — it went unwritten, and the
+    // borough ended up with a pizzeria and a grocery store standing in a row
+    // of detached houses, which is what a driver actually notices from the
+    // road. A residence or an office venue among homes is fine; a shopfront
+    // is not.
+    //
+    // `nyc-house` only, deliberately narrower than the workshops' list: a
+    // corner bodega on a brownstone street is Manhattan — West End Bodega has
+    // stood on one since long before this — while a garage between brownstones
+    // is not. What does not exist anywhere is a convenience store in the
+    // middle of a detached-house belt, and that is the whole of this rule.
+    //
+    // Uses `resolveVenuePlacement` rather than the raw `setbackM` the workshop
+    // check above copies: on a paved map the authored set-back is dead, and
+    // the real building parks 0.4 m behind the pavement's outer edge instead.
+    const RETAIL_KINDS: readonly string[] = ["shop", "restaurant"];
+    const pack = MAP_PACKS.find((p) => p.id === "nyc-upper-west-side")!;
+    const venues = (pack.geometry.gigVenues ?? []).filter((venue) =>
+      RETAIL_KINDS.includes(venue.kind),
+    );
+    expect(venues.length).toBeGreaterThan(5);
+    const violations: string[] = [];
+    for (const venue of venues) {
+      const placement = resolveVenuePlacement(pack, venue);
+      if (!placement) continue;
+      const block = pack.geometry.blocks.find(
+        (candidate) =>
+          Math.abs(placement.x - candidate.center.x) <= candidate.size.x / 2 &&
+          Math.abs(placement.z - candidate.center.z) <= candidate.size.z / 2,
+      );
+      // A venue whose building lands off every block — a bridge plaza, a
+      // riverbank — is not standing in a housing row and has nothing to answer
+      // for here.
+      if (block?.buildingSet !== "nyc-house") continue;
+      violations.push(
+        `${venue.id} (${venue.name}) is a ${venue.kind} on house block ${block.id}`,
+      );
+    }
+    expect(violations).toEqual([]);
   });
 });
