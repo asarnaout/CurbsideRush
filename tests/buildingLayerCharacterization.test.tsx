@@ -241,7 +241,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // procedural grid deliberately. Sign materials stay 0: the storefront
     // re-branding pipeline derives its fascia rects from nyc-shop-corner's
     // baked lettering, which the Kay london-shop model does not have.
-    buildingInstanceCount: 2_561,
+    // 2_561 -> 2_698: the Bayswater-band fabric rows wall all four edges.
+    buildingInstanceCount: 2_698,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

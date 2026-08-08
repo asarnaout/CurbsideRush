@@ -303,9 +303,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // runs at the roundabout mouths, and 182 kerbside parked cars (one
     // merged-master instance each; the four masters are the traffic fleet's
     // own glbs). Active 574 -> 673: the spawn's streets got their trees.
-    totalMeshes: 8_195,
-    enabledMeshes: 8_195,
-    activeMeshes: 673,
+    // 8_195 -> 8_207 (active 673 -> 661): the play-test de-slop pass. The
+    // Chelsea green rotated to King's Road's own 8.2-degree bearing and grew
+    // from a floating 56 x 28 stamp into a 170 x 28 pavement-hugging lawn
+    // (the map's first rotated park); the Westbourne green grew likewise,
+    // and three Bayswater-band fabric rows closed the bare strip west of
+    // the royal park.
+    totalMeshes: 8_207,
+    enabledMeshes: 8_207,
+    activeMeshes: 661,
     materials: 251,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

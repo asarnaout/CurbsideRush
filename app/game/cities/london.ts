@@ -2053,6 +2053,13 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-nw-fab-a", center: point(-1150, 700), size: point(34, 240), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-nw-fab-b", center: point(-1150, 420), size: point(34, 200), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-nw-fab-c", center: point(-1240, 810), size: point(180, 36), heightRange: [10, 17] as const, density: 0.68, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  // The band between Westbourne Grove's east parcels and the royal park's
+  // west edge was ~370 m of bare concrete with one floating pocket green in
+  // it — the play-test called it out. Three fabric rows close it; the green
+  // grows into a long lawn in their midst.
+  { id: "london-block-bayswater-band-a", center: point(-480, 800), size: point(300, 36), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-bayswater-band-b", center: point(-480, 640), size: point(300, 36), heightRange: [11, 18] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-bayswater-band-c", center: point(-480, 375), size: point(300, 34), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
 ].filter((block): block is ProceduralBlock => block !== null);
 
 // ---------------------------------------------------------------------------
@@ -3151,21 +3158,36 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-westbourne-green",
         kind: "park",
-        center: point(-530, 470),
-        size: point(40, 28),
+        // Grown from a floating 40 x 28 stamp into the long lawn at the heart
+        // of the Bayswater band's three fabric rows (same play-test complaint
+        // as the Chelsea green: a tiny patch in a sea of concrete).
+        center: point(-480, 470),
+        size: point(120, 28),
         color: "#5f9a4e",
       },
       {
         id: "london-chelsea-square-green",
         kind: "park",
-        // Centred in the deliberately-bare Beaufort–Gloucester stretch the
-        // comment above describes. It shipped 60 m further east, under the
-        // kings-s-4 parcel — a facade grid stood on the lawn.
-        center: point(-431, -337),
-        // Under `POCKET_GREEN_MAX_SHORT_SIDE_M` on the short side on purpose:
-        // a garden square is a railinged lawn with a bench, not a park with a
-        // path network and a wall through the middle of a Chelsea block.
-        size: point(56, 28),
+        // Fills the deliberately-bare Beaufort–Gloucester stretch the comment
+        // above describes, and is ROTATED to the road's own 8.2-degree
+        // bearing so the lawn hugs the pavement instead of gaping away from
+        // it: parks rotate through `headingDeg` (parkLayouts' `toWorld`, the
+        // lawn mesh, the map fills), and an axis-aligned rect beside a road
+        // that drifts 36 m of z over its run can never sit tucked. The first
+        // cut here was a 56 x 28 axis-aligned stamp floating in the bare
+        // stretch — play-tested as "sloppy", and it was. The near edge sits
+        // 1.2 m past King's Road's pavement band; at 200 x 30 the aspect
+        // crosses STRIP_ASPECT, so it derives as a walled strip — a long
+        // railed garden green, which is exactly what the King's Road has.
+        // 170 long, not the stretch's full 200: the east tip otherwise
+        // reaches into Chelsea Manor Street's parcel band (the block-vs-park
+        // invariant caught the first cut at 26.8 m in). 28 deep, not 30: the
+        // style pin below `POCKET_GREEN_MAX_SHORT_SIDE_M` is deliberate — a
+        // garden green along the King's Road is a railed lawn, not a walled
+        // park, and this park's style is hand-pinned as pocket_green.
+        center: point(-450, -338.6),
+        size: point(170, 28),
+        headingDeg: 8.2,
         color: "#5f9a4e",
       },
       // The green inside Pembroke Crescent's arc — the reason to build a
