@@ -101,10 +101,12 @@ describe("park layouts", () => {
     // be a pocket green by proportions alone, but it is a named temple green
     // and gets gravel and an approach rather than a lawn with a bench.
     expect(styleOf("jp-temple-green")).toBe("temple_grounds");
-    // Both London islands are 12x12 — pocket greens, which is the style that
-    // must never grow a solid perimeter inside a turning loop.
-    expect(styleOf("london-brompton-loop-green")).toBe("pocket_green");
-    expect(styleOf("london-gloucester-loop-green")).toBe("pocket_green");
+    // London's two turning-island greens went with the turning loops when
+    // Chelsea and the King's Road gave both dead ends somewhere to go. Their
+    // replacements are proper garden squares — the pocket-green style, which
+    // is still the one that must never grow a solid perimeter.
+    expect(styleOf("london-chelsea-square-green")).toBe("pocket_green");
+    expect(styleOf("london-pembroke-green")).toBe("pocket_green");
   });
 
   it("keeps every placement inside its own park", () => {
@@ -339,10 +341,11 @@ describe("park layouts", () => {
     for (const { landmark, layout } of parkCases()) {
       walled.set(landmark.id, layout.wall.length);
     }
-    // A solid ring inside a 12x12 turning-loop island, or across Tahrir's
-    // road-cut rectangle, is a hazard rather than a boundary.
-    expect(walled.get("london-brompton-loop-green")).toBe(0);
-    expect(walled.get("london-gloucester-loop-green")).toBe(0);
+    // A solid ring around a garden square in the middle of a Chelsea block,
+    // or across Tahrir's road-cut rectangle, is a hazard rather than a
+    // boundary.
+    expect(walled.get("london-chelsea-square-green")).toBe(0);
+    expect(walled.get("london-pembroke-green")).toBe(0);
     expect(walled.get("cairo-tahrir-square")).toBe(0);
     expect(walled.get("jp-temple-green")).toBe(0);
     // The big ones do get one.

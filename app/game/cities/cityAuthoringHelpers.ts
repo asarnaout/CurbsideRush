@@ -27,8 +27,10 @@ import { buildLaneTrueGeometry } from "../laneConnectors";
  * decomposition program's extraction time, but duplication drifts: a bugfix
  * or a new field to one city's copy has no way to reach the others.
  *
- * `cities/cairo.ts` has its own structurally different road-spec generator
- * and is not part of this cluster. London lacks `roadIdForLane`,
+ * `cities/cairo.ts` has its own structurally different road-spec generator and
+ * is not part of this cluster; `cities/london.ts` grew one of the same shape
+ * beside its hand-authored quarter, but still imports the primitives below for
+ * that quarter. London lacks `roadIdForLane`,
  * `laneWidthForLane`, `conflictZoneForNode`, `laneTrue` and `osmSource`'s
  * exact shape (different lane-width rule, hardcoded left-hand `trafficSide`,
  * no `localSpeedUnit`) — those stay NYC/Tokyo-only here; forcing London onto

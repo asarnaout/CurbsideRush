@@ -48,7 +48,6 @@ draws so far, never on which call site asks).
 |---|---|
 | World | `x` east, `z` north, `y` up, metres, origin = map centre |
 | Lane/pose heading | `atan2(dx, dz)` — **0 = +z (north)**, +π/2 = +x |
-| `arcPoints` angles (cities/london) | **0 = +x (east)**, 90 = +z — standard math, *not* the heading convention |
 | Right-hand normal | `(cos h, -sin h)` — the **driver's right** |
 
 ## The y-layer stack is a hard global ordering

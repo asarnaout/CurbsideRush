@@ -75,7 +75,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
 | `tokyo-setagaya` | 56 | 20 | 5.5 | 0 | 0 | 600 × 420 |
-| `london-south-kensington` | 40 | 13 | 4.7 | 2 | 1 | 800 × 540 |
+| `london-south-kensington` | 99 | 25 | 15.3 | 5 | 2 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane
 
@@ -95,6 +95,37 @@ numbering *spans* would rename every lane on a road the moment one crosses it,
 and `roadIdForLane` has **no NYC branches** — the generator passes each road
 id; a bridge's landmark id must equal its own road id the same way, for the
 dressing builder and the water body's `bridgePortalSurfaceIds` to find it.
+
+### London is two halves
+
+The South Kensington museum quarter — Cromwell Road, Queen's Gate, Exhibition
+Road and their neighbours — is still **hand-authored lane by lane**, and stays
+that way: its geometry is the reference the whole map's left-hand lane offsets
+are checked against (Queen's Gate's centreline is x−108 and its *northbound*
+lane runs at x−109.7, which is that driver's left), and its two signals are the
+only ones in the project positioned by eye against the rendered scene.
+
+Everything grown around it comes from **`LONDON_ROAD_SPECS` plus the turn
+whitelist in `LONDON_JUNCTION_CONNECTORS`** — Cairo's pattern, mirrored for
+left-hand traffic, so a two-way lane's lateral offset is *negated*. The two
+halves meet at shared nodes: a generated lane picks up the quarter's lanes as
+successors from the whitelist, and `withGeneratedSuccessors` gives the
+quarter's hand-authored lanes the same turns back, append-only. **Never write a
+generated lane id into a hand-authored `successors` literal** — the id encodes
+a segment index nobody can keep true.
+
+**A junction's arms must stay ~45° apart.** `buildPavementGraph` mitres a
+junction's rails apart only down to about 40° (Cairo's tightest shipped
+corner); below that the surviving rail walks straight through the neighbouring
+carriageway, and `pavementPaths.test.ts` catches it. Cheyne Mews originally
+met the King's Road 16° off Chelsea Manor Street's arm and had to be rerouted
+to join Flood Street instead.
+
+**A roadside parcel's *length* is derived, not authored** (`roadsideParcel`):
+it starts as long as its road segment and shortens until the whole rectangle
+clears every other road's carriageway and pavement. Corner-only checks are not
+enough — a parcel whose long side straddles a crossing road has both corners
+comfortably clear, one on each side.
 
 ### Cairo is the non-grid equivalent
 
@@ -242,7 +273,9 @@ generator imports none of it. `laneTrue`, `roadIdForLane`, `laneWidthForLane`
 and `conflictZoneForNode` stay file-local where a city's values genuinely
 differ (London's lane widths, hardcoded left-hand `trafficSide`); NYC/Tokyo's
 identical copies share `makeLaneTrue`, closed over each file's own
-`speedLimitForRoad`. `arcPoints`/`turningLoop` stay London-only.
+`speedLimitForRoad`. London *also* carries its own Cairo-style road-spec
+generator (`LondonRoadSpec`, `LONDON_JUNCTION_CONNECTORS`) beside its
+hand-authored quarter — see "London is two halves" below.
 
 **Adding a city**: a `cities/<city>.ts` importing shared helpers where they
 fit; rows in `content.ts` (`MAP_PACKS`/`FREE_DRIVES`/`COUNTRY_PROFILES`/

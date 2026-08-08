@@ -87,7 +87,10 @@ describe("what a map marks", () => {
     // nothing in it.
     expect(countMapPois(poisFor("tokyo-setagaya")).camera).toBe(0);
     // London authors two signals, and the ranked draw floors at one.
-    expect(countMapPois(poisFor("london-south-kensington")).camera).toBe(1);
+    // 1 -> 2: the King's Road and Earls Court signals took London from two
+    // signalled junctions to five, and a third of five rounds to one more
+    // camera (`TRAFFIC_CAMERA_RATE`).
+    expect(countMapPois(poisFor("london-south-kensington")).camera).toBe(2);
     expect(countMapPois(poisFor("nyc-upper-west-side")).camera).toBeGreaterThan(10);
   });
 
