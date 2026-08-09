@@ -1511,6 +1511,16 @@ const londonQuarterSurfaces: readonly RoadSurface[] = [
     roadSurface("london-queen-gate", [londonNodes.queenGateSouth.position, londonNodes.queenGateCromwell.position, londonNodes.queenGateThurloe.position, londonNodes.queenGateFarNorth.position], 7.6, ["london-queen-gate-north-1", "london-queen-gate-north-2", "london-queen-gate-north-3", "london-queen-gate-south-1", "london-queen-gate-south-2", "london-queen-gate-south-0"], "standard", [
       roadMarking("london-queen-gate-centre", "centre_dashed", [londonNodes.queenGateSouth.position, londonNodes.queenGateFarNorth.position], "white"),
     ]),
+    // Deliberately OFF its junction nodes (z -32): the surface is centred on
+    // its lane stack — bus lane at -26.9, through lanes at -30.3/-33.7 —
+    // whose midpoint is -30.3, and 11.4 wide so the kerbside bus lane sits on
+    // tarmac to the stop line. Re-centring at -32 strands the bus lane's
+    // north edge on the pavement; widening instead swallows the authored
+    // signal pole at (30.7, -37.1) and the museum forecourt tucks. The
+    // junction fills and the pavement graph both ADOPT these off-node ends
+    // (collectRoadJunctionFills / buildPavementGraph), so the two junction
+    // mouths are traced with the wide carriageway present — do not "fix" this
+    // z back onto the nodes.
     roadSurface("london-cromwell-west", [point(-108, -30.3), point(42, -30.3)], 11.4, ["london-cromwell-east-1", "london-cromwell-east-bus", "london-cromwell-west-2"], "standard", [
       // Stops where the bus lane starts its merge, so nothing crosses a solid line.
       roadMarking("london-cromwell-bus-divider", "lane_solid", [point(-108, -28.6), point(CROMWELL_BUS_LANE_MERGE.x, -28.6)], "white"),

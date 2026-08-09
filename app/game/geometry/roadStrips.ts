@@ -56,6 +56,12 @@ export interface RoadJunctionFill {
   readonly polygon: readonly GameCanvasPoint[];
   /** The shared node the outline is fanned around. */
   readonly pivot: GameCanvasPoint;
+  /**
+   * Every surface with an arm in this fill — including adopted ones, whose
+   * centreline never touches the pivot. The walkability test derives its
+   * width bound from this rather than re-matching by proximity.
+   */
+  readonly surfaceIds: readonly string[];
 }
 
 type RoadDirection = Readonly<{ x: number; z: number }>;
@@ -301,6 +307,12 @@ interface RoadJunctionLeg {
   readonly direction: RoadDirection;
   /** Unit normal pointing at the next leg round the node in heading order. */
   readonly lateral: RoadDirection;
+  /** The leg's own centreline point. Usually the cluster pivot, but an arm
+   * adopted from a surface whose authored end sits off the shared node
+   * (Cromwell Road's recentred dual carriageway) keeps its own origin so the
+   * kerb-corner math stays exact — the same contract as `PavementLeg.origin`
+   * in `pavementPaths.ts`. */
+  readonly origin: GameCanvasPoint;
   readonly half: number;
   readonly reach: number;
 }
@@ -316,8 +328,12 @@ function junctionKerbCorner(
   a: RoadJunctionLeg,
   b: RoadJunctionLeg,
 ): { alongA: number; alongB: number } | null {
-  const offsetX = -b.lateral.x * b.half - a.lateral.x * a.half;
-  const offsetZ = -b.lateral.z * b.half - a.lateral.z * a.half;
+  // The origin deltas are zero whenever both legs sit on the shared node —
+  // every junction except an adopted off-node arm. Mirror of `railCorner`.
+  const offsetX =
+    b.origin.x - a.origin.x - b.lateral.x * b.half - a.lateral.x * a.half;
+  const offsetZ =
+    b.origin.z - a.origin.z - b.lateral.z * b.half - a.lateral.z * a.half;
   const determinant = b.direction.x * a.direction.z - a.direction.x * b.direction.z;
   if (Math.abs(determinant) < 1e-6) return null;
   return {
@@ -335,14 +351,19 @@ function junctionKerbCorner(
  * to somewhere too far off to be a corner at all.
  */
 function junctionCornerVertices(
-  node: GameCanvasPoint,
   a: RoadJunctionLeg,
   b: RoadJunctionLeg,
   kerbRadiusM: number,
 ): GameCanvasPoint[] {
   const at = (leg: RoadJunctionLeg, lateralSign: number, along: number) => ({
-    x: node.x + leg.lateral.x * leg.half * lateralSign + leg.direction.x * along,
-    z: node.z + leg.lateral.z * leg.half * lateralSign + leg.direction.z * along,
+    x:
+      leg.origin.x +
+      leg.lateral.x * leg.half * lateralSign +
+      leg.direction.x * along,
+    z:
+      leg.origin.z +
+      leg.lateral.z * leg.half * lateralSign +
+      leg.direction.z * along,
   });
   const chamfer = [at(a, 1, 0), at(b, -1, 0)];
   // Two legs pointing away from each other are one road running THROUGH the
@@ -355,7 +376,19 @@ function junctionCornerVertices(
   // nicely with the rest of it". Bridging straight from one arm's outer
   // corner to the other's spreads the same 0.7 m over the fill's whole
   // length, where it reads as the taper a real street would have.
+  //
+  // The plain bridge splits that taper across BOTH reaches, though, so the
+  // wider strip's square end still pokes half the step above the bridge at
+  // the node. Holding the boundary to the wider leg's kerb at the node makes
+  // the taper one-sided: the wide kerb runs unbroken to the junction and the
+  // whole step resolves across the narrow leg's reach — the way a real
+  // widening starts at a junction. Kensington Road (7.2 m) meeting
+  // Knightsbridge (10.4 m) tapers 1.6 m over ~9 m this way, about 10 degrees.
+  // Equal-width pairs keep the plain bridge, bit for bit.
   if (dotRoadDirections(a.direction, b.direction) <= -STRAIGHT_THROUGH_COS) {
+    if (Math.abs(a.half - b.half) > 0.01) {
+      return [a.half > b.half ? at(a, 1, 0) : at(b, -1, 0)];
+    }
     return [];
   }
   const meeting = junctionKerbCorner(a, b);
@@ -364,7 +397,7 @@ function junctionCornerVertices(
     const miter = at(a, 1, meeting.alongA);
     // Same guard the strip mitering uses: past this a near-hairpin would throw
     // out a long spike instead of squaring off a turn.
-    return Math.hypot(miter.x - node.x, miter.z - node.z) <=
+    return Math.hypot(miter.x - a.origin.x, miter.z - a.origin.z) <=
       Math.min(a.half, b.half) * MAX_ROAD_MITER_RATIO
       ? [miter]
       : chamfer;
@@ -551,6 +584,45 @@ export function collectRoadJunctionFills(
       cluster.arms.push({ half, node, neighbours });
     }
   }
+  // Adoption pass, mirroring `buildPavementGraph`: a road whose authored END
+  // sits a little off a shared node (Cromwell Road's recentred dual
+  // carriageway ends 1.7 m from the junctions it visually merges into) still
+  // physically overlaps that junction. Without this the fill is traced as if
+  // the wide carriageway were not there, and its kerb line steps where the
+  // fill's flank crosses the wide mouth. Adoption only appends arms to
+  // clusters that are already junctions, so the fill count, order, pivots and
+  // mesh names never move — and the pavement parity invariant stays provable.
+  for (const surface of surfaces) {
+    const { points, closed } = normalizeRoadCenterline(surface.centerline);
+    if (closed || points.length < 2) continue;
+    const half = surface.widthM / 2 + lateralInflationM;
+    for (const index of [0, points.length - 1]) {
+      const tip = points[index];
+      const own = clusters.find(
+        (candidate) =>
+          Math.hypot(candidate.x - tip.x, candidate.z - tip.z) <=
+          ROAD_POINT_EPSILON_M,
+      );
+      if (own && own.surfaceIds.size > 1) continue;
+      let adopter: (typeof clusters)[number] | null = null;
+      let best = Number.POSITIVE_INFINITY;
+      for (const cluster of clusters) {
+        if (cluster === own || cluster.surfaceIds.size <= 1) continue;
+        const distance = Math.hypot(cluster.x - tip.x, cluster.z - tip.z);
+        if (distance <= cluster.maxHalf + half && distance < best) {
+          adopter = cluster;
+          best = distance;
+        }
+      }
+      if (!adopter) continue;
+      adopter.surfaceIds.add(surface.id);
+      adopter.maxHalf = Math.max(adopter.maxHalf, half);
+      const neighbours: GameCanvasPoint[] = [];
+      if (index > 0) neighbours.push(points[index - 1]);
+      if (index < points.length - 1) neighbours.push(points[index + 1]);
+      adopter.arms.push({ half, node: tip, neighbours });
+    }
+  }
   // Pass 2: at every shared node, walk the legs in heading order and trace the
   // outline — out one carriageway, across its end, back down the far kerb, round
   // the corner, on to the next.
@@ -571,6 +643,7 @@ export function collectRoadJunctionFills(
           // `roadLateral` turns a heading clockwise, which is the direction the
           // sort below advances in, so this always faces the next leg round.
           lateral: roadLateral(direction),
+          origin: arm.node,
           half: arm.half,
           reach: Math.min(
             Math.max(cluster.maxHalf * 1.7, arm.half * 1.3),
@@ -587,8 +660,8 @@ export function collectRoadJunctionFills(
     );
     const polygon: GameCanvasPoint[] = [];
     for (const [index, leg] of legs.entries()) {
-      const tipX = pivot.x + leg.direction.x * leg.reach;
-      const tipZ = pivot.z + leg.direction.z * leg.reach;
+      const tipX = leg.origin.x + leg.direction.x * leg.reach;
+      const tipZ = leg.origin.z + leg.direction.z * leg.reach;
       polygon.push({
         x: tipX - leg.lateral.x * leg.half,
         z: tipZ - leg.lateral.z * leg.half,
@@ -599,7 +672,6 @@ export function collectRoadJunctionFills(
       });
       polygon.push(
         ...junctionCornerVertices(
-          pivot,
           leg,
           legs[(index + 1) % legs.length],
           kerbRadiusM,
@@ -607,7 +679,8 @@ export function collectRoadJunctionFills(
       );
     }
     const ring = starShapedRing(pivot, polygon);
-    if (ring.length >= 3) fills.push({ polygon: ring, pivot });
+    if (ring.length >= 3)
+      fills.push({ polygon: ring, pivot, surfaceIds: [...cluster.surfaceIds] });
   }
   return fills;
 }
