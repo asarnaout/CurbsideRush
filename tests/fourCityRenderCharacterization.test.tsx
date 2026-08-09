@@ -363,10 +363,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // shrubs on the fillers (shrubs only grow beside a path), so meshes drop
     // even though ten more lawn planes exist; the ten extra materials are the
     // per-park batched-scenery sets the extra tiles carry.
-    totalMeshes: 7_071,
-    enabledMeshes: 7_071,
-    activeMeshes: 558,
-    materials: 280,
+    // 7_071 -> 6_981 (active 558 -> 560, 280 -> 290 materials): the
+    // flush-stack sweep's ten new greens. West Carriage Drive's 700 m ribbon
+    // and Battersea's verges displace far more loose roadside scatter than
+    // their planting adds — lawn is the cheaper dressing — while each new
+    // park carries its batched-scenery material set.
+    totalMeshes: 6_981,
+    enabledMeshes: 6_981,
+    activeMeshes: 560,
+    materials: 290,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -383,9 +388,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // look straight into, which occludes most of what used to be candidates;
     // 186 -> 189 with the eastern fills, 189 -> 192 with the walls and the
     // museum quarter's fourth forecourt; 192 -> 202 as the island's thirteen
-    // tiles put more lawn planes inside the mirror radius than the three did.
+    // tiles put more lawn planes inside the mirror radius than the three
+    // did; 202 -> 212 with the flush-stack sweep's greens near the spawn
+    // (the forecourt growths and threads sit inside the mirror radius).
     mirrorCandidates: 35,
-    mirrorDrawn: 202,
+    mirrorDrawn: 212,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -401,8 +408,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "62a24fe0": the royal park's, the Kensington lawn's and Battersea
     // Park's restored boundary walls. -> "303918a2": the Science Museum's
     // north forecourt. -> "0d476c11": the crescent island's thirteen-tile
-    // retile (trail band + pathless lawns).
-    survivingMaterialNamesFingerprint: "0d476c11",
+    // retile (trail band + pathless lawns). -> "ed8e6b3a": the flush-stack
+    // sweep's ten greens.
+    survivingMaterialNamesFingerprint: "ed8e6b3a",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

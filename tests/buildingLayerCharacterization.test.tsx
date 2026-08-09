@@ -253,7 +253,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // from Knightsbridge to Euston Road, and four corner fabric rects.
     // -> 3_153: Pembroke Crescent's island gave up its four inner terrace
     // bands and Earls Court Road's west band along it, to become one lawn.
-    buildingInstanceCount: 3_153,
+    // -> 3_152: the flush-stack sweep — notting-s-1's east end retreated to
+    // x-326 (West Carriage Drive's new ribbon owns that corner) costing one
+    // terrace box; the new mall-s-mid band and the re-dealt park-west-w row
+    // net out.
+    buildingInstanceCount: 3_152,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

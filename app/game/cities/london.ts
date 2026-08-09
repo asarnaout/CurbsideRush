@@ -610,7 +610,10 @@ export const LONDON_ROAD_SPECS: readonly LondonRoadSpec[] = [
   // says which control the arms get.
   road("london-parliament-square", "Parliament Square", ["london-node-parliament-arm-whitehall", "london-node-parliament-arm-bridge", "london-node-parliament-arm-victoria"], 2, 11, {
     oneWay: "forward",
-    roundabout: { center: point(740, -296), radiusM: 26, islandRadiusM: 14, signalled: true },
+    // Island 17, not 14: the ring is r26 and its sidewalk band starts 17.1
+    // from the centre, so a 14 m island floated in 2.8 m of bare apron all
+    // the way round. The rect's corners tuck under the ring's carriageway.
+    roundabout: { center: point(740, -296), radiusM: 26, islandRadiusM: 17, signalled: true },
   }),
 ];
 
@@ -2016,7 +2019,14 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // the same way — the crossing street's terraces begin behind the green,
   // which is what "all the buildings behind it and tucked right against it"
   // means at a junction.
-  roadsideParcel("london-block-park-west-w", "london-park-west", nodeAt("london-node-gloucester-kensington"), point(-300, 928), -1, 9, 44, LONDON_STOCK_BRICK, [13, 22], 0.74),
+  //
+  // extraInsetM 13.5: the drive's west side carries the same
+  // strip-and-set-back grammar as the Gloucester Road half of this straight —
+  // `london-park-west-strip` runs on the kerb and these terraces stand 0.6 m
+  // behind its far edge. The owner's reference screenshot for "how this road
+  // should look" IS this grammar; it used to stop dead at z 231.5 with 684 m
+  // of buildings hard against the kerb beyond it.
+  roadsideParcel("london-block-park-west-w", "london-park-west", nodeAt("london-node-gloucester-kensington"), point(-300, 926), -1, 9, 44, LONDON_STOCK_BRICK, [13, 22], 0.74, 13.5),
 
   // --- Belgravia and Westminster: Portland-stone civic frontage. -----------
   roadsideParcel("london-block-grosvenor-w", "london-grosvenor", nodeAt("london-node-wellington-arm-grosvenor"), nodeAt("london-node-grosvenor-mid"), 1, 9.6, 44, LONDON_STUCCO, [16, 26], 0.78),
@@ -2091,7 +2101,11 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // pavement, which the owner called out — "the green strip on the left
   // abruptly ends... extend that green strip till the very end of the road
   // and have all the buildings behind it and tucked right against it".
-  roadsideParcel("london-block-notting-s-1", "london-notting-hill", nodeAt("london-node-park-corner-north-west"), nodeAt("london-node-westbourne-corner"), -1, 9, 40, LONDON_STOCK_BRICK, [12, 19], 0.72, 13.5),
+  // East end held at x-326, not the corner node: West Carriage Drive's own
+  // ribbon (london-park-west-strip) occupies x-322.2..-308.2 for the full
+  // corner, and a terrace may not stand in a lawn. The drive's ribbon and
+  // the set-back terraces behind it carry this corner instead.
+  roadsideParcel("london-block-notting-s-1", "london-notting-hill", point(-326, 939.3), nodeAt("london-node-westbourne-corner"), -1, 9, 40, LONDON_STOCK_BRICK, [12, 19], 0.72, 13.5),
   roadsideParcel("london-block-notting-n-2", "london-notting-hill", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-porchester-corner"), 1, 9, 40, LONDON_RED_BRICK, [11, 18], 0.72),
   roadsideParcel("london-block-notting-s-2", "london-notting-hill", nodeAt("london-node-westbourne-corner"), nodeAt("london-node-porchester-corner"), -1, 9, 40, LONDON_STUCCO, [12, 19], 0.74, 13.5),
   roadsideParcel("london-block-porchester-w-1", "london-porchester", nodeAt("london-node-porchester-corner"), nodeAt("london-node-porchester-1"), 1, 8.6, 38, LONDON_STOCK_BRICK, [11, 18], 0.72),
@@ -2270,6 +2284,11 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-thurloe-ne-fab", center: point(196, 112.5), size: point(88, 45), heightRange: [13, 21] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-palace-east", center: point(506, -55), size: point(52, 22), heightRange: [13, 21] as const, density: 0.74, material: LONDON_STUCCO, buildingSet: "london-stucco" },
   { id: "london-block-whitehall-ne-fab", center: point(843, 19), size: point(114, 82), heightRange: [17, 27] as const, density: 0.78, material: LONDON_PORTLAND_STONE },
+  // Plugs the 19 m hole in The Mall's set-back civic row exactly where the
+  // two St James's ribbons meet: the roadsideParcel trimmer retreats
+  // london-block-mall-s and -s-e away from each other's roads there, so both
+  // strips ended with nothing behind them for their last few metres.
+  { id: "london-block-mall-s-mid", center: point(703.5, -84.9), size: point(19, 30), heightRange: [17, 26] as const, density: 0.78, material: LONDON_PORTLAND_STONE },
   { id: "london-block-canonbury-ne-fab", center: point(1394, 861), size: point(36, 138), heightRange: [12, 20] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
 ].filter((block): block is ProceduralBlock => block !== null);
 
@@ -2661,6 +2680,12 @@ const londonRoundaboutIslands: readonly ProceduralLandmark[] =
           {
             id: `${spec.id}-island`,
             kind: "park" as const,
+            // Pinned: a roundabout island is a pocket green whatever its
+            // size. Parliament Square's island is 34 m across — past the
+            // pocket-green size gate — and deriving it as a greensward grows
+            // a boundary wall and a wandering walk spine inside a traffic
+            // ring, both absurd there.
+            parkStyle: "pocket_green" as const,
             center: spec.roundabout.center,
             size: point(
               spec.roundabout.islandRadiusM * 2,
@@ -3300,6 +3325,38 @@ export const LONDON_MAP_PACK: MapPack = {
         size: point(500, 65),
         color: "#4f7a3d",
       },
+      // Battersea Park Road runs 3-33 m south of the park's straight south
+      // edge (its polyline drops to z-920.7 at the park's west end), so a
+      // bare band opened between the boundary wall and the road for the
+      // park's whole frontage. Three stepped verge lawns butt the park's
+      // south edge and run their south edges into the road's sloping
+      // pavement band — grass below the wall, the way a park road verge
+      // reads. Step widths are bounded by the band: a horizontal edge can
+      // only stay hidden while the road climbs less than the band's 15.4 m.
+      {
+        id: "london-battersea-verge-w",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-910, -899.5),
+        size: point(60, 39),
+        color: "#4f7a3d",
+      },
+      {
+        id: "london-battersea-verge-m",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-770, -895.5),
+        size: point(220, 31),
+        color: "#4f7a3d",
+      },
+      {
+        id: "london-battersea-verge-e",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-550, -888.75),
+        size: point(220, 17.5),
+        color: "#4f7a3d",
+      },
       ...londonRoundaboutIslands,
       // --- Bespoke silhouettes. Every one of these is procedural, drawn by
       // `render/londonLandmarks.ts` and dispatched by id; the generic
@@ -3341,8 +3398,14 @@ export const LONDON_MAP_PACK: MapPack = {
         // — the ~10 m NYC-parity gap read as an untucked concrete moat in
         // play-testing. The perimeter wall's road-clearance veto opens the
         // road-facing edges into plain lawn, which is the point.
-        center: point(158.65, 615.55),
-        size: point(901.7, 631.1),
+        // East edge at x610.2, just INSIDE Park Lane's pavement band: that
+        // road's centreline drifts x620.0-620.7, so an edge at the old 609.5
+        // left a 0.7-1.5 m concrete sliver running the park's whole east
+        // side. Lawn draws under the band, so the deepest tuck is invisible
+        // and the widest residual gap is back at the 0.3 convention; the
+        // wall (edge - 1.5) still clears the band's 0.65 m veto everywhere.
+        center: point(159, 615.55),
+        size: point(902.4, 631.1),
         color: "#4f7a3d",
       },
       // Chelsea's garden square: the pocket between the King's Road, Cheyne
@@ -3364,16 +3427,21 @@ export const LONDON_MAP_PACK: MapPack = {
         // degrees, so rects that both reached it would overlap by ~1 m on the
         // inside of the bend. A 0.4 m seam is invisible; two coplanar lawns
         // fighting for the same pixels are not.
-        center: point(641.46, -67.98),
-        size: point(118.15, 14),
+        // West end extended 6.6 m: the strip used to stop 6.9 m short of
+        // Victoria Circus's ring band, and a strip ends at a junction's
+        // pavement or not at all.
+        center: point(638.18, -68.32),
+        size: point(124.75, 14),
         headingDeg: 5.85,
         color: "#5f9a4e",
       },
       {
         id: "london-st-james-strip-east",
         kind: "park",
-        center: point(744.26, -59.27),
-        size: point(86.78, 14),
+        // East end extended 1.9 m into Whitehall's pavement band — the strip
+        // used to stop 2.2 m short of the corner it hands over at.
+        center: point(745.21, -59.21),
+        size: point(88.68, 14),
         headingDeg: 3.43,
         color: "#5f9a4e",
       },
@@ -3397,11 +3465,23 @@ export const LONDON_MAP_PACK: MapPack = {
         size: point(14, 237.4),
         color: "#5f9a4e",
       },
+      // The 1.7 m sliver between the east ribbon's far edge and the Cromwell
+      // terraces' west end, where the parcel trimmer holds the block out of
+      // Gloucester Road's corridor: lawn, so the ribbon's back is flush here
+      // like everywhere else.
+      {
+        id: "london-gloucester-east-strip-back",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-277.85, -1.35),
+        size: point(1.7, 18.7),
+        color: "#5f9a4e",
+      },
       // The outside corner where Gloucester Road, Kensington Road and West
       // Carriage Drive meet: a 13 x 19 m pocket that no parcel can reach
       // (the trimmer holds park-west's band back to z227.7) and that the
       // west ribbon stops 8 m short of. Butt-joined to that ribbon's north
-      // edge at z212.7 and to park-west's band at z231.5; its east edge
+      // edge at z212.7 and to the drive's ribbon at z231.5; its east edge
       // stops 0.3 m off West Carriage Drive's pavement, which is 0.9 m
       // further out than the ribbon's because that road is the wider of the
       // two.
@@ -3410,6 +3490,22 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         center: point(-314.75, 222.1),
         size: point(13.1, 18.8),
+        color: "#5f9a4e",
+      },
+      // West Carriage Drive's own ribbon: the Gloucester grammar carried the
+      // full 700 m north to Notting Hill Gate, so the drive's west side reads
+      // strip-then-terraces end to end (the owner's reference for this road).
+      // Near edge 0.3 m past the drive's pavement; the terraces behind carry
+      // extraInsetM 13.5 and stand 0.6 m behind the far edge. Butt-joins the
+      // corner green at z231.5; its north edge at z931.2 sits inside
+      // Bayswater's pavement band (hidden), and Notting Hill's south ribbon
+      // was trimmed to x-322.5 so the two greens meet at the corner without
+      // overlapping — two lawns at one Y must never overlap.
+      {
+        id: "london-park-west-strip",
+        kind: "park",
+        center: point(-315.2, 581.35),
+        size: point(14, 699.7),
         color: "#5f9a4e",
       },
       {
@@ -3452,6 +3548,47 @@ export const LONDON_MAP_PACK: MapPack = {
         size: point(212.7, 68.7),
         color: "#4f7a3d",
       },
+      // The 4 m band between the Kensington lawn's north edge (z296) and the
+      // royal park's south edge (z300): no road runs between them, so those
+      // four metres rendered as a 213 m stripe of bare concrete between two
+      // walled lawns. A pathless `lawn` filler butt-joined to both closes it
+      // as grass between the two boundary walls — the royal park cannot grow
+      // south (the Knightsbridge terraces' backs reach z298) and a third
+      // wall here would read as clutter, so the filler is deliberately
+      // unwallable.
+      {
+        id: "london-kensington-lawn-link",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-186.125, 298),
+        size: point(212.15, 4),
+        color: "#4f7a3d",
+      },
+      // The 12 m shelf between the Kensington lawn's east edge and the round
+      // hall's clearing: lawn to the hall's forecourt line, so the walled
+      // lawn hands over to the hall instead of to bare concrete. Runs to
+      // z300 so it butt-joins the royal park like the link band beside it.
+      {
+        id: "london-kensington-lawn-east-link",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-74.03, 263.65),
+        size: point(12.05, 72.7),
+        color: "#4f7a3d",
+      },
+      // Park Lane's centreline drifts 1.3 m over its run; the royal park's
+      // straight east edge is tucked into the band at the north end, which
+      // leaves up to 0.8 m of sliver along the southernmost 100 m where the
+      // road runs furthest east. A hairline lawn butt-joined to the park
+      // edge, run into the band, closes it (too thin to plant: pure grass).
+      {
+        id: "london-royal-park-lane-verge",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(610.85, 349.5),
+        size: point(1.3, 101),
+        color: "#4f7a3d",
+      },
       // A pocket green in the Fitzrovia infill, in the gap between Great
       // Portland Street's east parcel band and the two fabric rows.
       {
@@ -3469,19 +3606,25 @@ export const LONDON_MAP_PACK: MapPack = {
       // royal park's lawn hands over to this ribbon at the park-west corner
       // and it runs to Porchester Road, so a driver heading west never sees
       // the green stop and the terraces jump to the kerb.
+      // East end trimmed from x-308.5 to x-322.5: West Carriage Drive's own
+      // ribbon now owns the corner up to Bayswater's band, and the two lawns
+      // must meet, not overlap. West end extended 2 m into Westbourne
+      // Grove's band so the ribbon hands over at the junction, not before it.
       {
         id: "london-notting-hill-south-strip-east",
         kind: "park",
-        center: point(-480.78, 919.77),
-        size: point(344.74, 14),
+        center: point(-488.78, 919.57),
+        size: point(332.74, 14),
         headingDeg: -178.41,
         color: "#5f9a4e",
       },
+      // East end extended 6 m to reach Westbourne Grove's pavement band — a
+      // strip ends at a junction's pavement or not at all.
       {
         id: "london-notting-hill-south-strip-west",
         kind: "park",
-        center: point(-832.08, 912.27),
-        size: point(319.64, 14),
+        center: point(-829.08, 912.31),
+        size: point(325.64, 14),
         headingDeg: -179.16,
         color: "#5f9a4e",
       },
@@ -3528,7 +3671,14 @@ export const LONDON_MAP_PACK: MapPack = {
         // style pin below `POCKET_GREEN_MAX_SHORT_SIDE_M` is deliberate — a
         // garden green along the King's Road is a railed lawn, not a walled
         // park, and this park's style is hand-pinned as pocket_green.
-        center: point(-449.9, -337.8),
+        // Shifted 0.5 m toward the King's Road: the road drifts within its
+        // own bearing and the old position left a 1.3 m sliver over 168 m.
+        // Shifted, not deepened — the 28 m depth keeps the deliberate
+        // pocket-green pin, and a deeper rect re-deals the scatter past the
+        // placement test's axis-aligned bound on this rotated park. The
+        // south side opens 0.5 m onto the riverward stretch, which is
+        // exempt frontage.
+        center: point(-449.97, -337.31),
         size: point(170, 28),
         headingDeg: 8.2,
         color: "#5f9a4e",
@@ -3663,18 +3813,22 @@ export const LONDON_MAP_PACK: MapPack = {
       // buildings behind are already the frontage. Two rects, one per road:
       // the west one hugs Cromwell West's wider pavement band, the east one
       // Cromwell East's.
+      // Every forecourt's road-facing END edges are grown INTO the adjacent
+      // pavement bands (Queen's Gate west, Exhibition and East Road east,
+      // Thurloe north): lawn draws under the band, so an edge inside it is
+      // invisible and the old 0.7-1.7 m end slivers cannot exist at all.
       {
         id: "london-museum-forecourt-west",
         kind: "park",
-        center: point(-32.7, -11.7),
-        size: point(134.8, 18.4),
+        center: point(-33.4, -11.7),
+        size: point(136.2, 18.4),
         color: "#5f9a4e",
       },
       {
         id: "london-museum-forecourt-east",
         kind: "park",
-        center: point(94.15, -14.5),
-        size: point(89.7, 20),
+        center: point(96.5, -14.5),
+        size: point(94.4, 20),
         color: "#5f9a4e",
       },
       // ...and the matching pair on the south kerb, in front of the natural
@@ -3683,8 +3837,8 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-museum-forecourt-south-west",
         kind: "park",
-        center: point(-25.4, -46.1),
-        size: point(149.4, 12.8),
+        center: point(-26.25, -46.1),
+        size: point(150.4, 12.8),
         color: "#5f9a4e",
       },
       {
@@ -3731,15 +3885,37 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-museum-forecourt-north-west",
         kind: "park",
-        center: point(-33, 68.6),
-        size: point(134, 12.2),
+        center: point(-32.85, 68.6),
+        size: point(137.3, 12.2),
         color: "#5f9a4e",
       },
+      // North edge into Thurloe Place's band: the old edge at z73.3 left a
+      // 1.7 m sliver along 80 m of that road's south side. West edge into
+      // Exhibition Road's band for the same reason.
       {
         id: "london-museum-forecourt-north-east",
         kind: "park",
-        center: point(98, 66.9),
-        size: point(82, 12.8),
+        center: point(96.05, 68.1),
+        size: point(95.3, 15.2),
+        color: "#5f9a4e",
+      },
+      // Two hairline lawns that butt the west museum block's ends to the
+      // forecourts beside it — the block stands 2.5 m shy of each, and a
+      // 2.5 m concrete thread between lawn and wall is still a thread.
+      {
+        id: "london-museum-forecourt-west-thread",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-91, -1.25),
+        size: point(17, 2.5),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-museum-forecourt-north-thread",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-92, 61.25),
+        size: point(19, 2.5),
         color: "#5f9a4e",
       },
       {
@@ -3747,8 +3923,10 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         // Public-space planting belongs beside Exhibition Road; rendering it
         // over the shared carriageway made the road appear to be missing.
-        center: point(50, 30),
-        size: point(8, 40),
+        // East edge grown to 0.3 m off the V&A block's face — growing AWAY
+        // from the carriageway, so the driveable-clearance pin still holds.
+        center: point(51.45, 30),
+        size: point(10.9, 40),
         color: "#708c66",
       },
     ],
