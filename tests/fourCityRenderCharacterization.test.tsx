@@ -375,9 +375,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 7_129 -> 7_320 (active 586 -> 634): the second half's twenty-five
     // interior slabs — second-row fabric behind every district's street
     // wall. Materials unchanged: the slabs reuse the district material sets.
-    totalMeshes: 7_320,
-    enabledMeshes: 7_320,
-    activeMeshes: 634,
+    // 7_320 -> 7_408 (active 634 -> 655): the void-kill third pass.
+    totalMeshes: 7_408,
+    enabledMeshes: 7_408,
+    activeMeshes: 655,
     materials: 292,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

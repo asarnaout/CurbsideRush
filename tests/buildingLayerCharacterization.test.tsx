@@ -268,7 +268,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // belt, the City's east margin, Mayfair/Soho, the Euston band, the south
     // bank and the west margins), so the sightlines that leaked between
     // kerb parcels now end at a second row instead of open ground.
-    buildingInstanceCount: 4_391,
+    // -> 4_855: the third pass — eleven more slabs on the embankment's
+    // land band, the Warwick/Nevern west belts, the south bank between the
+    // river roads, and the City/Islington remainders.
+    buildingInstanceCount: 4_855,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

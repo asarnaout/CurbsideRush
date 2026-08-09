@@ -2378,6 +2378,20 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-wm-fab-a", center: point(-1265, -150), size: point(130, 300), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-wm-fab-b", center: point(-1080, 530), size: point(120, 260), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-wm-fab-c", center: point(-1260, 450), size: point(160, 300), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  // Third pass: the embankment's land band, the Warwick/Nevern west belts,
+  // the south bank between the two river roads, and the City/Islington
+  // remainders. Same solver protocol as the rest.
+  { id: "london-block-emb-n-fab", center: point(985, -287), size: point(240, 54), heightRange: [16, 26] as const, density: 0.76, material: LONDON_PORTLAND_STONE },
+  { id: "london-block-ce-w-fab", center: point(-990, -450), size: point(300, 80), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-wb-fab-a", center: point(-990, -230), size: point(300, 150), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-wb-fab-b", center: point(-1000, -90), size: point(280, 110), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-nv-fab-a", center: point(-900, 400), size: point(140, 200), heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-nv-fab-b", center: point(-880, 640), size: point(180, 180), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-sb-fab-b", center: point(514, -690), size: point(148, 60), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-sb-fab-c", center: point(760, -660), size: point(200, 60), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-sb-fab-d", center: point(-60, -778), size: point(240, 54), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-pc-fab-a", center: point(1049, 590), size: point(182, 120), heightRange: [14, 23] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-cb-fab-a", center: point(1258, 697), size: point(130, 76), heightRange: [13, 21] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-canonbury-ne-fab", center: point(1394, 861), size: point(36, 138), heightRange: [12, 20] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
 ].filter((block): block is ProceduralBlock => block !== null);
 
