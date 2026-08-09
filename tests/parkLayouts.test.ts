@@ -112,7 +112,12 @@ describe("park layouts", () => {
     // three-tile cut left arc-corner pockets, and its three separate
     // edge-to-edge paths play-tested as "the trail abruptly ends and another
     // starts somewhere on its right").
-    expect(parkCases().length).toBe(59);
+    // 59 -> 69: the flush-stack sweep's ten new greens — West Carriage
+    // Drive's 700 m ribbon (the Gloucester grammar carried to Notting Hill
+    // Gate), the two links closing the Kensington-lawn/royal-park seam, the
+    // Park Lane verge hairline, the Gloucester ribbon's back thread, the two
+    // museum-block threads, and Battersea Park Road's three stepped verges.
+    expect(parkCases().length).toBe(69);
   });
 
   it("is deterministic — two builds are identical", () => {
