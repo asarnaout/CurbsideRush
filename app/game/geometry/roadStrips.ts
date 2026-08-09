@@ -56,6 +56,12 @@ export interface RoadJunctionFill {
   readonly polygon: readonly GameCanvasPoint[];
   /** The shared node the outline is fanned around. */
   readonly pivot: GameCanvasPoint;
+  /**
+   * Every surface with an arm in this fill — including adopted ones, whose
+   * centreline never touches the pivot. The walkability test derives its
+   * width bound from this rather than re-matching by proximity.
+   */
+  readonly surfaceIds: readonly string[];
 }
 
 type RoadDirection = Readonly<{ x: number; z: number }>;
@@ -566,6 +572,45 @@ export function collectRoadJunctionFills(
       cluster.arms.push({ half, node, neighbours });
     }
   }
+  // Adoption pass, mirroring `buildPavementGraph`: a road whose authored END
+  // sits a little off a shared node (Cromwell Road's recentred dual
+  // carriageway ends 1.7 m from the junctions it visually merges into) still
+  // physically overlaps that junction. Without this the fill is traced as if
+  // the wide carriageway were not there, and its kerb line steps where the
+  // fill's flank crosses the wide mouth. Adoption only appends arms to
+  // clusters that are already junctions, so the fill count, order, pivots and
+  // mesh names never move — and the pavement parity invariant stays provable.
+  for (const surface of surfaces) {
+    const { points, closed } = normalizeRoadCenterline(surface.centerline);
+    if (closed || points.length < 2) continue;
+    const half = surface.widthM / 2 + lateralInflationM;
+    for (const index of [0, points.length - 1]) {
+      const tip = points[index];
+      const own = clusters.find(
+        (candidate) =>
+          Math.hypot(candidate.x - tip.x, candidate.z - tip.z) <=
+          ROAD_POINT_EPSILON_M,
+      );
+      if (own && own.surfaceIds.size > 1) continue;
+      let adopter: (typeof clusters)[number] | null = null;
+      let best = Number.POSITIVE_INFINITY;
+      for (const cluster of clusters) {
+        if (cluster === own || cluster.surfaceIds.size <= 1) continue;
+        const distance = Math.hypot(cluster.x - tip.x, cluster.z - tip.z);
+        if (distance <= cluster.maxHalf + half && distance < best) {
+          adopter = cluster;
+          best = distance;
+        }
+      }
+      if (!adopter) continue;
+      adopter.surfaceIds.add(surface.id);
+      adopter.maxHalf = Math.max(adopter.maxHalf, half);
+      const neighbours: GameCanvasPoint[] = [];
+      if (index > 0) neighbours.push(points[index - 1]);
+      if (index < points.length - 1) neighbours.push(points[index + 1]);
+      adopter.arms.push({ half, node: tip, neighbours });
+    }
+  }
   // Pass 2: at every shared node, walk the legs in heading order and trace the
   // outline — out one carriageway, across its end, back down the far kerb, round
   // the corner, on to the next.
@@ -622,7 +667,8 @@ export function collectRoadJunctionFills(
       );
     }
     const ring = starShapedRing(pivot, polygon);
-    if (ring.length >= 3) fills.push({ polygon: ring, pivot });
+    if (ring.length >= 3)
+      fills.push({ polygon: ring, pivot, surfaceIds: [...cluster.surfaceIds] });
   }
   return fills;
 }

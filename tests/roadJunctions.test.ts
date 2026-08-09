@@ -137,6 +137,57 @@ describe("collectRoadJunctionFills", () => {
     }
   });
 
+  it("adopts a wide carriageway whose authored end sits just off the crossing node", () => {
+    // Cromwell Road's shape in miniature: the dual carriageway is centred on
+    // its lane stack, so its authored end (0, 1.7) misses the node (0, 0) by
+    // far more than the clustering epsilon while its 5.7 m half-width
+    // physically overlaps the junction. Without adoption the fill is traced
+    // as if the wide road were not there, and its kerb line steps at the
+    // mouth instead of meeting the wide road's kerbs.
+    const cromwell: RoadJunctionSource[] = [
+      { id: "ns", centerline: [{ x: 0, z: -40 }, { x: 0, z: 0 }, { x: 0, z: 40 }], widthM: 7.6 },
+      { id: "west", centerline: [{ x: -40, z: 0 }, { x: 0, z: 0 }], widthM: 7.2 },
+      { id: "wide-east", centerline: [{ x: 0, z: 1.7 }, { x: 40, z: 1.7 }], widthM: 11.4 },
+    ];
+    const fills = collectRoadJunctionFills(cromwell);
+    expect(fills).toHaveLength(1);
+    expect(fills[0].surfaceIds).toContain("wide-east");
+    // The mouth must be paved out to the wide road's true kerbs (z 1.7 ± 5.7),
+    // past the narrow crossing's kerb at z 3.8 where the un-adopted fill's
+    // flank used to cut across.
+    expect(pointInPolygon({ x: 4.5, z: 5.5 }, fills[0].polygon)).toBe(true);
+    expect(pointInPolygon({ x: 4.5, z: -3.4 }, fills[0].polygon)).toBe(true);
+  });
+
+  it("adopts exactly the two Cromwell arms across every shipped map", () => {
+    // The adoption pass exists for one authored situation. If any other arm
+    // starts adopting — on either the asphalt or the inflated shoulder pass —
+    // that is a new off-node road end somebody authored by accident, and it
+    // should be a conscious decision, not a silent geometry change.
+    for (const inflation of [0, 3.4]) {
+      const adopted: string[] = [];
+      for (const pack of MAP_PACKS) {
+        const surfaces = pack.geometry.roadSurfaces ?? [];
+        if (!surfaces.length) continue;
+        const byId = new Map(surfaces.map((surface) => [surface.id, surface]));
+        for (const fill of collectRoadJunctionFills(surfaces, inflation)) {
+          for (const id of fill.surfaceIds) {
+            const surface = byId.get(id);
+            const touchesPivot = surface?.centerline.some(
+              (point) =>
+                Math.hypot(point.x - fill.pivot.x, point.z - fill.pivot.z) <= 0.08,
+            );
+            if (!touchesPivot) adopted.push(`${pack.id}:${id}`);
+          }
+        }
+      }
+      expect(adopted, `inflation ${inflation}`).toEqual([
+        "london-south-kensington:london-cromwell-west",
+        "london-south-kensington:london-cromwell-west",
+      ]);
+    }
+  });
+
   it("keeps every authored junction's corners walkable", () => {
     for (const pack of MAP_PACKS) {
       const surfaces = pack.geometry.roadSurfaces ?? [];
@@ -144,14 +195,14 @@ describe("collectRoadJunctionFills", () => {
       for (const fill of collectRoadJunctionFills(surfaces)) {
         // No junction may pave a disc wider than the widest carriageway that
         // meets it, plus its kerb radius — anything more is eating pavement.
+        // Membership comes from the fill itself: an adopted arm (Cromwell
+        // Road's off-node dual carriageway) never has a centreline point at
+        // the pivot, so re-matching by proximity would miss exactly the wide
+        // road whose width sets the bound.
+        const members = new Set(fill.surfaceIds);
         const widest = Math.max(
           ...surfaces
-            .filter((surface) =>
-              surface.centerline.some(
-                (point) =>
-                  Math.hypot(point.x - fill.pivot.x, point.z - fill.pivot.z) <= 0.08,
-              ),
-            )
+            .filter((surface) => members.has(surface.id))
             .map((surface) => surface.widthM / 2),
         );
         for (const point of fill.polygon) {
