@@ -322,7 +322,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // -> "b6d62194" (the fourth pass).
     // -> "ea7be17e" (the residual slabs).
     // -> "3872be7f".
-    facadeMeshFingerprint: "3872be7f",
+    // -> "06c3d328" (fabric street edges named; spawn corner re-grammar).
+    facadeMeshFingerprint: "06c3d328",
   },
   "tokyo-setagaya": {
     drawCount: 216,

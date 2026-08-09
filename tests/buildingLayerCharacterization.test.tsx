@@ -278,7 +278,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // re-audit (the Thames shore pockets stay open — riverfront).
     // -> 5_540: the Brompton pocket's south half (its north is fenced by a
     // venue circle).
-    buildingInstanceCount: 5_540,
+    // -> 4_364: every fabric block now names its street edges — the play
+    // test caught gable rows standing side-on to the spawn road, because an
+    // unset streetEdges walls all FOUR edges. Road-facing blocks keep only
+    // their road edges, interior slabs their long-edge pair, so the side
+    // rows (and their z-fighting pairs on shallow blocks) are gone.
+    buildingInstanceCount: 4_364,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },
