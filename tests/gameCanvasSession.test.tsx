@@ -60,9 +60,10 @@ import type { GameHudSnapshot } from "../app/game/sessionContract";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/cities/london";
 
-/** installDebugHooks' exact set (GameCanvas.tsx, `dispose()`). */
+/** installDebugHooks' exact set (render/babylonGameSession.ts, `dispose()`). */
 const SIDESWAP_DEBUG_HOOKS = [
   "__sideswapDriveControl",
+  "__sideswapTeleport",
   "__sideswapAudioDebug",
   "__sideswapMeshes",
   "__sideswapPerfDebug",

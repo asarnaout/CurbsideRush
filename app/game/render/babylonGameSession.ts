@@ -1506,6 +1506,7 @@ export class BabylonGameSession {
       const debugWindow = window as unknown as Record<string, unknown>;
       for (const key of [
         "__sideswapDriveControl",
+        "__sideswapTeleport",
         "__sideswapAudioDebug",
         "__sideswapMeshes",
         "__sideswapPerfDebug",
@@ -4867,6 +4868,30 @@ export class BabylonGameSession {
         this.touch.brake = clamp(input.brake ?? 0, 0, 1);
         this.touch.reverse = clamp(input.reverse ?? 0, 0, 1);
         this.touch.steer = clamp(input.steer ?? 0, -1, 1);
+      };
+      // Repositions the car instantly (heading in radians), so the screenshot
+      // sweep can pose the chase view anywhere without driving there. The pose
+      // goes through the simulation — the pull-over cutscene's own entry point,
+      // outside the input path, so replay traces never see it — and the blend
+      // pair is pinned like reset() does, so the very next frame shows the new
+      // pose instead of a smear from the old one.
+      debugWindow.__sideswapTeleport = (pose: {
+        x: number;
+        z: number;
+        heading: number;
+      }) => {
+        this.simulation.setPlayerPose(
+          { x: pose.x, z: pose.z, heading: pose.heading },
+          0,
+        );
+        this.applySimulationSnapshot(this.simulation.getSnapshot());
+        this.playerState.previousX = this.playerState.x;
+        this.playerState.previousZ = this.playerState.z;
+        this.playerState.previousHeading = this.playerState.heading;
+        this.displayedX = this.playerState.x;
+        this.displayedZ = this.playerState.z;
+        this.displayedHeading = this.playerState.heading;
+        this.snapChaseCameraToPose();
       };
       // Revs, gear and per-voice levels, so QA can assert the engine actually
       // shifts and the tyres actually squeal without anyone having to listen.
