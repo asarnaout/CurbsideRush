@@ -1172,6 +1172,80 @@ describe("SideSwap content", () => {
     }
   });
 
+  it("keeps every rotated park's long axis on the road it follows", () => {
+    // A park only ever carries a `headingDeg` because it is a kerb ribbon
+    // following a road that drifts, so a rotated rect whose long axis does NOT
+    // lie along a road is always a mistake — and the mistake this gate exists
+    // for is a sign flip.
+    //
+    // `headingDeg` is a CLOCKWISE world yaw: the lawn is a Babylon mesh spun by
+    // `lawn.rotation.y`, and Babylon's left-handed Y rotation turns the other
+    // way from the textbook atan2(dz, dx). All five of London's rotated parks
+    // shipped at the textbook sign, so every one rendered at MINUS its authored
+    // yaw. The rects were aligned on paper and in every audit script anyone
+    // wrote; only the lawn mesh knew. It survived three play-test rounds
+    // because the error is zero at the rect's centre and grows toward the ends
+    // — Notting Hill's 330 m ribbon was 9.5 m off its kerb at one end and out
+    // under the carriageway at the other, and the King's Road green was 24 m
+    // out. Nothing else could catch it: the AABB is identical under either
+    // sign, so mesh-bounds checks pass and the map draws it right.
+    //
+    // Bridges and other rotated landmarks are excluded — only `kind: "park"`
+    // reaches `buildParkLawn`.
+    const MAX_ROAD_SKEW_DEG = 3;
+    const violations: string[] = [];
+    for (const pack of MAP_PACKS) {
+      for (const park of pack.geometry.landmarks) {
+        if (park.kind !== "park") continue;
+        if (!park.headingDeg) continue;
+        let nearest: { distanceM: number; bearingDeg: number } | null = null;
+        for (const surface of pack.geometry.roadSurfaces) {
+          for (let i = 0; i < surface.centerline.length - 1; i += 1) {
+            const from = surface.centerline[i];
+            const to = surface.centerline[i + 1];
+            const dx = to.x - from.x;
+            const dz = to.z - from.z;
+            const lengthSq = dx * dx + dz * dz;
+            if (lengthSq < GEOMETRY_EPSILON) continue;
+            const t = Math.min(
+              1,
+              Math.max(
+                0,
+                ((park.center.x - from.x) * dx + (park.center.z - from.z) * dz) /
+                  lengthSq,
+              ),
+            );
+            const distanceM = Math.hypot(
+              park.center.x - (from.x + dx * t),
+              park.center.z - (from.z + dz * t),
+            );
+            if (nearest && distanceM >= nearest.distanceM) continue;
+            // Clockwise yaw, so a run of (dx, dz) is atan2(-dz, dx).
+            nearest = {
+              distanceM,
+              bearingDeg: (Math.atan2(-dz, dx) * 180) / Math.PI,
+            };
+          }
+        }
+        if (!nearest) continue;
+        // A rectangle is symmetric under a half turn, so compare mod 180.
+        const rawSkew = Math.abs(
+          (((park.headingDeg - nearest.bearingDeg) % 360) + 540) % 360 - 180,
+        );
+        const skewDeg = Math.min(rawSkew, 180 - rawSkew);
+        if (skewDeg <= MAX_ROAD_SKEW_DEG) continue;
+        const halfLengthM = Math.max(park.size.x, park.size.z) / 2;
+        violations.push(
+          `${pack.id}/${park.id} sits ${skewDeg.toFixed(2)} deg off its road ` +
+            `(${(((skewDeg * Math.PI) / 180) * halfLengthM).toFixed(1)} m adrift ` +
+            `at its ends); a clockwise yaw of ${nearest.bearingDeg.toFixed(2)} ` +
+            `would follow it`,
+        );
+      }
+    }
+    expect(violations, violations.join("\n")).toEqual([]);
+  });
+
   it("keeps every venue building out of every walled park", () => {
     // Nothing geometrically stops one. A venue is thrown to the **driver's
     // right** of its anchor lane, so which side of an avenue it lands on is
@@ -1235,9 +1309,11 @@ describe("SideSwap content", () => {
               x: park.center.x,
               z: park.center.z,
               // Park convention (parkLayouts toWorld / the lawn's
-              // rotation.y): local +z maps to (-sin, cos). The sign only
-              // started mattering with the first rotated park.
-              ux: -Math.sin(yawRad),
+              // rotation.y): headingDeg is a CLOCKWISE yaw, so local +z maps
+              // to (sin, cos). This read (-sin, cos) until the rotated kerb
+              // ribbons showed the lawn mesh spinning the other way — a
+              // mirrored box passes and fails the wrong parks.
+              ux: Math.sin(yawRad),
               uz: Math.cos(yawRad),
               halfU: park.size.z / 2,
               halfV: park.size.x / 2,
@@ -1311,7 +1387,7 @@ describe("SideSwap content", () => {
             x: park.center.x,
             z: park.center.z,
             // Same park-convention sign as the venue check above.
-            ux: -Math.sin(yawRad),
+            ux: Math.sin(yawRad),
             uz: Math.cos(yawRad),
             halfU: park.size.z / 2,
             halfV: park.size.x / 2,

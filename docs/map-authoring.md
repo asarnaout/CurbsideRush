@@ -160,9 +160,9 @@ venue, and where a circle blankets a kerb band outright, green it instead
 Where a wall against the kerb is wrong, the **boulevard grammar** applies: a
 14 m lawn ribbon on the kerb (a pocket park, rotated to the road's bearing via
 the park `headingDeg` if the road is off-axis, and **always
-`parkStyle: "lawn"`** — left to the default dressing a long ribbon can elect a
-full-length trail that weaves the 14 m width and reads from the carriageway as
-the green pinching out mid-road) and the parcel behind it through
+`parkStyle: "lawn"`** — a kerb ribbon is scenery seen from the carriageway, and
+left to the default dressing a long one elects a full-length trail across its
+own width) and the parcel behind it through
 `roadsideParcel`'s `extraInsetM`. It comes with two obligations — the ribbon
 runs its road **junction to junction**, and it has a building row tucked behind
 it for its whole length. A road that bends needs **one rect per centreline
@@ -170,11 +170,21 @@ segment**, butt-joined on an exact shared edge where the headings match and
 left a ≤0.4 m seam where they cannot; two coplanar lawns must never overlap.
 Parcels pushed past the address probe's 22 m reach simply yield no letterboxes.
 
-**Parks rotate the other way from blocks.** A block's `headingDeg` maps
-local +x to world (cos, −sin); a park's maps it to **(cos, +sin)**
-(`parkLayouts`' `toWorld` and the lawn's `rotation.y` agree). The divergence
-was invisible until the first rotated park (the Chelsea green) and cost both
-`content.test.ts` park boxes a sign fix.
+**Everything rotates the same way: `headingDeg` is a clockwise world yaw**
+(local +x to (cos, −sin)) — blocks, parks, colliders, addresses, both maps. A
+rect following a run of (dx, dz) therefore wants **`atan2(-dz, dx)`**, never the
+textbook `atan2(dz, dx)`; `roadsideParcel` already computes it that way, so
+cribbing the sign off the parcel band you are lawning in front of is always
+safe. This paragraph used to claim the opposite for parks, and `toWorld` really
+was mirrored against the lawn mesh it describes, so all five of London's rotated
+ribbons shipped negated. **The AABB is identical under either sign**: audits,
+mesh dumps and both map screens showed them straight, the error is zero at the
+centre and opens only toward the ends (Notting Hill 9.5 m off its kerb; the
+King's Road green 24 m). Three play-test rounds and a car teleported onto the
+boundary to find it. Same sign, same z-mirror, same invisibility on axis-aligned
+runs as the park-wall yaw in [greenery.md](greenery.md). Gate:
+`content.test.ts`'s "keeps every rotated park's long axis on the road it
+follows".
 
 **A junction's arms must stay ~45° apart.** `buildPavementGraph` mitres a
 junction's rails apart only down to about 40° (Cairo's tightest shipped
