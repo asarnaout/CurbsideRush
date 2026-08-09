@@ -3956,13 +3956,153 @@ export const LONDON_MAP_PACK: MapPack = {
         // placement test's axis-aligned bound on this rotated park. The
         // south side opens 0.5 m onto the riverward stretch, which is
         // exempt frontage.
-        center: point(-449.97, -337.31),
-        size: point(170, 28),
+        // `parkStyle: "lawn"`, overriding the pocket_green pin the comment
+        // above defends. The pin was for the STYLE (a railed lawn, not a
+        // walled park) but it also bought pocket_green's single cross path,
+        // which runs the strip's whole 170 m length and stops dead at both
+        // tips — neither of which is a pavement. Play-tested exactly as
+        // Pembroke's did: "the grass and the little trail in its middle just
+        // abruptly ends". A kerb ribbon is scenery seen from the carriageway
+        // and carries no trail at all; the walks now belong to
+        // `london-chelsea-gardens` behind it, which is a place to walk.
+        parkStyle: "lawn",
+        // Deepened 28 -> 31.6 northward (the south edge does not move, so the
+        // seam lawn behind is unchanged): the near edge used to sit 1.2 m PAST
+        // the pavement band and read from the car as a thin grey line running
+        // the whole frontage. It now laps 0.6 m UNDER the band — lawns draw at
+        // PARK_LAWN_Y 0.02, below the shoulder at 0.045, so the lap is
+        // invisible and the alternative is a fringe. Past 30 m the shape would
+        // derive a walled greensward, which is why the depth was pinned at 28
+        // before; the explicit `parkStyle` above now decides the style, so the
+        // threshold no longer governs — do not remove that pin.
+        center: point(-450.23, -335.53),
+        size: point(170, 31.6),
         // Clockwise yaw (see the Notting Hill ribbons): was +8.2, and at 170 m
         // long that mirror threw the east tip 24 m off the King's Road — the
         // worst of the five. Every measurement in the comment above was taken
         // against the intended alignment, which is what this sign now gives.
         headingDeg: -8.2,
+        color: "#5f9a4e",
+      },
+      // ── The Chelsea garden square and its lawns ────────────────────────
+      // The King's Road / Chelsea Embankment superblock was 38% bare ground:
+      // a 2.2 ha void sat directly behind the strip above, and driving west
+      // past Chelsea Manor Street the play-test saw the green stop and "an
+      // empty sea of concrete in the horizon". These pieces green every bare
+      // pocket the solver found in that block. No parcel moved — the owner
+      // asked for a park BESIDE the buildings, not instead of them — so each
+      // rect is fitted to the free space and abuts its neighbours without
+      // ever overlapping one (`content.test.ts` fails a park at 0.01 m into a
+      // block, and an overlap would also scatter trees inside the facades:
+      // `landmarkClearings` skips blocks entirely).
+      //
+      // Exactly ONE of them carries paths. `london-chelsea-gardens` is big
+      // enough to derive `urban_greensward` (short side >= 30 and aspect < 6,
+      // so no parkStyle is pinned) and that is the only recipe that emits
+      // benches — `pathFurniture` returns [] for pocket_green and `lawn` has
+      // no paths to hang them on. Everything else is `parkStyle: "lawn"`:
+      // pure grass, so the square reads as one continuous green instead of a
+      // row of tiles each with its own trail and railing (Pembroke's lesson,
+      // above).
+      {
+        id: "london-chelsea-gardens",
+        kind: "park",
+        // Solver-fitted to the largest free rectangle in the block, searched
+        // in the road's own frame: rotating to the King's Road bearing
+        // instead of staying axis-aligned buys 14% more area and 20 m more
+        // depth, because every parcel hemming this void is itself rotated.
+        // Bearing copied from `london-block-kings-n-3`, the terrace row this
+        // sits behind — a roadsideParcel computes the clockwise yaw exactly,
+        // which is both the right answer and the one the rotated-park gate
+        // measures against (3 degrees of slack, and this is inside 0.01).
+        //
+        // Every number here is fitter output, not a guess: each rect is inset
+        // until it touches nothing, then each of its four edges is grown back
+        // 0.5 m at a time against a 0.75 m sample of every block, park and
+        // carriageway. The first cut, taken from a 2.5 m occupancy grid, read
+        // clean on that grid and still clipped `london-block-chelsea-emb-3` —
+        // a grid cell being free does not make the half-step past it free.
+        center: point(-480.57, -424.58),
+        size: point(184, 116),
+        headingDeg: -8.19,
+        color: "#5f9a4e",
+      },
+      // The six lawns. All `parkStyle: "lawn"` — grass and trees, no path and
+      // no railing — so the block reads as one green with a single garden at
+      // its heart. Left to derive, the two ~30 m ones would have grown their
+      // own walls and the thin ones their own dead-end trails.
+      {
+        // The seam: joins the King's Road ribbon above to the square's north
+        // edge, so a driver sees green from the kerb to the railings with no
+        // grey band between. Thin (9.5 m) because the ribbon is rotated and
+        // the square is not quite parallel to it.
+        id: "london-chelsea-gardens-north-lawn",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-447.82, -356.44),
+        size: point(172.5, 9.5),
+        headingDeg: -8.19,
+        color: "#5f9a4e",
+      },
+      {
+        // The mews band, west half — the gap between the Embankment terraces
+        // and the King's Road backs. Two rects, not one: a single 270 m band
+        // has to clear every parcel along its whole run and shrinks to 8 m
+        // deep to do it, where two clear 25 and 18.
+        id: "london-chelsea-mews-lawn-west",
+        kind: "park",
+        parkStyle: "lawn",
+        // South edge held 0.6 m back off `london-block-cex-fab-a`: the fitter
+        // samples at 0.75 m and grows in 0.5 m steps, and the corner it
+        // stepped past put this 0.05 m inside the parcel. The invariant
+        // measures exact box penetration, so it caught what the sampler could
+        // not — round a fitted edge DOWN, never up.
+        center: point(-791.33, -456.84),
+        size: point(95, 24.4),
+        headingDeg: -5.67,
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-chelsea-mews-lawn-east",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-648.16, -455.82),
+        size: point(156, 18),
+        headingDeg: -5.67,
+        color: "#5f9a4e",
+      },
+      {
+        // The Chelsea Manor pocket, pinched between Oakley's fill parcel and
+        // the manor row. Carries Chelsea Manor Street's own bearing, not the
+        // King's Road's — it is the street this one is seen from, and the
+        // rotated-park gate measures the long axis against the NEAREST road.
+        id: "london-chelsea-manor-lawn",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-375.6, -385.53),
+        size: point(67, 15.5),
+        headingDeg: 99.02,
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-cheyne-emb-lawn",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-850.25, -505.28),
+        size: point(58.5, 29),
+        headingDeg: -3.81,
+        color: "#5f9a4e",
+      },
+      {
+        // The Lots Road corner. Axis-aligned on purpose: it follows no road —
+        // Lots Road runs past it at 103 degrees and the Embankment at -4 —
+        // and the rotated-park gate exempts an unrotated rect precisely so a
+        // pocket like this is not forced to pick a street to lie about.
+        id: "london-lots-road-lawn",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-1144.75, -514.2),
+        size: point(48.5, 45),
         color: "#5f9a4e",
       },
       // The green inside Pembroke Crescent's arc — the reason to build a

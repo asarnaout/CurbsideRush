@@ -1228,17 +1228,26 @@ describe("SideSwap content", () => {
           }
         }
         if (!nearest) continue;
+        // The axis that has to lie along the road is the park's LONG one, and
+        // `headingDeg` describes local +x. A rect authored deeper than it is
+        // long therefore follows its road at yaw - 90, not at yaw.
+        const longAxisDeg =
+          park.size.z > park.size.x ? park.headingDeg - 90 : park.headingDeg;
         // A rectangle is symmetric under a half turn, so compare mod 180.
         const rawSkew = Math.abs(
-          (((park.headingDeg - nearest.bearingDeg) % 360) + 540) % 360 - 180,
+          (((longAxisDeg - nearest.bearingDeg) % 360) + 540) % 360 - 180,
         );
         const skewDeg = Math.min(rawSkew, 180 - rawSkew);
         if (skewDeg <= MAX_ROAD_SKEW_DEG) continue;
         const halfLengthM = Math.max(park.size.x, park.size.z) / 2;
+        const wantDeg =
+          park.size.z > park.size.x
+            ? nearest.bearingDeg + 90
+            : nearest.bearingDeg;
         violations.push(
           `${pack.id}/${park.id} sits ${skewDeg.toFixed(2)} deg off its road ` +
             `(${(((skewDeg * Math.PI) / 180) * halfLengthM).toFixed(1)} m adrift ` +
-            `at its ends); a clockwise yaw of ${nearest.bearingDeg.toFixed(2)} ` +
+            `at its ends); a clockwise yaw of ${wantDeg.toFixed(2)} ` +
             `would follow it`,
         );
       }

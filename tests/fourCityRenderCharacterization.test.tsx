@@ -392,10 +392,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 7_621 -> 7_609 (active 700 -> 699): four kerb ribbons go parkStyle
     // lawn, retiring their elected trail paths (and the path furniture the
     // dressing hung on them); one bayswater seam terrace joins.
-    totalMeshes: 7_609,
-    enabledMeshes: 7_609,
-    activeMeshes: 699,
-    materials: 295,
+    // 7_609 -> 7_652 (active 699 -> 707, materials 295 -> 302): the Chelsea
+    // superblock's seven greens — one garden square with walks, benches,
+    // lamps and a railing, plus six pathless lawn fills — and the King's Road
+    // ribbon deepened to lap under its pavement, which re-deals its scatter
+    // for four fewer thickets. No block moved, so the facade pins below and
+    // in the building-layer characterization must NOT move with it.
+    totalMeshes: 7_652,
+    enabledMeshes: 7_652,
+    activeMeshes: 707,
+    materials: 302,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -421,8 +427,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // boxes and the station side lawn all stand inside the spawn's mirror
     // candidate radius.
     // 46 -> 45: the Cromwell far-west ribbon's retired trail path was one.
+    // 217 -> 224: the Chelsea greens add lawn planes within the spawn's
+    // mirror radius; the candidate count is unchanged.
     mirrorCandidates: 45,
-    mirrorDrawn: 217,
+    mirrorDrawn: 224,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -442,7 +450,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // sweep's ten greens. -> "6dc30ed4": the void-kill round's first half.
     // -> "9b5073c7": the spawn corner re-grammar.
     // -> "edd7eddb": the quiet island's procedural north band.
-    survivingMaterialNamesFingerprint: "edd7eddb",
+    // -> "e265e06c": the Chelsea garden square's greensward materials (walk,
+    // railing, bench and lamp) and its six lawns' planting variants.
+    survivingMaterialNamesFingerprint: "e265e06c",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,
