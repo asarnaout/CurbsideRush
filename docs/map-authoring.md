@@ -142,17 +142,27 @@ detectors above are the bar. An authored `roadsideParcel` span under ~50 m
 ships **nothing** (26 m floor after the 12 m end insets) — always re-query
 the block after authoring.
 
-Three parcel traps: `roadsideParcel`'s trimmer clears *foreign roads only* —
+Four parcel traps: `roadsideParcel`'s trimmer clears *foreign roads only* —
 a parcel spanning its own road's **bend** chords across its own carriageway
 (give it per-segment endpoints; Victoria Street's 70° turn caught this twice),
 it does not know parks (the block-vs-park invariant in `content.test.ts` is
 the net), and neighbouring parcels tile corners by overlapping — which this
 map's visual language absorbs as corner mass and ships everywhere, so treat
-block-block overlap as a diagnostic, not a defect.
+block-block overlap as a diagnostic, not a defect. The fourth carves at
+*render* time: `buildingKeepOuts` clears every service point and venue
+(gas = footprint max + 16 m — far wider than the visible lot), so a block or
+span inside those circles ships nothing, silently — the quiet-loop island's
+authored block stood empty through two play-tests this way. Check
+`facadeGridCells` survival against the circles before authoring near a
+venue, and where a circle blankets a kerb band outright, green it instead
+(Cromwell Fuel's side lawn) — a lawn is not a building and may stand there.
 
 Where a wall against the kerb is wrong, the **boulevard grammar** applies: a
 14 m lawn ribbon on the kerb (a pocket park, rotated to the road's bearing via
-the park `headingDeg` if the road is off-axis) and the parcel behind it through
+the park `headingDeg` if the road is off-axis, and **always
+`parkStyle: "lawn"`** — left to the default dressing a long ribbon can elect a
+full-length trail that weaves the 14 m width and reads from the carriageway as
+the green pinching out mid-road) and the parcel behind it through
 `roadsideParcel`'s `extraInsetM`. It comes with two obligations — the ribbon
 runs its road **junction to junction**, and it has a building row tucked behind
 it for its whole length. A road that bends needs **one rect per centreline

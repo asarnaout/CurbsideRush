@@ -287,7 +287,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // -> 8_214 with the fourth pass's eighteen slabs (321 -> 339 blocks).
     // -> 8_382 with the seven residual slabs (339 -> 346 blocks).
     // -> 8_406 (346 -> 347 blocks).
-    drawCount: 8_406,
+    // -> 8_409: the quiet island re-authored as its north band, set-less —
+    // the full-island block's cells all sat inside venue keep-outs and drew
+    // nothing; the band's procedural stucco boxes are the island's first
+    // actual buildings.
+    drawCount: 8_409,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -323,7 +327,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // -> "ea7be17e" (the residual slabs).
     // -> "3872be7f".
     // -> "06c3d328" (fabric street edges named; spawn corner re-grammar).
-    facadeMeshFingerprint: "06c3d328",
+    // -> "9bf224d2" (the quiet island's north band replaces the dead
+    // full-island block).
+    // -> "acca2147" (the Gloucester ribbons run to their junctions and the
+    // corner parcels re-deal — same draw count, shifted assignment).
+    // -> "3e14705f" (four kerb ribbons pinned parkStyle lawn — their trail
+    // paths retired — and the bayswater T-seam terrace joins the row).
+    facadeMeshFingerprint: "3e14705f",
   },
   "tokyo-setagaya": {
     drawCount: 216,

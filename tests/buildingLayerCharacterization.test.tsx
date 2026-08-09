@@ -283,7 +283,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // unset streetEdges walls all FOUR edges. Road-facing blocks keep only
     // their road edges, interior slabs their long-edge pair, so the side
     // rows (and their z-fighting pairs on shallow blocks) are gone.
-    buildingInstanceCount: 4_364,
+    // -> 4_366: the spawn verge's building L — quiet-w runs through the
+    // corner to quiet-s's front line and quiet-s reaches quiet-w's, so the
+    // terrace rows turn the same right angle the verge does.
+    // -> 4_368: Gloucester Road's west grammar run to the Old Brompton
+    // corner — gloucester-w-2 gains its southern terraces behind the
+    // extended ribbon, brompton-n-2 cedes its slot on the corner ground.
+    // -> 4_369: bayswater-n-1 overshoots the park-corner node so its row
+    // meets notting-n-1's across the T-mouth's unbroken north kerb.
+    buildingInstanceCount: 4_369,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

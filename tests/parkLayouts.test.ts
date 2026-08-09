@@ -123,7 +123,9 @@ describe("park layouts", () => {
     // 71 -> 73: the spawn verge turns the corner — a west arm up the quiet
     // loop's outside kerb and an inner arm from the fuel forecourt to
     // Cromwell's band, so the loop's west corner reads green on both flanks.
-    expect(parkCases().length).toBe(73);
+    // 73 -> 74: Cromwell Fuel's side lawn — the station keep-out band on the
+    // west arm where no building may legally stand, greened instead of bare.
+    expect(parkCases().length).toBe(74);
   });
 
   it("is deterministic — two builds are identical", () => {
