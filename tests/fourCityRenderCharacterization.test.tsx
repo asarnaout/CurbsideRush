@@ -379,10 +379,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 7_408 -> 7_539 (active 655 -> 679): the void-kill fourth pass.
     // 7_539 -> 7_595 (active 679 -> 695): the residual slabs.
     // 7_595 -> 7_603: the Brompton pocket's south half.
-    totalMeshes: 7_603,
-    enabledMeshes: 7_603,
-    activeMeshes: 695,
-    materials: 292,
+    // 7_603 -> 7_607 (active 695 -> 692, 292 -> 294 materials, mirror 214 ->
+    // 216): fabric street edges named (side rows retired) and the spawn
+    // corner's L-verge and re-spanned terraces.
+    totalMeshes: 7_607,
+    enabledMeshes: 7_607,
+    activeMeshes: 692,
+    materials: 294,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -405,7 +408,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 35 -> 31 / 212 -> 214 as the spawn quarter's fabric fills what the
     // mirrors look into and occludes part of the old candidate ring.
     mirrorCandidates: 31,
-    mirrorDrawn: 214,
+    mirrorDrawn: 216,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -423,7 +426,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // north forecourt. -> "0d476c11": the crescent island's thirteen-tile
     // retile (trail band + pathless lawns). -> "ed8e6b3a": the flush-stack
     // sweep's ten greens. -> "6dc30ed4": the void-kill round's first half.
-    survivingMaterialNamesFingerprint: "6dc30ed4",
+    // -> "9b5073c7": the spawn corner re-grammar.
+    survivingMaterialNamesFingerprint: "9b5073c7",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

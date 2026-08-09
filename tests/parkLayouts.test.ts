@@ -120,7 +120,10 @@ describe("park layouts", () => {
     // 69 -> 71: the void-kill round's two verges — the spawn road's south
     // kerb (the first thing the player sees on their left) and the palace
     // garden's west shelf.
-    expect(parkCases().length).toBe(71);
+    // 71 -> 73: the spawn verge turns the corner — a west arm up the quiet
+    // loop's outside kerb and an inner arm from the fuel forecourt to
+    // Cromwell's band, so the loop's west corner reads green on both flanks.
+    expect(parkCases().length).toBe(73);
   });
 
   it("is deterministic — two builds are identical", () => {
