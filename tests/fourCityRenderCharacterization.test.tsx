@@ -357,10 +357,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 7_116 -> 7_094 (270 materials): the Science Museum's north forecourt,
     // the fourth side of the quarter's planting. Lawn displacing scatter
     // again — a green costs one material and saves more meshes than it adds.
-    totalMeshes: 7_094,
-    enabledMeshes: 7_094,
-    activeMeshes: 561,
-    materials: 270,
+    // 7_094 -> 7_071 (active 561 -> 558, 270 -> 280 materials): the crescent
+    // island retiled from three tiles to thirteen — one trail band and
+    // twelve pathless lawns. Two fewer trail paths and their furniture, no
+    // shrubs on the fillers (shrubs only grow beside a path), so meshes drop
+    // even though ten more lawn planes exist; the ten extra materials are the
+    // per-park batched-scenery sets the extra tiles carry.
+    totalMeshes: 7_071,
+    enabledMeshes: 7_071,
+    activeMeshes: 558,
+    materials: 280,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -376,9 +382,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 186 once the quiet loop's island fills the block the spawn's mirrors
     // look straight into, which occludes most of what used to be candidates;
     // 186 -> 189 with the eastern fills, 189 -> 192 with the walls and the
-    // museum quarter's fourth forecourt.
+    // museum quarter's fourth forecourt; 192 -> 202 as the island's thirteen
+    // tiles put more lawn planes inside the mirror radius than the three did.
     mirrorCandidates: 35,
-    mirrorDrawn: 192,
+    mirrorDrawn: 202,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -393,8 +400,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // James's and the palace garden, the map's two new walled greenswards.
     // -> "62a24fe0": the royal park's, the Kensington lawn's and Battersea
     // Park's restored boundary walls. -> "303918a2": the Science Museum's
-    // north forecourt.
-    survivingMaterialNamesFingerprint: "303918a2",
+    // north forecourt. -> "0d476c11": the crescent island's thirteen-tile
+    // retile (trail band + pathless lawns).
+    survivingMaterialNamesFingerprint: "0d476c11",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

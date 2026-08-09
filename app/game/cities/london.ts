@@ -3534,49 +3534,126 @@ export const LONDON_MAP_PACK: MapPack = {
         color: "#5f9a4e",
       },
       // The green inside Pembroke Crescent's arc — the reason to build a
-      // crescent at all, and now the whole of it. Three butt-joined tiles
-      // (every shared edge exact, every heading 0, so no two lawns ever
-      // overlap) cover 95% of what the crescent and Earls Court Road enclose.
-      // Park lawns draw at y0.02, UNDER the pavement band at 0.045 and the
-      // carriageway at 0.07, so a tile may run out to the road centreline:
-      // the visible lawn is then tucked hard against every inner kerb with no
-      // fringe of bare ground at all. Past the centreline it would surface on
-      // the far side, which is the limit these are solved against.
+      // crescent at all, and ALL of it. Thirteen butt-joined tiles (every
+      // shared edge exact, every heading 0, so no two lawns ever overlap)
+      // cover 100% of the visible ground the crescent and Earls Court Road
+      // enclose — solver-verified: zero uncovered cells, zero tile points
+      // beyond the roads' hidden corridors. Park lawns draw at y0.02, UNDER
+      // the pavement band at 0.045 and the carriageway at 0.07, so a tile
+      // edge anywhere within (centreline ± width/2 + sidewalk) is invisible:
+      // the stepped west tiles track the crescent's arcs inside that
+      // corridor, which is how axis-aligned rects hug a curve with no fringe
+      // and no overshoot onto the outer side.
       //
-      // Four terrace bands used to stand in here around a floating 80 x 28
-      // stamp of grass — 6% of the island — which play-tested as "a random
-      // strip of green surrounded by concrete". An enclosed island reads as
-      // one thing or as nothing.
-      //
-      // Every tile is style-pinned `pocket_green`. The big one is 186 x 146
-      // and would otherwise derive as a walled greensward with a walk spine,
-      // and a stepped wall following the inside of a crescent is exactly the
-      // "sloppy" the play-test has called out twice. `parkStyle` is the
-      // authored override that beats both the id and the size gates; this is
-      // the map's first use of it, and the right shape for a decision that
-      // should not hang on a size threshold.
+      // ONE tile carries the trail: the `pocket_green` band spans the full
+      // island width, so its single cross path runs pavement to pavement in
+      // an unbroken line. Every other tile is `lawn` — pure grass, no paths —
+      // because a previous three-tile cut gave each tile its own edge-to-edge
+      // path and play-tested as "the trail in the middle abruptly ends and
+      // another one starts somewhere on its right". A trail may only end at a
+      // pavement; grass that merely fills space must carry no trail at all.
       {
-        id: "london-pembroke-green",
+        id: "london-pembroke-trail",
         kind: "park",
         parkStyle: "pocket_green",
-        center: point(-912, 82),
-        size: point(186, 146),
+        center: point(-937, 82),
+        size: point(246, 14),
         color: "#5f9a4e",
       },
       {
-        id: "london-pembroke-green-w",
+        id: "london-pembroke-green",
         kind: "park",
-        parkStyle: "pocket_green",
-        center: point(-1028, 92),
-        size: point(46, 98),
+        parkStyle: "lawn",
+        center: point(-904, 39.5),
+        size: point(180, 71),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-sw-1",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-1004, 42.5),
+        size: point(20, 65),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-sw-2",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-1025, 50.5),
+        size: point(22, 49),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-sw-3",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-1044, 58.5),
+        size: point(16, 33),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-sw-4",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-1056, 63.5),
+        size: point(8, 23),
         color: "#5f9a4e",
       },
       {
         id: "london-pembroke-green-n",
         kind: "park",
-        parkStyle: "pocket_green",
-        center: point(-924, 172),
-        size: point(110, 34),
+        parkStyle: "lawn",
+        center: point(-931.5, 119.5),
+        size: point(235, 61),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-nw",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-1053.5, 102),
+        size: point(9, 26),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-n-2",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-924, 155),
+        size: point(212, 10),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-n-3",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-923.5, 165),
+        size: point(183, 10),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-n-4",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-923.5, 175),
+        size: point(153, 10),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-n-5",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-922.5, 185),
+        size: point(125, 10),
+        color: "#5f9a4e",
+      },
+      {
+        id: "london-pembroke-green-n-6",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-916.5, 191.5),
+        size: point(97, 3),
         color: "#5f9a4e",
       },
       // The museums' forecourts. Cromwell Road's north kerb runs 17-20 m of
