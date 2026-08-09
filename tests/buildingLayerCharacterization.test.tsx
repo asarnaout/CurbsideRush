@@ -257,7 +257,21 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // x-326 (West Carriage Drive's new ribbon owns that corner) costing one
     // terrace box; the new mall-s-mid band and the re-dealt park-west-w row
     // net out.
-    buildingInstanceCount: 3_152,
+    // -> 3_452: the void-kill round's first half — twenty fabric blocks fill
+    // the spawn quarter's field, the museum-south clearing, the Queen's Gate
+    // hinterland and Westminster's four belts, and the crescent's outer arm
+    // plus Flood Street's east band re-authored with legal spans after both
+    // silently dropped under the 26 m post-inset floor.
+    // -> 4_391: the second half — twenty-five interior slabs stand up the
+    // deep fields behind every district's street wall (west-central,
+    // King's Road north, Chelsea's hinterland, the Westminster-to-City east
+    // belt, the City's east margin, Mayfair/Soho, the Euston band, the south
+    // bank and the west margins), so the sightlines that leaked between
+    // kerb parcels now end at a second row instead of open ground.
+    // -> 4_855: the third pass — eleven more slabs on the embankment's
+    // land band, the Warwick/Nevern west belts, the south bank between the
+    // river roads, and the City/Islington remainders.
+    buildingInstanceCount: 4_855,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },
