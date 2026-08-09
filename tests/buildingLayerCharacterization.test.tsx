@@ -271,7 +271,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // -> 4_855: the third pass — eleven more slabs on the embankment's
     // land band, the Warwick/Nevern west belts, the south bank between the
     // river roads, and the City/Islington remainders.
-    buildingInstanceCount: 4_855,
+    // -> 5_363: the fourth pass — eighteen slabs close every remaining
+    // void blob with a sightline from a kerb inside 30 m (three flank the
+    // Royal Hospital venue circle rather than cross it).
+    // -> 5_515: seven middle-tier residuals from the fourth pass's
+    // re-audit (the Thames shore pockets stay open — riverfront).
+    // -> 5_540: the Brompton pocket's south half (its north is fenced by a
+    // venue circle).
+    buildingInstanceCount: 5_540,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },
