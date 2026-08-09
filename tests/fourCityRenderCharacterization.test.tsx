@@ -368,10 +368,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // and Battersea's verges displace far more loose roadside scatter than
     // their planting adds — lawn is the cheaper dressing — while each new
     // park carries its batched-scenery material set.
-    totalMeshes: 6_981,
-    enabledMeshes: 6_981,
-    activeMeshes: 560,
-    materials: 290,
+    // 6_981 -> 7_129 (active 560 -> 586, 290 -> 292 materials): the
+    // void-kill round's first half — twenty-two blocks of terraces and civic
+    // stone where the spawn field, the museum-south clearing, the Queen's
+    // Gate hinterland and Westminster's belts were bare.
+    totalMeshes: 7_129,
+    enabledMeshes: 7_129,
+    activeMeshes: 586,
+    materials: 292,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -390,9 +394,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // museum quarter's fourth forecourt; 192 -> 202 as the island's thirteen
     // tiles put more lawn planes inside the mirror radius than the three
     // did; 202 -> 212 with the flush-stack sweep's greens near the spawn
-    // (the forecourt growths and threads sit inside the mirror radius).
-    mirrorCandidates: 35,
-    mirrorDrawn: 212,
+    // (the forecourt growths and threads sit inside the mirror radius);
+    // 35 -> 31 / 212 -> 214 as the spawn quarter's fabric fills what the
+    // mirrors look into and occludes part of the old candidate ring.
+    mirrorCandidates: 31,
+    mirrorDrawn: 214,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -409,8 +415,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // Park's restored boundary walls. -> "303918a2": the Science Museum's
     // north forecourt. -> "0d476c11": the crescent island's thirteen-tile
     // retile (trail band + pathless lawns). -> "ed8e6b3a": the flush-stack
-    // sweep's ten greens.
-    survivingMaterialNamesFingerprint: "ed8e6b3a",
+    // sweep's ten greens. -> "6dc30ed4": the void-kill round's first half.
+    survivingMaterialNamesFingerprint: "6dc30ed4",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

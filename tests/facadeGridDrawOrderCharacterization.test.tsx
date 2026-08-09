@@ -279,8 +279,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // island's five blocks retired for its lawn (267 -> 262). -> 6_390 with
     // the flush-stack sweep: mall-s-mid added (262 -> 263 blocks),
     // park-west-w set back behind the drive's new ribbon, notting-s-1's east
-    // end retreated.
-    drawCount: 6_390,
+    // end retreated. -> 6_918 with the void-kill round's first half: twenty
+    // fabric blocks plus the crescent's re-authored outer arm and Flood
+    // Street's east band (263 -> 285 blocks).
+    drawCount: 6_918,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -309,8 +311,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // single segment after the first cut chorded through its own 70-degree
     // bend) -> "d48b5787" (the crescent island's blocks retired) ->
     // "518fda0c" (the flush-stack sweep's parcel moves and the Mall's
-    // mid band).
-    facadeMeshFingerprint: "518fda0c",
+    // mid band) -> "63fff32c" (the void-kill round's first twenty-two
+    // blocks).
+    facadeMeshFingerprint: "63fff32c",
   },
   "tokyo-setagaya": {
     drawCount: 216,

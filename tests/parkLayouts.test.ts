@@ -117,7 +117,10 @@ describe("park layouts", () => {
     // Gate), the two links closing the Kensington-lawn/royal-park seam, the
     // Park Lane verge hairline, the Gloucester ribbon's back thread, the two
     // museum-block threads, and Battersea Park Road's three stepped verges.
-    expect(parkCases().length).toBe(69);
+    // 69 -> 71: the void-kill round's two verges — the spawn road's south
+    // kerb (the first thing the player sees on their left) and the palace
+    // garden's west shelf.
+    expect(parkCases().length).toBe(71);
   });
 
   it("is deterministic — two builds are identical", () => {

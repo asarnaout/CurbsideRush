@@ -257,7 +257,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // x-326 (West Carriage Drive's new ribbon owns that corner) costing one
     // terrace box; the new mall-s-mid band and the re-dealt park-west-w row
     // net out.
-    buildingInstanceCount: 3_152,
+    // -> 3_452: the void-kill round's first half — twenty fabric blocks fill
+    // the spawn quarter's field, the museum-south clearing, the Queen's Gate
+    // hinterland and Westminster's four belts, and the crescent's outer arm
+    // plus Flood Street's east band re-authored with legal spans after both
+    // silently dropped under the 26 m post-inset floor.
+    buildingInstanceCount: 3_452,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

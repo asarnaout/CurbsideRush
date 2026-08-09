@@ -1889,7 +1889,11 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // --- Chelsea's north-south links. ---------------------------------------
   roadsideParcel("london-block-manor-w", "london-chelsea-manor", nodeAt("london-node-kings-gloucester"), nodeAt("london-node-hospital-west"), 1, 7.4, 34, LONDON_STUCCO, [12, 20], 0.72),
   roadsideParcel("london-block-flood-e", "london-flood-street", nodeAt("london-node-kings-queens"), nodeAt("london-node-flood-mid"), -1, 7.2, 36, LONDON_STUCCO, [12, 20], 0.72),
-  roadsideParcel("london-block-flood-e-2", "london-flood-street", nodeAt("london-node-flood-mid"), nodeAt("london-node-hospital-mid"), -1, 7.2, 32, LONDON_RED_BRICK, [11, 18], 0.7),
+  // Span starts 8 m up the road, not at flood-mid: node-to-node is 45.5 m,
+  // and after the 12 m end insets that is under the 26 m floor — the parcel
+  // silently shipped as nothing and Flood Street's east kerb ran bare. An
+  // authored span must be at least the bare run plus 24 m.
+  roadsideParcel("london-block-flood-e-2", "london-flood-street", point(-111.8, -352.1), nodeAt("london-node-hospital-mid"), -1, 7.2, 32, LONDON_RED_BRICK, [11, 18], 0.7),
   roadsideParcel("london-block-smith-e", "london-smith-street", nodeAt("london-node-hospital-east"), nodeAt("london-node-smith-approach"), 1, 7.6, 34, LONDON_RED_BRICK, [12, 20], 0.72),
 
   // --- Gloucester Road / Drayton Gardens / Sydney Street. ------------------
@@ -2168,7 +2172,13 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-lombard-fill-r", "london-lombard-lane", point(-1298.7, -823.8), point(-1260.0, -935.0), 1, 7.4, 34, LONDON_RED_BRICK, [9, 15], 0.66),
   roadsideParcel("london-block-riverbank-fill-r", "london-riverbank", point(-433.0, -771.0), point(-341.1, -764.0), 1, 10.4, 34, LONDON_RED_BRICK, [11, 18], 0.72),
   roadsideParcel("london-block-battersea-fill-l", "london-battersea-road", point(-426.9, -889.9), point(-341.1, -884.1), -1, 8.6, 32, LONDON_STOCK_BRICK, [9, 16], 0.68),
-  roadsideParcel("london-block-crescent-o-1", "london-pembroke-crescent", point(-1010, 160), nodeAt("london-node-crescent-2"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
+  // Two parcels, one per arc segment, replacing a single 47.4 m span that
+  // silently dropped under the 26 m post-inset floor and left the crescent's
+  // outer kerb bare for 178 m across its two northern segments. A parcel
+  // follows its from->to chord, so a span across the 39-degree bend at
+  // crescent-1 would cut the corner; per-segment spans hug the arc.
+  roadsideParcel("london-block-crescent-o-1", "london-pembroke-crescent", nodeAt("london-node-earls-north"), nodeAt("london-node-crescent-1"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
+  roadsideParcel("london-block-crescent-o-1b", "london-pembroke-crescent", nodeAt("london-node-crescent-1"), nodeAt("london-node-crescent-2"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
   roadsideParcel("london-block-crescent-o-2", "london-pembroke-crescent", nodeAt("london-node-crescent-2"), nodeAt("london-node-crescent-3"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
   roadsideParcel("london-block-crescent-o-3", "london-pembroke-crescent", nodeAt("london-node-crescent-3"), nodeAt("london-node-crescent-4"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
   roadsideParcel("london-block-crescent-o-4", "london-pembroke-crescent", nodeAt("london-node-crescent-4"), nodeAt("london-node-crescent-5"), 1, 7.4, 30, LONDON_STUCCO, [11, 18], 0.72),
@@ -2289,6 +2299,43 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // london-block-mall-s and -s-e away from each other's roads there, so both
   // strips ended with nothing behind them for their last few metres.
   { id: "london-block-mall-s-mid", center: point(703.5, -84.9), size: point(19, 30), heightRange: [17, 26] as const, density: 0.78, material: LONDON_PORTLAND_STONE },
+  // --- Void kill, spawn quarter: the field the player faces at spawn. ------
+  // Three terrace rows fill the 85 x 130 m clearing dead ahead of the spawn
+  // (its west edge butts gloucester-s-fill-e), a fourth closes the quiet
+  // loop's south-west corner arc, and a fifth the pocket north of
+  // old-brompton's end. All solver-checked clear of every road corridor and
+  // venue circle.
+  { id: "london-block-spawn-fab-a", center: point(-213.5, -122), size: point(83, 34), heightRange: [12, 19] as const, density: 0.74, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-spawn-fab-b", center: point(-213.5, -158), size: point(83, 34), heightRange: [12, 19] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-spawn-fab-c", center: point(-213.5, -194), size: point(83, 34), heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-spawn-fab-d", center: point(-192.5, -95), size: point(41, 20), heightRange: [11, 17] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-gl-north-fab", center: point(-273, -98), size: point(36, 38), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  // The block field behind the Queen's Gate terraces and the Cromwell
+  // ribbons — the grey the owner saw behind issue 3's strip.
+  { id: "london-block-qgt-west-fab", center: point(-196, 40), size: point(78, 100), heightRange: [13, 21] as const, density: 0.74, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-qgt-mid-fab", center: point(-139, 80), size: point(36, 20), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-qgt-north-fab", center: point(-178, 145), size: point(114, 110), heightRange: [13, 21] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  // South of the museums: the 30,000 m2 clearing between the museum block
+  // and the King's Road band.
+  { id: "london-block-nh-south-fab-a", center: point(30, -135), size: point(170, 60), heightRange: [12, 20] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-nh-south-fab-b", center: point(190, -140), size: point(130, 66), heightRange: [12, 20] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  // --- Void kill, Westminster: the belts around the civic quarter. ---------
+  // The Mall/Grosvenor/Wellington wedge (largest empty rect 135 x 120 m).
+  { id: "london-block-wedge-fab-a", center: point(700, 70), size: point(90, 110), heightRange: [17, 27] as const, density: 0.78, material: LONDON_PORTLAND_STONE },
+  { id: "london-block-wedge-fab-b", center: point(762, 55), size: point(70, 80), heightRange: [17, 27] as const, density: 0.78, material: LONDON_PORTLAND_STONE },
+  // The belt around the walled St James's park — the "walled park one side,
+  // sea of grey the other" view.
+  { id: "london-block-stjames-belt-a", center: point(565, -160), size: point(60, 90), heightRange: [15, 24] as const, density: 0.76, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-stjames-belt-b", center: point(650, -225), size: point(100, 60), heightRange: [16, 25] as const, density: 0.78, material: LONDON_PORTLAND_STONE },
+  { id: "london-block-stjames-belt-c", center: point(718.5, -180), size: point(35, 120), heightRange: [16, 25] as const, density: 0.78, material: LONDON_PORTLAND_STONE },
+  // The band south of Buckingham Palace Road (205 x 60 m bare).
+  { id: "london-block-buck-s-fab-a", center: point(350, -280), size: point(100, 56), heightRange: [13, 21] as const, density: 0.74, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-buck-s-fab-b", center: point(450, -285), size: point(90, 50), heightRange: [13, 21] as const, density: 0.74, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  // Brompton Road's west flank, and the ring of ground around the palace
+  // garden.
+  { id: "london-block-brompton-w-fab", center: point(268, 75), size: point(56, 106), heightRange: [13, 21] as const, density: 0.74, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-palace-ring-fab", center: point(492, 115), size: point(100, 28), heightRange: [14, 22] as const, density: 0.76, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-palace-s-fab", center: point(388, -108), size: point(74, 24), heightRange: [14, 22] as const, density: 0.76, material: LONDON_STUCCO, buildingSet: "london-stucco" },
   { id: "london-block-canonbury-ne-fab", center: point(1394, 861), size: point(36, 138), heightRange: [12, 20] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
 ].filter((block): block is ProceduralBlock => block !== null);
 
@@ -3476,6 +3523,27 @@ export const LONDON_MAP_PACK: MapPack = {
         center: point(-277.85, -1.35),
         size: point(1.7, 18.7),
         color: "#5f9a4e",
+      },
+      // A grass verge along Petersham Mews' south kerb: the Drayton terraces
+      // stand 6 m behind the pavement there, and this is the first thing the
+      // player sees on their left at spawn.
+      {
+        id: "london-spawn-road-verge",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-136, -113.5),
+        size: point(56, 5),
+        color: "#5f9a4e",
+      },
+      // The 10 m shelf between the palace garden's west edge and Brompton
+      // Road's east parcel: garden verge, not concrete.
+      {
+        id: "london-palace-garden-west-verge",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(415, 72.5),
+        size: point(10, 75),
+        color: "#4f7a3d",
       },
       // The outside corner where Gloucester Road, Kensington Road and West
       // Carriage Drive meet: a 13 x 19 m pocket that no parcel can reach
