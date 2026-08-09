@@ -105,7 +105,14 @@ describe("park layouts", () => {
     // 48 -> 49: the Science Museum's north forecourt, the fourth side of the
     // museum quarter's planting and the last ground in it a driver could see
     // with nothing on it.
-    expect(parkCases().length).toBe(49);
+    // 49 -> 59: Pembroke Crescent's island went from three tiles to thirteen —
+    // one `pocket_green` trail band whose single cross path runs pavement to
+    // pavement, and twelve pathless `lawn` fillers stepped along the arcs so
+    // the visible island is 100% grass with zero concrete wedges (the
+    // three-tile cut left arc-corner pockets, and its three separate
+    // edge-to-edge paths play-tested as "the trail abruptly ends and another
+    // starts somewhere on its right").
+    expect(parkCases().length).toBe(59);
   });
 
   it("is deterministic — two builds are identical", () => {
@@ -137,7 +144,24 @@ describe("park layouts", () => {
     // replacements are proper garden squares — the pocket-green style, which
     // is still the one that must never grow a solid perimeter.
     expect(styleOf("london-chelsea-square-green")).toBe("pocket_green");
-    expect(styleOf("london-pembroke-green")).toBe("pocket_green");
+    expect(styleOf("london-pembroke-trail")).toBe("pocket_green");
+    // Authored-only: nothing derives "lawn", and a lawn tile has no paths at
+    // all — so no gravel, no benches or lamps (they hang off paths), no
+    // shrubs (they only grow in a band beside a path), and never a wall.
+    // Trees still scatter. This is what lets filler tiles butt-join a trail
+    // band without each sprouting its own dead-ended walk.
+    expect(styleOf("london-pembroke-green")).toBe("lawn");
+    const pembrokeLawn = parkCases().find(
+      (c) => c.landmark.id === "london-pembroke-green",
+    );
+    expect(pembrokeLawn?.layout.paths).toEqual([]);
+    expect(
+      pembrokeLawn?.layout.placements.every((p) => p.kind === "tree"),
+    ).toBe(true);
+    const pembrokeTrail = parkCases().find(
+      (c) => c.landmark.id === "london-pembroke-trail",
+    );
+    expect(pembrokeTrail?.layout.paths).toHaveLength(1);
   });
 
   it("keeps every placement inside its own park", () => {

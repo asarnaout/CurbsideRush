@@ -79,7 +79,15 @@ export type ParkStyle =
   | "riverside_strip"
   | "temple_grounds"
   | "civic_plaza"
-  | "pocket_green";
+  | "pocket_green"
+  // Pure grass and a few trees: no paths, so no gravel, benches, lamps or
+  // shrubs (shrubs only grow in a band beside a path), and never a wall.
+  // Authored-only — `resolveParkStyle` never derives it — for filler rects
+  // that butt-join a primary lawn: a filler with its own edge-to-edge path
+  // would end that path at an invisible internal seam, which is exactly the
+  // "trail stops dead in the middle of the grass" defect the Pembroke
+  // Crescent island play-tested as.
+  | "lawn";
 
 export interface ParkLandmarkInput {
   readonly id: string;
@@ -765,6 +773,8 @@ function pathRecipe(
   }
 
   switch (style) {
+    case "lawn":
+      return [];
     case "pocket_green":
       return [
         {
@@ -834,6 +844,9 @@ function zoneRecipe(style: ParkStyle): readonly ScatterZone[] {
     maxScale: 1.25,
   });
   switch (style) {
+    case "lawn":
+      // Trees only: with no paths there is no shrub band to plant in.
+      return [trees(38, 0.7, 1.0)];
     case "pocket_green":
       return [trees(38, 0.7, 1.0), shrubs(120)];
     case "temple_grounds":
@@ -1044,7 +1057,11 @@ export interface ParkWallRun {
 }
 
 /** Styles whose parks are too small or too road-bound to carry a wall. */
-const UNWALLABLE_STYLES: readonly ParkStyle[] = ["pocket_green", "civic_plaza"];
+const UNWALLABLE_STYLES: readonly ParkStyle[] = [
+  "pocket_green",
+  "civic_plaza",
+  "lawn",
+];
 /** A park narrower than this has no room for a wall and a drivable interior. */
 const PARK_WALL_MIN_SHORT_SIDE_M = 30;
 /** How far inside the boundary the wall stands. */
