@@ -125,7 +125,12 @@ describe("park layouts", () => {
     // Cromwell's band, so the loop's west corner reads green on both flanks.
     // 73 -> 74: Cromwell Fuel's side lawn — the station keep-out band on the
     // west arm where no building may legally stand, greened instead of bare.
-    expect(parkCases().length).toBe(74);
+    // 74 -> 81: the Chelsea superblock, 38% bare ground and play-tested as "an
+    // empty sea of concrete in the horizon". One garden square
+    // (`london-chelsea-gardens`, the only piece with walks, benches and a
+    // railing) plus six `lawn` fills solver-fitted to the gaps between the
+    // parcels, which all stay exactly where they were.
+    expect(parkCases().length).toBe(81);
   });
 
   it("is deterministic — two builds are identical", () => {
@@ -156,8 +161,18 @@ describe("park layouts", () => {
     // Chelsea and the King's Road gave both dead ends somewhere to go. Their
     // replacements are proper garden squares — the pocket-green style, which
     // is still the one that must never grow a solid perimeter.
-    expect(styleOf("london-chelsea-square-green")).toBe("pocket_green");
     expect(styleOf("london-pembroke-trail")).toBe("pocket_green");
+    // The Chelsea green was pocket_green until the garden square went in
+    // behind it. Its shape still derives that, but the style is now pinned to
+    // "lawn": pocket_green's cross path ran the ribbon's whole 170 m and
+    // stopped dead at both tips, and a kerb ribbon carries no trail — the
+    // walks belong to `london-chelsea-gardens`, which is somewhere to walk.
+    expect(styleOf("london-chelsea-square-green")).toBe("lawn");
+    // The garden square itself: 184 x 116 clears POCKET_GREEN_MAX_SHORT_SIDE_M
+    // and stays under STRIP_ASPECT, so it derives the one style that emits
+    // benches. Nothing is pinned — if this ever stops deriving greensward the
+    // square silently loses its walks, benches, lamps and railing.
+    expect(styleOf("london-chelsea-gardens")).toBe("urban_greensward");
     // Authored-only: nothing derives "lawn", and a lawn tile has no paths at
     // all — so no gravel, no benches or lamps (they hang off paths), no
     // shrubs (they only grow in a band beside a path), and never a wall.
@@ -183,9 +198,20 @@ describe("park layouts", () => {
       const halfZ = landmark.size.z / 2;
       // Generous by the furniture offset, which pushes a bench off the path.
       const slack = 2.5;
+      // In the PARK's frame: `headingDeg` is a clockwise yaw, so a world
+      // offset projects back with (dx cos - dz sin, dx sin + dz cos). Testing
+      // raw world offsets against `size/2` treats every park as axis-aligned,
+      // which only survived because the rotated ones were all thin ribbons
+      // along x — on a rotated near-square it calls the park's own corners
+      // out of bounds.
+      const yaw = ((landmark.headingDeg ?? 0) * Math.PI) / 180;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
       for (const placement of layout.placements) {
-        const dx = Math.abs(placement.x - landmark.center.x);
-        const dz = Math.abs(placement.z - landmark.center.z);
+        const worldX = placement.x - landmark.center.x;
+        const worldZ = placement.z - landmark.center.z;
+        const dx = Math.abs(worldX * cos - worldZ * sin);
+        const dz = Math.abs(worldX * sin + worldZ * cos);
         expect(
           dx <= halfX + slack && dz <= halfZ + slack,
           `${landmark.id}: ${placement.kind} at (${placement.x.toFixed(1)}, ${placement.z.toFixed(1)}) is outside the park`,

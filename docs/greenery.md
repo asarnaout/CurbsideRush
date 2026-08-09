@@ -31,11 +31,10 @@ also drops the base tile to 512².
 
 `parkLayouts.ts` is pure and returns paths plus placements; `roadsideProps.ts`'s
 `collectParkPlacements` splits them. Within `PARK_KNOCKABLE_REACH_M` of a path
-(plus every bench and lamp) they
-join the roadside scatter's pipeline, sharing its tree masters and becoming
-knockable street furniture; deeper ones are instanced
-scenery, unreachable and not knockable. Shrubs are never knockable at any
-distance — densest zone, and `damage: "none"` anyway.
+(plus every bench and lamp) they join the roadside scatter's pipeline, sharing
+its tree masters and becoming knockable street furniture; deeper ones are
+instanced scenery, unreachable and not knockable. Shrubs are never knockable at
+any distance — densest zone, and `damage: "none"` anyway.
 
 Both halves are `createInstance` off a `getBuildingMaster` merge, so they share
 geometry. Measured against `main` at the NYC free-drive spawn: **+3,298 meshes,
@@ -209,6 +208,15 @@ Give ONE rect the trail (a `pocket_green` band spanning the full run, its
 ends inside the bounding roads' hidden corridors so the path emerges at both
 pavements) and make every filler `"lawn"`.
 
+**Benches, walks and a railing are one package — no seating without the
+fence.** `pathFurniture` returns nothing for `pocket_green` and `lawn` has no
+path to hang furniture on, so the only styles emitting a bench also grow a wall.
+A green meant to be sat in must clear `POCKET_GREEN_MAX_SHORT_SIDE_M` (30) and
+stay under `STRIP_ASPECT` (6) to derive `urban_greensward`, and its railing is a
+collider — that ground stops being drivable. London's Chelsea garden square is
+the worked example: one 184 x 116 greensward carrying every walk in its block,
+ringed by pathless `"lawn"` fills.
+
 **An island enclosed by a road loop is one lawn or none.** A small green
 floating in it reads as "a random strip of green surrounded by concrete" — the
 play-test's words for an 80x28 stamp in a 250x195 island. Tile the whole thing
@@ -244,11 +252,11 @@ crosses the royal park with the park deliberately NOT in
 draw above it in the y-stack), planting and benches keep clear through the
 plain distance veto, and the perimeter wall's road veto opens gates where the
 drive punches the boundary — grass on both sides of the car is the point. The
-lake crossing is the same portal machinery as the Thames bridges: the water
-body whitelists the road's surface id or the shoreline collider stays an
-unbroken invisible wall across the deck. And non-park landmarks standing in any park become scatter keep-outs
-via `landmarkClearings`, with the obelisk keyed to the paved disc's radius
-rather than its plinth.
+lake crossing is the same portal machinery as the Thames bridges: the water body
+whitelists the road's surface id or the shoreline collider stays an unbroken
+invisible wall across the deck. Non-park landmarks standing in a park become
+scatter keep-outs via `landmarkClearings`, the obelisk keyed to the paved disc's
+radius rather than its plinth.
 
 Every authored park is listed in its city's content file (London's roundabout
 islands are the one generated family). `tests/parkLayouts.test.ts` pins the

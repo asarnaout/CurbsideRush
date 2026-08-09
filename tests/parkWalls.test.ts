@@ -45,16 +45,30 @@ describe("park wall meshes lie along their own runs", () => {
         if (landmark.kind !== "park") continue;
         const halfX = landmark.size.x / 2;
         const halfZ = landmark.size.z / 2;
+        // Measure in the PARK's own frame, not the world's. `headingDeg` is a
+        // clockwise yaw, so a world offset projects back with
+        // (dx cos - dz sin, dx sin + dz cos). Comparing world offsets against
+        // `size/2` silently assumes an axis-aligned park: it held while every
+        // rotated park was a thin ribbon (a corner barely moves relative to a
+        // 166 m half-length) and reported a near-square rotated one as 15 m
+        // out when its wall was exactly on the boundary.
+        const parkYaw = ((landmark.headingDeg ?? 0) * Math.PI) / 180;
+        const parkCos = Math.cos(parkYaw);
+        const parkSin = Math.sin(parkYaw);
         for (const run of parkLayoutForLandmark(pack, landmark).wall) {
-          const yaw = boxLengthYaw(run.ux, run.uz);
+          const yaw = boxLengthYaw(run.ux, run.uz) - parkYaw;
           // Local box half-extents (length along X, thickness along Z) swept
-          // through the yaw give the world-space half-extents.
+          // through the yaw give the park-space half-extents.
           const cos = Math.abs(Math.cos(yaw));
           const sin = Math.abs(Math.sin(yaw));
           const spanX = run.halfU * cos + run.halfV * sin;
           const spanZ = run.halfU * sin + run.halfV * cos;
-          const overX = Math.abs(run.x - landmark.center.x) + spanX - halfX;
-          const overZ = Math.abs(run.z - landmark.center.z) + spanZ - halfZ;
+          const dx = run.x - landmark.center.x;
+          const dz = run.z - landmark.center.z;
+          const localX = dx * parkCos - dz * parkSin;
+          const localZ = dx * parkSin + dz * parkCos;
+          const overX = Math.abs(localX) + spanX - halfX;
+          const overZ = Math.abs(localZ) + spanZ - halfZ;
           if (overX > 0.5 || overZ > 0.5) {
             failures.push(
               `${run.id} escapes its park by (${overX.toFixed(1)}, ${overZ.toFixed(1)})m`,
