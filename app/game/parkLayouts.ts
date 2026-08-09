@@ -362,7 +362,24 @@ export function resolveParkStyle(
   return "urban_greensward";
 }
 
-/** Park-local normalised (u, v) to world, through size, heading and centre. */
+/**
+ * Park-local normalised (u, v) to world, through size, heading and centre.
+ *
+ * `headingDeg` is a **clockwise** world yaw — local +x maps to
+ * (cos, -sin), local +z to (sin, cos) — because the lawn is a Babylon mesh
+ * spun by `lawn.rotation.y` and Babylon's left-handed Y rotation is clockwise
+ * seen from above. Every other rect in the game already means that: block
+ * facade grids (`facadeGridCells`), their colliders (`simulationAdapter`),
+ * the address lookup (`streetAddresses`), the two maps (`minimapDraw`).
+ *
+ * This used to be the textbook counter-clockwise rotation instead, which is a
+ * mirror of the lawn it is supposed to describe. Nothing caught it while every
+ * park was axis-aligned (the `!heading` short-circuit), and once rotated kerb
+ * ribbons arrived it cost three play-test rounds: every rotated lawn rendered
+ * at MINUS its authored yaw, so a 330 m ribbon aligned on paper still swung
+ * ~9 m across its own kerb and the grass "took a diagonal" mid-road. Change
+ * this and you must re-sign every authored `headingDeg` on a park.
+ */
 const toWorld = (
   landmark: ParkLandmarkInput,
   u: number,
@@ -377,8 +394,8 @@ const toWorld = (
   const cos = Math.cos(heading);
   const sin = Math.sin(heading);
   return {
-    x: landmark.center.x + localX * cos - localZ * sin,
-    z: landmark.center.z + localX * sin + localZ * cos,
+    x: landmark.center.x + localX * cos + localZ * sin,
+    z: landmark.center.z - localX * sin + localZ * cos,
   };
 };
 

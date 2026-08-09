@@ -58,9 +58,11 @@ export interface MapDrawWaterBody {
 
 /**
  * A park rectangle, drawn as a green fill under the water and the roads.
- * `headingDeg` matches the landmark convention (local +x maps to world
- * (cos, -sin)); every shipped park is axis-aligned today, but the corners are
- * built through the rotation so a future rotated green just works.
+ * `headingDeg` matches the landmark convention — a clockwise world yaw, local
+ * +x to (cos, -sin) — which is what `lawn.rotation.y` does in the scene. This
+ * agreed with the rendered lawn even while `parkLayouts.toWorld` did not, so
+ * London's five rotated kerb ribbons drew straight here and crooked in the
+ * world; do not "correct" this sign to match a maths textbook.
  */
 export interface MapDrawPark {
   readonly center: MapDrawPoint;

@@ -3614,7 +3614,11 @@ export const LONDON_MAP_PACK: MapPack = {
         // pavement or not at all.
         center: point(638.18, -68.32),
         size: point(124.75, 14),
-        headingDeg: 5.85,
+        // Negative: a park's headingDeg is a CLOCKWISE yaw, so a segment
+        // running (dx, dz) needs atan2(-dz, dx), not atan2(dz, dx). Authored
+        // +5.85 here, this ribbon rendered at -5.85 and swung 12.7 m off its
+        // own kerb by the west end. See the Notting Hill pair below.
+        headingDeg: -5.85,
         color: "#5f9a4e",
       },
       {
@@ -3624,7 +3628,8 @@ export const LONDON_MAP_PACK: MapPack = {
         // used to stop 2.2 m short of the corner it hands over at.
         center: point(745.21, -59.21),
         size: point(88.68, 14),
-        headingDeg: 3.43,
+        // Clockwise yaw, as above: was +3.43, rendering 5.3 m off the kerb.
+        headingDeg: -3.43,
         color: "#5f9a4e",
       },
       // Boulevard strips for the museum quarter's west environs — the owner
@@ -3864,18 +3869,29 @@ export const LONDON_MAP_PACK: MapPack = {
       // Grove's band so the ribbon hands over at the junction, not before it.
       // parkStyle "lawn" on BOTH Notting Hill ribbons: left to the default
       // dressing, each 330 m ribbon elected a full-length trail that wove
-      // corner-to-corner across the 14 m width — where the pale path met the
-      // kerbside edge the green visually pinched out mid-road, which the
-      // play-test circled twice ("takes a diagonal and cuts off"). A kerb
-      // ribbon is scenery seen from the carriageway, not a walkable park:
-      // pathless, always.
+      // corner-to-corner across the 14 m width. A kerb ribbon is scenery seen
+      // from the carriageway, not a walkable park: pathless, always.
+      //
+      // THE SIGN IS THE WHOLE STORY HERE. `headingDeg` on a park is a
+      // CLOCKWISE world yaw, because the lawn is a Babylon mesh turned by
+      // `lawn.rotation.y` and Babylon's left-handed Y rotation runs clockwise
+      // from above. A segment running (dx, dz) therefore needs
+      // atan2(-dz, dx), which is what `roadsideParcel` already hands its
+      // blocks — the terraces behind these ribbons carry +178.41. Authored at
+      // the textbook atan2(dz, dx) = -178.41, the lawn rendered at the mirror
+      // of its intent: aligned at the centre, 9.5 m adrift by the east end,
+      // running out under the carriageway at the west. That is the diagonal
+      // the play-test circled three times ("the grass suddenly takes a
+      // diagonal and cuts off"), and no amount of parkStyle fixed it because
+      // the trail was never the cause. Verified in-scene: the lawn's kerbside
+      // edge now sits 0.28 m off the pavement band for the whole run.
       {
         id: "london-notting-hill-south-strip-east",
         kind: "park",
         parkStyle: "lawn",
         center: point(-488.78, 919.57),
         size: point(332.74, 14),
-        headingDeg: -178.41,
+        headingDeg: 178.41,
         color: "#5f9a4e",
       },
       // East end extended 6 m to reach Westbourne Grove's pavement band — a
@@ -3886,7 +3902,8 @@ export const LONDON_MAP_PACK: MapPack = {
         parkStyle: "lawn",
         center: point(-829.08, 912.31),
         size: point(325.64, 14),
-        headingDeg: -179.16,
+        // Clockwise yaw, as above: was -179.16, rendering 4.8 m off the kerb.
+        headingDeg: 179.16,
         color: "#5f9a4e",
       },
       // The Notting Hill district's two squares: a walled garden square in
@@ -3941,7 +3958,11 @@ export const LONDON_MAP_PACK: MapPack = {
         // exempt frontage.
         center: point(-449.97, -337.31),
         size: point(170, 28),
-        headingDeg: 8.2,
+        // Clockwise yaw (see the Notting Hill ribbons): was +8.2, and at 170 m
+        // long that mirror threw the east tip 24 m off the King's Road — the
+        // worst of the five. Every measurement in the comment above was taken
+        // against the intended alignment, which is what this sign now gives.
+        headingDeg: -8.2,
         color: "#5f9a4e",
       },
       // The green inside Pembroke Crescent's arc — the reason to build a
