@@ -301,6 +301,12 @@ interface RoadJunctionLeg {
   readonly direction: RoadDirection;
   /** Unit normal pointing at the next leg round the node in heading order. */
   readonly lateral: RoadDirection;
+  /** The leg's own centreline point. Usually the cluster pivot, but an arm
+   * adopted from a surface whose authored end sits off the shared node
+   * (Cromwell Road's recentred dual carriageway) keeps its own origin so the
+   * kerb-corner math stays exact — the same contract as `PavementLeg.origin`
+   * in `pavementPaths.ts`. */
+  readonly origin: GameCanvasPoint;
   readonly half: number;
   readonly reach: number;
 }
@@ -316,8 +322,12 @@ function junctionKerbCorner(
   a: RoadJunctionLeg,
   b: RoadJunctionLeg,
 ): { alongA: number; alongB: number } | null {
-  const offsetX = -b.lateral.x * b.half - a.lateral.x * a.half;
-  const offsetZ = -b.lateral.z * b.half - a.lateral.z * a.half;
+  // The origin deltas are zero whenever both legs sit on the shared node —
+  // every junction except an adopted off-node arm. Mirror of `railCorner`.
+  const offsetX =
+    b.origin.x - a.origin.x - b.lateral.x * b.half - a.lateral.x * a.half;
+  const offsetZ =
+    b.origin.z - a.origin.z - b.lateral.z * b.half - a.lateral.z * a.half;
   const determinant = b.direction.x * a.direction.z - a.direction.x * b.direction.z;
   if (Math.abs(determinant) < 1e-6) return null;
   return {
@@ -335,14 +345,19 @@ function junctionKerbCorner(
  * to somewhere too far off to be a corner at all.
  */
 function junctionCornerVertices(
-  node: GameCanvasPoint,
   a: RoadJunctionLeg,
   b: RoadJunctionLeg,
   kerbRadiusM: number,
 ): GameCanvasPoint[] {
   const at = (leg: RoadJunctionLeg, lateralSign: number, along: number) => ({
-    x: node.x + leg.lateral.x * leg.half * lateralSign + leg.direction.x * along,
-    z: node.z + leg.lateral.z * leg.half * lateralSign + leg.direction.z * along,
+    x:
+      leg.origin.x +
+      leg.lateral.x * leg.half * lateralSign +
+      leg.direction.x * along,
+    z:
+      leg.origin.z +
+      leg.lateral.z * leg.half * lateralSign +
+      leg.direction.z * along,
   });
   const chamfer = [at(a, 1, 0), at(b, -1, 0)];
   // Two legs pointing away from each other are one road running THROUGH the
@@ -364,7 +379,7 @@ function junctionCornerVertices(
     const miter = at(a, 1, meeting.alongA);
     // Same guard the strip mitering uses: past this a near-hairpin would throw
     // out a long spike instead of squaring off a turn.
-    return Math.hypot(miter.x - node.x, miter.z - node.z) <=
+    return Math.hypot(miter.x - a.origin.x, miter.z - a.origin.z) <=
       Math.min(a.half, b.half) * MAX_ROAD_MITER_RATIO
       ? [miter]
       : chamfer;
@@ -571,6 +586,7 @@ export function collectRoadJunctionFills(
           // `roadLateral` turns a heading clockwise, which is the direction the
           // sort below advances in, so this always faces the next leg round.
           lateral: roadLateral(direction),
+          origin: arm.node,
           half: arm.half,
           reach: Math.min(
             Math.max(cluster.maxHalf * 1.7, arm.half * 1.3),
@@ -587,8 +603,8 @@ export function collectRoadJunctionFills(
     );
     const polygon: GameCanvasPoint[] = [];
     for (const [index, leg] of legs.entries()) {
-      const tipX = pivot.x + leg.direction.x * leg.reach;
-      const tipZ = pivot.z + leg.direction.z * leg.reach;
+      const tipX = leg.origin.x + leg.direction.x * leg.reach;
+      const tipZ = leg.origin.z + leg.direction.z * leg.reach;
       polygon.push({
         x: tipX - leg.lateral.x * leg.half,
         z: tipZ - leg.lateral.z * leg.half,
@@ -599,7 +615,6 @@ export function collectRoadJunctionFills(
       });
       polygon.push(
         ...junctionCornerVertices(
-          pivot,
           leg,
           legs[(index + 1) % legs.length],
           kerbRadiusM,
