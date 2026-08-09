@@ -376,7 +376,19 @@ function junctionCornerVertices(
   // nicely with the rest of it". Bridging straight from one arm's outer
   // corner to the other's spreads the same 0.7 m over the fill's whole
   // length, where it reads as the taper a real street would have.
+  //
+  // The plain bridge splits that taper across BOTH reaches, though, so the
+  // wider strip's square end still pokes half the step above the bridge at
+  // the node. Holding the boundary to the wider leg's kerb at the node makes
+  // the taper one-sided: the wide kerb runs unbroken to the junction and the
+  // whole step resolves across the narrow leg's reach — the way a real
+  // widening starts at a junction. Kensington Road (7.2 m) meeting
+  // Knightsbridge (10.4 m) tapers 1.6 m over ~9 m this way, about 10 degrees.
+  // Equal-width pairs keep the plain bridge, bit for bit.
   if (dotRoadDirections(a.direction, b.direction) <= -STRAIGHT_THROUGH_COS) {
+    if (Math.abs(a.half - b.half) > 0.01) {
+      return [a.half > b.half ? at(a, 1, 0) : at(b, -1, 0)];
+    }
     return [];
   }
   const meeting = junctionKerbCorner(a, b);

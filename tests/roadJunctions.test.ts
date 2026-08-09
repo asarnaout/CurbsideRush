@@ -188,6 +188,25 @@ describe("collectRoadJunctionFills", () => {
     }
   });
 
+  it("holds the wider kerb to the node where unequal widths run straight through", () => {
+    // A width handover (Kensington Road 7.2 m becoming Knightsbridge 10.4 m)
+    // is a straight-through pair, so there is no corner — but a plain bridge
+    // between the two tips splits the width step across both reaches and the
+    // wide strip's square end pokes above it at the node. The boundary must
+    // instead run along the wide kerb to the node and taper one-sidedly
+    // across the narrow leg's reach.
+    const handover: RoadJunctionSource[] = [
+      { id: "wide", centerline: [{ x: -40, z: 0 }, { x: 0, z: 0 }], widthM: 10.4 },
+      { id: "narrow", centerline: [{ x: 0, z: 0 }, { x: 40, z: 0 }], widthM: 9 },
+    ];
+    const [fill] = collectRoadJunctionFills(handover);
+    // Just inside the wide kerb at the node: paved now, above the old bridge.
+    expect(pointInPolygon({ x: -2, z: 5.0 }, fill.polygon)).toBe(true);
+    expect(pointInPolygon({ x: -2, z: -5.0 }, fill.polygon)).toBe(true);
+    // The taper still tapers — the wide width is not carried across the node.
+    expect(pointInPolygon({ x: 2, z: 5.1 }, fill.polygon)).toBe(false);
+  });
+
   it("keeps every authored junction's corners walkable", () => {
     for (const pack of MAP_PACKS) {
       const surfaces = pack.geometry.roadSurfaces ?? [];
