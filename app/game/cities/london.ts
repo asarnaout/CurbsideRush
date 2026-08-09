@@ -2392,6 +2392,40 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-sb-fab-d", center: point(-60, -778), size: point(240, 54), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-pc-fab-a", center: point(1049, 590), size: point(182, 120), heightRange: [14, 23] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-cb-fab-a", center: point(1258, 697), size: point(130, 76), heightRange: [13, 21] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  // Fourth and final pass: every remaining void blob with a sightline from a
+  // kerb inside 30 m. Names key the district; three flank London-v6's venue
+  // circle north of Royal Hospital Road rather than crossing it, and the two
+  // pockets fenced by venue circles on all sides (Gloucester South's and the
+  // Westminster-bridge shore, which is riverward) stay open deliberately.
+  { id: "london-block-krx-fab-a", center: point(-700, -240), size: point(95, 150), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-krx-fab-b", center: point(-410, -258), size: point(100, 68), heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-cex-fab-a", center: point(-700, -500), size: point(240, 55), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-cex-fab-b", center: point(-1000, -530), size: point(240, 60), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-bbe-fab-a", center: point(1000, -643), size: point(260, 84), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-bbe-fab-b", center: point(1260, -610), size: point(240, 80), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-ves-fab-a", center: point(440, -322), size: point(200, 104), heightRange: [13, 21] as const, density: 0.74, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-ves-fab-b", center: point(605, -329.5), size: point(90, 75), heightRange: [13, 21] as const, density: 0.74, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-nes-fab-a", center: point(1290, 904), size: point(190, 48), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-hrs-fab-w", center: point(-12.5, -317.5), size: point(85, 75), heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-hrs-fab-e", center: point(112, -310), size: point(56, 60), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-hrs-fab-s", center: point(57, -327.5), size: point(54, 55), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-bms-fab", center: point(-520, -804.5), size: point(220, 17), heightRange: [10, 15] as const, density: 0.68, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-pwx-fab", center: point(712, 338), size: point(34, 46), heightRange: [15, 24] as const, density: 0.76, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-cnp-fab", center: point(240, 30), size: point(150, 90), heightRange: [13, 21] as const, density: 0.74, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-tpx-fab", center: point(-50, 150), size: point(88, 110), heightRange: [13, 21] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-gvp-fab", center: point(536, 20), size: point(28, 100), heightRange: [14, 22] as const, density: 0.76, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-pnp-fab", center: point(-983, 222), size: point(28, 36), heightRange: [11, 17] as const, density: 0.7, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  // Middle-tier residuals from the fourth pass's re-audit; the Thames shore
+  // pockets (Westminster Bridge's and Tower Bridge's) stay open — riverfront
+  // esplanade is the correct look there.
+  { id: "london-block-knp-fab", center: point(165, 155), size: point(100, 90), heightRange: [13, 21] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-knp-fab-s", center: point(289, 89), size: point(130, 60), heightRange: [13, 21] as const, density: 0.74, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-krx-fab-c", center: point(-560, -273), size: point(170, 60), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-krx-fab-d", center: point(-400, -190), size: point(110, 64), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-pwx-fab-b", center: point(790, 356.5), size: point(90, 33), heightRange: [15, 24] as const, density: 0.76, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-sbx-fab", center: point(94, -754), size: point(56, 96), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-bpe-fab", center: point(-413, -846), size: point(40, 58), heightRange: [11, 17] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-bpw-fab", center: point(-974, -880), size: point(56, 50), heightRange: [11, 17] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-canonbury-ne-fab", center: point(1394, 861), size: point(36, 138), heightRange: [12, 20] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
 ].filter((block): block is ProceduralBlock => block !== null);
 

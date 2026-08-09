@@ -91,25 +91,34 @@ an island lawn meets its kerbs with no fringe (docs/greenery.md).
 
 **A junction outline tapers a width change, it does not step it.** In
 `collectRoadJunctionFills`, two legs pointing away from each other are one road
-running *through* the node rather than a corner, so the outline bridges
-straight between the two arms' outer corners. Chamfering them to the node
-instead puts both kerb offsets at the same point and jumps the whole width
-difference over a few centimetres — 0.7 m in the middle of an otherwise
-straight pavement where Bayswater Road's 10.4 m meets Notting Hill Gate's 9 m
-at a 1.6° bend, which play-tested as the sidewalk "suddenly breaking".
+running *through* the node rather than a corner. An unequal-width pair holds
+the boundary to the WIDER leg's kerb at the node and tapers one-sidedly across
+the narrow leg's reach (Kensington Road's 7.2 m into Knightsbridge's 10.4 m
+resolves over ~9 m); equal widths bridge tip to tip. Chamfering to the node
+instead jumps the whole step over centimetres, which play-tested as the
+sidewalk "suddenly breaking".
 
-The stack cannot save geometry that fights *inside* one model. The Quaternius
-Cairo kit authors its brick patches, base bands and glazing as primitives
-0.6–3.5 mm proud of the wall primitives — below what a 24-bit depth buffer
-resolves at street viewing distance — so `biasCairoDecalMaterials` pulls those
-five named materials (`CAIRO_DECAL_MATERIAL_NAMES`) toward the camera with
-`zOffsetUnits`, per `cairo-*.glb` container material only. Two rules fall out:
-prefer polygon offset over nudging vertices for decal-on-wall fixes (it scales
-with the local depth quantum), and treat camera `minZ` as a depth-precision
-budget — precision varies as `minZ/z²`, the far plane is almost irrelevant, and
-the chase camera's 0.5 exists to keep millimetre offsets resolvable. Don't
-lower a `minZ` to "fix" near clipping without knowing you are spending 1/n of
-everyone's depth separation.
+**Junction fills ADOPT off-node road ends.** An open tip whose own cluster is
+not a junction joins the nearest real junction within summed half-widths, with
+a per-leg `origin` keeping the kerb math exact — the mirror of
+`buildPavementGraph`'s adoption pass, and the fix for Cromwell Road's
+deliberately lane-stack-centred dual carriageway, whose two junction mouths
+were otherwise traced without the 11.4 m road present. A four-map pin in
+`tests/roadJunctions.test.ts` asserts Cromwell's two arms stay the only
+adopted ones.
+
+QA hooks: `__sideswapTeleport({x, z, heading})` (radians) poses the car
+through `SimulationCore.setPlayerPose` — the cutscene's replay-invisible entry
+point — and snaps the chase camera, which is what lets a headless sweep
+screenshot every road in one session (`installDebugHooks`).
+
+The stack cannot save geometry that fights *inside* one model: the Cairo kit's
+millimetre-proud decal primitives are pulled forward by
+`biasCairoDecalMaterials` (`CAIRO_DECAL_MATERIAL_NAMES`, per `cairo-*.glb`
+container only). Prefer polygon offset over nudging vertices for
+decal-on-wall fixes, and treat camera `minZ` as a depth-precision budget
+(precision varies as `minZ/z²`; the chase camera's 0.5 keeps millimetre
+offsets resolvable — don't lower it to "fix" near clipping).
 
 ## Grass, parks and planting are their own page
 

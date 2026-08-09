@@ -120,20 +120,27 @@ Hill grid land exclusively on nodes that already existed (the park corner,
 `bayswater-mid`, `kensington-exhibition`, the Nevern Place tees) for exactly
 this reason.
 
-**Emptiness is audited by six detectors, not by one rule.** The play-tested
-failure mode is ground a driver can see with nothing on it. A single
-"no kerb bare over 70 m" sweep passed all eight complaints of the round that
-produced the current standard, so the bar is now: **(A)** flood-filled void
-blobs ≥1,200 m²; **(B)** open horizon on a 24 m ring at every junction, fixed
-above 100°; **(C)** kerb bare over **28 m**, with **no road exempt** — the old
-sweep skipped the quiet loop by regex, which is where the player spawns and
-was the first thing photographed; **(D)** a kerb green that stops mid-road;
-**(E)** a kerb green with nothing within ~3 m behind it, which reads as
-emptiness wearing a green hat; **(F)** a park wall run ending short of a
-pavement. Standing exemptions, and only these: a frontage whose outward ray
-reaches the Thames before any building (encode it, do not hand-list it), the
-world-edge margin, park interiors, and the deep core of a blob that no kerb or
-junction can see into — B and C going clean at its edges is the proof.
+**Emptiness is judged by what the CAMERA sees, not by kerb-distance rules.**
+Six plan-space detectors went to zero and the map was still rejected: they
+measured geometry within metres of the kerb while the chase view sees
+50–100 m deep. The standard now: **(A′)** any flood-filled void blob ≥300 m²
+with an *unoccluded 2-D sightline* from a kerb within ~70 m (occluders are
+building rects, walled parks, water) must be filled — distance from the kerb
+is **never** an exemption; **(C)** kerb bare over 28 m, no road exempt;
+**(D′)** strip spans measured over *name-chained* road sequences — a street
+that continues across a junction as another road id is one street; **(G)**
+a park edge facing a road more than 0.6 m off the pavement band (0.3 m is
+the convention; unwalled lawns fix it by extending INTO the band, walled
+parks hold at +0.3 or their wall dies to the 0.65 m veto), including
+park-to-park concrete seams; **(H)** a kerb green whose first content behind
+its far edge is beyond ~1.5 m. Exemptions: Thames-facing frontage (encode
+the outward-ray test) and the world-edge margin only. The proof pass is a
+**teleport camera sweep**: `__sideswapTeleport` poses the chase view along
+every road both ways (~50 m steps) and each frame is pixel-scored; the score
+RANKS work (white stucco reads as grey, so it cannot be a zero-bar) and the
+detectors above are the bar. An authored `roadsideParcel` span under ~50 m
+ships **nothing** (26 m floor after the 12 m end insets) — always re-query
+the block after authoring.
 
 Three parcel traps: `roadsideParcel`'s trimmer clears *foreign roads only* —
 a parcel spanning its own road's **bend** chords across its own carriageway

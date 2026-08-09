@@ -41,17 +41,13 @@ Both halves are `createInstance` off a `getBuildingMaster` merge, so they share
 geometry. Measured against `main` at the NYC free-drive spawn: **+3,298 meshes,
 +23 MB heap, +3 draw calls**.
 
-Two routes were tried and rejected, and the numbers are why. **Merging a cell
-into one mesh** duplicates its geometry per plant: it saved 2,000 meshes and 12
-draw calls but cost **+100 MB of heap** (368 -> 468 MB on NYC), which is a bad
-trade on a phone. It was also the right answer while planting was procedural,
-because a procedural tree is four part-meshes where an imported one is a single
-merged glb — the +9,283 meshes that motivated batching never materialise now.
-**Thin instances draw nothing here at all**: chunks come out visible, enabled,
-right material, right `thinInstanceCount`, correct refreshed bounds, Babylon
-submits them (draw calls rise ~7x) and no pixels land. Bisect ruled out the
-multi-material merge, `freezeWorldMatrix`, and the `material.freeze()` ending
-`buildRoadsideProps`. Do not spend the afternoon again.
+Two routes were tried and rejected. **Merging a cell into one mesh** costs
++100 MB of heap (geometry duplicated per plant) for 12 draw calls — a bad
+trade on a phone. **Thin instances draw nothing here at all**: every observable
+is correct (visible, enabled, counts, bounds, draw calls submitted) and no
+pixels land; bisect ruled out the multi-material merge, `freezeWorldMatrix`
+and the `material.freeze()` ending `buildRoadsideProps`. Do not spend the
+afternoon again.
 
 ## A park's gates are derived from its own paths
 
@@ -197,34 +193,42 @@ like other small furniture, and so a torii stays drivable *through*.
 ## A park's style is derived, and two styles can never be walled
 
 `resolveParkStyle` reads the landmark id first and its proportions second, so a
-named `jp-temple-green` stays temple grounds at 24x28 m where the size gate
-alone would call it a token green. `ProceduralLandmark.parkStyle` overrules
-both — Pembroke Crescent's island is three 186x146-and-smaller tiles that would
-each derive as walled greenswards, and a stepped wall following the inside of a
-crescent reads as broken, so every tile is pinned `pocket_green`.
+named `jp-temple-green` stays temple grounds where the size gate alone would
+call it a token green. `ProceduralLandmark.parkStyle` overrules both —
+London's roundabout islands are pinned `pocket_green` in their generator
+(Parliament Square's is 34 m across, past the size gate, and a walled
+greensward inside a traffic ring is absurd).
+
+**`"lawn"` is the filler style: pure grass, authored-only.** `pathRecipe`
+returns nothing for it, and everything else keys off paths — no gravel, no
+benches or lamps, no shrubs (they only grow in a band beside a path), never a
+wall; trees still scatter. It exists because **a trail may only end at a
+pavement**: every other style derives at least one edge-to-edge path, so a
+lawn tiled from several styled rects grows one dead-ended trail per tile.
+Give ONE rect the trail (a `pocket_green` band spanning the full run, its
+ends inside the bounding roads' hidden corridors so the path emerges at both
+pavements) and make every filler `"lawn"`.
 
 **An island enclosed by a road loop is one lawn or none.** A small green
 floating in it reads as "a random strip of green surrounded by concrete" — the
 play-test's words for an 80x28 stamp in a 250x195 island. Tile the whole thing
-with butt-joined rects, and let each tile run out to the surrounding roads'
-**centrelines**: lawn draws at y0.02, under the pavement band at 0.045 and the
-carriageway at 0.07, so the visible edge is the kerb itself and there is no
-fringe of bare ground to leave. Past the centreline it would surface on the far
-side, which is the limit to solve against. `pocket_green` and `civic_plaza` are the two that must never grow a solid
-perimeter: London's garden squares are 28 m across the short side inside a
-Chelsea block, and roads cut Tahrir's authored rectangle. Tahrir's plaza ensemble — paved disc, benches,
-olives — rings the `cairo-tahrir-obelisk` landmark's centre, with rings authored
-to clear every pavement band outright; `cairoTahrirFurnitureLayout`'s `settle()`
-remains only as the safety net for future road edits. The Opera Grounds keep
-their greensward style but not its walks: an id-keyed recipe
-(`operaGardenPaths`) lays four straight arms on the opera house's axis — not
-the park's own centre — ending at the plaza disc, with the east arm tucked
-half a metre under the corridor's pavement band so the seam reads as a street
-entrance. Its parterres ARE the quadrants: each bed runs from the walk
-centrelines to the park rectangle and everything above paints over it, so a
-bed edge can only land on a walk, the disc rim, the terrace or the band —
-straight-edged beds floating in lawn read as unaligned with all of them, and
-against the diagonal street the gap visibly tapered.
+with butt-joined rects (Pembroke Crescent ships as one trail band plus twelve
+`"lawn"` fillers, solver-verified to cover 100% of the visible interior), and
+let each tile run into the surrounding roads' **hidden corridor**: lawn draws
+at y0.02, under the pavement band at 0.045 and the carriageway at 0.07, so any
+edge within centreline ± (width/2 + sidewalk) is invisible and the visible
+edge is the kerb itself. A curve is hugged by stepping axis-aligned tiles
+whose outer edges stay inside that corridor over each step's span. Past the
+far pavement's outer edge lawn surfaces on the wrong side — the limit to
+solve against. `pocket_green`, `civic_plaza` and `lawn` must never grow a
+solid perimeter (`UNWALLABLE_STYLES`). Tahrir's plaza ensemble rings the
+`cairo-tahrir-obelisk` landmark's centre with rings authored clear of every
+pavement band; `cairoTahrirFurnitureLayout`'s `settle()` is only the safety
+net for future road edits. The Opera Grounds keep the greensward style but
+swap its walks for an id-keyed recipe (`operaGardenPaths`): four straight
+arms on the opera house's axis ending at the plaza disc, and parterres that
+run from the walk centrelines outward so every bed edge lands on a walk, the
+rim, the terrace or the band — beds floating in lawn read as unaligned.
 
 Two scatter rules exist for the same reason, and the first generalises by id.
 `civic_plaza` planting keeps to the park-centre side of any road crossing the
@@ -246,7 +250,6 @@ unbroken invisible wall across the deck. And non-park landmarks standing in any 
 via `landmarkClearings`, with the obelisk keyed to the paved disc's radius
 rather than its plinth.
 
-Every authored park is listed in its city's content file — London's two
-turning-island greens, which its turning-loop helper generated rather than
-listing, went with the loops themselves when Chelsea and the King's Road gave
-both dead ends somewhere to go. `tests/parkLayouts.test.ts` pins the total.
+Every authored park is listed in its city's content file (London's roundabout
+islands are the one generated family). `tests/parkLayouts.test.ts` pins the
+total.

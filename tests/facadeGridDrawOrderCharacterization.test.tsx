@@ -284,7 +284,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // Street's east band (263 -> 285 blocks). -> 7_518 with the second
     // half's twenty-five interior slabs (285 -> 310 blocks).
     // -> 7_782 with the third pass's eleven slabs (310 -> 321 blocks).
-    drawCount: 7_782,
+    // -> 8_214 with the fourth pass's eighteen slabs (321 -> 339 blocks).
+    // -> 8_382 with the seven residual slabs (339 -> 346 blocks).
+    // -> 8_406 (346 -> 347 blocks).
+    drawCount: 8_406,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -316,7 +319,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // mid band) -> "63fff32c" (the void-kill round's first twenty-two
     // blocks) -> "ed6657d2" (its second half's twenty-five).
     // -> "8134d2c0" (the third pass).
-    facadeMeshFingerprint: "8134d2c0",
+    // -> "b6d62194" (the fourth pass).
+    // -> "ea7be17e" (the residual slabs).
+    // -> "3872be7f".
+    facadeMeshFingerprint: "3872be7f",
   },
   "tokyo-setagaya": {
     drawCount: 216,

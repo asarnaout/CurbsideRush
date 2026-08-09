@@ -376,9 +376,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // interior slabs — second-row fabric behind every district's street
     // wall. Materials unchanged: the slabs reuse the district material sets.
     // 7_320 -> 7_408 (active 634 -> 655): the void-kill third pass.
-    totalMeshes: 7_408,
-    enabledMeshes: 7_408,
-    activeMeshes: 655,
+    // 7_408 -> 7_539 (active 655 -> 679): the void-kill fourth pass.
+    // 7_539 -> 7_595 (active 679 -> 695): the residual slabs.
+    // 7_595 -> 7_603: the Brompton pocket's south half.
+    totalMeshes: 7_603,
+    enabledMeshes: 7_603,
+    activeMeshes: 695,
     materials: 292,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
