@@ -382,10 +382,20 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 7_603 -> 7_607 (active 695 -> 692, 292 -> 294 materials, mirror 214 ->
     // 216): fabric street edges named (side rows retired) and the spawn
     // corner's L-verge and re-spanned terraces.
-    totalMeshes: 7_607,
-    enabledMeshes: 7_607,
-    activeMeshes: 692,
-    materials: 294,
+    // 7_607 -> 7_633 (active 692 -> 712, materials 294 -> 295, mirror drawn
+    // 216 -> 217): the spawn quarter's building L closes its corner, the
+    // quiet island's north band gains its first boxes, and Cromwell Fuel's
+    // side lawn greens the keep-out band.
+    // 7_633 -> 7_621 (active 712 -> 700): the Gloucester grammar run — the
+    // resized ribbons re-deal their derived planting and the corner parcels
+    // re-slot; net fewer thickets than the old bare-band scatter.
+    // 7_621 -> 7_609 (active 700 -> 699): four kerb ribbons go parkStyle
+    // lawn, retiring their elected trail paths (and the path furniture the
+    // dressing hung on them); one bayswater seam terrace joins.
+    totalMeshes: 7_609,
+    enabledMeshes: 7_609,
+    activeMeshes: 699,
+    materials: 295,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -407,8 +417,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (the forecourt growths and threads sit inside the mirror radius);
     // 35 -> 31 / 212 -> 214 as the spawn quarter's fabric fills what the
     // mirrors look into and occludes part of the old candidate ring.
-    mirrorCandidates: 31,
-    mirrorDrawn: 216,
+    // 31 -> 46 / 216 -> 217: the corner terraces, the island's north-band
+    // boxes and the station side lawn all stand inside the spawn's mirror
+    // candidate radius.
+    // 46 -> 45: the Cromwell far-west ribbon's retired trail path was one.
+    mirrorCandidates: 45,
+    mirrorDrawn: 217,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -427,7 +441,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // retile (trail band + pathless lawns). -> "ed8e6b3a": the flush-stack
     // sweep's ten greens. -> "6dc30ed4": the void-kill round's first half.
     // -> "9b5073c7": the spawn corner re-grammar.
-    survivingMaterialNamesFingerprint: "9b5073c7",
+    // -> "edd7eddb": the quiet island's procedural north band.
+    survivingMaterialNamesFingerprint: "edd7eddb",
   },
   "tokyo-setagaya": {
     totalMeshes: 1_086,

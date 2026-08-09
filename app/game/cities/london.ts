@@ -1842,7 +1842,12 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // Starts at z-60, not the Cromwell node: the Gloucester west ribbon runs
   // down to z-48 and the band behind it stopped at z-20, leaving 28 m of
   // green with a grey field behind it.
-  roadsideParcel("london-block-gloucester-w-2", "london-gloucester", point(-300, -60), nodeAt("london-node-gloucester-kensington"), -1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74, 13.5),
+  // From z-108, not z-60: the span must reach z-96 so the terrace row runs
+  // behind the west ribbon all the way down to the Old Brompton corner —
+  // the row and its ribbon used to stop together at z-48 and the corner
+  // read as 50 m of bare ground from the road. The southernmost terrace's
+  // flank lands ~0.5 m off Old Brompton's pavement band.
+  roadsideParcel("london-block-gloucester-w-2", "london-gloucester", point(-300, -108), nodeAt("london-node-gloucester-kensington"), -1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74, 13.5),
   roadsideParcel("london-block-gloucester-e-1", "london-gloucester", nodeAt("london-node-gloucester-south"), nodeAt("london-node-gloucester-cromwell"), 1, 7.2, 36, LONDON_RED_BRICK, [11, 18], 0.72),
   // Starts at z=-4, not the Cromwell node: the parcel trimmer clears roads,
   // not park strips, and from the node this band ran under the Cromwell
@@ -1861,9 +1866,20 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // needs to be one house deep.
   roadsideParcel("london-block-cromwell-fw-n-w", "london-cromwell-far-west", point(-205, -32), point(-289, -32), 1, 7.2, 17.5, LONDON_STOCK_BRICK, [12, 19], 0.74, 13.5),
   // extraInsetM 5.2: the corner verge's west arm runs on this kerb now, and
-  // the terraces stand 0.6 m behind it. Span starts 12 m past the corner so
-  // the row reaches the corner itself.
-  roadsideParcel("london-block-quiet-w", "london-quiet-loop", point(-164, -116), nodeAt("london-node-quiet-west-north"), -1, 7.2, 34, LONDON_STOCK_BRICK, [10, 16], 0.68, 5.2),
+  // the terraces stand 0.6 m behind it. The span starts 12.6 m PAST the
+  // south verge's back line (z-116.6), not at the corner node: the east-facing
+  // row must run through the corner until its southernmost terrace's flank
+  // lies exactly on quiet-s's front line, so the two rows close the verge's
+  // right angle back-to-back with no bare corner pocket between them —
+  // the play-test circled that pocket and the gable it exposed. Density 0.8,
+  // not the old 0.68: with Cromwell Fuel's keep-out already eating the row's
+  // north end, anything sparser leaves lone terraces in a bare run. The span
+  // ends at z-84.5 (a point, not the corner node) and the depth is one
+  // terrace (12.4): everything further north inside this kerb's old 34-deep
+  // rect is the station's keep-out, where no slot can survive — and the
+  // station's side LAWN now owns that ground, so the parcel rect must stop
+  // where the lawn starts or the park-vs-block invariant trips.
+  roadsideParcel("london-block-quiet-w", "london-quiet-loop", point(-164, -128.6), point(-164, -72.5), -1, 7.2, 12.4, LONDON_STOCK_BRICK, [10, 16], 0.8, 5.2),
   roadsideParcel("london-block-kensington-s-w", "london-kensington", point(-226, 220), nodeAt("london-node-queen-gate-far-north"), 1, 7.2, 40, LONDON_STUCCO, [13, 21], 0.76),
   roadsideParcel("london-block-kensington-s-e", "london-kensington", nodeAt("london-node-queen-gate-far-north"), nodeAt("london-node-kensington-exhibition"), 1, 7.2, 40, LONDON_STOCK_BRICK, [12, 20], 0.74),
 
@@ -1937,7 +1953,12 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // --- Old Brompton Road back east to Gloucester Road. ---------------------
   roadsideParcel("london-block-brompton-n-1", "london-old-brompton", nodeAt("london-node-earls-brompton"), nodeAt("london-node-brompton-mid"), -1, 8.6, 44, LONDON_STOCK_BRICK, [11, 19], 0.74),
   roadsideParcel("london-block-brompton-s-1", "london-old-brompton", nodeAt("london-node-earls-brompton"), nodeAt("london-node-brompton-mid"), 1, 8.6, 40, LONDON_RED_BRICK, [10, 18], 0.72),
-  roadsideParcel("london-block-brompton-n-2", "london-old-brompton", nodeAt("london-node-brompton-mid"), nodeAt("london-node-gloucester-south"), -1, 8.6, 44, LONDON_STUCCO, [12, 20], 0.76),
+  // East end held 9.6 m short of the Gloucester node: this parcel's 44-deep
+  // rect used to reach x-312.7 and z-53.9, which is the very ground the
+  // Gloucester west ribbon and gloucester-w-2's corner terraces now own —
+  // a park may not intersect a block rect, and the corner belongs to the
+  // row that FACES Gloucester Road, not to this row's bare backland.
+  roadsideParcel("london-block-brompton-n-2", "london-old-brompton", nodeAt("london-node-brompton-mid"), point(-309.6, -104.2), -1, 8.6, 44, LONDON_STUCCO, [12, 20], 0.76),
   roadsideParcel("london-block-brompton-s-2", "london-old-brompton", nodeAt("london-node-brompton-mid"), nodeAt("london-node-gloucester-south"), 1, 8.6, 40, LONDON_STOCK_BRICK, [11, 19], 0.74),
 
   // --- The embankments. Only the landward kerb carries a street wall: the
@@ -2018,7 +2039,12 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-oxford-s-1", "london-oxford-street", nodeAt("london-node-park-lane-oxford"), nodeAt("london-node-oxford-mid"), 1, 10.4, 46, LONDON_RED_BRICK, [16, 26], 0.8),
   roadsideParcel("london-block-oxford-n-2", "london-oxford-street", nodeAt("london-node-oxford-mid"), nodeAt("london-node-regent-oxford"), -1, 10.4, 46, LONDON_STUCCO, [16, 27], 0.8),
   roadsideParcel("london-block-oxford-s-2", "london-oxford-street", nodeAt("london-node-oxford-mid"), nodeAt("london-node-regent-oxford"), 1, 10.4, 46, LONDON_STOCK_BRICK, [16, 27], 0.8),
-  roadsideParcel("london-block-bayswater-n-1", "london-bayswater", nodeAt("london-node-park-corner-north-west"), nodeAt("london-node-bayswater-mid"), -1, 10.4, 46, LONDON_STUCCO, [14, 23], 0.76),
+  // The from-point overshoots the park-corner node by 24.25 m so this row's
+  // westmost terrace starts exactly where notting-n-1's eastmost ends
+  // (x-312.25): with both rows inset 12 m from the shared node, the T-mouth's
+  // north side — which is unbroken kerb, no road leaves north here — shipped
+  // a 24 m hole between the two rows, and the play-test circled it.
+  roadsideParcel("london-block-bayswater-n-1", "london-bayswater", point(-324.25, 940), nodeAt("london-node-bayswater-mid"), -1, 10.4, 46, LONDON_STUCCO, [14, 23], 0.76),
   roadsideParcel("london-block-bayswater-n-2", "london-bayswater", nodeAt("london-node-bayswater-mid"), nodeAt("london-node-park-corner-north-east"), -1, 10.4, 46, LONDON_RED_BRICK, [14, 23], 0.76),
   // Stops at z929 rather than the corner node: Notting Hill Gate's south
   // ribbon wraps this corner, and its far edge runs 22.2 m off that road's
@@ -2036,9 +2062,12 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // The spawn road's own grammar (the first thing the player sees): a grass
   // verge on each kerb arm of the quiet loop's south-west corner, with an
   // east/north-facing terrace row tucked 0.6 m behind each — the corner
-  // fabric this replaces stood side-on to the street. Spans start 12 m past
-  // the corner node so the rows run to the corner itself.
-  roadsideParcel("london-block-quiet-s", "london-quiet-loop", nodeAt("london-node-queen-gate-south"), point(-176, -104), -1, 7.2, 30, LONDON_STUCCO, [11, 17], 0.72, 4.2),
+  // fabric this replaces stood side-on to the street. The span overshoots the
+  // corner node by 25.6 m so that after the 12 m end inset the row's west end
+  // lands exactly on quiet-w's front line (x-177.6): the north-facing and
+  // east-facing rows meet back-to-back there and the buildings turn the same
+  // right angle the verge does.
+  roadsideParcel("london-block-quiet-s", "london-quiet-loop", nodeAt("london-node-queen-gate-south"), point(-189.6, -104), -1, 7.2, 30, LONDON_STUCCO, [11, 17], 0.78, 4.2),
 
   roadsideParcel("london-block-park-west-w", "london-park-west", nodeAt("london-node-gloucester-kensington"), point(-300, 926), -1, 9, 44, LONDON_STOCK_BRICK, [13, 22], 0.74, 13.5),
 
@@ -2280,15 +2309,20 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-bayswater-band-a", center: point(-480, 800), size: point(300, 36), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
   { id: "london-block-bayswater-band-b", center: point(-480, 640), size: point(300, 36), heightRange: [11, 18] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-bayswater-band-c", center: point(-480, 375), size: point(300, 34), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
-  // The quiet loop's island — the 42 x 58 m of open ground the loop, Queen's
-  // Gate and Cromwell's far-west reach enclose. This is where the player
-  // spawns and it is the first thing the play-test photographed: "emptiness
-  // here... I want buildings there please against this right angle". Faces
-  // four different roads, so it walls all four edges and cannot come from
-  // `roadsideParcel`; each edge sits at that road's own `blockInsetFor`
-  // distance. The gas station and the office venue on the loop's west leg
-  // carve their own keep-outs out of it.
-  { id: "london-block-quiet-island", center: point(-136.1, -68), size: point(39, 55.2), streetEdges: ["+z", "-z", "+x", "-x"] as const, heightRange: [11, 18] as const, density: 0.7, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  // The quiet loop's island — the open ground the loop, Queen's Gate and
+  // Cromwell's far-west reach enclose. This is where the player spawns and it
+  // is the first thing the play-test photographed: "emptiness here... I want
+  // buildings there please against this right angle". Only the island's
+  // NORTH BAND is authored: the office venue (r19 at x-150,z-68), the repair
+  // shop (r19 at x-121,z-82) and the fuel station (r28, clipping the NW
+  // corner) blanket the rest of the interior in building keep-outs — the
+  // full-island block this replaces had every one of its facade cells inside
+  // a venue circle and shipped literally nothing, twice photographed as a
+  // bare field. Deliberately NO buildingSet and NO streetEdges (the
+  // queen-gate-terraces treatment): a 39 m edge minus those circles can
+  // never give the glb slotter its minimum clear run, while the procedural
+  // stucco grid carves per box and fills whatever the circles leave.
+  { id: "london-block-quiet-island", center: point(-136.1, -48.4), size: point(39, 16), heightRange: [11, 18] as const, density: 0.72, material: LONDON_STUCCO },
   // The pocket between Queen's Gate and the Science Museum, which backs the
   // museum forecourt lawn below.
   { id: "london-block-museum-west", center: point(-91, 30), size: point(17, 60), heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
@@ -2315,7 +2349,9 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // loop's south-west corner arc, and a fifth the pocket north of
   // old-brompton's end. All solver-checked clear of every road corridor and
   // venue circle.
-  { id: "london-block-spawn-fab-a", center: point(-216.5, -122), size: point(77, 34), streetEdges: ["+z", "-z"] as const, heightRange: [12, 19] as const, density: 0.74, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  // fab-a's east edge holds at x-192, not the old x-178: quiet-w's corner run
+  // now stands at x[-191.6..-177.6] there, and two set rows may not share it.
+  { id: "london-block-spawn-fab-a", center: point(-223.5, -122), size: point(63, 34), streetEdges: ["+z", "-z"] as const, heightRange: [12, 19] as const, density: 0.74, material: LONDON_STUCCO, buildingSet: "london-stucco" },
   { id: "london-block-spawn-fab-b", center: point(-213.5, -158), size: point(83, 34), streetEdges: ["+z", "-z"] as const, heightRange: [12, 19] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-spawn-fab-c", center: point(-213.5, -194), size: point(83, 34), streetEdges: ["+z", "-z"] as const, heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-gl-north-fab", center: point(-273, -98), size: point(36, 38), streetEdges: ["-x"] as const, heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
@@ -3600,15 +3636,24 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-gloucester-west-strip",
         kind: "park",
-        center: point(-314.3, 82.35),
-        size: point(14, 260.7),
+        // South end at z-96.4, tucked a hair under Old Brompton's north
+        // pavement — the strip used to stop at z-48, 50 m short of the
+        // junction, and the play-test flagged the bare run twice: a strip
+        // ends at a junction's pavement or not at all. brompton-n-2's east
+        // end is pulled back to x-322.3 so the parcel rect clears this band.
+        center: point(-314.3, 58.15),
+        size: point(14, 309.1),
         color: "#5f9a4e",
       },
       {
         id: "london-gloucester-east-strip",
         kind: "park",
-        center: point(-285.7, 94),
-        size: point(14, 237.4),
+        // South end at z-43.7, 0.3 m off gloucester-e-1's rect: the ribbon
+        // hands over to that row's at-kerb frontage there. It runs UNDER the
+        // Cromwell far-west mouth on the way (lawns draw below carriageway
+        // and pavement), so the green reads continuous across the junction.
+        center: point(-285.7, 84.5),
+        size: point(14, 256.4),
         color: "#5f9a4e",
       },
       // The 1.7 m sliver between the east ribbon's far edge and the Cromwell
@@ -3644,6 +3689,22 @@ export const LONDON_MAP_PACK: MapPack = {
         parkStyle: "lawn",
         center: point(-174.5, -76),
         size: point(5, 70),
+        color: "#5f9a4e",
+      },
+      // Cromwell Fuel's side lot. The station's building keep-out (r28 about
+      // its lot centre) vetoes every terrace between quiet-w's last house
+      // (z-84.5) and the visible forecourt (z-63), so no BLOCK can legally
+      // stand in the band the play-test circled — lawn instead, butt-joined
+      // to the west verge's back edge at x-177 (coplanar lawns must share
+      // edges, never overlap). Backed by the terrace to the south and the
+      // forecourt to the north; quiet-w's depth is held to 12.4 so the
+      // parcel rect stops at x-190 and the park-vs-block invariant holds.
+      {
+        id: "london-quiet-station-side-lawn",
+        kind: "park",
+        parkStyle: "lawn",
+        center: point(-183.3, -73.75),
+        size: point(12.6, 21.5),
         color: "#5f9a4e",
       },
       {
@@ -3695,9 +3756,12 @@ export const LONDON_MAP_PACK: MapPack = {
         size: point(14, 699.7),
         color: "#5f9a4e",
       },
+      // parkStyle "lawn" here and on the east piece below, same reason as
+      // the Notting Hill ribbons: a kerb ribbon must not elect a trail.
       {
         id: "london-cromwell-fw-north-strip",
         kind: "park",
+        parkStyle: "lawn",
         center: point(-222.35, -17.7),
         size: point(112.7, 14),
         color: "#5f9a4e",
@@ -3715,6 +3779,7 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-cromwell-fw-north-strip-east",
         kind: "park",
+        parkStyle: "lawn",
         center: point(-140.75, -17.7),
         size: point(50.5, 14),
         color: "#5f9a4e",
@@ -3797,9 +3862,17 @@ export const LONDON_MAP_PACK: MapPack = {
       // ribbon now owns the corner up to Bayswater's band, and the two lawns
       // must meet, not overlap. West end extended 2 m into Westbourne
       // Grove's band so the ribbon hands over at the junction, not before it.
+      // parkStyle "lawn" on BOTH Notting Hill ribbons: left to the default
+      // dressing, each 330 m ribbon elected a full-length trail that wove
+      // corner-to-corner across the 14 m width — where the pale path met the
+      // kerbside edge the green visually pinched out mid-road, which the
+      // play-test circled twice ("takes a diagonal and cuts off"). A kerb
+      // ribbon is scenery seen from the carriageway, not a walkable park:
+      // pathless, always.
       {
         id: "london-notting-hill-south-strip-east",
         kind: "park",
+        parkStyle: "lawn",
         center: point(-488.78, 919.57),
         size: point(332.74, 14),
         headingDeg: -178.41,
@@ -3810,6 +3883,7 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-notting-hill-south-strip-west",
         kind: "park",
+        parkStyle: "lawn",
         center: point(-829.08, 912.31),
         size: point(325.64, 14),
         headingDeg: -179.16,
