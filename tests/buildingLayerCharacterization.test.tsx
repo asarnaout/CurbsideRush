@@ -262,7 +262,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // hinterland and Westminster's four belts, and the crescent's outer arm
     // plus Flood Street's east band re-authored with legal spans after both
     // silently dropped under the 26 m post-inset floor.
-    buildingInstanceCount: 3_452,
+    // -> 4_391: the second half — twenty-five interior slabs stand up the
+    // deep fields behind every district's street wall (west-central,
+    // King's Road north, Chelsea's hinterland, the Westminster-to-City east
+    // belt, the City's east margin, Mayfair/Soho, the Euston band, the south
+    // bank and the west margins), so the sightlines that leaked between
+    // kerb parcels now end at a second row instead of open ground.
+    buildingInstanceCount: 4_391,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

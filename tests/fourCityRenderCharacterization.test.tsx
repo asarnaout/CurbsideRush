@@ -372,9 +372,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // void-kill round's first half — twenty-two blocks of terraces and civic
     // stone where the spawn field, the museum-south clearing, the Queen's
     // Gate hinterland and Westminster's belts were bare.
-    totalMeshes: 7_129,
-    enabledMeshes: 7_129,
-    activeMeshes: 586,
+    // 7_129 -> 7_320 (active 586 -> 634): the second half's twenty-five
+    // interior slabs — second-row fabric behind every district's street
+    // wall. Materials unchanged: the slabs reuse the district material sets.
+    totalMeshes: 7_320,
+    enabledMeshes: 7_320,
+    activeMeshes: 634,
     materials: 292,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

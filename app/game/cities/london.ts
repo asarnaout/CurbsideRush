@@ -2336,6 +2336,48 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-brompton-w-fab", center: point(268, 75), size: point(56, 106), heightRange: [13, 21] as const, density: 0.74, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-palace-ring-fab", center: point(492, 115), size: point(100, 28), heightRange: [14, 22] as const, density: 0.76, material: LONDON_STUCCO, buildingSet: "london-stucco" },
   { id: "london-block-palace-s-fab", center: point(388, -108), size: point(74, 24), heightRange: [14, 22] as const, density: 0.76, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  // --- Void kill, outer belts: the deep fields behind every district's ----
+  // street wall. Second-row fabric blocks the sightlines that leak between
+  // the kerb parcels into open ground; each slab solver-checked clear of
+  // every road corridor, venue circle, landmark and water body.
+  // West-central (the 278,000 m2 belt behind Old Brompton, Earls Court,
+  // Cromwell, Kensington and Westbourne):
+  { id: "london-block-wc-fab-a", center: point(-560, -55), size: point(220, 60), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-wc-fab-b", center: point(-480, 60), size: point(180, 120), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-wc-fab-c", center: point(-600, 180), size: point(200, 100), heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-wc-fab-d", center: point(-450, 330), size: point(160, 140), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  // Split around Westbourne Green — a block may not stand in a lawn.
+  { id: "london-block-wc-fab-e", center: point(-480, 570), size: point(200, 160), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-wc-fab-e2", center: point(-480, 426), size: point(200, 52), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  { id: "london-block-wc-fab-f", center: point(-520, 760), size: point(220, 120), heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  // North of the King's Road, and Chelsea's embankment hinterland:
+  { id: "london-block-kr-fab-a", center: point(-560, -200), size: point(180, 80), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-kr-fab-b", center: point(-420, -180), size: point(80, 60), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
+  // z stops at -368: King's Road's first segment cuts diagonally to
+  // z-355.7 at this slab's west edge, and the lane-corridor test owns
+  // that band.
+  { id: "london-block-ce-fab-a", center: point(-700, -404), size: point(240, 72), heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-ce-fab-b", center: point(-920, -432), size: point(160, 96), heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  // The Westminster-to-City east belt, and the City's own east margin:
+  { id: "london-block-vc-fab-a", center: point(900, 80), size: point(200, 180), heightRange: [16, 26] as const, density: 0.76, material: LONDON_PORTLAND_STONE },
+  { id: "london-block-vc-fab-b", center: point(1070, 10), size: point(120, 180), heightRange: [18, 30] as const, density: 0.76, material: LONDON_GLASS_CURTAIN, buildingSet: "london-city" },
+  { id: "london-block-vc-fab-c", center: point(875, -180), size: point(130, 160), heightRange: [16, 26] as const, density: 0.76, material: LONDON_PORTLAND_STONE },
+  { id: "london-block-vc-fab-d", center: point(1095, -205), size: point(170, 170), heightRange: [18, 30] as const, density: 0.76, material: LONDON_GLASS_CURTAIN, buildingSet: "london-city" },
+  { id: "london-block-le-fab-a1", center: point(1291, 180), size: point(78, 60), heightRange: [18, 30] as const, density: 0.76, material: LONDON_GLASS_CURTAIN, buildingSet: "london-city" },
+  { id: "london-block-le-fab-a2", center: point(1282, 315), size: point(95, 50), heightRange: [18, 30] as const, density: 0.76, material: LONDON_GLASS_CURTAIN, buildingSet: "london-city" },
+  { id: "london-block-le-fab-b", center: point(1330, 510), size: point(120, 160), heightRange: [14, 24] as const, density: 0.74, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  // Mayfair/Soho's interior, and the band south of Euston Road:
+  { id: "london-block-pm-fab-a", center: point(770, 480), size: point(180, 180), heightRange: [14, 23] as const, density: 0.76, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-pm-fab-b", center: point(770, 639), size: point(180, 98), heightRange: [14, 23] as const, density: 0.76, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-ne-fab-b", center: point(1000, 870), size: point(240, 100), heightRange: [13, 21] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  // The south bank between Riverbank Road and Battersea Park Road, and the
+  // Parkgate/Albert hinterland's landward block:
+  { id: "london-block-sb-fab-a", center: point(235, -737), size: point(230, 60), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  // The west margin's own street walls (Warwick Road's far side and the
+  // Porchester hinterland):
+  { id: "london-block-wm-fab-a", center: point(-1265, -150), size: point(130, 300), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-wm-fab-b", center: point(-1080, 530), size: point(120, 260), heightRange: [11, 18] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  { id: "london-block-wm-fab-c", center: point(-1260, 450), size: point(160, 300), heightRange: [11, 18] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-canonbury-ne-fab", center: point(1394, 861), size: point(36, 138), heightRange: [12, 20] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
 ].filter((block): block is ProceduralBlock => block !== null);
 
