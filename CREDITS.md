@@ -507,7 +507,7 @@ public-space character, and currency naming:
   horn, and collision impacts are **synthesised at runtime in Web Audio**
   (`app/game/audio/`). No sample, recording, or third-party audio asset is used
   or shipped, so there is nothing here to license.
-- **`public/audio/music/*.mp3`** (24 tracks currently shipped). The original 14 were
+- **`public/audio/music/*.mp3`** (33 tracks currently shipped). The original 14 were
   generated with [Suno](https://suno.com) on 2026-07-19, 2026-07-21 and
   2026-07-23 by the project owner while subscribed to a paid (Pro/Premier)
   plan. Suno assigns the subscriber all of its right, title and interest in
@@ -538,6 +538,16 @@ public-space character, and currency naming:
   import — the Downloads copy was renamed to `Cairo Nights.mp3` first, so nothing
   Arabic exists in either location. Tests pin each repository copy to the exact
   SHA-256 of the supplied master.
+
+  A fourth batch — nine London-only pieces — was downloaded from Suno and
+  supplied by the project owner for this project on 2026-08-08, same embedded
+  artist (`rykard12`) and paid-plan terms as the batches above. All nine
+  Downloads filenames were already English and title-cased (e.g. `Peckham
+  Market Route.mp3`); only the URL-safe rename to lower-kebab-case with a
+  `london-` prefix happened before import, which is also where the apostrophe
+  in `Heath to Regent's Park.mp3` was dropped to make
+  `london-heath-to-regents-park.mp3`. Tests pin each repository copy to the
+  exact SHA-256 of the supplied master.
 
   Tracks are matched to the city they were written for, and a city plays only
   its own. Two pieces written for Calais (`calais-coast-run-1/2.mp3`, Suno
@@ -574,3 +584,12 @@ public-space character, and currency naming:
   | `cairo-dokki-after-midnight.mp3` | Dokki After Midnight | Cairo | Dokki After Midnight |
   | `cairo-after-midnight.mp3` | After Midnight Cairo | Cairo | After Midnight Cairo |
   | `cairo-after-midnight-2.mp3` | After Midnight Cairo (Second Edition) | Cairo | After Midnight Cairo - Second Edition |
+  | `london-peckham-market-route.mp3` | Peckham Market Route | London | Peckham Market Route |
+  | `london-damp-brixton-turn.mp3` | Damp Brixton Turn | London | Damp Brixton Turn |
+  | `london-heath-to-regents-park.mp3` | Heath to Regent's Park | London | Heath to Regent's Park |
+  | `london-camden-roundabout-queue.mp3` | Camden Roundabout Queue | London | Camden Roundabout Queue |
+  | `london-clockwork-on-the-thames.mp3` | Clockwork on the Thames | London | Clockwork on the Thames |
+  | `london-westminster-morning-drive.mp3` | Westminster Morning Drive | London | Westminster Morning Drive |
+  | `london-kew-to-putney.mp3` | Kew to Putney | London | Kew to Putney |
+  | `london-overcast-viaduct-run.mp3` | Overcast Viaduct Run | London | Overcast Viaduct Run |
+  | `london-rain-over-vauxhall.mp3` | Rain Over Vauxhall | London | Rain Over Vauxhall |
