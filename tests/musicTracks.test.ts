@@ -112,11 +112,63 @@ const THIRD_BATCH_CAIRO_TRACKS = [
   },
 ] as const;
 
-/** Only London and Tokyo are untouched by either Cairo batch or the NYC add. */
+/**
+ * Fourth batch: nine London-only pieces, added well after the original two
+ * London tracks. Same embedded Suno artist (`rykard12`) as the Cairo and NYC
+ * batches above — see CREDITS.md.
+ */
+const LONDON_BATCH_TRACKS = [
+  {
+    id: "london-peckham-market-route",
+    url: "/audio/music/london-peckham-market-route.mp3",
+    sha256: "7a4cb6fb4e134295a0987264556acaf110c9563fdfdd897c1095ad96a6586dda",
+  },
+  {
+    id: "london-damp-brixton-turn",
+    url: "/audio/music/london-damp-brixton-turn.mp3",
+    sha256: "8ae7c62c9776a92b6e5f983ae71c1afaaa3b639b0b27305e6809c64b617ee225",
+  },
+  {
+    id: "london-heath-to-regents-park",
+    url: "/audio/music/london-heath-to-regents-park.mp3",
+    sha256: "f0253b4a502a6a6d9b99b962616a753c0458da5463b7c7037053c39a9ad1c27a",
+  },
+  {
+    id: "london-camden-roundabout-queue",
+    url: "/audio/music/london-camden-roundabout-queue.mp3",
+    sha256: "b4205011833ecca2c4ff167728a8029eaf3204efed1173ab9946a7ce3b83191f",
+  },
+  {
+    id: "london-clockwork-on-the-thames",
+    url: "/audio/music/london-clockwork-on-the-thames.mp3",
+    sha256: "b980c25c0c7f2286256485dbd87b549112ccdb863c65be9a5bb3f7520b073e7c",
+  },
+  {
+    id: "london-westminster-morning-drive",
+    url: "/audio/music/london-westminster-morning-drive.mp3",
+    sha256: "b7e23980ff50376f55d8da546fff9296b23e16f22216d1ae94f8af0dac4144c3",
+  },
+  {
+    id: "london-kew-to-putney",
+    url: "/audio/music/london-kew-to-putney.mp3",
+    sha256: "ee8d7a19b4522e7ba5eee95b15087528bd5cd2a0e9dcf324895b9b8cb71a5f3b",
+  },
+  {
+    id: "london-overcast-viaduct-run",
+    url: "/audio/music/london-overcast-viaduct-run.mp3",
+    sha256: "89c8271ce961305e98dc5147056b98ca72dc0cd438011ee7f237d32e09a8ea8f",
+  },
+  {
+    id: "london-rain-over-vauxhall",
+    url: "/audio/music/london-rain-over-vauxhall.mp3",
+    sha256: "a21c6bdccccf9ad775ac495ce49e5fe2f61e37b0494c0fe0222d90a534059b4a",
+  },
+] as const;
+
+/** Only Tokyo is untouched by the Cairo batches, the NYC add, or the London batch. */
 const EXISTING_DESTINATION_POOLS: Readonly<
-  Record<"uk-london" | "jp-tokyo", readonly string[]>
+  Record<"jp-tokyo", readonly string[]>
 > = {
-  "uk-london": PRE_CAIRO_TRACK_IDS.slice(8, 10),
   "jp-tokyo": PRE_CAIRO_TRACK_IDS.slice(10, 12),
 };
 
@@ -181,8 +233,23 @@ describe("music catalogue", () => {
     }
   });
 
+  it("copies the fourth batch (London) byte-for-byte under URL-safe names", () => {
+    for (const expected of LONDON_BATCH_TRACKS) {
+      const track = MUSIC_TRACKS.find(({ id }) => id === expected.id);
+      expect(track, expected.id).toMatchObject({
+        id: expected.id,
+        url: expected.url,
+        destinationId: "uk-london",
+      });
+      const digest = createHash("sha256")
+        .update(readFileSync(`public${expected.url}`))
+        .digest("hex");
+      expect(digest, expected.id).toBe(expected.sha256);
+    }
+  });
+
   it("has unique ids and urls", () => {
-    expect(MUSIC_TRACKS).toHaveLength(24);
+    expect(MUSIC_TRACKS).toHaveLength(33);
     expect(new Set(MUSIC_TRACKS.map((track) => track.id)).size).toBe(MUSIC_TRACKS.length);
     expect(new Set(MUSIC_TRACKS.map((track) => track.url)).size).toBe(MUSIC_TRACKS.length);
   });
@@ -240,14 +307,33 @@ describe("city matching", () => {
     }
   });
 
-  it("preserves the untouched London and Tokyo pools exactly", () => {
+  it("preserves the untouched Tokyo pool exactly", () => {
     for (const [destinationId, expectedIds] of Object.entries(
       EXISTING_DESTINATION_POOLS,
-    ) as ["uk-london" | "jp-tokyo", readonly string[]][]) {
+    ) as ["jp-tokyo", readonly string[]][]) {
       expect(
         tracksForDestination(destinationId).map(({ id }) => id),
         destinationId,
       ).toEqual(expectedIds);
+    }
+  });
+
+  it("adds the fourth batch to London, and only London", () => {
+    expect(tracksForDestination("uk-london").map(({ id }) => id)).toEqual([
+      ...PRE_CAIRO_TRACK_IDS.slice(8, 10),
+      ...LONDON_BATCH_TRACKS.map(({ id }) => id),
+    ]);
+    for (const destinationId of DESTINATIONS.filter(
+      (candidate) => candidate !== "uk-london",
+    )) {
+      const poolIds = new Set(
+        tracksForDestination(destinationId).map(({ id }) => id),
+      );
+      for (const londonId of LONDON_BATCH_TRACKS.map(({ id }) => id)) {
+        expect(poolIds.has(londonId), `${londonId} in ${destinationId}`).toBe(
+          false,
+        );
+      }
     }
   });
 });
@@ -275,8 +361,9 @@ describe("shuffle bag", () => {
 
   it("still reaches every track from a two-track pool", () => {
     // With only two pieces the seam guard forces strict alternation; make sure
-    // that does not pin one of them permanently out of reach.
-    const pool = tracksForDestination("uk-london");
+    // that does not pin one of them permanently out of reach. London outgrew
+    // its two-track pool in the fourth batch, so Tokyo covers this case now.
+    const pool = tracksForDestination("jp-tokyo");
     expect(pool).toHaveLength(2);
     const seen = new Set<string>();
     let previous: string | null = null;

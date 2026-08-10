@@ -47,6 +47,15 @@ export const MUSIC_TRACKS: readonly MusicTrack[] = [
   { id: "cairo-dokki-after-midnight", title: "Dokki After Midnight", url: `${BASE}/cairo-dokki-after-midnight.mp3`, destinationId: "eg-cairo" },
   { id: "cairo-after-midnight", title: "After Midnight Cairo", url: `${BASE}/cairo-after-midnight.mp3`, destinationId: "eg-cairo" },
   { id: "cairo-after-midnight-2", title: "After Midnight Cairo (Second Edition)", url: `${BASE}/cairo-after-midnight-2.mp3`, destinationId: "eg-cairo" },
+  { id: "london-peckham-market-route", title: "Peckham Market Route", url: `${BASE}/london-peckham-market-route.mp3`, destinationId: "uk-london" },
+  { id: "london-damp-brixton-turn", title: "Damp Brixton Turn", url: `${BASE}/london-damp-brixton-turn.mp3`, destinationId: "uk-london" },
+  { id: "london-heath-to-regents-park", title: "Heath to Regent's Park", url: `${BASE}/london-heath-to-regents-park.mp3`, destinationId: "uk-london" },
+  { id: "london-camden-roundabout-queue", title: "Camden Roundabout Queue", url: `${BASE}/london-camden-roundabout-queue.mp3`, destinationId: "uk-london" },
+  { id: "london-clockwork-on-the-thames", title: "Clockwork on the Thames", url: `${BASE}/london-clockwork-on-the-thames.mp3`, destinationId: "uk-london" },
+  { id: "london-westminster-morning-drive", title: "Westminster Morning Drive", url: `${BASE}/london-westminster-morning-drive.mp3`, destinationId: "uk-london" },
+  { id: "london-kew-to-putney", title: "Kew to Putney", url: `${BASE}/london-kew-to-putney.mp3`, destinationId: "uk-london" },
+  { id: "london-overcast-viaduct-run", title: "Overcast Viaduct Run", url: `${BASE}/london-overcast-viaduct-run.mp3`, destinationId: "uk-london" },
+  { id: "london-rain-over-vauxhall", title: "Rain Over Vauxhall", url: `${BASE}/london-rain-over-vauxhall.mp3`, destinationId: "uk-london" },
 ];
 
 /** The pool a given city draws from: its own pieces, and nothing else. */
