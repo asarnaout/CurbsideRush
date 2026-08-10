@@ -3996,17 +3996,31 @@ export const LONDON_MAP_PACK: MapPack = {
       // block, and an overlap would also scatter trees inside the facades:
       // `landmarkClearings` skips blocks entirely).
       //
-      // Exactly ONE of them carries paths. `london-chelsea-gardens` is big
-      // enough to derive `urban_greensward` (short side >= 30 and aspect < 6,
-      // so no parkStyle is pinned) and that is the only recipe that emits
-      // benches — `pathFurniture` returns [] for pocket_green and `lawn` has
-      // no paths to hang them on. Everything else is `parkStyle: "lawn"`:
-      // pure grass, so the square reads as one continuous green instead of a
-      // row of tiles each with its own trail and railing (Pembroke's lesson,
-      // above).
+      // NONE of them carries a path, and that is deliberate twice over.
+      //
+      // The square shipped once as a derived `urban_greensward`, which is the
+      // only style that emits benches, and the railing that comes with it was
+      // rejected on sight: from inside the block the 0.95 m wall reads
+      // side-on as a black-and-cream stripe ruled straight across the green,
+      // and being solid it is a crash for anyone who drives in. There is no
+      // knob for benches without a wall — `pathFurniture` returns [] for
+      // pocket_green, `lawn` has no path to hang furniture on, and
+      // UNWALLABLE_STYLES is a closed set — so the owner traded the seating
+      // for open parkland. Pinned, not resized: at 184 x 116 the shape still
+      // derives greensward, and removing this pin puts the wall back.
+      //
+      // `lawn` rather than `pocket_green` because of the OTHER rule this
+      // block already taught: a trail may only end at a pavement. Every
+      // pocket_green derives one path edge-to-edge, and this square is
+      // interior — its ends land in grass 50 m short of Chelsea Manor and
+      // deep in the block to the west. Shipped that way for one screenshot it
+      // reproduced the play-test's original words exactly, "the little trail
+      // in its middle just abruptly ends". No road corridor reaches this
+      // square, so no path here can terminate honestly: pure grass it is.
       {
         id: "london-chelsea-gardens",
         kind: "park",
+        parkStyle: "lawn",
         // Solver-fitted to the largest free rectangle in the block, searched
         // in the road's own frame: rotating to the King's Road bearing
         // instead of staying axis-aligned buys 14% more area and 20 m more

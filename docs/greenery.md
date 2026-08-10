@@ -213,9 +213,12 @@ fence.** `pathFurniture` returns nothing for `pocket_green` and `lawn` has no
 path to hang furniture on, so the only styles emitting a bench also grow a wall.
 A green meant to be sat in must clear `POCKET_GREEN_MAX_SHORT_SIDE_M` (30) and
 stay under `STRIP_ASPECT` (6) to derive `urban_greensward`, and its railing is a
-collider — that ground stops being drivable. London's Chelsea garden square is
-the worked example: one 184 x 116 greensward carrying every walk in its block,
-ringed by pathless `"lawn"` fills.
+collider — that ground stops being drivable. Weigh that before reaching for the
+seating: London's Chelsea square is 184 x 116 and derives greensward by shape,
+but ships pinned to `pocket_green`, because **a perimeter wall inside a block
+reads side-on as a black-and-cream stripe ruled across the lawn** and play-tested
+worse than the missing benches. A railing earns its place fronting a street,
+where it is seen end-on and reads as a garden's edge.
 
 **An island enclosed by a road loop is one lawn or none.** A small green
 floating in it reads as "a random strip of green surrounded by concrete" — the

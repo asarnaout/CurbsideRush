@@ -392,15 +392,17 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 7_621 -> 7_609 (active 700 -> 699): four kerb ribbons go parkStyle
     // lawn, retiring their elected trail paths (and the path furniture the
     // dressing hung on them); one bayswater seam terrace joins.
-    // 7_609 -> 7_652 (active 699 -> 707, materials 295 -> 302): the Chelsea
-    // superblock's seven greens — one garden square with walks, benches,
-    // lamps and a railing, plus six pathless lawn fills — and the King's Road
-    // ribbon deepened to lap under its pavement, which re-deals its scatter
-    // for four fewer thickets. No block moved, so the facade pins below and
-    // in the building-layer characterization must NOT move with it.
-    totalMeshes: 7_652,
-    enabledMeshes: 7_652,
-    activeMeshes: 707,
+    // 7_609 -> 7_611 (active 699 -> 701, materials 295 -> 302): the Chelsea
+    // superblock's seven greens, all pathless lawn, and the King's Road ribbon
+    // deepened to lap under its pavement. Nearly a wash on mesh count because
+    // the big square shipped for one round as a derived greensward (7_652 —
+    // walks, benches, lamps and 8 wall runs) and lost all of it when the
+    // railing was rejected; `lawn` scatters more trees but no furniture. No
+    // block moved, so the facade pins below and in the building-layer
+    // characterization must NOT move with it.
+    totalMeshes: 7_611,
+    enabledMeshes: 7_611,
+    activeMeshes: 701,
     materials: 302,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -429,6 +431,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 46 -> 45: the Cromwell far-west ribbon's retired trail path was one.
     // 217 -> 224: the Chelsea greens add lawn planes within the spawn's
     // mirror radius; the candidate count is unchanged.
+    // (Unmoved when the square's railing went: walls are not mirror surfaces.)
     mirrorCandidates: 45,
     mirrorDrawn: 224,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,

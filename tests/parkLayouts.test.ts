@@ -126,10 +126,11 @@ describe("park layouts", () => {
     // 73 -> 74: Cromwell Fuel's side lawn — the station keep-out band on the
     // west arm where no building may legally stand, greened instead of bare.
     // 74 -> 81: the Chelsea superblock, 38% bare ground and play-tested as "an
-    // empty sea of concrete in the horizon". One garden square
-    // (`london-chelsea-gardens`, the only piece with walks, benches and a
-    // railing) plus six `lawn` fills solver-fitted to the gaps between the
-    // parcels, which all stay exactly where they were.
+    // empty sea of concrete in the horizon". Seven pieces solver-fitted to the
+    // gaps between the parcels, which all stay exactly where they were. All
+    // seven are pathless: the big one derives a walled greensward by shape and
+    // is pinned down twice over — the railing read as a stripe across the lawn,
+    // and any path it grew would dead-end in grass (see the style test below).
     expect(parkCases().length).toBe(81);
   });
 
@@ -168,11 +169,16 @@ describe("park layouts", () => {
     // stopped dead at both tips, and a kerb ribbon carries no trail — the
     // walks belong to `london-chelsea-gardens`, which is somewhere to walk.
     expect(styleOf("london-chelsea-square-green")).toBe("lawn");
-    // The garden square itself: 184 x 116 clears POCKET_GREEN_MAX_SHORT_SIDE_M
-    // and stays under STRIP_ASPECT, so it derives the one style that emits
-    // benches. Nothing is pinned — if this ever stops deriving greensward the
-    // square silently loses its walks, benches, lamps and railing.
-    expect(styleOf("london-chelsea-gardens")).toBe("urban_greensward");
+    // The Chelsea square is 184 x 116 — clear of POCKET_GREEN_MAX_SHORT_SIDE_M
+    // and under STRIP_ASPECT — so its SHAPE derives `urban_greensward`, the
+    // one style that emits benches. It is pinned down to pocket_green anyway:
+    // greensward's 0.95 m railing read from inside the block as a stripe ruled
+    // across the green, and it is solid, so it is also a crash. Losing the
+    // benches was the accepted price. Drop this pin and the wall returns.
+    // "lawn" and not "pocket_green": that style's one edge-to-edge path would
+    // dead-end in grass at both ends here, which is the complaint that
+    // started this block. Nothing interior can end a trail at a pavement.
+    expect(styleOf("london-chelsea-gardens")).toBe("lawn");
     // Authored-only: nothing derives "lawn", and a lawn tile has no paths at
     // all — so no gravel, no benches or lamps (they hang off paths), no
     // shrubs (they only grow in a band beside a path), and never a wall.
