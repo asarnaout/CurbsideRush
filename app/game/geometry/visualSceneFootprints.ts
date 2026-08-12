@@ -650,9 +650,9 @@ function aabbToPolygon(box: Aabb): Polygon {
     kind: "polygon",
     outer: [
       { x: box.minX, z: box.minZ },
-      { x: box.maxX, z: box.minZ },
-      { x: box.maxX, z: box.maxZ },
       { x: box.minX, z: box.maxZ },
+      { x: box.maxX, z: box.maxZ },
+      { x: box.maxX, z: box.minZ },
     ],
   };
 }
