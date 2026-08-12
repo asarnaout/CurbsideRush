@@ -20,6 +20,7 @@ import {
   segmentInsideShapeIntervals,
   type Aabb,
   type Aabb2,
+  type CollectedGeometry,
   type GroundSurface,
   type OccluderVolume,
   type ParamInterval,
@@ -27,6 +28,18 @@ import {
   type Polygon,
   type Shape2d,
 } from "./visualSceneFootprints";
+import {
+  AUDIT_CHASE_VEHICLE_PROFILES,
+  AUDIT_VIEWPORT_PROFILES,
+  COCKPIT_SEAT_SIDE_BY_STEERING,
+  forwardVectorFromYawPitch,
+  resolveChaseCameraPose,
+  resolveCockpitCameraPoses,
+  viewportAspectRatio,
+  type ChaseVehicleProfile,
+  type ViewportProfile,
+} from "../cameraPoses";
+import { resolveCameraFarPlane, resolveMapVisualPalette } from "../visuals";
 
 const EPS = 1e-9;
 
@@ -1148,4 +1161,643 @@ export function azimuthRayId(azimuthRad: number): string {
  * (Section 7.8's literal format only ever appears with one). */
 export function blobTargetId(blobId: string, fragmentId: string): string {
   return `${blobId}-cell-${fragmentId}`;
+}
+
+// ---------------------------------------------------------------------------
+// Road station generation (Section 7.6 items 1-3)
+// ---------------------------------------------------------------------------
+
+export const ROAD_STATION_STEP_M = 8;
+
+export interface RoadStation {
+  readonly roadId: string;
+  readonly segmentIndex: number;
+  /** Arc-length metres from `segmentIndex`'s own start vertex. */
+  readonly stationDistanceM: number;
+  readonly side: "side-left" | "side-right";
+  readonly x: number;
+  readonly z: number;
+  /** This codebase's clockwise heading convention (0 = +z), in the direction
+   * of increasing centerline index — travel-fwd; travel-rev is this + PI. */
+  readonly forwardHeadingRad: number;
+}
+
+/**
+ * Every audited station along one road surface's own centerline (Section
+ * 7.6 items 1-3): both pavement edges — `roadSurface.widthM / 2 +
+ * sidewalkWidthM` out from the centreline, the same "outward from the
+ * pavement edge" line `KERB_FRONTAGE_REACH_M`/`bareKerbRuns` already measure
+ * frontage from — at `stepM` spacing plus every centerline vertex (so a bend
+ * is never skipped over by a fixed step), de-duplicated where a vertex and a
+ * step coincide.
+ *
+ * Deliberately walks the road SURFACE's single centerline rather than the
+ * (one-way, turn-laned) `LaneSegment` graph: Section 7.6 wants a symmetric,
+ * lane-graph-independent station set that reproduces "a turning/chase camera
+ * can face either way," not a literal legal-lane sweep, and stays correct
+ * regardless of how many lanes/turn pockets a road happens to carry.
+ */
+export function roadStations(
+  roadSurface: {
+    readonly id: string;
+    readonly centerline: readonly Point2[];
+    readonly widthM: number;
+    readonly sidewalkWidthM?: number;
+  },
+  fallbackSidewalkWidthM: number,
+  stepM = ROAD_STATION_STEP_M,
+): readonly RoadStation[] {
+  const centerline = roadSurface.centerline;
+  if (centerline.length < 2) return [];
+  const sidewalkWidthM = Math.max(0, roadSurface.sidewalkWidthM ?? fallbackSidewalkWidthM);
+  const pavementOffsetM = roadSurface.widthM / 2 + sidewalkWidthM;
+
+  const stations: RoadStation[] = [];
+  const seenKeys = new Set<string>();
+  const pushStation = (segmentIndex: number, distanceM: number, dirX: number, dirZ: number, cx: number, cz: number) => {
+    const heading = Math.atan2(dirX, dirZ);
+    // Right-hand normal of the travel direction, matching `pavementPaths.ts`'s
+    // `lateralOf` convention exactly (`{x: dir.z, z: -dir.x}`).
+    const normalX = dirZ;
+    const normalZ = -dirX;
+    for (const [side, sigma] of [["side-left", -1] as const, ["side-right", 1] as const]) {
+      const key = `${segmentIndex}:${Math.round(distanceM * 100)}:${side}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      stations.push({
+        roadId: roadSurface.id,
+        segmentIndex,
+        stationDistanceM: distanceM,
+        side,
+        x: cx + normalX * sigma * pavementOffsetM,
+        z: cz + normalZ * sigma * pavementOffsetM,
+        forwardHeadingRad: heading,
+      });
+    }
+  };
+
+  for (let i = 0; i + 1 < centerline.length; i += 1) {
+    const a = centerline[i];
+    const b = centerline[i + 1];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const segLen = Math.hypot(dx, dz);
+    if (segLen < 1e-6) continue;
+    const dirX = dx / segLen;
+    const dirZ = dz / segLen;
+    pushStation(i, 0, dirX, dirZ, a.x, a.z);
+    const steps = Math.floor((segLen - 1e-6) / stepM);
+    for (let s = 1; s <= steps; s += 1) {
+      const distanceM = s * stepM;
+      pushStation(i, distanceM, dirX, dirZ, a.x + dirX * distanceM, a.z + dirZ * distanceM);
+    }
+    pushStation(i, segLen, dirX, dirZ, b.x, b.z);
+  }
+  return stations;
+}
+
+/**
+ * Every 5-degree azimuth offset (degrees, 0 = dead ahead) across a fan of
+ * `fovDeg`, always including the exact left/right edges and dead-ahead even
+ * when `fovDeg` is not a multiple of `stepDeg` (Section 7.6 item 5 — 72/100
+ * are both non-multiples of 5).
+ */
+export function fanAzimuthOffsetsDeg(fovDeg: number, stepDeg = 5): readonly number[] {
+  const half = fovDeg / 2;
+  const round = (v: number) => Math.round(v * 1000) / 1000;
+  const offsets = new Set<number>([0, round(-half), round(half)]);
+  for (let a = -half; a <= half + 1e-9; a += stepDeg) offsets.add(round(a));
+  return [...offsets].sort((a, b) => a - b);
+}
+
+// ---------------------------------------------------------------------------
+// Camera-fan casting and the semantic report (Section 7.6/7.8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every distinct audited camera profile: the three production chase tunings
+ * (Section 4.3 — "None is globally worst") plus first-person from both
+ * steering seats. `AuditCameraProfile.id` feeds `VisualGapReportRecord.
+ * cameraProfileId` directly.
+ */
+export type AuditCameraProfile =
+  | ({ readonly kind: "chase" } & ChaseVehicleProfile)
+  | { readonly id: string; readonly kind: "first-person"; readonly seatSide: "left" | "right" };
+
+export const DEFAULT_AUDIT_CAMERA_PROFILES: readonly AuditCameraProfile[] = [
+  ...AUDIT_CHASE_VEHICLE_PROFILES.map((profile) => ({ ...profile, kind: "chase" as const })),
+  { id: "first-person-left", kind: "first-person" as const, seatSide: "left" as const },
+  { id: "first-person-right", kind: "first-person" as const, seatSide: "right" as const },
+];
+
+interface ResolvedCameraPose {
+  readonly eye: CameraPoint3;
+  /** This codebase's clockwise heading convention — the camera's own look
+   * direction, which the fan's azimuth offsets are centred on. */
+  readonly lookHeadingRad: number;
+}
+
+/**
+ * The exact production camera pose for one profile at one station/heading
+ * (Section 7.6 item 6): `resolveChaseCameraPose`'s steady-state eye/target
+ * for chase, `resolveCockpitCameraPoses`'s neutral (`headBob=0`,
+ * `quickLookAngle=0`) first-person eye/rotation otherwise. The fan is
+ * centred on the camera's own look direction (eye->target for chase, the
+ * resolved yaw/pitch for first-person), not the raw driving heading — the
+ * two differ slightly and Section 7.6 item 4 wants the fan centred on what
+ * the camera is actually pointed at.
+ */
+function resolveAuditCameraPose(
+  profile: AuditCameraProfile,
+  station: { readonly x: number; readonly z: number },
+  travelHeadingRad: number,
+  viewport: ViewportProfile,
+): ResolvedCameraPose {
+  if (profile.kind === "chase") {
+    const pose = resolveChaseCameraPose(profile.model, { x: station.x, z: station.z, heading: travelHeadingRad });
+    return { eye: pose.eye, lookHeadingRad: Math.atan2(pose.target.x - pose.eye.x, pose.target.z - pose.eye.z) };
+  }
+  const poses = resolveCockpitCameraPoses({
+    x: station.x,
+    z: station.z,
+    vehicleHeading: travelHeadingRad,
+    cameraHeading: travelHeadingRad,
+    seatSide: COCKPIT_SEAT_SIDE_BY_STEERING[profile.seatSide],
+    headBob: 0,
+    quickLookAngle: 0,
+    viewportAspectRatio: viewportAspectRatio(viewport),
+  });
+  const forward = forwardVectorFromYawPitch(poses.first.rotationY, poses.first.rotationX);
+  return {
+    eye: { x: poses.first.x, y: poses.first.y, z: poses.first.z },
+    lookHeadingRad: Math.atan2(forward.x, forward.z),
+  };
+}
+
+/** Distance along a 2-D ray (cast from a point known to be inside `bounds`)
+ * to its exit through `bounds` — the world-boundary clip Section 7.6 item 8
+ * needs to tell "the boundary is within 70 m" from "not." */
+export function distanceToWorldBoundaryAlongRay(
+  originX: number,
+  originZ: number,
+  dirX: number,
+  dirZ: number,
+  bounds: Aabb2,
+): number {
+  let best = Infinity;
+  if (dirX > EPS) best = Math.min(best, (bounds.maxX - originX) / dirX);
+  else if (dirX < -EPS) best = Math.min(best, (bounds.minX - originX) / dirX);
+  if (dirZ > EPS) best = Math.min(best, (bounds.maxZ - originZ) / dirZ);
+  else if (dirZ < -EPS) best = Math.min(best, (bounds.minZ - originZ) / dirZ);
+  return Math.max(0, best);
+}
+
+function resolveGroundY(surfaces: readonly GroundSurface[], index: SpatialIndex, x: number, z: number): number {
+  const surface = selectVisibleGroundSurface(surfaces, x, z, index);
+  return surface ? surface.surfaceY : 0;
+}
+
+/** Classifies a ray's far-end point against the ground raster: a bare/void
+ * cell resolves to its blob's qualifying flag; anything else (covered by a
+ * road/park/water/junction/sidewalk/functional-open surface) is ground the
+ * ray is still travelling over — `open-surface`. */
+function classifyRasterEndTarget(
+  raster: GroundRaster,
+  fragmentById: ReadonlyMap<string, RasterFragment>,
+  blobById: ReadonlyMap<string, VoidBlob>,
+  x: number,
+  z: number,
+): SightlineEndTarget {
+  const candidateIds = raster.fragmentIndex.queryBox({ minX: x, maxX: x, minZ: z, maxZ: z });
+  for (const id of candidateIds) {
+    const fragment = fragmentById.get(id);
+    if (!fragment) continue;
+    if (!pointInShape({ kind: "polygon", outer: fragment.polygon.outer, holes: fragment.polygon.holes }, x, z)) continue;
+    const blob = blobById.get(fragment.blobId);
+    if (!blob) continue;
+    return { kind: "blob", blobId: blob.id, areaM2: blob.area, qualifying: blob.qualifying };
+  }
+  return { kind: "open-surface" };
+}
+
+const URBAN_PROBE_RANGE_M = 70;
+
+interface AuditRayCastContext {
+  readonly eye: CameraPoint3;
+  readonly dirX: number;
+  readonly dirZ: number;
+  readonly occluders: readonly OccluderVolume[];
+  readonly occluderIndex: SpatialIndex;
+  readonly groundSurfaces: readonly GroundSurface[];
+  readonly groundIndex: SpatialIndex;
+  readonly raster: GroundRaster;
+  readonly fragmentById: ReadonlyMap<string, RasterFragment>;
+  readonly blobById: ReadonlyMap<string, VoidBlob>;
+  readonly worldBounds: Aabb2;
+  readonly inProtectedCorridor: boolean;
+}
+
+interface AuditRayResult {
+  readonly classification: SightlineClassification;
+  readonly target: CameraPoint3;
+  readonly endTarget: SightlineEndTarget;
+}
+
+function castAuditRayAtRange(ctx: AuditRayCastContext, rangeM: number): AuditRayResult {
+  const boundaryDistanceM = distanceToWorldBoundaryAlongRay(ctx.eye.x, ctx.eye.z, ctx.dirX, ctx.dirZ, ctx.worldBounds);
+  const clippedRangeM = Math.max(EPS, Math.min(rangeM, boundaryDistanceM));
+  const hitsWorldEdge = boundaryDistanceM <= rangeM + EPS;
+  const targetX = ctx.eye.x + ctx.dirX * clippedRangeM;
+  const targetZ = ctx.eye.z + ctx.dirZ * clippedRangeM;
+  const target: CameraPoint3 = { x: targetX, y: resolveGroundY(ctx.groundSurfaces, ctx.groundIndex, targetX, targetZ), z: targetZ };
+
+  const opaqueHit = nearestOccluderHit(ctx.occluders, ctx.eye, target, ctx.occluderIndex);
+  const groundCrossings = groundSurfaceCrossings(ctx.groundSurfaces, ctx.eye, target, ctx.groundIndex);
+  const endTarget: SightlineEndTarget = hitsWorldEdge
+    ? { kind: "world-edge" }
+    : classifyRasterEndTarget(ctx.raster, ctx.fragmentById, ctx.blobById, targetX, targetZ);
+
+  const classification = classifySightline({
+    totalRangeM: clippedRangeM,
+    groundCrossings,
+    opaqueHit,
+    endTarget,
+    inProtectedCorridor: ctx.inProtectedCorridor,
+  });
+  return { classification, target, endTarget };
+}
+
+/**
+ * Casts one audit ray and classifies it (Section 7.6 item 8's urban/
+ * protected-open range split): first at the 70 m urban-salience probe,
+ * extended to `maxRangeM` (fog end/camera far plane/world boundary,
+ * whichever is nearest) only when the short probe is still mid-park/water at
+ * 70 m — so an ordinary street is never raymarched to a distant world edge
+ * ("do not raymarch every city street... and demand a ring wall"), but a
+ * park/river that keeps going gets its real extended verdict rather than a
+ * false `park_to_void`/`undressed_water_approach` at the arbitrary 70 m mark.
+ */
+function castAuditRay(ctx: AuditRayCastContext, maxRangeM: number): AuditRayResult {
+  const probeRangeM = Math.min(URBAN_PROBE_RANGE_M, maxRangeM);
+  const probe = castAuditRayAtRange(ctx, probeRangeM);
+  const stillOpenProtected =
+    probe.classification.failureClass === "park_continues" ||
+    probe.classification.failureClass === "waterfront" ||
+    probe.classification.failureClass === "park_to_water";
+  if (!stillOpenProtected || maxRangeM <= probeRangeM + EPS) return probe;
+  return castAuditRayAtRange(ctx, maxRangeM);
+}
+
+/** Left/centre/right azimuth offsets (degrees, relative to `lookHeadingRad`)
+ * spanning `blob`'s angular extent from `eye`, or `null` when its AABB falls
+ * wholly outside `[-halfFovDeg, halfFovDeg]` (Section 7.6: "so a blob
+ * narrower than one angular step cannot fall between samples"). Uses the
+ * blob's AABB corners rather than its exact polygon — a conservative
+ * superset that can only ever add a harmless extra ray, never miss a real
+ * one, and is far cheaper than re-deriving each blob's true angular hull
+ * for every station's fan. */
+function blobAngularOffsetsDeg(
+  eye: { readonly x: number; readonly z: number },
+  blob: VoidBlob,
+  lookHeadingRad: number,
+  halfFovDeg: number,
+): readonly number[] | null {
+  const corners: readonly (readonly [number, number])[] = [
+    [blob.aabb.minX, blob.aabb.minZ],
+    [blob.aabb.minX, blob.aabb.maxZ],
+    [blob.aabb.maxX, blob.aabb.minZ],
+    [blob.aabb.maxX, blob.aabb.maxZ],
+  ];
+  let minOffset = Infinity;
+  let maxOffset = -Infinity;
+  for (const [cx, cz] of corners) {
+    const dx = cx - eye.x;
+    const dz = cz - eye.z;
+    if (Math.hypot(dx, dz) < 1e-6) continue;
+    const azimuthRad = Math.atan2(dx, dz);
+    const rawOffsetDeg = ((azimuthRad - lookHeadingRad) * 180) / Math.PI;
+    const offsetDeg = ((rawOffsetDeg + 540) % 360) - 180;
+    minOffset = Math.min(minOffset, offsetDeg);
+    maxOffset = Math.max(maxOffset, offsetDeg);
+  }
+  if (!Number.isFinite(minOffset) || !Number.isFinite(maxOffset)) return null;
+  const clampedMin = Math.max(-halfFovDeg, minOffset);
+  const clampedMax = Math.min(halfFovDeg, maxOffset);
+  if (clampedMin > clampedMax) return null;
+  return [clampedMin, (clampedMin + clampedMax) / 2, clampedMax];
+}
+
+function blobWithinRange(eye: { readonly x: number; readonly z: number }, blob: VoidBlob, rangeM: number): boolean {
+  const nearestX = Math.max(blob.aabb.minX, Math.min(eye.x, blob.aabb.maxX));
+  const nearestZ = Math.max(blob.aabb.minZ, Math.min(eye.z, blob.aabb.maxZ));
+  return Math.hypot(nearestX - eye.x, nearestZ - eye.z) <= rangeM;
+}
+
+function buildFragmentLookups(raster: GroundRaster): {
+  readonly fragmentById: ReadonlyMap<string, RasterFragment>;
+  readonly blobById: ReadonlyMap<string, VoidBlob>;
+} {
+  return {
+    fragmentById: new Map(raster.fragments.map((f) => [f.id, f] as const)),
+    blobById: new Map(raster.blobs.map((b) => [b.id, b] as const)),
+  };
+}
+
+interface ReportRecordContext {
+  readonly mapId: string;
+  readonly seedId: string;
+  readonly representationProfile: RepresentationProfile;
+  readonly station: RoadStation;
+  readonly travelHeadingId: "travel-fwd" | "travel-rev";
+  readonly travelHeadingRad: number;
+  readonly cameraProfileId: string;
+  readonly viewportId: string;
+  readonly fovDeg: 72 | 100;
+}
+
+function buildReportRecord(
+  ctx: ReportRecordContext,
+  rayOrTargetId: string,
+  eye: CameraPoint3,
+  target: CameraPoint3,
+  classification: SightlineClassification,
+  blob: VoidBlob | null,
+): VisualGapReportRecord {
+  const failureId = buildFailureId({
+    mapId: ctx.mapId,
+    seedId: ctx.seedId,
+    representationProfile: ctx.representationProfile,
+    roadId: ctx.station.roadId,
+    segmentIndex: ctx.station.segmentIndex,
+    stationDistanceM: ctx.station.stationDistanceM,
+    side: ctx.station.side,
+    travelHeading: ctx.travelHeadingId,
+    cameraProfileId: ctx.cameraProfileId,
+    viewportId: ctx.viewportId,
+    fovDeg: ctx.fovDeg,
+    rayOrTargetId,
+  });
+  return {
+    failureId,
+    mapId: ctx.mapId,
+    seedId: ctx.seedId,
+    representationProfile: ctx.representationProfile,
+    roadId: ctx.station.roadId,
+    segmentIndex: ctx.station.segmentIndex,
+    stationDistanceM: ctx.station.stationDistanceM,
+    side: ctx.station.side,
+    travelHeading: ctx.travelHeadingId,
+    cameraProfileId: ctx.cameraProfileId,
+    viewportId: ctx.viewportId,
+    fovDeg: ctx.fovDeg,
+    eye,
+    target,
+    failureClass: classification.failureClass,
+    blobId: blob?.id ?? null,
+    blobAreaM2: blob?.area ?? null,
+    blobAabb: blob?.aabb ?? null,
+    blobCentroid: blob?.centroid ?? null,
+    nearestOpaqueOwnerId: classification.nearestOpaqueOwnerId,
+    nearestOpaqueDistanceM: classification.nearestOpaqueDistanceM,
+    crossedOwners: classification.crossedOwners,
+    suggestedTeleport: { x: ctx.station.x, z: ctx.station.z, heading: ctx.travelHeadingRad },
+    evidenceCodes: [],
+  };
+}
+
+export interface AuditMapRoadSurfaceInput {
+  readonly id: string;
+  readonly centerline: readonly Point2[];
+  readonly widthM: number;
+  readonly sidewalkWidthM?: number;
+}
+
+export interface AuditMapOptions {
+  readonly seedId: string;
+  readonly representationProfile: RepresentationProfile;
+  readonly cameraProfiles?: readonly AuditCameraProfile[];
+  readonly viewports?: readonly ViewportProfile[];
+  readonly fovsDeg?: readonly (72 | 100)[];
+  readonly stepM?: number;
+  /** Audit only these road-surface ids (Section 14.2's "shard profiles if
+   * needed" — a full real map's exhaustive station x fan x profile sweep
+   * legitimately runs to minutes, since it is meant to run offline/in CI,
+   * not the interactive dev loop; scoping to the one or two roads a specific
+   * content fix touches keeps day-to-day iteration on that fix fast without
+   * changing what a full, unfiltered run finds). `undefined` audits every
+   * road, matching the plan's own default scope.
+   */
+  readonly onlyRoadIds?: ReadonlySet<string>;
+}
+
+/**
+ * The full Section 7.6-7.8 camera-fan sweep for one map: every road-surface
+ * station, both travel headings, every requested camera profile/viewport/
+ * FOV, classified and assembled into stable report records for every
+ * content-gap or audit-error class (Section 5.5) — a passing ray (`opaque`,
+ * `park_backed`, `waterfront`, `park_to_water`, `park_continues`,
+ * `functional_open_backed`, `non_qualifying`) is not recorded, matching "the
+ * baseline report is intentionally red" and the CLI's `--fail-on-failures`
+ * contract (Section 7.8).
+ *
+ * `inProtectedCorridor` is always `false` here: the baseline-derived
+ * `ProtectedOpenView` corridor fixture (Section 7.7 — captured once from a
+ * clean baseline run, replayed as regression evidence afterward) is not yet
+ * built. This is the safe default direction — "ordinary urban opaque
+ * structure before a distant park correctly yields `opaque`" is explicitly
+ * the fallback the plan itself specifies for outside a registered corridor,
+ * so no ray can wrongly pass merely because a corridor was never registered;
+ * it can only under-flag a genuine protected-corridor violation as a plain
+ * `opaque` pass rather than the more specific `protected_view_blocked`. Wire
+ * the real corridor set when a city phase's fix needs to prove one.
+ */
+export function auditMapVisualGaps(
+  mapId: string,
+  worldSize: Point2,
+  fogEndCapM: number | undefined,
+  roadSurfaces: readonly AuditMapRoadSurfaceInput[],
+  fallbackSidewalkWidthM: number,
+  geometry: CollectedGeometry,
+  raster: GroundRaster,
+  options: AuditMapOptions,
+): readonly VisualGapReportRecord[] {
+  const cameraProfiles = options.cameraProfiles ?? DEFAULT_AUDIT_CAMERA_PROFILES;
+  const viewports = options.viewports ?? AUDIT_VIEWPORT_PROFILES;
+  const fovsDeg = options.fovsDeg ?? [72, 100];
+  const stepM = options.stepM ?? ROAD_STATION_STEP_M;
+
+  const occluderIndex = buildOccluderIndex(geometry.occluders);
+  const groundIndex = buildGroundSurfaceIndex(geometry.groundSurfaces);
+  const { fragmentById, blobById } = buildFragmentLookups(raster);
+  const worldGroundSurface = geometry.groundSurfaces.find((s) => s.kind === "world-ground");
+  const worldBounds: Aabb2 = worldGroundSurface
+    ? aabbOfShape(worldGroundSurface.geometry)
+    : { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+  const maxRangeM = resolveCameraFarPlane(false, worldSize, fogEndCapM);
+
+  // A real, still-mostly-broken map can carry hundreds of qualifying blobs —
+  // exactly the case this audit exists to find, and exactly when checking
+  // every blob against every station's fan (an O(stations x blobs) scan)
+  // stops being cheap. Index qualifying blobs once and query only the
+  // locally-relevant ones per eye, matching the ground raster's own
+  // per-cell local-query fix (Section 7.5's covering-shape index) for the
+  // identical class of problem.
+  const qualifyingBlobIndex = new SpatialIndex();
+  for (const blob of raster.blobs) {
+    if (blob.qualifying) qualifyingBlobIndex.insert(blob.id, blob.aabb);
+  }
+
+  const records: VisualGapReportRecord[] = [];
+  const TRAVELS: readonly { readonly id: "travel-fwd" | "travel-rev"; readonly sign: 1 | -1 }[] = [
+    { id: "travel-fwd", sign: 1 },
+    { id: "travel-rev", sign: -1 },
+  ];
+
+  // `resolveChaseCameraPose` takes no viewport/aspect input at all (Section
+  // 7.6 item 6 — production's chase rig is viewport-independent), so casting
+  // its rays once per viewport would be pure duplicated work with zero
+  // coverage gained; only first-person's `resolveCockpitCameraPoses` (pitch,
+  // cowl crop) actually varies by aspect. `chaseViewport` still names a real
+  // profile from `viewports` for a truthful, non-fabricated `viewportId`.
+  const chaseViewport = viewports[0];
+
+  for (const roadSurface of roadSurfaces) {
+    if (options.onlyRoadIds && !options.onlyRoadIds.has(roadSurface.id)) continue;
+    const stations = roadStations(roadSurface, fallbackSidewalkWidthM, stepM);
+    for (const station of stations) {
+      for (const travel of TRAVELS) {
+        const travelHeadingRad = travel.sign === 1 ? station.forwardHeadingRad : station.forwardHeadingRad + Math.PI;
+        for (const cameraProfile of cameraProfiles) {
+          const profileViewports = cameraProfile.kind === "chase" ? [chaseViewport] : viewports;
+          for (const viewport of profileViewports) {
+            const recordCtxBase: Omit<ReportRecordContext, "fovDeg"> = {
+              mapId,
+              seedId: options.seedId,
+              representationProfile: options.representationProfile,
+              station,
+              travelHeadingId: travel.id,
+              travelHeadingRad,
+              cameraProfileId: cameraProfile.id,
+              viewportId: viewport.id,
+            };
+            const resolvedPose = resolveAuditCameraPose(cameraProfile, station, travelHeadingRad, viewport);
+            const insideOpaque = eyeInsideOpaqueOccluder(geometry.occluders, resolvedPose.eye);
+            if (insideOpaque) {
+              for (const fovDeg of fovsDeg) {
+                records.push(
+                  buildReportRecord(
+                    { ...recordCtxBase, fovDeg },
+                    azimuthRayId(0),
+                    resolvedPose.eye,
+                    resolvedPose.eye,
+                    {
+                      failureClass: "camera_origin_inside_opaque",
+                      nearestOpaqueOwnerId: insideOpaque.ownerId,
+                      nearestOpaqueDistanceM: 0,
+                      crossedOwners: [],
+                    },
+                    null,
+                  ),
+                );
+              }
+              continue;
+            }
+
+            // Blob-edge rays exist to catch a blob narrower than one 5-degree
+            // angular step (Section 7.6 item 5) -- a precision concern that
+            // matters at ordinary urban salience range. A blob only
+            // reachable beyond that is already covered by the base fan's own
+            // rays on the long (park/water) pass; searching the full
+            // fog-scaled `maxRangeM` (up to ~1100 m) here needlessly touches
+            // a huge spatial-index query box on every fan, and does so
+            // hardest on exactly the maps this audit exists to fix (more
+            // qualifying blobs = more work per fan).
+            const blobQueryRangeM = Math.min(maxRangeM, URBAN_PROBE_RANGE_M * 2);
+            const nearbyBlobIds = qualifyingBlobIndex.queryBox({
+              minX: resolvedPose.eye.x - blobQueryRangeM,
+              maxX: resolvedPose.eye.x + blobQueryRangeM,
+              minZ: resolvedPose.eye.z - blobQueryRangeM,
+              maxZ: resolvedPose.eye.z + blobQueryRangeM,
+            });
+            const nearbyBlobs = nearbyBlobIds
+              .map((id) => blobById.get(id))
+              .filter((blob): blob is VoidBlob => blob !== undefined && blobWithinRange(resolvedPose.eye, blob, blobQueryRangeM));
+
+            for (const fovDeg of fovsDeg) {
+              const halfFovDeg = fovDeg / 2;
+              const azimuths = new Set<number>(fanAzimuthOffsetsDeg(fovDeg));
+              for (const blob of nearbyBlobs) {
+                for (const offset of blobAngularOffsetsDeg(resolvedPose.eye, blob, resolvedPose.lookHeadingRad, halfFovDeg) ?? []) {
+                  azimuths.add(Math.round(offset * 1000) / 1000);
+                }
+              }
+
+              for (const azimuthDeg of [...azimuths].sort((a, b) => a - b)) {
+                const rayHeadingRad = resolvedPose.lookHeadingRad + (azimuthDeg * Math.PI) / 180;
+                const result = castAuditRay(
+                  {
+                    eye: resolvedPose.eye,
+                    dirX: Math.sin(rayHeadingRad),
+                    dirZ: Math.cos(rayHeadingRad),
+                    occluders: geometry.occluders,
+                    occluderIndex,
+                    groundSurfaces: geometry.groundSurfaces,
+                    groundIndex,
+                    raster,
+                    fragmentById,
+                    blobById,
+                    worldBounds,
+                    inProtectedCorridor: false,
+                  },
+                  maxRangeM,
+                );
+                if (
+                  !CONTENT_GAP_CLASSES.has(result.classification.failureClass) &&
+                  !AUDIT_ERROR_CLASSES.has(result.classification.failureClass)
+                ) {
+                  continue;
+                }
+                const blob = result.endTarget.kind === "blob" ? (blobById.get(result.endTarget.blobId) ?? null) : null;
+                records.push(
+                  buildReportRecord(
+                    { ...recordCtxBase, fovDeg },
+                    azimuthRayId((azimuthDeg * Math.PI) / 180),
+                    resolvedPose.eye,
+                    result.target,
+                    result.classification,
+                    blob,
+                  ),
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return records;
+}
+
+/** Convenience wrapper: resolves `fogEndCapM` from the map's own visual
+ * palette (Section 7.6 item 8), matching `createSkyAndHorizon`'s production
+ * fog/far-plane derivation exactly. */
+export function auditMapVisualGapsForMap(
+  mapId: string,
+  worldSize: Point2,
+  roadSurfaces: readonly AuditMapRoadSurfaceInput[],
+  fallbackSidewalkWidthM: number,
+  geometry: CollectedGeometry,
+  raster: GroundRaster,
+  options: AuditMapOptions,
+): readonly VisualGapReportRecord[] {
+  return auditMapVisualGaps(
+    mapId,
+    worldSize,
+    resolveMapVisualPalette(mapId).fogEndCapM,
+    roadSurfaces,
+    fallbackSidewalkWidthM,
+    geometry,
+    raster,
+    options,
+  );
 }

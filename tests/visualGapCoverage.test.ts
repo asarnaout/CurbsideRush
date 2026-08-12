@@ -16,9 +16,16 @@ import {
   groundSurfaceCrossings,
   nearestOccluderHit,
   selectVisibleGroundSurface,
+  auditMapVisualGaps,
+  distanceToWorldBoundaryAlongRay,
+  fanAzimuthOffsetsDeg,
+  roadStations,
+  ROAD_STATION_STEP_M,
+  DEFAULT_AUDIT_CAMERA_PROFILES,
   type GroundCrossing,
   type OccluderHit,
 } from "../app/game/geometry/visualGapCoverage";
+import { AUDIT_VIEWPORT_PROFILES } from "../app/game/cameraPoses";
 import type { GroundSurface, OccluderVolume } from "../app/game/geometry/visualSceneFootprints";
 
 // ---------------------------------------------------------------------------
@@ -547,5 +554,230 @@ describe("visualGapCoverage — occluder index helper", () => {
     const index = buildOccluderIndex([building("a", -5, 5, -5, 5)]);
     expect(index.candidatesAlongSegment(-50, 0, 50, 0)).toContain("a");
     expect(buildOccluderIndex([]).candidatesAlongSegment(0, 0, 1, 1)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Road station and camera-fan generation (Section 7.6)
+// ---------------------------------------------------------------------------
+
+describe("visualGapCoverage — road station generation", () => {
+  it("stations both pavement edges every 8 m, plus both endpoints, symmetric about the centreline", () => {
+    const road = { id: "road-1", centerline: [{ x: 0, z: 0 }, { x: 0, z: 20 }], widthM: 8, sidewalkWidthM: 2 };
+    const stations = roadStations(road, 3.4, ROAD_STATION_STEP_M);
+    // pavementOffsetM = 8/2 + 2 = 6; stations at s=0,8,16,20 (both endpoints, plus the fixed step) x 2 sides.
+    const distances = [...new Set(stations.map((s) => s.stationDistanceM))].sort((a, b) => a - b);
+    expect(distances).toEqual([0, 8, 16, 20]);
+    expect(stations).toHaveLength(distances.length * 2);
+    for (const s of stations) {
+      expect(Math.abs(s.x)).toBeCloseTo(6, 6);
+      expect(s.side).toBe(s.x < 0 ? "side-left" : "side-right");
+    }
+  });
+
+  it("never emits a near-duplicate station where a fixed step lands on (or just short of) a vertex", () => {
+    // A 16 m segment: the 8 m step already lands exactly on both vertices —
+    // must not double-emit distance 0/8/16.
+    const road = { id: "road-2", centerline: [{ x: 0, z: 0 }, { x: 0, z: 16 }], widthM: 6 };
+    const stations = roadStations(road, 3.4, 8);
+    const distances = stations.filter((s) => s.side === "side-left").map((s) => s.stationDistanceM);
+    expect(distances).toEqual([0, 8, 16]);
+  });
+
+  it("a bend gets an explicit station at the vertex even when it falls off the fixed step", () => {
+    const road = {
+      id: "road-3",
+      centerline: [{ x: 0, z: 0 }, { x: 0, z: 10 }, { x: 10, z: 10 }],
+      widthM: 8,
+    };
+    const stations = roadStations(road, 3.4, 8);
+    // Segment 0 (length 10) must include a station at its own end (distance 10),
+    // even though the fixed 8 m step alone would only reach 8.
+    const seg0 = stations.filter((s) => s.segmentIndex === 0 && s.side === "side-left").map((s) => s.stationDistanceM);
+    expect(seg0).toContain(10);
+    // Segment 1 starts its own distance count fresh from its own vertex.
+    const seg1 = stations.filter((s) => s.segmentIndex === 1).map((s) => s.stationDistanceM);
+    expect(Math.min(...seg1)).toBe(0);
+  });
+
+  it("heading matches this codebase's clockwise convention (0 = +z, 90deg = +x)", () => {
+    const northSouth = roadStations({ id: "ns", centerline: [{ x: 0, z: 0 }, { x: 0, z: 10 }], widthM: 8 }, 3.4);
+    expect(northSouth[0].forwardHeadingRad).toBeCloseTo(0, 6);
+    const westEast = roadStations({ id: "we", centerline: [{ x: 0, z: 0 }, { x: 10, z: 0 }], widthM: 8 }, 3.4);
+    expect(westEast[0].forwardHeadingRad).toBeCloseTo(Math.PI / 2, 6);
+  });
+
+  it("a degenerate (single-point or empty) centreline stations nothing", () => {
+    expect(roadStations({ id: "a", centerline: [], widthM: 8 }, 3.4)).toEqual([]);
+    expect(roadStations({ id: "b", centerline: [{ x: 0, z: 0 }], widthM: 8 }, 3.4)).toEqual([]);
+  });
+});
+
+describe("visualGapCoverage — fan azimuth generation", () => {
+  it("always includes 0 and the exact +/- half-FOV edges, even off the 5-degree grid", () => {
+    const offsets = fanAzimuthOffsetsDeg(72);
+    expect(offsets[0]).toBeCloseTo(-36, 6);
+    expect(offsets.at(-1)).toBeCloseTo(36, 6);
+    expect(offsets).toContain(0);
+    // 72 is not a multiple of 5 -- the grid steps (-36, -31, ..., 34) never
+    // land exactly on +36, so the edge must be a distinct extra entry.
+    expect(offsets.filter((o) => Math.abs(o - 36) < 1e-6)).toHaveLength(1);
+  });
+
+  it("is sorted, deduplicated, and symmetric for a FOV that IS a multiple of 5", () => {
+    const offsets = fanAzimuthOffsetsDeg(100);
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+    expect(new Set(offsets).size).toBe(offsets.length);
+    for (const o of offsets) expect(offsets).toContain(-o);
+  });
+});
+
+describe("visualGapCoverage — world-boundary ray clip", () => {
+  const bounds = { minX: -100, maxX: 100, minZ: -50, maxZ: 50 };
+  it("clips to the nearest of the four faces along an axis-aligned ray", () => {
+    expect(distanceToWorldBoundaryAlongRay(0, 0, 1, 0, bounds)).toBeCloseTo(100, 6);
+    expect(distanceToWorldBoundaryAlongRay(0, 0, -1, 0, bounds)).toBeCloseTo(100, 6);
+    expect(distanceToWorldBoundaryAlongRay(0, 0, 0, 1, bounds)).toBeCloseTo(50, 6);
+  });
+  it("clips to the closer of two faces on a diagonal ray", () => {
+    // From the centre, the Z faces (50 m) are reached before the X faces
+    // (100 m) along a 45-degree ray.
+    const d = distanceToWorldBoundaryAlongRay(0, 0, Math.SQRT1_2, Math.SQRT1_2, bounds);
+    expect(d).toBeCloseTo(50 / Math.SQRT1_2, 6);
+  });
+});
+
+describe("visualGapCoverage — full camera-fan sweep (Section 7.6-7.8 integration)", () => {
+  const worldSize = { x: 300, z: 300 };
+  const lightOptions = {
+    seedId: "seed-0",
+    representationProfile: "full-detail" as const,
+    cameraProfiles: [DEFAULT_AUDIT_CAMERA_PROFILES[0]],
+    viewports: [AUDIT_VIEWPORT_PROFILES[0]],
+    fovsDeg: [72 as const],
+  };
+  const road = [{ id: "road-1", centerline: [{ x: 0, z: -80 }, { x: 0, z: 80 }], widthM: 8 }];
+  // Ground-surface coverage and occluder placement are independent layers
+  // (`visualSceneFootprints.ts`'s "ground and occlusion are deliberately
+  // separate"), so a wall alone does not make the raster treat its footprint
+  // as covered -- a sidewalk surface flush against the road's own edge is
+  // what real content always has there too, and is what keeps the 0.5 m
+  // wall-setback below (needed so the chase camera's eye, which sits at
+  // exactly the station's own x on a pure north/south road, never lands
+  // inside the wall) from reading as an unintended sliver of bare void.
+  const roadSurface = (): GroundSurface => ({ ...water("road-surface", -4, 4, -300, 300), kind: "road", surfaceY: 0.07 });
+  const sidewalk = (id: string, minX: number, maxX: number): GroundSurface => ({
+    ...functionalOpen(id, minX, maxX, -300, 300),
+    kind: "sidewalk",
+  });
+
+  it("an open flank beside a long straight road produces content-gap records, all pointed at the open side", () => {
+    // A close street wall (behind its own sidewalk) on the west; nothing at
+    // all -- not even ground cover -- to the east. A station standing on the
+    // *closed* west side can still legitimately fail here: an 8 m-wide road
+    // is well within any FOV fan's reach, so a west-side camera looking
+    // rightward across the carriageway sees the same open east side a
+    // right-side camera does -- `side` records where the camera stood, not
+    // which side of the street the failing ray happens to be looking at.
+    // The real invariant is on the geometry, not the station label: every
+    // failing ray's resolved target actually sits over east-side ground
+    // (x > 4, past the carriageway) -- none can be explained by the west
+    // wall having some undiscovered hole in it.
+    const geometry = {
+      groundSurfaces: [worldGround(-300, 300, -300, 300), roadSurface(), sidewalk("west-sidewalk", -34, -4)],
+      occluders: [building("west-wall", -280, -4.5, -300, 300)],
+      issues: [],
+    };
+    const raster = buildGroundRaster(geometry.groundSurfaces, geometry.occluders);
+    const records = auditMapVisualGaps("test-map", worldSize, undefined, road, 0, geometry, raster, lightOptions);
+
+    expect(records.length).toBeGreaterThan(0);
+    expect(records.every((r) => CONTENT_GAP_CLASSES.has(r.failureClass) || AUDIT_ERROR_CLASSES.has(r.failureClass))).toBe(true);
+    expect(records.every((r) => r.target.x >= 4)).toBe(true);
+  });
+
+  it("a fully street-walled road on both sides produces zero content-gap/audit-error records", () => {
+    const geometry = {
+      groundSurfaces: [
+        worldGround(-300, 300, -300, 300),
+        roadSurface(),
+        sidewalk("west-sidewalk", -34, -4),
+        sidewalk("east-sidewalk", 4, 34),
+      ],
+      occluders: [building("west-wall", -280, -4.5, -300, 300), building("east-wall", 4.5, 280, -300, 300)],
+      issues: [],
+    };
+    const raster = buildGroundRaster(geometry.groundSurfaces, geometry.occluders);
+    const records = auditMapVisualGaps("test-map", worldSize, undefined, road, 0, geometry, raster, lightOptions);
+    expect(records).toEqual([]);
+  });
+
+  it("`onlyRoadIds` scopes the sweep to the named roads only", () => {
+    const secondRoad = { id: "road-2", centerline: [{ x: 200, z: -80 }, { x: 200, z: 80 }], widthM: 8 };
+    const geometry = {
+      groundSurfaces: [worldGround(-300, 300, -300, 300), roadSurface(), sidewalk("west-sidewalk", -34, -4)],
+      occluders: [building("west-wall", -280, -4.5, -300, 300)],
+      issues: [],
+    };
+    const raster = buildGroundRaster(geometry.groundSurfaces, geometry.occluders);
+    const scoped = auditMapVisualGaps("test-map", worldSize, undefined, [...road, secondRoad], 0, geometry, raster, {
+      ...lightOptions,
+      onlyRoadIds: new Set(["road-2"]),
+    });
+    expect(scoped.every((r) => r.roadId === "road-2")).toBe(true);
+    // road-2 has no occluders anywhere nearby, so it should read as open too.
+    expect(scoped.length).toBeGreaterThan(0);
+  });
+
+  it("every returned record has a report-contract-shaped, globally unique failureId", () => {
+    const geometry = {
+      groundSurfaces: [worldGround(-300, 300, -300, 300), roadSurface(), sidewalk("west-sidewalk", -34, -4)],
+      occluders: [building("west-wall", -280, -4.5, -300, 300)],
+      issues: [],
+    };
+    const raster = buildGroundRaster(geometry.groundSurfaces, geometry.occluders);
+    const records = auditMapVisualGaps("test-map", worldSize, undefined, road, 0, geometry, raster, lightOptions);
+    const ids = new Set(records.map((r) => r.failureId));
+    expect(ids.size).toBe(records.length);
+    for (const id of [...ids].slice(0, 5)) {
+      expect(id.startsWith("test-map/seed-0/full-detail/road-1/seg-0/station-")).toBe(true);
+    }
+  });
+
+  it("all five camera profiles execute (Section 7.9 item 21: default/delivery-van/sport-sedan/both first-person seats)", () => {
+    // Same wide-open-east-flank scene as the sibling tests above, but with
+    // every profile x both viewports enabled -- fastback/van/sedan share one
+    // viewport (chase ignores aspect), first-person genuinely varies by it.
+    const geometry = {
+      groundSurfaces: [worldGround(-300, 300, -300, 300), roadSurface(), sidewalk("west-sidewalk", -34, -4)],
+      occluders: [building("west-wall", -280, -4.5, -300, 300)],
+      issues: [],
+    };
+    const raster = buildGroundRaster(geometry.groundSurfaces, geometry.occluders);
+    const records = auditMapVisualGaps("test-map", worldSize, undefined, road, 0, geometry, raster, {
+      ...lightOptions,
+      cameraProfiles: DEFAULT_AUDIT_CAMERA_PROFILES,
+      viewports: AUDIT_VIEWPORT_PROFILES,
+    });
+
+    expect(DEFAULT_AUDIT_CAMERA_PROFILES).toHaveLength(5);
+    const seenProfileIds = new Set(records.map((r) => r.cameraProfileId));
+    for (const profile of DEFAULT_AUDIT_CAMERA_PROFILES) {
+      expect(seenProfileIds.has(profile.id), `profile ${profile.id} never executed/never failed`).toBe(true);
+    }
+
+    const firstPersonViewportIds = new Set(
+      records.filter((r) => r.cameraProfileId.startsWith("first-person")).map((r) => r.viewportId),
+    );
+    for (const viewport of AUDIT_VIEWPORT_PROFILES) {
+      expect(firstPersonViewportIds.has(viewport.id), `first-person viewport ${viewport.id} never executed/never failed`).toBe(true);
+    }
+
+    // Chase ignores viewport/aspect entirely (Section 7.6 item 6) -- every
+    // chase record must carry the same single viewport id, never both.
+    const chaseViewportIds = new Set(
+      records.filter((r) => !r.cameraProfileId.startsWith("first-person")).map((r) => r.viewportId),
+    );
+    expect(chaseViewportIds.size).toBe(1);
   });
 });

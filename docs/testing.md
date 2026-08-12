@@ -46,6 +46,27 @@ synchronous, so it can never truncate coverage. The suite-wide `testTimeout` is
 30 s (`vitest.config.ts`), sized so a map that grows the lane graph several-fold
 still lands inside it; a test that blows past 30 s is hung, not merely thorough.
 
+## The visual-gap audit CLI
+
+`npm run audit:visual-gaps -- --maps london,nyc,cairo` (plan
+`.claude/three-city-visual-gap-elimination-plan.md`) defaults to the fast
+raster/void-blob pass only — every qualifying (>= 300 m²) unclaimed ground
+area, whole-map, no camera involved. **That blob list is a superset of real
+failures**, not the zero-failure gate: a blob can be genuine void ground that
+sits entirely behind an existing building on every road that can see it.
+Add `--fan` to run the actual Section 7.6-7.8 camera-fan sweep
+(`auditMapVisualGaps` in `geometry/visualGapCoverage.ts`) — real production
+camera poses, real 72°/100° fans, real 3-D occlusion — and get the report
+that is the real gate. `--fan` alone audits one chase profile at one
+viewport (both travel headings, both FOVs); add `--full-matrix` for every
+production camera a player can actually select (all three chase tunings
+plus first-person from both seats, both viewports). Both are opt-in because
+a full unscoped `--fan --full-matrix` sweep of a content-heavy map is
+minutes, not seconds, by design (every road × station × heading × profile ×
+viewport × FOV is a distinct audited view, not redundant work) — scope to
+one content fix's own road(s) with `--roads <id,id,...>` for a fast
+dev-loop iteration, and drop the scope only for the real final-gate run.
+
 ## Lint is clean and must stay clean
 
 0 errors, 0 warnings today. `npm run lint` uses `--max-warnings 0`, so warnings
