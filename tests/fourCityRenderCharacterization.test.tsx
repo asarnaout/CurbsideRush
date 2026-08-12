@@ -178,9 +178,23 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // venue moves shift which street-wall buildings survive). Materials,
     // active meshes and the surviving-material fingerprint have not moved
     // through either.
-    totalMeshes: 23_007,
-    enabledMeshes: 23_007,
-    activeMeshes: 846,
+    // 23_007 -> 27_394 (active 846 -> 961): the building-collision-visual-
+    // parity plan's Phase 3. Under this suite's forced-every-model-unavailable
+    // mock, every asset-slot entry used to fall through to `BuildingLayer`'s
+    // whole-block `placed === 0` callback, which re-derived a COARSE
+    // `facadeGridCells` grid (3-10 boxes) for the entire block regardless of
+    // how many real buildings `slotBlockBuildings` had actually planned for
+    // it — NYC's dense high-rise blocks (`slotBlockBuildings` packs dozens of
+    // buildings per block) were drastically under-represented by that grid.
+    // Every planned asset-slot entry now gets its own exact per-solid proxy box
+    // instead (Section 7.7), so the mesh count now correctly tracks the real
+    // 5_305 planned building count rather than a coarse block-level
+    // approximation. Materials and the surviving-material fingerprint are
+    // unchanged: proxies reuse the same per-block-material palette
+    // `ProceduralFacades.materialFor` already caches.
+    totalMeshes: 27_394,
+    enabledMeshes: 27_394,
+    activeMeshes: 961,
     materials: 188,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -400,9 +414,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // railing was rejected; `lawn` scatters more trees but no furniture. No
     // block moved, so the facade pins below and in the building-layer
     // characterization must NOT move with it.
-    totalMeshes: 7_611,
-    enabledMeshes: 7_611,
-    activeMeshes: 701,
+    // 7_611 -> 9_600 (active 701 -> 878): the building-collision-visual-parity
+    // plan's Phase 3, same cause as NYC's and Cairo's moves above — under
+    // this suite's forced-every-model-unavailable mock, the OLD whole-block
+    // procedural fallback (a coarse `facadeGridCells` re-derivation,
+    // independent of how many buildings were actually planned for the block)
+    // is replaced by an exact, undecorated per-solid proxy box per planned
+    // asset-slot entry (Section 7.7). No map content moved.
+    totalMeshes: 9_600,
+    enabledMeshes: 9_600,
+    activeMeshes: 878,
     materials: 302,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -474,9 +495,21 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     survivingMaterialNamesFingerprint: "417377ea",
   },
   "cairo-central-nile": {
-    totalMeshes: 17_660,
-    enabledMeshes: 17_660,
-    activeMeshes: 3_008,
+    // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
+    // visual-parity plan's Phase 3. Under this suite's forced-every-model-
+    // unavailable mock, a Cairo asset-slot block used to fall through to the
+    // OLD whole-block procedural fallback, which rendered the SAME rich
+    // decorative detail (cornices, balconies, AC units, awnings, rooftop
+    // tanks/dishes) real Cairo procedural blocks get — across all 471
+    // building-set blocks at once. An exact per-solid proxy box (Section 7.7)
+    // is deliberately undecorated (Section 7.6: a proxy is one opaque box,
+    // never the decorated procedural recipe), so the count drops even though
+    // occupancy is unchanged and exact (1_396 planned asset-slot entries,
+    // matching the plan's own inventory). Materials/mirror/fingerprint are
+    // unchanged: no new palette entries, same instanced/shared masters.
+    totalMeshes: 10_736,
+    enabledMeshes: 10_736,
+    activeMeshes: 1_747,
     materials: 217,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

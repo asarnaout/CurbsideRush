@@ -238,8 +238,25 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // of `random()` draws is a property of the block *rectangles*, which
     // neither touches. "95d9fc4f" -> "2b2a3d27" -> "3a8892fd" on the meshes
     // themselves. A drawCount change here would mean something else entirely.
-    drawCount: 2_868,
-    facadeMeshFingerprint: "3a8892fd",
+    // 2_868 -> 0 (mesh fingerprint "3a8892fd" -> "811c9dc5"): the
+    // building-collision-visual-parity plan's Phase 2/3. `drawCount` now
+    // measures `geometry/buildingLayout.ts`'s planner stream (recorded once,
+    // at plan-build time, positioned first in the constructor — see
+    // `seededUnitDraws`'s stream-order comment above), not a render-time
+    // re-derivation under this suite's forced-every-model-unavailable mock.
+    // NYC has zero procedural/unknown-set blocks and (per the plan's own
+    // production inventory) zero deferred zero-survivor fallback blocks
+    // either — every one of its 103 building-set blocks keeps at least one
+    // keep-out survivor — so the planner's random stream never enters the
+    // procedural path at all. The OLD count came entirely from the render
+    // mock's whole-block fallback re-deriving a facade grid for all 103
+    // blocks when every glb failed to load; that fallback mechanism no
+    // longer exists (Section 7.7 replaces it with an exact per-solid proxy,
+    // which draws no randomness). The mesh fingerprint moves because the
+    // rendered meshes are now proxy boxes (named/shaped per plan entry), not
+    // a re-derived procedural grid.
+    drawCount: 0,
+    facadeMeshFingerprint: "811c9dc5",
   },
   "london-south-kensington": {
     // 48 -> 1_032 draws: the south-west expansion took London from five
@@ -291,7 +308,20 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // the full-island block's cells all sat inside venue keep-outs and drew
     // nothing; the band's procedural stucco boxes are the island's first
     // actual buildings.
-    drawCount: 8_409,
+    // 8_409 -> 972: the building-collision-visual-parity plan's Phase 2/3,
+    // same cause as NYC's move to 0 above — `drawCount` now measures the
+    // planner's stream (every direct-procedural/unknown-set block's cells,
+    // then the deferred zero-survivor blocks', in that fixed order), not a
+    // render-time re-derivation. London's asset-slot blocks (306 of them)
+    // no longer draw anything at all when their glbs are unavailable — each
+    // failed entry gets an exact, undecorated proxy box instead of a
+    // whole-block procedural fallback that used to redraw random() for
+    // every cell. What remains — 972 draws — is genuinely procedural
+    // content: London's ~43 direct procedural/unknown-set blocks plus the
+    // five documented zero-survivor asset-slot blocks' deferred fallback
+    // cells (Section 4.1/7.4), each drawing width, then depth, then
+    // (unless frontage-overlap-suppressed) height.
+    drawCount: 972,
     // "c189cd29" -> "0d1c5374" (`london-queen-gate-terraces` lost 0.8 m of
     // width to clear the pavement the `paved` flip widened) -> "63ee7ce2"
     // (the 43 new roadside parcels) -> "cba25d85" (the riverside ones) ->
@@ -333,15 +363,40 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // corner parcels re-deal — same draw count, shifted assignment).
     // -> "3e14705f" (four kerb ribbons pinned parkStyle lawn — their trail
     // paths retired — and the bayswater T-seam terrace joins the row).
-    facadeMeshFingerprint: "3e14705f",
+    // -> "951724c0": the building-collision-visual-parity plan's Phase 3 —
+    // asset-slot fallback entries are now exact undecorated proxy boxes
+    // (named/positioned per plan entry) rather than a re-derived facade
+    // grid; the genuinely-procedural meshes underneath are unchanged.
+    facadeMeshFingerprint: "951724c0",
   },
   "tokyo-setagaya": {
+    // drawCount unchanged by the building-collision-visual-parity plan:
+    // Tokyo has no building-set blocks at all (every block is directly
+    // procedural), so its render-time draw sequence and its plan-time draw
+    // sequence were already identical — moving the draws from render time
+    // to plan time relocates them without changing their count, order, or
+    // the meshes they produce. The one map where old and new drawCount
+    // agree exactly is exactly the proof that the planner reproduces the
+    // current full-detail draw order byte-for-byte (Section 7.4).
     drawCount: 216,
-    facadeMeshFingerprint: "2dda315a",
+    // "2dda315a" -> "01d2bc4a": mesh naming only. Every procedural facade
+    // mesh is now named from the plan's own stable id
+    // (`building-building:<blockId>:cell:<cellIndex>`) instead of the old
+    // ad-hoc `building-<blockId>-<cellIndex>`; the fingerprint sorts by
+    // name, so the name change alone reorders it even though every mesh's
+    // position/size is byte-identical (drawCount above is the proof).
+    facadeMeshFingerprint: "01d2bc4a",
   },
   "cairo-central-nile": {
-    drawCount: 15_517,
-    facadeMeshFingerprint: "22b5588d",
+    // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the
+    // building-collision-visual-parity plan's Phase 2/3, same cause as
+    // London's move above. Cairo's 471 building-set blocks no longer
+    // redraw a whole-block procedural fallback when every glb is
+    // unavailable; what remains is Cairo's genuinely direct-procedural
+    // content (179 non-building-set blocks) planned once, in the fixed
+    // width-then-depth-then-height order per surviving cell.
+    drawCount: 4_288,
+    facadeMeshFingerprint: "b6f29f68",
   },
 };
 

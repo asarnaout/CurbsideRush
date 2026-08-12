@@ -85,7 +85,11 @@ export interface RoadsidePropsCtx {
   }[];
   readonly pendingParkProps: ParkPlacement[];
   readonly pendingParkThickets: ParkPlacement[];
-  readonly buildingKeepFraction: number;
+  /** General scenery density — renamed from `buildingKeepFraction`, which
+   * this never was: park/vendor prop thinning has nothing to do with
+   * building structural occupancy (see `render/babylonGameSession.ts`'s
+   * `sceneryKeepFraction` field doc comment). */
+  readonly sceneryKeepFraction: number;
   readonly registerShadowCaster: (
     mesh: AbstractMesh,
     x: number,
@@ -128,7 +132,7 @@ function collectParkPlacements(
       if (
         !deterministicSceneryKeep(
           `${landmark.id}:${placement.kind}:${index}`,
-          ctx.buildingKeepFraction,
+          ctx.sceneryKeepFraction,
         )
       ) {
         continue;

@@ -19,28 +19,28 @@ The session is rebuilt only on `[trafficSide, steeringSide, scenario.id, mapPack
 every other prop flows through `session.updateOptions(...)`. Not orientation —
 rotating a phone pauses the drive, it does not rebuild the city.
 
-## `buildScenarioEnvironment` is a frozen-order hub
-
-Wires together every render-side builder for a scenario in a **frozen
-order**, because that order is also the seeded-random consumption sequence:
-`const random = seededUnit(trafficSeed)` is built exactly once, right there
-in the method, and reordering any two of its consumers silently gives the
-same-named mesh a different width/height/depth. Extracting a piece of the
-hub into its own collaborator must never change *when* in the sequence its
-work happens, only *which file* it lives in.
+## Every building is planned once, before `buildScenarioEnvironment` runs
 
 Two seeding mechanisms coexist: `seededUnit` (`visuals.ts`) is a stateful
 *stream* whose call order is part of its output; `hashStringToSeed` is a
-*pure* per-string hash every other seeded choice in the method uses instead,
-order-independent by construction. `ProceduralFacades`
-(`render/proceduralFacades.ts`) is the **only** permitted consumer of
-`random`, reached directly from the block loop or, later, from
-`BuildingLayer`'s deferred glb-failure fallback —
-`tests/facadeGridDrawOrderCharacterization.test.tsx` gates it by
-fingerprinting per-mesh output rather than raw `seededUnit` values, since a
-consumer permutation that preserves each one's draw count is invisible to a
-raw-sequence recording (an LCG's output depends on the seed and the count of
-draws so far, never on which call site asks).
+*pure* per-string hash every other seeded choice uses instead,
+order-independent by construction. `geometry/buildingLayout.ts`'s
+`planMapBuildings(mapPack, trafficSeed)` is the **only** permitted consumer
+of the map's `seededUnit` stream for buildings, called once in the
+`BabylonGameSession` constructor — before `buildScenarioEnvironment`, before
+any Babylon object exists. Reordering its internal draws (width, depth, then
+conditionally height, per authored block, direct-procedural blocks before
+deferred zero-survivor-fallback ones) would re-roll every procedural
+building's dimensions. `tests/facadeGridDrawOrderCharacterization.test.tsx`
+gates that sequence by fingerprinting per-mesh output, not raw values.
+
+`ProceduralFacades` and `BuildingLayer` only render what the plan already
+decided — neither draws randomness. An asset-slot entry whose glb is forced
+unavailable, low-spec-thinned, or fails to load gets an exact per-solid
+opaque proxy box instead (one box per `StructuralObb`), never a whole-block
+re-derivation and never a hole. `render/buildingRepresentation.ts`'s registry
+records what stands for every planned entry (`glb`/`proxy`/`planned-box`),
+queryable via `window.__sideswapBuildingRepresentationDebug()`.
 
 ## Fog is the draw-distance budget
 

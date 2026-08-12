@@ -108,7 +108,7 @@ import {
   type CityRenderRegistryCtx,
 } from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
-import { BuildingLayer } from "./buildingLayer";
+import { BuildingLayer, type DebugBuildingAssetPolicy } from "./buildingLayer";
 import {
   buildOrUpdatePlayerCapsuleOverlay,
   buildStaticObstacleOverlay,
@@ -118,6 +118,13 @@ import {
   ProceduralFacades,
   type ProceduralFacadesCtx,
 } from "./proceduralFacades";
+import {
+  planMapBuildings,
+  type BuildingLayoutPlan,
+  type PlannedAssetBuilding,
+  type PlannedProceduralBuilding,
+} from "../geometry/buildingLayout";
+import { BuildingRepresentationRegistry } from "./buildingRepresentation";
 import { buildCockpit } from "./cockpitBuilder";
 import { governRenderScaling } from "./perfGovernor";
 import {
@@ -240,12 +247,7 @@ import {
   propModelUrls,
   vehicleModelUrls,
 } from "../modelLibrary";
-import {
-  buildingSetUrls,
-  isBuildingSetId,
-  nycVendorUrls,
-  type StreetPropConfig,
-} from "../buildingSets";
+import { nycVendorUrls, type StreetPropConfig } from "../buildingSets";
 import {
   orientMergedFacesOutward,
   recentreMergedMasterXZ,
@@ -394,6 +396,9 @@ interface SessionOptions {
   vehiclePhysics: PlayerVehiclePhysics | null;
   scenario: DriveScenario;
   mapPack: GameCanvasMapPack;
+  /** Test/development-only — see `render/buildingLayer.ts`'s
+   * `DebugBuildingAssetPolicy`. Absent in production. */
+  debugBuildingAssetPolicy?: DebugBuildingAssetPolicy;
 }
 
 interface AnalogInput {
@@ -791,6 +796,19 @@ export class BabylonGameSession {
   /** The scenario's full solid set, kept so scenery that renders a collider
    * (the corniche parapet) reads the SAME source the simulation stands on. */
   private readonly scenarioStaticObstacles: readonly StaticObstacle[];
+  /**
+   * The one pure building structural plan for this exact map/scenario —
+   * computed once, here, before the simulation and the environment both
+   * consume it (plan Section 7.5), so neither can independently re-derive
+   * (and silently disagree about) building occupancy. Collision does not
+   * consume this yet (that is Phase 4); the renderer does, in
+   * `buildScenarioEnvironment`.
+   */
+  private readonly buildingLayout: BuildingLayoutPlan;
+  /** What actually stands for each planned building — glb, proxy, or planned
+   * box — written by `ProceduralFacades`/`BuildingLayer`, read by
+   * `__sideswapCollisionDebug` and tests. */
+  private readonly buildingRepresentations = new BuildingRepresentationRegistry();
   /** Most recent `collision` rule event's evidence, for
    * `__sideswapCollisionDebug`; null until the first static/NPC contact. */
   private lastCollisionEvidence: Readonly<Record<string, string | number | boolean>> | null = null;
@@ -888,14 +906,33 @@ export class BabylonGameSession {
     readonly dish: Mesh;
   } | null = null;
   private visualElapsedSeconds = 0;
-  /** Fraction of each block's building wall to build. 1 on desktop; thinned on
-   * touch / low-core devices so phones stay playable. */
-  private buildingKeepFraction = 1;
   /**
-   * Touch or few-core device. The quality tier `buildingKeepFraction` is
+   * Fraction of general scenery (ambient crowd count, roadside vendor/park
+   * props) to build. 1 on desktop; thinned on touch/low-core devices so
+   * phones stay playable. Renamed from the old `buildingKeepFraction`, which
+   * this field is no longer: building STRUCTURAL occupancy never varies with
+   * device quality (plan Section 6.3) — only which asset-slot entries get a
+   * real glb versus an exact proxy box does, which is
+   * `buildingAssetDetailFraction`'s job below. The old name invited exactly
+   * the bug this split fixes: it looked like one knob, and low-spec devices
+   * quietly deleted structural buildings while keeping their (unrelated)
+   * full-block collider.
+   */
+  private sceneryKeepFraction = 1;
+  /** Fraction of asset-slot entries that attempt their real glb; the rest
+   * render an exact per-solid proxy — see `render/buildingLayer.ts`. Never
+   * deletes structural occupancy, unlike the old `buildingKeepFraction` this
+   * replaces for buildings specifically. */
+  private buildingAssetDetailFraction = 1;
+  /** Test/development-only forced-unavailable policy — see
+   * `render/buildingLayer.ts`'s `DebugBuildingAssetPolicy`. Undefined in
+   * production. */
+  private readonly debugBuildingAssetPolicy?: DebugBuildingAssetPolicy;
+  /**
+   * Touch or few-core device. The quality tier both fractions above are
    * derived from, kept as its own field because more than one subsystem now
-   * needs the boolean rather than the fraction — the grass tile drops to 512²
-   * and the ground detail map is switched off entirely.
+   * needs the boolean rather than either fraction — the grass tile drops to
+   * 512² and the ground detail map is switched off entirely.
    */
   private lowSpec = false;
   /** Shared fine grass tile for `detailMap`; built lazily, once per session. */
@@ -1088,6 +1125,7 @@ export class BabylonGameSession {
     this.canvas = canvas;
     this.options = options;
     this.callbacks = callbacks;
+    this.debugBuildingAssetPolicy = options.debugBuildingAssetPolicy;
     // Two-wheelers have no cockpit to sit in — the first-person camera would
     // be a car-interior lie, so bike and motorbike days are third-person only.
     this.cameraMode =
@@ -1102,6 +1140,11 @@ export class BabylonGameSession {
     this.paused = options.paused;
     this.activeTrafficSide = options.trafficSide;
     this.visualPalette = resolveMapVisualPalette(options.mapPack.id);
+    // Computed once, here — before the simulation config and before
+    // buildScenarioEnvironment — so both consume the exact same plan object
+    // rather than each independently re-deriving building occupancy (plan
+    // Section 7.5). Collision does not consume it until Phase 4.
+    this.buildingLayout = planMapBuildings(options.mapPack, options.scenario.trafficSeed);
     // Per-vehicle physics land after the adapter's config so a career
     // vehicle's caps override the scenario baseline; free drive passes null
     // and keeps the adapter's numbers untouched.
@@ -1176,13 +1219,17 @@ export class BabylonGameSession {
             canvas.clientWidth || undefined,
           ),
     );
-    // Weak devices (touch, or few CPU cores) build a thinner building wall so
-    // the dense city stays playable on phones.
+    // Weak devices (touch, or few CPU cores) thin general scenery and swap
+    // most asset-slot buildings for a cheap proxy so the dense city stays
+    // playable on phones — never by deleting structural occupancy (plan
+    // Section 6.3: the world is device-independent; only its rendering cost
+    // is not).
     const cores =
       (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 8;
     const lowSpec = options.inputCapabilities.touchFirst || cores <= 4;
     this.lowSpec = lowSpec;
-    this.buildingKeepFraction = lowSpec ? 0.5 : 1;
+    this.sceneryKeepFraction = lowSpec ? 0.5 : 1;
+    this.buildingAssetDetailFraction = lowSpec ? 0.5 : 1;
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.68, 0.84, 0.9, 1);
     // Low, faintly warm ambient: the directional sun and hemisphere fill do
@@ -1529,6 +1576,7 @@ export class BabylonGameSession {
         "__sideswapEnforcementDebug",
         "__sideswapCollisionDebug",
         "__sideswapCollisionOverlay",
+        "__sideswapBuildingRepresentationDebug",
       ]) {
         delete debugWindow[key];
       }
@@ -1575,6 +1623,7 @@ export class BabylonGameSession {
     this.buildingLayer = null;
     this.proceduralFacades?.dispose();
     this.proceduralFacades = null;
+    this.buildingRepresentations.clear();
     disposeModels(this.scene);
     this.scene.dispose();
     this.engine.dispose();
@@ -1867,7 +1916,7 @@ export class BabylonGameSession {
     if (!graph) return;
     const clothing = crowdClothingPaletteForMap(mapPack.id);
     const sim = createCrowdSim(graph, {
-      count: Math.floor(config.count * this.buildingKeepFraction),
+      count: Math.floor(config.count * this.sceneryKeepFraction),
       seed: hashStringToSeed(`${mapPack.id}-crowd`),
       innerRadiusM: config.innerRadiusM,
       outerRadiusM: config.outerRadiusM,
@@ -2668,30 +2717,30 @@ export class BabylonGameSession {
   }
 
   /**
-   * After preload, dress each building-set block queued into `buildingLayer`
-   * with a street wall of instanced glb buildings, via
-   * `BuildingLayer.instantiate` — see that class's own doc comment for what
-   * it owns outright versus what this method still assembles and passes in
-   * (the shared model-master cache, the low-spec keep fraction, the keep-out
-   * circles, Cairo's roof-clutter masters, and the shared static-scenery/
-   * shadow-ring registration). Then instantiates every other deferred-model
-   * queue that piggybacks on this same "models are ready now" moment: river
-   * craft, vendor carts, and park planting. Called from the exact point in
-   * the async preload-completion sequence this method has always run from —
-   * that position, and the order of the calls inside it, is load-bearing for
-   * seeded-render determinism (see `render/buildingLayer.ts`'s doc comment).
+   * After preload, dress every planned asset-slot entry with an instanced
+   * glb (or an exact proxy), via `BuildingLayer.instantiate` — see that
+   * class's own doc comment for what it owns outright versus what this
+   * method still assembles and passes in (the shared model-master cache,
+   * the building asset-detail fraction, Cairo's roof-clutter masters, the
+   * shared static-scenery/shadow-ring registration, and the representation
+   * registry). Then instantiates every other deferred-model queue that
+   * piggybacks on this same "models are ready now" moment: river craft,
+   * vendor carts, and park planting. Called from the exact point in the
+   * async preload-completion sequence this method has always run from.
    */
   private buildInstancedBuildings() {
     this.buildingLayer?.instantiate({
       night: this.visualPalette?.night ?? false,
       buildingModelUrls: this.buildingModelUrls,
-      buildingKeepFraction: this.buildingKeepFraction,
-      buildingExclusions: this.buildingExclusions,
+      buildingAssetDetailFraction: this.buildingAssetDetailFraction,
       cairoRoofClutterMasters: this.cairoRoofClutterMasters,
       staticSceneryFreeze: this.staticSceneryFreeze,
       getBuildingMaster: (url, squareUpYaw) => this.getBuildingMaster(url, squareUpYaw),
+      materialFor: (materialKey) => this.proceduralFacades!.materialFor(materialKey),
       registerStaticCell: (mesh, x, z, castsShadow) =>
         this.registerStaticCell(mesh, x, z, castsShadow),
+      registerRepresentation: (record) => this.buildingRepresentations.set(record),
+      debugAssetPolicy: this.debugBuildingAssetPolicy,
     });
 
     this.waterLayer?.instantiatePendingBoats((url) => this.getBuildingMaster(url));
@@ -4044,11 +4093,6 @@ export class BabylonGameSession {
         yellowMarkingMaterial,
       ),
     );
-    // Stateful, order-sensitive stream — only `ProceduralFacades` (via
-    // `ProceduralFacadesCtx.random`) may draw from it; every other seeded
-    // choice below and after uses the pure, order-independent
-    // `hashStringToSeed` instead. See docs/rendering.md.
-    const random = seededUnit(this.options.scenario.trafficSeed);
     const cairoRooftopMaterial =
       cairoScene
         ? makeMaterial(
@@ -4125,18 +4169,18 @@ export class BabylonGameSession {
         ]
       : [];
     // Every keep-out has to be known before the block loop below dresses a
-    // single block: the instanced street wall gets away with collecting
-    // these as it goes, because it is deferred until after preload, but the
-    // procedural facade grid (`ProceduralFacades.placeBlock`) runs inline,
-    // so a keep-out pushed later in this method would arrive after the
-    // boxes it was meant to exclude were already standing.
+    // single block. Buildings no longer read this: every planned entry
+    // already excludes service/venue keep-outs at plan time
+    // (`geometry/buildingLayout.ts`), so the renderer here only ever paints
+    // what the plan already decided is clear. `collectBuildingExclusions`
+    // still has to run before this method's later `placeProp`/repair-shop
+    // calls, which read `buildingExclusions` for their own placement.
     collectBuildingExclusions(
       { scene, deferredProps: this.deferredProps, buildingExclusions: this.buildingExclusions },
       mapPack,
     );
 
     const proceduralFacadesCtx: ProceduralFacadesCtx = {
-      random,
       mapId,
       cairoFacadeTrimMaterial,
       cairoBalconyRailMaterial,
@@ -4146,55 +4190,47 @@ export class BabylonGameSession {
       cairoDishMaterial,
       staticSceneryFreeze: this.staticSceneryFreeze,
       registerShadowCaster: (mesh, x, z) => this.registerShadowCaster(mesh, x, z),
-      buildingKeepFraction: this.buildingKeepFraction,
-      buildingExclusions: this.buildingExclusions,
     };
-    for (const block of mapPack.geometry.blocks) {
-      const material = proceduralFacades.materialFor(block.material);
-      const isLondonMuseumBlock =
-        mapId.includes("london") && block.material.endsWith("-museum");
-      if (isLondonMuseumBlock) {
-        const wingWidth = Math.max(12, block.size.x * 0.23);
-        const wingHeight = Math.max(11, block.heightRange[0] * 0.72);
-        for (const side of [-1, 1]) {
-          const wingX = block.center.x + side * block.size.x * 0.37;
-          this.registerShadowCaster(
-            createFacadeBox(
-              scene,
-              `building-${block.id}-wing-${side}`,
-              { width: wingWidth, height: wingHeight, depth: block.size.z * 0.82 },
-              new Vector3(wingX, wingHeight / 2, block.center.z),
-              material,
-            ),
-            wingX,
-            block.center.z,
-          );
-        }
+    const blockById = new Map(mapPack.geometry.blocks.map((block) => [block.id, block]));
+    const assetSlotEntries: PlannedAssetBuilding[] = [];
+    const gardenCityCompoundBlockIds = new Set<string>();
+    for (const entry of this.buildingLayout.buildings) {
+      if (entry.source === "asset-slot") {
+        assetSlotEntries.push(entry);
         continue;
       }
-      // Building-set blocks are dressed with instanced glb street walls after
-      // preload (buildInstancedBuildings, via buildingLayer.instantiate); box
-      // grid is the offline fallback.
-      if (block.buildingSet && isBuildingSetId(block.buildingSet)) {
-        const setId = block.buildingSet;
-        this.buildingLayer?.enqueueBlock(block, setId, () =>
-          proceduralFacades.placeBlock(
-            block,
-            proceduralFacades.materialFor(block.material),
-            proceduralFacadesCtx,
-          ),
-        );
-        continue;
+      const block = blockById.get(entry.blockId);
+      if (!block) continue; // Cannot happen for a plan built from this exact mapPack.
+      const representation = proceduralFacades.renderPlannedBuilding(
+        entry as PlannedProceduralBuilding,
+        block,
+        proceduralFacadesCtx,
+      );
+      this.buildingRepresentations.set({
+        planId: entry.id,
+        source: entry.source,
+        solids: [representation],
+      });
+      if (
+        entry.source === "procedural-cell" &&
+        block.material === "cairo-garden-stucco"
+      ) {
+        gardenCityCompoundBlockIds.add(block.id);
       }
-      proceduralFacades.placeBlock(block, material, proceduralFacadesCtx);
     }
-    // Preload just this map's building-set glbs (not every map's) off the
-    // critical path; buildInstancedBuildings consumes them once ready. City
-    // maps (those with building sets) also get the sidewalk vendor carts.
-    const setIds = this.buildingLayer?.queuedSetIds ?? [];
+    for (const blockId of gardenCityCompoundBlockIds) {
+      const block = blockById.get(blockId);
+      if (block) proceduralFacades.renderGardenCityCompound(block, proceduralFacadesCtx);
+    }
+    this.buildingLayer?.setPlan(assetSlotEntries);
+    // Preload just this map's building-set glbs (not every map's), derived
+    // from the plan's own asset-slot entries rather than rescanning authored
+    // blocks (plan Section 7.7) — buildInstancedBuildings consumes them once
+    // ready. City maps (those with any asset-slot buildings) also get the
+    // sidewalk vendor carts.
     this.buildingModelUrls = [
-      ...buildingSetUrls(setIds),
-      ...(setIds.length ? nycVendorUrls() : []),
+      ...(this.buildingLayer?.plannedUrls ?? []),
+      ...(assetSlotEntries.length ? nycVendorUrls() : []),
       // River craft ride the same preload. Gated on Cairo, not on "has water":
       // the two models are `cairo-felucca` and `cairo-skiff` and only Cairo
       // places them, so keying off water alone made Central Park's lake pull
@@ -4730,7 +4766,7 @@ export class BabylonGameSession {
         pendingVendors: this.pendingVendors,
         pendingParkProps: this.pendingParkProps,
         pendingParkThickets: this.pendingParkThickets,
-        buildingKeepFraction: this.buildingKeepFraction,
+        sceneryKeepFraction: this.sceneryKeepFraction,
         registerShadowCaster: (mesh, x, z) =>
           this.registerShadowCaster(mesh, x, z),
         registerDestructibleProp: (kind, x, z, scale, parts) =>
@@ -5073,12 +5109,14 @@ export class BabylonGameSession {
       // Collision/building-footprint parity debugging (the
       // building-collision-visual-parity plan's Phase 0): exact obstacle
       // shapes near the player, the capsule the solver is testing them
-      // against, the most recent collision's evidence, and behavior-neutral
-      // narrow-phase counters. `nearbyPlannedBuildings` is null until a
-      // `BuildingLayoutPlan` lands on the session (Phase 3+).
+      // against, the most recent collision's evidence, behavior-neutral
+      // narrow-phase counters, and (Phase 3+) the planned buildings near the
+      // player with what actually represents each one.
       debugWindow.__sideswapCollisionDebug = () => {
         const player = this.simulationSnapshot.player;
         const nearbyRadiusSquared = 60 * 60;
+        const distanceSquared = (x: number, z: number) =>
+          (x - player.x) * (x - player.x) + (z - player.z) * (z - player.z);
         const nearbyObstacles = this.scenarioStaticObstacles
           .filter(
             (obstacle) =>
@@ -5089,6 +5127,13 @@ export class BabylonGameSession {
               obstacleDistanceSquared(a, player.x, player.z) -
               obstacleDistanceSquared(b, player.x, player.z),
           );
+        const nearbyPlannedBuildings = this.buildingLayout.buildings
+          .filter((entry) => distanceSquared(entry.x, entry.z) <= nearbyRadiusSquared)
+          .sort((a, b) => distanceSquared(a.x, a.z) - distanceSquared(b.x, b.z))
+          .map((entry) => ({
+            plan: entry,
+            representation: this.buildingRepresentations.get(entry.id) ?? null,
+          }));
         return {
           mapId: this.options.mapPack.id,
           qualityTier: this.lowSpec ? "low" : "full",
@@ -5101,7 +5146,7 @@ export class BabylonGameSession {
           playerCapsule: this.simulation.getPlayerCapsuleDebug(),
           lastCollisionEvidence: this.lastCollisionEvidence,
           nearbyObstacles,
-          nearbyPlannedBuildings: null,
+          nearbyPlannedBuildings,
           collisionCounters: this.simulation.getStaticCollisionCounters(),
         };
       };
@@ -5110,6 +5155,34 @@ export class BabylonGameSession {
       // see collisionDebugOverlay.ts.
       debugWindow.__sideswapCollisionOverlay = (enabled: boolean) => {
         this.setCollisionOverlay(Boolean(enabled));
+      };
+      // Bidirectional plan/representation completeness, so QA and tests can
+      // assert every planned building actually stands (full tier, low spec,
+      // or a forced/real asset failure) without walking the scene graph —
+      // plan Section 10.4.
+      debugWindow.__sideswapBuildingRepresentationDebug = () => {
+        const records = this.buildingRepresentations.all();
+        const byPlanId = new Map(records.map((record) => [record.planId, record]));
+        const missingPlanIds = this.buildingLayout.buildings
+          .filter((entry) => !byPlanId.has(entry.id))
+          .map((entry) => entry.id);
+        const planIds = new Set(this.buildingLayout.buildings.map((entry) => entry.id));
+        const orphanRepresentationIds = records
+          .filter((record) => !planIds.has(record.planId))
+          .map((record) => record.planId);
+        const kindCounts: Record<string, number> = {};
+        for (const record of records) {
+          for (const solid of record.solids) {
+            kindCounts[solid.kind] = (kindCounts[solid.kind] ?? 0) + 1;
+          }
+        }
+        return {
+          plannedCount: this.buildingLayout.buildings.length,
+          representedCount: records.length,
+          missingPlanIds,
+          orphanRepresentationIds,
+          kindCounts,
+        };
       };
       // Walker states + bubble, so the capture harness can assert the crowd
       // moves smoothly and never pops in or out on screen.
