@@ -16,11 +16,11 @@ import {
   booleanUnion,
   distanceFromPointToShape,
   pointInShape,
+  PolygonClippingError,
   segmentInsideShapeIntervals,
   type Aabb,
   type Aabb2,
   type GroundSurface,
-  type MultiPolygon,
   type OccluderVolume,
   type ParamInterval,
   type Point2,
@@ -29,6 +29,17 @@ import {
 } from "./visualSceneFootprints";
 
 const EPS = 1e-9;
+
+/** Clockwise rectangle winding, matching `visualSceneFootprints.ts`'s
+ * `aabbToPolygon` exactly. */
+function rectPointsCW(minX: number, maxX: number, minZ: number, maxZ: number): Point2[] {
+  return [
+    { x: minX, z: minZ },
+    { x: minX, z: maxZ },
+    { x: maxX, z: maxZ },
+    { x: maxX, z: minZ },
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Spatial index (Section 7.4)
@@ -183,6 +194,13 @@ export interface GroundRaster {
   readonly fragments: readonly RasterFragment[];
   readonly blobs: readonly VoidBlob[];
   readonly fragmentIndex: SpatialIndex;
+  /** Cells `polygon-clipping` itself could not resolve even after
+   * coordinate snapping (Section 5.5's `unsupported_geometry` class) —
+   * conservatively excluded from every fragment/blob rather than guessed
+   * at, so they can never wrongly certify a gap closed. Report and
+   * investigate each one; a non-empty list here is a real audit gap, not a
+   * pass. */
+  readonly unsupportedCellIds: readonly string[];
 }
 
 function ringCentroidAndArea(points: readonly Point2[]): { x: number; z: number; signedArea: number } {
@@ -341,20 +359,33 @@ export function buildGroundRaster(
       fragments: [],
       blobs: [],
       fragmentIndex: new SpatialIndex(cellSizeM),
+      unsupportedCellIds: [],
     };
   }
   const worldGround: Shape2d =
     worldGroundShapes.length === 1 ? worldGroundShapes[0] : booleanUnion(...worldGroundShapes);
 
-  const coveringShapes: Shape2d[] = groundSurfaces
+  const coveringSurfaceShapes: Shape2d[] = groundSurfaces
     .filter((s) => s.kind !== "world-ground")
     .map((s) => s.geometry);
   const groundContactOccluders = occluders.filter((o) => o.minY <= worldGroundSurfaceY + GROUND_CONTACT_EPS_M);
-  const subtractShapes = [...coveringShapes, ...groundContactOccluders.map((o) => o.geometry)];
+  const coveringShapes: Shape2d[] = [...coveringSurfaceShapes, ...groundContactOccluders.map((o) => o.geometry)];
 
-  const remaining: MultiPolygon = subtractShapes.length
-    ? booleanDifference(worldGround, ...subtractShapes)
-    : toMultiPolygon(worldGround);
+  // Real maps carry thousands of covering shapes; a single global
+  // `booleanDifference` (or one `booleanIntersection` per 4 m cell against
+  // it) re-processes that entire complexity on every call and is far too
+  // slow at city scale. Instead: index every covering shape once, then for
+  // each cell query only the LOCALLY overlapping shapes (almost always a
+  // handful) and difference just those against the cell — an empty query
+  // means the whole cell is bare and needs no clipping call at all, which is
+  // exactly the fast path a large real void should take.
+  const coverIndex = new SpatialIndex(32);
+  const coverShapeById = new Map<string, Shape2d>();
+  coveringShapes.forEach((shape, index) => {
+    const id = `cover-${index}`;
+    coverShapeById.set(id, shape);
+    coverIndex.insert(id, aabbOfShape(shape));
+  });
 
   const bounds = aabbOfShape(worldGround);
   const cx0 = Math.floor(bounds.minX / cellSizeM);
@@ -365,36 +396,75 @@ export function buildGroundRaster(
   const fragments: { id: string; cellCx: number; cellCz: number; polygon: Polygon; area: number; aabb: Aabb2 }[] = [];
   const fragmentsByCell = new Map<string, typeof fragments>();
 
-  if (remaining.parts.length > 0) {
-    for (let cx = cx0; cx <= cx1; cx += 1) {
-      for (let cz = cz0; cz <= cz1; cz += 1) {
-        const cell: Aabb = {
-          kind: "aabb",
-          minX: cx * cellSizeM,
-          maxX: (cx + 1) * cellSizeM,
-          minZ: cz * cellSizeM,
-          maxZ: (cz + 1) * cellSizeM,
-        };
-        const clipped = booleanIntersection(cell, remaining);
-        if (clipped.parts.length === 0) continue;
-        const cellFragments: typeof fragments = [];
-        clipped.parts.forEach((part, index) => {
-          const polygon: Polygon = { kind: "polygon", outer: part.outer, holes: part.holes };
-          const { area } = polygonAreaAndCentroid(polygon);
-          if (area < MIN_FRAGMENT_AREA_M2) return;
-          cellFragments.push({
-            id: `cell-${cx}-${cz}-frag-${index}`,
-            cellCx: cx,
-            cellCz: cz,
-            polygon,
-            area,
-            aabb: ringAabb(part.outer),
+  // World-ground is always the pure rectangle `resolveWorldGroundBounds`
+  // produces in every real collector and every test in this file, so a
+  // boundary cell can be clipped to it with plain min/max instead of a full
+  // polygon Boolean call — the fast path a world-edge row of cells needs.
+  // A hypothetical non-rectangular world-ground shape still gets an exact
+  // (just slower) clip via `booleanIntersection`-equivalent difference.
+  const worldGroundIsRect = worldGround.kind === "aabb";
+  const unsupportedCellIds: string[] = [];
+
+  for (let cx = cx0; cx <= cx1; cx += 1) {
+    for (let cz = cz0; cz <= cz1; cz += 1) {
+      const rawMinX = cx * cellSizeM;
+      const rawMaxX = (cx + 1) * cellSizeM;
+      const rawMinZ = cz * cellSizeM;
+      const rawMaxZ = (cz + 1) * cellSizeM;
+      const cellId = `cell-${cx}-${cz}`;
+
+      let cellFragments: typeof fragments = [];
+      try {
+        if (worldGroundIsRect) {
+          const cellMinX = Math.max(rawMinX, bounds.minX);
+          const cellMaxX = Math.min(rawMaxX, bounds.maxX);
+          const cellMinZ = Math.max(rawMinZ, bounds.minZ);
+          const cellMaxZ = Math.min(rawMaxZ, bounds.maxZ);
+          if (cellMinX >= cellMaxX || cellMinZ >= cellMaxZ) continue;
+          const cell: Aabb = { kind: "aabb", minX: cellMinX, maxX: cellMaxX, minZ: cellMinZ, maxZ: cellMaxZ };
+          const localIds = coverIndex.queryBox(cell);
+          if (localIds.length === 0) {
+            const polygon: Polygon = { kind: "polygon", outer: rectPointsCW(cellMinX, cellMaxX, cellMinZ, cellMaxZ) };
+            const { area } = polygonAreaAndCentroid(polygon);
+            if (area >= MIN_FRAGMENT_AREA_M2) {
+              cellFragments = [
+                { id: `${cellId}-frag-0`, cellCx: cx, cellCz: cz, polygon, area, aabb: { minX: cellMinX, maxX: cellMaxX, minZ: cellMinZ, maxZ: cellMaxZ } },
+              ];
+            }
+          } else {
+            const localShapes = localIds.map((id) => coverShapeById.get(id)!);
+            const clipped = booleanDifference(cell, ...localShapes);
+            clipped.parts.forEach((part, index) => {
+              const polygon: Polygon = { kind: "polygon", outer: part.outer, holes: part.holes };
+              const { area } = polygonAreaAndCentroid(polygon);
+              if (area < MIN_FRAGMENT_AREA_M2) return;
+              cellFragments.push({ id: `${cellId}-frag-${index}`, cellCx: cx, cellCz: cz, polygon, area, aabb: ringAabb(part.outer) });
+            });
+          }
+        } else {
+          // General (non-rectangular) world-ground: clip the raw cell to it
+          // first, then subtract local covering shapes from that result.
+          const cell: Aabb = { kind: "aabb", minX: rawMinX, maxX: rawMaxX, minZ: rawMinZ, maxZ: rawMaxZ };
+          const withinWorld = booleanIntersection(cell, worldGround);
+          if (withinWorld.parts.length === 0) continue;
+          const localIds = coverIndex.queryBox(cell);
+          const localShapes = localIds.map((id) => coverShapeById.get(id)!);
+          const clipped = localShapes.length ? booleanDifference(withinWorld, ...localShapes) : withinWorld;
+          clipped.parts.forEach((part, index) => {
+            const polygon: Polygon = { kind: "polygon", outer: part.outer, holes: part.holes };
+            const { area } = polygonAreaAndCentroid(polygon);
+            if (area < MIN_FRAGMENT_AREA_M2) return;
+            cellFragments.push({ id: `${cellId}-frag-${index}`, cellCx: cx, cellCz: cz, polygon, area, aabb: ringAabb(part.outer) });
           });
-        });
-        if (cellFragments.length) {
-          fragments.push(...cellFragments);
-          fragmentsByCell.set(`${cx}:${cz}`, cellFragments);
         }
+      } catch (cause) {
+        if (!(cause instanceof PolygonClippingError)) throw cause;
+        unsupportedCellIds.push(cellId);
+        continue;
+      }
+      if (cellFragments.length) {
+        fragments.push(...cellFragments);
+        fragmentsByCell.set(`${cx}:${cz}`, cellFragments);
       }
     }
   }
@@ -475,16 +545,7 @@ export function buildGroundRaster(
     });
   }
 
-  return { cellSizeM, fragments: finalFragments, blobs, fragmentIndex };
-}
-
-function toMultiPolygon(shape: Shape2d): MultiPolygon {
-  if (shape.kind === "multiPolygon") return shape;
-  if (shape.kind === "polygon") return { kind: "multiPolygon", parts: [{ outer: shape.outer, holes: shape.holes }] };
-  // aabb/obb/circle: difference-of-nothing still needs a polygonal form —
-  // route through an empty difference so winding/canonicalization matches
-  // every other code path exactly.
-  return booleanDifference(shape);
+  return { cellSizeM, fragments: finalFragments, blobs, fragmentIndex, unsupportedCellIds };
 }
 
 // ---------------------------------------------------------------------------

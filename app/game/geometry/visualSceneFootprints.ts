@@ -30,6 +30,19 @@ import polygonClipping, {
   type Polygon as ClippingPolygon,
   type Ring as ClippingRing,
 } from "polygon-clipping";
+import { buildingVisualOcclusionFor } from "../buildingVisualOcclusion";
+import { ROAD_DIVIDED_PARK_IDS } from "../parkLayouts";
+import { GAS_STATION_CANOPY_M } from "../propFootprints";
+import type { GameCanvasMapPack } from "../sessionContract";
+import { gasStationCanopyWorld } from "../servicePoints";
+import { defaultSidewalkWidthM } from "../visuals";
+import type { BuildingLayoutPlan, PlannedBuilding } from "./buildingLayout";
+import { cairoTahrirLawnPolygon, roadSideParkLawnPolygon } from "./cairoParkland";
+import { landmarkGroundSolids } from "./landmarkGroundSolids";
+import { placedServiceShellSolids, placedVenueFootprint } from "./placedPropFootprints";
+import { buildRoadSurfaceStripGeometry, collectRoadJunctionFills } from "./roadStrips";
+import { buildWaterPolygonGeometry } from "./waterGeometry";
+import { resolveWorldGroundBounds } from "./worldGround";
 
 // `polygon-clipping`'s own `Geom` union (`Polygon | MultiPolygon`) is not
 // exported from the package, so it is restated here.
@@ -678,10 +691,43 @@ export function shapeToPolygonal(shape: Shape2d): Polygon | MultiPolygon {
 // and cell clipping, with canonicalized output)
 // ---------------------------------------------------------------------------
 
+/** Coordinate-snap precision fed to `polygon-clipping`. Real map geometry
+ * (road-strip offsetting, repeated rotate/translate transforms) can produce
+ * vertices that are "meant" to coincide but differ by float noise far below
+ * this — which the library's exact-arithmetic ring-closing algorithm is not
+ * robust to (`RingOut.factory`'s "Unable to complete output ring" throw,
+ * hit on real London/NYC/Cairo geometry during Phase 1 development).
+ * Snapping every coordinate to this grid first, then dropping the
+ * consecutive-duplicate/near-zero-length edges snapping can create, is the
+ * standard robustness fix for this class of library. 1 mm is far finer than
+ * anything this audit's thresholds (1 cm/1.5 m/16 m/28 m) care about. */
+const CLIPPING_SNAP_M = 0.001;
+
+function snapCoord(value: number): number {
+  return Math.round(value / CLIPPING_SNAP_M) * CLIPPING_SNAP_M;
+}
+
 function ringToClipping(points: readonly Point2[], clockwise: boolean): ClippingRing {
   const wound = ensureWinding(points, clockwise);
-  const ring: ClippingPair[] = wound.map((p) => [p.x, p.z] as ClippingPair);
-  ring.push([wound[0].x, wound[0].z]);
+  const snapped: Point2[] = [];
+  for (const p of wound) {
+    const sx = snapCoord(p.x);
+    const sz = snapCoord(p.z);
+    const last = snapped[snapped.length - 1];
+    if (!last || Math.abs(last.x - sx) > 1e-9 || Math.abs(last.z - sz) > 1e-9) {
+      snapped.push({ x: sx, z: sz });
+    }
+  }
+  // A closed ring's first/last snapped points can coincide too.
+  while (
+    snapped.length > 1 &&
+    Math.abs(snapped[0].x - snapped[snapped.length - 1].x) < 1e-9 &&
+    Math.abs(snapped[0].z - snapped[snapped.length - 1].z) < 1e-9
+  ) {
+    snapped.pop();
+  }
+  const ring: ClippingPair[] = snapped.map((p) => [p.x, p.z] as ClippingPair);
+  if (snapped.length > 0) ring.push([snapped[0].x, snapped[0].z]);
   return ring;
 }
 
@@ -749,21 +795,43 @@ function fromClippingResult(result: ClippingMultiPolygon): MultiPolygon {
   return { kind: "multiPolygon", parts };
 }
 
+/** Thrown when `polygon-clipping` itself cannot resolve an operation (its
+ * exact-arithmetic ring-closing algorithm occasionally rejects even
+ * snap-cleaned real-world geometry). Callers that walk many shapes — the
+ * ground raster above all — must catch this per-unit-of-work rather than
+ * let one bad cell/shape abort an entire map's audit; Section 5.5's
+ * `unsupported_geometry` class exists for exactly this. */
+export class PolygonClippingError extends Error {
+  constructor(operation: string, cause: unknown) {
+    super(`polygon-clipping ${operation} failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "PolygonClippingError";
+  }
+}
+
 export function booleanUnion(...shapes: readonly Shape2d[]): MultiPolygon {
   if (shapes.length === 0) return { kind: "multiPolygon", parts: [] };
   const geoms = shapes.map(shapeToClippingGeom);
-  const result = polygonClipping.union(geoms[0], ...geoms.slice(1));
-  return fromClippingResult(result);
+  try {
+    return fromClippingResult(polygonClipping.union(geoms[0], ...geoms.slice(1)));
+  } catch (cause) {
+    throw new PolygonClippingError("union", cause);
+  }
 }
 
 export function booleanIntersection(a: Shape2d, b: Shape2d): MultiPolygon {
-  const result = polygonClipping.intersection(shapeToClippingGeom(a), shapeToClippingGeom(b));
-  return fromClippingResult(result);
+  try {
+    return fromClippingResult(polygonClipping.intersection(shapeToClippingGeom(a), shapeToClippingGeom(b)));
+  } catch (cause) {
+    throw new PolygonClippingError("intersection", cause);
+  }
 }
 
 export function booleanDifference(subject: Shape2d, ...clips: readonly Shape2d[]): MultiPolygon {
-  const result = polygonClipping.difference(shapeToClippingGeom(subject), ...clips.map(shapeToClippingGeom));
-  return fromClippingResult(result);
+  try {
+    return fromClippingResult(polygonClipping.difference(shapeToClippingGeom(subject), ...clips.map(shapeToClippingGeom)));
+  } catch (cause) {
+    throw new PolygonClippingError("difference", cause);
+  }
 }
 
 function multiPolygonArea(mp: MultiPolygon): number {
@@ -794,3 +862,424 @@ export function shapeArea(shape: Shape2d): number {
 }
 
 export { multiPolygonArea };
+
+// ---------------------------------------------------------------------------
+// Real-map collection (Section 7.2 "Collection rules")
+// ---------------------------------------------------------------------------
+
+export interface CollectedIssue {
+  readonly kind: "audit_geometry_missing" | "unsupported_geometry";
+  readonly ownerId: string;
+  readonly reason: string;
+}
+
+export interface CollectedGeometry {
+  readonly groundSurfaces: readonly GroundSurface[];
+  readonly occluders: readonly OccluderVolume[];
+  readonly issues: readonly CollectedIssue[];
+}
+
+/**
+ * Heights this collector does not yet have a measured source for (venue and
+ * service-building rooflines — `PROP_MODEL_FOOTPRINTS_M`/`GAS_STATION_SOLIDS_M`/
+ * `REPAIR_SHOP_SOLIDS_M` are XZ-only; this codebase's collision is 2-D and
+ * carries no roofline data at all). Conservative single/low-rise placeholder
+ * heights, clearly isolated here rather than scattered as magic numbers, so
+ * a future NullEngine measurement pass (mirroring
+ * `buildingVisualOcclusion.ts`'s own approach) has one place to replace.
+ * Under-estimating is the safer direction for a gap-finding audit: it can
+ * only ever make a ray see PAST a real roofline it shouldn't, at the
+ * near-horizontal camera angles this whole audit samples at — never falsely
+ * certify a gap closed.
+ */
+const VENUE_OCCLUSION_HEIGHT_M = 6;
+const GAS_SHOP_OCCLUSION_HEIGHT_M = 4.5;
+const REPAIR_SHOP_OCCLUSION_HEIGHT_M = 5.4;
+
+function rectLandmarkWorldPoints(landmark: {
+  readonly center: Point2;
+  readonly size: Point2;
+  readonly headingDeg?: number;
+}): Point2[] {
+  const heading = ((landmark.headingDeg ?? 0) * Math.PI) / 180;
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
+  const corners: readonly [number, number][] = [
+    [-0.5, -0.5],
+    [-0.5, 0.5],
+    [0.5, 0.5],
+    [0.5, -0.5],
+  ];
+  return corners.map(([u, v]) => {
+    const localX = u * landmark.size.x;
+    const localZ = v * landmark.size.z;
+    return {
+      x: landmark.center.x + localX * cos + localZ * sin,
+      z: landmark.center.z - localX * sin + localZ * cos,
+    };
+  });
+}
+
+/** Rotates+translates a local-frame point by a world placement — the exact
+ * convention `geometry/buildingLayout.ts`'s `worldSolidFromLocalBounds` and
+ * every other placement transform in this codebase already uses. */
+function placeLocalPoint(p: Point2, px: number, pz: number, yaw: number): Point2 {
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  return { x: px + p.x * cos + p.z * sin, z: pz - p.x * sin + p.z * cos };
+}
+
+function stripGeometryToPolygon(strip: {
+  readonly positions: readonly number[];
+  readonly closed: boolean;
+}): Polygon {
+  const n = strip.positions.length / 6;
+  const pos: Point2[] = [];
+  const neg: Point2[] = [];
+  for (let i = 0; i < n; i += 1) {
+    pos.push({ x: strip.positions[6 * i], z: strip.positions[6 * i + 2] });
+    neg.push({ x: strip.positions[6 * i + 3], z: strip.positions[6 * i + 5] });
+  }
+  if (!strip.closed) {
+    return { kind: "polygon", outer: [...pos, ...[...neg].reverse()] };
+  }
+  // A closed (roundabout) strip is two independent ring loops (outer/inner
+  // offsets of the closed centerline) forming an annulus, not one combined
+  // outline — use the larger-area ring as the outer boundary, the smaller
+  // as the hole, since the strip builder does not itself label which is
+  // which for a closed centerline.
+  const [outer, hole] = ringArea(pos) >= ringArea(neg) ? [pos, neg] : [neg, pos];
+  return { kind: "polygon", outer, holes: [hole] };
+}
+
+/**
+ * Every `GroundSurface` derived from a map's authored roads/sidewalks/
+ * junctions/parks/water, using the exact same pure builders the renderer
+ * calls (`roadStrips.ts`, `cairoParkland.ts`, `waterGeometry.ts`) — Section
+ * 7.2 collection rules 7-9.
+ */
+export function collectGroundSurfaces(mapPack: GameCanvasMapPack): readonly GroundSurface[] {
+  const surfaces: GroundSurface[] = [];
+  const worldBounds = resolveWorldGroundBounds(mapPack.geometry.worldSize);
+  surfaces.push({
+    id: "world-ground",
+    ownerId: "world",
+    kind: "world-ground",
+    geometry: { kind: "aabb", ...worldBounds },
+    surfaceY: 0,
+    layerPriority: 0,
+    provenance: "geometry/worldGround.ts:resolveWorldGroundBounds",
+  });
+
+  const roadSurfaces = mapPack.geometry.roadSurfaces ?? [];
+  const bridgeDeckIds = new Set(
+    (mapPack.geometry.waterBodies ?? []).flatMap((water) => water.bridgePortalSurfaceIds ?? []),
+  );
+  const sidewalkWidthOf = (surface: (typeof roadSurfaces)[number]) =>
+    Math.max(0, surface.sidewalkWidthM ?? defaultSidewalkWidthM(mapPack));
+
+  for (const surface of roadSurfaces) {
+    const smoothClosed = surface.surfaceType === "roundabout" ? true : undefined;
+    const carriageway = stripGeometryToPolygon(
+      buildRoadSurfaceStripGeometry(surface.centerline, surface.widthM, smoothClosed),
+    );
+    const sidewalkWidth = sidewalkWidthOf(surface);
+    const outerBand = stripGeometryToPolygon(
+      buildRoadSurfaceStripGeometry(surface.centerline, surface.widthM + sidewalkWidth * 2, smoothClosed),
+    );
+    const isBridgeDeck = bridgeDeckIds.has(surface.id);
+    surfaces.push({
+      id: `road-${surface.id}`,
+      ownerId: surface.id,
+      kind: isBridgeDeck ? "bridge-deck" : "road",
+      geometry: carriageway,
+      surfaceY: 0.07,
+      layerPriority: isBridgeDeck ? 2 : 1,
+      provenance: "geometry/roadStrips.ts:buildRoadSurfaceStripGeometry",
+    });
+    if (sidewalkWidth > 0) {
+      const sidewalkRing = booleanDifference(outerBand, carriageway);
+      if (multiPolygonArea(sidewalkRing) > 1e-6) {
+        surfaces.push({
+          id: `sidewalk-${surface.id}`,
+          ownerId: surface.id,
+          kind: "sidewalk",
+          geometry: sidewalkRing,
+          surfaceY: 0.045,
+          layerPriority: 1,
+          provenance: "geometry/roadStrips.ts:buildRoadSurfaceStripGeometry",
+        });
+      }
+    }
+  }
+
+  const junctionSources = roadSurfaces.map((s) => ({ id: s.id, centerline: s.centerline, widthM: s.widthM }));
+  for (const [index, fill] of collectRoadJunctionFills(junctionSources).entries()) {
+    surfaces.push({
+      id: `junction-${index}`,
+      ownerId: fill.surfaceIds.join("+"),
+      kind: "junction",
+      geometry: { kind: "polygon", outer: fill.polygon },
+      surfaceY: 0.0716,
+      layerPriority: 1,
+      provenance: "geometry/roadStrips.ts:collectRoadJunctionFills",
+    });
+  }
+  const shoulderJunctionSources = roadSurfaces.map((s) => ({
+    id: s.id,
+    centerline: s.centerline,
+    widthM: s.widthM + sidewalkWidthOf(s) * 2,
+  }));
+  for (const [index, fill] of collectRoadJunctionFills(shoulderJunctionSources, 0, 0).entries()) {
+    surfaces.push({
+      id: `junction-shoulder-${index}`,
+      ownerId: fill.surfaceIds.join("+"),
+      kind: "junction",
+      geometry: { kind: "polygon", outer: fill.polygon },
+      surfaceY: 0.0435,
+      layerPriority: 1,
+      provenance: "geometry/roadStrips.ts:collectRoadJunctionFills",
+    });
+  }
+
+  for (const landmark of mapPack.geometry.landmarks) {
+    if (landmark.kind !== "park") continue;
+    let outer: readonly Point2[];
+    if (ROAD_DIVIDED_PARK_IDS.has(landmark.id)) {
+      outer = roadSideParkLawnPolygon(landmark, roadSurfaces);
+    } else if (landmark.id === "cairo-tahrir-square") {
+      outer = cairoTahrirLawnPolygon(landmark, roadSurfaces);
+    } else {
+      outer = rectLandmarkWorldPoints(landmark);
+    }
+    if (outer.length < 3) continue;
+    surfaces.push({
+      id: `park-${landmark.id}`,
+      ownerId: landmark.id,
+      kind: "park",
+      geometry: { kind: "polygon", outer },
+      surfaceY: 0.02,
+      layerPriority: 1,
+      provenance: "geometry/cairoParkland.ts / rectLandmarkWorldPoints",
+    });
+  }
+
+  for (const water of mapPack.geometry.waterBodies ?? []) {
+    const geometry = buildWaterPolygonGeometry(water.polygon);
+    if (geometry.polygon.length < 3) continue;
+    surfaces.push({
+      id: `water-${water.id}`,
+      ownerId: water.id,
+      kind: "water",
+      geometry: { kind: "polygon", outer: geometry.polygon },
+      surfaceY: 0.025,
+      layerPriority: 1,
+      provenance: "geometry/waterGeometry.ts:buildWaterPolygonGeometry",
+    });
+  }
+
+  return surfaces;
+}
+
+/** Stable per-solid id, mirroring `geometry/buildingLayout.ts`'s
+ * `buildingSolidObstacleId` exactly (that function only reads `.localId` off
+ * its second argument, so it is safe to reproduce here without importing a
+ * `StructuralObb`-shaped value this collector does not have for the visual
+ * hull case). */
+function planSolidId(plan: PlannedBuilding, localId: string): string {
+  return plan.solids.length === 1 ? plan.id : `${plan.id}:solid:${localId}`;
+}
+
+/**
+ * Every `OccluderVolume` derived from the map's planned buildings, resolved
+ * venues/services, and generic (non-bespoke) landmarks — Section 7.2
+ * collection rules 1-6. Bespoke landmarks (an entry in
+ * `geometry/landmarkGroundSolids.ts`) and venues/services whose model has no
+ * measured footprint are reported through `issues` as `audit_geometry_missing`
+ * rather than silently skipped or approximated from a collision envelope.
+ */
+export function collectOccluderVolumes(
+  mapPack: GameCanvasMapPack,
+  buildingLayout: BuildingLayoutPlan,
+): { readonly occluders: readonly OccluderVolume[]; readonly issues: readonly CollectedIssue[] } {
+  const occluders: OccluderVolume[] = [];
+  const issues: CollectedIssue[] = [];
+
+  for (const plan of buildingLayout.buildings) {
+    if (plan.source === "asset-slot") {
+      const visual = buildingVisualOcclusionFor(plan.modelId);
+      if (!visual) {
+        issues.push({
+          kind: "audit_geometry_missing",
+          ownerId: plan.id,
+          reason: `no visual-occlusion entry for model "${plan.modelId}"`,
+        });
+        continue;
+      }
+      for (const solid of visual.solids) {
+        occluders.push({
+          id: planSolidId(plan, solid.localId),
+          ownerId: plan.id,
+          kind: "building",
+          geometry: { kind: "polygon", outer: solid.points.map((p) => placeLocalPoint(p, plan.x, plan.z, plan.yaw)) },
+          minY: 0,
+          maxY: visual.heightM,
+          provenance: "buildingVisualOcclusion.ts:buildingVisualOcclusionFor",
+        });
+      }
+    } else {
+      for (const solid of plan.solids) {
+        occluders.push({
+          id: planSolidId(plan, solid.localId),
+          ownerId: plan.id,
+          kind: "building",
+          geometry: {
+            kind: "obb",
+            x: solid.x,
+            z: solid.z,
+            ux: solid.ux,
+            uz: solid.uz,
+            halfU: solid.halfU,
+            halfV: solid.halfV,
+          },
+          minY: 0,
+          maxY: plan.heightM,
+          provenance: "geometry/buildingLayout.ts:planMapBuildings (procedural/museum exact box)",
+        });
+      }
+    }
+  }
+
+  for (const venue of mapPack.geometry.gigVenues ?? []) {
+    const footprint = placedVenueFootprint(mapPack, venue);
+    if (!footprint) {
+      issues.push({ kind: "unsupported_geometry", ownerId: venue.id, reason: "venue lane anchor did not resolve" });
+      continue;
+    }
+    if (!footprint.resolved) {
+      issues.push({
+        kind: "audit_geometry_missing",
+        ownerId: venue.id,
+        reason: `no measured PROP_MODEL_FOOTPRINTS_M entry for "${venue.modelId ?? venue.kind}"`,
+      });
+      continue;
+    }
+    for (const solid of footprint.solids) {
+      occluders.push({
+        id: `venue-${venue.id}-${solid.localId}`,
+        ownerId: venue.id,
+        kind: "venue-building",
+        geometry: { kind: "obb", ...solid.obb },
+        minY: 0,
+        maxY: VENUE_OCCLUSION_HEIGHT_M,
+        provenance: "geometry/placedPropFootprints.ts:placedVenueFootprint",
+      });
+    }
+  }
+
+  for (const service of mapPack.geometry.servicePoints ?? []) {
+    const solids = placedServiceShellSolids(mapPack.laneGraph.lanes, service);
+    if (!solids) {
+      issues.push({ kind: "unsupported_geometry", ownerId: service.id, reason: "service lane anchor did not resolve" });
+      continue;
+    }
+    const heightM = service.kind === "gas_station" ? GAS_SHOP_OCCLUSION_HEIGHT_M : REPAIR_SHOP_OCCLUSION_HEIGHT_M;
+    for (const solid of solids) {
+      occluders.push({
+        id: `service-${service.id}-${solid.localId}`,
+        ownerId: service.id,
+        kind: "service-building",
+        geometry: { kind: "obb", ...solid.obb },
+        minY: 0,
+        maxY: heightM,
+        provenance: "geometry/placedPropFootprints.ts:placedServiceShellSolids",
+      });
+    }
+    if (service.kind === "gas_station") {
+      const canopy = gasStationCanopyWorld(mapPack.laneGraph.lanes, service);
+      if (canopy) {
+        occluders.push({
+          id: `service-${service.id}-canopy`,
+          ownerId: service.id,
+          kind: "service-building",
+          geometry: {
+            kind: "obb",
+            x: canopy.x,
+            z: canopy.z,
+            ux: canopy.ux,
+            uz: canopy.uz,
+            halfU: canopy.halfU,
+            halfV: canopy.halfV,
+          },
+          minY: canopy.undersideY,
+          maxY: GAS_STATION_CANOPY_M.topY,
+          provenance: "servicePoints.ts:gasStationCanopyWorld",
+        });
+      }
+    }
+  }
+
+  for (const landmark of mapPack.geometry.landmarks) {
+    if (landmark.kind === "park" || landmark.kind === "railway" || landmark.kind === "bridge") continue;
+    const bespoke = landmarkGroundSolids(mapPack.id, landmark);
+    if (bespoke !== undefined) {
+      // A bespoke recipe exists for VEHICLE-HEIGHT collision only (Section
+      // 7.2 item 6 forbids extruding it to full height); until a real
+      // height-banded visual recipe exists for this landmark, it cannot
+      // certify closure.
+      issues.push({
+        kind: "audit_geometry_missing",
+        ownerId: landmark.id,
+        reason: "bespoke landmark has no height-banded visual-occlusion recipe yet",
+      });
+      continue;
+    }
+    if (landmark.kind === "tower") {
+      occluders.push({
+        id: `landmark-${landmark.id}`,
+        ownerId: landmark.id,
+        kind: "landmark-building",
+        geometry: {
+          kind: "circle",
+          x: landmark.center.x,
+          z: landmark.center.z,
+          radius: Math.max(4, landmark.size.x * 0.4) / 2,
+        },
+        minY: 0,
+        maxY: Math.max(12, landmark.size.z),
+        provenance: "render/babylonGameSession.ts generic tower fallback",
+      });
+      continue;
+    }
+    // Generic station/terminal/shops/museum/cultural/monument fallback:
+    // matches the exact generic facade-box the renderer draws when no
+    // bespoke/city-registry recipe claims this landmark id.
+    occluders.push({
+      id: `landmark-${landmark.id}`,
+      ownerId: landmark.id,
+      kind: "landmark-building",
+      geometry: {
+        kind: "aabb",
+        minX: landmark.center.x - landmark.size.x / 2,
+        maxX: landmark.center.x + landmark.size.x / 2,
+        minZ: landmark.center.z - landmark.size.z / 2,
+        maxZ: landmark.center.z + landmark.size.z / 2,
+      },
+      minY: 0,
+      maxY: landmark.kind === "terminal" ? 8 : 5,
+      provenance: "render/babylonGameSession.ts generic landmark facade-box fallback",
+    });
+  }
+
+  return { occluders, issues };
+}
+
+/** The whole map's visual-audit geometry in one call. */
+export function collectMapVisualGeometry(
+  mapPack: GameCanvasMapPack,
+  buildingLayout: BuildingLayoutPlan,
+): CollectedGeometry {
+  const groundSurfaces = collectGroundSurfaces(mapPack);
+  const { occluders, issues } = collectOccluderVolumes(mapPack, buildingLayout);
+  return { groundSurfaces, occluders, issues };
+}
