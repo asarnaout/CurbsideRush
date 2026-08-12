@@ -132,7 +132,8 @@ other's: `GameCanvas` never imports `economyTables.ts`, and `SideSwapApp` only
 loads `GameCanvas` lazily through `next/dynamic`.
 
 **`app/game/geometry/*.ts`** (`roadStrips`, `roadFurnitureLayout`,
-`waterGeometry`, `facadesAndKeepouts`, `cairoParkland`) is
+`waterGeometry`, `facadesAndKeepouts`, `cairoParkland`, `buildingLayout`,
+`venuePlacement`, `landmarkGroundSolids`) is
 the same kind of pure module, moved out of `GameCanvas.tsx` by the god-file
 decomposition. It isn't hand-listed above because its purity is mechanically
 enforced rather than a fact to remember: ESLint rejects Babylon/React imports
@@ -141,6 +142,11 @@ Babylon-owning counterpart, `app/game/render/*.ts`, has no such guarantee —
 `renderConstants.ts` is genuinely import-free but the rest construct real
 Babylon objects (`DynamicTexture`, `VertexData`, `MeshBuilder`) and belong on
 the render side of the ring, not this table.
+
+`buildingLayout`/`landmarkGroundSolids` are pure for the same reason
+`speeding.ts` is above: `render/` and `simulationAdapter.ts` both consume
+their exact output, so a rendered building or landmark and its collider can
+no longer independently drift into two different shapes.
 
 ## What the core deliberately does not know
 
