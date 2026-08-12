@@ -3545,7 +3545,12 @@ export const LONDON_MAP_PACK: MapPack = {
       // landmark fallback would put a windowed facade box where the clock
       // tower is. None needs a licence to verify, and between them they are
       // most of what makes a drive read as London rather than as a grey city.
-      { id: "london-clock-tower", kind: "tower", center: point(778, -330), size: point(14, 14), color: "#c3b492" },
+      // center.x holds 3 m clear of the pavement running along the tower's
+      // west side (`landmarkGroundSolids.ts`'s exact 14x14 shaft collider
+      // — Section 10.5's own "fix the placement, not the collider" case:
+      // the old generic radius-2.8 circle never reached the kerb, so this
+      // was never checked before the real square footprint replaced it).
+      { id: "london-clock-tower", kind: "tower", center: point(781, -330), size: point(14, 14), color: "#c3b492" },
       { id: "london-eye-wheel", kind: "monument", center: point(870, -572), size: point(90, 8), color: "#9fb6c4" },
       { id: "london-power-station", kind: "shops", center: point(-250, -810), size: point(110, 54), color: "#8b4f3d" },
       { id: "london-round-hall", kind: "cultural", center: point(-30, 262), size: point(74, 56), color: "#a9634b" },

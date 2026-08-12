@@ -73,7 +73,16 @@ function obstacleCenter(obstacle: StaticObstacle): { x: number; z: number } {
   if (obstacle.kind === "circle" || obstacle.kind === "obb") {
     return { x: obstacle.x, z: obstacle.z };
   }
-  return { x: (obstacle.minX + obstacle.maxX) / 2, z: (obstacle.minZ + obstacle.maxZ) / 2 };
+  if (obstacle.kind === "aabb") {
+    return { x: (obstacle.minX + obstacle.maxX) / 2, z: (obstacle.minZ + obstacle.maxZ) / 2 };
+  }
+  let sumX = 0;
+  let sumZ = 0;
+  for (const point of obstacle.points) {
+    sumX += point.x;
+    sumZ += point.z;
+  }
+  return { x: sumX / obstacle.points.length, z: sumZ / obstacle.points.length };
 }
 
 interface MapBenchCase {

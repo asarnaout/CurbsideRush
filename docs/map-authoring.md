@@ -399,8 +399,10 @@ hand-authored quarter — see "London is two halves" below.
 fit; rows in `content.ts` (`MAP_PACKS`/`FREE_DRIVES`/`COUNTRY_PROFILES`/
 `DESTINATION_PROFILES`) and `visuals.ts`'s `MAP_VISUAL_PROFILES`, keyed on the
 exact `mapId` — no fallback, a missing row throws on load; a column on every
-`economyTables.ts` table; map assets; and, for bespoke landmarks, a row in
-`render/cityRenderRegistry.ts`.
+`economyTables.ts` table; map assets; and, for a bespoke landmark, a row in
+`render/cityRenderRegistry.ts` plus — if the bespoke shape departs from its
+generic kind's box/circle at vehicle height — a recipe in
+`geometry/landmarkGroundSolids.ts` (`docs/simulation-core.md`).
 
 ## The frozen OSM data is provenance only
 

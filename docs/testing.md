@@ -141,6 +141,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 |---|---|
 | `trafficSafetyAcceptance` | Determinism (trace hash over two replays) + no collisions across 4 cities × 51 seeds |
 | `buildingColliderAgreement` | Every "building" static obstacle traces back to exactly one `planMapBuildings` solid, at float epsilon, across all four maps — the building-collision-visual-parity plan's Section 10.2 proof that render and collision cannot drift |
+| `landmarkGroundSolids` | Every over/under-collided bespoke landmark's exact ground solid (positive/negative probes against the real map descriptor); every landmark on every map classified as bespoke, semantic exception (park/railway/bridge), or hand-verified generic — the building-collision-visual-parity plan's Section 10.3 proof, doubling as the audit's regression lock |
 | `architecture` | simulation.ts purity + the ring rules the god-file decomposition depends on |
 | `gameCanvasSession` | `BabylonGameSession` actually constructs, ticks, pauses, resets and disposes (headless, NullEngine) |
 | `cockpitCharacterization` | `buildCockpit`'s exact mesh/merge output (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |

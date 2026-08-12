@@ -291,13 +291,16 @@ export function keptStreetWallBuildings<
  *
  * Two filters, both to keep the ranking honest rather than to save work. Only
  * `building`, `venue` and `landmark` count — a shoreline, a park's kerb or the
- * world edge stops a car and blocks nothing you can see over. And only the
- * boxes: `circle` obstacles are a park's masonry, a monument plinth or a stone
- * lantern, none of which is tall enough to hide a scene, and treating them as
- * blockers would push the camera off good angles for knee-high stone.
+ * world edge stops a car and blocks nothing you can see over. And only boxes
+ * and convex polygons: `circle` obstacles are a park's masonry, a monument
+ * plinth or a stone lantern, none of which is tall enough to hide a scene,
+ * and treating them as blockers would push the camera off good angles for
+ * knee-high stone.
  *
  * What is left is the geometry that actually ruins a shot — buildings, venue
- * lots, and the station boxes that carry the pump islands and canopy pillars.
+ * lots, the station boxes that carry the pump islands and canopy pillars,
+ * and a bespoke landmark's own exact ground footprint
+ * (`geometry/landmarkGroundSolids.ts`) where one exists.
  */
 const STAGED_BLOCKER_TAGS: ReadonlySet<StaticObstacleTag> = new Set([
   "building",
@@ -321,6 +324,8 @@ export function stagedBlockersOf(
         halfU: (obstacle.maxX - obstacle.minX) / 2,
         halfV: (obstacle.maxZ - obstacle.minZ) / 2,
       });
+    } else if (obstacle.kind === "convex") {
+      blockers.push({ points: obstacle.points });
     }
   }
   return blockers;

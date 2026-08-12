@@ -600,6 +600,15 @@ export type StaticObstacle =
       readonly x: number;
       readonly z: number;
       readonly radius: number;
+    }
+  | {
+      readonly kind: "convex";
+      readonly id: string;
+      readonly tag: StaticObstacleTag;
+      /** A closed convex polygon, wound consistently (clockwise, matching
+       * this codebase's clockwise-yaw convention) at construction time —
+       * normalized once by whatever built it, never re-checked per query. */
+      readonly points: readonly WorldPoint[];
     };
 
 export interface FreeDriveDefinition {
