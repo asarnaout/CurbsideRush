@@ -93,8 +93,8 @@ A park wall is a scored `collision` with damage (`parkEdge` in
 
 **Nothing geometrically keeps a building out of a park.** The wall's vetoes
 read roads; `landmarkClearings` skips parks and feeds planting only;
-`buildingKeepOuts` guards the street wall against venues, not venues against
-parks. And a venue lands on the **driver's right of its anchor lane**, so which
+`buildingReservations`' historical buffer guards the street wall against
+venues, not venues against parks. And a venue lands on the **driver's right of its anchor lane**, so which
 kerb of a park-flanking avenue it takes is decided by whether the anchor names
 the northbound or the southbound lane — pick the wrong one and no
 `distanceAlongM` can save it, because that whole kerb is park. Four venues

@@ -6,9 +6,9 @@ import {
 } from "../app/game/content";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import {
-  buildingKeepOuts,
+  buildingReservations,
   facadeGridCells,
-  isInsideKeepOut,
+  isInsideHistoricalBuffer,
   keptStreetWallBuildings,
   stagedBlockersOf,
 } from "../app/game/geometry/facadesAndKeepouts";
@@ -844,7 +844,7 @@ describe("the drivable world stays open", () => {
     // only because every one of them sits on ground no block covers.
     for (const world of driveWorlds) {
       const mapPack = getMapPack(world.freeDrive.mapId);
-      const keepOuts = buildingKeepOuts(mapPack);
+      const reservations = buildingReservations(mapPack);
       for (const service of mapPack.geometry.servicePoints ?? []) {
         const lot = resolveServicePointLot(mapPack.laneGraph.lanes, service);
         if (!lot) continue;
@@ -861,8 +861,8 @@ describe("the drivable world stays open", () => {
               Math.abs(cell.z - lot.z) < reachZ;
             if (!overlaps) continue;
             expect(
-              isInsideKeepOut(
-                keepOuts,
+              isInsideHistoricalBuffer(
+                reservations,
                 cell.x,
                 cell.z,
                 (cell.cellWidth * 0.82) / 2,
@@ -890,7 +890,7 @@ describe("the drivable world stays open", () => {
               block.buildingSet,
               hashStringToSeed(`${block.id}-buildings`),
             ),
-            keepOuts,
+            reservations,
           );
           for (const placed of kept) {
             const half =
@@ -985,7 +985,10 @@ describe("plan-based collision fixes the reported render/collider gaps", () => {
       const nonMuseumObstacles = world.obstacles.filter(
         (o) => !o.id.includes(":museum-wing:"),
       );
-      for (const keepOut of buildingKeepOuts(mapPack)) {
+      const historicalBufferCircles = buildingReservations(mapPack)
+        .map((r) => r.geometry)
+        .filter((g): g is Extract<typeof g, { readonly kind: "circle" }> => g.kind === "circle");
+      for (const keepOut of historicalBufferCircles) {
         const samplePoints = [
           { x: keepOut.x, z: keepOut.z },
           ...[0, 90, 180, 270].map((deg) => {

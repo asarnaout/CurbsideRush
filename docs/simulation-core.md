@@ -77,7 +77,7 @@ rather than silently resolving collision against the wrong drive's buildings.
 
 Service-point lots (gas/repair) need no carving out of a collider any more:
 the plan already excludes any building whose placement would land inside one
-(`buildingKeepOuts`). `tests/buildingColliderAgreement.test.ts` is the exact
+(`buildingReservations`). `tests/buildingColliderAgreement.test.ts` is the exact
 plan-to-collider parity proof — every planned solid has exactly one obstacle
 and vice versa, at float epsilon, across all four maps. Per-solid obstacles
 pushed the raw linear scan from hundreds to thousands per map;

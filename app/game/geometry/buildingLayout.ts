@@ -13,15 +13,17 @@ import {
   type BuildingStructuralSolid,
 } from "../buildingStructuralBounds";
 import {
-  buildingKeepOuts,
+  buildingReservations,
   cairoFrontageFootprintsOverlap,
   cairoFrontagePosition,
+  DEFAULT_RELAXATION_POLICY,
   facadeGridCells,
-  isInsideKeepOut,
+  isInsideHistoricalBuffer,
   keptStreetWallBuildings,
   rotateBlockBuildingPlacements,
-  type BuildingKeepOut,
+  type BuildingReservation,
   type CairoFrontageFootprint,
+  type RelaxationPolicy,
 } from "./facadesAndKeepouts";
 import { hashStringToSeed, seededUnit } from "../visuals";
 
@@ -255,7 +257,8 @@ function planMuseumWings(block: MapBlock): PlannedProceduralBuilding[] {
 function planAssetSlotBlock(
   block: MapBlock,
   setId: BuildingSetId,
-  keepOuts: readonly BuildingKeepOut[],
+  reservations: readonly BuildingReservation[],
+  relaxationPolicy: RelaxationPolicy,
 ): readonly PlannedAssetBuilding[] {
   const rawSlots: readonly PlacedBuilding[] = slotBlockBuildings(
     block.center,
@@ -266,7 +269,12 @@ function planAssetSlotBlock(
     block.streetEdges,
   );
   const rotated = rotateBlockBuildingPlacements(rawSlots, block.center, block.headingDeg);
-  const survivors = keptStreetWallBuildings(rotated, keepOuts);
+  const survivors = keptStreetWallBuildings(
+    rotated,
+    reservations,
+    relaxationPolicy,
+    (placement) => `building:${block.id}:slot:${placement.edge}:${placement.edgeSlot}`,
+  );
   return survivors.map((placedSurvivor, renderOrdinal) => {
     const { solids, bounds } = structuralSolidsFor(
       placedSurvivor.modelId,
@@ -312,7 +320,7 @@ function planProceduralBlock(
   mapPack: GameCanvasMapPack,
   block: MapBlock,
   random: () => number,
-  keepOuts: readonly BuildingKeepOut[],
+  reservations: readonly BuildingReservation[],
   layoutReason: ProceduralLayoutReason,
 ): PlannedProceduralBuilding[] {
   const isWestBank = block.material === "cairo-west-bank-concrete";
@@ -346,7 +354,7 @@ function planProceduralBlock(
     const halfDepth =
       Math.abs(Math.sin(cell.rotationY)) * (width / 2) +
       Math.abs(Math.cos(cell.rotationY)) * (depth / 2);
-    if (isInsideKeepOut(keepOuts, buildingPosition.x, buildingPosition.z, halfWidth, halfDepth)) {
+    if (isInsideHistoricalBuffer(reservations, buildingPosition.x, buildingPosition.z, halfWidth, halfDepth)) {
       continue;
     }
     if (frontageFootprint) placedFrontages.push(frontageFootprint);
@@ -404,11 +412,12 @@ function planProceduralBlock(
 export function planMapBuildings(
   mapPack: GameCanvasMapPack,
   trafficSeed: number,
+  relaxationPolicy: RelaxationPolicy = DEFAULT_RELAXATION_POLICY,
 ): BuildingLayoutPlan {
   const buildings: PlannedBuilding[] = [];
   const deferredSetBlocks: MapBlock[] = [];
   const random = seededUnit(trafficSeed);
-  const keepOuts = buildingKeepOuts(mapPack);
+  const reservations = buildingReservations(mapPack, relaxationPolicy);
 
   for (const block of mapPack.geometry.blocks) {
     if (isLondonMuseumBlock(mapPack.id, block)) {
@@ -416,7 +425,7 @@ export function planMapBuildings(
       continue;
     }
     if (block.buildingSet && isBuildingSetId(block.buildingSet)) {
-      const planned = planAssetSlotBlock(block, block.buildingSet, keepOuts);
+      const planned = planAssetSlotBlock(block, block.buildingSet, reservations, relaxationPolicy);
       if (planned.length) {
         buildings.push(...planned);
       } else {
@@ -429,7 +438,7 @@ export function planMapBuildings(
         mapPack,
         block,
         random,
-        keepOuts,
+        reservations,
         block.buildingSet ? "unknown-building-set" : "authored-procedural",
       ),
     );
@@ -437,7 +446,7 @@ export function planMapBuildings(
 
   for (const block of deferredSetBlocks) {
     buildings.push(
-      ...planProceduralBlock(mapPack, block, random, keepOuts, "set-zero-survivor-fallback"),
+      ...planProceduralBlock(mapPack, block, random, reservations, "set-zero-survivor-fallback"),
     );
   }
 
@@ -493,27 +502,35 @@ function nearestPointOnObb(solid: StructuralObb, x: number, z: number): { x: num
 
 function circleIntersectsAnySolid(
   solids: readonly StructuralObb[],
-  keepOut: BuildingKeepOut,
+  circle: { readonly x: number; readonly z: number; readonly radius: number },
 ): boolean {
   return solids.some((solid) => {
-    const nearest = nearestPointOnObb(solid, keepOut.x, keepOut.z);
-    return Math.hypot(nearest.x - keepOut.x, nearest.z - keepOut.z) < keepOut.radius;
+    const nearest = nearestPointOnObb(solid, circle.x, circle.z);
+    return Math.hypot(nearest.x - circle.x, nearest.z - circle.z) < circle.radius;
   });
 }
 
 /**
  * For every building-set block, compares the legacy nominal-footprint
- * keep-out survivor predicate (what `planAssetSlotBlock` actually uses)
- * against an exact circle-versus-structural-OBB intersection test on the
- * curated manifest solids. Never mutates or informs the plan itself.
+ * historical-buffer survivor predicate (what `planAssetSlotBlock` actually
+ * uses by default) against an exact circle-versus-structural-OBB
+ * intersection test on the curated manifest solids. Never mutates or
+ * informs the plan itself — this is the same comparison
+ * `solidOverlapsReservation` makes for a *relaxed* owner's exact
+ * reservations, applied here to every owner's historical-buffer circle
+ * instead, purely for review.
  */
 export function diagnoseKeepOutSurvivorDeltas(
   mapPack: GameCanvasMapPack,
 ): readonly KeepOutSurvivorDelta[] {
-  const keepOuts = buildingKeepOuts(mapPack);
+  const reservations = buildingReservations(mapPack);
+  const historicalBuffers = reservations.filter(
+    (r): r is BuildingReservation & { readonly geometry: { readonly kind: "circle"; readonly x: number; readonly z: number; readonly radius: number } } =>
+      r.purpose === "historical-buffer" && r.geometry.kind === "circle",
+  );
   const deltas: KeepOutSurvivorDelta[] = [];
   for (const block of mapPack.geometry.blocks) {
-    if (!block.buildingSet || !isBuildingSetId(block.buildingSet) || !keepOuts.length) continue;
+    if (!block.buildingSet || !isBuildingSetId(block.buildingSet) || !historicalBuffers.length) continue;
     const rawSlots = slotBlockBuildings(
       block.center,
       block.size,
@@ -524,12 +541,12 @@ export function diagnoseKeepOutSurvivorDeltas(
     );
     const rotated = rotateBlockBuildingPlacements(rawSlots, block.center, block.headingDeg);
     const legacySurvivorIds = new Set(
-      keptStreetWallBuildings(rotated, keepOuts).map((b) => `${b.edge}:${b.edgeSlot}`),
+      keptStreetWallBuildings(rotated, reservations).map((b) => `${b.edge}:${b.edgeSlot}`),
     );
     for (const placement of rotated) {
       const legacySurvived = legacySurvivorIds.has(`${placement.edge}:${placement.edgeSlot}`);
       const { solids } = structuralSolidsFor(placement.modelId, placement.x, placement.z, placement.yaw);
-      const exactSurvived = !keepOuts.some((keepOut) => circleIntersectsAnySolid(solids, keepOut));
+      const exactSurvived = !historicalBuffers.some((buffer) => circleIntersectsAnySolid(solids, buffer.geometry));
       if (legacySurvived !== exactSurvived) {
         deltas.push({
           blockId: block.id,

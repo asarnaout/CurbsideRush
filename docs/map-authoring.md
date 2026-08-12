@@ -153,9 +153,10 @@ it does not know parks (the block-vs-park invariant in `content.test.ts` is
 the net), and neighbouring parcels tile corners by overlapping — which this
 map's visual language absorbs as corner mass and ships everywhere, so treat
 block-block overlap as a diagnostic, not a defect. The fourth carves at
-*render* time: `buildingKeepOuts` clears every service point and venue
-(gas = footprint max + 16 m — far wider than the visible lot), so a block or
-span inside those circles ships nothing, silently — the quiet-loop island's
+*render* time: `buildingReservations`' default historical-buffer circle
+clears every service point and venue (gas = footprint max + 16 m — far wider
+than the visible lot), so a block or span inside those circles ships
+nothing, silently — the quiet-loop island's
 authored block stood empty through two play-tests this way. Check
 `facadeGridCells` survival against the circles before authoring near a
 venue, and where a circle blankets a kerb band outright, green it instead
