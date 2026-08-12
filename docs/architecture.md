@@ -143,6 +143,11 @@ Babylon-owning counterpart, `app/game/render/*.ts`, has no such guarantee —
 Babylon objects (`DynamicTexture`, `VertexData`, `MeshBuilder`) and belong on
 the render side of the ring, not this table.
 
+`buildingLayout`/`landmarkGroundSolids` are pure for the same reason
+`speeding.ts` is above: `render/` and `simulationAdapter.ts` both consume
+their exact output, so a rendered building or landmark and its collider can
+no longer independently drift into two different shapes.
+
 ## What the core deliberately does not know
 
 **The core knows nothing about gigs, money, fuel or damage.** Everything
