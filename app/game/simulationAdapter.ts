@@ -25,10 +25,6 @@ import type {
   TrafficSide,
 } from "./sessionContract";
 import {
-  defaultSidewalkWidthM,
-  resolveMapVisualPalette,
-} from "./visuals";
-import {
   resolveSimulationLaneAnchor,
   type ResolvedSimulationAnchor,
 } from "./laneAnchors";
@@ -51,6 +47,19 @@ import {
   BRIDGE_PARAPET_PAVEMENT_CLEARANCE_M,
   bridgePortalRailSpans,
 } from "./bridgePortalGeometry";
+import {
+  pavementOuterFromPose,
+  resolveVenuePlacement,
+  sidewalkWidthForSurface,
+  VENUE_PAVEMENT_GAP_M,
+  type VenuePlacement,
+} from "./geometry/venuePlacement";
+// Re-exported: this adapter is where render/babylonGameSession.ts and several
+// tests have always imported venue placement from, and geometry/venuePlacement.ts
+// (its new home, extracted to break the adapter/keep-out import cycle — see
+// that file's own doc comment) is not a churn every existing caller needs to
+// follow.
+export { resolveVenuePlacement, type VenuePlacement };
 
 const DEFAULT_LANE_WIDTH_M = 3.5;
 // The car's top speed models a real vehicle, not a governor pinned to the
@@ -574,8 +583,6 @@ function buildTrafficGates(
   return [...authoredGates, ...supplementalGates];
 }
 
-/** Venue buildings sit this far off their anchor lane unless tuned per site. */
-const DEFAULT_VENUE_SETBACK_M = 13;
 /** World-edge fences stand this far beyond the sim bounds, so the
  * out-of-bounds warning still fires on the grass before the car stops. */
 const WORLD_EDGE_STANDOFF_M = 8;
@@ -605,131 +612,6 @@ function subtractRect(base: AxisRect, cut: AxisRect): AxisRect[] {
   return pieces.filter(
     (piece) => piece.maxX - piece.minX > 0.5 && piece.maxZ - piece.minZ > 0.5,
   );
-}
-
-function sidewalkWidthForSurface(
-  mapPack: GameCanvasMapPack,
-  surface: NonNullable<
-    GameCanvasMapPack["geometry"]["roadSurfaces"]
-  >[number],
-): number {
-  if (surface.sidewalkWidthM !== undefined) {
-    return Math.max(0, surface.sidewalkWidthM);
-  }
-  return defaultSidewalkWidthM(mapPack);
-}
-
-type VenueLike = NonNullable<
-  GameCanvasMapPack["geometry"]["gigVenues"]
->[number];
-
-/**
- * Distance from an anchor pose to the outer edge of the walkable pavement
- * band along its road, measured along the given right normal. Null when the
- * lane belongs to no authored road surface.
- */
-function pavementOuterFromPose(
-  mapPack: GameCanvasMapPack,
-  laneId: string,
-  pose: { x: number; z: number },
-  rightX: number,
-  rightZ: number,
-): number | null {
-  const surface = (mapPack.geometry.roadSurfaces ?? []).find((candidate) =>
-    candidate.laneIds.includes(laneId),
-  );
-  if (!surface) return null;
-  let closestX = pose.x;
-  let closestZ = pose.z;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  const line = surface.centerline;
-  for (let index = 0; index < line.length - 1; index += 1) {
-    const ax = line[index].x;
-    const az = line[index].z;
-    const dx = line[index + 1].x - ax;
-    const dz = line[index + 1].z - az;
-    const lengthSq = dx * dx + dz * dz;
-    const t =
-      lengthSq > 1e-9
-        ? Math.max(
-            0,
-            Math.min(1, ((pose.x - ax) * dx + (pose.z - az) * dz) / lengthSq),
-          )
-        : 0;
-    const px = ax + dx * t;
-    const pz = az + dz * t;
-    const distance = Math.hypot(pose.x - px, pose.z - pz);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      closestX = px;
-      closestZ = pz;
-    }
-  }
-  const laneOffsetTowardVenue =
-    (pose.x - closestX) * rightX + (pose.z - closestZ) * rightZ;
-  return (
-    surface.widthM / 2 +
-    sidewalkWidthForSurface(mapPack, surface) -
-    laneOffsetTowardVenue
-  );
-}
-
-/** Clearance kept between the pavement's outer edge and a building front. */
-const VENUE_PAVEMENT_GAP_M = 0.4;
-
-export interface VenuePlacement {
-  /** Where the building holder stands (what placeProp receives). */
-  readonly x: number;
-  readonly z: number;
-  /** The anchor pose the placement was derived from. */
-  readonly anchorX: number;
-  readonly anchorZ: number;
-  readonly heading: number;
-  /** Holder distance from the anchor along the driver-right normal. */
-  readonly setbackM: number;
-}
-
-/**
- * The single source of truth for where a gig venue's building stands — used
- * by the renderer to place the model AND by the collider builder, so the two
- * can never drift apart again.
- *
- * On paved city maps, venues with a measured model footprint are pulled
- * forward so the model's front face sits just behind the walkable pavement,
- * aligning the venue with the street wall around it (the authored setback
- * only says which lot it belongs to). Everywhere else the authored setback
- * stands, and the measured footprint still shapes the collider.
- */
-export function resolveVenuePlacement(
-  mapPack: GameCanvasMapPack,
-  venue: VenueLike,
-): VenuePlacement | null {
-  const pose = resolveSimulationLaneAnchor(mapPack.laneGraph.lanes, venue.anchor);
-  if (!pose) return null;
-  const rightX = Math.cos(pose.heading);
-  const rightZ = -Math.sin(pose.heading);
-  let setback = venue.setbackM ?? DEFAULT_VENUE_SETBACK_M;
-  const footprint = PROP_MODEL_FOOTPRINTS_M[venue.modelId ?? venue.kind];
-  if (footprint && resolveMapVisualPalette(mapPack.id).paved) {
-    const pavementOuter = pavementOuterFromPose(
-      mapPack,
-      venue.anchor.laneId,
-      pose,
-      rightX,
-      rightZ,
-    );
-    if (pavementOuter !== null) {
-      setback = pavementOuter + VENUE_PAVEMENT_GAP_M - footprint.minX;
-    }
-  }
-  return {
-    x: pose.x + rightX * setback,
-    z: pose.z + rightZ * setback,
-    anchorX: pose.x,
-    anchorZ: pose.z,
-    heading: pose.heading,
-    setbackM: setback,
-  };
 }
 
 /**

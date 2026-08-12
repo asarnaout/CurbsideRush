@@ -1279,6 +1279,9 @@ describe("Cairo's rotated urban fabric", () => {
       yaw: 0.25,
       scale: 1,
       groundY: 0,
+      edge: "+z" as const,
+      edgeSlot: 0,
+      blockSlot: 0,
     };
     const [rotated] = rotateBlockBuildingPlacements(
       [placement],
