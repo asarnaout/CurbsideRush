@@ -8,7 +8,6 @@ import {
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
-import { buildingKeepOuts } from "../geometry/facadesAndKeepouts";
 import { createBox } from "./meshPrimitives";
 import {
   instantiateModel,
@@ -17,7 +16,6 @@ import {
   type PropModelConfig,
 } from "../modelLibrary";
 import { REPAIR_SHOP_PARTS, type RepairShopSurface } from "../repairShopLayout";
-import type { GameCanvasMapPack } from "../sessionContract";
 
 /**
  * Venue/service props: the imported-model-or-procedural-fallback placement
@@ -30,12 +28,21 @@ import type { GameCanvasMapPack } from "../sessionContract";
  * calls) need only `scene`, and `instantiateProp` is also called by
  * `upgradePropsToModels` — which stays resident in `BabylonGameSession` this
  * commit — so it is exported taking the narrower `InstantiatePropCtx` rather
- * than the fuller `VenuePropsCtx` `placeProp`/`collectBuildingExclusions`
- * need for their array accumulators. `VenuePropsCtx extends
- * InstantiatePropCtx`, so every function here composes freely.
- * `deferredProps`/`buildingExclusions` are passed as live array references,
- * matching how the class already treats them. `makeMaterial` is duplicated
+ * than the fuller `VenuePropsCtx` `placeProp` needs for its array
+ * accumulator. `VenuePropsCtx extends InstantiatePropCtx`, so every function
+ * here composes freely. `deferredProps` is passed as a live array reference,
+ * matching how the class already treats it. `makeMaterial` is duplicated
  * locally per house convention.
+ *
+ * There used to be a second accumulator here, `buildingExclusions`,
+ * collected by a `collectBuildingExclusions` call before every drive but
+ * never actually read by anything downstream (every planned building
+ * already excludes service/venue reservations at plan time —
+ * `geometry/buildingLayout.ts` — so nothing in the render path has needed a
+ * second, later keep-out check since that migration). Removed in the plan
+ * `.claude/three-city-visual-gap-elimination-plan.md` Section 8.2 keep-out
+ * migration; see `geometry/facadesAndKeepouts.ts`'s `BuildingReservation`
+ * for the real, owner-identified replacement.
  */
 
 function makeMaterial(
@@ -66,7 +73,6 @@ interface DeferredProp {
 
 export interface VenuePropsCtx extends InstantiatePropCtx {
   readonly deferredProps: DeferredProp[];
-  readonly buildingExclusions: { x: number; z: number; radius: number }[];
 }
 
 /**
@@ -368,25 +374,6 @@ export function placeProp(
   const fallback = new TransformNode(`prop-fallback-${id}`, ctx.scene);
   buildFallback(fallback);
   ctx.deferredProps.push({ kind, x, z, heading, fallback, label });
-}
-
-/**
- * The circles the street wall must not build inside: every service point's
- * lot and every gig venue's plot.
- *
- * Collected up front rather than as each is placed, because the procedural
- * facade grid runs inline while the instanced glb wall is deferred until
- * after preload — so a keep-out added during placement arrives in time for
- * one path and far too late for the other. That asymmetry stood a terrace
- * straight through London's and Tokyo's repair shops, and it was only ever
- * latent for the gas stations because every one of them happens to sit on
- * ground no block covers.
- */
-export function collectBuildingExclusions(
-  ctx: VenuePropsCtx,
-  mapPack: GameCanvasMapPack,
-) {
-  ctx.buildingExclusions.push(...buildingKeepOuts(mapPack));
 }
 
 /**

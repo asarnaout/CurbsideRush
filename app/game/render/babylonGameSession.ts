@@ -97,7 +97,6 @@ import { createSkyAndHorizon, createSunShadows } from "./skyAndShadows";
 import { buildRoadsideProps } from "./roadsideProps";
 import {
   buildRepairShop,
-  collectBuildingExclusions,
   instantiateProp,
   placeProp,
 } from "./venueProps";
@@ -921,9 +920,6 @@ export class BabylonGameSession {
   private lowSpec = false;
   /** Shared fine grass tile for `detailMap`; built lazily, once per session. */
   private grassDetailTexture: DynamicTexture | null = null;
-  /** Keep-out circles (gas station + gig-venue lots) so the block street wall
-   * never drops a scenery building on top of an interactive POI. */
-  private readonly buildingExclusions: { x: number; z: number; radius: number }[] = [];
   /** Sidewalk vendor carts to instantiate once their glbs preload. */
   private readonly pendingVendors: { config: StreetPropConfig; x: number; z: number; yaw: number }[] = [];
   /**
@@ -4149,18 +4145,11 @@ export class BabylonGameSession {
           ),
         ]
       : [];
-    // Every keep-out has to be known before the block loop below dresses a
-    // single block. Buildings no longer read this: every planned entry
-    // already excludes service/venue keep-outs at plan time
-    // (`geometry/buildingLayout.ts`), so the renderer here only ever paints
-    // what the plan already decided is clear. `collectBuildingExclusions`
-    // still has to run before this method's later `placeProp`/repair-shop
-    // calls, which read `buildingExclusions` for their own placement.
-    collectBuildingExclusions(
-      { scene, deferredProps: this.deferredProps, buildingExclusions: this.buildingExclusions },
-      mapPack,
-    );
-
+    // Buildings no longer need a render-time keep-out pass at all: every
+    // planned entry already excludes service/venue reservations at plan
+    // time (`geometry/buildingLayout.ts`/`geometry/facadesAndKeepouts.ts`'s
+    // `BuildingReservation`), so the renderer here only ever paints what the
+    // plan already decided is clear.
     const proceduralFacadesCtx: ProceduralFacadesCtx = {
       mapId,
       cairoFacadeTrimMaterial,
@@ -4239,8 +4228,9 @@ export class BabylonGameSession {
       if (!lot) continue;
       const px = lot.x;
       const pz = lot.z;
-      // The street-wall keep-out for this lot is already in place — see
-      // `collectBuildingExclusions`, which has to run before anything is built.
+      // The street-wall keep-out for this lot is already in place — every
+      // planned building already excludes it at plan time (see the comment
+      // where the procedural-facades context is built, above).
       if (service.kind === "repair_shop") {
         // No glb to wait on, so this is built outright rather than going through
         // placeProp — a deferred prop with no model would be retried after every
@@ -4252,7 +4242,6 @@ export class BabylonGameSession {
         {
           scene,
           deferredProps: this.deferredProps,
-          buildingExclusions: this.buildingExclusions,
         },
         service.kind,
         px,
@@ -4324,8 +4313,8 @@ export class BabylonGameSession {
       };
       const px = placement.x;
       const pz = placement.z;
-      // The keep-out that holds scenery off this venue's lot is already in
-      // place — see `collectBuildingExclusions`.
+      // The keep-out that holds scenery off this venue's lot is already
+      // resolved at plan time (`geometry/buildingLayout.ts`).
       // A rider waits curbside (nearer the lane than the building) facing the road.
       this.gigVenueCurbside.set(venue.id, {
         x: pose.x + Math.cos(pose.heading) * 4.5,
@@ -4361,7 +4350,6 @@ export class BabylonGameSession {
         {
           scene,
           deferredProps: this.deferredProps,
-          buildingExclusions: this.buildingExclusions,
         },
         modelKey,
         px,
@@ -4402,9 +4390,9 @@ export class BabylonGameSession {
 
     // Generated street addresses are drop-off points, not buildings — they get a
     // kerb spot so a rider can wait and the gig marker has somewhere to stand,
-    // and deliberately NO buildingExclusions entry. Punching a keep-out circle
-    // per address would erase most of the block street wall, and the whole point
-    // of an address is that the buildings already there are the destination.
+    // and deliberately NO reservation. Punching a keep-out circle per address
+    // would erase most of the block street wall, and the whole point of an
+    // address is that the buildings already there are the destination.
     for (const address of streetAddressesForMap(mapPack)) {
       this.gigVenueCurbside.set(address.id, {
         x: address.kerbX,
