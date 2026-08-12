@@ -79,9 +79,13 @@ Service-point lots (gas/repair) need no carving out of a collider any more:
 the plan already excludes any building whose placement would land inside one
 (`buildingKeepOuts`). `tests/buildingColliderAgreement.test.ts` is the exact
 plan-to-collider parity proof — every planned solid has exactly one obstacle
-and vice versa, at float epsilon, across all four maps.
+and vice versa, at float epsilon, across all four maps. Per-solid obstacles
+pushed the raw linear scan from hundreds to thousands per map;
+`tests/perf/staticCollision.bench.ts` measured rather than assumed — p95
+`resolveStaticCollisions` stays under 14 µs at the densest 32 m cell, ~75x
+inside the 1 ms gate, so there is still no spatial index. Measure first.
 
-### Bespoke landmarks need their own ground solid, not the generic kind box/circle
+### Bespoke landmarks need their own ground solid, not the generic box/circle
 
 `mapPack.geometry.landmarks` sits outside the building plan — a city renderer
 either draws a landmark's generic `kind` verbatim (box for station/shops/
@@ -90,16 +94,13 @@ shape. `buildStaticObstacles`'s landmark loop asks `geometry/landmarkGroundSolid
 first: a defined result (compound `aabb`/`obb`/circle/**convex** `GroundSolid`s,
 `tag: "landmark"`) is authoritative; `undefined` means the bespoke renderer was
 checked and found to draw exactly the generic shape at vehicle height. The
-clockwise-wound `convex` `StaticObstacle` kind exists only for this; every
-`kind`/`shape` switch has an explicit convex branch, none silently falling
-back to a circle or box for a shape needing more than 4 corners.
-
-`VEHICLE_HEIGHT_BAND_M` (tallest *player-selectable* vehicle body) decides
-whether a protrusion needs a primitive — window panes and department-store
-awnings stay deliberately uncollided, their whole mass above it.
-`tests/landmarkGroundSolids.test.ts` proves every bespoke recipe and checks
-every landmark on every map is bespoke, a semantic exception (park/railway/
-bridge), or hand-verified generic, so a future one cannot skip the review.
+clockwise-wound `convex` kind exists only for this, with an explicit branch in
+every `kind`/`shape` switch. `VEHICLE_HEIGHT_BAND_M` (tallest
+*player-selectable* vehicle body) decides whether a protrusion needs a
+primitive — window panes and awnings stay deliberately uncollided, their
+whole mass above it. `tests/landmarkGroundSolids.test.ts` proves every recipe
+and checks every landmark on every map is bespoke, a semantic exception, or
+hand-verified generic, so a future one cannot skip the review.
 
 ## Determinism contract
 
