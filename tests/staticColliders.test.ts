@@ -127,37 +127,107 @@ const clearanceToNearestObstacle = (
 };
 
 /**
- * Uniform-grid index over a fixed obstacle set — built once per world so the
- * two heaviest sweeps below (thousands of sample points, each against every
- * obstacle in the map) don't each brute-force-scan the whole array. Test-only
- * — never how the real 60 Hz solver queries (that stays a flat per-tick scan
- * of a few thousand obstacles, ~0.35 ms/tick measured; see
- * `tests/perf/staticCollision.bench.ts`); this mirrors the bucketing
- * technique plan Section 7.10 describes for the production solver, but only
- * ever backs assertions here.
+ * Uniform-grid index over a fixed, arbitrary item set — built once per world
+ * so the heaviest sweeps below (thousands of sample points/segments, each
+ * tested against every obstacle or staged blocker in the map) don't each
+ * brute-force-scan the whole array. Test-only — never how the real 60 Hz
+ * solver queries (that stays a flat per-tick scan of a few thousand
+ * obstacles, ~0.35 ms/tick measured; see `tests/perf/staticCollision.bench.ts`);
+ * this mirrors the bucketing technique plan Section 7.10 describes for the
+ * production solver, but only ever backs assertions here. Generic over the
+ * item type so the same proven index backs both a `StaticObstacle[]` (the
+ * clearance sweeps) and a `StagedBlocker[]` (the staged-shot sweep) — two
+ * structurally different box/circle unions with no common supertype, hence
+ * the caller-supplied `boundsOf`.
  *
- * Correct up to `OBSTACLE_INDEX_CELL_SIZE_M`: a query inspects only the 3x3
+ * Correct up to `SPATIAL_INDEX_CELL_SIZE_M`: a query inspects only the 3x3
  * neighbourhood of cells around the query point's own cell, which is exact
  * for any true nearest distance up to one cell width. Proof sketch: every
- * obstacle is inserted into every cell its own *exact* axis-aligned bounds
+ * item is inserted into every cell its own *exact* axis-aligned bounds
  * overlap (a full AABB, not a circumscribed circle, so a long thin obstacle
  * like a world-edge fence or a shoreline run costs cells proportional to its
- * own footprint, not its diagonal reach). If some obstacle is within
- * distance `d` of query point P, then P is also within `d` of that
- * obstacle's AABB (the AABB contains the obstacle, so its boundary is never
- * farther from an outside point than the obstacle's own boundary is) — so
- * for `d <= OBSTACLE_INDEX_CELL_SIZE_M`, the AABB necessarily overlaps a
- * cell within one cell-width of P's own cell, i.e. the 3x3 neighbourhood.
- * Both call sites below only ever test a fixed distance far under that
- * (measured max: 2.7 m, the widest lane's corridor half-width for the van's
- * capsule; the pavement sweep uses a flat 0.3 m) — comfortably inside the
- * proven-exact range with a ~6x margin.
+ * own footprint, not its diagonal reach). If some item is within distance
+ * `d` of query point P, then P is also within `d` of that item's AABB (the
+ * AABB contains the item, so its boundary is never farther from an outside
+ * point than the item's own boundary is) — so for `d <= SPATIAL_INDEX_CELL_SIZE_M`,
+ * the AABB necessarily overlaps a cell within one cell-width of P's own
+ * cell, i.e. the 3x3 neighbourhood. Every call site below only ever needs a
+ * fixed distance/reach far under that: the staged-shot sweep's own `wanted`/
+ * `subjects` are fixed offsets (radius 9, +-1.5) from its own query centre,
+ * and a segment between two points each within R of a centre never leaves
+ * that centre's own R-disk (the disk is convex), so a query at the centre
+ * is exact for the whole segment at exactly 9 m; the clearance sweeps need
+ * at most 2.7 m — both comfortably inside the proven-exact range.
  */
-const OBSTACLE_INDEX_CELL_SIZE_M = 16;
+const SPATIAL_INDEX_CELL_SIZE_M = 16;
 
-interface ObstacleIndex {
-  readonly query: (x: number, z: number) => readonly StaticObstacle[];
+interface SpatialIndex<T> {
+  readonly query: (x: number, z: number) => readonly T[];
 }
+
+const buildSpatialIndex = <T>(
+  items: readonly T[],
+  boundsOf: (item: T) => { minX: number; maxX: number; minZ: number; maxZ: number },
+): SpatialIndex<T> => {
+  const cellOf = (v: number) => Math.floor(v / SPATIAL_INDEX_CELL_SIZE_M);
+  const cells = new Map<string, T[]>();
+  for (const item of items) {
+    const bounds = boundsOf(item);
+    const minCx = cellOf(bounds.minX);
+    const maxCx = cellOf(bounds.maxX);
+    const minCz = cellOf(bounds.minZ);
+    const maxCz = cellOf(bounds.maxZ);
+    for (let cx = minCx; cx <= maxCx; cx += 1) {
+      for (let cz = minCz; cz <= maxCz; cz += 1) {
+        const key = `${cx}:${cz}`;
+        const bucket = cells.get(key);
+        if (bucket) bucket.push(item);
+        else cells.set(key, [item]);
+      }
+    }
+  }
+  return {
+    query: (x, z) => {
+      const cx = cellOf(x);
+      const cz = cellOf(z);
+      const seen = new Set<T>();
+      const result: T[] = [];
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dz = -1; dz <= 1; dz += 1) {
+          const bucket = cells.get(`${cx + dx}:${cz + dz}`);
+          if (!bucket) continue;
+          for (const item of bucket) {
+            if (seen.has(item)) continue;
+            seen.add(item);
+            result.push(item);
+          }
+        }
+      }
+      return result;
+    },
+  };
+};
+
+/** Corners of an OBB-shaped `{x,z,ux,uz,halfU,halfV}` box, world space. */
+const boxCornersM = (box: {
+  readonly x: number;
+  readonly z: number;
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+}): readonly { x: number; z: number }[] =>
+  (
+    [
+      [box.halfU, box.halfV],
+      [box.halfU, -box.halfV],
+      [-box.halfU, box.halfV],
+      [-box.halfU, -box.halfV],
+    ] as const
+  ).map(([u, v]) => ({
+    x: box.x + box.ux * u + box.uz * v,
+    z: box.z + box.uz * u - box.ux * v,
+  }));
 
 const obstacleBoundsM = (
   obstacle: StaticObstacle,
@@ -178,17 +248,7 @@ const obstacleBoundsM = (
       maxZ: obstacle.maxZ,
     };
   }
-  const corners = (
-    [
-      [obstacle.halfU, obstacle.halfV],
-      [obstacle.halfU, -obstacle.halfV],
-      [-obstacle.halfU, obstacle.halfV],
-      [-obstacle.halfU, -obstacle.halfV],
-    ] as const
-  ).map(([u, v]) => ({
-    x: obstacle.x + obstacle.ux * u + obstacle.uz * v,
-    z: obstacle.z + obstacle.uz * u - obstacle.ux * v,
-  }));
+  const corners = boxCornersM(obstacle);
   return {
     minX: Math.min(...corners.map((corner) => corner.x)),
     maxX: Math.max(...corners.map((corner) => corner.x)),
@@ -199,52 +259,30 @@ const obstacleBoundsM = (
 
 const buildObstacleIndex = (
   obstacles: readonly StaticObstacle[],
-): ObstacleIndex => {
-  const cellOf = (v: number) => Math.floor(v / OBSTACLE_INDEX_CELL_SIZE_M);
-  const cells = new Map<string, StaticObstacle[]>();
-  for (const obstacle of obstacles) {
-    const bounds = obstacleBoundsM(obstacle);
-    const minCx = cellOf(bounds.minX);
-    const maxCx = cellOf(bounds.maxX);
-    const minCz = cellOf(bounds.minZ);
-    const maxCz = cellOf(bounds.maxZ);
-    for (let cx = minCx; cx <= maxCx; cx += 1) {
-      for (let cz = minCz; cz <= maxCz; cz += 1) {
-        const key = `${cx}:${cz}`;
-        const bucket = cells.get(key);
-        if (bucket) bucket.push(obstacle);
-        else cells.set(key, [obstacle]);
-      }
-    }
-  }
-  return {
-    query: (x, z) => {
-      const cx = cellOf(x);
-      const cz = cellOf(z);
-      const seen = new Set<StaticObstacle>();
-      const result: StaticObstacle[] = [];
-      for (let dx = -1; dx <= 1; dx += 1) {
-        for (let dz = -1; dz <= 1; dz += 1) {
-          const bucket = cells.get(`${cx + dx}:${cz + dz}`);
-          if (!bucket) continue;
-          for (const obstacle of bucket) {
-            if (seen.has(obstacle)) continue;
-            seen.add(obstacle);
-            result.push(obstacle);
-          }
-        }
-      }
-      return result;
-    },
-  };
-};
+): SpatialIndex<StaticObstacle> => buildSpatialIndex(obstacles, obstacleBoundsM);
 
 const clearanceToNearestIndexedObstacle = (
-  index: ObstacleIndex,
+  index: SpatialIndex<StaticObstacle>,
   x: number,
   z: number,
 ): { distance: number; id: string } =>
   clearanceToNearestObstacle(index.query(x, z), x, z);
+
+const blockerBoundsM = (
+  box: StagedBlocker,
+): { minX: number; maxX: number; minZ: number; maxZ: number } => {
+  const corners = boxCornersM(box);
+  return {
+    minX: Math.min(...corners.map((corner) => corner.x)),
+    maxX: Math.max(...corners.map((corner) => corner.x)),
+    minZ: Math.min(...corners.map((corner) => corner.z)),
+    maxZ: Math.max(...corners.map((corner) => corner.z)),
+  };
+};
+
+const buildBlockerIndex = (
+  blockers: readonly StagedBlocker[],
+): SpatialIndex<StagedBlocker> => buildSpatialIndex(blockers, blockerBoundsM);
 
 /** Segment-vs-OBB by sampling: slow, but obviously right, which is the point
  * of a test double for the routine under test. */
@@ -329,14 +367,16 @@ describe("static obstacle build", () => {
 });
 
 describe("the drivable world stays open", () => {
-  // Both tests below sample thousands of points against every obstacle in
-  // every free-drive map — the two heaviest sweeps in this file, so each
-  // builds an `ObstacleIndex` once per world rather than brute-forcing
-  // every sample against the whole array (see that index's own doc comment
-  // for why the result is identical either way, up to a 2.7 m proven-exact
-  // margin over anything either sweep actually tests). Never how the real
-  // 60 Hz solver queries — that stays a flat per-tick scan of a few thousand
+  // The next two tests sample thousands of points against every obstacle in
+  // every free-drive map — the heaviest sweeps in this file, so each builds
+  // a `buildObstacleIndex` once per world rather than brute-forcing every
+  // sample against the whole array (see that index's own doc comment for why
+  // the result is identical either way, up to a 2.7 m proven-exact margin
+  // over anything either sweep actually tests). Never how the real 60 Hz
+  // solver queries — that stays a flat per-tick scan of a few thousand
   // obstacles, ~0.35 ms/tick measured; see `tests/perf/staticCollision.bench.ts`.
+  // "leaves a staged shot alone" further down uses the same index technique
+  // over staged blockers instead, for the same reason.
   it("keeps every lane corridor clear of every solid obstacle", () => {
     const failures: string[] = [];
     for (const world of driveWorlds) {
@@ -693,6 +733,13 @@ describe("the drivable world stays open", () => {
     let moved = 0;
     for (const world of driveWorlds) {
       const blockers = stagedBlockersOf(world.obstacles);
+      // The test's own double-check below samples every blocker at 200 steps
+      // per (wanted, subject) segment with no broad-phase of its own; a
+      // per-world index keeps that check's cost proportional to what is
+      // actually near each sample, not to every blocker on the map. This
+      // never touches the `chooseStagedShot` call itself, which must keep
+      // seeing the exact same full `blockers` array production code passes.
+      const blockerIndex = buildBlockerIndex(blockers);
       for (const lane of world.lanes) {
         for (const point of lane.points.slice(0, 6)) {
           // The actor stands off the car's side, as every generic scene has it.
@@ -707,7 +754,8 @@ describe("the drivable world stays open", () => {
             z: midZ + preferred.z * radius,
           };
           const subjects = [{ x: point.x, z: point.z }, focus];
-          const blocked = blockers.some((box) =>
+          const nearbyBlockers = blockerIndex.query(midX, midZ);
+          const blocked = nearbyBlockers.some((box) =>
             subjects.some((subject) =>
               segmentCrossesBox(wanted, subject, box),
             ),
