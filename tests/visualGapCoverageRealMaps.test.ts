@@ -93,6 +93,11 @@ describe("visualGapCoverage — real map collection and raster (regression)", ()
         expect(blob.qualifying).toBe(blob.area >= QUALIFYING_BLOB_AREA_M2);
       }
     },
-    60_000,
+    // London alone runs 60-67s on a dev machine (its ~2393 unsupported cells
+    // each pay a polygon-clipping throw-and-catch) and cleared 62s on CI's
+    // slower runner — 60_000 was cut too close from the start, not a
+    // Phase-2 regression; see MAX_KNOWN_UNSUPPORTED_CELLS above for the root
+    // cause this is downstream of.
+    120_000,
   );
 });
