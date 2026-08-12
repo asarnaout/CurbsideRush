@@ -51,6 +51,10 @@ export interface AddressBlock {
   readonly headingDeg?: number;
   /** Facade material, which is how a city with no building sets zones. */
   readonly material?: string;
+  /** False excludes this block from frontage probing entirely — a
+   * gap-closure scenery block authored with no reachable destination in
+   * mind. Absent/true keeps the default: every block is addressable. */
+  readonly addressable?: boolean;
 }
 
 /** A park/museum/station footprint that must never host an address. */
@@ -620,7 +624,9 @@ export function generateStreetAddresses(
         z: pose.z + normalZ * reach,
       })).reduce<AddressBlock | null>(
         (found, probe) =>
-          found ?? input.blocks.find((candidate) => isInsideRect(probe, candidate)) ?? null,
+          found ??
+          input.blocks.find((candidate) => candidate.addressable !== false && isInsideRect(probe, candidate)) ??
+          null,
         null,
       );
       if (!block) continue;

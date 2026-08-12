@@ -411,6 +411,18 @@ export interface ProceduralBlock {
    * The mechanism for clustering towers vs brownstones vs houses per neighborhood.
    */
   readonly buildingSet?: string;
+  /**
+   * Whether `streetAddressesForMap` may probe this block for gig-pool
+   * frontage. Defaults to true for backward compatibility — every existing
+   * block already relies on being addressable. A gap-closure scenery block
+   * (a corner cap, a backdrop strip authored only to stop a camera seeing
+   * through to grey) should set this false unless it deliberately designs a
+   * reachable kerb destination: `generateStreetAddresses` probes every
+   * block's frontage blind to *why* the block exists, so an unrelated
+   * closure can silently create or reorder a job (plan
+   * `.claude/three-city-visual-gap-elimination-plan.md` Section 9.1).
+   */
+  readonly addressable?: boolean;
 }
 
 export interface ProceduralLandmark {
