@@ -131,8 +131,11 @@ export interface BuildingLayoutPlan {
  * `z − localX·sin + localZ·cos` convention exactly (that function performs
  * the identical operation — rotating a local offset by a holder's own yaw —
  * and is already proven correct by the existing Cairo rotated-parcel test
- * sweeps), which is in turn how `simulationAdapter.ts`'s `pushRotatedBlock`
- * derives `ux = cos(yaw), uz = -sin(yaw)` for a rotated OBB obstacle.
+ * sweeps). The `ux`/`uz` returned here are not independently re-derived for
+ * collision: `simulationAdapter.ts`'s `buildStaticObstacles` reads this
+ * exact `StructuralObb` and passes `ux`/`uz` straight through into the
+ * `kind: "obb"` obstacle, so a render/collision rotation mismatch is
+ * structurally impossible rather than merely untested.
  */
 function worldSolidFromLocalBounds(
   localId: string,
