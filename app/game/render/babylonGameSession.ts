@@ -12,6 +12,7 @@ import {
   Frustum,
   HemisphericLight,
   ImageProcessingConfiguration,
+  type LinesMesh,
   Matrix,
   Mesh,
   MeshBuilder,
@@ -108,6 +109,11 @@ import {
 } from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
 import { BuildingLayer } from "./buildingLayer";
+import {
+  buildOrUpdatePlayerCapsuleOverlay,
+  buildStaticObstacleOverlay,
+  obstacleDistanceSquared,
+} from "./collisionDebugOverlay";
 import {
   ProceduralFacades,
   type ProceduralFacadesCtx,
@@ -785,6 +791,13 @@ export class BabylonGameSession {
   /** The scenario's full solid set, kept so scenery that renders a collider
    * (the corniche parapet) reads the SAME source the simulation stands on. */
   private readonly scenarioStaticObstacles: readonly StaticObstacle[];
+  /** Most recent `collision` rule event's evidence, for
+   * `__sideswapCollisionDebug`; null until the first static/NPC contact. */
+  private lastCollisionEvidence: Readonly<Record<string, string | number | boolean>> | null = null;
+  /** Off by default; toggled only by `__sideswapCollisionOverlay`. */
+  private collisionOverlayEnabled = false;
+  private collisionOverlayObstacleMesh: LinesMesh | null = null;
+  private collisionOverlayCapsuleMesh: LinesMesh | null = null;
   private simulationSnapshot: SimulationSnapshot;
   private playerVehicleVisual: VehicleMeshVisual | null = null;
   /** The player-as-cyclist rig (career bicycle days); null on car days. */
@@ -1514,10 +1527,16 @@ export class BabylonGameSession {
         "__sideswapLampDebug",
         "__sideswapCrowdDebug",
         "__sideswapEnforcementDebug",
+        "__sideswapCollisionDebug",
+        "__sideswapCollisionOverlay",
       ]) {
         delete debugWindow[key];
       }
     }
+    this.collisionOverlayObstacleMesh?.dispose();
+    this.collisionOverlayObstacleMesh = null;
+    this.collisionOverlayCapsuleMesh?.dispose();
+    this.collisionOverlayCapsuleMesh = null;
     this.cutsceneDirector?.dispose(this.cutsceneDirectorCtx());
     this.engine.stopRenderLoop(this.renderFrame);
     // Withdraw the mirrors before the scene goes: a render target left in
@@ -2270,6 +2289,7 @@ export class BabylonGameSession {
     this.perfSample(PERF_SNAPSHOT_APPLY, performance.now() - mark);
     const events = this.simulation.drainEvents();
     this.processSimulationEvents(events);
+    this.updateCollisionCapsuleOverlay();
     mark = performance.now();
     this.animatePedestrians(dt);
     if (this.crowdSim || this.railRoadUsers.length) this.refreshCrowdFrustum();
@@ -3139,6 +3159,7 @@ export class BabylonGameSession {
       const correction = event.correction;
       this.instruction = correction;
       if (event.code === "collision") {
+        this.lastCollisionEvidence = event.evidence;
         const impact = event.evidence?.impactSpeedMps;
         const impactMps = typeof impact === "number" ? impact : 0;
         // Prop and pedestrian contacts trigger their own softened thud at the
@@ -4853,6 +4874,48 @@ export class BabylonGameSession {
     return segment;
   }
 
+  /**
+   * Toggles the collider/capsule wireframe overlay (`__sideswapCollisionOverlay`).
+   * Static obstacles never move mid-session, so their outline mesh is built
+   * once on toggle-on and torn down on toggle-off; the capsule circles track
+   * the player every fixed step instead (see `updateCollisionCapsuleOverlay`).
+   */
+  private setCollisionOverlay(enabled: boolean): void {
+    this.collisionOverlayEnabled = enabled;
+    if (!enabled) {
+      this.collisionOverlayObstacleMesh?.dispose();
+      this.collisionOverlayObstacleMesh = null;
+      this.collisionOverlayCapsuleMesh?.dispose();
+      this.collisionOverlayCapsuleMesh = null;
+      return;
+    }
+    if (!this.collisionOverlayObstacleMesh) {
+      this.collisionOverlayObstacleMesh = buildStaticObstacleOverlay(
+        this.scene,
+        this.scenarioStaticObstacles,
+      );
+    }
+    this.updateCollisionCapsuleOverlay();
+  }
+
+  /** Cheap no-op while the overlay is off; called from the fixed-step loop
+   * so the two capsule circles always track the current player pose. */
+  private updateCollisionCapsuleOverlay(): void {
+    if (!this.collisionOverlayEnabled) return;
+    const capsule = this.simulation.getPlayerCapsuleDebug();
+    this.collisionOverlayCapsuleMesh = buildOrUpdatePlayerCapsuleOverlay(
+      this.scene,
+      {
+        frontX: capsule.frontX,
+        frontZ: capsule.frontZ,
+        rearX: capsule.rearX,
+        rearZ: capsule.rearZ,
+        radius: capsule.radiusM,
+      },
+      this.collisionOverlayCapsuleMesh,
+    );
+  }
+
   /** QA's window hooks, installed once per session and removed on dispose. */
   private installDebugHooks() {
     if (typeof window === "undefined") return;
@@ -5006,6 +5069,47 @@ export class BabylonGameSession {
             watched: this.trafficCameraControlIdByLightId.has(light.id),
           })),
         };
+      };
+      // Collision/building-footprint parity debugging (the
+      // building-collision-visual-parity plan's Phase 0): exact obstacle
+      // shapes near the player, the capsule the solver is testing them
+      // against, the most recent collision's evidence, and behavior-neutral
+      // narrow-phase counters. `nearbyPlannedBuildings` is null until a
+      // `BuildingLayoutPlan` lands on the session (Phase 3+).
+      debugWindow.__sideswapCollisionDebug = () => {
+        const player = this.simulationSnapshot.player;
+        const nearbyRadiusSquared = 60 * 60;
+        const nearbyObstacles = this.scenarioStaticObstacles
+          .filter(
+            (obstacle) =>
+              obstacleDistanceSquared(obstacle, player.x, player.z) <= nearbyRadiusSquared,
+          )
+          .sort(
+            (a, b) =>
+              obstacleDistanceSquared(a, player.x, player.z) -
+              obstacleDistanceSquared(b, player.x, player.z),
+          );
+        return {
+          mapId: this.options.mapPack.id,
+          qualityTier: this.lowSpec ? "low" : "full",
+          playerPose: {
+            x: player.x,
+            z: player.z,
+            heading: player.heading,
+            speedMps: player.speedMps,
+          },
+          playerCapsule: this.simulation.getPlayerCapsuleDebug(),
+          lastCollisionEvidence: this.lastCollisionEvidence,
+          nearbyObstacles,
+          nearbyPlannedBuildings: null,
+          collisionCounters: this.simulation.getStaticCollisionCounters(),
+        };
+      };
+      // Off by default. Draws every static obstacle's exact outline
+      // (colour-coded by tag) plus the two live player-capsule circles —
+      // see collisionDebugOverlay.ts.
+      debugWindow.__sideswapCollisionOverlay = (enabled: boolean) => {
+        this.setCollisionOverlay(Boolean(enabled));
       };
       // Walker states + bubble, so the capture harness can assert the crowd
       // moves smoothly and never pops in or out on screen.

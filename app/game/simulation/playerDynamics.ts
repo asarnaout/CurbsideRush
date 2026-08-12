@@ -54,6 +54,22 @@ export const PLAYER_RADIUS_METRES = 1.05;
 export const STOPPED_SPEED_MPS = 0.2;
 
 /**
+ * Behavior-neutral per-fixed-step instrumentation for the static-world
+ * narrow phase (see docs/simulation-core.md). `SimulationCore` owns one
+ * instance per session and zeroes it at the top of every `fixedUpdate`; both
+ * `movePlayer` (the ordinary drive path) and the post-NPC-impact
+ * `resolveStaticCollisions` re-entry accumulate into the same object, since
+ * either — or both — can run within one fixed step. Counting never changes a
+ * result, only observes it, and never allocates: every field is a plain
+ * mutable number on an object the caller already owns.
+ */
+export interface StaticCollisionStepCounters {
+  candidates: number;
+  narrowTests: number;
+  iterations: number;
+}
+
+/**
  * A solid obstacle normalized for the 60 Hz narrow phase: boxes become
  * centre + explicit U/V axes (an AABB is just an axis-aligned OBB), circles
  * keep a radius, and every entry carries broad-phase reject bounds already
@@ -209,6 +225,7 @@ export function movePlayer(
   staticObstacles: readonly StaticObstacleInternal[],
   status: SimulationStatus,
   emitEvent: EmitEventFn,
+  counters: StaticCollisionStepCounters,
 ): void {
   const forward = input.throttle;
   const backward = input.reverse;
@@ -268,7 +285,7 @@ export function movePlayer(
   state.player.x += Math.sin(state.player.heading) * travelled;
   state.player.z += Math.cos(state.player.heading) * travelled;
   state.distanceTravelledM += Math.abs(travelled);
-  resolveStaticCollisions(state, config, staticObstacles, true, status, emitEvent, deltaSeconds);
+  resolveStaticCollisions(state, config, staticObstacles, true, status, emitEvent, deltaSeconds, counters);
 
   const lateralAcceleration = (Math.abs(input.steer) * absoluteSpeed * absoluteSpeed) / 3.1;
   if (lateralAcceleration > config.instabilityLateralMps2) {
@@ -324,6 +341,7 @@ export function resolveStaticCollisions(
   status: SimulationStatus,
   emitEvent: EmitEventFn,
   fixedStepSeconds: number,
+  counters: StaticCollisionStepCounters,
 ): void {
   if (!staticObstacles.length) return;
   const forwardX = Math.sin(state.player.heading);
@@ -333,6 +351,7 @@ export function resolveStaticCollisions(
   let hitId = "";
 
   for (let iteration = 0; iteration < 3; iteration += 1) {
+    counters.iterations += 1;
     let deepest = 0;
     let normalX = 0;
     let normalZ = 0;
@@ -342,7 +361,9 @@ export function resolveStaticCollisions(
       if (px < obstacle.minX || px > obstacle.maxX || pz < obstacle.minZ || pz > obstacle.maxZ) {
         continue;
       }
+      counters.candidates += 1;
       for (let end = -1; end <= 1; end += 2) {
+        counters.narrowTests += 1;
         const cx = px + forwardX * config.playerCapsuleHalfLengthM * end;
         const cz = pz + forwardZ * config.playerCapsuleHalfLengthM * end;
         const dx = cx - obstacle.x;
