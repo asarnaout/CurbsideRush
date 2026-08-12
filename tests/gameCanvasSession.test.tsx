@@ -71,6 +71,8 @@ const SIDESWAP_DEBUG_HOOKS = [
   "__sideswapLampDebug",
   "__sideswapEnforcementDebug",
   "__sideswapCrowdDebug",
+  "__sideswapCollisionDebug",
+  "__sideswapCollisionOverlay",
 ] as const;
 
 function createFake2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {

@@ -65,6 +65,7 @@ import {
   STATIC_BONK_REBOUND_MAX_MPS,
   STOPPED_SPEED_MPS,
   type PlayerPhysicsState,
+  type StaticCollisionStepCounters,
   type StaticObstacleInternal,
 } from "./simulation/playerDynamics";
 import {
@@ -331,6 +332,21 @@ const RULE_COOLDOWNS: Readonly<Partial<Record<RuleCode, number>>> = {
   collision: 2.5,
 };
 
+/** One immutable read of `SimulationCore`'s static-collision instrumentation
+ * — see `getStaticCollisionCounters`. Behavior-neutral: nothing here changes
+ * a collision result, it only counts the work done producing one. */
+export interface StaticCollisionCounterSnapshot {
+  readonly lastStep: StaticCollisionStepCounters;
+  readonly cumulative: {
+    readonly steps: number;
+    readonly candidates: number;
+    readonly narrowTests: number;
+    readonly iterations: number;
+    readonly maxCandidates: number;
+    readonly maxNarrowTests: number;
+  };
+}
+
 /**
  * A fixed-step arcade driving simulation. `step` may receive render-frame delta
  * times; the core internally advances at exactly 60 Hz and makes traffic
@@ -345,6 +361,30 @@ export class SimulationCore {
   private readonly roadNetwork: RoadNetwork;
   private readonly staticObstacles: StaticObstacleInternal[];
   private readonly initialSeed: number;
+  /**
+   * Static-collision instrumentation (see docs/simulation-core.md). Zeroed at
+   * the top of every `fixedUpdate` and folded into `staticCollisionCumulative`
+   * in that same call's `finally`, regardless of which of `fixedUpdate`'s
+   * several early `return`s fires. Deliberately NOT reset by `reset()`: these
+   * are session-long diagnostic counters with their own lifecycle
+   * (`resetStaticCollisionCounters`), the same pattern
+   * `render/babylonGameSession.ts`'s `perfSumMs`/`perfMaxMs` already use —
+   * they survive a drive reset and are drained by polling instead. Never fed
+   * back into a collision result, so this exclusion cannot desync a replay.
+   */
+  private readonly staticCollisionLastStep: StaticCollisionStepCounters = {
+    candidates: 0,
+    narrowTests: 0,
+    iterations: 0,
+  };
+  private staticCollisionCumulative = {
+    steps: 0,
+    candidates: 0,
+    narrowTests: 0,
+    iterations: 0,
+    maxCandidates: 0,
+    maxNarrowTests: 0,
+  };
 
   /** Player pose, speed, gear, signal, and the two accumulators
    * `movePlayer` owns — see `simulation/playerDynamics.ts`. Assigned once
@@ -668,6 +708,56 @@ export class SimulationCore {
     return true;
   }
 
+  /** Debug/benchmark read of the static-collision narrow-phase instrumentation
+   * accumulated so far. Allocates (spreads into fresh objects); collision
+   * stepping itself never does. */
+  getStaticCollisionCounters(): StaticCollisionCounterSnapshot {
+    return {
+      lastStep: { ...this.staticCollisionLastStep },
+      cumulative: { ...this.staticCollisionCumulative },
+    };
+  }
+
+  /** Zeroes both the last-step and cumulative static-collision counters —
+   * the sanctioned way to start a clean measurement window (a perf harness
+   * replay, a QA session). Never called by gameplay code. */
+  resetStaticCollisionCounters(): void {
+    this.staticCollisionLastStep.candidates = 0;
+    this.staticCollisionLastStep.narrowTests = 0;
+    this.staticCollisionLastStep.iterations = 0;
+    this.staticCollisionCumulative = {
+      steps: 0,
+      candidates: 0,
+      narrowTests: 0,
+      iterations: 0,
+      maxCandidates: 0,
+      maxNarrowTests: 0,
+    };
+  }
+
+  /** Debug-only: the two capsule circle centres (front/rear along heading)
+   * and radius the static narrow phase is currently testing, in world space
+   * — feeds `__sideswapCollisionDebug` (render/babylonGameSession.ts). */
+  getPlayerCapsuleDebug(): {
+    readonly frontX: number;
+    readonly frontZ: number;
+    readonly rearX: number;
+    readonly rearZ: number;
+    readonly radiusM: number;
+  } {
+    const { x, z, heading } = this.playerState.player;
+    const forwardX = Math.sin(heading);
+    const forwardZ = Math.cos(heading);
+    const half = this.config.playerCapsuleHalfLengthM;
+    return {
+      frontX: x + forwardX * half,
+      frontZ: z + forwardZ * half,
+      rearX: x - forwardX * half,
+      rearZ: z - forwardZ * half,
+      radiusM: this.config.playerCapsuleRadiusM,
+    };
+  }
+
   getEvents(): readonly SimulationRuleEvent[] {
     return this.events.slice();
   }
@@ -762,28 +852,51 @@ export class SimulationCore {
     this.tick += 1;
     this.elapsedSeconds += deltaSeconds;
     this.updateTimers(deltaSeconds);
+    this.staticCollisionLastStep.candidates = 0;
+    this.staticCollisionLastStep.narrowTests = 0;
+    this.staticCollisionLastStep.iterations = 0;
+    // finally, not a call after the block: fixedUpdate returns early from
+    // several points below (paused/ended mid-step), and every one of them
+    // still needs this step's counters folded in exactly once.
+    try {
+      const oldPlayer = { ...this.playerState.player };
+      const previousProjection = this.roadNetwork.projectToRoad(oldPlayer.x, oldPlayer.z);
+      this.movePlayer(deltaSeconds);
 
-    const oldPlayer = { ...this.playerState.player };
-    const previousProjection = this.roadNetwork.projectToRoad(oldPlayer.x, oldPlayer.z);
-    this.movePlayer(deltaSeconds);
+      this.trafficDecisionAccumulator += deltaSeconds;
+      while (this.trafficDecisionAccumulator + Number.EPSILON >= TRAFFIC_DECISION_SECONDS) {
+        this.makeTrafficDecisions();
+        this.trafficDecisionAccumulator -= TRAFFIC_DECISION_SECONDS;
+      }
+      this.moveNpcs(deltaSeconds);
+      this.updateNpcIncidents(deltaSeconds);
+      this.updateRoadState();
 
-    this.trafficDecisionAccumulator += deltaSeconds;
-    while (this.trafficDecisionAccumulator + Number.EPSILON >= TRAFFIC_DECISION_SECONDS) {
-      this.makeTrafficDecisions();
-      this.trafficDecisionAccumulator -= TRAFFIC_DECISION_SECONDS;
+      if (this.status !== "running") return;
+      this.checkBoxJunctions(oldPlayer);
+      this.monitorRestrictedLanes(deltaSeconds);
+      this.checkStopLines(previousProjection, this.roadState.projection);
+      if (this.status !== "running") return;
+      this.monitorRoadRules(deltaSeconds);
+      if (this.status !== "running") return;
+      this.checkCollisions(oldPlayer);
+    } finally {
+      this.accumulateStaticCollisionCounters();
     }
-    this.moveNpcs(deltaSeconds);
-    this.updateNpcIncidents(deltaSeconds);
-    this.updateRoadState();
+  }
 
-    if (this.status !== "running") return;
-    this.checkBoxJunctions(oldPlayer);
-    this.monitorRestrictedLanes(deltaSeconds);
-    this.checkStopLines(previousProjection, this.roadState.projection);
-    if (this.status !== "running") return;
-    this.monitorRoadRules(deltaSeconds);
-    if (this.status !== "running") return;
-    this.checkCollisions(oldPlayer);
+  /** Folds this step's static-collision instrumentation into the running
+   * cumulative totals/maxima. Called exactly once per `fixedUpdate`, however
+   * much of that step actually ran. */
+  private accumulateStaticCollisionCounters(): void {
+    const step = this.staticCollisionLastStep;
+    const cumulative = this.staticCollisionCumulative;
+    cumulative.steps += 1;
+    cumulative.candidates += step.candidates;
+    cumulative.narrowTests += step.narrowTests;
+    cumulative.iterations += step.iterations;
+    if (step.candidates > cumulative.maxCandidates) cumulative.maxCandidates = step.candidates;
+    if (step.narrowTests > cumulative.maxNarrowTests) cumulative.maxNarrowTests = step.narrowTests;
   }
 
   private handleDiscreteActions(input: SimulationInput): void {
@@ -826,6 +939,7 @@ export class SimulationCore {
       this.staticObstacles,
       this.status,
       (details) => this.emitEvent(details),
+      this.staticCollisionLastStep,
     );
   }
 
@@ -849,6 +963,7 @@ export class SimulationCore {
       this.status,
       (details) => this.emitEvent(details),
       FIXED_STEP_SECONDS,
+      this.staticCollisionLastStep,
     );
   }
 
