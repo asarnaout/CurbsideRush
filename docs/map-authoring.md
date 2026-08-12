@@ -13,8 +13,12 @@ Linked only by `LaneSegment.roadId` ↔ `RoadSurface.id`/`laneIds`. Two-way stre
 mirror one directed lane onto each side of the surface centreline.
 
 Also authored: `RoadSurface.sidewalkWidthM` overrides the map default per road;
-`ProceduralBlock.headingDeg` rotates its façade slots, exclusions and OBB
-collider together; each `WaterBody` is a visual polygon whose shoreline opens
+`ProceduralBlock.headingDeg` rotates its façade slots, exclusions and every
+planned structural solid together — `geometry/buildingLayout.ts`'s
+`planMapBuildings` is the one plan the street wall, the procedural facade grid
+and the collider all read, so there is no separate per-block OBB collider left
+to drift out of rotation with the rest; each `WaterBody` is a visual polygon
+whose shoreline opens
 only for its `bridgePortalSurfaceIds`, with paired parapets derived over those
 spans, and whose **`flowHeadingDeg` decides river or pond**.
 **`ProceduralLandmark.color` does nothing on a `kind: "park"`** — every park

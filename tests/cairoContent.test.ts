@@ -29,6 +29,7 @@ import {
   distanceToStaticObstacle,
   resolveVenuePlacement,
 } from "../app/game/simulationAdapter";
+import { planMapBuildings } from "../app/game/geometry/buildingLayout";
 import type {
   LaneSegment,
   MapPack,
@@ -800,10 +801,17 @@ describe("Cairo Central Nile content", () => {
       waterBodies.flatMap((water) => water.bridgePortalSurfaceIds ?? []),
     ).not.toContain("cairo-sixth-october-bridge");
 
-    const openObstacles = buildStaticObstacles(
+    // Water bodies are the only thing this test varies; the building plan
+    // reads none of them, so both variants share one plan instance.
+    const buildingLayout = planMapBuildings(
       CAIRO_MAP_PACK,
-      boundsFor(CAIRO_MAP_PACK),
+      hashStringToSeed(CAIRO_MAP_PACK.id),
     );
+    const openObstacles = buildStaticObstacles({
+      mapPack: CAIRO_MAP_PACK,
+      bounds: boundsFor(CAIRO_MAP_PACK),
+      buildingLayout,
+    });
     const closedMap: MapPack = {
       ...CAIRO_MAP_PACK,
       geometry: {
@@ -814,10 +822,11 @@ describe("Cairo Central Nile content", () => {
         })),
       },
     };
-    const closedObstacles = buildStaticObstacles(
-      closedMap,
-      boundsFor(closedMap),
-    );
+    const closedObstacles = buildStaticObstacles({
+      mapPack: closedMap,
+      bounds: boundsFor(closedMap),
+      buildingLayout,
+    });
 
     for (const water of waterBodies) {
       const bridgeId = water.bridgePortalSurfaceIds![0];

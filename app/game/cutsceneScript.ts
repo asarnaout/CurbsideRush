@@ -772,7 +772,7 @@ export function chooseStagedShot(
 ): { readonly x: number; readonly y: number; readonly z: number } {
   // Only solids that could reach the ring are worth testing against it. One
   // pass, so the per-candidate loop below stays over a handful rather than over
-  // every block rect and venue lot on the map.
+  // every building solid and venue lot on the map.
   const near = blockers.filter(
     (box) =>
       Math.hypot(box.x - midX, box.z - midZ) <=

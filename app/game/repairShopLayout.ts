@@ -334,14 +334,14 @@ export function repairShopPlanBounds(): {
 }
 
 /**
- * Half-extent of the shop's lot — the square carved out of any block rect it
- * overlaps (the job `GAS_STATION_SLAB_HALF_M` does for the station) and the
- * square measured against the kerb.
+ * Half-extent of the shop's lot — the square a street-wall building may never
+ * stand inside (the job `GAS_STATION_SLAB_HALF_M` does for the station) and
+ * the square measured against the kerb.
  *
  * **Derived from what is actually drawn, not declared.** A hand-picked figure
- * that fell short of the apron would leave part of the building standing in
- * ground the carve had left solid — a wall inside a wall, invisible until a car
- * stopped dead on open paving.
+ * that fell short of the apron would let the shared building plan seat a
+ * street-wall building inside ground the shop's own apron actually occupies —
+ * a wall inside a wall, invisible until a car stopped dead on open paving.
  */
 export const REPAIR_SHOP_LOT_HALF_M = (() => {
   const bounds = repairShopPlanBounds();

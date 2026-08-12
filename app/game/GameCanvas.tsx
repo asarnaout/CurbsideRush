@@ -12,6 +12,7 @@ import {
   type LoadProgress,
   type SessionCallbacks,
 } from "./render/babylonGameSession";
+import type { DebugBuildingAssetPolicy } from "./render/buildingLayer";
 import {
   type AdaptiveInputPresentation,
   createInitialInputPresentation,
@@ -102,6 +103,14 @@ export interface GameCanvasProps {
   onCameraChange?: (mode: CameraMode) => void;
   /** Called when the player chooses Exit from the pause dialog. */
   onExit?: () => void;
+  /**
+   * Test/development-only forced-unavailable building-asset policy — see
+   * `render/buildingLayer.ts`'s `DebugBuildingAssetPolicy`. Never set by
+   * `DriveScreen.tsx`/`SideSwapApp.tsx`; exists so a NullEngine test can
+   * exercise the per-entry proxy/failure path deterministically, without
+   * relying on an incidental network failure.
+   */
+  debugBuildingAssetPolicy?: DebugBuildingAssetPolicy;
 }
 
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -190,6 +199,7 @@ export function GameCanvas({
       onPauseChange,
       onCameraChange,
       onExit,
+      debugBuildingAssetPolicy,
     }: GameCanvasProps) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const sessionRef = useRef<BabylonGameSession | null>(null);
@@ -360,6 +370,7 @@ export function GameCanvas({
               cutscene,
               playerVehicle: playerVehicle ?? null,
               vehiclePhysics: vehiclePhysics ?? null,
+              debugBuildingAssetPolicy,
             },
             {
               onHudUpdate: (snapshot) =>

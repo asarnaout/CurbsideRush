@@ -30,14 +30,14 @@ import { hashStringToSeed, seededUnit } from "../visuals";
  * plan `.claude/building-collision-visual-parity-plan.md` Section 7. One
  * `planMapBuildings` call replaces the two independent things that used to
  * separately decide "where is a building": the instanced glb street wall
- * (`slotBlockBuildings` + `BuildingLayer`) and the full-block collider loop
- * in `simulationAdapter.ts`. Both the renderer (Phase 3) and collision
- * (Phase 4) will consume this plan's output instead of recomputing their own
- * occupancy — see Section 6.1's "one logical structural plan" invariant.
+ * (`slotBlockBuildings` + `BuildingLayer`) and a full-block collider loop
+ * `simulationAdapter.ts` no longer has. Both the renderer and collision
+ * consume this plan's output instead of recomputing their own occupancy —
+ * see Section 6.1's "one logical structural plan" invariant.
  *
- * `planMapBuildings` reproduces the CURRENT full-detail, fully-loaded
- * structural layout byte-for-byte before anything downstream switches to
- * consuming it (this file's own tests pin that). It must stay pure: no
+ * `planMapBuildings` reproduces the full-detail, fully-loaded structural
+ * layout the pre-plan renderer and collider used to compute independently,
+ * byte-for-byte (this file's own tests pin that). It must stay pure: no
  * Babylon, no DOM, no wall-clock, no unseeded randomness — mechanically
  * enforced by the same ESLint rule every other `geometry/*.ts` file obeys.
  */
@@ -439,6 +439,25 @@ export function planMapBuildings(
   }
 
   return { mapId: mapPack.id, trafficSeed, buildings };
+}
+
+// ---------------------------------------------------------------------------
+// Collision conversion (Section 7.8)
+// ---------------------------------------------------------------------------
+
+/**
+ * The stable `StaticObstacle.id` for one of a plan entry's solids (Section
+ * 6.4). A single-solid entry (every current entry) collapses to its own
+ * plan id directly; a future compound entry gets one id per solid. Shared
+ * so collision conversion and any diagnostic/debug code that needs to
+ * cross-reference an obstacle id back to its plan solid use the exact same
+ * rule.
+ */
+export function buildingSolidObstacleId(
+  plan: PlannedBuilding,
+  solid: StructuralObb,
+): string {
+  return plan.solids.length === 1 ? plan.id : `${plan.id}:solid:${solid.localId}`;
 }
 
 // ---------------------------------------------------------------------------

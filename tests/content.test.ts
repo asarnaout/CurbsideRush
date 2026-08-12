@@ -26,6 +26,8 @@ import type {
 import { gasStationsOf } from "../app/game/servicePoints";
 import { buildStaticObstacles } from "../app/game/simulationAdapter";
 import { parkLayoutForLandmark } from "../app/game/parkLayouts";
+import { planMapBuildings } from "../app/game/geometry/buildingLayout";
+import { hashStringToSeed } from "../app/game/visuals";
 
 const GEOMETRY_EPSILON = 1e-5;
 const ROAD_ENVELOPE_SAMPLE_INTERVAL_M = 0.25;
@@ -1291,11 +1293,10 @@ describe("SideSwap content", () => {
         x: pack.geometry.worldSize.x / 2,
         z: pack.geometry.worldSize.z / 2,
       };
-      const venues = buildStaticObstacles(pack, {
-        minX: -half.x,
-        maxX: half.x,
-        minZ: -half.z,
-        maxZ: half.z,
+      const venues = buildStaticObstacles({
+        mapPack: pack,
+        bounds: { minX: -half.x, maxX: half.x, minZ: -half.z, maxZ: half.z },
+        buildingLayout: planMapBuildings(pack, hashStringToSeed(pack.id)),
       }).filter(
         (obstacle) => obstacle.kind === "obb" && obstacle.tag === "venue",
       );
@@ -1350,46 +1351,27 @@ describe("SideSwap content", () => {
     // puts a facade grid on the lawn regardless of whether a wall exists
     // (King's Road's parcel had swallowed the Chelsea square green whole).
     //
-    // The boxes tested are the colliders the adapter already emits (tag
-    // "building" — full block rects, including the museum wings and the
-    // service-lot subtractions), not a re-derivation.
+    // The boxes tested are the plain authored block rects (center/size/
+    // headingDeg exactly as written in content), not anything collision or
+    // render derives from them. A museum's two collision wings and a service
+    // lot's carve can only ever shrink what actually stands there, so testing
+    // the full authored rect is the stricter of the two and stays correct
+    // now that collision no longer carries one box per block at all.
     const violations: string[] = [];
     for (const pack of MAP_PACKS) {
       const parks = pack.geometry.landmarks.filter(
         (landmark) => landmark.kind === "park",
       );
-      const half = {
-        x: pack.geometry.worldSize.x / 2,
-        z: pack.geometry.worldSize.z / 2,
-      };
-      const blocks = buildStaticObstacles(pack, {
-        minX: -half.x,
-        maxX: half.x,
-        minZ: -half.z,
-        maxZ: half.z,
-      }).filter((obstacle) => obstacle.tag === "building");
-      for (const block of blocks) {
-        const box =
-          block.kind === "obb"
-            ? {
-                x: block.x,
-                z: block.z,
-                ux: block.ux,
-                uz: block.uz,
-                halfU: block.halfU,
-                halfV: block.halfV,
-              }
-            : block.kind === "aabb"
-              ? {
-                  x: (block.minX + block.maxX) / 2,
-                  z: (block.minZ + block.maxZ) / 2,
-                  ux: 0,
-                  uz: 1,
-                  halfU: (block.maxZ - block.minZ) / 2,
-                  halfV: (block.maxX - block.minX) / 2,
-                }
-              : null;
-        if (!box) continue;
+      for (const block of pack.geometry.blocks) {
+        const blockYawRad = degreesToRadians(block.headingDeg ?? 0);
+        const box = {
+          x: block.center.x,
+          z: block.center.z,
+          ux: Math.cos(blockYawRad),
+          uz: -Math.sin(blockYawRad),
+          halfU: block.size.x / 2,
+          halfV: block.size.z / 2,
+        };
         for (const park of parks) {
           const yawRad = degreesToRadians(park.headingDeg ?? 0);
           const overlapM = orientedBoxOverlapM(box, {

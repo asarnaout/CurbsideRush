@@ -6,29 +6,17 @@ import {
   type Scene,
   StandardMaterial,
   TransformNode,
+  Vector3,
 } from "@babylonjs/core";
 import {
   biasCairoDecalMaterials,
   CAIRO_STREET_WALL_URL_RE,
 } from "../geometry/cairoParkland";
-import {
-  type BuildingKeepOut,
-  keptStreetWallBuildings,
-  rotateBlockBuildingPlacements,
-} from "../geometry/facadesAndKeepouts";
-import {
-  buildingPlacementConfig,
-  slotBlockBuildings,
-  type BuildingSetId,
-  type PlacedBuilding,
-} from "../buildingSets";
-import {
-  instantiateModel,
-  instantiateModelInstanced,
-  modelMaterials,
-} from "../modelLibrary";
+import { buildingPlacementConfig } from "../buildingSets";
+import type { PlannedAssetBuilding } from "../geometry/buildingLayout";
+import { instantiateModel, modelMaterials } from "../modelLibrary";
+import { createFacadeBox } from "./meshPrimitives";
 import { BUILDING_GROUND_LIFT } from "./renderConstants";
-import type { GameCanvasMapPack } from "../sessionContract";
 import {
   pickStorefrontVariant,
   STOREFRONT_MODEL_ID,
@@ -36,77 +24,70 @@ import {
 } from "../storefronts";
 import { assembleStorefrontVariantMaster } from "../storefrontMaster";
 import { hashStringToSeed } from "../visuals";
+import type { BuildingRepresentationRecord } from "./buildingRepresentation";
 
 /**
- * The block-scoped, once-per-map building system: queues each building-set
- * block during `buildScenarioEnvironment`, then — once the map's building glbs
- * preload — dresses every queued block with an instanced glb street wall
- * (re-branding the one retail model into a mix of storefront variants), lights
- * every building's windows for a night city, and grows Cairo's rooftop water
- * tanks and satellite dishes on top. De-methodized into a collaborator class
- * (issue #288) rather than free functions, matching Phase 3's
- * `WaterLayer`/`Destructibles`/`CutsceneDirector` shape: build state (the
- * queue, the two merge-master caches) has to persist between the population
- * call (`enqueueBlock`, one call per building-set block, inline in
- * `buildScenarioEnvironment`) and the later one-shot `instantiate()` (called
- * from `buildInstancedBuildings`, itself only reachable once the async model
- * preload settles). `BabylonGameSession` holds one as
- * `private buildingLayer: BuildingLayer | null`, exactly like its
- * `waterLayer`/`destructibles` fields.
+ * The once-per-map instanced-glb building system: takes the exact
+ * `PlannedAssetBuilding` entries `geometry/buildingLayout.ts` already
+ * decided (position, yaw, scale, keep-out survivorship — nothing here
+ * recomputes occupancy), dresses each with an instanced glb (re-branding the
+ * one retail model into a mix of storefront variants), and falls back to an
+ * exact per-solid opaque proxy — never a hole, never a whole-block
+ * alternate grid — for any entry whose model was unavailable, forced
+ * unavailable (`DebugBuildingAssetPolicy`, dev/test-only), or fraction-thinned
+ * on a weak device. De-methodized into a collaborator class (issue #288),
+ * matching Phase 3's `WaterLayer`/`Destructibles`/`CutsceneDirector` shape.
  *
- * Four things this class deliberately does **not** own, all threaded through
- * `BuildingLayerInstantiateCtx` instead — the same "explicit inputs, not
- * reaching into the session" shape every Phase 3 collaborator uses:
+ * `setPlan` replaces the old `enqueueBlock`-during-the-block-loop queue: the
+ * plan already exists in full before `buildScenarioEnvironment` runs (built
+ * once in the `BabylonGameSession` constructor), so there is nothing left to
+ * collect block by block — the caller just hands over the asset-slot subset
+ * once, and `instantiate()` (still only reachable once the async model
+ * preload settles, from `buildInstancedBuildings`) walks it flat, entry by
+ * entry, never block by block. A failed or forced-unavailable model can
+ * therefore never suppress or rename its successful neighbours: no
+ * survivor's fallback state depends on any other entry's outcome.
+ *
+ * Three things this class deliberately does **not** own, all threaded
+ * through `BuildingLayerInstantiateCtx` instead — the same "explicit inputs,
+ * not reaching into the session" shape every Phase 3 collaborator uses:
  *
  * - **`getBuildingMaster`** (the merged-master-per-url cache). Despite the
  *   name, it is not building-specific: `WaterLayer.instantiatePendingBoats`,
  *   the vendor-cart loop and `buildParkPlanting` all call the *same* session
- *   method for their own unrelated masters (boats, carts, trees). Owning it
- *   here would make every one of those reach into a "building" class for a
- *   generic "get or build an instancing master" cache — backwards ownership.
- *   It stays a session method, passed in as a plain callback, the identical
- *   pattern `WaterLayer.instantiatePendingBoats(getBuildingMaster)` already
- *   established. (`getStorefrontMaster` is the opposite case — nothing outside
- *   the building-placement loop ever calls it — so it and its own cache
- *   (`storefrontMasters`) move here outright, no longer sharing the session's
- *   `buildingMasters` map. The two caches never collided on a key before this
- *   split — storefront entries were always `${url}#${variant.id}`, plain
- *   entries always a bare url — so this is behaviourally invisible.)
- * - **`buildingKeepFraction`**. Reads like a building-only knob, but
- *   `buildAmbientCrowd` scales the crowd count by the exact same fraction and
- *   `buildRoadsideProps`' ctx threads it to vendor/park-prop density too — a
- *   session-wide low-spec content budget that happens to be named after the
- *   first thing it was built for. Passed in per `instantiate()` call rather
- *   than owned, so it can never drift from the value those other systems use.
- * - **`buildingExclusions`**. Written by `collectBuildingExclusions` and by
- *   every `placeProp`/`buildRepairShop` call across `buildScenarioEnvironment`
- *   (gas stations, gig venues, the repair shop), not just by buildings, and
- *   read by the *procedural* facade grid fallback
- *   (`ProceduralFacades.placeBlock`, extracted into
- *   `render/proceduralFacades.ts` by issue #304 — it reaches this array
- *   through `ProceduralFacadesCtx` rather than off the session) as well as by
- *   this class. A session-owned array both sides read is simpler than either
- *   copying it or either class reaching back into the session for it.
- * - **`cairoRoofClutterMasters`**. The two hidden tank/dish master meshes are
- *   built alongside the rest of Cairo's procedural materials in
- *   `buildScenarioEnvironment` (same `cairoScene` gate, same neighbourhood of
- *   code) but only ever consumed here — passed in unchanged, matching the
- *   field's own doc comment on `BabylonGameSession` (they belong where the
- *   Cairo materials are built, but are consumed by this class).
+ *   method for their own unrelated masters (boats, carts, trees). It stays a
+ *   session method, passed in as a plain callback. (`getStorefrontMaster` is
+ *   the opposite case — nothing outside the building-placement loop ever
+ *   calls it — so it and its own cache (`storefrontMasters`) live here
+ *   outright, no longer sharing the session's `buildingMasters` map.)
+ * - **`buildingAssetDetailFraction`**. Building-only (unlike the old
+ *   `buildingKeepFraction` it replaces): `buildAmbientCrowd`/`roadsideProps.ts`
+ *   keep reading the session's separate `sceneryKeepFraction` instead — see
+ *   `geometry/buildingLayout.ts`'s plan and Section 7.6 of the parity plan
+ *   for why the two must never be the same knob again. Structural occupancy
+ *   (which XZ footprints exist) never varies with either fraction; only
+ *   which entries get a real glb versus an exact proxy box does.
+ * - **`materialFor`**. `ProceduralFacades` already owns the per-materialKey
+ *   palette/cache every procedural box uses; a proxy box reuses it (via this
+ *   callback) so a low-spec London brick terrace's proxy reads as brick, not
+ *   a colour-blind grey placeholder.
  *
  * **Call-order note, because it is load-bearing:** `instantiate()` must run
- * from the exact point `buildInstancedBuildings`'s own body used to — this
- * class changes *who* does the building placement, never *when*. It reads no
- * shared seeded-random stream to do it: `slotBlockBuildings` and
- * `pickStorefrontVariant` each derive their own local seed from
- * `hashStringToSeed` (a pure per-string hash), never from the render-side
- * `seededUnit(...)` counter `ProceduralFacades` consumes — so nothing here
- * can perturb that counter's downstream draws no matter when it runs, and
- * this class's queue (populated synchronously, consumed later, after preload)
- * was already the shape that made that true.
+ * from the exact point `buildInstancedBuildings`'s own body used to — after
+ * the async model preload settles. It draws no randomness of its own
+ * (`pickStorefrontVariant` derives its own local seed from a pure per-string
+ * hash, never from a shared stream), so nothing here can perturb any other
+ * seeded draw no matter when it runs.
  */
 
-type MapBlock = GameCanvasMapPack["geometry"]["blocks"][number];
+/** Test/development-only forced-unavailable policy, evaluated before any URL
+ * discovery or load attempt — plan Section 7.7. Production omits it and
+ * follows normal loading; never exposed as a player setting. A forced model
+ * makes no network request and follows the same proxy/readiness path as a
+ * real load failure. */
+export interface DebugBuildingAssetPolicy {
+  readonly unavailableModelIds: "all" | readonly string[];
+}
 
 export interface BuildingLayerInstantiateCtx {
   /** Whether this map's palette is a night city — gates `applyNightGlow`. */
@@ -114,11 +95,12 @@ export interface BuildingLayerInstantiateCtx {
   /** This map's building-set glb urls (preloaded off the critical path) —
    * also what `applyNightGlow` and the Cairo decal bias pass iterate. */
   readonly buildingModelUrls: readonly string[];
-  /** Fraction of each block's street wall to keep — see the class doc
-   * comment for why this is a session-wide value, not a building one. */
-  readonly buildingKeepFraction: number;
-  /** Keep-out circles no placement may stand inside. */
-  readonly buildingExclusions: readonly BuildingKeepOut[];
+  /** Fraction of asset-slot entries that attempt their real glb; the rest
+   * render an exact per-solid proxy. `entry.assetDetailScore < fraction`
+   * (with the `fraction >= 1` fast path) is strict, matching the plan's
+   * `buildingSets.ts` `assetDetailScoreForBlockSlot` formula exactly —
+   * see the class doc comment for why this is a building-only knob now. */
+  readonly buildingAssetDetailFraction: number;
   /** Cairo's rooftop clutter masters, or null on every other map. */
   readonly cairoRoofClutterMasters: { readonly tank: Mesh; readonly dish: Mesh } | null;
   /** Nodes to freeze once, after the first render — shared with every other
@@ -127,6 +109,8 @@ export interface BuildingLayerInstantiateCtx {
   /** The session's shared merged-master-per-url cache; see the class doc
    * comment for why this class does not own it. */
   readonly getBuildingMaster: (url: string, squareUpYaw?: number) => Mesh | null;
+  /** `ProceduralFacades.materialFor` — see the class doc comment. */
+  readonly materialFor: (materialKey: string) => StandardMaterial;
   /** Files a static mesh into the spatial hash the shadow/mirror rings read;
    * always called with `castsShadow: false` here — the instanced street wall
    * deliberately casts no sun shadow (see rendering.md). */
@@ -136,14 +120,15 @@ export interface BuildingLayerInstantiateCtx {
     z: number,
     castsShadow: boolean,
   ) => void;
+  /** Records what actually stands for one planned entry — queried by tests
+   * and the debug hook. See `render/buildingRepresentation.ts`. */
+  readonly registerRepresentation: (record: BuildingRepresentationRecord) => void;
+  /** Test/development-only; absent in production. */
+  readonly debugAssetPolicy?: DebugBuildingAssetPolicy;
 }
 
 export class BuildingLayer {
-  private readonly pendingBlocks: {
-    readonly block: MapBlock;
-    readonly setId: BuildingSetId;
-    readonly buildFallback: () => void;
-  }[] = [];
+  private plannedEntries: readonly PlannedAssetBuilding[] = [];
   /** Per-`${url}#${variant.id}` re-branded storefront master. Its own cache,
    * separate from the session's `getBuildingMaster` one — see the class doc
    * comment. `undefined` = not yet attempted; `null` = attempted and failed
@@ -153,23 +138,17 @@ export class BuildingLayer {
 
   constructor(private readonly scene: Scene) {}
 
-  /** Every distinct set a queued block references — lets the session compute
-   * this map's building-glb preload list before any block's models have
-   * actually loaded, without reaching into the queue itself. */
-  get queuedSetIds(): readonly BuildingSetId[] {
-    return [...new Set(this.pendingBlocks.map((entry) => entry.setId))];
+  /** Every distinct asset-slot url the plan references — lets the session
+   * compute this map's building-glb preload list from the plan itself
+   * (Section 7.7), before any entry has actually loaded. */
+  get plannedUrls(): readonly string[] {
+    return [...new Set(this.plannedEntries.map((entry) => entry.url))];
   }
 
-  /**
-   * Queues one building-set block to dress with an instanced glb street wall
-   * once its models preload. `buildFallback` builds the procedural facade-box
-   * grid instead — called from `instantiate()` only if every placement in the
-   * block failed to produce a merged or multi-mesh instance (offline, or a
-   * genuinely unmergeable asset), so a block whose set never loaded is never
-   * left empty.
-   */
-  enqueueBlock(block: MapBlock, setId: BuildingSetId, buildFallback: () => void): void {
-    this.pendingBlocks.push({ block, setId, buildFallback });
+  /** The plan's asset-slot entries to dress once models preload — replaces
+   * the old per-block `enqueueBlock` queue (see the class doc comment). */
+  setPlan(entries: readonly PlannedAssetBuilding[]): void {
+    this.plannedEntries = entries;
   }
 
   /**
@@ -327,11 +306,13 @@ export class BuildingLayer {
    *
    * Only models carrying a `roofY` are dressed (the KayKit walk-ups model their
    * own tank; the Corniche hotels should not have one at all). Deterministic on
-   * the placement so a reload puts the same clutter on the same roofs.
+   * the placement (modelId + rounded x/z) so a reload puts the same clutter on
+   * the same roofs; mesh naming uses the plan's own stable `renderOrdinal`
+   * rather than a runtime placement counter (Section 7.7 — a failed neighbour
+   * must never rename a successful instance's roof clutter).
    */
   private addCairoRoofClutter(
-    building: PlacedBuilding,
-    index: number,
+    building: PlannedAssetBuilding,
     ctx: BuildingLayerInstantiateCtx,
   ): void {
     const masters = ctx.cairoRoofClutterMasters;
@@ -344,10 +325,10 @@ export class BuildingLayer {
     if (roll >= 2) return;
     const tank = roll === 0;
     const master = tank ? masters.tank : masters.dish;
-    const inst = master.createInstance(`cairo-roof-${index}-${roll}`);
+    const inst = master.createInstance(`cairo-roof-${building.renderOrdinal}-${roll}`);
     // Offset off-centre so a run of buildings does not line its tanks up in a
     // perfectly straight row down the street.
-    const offset = ((index % 3) - 1) * 1.4;
+    const offset = ((building.renderOrdinal % 3) - 1) * 1.4;
     inst.position.set(
       building.x + offset,
       roofY + (tank ? 0.8 : 0.55),
@@ -360,14 +341,54 @@ export class BuildingLayer {
     ctx.registerStaticCell(inst, building.x, building.z, false);
   }
 
+  private isForcedUnavailable(modelId: string, ctx: BuildingLayerInstantiateCtx): boolean {
+    const policy = ctx.debugAssetPolicy;
+    if (!policy) return false;
+    return policy.unavailableModelIds === "all" || policy.unavailableModelIds.includes(modelId);
+  }
+
+  /** Exact per-solid opaque proxy — one box per `StructuralObb`, at that
+   * exact XZ transform and the plan's proxy height. Never one envelope
+   * around a compound entry's solids, never a billboard, never expanded
+   * across a neighbouring opening (Section 7.6). */
+  private buildProxy(entry: PlannedAssetBuilding, ctx: BuildingLayerInstantiateCtx): void {
+    const material = ctx.materialFor(entry.material);
+    const solidRepresentations = entry.solids.map((solid) => {
+      const yaw = Math.atan2(-solid.uz, solid.ux);
+      const width = solid.halfU * 2;
+      const depth = solid.halfV * 2;
+      const proxy = createFacadeBox(
+        this.scene,
+        `${entry.id}:solid:${solid.localId}#proxy`,
+        { width, height: entry.heightM, depth },
+        new Vector3(solid.x, entry.heightM / 2, solid.z),
+        material,
+      );
+      proxy.rotation.y = yaw;
+      proxy.isPickable = false;
+      ctx.staticSceneryFreeze.push(proxy);
+      ctx.registerStaticCell(proxy, solid.x, solid.z, false);
+      return {
+        solidId: solid.localId,
+        kind: "proxy" as const,
+        transform: solid,
+        holderId: proxy.name,
+      };
+    });
+    ctx.registerRepresentation({
+      planId: entry.id,
+      source: "asset-slot",
+      solids: solidRepresentations,
+    });
+  }
+
   /**
-   * Dresses every queued building-set block with an instanced glb street wall,
-   * once the map's building glbs have preloaded. Every placement of a given
-   * model (or model+variant, for storefronts) shares one uploaded geometry
-   * (`createInstance`), so hundreds of buildings cost a handful of draw calls
-   * rather than hundreds. A block whose set never loaded — or whose every
-   * placement genuinely fails to merge — falls back to its procedural
-   * facade-box grid so it is never left empty.
+   * Dresses every planned asset-slot entry with an instanced glb, once the
+   * map's building glbs have preloaded, or an exact per-solid proxy for any
+   * entry whose model is unavailable, forced unavailable, or fraction-thinned.
+   * Every placement of a given model (or model+variant, for storefronts)
+   * shares one uploaded geometry (`createInstance`), so hundreds of buildings
+   * cost a handful of draw calls rather than hundreds.
    *
    * Must be called from the exact point `buildInstancedBuildings` used to
    * call the code this replaces — see the class doc comment.
@@ -382,74 +403,52 @@ export class BuildingLayer {
         biasCairoDecalMaterials(modelMaterials(this.scene, url));
       }
     }
-    for (const { block, setId, buildFallback } of this.pendingBlocks) {
-      const slotted = rotateBlockBuildingPlacements(
-        slotBlockBuildings(
-          block.center,
-          block.size,
-          setId,
-          hashStringToSeed(`${block.id}-buildings`),
-          ctx.buildingKeepFraction,
-          block.streetEdges,
-        ),
-        block.center,
-        block.headingDeg,
-      );
-      const placements = keptStreetWallBuildings(slotted, ctx.buildingExclusions);
-      let placed = 0;
-      for (const b of placements) {
-        const master =
-          b.modelId === STOREFRONT_MODEL_ID
-            ? this.getStorefrontMaster(b.url, pickStorefrontVariant(b.x, b.z), ctx)
-            : ctx.getBuildingMaster(
-                b.url,
-                buildingPlacementConfig(b.modelId)?.squareUpYaw ?? 0,
-              );
-        if (master) {
-          // Fast path: one instance = one scene mesh = one cull check.
-          const inst = master.createInstance(`bldg-${block.id}-${placed}`);
-          inst.position.set(b.x, b.groundY + BUILDING_GROUND_LIFT, b.z);
-          inst.rotation.y = b.yaw;
-          inst.scaling.setAll(b.scale);
-          inst.isPickable = false;
-          ctx.staticSceneryFreeze.push(inst);
-          // Mirror-only: these deliberately cast no sun shadow, so they are not
-          // in the shadow ring — but a mirror with no street wall in it looks
-          // broken, and the rear view is mostly buildings.
-          ctx.registerStaticCell(inst, b.x, b.z, false);
-          this.addCairoRoofClutter(b, placed, ctx);
-          placed += 1;
-          continue;
-        }
-        // Fallback: the glb wouldn't merge — place it as a multi-mesh instance.
-        const instance = instantiateModelInstanced(this.scene, b.url);
-        const root = instance?.rootNodes[0] as TransformNode | undefined;
-        if (!root) continue;
-        const holder = new TransformNode(`bldg-${block.id}-${placed}`, this.scene);
-        holder.position.set(b.x, b.groundY + BUILDING_GROUND_LIFT, b.z);
-        holder.rotation.y = b.yaw;
-        root.parent = holder;
-        // Multiply, never setAll: the loader root carries the handedness flip
-        // as scaling (1,1,-1), and wiping it leaves only the root's 180°
-        // Y-rotation — which faces the building backwards relative to the
-        // merged masters this is a stand-in for (frontOffset is calibrated
-        // against the master frame).
-        root.scaling.scaleInPlace(b.scale);
-        ctx.staticSceneryFreeze.push(holder);
-        for (const mesh of root.getChildMeshes(false)) {
-          mesh.isPickable = false;
-          ctx.staticSceneryFreeze.push(mesh);
-          ctx.registerStaticCell(mesh, b.x, b.z, false);
-        }
-        placed += 1;
+    const fraction = Math.max(0, Math.min(1, ctx.buildingAssetDetailFraction));
+    for (const entry of this.plannedEntries) {
+      const attemptGlb =
+        (fraction >= 1 || entry.assetDetailScore < fraction) &&
+        !this.isForcedUnavailable(entry.modelId, ctx);
+      const master = attemptGlb
+        ? entry.modelId === STOREFRONT_MODEL_ID
+          ? this.getStorefrontMaster(entry.url, pickStorefrontVariant(entry.x, entry.z), ctx)
+          : ctx.getBuildingMaster(entry.url, buildingPlacementConfig(entry.modelId)?.squareUpYaw ?? 0)
+        : null;
+      if (master) {
+        // Fast path: one instance = one scene mesh = one cull check.
+        const inst = master.createInstance(`bldg-${entry.id}`);
+        inst.position.set(entry.x, entry.groundY + BUILDING_GROUND_LIFT, entry.z);
+        inst.rotation.y = entry.yaw;
+        inst.scaling.setAll(entry.scale);
+        inst.isPickable = false;
+        ctx.staticSceneryFreeze.push(inst);
+        // Mirror-only: these deliberately cast no sun shadow, so they are not
+        // in the shadow ring — but a mirror with no street wall in it looks
+        // broken, and the rear view is mostly buildings.
+        ctx.registerStaticCell(inst, entry.x, entry.z, false);
+        this.addCairoRoofClutter(entry, ctx);
+        ctx.registerRepresentation({
+          planId: entry.id,
+          source: "asset-slot",
+          solids: entry.solids.map((solid) => ({
+            solidId: solid.localId,
+            kind: "glb" as const,
+            transform: solid,
+            holderId: inst.name,
+          })),
+        });
+        continue;
       }
-      if (placed === 0) buildFallback();
+      // Every non-retained/failed/forced-unavailable entry gets an exact
+      // per-solid proxy — never the old whole-block procedural fallback, and
+      // never the uncorrected multi-mesh instantiation path (it skips the
+      // merged master's square-up/recentre recipe and is therefore not an
+      // approved structural fallback — see the class doc comment).
+      this.buildProxy(entry, ctx);
     }
-    this.pendingBlocks.length = 0;
   }
 
   dispose(): void {
-    this.pendingBlocks.length = 0;
+    this.plannedEntries = [];
     this.storefrontMasters.clear();
     this.storefrontSignMaterials.clear();
   }

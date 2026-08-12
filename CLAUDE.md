@@ -38,7 +38,7 @@ npm run typecheck    # ~3s
 npm run lint         # ~11s, currently 0 errors / 0 warnings — keep it that way
 npm test             # full suite, ~2min
 
-# the loop you actually iterate on: everything but the acceptance sweep, ~20s
+# the loop you actually iterate on: everything but the acceptance sweep, ~1min
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 ```
 
