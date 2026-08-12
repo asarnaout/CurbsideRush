@@ -335,6 +335,13 @@ a pack after the first call has no effect); addresses exist only for NYC roads
 listed in `STREET_PROFILES` — a road missing from it generates none, silently
 (`addressableStreetNames` catches this). Other maps use authored venues.
 
+**A gap-closure block set `addressable: false`** is skipped by the frontage
+probe entirely. `generateStreetAddresses` otherwise checks every block in
+`geometry.blocks` blind to *why* it exists, so a scenery-only corner cap or
+backdrop strip authored purely to stop a camera seeing through to grey ground
+can silently create or reorder a gig-pool job. Default (absent) is `true`;
+set it `false` unless the block deliberately designs a reachable destination.
+
 **`STREET_PROFILES` holds numbering and gates addressability; display names
 live on `MapPack.roadNames`.** Split deliberately, so naming a street for GPS
 cannot start issuing gigs on it: Tokyo and Cairo are named and address-free,

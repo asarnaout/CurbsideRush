@@ -36,6 +36,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { MAP_PACKS, FREE_DRIVES } from "../app/game/content";
 import { planMapBuildings } from "../app/game/geometry/buildingLayout";
+import { relaxationPolicyForMap } from "../app/game/geometry/cityRelaxationPolicies";
 import { collectMapVisualGeometry } from "../app/game/geometry/visualSceneFootprints";
 import {
   auditMapVisualGapsForMap,
@@ -162,7 +163,7 @@ function auditMap(alias: string, options: CliOptions): MapAuditSummary {
   const trafficSeed = freeDrive ? freeDrive.trafficSeed : 0;
 
   const t0 = Date.now();
-  const plan = planMapBuildings(pack, trafficSeed);
+  const plan = planMapBuildings(pack, trafficSeed, relaxationPolicyForMap(pack.id));
   const geometry = collectMapVisualGeometry(pack, plan);
   const collectMs = Date.now() - t0;
 

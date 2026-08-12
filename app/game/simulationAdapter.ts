@@ -58,6 +58,7 @@ import {
   planMapBuildings,
   type BuildingLayoutPlan,
 } from "./geometry/buildingLayout";
+import { relaxationPolicyForMap } from "./geometry/cityRelaxationPolicies";
 import { landmarkGroundSolids, type GroundSolid } from "./geometry/landmarkGroundSolids";
 // Re-exported: this adapter is where render/babylonGameSession.ts and several
 // tests have always imported venue placement from, and geometry/venuePlacement.ts
@@ -1192,7 +1193,7 @@ export function buildSimulationCoreConfig({
   // since collision would then resolve against buildings that are not what
   // the player is actually looking at.
   const resolvedBuildingLayout =
-    buildingLayout ?? planMapBuildings(mapPack, scenario.trafficSeed);
+    buildingLayout ?? planMapBuildings(mapPack, scenario.trafficSeed, relaxationPolicyForMap(mapPack.id));
   if (
     resolvedBuildingLayout.mapId !== mapPack.id ||
     resolvedBuildingLayout.trafficSeed !== scenario.trafficSeed

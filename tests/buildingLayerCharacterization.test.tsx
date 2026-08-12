@@ -291,7 +291,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // extended ribbon, brompton-n-2 cedes its slot on the corner ground.
     // -> 4_369: bayswater-n-1 overshoots the park-corner node so its row
     // meets notting-n-1's across the T-mouth's unbroken north kerb.
-    buildingInstanceCount: 4_369,
+    // -> 4_380: the three-city visual-gap-elimination plan's Cornmarket P0
+    // (Section 10.2) — two new building-set frontages flanking segment 0,
+    // 4 slots (`-w-near`, Guild Lane Pharmacy's relaxed keep-out) + 7 slots
+    // (`-e-near`, the previously-empty right side); verified against the
+    // real resolved plan, not assumed from the baseline delta alone.
+    buildingInstanceCount: 4_380,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

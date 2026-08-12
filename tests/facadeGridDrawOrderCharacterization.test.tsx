@@ -367,7 +367,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // asset-slot fallback entries are now exact undecorated proxy boxes
     // (named/positioned per plan entry) rather than a re-derived facade
     // grid; the genuinely-procedural meshes underneath are unchanged.
-    facadeMeshFingerprint: "951724c0",
+    // -> "5b48e8b8": the three-city visual-gap-elimination plan's Cornmarket
+    // P0 (Section 10.2) — `-w`'s civic backdrop pushed back 8.5 m
+    // (extraInsetM) to make room for the new close frontage in front of it.
+    // Same cell count (40 m depth unchanged, so drawCount stays 972), every
+    // cell's world position shifts with the block.
+    facadeMeshFingerprint: "5b48e8b8",
   },
   "tokyo-setagaya": {
     // drawCount unchanged by the building-collision-visual-parity plan:

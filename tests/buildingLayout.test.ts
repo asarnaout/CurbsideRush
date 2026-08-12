@@ -12,6 +12,7 @@ import {
   keptStreetWallBuildings,
   rotateBlockBuildingPlacements,
 } from "../app/game/geometry/facadesAndKeepouts";
+import { relaxationPolicyForMap } from "../app/game/geometry/cityRelaxationPolicies";
 import { buildingStructuralBoundsFor } from "../app/game/buildingStructuralBounds";
 import {
   assetDetailScoreForBlockSlot,
@@ -413,7 +414,8 @@ describe("planMapBuildings — procedural-cell relaxation (plan Section 8's mech
   // needed exactly this -- Cornmarket's own street wall is a deliberately
   // procedural (non-buildingSet) Portland-stone block, and
   // `keptStreetWallBuildings` alone never reaches a procedural cell.
-  const venue = LONDON_MAP_PACK.geometry.gigVenues?.find((v) => v.id === "london-v37")!;
+  const venue = LONDON_MAP_PACK.geometry.gigVenues?.find((v) => v.id === "london-v37");
+  if (!venue) throw new Error("london-v37 (Guild Lane Pharmacy) not found in LONDON_MAP_PACK");
   // Unrotated 20x20 block, density 0 -> 3 cells at (1099,150.66)/(1109,150.66)/
   // (1099,160.66), all inside the 19 m buffer by nominal footprint. At
   // trafficSeed 0, cells 0 and 1's jittered exact boxes clear the pharmacy's
@@ -460,6 +462,104 @@ describe("planMapBuildings — procedural-cell relaxation (plan Section 8's mech
       relaxations: [{ ownerId: "london-v37", allowedRestoredPlanIds: new Set(["building:test-relax-block:cell:2"]) }],
     });
     expect(plan.buildings).toEqual([]);
+  });
+});
+
+describe("London P0 Cornmarket closure (plan Section 10.2)", () => {
+  const plan = planMapBuildings(LONDON_MAP_PACK, 2251, relaxationPolicyForMap(LONDON_MAP_PACK.id));
+  const cornmarketBlockIds = [
+    "london-block-cornmarket-w",
+    "london-block-cornmarket-w-near",
+    "london-block-cornmarket-e-near",
+  ];
+
+  it("each new/adjusted block exists exactly once", () => {
+    for (const blockId of cornmarketBlockIds) {
+      expect(LONDON_MAP_PACK.geometry.blocks.filter((b) => b.id === blockId), blockId).toHaveLength(1);
+    }
+  });
+
+  it("every new building-set block has an explicit streetEdges value", () => {
+    // -w is deliberately excluded: it is the pre-existing generic procedural
+    // (Portland-stone, no buildingSet) backdrop, pushed back via
+    // extraInsetM but otherwise untouched -- streetEdges is meaningless for
+    // it (the procedural facade grid reads frontageAxis instead, per
+    // ProceduralBlock's own doc comment) and it never had one.
+    for (const blockId of ["london-block-cornmarket-w-near", "london-block-cornmarket-e-near"]) {
+      const block = LONDON_MAP_PACK.geometry.blocks.find((b) => b.id === blockId)!;
+      expect(block.streetEdges, blockId).toBeDefined();
+      expect(block.streetEdges!.length, blockId).toBeGreaterThan(0);
+    }
+  });
+
+  it("the close frontages are not addressable — scenery only, no reachable destination", () => {
+    for (const blockId of ["london-block-cornmarket-w-near", "london-block-cornmarket-e-near"]) {
+      const block = LONDON_MAP_PACK.geometry.blocks.find((b) => b.id === blockId)!;
+      expect(block.addressable, blockId).toBe(false);
+    }
+  });
+
+  it("the near frontage keeps its two slots outside the buffer plus the two the relaxation restores", () => {
+    // Slots 0-1 sit outside Guild Lane Pharmacy's 19 m historical buffer by
+    // nominal footprint alone -- they need no relaxation and would survive
+    // under DEFAULT_RELAXATION_POLICY too. Slots 2-3 are the ones the
+    // relaxation actually restores (verified geometrically clear of the
+    // pharmacy's exact 8x8 solid); slots 4-5, closest to the venue, stay
+    // excluded even allow-listed -- see the "still overlapping" case in
+    // tests/buildingReservations.test.ts for that same three-condition gate.
+    const restored = plan.buildings.filter((b) => b.blockId === "london-block-cornmarket-w-near");
+    expect(restored.map((b) => b.id).sort()).toEqual([
+      "building:london-block-cornmarket-w-near:slot:-z:0",
+      "building:london-block-cornmarket-w-near:slot:-z:1",
+      "building:london-block-cornmarket-w-near:slot:-z:2",
+      "building:london-block-cornmarket-w-near:slot:-z:3",
+    ]);
+  });
+
+  it("no planned Cornmarket solid overlaps another planned solid anywhere on the map", () => {
+    // A cheap but real pairwise check restricted to solids actually near
+    // Cornmarket (O(local x all) instead of O(all x all)) -- the exact
+    // failure mode a misjudged extraInsetM/depthM could introduce silently.
+    const cornmarketSolids = plan.buildings
+      .filter((b) => cornmarketBlockIds.includes(b.blockId))
+      .flatMap((b) => b.solids.map((s) => ({ ownerId: b.id, ...s })));
+    expect(cornmarketSolids.length).toBeGreaterThan(0);
+    const nearby = plan.buildings.filter((b) =>
+      cornmarketSolids.some((s) => Math.hypot(b.x - s.x, b.z - s.z) < 60),
+    );
+    const allNearbySolids = nearby.flatMap((b) => b.solids.map((s) => ({ ownerId: b.id, ...s })));
+    const sat = (a: (typeof allNearbySolids)[number], b: (typeof allNearbySolids)[number]) => {
+      const axes: readonly [number, number][] = [
+        [a.ux, a.uz],
+        [a.uz, -a.ux],
+        [b.ux, b.uz],
+        [b.uz, -b.ux],
+      ];
+      const cornersOf = (s: (typeof allNearbySolids)[number]) => {
+        const vx = s.uz;
+        const vz = -s.ux;
+        return [
+          { x: s.x + s.ux * s.halfU + vx * s.halfV, z: s.z + s.uz * s.halfU + vz * s.halfV },
+          { x: s.x - s.ux * s.halfU + vx * s.halfV, z: s.z - s.uz * s.halfU + vz * s.halfV },
+          { x: s.x - s.ux * s.halfU - vx * s.halfV, z: s.z - s.uz * s.halfU - vz * s.halfV },
+          { x: s.x + s.ux * s.halfU - vx * s.halfV, z: s.z + s.uz * s.halfU - vz * s.halfV },
+        ];
+      };
+      const cornersA = cornersOf(a);
+      const cornersB = cornersOf(b);
+      for (const [ax, az] of axes) {
+        const projA = cornersA.map((c) => c.x * ax + c.z * az);
+        const projB = cornersB.map((c) => c.x * ax + c.z * az);
+        if (Math.max(...projA) < Math.min(...projB) || Math.max(...projB) < Math.min(...projA)) return false;
+      }
+      return true;
+    };
+    for (let i = 0; i < cornmarketSolids.length; i += 1) {
+      for (const other of allNearbySolids) {
+        if (other.ownerId === cornmarketSolids[i].ownerId) continue;
+        expect(sat(cornmarketSolids[i], other), `${cornmarketSolids[i].ownerId} vs ${other.ownerId}`).toBe(false);
+      }
+    }
   });
 });
 

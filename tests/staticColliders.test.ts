@@ -62,6 +62,7 @@ import type {
 } from "../app/game/types";
 import { CAREER_VEHICLES } from "../app/game/career";
 import { planMapBuildings } from "../app/game/geometry/buildingLayout";
+import { relaxationPolicyForMap } from "../app/game/geometry/cityRelaxationPolicies";
 
 // Mirrors the core's player capsule: circles of this radius trail/lead the
 // centre. Driving centred along a lane, the car's lateral reach is exactly
@@ -404,6 +405,7 @@ describe("static obstacle build", () => {
         buildingLayout: planMapBuildings(
           mapPack,
           buildFreeDriveScenario(world.freeDrive).trafficSeed,
+          relaxationPolicyForMap(mapPack.id),
         ),
       });
       expect(again).toEqual(world.obstacles);
