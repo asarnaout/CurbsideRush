@@ -155,6 +155,12 @@ import {
 } from "../geometry/roadFurnitureLayout";
 import { WATER_BOAT_MODEL_URLS } from "../geometry/waterGeometry";
 import { stagedBlockersOf } from "../geometry/facadesAndKeepouts";
+import { resolveWorldGroundBounds } from "../geometry/worldGround";
+import {
+  CHASE_TUNING_BY_MODEL,
+  DEFAULT_CHASE_TUNING,
+  resolveChaseCameraPose,
+} from "../cameraPoses";
 import {
   boxLengthYaw,
   roadSideParkLawnPolygon,
@@ -238,7 +244,6 @@ import {
   resolvePlayerVehicleAppearance,
   resolveTrafficVehicleAppearance,
   type VehicleAppearance,
-  type VehicleModel,
 } from "../vehicleVisuals";
 import {
   disposeModels,
@@ -306,27 +311,6 @@ const STOPPED_AUDIO_SPEED_MPS = 0.2;
 /** Corniche parapet height — a masonry balustrade you read instantly at
  * speed, taller than the 0.95 m park wall by a lean. */
 const CORNICHE_PARAPET_HEIGHT_M = 1.05;
-
-/** Third-person follow framing per player vehicle; the default is the values
- * the chase camera has always used for the car. */
-interface ChaseTuning {
-  readonly backM: number;
-  readonly upM: number;
-  readonly targetAheadM: number;
-}
-
-const DEFAULT_CHASE_TUNING: ChaseTuning = {
-  backM: 10.5,
-  upM: 5.5,
-  targetAheadM: 3.5,
-};
-
-const CHASE_TUNING_BY_MODEL: Partial<Record<VehicleModel, ChaseTuning>> = {
-  // The van's tall box fills the default frame; pull back and up a touch.
-  "delivery-van": { backM: 11.6, upM: 6.2, targetAheadM: 3.5 },
-  // The sports car sits low; tighten the frame slightly.
-  "sport-sedan": { backM: 9.8, upM: 5, targetAheadM: 3.8 },
-};
 
 /**
  * `BabylonGameSession`: the Babylon scene, engine, simulation adapter and
@@ -3517,28 +3501,21 @@ export class BabylonGameSession {
    * on the first setTarget; this does the job on purpose instead.
    */
   private snapChaseCameraToPose() {
-    const chase =
-      (this.options.playerVehicle?.model &&
-        CHASE_TUNING_BY_MODEL[this.options.playerVehicle.model]) ||
-      DEFAULT_CHASE_TUNING;
-    const forward = this.cameraForwardScratch.set(
-      Math.sin(this.displayedHeading),
-      0,
-      Math.cos(this.displayedHeading),
+    // Not per-frame (construction + pose teleports only), so this is free to
+    // call the shared pure resolver directly rather than duplicate its math
+    // against the scratch Vector3 fields `updateCamera` reuses for GC
+    // discipline in the hot path below.
+    const { eye, target } = resolveChaseCameraPose(this.options.playerVehicle?.model, {
+      x: this.displayedX,
+      z: this.displayedZ,
+      heading: this.displayedHeading,
+    });
+    this.thirdCamera.position.copyFrom(this.cameraDesiredScratch.set(eye.x, eye.y, eye.z));
+    this.thirdCamera.setTarget(
+      this.cameraTargetScratch.set(target.x, target.y, target.z),
+      undefined,
+      true,
     );
-    const base = this.cameraBaseScratch.set(
-      this.displayedX,
-      0.12,
-      this.displayedZ,
-    );
-    const target = this.cameraTargetScratch.copyFrom(base);
-    forward.scaleAndAddToRef(chase.targetAheadM, target);
-    target.y += 1.05;
-    const desired = this.cameraDesiredScratch.copyFrom(base);
-    forward.scaleAndAddToRef(-chase.backM, desired);
-    desired.y += chase.upM;
-    this.thirdCamera.position.copyFrom(desired);
-    this.thirdCamera.setTarget(target, undefined, true);
   }
 
   private updateCamera(dt: number) {
@@ -3860,8 +3837,11 @@ export class BabylonGameSession {
     this.shadowGenerator = scenarioSunShadows.shadowGenerator;
     this.shadowRefreshSeconds = scenarioSunShadows.shadowRefreshSeconds;
 
-    const groundWidth = Math.max(90, mapPack.geometry.worldSize.x + 36);
-    const groundHeight = Math.max(90, mapPack.geometry.worldSize.z + 36);
+    // Shared with the visual-gap audit's world-ground GroundSurface — see
+    // geometry/worldGround.ts.
+    const worldGroundBounds = resolveWorldGroundBounds(mapPack.geometry.worldSize);
+    const groundWidth = worldGroundBounds.maxX - worldGroundBounds.minX;
+    const groundHeight = worldGroundBounds.maxZ - worldGroundBounds.minZ;
     const groundTexture = paved
       ? createAsphaltTexture(
           scene,
