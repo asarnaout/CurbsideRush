@@ -132,7 +132,8 @@ other's: `GameCanvas` never imports `economyTables.ts`, and `SideSwapApp` only
 loads `GameCanvas` lazily through `next/dynamic`.
 
 **`app/game/geometry/*.ts`** (`roadStrips`, `roadFurnitureLayout`,
-`waterGeometry`, `facadesAndKeepouts`, `cairoParkland`) is
+`waterGeometry`, `facadesAndKeepouts`, `cairoParkland`, `buildingLayout`,
+`venuePlacement`, `landmarkGroundSolids`) is
 the same kind of pure module, moved out of `GameCanvas.tsx` by the god-file
 decomposition. It isn't hand-listed above because its purity is mechanically
 enforced rather than a fact to remember: ESLint rejects Babylon/React imports
