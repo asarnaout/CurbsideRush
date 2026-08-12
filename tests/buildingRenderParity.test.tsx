@@ -118,6 +118,7 @@ import GameCanvas from "../app/game/GameCanvas";
 import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/cities/london";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { planMapBuildings } from "../app/game/geometry/buildingLayout";
+import { relaxationPolicyForMap } from "../app/game/geometry/cityRelaxationPolicies";
 
 function createFake2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const noop = () => {};
@@ -298,7 +299,7 @@ async function mountLondon(
   return result;
 }
 
-const PLAN = planMapBuildings(LONDON_MAP_PACK, LONDON_FREE_DRIVE.trafficSeed);
+const PLAN = planMapBuildings(LONDON_MAP_PACK, LONDON_FREE_DRIVE.trafficSeed, relaxationPolicyForMap(LONDON_MAP_PACK.id));
 const ASSET_SLOT_COUNT = PLAN.buildings.filter((b) => b.source === "asset-slot").length;
 const PLANNED_BOX_COUNT = PLAN.buildings.length - ASSET_SLOT_COUNT;
 

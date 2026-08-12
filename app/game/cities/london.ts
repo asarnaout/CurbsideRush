@@ -1620,6 +1620,10 @@ const roadsideParcel = (
    * west environs). A parcel behind a strip usually sits past the address
    * frontage probe's 22 m reach and simply yields no letterboxes. */
   extraInsetM = 0,
+  /** False for a gap-closure scenery parcel with no reachable destination in
+   * mind — kept out of `streetAddressesForMap`'s frontage probe entirely
+   * (Section 9.1). True (the default) for every ordinary parcel. */
+  addressable = true,
 ): ProceduralBlock | null => {
   const dx = to.x - from.x;
   const dz = to.z - from.z;
@@ -1771,6 +1775,7 @@ const roadsideParcel = (
         ...(buildingSet
           ? { buildingSet, streetEdges: [side === 1 ? "+z" : "-z"] as const }
           : {}),
+        ...(addressable ? {} : { addressable }),
       };
     }
     // Retreat only the end the violation is nearer to — the whole point.
@@ -2102,7 +2107,38 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-bishopsgate-e-3", "london-bishopsgate", nodeAt("london-node-bishopsgate-2"), nodeAt("london-node-islington-arm-south"), 1, 10.4, 44, LONDON_STOCK_BRICK, [14, 24], 0.76),
   roadsideParcel("london-block-king-william-e", "london-king-william", nodeAt("london-node-tower-north"), nodeAt("london-node-king-william-mid"), 1, 9.6, 44, LONDON_GLASS_CURTAIN, [24, 44], 0.82),
   roadsideParcel("london-block-king-william-w", "london-king-william", nodeAt("london-node-king-william-mid"), nodeAt("london-node-bank-arm-south"), -1, 9.6, 42, LONDON_PORTLAND_STONE, [22, 38], 0.8),
-  roadsideParcel("london-block-cornmarket-w", "london-cornmarket", nodeAt("london-node-bank-arm-west"), nodeAt("london-node-cornmarket-mid"), -1, 8.6, 40, LONDON_PORTLAND_STONE, [20, 34], 0.8),
+  // Pushed back 8.5 m (`extraInsetM`) to open a clean near-kerb band for
+  // `-w-near` below: at its own original depth (40 m from `blockInsetFor`'s
+  // 9.1 m), this block's own cells never came close enough to the pavement
+  // to close the P0 Cornmarket gap (plan Section 10.2) — the missing piece
+  // was a close frontage, not a denser version of this civic backdrop.
+  roadsideParcel("london-block-cornmarket-w", "london-cornmarket", nodeAt("london-node-bank-arm-west"), nodeAt("london-node-cornmarket-mid"), -1, 8.6, 40, LONDON_PORTLAND_STONE, [20, 34], 0.8, 8.5),
+  // Shallow close frontage in front of `-w`'s civic backdrop, flanking
+  // Guild Lane Pharmacy (london-v37, relaxed below) — Section 10.2's P0
+  // Cornmarket fix. Not addressable: authored purely to close the fan, no
+  // reachable destination in mind.
+  roadsideParcel("london-block-cornmarket-w-near", "london-cornmarket", nodeAt("london-node-bank-arm-west"), nodeAt("london-node-cornmarket-mid"), -1, 8.6, 8, LONDON_STOCK_BRICK, [10, 16], 0.65, 0, false),
+  // Segment 0's right (+1) side had no block at all — confirmed both by the
+  // audit (side-right dominates blob-cell-267-78-frag-0's failing stations)
+  // and by a live teleport at the recorded pose (1117.7,151.6): the chase
+  // camera's right-hand frame edge is bare dark ground to the horizon, no
+  // building anywhere. No venue/service sits on this side to relax.
+  roadsideParcel("london-block-cornmarket-e-near", "london-cornmarket", nodeAt("london-node-bank-arm-west"), nodeAt("london-node-cornmarket-mid"), 1, 8.6, 16, LONDON_STOCK_BRICK, [11, 18], 0.7, 0, false),
+  // A hand-placed corner cap bridging the bank-arm-west junction throat
+  // (matching Section 10.3's Regent Street pattern, for the same reason:
+  // roadsideParcel's 12 m end-inset structurally cannot reach this close to
+  // the node) was tried and dropped. It could not find a placement that
+  // cleared BOTH london-bank-circus's pavement (a foreign road at this
+  // junction roadsideParcel's own automatic trimming would have handled,
+  // but a hand-placed block does not get) and `-w-near`'s own 12.12 m
+  // start -- every depth/along-span tried either overlapped one or the
+  // other (caught both times: once by buildingLayout.test.ts's pairwise-
+  // solid check, once by staticColliders.test.ts's pavement-clearance
+  // sweep). The remaining `urban_world_edge` rays this would have closed
+  // are a small fraction of Cornmarket's failures (29 of ~1600) — left for
+  // a follow-up with more room to solve properly (e.g. trimming
+  // `-w-near`'s own start closer to the node) rather than shipping a
+  // pavement violation to force it in now.
   roadsideParcel("london-block-cornmarket-e", "london-cornmarket", nodeAt("london-node-cornmarket-mid"), nodeAt("london-node-london-wall-mid"), 1, 8.6, 40, LONDON_GLASS_CURTAIN, [24, 42], 0.82),
   roadsideParcel("london-block-leadenhall-n", "london-leadenhall", nodeAt("london-node-bank-arm-east"), nodeAt("london-node-leadenhall-mid"), -1, 8.6, 44, LONDON_GLASS_CURTAIN, [26, 50], 0.82),
   roadsideParcel("london-block-leadenhall-s", "london-leadenhall", nodeAt("london-node-bank-arm-east"), nodeAt("london-node-leadenhall-mid"), 1, 8.6, 42, LONDON_PORTLAND_STONE, [20, 36], 0.8),

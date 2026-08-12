@@ -97,6 +97,27 @@ describe("procedural street addresses", () => {
     expect(generateStreetAddresses(rawInput(nyc))).toEqual([...nycAddresses]);
   });
 
+  it("`addressable: false` withdraws a block from frontage probing entirely (plan Section 9.1)", () => {
+    // A gap-closure scenery block must be able to opt out of ever backing an
+    // address -- otherwise an unrelated visual fix silently creates or
+    // reorders a gig-pool job. Every real block flipped false is the
+    // decisive proof the flag is actually consulted, not just accepted by
+    // the type: if it were ignored, this would still equal nycAddresses.
+    const allNonAddressable = generateStreetAddresses({
+      ...rawInput(nyc),
+      blocks: nyc.geometry.blocks.map((block) => ({ ...block, addressable: false })),
+    });
+    expect(allNonAddressable).toEqual([]);
+
+    // Absent (the default, every real block today) behaves exactly as
+    // before -- byte-identical, not merely "similar".
+    const explicitlyDefault = generateStreetAddresses({
+      ...rawInput(nyc),
+      blocks: nyc.geometry.blocks.map((block) => ({ ...block, addressable: true })),
+    });
+    expect(explicitlyDefault).toEqual([...nycAddresses]);
+  });
+
   it("gives every address a unique id and a unique display name", () => {
     expect(new Set(nycAddresses.map((a) => a.id)).size).toBe(nycAddresses.length);
     expect(new Set(nycAddresses.map((a) => a.name)).size).toBe(nycAddresses.length);

@@ -421,8 +421,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // independent of how many buildings were actually planned for the block)
     // is replaced by an exact, undecorated per-solid proxy box per planned
     // asset-slot entry (Section 7.7). No map content moved.
-    totalMeshes: 9_600,
-    enabledMeshes: 9_600,
+    // 9_600 -> 9_597: the three-city visual-gap-elimination plan's Cornmarket
+    // P0 (Section 10.2) — a new close frontage flanking Guild Lane Pharmacy
+    // (its coarse keep-out relaxed to its exact solid) plus a new right-side
+    // frontage add planned buildings, while `-w`'s civic backdrop (pushed
+    // back 8.5 m to make room) plans fewer procedural cells at its shifted
+    // depth/position; net -3 boxes under this suite's forced-unavailable
+    // mock. No block outside Cornmarket moved.
+    totalMeshes: 9_597,
+    enabledMeshes: 9_597,
     activeMeshes: 878,
     materials: 302,
     drawCallsPerFrame: 0,

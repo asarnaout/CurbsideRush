@@ -123,6 +123,7 @@ import {
   type PlannedAssetBuilding,
   type PlannedProceduralBuilding,
 } from "../geometry/buildingLayout";
+import { relaxationPolicyForMap } from "../geometry/cityRelaxationPolicies";
 import { BuildingRepresentationRegistry } from "./buildingRepresentation";
 import { buildCockpit } from "./cockpitBuilder";
 import { governRenderScaling } from "./perfGovernor";
@@ -1124,7 +1125,11 @@ export class BabylonGameSession {
     // buildScenarioEnvironment — so both consume the exact same plan object
     // rather than each independently re-deriving building occupancy (plan
     // Section 7.5). Collision does not consume it until Phase 4.
-    this.buildingLayout = planMapBuildings(options.mapPack, options.scenario.trafficSeed);
+    this.buildingLayout = planMapBuildings(
+      options.mapPack,
+      options.scenario.trafficSeed,
+      relaxationPolicyForMap(options.mapPack.id),
+    );
     // Per-vehicle physics land after the adapter's config so a career
     // vehicle's caps override the scenario baseline; free drive passes null
     // and keeps the adapter's numbers untouched.

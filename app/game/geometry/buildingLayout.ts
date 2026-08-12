@@ -14,13 +14,14 @@ import {
 } from "../buildingStructuralBounds";
 import {
   buildingReservations,
+  buildReservationLookups,
   cairoFrontageFootprintsOverlap,
   cairoFrontagePosition,
   DEFAULT_RELAXATION_POLICY,
   facadeGridCells,
-  isInsideHistoricalBuffer,
   keptStreetWallBuildings,
   rotateBlockBuildingPlacements,
+  survivesReservations,
   type BuildingReservation,
   type CairoFrontageFootprint,
   type RelaxationPolicy,
@@ -322,6 +323,7 @@ function planProceduralBlock(
   random: () => number,
   reservations: readonly BuildingReservation[],
   layoutReason: ProceduralLayoutReason,
+  relaxationPolicy: RelaxationPolicy = DEFAULT_RELAXATION_POLICY,
 ): PlannedProceduralBuilding[] {
   const isWestBank = block.material === "cairo-west-bank-concrete";
   const cells = facadeGridCells(
@@ -330,6 +332,7 @@ function planProceduralBlock(
   const isCairo = mapPack.id.includes("cairo");
   const placedFrontages: CairoFrontageFootprint[] = [];
   const entries: PlannedProceduralBuilding[] = [];
+  const lookups = buildReservationLookups(reservations, relaxationPolicy);
 
   for (const cell of cells) {
     const width = Math.max(5, cell.cellWidth * (0.58 + random() * 0.24));
@@ -354,14 +357,26 @@ function planProceduralBlock(
     const halfDepth =
       Math.abs(Math.sin(cell.rotationY)) * (width / 2) +
       Math.abs(Math.cos(cell.rotationY)) * (depth / 2);
-    if (isInsideHistoricalBuffer(reservations, buildingPosition.x, buildingPosition.z, halfWidth, halfDepth)) {
+    const cos = Math.cos(cell.rotationY);
+    const sin = Math.sin(cell.rotationY);
+    const planId = `building:${block.id}:cell:${cell.index}`;
+    // A procedural cell's exact solid needs no manifest lookup or local-to-
+    // world transform the way a named glb model's does (`keptStreetWallBuildings`'s
+    // own thunk) -- it is precisely the box already computed for this cell,
+    // so the thunk below just restates it.
+    const survives = survivesReservations(
+      reservations,
+      lookups,
+      { x: buildingPosition.x, z: buildingPosition.z, halfWidth, halfDepth },
+      () => [{ kind: "obb" as const, x: buildingPosition.x, z: buildingPosition.z, ux: cos, uz: -sin, halfU: width / 2, halfV: depth / 2 }],
+      planId,
+    );
+    if (!survives) {
       continue;
     }
     if (frontageFootprint) placedFrontages.push(frontageFootprint);
-    const cos = Math.cos(cell.rotationY);
-    const sin = Math.sin(cell.rotationY);
     entries.push({
-      id: `building:${block.id}:cell:${cell.index}`,
+      id: planId,
       blockId: block.id,
       source: "procedural-cell",
       material: block.material,
@@ -440,13 +455,14 @@ export function planMapBuildings(
         random,
         reservations,
         block.buildingSet ? "unknown-building-set" : "authored-procedural",
+        relaxationPolicy,
       ),
     );
   }
 
   for (const block of deferredSetBlocks) {
     buildings.push(
-      ...planProceduralBlock(mapPack, block, random, reservations, "set-zero-survivor-fallback"),
+      ...planProceduralBlock(mapPack, block, random, reservations, "set-zero-survivor-fallback", relaxationPolicy),
     );
   }
 

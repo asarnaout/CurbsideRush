@@ -216,6 +216,7 @@ export interface GameCanvasMapPack {
       readonly density: number;
       readonly material: string;
       readonly buildingSet?: string;
+      readonly addressable?: boolean;
     }[];
     waterBodies?: readonly {
       readonly id: string;
