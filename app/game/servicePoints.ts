@@ -100,7 +100,10 @@ export const SERVICE_MODEL_FRAME: Readonly<
   repair_shop: { scale: 1, yawOffset: Math.PI / 2 },
 });
 
-/** Half-extent of each kind's lot — the square carved out of a block rect. */
+/** Half-extent of each kind's lot on the ground — the clearance a street-wall
+ * building may never stand inside, and a lot's own placement may not overlap
+ * the road shoulder by. Authoring invariants only; nothing carves it out of a
+ * collider any more (the shared building plan never places one there). */
 export const SERVICE_LOT_HALF_M: Readonly<Record<ServicePointKind, number>> =
   Object.freeze({
     gas_station: GAS_STATION_SLAB_HALF_M,

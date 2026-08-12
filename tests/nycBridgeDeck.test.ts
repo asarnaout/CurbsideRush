@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { NYC_MAP_PACK } from "../app/game/cities/nyc";
 import { buildNycLandmark } from "../app/game/render/nycLandmarks";
 import { buildStaticObstacles } from "../app/game/simulationAdapter";
+import { planMapBuildings } from "../app/game/geometry/buildingLayout";
 import { nearestPointOnPolyline } from "../app/game/geometry/roadStrips";
 import { defaultSidewalkWidthM } from "../app/game/visuals";
 import type { GameCanvasMapPack } from "../app/game/sessionContract";
@@ -105,10 +106,14 @@ describe("NYC bridge decks", () => {
   it("draws the deck-edge parapet exactly where the collider stands", () => {
     // One formula, two files. When they disagree you hit a wall that is not
     // drawn and drive through one that is.
-    const obstacles = buildStaticObstacles(
-      NYC_MAP_PACK as unknown as GameCanvasMapPack,
-      { minX: -1300, maxX: 1300, minZ: -1500, maxZ: 1500 },
-    );
+    const obstacles = buildStaticObstacles({
+      mapPack: NYC_MAP_PACK as unknown as GameCanvasMapPack,
+      bounds: { minX: -1300, maxX: 1300, minZ: -1500, maxZ: 1500 },
+      buildingLayout: planMapBuildings(
+        NYC_MAP_PACK as unknown as GameCanvasMapPack,
+        1,
+      ),
+    });
     for (const bridge of bridges) {
       const colliderLaterals = obstacles
         .filter(

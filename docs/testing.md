@@ -17,13 +17,21 @@ checks locally before committing.
 
 ## The fast loop
 
-`npm test` takes about two minutes and **almost all of it is one file** —
+`npm test` takes about two minutes and **most of it is one file** —
 `tests/trafficSafetyAcceptance.test.ts` (4 cities × 51 seeds × 60 s of sim).
-Everything else runs in ~20 s. Use the fast loop while
-iterating, the full suite before committing:
+Everything else runs in ~1 min, dominated by the full-mount NullEngine
+characterization suites (`facadeGridDrawOrderCharacterization`,
+`fourCityRenderCharacterization`, `buildingLayerCharacterization`,
+`buildingRenderParity`), not by any one collision test —
+`staticColliders.test.ts`'s two whole-map clearance sweeps (thousands of
+sample points per map) build a test-local `ObstacleIndex` rather than
+brute-forcing every sample against every obstacle, or they alone would run
+far slower now that building obstacles are one-per-solid rather than
+one-per-block. Use the fast loop while iterating, the full suite before
+committing:
 
 ```bash
-# everything except the acceptance test -> the fast suite in ~20s
+# everything except the acceptance test -> the fast suite in ~1min
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 
 npx vitest run tests/simulation.test.ts -t "reverses off"   # one file, -t filters by substring
@@ -132,6 +140,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | Test | What it pins |
 |---|---|
 | `trafficSafetyAcceptance` | Determinism (trace hash over two replays) + no collisions across 4 cities × 51 seeds |
+| `buildingColliderAgreement` | Every "building" static obstacle traces back to exactly one `planMapBuildings` solid, at float epsilon, across all four maps — the building-collision-visual-parity plan's Section 10.2 proof that render and collision cannot drift |
 | `architecture` | simulation.ts purity + the ring rules the god-file decomposition depends on |
 | `gameCanvasSession` | `BabylonGameSession` actually constructs, ticks, pauses, resets and disposes (headless, NullEngine) |
 | `cockpitCharacterization` | `buildCockpit`'s exact mesh/merge output (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |

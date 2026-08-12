@@ -30,7 +30,6 @@ import {
 } from "./laneAnchors";
 import {
   resolveServicePointLot,
-  SERVICE_LOT_HALF_M,
   SERVICE_MODEL_FRAME,
   type ServicePointKind,
 } from "./servicePoints";
@@ -54,6 +53,11 @@ import {
   VENUE_PAVEMENT_GAP_M,
   type VenuePlacement,
 } from "./geometry/venuePlacement";
+import {
+  buildingSolidObstacleId,
+  planMapBuildings,
+  type BuildingLayoutPlan,
+} from "./geometry/buildingLayout";
 // Re-exported: this adapter is where render/babylonGameSession.ts and several
 // tests have always imported venue placement from, and geometry/venuePlacement.ts
 // (its new home, extracted to break the adapter/keep-out import cycle — see
@@ -78,10 +82,19 @@ export interface SimulationAdapterOptions {
   readonly trafficSide: TrafficSide;
   readonly speedUnit: SpeedUnit;
   readonly touchFirst?: boolean;
+  /**
+   * The building structural plan collision (and, upstream, the renderer)
+   * consumes. Omit only when there is no reason for the two rings to share
+   * one plan instance (a direct test, a one-off tool) — `BabylonGameSession`
+   * always computes one exactly once, before this call, and passes it here
+   * explicitly (plan Section 7.5), so its render pass and this collision
+   * pass can never independently re-derive (and silently disagree about)
+   * building occupancy. Supplying one whose `mapId`/`trafficSeed` do not
+   * match `mapPack`/`scenario` is a caller bug (a stale plan from another
+   * drive) and throws in development/tests.
+   */
+  readonly buildingLayout?: BuildingLayoutPlan;
 }
-
-const degreesToRadians = (degrees: number): number =>
-  (degrees * Math.PI) / 180;
 
 const speedToMetresPerSecond = (
   speed: number,
@@ -588,42 +601,19 @@ function buildTrafficGates(
 const WORLD_EDGE_STANDOFF_M = 8;
 const WORLD_EDGE_THICKNESS_M = 6;
 
-interface AxisRect {
-  minX: number;
-  maxX: number;
-  minZ: number;
-  maxZ: number;
-}
-
-/** base minus cut, as up to four axis-aligned remainders; slivers under half
- * a metre are dropped (nothing drivable fits in them anyway). */
-function subtractRect(base: AxisRect, cut: AxisRect): AxisRect[] {
-  const overlapMinX = Math.max(base.minX, cut.minX);
-  const overlapMaxX = Math.min(base.maxX, cut.maxX);
-  const overlapMinZ = Math.max(base.minZ, cut.minZ);
-  const overlapMaxZ = Math.min(base.maxZ, cut.maxZ);
-  if (overlapMinX >= overlapMaxX || overlapMinZ >= overlapMaxZ) return [base];
-  const pieces: AxisRect[] = [
-    { minX: base.minX, maxX: base.maxX, minZ: overlapMaxZ, maxZ: base.maxZ },
-    { minX: base.minX, maxX: base.maxX, minZ: base.minZ, maxZ: overlapMinZ },
-    { minX: base.minX, maxX: overlapMinX, minZ: overlapMinZ, maxZ: overlapMaxZ },
-    { minX: overlapMaxX, maxX: base.maxX, minZ: overlapMinZ, maxZ: overlapMaxZ },
-  ];
-  return pieces.filter(
-    (piece) => piece.maxX - piece.minX > 0.5 && piece.maxZ - piece.minZ > 0.5,
-  );
-}
-
 /**
  * The solid, movement-blocking world the core resolves the player car against.
  * Sources are exactly the authored map-pack fields the renderer builds visuals
  * from, so a wall stands wherever something is drawn:
  *
- * - blocks -> their full rect (the street wall / facade grid hugs the edges;
- *   interiors and the 1.6 m building gaps are narrower than the car anyway).
- *   London museum blocks mirror the renderer's two-wing layout instead, and
- *   service-point lots (both kinds) are carved out of any block rect they
- *   overlap so the forecourt or bay entrance is open ground.
+ * - buildings -> exactly `buildingLayout`'s planned structural solids
+ *   (`geometry/buildingLayout.ts`), one "building" obstacle per solid —
+ *   asset-slot buildings, procedural-cell boxes, and the two London museum
+ *   wings alike. This is the same plan the renderer paints (Phase 3), so a
+ *   parcel interior, an unselected street edge, a keep-out-cleared venue
+ *   circle, or a museum forecourt has no obstacle here unless something is
+ *   actually visible there. Service-point lots need no carving any more:
+ *   the plan already omits any building that would stand inside one.
  * - building-like landmarks (station/terminal/shops as drawn boxes, tower as
  *   its cylinder) -> solid; parks keep only their centre feature tree; railway
  *   rails and roundabout-island pads stay drivable.
@@ -637,137 +627,48 @@ function subtractRect(base: AxisRect, cut: AxisRect): AxisRect[] {
  *   makes the bay a bay rather than a sealed box.
  * - world edges -> fences just outside the bounds.
  */
-export function buildStaticObstacles(
-  mapPack: GameCanvasMapPack,
-  bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
-): StaticObstacle[] {
+export function buildStaticObstacles({
+  mapPack,
+  bounds,
+  buildingLayout,
+}: {
+  readonly mapPack: GameCanvasMapPack;
+  readonly bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
+  readonly buildingLayout: BuildingLayoutPlan;
+}): StaticObstacle[] {
   const obstacles: StaticObstacle[] = [];
   const london = mapPack.id.includes("london");
 
-  // Gas-station lots (the full base slab plus a margin) are carved out of any
-  // block rect they overlap: the visual street wall is already excluded from
-  // the lot, and leaving the block collider there walled off the forecourt.
-  // Both kinds carve — a repair shop walled off by its own block rect would be
-  // a garage you cannot drive into — but each carves its own size.
+  // Every planned building solid becomes one exact "building" obstacle —
+  // see this function's own doc comment. Replaces the old ordinary
+  // full-block AABB/OBB loop and its service-lot carving outright.
+  for (const building of buildingLayout.buildings) {
+    for (const solid of building.solids) {
+      obstacles.push({
+        kind: "obb",
+        id: buildingSolidObstacleId(building, solid),
+        tag: "building",
+        x: solid.x,
+        z: solid.z,
+        ux: solid.ux,
+        uz: solid.uz,
+        halfU: solid.halfU,
+        halfV: solid.halfV,
+      });
+    }
+  }
+
+  // Resolved here so the service-point furniture below (the shop/pump-island
+  // solids) has a pose to place from. Buildings no longer carve around a lot
+  // at all: the plan already omits any building that would stand inside one.
   const serviceLots: {
     kind: ServicePointKind;
     lot: { x: number; z: number; yaw: number };
-    carve: AxisRect;
   }[] = [];
   for (const service of mapPack.geometry.servicePoints ?? []) {
     const lot = resolveServicePointLot(mapPack.laneGraph.lanes, service);
     if (!lot) continue;
-    const spanM =
-      SERVICE_LOT_HALF_M[service.kind] *
-      (Math.abs(Math.cos(lot.yaw)) + Math.abs(Math.sin(lot.yaw)));
-    serviceLots.push({
-      kind: service.kind,
-      lot,
-      carve: {
-        minX: lot.x - spanM - 1,
-        maxX: lot.x + spanM + 1,
-        minZ: lot.z - spanM - 1,
-        maxZ: lot.z + spanM + 1,
-      },
-    });
-  }
-  const pushBlockRect = (id: string, rect: AxisRect) => {
-    let pieces = [rect];
-    for (const { carve } of serviceLots) {
-      pieces = pieces.flatMap((piece) => subtractRect(piece, carve));
-    }
-    for (const [index, piece] of pieces.entries()) {
-      obstacles.push({
-        kind: "aabb",
-        id: pieces.length === 1 ? id : `${id}-part-${index}`,
-        tag: "building",
-        ...piece,
-      });
-    }
-  };
-  const pushRotatedBlock = (
-    id: string,
-    block: GameCanvasMapPack["geometry"]["blocks"][number],
-  ) => {
-    const yaw = degreesToRadians(block.headingDeg ?? 0);
-    const cos = Math.cos(yaw);
-    const sin = Math.sin(yaw);
-    let pieces: AxisRect[] = [
-      {
-        minX: -block.size.x / 2,
-        maxX: block.size.x / 2,
-        minZ: -block.size.z / 2,
-        maxZ: block.size.z / 2,
-      },
-    ];
-    // Service lots are axis-aligned broad-phase boxes. Project their corners
-    // into block-local space and carve the conservative local AABB; the visual
-    // renderer uses the same lot keep-outs, so this errs toward open forecourt.
-    for (const { carve } of serviceLots) {
-      const corners = [
-        [carve.minX, carve.minZ],
-        [carve.minX, carve.maxZ],
-        [carve.maxX, carve.minZ],
-        [carve.maxX, carve.maxZ],
-      ] as const;
-      const local = corners.map(([x, z]) => {
-        const dx = x - block.center.x;
-        const dz = z - block.center.z;
-        return { x: dx * cos - dz * sin, z: dx * sin + dz * cos };
-      });
-      const cut: AxisRect = {
-        minX: Math.min(...local.map((point) => point.x)),
-        maxX: Math.max(...local.map((point) => point.x)),
-        minZ: Math.min(...local.map((point) => point.z)),
-        maxZ: Math.max(...local.map((point) => point.z)),
-      };
-      pieces = pieces.flatMap((piece) => subtractRect(piece, cut));
-    }
-    for (const [index, piece] of pieces.entries()) {
-      const localX = (piece.minX + piece.maxX) / 2;
-      const localZ = (piece.minZ + piece.maxZ) / 2;
-      obstacles.push({
-        kind: "obb",
-        id: pieces.length === 1 ? id : `${id}-part-${index}`,
-        tag: "building",
-        x: block.center.x + localX * cos + localZ * sin,
-        z: block.center.z - localX * sin + localZ * cos,
-        ux: cos,
-        uz: -sin,
-        halfU: (piece.maxX - piece.minX) / 2,
-        halfV: (piece.maxZ - piece.minZ) / 2,
-      });
-    }
-  };
-
-  for (const block of mapPack.geometry.blocks) {
-    if (london && block.material.endsWith("-museum")) {
-      // Mirrors the renderer's two-wing museum layout (GameCanvas
-      // buildEnvironment): the central forecourt between the wings is open
-      // ground the car can legitimately roll onto.
-      const wingWidth = Math.max(12, block.size.x * 0.23);
-      const wingDepth = block.size.z * 0.82;
-      for (const side of [-1, 1]) {
-        const wingX = block.center.x + side * block.size.x * 0.37;
-        pushBlockRect(`${block.id}-wing-${side}`, {
-          minX: wingX - wingWidth / 2,
-          maxX: wingX + wingWidth / 2,
-          minZ: block.center.z - wingDepth / 2,
-          maxZ: block.center.z + wingDepth / 2,
-        });
-      }
-      continue;
-    }
-    if (Math.abs(block.headingDeg ?? 0) > 1e-6) {
-      pushRotatedBlock(block.id, block);
-      continue;
-    }
-    pushBlockRect(block.id, {
-      minX: block.center.x - block.size.x / 2,
-      maxX: block.center.x + block.size.x / 2,
-      minZ: block.center.z - block.size.z / 2,
-      maxZ: block.center.z + block.size.z / 2,
-    });
+    serviceLots.push({ kind: service.kind, lot });
   }
 
   const portalIntervalOnShoreEdge = (
@@ -1203,7 +1104,24 @@ export function buildSimulationCoreConfig({
   trafficSide,
   speedUnit,
   touchFirst = false,
+  buildingLayout,
 }: SimulationAdapterOptions): SimulationCoreConfig {
+  // Compute once here iff the caller has no reason to share an instance
+  // across rings; BabylonGameSession always supplies its own (Section 7.5).
+  // A supplied plan for the wrong map/seed is a caller bug — a stale plan
+  // left over from a previous drive — never a case to silently tolerate,
+  // since collision would then resolve against buildings that are not what
+  // the player is actually looking at.
+  const resolvedBuildingLayout =
+    buildingLayout ?? planMapBuildings(mapPack, scenario.trafficSeed);
+  if (
+    resolvedBuildingLayout.mapId !== mapPack.id ||
+    resolvedBuildingLayout.trafficSeed !== scenario.trafficSeed
+  ) {
+    throw new Error(
+      `buildSimulationCoreConfig: supplied buildingLayout is for map "${resolvedBuildingLayout.mapId}" seed ${resolvedBuildingLayout.trafficSeed}, but this scenario is "${mapPack.id}" seed ${scenario.trafficSeed} — a stale plan from another drive.`,
+    );
+  }
   const normalizedSpeedUnit = speedUnit === "mph" ? "mph" : "kmh";
   const baseMaxForwardSpeedMps =
     normalizedSpeedUnit === "mph"
@@ -1256,7 +1174,7 @@ export function buildSimulationCoreConfig({
     scenarioId: scenario.id,
     lanes,
     bounds,
-    staticObstacles: buildStaticObstacles(mapPack, bounds),
+    staticObstacles: buildStaticObstacles({ mapPack, bounds, buildingLayout: resolvedBuildingLayout }),
     spawn: { x: start.x, z: start.z, heading: start.heading },
     trafficLights: traffic.lights,
     stopLines,

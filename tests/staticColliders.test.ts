@@ -60,12 +60,23 @@ import type {
   FreeDriveDefinition,
   StaticObstacle,
 } from "../app/game/types";
+import { CAREER_VEHICLES } from "../app/game/career";
+import { planMapBuildings } from "../app/game/geometry/buildingLayout";
 
 // Mirrors the core's player capsule: circles of this radius trail/lead the
 // centre. Driving centred along a lane, the car's lateral reach is exactly
-// the capsule radius.
-const PLAYER_CAPSULE_RADIUS_M = 1.0;
-const PLAYER_CAPSULE_HALF_LENGTH_M = 1.15;
+// the capsule radius. Held to the widest/longest capsule any vehicle in the
+// game uses (the van's, at the time of writing), not the default hatchback's
+// — a test that only promised the hatchback access would pass while the van
+// strands.
+const PLAYER_CAPSULE_RADIUS_M = Math.max(
+  ...CAREER_VEHICLES.map((vehicle) => vehicle.physics.playerCapsuleRadiusM),
+);
+const PLAYER_CAPSULE_HALF_LENGTH_M = Math.max(
+  ...CAREER_VEHICLES.map(
+    (vehicle) => vehicle.physics.playerCapsuleHalfLengthM,
+  ),
+);
 const LANE_SAMPLE_SPACING_M = 2;
 
 interface DriveWorld {
@@ -115,6 +126,126 @@ const clearanceToNearestObstacle = (
   return { distance: best, id: bestId };
 };
 
+/**
+ * Uniform-grid index over a fixed obstacle set — built once per world so the
+ * two heaviest sweeps below (thousands of sample points, each against every
+ * obstacle in the map) don't each brute-force-scan the whole array. Test-only
+ * — never how the real 60 Hz solver queries (that stays a flat per-tick scan
+ * of a few thousand obstacles, ~0.35 ms/tick measured; see
+ * `tests/perf/staticCollision.bench.ts`); this mirrors the bucketing
+ * technique plan Section 7.10 describes for the production solver, but only
+ * ever backs assertions here.
+ *
+ * Correct up to `OBSTACLE_INDEX_CELL_SIZE_M`: a query inspects only the 3x3
+ * neighbourhood of cells around the query point's own cell, which is exact
+ * for any true nearest distance up to one cell width. Proof sketch: every
+ * obstacle is inserted into every cell its own *exact* axis-aligned bounds
+ * overlap (a full AABB, not a circumscribed circle, so a long thin obstacle
+ * like a world-edge fence or a shoreline run costs cells proportional to its
+ * own footprint, not its diagonal reach). If some obstacle is within
+ * distance `d` of query point P, then P is also within `d` of that
+ * obstacle's AABB (the AABB contains the obstacle, so its boundary is never
+ * farther from an outside point than the obstacle's own boundary is) — so
+ * for `d <= OBSTACLE_INDEX_CELL_SIZE_M`, the AABB necessarily overlaps a
+ * cell within one cell-width of P's own cell, i.e. the 3x3 neighbourhood.
+ * Both call sites below only ever test a fixed distance far under that
+ * (measured max: 2.7 m, the widest lane's corridor half-width for the van's
+ * capsule; the pavement sweep uses a flat 0.3 m) — comfortably inside the
+ * proven-exact range with a ~6x margin.
+ */
+const OBSTACLE_INDEX_CELL_SIZE_M = 16;
+
+interface ObstacleIndex {
+  readonly query: (x: number, z: number) => readonly StaticObstacle[];
+}
+
+const obstacleBoundsM = (
+  obstacle: StaticObstacle,
+): { minX: number; maxX: number; minZ: number; maxZ: number } => {
+  if (obstacle.kind === "circle") {
+    return {
+      minX: obstacle.x - obstacle.radius,
+      maxX: obstacle.x + obstacle.radius,
+      minZ: obstacle.z - obstacle.radius,
+      maxZ: obstacle.z + obstacle.radius,
+    };
+  }
+  if (obstacle.kind === "aabb") {
+    return {
+      minX: obstacle.minX,
+      maxX: obstacle.maxX,
+      minZ: obstacle.minZ,
+      maxZ: obstacle.maxZ,
+    };
+  }
+  const corners = (
+    [
+      [obstacle.halfU, obstacle.halfV],
+      [obstacle.halfU, -obstacle.halfV],
+      [-obstacle.halfU, obstacle.halfV],
+      [-obstacle.halfU, -obstacle.halfV],
+    ] as const
+  ).map(([u, v]) => ({
+    x: obstacle.x + obstacle.ux * u + obstacle.uz * v,
+    z: obstacle.z + obstacle.uz * u - obstacle.ux * v,
+  }));
+  return {
+    minX: Math.min(...corners.map((corner) => corner.x)),
+    maxX: Math.max(...corners.map((corner) => corner.x)),
+    minZ: Math.min(...corners.map((corner) => corner.z)),
+    maxZ: Math.max(...corners.map((corner) => corner.z)),
+  };
+};
+
+const buildObstacleIndex = (
+  obstacles: readonly StaticObstacle[],
+): ObstacleIndex => {
+  const cellOf = (v: number) => Math.floor(v / OBSTACLE_INDEX_CELL_SIZE_M);
+  const cells = new Map<string, StaticObstacle[]>();
+  for (const obstacle of obstacles) {
+    const bounds = obstacleBoundsM(obstacle);
+    const minCx = cellOf(bounds.minX);
+    const maxCx = cellOf(bounds.maxX);
+    const minCz = cellOf(bounds.minZ);
+    const maxCz = cellOf(bounds.maxZ);
+    for (let cx = minCx; cx <= maxCx; cx += 1) {
+      for (let cz = minCz; cz <= maxCz; cz += 1) {
+        const key = `${cx}:${cz}`;
+        const bucket = cells.get(key);
+        if (bucket) bucket.push(obstacle);
+        else cells.set(key, [obstacle]);
+      }
+    }
+  }
+  return {
+    query: (x, z) => {
+      const cx = cellOf(x);
+      const cz = cellOf(z);
+      const seen = new Set<StaticObstacle>();
+      const result: StaticObstacle[] = [];
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dz = -1; dz <= 1; dz += 1) {
+          const bucket = cells.get(`${cx + dx}:${cz + dz}`);
+          if (!bucket) continue;
+          for (const obstacle of bucket) {
+            if (seen.has(obstacle)) continue;
+            seen.add(obstacle);
+            result.push(obstacle);
+          }
+        }
+      }
+      return result;
+    },
+  };
+};
+
+const clearanceToNearestIndexedObstacle = (
+  index: ObstacleIndex,
+  x: number,
+  z: number,
+): { distance: number; id: string } =>
+  clearanceToNearestObstacle(index.query(x, z), x, z);
+
 /** Segment-vs-OBB by sampling: slow, but obviously right, which is the point
  * of a test double for the routine under test. */
 const segmentCrossesBox = (
@@ -143,12 +274,12 @@ describe("static obstacle build", () => {
       // The four world-edge fences are always present.
       const edges = world.obstacles.filter((o) => o.tag === "worldEdge");
       expect(edges).toHaveLength(4);
-      // Every authored block stands somewhere in the set (museum blocks as
-      // wings, everything else as its own rect).
+      // Building obstacles now come one-per-planned-solid rather than
+      // one-per-authored-block (`buildingColliderAgreement.test.ts` owns the
+      // exact plan-to-obstacle parity); this is only the cheap sanity check
+      // that the source produced something at all.
       const buildings = world.obstacles.filter((o) => o.tag === "building");
-      const blockCount = getMapPack(world.freeDrive.mapId).geometry.blocks
-        .length;
-      expect(buildings.length).toBeGreaterThanOrEqual(blockCount);
+      expect(buildings.length).toBeGreaterThan(0);
       const ids = new Set(world.obstacles.map((o) => o.id));
       expect(ids.size).toBe(world.obstacles.length);
       for (const obstacle of world.obstacles) {
@@ -179,11 +310,18 @@ describe("static obstacle build", () => {
       const mapPack = getMapPack(world.freeDrive.mapId);
       // Mirrors the adapter's bounds formula (worldSize/2 + shoulder padding).
       const padding = Math.max(2, mapPack.geometry.shoulderWidth ?? 0);
-      const again = buildStaticObstacles(mapPack, {
-        minX: -mapPack.geometry.worldSize.x / 2 - padding,
-        maxX: mapPack.geometry.worldSize.x / 2 + padding,
-        minZ: -mapPack.geometry.worldSize.z / 2 - padding,
-        maxZ: mapPack.geometry.worldSize.z / 2 + padding,
+      const again = buildStaticObstacles({
+        mapPack,
+        bounds: {
+          minX: -mapPack.geometry.worldSize.x / 2 - padding,
+          maxX: mapPack.geometry.worldSize.x / 2 + padding,
+          minZ: -mapPack.geometry.worldSize.z / 2 - padding,
+          maxZ: mapPack.geometry.worldSize.z / 2 + padding,
+        },
+        buildingLayout: planMapBuildings(
+          mapPack,
+          buildFreeDriveScenario(world.freeDrive).trafficSeed,
+        ),
       });
       expect(again).toEqual(world.obstacles);
     }
@@ -191,23 +329,32 @@ describe("static obstacle build", () => {
 });
 
 describe("the drivable world stays open", () => {
+  // Both tests below sample thousands of points against every obstacle in
+  // every free-drive map — the two heaviest sweeps in this file, so each
+  // builds an `ObstacleIndex` once per world rather than brute-forcing
+  // every sample against the whole array (see that index's own doc comment
+  // for why the result is identical either way, up to a 2.7 m proven-exact
+  // margin over anything either sweep actually tests). Never how the real
+  // 60 Hz solver queries — that stays a flat per-tick scan of a few thousand
+  // obstacles, ~0.35 ms/tick measured; see `tests/perf/staticCollision.bench.ts`.
   it("keeps every lane corridor clear of every solid obstacle", () => {
     const failures: string[] = [];
     for (const world of driveWorlds) {
+      const index = buildObstacleIndex(world.obstacles);
       for (const lane of world.lanes) {
         const laneWidth = lane.width ?? 3.5;
         const required = laneWidth / 2 + PLAYER_CAPSULE_RADIUS_M - 0.05;
         const points = lane.points;
-        for (let index = 0; index < points.length - 1; index += 1) {
-          const start = points[index];
-          const end = points[index + 1];
+        for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
+          const start = points[pointIndex];
+          const end = points[pointIndex + 1];
           const length = Math.hypot(end.x - start.x, end.z - start.z);
           const steps = Math.max(1, Math.ceil(length / LANE_SAMPLE_SPACING_M));
           for (let step = 0; step <= steps; step += 1) {
             const t = step / steps;
             const x = start.x + (end.x - start.x) * t;
             const z = start.z + (end.z - start.z) * t;
-            const nearest = clearanceToNearestObstacle(world.obstacles, x, z);
+            const nearest = clearanceToNearestIndexedObstacle(index, x, z);
             if (nearest.distance < required) {
               failures.push(
                 `${world.freeDrive.mapId} lane ${lane.id} @ (${x.toFixed(1)}, ${z.toFixed(1)}): ${nearest.id} within ${nearest.distance.toFixed(2)}m (< ${required.toFixed(2)}m)`,
@@ -255,8 +402,7 @@ describe("the drivable world stays open", () => {
       const sidewalkWidthM = Math.min(
         defaultSidewalkWidthM,
         ...mapPack.geometry.roadSurfaces.map(
-          (surface) =>
-            surface.sidewalkWidthM ?? defaultSidewalkWidthM,
+          (surface) => surface.sidewalkWidthM ?? defaultSidewalkWidthM,
         ),
       );
       const graph = buildPavementGraph(mapPack.geometry.roadSurfaces, {
@@ -272,6 +418,7 @@ describe("the drivable world stays open", () => {
           obstacle.tag !== "worldEdge" &&
           !(obstacle.kind === "circle" && obstacle.radius <= 2.5),
       );
+      const index = buildObstacleIndex(solids);
       for (const edge of graph.edges) {
         const steps = Math.max(1, Math.ceil(edge.lengthM / 1.5));
         for (let step = 0; step <= steps; step += 1) {
@@ -281,13 +428,11 @@ describe("the drivable world stays open", () => {
           for (const offset of lateralOffsets) {
             const x = pose.x + lateralX * offset;
             const z = pose.z + lateralZ * offset;
-            for (const obstacle of solids) {
-              const distance = distanceToStaticObstacle(obstacle, x, z);
-              if (distance < 0.3) {
-                failures.push(
-                  `${world.freeDrive.mapId}: ${obstacle.id} covers the pavement at (${x.toFixed(1)}, ${z.toFixed(1)}) — ${distance.toFixed(2)}m`,
-                );
-              }
+            const nearest = clearanceToNearestIndexedObstacle(index, x, z);
+            if (nearest.distance < 0.3) {
+              failures.push(
+                `${world.freeDrive.mapId}: ${nearest.id} covers the pavement at (${x.toFixed(1)}, ${z.toFixed(1)}) — ${nearest.distance.toFixed(2)}m`,
+              );
             }
           }
         }
@@ -330,7 +475,7 @@ describe("the drivable world stays open", () => {
           expect(
             nearest.distance,
             `${service.id} approach blocked by ${nearest.id} at (${x.toFixed(1)}, ${z.toFixed(1)})`,
-          ).toBeGreaterThanOrEqual(1.05);
+          ).toBeGreaterThanOrEqual(PLAYER_CAPSULE_RADIUS_M);
         }
         // Each pump must offer at least one capsule-clear stop within the
         // refuel prompt's reach.
@@ -345,7 +490,7 @@ describe("the drivable world stays open", () => {
             const z = pump.z + Math.sin(theta) * 2.2;
             if (Math.hypot(x - lot.x, z - lot.z) > 13) continue;
             const nearest = clearanceToNearestObstacle(world.obstacles, x, z);
-            reachable = nearest.distance >= 1.05;
+            reachable = nearest.distance >= PLAYER_CAPSULE_RADIUS_M;
           }
           expect(
             reachable,
@@ -375,7 +520,7 @@ describe("the drivable world stays open", () => {
         if (!pose || !bay) continue;
 
         // The drive-in line: from the kerb anchor straight into the bay. Held
-        // to the widest capsule in the game (the van's 1.05 m), not the
+        // to the widest capsule in the game (the van's), not the
         // flagship's — a bay only the small cars fit is a bay that strands the
         // one vehicle most likely to be carrying damage.
         const approach = Math.hypot(bay.x - pose.x, bay.z - pose.z);
@@ -388,7 +533,7 @@ describe("the drivable world stays open", () => {
           expect(
             nearest.distance,
             `${service.id} approach blocked by ${nearest.id} at (${x.toFixed(1)}, ${z.toFixed(1)})`,
-          ).toBeGreaterThanOrEqual(1.05);
+          ).toBeGreaterThanOrEqual(PLAYER_CAPSULE_RADIUS_M);
         }
 
         // The three walls exist as obstacles...
@@ -594,10 +739,12 @@ describe("the drivable world stays open", () => {
   });
 
   it("never stands a street-wall building inside a service lot", () => {
-    // The collider builder carves a service point's lot out of the block rect
-    // it sits on, so anything the street wall draws there is a building the car
-    // drives straight through. The two street-wall paths read their keep-outs
-    // at very different times — the instanced glb wall after preload, the
+    // The shared building plan is what both the street wall and the collider
+    // read (`geometry/buildingLayout.ts`), so a building the render-side
+    // keep-out predicate wrongly lets through is not just a paint problem —
+    // it becomes a real, drivable-through building collider standing in the
+    // lot. Historically the two street-wall paths read their keep-outs at
+    // very different times — the instanced glb wall after preload, the
     // procedural facade grid inline — and while the keep-outs were collected
     // as buildings were placed, only the deferred one saw them. A terrace stood
     // through London's and Tokyo's repair shops; the gas stations were spared
@@ -698,5 +845,119 @@ describe("the drivable world stays open", () => {
         );
       }
     }
+  });
+});
+
+describe("plan-based collision fixes the reported render/collider gaps", () => {
+  // Each probe below is a concrete point a full-block collider used to wall
+  // off even though nothing was ever drawn there — the exact class of bug
+  // `.claude/building-collision-visual-parity-plan.md` exists to fix.
+  // Literal map/block ids and coordinates (checked directly against
+  // `planMapBuildings`'s own output), not a re-derivation of the layout
+  // rules: a regression here means this SPECIFIC reported gap reopened, not
+  // just "some predicate somewhere disagrees with another".
+
+  const worldFor = (mapId: string) => {
+    const world = driveWorlds.find((w) => w.freeDrive.mapId === mapId);
+    if (!world) throw new Error(`no free-drive world for map "${mapId}"`);
+    return world;
+  };
+
+  const buildingClearanceAt = (
+    obstacles: readonly StaticObstacle[],
+    x: number,
+    z: number,
+  ): { distance: number; id: string } =>
+    clearanceToNearestObstacle(
+      obstacles.filter((o) => o.tag === "building"),
+      x,
+      z,
+    );
+
+  it("leaves every service/venue keep-out free of an orphan building collider", () => {
+    // Before the plan, a keep-out only ever stopped a NEW building from being
+    // slotted there; the block's own full rect still stood behind it. Sample
+    // each keep-out's centre and four half-radius points — comfortably
+    // inside the circle, clear of its own venue/service furniture, which is
+    // tagged "venue"/"landmark", never "building", so it can never mask an
+    // orphan building collider standing at the same spot. Museum wings are
+    // excluded on purpose: `planMuseumWings` never consults keep-outs at all
+    // (neither did the old per-block museum branch it replaced), so a
+    // venue's generous keep-out circle legitimately grazing a fixed museum
+    // wing is expected, pre-existing geometry — not the class of orphan this
+    // test exists to catch.
+    const failures: string[] = [];
+    for (const world of driveWorlds) {
+      const mapPack = getMapPack(world.freeDrive.mapId);
+      const nonMuseumObstacles = world.obstacles.filter(
+        (o) => !o.id.includes(":museum-wing:"),
+      );
+      for (const keepOut of buildingKeepOuts(mapPack)) {
+        const samplePoints = [
+          { x: keepOut.x, z: keepOut.z },
+          ...[0, 90, 180, 270].map((deg) => {
+            const rad = (deg * Math.PI) / 180;
+            return {
+              x: keepOut.x + Math.cos(rad) * keepOut.radius * 0.7,
+              z: keepOut.z + Math.sin(rad) * keepOut.radius * 0.7,
+            };
+          }),
+        ];
+        for (const point of samplePoints) {
+          const nearest = buildingClearanceAt(
+            nonMuseumObstacles,
+            point.x,
+            point.z,
+          );
+          if (nearest.distance === 0) {
+            failures.push(
+              `${world.freeDrive.mapId}: keep-out @ (${keepOut.x.toFixed(1)},${keepOut.z.toFixed(1)}) r=${keepOut.radius.toFixed(1)} has orphan collider ${nearest.id} at (${point.x.toFixed(1)},${point.z.toFixed(1)})`,
+            );
+          }
+        }
+      }
+    }
+    expect(failures.slice(0, 20)).toEqual([]);
+  });
+
+  it("leaves the rear of a one-sided London strip open", () => {
+    // london-block-kensington-s-w: centre (-167,191.6) size (94,40),
+    // streetEdges ["+z"] — every planned building sits at z in
+    // [201.75,211.5] (the +z frontage). The rear of the block, z=180, is 20+
+    // m below that and was still inside the old full-block rect
+    // [171.6,211.6] x [-14,20] ... i.e. x in [-214,-120], z in [171.6,211.6].
+    const world = worldFor("london-south-kensington");
+    const nearest = buildingClearanceAt(world.obstacles, -167, 180);
+    expect(nearest.distance, `blocked by ${nearest.id}`).toBeGreaterThan(0);
+  });
+
+  it("leaves the rear of a one-sided Cairo strip open", () => {
+    // cairo-tahrir-frontage-block: centre (391,28) size (32,14.5),
+    // streetEdges ["-z"] — both planned buildings sit at z in [23.25,28.8].
+    // z=33 is past that, but still inside the old full-block rect
+    // [20.75,35.25].
+    const world = worldFor("cairo-central-nile");
+    const nearest = buildingClearanceAt(world.obstacles, 391, 33);
+    expect(nearest.distance, `blocked by ${nearest.id}`).toBeGreaterThan(0);
+  });
+
+  it("leaves the London museum forecourt open", () => {
+    // london-natural-history-museum-block's own centre, (-26,-76): the two
+    // wings sit either side of it (x < -56.09 and x > 4.09), so the centre
+    // itself is the forecourt gap between them — solid under the old single
+    // full-block rect, open now that the wings are the only planned solids.
+    const world = worldFor("london-south-kensington");
+    const nearest = buildingClearanceAt(world.obstacles, -26, -76);
+    expect(nearest.distance, `blocked by ${nearest.id}`).toBeGreaterThan(0);
+  });
+
+  it("leaves a Tokyo procedural inter-cell gap open", () => {
+    // jp-block-west's cell 0 (x=-91.33) and cell 1 (x=-70), both z=32.67,
+    // leave a gap between their halves ([-99.52,-83.14] and
+    // [-77.69,-62.31]); the midpoint x=-80.665 was still inside the old
+    // block rect [-102,-38] x [26,66].
+    const world = worldFor("tokyo-setagaya");
+    const nearest = buildingClearanceAt(world.obstacles, -80.665, 32.67);
+    expect(nearest.distance, `blocked by ${nearest.id}`).toBeGreaterThan(0);
   });
 });

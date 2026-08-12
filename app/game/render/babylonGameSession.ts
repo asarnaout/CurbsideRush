@@ -1154,6 +1154,7 @@ export class BabylonGameSession {
       trafficSide: this.activeTrafficSide,
       speedUnit: options.speedUnit,
       touchFirst: options.inputCapabilities.touchFirst,
+      buildingLayout: this.buildingLayout,
     });
     this.stagedBlockers = stagedBlockersOf(
       simulationConfig.staticObstacles ?? [],

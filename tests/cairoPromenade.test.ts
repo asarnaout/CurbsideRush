@@ -3,6 +3,7 @@ import { shorelineParapetRuns } from "../app/game/geometry/cairoParkland";
 import { CAIRO_OPEN_WATERFRONT_SIDES } from "../app/game/cities/cairo";
 import { getMapPack } from "../app/game/content";
 import { buildStaticObstacles } from "../app/game/simulationAdapter";
+import { planMapBuildings } from "../app/game/geometry/buildingLayout";
 import {
   generatePromenadeDecor,
   hashStringToSeed,
@@ -19,11 +20,15 @@ import {
 describe("Cairo corniche parapet", () => {
   const pack = getMapPack("cairo-central-nile");
   const padding = Math.max(2, pack.geometry.shoulderWidth ?? 0);
-  const obstacles = buildStaticObstacles(pack, {
-    minX: -pack.geometry.worldSize.x / 2 - padding,
-    maxX: pack.geometry.worldSize.x / 2 + padding,
-    minZ: -pack.geometry.worldSize.z / 2 - padding,
-    maxZ: pack.geometry.worldSize.z / 2 + padding,
+  const obstacles = buildStaticObstacles({
+    mapPack: pack,
+    bounds: {
+      minX: -pack.geometry.worldSize.x / 2 - padding,
+      maxX: pack.geometry.worldSize.x / 2 + padding,
+      minZ: -pack.geometry.worldSize.z / 2 - padding,
+      maxZ: pack.geometry.worldSize.z / 2 + padding,
+    },
+    buildingLayout: planMapBuildings(pack, hashStringToSeed(pack.id)),
   });
   const runs = shorelineParapetRuns(obstacles);
   const water = pack.geometry.waterBodies ?? [];

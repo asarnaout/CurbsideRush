@@ -59,6 +59,28 @@ a sibling `simulation/*.ts` module — nothing else, and the same forbidden-
 token check (no `Math.random`, `Date.now(`, `@babylonjs`, ...) applies to
 every file, not just `simulation.ts`.
 
+## Static obstacles come from the shared building plan, not from blocks
+
+`simulationAdapter.ts`'s `buildStaticObstacles` does not walk
+`mapPack.geometry.blocks` to build one collider per authored block. It walks
+the same `BuildingLayoutPlan` (`geometry/buildingLayout.ts`) the renderer
+paints — one `tag: "building"` OBB per planned building's own structural
+solids, not per block — so a rendered building and its collider are the
+identical shape by construction, never two independently-derived
+approximations of "where is a building." `BabylonGameSession` computes the
+plan once and threads that exact instance into both
+`buildScenarioEnvironment` and `buildSimulationCoreConfig`; a caller with no
+reason to share one across rings (a direct test, a one-off tool) may omit it
+and `buildSimulationCoreConfig` computes its own from `mapPack` +
+`scenario.trafficSeed` — but a supplied plan for the wrong map/seed throws
+rather than silently resolving collision against the wrong drive's buildings.
+
+Service-point lots (gas/repair) need no carving out of a collider any more:
+the plan already excludes any building whose placement would land inside one
+(`buildingKeepOuts`). `tests/buildingColliderAgreement.test.ts` is the exact
+plan-to-collider parity proof — every planned solid has exactly one obstacle
+and vice versa, at float epsilon, across all four maps.
+
 ## Determinism contract
 
 60 Hz fixed step (`FIXED_STEP_SECONDS`), traffic *decisions* at 10 Hz. `step()`
