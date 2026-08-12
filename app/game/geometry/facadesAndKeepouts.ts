@@ -1,8 +1,8 @@
 import { REPAIR_SHOP_LOT_HALF_M } from "../repairShopLayout";
 import { resolveServicePointLot } from "../servicePoints";
-import { resolveVenuePlacement } from "../simulationAdapter";
+import { resolveVenuePlacement } from "./venuePlacement";
 import type { StagedBlocker } from "../cutsceneScript";
-import type { StaticObstacle, StaticObstacleTag } from "../simulationAdapter";
+import type { StaticObstacle, StaticObstacleTag } from "../types";
 import type { GameCanvasMapPack, GameCanvasPoint } from "../sessionContract";
 import { buildingPlacementConfig, type PlacedBuilding } from "../buildingSets";
 import { hashStringToSeed } from "../visuals";

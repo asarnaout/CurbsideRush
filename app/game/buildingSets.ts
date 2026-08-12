@@ -347,6 +347,17 @@ export interface PlacedBuilding {
   readonly yaw: number;
   readonly scale: number;
   readonly groundY: number;
+  /** Which block-local edge this slot belongs to. */
+  readonly edge: BlockStreetEdge;
+  /** Zero-based running slot index within this one edge — resets per edge,
+   * unlike `blockSlot`. Feeds the stable `building:<blockId>:slot:<edge>:<edgeSlot>`
+   * id (plan Section 6.4). */
+  readonly edgeSlot: number;
+  /** Zero-based running slot index across the whole block (all edges, in
+   * edge-array order), before keep-out removal — never resets. The stable
+   * low-spec `assetDetailScore` selection is derived from this, so it must
+   * stay identical across quality/load outcomes for the same authored input. */
+  readonly blockSlot: number;
 }
 
 interface Edge {
@@ -365,6 +376,18 @@ interface Edge {
 }
 
 const GAP_M = 1.6;
+
+/**
+ * The deterministic low-spec keep score for a block-wide slot index — one
+ * formula, shared by `slotBlockBuildings`'s own thinning below and by
+ * `geometry/buildingLayout.ts`'s `assetDetailScore` (the planner calls this
+ * with `keepFraction` fixed at 1, so it never thins, but still needs the
+ * identical per-slot score for the renderer to apply later). A slot is kept
+ * at fraction `f` iff `assetDetailScoreForBlockSlot(blockSlot) < f`.
+ */
+export function assetDetailScoreForBlockSlot(blockSlot: number): number {
+  return ((blockSlot * 2654435761) >>> 0) / 4294967296;
+}
 
 /**
  * Lays a set's models around a block's perimeter as a street wall: buildings hug
@@ -438,6 +461,7 @@ export function slotBlockBuildings(
   let slot = 0;
   for (const edge of edges) {
     let cursor = edge.runStart;
+    let edgeSlot = 0;
     // Guard against absurd loops on degenerate blocks.
     let guard = 0;
     while (cursor < edge.runEnd && guard++ < 256) {
@@ -459,9 +483,9 @@ export function slotBlockBuildings(
       if (along + foot / 2 > edge.runEnd + 0.01) break;
       // Thin the wall on weak devices: advance the cursor regardless so spacing
       // stays stable, but skip this slot when it falls outside keepFraction.
+      const blockSlot = slot;
       const keep =
-        keepFraction >= 1 ||
-        ((slot * 2654435761) >>> 0) / 4294967296 < keepFraction;
+        keepFraction >= 1 || assetDetailScoreForBlockSlot(blockSlot) < keepFraction;
       slot += 1;
       if (keep) {
         const inset = depth / 2;
@@ -470,8 +494,20 @@ export function slotBlockBuildings(
         // Front is on local -Z (glTF-loader flip); front world dir = yaw+π, so to
         // face outward `edge.outward` set yaw = outward - π (+ per-model offset).
         const yaw = edge.outward - Math.PI + model.cfg.frontOffset;
-        placed.push({ modelId: model.id, url: model.url, x, z, yaw, scale: model.cfg.scale, groundY: model.cfg.groundY });
+        placed.push({
+          modelId: model.id,
+          url: model.url,
+          x,
+          z,
+          yaw,
+          scale: model.cfg.scale,
+          groundY: model.cfg.groundY,
+          edge: edge.id,
+          edgeSlot,
+          blockSlot,
+        });
       }
+      edgeSlot += 1;
       cursor = along + foot / 2 + GAP_M;
     }
   }
