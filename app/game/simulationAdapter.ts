@@ -58,6 +58,7 @@ import {
   planMapBuildings,
   type BuildingLayoutPlan,
 } from "./geometry/buildingLayout";
+import { landmarkGroundSolids, type GroundSolid } from "./geometry/landmarkGroundSolids";
 // Re-exported: this adapter is where render/babylonGameSession.ts and several
 // tests have always imported venue placement from, and geometry/venuePlacement.ts
 // (its new home, extracted to break the adapter/keep-out import cycle — see
@@ -601,6 +602,40 @@ function buildTrafficGates(
 const WORLD_EDGE_STANDOFF_M = 8;
 const WORLD_EDGE_THICKNESS_M = 6;
 
+/** `GroundSolid` and `StaticObstacle` are structurally the same four shapes;
+ * this only ever adds the `tag: "landmark"` every bespoke ground solid
+ * carries. */
+function groundSolidToStaticObstacle(solid: GroundSolid): StaticObstacle {
+  if (solid.kind === "aabb") {
+    return {
+      kind: "aabb",
+      id: solid.id,
+      tag: "landmark",
+      minX: solid.minX,
+      maxX: solid.maxX,
+      minZ: solid.minZ,
+      maxZ: solid.maxZ,
+    };
+  }
+  if (solid.kind === "obb") {
+    return {
+      kind: "obb",
+      id: solid.id,
+      tag: "landmark",
+      x: solid.x,
+      z: solid.z,
+      ux: solid.ux,
+      uz: solid.uz,
+      halfU: solid.halfU,
+      halfV: solid.halfV,
+    };
+  }
+  if (solid.kind === "circle") {
+    return { kind: "circle", id: solid.id, tag: "landmark", x: solid.x, z: solid.z, radius: solid.radius };
+  }
+  return { kind: "convex", id: solid.id, tag: "landmark", points: solid.points };
+}
+
 /**
  * The solid, movement-blocking world the core resolves the player car against.
  * Sources are exactly the authored map-pack fields the renderer builds visuals
@@ -614,9 +649,13 @@ const WORLD_EDGE_THICKNESS_M = 6;
  *   circle, or a museum forecourt has no obstacle here unless something is
  *   actually visible there. Service-point lots need no carving any more:
  *   the plan already omits any building that would stand inside one.
- * - building-like landmarks (station/terminal/shops as drawn boxes, tower as
- *   its cylinder) -> solid; parks keep only their centre feature tree; railway
- *   rails and roundabout-island pads stay drivable.
+ * - landmarks -> `geometry/landmarkGroundSolids.ts`'s exact ground solids
+ *   where a city renderer draws something bespoke (an ellipse drum, leaning
+ *   wheel legs, a compound government slab or opera hall); every other
+ *   landmark falls back to its generic kind's drawn box/circle
+ *   (station/terminal/shops/museum/cultural as a box, tower/monument as a
+ *   cylinder) — parks keep only their centre feature tree; railway rails and
+ *   roundabout-island pads stay drivable.
  * - gig venues -> the measured footprint of the actual placed model (falling
  *   back to the authored footprint box, clamped off the pavement, for kinds
  *   without a measured model) at the shared resolveVenuePlacement position.
@@ -867,6 +906,17 @@ export function buildStaticObstacles({
   }
 
   for (const landmark of mapPack.geometry.landmarks) {
+    // A bespoke ground-solid recipe (Section 7.9) is authoritative when one
+    // exists — a city renderer that draws something other than the generic
+    // kind's own box/circle (an ellipse drum, leaning wheel legs, a compound
+    // slab) must not also collide as that generic shape.
+    const bespoke = landmarkGroundSolids(mapPack.id, landmark);
+    if (bespoke) {
+      for (const solid of bespoke) {
+        obstacles.push(groundSolidToStaticObstacle(solid));
+      }
+      continue;
+    }
     switch (landmark.kind) {
       case "park": {
         // The lawn stays drivable — it is the boundary that stops you, not the
@@ -1086,16 +1136,45 @@ export function distanceToStaticObstacle(
     const dz = Math.max(obstacle.minZ - z, 0, z - obstacle.maxZ);
     return Math.hypot(dx, dz);
   }
-  const axisLength = Math.hypot(obstacle.ux, obstacle.uz) || 1;
-  const ux = obstacle.ux / axisLength;
-  const uz = obstacle.uz / axisLength;
-  const dx = x - obstacle.x;
-  const dz = z - obstacle.z;
-  const du = dx * ux + dz * uz;
-  const dv = dx * uz - dz * ux;
-  const su = Math.max(0, Math.abs(du) - obstacle.halfU);
-  const sv = Math.max(0, Math.abs(dv) - obstacle.halfV);
-  return Math.hypot(su, sv);
+  if (obstacle.kind === "obb") {
+    const axisLength = Math.hypot(obstacle.ux, obstacle.uz) || 1;
+    const ux = obstacle.ux / axisLength;
+    const uz = obstacle.uz / axisLength;
+    const dx = x - obstacle.x;
+    const dz = z - obstacle.z;
+    const du = dx * ux + dz * uz;
+    const dv = dx * uz - dz * ux;
+    const su = Math.max(0, Math.abs(du) - obstacle.halfU);
+    const sv = Math.max(0, Math.abs(dv) - obstacle.halfV);
+    return Math.hypot(su, sv);
+  }
+  // convex: same clockwise-winding inside/outside test and nearest-edge-point
+  // search as the core's own convexEndpointPenetration (playerDynamics.ts),
+  // re-derived here rather than shared — this file cannot import from
+  // app/game/simulation/*.ts, whose dependency arrows only point inward.
+  const points = obstacle.points;
+  let inside = true;
+  let minDistSq = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < points.length; i += 1) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    const ex = b.x - a.x;
+    const ez = b.z - a.z;
+    const cross = ex * (z - a.z) - ez * (x - a.x);
+    if (cross > 0) inside = false;
+    const edgeLengthSq = ex * ex + ez * ez;
+    const t =
+      edgeLengthSq > 1e-9
+        ? Math.max(0, Math.min(1, ((x - a.x) * ex + (z - a.z) * ez) / edgeLengthSq))
+        : 0;
+    const nearX = a.x + ex * t;
+    const nearZ = a.z + ez * t;
+    const dx = x - nearX;
+    const dz = z - nearZ;
+    const distSq = dx * dx + dz * dz;
+    if (distSq < minDistSq) minDistSq = distSq;
+  }
+  return inside ? 0 : Math.sqrt(minDistSq);
 }
 
 export function buildSimulationCoreConfig({

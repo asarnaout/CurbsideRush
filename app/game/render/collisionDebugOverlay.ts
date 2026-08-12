@@ -65,6 +65,12 @@ function circleLoop(cx: number, cz: number, radius: number): Vector3[] {
   return loop;
 }
 
+function convexLoop(obstacle: Extract<StaticObstacle, { kind: "convex" }>): Vector3[] {
+  const loop = obstacle.points.map((point) => new Vector3(point.x, OVERLAY_Y, point.z));
+  loop.push(loop[0]);
+  return loop;
+}
+
 function obstacleLoop(obstacle: StaticObstacle): Vector3[] {
   if (obstacle.kind === "circle") return circleLoop(obstacle.x, obstacle.z, obstacle.radius);
   if (obstacle.kind === "aabb") {
@@ -77,15 +83,18 @@ function obstacleLoop(obstacle: StaticObstacle): Vector3[] {
       (obstacle.maxZ - obstacle.minZ) / 2,
     );
   }
-  const axisLength = Math.hypot(obstacle.ux, obstacle.uz) || 1;
-  return rectLoop(
-    obstacle.x,
-    obstacle.z,
-    obstacle.ux / axisLength,
-    obstacle.uz / axisLength,
-    obstacle.halfU,
-    obstacle.halfV,
-  );
+  if (obstacle.kind === "obb") {
+    const axisLength = Math.hypot(obstacle.ux, obstacle.uz) || 1;
+    return rectLoop(
+      obstacle.x,
+      obstacle.z,
+      obstacle.ux / axisLength,
+      obstacle.uz / axisLength,
+      obstacle.halfU,
+      obstacle.halfV,
+    );
+  }
+  return convexLoop(obstacle);
 }
 
 /** Builds one line-system mesh for every obstacle's exact outline, colour-coded
@@ -156,9 +165,18 @@ export function obstacleDistanceSquared(obstacle: StaticObstacle, x: number, z: 
   if (obstacle.kind === "circle" || obstacle.kind === "obb") {
     cx = obstacle.x;
     cz = obstacle.z;
-  } else {
+  } else if (obstacle.kind === "aabb") {
     cx = (obstacle.minX + obstacle.maxX) / 2;
     cz = (obstacle.minZ + obstacle.maxZ) / 2;
+  } else {
+    let sumX = 0;
+    let sumZ = 0;
+    for (const point of obstacle.points) {
+      sumX += point.x;
+      sumZ += point.z;
+    }
+    cx = sumX / obstacle.points.length;
+    cz = sumZ / obstacle.points.length;
   }
   const dx = cx - x;
   const dz = cz - z;

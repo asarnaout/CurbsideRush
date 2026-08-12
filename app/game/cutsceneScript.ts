@@ -673,7 +673,7 @@ const WORK_LATERAL_CLEARANCE_M = 0.35;
  * sightline would clear — a pump island, a kerb — costs a candidate its place in
  * the order without ever leaving the scene unframeable.
  */
-export interface StagedBlocker {
+export interface StagedBoxBlocker {
   readonly x: number;
   readonly z: number;
   readonly ux: number;
@@ -682,8 +682,24 @@ export interface StagedBlocker {
   readonly halfV: number;
 }
 
-/** A blocker overhead: the same box, plus the height to stay under. */
-export interface StagedCover extends StagedBlocker {
+/** The convex arm — a bespoke landmark's exact ground footprint (the round
+ * hall's ellipse, today) rather than an over- or under-broad box. Points
+ * wound clockwise, matching `StaticObstacle`'s own "convex" variant.
+ * Discriminated from `StagedBoxBlocker` structurally (by the presence of
+ * `points`) rather than by an added `kind` tag, so every existing box
+ * construction site — `stagedBlockersOf`'s obb/aabb branches,
+ * `gasStationCanopyWorld`'s cover literal — needed no change to keep
+ * satisfying the (now narrower) box shape. */
+export interface StagedConvexBlocker {
+  readonly points: readonly WorldPoint[];
+}
+
+export type StagedBlocker = StagedBoxBlocker | StagedConvexBlocker;
+
+/** A blocker overhead: the same box, plus the height to stay under. Boxes
+ * only — an overhead cover is always a canopy/roof slab in this codebase,
+ * never a bespoke landmark silhouette. */
+export interface StagedCover extends StagedBoxBlocker {
   readonly undersideY: number;
 }
 
@@ -708,8 +724,25 @@ const STAGED_COVER_HEADROOM_M = 1.35;
 /** Below this the car is in the way whatever the cover is doing. */
 const STAGED_MIN_HEIGHT_M = 2.4;
 
-/** Is (px, pz) inside the box? */
+/** Is (px, pz) inside the convex polygon? Same clockwise-winding cross-product
+ * test as the collision core's own `convexEndpointPenetration`
+ * (`app/game/simulation/playerDynamics.ts`) and `distanceToStaticObstacle`
+ * (`simulationAdapter.ts`) — re-derived here rather than shared, since this
+ * module has no reason to depend on either. */
+function pointInConvexBlocker(px: number, pz: number, points: readonly WorldPoint[]): boolean {
+  const count = points.length;
+  for (let i = 0; i < count; i += 1) {
+    const a = points[i];
+    const b = points[(i + 1) % count];
+    const cross = (b.x - a.x) * (pz - a.z) - (b.z - a.z) * (px - a.x);
+    if (cross > 0) return false;
+  }
+  return true;
+}
+
+/** Is (px, pz) inside the blocker? */
 function pointInBlocker(px: number, pz: number, box: StagedBlocker): boolean {
+  if ("points" in box) return pointInConvexBlocker(px, pz, box.points);
   const dx = px - box.x;
   const dz = pz - box.z;
   return (
@@ -718,7 +751,87 @@ function pointInBlocker(px: number, pz: number, box: StagedBlocker): boolean {
   );
 }
 
-/** Does the segment meet the box? `segmentCrossesRect` in the box's own frame. */
+/** Orientation of the turn a->b->c: 0 collinear, 1 clockwise, 2
+ * counter-clockwise (in this codebase's x-right/z-"up" convention) — the
+ * standard building block for exact segment-vs-segment intersection. */
+function turnOrientation(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+): 0 | 1 | 2 {
+  const value = (bz - az) * (cx - bx) - (bx - ax) * (cz - bz);
+  if (Math.abs(value) < 1e-9) return 0;
+  return value > 0 ? 1 : 2;
+}
+
+/** Whether collinear point c lies within segment a-b's own bounding box —
+ * only meaningful when `turnOrientation(a, b, c)` is already 0. */
+function collinearPointOnSegment(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+): boolean {
+  return (
+    cx <= Math.max(ax, bx) + 1e-9 &&
+    cx >= Math.min(ax, bx) - 1e-9 &&
+    cz <= Math.max(az, bz) + 1e-9 &&
+    cz >= Math.min(az, bz) - 1e-9
+  );
+}
+
+/** Exact segment-vs-segment intersection (including touching/collinear
+ * overlap), via orientation tests. */
+function segmentsIntersect(
+  p1x: number,
+  p1z: number,
+  q1x: number,
+  q1z: number,
+  p2x: number,
+  p2z: number,
+  q2x: number,
+  q2z: number,
+): boolean {
+  const o1 = turnOrientation(p1x, p1z, q1x, q1z, p2x, p2z);
+  const o2 = turnOrientation(p1x, p1z, q1x, q1z, q2x, q2z);
+  const o3 = turnOrientation(p2x, p2z, q2x, q2z, p1x, p1z);
+  const o4 = turnOrientation(p2x, p2z, q2x, q2z, q1x, q1z);
+  if (o1 !== o2 && o3 !== o4) return true;
+  if (o1 === 0 && collinearPointOnSegment(p1x, p1z, q1x, q1z, p2x, p2z)) return true;
+  if (o2 === 0 && collinearPointOnSegment(p1x, p1z, q1x, q1z, q2x, q2z)) return true;
+  if (o3 === 0 && collinearPointOnSegment(p2x, p2z, q2x, q2z, p1x, p1z)) return true;
+  if (o4 === 0 && collinearPointOnSegment(p2x, p2z, q2x, q2z, q1x, q1z)) return true;
+  return false;
+}
+
+/** Does the segment meet the convex polygon — either endpoint inside, or it
+ * crosses an edge? */
+function segmentCrossesConvexBlocker(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  points: readonly WorldPoint[],
+): boolean {
+  if (pointInConvexBlocker(ax, az, points) || pointInConvexBlocker(bx, bz, points)) {
+    return true;
+  }
+  const count = points.length;
+  for (let i = 0; i < count; i += 1) {
+    const p1 = points[i];
+    const p2 = points[(i + 1) % count];
+    if (segmentsIntersect(ax, az, bx, bz, p1.x, p1.z, p2.x, p2.z)) return true;
+  }
+  return false;
+}
+
+/** Does the segment meet the blocker? `segmentCrossesRect` in the box's own
+ * frame, or exact segment-vs-convex-polygon intersection. */
 function segmentCrossesBlocker(
   ax: number,
   az: number,
@@ -726,6 +839,7 @@ function segmentCrossesBlocker(
   bz: number,
   box: StagedBlocker,
 ): boolean {
+  if ("points" in box) return segmentCrossesConvexBlocker(ax, az, bx, bz, box.points);
   const adx = ax - box.x;
   const adz = az - box.z;
   const bdx = bx - box.x;
@@ -738,6 +852,28 @@ function segmentCrossesBlocker(
     box.halfU,
     box.halfV,
   );
+}
+
+/** Blocker centre and its own maximum reach from that centre — the broad-phase
+ * "could this possibly touch the ring" bound `chooseStagedShot` filters on
+ * before running the exact per-candidate test. */
+function blockerCenterAndReach(box: StagedBlocker): { x: number; z: number; reach: number } {
+  if ("points" in box) {
+    let sumX = 0;
+    let sumZ = 0;
+    for (const point of box.points) {
+      sumX += point.x;
+      sumZ += point.z;
+    }
+    const x = sumX / box.points.length;
+    const z = sumZ / box.points.length;
+    let reach = 0;
+    for (const point of box.points) {
+      reach = Math.max(reach, Math.hypot(point.x - x, point.z - z));
+    }
+    return { x, z, reach };
+  }
+  return { x: box.x, z: box.z, reach: Math.hypot(box.halfU, box.halfV) };
 }
 
 /**
@@ -773,11 +909,10 @@ export function chooseStagedShot(
   // Only solids that could reach the ring are worth testing against it. One
   // pass, so the per-candidate loop below stays over a handful rather than over
   // every building solid and venue lot on the map.
-  const near = blockers.filter(
-    (box) =>
-      Math.hypot(box.x - midX, box.z - midZ) <=
-      radius + Math.hypot(box.halfU, box.halfV),
-  );
+  const near = blockers.filter((box) => {
+    const { x, z, reach } = blockerCenterAndReach(box);
+    return Math.hypot(x - midX, z - midZ) <= radius + reach;
+  });
   const baseAngle = Math.atan2(preferred.x, preferred.z);
   let best: {
     x: number;

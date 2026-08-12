@@ -248,12 +248,20 @@ const obstacleBoundsM = (
       maxZ: obstacle.maxZ,
     };
   }
-  const corners = boxCornersM(obstacle);
+  if (obstacle.kind === "obb") {
+    const corners = boxCornersM(obstacle);
+    return {
+      minX: Math.min(...corners.map((corner) => corner.x)),
+      maxX: Math.max(...corners.map((corner) => corner.x)),
+      minZ: Math.min(...corners.map((corner) => corner.z)),
+      maxZ: Math.max(...corners.map((corner) => corner.z)),
+    };
+  }
   return {
-    minX: Math.min(...corners.map((corner) => corner.x)),
-    maxX: Math.max(...corners.map((corner) => corner.x)),
-    minZ: Math.min(...corners.map((corner) => corner.z)),
-    maxZ: Math.max(...corners.map((corner) => corner.z)),
+    minX: Math.min(...obstacle.points.map((point) => point.x)),
+    maxX: Math.max(...obstacle.points.map((point) => point.x)),
+    minZ: Math.min(...obstacle.points.map((point) => point.z)),
+    maxZ: Math.max(...obstacle.points.map((point) => point.z)),
   };
 };
 
@@ -271,6 +279,14 @@ const clearanceToNearestIndexedObstacle = (
 const blockerBoundsM = (
   box: StagedBlocker,
 ): { minX: number; maxX: number; minZ: number; maxZ: number } => {
+  if ("points" in box) {
+    return {
+      minX: Math.min(...box.points.map((point) => point.x)),
+      maxX: Math.max(...box.points.map((point) => point.x)),
+      minZ: Math.min(...box.points.map((point) => point.z)),
+      maxZ: Math.max(...box.points.map((point) => point.z)),
+    };
+  }
   const corners = boxCornersM(box);
   return {
     minX: Math.min(...corners.map((corner) => corner.x)),
@@ -284,8 +300,31 @@ const buildBlockerIndex = (
   blockers: readonly StagedBlocker[],
 ): SpatialIndex<StagedBlocker> => buildSpatialIndex(blockers, blockerBoundsM);
 
-/** Segment-vs-OBB by sampling: slow, but obviously right, which is the point
- * of a test double for the routine under test. */
+/** Point-in-polygon by ray casting (even-odd rule) — genuinely independent
+ * of the winding-dependent cross-product test `cutsceneScript.ts`'s own
+ * `pointInConvexBlocker` uses, so this test double cannot share a bug with
+ * the routine it verifies. */
+const pointInPolygonRayCast = (
+  px: number,
+  pz: number,
+  points: readonly { readonly x: number; readonly z: number }[],
+): boolean => {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const pi = points[i];
+    const pj = points[j];
+    if (
+      pi.z > pz !== pj.z > pz &&
+      px < ((pj.x - pi.x) * (pz - pi.z)) / (pj.z - pi.z) + pi.x
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+};
+
+/** Segment-vs-blocker by sampling: slow, but obviously right, which is the
+ * point of a test double for the routine under test. */
 const segmentCrossesBox = (
   from: { x: number; z: number },
   to: { x: number; z: number },
@@ -293,8 +332,14 @@ const segmentCrossesBox = (
 ): boolean => {
   for (let step = 0; step <= 200; step += 1) {
     const t = step / 200;
-    const dx = from.x + (to.x - from.x) * t - box.x;
-    const dz = from.z + (to.z - from.z) * t - box.z;
+    const x = from.x + (to.x - from.x) * t;
+    const z = from.z + (to.z - from.z) * t;
+    if ("points" in box) {
+      if (pointInPolygonRayCast(x, z, box.points)) return true;
+      continue;
+    }
+    const dx = x - box.x;
+    const dz = z - box.z;
     if (
       Math.abs(dx * box.ux + dz * box.uz) <= box.halfU &&
       Math.abs(dx * box.uz - dz * box.ux) <= box.halfV

@@ -1,4 +1,4 @@
-import type { Gear, RuleCode, StaticObstacle, StaticObstacleTag } from "../types";
+import type { Gear, RuleCode, StaticObstacle, StaticObstacleTag, WorldPoint } from "../types";
 import type { MutablePose, SimulationStatus, TurnSignal } from "../simulation";
 import { angleDifference, clamp, moveTowards, wrapAngle } from "./mathUtils";
 
@@ -69,27 +69,55 @@ export interface StaticCollisionStepCounters {
   iterations: number;
 }
 
-/**
- * A solid obstacle normalized for the 60 Hz narrow phase: boxes become
- * centre + explicit U/V axes (an AABB is just an axis-aligned OBB), circles
- * keep a radius, and every entry carries broad-phase reject bounds already
- * inflated by the capsule reach so the hot loop is one rectangle test.
- */
-export interface StaticObstacleInternal {
+interface StaticObstacleInternalBounds {
   readonly id: string;
   readonly tag: StaticObstacleTag;
+  /** Broad-phase reject bounds, already inflated by the capsule reach so the
+   * hot loop's first test is one rectangle compare. */
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+}
+
+/** An AABB is just an axis-aligned OBB, so both normalize to this one shape:
+ * centre plus explicit U/V axes. */
+export interface StaticObstacleInternalBox extends StaticObstacleInternalBounds {
+  readonly shape: "box";
   readonly x: number;
   readonly z: number;
   readonly ux: number;
   readonly uz: number;
   readonly halfU: number;
   readonly halfV: number;
-  readonly radius: number;
-  readonly minX: number;
-  readonly maxX: number;
-  readonly minZ: number;
-  readonly maxZ: number;
 }
+
+export interface StaticObstacleInternalCircle extends StaticObstacleInternalBounds {
+  readonly shape: "circle";
+  readonly x: number;
+  readonly z: number;
+  readonly radius: number;
+}
+
+/** Closed convex polygon, vertices wound clockwise — see `StaticObstacle`'s
+ * own "convex" variant. Normalized once here; the hot loop never re-checks
+ * winding. */
+export interface StaticObstacleInternalConvex extends StaticObstacleInternalBounds {
+  readonly shape: "convex";
+  readonly points: readonly WorldPoint[];
+}
+
+/**
+ * A solid obstacle normalized for the 60 Hz narrow phase. A discriminated
+ * union on `shape`, not a `radius > 0` sentinel (that stopped being an
+ * adequate third-shape discriminator once a polygon needed representing
+ * too): box, circle, and convex each carry only the fields their own narrow
+ * phase needs.
+ */
+export type StaticObstacleInternal =
+  | StaticObstacleInternalBox
+  | StaticObstacleInternalCircle
+  | StaticObstacleInternalConvex;
 
 const STATIC_OBSTACLE_CORRECTIONS: Readonly<Record<StaticObstacleTag, string>> = {
   building: "Brake earlier and keep to the carriageway.",
@@ -106,14 +134,11 @@ export function normalizeStaticObstacle(
 ): StaticObstacleInternal {
   if (obstacle.kind === "circle") {
     return {
+      shape: "circle",
       id: obstacle.id,
       tag: obstacle.tag,
       x: obstacle.x,
       z: obstacle.z,
-      ux: 1,
-      uz: 0,
-      halfU: 0,
-      halfV: 0,
       radius: Math.max(0, obstacle.radius),
       minX: obstacle.x - obstacle.radius - inflateM,
       maxX: obstacle.x + obstacle.radius + inflateM,
@@ -123,6 +148,7 @@ export function normalizeStaticObstacle(
   }
   if (obstacle.kind === "aabb") {
     return {
+      shape: "box",
       id: obstacle.id,
       tag: obstacle.tag,
       x: (obstacle.minX + obstacle.maxX) / 2,
@@ -131,33 +157,138 @@ export function normalizeStaticObstacle(
       uz: 0,
       halfU: Math.max(0, (obstacle.maxX - obstacle.minX) / 2),
       halfV: Math.max(0, (obstacle.maxZ - obstacle.minZ) / 2),
-      radius: 0,
       minX: obstacle.minX - inflateM,
       maxX: obstacle.maxX + inflateM,
       minZ: obstacle.minZ - inflateM,
       maxZ: obstacle.maxZ + inflateM,
     };
   }
-  const axisLength = Math.hypot(obstacle.ux, obstacle.uz) || 1;
-  const ux = obstacle.ux / axisLength;
-  const uz = obstacle.uz / axisLength;
-  const reach = Math.abs(ux) * obstacle.halfU + Math.abs(uz) * obstacle.halfV;
-  const reachZ = Math.abs(uz) * obstacle.halfU + Math.abs(ux) * obstacle.halfV;
+  if (obstacle.kind === "obb") {
+    const axisLength = Math.hypot(obstacle.ux, obstacle.uz) || 1;
+    const ux = obstacle.ux / axisLength;
+    const uz = obstacle.uz / axisLength;
+    const reach = Math.abs(ux) * obstacle.halfU + Math.abs(uz) * obstacle.halfV;
+    const reachZ = Math.abs(uz) * obstacle.halfU + Math.abs(ux) * obstacle.halfV;
+    return {
+      shape: "box",
+      id: obstacle.id,
+      tag: obstacle.tag,
+      x: obstacle.x,
+      z: obstacle.z,
+      ux,
+      uz,
+      halfU: Math.max(0, obstacle.halfU),
+      halfV: Math.max(0, obstacle.halfV),
+      minX: obstacle.x - reach - inflateM,
+      maxX: obstacle.x + reach + inflateM,
+      minZ: obstacle.z - reachZ - inflateM,
+      maxZ: obstacle.z + reachZ + inflateM,
+    };
+  }
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+  for (const point of obstacle.points) {
+    if (point.x < minX) minX = point.x;
+    if (point.x > maxX) maxX = point.x;
+    if (point.z < minZ) minZ = point.z;
+    if (point.z > maxZ) maxZ = point.z;
+  }
   return {
+    shape: "convex",
     id: obstacle.id,
     tag: obstacle.tag,
-    x: obstacle.x,
-    z: obstacle.z,
-    ux,
-    uz,
-    halfU: Math.max(0, obstacle.halfU),
-    halfV: Math.max(0, obstacle.halfV),
-    radius: 0,
-    minX: obstacle.x - reach - inflateM,
-    maxX: obstacle.x + reach + inflateM,
-    minZ: obstacle.z - reachZ - inflateM,
-    maxZ: obstacle.z + reachZ + inflateM,
+    points: obstacle.points,
+    minX: minX - inflateM,
+    maxX: maxX + inflateM,
+    minZ: minZ - inflateM,
+    maxZ: maxZ + inflateM,
   };
+}
+
+/**
+ * Circle-endpoint versus convex-polygon penetration, for one capsule end
+ * circle against one already-normalized (clockwise-wound) polygon.
+ *
+ * Outside: nearest point on the boundary; normal points from there to the
+ * query point (the same "push away from the nearest surface point"
+ * convention the box's own outside case uses).
+ *
+ * Inside: for a clockwise polygon in this codebase's (x right, z "up") world
+ * convention, the interior lies to the right of every directed edge, so a
+ * point is outside edge a->b iff the 2D cross product
+ * `ex*(qz-az) - ez*(qx-ax)` is positive (verified against a concrete
+ * clockwise square: centre (0,0) against edge (1,0)->(0,-1) gives a negative
+ * cross, confirming negative = interior). When every edge's cross is
+ * negative or zero, the query point is inside; the exit is the shallowest
+ * edge (least distance to that edge's own line) and its outward normal
+ * `(-ez, ex)/|e|` — the polygon generalization of the box's "exit along the
+ * shallower face". Penetration equals that shallow distance plus the
+ * capsule radius, exactly mirroring the box inside case's
+ * `insideU + playerCapsuleRadiusM`.
+ */
+function convexEndpointPenetration(
+  points: readonly WorldPoint[],
+  cx: number,
+  cz: number,
+  radius: number,
+  fallbackNx: number,
+  fallbackNz: number,
+): { readonly penetration: number; readonly nx: number; readonly nz: number } {
+  let inside = true;
+  let shallowestDepth = Number.POSITIVE_INFINITY;
+  let shallowestNx = 0;
+  let shallowestNz = 0;
+  let nearestDistSq = Number.POSITIVE_INFINITY;
+  let nearestX = 0;
+  let nearestZ = 0;
+  const count = points.length;
+  for (let i = 0; i < count; i += 1) {
+    const a = points[i];
+    const b = points[(i + 1) % count];
+    const ex = b.x - a.x;
+    const ez = b.z - a.z;
+    const edgeLength = Math.hypot(ex, ez) || 1;
+    const cross = ex * (cz - a.z) - ez * (cx - a.x);
+    if (cross > 0) {
+      inside = false;
+    } else {
+      const depth = -cross / edgeLength;
+      if (depth < shallowestDepth) {
+        shallowestDepth = depth;
+        shallowestNx = -ez / edgeLength;
+        shallowestNz = ex / edgeLength;
+      }
+    }
+    const edgeLengthSq = ex * ex + ez * ez;
+    const t =
+      edgeLengthSq > 1e-9
+        ? Math.max(0, Math.min(1, ((cx - a.x) * ex + (cz - a.z) * ez) / edgeLengthSq))
+        : 0;
+    const nearX = a.x + ex * t;
+    const nearZ = a.z + ez * t;
+    const dx = cx - nearX;
+    const dz = cz - nearZ;
+    const distSq = dx * dx + dz * dz;
+    if (distSq < nearestDistSq) {
+      nearestDistSq = distSq;
+      nearestX = nearX;
+      nearestZ = nearZ;
+    }
+  }
+  if (inside) {
+    return { penetration: shallowestDepth + radius, nx: shallowestNx, nz: shallowestNz };
+  }
+  const distance = Math.sqrt(nearestDistSq);
+  if (distance > 1e-6) {
+    return {
+      penetration: radius - distance,
+      nx: (cx - nearestX) / distance,
+      nz: (cz - nearestZ) / distance,
+    };
+  }
+  return { penetration: radius, nx: fallbackNx, nz: fallbackNz };
 }
 
 /** The player's physical driving state: pose, speed, gear, signal, and the
@@ -316,8 +447,9 @@ export function movePlayer(
 
 /**
  * Keeps the player car out of the solid world: the car is a two-circle
- * capsule along its heading, each obstacle a box or circle, and a contact
- * pushes the car out along the contact normal. The velocity response is the
+ * capsule along its heading, each obstacle a box, circle, or convex polygon
+ * (a bespoke landmark's exact ground footprint), and a contact pushes the
+ * car out along the contact normal. The velocity response is the
  * arcade wall recipe — a grazing contact slides (tangential speed kept,
  * lightly scrubbed), a near-head-on contact stops with a small rebound — so
  * scraping a facade slows the car until it steers parallel rather than
@@ -366,12 +498,12 @@ export function resolveStaticCollisions(
         counters.narrowTests += 1;
         const cx = px + forwardX * config.playerCapsuleHalfLengthM * end;
         const cz = pz + forwardZ * config.playerCapsuleHalfLengthM * end;
-        const dx = cx - obstacle.x;
-        const dz = cz - obstacle.z;
         let penetration: number;
         let nx: number;
         let nz: number;
-        if (obstacle.radius > 0) {
+        if (obstacle.shape === "circle") {
+          const dx = cx - obstacle.x;
+          const dz = cz - obstacle.z;
           const distance = Math.hypot(dx, dz);
           penetration = obstacle.radius + config.playerCapsuleRadiusM - distance;
           if (penetration <= deepest) continue;
@@ -382,7 +514,9 @@ export function resolveStaticCollisions(
             nx = forwardX;
             nz = forwardZ;
           }
-        } else {
+        } else if (obstacle.shape === "box") {
+          const dx = cx - obstacle.x;
+          const dz = cz - obstacle.z;
           const du = dx * obstacle.ux + dz * obstacle.uz;
           // V is the U axis rotated a quarter turn: (uz, -ux).
           const dv = dx * obstacle.uz - dz * obstacle.ux;
@@ -417,6 +551,19 @@ export function resolveStaticCollisions(
               nz = forwardZ;
             }
           }
+        } else {
+          const result = convexEndpointPenetration(
+            obstacle.points,
+            cx,
+            cz,
+            config.playerCapsuleRadiusM,
+            forwardX,
+            forwardZ,
+          );
+          if (result.penetration <= deepest) continue;
+          penetration = result.penetration;
+          nx = result.nx;
+          nz = result.nz;
         }
         if (penetration > deepest) {
           deepest = penetration;
