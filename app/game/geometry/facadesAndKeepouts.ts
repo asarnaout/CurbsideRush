@@ -549,6 +549,89 @@ export function rotateBlockBuildingPlacements(
   });
 }
 
+/** Every historical-buffer reservation a nominal (centre + half-extent)
+ * footprint falls inside — shared by `keptStreetWallBuildings` and
+ * `planProceduralBlock`'s relaxed path; `isInsideHistoricalBuffer` above is
+ * the boolean-only sibling every *unrelaxed* caller keeps using. */
+function failingHistoricalBuffers(
+  reservations: readonly BuildingReservation[],
+  x: number,
+  z: number,
+  halfWidth: number,
+  halfDepth: number,
+): readonly BuildingReservation[] {
+  return reservations.filter((r) => {
+    if (r.purpose !== "historical-buffer" || r.geometry.kind !== "circle") return false;
+    const nearestX = Math.max(x - halfWidth, Math.min(r.geometry.x, x + halfWidth));
+    const nearestZ = Math.max(z - halfDepth, Math.min(r.geometry.z, z + halfDepth));
+    return Math.hypot(nearestX - r.geometry.x, nearestZ - r.geometry.z) < r.geometry.radius;
+  });
+}
+
+/** Precomputed once per plan/block (not per candidate): every owner's exact
+ * (non-historical-buffer) reservations and reviewed allow-list, keyed for
+ * O(1) lookup in the per-candidate excusal check below. */
+export interface ReservationLookups {
+  readonly exactByOwner: ReadonlyMap<string, readonly BuildingReservation[]>;
+  readonly allowListByOwner: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+export function buildReservationLookups(
+  reservations: readonly BuildingReservation[],
+  relaxationPolicy: RelaxationPolicy,
+): ReservationLookups {
+  const exactByOwner = new Map<string, BuildingReservation[]>();
+  for (const r of reservations) {
+    if (r.purpose === "historical-buffer") continue;
+    const list = exactByOwner.get(r.ownerId);
+    if (list) list.push(r);
+    else exactByOwner.set(r.ownerId, [r]);
+  }
+  return {
+    exactByOwner,
+    allowListByOwner: new Map(relaxationPolicy.relaxations.map((r) => [r.ownerId, r.allowedRestoredPlanIds] as const)),
+  };
+}
+
+/**
+ * The one-candidate reservation-survival decision shared by
+ * `keptStreetWallBuildings` (named glb models — exact solids come from the
+ * curated structural manifest, a per-model lookup) and
+ * `planProceduralBlock`'s relaxed path (a procedural cell's exact solid is
+ * already known outright — it is the very box the planner is about to
+ * place, no manifest/lookup needed). `exactWorldSolidsOf` is a thunk, not a
+ * value, so the (model-lookup-and-transform | already-in-hand) cost is only
+ * ever paid for a candidate that actually fails the nominal test below.
+ *
+ * Default (unrelaxed) behaviour is byte-identical to the legacy
+ * `buildingKeepOuts`-era nominal-footprint-vs-buffer test: a candidate that
+ * clears every historical-buffer circle survives, full stop. A candidate
+ * that fails one only survives if *every* buffer it fails is individually
+ * excused — its owner relaxed, its exact world solid clearing that owner's
+ * exact reservations, and its own plan id present in that owner's reviewed
+ * `allowedRestoredPlanIds` (Section 8.2's explicit allow-list gate — an
+ * automatic geometric pass is necessary but not sufficient to ship a
+ * restored building).
+ */
+export function survivesReservations(
+  reservations: readonly BuildingReservation[],
+  lookups: ReservationLookups,
+  nominal: { readonly x: number; readonly z: number; readonly halfWidth: number; readonly halfDepth: number },
+  exactWorldSolidsOf: () => readonly ReservationObb[] | undefined,
+  planId: string | undefined,
+): boolean {
+  const failing = failingHistoricalBuffers(reservations, nominal.x, nominal.z, nominal.halfWidth, nominal.halfDepth);
+  if (failing.length === 0) return true;
+  const exactWorldSolids = exactWorldSolidsOf();
+  if (!exactWorldSolids) return false;
+  return failing.every((buffer) => {
+    const exact = lookups.exactByOwner.get(buffer.ownerId);
+    const allowList = lookups.allowListByOwner.get(buffer.ownerId);
+    if (!exact || !allowList || planId === undefined || !allowList.has(planId)) return false;
+    return exactWorldSolids.every((solid) => !exact.some((r) => solidOverlapsReservation(solid, r)));
+  });
+}
+
 /**
  * The instanced street-wall buildings that survive `reservations`.
  *
@@ -557,16 +640,9 @@ export function rotateBlockBuildingPlacements(
  * first version of it proved, while the renderer went on passing centres and
  * meshing a brownstone into Broadway Auto.
  *
- * Default (unrelaxed) behaviour is byte-identical to the old
- * `keptStreetWallBuildings`/`buildingKeepOuts` pair: a candidate that clears
- * every historical-buffer circle survives, full stop, via the exact same
- * nominal-footprint distance test. A candidate that fails one only survives
- * if *every* buffer it fails is individually excused — its owner relaxed,
- * its exact world solid (from the curated structural manifest, not the
- * nominal footprint) clearing that owner's exact reservations, and its own
- * plan id present in that owner's reviewed `allowedRestoredPlanIds`
- * (Section 8.2's explicit allow-list gate — an automatic geometric pass is
- * necessary but not sufficient to ship a restored building).
+ * See `survivesReservations` for the exact excusal rule this applies per
+ * candidate; here it supplies a building-set candidate's own model-lookup
+ * exact solids and plan id.
  */
 export function keptStreetWallBuildings<
   T extends { readonly modelId: string; readonly x: number; readonly z: number; readonly yaw: number },
@@ -576,51 +652,34 @@ export function keptStreetWallBuildings<
   relaxationPolicy: RelaxationPolicy = DEFAULT_RELAXATION_POLICY,
   planIdOf?: (placement: T) => string,
 ): readonly T[] {
-  const failingHistoricalBuffersFor = (b: T): readonly BuildingReservation[] => {
-    const half = (buildingPlacementConfig(b.modelId)?.footprintM ?? 0) / 2;
-    return reservations.filter((r) => {
-      if (r.purpose !== "historical-buffer" || r.geometry.kind !== "circle") return false;
-      const nearestX = Math.max(b.x - half, Math.min(r.geometry.x, b.x + half));
-      const nearestZ = Math.max(b.z - half, Math.min(r.geometry.z, b.z + half));
-      return Math.hypot(nearestX - r.geometry.x, nearestZ - r.geometry.z) < r.geometry.radius;
-    });
-  };
-  const exactByOwner = new Map<string, BuildingReservation[]>();
-  for (const r of reservations) {
-    if (r.purpose === "historical-buffer") continue;
-    const list = exactByOwner.get(r.ownerId);
-    if (list) list.push(r);
-    else exactByOwner.set(r.ownerId, [r]);
-  }
-  const allowListByOwner = new Map(relaxationPolicy.relaxations.map((r) => [r.ownerId, r.allowedRestoredPlanIds] as const));
-
+  const lookups = buildReservationLookups(reservations, relaxationPolicy);
   return placements.filter((b) => {
-    const failing = failingHistoricalBuffersFor(b);
-    if (failing.length === 0) return true;
-    const bounds = buildingStructuralBoundsFor(b.modelId);
-    const planId = planIdOf?.(b);
-    return failing.every((buffer) => {
-      const exact = exactByOwner.get(buffer.ownerId);
-      const allowList = allowListByOwner.get(buffer.ownerId);
-      if (!exact || !allowList || planId === undefined || !allowList.has(planId)) return false;
-      if (!bounds) return false;
-      const cos = Math.cos(b.yaw);
-      const sin = Math.sin(b.yaw);
-      return bounds.solids.every((localSolid) => {
-        const localCenterX = (localSolid.minX + localSolid.maxX) / 2;
-        const localCenterZ = (localSolid.minZ + localSolid.maxZ) / 2;
-        const worldSolid: ReservationObb = {
-          kind: "obb",
-          x: b.x + localCenterX * cos + localCenterZ * sin,
-          z: b.z - localCenterX * sin + localCenterZ * cos,
-          ux: cos,
-          uz: -sin,
-          halfU: (localSolid.maxX - localSolid.minX) / 2,
-          halfV: (localSolid.maxZ - localSolid.minZ) / 2,
-        };
-        return !exact.some((r) => solidOverlapsReservation(worldSolid, r));
-      });
-    });
+    const half = (buildingPlacementConfig(b.modelId)?.footprintM ?? 0) / 2;
+    return survivesReservations(
+      reservations,
+      lookups,
+      { x: b.x, z: b.z, halfWidth: half, halfDepth: half },
+      () => {
+        const bounds = buildingStructuralBoundsFor(b.modelId);
+        if (!bounds) return undefined;
+        const cos = Math.cos(b.yaw);
+        const sin = Math.sin(b.yaw);
+        return bounds.solids.map((localSolid) => {
+          const localCenterX = (localSolid.minX + localSolid.maxX) / 2;
+          const localCenterZ = (localSolid.minZ + localSolid.maxZ) / 2;
+          return {
+            kind: "obb" as const,
+            x: b.x + localCenterX * cos + localCenterZ * sin,
+            z: b.z - localCenterX * sin + localCenterZ * cos,
+            ux: cos,
+            uz: -sin,
+            halfU: (localSolid.maxX - localSolid.minX) / 2,
+            halfV: (localSolid.maxZ - localSolid.minZ) / 2,
+          };
+        });
+      },
+      planIdOf?.(b),
+    );
   });
 }
 

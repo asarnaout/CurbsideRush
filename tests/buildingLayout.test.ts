@@ -405,6 +405,64 @@ describe("planMapBuildings — every set model resolves to structural bounds", (
   }
 });
 
+describe("planMapBuildings — procedural-cell relaxation (plan Section 8's mechanism extended beyond asset-slot blocks)", () => {
+  // london-v37 (Guild Lane Pharmacy): historical-buffer circle radius 19 m at
+  // (1089.69, 155.66); exact solid an 8x8 m box at the same centre (verified
+  // via placedVenueFootprint in scratch exploration before writing this).
+  // Real London-content case this generalises: Section 10.2's Cornmarket P0
+  // needed exactly this -- Cornmarket's own street wall is a deliberately
+  // procedural (non-buildingSet) Portland-stone block, and
+  // `keptStreetWallBuildings` alone never reaches a procedural cell.
+  const venue = LONDON_MAP_PACK.geometry.gigVenues?.find((v) => v.id === "london-v37")!;
+  // Unrotated 20x20 block, density 0 -> 3 cells at (1099,150.66)/(1109,150.66)/
+  // (1099,160.66), all inside the 19 m buffer by nominal footprint. At
+  // trafficSeed 0, cells 0 and 1's jittered exact boxes clear the pharmacy's
+  // real 8x8 solid + 0.75 m clearance once relaxed and allow-listed; cell 2's
+  // does not -- verified empirically, not derived by hand (an OBB-vs-OBB SAT
+  // clearance under seeded width/depth jitter isn't worth re-deriving here).
+  const block = {
+    id: "test-relax-block",
+    center: { x: 1104, z: 155.66 },
+    size: { x: 20, z: 20 },
+    density: 0,
+    heightRange: [10, 14] as const,
+    material: "london-portland-stone",
+  };
+  const map = mapWithBlocks(LONDON_MAP_PACK, [block]) as GameCanvasMapPack;
+  const withVenueOnly = { ...map, geometry: { ...map.geometry, gigVenues: [venue], servicePoints: [] } };
+  const allThreeIds = new Set([
+    "building:test-relax-block:cell:0",
+    "building:test-relax-block:cell:1",
+    "building:test-relax-block:cell:2",
+  ]);
+
+  it("unrelaxed: every cell inside the buffer is excluded, same as the legacy behaviour", () => {
+    expect(planMapBuildings(withVenueOnly, 0).buildings).toEqual([]);
+  });
+
+  it("relaxed with an empty allow-list: still excluded (the review gate, not an automatic pass)", () => {
+    const plan = planMapBuildings(withVenueOnly, 0, {
+      relaxations: [{ ownerId: "london-v37", allowedRestoredPlanIds: new Set() }],
+    });
+    expect(plan.buildings).toEqual([]);
+  });
+
+  it("relaxed and allow-listed: only the cells whose exact solid actually clears the pharmacy survive", () => {
+    const plan = planMapBuildings(withVenueOnly, 0, {
+      relaxations: [{ ownerId: "london-v37", allowedRestoredPlanIds: allThreeIds }],
+    });
+    const ids = plan.buildings.map((b) => b.id).sort();
+    expect(ids).toEqual(["building:test-relax-block:cell:0", "building:test-relax-block:cell:1"]);
+  });
+
+  it("relaxed and allow-listed but only for the cell that still overlaps: stays excluded", () => {
+    const plan = planMapBuildings(withVenueOnly, 0, {
+      relaxations: [{ ownerId: "london-v37", allowedRestoredPlanIds: new Set(["building:test-relax-block:cell:2"]) }],
+    });
+    expect(plan.buildings).toEqual([]);
+  });
+});
+
 describe("diagnoseKeepOutSurvivorDeltas", () => {
   it("runs read-only against every map without mutating a subsequent plan", () => {
     for (const map of MAPS) {
