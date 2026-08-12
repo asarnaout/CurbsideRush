@@ -1,10 +1,16 @@
 import { REPAIR_SHOP_LOT_HALF_M } from "../repairShopLayout";
-import { resolveServicePointLot } from "../servicePoints";
+import {
+  resolveServicePointLot,
+  SERVICE_LOT_HALF_M,
+  type AnchoredServicePoint,
+} from "../servicePoints";
+import { placedServiceShellSolids, placedVenueFootprint, type PlacedObb } from "./placedPropFootprints";
 import { resolveVenuePlacement } from "./venuePlacement";
 import type { StagedBlocker } from "../cutsceneScript";
 import type { StaticObstacle, StaticObstacleTag } from "../types";
 import type { GameCanvasMapPack, GameCanvasPoint } from "../sessionContract";
 import { buildingPlacementConfig, type PlacedBuilding } from "../buildingSets";
+import { buildingStructuralBoundsFor } from "../buildingStructuralBounds";
 import { hashStringToSeed } from "../visuals";
 
 /**
@@ -21,35 +27,355 @@ import { hashStringToSeed } from "../visuals";
 
 const degreesToRadians = (degrees: number) => (degrees * Math.PI) / 180;
 
-/** A circle the street wall must not build inside. */
-export interface BuildingKeepOut {
+// ---------------------------------------------------------------------------
+// Semantic building reservations (plan
+// `.claude/three-city-visual-gap-elimination-plan.md` Section 8). Replaces
+// the old anonymous `{x,z,radius}` circle with an identified, purpose-coded
+// model: every reservation names its owner and why the ground is reserved,
+// so a future closure change can tell "generous historical clearance" from
+// "an actual wall stands here."
+//
+// Local geometry types rather than importing `geometry/visualSceneFootprints.ts`'s
+// `Shape2d` on purpose: this file sits on the production building-planner
+// critical path (`buildingLayout.ts` -> `simulationAdapter.ts`/
+// `babylonGameSession.ts`), and that module pulls in the `polygon-clipping`
+// package for its Boolean-op wrapper — a dependency the visual-gap audit (an
+// offline/dev-only consumer) can afford but the shipped client bundle should
+// not pay for. The two type sets are structurally compatible (same field
+// names) by design, so a caller that already has a `Shape2d` can pass it
+// through unchanged.
+// ---------------------------------------------------------------------------
+
+export interface ReservationCircle {
+  readonly kind: "circle";
   readonly x: number;
   readonly z: number;
   readonly radius: number;
 }
+export interface ReservationObb {
+  readonly kind: "obb";
+  readonly x: number;
+  readonly z: number;
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+}
+/** A simple (non-self-intersecting, no holes) polygon — sufficient for every
+ * reservation shape this phase authors; a concave/multi-piece access shape
+ * can use `ReservationMultiPolygon`. */
+export interface ReservationPolygon {
+  readonly kind: "polygon";
+  readonly points: readonly GameCanvasPoint[];
+}
+export interface ReservationMultiPolygon {
+  readonly kind: "multiPolygon";
+  readonly parts: readonly (readonly GameCanvasPoint[])[];
+}
+export type ReservationGeometry =
+  | ReservationCircle
+  | ReservationObb
+  | ReservationPolygon
+  | ReservationMultiPolygon;
+
+export type ReservationOwnerKind = "venue" | "gas-station" | "repair-shop";
+export type ReservationPurpose =
+  | "historical-buffer"
+  | "solid-clearance"
+  | "vehicle-access"
+  | "pedestrian-access"
+  | "designed-open";
+
+export interface BuildingReservation {
+  readonly id: string;
+  readonly ownerId: string;
+  readonly ownerKind: ReservationOwnerKind;
+  readonly purpose: ReservationPurpose;
+  /** The exact protected region *before* `clearanceM` — callers apply the
+   * clearance exactly once (Section 8.2: "callers may not pre-inflate and
+   * then pass the same clearance again"). */
+  readonly geometry: ReservationGeometry;
+  readonly clearanceM: number;
+}
+
+/** A named owner relaxed from its historical buffer to its exact
+ * reservations, and the specific restored candidate plan ids reviewed and
+ * approved for that owner (Section 8.2: "A restored ID enters the allow-list
+ * only after satisfying Rule 2"). */
+export interface OwnerRelaxation {
+  readonly ownerId: string;
+  readonly allowedRestoredPlanIds: ReadonlySet<string>;
+}
+export interface RelaxationPolicy {
+  readonly relaxations: readonly OwnerRelaxation[];
+}
+/** Every owner stays on its historical-buffer circle — byte-identical
+ * planner output (Section 8.8). */
+export const DEFAULT_RELAXATION_POLICY: RelaxationPolicy = Object.freeze({ relaxations: [] });
+
+const SOLID_CLEARANCE_M = 0.75;
+
+/** Closest point on an OBB's boundary/interior to `(x, z)`, world space. */
+function nearestPointOnObb(
+  obb: { readonly x: number; readonly z: number; readonly ux: number; readonly uz: number; readonly halfU: number; readonly halfV: number },
+  x: number,
+  z: number,
+): GameCanvasPoint {
+  const dx = x - obb.x;
+  const dz = z - obb.z;
+  const u = Math.max(-obb.halfU, Math.min(obb.halfU, dx * obb.ux + dz * obb.uz));
+  const v = Math.max(-obb.halfV, Math.min(obb.halfV, dx * obb.uz - dz * obb.ux));
+  return { x: obb.x + obb.ux * u + obb.uz * v, z: obb.z + obb.uz * u - obb.ux * v };
+}
+
+function obbCorners(obb: ReservationObb): readonly GameCanvasPoint[] {
+  const vx = obb.uz;
+  const vz = -obb.ux;
+  return [
+    { x: obb.x + obb.ux * obb.halfU + vx * obb.halfV, z: obb.z + obb.uz * obb.halfU + vz * obb.halfV },
+    { x: obb.x - obb.ux * obb.halfU + vx * obb.halfV, z: obb.z - obb.uz * obb.halfU + vz * obb.halfV },
+    { x: obb.x - obb.ux * obb.halfU - vx * obb.halfV, z: obb.z - obb.uz * obb.halfU - vz * obb.halfV },
+    { x: obb.x + obb.ux * obb.halfU - vx * obb.halfV, z: obb.z + obb.uz * obb.halfU - vz * obb.halfV },
+  ];
+}
+
+/** Exact SAT overlap of two axis-independent OBBs. */
+function obbOverlapsObb(a: ReservationObb, b: ReservationObb): boolean {
+  const axes: readonly [number, number][] = [
+    [a.ux, a.uz],
+    [a.uz, -a.ux],
+    [b.ux, b.uz],
+    [b.uz, -b.ux],
+  ];
+  const cornersA = obbCorners(a);
+  const cornersB = obbCorners(b);
+  for (const [ax, az] of axes) {
+    let minA = Infinity;
+    let maxA = -Infinity;
+    for (const c of cornersA) {
+      const p = c.x * ax + c.z * az;
+      if (p < minA) minA = p;
+      if (p > maxA) maxA = p;
+    }
+    let minB = Infinity;
+    let maxB = -Infinity;
+    for (const c of cornersB) {
+      const p = c.x * ax + c.z * az;
+      if (p < minB) minB = p;
+      if (p > maxB) maxB = p;
+    }
+    if (maxA < minB || maxB < minA) return false;
+  }
+  return true;
+}
+
+function pointInSimplePolygon(x: number, z: number, points: readonly GameCanvasPoint[]): boolean {
+  let inside = false;
+  const n = points.length;
+  for (let i = 0, j = n - 1; i < n; j = i, i += 1) {
+    const xi = points[i].x;
+    const zi = points[i].z;
+    const xj = points[j].x;
+    const zj = points[j].z;
+    if (zi > z !== zj > z) {
+      const xCross = xj + ((z - zj) / (zi - zj)) * (xi - xj);
+      if (x < xCross) inside = !inside;
+    }
+  }
+  return inside;
+}
 
 /**
- * Whether a street-wall building would stand in someone's lot.
- *
- * Takes the building's own half-extents rather than just its centre. The
- * instanced glb wall can get away with a centre test because its buildings are
- * slotted along a block edge at roughly the keep-out's own scale; the
- * procedural facade grid divides a whole block into as few as nine boxes, and
- * on NYC one of those is 48 m across — far enough that its centre clears a
- * forecourt by 30 m while its wall still covers it.
+ * Whether an exact candidate solid (an OBB, already at its world position)
+ * overlaps a reservation's geometry after `clearanceM`. Circle/OBB are
+ * exact SAT-style tests; polygon/multiPolygon use a corner-containment
+ * approximation (any solid corner inside the polygon, or any polygon vertex
+ * inside the solid) rather than full edge-vs-edge SAT — acceptable today
+ * because no builder in this file yet emits a polygon/multiPolygon
+ * reservation (Section 8.4's `entranceLocal`-based pedestrian-access
+ * corridor and Section 8.5's pump-maneuver polygon are both explicitly
+ * deferred, see `exactVenueReservations`/`exactGasStationReservations`'s own
+ * doc comments); tighten this to true SAT before either lands.
  */
-export function isInsideKeepOut(
-  keepOuts: readonly BuildingKeepOut[],
+export function solidOverlapsReservation(
+  solid: ReservationObb,
+  reservation: Pick<BuildingReservation, "geometry" | "clearanceM">,
+): boolean {
+  const { geometry, clearanceM } = reservation;
+  switch (geometry.kind) {
+    case "circle": {
+      const nearest = nearestPointOnObb(solid, geometry.x, geometry.z);
+      return Math.hypot(nearest.x - geometry.x, nearest.z - geometry.z) < geometry.radius + clearanceM;
+    }
+    case "obb": {
+      const inflated: ReservationObb = { ...geometry, halfU: geometry.halfU + clearanceM, halfV: geometry.halfV + clearanceM };
+      return obbOverlapsObb(solid, inflated);
+    }
+    case "polygon": {
+      if (geometry.points.some((p) => pointInSimplePolygon(p.x, p.z, obbCorners(solid)))) return true;
+      if (obbCorners(solid).some((c) => pointInSimplePolygon(c.x, c.z, geometry.points))) return true;
+      if (clearanceM <= 0) return false;
+      return geometry.points.some((p) => {
+        const nearest = nearestPointOnObb(solid, p.x, p.z);
+        return Math.hypot(nearest.x - p.x, nearest.z - p.z) < clearanceM;
+      });
+    }
+    case "multiPolygon":
+      return geometry.parts.some((part) => solidOverlapsReservation(solid, { geometry: { kind: "polygon", points: part }, clearanceM }));
+  }
+}
+
+function historicalBufferReservation(
+  ownerId: string,
+  ownerKind: ReservationOwnerKind,
+  x: number,
+  z: number,
+  radius: number,
+): BuildingReservation {
+  return {
+    id: `${ownerId}-historical-buffer`,
+    ownerId,
+    ownerKind,
+    purpose: "historical-buffer",
+    geometry: { kind: "circle", x, z, radius },
+    clearanceM: 0,
+  };
+}
+
+function placedObbToReservationObb(obb: PlacedObb): ReservationObb {
+  return { kind: "obb", x: obb.x, z: obb.z, ux: obb.ux, uz: obb.uz, halfU: obb.halfU, halfV: obb.halfV };
+}
+
+/**
+ * A venue's exact reservations once its owner is relaxed (Section 8.4):
+ * the opaque building volume itself (`solid-clearance`, the measured model
+ * footprint plus 0.75 m). Pedestrian-access (needs a per-model
+ * `entranceLocal` measurement `propFootprints.ts` does not have yet) and an
+ * optional authored forecourt (`designed-open`) are deliberately not
+ * produced here — no city-content phase has needed either yet; add them
+ * next to a real `entranceLocal` manifest when one does; until then a
+ * relaxed venue owner protects only its real solid mass, not its access
+ * route, so a relaxation must be reviewed against the live scene, not
+ * trusted blind.
+ */
+function exactVenueReservations(
+  mapPack: GameCanvasMapPack,
+  venue: NonNullable<GameCanvasMapPack["geometry"]["gigVenues"]>[number],
+): readonly BuildingReservation[] {
+  const footprint = placedVenueFootprint(mapPack, venue);
+  if (!footprint || !footprint.resolved) return [];
+  return footprint.solids.map((solid) => ({
+    id: `${venue.id}-solid-${solid.localId}`,
+    ownerId: venue.id,
+    ownerKind: "venue" as const,
+    purpose: "solid-clearance" as const,
+    geometry: placedObbToReservationObb(solid.obb),
+    clearanceM: SOLID_CLEARANCE_M,
+  }));
+}
+
+/**
+ * A service point's exact reservations once its owner is relaxed (Section
+ * 8.5/8.6): the shop/pump-island or shell solids (`solid-clearance`, 0.75 m)
+ * plus the full lot as a `designed-open` protection (its footprint is
+ * already exact — `GAS_STATION_SLAB_HALF_M`/`repairShopPlanBounds()` — so it
+ * needs no extra clearance). Ingress/egress/pump-maneuver and
+ * road-to-bay-mouth access polygons (Section 8.5/8.6's `vehicle-access`)
+ * are deliberately not produced here — deferred until a specific city-fix
+ * needs to relax a service owner, matching venues above.
+ */
+function exactServiceReservations(
+  lanes: Parameters<typeof placedServiceShellSolids>[0],
+  service: AnchoredServicePoint & { readonly id: string },
+  lot: { readonly x: number; readonly z: number; readonly yaw: number },
+  ownerKind: ReservationOwnerKind,
+): readonly BuildingReservation[] {
+  const solids = placedServiceShellSolids(lanes, service);
+  const reservations: BuildingReservation[] = (solids ?? []).map((solid) => ({
+    id: `${service.id}-solid-${solid.localId}`,
+    ownerId: service.id,
+    ownerKind,
+    purpose: "solid-clearance" as const,
+    geometry: placedObbToReservationObb(solid.obb),
+    clearanceM: SOLID_CLEARANCE_M,
+  }));
+  const lotHalf = SERVICE_LOT_HALF_M[service.kind];
+  reservations.push({
+    id: `${service.id}-lot`,
+    ownerId: service.id,
+    ownerKind,
+    purpose: "designed-open",
+    geometry: { kind: "obb", x: lot.x, z: lot.z, ux: Math.cos(lot.yaw), uz: -Math.sin(lot.yaw), halfU: lotHalf, halfV: lotHalf },
+    clearanceM: 0,
+  });
+  return reservations;
+}
+
+/**
+ * The single pure API for every reservation the building planner must clear
+ * (Section 8.2). The default policy (`DEFAULT_RELAXATION_POLICY`) emits
+ * exactly one historical-buffer circle per service/venue — byte-identical
+ * to the old `buildingKeepOuts()` — for every owner. A relaxed owner
+ * additionally gets its exact reservations appended; its historical buffer
+ * stays present too (the filtering predicate below needs both: the buffer
+ * to know a candidate would otherwise be excluded, the exact shapes to know
+ * whether relaxation actually clears it).
+ */
+export function buildingReservations(
+  mapPack: GameCanvasMapPack,
+  relaxationPolicy: RelaxationPolicy = DEFAULT_RELAXATION_POLICY,
+): readonly BuildingReservation[] {
+  const relaxedOwnerIds = new Set(relaxationPolicy.relaxations.map((r) => r.ownerId));
+  const reservations: BuildingReservation[] = [];
+  for (const service of mapPack.geometry.servicePoints ?? []) {
+    const lot = resolveServicePointLot(mapPack.laneGraph.lanes, service);
+    if (!lot) continue;
+    const ownerKind: ReservationOwnerKind = service.kind === "repair_shop" ? "repair-shop" : "gas-station";
+    reservations.push(
+      historicalBufferReservation(
+        service.id,
+        ownerKind,
+        lot.x,
+        lot.z,
+        service.kind === "repair_shop" ? REPAIR_SHOP_LOT_HALF_M + 3 : Math.max(service.footprint.x, service.footprint.z) + 16,
+      ),
+    );
+    if (relaxedOwnerIds.has(service.id)) {
+      reservations.push(...exactServiceReservations(mapPack.laneGraph.lanes, service, lot, ownerKind));
+    }
+  }
+  for (const venue of mapPack.geometry.gigVenues ?? []) {
+    const placement = resolveVenuePlacement(mapPack, venue);
+    if (!placement) continue;
+    reservations.push(
+      historicalBufferReservation(venue.id, "venue", placement.x, placement.z, Math.max(venue.footprint.x, venue.footprint.z) / 2 + 12),
+    );
+    if (relaxedOwnerIds.has(venue.id)) {
+      reservations.push(...exactVenueReservations(mapPack, venue));
+    }
+  }
+  return reservations;
+}
+
+/**
+ * Whether a candidate footprint (nominal centre + half-extents, matching
+ * the legacy `isInsideKeepOut` predicate exactly) falls inside any
+ * historical-buffer reservation. This is the byte-identical default path —
+ * relaxed owners are handled separately by `keptStreetWallBuildings`, which
+ * alone has the exact candidate solid + plan id a relaxation review needs.
+ */
+export function isInsideHistoricalBuffer(
+  reservations: readonly BuildingReservation[],
   x: number,
   z: number,
   halfWidth = 0,
   halfDepth = 0,
 ): boolean {
-  return keepOuts.some((ex) => {
-    // Nearest point of the building's footprint to the keep-out's centre.
-    const nearestX = Math.max(x - halfWidth, Math.min(ex.x, x + halfWidth));
-    const nearestZ = Math.max(z - halfDepth, Math.min(ex.z, z + halfDepth));
-    return Math.hypot(nearestX - ex.x, nearestZ - ex.z) < ex.radius;
+  return reservations.some((r) => {
+    if (r.purpose !== "historical-buffer" || r.geometry.kind !== "circle") return false;
+    const nearestX = Math.max(x - halfWidth, Math.min(r.geometry.x, x + halfWidth));
+    const nearestZ = Math.max(z - halfDepth, Math.min(r.geometry.z, z + halfDepth));
+    return Math.hypot(nearestX - r.geometry.x, nearestZ - r.geometry.z) < r.geometry.radius;
   });
 }
 
@@ -224,65 +550,77 @@ export function rotateBlockBuildingPlacements(
 }
 
 /**
- * Every circle the street wall must leave clear: each service point's lot and
- * each gig venue's plot.
- *
- * Exported so the placement can be checked against it without a scene. The two
- * street-wall paths consume this at very different times — the instanced glb
- * wall after preload, the procedural facade grid inline — which is exactly how
- * a terrace ended up standing through London's and Tokyo's repair shops: the
- * keep-outs used to be collected as each building was placed, which was in time
- * for one path and far too late for the other.
- */
-export function buildingKeepOuts(
-  mapPack: GameCanvasMapPack,
-): readonly BuildingKeepOut[] {
-  const keepOuts: BuildingKeepOut[] = [];
-  for (const service of mapPack.geometry.servicePoints ?? []) {
-    const lot = resolveServicePointLot(mapPack.laneGraph.lanes, service);
-    if (!lot) continue;
-    keepOuts.push({
-      x: lot.x,
-      z: lot.z,
-      // The station's glb lot is bigger than its authored footprint, so it
-      // wants a generous clearance. The repair shop is a much smaller building,
-      // and clearing 16 m round it would punch a hole in the street wall far
-      // larger than the shop standing in it.
-      radius:
-        service.kind === "repair_shop"
-          ? REPAIR_SHOP_LOT_HALF_M + 3
-          : Math.max(service.footprint.x, service.footprint.z) + 16,
-    });
-  }
-  for (const venue of mapPack.geometry.gigVenues ?? []) {
-    const placement = resolveVenuePlacement(mapPack, venue);
-    if (!placement) continue;
-    keepOuts.push({
-      x: placement.x,
-      z: placement.z,
-      radius: Math.max(venue.footprint.x, venue.footprint.z) / 2 + 12,
-    });
-  }
-  return keepOuts;
-}
-
-/**
- * The instanced street-wall buildings that survive the keep-outs.
+ * The instanced street-wall buildings that survive `reservations`.
  *
  * The renderer's filter and the test's assertion have to be the same decision,
  * or the test only proves that a predicate exists — which is exactly what the
  * first version of it proved, while the renderer went on passing centres and
  * meshing a brownstone into Broadway Auto.
+ *
+ * Default (unrelaxed) behaviour is byte-identical to the old
+ * `keptStreetWallBuildings`/`buildingKeepOuts` pair: a candidate that clears
+ * every historical-buffer circle survives, full stop, via the exact same
+ * nominal-footprint distance test. A candidate that fails one only survives
+ * if *every* buffer it fails is individually excused — its owner relaxed,
+ * its exact world solid (from the curated structural manifest, not the
+ * nominal footprint) clearing that owner's exact reservations, and its own
+ * plan id present in that owner's reviewed `allowedRestoredPlanIds`
+ * (Section 8.2's explicit allow-list gate — an automatic geometric pass is
+ * necessary but not sufficient to ship a restored building).
  */
 export function keptStreetWallBuildings<
-  T extends { readonly modelId: string; readonly x: number; readonly z: number },
->(placements: readonly T[], keepOuts: readonly BuildingKeepOut[]): readonly T[] {
-  return placements.filter((b) => {
-    // Measured against the building's own footprint, not just its centre. A
-    // brownstone is ~11 m across, so one centred a comfortable 8 m outside a
-    // repair shop's keep-out still has its flank 2.5 m inside the shop.
+  T extends { readonly modelId: string; readonly x: number; readonly z: number; readonly yaw: number },
+>(
+  placements: readonly T[],
+  reservations: readonly BuildingReservation[],
+  relaxationPolicy: RelaxationPolicy = DEFAULT_RELAXATION_POLICY,
+  planIdOf?: (placement: T) => string,
+): readonly T[] {
+  const failingHistoricalBuffersFor = (b: T): readonly BuildingReservation[] => {
     const half = (buildingPlacementConfig(b.modelId)?.footprintM ?? 0) / 2;
-    return !isInsideKeepOut(keepOuts, b.x, b.z, half, half);
+    return reservations.filter((r) => {
+      if (r.purpose !== "historical-buffer" || r.geometry.kind !== "circle") return false;
+      const nearestX = Math.max(b.x - half, Math.min(r.geometry.x, b.x + half));
+      const nearestZ = Math.max(b.z - half, Math.min(r.geometry.z, b.z + half));
+      return Math.hypot(nearestX - r.geometry.x, nearestZ - r.geometry.z) < r.geometry.radius;
+    });
+  };
+  const exactByOwner = new Map<string, BuildingReservation[]>();
+  for (const r of reservations) {
+    if (r.purpose === "historical-buffer") continue;
+    const list = exactByOwner.get(r.ownerId);
+    if (list) list.push(r);
+    else exactByOwner.set(r.ownerId, [r]);
+  }
+  const allowListByOwner = new Map(relaxationPolicy.relaxations.map((r) => [r.ownerId, r.allowedRestoredPlanIds] as const));
+
+  return placements.filter((b) => {
+    const failing = failingHistoricalBuffersFor(b);
+    if (failing.length === 0) return true;
+    const bounds = buildingStructuralBoundsFor(b.modelId);
+    const planId = planIdOf?.(b);
+    return failing.every((buffer) => {
+      const exact = exactByOwner.get(buffer.ownerId);
+      const allowList = allowListByOwner.get(buffer.ownerId);
+      if (!exact || !allowList || planId === undefined || !allowList.has(planId)) return false;
+      if (!bounds) return false;
+      const cos = Math.cos(b.yaw);
+      const sin = Math.sin(b.yaw);
+      return bounds.solids.every((localSolid) => {
+        const localCenterX = (localSolid.minX + localSolid.maxX) / 2;
+        const localCenterZ = (localSolid.minZ + localSolid.maxZ) / 2;
+        const worldSolid: ReservationObb = {
+          kind: "obb",
+          x: b.x + localCenterX * cos + localCenterZ * sin,
+          z: b.z - localCenterX * sin + localCenterZ * cos,
+          ux: cos,
+          uz: -sin,
+          halfU: (localSolid.maxX - localSolid.minX) / 2,
+          halfV: (localSolid.maxZ - localSolid.minZ) / 2,
+        };
+        return !exact.some((r) => solidOverlapsReservation(worldSolid, r));
+      });
+    });
   });
 }
 

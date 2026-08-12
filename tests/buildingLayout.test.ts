@@ -8,7 +8,7 @@ import {
   type PlannedProceduralBuilding,
 } from "../app/game/geometry/buildingLayout";
 import {
-  buildingKeepOuts,
+  buildingReservations,
   keptStreetWallBuildings,
   rotateBlockBuildingPlacements,
 } from "../app/game/geometry/facadesAndKeepouts";
@@ -117,8 +117,8 @@ describe("planMapBuildings — asset-slot blockSlot/assetDetailScore/renderOrdin
       block.streetEdges,
     );
     const rotated = rotateBlockBuildingPlacements(rawSlots, block.center, block.headingDeg);
-    const keepOuts = buildingKeepOuts(LONDON_MAP_PACK);
-    const legacySurvivors = keptStreetWallBuildings(rotated, keepOuts);
+    const reservations = buildingReservations(LONDON_MAP_PACK);
+    const legacySurvivors = keptStreetWallBuildings(rotated, reservations);
 
     const plan = planMapBuildings(LONDON_MAP_PACK, LONDON_MAP_PACK.laneGraph.lanes.length);
     const planned = plan.buildings
@@ -145,7 +145,7 @@ describe("planMapBuildings — asset-slot blockSlot/assetDetailScore/renderOrdin
       (b) => b.buildingSet && isBuildingSetId(b.buildingSet),
     )!;
     const setId = block.buildingSet as Parameters<typeof slotBlockBuildings>[2];
-    const keepOuts = buildingKeepOuts(CAIRO_MAP_PACK);
+    const reservations = buildingReservations(CAIRO_MAP_PACK);
 
     const legacyHalfSlots = slotBlockBuildings(
       block.center,
@@ -157,7 +157,7 @@ describe("planMapBuildings — asset-slot blockSlot/assetDetailScore/renderOrdin
     );
     const legacyHalfSurvivors = keptStreetWallBuildings(
       rotateBlockBuildingPlacements(legacyHalfSlots, block.center, block.headingDeg),
-      keepOuts,
+      reservations,
     );
     const legacyKeySet = new Set(legacyHalfSurvivors.map((b) => `${b.edge}:${b.edgeSlot}`));
 

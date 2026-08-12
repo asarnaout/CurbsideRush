@@ -10,7 +10,7 @@ import {
   type BuildingLayoutPlan,
   type StructuralObb,
 } from "../app/game/geometry/buildingLayout";
-import { buildingKeepOuts } from "../app/game/geometry/facadesAndKeepouts";
+import { buildingReservations } from "../app/game/geometry/facadesAndKeepouts";
 import {
   buildStaticObstacles,
   distanceToStaticObstacle,
@@ -300,8 +300,8 @@ describe("building collider agreement", () => {
       "expected at least one planned procedural Tokyo building",
     ).toBe(true);
     expect(
-      MAP_PACKS.some((pack) => buildingKeepOuts(pack).length > 0),
-      "expected at least one venue/service keep-out across the map set",
+      MAP_PACKS.some((pack) => buildingReservations(pack).length > 0),
+      "expected at least one venue/service reservation across the map set",
     ).toBe(true);
   });
 });
