@@ -400,8 +400,19 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // unavailable; what remains is Cairo's genuinely direct-procedural
     // content (179 non-building-set blocks) planned once, in the fixed
     // width-then-depth-then-height order per surviving cell.
-    drawCount: 4_288,
-    facadeMeshFingerprint: "b6f29f68",
+    //
+    // 4_288 -> 4_414 (fingerprint "b6f29f68" -> "e2b02700", +126): the six
+    // `cairo-galaa-ne-land-edge-wall-{1..6}` closures (visual-gap plan
+    // Section 12.5). Each is a bare procedural block with no buildingSet,
+    // so it takes the same facade grid as any other -- 9 candidate cells
+    // per block from its own density, of which only 3 survive
+    // `cairoFrontageFootprintsOverlap` (the other 6 collapse to the same
+    // position once `frontageAxis: "z"` pins every cell to its row's own
+    // depth). Every cell draws width+depth (2 calls) before the overlap
+    // check; only a surviving cell draws a 3rd (height). Per block: 3
+    // survivors * 3 + 6 rejected * 2 = 21 draws; 6 blocks * 21 = 126.
+    drawCount: 4_414,
+    facadeMeshFingerprint: "e2b02700",
   },
 };
 

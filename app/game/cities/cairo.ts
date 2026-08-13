@@ -2859,7 +2859,163 @@ const addReviewedCairoClosure = (spec: CairoVisualClosureSpec): void => {
  * Sections 12.4-12.9) as each is investigated and closed against a real
  * camera-fan audit re-run, the same workflow proven across London/NYC.
  */
-export const CAIRO_VISUAL_CLOSURES: readonly CairoVisualClosureSpec[] = [];
+export const CAIRO_VISUAL_CLOSURES: readonly CairoVisualClosureSpec[] = [
+  // East land perimeter, Al-Galaa north/east corner (visual-gap plan
+  // Section 12.5, P0). Al-Galaa's own final segment runs (760,620) to
+  // (855,850) — a short diagonal run into the map's NE corner, where the
+  // world edge (x=885) closes in from the east. The slot pass's own
+  // `cairo-galaa-street-roadside-8-3-right` (a real cairo-downtown tower,
+  // same road heading, AABB x=833..875 z=765..838) covers most of the
+  // road's east side, but its own reach stops ~10 m short of the usable
+  // world bound (881) the whole way along, and stops entirely past
+  // z=838 while the road itself continues to z=850. A real camera-fan
+  // re-audit found `urban_world_edge` failures (seeing straight through
+  // to x=903, past the world edge) all along that residual sliver, eye z
+  // 785-853 — not the systemic ~70 m distant-void pattern every other
+  // failure near this road shows. Section 12.5 names this site as
+  // "affected by cairo-venue-23", whose real exclusion (center ~823,729)
+  // sits 120+ m away and does not actually conflict here — verified
+  // directly, not assumed from the plan's own prose.
+  //
+  // Four short land-edge-wall pieces, not one long block: `facadeGridCells`
+  // caps every `ProceduralBlock` at ~9 cells regardless of its length (the
+  // count comes from `density` alone), so a single 76 m block collapsed to
+  // just 2-3 real buildings with 20-37 m open gaps between them — the
+  // first attempt at one long block only cut failures 268 (down from a
+  // corner-cap's own 494->268) before this was diagnosed. Every standard
+  // roadside block in this file keeps its long dimension in `size.x` and
+  // rotates it into place with `headingDeg` (see the slot pass's own
+  // `pieceFor` above: "`headingDeg` puts local +x along the carriageway");
+  // these four pieces follow the same convention with `headingDeg: -90` so
+  // local +x runs along world +z, each short enough (~18 m) that its own
+  // ~3-column spread tiles with only ~1 m gaps.
+  {
+    id: "cairo-galaa-ne-land-edge-wall-1",
+    sourceRoadId: "cairo-galaa-street",
+    side: 1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-galaa-ne-land-edge-wall-1",
+      center: point(878, 789),
+      size: point(18, 4),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "sandstone",
+      heightRange: [10, 16],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
+  },
+  {
+    id: "cairo-galaa-ne-land-edge-wall-2",
+    sourceRoadId: "cairo-galaa-street",
+    side: 1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-galaa-ne-land-edge-wall-2",
+      center: point(878, 808.33),
+      size: point(18, 4),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "sandstone",
+      heightRange: [10, 16],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
+  },
+  {
+    id: "cairo-galaa-ne-land-edge-wall-3",
+    sourceRoadId: "cairo-galaa-street",
+    side: 1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-galaa-ne-land-edge-wall-3",
+      center: point(878, 827.67),
+      size: point(18, 4),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "sandstone",
+      heightRange: [10, 16],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
+  },
+  {
+    id: "cairo-galaa-ne-land-edge-wall-4",
+    sourceRoadId: "cairo-galaa-street",
+    side: 1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-galaa-ne-land-edge-wall-4",
+      center: point(878, 847),
+      size: point(18, 4),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "sandstone",
+      heightRange: [10, 16],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
+  },
+  // The four pieces above (span z=780-856) still left oblique wide-FOV rays
+  // curling around the wall's own north tip toward the map's NE corner —
+  // a live re-audit found their eye z stayed within 780-856 but their
+  // target reached z up to 902, i.e. the ray crosses x=878 north of where
+  // the wall stopped. Two more pieces continuing the same wall to z=897
+  // (validateCairoClosureCandidate's own road/corridor check already
+  // covers the Sixth October scenic corridor, so a candidate that got
+  // this far passed it for real, not by assumption) close that. This piece
+  // starts at 857.2, 1.2 m past piece 4's own end (856) rather than the
+  // usual 2 m gap the other seams use: a first attempt at 858 left a 2 m
+  // seam one oblique ray threaded at z~857.05, caught only by a re-audit,
+  // not the geometry math alone.
+  {
+    id: "cairo-galaa-ne-land-edge-wall-5",
+    sourceRoadId: "cairo-galaa-street",
+    side: 1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-galaa-ne-land-edge-wall-5",
+      center: point(878, 866.7),
+      size: point(19, 4),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "sandstone",
+      heightRange: [10, 16],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
+  },
+  {
+    id: "cairo-galaa-ne-land-edge-wall-6",
+    sourceRoadId: "cairo-galaa-street",
+    side: 1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-galaa-ne-land-edge-wall-6",
+      center: point(878, 888),
+      size: point(18, 4),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "sandstone",
+      heightRange: [10, 16],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
+  },
+];
 
 for (const closure of CAIRO_VISUAL_CLOSURES) {
   addReviewedCairoClosure(closure);

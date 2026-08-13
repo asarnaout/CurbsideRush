@@ -154,7 +154,22 @@ describe("Cairo reviewed closure layer (plan Section 12.3)", () => {
     expect(result.reason).toBe("sibling-block");
   });
 
-  it("CAIRO_VISUAL_CLOSURES has not been populated yet (Sections 12.4-12.9 land per-site)", () => {
-    expect(CAIRO_VISUAL_CLOSURES).toEqual([]);
+  it("every CAIRO_VISUAL_CLOSURES entry has a unique id matching its own block, and actually landed", () => {
+    // Real content lands here per site (Sections 12.4-12.9); this only pins
+    // the shape every entry must keep, not a count or exact list -- that
+    // would just be re-deriving CAIRO_MAP_PACK.geometry.blocks by hand.
+    // Re-running validateCairoClosureCandidate here would not prove
+    // anything real: by now every closure is already in cairoBlocks, so it
+    // would just find itself as a "sibling" -- addReviewedCairoClosure
+    // already throws at import time if a closure fails to validate or
+    // place (see its own doc comment), so CAIRO_MAP_PACK existing at all is
+    // the proof every listed closure passed.
+    const ids = CAIRO_VISUAL_CLOSURES.map((closure) => closure.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const blockIds = new Set(CAIRO_MAP_PACK.geometry.blocks.map((block) => block.id));
+    for (const closure of CAIRO_VISUAL_CLOSURES) {
+      expect(closure.block.id, closure.id).toBe(closure.id);
+      expect(blockIds.has(closure.id), closure.id).toBe(true);
+    }
   });
 });

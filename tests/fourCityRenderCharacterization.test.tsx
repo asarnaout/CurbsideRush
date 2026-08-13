@@ -599,10 +599,22 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // occupancy is unchanged and exact (1_396 planned asset-slot entries,
     // matching the plan's own inventory). Materials/mirror/fingerprint are
     // unchanged: no new palette entries, same instanced/shared masters.
-    totalMeshes: 10_736,
-    enabledMeshes: 10_736,
+    //
+    // 10_736 -> 10_778 (materials 217 -> 218): the six
+    // `cairo-galaa-ne-land-edge-wall-{1..6}` closures (visual-gap plan
+    // Section 12.5, Al-Galaa NE corner) place 18 real procedural buildings
+    // (3 surviving cells per block — see the drawCount baseline above for
+    // why only 3 of 9 candidates survive). activeMeshes is unchanged: none
+    // of the 18 sit in this suite's fixed camera frustum, so the delta is
+    // enabled-but-inactive mesh count only, not a live draw-call cost.
+    // Not independently re-derived mesh-for-mesh (the 18 buildings' own
+    // decorative sub-mesh count wasn't hand-counted); the one new material
+    // is plausibly a single shared "sandstone" variant instanced across all
+    // 18, not verified further.
+    totalMeshes: 10_778,
+    enabledMeshes: 10_778,
     activeMeshes: 1_747,
-    materials: 217,
+    materials: 218,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -612,7 +624,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "a7ebaba1",
+    survivingMaterialNamesFingerprint: "e2316bb7",
   },
 };
 

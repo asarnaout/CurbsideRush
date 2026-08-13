@@ -51,7 +51,18 @@ import type {
  * majority of roadside parcels — if a guard change flips that balance, that is
  * a decision for a person, not a constant to re-pin in passing.
  */
-const BLOCK_COUNT = 650;
+// 650 -> 656 (visual-gap plan Section 12.5, P0, Al-Galaa NE corner): six
+// `cairo-galaa-ne-land-edge-wall-{1..6}` CAIRO_VISUAL_CLOSURES entries,
+// closing the pocket the slot pass's own frontage fell ~10 m short of the
+// whole way up Al-Galaa's east side, and stopped covering entirely past
+// its diagonal segment's own end. A single 76 m block was tried first and
+// rejected: `facadeGridCells` caps every block at ~9 cells regardless of
+// length, so one long block left 20-37 m gaps between its few buildings.
+// Six short (~18-19 m) pieces instead, each getting its own ~9-cell
+// spread, tile with only ~1 m seams. None of the six have "-roadside-" in
+// their id (reviewed closures, not generator output), so ROADSIDE_COUNT
+// is unaffected.
+const BLOCK_COUNT = 656;
 const ROADSIDE_COUNT = 626;
 const ROADSIDE_LEFT = 313;
 /** The second rank is gone — a one-sided kit means a back row can only stare
@@ -59,7 +70,11 @@ const ROADSIDE_LEFT = 313;
  * Zero, pinned, so it cannot quietly come back. */
 const ROADSIDE_RANKS = 0;
 const STREET_WALL_BLOCKS = 471;
-const FACADE_BOX_CELLS = 1590;
+// 1590 -> 1644: the six cairo-galaa-ne-land-edge-wall-* closures (Section
+// 12.5) have no buildingSet, so each takes the procedural facade grid like
+// any other undressed block -- max(1, round(3 + 0.82*7)) = 9 cells per
+// block, 6 blocks * 9 = 54.
+const FACADE_BOX_CELLS = 1644;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
