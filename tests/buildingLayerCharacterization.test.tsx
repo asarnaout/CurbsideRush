@@ -228,7 +228,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // venue carries a `buildingKeepOuts` circle, so relocating one re-decides
     // which street-wall buildings survive on the block it left and the one it
     // joined; a rezoned block draws from a different set entirely.
-    buildingInstanceCount: 5_305,
+    // -> 5_373 (visual-gap plan Section 11.2, P0): `buildNycBlocks`'s
+    // west-margin loop walked globally consecutive `streets`, so E 61st (an
+    // east-only street sharing 61st's z) and the bk40/Queensview-Bridge pair
+    // (Queens-only, unreached by West End) silently dropped the two real
+    // West End Ave rows between them instead of merging across the
+    // interruption, leaving two 214 m grey gaps. Filtering to West End's own
+    // reachable streets before pairing (the same fix the Steinway
+    // east-margin loop already used) restores both rows: +68 buildings.
+    buildingInstanceCount: 5_373,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 12,
   },
