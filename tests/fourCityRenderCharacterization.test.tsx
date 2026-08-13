@@ -209,8 +209,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // residual-cell fix, +44 planned buildings (5_373 -> 5_417) against +21
     // meshes here — the same sub-1:1 pattern as 11.2 above, same reasoning
     // for not chasing it further.
-    totalMeshes: 27_468,
-    enabledMeshes: 27_468,
+    // 27_468 -> 27_481 (Section 11.4, P0): Queensbridge Green grown from
+    // 110x200 to its full 124x454 null-cell, +13 meshes — the generic
+    // `resolveParkStyle`/path/scatter/wall system scaling its own output to
+    // the larger footprint (still `urban_greensward`, unchanged style), not
+    // a building-count change (`buildingLayerCharacterization.test.tsx`
+    // does not move here, correctly: no block was touched, only a park).
+    totalMeshes: 27_481,
+    enabledMeshes: 27_481,
     activeMeshes: 961,
     materials: 188,
     drawCallsPerFrame: 0,

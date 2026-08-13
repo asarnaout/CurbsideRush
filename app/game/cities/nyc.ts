@@ -1403,12 +1403,19 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-esplanade-south", kind: "park", center: point(500, -1158), size: point(95, 604), color: "#4f7a3d" },
       { id: "nyc-esplanade", kind: "park", center: point(500, 0), size: point(95, 1640), color: "#4f7a3d" },
       { id: "nyc-esplanade-north", kind: "park", center: point(500, 1158), size: point(95, 604), color: "#4f7a3d" },
-      // Queensbridge Green: the borough's own park, wholly inside the
-      // vern-cres column (x 820..930 sits within the 813..937 interior) and
-      // clear of 44th/48th Aves by 140 m either side of its z-span. The
-      // vern-cres cell under it is null-zoned in nycZoneFor (the museum-cell
-      // pattern) so no house block shares its ground.
-      { id: "nyc-queensbridge-green", kind: "park", center: point(875, -120), size: point(110, 200), color: "#5c8c4b" },
+      // Queensbridge Green (visual-gap plan Section 11.4, P0): the borough's
+      // own civic park, expanded from an original 110x200 island (leaving
+      // 127 m of bare land north and south) to own its FULL null-zoned
+      // vern-cres cell, pavement to pavement — x=813..937 (Vernon/Crescent's
+      // own coordinates inset by NYC_BLOCK_INSET_M, exactly this park's
+      // width) and z=-347..107 (bk44/bk48 inset the same way). No bridge or
+      // bank street crosses this specific column (qvb/hlb sit at z=-840/840,
+      // well outside this span), so the whole interior is open ground and
+      // needs no split. `resolveParkStyle` keeps this "urban_greensward" at
+      // the new size too (454/124 ~ 3.7, under STRIP_ASPECT's 6), so the
+      // generic path/planting recipe scales to the larger footprint on its
+      // own rather than needing a hand-authored `parkStyle`.
+      { id: "nyc-queensbridge-green", kind: "park", center: point(875, -120), size: point(124, 454), color: "#5c8c4b" },
       // Riverside Park fills the far side of Riverside Drive, where the land
       // really does fall away to the Hudson — so the west edge of the map is
       // green rather than another row of brownstones.
