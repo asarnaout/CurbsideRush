@@ -139,6 +139,27 @@ describe("procedural street addresses", () => {
     }
   });
 
+  it("adds two genuine West End Ave addresses where the west-margin fix restored frontage (plan Section 11.2)", () => {
+    // `nyc-block-west-margin--1080`/`--840` are ordinary, addressable
+    // brownstone frontage — the same kind of content their pre-existing
+    // `-1320`/`-600` siblings already are, not gap-closure scenery — so
+    // Section 9.1 explicitly allows them to stay addressable after
+    // reachability review. Named here so this is a recorded, intentional
+    // gig-pool addition rather than an incidental one: "164 West End Ave"
+    // and "248 West End Ave" are new; every other address on the street is
+    // unchanged.
+    const westEnd = nycAddresses.filter((a) => a.roadId === "nyc-west-end");
+    expect(westEnd.map((a) => a.name)).toContain("164 West End Ave");
+    expect(westEnd.map((a) => a.name)).toContain("248 West End Ave");
+    for (const name of ["164 West End Ave", "248 West End Ave"]) {
+      const address = westEnd.find((a) => a.name === name)!;
+      expect(address.side, name).toBe(-1);
+      expect(address.kind, name).toBe("residence");
+      const lane = nyc.laneGraph.lanes.find((l) => l.id === address.laneId)!;
+      expect(lane, name).toBeDefined();
+    }
+  });
+
   it("spaces drop-offs along a kerb, and never stacks two anywhere", () => {
     for (let i = 0; i < nycAddresses.length; i += 1) {
       for (let j = i + 1; j < nycAddresses.length; j += 1) {

@@ -1023,44 +1023,52 @@ function buildNycBlocks(
     }
   }
 
-  // West-margin strips are a grid-edge concept, not a per-column one: still
-  // walks globally consecutive streets to find each row's westmost reaching
-  // avenue, same as the whole function did before the column split above.
-  const westAvenueKeys: readonly string[] = NYC_WEST_STREET_CROSSINGS;
-  for (let row = 0; row + 1 < streets.length; row += 1) {
-    const south = streets[row];
-    const north = streets[row + 1];
-    const centreZ = (south.coordinate + north.coordinate) / 2;
-    const depthZ = north.coordinate - south.coordinate - NYC_BLOCK_INSET_M * 2;
-    if (depthZ <= 0) continue;
-    const present = avenues.filter(
-      (avenue) => reaches(avenue, south) && reaches(avenue, north),
-    );
-    const westmost = present[0];
-    // A row only an east avenue reaches (the bridge-flanking rows, where
-    // only Third's crossings list stretches that far south/north of the
-    // bridgehead) has no real west-grid frontage missing — "westmost" here
-    // is an artifact of a crossings-list gap, not the map edge, and a margin
-    // beyond it would land inside Central Park (west of Fifth) or double up
-    // on the lex-third column's own block (west of Third). Riverside Drive's
-    // far side is Riverside Park, not frontage, so it is excluded too.
-    if (!westmost || !westAvenueKeys.includes(westmost.key) || westmost.key === "riv") continue;
-    tagged.push({
-      block: {
-        id: `nyc-block-west-margin-${Math.round(centreZ)}`,
-        center: point(
-          westmost.coordinate - NYC_BLOCK_INSET_M - NYC_MARGIN_DEPTH_M / 2,
-          centreZ,
-        ),
-        size: point(NYC_MARGIN_DEPTH_M, depthZ),
-        heightRange: NYC_ZONES.brownstone.heightRange,
-        density: NYC_ZONES.brownstone.density,
-        material: NYC_ZONES.brownstone.material,
-        buildingSet: NYC_ZONES.brownstone.buildingSet,
-      },
-      streetIndex: row,
-      avenueIndex: avenues.length,
-    });
+  // West-margin strips are a grid-edge concept, not a per-column one. West
+  // End Ave is the only avenue that ever supplies it: Riverside Drive is
+  // always more westerly wherever it reaches (excluded below — its own
+  // outer side is Riverside Park, not building frontage, Section 11.7), and
+  // every other avenue shares West End's exact reach pattern but sits
+  // further east, so it is never selected. The old version walked globally
+  // consecutive `streets` to find each row's westmost reaching avenue — the
+  // same bug the per-column loop above fixed for real columns, just not
+  // fixed here yet: an east-only/bridge/borough street (E 61st, a bank
+  // street, a bridge) sitting between two streets West End really does
+  // reach breaks the pair and silently drops that row instead of merging
+  // across the interruption, rather than the two streets either side of it
+  // simply becoming neighbours in West End's own frontage. Filtering to West
+  // End's reachable streets first, then pairing consecutively, is the same
+  // fix the Steinway east-margin loop below already uses for its own
+  // avenue.
+  const westMarginAvenue = avenues.find((avenue) => avenue.key === "we");
+  const riverside = avenues.find((avenue) => avenue.key === "riv");
+  if (westMarginAvenue) {
+    const weStreets = streets.filter((street) => reaches(westMarginAvenue, street));
+    for (let row = 0; row + 1 < weStreets.length; row += 1) {
+      const south = weStreets[row];
+      const north = weStreets[row + 1];
+      // Riverside Drive is more westerly wherever it reaches; that stretch
+      // is its own park frontage, not this margin (Section 11.7).
+      if (riverside && reaches(riverside, south) && reaches(riverside, north)) continue;
+      const centreZ = (south.coordinate + north.coordinate) / 2;
+      const depthZ = north.coordinate - south.coordinate - NYC_BLOCK_INSET_M * 2;
+      if (depthZ <= 0) continue;
+      tagged.push({
+        block: {
+          id: `nyc-block-west-margin-${Math.round(centreZ)}`,
+          center: point(
+            westMarginAvenue.coordinate - NYC_BLOCK_INSET_M - NYC_MARGIN_DEPTH_M / 2,
+            centreZ,
+          ),
+          size: point(NYC_MARGIN_DEPTH_M, depthZ),
+          heightRange: NYC_ZONES.brownstone.heightRange,
+          density: NYC_ZONES.brownstone.density,
+          material: NYC_ZONES.brownstone.material,
+          buildingSet: NYC_ZONES.brownstone.buildingSet,
+        },
+        streetIndex: streets.indexOf(south),
+        avenueIndex: avenues.length,
+      });
+    }
   }
 
   // East-margin strips: the mirror case, but only past Steinway — the

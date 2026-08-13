@@ -417,6 +417,39 @@ describe("SideSwap content", () => {
     }
   });
 
+  it("gives West End Ave a west-margin row at every real block, including across E 61st/bank-street/bridge interruptions (plan Section 11.2)", () => {
+    const nyc = MAP_PACKS.find((m) => m.id === "nyc-upper-west-side");
+    expect(nyc).toBeDefined();
+    const westMargin = nyc!.geometry.blocks
+      .filter((b) => b.id.startsWith("nyc-block-west-margin-"))
+      .sort((a, b) => a.center.z - b.center.z);
+    // Four rows south of Riverside Drive's own reach (which starts at 72nd,
+    // z=-480): the two pre-existing end rows plus the two this fix restores.
+    // The old generator walked globally consecutive `streets`, so E 61st
+    // (an east-only street sharing 61st's z) and the bk40/Queensview-Bridge
+    // pair (Queens-only, unreached by West End) silently swallowed the two
+    // real West End rows between them instead of merging across them.
+    expect(westMargin.map((b) => b.id)).toEqual([
+      "nyc-block-west-margin--1320",
+      "nyc-block-west-margin--1080",
+      "nyc-block-west-margin--840",
+      "nyc-block-west-margin--600",
+    ]);
+    for (const block of westMargin) {
+      expect(block.size).toEqual({ x: 44, z: 214 });
+      expect(block.center.x).toBeCloseTo(-1055, 5);
+      expect(block.buildingSet).toBe("nyc-brownstone");
+    }
+    expect(westMargin[1].center.z).toBe(-1080);
+    expect(westMargin[2].center.z).toBe(-840);
+    // North of 72nd, Riverside Drive is the real westmost avenue and owns
+    // that frontage itself (Section 11.7's park/Hudson treatment) — no
+    // West End margin block should appear there.
+    for (const block of westMargin) {
+      expect(block.center.z).toBeLessThan(-480);
+    }
+  });
+
   it("gives every country a currency and formats money in it", () => {
     const expected: Record<
       string,

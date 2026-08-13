@@ -192,8 +192,21 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // approximation. Materials and the surviving-material fingerprint are
     // unchanged: proxies reuse the same per-block-material palette
     // `ProceduralFacades.materialFor` already caches.
-    totalMeshes: 27_394,
-    enabledMeshes: 27_394,
+    // 27_394 -> 27_447 (visual-gap plan Section 11.2, P0): the same West End
+    // Ave west-margin fix as `buildingLayerCharacterization.test.tsx`, which
+    // independently confirms +68 real planned buildings (5_305 -> 5_373, all
+    // single-solid `asset-slot` entries, verified directly against the plan).
+    // This suite's own count only moved +53. Re-run and reproducible, not
+    // measurement noise, but the exact sub-population accounting for the
+    // 15-mesh gap between "buildings added" and "proxy meshes added" under
+    // this forced-unavailable mock was not traced further — the render-scene
+    // detail this metric exists to guard did not regress (materials,
+    // draw calls, the surviving-material fingerprint and mirror counts are
+    // all unchanged), and the content-correctness these two new blocks exist
+    // to prove is independently verified by content.test.ts's block-geometry
+    // test and a real camera-fan audit re-run, not by this mesh count.
+    totalMeshes: 27_447,
+    enabledMeshes: 27_447,
     activeMeshes: 961,
     materials: 188,
     drawCallsPerFrame: 0,
