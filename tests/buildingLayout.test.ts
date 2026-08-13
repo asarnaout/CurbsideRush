@@ -631,6 +631,23 @@ describe("London P0 Regent Street closure (plan Section 10.3)", () => {
   });
 });
 
+describe("London P0 Euston/Upper Street T-junction closure (plan Section 10.4)", () => {
+  const plan = planMapBuildings(LONDON_MAP_PACK, 2251, relaxationPolicyForMap(LONDON_MAP_PACK.id));
+
+  it("the supplementary block exists exactly once, is not addressable, and plans real buildings", () => {
+    const block = LONDON_MAP_PACK.geometry.blocks.find((b) => b.id === "london-block-nes-fab-a-north");
+    expect(block).toBeDefined();
+    expect(block!.addressable).toBe(false);
+    expect(block!.streetEdges).toEqual(["-x"]);
+    const slots = plan.buildings.filter((b) => b.blockId === "london-block-nes-fab-a-north");
+    expect(slots.length).toBeGreaterThan(0);
+  });
+
+  it("no planned solid overlaps another planned solid, including the gas station's own shell", () => {
+    expectNoLocalSolidOverlaps(plan, ["london-block-nes-fab-a-north"]);
+  });
+});
+
 describe("diagnoseKeepOutSurvivorDeltas", () => {
   it("runs read-only against every map without mutating a subsequent plan", () => {
     for (const map of MAPS) {

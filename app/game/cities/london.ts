@@ -2512,6 +2512,12 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-ves-fab-a", center: point(440, -322), size: point(200, 104), streetEdges: ["-z"] as const, heightRange: [13, 21] as const, density: 0.74, material: LONDON_STUCCO, buildingSet: "london-stucco" },
   { id: "london-block-ves-fab-b", center: point(605, -329.5), size: point(90, 75), streetEdges: ["+z", "-z"] as const, heightRange: [13, 21] as const, density: 0.74, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-nes-fab-a", center: point(1290, 904), size: point(190, 48), streetEdges: ["-x"] as const, heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
+  // Supplements -nes-fab-a north, reaching toward the Euston/Upper Street
+  // T-junction terminus (euston-east, 1180,940) it stops 12 m short of —
+  // plan Section 10.4 P0. Same width/material/streetEdges for a continuous
+  // west-facing wall; the gas station (london-gas-city, lot ~1101,963) sits
+  // entirely west of x=1195, well clear of this block's own x-range.
+  { id: "london-block-nes-fab-a-north", center: point(1290, 949), size: point(190, 42), streetEdges: ["-x"] as const, heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace", addressable: false },
   { id: "london-block-hrs-fab-w", center: point(-12.5, -317.5), size: point(85, 75), streetEdges: ["+z", "-z"] as const, heightRange: [12, 19] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-hrs-fab-e", center: point(112, -310), size: point(56, 60), streetEdges: ["-z"] as const, heightRange: [12, 19] as const, density: 0.72, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-hrs-fab-s", center: point(57, -327.5), size: point(54, 55), streetEdges: ["-z"] as const, heightRange: [12, 19] as const, density: 0.72, material: LONDON_STUCCO, buildingSet: "london-stucco" },
