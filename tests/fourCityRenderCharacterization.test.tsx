@@ -443,8 +443,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 9_590: the Euston/Upper Street T-junction P0 (Section 10.4) —
     // london-block-nes-fab-a-north's 2 new slots, +2 meshes this time
     // (matching buildingLayerCharacterization's own +2 exactly).
-    totalMeshes: 9_590,
-    enabledMeshes: 9_590,
+    // -> 9_595: the Shoreditch/Canonbury north-east oblique-edge P0
+    // (Section 10.5) — london-block-canonbury-ne-fab-north's 5 new slots,
+    // +5 meshes (matching buildingLayerCharacterization's own +5 exactly).
+    totalMeshes: 9_595,
+    enabledMeshes: 9_595,
     activeMeshes: 878,
     materials: 302,
     drawCallsPerFrame: 0,
