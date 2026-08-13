@@ -577,20 +577,39 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // material for the streetlight's emissive head; mirror candidate/drawn
     // counts shift because the new lamps and the widened paved sidewalks
     // move what falls inside the fixed test pose's mirror cull ring.
-    totalMeshes: 1_174,
-    enabledMeshes: 1_174,
-    activeMeshes: 321,
-    materials: 97,
+    // -> Phase 2 (road-network skeleton + all three residential-web
+    // districts): worldSize 600x420 -> 2600x2400 and 5.5 -> ~62 lane-km (66
+    // roads, 338 lanes: the west-of-river ring/downtown skeleton plus
+    // Miyanosaka North, Yamashita South and Nishi) pushes every length-scaled
+    // draw (asphalt strips, kerb/junction fills, pavement rails) and the ~93
+    // generated stop-sign installations up by roughly the same order the
+    // lane-km grew; materials barely move because they are shared/instanced
+    // (one asphalt material, one stop-sign material, ...), not per-mesh —
+    // the same pattern Phase 1's own +88-mesh/+1-material line shows.
+    // activeMeshes/mirrorCandidates/mirrorDrawn shift because the fixed test
+    // pose's mirror cull ring now includes far more of the new network.
+    totalMeshes: 13_234,
+    enabledMeshes: 13_234,
+    activeMeshes: 1_106,
+    materials: 99,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 157,
-    mirrorDrawn: 74,
+    mirrorCandidates: 172,
+    mirrorDrawn: 163,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "0d482197",
+    // "0d482197" -> "2337712a": +1 material, "speedsign-60" — Kōshū-kaidō is
+    // Tokyo's first-ever 60 km/h road (the quarter topped out at 50).
+    // "2337712a" -> "a9a0d68a": +1 material, "speedsign-30" — the
+    // residential-web locals are Tokyo's first-ever 30 km/h roads. Each step
+    // is a speed-limit sign numeral plate that is a material name Tokyo's
+    // own scene never carried before (confirmed both times by dumping
+    // `survivingMaterialNames` for tokyo-setagaya and diffing against the
+    // previous list — the only new entry each time).
+    survivingMaterialNamesFingerprint: "a9a0d68a",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

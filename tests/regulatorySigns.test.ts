@@ -482,10 +482,13 @@ describe("speed-limit signage", () => {
 
   it("never out-numbers the signage it stands beside", () => {
     // A count regression is how this quietly becomes a forest of posts. NYC,
-    // Cairo and now London are the full-size cities; Tokyo keeps the old
-    // tighter budget. London joined them when it grew past the museum quarter
-    // — its signs are all 20 mph repeaters, so the count tracks road length
-    // rather than any change in what it posts.
+    // Cairo, London and now Tokyo are the full-size cities; each joined once
+    // it grew past its original small-map footprint — London past the museum
+    // quarter, Tokyo past the 5.5 lane-km village (Tokyo expansion Phase 2,
+    // ~44 lane-km). London's signs are all 20 mph repeaters, so its count
+    // tracks road length rather than any change in what it posts; Tokyo's
+    // vary by road class (60/50/40/30/20), so its count tracks BOTH road
+    // length and the residential web's much higher junction density.
     const nyc = signsFor(nycPack());
     expect(nyc.length).toBeLessThan(nycPlacements().length);
     expect(nyc.length).toBeLessThanOrEqual(240);
@@ -493,7 +496,8 @@ describe("speed-limit signage", () => {
       const budget =
         pack.id === "nyc-upper-west-side" ||
         pack.id === "cairo-central-nile" ||
-        pack.id === "london-south-kensington"
+        pack.id === "london-south-kensington" ||
+        pack.id === "tokyo-setagaya"
           ? 240
           : 60;
       expect(signsFor(pack).length, pack.id).toBeLessThanOrEqual(budget);
