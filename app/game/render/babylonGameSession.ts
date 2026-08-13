@@ -113,6 +113,19 @@ import {
   buildStaticObstacleOverlay,
   obstacleDistanceSquared,
 } from "./collisionDebugOverlay";
+import { buildVisualGapOverlay } from "./visualGapDebugOverlay";
+import {
+  auditMapVisualGapsForMap,
+  buildGroundRaster,
+  DEFAULT_AUDIT_CAMERA_PROFILES,
+  type GroundRaster,
+  type VisualGapReportRecord,
+} from "../geometry/visualGapCoverage";
+import {
+  collectMapVisualGeometry,
+  type CollectedGeometry,
+} from "../geometry/visualSceneFootprints";
+import { AUDIT_VIEWPORT_PROFILES } from "../cameraPoses";
 import {
   ProceduralFacades,
   type ProceduralFacadesCtx,
@@ -800,6 +813,22 @@ export class BabylonGameSession {
   private collisionOverlayEnabled = false;
   private collisionOverlayObstacleMesh: LinesMesh | null = null;
   private collisionOverlayCapsuleMesh: LinesMesh | null = null;
+  /** `collectMapVisualGeometry`/`buildGroundRaster` are pure functions of
+   * `this.buildingLayout` and `this.options.mapPack`, both fixed for the
+   * session's lifetime — computed once, lazily, on the first
+   * `__sideswapVisualGapReport()` call and reused by every later call
+   * (including a `fan`-scoped one) rather than repaying the collection
+   * pass every time. Null until first computed. */
+  private visualGapGeometryCache: {
+    readonly geometry: CollectedGeometry;
+    readonly raster: GroundRaster;
+  } | null = null;
+  /** The most recent `__sideswapVisualGapReport()` call's own records —
+   * cached so `__sideswapVisualGapOverlay` can resolve a `failureId`
+   * without recomputing. Empty until a `fan`/`fullMatrix` report call
+   * actually produces some. */
+  private lastVisualGapRecords: readonly VisualGapReportRecord[] = [];
+  private visualGapOverlayMesh: LinesMesh | null = null;
   private simulationSnapshot: SimulationSnapshot;
   private playerVehicleVisual: VehicleMeshVisual | null = null;
   /** The player-as-cyclist rig (career bicycle days); null on car days. */
@@ -1563,6 +1592,8 @@ export class BabylonGameSession {
         "__sideswapCollisionDebug",
         "__sideswapCollisionOverlay",
         "__sideswapBuildingRepresentationDebug",
+        "__sideswapVisualGapReport",
+        "__sideswapVisualGapOverlay",
       ]) {
         delete debugWindow[key];
       }
@@ -1571,6 +1602,10 @@ export class BabylonGameSession {
     this.collisionOverlayObstacleMesh = null;
     this.collisionOverlayCapsuleMesh?.dispose();
     this.collisionOverlayCapsuleMesh = null;
+    this.visualGapOverlayMesh?.dispose();
+    this.visualGapOverlayMesh = null;
+    this.visualGapGeometryCache = null;
+    this.lastVisualGapRecords = [];
     this.cutsceneDirector?.dispose(this.cutsceneDirectorCtx());
     this.engine.stopRenderLoop(this.renderFrame);
     // Withdraw the mirrors before the scene goes: a render target left in
@@ -5180,6 +5215,76 @@ export class BabylonGameSession {
               recycled: walker.justRecycled,
             })) ?? [],
         };
+      };
+      // The plan's own Section 13.4 debug surface: the deterministic
+      // visual-gap report and (below) its overlay. Always reuses this
+      // session's OWN already-built `buildingLayout` — never a freshly
+      // recomputed plan, which the running session's actual on-screen
+      // occupancy could legitimately have diverged from (a forced asset
+      // failure, a different detail tier). The raster/blob pass alone is
+      // fast enough to run on every call; the real camera-fan sweep
+      // (`fan`/`fullMatrix`) is not (a full unscoped sweep measured well
+      // over 7 minutes during Section 12.11's own work) — opt in
+      // explicitly, and scope with `roadIds` the same way the CLI's own
+      // `--roads` flag does, for anything beyond a quick blob census.
+      debugWindow.__sideswapVisualGapReport = (options?: {
+        readonly roadIds?: readonly string[];
+        readonly fan?: boolean;
+        readonly fullMatrix?: boolean;
+      }) => {
+        const mapPack = this.options.mapPack;
+        if (!this.visualGapGeometryCache) {
+          const geometry = collectMapVisualGeometry(mapPack, this.buildingLayout);
+          const raster = buildGroundRaster(geometry.groundSurfaces, geometry.occluders);
+          this.visualGapGeometryCache = { geometry, raster };
+        }
+        const { geometry, raster } = this.visualGapGeometryCache;
+        const records = options?.fan || options?.fullMatrix
+          ? auditMapVisualGapsForMap(
+              mapPack.id,
+              mapPack.geometry.worldSize,
+              mapPack.geometry.roadSurfaces ?? [],
+              defaultSidewalkWidthM(mapPack),
+              geometry,
+              raster,
+              {
+                seedId: `seed-${this.options.scenario.trafficSeed}`,
+                representationProfile: this.lowSpec ? "structural-proxy" : "full-detail",
+                cameraProfiles: options?.fullMatrix ? undefined : [DEFAULT_AUDIT_CAMERA_PROFILES[0]],
+                viewports: options?.fullMatrix ? undefined : [AUDIT_VIEWPORT_PROFILES[0]],
+                onlyRoadIds: options?.roadIds ? new Set(options.roadIds) : undefined,
+              },
+            )
+          : [];
+        this.lastVisualGapRecords = records;
+        return {
+          mapId: mapPack.id,
+          blobCount: raster.blobs.length,
+          qualifyingBlobCount: raster.blobs.filter((blob) => blob.qualifying).length,
+          unsupportedCellCount: raster.unsupportedCellIds.length,
+          rayFailureCount: records.length,
+          records,
+        };
+      };
+      // Draws (or, given null, clears) the one overlay `__sideswapVisualGapReport`'s
+      // own record set makes inspectable (eye marker, ray, blob outline,
+      // nearest opaque owner, crossed ground surfaces — see
+      // visualGapDebugOverlay.ts). Silently no-ops on an unknown/stale id
+      // rather than throwing, so a QA script driving through several
+      // reports in a row can never crash the session on this call alone.
+      debugWindow.__sideswapVisualGapOverlay = (failureId: string | null) => {
+        this.visualGapOverlayMesh?.dispose();
+        this.visualGapOverlayMesh = null;
+        if (!failureId || !this.visualGapGeometryCache) return;
+        const record = this.lastVisualGapRecords.find(
+          (candidate) => candidate.failureId === failureId,
+        );
+        if (!record) return;
+        this.visualGapOverlayMesh = buildVisualGapOverlay(
+          this.scene,
+          record,
+          this.visualGapGeometryCache.geometry,
+        );
       };
     }
   }

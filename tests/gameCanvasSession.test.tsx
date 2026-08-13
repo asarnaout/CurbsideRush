@@ -74,6 +74,8 @@ const SIDESWAP_DEBUG_HOOKS = [
   "__sideswapCollisionDebug",
   "__sideswapCollisionOverlay",
   "__sideswapBuildingRepresentationDebug",
+  "__sideswapVisualGapReport",
+  "__sideswapVisualGapOverlay",
 ] as const;
 
 function createFake2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
@@ -239,6 +241,57 @@ describe("BabylonGameSession smoke test", () => {
       const meshes = (debugWindow.__sideswapMeshes as () => unknown[])();
       expect(meshes.length).toBeGreaterThan(0);
 
+      // The default (no `fan`) call is the fast raster/blob census only —
+      // proves the hook reuses this session's OWN `buildingLayout` (a fresh
+      // `planMapBuildings` call would still typecheck but silently audit a
+      // different plan than what's on screen) end to end, without paying
+      // for a real camera-fan sweep in this test.
+      const report = (
+        debugWindow.__sideswapVisualGapReport as (options?: {
+          roadIds?: readonly string[];
+          fan?: boolean;
+          fullMatrix?: boolean;
+        }) => {
+          mapId: string;
+          blobCount: number;
+          qualifyingBlobCount: number;
+          rayFailureCount: number;
+          records: readonly unknown[];
+        }
+      )();
+      expect(report.mapId).toBe(LONDON_MAP_PACK.id);
+      expect(report.blobCount).toBeGreaterThan(0);
+      expect(report.rayFailureCount).toBe(0);
+      expect(report.records).toHaveLength(0);
+      // No report has been fan-audited yet, so an overlay call must no-op
+      // rather than throw.
+      const overlayHook = debugWindow.__sideswapVisualGapOverlay as (
+        id: string | null,
+      ) => void;
+      expect(() => overlayHook("not-a-real-failure-id")).not.toThrow();
+
+      // A real, scoped (single, short road -> seconds not minutes) fan
+      // sweep, so the overlay path is proven against an actual record's
+      // geometry at least once, not just its own no-op branch.
+      const fanReport = (
+        debugWindow.__sideswapVisualGapReport as (options?: {
+          roadIds?: readonly string[];
+          fan?: boolean;
+        }) => { records: readonly { failureId: string }[] }
+      )({ roadIds: ["london-islington-circus"], fan: true });
+      expect(fanReport.records.length).toBeGreaterThan(0);
+      const meshesBeforeOverlay = meshes.length;
+      expect(() => overlayHook(fanReport.records[0].failureId)).not.toThrow();
+      const meshesWithOverlay = (
+        debugWindow.__sideswapMeshes as () => unknown[]
+      )();
+      expect(meshesWithOverlay.length).toBeGreaterThan(meshesBeforeOverlay);
+      expect(() => overlayHook(null)).not.toThrow();
+      const meshesAfterClear = (
+        debugWindow.__sideswapMeshes as () => unknown[]
+      )();
+      expect(meshesAfterClear.length).toBe(meshesBeforeOverlay);
+
       // (2) N fixed steps -> onHudUpdate snapshots with a finite pose and an
       // advancing sim clock.
       const countBeforeTicking = hudSnapshots.length;
@@ -274,6 +327,14 @@ describe("BabylonGameSession smoke test", () => {
         expect(hook in debugWindow, hook).toBe(false);
       }
     },
-    30_000,
+    // 30_000 -> 60_000: the real (single-road-scoped) `__sideswapVisualGapReport`
+    // fan-sweep check added for Section 13.4's own hooks. `collectMapVisualGeometry`/
+    // `buildGroundRaster` are cached on the session after their first call
+    // (see `visualGapGeometryCache`), so this second call only pays for the
+    // scoped fan sweep itself — back to the original ~25s baseline in
+    // isolation. The bump over 30_000 is purely for parallel-suite headroom
+    // (a first attempt with no caching measured 91s+ and timed out under
+    // full-suite contention; this margin is deliberate, not arbitrary).
+    60_000,
   );
 });
