@@ -278,6 +278,21 @@ boxes where parallel streets pinch below full parcel depth. Two-tier audit in
 run" — anything within 16 m counts as frontage, no buildable side runs more
 than 125 m bare.
 
+**A third, reviewed pass runs after slot-fill and gap-fill: `CAIRO_VISUAL_CLOSURES`**
+(visual-gap plan Section 12.3) — hand-authored closures the camera-fan audit
+found necessary, never a general second rank over every hidden parcel
+interior. Every `RoadsideExclusion` now carries a stable `id`/`ownerId`/
+`ownerKind`, and one pure validator (`validateCairoClosureCandidate`, the
+same road/water/bounds/exclusion/sibling checks the two generator passes
+already used) gates every closure through `addReviewedCairoClosure`. Its
+only new power over the generator passes: an explicit
+`allowInflatedOverlapOwnerIds` allow-list can forgive a *specific* owner's
+`inflated` margin — never its `raw` footprint, which stays absolute for
+every owner, listed or not. A closure that fails validation, or whose
+allow-list names an owner with no real exclusion, throws at import time
+rather than silently not building — see `tests/cairoVisualClosures.test.ts`
+for the negative-case proof.
+
 **A roadside strip must name its one road-facing edge** (`streetEdges` on
 `ProceduralBlock`). `slotBlockBuildings` defaults to all four, which is right
 for a city block and wrong for a strip: buildings inset by half their depth,
