@@ -30,7 +30,7 @@ describe("Cairo corniche parapet", () => {
     },
     buildingLayout: planMapBuildings(pack, hashStringToSeed(pack.id)),
   });
-  const runs = shorelineParapetRuns(obstacles);
+  const runs = shorelineParapetRuns(obstacles, pack.geometry.worldSize.z / 2);
   const water = pack.geometry.waterBodies ?? [];
 
   it("rails both banks of both channels and nothing else", () => {

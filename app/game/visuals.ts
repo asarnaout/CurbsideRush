@@ -82,6 +82,31 @@ export interface MapVisualPalette {
 export type MapVisualKey = "nyc" | "london" | "tokyo" | "cairo";
 
 /**
+ * Shape shared by every city's own open-waterfront table (Cairo's
+ * `CAIRO_OPEN_WATERFRONT_SIDES`, Tokyo's `TOKYO_OPEN_WATERFRONT_SIDES`):
+ * road-surface id -> the side(s), in `generatePromenadeDecor`'s own
+ * left/right sense, that face open water and so skip the street wall and
+ * get the corniche-style parapet + promenade decor instead.
+ */
+export type OpenWaterfrontSides = Readonly<Partial<Record<string, readonly (-1 | 1)[]>>>;
+
+/**
+ * Which map keys get the promenade parapet render pass
+ * (`shorelineParapetRuns`) and `generatePromenadeDecor` at all. The actual
+ * per-road tables (`CAIRO_OPEN_WATERFRONT_SIDES`, `TOKYO_OPEN_WATERFRONT_SIDES`)
+ * live with each city's own content instead of here — this file cannot import
+ * them without a cycle (every `cities/*.ts` file already imports FROM this
+ * one for `hashStringToSeed`/`PAVED_SIDEWALK_WIDTH_M`/etc; a `visuals.ts` ->
+ * `cities/cairo.ts` -> `visuals.ts` circular import would make whichever
+ * table loses the race a TDZ crash, not silently wrong data). Consumers
+ * needing the real per-road table (`render/roadsideProps.ts`) import both
+ * cities' tables directly and key a small local lookup off this same
+ * `MapVisualKey`; consumers only needing a yes/no gate
+ * (`render/babylonGameSession.ts`) use this set alone.
+ */
+export const PROMENADE_DRESSING_MAP_KEYS: ReadonlySet<MapVisualKey> = new Set(["cairo", "tokyo"]);
+
+/**
  * How wide the concrete sidewalk band renders on `paved` maps. Shared by the
  * renderer (sidewalk strips), the pavement rail graph (walkers), and the
  * static-collider clamp that keeps venue lots off the walkable band.

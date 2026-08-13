@@ -1690,6 +1690,27 @@ export const TOKYO_MAP_PACK: MapPack = {
   ),
 };
 
+/**
+ * Which carriageway side(s) of Tokyo's riverside collectors face the open
+ * Sakuragawa — mirrors `CAIRO_OPEN_WATERFRONT_SIDES`'s shape exactly (see
+ * `cities/cairo.ts`), consumed by `render/roadsideProps.ts`'s per-map
+ * open-sides lookup. Both roads run their whole authored centreline
+ * northward (ascending z), so the sign is derived once from
+ * `generatePromenadeDecor`'s own right-hand `side` convention (outward =
+ * `(alongZ*side, -alongX*side)`), not eyeballed: jp-kawate-dori sits west of
+ * the river, so its river side is +X (side 1); jp-kawagishi-dori sits east
+ * of the river, so its river side is -X (side -1). Decor content itself
+ * (which trees/lamps/benches place) stays Cairo-only for now — the plan
+ * defers that tuning to Phase 9; this table only turns on the structural
+ * parapet/shore read, matching every currently-`undefined` road here (no
+ * street wall gets built against the river side either way, since the block
+ * fabric that would do that is Phase 4's job, not authored yet).
+ */
+export const TOKYO_OPEN_WATERFRONT_SIDES: Readonly<Partial<Record<string, readonly (-1 | 1)[]>>> = {
+  "jp-kawate-dori": [1],
+  "jp-kawagishi-dori": [-1],
+};
+
 export const TOKYO_FREE_DRIVE: FreeDriveDefinition = {
   id: "free-jp",
   countryId: "jp",

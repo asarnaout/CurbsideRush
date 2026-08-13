@@ -9,6 +9,7 @@ import {
   buildLondonStreetFurniture,
 } from "../app/game/render/londonLandmarks";
 import { buildNycLandmark } from "../app/game/render/nycLandmarks";
+import { buildTokyoLandmark } from "../app/game/render/tokyoLandmarks";
 import { LONDON_MAP_PACK } from "../app/game/cities/london";
 import { CAIRO_MAP_PACK } from "../app/game/cities/cairo";
 import { NYC_MAP_PACK } from "../app/game/cities/nyc";
@@ -46,8 +47,14 @@ describe("cityRenderRegistry", () => {
     expect(entry?.streetFurniture).toBeUndefined();
   });
 
-  it("has no row for Tokyo's real map id — its landmarks fall through to the generic kind-based rendering", () => {
-    expect(cityRenderRegistryFor(TOKYO_MAP_PACK.id)).toBeUndefined();
+  it("routes Tokyo's real map id to its own landmark builder, with no street-furniture entry", () => {
+    // Phase 3 of the Tokyo expansion (river + three bridges) — the bridge
+    // dressing (parapets/guardrails/lamps/the Kawanaka-bashi arch) needs a
+    // bespoke builder the same way NYC's and Cairo's bridges/landmarks do.
+    // Street furniture (chochin posts, neon boards) is Phase 9's.
+    const entry = cityRenderRegistryFor(TOKYO_MAP_PACK.id);
+    expect(entry?.landmarks).toBe(buildTokyoLandmark);
+    expect(entry?.streetFurniture).toBeUndefined();
   });
 
   it("an unrecognised mapId gets no entry — never a default city's look", () => {
@@ -57,7 +64,7 @@ describe("cityRenderRegistry", () => {
 
   it("CITY_RENDER_REGISTRY's own keys are exactly the cities with a real dispatch", () => {
     expect(Object.keys(CITY_RENDER_REGISTRY).sort()).toEqual(
-      [CAIRO_MAP_PACK.id, LONDON_MAP_PACK.id, NYC_MAP_PACK.id].sort(),
+      [CAIRO_MAP_PACK.id, LONDON_MAP_PACK.id, NYC_MAP_PACK.id, TOKYO_MAP_PACK.id].sort(),
     );
   });
 });
