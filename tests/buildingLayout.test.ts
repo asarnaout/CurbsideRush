@@ -3,6 +3,7 @@ import {
   diagnoseKeepOutSurvivorDeltas,
   isLondonMuseumBlock,
   planMapBuildings,
+  type BuildingLayoutPlan,
   type PlannedAssetBuilding,
   type PlannedBuilding,
   type PlannedProceduralBuilding,
@@ -41,6 +42,70 @@ function mapWithBlocks(
   blocks: GameCanvasMapPack["geometry"]["blocks"],
 ): GameCanvasMapPack {
   return { ...base, geometry: { ...base.geometry, blocks } };
+}
+
+interface NamedSolid {
+  readonly ownerId: string;
+  readonly x: number;
+  readonly z: number;
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+}
+
+/** Exact OBB-vs-OBB SAT overlap — no clearance, a true intersection test. */
+function obbsOverlap(a: NamedSolid, b: NamedSolid): boolean {
+  const axes: readonly [number, number][] = [
+    [a.ux, a.uz],
+    [a.uz, -a.ux],
+    [b.ux, b.uz],
+    [b.uz, -b.ux],
+  ];
+  const cornersOf = (s: NamedSolid) => {
+    const vx = s.uz;
+    const vz = -s.ux;
+    return [
+      { x: s.x + s.ux * s.halfU + vx * s.halfV, z: s.z + s.uz * s.halfU + vz * s.halfV },
+      { x: s.x - s.ux * s.halfU + vx * s.halfV, z: s.z - s.uz * s.halfU + vz * s.halfV },
+      { x: s.x - s.ux * s.halfU - vx * s.halfV, z: s.z - s.uz * s.halfU - vz * s.halfV },
+      { x: s.x + s.ux * s.halfU - vx * s.halfV, z: s.z + s.uz * s.halfU - vz * s.halfV },
+    ];
+  };
+  const cornersA = cornersOf(a);
+  const cornersB = cornersOf(b);
+  for (const [ax, az] of axes) {
+    const projA = cornersA.map((c) => c.x * ax + c.z * az);
+    const projB = cornersB.map((c) => c.x * ax + c.z * az);
+    if (Math.max(...projA) < Math.min(...projB) || Math.max(...projB) < Math.min(...projA)) return false;
+  }
+  return true;
+}
+
+/**
+ * Fails if any solid belonging to `blockIds` overlaps any OTHER planned
+ * solid anywhere on the map — a cheap but real pairwise check restricted to
+ * candidates actually near the changed blocks (O(local x all), not
+ * O(all x all)). The exact failure mode a misjudged `extraInsetM`/`depthM`/
+ * hand-placed position can introduce silently; caught a genuine bug this
+ * way once already (a draft Cornmarket corner cap overlapping its own
+ * sibling frontage) before it shipped.
+ */
+function expectNoLocalSolidOverlaps(plan: BuildingLayoutPlan, blockIds: readonly string[]): void {
+  const changedSolids: NamedSolid[] = plan.buildings
+    .filter((b) => blockIds.includes(b.blockId))
+    .flatMap((b) => b.solids.map((s) => ({ ownerId: b.id, ...s })));
+  expect(changedSolids.length).toBeGreaterThan(0);
+  const nearby = plan.buildings.filter((b) =>
+    changedSolids.some((s) => Math.hypot(b.x - s.x, b.z - s.z) < 60),
+  );
+  const allNearbySolids: NamedSolid[] = nearby.flatMap((b) => b.solids.map((s) => ({ ownerId: b.id, ...s })));
+  for (const changed of changedSolids) {
+    for (const other of allNearbySolids) {
+      if (other.ownerId === changed.ownerId) continue;
+      expect(obbsOverlap(changed, other), `${changed.ownerId} vs ${other.ownerId}`).toBe(false);
+    }
+  }
 }
 
 describe("planMapBuildings — determinism", () => {
@@ -517,49 +582,52 @@ describe("London P0 Cornmarket closure (plan Section 10.2)", () => {
   });
 
   it("no planned Cornmarket solid overlaps another planned solid anywhere on the map", () => {
-    // A cheap but real pairwise check restricted to solids actually near
-    // Cornmarket (O(local x all) instead of O(all x all)) -- the exact
-    // failure mode a misjudged extraInsetM/depthM could introduce silently.
-    const cornmarketSolids = plan.buildings
-      .filter((b) => cornmarketBlockIds.includes(b.blockId))
-      .flatMap((b) => b.solids.map((s) => ({ ownerId: b.id, ...s })));
-    expect(cornmarketSolids.length).toBeGreaterThan(0);
-    const nearby = plan.buildings.filter((b) =>
-      cornmarketSolids.some((s) => Math.hypot(b.x - s.x, b.z - s.z) < 60),
-    );
-    const allNearbySolids = nearby.flatMap((b) => b.solids.map((s) => ({ ownerId: b.id, ...s })));
-    const sat = (a: (typeof allNearbySolids)[number], b: (typeof allNearbySolids)[number]) => {
-      const axes: readonly [number, number][] = [
-        [a.ux, a.uz],
-        [a.uz, -a.ux],
-        [b.ux, b.uz],
-        [b.uz, -b.ux],
-      ];
-      const cornersOf = (s: (typeof allNearbySolids)[number]) => {
-        const vx = s.uz;
-        const vz = -s.ux;
-        return [
-          { x: s.x + s.ux * s.halfU + vx * s.halfV, z: s.z + s.uz * s.halfU + vz * s.halfV },
-          { x: s.x - s.ux * s.halfU + vx * s.halfV, z: s.z - s.uz * s.halfU + vz * s.halfV },
-          { x: s.x - s.ux * s.halfU - vx * s.halfV, z: s.z - s.uz * s.halfU - vz * s.halfV },
-          { x: s.x + s.ux * s.halfU - vx * s.halfV, z: s.z + s.uz * s.halfU - vz * s.halfV },
-        ];
-      };
-      const cornersA = cornersOf(a);
-      const cornersB = cornersOf(b);
-      for (const [ax, az] of axes) {
-        const projA = cornersA.map((c) => c.x * ax + c.z * az);
-        const projB = cornersB.map((c) => c.x * ax + c.z * az);
-        if (Math.max(...projA) < Math.min(...projB) || Math.max(...projB) < Math.min(...projA)) return false;
-      }
-      return true;
-    };
-    for (let i = 0; i < cornmarketSolids.length; i += 1) {
-      for (const other of allNearbySolids) {
-        if (other.ownerId === cornmarketSolids[i].ownerId) continue;
-        expect(sat(cornmarketSolids[i], other), `${cornmarketSolids[i].ownerId} vs ${other.ownerId}`).toBe(false);
-      }
+    expectNoLocalSolidOverlaps(plan, cornmarketBlockIds);
+  });
+});
+
+describe("London P0 Regent Street closure (plan Section 10.3)", () => {
+  const plan = planMapBuildings(LONDON_MAP_PACK, 2251, relaxationPolicyForMap(LONDON_MAP_PACK.id));
+  // -w-piccadilly and -w-oxford are deliberately absent: roadsideParcel
+  // returns null for -w-oxford (its foreign-road trim against Oxford
+  // Street's own parcel shrinks the surviving span below the minimum),
+  // and every -w-piccadilly placement tried either overlapped
+  // london-block-piccadilly-n-2's own corner row or shrank to nothing the
+  // same way. The audit confirms both named poses close anyway, entirely
+  // off the two surviving east-side blocks.
+  const regentBlockIds = [
+    "london-block-regent-e-piccadilly",
+    "london-block-regent-e-oxford",
+  ];
+
+  it("each new block exists exactly once, is not addressable, and has an explicit streetEdges value", () => {
+    for (const blockId of regentBlockIds) {
+      const blocks = LONDON_MAP_PACK.geometry.blocks.filter((b) => b.id === blockId);
+      expect(blocks, blockId).toHaveLength(1);
+      expect(blocks[0].addressable, blockId).toBe(false);
+      expect(blocks[0].streetEdges, blockId).toBeDefined();
+      expect(blocks[0].streetEdges!.length, blockId).toBeGreaterThan(0);
     }
+  });
+
+  it("both named reproduction poses (Section 10.3) close with zero near-field failures", () => {
+    // Verified once, empirically, against the real camera-fan audit: every
+    // remaining failing ray at both poses sits at exactly the 70 m urban
+    // probe boundary (the systemic distant-void pattern -- see
+    // three-city-visual-gap-elimination-plan memory), none nearer than
+    // 40 m. This test pins the STRUCTURAL proof available cheaply in a
+    // unit test -- the frontage blocks exist and plan real buildings --
+    // not a live re-run of the full camera sweep, which the audit CLI
+    // already covers (`npm run audit:visual-gaps -- --maps london --fan
+    // --roads london-regent`).
+    const piccadillyEnd = plan.buildings.filter((b) => b.blockId === "london-block-regent-e-piccadilly");
+    const oxfordEnd = plan.buildings.filter((b) => b.blockId === "london-block-regent-e-oxford");
+    expect(piccadillyEnd.length, "Piccadilly-to-Regent-1 frontage").toBeGreaterThan(0);
+    expect(oxfordEnd.length, "Regent-5-to-Oxford frontage").toBeGreaterThan(0);
+  });
+
+  it("no planned Regent solid overlaps another planned solid anywhere on the map", () => {
+    expectNoLocalSolidOverlaps(plan, regentBlockIds);
   });
 });
 

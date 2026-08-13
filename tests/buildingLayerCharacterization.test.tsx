@@ -296,7 +296,17 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // 4 slots (`-w-near`, Guild Lane Pharmacy's relaxed keep-out) + 7 slots
     // (`-e-near`, the previously-empty right side); verified against the
     // real resolved plan, not assumed from the baseline delta alone.
-    buildingInstanceCount: 4_380,
+    // -> 4_386: the Regent Street P0 (Section 10.3) — Piccadilly-to-Regent-1
+    // and Regent-5-to-Oxford had no frontage at all; 3 east slots at each
+    // end (6 total). Both west-side blocks are deliberately absent:
+    // london-block-regent-w-oxford resolves to null outright (its
+    // foreign-road trim against Oxford Street's own parcel shrinks the
+    // surviving span below MIN_PARCEL_HALF_LENGTH_M), and every
+    // -w-piccadilly placement tried overlapped Piccadilly's own corner row
+    // or shrank to nothing the same way — but the audit confirms both
+    // named poses close anyway, entirely off the two surviving east
+    // blocks.
+    buildingInstanceCount: 4_386,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },
