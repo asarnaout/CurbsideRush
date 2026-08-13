@@ -1470,8 +1470,21 @@ export const TOKYO_MAP_PACK: MapPack = {
       anchoredSpawn("jp-car-chuo", "vehicle", "jp-chuo-dori-1-forward-1", 60),
       anchoredSpawn("jp-car-ekimae", "vehicle", "jp-eki-mae-dori-1-forward-1", 20),
       anchoredSpawn("jp-car-ichiban", "vehicle", "jp-ichiban-dori-1-forward-1", 90),
+      anchoredSpawn("jp-car-mn-suzukake", "vehicle", "jp-mn-suzukake-dori-1-forward-1", 200),
+      anchoredSpawn("jp-car-ys-yanagi", "vehicle", "jp-ys-yanagi-dori-1-reverse-1", 200),
+      anchoredSpawn("jp-car-ni-hato", "vehicle", "jp-ni-hato-dori-1-forward-1", 200),
       freeSpawn("jp-ped-ekimae", "pedestrian", 300, 140, 0),
       freeSpawn("jp-cyclist-nakamise", "cyclist", 250, 40, 90, "jp-nakamise-yokocho-1-forward-1"),
+      // Districts (top-up pattern, spread so a first arrival at each web
+      // isn't bare — matches NYC's far-district gate pattern).
+      freeSpawn("jp-ped-mn-suzukake", "pedestrian", -900, 850, 0),
+      freeSpawn("jp-cyclist-mn-wakaba", "cyclist", -950, 650, 90, "jp-mn-wakaba-dori-1-forward-1"),
+      freeSpawn("jp-ped-ys-yanagi", "pedestrian", -900, -970, 180),
+      freeSpawn("jp-cyclist-ys-ichou", "cyclist", -950, -900, 90, "jp-ys-ichou-dori-1-forward-1"),
+      freeSpawn("jp-ped-ni-hato", "pedestrian", -900, 60, 90),
+      freeSpawn("jp-cyclist-ni-tsuki", "cyclist", -950, -100, 90, "jp-ni-tsuki-dori-1-forward-1"),
+      freeSpawn("jp-ped-ni-hana", "pedestrian", -350, 40, 45),
+      freeSpawn("jp-ped-koshu", "pedestrian", -1080, 560, 0),
     ],
   ),
 };

@@ -113,12 +113,13 @@ describe("ambient traffic trace characterization", () => {
       // recycler and is what actually dissolved the graze).
       "free-uk-london": "e57b53ee",
       // Moves on any sim-visible Tokyo content change: Phase 2 of the Tokyo
-      // expansion (the road-network skeleton) takes the map from 20 to 42
-      // roads and 56 to 186 lanes, adds ~43 generated stop controls across
-      // the new junctions, and sets `ambientTraffic: { desktop: 32, touch:
-      // 16 }` (previously unset, so ambient car count itself changes) — any
-      // one of those alone would move this hash; all of them together do.
-      "free-jp": "fea1affb",
+      // expansion (road-network skeleton + all three residential-web
+      // districts) takes the map from 20 to 66 roads and 56 to 338 lanes,
+      // adds ~93 generated stop controls across the new junctions, and sets
+      // `ambientTraffic: { desktop: 32, touch: 16 }` (previously unset, so
+      // ambient car count itself changes) — any one of those alone would
+      // move this hash; all of them together do.
+      "free-jp": "2d383be9",
       "free-eg": "eb350f99",
     });
   });
