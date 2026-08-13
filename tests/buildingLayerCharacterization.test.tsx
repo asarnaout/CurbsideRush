@@ -250,7 +250,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // vern-cres houses block, where the venue's own keep-out circle now
     // excludes 4 building slots it previously stood clear of entirely
     // (its old position had no real block under it, only park).
-    buildingInstanceCount: 5_471,
+    // -> 5_469 (Section 11.8, P1): nyc-block-east-south-margin/-north-margin
+    // trimmed 4.1 m off their east edge to meet the esplanade exactly
+    // instead of overlapping it by 0.5 m: -2, one building off each block.
+    buildingInstanceCount: 5_469,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 12,
   },

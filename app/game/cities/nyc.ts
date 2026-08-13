@@ -1166,10 +1166,14 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-block-south-margin", center: point(-700, -1475), size: point(614, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
       { id: "nyc-block-north-margin", center: point(-770, 1475), size: point(754, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
       // Same pattern, east side: strips beyond E 61st and E 100th, the two
-      // bounding streets of the east grid, inset 13 m off their coordinate
-      // and spanning Fifth's to Third's kerb (-140-13=-153 to 440+13=453).
-      { id: "nyc-block-east-south-margin", center: point(150, -1235), size: point(606, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
-      { id: "nyc-block-east-north-margin", center: point(150, 1235), size: point(606, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
+      // bounding streets of the east grid, spanning Fifth's kerb (-153) to
+      // Third's own pavement. East edge trimmed from Third's generic
+      // coordinate+13 inset (453) to its precise halfWidth+sidewalk edge
+      // (440+5.5+3.4=448.9, visual-gap plan Section 11.8, P1) — the generic
+      // inset put these 0.5 m inside the East River esplanade blocks below,
+      // previously carried as two pinned exceptions in content.test.ts.
+      { id: "nyc-block-east-south-margin", center: point(147.95, -1235), size: point(601.9, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
+      { id: "nyc-block-east-north-margin", center: point(147.95, 1235), size: point(601.9, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
       // Fifth Avenue Gallery residual cell (visual-gap plan Section 11.3, P0):
       // `nycZoneFor("fifth-mad", ...)` nulls the whole E79-E86 cell
       // (x=-127..-13, z=13..467, derived from Fifth/Madison's coordinates and
@@ -1458,11 +1462,29 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-queensview-bridge", kind: "bridge", center: point(650, -840), size: point(240, 14), headingDeg: 90, color: "#c9b48a" },
       { id: "nyc-harborline-bridge", kind: "bridge", center: point(650, 840), size: point(240, 12), headingDeg: 90, color: "#b8ac95" },
       // East River Esplanade: the Manhattan bank between Third Ave's
-      // frontage and the west shore (452.5..547.5), split around the two
-      // bridges so no park segment tries to grow over a bridge deck.
-      { id: "nyc-esplanade-south", kind: "park", center: point(500, -1158), size: point(95, 604), color: "#4f7a3d" },
-      { id: "nyc-esplanade", kind: "park", center: point(500, 0), size: point(95, 1640), color: "#4f7a3d" },
-      { id: "nyc-esplanade-north", kind: "park", center: point(500, 1158), size: point(95, 604), color: "#4f7a3d" },
+      // frontage and the west shore, split around the two bridges so no
+      // park segment tries to grow over a bridge deck. Both edges reshaped
+      // to meet their real neighbours exactly (visual-gap plan Section
+      // 11.8, P1) rather than leaving thin grey seams on both sides: west
+      // edge at Third's own pavement (448.9, matching
+      // nyc-block-east-south-margin/-north-margin's own trimmed edge above
+      // exactly — this is the flush meeting that let the two pinned
+      // overlap exceptions in content.test.ts finally come out), east edge
+      // at the river's west-shore minimum reach (556, the same
+      // never-overlap-water direction Section 11.6 used on the opposite
+      // bank, for the same reason: an 17 m-wobbling irregular shore has no
+      // single flat edge that hugs it exactly). `parkStyle` pinned
+      // explicitly: the wider south/north segments' own long/short ratio
+      // (604/107.1=5.64) now falls under STRIP_ASPECT's 6, so
+      // `resolveParkStyle` would silently derive "urban_greensward" for
+      // just those two pieces while the untouched main segment
+      // (1640/107.1=15.3) stayed "riverside_strip" — one continuous
+      // riverside feature reading as three different styles purely because
+      // of where the bridge-clearance splits happen to fall. All three are
+      // the same real place; the pin keeps them the same style regardless.
+      { id: "nyc-esplanade-south", kind: "park", parkStyle: "riverside_strip", center: point(502.45, -1158), size: point(107.1, 604), color: "#4f7a3d" },
+      { id: "nyc-esplanade", kind: "park", parkStyle: "riverside_strip", center: point(502.45, 0), size: point(107.1, 1640), color: "#4f7a3d" },
+      { id: "nyc-esplanade-north", kind: "park", parkStyle: "riverside_strip", center: point(502.45, 1158), size: point(107.1, 604), color: "#4f7a3d" },
       // Queens East River bank strip (visual-gap plan Section 11.6, P0): the
       // mirror case on the opposite shore. The east-shore polygon vertices
       // (in `nyc-east-river` below) wobble x=726..744; 726 (the shore's own
