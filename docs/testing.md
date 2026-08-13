@@ -67,6 +67,17 @@ viewport × FOV is a distinct audited view, not redundant work) — scope to
 one content fix's own road(s) with `--roads <id,id,...>` for a fast
 dev-loop iteration, and drop the scope only for the real final-gate run.
 
+A committed per-commit test cannot call `auditMapVisualGaps` unscoped either,
+for the same reason: measured directly, an unscoped whole-Cairo default-profile
+sweep took 7+ minutes. `cairoContent.test.ts`'s own bare-kerb-run test
+(visual-gap plan Section 12.11) is the pattern for a city that needs a real
+committed gate instead of ad hoc CLI runs: the fast `bareKerbRuns` metric
+(Section 5.4) finds candidates, then each candidate is checked against the
+*already-computed* raster's own qualifying void blobs (same cost as one
+`buildGroundRaster` call, no camera involved) rather than re-verified with a
+live sweep — a candidate is only a real test failure if no known blob within
+70 m (Section 5.3's own sightline distance) explains it.
+
 ## Lint is clean and must stay clean
 
 0 errors, 0 warnings today. `npm run lint` uses `--max-warnings 0`, so warnings
