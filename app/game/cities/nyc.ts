@@ -1186,6 +1186,24 @@ export const NYC_MAP_PACK: MapPack = {
       // default `addressable` frontage.
       { id: "nyc-block-fifth-gallery-south", center: point(-70, 82.5), size: point(114, 139), streetEdges: ["-z", "-x", "+x"], heightRange: NYC_ZONES.midrise.heightRange, density: NYC_ZONES.midrise.density, material: NYC_ZONES.midrise.material, buildingSet: NYC_ZONES.midrise.buildingSet },
       { id: "nyc-block-fifth-gallery-north", center: point(-70, 397.5), size: point(114, 139), streetEdges: ["+z", "-x", "+x"], heightRange: NYC_ZONES.midrise.heightRange, density: NYC_ZONES.midrise.density, material: NYC_ZONES.midrise.material, buildingSet: NYC_ZONES.midrise.buildingSet },
+      // Queens outer bank streets (visual-gap plan Section 11.5, P0): bk40
+      // (z=-1080, the borough's south boundary) and bk56 (z=1080, its north
+      // boundary) have no outer-side margin row, so the ground continues
+      // hundreds of metres to the world edge past them. Two inward-facing
+      // shells close it, spanning the full built borough width: from
+      // Vernon's own inset edge (800-13=787, excluding the East River shore
+      // at x=726..744) to the outer edge of the existing Steinway
+      // east-margin strip (1100+13+44=1157) — the same x-span the vern-cres/
+      // cres-stein/stein-margin columns and their own east-margin row
+      // together already cover. Depth and centre follow the same
+      // NYC_BLOCK_INSET_M/NYC_MARGIN_DEPTH_M math as every other margin
+      // strip. A single `streetEdges` entry each (Section 9's rule for a
+      // backdrop, not the default four) faces the real street; the far side
+      // faces open world, so these are `addressable: false` map-edge shells
+      // (Section 9.1), not real frontage like the west-margin/gallery
+      // blocks above.
+      { id: "nyc-block-bk40-outer", center: point(972, -1115), size: point(370, 44), streetEdges: ["+z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
+      { id: "nyc-block-bk56-outer", center: point(972, 1115), size: point(370, 44), streetEdges: ["-z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
     ]),
     servicePoints: [
       // West 72nd is a wide two-way, and NYC is a paved city, so the lot must

@@ -215,8 +215,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the larger footprint (still `urban_greensward`, unchanged style), not
     // a building-count change (`buildingLayerCharacterization.test.tsx`
     // does not move here, correctly: no block was touched, only a park).
-    totalMeshes: 27_481,
-    enabledMeshes: 27_481,
+    // 27_481 -> 27_539 (Section 11.5, P0): the bk40/bk56 outer shells, +58
+    // meshes — a clean 1:1 match against the +58 planned buildings this
+    // time (single-solid proxies, same as every other asset-slot entry).
+    totalMeshes: 27_539,
+    enabledMeshes: 27_539,
     activeMeshes: 961,
     materials: 188,
     drawCallsPerFrame: 0,

@@ -326,7 +326,16 @@ describe("street-wall placement invariants on the real NYC blocks", () => {
                   : box.x0 - (block.center.x - block.size.x / 2);
           byEdge.set(edge, [...(byEdge.get(edge) ?? []), setback]);
         }
-        expect([...byEdge.keys()].sort(), block.id).toEqual(["E", "N", "S", "W"]);
+        // A block with an explicit `streetEdges` (a map-edge shell whose far
+        // side faces open world, not a real block with houses all around —
+        // e.g. the bk40/bk56 outer shells, plan Section 11.5) only ever
+        // walls the edges it names; every other detached-house block leaves
+        // `streetEdges` absent and gets all four.
+        const edgeLetter: Record<string, string> = { "+z": "N", "-z": "S", "+x": "E", "-x": "W" };
+        const expectedEdges = block.streetEdges
+          ? [...block.streetEdges].map((e) => edgeLetter[e]).sort()
+          : ["E", "N", "S", "W"];
+        expect([...byEdge.keys()].sort(), block.id).toEqual(expectedEdges);
         for (const [edge, setbacks] of byEdge) {
           const spread = Math.max(...setbacks) - Math.min(...setbacks);
           expect(

@@ -109,11 +109,19 @@ describe("procedural street addresses", () => {
     });
     expect(allNonAddressable).toEqual([]);
 
-    // Absent (the default, every real block today) behaves exactly as
-    // before -- byte-identical, not merely "similar".
+    // Absent behaves exactly as explicit `true` -- byte-identical, not
+    // merely "similar" -- for every block that does not itself opt out.
+    // Blocks deliberately authored `addressable: false` (the bk40/bk56
+    // map-edge shells, plan Section 11.5) are left alone rather than forced
+    // true: forcing them on would test a configuration nothing on this map
+    // actually uses, and would reintroduce the address generator's
+    // shared-RNG jitter cascade (see `generateStreetAddresses`'s own
+    // comment) for a reason unrelated to this invariant.
     const explicitlyDefault = generateStreetAddresses({
       ...rawInput(nyc),
-      blocks: nyc.geometry.blocks.map((block) => ({ ...block, addressable: true })),
+      blocks: nyc.geometry.blocks.map((block) =>
+        block.addressable === false ? block : { ...block, addressable: true },
+      ),
     });
     expect(explicitlyDefault).toEqual([...nycAddresses]);
   });
