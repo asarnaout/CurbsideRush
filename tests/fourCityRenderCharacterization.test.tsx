@@ -600,10 +600,37 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // jp-kawanaka-bashi-vermilion (the arch rib), landmark-jp-<bridge> x3
     // (every landmark gets one whether or not the bespoke dispatcher uses
     // it — same as every existing landmark already did), water-jp-sakuragawa.
-    totalMeshes: 16_906,
-    enabledMeshes: 16_906,
-    activeMeshes: 1_059,
-    materials: 114,
+    // -> Phase 4 (blocks, street wall, R18): 296 blocks (9 hand-authored
+    // quarter + 287 generated, buildTokyoGeneratedBlocks in cities/tokyo.ts)
+    // walling both kerbs of every non-bridge generated road. 16_906 -> 8_804
+    // total/enabled meshes is a DECREASE despite ~2400 new planned buildings
+    // ("building"-prefixed mesh count 68 -> 2401, +2333, confirmed by
+    // bucketing __sideswapMeshes() by name prefix under a temporary
+    // console.log) because roadside SCATTER PROPS (streetlights, utility
+    // poles, vending machines, trees, signs - generateRoadsidePropPlacements,
+    // which explicitly rejects a candidate position that falls inside a
+    // block) lost far more than buildings gained: "prop"-prefixed mesh
+    // count 15_598 -> 5_163 (-10_435), net -8_102, matching the observed
+    // delta exactly. Before this phase Tokyo's ~77 lane-km of road had
+    // essentially no street-wall blocks, so nearly every prop candidate
+    // found clear ground; now that most kerbs are walled (R18's actual
+    // goal), a large share of those same candidate positions land inside a
+    // block footprint and get rejected instead. This is a real, expected
+    // side effect of buildings now occupying space that used to be open,
+    // not drift - Phase 9 (street life/aesthetics) already plans denser
+    // prop scatter and can re-tune density against the now-walled kerbs.
+    // activeMeshes drops less steeply (1_059 -> 933) because the fixed test
+    // pose's mirror-cull frustum only ever held a small, roughly stable
+    // slice of the map regardless. materials 114 -> 115: the new
+    // "concrete" facade key (the higashi/east-bank zone's second
+    // material) rendered in Tokyo's own scene for the first time -
+    // confirmed by dumping survivingMaterialNames and diffing; every
+    // other new-this-phase block reuses an already-registered key
+    // (plaster/tile/wood-plaster).
+    totalMeshes: 8_804,
+    enabledMeshes: 8_804,
+    activeMeshes: 933,
+    materials: 115,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -622,7 +649,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // `survivingMaterialNames` for tokyo-setagaya and diffing against the
     // previous list — the only new entry each time).
     // "a9a0d68a" -> "855d45f5": Phase 3's +15 materials above.
-    survivingMaterialNamesFingerprint: "855d45f5",
+    // "855d45f5" -> "59b69703": Phase 4's +1 material ("concrete") above.
+    survivingMaterialNamesFingerprint: "59b69703",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

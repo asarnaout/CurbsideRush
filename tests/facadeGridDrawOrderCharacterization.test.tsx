@@ -383,14 +383,22 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // the meshes they produce. The one map where old and new drawCount
     // agree exactly is exactly the proof that the planner reproduces the
     // current full-detail draw order byte-for-byte (Section 7.4).
-    drawCount: 216,
-    // "2dda315a" -> "01d2bc4a": mesh naming only. Every procedural facade
-    // mesh is now named from the plan's own stable id
-    // (`building-building:<blockId>:cell:<cellIndex>`) instead of the old
-    // ad-hoc `building-<blockId>-<cellIndex>`; the fingerprint sorts by
-    // name, so the name change alone reorders it even though every mesh's
-    // position/size is byte-identical (drawCount above is the proof).
-    facadeMeshFingerprint: "01d2bc4a",
+    // 216 -> 7_215 (Tokyo expansion Phase 4, blocks/street wall, R18): 296
+    // blocks now exist (9 hand-authored quarter + 287 generated), all
+    // procedural (Tokyo still has no building-set blocks, so the "old and
+    // new drawCount agree exactly" proof above still holds structurally,
+    // just at the new scale) - three random() draws per surviving facade
+    // cell, and planMapBuildings reports 2_401 planned procedural buildings
+    // for this map post-Phase-4 (matches 7_215 / 3 = 2_405 within the small
+    // reconciliation gap expected from cells that draw before their own
+    // survival check fails). A real, large, deliberate increase - not
+    // drift - driven entirely by the new block count.
+    drawCount: 7_215,
+    // "2dda315a" -> "01d2bc4a": mesh naming only (see comment above).
+    // "01d2bc4a" -> "6875ac93": Phase 4's ~2_400 new planned buildings
+    // change both which names exist and how many, so the fingerprint moves
+    // with drawCount this time - not a naming-only change like the last one.
+    facadeMeshFingerprint: "6875ac93",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the
