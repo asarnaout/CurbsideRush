@@ -229,7 +229,14 @@ side is shortened by nothing and ends up in the Thames.
 it starts as long as its road segment and shortens until the whole rectangle
 clears every other road's carriageway and pavement. Corner-only checks are not
 enough — a parcel whose long side straddles a crossing road has both corners
-comfortably clear, one on each side.
+comfortably clear, one on each side. `cities/tokyo.ts` carries its own
+independent copy (`tokyoRoadsideParcel`, Tokyo expansion Phase 4) rather than
+importing London's — the function is file-private there, and Tokyo's foreign-
+road universe differs — but the algorithm, sign convention and `headingDeg`
+formula are identical on purpose. Tokyo's own copy is called from a generator
+loop (one call per road-segment-and-side of every non-bridge generated road,
+district-styled) rather than ~150 hand-authored call sites, since it has no
+per-road building-set overrides to hand-tune around.
 
 ### Cairo is the non-grid equivalent
 
@@ -273,10 +280,16 @@ ordered, so a road visited late inherits an eaten band; the **gap-fill pass**
 after the slot pass projects everything in each kerb's own band (parcels and
 same-side exclusions, clipped so a grazing corner casts only its real shadow)
 and tiles the true bare intervals — halving to 12 m, then 12 m and 9 m sliver
-boxes where parallel streets pinch below full parcel depth. Two-tier audit in
-`tests/cairoContent.test.ts`: walled-kerb floors, and "leaves no long bare
-run" — anything within 16 m counts as frontage, no buildable side runs more
-than 125 m bare.
+boxes where parallel streets pinch below full parcel depth. The percentage-
+based two-tier audit this paragraph used to describe is gone (visual-gap plan
+Section 12.11): `tests/cairoContent.test.ts`'s "leaves no qualifying
+bare-kerb run unexplained" now measures the real ground-contact occluder
+volumes `collectMapVisualGeometry` produces (the same geometry the `--fan`
+audit and `buildGroundRaster` use), gated by `bareKerbRuns`'s 28 m standard —
+a candidate only fails if no known qualifying void blob explains it within
+70 m. `tests/tokyoContent.test.ts` mirrors this exact shape for Tokyo's own
+generated street wall (Tokyo expansion Phase 4), plus a per-district
+walled-kerb coverage floor the Cairo version does not carry.
 
 **A third, reviewed pass runs after slot-fill and gap-fill: `CAIRO_VISUAL_CLOSURES`**
 (visual-gap plan Section 12.3) — hand-authored closures the camera-fan audit
