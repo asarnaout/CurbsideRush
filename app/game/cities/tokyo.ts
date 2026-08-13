@@ -471,6 +471,57 @@ const jpNishiNodes = {
   r5e: node("jp-ni-r5-kp", -700, 420),
 };
 
+// --- River nodes (Phase 3): where the west/east riverside collectors ------
+// (jp-kawate-dori, jp-kawagishi-dori) cross the three bridges. Every bridge
+// is dead straight (constant z) so each crossing is a shared node at zero
+// bend, not an interpolated near-miss — the same reasoning Chūō-dōri's own
+// arc-node already established in Phase 2. jp-higashi-w/jp-khh-w are each
+// bridge's own inland east landing, shared with the east-bank skeleton below.
+const jpRiverNodes = {
+  kawateSetagaya: node("jp-kawate-x-setagaya", 580, -168),
+  kawateKawanaka: node("jp-kawate-x-kawanaka", 580, 180),
+  kawateKoshu: node("jp-kawate-x-koshu", 580, 560),
+  // jp-kawagishi-dori's own nodes, south to north: a real junction at every
+  // bridge crossing, plus two pure shape points (w1/w2, no other road meets
+  // them, so they need no connector entry — same-road continuation is always
+  // legal) that keep the collector's wobble gentle (every bend <=5 deg).
+  kawagishiMinami: node("jp-kawagishi-x-minami", 768, -600),
+  kawagishiFuji: node("jp-kawagishi-x-fuji", 769, -380),
+  kawagishiSetagaya: node("jp-kawagishi-x-setagaya", 770, -168),
+  kawagishiW1: node("jp-kawagishi-w1", 765, 90),
+  kawagishiKawanaka: node("jp-kawagishi-x-kawanaka", 768, 180),
+  kawagishiW2: node("jp-kawagishi-w2", 758, 400),
+  kawagishiKoshu: node("jp-kawagishi-x-koshu", 752, 560),
+  kawagishiKita: node("jp-kawagishi-x-kita", 765, 900),
+  higashiW: node("jp-higashi-w", 860, -168),
+  kawanakaE: node("jp-kawanaka-e", 980, 180),
+  khhW: node("jp-khh-w", 880, 560),
+};
+
+// --- East bank skeleton (Phase 3): Higashi-dōri and Kōshū-kaidō's own east
+// continuations, the Higashi Hon-dōri spine, the outer ring closer, and the
+// compact Tōfu Yokochō residential pocket ("compact web" per plan §8.2 —
+// smaller in scope than the three west-bank districts on purpose). Higashi-
+// dōri/Kōshū-kaidō-higashi are trimmed to their real crossing with the outer
+// ring closer (x=1200) rather than running on to the plan's original 1240:
+// past that crossing neither road meets anything else this phase, which is a
+// true dead end (fails the circuit-walk test), the same reasoning behind
+// every west-bank trim in Phase 2.
+const jpEastNodes = {
+  hdXTofu: node("jp-hd-x-tofu", 870, -168),
+  hdXHondori: node("jp-hd-x-hondori", 980, -168),
+  hdXSoto: node("jp-hd-x-soto", 1200, -168),
+  khhXKeyaki: node("jp-khh-x-keyaki", 930, 560),
+  khhXHondori: node("jp-khh-x-hondori", 980, 560),
+  khhXSoto: node("jp-khh-x-soto", 1200, 560),
+  hhS: node("jp-hh-s", 980, -600),
+  hhXFuji: node("jp-hh-x-fuji", 980, -380),
+  hhN: node("jp-hh-n", 980, 900),
+  tyS: node("jp-ty-s", 870, -600),
+  tyXFuji: node("jp-ty-x-fuji", 870, -380),
+  hkdXKeyaki: node("jp-hkd-x-keyaki", 930, 900),
+};
+
 // --- Ring + downtown skeleton (§8.4, west-of-river subset) -----------------
 const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   // Ascending z the whole way, every district's rung/collector crossings
@@ -491,7 +542,14 @@ const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   tokyoRoad("jp-chuo-dori-south", "Chūō-dōri", ["jp-chuo-x-minami-kaido", "jp-chuo-x-setagaya"], 2, 10, 50),
   tokyoRoad("jp-chuo-dori", "Chūō-dōri", ["jp-chuo-x-setagaya", "jp-chuo-x-minami-dori", "jp-chuo-x-nakamise", "jp-chuo-x-ekimae", "jp-chuo-x-kita-dori"], 4, 13.6, 50),
   tokyoRoad("jp-chuo-dori-north", "Chūō-dōri", ["jp-chuo-x-kita-dori", "jp-chuo-x-koshu", "jp-chuo-n"], 2, 10, 50),
-  tokyoRoad("jp-kawate-dori", "Kawate-dōri", ["jp-kawate-x-minami-dori", "jp-kawate-x-ekimae", "jp-kawate-x-kita-dori"], 2, 8, 40),
+  // Extended both ends in Phase 3 to reach Sakura-ōhashi (south) and
+  // Tsuki-ōhashi (north) — see jpRiverNodes below. jp-kawate-x-kawanaka is a
+  // node newly inserted into this spec's own interior (between the existing
+  // jp-kawate-x-ekimae and jp-kawate-x-kita-dori), not a hand-authored-quarter
+  // polyline, so resegmenting it is ordinary generator work (plan §4.4's
+  // caveat); no Phase-2 spawn/venue anchors this road by distance (verified
+  // by grep before the split), so the lane-id renumbering it causes is safe.
+  tokyoRoad("jp-kawate-dori", "Kawate-dōri", ["jp-kawate-x-setagaya", "jp-kawate-x-minami-dori", "jp-kawate-x-ekimae", "jp-kawate-x-kawanaka", "jp-kawate-x-kita-dori", "jp-kawate-x-koshu"], 2, 8, 40),
   tokyoRoad("jp-eki-mae-dori", "Ekimae-dōri", ["jp-ekimae-w", "jp-ichiban-x-ekimae", "jp-niban-x-ekimae", "jp-chuo-x-ekimae", "jp-kawate-x-ekimae"], 2, 9, 40),
   tokyoRoad("jp-ichiban-dori", "Ichiban-dōri", ["jp-ichiban-x-setagaya", "jp-ichiban-x-minami-dori", "jp-ichiban-x-nakamise", "jp-ichiban-x-ekimae", "jp-ichiban-x-kita-dori"], 1, 7, 40, { oneWay: "forward" }),
   tokyoRoad("jp-niban-dori", "Niban-dōri", ["jp-niban-x-setagaya", "jp-niban-x-minami-dori", "jp-niban-x-nakamise", "jp-niban-x-ekimae", "jp-niban-x-kita-dori"], 1, 7, 40, { oneWay: "reverse" }),
@@ -540,6 +598,45 @@ const TOKYO_NISHI_SPECS: readonly TokyoRoadSpec[] = [
   tokyoRoad("jp-ni-hana-dori", "Hana-dōri", ["jp-ni-coll-sg", "jp-cw"], 2, 6.4, 30),
 ];
 
+// --- The Sakuragawa's three bridges (Phase 3, R3) ---------------------------
+// Each ONE continuous spec bank-to-bank, including both approaches: never a
+// separate approach + span meeting at the bank (plan §4.4 — two specs sharing
+// an endpoint coordinate mint two disconnected nodes). West landings are the
+// REAL Phase-2 termini of the arterials they continue (jp-chuo-x-setagaya,
+// jp-chuo-x-koshu), not the plan's original suggested coordinates, which were
+// stale the moment Phase 2 trimmed those roads short. Kawanaka-bashi — the
+// narrower, lower-speed "central" bridge — deliberately does NOT continue a
+// major inland arterial; it lands directly on the riverside collectors on
+// both banks, consistent with its own minor-crossing flavour. Every span is
+// dead straight (constant z), so the two intermediate junctions each bridge
+// passes through (the riverside collectors) cost zero bend.
+const TOKYO_RIVER_SPECS: readonly TokyoRoadSpec[] = [
+  tokyoRoad("jp-sakura-ohashi", "Sakura-ōhashi", ["jp-chuo-x-setagaya", "jp-kawate-x-setagaya", "jp-kawagishi-x-setagaya", "jp-higashi-w"], 2, 12, 50),
+  tokyoRoad("jp-kawanaka-bashi", "Kawanaka-bashi", ["jp-kawate-x-kawanaka", "jp-kawagishi-x-kawanaka", "jp-kawanaka-e"], 2, 9, 40),
+  tokyoRoad("jp-tsuki-ohashi", "Tsuki-ōhashi", ["jp-chuo-x-koshu", "jp-kawate-x-koshu", "jp-kawagishi-x-koshu", "jp-khh-w"], 2, 12, 50),
+];
+
+// --- East bank web (Phase 3, R3): the riverside collector plus a compact
+// arterial + residential pocket, same generator pattern and geometry gates as
+// Phase 2's west-bank districts. -------------------------------------------
+const TOKYO_EAST_SPECS: readonly TokyoRoadSpec[] = [
+  // East-bank riverside collector, mirroring jp-kawate-dori's role on the
+  // west bank: solver-checked clear of the shore by 30-55 m at every node
+  // (never under the plan's 6 m floor).
+  tokyoRoad("jp-kawagishi-dori", "Kawagishi-dōri", ["jp-kawagishi-x-minami", "jp-kawagishi-x-fuji", "jp-kawagishi-x-setagaya", "jp-kawagishi-w1", "jp-kawagishi-x-kawanaka", "jp-kawagishi-w2", "jp-kawagishi-x-koshu", "jp-kawagishi-x-kita"], 2, 8, 40),
+  tokyoRoad("jp-higashi-dori", "Higashi-dōri", ["jp-higashi-w", "jp-hd-x-tofu", "jp-hd-x-hondori", "jp-hd-x-soto"], 2, 10, 50),
+  tokyoRoad("jp-koshu-kaido-higashi", "Kōshū-kaidō", ["jp-khh-w", "jp-khh-x-keyaki", "jp-khh-x-hondori", "jp-khh-x-soto"], 2, 12, 50),
+  tokyoRoad("jp-higashi-hondori", "Higashi Hon-dōri", ["jp-hh-s", "jp-hh-x-fuji", "jp-hd-x-hondori", "jp-kawanaka-e", "jp-khh-x-hondori", "jp-hh-n"], 2, 8, 40),
+  // Closes the ring Higashi-dōri/Kōshū-kaidō-higashi would otherwise dead-end
+  // into at x=1200 — the real crossing this phase reaches (plan said 1240).
+  tokyoRoad("jp-higashi-soto-dori", "Higashi Soto-dōri", ["jp-hd-x-soto", "jp-khh-x-soto"], 2, 8, 40),
+  tokyoRoad("jp-higashi-minami-dori", "Higashi Minami-dōri", ["jp-kawagishi-x-minami", "jp-ty-s", "jp-hh-s"], 2, 7, 40),
+  tokyoRoad("jp-higashi-kita-dori", "Higashi Kita-dōri", ["jp-kawagishi-x-kita", "jp-hkd-x-keyaki", "jp-hh-n"], 2, 7, 40),
+  tokyoRoad("jp-tofu-yokocho", "Tōfu Yokochō", ["jp-ty-s", "jp-ty-x-fuji", "jp-hd-x-tofu"], 2, 6.4, 30),
+  tokyoRoad("jp-fuji-dori", "Fuji-dōri", ["jp-kawagishi-x-fuji", "jp-ty-x-fuji", "jp-hh-x-fuji"], 2, 6.4, 30),
+  tokyoRoad("jp-keyaki-dori", "Keyaki-dōri", ["jp-khh-x-keyaki", "jp-hkd-x-keyaki"], 2, 6.4, 30),
+];
+
 /**
  * Legal turns at every skeleton junction. The quarter's own road ids
  * (`jp-setagaya-dori`, `jp-westside-south`, `jp-eastside-road`,
@@ -573,13 +670,16 @@ const TOKYO_SKELETON_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
 
   tokyoJunction("jp-jct-ichiban-setagaya", "jp-ichiban-x-setagaya", ["jp-ichiban-dori", "jp-setagaya-dori-east"]),
   tokyoJunction("jp-jct-niban-setagaya", "jp-niban-x-setagaya", ["jp-niban-dori", "jp-setagaya-dori-east"]),
-  tokyoJunction("jp-jct-chuo-setagaya", "jp-chuo-x-setagaya", ["jp-setagaya-dori-east", "jp-chuo-dori-south", "jp-chuo-dori"]),
+  // Phase 3 adds jp-sakura-ohashi as this node's 4th arm (east); Chūō-dōri
+  // still stops here (unchanged from Phase 2 — see TOKYO_SAME_STREET_GROUPS).
+  tokyoJunction("jp-jct-chuo-setagaya", "jp-chuo-x-setagaya", ["jp-setagaya-dori-east", "jp-chuo-dori-south", "jp-chuo-dori", "jp-sakura-ohashi"]),
   tokyoJunction("jp-jct-chuo-minami-kaido", "jp-chuo-x-minami-kaido", ["jp-minami-kaido", "jp-chuo-dori-south"]),
   tokyoJunction("jp-jct-chuo-minami-dori", "jp-chuo-x-minami-dori", ["jp-chuo-dori", "jp-minami-dori"]),
   tokyoJunction("jp-jct-chuo-nakamise", "jp-chuo-x-nakamise", ["jp-chuo-dori", "jp-nakamise-yokocho"]),
   tokyoJunction("jp-jct-chuo-ekimae", "jp-chuo-x-ekimae", ["jp-chuo-dori", "jp-eki-mae-dori"]),
   tokyoJunction("jp-jct-chuo-kita-dori", "jp-chuo-x-kita-dori", ["jp-chuo-dori", "jp-chuo-dori-north", "jp-kita-dori"]),
-  tokyoJunction("jp-jct-chuo-koshu", "jp-chuo-x-koshu", ["jp-chuo-dori-north", "jp-koshu-kaido"]),
+  // Phase 3 adds jp-tsuki-ohashi as this node's 3rd arm (east).
+  tokyoJunction("jp-jct-chuo-koshu", "jp-chuo-x-koshu", ["jp-chuo-dori-north", "jp-koshu-kaido", "jp-tsuki-ohashi"]),
   tokyoJunction("jp-jct-kawate-minami-dori", "jp-kawate-x-minami-dori", ["jp-kawate-dori", "jp-minami-dori"]),
   tokyoJunction("jp-jct-kawate-ekimae", "jp-kawate-x-ekimae", ["jp-kawate-dori", "jp-eki-mae-dori"]),
   tokyoJunction("jp-jct-kawate-kita-dori", "jp-kawate-x-kita-dori", ["jp-kawate-dori", "jp-kita-dori"]),
@@ -658,12 +758,52 @@ const TOKYO_NISHI_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-ni-hana-cw", "jp-cw", ["jp-westside-road", "jp-ni-hana-dori"]),
 ];
 
+// --- River crossings (Phase 3): kawate-dori/kawagishi-dori's own
+// intersections with the three bridges, plus each bridge's own inland east
+// landing (jp-higashi-w, jp-khh-w) — those ALSO need a same-street grouping
+// for control derivation (TOKYO_SAME_STREET_GROUPS below), but that table
+// governs stop-vs-through only; the turn whitelist here is what keeps a lane
+// arriving there from ending in empty successors (#128), so both are
+// required, not either/or. The pure shape points (jp-kawagishi-w1/w2) need no
+// entry: same-road continuation is always legal.
+const TOKYO_RIVER_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
+  tokyoJunction("jp-jct-kawate-setagaya", "jp-kawate-x-setagaya", ["jp-kawate-dori", "jp-sakura-ohashi"]),
+  tokyoJunction("jp-jct-kawate-kawanaka", "jp-kawate-x-kawanaka", ["jp-kawate-dori", "jp-kawanaka-bashi"]),
+  tokyoJunction("jp-jct-kawate-koshu", "jp-kawate-x-koshu", ["jp-kawate-dori", "jp-tsuki-ohashi"]),
+  tokyoJunction("jp-jct-kawagishi-setagaya", "jp-kawagishi-x-setagaya", ["jp-kawagishi-dori", "jp-sakura-ohashi"]),
+  tokyoJunction("jp-jct-kawagishi-kawanaka", "jp-kawagishi-x-kawanaka", ["jp-kawagishi-dori", "jp-kawanaka-bashi"]),
+  tokyoJunction("jp-jct-kawagishi-koshu", "jp-kawagishi-x-koshu", ["jp-kawagishi-dori", "jp-tsuki-ohashi"]),
+  tokyoJunction("jp-jct-higashi-w", "jp-higashi-w", ["jp-sakura-ohashi", "jp-higashi-dori"]),
+  tokyoJunction("jp-jct-khh-w", "jp-khh-w", ["jp-tsuki-ohashi", "jp-koshu-kaido-higashi"]),
+];
+
+const TOKYO_EAST_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
+  tokyoJunction("jp-jct-kawanaka-e", "jp-kawanaka-e", ["jp-kawanaka-bashi", "jp-higashi-hondori"]),
+  tokyoJunction("jp-jct-hd-x-tofu", "jp-hd-x-tofu", ["jp-higashi-dori", "jp-tofu-yokocho"]),
+  tokyoJunction("jp-jct-hd-x-hondori", "jp-hd-x-hondori", ["jp-higashi-dori", "jp-higashi-hondori"]),
+  tokyoJunction("jp-jct-hd-x-soto", "jp-hd-x-soto", ["jp-higashi-dori", "jp-higashi-soto-dori"]),
+  tokyoJunction("jp-jct-khh-x-keyaki", "jp-khh-x-keyaki", ["jp-koshu-kaido-higashi", "jp-keyaki-dori"]),
+  tokyoJunction("jp-jct-khh-x-hondori", "jp-khh-x-hondori", ["jp-koshu-kaido-higashi", "jp-higashi-hondori"]),
+  tokyoJunction("jp-jct-khh-x-soto", "jp-khh-x-soto", ["jp-koshu-kaido-higashi", "jp-higashi-soto-dori"]),
+  tokyoJunction("jp-jct-hh-x-fuji", "jp-hh-x-fuji", ["jp-higashi-hondori", "jp-fuji-dori"]),
+  tokyoJunction("jp-jct-hh-s", "jp-hh-s", ["jp-higashi-hondori", "jp-higashi-minami-dori"]),
+  tokyoJunction("jp-jct-hh-n", "jp-hh-n", ["jp-higashi-hondori", "jp-higashi-kita-dori"]),
+  tokyoJunction("jp-jct-ty-s", "jp-ty-s", ["jp-tofu-yokocho", "jp-higashi-minami-dori"]),
+  tokyoJunction("jp-jct-ty-x-fuji", "jp-ty-x-fuji", ["jp-tofu-yokocho", "jp-fuji-dori"]),
+  tokyoJunction("jp-jct-kawagishi-x-minami", "jp-kawagishi-x-minami", ["jp-kawagishi-dori", "jp-higashi-minami-dori"]),
+  tokyoJunction("jp-jct-kawagishi-x-fuji", "jp-kawagishi-x-fuji", ["jp-kawagishi-dori", "jp-fuji-dori"]),
+  tokyoJunction("jp-jct-kawagishi-x-kita", "jp-kawagishi-x-kita", ["jp-kawagishi-dori", "jp-higashi-kita-dori"]),
+  tokyoJunction("jp-jct-hkd-x-keyaki", "jp-hkd-x-keyaki", ["jp-higashi-kita-dori", "jp-keyaki-dori"]),
+];
+
 const jpGenNodeById = new Map<string, LaneNode>(
   [
     ...Object.values(jpGenNodes),
     ...Object.values(jpMiyanosakaNodes),
     ...Object.values(jpYamashitaNodes),
     ...Object.values(jpNishiNodes),
+    ...Object.values(jpRiverNodes),
+    ...Object.values(jpEastNodes),
   ].map((item) => [item.id, item]),
 );
 
@@ -743,12 +883,16 @@ const tokyoRoadSpecs: readonly TokyoRoadSpec[] = [
   ...TOKYO_MIYANOSAKA_SPECS,
   ...TOKYO_YAMASHITA_SPECS,
   ...TOKYO_NISHI_SPECS,
+  ...TOKYO_RIVER_SPECS,
+  ...TOKYO_EAST_SPECS,
 ];
 const tokyoJunctionConnectors: readonly TokyoJunctionConnectorSpec[] = [
   ...TOKYO_SKELETON_CONNECTORS,
   ...TOKYO_MIYANOSAKA_CONNECTORS,
   ...TOKYO_YAMASHITA_CONNECTORS,
   ...TOKYO_NISHI_CONNECTORS,
+  ...TOKYO_RIVER_CONNECTORS,
+  ...TOKYO_EAST_CONNECTORS,
 ];
 const tokyoGenNodeList: readonly LaneNode[] = [...jpGenNodeById.values()];
 
@@ -994,13 +1138,25 @@ function buildTokyoGeneratedSurfaces(
 const TOKYO_THROUGH_BONUS_NODES: Readonly<Record<string, readonly string[]>> = {
   "jp-chuo-x-setagaya": ["jp-setagaya-dori-east"],
   "jp-chuo-x-koshu": ["jp-koshu-kaido"],
+  // Phase 3: each bridge's inland east landing is a pure two-road meeting (no
+  // interior-node bonus applies to either side), so the "through" read needs
+  // an explicit bonus here too, same as the west landings above.
+  "jp-higashi-w": ["jp-sakura-ohashi"],
+  "jp-khh-w": ["jp-tsuki-ohashi"],
 };
 
 const TOKYO_SAME_STREET_GROUPS: Readonly<Record<string, readonly (readonly string[])[]>> = {
   "jp-ss-w": [["jp-setagaya-dori", "jp-setagaya-dori-west"]],
   "jp-ss-e": [["jp-setagaya-dori", "jp-setagaya-dori-east"]],
-  "jp-chuo-x-setagaya": [["jp-chuo-dori-south", "jp-chuo-dori"]],
+  // Phase 3 adds Setagaya-dōri's own continuation onto Sakura-ōhashi as a
+  // second group at this node — Chūō-dōri's group (unchanged) still stops.
+  "jp-chuo-x-setagaya": [["jp-chuo-dori-south", "jp-chuo-dori"], ["jp-setagaya-dori-east", "jp-sakura-ohashi"]],
   "jp-chuo-x-kita-dori": [["jp-chuo-dori", "jp-chuo-dori-north"]],
+  // Phase 3: Kōshū-kaidō continuing onto Tsuki-ōhashi (plan rule 11 — a
+  // street that continues must read continuous across the junction).
+  "jp-chuo-x-koshu": [["jp-koshu-kaido", "jp-tsuki-ohashi"]],
+  "jp-higashi-w": [["jp-sakura-ohashi", "jp-higashi-dori"]],
+  "jp-khh-w": [["jp-tsuki-ohashi", "jp-koshu-kaido-higashi"]],
 };
 
 const THROUGH_SCORE_BONUS = 1000;
@@ -1351,6 +1507,30 @@ export const TOKYO_MAP_PACK: MapPack = {
     roadWidth: 6.5,
     shoulderWidth: 0.8,
     roadSurfaces: [...jpQuarterSurfaces, ...tokyoGeneratedHalf.generatedSurfaces],
+    // The Sakuragawa (Phase 3, R3): a deliberately irregular ~24-vertex shore
+    // (never a straight canal — NYC's East River is the precedent), full
+    // z-span so both ends exit the world at the edge margin (the world-edge
+    // exemption applies there, not a fence-duplication bug). `flowHeadingDeg:
+    // 180` (southward) makes this a river, not a pond — `jp-kitazawa-pond`
+    // (Phase 6, inside its own park) has none. `bridgePortalSurfaceIds` is
+    // what opens the shoreline for exactly the three bridges below and
+    // derives their parapet spans; every other metre of shore stays solid.
+    waterBodies: [
+      {
+        id: "jp-sakuragawa",
+        color: "#1d2a3d",
+        flowHeadingDeg: 180,
+        bridgePortalSurfaceIds: ["jp-sakura-ohashi", "jp-kawanaka-bashi", "jp-tsuki-ohashi"],
+        polygon: [
+          point(612, -1200), point(605, -980), point(618, -760), point(608, -540),
+          point(596, -330), point(610, -120), point(622, 80), point(608, 290),
+          point(596, 510), point(612, 730), point(626, 960), point(618, 1200),
+          point(738, 1200), point(729, 990), point(716, 770), point(702, 540),
+          point(716, 310), point(730, 90), point(742, -140), point(725, -360),
+          point(712, -580), point(726, -800), point(738, -1010), point(731, -1200),
+        ],
+      },
+    ],
     blocks: [
       { id: "jp-block-west", center: point(-70, 46), size: point(64, 40), heightRange: [5, 14], density: 0.72, material: "plaster" },
       { id: "jp-block-center", center: point(10, 46), size: point(64, 40), heightRange: [6, 18], density: 0.78, material: "tile" },
@@ -1403,6 +1583,17 @@ export const TOKYO_MAP_PACK: MapPack = {
       { id: "jp-gotokuji-temple", kind: "park", center: point(30, 124), size: point(62, 58), color: "#5b8a52" },
       { id: "jp-shoin-shrine", kind: "park", center: point(-148, -118), size: point(48, 44), color: "#4f7b48" },
       { id: "jp-carrot-tower", kind: "tower", center: point(60, 60), size: point(12, 12), color: "#b6553f" },
+      // Bridge landmarks (Phase 3): id equals the bridge's own road id, which
+      // is how the water body's bridgePortalSurfaceIds and the dressing
+      // builder (render/tokyoLandmarks.ts) find the right road surface.
+      // size = (spanLengthM, widthM) — widthM is the carriageway alone
+      // (matches the road spec), not the padded footway axis the renderer
+      // re-derives from cairoBridgePortalVisualAxis. headingDeg 90: every
+      // span is dead straight, pointing east (NYC's own bridges use the same
+      // heading for the same reason).
+      { id: "jp-sakura-ohashi", kind: "bridge", center: point(650, -168), size: point(420, 12), headingDeg: 90, color: "#7d8791" },
+      { id: "jp-kawanaka-bashi", kind: "bridge", center: point(780, 180), size: point(400, 9), headingDeg: 90, color: "#7d8791" },
+      { id: "jp-tsuki-ohashi", kind: "bridge", center: point(640, 560), size: point(480, 12), headingDeg: 90, color: "#7d8791" },
     ],
   },
   laneGraph: graph(
@@ -1485,6 +1676,16 @@ export const TOKYO_MAP_PACK: MapPack = {
       freeSpawn("jp-cyclist-ni-tsuki", "cyclist", -950, -100, 90, "jp-ni-tsuki-dori-1-forward-1"),
       freeSpawn("jp-ped-ni-hana", "pedestrian", -350, 40, 45),
       freeSpawn("jp-ped-koshu", "pedestrian", -1080, 560, 0),
+      // --- Bridges + east bank (Tokyo expansion Phase 3, R3/R9) ---
+      // One vehicle anchor per bridge guarantees the acceptance sweep
+      // actually drives across each one, not just past its mouth.
+      anchoredSpawn("jp-car-sakura-ohashi", "vehicle", "jp-sakura-ohashi-1-forward-1", 20),
+      anchoredSpawn("jp-car-kawanaka-bashi", "vehicle", "jp-kawanaka-bashi-1-forward-1", 20),
+      anchoredSpawn("jp-car-tsuki-ohashi", "vehicle", "jp-tsuki-ohashi-1-forward-1", 20),
+      anchoredSpawn("jp-car-higashi-hondori", "vehicle", "jp-higashi-hondori-1-forward-1", 100),
+      anchoredSpawn("jp-car-kawagishi", "vehicle", "jp-kawagishi-dori-1-forward-1", 120),
+      freeSpawn("jp-ped-tofu", "pedestrian", 870, -400, 0),
+      freeSpawn("jp-cyclist-higashi", "cyclist", 980, 100, 0, "jp-higashi-hondori-3-forward-1"),
     ],
   ),
 };

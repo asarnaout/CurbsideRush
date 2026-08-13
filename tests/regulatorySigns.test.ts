@@ -488,16 +488,21 @@ describe("speed-limit signage", () => {
     // ~44 lane-km). London's signs are all 20 mph repeaters, so its count
     // tracks road length rather than any change in what it posts; Tokyo's
     // vary by road class (60/50/40/30/20), so its count tracks BOTH road
-    // length and the residential web's much higher junction density.
+    // length and the residential web's much higher junction density. Tokyo
+    // gets its own, higher budget rather than a shared one raised for every
+    // city: at 289 (Phase 3's river/bridges/east-bank web — real new signed
+    // road length, not a regression) it would otherwise force NYC/Cairo/
+    // London's own ceiling up too and quietly weaken their checks.
     const nyc = signsFor(nycPack());
     expect(nyc.length).toBeLessThan(nycPlacements().length);
     expect(nyc.length).toBeLessThanOrEqual(240);
     for (const pack of MAP_PACKS) {
       const budget =
-        pack.id === "nyc-upper-west-side" ||
-        pack.id === "cairo-central-nile" ||
-        pack.id === "london-south-kensington" ||
         pack.id === "tokyo-setagaya"
+          ? 320
+          : pack.id === "nyc-upper-west-side" ||
+            pack.id === "cairo-central-nile" ||
+            pack.id === "london-south-kensington"
           ? 240
           : 60;
       expect(signsFor(pack).length, pack.id).toBeLessThanOrEqual(budget);
