@@ -45,14 +45,18 @@ const LONDON_THEME: CountryVisualTheme = {
   roadsideDetails: ["red buses", "black cabs", "Belisha beacons"],
 };
 
+// Sakuragawa Nights: the launcher card goes night+paved to match the map
+// (visuals.ts's `tokyo` palette). Keep in step with that palette's mood —
+// this table is illustrative, not sampled from it, so a future palette retune
+// should glance back here too.
 const TOKYO_THEME: CountryVisualTheme = {
-  sky: "#acd9e9",
-  ground: "#769b69",
-  road: "#44494c",
+  sky: "#141a33",
+  ground: "#2e323d",
+  road: "#3d434c",
   laneMarking: "#f7f3df",
-  accent: "#e64f52",
-  architecture: "compact homes, utility poles and small station-front shops",
-  roadsideDetails: ["rail crossings", "bicycles", "vending machines"],
+  accent: "#ff5f7a",
+  architecture: "neon crossings, konbini glow and lantern-lit lanes",
+  roadsideDetails: ["vending machines", "rail crossings", "neon signs", "utility poles"],
 };
 
 const CAIRO_THEME: CountryVisualTheme = {
