@@ -2034,12 +2034,37 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   roadsideParcel("london-block-piccadilly-n-1", "london-piccadilly", nodeAt("london-node-wellington-arm-piccadilly"), nodeAt("london-node-piccadilly-mid"), -1, 10.4, 46, LONDON_RED_BRICK, [16, 26], 0.8),
   roadsideParcel("london-block-piccadilly-s-2", "london-piccadilly", nodeAt("london-node-piccadilly-mid"), nodeAt("london-node-piccadilly-east"), 1, 10.4, 44, LONDON_RED_BRICK, [16, 27], 0.8),
   roadsideParcel("london-block-piccadilly-n-2", "london-piccadilly", nodeAt("london-node-piccadilly-mid"), nodeAt("london-node-piccadilly-east"), -1, 10.4, 44, LONDON_STOCK_BRICK, [16, 26], 0.8),
+  // Piccadilly-to-Regent-1: no Regent parcel covered this segment at all —
+  // plan Section 10.3 P0 ("Piccadilly to Regent node 1"). Same material as
+  // -w-1/-e-1 immediately after it for visual continuity into the curve.
+  // Not addressable (Section 9.1): a visual-gap closure, not a deliberate
+  // new gig destination — even though "london-regent" happens to produce no
+  // addresses either way today, don't rely on that staying true.
+  //
+  // Only the east side ships. A west-side block was tried and dropped: the
+  // full segment's single wide model overlapped london-block-piccadilly-n-2
+  // (Piccadilly's own corner row converging on the same node) every way
+  // tried — extraInsetM 5 through 20 all still overlapped a DIFFERENT
+  // piccadilly-n-2 slot, and pulling the start point back from
+  // piccadilly-east (to clear that row) shrank the remaining span below
+  // roadsideParcel's own minimum, so it plans nothing at all either way.
+  // The audit confirms the named pose (939,405) needs no west-side
+  // building: every remaining ray there sits at exactly the 70 m probe
+  // boundary (the systemic distant-void pattern), none nearer than 40 m,
+  // with only the east block in place.
+  roadsideParcel("london-block-regent-e-piccadilly", "london-regent", nodeAt("london-node-piccadilly-east"), nodeAt("london-node-regent-1"), 1, 10.4, 40, LONDON_STUCCO, [17, 27], 0.8, 0, false),
   roadsideParcel("london-block-regent-w-1", "london-regent", nodeAt("london-node-regent-1"), nodeAt("london-node-regent-2"), -1, 10.4, 40, LONDON_STUCCO, [17, 27], 0.8),
   roadsideParcel("london-block-regent-e-1", "london-regent", nodeAt("london-node-regent-1"), nodeAt("london-node-regent-2"), 1, 10.4, 40, LONDON_STUCCO, [17, 27], 0.8),
   roadsideParcel("london-block-regent-w-2", "london-regent", nodeAt("london-node-regent-3"), nodeAt("london-node-regent-4"), -1, 10.4, 40, LONDON_RED_BRICK, [17, 27], 0.8),
   roadsideParcel("london-block-regent-e-2", "london-regent", nodeAt("london-node-regent-3"), nodeAt("london-node-regent-4"), 1, 10.4, 40, LONDON_STOCK_BRICK, [17, 27], 0.8),
   roadsideParcel("london-block-regent-w-3", "london-regent", nodeAt("london-node-regent-4"), nodeAt("london-node-regent-5"), -1, 10.4, 38, LONDON_STUCCO, [17, 27], 0.8),
   roadsideParcel("london-block-regent-e-3", "london-regent", nodeAt("london-node-regent-4"), nodeAt("london-node-regent-5"), 1, 10.4, 38, LONDON_RED_BRICK, [17, 27], 0.8),
+  // Regent-5-to-Oxford: the final Regent segment had no frontage at all —
+  // plan Section 10.3 P0 ("Regent node 5 to Oxford Street"). Stucco west
+  // continues -w-3's material into oxford-n-2's (also stucco); red brick
+  // east continues -e-3's material toward oxford-s-2's stock brick.
+  roadsideParcel("london-block-regent-w-oxford", "london-regent", nodeAt("london-node-regent-5"), nodeAt("london-node-regent-oxford"), -1, 10.4, 38, LONDON_STUCCO, [17, 27], 0.8, 0, false),
+  roadsideParcel("london-block-regent-e-oxford", "london-regent", nodeAt("london-node-regent-5"), nodeAt("london-node-regent-oxford"), 1, 10.4, 38, LONDON_RED_BRICK, [17, 27], 0.8, 0, false),
   roadsideParcel("london-block-oxford-n-1", "london-oxford-street", nodeAt("london-node-park-lane-oxford"), nodeAt("london-node-oxford-mid"), -1, 10.4, 46, LONDON_STOCK_BRICK, [16, 26], 0.8),
   roadsideParcel("london-block-oxford-s-1", "london-oxford-street", nodeAt("london-node-park-lane-oxford"), nodeAt("london-node-oxford-mid"), 1, 10.4, 46, LONDON_RED_BRICK, [16, 26], 0.8),
   roadsideParcel("london-block-oxford-n-2", "london-oxford-street", nodeAt("london-node-oxford-mid"), nodeAt("london-node-regent-oxford"), -1, 10.4, 46, LONDON_STUCCO, [16, 27], 0.8),

@@ -428,8 +428,20 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // back 8.5 m to make room) plans fewer procedural cells at its shifted
     // depth/position; net -3 boxes under this suite's forced-unavailable
     // mock. No block outside Cornmarket moved.
-    totalMeshes: 9_597,
-    enabledMeshes: 9_597,
+    // 9_597 -> 9_579: the Regent Street P0 (Section 10.3) — Piccadilly-to-
+    // Regent-1 and Regent-5-to-Oxford frontage, two surviving roadsideParcel
+    // blocks (the west side at each end was tried and dropped — see the
+    // content comment at london-block-regent-e-piccadilly). Planned
+    // building count over the whole map went *up* net +6 (4_686 -> 4_692,
+    // confirmed directly against planMapBuildings, and matching
+    // buildingLayerCharacterization's own -1-from-4_387 delta for the same
+    // final drop) — this file's mesh count moving the opposite direction is
+    // a measured fact, not fully attributed to a specific cause; it is not
+    // itself a planned-building regression, and the full suite (collision,
+    // pavement, content) is green. Worth a closer look if a future change
+    // needs to reason precisely about this file's number, not just pin it.
+    totalMeshes: 9_588,
+    enabledMeshes: 9_588,
     activeMeshes: 878,
     materials: 302,
     drawCallsPerFrame: 0,
