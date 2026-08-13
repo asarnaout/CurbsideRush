@@ -277,6 +277,10 @@ export function roadsidePropKindsForMap(
       return [{ ...PROP_TREE, spacingM: 20 }, PROP_SIGN];
     case "tokyo":
       return [
+        // R17's light posts: same config as NYC, the repo's other night map —
+        // 5.2 m column + arm + emissive head, plus the fake night ground-light
+        // pool.
+        PROP_STREETLIGHT,
         {
           kind: "utility-pole",
           spacingM: 32,

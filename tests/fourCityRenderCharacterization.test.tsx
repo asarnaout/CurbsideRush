@@ -571,20 +571,26 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     survivingMaterialNamesFingerprint: "e265e06c",
   },
   "tokyo-setagaya": {
-    totalMeshes: 1_086,
-    enabledMeshes: 1_086,
-    activeMeshes: 293,
-    materials: 96,
+    // Phase 1 of the Tokyo expansion (night + paved): +88 meshes from the
+    // new PROP_STREETLIGHT scatter (column + arm + emissive head + night
+    // ground-light-pool quad per lamp) now placed along every road; +1
+    // material for the streetlight's emissive head; mirror candidate/drawn
+    // counts shift because the new lamps and the widened paved sidewalks
+    // move what falls inside the fixed test pose's mirror cull ring.
+    totalMeshes: 1_174,
+    enabledMeshes: 1_174,
+    activeMeshes: 321,
+    materials: 97,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 166,
-    mirrorDrawn: 71,
+    mirrorCandidates: 157,
+    mirrorDrawn: 74,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "417377ea",
+    survivingMaterialNamesFingerprint: "0d482197",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

@@ -182,19 +182,34 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     fogEndCapM: 800,
   },
   tokyo: {
-    skyTop: "#4a8ec2",
-    skyHorizon: "#f0dcbd",
-    fogColor: "#e6d6bd",
-    grassBase: "#40663d",
-    grassAlt: "#4f7a45",
-    // Lush: Setagaya's temple gardens are watered and shaded.
-    grassDeep: "#2a4b2c",
-    grassDry: "#6d7245",
-    floraAccent: "#f0d6dd",
-    dirtShoulder: "#665a3f",
-    silhouetteNear: "#a9b0b0",
-    silhouetteFar: "#cfccb8",
-    sunTint: "#ffe9c2",
+    // Sakuragawa Nights: the Setagaya village goes from a daytime unpaved
+    // suburb to a night+paved city on the same footing as NYC (the repo's
+    // only other night+paved palette — this entry copies its field set
+    // exactly, values tuned separately). Moonlit sky, mercury-vapour-cool
+    // asphalt, sakura pink kept as the one warm accent so it still reads
+    // under bloom.
+    skyTop: "#0a0f24",
+    skyHorizon: "#232a45",
+    fogColor: "#161b2e",
+    grassBase: "#26391f",
+    grassAlt: "#2e4527",
+    grassDeep: "#182a18",
+    grassDry: "#3d4a2c",
+    floraAccent: "#e8a7bb",
+    dirtShoulder: "#3a3a35",
+    silhouetteNear: "#2c3346",
+    silhouetteFar: "#1b2133",
+    // Moonlight tint — the "sun" runs at reduced intensity at night, same as NYC.
+    sunTint: "#9fb2e8",
+    paved: true,
+    // Cooler than NYC's neutral concrete: Tokyo's asphalt and pavement lean
+    // blue under the mercury-vapour-ish street lighting.
+    groundBase: "#2e323d",
+    pavement: "#3d4250",
+    night: true,
+    // No fogEndCapM: night's own 100/440m clamp (resolveEffectiveFogRange)
+    // already governs a night map's draw distance — a second cap here would
+    // just fight it.
   },
   cairo: {
     // Central Cairo is bright rather than desert-orange: a hard blue sky,
