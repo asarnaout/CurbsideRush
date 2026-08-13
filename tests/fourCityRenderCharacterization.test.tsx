@@ -619,8 +619,19 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // already registered by 12.5, so no new palette entry. activeMeshes
     // unchanged for the same reason as 12.5: none sit in this suite's
     // fixed camera frustum.
-    totalMeshes: 10_797,
-    enabledMeshes: 10_797,
+    //
+    // 10_797 -> 10_822 (materials unchanged): Section 12.7. The five
+    // `cairo-west-nile-street-mid-land-edge-wall-{1..5}` closures place
+    // 10 more real procedural buildings (2 surviving cells each — see the
+    // drawCount baseline above); the two Al-Galaa wall-4/-5 resizes keep
+    // the same 3-of-9 survivor count each, so they add no new buildings,
+    // only shift existing ones' positions. Same "cairo-west-bank-concrete"
+    // material this stretch of the map already uses (matches the real
+    // `cairo-west-nile-street-roadside-*-left` neighbours' own style), so
+    // no new palette entry. activeMeshes unchanged for the same reason as
+    // every other closure so far: none sit in this suite's fixed frustum.
+    totalMeshes: 10_822,
+    enabledMeshes: 10_822,
     activeMeshes: 1_747,
     materials: 218,
     drawCallsPerFrame: 0,
