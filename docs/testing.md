@@ -189,6 +189,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | `cityRenderRegistry` | The right landmark/street-furniture builder is wired to each city's real map id, and an unrecognised id gets no entry — the Phase 4.5 registry's safety net |
 | `visuals` (per-city visual profile) | `MAP_VISUAL_PROFILES`'s buildingSets/natureSets/weights are internally consistent and its buildingSets allow-list matches every real MapPack's blocks — the issue #291 registry's safety net |
 | `content` / `cairoContent` / `londonContent` | Lane-graph continuity, "every lane has somewhere legal to go" |
+| `nycWaterfront` | The Hudson/East River shoreline *collider* (`simulationAdapter.ts`'s `buildStaticObstacles`, not the rendered water polygon `content.test.ts` already covers): every shore run sits on its own water body's real edge, the East River opens at exactly its two bridges and the Hudson opens nowhere, both bridge portals stay unwalled, the Hudson shore never crosses Riverside Drive, and nothing duplicates the world-edge fence |
 | `roadRealism` | Only speed figures that country actually signs |
 | `careerBalance` | Rent + fee ≤ 4 median gig nets; tickets reachable in 3–20 days |
 | `map-data` | sha256 over the frozen OSM extracts |
