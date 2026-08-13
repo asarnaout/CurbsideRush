@@ -306,7 +306,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // or shrank to nothing the same way — but the audit confirms both
     // named poses close anyway, entirely off the two surviving east
     // blocks.
-    buildingInstanceCount: 4_386,
+    // -> 4_388: the Euston/Upper Street T-junction P0 (Section 10.4) —
+    // london-block-nes-fab-a-north supplements -nes-fab-a north, closing
+    // the 12 m gap to the terminus sightline at euston-east (1180,940); 2
+    // new slots.
+    buildingInstanceCount: 4_388,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

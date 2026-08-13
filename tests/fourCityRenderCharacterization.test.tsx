@@ -440,8 +440,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // itself a planned-building regression, and the full suite (collision,
     // pavement, content) is green. Worth a closer look if a future change
     // needs to reason precisely about this file's number, not just pin it.
-    totalMeshes: 9_588,
-    enabledMeshes: 9_588,
+    // -> 9_590: the Euston/Upper Street T-junction P0 (Section 10.4) —
+    // london-block-nes-fab-a-north's 2 new slots, +2 meshes this time
+    // (matching buildingLayerCharacterization's own +2 exactly).
+    totalMeshes: 9_590,
+    enabledMeshes: 9_590,
     activeMeshes: 878,
     materials: 302,
     drawCallsPerFrame: 0,
