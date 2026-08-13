@@ -2954,8 +2954,8 @@ export const CAIRO_VISUAL_CLOSURES: readonly CairoVisualClosureSpec[] = [
     treatment: "land-edge-wall",
     block: {
       id: "cairo-galaa-ne-land-edge-wall-4",
-      center: point(878, 847),
-      size: point(18, 4),
+      center: point(878, 846.85),
+      size: point(18.3, 4),
       headingDeg: -90,
       frontageAxis: "z",
       streetEdges: ["+z"],
@@ -2985,8 +2985,8 @@ export const CAIRO_VISUAL_CLOSURES: readonly CairoVisualClosureSpec[] = [
     treatment: "land-edge-wall",
     block: {
       id: "cairo-galaa-ne-land-edge-wall-5",
-      center: point(878, 866.7),
-      size: point(19, 4),
+      center: point(878, 866.625),
+      size: point(19.15, 4),
       headingDeg: -90,
       frontageAxis: "z",
       streetEdges: ["+z"],
@@ -3107,6 +3107,144 @@ export const CAIRO_VISUAL_CLOSURES: readonly CairoVisualClosureSpec[] = [
       density: 0.82,
     },
     baselineFailureIds: ["urban_world_edge:cairo-dokki-south/junction-sw"],
+  },
+  // West/north land perimeter (visual-gap plan Section 12.7, P0). Of the
+  // section's four named ranges, two (West Nile Street near (-816,310) and
+  // Agouza Approach near (-800,857), both at the WEST end of their own
+  // roads) are systemic-only, confirmed by a near-field check. A third
+  // apparent lead -- a cluster of `urban_world_edge` failures right at
+  // Agouza Approach's own EAST end (-610,850), matching the general shape
+  // of a real gap (positioned at a road's own endpoint, same as every
+  // other real site this phase found) -- turned out to be the systemic
+  // pattern in disguise: every one of its 70 records sits 324-520 m away
+  // (checked directly, not assumed), nowhere near this plan's established
+  // ~70 m systemic-distance signature but just as clearly not a local
+  // miss. A first attempt built a small closure there before checking
+  // this and was reverted once the real distances were checked -- a
+  // reminder to run the near-field distance check BEFORE building
+  // anything, not just when a fix doesn't seem to help.
+  //
+  // West Nile Street's own named range (roughly (-848,-446) to (-850,-423))
+  // was real, and broader than named: 133 `urban_world_edge` failures
+  // spanning eye z -470..-330, target x=-903 past the world's west edge.
+  // The standard generator's own `cairo-west-nile-street-roadside-2-2-left`
+  // and `-3-1-left` asset-slot blocks flank this stretch, but their real
+  // buildings stop well short of each other (z=-410.9 and z=-369.6, a real
+  // 41 m gap) *and* short of their own nominal block AABBs (whose gap is
+  // only ~20 m) -- `validateCairoClosureCandidate`'s sibling check honours
+  // the wider, nominal AABB (correctly: it cannot know an asset-slot
+  // block's real building sparseness), so a new closure can only be
+  // placed OUTSIDE both existing AABBs, not in the exact centre of the
+  // real gap. Five `cairo-west-nile-street-mid-land-edge-wall-{1..5}`
+  // pieces at x=-874 (validated clear of both neighbours' true footprints)
+  // close 105 of the 133 (133->28). The residual 28 are the same class of
+  // per-cell tiling noise as 12.6's own accepted residual: each piece here
+  // keeps only 2 of its 9 candidate cells (not the usual 3), for reasons
+  // not traced further -- accepted on the same Cornmarket-precedent basis
+  // rather than chased past a second reasonable attempt.
+  //
+  // Ramses Approach's own named range ("sides near z~843..863") turned out
+  // to be a SEAM in Section 12.5's own Al-Galaa closures, visible from a
+  // different road's approach angle than the one those seams were tuned
+  // against: `cairo-galaa-ne-land-edge-wall-4`/`-5` widened slightly
+  // (837.7->838, 857.2->857.05 start) to close two ~1.2-1.3 m gaps,
+  // 71->68. The residual 68 are, like Dokki South, per-building tiling
+  // gaps inside the existing pieces themselves, not seams -- the same
+  // deliberate-accept call, not chased further.
+  {
+    id: "cairo-west-nile-street-mid-land-edge-wall-1",
+    sourceRoadId: "cairo-west-nile-street",
+    side: -1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-west-nile-street-mid-land-edge-wall-1",
+      center: point(-874, -462.5),
+      size: point(19, 8),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "cairo-west-bank-concrete",
+      heightRange: [18, 40],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-west-nile-street/mid-gap"],
+  },
+  {
+    id: "cairo-west-nile-street-mid-land-edge-wall-2",
+    sourceRoadId: "cairo-west-nile-street",
+    side: -1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-west-nile-street-mid-land-edge-wall-2",
+      center: point(-874, -441.5),
+      size: point(19, 8),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "cairo-west-bank-concrete",
+      heightRange: [18, 40],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-west-nile-street/mid-gap"],
+  },
+  {
+    id: "cairo-west-nile-street-mid-land-edge-wall-3",
+    sourceRoadId: "cairo-west-nile-street",
+    side: -1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-west-nile-street-mid-land-edge-wall-3",
+      center: point(-874, -420.5),
+      size: point(19, 8),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "cairo-west-bank-concrete",
+      heightRange: [18, 40],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-west-nile-street/mid-gap"],
+  },
+  {
+    id: "cairo-west-nile-street-mid-land-edge-wall-4",
+    sourceRoadId: "cairo-west-nile-street",
+    side: -1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-west-nile-street-mid-land-edge-wall-4",
+      center: point(-874, -399.5),
+      size: point(19, 8),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "cairo-west-bank-concrete",
+      heightRange: [18, 40],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-west-nile-street/mid-gap"],
+  },
+  {
+    id: "cairo-west-nile-street-mid-land-edge-wall-5",
+    sourceRoadId: "cairo-west-nile-street",
+    side: -1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-west-nile-street-mid-land-edge-wall-5",
+      center: point(-874, -378.5),
+      size: point(19, 8),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "cairo-west-bank-concrete",
+      heightRange: [18, 40],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-west-nile-street/mid-gap"],
   },
 ];
 

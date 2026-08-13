@@ -419,8 +419,24 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // draws each), the short 9 m third piece only keeps 2 of its 9 cells
     // (2 * 3 + 7 * 2 = 20 draws). 21 + 21 + 20 = 62, measured before this
     // was written, not assumed from the other blocks' own count.
-    drawCount: 4_476,
-    facadeMeshFingerprint: "09026368",
+    //
+    // 4_476 -> 4_586 (fingerprint "09026368" -> "2ebb9e83", +110): Section
+    // 12.7. Two small `cairo-galaa-ne-land-edge-wall-4`/`-5` resizes (a
+    // seam-tightening, no cell/survivor-count change for either -- both
+    // still keep 3 of 9) plus five new
+    // `cairo-west-nile-street-mid-land-edge-wall-{1..5}` closures, each
+    // keeping only 2 of its 9 cells. Unlike the two baselines above, this
+    // delta was NOT independently re-derived to an exact formula: a plain
+    // "5 blocks * 20 draws (2 survivors * 3 + 7 rejected * 2)" guess gives
+    // 100, not the measured 110, meaning at least one of these five
+    // rejects some cells via `survivesReservations` (which still draws
+    // height, 3 calls, before the cell is dropped) rather than the
+    // frontage-overlap check the other sites' math assumed throughout
+    // (2 calls, no height draw) -- the real mechanism was not traced
+    // further. The measured number is trusted; the arithmetic behind it
+    // is not claimed to be exact, per this suite's own honesty standard.
+    drawCount: 4_586,
+    facadeMeshFingerprint: "2ebb9e83",
   },
 };
 

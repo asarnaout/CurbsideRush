@@ -71,7 +71,17 @@ import type {
 // failures, all one close eye station's sub-2m inter-building gaps) was
 // deliberately accepted rather than chased to zero -- see the closure
 // array's own comment for why.
-const BLOCK_COUNT = 659;
+// 659 -> 664 (Section 12.7, P0, west/north land perimeter): five
+// `cairo-west-nile-street-mid-land-edge-wall-{1..5}` closures fill the
+// real 41 m gap between two standard-generator asset-slot blocks whose
+// own real buildings stop short of each other. Ramses Approach's own
+// named range needed no new blocks, only a small widen of two existing
+// Al-Galaa closures' start edges (Section 12.5) -- BLOCK_COUNT unaffected
+// by that. Two of the section's four named ranges are systemic-only, and
+// a third apparent lead (Agouza Approach's own east end) was built then
+// reverted once its failures' real distances (324-520 m) proved it was
+// systemic too -- see the closure array's own comment.
+const BLOCK_COUNT = 664;
 const ROADSIDE_COUNT = 626;
 const ROADSIDE_LEFT = 313;
 /** The second rank is gone — a one-sided kit means a back row can only stare
@@ -79,10 +89,10 @@ const ROADSIDE_LEFT = 313;
  * Zero, pinned, so it cannot quietly come back. */
 const ROADSIDE_RANKS = 0;
 const STREET_WALL_BLOCKS = 471;
-// 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6): the three
-// cairo-dokki-sw-land-edge-wall-* closures have no buildingSet either,
-// same formula, 3 blocks * 9 = 27 more.
-const FACADE_BOX_CELLS = 1671;
+// 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6) -> 1716 (Section
+// 12.7): the five cairo-west-nile-street-mid-land-edge-wall-* closures
+// have no buildingSet either, same formula, 5 blocks * 9 = 45 more.
+const FACADE_BOX_CELLS = 1716;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
