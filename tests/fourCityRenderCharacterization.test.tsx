@@ -218,20 +218,33 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 27_481 -> 27_539 (Section 11.5, P0): the bk40/bk56 outer shells, +58
     // meshes — a clean 1:1 match against the +58 planned buildings this
     // time (single-solid proxies, same as every other asset-slot entry).
-    totalMeshes: 27_539,
-    enabledMeshes: 27_539,
+    // 27_539 -> 27_495 (Section 11.6, P0): the Queens riverbank park (three
+    // new "riverside_strip" landmarks, south/main/north) plus relocating
+    // nyc-v31 off the park's own kerb — net -44 meshes (the -4 planned
+    // buildings that venue's keep-out now excludes dominate over whatever
+    // the three new park segments themselves add). Materials 188 -> 191
+    // and mirrorDrawn 116 -> 119: the new segments' own path/wall/furniture
+    // materials and their mirror reflections, the first park content this
+    // plan has added to NYC since the west-margin/gallery/Queensbridge
+    // sites were all plain grass-only or building-only. Not traced further
+    // per the same reasoning as 11.2/11.3 above; the fingerprint moves
+    // because the material set genuinely changed, and the content
+    // correctness this exists to guard is independently verified by
+    // content.test.ts and a real camera-fan audit re-run, not this metric.
+    totalMeshes: 27_495,
+    enabledMeshes: 27_495,
     activeMeshes: 961,
-    materials: 188,
+    materials: 191,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     mirrorCandidates: 81,
-    mirrorDrawn: 116,
+    mirrorDrawn: 119,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "bbe0c887",
+    survivingMaterialNamesFingerprint: "a3819831",
   },
   "london-south-kensington": {
     // 908 -> 887: London became a `paved` city, and a paved map draws a

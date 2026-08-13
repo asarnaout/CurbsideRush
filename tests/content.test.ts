@@ -25,7 +25,7 @@ import type {
 } from "../app/game/types";
 import { gasStationsOf } from "../app/game/servicePoints";
 import { buildStaticObstacles } from "../app/game/simulationAdapter";
-import { parkLayoutForLandmark } from "../app/game/parkLayouts";
+import { parkLayoutForLandmark, resolveParkStyle } from "../app/game/parkLayouts";
 import { planMapBuildings } from "../app/game/geometry/buildingLayout";
 import { hashStringToSeed } from "../app/game/visuals";
 
@@ -521,8 +521,8 @@ describe("SideSwap content", () => {
     expect(south).toBeDefined();
     expect(north).toBeDefined();
     for (const block of [south, north]) {
-      expect(block.center.x).toBe(972);
-      expect(block.size).toEqual({ x: 370, z: 44 });
+      expect(block.center.x).toBe(974.2);
+      expect(block.size).toEqual({ x: 365.6, z: 44 });
       expect(block.buildingSet).toBe("nyc-house");
       // A map-edge shell, not real frontage: single inward-facing edge, and
       // withdrawn from gig-pool probing entirely (plan Section 9.1).
@@ -532,11 +532,53 @@ describe("SideSwap content", () => {
     expect(south.streetEdges).toEqual(["+z"]);
     expect(north.center.z).toBe(1115);
     expect(north.streetEdges).toEqual(["-z"]);
-    // Clear of the East River's own shore (x up to ~744) on the west side.
+    // Clear of the East River's own shore (x up to ~744) on the west side,
+    // and its west edge meets the Queens riverbank park's own east edge
+    // exactly (Section 11.6) rather than the vern-cres column's generic
+    // 787 inset, which would overlap it by 4.4 m.
     const river = nyc!.geometry.waterBodies!.find((w) => w.id === "nyc-east-river")!;
     const riverMaxX = Math.max(...river.polygon.map((p) => p.x));
+    const bank = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queens-bank-south")!;
     for (const block of [south, north]) {
       expect(block.center.x - block.size.x / 2).toBeGreaterThan(riverMaxX);
+      expect(block.center.x - block.size.x / 2).toBe(bank.center.x + bank.size.x / 2);
+    }
+  });
+
+  it("dresses the Queens East River bank strip instead of leaving it grey ground (plan Section 11.6)", () => {
+    const nyc = MAP_PACKS.find((m) => m.id === "nyc-upper-west-side");
+    expect(nyc).toBeDefined();
+    const south = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queens-bank-south")!;
+    const main = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queens-bank")!;
+    const north = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queens-bank-north")!;
+    for (const park of [south, main, north]) {
+      expect(park, park?.id).toBeDefined();
+      expect(park.center.x).toBe(758.7);
+      expect(park.size.x).toBe(65.4);
+    }
+    // Split around both bridges, matching the Manhattan esplanade's own
+    // z-splits exactly -- one physical bridge deck, same clearance on both
+    // banks.
+    expect(south.center.z).toBe(-1158);
+    expect(south.size.z).toBe(604);
+    expect(main.center.z).toBe(0);
+    expect(main.size.z).toBe(1640);
+    expect(north.center.z).toBe(1158);
+    expect(north.size.z).toBe(604);
+    // Never overlaps the water: the west edge sits at the east shore's own
+    // minimum reach (726), never past it.
+    const river = nyc!.geometry.waterBodies!.find((w) => w.id === "nyc-east-river")!;
+    const eastShoreMinX = Math.min(
+      ...river.polygon.filter((p) => p.x > 700).map((p) => p.x),
+    );
+    for (const park of [south, main, north]) {
+      expect(park.center.x - park.size.x / 2).toBe(eastShoreMinX);
+    }
+    // resolveParkStyle derives "riverside_strip" from these proportions
+    // alone -- no hand-authored parkStyle override, matching the Manhattan
+    // esplanade's own convention.
+    for (const park of [south, main, north]) {
+      expect(resolveParkStyle(park, "nyc")).toBe("riverside_strip");
     }
   });
 

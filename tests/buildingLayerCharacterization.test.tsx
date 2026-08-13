@@ -244,7 +244,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // -> 5_475 (Section 11.5, P0): two single-edge `nyc-house` map-edge
     // shells past bk40/bk56, the borough's south/north boundary streets,
     // where the ground used to continue unbuilt to the world edge: +58.
-    buildingInstanceCount: 5_475,
+    // -> 5_471 (Section 11.6, P0): the Queens riverbank park pushed
+    // nyc-v31 (Bridge Plaza Offices) off the southbound Vernon lane, whose
+    // kerb the new park now owns, onto the northbound one instead — a real
+    // vern-cres houses block, where the venue's own keep-out circle now
+    // excludes 4 building slots it previously stood clear of entirely
+    // (its old position had no real block under it, only park).
+    buildingInstanceCount: 5_471,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 12,
   },

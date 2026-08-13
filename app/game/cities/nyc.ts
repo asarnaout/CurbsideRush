@@ -1191,19 +1191,21 @@ export const NYC_MAP_PACK: MapPack = {
       // boundary) have no outer-side margin row, so the ground continues
       // hundreds of metres to the world edge past them. Two inward-facing
       // shells close it, spanning the full built borough width: from
-      // Vernon's own inset edge (800-13=787, excluding the East River shore
-      // at x=726..744) to the outer edge of the existing Steinway
-      // east-margin strip (1100+13+44=1157) — the same x-span the vern-cres/
-      // cres-stein/stein-margin columns and their own east-margin row
-      // together already cover. Depth and centre follow the same
-      // NYC_BLOCK_INSET_M/NYC_MARGIN_DEPTH_M math as every other margin
-      // strip. A single `streetEdges` entry each (Section 9's rule for a
-      // backdrop, not the default four) faces the real street; the far side
-      // faces open world, so these are `addressable: false` map-edge shells
-      // (Section 9.1), not real frontage like the west-margin/gallery
-      // blocks above.
-      { id: "nyc-block-bk40-outer", center: point(972, -1115), size: point(370, 44), streetEdges: ["+z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
-      { id: "nyc-block-bk56-outer", center: point(972, 1115), size: point(370, 44), streetEdges: ["-z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
+      // Vernon's own pavement (791.4, matching the Queens riverbank park's
+      // own east edge below rather than the vern-cres column's generic
+      // 787 inset — the two would otherwise overlap by 4.4 m, caught by
+      // content.test.ts's block/park overlap sweep once the riverbank strip
+      // existed) out to the outer edge of the existing Steinway east-margin
+      // strip (1100+13+44=1157) — the same x-span the vern-cres/cres-stein/
+      // stein-margin columns and their own east-margin row together already
+      // cover. Depth and centre follow the same NYC_BLOCK_INSET_M/
+      // NYC_MARGIN_DEPTH_M math as every other margin strip. A single
+      // `streetEdges` entry each (Section 9's rule for a backdrop, not the
+      // default four) faces the real street; the far side faces open world,
+      // so these are `addressable: false` map-edge shells (Section 9.1),
+      // not real frontage like the west-margin/gallery blocks above.
+      { id: "nyc-block-bk40-outer", center: point(974.2, -1115), size: point(365.6, 44), streetEdges: ["+z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
+      { id: "nyc-block-bk56-outer", center: point(974.2, 1115), size: point(365.6, 44), streetEdges: ["-z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
     ]),
     servicePoints: [
       // West 72nd is a wide two-way, and NYC is a paved city, so the lot must
@@ -1318,7 +1320,14 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-v29", kind: "residence", anchor: { laneId: "nyc-bk48-e-cres", distanceAlongM: 15 }, footprint: point(14, 12), name: "48th Avenue Houses" },
       { id: "nyc-v30", kind: "restaurant", anchor: { laneId: "nyc-stein-n-bk52", distanceAlongM: 100 }, footprint: point(14, 14), name: "Steinway Pizzeria", modelId: "restaurant-pizzeria" },
       // Queensview Bridge's own plaza, the grander of the two crossings.
-      { id: "nyc-v31", kind: "office", anchor: { laneId: "nyc-vern-s-qvb", distanceAlongM: 100 }, footprint: point(16, 14), name: "Bridge Plaza Offices" },
+      // Northbound, not southbound (visual-gap plan Section 11.6): the
+      // southbound lane's own driver's-right is the west kerb, and the new
+      // Queens riverbank park (nyc-queens-bank-south) now owns that whole
+      // kerb south of the bridge — the same "whole kerb is park" trap
+      // docs/greenery.md already documents four other venues having shipped
+      // into. Northbound's right is east, into the ordinary vern-cres
+      // houses block instead.
+      { id: "nyc-v31", kind: "office", anchor: { laneId: "nyc-vern-n-qvb", distanceAlongM: 60 }, footprint: point(16, 14), name: "Bridge Plaza Offices" },
     ],
     // Central Park's lake, on the eastern half so it never fouls the
     // promenade, and between two of the derived crossings so it never
@@ -1421,6 +1430,27 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-esplanade-south", kind: "park", center: point(500, -1158), size: point(95, 604), color: "#4f7a3d" },
       { id: "nyc-esplanade", kind: "park", center: point(500, 0), size: point(95, 1640), color: "#4f7a3d" },
       { id: "nyc-esplanade-north", kind: "park", center: point(500, 1158), size: point(95, 604), color: "#4f7a3d" },
+      // Queens East River bank strip (visual-gap plan Section 11.6, P0): the
+      // mirror case on the opposite shore. The east-shore polygon vertices
+      // (in `nyc-east-river` below) wobble x=726..744; 726 (the shore's own
+      // minimum reach) is what guarantees this never overlaps the water
+      // polygon at any z, at the cost of a residual gap up to 18 m where the
+      // real shore recedes to 744 — still a large improvement on the 47-65 m
+      // bare strip this replaces, and the safer direction of the two
+      // possible errors (Section 11.8 already tracks the opposite mistake —
+      // an esplanade that stops short of the water — as a separate, P1,
+      // not-yet-fixed bug on the Manhattan side). The east edge is Vernon's
+      // own pavement, by the identical formula Section 11.8's own Third Ave
+      // number uses (440+5.5+3.4=448.9): 800-5.2-3.4=791.4. Split around the
+      // same two bridges at the same z the Manhattan esplanade already
+      // is — one physical bridge deck, so the same clearance applies on
+      // both banks. Long/short ratios (604/65.4, 1640/65.4) clear
+      // STRIP_ASPECT on their own, so `resolveParkStyle` derives
+      // "riverside_strip" without a hand-authored override, matching how
+      // the Manhattan esplanade blocks above rely on the same derivation.
+      { id: "nyc-queens-bank-south", kind: "park", center: point(758.7, -1158), size: point(65.4, 604), color: "#4f7a3d" },
+      { id: "nyc-queens-bank", kind: "park", center: point(758.7, 0), size: point(65.4, 1640), color: "#4f7a3d" },
+      { id: "nyc-queens-bank-north", kind: "park", center: point(758.7, 1158), size: point(65.4, 604), color: "#4f7a3d" },
       // Queensbridge Green (visual-gap plan Section 11.4, P0): the borough's
       // own civic park, expanded from an original 110x200 island (leaving
       // 127 m of bare land north and south) to own its FULL null-zoned
