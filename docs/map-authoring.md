@@ -78,7 +78,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 |---|---|---|---|---|---|---|
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
-| `tokyo-setagaya` | 416 | 79 | 76.9 | 0 | 0 | 2600 × 2400 |
+| `tokyo-setagaya` | 404 | 79 | 71.9 | 42 | 14 | 2600 × 2400 |
 | `london-south-kensington` | 338 | 73 | 61.3 | 12 | 4 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane

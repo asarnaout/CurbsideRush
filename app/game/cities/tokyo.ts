@@ -565,36 +565,49 @@ const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   tokyoRoad("jp-uptown-higashi", "Uptown St", ["jp-ne2", "jp-shotengai-nishi-x-uptown"], 2, 6.4, 40),
 ];
 
+// One-way rungs (Tokyo expansion Phase 5, R11): 4 per web, `laneCount: 1`
+// (a one-way local does not need two full lanes of the same direction).
+// The alternating-pair-rung topology (§ residential-web comment, Phase 2)
+// makes the "one-way x one-way trap" structurally impossible here without
+// any per-junction checking: every rung touches only TWO-WAY ring roads (or
+// a two-way yokochō stem) at its own two ends, and no rung ever meets
+// another rung directly — so a one-way rung can never leave a corner with
+// no legal departure, whichever direction it runs. The collector
+// (Suzukake/Yanagi/Hato-dōri) and the yokochō stubs stay two-way
+// deliberately, matching how a real neighbourhood's one collector spine
+// stays flexible while its narrow locals go one-way; Fujimi/Ayame/Ume-dōri
+// (the three rungs that pass through their own yokochō's stem-n) also stay
+// two-way so that mid-span T stays an ordinary, unrestricted junction.
 const TOKYO_MIYANOSAKA_SPECS: readonly TokyoRoadSpec[] = [
-  tokyoRoad("jp-mn-asahi-dori", "Asahi-dōri", ["jp-mn-r6-kp", "jp-mn-r6-sg"], 2, 6.4, 30),
+  tokyoRoad("jp-mn-asahi-dori", "Asahi-dōri", ["jp-mn-r6-kp", "jp-mn-r6-sg"], 1, 6.4, 30, { oneWay: "forward" }),
   tokyoRoad("jp-mn-wakaba-dori", "Wakaba-dōri", ["jp-mn-r1-nk", "jp-mn-r1-kp"], 2, 6.4, 30),
   tokyoRoad("jp-mn-fujimi-dori", "Fujimi-dōri", ["jp-mn-r2-kp", "jp-mn-stem-n", "jp-mn-r2-sg"], 2, 6.4, 30),
   tokyoRoad("jp-mn-suzukake-dori", "Suzukake-dōri", ["jp-mn-coll-nk", "jp-mn-coll-kp", "jp-mn-stem-s", "jp-mn-coll-sg"], 2, 7, 40),
   tokyoRoad("jp-mn-suzukake-yokocho", "Suzukake Yokochō", ["jp-mn-stem-n", "jp-mn-stem-s"], 2, 5.8, 30),
-  tokyoRoad("jp-mn-sumire-dori", "Sumire-dōri", ["jp-mn-r4-nk", "jp-mn-r4-kp"], 2, 6.4, 30),
-  tokyoRoad("jp-mn-momiji-dori", "Momiji-dōri", ["jp-mn-r5-kp", "jp-mn-r5-sg"], 2, 6.4, 30),
-  tokyoRoad("jp-mn-kaede-dori", "Kaede-dōri", ["jp-mn-r7-nk", "jp-mn-r7-kp"], 2, 6.4, 30),
+  tokyoRoad("jp-mn-sumire-dori", "Sumire-dōri", ["jp-mn-r4-nk", "jp-mn-r4-kp"], 1, 6.4, 30, { oneWay: "reverse" }),
+  tokyoRoad("jp-mn-momiji-dori", "Momiji-dōri", ["jp-mn-r5-kp", "jp-mn-r5-sg"], 1, 6.4, 30, { oneWay: "forward" }),
+  tokyoRoad("jp-mn-kaede-dori", "Kaede-dōri", ["jp-mn-r7-nk", "jp-mn-r7-kp"], 1, 6.4, 30, { oneWay: "reverse" }),
 ];
 
 const TOKYO_YAMASHITA_SPECS: readonly TokyoRoadSpec[] = [
-  tokyoRoad("jp-ys-tsubaki-dori", "Tsubaki-dōri", ["jp-ys-r1-nk", "jp-ys-r1-kp"], 2, 6.4, 30),
+  tokyoRoad("jp-ys-tsubaki-dori", "Tsubaki-dōri", ["jp-ys-r1-nk", "jp-ys-r1-kp"], 1, 6.4, 30, { oneWay: "forward" }),
   tokyoRoad("jp-ys-ayame-dori", "Ayame-dōri", ["jp-ys-r2-kp", "jp-ys-stem-n", "jp-ys-r2-sg"], 2, 6.4, 30),
   tokyoRoad("jp-ys-yanagi-dori", "Yanagi-dōri", ["jp-ys-coll-nk", "jp-ys-coll-kp", "jp-ys-stem-s", "jp-ys-coll-sg"], 2, 7, 40),
   tokyoRoad("jp-ys-yanagi-yokocho", "Yanagi Yokochō", ["jp-ys-stem-n", "jp-ys-stem-s"], 2, 5.8, 30),
-  tokyoRoad("jp-ys-ichou-dori", "Ichō-dōri", ["jp-ys-r3-nk", "jp-ys-r3-kp"], 2, 6.4, 30),
-  tokyoRoad("jp-ys-botan-dori", "Botan-dōri", ["jp-ys-r4-kp", "jp-ys-r4-sg"], 2, 6.4, 30),
-  tokyoRoad("jp-ys-hagi-dori", "Hagi-dōri", ["jp-ys-r5-nk", "jp-ys-r5-kp"], 2, 6.4, 30),
+  tokyoRoad("jp-ys-ichou-dori", "Ichō-dōri", ["jp-ys-r3-nk", "jp-ys-r3-kp"], 1, 6.4, 30, { oneWay: "reverse" }),
+  tokyoRoad("jp-ys-botan-dori", "Botan-dōri", ["jp-ys-r4-kp", "jp-ys-r4-sg"], 1, 6.4, 30, { oneWay: "forward" }),
+  tokyoRoad("jp-ys-hagi-dori", "Hagi-dōri", ["jp-ys-r5-nk", "jp-ys-r5-kp"], 1, 6.4, 30, { oneWay: "reverse" }),
   tokyoRoad("jp-ys-kikyo-dori", "Kikyō-dōri", ["jp-ys-r6-kp", "jp-ys-r6-sg"], 2, 6.4, 30),
 ];
 
 const TOKYO_NISHI_SPECS: readonly TokyoRoadSpec[] = [
-  tokyoRoad("jp-ni-tsuki-dori", "Tsuki-dōri", ["jp-ni-r1-nk", "jp-ni-r1-kp"], 2, 6.4, 30),
+  tokyoRoad("jp-ni-tsuki-dori", "Tsuki-dōri", ["jp-ni-r1-nk", "jp-ni-r1-kp"], 1, 6.4, 30, { oneWay: "forward" }),
   tokyoRoad("jp-ni-ume-dori", "Ume-dōri", ["jp-ni-r2-kp", "jp-ni-stem-n", "jp-ni-r2-sg"], 2, 6.4, 30),
   tokyoRoad("jp-ni-hato-dori", "Hato-dōri", ["jp-ni-coll-nk", "jp-ni-coll-kp", "jp-ni-stem-s", "jp-ni-coll-sg"], 2, 7, 40),
   tokyoRoad("jp-ni-hato-yokocho", "Hato Yokochō", ["jp-ni-stem-n", "jp-ni-stem-s"], 2, 5.8, 30),
-  tokyoRoad("jp-ni-kiku-dori", "Kiku-dōri", ["jp-ni-r3-nk", "jp-ni-r3-kp"], 2, 6.4, 30),
-  tokyoRoad("jp-ni-ran-dori", "Ran-dōri", ["jp-ni-r4-kp", "jp-ni-r4-sg"], 2, 6.4, 30),
-  tokyoRoad("jp-ni-hibari-dori", "Hibari-dōri", ["jp-ni-r5-nk", "jp-ni-r5-kp"], 2, 6.4, 30),
+  tokyoRoad("jp-ni-kiku-dori", "Kiku-dōri", ["jp-ni-r3-nk", "jp-ni-r3-kp"], 1, 6.4, 30, { oneWay: "reverse" }),
+  tokyoRoad("jp-ni-ran-dori", "Ran-dōri", ["jp-ni-r4-kp", "jp-ni-r4-sg"], 1, 6.4, 30, { oneWay: "forward" }),
+  tokyoRoad("jp-ni-hibari-dori", "Hibari-dōri", ["jp-ni-r5-nk", "jp-ni-r5-kp"], 1, 6.4, 30, { oneWay: "reverse" }),
   // Hana-dōri: Sangen-dōri (the collector's own east end) direct to the
   // quarter's jp-cw (-260,18), the west-edge node closest in z — a single
   // straight segment (dx=200, dz=-42, ~12deg off pure east), ties Nishi
@@ -2783,7 +2796,9 @@ export const TOKYO_MAP_PACK: MapPack = {
       freeSpawn("jp-ped-mn-suzukake", "pedestrian", -900, 850, 0),
       freeSpawn("jp-cyclist-mn-wakaba", "cyclist", -950, 650, 90, "jp-mn-wakaba-dori-1-forward-1"),
       freeSpawn("jp-ped-ys-yanagi", "pedestrian", -900, -970, 180),
-      freeSpawn("jp-cyclist-ys-ichou", "cyclist", -950, -900, 90, "jp-ys-ichou-dori-1-forward-1"),
+      // jp-ys-ichou-dori is one-way "reverse" (Tokyo expansion Phase 5,
+      // R11) — only the reverse-direction lane exists now.
+      freeSpawn("jp-cyclist-ys-ichou", "cyclist", -950, -900, 90, "jp-ys-ichou-dori-1-reverse-1"),
       freeSpawn("jp-ped-ni-hato", "pedestrian", -900, 60, 90),
       freeSpawn("jp-cyclist-ni-tsuki", "cyclist", -950, -100, 90, "jp-ni-tsuki-dori-1-forward-1"),
       freeSpawn("jp-ped-ni-hana", "pedestrian", -350, 40, 45),

@@ -134,9 +134,13 @@ describe("ambient traffic trace characterization", () => {
       // `snapshot.trafficLights` — hashed by this test — goes from 2 entries
       // (the original jp-rail-signal's own two approaches; Tokyo had zero
       // `type: "signal"` controls before Phase 5) to 136 (133 signal
-      // approaches + 3 railway_signal approaches across both crossings). Any
-      // one of those alone would move this hash.
-      "free-jp": "fd8fe326",
+      // approaches + 3 railway_signal approaches across both crossings). The
+      // same phase's 12 residential one-ways (R11, 4 per web, `laneCount: 1`)
+      // move it again: `snapshot.npcs` hashes each car's `laneId`, and a
+      // road that used to carry two directions of ambient traffic now
+      // carries only one — real routing/spawn-distribution change, not
+      // noise.
+      "free-jp": "49c638c6",
       "free-eg": "eb350f99",
     });
   });

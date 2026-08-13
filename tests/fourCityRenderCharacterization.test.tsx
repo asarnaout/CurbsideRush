@@ -628,7 +628,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // other new-this-phase block reuses an already-registered key
     // (plaster/tile/wood-plaster).
     // -> Phase 5 (signals/cameras/one-ways/crossings/rail, R10/R11): 42
-    // authored `type: "signal"` controls (137 approaches/heads total), 14
+    // authored `type: "signal"` controls (133 approaches/heads total), 14
     // derived enforcement cameras, 3 new `type: "crosswalk"` controls
     // (shotengai's two real ends + the temple-green gate) plus the
     // scramble's own 6 extra crosswalk/diagonal markings, and a second
@@ -646,13 +646,19 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // installed roadside poles/heads/lenses/housings, camera bodies+lenses,
     // rail-crossing barrier/crossbuck/warning/pole sets (x2 gates x2
     // crossings), crosswalk stripe instances and the 4 new rail-line boxes
-    // (2 rails x 2 new landmark segments). activeMeshes 933 -> 1_039: the
-    // fixed test pose's mirror-cull frustum now includes some of the new
-    // downtown-core signal heads/cameras. mirrorCandidates/mirrorDrawn
+    // (2 rails x 2 new landmark segments). -> 9_449 (-100): the same phase's
+    // 12 residential one-ways (R11, 4 per web) each drop from 2 lanes to 1
+    // (`laneCount: 1`), and a one-way road's own surface carries no
+    // centre-dashed marking (nothing to separate two directions of the same
+    // carriageway) — 12 roads' worth of dash-segment meshes disappear.
+    // activeMeshes 933 -> 1_039: the fixed test pose's mirror-cull frustum
+    // now includes some of the new downtown-core signal heads/cameras
+    // (unaffected by the one-way pass — none of the converted residential
+    // rungs sit in this pose's frustum). mirrorCandidates/mirrorDrawn
     // unchanged (198/172) — the new content sits outside the mirror's own
     // reflection distance, only the frustum-active set moved.
-    totalMeshes: 9_549,
-    enabledMeshes: 9_549,
+    totalMeshes: 9_449,
+    enabledMeshes: 9_449,
     activeMeshes: 1_039,
     materials: 117,
     drawCallsPerFrame: 0,
