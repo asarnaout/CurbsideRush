@@ -486,6 +486,33 @@ describe("SideSwap content", () => {
     expect(north.center.z - north.size.z / 2).toBeGreaterThan(galleryBounds.zMax);
   });
 
+  it("expands Queensbridge Green to own its full null-zoned cell, pavement to pavement (plan Section 11.4)", () => {
+    const nyc = MAP_PACKS.find((m) => m.id === "nyc-upper-west-side");
+    expect(nyc).toBeDefined();
+    const park = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queensbridge-green")!;
+    expect(park).toBeDefined();
+    // Vernon (800) / Crescent (950) inset by NYC_BLOCK_INSET_M (13) each
+    // side, and bk44 (-360) / bk48 (120) the same way -- the exact cell
+    // `nycZoneFor("vern-cres", ...)` nulls for this park, derived the same
+    // way every ordinary block's bounds are, not eyeballed.
+    expect(park.center).toEqual({ x: 875, z: -120 });
+    expect(park.size).toEqual({ x: 124, z: 454 });
+    const bounds = {
+      xMin: park.center.x - park.size.x / 2,
+      xMax: park.center.x + park.size.x / 2,
+      zMin: park.center.z - park.size.z / 2,
+      zMax: park.center.z + park.size.z / 2,
+    };
+    expect(bounds).toEqual({ xMin: 813, xMax: 937, zMin: -347, zMax: 107 });
+    // No house block from the surrounding houses zone may share this cell.
+    const overlapping = nyc!.geometry.blocks.filter((b) => {
+      const dx = Math.abs(b.center.x - park.center.x) - (b.size.x + park.size.x) / 2;
+      const dz = Math.abs(b.center.z - park.center.z) - (b.size.z + park.size.z) / 2;
+      return dx < 0 && dz < 0;
+    });
+    expect(overlapping.map((b) => b.id)).toEqual([]);
+  });
+
   it("gives every country a currency and formats money in it", () => {
     const expected: Record<
       string,
