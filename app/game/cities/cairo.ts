@@ -1078,7 +1078,7 @@ const CAIRO_NILE_EAST_POLYGON: readonly WorldPoint[] = [
 ];
 const SCENIC_BRIDGE_BLOCK_MARGIN_M = 1;
 
-interface OrientedParcel {
+export interface OrientedParcel {
   readonly center: WorldPoint;
   readonly axisU: WorldPoint;
   readonly axisV: WorldPoint;
@@ -1209,12 +1209,13 @@ const sixthOctoberCorridor = orientedParcel(
 const cairoBlocks: ProceduralBlock[] = [];
 
 /**
- * Reject a procedural parcel when its rotated footprint reaches any authored
- * road or pavement envelope. This makes rotated-block clearance a deterministic
- * consequence of the same road specification that creates lanes and surfaces,
- * instead of relying on a fragile list of hand-tuned parcel exceptions.
+ * True when a candidate's rotated footprint reaches any authored road or
+ * pavement envelope, or the Sixth October scenic corridor. Pure — no push,
+ * no read of `cairoBlocks` — so both `addRoadClearBlock` below and the
+ * reviewed-closure validator (Section 12.3) can share one deterministic
+ * road-clearance rule instead of two that could drift apart.
  */
-const addRoadClearBlock = (candidate: ProceduralBlock): boolean => {
+const overlapsRoadOrScenicCorridor = (candidate: ProceduralBlock): boolean => {
   const yaw = ((candidate.headingDeg ?? 0) * Math.PI) / 180;
   const cos = Math.cos(yaw);
   const sin = Math.sin(yaw);
@@ -1244,7 +1245,8 @@ const addRoadClearBlock = (candidate: ProceduralBlock): boolean => {
     }
     return false;
   });
-  const overlapsSixthOctober = orientedParcelsOverlap(
+  if (overlapsRoadEnvelope) return true;
+  return orientedParcelsOverlap(
     orientedParcel(
       candidate.center,
       candidate.size,
@@ -1252,11 +1254,18 @@ const addRoadClearBlock = (candidate: ProceduralBlock): boolean => {
     ),
     sixthOctoberCorridor,
   );
-  if (!overlapsRoadEnvelope && !overlapsSixthOctober) {
-    cairoBlocks.push(candidate);
-    return true;
-  }
-  return false;
+};
+
+/**
+ * Reject a procedural parcel when its rotated footprint reaches any authored
+ * road or pavement envelope. This makes rotated-block clearance a deterministic
+ * consequence of the same road specification that creates lanes and surfaces,
+ * instead of relying on a fragile list of hand-tuned parcel exceptions.
+ */
+const addRoadClearBlock = (candidate: ProceduralBlock): boolean => {
+  if (overlapsRoadOrScenicCorridor(candidate)) return false;
+  cairoBlocks.push(candidate);
+  return true;
 };
 const eastParcelBands = [
   { z: -770, depth: 110, heading: -8 },
@@ -1833,7 +1842,16 @@ const roadsideExclusionParcel = (
  * (landmark rect, service forecourt, venue lot); touching it refuses the
  * parcel regardless of side.
  */
-interface RoadsideExclusion {
+/** What kind of authored content an exclusion's `ownerId` names — the
+ * three sources `cairoRoadsideExclusions` is built from below. */
+export type RoadsideExclusionOwnerKind = "landmark" | "service" | "venue";
+
+export interface RoadsideExclusion {
+  /** Stable, unique per exclusion — `${ownerKind}:${ownerId}`. */
+  readonly id: string;
+  /** The landmark/service/venue id this exclusion protects. */
+  readonly ownerId: string;
+  readonly ownerKind: RoadsideExclusionOwnerKind;
   readonly raw: OrientedParcel;
   readonly inflated: OrientedParcel;
 }
@@ -1893,7 +1911,12 @@ const dividedParkExclusionRect = (
   };
 };
 
-const cairoRoadsideExclusions: readonly RoadsideExclusion[] = [
+/** Exported read-only for `tests/cairoVisualClosures.test.ts` — the
+ * negative tests Section 12.3 item 6 requires need a real exclusion's
+ * exact `raw`/`inflated` shapes to construct a candidate that provably
+ * overlaps one but not the other, not hand-copied coordinates that could
+ * silently drift from the content that derives them. */
+export const cairoRoadsideExclusions: readonly RoadsideExclusion[] = [
   ...cairoLandmarks.map((landmark) => {
     const heading =
       landmark.headingDeg === undefined ? 0 : landmark.headingDeg - 90;
@@ -1902,6 +1925,9 @@ const cairoRoadsideExclusions: readonly RoadsideExclusion[] = [
         ? dividedParkExclusionRect(landmark)
         : { center: landmark.center, size: landmark.size };
     return {
+      id: `landmark:${landmark.id}`,
+      ownerId: landmark.id,
+      ownerKind: "landmark" as const,
       raw: roadsideExclusionParcel(rect.center, rect.size, heading, 0),
       inflated: roadsideExclusionParcel(
         rect.center,
@@ -1933,6 +1959,9 @@ const cairoRoadsideExclusions: readonly RoadsideExclusion[] = [
       (service.kind === "gas_station" ? 42 : 28);
     return [
       {
+        id: `service:${service.id}`,
+        ownerId: service.id,
+        ownerKind: "service" as const,
         raw: roadsideExclusionParcel(center, point(lotSpan, lotSpan)),
         inflated: roadsideExclusionParcel(center, point(span, span)),
       },
@@ -1952,6 +1981,9 @@ const cairoRoadsideExclusions: readonly RoadsideExclusion[] = [
     const span = Math.max(venue.footprint.x, venue.footprint.z) + 30;
     return [
       {
+        id: `venue:${venue.id}`,
+        ownerId: venue.id,
+        ownerKind: "venue" as const,
         raw: roadsideExclusionParcel(center, point(lotSpan, lotSpan)),
         inflated: roadsideExclusionParcel(center, point(span, span)),
       },
@@ -1963,16 +1995,49 @@ const cairoRoadsideExclusions: readonly RoadsideExclusion[] = [
  * centreline at the parcel's own station, and the unit normal toward the
  * parcel. Lets the exclusion check ignore margins whose body is across the
  * carriageway. */
-interface RoadsideSideContext {
+export interface RoadsideSideContext {
   readonly origin: WorldPoint;
   readonly outX: number;
   readonly outZ: number;
 }
 
-const addCairoRoadsideBlock = (
+export interface CairoClosureValidation {
+  readonly valid: boolean;
+  /** Set only when `valid` is false — which check refused the candidate. */
+  readonly reason?: string;
+}
+
+/**
+ * The one pure validator every Cairo procedural block clears before it can
+ * stand (visual-gap plan Section 12.3): world bounds, both Nile polygons,
+ * every road/pavement envelope and the Sixth October scenic corridor
+ * (`overlapsRoadOrScenicCorridor`), every `cairoRoadsideExclusions` raw
+ * shape (landmark volume, exact service/venue lot — never bypassable), and
+ * the sibling gap against every block already planned. `raw` overlap always
+ * refuses regardless of `allowInflatedOverlapOwnerIds`; only a genuinely
+ * same-side `inflated`-only conflict for a *listed* owner is forgiven — the
+ * roadside passes below call this with no allow-list at all, so their
+ * behaviour is unchanged (empty allow-list is the default, Section 12.3
+ * item 5).
+ *
+ * No `inProtectedCorridor`/Nile-view check here on purpose: Section 12.2
+ * warns against encoding specific coordinate ranges as permanent
+ * exemptions, and this validator already refuses to build inside the exact
+ * Nile polygons or a park/landmark's exact footprint — the water/park VIEW
+ * itself is protected by never authoring a closure whose real camera fan
+ * still shows water or lawn as the first hit, verified per site by a real
+ * audit re-run (Section 9's own workflow), not by a static geometric rule
+ * here that could silently drift from the actual shoreline.
+ */
+export const validateCairoClosureCandidate = (
   candidate: ProceduralBlock,
-  sideContext?: RoadsideSideContext,
-): boolean => {
+  options?: {
+    readonly sideContext?: RoadsideSideContext;
+    readonly allowInflatedOverlapOwnerIds?: ReadonlySet<string>;
+  },
+): CairoClosureValidation => {
+  const sideContext = options?.sideContext;
+  const allowInflatedOverlapOwnerIds = options?.allowInflatedOverlapOwnerIds;
   const parcel = orientedParcel(
     candidate.center,
     candidate.size,
@@ -1987,35 +2052,40 @@ const addCairoRoadsideBlock = (
         Math.abs(sample.x) > halfWorldX || Math.abs(sample.z) > halfWorldZ,
     )
   ) {
-    return false;
+    return { valid: false, reason: "world-bound" };
   }
   if (
     parcelIntersectsPolygon(parcel, CAIRO_NILE_WEST_POLYGON) ||
     parcelIntersectsPolygon(parcel, CAIRO_NILE_EAST_POLYGON)
   ) {
-    return false;
+    return { valid: false, reason: "water" };
   }
-  if (
-    cairoRoadsideExclusions.some((exclusion) => {
-      if (!orientedParcelsOverlap(parcel, exclusion.inflated)) return false;
-      if (orientedParcelsOverlap(parcel, exclusion.raw)) return true;
-      if (!sideContext) return true;
-      // Margin-only contact: honour it only when the exclusion's body reaches
-      // meaningfully past the centreline toward this parcel. A body across the
-      // road — or grazing the carriageway itself — is separated by the road;
-      // the raw-overlap check above still refuses genuine contact.
-      const nearest = nearestPointOnOrientedParcel(
-        exclusion.raw,
-        candidate.center,
-      );
-      return (
-        (nearest.x - sideContext.origin.x) * sideContext.outX +
-          (nearest.z - sideContext.origin.z) * sideContext.outZ >
-        1.5
-      );
-    })
-  ) {
-    return false;
+  const blockedExclusion = cairoRoadsideExclusions.find((exclusion) => {
+    if (!orientedParcelsOverlap(parcel, exclusion.inflated)) return false;
+    if (orientedParcelsOverlap(parcel, exclusion.raw)) return true;
+    // Margin-only contact: honour it only when the exclusion's body reaches
+    // meaningfully past the centreline toward this parcel. A body across the
+    // road — or grazing the carriageway itself — is separated by the road;
+    // the raw-overlap check above still refuses genuine contact.
+    const wouldReject =
+      !sideContext ||
+      (() => {
+        const nearest = nearestPointOnOrientedParcel(
+          exclusion.raw,
+          candidate.center,
+        );
+        return (
+          (nearest.x - sideContext.origin.x) * sideContext.outX +
+            (nearest.z - sideContext.origin.z) * sideContext.outZ >
+          1.5
+        );
+      })();
+    if (!wouldReject) return false;
+    // Inflated-only, same-side conflict: forgivable only for a listed owner.
+    return !allowInflatedOverlapOwnerIds?.has(exclusion.ownerId);
+  });
+  if (blockedExclusion) {
+    return { valid: false, reason: `exclusion:${blockedExclusion.id}` };
   }
   const parcelWithGap = orientedParcel(
     candidate.center,
@@ -2034,6 +2104,19 @@ const addCairoRoadsideBlock = (
       ),
     )
   ) {
+    return { valid: false, reason: "sibling-block" };
+  }
+  if (overlapsRoadOrScenicCorridor(candidate)) {
+    return { valid: false, reason: "road-or-corridor" };
+  }
+  return { valid: true };
+};
+
+const addCairoRoadsideBlock = (
+  candidate: ProceduralBlock,
+  sideContext?: RoadsideSideContext,
+): boolean => {
+  if (!validateCairoClosureCandidate(candidate, { sideContext }).valid) {
     return false;
   }
   return addRoadClearBlock(candidate);
@@ -2700,6 +2783,86 @@ for (const surface of cairoRoadSurfaces) {
       }
     }
   }
+}
+
+/**
+ * True when `ownerId` names a real `cairoRoadsideExclusions` entry — the
+ * check `addReviewedCairoClosure` uses for Section 12.3 item 5's "a closure
+ * listing an unknown owner is a hard error." Exported and pure so a test
+ * can prove the check itself is correct without triggering the throw
+ * through the shared, mutating `cairoBlocks` pipeline.
+ */
+export const cairoClosureOwnerIsKnown = (ownerId: string): boolean =>
+  cairoRoadsideExclusions.some((exclusion) => exclusion.ownerId === ownerId);
+
+/**
+ * A reviewed, hand-authored closure the audit-driven review process
+ * (Section 12.3) found necessary — never a general second rank over every
+ * kerb. Every field is explicit and testable rather than inferred, so a
+ * closure documents exactly what problem it solves and why it was allowed
+ * past an exclusion, if it was. `treatment` names the Section 12.10
+ * treatment-ladder rung this closure landed on; `baselineFailureIds`
+ * records the real audit failure/blob ids it closes, so a later re-audit
+ * can confirm the fix still matches what it was built for.
+ */
+export interface CairoVisualClosureSpec {
+  readonly id: string;
+  readonly sourceRoadId: string;
+  readonly side: -1 | 1;
+  readonly causeCode: string;
+  readonly treatment:
+    | "immediate-wall"
+    | "sliver"
+    | "deep-backdrop"
+    | "land-edge-wall"
+    | "park-backdrop";
+  readonly block: ProceduralBlock;
+  readonly baselineFailureIds: readonly string[];
+  readonly allowInflatedOverlapOwnerIds?: ReadonlySet<string>;
+  readonly sideContext?: RoadsideSideContext;
+}
+
+/**
+ * Validates then inserts one reviewed closure, in that order — a closure
+ * that cannot actually be placed documents nothing, so this throws rather
+ * than silently dropping it (Section 12.3 item 5's hard-error requirement,
+ * extended the same way to a closure that fails the ordinary validator: a
+ * `CAIRO_VISUAL_CLOSURES` entry is reviewed content, not a best-effort
+ * generator retry, and a silently-skipped one would read as covered when
+ * it is not).
+ */
+const addReviewedCairoClosure = (spec: CairoVisualClosureSpec): void => {
+  for (const ownerId of spec.allowInflatedOverlapOwnerIds ?? []) {
+    if (!cairoClosureOwnerIsKnown(ownerId)) {
+      throw new Error(
+        `cairo.ts: reviewed closure "${spec.id}" allow-lists unknown owner "${ownerId}" — no cairoRoadsideExclusions entry has that ownerId`,
+      );
+    }
+  }
+  const result = validateCairoClosureCandidate(spec.block, {
+    sideContext: spec.sideContext,
+    allowInflatedOverlapOwnerIds: spec.allowInflatedOverlapOwnerIds,
+  });
+  if (!result.valid) {
+    throw new Error(
+      `cairo.ts: reviewed closure "${spec.id}" failed validation (${result.reason}) — fix its geometry or drop it rather than let it silently not build`,
+    );
+  }
+  addRoadClearBlock(spec.block);
+};
+
+/**
+ * The reviewed closure layer (visual-gap plan Section 12.3), applied after
+ * both the slot and gap-fill passes above finish populating `cairoBlocks` —
+ * a finite, reviewed third rank, never a global second pass over every
+ * hidden parcel interior. Empty today; populated per P0/P1 site (plan
+ * Sections 12.4-12.9) as each is investigated and closed against a real
+ * camera-fan audit re-run, the same workflow proven across London/NYC.
+ */
+export const CAIRO_VISUAL_CLOSURES: readonly CairoVisualClosureSpec[] = [];
+
+for (const closure of CAIRO_VISUAL_CLOSURES) {
+  addReviewedCairoClosure(closure);
 }
 
 const playerLaneIds = [
