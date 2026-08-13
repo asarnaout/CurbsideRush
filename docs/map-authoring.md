@@ -78,7 +78,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 |---|---|---|---|---|---|---|
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
-| `tokyo-setagaya` | 56 | 20 | 5.5 | 0 | 0 | 600 × 420 |
+| `tokyo-setagaya` | 338 | 66 | 62.0 | 0 | 0 | 2600 × 2400 |
 | `london-south-kensington` | 338 | 73 | 61.3 | 12 | 4 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane
@@ -397,7 +397,7 @@ camera to duck.
 
 **The setback normal is always the driver's right regardless of traffic
 side** — hence London's gas station on a far-side lane and Tokyo's
-`setbackM: 17.3`. So **the anchor lane's direction picks the kerb**, and on an
+`setbackM: 19.2`. So **the anchor lane's direction picks the kerb**, and on an
 avenue whose two sides differ — park against street wall, houses against shops
 — the wrong one cannot be rescued by any `distanceAlongM`. Six venues had
 shipped on the wrong side. Two rules hold it now: nothing inside a walled park
