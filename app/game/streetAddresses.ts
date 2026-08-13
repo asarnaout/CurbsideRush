@@ -548,6 +548,20 @@ export function generateStreetAddresses(
   input: StreetAddressInput,
 ): StreetAddress[] {
   const spacing = input.spacingM ?? 150;
+  // One generator shared across every lane, drawn from in the lane-id-sorted
+  // walk order below — never reseeded per lane. A candidate's jitter draw
+  // (below) always fires once per slot regardless of outcome, but its *kind*
+  // draw only fires on acceptance, so flipping ANY single candidate's
+  // accept/reject fate anywhere on the map (e.g. a block gaining or losing
+  // frontage) shifts every later candidate's jitter by one draw — the exact
+  // road, spacing and frontage rules still hold for the shifted result, but
+  // its precise position and house number are not stable across unrelated
+  // content edits. Expected and harmless — every test in
+  // `streetAddresses.test.ts` checks structural invariants (spacing,
+  // clearance, frontage, uniqueness) or specific named addresses, never a
+  // full pinned list — but it means a content change elsewhere on the map
+  // can legitimately show up as a large, unrelated-looking added/removed
+  // address diff.
   const rng = seededUnit(hashStringToSeed(input.mapId));
   const accepted: StreetAddress[] = [];
   const usedNames = new Set<string>();

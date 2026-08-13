@@ -450,6 +450,42 @@ describe("SideSwap content", () => {
     }
   });
 
+  it("flanks the Fifth Avenue Gallery with residual urban blocks instead of leaving its null cell bare (plan Section 11.3)", () => {
+    const nyc = MAP_PACKS.find((m) => m.id === "nyc-upper-west-side");
+    expect(nyc).toBeDefined();
+    const gallery = nyc!.geometry.landmarks.find((l) => l.id === "nyc-gallery")!;
+    expect(gallery).toBeDefined();
+    const galleryBounds = {
+      xMin: gallery.center.x - gallery.size.x / 2,
+      xMax: gallery.center.x + gallery.size.x / 2,
+      zMin: gallery.center.z - gallery.size.z / 2,
+      zMax: gallery.center.z + gallery.size.z / 2,
+    };
+    const south = nyc!.geometry.blocks.find((b) => b.id === "nyc-block-fifth-gallery-south")!;
+    const north = nyc!.geometry.blocks.find((b) => b.id === "nyc-block-fifth-gallery-north")!;
+    expect(south).toBeDefined();
+    expect(north).toBeDefined();
+    for (const block of [south, north]) {
+      // Full cell width (fifth-mad, x=-127..-13), matching the museum's own
+      // column so nothing pokes past Fifth or Madison's building line.
+      expect(block.center.x).toBe(-70);
+      expect(block.size.x).toBe(114);
+      expect(block.buildingSet).toBe("nyc-midrise");
+      // Never the default four-edge population for a shape this close to a
+      // landmark (plan Section 9): the gallery-facing edge carries no wall.
+      expect(block.streetEdges).toContain("-x");
+      expect(block.streetEdges).toContain("+x");
+    }
+    expect(south.streetEdges).toContain("-z");
+    expect(south.streetEdges).not.toContain("+z");
+    expect(north.streetEdges).toContain("+z");
+    expect(north.streetEdges).not.toContain("-z");
+    // Both stop short of the gallery's own footprint rather than merely its
+    // cell — the load-bearing invariant a lone "size" pin can't express.
+    expect(south.center.z + south.size.z / 2).toBeLessThan(galleryBounds.zMin);
+    expect(north.center.z - north.size.z / 2).toBeGreaterThan(galleryBounds.zMax);
+  });
+
   it("gives every country a currency and formats money in it", () => {
     const expected: Record<
       string,

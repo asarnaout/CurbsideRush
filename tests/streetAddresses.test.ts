@@ -160,6 +160,25 @@ describe("procedural street addresses", () => {
     }
   });
 
+  it("adds addresses on the newly-fronted 79th/86th/Fifth kerbs around the Fifth Avenue Gallery (plan Section 11.3)", () => {
+    // `nyc-block-fifth-gallery-south`/`-north` are ordinary addressable
+    // midrise frontage (Section 9.1) that now fronts three previously-bare
+    // kerbs. These four are the ones a direct geometric check (position
+    // inside/adjacent to the two new blocks) confirms are actually caused by
+    // the new frontage, not the address generator's shared-RNG jitter
+    // reshuffling an unrelated candidate elsewhere on the map (see
+    // `generateStreetAddresses`'s own comment on that coupling) — the total
+    // address count elsewhere is deliberately not pinned here for that
+    // reason.
+    const byName = (name: string) => nycAddresses.find((a) => a.name === name);
+    for (const name of ["3 W 79th St", "50 E 86th St", "1017 Fifth Ave", "1113 Fifth Ave"]) {
+      const address = byName(name);
+      expect(address, name).toBeDefined();
+      const lane = nyc.laneGraph.lanes.find((l) => l.id === address!.laneId)!;
+      expect(lane, name).toBeDefined();
+    }
+  });
+
   it("spaces drop-offs along a kerb, and never stacks two anywhere", () => {
     for (let i = 0; i < nycAddresses.length; i += 1) {
       for (let j = i + 1; j < nycAddresses.length; j += 1) {

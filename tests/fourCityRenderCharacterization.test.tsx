@@ -205,8 +205,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // all unchanged), and the content-correctness these two new blocks exist
     // to prove is independently verified by content.test.ts's block-geometry
     // test and a real camera-fan audit re-run, not by this mesh count.
-    totalMeshes: 27_447,
-    enabledMeshes: 27_447,
+    // 27_447 -> 27_468 (Section 11.3, P0): the Fifth Avenue Gallery
+    // residual-cell fix, +44 planned buildings (5_373 -> 5_417) against +21
+    // meshes here — the same sub-1:1 pattern as 11.2 above, same reasoning
+    // for not chasing it further.
+    totalMeshes: 27_468,
+    enabledMeshes: 27_468,
     activeMeshes: 961,
     materials: 188,
     drawCallsPerFrame: 0,
