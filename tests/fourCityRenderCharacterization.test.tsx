@@ -577,20 +577,35 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // material for the streetlight's emissive head; mirror candidate/drawn
     // counts shift because the new lamps and the widened paved sidewalks
     // move what falls inside the fixed test pose's mirror cull ring.
-    totalMeshes: 1_174,
-    enabledMeshes: 1_174,
-    activeMeshes: 321,
-    materials: 97,
+    // -> Phase 2 (road-network skeleton): worldSize 600x420 -> 2600x2400 and
+    // 5.5 -> ~43.7 lane-km (42 roads, 186 lanes, west-of-river skeleton +
+    // three residential-web districts) pushes every length-scaled draw
+    // (asphalt strips, kerb/junction fills, pavement rails) and the ~43
+    // generated stop-sign installations up by roughly the same ~8x the
+    // lane-km grew; materials barely move because they are shared/instanced
+    // (one asphalt material, one stop-sign material, ...), not per-mesh —
+    // the same pattern Phase 1's own +88-mesh/+1-material line shows.
+    // activeMeshes/mirrorCandidates/mirrorDrawn shift because the fixed test
+    // pose's mirror cull ring now includes far more of the new network.
+    totalMeshes: 9_154,
+    enabledMeshes: 9_154,
+    activeMeshes: 1_118,
+    materials: 98,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 157,
-    mirrorDrawn: 74,
+    mirrorCandidates: 155,
+    mirrorDrawn: 114,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "0d482197",
+    // "0d482197" -> "2337712a": +1 material, "speedsign-60" — Kōshū-kaidō is
+    // Tokyo's first-ever 60 km/h road (the quarter topped out at 50), so its
+    // speed-limit sign numeral plate is a material name Tokyo's own scene
+    // never carried before (confirmed by dumping `survivingMaterialNames`
+    // for tokyo-setagaya: the only new entry against the Phase 1 list).
+    survivingMaterialNamesFingerprint: "2337712a",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
