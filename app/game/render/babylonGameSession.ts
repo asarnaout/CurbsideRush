@@ -829,6 +829,11 @@ export class BabylonGameSession {
    * actually produces some. */
   private lastVisualGapRecords: readonly VisualGapReportRecord[] = [];
   private visualGapOverlayMesh: LinesMesh | null = null;
+  /** Set once, in `markReady()` — plan Section 14.1's own "scene-ready time
+   * from session construction to readiness" counter, read by
+   * `__sideswapPerfDebug`. Null until the session actually reaches ready. */
+  private readonly constructedAtMs: number;
+  private sceneReadyMs: number | null = null;
   private simulationSnapshot: SimulationSnapshot;
   private playerVehicleVisual: VehicleMeshVisual | null = null;
   /** The player-as-cyclist rig (career bicycle days); null on car days. */
@@ -1132,6 +1137,10 @@ export class BabylonGameSession {
     options: SessionOptions,
     callbacks: SessionCallbacks,
   ) {
+    // Plan Section 14.1's "scene-ready time from session construction to
+    // readiness" — the first statement in the constructor, before any other
+    // work, so nothing this class does before `markReady()` is excluded.
+    this.constructedAtMs = performance.now();
     this.canvas = canvas;
     this.options = options;
     this.callbacks = callbacks;
@@ -1375,6 +1384,7 @@ export class BabylonGameSession {
   private markReady() {
     if (this.disposed || this.readyEmitted) return;
     this.readyEmitted = true;
+    this.sceneReadyMs = performance.now() - this.constructedAtMs;
     // Arm the resolution governor from here, not from the constructor: the
     // frame rate before this point is model upload and shader warm-up, and
     // judging the device on it drops resolution the instant the scene appears.
@@ -5031,33 +5041,73 @@ export class BabylonGameSession {
           });
       // Frame rate + mesh/draw-call counts, so QA can measure the cost of the
       // dense city and confirm the static-scenery freeze keeps it smooth.
-      debugWindow.__sideswapPerfDebug = () => ({
-        fps: Math.round(this.engine.getFps()),
-        // CSS px per rendered px, so lower is sharper. Watching this settle is
-        // how you tell a throttling device from a slow one. Null rung means
-        // desktop, which is not governed.
-        hardwareScalingLevel: this.engine.getHardwareScalingLevel(),
-        renderScalingRung: this.renderScaling?.index ?? null,
-        targetFps: this.renderScaling ? TOUCH_TARGET_FPS : null,
-        totalMeshes: this.scene.meshes.length,
-        activeMeshes: this.scene.getActiveMeshes().length,
-        materials: this.scene.materials.length,
-        // Cumulative since page load (no per-frame reset without scene
-        // instrumentation) — meaningful as a delta between two polls.
-        drawCallsCumulative: this.engineDrawCallCount(),
-        // Mirror cull: the ring gathered from the cell hash, and what survived
-        // the frustum test against the mirror camera. A zero in either — or a
-        // render count that stops climbing — is the silent failure mode, since
-        // a mirror stuck on a stale texture looks plausible until you watch it.
-        mirrorRenders: this.mirrorRig?.renderCount ?? 0,
-        mirrorCandidates: this.mirrorRig?.candidateCount ?? 0,
-        mirrorDrawn: this.mirrorRig?.drawnCount ?? 0,
-        crowdInstances: this.crowdRenderer?.instanceCount ?? 0,
-        crowdMeshes: this.crowdRenderer?.meshCount ?? 0,
-        // Substage timings since the previous poll — reading resets the
-        // window, so poll on a fixed cadence when comparing runs.
-        ...this.drainPerfStats(),
-      });
+      // Also plan Section 14.1's own content-budget counters that are cheap
+      // to derive from data this session already holds: block/planned-
+      // structure/solid/obstacle counts and scene-ready time. A further
+      // live unique-model/GLB-instance/proxy-by-detail-fraction breakdown
+      // (also named in 14.1) is deliberately not added here — it needs new
+      // bookkeeping this render pipeline does not already carry anywhere,
+      // which is a real content-authoring aid rather than integration
+      // plumbing, and out of this pass's own "structural integration only"
+      // scope.
+      debugWindow.__sideswapPerfDebug = () => {
+        const plannedBySource: Record<string, number> = {
+          "asset-slot": 0,
+          "procedural-cell": 0,
+          "museum-wing": 0,
+        };
+        let structuralSolidCount = 0;
+        for (const building of this.buildingLayout.buildings) {
+          plannedBySource[building.source] = (plannedBySource[building.source] ?? 0) + 1;
+          structuralSolidCount += building.solids.length;
+        }
+        const staticObstacleCountByTag: Record<string, number> = {};
+        for (const obstacle of this.scenarioStaticObstacles) {
+          staticObstacleCountByTag[obstacle.tag] =
+            (staticObstacleCountByTag[obstacle.tag] ?? 0) + 1;
+        }
+        return {
+          fps: Math.round(this.engine.getFps()),
+          // CSS px per rendered px, so lower is sharper. Watching this settle is
+          // how you tell a throttling device from a slow one. Null rung means
+          // desktop, which is not governed.
+          hardwareScalingLevel: this.engine.getHardwareScalingLevel(),
+          renderScalingRung: this.renderScaling?.index ?? null,
+          targetFps: this.renderScaling ? TOUCH_TARGET_FPS : null,
+          totalMeshes: this.scene.meshes.length,
+          activeMeshes: this.scene.getActiveMeshes().length,
+          materials: this.scene.materials.length,
+          // Cumulative since page load (no per-frame reset without scene
+          // instrumentation) — meaningful as a delta between two polls.
+          drawCallsCumulative: this.engineDrawCallCount(),
+          // Mirror cull: the ring gathered from the cell hash, and what survived
+          // the frustum test against the mirror camera. A zero in either — or a
+          // render count that stops climbing — is the silent failure mode, since
+          // a mirror stuck on a stale texture looks plausible until you watch it.
+          mirrorRenders: this.mirrorRig?.renderCount ?? 0,
+          mirrorCandidates: this.mirrorRig?.candidateCount ?? 0,
+          mirrorDrawn: this.mirrorRig?.drawnCount ?? 0,
+          crowdInstances: this.crowdRenderer?.instanceCount ?? 0,
+          crowdMeshes: this.crowdRenderer?.meshCount ?? 0,
+          // Section 14.1: block/planned-structure/solid/obstacle counts and
+          // scene-ready time. plannedStructureCount's three keys always exist
+          // (0 if a map genuinely has none of a kind) rather than being
+          // absent, so a consumer can destructure without an `?? 0` of its own.
+          blockCount: this.options.mapPack.geometry.blocks.length,
+          plannedStructureCount: {
+            assetSlot: plannedBySource["asset-slot"],
+            proceduralCell: plannedBySource["procedural-cell"],
+            museumWing: plannedBySource["museum-wing"],
+            total: this.buildingLayout.buildings.length,
+          },
+          structuralSolidCount,
+          staticObstacleCountByTag,
+          sceneReadyMs: this.sceneReadyMs,
+          // Substage timings since the previous poll — reading resets the
+          // window, so poll on a fixed cadence when comparing runs.
+          ...this.drainPerfStats(),
+        };
+      };
       // The interaction cutscene's live state, so QA can assert the scene
       // actually runs, where its actor is, and that the camera stack and the
       // control lock restore when it ends.
