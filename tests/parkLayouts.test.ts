@@ -131,7 +131,11 @@ describe("park layouts", () => {
     // seven are pathless: the big one derives a walled greensward by shape and
     // is pinned down twice over — the railing read as a stripe across the lawn,
     // and any path it grew would dead-end in grass (see the style test below).
-    expect(parkCases().length).toBe(81);
+    // 81 -> 84: the Queens East River bank strip (visual-gap plan Section
+    // 11.6) — three riverside_strip segments (south/main/north, split
+    // around the two bridges) mirroring the Manhattan esplanade on the
+    // opposite shore.
+    expect(parkCases().length).toBe(84);
   });
 
   it("is deterministic — two builds are identical", () => {
