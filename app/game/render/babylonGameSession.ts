@@ -237,6 +237,7 @@ import {
   defaultSidewalkWidthM,
   hashStringToSeed,
   mixHexColors,
+  PROMENADE_DRESSING_MAP_KEYS,
   resolveMapVisualKey,
   resolveMapVisualPalette,
   resolveMapVisualProfile,
@@ -3739,7 +3740,17 @@ export class BabylonGameSession {
     const scene = this.scene;
     const mapId = mapPack.id.toLowerCase();
     const palette = resolveMapVisualPalette(mapId);
+    // Cairo-only facade dressing (rooftop tanks/dishes, trim, balcony rails,
+    // A/C units, awnings) below — unrelated to the waterfront and NOT
+    // generalised to Tokyo.
     const cairoScene = resolveMapVisualKey(mapId) === "cairo";
+    // Which cities get the corniche-style parapet render pass — Cairo's
+    // Nile and (Tokyo expansion Phase 3) Tokyo's Sakuragawa. The per-road
+    // open-sides table itself lives with each city's own content
+    // (`render/roadsideProps.ts` reads it directly); this is just the
+    // yes/no gate `PROMENADE_DRESSING_MAP_KEYS` documents why it can't live
+    // here as real data.
+    const hasPromenadeDressing = PROMENADE_DRESSING_MAP_KEYS.has(resolveMapVisualKey(mapId));
     this.visualPalette = palette;
     this.destructibles = new Destructibles(scene);
     this.buildingLayer = new BuildingLayer(scene);
@@ -3933,10 +3944,15 @@ export class BabylonGameSession {
     // The corniche parapet: one hidden unit-box master, one instance per
     // shoreline collider run, scaled to the collider's exact plan footprint —
     // ~35 instances for both Nile banks at one draw call, versus the park
-    // walls' box-per-run. Cairo only: London's shoreline runs belong to a
-    // park lake whose kerb the park already dresses.
-    if (cairoScene) {
-      const parapetRuns = shorelineParapetRuns(this.scenarioStaticObstacles);
+    // walls' box-per-run. Cairo and Tokyo only: London's shoreline runs
+    // belong to a park lake whose kerb the park already dresses, and NYC's
+    // East River/Hudson shorelines are dressed by Riverside Park/the
+    // esplanade themselves rather than a corniche-style parapet.
+    if (hasPromenadeDressing) {
+      const parapetRuns = shorelineParapetRuns(
+        this.scenarioStaticObstacles,
+        mapPack.geometry.worldSize.z / 2,
+      );
       if (parapetRuns.length) {
         const parapetMaterial = makeMaterial(
           scene,

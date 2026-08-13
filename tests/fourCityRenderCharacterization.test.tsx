@@ -588,15 +588,27 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the same pattern Phase 1's own +88-mesh/+1-material line shows.
     // activeMeshes/mirrorCandidates/mirrorDrawn shift because the fixed test
     // pose's mirror cull ring now includes far more of the new network.
-    totalMeshes: 13_234,
-    enabledMeshes: 13_234,
-    activeMeshes: 1_106,
-    materials: 99,
+    // -> Phase 3 (river + three bridges + east-bank web): +13 roads (66->79)
+    // and the jp-sakuragawa water sheet/shoreline push every length-scaled
+    // draw further; the three bridges' bespoke dressing (parapet/guardrail/
+    // lamp materials per bridge, +1 vermilion for Kawanaka-bashi) and the
+    // corniche-parapet promenade pass (new for Tokyo this phase) are real,
+    // deliberate new meshes/materials, not drift — confirmed by dumping
+    // `survivingMaterialNames` for tokyo-setagaya under a temporary
+    // console.log and reading every new entry: corniche-parapet (the
+    // promenade generalisation), jp-<bridge>-lamp/parapet/steel x3,
+    // jp-kawanaka-bashi-vermilion (the arch rib), landmark-jp-<bridge> x3
+    // (every landmark gets one whether or not the bespoke dispatcher uses
+    // it — same as every existing landmark already did), water-jp-sakuragawa.
+    totalMeshes: 16_906,
+    enabledMeshes: 16_906,
+    activeMeshes: 1_059,
+    materials: 114,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     mirrorCandidates: 172,
-    mirrorDrawn: 163,
+    mirrorDrawn: 198,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -609,7 +621,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // own scene never carried before (confirmed both times by dumping
     // `survivingMaterialNames` for tokyo-setagaya and diffing against the
     // previous list — the only new entry each time).
-    survivingMaterialNamesFingerprint: "a9a0d68a",
+    // "a9a0d68a" -> "855d45f5": Phase 3's +15 materials above.
+    survivingMaterialNamesFingerprint: "855d45f5",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

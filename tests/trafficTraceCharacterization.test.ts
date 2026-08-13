@@ -118,8 +118,14 @@ describe("ambient traffic trace characterization", () => {
       // adds ~93 generated stop controls across the new junctions, and sets
       // `ambientTraffic: { desktop: 32, touch: 16 }` (previously unset, so
       // ambient car count itself changes) — any one of those alone would
-      // move this hash; all of them together do.
-      "free-jp": "2d383be9",
+      // move this hash; all of them together do. Phase 3 (river, three
+      // bridges, east-bank web) adds 79-66=13 more roads, more generated stop
+      // controls at the new junctions, and five new vehicle spawns (three on
+      // the bridges themselves, one on the east-bank spine, one on the
+      // east-bank riverside collector) — every one of those shifts ambient
+      // routing even in the old quarter, since the seeded spawn-anchor order
+      // changed.
+      "free-jp": "9e874440",
       "free-eg": "eb350f99",
     });
   });

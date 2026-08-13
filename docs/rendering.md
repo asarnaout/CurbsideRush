@@ -311,8 +311,15 @@ better than an invisible wall. Measured cost of all 182: ~27 draw calls.
 building street wall deliberately casts none — flipping one silently adds it to
 the shadow map and changes every camera. The instanced glb wall casts no sun
 shadow while every procedural facade box does (`registerShadowCaster`); the
-corniche parapet follows the instanced rule, rendering Cairo's shoreline
+corniche parapet follows the instanced rule, rendering a map's own shoreline
 collider OBBs verbatim (`shorelineParapetRuns`) — you see the wall you hit.
+Gated on `PROMENADE_DRESSING_MAP_KEYS` (`visuals.ts`, currently Cairo and
+Tokyo — Tokyo expansion Phase 3), not hardcoded to Cairo; the per-road
+open-waterfront table each city passes into `generatePromenadeDecor`
+(`render/roadsideProps.ts`) stays in that city's own content file
+(`CAIRO_OPEN_WATERFRONT_SIDES`, `TOKYO_OPEN_WATERFRONT_SIDES`) rather than
+`visuals.ts`, which would need to import back from `cities/*.ts` — every
+city file already imports FROM `visuals.ts`, so that would be a real cycle.
 
 ## Render scaling
 

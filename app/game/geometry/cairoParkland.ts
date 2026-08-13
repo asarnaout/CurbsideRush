@@ -54,17 +54,26 @@ export interface ShorelineParapetRun {
  * tags them "shoreline"): rendering those runs means the wall you see IS the
  * wall the car stops at, and every bridge portal stays open because the
  * colliders already gap it. Excluded: `-portal-` runs (the drivable bridges
- * draw their own railings), runs hugging the world edge (|z| > 905 — collider
- * plumbing along the map border, not a visible bank), and slivers under 2 m.
+ * draw their own railings), runs hugging the world edge (collider plumbing
+ * along the map border, not a visible bank — Tokyo's Sakuragawa runs the
+ * map's full z-span on purpose, so this exemption is load-bearing there too,
+ * not Cairo-only), and slivers under 2 m.
+ *
+ * `worldHalfHeightM` is the map's own `geometry.worldSize.z / 2`, passed by
+ * the caller — this function used to hardcode Cairo's 905 (1830/2 minus a
+ * 10 m margin); every caller must keep passing its own map's real half-height
+ * or the cutoff silently reverts to judging every city by Cairo's world.
  */
 export function shorelineParapetRuns(
   obstacles: readonly StaticObstacle[],
+  worldHalfHeightM: number,
 ): ShorelineParapetRun[] {
+  const edgeMarginCutoffM = worldHalfHeightM - 10;
   const runs: ShorelineParapetRun[] = [];
   for (const obstacle of obstacles) {
     if (obstacle.kind !== "obb" || obstacle.tag !== "shoreline") continue;
     if (!obstacle.id.includes("-shore-")) continue;
-    if (Math.abs(obstacle.z) > 905 || obstacle.halfU < 2) continue;
+    if (Math.abs(obstacle.z) > edgeMarginCutoffM || obstacle.halfU < 2) continue;
     runs.push({
       id: obstacle.id,
       x: obstacle.x,

@@ -12,6 +12,7 @@ import {
 } from "@babylonjs/core";
 import { NYC_VENDORS, type StreetPropConfig } from "../buildingSets";
 import { CAIRO_OPEN_WATERFRONT_SIDES } from "../cities/cairo";
+import { TOKYO_OPEN_WATERFRONT_SIDES } from "../cities/tokyo";
 import { deterministicSceneryKeep } from "../geometry/facadesAndKeepouts";
 import { type ParkPlacement, parkLayoutForLandmark } from "../parkLayouts";
 import {
@@ -34,9 +35,24 @@ import {
   hashStringToSeed,
   PAVED_SIDEWALK_WIDTH_M,
   resolveMapVisualKey,
+  type MapVisualKey,
   type MapVisualPalette,
+  type OpenWaterfrontSides,
   type PropPlacement,
 } from "../visuals";
+
+/**
+ * Real per-road open-waterfront tables, by map key — each city keeps its own
+ * table with its own content (`CAIRO_OPEN_WATERFRONT_SIDES`,
+ * `TOKYO_OPEN_WATERFRONT_SIDES`); this is just the lookup that picks the
+ * right one. A map with no entry here gets no promenade decor at all (the
+ * `?? []` fallback below), which is what keeps this additive — every other
+ * city's roadside output is unchanged.
+ */
+const OPEN_WATERFRONT_SIDES_BY_KEY: Partial<Record<MapVisualKey, OpenWaterfrontSides>> = {
+  cairo: CAIRO_OPEN_WATERFRONT_SIDES,
+  tokyo: TOKYO_OPEN_WATERFRONT_SIDES,
+};
 
 /**
  * Deterministic roadside dressing (trees, streetlights, signs plus per-map
@@ -225,25 +241,29 @@ export function buildRoadsideProps(
   });
   // The corniche promenade is laid before the random scatter so its points
   // pre-seed the spacing grid — scatter can jitter around the palm line but
-  // never stand a tree inside it.
-  const promenadePlacements =
-    key === "cairo"
-      ? generatePromenadeDecor({
-          roadSurfaces: roadSurfaces.map((surface) => ({
-            id: surface.id,
-            centerline: surface.centerline,
-            widthM: surface.widthM,
-            sidewalkWidthM: surface.sidewalkWidthM,
-          })),
-          waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
-            (body) => body.polygon,
-          ),
-          openSides: CAIRO_OPEN_WATERFRONT_SIDES,
-          sidewalkWidthM: PAVED_SIDEWALK_WIDTH_M,
-          worldSize: mapPack.geometry.worldSize,
-          seed: hashStringToSeed(`${mapId}-promenade`),
-        })
-      : [];
+  // never stand a tree inside it. Per-map open-sides lookup: a map absent
+  // from OPEN_WATERFRONT_SIDES_BY_KEY gets no promenade decor at all, so
+  // this stays additive for every city but Cairo and (Tokyo expansion
+  // Phase 3) Tokyo — Cairo's own output is unchanged (same table, same
+  // values, just read through a lookup instead of a ternary).
+  const openWaterfrontSides = OPEN_WATERFRONT_SIDES_BY_KEY[key];
+  const promenadePlacements = openWaterfrontSides
+    ? generatePromenadeDecor({
+        roadSurfaces: roadSurfaces.map((surface) => ({
+          id: surface.id,
+          centerline: surface.centerline,
+          widthM: surface.widthM,
+          sidewalkWidthM: surface.sidewalkWidthM,
+        })),
+        waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
+          (body) => body.polygon,
+        ),
+        openSides: openWaterfrontSides,
+        sidewalkWidthM: PAVED_SIDEWALK_WIDTH_M,
+        worldSize: mapPack.geometry.worldSize,
+        seed: hashStringToSeed(`${mapId}-promenade`),
+      })
+    : [];
   const roadsidePlacements = generateRoadsidePropPlacements({
     roadSurfaces: roadSurfaces.map((surface) => ({
       id: surface.id,
