@@ -62,7 +62,16 @@ import type {
 // spread, tile with only ~1 m seams. None of the six have "-roadside-" in
 // their id (reviewed closures, not generator output), so ROADSIDE_COUNT
 // is unaffected.
-const BLOCK_COUNT = 656;
+// 656 -> 659 (Section 12.6, P0, Dokki South's west end): three more
+// `cairo-dokki-sw-land-edge-wall-{1..3}` closures, same land-edge-wall
+// treatment mirrored to the map's SW corner. The section's other three
+// named ranges (both Garden City South spans, South Gezira Road) are
+// systemic-only -- no blocks added for them, same as 12.4's Tahrir
+// Square conclusion. Dokki's own residual (162 -> 14 `urban_world_edge`
+// failures, all one close eye station's sub-2m inter-building gaps) was
+// deliberately accepted rather than chased to zero -- see the closure
+// array's own comment for why.
+const BLOCK_COUNT = 659;
 const ROADSIDE_COUNT = 626;
 const ROADSIDE_LEFT = 313;
 /** The second rank is gone — a one-sided kit means a back row can only stare
@@ -70,11 +79,10 @@ const ROADSIDE_LEFT = 313;
  * Zero, pinned, so it cannot quietly come back. */
 const ROADSIDE_RANKS = 0;
 const STREET_WALL_BLOCKS = 471;
-// 1590 -> 1644: the six cairo-galaa-ne-land-edge-wall-* closures (Section
-// 12.5) have no buildingSet, so each takes the procedural facade grid like
-// any other undressed block -- max(1, round(3 + 0.82*7)) = 9 cells per
-// block, 6 blocks * 9 = 54.
-const FACADE_BOX_CELLS = 1644;
+// 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6): the three
+// cairo-dokki-sw-land-edge-wall-* closures have no buildingSet either,
+// same formula, 3 blocks * 9 = 27 more.
+const FACADE_BOX_CELLS = 1671;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(

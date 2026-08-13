@@ -611,8 +611,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // decorative sub-mesh count wasn't hand-counted); the one new material
     // is plausibly a single shared "sandstone" variant instanced across all
     // 18, not verified further.
-    totalMeshes: 10_778,
-    enabledMeshes: 10_778,
+    //
+    // 10_778 -> 10_797 (materials unchanged): the three
+    // `cairo-dokki-sw-land-edge-wall-{1..3}` closures (Section 12.6, Dokki
+    // South) place 8 more real procedural buildings (3+3+2 surviving
+    // cells — see the drawCount baseline above). Same "sandstone" material
+    // already registered by 12.5, so no new palette entry. activeMeshes
+    // unchanged for the same reason as 12.5: none sit in this suite's
+    // fixed camera frustum.
+    totalMeshes: 10_797,
+    enabledMeshes: 10_797,
     activeMeshes: 1_747,
     materials: 218,
     drawCallsPerFrame: 0,
