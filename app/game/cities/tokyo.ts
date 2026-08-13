@@ -421,15 +421,63 @@ const jpMiyanosakaNodes = {
   r7e: node("jp-mn-r7-kp", -700, 1100),
 };
 
+// --- Yamashita South residential web (z -1140..-800, x -1200..-460) -------
+// Same alternating-pair-rung pattern as Miyanosaka North, scaled to this
+// district's smaller 340 m band: four rungs + one full-width collector.
+const jpYamashitaNodes = {
+  r1w: node("jp-ys-r1-nk", -1200, -1100),
+  r1e: node("jp-ys-r1-kp", -700, -1100),
+  r2w: node("jp-ys-r2-kp", -700, -1040),
+  r2e: node("jp-ys-r2-sg", -460, -1040),
+  stemN: node("jp-ys-stem-n", -580, -1040),
+  collW: node("jp-ys-coll-nk", -1200, -970),
+  collM: node("jp-ys-coll-kp", -700, -970),
+  collE: node("jp-ys-coll-sg", -460, -970),
+  stemS: node("jp-ys-stem-s", -580, -970),
+  r3w: node("jp-ys-r3-nk", -1200, -900),
+  r3e: node("jp-ys-r3-kp", -700, -900),
+  r4w: node("jp-ys-r4-kp", -700, -840),
+  r4e: node("jp-ys-r4-sg", -460, -840),
+  // Two more rungs south of Minami-kaidō's own +40 m clearance, reaching up
+  // toward the quarter/Nishi boundary (z -230) so the 570 m gap between the
+  // arterial and Nishi's own first rung doesn't read empty.
+  r5w: node("jp-ys-r5-nk", -1200, -600),
+  r5e: node("jp-ys-r5-kp", -700, -600),
+  r6w: node("jp-ys-r6-kp", -700, -400),
+  r6e: node("jp-ys-r6-sg", -460, -400),
+};
+
+// --- Nishi residential web (z -168..560, x -1200..-460) --------------------
+// Nishi straddles the quarter's own latitude (z -168..210 sits alongside it)
+// and reaches up to Kōshū-kaidō at z=560. Same alternating-pair-rung pattern;
+// five rungs across the taller 728 m band, plus a short spur (Hana-dori)
+// reaching east from Sangen-dōri toward the quarter's own western nodes
+// (jp-sw / jp-cw) so Nishi reads as connective tissue, not a walled-off cell.
+const jpNishiNodes = {
+  r1w: node("jp-ni-r1-nk", -1200, -100),
+  r1e: node("jp-ni-r1-kp", -700, -100),
+  r2w: node("jp-ni-r2-kp", -700, -20),
+  r2e: node("jp-ni-r2-sg", -460, -20),
+  stemN: node("jp-ni-stem-n", -580, -20),
+  collW: node("jp-ni-coll-nk", -1200, 60),
+  collM: node("jp-ni-coll-kp", -700, 60),
+  collE: node("jp-ni-coll-sg", -460, 60),
+  stemS: node("jp-ni-stem-s", -580, 60),
+  r3w: node("jp-ni-r3-nk", -1200, 150),
+  r3e: node("jp-ni-r3-kp", -700, 150),
+  r4w: node("jp-ni-r4-kp", -700, 260),
+  r4e: node("jp-ni-r4-sg", -460, 260),
+  r5w: node("jp-ni-r5-nk", -1200, 420),
+  r5e: node("jp-ni-r5-kp", -700, 420),
+};
+
 // --- Ring + downtown skeleton (§8.4, west-of-river subset) -----------------
 const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
-  // Ascending z: every district's own rung/collector crossing is spliced in
-  // between the skeleton nodes it falls between (Miyanosaka North's, between
-  // -koshu at z=560 and -n at z=1140; Yamashita South's and Nishi's join the
-  // same pattern below once those districts are authored).
-  tokyoRoad("jp-nishi-kanjo-dori", "Nishi Kanjō-dōri", ["jp-nk-s", "jp-nk-minami", "jp-nk-setagaya", "jp-nk-koshu", "jp-mn-r1-nk", "jp-mn-coll-nk", "jp-mn-r4-nk", "jp-mn-r7-nk", "jp-nk-n"], 2, 8, 40),
-  tokyoRoad("jp-kanpachi-dori", "Kanpachi-dōri", ["jp-kp-s", "jp-kp-minami", "jp-kp-setagaya", "jp-kp-koshu", "jp-mn-r6-kp", "jp-mn-r1-kp", "jp-mn-r2-kp", "jp-mn-coll-kp", "jp-mn-r4-kp", "jp-mn-r5-kp", "jp-mn-r7-kp", "jp-kp-n"], 2, 11, 50),
-  tokyoRoad("jp-sangen-dori", "Sangen-dōri", ["jp-sg-s", "jp-sg-minami", "jp-sg-setagaya", "jp-sg-koshu", "jp-mn-r6-sg", "jp-mn-r2-sg", "jp-mn-coll-sg", "jp-mn-r5-sg", "jp-sg-n"], 2, 8, 40),
+  // Ascending z the whole way, every district's rung/collector crossings
+  // spliced in between whichever skeleton nodes they fall between.
+  tokyoRoad("jp-nishi-kanjo-dori", "Nishi Kanjō-dōri", ["jp-nk-s", "jp-ys-r1-nk", "jp-ys-coll-nk", "jp-ys-r3-nk", "jp-nk-minami", "jp-ys-r5-nk", "jp-nk-setagaya", "jp-ni-r1-nk", "jp-ni-coll-nk", "jp-ni-r3-nk", "jp-ni-r5-nk", "jp-nk-koshu", "jp-mn-r1-nk", "jp-mn-coll-nk", "jp-mn-r4-nk", "jp-mn-r7-nk", "jp-nk-n"], 2, 8, 40),
+  tokyoRoad("jp-kanpachi-dori", "Kanpachi-dōri", ["jp-kp-s", "jp-ys-r1-kp", "jp-ys-r2-kp", "jp-ys-coll-kp", "jp-ys-r3-kp", "jp-ys-r4-kp", "jp-kp-minami", "jp-ys-r5-kp", "jp-ys-r6-kp", "jp-kp-setagaya", "jp-ni-r1-kp", "jp-ni-r2-kp", "jp-ni-coll-kp", "jp-ni-r3-kp", "jp-ni-r4-kp", "jp-ni-r5-kp", "jp-kp-koshu", "jp-mn-r6-kp", "jp-mn-r1-kp", "jp-mn-r2-kp", "jp-mn-coll-kp", "jp-mn-r4-kp", "jp-mn-r5-kp", "jp-mn-r7-kp", "jp-kp-n"], 2, 11, 50),
+  tokyoRoad("jp-sangen-dori", "Sangen-dōri", ["jp-sg-s", "jp-ys-r2-sg", "jp-ys-coll-sg", "jp-ys-r4-sg", "jp-sg-minami", "jp-ys-r6-sg", "jp-sg-setagaya", "jp-ni-r2-sg", "jp-ni-coll-sg", "jp-ni-r4-sg", "jp-sg-koshu", "jp-mn-r6-sg", "jp-mn-r2-sg", "jp-mn-coll-sg", "jp-mn-r5-sg", "jp-sg-n"], 2, 8, 40),
   tokyoRoad("jp-yamashita-minami-dori", "Yamashita Minami-dōri", ["jp-nk-s", "jp-kp-s", "jp-sg-s"], 2, 7, 40),
   // Extends all the way to jp-chuo-n so Chūō-dōri-north's own far terminus
   // (its own spec's north end) closes into the ring instead of dead-ending —
@@ -464,6 +512,32 @@ const TOKYO_MIYANOSAKA_SPECS: readonly TokyoRoadSpec[] = [
   tokyoRoad("jp-mn-sumire-dori", "Sumire-dōri", ["jp-mn-r4-nk", "jp-mn-r4-kp"], 2, 6.4, 30),
   tokyoRoad("jp-mn-momiji-dori", "Momiji-dōri", ["jp-mn-r5-kp", "jp-mn-r5-sg"], 2, 6.4, 30),
   tokyoRoad("jp-mn-kaede-dori", "Kaede-dōri", ["jp-mn-r7-nk", "jp-mn-r7-kp"], 2, 6.4, 30),
+];
+
+const TOKYO_YAMASHITA_SPECS: readonly TokyoRoadSpec[] = [
+  tokyoRoad("jp-ys-tsubaki-dori", "Tsubaki-dōri", ["jp-ys-r1-nk", "jp-ys-r1-kp"], 2, 6.4, 30),
+  tokyoRoad("jp-ys-ayame-dori", "Ayame-dōri", ["jp-ys-r2-kp", "jp-ys-stem-n", "jp-ys-r2-sg"], 2, 6.4, 30),
+  tokyoRoad("jp-ys-yanagi-dori", "Yanagi-dōri", ["jp-ys-coll-nk", "jp-ys-coll-kp", "jp-ys-stem-s", "jp-ys-coll-sg"], 2, 7, 40),
+  tokyoRoad("jp-ys-yanagi-yokocho", "Yanagi Yokochō", ["jp-ys-stem-n", "jp-ys-stem-s"], 2, 5.8, 30),
+  tokyoRoad("jp-ys-ichou-dori", "Ichō-dōri", ["jp-ys-r3-nk", "jp-ys-r3-kp"], 2, 6.4, 30),
+  tokyoRoad("jp-ys-botan-dori", "Botan-dōri", ["jp-ys-r4-kp", "jp-ys-r4-sg"], 2, 6.4, 30),
+  tokyoRoad("jp-ys-hagi-dori", "Hagi-dōri", ["jp-ys-r5-nk", "jp-ys-r5-kp"], 2, 6.4, 30),
+  tokyoRoad("jp-ys-kikyo-dori", "Kikyō-dōri", ["jp-ys-r6-kp", "jp-ys-r6-sg"], 2, 6.4, 30),
+];
+
+const TOKYO_NISHI_SPECS: readonly TokyoRoadSpec[] = [
+  tokyoRoad("jp-ni-tsuki-dori", "Tsuki-dōri", ["jp-ni-r1-nk", "jp-ni-r1-kp"], 2, 6.4, 30),
+  tokyoRoad("jp-ni-ume-dori", "Ume-dōri", ["jp-ni-r2-kp", "jp-ni-stem-n", "jp-ni-r2-sg"], 2, 6.4, 30),
+  tokyoRoad("jp-ni-hato-dori", "Hato-dōri", ["jp-ni-coll-nk", "jp-ni-coll-kp", "jp-ni-stem-s", "jp-ni-coll-sg"], 2, 7, 40),
+  tokyoRoad("jp-ni-hato-yokocho", "Hato Yokochō", ["jp-ni-stem-n", "jp-ni-stem-s"], 2, 5.8, 30),
+  tokyoRoad("jp-ni-kiku-dori", "Kiku-dōri", ["jp-ni-r3-nk", "jp-ni-r3-kp"], 2, 6.4, 30),
+  tokyoRoad("jp-ni-ran-dori", "Ran-dōri", ["jp-ni-r4-kp", "jp-ni-r4-sg"], 2, 6.4, 30),
+  tokyoRoad("jp-ni-hibari-dori", "Hibari-dōri", ["jp-ni-r5-nk", "jp-ni-r5-kp"], 2, 6.4, 30),
+  // Hana-dōri: Sangen-dōri (the collector's own east end) direct to the
+  // quarter's jp-cw (-260,18), the west-edge node closest in z — a single
+  // straight segment (dx=200, dz=-42, ~12deg off pure east), ties Nishi
+  // into the existing quarter as connective tissue rather than a dead cell.
+  tokyoRoad("jp-ni-hana-dori", "Hana-dōri", ["jp-ni-coll-sg", "jp-cw"], 2, 6.4, 30),
 ];
 
 /**
@@ -544,8 +618,53 @@ const TOKYO_MIYANOSAKA_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-mn-r7-kp", "jp-mn-r7-kp", ["jp-kanpachi-dori", "jp-mn-kaede-dori"]),
 ];
 
+const TOKYO_YAMASHITA_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
+  tokyoJunction("jp-jct-ys-r1-nk", "jp-ys-r1-nk", ["jp-nishi-kanjo-dori", "jp-ys-tsubaki-dori"]),
+  tokyoJunction("jp-jct-ys-r1-kp", "jp-ys-r1-kp", ["jp-kanpachi-dori", "jp-ys-tsubaki-dori"]),
+  tokyoJunction("jp-jct-ys-r2-kp", "jp-ys-r2-kp", ["jp-kanpachi-dori", "jp-ys-ayame-dori"]),
+  tokyoJunction("jp-jct-ys-r2-sg", "jp-ys-r2-sg", ["jp-sangen-dori", "jp-ys-ayame-dori"]),
+  tokyoJunction("jp-jct-ys-stem-n", "jp-ys-stem-n", ["jp-ys-ayame-dori", "jp-ys-yanagi-yokocho"]),
+  tokyoJunction("jp-jct-ys-coll-nk", "jp-ys-coll-nk", ["jp-nishi-kanjo-dori", "jp-ys-yanagi-dori"]),
+  tokyoJunction("jp-jct-ys-coll-kp", "jp-ys-coll-kp", ["jp-kanpachi-dori", "jp-ys-yanagi-dori"]),
+  tokyoJunction("jp-jct-ys-stem-s", "jp-ys-stem-s", ["jp-ys-yanagi-dori", "jp-ys-yanagi-yokocho"]),
+  tokyoJunction("jp-jct-ys-coll-sg", "jp-ys-coll-sg", ["jp-sangen-dori", "jp-ys-yanagi-dori"]),
+  tokyoJunction("jp-jct-ys-r3-nk", "jp-ys-r3-nk", ["jp-nishi-kanjo-dori", "jp-ys-ichou-dori"]),
+  tokyoJunction("jp-jct-ys-r3-kp", "jp-ys-r3-kp", ["jp-kanpachi-dori", "jp-ys-ichou-dori"]),
+  tokyoJunction("jp-jct-ys-r4-kp", "jp-ys-r4-kp", ["jp-kanpachi-dori", "jp-ys-botan-dori"]),
+  tokyoJunction("jp-jct-ys-r4-sg", "jp-ys-r4-sg", ["jp-sangen-dori", "jp-ys-botan-dori"]),
+  tokyoJunction("jp-jct-ys-r5-nk", "jp-ys-r5-nk", ["jp-nishi-kanjo-dori", "jp-ys-hagi-dori"]),
+  tokyoJunction("jp-jct-ys-r5-kp", "jp-ys-r5-kp", ["jp-kanpachi-dori", "jp-ys-hagi-dori"]),
+  tokyoJunction("jp-jct-ys-r6-kp", "jp-ys-r6-kp", ["jp-kanpachi-dori", "jp-ys-kikyo-dori"]),
+  tokyoJunction("jp-jct-ys-r6-sg", "jp-ys-r6-sg", ["jp-sangen-dori", "jp-ys-kikyo-dori"]),
+];
+
+const TOKYO_NISHI_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
+  tokyoJunction("jp-jct-ni-r1-nk", "jp-ni-r1-nk", ["jp-nishi-kanjo-dori", "jp-ni-tsuki-dori"]),
+  tokyoJunction("jp-jct-ni-r1-kp", "jp-ni-r1-kp", ["jp-kanpachi-dori", "jp-ni-tsuki-dori"]),
+  tokyoJunction("jp-jct-ni-r2-kp", "jp-ni-r2-kp", ["jp-kanpachi-dori", "jp-ni-ume-dori"]),
+  tokyoJunction("jp-jct-ni-r2-sg", "jp-ni-r2-sg", ["jp-sangen-dori", "jp-ni-ume-dori"]),
+  tokyoJunction("jp-jct-ni-stem-n", "jp-ni-stem-n", ["jp-ni-ume-dori", "jp-ni-hato-yokocho"]),
+  tokyoJunction("jp-jct-ni-coll-nk", "jp-ni-coll-nk", ["jp-nishi-kanjo-dori", "jp-ni-hato-dori"]),
+  tokyoJunction("jp-jct-ni-coll-kp", "jp-ni-coll-kp", ["jp-kanpachi-dori", "jp-ni-hato-dori"]),
+  tokyoJunction("jp-jct-ni-stem-s", "jp-ni-stem-s", ["jp-ni-hato-dori", "jp-ni-hato-yokocho"]),
+  tokyoJunction("jp-jct-ni-coll-sg", "jp-ni-coll-sg", ["jp-sangen-dori", "jp-ni-hato-dori", "jp-ni-hana-dori"]),
+  tokyoJunction("jp-jct-ni-r3-nk", "jp-ni-r3-nk", ["jp-nishi-kanjo-dori", "jp-ni-kiku-dori"]),
+  tokyoJunction("jp-jct-ni-r3-kp", "jp-ni-r3-kp", ["jp-kanpachi-dori", "jp-ni-kiku-dori"]),
+  tokyoJunction("jp-jct-ni-r4-kp", "jp-ni-r4-kp", ["jp-kanpachi-dori", "jp-ni-ran-dori"]),
+  tokyoJunction("jp-jct-ni-r4-sg", "jp-ni-r4-sg", ["jp-sangen-dori", "jp-ni-ran-dori"]),
+  tokyoJunction("jp-jct-ni-r5-nk", "jp-ni-r5-nk", ["jp-nishi-kanjo-dori", "jp-ni-hibari-dori"]),
+  tokyoJunction("jp-jct-ni-r5-kp", "jp-ni-r5-kp", ["jp-kanpachi-dori", "jp-ni-hibari-dori"]),
+  // jp-cw already carries jp-westside-road (old quarter) both directions.
+  tokyoJunction("jp-jct-ni-hana-cw", "jp-cw", ["jp-westside-road", "jp-ni-hana-dori"]),
+];
+
 const jpGenNodeById = new Map<string, LaneNode>(
-  [...Object.values(jpGenNodes), ...Object.values(jpMiyanosakaNodes)].map((item) => [item.id, item]),
+  [
+    ...Object.values(jpGenNodes),
+    ...Object.values(jpMiyanosakaNodes),
+    ...Object.values(jpYamashitaNodes),
+    ...Object.values(jpNishiNodes),
+  ].map((item) => [item.id, item]),
 );
 
 // ---------------------------------------------------------------------------
@@ -622,10 +741,14 @@ interface TokyoRawLane extends LaneSegment {
 const tokyoRoadSpecs: readonly TokyoRoadSpec[] = [
   ...TOKYO_SKELETON_SPECS,
   ...TOKYO_MIYANOSAKA_SPECS,
+  ...TOKYO_YAMASHITA_SPECS,
+  ...TOKYO_NISHI_SPECS,
 ];
 const tokyoJunctionConnectors: readonly TokyoJunctionConnectorSpec[] = [
   ...TOKYO_SKELETON_CONNECTORS,
   ...TOKYO_MIYANOSAKA_CONNECTORS,
+  ...TOKYO_YAMASHITA_CONNECTORS,
+  ...TOKYO_NISHI_CONNECTORS,
 ];
 const tokyoGenNodeList: readonly LaneNode[] = [...jpGenNodeById.values()];
 
@@ -1335,8 +1458,12 @@ export const TOKYO_MAP_PACK: MapPack = {
       freeSpawn("jp-cyclist-uptown", "cyclist", -31.35, 120, 0, "jp-narrowhill-north"),
       freeSpawn("jp-cyclist-dori", "cyclist", -145, -166.5, 90, "jp-dori-east-1"),
       // --- Generated-half spawns (Tokyo expansion Phase 2, R9) ---
-      anchoredSpawn("jp-car-kanpachi-n", "vehicle", "jp-kanpachi-dori-1-forward-1", 200),
-      anchoredSpawn("jp-car-kanpachi-s", "vehicle", "jp-kanpachi-dori-1-reverse-1", 200),
+      // Segment 1 is short (jp-kp-s to the first district rung it now picks
+      // up, jp-ys-r1-kp, ~40m) now that the residential webs splice interior
+      // nodes into the ring roads' own polylines — 20m stays safely inside
+      // it regardless of which district lands closest to each ring end.
+      anchoredSpawn("jp-car-kanpachi-n", "vehicle", "jp-kanpachi-dori-1-forward-1", 20),
+      anchoredSpawn("jp-car-kanpachi-s", "vehicle", "jp-kanpachi-dori-1-reverse-1", 20),
       anchoredSpawn("jp-car-koshu", "vehicle", "jp-koshu-kaido-1-forward-1", 150),
       anchoredSpawn("jp-car-minami-kaido", "vehicle", "jp-minami-kaido-1-forward-1", 150),
       anchoredSpawn("jp-car-setagaya-w", "vehicle", "jp-setagaya-dori-west-1-forward-1", 150),
