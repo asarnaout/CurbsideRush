@@ -236,7 +236,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // interruption, leaving two 214 m grey gaps. Filtering to West End's own
     // reachable streets before pairing (the same fix the Steinway
     // east-margin loop already used) restores both rows: +68 buildings.
-    buildingInstanceCount: 5_373,
+    // -> 5_417 (Section 11.3, P0): `nycZoneFor("fifth-mad", ...)` nulled the
+    // whole E79-E86 cell for nyc-gallery, but the gallery's own footprint
+    // (160 m deep) fills only the middle of the 454 m cell, leaving 147 m
+    // bare on each side. Two ordinary midrise blocks flank it instead,
+    // each stopping 8 m short of the gallery's footprint: +44 buildings.
+    buildingInstanceCount: 5_417,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 12,
   },

@@ -1170,6 +1170,22 @@ export const NYC_MAP_PACK: MapPack = {
       // and spanning Fifth's to Third's kerb (-140-13=-153 to 440+13=453).
       { id: "nyc-block-east-south-margin", center: point(150, -1235), size: point(606, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
       { id: "nyc-block-east-north-margin", center: point(150, 1235), size: point(606, 44), heightRange: [16, 28], density: 0.9, material: "sandstone", buildingSet: "nyc-midrise" },
+      // Fifth Avenue Gallery residual cell (visual-gap plan Section 11.3, P0):
+      // `nycZoneFor("fifth-mad", ...)` nulls the whole E79-E86 cell
+      // (x=-127..-13, z=13..467, derived from Fifth/Madison's coordinates and
+      // NYC_BLOCK_INSET_M) for nyc-gallery, but the gallery's own footprint
+      // (center (-60,240), size 90x160 -> x=-105..-15, z=160..320) fills only
+      // the cell's middle third. The remaining 147 m north and south read as
+      // bare land. Two ordinary midrise blocks (the fifth-mad column's own
+      // zone everywhere outside the null band) flank the gallery instead of
+      // un-nulling the cell, each stopping 8 m short of its footprint so nyc-v20
+      // Gallery Café's forecourt at the gallery's own frontage stays open —
+      // full cell depth (147 m) minus that clearance is 139 m, matching the
+      // cell's real x-span (114 m) exactly. Every other edge is a real street
+      // (79th/86th, Fifth, Madison), so unlike a backdrop strip these keep the
+      // default `addressable` frontage.
+      { id: "nyc-block-fifth-gallery-south", center: point(-70, 82.5), size: point(114, 139), streetEdges: ["-z", "-x", "+x"], heightRange: NYC_ZONES.midrise.heightRange, density: NYC_ZONES.midrise.density, material: NYC_ZONES.midrise.material, buildingSet: NYC_ZONES.midrise.buildingSet },
+      { id: "nyc-block-fifth-gallery-north", center: point(-70, 397.5), size: point(114, 139), streetEdges: ["+z", "-x", "+x"], heightRange: NYC_ZONES.midrise.heightRange, density: NYC_ZONES.midrise.density, material: NYC_ZONES.midrise.material, buildingSet: NYC_ZONES.midrise.buildingSet },
     ]),
     servicePoints: [
       // West 72nd is a wide two-way, and NYC is a paved city, so the lot must
@@ -1369,7 +1385,7 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-central-park", kind: "park", center: point(-260, 480), size: point(200, 932), color: "#4f7a3d" },
       { id: "nyc-central-park-north", kind: "park", center: point(-260, 1212), size: point(200, 476), color: "#4f7a3d" },
       { id: "nyc-amnh", kind: "shops", center: point(-450, 240), size: point(100, 420), color: "#caa76f" },
-      // Fifth Avenue Gallery: the Met's slot, fronting Fifth between E 72nd
+      // Fifth Avenue Gallery: the Met's slot, fronting Fifth between E 79th
       // and E 86th — the same "landmark owns the cell, zoning nulls it"
       // pattern the AMNH uses on the west side.
       { id: "nyc-gallery", kind: "museum", center: point(-60, 240), size: point(90, 160), color: "#caa76f" },
