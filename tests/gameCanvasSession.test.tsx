@@ -74,6 +74,8 @@ const SIDESWAP_DEBUG_HOOKS = [
   "__sideswapCollisionDebug",
   "__sideswapCollisionOverlay",
   "__sideswapBuildingRepresentationDebug",
+  "__sideswapVisualGapReport",
+  "__sideswapVisualGapOverlay",
 ] as const;
 
 function createFake2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
@@ -239,6 +241,87 @@ describe("BabylonGameSession smoke test", () => {
       const meshes = (debugWindow.__sideswapMeshes as () => unknown[])();
       expect(meshes.length).toBeGreaterThan(0);
 
+      // Plan Section 14.1's own content-budget counters, added to the
+      // existing perf hook rather than a new one — proves each is real
+      // data from this session's own plan/obstacles, not a stub.
+      const perf = (
+        debugWindow.__sideswapPerfDebug as () => {
+          blockCount: number;
+          plannedStructureCount: {
+            assetSlot: number;
+            proceduralCell: number;
+            museumWing: number;
+            total: number;
+          };
+          structuralSolidCount: number;
+          staticObstacleCountByTag: Record<string, number>;
+          sceneReadyMs: number | null;
+        }
+      )();
+      expect(perf.blockCount).toBeGreaterThan(0);
+      expect(perf.plannedStructureCount.total).toBeGreaterThan(0);
+      expect(perf.plannedStructureCount.assetSlot + perf.plannedStructureCount.proceduralCell + perf.plannedStructureCount.museumWing).toBe(perf.plannedStructureCount.total);
+      // Every planned building has at least one solid, so the solid count can
+      // never be less than the building count.
+      expect(perf.structuralSolidCount).toBeGreaterThanOrEqual(perf.plannedStructureCount.total);
+      expect(Object.keys(perf.staticObstacleCountByTag).length).toBeGreaterThan(0);
+      expect(Object.values(perf.staticObstacleCountByTag).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+      // "ready" has already fired by this point in the test (the waitFor
+      // above), so this must be a real measured duration, not null.
+      expect(perf.sceneReadyMs).not.toBeNull();
+      expect(perf.sceneReadyMs).toBeGreaterThan(0);
+
+      // The default (no `fan`) call is the fast raster/blob census only —
+      // proves the hook reuses this session's OWN `buildingLayout` (a fresh
+      // `planMapBuildings` call would still typecheck but silently audit a
+      // different plan than what's on screen) end to end, without paying
+      // for a real camera-fan sweep in this test.
+      const report = (
+        debugWindow.__sideswapVisualGapReport as (options?: {
+          roadIds?: readonly string[];
+          fan?: boolean;
+          fullMatrix?: boolean;
+        }) => {
+          mapId: string;
+          blobCount: number;
+          qualifyingBlobCount: number;
+          rayFailureCount: number;
+          records: readonly unknown[];
+        }
+      )();
+      expect(report.mapId).toBe(LONDON_MAP_PACK.id);
+      expect(report.blobCount).toBeGreaterThan(0);
+      expect(report.rayFailureCount).toBe(0);
+      expect(report.records).toHaveLength(0);
+      // No report has been fan-audited yet, so an overlay call must no-op
+      // rather than throw.
+      const overlayHook = debugWindow.__sideswapVisualGapOverlay as (
+        id: string | null,
+      ) => void;
+      expect(() => overlayHook("not-a-real-failure-id")).not.toThrow();
+
+      // A real, scoped (single, short road -> seconds not minutes) fan
+      // sweep, so the overlay path is proven against an actual record's
+      // geometry at least once, not just its own no-op branch.
+      const fanReport = (
+        debugWindow.__sideswapVisualGapReport as (options?: {
+          roadIds?: readonly string[];
+          fan?: boolean;
+        }) => { records: readonly { failureId: string }[] }
+      )({ roadIds: ["london-islington-circus"], fan: true });
+      expect(fanReport.records.length).toBeGreaterThan(0);
+      const meshesBeforeOverlay = meshes.length;
+      expect(() => overlayHook(fanReport.records[0].failureId)).not.toThrow();
+      const meshesWithOverlay = (
+        debugWindow.__sideswapMeshes as () => unknown[]
+      )();
+      expect(meshesWithOverlay.length).toBeGreaterThan(meshesBeforeOverlay);
+      expect(() => overlayHook(null)).not.toThrow();
+      const meshesAfterClear = (
+        debugWindow.__sideswapMeshes as () => unknown[]
+      )();
+      expect(meshesAfterClear.length).toBe(meshesBeforeOverlay);
+
       // (2) N fixed steps -> onHudUpdate snapshots with a finite pose and an
       // advancing sim clock.
       const countBeforeTicking = hudSnapshots.length;
@@ -274,6 +357,19 @@ describe("BabylonGameSession smoke test", () => {
         expect(hook in debugWindow, hook).toBe(false);
       }
     },
-    30_000,
+    // 30_000 -> 60_000 -> 120_000: the real (single-road-scoped)
+    // `__sideswapVisualGapReport` fan-sweep check added for Section 13.4's
+    // own hooks. `collectMapVisualGeometry`/`buildGroundRaster` are cached on
+    // the session after their first call (see `visualGapGeometryCache`), so
+    // this second call only pays for the scoped fan sweep itself — ~25-27s
+    // in an isolated local run. 60_000 still timed out in real CI (this repo's
+    // full suite runs `trafficSafetyAcceptance.test.ts` — ~540s alone — and
+    // `visualGapCoverageRealMaps.test.ts` — ~150s — as parallel siblings, and
+    // CI runners are measurably more CPU-constrained than a dev machine; see
+    // docs/rendering.md's low-spec-runner note). 120_000 matches
+    // cairoContent.test.ts's own 12.11 gate — this suite's established budget
+    // for a genuinely expensive, necessarily-real integration check — rather
+    // than chasing a tighter bound against unpredictable contention.
+    120_000,
   );
 });

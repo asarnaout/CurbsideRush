@@ -112,6 +112,27 @@ through `SimulationCore.setPlayerPose` — the cutscene's replay-invisible entry
 point — and snaps the chase camera, which is what lets a headless sweep
 screenshot every road in one session (`installDebugHooks`).
 
+`__sideswapVisualGapReport(options?)` runs the plan's own visual-gap audit
+(`geometry/visualGapCoverage.ts`) against this session's real map/plan, live:
+no args is the fast raster/blob census only; `{fan: true}` (optionally
+`{roadIds: [...]}`, `{fullMatrix: true}`) runs the real camera-fan sweep —
+see `docs/testing.md`'s CLI section for what each mode costs, since this hook
+pays the identical price. `collectMapVisualGeometry`/`buildGroundRaster` are
+cached on the session after their first call (`visualGapGeometryCache`) —
+both are pure functions of `buildingLayout`/`mapPack` for a session's whole
+lifetime, so recomputing them on every call would make repeated interactive
+queries (and a full-matrix sweep right after a fast census) pay for the same
+whole-map collection twice for no reason. The audit reads `buildingLayout`
+directly (the planned structural solids), not whatever glb/proxy actually got
+drawn — the same exact-proxy-box guarantee above means it audits identically
+regardless of low-spec thinning or a forced/failed glb load.
+`__sideswapVisualGapOverlay(failureId | null)` draws or clears one
+`VisualGapReportRecord`'s eye marker, ray, blob outline, and nearest-
+opaque/crossed-owner outlines (`render/visualGapDebugOverlay.ts`) by looking
+the id up in the last report's `records` — `null` clears it, and a call
+before any `fan`-mode report has run is a no-op, not a throw. Both hooks and
+the overlay mesh are torn down in `dispose()`.
+
 The stack cannot save geometry that fights *inside* one model: the Cairo kit's
 millimetre-proud decal primitives are pulled forward by
 `biasCairoDecalMaterials` (`CAIRO_DECAL_MATERIAL_NAMES`, per `cairo-*.glb`
@@ -324,3 +345,18 @@ for DPR-1 4K/5K monitors, with MSAA dropping 4×→2× on those buffers. Governi
 desktop once meant a retina Mac rendering ~4× the pixels, dropping under target,
 and ratcheting to the blurriest rung — one-way, because that profile's improve
 threshold (58+8 fps) is unreachable under 60 Hz vsync.
+
+## Content-budget counters
+
+`window.__sideswapPerfDebug()` reports fps/hardwareScalingLevel/mesh counts
+alongside content-volume counters that answer "how much is actually planned
+and standing," not "how sharp": `blockCount` (`mapPack.geometry.blocks.length`),
+`plannedStructureCount` (buildingLayout's buildings grouped by
+`source` — `assetSlot`/`proceduralCell`/`museumWing` — plus `total`, all four
+keys always present even at zero), `structuralSolidCount` (every planned
+building's `.solids.length`, summed — always `>= plannedStructureCount.total`
+since every building has at least one solid), `staticObstacleCountByTag`
+(the session's own static-obstacle list grouped by `tag`), and `sceneReadyMs`
+(`performance.now()` at construction to `markReady()`, `null` until ready
+fires). These are cheap running totals over data the session already built,
+unlike the visual-gap hooks above.

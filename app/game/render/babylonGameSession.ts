@@ -113,6 +113,19 @@ import {
   buildStaticObstacleOverlay,
   obstacleDistanceSquared,
 } from "./collisionDebugOverlay";
+import { buildVisualGapOverlay } from "./visualGapDebugOverlay";
+import {
+  auditMapVisualGapsForMap,
+  buildGroundRaster,
+  DEFAULT_AUDIT_CAMERA_PROFILES,
+  type GroundRaster,
+  type VisualGapReportRecord,
+} from "../geometry/visualGapCoverage";
+import {
+  collectMapVisualGeometry,
+  type CollectedGeometry,
+} from "../geometry/visualSceneFootprints";
+import { AUDIT_VIEWPORT_PROFILES } from "../cameraPoses";
 import {
   ProceduralFacades,
   type ProceduralFacadesCtx,
@@ -800,6 +813,27 @@ export class BabylonGameSession {
   private collisionOverlayEnabled = false;
   private collisionOverlayObstacleMesh: LinesMesh | null = null;
   private collisionOverlayCapsuleMesh: LinesMesh | null = null;
+  /** `collectMapVisualGeometry`/`buildGroundRaster` are pure functions of
+   * `this.buildingLayout` and `this.options.mapPack`, both fixed for the
+   * session's lifetime — computed once, lazily, on the first
+   * `__sideswapVisualGapReport()` call and reused by every later call
+   * (including a `fan`-scoped one) rather than repaying the collection
+   * pass every time. Null until first computed. */
+  private visualGapGeometryCache: {
+    readonly geometry: CollectedGeometry;
+    readonly raster: GroundRaster;
+  } | null = null;
+  /** The most recent `__sideswapVisualGapReport()` call's own records —
+   * cached so `__sideswapVisualGapOverlay` can resolve a `failureId`
+   * without recomputing. Empty until a `fan`/`fullMatrix` report call
+   * actually produces some. */
+  private lastVisualGapRecords: readonly VisualGapReportRecord[] = [];
+  private visualGapOverlayMesh: LinesMesh | null = null;
+  /** Set once, in `markReady()` — plan Section 14.1's own "scene-ready time
+   * from session construction to readiness" counter, read by
+   * `__sideswapPerfDebug`. Null until the session actually reaches ready. */
+  private readonly constructedAtMs: number;
+  private sceneReadyMs: number | null = null;
   private simulationSnapshot: SimulationSnapshot;
   private playerVehicleVisual: VehicleMeshVisual | null = null;
   /** The player-as-cyclist rig (career bicycle days); null on car days. */
@@ -1103,6 +1137,10 @@ export class BabylonGameSession {
     options: SessionOptions,
     callbacks: SessionCallbacks,
   ) {
+    // Plan Section 14.1's "scene-ready time from session construction to
+    // readiness" — the first statement in the constructor, before any other
+    // work, so nothing this class does before `markReady()` is excluded.
+    this.constructedAtMs = performance.now();
     this.canvas = canvas;
     this.options = options;
     this.callbacks = callbacks;
@@ -1346,6 +1384,7 @@ export class BabylonGameSession {
   private markReady() {
     if (this.disposed || this.readyEmitted) return;
     this.readyEmitted = true;
+    this.sceneReadyMs = performance.now() - this.constructedAtMs;
     // Arm the resolution governor from here, not from the constructor: the
     // frame rate before this point is model upload and shader warm-up, and
     // judging the device on it drops resolution the instant the scene appears.
@@ -1563,6 +1602,8 @@ export class BabylonGameSession {
         "__sideswapCollisionDebug",
         "__sideswapCollisionOverlay",
         "__sideswapBuildingRepresentationDebug",
+        "__sideswapVisualGapReport",
+        "__sideswapVisualGapOverlay",
       ]) {
         delete debugWindow[key];
       }
@@ -1571,6 +1612,10 @@ export class BabylonGameSession {
     this.collisionOverlayObstacleMesh = null;
     this.collisionOverlayCapsuleMesh?.dispose();
     this.collisionOverlayCapsuleMesh = null;
+    this.visualGapOverlayMesh?.dispose();
+    this.visualGapOverlayMesh = null;
+    this.visualGapGeometryCache = null;
+    this.lastVisualGapRecords = [];
     this.cutsceneDirector?.dispose(this.cutsceneDirectorCtx());
     this.engine.stopRenderLoop(this.renderFrame);
     // Withdraw the mirrors before the scene goes: a render target left in
@@ -4996,33 +5041,73 @@ export class BabylonGameSession {
           });
       // Frame rate + mesh/draw-call counts, so QA can measure the cost of the
       // dense city and confirm the static-scenery freeze keeps it smooth.
-      debugWindow.__sideswapPerfDebug = () => ({
-        fps: Math.round(this.engine.getFps()),
-        // CSS px per rendered px, so lower is sharper. Watching this settle is
-        // how you tell a throttling device from a slow one. Null rung means
-        // desktop, which is not governed.
-        hardwareScalingLevel: this.engine.getHardwareScalingLevel(),
-        renderScalingRung: this.renderScaling?.index ?? null,
-        targetFps: this.renderScaling ? TOUCH_TARGET_FPS : null,
-        totalMeshes: this.scene.meshes.length,
-        activeMeshes: this.scene.getActiveMeshes().length,
-        materials: this.scene.materials.length,
-        // Cumulative since page load (no per-frame reset without scene
-        // instrumentation) — meaningful as a delta between two polls.
-        drawCallsCumulative: this.engineDrawCallCount(),
-        // Mirror cull: the ring gathered from the cell hash, and what survived
-        // the frustum test against the mirror camera. A zero in either — or a
-        // render count that stops climbing — is the silent failure mode, since
-        // a mirror stuck on a stale texture looks plausible until you watch it.
-        mirrorRenders: this.mirrorRig?.renderCount ?? 0,
-        mirrorCandidates: this.mirrorRig?.candidateCount ?? 0,
-        mirrorDrawn: this.mirrorRig?.drawnCount ?? 0,
-        crowdInstances: this.crowdRenderer?.instanceCount ?? 0,
-        crowdMeshes: this.crowdRenderer?.meshCount ?? 0,
-        // Substage timings since the previous poll — reading resets the
-        // window, so poll on a fixed cadence when comparing runs.
-        ...this.drainPerfStats(),
-      });
+      // Also plan Section 14.1's own content-budget counters that are cheap
+      // to derive from data this session already holds: block/planned-
+      // structure/solid/obstacle counts and scene-ready time. A further
+      // live unique-model/GLB-instance/proxy-by-detail-fraction breakdown
+      // (also named in 14.1) is deliberately not added here — it needs new
+      // bookkeeping this render pipeline does not already carry anywhere,
+      // which is a real content-authoring aid rather than integration
+      // plumbing, and out of this pass's own "structural integration only"
+      // scope.
+      debugWindow.__sideswapPerfDebug = () => {
+        const plannedBySource: Record<string, number> = {
+          "asset-slot": 0,
+          "procedural-cell": 0,
+          "museum-wing": 0,
+        };
+        let structuralSolidCount = 0;
+        for (const building of this.buildingLayout.buildings) {
+          plannedBySource[building.source] = (plannedBySource[building.source] ?? 0) + 1;
+          structuralSolidCount += building.solids.length;
+        }
+        const staticObstacleCountByTag: Record<string, number> = {};
+        for (const obstacle of this.scenarioStaticObstacles) {
+          staticObstacleCountByTag[obstacle.tag] =
+            (staticObstacleCountByTag[obstacle.tag] ?? 0) + 1;
+        }
+        return {
+          fps: Math.round(this.engine.getFps()),
+          // CSS px per rendered px, so lower is sharper. Watching this settle is
+          // how you tell a throttling device from a slow one. Null rung means
+          // desktop, which is not governed.
+          hardwareScalingLevel: this.engine.getHardwareScalingLevel(),
+          renderScalingRung: this.renderScaling?.index ?? null,
+          targetFps: this.renderScaling ? TOUCH_TARGET_FPS : null,
+          totalMeshes: this.scene.meshes.length,
+          activeMeshes: this.scene.getActiveMeshes().length,
+          materials: this.scene.materials.length,
+          // Cumulative since page load (no per-frame reset without scene
+          // instrumentation) — meaningful as a delta between two polls.
+          drawCallsCumulative: this.engineDrawCallCount(),
+          // Mirror cull: the ring gathered from the cell hash, and what survived
+          // the frustum test against the mirror camera. A zero in either — or a
+          // render count that stops climbing — is the silent failure mode, since
+          // a mirror stuck on a stale texture looks plausible until you watch it.
+          mirrorRenders: this.mirrorRig?.renderCount ?? 0,
+          mirrorCandidates: this.mirrorRig?.candidateCount ?? 0,
+          mirrorDrawn: this.mirrorRig?.drawnCount ?? 0,
+          crowdInstances: this.crowdRenderer?.instanceCount ?? 0,
+          crowdMeshes: this.crowdRenderer?.meshCount ?? 0,
+          // Section 14.1: block/planned-structure/solid/obstacle counts and
+          // scene-ready time. plannedStructureCount's three keys always exist
+          // (0 if a map genuinely has none of a kind) rather than being
+          // absent, so a consumer can destructure without an `?? 0` of its own.
+          blockCount: this.options.mapPack.geometry.blocks.length,
+          plannedStructureCount: {
+            assetSlot: plannedBySource["asset-slot"],
+            proceduralCell: plannedBySource["procedural-cell"],
+            museumWing: plannedBySource["museum-wing"],
+            total: this.buildingLayout.buildings.length,
+          },
+          structuralSolidCount,
+          staticObstacleCountByTag,
+          sceneReadyMs: this.sceneReadyMs,
+          // Substage timings since the previous poll — reading resets the
+          // window, so poll on a fixed cadence when comparing runs.
+          ...this.drainPerfStats(),
+        };
+      };
       // The interaction cutscene's live state, so QA can assert the scene
       // actually runs, where its actor is, and that the camera stack and the
       // control lock restore when it ends.
@@ -5180,6 +5265,76 @@ export class BabylonGameSession {
               recycled: walker.justRecycled,
             })) ?? [],
         };
+      };
+      // The plan's own Section 13.4 debug surface: the deterministic
+      // visual-gap report and (below) its overlay. Always reuses this
+      // session's OWN already-built `buildingLayout` — never a freshly
+      // recomputed plan, which the running session's actual on-screen
+      // occupancy could legitimately have diverged from (a forced asset
+      // failure, a different detail tier). The raster/blob pass alone is
+      // fast enough to run on every call; the real camera-fan sweep
+      // (`fan`/`fullMatrix`) is not (a full unscoped sweep measured well
+      // over 7 minutes during Section 12.11's own work) — opt in
+      // explicitly, and scope with `roadIds` the same way the CLI's own
+      // `--roads` flag does, for anything beyond a quick blob census.
+      debugWindow.__sideswapVisualGapReport = (options?: {
+        readonly roadIds?: readonly string[];
+        readonly fan?: boolean;
+        readonly fullMatrix?: boolean;
+      }) => {
+        const mapPack = this.options.mapPack;
+        if (!this.visualGapGeometryCache) {
+          const geometry = collectMapVisualGeometry(mapPack, this.buildingLayout);
+          const raster = buildGroundRaster(geometry.groundSurfaces, geometry.occluders);
+          this.visualGapGeometryCache = { geometry, raster };
+        }
+        const { geometry, raster } = this.visualGapGeometryCache;
+        const records = options?.fan || options?.fullMatrix
+          ? auditMapVisualGapsForMap(
+              mapPack.id,
+              mapPack.geometry.worldSize,
+              mapPack.geometry.roadSurfaces ?? [],
+              defaultSidewalkWidthM(mapPack),
+              geometry,
+              raster,
+              {
+                seedId: `seed-${this.options.scenario.trafficSeed}`,
+                representationProfile: this.lowSpec ? "structural-proxy" : "full-detail",
+                cameraProfiles: options?.fullMatrix ? undefined : [DEFAULT_AUDIT_CAMERA_PROFILES[0]],
+                viewports: options?.fullMatrix ? undefined : [AUDIT_VIEWPORT_PROFILES[0]],
+                onlyRoadIds: options?.roadIds ? new Set(options.roadIds) : undefined,
+              },
+            )
+          : [];
+        this.lastVisualGapRecords = records;
+        return {
+          mapId: mapPack.id,
+          blobCount: raster.blobs.length,
+          qualifyingBlobCount: raster.blobs.filter((blob) => blob.qualifying).length,
+          unsupportedCellCount: raster.unsupportedCellIds.length,
+          rayFailureCount: records.length,
+          records,
+        };
+      };
+      // Draws (or, given null, clears) the one overlay `__sideswapVisualGapReport`'s
+      // own record set makes inspectable (eye marker, ray, blob outline,
+      // nearest opaque owner, crossed ground surfaces — see
+      // visualGapDebugOverlay.ts). Silently no-ops on an unknown/stale id
+      // rather than throwing, so a QA script driving through several
+      // reports in a row can never crash the session on this call alone.
+      debugWindow.__sideswapVisualGapOverlay = (failureId: string | null) => {
+        this.visualGapOverlayMesh?.dispose();
+        this.visualGapOverlayMesh = null;
+        if (!failureId || !this.visualGapGeometryCache) return;
+        const record = this.lastVisualGapRecords.find(
+          (candidate) => candidate.failureId === failureId,
+        );
+        if (!record) return;
+        this.visualGapOverlayMesh = buildVisualGapOverlay(
+          this.scene,
+          record,
+          this.visualGapGeometryCache.geometry,
+        );
       };
     }
   }
