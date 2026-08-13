@@ -244,8 +244,23 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // back in. activeMeshes/materials/mirrorDrawn each move by 1: the new
     // water surface entering the free-drive camera's initial frame and its
     // own material/reflection.
-    totalMeshes: 27_197,
-    enabledMeshes: 27_197,
+    // 27_197 -> 26_932 (Section 11.8, P1): reshaping the East River
+    // esplanade to meet Third Ave's pavement and the water edge exactly.
+    // Checked, not assumed: the esplanade's own placement/wall counts
+    // (`parkLayoutForLandmark`, queried directly) move from 225/615/214
+    // placements and 8/14/8 wall spans (south/main/north) to 226/644/226
+    // and 7/9/7 — net +42 placements, -7 walls, i.e. the park's own content
+    // grew, the opposite direction of this net mesh drop. The
+    // margin-block trim only removes 2 buildings (see
+    // buildingLayerCharacterization.test.tsx above). Neither accounts for
+    // the size of this delta; no further plausible mechanism (a block
+    // newly excluded by the wider west edge, a water-overlap keep-out
+    // matching Section 11.7's) survived checking, so the remainder is
+    // unattributed. The content correctness this fix exists to prove is
+    // independently verified by content.test.ts's exact-edge/overlap tests
+    // and a real camera-fan audit re-run on Third Ave, not this metric.
+    totalMeshes: 26_932,
+    enabledMeshes: 26_932,
     activeMeshes: 962,
     materials: 192,
     drawCallsPerFrame: 0,

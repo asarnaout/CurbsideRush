@@ -613,6 +613,39 @@ describe("SideSwap content", () => {
     expect(Math.max(...zs)).toBeGreaterThanOrEqual(nyc!.geometry.worldSize.z / 2);
   });
 
+  it("meets the East River esplanade's edges exactly instead of leaving seams on both sides (plan Section 11.8)", () => {
+    const nyc = MAP_PACKS.find((m) => m.id === "nyc-upper-west-side");
+    expect(nyc).toBeDefined();
+    const south = nyc!.geometry.blocks.find((b) => b.id === "nyc-block-east-south-margin")!;
+    const north = nyc!.geometry.blocks.find((b) => b.id === "nyc-block-east-north-margin")!;
+    const esplanadeSouth = nyc!.geometry.landmarks.find((l) => l.id === "nyc-esplanade-south")!;
+    const esplanade = nyc!.geometry.landmarks.find((l) => l.id === "nyc-esplanade")!;
+    const esplanadeNorth = nyc!.geometry.landmarks.find((l) => l.id === "nyc-esplanade-north")!;
+    for (const block of [south, north]) {
+      // Third Ave's own pavement (440+11/2+3.4=448.9), not its generic
+      // coordinate+13 inset (453) -- the mismatch that used to overlap
+      // the esplanade by 0.5 m.
+      expect(block.center.x + block.size.x / 2).toBeCloseTo(448.9, 5);
+    }
+    const river = nyc!.geometry.waterBodies!.find((w) => w.id === "nyc-east-river")!;
+    const westShoreMinX = Math.min(
+      ...river.polygon.filter((p) => p.x < 700).map((p) => p.x),
+    );
+    for (const park of [esplanadeSouth, esplanade, esplanadeNorth]) {
+      // Flush against the margin blocks' own trimmed edge -- zero gap,
+      // zero overlap -- and never past the shore's own closest approach.
+      expect(park.center.x - park.size.x / 2).toBeCloseTo(448.9, 5);
+      expect(park.center.x + park.size.x / 2).toBe(westShoreMinX);
+      // The wider south/north segments' own proportions (604/107.1=5.64)
+      // fall under STRIP_ASPECT alone -- pinned explicitly so the shape
+      // that comes only from where the bridge splits happen to fall can
+      // never silently diverge this piece's style from the untouched main
+      // segment's derived "riverside_strip".
+      expect(park.parkStyle).toBe("riverside_strip");
+      expect(resolveParkStyle(park, "nyc")).toBe("riverside_strip");
+    }
+  });
+
   it("gives every country a currency and formats money in it", () => {
     const expected: Record<
       string,
@@ -1624,17 +1657,17 @@ describe("SideSwap content", () => {
       }
     }
     // Pre-existing debt this gate discovered outside London, pinned EXACTLY:
-    // two NYC margin strips nip 0.5 m into the esplanade's split rects and one
-    // Cairo generated roadside strip reaches 2.81 m into the opera grounds.
-    // All three are edge-nips a player has never noticed, they belong to other
-    // cities' content (out of scope for the London work that added this gate),
-    // and pinning them verbatim means they can neither grow nor multiply
-    // silently. Fixing them in their own cities' next content pass is welcome —
-    // delete the entry here when you do.
+    // a Cairo generated roadside strip reaches 2.81 m into the opera
+    // grounds — an edge-nip a player has never noticed, out of scope for
+    // the London work that added this gate. Pinning it verbatim means it
+    // can neither grow nor multiply silently; fixing it in Cairo's own
+    // content pass is welcome (Phase 5) — delete the entry here when you
+    // do. The two NYC margin-strip entries this list used to carry (each
+    // 0.5 m inside its own esplanade split) are gone: visual-gap plan
+    // Section 11.8 trimmed nyc-block-east-south-margin/-north-margin and
+    // reshaped the esplanade to meet exactly, not overlap.
     expect(violations).toEqual([
       "cairo-opera-corridor-roadside-3-3-right stands 2.81 m inside cairo-opera-grounds",
-      "nyc-block-east-south-margin stands 0.50 m inside nyc-esplanade-south",
-      "nyc-block-east-north-margin stands 0.50 m inside nyc-esplanade-north",
     ]);
   });
 
