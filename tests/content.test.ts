@@ -513,6 +513,33 @@ describe("SideSwap content", () => {
     expect(overlapping.map((b) => b.id)).toEqual([]);
   });
 
+  it("shells the Queens outer bank streets bk40/bk56 so the ground stops reading to the world edge (plan Section 11.5)", () => {
+    const nyc = MAP_PACKS.find((m) => m.id === "nyc-upper-west-side");
+    expect(nyc).toBeDefined();
+    const south = nyc!.geometry.blocks.find((b) => b.id === "nyc-block-bk40-outer")!;
+    const north = nyc!.geometry.blocks.find((b) => b.id === "nyc-block-bk56-outer")!;
+    expect(south).toBeDefined();
+    expect(north).toBeDefined();
+    for (const block of [south, north]) {
+      expect(block.center.x).toBe(972);
+      expect(block.size).toEqual({ x: 370, z: 44 });
+      expect(block.buildingSet).toBe("nyc-house");
+      // A map-edge shell, not real frontage: single inward-facing edge, and
+      // withdrawn from gig-pool probing entirely (plan Section 9.1).
+      expect(block.addressable).toBe(false);
+    }
+    expect(south.center.z).toBe(-1115);
+    expect(south.streetEdges).toEqual(["+z"]);
+    expect(north.center.z).toBe(1115);
+    expect(north.streetEdges).toEqual(["-z"]);
+    // Clear of the East River's own shore (x up to ~744) on the west side.
+    const river = nyc!.geometry.waterBodies!.find((w) => w.id === "nyc-east-river")!;
+    const riverMaxX = Math.max(...river.polygon.map((p) => p.x));
+    for (const block of [south, north]) {
+      expect(block.center.x - block.size.x / 2).toBeGreaterThan(riverMaxX);
+    }
+  });
+
   it("gives every country a currency and formats money in it", () => {
     const expected: Record<
       string,

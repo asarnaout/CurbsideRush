@@ -241,7 +241,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // (160 m deep) fills only the middle of the 454 m cell, leaving 147 m
     // bare on each side. Two ordinary midrise blocks flank it instead,
     // each stopping 8 m short of the gallery's footprint: +44 buildings.
-    buildingInstanceCount: 5_417,
+    // -> 5_475 (Section 11.5, P0): two single-edge `nyc-house` map-edge
+    // shells past bk40/bk56, the borough's south/north boundary streets,
+    // where the ground used to continue unbuilt to the world edge: +58.
+    buildingInstanceCount: 5_475,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 12,
   },
