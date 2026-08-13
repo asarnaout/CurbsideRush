@@ -215,8 +215,11 @@ describe("the whole-city map", () => {
   });
 
   it("fades a family the city has none of", () => {
-    // Tokyo has no traffic lights at all, so no cameras — worth the difference
-    // between "not found one yet" and "there are none to find".
+    // This test's fixture POIS carries no "camera" entry (fuel/repair/food
+    // only) — worth the difference between "not found one yet" and "there
+    // are none to find". Not a claim about any real map's own signal count
+    // (Tokyo expansion Phase 5 gave Tokyo its first 42 signals and 14
+    // derived cameras; this fixture is independent of real map content).
     renderMap();
     const rows = screen.getAllByTestId("map-legend-row");
     const cameras = rows.find((row) => row.dataset.poiKind === "camera")!;

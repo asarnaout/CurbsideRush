@@ -7,6 +7,8 @@ import type {
   ProceduralBlock,
   RoadSurface,
   TrafficControl,
+  TrafficControlApproach,
+  TrafficControlInstallation,
   WorldPoint,
 } from "../types";
 import { CONNECTOR_BLEND_RUN_M, buildLaneTrueGeometry } from "../laneConnectors";
@@ -1226,14 +1228,18 @@ function tokyoThroughRoadIdsAt(
  * Builds every stop control the generated network needs: one per node with
  * >= 2 distinct arriving roads where at least one of them is not the
  * uncontested top-priority road (§9 Phase 2 "stop/yield controls at web
- * junctions and arterial mouths"). Signals are Phase 5's job. Only processes
- * nodes touched by >= 1 generated lane, so the quarter's own already-shipped
- * control state is untouched.
+ * junctions and arterial mouths"). Only processes nodes touched by >= 1
+ * generated lane, so the quarter's own already-shipped control state is
+ * untouched. `signalNodeIds` (Tokyo expansion Phase 5) is skipped here
+ * entirely — those nodes get a `deriveTokyoSignalControls` signal instead of
+ * a stop, and authoring both at the same node would leave two independent
+ * controls contradicting each other over the same lanes.
  */
 function deriveTokyoJunctionControls(
   allLanes: readonly LaneSegment[],
   roadSurfacesById: Map<string, RoadSurface>,
   generatedNodeIds: ReadonlySet<string>,
+  signalNodeIds: ReadonlySet<string>,
 ): { readonly controls: readonly TrafficControl[]; readonly zones: readonly ConflictZone[] } {
   const roadSpecById = new Map(tokyoRoadSpecs.map((spec) => [spec.id, spec]));
   // Interior-node membership for EVERY road present in the map (old quarter's
@@ -1261,6 +1267,7 @@ function deriveTokyoJunctionControls(
   let controlIndex = 0;
 
   for (const nodeId of [...generatedNodeIds].sort()) {
+    if (signalNodeIds.has(nodeId)) continue;
     const position = nodePositionById.get(nodeId);
     if (!position) continue;
     const arrivals = arrivalsByNode.get(nodeId) ?? [];
@@ -1377,6 +1384,405 @@ function deriveTokyoJunctionControls(
   return { controls, zones };
 }
 
+// =============================================================================
+// Signal derivation (Tokyo expansion Phase 5, R10). Cloned in SHAPE from
+// Cairo's own file-private signal generator (cities/cairo.ts, `signalNodeIds`
+// + the loop building `cairoControls`) rather than an extension of
+// `deriveTokyoJunctionControls` above: a signal governs every arm with its
+// own phase — there is no "uncontested priority road" the way a stop
+// junction has one, so the through/priority SCORING that function owns has
+// nothing for a signal generator to reuse. What Tokyo's own stop generator
+// above DOES already prove, and this one reuses directly, is the geometry:
+// `laneLengthOfTokyo`/`lanePointAtDistanceTokyo`/`laneHeadingAtDistanceDegTokyo`,
+// the `setbackM = max(6, maxSurfaceWidthAtNodeM/2 + 2.5)` formula (scales
+// against the WIDEST road meeting the node, not just the stopped arm's own —
+// Chūō-dōri's 13.6 m core is exactly why), and the LEFT-hand kerbside normal
+// (Tokyo is left-hand traffic; NYC's original right-hand formula put poles
+// across the carriageway here, per the Phase 2 memory).
+//
+// Node selection (`TOKYO_SIGNAL_NODE_IDS`) is hand-picked, like Cairo's own
+// `signalNodeIds` — but data-driven off this file's OWN `TOKYO_ZONE_FOR_ROAD`
+// table (§9 Phase 5 "every arterial×arterial and downtown junction") rather
+// than eyeballed: a junction qualifies if >= 2 of its arriving roads are
+// `"ring"`-zoned (arterial x arterial) or >= 1 is `"downtown"`-zoned, read
+// off a scratchpad enumeration of every generated-network junction, then
+// pruned by hand for the cases the raw rule over-picks (the four ring
+// corners where a ring meets only the closing road at the world margin stay
+// stops — genuinely low-traffic; the three Nakamise-Yokochō crossings stay
+// stops too — a shared-space 20 km/h shotengai mouth reads wrong with a
+// full vehicle signal cycle, and its two real ends get a `crosswalk` control
+// instead, below) and extended by hand for the east bank (Phase 3's own
+// zone table has no single "ring" tag over there, so the bridge landings
+// and the Higashi Hon-dōri spine crossings are added by name).
+// =============================================================================
+
+const TOKYO_SIGNAL_NODE_IDS: readonly string[] = [
+  // --- Downtown core (21): every Ichiban/Niban/Chūō/Kawate-dōri crossing
+  // with a cross-street, minus the three Nakamise-Yokochō ones (stay stops
+  // + get a dedicated crosswalk at each real end, not a vehicle signal).
+  "jp-minami-dori-w",
+  "jp-shotengai-nishi-x-renraku",
+  "jp-ekimae-w",
+  "jp-shotengai-nishi-x-uptown",
+  "jp-kita-dori-w",
+  "jp-ichiban-x-setagaya",
+  "jp-ichiban-x-minami-dori",
+  "jp-ichiban-x-ekimae",
+  "jp-ichiban-x-kita-dori",
+  "jp-niban-x-setagaya",
+  "jp-niban-x-minami-dori",
+  "jp-niban-x-ekimae",
+  "jp-niban-x-kita-dori",
+  "jp-chuo-x-minami-kaido",
+  "jp-chuo-x-setagaya",
+  "jp-chuo-x-minami-dori",
+  "jp-chuo-x-ekimae", // the scramble (Chūō-dōri x Ekimae-dōri) — see the extra diagonal crosswalks added to this control below.
+  "jp-chuo-x-kita-dori",
+  "jp-kawate-x-minami-dori",
+  "jp-kawate-x-ekimae",
+  "jp-kawate-x-kita-dori",
+  // --- Ring x ring (13): the west ring's own major crossings, minus the
+  // four corners where a ring meets only the closing road at the world
+  // margin (jp-nk-s/jp-nk-n/jp-sg-s/jp-sg-n stay stops).
+  "jp-kawate-x-kawanaka",
+  "jp-nk-minami",
+  "jp-nk-setagaya",
+  "jp-nk-koshu",
+  "jp-kp-s",
+  "jp-kp-minami",
+  "jp-kp-setagaya",
+  "jp-kp-koshu",
+  "jp-kp-n",
+  "jp-sg-minami",
+  "jp-sg-koshu",
+  "jp-chuo-n",
+  "jp-chuo-x-koshu",
+  // --- East bank spine + bridge landings (8): the Higashi Hon-dōri spine's
+  // crossings with the bridges and with the outer ring closer — the compact
+  // east district's own major nodes. jp-higashi-w and jp-khh-w (Sakura-
+  // ōhashi/Higashi-dōri and Tsuki-ōhashi/Kōshū-kaidō-higashi's own bridge
+  // landings) are deliberately NOT here despite being in the "ring x ring"
+  // net: each is a pure two-road node where BOTH roads are one mutually-
+  // grouped "same street" (TOKYO_SAME_STREET_GROUPS) — the bridge simply
+  // continuing under a new name, with no actual cross traffic to give a
+  // phase to. A signal there would have nothing to alternate; they stay
+  // uncontrolled through points, same as Phase 3 left them. (jp-higashi-w's
+  // jp-higashi-dori arm is also only ~10 m from the next real junction,
+  // jp-hd-x-tofu — a short-arm pole-envelope conflict `content.test.ts`
+  // caught directly — but the deeper reason it does not belong on this list
+  // is the missing cross traffic, not the geometry.)
+  "jp-kawanaka-e",
+  "jp-hd-x-hondori",
+  "jp-khh-x-hondori",
+  "jp-hd-x-soto",
+  "jp-khh-x-soto",
+  "jp-kawagishi-x-setagaya",
+  "jp-kawagishi-x-kawanaka",
+  "jp-kawagishi-x-koshu",
+];
+
+/** Node this scramble control's id resolves to — named once so the
+ * diagonal-crosswalk post-process below can find it without restating the
+ * `jp-gen-signal-` id-building convention. */
+const TOKYO_SCRAMBLE_NODE_ID = "jp-chuo-x-ekimae";
+
+const tokyoDistanceToSegment = (
+  candidate: WorldPoint,
+  start: WorldPoint,
+  end: WorldPoint,
+): number => {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const lengthSquared = dx * dx + dz * dz;
+  const amount =
+    lengthSquared > 0
+      ? Math.max(
+          0,
+          Math.min(
+            1,
+            ((candidate.x - start.x) * dx + (candidate.z - start.z) * dz) / lengthSquared,
+          ),
+        )
+      : 0;
+  return Math.hypot(candidate.x - (start.x + dx * amount), candidate.z - (start.z + dz * amount));
+};
+
+/** Clearance from `candidate` to the nearest carriageway edge, over every
+ * lane in `lanesForClearance` — Cairo's own `laneClearanceAt`, reproduced
+ * here because it is file-private there. Checked against the WHOLE map's
+ * lanes (not just this junction's own), the same way Cairo's is: a signal
+ * head near one junction can still stand inside a different, nearby road's
+ * envelope on this dense a network. */
+const tokyoLaneClearanceAt = (
+  candidate: WorldPoint,
+  lanesForClearance: readonly LaneSegment[],
+): number =>
+  Math.min(
+    ...lanesForClearance.map(
+      (lane) =>
+        Math.min(
+          ...lane.centerline
+            .slice(1)
+            .map((end, index) => tokyoDistanceToSegment(candidate, lane.centerline[index], end)),
+        ) -
+        lane.widthM / 2,
+    ),
+  );
+
+/** ~1 m before the stop line, so a driver stopped at the bar still sees the
+ * head ahead rather than overhead/behind. */
+const TOKYO_SIGNAL_HEAD_SETBACK_M = 1;
+/** ~1 m past the arm's own kerb face — the plan's literal "ideal spot". */
+const TOKYO_SIGNAL_KERB_CLEARANCE_M = 1;
+/** A head may never stand inside a carriageway; matches Cairo's own floor. */
+const TOKYO_SIGNAL_LANE_CLEARANCE_M = 0.6;
+
+/**
+ * Where a kerbside signal head stands, beside its own arm's stop line, on
+ * the near (left-hand) kerb. **Clearance is a veto on the ideal spot here,
+ * never something to maximise**: the ideal candidate (1 m before the line,
+ * 1 m past THIS arm's own kerb) is tried first, and the search only steps
+ * further out when that exact spot would stand inside another road's
+ * envelope (Chūō-dōri's wide core meeting a narrow side street, e.g.) —
+ * never ranked by "how much clearance," which is how every Cairo head once
+ * stood 13-24 m out on open ground (`docs/map-authoring.md`).
+ */
+function safeTokyoSignalPosition(
+  lane: LaneSegment,
+  stopDistanceM: number,
+  ownSurfaceHalfWidthM: number,
+  allLanes: readonly LaneSegment[],
+): { readonly position: WorldPoint; readonly headingDeg: number } {
+  const headingDeg = laneHeadingAtDistanceDegTokyo(
+    lane,
+    Math.max(0, stopDistanceM - CONNECTOR_BLEND_RUN_M - 1),
+  );
+  const rad = (headingDeg * Math.PI) / 180;
+  // LEFT-hand normal — the same negated-right-hand convention the stop-sign
+  // placement above already established for this left-hand-traffic map.
+  const leftX = -Math.cos(rad);
+  const leftZ = Math.sin(rad);
+  const at = (backM: number, lateralM: number): WorldPoint => {
+    const along = lanePointAtDistanceTokyo(lane, Math.max(0, stopDistanceM - backM));
+    return point(along.x + leftX * lateralM, along.z + leftZ * lateralM);
+  };
+  const kerbside = ownSurfaceHalfWidthM + TOKYO_SIGNAL_KERB_CLEARANCE_M;
+  for (const backExtraM of [0, 3, 6, 9, 12]) {
+    for (const lateralExtraM of [0, 0.9, 1.8]) {
+      const candidate = at(TOKYO_SIGNAL_HEAD_SETBACK_M + backExtraM, kerbside + lateralExtraM);
+      if (tokyoLaneClearanceAt(candidate, allLanes) >= TOKYO_SIGNAL_LANE_CLEARANCE_M) {
+        return { position: candidate, headingDeg };
+      }
+    }
+  }
+  return { position: at(TOKYO_SIGNAL_HEAD_SETBACK_M, kerbside), headingDeg };
+}
+
+/**
+ * Builds one `type: "signal"` control per `TOKYO_SIGNAL_NODE_IDS` entry.
+ * Approaches are grouped by ARM — keyed by `${roadId}|${lane.from}`, so a
+ * two-way street's opposing directions (different `from`) land on separate
+ * stop lines/heads while a multi-lane arm of one direction (same `from`)
+ * still shares one — map-authoring.md's "one TrafficControlApproach = one
+ * arm, never one road" rule, and the exact grouping key Cairo's own signal
+ * generator already proved. `phaseGroup` stays keyed by road (not arm), so
+ * opposing arms of the same street still run together in the cycle.
+ */
+function deriveTokyoSignalControls(
+  allLanes: readonly LaneSegment[],
+  roadSurfacesById: Map<string, RoadSurface>,
+): { readonly controls: readonly TrafficControl[]; readonly zones: readonly ConflictZone[] } {
+  const nodePositionById = new Map<string, WorldPoint>();
+  for (const node_ of tokyoGenNodeList) nodePositionById.set(node_.id, node_.position);
+  for (const node_ of jpNodesList) nodePositionById.set(node_.id, node_.position);
+
+  const controls: TrafficControl[] = [];
+  const zones: ConflictZone[] = [];
+
+  for (const nodeId of [...TOKYO_SIGNAL_NODE_IDS].sort()) {
+    const position = nodePositionById.get(nodeId);
+    if (!position) {
+      throw new Error(
+        `deriveTokyoSignalControls: "${nodeId}" is not a known node id — check TOKYO_SIGNAL_NODE_IDS for a typo.`,
+      );
+    }
+    const inbound = allLanes.filter((lane) => lane.to === nodeId);
+    const byArm = new Map<string, LaneSegment[]>();
+    for (const lane of inbound) {
+      const armKey = `${lane.roadId}|${lane.from}`;
+      byArm.set(armKey, [...(byArm.get(armKey) ?? []), lane]);
+    }
+    const arms = [...byArm.entries()].sort(([left], [right]) => left.localeCompare(right));
+    if (arms.length < 2) {
+      throw new Error(
+        `deriveTokyoSignalControls: "${nodeId}" has fewer than 2 arms (${arms.length}) — not a real junction, check TOKYO_SIGNAL_NODE_IDS.`,
+      );
+    }
+
+    const controlId = `jp-gen-signal-${nodeId}`;
+    const zoneId = `${controlId}-zone`;
+    const arrivingRoadIds = [...new Set(inbound.map((lane) => lane.roadId))];
+    const maxSurfaceWidthAtNodeM = Math.max(
+      ...arrivingRoadIds.map((roadId) => roadSurfacesById.get(roadId)?.widthM ?? 0),
+    );
+    // Same formula as the stop generator above: scales against the WIDEST
+    // road meeting the node, not just this arm's own, so the stop line
+    // itself clears a much wider crossing road before the head is even
+    // placed (Chūō-dōri's 13.6 m core over a 7-9 m side street, e.g.).
+    const setbackM = Math.max(6, maxSurfaceWidthAtNodeM / 2 + 2.5);
+
+    const approaches: TrafficControlApproach[] = [];
+    const installations: TrafficControlInstallation[] = [];
+    for (const [, armLanes] of arms) {
+      const sortedLanes = [...armLanes].sort((a, b) => a.id.localeCompare(b.id));
+      const referenceLane = sortedLanes[0];
+      const roadId = referenceLane.roadId;
+      const surface = roadSurfacesById.get(roadId);
+      const surfaceHalfWidthM = (surface?.widthM ?? referenceLane.widthM * 2) / 2;
+      const lengthM = laneLengthOfTokyo(referenceLane);
+      const stopDistanceM = Math.max(0, lengthM - setbackM);
+      const armSlug = `${roadId}-${referenceLane.from.replace(/^jp-/, "")}`;
+      const approachId = `${controlId}-${armSlug}-approach`;
+
+      approaches.push({
+        id: approachId,
+        laneIds: sortedLanes.map((lane) => lane.id),
+        stopLine: { laneId: referenceLane.id, distanceAlongM: stopDistanceM },
+        // Opposing arms of the SAME street still run together in the
+        // cycle, so the phase group stays keyed by road even though the
+        // approach itself is keyed by arm (map-authoring.md).
+        phaseGroup: `${controlId}-${roadId}`,
+        conflictZoneIds: [zoneId],
+      });
+
+      const { position: headPosition, headingDeg } = safeTokyoSignalPosition(
+        referenceLane,
+        stopDistanceM,
+        surfaceHalfWidthM,
+        allLanes,
+      );
+      installations.push({
+        id: `${controlId}-${armSlug}-head`,
+        position: headPosition,
+        headingDeg,
+        mounting: "roadside_pole",
+        // "nyc_signal" is the plain generic head (dark pole, dark housing,
+        // three lenses, no regional decoration) — the ONLY style whose
+        // TIMING sequence (green -> amber -> all-red -> red, no red-amber
+        // phase) matches Japan's real signal cycle; "uk_signal" would add a
+        // red-amber phase Japan does not use, and no "japan_signal" style
+        // exists in the type system to add one for (`AuthoredSignalStyle`,
+        // `TrafficControlVisualStyle` in types.ts) — confirmed nothing about
+        // the "nyc_signal" mesh itself reads as US-specific
+        // (render/trafficControlRender.ts only branches visually on
+        // "egypt_signal"'s hazard striping).
+        style: "nyc_signal",
+        role: "primary",
+        approachIds: [approachId],
+      });
+    }
+
+    const half = Math.max(7, maxSurfaceWidthAtNodeM / 2 + 3);
+    controls.push(
+      control(
+        controlId,
+        "signal",
+        position.x,
+        position.z,
+        0,
+        inbound.map((lane) => lane.id),
+        [zoneId],
+        approaches,
+        installations,
+      ),
+    );
+    zones.push({
+      id: zoneId,
+      laneIds: [
+        ...new Set(
+          allLanes
+            .filter((lane) => lane.from === nodeId || lane.to === nodeId)
+            .map((lane) => lane.id),
+        ),
+      ],
+      polygon: [
+        point(position.x - half, position.z - half),
+        point(position.x + half, position.z - half),
+        point(position.x + half, position.z + half),
+        point(position.x - half, position.z + half),
+      ],
+    });
+  }
+  return { controls, zones };
+}
+
+/**
+ * The scramble's extra paint (§9 Phase 5 item 4): four orthogonal crosswalk
+ * `road_marking` installations (one per arm, at that arm's own stop line —
+ * the existing quarter's `jp-crosswalk-station` precedent for where a
+ * marking sits) plus two diagonal crossings rotated across the box, added
+ * to the plain 4-arm signal `deriveTokyoSignalControls` already built at
+ * `TOKYO_SCRAMBLE_NODE_ID`. Existing installation styles only
+ * (`road_marking`/`crosswalk`) — the diagonals are paint, the signal
+ * already built above is the law that governs the box; no new sim
+ * behaviour, matching the plan's own explicit framing of this item.
+ */
+function addTokyoScrambleCrosswalks(
+  controls: readonly TrafficControl[],
+  allLanes: readonly LaneSegment[],
+  roadSurfacesById: Map<string, RoadSurface>,
+): readonly TrafficControl[] {
+  const controlId = `jp-gen-signal-${TOKYO_SCRAMBLE_NODE_ID}`;
+  const scramble = controls.find((item) => item.id === controlId);
+  if (!scramble) {
+    throw new Error(
+      `addTokyoScrambleCrosswalks: "${controlId}" not found — TOKYO_SCRAMBLE_NODE_ID must name a real TOKYO_SIGNAL_NODE_IDS entry.`,
+    );
+  }
+  const orthogonal: TrafficControlInstallation[] = scramble.approaches.map((approach) => {
+    const lane = allLanes.find((item) => item.id === approach.stopLine.laneId)!;
+    const surface = roadSurfacesById.get(lane.roadId);
+    const pose = lanePointAtDistanceTokyo(lane, approach.stopLine.distanceAlongM);
+    const headingDeg = laneHeadingAtDistanceDegTokyo(
+      lane,
+      Math.max(0, approach.stopLine.distanceAlongM - CONNECTOR_BLEND_RUN_M - 1),
+    );
+    return {
+      // `approach.id` already carries the controlId + arm-slug prefix.
+      id: `${approach.id}-crosswalk`,
+      position: pose,
+      headingDeg,
+      spanM: surface?.widthM ?? lane.widthM * 2,
+      mounting: "road_marking",
+      style: "crosswalk",
+      role: "marking",
+      approachIds: [approach.id],
+    };
+  });
+  // Diagonal stripes, corner to corner across the box: Chūō-dōri (N-S) meets
+  // Ekimae-dōri (E-W) here, so the two diagonals sit at 45°/135°. Span is the
+  // box's own diagonal (hypot of both roads' half-widths, doubled) so the
+  // paint reaches from kerb corner to kerb corner rather than stopping
+  // mid-box.
+  const chuo = roadSurfacesById.get("jp-chuo-dori")!;
+  const ekimae = roadSurfacesById.get("jp-eki-mae-dori")!;
+  const diagonalSpanM = Math.hypot(chuo.widthM, ekimae.widthM);
+  const diagonals: TrafficControlInstallation[] = [45, 135].map((headingDeg, index) => ({
+    id: `${controlId}-diagonal-${index + 1}`,
+    position: scramble.position,
+    headingDeg,
+    spanM: diagonalSpanM,
+    mounting: "road_marking",
+    style: "crosswalk",
+    role: "marking",
+  }));
+  const updated: TrafficControl = {
+    ...scramble,
+    installations: [...scramble.installations, ...orthogonal, ...diagonals],
+  };
+  return controls.map((item) => (item.id === controlId ? updated : item));
+}
+
 /** The quarter's own carriageways, hoisted so the generated-half machinery
  * (junction control derivation) can look them up by id the same way it looks
  * up generated surfaces. */
@@ -1426,11 +1832,30 @@ function assembleTokyoGeneratedHalf() {
     rawLaneNodeIds.add(lane.from);
     rawLaneNodeIds.add(lane.to);
   }
-  const { controls: generatedControls, zones: generatedZones } = deriveTokyoJunctionControls(
-    [...quarterLanesWithNewTurns, ...generatedLanes],
+  const allGeneratedHalfLanes = [...quarterLanesWithNewTurns, ...generatedLanes];
+  const signalNodeIds = new Set(TOKYO_SIGNAL_NODE_IDS);
+  const { controls: stopControls, zones: stopZones } = deriveTokyoJunctionControls(
+    allGeneratedHalfLanes,
     roadSurfacesById,
     rawLaneNodeIds,
+    signalNodeIds,
   );
+  // Signals (Tokyo expansion Phase 5, R10): a separate generator from the
+  // stop derivation above (see the comment on `deriveTokyoSignalControls`
+  // for why), run over the SAME final lane set so an arm's stop-line
+  // distance/head clearance account for every lane on the map, generated
+  // and quarter alike. The scramble's extra diagonal paint is added as a
+  // post-process once its plain 4-arm signal exists.
+  const { controls: signalControls, zones: signalZones } = deriveTokyoSignalControls(
+    allGeneratedHalfLanes,
+    roadSurfacesById,
+  );
+  const generatedControls = addTokyoScrambleCrosswalks(
+    [...stopControls, ...signalControls],
+    allGeneratedHalfLanes,
+    roadSurfacesById,
+  );
+  const generatedZones = [...stopZones, ...signalZones];
   const generatedRoadNames = Object.fromEntries(
     tokyoRoadSpecs.map((spec) => [spec.id, spec.name]),
   );
@@ -2191,6 +2616,28 @@ export const TOKYO_MAP_PACK: MapPack = {
     landmarks: [
       { id: "jp-gotokuji-station", kind: "station", center: point(-14, 6), size: point(20, 9), color: "#e85e59" },
       { id: "jp-setagaya-line", kind: "railway", center: point(18, -62), size: point(5, 72), color: "#656a70" },
+      // Rail extension (Tokyo expansion Phase 5, §8.6): the streetcar
+      // continues east to a second level crossing on jp-ichiban-dori (see
+      // jp-rail-signal-2 below). `kind: "railway"` renders as a flat double
+      // line whose ONLY consumed dimension is `size.x` (world-X length,
+      // fixed z) — render/babylonGameSession.ts's `landmark.kind ===
+      // "railway"` branch never reads `size.z` or any heading, so every
+      // segment here is a straight east-west band, same as the existing
+      // one above. z=-10 (not the existing marker's z=-62): the existing
+      // marker sits only 2 m off jp-ichiban-x-minami-dori's own junction
+      // node, far too tight for a level crossing's own conflict zone
+      // alongside a signalled road junction; z=-10 sits exactly midway
+      // between jp-ichiban-x-minami-dori (z=-60) and jp-ichiban-x-nakamise
+      // (z=40), 50 m clear of both. The engine cannot render a curve
+      // between the two z-values, so the line takes an unmodelled jog
+      // there — an accepted simplification of a kind the renderer forces on
+      // every "railway" landmark, not a Tokyo-specific shortcut. Two
+      // segments (not one) leave a small gap at x=180 so the decal does not
+      // draw through the crossing's own gate posts, and continue the line
+      // past the crossing rather than ending abruptly at it — Phase 8's
+      // station landmark can extend from here once it exists.
+      { id: "jp-setagaya-line-ext-1", kind: "railway", center: point(102.5, -10), size: point(145, 5), color: "#656a70" },
+      { id: "jp-setagaya-line-ext-2", kind: "railway", center: point(232.5, -10), size: point(95, 5), color: "#656a70" },
       // The quarter's three parks — hoisted to `TOKYO_QUARTER_PARKS` above
       // (Tokyo expansion Phase 4) so the street-wall generator can check a
       // candidate parcel against them (R18 never walls a park frontage)
@@ -2223,6 +2670,25 @@ export const TOKYO_MAP_PACK: MapPack = {
           installation("jp-rail-east-crossing", 12, -77, 90, "railway_crossing", "japan_railway", "primary"),
           installation("jp-rail-west-crossing", 24, -67, 270, "railway_crossing", "japan_railway", "secondary"),
         ]),
+      // Second level crossing (Tokyo expansion Phase 5, §8.6): the rail
+      // extension above crosses jp-ichiban-dori at (180,-10). Cloned in
+      // SHAPE from jp-rail-signal above (control + railway_signal approach +
+      // two japan_railway installations + its own conflict zone), not byte-
+      // for-byte: this road is one-way north (a single lane, not two), and
+      // the crossing runs perpendicular to jp-rail-signal's own (rail E-W
+      // here vs N-S there), so the gate positions are derived from the
+      // lane's own heading/left-hand-kerb geometry rather than copied
+      // numbers. jp-ichiban-dori-2-forward-1 runs dead straight (x=180) from
+      // z=-60 to z=40, so distanceAlongM = z + 60 exactly; two gates (before
+      // and after the crossing, both on the west/left kerb — the only side
+      // this one-way road has traffic on) rather than jp-rail-signal's one-
+      // per-direction pair.
+      control("jp-rail-signal-2", "railway_signal", 180, -10, 90, ["jp-ichiban-dori-2-forward-1"], ["jp-rail-conflict-2"],
+        [approach("jp-rail-2-approach", "jp-ichiban-dori-2-forward-1", 50, "railway", ["jp-rail-conflict-2"])],
+        [
+          installation("jp-rail-2-south-crossing", 175.5, -16, 0, "railway_crossing", "japan_railway", "primary"),
+          installation("jp-rail-2-north-crossing", 175.5, -4, 0, "railway_crossing", "japan_railway", "secondary"),
+        ]),
       control("jp-stop-narrow", "stop", -30, 12, 0, ["jp-narrow-north-1"], undefined,
         [approach("jp-stop-narrow-approach", "jp-narrow-north-1", 82, "stop")],
         [installation("jp-stop-narrow-sign", -36, 10, 0, "roadside_pole", "stop_sign", "primary")]),
@@ -2232,13 +2698,45 @@ export const TOKYO_MAP_PACK: MapPack = {
           approach("jp-station-northbound-crosswalk", "jp-narrow-north-1", 82, "crosswalk", ["jp-station-conflict"]),
         ],
         [installation("jp-station-crosswalk-marking", -30, 18, 90, "road_marking", "crosswalk", "marking")]),
+      // Shotengai ends (Tokyo expansion Phase 5, §9 item 4): Nakamise
+      // Yokochō's own two real ends (jp-ichiban-x-nakamise west,
+      // jp-chuo-x-nakamise east) get a marked crossing of the "real" car
+      // road they meet — the shotengai's MIDDLE crossing (jp-niban-dori, at
+      // jp-niban-x-nakamise) stays a plain stop, not a mouth. Positioned a
+      // couple of metres shy of each junction node (never exactly on it, so
+      // the marking reads as its own crossing rather than junction paint).
+      control("jp-crosswalk-shotengai-west", "crosswalk", 180, 38, 0, ["jp-ichiban-dori-2-forward-1"], ["jp-shotengai-west-conflict"],
+        [approach("jp-shotengai-west-crosswalk", "jp-ichiban-dori-2-forward-1", 98, "crosswalk", ["jp-shotengai-west-conflict"])],
+        [installation("jp-shotengai-west-crosswalk-marking", 180, 38, 0, "road_marking", "crosswalk", "marking")]),
+      control("jp-crosswalk-shotengai-east", "crosswalk", 440, 38, 0, ["jp-chuo-dori-2-forward-1", "jp-chuo-dori-2-forward-2", "jp-chuo-dori-3-reverse-1", "jp-chuo-dori-3-reverse-2"], ["jp-shotengai-east-conflict"],
+        [
+          approach("jp-shotengai-east-crosswalk-s", "jp-chuo-dori-2-forward-1", 98, "crosswalk", ["jp-shotengai-east-conflict"]),
+          approach("jp-shotengai-east-crosswalk-n", "jp-chuo-dori-3-reverse-1", 98, "crosswalk", ["jp-shotengai-east-conflict"]),
+        ],
+        [installation("jp-shotengai-east-crosswalk-marking", 440, 38, 0, "road_marking", "crosswalk", "marking")]),
+      // Temple gate (§9 item 4): jp-temple-green's own nearest road frontage
+      // — jp-junction-road, ~9 m past the block behind the park's west edge
+      // (the other two quarter parks, jp-gotokuji-temple/jp-shoin-shrine,
+      // sit 40+ m from any road; a crossing there would not read as "at the
+      // gate" to any camera, so this phase adds only the one the geometry
+      // actually supports — see the PR for the measured distances).
+      control("jp-crosswalk-temple-green", "crosswalk", 82, 47.5, 90, ["jp-junction-south", "jp-junction-north"], ["jp-temple-gate-conflict"],
+        [
+          approach("jp-temple-gate-crosswalk-s", "jp-junction-south", 29, "crosswalk", ["jp-temple-gate-conflict"]),
+          approach("jp-temple-gate-crosswalk-n", "jp-junction-north", 39, "crosswalk", ["jp-temple-gate-conflict"]),
+        ],
+        [installation("jp-temple-gate-crosswalk-marking", 82, 47.5, 90, "road_marking", "crosswalk", "marking")]),
       ...tokyoGeneratedHalf.generatedControls,
     ],
     [
       { id: "jp-rail-conflict", laneIds: ["jp-south-east-2", "jp-south-west-2"], polygon: [point(12, -80), point(24, -80), point(24, -64), point(12, -64)] },
+      { id: "jp-rail-conflict-2", laneIds: ["jp-ichiban-dori-2-forward-1"], polygon: [point(172, -18), point(188, -18), point(188, -2), point(172, -2)] },
       { id: "jp-station-conflict", laneIds: ["jp-center-west-2", "jp-narrow-north-1"], polygon: [point(-38, 10), point(-22, 10), point(-22, 26), point(-38, 26)] },
       { id: "jp-east-curve-junction-conflict", laneIds: ["jp-curve-north", "jp-curve-south", "jp-center-west-1", "jp-center-east-3"], polygon: [point(104, -26), point(120, -26), point(120, -10), point(104, -10)] },
       { id: "jp-east-neighbourhood-junction-conflict", laneIds: ["jp-center-west-1", "jp-center-east-3", "jp-junction-south", "jp-junction-north"], polygon: [point(46, 10), point(62, 10), point(62, 26), point(46, 26)] },
+      { id: "jp-shotengai-west-conflict", laneIds: ["jp-ichiban-dori-2-forward-1", "jp-ichiban-dori-3-forward-1"], polygon: [point(172, 32), point(188, 32), point(188, 44), point(172, 44)] },
+      { id: "jp-shotengai-east-conflict", laneIds: ["jp-chuo-dori-2-forward-1", "jp-chuo-dori-2-forward-2", "jp-chuo-dori-3-forward-1", "jp-chuo-dori-3-forward-2", "jp-chuo-dori-3-reverse-1", "jp-chuo-dori-3-reverse-2"], polygon: [point(432, 32), point(448, 32), point(448, 44), point(432, 44)] },
+      { id: "jp-temple-gate-conflict", laneIds: ["jp-junction-south", "jp-junction-north"], polygon: [point(74, 40), point(90, 40), point(90, 55), point(74, 55)] },
       ...tokyoGeneratedHalf.generatedZones,
     ],
     [

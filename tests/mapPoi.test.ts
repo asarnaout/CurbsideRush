@@ -81,11 +81,7 @@ describe("what a map marks", () => {
     }
   });
 
-  it("has no cameras to mark in the cities that have no signals", () => {
-    // Tokyo runs on yields, crosswalks and a railway signal — no traffic
-    // lights, so no enforcement. The legend has to survive a family with
-    // nothing in it.
-    expect(countMapPois(poisFor("tokyo-setagaya")).camera).toBe(0);
+  it("derives a third of every signalled city's signals as cameras", () => {
     // London authors two signals, and the ranked draw floors at one.
     // 1 -> 2 (the King's Road and Earls Court signals) -> 3 (both ends of
     // Westminster Bridge and Tower Bridge) -> 4 (Parliament Square's three
@@ -93,6 +89,12 @@ describe("what a map marks", () => {
     // `TRAFFIC_CAMERA_RATE`.
     expect(countMapPois(poisFor("london-south-kensington")).camera).toBe(4);
     expect(countMapPois(poisFor("nyc-upper-west-side")).camera).toBeGreaterThan(10);
+    // Tokyo expansion Phase 5 (R10): 42 authored `type: "signal"` controls,
+    // ranked and cut at a third (`TRAFFIC_CAMERA_RATE`) -> 14. Before Phase 5
+    // Tokyo ran on stops, crosswalks and a railway signal only — no traffic
+    // lights, so no cameras; the legend survived a family with nothing in it,
+    // which is why this test used to assert zero here.
+    expect(countMapPois(poisFor("tokyo-setagaya")).camera).toBe(14);
   });
 
   it("marks the places a job loads at, and leaves homes and offices alone", () => {
