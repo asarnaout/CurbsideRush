@@ -357,14 +357,19 @@ describe("BabylonGameSession smoke test", () => {
         expect(hook in debugWindow, hook).toBe(false);
       }
     },
-    // 30_000 -> 60_000: the real (single-road-scoped) `__sideswapVisualGapReport`
-    // fan-sweep check added for Section 13.4's own hooks. `collectMapVisualGeometry`/
-    // `buildGroundRaster` are cached on the session after their first call
-    // (see `visualGapGeometryCache`), so this second call only pays for the
-    // scoped fan sweep itself — back to the original ~25s baseline in
-    // isolation. The bump over 30_000 is purely for parallel-suite headroom
-    // (a first attempt with no caching measured 91s+ and timed out under
-    // full-suite contention; this margin is deliberate, not arbitrary).
-    60_000,
+    // 30_000 -> 60_000 -> 120_000: the real (single-road-scoped)
+    // `__sideswapVisualGapReport` fan-sweep check added for Section 13.4's
+    // own hooks. `collectMapVisualGeometry`/`buildGroundRaster` are cached on
+    // the session after their first call (see `visualGapGeometryCache`), so
+    // this second call only pays for the scoped fan sweep itself — ~25-27s
+    // in an isolated local run. 60_000 still timed out in real CI (this repo's
+    // full suite runs `trafficSafetyAcceptance.test.ts` — ~540s alone — and
+    // `visualGapCoverageRealMaps.test.ts` — ~150s — as parallel siblings, and
+    // CI runners are measurably more CPU-constrained than a dev machine; see
+    // docs/rendering.md's low-spec-runner note). 120_000 matches
+    // cairoContent.test.ts's own 12.11 gate — this suite's established budget
+    // for a genuinely expensive, necessarily-real integration check — rather
+    // than chasing a tighter bound against unpredictable contention.
+    120_000,
   );
 });
