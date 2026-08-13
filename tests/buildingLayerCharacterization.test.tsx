@@ -310,7 +310,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // london-block-nes-fab-a-north supplements -nes-fab-a north, closing
     // the 12 m gap to the terminus sightline at euston-east (1180,940); 2
     // new slots.
-    buildingInstanceCount: 4_388,
+    // -> 4_393: the Shoreditch/Canonbury north-east oblique-edge P0
+    // (Section 10.5) — london-block-canonbury-ne-fab-north extends the
+    // existing fab block toward the London north edge (~z=1000), west-
+    // facing only so it reads as a backdrop, not a duplicate row in front
+    // of shoreditch-e's close wall; 5 new slots.
+    buildingInstanceCount: 4_393,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

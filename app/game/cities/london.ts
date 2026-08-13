@@ -2539,6 +2539,12 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   { id: "london-block-bpe-fab", center: point(-413, -846), size: point(40, 58), heightRange: [11, 17] as const, density: 0.7, material: LONDON_STOCK_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-bpw-fab", center: point(-974, -880), size: point(56, 50), heightRange: [11, 17] as const, density: 0.7, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
   { id: "london-block-canonbury-ne-fab", center: point(1394, 861), size: point(36, 138), heightRange: [12, 20] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace" },
+  // Extends -ne-fab north toward the London north edge (~z=1000) — plan
+  // Section 10.5 P0: shoreditch-e's own close wall ends, and the oblique
+  // camera at the bend sees past it to the hard map edge. West-facing only
+  // (toward the road/bend), so it reads as a backdrop behind the existing
+  // wall, not a duplicate row in front of it.
+  { id: "london-block-canonbury-ne-fab-north", center: point(1394, 965), size: point(36, 70), streetEdges: ["-x"] as const, heightRange: [12, 20] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace", addressable: false },
 ].filter((block): block is ProceduralBlock => block !== null);
 
 // ---------------------------------------------------------------------------

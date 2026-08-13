@@ -648,6 +648,23 @@ describe("London P0 Euston/Upper Street T-junction closure (plan Section 10.4)",
   });
 });
 
+describe("London P0 Shoreditch/Canonbury north-east oblique-edge closure (plan Section 10.5)", () => {
+  const plan = planMapBuildings(LONDON_MAP_PACK, 2251, relaxationPolicyForMap(LONDON_MAP_PACK.id));
+
+  it("the supplementary block exists exactly once, is not addressable, and plans real buildings", () => {
+    const block = LONDON_MAP_PACK.geometry.blocks.find((b) => b.id === "london-block-canonbury-ne-fab-north");
+    expect(block).toBeDefined();
+    expect(block!.addressable).toBe(false);
+    expect(block!.streetEdges).toEqual(["-x"]);
+    const slots = plan.buildings.filter((b) => b.blockId === "london-block-canonbury-ne-fab-north");
+    expect(slots.length).toBeGreaterThan(0);
+  });
+
+  it("no planned solid overlaps another planned solid", () => {
+    expectNoLocalSolidOverlaps(plan, ["london-block-canonbury-ne-fab-north"]);
+  });
+});
+
 describe("diagnoseKeepOutSurvivorDeltas", () => {
   it("runs read-only against every map without mutating a subsequent plan", () => {
     for (const map of MAPS) {
