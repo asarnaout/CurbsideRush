@@ -181,7 +181,11 @@ export function selectVisibleGroundSurface(
 export const GROUND_RASTER_CELL_SIZE_M = 4;
 export const QUALIFYING_BLOB_AREA_M2 = 300;
 const MIN_FRAGMENT_AREA_M2 = 1e-6;
-const GROUND_CONTACT_EPS_M = 0.02;
+/** How far below the world-ground surface an occluder's own base may sit and
+ * still count as ground-contact. Exported so callers computing their own
+ * `groundContactOccluders` list for `bareKerbRuns` (Section 5.4) filter with
+ * the exact same threshold `buildGroundRaster` uses internally. */
+export const GROUND_CONTACT_EPS_M = 0.02;
 
 export interface RasterFragment {
   readonly id: string;
