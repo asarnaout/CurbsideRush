@@ -3015,6 +3015,99 @@ export const CAIRO_VISUAL_CLOSURES: readonly CairoVisualClosureSpec[] = [
     },
     baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
   },
+  // South land perimeter, Dokki South's own west end (visual-gap plan
+  // Section 12.6, P0). Of the section's four named ranges, three (both
+  // Garden City South spans and South Gezira Road) are systemic-only,
+  // confirmed by a real audit: every failure there sits at the ~70 m
+  // distant-void distance every other systemic gap in this city shows, not
+  // a real local miss — no code needed, same conclusion as Section 12.4's
+  // Tahrir Square. Dokki South's own west end was real: 162
+  // `urban_world_edge` failures (eye z -857..-822, target x=-903 past the
+  // world edge) where `cairo-dokki-south` and `cairo-west-nile-street`
+  // both terminate at their shared junction (-840,-850), and the nearest
+  // real content — the asset-slot `cairo-west-nile-street-roadside-1-1-
+  // left` building-set block — doesn't reach south of roughly z=-842.
+  // Three land-edge-wall pieces close most of it (162->14, verified by a
+  // real re-audit, not the geometry alone): `addRoadClearBlock`'s road/
+  // corridor check treats a road's own endpoint generously (candidate
+  // half-extent plus the road's clearance, in the candidate's own rotated
+  // frame — see `overlapsRoadOrScenicCorridor` above), which pushed every
+  // piece here out to x=-870 rather than the x=-852 a naive read of the
+  // gap would suggest.
+  //
+  // The remaining 14 (all one eye station at the road's own junction,
+  // only ~30 m from this wall, dist 63.8-64.4 m) were investigated and
+  // deliberately accepted rather than chased further: every one crosses
+  // x=-870 inside an existing piece's own ~1-2 m inter-building gap (the
+  // same `facadeGridCells` per-cell jitter every roadside block in this
+  // file has), not a seam or an open span. A same-bucket density bump
+  // (0.82->0.9) changes nothing (`facadeGridCells`'s cell/column count is
+  // a function of `Math.round(3 + density*7)`, constant across that whole
+  // range); density=1 was tried and tried a *worse* tiling (2 buildings
+  // instead of 3 — a higher cell count does not mean a denser result once
+  // `frontageAxis`'s row-collapse dedup is in play). Closing every one of
+  // these would mean hand-placing individual filler buildings pinned to
+  // this seed's own random output, the same fragility the procedural
+  // generator exists to avoid. Same call as the Cornmarket P0 precedent:
+  // real, substantial, honestly-measured progress (494 city-wide, 162 on
+  // this site, down to 14), not a silently accepted zero.
+  {
+    id: "cairo-dokki-sw-land-edge-wall",
+    sourceRoadId: "cairo-dokki-south",
+    side: -1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-dokki-sw-land-edge-wall",
+      center: point(-870, -843),
+      size: point(19, 8),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "sandstone",
+      heightRange: [10, 16],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-dokki-south/junction-sw"],
+  },
+  {
+    id: "cairo-dokki-sw-land-edge-wall-2",
+    sourceRoadId: "cairo-dokki-south",
+    side: -1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-dokki-sw-land-edge-wall-2",
+      center: point(-870, -862.95),
+      size: point(18.5, 8),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "sandstone",
+      heightRange: [10, 16],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-dokki-south/junction-sw"],
+  },
+  {
+    id: "cairo-dokki-sw-land-edge-wall-3",
+    sourceRoadId: "cairo-dokki-south",
+    side: -1,
+    causeCode: "boundary-rejection",
+    treatment: "land-edge-wall",
+    block: {
+      id: "cairo-dokki-sw-land-edge-wall-3",
+      center: point(-870, -827.5),
+      size: point(9, 8),
+      headingDeg: -90,
+      frontageAxis: "z",
+      streetEdges: ["+z"],
+      material: "sandstone",
+      heightRange: [10, 16],
+      density: 0.82,
+    },
+    baselineFailureIds: ["urban_world_edge:cairo-dokki-south/junction-sw"],
+  },
 ];
 
 for (const closure of CAIRO_VISUAL_CLOSURES) {

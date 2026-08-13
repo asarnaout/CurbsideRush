@@ -411,8 +411,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // depth). Every cell draws width+depth (2 calls) before the overlap
     // check; only a surviving cell draws a 3rd (height). Per block: 3
     // survivors * 3 + 6 rejected * 2 = 21 draws; 6 blocks * 21 = 126.
-    drawCount: 4_414,
-    facadeMeshFingerprint: "e2b02700",
+    //
+    // 4_414 -> 4_476 (fingerprint "e2b02700" -> "09026368", +62): the three
+    // `cairo-dokki-sw-land-edge-wall-{1..3}` closures (Section 12.6). Same
+    // mechanism, but not all three land on the usual 3-of-9 survivor split
+    // -- the two 19/18.5 m pieces do (3 survivors * 3 + 6 rejected * 2 = 21
+    // draws each), the short 9 m third piece only keeps 2 of its 9 cells
+    // (2 * 3 + 7 * 2 = 20 draws). 21 + 21 + 20 = 62, measured before this
+    // was written, not assumed from the other blocks' own count.
+    drawCount: 4_476,
+    facadeMeshFingerprint: "09026368",
   },
 };
 
