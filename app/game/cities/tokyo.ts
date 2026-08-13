@@ -4,11 +4,13 @@ import type {
   LaneNode,
   LaneSegment,
   MapPack,
+  ProceduralBlock,
   RoadSurface,
   TrafficControl,
   WorldPoint,
 } from "../types";
 import { CONNECTOR_BLEND_RUN_M, buildLaneTrueGeometry } from "../laneConnectors";
+import { hashStringToSeed, PAVED_SIDEWALK_WIDTH_M } from "../visuals";
 import {
   anchoredSpawn,
   approach,
@@ -1451,6 +1453,626 @@ export const TOKYO_JUNCTION_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = 
 
 const tokyoGeneratedHalf = assembleTokyoGeneratedHalf();
 
+/**
+ * Which carriageway side(s) of Tokyo's riverside collectors face the open
+ * Sakuragawa — mirrors `CAIRO_OPEN_WATERFRONT_SIDES`'s shape exactly (see
+ * `cities/cairo.ts`), consumed by `render/roadsideProps.ts`'s per-map
+ * open-sides lookup AND (Tokyo expansion Phase 4) this file's own
+ * street-wall generator below, which skips authoring a roadside parcel on
+ * whichever side is listed here — the single source of truth for "never
+ * wall the river side," not a second hand-maintained table. Both roads run
+ * their whole authored centreline northward (ascending z), so the sign is
+ * derived once from `generatePromenadeDecor`'s own right-hand `side`
+ * convention (outward = `(alongZ*side, -alongX*side)`), not eyeballed:
+ * jp-kawate-dori sits west of the river, so its river side is +X (side 1);
+ * jp-kawagishi-dori sits east of the river, so its river side is -X
+ * (side -1). Decor content itself (which trees/lamps/benches place) stays
+ * Cairo-only for now — the plan defers that tuning to Phase 9; Phase 4 gives
+ * both roads a real land-side street wall for the first time (before this
+ * phase every road here shipped no block at all, on either side).
+ *
+ * Moved here (was declared just above `TOKYO_FREE_DRIVE`, at the very
+ * bottom of this file, in Phase 3) because the street-wall generator below
+ * reads it at module-eval time while building `tokyoGeneratedBlocks`, and
+ * `TOKYO_MAP_PACK` — which consumes that constant — is declared further
+ * down the file than the old position. A `const` cannot be read before its
+ * own declaration executes (TDZ); export bindings are not order-sensitive
+ * across files, only within this one, so moving it earlier changes nothing
+ * for `tokyoWaterfront.test.ts`/`render/roadsideProps.ts`'s own imports.
+ */
+export const TOKYO_OPEN_WATERFRONT_SIDES: Readonly<Partial<Record<string, readonly (-1 | 1)[]>>> = {
+  "jp-kawate-dori": [1],
+  "jp-kawagishi-dori": [-1],
+};
+
+/** The Sakuragawa (Phase 3, R3) — hoisted so the street-wall generator below
+ * can check a candidate parcel against it (§4.5/R18 never wall a waterfront)
+ * without duplicating the polygon. Referenced by `TOKYO_MAP_PACK.geometry.
+ * waterBodies` below instead of repeating the literal there. */
+const TOKYO_WATER_BODIES = [
+  {
+    id: "jp-sakuragawa",
+    color: "#1d2a3d",
+    flowHeadingDeg: 180,
+    bridgePortalSurfaceIds: ["jp-sakura-ohashi", "jp-kawanaka-bashi", "jp-tsuki-ohashi"],
+    polygon: [
+      point(612, -1200), point(605, -980), point(618, -760), point(608, -540),
+      point(596, -330), point(610, -120), point(622, 80), point(608, 290),
+      point(596, 510), point(612, 730), point(626, 960), point(618, 1200),
+      point(738, 1200), point(729, 990), point(716, 770), point(702, 540),
+      point(716, 310), point(730, 90), point(742, -140), point(725, -360),
+      point(712, -580), point(726, -800), point(738, -1010), point(731, -1200),
+    ],
+  },
+] as const;
+
+/** The pre-expansion quarter's three parks — hoisted for the same reason as
+ * `TOKYO_WATER_BODIES` above (R18 never walls a park frontage). Phase 6 adds
+ * more parks later; this generator only needs to know about the ones that
+ * exist NOW, since it only ever runs once, at this module's own load time —
+ * a future phase adding a park before a street-wall regeneration would need
+ * to add it here too, the same way it would need to re-run any other
+ * generator that pre-dates it. Referenced by `TOKYO_MAP_PACK.geometry.
+ * landmarks` below instead of repeating the three literals there. */
+const TOKYO_QUARTER_PARKS = [
+  // The former temple garden covered the live junction. Keep it visible to
+  // the east of the street instead of placing it over the asphalt.
+  { id: "jp-temple-green", kind: "park", center: point(106, 48), size: point(24, 28), color: "#527b4d" },
+  // Gotokuji temple grounds (the maneki-neko cat temple) fill the northern
+  // block; the Shoin shrine sits in the southern district.
+  { id: "jp-gotokuji-temple", kind: "park", center: point(30, 124), size: point(62, 58), color: "#5b8a52" },
+  { id: "jp-shoin-shrine", kind: "park", center: point(-148, -118), size: point(48, 44), color: "#4f7b48" },
+] as const;
+
+/**
+ * True when a candidate parcel genuinely overlaps a park or has any corner
+ * inside the river polygon — the same separating-axis and point-in-polygon
+ * tests `tests/content.test.ts`'s "keeps every authored block out of every
+ * park and out of the water" gate independently re-derives, reproduced here
+ * so the generator can honour R18's own exemption ("never wall off... a
+ * park frontage") as a filter instead of shipping a violation for a human to
+ * notice later. A couple of downtown-adjacent streets (Shotengai Nishi-dori,
+ * in particular, which runs along the quarter's own x=150 line) pass close
+ * enough to `jp-temple-green` that a segment's raw candidate parcel lands
+ * partly on top of it — dropping that one (segment, side) is the CORRECT
+ * outcome per R18, not a bug to route around: the park itself is the
+ * content behind that stretch of kerb, which is exactly what the bare-kerb
+ * gate's own "backed by open ground" exemption expects to find there.
+ */
+function tokyoBlockOverlapsParkOrWater(
+  block: ProceduralBlock,
+  parks: readonly { readonly center: WorldPoint; readonly size: WorldPoint; readonly headingDeg?: number }[],
+  waterBodies: readonly { readonly polygon: readonly WorldPoint[] }[],
+): boolean {
+  const yawRad = ((block.headingDeg ?? 0) * Math.PI) / 180;
+  const box = {
+    x: block.center.x,
+    z: block.center.z,
+    ux: Math.cos(yawRad),
+    uz: -Math.sin(yawRad),
+    halfU: block.size.x / 2,
+    halfV: block.size.z / 2,
+  };
+  const extentOn = (b: typeof box, axis: { readonly x: number; readonly z: number }): number =>
+    Math.abs(b.ux * axis.x + b.uz * axis.z) * b.halfU + Math.abs(-b.uz * axis.x + b.ux * axis.z) * b.halfV;
+  for (const park of parks) {
+    const parkYawRad = ((park.headingDeg ?? 0) * Math.PI) / 180;
+    // Same park-local-axis convention as content.test.ts's own check: a
+    // park's local +x (its `size.x`/width) runs along world (sin, cos).
+    const parkBox = {
+      x: park.center.x,
+      z: park.center.z,
+      ux: Math.sin(parkYawRad),
+      uz: Math.cos(parkYawRad),
+      halfU: park.size.z / 2,
+      halfV: park.size.x / 2,
+    };
+    const axes = [
+      { x: box.ux, z: box.uz },
+      { x: -box.uz, z: box.ux },
+      { x: parkBox.ux, z: parkBox.uz },
+      { x: -parkBox.uz, z: parkBox.ux },
+    ];
+    const overlapM = Math.min(
+      ...axes.map((axis) => {
+        const centreGapM = Math.abs((parkBox.x - box.x) * axis.x + (parkBox.z - box.z) * axis.z);
+        return extentOn(box, axis) + extentOn(parkBox, axis) - centreGapM;
+      }),
+    );
+    if (overlapM > 0) return true;
+  }
+  const corners = [
+    { u: box.halfU, v: box.halfV },
+    { u: -box.halfU, v: box.halfV },
+    { u: -box.halfU, v: -box.halfV },
+    { u: box.halfU, v: -box.halfV },
+  ].map(({ u, v }) => ({ x: box.x + box.ux * u + box.uz * v, z: box.z + box.uz * u - box.ux * v }));
+  for (const water of waterBodies) {
+    const inside = corners.some((corner) => {
+      let contained = false;
+      const poly = water.polygon;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        if (
+          poly[i].z > corner.z !== poly[j].z > corner.z &&
+          corner.x < ((poly[j].x - poly[i].x) * (corner.z - poly[i].z)) / (poly[j].z - poly[i].z) + poly[i].x
+        ) {
+          contained = !contained;
+        }
+      }
+      return contained;
+    });
+    if (inside) return true;
+  }
+  return false;
+}
+
+// =============================================================================
+// Street wall (Tokyo expansion Phase 4, R18): a roadside parcel behind both
+// kerbs of every generated road, so no generated street reads as bare
+// asphalt with grey nothing behind it. Tokyo stays a fully procedural-facade
+// city (`buildingSets: []` in `visuals.ts`'s `MAP_VISUAL_PROFILES` — London
+// already proved the procedural wall reads right, and no Japanese
+// street-wall glb kit exists in this repo), so every parcel below is plain
+// `{material, heightRange, density}` with no `buildingSet`/`streetEdges` —
+// simpler than London's own call sites in that one respect.
+//
+// `tokyoRoadsideParcel` is this file's own copy of London's file-private
+// `roadsideParcel` (`cities/london.ts`, search that name) — cloned rather
+// than imported (it is not exported there, and Tokyo's own foreign-road
+// universe differs), with the `buildingSetFor` branch dropped entirely since
+// it is always a no-op here. Algorithm, verbatim from London: `side` is the
+// sign of the road's RIGHT-HAND normal travelling `from`->`to` (+1 =
+// driver's right), NOT a compass reading — get this backwards and parcels
+// ship on the wrong kerb, the same class of bug as venues shipping on the
+// wrong side (`docs/map-authoring.md`). Length is DERIVED, not authored: a
+// parcel starts as long as its road segment (minus a 12 m inset each end)
+// and the end nearer each violation retreats a metre at a time — never
+// symmetric — until clear of every OTHER road's carriageway+pavement+0.7 m
+// clearance, tested by real segment-to-span distance (corner-only checks
+// miss a parcel whose long side straddles a crossing road with both corners
+// clear). A parcel that cannot keep `TOKYO_MIN_PARCEL_HALF_LENGTH_M` (13, so
+// a 26 m floor after the two 12 m end insets — an authored span under ~50 m
+// ships NOTHING) is dropped rather than shipped as a slab in the road.
+// =============================================================================
+
+/**
+ * Clearance between a carriageway centreline and the near edge of the parcel
+ * beside it — identical formula and identical justification to London's own
+ * `blockInsetFor` (`cities/london.ts`): half the road width clears the
+ * carriageway itself, `+4.8` clears the whole walkable pavement band below
+ * (`buildPavementGraph`'s rail at half-width+1.7, `staticColliders.test.ts`'s
+ * sample at half-width+3.0 plus 0.3 m more) while staying inside
+ * `generateStreetAddresses`'s 22 m frontage-probe reach above. Not
+ * Tokyo-specific data — a geometry constant tuned against the shared
+ * pavement-graph/address-probe formulas every city reads — and safe to
+ * reuse unchanged: every Tokyo road's authored `sidewalkWidthM` (Phase 1,
+ * §4.3) is narrower than or equal to London's own widest (the shared
+ * `PAVED_SIDEWALK_WIDTH_M` default, 3.4 m), which is what "sits comfortably
+ * inside both, on every width London authors" was already tuned against.
+ */
+const tokyoBlockInsetFor = (roadWidthM: number): number => roadWidthM / 2 + 4.8;
+
+/** Distance a parcel corner must keep from any road it does not belong to —
+ * same value and rationale as London's `PARCEL_FOREIGN_ROAD_CLEARANCE_M`. */
+const TOKYO_PARCEL_FOREIGN_ROAD_CLEARANCE_M = 0.7;
+/** Never trim a parcel to less than this, or drop it entirely — same value
+ * as London's `MIN_PARCEL_HALF_LENGTH_M`. */
+const TOKYO_MIN_PARCEL_HALF_LENGTH_M = 13;
+
+const tokyoRoadsideParcel = (
+  id: string,
+  roadId: string,
+  from: WorldPoint,
+  to: WorldPoint,
+  side: 1 | -1,
+  roadWidthM: number,
+  depthM: number,
+  material: string,
+  heightRange: readonly [number, number],
+  density: number,
+  /** Every road surface on the map (quarter + generated; this road included
+   * — filtered out below) — the foreign-road universe the trimmer clears
+   * against. Passed explicitly (not closed over a module-level constant the
+   * way London's own copy does) because it is only fully assembled once
+   * `tokyoGeneratedHalf` exists. */
+  allSurfaces: readonly RoadSurface[],
+  extraInsetM = 0,
+  addressable = true,
+): ProceduralBlock | null => {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const length = Math.hypot(dx, dz);
+  const ux = dx / length;
+  const uz = dz / length;
+  const rightX = uz;
+  const rightZ = -ux;
+  const offset = tokyoBlockInsetFor(roadWidthM) + extraInsetM + depthM / 2;
+  const centerX = (from.x + to.x) / 2 + rightX * side * offset;
+  const centerZ = (from.z + to.z) / 2 + rightZ * side * offset;
+  const foreign = allSurfaces
+    .filter((surface) => surface.id !== roadId)
+    .map((surface) => ({
+      centerline: surface.centerline,
+      reach:
+        surface.widthM / 2 +
+        (surface.sidewalkWidthM ?? PAVED_SIDEWALK_WIDTH_M) +
+        TOKYO_PARCEL_FOREIGN_ROAD_CLEARANCE_M,
+    }));
+  /**
+   * Distance from a road segment to the parcel span [lo, hi] x +/-depth/2,
+   * all in the parcel's own frame (u along the road from the segment
+   * midpoint), plus the u of the contact so the caller knows WHICH end to
+   * trim — identical to London's own `segmentToSpan`.
+   */
+  const segmentToSpan = (
+    a: WorldPoint,
+    b: WorldPoint,
+    lo: number,
+    hi: number,
+  ): { readonly d: number; readonly u: number } => {
+    const local = (p: WorldPoint) => ({
+      u: (p.x - centerX) * ux + (p.z - centerZ) * uz,
+      v: (p.x - centerX) * rightX + (p.z - centerZ) * rightZ,
+    });
+    const halfDepth = depthM / 2;
+    const clampU = (u: number) => Math.max(lo, Math.min(hi, u));
+    const first = local(a);
+    const second = local(b);
+    const inside = (p: { u: number; v: number }) =>
+      p.u >= lo && p.u <= hi && Math.abs(p.v) <= halfDepth;
+    if (inside(first)) return { d: 0, u: first.u };
+    if (inside(second)) return { d: 0, u: second.u };
+    const du = second.u - first.u;
+    const dv = second.v - first.v;
+    const overlapsU =
+      Math.min(first.u, second.u) <= hi && Math.max(first.u, second.u) >= lo;
+    const overlapsV =
+      Math.min(first.v, second.v) <= halfDepth &&
+      Math.max(first.v, second.v) >= -halfDepth;
+    if (overlapsU && overlapsV) {
+      // Separating-axis test on the segment's own normal.
+      const mid = (lo + hi) / 2;
+      const halfLength = (hi - lo) / 2;
+      const normalLength = Math.hypot(du, dv);
+      if (normalLength > 1e-9) {
+        const nu = dv / normalLength;
+        const nv = -du / normalLength;
+        const offsetAlongNormal = (first.u - mid) * nu + first.v * nv;
+        const spread = Math.abs(nu) * halfLength + Math.abs(nv) * halfDepth;
+        if (Math.abs(offsetAlongNormal) <= spread) {
+          return { d: 0, u: clampU((first.u + second.u) / 2) };
+        }
+      }
+    }
+    const pointToSpan = (p: { u: number; v: number }) => ({
+      d: Math.hypot(
+        Math.max(0, Math.max(lo - p.u, p.u - hi)),
+        Math.max(0, Math.abs(p.v) - halfDepth),
+      ),
+      u: clampU(p.u),
+    });
+    const cornerToSegment = (cu: number, cv: number) => {
+      const lengthSquared = du * du + dv * dv;
+      const t =
+        lengthSquared > 1e-9
+          ? Math.max(
+              0,
+              Math.min(1, ((cu - first.u) * du + (cv - first.v) * dv) / lengthSquared),
+            )
+          : 0;
+      return {
+        d: Math.hypot(cu - (first.u + du * t), cv - (first.v + dv * t)),
+        u: cu,
+      };
+    };
+    const candidates = [
+      pointToSpan(first),
+      pointToSpan(second),
+      cornerToSegment(hi, halfDepth),
+      cornerToSegment(hi, -halfDepth),
+      cornerToSegment(lo, halfDepth),
+      cornerToSegment(lo, -halfDepth),
+    ];
+    let best = candidates[0];
+    for (const candidate of candidates) {
+      if (candidate.d < best.d) best = candidate;
+    }
+    return best;
+  };
+  /** Nearest violating contact across every foreign road, or null if clear. */
+  const worstViolation = (
+    lo: number,
+    hi: number,
+  ): { readonly u: number } | null => {
+    let worst: { margin: number; u: number } | null = null;
+    for (const road of foreign) {
+      for (let index = 1; index < road.centerline.length; index += 1) {
+        const { d, u } = segmentToSpan(
+          road.centerline[index - 1],
+          road.centerline[index],
+          lo,
+          hi,
+        );
+        const margin = d - road.reach;
+        if (margin < 0 && (!worst || margin < worst.margin)) {
+          worst = { margin, u };
+        }
+      }
+    }
+    return worst;
+  };
+  let lo = -(length / 2 - 12);
+  let hi = length / 2 - 12;
+  let guard = 0;
+  while (hi - lo >= TOKYO_MIN_PARCEL_HALF_LENGTH_M * 2 && guard++ < 2048) {
+    const violation = worstViolation(lo, hi);
+    if (!violation) {
+      const mid = (lo + hi) / 2;
+      return {
+        id,
+        center: point(centerX + ux * mid, centerZ + uz * mid),
+        size: point(hi - lo, depthM),
+        headingDeg: (Math.atan2(-uz, ux) * 180) / Math.PI,
+        frontageAxis: "z",
+        heightRange,
+        density,
+        material,
+        ...(addressable ? {} : { addressable }),
+      };
+    }
+    // Retreat only the end the violation is nearer to — the whole point.
+    if (violation.u >= (lo + hi) / 2) {
+      hi -= 1;
+    } else {
+      lo += 1;
+    }
+  }
+  return null;
+};
+
+/**
+ * Which authored district style a generated road's parcels draw from (§8.8
+ * of the plan) — the compact district table this file actually built, not
+ * the plan's own pre-implementation approximation. Lifted straight off the
+ * road tables already authored above (`TOKYO_MIYANOSAKA_SPECS` et al.) plus
+ * a handful of explicit id lists for the skeleton/east-bank roads that mix
+ * flavours within one array. A road missing from every list here throws at
+ * block-build time (`tokyoStyleForRoad`) rather than silently shipping no
+ * street wall — the plan's own risk-register item 4 ("an authored span
+ * under ~50 m ships nothing silently") is an acceptable risk for one
+ * skipped SEGMENT; it must never be a silent risk for an entire road
+ * omitted from this table by mistake.
+ */
+export type TokyoBlockZone =
+  | "miyanosaka"
+  | "yamashita"
+  | "nishi"
+  | "higashi"
+  | "ring"
+  | "riverside"
+  | "downtown";
+
+interface TokyoZoneStyle {
+  /** Two facade materials this zone alternates between (deterministically,
+   * by segment/side id — see `buildTokyoGeneratedBlocks`), so a long run of
+   * parcels does not read as one repeated texture. Both keys must be real
+   * entries in `ProceduralFacades`' `BUILDING_PALETTE`
+   * (`render/proceduralFacades.ts`) — `plaster`/`tile`/`wood-plaster`/
+   * `concrete` all already are; there is no `"glass"` key in that palette
+   * (checked directly — only the London-specific `london-glass-curtain`
+   * exists), so downtown towers use `tile`, which already reads as a cool
+   * modern cladding at night under this map's cool-blue bloom (§8.1)
+   * without adding a new shared material this phase does not need. */
+  readonly materials: readonly [string, string];
+  readonly heightRange: readonly [number, number];
+  readonly density: number;
+  /** Base parcel depth in metres; `tokyoDepthJitterM` adds a small per-parcel
+   * +/-2 m so a long straight run does not read as one identical slab. */
+  readonly depthM: number;
+}
+
+const TOKYO_ZONE_STYLE: Readonly<Record<TokyoBlockZone, TokyoZoneStyle>> = {
+  // Low-rise residential webs (§8.8): "GAPPY IS FORBIDDEN at the kerb" —
+  // wood-plaster/plaster, short, dense enough to read as a real
+  // neighbourhood at 30 km/h.
+  miyanosaka: { materials: ["wood-plaster", "plaster"], heightRange: [5, 14], density: 0.7, depthM: 30 },
+  yamashita: { materials: ["wood-plaster", "plaster"], heightRange: [5, 13], density: 0.68, depthM: 30 },
+  nishi: { materials: ["plaster", "wood-plaster"], heightRange: [5, 13], density: 0.66, depthM: 28 },
+  // East bank: mixed mid-rise per §8.8.
+  higashi: { materials: ["plaster", "concrete"], heightRange: [8, 22], density: 0.75, depthM: 32 },
+  // The three N-S ring roads, the two E-W closers, and the Setagaya-dori/
+  // Koshu-kaido/Minami-kaido arterials: wider carriageways threading through
+  // (and between) the residential webs — a notch taller/denser than a pure
+  // residential local, still low-rise.
+  ring: { materials: ["plaster", "tile"], heightRange: [6, 16], density: 0.74, depthM: 34 },
+  // Land side only — the river side is skipped entirely via
+  // TOKYO_OPEN_WATERFRONT_SIDES. A mid-rise band reading as
+  // riverside-adjacent, one notch shorter than the downtown core proper.
+  riverside: { materials: ["tile", "plaster"], heightRange: [9, 21], density: 0.77, depthM: 34 },
+  // Sakuragawa Downtown: the neon core, tall blocks (§8.8). jp-chuo-dori
+  // itself overrides taller still (TOKYO_ROAD_STYLE_OVERRIDE below) — the
+  // other downtown streets carry this base.
+  downtown: { materials: ["tile", "plaster"], heightRange: [11, 27], density: 0.8, depthM: 36 },
+};
+
+/** Per-road deviations from its zone's base style — a handful of specific
+ * streets that read better with their own numbers than their zone's shared
+ * default (mirrors London's per-call-site hand-tuning, at the scale of one
+ * override per interesting road instead of one per parcel). */
+const TOKYO_ROAD_STYLE_OVERRIDE: Readonly<Partial<Record<string, Partial<TokyoZoneStyle>>>> = {
+  // The 4-lane core: the tallest, densest street on the map, up to the
+  // plan's own suggested [18,42] near the scramble.
+  "jp-chuo-dori": { heightRange: [18, 42], density: 0.85, depthM: 40 },
+  // The shotengai: a shared-space alley wants low, tight, densely-packed
+  // shophouses, not office-block height — a deliberately different read
+  // from its downtown neighbours despite sharing the zone.
+  "jp-nakamise-yokocho": { materials: ["wood-plaster", "tile"], heightRange: [5, 11], density: 0.85, depthM: 18 },
+  // Quarter<->downtown connectors: transitional height between the old
+  // neighbourhood's low-rise and the downtown core proper.
+  "jp-renraku-dori": { heightRange: [7, 16], density: 0.72, depthM: 26 },
+  "jp-shotengai-nishi-dori": { heightRange: [6, 15], density: 0.72, depthM: 28 },
+  "jp-uptown-higashi": { heightRange: [6, 14], density: 0.7, depthM: 26 },
+  "jp-chuo-dori-south": { heightRange: [9, 19], density: 0.75, depthM: 30 },
+  "jp-eki-mae-dori": { heightRange: [10, 22], density: 0.78, depthM: 32 },
+};
+
+const TOKYO_RING_ROAD_IDS: readonly string[] = [
+  "jp-nishi-kanjo-dori",
+  "jp-kanpachi-dori",
+  "jp-sangen-dori",
+  "jp-yamashita-minami-dori",
+  "jp-miyanosaka-kita-dori",
+  "jp-setagaya-dori-west",
+  "jp-setagaya-dori-east",
+  "jp-koshu-kaido",
+  "jp-minami-kaido",
+  "jp-chuo-dori-north",
+];
+const TOKYO_DOWNTOWN_ROAD_IDS: readonly string[] = [
+  "jp-chuo-dori",
+  "jp-chuo-dori-south",
+  "jp-eki-mae-dori",
+  "jp-ichiban-dori",
+  "jp-niban-dori",
+  "jp-minami-dori",
+  "jp-kita-dori",
+  "jp-nakamise-yokocho",
+  "jp-renraku-dori",
+  "jp-shotengai-nishi-dori",
+  "jp-uptown-higashi",
+];
+const TOKYO_RIVERSIDE_ROAD_IDS: readonly string[] = ["jp-kawate-dori", "jp-kawagishi-dori"];
+const TOKYO_HIGASHI_WEB_ROAD_IDS: readonly string[] = [
+  "jp-higashi-dori",
+  "jp-koshu-kaido-higashi",
+  "jp-higashi-hondori",
+  "jp-higashi-soto-dori",
+  "jp-higashi-minami-dori",
+  "jp-higashi-kita-dori",
+  "jp-tofu-yokocho",
+  "jp-fuji-dori",
+  "jp-keyaki-dori",
+];
+
+const TOKYO_ZONE_ENTRIES: readonly (readonly [string, TokyoBlockZone])[] = [
+  ...TOKYO_MIYANOSAKA_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "miyanosaka"]),
+  ...TOKYO_YAMASHITA_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "yamashita"]),
+  ...TOKYO_NISHI_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "nishi"]),
+  ...TOKYO_HIGASHI_WEB_ROAD_IDS.map((id): readonly [string, TokyoBlockZone] => [id, "higashi"]),
+  ...TOKYO_RIVERSIDE_ROAD_IDS.map((id): readonly [string, TokyoBlockZone] => [id, "riverside"]),
+  ...TOKYO_DOWNTOWN_ROAD_IDS.map((id): readonly [string, TokyoBlockZone] => [id, "downtown"]),
+  ...TOKYO_RING_ROAD_IDS.map((id): readonly [string, TokyoBlockZone] => [id, "ring"]),
+];
+/** Exported for `tests/tokyoContent.test.ts`'s per-district walled-kerb-floor
+ * check — the single source of truth for "which district is this road in,"
+ * so that test's districting can never quietly drift from what this file
+ * actually built (the trap a hand-duplicated second table would risk). */
+export const TOKYO_ZONE_FOR_ROAD: Readonly<Record<string, TokyoBlockZone>> = Object.fromEntries(TOKYO_ZONE_ENTRIES);
+
+const tokyoStyleForRoad = (roadId: string): TokyoZoneStyle => {
+  const zone = TOKYO_ZONE_FOR_ROAD[roadId];
+  if (!zone) {
+    throw new Error(
+      `tokyoStyleForRoad: "${roadId}" is not a bridge and has no zone in TOKYO_ZONE_FOR_ROAD — ` +
+        "every generated road must resolve to a zone or be listed in TOKYO_BRIDGE_ROAD_IDS explicitly, " +
+        "or it silently ships no street wall.",
+    );
+  }
+  return { ...TOKYO_ZONE_STYLE[zone], ...TOKYO_ROAD_STYLE_OVERRIDE[roadId] };
+};
+
+/** Bridges get no roadside parcels at all: a bridge span's own long axis
+ * crosses the water, so offsetting a parcel laterally from its centreline
+ * still lands the parcel in (or over) the Sakuragawa — the same "the
+ * trimmer measures roads, not water" trap `docs/map-authoring.md` documents
+ * for a parcel running ALONGSIDE a river, except here it is the road's own
+ * long axis doing the crossing. The streets meeting each bridgehead
+ * (downtown's own roads on the west bank, Higashi-dori/Koshu-kaido-higashi
+ * on the east) already carry the bridgehead's frontage right up to their
+ * own 12 m end inset — bridges are dressed separately anyway (parapets,
+ * lamps, the Kawanaka-bashi arch — `render/tokyoLandmarks.ts`), never by a
+ * street-wall block. */
+const TOKYO_BRIDGE_ROAD_IDS: ReadonlySet<string> = new Set(TOKYO_RIVER_SPECS.map((spec) => spec.id));
+
+/** Small deterministic +/-2 m depth jitter (never touches length, height or
+ * density) so a long straight run of parcels along one road does not read as
+ * one identical repeated slab depth. Pure function of the parcel's own seed
+ * key — `hashStringToSeed`, not `Math.random` (content-side determinism,
+ * `docs/simulation-core.md`). */
+const tokyoDepthJitterM = (seedKey: string): number => (hashStringToSeed(`${seedKey}:depth`) % 5) - 2;
+
+/**
+ * The whole generated-half street wall: one `tokyoRoadsideParcel` call per
+ * (road segment, side) of every non-bridge generated road, skipping
+ * whichever side `TOKYO_OPEN_WATERFRONT_SIDES` marks as open river
+ * frontage. Iterating per actual centreline segment (never a merged
+ * multi-segment span) matters: `tokyoRoadsideParcel` can only trim a
+ * candidate span in from its TWO ends, never carve a notch out of the
+ * middle, so a long merged span crossing several unrelated roads partway
+ * along would retreat one whole end back to the nearest MID-span crossing
+ * instead of stopping just short of it. London's own ~150 hand-authored
+ * calls already follow this same per-segment discipline (its multi-segment
+ * streets — King's Road, Battersea Road — are each several separate
+ * `roadsideParcel` calls, one per node-to-node segment); this generator
+ * reproduces that discipline programmatically instead of by hand, which is
+ * what makes a 79-road network tractable at all (Kanpachi-dori alone has 24
+ * segments, each a T-junction the alternating-pair-rung pattern
+ * deliberately keeps square, so this loop is the only realistic way to
+ * author its street wall without ~50 hand-written lines for one road).
+ */
+function buildTokyoGeneratedBlocks(
+  generatedSurfaces: readonly RoadSurface[],
+  allSurfaces: readonly RoadSurface[],
+  parks: readonly { readonly center: WorldPoint; readonly size: WorldPoint; readonly headingDeg?: number }[],
+  waterBodies: readonly { readonly polygon: readonly WorldPoint[] }[],
+): readonly ProceduralBlock[] {
+  const blocks: ProceduralBlock[] = [];
+  for (const surface of generatedSurfaces) {
+    if (TOKYO_BRIDGE_ROAD_IDS.has(surface.id)) continue;
+    const style = tokyoStyleForRoad(surface.id);
+    const openSides = TOKYO_OPEN_WATERFRONT_SIDES[surface.id] ?? [];
+    for (let segmentIndex = 0; segmentIndex + 1 < surface.centerline.length; segmentIndex += 1) {
+      const from = surface.centerline[segmentIndex];
+      const to = surface.centerline[segmentIndex + 1];
+      for (const side of [1, -1] as const) {
+        if (openSides.includes(side)) continue;
+        const seedKey = `${surface.id}:${segmentIndex}:${side}`;
+        const material = hashStringToSeed(seedKey) % 2 === 0 ? style.materials[0] : style.materials[1];
+        const block = tokyoRoadsideParcel(
+          `jp-blk-${surface.id}-${segmentIndex}-${side === 1 ? "p" : "n"}`,
+          surface.id,
+          from,
+          to,
+          side,
+          surface.widthM,
+          style.depthM + tokyoDepthJitterM(seedKey),
+          material,
+          style.heightRange,
+          style.density,
+          allSurfaces,
+        );
+        // R18's own exemption: never wall off a park frontage or the river
+        // (`tokyoBlockOverlapsParkOrWater`, doc comment above) — a dropped
+        // candidate here is the park/water itself standing in for the
+        // street wall, not a silently lost block.
+        if (block && !tokyoBlockOverlapsParkOrWater(block, parks, waterBodies)) blocks.push(block);
+      }
+    }
+  }
+  return blocks;
+}
+
+/** Every generated-half block, built once at module scope — spliced into
+ * `TOKYO_MAP_PACK.geometry.blocks` below, after the 9 hand-authored quarter
+ * blocks (which this generator does not touch: the quarter already has its
+ * own hand-carved fabric from before this expansion began). */
+const tokyoGeneratedBlocks = buildTokyoGeneratedBlocks(
+  tokyoGeneratedHalf.generatedSurfaces,
+  [...jpQuarterSurfaces, ...tokyoGeneratedHalf.generatedSurfaces],
+  TOKYO_QUARTER_PARKS,
+  TOKYO_WATER_BODIES,
+);
+
 // The names the quarter's lanes were authored under — every road here was
 // already described in the comments above, this promotes them to data. Only
 // Setagaya-dori is a real street; the rest are this neighbourhood's own.
@@ -1515,22 +2137,10 @@ export const TOKYO_MAP_PACK: MapPack = {
     // (Phase 6, inside its own park) has none. `bridgePortalSurfaceIds` is
     // what opens the shoreline for exactly the three bridges below and
     // derives their parapet spans; every other metre of shore stays solid.
-    waterBodies: [
-      {
-        id: "jp-sakuragawa",
-        color: "#1d2a3d",
-        flowHeadingDeg: 180,
-        bridgePortalSurfaceIds: ["jp-sakura-ohashi", "jp-kawanaka-bashi", "jp-tsuki-ohashi"],
-        polygon: [
-          point(612, -1200), point(605, -980), point(618, -760), point(608, -540),
-          point(596, -330), point(610, -120), point(622, 80), point(608, 290),
-          point(596, 510), point(612, 730), point(626, 960), point(618, 1200),
-          point(738, 1200), point(729, 990), point(716, 770), point(702, 540),
-          point(716, 310), point(730, 90), point(742, -140), point(725, -360),
-          point(712, -580), point(726, -800), point(738, -1010), point(731, -1200),
-        ],
-      },
-    ],
+    // Hoisted to `TOKYO_WATER_BODIES` above (Tokyo expansion Phase 4): the
+    // street-wall generator reads the same array, so there is exactly one
+    // copy of this polygon on the map.
+    waterBodies: TOKYO_WATER_BODIES,
     blocks: [
       { id: "jp-block-west", center: point(-70, 46), size: point(64, 40), heightRange: [5, 14], density: 0.72, material: "plaster" },
       { id: "jp-block-center", center: point(10, 46), size: point(64, 40), heightRange: [6, 18], density: 0.78, material: "tile" },
@@ -1544,6 +2154,12 @@ export const TOKYO_MAP_PACK: MapPack = {
       { id: "jp-block-west-upper", center: point(-186, 47), size: point(136, 44), heightRange: [6, 16], density: 0.72, material: "tile" },
       { id: "jp-block-south-west", center: point(-215, -120), size: point(70, 74), heightRange: [5, 12], density: 0.66, material: "wood-plaster" },
       { id: "jp-block-south-east", center: point(21, -120), size: point(92, 74), heightRange: [6, 14], density: 0.72, material: "plaster" },
+      // Generated-half street wall (Tokyo expansion Phase 4, R18): the
+      // whole residential-web/ring/downtown/riverside/east-bank fabric,
+      // built by `buildTokyoGeneratedBlocks` above. The 9 rows above this
+      // comment are the pre-expansion quarter's own hand-carved blocks and
+      // stay exactly as authored.
+      ...tokyoGeneratedBlocks,
     ],
     servicePoints: [
       // The narrow south road still needs a wide set-back because the lot is
@@ -1575,13 +2191,11 @@ export const TOKYO_MAP_PACK: MapPack = {
     landmarks: [
       { id: "jp-gotokuji-station", kind: "station", center: point(-14, 6), size: point(20, 9), color: "#e85e59" },
       { id: "jp-setagaya-line", kind: "railway", center: point(18, -62), size: point(5, 72), color: "#656a70" },
-      // The former temple garden covered the live junction. Keep it visible
-      // to the east of the street instead of placing it over the asphalt.
-      { id: "jp-temple-green", kind: "park", center: point(106, 48), size: point(24, 28), color: "#527b4d" },
-      // Gotokuji temple grounds (the maneki-neko cat temple) fill the
-      // northern block; the Shoin shrine sits in the southern district.
-      { id: "jp-gotokuji-temple", kind: "park", center: point(30, 124), size: point(62, 58), color: "#5b8a52" },
-      { id: "jp-shoin-shrine", kind: "park", center: point(-148, -118), size: point(48, 44), color: "#4f7b48" },
+      // The quarter's three parks — hoisted to `TOKYO_QUARTER_PARKS` above
+      // (Tokyo expansion Phase 4) so the street-wall generator can check a
+      // candidate parcel against them (R18 never walls a park frontage)
+      // without a second copy of these three rects.
+      ...TOKYO_QUARTER_PARKS,
       { id: "jp-carrot-tower", kind: "tower", center: point(60, 60), size: point(12, 12), color: "#b6553f" },
       // Bridge landmarks (Phase 3): id equals the bridge's own road id, which
       // is how the water body's bridgePortalSurfaceIds and the dressing
@@ -1688,27 +2302,6 @@ export const TOKYO_MAP_PACK: MapPack = {
       freeSpawn("jp-cyclist-higashi", "cyclist", 980, 100, 0, "jp-higashi-hondori-3-forward-1"),
     ],
   ),
-};
-
-/**
- * Which carriageway side(s) of Tokyo's riverside collectors face the open
- * Sakuragawa — mirrors `CAIRO_OPEN_WATERFRONT_SIDES`'s shape exactly (see
- * `cities/cairo.ts`), consumed by `render/roadsideProps.ts`'s per-map
- * open-sides lookup. Both roads run their whole authored centreline
- * northward (ascending z), so the sign is derived once from
- * `generatePromenadeDecor`'s own right-hand `side` convention (outward =
- * `(alongZ*side, -alongX*side)`), not eyeballed: jp-kawate-dori sits west of
- * the river, so its river side is +X (side 1); jp-kawagishi-dori sits east
- * of the river, so its river side is -X (side -1). Decor content itself
- * (which trees/lamps/benches place) stays Cairo-only for now — the plan
- * defers that tuning to Phase 9; this table only turns on the structural
- * parapet/shore read, matching every currently-`undefined` road here (no
- * street wall gets built against the river side either way, since the block
- * fabric that would do that is Phase 4's job, not authored yet).
- */
-export const TOKYO_OPEN_WATERFRONT_SIDES: Readonly<Partial<Record<string, readonly (-1 | 1)[]>>> = {
-  "jp-kawate-dori": [1],
-  "jp-kawagishi-dori": [-1],
 };
 
 export const TOKYO_FREE_DRIVE: FreeDriveDefinition = {
