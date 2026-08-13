@@ -582,6 +582,37 @@ describe("SideSwap content", () => {
     }
   });
 
+  it("gives Riverside Park real Hudson water behind it instead of a bare strip to the world edge (plan Section 11.7)", () => {
+    const nyc = MAP_PACKS.find((m) => m.id === "nyc-upper-west-side");
+    expect(nyc).toBeDefined();
+    const park = nyc!.geometry.landmarks.find((l) => l.id === "nyc-riverside-park")!;
+    expect(park).toBeDefined();
+    // East edge aligned to Riverside Drive's own pavement
+    // (-1160-11/2-3.4=-1168.9); west edge unchanged at -1239.
+    expect(park.center.x - park.size.x / 2).toBeCloseTo(-1239, 5);
+    expect(park.center.x + park.size.x / 2).toBeCloseTo(-1168.9, 5);
+    const river = nyc!.geometry.waterBodies!.find((w) => w.id === "nyc-hudson-river")!;
+    expect(river).toBeDefined();
+    // No vehicle portal anywhere on this shore -- nothing crosses the
+    // Hudson on this map (plan's "keep the shoreline inaccessible").
+    expect(river.bridgePortalSurfaceIds ?? []).toEqual([]);
+    const xs = river.polygon.map((p) => p.x);
+    const zs = river.polygon.map((p) => p.z);
+    // Near shore overlaps the park (never reaches its own east edge) so
+    // the grass/water seam never cracks; far shore clears the world edge.
+    const nearShoreXs = xs.filter((x) => x > -1300);
+    for (const x of nearShoreXs) {
+      expect(x).toBeLessThan(park.center.x + park.size.x / 2);
+      expect(x).toBeGreaterThan(park.center.x - park.size.x / 2);
+    }
+    const farShoreXs = xs.filter((x) => x <= -1300);
+    for (const x of farShoreXs) {
+      expect(x).toBeLessThan(-(nyc!.geometry.worldSize.x / 2));
+    }
+    expect(Math.min(...zs)).toBeLessThanOrEqual(-(nyc!.geometry.worldSize.z / 2));
+    expect(Math.max(...zs)).toBeGreaterThanOrEqual(nyc!.geometry.worldSize.z / 2);
+  });
+
   it("gives every country a currency and formats money in it", () => {
     const expected: Record<
       string,

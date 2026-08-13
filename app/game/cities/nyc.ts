@@ -1389,6 +1389,39 @@ export const NYC_MAP_PACK: MapPack = {
           point(731, -1500),
         ],
       },
+      // The Hudson (visual-gap plan Section 11.7, P1): `nyc-riverside-park`
+      // stopped at x=-1239 while the world continues to x=-1300, leaving a
+      // 61 m bare strip with no water to explain it despite the source
+      // comments' own "falls away to the Hudson" framing. Near shore
+      // overlaps the park by 4-17 m (never reaching its own east edge at
+      // -1168.9) so the grass/water seam has no crack; far shore sits well
+      // past the world edge at x=-1300, so it is never visibly bounded.
+      // No `bridgePortalSurfaceIds`: nothing crosses the Hudson on this
+      // map, so the whole shore stays a solid collider, matching the plan's
+      // "keep the shoreline inaccessible" instruction.
+      {
+        id: "nyc-hudson-river",
+        color: "#24404d",
+        flowHeadingDeg: 0,
+        polygon: [
+          point(-1225, -1500),
+          point(-1230, -1100),
+          point(-1222, -700),
+          point(-1233, -300),
+          point(-1224, 100),
+          point(-1231, 600),
+          point(-1223, 1100),
+          point(-1228, 1500),
+          point(-1420, 1500),
+          point(-1415, 1100),
+          point(-1425, 600),
+          point(-1418, 100),
+          point(-1428, -300),
+          point(-1416, -700),
+          point(-1426, -1100),
+          point(-1419, -1500),
+        ],
+      },
     ],
     landmarks: [
       // Kept clear of the carriageways (a content test enforces this).
@@ -1466,8 +1499,15 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-queensbridge-green", kind: "park", center: point(875, -120), size: point(124, 454), color: "#5c8c4b" },
       // Riverside Park fills the far side of Riverside Drive, where the land
       // really does fall away to the Hudson — so the west edge of the map is
-      // green rather than another row of brownstones.
-      { id: "nyc-riverside-park", kind: "park", center: point(-1206, 480), size: point(66, 1934), color: "#4f7a3d" },
+      // green rather than another row of brownstones. East edge aligned to
+      // Riverside Drive's own pavement (visual-gap plan Section 11.7, P1):
+      // -1160-5.5-3.4=-1168.9, the same halfWidth+sidewalk formula every
+      // other pavement-edge number in this file uses. West edge unchanged
+      // (-1239); only the east edge and therefore the width moved, since
+      // the plan's own Treatment names only the east-edge/road seam here —
+      // the west edge is handled by the new Hudson water body below
+      // overlapping it, not by resizing the park to meet a specific x.
+      { id: "nyc-riverside-park", kind: "park", center: point(-1203.95, 480), size: point(70.1, 1934), color: "#4f7a3d" },
       // Joan of Arc Park: a real triangle off Riverside Drive at W 93rd,
       // here given the whole block between W 91st and W 96th so it has road
       // on all four sides and can be driven round — about a 760 m lap.

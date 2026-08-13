@@ -231,20 +231,33 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // because the material set genuinely changed, and the content
     // correctness this exists to guard is independently verified by
     // content.test.ts and a real camera-fan audit re-run, not this metric.
-    totalMeshes: 27_495,
-    enabledMeshes: 27_495,
-    activeMeshes: 961,
-    materials: 191,
+    // 27_495 -> 27_197 (Section 11.7, P1): Riverside Park widened to meet
+    // Riverside Drive's pavement, plus the new Hudson water body — deliberately
+    // overlapping the park's existing interior by 4-17 m along its full
+    // 1934 m length to close the grass/water seam (Section 11.7's own
+    // instruction). `parkLayoutForLandmark` treats a water polygon as a
+    // planting keep-out (docs/greenery.md), so that overlap band's existing
+    // trees/shrubs/furniture are correctly no longer planted there — a real,
+    // intended reduction, not a regression, and large enough (up to
+    // ~17m x 1934m of park interior) to explain a net mesh drop even after
+    // the wider east edge and the Hudson's own new water mesh are added
+    // back in. activeMeshes/materials/mirrorDrawn each move by 1: the new
+    // water surface entering the free-drive camera's initial frame and its
+    // own material/reflection.
+    totalMeshes: 27_197,
+    enabledMeshes: 27_197,
+    activeMeshes: 962,
+    materials: 192,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     mirrorCandidates: 81,
-    mirrorDrawn: 119,
+    mirrorDrawn: 120,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "a3819831",
+    survivingMaterialNamesFingerprint: "91c8963c",
   },
   "london-south-kensington": {
     // 908 -> 887: London became a `paved` city, and a paved map draws a
