@@ -765,8 +765,39 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // cities/tokyo.ts) adds 6 real buildings on the two ring roads' worst
     // confirmed bare-kerb gaps; none sit in this fixed test pose's own
     // mirror-cull frustum, so activeMeshes is unchanged.
-    totalMeshes: 9_444,
-    enabledMeshes: 9_444,
+    // enabledMeshes/totalMeshes 9_444 -> 9_971 (+527, Tokyo authenticity
+    // plan P2): `tokyo-house`/`tokyo-shotengai` go live on
+    // miyanosaka/yamashita/nishi and jp-nakamise-yokocho. Under THIS
+    // suite's forced-empty preload every asset-slot entry falls to its
+    // exact per-solid proxy box (`BuildingLayer.buildProxy`), named
+    // `building:<blockId>:slot:<edge>:<n>:solid:body#proxy` — the SAME
+    // "building"-prefix bucket procedural cells already used
+    // (`building:<blockId>:cell:<n>`), confirmed by bucketing
+    // `__sideswapMeshes()` by name prefix under a temporary console.log.
+    // That bucket alone moved 1_780 -> 2_451 (+671): re-running
+    // `planMapBuildings` on a copy of the map with every block's
+    // `buildingSet` stripped (an exact reconstruction of the pre-P2 plan —
+    // every converted block already had none, so this reproduces the old
+    // seeded-stream consumption order precisely, not an estimate)
+    // confirms 1_780 is the true pre-P2 building-mesh count. The remaining
+    // -144 is everywhere else in the scene, not a second building effect:
+    // the glb sets' real depth (`buildingSetDepthM`, ~13-14 m) sits
+    // buildings noticeably closer to the kerb than the procedural grid's
+    // 28-40 m depth did, so the roadside scatter generator
+    // (`generateRoadsidePropPlacements`) now rejects more candidate
+    // positions as occupied — the identical "adding buildings can shrink
+    // the total" direction Phases 4, 7 and 8's own paragraphs above
+    // already document, at street-wall-conversion scale instead of new-
+    // block/venue/landmark scale. materials/survivingMaterialNamesFingerprint
+    // are BOTH unchanged: a proxy box reuses `ProceduralFacades.materialFor`'s
+    // existing per-materialKey cache (`entry.material` is still
+    // wood-plaster/plaster/tile, unchanged), so P2 mints no new material.
+    // activeMeshes/mirrorCandidates/mirrorDrawn are also unchanged — none
+    // of the converted zones (out on the residential webs and the
+    // shotengai) sit anywhere near this fixed test pose's own mirror-cull
+    // frustum or NYC-analogue camera position.
+    totalMeshes: 9_971,
+    enabledMeshes: 9_971,
     activeMeshes: 986,
     materials: 242,
     drawCallsPerFrame: 0,

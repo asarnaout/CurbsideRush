@@ -376,13 +376,19 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
   },
   "tokyo-setagaya": {
     // drawCount unchanged by the building-collision-visual-parity plan:
-    // Tokyo has no building-set blocks at all (every block is directly
-    // procedural), so its render-time draw sequence and its plan-time draw
-    // sequence were already identical — moving the draws from render time
-    // to plan time relocates them without changing their count, order, or
-    // the meshes they produce. The one map where old and new drawCount
-    // agree exactly is exactly the proof that the planner reproduces the
-    // current full-detail draw order byte-for-byte (Section 7.4).
+    // Tokyo had no building-set blocks at all at the time (every block was
+    // directly procedural), so its render-time draw sequence and its
+    // plan-time draw sequence were already identical — moving the draws
+    // from render time to plan time relocates them without changing their
+    // count, order, or the meshes they produce. The one map where old and
+    // new drawCount agreed exactly was exactly the proof that the planner
+    // reproduces the current full-detail draw order byte-for-byte (Section
+    // 7.4). This stopped being universally true the moment the Tokyo
+    // authenticity plan's P2 gave Tokyo its first `buildingSet` blocks
+    // (see the drawCount entries below from that point on) — the proof
+    // itself is unaffected (it was about `planMapBuildings` reproducing
+    // the OLD render-time order, a one-time historical check, not an
+    // ongoing invariant this suite polices going forward).
     // 216 -> 7_215 (Tokyo expansion Phase 4, blocks/street wall, R18): 296
     // blocks now exist (9 hand-authored quarter + 287 generated), all
     // procedural (Tokyo still has no building-set blocks, so the "old and
@@ -446,8 +452,24 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // existing pocket green's frontage, the R18 exemption; 5 lost to a
     // genuine conflicting road at a junction corner). New surviving cells,
     // same direction as every other block-count-driven move on this map.
-    drawCount: 5_559,
-    facadeMeshFingerprint: "2fa27cb2",
+    // 5_559 -> 4_551 (-1_008, Tokyo authenticity plan P2): `tokyo-house`/
+    // `tokyo-shotengai` go live on miyanosaka/yamashita/nishi and
+    // jp-nakamise-yokocho — those 46 blocks now take `planAssetSlotBlock`
+    // (asset-slot, planned once in `planMapBuildings`'s own call, never
+    // this render-side stream) instead of `planProceduralBlock`, so they
+    // stop drawing from this stream entirely. Exact, not approximate:
+    // `facadeGridCells` is deterministic on a block's own size/density
+    // (no keepout awareness — every CANDIDATE cell draws its 3 random()
+    // calls before the survival check, unlike Cairo's frontage-overlap
+    // `continue`, which fires before the height draw), so summing it over
+    // every block that does NOT carry a buildingSet gives 1_517 candidate
+    // cells x 3 draws/cell = 4_551 exactly, confirmed by recomputing it
+    // directly against the real map data rather than assumed from the
+    // baseline delta alone. Fingerprint moves for the same reason as every
+    // other cell-count-driven baseline in this file — different cells
+    // exist, so different names/positions do.
+    drawCount: 4_551,
+    facadeMeshFingerprint: "cb3cca2e",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the
