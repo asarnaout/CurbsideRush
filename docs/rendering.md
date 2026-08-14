@@ -307,6 +307,22 @@ traffic fleet's own four glbs) and by the scatter keep-out, **knockable via
 walkable-band collider tests reserve the kerbside, and a shunted car reads
 better than an invisible wall. Measured cost of all 182: ~27 draw calls.
 
+Tokyo's own parked bicycles (`TOKYO_PARKED_BICYCLES` in
+`tokyoStreetFurniture.ts`, Tokyo expansion Phase 9) are the same idea but
+**cannot** reuse `getBuildingMaster`: that path's `Mesh.MergeMeshes` requires
+every submesh of a glb to share one vertex-attribute layout, and
+`bicycle.glb`'s don't — `tools/split-bicycle-pedals.mjs` split the pedals
+and tires into their own nodes for animation, which is exactly what leaves
+them heterogeneous. **Any future glb whose submeshes were split or otherwise
+authored unevenly will hit the same merge crash** the first time something
+calls `getBuildingMaster` on it; the fix is `instantiateModelInstanced`
+(`modelLibrary.ts`) instead, which instances **per submesh** (real
+`InstancedMesh`es sharing the first call's source geometry) rather than
+merging, so N placements still cost one draw call per submesh, not per
+placement, with no attribute-layout requirement at all. Measured cost of all
+25 bicycles: 7 draw calls (one per submesh — frame, two tires, two pedals,
+plus two more).
+
 `registerStaticCell` takes an explicit `castsShadow` flag because the instanced
 building street wall deliberately casts none — flipping one silently adds it to
 the shadow map and changes every camera. The instanced glb wall casts no sun
@@ -320,6 +336,13 @@ open-waterfront table each city passes into `generatePromenadeDecor`
 (`CAIRO_OPEN_WATERFRONT_SIDES`, `TOKYO_OPEN_WATERFRONT_SIDES`) rather than
 `visuals.ts`, which would need to import back from `cities/*.ts` — every
 city file already imports FROM `visuals.ts`, so that would be a real cycle.
+The decor's own species (`treeKind`/`lampKind`, Tokyo expansion Phase 9) are
+a second, separate per-map lookup in the same file
+(`PROMENADE_DECOR_KINDS_BY_KEY`) for the same reason — Cairo keeps its
+original "palm"/"streetlight" literals, Tokyo passes "sakura"/"chochin-post",
+and each needs its own `DESTRUCTIBLE_PROP_CONFIGS` row and `partsFor` render
+case since the promenade places them directly rather than through the
+generic roadside-scatter `PropKindConfig` path.
 
 ## Render scaling
 
