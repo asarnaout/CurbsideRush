@@ -627,10 +627,40 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // confirmed by dumping survivingMaterialNames and diffing; every
     // other new-this-phase block reuses an already-registered key
     // (plaster/tile/wood-plaster).
-    totalMeshes: 8_804,
-    enabledMeshes: 8_804,
-    activeMeshes: 933,
-    materials: 115,
+    // -> Phase 5 (signals/cameras/one-ways/crossings/rail, R10/R11): 42
+    // authored `type: "signal"` controls (133 approaches/heads total), 14
+    // derived enforcement cameras, 3 new `type: "crosswalk"` controls
+    // (shotengai's two real ends + the temple-green gate) plus the
+    // scramble's own 6 extra crosswalk/diagonal markings, and a second
+    // `railway_signal` level crossing (jp-rail-signal-2, two gate
+    // installations) — every one of these reuses ALREADY-SHARED materials
+    // (signal-lens-material, scenario-signal-red/amber/green, scenario-stop,
+    // scenario-marking, the dark pole/housing and camera masters every other
+    // signalled city already registers), confirmed by dumping
+    // `survivingMaterialNames` for tokyo-setagaya before/after under a
+    // temporary console.log and diffing: the ONLY two new entries are
+    // "landmark-jp-setagaya-line-ext-1"/"-ext-2", the rail extension's own
+    // two new landmark rects (every landmark gets one material whether or
+    // not the bespoke dispatcher uses it, same as every existing landmark
+    // already did). enabledMeshes/totalMeshes 8_804 -> 9_549 (+745):
+    // installed roadside poles/heads/lenses/housings, camera bodies+lenses,
+    // rail-crossing barrier/crossbuck/warning/pole sets (x2 gates x2
+    // crossings), crosswalk stripe instances and the 4 new rail-line boxes
+    // (2 rails x 2 new landmark segments). -> 9_449 (-100): the same phase's
+    // 12 residential one-ways (R11, 4 per web) each drop from 2 lanes to 1
+    // (`laneCount: 1`), and a one-way road's own surface carries no
+    // centre-dashed marking (nothing to separate two directions of the same
+    // carriageway) — 12 roads' worth of dash-segment meshes disappear.
+    // activeMeshes 933 -> 1_039: the fixed test pose's mirror-cull frustum
+    // now includes some of the new downtown-core signal heads/cameras
+    // (unaffected by the one-way pass — none of the converted residential
+    // rungs sit in this pose's frustum). mirrorCandidates/mirrorDrawn
+    // unchanged (198/172) — the new content sits outside the mirror's own
+    // reflection distance, only the frustum-active set moved.
+    totalMeshes: 9_449,
+    enabledMeshes: 9_449,
+    activeMeshes: 1_039,
+    materials: 117,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -650,7 +680,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // previous list — the only new entry each time).
     // "a9a0d68a" -> "855d45f5": Phase 3's +15 materials above.
     // "855d45f5" -> "59b69703": Phase 4's +1 material ("concrete") above.
-    survivingMaterialNamesFingerprint: "59b69703",
+    // "59b69703" -> "1c13acfe": Phase 5's +2 materials above (the rail
+    // extension's own two landmark rects; every signal/camera/crosswalk/
+    // second-crossing material was already shared).
+    survivingMaterialNamesFingerprint: "1c13acfe",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

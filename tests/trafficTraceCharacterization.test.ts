@@ -124,8 +124,23 @@ describe("ambient traffic trace characterization", () => {
       // the bridges themselves, one on the east-bank spine, one on the
       // east-bank riverside collector) — every one of those shifts ambient
       // routing even in the old quarter, since the seeded spawn-anchor order
-      // changed.
-      "free-jp": "9e874440",
+      // changed. Phase 4 (blocks/street wall) added no lanes/controls/spawns
+      // and did not move this hash. Phase 5 (signals/cameras/one-ways/
+      // crossings/rail) does: 42 nodes that used to derive a `type: "stop"`
+      // control now derive a `type: "signal"` one instead (real red/amber/
+      // green phase cycles now gate NPCs there instead of a stop-and-go
+      // priority rule), 4 new crosswalk controls were authored, and a second
+      // `railway_signal` level crossing joins the original one.
+      // `snapshot.trafficLights` — hashed by this test — goes from 2 entries
+      // (the original jp-rail-signal's own two approaches; Tokyo had zero
+      // `type: "signal"` controls before Phase 5) to 136 (133 signal
+      // approaches + 3 railway_signal approaches across both crossings). The
+      // same phase's 12 residential one-ways (R11, 4 per web, `laneCount: 1`)
+      // move it again: `snapshot.npcs` hashes each car's `laneId`, and a
+      // road that used to carry two directions of ambient traffic now
+      // carries only one — real routing/spawn-distribution change, not
+      // noise.
+      "free-jp": "49c638c6",
       "free-eg": "eb350f99",
     });
   });
