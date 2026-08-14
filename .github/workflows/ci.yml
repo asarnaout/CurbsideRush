@@ -21,10 +21,18 @@ jobs:
     # seconds to `npm test`'s dominant cost (`trafficSafetyAcceptance.test.ts`
     # plus the full-mount characterization suites). 15 min was comfortable
     # before this expansion and got tight by Phase 5 (~14m45s) before Phase 6
-    # exceeded it outright — raised with headroom for the remaining phases
-    # rather than trimming seeds, which the plan is explicit is a safety
-    # decision, not a perf knob.
-    timeout-minutes: 30
+    # exceeded it outright — raised to 30 with headroom for the remaining
+    # phases rather than trimming seeds, which the plan is explicit is a
+    # safety decision, not a perf knob.
+    #
+    # The same creep recurred under the Tokyo authenticity plan (13-16 real
+    # glb models + wiring per phase, ~10 phases): 24m32s after import phase
+    # P1, 25m0s after wiring phase P2, 25m41s after asset-import phase P3a —
+    # each new model batch adds real committed-file byte-pin/provenance tests
+    # plus full-mount render coverage, with 7 more content phases still to
+    # land (P3b's wiring, then five new road/block/venue regions, then street
+    # life). Raised again for the same reason, not trimming coverage.
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
