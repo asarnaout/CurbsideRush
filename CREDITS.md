@@ -32,6 +32,29 @@ London's kerbside parked cars reuse the committed traffic-fleet glbs
 (`sedan`, `sports`, `suv` — CC0; `van` — CC-BY, credit below) as static
 street dressing; no new files and no new licences are involved.
 
+## Tokyo
+
+Tokyo shipped its ten-phase city expansion with `buildingSets: []` — every
+building on the map is a procedural facade box. The **Tokyo street-wall kit**
+below (13 CC-BY 4.0 glbs from Sketchfab: houses, apāto walk-ups, a konbini,
+shotengai shopfronts, an izakaya and a ramen shop) is the first round of real
+building models for it (Tokyo authenticity plan, phase P1). **As of this
+import the kit is not yet placed on the map** — it is catalogued
+(`app/game/buildingCatalog.ts`'s `TOKYO_ENV_MODELS`) with measured placement
+and collision data (`buildingSets.ts`, `buildingStructuralBounds.ts`), but no
+`BuildingSetId`/block references it yet, so Tokyo's rendered street wall is
+unchanged; wiring it live is a later phase. Every licence was verified on the
+model's own Sketchfab page and via the download panel at import time
+(2026-08-14), and every file's provenance is hashed below and baked into the
+glb itself (`asset.extras.curbsideRush`); `tests/tokyoAssets.test.ts` pins the
+committed bytes.
+
+Unlike the CC0 kits below (Quaternius/KayKit solids with no baked textures),
+these Sketchfab exports ship their own authored textures and materials, so
+the normalization pass (`tools/style-tokyo-buildings.mjs`) is lighter-touch
+than a full palette replacement — see the kit's own entry for exactly what it
+does to each file.
+
 ## CC0 — public domain (no attribution required)
 
 - **sedan.glb, sports.glb, suv.glb** — Quaternius (<https://quaternius.com>),
@@ -431,6 +454,92 @@ in that catalogue's `attribution` field.
   venue, so the map's two restaurants are visibly different buildings.
 - **props/vendor-food.glb** ("Street Vendor Cart") — **Alan Zimmerman**. Credit:
   "Street Vendor Cart by Alan Zimmerman". Street vendor.
+
+### Tokyo street-wall kit (CC-BY 4.0)
+
+13 Sketchfab models (Tokyo authenticity plan, phase P1 — see the "Tokyo"
+section above for scope). Every one is **CC-BY 4.0**
+(<https://creativecommons.org/licenses/by/4.0/>) — a plain-attribution
+licence, the same obligation as the CC-BY 3.0 kits above, one point release
+newer. Per-model Sketchfab source URLs are also in `app/game/buildingCatalog.ts`
+(`TOKYO_ENV_MODELS`), and each model's required credit travels in that
+catalogue's `attribution` field.
+
+**Downloaded** 2026-08-14 as Sketchfab's autoconverted glTF export (a
+`.gltf` + `.bin` + separate image files, zipped). **Packed** into one
+self-contained glb by `tools/pack-gltf.mjs` (this repo's hand-written
+glTF→glb packer, the sibling of `tools/obj-to-glb.mjs` — written rather than
+an npm converter for the same byte-stability reason: `tests/tokyoAssets.test.ts`
+pins the committed SHA-256 of every file). **Normalized** by
+`tools/style-tokyo-buildings.mjs`:
+
+- Every embedded texture whose longer side exceeded 1024 px (several ship at
+  2048², the izakaya at 4096²) was downscaled to fit within 1024 px via
+  `sharp` (re-encoded in its original format) — a real new devDependency,
+  not previously declared: `sharp` was already resolving into `node_modules`
+  as a transitive dependency (`miniflare`, itself a dependency of `wrangler`,
+  which this repo already depends on for `npm run dev`, depends on it
+  directly), so declaring it explicitly in `package.json` makes that
+  existing resolution reproducible via `npm ci` rather than incidental — see
+  the tool's own header for the full reasoning.
+- A material with no `metallicFactor` and no metallic/roughness texture — the
+  glTF core-spec default (metallic = 1) renders it chrome-mirror — was
+  normalized to `metallicFactor: 0`. Fired on three of `tokyo-house-d`'s
+  small hardware materials (a hinge, a door handle, a railing).
+  Texture-driven PBR materials were left untouched.
+- Three models shipped a bundled diorama/street-furniture node unrelated to
+  the building itself, unlinked from the scene graph: `tokyo-house-d`'s
+  `Carretera` (a flat paved-street slab 4504×0×2266 native units — far
+  larger than the house itself) and two flat dirt-ground patches
+  (`Tierra_G`, `Tierra_P`); `tokyo-izakaya`'s `Floor` (a flat 1272×0×1272
+  ground plate); `tokyo-shop-b`'s generic streetlamp pair
+  (`StreetFarol2_2`/`StreetPoste2_3`, positioned off the shop's own
+  footprint — this map already scatters its own streetlights procedurally).
+  A scene-graph unlink, not a full mesh/accessor/material/image
+  garbage-collection pass — every stripped node here is geometrically tiny
+  and shares its material/texture with the rest of its model, so the dead
+  JSON bytes left behind are negligible next to the texture-downscale
+  savings above.
+- Two models' emissive materials measurably would not bloom under this map's
+  real night pipeline (`bloomThreshold: 0.72`, post-`exposure` 1.55× —
+  `render/babylonGameSession.ts`) as shipped — checked against the actual
+  formula (`extractHighlights.fragment`'s
+  `luma = dot((0.2126,0.7152,0.0722), color * exposure)`, threshold-gated),
+  not picked by eye: `tokyo-izakaya`'s sign glow (a saturated red pixel
+  region, measured raw linear luma ≈0.22 — red alone is capped at 0.2126 of
+  the luma weight no matter how saturated) and two of `tokyo-shop-b`'s four
+  emissive materials (also near-pure red, raw luma ≈0.24-0.25). Both raised
+  via `KHR_materials_emissive_strength` (3.2× and 2.2× respectively) rather
+  than diluting the red with green, which would shift the intended hue.
+- Provenance baked into `asset.extras.curbsideRush`:
+  `{style, author, title, license: "CC-BY 4.0", sourceUrl, sourceSha256,
+  modifications}`, the same shape `tools/style-london-terraces.mjs` uses.
+
+Reproduce from clean sources: re-download each row's Sketchfab glTF export,
+`node tools/pack-gltf.mjs <dir>/scene.gltf public/models/props/<id>.glb`,
+then `node tools/style-tokyo-buildings.mjs`.
+
+| File | Source title | Author | Source page (`sketchfab.com/3d-models/…`) | Original archive SHA-256 | Committed GLB SHA-256 |
+|---|---|---|---|---|---|
+| **props/tokyo-house-a.glb** | Japanese Residential Home 01 | Morrissey Alexander | `japanese-residential-home-01-d690f83d8e8d48e6a532bebe84901595` | `8788dc786017a99a931307f8adfd8c2c4961423b5470324dd80b2ff6837131f5` | `c88e4970840a6f19ba8752f5289a87be80b3bae452e647445d5815b4940e131f` |
+| **props/tokyo-house-b.glb** | Japanese Residential Home 02 | Morrissey Alexander | `japanese-residential-home-02-c31697f09152453cb3ed215482e7a810` | `825aed04802350d83503e84d39a4012f8c34395da7a28d4ead74ace200edc9a9` | `6b8e20e0b733da3616640485e52ddc49e9b77dbb024c1d55c38a62537ea15def` |
+| **props/tokyo-house-c.glb** | Japanese Residential Home 03 | Morrissey Alexander | `japanese-residential-home-03-1c53f4f37fc44c32a8874464025aea48` | `911b4a5d52872135e73136ffccaef7c4d30daabbbbfca3acfe128e547903404e` | `0c0e4eaa7fcdbae349ef9cb2a8041cbcdf28d863162494fe440619864d9b1fee` |
+| **props/tokyo-house-d.glb** | Tokyo Japanese House / Casa Japonesa [Low Poly] | SitoNyaa | `tokyo-japanese-house-casa-japonesa-low-poly-05e04ee0c3d04ff9a2fe4c348b3c1bcd` | `cfe54e8c25daf66cb2c43a4519c6506ee86708b44744bf4709fcc7a3a8e8d2c0` | `1c1f2e79417cf8b5b2ab5779f8cbac7424cf764b981d30f1af0a58f798fb177f` |
+| **props/tokyo-apato-a.glb** | PSX Japanese Apartment | DeadFrame Studio† | `psx-japanese-apartment-0a12452df55c4e3687759732c81a8437` | `c4cae7d69a95f07b190fa236c01eb308c2b9ede31d7c51985e09a5e6f377578e` | `80dd62de4789d5f2798def067073e3f5f4751308ca9b2d9f6057d053c687d157` |
+| **props/tokyo-apato-b.glb** | Grey Japanease Apartment | Kasuga | `grey-japanease-apartment-8589efeb25284d709934497e02a25421` | `8969bd766b81998af72cb91d116fcb0c8f24250dbef3bd350b2afa5821c79295` | `db408a486fd98a1551d84c5fd92f6ea9881ae3d491046b16bd2b8eb52576f433` |
+| **props/tokyo-konbini.glb** | Konbini | Arthur Sauvaget | `konbini-6f66ee45303e4b90b1bcd13fad484269` | `cd48ed4f594929f5ded7a85ee406b961f1f0ea3897288ba2daff1af3649c1763` | `3abc6babc8f48dd605cd5f8cf0d21f04b6a64e9da101e9761626ddd24554f53e` |
+| **props/tokyo-shop-a.glb** | Japanese Store | Nick.Stark | `japanese-store-78396a70304b412d9bc8e3955891f6cd` | `342dda42209437ad61404d2ef6f8e5e714ad330362b9a669abc1a10fe48fcff3` | `e8405c3f5e13850436d6e2cc09f847cc40031513f8b1d884165210917c6265cc` |
+| **props/tokyo-shop-b.glb** | Japanese low poly building store | KingKusak | `japanese-low-poly-building-store-565dc84823834d4884bef69944e0d4be` | `f60efe983d8270a78b8f63f7a303c9ac3e11c885d22946a6ebf437c468408409` | `6f301e6fdccf79607a645dbf9cd9b131c2708769a7f8b9a6c9a09f4f6fced172` |
+| **props/tokyo-shop-c.glb** | Old Japanese Store | Frid.blend | `old-japanese-store-d3442a89f7ff43ed9867d305b8951be0` | `f3fb1f62142511d7787f50acad4ea07429915f83f02f1d3422808d371cbc0946` | `8090b33f73ffc9ec049bec181d0dbe25fc7acc338c748c518f77223f81cdc41b` |
+| **props/tokyo-shop-d.glb** | Japanese Shop 3 | Christian Camelo | `japanese-shop-3-b8c9864f973a491fbfdc6dc0c96ed58e` | `16558727c8ef82c9d8b578e026af27240aa48b6a171db898a88e853c70f78eb8` | `1607578094db7934beb28ded8e2fc7a56978fc13792f090103e5ea63c8e59528` |
+| **props/tokyo-izakaya.glb** | Izakaya - Low Poly Building | BenMaher | `izakaya-low-poly-building-3f43e5429171408e9bd19553ea813364` | `5336a59fd4a2c412b2650c97350585fa4cadb7c688c3075f1f5384d88d4343d8` | `deb7798951e5d8004b6adf3ff121fed339189544af49e29e8137f0a83a883d10` |
+| **props/tokyo-ramen.glb** | Ramen Shop | Naitogosuto | `ramen-shop-4d189bf2710f422ea287718f968cea68` | `2dd4df0a181e3d6aa6c5558ee2dcc481a22f410914a291e0719d27e85bce1b3a` | `50e13b3dd3eea88705bbf6372a768a26ddd82e2a185f0204c848fa7c3fec2cbe` |
+
+† `tokyo-apato-a`'s author is corrected from the plan's research manifest
+("Shazly"): Sketchfab's own embedded `asset.extras.author` on the downloaded
+export — freshest, authoritative, baked server-side into the file — says
+"DeadFrame Studio" for this exact uid/model. Credited as DeadFrame Studio here
+and in `buildingCatalog.ts`.
 
 ## Purchased — used under licence, NOT redistributed in this repo
 
