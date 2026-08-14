@@ -11,7 +11,7 @@ import {
   VertexBuffer,
 } from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
-import { ALL_ENV_MODELS } from "../app/game/buildingCatalog";
+import { ALL_ENV_MODELS, MERGE_INCOMPATIBLE_MODEL_IDS } from "../app/game/buildingCatalog";
 import {
   buildingPlacementConfig,
   isBuildingSetId,
@@ -41,26 +41,18 @@ const scaleFor = (model: { id: string; url: string }): number | null =>
   null;
 
 // `Mesh.MergeMeshes` throws ("Cannot merge vertex data that do not have the
-// same set of attributes") on these three Tokyo P1 imports — their
-// Sketchfab-exported submeshes carry different vertex-attribute sets (some
-// with TANGENT/extra UV channels, some without), the same documented failure
-// mode `tests/buildingWinding.test.ts` excludes them for. They render via
-// `instantiateModelInstanced` instead (no merge, so `masterFor` below —
+// same set of attributes") on every `MERGE_INCOMPATIBLE_MODEL_IDS` entry
+// (buildingCatalog.ts's own doc comment has the full story) — they render
+// via `instantiateModelInstanced` instead (no merge, so `masterFor` below —
 // which mirrors `getBuildingMaster`'s merge recipe exactly — cannot build a
 // master for them at all). Their PLACEMENTS/BOUNDS entries were still
 // measured (see buildingSets.ts's own comment on each), just via a manual
 // per-submesh world-space union instead of this file's merge-based recipe.
-const MERGE_INCOMPATIBLE_IDS = new Set([
-  "tokyo-house-d",
-  "tokyo-apato-b",
-  "tokyo-ramen",
-]);
-
 const PLACEABLE = ALL_ENV_MODELS.filter(
   (m) =>
     m.category !== "person" &&
     scaleFor(m) !== null &&
-    !MERGE_INCOMPATIBLE_IDS.has(m.id),
+    !MERGE_INCOMPATIBLE_MODEL_IDS.has(m.id),
 );
 
 // One shared NullEngine scene; masters cached per model id. Mirrors
@@ -672,7 +664,7 @@ describe("buildingStructuralBounds — independent GLB validation", () => {
 
   it.each(
     ALL_ENV_MODELS.filter(
-      (m) => buildingPlacementConfig(m.id) && !MERGE_INCOMPATIBLE_IDS.has(m.id),
+      (m) => buildingPlacementConfig(m.id) && !MERGE_INCOMPATIBLE_MODEL_IDS.has(m.id),
     ).map((m) => [m.id, m] as const),
   )(
     "%s curated structural rectangle agrees with its ground-touching GLB geometry",

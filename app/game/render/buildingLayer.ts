@@ -13,8 +13,9 @@ import {
   CAIRO_STREET_WALL_URL_RE,
 } from "../geometry/cairoParkland";
 import { buildingPlacementConfig } from "../buildingSets";
+import { MERGE_INCOMPATIBLE_MODEL_IDS } from "../buildingCatalog";
 import type { PlannedAssetBuilding } from "../geometry/buildingLayout";
-import { instantiateModel, modelMaterials } from "../modelLibrary";
+import { instantiateModel, instantiateModelInstanced, modelMaterials } from "../modelLibrary";
 import { createFacadeBox } from "./meshPrimitives";
 import { BUILDING_GROUND_LIFT } from "./renderConstants";
 import {
@@ -30,13 +31,16 @@ import type { BuildingRepresentationRecord } from "./buildingRepresentation";
  * The once-per-map instanced-glb building system: takes the exact
  * `PlannedAssetBuilding` entries `geometry/buildingLayout.ts` already
  * decided (position, yaw, scale, keep-out survivorship — nothing here
- * recomputes occupancy), dresses each with an instanced glb (re-branding the
- * one retail model into a mix of storefront variants), and falls back to an
- * exact per-solid opaque proxy — never a hole, never a whole-block
- * alternate grid — for any entry whose model was unavailable, forced
- * unavailable (`DebugBuildingAssetPolicy`, dev/test-only), or fraction-thinned
- * on a weak device. De-methodized into a collaborator class (issue #288),
- * matching Phase 3's `WaterLayer`/`Destructibles`/`CutsceneDirector` shape.
+ * recomputes occupancy), dresses each with an instanced glb — merged-master
+ * `createInstance` for an ordinary model (re-branding the one retail model
+ * into a mix of storefront variants), per-submesh `instantiateModelInstanced`
+ * for a `MERGE_INCOMPATIBLE_MODEL_IDS` one (`instantiateViaSubmeshes`,
+ * `Mesh.MergeMeshes` throws on these) — and falls back to an exact per-solid
+ * opaque proxy — never a hole, never a whole-block alternate grid — for any
+ * entry whose model was unavailable, forced unavailable
+ * (`DebugBuildingAssetPolicy`, dev/test-only), or fraction-thinned on a weak
+ * device. De-methodized into a collaborator class (issue #288), matching
+ * Phase 3's `WaterLayer`/`Destructibles`/`CutsceneDirector` shape.
  *
  * `setPlan` replaces the old `enqueueBlock`-during-the-block-loop queue: the
  * plan already exists in full before `buildScenarioEnvironment` runs (built
@@ -347,6 +351,63 @@ export class BuildingLayer {
     return policy.unavailableModelIds === "all" || policy.unavailableModelIds.includes(modelId);
   }
 
+  /**
+   * Instances every submesh of a `MERGE_INCOMPATIBLE_MODEL_IDS` model
+   * directly (`instantiateModelInstanced`, `modelLibrary.ts`) rather than
+   * through `getBuildingMaster`'s `Mesh.MergeMeshes` recipe, which throws
+   * on any of them (heterogeneous submesh vertex-attribute layouts — see
+   * `buildingCatalog.ts`'s own doc comment on that set, and
+   * `tokyoStreetFurniture.ts`'s parked bicycles for the same failure mode
+   * on a non-building glb). Mirrors that bicycle recipe: a wrap
+   * `TransformNode` carries position/yaw/`squareUpYaw` (baked into the
+   * merged master at bake time on the ordinary path, so it has to be
+   * applied here instead, on every placement, since there is no shared
+   * master to bake it into once), the instanced root carries scale.
+   *
+   * Every solid in this catalogue's manifest is exactly one rect (`"body"`
+   * — `buildingStructuralBounds.ts`'s header), so one `holderId` (the wrap
+   * node's name) covers it regardless of how many actual glb submeshes
+   * render it. Returns `false` — never throws, never partially wires a
+   * building — when the model isn't loaded/available, so the caller falls
+   * through to the ordinary proxy box exactly like a failed glb load.
+   */
+  private instantiateViaSubmeshes(
+    entry: PlannedAssetBuilding,
+    ctx: BuildingLayerInstantiateCtx,
+  ): boolean {
+    const instanced = instantiateModelInstanced(this.scene, entry.url);
+    const root = instanced?.rootNodes[0] as TransformNode | undefined;
+    if (!instanced || !root) return false;
+    const holderId = `bldg-${entry.id}`;
+    const wrap = new TransformNode(holderId, this.scene);
+    const squareUpYaw = buildingPlacementConfig(entry.modelId)?.squareUpYaw ?? 0;
+    wrap.position.set(entry.x, entry.groundY + BUILDING_GROUND_LIFT, entry.z);
+    wrap.rotation.y = entry.yaw + squareUpYaw;
+    root.parent = wrap;
+    root.scaling.setAll(entry.scale);
+    ctx.staticSceneryFreeze.push(wrap);
+    ctx.staticSceneryFreeze.push(root);
+    for (const mesh of root.getChildMeshes(false)) {
+      mesh.isPickable = false;
+      ctx.staticSceneryFreeze.push(mesh);
+      // Mirror-only, same convention as the merged-master path: these
+      // deliberately cast no sun shadow (see the class doc comment).
+      ctx.registerStaticCell(mesh, entry.x, entry.z, false);
+    }
+    this.addCairoRoofClutter(entry, ctx);
+    ctx.registerRepresentation({
+      planId: entry.id,
+      source: "asset-slot",
+      solids: entry.solids.map((solid) => ({
+        solidId: solid.localId,
+        kind: "glb" as const,
+        transform: solid,
+        holderId,
+      })),
+    });
+    return true;
+  }
+
   /** Exact per-solid opaque proxy — one box per `StructuralObb`, at that
    * exact XZ transform and the plan's proxy height. Never one envelope
    * around a compound entry's solids, never a billboard, never expanded
@@ -408,6 +469,15 @@ export class BuildingLayer {
       const attemptGlb =
         (fraction >= 1 || entry.assetDetailScore < fraction) &&
         !this.isForcedUnavailable(entry.modelId, ctx);
+      // MERGE_INCOMPATIBLE_MODEL_IDS entries never reach getBuildingMaster —
+      // its Mesh.MergeMeshes throws on them (buildingCatalog.ts's own doc
+      // comment on that set). instantiateViaSubmeshes already falls back to
+      // buildProxy on its own failure, so this branch's own continue always
+      // leaves the entry fully resolved one way or the other.
+      if (attemptGlb && MERGE_INCOMPATIBLE_MODEL_IDS.has(entry.modelId)) {
+        if (!this.instantiateViaSubmeshes(entry, ctx)) this.buildProxy(entry, ctx);
+        continue;
+      }
       const master = attemptGlb
         ? entry.modelId === STOREFRONT_MODEL_ID
           ? this.getStorefrontMaster(entry.url, pickStorefrontVariant(entry.x, entry.z), ctx)
@@ -439,10 +509,11 @@ export class BuildingLayer {
         continue;
       }
       // Every non-retained/failed/forced-unavailable entry gets an exact
-      // per-solid proxy — never the old whole-block procedural fallback, and
-      // never the uncorrected multi-mesh instantiation path (it skips the
-      // merged master's square-up/recentre recipe and is therefore not an
-      // approved structural fallback — see the class doc comment).
+      // per-solid proxy — never the old whole-block procedural fallback.
+      // (The one other approved non-glb path, instantiateViaSubmeshes
+      // above, is reserved for MERGE_INCOMPATIBLE_MODEL_IDS specifically —
+      // an ordinary model that merely failed to load still lands here,
+      // never on the raw uncorrected multi-mesh instantiation path.)
       this.buildProxy(entry, ctx);
     }
   }
