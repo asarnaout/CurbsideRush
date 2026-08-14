@@ -556,14 +556,21 @@ const KINDS_BY_BLOCK_MATERIAL: Record<string, readonly GigVenueKind[]> = {
   // Whitehall and the City: offices, with the odd flat above.
   "london-portland-stone": ["office", "office", "residence"],
   "london-glass-curtain": ["office"],
-  // Tokyo (expansion Phase 7) is also `buildingSets: []` (fully procedural
-  // facades), so this table governs its addresses too. Its generated street
-  // wall (`buildTokyoGeneratedBlocks`, Phase 4) uses exactly four facade
-  // materials, confirmed directly against `TOKYO_ZONE_STYLE` — `wood-plaster`
-  // and `plaster` for the low-rise residential webs, `tile` for the ring
-  // roads/riverside/downtown core, and `concrete` for the east bank's mixed
-  // mid-rise (`higashi` zone) — every one already a real key in
-  // `ProceduralFacades.BUILDING_PALETTE`, so none needed adding.
+  // Tokyo (expansion Phase 7) started as `buildingSets: []` (fully
+  // procedural facades), so this table alone governed its addresses. As of
+  // the Tokyo authenticity plan's P2, miyanosaka/yamashita/nishi and
+  // jp-nakamise-yokocho name a `buildingSet` on ~3 of every 4 parcels
+  // (`tokyoParcelKeepsFacadeBoxes`'s 1-in-4 holdback keeps the rest on
+  // plain facade boxes with no `buildingSet` at all) — `KINDS_BY_BUILDING_SET`
+  // wins for those, but this table still governs every holdback parcel AND
+  // every other district (`higashi`/`ring`/`riverside`/the rest of
+  // `downtown`, still fully procedural pending later phases). Its generated
+  // street wall (`buildTokyoGeneratedBlocks`, Phase 4) uses exactly four
+  // facade materials, confirmed directly against `TOKYO_ZONE_STYLE` —
+  // `wood-plaster` and `plaster` for the low-rise residential webs, `tile`
+  // for the ring roads/riverside/downtown core, and `concrete` for the east
+  // bank's mixed mid-rise (`higashi` zone) — every one already a real key
+  // in `ProceduralFacades.BUILDING_PALETTE`, so none needed adding.
   "wood-plaster": ["residence"],
   plaster: ["residence", "shop"],
   tile: ["shop", "office", "residence"],
@@ -589,6 +596,19 @@ const KINDS_BY_BUILDING_SET: Record<string, readonly GigVenueKind[]> = {
   "london-stucco": ["residence"],
   "london-highstreet": ["shop", "residence"],
   "london-city": ["office", "office", "residence"],
+
+  // Tokyo (authenticity plan P2). Mirrors what KINDS_BY_BLOCK_MATERIAL
+  // already produces for these same zones/road today, so the delivery pool
+  // does not silently reshuffle just because a parcel gained a
+  // `buildingSet`: miyanosaka/yamashita/nishi alternate wood-plaster
+  // (residence only) and plaster (residence, shop) parcels ~50/50, which
+  // resolves to roughly 3-in-4 residence / 1-in-4 shop overall;
+  // jp-nakamise-yokocho alternates wood-plaster and tile (shop, office,
+  // residence) the same way, roughly 2-in-3 residence / 1-in-6 shop /
+  // 1-in-6 office. Never "restaurant" — a generated address is never a
+  // food pickup (docs/map-authoring.md's Addresses section).
+  "tokyo-house": ["residence", "residence", "residence", "shop"],
+  "tokyo-shotengai": ["residence", "residence", "residence", "residence", "shop", "office"],
 };
 
 const polylineLength = (points: readonly WorldPoint[]): number =>

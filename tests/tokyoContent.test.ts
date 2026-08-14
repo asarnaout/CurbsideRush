@@ -290,13 +290,35 @@ describe("Tokyo street wall (expansion Phase 4, R18)", () => {
 
     // Every Phase-4 district this generator actually built must clear a
     // real floor — tuned with 5-16 points of margin below this map's own
-    // measured numbers (miyanosaka 94.8%, yamashita 97.0%, nishi 100%,
-    // higashi 96.2%, ring 86.3% — the long arterials, so more crossings and
-    // more clearance-trimmed corners than a pure residential web, hence the
-    // lowest floor — riverside 100% off a small one-sided sample, downtown
-    // 90.6%), not copied from Cairo's own (differently-shaped) percentages.
-    // Margin this size catches a real regression (half a district's blocks
-    // deleted) while not being flaky against ordinary future re-tuning.
+    // measured numbers (originally miyanosaka 94.8%, yamashita 97.0%, nishi
+    // 100%, higashi 96.2%, ring 86.3% — the long arterials, so more
+    // crossings and more clearance-trimmed corners than a pure residential
+    // web, hence the lowest floor — riverside 100% off a small one-sided
+    // sample, downtown 90.6%), not copied from Cairo's own (differently-
+    // shaped) percentages. Margin this size catches a real regression (half
+    // a district's blocks deleted) while not being flaky against ordinary
+    // future re-tuning.
+    //
+    // Re-measured after the Tokyo authenticity plan's P2 (`tokyo-house`/
+    // `tokyo-shotengai` go live on miyanosaka/yamashita/nishi and
+    // jp-nakamise-yokocho): miyanosaka/yamashita/nishi all reach 100%
+    // (a real gain — the glb parcels sit closer to the kerb than the old
+    // procedural grid's depth did, closing junction-corner gaps the grid
+    // left), higashi 92.3%, ring 88.9%, riverside 100%, downtown 81.3%.
+    // Every zone moved, not only the four converted ones, because
+    // `planMapBuildings`'s shared `seededUnit` stream is consumed by
+    // procedural blocks in authored-block order and an asset-slot block no
+    // longer draws from it (its own doc comment's documented mechanism,
+    // plan section 6.1's "one-time re-baseline") — every STILL-procedural
+    // block downstream of a newly-converted one now reads different
+    // width/depth/height draws, which shifts which facade cells survive
+    // without moving any of that block's own authored geometry. All seven
+    // stay comfortably above their floor; downtown's 81.3% (6.3 points
+    // over its 75% floor) is the one to watch if a future phase trims
+    // further, since `jp-nakamise-yokocho`'s glb parcel is genuinely
+    // shallower than the procedural grid it replaced (see
+    // `tokyoRoadsideCandidate`'s own comment for why the set decides its
+    // own depth).
     const FLOOR_BY_ZONE: Readonly<Record<TokyoBlockZone, number>> = {
       miyanosaka: 0.85,
       yamashita: 0.85,

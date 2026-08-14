@@ -12,6 +12,7 @@ import type {
   WorldPoint,
 } from "../types";
 import { CONNECTOR_BLEND_RUN_M, buildLaneTrueGeometry } from "../laneConnectors";
+import { buildingSetDepthM, isBuildingSetId } from "../buildingSets";
 import { hashStringToSeed, PAVED_SIDEWALK_WIDTH_M } from "../visuals";
 import {
   anchoredSpawn,
@@ -2195,32 +2196,37 @@ function tokyoBlockOverlapsParkOrWater(
 }
 
 // =============================================================================
-// Street wall (Tokyo expansion Phase 4, R18): a roadside parcel behind both
-// kerbs of every generated road, so no generated street reads as bare
-// asphalt with grey nothing behind it. Tokyo stays a fully procedural-facade
-// city (`buildingSets: []` in `visuals.ts`'s `MAP_VISUAL_PROFILES` — London
-// already proved the procedural wall reads right, and no Japanese
-// street-wall glb kit exists in this repo), so every parcel below is plain
-// `{material, heightRange, density}` with no `buildingSet`/`streetEdges` —
-// simpler than London's own call sites in that one respect.
+// Street wall (Tokyo expansion Phase 4, R18; `buildingSet` wiring added by
+// the Tokyo authenticity plan's P2): a roadside parcel behind both kerbs of
+// every generated road, so no generated street reads as bare asphalt with
+// grey nothing behind it. Most of the map is still fully procedural-facade
+// (plain `{material, heightRange, density}`, no `buildingSet`/`streetEdges`)
+// — `tokyo-house`/`tokyo-shotengai` only convert miyanosaka/yamashita/nishi
+// and `jp-nakamise-yokocho` (`tokyoRoadsideBuildingSet` below); every other
+// zone has no glb kit of its own yet (P3+: zakkyo/manshon) and stays
+// procedural exactly as before this phase.
 //
-// `tokyoRoadsideParcel` is this file's own copy of London's file-private
-// `roadsideParcel` (`cities/london.ts`, search that name) — cloned rather
-// than imported (it is not exported there, and Tokyo's own foreign-road
-// universe differs), with the `buildingSetFor` branch dropped entirely since
-// it is always a no-op here. Algorithm, verbatim from London: `side` is the
-// sign of the road's RIGHT-HAND normal travelling `from`->`to` (+1 =
-// driver's right), NOT a compass reading — get this backwards and parcels
-// ship on the wrong kerb, the same class of bug as venues shipping on the
-// wrong side (`docs/map-authoring.md`). Length is DERIVED, not authored: a
-// parcel starts as long as its road segment (minus a 12 m inset each end)
-// and the end nearer each violation retreats a metre at a time — never
-// symmetric — until clear of every OTHER road's carriageway+pavement+0.7 m
-// clearance, tested by real segment-to-span distance (corner-only checks
-// miss a parcel whose long side straddles a crossing road with both corners
-// clear). A parcel that cannot keep `TOKYO_MIN_PARCEL_HALF_LENGTH_M` (13, so
-// a 26 m floor after the two 12 m end insets — an authored span under ~50 m
-// ships NOTHING) is dropped rather than shipped as a slab in the road.
+// `tokyoRoadsideParcel` itself is this file's own copy of London's
+// file-private `roadsideParcel` (`cities/london.ts`, search that name) —
+// cloned rather than imported (it is not exported there, and Tokyo's own
+// foreign-road universe differs), with the `buildingSetFor` branch dropped
+// entirely since it is always a no-op INSIDE THIS FUNCTION: a placed
+// candidate's `buildingSet`/`streetEdges` are attached by its caller
+// (`tokyoRoadsideCandidate`, below `tokyoDepthJitterM`), never by this
+// trimmer, which only ever shapes a plain procedural rect. Algorithm,
+// verbatim from London: `side` is the sign of the road's RIGHT-HAND normal
+// travelling `from`->`to` (+1 = driver's right), NOT a compass reading —
+// get this backwards and parcels ship on the wrong kerb, the same class of
+// bug as venues shipping on the wrong side (`docs/map-authoring.md`).
+// Length is DERIVED, not authored: a parcel starts as long as its road
+// segment (minus a 12 m inset each end) and the end nearer each violation
+// retreats a metre at a time — never symmetric — until clear of every OTHER
+// road's carriageway+pavement+0.7 m clearance, tested by real
+// segment-to-span distance (corner-only checks miss a parcel whose long
+// side straddles a crossing road with both corners clear). A parcel that
+// cannot keep `TOKYO_MIN_PARCEL_HALF_LENGTH_M` (13, so a 26 m floor after
+// the two 12 m end insets — an authored span under ~50 m ships NOTHING) is
+// dropped rather than shipped as a slab in the road.
 // =============================================================================
 
 /**
@@ -2645,9 +2651,242 @@ const TOKYO_BRIDGE_ROAD_IDS: ReadonlySet<string> = new Set(TOKYO_RIVER_SPECS.map
  * `docs/simulation-core.md`). */
 const tokyoDepthJitterM = (seedKey: string): number => (hashStringToSeed(`${seedKey}:depth`) % 5) - 2;
 
+// -----------------------------------------------------------------------
+// buildingSet derivation, holdback and back-to-road demotion (Tokyo
+// authenticity plan P2, `.claude/tokyo-authenticity-plan.md` section 6.1) —
+// cloned from Cairo's shipped pattern (`cairoRoadsideBuildingSet` /
+// `cairoParcelKeepsFacadeBoxes` / `CAIRO_BACK_TO_ROAD_MARGIN_M` /
+// `backEdgeNearsARoad` in `cities/cairo.ts`), adapted to this file's own
+// per-road-zone generator rather than Cairo's per-position one.
+// -----------------------------------------------------------------------
+
 /**
- * The whole generated-half street wall: one `tokyoRoadsideParcel` call per
- * (road segment, side) of every non-bridge generated road, skipping
+ * Which glb street wall a generated roadside parcel is dressed with. Keyed
+ * off the zone this file already computes per road (`TOKYO_ZONE_FOR_ROAD`)
+ * rather than Cairo's raw world position, since Tokyo's districting is
+ * already per-road, not per-position.
+ *
+ * `jp-nakamise-yokocho` gets its own shotengai dressing even though its
+ * ROAD is zoned "downtown" (`TOKYO_DOWNTOWN_ROAD_IDS`) — the plan is
+ * explicit that only this one road converts, not all of downtown: the
+ * zakkyo/manshon sets the rest of downtown would want don't exist yet (P3).
+ * Every other zone (`higashi`, `ring`, `riverside`, the rest of `downtown`)
+ * stays procedural this phase — `undefined`, not a gap: `higashi` in
+ * particular reads "mixed mid-rise" (8-22 m), nothing like a house zone or
+ * a shopping street, so it is deliberately not force-fit onto either set
+ * built this phase.
+ *
+ * Returns a plain `string` rather than `BuildingSetId`, matching
+ * `cairoRoadsideBuildingSet`'s own signature exactly — the caller narrows
+ * with `isBuildingSetId` where it actually needs the typed id (`build`,
+ * below), so this function needs no import of the `BuildingSetId` type.
+ */
+const tokyoRoadsideBuildingSet = (
+  zone: TokyoBlockZone | undefined,
+  roadId: string,
+): string | undefined => {
+  if (roadId === "jp-nakamise-yokocho") return "tokyo-shotengai";
+  if (zone === "miyanosaka" || zone === "yamashita" || zone === "nishi") return "tokyo-house";
+  return undefined;
+};
+
+/**
+ * One roadside parcel in four keeps the procedural facade grid instead of a
+ * glb street wall — same rationale and shape as Cairo's
+ * `cairoParcelKeepsFacadeBoxes`. TA1 (the plan's own brief) says mix, not
+ * replace, and Tokyo's night-window procedural facades are genuinely good;
+ * the glb majority is a decision, not a count. Deterministic on the block
+ * id (never `Math.random`, which would desync loads); the Tokyo-specific
+ * seed suffix keeps this draw independent of any other city's own holdback
+ * roll for the same-shaped id string.
+ */
+const tokyoParcelKeepsFacadeBoxes = (blockId: string): boolean =>
+  hashStringToSeed(`${blockId}-tokyo-street-wall`) % 4 === 0;
+
+/**
+ * The Sketchfab house/shop kit is one-sided, the same as Cairo's Quaternius
+ * kit — nothing in this batch was measured with glazing or a door on more
+ * than one face — so a glb parcel's far edge is a windowless back. Within
+ * this margin of another road's pavement that back would be the whole view
+ * from that carriageway, so the parcel demotes to the procedural facade
+ * grid instead (glazes all four faces). Same value as Cairo's own
+ * `CAIRO_BACK_TO_ROAD_MARGIN_M`, and the same constraint on it: must stay
+ * below 1.5 + the shallower of `tokyo-house`/`tokyo-shotengai`'s own
+ * `buildingSetDepthM` (11.82, tokyo-house — tokyo-shotengai's is 12.91) or
+ * a parcel could trip on its own road.
+ */
+const TOKYO_BACK_TO_ROAD_MARGIN_M = 6;
+
+const tokyoPointToSegmentM = (p: WorldPoint, a: WorldPoint, b: WorldPoint): number => {
+  const abX = b.x - a.x;
+  const abZ = b.z - a.z;
+  const lengthSq = abX * abX + abZ * abZ;
+  const t = lengthSq
+    ? Math.max(0, Math.min(1, ((p.x - a.x) * abX + (p.z - a.z) * abZ) / lengthSq))
+    : 0;
+  return Math.hypot(p.x - (a.x + abX * t), p.z - (a.z + abZ * t));
+};
+
+/** Exact segment-to-segment distance — no sampling, so nothing can slip
+ * between probe points on a long back edge. Clone of Cairo's own
+ * file-private `segmentToSegmentM` — this file already clones rather than
+ * imports Cairo's roadside-parcel machinery wholesale, see
+ * `tokyoRoadsideParcel`'s own doc comment above. */
+const tokyoSegmentToSegmentM = (
+  a1: WorldPoint,
+  a2: WorldPoint,
+  b1: WorldPoint,
+  b2: WorldPoint,
+): number => {
+  const cross = (o: WorldPoint, p: WorldPoint, q: WorldPoint): number =>
+    (p.x - o.x) * (q.z - o.z) - (p.z - o.z) * (q.x - o.x);
+  const d1 = cross(b1, b2, a1);
+  const d2 = cross(b1, b2, a2);
+  const d3 = cross(a1, a2, b1);
+  const d4 = cross(a1, a2, b2);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+    return 0;
+  }
+  return Math.min(
+    tokyoPointToSegmentM(a1, b1, b2),
+    tokyoPointToSegmentM(a2, b1, b2),
+    tokyoPointToSegmentM(b1, a1, a2),
+    tokyoPointToSegmentM(b2, a1, a2),
+  );
+};
+
+/**
+ * Junction-proximity margin excluded from each end of the back-edge check
+ * below, before testing it against foreign roads.
+ *
+ * Cairo's own `backEdgeNearsARoad` tests a whole piece's back edge as one
+ * line safely, because Cairo's generator SPLITS every run into pieces no
+ * longer than 110 m (`cairoRoadsideBuildingSet`'s call site, `runCount`).
+ * Tokyo's generator never splits — one `tokyoRoadsideParcel` candidate
+ * spans a whole inter-junction road segment, which can run several hundred
+ * metres (measured: `jp-mn-wakaba-dori`'s is 476 m). Every one of THOSE
+ * segments terminates at another road within roughly its own half-width —
+ * that is what "terminates" means — so testing the full-length back edge
+ * as a single segment-to-segment distance made ~every candidate's back
+ * edge register as "close to a road" at the tip nearest its own far
+ * junction, which is a T-junction doing exactly what a T-junction does,
+ * not a second street crowding the parcel's real street-facing exposure.
+ * Measured live (this phase, before this constant existed): 0 of 280
+ * blocks kept a `buildingSet` — every single candidate demoted. Excluding
+ * a margin from each end (mirroring `tokyoRoadsideParcel`'s own 12 m
+ * end-inset, scaled up a little since this check runs on the
+ * already-trimmed span) restores the check to what it is actually meant to
+ * catch: a genuine second road running close and roughly parallel for a
+ * real stretch of the parcel's own length, which still trips the
+ * mid-span test regardless of how much of each end is excluded.
+ */
+const TOKYO_BACK_EDGE_END_INSET_M = 20;
+
+/**
+ * Whether a glb-depth candidate's blank back would crowd another road.
+ * Derived from the block's own `center`/`headingDeg`/`size` rather than
+ * closure state, unlike Cairo's version — `tokyoRoadsideParcel` doesn't
+ * expose its internal along/right vectors the way Cairo's fully-inline
+ * generator loop does. `side` is the one extra fact needed: local +z (the
+ * block's own `size.z` axis) points toward the road when `side` is +1 and
+ * away from it when -1 (`headingDeg = atan2(-uz, ux)` puts local +x along
+ * (ux, uz) — the same road-forward direction `tokyoRoadsideParcel` derives
+ * `from`->`to` — so local +z is (-uz, ux); the block sits offset toward
+ * `side * (uz, -ux)` from the road, i.e. the road lies toward `side *`
+ * local +z from the block's own centre), so the back edge is the opposite
+ * face.
+ */
+const tokyoBackEdgeNearsARoad = (
+  block: ProceduralBlock,
+  side: 1 | -1,
+  allSurfaces: readonly RoadSurface[],
+): boolean => {
+  const yawRad = ((block.headingDeg ?? 0) * Math.PI) / 180;
+  const ux = Math.cos(yawRad);
+  const uz = -Math.sin(yawRad);
+  const halfU = block.size.x / 2;
+  const halfV = block.size.z / 2;
+  const backMidX = block.center.x + -uz * (-side * halfV);
+  const backMidZ = block.center.z + ux * (-side * halfV);
+  const testHalfU = Math.max(0, halfU - Math.min(TOKYO_BACK_EDGE_END_INSET_M, halfU * 0.4));
+  const backStart = point(backMidX - ux * testHalfU, backMidZ - uz * testHalfU);
+  const backEnd = point(backMidX + ux * testHalfU, backMidZ + uz * testHalfU);
+  return allSurfaces.some((surface) => {
+    const reach =
+      surface.widthM / 2 +
+      (surface.sidewalkWidthM ?? PAVED_SIDEWALK_WIDTH_M) +
+      0.75 +
+      TOKYO_BACK_TO_ROAD_MARGIN_M;
+    for (let index = 1; index < surface.centerline.length; index += 1) {
+      if (
+        tokyoSegmentToSegmentM(backStart, backEnd, surface.centerline[index - 1], surface.centerline[index]) <
+        reach
+      ) {
+        return true;
+      }
+    }
+    return false;
+  });
+};
+
+/**
+ * One (segment, side) candidate of the generated street wall. The set
+ * decides its own depth (`buildingSetDepthM`, not the zone's `depthM` —
+ * plan section 6.1), never the reverse, so the depth is known before
+ * `tokyoRoadsideParcel` places the parcel — mirrors Cairo's own
+ * `pieceFor`'s `build` closure. Demotes to the procedural boxes, at the
+ * SAME depth/placement math this road would have used before this phase,
+ * when the glb attempt fails to produce a block at all (too short after
+ * trimming) or its back would crowd another road
+ * (`tokyoBackEdgeNearsARoad`) — the two-step "try the glb depth, retry at
+ * the procedural depth if it doesn't clear" shape, same as Cairo's.
+ */
+const tokyoRoadsideCandidate = (
+  id: string,
+  surface: RoadSurface,
+  from: WorldPoint,
+  to: WorldPoint,
+  side: 1 | -1,
+  style: TokyoZoneStyle,
+  seedKey: string,
+  material: string,
+  preferredSet: string | undefined,
+  allSurfaces: readonly RoadSurface[],
+): ProceduralBlock | null => {
+  const build = (buildingSet: string | undefined): ProceduralBlock | null => {
+    const depthM =
+      buildingSet && isBuildingSetId(buildingSet)
+        ? buildingSetDepthM(buildingSet) + 1.5
+        : style.depthM + tokyoDepthJitterM(seedKey);
+    const raw = tokyoRoadsideParcel(
+      id,
+      surface.id,
+      from,
+      to,
+      side,
+      surface.widthM,
+      depthM,
+      material,
+      style.heightRange,
+      style.density,
+      allSurfaces,
+    );
+    if (!raw || !buildingSet) return raw;
+    // One edge, and it is the near one: `headingDeg` puts local +z toward
+    // the road at `side` (see `tokyoBackEdgeNearsARoad`'s own doc comment)
+    // — same `side > 0 ? "+z" : "-z"` rule as Cairo's `ROADSIDE_RANKS = 0`
+    // strips, rank-0 only, no second rank.
+    return { ...raw, buildingSet, streetEdges: [side > 0 ? "+z" : "-z"] as const };
+  };
+  if (!preferredSet) return build(undefined);
+  const glb = build(preferredSet);
+  if (glb && !tokyoBackEdgeNearsARoad(glb, side, allSurfaces)) return glb;
+  return build(undefined);
+};
+
+/**
+ * The whole generated-half street wall: one `tokyoRoadsideCandidate` call
+ * per (road segment, side) of every non-bridge generated road, skipping
  * whichever side `TOKYO_OPEN_WATERFRONT_SIDES` marks as open river
  * frontage. Iterating per actual centreline segment (never a merged
  * multi-segment span) matters: `tokyoRoadsideParcel` can only trim a
@@ -2674,6 +2913,7 @@ function buildTokyoGeneratedBlocks(
   for (const surface of generatedSurfaces) {
     if (TOKYO_BRIDGE_ROAD_IDS.has(surface.id)) continue;
     const style = tokyoStyleForRoad(surface.id);
+    const zone = TOKYO_ZONE_FOR_ROAD[surface.id];
     const openSides = TOKYO_OPEN_WATERFRONT_SIDES[surface.id] ?? [];
     for (let segmentIndex = 0; segmentIndex + 1 < surface.centerline.length; segmentIndex += 1) {
       const from = surface.centerline[segmentIndex];
@@ -2682,17 +2922,24 @@ function buildTokyoGeneratedBlocks(
         if (openSides.includes(side)) continue;
         const seedKey = `${surface.id}:${segmentIndex}:${side}`;
         const material = hashStringToSeed(seedKey) % 2 === 0 ? style.materials[0] : style.materials[1];
-        const block = tokyoRoadsideParcel(
-          `jp-blk-${surface.id}-${segmentIndex}-${side === 1 ? "p" : "n"}`,
-          surface.id,
+        const blockId = `jp-blk-${surface.id}-${segmentIndex}-${side === 1 ? "p" : "n"}`;
+        // Decided once per parcel so a parcel and its retries agree — same
+        // "decided before the final centre is known" discipline as Cairo's
+        // own `preferredSet` (its own comment: the set decides the depth,
+        // so it has to be known first).
+        const preferredSet = tokyoParcelKeepsFacadeBoxes(blockId)
+          ? undefined
+          : tokyoRoadsideBuildingSet(zone, surface.id);
+        const block = tokyoRoadsideCandidate(
+          blockId,
+          surface,
           from,
           to,
           side,
-          surface.widthM,
-          style.depthM + tokyoDepthJitterM(seedKey),
+          style,
+          seedKey,
           material,
-          style.heightRange,
-          style.density,
+          preferredSet,
           allSurfaces,
         );
         // R18's own exemption: never wall off a park frontage or the river
