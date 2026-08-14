@@ -319,6 +319,63 @@ stucco blocks are real Cairo, and their size/height jitter varies in a way the
 model catalogue cannot — deleting the holdback would make the map *more*
 repetitive. Deterministic on the block id; `Math.random` would desync loads.
 
+### Tokyo is two halves
+
+Gotokuji — the original ~600×420 m village, node ids `jp-a`…`jp-ss-e` — is still
+**hand-authored lane by lane**, and stays that way: its 56 lanes and 20 road
+surfaces are the seed the ten-phase expansion (`.claude/tokyo-city-expansion-plan.md`,
+gitignored) grew around, the same way South Kensington anchors London.
+
+Everything grown around it comes from **`TOKYO_ROAD_SPECS` plus the turn
+whitelist in `TOKYO_JUNCTION_CONNECTORS`** — London's own pattern, mirrored
+again since Tokyo is also left-hand traffic. The two halves meet only at
+nodes the quarter already had (`jp-ss-w`, `jp-ss-e`, `jp-nw2`, `jp-ne2`, `jp-d`,
+`jp-j`…) — same "never write a generated lane id into a hand-authored
+`successors` literal, new roads terminate on existing nodes" discipline as
+London's own halves.
+
+**Tokyo carries its own copy of the roadside-parcel trimmer**
+(`tokyoRoadsideParcel` in `cities/tokyo.ts`, file-private) rather than
+importing London's — the algorithm, sign convention and `headingDeg` formula
+are identical on purpose, but Tokyo's foreign-road universe differs and it is
+called from a **generator loop** (one call per road-segment-and-side of every
+non-bridge generated road, keyed to a per-road `TokyoBlockZone` via
+`tokyoStyleForRoad`/`TOKYO_ZONE_FOR_ROAD`) rather than ~150 hand-authored call
+sites — Tokyo has no per-road building-set overrides to hand-tune around, so
+the district's own zone style (materials, height range, `density`) is enough.
+`density` is not a fill fraction: it is `facadeGridCells`'s grid-resolution
+knob (`count = round(3+density*7)`, tiled `columns × rows`), and only the
+front row (`columns`) is ever visible from a road-facing camera — see
+`TOKYO_ZONE_STYLE`'s own comment (Tokyo expansion Phase 10) for the draw-call
+consequence of getting this wrong.
+
+A long road threading many side-street junctions (`jp-nishi-kanjo-dori`,
+`jp-kanpachi-dori` — each 15-24 segments) can chain two short inter-junction
+segments that individually fail `tokyoRoadsideParcel`'s own 12 m end-inset
+plus `TOKYO_MIN_PARCEL_HALF_LENGTH_M` floor, leaving a bare stretch well past
+the 28 m qualifying threshold even though every *other* junction's ~24 m gap
+on the same road is normal. `tokyoPhase10RingRoadKerbPatches` is the fix
+shape: re-derive one fresh parcel spanning the whole bare interval (the
+combined span clears the floor even though its original short constituent
+segments did not) — same mechanism as the `jp-tower-park`-adjacent
+`tokyoPhase6KerbPatches` patch, both applying the generator's own R18 park/
+water exemption (`tokyoBlockOverlapsParkOrWater`) before accepting a patch,
+since a "gap" the generator left on purpose (a park providing the frontage
+instead) must stay a gap.
+
+The emptiness standard (rules 1-11 below) applies to Tokyo exactly as it does
+to the other three cities, camera-fan-verified: `tests/tokyoContent.test.ts`
+mirrors Cairo's real-geometry bare-kerb gate with an added per-district
+walled-kerb coverage floor, and `npm run audit:visual-gaps -- --maps tokyo
+--fan --full-matrix` is the same zero-new-systemic-void bar. A same-methodology
+comparison against Cairo (already through dedicated visual-gap-elimination
+phases) at full scope shows a *comparable or larger* raw fan-failure volume —
+most of it the connected margin/interstitial void the "179 systemic void
+blobs" backlog (`three-city-visual-gap-elimination-plan.md`) already scoped as
+a future initiative, not a per-map defect; Tokyo's own R2 ("not an NYC-style
+grid") guarantees real unbuilt land between its districts that a flood-fill
+blob detector will find and a camera, correctly, will not.
+
 ## Every road posts a speed limit
 
 Declared once per road — on its `NycRoadSpec` for the grid, in a per-city

@@ -751,9 +751,23 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 1_003 -> 1_060 (+57), mirrorCandidates 172 -> 166 (-6): the fixed test
     // pose's mirror-cull frustum reacting to nearby content moving, the same
     // class of drift Phases 6/7's own paragraphs above already document.
-    totalMeshes: 9_822,
-    enabledMeshes: 9_822,
-    activeMeshes: 1_060,
+    // enabledMeshes/totalMeshes 9_822 -> 9_436 (-386), activeMeshes
+    // 1_060 -> 986 (-74): Phase 10's perf remediation (see
+    // `facadeGridDrawOrderCharacterization.test.tsx`'s own Tokyo comment for
+    // the root cause and `TOKYO_ZONE_STYLE`'s comment in cities/tokyo.ts for
+    // the full reasoning) — fewer procedural buildings survive
+    // `facadeGridCells` map-wide, and this pose's fixed mirror-cull frustum
+    // loses some of them too. `survivingMaterialNamesFingerprint` is
+    // UNCHANGED below: no material was added or removed, only how many
+    // meshes use the existing ones.
+    // enabledMeshes/totalMeshes 9_436 -> 9_444 (+8): the same Phase 10 pass's
+    // visual-gap remediation (`tokyoPhase10RingRoadKerbPatches`,
+    // cities/tokyo.ts) adds 6 real buildings on the two ring roads' worst
+    // confirmed bare-kerb gaps; none sit in this fixed test pose's own
+    // mirror-cull frustum, so activeMeshes is unchanged.
+    totalMeshes: 9_444,
+    enabledMeshes: 9_444,
+    activeMeshes: 986,
     materials: 242,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

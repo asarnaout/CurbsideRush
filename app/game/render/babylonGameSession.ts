@@ -4270,7 +4270,8 @@ export class BabylonGameSession {
       cairoRooftopMaterial,
       cairoDishMaterial,
       staticSceneryFreeze: this.staticSceneryFreeze,
-      registerShadowCaster: (mesh, x, z) => this.registerShadowCaster(mesh, x, z),
+      registerShadowCaster: (mesh, x, z, castsShadow) =>
+        this.registerShadowCaster(mesh, x, z, castsShadow),
     };
     const blockById = new Map(mapPack.geometry.blocks.map((block) => [block.id, block]));
     const assetSlotEntries: PlannedAssetBuilding[] = [];
@@ -5400,9 +5401,20 @@ export class BabylonGameSession {
     }
   }
 
-  /** Static casters never move again, so their world matrices freeze here. */
-  private registerShadowCaster(mesh: AbstractMesh, x: number, z: number) {
-    this.registerStaticCell(mesh, x, z, true);
+  /** Static casters never move again, so their world matrices freeze here.
+   * `castsShadow` defaults true (every existing caller wants the shadow);
+   * Tokyo's procedural buildings (Phase 10 perf remediation, see
+   * `proceduralFacades.ts`) pass false to stay in the mirror ring's spatial
+   * hash — driving past still reflects them — while skipping the sun pass's
+   * shadow-depth draw call per building, the same trade-off NYC's own
+   * instanced street wall already makes for the identical reason. */
+  private registerShadowCaster(
+    mesh: AbstractMesh,
+    x: number,
+    z: number,
+    castsShadow = true,
+  ) {
+    this.registerStaticCell(mesh, x, z, castsShadow);
   }
 
   /**

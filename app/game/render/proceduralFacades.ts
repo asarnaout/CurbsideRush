@@ -89,11 +89,13 @@ export interface ProceduralFacadesCtx {
    * static-scenery builder in `buildScenarioEnvironment`. */
   readonly staticSceneryFreeze: TransformNode[];
   /** Files a facade or rooftop mesh into the spatial hash the shadow/mirror
-   * rings read. */
+   * rings read. `castsShadow` defaults true; pass false to stay in the
+   * mirror ring only (see `renderPlannedBuilding`'s Tokyo gate below). */
   readonly registerShadowCaster: (
     mesh: AbstractMesh,
     x: number,
     z: number,
+    castsShadow?: boolean,
   ) => void;
 }
 
@@ -197,7 +199,18 @@ export class ProceduralFacades {
       material,
     );
     facade.rotation.y = entry.yaw;
-    ctx.registerShadowCaster(facade, entry.x, entry.z);
+    // Phase 10 perf remediation: Tokyo's procedural buildings skip the sun
+    // shadow pass (still mirror-visible — `registerShadowCaster`'s false
+    // branch only sets `castsShadow`, never drops the spatial-hash entry).
+    // `docs/rendering.md`'s own `registerStaticCell` note already documents
+    // this exact trade-off for NYC's instanced street wall ("deliberately
+    // casts none"); Tokyo is the only OTHER night map, its procedural boxes
+    // are the one part of R18's street wall NYC's glb kit does not have to
+    // pay this cost for, and at 0.42 shadow darkness under a bloom-heavy
+    // night palette the loss is not something a player stops to notice.
+    // Every other procedural-facade city (Cairo, London) is untouched — the
+    // default stays true.
+    ctx.registerShadowCaster(facade, entry.x, entry.z, !ctx.mapId.includes("tokyo"));
 
     const solid = entry.solids[0];
     const representation: BuildingSolidRepresentation = {

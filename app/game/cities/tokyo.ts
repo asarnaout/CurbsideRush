@@ -2459,49 +2459,105 @@ interface TokyoZoneStyle {
   readonly depthM: number;
 }
 
+// Phase 10 perf remediation: `density` here is `facadeGridCells`'s
+// grid-resolution knob, not a fill fraction — `count = round(3+density*7)`,
+// tiled `columns = ceil(sqrt(count))` across the frontage by
+// `rows = ceil(count/columns)` deep into the block, one `createFacadeBox`
+// mesh (own draw call, never merged/instanced) per cell. Every zone sat at a
+// uniform 3x3 grid (count 8-9 across the whole 0.66-0.85 range) before this
+// pass. The naive fix — cut every zone into the 0.3-0.4 band so `columns`
+// holds at 3 (same street-facing building count) while `rows` drops to 2 —
+// was tried first and reverted for the three purely-residential webs below:
+// `tests/tokyoContent.test.ts`'s per-district walled-kerb floor dropped
+// miyanosaka to 70.1% (floor 85%) and yamashita to 63.0%, because that test's
+// coverage metric is NOT "what the camera sees from the road" (rows 1-2 are
+// genuinely behind row 0 with no lateral gap) — it is whether ANY row's
+// building covers a given frontage position at all, and rows 1-2's
+// independently-jittered widths were plugging real gaps row 0's own
+// 58-82%-of-cell-width jitter leaves. Reverted to original density for the
+// zones nowhere near the scramble (no perf benefit from cutting them
+// anyway); kept the cut only for `downtown`, `ring` and `riverside`, whose
+// roads (`jp-chuo-dori-north` is `ring`, `jp-kawate-dori`/`jp-kawagishi-dori`
+// are `riverside`) a live active-mesh dump at the Chuo-dori x Ekimae-dori
+// scramble (`__sideswapActiveMeshNames`, Phase 10 investigation) confirmed
+// were still drawing full 8-cell blocks inside the same 440 m night-fog
+// bubble as the scramble itself. `ring`/`riverside` land one notch less
+// aggressive than `downtown` (`count=6` not `5`) for coverage-floor margin —
+// their floors (0.7/0.8) are already the map's tightest. See the PR body for
+// the before/after draw-call numbers this bought back.
 const TOKYO_ZONE_STYLE: Readonly<Record<TokyoBlockZone, TokyoZoneStyle>> = {
   // Low-rise residential webs (§8.8): "GAPPY IS FORBIDDEN at the kerb" —
   // wood-plaster/plaster, short, dense enough to read as a real
-  // neighbourhood at 30 km/h.
-  miyanosaka: { materials: ["wood-plaster", "plaster"], heightRange: [5, 14], density: 0.7, depthM: 30 },
-  yamashita: { materials: ["wood-plaster", "plaster"], heightRange: [5, 13], density: 0.68, depthM: 30 },
+  // neighbourhood at 30 km/h. Original density: nowhere near the scramble's
+  // fog bubble, so the Phase 10 perf cut above bought nothing here and cost
+  // real coverage-floor margin (see the comment above) — reverted.
+  miyanosaka: { materials: ["wood-plaster", "plaster"], heightRange: [5, 14], density: 0.85, depthM: 30 },
+  yamashita: { materials: ["wood-plaster", "plaster"], heightRange: [5, 13], density: 0.85, depthM: 30 },
   nishi: { materials: ["plaster", "wood-plaster"], heightRange: [5, 13], density: 0.66, depthM: 28 },
-  // East bank: mixed mid-rise per §8.8.
+  // East bank: mixed mid-rise per §8.8. Original density — also far from the
+  // scramble; reverted for the same reason as the three webs above.
   higashi: { materials: ["plaster", "concrete"], heightRange: [8, 22], density: 0.75, depthM: 32 },
   // The three N-S ring roads, the two E-W closers, and the Setagaya-dori/
   // Koshu-kaido/Minami-kaido arterials: wider carriageways threading through
   // (and between) the residential webs — a notch taller/denser than a pure
-  // residential local, still low-rise.
-  ring: { materials: ["plaster", "tile"], heightRange: [6, 16], density: 0.74, depthM: 34 },
+  // residential local, still low-rise. `jp-chuo-dori-north` (this zone) runs
+  // straight through the scramble's own fog bubble, so this one keeps the
+  // Phase 10 cut (`count=6`, one notch lighter than downtown's `count=5` for
+  // this zone's own tighter 70% coverage floor).
+  ring: { materials: ["plaster", "tile"], heightRange: [6, 16], density: 0.4, depthM: 34 },
   // Land side only — the river side is skipped entirely via
   // TOKYO_OPEN_WATERFRONT_SIDES. A mid-rise band reading as
   // riverside-adjacent, one notch shorter than the downtown core proper.
-  riverside: { materials: ["tile", "plaster"], heightRange: [9, 21], density: 0.77, depthM: 34 },
+  // `jp-kawate-dori` sits ~150-200 m east of the scramble, inside its fog
+  // bubble — keeps the Phase 10 cut for the same reason `ring` does.
+  riverside: { materials: ["tile", "plaster"], heightRange: [9, 21], density: 0.4, depthM: 34 },
   // Sakuragawa Downtown: the neon core, tall blocks (§8.8). jp-chuo-dori
   // itself overrides taller still (TOKYO_ROAD_STYLE_OVERRIDE below) — the
   // other downtown streets carry this base.
-  downtown: { materials: ["tile", "plaster"], heightRange: [11, 27], density: 0.8, depthM: 36 },
+  //
+  // Phase 10 perf remediation: `density` here is not a fill fraction, it is
+  // `facadeGridCells`'s grid-resolution knob — `count = round(3 + density*7)`,
+  // tiled `columns = ceil(sqrt(count))` across the frontage by
+  // `rows = ceil(count/columns)` deep into the block. Every cell becomes its
+  // own `createFacadeBox` mesh (`render/proceduralFacades.ts`), never merged
+  // or instanced, so it is one GPU draw call per cell. At the old 0.8-0.85
+  // downtown range that grid was 3x3 (rows=3): only row 0 fronts the street,
+  // rows 1-2 sit directly behind it with zero lateral gap and are therefore
+  // fully occluded from every road-facing camera angle on that block's own
+  // frontage — pure draw-call cost with no visible benefit. 0.32-0.35 keeps
+  // `count` at 5 (`columns` stays 3, so the street-facing row is UNCHANGED —
+  // same building count/variety at the kerb) while dropping to `rows=2`,
+  // cutting roughly 40% of downtown's procedural building count map-wide.
+  // Measured at the Chuo-dori x Ekimae-dori scramble (the plan's own §8.11
+  // dense-street gate pose): see the Phase 10 PR body for the exact
+  // before/after draw-call numbers this bought back.
+  downtown: { materials: ["tile", "plaster"], heightRange: [11, 27], density: 0.32, depthM: 36 },
 };
 
 /** Per-road deviations from its zone's base style — a handful of specific
  * streets that read better with their own numbers than their zone's shared
  * default (mirrors London's per-call-site hand-tuning, at the scale of one
- * override per interesting road instead of one per parcel). */
+ * override per interesting road instead of one per parcel). Every downtown
+ * entry's `density` was pulled down alongside the zone default above in the
+ * Phase 10 perf pass (same row-cutting reasoning, same `count=5`/`rows=2`
+ * target) — `jp-chuo-dori` keeps a nominally higher figure than its
+ * downtown neighbours to preserve the "tallest, densest street" ordering,
+ * though both land in the same grid outcome. */
 const TOKYO_ROAD_STYLE_OVERRIDE: Readonly<Partial<Record<string, Partial<TokyoZoneStyle>>>> = {
   // The 4-lane core: the tallest, densest street on the map, up to the
   // plan's own suggested [18,42] near the scramble.
-  "jp-chuo-dori": { heightRange: [18, 42], density: 0.85, depthM: 40 },
+  "jp-chuo-dori": { heightRange: [18, 42], density: 0.35, depthM: 40 },
   // The shotengai: a shared-space alley wants low, tight, densely-packed
   // shophouses, not office-block height — a deliberately different read
   // from its downtown neighbours despite sharing the zone.
-  "jp-nakamise-yokocho": { materials: ["wood-plaster", "tile"], heightRange: [5, 11], density: 0.85, depthM: 18 },
+  "jp-nakamise-yokocho": { materials: ["wood-plaster", "tile"], heightRange: [5, 11], density: 0.32, depthM: 18 },
   // Quarter<->downtown connectors: transitional height between the old
   // neighbourhood's low-rise and the downtown core proper.
-  "jp-renraku-dori": { heightRange: [7, 16], density: 0.72, depthM: 26 },
-  "jp-shotengai-nishi-dori": { heightRange: [6, 15], density: 0.72, depthM: 28 },
-  "jp-uptown-higashi": { heightRange: [6, 14], density: 0.7, depthM: 26 },
-  "jp-chuo-dori-south": { heightRange: [9, 19], density: 0.75, depthM: 30 },
-  "jp-eki-mae-dori": { heightRange: [10, 22], density: 0.78, depthM: 32 },
+  "jp-renraku-dori": { heightRange: [7, 16], density: 0.32, depthM: 26 },
+  "jp-shotengai-nishi-dori": { heightRange: [6, 15], density: 0.32, depthM: 28 },
+  "jp-uptown-higashi": { heightRange: [6, 14], density: 0.32, depthM: 26 },
+  "jp-chuo-dori-south": { heightRange: [9, 19], density: 0.32, depthM: 30 },
+  "jp-eki-mae-dori": { heightRange: [10, 22], density: 0.32, depthM: 32 },
 };
 
 const TOKYO_RING_ROAD_IDS: readonly string[] = [
@@ -2704,6 +2760,97 @@ const tokyoPhase6KerbPatches: readonly ProceduralBlock[] = (() => {
   return patch ? [patch] : [];
 })();
 
+/**
+ * Phase 10 visual-gap remediation: the two long N-S ring roads
+ * (`jp-nishi-kanjo-dori`, `jp-kanpachi-dori`) each thread through dozens of
+ * side-street T-junctions (`buildTokyoGeneratedBlocks`'s own doc comment:
+ * "Kanpachi-dori alone has 24 segments"), and several of those inter-
+ * junction segments are short enough that the per-segment generator's
+ * unconditional 12 m end-inset (`tokyoRoadsideParcel`'s `lo`/`hi` blanket
+ * retreat, `docs/map-authoring.md`'s "roadside parcel's length is derived"
+ * paragraph) eats the whole thing — the exact "span under ~50 m ships
+ * NOTHING" trap. That is normal at every OTHER 24 m-ish junction gap on this
+ * map (below the ~28 m bare-kerb qualifying threshold, present at every
+ * junction on every city that uses this parcel family, not a defect) — but
+ * a full-scope `--fan --full-matrix` visual-gap audit (Phase 10, the first
+ * time this gate has run for Tokyo at full scope) found several SPECIFIC
+ * stretches on these two roads where two or more such short segments chain
+ * together into a genuinely bare 52-114 m run, well past that threshold,
+ * confirmed camera-side via `__sideswapVisualGapOverlay`. Each patch below
+ * re-derives one fresh parcel spanning the exact bare interval (same
+ * mechanism as `tokyoPhase6KerbPatches` above): the combined span easily
+ * clears `TOKYO_MIN_PARCEL_HALF_LENGTH_M` even though its ORIGINAL
+ * constituent segment(s) individually did not, and the function's own
+ * foreign-road clearance re-trims against any side street actually crossing
+ * the middle, so this needs no manual notch-cutting. World-edge-terminus
+ * gaps (both roads' own z=-1140/+1140 ends) get the same treatment — a road
+ * simply dead-ending 12 m short of its own drawn terminus is exactly as
+ * bare as a skipped interior segment.
+ */
+const tokyoPhase10RingRoadKerbPatches: readonly ProceduralBlock[] = (() => {
+  const allSurfaces = [...jpQuarterSurfaces, ...tokyoGeneratedHalf.generatedSurfaces];
+  interface RingGap {
+    readonly roadId: string;
+    readonly x: number;
+    readonly zLo: number;
+    readonly zHi: number;
+    readonly side: 1 | -1;
+  }
+  const gaps: readonly RingGap[] = [
+    // jp-nishi-kanjo-dori (x=-1200, width 8) — both world-edge termini on
+    // both flanks, plus two interior chained-short-segment runs on the "p"
+    // (east/inner) flank only (the "n"/outer flank's own interior segments
+    // all individually cleared the floor).
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: -1140, zHi: -1088, side: -1 },
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: 1088, zHi: 1140, side: -1 },
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: -1140, zHi: -1088, side: 1 },
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: -982, zHi: -888, side: 1 },
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: -180, zHi: -88, side: 1 },
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: 1088, zHi: 1140, side: 1 },
+    // jp-kanpachi-dori (x=-700, width 11) — same shape, both flanks this
+    // time (it carries more side-street junctions per `buildTokyoGeneratedBlocks`'s
+    // own "24 segments" note, so more chances for two short ones to chain).
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: -1140, zHi: -1088, side: -1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: -852, zHi: -788, side: -1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: 548, zHi: 612, side: -1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: 1088, zHi: 1140, side: -1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: -1140, zHi: -1088, side: 1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: -1052, zHi: -958, side: 1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: -852, zHi: -788, side: 1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: 548, zHi: 662, side: 1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: 1088, zHi: 1140, side: 1 },
+  ];
+  const parks = [...TOKYO_QUARTER_PARKS, ...TOKYO_PHASE6_PARKS];
+  const waterBodies = [...TOKYO_WATER_BODIES, ...TOKYO_PHASE6_WATER_BODIES];
+  const patches: ProceduralBlock[] = [];
+  for (const [index, gap] of gaps.entries()) {
+    const style = tokyoStyleForRoad(gap.roadId);
+    const roadWidthM = allSurfaces.find((s) => s.id === gap.roadId)?.widthM ?? 8;
+    const patch = tokyoRoadsideParcel(
+      `jp-blk-${gap.roadId}-p10patch-${index}-${gap.side === 1 ? "p" : "n"}`,
+      gap.roadId,
+      point(gap.x, gap.zLo),
+      point(gap.x, gap.zHi),
+      gap.side,
+      roadWidthM,
+      style.depthM,
+      index % 2 === 0 ? style.materials[0] : style.materials[1],
+      style.heightRange,
+      style.density,
+      allSurfaces,
+    );
+    // Same R18 exemption `buildTokyoGeneratedBlocks` applies: several of
+    // these gaps are exactly where a pocket green already provides the
+    // frontage instead of a building (that IS why the standard per-segment
+    // generator left them bare, not a miss) — confirmed live by
+    // `tests/content.test.ts`'s "keeps every authored block out of every
+    // park" the first time this ran without the check.
+    if (patch && tokyoBlockOverlapsParkOrWater(patch, parks, waterBodies)) continue;
+    if (patch) patches.push(patch);
+  }
+  return patches;
+})();
+
 // The names the quarter's lanes were authored under — every road here was
 // already described in the comments above, this promotes them to data. Only
 // Setagaya-dori is a real street; the rest are this neighbourhood's own.
@@ -2737,7 +2884,7 @@ const TOKYO_QUARTER_ROAD_NAMES = {
 export const TOKYO_MAP_PACK: MapPack = {
   id: "tokyo-setagaya",
   name: "Tokyo — Setagaya",
-  areaLabel: "Yamashita, Miyanosaka and Gotokuji",
+  areaLabel: "Gotokuji, Sakuragawa Downtown & the Hikari Tower",
   countryIds: ["jp"],
   roadNames: {
     ...TOKYO_QUARTER_ROAD_NAMES,
@@ -2795,6 +2942,9 @@ export const TOKYO_MAP_PACK: MapPack = {
       // The one Phase 6 kerb patch `jp-tower-park` needs — see
       // `tokyoPhase6KerbPatches`'s own doc comment above.
       ...tokyoPhase6KerbPatches,
+      // Phase 10 visual-gap remediation — see
+      // `tokyoPhase10RingRoadKerbPatches`'s own doc comment above.
+      ...tokyoPhase10RingRoadKerbPatches,
     ],
     servicePoints: [
       // The narrow south road still needs a wide set-back because the lot is

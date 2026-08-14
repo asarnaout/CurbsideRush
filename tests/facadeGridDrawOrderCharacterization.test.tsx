@@ -403,7 +403,24 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // same direction as every other block-count-driven move on this map;
     // parks themselves contribute no facade-grid draws at all (they are not
     // `buildingSet` blocks).
-    drawCount: 6_687,
+    // 6_687 -> 5_451 (Tokyo expansion Phase 10, perf remediation): the
+    // dense-street draw-call budget gate (plan §8.11) measured the Chuo-dori
+    // x Ekimae-dori scramble at ~71% over NYC's own reference, root-caused
+    // to `facadeGridCells`' `density` knob defaulting every zone to a 3x3
+    // grid (`count = round(3+density*7)` = 8-9 across the old 0.66-0.85
+    // range) when only its front row is ever visible from a road-facing
+    // camera — rows 1-2 sit directly behind it with no lateral gap. Pulled
+    // `downtown`/`ring`/`riverside` (the zones actually inside the
+    // scramble's 440 m night-fog bubble) into the 0.3-0.4 band so `columns`
+    // holds at 3 (same street-facing building count) while `rows` drops to
+    // 2 — fewer facade cells survive to draw, hence fewer random() draws.
+    // `miyanosaka`/`yamashita`/`nishi`/`higashi` (nowhere near the scramble)
+    // stayed at their original density, or slightly above it where the
+    // resulting shift in facadeGridCells' shared random-draw order needed a
+    // touch more margin against `tests/tokyoContent.test.ts`'s per-district
+    // walled-kerb floor — see `TOKYO_ZONE_STYLE`'s own comment in
+    // `cities/tokyo.ts` for the full reasoning and the measured before/after
+    // draw-call numbers.
     // "2dda315a" -> "01d2bc4a": mesh naming only (see comment above).
     // "01d2bc4a" -> "6875ac93": Phase 4's ~2_400 new planned buildings
     // change both which names exist and how many, so the fingerprint moves
@@ -418,7 +435,19 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // ahead of the facade grid in the scene-plan pass and shift whatever
     // shared ordinal the mesh names embed, without changing which cells
     // draw or in what order.
-    facadeMeshFingerprint: "10723f14",
+    // "10723f14" -> "2b85874f": Phase 10's -1_236 draws above — fewer
+    // surviving cells changes both which names exist and how many, the same
+    // class of move as "01d2bc4a" -> "6875ac93".
+    // 5_451 -> 5_559 (+108, "2b85874f" -> "2fa27cb2"): the SAME Phase 10 perf
+    // pass's visual-gap remediation — `tokyoPhase10RingRoadKerbPatches`
+    // (cities/tokyo.ts) fills 6 of the 15 candidate bare-kerb gaps its own
+    // full-scope `--fan --full-matrix` audit found on the two long ring
+    // roads (the other 9 candidates correctly produced nothing: 4 overlap an
+    // existing pocket green's frontage, the R18 exemption; 5 lost to a
+    // genuine conflicting road at a junction corner). New surviving cells,
+    // same direction as every other block-count-driven move on this map.
+    drawCount: 5_559,
+    facadeMeshFingerprint: "2fa27cb2",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the
