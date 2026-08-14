@@ -2760,6 +2760,97 @@ const tokyoPhase6KerbPatches: readonly ProceduralBlock[] = (() => {
   return patch ? [patch] : [];
 })();
 
+/**
+ * Phase 10 visual-gap remediation: the two long N-S ring roads
+ * (`jp-nishi-kanjo-dori`, `jp-kanpachi-dori`) each thread through dozens of
+ * side-street T-junctions (`buildTokyoGeneratedBlocks`'s own doc comment:
+ * "Kanpachi-dori alone has 24 segments"), and several of those inter-
+ * junction segments are short enough that the per-segment generator's
+ * unconditional 12 m end-inset (`tokyoRoadsideParcel`'s `lo`/`hi` blanket
+ * retreat, `docs/map-authoring.md`'s "roadside parcel's length is derived"
+ * paragraph) eats the whole thing — the exact "span under ~50 m ships
+ * NOTHING" trap. That is normal at every OTHER 24 m-ish junction gap on this
+ * map (below the ~28 m bare-kerb qualifying threshold, present at every
+ * junction on every city that uses this parcel family, not a defect) — but
+ * a full-scope `--fan --full-matrix` visual-gap audit (Phase 10, the first
+ * time this gate has run for Tokyo at full scope) found several SPECIFIC
+ * stretches on these two roads where two or more such short segments chain
+ * together into a genuinely bare 52-114 m run, well past that threshold,
+ * confirmed camera-side via `__sideswapVisualGapOverlay`. Each patch below
+ * re-derives one fresh parcel spanning the exact bare interval (same
+ * mechanism as `tokyoPhase6KerbPatches` above): the combined span easily
+ * clears `TOKYO_MIN_PARCEL_HALF_LENGTH_M` even though its ORIGINAL
+ * constituent segment(s) individually did not, and the function's own
+ * foreign-road clearance re-trims against any side street actually crossing
+ * the middle, so this needs no manual notch-cutting. World-edge-terminus
+ * gaps (both roads' own z=-1140/+1140 ends) get the same treatment — a road
+ * simply dead-ending 12 m short of its own drawn terminus is exactly as
+ * bare as a skipped interior segment.
+ */
+const tokyoPhase10RingRoadKerbPatches: readonly ProceduralBlock[] = (() => {
+  const allSurfaces = [...jpQuarterSurfaces, ...tokyoGeneratedHalf.generatedSurfaces];
+  interface RingGap {
+    readonly roadId: string;
+    readonly x: number;
+    readonly zLo: number;
+    readonly zHi: number;
+    readonly side: 1 | -1;
+  }
+  const gaps: readonly RingGap[] = [
+    // jp-nishi-kanjo-dori (x=-1200, width 8) — both world-edge termini on
+    // both flanks, plus two interior chained-short-segment runs on the "p"
+    // (east/inner) flank only (the "n"/outer flank's own interior segments
+    // all individually cleared the floor).
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: -1140, zHi: -1088, side: -1 },
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: 1088, zHi: 1140, side: -1 },
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: -1140, zHi: -1088, side: 1 },
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: -982, zHi: -888, side: 1 },
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: -180, zHi: -88, side: 1 },
+    { roadId: "jp-nishi-kanjo-dori", x: -1200, zLo: 1088, zHi: 1140, side: 1 },
+    // jp-kanpachi-dori (x=-700, width 11) — same shape, both flanks this
+    // time (it carries more side-street junctions per `buildTokyoGeneratedBlocks`'s
+    // own "24 segments" note, so more chances for two short ones to chain).
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: -1140, zHi: -1088, side: -1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: -852, zHi: -788, side: -1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: 548, zHi: 612, side: -1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: 1088, zHi: 1140, side: -1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: -1140, zHi: -1088, side: 1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: -1052, zHi: -958, side: 1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: -852, zHi: -788, side: 1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: 548, zHi: 662, side: 1 },
+    { roadId: "jp-kanpachi-dori", x: -700, zLo: 1088, zHi: 1140, side: 1 },
+  ];
+  const parks = [...TOKYO_QUARTER_PARKS, ...TOKYO_PHASE6_PARKS];
+  const waterBodies = [...TOKYO_WATER_BODIES, ...TOKYO_PHASE6_WATER_BODIES];
+  const patches: ProceduralBlock[] = [];
+  for (const [index, gap] of gaps.entries()) {
+    const style = tokyoStyleForRoad(gap.roadId);
+    const roadWidthM = allSurfaces.find((s) => s.id === gap.roadId)?.widthM ?? 8;
+    const patch = tokyoRoadsideParcel(
+      `jp-blk-${gap.roadId}-p10patch-${index}-${gap.side === 1 ? "p" : "n"}`,
+      gap.roadId,
+      point(gap.x, gap.zLo),
+      point(gap.x, gap.zHi),
+      gap.side,
+      roadWidthM,
+      style.depthM,
+      index % 2 === 0 ? style.materials[0] : style.materials[1],
+      style.heightRange,
+      style.density,
+      allSurfaces,
+    );
+    // Same R18 exemption `buildTokyoGeneratedBlocks` applies: several of
+    // these gaps are exactly where a pocket green already provides the
+    // frontage instead of a building (that IS why the standard per-segment
+    // generator left them bare, not a miss) — confirmed live by
+    // `tests/content.test.ts`'s "keeps every authored block out of every
+    // park" the first time this ran without the check.
+    if (patch && tokyoBlockOverlapsParkOrWater(patch, parks, waterBodies)) continue;
+    if (patch) patches.push(patch);
+  }
+  return patches;
+})();
+
 // The names the quarter's lanes were authored under — every road here was
 // already described in the comments above, this promotes them to data. Only
 // Setagaya-dori is a real street; the rest are this neighbourhood's own.
@@ -2851,6 +2942,9 @@ export const TOKYO_MAP_PACK: MapPack = {
       // The one Phase 6 kerb patch `jp-tower-park` needs — see
       // `tokyoPhase6KerbPatches`'s own doc comment above.
       ...tokyoPhase6KerbPatches,
+      // Phase 10 visual-gap remediation — see
+      // `tokyoPhase10RingRoadKerbPatches`'s own doc comment above.
+      ...tokyoPhase10RingRoadKerbPatches,
     ],
     servicePoints: [
       // The narrow south road still needs a wide set-back because the lot is
