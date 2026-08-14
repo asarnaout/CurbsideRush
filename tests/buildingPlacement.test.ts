@@ -627,6 +627,31 @@ describe("buildingStructuralBounds — independent GLB validation", () => {
     "tokyo-apato-a": 1.1,
     "tokyo-konbini": 1.95,
     "tokyo-izakaya": 0.95,
+    // tokyo-block-4story (P3a): the SAME source geometry as
+    // cairo-block-4story above (Quaternius 4Story_Mat) — same override
+    // value, same cause.
+    "tokyo-block-4story": 1.95,
+    // tokyo-zakkyo-{a..f} (P3a): a different ROOT CAUSE from every entry
+    // above. Each file is a laid-out ROW of 3-4 separate buildings
+    // (tools/split-asian-city-pack.mjs) with real gaps between them, not one
+    // building with asymmetric massing — the single curated box necessarily
+    // spans the whole row including those gaps, so its corners sit well past
+    // the nearest actual wall wherever the row's shortest/narrowest building
+    // falls short of the tallest/widest one's extent. Direction 1 (no real
+    // geometry outside the box) still passes cleanly for all six, unchecked
+    // here — only the corner-vs-real-wall distance is loosened, per file, to
+    // its own measured worst case with a small margin. A good candidate for
+    // a real per-building multi-solid split (this file's own BOUNDS
+    // interface already supports it) if a later phase's visual/gameplay
+    // pass finds one of these six actually blocking a driveable gap — none
+    // of these are placed anywhere yet (P3a is import-only), so that has not
+    // been tested.
+    "tokyo-zakkyo-a": 2.4,
+    "tokyo-zakkyo-b": 3.15,
+    "tokyo-zakkyo-c": 1.95,
+    "tokyo-zakkyo-d": 6.2,
+    "tokyo-zakkyo-e": 5.25,
+    "tokyo-zakkyo-f": 2.25,
   };
 
   /** Minimum distance (metres) from `(x, z)` to the nearest edge of any

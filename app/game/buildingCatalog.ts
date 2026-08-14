@@ -190,31 +190,38 @@ export const LONDON_ENV_MODELS: readonly EnvModelMeta[] = [
 ];
 
 /**
- * The Tokyo street-wall kit — round 1 (Tokyo authenticity plan, phase P1).
- * Tokyo shipped its ten-phase expansion with `buildingSets: []`: every
- * building on the map is a procedural facade box. These 13 Sketchfab imports
- * (houses, apāto walk-ups, a konbini, shotengai shopfronts, an izakaya and a
- * ramen shop) are the first real building models for Tokyo — see
- * `CREDITS.md` for full provenance and `tools/style-tokyo-buildings.mjs` for
- * the normalization pass each one went through.
+ * The Tokyo street-wall kit. Tokyo shipped its ten-phase expansion with
+ * `buildingSets: []`: every building on the map was a procedural facade box.
  *
- * **P1 was import-only**: catalogued with measured `buildingSets.ts`
- * PLACEMENTS/`buildingStructuralBounds.ts` BOUNDS entries, but referenced
- * by no `BuildingSetId`/block. **P2 wires ten of these thirteen** into two
- * new sets (`tokyo-house`, `tokyo-shotengai` — `buildingSets.ts`), live on
+ * **P1** (13 models — houses, apāto walk-ups, a konbini, shotengai
+ * shopfronts, an izakaya and a ramen shop) was the first real building
+ * models for Tokyo. **P2 wired ten of these thirteen** into two new sets
+ * (`tokyo-house`, `tokyo-shotengai` — `buildingSets.ts`), live on
  * miyanosaka/yamashita/nishi and `jp-nakamise-yokocho`
  * (`tokyoRoadsideBuildingSet` in `cities/tokyo.ts`); `tokyo-izakaya` and
  * `tokyo-ramen` stay unwired (venue models, a later phase's job per the
  * plan's section 6.4), and `tokyo-apato-b` stays unwired too (no set built
- * this phase names it).
+ * that phase names it).
  *
- * All are Sketchfab exports, downloaded as the autoconverted glTF (separate
- * `.gltf`+`.bin`+images), packed into a self-contained glb by
+ * **P3a** adds the downtown/zakkyo backbone (13 more models): six
+ * `tokyo-zakkyo-*` files split from one 19-building Sketchfab night-city pack
+ * (`tools/split-asian-city-pack.mjs`), the optional `tokyo-nippori-bldg`
+ * hero, and six "restyle backbone" models — re-imports of already-committed
+ * CC0 sources restyled for Tokyo (`tools/style-tokyo-buildings.mjs`'s
+ * flat-palette path, `TOKYO_ZAKKYO_MODEL_IDS` below lists just the six
+ * splits). **P3a is import-only, exactly like P1**: measured
+ * `buildingSets.ts` PLACEMENTS/`buildingStructuralBounds.ts` BOUNDS entries,
+ * but referenced by no `BuildingSetId`/block yet — see `CREDITS.md` for full
+ * provenance.
+ *
+ * The P1/P3a Sketchfab exports were downloaded as the autoconverted glTF
+ * (separate `.gltf`+`.bin`+images), packed into a self-contained glb by
  * `tools/pack-gltf.mjs` (this repo's hand-written glTF->glb packer, the
  * sibling of `tools/obj-to-glb.mjs`) and normalized by
- * `tools/style-tokyo-buildings.mjs`. All are **CC-BY 4.0** — a plain
+ * `tools/style-tokyo-buildings.mjs`; they are **CC-BY 4.0** — a plain
  * attribution licence, same obligation as the CC-BY 3.0 Poly Pizza pieces
- * elsewhere in this catalogue, different point release.
+ * elsewhere in this catalogue, different point release. The restyle-backbone
+ * models are **CC0 1.0**, like every other re-styled copy in this catalogue.
  */
 const SKETCHFAB_MODEL = (uid: string) => `https://sketchfab.com/3d-models/${uid}`;
 
@@ -369,6 +376,173 @@ export const TOKYO_ENV_MODELS: readonly EnvModelMeta[] = [
     sourceUrl: SKETCHFAB_MODEL("ramen-shop-4d189bf2710f422ea287718f968cea68"),
     attribution: "Ramen Shop by Naitogosuto",
   },
+
+  // ---- Tokyo authenticity plan, phase P3a (import-only — see the header
+  // note on TOKYO_ZAKKYO_MODEL_IDS below; wiring into a BuildingSetId is
+  // P3b's job). The downtown/zakkyo backbone: a split 19-building Sketchfab
+  // night-city pack (props/tokyo-zakkyo-*.glb, tools/split-asian-city-pack.mjs)
+  // + an optional real-Tokyo photogrammetry hero + the restyle-backbone
+  // models (re-imports of already-committed CC0 sources, restyled for
+  // Tokyo — tools/style-tokyo-buildings.mjs's new flat-palette path).
+  {
+    id: "tokyo-zakkyo-a",
+    url: `${P}/tokyo-zakkyo-a.glb`,
+    category: "tower",
+    title: "Asian Themed Low Poly Night City Buildings",
+    author: "99.Miles",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL(
+      "asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0",
+    ),
+    attribution: "Asian Themed Low Poly Night City Buildings by 99.Miles",
+  },
+  {
+    id: "tokyo-zakkyo-b",
+    url: `${P}/tokyo-zakkyo-b.glb`,
+    category: "tower",
+    title: "Asian Themed Low Poly Night City Buildings",
+    author: "99.Miles",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL(
+      "asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0",
+    ),
+    attribution: "Asian Themed Low Poly Night City Buildings by 99.Miles",
+  },
+  {
+    id: "tokyo-zakkyo-c",
+    url: `${P}/tokyo-zakkyo-c.glb`,
+    category: "tower",
+    title: "Asian Themed Low Poly Night City Buildings",
+    author: "99.Miles",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL(
+      "asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0",
+    ),
+    attribution: "Asian Themed Low Poly Night City Buildings by 99.Miles",
+  },
+  {
+    id: "tokyo-zakkyo-d",
+    url: `${P}/tokyo-zakkyo-d.glb`,
+    category: "tower",
+    title: "Asian Themed Low Poly Night City Buildings",
+    author: "99.Miles",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL(
+      "asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0",
+    ),
+    attribution: "Asian Themed Low Poly Night City Buildings by 99.Miles",
+  },
+  {
+    id: "tokyo-zakkyo-e",
+    url: `${P}/tokyo-zakkyo-e.glb`,
+    category: "tower",
+    title: "Asian Themed Low Poly Night City Buildings",
+    author: "99.Miles",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL(
+      "asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0",
+    ),
+    attribution: "Asian Themed Low Poly Night City Buildings by 99.Miles",
+  },
+  {
+    id: "tokyo-zakkyo-f",
+    url: `${P}/tokyo-zakkyo-f.glb`,
+    category: "tower",
+    title: "Asian Themed Low Poly Night City Buildings",
+    author: "99.Miles",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL(
+      "asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0",
+    ),
+    attribution: "Asian Themed Low Poly Night City Buildings by 99.Miles",
+  },
+
+  // ---- Optional hero (heavy — 59.6k tris; a P3b/perf decision whether it
+  // ever gets placed, see the plan's "market-stalls hero spot" precedent) ----
+  {
+    id: "tokyo-nippori-bldg",
+    url: `${P}/tokyo-nippori-bldg.glb`,
+    category: "midrise",
+    title: "Nice building in Nippori：日暮里のいいビル",
+    author: "kazugoru",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("nice-building-in-nippori-8e82ddace3af4b0681764f2cbcb77ff7"),
+    attribution: "Nice building in Nippori：日暮里のいいビル by kazugoru",
+  },
+
+  // ---- Restyle backbone: re-imports of already-committed CC0 sources,
+  // restyled for Tokyo (tools/style-tokyo-buildings.mjs's flat-palette
+  // path) — the same "per-city restyle of a CC0 source" pattern London used
+  // on Cairo's own files, one point further removed (Tokyo restyles Cairo's
+  // AND NYC's committed copies, not the original Poly Pizza/Quaternius
+  // downloads). No `attribution` field: CC0 permits use without credit,
+  // matching every other CC0 entry in this catalogue.
+  {
+    id: "tokyo-walkup-a",
+    url: `${P}/tokyo-walkup-a.glb`,
+    category: "brownstone",
+    title: "Building",
+    author: "Kay Lousberg",
+    license: "CC0 1.0",
+    sourceUrl: src("qOhhGLftam"),
+  },
+  {
+    id: "tokyo-walkup-b",
+    url: `${P}/tokyo-walkup-b.glb`,
+    category: "brownstone",
+    title: "Building",
+    author: "Kay Lousberg",
+    license: "CC0 1.0",
+    sourceUrl: src("T3oyvK6VEU"),
+  },
+  {
+    id: "tokyo-tower-a",
+    url: `${P}/tokyo-tower-a.glb`,
+    category: "tower",
+    title: "Skyscraper",
+    author: "Kenney",
+    license: "CC0 1.0",
+    sourceUrl: src("XST1j6kYsL"),
+  },
+  {
+    id: "tokyo-block-slim",
+    url: `${P}/tokyo-block-slim.glb`,
+    category: "midrise",
+    title: "3Story_Slim_Mat",
+    author: "Quaternius",
+    license: "CC0 1.0",
+    sourceUrl: QUATERNIUS_PACK,
+  },
+  {
+    id: "tokyo-block-small",
+    url: `${P}/tokyo-block-small.glb`,
+    category: "midrise",
+    title: "3Story_Small_Mat",
+    author: "Quaternius",
+    license: "CC0 1.0",
+    sourceUrl: QUATERNIUS_PACK,
+  },
+  {
+    id: "tokyo-block-4story",
+    url: `${P}/tokyo-block-4story.glb`,
+    category: "midrise",
+    title: "4Story_Mat",
+    author: "Quaternius",
+    license: "CC0 1.0",
+    sourceUrl: QUATERNIUS_PACK,
+  },
+];
+
+/** The zakkyo pack's six split files — every one of the 19 original
+ * buildings landed in exactly one of these (tools/split-asian-city-pack.mjs);
+ * useful for tooling/tests that want "just the split, not the hero/backbone". */
+export const TOKYO_ZAKKYO_MODEL_IDS: readonly string[] = [
+  "tokyo-zakkyo-a",
+  "tokyo-zakkyo-b",
+  "tokyo-zakkyo-c",
+  "tokyo-zakkyo-d",
+  "tokyo-zakkyo-e",
+  "tokyo-zakkyo-f",
 ];
 
 /**
@@ -413,7 +587,11 @@ export function cairoEnvModelUrls(): string[] {
 }
 
 /** De-duplicated Tokyo street-wall kit URLs, for map-scoped preload/tests.
- * Unreferenced by any block/set as of P1 — see `TOKYO_ENV_MODELS`'s header. */
+ * Ten of P1's 13 are live in a `BuildingSetId` since P2 (`tokyo-house`,
+ * `tokyo-shotengai`); the rest — P1's `tokyo-izakaya`/`tokyo-ramen`/
+ * `tokyo-apato-b` and all 13 of P3a's zakkyo/backbone models — are
+ * catalogued but unreferenced by any set/block so far. See
+ * `TOKYO_ENV_MODELS`'s header. */
 export function tokyoEnvModelUrls(): string[] {
   return [...new Set(TOKYO_ENV_MODELS.map((m) => m.url))];
 }
