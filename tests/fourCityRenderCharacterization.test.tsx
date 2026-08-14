@@ -797,24 +797,30 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // shotengai) sit anywhere near this fixed test pose's own mirror-cull
     // frustum or NYC-analogue camera position.
     //
-    // enabledMeshes/totalMeshes 9_971 -> 10_231 (+260, Tokyo authenticity
+    // enabledMeshes/totalMeshes 9_971 -> 10_208 (+237, Tokyo authenticity
     // plan P3b): `tokyo-zakkyo` goes live on the rest of downtown (outside
     // `jp-nakamise-yokocho`) + ring, `tokyo-manshon` on riverside + higashi
-    // — every generator zone now names a set. Bucketed the same way as P2's
-    // own paragraph above (temporary console.log, before/after under
-    // `git stash` on this same suite): "building"-prefixed mesh count
-    // 2_451 -> 2_880 (+429, exactly `buildingLayout.buildings.length`'s own
-    // delta — every catalogued model still has one solid, so one proxy box
-    // each under this suite's forced-empty preload), "prop"-prefixed count
+    // — every generator zone now names a set (`tokyo-manshon` ships with
+    // only 4 of its originally-planned 5 members: `tokyo-apato-b` was
+    // live-measured OUT on a real perf regression, see `buildingSets.ts`'s
+    // own comment on that set — this suite's numbers already reflect that
+    // final 4-member set, not the intermediate 5-member one). Bucketed the
+    // same way as P2's own paragraph above (temporary console.log,
+    // before/after under `git checkout HEAD~1 -- <content files>` on this
+    // same suite): "building"-prefixed mesh count 2_451 -> 2_857 (+406,
+    // exactly `buildingLayout.buildings.length`'s own delta — every
+    // catalogued model still has one solid, so one proxy box each under
+    // this suite's forced-empty preload), "prop"-prefixed count
     // 5_454 -> 5_285 (-169, the identical closer-glb-depth-shrinks-
     // scatter-candidates mechanism P2's paragraph already documents, at
-    // four-zone instead of three-web scale). Net +260 is the OPPOSITE
-    // direction from P2's own -144: P2 converted 3 residential webs + 1
-    // shotengai road (a smaller building-count gain, +671, outweighed by
-    // its own prop loss); P3b converts 4 full zones, and the larger
-    // building gain (+429) this time outweighs the smaller prop loss
-    // (-169) instead — same mechanism, different net sign, because the
-    // converted area is larger this phase. materials/
+    // four-zone instead of three-web scale — unchanged whether or not
+    // `tokyo-apato-b` is in the mix, confirmed by measuring both). Net +237
+    // is the OPPOSITE direction from P2's own -144: P2 converted 3
+    // residential webs + 1 shotengai road (a smaller building-count gain,
+    // +671, outweighed by its own prop loss); P3b converts 4 full zones,
+    // and the larger building gain (+406) this time outweighs the smaller
+    // prop loss (-169) instead — same mechanism, different net sign,
+    // because the converted area is larger this phase. materials/
     // survivingMaterialNamesFingerprint are BOTH unchanged (242,
     // "70de85d2"): every zakkyo/manshon parcel's proxy box reuses
     // `ProceduralFacades.materialFor`'s existing tile/plaster/concrete
@@ -823,9 +829,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 986 -> 947 (-39): the fixed test pose's own viewport frustum reacting
     // to the same building-closer/prop-thinner content shift as the rest of
     // the map; mirrorCandidates/mirrorDrawn unchanged (166/210) — neither
-    // the mirror-cull ring's candidate set nor what it draws moved.
-    totalMeshes: 10_231,
-    enabledMeshes: 10_231,
+    // the mirror-cull ring's candidate set nor what it draws moved. NOTE:
+    // this suite's forced-empty-preload proxy-box world cannot reproduce
+    // the live drawCallsPerFrame regression `tokyo-apato-b` caused (a real
+    // glb-instancing cost, invisible to a proxy-box characterization) — see
+    // the P3b PR body for the live paired measurement that actually caught it.
+    totalMeshes: 10_208,
+    enabledMeshes: 10_208,
     activeMeshes: 947,
     materials: 242,
     drawCallsPerFrame: 0,

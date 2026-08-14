@@ -31,11 +31,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *    the Tokyo authenticity plan's P2/P3b) Tokyo author `buildingSet`
  *    blocks; London still doesn't and stays pinned at zero. Tokyo's own
  *    count UNDERSTATES its true placement total by design: `tokyo-house-d`
- *    and (as of P3b's `tokyo-manshon`) `tokyo-apato-b` are both
- *    `MERGE_INCOMPATIBLE_MODEL_IDS` (buildingCatalog.ts), so they render
- *    through `BuildingLayer`'s `instantiateViaSubmeshes` path instead of the
- *    ordinary merged-master `createInstance` this filter looks for — their
- *    meshes carry the glb's own submesh names, never a `bldg-*` prefix.
+ *    is one of `MERGE_INCOMPATIBLE_MODEL_IDS` (buildingCatalog.ts), so it
+ *    renders through `BuildingLayer`'s `instantiateViaSubmeshes` path
+ *    instead of the ordinary merged-master `createInstance` this filter
+ *    looks for — its meshes carry the glb's own submesh names, never a
+ *    `bldg-*` prefix. `tokyo-apato-b` is the SAME kind of entry but never
+ *    reaches this suite at all — P3b live-measured it OUT of `tokyo-manshon`
+ *    on a real draw-call regression before merge (`buildingSets.ts`'s own
+ *    comment on that set), so it stays unreferenced by any set.
  *  - `cairoRoofClutterInstanceCount` — placed `cairo-roof-<n>-<roll>` meshes.
  *    Nonzero only for Cairo (the only map with roof-clutter masters).
  *  - `storefrontSignMaterialCount` — distinct `storefront-sign-*` materials,
@@ -359,17 +362,21 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // `tokyo-house-d` placements this suite's own `bldg-*` filter cannot see
     // (see the header comment above).
     //
-    // 817 -> 2_070 (P3b): `tokyo-zakkyo` goes live on downtown (outside
+    // 817 -> 2_136 (P3b): `tokyo-zakkyo` goes live on downtown (outside
     // `jp-nakamise-yokocho`) + ring, `tokyo-manshon` on riverside + higashi.
-    // Real planned asset-slot total is now 2_354 — the gap widened to 284:
-    // the same 195 `tokyo-house-d` placements plus 89 NEW `tokyo-apato-b`
-    // placements (`tokyo-manshon` is the first shipped set to reference it),
-    // both `MERGE_INCOMPATIBLE_MODEL_IDS` entries rendered through
-    // `instantiateViaSubmeshes` with the source glb's own submesh names,
-    // never a `bldg-*` prefix. No Cairo roof clutter (no `roofY` on any
-    // Tokyo PLACEMENTS entry) and no storefront re-branding (no Tokyo set
-    // references `STOREFRONT_MODEL_ID`), so both other fields stay zero.
-    buildingInstanceCount: 2_070,
+    // Real planned asset-slot total is now 2_331 — the gap stays exactly
+    // the same 195 `tokyo-house-d` placements this suite's `bldg-*` filter
+    // cannot see, unchanged from P2 (`instantiateViaSubmeshes` with the
+    // source glb's own submesh names, never a `bldg-*` prefix). NOT +284:
+    // `tokyo-manshon` ships with only 4 of its originally-planned 5 members
+    // — `tokyo-apato-b` (the other `MERGE_INCOMPATIBLE_MODEL_IDS` entry this
+    // phase would have added) was live-measured OUT before merge on a real
+    // perf regression (see `buildingSets.ts`'s own comment on that set),
+    // never landing in any set at all, so it contributes nothing here
+    // either. No Cairo roof clutter (no `roofY` on any Tokyo PLACEMENTS
+    // entry) and no storefront re-branding (no Tokyo set references
+    // `STOREFRONT_MODEL_ID`), so both other fields stay zero.
+    buildingInstanceCount: 2_136,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

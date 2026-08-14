@@ -603,8 +603,40 @@ const SETS: Record<BuildingSetId, readonly string[]> = {
   // restyled KayKit walk-ups for the lower end, the restyled Quaternius
   // 4-storey block and the restyled NYC/London/Cairo glass tower for the
   // taller end.
+  //
+  // `tokyo-apato-b` is deliberately EXCLUDED, contrary to the plan's own
+  // suggested membership list — live-measured (headless CDP, paired
+  // before/after at the Tokyo scramble pose, P3b's own perf pass), not a
+  // guess: including it nearly DOUBLED the scramble's drawCallsPerFrame
+  // (391 -> 777 avg of 3 samples x 2 repeats each, both pairs reproducing
+  // within 0.5%, so not session noise). Root cause: `tokyo-apato-b` is one
+  // of `MERGE_INCOMPATIBLE_MODEL_IDS` (its glb's own architectural BIM-style
+  // export names each wall panel/moulding segment as its own submesh —
+  // "purely architectural node names — Wall/Slab/Floor/Ceiling/Moulding",
+  // buildingCatalog.ts's own comment), so it renders through
+  // `instantiateModelInstanced`'s per-submesh path instead of
+  // `getBuildingMaster`'s single merged mesh. A live mesh census at the
+  // scramble pose found 99 DISTINCT submesh families from this one model
+  // alone (`instance of Wall_<guid>`, `instance of Roof Gable_<guid>`,
+  // `instance of Slab_<guid>`, `instance of Crown/Base Right Moulding_<guid>`,
+  // ...), each its own draw call batched across placements — a ~99-draw
+  // FIXED tax the moment even one instance is in range, not a per-instance
+  // cost `slotBlockBuildings`' cheap-marginal-cost assumption (plan section
+  // 10) holds for every other model in this catalogue. Confirmed by a
+  // controlled experiment: removing it from this SETS entry alone (nothing
+  // else changed) dropped the scramble to 372 draws — BELOW the pre-plan
+  // baseline, delivering the improvement the plan hypothesized. Unlike
+  // `tokyo-nippori-bldg` (a tri-count cost that scales with instance count,
+  // so limiting placements helps), this is a submesh-count cost that does
+  // NOT scale down with fewer placements, so there is no sparse-placement
+  // compromise available short of re-processing the source glb to consolidate
+  // its submeshes (which would very likely hit the same heterogeneous-
+  // vertex-attribute `MergeMeshes` crash `MERGE_INCOMPATIBLE_MODEL_IDS`
+  // already documents) — out of this phase's scope. `tokyo-apato-b` stays
+  // catalogued and PLACEMENTS-configured but unreferenced by any set, the
+  // same status it has had since P1.
   "tokyo-manshon": [
-    "tokyo-walkup-a", "tokyo-walkup-b", "tokyo-apato-b", "tokyo-block-4story",
+    "tokyo-walkup-a", "tokyo-walkup-b", "tokyo-block-4story",
     "tokyo-tower-a",
   ],
 };

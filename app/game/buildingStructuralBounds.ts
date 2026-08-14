@@ -125,9 +125,11 @@ const BOUNDS: Record<string, BuildingStructuralBounds> = {
   "london-walkup-b": rect(-6, 6, -6, 6, 14.1),
 
   // ---- Tokyo (P1 — imported here; wired live into `tokyo-house`/
-  // `tokyo-shotengai` (P2) and `tokyo-manshon` (P3b) — `tokyo-izakaya`/
-  // `tokyo-ramen` alone remain unreferenced venue models; see
-  // TOKYO_ENV_MODELS's header in buildingCatalog.ts). Measured independently
+  // `tokyo-shotengai` (P2) — `tokyo-izakaya`/`tokyo-ramen` (venue models) and
+  // `tokyo-apato-b` (live-measured out of P3b's own `tokyo-manshon` on perf
+  // grounds — see that set's own comment in buildingSets.ts) remain
+  // unreferenced; see TOKYO_ENV_MODELS's header in buildingCatalog.ts).
+  // Measured independently
   // of buildingSets.ts's own footprintM/depthM (which come from the FULL
   // merged-master bound): ground-touching triangles collected within 0.2 m
   // of each model's own ground reference (not always the absolute geometric
