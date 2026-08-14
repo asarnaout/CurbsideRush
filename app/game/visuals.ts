@@ -1305,23 +1305,40 @@ export interface PromenadeDecorInput {
   readonly sidewalkWidthM: number;
   readonly worldSize: VisualPoint;
   readonly seed: number;
+  /**
+   * Prop kind for the promenade's signature tree line and its lamp role —
+   * required, not defaulted, so a new caller can never inherit Cairo's palm/
+   * streetlight by omission (the `cairoBridgePortalVisualAxis` "argument
+   * discipline" lesson: an implicit default is how NYC's own parapets once
+   * drifted 3.4 m from their colliders). Cairo passes `"palm"`/`"streetlight"`
+   * (unchanged); Tokyo (Tokyo expansion Phase 9) passes `"sakura"`/
+   * `"chochin-post"` for cherry trees and lanterns. Both kinds need their own
+   * `DESTRUCTIBLE_PROP_CONFIGS` row and `render/roadsideProps.ts` `partsFor`
+   * case — this function only ever emits the kind string, never draws it.
+   */
+  readonly treeKind: string;
+  readonly lampKind: string;
 }
 
 /**
- * The corniche promenade: palms, lamps and benches on the bank strip between
- * an open-waterfront road and its parapet. The roadside scatter never reaches
- * this ground — its lateral offsets hug the pavement while the water sits
- * 10-60 m out — so the signature of the real Corniche el-Nil (a palm line at
- * the parapet, benches facing the river) has to be laid deliberately.
- * Deterministic on `seed`; placements ride the same masters, shadow and
- * destructible registration as every other roadside prop.
+ * The corniche promenade: a signature tree line, lamps and benches on the
+ * bank strip between an open-waterfront road and its parapet. The roadside
+ * scatter never reaches this ground — its lateral offsets hug the pavement
+ * while the water sits 10-60 m out — so the signature of the real Corniche
+ * el-Nil (a palm line at the parapet, benches facing the river) has to be
+ * laid deliberately. Deterministic on `seed`; placements ride the same
+ * masters, shadow and destructible registration as every other roadside
+ * prop. `treeKind`/`lampKind` swap the species per map (Cairo's palm and
+ * streetlight; Tokyo's cherry tree and chochin lantern) — the rhythm and
+ * geometry below are shared, only the two prop-kind strings differ.
  *
- * Rhythm per ~13 m station along each open side: palms every second station
- * at 3.2 m off the waterline, lamps every fourth at 2.6 m, benches every
- * fifth at 4.5 m facing the water, and — where the bank runs deeper than
- * 20 m — a kerbside palm row every fourth station, the double line the real
- * Corniche plants. Stations gap themselves at any other road's envelope
- * (junctions, bridge portals) and wherever the bank pinches under 6 m.
+ * Rhythm per ~13 m station along each open side: the tree kind every second
+ * station at 3.2 m off the waterline, the lamp kind every fourth at 2.6 m,
+ * benches every fifth at 4.5 m facing the water, and — where the bank runs
+ * deeper than 20 m — a kerbside tree row every fourth station, the double
+ * line the real Corniche plants. Stations gap themselves at any other road's
+ * envelope (junctions, bridge portals) and wherever the bank pinches under
+ * 6 m.
  */
 export function generatePromenadeDecor(
   input: PromenadeDecorInput,
@@ -1408,7 +1425,7 @@ export function generatePromenadeDecor(
           };
           if (stationIndex % 2 === 0) {
             drop(
-              "palm",
+              input.treeKind,
               waterDistM - 3.2,
               random() * Math.PI * 2,
               0.95 + random() * 0.25,
@@ -1416,7 +1433,7 @@ export function generatePromenadeDecor(
             );
             if (stationIndex % 4 === 0 && waterDistM - envelope > 20) {
               drop(
-                "palm",
+                input.treeKind,
                 envelope + 5,
                 random() * Math.PI * 2,
                 0.9 + random() * 0.2,
@@ -1426,7 +1443,7 @@ export function generatePromenadeDecor(
           }
           if (stationIndex % 4 === 1) {
             drop(
-              "streetlight",
+              input.lampKind,
               waterDistM - 2.6,
               Math.atan2(-outX, -outZ),
               1,

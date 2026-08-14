@@ -9,7 +9,10 @@ import {
   buildLondonStreetFurniture,
 } from "../app/game/render/londonLandmarks";
 import { buildNycLandmark } from "../app/game/render/nycLandmarks";
-import { buildTokyoLandmark } from "../app/game/render/tokyoLandmarks";
+import {
+  buildTokyoLandmark,
+  buildTokyoStreetFurniture,
+} from "../app/game/render/tokyoLandmarks";
 import { LONDON_MAP_PACK } from "../app/game/cities/london";
 import { CAIRO_MAP_PACK } from "../app/game/cities/cairo";
 import { NYC_MAP_PACK } from "../app/game/cities/nyc";
@@ -47,14 +50,15 @@ describe("cityRenderRegistry", () => {
     expect(entry?.streetFurniture).toBeUndefined();
   });
 
-  it("routes Tokyo's real map id to its own landmark builder, with no street-furniture entry", () => {
+  it("routes Tokyo's real map id to its own landmark AND street-furniture builders", () => {
     // Phase 3 of the Tokyo expansion (river + three bridges) — the bridge
     // dressing (parapets/guardrails/lamps/the Kawanaka-bashi arch) needs a
     // bespoke builder the same way NYC's and Cairo's bridges/landmarks do.
-    // Street furniture (chochin posts, neon boards) is Phase 9's.
+    // Street furniture (chochin posts, neon boards, scramble billboards) is
+    // Phase 9's (R14) — the same registry slot London's own furniture uses.
     const entry = cityRenderRegistryFor(TOKYO_MAP_PACK.id);
     expect(entry?.landmarks).toBe(buildTokyoLandmark);
-    expect(entry?.streetFurniture).toBeUndefined();
+    expect(entry?.streetFurniture).toBe(buildTokyoStreetFurniture);
   });
 
   it("an unrecognised mapId gets no entry — never a default city's look", () => {

@@ -102,6 +102,7 @@ import {
 } from "./venueProps";
 import { buildRegulatorySigns, buildSpeedLimitSigns } from "./londonLandmarks";
 import { LONDON_PARKED_CARS } from "../londonStreetFurniture";
+import { TOKYO_PARKED_BICYCLES } from "../tokyoStreetFurniture";
 import {
   cityRenderRegistryFor,
   type CityRenderRegistryCtx,
@@ -262,6 +263,7 @@ import {
 import {
   disposeModels,
   instantiateModel,
+  instantiateModelInstanced,
   preloadModels,
   propModelUrls,
   vehicleModelUrls,
@@ -284,6 +286,7 @@ import {
 } from "../roadMarkings";
 
 import {
+  BICYCLE_MODEL,
   buildActorVisual,
   buildCyclistVisual,
   buildMotorbikeVisual,
@@ -2825,6 +2828,48 @@ export class BabylonGameSession {
         this.staticSceneryFreeze.push(inst);
         this.destructibles?.register("london-parked-car", car.position.x, car.position.z, 1, [
           { node: inst, isLightPool: false },
+        ]);
+      }
+    }
+
+    // Tokyo's kerbside parked bicycles (Tokyo expansion Phase 9, R14): the
+    // same recipe as the London/vendor cases in SPIRIT (one preloaded glb,
+    // one call site, every placement a cheap GPU instance), but NOT via
+    // `getBuildingMaster` — that path's `Mesh.MergeMeshes` requires every
+    // submesh to share one vertex-attribute layout, and this glb's don't
+    // (`tools/split-bicycle-pedals.mjs` split the pedals/tires into their
+    // own nodes for animation, which is exactly what leaves them
+    // heterogeneous; confirmed by a real merge crash in this exact spot
+    // during Phase 9's own test run, not a hypothetical). `instantiateModelInstanced`
+    // sidesteps it entirely — it instances **per submesh** (real Babylon
+    // `InstancedMesh`es sharing the first call's source geometry), so
+    // TOKYO_PARKED_BICYCLES.length placements still cost one draw call per
+    // submesh, not per bike. Reuses `characterMeshes.ts`'s own proven
+    // bike-wrap recipe (parent under a wrap node, `BICYCLE_MODEL.yawOffset`,
+    // `BICYCLE_MODEL.scale`) rather than a fresh one, since that path
+    // already renders this exact glb correctly for every cyclist NPC.
+    if (resolveMapVisualKey(this.options.mapPack.id) === "tokyo") {
+      for (const bike of TOKYO_PARKED_BICYCLES) {
+        const bikeInstance = instantiateModelInstanced(this.scene, BICYCLE_MODEL.url);
+        const bikeRoot = bikeInstance?.rootNodes[0] as TransformNode | undefined;
+        if (!bikeInstance || !bikeRoot) continue;
+        const wrap = new TransformNode(`parked-${bike.id}-wrap`, this.scene);
+        wrap.position.set(bike.position.x, BUILDING_GROUND_LIFT, bike.position.z);
+        wrap.rotation.y = degreesToRadians(bike.headingDeg) + BICYCLE_MODEL.yawOffset;
+        bikeRoot.parent = wrap;
+        bikeRoot.scaling.setAll(BICYCLE_MODEL.scale);
+        this.staticSceneryFreeze.push(wrap);
+        this.staticSceneryFreeze.push(bikeRoot);
+        for (const mesh of bikeRoot.getChildMeshes(false)) {
+          mesh.isPickable = false;
+          this.staticSceneryFreeze.push(mesh);
+        }
+        // One destructible part (the wrap): the whole bike topples as one
+        // rigid unit, not wheel-by-wheel — see destructibles.ts's `strike`,
+        // which reparents every registered part.node under a shared fall
+        // pivot regardless of how many nodes that is.
+        this.destructibles?.register("tokyo-parked-bicycle", bike.position.x, bike.position.z, 1, [
+          { node: wrap, isLightPool: false },
         ]);
       }
     }

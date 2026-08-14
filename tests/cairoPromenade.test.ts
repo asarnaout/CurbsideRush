@@ -157,6 +157,12 @@ describe("Cairo corniche parapet", () => {
     worldSize: pack.geometry.worldSize,
     // The renderer's exact seed for this map.
     seed: hashStringToSeed("cairo-central-nile-promenade"),
+    // Cairo's own kinds (Tokyo expansion Phase 9 parametrised these — see
+    // `roadsideProps.ts`'s `PROMENADE_DECOR_KINDS_BY_KEY`); passing the same
+    // literals the old hardcoded body used is what proves this test's own
+    // byte-identical-output claim below.
+    treeKind: "palm",
+    lampKind: "streetlight",
   };
   const decor = generatePromenadeDecor(promenadeInput);
 

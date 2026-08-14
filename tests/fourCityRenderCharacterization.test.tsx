@@ -705,14 +705,60 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // near the tower plaza (x=1053, z=140), so this content is outside it
     // either way. mirrorCandidates/mirrorDrawn unchanged for the same
     // reason.
-    totalMeshes: 9_821,
-    enabledMeshes: 9_821,
-    activeMeshes: 1_003,
-    materials: 227,
+    // Tokyo expansion Phase 9 (street life & aesthetics, R13/R14):
+    // `roadsidePropKindsForMap("tokyo")` retunes vending 74->48m and tree
+    // 34->36m; three new prop kinds (`chochin-post`, `sakura`,
+    // `tokyo-parked-bicycle`); `buildTokyoStreetFurniture` (chochin rows,
+    // neon boards, scramble billboards) wired into the registry's
+    // `streetFurniture` slot; `generatePromenadeDecor` swaps Cairo's
+    // hardcoded "palm"/"streetlight" for a per-map `treeKind`/`lampKind`
+    // (Tokyo: "sakura"/"chochin-post"); crowd 56->112. materials 227 -> 242
+    // (+15): confirmed by TWO independent measurements agreeing exactly (this
+    // jsdom run and a live CDP dev-server census, 836 -> 851) — 6 from
+    // roadsideProps.ts's Tokyo-gated `tokyoNightProps` (chochin pole/
+    // lantern/cap, sakura trunk + 2 blossom variants — gated on `key ===
+    // "tokyo"`, confirmed NYC/London/Cairo's own material counts are
+    // UNCHANGED, unlike a first-pass version of this diff that built them
+    // unconditionally and moved all four cities' counts by the same +6),
+    // 3 from buildTokyoStreetFurniture's own chochin master set, 4 from its
+    // neon board colour variants, 2 from its scramble billboard screen/
+    // frame. enabledMeshes/totalMeshes 9_821 -> 9_822 (+1), nearly flat
+    // despite substantial new content, confirmed live for two reasons: (1)
+    // `generateRoadsidePropPlacements` walks one seeded random stream across
+    // its `kinds` array in order (streetlight, utility-pole, vending, tree,
+    // sign) — retuning vending's spacing shifts how many random() calls its
+    // own inner loop makes, which shifts every LATER kind's draws too, not
+    // just vending's; live prop-vending 328 -> 458 (+130, spacing-driven) but
+    // prop-tree and prop-sign also move by more than their own (tree) or any
+    // (sign, spacing unchanged) config change alone would predict — the
+    // shared-stream-order effect this file's own Phase-by-phase history
+    // never happened to trigger before. (2) The new hand-placed keep-out
+    // (`TOKYO_FURNITURE_POINTS`, 55 points: chochin posts, neon boards,
+    // billboards, parked bicycles) rejects a few previously-clear scatter
+    // candidates near those positions — live prop-streetlight/prop-utility-
+    // pole both drop slightly despite unchanged spacing, the same
+    // adding-content-can-shrink-the-total direction Phases 4/7/8 above
+    // already showed. These roughly net against the new content itself
+    // (live: prop-chochin-post 216 combined instances — both the
+    // promenade's automatic placements and the hand-placed shotengai/
+    // ekimae rows share this name prefix — prop-sakura 200, prop-tokyo-neon
+    // 12, the 2 billboards' 4 meshes); the 25 parked bicycles contribute
+    // ZERO here specifically because this suite mocks model preload to
+    // return empty (this file's own header comment), so
+    // `instantiateModelInstanced` returns null and the whole placement loop
+    // no-ops — confirmed live the glb DOES render (7 unique submesh
+    // draw-call groups shared across all 25 instances). activeMeshes
+    // 1_003 -> 1_060 (+57), mirrorCandidates 172 -> 166 (-6): the fixed test
+    // pose's mirror-cull frustum reacting to nearby content moving, the same
+    // class of drift Phases 6/7's own paragraphs above already document.
+    totalMeshes: 9_822,
+    enabledMeshes: 9_822,
+    activeMeshes: 1_060,
+    materials: 242,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 172,
+    mirrorCandidates: 166,
     mirrorDrawn: 210,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
@@ -761,7 +807,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "1c13acfe" -> "0edc496a": Phase 6's +12 materials above.
     // "0edc496a" -> "a19c1cd9": Phase 7's +93 materials above.
     // "a19c1cd9" -> "48512f9d": Phase 8's +5 materials above.
-    survivingMaterialNamesFingerprint: "48512f9d",
+    // "48512f9d" -> "70de85d2": Phase 9's +15 materials above.
+    survivingMaterialNamesFingerprint: "70de85d2",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

@@ -8,7 +8,7 @@ import type {
 import { buildCairoLandmark } from "./cairoLandmarks";
 import { buildLondonLandmark, buildLondonStreetFurniture } from "./londonLandmarks";
 import { buildNycLandmark } from "./nycLandmarks";
-import { buildTokyoLandmark } from "./tokyoLandmarks";
+import { buildTokyoLandmark, buildTokyoStreetFurniture } from "./tokyoLandmarks";
 import type { DestructiblePropPart } from "./propCatalog";
 import type { GameCanvasMapPack, GameCanvasPoint } from "../sessionContract";
 import type { MapVisualPalette } from "../visuals";
@@ -94,6 +94,7 @@ export const CITY_RENDER_REGISTRY: Readonly<Record<string, CityRenderRegistryEnt
   },
   "tokyo-setagaya": {
     landmarks: buildTokyoLandmark,
+    streetFurniture: buildTokyoStreetFurniture,
   },
 };
 
