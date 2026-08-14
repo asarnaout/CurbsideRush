@@ -300,6 +300,20 @@ const BOROUGH_CROSS_STREET = {
 const LONDON_EW = { axis: "x", numbersPerM: 0.2 } as const;
 const LONDON_NS = { axis: "z", numbersPerM: 0.2 } as const;
 
+/**
+ * Tokyo numbers the same modest way London does (a few hundred at most, not
+ * NYC's four-digit grid) — the Japanese flavour lives in the road *names*
+ * (§8.5 of the expansion plan), not in a bespoke block-and-lot numbering
+ * model. `baseNumber` is chosen per road (or per shared display name, for
+ * the handful of roads that are really one continuous street split across
+ * several `RoadSurface` ids — Chūō-dōri's three, Kōshū-kaidō's two,
+ * Setagaya-dōri's generated-half two, Uptown St's two) so most of a road's
+ * real span lands in roughly a 10-400 range rather than clamping at the
+ * numbering floor for most of its length.
+ */
+const TOKYO_EW = { axis: "x", numbersPerM: 0.2 } as const;
+const TOKYO_NS = { axis: "z", numbersPerM: 0.2 } as const;
+
 const STREET_PROFILES: Record<string, StreetProfile> = {
   "nyc-riverside": { ...AVENUE, baseNumber: 250 },
   "nyc-west-end": { ...AVENUE, baseNumber: 500 },
@@ -413,6 +427,94 @@ const STREET_PROFILES: Record<string, StreetProfile> = {
   "london-minories": { ...LONDON_NS, baseNumber: 40 },
   "london-grosvenor": { ...LONDON_NS, baseNumber: 60 },
   "london-mall": { ...LONDON_EW, baseNumber: 30 },
+
+  // Tokyo (expansion Phase 7, R7/R8). Every named road except the three
+  // Sakuragawa bridges (no doors open over water — the same rule keeps
+  // NYC's two crossings and London's river crossings address-free) and the
+  // old quarter's own rail/level-crossing landmarks, which carry no
+  // `STREET_PROFILES` row of their own anyway. The shotengai
+  // (`jp-nakamise-yokocho`) is deliberately INCLUDED — a `shared_space`
+  // yokochō is exactly where a delivery driver belongs, not an exemption.
+  // Same-display-name roads (Chūō-dōri's three ids, Kōshū-kaidō's two,
+  // Setagaya-dōri's generated-half two, Uptown St's two) share one profile
+  // so their numbers read as one continuous street, the way London's three
+  // Cromwell Road surfaces do.
+  "jp-center-road": { ...TOKYO_EW, baseNumber: 200 },
+  "jp-centerrow-west": { ...TOKYO_EW, baseNumber: 240 },
+  "jp-chuo-dori": { ...TOKYO_NS, baseNumber: 170 },
+  "jp-chuo-dori-north": { ...TOKYO_NS, baseNumber: 170 },
+  "jp-chuo-dori-south": { ...TOKYO_NS, baseNumber: 170 },
+  "jp-east-curve": { ...TOKYO_NS, baseNumber: 210 },
+  "jp-easthill-road": { ...TOKYO_NS, baseNumber: 180 },
+  "jp-eastside-road": { ...TOKYO_NS, baseNumber: 220 },
+  "jp-eki-mae-dori": { ...TOKYO_EW, baseNumber: 130 },
+  "jp-fuji-dori": { ...TOKYO_EW, baseNumber: 30 },
+  "jp-higashi-dori": { ...TOKYO_EW, baseNumber: 10 },
+  "jp-higashi-hondori": { ...TOKYO_NS, baseNumber: 170 },
+  "jp-higashi-kita-dori": { ...TOKYO_EW, baseNumber: 30 },
+  "jp-higashi-minami-dori": { ...TOKYO_EW, baseNumber: 30 },
+  "jp-higashi-soto-dori": { ...TOKYO_NS, baseNumber: 160 },
+  "jp-ichiban-dori": { ...TOKYO_NS, baseNumber: 180 },
+  "jp-junction-road": { ...TOKYO_NS, baseNumber: 190 },
+  "jp-kanpachi-dori": { ...TOKYO_NS, baseNumber: 200 },
+  "jp-kawagishi-dori": { ...TOKYO_NS, baseNumber: 170 },
+  "jp-kawate-dori": { ...TOKYO_NS, baseNumber: 160 },
+  "jp-keyaki-dori": { ...TOKYO_NS, baseNumber: 50 },
+  "jp-kita-dori": { ...TOKYO_EW, baseNumber: 130 },
+  "jp-koshu-kaido": { ...TOKYO_EW, baseNumber: 200 },
+  "jp-koshu-kaido-higashi": { ...TOKYO_EW, baseNumber: 200 },
+  "jp-minami-dori": { ...TOKYO_EW, baseNumber: 130 },
+  "jp-minami-kaido": { ...TOKYO_EW, baseNumber: 280 },
+  "jp-miyanosaka-kita-dori": { ...TOKYO_EW, baseNumber: 280 },
+  "jp-mn-asahi-dori": { ...TOKYO_EW, baseNumber: 320 },
+  "jp-mn-fujimi-dori": { ...TOKYO_EW, baseNumber: 320 },
+  "jp-mn-kaede-dori": { ...TOKYO_EW, baseNumber: 390 },
+  "jp-mn-momiji-dori": { ...TOKYO_EW, baseNumber: 320 },
+  "jp-mn-sumire-dori": { ...TOKYO_EW, baseNumber: 390 },
+  "jp-mn-suzukake-dori": { ...TOKYO_EW, baseNumber: 370 },
+  "jp-mn-suzukake-yokocho": { ...TOKYO_NS, baseNumber: 40 },
+  "jp-mn-wakaba-dori": { ...TOKYO_EW, baseNumber: 390 },
+  "jp-nakamise-yokocho": { ...TOKYO_EW, baseNumber: 140 },
+  "jp-narrow-road": { ...TOKYO_NS, baseNumber: 200 },
+  "jp-narrowhill-road": { ...TOKYO_NS, baseNumber: 180 },
+  "jp-ni-hana-dori": { ...TOKYO_EW, baseNumber: 270 },
+  "jp-ni-hato-dori": { ...TOKYO_EW, baseNumber: 370 },
+  "jp-ni-hato-yokocho": { ...TOKYO_NS, baseNumber: 200 },
+  "jp-ni-hibari-dori": { ...TOKYO_EW, baseNumber: 390 },
+  "jp-ni-kiku-dori": { ...TOKYO_EW, baseNumber: 390 },
+  "jp-ni-ran-dori": { ...TOKYO_EW, baseNumber: 320 },
+  "jp-ni-tsuki-dori": { ...TOKYO_EW, baseNumber: 390 },
+  "jp-ni-ume-dori": { ...TOKYO_EW, baseNumber: 320 },
+  "jp-niban-dori": { ...TOKYO_NS, baseNumber: 180 },
+  "jp-nishi-kanjo-dori": { ...TOKYO_NS, baseNumber: 200 },
+  "jp-north-road": { ...TOKYO_EW, baseNumber: 200 },
+  "jp-northrow-west": { ...TOKYO_EW, baseNumber: 240 },
+  "jp-renraku-dori": { ...TOKYO_EW, baseNumber: 170 },
+  "jp-sangen-dori": { ...TOKYO_NS, baseNumber: 200 },
+  "jp-setagaya-dori": { ...TOKYO_EW, baseNumber: 220 },
+  "jp-setagaya-dori-east": { ...TOKYO_EW, baseNumber: 280 },
+  "jp-setagaya-dori-west": { ...TOKYO_EW, baseNumber: 280 },
+  "jp-shotengai-nishi-dori": { ...TOKYO_NS, baseNumber: 170 },
+  "jp-shrine-road": { ...TOKYO_NS, baseNumber: 220 },
+  "jp-south-road": { ...TOKYO_EW, baseNumber: 200 },
+  "jp-southrow-west": { ...TOKYO_EW, baseNumber: 240 },
+  "jp-tofu-yokocho": { ...TOKYO_NS, baseNumber: 280 },
+  "jp-uptown-higashi": { ...TOKYO_EW, baseNumber: 200 },
+  "jp-uptown-road": { ...TOKYO_EW, baseNumber: 200 },
+  "jp-west-road": { ...TOKYO_NS, baseNumber: 190 },
+  "jp-westedge-road": { ...TOKYO_NS, baseNumber: 210 },
+  "jp-westhill-road": { ...TOKYO_NS, baseNumber: 180 },
+  "jp-westside-road": { ...TOKYO_NS, baseNumber: 200 },
+  "jp-westside-south": { ...TOKYO_NS, baseNumber: 220 },
+  "jp-yamashita-minami-dori": { ...TOKYO_EW, baseNumber: 370 },
+  "jp-ys-ayame-dori": { ...TOKYO_EW, baseNumber: 320 },
+  "jp-ys-botan-dori": { ...TOKYO_EW, baseNumber: 320 },
+  "jp-ys-hagi-dori": { ...TOKYO_EW, baseNumber: 390 },
+  "jp-ys-ichou-dori": { ...TOKYO_EW, baseNumber: 390 },
+  "jp-ys-kikyo-dori": { ...TOKYO_EW, baseNumber: 320 },
+  "jp-ys-tsubaki-dori": { ...TOKYO_EW, baseNumber: 390 },
+  "jp-ys-yanagi-dori": { ...TOKYO_EW, baseNumber: 370 },
+  "jp-ys-yanagi-yokocho": { ...TOKYO_NS, baseNumber: 400 },
   // No profile for a bridge: no doors open over water (the same rule keeps
   // NYC's two crossings address-free).
 };
@@ -454,6 +556,18 @@ const KINDS_BY_BLOCK_MATERIAL: Record<string, readonly GigVenueKind[]> = {
   // Whitehall and the City: offices, with the odd flat above.
   "london-portland-stone": ["office", "office", "residence"],
   "london-glass-curtain": ["office"],
+  // Tokyo (expansion Phase 7) is also `buildingSets: []` (fully procedural
+  // facades), so this table governs its addresses too. Its generated street
+  // wall (`buildTokyoGeneratedBlocks`, Phase 4) uses exactly four facade
+  // materials, confirmed directly against `TOKYO_ZONE_STYLE` — `wood-plaster`
+  // and `plaster` for the low-rise residential webs, `tile` for the ring
+  // roads/riverside/downtown core, and `concrete` for the east bank's mixed
+  // mid-rise (`higashi` zone) — every one already a real key in
+  // `ProceduralFacades.BUILDING_PALETTE`, so none needed adding.
+  "wood-plaster": ["residence"],
+  plaster: ["residence", "shop"],
+  tile: ["shop", "office", "residence"],
+  concrete: ["residence", "residence", "office"],
 };
 
 const KINDS_BY_BUILDING_SET: Record<string, readonly GigVenueKind[]> = {
