@@ -35,18 +35,20 @@ street dressing; no new files and no new licences are involved.
 ## Tokyo
 
 Tokyo shipped its ten-phase city expansion with `buildingSets: []` — every
-building on the map is a procedural facade box. The **Tokyo street-wall kit**
-below (13 CC-BY 4.0 glbs from Sketchfab: houses, apāto walk-ups, a konbini,
-shotengai shopfronts, an izakaya and a ramen shop) is the first round of real
-building models for it (Tokyo authenticity plan, phase P1). **As of this
-import the kit is not yet placed on the map** — it is catalogued
-(`app/game/buildingCatalog.ts`'s `TOKYO_ENV_MODELS`) with measured placement
-and collision data (`buildingSets.ts`, `buildingStructuralBounds.ts`), but no
-`BuildingSetId`/block references it yet, so Tokyo's rendered street wall is
-unchanged; wiring it live is a later phase. Every licence was verified on the
-model's own Sketchfab page and via the download panel at import time
-(2026-08-14), and every file's provenance is hashed below and baked into the
-glb itself (`asset.extras.curbsideRush`); `tests/tokyoAssets.test.ts` pins the
+building on the map was a procedural facade box. The **Tokyo street-wall
+kit** below (13 CC-BY 4.0 glbs from Sketchfab: houses, apāto walk-ups, a
+konbini, shotengai shopfronts, an izakaya and a ramen shop) is the first
+round of real building models for it (Tokyo authenticity plan, phase P1).
+**Phase P2 wired ten of the thirteen live**: two new sets, `tokyo-house`
+(house-a/b/c/d + apato-a) and `tokyo-shotengai` (shop-a/b/c/d + konbini +
+house-a), dress miyanosaka/yamashita/nishi and the `jp-nakamise-yokocho`
+shotengai — see `docs/map-authoring.md`'s "Tokyo is two halves" section.
+`tokyo-izakaya`/`tokyo-ramen` stay catalogued but unplaced (venue models, a
+later phase's job) and `tokyo-apato-b` stays unplaced too (no set built so
+far names it). Every licence was verified on the model's own Sketchfab page
+and via the download panel at import time (2026-08-14), and every file's
+provenance is hashed below and baked into the glb itself
+(`asset.extras.curbsideRush`); `tests/tokyoAssets.test.ts` pins the
 committed bytes.
 
 Unlike the CC0 kits below (Quaternius/KayKit solids with no baked textures),
