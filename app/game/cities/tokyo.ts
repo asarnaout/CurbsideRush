@@ -2964,6 +2964,21 @@ export const TOKYO_MAP_PACK: MapPack = {
       { id: "jp-sakura-ohashi", kind: "bridge", center: point(650, -168), size: point(420, 12), headingDeg: 90, color: "#7d8791" },
       { id: "jp-kawanaka-bashi", kind: "bridge", center: point(780, 180), size: point(400, 9), headingDeg: 90, color: "#7d8791" },
       { id: "jp-tsuki-ohashi", kind: "bridge", center: point(640, 560), size: point(480, 12), headingDeg: 90, color: "#7d8791" },
+      // Hikari Tower (Tokyo expansion Phase 8, R15): the district beacon,
+      // built directly on `jp-tower-park`'s own real ground (see that
+      // park's own comment above — Phase 6 centred the plaza at (1053,140),
+      // 33 m east of the plan's original (1020,140), because the plan's own
+      // number sat the plaza across jp-higashi-hondori's live carriageway).
+      // Centred on the plaza's own centre: half-extents 63x50 against this
+      // landmark's own 22x22 leave >=28 m of open plaza on every side, so
+      // the tower reads as freestanding rather than crowding a road-facing
+      // edge. Procedural bespoke render (four leaning lattice legs, a main
+      // and upper deck, a spire and beacon) in render/tokyoLandmarks.ts;
+      // ground solids (four leg OBBs + the FootTown-analog podium) in
+      // geometry/landmarkGroundSolids.ts's TOKYO_RECIPES — both keyed off
+      // this exact id. No headingDeg: the four-fold leg layout is already
+      // rotationally symmetric, same as jp-carrot-tower above.
+      { id: "jp-hikari-tower", kind: "tower", center: point(1053, 140), size: point(44, 44), color: "#c2703a" },
     ],
   },
   laneGraph: graph(

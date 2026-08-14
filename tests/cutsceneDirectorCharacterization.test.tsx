@@ -347,6 +347,20 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
       // finishCutscene clears the rig once the scene ends.
       expect(cutsceneDebug().active).toBeNull();
     },
-    30_000,
+    // 30_000 -> 120_000 (Tokyo expansion, Phase 8): this test mounts a full
+    // BabylonGameSession against TOKYO_MAP_PACK, which has grown from a
+    // 355-line village to a 2600x2400m city (79 roads, 274 blocks, 45
+    // venues, 23 landmarks) over the expansion's phases. Isolated runs stay
+    // well under 30s (~22s for this file's two tests together), but the
+    // full suite runs this as one of many parallel workers alongside
+    // `trafficSafetyAcceptance.test.ts` and the other full-mount
+    // characterization suites, and under that contention it started
+    // intermittently missing the 30s budget (observed 3x locally: Phase 7
+    // twice, Phase 8 once — always this exact test, never an assertion
+    // failure, always clean on an immediate isolated retry). Matches
+    // `gameCanvasSession.test.tsx`'s own 120_000 precedent and rationale for
+    // the identical class of problem (full-session-mount cost against a
+    // large map, real CI/parallel contention, not a hang).
+    120_000,
   );
 });

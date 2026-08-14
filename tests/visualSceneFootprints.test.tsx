@@ -468,7 +468,11 @@ describe("collectMapVisualGeometry — real maps: known issues (regression-pinne
     "london-south-kensington": 9,
     "cairo-central-nile": 5,
     "nyc-upper-west-side": 0,
-    "tokyo-setagaya": 0,
+    // jp-hikari-tower (Tokyo expansion Phase 8): Tokyo's first bespoke
+    // ground-solid landmark (geometry/landmarkGroundSolids.ts's
+    // TOKYO_RECIPES), so its first entry in this same known/accepted gap
+    // every other bespoke landmark on every map already carries.
+    "tokyo-setagaya": 1,
   };
 
   it.each(REAL_MAPS.map(({ pack, plan }) => [pack.id, pack, plan] as const))(

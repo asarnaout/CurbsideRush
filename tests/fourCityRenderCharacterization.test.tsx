@@ -683,10 +683,32 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // now-excluded scatter props inside it; mirrorCandidates/mirrorDrawn
     // unchanged (172/210) — no new content sits in the mirror's own
     // reflection distance.
-    totalMeshes: 9_772,
-    enabledMeshes: 9_772,
+    // Tokyo expansion Phase 8 (Hikari Tower, R15): jp-hikari-tower's
+    // procedural render (render/tokyoLandmarks.ts's buildHikariTower) is 51
+    // meshes -- four legs x four tapered segments (16), seven cross-brace
+    // rings x four sides (28), main deck, mast, upper deck, spire, spire
+    // band, beacon and the FootTown-analog podium (7) -- confirmed by
+    // bucketing readMeshes() names for an "hikari" substring under a
+    // temporary console.log. materials 222 -> 227 (+5): four of the
+    // tower's own (orange/white/deck-glow/beacon) plus
+    // "landmark-jp-hikari-tower", the always-allocated pre-dispatch
+    // material every landmark gets whether or not its bespoke renderer
+    // uses it (same as every existing landmark). enabledMeshes/totalMeshes
+    // 9_772 -> 9_821 is +49, not the raw +51: bucketing non-tower mesh
+    // names the same way shows 9_772 -> 9_770, a -2 from the new
+    // landmark's own scatter-prop keep-out (landmarkClearings plus the
+    // roadside generator's own reservation) rejecting two previously-clear
+    // candidate positions near the tower plaza -- the same
+    // adding-content-can-shrink-the-total direction Phase 4's blocks and
+    // Phase 7's venues both already showed, at landmark scale. activeMeshes
+    // stays 1_003 -- the fixed test pose's mirror-cull frustum is nowhere
+    // near the tower plaza (x=1053, z=140), so this content is outside it
+    // either way. mirrorCandidates/mirrorDrawn unchanged for the same
+    // reason.
+    totalMeshes: 9_821,
+    enabledMeshes: 9_821,
     activeMeshes: 1_003,
-    materials: 222,
+    materials: 227,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -738,7 +760,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // surfaces).
     // "1c13acfe" -> "0edc496a": Phase 6's +12 materials above.
     // "0edc496a" -> "a19c1cd9": Phase 7's +93 materials above.
-    survivingMaterialNamesFingerprint: "a19c1cd9",
+    // "a19c1cd9" -> "48512f9d": Phase 8's +5 materials above.
+    survivingMaterialNamesFingerprint: "48512f9d",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
