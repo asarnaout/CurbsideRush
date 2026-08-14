@@ -57,6 +57,24 @@ the normalization pass (`tools/style-tokyo-buildings.mjs`) is lighter-touch
 than a full palette replacement — see the kit's own entry for exactly what it
 does to each file.
 
+**Phase P3a adds 13 more models, import-only** (same "catalogued, measured,
+not yet referenced by any `BuildingSetId`" scope P1 shipped): the downtown/
+zakkyo backbone. Six `tokyo-zakkyo-{a..f}.glb` files split from one
+19-building Sketchfab night-city pack (`tools/split-asian-city-pack.mjs`),
+the optional `tokyo-nippori-bldg` real-Tokyo photogrammetry hero (both
+CC-BY 4.0, documented in the Tokyo street-wall kit table below), and six
+**restyle-backbone** models — re-imports of already-committed CC0 sources
+restyled for Tokyo (`tokyo-walkup-a/b` from `cairo-walkup-a/b.glb`,
+`tokyo-tower-a` from `nyc-tower-a.glb`, `tokyo-block-slim/small/4story`
+freshly re-converted from the same Quaternius Ultimate Textured Buildings
+Pack `cairo-block-slim/small/4story.glb` already uses), documented in their
+own "Tokyo restyle-backbone kit (CC0)" section below. Every licence was
+re-verified at import time (2026-08-14): the Sketchfab pair's license.txt
+downloads and archive SHA-256s both matched the plan's own research
+manifest; the Quaternius OBJ+MTL pair's SHA-256s came back byte-identical to
+the ones already hashed for `cairo-block-slim/small/4story.glb`, confirming
+the same pack/download.
+
 ## CC0 — public domain (no attribution required)
 
 - **sedan.glb, sports.glb, suv.glb** — Quaternius (<https://quaternius.com>),
@@ -395,6 +413,75 @@ Committed as, in catalogue order: **nature-tree-broadleaf.glb**
 **nature-rock-small.glb** (`rock_smallB`), **nature-obelisk.glb**
 (`statue_obelisk`). Eighteen files, ~170 KB in total.
 
+### Tokyo restyle-backbone kit (CC0)
+
+Added so the "downtown/zakkyo backbone" street wall has street-level variety
+beyond the Sketchfab pack's own towers (Tokyo authenticity plan, phase P3a —
+see the "Tokyo" section above for scope). Every file is a re-import of a
+source *already* committed to this repo for another city, restyled for
+Tokyo — the same pattern London used reskinning Cairo's own CC0 sources, one
+point further removed (Tokyo restyles Cairo's/NYC's already-committed
+copies, not the original Poly Pizza/Quaternius downloads directly). Per-model
+source URLs are also in `app/game/buildingCatalog.ts` (`TOKYO_ENV_MODELS`),
+and `tests/tokyoAssets.test.ts` byte-pins every committed file.
+
+**Modified — two palette paths, picked per source shape**, both by the new
+flat-palette path in `tools/style-tokyo-buildings.mjs` (extending the
+Sketchfab-normalization pass that file already had for P1's textured
+imports):
+
+- `tokyo-tower-a.glb` and `tokyo-block-{slim,small,4story}.glb` carry named
+  solid materials with no baked texture (Kenney/Quaternius), so each takes
+  the **direct material-colour assignment** path
+  (`tools/style-london-terraces.mjs`'s own shape): steel-blue-dark for the
+  tower (a glassy scramble-backdrop slab), charcoal/tile tones with a light
+  fascia band for the two narrow-frontage zakkyo mid-rise blocks, cool grey
+  for the ekimae mixed-use 4-storey block.
+- `tokyo-walkup-a.glb` and `tokyo-walkup-b.glb` carry one embedded
+  swatch-atlas texture (KayKit), so they take the **texture-recolour** path
+  (`tools/style-cairo-residences.mjs`'s own shape, but a different tone
+  function): every pixel is desaturated toward a near-neutral cool grey
+  while its own *lightness* is preserved exactly (`tokyoManshonGreyTone` in
+  the tool), rather than Cairo's warm hue-band remap — the plan's own words
+  for this restyle are "white/grey render, dark window frames", i.e. the
+  goal is near-zero saturation, not a different target hue. Preserving
+  lightness is what keeps window-frame swatches (already darker than wall
+  swatches in the source atlas) reading dark after the recolour. Geometry
+  (including each model's own rooftop water tank) is untouched.
+
+Every model is also given a flat matte material pass
+(`metallicFactor: 0, roughnessFactor: 0.88`) and provenance baked into
+`asset.extras.curbsideRush` (`style: "tokyo-block-v1"`). CC0 permits
+modification; re-run `tools/style-tokyo-buildings.mjs` to regenerate.
+
+| File | Copy of (already committed) | Source model | Source SHA-256 | Committed GLB SHA-256 |
+|---|---|---|---|---|
+| **props/tokyo-walkup-a.glb** | `cairo-walkup-a.glb` | "Building" by Kay Lousberg (<https://poly.pizza/m/qOhhGLftam>) | `a98d4fa6bf1e261da717fbdeef7937ef7578af86db3ba31a14296d814cf44e65` | `9cebb30c4bdc100cfa6920afd29c614234f46f979ccda1cb0fbd47c9d6df01c7` |
+| **props/tokyo-walkup-b.glb** | `cairo-walkup-b.glb` | "Building" by Kay Lousberg (<https://poly.pizza/m/T3oyvK6VEU>) | `ecda4d8e3a89bb751f61e179725ca59d2a19f7f3aa88fedd4fc371eb8f0eaede` | `45779172dd14f3a41441b34b34041766ebff31b8e06ba80393b5dace9f789171` |
+| **props/tokyo-tower-a.glb** | `nyc-tower-a.glb` | "Skyscraper" by Kenney (<https://poly.pizza/m/XST1j6kYsL>) | `43bbf6529e19c16ecfdf7ea563c63a1a46311997c6da5508a40d0977f927750c` | `21bb529bb66b64e174ee2e110c81fb1426b77239400ab246c007ffa3d29d7917` |
+| **props/tokyo-block-slim.glb** | (re-converted, see below) | `3Story_Slim_Mat` by Quaternius | obj:`778673a3cd8508d7b484c2b243fde8b59ebda9b507dcbf9198daa3a02429fe3f` mtl:`6f97086bad010e876d8bc35b0a51d9cabca187eca8250ce77e412a332ceb4692` | `03e01c862605a6dbe99ee405f72ac06f77770c832d370b39e31226bbe5dee577` |
+| **props/tokyo-block-small.glb** | (re-converted, see below) | `3Story_Small_Mat` by Quaternius | obj:`26377da6033df73d46eed0a1953ac149e07c93eb4b10d0587417e16cd7bd8863` mtl:`cac01cb1df1d5022e574e03ed02e73b6c199f6f55350b1f411fb9906386390fa` | `7c24defc0bd2b2da1be718394a0101b19c556fa7b0f5d96182832e7c87ff8068` |
+| **props/tokyo-block-4story.glb** | (re-converted, see below) | `4Story_Mat` by Quaternius | obj:`d326d20f0c29ad2499132dd7773aacab675946efadf18f56a926a5a8d004366a` mtl:`df1c8f0fdff17e0fecffec423d57f240011a024d9d16b16ff092dfe8e72fb44a` | `b998bb3ce5141037d3a2d53f440ce3ed4a7abfb6b0fd340e4cf73f8da5809f1e` |
+
+`tokyo-walkup-a/b.glb` are direct copies of the committed `cairo-walkup-a/b.glb`
+(themselves unchanged since Cairo's own P0 import — `modelLibrary` keys asset
+containers by URL, so Tokyo needs its own file even though the starting bytes
+are identical); the "Source SHA-256" column above is that same original
+KayKit download's hash, already recorded under Cairo's own entry earlier in
+this file. `tokyo-tower-a.glb` is a direct copy of the committed
+`nyc-tower-a.glb` the same way. `tokyo-block-{slim,small,4story}.glb` are
+fresh conversions (`node tools/obj-to-glb.mjs <in.obj> <out.glb>`) of the
+**same** Quaternius Ultimate Textured Buildings Pack OBJ+MTL pair already
+used for `cairo-block-{slim,small,4story}.glb`
+(<https://quaternius.com/packs/ultimatetexturedbuildings.html> — licence page
+re-verified CC0 on 2026-08-14), re-downloaded 2026-08-14 from the pack's
+[official Google Drive](https://drive.google.com/drive/folders/1RE3qXhbE5yGS3t-xGFJ8GmOtTgCUF3LQ)
+(`Models with Materials/OBJ`) — the "Source SHA-256" column's obj/mtl hashes
+above came back byte-identical to Cairo's own recorded hashes for the same
+three models, confirming the same pack; bundled `License.txt` SHA-256
+`83d8959f9fc56353ed571fbe2dc52e4bcd64508e2399501cd45ac2ce3df0bf8c`, also
+byte-identical to every prior download of this pack.
+
 ## CC-BY — attribution required
 
 - **bus.glb** (single-deck city bus) — by **"jeremy"** via Poly Pizza
@@ -459,13 +546,15 @@ in that catalogue's `attribution` field.
 
 ### Tokyo street-wall kit (CC-BY 4.0)
 
-13 Sketchfab models (Tokyo authenticity plan, phase P1 — see the "Tokyo"
-section above for scope). Every one is **CC-BY 4.0**
-(<https://creativecommons.org/licenses/by/4.0/>) — a plain-attribution
-licence, the same obligation as the CC-BY 3.0 kits above, one point release
-newer. Per-model Sketchfab source URLs are also in `app/game/buildingCatalog.ts`
-(`TOKYO_ENV_MODELS`), and each model's required credit travels in that
-catalogue's `attribution` field.
+20 Sketchfab models: 13 from phase P1 (see the "Tokyo" section above for
+scope) plus 7 from phase P3a — six `tokyo-zakkyo-{a..f}.glb` files split from
+one 19-building "Asian Themed Low Poly Night City Buildings" pack, and the
+optional `tokyo-nippori-bldg` real-Tokyo photogrammetry hero. Every one is
+**CC-BY 4.0** (<https://creativecommons.org/licenses/by/4.0/>) — a
+plain-attribution licence, the same obligation as the CC-BY 3.0 kits above,
+one point release newer. Per-model Sketchfab source URLs are also in
+`app/game/buildingCatalog.ts` (`TOKYO_ENV_MODELS`), and each model's required
+credit travels in that catalogue's `attribution` field.
 
 **Downloaded** 2026-08-14 as Sketchfab's autoconverted glTF export (a
 `.gltf` + `.bin` + separate image files, zipped). **Packed** into one
@@ -517,9 +606,61 @@ pins the committed SHA-256 of every file). **Normalized** by
   `{style, author, title, license: "CC-BY 4.0", sourceUrl, sourceSha256,
   modifications}`, the same shape `tools/style-london-terraces.mjs` uses.
 
-Reproduce from clean sources: re-download each row's Sketchfab glTF export,
-`node tools/pack-gltf.mjs <dir>/scene.gltf public/models/props/<id>.glb`,
-then `node tools/style-tokyo-buildings.mjs`.
+**Phase P3a's own normalization (the zakkyo split + the Nippori hero):**
+
+- The 19-building source pack ships 19 real buildings plus 7 `RED_FLARE`/
+  `Flare` lens-flare glow cards — a matte-painting VFX trick baked into the
+  source scene's own hero render, unrelated to any building's architecture.
+  All 7 are stripped entirely by `tools/split-asian-city-pack.mjs` itself
+  (before any file is even written), the same "diorama/street-furniture,
+  unlinked from the building" category as the bullet above, just resolved a
+  step earlier in the pipeline since the source glTF isn't packed into one
+  glb yet at that point.
+- Every one of the 19 buildings' own container node has an identity
+  transform — the artist baked each one's final position into its own
+  vertex data, and all 19 mutually overlap in world space (measured: every
+  one of 171 possible pairs overlaps), i.e. this is a Sketchfab "kit" hero
+  shot with every piece piled at the origin for one thumbnail, not a
+  laid-out scene. The split tool partitions the 19 by material family (10
+  `BACKGROUND_BUILDINGS_1` buildings, 9 `BACKGROUND_BUILDING_2`), deals each
+  family by measured height into 3 files apiece (six total, sizes
+  [4,3,3,3,3,3]), and lays each file's buildings out left-to-right along
+  local X — grounded at Y=0, centred on Z=0, the whole row re-centred on
+  X=0 — via a per-building `translation`, never touching vertex data.
+  Materials/textures/images are pruned to exactly what each file's kept
+  buildings reference (real savings: a single-material file needs only 4 of
+  the pack's 8 texture maps); geometry accessors/bufferViews are left
+  untouched and embedded verbatim (a bounded, accepted byte cost — see the
+  tool's own header for the reasoning).
+- The source's own baked-in `KHR_materials_emissive_strength: 2` was
+  measured (not eyeballed) against this map's real
+  `bloomThreshold: 0.72`/`exposure: 1.55` the same way the P1 bullet above
+  did: decoding every pixel of both emissive PNGs (2048², pre-downscale) to
+  linear and averaging luma over the "is this a glow pixel" population (raw
+  luma > 0.05) gives a representative "typical readable window" luma of
+  ≈0.23 (`BACKGROUND_BUILDINGS_1`) / ≈0.27 (`BACKGROUND_BUILDING_2`) — at
+  the source's own strength 2 that computes to 0.71/0.84 against the 0.72
+  threshold, i.e. the dimmer family barely fails to bloom and the brighter
+  one clears with almost no margin. Raised to 3.5×/3.0× respectively (a
+  real ~1.75× margin) via the same `KHR_materials_emissive_strength`
+  mechanism, replacing rather than stacking with the source value.
+- `tokyo-nippori-bldg` is a photogrammetry bake: one
+  `KHR_materials_unlit` material with a single 8192² baseColor JPEG (its own
+  lighting is already in the pixels) — downscaled to ≤1024px like every
+  other embedded texture in this kit, nothing else to normalize.
+- Provenance baked the same shape as P1's own entries above; every
+  `tokyo-zakkyo-*` file's `title` records exactly which of the 19 original
+  buildings it carries (`tools/style-tokyo-buildings.mjs`'s own TARGETS
+  list has the authoritative per-file list — re-run
+  `tools/split-asian-city-pack.mjs` to reproduce/verify).
+
+Reproduce from clean sources: re-download each row's Sketchfab glTF export.
+For P1's 13 and the Nippori hero: `node tools/pack-gltf.mjs
+<dir>/scene.gltf public/models/props/<id>.glb`. For the zakkyo pack: extract
+the download, then `node tools/split-asian-city-pack.mjs <extracted-dir>`
+(writes all six `tokyo-zakkyo-*.glb` in one run — no separate pack-gltf.mjs
+step, the split tool embeds directly). Then, for every file,
+`node tools/style-tokyo-buildings.mjs`.
 
 | File | Source title | Author | Source page (`sketchfab.com/3d-models/…`) | Original archive SHA-256 | Committed GLB SHA-256 |
 |---|---|---|---|---|---|
@@ -536,12 +677,35 @@ then `node tools/style-tokyo-buildings.mjs`.
 | **props/tokyo-shop-d.glb** | Japanese Shop 3 | Christian Camelo | `japanese-shop-3-b8c9864f973a491fbfdc6dc0c96ed58e` | `16558727c8ef82c9d8b578e026af27240aa48b6a171db898a88e853c70f78eb8` | `1607578094db7934beb28ded8e2fc7a56978fc13792f090103e5ea63c8e59528` |
 | **props/tokyo-izakaya.glb** | Izakaya - Low Poly Building | BenMaher | `izakaya-low-poly-building-3f43e5429171408e9bd19553ea813364` | `5336a59fd4a2c412b2650c97350585fa4cadb7c688c3075f1f5384d88d4343d8` | `deb7798951e5d8004b6adf3ff121fed339189544af49e29e8137f0a83a883d10` |
 | **props/tokyo-ramen.glb** | Ramen Shop | Naitogosuto | `ramen-shop-4d189bf2710f422ea287718f968cea68` | `2dd4df0a181e3d6aa6c5558ee2dcc481a22f410914a291e0719d27e85bce1b3a` | `50e13b3dd3eea88705bbf6372a768a26ddd82e2a185f0204c848fa7c3fec2cbe` |
+| **props/tokyo-zakkyo-a.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `723514e4d286cfcd5c7e1d089554aca2d0e1ac2d422089f38d5776e6c2789c0a` |
+| **props/tokyo-zakkyo-b.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `3a5fdc7d896451c348f5e3289c0d060210c49c66003830fffc29c77b62afbffc` |
+| **props/tokyo-zakkyo-c.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `583edc1b9a78697f47332656f74dd14f11bcf55c3ca8b385d0cdccb01cd978b9` |
+| **props/tokyo-zakkyo-d.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `06d659447687e4a38afbc36bcb9431b0cfa10b418c04ecb2b73de9690f700e97` |
+| **props/tokyo-zakkyo-e.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `4141a649e1064bfa7b4f58d436d7e2f168fcae171324b18959b595c55c7b4cdd` |
+| **props/tokyo-zakkyo-f.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `e6c451821ec695d9d13489d031a4ffea5e0369f120bcde4fc10de9c3b558ada8` |
+| **props/tokyo-nippori-bldg.glb** | Nice building in Nippori：日暮里のいいビル§ | kazugoru | `nice-building-in-nippori-8e82ddace3af4b0681764f2cbcb77ff7` | `eec70c5993f89fd9ea6cffe5b10d4505a5e13aaac0d7a87a9f4c5d963dbe01fb` | `3ef267714635cba4b15945715b06b13a6908fb51142857f8c910ef38aa511125` |
 
 † `tokyo-apato-a`'s author is corrected from the plan's research manifest
 ("Shazly"): Sketchfab's own embedded `asset.extras.author` on the downloaded
 export — freshest, authoritative, baked server-side into the file — says
 "DeadFrame Studio" for this exact uid/model. Credited as DeadFrame Studio here
 and in `buildingCatalog.ts`.
+
+‡ All six `tokyo-zakkyo-*.glb` files are split from this ONE 19-building
+source archive (`tools/split-asian-city-pack.mjs`) — the "Original archive
+SHA-256" column is identical across all six rows on purpose, since there is
+only one archive. See the split's own bullet above for which of the 19
+original buildings landed in which file.
+
+§ `tokyo-nippori-bldg` additionally carries a Sketchfab "NoAI" flag (the
+model page states it may not be used to train generative-AI datasets),
+layered on top of its CC-BY 4.0 licence. That is not an NC/ND/SA term and
+does not fail this plan's licence bar (section 5.1), but it is a real,
+unusual extra restriction — recorded here so it stays visible to anyone
+auditing this repo's licences, and worth knowing before this optional hero
+is ever used for anything beyond rendering it in-game (e.g. it should not be
+fed to any future asset-generation/training pipeline this project might
+build).
 
 ## Purchased — used under licence, NOT redistributed in this repo
 
