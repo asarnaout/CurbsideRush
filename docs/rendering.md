@@ -327,6 +327,25 @@ placement, with no attribute-layout requirement at all. Measured cost of all
 25 bicycles: 7 draw calls (one per submesh — frame, two tires, two pedals,
 plus two more).
 
+**"One draw call per submesh, not per placement" is only cheap when the
+submesh count is small.** `tokyo-apato-b` (`MERGE_INCOMPATIBLE_MODEL_IDS`,
+Tokyo authenticity plan P3b) is an architectural BIM-style export that names
+every wall panel, roof gable and moulding segment as its own submesh — not
+7 like the bicycle, but 99, confirmed by a live mesh census (`instance of
+Wall_<guid>`, `instance of Roof Gable_<guid>`, ... each its own bucket).
+Wiring it into a repeated street-wall building set added a ~99-draw-call
+FIXED tax the moment even one instance was in view — nearly doubling the
+Tokyo scramble's `drawCallsPerFrame` in a live paired CDP measurement,
+invisible to every NullEngine/jsdom characterization test (they measure
+mesh/material counts, not GPU draw batches, and the forced-empty-preload
+suite never instantiates a real glb at all). Before wiring a
+`MERGE_INCOMPATIBLE_MODEL_IDS` entry into ANY repeatedly-placed set, check
+its real submesh count (a live `__sideswapMeshes()` census after placing one
+instance, or count distinct materials/primitives in the source glb) — a
+double-digit-or-higher count is a real per-model draw-call cost that no
+amount of instancing amortizes away, and sparse placement does not help
+either (the cost is per DISTINCT submesh, not per placement).
+
 `registerStaticCell` takes an explicit `castsShadow` flag because the instanced
 building street wall deliberately casts none — flipping one silently adds it to
 the shadow map and changes every camera. The instanced glb wall casts no sun

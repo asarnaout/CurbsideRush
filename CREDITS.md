@@ -75,6 +75,22 @@ manifest; the Quaternius OBJ+MTL pair's SHA-256s came back byte-identical to
 the ones already hashed for `cairo-block-slim/small/4story.glb`, confirming
 the same pack/download.
 
+**Phase P3b wires the rest live**, no new imports: the six
+`tokyo-zakkyo-{a..f}` splits plus `tokyo-block-slim/small/4story` form a new
+`tokyo-zakkyo` set (downtown + ring); `tokyo-walkup-a/b`, `tokyo-block-4story`
+and `tokyo-tower-a` form a new `tokyo-manshon` set (riverside + higashi).
+`tokyo-nippori-bldg` stays deliberately unplaced (an optional hero, not
+worth its own draw-call cost this phase — see the P3b PR). `tokyo-apato-b`
+also stays unplaced, but for a different, harder reason discovered live: a
+paired before/after headless-Chrome measurement at the Tokyo scramble found
+including it in `tokyo-manshon` nearly doubled the scramble's draw calls —
+its glb's ~99 distinct architectural-style submeshes (Wall/Slab/Roof
+Gable/Moulding, each separately named) each cost a real, fixed draw call
+the moment even one instance is on screen. Removing it from the set
+resolved the regression entirely (confirmed by re-measuring) and left every
+other Sketchfab/restyle model's licence and provenance below unaffected —
+no bytes changed, only which sets reference which already-committed files.
+
 ## CC0 — public domain (no attribution required)
 
 - **sedan.glb, sports.glb, suv.glb** — Quaternius (<https://quaternius.com>),

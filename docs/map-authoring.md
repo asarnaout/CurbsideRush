@@ -344,13 +344,16 @@ non-bridge generated road, keyed to a per-road `TokyoBlockZone` via
 sites. Materials/height-range/`density` still come from the district's own
 zone style alone (no per-road override table for those — `TOKYO_ROAD_STYLE_OVERRIDE`
 is the one exception, a handful of named streets). **`buildingSet` is a
-separate, later decision** (Tokyo authenticity plan P2): `tokyoRoadsideBuildingSet`
-derives it from the zone (miyanosaka/yamashita/nishi → `tokyo-house`) with
-exactly one per-road override of its own (`jp-nakamise-yokocho` →
-`tokyo-shotengai`, regardless of its `downtown` zone — the plan is explicit
-that only this one shotengai road converts, not all of downtown). Every
-other zone stays on the procedural facade grid until later phases import
-its own glb kit. `density` is not a fill fraction: it is `facadeGridCells`'s grid-resolution
+separate, later decision** (Tokyo authenticity plan P2/P3b): `tokyoRoadsideBuildingSet`
+derives it from the zone — miyanosaka/yamashita/nishi → `tokyo-house`;
+downtown (outside one exception) and `ring` → `tokyo-zakkyo`; `riverside`
+and `higashi` → `tokyo-manshon` — with exactly one per-road override of its
+own (`jp-nakamise-yokocho` → `tokyo-shotengai`, regardless of its `downtown`
+zone — the plan is explicit that only this one shotengai road diverges from
+its zone's own set). Every generator zone now names a set; what still ships
+the procedural facade grid is only the ~1-in-4 street-wall holdback parcels
+(`tokyoParcelKeepsFacadeBoxes`) plus the hand-authored quarter, which this
+generator never touches. `density` is not a fill fraction: it is `facadeGridCells`'s grid-resolution
 knob (`count = round(3+density*7)`, tiled `columns × rows`), and only the
 front row (`columns`) is ever visible from a road-facing camera — see
 `TOKYO_ZONE_STYLE`'s own comment (Tokyo expansion Phase 10) for the draw-call
