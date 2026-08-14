@@ -188,23 +188,29 @@ function buildHikariTower(
     return mesh;
   };
 
+  // Emissive values tuned against the night pipeline's own bloomThreshold
+  // (0.72, post-exposure 1.55x — babylonGameSession.ts) rather than picked
+  // by eye: this file's own proven lamp-head glow (0.98, 0.75, 0.35) is the
+  // reference point a first pass (~0.2-0.5 peak channel) sat well under,
+  // rendering as flat colour with no visible halo. These land close to the
+  // lamp's own intensity so the lattice and deck glass genuinely bloom.
   const orange = makeMaterial(
     scene,
     `${landmark.id}-orange`,
     new Color3(0.72, 0.28, 0.08),
-    new Color3(0.22, 0.07, 0.02),
+    new Color3(0.62, 0.21, 0.05),
   );
   const white = makeMaterial(
     scene,
     `${landmark.id}-white`,
     new Color3(0.82, 0.8, 0.76),
-    new Color3(0.07, 0.06, 0.05),
+    new Color3(0.26, 0.25, 0.23),
   );
   const deckGlow = makeMaterial(
     scene,
     `${landmark.id}-deck`,
     new Color3(0.12, 0.11, 0.14),
-    new Color3(0.55, 0.4, 0.18),
+    new Color3(0.78, 0.58, 0.27),
   );
   const beaconMaterial = makeMaterial(
     scene,
