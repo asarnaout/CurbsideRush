@@ -127,7 +127,15 @@ export const TICKET_PRICE_BY_DESTINATION: Readonly<
   Partial<Record<DestinationId, number>>
 > = {
   "us-nyc": 400,
-  "jp-tokyo": 40_000,
+  // 40,000 -> 150,000 (Tokyo expansion Phase 7): the address system going
+  // live spread gig pickups/dropoffs across the whole 2600x2400 m map
+  // instead of four venues a couple hundred metres apart, and `jp`'s
+  // ratePerM fare scales with distance — the median gig net roughly
+  // doubled, which made the old price reachable in 2.3 days
+  // (`tests/careerBalance.test.ts`'s own 3-day floor). 150,000 lands at
+  // ~8.6 days on the best-earning vehicle, in the same "roughly a week"
+  // band as every other rung.
+  "jp-tokyo": 150_000,
   "eg-cairo": 20_000,
 };
 

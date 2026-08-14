@@ -1310,7 +1310,7 @@ describe("career mode flow", () => {
   it("flies from Tokyo to Cairo with a fresh EGP ledger and right-hand traffic", async () => {
     seedProgressWithCareer(
       careerIn("jp-tokyo", 32, {
-        cash: 50_000,
+        cash: 160_000,
         day: 6,
         ownedVehicleIds: ["compact-hatch"],
       }),
@@ -1321,13 +1321,13 @@ describe("career mode flow", () => {
 
     fireEvent.click(screen.getByTestId("garage-travel"));
     await screen.findByRole("heading", { name: /Where are you working/i });
-    expect(screen.getByTestId("travel-eg-cairo")).toHaveTextContent("¥40,000");
+    expect(screen.getByTestId("travel-eg-cairo")).toHaveTextContent("¥150,000");
     expect(screen.getByTestId("travel-eg-cairo")).toHaveTextContent(
       /DRIVES ON THE RIGHT/i,
     );
     fireEvent.click(screen.getByTestId("travel-pick-eg-cairo"));
     expect(screen.getByTestId("travel-footer-line")).toHaveTextContent(
-      "Cairo · ticket ¥40,000",
+      "Cairo · ticket ¥150,000",
     );
     fireEvent.click(screen.getByTestId("travel-fly"));
     fireEvent.click(screen.getByRole("button", { name: /Buy the ticket/i }));
