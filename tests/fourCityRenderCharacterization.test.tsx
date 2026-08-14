@@ -796,9 +796,37 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // of the converted zones (out on the residential webs and the
     // shotengai) sit anywhere near this fixed test pose's own mirror-cull
     // frustum or NYC-analogue camera position.
-    totalMeshes: 9_971,
-    enabledMeshes: 9_971,
-    activeMeshes: 986,
+    //
+    // enabledMeshes/totalMeshes 9_971 -> 10_231 (+260, Tokyo authenticity
+    // plan P3b): `tokyo-zakkyo` goes live on the rest of downtown (outside
+    // `jp-nakamise-yokocho`) + ring, `tokyo-manshon` on riverside + higashi
+    // — every generator zone now names a set. Bucketed the same way as P2's
+    // own paragraph above (temporary console.log, before/after under
+    // `git stash` on this same suite): "building"-prefixed mesh count
+    // 2_451 -> 2_880 (+429, exactly `buildingLayout.buildings.length`'s own
+    // delta — every catalogued model still has one solid, so one proxy box
+    // each under this suite's forced-empty preload), "prop"-prefixed count
+    // 5_454 -> 5_285 (-169, the identical closer-glb-depth-shrinks-
+    // scatter-candidates mechanism P2's paragraph already documents, at
+    // four-zone instead of three-web scale). Net +260 is the OPPOSITE
+    // direction from P2's own -144: P2 converted 3 residential webs + 1
+    // shotengai road (a smaller building-count gain, +671, outweighed by
+    // its own prop loss); P3b converts 4 full zones, and the larger
+    // building gain (+429) this time outweighs the smaller prop loss
+    // (-169) instead — same mechanism, different net sign, because the
+    // converted area is larger this phase. materials/
+    // survivingMaterialNamesFingerprint are BOTH unchanged (242,
+    // "70de85d2"): every zakkyo/manshon parcel's proxy box reuses
+    // `ProceduralFacades.materialFor`'s existing tile/plaster/concrete
+    // cache (`TOKYO_ZONE_STYLE`'s own materials, all pre-existing keys),
+    // so P3b mints no new material either, the same as P2. activeMeshes
+    // 986 -> 947 (-39): the fixed test pose's own viewport frustum reacting
+    // to the same building-closer/prop-thinner content shift as the rest of
+    // the map; mirrorCandidates/mirrorDrawn unchanged (166/210) — neither
+    // the mirror-cull ring's candidate set nor what it draws moved.
+    totalMeshes: 10_231,
+    enabledMeshes: 10_231,
+    activeMeshes: 947,
     materials: 242,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

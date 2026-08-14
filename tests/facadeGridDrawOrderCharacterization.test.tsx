@@ -468,8 +468,21 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // baseline delta alone. Fingerprint moves for the same reason as every
     // other cell-count-driven baseline in this file — different cells
     // exist, so different names/positions do.
-    drawCount: 4_551,
-    facadeMeshFingerprint: "cb3cca2e",
+    //
+    // 4_551 -> 1_701 (-2_850, Tokyo authenticity plan P3b): `tokyo-zakkyo`
+    // goes live on the rest of downtown (outside `jp-nakamise-yokocho`) +
+    // ring, `tokyo-manshon` on riverside + higashi — every generator zone
+    // now names a set, so only the ~1-in-4 street-wall holdback parcels
+    // (`tokyoParcelKeepsFacadeBoxes`), any back-edge-demoted parcel
+    // (`tokyoBackEdgeNearsARoad`), and the 9 hand-authored quarter blocks
+    // still draw from this stream. 1_701 / 3 = 567 candidate cells, close
+    // to (not identical to — this stream counts pre-survival CANDIDATES,
+    // `planMapBuildings`'s own `procedural-cell` count of 526 counts
+    // post-survival SURVIVORS) the real map's now much smaller procedural
+    // remainder. Fingerprint moves for the same reason as every other
+    // cell-count-driven baseline in this file.
+    drawCount: 1_701,
+    facadeMeshFingerprint: "79c57c0b",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the

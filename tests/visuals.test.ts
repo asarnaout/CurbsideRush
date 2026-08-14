@@ -160,13 +160,13 @@ describe("per-city visual profile", () => {
       }
     }
     // London gained its four sets in the visual-overhaul work; Tokyo gained
-    // its first two (tokyo-house/tokyo-shotengai) in the authenticity
-    // plan's P2 — the other three planned sets (tokyo-zakkyo/tokyo-manshon,
-    // plan section 6.1) wait on P3's zakkyo-pack/restyle-backbone imports.
+    // its first two (tokyo-house/tokyo-shotengai) in the authenticity plan's
+    // P2 and its other two (tokyo-zakkyo/tokyo-manshon, plan section 6.1) in
+    // P3b, for four total — every generator zone now names a set.
     expect(
       resolveMapVisualProfile("london-south-kensington").buildingSets.length,
     ).toBe(4);
-    expect(resolveMapVisualProfile("tokyo-setagaya").buildingSets.length).toBe(2);
+    expect(resolveMapVisualProfile("tokyo-setagaya").buildingSets.length).toBe(4);
     // Every catalogued set belongs to exactly one city's allow-list.
     const claimed = REAL_MAP_PACKS.flatMap(
       (mapPack) => resolveMapVisualProfile(mapPack.id).buildingSets,

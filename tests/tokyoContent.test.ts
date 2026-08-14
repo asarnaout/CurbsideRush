@@ -312,21 +312,28 @@ describe("Tokyo street wall (expansion Phase 4, R18)", () => {
     // plan section 6.1's "one-time re-baseline") — every STILL-procedural
     // block downstream of a newly-converted one now reads different
     // width/depth/height draws, which shifts which facade cells survive
-    // without moving any of that block's own authored geometry. All seven
-    // stay comfortably above their floor; downtown's 81.3% (6.3 points
-    // over its 75% floor) is the one to watch if a future phase trims
-    // further, since `jp-nakamise-yokocho`'s glb parcel is genuinely
-    // shallower than the procedural grid it replaced (see
-    // `tokyoRoadsideCandidate`'s own comment for why the set decides its
-    // own depth).
+    // without moving any of that block's own authored geometry.
+    //
+    // Re-measured again after P3b (`tokyo-zakkyo` goes live on the rest of
+    // downtown + ring, `tokyo-manshon` on riverside + higashi — every
+    // generator zone now names a set): higashi 97.4%, ring 95.5%, riverside
+    // 100% (unchanged — still a small one-sided sample, same reasoning as
+    // before), downtown 95.7%. The same glb-parcels-sit-closer-to-kerb gain
+    // P2 measured on the residential webs repeats here, more dramatically —
+    // ring and downtown in particular were the two zones this plan's own
+    // draw-call hypothesis (section 10) targeted, and both jumped double
+    // digits. Floors for the four P3b-converted zones raised to 5-16 points
+    // below their new measured numbers, matching the other three zones'
+    // existing convention; riverside's floor is untouched (its own number
+    // did not move).
     const FLOOR_BY_ZONE: Readonly<Record<TokyoBlockZone, number>> = {
       miyanosaka: 0.85,
       yamashita: 0.85,
       nishi: 0.85,
-      higashi: 0.8,
-      ring: 0.7,
+      higashi: 0.85,
+      ring: 0.8,
       riverside: 0.8,
-      downtown: 0.75,
+      downtown: 0.85,
     };
 
     const report: string[] = [];

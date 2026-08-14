@@ -28,12 +28,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * Pins three per-city facts specific enough to catch a wrong building set or
  * a missing roof-clutter pass, not just an aggregate total:
  *  - `buildingInstanceCount` — placed `bldg-*` meshes. NYC, Cairo and (as of
- *    the Tokyo authenticity plan's P2) Tokyo author `buildingSet` blocks;
- *    London still doesn't and stays pinned at zero. Tokyo's own count
- *    UNDERSTATES its true placement total by design: `tokyo-house-d` is one
- *    of `MERGE_INCOMPATIBLE_MODEL_IDS` (buildingCatalog.ts), so it renders
+ *    the Tokyo authenticity plan's P2/P3b) Tokyo author `buildingSet`
+ *    blocks; London still doesn't and stays pinned at zero. Tokyo's own
+ *    count UNDERSTATES its true placement total by design: `tokyo-house-d`
+ *    and (as of P3b's `tokyo-manshon`) `tokyo-apato-b` are both
+ *    `MERGE_INCOMPATIBLE_MODEL_IDS` (buildingCatalog.ts), so they render
  *    through `BuildingLayer`'s `instantiateViaSubmeshes` path instead of the
- *    ordinary merged-master `createInstance` this filter looks for — its
+ *    ordinary merged-master `createInstance` this filter looks for — their
  *    meshes carry the glb's own submesh names, never a `bldg-*` prefix.
  *  - `cairoRoofClutterInstanceCount` — placed `cairo-roof-<n>-<roll>` meshes.
  *    Nonzero only for Cairo (the only map with roof-clutter masters).
@@ -353,13 +354,22 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
   "tokyo-setagaya": {
     // 0 -> 817 (Tokyo authenticity plan P2): `tokyo-house`/`tokyo-shotengai`
     // go live on miyanosaka/yamashita/nishi and jp-nakamise-yokocho. Real
-    // planned asset-slot total is 1_012 (confirmed directly via
-    // `planMapBuildings`), not 817 — the gap is exactly the 195 `tokyo-house-d`
-    // placements this suite's own `bldg-*` filter cannot see (see the header
-    // comment above). No Cairo roof clutter (no `roofY` on any Tokyo
-    // PLACEMENTS entry) and no storefront re-branding (neither Tokyo set
+    // planned asset-slot total was 1_012 (confirmed directly via
+    // `planMapBuildings`), not 817 — the gap was exactly the 195
+    // `tokyo-house-d` placements this suite's own `bldg-*` filter cannot see
+    // (see the header comment above).
+    //
+    // 817 -> 2_070 (P3b): `tokyo-zakkyo` goes live on downtown (outside
+    // `jp-nakamise-yokocho`) + ring, `tokyo-manshon` on riverside + higashi.
+    // Real planned asset-slot total is now 2_354 — the gap widened to 284:
+    // the same 195 `tokyo-house-d` placements plus 89 NEW `tokyo-apato-b`
+    // placements (`tokyo-manshon` is the first shipped set to reference it),
+    // both `MERGE_INCOMPATIBLE_MODEL_IDS` entries rendered through
+    // `instantiateViaSubmeshes` with the source glb's own submesh names,
+    // never a `bldg-*` prefix. No Cairo roof clutter (no `roofY` on any
+    // Tokyo PLACEMENTS entry) and no storefront re-branding (no Tokyo set
     // references `STOREFRONT_MODEL_ID`), so both other fields stay zero.
-    buildingInstanceCount: 817,
+    buildingInstanceCount: 2_070,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

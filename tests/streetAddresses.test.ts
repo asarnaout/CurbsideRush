@@ -403,9 +403,11 @@ describe("procedural street addresses", () => {
     expect(addresses.length).toBeGreaterThan(200);
     const streets = new Set(addresses.map((a) => a.name.replace(/^\d+\s/, "")));
     expect(streets.size).toBeGreaterThan(40);
-    // Zoned off the facade material (Tokyo has no building sets either):
-    // `wood-plaster`/`plaster` yield homes, `tile`/`concrete` also yield
-    // shops and offices. No `restaurant` kind ever comes from a generated
+    // Zoned off the facade material for the ~1-in-4 holdback parcels and the
+    // hand-authored quarter (`wood-plaster`/`plaster` yield homes,
+    // `tile`/`concrete` also yield shops and offices) and off `buildingSet`
+    // for the rest (Tokyo authenticity plan P2/P3b — every generator zone
+    // now names one). No `restaurant` kind ever comes from a generated
     // address on ANY map — `KINDS_BY_BLOCK_MATERIAL`/`KINDS_BY_BUILDING_SET`
     // never list it, by design; only authored venues sell food.
     const kinds = new Set(addresses.map((a) => a.kind));

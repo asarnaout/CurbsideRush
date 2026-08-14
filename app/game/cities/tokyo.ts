@@ -2197,14 +2197,16 @@ function tokyoBlockOverlapsParkOrWater(
 
 // =============================================================================
 // Street wall (Tokyo expansion Phase 4, R18; `buildingSet` wiring added by
-// the Tokyo authenticity plan's P2): a roadside parcel behind both kerbs of
+// the Tokyo authenticity plan's P2 and P3b): a roadside parcel behind both kerbs of
 // every generated road, so no generated street reads as bare asphalt with
-// grey nothing behind it. Most of the map is still fully procedural-facade
-// (plain `{material, heightRange, density}`, no `buildingSet`/`streetEdges`)
-// — `tokyo-house`/`tokyo-shotengai` only convert miyanosaka/yamashita/nishi
-// and `jp-nakamise-yokocho` (`tokyoRoadsideBuildingSet` below); every other
-// zone has no glb kit of its own yet (P3+: zakkyo/manshon) and stays
-// procedural exactly as before this phase.
+// grey nothing behind it. Every generator zone now names a glb set
+// (`tokyoRoadsideBuildingSet` below): `tokyo-house` for miyanosaka/
+// yamashita/nishi, `tokyo-shotengai` for `jp-nakamise-yokocho` alone,
+// `tokyo-zakkyo` for the rest of downtown plus `ring`, `tokyo-manshon` for
+// `riverside`/`higashi`. What still ships plain procedural-facade
+// (`{material, heightRange, density}`, no `buildingSet`/`streetEdges`) is
+// only the ~1-in-4 holdback parcels (`tokyoParcelKeepsFacadeBoxes`) plus the
+// 9 hand-authored quarter blocks this generator never touches.
 //
 // `tokyoRoadsideParcel` itself is this file's own copy of London's
 // file-private `roadsideParcel` (`cities/london.ts`, search that name) —
@@ -2668,13 +2670,19 @@ const tokyoDepthJitterM = (seedKey: string): number => (hashStringToSeed(`${seed
  *
  * `jp-nakamise-yokocho` gets its own shotengai dressing even though its
  * ROAD is zoned "downtown" (`TOKYO_DOWNTOWN_ROAD_IDS`) — the plan is
- * explicit that only this one road converts, not all of downtown: the
- * zakkyo/manshon sets the rest of downtown would want don't exist yet (P3).
- * Every other zone (`higashi`, `ring`, `riverside`, the rest of `downtown`)
- * stays procedural this phase — `undefined`, not a gap: `higashi` in
- * particular reads "mixed mid-rise" (8-22 m), nothing like a house zone or
- * a shopping street, so it is deliberately not force-fit onto either set
- * built this phase.
+ * explicit that only this one road converts to `tokyo-shotengai`, not all of
+ * downtown; checked first, before the zone switch below, so it wins
+ * regardless of what its own zone would otherwise resolve to.
+ *
+ * P3b adds the other two sets, keyed by zone per the plan's section 6.1
+ * table: `downtown` (everywhere except the one road above) and `ring` both
+ * read as the same zakkyo backbone (dense mixed mid-rise/tower frontage —
+ * the plan's own call, section 6.1: "ring-road frontages read as the same
+ * zakkyo backbone"); `riverside` and `higashi` both read as `tokyo-manshon`
+ * ("mixed mid-rise, 8-22 m" — nothing like a house zone or a shopping
+ * street, exactly what the manshon mix is for). No zone is left `undefined`
+ * any more except the quarter's own hand-authored roads (absent from
+ * `TOKYO_ZONE_FOR_ROAD` entirely, never reach this function).
  *
  * Returns a plain `string` rather than `BuildingSetId`, matching
  * `cairoRoadsideBuildingSet`'s own signature exactly — the caller narrows
@@ -2687,6 +2695,8 @@ const tokyoRoadsideBuildingSet = (
 ): string | undefined => {
   if (roadId === "jp-nakamise-yokocho") return "tokyo-shotengai";
   if (zone === "miyanosaka" || zone === "yamashita" || zone === "nishi") return "tokyo-house";
+  if (zone === "downtown" || zone === "ring") return "tokyo-zakkyo";
+  if (zone === "riverside" || zone === "higashi") return "tokyo-manshon";
   return undefined;
 };
 
