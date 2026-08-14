@@ -151,6 +151,39 @@ const BOUNDS: Record<string, BuildingStructuralBounds> = {
   "tokyo-shop-d": rect(-5.9, 11.21, -6.14, 5.41, 23.13),
   "tokyo-izakaya": rect(-3.77, 3.78, -3.25, 3.44, 10.05),
   "tokyo-ramen": rect(-6.84, 6.6, -8.68, 8.28, 9.64),
+
+  // ---- Tokyo (P3a — import-only, unreferenced by any set; see
+  // TOKYO_ENV_MODELS's header in buildingCatalog.ts). Same measurement
+  // recipe as the P1 block above; none of these six hit the
+  // heterogeneous-submesh MergeMeshes crash, so every bound here comes from
+  // a real merged master, not a per-submesh union.
+  //
+  // tokyo-zakkyo-{a..f}: each rect is the ROW's own ground-touching extent
+  // (a 3-4 building cluster, tools/split-asian-city-pack.mjs), not one
+  // building's. proxyHeightM is the row's tallest building.
+  "tokyo-zakkyo-a": rect(-17.92, 17.92, -4.48, 4.48, 54.1),
+  "tokyo-zakkyo-b": rect(-16.07, 16.07, -4.0, 4.0, 46.84),
+  "tokyo-zakkyo-c": rect(-17.01, 16.44, -3.43, 3.43, 32.83),
+  "tokyo-zakkyo-d": rect(-18.36, 18.36, -8.34, 8.34, 42.42),
+  "tokyo-zakkyo-e": rect(-16.62, 16.62, -7.03, 7.03, 34.66),
+  "tokyo-zakkyo-f": rect(-11.1, 11.1, -4.04, 4.04, 32.5),
+
+  // tokyo-nippori-bldg: off-centre on Z (both bounds positive) — the scan's
+  // own origin sits behind the building's real footprint on that axis, the
+  // same class of asymmetric reference several P1 entries already show.
+  "tokyo-nippori-bldg": rect(-5.39, -4.5, 4.04, 4.57, 25.0),
+
+  // Restyle backbone: same source geometry as an already-curated entry
+  // elsewhere in this file (cairo-walkup-a/b, nyc-tower-a — see this file's
+  // own header on why a shared source still gets fresh per-copy numbers).
+  // tokyo-block-{slim,small,4story} are likewise the same Quaternius source
+  // geometry as cairo-block-{slim,small,4story}, re-measured fresh.
+  "tokyo-walkup-a": rect(-6, 6, -6, 6, 14.1),
+  "tokyo-walkup-b": rect(-6, 6, -6, 6, 14.1),
+  "tokyo-tower-a": rect(-9, 9, -9, 9, 61.2),
+  "tokyo-block-slim": rect(-2.56, 2.69, -5.27, 5.24, 19.96),
+  "tokyo-block-small": rect(-4.51, 4.51, -4.7, 4.41, 19.25),
+  "tokyo-block-4story": rect(-5.43, 5.42, -5.71, 5.77, 23.43),
 };
 
 /** Structural bounds for a catalogue model id, or `undefined` if uncurated. */

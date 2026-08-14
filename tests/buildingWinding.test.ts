@@ -85,6 +85,17 @@ describe("merged building winding", () => {
     "tokyo-shop-a": 2,
     "tokyo-shop-b": 2,
     "tokyo-shop-d": 1,
+    // Tokyo P3a: tokyo-block-slim shares cairo-block-slim's exact source
+    // geometry (same Quaternius OBJ+MTL pair) and needs the identical count
+    // for the identical reason. tokyo-zakkyo-e and tokyo-nippori-bldg are
+    // each their own independent Sketchfab source with their own measured
+    // slip, the same class as the P1 row above (tokyo-nippori-bldg's higher
+    // count reflects a photogrammetry mesh's much larger triangle budget,
+    // not a bigger problem — 4 strays out of 59,606 tris is proportionally
+    // smaller than tokyo-shop-a's 2 of a few hundred).
+    "tokyo-block-slim": 2,
+    "tokyo-zakkyo-e": 1,
+    "tokyo-nippori-bldg": 4,
   };
 
   // The guard: after the winding fix every merged building's outward faces are

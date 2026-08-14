@@ -420,6 +420,81 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
     depthM: 17.35,
     frontOffset: 0,
   },
+
+  // ---- Tokyo authenticity plan P3a (import-only; not yet referenced by any
+  // BuildingSetId — see TOKYO_ENV_MODELS's header). Measured the same way as
+  // P1's own batch: NullEngine + getBuildingMaster's exact recipe
+  // (instantiate real clones, Mesh.MergeMeshes, orientMergedFacesOutward,
+  // squareUpMergedMaster, recentreMergedMasterXZ) at the scale below, then
+  // reading the merged master's real post-scale bound. None of these six
+  // hit the heterogeneous-submesh MergeMeshes crash (unlike three of P1's
+  // batch) — every one merges cleanly, so none needs
+  // MERGE_INCOMPATIBLE_MODEL_IDS/instantiateModelInstanced.
+  //
+  // tokyo-zakkyo-{a..f}: each file is a small CLUSTER of 3-4 buildings
+  // (tools/split-asian-city-pack.mjs), laid out as one street-facing row and
+  // re-origined at the row's own base-centre — footprintM here is the whole
+  // row's width, not one building's. Scale (0.18, shared across all six so
+  // their relative height ordering from the source stays intact) is a
+  // judgement call with no live renderer to check it against yet: it trades
+  // off two things pulling in opposite directions — taller reads more like
+  // the plan's "apartments, offices, skyscrapers," but a wider row eats more
+  // of a single street-wall slot than any other model in this catalogue
+  // (the previous widest, cairo-depot, is 27.4 m; these run 22-37 m). Landed
+  // on 0.18 for a height range (33-54 m) in the same band as this
+  // catalogue's own towers (43-63 m) while keeping every row's footprint
+  // under 37 m. **Confidence: LOW on frontOffset for all six** — these are
+  // generic multi-building night-skyline clusters with no door/sign submesh
+  // or other orientation signal (unlike P1's shop/house imports), so
+  // frontOffset stays the no-evidence default (0); confidence on scale
+  // itself is a design choice, not a measurement, and should be revisited
+  // once P3b can actually place one and look at it. Both flagged for P3b's
+  // live drive-by, exactly like P1 flagged its own low-confidence entries
+  // for P2.
+  "tokyo-zakkyo-a": { scale: 0.18, groundY: 0, footprintM: 35.83, depthM: 8.95, frontOffset: 0 },
+  "tokyo-zakkyo-b": { scale: 0.18, groundY: 0, footprintM: 32.13, depthM: 7.99, frontOffset: 0 },
+  "tokyo-zakkyo-c": { scale: 0.18, groundY: 0, footprintM: 34.01, depthM: 6.85, frontOffset: 0 },
+  "tokyo-zakkyo-d": { scale: 0.18, groundY: 0, footprintM: 36.72, depthM: 16.67, frontOffset: 0 },
+  "tokyo-zakkyo-e": { scale: 0.18, groundY: 0, footprintM: 33.23, depthM: 14.05, frontOffset: 0 },
+  "tokyo-zakkyo-f": { scale: 0.18, groundY: 0, footprintM: 22.19, depthM: 8.07, frontOffset: 0 },
+
+  // tokyo-nippori-bldg: a real-Tokyo photogrammetry scan, kept at its own
+  // apparent native scale (1) — its unscaled footprint (22.35 x 9.77 m) and
+  // height (25.0 m) already read as a plausible real mixed-use building, the
+  // kind of coincidence photogrammetry occasionally gives when the capture
+  // pipeline was itself calibrated to real-world units. groundY is large
+  // (147.78) because the scan's own coordinate origin sits nowhere near its
+  // footprint's base — both native Y bounds are negative (-147.8..-122.8),
+  // so the whole mesh needs lifting, not dropping, to reach y=0. **Confidence:
+  // LOW on frontOffset** — a single unlit merged mesh with no named
+  // door/sign submesh to signal a side, the same no-evidence default as
+  // several of P1's own low-signal entries; flagged for P3b's live check
+  // before ever placing this (also still an explicitly optional model per
+  // the plan — perf may cut it regardless, see plan section 10).
+  "tokyo-nippori-bldg": { scale: 1, groundY: 147.78, footprintM: 22.35, depthM: 9.77, frontOffset: 0 },
+
+  // ---- Restyle backbone (P3a): re-imports of already-committed CC0
+  // sources, so geometry is IDENTICAL to an already-measured, already-live
+  // model — only the palette changed. Facing/scale below are inherited from
+  // that source's own entry, not re-derived, and carry that entry's own
+  // confidence (HIGH: cairo-walkup-a/b and nyc-tower-a are both already
+  // placed and driven-past in Cairo/NYC's own live maps). footprintM/depthM/
+  // groundY are still fresh NullEngine measurements of the actual committed
+  // tokyo-*.glb (never copied from the other city's manifest) — "never trust
+  // a manifest against itself" applies to cross-file assumptions too, not
+  // just a file's own claims, and this exact batch is also why: the
+  // restyle's own bytes could in principle have drifted even though the
+  // recipe says they shouldn't.
+  "tokyo-walkup-a": { scale: 6, groundY: 0, footprintM: 12.04, frontOffset: Math.PI },
+  "tokyo-walkup-b": { scale: 6, groundY: 0, footprintM: 12.04, frontOffset: Math.PI },
+  // Scale 15, not NYC's own 13: London/Cairo's copies of this same source
+  // both already use 15 for their tallest single glassy slab, and the plan
+  // casts this one as "the scramble backdrop" — the same prominent-anchor
+  // role, so it follows their number rather than NYC's more modest one.
+  "tokyo-tower-a": { scale: 15, groundY: 0, footprintM: 18.6, frontOffset: 0 },
+  "tokyo-block-slim": { scale: 5, groundY: 0.08, footprintM: 5.58, depthM: 10.77, frontOffset: Math.PI },
+  "tokyo-block-small": { scale: 5, groundY: 0.07, footprintM: 9.54, depthM: 9.87, frontOffset: Math.PI },
+  "tokyo-block-4story": { scale: 4.6, groundY: 0.02, footprintM: 11.14, depthM: 11.65, frontOffset: Math.PI },
 };
 
 export type BuildingSetId =
