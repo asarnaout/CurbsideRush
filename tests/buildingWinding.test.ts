@@ -20,7 +20,26 @@ import {
 // guard covers the whole catalogue rather than one city's slice (it was
 // NYC-only until London's kit landed unchecked by it). The skinned people are
 // never merged, so they're excluded.
-const MERGED = ALL_ENV_MODELS.filter((m) => m.category !== "person");
+//
+// Three Tokyo P1 imports are also excluded: `Mesh.MergeMeshes` throws
+// ("Cannot merge vertex data that do not have the same set of attributes")
+// on tokyo-house-d/tokyo-apato-b/tokyo-ramen, whose Sketchfab-exported
+// submeshes carry different vertex-attribute sets (some with TANGENT/extra
+// UV channels, some without) — the documented failure mode
+// (docs/rendering.md, buildingSets.ts's own PLACEMENTS comment) that means
+// they render via `instantiateModelInstanced` instead. That path instances
+// each submesh's ORIGINAL geometry directly (no world-matrix bake into a
+// merged vertex buffer), so it never hits the hollow-winding bug this file
+// guards against in the first place — there is nothing for this test to
+// check on these three.
+const MERGE_INCOMPATIBLE_IDS = new Set([
+  "tokyo-house-d",
+  "tokyo-apato-b",
+  "tokyo-ramen",
+]);
+const MERGED = ALL_ENV_MODELS.filter(
+  (m) => m.category !== "person" && !MERGE_INCOMPATIBLE_IDS.has(m.id),
+);
 
 describe("merged building winding", () => {
   registerBuiltInLoaders();
@@ -68,6 +87,12 @@ describe("merged building winding", () => {
     "london-stucco-a": 2,
     "london-stucco-b": 2,
     "london-stucco-d": 2,
+    // Tokyo P1 imports (13 independent Sketchfab authors, not one pack) —
+    // each a handful of the same kind of authoring slip, measured directly
+    // rather than assumed from the Quaternius/KayKit precedent above.
+    "tokyo-shop-a": 2,
+    "tokyo-shop-b": 2,
+    "tokyo-shop-d": 1,
   };
 
   // The guard: after the winding fix every merged building's outward faces are
