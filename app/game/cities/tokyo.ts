@@ -3124,6 +3124,15 @@ export const TOKYO_MAP_PACK: MapPack = {
       anchoredSpawn("jp-car-kawagishi", "vehicle", "jp-kawagishi-dori-1-forward-1", 120),
       freeSpawn("jp-ped-tofu", "pedestrian", 870, -400, 0),
       freeSpawn("jp-cyclist-higashi", "cyclist", 980, 100, 0, "jp-higashi-hondori-3-forward-1"),
+      // --- Street life & aesthetics (Tokyo expansion Phase 9, R13) ---
+      // Phases 2/3 already covered the station front (jp-ped-ekimae) and the
+      // shotengai (jp-cyclist-nakamise) per §4.16's own list; the promenade
+      // was the one genuinely missing category, plus two bonus spots at the
+      // districts Phases 6/8 added after that list was written.
+      freeSpawn("jp-ped-kawabe", "pedestrian", 588, 0, 90),
+      freeSpawn("jp-cyclist-kawabe", "cyclist", 582, 50, 0, "jp-kawate-dori-2-forward-1"),
+      freeSpawn("jp-ped-tower-plaza", "pedestrian", 1053, 100, 0),
+      freeSpawn("jp-ped-kitazawa", "pedestrian", -521, 760, 0),
     ],
   ),
 };
