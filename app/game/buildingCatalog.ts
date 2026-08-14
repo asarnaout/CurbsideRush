@@ -23,7 +23,9 @@ export type EnvModelCategory =
   | "midrise"
   | "brownstone"
   | "house"
+  | "apartment"
   | "shop"
+  | "restaurant"
   | "vendor"
   | "person";
 
@@ -33,11 +35,13 @@ export interface EnvModelMeta {
   /** Public URL the loader fetches (props under /models/props, people under /models/characters). */
   readonly url: string;
   readonly category: EnvModelCategory;
-  /** Original model title on Poly Pizza. */
+  /** Original model title on Poly Pizza (or Sketchfab, for the Tokyo kit). */
   readonly title: string;
   readonly author: string;
-  readonly license: "CC0 1.0" | "CC-BY 3.0";
-  /** Poly Pizza model page. */
+  /** Tokyo's Sketchfab imports are all CC-BY 4.0 — a different point release
+   * from the Poly Pizza CC-BY 3.0 kits, but the same attribution obligation. */
+  readonly license: "CC0 1.0" | "CC-BY 3.0" | "CC-BY 4.0";
+  /** Poly Pizza (or Sketchfab) model page. */
   readonly sourceUrl: string;
   /** Required credit string for CC-BY assets (absent for CC0). */
   readonly attribution?: string;
@@ -185,11 +189,191 @@ export const LONDON_ENV_MODELS: readonly EnvModelMeta[] = [
   { id: "london-walkup-b", url: `${P}/london-walkup-b.glb`, category: "brownstone", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("T3oyvK6VEU") },
 ];
 
-/** Every catalogued environment model, all three kitted maps. */
+/**
+ * The Tokyo street-wall kit — round 1 (Tokyo authenticity plan, phase P1).
+ * Tokyo shipped its ten-phase expansion with `buildingSets: []`: every
+ * building on the map is a procedural facade box. These 13 Sketchfab imports
+ * (houses, apāto walk-ups, a konbini, shotengai shopfronts, an izakaya and a
+ * ramen shop) are the first real building models for Tokyo — see
+ * `CREDITS.md` for full provenance and `tools/style-tokyo-buildings.mjs` for
+ * the normalization pass each one went through.
+ *
+ * **P1 is import-only.** These are catalogued with measured
+ * `buildingSets.ts` PLACEMENTS/`buildingStructuralBounds.ts` BOUNDS entries,
+ * but not yet referenced by any `BuildingSetId`/block — wiring them into the
+ * street wall (districts, holdback, demotion, addresses) is a later phase.
+ * Until then this array (and its URLs) is inert: no map's `buildingSets`
+ * profile names anything from here, so nothing here is preloaded or drawn.
+ *
+ * All are Sketchfab exports, downloaded as the autoconverted glTF (separate
+ * `.gltf`+`.bin`+images), packed into a self-contained glb by
+ * `tools/pack-gltf.mjs` (this repo's hand-written glTF->glb packer, the
+ * sibling of `tools/obj-to-glb.mjs`) and normalized by
+ * `tools/style-tokyo-buildings.mjs`. All are **CC-BY 4.0** — a plain
+ * attribution licence, same obligation as the CC-BY 3.0 Poly Pizza pieces
+ * elsewhere in this catalogue, different point release.
+ */
+const SKETCHFAB_MODEL = (uid: string) => `https://sketchfab.com/3d-models/${uid}`;
+
+export const TOKYO_ENV_MODELS: readonly EnvModelMeta[] = [
+  // ---- Detached houses (series 1-3 share one author/scale; house-d is a
+  // separate, untextured-flat-colour model that already matches the game's
+  // native art style) ----
+  {
+    id: "tokyo-house-a",
+    url: `${P}/tokyo-house-a.glb`,
+    category: "house",
+    title: "Japanese Residential Home 01",
+    author: "Morrissey Alexander",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("japanese-residential-home-01-d690f83d8e8d48e6a532bebe84901595"),
+    attribution: "Japanese Residential Home 01 by Morrissey Alexander",
+  },
+  {
+    id: "tokyo-house-b",
+    url: `${P}/tokyo-house-b.glb`,
+    category: "house",
+    title: "Japanese Residential Home 02",
+    author: "Morrissey Alexander",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("japanese-residential-home-02-c31697f09152453cb3ed215482e7a810"),
+    attribution: "Japanese Residential Home 02 by Morrissey Alexander",
+  },
+  {
+    id: "tokyo-house-c",
+    url: `${P}/tokyo-house-c.glb`,
+    category: "house",
+    title: "Japanese Residential Home 03",
+    author: "Morrissey Alexander",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("japanese-residential-home-03-1c53f4f37fc44c32a8874464025aea48"),
+    attribution: "Japanese Residential Home 03 by Morrissey Alexander",
+  },
+  {
+    id: "tokyo-house-d",
+    url: `${P}/tokyo-house-d.glb`,
+    category: "house",
+    title: "Tokyo Japanese House / Casa Japonesa [Low Poly]",
+    author: "SitoNyaa",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL(
+      "tokyo-japanese-house-casa-japonesa-low-poly-05e04ee0c3d04ff9a2fe4c348b3c1bcd",
+    ),
+    attribution: "Tokyo Japanese House / Casa Japonesa [Low Poly] by SitoNyaa",
+  },
+
+  // ---- Apāto walk-ups ----
+  {
+    id: "tokyo-apato-a",
+    url: `${P}/tokyo-apato-a.glb`,
+    category: "apartment",
+    title: "PSX Japanese Apartment",
+    // Sketchfab's own embedded asset.extras.author on the downloaded export
+    // (freshest, authoritative) says "DeadFrame Studio", not the research
+    // manifest's "Shazly" — same uid/model, corrected author.
+    author: "DeadFrame Studio",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("psx-japanese-apartment-0a12452df55c4e3687759732c81a8437"),
+    attribution: "PSX Japanese Apartment by DeadFrame Studio",
+  },
+  {
+    id: "tokyo-apato-b",
+    url: `${P}/tokyo-apato-b.glb`,
+    category: "apartment",
+    // Verbatim source title, including its own "Japanease" typo.
+    title: "Grey Japanease Apartment",
+    author: "Kasuga",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("grey-japanease-apartment-8589efeb25284d709934497e02a25421"),
+    attribution: "Grey Japanease Apartment by Kasuga",
+  },
+
+  // ---- Convenience store ----
+  {
+    id: "tokyo-konbini",
+    url: `${P}/tokyo-konbini.glb`,
+    category: "shop",
+    title: "Konbini",
+    author: "Arthur Sauvaget",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("konbini-6f66ee45303e4b90b1bcd13fad484269"),
+    attribution: "Konbini by Arthur Sauvaget",
+  },
+
+  // ---- Shotengai shopfronts ----
+  {
+    id: "tokyo-shop-a",
+    url: `${P}/tokyo-shop-a.glb`,
+    category: "shop",
+    title: "Japanese Store",
+    author: "Nick.Stark",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("japanese-store-78396a70304b412d9bc8e3955891f6cd"),
+    attribution: "Japanese Store by Nick.Stark",
+  },
+  {
+    id: "tokyo-shop-b",
+    url: `${P}/tokyo-shop-b.glb`,
+    category: "shop",
+    title: "Japanese low poly building store",
+    author: "KingKusak",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL(
+      "japanese-low-poly-building-store-565dc84823834d4884bef69944e0d4be",
+    ),
+    attribution: "Japanese low poly building store by KingKusak",
+  },
+  {
+    id: "tokyo-shop-c",
+    url: `${P}/tokyo-shop-c.glb`,
+    category: "shop",
+    title: "Old Japanese Store",
+    author: "Frid.blend",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("old-japanese-store-d3442a89f7ff43ed9867d305b8951be0"),
+    attribution: "Old Japanese Store by Frid.blend",
+  },
+  {
+    id: "tokyo-shop-d",
+    url: `${P}/tokyo-shop-d.glb`,
+    category: "shop",
+    title: "Japanese Shop 3",
+    author: "Christian Camelo",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("japanese-shop-3-b8c9864f973a491fbfdc6dc0c96ed58e"),
+    attribution: "Japanese Shop 3 by Christian Camelo",
+  },
+
+  // ---- Restaurant venue models (izakaya/ramen — modelId wiring for gig
+  // venues is a later phase; catalogued here so the geometry/licence exist) ----
+  {
+    id: "tokyo-izakaya",
+    url: `${P}/tokyo-izakaya.glb`,
+    category: "restaurant",
+    title: "Izakaya - Low Poly Building",
+    author: "BenMaher",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("izakaya-low-poly-building-3f43e5429171408e9bd19553ea813364"),
+    attribution: "Izakaya - Low Poly Building by BenMaher",
+  },
+  {
+    id: "tokyo-ramen",
+    url: `${P}/tokyo-ramen.glb`,
+    category: "restaurant",
+    title: "Ramen Shop",
+    author: "Naitogosuto",
+    license: "CC-BY 4.0",
+    sourceUrl: SKETCHFAB_MODEL("ramen-shop-4d189bf2710f422ea287718f968cea68"),
+    attribution: "Ramen Shop by Naitogosuto",
+  },
+];
+
+/** Every catalogued environment model, all four kitted maps. */
 export const ALL_ENV_MODELS: readonly EnvModelMeta[] = [
   ...NYC_ENV_MODELS,
   ...CAIRO_ENV_MODELS,
   ...LONDON_ENV_MODELS,
+  ...TOKYO_ENV_MODELS,
 ];
 
 /** De-duplicated London street-wall URLs, for map-scoped preload/tests. */
@@ -200,6 +384,12 @@ export function londonEnvModelUrls(): string[] {
 /** De-duplicated Cairo street-wall URLs, for map-scoped preload/tests. */
 export function cairoEnvModelUrls(): string[] {
   return [...new Set(CAIRO_ENV_MODELS.map((m) => m.url))];
+}
+
+/** De-duplicated Tokyo street-wall kit URLs, for map-scoped preload/tests.
+ * Unreferenced by any block/set as of P1 — see `TOKYO_ENV_MODELS`'s header. */
+export function tokyoEnvModelUrls(): string[] {
+  return [...new Set(TOKYO_ENV_MODELS.map((m) => m.url))];
 }
 
 /** De-duplicated model URLs, optionally filtered to one category, for preloading/tests. */

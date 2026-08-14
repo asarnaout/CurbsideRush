@@ -123,6 +123,34 @@ const BOUNDS: Record<string, BuildingStructuralBounds> = {
   "london-shop": rect(-4, 4, -4, 4, 6.6),
   "london-walkup-a": rect(-6, 6, -6, 6, 14.1),
   "london-walkup-b": rect(-6, 6, -6, 6, 14.1),
+
+  // ---- Tokyo (P1 — import-only, unreferenced by any set; see
+  // TOKYO_ENV_MODELS's header in buildingCatalog.ts). Measured independently
+  // of buildingSets.ts's own footprintM/depthM (which come from the FULL
+  // merged-master bound): ground-touching triangles collected within 0.2 m
+  // of each model's own ground reference (not always the absolute geometric
+  // minimum — see the matching comment in buildingSets.ts for
+  // tokyo-house-d/tokyo-ramen, whose lowest vertices belong to a sunken
+  // stair tread and a few stool-leg tips respectively, not the real ground
+  // plane), cross-checked against `tests/buildingPlacement.test.ts`'s own
+  // independent containment/boundary-tolerance gate. Several of these are
+  // measurably narrower at ground contact than their full silhouette —
+  // tokyo-konbini's fascia/sign band and tokyo-shop-d's upper massing both
+  // oversail their own walls, the same asymmetric-upper-floor pattern this
+  // file's header already documents for Cairo's towers/colonnades.
+  "tokyo-house-a": rect(-4.61, 4.61, -4.06, 4.06, 8.16),
+  "tokyo-house-b": rect(-4.09, 3.34, -3.01, 3.01, 7.03),
+  "tokyo-house-c": rect(-5.87, 4.83, -5.61, 5.64, 7.08),
+  "tokyo-house-d": rect(-6.85, 6.85, -5.88, 5.91, 7.22),
+  "tokyo-apato-a": rect(-3.35, 3.63, -2.4, 2.12, 10.66),
+  "tokyo-apato-b": rect(-4.48, 4.48, -8.26, 8.26, 17.56),
+  "tokyo-konbini": rect(-4.36, 4.43, -6.58, 1.24, 8.58),
+  "tokyo-shop-a": rect(-0.92, 1.22, -1.91, 1.44, 3.95),
+  "tokyo-shop-b": rect(-1.9, 2.31, -3.1, 3.11, 5.5),
+  "tokyo-shop-c": rect(-4.05, 4.04, -4.05, 4.0, 6.16),
+  "tokyo-shop-d": rect(-5.9, 11.21, -6.14, 5.41, 23.13),
+  "tokyo-izakaya": rect(-3.77, 3.78, -3.25, 3.44, 10.05),
+  "tokyo-ramen": rect(-6.84, 6.6, -8.68, 8.28, 9.64),
 };
 
 /** Structural bounds for a catalogue model id, or `undefined` if uncurated. */

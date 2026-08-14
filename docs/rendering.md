@@ -193,9 +193,13 @@ name), so Cairo never downloads NYC's towers. Venue/service props are not — ev
 map pays for all of `propModelUrls()`.
 
 Asset provenance and licences live in [CREDITS.md](../CREDITS.md). An OBJ-only
-source pack goes through `tools/obj-to-glb.mjs`, which is hand-written rather
-than an npm converter because `tests/cairoAssets.test.ts` pins committed
-SHA-256s and a dependency bump must not change the bytes.
+source pack goes through `tools/obj-to-glb.mjs`; a separate glTF-with-external-
+buffer/images export (Sketchfab's autoconverted download format, the Tokyo
+kit's source) goes through `tools/pack-gltf.mjs` instead, which only embeds
+external resources as bufferViews and never touches accessor data. Both are
+hand-written rather than an npm converter because `tests/cairoAssets.test.ts`/
+`tests/tokyoAssets.test.ts` pin committed SHA-256s and a dependency bump must
+not change the bytes.
 
 ## The crowd is 3–5 meshes for a whole city
 

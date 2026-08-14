@@ -40,8 +40,27 @@ const scaleFor = (model: { id: string; url: string }): number | null =>
   NYC_VENDORS.find((v) => v.url === model.url)?.scale ??
   null;
 
+// `Mesh.MergeMeshes` throws ("Cannot merge vertex data that do not have the
+// same set of attributes") on these three Tokyo P1 imports — their
+// Sketchfab-exported submeshes carry different vertex-attribute sets (some
+// with TANGENT/extra UV channels, some without), the same documented failure
+// mode `tests/buildingWinding.test.ts` excludes them for. They render via
+// `instantiateModelInstanced` instead (no merge, so `masterFor` below —
+// which mirrors `getBuildingMaster`'s merge recipe exactly — cannot build a
+// master for them at all). Their PLACEMENTS/BOUNDS entries were still
+// measured (see buildingSets.ts's own comment on each), just via a manual
+// per-submesh world-space union instead of this file's merge-based recipe.
+const MERGE_INCOMPATIBLE_IDS = new Set([
+  "tokyo-house-d",
+  "tokyo-apato-b",
+  "tokyo-ramen",
+]);
+
 const PLACEABLE = ALL_ENV_MODELS.filter(
-  (m) => m.category !== "person" && scaleFor(m) !== null,
+  (m) =>
+    m.category !== "person" &&
+    scaleFor(m) !== null &&
+    !MERGE_INCOMPATIBLE_IDS.has(m.id),
 );
 
 // One shared NullEngine scene; masters cached per model id. Mirrors
@@ -604,6 +623,18 @@ describe("buildingStructuralBounds — independent GLB validation", () => {
     "london-stucco-c": 2.0,
     "london-tower-b": 1.7,
     "london-tower-c": 1.95,
+    // Tokyo P1 imports: 13 independent Sketchfab authors, none sharing a
+    // common box-with-clean-corners convention. tokyo-house-c/tokyo-konbini
+    // in particular have real asymmetric massing (a wide street-facing wing
+    // versus a narrower rear one) confirmed by Direction 1 passing cleanly
+    // (no real geometry outside the box) while the box's own far corner
+    // sits well past any actual wall.
+    "tokyo-house-a": 1.35,
+    "tokyo-house-b": 1.0,
+    "tokyo-house-c": 3.3,
+    "tokyo-apato-a": 1.1,
+    "tokyo-konbini": 1.95,
+    "tokyo-izakaya": 0.95,
   };
 
   /** Minimum distance (metres) from `(x, z)` to the nearest edge of any
@@ -640,9 +671,9 @@ describe("buildingStructuralBounds — independent GLB validation", () => {
   };
 
   it.each(
-    ALL_ENV_MODELS.filter((m) => buildingPlacementConfig(m.id)).map(
-      (m) => [m.id, m] as const,
-    ),
+    ALL_ENV_MODELS.filter(
+      (m) => buildingPlacementConfig(m.id) && !MERGE_INCOMPATIBLE_IDS.has(m.id),
+    ).map((m) => [m.id, m] as const),
   )(
     "%s curated structural rectangle agrees with its ground-touching GLB geometry",
     async (_id, model) => {

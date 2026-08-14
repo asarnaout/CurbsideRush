@@ -323,8 +323,11 @@ describe("NYC environment model catalogue", () => {
   };
 
   it("gives every CC-BY model a required attribution string (and CC0 none)", () => {
+    // Matches the licence *family*, not one exact point release: Tokyo's
+    // Sketchfab imports are CC-BY 4.0 (the Poly Pizza kits elsewhere are all
+    // CC-BY 3.0), and every CC-BY release still requires attribution.
     for (const model of ALL_ENV_MODELS) {
-      if (model.license === "CC-BY 3.0") {
+      if (model.license.startsWith("CC-BY")) {
         expect(model.attribution, model.id).toBeTruthy();
       } else {
         expect(model.attribution, model.id).toBeUndefined();
