@@ -287,8 +287,11 @@ export interface MapVisualProfile {
   /** Country whose plate format this map's vehicles wear. */
   readonly plateRegion: PlateRegion;
   /** Instanced building-set catalogues (`buildingSets.ts`) this city's block
-   * content may draw from. Empty for cities (London, Tokyo) whose buildings
-   * are all procedural facades / landmark dispatch rather than instanced sets. */
+   * content may draw from. Every map names at least one today; a district
+   * left on procedural facades / landmark dispatch instead just never
+   * references one of the sets listed here (Tokyo's `higashi`/`ring`/
+   * `riverside`/most of `downtown`, as of the Tokyo authenticity plan's
+   * P2) — an empty array isn't required for that. */
   readonly buildingSets: readonly BuildingSetId[];
   /** Park-planting catalogues (`natureCatalog.ts`) this city draws from. */
   readonly natureSets: readonly NatureSetId[];
@@ -334,7 +337,11 @@ const MAP_VISUAL_PROFILES: Readonly<Record<string, MapVisualProfile>> = {
   "tokyo-setagaya": {
     visualKey: "tokyo",
     plateRegion: "jp",
-    buildingSets: [],
+    // Tokyo authenticity plan P2: the first two glb sets go live, wired to
+    // miyanosaka/yamashita/nishi and jp-nakamise-yokocho
+    // (`tokyoRoadsideBuildingSet` in cities/tokyo.ts). `tokyo-zakkyo`/
+    // `tokyo-manshon` wait on P3's imports.
+    buildingSets: ["tokyo-house", "tokyo-shotengai"],
     natureSets: natureSetsForMap("tokyo"),
     complexionWeights: [0, 1, 2, 6, 8, 7],
     hairWeights: [15, 5, 3, 1, 0, 0],

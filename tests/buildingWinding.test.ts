@@ -8,7 +8,7 @@ import {
   Scene,
 } from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
-import { ALL_ENV_MODELS } from "../app/game/buildingCatalog";
+import { ALL_ENV_MODELS, MERGE_INCOMPATIBLE_MODEL_IDS } from "../app/game/buildingCatalog";
 import {
   orientMergedFacesOutward,
   windingAgreement,
@@ -21,24 +21,16 @@ import {
 // NYC-only until London's kit landed unchecked by it). The skinned people are
 // never merged, so they're excluded.
 //
-// Three Tokyo P1 imports are also excluded: `Mesh.MergeMeshes` throws
-// ("Cannot merge vertex data that do not have the same set of attributes")
-// on tokyo-house-d/tokyo-apato-b/tokyo-ramen, whose Sketchfab-exported
-// submeshes carry different vertex-attribute sets (some with TANGENT/extra
-// UV channels, some without) — the documented failure mode
-// (docs/rendering.md, buildingSets.ts's own PLACEMENTS comment) that means
-// they render via `instantiateModelInstanced` instead. That path instances
-// each submesh's ORIGINAL geometry directly (no world-matrix bake into a
-// merged vertex buffer), so it never hits the hollow-winding bug this file
-// guards against in the first place — there is nothing for this test to
-// check on these three.
-const MERGE_INCOMPATIBLE_IDS = new Set([
-  "tokyo-house-d",
-  "tokyo-apato-b",
-  "tokyo-ramen",
-]);
+// `MERGE_INCOMPATIBLE_MODEL_IDS` (buildingCatalog.ts) is also excluded:
+// `Mesh.MergeMeshes` throws ("Cannot merge vertex data that do not have the
+// same set of attributes") on every one of those — see that constant's own
+// doc comment for the full story. They render via `instantiateModelInstanced`
+// instead (`render/buildingLayer.ts`), which instances each submesh's
+// ORIGINAL geometry directly (no world-matrix bake into a merged vertex
+// buffer), so it never hits the hollow-winding bug this file guards against
+// in the first place — there is nothing for this test to check on them.
 const MERGED = ALL_ENV_MODELS.filter(
-  (m) => m.category !== "person" && !MERGE_INCOMPATIBLE_IDS.has(m.id),
+  (m) => m.category !== "person" && !MERGE_INCOMPATIBLE_MODEL_IDS.has(m.id),
 );
 
 describe("merged building winding", () => {

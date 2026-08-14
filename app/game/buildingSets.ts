@@ -201,35 +201,62 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   // every LOW/MED-confidence entry below with a live drive-by before P2
   // places any of them.
   "tokyo-house-a": {
-    // Confidence: MED. No named door submesh; a consistent, fairly strong
-    // +X mass-centroid offset (0.31, vs 0.08 on Z) across all three
-    // same-author houses (a/b/c) is the signal.
+    // Confidence: HIGH — re-confirmed live (Tokyo authenticity plan P2, as
+    // the catalogue's own header instructed before P2 ever placed one of
+    // these). The P1 measurement's signal (a "consistent, fairly strong +X
+    // mass-centroid offset (0.31, vs 0.08 on Z)" across all three
+    // same-author houses a/b/c) was real, but its CONCLUSION was backwards:
+    // a live drive-by at frontOffset Math.PI/2 showed the entrance (door +
+    // steps + two windows) squarely on world +X, not on the outward-facing
+    // side the parcel needed — i.e. the model's real front was on the
+    // DEFAULT local -Z all along (frontOffset 0, no rotation), and the +X
+    // mass pull the blind heuristic found was something else (a garage-like
+    // ridged panel, visually confirmed on the model's -X side) that outweighs
+    // the entrance in vertex count without being it. house-c shares this
+    // exact fix (0); house-b does NOT (-Math.PI/2, its own comment) — "same
+    // author/series/signal" predicted a shared blind-measurement MISTAKE,
+    // not a shared correct answer, so each of the three was live-checked
+    // individually rather than assumed. See tests/tokyoContent.test.ts's
+    // re-baselined coverage numbers for the knock-on effect.
     scale: 0.01,
     groundY: 0.02,
     footprintM: 8.11,
     depthM: 9.21,
-    frontOffset: Math.PI / 2,
+    frontOffset: 0,
   },
   "tokyo-house-b": {
-    // Confidence: MED-HIGH. Same author/series as house-a; +X offset 0.43
-    // vs an essentially-zero Z offset (-0.001) is the cleanest signal of
-    // the three.
+    // Confidence: HIGH — re-confirmed live (P2), but NOT the same fix as
+    // house-a despite the shared author/series/signal: a live drive-by at
+    // frontOffset 0 (house-a's fix) showed this model's entrance facing 90°
+    // off the parcel's outward direction, not on it — this specific model's
+    // true front sits a quarter-turn from house-a's, confirmed by testing
+    // 0 first (wrong) then -Math.PI/2 (door squarely on the street) from the
+    // same fixed "stand on the kerb, look at the parcel" viewpoint every
+    // other entry in this file was checked from. A reminder that "same
+    // series" predicts a shared MEASUREMENT ARTIFACT, not a shared correct
+    // answer — each model still needs its own live confirmation.
     scale: 0.01,
     groundY: 0.0,
     footprintM: 6.01,
     depthM: 8.16,
-    frontOffset: Math.PI / 2,
+    frontOffset: -Math.PI / 2,
   },
   "tokyo-house-c": {
-    // Confidence: MED. Same series; +X offset 0.34 vs 0.10 on Z.
+    // Confidence: HIGH — re-confirmed live (P2); shares house-a's fix (0),
+    // confirmed independently rather than assumed (see house-b's own
+    // comment for why the assumption alone isn't trustworthy) — a live
+    // drive-by at frontOffset 0 showed a door + vent squarely on the
+    // parcel's outward-facing side.
     scale: 0.01,
     groundY: 0.0,
     footprintM: 11.45,
     depthM: 11.8,
-    frontOffset: Math.PI / 2,
+    frontOffset: 0,
   },
   "tokyo-house-d": {
-    // Confidence: MED-HIGH. Named "Puerta" (door) + "Marco_puerta" (door
+    // Confidence: HIGH (was MED-HIGH; re-confirmed live in P2 — a drive-by
+    // showed the door + steps squarely on the parcel's outward side, no
+    // change needed). Named "Puerta" (door) + "Marco_puerta" (door
     // frame) submeshes sit toward -Z relative to the house's own structural
     // mass (Casa_1) centre — the dominant axis of that door-to-centre
     // vector, by a wide margin over its X component. footprintM/depthM
@@ -249,13 +276,16 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
     frontOffset: 0,
   },
   "tokyo-apato-a": {
-    // Confidence: LOW. No door submesh; the one positional signal (a
-    // bundled "PSX Vending Machine" prop, kept as authentic Setagaya street
-    // furniture per the plan's own section 4.3) sits in a CORNER, not
-    // centred on one edge (offsetFrac x=0.34, z=0.35 — comparable
-    // magnitudes, no dominant axis), so it doesn't resolve which side is
-    // "front". Defaults to the codebase's own no-evidence baseline
-    // (front already on local -Z, no rotation).
+    // Confidence: HIGH (was LOW; re-confirmed live in P2 — a drive-by
+    // showed the decorated ground-floor frontage, shop shutters, vending
+    // machine and signage squarely on the parcel's outward side, no change
+    // needed — the no-evidence default happened to be right). No door
+    // submesh; the one positional signal (a bundled "PSX Vending Machine"
+    // prop, kept as authentic Setagaya street furniture per the plan's own
+    // section 4.3) sits in a CORNER, not centred on one edge (offsetFrac
+    // x=0.34, z=0.35 — comparable magnitudes, no dominant axis), so it
+    // doesn't resolve which side is "front" — hence the codebase's own
+    // no-evidence baseline (front already on local -Z, no rotation).
     scale: 1,
     groundY: 0,
     footprintM: 7.39,
@@ -273,28 +303,40 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
     frontOffset: Math.PI,
   },
   "tokyo-konbini": {
-    // Confidence: MED-HIGH. No door submesh (one merged mesh); a strong +X
-    // mass-centroid offset (0.47, vs a weak -0.09 on Z) is the signal.
-    // BOUNDS' ground-contact rect is narrower than this full footprint on
-    // one edge — a fascia/sign band oversailing the walls, exactly the
-    // "glowing full-width fascia band" konbini silhouette the plan expects.
+    // Confidence: HIGH — re-confirmed live (P2). The P1 mass-centroid
+    // signal (a strong +X offset, 0.47 vs a weak -0.09 on Z — the fascia
+    // band's own asymmetric oversail, correctly spotted) picked the right
+    // AXIS but the wrong of its two directions: frontOffset Math.PI/2 put
+    // the striped fascia awning a quarter-turn off the parcel's outward
+    // side; a live drive-by confirmed the half-turn-further Math.PI puts it
+    // squarely on the street. (This model never actually landed on a real
+    // nakamise-yokocho parcel in the live P2 build — every one of the 4
+    // slots that reached it drew a different tokyo-shotengai model instead
+    // — so this was checked via a temporary one-model SETS override,
+    // reverted before committing; see the PR body.)
     scale: 1,
     groundY: 0.1,
     footprintM: 13.33,
     depthM: 8.92,
-    frontOffset: Math.PI / 2,
+    frontOffset: Math.PI,
   },
   "tokyo-shop-a": {
-    // Confidence: LOW. No door submesh; mass-centroid offset is weak on
-    // both axes (x=-0.11, z=-0.15) — no dominant side. Defaults to 0.
+    // Confidence: HIGH — re-confirmed live (P2). The P1 mass-centroid
+    // signal was genuinely too weak to call (x=-0.11, z=-0.15, no dominant
+    // axis) and its no-evidence default (0) was wrong: a live drive-by
+    // showed the decorated front (Japanese signage, red awning, string
+    // lights, window) squarely on the opposite side from the parcel's
+    // outward direction — a half-turn, not the no-rotation default.
     scale: 0.01,
     groundY: -0.09,
     footprintM: 2.48,
     depthM: 3.98,
-    frontOffset: 0,
+    frontOffset: Math.PI,
   },
   "tokyo-shop-b": {
-    // Confidence: HIGH. Two lantern submeshes ("farolJapanese_7/2") and the
+    // Confidence: HIGH, re-confirmed live in P2 — a drive-by showed a full
+    // storefront (Japanese signage, shop window, balcony) squarely on the
+    // parcel's outward side, no change needed. Two lantern submeshes ("farolJapanese_7/2") and the
     // shop's own sign text ("JapaneseText_0") all sit within ~5-15% of the
     // model's -X extreme (not near either Z extreme) — the entrance/
     // signage face is a SIDE axis, not front/back. This catalogue's first
@@ -309,11 +351,13 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
     frontOffset: -Math.PI / 2,
   },
   "tokyo-shop-c": {
-    // Confidence: MED-HIGH. A named "1. sign" submesh sits at the model's
-    // +Z extreme (a shop's sign is a strong front-facade indicator); the
-    // "1 back" submesh (presumably the rear wall material) sits near the
-    // model's Z centre rather than the opposite extreme, so it does not
-    // contradict this.
+    // Confidence: HIGH (was MED-HIGH; re-confirmed live in P2 — a drive-by
+    // showed a full storefront, Japanese signage and a roll-down shutter
+    // squarely on the parcel's outward side, no change needed). A named
+    // "1. sign" submesh sits at the model's +Z extreme (a shop's sign is a
+    // strong front-facade indicator); the "1 back" submesh (presumably the
+    // rear wall material) sits near the model's Z centre rather than the
+    // opposite extreme, so it does not contradict this.
     scale: 1,
     groundY: 0,
     footprintM: 8.16,
@@ -321,7 +365,17 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
     frontOffset: Math.PI,
   },
   "tokyo-shop-d": {
-    // Confidence: LOW-MED. No door submesh (one merged mesh); mass-centroid
+    // Confidence: LOW-MED, checked live in P2 but genuinely inconclusive —
+    // NOT upgraded. A drive-by swept all four sides (two of them from a
+    // close, near-wall distance, given this model's real size) and found
+    // no decorated face on any of them: plain brick to the north and
+    // south, bare concrete to the east, one barred window to the west —
+    // none of the "kanji signage at three heights" the baseColor texture
+    // shows (see below) was actually visible from outside at this
+    // orientation, on any side. Left at the original no-evidence default
+    // (0) rather than guessed into a specific wrong turn; a case for a
+    // closer look (or a different placement instance) in a later phase,
+    // not a confirmed bug. No door submesh (one merged mesh); mass-centroid
     // offset is weak on both axes (x=-0.05, z=-0.12). The baseColor texture
     // (a trim-sheet atlas, not a spatial photo) shows repeated kanji
     // signage at three different heights plus AC units and a mailbox —
@@ -381,7 +435,9 @@ export type BuildingSetId =
   | "london-terrace"
   | "london-stucco"
   | "london-highstreet"
-  | "london-city";
+  | "london-city"
+  | "tokyo-house"
+  | "tokyo-shotengai";
 
 /** Which catalogue models make up each zone's street wall. */
 const SETS: Record<BuildingSetId, readonly string[]> = {
@@ -439,6 +495,22 @@ const SETS: Record<BuildingSetId, readonly string[]> = {
     "london-shop", "london-walkup-a", "london-walkup-b", "london-terrace-a",
   ],
   "london-city": ["london-tower-a", "london-tower-b", "london-tower-c"],
+
+  // Tokyo authenticity plan, P2. Both sets mix five to six of P1's 13
+  // catalogued models — Cairo's own "a long run reads as copy-paste from
+  // the driver's seat with only two models" rationale applies just as much
+  // to a residential web or a shotengai. `tokyo-zakkyo`/`tokyo-manshon`
+  // (the plan's other two districts, downtown/riverside/higashi/ring) wait
+  // on P3's zakkyo-pack/restyle-backbone imports, so those zones stay
+  // procedural for now — see `tokyoRoadsideBuildingSet` in cities/tokyo.ts.
+  "tokyo-house": [
+    "tokyo-house-a", "tokyo-house-b", "tokyo-house-c", "tokyo-house-d",
+    "tokyo-apato-a",
+  ],
+  "tokyo-shotengai": [
+    "tokyo-shop-a", "tokyo-shop-b", "tokyo-shop-c", "tokyo-shop-d",
+    "tokyo-konbini", "tokyo-house-a",
+  ],
 };
 
 const URL_BY_ID = new Map(ALL_ENV_MODELS.map((m) => [m.id, m.url]));
@@ -643,17 +715,19 @@ export function slotBlockBuildings(
     ? allEdges.filter((edge) => edges_.includes(edge.id))
     : allEdges;
 
-  // Cairo and London pack their run ends: when the drawn model would overshoot
-  // the run, redraw among the models that still fit instead of leaving up to a
-  // whole footprint of bare kerb — a terrace with a random gap at one end is
-  // exactly the broken-tooth look a London street cannot have. NYC keeps
-  // draw-or-break — its blocks are ringed by streets so the waste hides at
-  // corners, and consuming extra rng draws would silently reshuffle every
-  // shipped NYC street. (London opted in while zero blocks referenced its sets,
-  // for the same reason: this flag changes the rng draw sequence, so it is
-  // free exactly once.)
+  // Cairo, London and Tokyo pack their run ends: when the drawn model would
+  // overshoot the run, redraw among the models that still fit instead of
+  // leaving up to a whole footprint of bare kerb — a terrace (or a Setagaya
+  // house row) with a random gap at one end is exactly the broken-tooth
+  // look none of those three streets can have. NYC keeps draw-or-break —
+  // its blocks are ringed by streets so the waste hides at corners, and
+  // consuming extra rng draws would silently reshuffle every shipped NYC
+  // street. (London, and then Tokyo — Tokyo authenticity plan P2 — both
+  // opted in while zero blocks referenced their own sets, for the same
+  // reason: this flag changes the rng draw sequence, so it is free exactly
+  // once.)
   const packRunEnds =
-    setId.startsWith("cairo") || setId.startsWith("london");
+    setId.startsWith("cairo") || setId.startsWith("london") || setId.startsWith("tokyo");
 
   const placed: PlacedBuilding[] = [];
   let slot = 0;

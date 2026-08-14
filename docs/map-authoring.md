@@ -341,9 +341,16 @@ are identical on purpose, but Tokyo's foreign-road universe differs and it is
 called from a **generator loop** (one call per road-segment-and-side of every
 non-bridge generated road, keyed to a per-road `TokyoBlockZone` via
 `tokyoStyleForRoad`/`TOKYO_ZONE_FOR_ROAD`) rather than ~150 hand-authored call
-sites — Tokyo has no per-road building-set overrides to hand-tune around, so
-the district's own zone style (materials, height range, `density`) is enough.
-`density` is not a fill fraction: it is `facadeGridCells`'s grid-resolution
+sites. Materials/height-range/`density` still come from the district's own
+zone style alone (no per-road override table for those — `TOKYO_ROAD_STYLE_OVERRIDE`
+is the one exception, a handful of named streets). **`buildingSet` is a
+separate, later decision** (Tokyo authenticity plan P2): `tokyoRoadsideBuildingSet`
+derives it from the zone (miyanosaka/yamashita/nishi → `tokyo-house`) with
+exactly one per-road override of its own (`jp-nakamise-yokocho` →
+`tokyo-shotengai`, regardless of its `downtown` zone — the plan is explicit
+that only this one shotengai road converts, not all of downtown). Every
+other zone stays on the procedural facade grid until later phases import
+its own glb kit. `density` is not a fill fraction: it is `facadeGridCells`'s grid-resolution
 knob (`count = round(3+density*7)`, tiled `columns × rows`), and only the
 front row (`columns`) is ever visible from a road-facing camera — see
 `TOKYO_ZONE_STYLE`'s own comment (Tokyo expansion Phase 10) for the draw-call
@@ -444,15 +451,20 @@ Using the right-hand normal on a two-way British street points across the
 centreline into the opposing carriageway, and London generated no addresses at
 all until this was fixed.
 
-**A city with no building sets zones its addresses by facade material**
-(`KINDS_BY_BLOCK_MATERIAL`, consulted only when a block names no set): the
-City's glass yields offices, stock brick yields homes and the odd shop.
-Tokyo (also `buildingSets: []`) reads the same table off its own four
-generated-block materials — `wood-plaster` homes, `plaster` a residence/shop
-mix, `tile` and `concrete` (the east bank's own material) lean commercial —
-never `"restaurant"`: a generated address is never a food pickup on any city,
-only an authored venue is. `isInsideRect` is rotation-aware for the same
-reason — London's parcels follow streets that bend.
+**A block that names no building set zones its addresses by facade material**
+(`KINDS_BY_BLOCK_MATERIAL`, consulted only then — `KINDS_BY_BUILDING_SET`
+wins the moment a block does name one): the City's glass yields offices,
+stock brick yields homes and the odd shop. Tokyo reads the same material
+table off its own four generated-block materials — `wood-plaster` homes,
+`plaster` a residence/shop mix, `tile` and `concrete` (the east bank's own
+material) lean commercial — for every block that still has no `buildingSet`
+(most of the map; the Tokyo authenticity plan's P2 gave miyanosaka/
+yamashita/nishi and `jp-nakamise-yokocho` their own `KINDS_BY_BUILDING_SET`
+rows instead, mirroring what the material table already produced there so
+the address pool didn't silently reshuffle). Never `"restaurant"`: a
+generated address is never a food pickup on any city, only an authored venue
+is. `isInsideRect` is rotation-aware for the same reason — London's parcels
+follow streets that bend.
 
 ## Service points and venues
 

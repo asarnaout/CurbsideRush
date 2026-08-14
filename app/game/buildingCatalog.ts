@@ -198,12 +198,15 @@ export const LONDON_ENV_MODELS: readonly EnvModelMeta[] = [
  * `CREDITS.md` for full provenance and `tools/style-tokyo-buildings.mjs` for
  * the normalization pass each one went through.
  *
- * **P1 is import-only.** These are catalogued with measured
- * `buildingSets.ts` PLACEMENTS/`buildingStructuralBounds.ts` BOUNDS entries,
- * but not yet referenced by any `BuildingSetId`/block — wiring them into the
- * street wall (districts, holdback, demotion, addresses) is a later phase.
- * Until then this array (and its URLs) is inert: no map's `buildingSets`
- * profile names anything from here, so nothing here is preloaded or drawn.
+ * **P1 was import-only**: catalogued with measured `buildingSets.ts`
+ * PLACEMENTS/`buildingStructuralBounds.ts` BOUNDS entries, but referenced
+ * by no `BuildingSetId`/block. **P2 wires ten of these thirteen** into two
+ * new sets (`tokyo-house`, `tokyo-shotengai` — `buildingSets.ts`), live on
+ * miyanosaka/yamashita/nishi and `jp-nakamise-yokocho`
+ * (`tokyoRoadsideBuildingSet` in `cities/tokyo.ts`); `tokyo-izakaya` and
+ * `tokyo-ramen` stay unwired (venue models, a later phase's job per the
+ * plan's section 6.4), and `tokyo-apato-b` stays unwired too (no set built
+ * this phase names it).
  *
  * All are Sketchfab exports, downloaded as the autoconverted glTF (separate
  * `.gltf`+`.bin`+images), packed into a self-contained glb by
@@ -367,6 +370,29 @@ export const TOKYO_ENV_MODELS: readonly EnvModelMeta[] = [
     attribution: "Ramen Shop by Naitogosuto",
   },
 ];
+
+/**
+ * Model ids whose Sketchfab-exported submeshes carry different
+ * vertex-attribute sets (some with TANGENT/extra UV channels, some
+ * without) — `Mesh.MergeMeshes` (`getBuildingMaster`'s recipe, and
+ * `buildingWinding.test.ts`'s own merge-and-check harness) throws "Cannot
+ * merge vertex data that do not have the same set of attributes" on any of
+ * these. Measured directly (P1); confirmed by a real crash the first time
+ * `tokyo-house-d` actually got placed in `render/buildingLayer.ts`, P2's
+ * own trap, the same class `tokyoStreetFurniture.ts`'s parked bicycles hit
+ * first (docs/rendering.md's "Tokyo's own parked bicycles" section). Every
+ * render path that might instantiate one of these — `BuildingLayer`, any
+ * future venue/prop placement — must route it through
+ * `instantiateModelInstanced` (`modelLibrary.ts`, per-submesh instancing,
+ * no merge) instead of `getBuildingMaster`. The single source of truth so
+ * production code and its tests (`buildingWinding.test.ts`,
+ * `buildingPlacement.test.ts`) can't quietly drift apart on this list.
+ */
+export const MERGE_INCOMPATIBLE_MODEL_IDS: ReadonlySet<string> = new Set([
+  "tokyo-house-d",
+  "tokyo-apato-b",
+  "tokyo-ramen",
+]);
 
 /** Every catalogued environment model, all four kitted maps. */
 export const ALL_ENV_MODELS: readonly EnvModelMeta[] = [
