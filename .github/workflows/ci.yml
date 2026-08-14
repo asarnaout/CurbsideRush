@@ -16,7 +16,15 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The Tokyo expansion's suite-time creep (plan risk register item 10): a
+    # 10x-lane-km, park/signal/block-fabric map keeps adding real content-phase
+    # seconds to `npm test`'s dominant cost (`trafficSafetyAcceptance.test.ts`
+    # plus the full-mount characterization suites). 15 min was comfortable
+    # before this expansion and got tight by Phase 5 (~14m45s) before Phase 6
+    # exceeded it outright — raised with headroom for the remaining phases
+    # rather than trimming seeds, which the plan is explicit is a safety
+    # decision, not a perf knob.
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository

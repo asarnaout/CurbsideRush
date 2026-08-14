@@ -135,7 +135,19 @@ describe("park layouts", () => {
     // 11.6) — three riverside_strip segments (south/main/north, split
     // around the two bridges) mirroring the Manhattan esplanade on the
     // opposite shore.
-    expect(parkCases().length).toBe(84);
+    // 84 -> 95: Tokyo expansion Phase 6 (R4) — the west-bank riverside
+    // promenade in three `pocket_green` segments (`jp-kawabe-koen-a/b/c`,
+    // deliberately unwallable so it never grows a second fence right behind
+    // Phase 3's derived corniche parapet along the real shoreline); the
+    // civic plaza `jp-tower-park` where Phase 8's Hikari Tower will stand;
+    // two walled neighbourhood parks each sized to a real short-segment
+    // cell rather than the plan's own approximate numbers
+    // (`jp-kitazawa-koen`, with its own pond, in Miyanosaka North;
+    // `jp-minami-koen` in Yamashita South); and five pocket greens spread
+    // across the residential webs (Miyanosaka, Yamashita x2, the Nishi
+    // boundary x2), each sized to fully replace one short existing
+    // street-wall parcel rather than orphan a fragment of a longer one.
+    expect(parkCases().length).toBe(95);
   });
 
   it("is deterministic — two builds are identical", () => {
@@ -452,6 +464,17 @@ describe("park layouts", () => {
     expect(walled.get("london-pembroke-green")).toBe(0);
     expect(walled.get("cairo-tahrir-square")).toBe(0);
     expect(walled.get("jp-temple-green")).toBe(0);
+    // Tokyo Phase 6: the riverside promenade is `pocket_green` on every
+    // segment (deliberately unwallable — see `TOKYO_PHASE6_PARKS`'s own
+    // comment in `cities/tokyo.ts`) and the tower plaza is `civic_plaza`
+    // (also unwallable); the two neighbourhood parks are tucked flush to
+    // all four of their bounding roads and do get a wall.
+    expect(walled.get("jp-kawabe-koen-a")).toBe(0);
+    expect(walled.get("jp-kawabe-koen-b")).toBe(0);
+    expect(walled.get("jp-kawabe-koen-c")).toBe(0);
+    expect(walled.get("jp-tower-park")).toBe(0);
+    expect(walled.get("jp-kitazawa-koen") ?? 0).toBeGreaterThan(0);
+    expect(walled.get("jp-minami-koen") ?? 0).toBeGreaterThan(0);
     // The big ones do get one.
     expect(walled.get("nyc-central-park") ?? 0).toBeGreaterThan(0);
     expect(walled.get("nyc-riverside-park") ?? 0).toBeGreaterThan(0);

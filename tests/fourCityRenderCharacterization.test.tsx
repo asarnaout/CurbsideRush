@@ -657,15 +657,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // rungs sit in this pose's frustum). mirrorCandidates/mirrorDrawn
     // unchanged (198/172) — the new content sits outside the mirror's own
     // reflection distance, only the frustum-active set moved.
-    totalMeshes: 9_449,
-    enabledMeshes: 9_449,
-    activeMeshes: 1_039,
-    materials: 117,
+    totalMeshes: 9_828,
+    enabledMeshes: 9_828,
+    activeMeshes: 1_037,
+    materials: 129,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     mirrorCandidates: 172,
-    mirrorDrawn: 198,
+    mirrorDrawn: 210,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -683,7 +683,35 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "59b69703" -> "1c13acfe": Phase 5's +2 materials above (the rail
     // extension's own two landmark rects; every signal/camera/crosswalk/
     // second-crossing material was already shared).
-    survivingMaterialNamesFingerprint: "1c13acfe",
+    // -> Phase 6 (parks, R4): 274 blocks (was 296 — Kitazawa-kōen and
+    // Minami-kōen each replace several short generated parcels, and one
+    // manual patch, `jp-blk-jp-higashi-hondori-2-p-south`, restores the
+    // Higashi Hon-dōri frontage the tower plaza only partly overlapped —
+    // see `TOKYO_PHASE6_PARKS`'s own comment in cities/tokyo.ts) against 11
+    // new park landmarks (three riverside `pocket_green` segments, the
+    // tower civic plaza, two walled neighbourhood parks and five pocket
+    // greens) plus one new `WaterBody` (Kitazawa-kōen's pond). materials
+    // 117 -> 129 (+12): confirmed by dumping `survivingMaterialNames`
+    // before/after under a temporary console.log and diffing — every new
+    // entry is a `landmark-jp-<id>` material, one per new park (every
+    // landmark gets one whether or not the bespoke dispatcher uses it, same
+    // as bridges/rail above; `color` is otherwise a no-op on `kind: "park"`)
+    // plus `water-jp-kitazawa-pond`; no new park lawn/wall/scatter material
+    // — those are the single shared per-map materials the three existing
+    // temple parks already registered. enabledMeshes/totalMeshes
+    // 9_449 -> 9_828 (+379): lawn/path/wall/court + tree/shrub/bench scatter
+    // for two walled neighbourhood parks and five pocket greens, the
+    // promenade's benches and cherry-set trees, the pond's water sheet and
+    // shoreline colliders, net against the meshes the 22 displaced
+    // generated blocks (23 dropped, 1 patched back) no longer contribute.
+    // activeMeshes 1_039 -> 1_037 barely moves — none of the new parks sit
+    // in the fixed test pose's mirror-cull frustum, so this is the same
+    // small residual drift the block removal alone causes. mirrorDrawn
+    // 198 -> 210 (+12), mirrorCandidates unchanged (172): the same frustum
+    // shift, not new mirror-registered content (parks register no mirror
+    // surfaces).
+    // "1c13acfe" -> "0edc496a": Phase 6's +12 materials above.
+    survivingMaterialNamesFingerprint: "0edc496a",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

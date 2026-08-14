@@ -74,6 +74,17 @@ Opted-in runs also bisect for their true end rather than stopping at the last
 whole-metre sample. Leave it off for a park held well back: the blanket veto is
 the safer default and every other city relies on it.
 
+**The opt-in only saves a wall that is already inside the park's own rect.**
+Author the rect edge at (or just past) each road's pavement edge —
+`roadWidthM/2 + sidewalkWidthM` out from that road's centreline, plus a
+little margin — never at the centreline itself. A rect that instead runs
+edge-to-edge between four bounding roads' *centrelines* (the natural way to
+size a park to "the whole block") puts the 1.5 m-inset wall on all four
+sides inside its own nearest road's clearance band at once, and
+`parkPerimeterPlan` returns zero runs for the whole perimeter, silently —
+Tokyo's Kitazawa-kōen shipped exactly this way first and `parkLayouts.test`'s
+"walls the big parks..." caught it (expected >0, got 0).
+
 **"Has an opening" is the wrong invariant.** Central Park's first wall was a
 single unbroken 2,897 m run down its western edge with a gate at each far end —
 enterable, 2.9 km apart. Long parks now get crossings every
@@ -219,6 +230,24 @@ but ships pinned to `pocket_green`, because **a perimeter wall inside a block
 reads side-on as a black-and-cream stripe ruled across the lawn** and play-tested
 worse than the missing benches. A railing earns its place fronting a street,
 where it is seen end-on and reads as a garden's edge.
+
+**A promenade beside a derived shoreline parapet must stay unwallable.**
+Cairo and Tokyo both render a corniche-style parapet off the water body's own
+shoreline colliders (`shorelineParapetRuns`, gated in
+`babylonGameSession.ts`) — NYC has no such pass, so its esplanade's own park
+wall is that map's *only* river-edge barrier, a different, equally correct
+answer for a map without a derived parapet. A walled style right behind the
+parapet grows a second fence, since the wall veto reads roads, never water;
+Tokyo's riverside promenade (`jp-kawabe-koen`) stays `pocket_green` on every
+segment for exactly this reason, and hand-places its lost benches back
+through `bespokeFeatures`'s id-keyed props (the Opera Grounds/Joan of Arc
+mechanism) rather than reaching for a walled style to get them free.
+`pocket_green`'s path is a fixed cross along local +x — wrong for a park
+hugging a road running the *other* way. `headingDeg: 90` fixes it (swaps
+which world axis `size.x`/`size.z` each span) and is one of the few angles
+safe from this file's own yaw-sign trap (the cross path is symmetric about
+its centre, so +90°/-90° render identically) — but still author, then drive
+to and check, never trust the sign by inspection alone.
 
 **An island enclosed by a road loop is one lawn or none.** A small green
 floating in it reads as "a random strip of green surrounded by concrete" — the

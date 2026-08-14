@@ -680,6 +680,30 @@ function bespokeFeatures(
     clearings.push({ x: centre.x, z: centre.z, halfX: 9, halfZ: 9 });
   }
 
+  if (id.includes("kawabe")) {
+    // Tokyo's riverside promenade (Phase 6, R4) is `pocket_green` on every
+    // segment — deliberately unwallable, so it never grows a second fence
+    // right behind Phase 3's derived corniche parapet along the real
+    // shoreline (see `TOKYO_PHASE6_PARKS`'s own comment in `cities/tokyo.ts`)
+    // — and `pathFurniture` never emits a bench for `pocket_green` (no wall,
+    // no furniture pass at all). The plan's "benches facing the water" is
+    // hand-placed here instead, two per segment, offset toward local +z
+    // (which this park's authored `headingDeg: 90` maps to world +x, the
+    // river side) so they sit a few metres off the trail with a clear view
+    // across the water, facing east (+x) to match.
+    for (const along of [-0.25, 0.25]) {
+      const bench = toWorld(landmark, along, 0.32);
+      props.push({
+        kind: "bench",
+        x: bench.x,
+        z: bench.z,
+        rotationY: Math.PI / 2,
+        scale: 1,
+        variant: 0,
+      });
+    }
+  }
+
   if (id === "nyc-central-park") {
     // The Great Lawn is grass with nothing on it. It is a hole in the scatter,
     // not a mesh — which is also why it costs nothing.

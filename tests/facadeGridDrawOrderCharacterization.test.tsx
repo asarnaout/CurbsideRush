@@ -393,12 +393,23 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // reconciliation gap expected from cells that draw before their own
     // survival check fails). A real, large, deliberate increase - not
     // drift - driven entirely by the new block count.
-    drawCount: 7_215,
+    // 7_215 -> 6_687 (Tokyo expansion Phase 6, parks, R4): 274 blocks, down
+    // from 296 — Kitazawa-kōen and Minami-kōen each own a real short-segment
+    // cell outright (displacing several generated parcels apiece) and five
+    // pocket greens each displace one short parcel; one parcel is restored
+    // by a manual patch (`jp-blk-jp-higashi-hondori-2-p-south`, the tower
+    // plaza's own partial overlap — see `TOKYO_PHASE6_PARKS`'s comment in
+    // cities/tokyo.ts). Fewer blocks means fewer facade cells to draw, the
+    // same direction as every other block-count-driven move on this map;
+    // parks themselves contribute no facade-grid draws at all (they are not
+    // `buildingSet` blocks).
+    drawCount: 6_687,
     // "2dda315a" -> "01d2bc4a": mesh naming only (see comment above).
     // "01d2bc4a" -> "6875ac93": Phase 4's ~2_400 new planned buildings
     // change both which names exist and how many, so the fingerprint moves
     // with drawCount this time - not a naming-only change like the last one.
-    facadeMeshFingerprint: "6875ac93",
+    // "6875ac93" -> "2cf0d55b": Phase 6's -528 draws above.
+    facadeMeshFingerprint: "2cf0d55b",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the

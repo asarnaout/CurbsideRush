@@ -166,10 +166,18 @@ describe("Tokyo waterfront shoreline collider", () => {
     // guessed). A drop means the water body/bridges stopped contributing
     // colliders they used to; a rise means something new started — either is
     // worth a deliberate look, the same discipline as NYC's own pin.
+    //
+    // 36 -> 46 (Tokyo expansion Phase 6, R4): Kitazawa-kōen's pond
+    // (`jp-kitazawa-pond`) is a second `WaterBody`, and `buildStaticObstacles`
+    // emits one "-shore-" collider per polygon edge — its 10-vertex closed
+    // outline is 10 new shore runs and, having no `bridgePortalSurfaceIds`,
+    // zero new portals. `sakuragawaShore`/`portalRuns` (filtered to the
+    // river specifically, and to portals, which only the river has) are
+    // unchanged.
     const byTag = new Map<string, number>();
     for (const o of obstacles) byTag.set(o.tag, (byTag.get(o.tag) ?? 0) + 1);
-    expect(byTag.get("shoreline")).toBe(36);
-    expect(shoreRuns.length).toBe(30);
+    expect(byTag.get("shoreline")).toBe(46);
+    expect(shoreRuns.length).toBe(40);
     expect(portalRuns.length).toBe(6);
     expect(sakuragawaShore.length).toBe(30);
   });
