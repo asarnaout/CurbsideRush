@@ -2810,6 +2810,15 @@ export const TOKYO_MAP_PACK: MapPack = {
       // is the far side — that is what puts it against the north block.
       // Re-solved alongside jp-gas for jp-north-road's paved sidewalk.
       { id: "jp-repair", kind: "repair_shop", anchor: { laneId: "jp-north-west-2", distanceAlongM: 36 }, footprint: point(10, 8), label: "Setagaya Auto", setbackM: 12.5 },
+      // Second pair (Tokyo expansion Phase 7): the whole generated half had
+      // no service points at all until now — a driver working the east bank
+      // or the southern webs was a very long tow from the quarter's only
+      // pair. Both solver-placed (a binary search over `setbackM` against
+      // the exact `tests/serviceLots.test.ts` geometry — segment-to-lot
+      // distance, `shoulderWidthFor`, the 0-0.6 m flush-kerb window) rather
+      // than hand-picked, the same discipline every venue anchor above used.
+      { id: "jp-gas-higashi", kind: "gas_station", anchor: { laneId: "jp-koshu-kaido-higashi-3-forward-1", distanceAlongM: 70 }, footprint: point(12, 8), label: "Higashi Fuel", setbackM: 22.79 },
+      { id: "jp-repair-minami", kind: "repair_shop", anchor: { laneId: "jp-minami-kaido-1-forward-1", distanceAlongM: 300 }, footprint: point(10, 8), label: "Minami Auto Works", setbackM: 14.95 },
     ],
     gigVenues: [
       // West side of the narrow street (driver's right of the southbound

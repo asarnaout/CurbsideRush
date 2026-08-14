@@ -206,7 +206,10 @@ describe("service-point lots", () => {
       // Kensington was right for an 800 m quarter and is a very long tow
       // from Islington.
       "london-south-kensington": 3,
-      "tokyo-setagaya": 1,
+      // 1 -> 2: the whole ~66 lane-km generated half had no service points
+      // at all until Tokyo expansion Phase 7's jp-repair-minami — a very
+      // long tow from the quarter's only shop.
+      "tokyo-setagaya": 2,
       "cairo-central-nile": 2,
     });
   });
