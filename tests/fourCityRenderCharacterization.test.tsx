@@ -657,10 +657,36 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // rungs sit in this pose's frustum). mirrorCandidates/mirrorDrawn
     // unchanged (198/172) — the new content sits outside the mirror's own
     // reflection distance, only the frustum-active set moved.
-    totalMeshes: 9_828,
-    enabledMeshes: 9_828,
-    activeMeshes: 1_037,
-    materials: 129,
+    // Tokyo expansion Phase 7 (venues/addresses, R6/R7/R8): 41 new gig
+    // venues (jp-v5..jp-v45) and a second gas+repair pair
+    // (jp-gas-higashi/jp-repair-minami) — zero block/road/park changes.
+    // Under THIS suite's forced-empty preload (this file's own top
+    // comment), `placeProp` never finds a ready model for anything, so
+    // every venue (old and new alike) renders via its procedural
+    // fallback box, and each fallback's two materials are named
+    // `${venue.id}-body`/`${venue.id}-roof` — never shared, never
+    // deduplicated by colour. materials 129 -> 222 (+93): 41 x 2 = 82
+    // from the new venues alone, plus jp-repair-minami's own several
+    // (`repairShopLayout.ts`'s shop is "authored rather than imported" —
+    // always procedural regardless of preload — `${id}-shell`/`-apron`/
+    // `-door`/`-shutter` and more, confirmed by reading `buildRepairShop`
+    // directly), closing the gap to +93. enabledMeshes/totalMeshes
+    // 9_828 -> 9_772 (-56) despite +82 raw venue meshes (2 boxes each):
+    // the SAME direction as Phase 4's "adding buildings can shrink the
+    // total" finding, at venue scale instead of block scale —
+    // `facadesAndKeepouts.ts`'s per-venue historical-buffer reservation
+    // (`Math.max(footprint.x, footprint.z)/2 + 12`) and the roadside
+    // scatter generator's own block/POI rejection both shrink around 41
+    // new keep-out circles on an already-dense scatter grid, outweighing
+    // the meshes the venues themselves add. activeMeshes 1_037 -> 1_003:
+    // the fixed test pose's mirror-cull frustum loses a few of the
+    // now-excluded scatter props inside it; mirrorCandidates/mirrorDrawn
+    // unchanged (172/210) — no new content sits in the mirror's own
+    // reflection distance.
+    totalMeshes: 9_772,
+    enabledMeshes: 9_772,
+    activeMeshes: 1_003,
+    materials: 222,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -711,7 +737,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // shift, not new mirror-registered content (parks register no mirror
     // surfaces).
     // "1c13acfe" -> "0edc496a": Phase 6's +12 materials above.
-    survivingMaterialNamesFingerprint: "0edc496a",
+    // "0edc496a" -> "a19c1cd9": Phase 7's +93 materials above.
+    survivingMaterialNamesFingerprint: "a19c1cd9",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
