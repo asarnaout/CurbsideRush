@@ -562,6 +562,71 @@ function cairoEgyptianMuseum(landmark: LandmarkGroundSolidInput): readonly Groun
   ];
 }
 
+// ---------------------------------------------------------------------------
+// Tokyo
+// ---------------------------------------------------------------------------
+
+/** The four diagonal corners `jp-hikari-tower`'s legs stand at, `(sx, sz)`
+ * each `±1` — shared by `render/tokyoLandmarks.ts`'s `buildHikariTower`,
+ * which builds each leg leaning in the exact same (outward, up) plane this
+ * recipe's OBBs sit in, so the collision the player feels and the lattice
+ * they see agree. */
+const HIKARI_LEG_CORNERS: ReadonlyArray<{ readonly sx: -1 | 1; readonly sz: -1 | 1 }> = [
+  { sx: 1, sz: 1 },
+  { sx: 1, sz: -1 },
+  { sx: -1, sz: 1 },
+  { sx: -1, sz: -1 },
+];
+/** Both the leg centreline's per-axis offset from the tower's own centre
+ * and (implicitly, via `render/tokyoLandmarks.ts`'s identical constant)
+ * the base of the render's own leg taper — inset 4 m from the landmark's
+ * 22 m half-extent once the leg's own 2 m half-width is added back
+ * (16 + 2 = 18, four short of 22). */
+const HIKARI_LEG_OFFSET_M = 16;
+const HIKARI_LEG_HALF_M = 2;
+/** The FootTown-analog base building: smaller than the full 44x44
+ * footprint on purpose, so the ground between the four legs but outside
+ * the podium stays open at plaza level — plan section 8.6's "photo spot",
+ * not an oversight. */
+const HIKARI_PODIUM_HALF_X_M = 9;
+const HIKARI_PODIUM_HALF_Z_M = 7;
+
+/** `jp-hikari-tower`: everything above the legs and podium — the main/
+ * upper decks and the spire — starts at 88.5 m, comfortably above
+ * `VEHICLE_HEIGHT_BAND_M`, so only the four leg bases and the podium need
+ * a primitive at all. Legs are OBBs oriented along their own outward
+ * radial direction (matching the render's own lean plane exactly, not an
+ * axis-aligned approximation of it); the podium is a plain AABB centred on
+ * the tower like the legs. */
+function tokyoHikariTower(landmark: LandmarkGroundSolidInput): readonly GroundSolid[] {
+  const { x: cx, z: cz } = landmark.center;
+  const solids: GroundSolid[] = HIKARI_LEG_CORNERS.map((corner) => ({
+    kind: "obb",
+    id: `${landmark.id}:leg:${corner.sx}:${corner.sz}`,
+    x: cx + corner.sx * HIKARI_LEG_OFFSET_M,
+    z: cz + corner.sz * HIKARI_LEG_OFFSET_M,
+    ux: corner.sx / Math.SQRT2,
+    uz: corner.sz / Math.SQRT2,
+    halfU: HIKARI_LEG_HALF_M,
+    halfV: HIKARI_LEG_HALF_M,
+  }));
+  solids.push({
+    kind: "aabb",
+    id: `${landmark.id}:podium`,
+    minX: cx - HIKARI_PODIUM_HALF_X_M,
+    maxX: cx + HIKARI_PODIUM_HALF_X_M,
+    minZ: cz - HIKARI_PODIUM_HALF_Z_M,
+    maxZ: cz + HIKARI_PODIUM_HALF_Z_M,
+  });
+  return solids;
+}
+
+const TOKYO_RECIPES: Readonly<
+  Record<string, (landmark: LandmarkGroundSolidInput) => readonly GroundSolid[]>
+> = {
+  "jp-hikari-tower": tokyoHikariTower,
+};
+
 const LONDON_RECIPES: Readonly<
   Record<string, (landmark: LandmarkGroundSolidInput) => readonly GroundSolid[]>
 > = {
@@ -598,5 +663,6 @@ export function landmarkGroundSolids(
 ): readonly GroundSolid[] | undefined {
   if (mapId.includes("london")) return LONDON_RECIPES[landmark.id]?.(landmark);
   if (mapId.includes("cairo")) return CAIRO_RECIPES[landmark.id]?.(landmark);
+  if (mapId.includes("tokyo")) return TOKYO_RECIPES[landmark.id]?.(landmark);
   return undefined;
 }

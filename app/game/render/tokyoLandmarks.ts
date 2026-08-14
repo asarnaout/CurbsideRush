@@ -1,11 +1,12 @@
 import {
   Color3,
+  type Mesh,
   type Scene,
   StandardMaterial,
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
-import { createBox, createCylinder } from "./meshPrimitives";
+import { createBox, createCylinder, createIcoSphere } from "./meshPrimitives";
 import { cairoBridgePortalVisualAxis } from "../geometry/waterGeometry";
 import { nearestPointOnPolyline } from "../geometry/roadStrips";
 import type { GameCanvasMapPack } from "../sessionContract";
@@ -14,9 +15,12 @@ import { defaultSidewalkWidthM } from "../visuals";
 /**
  * Tokyo's per-landmark dispatcher (cityRenderRegistry.ts), same `(ctx,
  * landmark, material, mapPack) => boolean` shape as `buildNycLandmark`/
- * `buildCairoLandmark`. Bridges are the only bespoke case this phase (Phase
- * 8 adds Hikari Tower); the station and every park/railway landmark read
- * fine through babylonGameSession.ts's generic `landmark.kind` fallback.
+ * `buildCairoLandmark`. Two bespoke cases: bridges (Phase 3) and the Hikari
+ * Tower (Phase 8, R15, `jp-hikari-tower` — matched by id, not by
+ * `landmark.kind === "tower"`, since `jp-carrot-tower` in the old quarter
+ * shares that kind and must keep rendering through the generic fallback
+ * unchanged). The station and every park/railway landmark still read fine
+ * through babylonGameSession.ts's generic `landmark.kind` fallback.
  *
  * Modelled on `render/nycLandmarks.ts`'s `buildNycLandmark`, minus the
  * suspension-bridge parts: per plan §4.4, Tokyo's bridges read as girder/arch
@@ -63,12 +67,286 @@ const ARCH_RISE_M = 6;
  * below is cheap insurance, not a real expected rejection. */
 const ARCH_LATERAL_OVERHANG_M = 0.6;
 
+// ---------------------------------------------------------------------------
+// Hikari Tower (Tokyo expansion Phase 8, R15)
+// ---------------------------------------------------------------------------
+
+const HIKARI_TOWER_ID = "jp-hikari-tower";
+
+/** The four diagonal corners the legs stand at — identical to
+ * `geometry/landmarkGroundSolids.ts`'s own `HIKARI_LEG_CORNERS`, restated
+ * here since that module is pure (no Babylon) and cannot be imported by a
+ * render file, and this one cannot be imported by the pure geometry layer.
+ * Both files' `HIKARI_LEG_OFFSET_M` (16) agree for the same reason. */
+const HIKARI_LEG_CORNERS: ReadonlyArray<{ readonly sx: -1 | 1; readonly sz: -1 | 1 }> = [
+  { sx: 1, sz: 1 },
+  { sx: 1, sz: -1 },
+  { sx: -1, sz: 1 },
+  { sx: -1, sz: -1 },
+];
+const HIKARI_LEG_OFFSET_M = 16;
+/** (height, radial distance from the tower's own centre along a leg's
+ * diagonal, cross-section half-extent) breakpoints — a stepped taper
+ * (constant cross-section per straight segment) in the same "stacked
+ * sections" idiom `render/londonLandmarks.ts`'s Shard/Gherkin use, rather
+ * than one continuously-tapered primitive. The first breakpoint's radius
+ * (`HIKARI_LEG_OFFSET_M * sqrt(2)`) and half-extent (2 m) are exactly
+ * `landmarkGroundSolids.ts`'s own base leg OBB, so the visible base and the
+ * collision box agree; the last breakpoint lands each leg just inside the
+ * main deck's own 9 m radius and 88.5 m underside, so the join has no
+ * visible seam. */
+const HIKARI_LEG_PROFILE: ReadonlyArray<{ readonly y: number; readonly r: number; readonly half: number }> = [
+  { y: 0, r: HIKARI_LEG_OFFSET_M * Math.SQRT2, half: 2 },
+  { y: 24, r: 19, half: 1.6 },
+  { y: 48, r: 15, half: 1.2 },
+  { y: 70, r: 11.5, half: 0.85 },
+  { y: 90, r: 9, half: 0.6 },
+];
+/** Every ~12 m, matching plan section 8.6's own figure — four boxes (one
+ * per side of the square the legs stand at) per level, forming a ring. */
+const HIKARI_BRACE_HEIGHTS_M: readonly number[] = [10, 22, 34, 46, 58, 70, 82];
+const HIKARI_BRACE_HALF_M = 0.28;
+/** Index pairs into `HIKARI_LEG_CORNERS`, walking the square's four true
+ * edges (adjacent corners only) — `[0,3]`/`[1,2]` would be the two
+ * diagonals across the tower's own centre and are deliberately excluded. */
+const HIKARI_BRACE_EDGES: ReadonlyArray<readonly [number, number]> = [
+  [0, 1],
+  [1, 3],
+  [3, 2],
+  [2, 0],
+];
+
+const HIKARI_DECK_Y = 92;
+const HIKARI_DECK_RADIUS_M = 9;
+const HIKARI_DECK_HEIGHT_M = 7;
+const HIKARI_UPPER_DECK_Y = 118;
+const HIKARI_UPPER_DECK_RADIUS_M = 6.5;
+const HIKARI_UPPER_DECK_HEIGHT_M = 5;
+const HIKARI_SPIRE_TIP_Y = 140;
+/** The FootTown-analog base building — smaller than the tower's own 44x44
+ * footprint on purpose (`landmarkGroundSolids.ts` collides exactly this
+ * box), so the ground between the four legs but outside the podium stays
+ * open at plaza level: plan section 8.6's "photo spot", not an oversight. */
+const HIKARI_PODIUM_HALF_X_M = 9;
+const HIKARI_PODIUM_HALF_Z_M = 7;
+const HIKARI_PODIUM_HEIGHT_M = 9;
+
+/** Linear interpolation across `HIKARI_LEG_PROFILE`'s own breakpoints —
+ * used only to place the horizontal cross-braces at a leg's true position
+ * for a given height, so a brace ring never floats off its own legs. */
+function hikariLegRadiusAtHeight(heightM: number): number {
+  for (let index = 1; index < HIKARI_LEG_PROFILE.length; index += 1) {
+    const a = HIKARI_LEG_PROFILE[index - 1];
+    const b = HIKARI_LEG_PROFILE[index];
+    if (heightM <= b.y || index === HIKARI_LEG_PROFILE.length - 1) {
+      const t = (heightM - a.y) / (b.y - a.y);
+      return a.r + (b.r - a.r) * t;
+    }
+  }
+  return HIKARI_LEG_PROFILE[HIKARI_LEG_PROFILE.length - 1].r;
+}
+
+/**
+ * The Hikari Tower: four leaning lattice legs converging under a main
+ * observation deck, a slender mast up to a smaller upper deck, and a spire
+ * to a beacon at 140 m. Fog end is capped at 440 m at night (`docs/
+ * rendering.md`), so the tower reads as a district beacon from a couple of
+ * blocks rather than a skyline object — it does not need to be visible from
+ * the far side of the map to do its job.
+ *
+ * Each leg leans in its own vertical plane (the diagonal from the tower's
+ * centre to that corner, and world Y) — built the same two-rotation way
+ * this file's own Kawanaka-bashi arch rib is: a per-leg `TransformNode`
+ * carries the horizontal heading (`rotation.y`), and each straight segment
+ * is a child box whose own `rotation.z` tilts it within that node's local
+ * (outward, up) plane — `atan2(dx, dz) - PI/2` is this codebase's own
+ * "Babylon yaw when the mesh's long dimension is local +x" convention
+ * (`geometry/waterGeometry.ts`'s `boxYawRad`), reused here for a leg's own
+ * outward direction instead of a bridge's long axis. Cross-braces need no
+ * such parent — both ends sit at the same height, so a brace is a plain
+ * horizontal box with only a heading rotation, positioned by
+ * `hikariLegRadiusAtHeight`.
+ *
+ * Night dressing per plan section 8.6: international-orange lattice with
+ * white bands (torii-red-adjacent, not a literal Tokyo Tower trademark
+ * copy — this is the fictional "Hikari Tower"), lit deck glass via a
+ * dark-body/warm-emissive material — the same flat-colour-plus-emissive
+ * technique this file's own lamp heads already use, no facade window-grid
+ * texture — and a red aircraft-warning beacon at the tip. No real Babylon
+ * light of any kind: this engine's night stack is 100% emissive + bloom.
+ */
+function buildHikariTower(
+  ctx: TokyoLandmarkCtx,
+  landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+): void {
+  const scene = ctx.scene;
+  const { x: cx, z: cz } = landmark.center;
+
+  const freeze = (mesh: Mesh): Mesh => {
+    mesh.isPickable = false;
+    ctx.staticSceneryFreeze.push(mesh);
+    return mesh;
+  };
+
+  const orange = makeMaterial(
+    scene,
+    `${landmark.id}-orange`,
+    new Color3(0.72, 0.28, 0.08),
+    new Color3(0.22, 0.07, 0.02),
+  );
+  const white = makeMaterial(
+    scene,
+    `${landmark.id}-white`,
+    new Color3(0.82, 0.8, 0.76),
+    new Color3(0.07, 0.06, 0.05),
+  );
+  const deckGlow = makeMaterial(
+    scene,
+    `${landmark.id}-deck`,
+    new Color3(0.12, 0.11, 0.14),
+    new Color3(0.55, 0.4, 0.18),
+  );
+  const beaconMaterial = makeMaterial(
+    scene,
+    `${landmark.id}-beacon`,
+    new Color3(0.3, 0.02, 0.02),
+    new Color3(0.95, 0.12, 0.08),
+  );
+
+  // Four leaning legs, each its own tilt plane.
+  for (const [legIndex, corner] of HIKARI_LEG_CORNERS.entries()) {
+    const dx = corner.sx / Math.SQRT2;
+    const dz = corner.sz / Math.SQRT2;
+    const heading = Math.atan2(dx, dz);
+    const legRoot = new TransformNode(`${landmark.id}-leg-${legIndex}`, scene);
+    legRoot.position.set(cx, 0, cz);
+    legRoot.rotation.y = heading - Math.PI / 2;
+    ctx.staticSceneryFreeze.push(legRoot);
+
+    for (let segment = 1; segment < HIKARI_LEG_PROFILE.length; segment += 1) {
+      const a = HIKARI_LEG_PROFILE[segment - 1];
+      const b = HIKARI_LEG_PROFILE[segment];
+      const segLengthM = Math.hypot(b.r - a.r, b.y - a.y);
+      const crossM = a.half + b.half;
+      const box = createBox(
+        scene,
+        `${landmark.id}-leg-${legIndex}-seg-${segment}`,
+        { width: segLengthM, height: crossM, depth: crossM },
+        new Vector3((a.r + b.r) / 2, (a.y + b.y) / 2, 0),
+        segment % 2 === 1 ? orange : white,
+        legRoot,
+      );
+      box.rotation.z = Math.atan2(b.y - a.y, b.r - a.r);
+      freeze(box);
+    }
+  }
+
+  // Horizontal cross-brace rings between adjacent legs.
+  for (const [levelIndex, y] of HIKARI_BRACE_HEIGHTS_M.entries()) {
+    const radius = hikariLegRadiusAtHeight(y);
+    const positions = HIKARI_LEG_CORNERS.map((corner) => ({
+      x: cx + (corner.sx / Math.SQRT2) * radius,
+      z: cz + (corner.sz / Math.SQRT2) * radius,
+    }));
+    for (const [edgeIndex, [i, j]] of HIKARI_BRACE_EDGES.entries()) {
+      const from = positions[i];
+      const to = positions[j];
+      const dx = to.x - from.x;
+      const dz = to.z - from.z;
+      const lengthM = Math.hypot(dx, dz);
+      const heading = Math.atan2(dx, dz);
+      const brace = createBox(
+        scene,
+        `${landmark.id}-brace-${levelIndex}-${edgeIndex}`,
+        { width: lengthM, height: HIKARI_BRACE_HALF_M * 2, depth: HIKARI_BRACE_HALF_M * 2 },
+        new Vector3((from.x + to.x) / 2, y, (from.z + to.z) / 2),
+        levelIndex % 2 === 0 ? white : orange,
+      );
+      brace.rotation.y = heading - Math.PI / 2;
+      freeze(brace);
+    }
+  }
+
+  // Main observation deck, capping the legs.
+  freeze(
+    createCylinder(
+      scene,
+      `${landmark.id}-main-deck`,
+      { height: HIKARI_DECK_HEIGHT_M, diameter: HIKARI_DECK_RADIUS_M * 2, tessellation: 16 },
+      new Vector3(cx, HIKARI_DECK_Y, cz),
+      deckGlow,
+    ),
+  );
+
+  // Slender mast up to the upper deck.
+  const mastBottomY = HIKARI_DECK_Y + HIKARI_DECK_HEIGHT_M / 2;
+  const mastTopY = HIKARI_UPPER_DECK_Y - HIKARI_UPPER_DECK_HEIGHT_M / 2;
+  freeze(
+    createCylinder(
+      scene,
+      `${landmark.id}-mast`,
+      { height: mastTopY - mastBottomY, diameterBottom: 5.6, diameterTop: 4.2, tessellation: 12 },
+      new Vector3(cx, (mastBottomY + mastTopY) / 2, cz),
+      orange,
+    ),
+  );
+
+  // Upper deck.
+  freeze(
+    createCylinder(
+      scene,
+      `${landmark.id}-upper-deck`,
+      { height: HIKARI_UPPER_DECK_HEIGHT_M, diameter: HIKARI_UPPER_DECK_RADIUS_M * 2, tessellation: 14 },
+      new Vector3(cx, HIKARI_UPPER_DECK_Y, cz),
+      deckGlow,
+    ),
+  );
+
+  // Spire, a white band partway up, and the tip beacon.
+  const spireBottomY = HIKARI_UPPER_DECK_Y + HIKARI_UPPER_DECK_HEIGHT_M / 2;
+  freeze(
+    createCylinder(
+      scene,
+      `${landmark.id}-spire`,
+      { height: HIKARI_SPIRE_TIP_Y - spireBottomY, diameterBottom: 3.6, diameterTop: 0.5, tessellation: 10 },
+      new Vector3(cx, (spireBottomY + HIKARI_SPIRE_TIP_Y) / 2, cz),
+      orange,
+    ),
+  );
+  freeze(
+    createCylinder(
+      scene,
+      `${landmark.id}-spire-band`,
+      { height: 0.6, diameter: 1.7, tessellation: 10 },
+      new Vector3(cx, spireBottomY + (HIKARI_SPIRE_TIP_Y - spireBottomY) * 0.55, cz),
+      white,
+    ),
+  );
+  freeze(createIcoSphere(scene, `${landmark.id}-beacon`, 0.6, new Vector3(cx, HIKARI_SPIRE_TIP_Y + 0.5, cz), beaconMaterial));
+
+  // FootTown-analog podium — the ground solid this exact box matches lives
+  // in `geometry/landmarkGroundSolids.ts`'s `tokyoHikariTower`.
+  freeze(
+    createBox(
+      scene,
+      `${landmark.id}-podium`,
+      { width: HIKARI_PODIUM_HALF_X_M * 2, height: HIKARI_PODIUM_HEIGHT_M, depth: HIKARI_PODIUM_HALF_Z_M * 2 },
+      new Vector3(cx, HIKARI_PODIUM_HEIGHT_M / 2, cz),
+      deckGlow,
+    ),
+  );
+}
+
 export function buildTokyoLandmark(
   ctx: TokyoLandmarkCtx,
   landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
   _material: StandardMaterial,
   mapPack: GameCanvasMapPack,
 ): boolean {
+  if (landmark.id === HIKARI_TOWER_ID) {
+    buildHikariTower(ctx, landmark);
+    return true;
+  }
   if (landmark.kind !== "bridge") return false;
   const scene = ctx.scene;
   const roadSurfaces = mapPack.geometry.roadSurfaces ?? [];

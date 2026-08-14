@@ -80,7 +80,21 @@ describe("Tokyo street wall (expansion Phase 4, R18)", () => {
     () => {
       const plan = planMapBuildings(TOKYO_MAP_PACK, TOKYO_FREE_DRIVE.trafficSeed);
       const geometry = collectMapVisualGeometry(TOKYO_MAP_PACK, plan);
-      expect(geometry.issues).toEqual([]);
+      // Bespoke landmarks have vehicle-height collision but no height-banded
+      // visual-occlusion recipe yet -- a known, accepted gap shared by every
+      // bespoke landmark on every map (tests/visualSceneFootprints.test.tsx's
+      // own KNOWN_ISSUE_COUNTS pins the identical fact for London's 9 and
+      // Cairo's 5; Cairo's own version of this exact test makes no issues
+      // assertion at all for the same reason). jp-hikari-tower (Phase 8) is
+      // Tokyo's only bespoke ground-solid landmark -- tolerate exactly that
+      // one, so a real, unexpected geometry problem still fails loudly.
+      expect(geometry.issues).toEqual([
+        {
+          kind: "audit_geometry_missing",
+          ownerId: "jp-hikari-tower",
+          reason: "bespoke landmark has no height-banded visual-occlusion recipe yet",
+        },
+      ]);
 
       const worldGroundSurfaces = geometry.groundSurfaces.filter((surface) => surface.kind === "world-ground");
       const worldGroundSurfaceY = worldGroundSurfaces.length

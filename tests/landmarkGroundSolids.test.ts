@@ -368,7 +368,10 @@ describe("landmarkGroundSolids — complete audit across all four maps (Section 
     "nyc-subway",
     "nyc-amnh",
     "nyc-gallery",
-    // Tokyo has no bespoke landmark renderer file at all.
+    // Tokyo: `render/tokyoLandmarks.ts` is bespoke for bridges (Phase 3)
+    // and `jp-hikari-tower` (Phase 8, its own TOKYO_RECIPES entry below)
+    // only — these two still read through the generic `landmark.kind`
+    // fallback (a facade box and a plain circle-topped cylinder).
     "jp-gotokuji-station",
     "jp-carrot-tower",
   ]);
