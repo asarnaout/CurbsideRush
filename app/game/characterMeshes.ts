@@ -90,8 +90,13 @@ export const CHARACTER_MODELS: readonly CharacterModelConfig[] = [
 /** CC-BY "Poly by Google" bicycle (credited in CREDITS.md; pedals/tires split
  * into animatable nodes by tools/split-bicycle-pedals.mjs); authored huge and
  * facing +X (tires along X), so it yaws +90° to put its front (handlebars) on
- * +Z, aligned with the rider (verified against a side-on render). */
-const BICYCLE_MODEL = { url: `${C}/bicycle.glb`, scale: BIKE_SCALE, yawOffset: Math.PI / 2 } as const;
+ * +Z, aligned with the rider (verified against a side-on render). Exported so
+ * Tokyo's parked-bicycle street furniture (`babylonGameSession.ts`) can
+ * instance the same glb riderless via the merged-master path — that path's
+ * own frame differs from this file's (see `docs/rendering.md`'s "model
+ * frame" section), so its yaw is re-verified there, not assumed from this
+ * offset. */
+export const BICYCLE_MODEL = { url: `${C}/bicycle.glb`, scale: BIKE_SCALE, yawOffset: Math.PI / 2 } as const;
 
 /** CC0 "Cartoony Purple Motorcycle" by AliceCassie (credited in CREDITS.md).
  * Authored ~1.04 u long facing −Z (headlamp under the bars), origin on the
