@@ -342,7 +342,7 @@ export const DESTINATION_PROFILES: readonly DestinationProfile[] = [
     id: "jp-tokyo",
     countryId: "jp",
     destinationName: "Tokyo",
-    destinationSubtitle: "Gotokuji, Miyanosaka & narrow neighbourhood streets",
+    destinationSubtitle: "Gotokuji to the Sakuragawa",
     mapId: "tokyo-setagaya",
     freeDriveId: "free-jp",
     promotion: "standard",

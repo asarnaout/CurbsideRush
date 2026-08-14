@@ -2884,7 +2884,7 @@ const TOKYO_QUARTER_ROAD_NAMES = {
 export const TOKYO_MAP_PACK: MapPack = {
   id: "tokyo-setagaya",
   name: "Tokyo — Setagaya",
-  areaLabel: "Yamashita, Miyanosaka and Gotokuji",
+  areaLabel: "Gotokuji, Sakuragawa Downtown & the Hikari Tower",
   countryIds: ["jp"],
   roadNames: {
     ...TOKYO_QUARTER_ROAD_NAMES,
