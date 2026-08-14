@@ -616,22 +616,34 @@ pins the committed SHA-256 of every file). **Normalized** by
   unlinked from the building" category as the bullet above, just resolved a
   step earlier in the pipeline since the source glTF isn't packed into one
   glb yet at that point.
-- Every one of the 19 buildings' own container node has an identity
-  transform — the artist baked each one's final position into its own
-  vertex data, and all 19 mutually overlap in world space (measured: every
-  one of 171 possible pairs overlaps), i.e. this is a Sketchfab "kit" hero
-  shot with every piece piled at the origin for one thumbnail, not a
-  laid-out scene. The split tool partitions the 19 by material family (10
-  `BACKGROUND_BUILDINGS_1` buildings, 9 `BACKGROUND_BUILDING_2`), deals each
-  family by measured height into 3 files apiece (six total, sizes
-  [4,3,3,3,3,3]), and lays each file's buildings out left-to-right along
-  local X — grounded at Y=0, centred on Z=0, the whole row re-centred on
-  X=0 — via a per-building `translation`, never touching vertex data.
-  Materials/textures/images are pruned to exactly what each file's kept
-  buildings reference (real savings: a single-material file needs only 4 of
-  the pack's 8 texture maps); geometry accessors/bufferViews are left
-  untouched and embedded verbatim (a bounded, accepted byte cost — see the
-  tool's own header for the reasoning).
+- Every one of the 19 buildings' own container node carries a substantial,
+  non-identity `matrix` (its own ~100x corrective scale + rotation + a large
+  translation, evidently left over from the artist's own Blender/FBX
+  pipeline) — all 19 mutually overlap in world space when that matrix is
+  applied (measured: every one of 171 possible pairs overlaps), i.e. this is
+  a Sketchfab "kit" hero shot with every piece piled at the origin for one
+  thumbnail, not a laid-out scene. A first version of the split tool assumed
+  these nodes were identity-transformed (checking only for
+  `translation`/`rotation`/`scale`, never `matrix`) and added its own
+  `translation` alongside the existing `matrix` — invalid glTF, silently
+  ignored by the loader, which would have shipped every building at its
+  original scattered position. The shipped tool instead loads the pack under
+  a real Babylon `NullEngine` and bakes each kept building's full world
+  transform into fresh vertex data (`Mesh.MergeMeshes` on that one mesh
+  alone, `getBuildingMaster`'s own recipe) before doing anything else — see
+  the tool's own header for the full story. The split tool partitions the 19
+  by material family (10 `BACKGROUND_BUILDINGS_1` buildings, 9
+  `BACKGROUND_BUILDING_2`), deals each family by measured world-space height
+  into 3 files apiece (six total, sizes [4,3,3,3,3,3]), and lays each file's
+  buildings out left-to-right along world X — grounded at Y=0, centred on
+  Z=0, the whole row re-centred on X=0 — by adding the offset directly into
+  each building's already-baked position data (no node transform at all, so
+  there is no repeat of the matrix-conflict bug to hit). Materials/textures/
+  images are pruned to exactly what each file's kept buildings reference
+  (real savings: a single-material file needs only 4 of the pack's 8 texture
+  maps); geometry is rebuilt into fresh, per-building accessors/bufferViews
+  sized to exactly what each file needs, rather than embedding the whole
+  shared source buffer.
 - The source's own baked-in `KHR_materials_emissive_strength: 2` was
   measured (not eyeballed) against this map's real
   `bloomThreshold: 0.72`/`exposure: 1.55` the same way the P1 bullet above
