@@ -2810,6 +2810,15 @@ export const TOKYO_MAP_PACK: MapPack = {
       // is the far side — that is what puts it against the north block.
       // Re-solved alongside jp-gas for jp-north-road's paved sidewalk.
       { id: "jp-repair", kind: "repair_shop", anchor: { laneId: "jp-north-west-2", distanceAlongM: 36 }, footprint: point(10, 8), label: "Setagaya Auto", setbackM: 12.5 },
+      // Second pair (Tokyo expansion Phase 7): the whole generated half had
+      // no service points at all until now — a driver working the east bank
+      // or the southern webs was a very long tow from the quarter's only
+      // pair. Both solver-placed (a binary search over `setbackM` against
+      // the exact `tests/serviceLots.test.ts` geometry — segment-to-lot
+      // distance, `shoulderWidthFor`, the 0-0.6 m flush-kerb window) rather
+      // than hand-picked, the same discipline every venue anchor above used.
+      { id: "jp-gas-higashi", kind: "gas_station", anchor: { laneId: "jp-koshu-kaido-higashi-3-forward-1", distanceAlongM: 70 }, footprint: point(12, 8), label: "Higashi Fuel", setbackM: 22.79 },
+      { id: "jp-repair-minami", kind: "repair_shop", anchor: { laneId: "jp-minami-kaido-1-forward-1", distanceAlongM: 300 }, footprint: point(10, 8), label: "Minami Auto Works", setbackM: 14.95 },
     ],
     gigVenues: [
       // West side of the narrow street (driver's right of the southbound
@@ -2822,6 +2831,92 @@ export const TOKYO_MAP_PACK: MapPack = {
       { id: "jp-v2", kind: "shop", anchor: { laneId: "jp-uptown-east-2", distanceAlongM: 20 }, footprint: point(12, 9), name: "Miyanosaka Market" },
       { id: "jp-v3", kind: "residence", anchor: { laneId: "jp-north-east-2", distanceAlongM: 54 }, footprint: point(12, 10), name: "Setagaya Residence" },
       { id: "jp-v4", kind: "office", anchor: { laneId: "jp-dori-east-2", distanceAlongM: 60 }, footprint: point(14, 12), name: "Setagaya-dori Office" },
+      // Tokyo expansion Phase 7 (R6/R7/R8): 41 new venues across every
+      // district the generated half's street wall (Phase 4) actually built,
+      // per plan §8.9. Every anchor below was found by a scratchpad solver
+      // that calls the REAL `resolveVenuePlacement` (never a hand estimate)
+      // for both the forward and reverse lane of the target road, across
+      // every one of that road's segments (a multi-segment generated road
+      // has one independent lane — and `distanceAlongM` — per segment, so
+      // there is no single "distance along the whole road"), and keeps only
+      // the result that lands inside a real `addressable` block, clear of
+      // every park/landmark/carriageway and >=22 m from every other venue
+      // and service point already placed. Anchoring the FORWARD-direction
+      // lane of a segment lands the venue on that segment's "+1" (driver's-
+      // right-of-forward) flank; anchoring the REVERSE-direction lane lands
+      // it on the "-1" flank — the same convention
+      // `buildTokyoGeneratedBlocks` uses to build the two blocks per
+      // segment, so every anchor below was picked to match a REAL block on
+      // its own side, not just any block that happened to overlap. See the
+      // PR for the solver script and its full per-venue verification table.
+      //
+      // Downtown (14): 3 konbini, 2 ramen, 2 izakaya, sushi, curry, a named
+      // diner, a cafe, 2 offices, 1 residence.
+      { id: "jp-v5", kind: "shop", anchor: { laneId: "jp-eki-mae-dori-2-forward-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Hoshi Mart Ekimae" },
+      { id: "jp-v6", kind: "shop", anchor: { laneId: "jp-chuo-dori-3-forward-1", distanceAlongM: 51 }, footprint: point(12, 9), name: "Hoshi Mart Chuo" },
+      { id: "jp-v7", kind: "shop", anchor: { laneId: "jp-kita-dori-3-forward-1", distanceAlongM: 69 }, footprint: point(12, 9), name: "Yotsuba Mart" },
+      { id: "jp-v8", kind: "restaurant", anchor: { laneId: "jp-chuo-dori-2-reverse-1", distanceAlongM: 51 }, footprint: point(12, 9), name: "Menya Sakura" },
+      { id: "jp-v9", kind: "restaurant", anchor: { laneId: "jp-ichiban-dori-2-forward-1", distanceAlongM: 54 }, footprint: point(12, 9), name: "Ichiban Ramen" },
+      { id: "jp-v10", kind: "restaurant", anchor: { laneId: "jp-niban-dori-3-reverse-1", distanceAlongM: 51 }, footprint: point(12, 9), name: "Izakaya Tsukikage" },
+      { id: "jp-v11", kind: "restaurant", anchor: { laneId: "jp-minami-dori-4-forward-1", distanceAlongM: 69 }, footprint: point(12, 9), name: "Torigen" },
+      { id: "jp-v12", kind: "restaurant", anchor: { laneId: "jp-eki-mae-dori-3-reverse-1", distanceAlongM: 69 }, footprint: point(12, 9), name: "Sushi Kotobuki" },
+      { id: "jp-v13", kind: "restaurant", anchor: { laneId: "jp-niban-dori-4-reverse-1", distanceAlongM: 90 }, footprint: point(12, 9), name: "Curry House Sakura" },
+      // The owner explicitly asked for a diner called out by name.
+      { id: "jp-v14", kind: "restaurant", anchor: { laneId: "jp-chuo-dori-4-forward-1", distanceAlongM: 90 }, footprint: point(12, 9), name: "Blue Moon Diner" },
+      { id: "jp-v15", kind: "restaurant", anchor: { laneId: "jp-minami-dori-3-reverse-1", distanceAlongM: 69 }, footprint: point(12, 9), name: "Cafe Hikari" },
+      { id: "jp-v16", kind: "office", anchor: { laneId: "jp-chuo-dori-3-reverse-1", distanceAlongM: 51 }, footprint: point(14, 12), name: "Sakuragawa Trading Co." },
+      { id: "jp-v17", kind: "office", anchor: { laneId: "jp-kita-dori-4-reverse-1", distanceAlongM: 69 }, footprint: point(14, 12), name: "Chuo Business Tower" },
+      { id: "jp-v18", kind: "residence", anchor: { laneId: "jp-eki-mae-dori-4-forward-1", distanceAlongM: 69 }, footprint: point(12, 10), name: "Ekimae Residence" },
+      // Shotengai (6): the Nakamise Yokochō shophouse strip — bento, taiyaki
+      // and tempura counters, a grocer, a konbini, one residence above.
+      { id: "jp-v19", kind: "restaurant", anchor: { laneId: "jp-nakamise-yokocho-1-forward-1", distanceAlongM: 30 }, footprint: point(12, 9), name: "Nakamise Bento" },
+      { id: "jp-v20", kind: "restaurant", anchor: { laneId: "jp-nakamise-yokocho-1-reverse-1", distanceAlongM: 102 }, footprint: point(12, 9), name: "Taiyaki Koban" },
+      { id: "jp-v21", kind: "restaurant", anchor: { laneId: "jp-nakamise-yokocho-2-forward-1", distanceAlongM: 69 }, footprint: point(12, 9), name: "Tenpura Yokocho" },
+      { id: "jp-v22", kind: "shop", anchor: { laneId: "jp-nakamise-yokocho-2-reverse-1", distanceAlongM: 57 }, footprint: point(12, 9), name: "Yokocho Grocer" },
+      { id: "jp-v23", kind: "shop", anchor: { laneId: "jp-nakamise-yokocho-1-forward-1", distanceAlongM: 90 }, footprint: point(12, 9), name: "Hoshi Mart Yokocho" },
+      { id: "jp-v24", kind: "residence", anchor: { laneId: "jp-nakamise-yokocho-1-reverse-1", distanceAlongM: 42 }, footprint: point(12, 10), name: "Yokocho Flats" },
+      // Quarter (+1): a new konbini a short walk from Gotokuji station,
+      // fronting jp-block-center — the old neighbourhood's own block, not a
+      // generated one.
+      { id: "jp-v25", kind: "shop", anchor: { laneId: "jp-center-west-2", distanceAlongM: 69 }, footprint: point(12, 9), name: "Hoshi Mart Gotokuji" },
+      // North / Miyanosaka (6): ~60/40 pickup-capable vs not.
+      { id: "jp-v26", kind: "restaurant", anchor: { laneId: "jp-mn-suzukake-dori-1-forward-1", distanceAlongM: 99 }, footprint: point(12, 9), name: "Suzukake Ramen" },
+      { id: "jp-v27", kind: "shop", anchor: { laneId: "jp-mn-suzukake-dori-1-reverse-1", distanceAlongM: 150 }, footprint: point(12, 9), name: "Hoshi Mart Suzukake" },
+      { id: "jp-v28", kind: "shop", anchor: { laneId: "jp-mn-fujimi-dori-1-forward-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Fujimi Grocer" },
+      { id: "jp-v29", kind: "restaurant", anchor: { laneId: "jp-mn-momiji-dori-1-forward-1", distanceAlongM: 120 }, footprint: point(12, 9), name: "Momiji Bakery" },
+      { id: "jp-v30", kind: "residence", anchor: { laneId: "jp-mn-wakaba-dori-1-forward-1", distanceAlongM: 201 }, footprint: point(12, 10), name: "Miyanosaka Residence" },
+      // jp-mn-kaede-dori (one-way reverse) has a real block on its "+1"
+      // flank but no forward lane to reach it, and none at all on "-1" — the
+      // solver correctly refused it; jp-mn-sumire-dori (also one-way
+      // reverse) has a real block on the reachable "-1" flank instead.
+      { id: "jp-v31", kind: "office", anchor: { laneId: "jp-mn-sumire-dori-1-reverse-1", distanceAlongM: 300 }, footprint: point(14, 12), name: "Kaede Office" },
+      // South / Yamashita (5).
+      { id: "jp-v32", kind: "restaurant", anchor: { laneId: "jp-ys-yanagi-dori-1-forward-1", distanceAlongM: 150 }, footprint: point(12, 9), name: "Yanagi Diner" },
+      { id: "jp-v33", kind: "shop", anchor: { laneId: "jp-ys-yanagi-dori-2-reverse-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Hoshi Mart Yanagi" },
+      { id: "jp-v34", kind: "residence", anchor: { laneId: "jp-ys-hagi-dori-1-reverse-1", distanceAlongM: 300 }, footprint: point(12, 10), name: "Yamashita Residence" },
+      { id: "jp-v35", kind: "office", anchor: { laneId: "jp-ys-botan-dori-1-forward-1", distanceAlongM: 120 }, footprint: point(14, 12), name: "Botan Office" },
+      { id: "jp-v36", kind: "shop", anchor: { laneId: "jp-ys-ichou-dori-1-reverse-1", distanceAlongM: 300 }, footprint: point(12, 9), name: "Ichou Grocer" },
+      // West / Nishi (3).
+      { id: "jp-v37", kind: "restaurant", anchor: { laneId: "jp-ni-hato-dori-1-forward-1", distanceAlongM: 99 }, footprint: point(12, 9), name: "Hato Cafe" },
+      { id: "jp-v38", kind: "shop", anchor: { laneId: "jp-ni-hato-dori-1-reverse-1", distanceAlongM: 201 }, footprint: point(12, 9), name: "Nishi Grocer" },
+      { id: "jp-v39", kind: "residence", anchor: { laneId: "jp-ni-ume-dori-1-forward-1", distanceAlongM: 60 }, footprint: point(12, 10), name: "Nishi Residence" },
+      // East bank (6): riverside cafe/restaurant/konbini/office/residence +
+      // a depot for parcel-flavour pickups. jp-kawagishi-dori only ever
+      // anchors on "p" (forward) — its "-1" side is the open river frontage
+      // (`TOKYO_OPEN_WATERFRONT_SIDES`), correctly walled off from R18's
+      // street-wall generator and so from venues too.
+      { id: "jp-v40", kind: "restaurant", anchor: { laneId: "jp-kawagishi-dori-3-forward-1", distanceAlongM: 129 }, footprint: point(12, 9), name: "Kawagishi Riverside Cafe" },
+      { id: "jp-v41", kind: "restaurant", anchor: { laneId: "jp-higashi-hondori-4-forward-1", distanceAlongM: 189 }, footprint: point(12, 9), name: "Higashi Grill" },
+      { id: "jp-v42", kind: "shop", anchor: { laneId: "jp-higashi-dori-3-forward-1", distanceAlongM: 111 }, footprint: point(12, 9), name: "Hoshi Mart Higashi" },
+      { id: "jp-v43", kind: "office", anchor: { laneId: "jp-higashi-hondori-2-reverse-1", distanceAlongM: 105 }, footprint: point(14, 12), name: "Higashi Trading Office" },
+      { id: "jp-v44", kind: "residence", anchor: { laneId: "jp-tofu-yokocho-2-reverse-1", distanceAlongM: 105 }, footprint: point(12, 10), name: "Hondori Residence" },
+      // No dedicated depot glb (Cairo's `cairo-depot` is a Cairo-specific
+      // import); `modelId: "shop"` gives it a real measured footprint to
+      // collide against (`PROP_MODEL_FOOTPRINTS_M` has no bare "depot" row —
+      // `tests/staticColliders.test.ts` requires every venue resolve one) —
+      // the generic small-commercial box, matching the plan's own "generic
+      // kind models are fine" allowance rather than a Cairo-styled import.
+      { id: "jp-v45", kind: "depot", modelId: "shop", anchor: { laneId: "jp-higashi-hondori-3-reverse-1", distanceAlongM: 174 }, footprint: point(14, 10), name: "Sakuragawa Depot" },
     ],
     landmarks: [
       { id: "jp-gotokuji-station", kind: "station", center: point(-14, 6), size: point(20, 9), color: "#e85e59" },

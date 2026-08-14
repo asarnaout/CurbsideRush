@@ -62,7 +62,11 @@ describe("street names", () => {
     // The whole point of splitting the name table from `STREET_PROFILES`: a
     // road wants a name in far more cities than it wants house numbers. If the
     // names ever became the gate, every named city would start issuing gigs.
-    const OPTED_IN = new Set(["nyc-upper-west-side", "london-south-kensington"]);
+    const OPTED_IN = new Set([
+      "nyc-upper-west-side",
+      "london-south-kensington",
+      "tokyo-setagaya",
+    ]);
     for (const pack of MAP_PACKS.filter((p) => !OPTED_IN.has(p.id))) {
       expect(Object.keys(pack.roadNames ?? {}).length > 0, pack.id).toBe(true);
       expect(streetAddressesForMap(pack), pack.id).toEqual([]);

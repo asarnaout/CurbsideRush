@@ -359,9 +359,10 @@ and `roadRealism.test.ts`'s per-pack circuit walk.
 ## Addresses
 
 **`streetAddressesForMap` caches by `pack.id`** in a module-level Map (mutating
-a pack after the first call has no effect); addresses exist only for NYC roads
-listed in `STREET_PROFILES` — a road missing from it generates none, silently
-(`addressableStreetNames` catches this). Other maps use authored venues.
+a pack after the first call has no effect); addresses exist only for roads
+listed in `STREET_PROFILES` (today: NYC, London and Tokyo) — a road missing
+from it generates none, silently (`addressableStreetNames` catches this).
+Cairo has none and relies on authored venues alone.
 
 **A gap-closure block set `addressable: false`** is skipped by the frontage
 probe entirely. `generateStreetAddresses` otherwise checks every block in
@@ -372,8 +373,10 @@ set it `false` unless the block deliberately designs a reachable destination.
 
 **`STREET_PROFILES` holds numbering and gates addressability; display names
 live on `MapPack.roadNames`.** Split deliberately, so naming a street for GPS
-cannot start issuing gigs on it: Tokyo and Cairo are named and address-free,
-and London names far more streets (bridges, ring roads) than it profiles.
+cannot start issuing gigs on it: Cairo is named and address-free, and both
+London and Tokyo name more streets (bridges, ring roads) than they profile —
+Tokyo's own three Sakuragawa bridges carry names but no doors, the same
+reason NYC's two Hudson/East River crossings do.
 
 **The frontage probe walks the lane's NEARSIDE kerb**, which is the driver's
 right where traffic drives on the right and their left where it drives on the
@@ -387,8 +390,12 @@ all until this was fixed.
 **A city with no building sets zones its addresses by facade material**
 (`KINDS_BY_BLOCK_MATERIAL`, consulted only when a block names no set): the
 City's glass yields offices, stock brick yields homes and the odd shop.
-`isInsideRect` is rotation-aware for the same reason — London's parcels follow
-streets that bend.
+Tokyo (also `buildingSets: []`) reads the same table off its own four
+generated-block materials — `wood-plaster` homes, `plaster` a residence/shop
+mix, `tile` and `concrete` (the east bank's own material) lean commercial —
+never `"restaurant"`: a generated address is never a food pickup on any city,
+only an authored venue is. `isInsideRect` is rotation-aware for the same
+reason — London's parcels follow streets that bend.
 
 ## Service points and venues
 

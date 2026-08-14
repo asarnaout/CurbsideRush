@@ -920,7 +920,7 @@ describe("the city ladder", () => {
       1300,
       1900,
     ]);
-    expect(ticketPrice("jp-tokyo")).toBe(40_000);
+    expect(ticketPrice("jp-tokyo")).toBe(150_000);
     expect(ticketPrice("eg-cairo")).toBe(20_000);
   });
 });
@@ -1011,7 +1011,7 @@ describe("tickets and travel", () => {
         "us-nyc": createCityState("us"),
         "jp-tokyo": {
           ...createCityState("jp"),
-          cash: 40_000,
+          cash: 150_000,
         },
         "uk-london": {
           ...createCityState("uk"),

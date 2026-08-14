@@ -409,7 +409,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // change both which names exist and how many, so the fingerprint moves
     // with drawCount this time - not a naming-only change like the last one.
     // "6875ac93" -> "2cf0d55b": Phase 6's -528 draws above.
-    facadeMeshFingerprint: "2cf0d55b",
+    // "2cf0d55b" -> "10723f14" (Tokyo expansion Phase 7, venues/addresses,
+    // R6/R7/R8): drawCount is UNCHANGED at 6_687 — this phase adds 41 gig
+    // venues and a second gas+repair pair but touches zero blocks, so the
+    // facade grid's own candidate cells and their survival count are
+    // identical. Mesh naming only, the same class of move as the
+    // "2dda315a" -> "01d2bc4a" line above: the venues/service points build
+    // ahead of the facade grid in the scene-plan pass and shift whatever
+    // shared ordinal the mesh names embed, without changing which cells
+    // draw or in what order.
+    facadeMeshFingerprint: "10723f14",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the

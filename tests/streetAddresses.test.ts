@@ -322,7 +322,11 @@ describe("procedural street addresses", () => {
     // keeping `STREET_PROFILES` separate from `MapPack.roadNames`: naming a
     // street for turn-by-turn navigation must not start issuing gigs on it.
     // London opted in when it grew into a full city.
-    const OPTED_IN = new Set(["nyc-upper-west-side", "london-south-kensington"]);
+    const OPTED_IN = new Set([
+      "nyc-upper-west-side",
+      "london-south-kensington",
+      "tokyo-setagaya",
+    ]);
     for (const pack of MAP_PACKS.filter((p) => !OPTED_IN.has(p.id))) {
       expect(streetAddressesForMap(pack), pack.id).toEqual([]);
     }
@@ -385,6 +389,42 @@ describe("procedural street addresses", () => {
     // Both kerbs of the two-way streets get doors, which is the signal that
     // the nearside probe is genuinely reading the lane's own side rather than
     // one arbitrary normal.
+    expect(new Set(addresses.map((address) => address.side))).toEqual(
+      new Set([-1, 1]),
+    );
+  });
+
+  it("gives Tokyo a spread of addresses on the kerb its traffic keeps to", () => {
+    // Tokyo (expansion Phase 7): also left-hand traffic, so this mirrors the
+    // London assertion above almost exactly. Dry-run measured 257 addresses
+    // across 57 streets — comfortably inside the plan's ~250-380 target.
+    const tokyo = MAP_PACKS.find((p) => p.id === "tokyo-setagaya")!;
+    const addresses = streetAddressesForMap(tokyo);
+    expect(addresses.length).toBeGreaterThan(200);
+    const streets = new Set(addresses.map((a) => a.name.replace(/^\d+\s/, "")));
+    expect(streets.size).toBeGreaterThan(40);
+    // Zoned off the facade material (Tokyo has no building sets either):
+    // `wood-plaster`/`plaster` yield homes, `tile`/`concrete` also yield
+    // shops and offices. No `restaurant` kind ever comes from a generated
+    // address on ANY map — `KINDS_BY_BLOCK_MATERIAL`/`KINDS_BY_BUILDING_SET`
+    // never list it, by design; only authored venues sell food.
+    const kinds = new Set(addresses.map((a) => a.kind));
+    expect(kinds).toContain("residence");
+    expect(kinds).toContain("shop");
+    expect(kinds).toContain("office");
+    expect(kinds).not.toContain("restaurant");
+    // Every rider stands on a pavement, never in the opposing carriageway —
+    // the same nearside-kerb proof London's own assertion below performs.
+    for (const address of addresses) {
+      const nearest = Math.min(
+        ...tokyo.geometry.roadSurfaces.map((surface) => distanceToPolyline(
+          { x: address.kerbX, z: address.kerbZ },
+          surface.centerline,
+        ) - surface.widthM / 2),
+      );
+      expect(nearest, address.name).toBeGreaterThan(0);
+    }
+    // Both kerbs of Tokyo's two-way streets get doors too.
     expect(new Set(addresses.map((address) => address.side))).toEqual(
       new Set([-1, 1]),
     );
