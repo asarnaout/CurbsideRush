@@ -4,6 +4,7 @@ import {
   LONDON_PARKED_CARS,
   LONDON_STREET_FURNITURE,
 } from "../londonStreetFurniture";
+import { TOKYO_STREET_FURNITURE_POINTS } from "../tokyoStreetFurniture";
 import type { GameCanvasPoint } from "../sessionContract";
 import { resolveMapVisualKey, type PropKindConfig } from "../visuals";
 
@@ -57,6 +58,12 @@ export const LONDON_FURNITURE_POINTS: readonly GameCanvasPoint[] = [
   ...LONDON_PARKED_CARS.map((car) => car.position),
 ];
 
+/** Tokyo's own version of `LONDON_FURNITURE_POINTS` (Tokyo expansion Phase
+ * 9): every hand-placed chochin post, neon sign, scramble billboard and
+ * parked bicycle, so the generic roadside scatter (vending machines, utility
+ * poles, trees) never lands on top of one. */
+export const TOKYO_FURNITURE_POINTS: readonly GameCanvasPoint[] = TOKYO_STREET_FURNITURE_POINTS;
+
 /**
  * Street furniture the car can knock over. Every scattered prop, vendor cart
  * and piece of hand-placed London furniture registers here; a hit scrubs the
@@ -103,6 +110,19 @@ export const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructibleProp
   // walkable-band collider tests reserve both, and a shunted car reads better
   // than an invisible wall. Heavy to hit: half the player's speed survives.
   "london-parked-car": { radiusM: 1.2, speedScale: 0.5, damage: "medium", noun: "a parked car", fall: "topple" },
+  // Tokyo expansion Phase 9 (R14). Absent from this table, a chochin post
+  // would be silently indestructible — the same "palm comment" trap as
+  // above. A paper lantern on a slim pole gives way easily.
+  "chochin-post": { radiusM: 0.28, speedScale: 0.9, damage: "light", noun: "a lantern post", fall: "topple" },
+  // The promenade's cherry tree (swaps in for Cairo's palm on Tokyo's own
+  // riverside decor, `generatePromenadeDecor`'s `treeKind`) — same knockable
+  // trunk-topples treatment as every other street tree.
+  sakura: { radiusM: 0.5, speedScale: 0.72, damage: "medium", noun: "a cherry tree", fall: "topple" },
+  // Parked bicycles: much lighter than a parked car (radius, mass and speed
+  // cost all scale down accordingly) but the same knockable-never-solid rule
+  // — staticColliders.test.ts reserves the kerbside for the walkable band,
+  // not a rack of bikes.
+  "tokyo-parked-bicycle": { radiusM: 0.45, speedScale: 0.82, damage: "light", noun: "a parked bicycle", fall: "topple" },
 };
 
 export interface DestructiblePropPart {
@@ -190,7 +210,12 @@ export const AMBIENT_CROWD_CONFIG: Readonly<
   >
 > = {
   "nyc-upper-west-side": { count: 96, innerRadiusM: 25, outerRadiusM: 130, recycleRadiusM: 170 },
-  "tokyo-setagaya": { count: 56, innerRadiusM: 18, outerRadiusM: 100, recycleRadiusM: 140 },
+  // 56 -> 112 (Tokyo expansion Phase 9, R13): the village-era figure for a
+  // 600x420 m quarter, unchanged through Phases 1-8 even as the map grew to
+  // NYC class (2600x2400 m) — the street-life pass is what actually retunes
+  // it. Radii widen to match (18/100/140 -> 22/130/170, the same figures
+  // London's own crowd bump landed on for a comparable-scale map).
+  "tokyo-setagaya": { count: 112, innerRadiusM: 22, outerRadiusM: 130, recycleRadiusM: 170 },
   // 64 -> 104: sixty-four walkers were right for an 800 m museum quarter and
   // read as a quiet Sunday once the map ran from Earls Court to Islington.
   // The crowd is 3-5 meshes total whatever the count — this is CPU stepping,
@@ -292,15 +317,23 @@ export function roadsidePropKindsForMap(
           faceRoad: true,
         },
         {
+          // 74 -> 48 m (Tokyo expansion Phase 9): konbini country wants a
+          // machine every couple of storefronts, not one every third block.
+          // Re-measured against the now-much-more-occupied roadside ground
+          // (Phase 4's blocks + Phase 7's venues both reject scatter
+          // candidates that land inside them) rather than trusted blind —
+          // see the PR for the real placement count this produced.
           kind: "vending",
-          spacingM: 74,
-          jitterM: 20,
+          spacingM: 48,
+          jitterM: 14,
           lateralMarginM: 1,
           bothSides: false,
           variants: 2,
           faceRoad: true,
         },
-        { ...PROP_TREE, spacingM: 34, minScale: 0.7, maxScale: 1 },
+        // 34 -> 36 m (Tokyo expansion Phase 9): a small retune alongside the
+        // vending/crowd bump, not a density change of its own.
+        { ...PROP_TREE, spacingM: 36, minScale: 0.7, maxScale: 1 },
         PROP_SIGN,
       ];
     case "cairo":

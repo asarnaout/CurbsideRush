@@ -1,4 +1,5 @@
 import {
+  type AbstractMesh,
   Color3,
   type Mesh,
   type Scene,
@@ -9,6 +10,12 @@ import {
 import { createBox, createCylinder, createIcoSphere } from "./meshPrimitives";
 import { cairoBridgePortalVisualAxis } from "../geometry/waterGeometry";
 import { nearestPointOnPolyline } from "../geometry/roadStrips";
+import type { DestructiblePropPart } from "./propCatalog";
+import {
+  TOKYO_CHOCHIN_POSTS,
+  TOKYO_NEON_SIGNS,
+  TOKYO_SCRAMBLE_BILLBOARDS,
+} from "../tokyoStreetFurniture";
 import type { GameCanvasMapPack } from "../sessionContract";
 import { defaultSidewalkWidthM } from "../visuals";
 
@@ -505,4 +512,178 @@ export function buildTokyoLandmark(
   }
 
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Street furniture (Tokyo expansion Phase 9, R14): chochin posts, downtown
+// neon sign boards, scramble billboards. The registry's `streetFurniture`
+// slot, same shape as `buildLondonStreetFurniture` — called once, no
+// per-landmark dispatch, since none of this is tied to an authored landmark.
+// ---------------------------------------------------------------------------
+
+export interface TokyoStreetFurnitureCtx {
+  readonly scene: Scene;
+  readonly staticSceneryFreeze: TransformNode[];
+  readonly registerShadowCaster: (
+    mesh: AbstractMesh,
+    x: number,
+    z: number,
+  ) => void;
+  readonly registerDestructibleProp: (
+    kind: string,
+    x: number,
+    z: number,
+    scale: number,
+    parts: readonly DestructiblePropPart[],
+  ) => void;
+}
+
+/** Four neon colours, built once and shared across every instance of that
+ * variant — "a handful of materials, hundreds of instances" (plan §8.11),
+ * not a material per sign. Bright, saturated diffuse so the panel reads even
+ * without the emissive term; the emissive channel is what blooms. */
+const NEON_VARIANT_COLORS: readonly [Color3, Color3][] = [
+  [new Color3(0.4, 0.06, 0.24), new Color3(1.1, 0.18, 0.62)], // magenta
+  [new Color3(0.05, 0.26, 0.4), new Color3(0.14, 0.68, 1.05)], // cyan
+  [new Color3(0.07, 0.32, 0.15), new Color3(0.2, 1.0, 0.42)], // green
+  [new Color3(0.38, 0.24, 0.02), new Color3(1.05, 0.68, 0.08)], // amber
+];
+
+/**
+ * Chochin (paper lantern) posts: a pole and a warm emissive lantern body
+ * between two dark cap bands — the classic silhouette, low-poly. Hand-placed
+ * rows (`TOKYO_CHOCHIN_POSTS`) along the shotengai and the Ekimae-dōri
+ * station-front stretch, per plan §8.10 ("scattered only where it reads
+ * right" rather than blanket roadside scatter). The promenade's own
+ * automatic placements (`generatePromenadeDecor`'s `lampKind`) render
+ * through `render/roadsideProps.ts`'s own independent `partsFor` case
+ * instead — same visual recipe, a second small master set, matching this
+ * repo's normal house style of not sharing a mesh-builder across files (see
+ * e.g. this file's own bridge lamps vs. `roadsideProps.ts`'s streetlight).
+ * Knockable (`DESTRUCTIBLE_PROP_CONFIGS["chochin-post"]`), never solid.
+ */
+function buildChochinPosts(ctx: TokyoStreetFurnitureCtx): void {
+  if (!TOKYO_CHOCHIN_POSTS.length) return;
+  const scene = ctx.scene;
+  const poleMaterial = makeMaterial(scene, "tokyo-chochin-pole", new Color3(0.24, 0.12, 0.08));
+  const lanternMaterial = makeMaterial(
+    scene,
+    "tokyo-chochin-lantern",
+    new Color3(0.55, 0.09, 0.07),
+    new Color3(0.92, 0.38, 0.11),
+  );
+  const capMaterial = makeMaterial(scene, "tokyo-chochin-cap", new Color3(0.07, 0.06, 0.06));
+
+  const pole = createCylinder(scene, "prop-master-tokyo-chochin-pole", { height: 2.3, diameter: 0.09, tessellation: 8 }, Vector3.Zero(), poleMaterial);
+  pole.isVisible = false;
+  const lantern = createCylinder(scene, "prop-master-tokyo-chochin-lantern", { height: 0.46, diameter: 0.32, tessellation: 8 }, Vector3.Zero(), lanternMaterial);
+  lantern.isVisible = false;
+  const capTop = createCylinder(scene, "prop-master-tokyo-chochin-cap-top", { height: 0.06, diameterTop: 0.12, diameterBottom: 0.34, tessellation: 8 }, Vector3.Zero(), capMaterial);
+  capTop.isVisible = false;
+  const capBottom = createCylinder(scene, "prop-master-tokyo-chochin-cap-bottom", { height: 0.06, diameterTop: 0.34, diameterBottom: 0.12, tessellation: 8 }, Vector3.Zero(), capMaterial);
+  capBottom.isVisible = false;
+
+  const parts: readonly { readonly master: Mesh; readonly y: number }[] = [
+    { master: pole, y: 1.15 },
+    { master: lantern, y: 2.55 },
+    { master: capBottom, y: 2.29 },
+    { master: capTop, y: 2.81 },
+  ];
+
+  let index = 0;
+  for (const post of TOKYO_CHOCHIN_POSTS) {
+    const destructibleParts: DestructiblePropPart[] = [];
+    for (const part of parts) {
+      const instance = part.master.createInstance(`prop-chochin-post-${index}`);
+      index += 1;
+      instance.position.set(post.position.x, part.y, post.position.z);
+      instance.isPickable = false;
+      ctx.staticSceneryFreeze.push(instance);
+      ctx.registerShadowCaster(instance, post.position.x, post.position.z);
+      destructibleParts.push({ node: instance, isLightPool: false });
+    }
+    ctx.registerDestructibleProp("chochin-post", post.position.x, post.position.z, 1, destructibleParts);
+  }
+
+  poleMaterial.freeze();
+  lanternMaterial.freeze();
+  capMaterial.freeze();
+}
+
+/**
+ * Downtown neon sign boards: thin emissive panels bracket-mounted off a
+ * facade line, well above the reachable band — never destructible, never a
+ * collider (the block behind each one already collides). One master box per
+ * colour variant (`NEON_VARIANT_COLORS`), so `TOKYO_NEON_SIGNS.length`
+ * instances cost four draw calls total, not one each.
+ */
+function buildNeonSigns(ctx: TokyoStreetFurnitureCtx): void {
+  if (!TOKYO_NEON_SIGNS.length) return;
+  const scene = ctx.scene;
+  const masters = NEON_VARIANT_COLORS.map(([diffuse, emissive], variantIndex) => {
+    const material = makeMaterial(scene, `tokyo-neon-${variantIndex}`, diffuse, emissive);
+    const mesh = createBox(scene, `prop-master-tokyo-neon-${variantIndex}`, { width: 1.3, height: 3.0, depth: 0.08 }, Vector3.Zero(), material);
+    mesh.isVisible = false;
+    return { mesh, material };
+  });
+
+  let index = 0;
+  for (const sign of TOKYO_NEON_SIGNS) {
+    const master = masters[sign.variant % masters.length].mesh;
+    const instance = master.createInstance(`prop-tokyo-neon-${index}`);
+    index += 1;
+    instance.position.set(sign.position.x, sign.heightM, sign.position.z);
+    instance.rotation.y = (sign.headingDeg * Math.PI) / 180;
+    instance.isPickable = false;
+    ctx.staticSceneryFreeze.push(instance);
+  }
+
+  for (const { material } of masters) material.freeze();
+}
+
+/**
+ * The 1-2 large billboard panels facing the scramble (`TOKYO_SCRAMBLE_
+ * BILLBOARDS`) — a bright "screen" plus a dark bezel frame, individually
+ * built (only two, so instancing would save nothing). Mounted well above the
+ * reachable band; never destructible, never a collider.
+ */
+function buildScrambleBillboards(ctx: TokyoStreetFurnitureCtx): void {
+  const scene = ctx.scene;
+  if (!TOKYO_SCRAMBLE_BILLBOARDS.length) return;
+  const screenMaterial = makeMaterial(scene, "tokyo-billboard-screen", new Color3(0.08, 0.28, 0.4), new Color3(0.55, 0.85, 1.15));
+  const frameMaterial = makeMaterial(scene, "tokyo-billboard-frame", new Color3(0.09, 0.09, 0.1));
+  for (const billboard of TOKYO_SCRAMBLE_BILLBOARDS) {
+    const root = new TransformNode(`${billboard.id}-root`, scene);
+    root.position.set(billboard.position.x, billboard.mountHeightM, billboard.position.z);
+    root.rotation.y = (billboard.headingDeg * Math.PI) / 180;
+    ctx.staticSceneryFreeze.push(root);
+    const frame = createBox(
+      scene,
+      `${billboard.id}-frame`,
+      { width: billboard.widthM + 0.4, height: billboard.heightM + 0.4, depth: 0.3 },
+      Vector3.Zero(),
+      frameMaterial,
+      root,
+    );
+    frame.isPickable = false;
+    ctx.staticSceneryFreeze.push(frame);
+    const screen = createBox(
+      scene,
+      `${billboard.id}-screen`,
+      { width: billboard.widthM, height: billboard.heightM, depth: 0.1 },
+      new Vector3(0, 0, 0.11),
+      screenMaterial,
+      root,
+    );
+    screen.isPickable = false;
+    ctx.staticSceneryFreeze.push(screen);
+  }
+  screenMaterial.freeze();
+  frameMaterial.freeze();
+}
+
+export function buildTokyoStreetFurniture(ctx: TokyoStreetFurnitureCtx): void {
+  buildChochinPosts(ctx);
+  buildNeonSigns(ctx);
+  buildScrambleBillboards(ctx);
 }
