@@ -168,6 +168,204 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   "london-shop": { scale: 4, groundY: 0, footprintM: 8, frontOffset: Math.PI },
   "london-walkup-a": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
   "london-walkup-b": { scale: 6, groundY: 0, footprintM: 12, frontOffset: Math.PI },
+
+  // ---- Tokyo (P1 — import-only; not yet referenced by any BuildingSetId,
+  // see TOKYO_ENV_MODELS's header). Every figure is the styled/committed
+  // glb's real merged-master bound (NullEngine + getBuildingMaster's own
+  // recipe: instantiate at the scale below, MergeMeshes, orientMerged-
+  // FacesOutward, recentreMergedMasterXZ), not an estimate.
+  //
+  // `MergeMeshes` crashes on tokyo-house-d/tokyo-apato-b/tokyo-ramen (the
+  // documented heterogeneous-submesh-attribute failure — some of their
+  // Sketchfab-exported submeshes carry TANGENT/extra UV sets, others don't),
+  // exactly the case docs/rendering.md predicts needs
+  // `instantiateModelInstanced` at render time; their footprint/depth here
+  // were measured as the union of every submesh's own Babylon-loaded world
+  // bound instead (translation-invariant, so it agrees with what a
+  // successful merge would report — merging doesn't move geometry).
+  //
+  // Facing (frontOffset) has no shared cross-author convention in this
+  // batch (13 independent Sketchfab authors) — each was measured from the
+  // best available signal: a named door/glass/sign submesh's position
+  // relative to the model's own bound (HIGH/MED confidence below), or,
+  // failing that, the offset between the vertex-count-weighted centroid and
+  // the AABB centre (a small asymmetric feature — porch, canopy — pulls the
+  // bound outward on the front side more than it pulls the mean; MED/LOW
+  // confidence). Two street-facing models (tokyo-shop-b, tokyo-izakaya)
+  // measured their door/sign on a *side* axis rather than front/back —
+  // this catalogue's first frontOffset of +-pi/2 rather than 0/pi, which
+  // also swaps which native axis is footprintM vs depthM (a 90 degree turn,
+  // unlike the 180 degree case every other model in this repo needed).
+  // **None of this is live-verified against a rendered view** (no visual
+  // renderer was available to measure with, only NullEngine) — re-confirm
+  // every LOW/MED-confidence entry below with a live drive-by before P2
+  // places any of them.
+  "tokyo-house-a": {
+    // Confidence: MED. No named door submesh; a consistent, fairly strong
+    // +X mass-centroid offset (0.31, vs 0.08 on Z) across all three
+    // same-author houses (a/b/c) is the signal.
+    scale: 0.01,
+    groundY: 0.02,
+    footprintM: 8.11,
+    depthM: 9.21,
+    frontOffset: Math.PI / 2,
+  },
+  "tokyo-house-b": {
+    // Confidence: MED-HIGH. Same author/series as house-a; +X offset 0.43
+    // vs an essentially-zero Z offset (-0.001) is the cleanest signal of
+    // the three.
+    scale: 0.01,
+    groundY: 0.0,
+    footprintM: 6.01,
+    depthM: 8.16,
+    frontOffset: Math.PI / 2,
+  },
+  "tokyo-house-c": {
+    // Confidence: MED. Same series; +X offset 0.34 vs 0.10 on Z.
+    scale: 0.01,
+    groundY: 0.0,
+    footprintM: 11.45,
+    depthM: 11.8,
+    frontOffset: Math.PI / 2,
+  },
+  "tokyo-house-d": {
+    // Confidence: MED-HIGH. Named "Puerta" (door) + "Marco_puerta" (door
+    // frame) submeshes sit toward -Z relative to the house's own structural
+    // mass (Casa_1) centre — the dominant axis of that door-to-centre
+    // vector, by a wide margin over its X component. footprintM/depthM
+    // measure the model's FULL fenced lot (the house keeps its own low
+    // property wall — "tiny setbacks behind low block walls" is literally
+    // this map's own residential flavour, see the plan's section 4.3), not
+    // just the house structure alone. groundY is referenced off the
+    // property wall's own consistent base (native y=-100 across all three
+    // Muro_* wall meshes, where 178/287 of the model's meshes cluster
+    // around the y=+50 "main floor" level above it) rather than the
+    // absolute geometric minimum (native y=-129.9), which belongs to one
+    // sunken exterior stair tread, not the ground plane the wall meets.
+    scale: 0.01,
+    groundY: 1.0,
+    footprintM: 13.69,
+    depthM: 11.82,
+    frontOffset: 0,
+  },
+  "tokyo-apato-a": {
+    // Confidence: LOW. No door submesh; the one positional signal (a
+    // bundled "PSX Vending Machine" prop, kept as authentic Setagaya street
+    // furniture per the plan's own section 4.3) sits in a CORNER, not
+    // centred on one edge (offsetFrac x=0.34, z=0.35 — comparable
+    // magnitudes, no dominant axis), so it doesn't resolve which side is
+    // "front". Defaults to the codebase's own no-evidence baseline
+    // (front already on local -Z, no rotation).
+    scale: 1,
+    groundY: 0,
+    footprintM: 7.39,
+    depthM: 4.79,
+    frontOffset: 0,
+  },
+  "tokyo-apato-b": {
+    // Confidence: LOW-MED. No door submesh (purely architectural node
+    // names — Wall/Slab/Floor/Ceiling/Moulding); a modest +Z mass-centroid
+    // offset (0.18, vs a weak 0.09 on X) is the only signal.
+    scale: 1,
+    groundY: 0.2,
+    footprintM: 9.85,
+    depthM: 17.1,
+    frontOffset: Math.PI,
+  },
+  "tokyo-konbini": {
+    // Confidence: MED-HIGH. No door submesh (one merged mesh); a strong +X
+    // mass-centroid offset (0.47, vs a weak -0.09 on Z) is the signal.
+    // BOUNDS' ground-contact rect is narrower than this full footprint on
+    // one edge — a fascia/sign band oversailing the walls, exactly the
+    // "glowing full-width fascia band" konbini silhouette the plan expects.
+    scale: 1,
+    groundY: 0.1,
+    footprintM: 13.33,
+    depthM: 8.92,
+    frontOffset: Math.PI / 2,
+  },
+  "tokyo-shop-a": {
+    // Confidence: LOW. No door submesh; mass-centroid offset is weak on
+    // both axes (x=-0.11, z=-0.15) — no dominant side. Defaults to 0.
+    scale: 0.01,
+    groundY: -0.09,
+    footprintM: 2.48,
+    depthM: 3.98,
+    frontOffset: 0,
+  },
+  "tokyo-shop-b": {
+    // Confidence: HIGH. Two lantern submeshes ("farolJapanese_7/2") and the
+    // shop's own sign text ("JapaneseText_0") all sit within ~5-15% of the
+    // model's -X extreme (not near either Z extreme) — the entrance/
+    // signage face is a SIDE axis, not front/back. This catalogue's first
+    // +-90 degree frontOffset: footprintM/depthM are swapped from the
+    // model's native X/Z sizes accordingly (native X was the door-normal
+    // axis, so it becomes depth; native Z, parallel to the door face,
+    // becomes the kerb-facing footprint).
+    scale: 1,
+    groundY: 0,
+    footprintM: 7.0,
+    depthM: 5.4,
+    frontOffset: -Math.PI / 2,
+  },
+  "tokyo-shop-c": {
+    // Confidence: MED-HIGH. A named "1. sign" submesh sits at the model's
+    // +Z extreme (a shop's sign is a strong front-facade indicator); the
+    // "1 back" submesh (presumably the rear wall material) sits near the
+    // model's Z centre rather than the opposite extreme, so it does not
+    // contradict this.
+    scale: 1,
+    groundY: 0,
+    footprintM: 8.16,
+    depthM: 8.21,
+    frontOffset: Math.PI,
+  },
+  "tokyo-shop-d": {
+    // Confidence: LOW-MED. No door submesh (one merged mesh); mass-centroid
+    // offset is weak on both axes (x=-0.05, z=-0.12). The baseColor texture
+    // (a trim-sheet atlas, not a spatial photo) shows repeated kanji
+    // signage at three different heights plus AC units and a mailbox —
+    // real signage, but not resolvable to a world-facing side without a
+    // rendered view. Measures noticeably larger than its "small shopfront"
+    // plan role (22.4 x 23.1 x 12.9 m) — trusted over the plan's guess,
+    // matching this repo's own "measure, don't estimate" rule; still a
+    // valid street-wall model, just a taller one than expected.
+    scale: 1,
+    groundY: -0.52,
+    footprintM: 22.41,
+    depthM: 12.91,
+    frontOffset: 0,
+  },
+  "tokyo-izakaya": {
+    // Confidence: HIGH. Named "Sign" + "Door Window" + "sign support"
+    // submeshes all sit within ~6-13% of the model's -X extreme (and only
+    // 30-43% into its Z range — nowhere near a Z extreme), the same
+    // side-axis pattern as tokyo-shop-b. groundY is referenced off the
+    // model's own floor level (native y=~0) after stripping the diorama
+    // "Floor" ground-slab node (tools/style-tokyo-buildings.mjs) — without
+    // that strip the absolute minimum would have been the slab's underside
+    // instead of the building's real floor.
+    scale: 0.01,
+    groundY: 0,
+    footprintM: 6.87,
+    depthM: 7.9,
+    frontOffset: -Math.PI / 2,
+  },
+  "tokyo-ramen": {
+    // Confidence: LOW. No door submesh; mass-centroid offset is present on
+    // both axes at comparable magnitude (x=0.27, z=0.20) with no clear
+    // dominant side, the same corner-like ambiguity as tokyo-apato-a.
+    // groundY is referenced off the main shell mesh's ("Box002") own floor
+    // (native y=-259.56) rather than the absolute geometric minimum
+    // (native y=-305.4), which belongs to a handful of "Bar" stool/table-leg
+    // tips poking slightly through the floor — a low-poly modelling
+    // artifact, not the ground plane.
+    scale: 0.01,
+    groundY: 2.6,
+    footprintM: 13.67,
+    depthM: 17.35,
+    frontOffset: 0,
+  },
 };
 
 export type BuildingSetId =
