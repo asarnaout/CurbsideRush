@@ -23,6 +23,7 @@ import { setMeshMaterial } from "./meshPrimitives";
 import {
   LONDON_FURNITURE_POINTS,
   roadsidePropKindsForMap,
+  TOKYO_FURNITURE_POINTS,
   type DestructiblePropPart,
 } from "./propCatalog";
 import { DEFAULT_SERVICE_SETBACK_M } from "../servicePoints";
@@ -52,6 +53,22 @@ import {
 const OPEN_WATERFRONT_SIDES_BY_KEY: Partial<Record<MapVisualKey, OpenWaterfrontSides>> = {
   cairo: CAIRO_OPEN_WATERFRONT_SIDES,
   tokyo: TOKYO_OPEN_WATERFRONT_SIDES,
+};
+
+/**
+ * The promenade's own tree/lamp prop kinds, by map key (Tokyo expansion
+ * Phase 9: `generatePromenadeDecor`'s `treeKind`/`lampKind` used to be
+ * hardcoded `"palm"`/`"streetlight"` inside that function — Cairo-only, the
+ * exact kind of hidden assumption `visuals.ts`'s own per-map lookups above
+ * exist to avoid). Cairo keeps its literal palm/streetlight; Tokyo swaps in
+ * cherry trees and chochin lanterns. A map absent from either this table or
+ * `OPEN_WATERFRONT_SIDES_BY_KEY` gets no promenade decor at all.
+ */
+const PROMENADE_DECOR_KINDS_BY_KEY: Partial<
+  Record<MapVisualKey, { readonly treeKind: string; readonly lampKind: string }>
+> = {
+  cairo: { treeKind: "palm", lampKind: "streetlight" },
+  tokyo: { treeKind: "sakura", lampKind: "chochin-post" },
 };
 
 /**
@@ -240,14 +257,17 @@ export function buildRoadsideProps(
     ];
   });
   // The corniche promenade is laid before the random scatter so its points
-  // pre-seed the spacing grid — scatter can jitter around the palm line but
-  // never stand a tree inside it. Per-map open-sides lookup: a map absent
+  // pre-seed the spacing grid — scatter can jitter around the tree line but
+  // never stand a prop inside it. Per-map open-sides lookup: a map absent
   // from OPEN_WATERFRONT_SIDES_BY_KEY gets no promenade decor at all, so
   // this stays additive for every city but Cairo and (Tokyo expansion
   // Phase 3) Tokyo — Cairo's own output is unchanged (same table, same
-  // values, just read through a lookup instead of a ternary).
+  // values, just read through a lookup instead of a ternary). The kind
+  // lookup (PROMENADE_DECOR_KINDS_BY_KEY) is the same shape for the same
+  // reason — Cairo keeps its literal "palm"/"streetlight" strings.
   const openWaterfrontSides = OPEN_WATERFRONT_SIDES_BY_KEY[key];
-  const promenadePlacements = openWaterfrontSides
+  const promenadeDecorKinds = PROMENADE_DECOR_KINDS_BY_KEY[key];
+  const promenadePlacements = openWaterfrontSides && promenadeDecorKinds
     ? generatePromenadeDecor({
         roadSurfaces: roadSurfaces.map((surface) => ({
           id: surface.id,
@@ -262,6 +282,8 @@ export function buildRoadsideProps(
         sidewalkWidthM: PAVED_SIDEWALK_WIDTH_M,
         worldSize: mapPack.geometry.worldSize,
         seed: hashStringToSeed(`${mapId}-promenade`),
+        treeKind: promenadeDecorKinds.treeKind,
+        lampKind: promenadeDecorKinds.lampKind,
       })
     : [];
   const roadsidePlacements = generateRoadsidePropPlacements({
@@ -296,9 +318,10 @@ export function buildRoadsideProps(
     // pre-seed the mutual spacing grid so the random scatter can never
     // stand a prop on them.
     occupiedPoints:
-      key === "london" || signPoints.length || promenadePlacements.length
+      key === "london" || key === "tokyo" || signPoints.length || promenadePlacements.length
         ? [
             ...(key === "london" ? LONDON_FURNITURE_POINTS : []),
+            ...(key === "tokyo" ? TOKYO_FURNITURE_POINTS : []),
             ...signPoints,
             ...promenadePlacements,
           ]
@@ -450,6 +473,39 @@ export function buildRoadsideProps(
     new Color3(0.55, 0.6, 0.58),
     new Color3(0.22, 0.26, 0.24),
   );
+  // Tokyo expansion Phase 9 (R14): the promenade's own automatic chochin/
+  // sakura placements (generatePromenadeDecor's treeKind/lampKind) render
+  // through this same procedural pipeline — same dimensions as, but a
+  // separate master set from, render/tokyoLandmarks.ts's hand-placed
+  // shotengai posts (this file's own house style: see the streetlight case
+  // above vs. londonLandmarks.ts's lamp for the same non-sharing precedent).
+  // Gated on `key === "tokyo"`, same reasoning as the Cairo-only direction
+  // panels above: only Tokyo ever emits a "chochin-post"/"sakura" placement
+  // (`PROMENADE_DECOR_KINDS_BY_KEY`), so building these unconditionally
+  // would cost every OTHER city six materials it can never use — confirmed
+  // by `fourCityRenderCharacterization`'s own pinned material counts, which
+  // is exactly the "byte-identical except a legitimate shared-code touch"
+  // net this phase's own gate cares about.
+  const tokyoNightProps =
+    key === "tokyo"
+      ? {
+          chochinPole: material("chochin-pole", new Color3(0.24, 0.12, 0.08)),
+          chochinLantern: material(
+            "chochin-lantern",
+            new Color3(0.55, 0.09, 0.07),
+            new Color3(0.92, 0.38, 0.11),
+          ),
+          chochinCap: material("chochin-cap", new Color3(0.07, 0.06, 0.06)),
+          sakuraTrunk: material("sakura-trunk", new Color3(0.3, 0.24, 0.22)),
+          // White (Someiyoshino) and deep pink (Kanzan) — the two commonest
+          // real cherry varieties, alternated by variant the same way the
+          // palm case alternates its two crown tints.
+          sakuraBlossoms: [
+            material("sakura-blossom-0", new Color3(0.86, 0.8, 0.78)),
+            material("sakura-blossom-1", new Color3(0.82, 0.5, 0.6)),
+          ],
+        }
+      : null;
 
   interface PropPart {
     readonly master: Mesh;
@@ -844,6 +900,73 @@ export function buildRoadsideProps(
           },
         ];
         break;
+      case "chochin-post": {
+        // The promenade's own automatic lantern-post placements
+        // (generatePromenadeDecor's lampKind, Tokyo only). Pole, barrel-ish
+        // lantern body, and two tapered black cap bands — the classic
+        // chochin silhouette, matching render/tokyoLandmarks.ts's hand-
+        // placed shotengai posts dimension-for-dimension. Guarded (never
+        // actually null in practice: only Tokyo ever emits this kind) so
+        // the materials above stay Tokyo-only without an unsafe assertion.
+        if (!tokyoNightProps) {
+          parts = [];
+          break;
+        }
+        const { chochinPole, chochinLantern, chochinCap } = tokyoNightProps;
+        parts = [
+          {
+            master: masterCylinder(cacheKey, { height: 2.3, diameter: 0.09 }, chochinPole),
+            offset: new Vector3(0, 1.15, 0),
+          },
+          {
+            master: masterCylinder(`${cacheKey}-lantern`, { height: 0.46, diameter: 0.32 }, chochinLantern),
+            offset: new Vector3(0, 2.55, 0),
+          },
+          {
+            master: masterCylinder(
+              `${cacheKey}-cap-bottom`,
+              { height: 0.06, diameterTop: 0.34, diameterBottom: 0.12 },
+              chochinCap,
+            ),
+            offset: new Vector3(0, 2.29, 0),
+          },
+          {
+            master: masterCylinder(
+              `${cacheKey}-cap-top`,
+              { height: 0.06, diameterTop: 0.12, diameterBottom: 0.34 },
+              chochinCap,
+            ),
+            offset: new Vector3(0, 2.81, 0),
+          },
+        ];
+        break;
+      }
+      case "sakura": {
+        // The promenade's cherry tree (generatePromenadeDecor's treeKind,
+        // Tokyo only) — a slim trunk under one broad rounded blossom crown,
+        // alternating white (Someiyoshino) and deep pink (Kanzan) by variant.
+        if (!tokyoNightProps) {
+          parts = [];
+          break;
+        }
+        const { sakuraTrunk, sakuraBlossoms } = tokyoNightProps;
+        const blossom = sakuraBlossoms[variant % sakuraBlossoms.length];
+        parts = [
+          {
+            master: masterCylinder(
+              `${cacheKey}-trunk`,
+              { height: 2.2, diameterTop: 0.22, diameterBottom: 0.34 },
+              sakuraTrunk,
+            ),
+            offset: new Vector3(0, 1.1, 0),
+          },
+          {
+            master: masterIcoSphere(`${cacheKey}-canopy`, 1.9, blossom),
+            offset: new Vector3(0, 3.3, 0),
+          },
+        ];
+        break;
+      }
       default:
         parts = [];
     }
@@ -914,6 +1037,15 @@ export function buildRoadsideProps(
     poleWood,
     ...vendingBodies,
     vendingPanel,
+    ...(tokyoNightProps
+      ? [
+          tokyoNightProps.chochinPole,
+          tokyoNightProps.chochinLantern,
+          tokyoNightProps.chochinCap,
+          tokyoNightProps.sakuraTrunk,
+          ...tokyoNightProps.sakuraBlossoms,
+        ]
+      : []),
   ]) {
     propMaterial.freeze();
   }
