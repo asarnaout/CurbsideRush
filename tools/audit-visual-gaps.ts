@@ -67,7 +67,7 @@ const MAP_ALIASES: Readonly<Record<string, MapId>> = {
 };
 
 function parseArgs(argv: readonly string[]): CliOptions {
-  let maps: readonly string[] = ["london", "nyc", "cairo"];
+  let maps: readonly string[] = ["london", "nyc", "cairo", "tokyo"];
   let format: "json" | "table" = "table";
   let output: string | null = null;
   let failOnFailures = false;
