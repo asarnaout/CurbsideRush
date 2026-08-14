@@ -1963,6 +1963,156 @@ const TOKYO_QUARTER_PARKS = [
 ] as const;
 
 /**
+ * Tokyo expansion Phase 6 (R4): every NEW park, plus the one in-park pond.
+ * Hoisted the same way `TOKYO_QUARTER_PARKS` is, and for the same reason —
+ * the street-wall generator below reads this array so a candidate parcel
+ * that would land on top of one of these is dropped instead of shipped
+ * (R18's "never wall a park frontage" exemption), not because these parks
+ * grow any generated content of their own.
+ *
+ * `jp-kawabe-koen` (west-bank riverside promenade, three segments): the
+ * corridor between `jp-kawate-dori` (dead straight at x=580 the whole way —
+ * confirmed against the live centreline, not the plan's approximate
+ * "590,60") and the Sakuragawa's own wobbling west shore is only 8-35 m
+ * wide (`TOKYO_WATER_BODIES[0].polygon`'s west run), narrower than
+ * `PARK_WALL_MIN_SHORT_SIDE_M` (30) almost everywhere and already dressed
+ * by Phase 3's derived corniche parapet along the real shoreline
+ * (`shorelineParapetRuns`/`hasPromenadeDressing`, Cairo-and-Tokyo-only,
+ * `render/babylonGameSession.ts`) — a `riverside_strip`/`urban_greensward`
+ * park here would grow ITS OWN wall along the same water edge (the wall
+ * veto only reads roads, never water) and read as a doubled fence right
+ * behind the real one. So every segment is `pocket_green` (unwallable, and
+ * exactly the style `docs/greenery.md` names for a single-trail-rect-plus-
+ * lawn-fillers band), rotated `headingDeg: 90` — pocket_green's own "cross"
+ * path always runs along local +x, and at 90° local +x maps to world -z
+ * (`toWorld`'s clockwise convention: x = cx + localZ, z = cz - localX*sin +
+ * localZ*cos = cz - localX at this angle), so `size.x` becomes the WORLD-Z
+ * run and `size.z` the WORLD-X corridor width — the promenade trail comes
+ * out running north-south along the bank instead of pocket_green's native
+ * road-to-road crossing, with no shared-file path override needed. Verified
+ * by direct computation before authoring (not by eyeballing a mesh dump —
+ * the exact trap this file's other comments warn about) and re-verified via
+ * a teleport screenshot (PR). Three segments rather than one: bridge
+ * clearance at Kawanaka-bashi (z=180, a real crossing here — the water-body
+ * portal list opens for it) splits the run, and the shore's own bulge near
+ * z=80 (the polygon's widest point, x=622) lets segment b run a bit wider
+ * than a/c while every west edge stays flush on jp-kawate-dori's own
+ * carriageway edge (x=584, so the lawn tucks under the pavement band with
+ * no fringe, same convention every other city's kerb-flush park uses) and
+ * every east edge keeps >=4 m clear of the true shoreline (sampled every
+ * 5 m along each segment, corners checked against the water polygon
+ * directly — see the Phase 6 scratchpad audit referenced in the PR).
+ * Segments butt-join at z=-50 and z=60 with identical headings (a true
+ * zero-seam join along the shared edge) and step their outer (river) edge
+ * in and out following the bank, per `docs/greenery.md`'s "curve is hugged
+ * by stepping axis-aligned tiles" guidance. `pathFurniture` never emits
+ * seating for `pocket_green` (no wall, no furniture pass), so the plan's
+ * "benches facing the water" are hand-placed in `parkLayouts.ts`'s
+ * `bespokeFeatures` (id-keyed on "kawabe", the same pattern Cairo's Opera
+ * Grounds and NYC's Joan of Arc already use).
+ */
+const TOKYO_PHASE6_PARKS = [
+  { id: "jp-kawabe-koen-a", kind: "park", center: point(594, -100), size: point(100, 20), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
+  { id: "jp-kawabe-koen-b", kind: "park", center: point(596.5, 5), size: point(110, 25), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
+  { id: "jp-kawabe-koen-c", kind: "park", center: point(596.5, 105), size: point(90, 25), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
+  // Civic plaza around where Phase 8's Hikari Tower landmark will stand
+  // (plan's own (1020,140) shifted east to (1053,140) — `jp-higashi-hondori`
+  // runs dead straight at x=980, and the plan's number sat the plaza's own
+  // interior 25 m across that carriageway, which is a bisection the plan
+  // never called for; centring on the real bridge landing keeps the road as
+  // a clean west boundary instead). Explicit `civic_plaza`: the id has no
+  // "plaza" substring for `resolveParkStyle` to key on, and civic_plaza is
+  // also the one style whose scatter/lawn clip a crossing road automatically
+  // (`style === "civic_plaza"` in `buildParkLayout`) — moot here since
+  // nothing actually crosses the interior (verified directly: no road
+  // centreline sample lands >2 m inside this rect), but authoring the style
+  // rather than relying on the id substring keeps the "why plaza" reasoning
+  // explicit for Phase 8, which builds the tower directly on this ground.
+  { id: "jp-tower-park", kind: "park", parkStyle: "civic_plaza", center: point(1053, 140), size: point(126, 100), color: "#4a6b52" },
+  // Kitazawa-kōen: the whole Fujimi-dōri x Suzukake-dōri x Suzukake-Yokochō x
+  // Sangen-dōri cell in Miyanosaka North, the same "own the full null-zoned
+  // cell" move NYC's Queensbridge Green makes — smaller than the plan's
+  // suggested 150x120 (nothing crosses the quarter-mile gap east of
+  // Sangen-dōri that the plan's original (-350,640) sat in; there is no
+  // road within 90 m of that point, so a park there would float with no
+  // frontage at all). Sized to each bounding road's own PAVEMENT edge, not
+  // its centreline (roadWidthM/2 + sidewalkWidthM out from each of the four
+  // — 5.1/7.4/5.4/5.7 m on the yokochō/Sangen/Fujimi/Suzukake sides
+  // respectively — plus 0.5 m of margin): landing the rect ON a
+  // centreline instead (this file's first draft) put every
+  // `wallsFollowRoadEdges` wall inside its own road's clearance band on
+  // all four sides at once, and `parkPerimeterPlan` vetoed the whole
+  // perimeter down to zero runs (`tests/parkLayouts.test.ts` caught it —
+  // "walls the big parks..." expected >0 and got 0). `wallsFollowRoadEdges`
+  // itself is still needed: tucked this close, the blanket 1.8 m veto would
+  // otherwise delete every wall regardless (the London royal-park bug
+  // `docs/greenery.md` documents). Depth trimmed from the pavement-edge
+  // figure (89 m) to 78 m — `npcTurnSmoothness`-style headroom, not a road
+  // constraint: `urban_greensward`'s wandering spine samples a fixed 3
+  // sine oscillations across the long (here, x) side, and at 106x87 the
+  // curve's own steepest point landed at an 8.1 deg corner, just past
+  // `tests/parkLayouts.test.ts`'s 8 deg "smooth at driving scale" limit — a
+  // property of this park's specific proportions relative to that fixed
+  // 3-oscillation sampling, not of anything Tokyo-specific. Shrinking the
+  // short side (the pond and its lawn have no need for the extra 9-17 m,
+  // and it costs the wall clearance nothing — see the pond's own
+  // clearance-from-park-edge margin below) drops the worst corner under
+  // 7 deg with real headroom instead of landing on the limit's other side.
+  { id: "jp-kitazawa-koen", kind: "park", center: point(-521, 800), size: point(106, 78), wallsFollowRoadEdges: true, color: "#517d4c" },
+  // Minami-kōen: the Ayame-dōri x Yanagi-dōri x Yanagi-Yokochō x Sangen-dōri
+  // cell in Yamashita South — the same "own the whole short-segment cell"
+  // reasoning as Kitazawa-kōen above (the plan's 90x70 would have left a
+  // 30+ m orphan sliver of the displaced Sangen-dōri frontage block on
+  // whichever side it didn't cover), and the same pavement-edge-not-
+  // centreline sizing (this web's four bounding roads carry the identical
+  // widths/sidewalks as Kitazawa-kōen's, so the same four pullbacks apply).
+  { id: "jp-minami-koen", kind: "park", center: point(-521, -1005), size: point(106, 58), wallsFollowRoadEdges: true, color: "#4f7b48" },
+  // Five pocket greens (R4's smallest scale), each sized and centred to
+  // fully replace one SHORT existing street-wall parcel (<=30 m along the
+  // road) rather than carving into a long one — the generator can only trim
+  // a candidate parcel from its two ends, so overlapping the MIDDLE of a
+  // long parcel drops the whole thing (checked directly per site; see the
+  // Phase 6 scratchpad audit in the PR). Depth (24 m, the short side —
+  // `resolveParkStyle` derives `pocket_green` under 30 automatically, no
+  // override needed) faces its road; length matches the displaced parcel's
+  // own span so nothing is orphaned. Spread across three of the four webs
+  // this phase's road network actually reaches (Miyanosaka North, Yamashita
+  // South x2, the Nishi-Kanjō-dōri corridor at the Nishi boundary, and
+  // Nishi's own Hato-Yokochō) rather than clustering on one road.
+  { id: "jp-asahi-pocket-green", kind: "park", center: point(-677.7, 625), size: point(24, 26), color: "#557f52" },
+  { id: "jp-nishikanjo-yamashita-pocket-green", kind: "park", center: point(-1179.2, -935), size: point(24, 26), color: "#557f52" },
+  { id: "jp-kanpachi-yamashita-pocket-green", kind: "park", center: point(-677.7, -1005), size: point(24, 26), color: "#557f52" },
+  { id: "jp-nishikanjo-nishi-pocket-green", kind: "park", center: point(-1179.2, -134), size: point(24, 26), color: "#557f52" },
+  { id: "jp-hato-pocket-green", kind: "park", center: point(-560.3, 20), size: point(24, 30), color: "#557f52" },
+] as const;
+
+/**
+ * Kitazawa-kōen's pond (R4 "with a pond"): no `flowHeadingDeg`, which is
+ * what makes this a pond rather than a river (`docs/rendering.md`,
+ * `docs/greenery.md`) — shoreline colliders, the minimap and the park's own
+ * planting keep-out all come free from `WaterBody` membership
+ * (`parkLayoutForLandmark` maps every `geometry.waterBodies` polygon into
+ * every park's `waterPolygons` context, not just the one it geometrically
+ * sits inside). No `bridgePortalSurfaceIds`: nothing crosses it. The boat-
+ * placement gate (`generateWaterBoatPlacements`, `render/waterLayer.ts`) is
+ * `resolveMapVisualKey(mapId) === "cairo"` — an exact-string, whole-map
+ * check, not per-body — so a second Tokyo water body does not need a second
+ * verification; re-read directly against this file's own gate for Phase 6
+ * rather than assumed unchanged from Phase 3's finding.
+ */
+const TOKYO_PHASE6_WATER_BODIES = [
+  {
+    id: "jp-kitazawa-pond",
+    color: "#243a30",
+    polygon: [
+      point(-560, 790), point(-555, 777), point(-544, 771), point(-531, 772),
+      point(-521, 780), point(-520, 790), point(-521, 800), point(-531, 808),
+      point(-544, 809), point(-555, 803),
+    ],
+  },
+] as const;
+
+/**
  * True when a candidate parcel genuinely overlaps a park or has any corner
  * inside the river polygon — the same separating-axis and point-in-polygon
  * tests `tests/content.test.ts`'s "keeps every authored block out of every
@@ -2503,13 +2653,56 @@ function buildTokyoGeneratedBlocks(
 /** Every generated-half block, built once at module scope — spliced into
  * `TOKYO_MAP_PACK.geometry.blocks` below, after the 9 hand-authored quarter
  * blocks (which this generator does not touch: the quarter already has its
- * own hand-carved fabric from before this expansion began). */
+ * own hand-carved fabric from before this expansion began). Parks/water
+ * include Phase 6's new ones (`TOKYO_PHASE6_PARKS`/`_WATER_BODIES`) as well
+ * as the pre-existing three — a candidate parcel landing on Kitazawa-kōen's
+ * or Minami-kōen's own cell is exactly R18's "never wall a park frontage"
+ * exemption, not a lost block (see `tokyoBlockOverlapsParkOrWater`'s own
+ * doc comment above). */
 const tokyoGeneratedBlocks = buildTokyoGeneratedBlocks(
   tokyoGeneratedHalf.generatedSurfaces,
   [...jpQuarterSurfaces, ...tokyoGeneratedHalf.generatedSurfaces],
-  TOKYO_QUARTER_PARKS,
-  TOKYO_WATER_BODIES,
+  [...TOKYO_QUARTER_PARKS, ...TOKYO_PHASE6_PARKS],
+  [...TOKYO_WATER_BODIES, ...TOKYO_PHASE6_WATER_BODIES],
 );
+
+/**
+ * `jp-tower-park` (130x100 at (1053,140)) partially overlaps the segment-2
+ * roadside parcel `buildTokyoGeneratedBlocks` would otherwise have built
+ * along Higashi Hon-dōri's east kerb (z -156..168, the whole node-to-node
+ * span from the Setagaya-dōri crossing to the Kawanaka-bashi landing) — the
+ * overlap check above drops that ENTIRE parcel, not just the ~78 m the park
+ * actually covers, because `tokyoRoadsideParcel` can only trim a candidate
+ * from its two ends, never carve a notch from the middle. Left alone that
+ * would silently bare 246 m of kerb (z -156..90) south of the new park, so
+ * this re-derives a fresh parcel for exactly that remainder — same road,
+ * same style, same algorithm, just a `to` endpoint pulled back to the
+ * park's own south edge instead of the road's real segment end. The
+ * function's own 12 m end-inset naturally leaves a ~12 m gap into the park
+ * (matching how every OTHER parcel-to-parcel seam in this file already
+ * works), so this needs no other adjustment. Every other new park this
+ * phase (see `TOKYO_PHASE6_PARKS`'s own comment) sits on a fully-owned
+ * short-segment cell or a river-side no-block corridor, so this is the one
+ * site that needs it.
+ */
+const tokyoPhase6KerbPatches: readonly ProceduralBlock[] = (() => {
+  const style = tokyoStyleForRoad("jp-higashi-hondori");
+  const allSurfaces = [...jpQuarterSurfaces, ...tokyoGeneratedHalf.generatedSurfaces];
+  const patch = tokyoRoadsideParcel(
+    "jp-blk-jp-higashi-hondori-2-p-south",
+    "jp-higashi-hondori",
+    point(980, -168),
+    point(980, 90),
+    1,
+    8,
+    style.depthM,
+    style.materials[0],
+    style.heightRange,
+    style.density,
+    allSurfaces,
+  );
+  return patch ? [patch] : [];
+})();
 
 // The names the quarter's lanes were authored under — every road here was
 // already described in the comments above, this promotes them to data. Only
@@ -2577,8 +2770,9 @@ export const TOKYO_MAP_PACK: MapPack = {
     // derives their parapet spans; every other metre of shore stays solid.
     // Hoisted to `TOKYO_WATER_BODIES` above (Tokyo expansion Phase 4): the
     // street-wall generator reads the same array, so there is exactly one
-    // copy of this polygon on the map.
-    waterBodies: TOKYO_WATER_BODIES,
+    // copy of this polygon on the map. `TOKYO_PHASE6_WATER_BODIES` adds
+    // Kitazawa-kōen's pond (Phase 6, R4).
+    waterBodies: [...TOKYO_WATER_BODIES, ...TOKYO_PHASE6_WATER_BODIES],
     blocks: [
       { id: "jp-block-west", center: point(-70, 46), size: point(64, 40), heightRange: [5, 14], density: 0.72, material: "plaster" },
       { id: "jp-block-center", center: point(10, 46), size: point(64, 40), heightRange: [6, 18], density: 0.78, material: "tile" },
@@ -2598,6 +2792,9 @@ export const TOKYO_MAP_PACK: MapPack = {
       // comment are the pre-expansion quarter's own hand-carved blocks and
       // stay exactly as authored.
       ...tokyoGeneratedBlocks,
+      // The one Phase 6 kerb patch `jp-tower-park` needs — see
+      // `tokyoPhase6KerbPatches`'s own doc comment above.
+      ...tokyoPhase6KerbPatches,
     ],
     servicePoints: [
       // The narrow south road still needs a wide set-back because the lot is
@@ -2656,6 +2853,10 @@ export const TOKYO_MAP_PACK: MapPack = {
       // candidate parcel against them (R18 never walls a park frontage)
       // without a second copy of these three rects.
       ...TOKYO_QUARTER_PARKS,
+      // Tokyo expansion Phase 6 (R4): the new parks, hoisted to
+      // `TOKYO_PHASE6_PARKS` for the same reason as the quarter's three
+      // above. `jp-kitazawa-pond` lives in `waterBodies`, not here.
+      ...TOKYO_PHASE6_PARKS,
       { id: "jp-carrot-tower", kind: "tower", center: point(60, 60), size: point(12, 12), color: "#b6553f" },
       // Bridge landmarks (Phase 3): id equals the bridge's own road id, which
       // is how the water body's bridgePortalSurfaceIds and the dressing
