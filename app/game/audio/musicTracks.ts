@@ -56,6 +56,15 @@ export const MUSIC_TRACKS: readonly MusicTrack[] = [
   { id: "london-kew-to-putney", title: "Kew to Putney", url: `${BASE}/london-kew-to-putney.mp3`, destinationId: "uk-london" },
   { id: "london-overcast-viaduct-run", title: "Overcast Viaduct Run", url: `${BASE}/london-overcast-viaduct-run.mp3`, destinationId: "uk-london" },
   { id: "london-rain-over-vauxhall", title: "Rain Over Vauxhall", url: `${BASE}/london-rain-over-vauxhall.mp3`, destinationId: "uk-london" },
+  { id: "tokyo-every-green-light-has-a-melody", title: "Every Green Light Has a Melody", url: `${BASE}/tokyo-every-green-light-has-a-melody.mp3`, destinationId: "jp-tokyo" },
+  { id: "tokyo-under-shuto-shadows-v2", title: "Under Shuto Shadows (II)", url: `${BASE}/tokyo-under-shuto-shadows-v2.mp3`, destinationId: "jp-tokyo" },
+  { id: "tokyo-under-shuto-shadows", title: "Under Shuto Shadows", url: `${BASE}/tokyo-under-shuto-shadows.mp3`, destinationId: "jp-tokyo" },
+  { id: "tokyo-shimbashi-evening-loop", title: "Shimbashi Evening Loop", url: `${BASE}/tokyo-shimbashi-evening-loop.mp3`, destinationId: "jp-tokyo" },
+  { id: "tokyo-shuto-koto-loop", title: "Shuto Koto Loop", url: `${BASE}/tokyo-shuto-koto-loop.mp3`, destinationId: "jp-tokyo" },
+  { id: "tokyo-palace-loop-at-dawn", title: "Palace Loop at Dawn", url: `${BASE}/tokyo-palace-loop-at-dawn.mp3`, destinationId: "jp-tokyo" },
+  { id: "tokyo-asakusa-loop", title: "Asakusa Loop", url: `${BASE}/tokyo-asakusa-loop.mp3`, destinationId: "jp-tokyo" },
+  { id: "tokyo-nihonbashi-after-midnight", title: "Nihonbashi After Midnight", url: `${BASE}/tokyo-nihonbashi-after-midnight.mp3`, destinationId: "jp-tokyo" },
+  { id: "tokyo-ebisu-run", title: "Ebisu Run", url: `${BASE}/tokyo-ebisu-run.mp3`, destinationId: "jp-tokyo" },
 ];
 
 /** The pool a given city draws from: its own pieces, and nothing else. */

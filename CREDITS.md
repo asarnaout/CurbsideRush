@@ -842,7 +842,7 @@ public-space character, and currency naming:
   horn, and collision impacts are **synthesised at runtime in Web Audio**
   (`app/game/audio/`). No sample, recording, or third-party audio asset is used
   or shipped, so there is nothing here to license.
-- **`public/audio/music/*.mp3`** (33 tracks currently shipped). The original 14 were
+- **`public/audio/music/*.mp3`** (42 tracks currently shipped). The original 14 were
   generated with [Suno](https://suno.com) on 2026-07-19, 2026-07-21 and
   2026-07-23 by the project owner while subscribed to a paid (Pro/Premier)
   plan. Suno assigns the subscriber all of its right, title and interest in
@@ -882,6 +882,15 @@ public-space character, and currency naming:
   `london-` prefix happened before import, which is also where the apostrophe
   in `Heath to Regent's Park.mp3` was dropped to make
   `london-heath-to-regents-park.mp3`. Tests pin each repository copy to the
+  exact SHA-256 of the supplied master.
+
+  A fifth batch — nine Tokyo-only pieces — was downloaded from Suno and
+  supplied by the project owner for this project on 2026-08-15, same
+  paid-plan terms as the batches above. All nine Downloads filenames were
+  already English and title-cased (e.g. `Ebisu Run.mp3`); only the URL-safe
+  rename to lower-kebab-case with a `tokyo-` prefix happened before import,
+  which is also where `Under Shuto Shadows-v2.mp3` became
+  `tokyo-under-shuto-shadows-v2.mp3`. Tests pin each repository copy to the
   exact SHA-256 of the supplied master.
 
   Tracks are matched to the city they were written for, and a city plays only
@@ -928,3 +937,12 @@ public-space character, and currency naming:
   | `london-kew-to-putney.mp3` | Kew to Putney | London | Kew to Putney |
   | `london-overcast-viaduct-run.mp3` | Overcast Viaduct Run | London | Overcast Viaduct Run |
   | `london-rain-over-vauxhall.mp3` | Rain Over Vauxhall | London | Rain Over Vauxhall |
+  | `tokyo-every-green-light-has-a-melody.mp3` | Every Green Light Has a Melody | Tokyo | Every Green Light Has a Melody |
+  | `tokyo-under-shuto-shadows-v2.mp3` | Under Shuto Shadows (II) | Tokyo | Under Shuto Shadows-v2 |
+  | `tokyo-under-shuto-shadows.mp3` | Under Shuto Shadows | Tokyo | Under Shuto Shadows |
+  | `tokyo-shimbashi-evening-loop.mp3` | Shimbashi Evening Loop | Tokyo | Shimbashi Evening Loop |
+  | `tokyo-shuto-koto-loop.mp3` | Shuto Koto Loop | Tokyo | Shuto Koto Loop |
+  | `tokyo-palace-loop-at-dawn.mp3` | Palace Loop at Dawn | Tokyo | Palace Loop at Dawn |
+  | `tokyo-asakusa-loop.mp3` | Asakusa Loop | Tokyo | Asakusa Loop |
+  | `tokyo-nihonbashi-after-midnight.mp3` | Nihonbashi After Midnight | Tokyo | Nihonbashi After Midnight |
+  | `tokyo-ebisu-run.mp3` | Ebisu Run | Tokyo | Ebisu Run |

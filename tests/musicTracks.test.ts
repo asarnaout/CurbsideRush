@@ -6,6 +6,7 @@ import {
   shuffleTrackBag,
   tracksForDestination,
 } from "../app/game/audio/musicTracks";
+import type { MusicTrack } from "../app/game/audio/musicTracks";
 import type { DestinationId } from "../app/game/types";
 
 const DESTINATIONS: DestinationId[] = [
@@ -165,12 +166,60 @@ const LONDON_BATCH_TRACKS = [
   },
 ] as const;
 
-/** Only Tokyo is untouched by the Cairo batches, the NYC add, or the London batch. */
-const EXISTING_DESTINATION_POOLS: Readonly<
-  Record<"jp-tokyo", readonly string[]>
-> = {
-  "jp-tokyo": PRE_CAIRO_TRACK_IDS.slice(10, 12),
-};
+/**
+ * Fifth batch: nine Tokyo-only pieces, added well after the original two
+ * Tokyo tracks. Same paid-plan Suno terms as the batches above — see
+ * CREDITS.md. Downloaded filenames were already English and title-cased
+ * (e.g. `Ebisu Run.mp3`); only the URL-safe rename to lower-kebab-case with
+ * a `tokyo-` prefix happened before import.
+ */
+const TOKYO_BATCH_TRACKS = [
+  {
+    id: "tokyo-every-green-light-has-a-melody",
+    url: "/audio/music/tokyo-every-green-light-has-a-melody.mp3",
+    sha256: "072fdeffb78ec94c7a0ba9e17bc3ca4c13e050a7fa8d7064c80815944193e0e9",
+  },
+  {
+    id: "tokyo-under-shuto-shadows-v2",
+    url: "/audio/music/tokyo-under-shuto-shadows-v2.mp3",
+    sha256: "65e704b5f04ba77d229417d3475372d69553822fd45ed2ffecd89d8483f737d9",
+  },
+  {
+    id: "tokyo-under-shuto-shadows",
+    url: "/audio/music/tokyo-under-shuto-shadows.mp3",
+    sha256: "8fbf757891bfa46f03c7edae6c20d0a76cf3953da33aff4761d4169fd6ae2fa8",
+  },
+  {
+    id: "tokyo-shimbashi-evening-loop",
+    url: "/audio/music/tokyo-shimbashi-evening-loop.mp3",
+    sha256: "f6972a01b9d4ae2f40184a8b4b3d3642e016200b551d7da57796118adacc9d4b",
+  },
+  {
+    id: "tokyo-shuto-koto-loop",
+    url: "/audio/music/tokyo-shuto-koto-loop.mp3",
+    sha256: "0fc555b2f55b38a3549ed9661c82345fc707116b6011348a46492385f661975a",
+  },
+  {
+    id: "tokyo-palace-loop-at-dawn",
+    url: "/audio/music/tokyo-palace-loop-at-dawn.mp3",
+    sha256: "3cca3d59a866421239bf96cb376ab0529c7377e336d6f7272e6ef7cb3ec0cd25",
+  },
+  {
+    id: "tokyo-asakusa-loop",
+    url: "/audio/music/tokyo-asakusa-loop.mp3",
+    sha256: "8130b90232cffae7ca14389590884065fe2cdeb8ba0c3ee376ce546767c034d3",
+  },
+  {
+    id: "tokyo-nihonbashi-after-midnight",
+    url: "/audio/music/tokyo-nihonbashi-after-midnight.mp3",
+    sha256: "1d291553c1c220b26803ae1954221d764b27bada9639865cbb58abe279073f54",
+  },
+  {
+    id: "tokyo-ebisu-run",
+    url: "/audio/music/tokyo-ebisu-run.mp3",
+    sha256: "d3b8072513ca50f8b8df3c1e4eacb73571094097e0671daab1d0ee73476bc2bc",
+  },
+] as const;
 
 /** Deterministic source so shuffle assertions do not flake. */
 const seeded = (seed: number) => {
@@ -248,8 +297,23 @@ describe("music catalogue", () => {
     }
   });
 
+  it("copies the fifth batch (Tokyo) byte-for-byte under URL-safe names", () => {
+    for (const expected of TOKYO_BATCH_TRACKS) {
+      const track = MUSIC_TRACKS.find(({ id }) => id === expected.id);
+      expect(track, expected.id).toMatchObject({
+        id: expected.id,
+        url: expected.url,
+        destinationId: "jp-tokyo",
+      });
+      const digest = createHash("sha256")
+        .update(readFileSync(`public${expected.url}`))
+        .digest("hex");
+      expect(digest, expected.id).toBe(expected.sha256);
+    }
+  });
+
   it("has unique ids and urls", () => {
-    expect(MUSIC_TRACKS).toHaveLength(33);
+    expect(MUSIC_TRACKS).toHaveLength(42);
     expect(new Set(MUSIC_TRACKS.map((track) => track.id)).size).toBe(MUSIC_TRACKS.length);
     expect(new Set(MUSIC_TRACKS.map((track) => track.url)).size).toBe(MUSIC_TRACKS.length);
   });
@@ -307,14 +371,22 @@ describe("city matching", () => {
     }
   });
 
-  it("preserves the untouched Tokyo pool exactly", () => {
-    for (const [destinationId, expectedIds] of Object.entries(
-      EXISTING_DESTINATION_POOLS,
-    ) as ["jp-tokyo", readonly string[]][]) {
-      expect(
+  it("adds the fifth batch to Tokyo, and only Tokyo", () => {
+    expect(tracksForDestination("jp-tokyo").map(({ id }) => id)).toEqual([
+      ...PRE_CAIRO_TRACK_IDS.slice(10, 12),
+      ...TOKYO_BATCH_TRACKS.map(({ id }) => id),
+    ]);
+    for (const destinationId of DESTINATIONS.filter(
+      (candidate) => candidate !== "jp-tokyo",
+    )) {
+      const poolIds = new Set(
         tracksForDestination(destinationId).map(({ id }) => id),
-        destinationId,
-      ).toEqual(expectedIds);
+      );
+      for (const tokyoId of TOKYO_BATCH_TRACKS.map(({ id }) => id)) {
+        expect(poolIds.has(tokyoId), `${tokyoId} in ${destinationId}`).toBe(
+          false,
+        );
+      }
     }
   });
 
@@ -361,10 +433,13 @@ describe("shuffle bag", () => {
 
   it("still reaches every track from a two-track pool", () => {
     // With only two pieces the seam guard forces strict alternation; make sure
-    // that does not pin one of them permanently out of reach. London outgrew
-    // its two-track pool in the fourth batch, so Tokyo covers this case now.
-    const pool = tracksForDestination("jp-tokyo");
-    expect(pool).toHaveLength(2);
+    // that does not pin one of them permanently out of reach. Every real city
+    // pool has outgrown two tracks by now, so this exercises the algorithm
+    // directly against a synthetic pool rather than a destination's.
+    const pool: MusicTrack[] = [
+      { id: "a", title: "A", url: "/audio/music/a.mp3", destinationId: null },
+      { id: "b", title: "B", url: "/audio/music/b.mp3", destinationId: null },
+    ];
     const seen = new Set<string>();
     let previous: string | null = null;
     const random = seeded(5);
