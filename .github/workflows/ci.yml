@@ -16,23 +16,23 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    # The Tokyo expansion's suite-time creep (plan risk register item 10): a
-    # 10x-lane-km, park/signal/block-fabric map keeps adding real content-phase
-    # seconds to `npm test`'s dominant cost (`trafficSafetyAcceptance.test.ts`
-    # plus the full-mount characterization suites). 15 min was comfortable
-    # before this expansion and got tight by Phase 5 (~14m45s) before Phase 6
-    # exceeded it outright — raised to 30 with headroom for the remaining
-    # phases rather than trimming seeds, which the plan is explicit is a
-    # safety decision, not a perf knob.
-    #
-    # The same creep recurred under the Tokyo authenticity plan (13-16 real
-    # glb models + wiring per phase, ~10 phases): 24m32s after import phase
-    # P1, 25m0s after wiring phase P2, 25m41s after asset-import phase P3a —
-    # each new model batch adds real committed-file byte-pin/provenance tests
-    # plus full-mount render coverage, with 7 more content phases still to
-    # land (P3b's wiring, then five new road/block/venue regions, then street
-    # life). Raised again for the same reason, not trimming coverage.
-    timeout-minutes: 45
+    # CI runs typecheck + lint only. It used to also run the full test suite,
+    # but the suite's own growth (real glb imports/wiring, more full-mount
+    # Babylon coverage, every Tokyo authenticity plan phase) started
+    # outgrowing the GitHub-hosted runner's available memory: five straight
+    # CI runs crashed with an unattributed vitest "Worker exited
+    # unexpectedly" (no failing test, no stack trace, no heap-limit message —
+    # consistent with a silent OS-level OOM-kill) at a consistent point in
+    # the run, and it kept reproducing across several different fixes
+    # (reduced worker count, isolating the heaviest single test into its own
+    # step, vitest's own memory-limit/pool options). The tests themselves are
+    # not the problem — they pass locally every time, repeatedly confirmed
+    # during that investigation — so paying real CI minutes for an
+    # environment-only failure was a bad trade. The owner's call: verify
+    # locally (`npm test`, ~2 min and climbing with map size) before every
+    # commit/merge instead, which is this repo's own established practice
+    # anyway (CLAUDE.md).
+    timeout-minutes: 10
 
     steps:
       - name: Check out repository
@@ -52,6 +52,3 @@ jobs:
 
       - name: Lint
         run: npm run lint
-
-      - name: Test
-        run: npm test

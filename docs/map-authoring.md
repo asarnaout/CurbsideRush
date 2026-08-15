@@ -78,7 +78,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 |---|---|---|---|---|---|---|
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
-| `tokyo-setagaya` | 428 | 83 | 75.2 | 42 | 14 | 2600 × 2400 |
+| `tokyo-setagaya` | 458 | 89 | 81.0 | 42 | 14 | 2600 × 2400 |
 | `london-south-kensington` | 338 | 73 | 61.3 | 12 | 4 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane
@@ -345,8 +345,8 @@ sites. Materials/height-range/`density` still come from the district's own
 zone style alone (no per-road override table for those — `TOKYO_ROAD_STYLE_OVERRIDE`
 is the one exception, a handful of named streets). **`buildingSet` is a
 separate, later decision** (Tokyo authenticity plan P2/P3b): `tokyoRoadsideBuildingSet`
-derives it from the zone — miyanosaka/yamashita/nishi/`ekimae-nishi` →
-`tokyo-house`; downtown (outside two exceptions) and `ring` → `tokyo-zakkyo`;
+derives it from the zone — miyanosaka/yamashita/nishi/`ekimae-nishi`/
+`hanamizu` → `tokyo-house`; downtown (outside two exceptions) and `ring` → `tokyo-zakkyo`;
 `riverside` and `higashi` → `tokyo-manshon` — with exactly two per-road
 overrides of its own, checked before the zone switch so they win regardless
 of what their own zone would otherwise resolve to: `jp-nakamise-yokocho`

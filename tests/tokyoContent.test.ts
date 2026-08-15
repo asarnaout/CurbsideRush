@@ -334,11 +334,16 @@ describe("Tokyo street wall (expansion Phase 4, R18)", () => {
     // the other three 100%-measuring zones already use, not riverside's more
     // conservative 0.8 (that extra margin is riverside's own one-sided-kerb
     // reasoning, which does not apply here).
+    //
+    // `hanamizu` (Tokyo authenticity plan P5, Region A) measured 100%
+    // covered of 5840 m sampled kerb on first build — same reasoning and
+    // same 0.85 floor as the other four 100%-measuring residential zones.
     const FLOOR_BY_ZONE: Readonly<Record<TokyoBlockZone, number>> = {
       miyanosaka: 0.85,
       yamashita: 0.85,
       nishi: 0.85,
       "ekimae-nishi": 0.85,
+      hanamizu: 0.85,
       higashi: 0.85,
       ring: 0.8,
       riverside: 0.8,

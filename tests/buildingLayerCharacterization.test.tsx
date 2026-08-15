@@ -382,7 +382,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // node insertions on `jp-sangen-dori`/`jp-koshu-kaido` also resegment
     // those roads' own existing parcels, which shifts which ones keep the
     // holdback facade grid vs. draw a glb — net +168 instances).
-    buildingInstanceCount: 2_304,
+    //
+    // 2_304 -> 2_565 (Tokyo authenticity plan P5, Region A): six new roads'
+    // worth of `tokyo-house` street wall (the mid-span node insertion on
+    // `jp-miyanosaka-kita-dori` also resegments that road's own existing
+    // parcels — net +261 instances).
+    buildingInstanceCount: 2_565,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },
