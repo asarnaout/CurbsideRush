@@ -636,6 +636,23 @@ pins the committed SHA-256 of every file). **Normalized** by
   textures, so no material ever sampled those channels; the binary chunk is
   byte-identical, only JSON attribute references were removed. Appended to
   the same `asset.extras.curbsideRush.modifications` stamp.
+- Spurious `alphaMode: "BLEND"` demoted (2026-08-15,
+  `tools/fix-glb-alpha-blend.mjs` — owner-reported "transparent walls
+  showing the inside"/"hollowed out" buildings): Sketchfab marks a material
+  BLEND whenever its baseColor PNG merely has an alpha channel, and Babylon
+  renders BLEND with depth-write off, so a building draws its far walls over
+  its near ones. Decided per material from the decoded pixels (histograms
+  baked into each file's own provenance stamp): `tokyo-zakkyo-d/e/f`'s
+  shared `BACKGROUND_BUILDING_2` material → OPAQUE (99.56% of alpha fully
+  opaque, zero fully-transparent pixels — the channel carried nothing);
+  `tokyo-apato-a`'s `Texture` and `tokyo-izakaya`'s single material → MASK
+  cutoff 0.5 (26% / 4.6% of pixels are genuine cutout regions — decals and
+  the roof-sign letters — which MASK keeps cut while writing depth).
+  Pixels untouched; JSON chunk only. `tokyo-house-d`'s two untextured
+  `Cristal` window-glass materials (factor alpha 0.08–0.28) are the
+  legitimate-BLEND case and were deliberately left alone, as were the two
+  NYC-era models (`restaurant`, `vendor-food`) whose BLEND subsets are
+  established glass looks.
 
 **Phase P3a's own normalization (the zakkyo split + the Nippori hero):**
 
@@ -711,21 +728,21 @@ step, the split tool embeds directly). Then, for every file,
 | **props/tokyo-house-b.glb** | Japanese Residential Home 02 | Morrissey Alexander | `japanese-residential-home-02-c31697f09152453cb3ed215482e7a810` | `825aed04802350d83503e84d39a4012f8c34395da7a28d4ead74ace200edc9a9` | `6b8e20e0b733da3616640485e52ddc49e9b77dbb024c1d55c38a62537ea15def` |
 | **props/tokyo-house-c.glb** | Japanese Residential Home 03 | Morrissey Alexander | `japanese-residential-home-03-1c53f4f37fc44c32a8874464025aea48` | `911b4a5d52872135e73136ffccaef7c4d30daabbbbfca3acfe128e547903404e` | `0c0e4eaa7fcdbae349ef9cb2a8041cbcdf28d863162494fe440619864d9b1fee` |
 | **props/tokyo-house-d.glb** | Tokyo Japanese House / Casa Japonesa [Low Poly] | SitoNyaa | `tokyo-japanese-house-casa-japonesa-low-poly-05e04ee0c3d04ff9a2fe4c348b3c1bcd` | `cfe54e8c25daf66cb2c43a4519c6506ee86708b44744bf4709fcc7a3a8e8d2c0` | `82b249fe1d8d43463bf5828b470e2270c2fefd9f29b8c72914ce2ec9ec1650a4` |
-| **props/tokyo-apato-a.glb** | PSX Japanese Apartment | DeadFrame Studio† | `psx-japanese-apartment-0a12452df55c4e3687759732c81a8437` | `c4cae7d69a95f07b190fa236c01eb308c2b9ede31d7c51985e09a5e6f377578e` | `80dd62de4789d5f2798def067073e3f5f4751308ca9b2d9f6057d053c687d157` |
+| **props/tokyo-apato-a.glb** | PSX Japanese Apartment | DeadFrame Studio† | `psx-japanese-apartment-0a12452df55c4e3687759732c81a8437` | `c4cae7d69a95f07b190fa236c01eb308c2b9ede31d7c51985e09a5e6f377578e` | `c1a2c298a575827de6c43e6508572b7a3a6069dec785d98ad14f06c58b345f95` |
 | **props/tokyo-apato-b.glb** | Grey Japanease Apartment | Kasuga | `grey-japanease-apartment-8589efeb25284d709934497e02a25421` | `8969bd766b81998af72cb91d116fcb0c8f24250dbef3bd350b2afa5821c79295` | `db408a486fd98a1551d84c5fd92f6ea9881ae3d491046b16bd2b8eb52576f433` |
 | **props/tokyo-konbini.glb** | Konbini | Arthur Sauvaget | `konbini-6f66ee45303e4b90b1bcd13fad484269` | `cd48ed4f594929f5ded7a85ee406b961f1f0ea3897288ba2daff1af3649c1763` | `3abc6babc8f48dd605cd5f8cf0d21f04b6a64e9da101e9761626ddd24554f53e` |
 | **props/tokyo-shop-a.glb** | Japanese Store | Nick.Stark | `japanese-store-78396a70304b412d9bc8e3955891f6cd` | `342dda42209437ad61404d2ef6f8e5e714ad330362b9a669abc1a10fe48fcff3` | `e8405c3f5e13850436d6e2cc09f847cc40031513f8b1d884165210917c6265cc` |
 | **props/tokyo-shop-b.glb** | Japanese low poly building store | KingKusak | `japanese-low-poly-building-store-565dc84823834d4884bef69944e0d4be` | `f60efe983d8270a78b8f63f7a303c9ac3e11c885d22946a6ebf437c468408409` | `6f301e6fdccf79607a645dbf9cd9b131c2708769a7f8b9a6c9a09f4f6fced172` |
 | **props/tokyo-shop-c.glb** | Old Japanese Store | Frid.blend | `old-japanese-store-d3442a89f7ff43ed9867d305b8951be0` | `f3fb1f62142511d7787f50acad4ea07429915f83f02f1d3422808d371cbc0946` | `8090b33f73ffc9ec049bec181d0dbe25fc7acc338c748c518f77223f81cdc41b` |
 | **props/tokyo-shop-d.glb** | Japanese Shop 3 | Christian Camelo | `japanese-shop-3-b8c9864f973a491fbfdc6dc0c96ed58e` | `16558727c8ef82c9d8b578e026af27240aa48b6a171db898a88e853c70f78eb8` | `1607578094db7934beb28ded8e2fc7a56978fc13792f090103e5ea63c8e59528` |
-| **props/tokyo-izakaya.glb** | Izakaya - Low Poly Building | BenMaher | `izakaya-low-poly-building-3f43e5429171408e9bd19553ea813364` | `5336a59fd4a2c412b2650c97350585fa4cadb7c688c3075f1f5384d88d4343d8` | `deb7798951e5d8004b6adf3ff121fed339189544af49e29e8137f0a83a883d10` |
+| **props/tokyo-izakaya.glb** | Izakaya - Low Poly Building | BenMaher | `izakaya-low-poly-building-3f43e5429171408e9bd19553ea813364` | `5336a59fd4a2c412b2650c97350585fa4cadb7c688c3075f1f5384d88d4343d8` | `3a9dcac0c78840848d3691a9d1fdf4d759fe1908fd9a00eb10e17a1971d51176` |
 | **props/tokyo-ramen.glb** | Ramen Shop | Naitogosuto | `ramen-shop-4d189bf2710f422ea287718f968cea68` | `2dd4df0a181e3d6aa6c5558ee2dcc481a22f410914a291e0719d27e85bce1b3a` | `50e13b3dd3eea88705bbf6372a768a26ddd82e2a185f0204c848fa7c3fec2cbe` |
 | **props/tokyo-zakkyo-a.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `723514e4d286cfcd5c7e1d089554aca2d0e1ac2d422089f38d5776e6c2789c0a` |
 | **props/tokyo-zakkyo-b.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `3a5fdc7d896451c348f5e3289c0d060210c49c66003830fffc29c77b62afbffc` |
 | **props/tokyo-zakkyo-c.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `583edc1b9a78697f47332656f74dd14f11bcf55c3ca8b385d0cdccb01cd978b9` |
-| **props/tokyo-zakkyo-d.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `06d659447687e4a38afbc36bcb9431b0cfa10b418c04ecb2b73de9690f700e97` |
-| **props/tokyo-zakkyo-e.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `4141a649e1064bfa7b4f58d436d7e2f168fcae171324b18959b595c55c7b4cdd` |
-| **props/tokyo-zakkyo-f.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `e6c451821ec695d9d13489d031a4ffea5e0369f120bcde4fc10de9c3b558ada8` |
+| **props/tokyo-zakkyo-d.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `95112c18a69428d1cc8484d8b4d01840706448f864f70e66959520d285624717` |
+| **props/tokyo-zakkyo-e.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `d1fad097b42d646b9ecca85eb8a37f3d635cf53fadb2947ed8f4f21dadbedb13` |
+| **props/tokyo-zakkyo-f.glb** | Asian Themed Low Poly Night City Buildings‡ | 99.Miles | `asian-themed-low-poly-night-city-buildings-9f0343aff4814b758dc6e905aba5b5e0` | `2b1eaf09fc5fc9d9283eebd749decc25b65b0ba6f27abddf7b1dc364443aa5e9` | `fec33d9f808d6e31aabef855bc95651abd4e001022fc126eb73681e87f308f7d` |
 | **props/tokyo-nippori-bldg.glb** | Nice building in Nippori：日暮里のいいビル§ | kazugoru | `nice-building-in-nippori-8e82ddace3af4b0681764f2cbcb77ff7` | `eec70c5993f89fd9ea6cffe5b10d4505a5e13aaac0d7a87a9f4c5d963dbe01fb` | `3ef267714635cba4b15945715b06b13a6908fb51142857f8c910ef38aa511125` |
 
 † `tokyo-apato-a`'s author is corrected from the plan's research manifest
