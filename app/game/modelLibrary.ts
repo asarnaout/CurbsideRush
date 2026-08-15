@@ -457,17 +457,16 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   "tokyo-ramen": {
     url: `${P}/tokyo-ramen.glb`,
     scale: 0.01,
-    // Confidence: LOW — buildingSets.ts's own tokyo-ramen entry found no
-    // door submesh and no dominant mass-centroid axis either (P1's own
-    // verdict), and that is equally true measured fresh in this frame. The
-    // choice between the two axis-plausible candidates ({+PI/2, -PI/2} —
-    // the ones that keep the model's 17.35 m depth off Z, matching its own
-    // measured 13.67 x 17.35 aspect ratio the same way the konbini comment
-    // above reasons) fell to -PI/2 only because it keeps
-    // PROP_MODEL_FOOTPRINTS_M's `minX` smaller in magnitude than +PI/2's
-    // would. Live-verify before trusting this over a guess; correct to
-    // +PI/2 (and swap PROP_MODEL_FOOTPRINTS_M's numbers to that candidate's
-    // measured bound) if the entrance lands on the building's blind side.
+    // Confidence: VERIFIED (2026-08-15, live four-side chase-cam check of
+    // the placed "Tsukimi Ramen" venue — the check the P1/P9 comments here
+    // deferred). -PI/2 is correct: the open counter (stools, service bar,
+    // kanji sign boards, chochin eave lanterns) squarely faces the street,
+    // and the opposite side is a blank timber back wall into the block.
+    // The original tie-break between {+PI/2, -PI/2} (aspect-ratio
+    // reasoning, buildingSets.ts's own tokyo-ramen entry) happened to pick
+    // the right one — but note the konbini precedent where that same class
+    // of reasoning wrongly ELIMINATED the true answer; the live check is
+    // the evidence, the aspect argument only ever narrowed candidates.
     yawOffset: -Math.PI / 2,
     groundY: 2.6,
   },
