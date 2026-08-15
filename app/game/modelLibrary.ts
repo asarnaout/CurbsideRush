@@ -425,17 +425,21 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   "tokyo-konbini": {
     url: `${P}/tokyo-konbini.glb`,
     scale: 1,
-    // Confidence: LOW-MED. konbini is one merged mesh, one material — no
-    // named submesh or per-material signal exists to find a door/fascia
-    // with (unlike izakaya below). The model's own measured aspect ratio
-    // (13.33 x 8.92 — a wide, shallow storefront) rules OUT +-PI/2 (either
-    // would put the 13.33 run on X, this frame's depth axis, flipping the
-    // building side-on to the street) but does NOT distinguish between the
-    // two remaining candidates, {0, PI} — a genuine 180 deg coin flip
-    // pending a live drive-by. 0 chosen arbitrarily as the simpler default;
-    // correct to PI (and mirror PROP_MODEL_FOOTPRINTS_M's `minX`/`maxX`
-    // sign) if the fascia lands on the building's blind side.
-    yawOffset: 0,
+    // Confidence: HIGH -- live-verified (P10 final QA). The P1 aspect-ratio
+    // reasoning that ruled out +-PI/2 was wrong: at yawOffset 0 every live
+    // Hoshi Mart instance (jp-v46/v54/v58, all reachable via a delivery
+    // pickup) rendered as a flat, featureless, textureless wall from its
+    // venue's own approach pose -- not a facing tweak away from right, but
+    // clearly the building's blind rear/side facing the street. A live CDP
+    // drive-by around jp-v46 confirmed the model's real striped-awning/
+    // bench/vending-machine frontage sits on a DIFFERENT face than the
+    // {0, PI} candidates ever considered; testing all four multiples of
+    // PI/2 from the venue's actual recorded approach pose isolated PI/2 as
+    // the only one that puts that frontage on the road side (screenshots:
+    // scratchpad p10-konbini-yawtest-shots/). PROP_MODEL_FOOTPRINTS_M's
+    // entry is the same box rotated 90 deg to match (re-measured live, not
+    // estimated) -- re-measure both together if this ever moves again.
+    yawOffset: Math.PI / 2,
     groundY: 0.1,
   },
   "tokyo-izakaya": {
