@@ -25,10 +25,9 @@ file" for the split.
 
 The outer ring is split too, since the Phase 5 god-file decomposition:
 `SideSwapApp.tsx` stays the state owner (progress, career, dispatch, the
-view switch) and composes `app/LauncherView.tsx`, `app/SettingsView.tsx`,
-`app/CreditsView.tsx` and `app/DriveScreen.tsx` — each a props-pure child
-component, all state and derived values threaded down rather than read
-from context. `app/uiControls.tsx` and `app/MobilePlayTips.tsx` hold
+view switch) and composes `app/LauncherView.tsx`, `app/SettingsView.tsx`
+and `app/DriveScreen.tsx` — each a props-pure child component, all state
+and derived values threaded down rather than read from context. `app/uiControls.tsx` and `app/MobilePlayTips.tsx` hold
 `LauncherView`'s/`SettingsView`'s own shared form controls;
 `app/useGamepadUiNavigation.ts` is a standalone hook.
 

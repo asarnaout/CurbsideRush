@@ -91,7 +91,6 @@ import {
 import type { TravelCityFacts } from "./CareerViews";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsView } from "./SettingsView";
-import { CreditsView } from "./CreditsView";
 import { LauncherView, DESTINATION_PREVIEW_IMAGES } from "./LauncherView";
 import { useGamepadUiNavigation } from "./useGamepadUiNavigation";
 import { DriveScreen } from "./DriveScreen";
@@ -198,7 +197,6 @@ export type View =
   | "launcher"
   | "driving"
   | "settings"
-  | "credits"
   | "career-garage"
   | "career-ledger"
   | "career-over"
@@ -2279,13 +2277,6 @@ export default function SideSwapApp() {
           >
             Settings
           </button>
-          <button
-            className={effectiveView === "credits" ? "active" : ""}
-            type="button"
-            onClick={() => setView("credits")}
-          >
-            Sources
-          </button>
         </nav>
         <div className="mobile-menu">
           <button
@@ -2300,7 +2291,6 @@ export default function SideSwapApp() {
           {mobileMenuOpen && (
             <nav id="mobile-menu-panel" aria-label="Mobile navigation">
               <button type="button" onClick={() => { setView("settings"); setMobileMenuOpen(false); }}>Settings & accessibility</button>
-              <button type="button" onClick={() => { setView("credits"); setMobileMenuOpen(false); }}>Sources & credits</button>
             </nav>
           )}
         </div>
@@ -2319,9 +2309,6 @@ export default function SideSwapApp() {
           }}
           onBack={() => setView("launcher")}
         />
-      )}
-      {effectiveView === "credits" && (
-        <CreditsView onBack={() => setView("launcher")} />
       )}
 
       {effectiveView === "career-garage" &&

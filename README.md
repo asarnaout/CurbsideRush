@@ -98,8 +98,8 @@ Four rings, with dependency arrows pointing only inward: `SideSwapApp.tsx` (view
 
 `docs/` documents the internals in depth — the layering rules, the geometry conventions, and the invariants that are easy to break silently. [`CLAUDE.md`](CLAUDE.md) indexes it and says which page answers which kind of change.
 
-Curbside Rush is a game for entertainment, not legal advice or driver-licensing instruction. The in-game Sources & credits view links to the dated official material behind each country's road rules.
+Curbside Rush is a game for entertainment, not legal advice or driver-licensing instruction. Each country's road rules are tied to dated official sources recorded in `app/game/content.ts`.
 
 ## Map attribution
 
-Map geography is derived from © OpenStreetMap contributors and distributed under the ODbL. See the in-game Credits view and [OpenStreetMap copyright and attribution](https://www.openstreetmap.org/copyright). Third-party 3D model licences and provenance are logged in [CREDITS.md](CREDITS.md).
+Map geography is derived from © OpenStreetMap contributors and distributed under the ODbL — see [OpenStreetMap copyright and attribution](https://www.openstreetmap.org/copyright). Third-party 3D model licences and provenance are logged in [CREDITS.md](CREDITS.md).
