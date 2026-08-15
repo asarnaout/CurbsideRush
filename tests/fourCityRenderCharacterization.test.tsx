@@ -862,15 +862,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (`landmark-jp-<id>`, one per new landmark regardless of style) — the
     // real, measured total below is not in doubt; only the itemised
     // breakdown is left for a future pass to confirm.
-    totalMeshes: 11_722,
-    enabledMeshes: 11_722,
-    activeMeshes: 931,
-    materials: 262,
+    totalMeshes: 13_386,
+    enabledMeshes: 13_386,
+    activeMeshes: 1_018,
+    materials: 281,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 168,
-    mirrorDrawn: 222,
+    mirrorCandidates: 174,
+    mirrorDrawn: 242,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -940,7 +940,30 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // every prior phase's own paragraph describes — the real, measured
     // totals below are not in doubt; only the itemised breakdown is left
     // for a future pass to confirm, same caveat as Region B's own entry.
-    survivingMaterialNamesFingerprint: "78df1bca",
+    //
+    // -> Tokyo authenticity plan P7 (Region D): totalMeshes/enabledMeshes
+    // 11_722 -> 13_386 (+1_664) is four new roads' worth of asphalt/kerb/
+    // junction-fill/pavement-rail geometry across the new `minamimachi`
+    // zone's own street-wall parcels (`tokyo-house`, an already-shared set),
+    // two mid-span node insertions' resegmented parcels (`jp-chuo-dori-south`
+    // /`jp-minami-kaido`), 2 new venues and this quadrant's first two service
+    // points. materials 262 -> 281 (+19): NOT root-caused to the same depth
+    // as the paragraphs above — but bounded, not guessed. This suite's
+    // forced-empty preload turns every venue AND service point into a
+    // per-id-materialed fallback box (Tokyo expansion Phase 7's own
+    // established fact, restated in cities/tokyo.ts's jp-v45 comment), so
+    // the 2 new venues plus `jp-gas-minamimachi`/`jp-repair-minamimachi`
+    // alone account for 4 of the 19; the new collector/local speed limits
+    // (30/40 km/h) are both already-shared plates (no new speedsign
+    // material), and the 5 new junctions' stop/signal furniture reuses
+    // already-shared pole/sign materials — the real, measured totals below
+    // are not in doubt; only the remaining ~15 materials' exact identity is
+    // left for a future pass to confirm, same caveat as every phase above.
+    // activeMeshes 931 -> 1_018, mirrorCandidates/mirrorDrawn 168/222 ->
+    // 174/242: the fixed test pose's own mirror-cull frustum reacting to the
+    // new content, the same class of drift every earlier phase's paragraph
+    // documents.
+    survivingMaterialNamesFingerprint: "b6cb1c2b",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

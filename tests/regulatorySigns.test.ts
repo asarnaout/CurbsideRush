@@ -493,13 +493,17 @@ describe("speed-limit signage", () => {
     // city: at 289 (Phase 3's river/bridges/east-bank web — real new signed
     // road length, not a regression) it would otherwise force NYC/Cairo/
     // London's own ceiling up too and quietly weaken their checks.
+    // 320 -> 335 (Tokyo authenticity plan P7, Region D): four new roads
+    // (measured at 334 signs) — real new signed road length and junction
+    // density, not a regression, the same class of growth every earlier
+    // bump here documents.
     const nyc = signsFor(nycPack());
     expect(nyc.length).toBeLessThan(nycPlacements().length);
     expect(nyc.length).toBeLessThanOrEqual(240);
     for (const pack of MAP_PACKS) {
       const budget =
         pack.id === "tokyo-setagaya"
-          ? 320
+          ? 335
           : pack.id === "nyc-upper-west-side" ||
             pack.id === "cairo-central-nile" ||
             pack.id === "london-south-kensington"

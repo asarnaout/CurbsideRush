@@ -495,8 +495,17 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // insertion) shifts which of ITS pre-existing parcels draw from it too.
     // Fingerprint moves for the same reason as every other cell-count-driven
     // baseline in this file.
-    drawCount: 2_028,
-    facadeMeshFingerprint: "f88b7f76",
+    //
+    // 2_028 -> 2_448 (+420, Tokyo authenticity plan P7, Region D): four new
+    // roads (`jp-minamimachi-dori`/`jp-shion-dori`/`jp-susuki-dori`/
+    // `jp-nadeshiko-dori`) add their own ~1-in-4 holdback parcels to the same
+    // stream, and resegmenting `jp-chuo-dori-south` (its own new south
+    // extension) and `jp-minami-kaido` (a second mid-span node, past Region
+    // C's own first one) shifts which of their pre-existing parcels draw
+    // from it too. Fingerprint moves for the same reason as every other
+    // cell-count-driven baseline in this file.
+    drawCount: 2_448,
+    facadeMeshFingerprint: "1ab63f8f",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the

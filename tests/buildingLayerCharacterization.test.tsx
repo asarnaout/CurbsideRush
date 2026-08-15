@@ -387,7 +387,22 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // worth of `tokyo-house` street wall (the mid-span node insertion on
     // `jp-miyanosaka-kita-dori` also resegments that road's own existing
     // parcels — net +261 instances).
-    buildingInstanceCount: 2_565,
+    //
+    // 2_565 -> 3_074 (+509), cumulatively, for P6 (Region C, Sumiregaoka) and
+    // P7 (Region D, Minamimachi): neither phase's own fast-iteration loop
+    // re-ran this full-mount characterization suite (deferred to the
+    // bundle's end, per the P6-P9 combined-PR process note — the same gap
+    // `tests/trafficTraceCharacterization.test.ts`'s own P7 entry
+    // documents), so this one entry reconciles both at once. P6 is six new
+    // roads' worth of `tokyo-house`/`tokyo-apato` street wall (`jp-
+    // sumiregaoka-dori` reads as `tokyo-apato` per its own per-road
+    // override), plus its two mid-span insertions (`jp-sangen-dori`, a
+    // second new tee on `jp-minami-kaido`) resegmenting their own existing
+    // parcels. P7 is four more new roads' worth of `tokyo-house` street
+    // wall, plus its own two mid-span insertions (`jp-chuo-dori-south`'s new
+    // south extension, a second new tee on `jp-minami-kaido`) resegmenting
+    // theirs.
+    buildingInstanceCount: 3_074,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

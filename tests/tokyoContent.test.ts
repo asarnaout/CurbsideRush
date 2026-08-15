@@ -350,6 +350,10 @@ describe("Tokyo street wall (expansion Phase 4, R18)", () => {
       "ekimae-nishi": 0.85,
       hanamizu: 0.85,
       sumiregaoka: 0.85,
+      // `minamimachi` (Tokyo authenticity plan P7, Region D) measured 100%
+      // covered of 4280 m sampled kerb on first build — same reasoning and
+      // same 0.85 floor as the other six 100%-measuring residential zones.
+      minamimachi: 0.85,
       higashi: 0.85,
       ring: 0.8,
       riverside: 0.8,

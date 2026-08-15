@@ -155,7 +155,23 @@ describe("ambient traffic trace characterization", () => {
       // gain a real new arm for the first time, the same "existing node's
       // successor set changes" effect Region B's own paragraph above
       // describes. No new spawns this phase either.
-      "free-jp": "4c0c3e8b",
+      // Moves again, cumulatively, for P6 (Region C, Sumiregaoka) and P7
+      // (Region D, Minamimachi): neither phase's own fast-iteration loop
+      // re-ran this full-mount characterization suite (deferred to the
+      // bundle's end, per the P6-P9 combined-PR process note), so this one
+      // entry reconciles both at once — 89 -> 99 roads (P6's six plus P7's
+      // four), 518 lanes total. P6 adds its own new junctions plus three
+      // EXISTING-node new arms (`jp-jct-ss-m` gains a real entry for the
+      // first time; `jp-jct-ichiban-setagaya`/`jp-jct-niban-setagaya` gain a
+      // new arm) and two mid-span insertions (`jp-sangen-dori`, a second new
+      // tee on `jp-minami-kaido`). P7 adds its own new junctions plus three
+      // more EXISTING-node new arms (`jp-jct-ys-coll-sg`, `jp-jct-ys-r2-sg`,
+      // `jp-jct-sumiregaoka-x-minami-kaido`) and two more mid-span insertions
+      // (`jp-chuo-dori-south`'s own south extension, a second new tee on
+      // `jp-minami-kaido`) — the same "existing node's successor set
+      // changes" effect every earlier region's own paragraph describes, this
+      // time twice over. No new spawns either phase.
+      "free-jp": "025363d1",
       "free-eg": "eb350f99",
     });
   });
