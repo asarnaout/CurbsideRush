@@ -515,6 +515,49 @@ const STREET_PROFILES: Record<string, StreetProfile> = {
   "jp-ys-tsubaki-dori": { ...TOKYO_EW, baseNumber: 390 },
   "jp-ys-yanagi-dori": { ...TOKYO_EW, baseNumber: 370 },
   "jp-ys-yanagi-yokocho": { ...TOKYO_NS, baseNumber: 400 },
+
+  // Tokyo authenticity plan regions A-F (post-plan follow-up: the plan
+  // shipped these six webs venue-first with no profiles, which left every
+  // new-region door out of the delivery/rideshare pools — the same
+  // "drop-offs cluster on the old half" mistake NYC's side streets and
+  // London's back streets each made once already, see their own comments
+  // above). Every street of all six webs, same modest TOKYO_EW/TOKYO_NS
+  // numbering as the rest of the map; base numbers put each road's real
+  // span in roughly 10-200 clear of the numbering floor (negative bases
+  // follow NYC's own rebased CROSS_STREET precedent for spans far from the
+  // origin). The three Sakuragawa bridges stay profile-less: no doors open
+  // over water.
+  //
+  // Region B (Ekimae-nishi, P4):
+  "jp-ekimae-nishi-dori": { ...TOKYO_EW, baseNumber: 110 },
+  "jp-sakuramachi-dori": { ...TOKYO_EW, baseNumber: 110 },
+  "jp-tsukimi-dori": { ...TOKYO_NS, baseNumber: 1 },
+  "jp-nakasuji-dori": { ...TOKYO_NS, baseNumber: 1 },
+  // Region A (Hanamizu, P5):
+  "jp-yuri-dori": { ...TOKYO_EW, baseNumber: 110 },
+  "jp-ajisai-dori": { ...TOKYO_EW, baseNumber: 110 },
+  "jp-hanamizuki-dori": { ...TOKYO_NS, baseNumber: -100 },
+  "jp-tsutsuji-dori": { ...TOKYO_NS, baseNumber: -140 },
+  "jp-momo-dori": { ...TOKYO_NS, baseNumber: -140 },
+  "jp-kosumosu-dori": { ...TOKYO_NS, baseNumber: -140 },
+  // Region C (Sumiregaoka, P6):
+  "jp-nanohana-dori": { ...TOKYO_EW, baseNumber: 110 },
+  "jp-suisen-dori": { ...TOKYO_EW, baseNumber: 110 },
+  "jp-fuyo-dori": { ...TOKYO_NS, baseNumber: 130 },
+  "jp-renge-dori": { ...TOKYO_NS, baseNumber: 130 },
+  "jp-asagao-dori": { ...TOKYO_NS, baseNumber: 130 },
+  "jp-sumiregaoka-dori": { ...TOKYO_NS, baseNumber: 170 },
+  // Region D (Minamimachi, P7):
+  "jp-minamimachi-dori": { ...TOKYO_EW, baseNumber: 110 },
+  "jp-shion-dori": { ...TOKYO_NS, baseNumber: 220 },
+  "jp-susuki-dori": { ...TOKYO_NS, baseNumber: 220 },
+  "jp-nadeshiko-dori": { ...TOKYO_EW, baseNumber: 110 },
+  // Region E (Nishi Minami, P8):
+  "jp-sazanka-dori": { ...TOKYO_EW, baseNumber: 250 },
+  "jp-hiiragi-dori": { ...TOKYO_EW, baseNumber: 250 },
+  // Region F (Kawabata, P8):
+  "jp-kawabata-dori": { ...TOKYO_NS, baseNumber: -110 },
+  "jp-kawasemi-dori": { ...TOKYO_EW, baseNumber: -70 },
   // No profile for a bridge: no doors open over water (the same rule keeps
   // NYC's two crossings address-free).
 };

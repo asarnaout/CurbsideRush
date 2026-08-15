@@ -447,18 +447,23 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   // (the previous widest, cairo-depot, is 27.4 m; these run 22-37 m). Landed
   // on 0.18 for a height range (33-54 m) in the same band as this
   // catalogue's own towers (43-63 m) while keeping every row's footprint
-  // under 37 m. **Confidence: LOW on frontOffset for all six** — these are
-  // generic multi-building night-skyline clusters with no door/sign submesh
-  // or other orientation signal (unlike P1's shop/house imports), so
-  // frontOffset stays the no-evidence default (0); confidence on scale
-  // itself is a design choice, not a measurement, and should be revisited
-  // once P3b can actually place one and look at it. Both flagged for P3b's
-  // live drive-by, exactly like P1 flagged its own low-confidence entries
-  // for P2.
+  // under 37 m. frontOffset: live-verified per file (2026-08-15, chase-cam
+  // A/B of the same placements from street and block-interior sides — the
+  // deferred "P3b live drive-by" these entries shipped flagged for). The
+  // pack's files carry individually-baked orientations, so the verdicts
+  // differ per file: `d` had its one decorated building (light masonry +
+  // red sign board, the only orientation signal in the whole six-file set)
+  // facing the BLOCK INTERIOR while `e` shows the same signed design
+  // correctly facing the street — hence d's PI and e's 0 below. `f`'s
+  // red-lit details face the street (correct); `a`/`b`/`c` read as uniform
+  // window grids on every side — genuinely no front exists, the same
+  // checked-and-inconclusive-by-design verdict as tokyo-shop-d's own entry,
+  // so their 0 is a documented neutral, not a guess. Scale remains a design
+  // choice, not a measurement.
   "tokyo-zakkyo-a": { scale: 0.18, groundY: 0, footprintM: 35.83, depthM: 8.95, frontOffset: 0 },
   "tokyo-zakkyo-b": { scale: 0.18, groundY: 0, footprintM: 32.13, depthM: 7.99, frontOffset: 0 },
   "tokyo-zakkyo-c": { scale: 0.18, groundY: 0, footprintM: 34.01, depthM: 6.85, frontOffset: 0 },
-  "tokyo-zakkyo-d": { scale: 0.18, groundY: 0, footprintM: 36.72, depthM: 16.67, frontOffset: 0 },
+  "tokyo-zakkyo-d": { scale: 0.18, groundY: 0, footprintM: 36.72, depthM: 16.67, frontOffset: Math.PI },
   "tokyo-zakkyo-e": { scale: 0.18, groundY: 0, footprintM: 33.23, depthM: 14.05, frontOffset: 0 },
   "tokyo-zakkyo-f": { scale: 0.18, groundY: 0, footprintM: 22.19, depthM: 8.07, frontOffset: 0 },
 
