@@ -317,17 +317,6 @@ export const COUNTRY_PROFILES: readonly CountryProfile[] = [
 
 export const DESTINATION_PROFILES: readonly DestinationProfile[] = [
   {
-    id: "uk-london",
-    countryId: "uk",
-    destinationName: "London",
-    destinationSubtitle: "Kensington to the City",
-    mapId: "london-south-kensington",
-    freeDriveId: "free-uk-london",
-    promotion: "featured",
-    cityMark: "LDN",
-    visualTheme: LONDON_THEME,
-  },
-  {
     id: "us-nyc",
     countryId: "us",
     destinationName: "New York City",
@@ -359,6 +348,17 @@ export const DESTINATION_PROFILES: readonly DestinationProfile[] = [
     promotion: "standard",
     cityMark: "CAI",
     visualTheme: CAIRO_THEME,
+  },
+  {
+    id: "uk-london",
+    countryId: "uk",
+    destinationName: "London",
+    destinationSubtitle: "Kensington to the City",
+    mapId: "london-south-kensington",
+    freeDriveId: "free-uk-london",
+    promotion: "featured",
+    cityMark: "LDN",
+    visualTheme: LONDON_THEME,
   },
 ];
 

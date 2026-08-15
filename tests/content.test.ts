@@ -376,12 +376,12 @@ describe("SideSwap content", () => {
       "eg",
     ]);
     expect(DESTINATION_PROFILES.map((destination) => destination.id)).toEqual([
-      "uk-london",
       "us-nyc",
       "jp-tokyo",
       "eg-cairo",
+      "uk-london",
     ]);
-    expect(DESTINATION_PROFILES[0].promotion).toBe("featured");
+    expect(DESTINATION_PROFILES[3].promotion).toBe("featured");
     expect(FREE_DRIVES).toHaveLength(4);
     expect(MAP_PACKS).toHaveLength(4);
   });
