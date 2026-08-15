@@ -319,32 +319,31 @@ every submesh of a glb to share one vertex-attribute layout, and
 and tires into their own nodes for animation, which is exactly what leaves
 them heterogeneous. **Any future glb whose submeshes were split or otherwise
 authored unevenly will hit the same merge crash** the first time something
-calls `getBuildingMaster` on it; the fix is `instantiateModelInstanced`
-(`modelLibrary.ts`) instead, which instances **per submesh** (real
-`InstancedMesh`es sharing the first call's source geometry) rather than
-merging, so N placements still cost one draw call per submesh, not per
-placement, with no attribute-layout requirement at all. Measured cost of all
-25 bicycles: 7 draw calls (one per submesh — frame, two tires, two pedals,
-plus two more).
+calls `getBuildingMaster` on it. The FIRST fix to try is
+`tools/normalize-glb-attributes.mjs`: when the layout mismatch is only
+unused secondary UV channels (the usual Sketchfab case), stripping them lets
+the model merge and the whole question disappears. The escape hatch —
+`instantiateModelInstanced` (`modelLibrary.ts`), which instances **per
+submesh** with no layout requirement — is for genuine mixes only
+(TANGENT-bearing vs not, where stripping would break normal mapping:
+`tokyo-apato-b`, `tokyo-ramen`, the bicycles' animation-split pedals).
 
-**"One draw call per submesh, not per placement" is only cheap when the
-submesh count is small.** `tokyo-apato-b` (`MERGE_INCOMPATIBLE_MODEL_IDS`,
-Tokyo authenticity plan P3b) is an architectural BIM-style export that names
-every wall panel, roof gable and moulding segment as its own submesh — not
-7 like the bicycle, but 99, confirmed by a live mesh census (`instance of
-Wall_<guid>`, `instance of Roof Gable_<guid>`, ... each its own bucket).
-Wiring it into a repeated street-wall building set added a ~99-draw-call
-FIXED tax the moment even one instance was in view — nearly doubling the
-Tokyo scramble's `drawCallsPerFrame` in a live paired CDP measurement,
-invisible to every NullEngine/jsdom characterization test (they measure
-mesh/material counts, not GPU draw batches, and the forced-empty-preload
-suite never instantiates a real glb at all). Before wiring a
-`MERGE_INCOMPATIBLE_MODEL_IDS` entry into ANY repeatedly-placed set, check
-its real submesh count (a live `__sideswapMeshes()` census after placing one
-instance, or count distinct materials/primitives in the source glb) — a
-double-digit-or-higher count is a real per-model draw-call cost that no
-amount of instancing amortizes away, and sparse placement does not help
-either (the cost is per DISTINCT submesh, not per placement).
+**The per-submesh path costs one SCENE MESH per submesh per placement, and
+one draw call per distinct submesh — both matter, at different scales.**
+`tokyo-apato-b` (99 BIM-style submeshes) added a ~99-draw fixed tax the
+moment one instance was in view (live paired CDP measurement, P3b), which
+is why it is in no building set. `tokyo-house-d` (290 submeshes, 417
+street-wall placements) was catastrophically worse: ~119,700 scene meshes —
+87% of Tokyo's whole scene and a 31→6 fps collapse from per-frame mesh
+management alone — invisible to the forced-empty-preload characterization
+suite AND to draw-call-only pose checks (its draw calls were fine; the
+meshes were the cost). That is why it was normalized off
+`MERGE_INCOMPATIBLE_MODEL_IDS` entirely; nothing on that list should ever
+be in a repeatedly-placed set. The two paths also disagree about anchoring:
+`getBuildingMaster` recentres the merged master's XZ, the per-submesh path
+plants the model's NATIVE origin at the slot — a model whose origin is far
+off-centre (house-d's was 5.6 m) silently places that far from where the
+planner and its curated collider assume under the per-submesh path.
 
 `registerStaticCell` takes an explicit `castsShadow` flag because the instanced
 building street wall deliberately casts none — flipping one silently adds it to

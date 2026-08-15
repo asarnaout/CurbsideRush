@@ -703,7 +703,18 @@ describe("buildingStructuralBounds — independent GLB validation", () => {
       const { master } = await masterFor(model);
       const pos = master.getVerticesData(VertexBuffer.PositionKind)!;
       const idx = master.getIndices()!;
-      const nativeGroundY = master.getBoundingInfo().boundingBox.minimum.y;
+      // The street surface in master-local native Y is -groundY/scale by the
+      // placement contract (the wrap sits at groundY, so world y=0 crosses
+      // the model there). For every model whose groundY is the interface's
+      // own "-nativeMinY*scale" this IS the mesh minimum — but a model with
+      // a deliberately sunken feature (tokyo-house-d's exterior stair tread,
+      // 0.3 m below the property wall base its groundY is referenced to —
+      // buildingSets.ts's own comment) has its minimum BELOW grade, and
+      // measuring the ground band there would collect only the tread and
+      // miss every real wall. Anchoring on the placement contract instead of
+      // the mesh minimum measures the band the car actually meets at street
+      // level, for every model, with no per-model override.
+      const nativeGroundY = -cfg.groundY / cfg.scale;
       const nativeEpsilon = GROUND_TOUCH_EPSILON_M / cfg.scale;
 
       const point = (v: number) => ({ x: pos[v * 3] * cfg.scale, z: pos[v * 3 + 2] * cfg.scale });

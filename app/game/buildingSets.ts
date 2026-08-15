@@ -175,14 +175,18 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   // recipe: instantiate at the scale below, MergeMeshes, orientMerged-
   // FacesOutward, recentreMergedMasterXZ), not an estimate.
   //
-  // `MergeMeshes` crashes on tokyo-house-d/tokyo-apato-b/tokyo-ramen (the
-  // documented heterogeneous-submesh-attribute failure — some of their
-  // Sketchfab-exported submeshes carry TANGENT/extra UV sets, others don't),
-  // exactly the case docs/rendering.md predicts needs
-  // `instantiateModelInstanced` at render time; their footprint/depth here
-  // were measured as the union of every submesh's own Babylon-loaded world
-  // bound instead (translation-invariant, so it agrees with what a
-  // successful merge would report — merging doesn't move geometry).
+  // `MergeMeshes` crashes on tokyo-apato-b/tokyo-ramen (the documented
+  // heterogeneous-submesh-attribute failure — some of their Sketchfab-
+  // exported submeshes carry TANGENT/extra UV sets, others don't), exactly
+  // the case docs/rendering.md predicts needs `instantiateModelInstanced`
+  // at render time; their footprint/depth here were measured as the union
+  // of every submesh's own Babylon-loaded world bound instead
+  // (translation-invariant, so it agrees with what a successful merge would
+  // report — merging doesn't move geometry). tokyo-house-d used to be the
+  // third member until its mismatch (dead secondary UVs only, no TANGENT)
+  // was stripped at the asset level — see MERGE_INCOMPATIBLE_MODEL_IDS's
+  // own comment; its measured figures below are unchanged by that (the
+  // strip touches no geometry).
   //
   // Facing (frontOffset) has no shared cross-author convention in this
   // batch (13 independent Sketchfab authors) — each was measured from the

@@ -577,9 +577,23 @@ export const TOKYO_ZAKKYO_MODEL_IDS: readonly string[] = [
  * no merge) instead of `getBuildingMaster`. The single source of truth so
  * production code and its tests (`buildingWinding.test.ts`,
  * `buildingPlacement.test.ts`) can't quietly drift apart on this list.
+ *
+ * Membership is a PERFORMANCE CLIFF, not a formality: the per-submesh path
+ * costs one scene mesh per submesh per placement, so a listed model with
+ * many primitives and many street-wall placements multiplies into the tens
+ * of thousands of meshes (`tokyo-house-d`, 290 primitives x 417 placements,
+ * was 87% of Tokyo's scene and the difference between 31 fps and 6 fps).
+ * Before listing a model here, first try
+ * `tools/normalize-glb-attributes.mjs` — when the mismatch is only unused
+ * secondary UV channels (it usually is), stripping them merges the model
+ * fine and keeps it off this list. `tokyo-house-d` left the list exactly
+ * that way. The two remaining members genuinely mix TANGENT-bearing and
+ * TANGENT-less primitives (the tool's own census, which refuses them —
+ * stripping TANGENT would break their normal mapping, unlike dead UVs),
+ * and both are placement-count-safe: apato-b is in no building set, ramen
+ * is a lone venue prop.
  */
 export const MERGE_INCOMPATIBLE_MODEL_IDS: ReadonlySet<string> = new Set([
-  "tokyo-house-d",
   "tokyo-apato-b",
   "tokyo-ramen",
 ]);
