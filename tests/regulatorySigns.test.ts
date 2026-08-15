@@ -497,13 +497,19 @@ describe("speed-limit signage", () => {
     // (measured at 334 signs) — real new signed road length and junction
     // density, not a regression, the same class of growth every earlier
     // bump here documents.
+    // 335 -> 356 (Tokyo authenticity plan P8, Regions E+F): four new roads
+    // (measured at 355 signs) — Region E's two new ring-tee locals
+    // (Sazanka-dōri, Hiiragi-dōri) and Region F's spine/connector
+    // (Kawabata-dōri, Kawasemi-dōri), plus new junctions on five existing
+    // roads — real new signed road length and junction density, not a
+    // regression, the same class of growth every earlier bump documents.
     const nyc = signsFor(nycPack());
     expect(nyc.length).toBeLessThan(nycPlacements().length);
     expect(nyc.length).toBeLessThanOrEqual(240);
     for (const pack of MAP_PACKS) {
       const budget =
         pack.id === "tokyo-setagaya"
-          ? 335
+          ? 356
           : pack.id === "nyc-upper-west-side" ||
             pack.id === "cairo-central-nile" ||
             pack.id === "london-south-kensington"

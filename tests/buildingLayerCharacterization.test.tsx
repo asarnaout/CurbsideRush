@@ -402,7 +402,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // wall, plus its own two mid-span insertions (`jp-chuo-dori-south`'s new
     // south extension, a second new tee on `jp-minami-kaido`) resegmenting
     // theirs.
-    buildingInstanceCount: 3_074,
+    //
+    // 3_074 -> 3_314 (+240) (Tokyo authenticity plan P8, Regions E+F): four
+    // new roads' worth of `tokyo-house` street wall (Sazanka-dōri/
+    // Hiiragi-dōri reusing the `nishi` zone, Kawabata-dōri/Kawasemi-dōri the
+    // new `kawabata` zone), plus the mid-span/appended insertions on
+    // `jp-nishi-kanjo-dori`/`jp-kanpachi-dori`/`jp-miyanosaka-kita-dori`/
+    // `jp-chuo-dori-north`/`jp-kawate-dori` resegmenting their own existing
+    // parcels.
+    buildingInstanceCount: 3_314,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

@@ -862,15 +862,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (`landmark-jp-<id>`, one per new landmark regardless of style) — the
     // real, measured total below is not in doubt; only the itemised
     // breakdown is left for a future pass to confirm.
-    totalMeshes: 13_386,
-    enabledMeshes: 13_386,
-    activeMeshes: 1_018,
-    materials: 281,
+    totalMeshes: 14_029,
+    enabledMeshes: 14_029,
+    activeMeshes: 1_054,
+    materials: 283,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     mirrorCandidates: 174,
-    mirrorDrawn: 242,
+    mirrorDrawn: 256,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -963,7 +963,27 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 174/242: the fixed test pose's own mirror-cull frustum reacting to the
     // new content, the same class of drift every earlier phase's paragraph
     // documents.
-    survivingMaterialNamesFingerprint: "b6cb1c2b",
+    //
+    // -> Tokyo authenticity plan P8 (Regions E+F): totalMeshes/enabledMeshes
+    // 13_386 -> 14_029 (+643) is four new roads' worth of asphalt/kerb/
+    // junction-fill/pavement-rail geometry (`jp-sazanka-dori`/
+    // `jp-hiiragi-dori` reusing the `nishi` zone's already-shared
+    // `tokyo-house` set, `jp-kawasemi-dori`/`jp-kawabata-dori` the new
+    // `kawabata` zone, same set) plus the mid-span/appended insertions on
+    // `jp-nishi-kanjo-dori`/`jp-kanpachi-dori`/`jp-miyanosaka-kita-dori`/
+    // `jp-chuo-dori-north`/`jp-kawate-dori` resegmenting their own existing
+    // parcels, and the region's one new venue. materials 281 -> 283 (+2):
+    // NOT root-caused to the same depth as the paragraphs above — but
+    // bounded, not guessed, same caveat as P4/P7's own entries: the one new
+    // venue is a per-id-materialed fallback box in this suite's forced-empty
+    // preload (the same established fact those entries cite), accounting
+    // for at least one; both new zones' local/collector speed limits
+    // (30/40 km/h) are already-shared plates, and every new junction's
+    // stop furniture reuses already-shared pole/sign materials. activeMeshes
+    // 1_018 -> 1_054, mirrorCandidates/mirrorDrawn 174/242 -> 174/256: the
+    // fixed test pose's own mirror-cull frustum reacting to the new content,
+    // the same class of drift every earlier phase's paragraph documents.
+    survivingMaterialNamesFingerprint: "305fa935",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

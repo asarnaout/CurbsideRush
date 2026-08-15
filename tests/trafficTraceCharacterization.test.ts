@@ -171,7 +171,20 @@ describe("ambient traffic trace characterization", () => {
       // `jp-minami-kaido`) — the same "existing node's successor set
       // changes" effect every earlier region's own paragraph describes, this
       // time twice over. No new spawns either phase.
-      "free-jp": "025363d1",
+      // Moves again for the Tokyo authenticity plan's P8 (Regions E+F): 99 ->
+      // 103 roads, 540 lanes. Four new roads (`jp-sazanka-dori`/
+      // `jp-hiiragi-dori`/`jp-kawasemi-dori`/`jp-kawabata-dori`) add their own
+      // generated stop controls at their own new junctions, and FIVE existing
+      // nodes gain a real new arm or a renamed immediate neighbour for the
+      // first time — `jp-jct-ys-r6-kp` (a genuine new third arm,
+      // Sazanka-dōri), plus four ring/arterial nodes whose own successor set
+      // changes because a mid-span insertion or an append moved their
+      // immediate neighbour (`jp-nk-setagaya`, `jp-kp-setagaya`, `jp-chuo-n`,
+      // `jp-chuo-x-koshu`) — the same "existing node's successor set
+      // changes" effect every earlier region's own paragraph describes, this
+      // time across two separate rings/arterials at once. No new spawns this
+      // phase.
+      "free-jp": "190980a3",
       "free-eg": "eb350f99",
     });
   });
