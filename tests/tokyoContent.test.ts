@@ -326,10 +326,19 @@ describe("Tokyo street wall (expansion Phase 4, R18)", () => {
     // below their new measured numbers, matching the other three zones'
     // existing convention; riverside's floor is untouched (its own number
     // did not move).
+    //
+    // `ekimae-nishi` (Tokyo authenticity plan P4, Region B) measured 100%
+    // covered of 3247 m sampled kerb on first build — the same
+    // glb-parcels-sit-closer-to-kerb effect, and a sample comfortably bigger
+    // than riverside's. Floor set to the same 0.85 (15 points below 100%)
+    // the other three 100%-measuring zones already use, not riverside's more
+    // conservative 0.8 (that extra margin is riverside's own one-sided-kerb
+    // reasoning, which does not apply here).
     const FLOOR_BY_ZONE: Readonly<Record<TokyoBlockZone, number>> = {
       miyanosaka: 0.85,
       yamashita: 0.85,
       nishi: 0.85,
+      "ekimae-nishi": 0.85,
       higashi: 0.85,
       ring: 0.8,
       riverside: 0.8,
