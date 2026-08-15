@@ -1704,10 +1704,10 @@ describe("SideSwap content", () => {
     ]);
   });
 
-  it("aligns the visible Tokyo railway and controls both crossing directions", () => {
+  it("aligns the Tokyo rail line with its crossings and controls both directions", () => {
     const tokyo = getMapPack("tokyo-setagaya");
-    const railway = tokyo.geometry.landmarks.find(
-      (landmark) => landmark.id === "jp-setagaya-line",
+    const line = tokyo.geometry.railLines?.find(
+      (candidate) => candidate.id === "jp-setagaya-line-run",
     );
     const railControl = tokyo.laneGraph.controls.find(
       (control) => control.id === "jp-rail-signal",
@@ -1716,10 +1716,39 @@ describe("SideSwap content", () => {
       (control) => control.id === "jp-crosswalk-station",
     );
 
-    expect(railway).toMatchObject({
-      center: { x: 18, z: -62 },
-      size: { x: 5, z: 72 },
-    });
+    // Every crossing the line claims must be a railway_signal whose position
+    // sits ON the polyline — the projection the adapter uses to place the
+    // crossing on the timetable must not be a long-range snap.
+    expect(line).toBeDefined();
+    for (const controlId of line?.crossingControlIds ?? []) {
+      const control = tokyo.laneGraph.controls.find(
+        (candidate) => candidate.id === controlId,
+      );
+      expect(control?.type).toBe("railway_signal");
+      const offLine = Math.min(
+        ...(line?.points.slice(0, -1).map((start, index) => {
+          const end = line.points[index + 1];
+          const dx = end.x - start.x;
+          const dz = end.z - start.z;
+          const lengthSq = dx * dx + dz * dz;
+          const t = Math.max(
+            0,
+            Math.min(
+              1,
+              (((control?.position.x ?? 0) - start.x) * dx +
+                ((control?.position.z ?? 0) - start.z) * dz) /
+                (lengthSq || 1),
+            ),
+          );
+          return Math.hypot(
+            (control?.position.x ?? 0) - (start.x + dx * t),
+            (control?.position.z ?? 0) - (start.z + dz * t),
+          );
+        }) ?? [Number.POSITIVE_INFINITY]),
+      );
+      expect(offLine).toBeLessThan(1);
+    }
+
     expect(railControl?.laneIds).toEqual([
       "jp-south-east-2",
       "jp-south-west-2",

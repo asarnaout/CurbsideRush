@@ -64,6 +64,14 @@ export const PARK_LAWN_Y = 0.02;
 export const PARK_BED_Y = 0.0255;
 /** Park footpaths, in the ~23 mm between the lawn and the shoulder fill. */
 export const PARK_PATH_Y = 0.031;
+/**
+ * Rail ballast bed, between the park paths (0.031) and the shoulder junction
+ * fill (0.0435): where a road crosses the line at a level crossing, the
+ * road's own shoulder and carriageway must pave OVER the corridor, so the
+ * ballast deliberately loses to both. The rails themselves are 3D boxes
+ * riding above this rung and stay visible across the asphalt.
+ */
+export const RAIL_BALLAST_Y = 0.04;
 // Lift every building so no model's base plate lands exactly on the ground
 // plane. Base plates face -Y and are back-face culled, so this is depth-buffer
 // hygiene, not a visible-flicker fix — the Cairo brick-band flicker was never

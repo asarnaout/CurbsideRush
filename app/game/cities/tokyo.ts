@@ -4462,29 +4462,14 @@ export const TOKYO_MAP_PACK: MapPack = {
     ],
     landmarks: [
       { id: "jp-gotokuji-station", kind: "station", center: point(-14, 6), size: point(20, 9), color: "#e85e59" },
-      { id: "jp-setagaya-line", kind: "railway", center: point(18, -62), size: point(5, 72), color: "#656a70" },
-      // Rail extension (Tokyo expansion Phase 5, §8.6): the streetcar
-      // continues east to a second level crossing on jp-ichiban-dori (see
-      // jp-rail-signal-2 below). `kind: "railway"` renders as a flat double
-      // line whose ONLY consumed dimension is `size.x` (world-X length,
-      // fixed z) — render/babylonGameSession.ts's `landmark.kind ===
-      // "railway"` branch never reads `size.z` or any heading, so every
-      // segment here is a straight east-west band, same as the existing
-      // one above. z=-10 (not the existing marker's z=-62): the existing
-      // marker sits only 2 m off jp-ichiban-x-minami-dori's own junction
-      // node, far too tight for a level crossing's own conflict zone
-      // alongside a signalled road junction; z=-10 sits exactly midway
-      // between jp-ichiban-x-minami-dori (z=-60) and jp-ichiban-x-nakamise
-      // (z=40), 50 m clear of both. The engine cannot render a curve
-      // between the two z-values, so the line takes an unmodelled jog
-      // there — an accepted simplification of a kind the renderer forces on
-      // every "railway" landmark, not a Tokyo-specific shortcut. Two
-      // segments (not one) leave a small gap at x=180 so the decal does not
-      // draw through the crossing's own gate posts, and continue the line
-      // past the crossing rather than ending abruptly at it — Phase 8's
-      // station landmark can extend from here once it exists.
-      { id: "jp-setagaya-line-ext-1", kind: "railway", center: point(102.5, -10), size: point(145, 5), color: "#656a70" },
-      { id: "jp-setagaya-line-ext-2", kind: "railway", center: point(232.5, -10), size: point(95, 5), color: "#656a70" },
+      // The three `kind: "railway"` decal landmarks that used to sketch the
+      // Setagaya Line here (a 5x72 stub + two z=-10 extension bands) are
+      // retired: `geometry.railLines` below is now the single source of truth
+      // for the track, and `render/railLayer.ts` builds real ballast, rails
+      // and sleepers along its polyline — including the jog the decal
+      // renderer could never draw. Prop scatter's corridor keep-out follows
+      // the same polyline (`railCorridorExclusionRects`), so nothing scatters
+      // onto the right-of-way the rects used to shield.
       // The quarter's three parks — hoisted to `TOKYO_QUARTER_PARKS` above
       // (Tokyo expansion Phase 4) so the street-wall generator can check a
       // candidate parcel against them (R18 never walls a park frontage)

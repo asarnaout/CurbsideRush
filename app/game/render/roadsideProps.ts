@@ -14,6 +14,7 @@ import { NYC_VENDORS, type StreetPropConfig } from "../buildingSets";
 import { CAIRO_OPEN_WATERFRONT_SIDES } from "../cities/cairo";
 import { TOKYO_OPEN_WATERFRONT_SIDES } from "../cities/tokyo";
 import { deterministicSceneryKeep } from "../geometry/facadesAndKeepouts";
+import { railCorridorExclusionRects } from "../geometry/railGeometry";
 import { type ParkPlacement, parkLayoutForLandmark } from "../parkLayouts";
 import {
   cairoDirectionPanelFaceUv,
@@ -303,6 +304,10 @@ export function buildRoadsideProps(
         center: landmark.center,
         size: landmark.size,
       })),
+      // The rail right-of-way excludes scatter the same way a landmark rect
+      // does — per-segment AABBs of the authored corridor, replacing the
+      // retired `kind: "railway"` decal landmarks that used to shield it.
+      ...railCorridorExclusionRects(mapPack.geometry.railLines ?? []),
       ...poiExclusions,
     ],
     worldSize: mapPack.geometry.worldSize,

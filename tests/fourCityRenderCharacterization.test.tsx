@@ -952,9 +952,20 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // rows): tokyo-shop-d's quarter-turn footprint swap re-deals its rows,
     // +6 planned buildings — the same +6 the building-layer suite pins
     // (lockstep, one proxy per planned building).
-    totalMeshes: 19_415,
-    enabledMeshes: 19_415,
-    activeMeshes: 1_344,
+    //
+    // 19_415 -> 19_658 (+243, active 1_344 -> 1_585; rail feature): the
+    // three `kind: "railway"` decal landmarks (6 fixed boxes) retire and
+    // `render/railLayer.ts` builds real track along `jp-setagaya-line-run`'s
+    // ~360 m polyline instead: ~230 instanced sleepers over the ballast
+    // intervals, ~14 rail-segment instances, 5 segmented ballast strips —
+    // net +243. materials stays 287 exactly: the three retired
+    // `landmark-jp-setagaya-line*` materials are replaced one-for-one by
+    // `rail-ballast`/`rail-steel`/`rail-sleeper` (fingerprint moves for the
+    // same swap). activeMeshes jumps more than total because the line runs
+    // right through the fixed test pose's frustum at spawn.
+    totalMeshes: 19_658,
+    enabledMeshes: 19_658,
+    activeMeshes: 1_585,
     materials: 287,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1075,7 +1086,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the same class of drift every earlier phase's paragraph documents.
     // "305fa935" -> "cfd13ba7": Tokyo authenticity plan P9's +4 materials
     // above (`tokyo-wire-pole`/`-arm`/`-cable`, `utility-insulator`).
-    survivingMaterialNamesFingerprint: "cfd13ba7",
+    // "cfd13ba7" -> "209b241d": the rail feature's one-for-one material swap
+    // documented in the mesh paragraph above (three `landmark-jp-setagaya-
+    // line*` out, `rail-ballast`/`rail-steel`/`rail-sleeper` in).
+    survivingMaterialNamesFingerprint: "209b241d",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

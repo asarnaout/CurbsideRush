@@ -108,6 +108,7 @@ import {
   type CityRenderRegistryCtx,
 } from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
+import { buildRailTracks } from "./railLayer";
 import { BuildingLayer, type DebugBuildingAssetPolicy } from "./buildingLayer";
 import {
   buildOrUpdatePlayerCapsuleOverlay,
@@ -4127,6 +4128,49 @@ export class BabylonGameSession {
         this.registerStaticCell(junctionFill, fill.pivot.x, fill.pivot.z, false);
       }
     }
+
+    if (mapPack.geometry.railLines?.length) {
+      const ballast = makeMaterial(
+        scene,
+        "rail-ballast",
+        new Color3(0.32, 0.3, 0.28),
+      );
+      const railSteel = makeMaterial(
+        scene,
+        "rail-steel",
+        new Color3(0.58, 0.6, 0.64),
+      );
+      const railSleeper = makeMaterial(
+        scene,
+        "rail-sleeper",
+        new Color3(0.24, 0.19, 0.15),
+      );
+      buildRailTracks(
+        {
+          scene,
+          ballast,
+          steel: railSteel,
+          sleeper: railSleeper,
+          createRoadSurfaceMesh: (name, centerline, widthM, material, smoothClosed, surfaceY) =>
+            this.createRoadSurfaceMesh(
+              name,
+              centerline,
+              widthM,
+              material,
+              smoothClosed,
+              surfaceY,
+            ),
+          addStatic: (mesh, x, z) => {
+            this.staticSceneryFreeze.push(mesh);
+            this.registerStaticCell(mesh, x, z, false);
+          },
+        },
+        mapPack,
+      );
+      ballast.freeze();
+      railSteel.freeze();
+      railSleeper.freeze();
+    }
     // All lane paint pours into two merged meshes (one per colour) instead
     // of a box per dash — see MarkingGeometry. Chevrons, crosswalks and
     // thresholds keep their own meshes: they need per-mesh setEnabled.
@@ -4557,15 +4601,11 @@ export class BabylonGameSession {
         }
         buildParkFeatures(parksRenderCtx, landmark, mapPack, palette, mapId);
       } else if (landmark.kind === "railway") {
-        for (const offset of [-1.25, 1.25]) {
-          createBox(
-            scene,
-            `${landmark.id}-rail-${offset}`,
-            { width: landmark.size.x, height: 0.14, depth: 0.2 },
-            new Vector3(landmark.center.x, 0.16, landmark.center.z + offset),
-            material,
-          );
-        }
+        // Retired decal: real track (ballast/rails/sleepers along the authored
+        // `geometry.railLines` polyline) is built by `buildRailTracks` above.
+        // The kind stays in the schema for any map that wants a disused stub
+        // drawn without a live line — nothing ships one today.
+        continue;
       } else if (landmark.kind === "tower") {
         createCylinder(
           scene,
