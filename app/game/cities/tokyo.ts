@@ -533,6 +533,66 @@ const jpEkimaeNishiNodes = {
   koshuX: node("jp-koshu-x-nakasuji", -30, 560),
 };
 
+// --- Hanamizu residential web (Tokyo authenticity plan P5, Region A; the
+// void at x -400..340, z 620..1080, 33.6 ha — the largest single region
+// shipped so far) ------------------------------------------------------------
+// Bounded west by Sangen-dōri (shared with Miyanosaka North's own east
+// edge), north by Miyanosaka Kita-dōri, reached from the south via
+// Kōshū-kaidō. Two of Sangen-dōri's four already-existing rung nodes in this
+// span become this region's own E-W tees — `jp-mn-r2-sg`/`jp-mn-r5-sg`; the
+// plan's own "z~760"/"z~950" are approximate the same way Region B's plan
+// coordinates needed real correction (§6.2's own general caveat), and 750/
+// 1050 are the two real anchors that give the two streets even ~300 m
+// spacing across the void. The other two given anchors, `jp-mn-r6-sg` (600,
+// just south of the void) and `jp-mn-coll-sg` (850, Miyanosaka's own
+// Suzukake-dōri collector), stay exactly as Miyanosaka left them and gain no
+// new arm here — they were listed for orientation, not as mandatory tees.
+//
+// The north end needs one genuine mid-span insertion into Miyanosaka
+// Kita-dōri (see that spec's own updated comment, below). The south end does
+// NOT need a fresh insertion — Region B's own P4 phase already split
+// Kōshū-kaidō for `jp-nakasuji-dori` (`jp-koshu-x-nakasuji`, x=-30), exactly
+// the x this collector wants, so it simply continues Nakasuji-dōri straight
+// across Kōshū-kaidō instead of minting a second nearby node: the "grep
+// before trusting the plan's road-layout research is still current" lesson
+// this phase's own brief called out by name (`jp-koshu-kaido-` greps clean —
+// nothing references a segment index this reuse would move, because no new
+// node is inserted into that road's own `nodeIds` at all).
+//
+// Six roads: `jp-yuri-dori`/`jp-ajisai-dori` (the two E-W residential
+// streets, z=750/z=1050 — dead straight, tee onto Sangen-dōri west, end at
+// their own easternmost local's junction east, no unconnected stub);
+// `jp-hanamizuki-dori` (the N-S collector, x=-30, `jp-koshu-x-nakasuji` to a
+// new tee on Miyanosaka Kita-dōri — the collector tier, `2, 7, 40`, one notch
+// up from the residential locals, matching Suzukake/Yanagi/Hato-dōri's own
+// numbers); `jp-tsutsuji-dori`/`jp-momo-dori`/`jp-kosumosu-dori` (three short
+// N-S locals between the two E-W streets, T-ending at both — "T-ended, not
+// crossing" per the plan). Every road here is axis-aligned (constant-x or
+// constant-z), zero bend at every node — R2's "a diagonal or two" allowance
+// is Region B's own `jp-ekimae-nishi-dori`, not needed again here; the
+// organic read instead comes from the irregular spacing (sangen tee at -460,
+// then -220/-30/140/260 — 240/190/170/120 m pitches, none repeated) rather
+// than a regular grid.
+//
+// Node naming follows the established convention: an ordinary new crossing
+// names the N-S road first (`jp-tsutsuji-x-yuri`, matching Region B's
+// `jp-tsukimi-x-sakuramachi`), while `jp-hanamizuki-n` follows Miyanosaka
+// Kita-dōri's OWN pre-existing sub-convention for its four nodes
+// (`jp-nk-n`/`jp-kp-n`/`jp-sg-n`/`jp-chuo-n` — crossing-road abbreviation +
+// "-n") rather than the generic "-x-" form, since "kita" alone would collide
+// in spirit with the unrelated downtown `jp-kita-dori`.
+const jpHanamizuNodes = {
+  tsutsujiXYuri: node("jp-tsutsuji-x-yuri", -220, 750),
+  hanamizukiXYuri: node("jp-hanamizuki-x-yuri", -30, 750),
+  momoXYuri: node("jp-momo-x-yuri", 140, 750),
+  kosumosuXYuri: node("jp-kosumosu-x-yuri", 260, 750),
+  tsutsujiXAjisai: node("jp-tsutsuji-x-ajisai", -220, 1050),
+  hanamizukiXAjisai: node("jp-hanamizuki-x-ajisai", -30, 1050),
+  momoXAjisai: node("jp-momo-x-ajisai", 140, 1050),
+  kosumosuXAjisai: node("jp-kosumosu-x-ajisai", 260, 1050),
+  hanamizukiN: node("jp-hanamizuki-n", -30, 1140),
+};
+
 // --- River nodes (Phase 3): where the west/east riverside collectors ------
 // (jp-kawate-dori, jp-kawagishi-dori) cross the three bridges. Every bridge
 // is dead straight (constant z) so each crossing is a shared node at zero
@@ -602,8 +662,18 @@ const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   tokyoRoad("jp-yamashita-minami-dori", "Yamashita Minami-dōri", ["jp-nk-s", "jp-kp-s", "jp-sg-s"], 2, 7, 40),
   // Extends all the way to jp-chuo-n so Chūō-dōri-north's own far terminus
   // (its own spec's north end) closes into the ring instead of dead-ending —
-  // both are at z=1140, so the extra segment costs no bend.
-  tokyoRoad("jp-miyanosaka-kita-dori", "Miyanosaka Kita-dōri", ["jp-nk-n", "jp-kp-n", "jp-sg-n", "jp-chuo-n"], 2, 7, 40),
+  // both are at z=1140, so the extra segment costs no bend. "jp-hanamizuki-n"
+  // (Tokyo authenticity plan P5) is a NEW node spliced between jp-sg-n and
+  // jp-chuo-n — Hanamizu's own collector needed a real tee here (plan §6.2's
+  // mid-span-node procedure) and this was this road's own LAST segment
+  // before the insertion (only 3 nodes followed jp-kp-n), so nothing
+  // downstream renumbers; the only live reference into this road at all
+  // (`jp-miyanosaka-kita-dori-` grepped clean across app/game and tests) was
+  // trafficControlCharacterization.test.tsx's pinned arm slug for the
+  // jp-chuo-n signal's own approach from this direction (its immediate
+  // neighbour changes from jp-sg-n to jp-hanamizuki-n), re-baselined in the
+  // same commit.
+  tokyoRoad("jp-miyanosaka-kita-dori", "Miyanosaka Kita-dōri", ["jp-nk-n", "jp-kp-n", "jp-sg-n", "jp-hanamizuki-n", "jp-chuo-n"], 2, 7, 40),
   tokyoRoad("jp-setagaya-dori-west", "Setagaya-dōri", ["jp-nk-setagaya", "jp-kp-setagaya", "jp-ss-w"], 2, 10, 50),
   // "jp-koshu-x-nakasuji" (Tokyo authenticity plan P4) is a NEW node spliced
   // into this road's own LAST segment (jp-sg-koshu -> jp-chuo-x-koshu) — the
@@ -700,6 +770,21 @@ const TOKYO_EKIMAE_NISHI_SPECS: readonly TokyoRoadSpec[] = [
   tokyoRoad("jp-sakuramachi-dori", "Sakuramachi-dōri", ["jp-ni-r4-sg", "jp-tsukimi-x-sakuramachi", "jp-nakasuji-x-sakuramachi"], 2, 6.4, 30),
   tokyoRoad("jp-tsukimi-dori", "Tsukimi-dōri", ["jp-nw2", "jp-tsukimi-x-sakuramachi", "jp-tsukimi-x-ekimae-nishi"], 2, 6.4, 30),
   tokyoRoad("jp-nakasuji-dori", "Nakasuji-dōri", ["jp-nm2", "jp-nakasuji-x-sakuramachi", "jp-nakasuji-x-ekimae-nishi", "jp-koshu-x-nakasuji"], 2, 6.4, 30),
+];
+
+// --- Hanamizu residential web (Tokyo authenticity plan P5, Region A) -------
+// See `jpHanamizuNodes`'s own doc comment above for the full design
+// rationale. `jp-hanamizuki-dori` carries the collector tier (matching
+// Suzukake/Yanagi/Hato-dōri's `2, 7, 40`); every other road here is the
+// ordinary residential-local tier (`2, 6.4, 30`), same as the majority of
+// Miyanosaka/Yamashita/Nishi/Ekimae-nishi's own rungs.
+const TOKYO_HANAMIZU_SPECS: readonly TokyoRoadSpec[] = [
+  tokyoRoad("jp-yuri-dori", "Yuri-dōri", ["jp-mn-r2-sg", "jp-tsutsuji-x-yuri", "jp-hanamizuki-x-yuri", "jp-momo-x-yuri", "jp-kosumosu-x-yuri"], 2, 6.4, 30),
+  tokyoRoad("jp-ajisai-dori", "Ajisai-dōri", ["jp-mn-r5-sg", "jp-tsutsuji-x-ajisai", "jp-hanamizuki-x-ajisai", "jp-momo-x-ajisai", "jp-kosumosu-x-ajisai"], 2, 6.4, 30),
+  tokyoRoad("jp-hanamizuki-dori", "Hanamizuki-dōri", ["jp-koshu-x-nakasuji", "jp-hanamizuki-x-yuri", "jp-hanamizuki-x-ajisai", "jp-hanamizuki-n"], 2, 7, 40),
+  tokyoRoad("jp-tsutsuji-dori", "Tsutsuji-dōri", ["jp-tsutsuji-x-yuri", "jp-tsutsuji-x-ajisai"], 2, 6.4, 30),
+  tokyoRoad("jp-momo-dori", "Momo-dōri", ["jp-momo-x-yuri", "jp-momo-x-ajisai"], 2, 6.4, 30),
+  tokyoRoad("jp-kosumosu-dori", "Kosumosu-dōri", ["jp-kosumosu-x-yuri", "jp-kosumosu-x-ajisai"], 2, 6.4, 30),
 ];
 
 // --- The Sakuragawa's three bridges (Phase 3, R3) ---------------------------
@@ -810,7 +895,9 @@ const TOKYO_MIYANOSAKA_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-mn-r1-nk", "jp-mn-r1-nk", ["jp-nishi-kanjo-dori", "jp-mn-wakaba-dori"]),
   tokyoJunction("jp-jct-mn-r1-kp", "jp-mn-r1-kp", ["jp-kanpachi-dori", "jp-mn-wakaba-dori"]),
   tokyoJunction("jp-jct-mn-r2-kp", "jp-mn-r2-kp", ["jp-kanpachi-dori", "jp-mn-fujimi-dori"]),
-  tokyoJunction("jp-jct-mn-r2-sg", "jp-mn-r2-sg", ["jp-sangen-dori", "jp-mn-fujimi-dori"]),
+  // Tokyo authenticity plan P5 adds jp-yuri-dori as this node's 3rd arm
+  // (east) — Hanamizu's own western tee off Sangen-dōri.
+  tokyoJunction("jp-jct-mn-r2-sg", "jp-mn-r2-sg", ["jp-sangen-dori", "jp-mn-fujimi-dori", "jp-yuri-dori"]),
   tokyoJunction("jp-jct-mn-stem-n", "jp-mn-stem-n", ["jp-mn-fujimi-dori", "jp-mn-suzukake-yokocho"]),
   tokyoJunction("jp-jct-mn-coll-nk", "jp-mn-coll-nk", ["jp-nishi-kanjo-dori", "jp-mn-suzukake-dori"]),
   tokyoJunction("jp-jct-mn-coll-kp", "jp-mn-coll-kp", ["jp-kanpachi-dori", "jp-mn-suzukake-dori"]),
@@ -819,7 +906,9 @@ const TOKYO_MIYANOSAKA_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-mn-r4-nk", "jp-mn-r4-nk", ["jp-nishi-kanjo-dori", "jp-mn-sumire-dori"]),
   tokyoJunction("jp-jct-mn-r4-kp", "jp-mn-r4-kp", ["jp-kanpachi-dori", "jp-mn-sumire-dori"]),
   tokyoJunction("jp-jct-mn-r5-kp", "jp-mn-r5-kp", ["jp-kanpachi-dori", "jp-mn-momiji-dori"]),
-  tokyoJunction("jp-jct-mn-r5-sg", "jp-mn-r5-sg", ["jp-sangen-dori", "jp-mn-momiji-dori"]),
+  // Tokyo authenticity plan P5 adds jp-ajisai-dori as this node's 3rd arm
+  // (east) — Hanamizu's other western tee off Sangen-dōri.
+  tokyoJunction("jp-jct-mn-r5-sg", "jp-mn-r5-sg", ["jp-sangen-dori", "jp-mn-momiji-dori", "jp-ajisai-dori"]),
   tokyoJunction("jp-jct-mn-r7-nk", "jp-mn-r7-nk", ["jp-nishi-kanjo-dori", "jp-mn-kaede-dori"]),
   tokyoJunction("jp-jct-mn-r7-kp", "jp-mn-r7-kp", ["jp-kanpachi-dori", "jp-mn-kaede-dori"]),
 ];
@@ -880,7 +969,28 @@ const TOKYO_EKIMAE_NISHI_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-tsukimi-x-ekimae-nishi", "jp-tsukimi-x-ekimae-nishi", ["jp-tsukimi-dori", "jp-ekimae-nishi-dori"]),
   tokyoJunction("jp-jct-nakasuji-x-sakuramachi", "jp-nakasuji-x-sakuramachi", ["jp-nakasuji-dori", "jp-sakuramachi-dori"]),
   tokyoJunction("jp-jct-nakasuji-x-ekimae-nishi", "jp-nakasuji-x-ekimae-nishi", ["jp-nakasuji-dori", "jp-ekimae-nishi-dori"]),
-  tokyoJunction("jp-jct-koshu-x-nakasuji", "jp-koshu-x-nakasuji", ["jp-koshu-kaido", "jp-nakasuji-dori"]),
+  // Tokyo authenticity plan P5 adds jp-hanamizuki-dori as this node's 4th arm
+  // (north) — Hanamizu's own collector continues Nakasuji-dōri straight
+  // across Kōshū-kaidō (see jpHanamizuNodes's own doc comment for why this
+  // reuses the node Region B already split here instead of minting a new
+  // one).
+  tokyoJunction("jp-jct-koshu-x-nakasuji", "jp-koshu-x-nakasuji", ["jp-koshu-kaido", "jp-nakasuji-dori", "jp-hanamizuki-dori"]),
+];
+
+// Tokyo authenticity plan P5 (Region A). Every node below is brand new (this
+// phase's own nodes crossing each other), so none of these are edits to an
+// existing table row, unlike jp-jct-mn-r2-sg/jp-jct-mn-r5-sg/jp-jct-koshu-x-
+// nakasuji above.
+const TOKYO_HANAMIZU_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
+  tokyoJunction("jp-jct-tsutsuji-x-yuri", "jp-tsutsuji-x-yuri", ["jp-yuri-dori", "jp-tsutsuji-dori"]),
+  tokyoJunction("jp-jct-hanamizuki-x-yuri", "jp-hanamizuki-x-yuri", ["jp-yuri-dori", "jp-hanamizuki-dori"]),
+  tokyoJunction("jp-jct-momo-x-yuri", "jp-momo-x-yuri", ["jp-yuri-dori", "jp-momo-dori"]),
+  tokyoJunction("jp-jct-kosumosu-x-yuri", "jp-kosumosu-x-yuri", ["jp-yuri-dori", "jp-kosumosu-dori"]),
+  tokyoJunction("jp-jct-tsutsuji-x-ajisai", "jp-tsutsuji-x-ajisai", ["jp-ajisai-dori", "jp-tsutsuji-dori"]),
+  tokyoJunction("jp-jct-hanamizuki-x-ajisai", "jp-hanamizuki-x-ajisai", ["jp-ajisai-dori", "jp-hanamizuki-dori"]),
+  tokyoJunction("jp-jct-momo-x-ajisai", "jp-momo-x-ajisai", ["jp-ajisai-dori", "jp-momo-dori"]),
+  tokyoJunction("jp-jct-kosumosu-x-ajisai", "jp-kosumosu-x-ajisai", ["jp-ajisai-dori", "jp-kosumosu-dori"]),
+  tokyoJunction("jp-jct-hanamizuki-n", "jp-hanamizuki-n", ["jp-miyanosaka-kita-dori", "jp-hanamizuki-dori"]),
 ];
 
 // --- River crossings (Phase 3): kawate-dori/kawagishi-dori's own
@@ -928,6 +1038,7 @@ const jpGenNodeById = new Map<string, LaneNode>(
     ...Object.values(jpYamashitaNodes),
     ...Object.values(jpNishiNodes),
     ...Object.values(jpEkimaeNishiNodes),
+    ...Object.values(jpHanamizuNodes),
     ...Object.values(jpRiverNodes),
     ...Object.values(jpEastNodes),
   ].map((item) => [item.id, item]),
@@ -1010,6 +1121,7 @@ const tokyoRoadSpecs: readonly TokyoRoadSpec[] = [
   ...TOKYO_YAMASHITA_SPECS,
   ...TOKYO_NISHI_SPECS,
   ...TOKYO_EKIMAE_NISHI_SPECS,
+  ...TOKYO_HANAMIZU_SPECS,
   ...TOKYO_RIVER_SPECS,
   ...TOKYO_EAST_SPECS,
 ];
@@ -1019,6 +1131,7 @@ const tokyoJunctionConnectors: readonly TokyoJunctionConnectorSpec[] = [
   ...TOKYO_YAMASHITA_CONNECTORS,
   ...TOKYO_NISHI_CONNECTORS,
   ...TOKYO_EKIMAE_NISHI_CONNECTORS,
+  ...TOKYO_HANAMIZU_CONNECTORS,
   ...TOKYO_RIVER_CONNECTORS,
   ...TOKYO_EAST_CONNECTORS,
 ];
@@ -2554,6 +2667,7 @@ export type TokyoBlockZone =
   | "yamashita"
   | "nishi"
   | "ekimae-nishi"
+  | "hanamizu"
   | "higashi"
   | "ring"
   | "riverside"
@@ -2622,6 +2736,13 @@ const TOKYO_ZONE_STYLE: Readonly<Record<TokyoBlockZone, TokyoZoneStyle>> = {
   // this below (`TOKYO_ROAD_STYLE_OVERRIDE`), mirroring how `jp-chuo-dori`
   // overrides `downtown`'s own base.
   "ekimae-nishi": { materials: ["wood-plaster", "plaster"], heightRange: [5, 14], density: 0.85, depthM: 30 },
+  // Hanamizu (Tokyo authenticity plan P5, Region A): a pure-residential web
+  // like miyanosaka/yamashita/ekimae-nishi, nowhere near the scramble's fog
+  // bubble — clone of miyanosaka's own numbers verbatim, per the plan's own
+  // general rule (§6.2) and this phase's own brief ("not the Phase-10-cut
+  // lower densities since this web is nowhere near the scramble's fog
+  // bubble").
+  hanamizu: { materials: ["wood-plaster", "plaster"], heightRange: [5, 14], density: 0.85, depthM: 30 },
   // East bank: mixed mid-rise per §8.8. Original density — also far from the
   // scramble; reverted for the same reason as the three webs above.
   higashi: { materials: ["plaster", "concrete"], heightRange: [8, 22], density: 0.75, depthM: 32 },
@@ -2737,6 +2858,7 @@ const TOKYO_ZONE_ENTRIES: readonly (readonly [string, TokyoBlockZone])[] = [
   ...TOKYO_YAMASHITA_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "yamashita"]),
   ...TOKYO_NISHI_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "nishi"]),
   ...TOKYO_EKIMAE_NISHI_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "ekimae-nishi"]),
+  ...TOKYO_HANAMIZU_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "hanamizu"]),
   ...TOKYO_HIGASHI_WEB_ROAD_IDS.map((id): readonly [string, TokyoBlockZone] => [id, "higashi"]),
   ...TOKYO_RIVERSIDE_ROAD_IDS.map((id): readonly [string, TokyoBlockZone] => [id, "riverside"]),
   ...TOKYO_DOWNTOWN_ROAD_IDS.map((id): readonly [string, TokyoBlockZone] => [id, "downtown"]),
@@ -2825,7 +2947,7 @@ const tokyoRoadsideBuildingSet = (
   roadId: string,
 ): string | undefined => {
   if (roadId === "jp-nakamise-yokocho" || roadId === "jp-ekimae-nishi-dori") return "tokyo-shotengai";
-  if (zone === "miyanosaka" || zone === "yamashita" || zone === "nishi" || zone === "ekimae-nishi") return "tokyo-house";
+  if (zone === "miyanosaka" || zone === "yamashita" || zone === "nishi" || zone === "ekimae-nishi" || zone === "hanamizu") return "tokyo-house";
   if (zone === "downtown" || zone === "ring") return "tokyo-zakkyo";
   if (zone === "riverside" || zone === "higashi") return "tokyo-manshon";
   return undefined;
@@ -3480,6 +3602,14 @@ export const TOKYO_MAP_PACK: MapPack = {
       { id: "jp-v51", kind: "shop", anchor: { laneId: "jp-sakuramachi-dori-1-forward-1", distanceAlongM: 150 }, footprint: point(12, 9), name: "Sakuramachi Bakery" },
       { id: "jp-v52", kind: "shop", anchor: { laneId: "jp-tsukimi-dori-2-forward-1", distanceAlongM: 50 }, footprint: point(12, 9), name: "Ekimae-Nishi Stationery" },
       { id: "jp-v53", kind: "residence", anchor: { laneId: "jp-nakasuji-dori-1-reverse-1", distanceAlongM: 40 }, footprint: point(12, 10), name: "Nakasuji Flats" },
+      // Hanamizu (Tokyo authenticity plan P5, Region A): the konbini +
+      // restaurant pair at the collector corner (plan §6.4) — both anchors
+      // solver-verified against the real resolveVenuePlacement (never a hand
+      // estimate) to land inside a real buildingSet block, comfortably clear
+      // of every other venue/service point already on the map (>250 m here,
+      // a brand-new district) and >=22 m from each other (41.3 m).
+      { id: "jp-v54", kind: "shop", anchor: { laneId: "jp-hanamizuki-dori-1-forward-1", distanceAlongM: 170 }, footprint: point(12, 9), name: "Hoshi Mart Hanamizu" },
+      { id: "jp-v55", kind: "restaurant", anchor: { laneId: "jp-yuri-dori-2-forward-1", distanceAlongM: 160 }, footprint: point(12, 9), name: "Hanamizu Shokudō" },
     ],
     landmarks: [
       { id: "jp-gotokuji-station", kind: "station", center: point(-14, 6), size: point(20, 9), color: "#e85e59" },

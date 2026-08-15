@@ -862,15 +862,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (`landmark-jp-<id>`, one per new landmark regardless of style) — the
     // real, measured total below is not in doubt; only the itemised
     // breakdown is left for a future pass to confirm.
-    totalMeshes: 10_808,
-    enabledMeshes: 10_808,
-    activeMeshes: 965,
-    materials: 258,
+    totalMeshes: 11_722,
+    enabledMeshes: 11_722,
+    activeMeshes: 931,
+    materials: 262,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 162,
-    mirrorDrawn: 218,
+    mirrorCandidates: 168,
+    mirrorDrawn: 222,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -921,7 +921,26 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "48512f9d" -> "70de85d2": Phase 9's +15 materials above.
     // "70de85d2" -> "a630aab2": Tokyo authenticity plan P4's +16 materials
     // above (Region B).
-    survivingMaterialNamesFingerprint: "a630aab2",
+    // -> Tokyo authenticity plan P5 (Region A): totalMeshes/enabledMeshes
+    // 10_808 -> 11_722 (+914) is six new roads' worth of asphalt/kerb/
+    // junction-fill/pavement-rail geometry, one mid-span node insertion's
+    // resegmented parcels on `jp-miyanosaka-kita-dori`, the new `hanamizu`
+    // zone's own street-wall parcels (`tokyo-house`, the same set
+    // miyanosaka/yamashita/nishi/ekimae-nishi already use — no new building
+    // material), and 2 new venues. materials 258 -> 262 (+4): confirmed by
+    // dumping `survivingMaterialNames` and diffing — the two venues'
+    // own signage materials plus the collector's stop-controlled junctions
+    // reusing already-shared stop-sign/pole materials contribute the small,
+    // fixed handful the file's own P4 paragraph above already established
+    // as the right order of magnitude per venue; no new speed-limit plate
+    // (30/40 km/h both already used elsewhere on the map). activeMeshes
+    // 965 -> 931 and mirrorCandidates/mirrorDrawn 162/218 -> 168/222 all
+    // shift because the fixed test pose's mirror-cull frustum now includes
+    // a different slice of the larger network, the same class of drift
+    // every prior phase's own paragraph describes — the real, measured
+    // totals below are not in doubt; only the itemised breakdown is left
+    // for a future pass to confirm, same caveat as Region B's own entry.
+    survivingMaterialNamesFingerprint: "78df1bca",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

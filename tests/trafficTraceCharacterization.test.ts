@@ -148,7 +148,14 @@ describe("ambient traffic trace characterization", () => {
       // `jp-kita-dori-w`), which changes the legal successor set (and so the
       // routing) of ambient traffic already passing through them, not just
       // traffic on the new roads themselves. No new spawns this phase.
-      "free-jp": "4c4d6b14",
+      // Moves again for the Tokyo authenticity plan's P5 (Region A): six new
+      // roads (83 -> 89) and 30 new lanes add their own generated stop
+      // controls at nine brand-new junctions, and three EXISTING sangen-dori/
+      // koshu-kaido nodes (`jp-mn-r2-sg`, `jp-mn-r5-sg`, `jp-koshu-x-nakasuji`)
+      // gain a real new arm for the first time, the same "existing node's
+      // successor set changes" effect Region B's own paragraph above
+      // describes. No new spawns this phase either.
+      "free-jp": "4c0c3e8b",
       "free-eg": "eb350f99",
     });
   });

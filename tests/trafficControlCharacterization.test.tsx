@@ -550,11 +550,17 @@ const EXPECTED_TOKYO_TRAFFIC_CONTROL_MESH_NAMES = [
   "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-chuo-dori-north-chuo-x-koshu-head-housing",
   "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-chuo-dori-north-chuo-x-koshu-head-pole",
   "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-chuo-dori-north-chuo-x-koshu-head-red",
-  "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-miyanosaka-kita-dori-sg-n-head-amber",
-  "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-miyanosaka-kita-dori-sg-n-head-green",
-  "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-miyanosaka-kita-dori-sg-n-head-housing",
-  "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-miyanosaka-kita-dori-sg-n-head-pole",
-  "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-miyanosaka-kita-dori-sg-n-head-red",
+  // Tokyo authenticity plan P5's mid-span insertion into
+  // jp-miyanosaka-kita-dori (jp-hanamizuki-n, between jp-sg-n and
+  // jp-chuo-n) renames this arm: jp-chuo-n's immediate neighbour toward
+  // jp-sg-n is now jp-hanamizuki-n. jp-kp-n's own sg-n-suffixed arm further
+  // down this same file is UNCHANGED — jp-sg-n is still its true immediate
+  // neighbour, the insertion happens further along the road, past jp-sg-n.
+  "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-miyanosaka-kita-dori-hanamizuki-n-head-amber",
+  "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-miyanosaka-kita-dori-hanamizuki-n-head-green",
+  "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-miyanosaka-kita-dori-hanamizuki-n-head-housing",
+  "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-miyanosaka-kita-dori-hanamizuki-n-head-pole",
+  "jp-gen-signal-jp-chuo-n-jp-gen-signal-jp-chuo-n-jp-miyanosaka-kita-dori-hanamizuki-n-head-red",
   "jp-gen-signal-jp-chuo-x-ekimae-jp-gen-signal-jp-chuo-x-ekimae-diagonal-1-stripe-0",
   "jp-gen-signal-jp-chuo-x-ekimae-jp-gen-signal-jp-chuo-x-ekimae-diagonal-1-stripe-1",
   "jp-gen-signal-jp-chuo-x-ekimae-jp-gen-signal-jp-chuo-x-ekimae-diagonal-1-stripe-2",
