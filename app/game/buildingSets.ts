@@ -205,28 +205,26 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   // every LOW/MED-confidence entry below with a live drive-by before P2
   // places any of them.
   "tokyo-house-a": {
-    // Confidence: HIGH — re-confirmed live (Tokyo authenticity plan P2, as
-    // the catalogue's own header instructed before P2 ever placed one of
-    // these). The P1 measurement's signal (a "consistent, fairly strong +X
-    // mass-centroid offset (0.31, vs 0.08 on Z)" across all three
-    // same-author houses a/b/c) was real, but its CONCLUSION was backwards:
-    // a live drive-by at frontOffset Math.PI/2 showed the entrance (door +
-    // steps + two windows) squarely on world +X, not on the outward-facing
-    // side the parcel needed — i.e. the model's real front was on the
-    // DEFAULT local -Z all along (frontOffset 0, no rotation), and the +X
-    // mass pull the blind heuristic found was something else (a garage-like
-    // ridged panel, visually confirmed on the model's -X side) that outweighs
-    // the entrance in vertex count without being it. house-c shares this
-    // exact fix (0); house-b does NOT (-Math.PI/2, its own comment) — "same
-    // author/series/signal" predicted a shared blind-measurement MISTAKE,
-    // not a shared correct answer, so each of the three was live-checked
-    // individually rather than assumed. See tests/tokyoContent.test.ts's
-    // re-baselined coverage numbers for the knock-on effect.
+    // Confidence: VERIFIED -PI/2 (2026-08-15, four-side chase-cam probe of
+    // an isolated placement: the entrance — wooden door under a brick
+    // canopy, beside the shutter panel — sits on local -X; the -Z face is
+    // an eave side with windows and the +-X-adjacent faces include a blank
+    // gable end). So P1's "+X mass-centroid offset" signal was pointing at
+    // the right AXIS after all (the entrance axis), and P2's live
+    // "re-confirmation" of 0 was the drive-by protocol artifact
+    // (forward-facing chase camera shows the faces pointing ALONG the
+    // street — the faces 90 degrees off the road — see tokyo-apato-a's
+    // comment for the full story; the owner caught the resulting sideways
+    // rows on a live street). house-b/c/d each re-probed the same day and
+    // confirmed UNCHANGED — b's own P2 check already used the sound
+    // perpendicular viewpoint, c's door probes squarely on its data-front,
+    // d's P1 door-submesh measurement is geometric. footprintM/depthM
+    // swapped with the quarter-turn.
     scale: 0.01,
     groundY: 0.02,
-    footprintM: 8.11,
-    depthM: 9.21,
-    frontOffset: 0,
+    footprintM: 9.21,
+    depthM: 8.11,
+    frontOffset: -Math.PI / 2,
   },
   "tokyo-house-b": {
     // Confidence: HIGH — re-confirmed live (P2), but NOT the same fix as
@@ -246,11 +244,11 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
     frontOffset: -Math.PI / 2,
   },
   "tokyo-house-c": {
-    // Confidence: HIGH — re-confirmed live (P2); shares house-a's fix (0),
-    // confirmed independently rather than assumed (see house-b's own
-    // comment for why the assumption alone isn't trustworthy) — a live
-    // drive-by at frontOffset 0 showed a door + vent squarely on the
-    // parcel's outward-facing side.
+    // Confidence: VERIFIED 0 (2026-08-15 four-side probe of an isolated
+    // placement: the door + vent strip probe squarely on the data-front
+    // face, so this P2 verdict survives the drive-by-protocol audit that
+    // overturned house-a and apato-a the same day — see tokyo-apato-a's
+    // comment for the protocol lesson).
     scale: 0.01,
     groundY: 0.0,
     footprintM: 11.45,
@@ -280,21 +278,25 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
     frontOffset: 0,
   },
   "tokyo-apato-a": {
-    // Confidence: HIGH (was LOW; re-confirmed live in P2 — a drive-by
-    // showed the decorated ground-floor frontage, shop shutters, vending
-    // machine and signage squarely on the parcel's outward side, no change
-    // needed — the no-evidence default happened to be right). No door
-    // submesh; the one positional signal (a bundled "PSX Vending Machine"
-    // prop, kept as authentic Setagaya street furniture per the plan's own
-    // section 4.3) sits in a CORNER, not centred on one edge (offsetFrac
-    // x=0.34, z=0.35 — comparable magnitudes, no dominant axis), so it
-    // doesn't resolve which side is "front" — hence the codebase's own
-    // no-evidence baseline (front already on local -Z, no rotation).
+    // Confidence: VERIFIED -PI/2 (2026-08-15, four-side chase-cam probe of
+    // an isolated placement — the real front is the tobacco-shop storefront
+    // (red sign board, shutters, door), and it sits on local -X, not the
+    // -Z the previous value assumed). P2's "HIGH, re-confirmed live"
+    // verdict was a protocol artifact: a DRIVE-BY judges a row through a
+    // forward-facing chase camera, which shows the faces pointing ALONG
+    // the street — i.e. exactly the faces 90 degrees off the road — so a
+    // model rotated a quarter-turn photographs as "decorated frontage
+    // squarely outward". The owner caught the result on a live street
+    // (whole rows presenting brick/graffiti flanks to the kerb). Facing
+    // checks must stand PERPENDICULAR to the parcel across the street, or
+    // better: probe one lone placement from all four compass points, the
+    // way tokyo-konbini's P10 fix established. footprintM/depthM swapped
+    // with the quarter-turn, same as the izakaya/shop-b +-PI/2 precedent.
     scale: 1,
     groundY: 0,
-    footprintM: 7.39,
-    depthM: 4.79,
-    frontOffset: 0,
+    footprintM: 4.79,
+    depthM: 7.39,
+    frontOffset: -Math.PI / 2,
   },
   "tokyo-apato-b": {
     // Confidence: LOW-MED. No door submesh (purely architectural node
