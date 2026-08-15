@@ -184,7 +184,12 @@ describe("ambient traffic trace characterization", () => {
       // changes" effect every earlier region's own paragraph describes, this
       // time across two separate rings/arterials at once. No new spawns this
       // phase.
-      "free-jp": "190980a3",
+      // Moves for the rail feature: the two `railway_signal` crossings stop
+      // free-running their 18 s dummy cycle and follow `jp-setagaya-line-run`'s
+      // authored timetable (rail-driven `trafficLightTiming` branch), so every
+      // hashed crossing-light state — and every NPC hold at the crossings —
+      // lands at different ticks. Same roads, lanes, spawns and gates.
+      "free-jp": "3eb33b56",
       "free-eg": "eb350f99",
     });
   });

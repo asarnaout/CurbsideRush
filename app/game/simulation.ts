@@ -40,6 +40,13 @@ export type {
   TrafficLightSequence,
   TrafficLightState,
 };
+import type {
+  SimulationRailLine,
+  SimulationRailSchedule,
+} from "./simulation/railSchedule";
+// Re-exported for the same reason: the adapter and renderer name rail types
+// through the facade; the math itself stays in railSchedule.ts.
+export type { SimulationRailLine, SimulationRailSchedule };
 import {
   angleDifference,
   clamp,
@@ -143,6 +150,8 @@ export interface SimulationCoreConfig {
   readonly spawn?: SimulationPose;
   readonly trafficLights?: readonly TrafficLightDefinition[];
   readonly stopLines?: readonly StopLineDefinition[];
+  /** Rail timetables driving `rail`-tied crossing heads; see railSchedule.ts. */
+  readonly railLines?: readonly SimulationRailLine[];
   readonly trafficGates?: readonly SimulationTrafficGate[];
   /** Minimum player-to-gate distance for deferred runtime activation. */
   readonly minRuntimeSpawnDistanceM?: number;
@@ -432,6 +441,7 @@ export class SimulationCore {
       configuration.lanes ?? [],
       configuration.trafficLights ?? [],
       configuration.stopLines ?? [],
+      configuration.railLines ?? [],
     );
 
     const defaultSpawnLane =

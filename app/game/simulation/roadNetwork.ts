@@ -1,5 +1,12 @@
 import type { SimulationPoint, SimulationPose, SimulationBounds, TurnSignal } from "../simulation";
 import { clamp, distanceSquared } from "./mathUtils";
+import {
+  railCrossingSignalAt,
+  railCrossingWarningWindows,
+  railCyclePeriodSeconds,
+  type RailCrossingWindow,
+  type SimulationRailLine,
+} from "./railSchedule";
 
 /**
  * The static, authored road graph — lanes, traffic lights, and stop lines —
@@ -60,6 +67,17 @@ export interface TrafficLightDefinition extends SimulationPoint {
   /** Lights in one approach share a phase-group identifier. */
   readonly phaseGroup?: string;
   readonly cycle?: Partial<TrafficLightCycle>;
+  /**
+   * Present on a level-crossing head tied to an authored rail line: the
+   * light then ignores `cycle` and derives red/green from the line's
+   * timetable (`railSchedule.ts`), so the lamps, the NPC hold and the
+   * citation can never disagree with where the train actually is. A
+   * railway head *without* this keeps the legacy free-running cycle.
+   */
+  readonly rail?: {
+    readonly lineId: string;
+    readonly crossingDistanceM: number;
+  };
 }
 
 export interface StopLineDefinition {
@@ -107,6 +125,13 @@ export interface NormalizedTrafficLight extends SimulationPoint {
   id: string;
   phaseGroup: string;
   cycle: TrafficLightCycle;
+  /** Precomputed timetable view for a rail-driven head: the crossing's
+   * warning windows folded into one period. Absent on ordinary signals. */
+  rail?: {
+    windows: readonly RailCrossingWindow[];
+    periodSeconds: number;
+    offsetSeconds: number;
+  };
 }
 
 export interface LaneProjection {
@@ -179,12 +204,25 @@ function buildConflictApproachLaneIds(lanes: readonly NormalizedLane[]): Set<str
   return result;
 }
 
-function normalizeTrafficLight(light: TrafficLightDefinition): NormalizedTrafficLight {
+function normalizeTrafficLight(
+  light: TrafficLightDefinition,
+  railLinesById: ReadonlyMap<string, SimulationRailLine>,
+): NormalizedTrafficLight {
+  const railLine = light.rail ? railLinesById.get(light.rail.lineId) : undefined;
   return {
     id: light.id,
     phaseGroup: light.phaseGroup ?? light.id,
     x: light.x,
     z: light.z,
+    ...(railLine && light.rail
+      ? {
+          rail: {
+            windows: railCrossingWarningWindows(railLine, light.rail.crossingDistanceM),
+            periodSeconds: railCyclePeriodSeconds(railLine),
+            offsetSeconds: railLine.schedule.offsetSeconds ?? 0,
+          },
+        }
+      : {}),
     cycle: {
       greenSeconds: clamp(light.cycle?.greenSeconds ?? 9, 1, 120),
       amberSeconds: clamp(light.cycle?.amberSeconds ?? 2, 0.5, 10),
@@ -257,6 +295,7 @@ export class RoadNetwork {
     lanes: readonly SimulationLane[],
     trafficLights: readonly TrafficLightDefinition[],
     stopLines: readonly StopLineDefinition[],
+    railLines: readonly SimulationRailLine[] = [],
   ) {
     this.lanes = lanes.map(normalizeLane);
     this.lanesById = new Map(this.lanes.map((lane) => [lane.id, lane]));
@@ -273,7 +312,10 @@ export class RoadNetwork {
     }
     this.conflictApproachLaneIds = buildConflictApproachLaneIds(this.lanes);
 
-    this.trafficLights = trafficLights.map(normalizeTrafficLight);
+    const railLinesById = new Map(railLines.map((line) => [line.id, line]));
+    this.trafficLights = trafficLights.map((light) =>
+      normalizeTrafficLight(light, railLinesById),
+    );
     this.trafficLightsById = new Map(this.trafficLights.map((light) => [light.id, light]));
 
     this.stopLines = stopLines
@@ -448,6 +490,21 @@ export class RoadNetwork {
     light: NormalizedTrafficLight,
     elapsedSeconds: number,
   ): { state: TrafficLightState; secondsUntilChange: number } {
+    if (light.rail) {
+      // A level-crossing head reports plain red/green from the timetable —
+      // no amber, matching how real crossing lamps behave. Every consumer
+      // already keys railway stop lines on `state !== "green"`.
+      const signal = railCrossingSignalAt(
+        light.rail.windows,
+        light.rail.periodSeconds,
+        light.rail.offsetSeconds,
+        elapsedSeconds,
+      );
+      return {
+        state: signal.warningActive ? "red" : "green",
+        secondsUntilChange: signal.secondsUntilChange,
+      };
+    }
     const {
       greenSeconds,
       amberSeconds,

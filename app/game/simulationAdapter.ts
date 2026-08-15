@@ -4,6 +4,7 @@ import type {
   SimulationCoreConfig,
   SimulationLane,
   SimulationPoint,
+  SimulationRailLine,
   SimulationTrafficGate,
   StopLineDefinition,
   TrafficLightDefinition,
@@ -290,6 +291,88 @@ function projectDistanceAlongLane(
   return Number.isFinite(bestDistance) ? bestDistanceAlong : null;
 }
 
+function projectDistanceAlongPolyline(
+  points: readonly SimulationPoint[],
+  point: SimulationPoint,
+): number | null {
+  if (points.length < 2) return null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestDistanceAlong = 0;
+  let accumulated = 0;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 0.001) continue;
+    const amount = Math.min(
+      1,
+      Math.max(0, ((point.x - start.x) * dx + (point.z - start.z) * dz) / (length * length)),
+    );
+    const x = start.x + dx * amount;
+    const z = start.z + dz * amount;
+    const distance = Math.hypot(point.x - x, point.z - z);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestDistanceAlong = accumulated + length * amount;
+    }
+    accumulated += length;
+  }
+  return Number.isFinite(bestDistance) ? bestDistanceAlong : null;
+}
+
+function polylineLengthM(points: readonly SimulationPoint[]): number {
+  let length = 0;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    length += Math.hypot(
+      points[index + 1].x - points[index].x,
+      points[index + 1].z - points[index].z,
+    );
+  }
+  return length;
+}
+
+/**
+ * Authored rail lines → the simulation's timetable view, plus each listed
+ * crossing control projected onto its line. A `railway_signal` control the
+ * map ties to a line stops free-running and follows the timetable; one no
+ * line claims keeps the legacy fixed cycle (several tests author bare
+ * railway controls that way on purpose).
+ */
+export function buildRailLines(mapPack: GameCanvasMapPack): {
+  readonly lines: SimulationRailLine[];
+  readonly crossingByControlId: ReadonlyMap<
+    string,
+    { readonly lineId: string; readonly crossingDistanceM: number }
+  >;
+} {
+  const lines: SimulationRailLine[] = [];
+  const crossingByControlId = new Map<
+    string,
+    { lineId: string; crossingDistanceM: number }
+  >();
+  const controlsById = new Map(
+    mapPack.laneGraph.controls.map((control) => [control.id, control]),
+  );
+  for (const rail of mapPack.geometry.railLines ?? []) {
+    const lengthM = polylineLengthM(rail.points);
+    if (lengthM <= 1) continue;
+    lines.push({ id: rail.id, lengthM, schedule: rail.schedule });
+    for (const controlId of rail.crossingControlIds) {
+      const control = controlsById.get(controlId);
+      if (!control || control.type !== "railway_signal") continue;
+      const crossingDistanceM = projectDistanceAlongPolyline(
+        rail.points,
+        control.position,
+      );
+      if (crossingDistanceM === null) continue;
+      crossingByControlId.set(controlId, { lineId: rail.id, crossingDistanceM });
+    }
+  }
+  return { lines, crossingByControlId };
+}
+
 function inferVehicleVariant(spawnId: string): NpcVehicleVariant | undefined {
   const value = spawnId.toLowerCase();
   if (value.includes("police") || value.includes("patrol")) return "police";
@@ -301,6 +384,10 @@ function inferVehicleVariant(spawnId: string): NpcVehicleVariant | undefined {
 
 function buildTrafficLights(
   mapPack: GameCanvasMapPack,
+  railCrossingByControlId: ReadonlyMap<
+    string,
+    { readonly lineId: string; readonly crossingDistanceM: number }
+  > = new Map(),
 ): {
   readonly lights: TrafficLightDefinition[];
   readonly stopLines: StopLineDefinition[];
@@ -357,11 +444,18 @@ function buildTrafficLights(
         approach.stopLine,
       );
       if (!stopPose) continue;
+      const railCrossing = isRailway
+        ? railCrossingByControlId.get(control.id)
+        : undefined;
       lights.push({
         id: approach.id,
         phaseGroup: approach.phaseGroup,
         x: stopPose.x,
         z: stopPose.z,
+        // With `rail` set the cycle below is dead weight the timing branch
+        // never reads; it stays authored so an unmapped crossing (no rail
+        // line claims the control) degrades to the legacy free-run loop.
+        ...(railCrossing ? { rail: railCrossing } : {}),
         cycle: {
           greenSeconds,
           amberSeconds,
@@ -1229,7 +1323,8 @@ export function buildSimulationCoreConfig({
       successorLaneIds: lane.successors ?? [],
       loop: false,
     }));
-  const traffic = buildTrafficLights(mapPack);
+  const rail = buildRailLines(mapPack);
+  const traffic = buildTrafficLights(mapPack, rail.crossingByControlId);
   const stopLines = [
     ...traffic.stopLines,
     ...buildStopAndYieldLines(mapPack),
@@ -1258,6 +1353,7 @@ export function buildSimulationCoreConfig({
     spawn: { x: start.x, z: start.z, heading: start.heading },
     trafficLights: traffic.lights,
     stopLines,
+    railLines: rail.lines,
     trafficGates: buildTrafficGates(mapPack),
     minRuntimeSpawnDistanceM: 70,
     scenarioClock: scenario.scenarioClock,

@@ -225,6 +225,27 @@ export interface GameCanvasMapPack {
       readonly flowHeadingDeg?: number;
       readonly bridgePortalSurfaceIds?: readonly string[];
     }[];
+    railLines?: readonly {
+      readonly id: string;
+      readonly points: readonly GameCanvasPoint[];
+      readonly corridorHalfWidthM: number;
+      readonly crossingControlIds: readonly string[];
+      readonly schedule: {
+        readonly mode: "shuttle" | "through";
+        readonly speedMps: number;
+        readonly trainLengthM: number;
+        readonly headwaySeconds?: number;
+        readonly dwellSeconds?: number;
+        readonly offsetSeconds?: number;
+        readonly warningLeadSeconds: number;
+        readonly clearTrailSeconds: number;
+      };
+      readonly elevatedSpans?: readonly {
+        readonly startM: number;
+        readonly endM: number;
+        readonly kind: "bridge" | "viaduct";
+      }[];
+    }[];
     landmarks: readonly {
       readonly id: string;
       readonly kind: string;

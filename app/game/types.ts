@@ -518,6 +518,52 @@ export interface GigVenue {
   readonly modelId?: string;
 }
 
+/** Timetable for one rail line; mirrored structurally into the simulation's
+ * `SimulationRailSchedule` by the adapter. Times are simulation seconds. */
+export interface RailLineSchedule {
+  readonly mode: "shuttle" | "through";
+  readonly speedMps: number;
+  readonly trainLengthM: number;
+  /** `through` only: seconds between same-direction departures. */
+  readonly headwaySeconds?: number;
+  /** `shuttle` only: seconds held at each terminus. */
+  readonly dwellSeconds?: number;
+  readonly offsetSeconds?: number;
+  readonly warningLeadSeconds: number;
+  readonly clearTrailSeconds: number;
+}
+
+/** A stretch of the line, by distance along it, carried on a structure
+ * instead of ballast at grade: a water bridge or a viaduct over streets. */
+export interface RailElevatedSpan {
+  readonly startM: number;
+  readonly endM: number;
+  readonly kind: "bridge" | "viaduct";
+}
+
+/**
+ * One railway per map, at most. The polyline is the track centreline in
+ * world metres; everything else in the game derives from it:
+ *  - the simulation projects each listed `railway_signal` control onto the
+ *    line and drives that crossing's lamps/barriers/citations from the
+ *    timetable (`simulationAdapter.buildRailLines`);
+ *  - the renderer lays ballast/rails/sleepers along it and moves the train
+ *    on it;
+ *  - the corridor (`corridorHalfWidthM` each side) is a build keep-out that
+ *    parcel generators and the content audit enforce — the guarantee that
+ *    tracks never run through a building.
+ */
+export interface RailLine {
+  readonly id: string;
+  readonly points: readonly WorldPoint[];
+  /** Reserved right-of-way half-width, track plus structure clearance. */
+  readonly corridorHalfWidthM: number;
+  /** `railway_signal` controls that are this line's level crossings. */
+  readonly crossingControlIds: readonly string[];
+  readonly schedule: RailLineSchedule;
+  readonly elevatedSpans?: readonly RailElevatedSpan[];
+}
+
 export interface ProceduralMapGeometry {
   readonly worldSize: WorldPoint;
   readonly roadWidth: number;
@@ -526,6 +572,7 @@ export interface ProceduralMapGeometry {
   readonly waterBodies?: readonly WaterBody[];
   readonly blocks: readonly ProceduralBlock[];
   readonly landmarks: readonly ProceduralLandmark[];
+  readonly railLines?: readonly RailLine[];
   readonly servicePoints?: readonly ServicePoint[];
   readonly gigVenues?: readonly GigVenue[];
 }

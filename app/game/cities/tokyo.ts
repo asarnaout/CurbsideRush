@@ -4522,6 +4522,36 @@ export const TOKYO_MAP_PACK: MapPack = {
       // rotationally symmetric, same as jp-carrot-tower above.
       { id: "jp-hikari-tower", kind: "tower", center: point(1053, 140), size: point(44, 44), color: "#c2703a" },
     ],
+    // The Setagaya Line as an actual railway (rail feature, phase B): one
+    // polyline from the Gotokuji terminus stub, south across Yamashita St
+    // (jp-rail-signal — the level crossing by spawn), around the corner and
+    // east along z=-10 across Ichiban-dōri (jp-rail-signal-2). The timetable
+    // drives both crossings' lamps/barriers/citations and the visible tram
+    // (see docs/simulation-core.md). v0 ends at x=280 exactly where the old
+    // decal landmarks above end; the eastward extension to the Sakuragawa
+    // and the east bank lands with the corridor surgery.
+    railLines: [
+      {
+        id: "jp-setagaya-line-run",
+        points: [
+          point(18, -112),
+          point(18, -18),
+          point(20.3, -12.3),
+          point(26, -10),
+          point(280, -10),
+        ],
+        corridorHalfWidthM: 4.5,
+        crossingControlIds: ["jp-rail-signal", "jp-rail-signal-2"],
+        schedule: {
+          mode: "shuttle",
+          speedMps: 8.5,
+          trainLengthM: 25,
+          dwellSeconds: 22,
+          warningLeadSeconds: 8,
+          clearTrailSeconds: 1.5,
+        },
+      },
+    ],
   },
   laneGraph: graph(
     [...jpNodesList, ...tokyoGenNodeList],
