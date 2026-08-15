@@ -402,6 +402,71 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
     groundY: 0.038,
   },
   office: { url: `${P}/office.glb`, scale: 2.8, yawOffset: Math.PI / 2 },
+
+  // ---- Tokyo authenticity plan P9 ("venue models' final polish") ----
+  // `tokyo-konbini`/`tokyo-izakaya`/`tokyo-ramen` were catalogued since P1
+  // but never wired as a venue's own `modelId` — every "Hoshi Mart"/ramen/
+  // izakaya gig venue rendered through the generic `shop`/`restaurant`
+  // fallback. Facing measured fresh, in THIS frame specifically (a NullEngine
+  // probe replicating instantiateProp's own transform: instantiate, parent
+  // under a holder rotated by yawOffset alone, overwrite root scaling to
+  // (scale,scale,scale)) rather than translated from buildingSets.ts's own
+  // PLACEMENTS entries for the same three models — cross-checking against
+  // those confirmed the two frames' facing conventions do NOT share a fixed
+  // offset (tokyo-izakaya's master-frame frontOffset -PI/2 does not map to
+  // this frame's correct yawOffset via any single formula; the correct
+  // answer here, 0, came from this model's own "Sign"/"Door Window"/"sign
+  // support" submeshes sitting overwhelmingly on this frame's -X side at
+  // yawOffset 0 — the SAME `PROP_MODEL_FOOTPRINTS_M`-frame convention
+  // `tests/cairoVisuals.test.ts` checks, "entrance on the holder's
+  // road-facing -X side"). Scale/groundY DO transfer from buildingSets.ts
+  // (Y is untouched by either frame's handedness handling, so groundY is one
+  // number regardless of pipeline).
+  "tokyo-konbini": {
+    url: `${P}/tokyo-konbini.glb`,
+    scale: 1,
+    // Confidence: LOW-MED. konbini is one merged mesh, one material — no
+    // named submesh or per-material signal exists to find a door/fascia
+    // with (unlike izakaya below). The model's own measured aspect ratio
+    // (13.33 x 8.92 — a wide, shallow storefront) rules OUT +-PI/2 (either
+    // would put the 13.33 run on X, this frame's depth axis, flipping the
+    // building side-on to the street) but does NOT distinguish between the
+    // two remaining candidates, {0, PI} — a genuine 180 deg coin flip
+    // pending a live drive-by. 0 chosen arbitrarily as the simpler default;
+    // correct to PI (and mirror PROP_MODEL_FOOTPRINTS_M's `minX`/`maxX`
+    // sign) if the fascia lands on the building's blind side.
+    yawOffset: 0,
+    groundY: 0.1,
+  },
+  "tokyo-izakaya": {
+    url: `${P}/tokyo-izakaya.glb`,
+    scale: 0.01,
+    // Confidence: HIGH — measured directly (see header): the "Sign"/"Door
+    // Window"/"sign support" submeshes' combined vertex centroid sits at
+    // world (-3.40, 1.12) in this exact frame at yawOffset 0, an
+    // overwhelmingly -X-dominant bias (cairoVisuals.test.ts's own bar),
+    // while every other candidate in {+-PI/2, PI} either flips the sign or
+    // makes the bias Z-dominant instead of X-dominant.
+    yawOffset: 0,
+    groundY: 0,
+  },
+  "tokyo-ramen": {
+    url: `${P}/tokyo-ramen.glb`,
+    scale: 0.01,
+    // Confidence: LOW — buildingSets.ts's own tokyo-ramen entry found no
+    // door submesh and no dominant mass-centroid axis either (P1's own
+    // verdict), and that is equally true measured fresh in this frame. The
+    // choice between the two axis-plausible candidates ({+PI/2, -PI/2} —
+    // the ones that keep the model's 17.35 m depth off Z, matching its own
+    // measured 13.67 x 17.35 aspect ratio the same way the konbini comment
+    // above reasons) fell to -PI/2 only because it keeps
+    // PROP_MODEL_FOOTPRINTS_M's `minX` smaller in magnitude than +PI/2's
+    // would. Live-verify before trusting this over a guess; correct to
+    // +PI/2 (and swap PROP_MODEL_FOOTPRINTS_M's numbers to that candidate's
+    // measured bound) if the entrance lands on the building's blind side.
+    yawOffset: -Math.PI / 2,
+    groundY: 2.6,
+  },
 };
 
 /** De-duplicated list of every prop glb URL the registry references, for preload. */

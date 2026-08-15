@@ -387,7 +387,47 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // worth of `tokyo-house` street wall (the mid-span node insertion on
     // `jp-miyanosaka-kita-dori` also resegments that road's own existing
     // parcels — net +261 instances).
-    buildingInstanceCount: 2_565,
+    //
+    // 2_565 -> 3_074 (+509), cumulatively, for P6 (Region C, Sumiregaoka) and
+    // P7 (Region D, Minamimachi): neither phase's own fast-iteration loop
+    // re-ran this full-mount characterization suite (deferred to the
+    // bundle's end, per the P6-P9 combined-PR process note — the same gap
+    // `tests/trafficTraceCharacterization.test.ts`'s own P7 entry
+    // documents), so this one entry reconciles both at once. P6 is six new
+    // roads' worth of `tokyo-house`/`tokyo-apato` street wall (`jp-
+    // sumiregaoka-dori` reads as `tokyo-apato` per its own per-road
+    // override), plus its two mid-span insertions (`jp-sangen-dori`, a
+    // second new tee on `jp-minami-kaido`) resegmenting their own existing
+    // parcels. P7 is four more new roads' worth of `tokyo-house` street
+    // wall, plus its own two mid-span insertions (`jp-chuo-dori-south`'s new
+    // south extension, a second new tee on `jp-minami-kaido`) resegmenting
+    // theirs.
+    //
+    // 3_074 -> 3_314 (+240) (Tokyo authenticity plan P8, Regions E+F): four
+    // new roads' worth of `tokyo-house` street wall (Sazanka-dōri/
+    // Hiiragi-dōri reusing the `nishi` zone, Kawabata-dōri/Kawasemi-dōri the
+    // new `kawabata` zone), plus the mid-span/appended insertions on
+    // `jp-nishi-kanjo-dori`/`jp-kanpachi-dori`/`jp-miyanosaka-kita-dori`/
+    // `jp-chuo-dori-north`/`jp-kawate-dori` resegmenting their own existing
+    // parcels.
+    //
+    // 3_314 -> 3_313 (-1) (Tokyo authenticity plan P9, "venue models' final
+    // polish"): giving 12 gig venues a real `modelId`
+    // (`tokyo-konbini`/`tokyo-izakaya`/`tokyo-ramen`) makes
+    // `resolveVenuePlacement` re-derive each one's setback off the model's
+    // own measured `PROP_MODEL_FOOTPRINTS_M` footprint instead of the
+    // generic `shop`/`restaurant` box, shifting each venue's placed position
+    // by 0.1-1.7 m (verified directly, scratchpad, against the real
+    // `resolveVenuePlacement` — every venue stays inside the SAME real
+    // `buildingSet` block it started in). One of those shifted keep-out
+    // reservations tips one adjacent procedural-cell parcel candidate across
+    // its own accept/reject boundary — this suite's own `buildingLayout`
+    // re-plan is sensitive to exactly that class of boundary case, the same
+    // "coverage floors" trap the plan's own risk register names. Not
+    // itemised to the specific parcel (a 1-in-3300 shift, not worth a
+    // dedicated repro), same as this file's own P4/P5/P6/P7 entries above
+    // leave their own breakdowns unconfirmed past the measured total.
+    buildingInstanceCount: 3_313,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

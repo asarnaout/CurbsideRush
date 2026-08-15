@@ -208,8 +208,11 @@ describe("service-point lots", () => {
       "london-south-kensington": 3,
       // 1 -> 2: the whole ~66 lane-km generated half had no service points
       // at all until Tokyo expansion Phase 7's jp-repair-minami — a very
-      // long tow from the quarter's only shop.
-      "tokyo-setagaya": 2,
+      // long tow from the quarter's only shop. 2 -> 3: Tokyo authenticity
+      // plan P7 (Region D) adds this quadrant's first pair, jp-repair-
+      // minamimachi among them — the south-west webs were the last part of
+      // the generated half with no workshop of their own.
+      "tokyo-setagaya": 3,
       "cairo-central-nile": 2,
     });
   });

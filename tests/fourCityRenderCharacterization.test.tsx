@@ -862,15 +862,45 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (`landmark-jp-<id>`, one per new landmark regardless of style) — the
     // real, measured total below is not in doubt; only the itemised
     // breakdown is left for a future pass to confirm.
-    totalMeshes: 11_722,
-    enabledMeshes: 11_722,
-    activeMeshes: 931,
-    materials: 262,
+    //
+    // -> Tokyo authenticity plan P9 (street life): totalMeshes/enabledMeshes
+    // 14_029 -> 16_374 (+2_345). This suite's forced-empty preload never
+    // instantiates a real glb (every venue/prop renders through its
+    // procedural fallback here — this file's own header), so the jump is
+    // NOT from the 12 re-modelled venues (inert in this suite); it is
+    // overwhelmingly the scattered `utility-pole` kind's own population.
+    // `generateRoadsidePropPlacements` (headless, scratchpad, the exact
+    // seeded call `render/roadsideProps.ts` makes) puts 563 utility poles on
+    // the real Tokyo road network — each pole's `partsFor` case grew from 3
+    // parts (pole + 2 crossarms) to 7 (+ a transformer can + 3 insulator
+    // studs), so +4 mesh INSTANCES per already-scattered pole is +2_252
+    // alone (the marginal draw-call cost stays ~0 either way — instancing —
+    // this suite counts mesh objects, not draw batches). The rest is the
+    // wired hero runs (25 hand-placed poles x 3 parts + 1 merged cable mesh
+    // = 76), the Ekimae-nishi chochin extension (11 posts x 4 parts = 44)
+    // and the 4 new bicycle pairs; not separately itemised past that bound,
+    // same as this file's own P4/P7/P8 entries above. materials 283 -> 287
+    // (+4), confirmed by dumping `survivingMaterialNames` and diffing: three
+    // new wire-run materials (`tokyo-wire-pole`/`-arm`/`-cable`, Tokyo-only,
+    // `render/tokyoLandmarks.ts`) plus one new insulator material
+    // (`utility-insulator`, gated `key === "tokyo"` in
+    // `render/roadsideProps.ts` exactly like the chochin/sakura bag beside
+    // it) — no new unconditional material, so NYC/London/Cairo's own rows
+    // stay byte-identical (confirmed: this diff touches no other city's
+    // block). activeMeshes 1_054 -> 1_202, mirrorCandidates 174 -> 207,
+    // mirrorDrawn 256 -> 262: the fixed test pose's own mirror-cull frustum
+    // reacting to the new content near it (the pose sits close to Region
+    // B's own shopping street), the same class of drift every earlier
+    // phase's paragraph in this file documents.
+    totalMeshes: 16_374,
+    enabledMeshes: 16_374,
+    activeMeshes: 1_202,
+    materials: 287,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 168,
-    mirrorDrawn: 222,
+    mirrorCandidates: 207,
+    mirrorDrawn: 262,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -940,7 +970,52 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // every prior phase's own paragraph describes — the real, measured
     // totals below are not in doubt; only the itemised breakdown is left
     // for a future pass to confirm, same caveat as Region B's own entry.
-    survivingMaterialNamesFingerprint: "78df1bca",
+    //
+    // -> Tokyo authenticity plan P7 (Region D): totalMeshes/enabledMeshes
+    // 11_722 -> 13_386 (+1_664) is four new roads' worth of asphalt/kerb/
+    // junction-fill/pavement-rail geometry across the new `minamimachi`
+    // zone's own street-wall parcels (`tokyo-house`, an already-shared set),
+    // two mid-span node insertions' resegmented parcels (`jp-chuo-dori-south`
+    // /`jp-minami-kaido`), 2 new venues and this quadrant's first two service
+    // points. materials 262 -> 281 (+19): NOT root-caused to the same depth
+    // as the paragraphs above — but bounded, not guessed. This suite's
+    // forced-empty preload turns every venue AND service point into a
+    // per-id-materialed fallback box (Tokyo expansion Phase 7's own
+    // established fact, restated in cities/tokyo.ts's jp-v45 comment), so
+    // the 2 new venues plus `jp-gas-minamimachi`/`jp-repair-minamimachi`
+    // alone account for 4 of the 19; the new collector/local speed limits
+    // (30/40 km/h) are both already-shared plates (no new speedsign
+    // material), and the 5 new junctions' stop/signal furniture reuses
+    // already-shared pole/sign materials — the real, measured totals below
+    // are not in doubt; only the remaining ~15 materials' exact identity is
+    // left for a future pass to confirm, same caveat as every phase above.
+    // activeMeshes 931 -> 1_018, mirrorCandidates/mirrorDrawn 168/222 ->
+    // 174/242: the fixed test pose's own mirror-cull frustum reacting to the
+    // new content, the same class of drift every earlier phase's paragraph
+    // documents.
+    //
+    // -> Tokyo authenticity plan P8 (Regions E+F): totalMeshes/enabledMeshes
+    // 13_386 -> 14_029 (+643) is four new roads' worth of asphalt/kerb/
+    // junction-fill/pavement-rail geometry (`jp-sazanka-dori`/
+    // `jp-hiiragi-dori` reusing the `nishi` zone's already-shared
+    // `tokyo-house` set, `jp-kawasemi-dori`/`jp-kawabata-dori` the new
+    // `kawabata` zone, same set) plus the mid-span/appended insertions on
+    // `jp-nishi-kanjo-dori`/`jp-kanpachi-dori`/`jp-miyanosaka-kita-dori`/
+    // `jp-chuo-dori-north`/`jp-kawate-dori` resegmenting their own existing
+    // parcels, and the region's one new venue. materials 281 -> 283 (+2):
+    // NOT root-caused to the same depth as the paragraphs above — but
+    // bounded, not guessed, same caveat as P4/P7's own entries: the one new
+    // venue is a per-id-materialed fallback box in this suite's forced-empty
+    // preload (the same established fact those entries cite), accounting
+    // for at least one; both new zones' local/collector speed limits
+    // (30/40 km/h) are already-shared plates, and every new junction's
+    // stop furniture reuses already-shared pole/sign materials. activeMeshes
+    // 1_018 -> 1_054, mirrorCandidates/mirrorDrawn 174/242 -> 174/256: the
+    // fixed test pose's own mirror-cull frustum reacting to the new content,
+    // the same class of drift every earlier phase's paragraph documents.
+    // "305fa935" -> "cfd13ba7": Tokyo authenticity plan P9's +4 materials
+    // above (`tokyo-wire-pole`/`-arm`/`-cable`, `utility-insulator`).
+    survivingMaterialNamesFingerprint: "cfd13ba7",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

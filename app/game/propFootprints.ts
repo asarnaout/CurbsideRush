@@ -64,6 +64,15 @@ export const PROP_MODEL_FOOTPRINTS_M: Readonly<
     maxZ: 8.193,
   },
   office: { minX: -6.15, maxX: 6.15, minZ: -6.59, maxZ: 6.59 },
+  // Tokyo authenticity plan P9: measured under NullEngine exactly like every
+  // entry above, at each model's PROP_MODEL_REGISTRY scale/yawOffset (0 for
+  // konbini/izakaya, -PI/2 for ramen) — see that registry's own header for
+  // the facing-confidence caveats on konbini/ramen; re-measure both fields
+  // together if either model's yawOffset is later corrected from a live
+  // drive-by.
+  "tokyo-konbini": { minX: -4.10, maxX: 4.82, minZ: -10.28, maxZ: 3.05 },
+  "tokyo-izakaya": { minX: -3.57, maxX: 4.33, minZ: -3.01, maxZ: 3.86 },
+  "tokyo-ramen": { minX: -5.44, maxX: 11.91, minZ: -9.71, maxZ: 3.96 },
 };
 
 /** Half-extent of the gas station's square base slab (its drivable lot). */

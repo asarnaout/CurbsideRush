@@ -504,6 +504,13 @@ export function buildRoadsideProps(
             material("sakura-blossom-0", new Color3(0.86, 0.8, 0.78)),
             material("sakura-blossom-1", new Color3(0.82, 0.5, 0.6)),
           ],
+          // Street life pass (P9): the utility pole's insulator studs — a
+          // pale ceramic tone, deliberately far lighter than `iron`'s
+          // near-black crossarms so the studs actually read as a distinct
+          // fitting rather than disappearing against the arm they sit on.
+          // Same Tokyo-only gate as everything else in this bag (only
+          // Tokyo's kinds list ever emits a "utility-pole" placement).
+          utilityInsulator: material("utility-insulator", new Color3(0.74, 0.71, 0.64)),
         }
       : null;
 
@@ -856,7 +863,25 @@ export function buildRoadsideProps(
           },
         ];
         break;
-      case "utility-pole":
+      case "utility-pole": {
+        // Street life pass (P9): a transformer can slung below the lower
+        // crossarm and a few insulator studs on top of each arm — the plan's
+        // own "dark wood/concrete cylinder, one or two crossarms, a
+        // transformer can, small insulator studs" description in full. Cheap
+        // (three more master part kinds, three more draw calls total for the
+        // whole city, not per-pole) and purely additive: `utility-pole`'s
+        // spacing/variant config is untouched, so the seeded roadside-prop
+        // stream that walks `kinds` is unaffected — only the geometry each
+        // already-placed pole instances gets more detailed.
+        const insulator = tokyoNightProps?.utilityInsulator ?? iron;
+        const insulatorStud = (suffix: string, offset: Vector3): PropPart => ({
+          master: masterCylinder(
+            `${cacheKey}-${suffix}`,
+            { height: 0.14, diameterTop: 0.05, diameterBottom: 0.07 },
+            insulator,
+          ),
+          offset,
+        });
         parts = [
           {
             master: masterCylinder(cacheKey, { height: 7.4, diameter: 0.22 }, poleWood),
@@ -878,8 +903,24 @@ export function buildRoadsideProps(
             ),
             offset: new Vector3(0, 6.25, 0),
           },
+          // A grey cylindrical transformer can, hung off-centre below the
+          // lower arm the way a real distribution transformer straddles a
+          // pole rather than sitting on its own axis.
+          {
+            master: masterCylinder(
+              `${cacheKey}-transformer`,
+              { height: 0.62, diameter: 0.34 },
+              poleWood,
+            ),
+            offset: new Vector3(0.32, 5.7, 0),
+            castShadow: false,
+          },
+          insulatorStud("insulator-top-a", new Vector3(-0.62, 6.86, 0)),
+          insulatorStud("insulator-top-b", new Vector3(0.62, 6.86, 0)),
+          insulatorStud("insulator-low", new Vector3(-0.45, 6.31, 0)),
         ];
         break;
+      }
       case "vending":
         parts = [
           {
@@ -1044,6 +1085,7 @@ export function buildRoadsideProps(
           tokyoNightProps.chochinCap,
           tokyoNightProps.sakuraTrunk,
           ...tokyoNightProps.sakuraBlossoms,
+          tokyoNightProps.utilityInsulator,
         ]
       : []),
   ]) {

@@ -341,11 +341,12 @@ const MAP_VISUAL_PROFILES: Readonly<Record<string, MapVisualProfile>> = {
     // Tokyo authenticity plan: P2 wired the first two glb sets live, on
     // miyanosaka/yamashita/nishi and jp-nakamise-yokocho; P3b adds
     // tokyo-zakkyo (downtown + ring) and tokyo-manshon (riverside +
-    // higashi) — see `tokyoRoadsideBuildingSet` in cities/tokyo.ts for the
-    // exact zone->set mapping. Every generator zone now names a set; only
-    // the ~1-in-4 holdback parcels and the hand-authored quarter stay
-    // procedural.
-    buildingSets: ["tokyo-house", "tokyo-shotengai", "tokyo-zakkyo", "tokyo-manshon"],
+    // higashi); P6 adds tokyo-apato (Region C's own collector,
+    // jp-sumiregaoka-dori) — see `tokyoRoadsideBuildingSet` in
+    // cities/tokyo.ts for the exact zone/road->set mapping. Every generator
+    // zone now names a set; only the ~1-in-4 holdback parcels and the
+    // hand-authored quarter stay procedural.
+    buildingSets: ["tokyo-house", "tokyo-shotengai", "tokyo-zakkyo", "tokyo-manshon", "tokyo-apato"],
     natureSets: natureSetsForMap("tokyo"),
     complexionWeights: [0, 1, 2, 6, 8, 7],
     hairWeights: [15, 5, 3, 1, 0, 0],

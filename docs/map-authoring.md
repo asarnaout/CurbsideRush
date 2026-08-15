@@ -78,7 +78,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 |---|---|---|---|---|---|---|
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
-| `tokyo-setagaya` | 458 | 89 | 81.0 | 42 | 14 | 2600 × 2400 |
+| `tokyo-setagaya` | 540 | 103 | 96.2 | 42 | 14 | 2600 × 2400 |
 | `london-south-kensington` | 338 | 73 | 61.3 | 12 | 4 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane
@@ -329,8 +329,8 @@ gitignored) grew around, the same way South Kensington anchors London.
 Everything grown around it comes from **`TOKYO_ROAD_SPECS` plus the turn
 whitelist in `TOKYO_JUNCTION_CONNECTORS`** — London's own pattern, mirrored
 again since Tokyo is also left-hand traffic. The two halves meet only at
-nodes the quarter already had (`jp-ss-w`, `jp-ss-e`, `jp-nw2`, `jp-ne2`, `jp-d`,
-`jp-j`…) — same "never write a generated lane id into a hand-authored
+nodes the quarter already had (`jp-ss-w`, `jp-ss-m`, `jp-ss-e`, `jp-nw2`,
+`jp-ne2`, `jp-d`, `jp-j`…) — same "never write a generated lane id into a hand-authored
 `successors` literal, new roads terminate on existing nodes" discipline as
 London's own halves.
 
@@ -344,16 +344,21 @@ non-bridge generated road, keyed to a per-road `TokyoBlockZone` via
 sites. Materials/height-range/`density` still come from the district's own
 zone style alone (no per-road override table for those — `TOKYO_ROAD_STYLE_OVERRIDE`
 is the one exception, a handful of named streets). **`buildingSet` is a
-separate, later decision** (Tokyo authenticity plan P2/P3b): `tokyoRoadsideBuildingSet`
+separate, later decision** (Tokyo authenticity plan P2/P3b/P6/P7/P8): `tokyoRoadsideBuildingSet`
 derives it from the zone — miyanosaka/yamashita/nishi/`ekimae-nishi`/
-`hanamizu` → `tokyo-house`; downtown (outside two exceptions) and `ring` → `tokyo-zakkyo`;
-`riverside` and `higashi` → `tokyo-manshon` — with exactly two per-road
-overrides of its own, checked before the zone switch so they win regardless
-of what their own zone would otherwise resolve to: `jp-nakamise-yokocho`
-(zoned `downtown`) and `jp-ekimae-nishi-dori` (zoned `ekimae-nishi`, P4's own
-neighbourhood shopping street) both read as `tokyo-shotengai` — the plan is
-explicit that only these two shotengai roads diverge from their own zone's
-set. Every generator zone now names a set; what still ships
+`hanamizu`/`sumiregaoka`/`minamimachi`/`kawabata` → `tokyo-house`; downtown (outside two exceptions)
+and `ring` → `tokyo-zakkyo`; `riverside` and `higashi` → `tokyo-manshon` —
+with exactly three per-road overrides of its own, checked before the zone
+switch so they win regardless of what their own zone would otherwise resolve
+to: `jp-nakamise-yokocho` (zoned `downtown`) and `jp-ekimae-nishi-dori`
+(zoned `ekimae-nishi`, P4's own neighbourhood shopping street) both read as
+`tokyo-shotengai`; `jp-sumiregaoka-dori` (zoned `sumiregaoka`, P6's own N-S
+collector) reads as `tokyo-apato` instead — the plan is explicit that only
+these three named roads diverge from their own zone's set. P8's own Region E
+(west-web gap) reuses the `nishi` zone outright rather than minting a ninth
+— it is that web's own direct southward continuation between the same two
+rings, not a new district; Region F (`kawabata`) is the new one. Every
+generator zone now names a set; what still ships
 the procedural facade grid is only the ~1-in-4 street-wall holdback parcels
 (`tokyoParcelKeepsFacadeBoxes`) plus the hand-authored quarter, which this
 generator never touches. `density` is not a fill fraction: it is `facadeGridCells`'s grid-resolution

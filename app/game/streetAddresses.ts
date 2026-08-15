@@ -631,6 +631,14 @@ const KINDS_BY_BUILDING_SET: Record<string, readonly GigVenueKind[]> = {
   // zone's own number over the other with no way to know their relative
   // parcel counts ahead of time.
   "tokyo-manshon": ["residence", "residence", "residence", "shop", "shop", "office"],
+  // tokyo-apato (Tokyo authenticity plan P6): dresses `jp-sumiregaoka-dori`
+  // alone, inside the otherwise pure-residential `sumiregaoka` zone
+  // (wood-plaster/plaster, the same materials `tokyo-house`'s own mix is
+  // built from). Skewed a notch more residence-heavy than `tokyo-house`'s
+  // 3-in-4 (walk-up apato/manshon blocks are almost entirely residential
+  // units behind a shared entrance, unlike a detached house's own occasional
+  // ground-floor shop window) — 4-in-5, one shop.
+  "tokyo-apato": ["residence", "residence", "residence", "residence", "shop"],
 };
 
 const polylineLength = (points: readonly WorldPoint[]): number =>

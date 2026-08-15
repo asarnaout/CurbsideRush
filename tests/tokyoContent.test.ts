@@ -338,12 +338,31 @@ describe("Tokyo street wall (expansion Phase 4, R18)", () => {
     // `hanamizu` (Tokyo authenticity plan P5, Region A) measured 100%
     // covered of 5840 m sampled kerb on first build — same reasoning and
     // same 0.85 floor as the other four 100%-measuring residential zones.
+    //
+    // `sumiregaoka` (Tokyo authenticity plan P6, Region C) measured 100%
+    // covered of 6376 m sampled kerb on first build — the biggest residential
+    // sample of any web so far, same reasoning and same 0.85 floor as the
+    // other five 100%-measuring residential zones.
     const FLOOR_BY_ZONE: Readonly<Record<TokyoBlockZone, number>> = {
       miyanosaka: 0.85,
       yamashita: 0.85,
       nishi: 0.85,
       "ekimae-nishi": 0.85,
       hanamizu: 0.85,
+      sumiregaoka: 0.85,
+      // `minamimachi` (Tokyo authenticity plan P7, Region D) measured 100%
+      // covered of 4280 m sampled kerb on first build — same reasoning and
+      // same 0.85 floor as the other six 100%-measuring residential zones.
+      minamimachi: 0.85,
+      // `kawabata` (Tokyo authenticity plan P8, Region F) measured 100%
+      // covered of 1443 m sampled kerb on first build (the smallest sample
+      // of any zone, but a real 100% like six of the other seven
+      // residential webs) — same reasoning and same 0.85 floor. An earlier
+      // pass, before Kawasemi-dōri's own real routing corrected the two
+      // roads-on-the-same-ground bug jpKawabataNodes's own doc comment
+      // describes, measured only 83.7% here; re-measured after the fix
+      // rather than assumed unchanged.
+      kawabata: 0.85,
       higashi: 0.85,
       ring: 0.8,
       riverside: 0.8,
