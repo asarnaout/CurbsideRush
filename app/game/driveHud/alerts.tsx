@@ -21,11 +21,11 @@ import { cluster, HUD_GOLD, HUD_SANS } from "./tokens";
  * that cluster shrinks around it, which is what used to leave the pill
  * floating over open road on anything short of the full-width comp (#349).
  * 88 is `DriveSpeedCluster`'s own non-compact `plateH`, the tallest thing in
- * that row; 16 is the clearance kept beneath it. The caller adds the day
+ * that row; 8 is the clearance kept beneath it. The caller adds the day
  * timer's own `headroom` on top when that row is carrying the clock, the
  * same way `DriveSpeedCluster` itself does.
  */
-export const SURGE_TOP_OFFSET_PX = 104;
+export const SURGE_TOP_OFFSET_PX = 96;
 
 export function DriveSurgeBanner({
   scale,
