@@ -159,13 +159,20 @@ describe("NYC waterfront shoreline collider", () => {
     // Achieved today. A drop means a water body/bridge/park stopped
     // contributing colliders it used to; a rise means something new started
     // -- either is worth a deliberate look, not a silent drift.
+    //
+    // One run per polygon edge, split where a bridge portal cuts it. Both
+    // rivers deliberately lost edges in issue #389: each park-facing shore is
+    // now a single ruled bulkhead at that park's own rect edge (Hudson
+    // 16 -> 14, keeping its wobble only beyond Riverside Park's two ends;
+    // East River 20 -> 14, its whole Queens bank flat), which is what stopped
+    // the water drawing over both lawns and left both park walls on grass.
     const byTag = new Map<string, number>();
     for (const o of obstacles) byTag.set(o.tag, (byTag.get(o.tag) ?? 0) + 1);
-    expect(byTag.get("shoreline")).toBe(51);
+    expect(byTag.get("shoreline")).toBe(43);
     expect(byTag.get("worldEdge")).toBe(4);
-    expect(shoreRuns.length).toBe(47);
+    expect(shoreRuns.length).toBe(39);
     expect(portalRuns.length).toBe(4);
-    expect(hudsonShore.length).toBe(16);
-    expect(eastRiverShore.length).toBe(20);
+    expect(hudsonShore.length).toBe(14);
+    expect(eastRiverShore.length).toBe(14);
   });
 });

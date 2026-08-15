@@ -70,6 +70,25 @@ const parkCases = (): readonly ParkCase[] => {
   return cases;
 };
 
+/** Even-odd point-in-polygon, for testing a point against a water body. */
+const insidePolygon = (
+  point: { readonly x: number; readonly z: number },
+  polygon: readonly { readonly x: number; readonly z: number }[],
+): boolean => {
+  let hit = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const a = polygon[i];
+    const b = polygon[j];
+    if (
+      a.z > point.z !== b.z > point.z &&
+      point.x < ((b.x - a.x) * (point.z - a.z)) / (b.z - a.z) + a.x
+    ) {
+      hit = !hit;
+    }
+  }
+  return hit;
+};
+
 describe("park layouts", () => {
   it("covers every authored park on every shipped map", () => {
     // Twenty-eight — NYC's three original (Central Park now split into four
@@ -514,6 +533,44 @@ describe("park layouts", () => {
     }
   });
 
+  it("never stands a park wall in open water", () => {
+    // A wall stands `PARK_WALL_INSET_M` inside the park's authored rect and
+    // knows nothing about water — the veto reads roads only. But water draws
+    // ABOVE a park lawn, so a shore authored inside that rect hides the outer
+    // strip of the grass without moving the wall off it: the wall ends up in
+    // the river, water on both sides, with a strip of water between it and
+    // the visible grass whose width wobbles with the shore. That is issue
+    // #389, and it had shipped on BOTH of NYC's river banks at once while the
+    // third waterfront park — same style, same wall, shore authored at its
+    // own rect edge — looked right, which is what named the cause.
+    //
+    // The rule this pins: the visible edge of a walled park is its authored
+    // rect edge, so a shore beside one has to BE that edge, never inside it.
+    for (const { mapId, landmark, context, layout } of parkCases()) {
+      for (const run of layout.wall) {
+        // Sample the outer faces, not the centreline: a wall whose centre is
+        // dry but whose river side dips in is the same defect, one half
+        // thickness on.
+        const outX = run.uz;
+        const outZ = -run.ux;
+        for (const step of [-1, -0.5, 0, 0.5, 1]) {
+          for (const side of [-1, 1] as const) {
+            const point = {
+              x: run.x + run.ux * run.halfU * step + outX * run.halfV * side,
+              z: run.z + run.uz * run.halfU * step + outZ * run.halfV * side,
+            };
+            for (const polygon of context.waterPolygons ?? []) {
+              expect(
+                insidePolygon(point, polygon),
+                `${mapId}/${landmark.id}: ${run.id} stands in water at (${point.x.toFixed(1)}, ${point.z.toFixed(1)})`,
+              ).toBe(false);
+            }
+          }
+        }
+      }
+    }
+  });
+
   it("never leaves a stretch of wall too long to find a way past", () => {
     // "Has an opening somewhere" is not the invariant that matters. Central
     // Park first came out with a single unbroken 2,897 m run down its western
@@ -561,22 +618,6 @@ describe("park layouts", () => {
     expect(lake, "NYC should carry Central Park's lake").toBeDefined();
     if (!lake) return;
 
-    const inside = (point: { x: number; z: number }) => {
-      let hit = false;
-      const polygon = lake.polygon;
-      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
-        const a = polygon[i];
-        const b = polygon[j];
-        if (
-          a.z > point.z !== b.z > point.z &&
-          point.x < ((b.x - a.x) * (point.z - a.z)) / (b.z - a.z) + a.x
-        ) {
-          hit = !hit;
-        }
-      }
-      return hit;
-    };
-
     const layout = buildParkLayout(
       central.landmark,
       central.visualKey,
@@ -584,7 +625,7 @@ describe("park layouts", () => {
     );
     for (const placement of layout.placements) {
       expect(
-        inside(placement),
+        insidePolygon(placement, lake.polygon),
         `${placement.kind} stands in the lake at (${placement.x.toFixed(0)}, ${placement.z.toFixed(0)})`,
       ).toBe(false);
     }

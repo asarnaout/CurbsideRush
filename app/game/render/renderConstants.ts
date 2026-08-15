@@ -5,13 +5,19 @@
  * The y-layer values below are the definitive ordering (see
  * docs/rendering.md's "y-layer stack" table, which this module backs):
  *
- *   0.02 park lawn  <  0.0255 park beds  <  0.031 park paths/terraces
+ *   0.02 park lawn  <  0.025 water  <  0.0255 park beds
+ *   <  0.031 park paths/terraces
  *   <  0.045 shoulder  <  0.0435 shoulder junction fill  <  0.07 road surface
  *   <  0.0716 asphalt junction fill  <  ...
  *
- * They are spread across three modules in total (here, crowdRenderer.ts,
- * vehicleMeshes.ts) because each layer belongs to the geometry that draws
+ * They are spread across four modules in total (here, crowdRenderer.ts,
+ * vehicleMeshes.ts, and water's own default in geometry/waterGeometry.ts)
+ * because each layer belongs to the geometry that draws
  * it — this file only owns the ones GameCanvas.tsx's own builders read.
+ * Water sitting ABOVE the lawn is the one that bites content authoring: a
+ * shore drawn over a park hides that grass but moves nothing else, which is
+ * how both of NYC's river banks came to have their park wall standing out in
+ * the water (issue #389, docs/greenery.md).
  * Changing one without the others out of sync is exactly how a park lawn
  * ends up coplanar with its own path.
  */

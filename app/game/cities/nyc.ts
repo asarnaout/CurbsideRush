@@ -1357,15 +1357,26 @@ export const NYC_MAP_PACK: MapPack = {
           point(-188, -507),
         ],
       },
-      // The East River. Gently irregular, not a rectangle — a perfect
-      // rectangle reads as a canal. Both shores stay clear of Third Ave's
-      // and (from Phase 5) Vernon Blvd's carriageways and sidewalks (Third
-      // centreline 440, Vernon 800). `flowHeadingDeg: 0` is what makes this
-      // a river rather than a static pond (crest streaks, chop, drifting
-      // tiles) — omitting it would make a giant still pond instead.
-      // `bridgePortalSurfaceIds` is what opens the shoreline for exactly
-      // Queensview and Harborline, and derives their parapet spans — every
-      // other metre of shoreline stays a solid collider for free.
+      // The East River. The Manhattan shore is gently irregular, not a
+      // straight line — two flat parallel banks read as a canal. Both shores
+      // stay clear of Third Ave's and (from Phase 5) Vernon Blvd's
+      // carriageways and sidewalks (Third centreline 440, Vernon 800).
+      // `flowHeadingDeg: 0` is what makes this a river rather than a static
+      // pond (crest streaks, chop, drifting tiles) — omitting it would make a
+      // giant still pond instead. `bridgePortalSurfaceIds` is what opens the
+      // shoreline for exactly Queensview and Harborline, and derives their
+      // parapet spans — every other metre of shoreline stays a solid collider
+      // for free.
+      //
+      // The Queens shore is deliberately the flat one, at exactly
+      // `nyc-queens-bank*`'s own west edge (726) — see the Hudson below for
+      // why a WALLED riverside park's water-facing edge and its shore have to
+      // be the same number. It used to wobble 726..744, which put up to 17 m
+      // of water over the far side of that lawn and left the bank's own park
+      // wall standing in the river (issue #389). One engineered bank facing
+      // one natural one is the shape a bulkheaded park frontage really has,
+      // and it keeps the body clear of the canal it would be if BOTH shores
+      // were ruled straight.
       {
         id: "nyc-east-river",
         color: "#24404d",
@@ -1383,26 +1394,37 @@ export const NYC_MAP_PACK: MapPack = {
           point(573, 600),
           point(559, 1100),
           point(565, 1500),
-          point(735, 1500),
-          point(728, 1100),
-          point(743, 600),
-          point(729, 100),
-          point(744, -300),
-          point(726, -700),
-          point(741, -1100),
-          point(731, -1500),
+          point(726, 1500),
+          point(726, -1500),
         ],
       },
       // The Hudson (visual-gap plan Section 11.7, P1): `nyc-riverside-park`
       // stopped at x=-1239 while the world continues to x=-1300, leaving a
       // 61 m bare strip with no water to explain it despite the source
-      // comments' own "falls away to the Hudson" framing. Near shore
-      // overlaps the park by 4-17 m (never reaching its own east edge at
-      // -1168.9) so the grass/water seam has no crack; far shore sits well
-      // past the world edge at x=-1300, so it is never visibly bounded.
+      // comments' own "falls away to the Hudson" framing. Far shore sits
+      // well past the world edge at x=-1300, so it is never visibly bounded.
       // No `bridgePortalSurfaceIds`: nothing crosses the Hudson on this
       // map, so the whole shore stays a solid collider, matching the plan's
       // "keep the shoreline inaccessible" instruction.
+      //
+      // **A walled park's water-facing edge and its shore are one number.**
+      // Water draws at 0.025 and a park lawn at `PARK_LAWN_Y` 0.02, so a
+      // shore authored INSIDE the rect hides the outer strip of that lawn —
+      // but the park's wall does not move with it. It stands
+      // `PARK_WALL_INSET_M` (1.5) inside the authored rect whatever the water
+      // does, so the whole west wall ended up out in the river, with water on
+      // both sides of it and a strip of water whose width wobbled with the
+      // shore between it and the visible grass (issue #389: "the barrier is
+      // crooked"). The near shore ran -1222..-1233 against a rect edge of
+      // -1239 — chosen when the seam was thought to need an overlap to avoid
+      // cracking, which cost far more than it bought.
+      //
+      // So the near shore is now Riverside Park's own west edge exactly, for
+      // the park's whole z-extent: the lawn is visible right out to the rect
+      // edge, the wall stands on grass 1.15 m short of the water, and there
+      // is no strip of anything between them. Beyond the park (z <= -487,
+      // z >= 1447) nothing at all is authored, so the shore keeps its wobble
+      // there and the two kinks read as the bulkhead starting and ending.
       {
         id: "nyc-hudson-river",
         color: "#24404d",
@@ -1411,10 +1433,8 @@ export const NYC_MAP_PACK: MapPack = {
           point(-1225, -1500),
           point(-1230, -1100),
           point(-1222, -700),
-          point(-1233, -300),
-          point(-1224, 100),
-          point(-1231, 600),
-          point(-1223, 1100),
+          point(-1239, -487),
+          point(-1239, 1447),
           point(-1228, 1500),
           point(-1420, 1500),
           point(-1415, 1100),
@@ -1470,10 +1490,14 @@ export const NYC_MAP_PACK: MapPack = {
       // nyc-block-east-south-margin/-north-margin's own trimmed edge above
       // exactly — this is the flush meeting that let the two pinned
       // overlap exceptions in content.test.ts finally come out), east edge
-      // at the river's west-shore minimum reach (556, the same
-      // never-overlap-water direction Section 11.6 used on the opposite
-      // bank, for the same reason: an 17 m-wobbling irregular shore has no
-      // single flat edge that hugs it exactly). `parkStyle` pinned
+      // at the river's west-shore minimum reach (556 — on THIS bank the
+      // water lies east, so the minimum is the landward extreme and the
+      // river never covers the lawn; Section 11.6 copied the same formula to
+      // the opposite bank, where it is the wrong extreme, which is half of
+      // issue #389). This is the shore kept irregular, so the gap between
+      // lawn and water still opens to 17 m where it recedes — sightless from
+      // a driving camera, which reads the wall end-on, and the price of not
+      // ruling BOTH banks of one river straight. `parkStyle` pinned
       // explicitly: the wider south/north segments' own long/short ratio
       // (604/107.1=5.64) now falls under STRIP_ASPECT's 6, so
       // `resolveParkStyle` would silently derive "urban_greensward" for
@@ -1486,20 +1510,22 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-esplanade", kind: "park", parkStyle: "riverside_strip", center: point(502.45, 0), size: point(107.1, 1640), color: "#4f7a3d" },
       { id: "nyc-esplanade-north", kind: "park", parkStyle: "riverside_strip", center: point(502.45, 1158), size: point(107.1, 604), color: "#4f7a3d" },
       // Queens East River bank strip (visual-gap plan Section 11.6, P0): the
-      // mirror case on the opposite shore. The east-shore polygon vertices
-      // (in `nyc-east-river` below) wobble x=726..744; 726 (the shore's own
-      // minimum reach) is what guarantees this never overlaps the water
-      // polygon at any z, at the cost of a residual gap up to 18 m where the
-      // real shore recedes to 744 — still a large improvement on the 47-65 m
-      // bare strip this replaces, and the safer direction of the two
-      // possible errors (Section 11.8 already tracks the opposite mistake —
-      // an esplanade that stops short of the water — as a separate, P1,
-      // not-yet-fixed bug on the Manhattan side). The east edge is Vernon's
-      // own pavement, by the identical formula Section 11.8's own Third Ave
-      // number uses (440+5.5+3.4=448.9): 800-5.2-3.4=791.4. Split around the
-      // same two bridges at the same z the Manhattan esplanade already
-      // is — one physical bridge deck, so the same clearance applies on
-      // both banks. Long/short ratios (604/65.4, 1640/65.4) clear
+      // mirror case on the opposite shore. The west edge (726) is the East
+      // River's own east shore, exactly — the shore was authored to this
+      // number rather than the other way round (see `nyc-east-river` above).
+      // It shipped instead against a shore wobbling 726..744, on the reading
+      // that 726 was "the shore's own minimum reach, so this never overlaps
+      // the water" — which is the wrong extreme on this bank: the water
+      // reaches EAST to 744 here, so up to 18 m of this lawn was drawn under
+      // the river and the strip's own park wall stood out in it (issue #389).
+      // The east edge is Vernon's own pavement, by the identical formula
+      // Section 11.8's own Third Ave number uses (440+5.5+3.4=448.9):
+      // 800-5.2-3.4=791.4. Split around the same two bridges at the same z
+      // the Manhattan esplanade already is — one physical bridge deck, so
+      // the same clearance applies on both banks. The two 36 m splits and
+      // the last 40 m at each end are the only stretches of this shore with
+      // no park behind them, which is why ruling the whole bank flat costs
+      // nothing. Long/short ratios (604/65.4, 1640/65.4) clear
       // STRIP_ASPECT on their own, so `resolveParkStyle` derives
       // "riverside_strip" without a hand-authored override, matching how
       // the Manhattan esplanade blocks above rely on the same derivation.
@@ -1524,11 +1550,11 @@ export const NYC_MAP_PACK: MapPack = {
       // green rather than another row of brownstones. East edge aligned to
       // Riverside Drive's own pavement (visual-gap plan Section 11.7, P1):
       // -1160-5.5-3.4=-1168.9, the same halfWidth+sidewalk formula every
-      // other pavement-edge number in this file uses. West edge unchanged
-      // (-1239); only the east edge and therefore the width moved, since
-      // the plan's own Treatment names only the east-edge/road seam here —
-      // the west edge is handled by the new Hudson water body below
-      // overlapping it, not by resizing the park to meet a specific x.
+      // other pavement-edge number in this file uses. West edge unchanged at
+      // -1239 since the map's first draft; the Hudson's own near shore is
+      // authored to meet it there rather than overlapping it (issue #389 —
+      // see `nyc-hudson-river` above for why the overlap could not survive
+      // this park growing a wall).
       { id: "nyc-riverside-park", kind: "park", center: point(-1203.95, 480), size: point(70.1, 1934), color: "#4f7a3d" },
       // Joan of Arc Park: a real triangle off Riverside Drive at W 93rd,
       // here given the whole block between W 91st and W 96th so it has road

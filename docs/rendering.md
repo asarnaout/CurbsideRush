@@ -75,11 +75,13 @@ materials).
 ## The y-layer stack is a hard global ordering
 
 Every value is tuned to kill z-fighting, and they are spread across three modules
-(`render/babylonGameSession.ts`, `crowdRenderer.ts`, `vehicleMeshes.ts`):
+(`render/babylonGameSession.ts`, `crowdRenderer.ts`, `vehicleMeshes.ts`, plus
+water's own default in `geometry/waterGeometry.ts`):
 
 ```
-0.02 park lawn  <  0.0255 park beds  <  0.031 park paths/terraces  <  0.0435 shoulder junction fill
-<  0.045 shoulder/sidewalk  <  0.07 road surface  <  0.0716 asphalt junction fill  <  0.08 walkers
+0.02 park lawn  <  0.025 water  <  0.0255 park beds  <  0.031 park paths/terraces
+<  0.0435 shoulder junction fill  <  0.045 shoulder/sidewalk  <  0.07 road surface
+<  0.0716 asphalt junction fill  <  0.08 walkers
 <  0.1 crowd shadows  <  0.12 markings & vehicle nodes  <  0.144-0.147 chevrons/stop lines
 ```
 
@@ -88,6 +90,11 @@ Vehicle ground contact is a **two-value handshake**: nodes at `y = 0.12` and
 whole fleet floats or sinks. Lawn sitting at the bottom of the stack is also
 usable: a park rect may run out under a pavement or a carriageway, which is how
 an island lawn meets its kerbs with no fringe (docs/greenery.md).
+
+**Water is the one layer above lawn you cannot trim a park under.** A shore
+authored inside a park's rect hides the outer strip of that lawn — but nothing
+else moves with it, so the park's own wall stays out where the rect edge is and
+ends up standing in the river (docs/greenery.md).
 
 **A junction outline tapers a width change, it does not step it.** In
 `collectRoadJunctionFills`, two legs pointing away from each other are one road

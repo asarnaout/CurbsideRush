@@ -259,8 +259,23 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // unattributed. The content correctness this fix exists to prove is
     // independently verified by content.test.ts's exact-edge/overlap tests
     // and a real camera-fan audit re-run on Third Ave, not this metric.
-    totalMeshes: 26_932,
-    enabledMeshes: 26_932,
+    // 26_932 -> 26_926 (issue #389): both rivers' park-facing shores ruled
+    // straight onto their parks' own rect edges, so neither draws over a lawn
+    // and neither park's wall stands in the water any more. Fully attributed
+    // for once, by diffing the mesh-name census either side of the change:
+    // -8 bridge lamps (each bridge's lamp line is clipped to its OVER-WATER
+    // span, and the East River's east shore moved 5-18 m west, so both decks
+    // drop their outermost pole+head on the Queens side: 2 bridges x 2 sides
+    // x (pole + head)) and +2 park lamps on the strip of Riverside Park that
+    // stopped being underwater. The park scatter's own +103 placements
+    // (`parkLayoutForLandmark`, queried directly: riverside-park 488 -> 530,
+    // queens-bank 386 -> 434, queens-bank-south 139 -> 152) contribute
+    // nothing HERE, because planting is glb-backed and this suite forces
+    // every model unavailable — they are real meshes in the browser.
+    // Materials, active meshes, draw calls, mirrors and the fingerprint all
+    // hold: no material was added or lost, only water polygon vertices.
+    totalMeshes: 26_926,
+    enabledMeshes: 26_926,
     activeMeshes: 962,
     materials: 192,
     drawCallsPerFrame: 0,

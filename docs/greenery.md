@@ -234,8 +234,8 @@ where it is seen end-on and reads as a garden's edge.
 **A promenade beside a derived shoreline parapet must stay unwallable.**
 Cairo and Tokyo both render a corniche-style parapet off the water body's own
 shoreline colliders (`shorelineParapetRuns`, gated in
-`babylonGameSession.ts`) — NYC has no such pass, so its esplanade's own park
-wall is that map's *only* river-edge barrier, a different, equally correct
+`babylonGameSession.ts`) — NYC has no such pass, so its riverside parks' own
+walls are that map's *only* river-edge barrier, a different, equally correct
 answer for a map without a derived parapet. A walled style right behind the
 parapet grows a second fence, since the wall veto reads roads, never water;
 Tokyo's riverside promenade (`jp-kawabe-koen`) stays `pocket_green` on every
@@ -248,6 +248,23 @@ which world axis `size.x`/`size.z` each span) and is one of the few angles
 safe from this file's own yaw-sign trap (the cross path is symmetric about
 its centre, so +90°/-90° render identically) — but still author, then drive
 to and check, never trust the sign by inspection alone.
+
+**Where the park IS the barrier, its water-facing edge and the shore are one
+number.** The wall veto reads roads, never water, so a wall stands
+`PARK_WALL_INSET_M` inside the authored rect whatever the river does — while
+water draws ABOVE the lawn (docs/rendering.md) and hides whatever the shore
+overlaps. Author the shore inside the rect and you get the wall out in the
+river, water on both sides of it and a strip of water between it and the
+visible grass that wobbles with the shore. Both of NYC's banks shipped that
+way (issue #389) — the Hudson's on purpose, to "keep the grass/water seam from
+cracking", and Queens' by taking the shore's *minimum* reach on a bank the
+water reaches *east* across. The third, `nyc-esplanade`, took that same formula
+on the one bank where it names the right extreme, looked right throughout, and
+is what named the cause. So a shore beside a walled park is ruled straight
+along that park's rect edge, and keeps its irregularity where no park
+constrains it — never both banks straight, which reads as a canal.
+`tests/parkLayouts.test.ts`'s "never stands a park wall in open water" is the
+guard, on every map.
 
 **An island enclosed by a road loop is one lawn or none.** A small green
 floating in it reads as "a random strip of green surrounded by concrete" — the

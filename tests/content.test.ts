@@ -532,7 +532,7 @@ describe("SideSwap content", () => {
     expect(south.streetEdges).toEqual(["+z"]);
     expect(north.center.z).toBe(1115);
     expect(north.streetEdges).toEqual(["-z"]);
-    // Clear of the East River's own shore (x up to ~744) on the west side,
+    // Clear of the East River's own shore (x up to 726) on the west side,
     // and its west edge meets the Queens riverbank park's own east edge
     // exactly (Section 11.6) rather than the vern-cres column's generic
     // 787 inset, which would overlap it by 4.4 m.
@@ -565,14 +565,20 @@ describe("SideSwap content", () => {
     expect(main.size.z).toBe(1640);
     expect(north.center.z).toBe(1158);
     expect(north.size.z).toBe(604);
-    // Never overlaps the water: the west edge sits at the east shore's own
-    // minimum reach (726), never past it.
+    // The east shore is flat, at exactly this strip's own west edge: no
+    // water over the lawn, and no bare ground short of it either. It shipped
+    // against a shore wobbling 726..744, pinned here as "the east shore's own
+    // minimum reach, so this never overlaps the water" — the wrong extreme on
+    // this bank, since the water reaches EAST to 744. Up to 18 m of the lawn
+    // drew under the river and the strip's own park wall stood out in it
+    // (issue #389); `parkLayouts.test.ts`'s "never stands a park wall in open
+    // water" is the general guard.
     const river = nyc!.geometry.waterBodies!.find((w) => w.id === "nyc-east-river")!;
-    const eastShoreMinX = Math.min(
-      ...river.polygon.filter((p) => p.x > 700).map((p) => p.x),
-    );
+    const eastShoreXs = river.polygon.filter((p) => p.x > 700).map((p) => p.x);
+    expect(Math.min(...eastShoreXs)).toBe(726);
+    expect(Math.max(...eastShoreXs)).toBe(726);
     for (const park of [south, main, north]) {
-      expect(park.center.x - park.size.x / 2).toBe(eastShoreMinX);
+      expect(park.center.x - park.size.x / 2).toBe(Math.max(...eastShoreXs));
     }
     // resolveParkStyle derives "riverside_strip" from these proportions
     // alone -- no hand-authored parkStyle override, matching the Manhattan
@@ -598,12 +604,39 @@ describe("SideSwap content", () => {
     expect(river.bridgePortalSurfaceIds ?? []).toEqual([]);
     const xs = river.polygon.map((p) => p.x);
     const zs = river.polygon.map((p) => p.z);
-    // Near shore overlaps the park (never reaches its own east edge) so
-    // the grass/water seam never cracks; far shore clears the world edge.
+    // Near shore meets the park's own west edge exactly for the park's whole
+    // z-extent. It used to overlap the park by 4-17 m, on the reading that
+    // an overlap was what kept the grass/water seam from cracking -- but
+    // water draws above the lawn and the park's wall does NOT move with the
+    // shore, so that overlap put the whole west wall out in the river (issue
+    // #389). Sampled rather than checked vertex by vertex: the two vertices
+    // that carry the bulkhead sit exactly on the park's ends, so an
+    // interpolated x is the only thing that proves the span between them.
+    // Beyond the park nothing at all is authored, so the shore keeps its
+    // wobble there.
+    const westEdge = park.center.x - park.size.x / 2;
+    const minZ = park.center.z - park.size.z / 2;
+    const maxZ = park.center.z + park.size.z / 2;
+    const nearShoreXAtZ = (z: number): number => {
+      const hits: number[] = [];
+      for (let i = 0; i < river.polygon.length; i += 1) {
+        const a = river.polygon[i];
+        const b = river.polygon[(i + 1) % river.polygon.length];
+        if (a.z === b.z || z < Math.min(a.z, b.z) || z > Math.max(a.z, b.z)) continue;
+        hits.push(a.x + ((b.x - a.x) * (z - a.z)) / (b.z - a.z));
+      }
+      // The near shore is the eastern boundary of a body that runs off the
+      // west world edge.
+      return Math.max(...hits);
+    };
+    for (let step = 0; step <= 40; step += 1) {
+      const z = minZ + ((maxZ - minZ) * step) / 40;
+      expect(nearShoreXAtZ(z), `Hudson shore at z=${z.toFixed(0)}`).toBeCloseTo(westEdge, 6);
+    }
+    // Nowhere on the map does the near shore reach the park's road-side edge.
     const nearShoreXs = xs.filter((x) => x > -1300);
     for (const x of nearShoreXs) {
       expect(x).toBeLessThan(park.center.x + park.size.x / 2);
-      expect(x).toBeGreaterThan(park.center.x - park.size.x / 2);
     }
     const farShoreXs = xs.filter((x) => x <= -1300);
     for (const x of farShoreXs) {
