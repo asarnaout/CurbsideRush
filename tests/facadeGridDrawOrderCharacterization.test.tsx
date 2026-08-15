@@ -481,8 +481,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // post-survival SURVIVORS) the real map's now much smaller procedural
     // remainder. Fingerprint moves for the same reason as every other
     // cell-count-driven baseline in this file.
-    drawCount: 1_701,
-    facadeMeshFingerprint: "79c57c0b",
+    //
+    // 1_701 -> 1_821 (+120, Tokyo authenticity plan P4, Region B): four new
+    // roads add their own ~1-in-4 holdback parcels (`tokyoParcelKeepsFacadeBoxes`)
+    // to the same stream, and resegmenting `jp-sangen-dori`/`jp-koshu-kaido`
+    // (the two mid-span node insertions) shifts which of THEIR pre-existing
+    // parcels draw from it too. Fingerprint moves for the same reason as
+    // every other cell-count-driven baseline in this file.
+    drawCount: 1_821,
+    facadeMeshFingerprint: "cfd0b3b8",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the

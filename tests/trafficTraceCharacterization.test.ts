@@ -140,7 +140,15 @@ describe("ambient traffic trace characterization", () => {
       // road that used to carry two directions of ambient traffic now
       // carries only one — real routing/spawn-distribution change, not
       // noise.
-      "free-jp": "49c638c6",
+      // Moves again for the Tokyo authenticity plan's P4 (Region B): four
+      // new roads (79 -> 83) and 24 new lanes add their own generated stop
+      // controls at eight new junctions, and — unlike a purely-new junction —
+      // four of those are EXISTING quarter/skeleton nodes gaining a real new
+      // arm for the first time (`jp-nw2`, `jp-nm2`, `jp-ni-r4-sg`,
+      // `jp-kita-dori-w`), which changes the legal successor set (and so the
+      // routing) of ambient traffic already passing through them, not just
+      // traffic on the new roads themselves. No new spawns this phase.
+      "free-jp": "4c4d6b14",
       "free-eg": "eb350f99",
     });
   });
