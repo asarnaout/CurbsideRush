@@ -345,6 +345,15 @@ plants the model's NATIVE origin at the slot — a model whose origin is far
 off-centre (house-d's was 5.6 m) silently places that far from where the
 planner and its curated collider assume under the per-submesh path.
 
+**A Sketchfab material whose baseColor PNG merely has an alpha channel gets
+exported `alphaMode: "BLEND"`, and BLEND renders depth-write-off** — the
+building draws its far walls over its near ones ("transparent walls",
+"hollowed-out" towers; Sketchfab's own viewer hides this). Check every new
+import with `tools/fix-glb-alpha-blend.mjs`: it measures the decoded alpha
+and demotes to OPAQUE (channel carries nothing) or MASK (real cutouts,
+depth-written). Real translucency — factor-alpha window glass — is the only
+thing that should stay BLEND.
+
 `registerStaticCell` takes an explicit `castsShadow` flag because the instanced
 building street wall deliberately casts none — flipping one silently adds it to
 the shadow map and changes every camera. The instanced glb wall casts no sun
