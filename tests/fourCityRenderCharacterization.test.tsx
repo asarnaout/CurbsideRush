@@ -892,8 +892,19 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // reacting to the new content near it (the pose sits close to Region
     // B's own shopping street), the same class of drift every earlier
     // phase's paragraph in this file documents.
-    totalMeshes: 16_374,
-    enabledMeshes: 16_374,
+    //
+    // -> Tokyo authenticity plan P10 (final QA): totalMeshes/enabledMeshes
+    // 16_374 -> 16_375 (+1). Fixing tokyo-konbini's real facing bug (a 90
+    // degree yawOffset correction, PROP_MODEL_FOOTPRINTS_M's X/Z spans
+    // swapped to match) shifts each konbini venue's keep-out footprint by
+    // the same rotation, which shifts which specific procedural facade
+    // cells survive nearby — this suite's fixed pose happens to sit where
+    // one additional cell now clears the keep-out that didn't before.
+    // Every other figure in this baseline (activeMeshes, materials,
+    // drawCallsPerFrame, mirror counts) is unchanged, confirming the delta
+    // is exactly this one cell, not a broader shift.
+    totalMeshes: 16_375,
+    enabledMeshes: 16_375,
     activeMeshes: 1_202,
     materials: 287,
     drawCallsPerFrame: 0,
