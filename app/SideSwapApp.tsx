@@ -2253,7 +2253,7 @@ export default function SideSwapApp() {
         effectiveView === "career-garage" || effectiveView === "career-travel"
           ? "career-shell"
           : ""
-      }`}
+      } ${effectiveView === "settings" ? "settings-shell" : ""}`}
       style={themeStyle}
     >
       <header className="app-header">
