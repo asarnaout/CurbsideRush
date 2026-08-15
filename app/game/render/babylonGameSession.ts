@@ -3316,6 +3316,11 @@ export class BabylonGameSession {
         // monitor's tolerance is set to coach, not to ticket, so a patrol only
         // acts on the wider citation band.
         (event.code === "speeding" && speedingWarrantsCitation(event.evidence)) ||
+        // A level crossing tickets only while its warning is live: the same
+        // monitor also fires for skipping Japan's courtesy stop at a dormant
+        // crossing, and that must stay coaching, never money.
+        (event.code === "railway_crossing" &&
+          event.evidence?.warningActive === true) ||
         // Crashing into cars or buildings is fined when witnessed too;
         // pedestrian strikes are cited unconditionally by the app instead.
         (event.code === "collision" && !event.evidence?.roadUserType)

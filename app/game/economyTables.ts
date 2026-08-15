@@ -168,6 +168,24 @@ export function speedingFine(
 }
 
 /**
+ * What running an active level crossing costs — the deliberate exception to
+ * the "deliberately modest" doctrine above, at 5x the flat fine (above even a
+ * full rebuild). Every other violation risks money; ignoring closed barriers
+ * with a train coming is the one that risks the whole car, and the ticket is
+ * priced so the player never reads it as a routine cost of doing business.
+ * Real-world anchor: Japan prices this around 11x its ordinary fine.
+ *
+ * Only ever charged with the warning actually active (`evidence.warningActive`)
+ * — rolling over a dormant crossing without the Japanese courtesy stop stays a
+ * coaching correction, not a ticket.
+ */
+export function railwayCrossingFine(country: CountryProfile): number {
+  const base = FINE_BY_COUNTRY[country.id] * 5;
+  const step = country.currency.minorUnits === 0 ? 100 : 1;
+  return Math.round(base / step) * step;
+}
+
+/**
  * What a full rebuild — all 100 condition points — costs at a repair shop.
  *
  * These were the flat tow-and-repair fee before repair shops existed, kept to

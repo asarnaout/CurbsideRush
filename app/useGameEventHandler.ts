@@ -45,6 +45,7 @@ import {
   TANK_CAPACITY_L,
   fuelPurchase,
   postedSpeed,
+  railwayCrossingFine,
   repairPrice,
   speedingFine,
 } from "./game/economyTables";
@@ -107,6 +108,8 @@ function fineReason(
         postedSpeed(limit, country),
       )}`;
     }
+    case "railway_crossing":
+      return "running a closed level crossing";
     default:
       return "a road violation";
   }
@@ -481,13 +484,16 @@ export function useGameEventHandler({
       drive.stampFineAt(now);
       if (speeding) drive.stampSpeedingFineAt(now);
       // Price it here, not at `cite`: this is where the measurement is. A
-      // speeding ticket scales with the excess; every other violation is
-      // binary and pays the flat fine.
+      // speeding ticket scales with the excess, a closed level crossing pays
+      // the game's heftiest flat rate; every other violation is binary and
+      // pays the ordinary flat fine.
       const excessMps = speeding ? speedingExcessMps(event.evidence) : null;
       const amount =
-        excessMps === null
-          ? null
-          : speedingFine(driveCountry, postedSpeed(excessMps, driveCountry));
+        event.ruleCode === "railway_crossing"
+          ? railwayCrossingFine(driveCountry)
+          : excessMps === null
+            ? null
+            : speedingFine(driveCountry, postedSpeed(excessMps, driveCountry));
       const reason = fineReason(event.ruleCode, event.evidence, driveCountry);
       if (event.issuedBy === "camera") {
         // Nobody to pull you over, so there is no scene and no `cite` step to

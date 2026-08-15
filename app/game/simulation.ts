@@ -336,6 +336,10 @@ const RULE_COOLDOWNS: Readonly<Partial<Record<RuleCode, number>>> = {
   unsafe_gap: 5,
   roundabout_yield: 5,
   observation: 8,
+  // One crossing incursion is one ticket: the line-crossing detector can
+  // retrigger on the paired opposite-direction stop line seconds later, and
+  // the fine behind it is the game's heftiest.
+  railway_crossing: 15,
   // Grinding along a wall or a knocked car re-contacts every step; one event
   // per contact burst is what the damage/fine layers upstream want to see.
   collision: 2.5,
