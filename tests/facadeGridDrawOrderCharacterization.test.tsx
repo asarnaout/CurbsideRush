@@ -523,8 +523,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // excluded from the procedural stream, but a different specific set of
     // cells near each venue, so the same cell COUNT survives while WHICH
     // cells and their world positions differ.
-    drawCount: 2_538,
-    facadeMeshFingerprint: "b8b53ef1",
+    //
+    // 2_538 -> 3_177 (+639, post-plan void-frontage fill): 27 new
+    // procedural blocks — 19 seam/arterial strip patches
+    // (`tokyoVoidFrontagePatches`) plus 8 hand micro blocks — each deals
+    // its own facade cells from this stream. NYC/London/Cairo rows are
+    // byte-identical, the per-map gate this suite exists for.
+    drawCount: 3_177,
+    facadeMeshFingerprint: "22c5de7c",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the

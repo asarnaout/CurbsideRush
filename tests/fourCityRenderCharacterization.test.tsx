@@ -912,14 +912,24 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // renders one proxy box per planned building, so the two suites must
     // move in lockstep); activeMeshes 1_202 -> 1_201 is one re-dealt
     // building leaving the fixed pose's frustum. Materials unchanged.
-    totalMeshes: 16_452,
-    enabledMeshes: 16_452,
-    activeMeshes: 1_201,
+    //
+    // 16_452 -> 16_159 (active 1_201 -> 1_224, post-plan void-frontage
+    // fill): 27 new procedural blocks ADD facade meshes (+639 facade
+    // cells, the facade-grid suite's own move) yet the TOTAL goes DOWN —
+    // the new blocks' keep-outs reject roadside prop scatter around them,
+    // the same "more blocks, fewer meshes via prop-scatter rejection (not
+    // a bug)" effect Phase 4's own baseline paragraph documents. Active
+    // rises because the spawn pose now faces new nearby frontage, and
+    // mirrorCandidates 207 -> 178 for the same scatter-displacement reason
+    // (the mirror ring's cell-hash gathers fewer roadside props nearby).
+    totalMeshes: 16_159,
+    enabledMeshes: 16_159,
+    activeMeshes: 1_224,
     materials: 287,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 207,
+    mirrorCandidates: 178,
     mirrorDrawn: 262,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,

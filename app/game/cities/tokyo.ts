@@ -3996,6 +3996,121 @@ const tokyoPhase10RingRoadKerbPatches: readonly ProceduralBlock[] = (() => {
   return patches;
 })();
 
+/**
+ * Post-plan void-frontage fill (owner report, 2026-08-15: "when I'm
+ * driving, I don't wanna see gaps unless it's the waterfront or a park").
+ * A whole-map per-(road, side) frontage-coverage sweep (2 m stations,
+ * junction aprons subtracted, blocks/parks/water/rail counted as cover)
+ * found 42 bare intervals >= 26 m totalling 5.1 km; the 30 below are the
+ * ones that are genuinely void to a driving camera. The excluded twelve
+ * are deliberate scenery, per the owner's own rule: `jp-kawagishi-dori`'s
+ * five river-side intervals ARE the waterfront, and the shotengai/ichiban
+ * inward flanks face the Nakamise Yokochō shared-space corridor. Most of
+ * these gaps are the SEAMS the phased build never owned: the bands between
+ * the hand-authored quarter and the generated webs (north of central
+ * Setagaya-dōri, north of the old quarter, the rail-side east edge), plus
+ * arterial flanks whose facing web kept its rows on its own inner streets.
+ *
+ * Same mechanism as `tokyoPhase10RingRoadKerbPatches` above (per-interval
+ * `tokyoRoadsideParcel`, style-driven, park/water self-exempting), with one
+ * addition: the quarter's own roads predate `TOKYO_ZONE_FOR_ROAD` (their
+ * blocks are hand-carved, so `tokyoStyleForRoad` deliberately throws for
+ * them) — those entries carry a quarter-fabric style here instead, matched
+ * to the adjacent hand blocks' own material/heightRange/density.
+ */
+const tokyoVoidFrontagePatches: readonly ProceduralBlock[] = (() => {
+  const allSurfaces = [...jpQuarterSurfaces, ...tokyoGeneratedHalf.generatedSurfaces];
+  interface VoidGap {
+    readonly roadId: string;
+    readonly from: WorldPoint;
+    readonly to: WorldPoint;
+    readonly side: 1 | -1;
+  }
+  // Quarter-fabric styles for zone-less quarter roads, keyed by which hand
+  // blocks each seam abuts (south band = south-west/south-east's wood-
+  // plaster/plaster look; north band = north/west-upper's plaster/tile;
+  // rail-side east band = the low wood-plaster east rows).
+  const QUARTER_SEAM_STYLE: Readonly<
+    Record<string, { materials: readonly [string, string]; heightRange: readonly [number, number]; density: number; depthM: number }>
+  > = {
+    "jp-setagaya-dori": { materials: ["wood-plaster", "plaster"], heightRange: [5, 13], density: 0.7, depthM: 14 },
+    "jp-shrine-road": { materials: ["wood-plaster", "plaster"], heightRange: [5, 12], density: 0.68, depthM: 14 },
+    "jp-south-road": { materials: ["wood-plaster", "plaster"], heightRange: [5, 12], density: 0.68, depthM: 13 },
+    "jp-westside-south": { materials: ["wood-plaster", "plaster"], heightRange: [5, 12], density: 0.68, depthM: 14 },
+    "jp-eastside-road": { materials: ["plaster", "wood-plaster"], heightRange: [5, 13], density: 0.7, depthM: 14 },
+    "jp-northrow-west": { materials: ["plaster", "tile"], heightRange: [5, 15], density: 0.7, depthM: 14 },
+    "jp-westhill-road": { materials: ["plaster", "wood-plaster"], heightRange: [5, 13], density: 0.68, depthM: 13 },
+    "jp-narrowhill-road": { materials: ["wood-plaster", "plaster"], heightRange: [5, 12], density: 0.68, depthM: 13 },
+    "jp-easthill-road": { materials: ["plaster", "wood-plaster"], heightRange: [5, 13], density: 0.68, depthM: 13 },
+    "jp-uptown-road": { materials: ["plaster", "tile"], heightRange: [6, 15], density: 0.7, depthM: 14 },
+    "jp-north-road": { materials: ["plaster", "tile"], heightRange: [5, 14], density: 0.7, depthM: 13 },
+    "jp-westside-road": { materials: ["wood-plaster", "plaster"], heightRange: [5, 13], density: 0.68, depthM: 14 },
+    "jp-center-road": { materials: ["wood-plaster", "plaster"], heightRange: [5, 12], density: 0.68, depthM: 12 },
+    "jp-east-curve": { materials: ["wood-plaster", "plaster"], heightRange: [5, 12], density: 0.66, depthM: 12 },
+    "jp-junction-road": { materials: ["wood-plaster", "plaster"], heightRange: [5, 12], density: 0.66, depthM: 12 },
+  };
+  const gaps: readonly VoidGap[] = [
+    { roadId: "jp-setagaya-dori-west", from: point(-1166, -168), to: point(-748, -168), side: -1 },
+    { roadId: "jp-ys-yanagi-dori", from: point(-1166, -970), to: point(-748, -970), side: -1 },
+    { roadId: "jp-ni-tsuki-dori", from: point(-1166, -100), to: point(-748, -100), side: 1 },
+    { roadId: "jp-koshu-kaido", from: point(-686, 560), to: point(-474, 560), side: -1 },
+    { roadId: "jp-setagaya-dori", from: point(-238, -168), to: point(-52, -168), side: 1 },
+    { roadId: "jp-setagaya-dori-west", from: point(-432, -168), to: point(-274, -168), side: -1 },
+    { roadId: "jp-mn-asahi-dori", from: point(-664, 600), to: point(-506, 600), side: -1 },
+    { roadId: "jp-setagaya-dori-west", from: point(-432, -168), to: point(-282, -168), side: 1 },
+    { roadId: "jp-northrow-west", from: point(-126, 76), to: point(-246, 76), side: 1 },
+    { roadId: "jp-setagaya-dori", from: point(-124, -168), to: point(-44, -168), side: -1 },
+    { roadId: "jp-westside-south", from: point(-260, -86), to: point(-260, -154), side: 1 },
+    { roadId: "jp-shrine-road", from: point(-30, -86), to: point(-30, -154), side: 1 },
+    { roadId: "jp-setagaya-dori", from: point(-8, -168), to: point(58, -168), side: 1 },
+    { roadId: "jp-westhill-road", from: point(-112, 90), to: point(-112, 154), side: -1 },
+    { roadId: "jp-narrowhill-road", from: point(-30, 90), to: point(-30, 154), side: 1 },
+    { roadId: "jp-uptown-road", from: point(6, 168), to: point(68, 168), side: -1 },
+    { roadId: "jp-ys-ayame-dori", from: point(-664, -1040), to: point(-602, -1040), side: -1 },
+    { roadId: "jp-kawate-dori", from: point(580, 194), to: point(580, 250), side: 1 },
+    { roadId: "jp-south-road", from: point(-98, -72), to: point(-44, -72), side: 1 },
+    { roadId: "jp-eastside-road", from: point(72, -86), to: point(72, -140), side: -1 },
+    { roadId: "jp-easthill-road", from: point(82, 90), to: point(82, 140), side: 1 },
+    { roadId: "jp-east-curve", from: point(84, -65), to: point(109, -31), side: 1 },
+    { roadId: "jp-east-curve", from: point(84, -65), to: point(109, -31), side: -1 },
+    { roadId: "jp-westside-road", from: point(-260, -58), to: point(-260, -12), side: -1 },
+    { roadId: "jp-center-road", from: point(100, -4), to: point(74, 18), side: 1 },
+    { roadId: "jp-junction-road", from: point(67, 31), to: point(82, 62), side: -1 },
+    { roadId: "jp-south-road", from: point(22, -72), to: point(58, -72), side: -1 },
+    { roadId: "jp-shotengai-nishi-dori", from: point(150, -46), to: point(150, -16), side: -1 },
+    { roadId: "jp-center-road", from: point(28, 18), to: point(2, 18), side: -1 },
+    { roadId: "jp-north-road", from: point(42, 76), to: point(68, 76), side: 1 },
+  ];
+  const parks = [...TOKYO_QUARTER_PARKS, ...TOKYO_PHASE6_PARKS];
+  const waterBodies = [...TOKYO_WATER_BODIES, ...TOKYO_PHASE6_WATER_BODIES];
+  const patches: ProceduralBlock[] = [];
+  for (const [index, gap] of gaps.entries()) {
+    const seamStyle = QUARTER_SEAM_STYLE[gap.roadId];
+    const zoneStyle = seamStyle ? null : tokyoStyleForRoad(gap.roadId);
+    const materials = seamStyle?.materials ?? zoneStyle!.materials;
+    const heightRange = seamStyle?.heightRange ?? zoneStyle!.heightRange;
+    const density = seamStyle?.density ?? zoneStyle!.density;
+    const depthM = seamStyle?.depthM ?? zoneStyle!.depthM;
+    const roadWidthM = allSurfaces.find((s) => s.id === gap.roadId)?.widthM ?? 8;
+    const patch = tokyoRoadsideParcel(
+      `jp-blk-${gap.roadId}-voidfill-${index}-${gap.side === 1 ? "p" : "n"}`,
+      gap.roadId,
+      gap.from,
+      gap.to,
+      gap.side,
+      roadWidthM,
+      depthM,
+      index % 2 === 0 ? materials[0] : materials[1],
+      heightRange,
+      density,
+      allSurfaces,
+    );
+    if (patch && tokyoBlockOverlapsParkOrWater(patch, parks, waterBodies)) continue;
+    if (patch) patches.push(patch);
+  }
+  return patches;
+})();
+
 // The names the quarter's lanes were authored under — every road here was
 // already described in the comments above, this promotes them to data. Only
 // Setagaya-dori is a real street; the rest are this neighbourhood's own.
@@ -4078,6 +4193,32 @@ export const TOKYO_MAP_PACK: MapPack = {
       { id: "jp-block-west-upper", center: point(-186, 47), size: point(136, 44), heightRange: [6, 16], density: 0.72, material: "tile" },
       { id: "jp-block-south-west", center: point(-215, -120), size: point(70, 74), heightRange: [5, 12], density: 0.66, material: "wood-plaster" },
       { id: "jp-block-south-east", center: point(21, -120), size: point(92, 74), heightRange: [6, 14], density: 0.72, material: "plaster" },
+      // Post-plan void-frontage fill, micro tier (owner's "no gaps unless
+      // scenic" rule — same sweep as `tokyoVoidFrontagePatches` below, but
+      // these ten intervals are 24-86 m: below/near the roadside-parcel
+      // machinery's own length floor after junction trims, so they are
+      // authored as plain quarter-style blocks at the measured rects
+      // instead. Mostly the quarter's rail-side east band (the level-
+      // crossing environs), plus one riverside-zone east flank on
+      // Kawate-dori. Sized/offset from each road's real half-width +
+      // sidewalk; the sweep's 13 m junction aprons are already outside
+      // every interval. Two measured slivers are deliberately NOT filled:
+      // the concave flanks where jp-east-curve and jp-center-road's
+      // diagonal wrap the level-crossing triangle — a straight rect offset
+      // from a curve's chord cuts inside the bend, and the first attempt
+      // put facade cells inside the audit's own driving-camera envelope
+      // (camera_origin_inside_opaque, caught by the fan re-run). That
+      // wedge is rail-crossing environs, the same clearance class as the
+      // crossing's own aprons; a pocket green is the right dressing if it
+      // ever needs one.
+      { id: "jp-block-voidfill-micro-0", center: point(595.6, 237), size: point(84, 16), heightRange: [6, 16], density: 0.7, material: "tile", headingDeg: -90 },
+      { id: "jp-block-voidfill-micro-2", center: point(86.35, -40.54), size: point(40, 12), heightRange: [5, 12], density: 0.66, material: "wood-plaster", headingDeg: -54 },
+      { id: "jp-block-voidfill-micro-3", center: point(-272.7, -36), size: point(42, 13), heightRange: [5, 13], density: 0.68, material: "wood-plaster", headingDeg: -90 },
+      { id: "jp-block-voidfill-micro-5", center: point(63.16, 51.99), size: point(32, 12), heightRange: [5, 12], density: 0.66, material: "wood-plaster", headingDeg: -64 },
+      { id: "jp-block-voidfill-micro-6", center: point(40, -59.2), size: point(34, 12), heightRange: [5, 12], density: 0.68, material: "plaster" },
+      { id: "jp-block-voidfill-micro-7", center: point(137.3, -31), size: point(28, 12), heightRange: [6, 15], density: 0.72, material: "tile", headingDeg: -90 },
+      { id: "jp-block-voidfill-micro-8", center: point(15, 5.2), size: point(24, 12), heightRange: [5, 12], density: 0.68, material: "wood-plaster", headingDeg: -180 },
+      { id: "jp-block-voidfill-micro-9", center: point(55, 62.7), size: point(24, 13), heightRange: [5, 14], density: 0.7, material: "plaster" },
       // Generated-half street wall (Tokyo expansion Phase 4, R18): the
       // whole residential-web/ring/downtown/riverside/east-bank fabric,
       // built by `buildTokyoGeneratedBlocks` above. The 9 rows above this
@@ -4090,6 +4231,9 @@ export const TOKYO_MAP_PACK: MapPack = {
       // Phase 10 visual-gap remediation — see
       // `tokyoPhase10RingRoadKerbPatches`'s own doc comment above.
       ...tokyoPhase10RingRoadKerbPatches,
+      // Post-plan void-frontage fill (owner's "no gaps unless scenic" rule)
+      // — see `tokyoVoidFrontagePatches`'s own doc comment above.
+      ...tokyoVoidFrontagePatches,
     ],
     servicePoints: [
       // The narrow south road still needs a wide set-back because the lot is
