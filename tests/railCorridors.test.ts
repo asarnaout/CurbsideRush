@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FREE_DRIVES, getCountryProfile, getMapPack } from "../app/game/content";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { buildSimulationCoreConfig } from "../app/game/simulationAdapter";
+import { railConsistLengthM } from "../app/game/render/trainRender";
 import type { StaticObstacle, WorldPoint } from "../app/game/types";
 
 /**
@@ -305,6 +306,18 @@ describe("rail corridors", () => {
             }
             expect(best, `${controlId} sits ${best.toFixed(1)}m off ${line.id}`).toBeLessThan(1.5);
           }
+        }
+      });
+
+      it("keeps the consist recipe and the schedule's train length in lockstep", () => {
+        for (const line of world.railLines) {
+          // The crossings time their windows off schedule.trainLengthM; the
+          // renderer sizes cars off the consist. If these drift, barriers
+          // lift while the visible tail is still on the crossing.
+          expect(
+            Math.abs(railConsistLengthM(line.consist) - line.schedule.trainLengthM),
+            `${line.id}: consist implies ${railConsistLengthM(line.consist)}m, schedule says ${line.schedule.trainLengthM}m`,
+          ).toBeLessThan(1.5);
         }
       });
 

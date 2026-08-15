@@ -109,6 +109,7 @@ import {
 } from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
 import { buildRailTracks } from "./railLayer";
+import { TrainVisual } from "./trainRender";
 import { BuildingLayer, type DebugBuildingAssetPolicy } from "./buildingLayer";
 import {
   buildOrUpdatePlayerCapsuleOverlay,
@@ -987,6 +988,9 @@ export class BabylonGameSession {
   private crowdSim: CrowdSim | null = null;
   private crowdRenderer: CrowdRenderer | null = null;
   private waterLayer: WaterLayer | null = null;
+  /** Procedural consists riding the authored rail lines; see trainRender.ts. */
+  private railTrains: TrainVisual[] = [];
+  private trainContactCooldownUntilTick = 0;
   private crowdDirty = false;
   private readonly crowdProbePoint = new Vector3();
   /** The gameplay camera's frustum for the crowd probes, refreshed each
@@ -1653,6 +1657,8 @@ export class BabylonGameSession {
     this.crowdSim = null;
     this.waterLayer?.dispose();
     this.waterLayer = null;
+    for (const train of this.railTrains) train.dispose();
+    this.railTrains = [];
     this.destructibles?.dispose();
     this.destructibles = null;
     this.buildingLayer?.dispose();
@@ -2189,6 +2195,9 @@ export class BabylonGameSession {
     }
     this.updatePlayerVisuals(interpolation);
     this.updateNpcVisuals(interpolation);
+    for (const train of this.railTrains) {
+      train.interpolate(interpolation);
+    }
     if (!this.paused) this.destructibles?.update(frameSeconds);
     if (this.damageSmoke?.isStarted()) {
       // Trail the smoke from the engine bay, wherever the car is facing.
@@ -2385,8 +2394,45 @@ export class BabylonGameSession {
     mark = performance.now();
     this.reportVulnerableRoadUserCollision();
     this.checkDestructiblePropCollisions();
+    this.checkTrainCollisions();
     this.perfSample(PERF_COLLISION, performance.now() - mark);
     this.perfFixedSteps += 1;
+  }
+
+  /**
+   * The train is renderer-owned (its pose is a pure function of sim time),
+   * so contact reaches the sim through the same external door pedestrians
+   * and destructible props use. A hit scrubs nearly all speed and reports a
+   * train-tagged collision — the heaviest impact class the damage table has.
+   */
+  private checkTrainCollisions() {
+    if (
+      this.simulationSnapshot.status !== "running" ||
+      this.cutsceneDirector?.isActive ||
+      !this.railTrains.length
+    ) {
+      return;
+    }
+    if (this.simulationSnapshot.tick < this.trainContactCooldownUntilTick) return;
+    const player = this.simulationSnapshot.player;
+    const margin = 1.15; // player capsule radius, roughly
+    for (const train of this.railTrains) {
+      for (const car of train.carObstacles()) {
+        const dx = player.x - car.x;
+        const dz = player.z - car.z;
+        const along = Math.abs(dx * car.ux + dz * car.uz);
+        const across = Math.abs(dx * -car.uz + dz * car.ux);
+        if (along > car.halfU + margin || across > car.halfV + margin) continue;
+        const impact = train.trainSpeedMps() + player.speedMps;
+        this.simulation.reportExternalContact(
+          "Never enter a crossing until the barriers are up and the track is clear.",
+          0.12,
+          { obstacle: "train", impactSpeedMps: impact },
+        );
+        this.trainContactCooldownUntilTick = this.simulationSnapshot.tick + 150;
+        return;
+      }
+    }
   }
 
   private reportVulnerableRoadUserCollision() {
@@ -3261,6 +3307,9 @@ export class BabylonGameSession {
     this.playerState.indicator = snapshot.player.signal;
     this.activeTrafficSide = snapshot.trafficSide;
     this.applySimulationNpcSnapshots(snapshot);
+    for (const train of this.railTrains) {
+      train.stepPose(snapshot.elapsedMs / 1000);
+    }
     this.updateAuthoredSignalVisuals();
 
     const npcHonkActive = snapshot.honk.active;
@@ -4170,6 +4219,9 @@ export class BabylonGameSession {
       ballast.freeze();
       railSteel.freeze();
       railSleeper.freeze();
+      for (const line of mapPack.geometry.railLines ?? []) {
+        this.railTrains.push(new TrainVisual(scene, line));
+      }
     }
     // All lane paint pours into two merged meshes (one per colour) instead
     // of a box per dash — see MarkingGeometry. Chevrons, crosswalks and

@@ -4186,6 +4186,10 @@ const TOKYO_RAIL_LINES: readonly RailLine[] = [
       warningLeadSeconds: 8,
       clearTrailSeconds: 1.5,
     },
+    // Tōkyū 300-series flavour: a two-car tram in the Setagaya Line's own
+    // apple green with a cream window band. 2 x 12.2 m + coupling = the
+    // schedule's 25 m, which tests/railCorridors.test.ts holds in lockstep.
+    consist: { kind: "tram", cars: 2, liveryHex: "#3f9163", accentHex: "#f0e7d4" },
   },
 ];
 

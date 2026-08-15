@@ -245,6 +245,12 @@ export interface GameCanvasMapPack {
         readonly endM: number;
         readonly kind: "bridge" | "viaduct";
       }[];
+      readonly consist: {
+        readonly kind: "tram" | "emu" | "diesel_freight";
+        readonly cars: number;
+        readonly liveryHex: string;
+        readonly accentHex?: string;
+      };
     }[];
     landmarks: readonly {
       readonly id: string;

@@ -972,10 +972,17 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // plus their approaches' stop-line markings. activeMeshes rises anyway:
     // both new crossings sit inside the fixed test pose's frustum, the
     // removed road was mostly outside it.
-    totalMeshes: 19_615,
+    //
+    // 19_615 -> 19_640 total (+25) while enabled STAYS 19_615: the procedural
+    // two-car tram (trainRender.ts — 11 boxes per car, 3 pantograph parts on
+    // the lead car) is built disabled and only enables when a simulation
+    // snapshot places it, which this suite's unstepped scene never does.
+    // materials 287 -> 293: the tram's six (body/accent/glass/under/roof/
+    // lamp), fingerprint moves for the same additions.
+    totalMeshes: 19_640,
     enabledMeshes: 19_615,
     activeMeshes: 1_607,
-    materials: 287,
+    materials: 293,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1098,7 +1105,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "cfd13ba7" -> "209b241d": the rail feature's one-for-one material swap
     // documented in the mesh paragraph above (three `landmark-jp-setagaya-
     // line*` out, `rail-ballast`/`rail-steel`/`rail-sleeper` in).
-    survivingMaterialNamesFingerprint: "209b241d",
+    // "209b241d" -> "08173393": the tram's six train-* materials above.
+    survivingMaterialNamesFingerprint: "08173393",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

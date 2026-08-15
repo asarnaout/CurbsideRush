@@ -542,6 +542,22 @@ export interface RailElevatedSpan {
 }
 
 /**
+ * What runs on the line. The train is built procedurally from primitives
+ * (`render/trainRender.ts`) — the repo's own convention for bespoke shapes —
+ * so a consist is a recipe, not an asset: car kind, count and livery.
+ * `tests/railCorridors.test.ts` checks the recipe's implied length against
+ * the schedule's `trainLengthM`, which is what the crossings actually time.
+ */
+export interface RailConsist {
+  readonly kind: "tram" | "emu" | "diesel_freight";
+  readonly cars: number;
+  /** Body colour, hex. */
+  readonly liveryHex: string;
+  /** Trim band / secondary colour, hex. */
+  readonly accentHex?: string;
+}
+
+/**
  * One railway per map, at most. The polyline is the track centreline in
  * world metres; everything else in the game derives from it:
  *  - the simulation projects each listed `railway_signal` control onto the
@@ -562,6 +578,7 @@ export interface RailLine {
   readonly crossingControlIds: readonly string[];
   readonly schedule: RailLineSchedule;
   readonly elevatedSpans?: readonly RailElevatedSpan[];
+  readonly consist: RailConsist;
 }
 
 export interface ProceduralMapGeometry {
