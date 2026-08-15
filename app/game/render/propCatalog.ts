@@ -215,7 +215,18 @@ export const AMBIENT_CROWD_CONFIG: Readonly<
   // NYC class (2600x2400 m) — the street-life pass is what actually retunes
   // it. Radii widen to match (18/100/140 -> 22/130/170, the same figures
   // London's own crowd bump landed on for a comparable-scale map).
-  "tokyo-setagaya": { count: 112, innerRadiusM: 22, outerRadiusM: 130, recycleRadiusM: 170 },
+  //
+  // 112 -> 136 (Tokyo authenticity plan P9): six new residential/mixed webs
+  // (Regions A-F) landed since 112 was set, each with its own real pavement
+  // network the ambient pool now has to cover too — measured lane-km grew
+  // 71.9 -> 96.2 (+34%) and blocks 280 -> 421 (+50%) over the same span.
+  // +24 (2-4 walkers x 6 regions, plan section 6.3's own figure) rather than
+  // a fully proportional +34-50% bump: the new webs are quiet residential
+  // capillaries, not downtown, so they should read as lightly populated —
+  // "not dead" — not as busy as the original mixed quarter per km. World
+  // size is unchanged (regions A-F filled voids inside the existing
+  // 2600x2400 m bounds), so the radii stay as they are.
+  "tokyo-setagaya": { count: 136, innerRadiusM: 22, outerRadiusM: 130, recycleRadiusM: 170 },
   // 64 -> 104: sixty-four walkers were right for an 800 m museum quarter and
   // read as a quiet Sunday once the map ran from Earls Court to Islington.
   // The crowd is 3-5 meshes total whatever the count — this is CPU stepping,

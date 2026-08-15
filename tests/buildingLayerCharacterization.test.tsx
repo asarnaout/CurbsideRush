@@ -410,7 +410,24 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // `jp-nishi-kanjo-dori`/`jp-kanpachi-dori`/`jp-miyanosaka-kita-dori`/
     // `jp-chuo-dori-north`/`jp-kawate-dori` resegmenting their own existing
     // parcels.
-    buildingInstanceCount: 3_314,
+    //
+    // 3_314 -> 3_313 (-1) (Tokyo authenticity plan P9, "venue models' final
+    // polish"): giving 12 gig venues a real `modelId`
+    // (`tokyo-konbini`/`tokyo-izakaya`/`tokyo-ramen`) makes
+    // `resolveVenuePlacement` re-derive each one's setback off the model's
+    // own measured `PROP_MODEL_FOOTPRINTS_M` footprint instead of the
+    // generic `shop`/`restaurant` box, shifting each venue's placed position
+    // by 0.1-1.7 m (verified directly, scratchpad, against the real
+    // `resolveVenuePlacement` — every venue stays inside the SAME real
+    // `buildingSet` block it started in). One of those shifted keep-out
+    // reservations tips one adjacent procedural-cell parcel candidate across
+    // its own accept/reject boundary — this suite's own `buildingLayout`
+    // re-plan is sensitive to exactly that class of boundary case, the same
+    // "coverage floors" trap the plan's own risk register names. Not
+    // itemised to the specific parcel (a 1-in-3300 shift, not worth a
+    // dedicated repro), same as this file's own P4/P5/P6/P7 entries above
+    // leave their own breakdowns unconfirmed past the measured total.
+    buildingInstanceCount: 3_313,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

@@ -1,7 +1,7 @@
 import {
   type AbstractMesh,
   Color3,
-  type Mesh,
+  Mesh,
   type Scene,
   StandardMaterial,
   TransformNode,
@@ -15,6 +15,7 @@ import {
   TOKYO_CHOCHIN_POSTS,
   TOKYO_NEON_SIGNS,
   TOKYO_SCRAMBLE_BILLBOARDS,
+  TOKYO_WIRE_RUNS,
 } from "../tokyoStreetFurniture";
 import type { GameCanvasMapPack } from "../sessionContract";
 import { defaultSidewalkWidthM } from "../visuals";
@@ -682,8 +683,134 @@ function buildScrambleBillboards(ctx: TokyoStreetFurnitureCtx): void {
   frameMaterial.freeze();
 }
 
+/** Sub-segments per span, approximating a shallow catenary as a faceted
+ * polyline — enough for the dip to read as a curve from the chase camera
+ * without spending a segment per metre. */
+const WIRE_SEGMENTS_PER_SPAN = 6;
+const WIRE_THICKNESS_M = 0.045;
+
+/**
+ * Wired hero runs (`TOKYO_WIRE_RUNS`): a pole at every hand-placed support,
+ * plus a sagging cable across every consecutive pair.
+ *
+ * Poles are instanced master parts (this file's usual chochin-post shape) so
+ * each one can independently topple — they reuse
+ * `DESTRUCTIBLE_PROP_CONFIGS["utility-pole"]` and the scattered
+ * utility-pole's own silhouette (pole + two crossarms), a second independent
+ * build of the same recipe (this file's non-sharing house style, see
+ * `buildChochinPosts`'s own comment). Cables are the opposite: never
+ * destructible (they sit at 5.6-6.25 m, well above the reachable band, the
+ * same reasoning neon signs/billboards use) and geometrically unique per
+ * span, so instancing would save nothing — instead every segment of every
+ * span is built as a throwaway child of a scratch per-span `TransformNode`
+ * (which supplies the span's own heading so a local `rotation.z` alone tilts
+ * each segment to the sag, the same two-rotation technique
+ * `buildHikariTower`'s own leg segments use, with a span's "along" standing
+ * in for a leg's own outward radius) and the whole batch — every span, both
+ * runs — is merged into ONE static mesh at the end (`Mesh.MergeMeshes`),
+ * which bakes each child's world matrix into the merge and makes the scratch
+ * TransformNodes disposable: one draw call for the entire city's wiring
+ * rather than one per segment.
+ */
+function buildWireRuns(ctx: TokyoStreetFurnitureCtx): void {
+  if (!TOKYO_WIRE_RUNS.length) return;
+  const scene = ctx.scene;
+  const poleMaterial = makeMaterial(scene, "tokyo-wire-pole", new Color3(0.32, 0.29, 0.26));
+  const armMaterial = makeMaterial(scene, "tokyo-wire-arm", new Color3(0.12, 0.12, 0.13));
+  const cableMaterial = makeMaterial(scene, "tokyo-wire-cable", new Color3(0.04, 0.04, 0.045));
+
+  const poleMaster = createCylinder(scene, "prop-master-tokyo-wire-pole", { height: 7.4, diameter: 0.22, tessellation: 8 }, Vector3.Zero(), poleMaterial);
+  poleMaster.isVisible = false;
+  const armTopMaster = createBox(scene, "prop-master-tokyo-wire-arm-top", { width: 1.7, height: 0.09, depth: 0.09 }, Vector3.Zero(), armMaterial);
+  armTopMaster.isVisible = false;
+  const armLowMaster = createBox(scene, "prop-master-tokyo-wire-arm-low", { width: 1.25, height: 0.08, depth: 0.08 }, Vector3.Zero(), armMaterial);
+  armLowMaster.isVisible = false;
+  const poleParts: readonly { readonly master: Mesh; readonly y: number }[] = [
+    { master: poleMaster, y: 3.7 },
+    { master: armTopMaster, y: 6.8 },
+    { master: armLowMaster, y: 6.25 },
+  ];
+
+  const cableSegments: Mesh[] = [];
+  const spanRoots: TransformNode[] = [];
+  let poleIndex = 0;
+  let spanIndex = 0;
+  for (const run of TOKYO_WIRE_RUNS) {
+    for (const support of run.supports) {
+      const destructibleParts: DestructiblePropPart[] = [];
+      for (const part of poleParts) {
+        const instance = part.master.createInstance(`prop-tokyo-wire-pole-${poleIndex}`);
+        poleIndex += 1;
+        instance.position.set(support.position.x, part.y, support.position.z);
+        instance.isPickable = false;
+        ctx.staticSceneryFreeze.push(instance);
+        ctx.registerShadowCaster(instance, support.position.x, support.position.z);
+        destructibleParts.push({ node: instance, isLightPool: false });
+      }
+      ctx.registerDestructibleProp("utility-pole", support.position.x, support.position.z, 1, destructibleParts);
+    }
+
+    for (let i = 0; i < run.supports.length - 1; i += 1) {
+      const a = run.supports[i].position;
+      const b = run.supports[i + 1].position;
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const alongTotal = Math.hypot(dx, dz);
+      if (alongTotal < 1e-3) continue;
+      const heading = Math.atan2(dx, dz);
+      const spanRoot = new TransformNode(`jp-wire-span-${spanIndex}-root`, scene);
+      spanRoots.push(spanRoot);
+      spanRoot.position.set(a.x, run.supportHeightM, a.z);
+      // This file's own "long dimension is local +x" convention
+      // (buildHikariTower's leg segments): heading - PI/2 turns local +x to
+      // point from A toward B.
+      spanRoot.rotation.y = heading - Math.PI / 2;
+
+      let previous = { along: 0, height: 0 };
+      for (let seg = 1; seg <= WIRE_SEGMENTS_PER_SPAN; seg += 1) {
+        const t = seg / WIRE_SEGMENTS_PER_SPAN;
+        const along = alongTotal * t;
+        // Shallow parabola: zero droop at both supports, run.sagM at
+        // midspan — a faceted approximation of a hanging cable, not a
+        // physically simulated catenary.
+        const height = -run.sagM * 4 * t * (1 - t);
+        const segLengthM = Math.hypot(along - previous.along, height - previous.height);
+        const segment = createBox(
+          scene,
+          `jp-wire-span-${spanIndex}-seg-${seg}`,
+          { width: segLengthM, height: WIRE_THICKNESS_M, depth: WIRE_THICKNESS_M },
+          new Vector3((previous.along + along) / 2, (previous.height + height) / 2, 0),
+          cableMaterial,
+          spanRoot,
+        );
+        segment.rotation.z = Math.atan2(height - previous.height, along - previous.along);
+        cableSegments.push(segment);
+        previous = { along, height };
+      }
+      spanRoot.computeWorldMatrix(true);
+      spanIndex += 1;
+    }
+  }
+
+  const cable = Mesh.MergeMeshes(cableSegments, true, true, undefined, false, false);
+  if (cable) {
+    cable.name = "jp-wire-cables";
+    cable.isPickable = false;
+    ctx.staticSceneryFreeze.push(cable);
+  }
+  // The scratch span roots only existed to give MergeMeshes each segment's
+  // world matrix; nothing still references them once the merge has baked
+  // that matrix into the merged mesh's own vertices.
+  for (const node of spanRoots) node.dispose();
+
+  poleMaterial.freeze();
+  armMaterial.freeze();
+  cableMaterial.freeze();
+}
+
 export function buildTokyoStreetFurniture(ctx: TokyoStreetFurnitureCtx): void {
   buildChochinPosts(ctx);
   buildNeonSigns(ctx);
   buildScrambleBillboards(ctx);
+  buildWireRuns(ctx);
 }

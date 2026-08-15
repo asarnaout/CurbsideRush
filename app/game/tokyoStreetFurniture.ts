@@ -78,6 +78,29 @@ export const TOKYO_CHOCHIN_POSTS: readonly TokyoChochinPost[] = [
   at("jp-chochin-ekimae-4", 231, 147.1, 270),
   at("jp-chochin-ekimae-5", 253, 147.1, 270),
   at("jp-chochin-ekimae-6", 275, 147.1, 270),
+  // Street life pass (P9): the shotengai vocabulary's one extension into the
+  // new districts — Region B's own shopping street (`jp-ekimae-nishi-dori`,
+  // `tokyo-shotengai`-zoned, plan section 6.3's "extend into the new
+  // districts"), north kerb only (the wired hero run below already dresses
+  // the south kerb — see TOKYO_WIRE_RUNS's own comment on why both read as
+  // one streetscape rather than doubled-up clutter). Solver-checked
+  // (scratchpad, the same `TOKYO_MAP_PACK` block-clearance methodology this
+  // table's own header describes): 35 m spacing along the road's real
+  // centreline, 6.2 m off it (half the 7 m carriageway + the 2.2 m pavement
+  // + 0.5 m clearance, this road's own analogue of Nakamise's "4.8 m off a
+  // 5.8 m road" figure), every point >= 1.5 m clear of the nearest block
+  // edge and >= 10 m from every venue on this street (jp-v46/48/49/50).
+  at("jp-chochin-ekimae-nishi-1", -409.6, 399.6, 180),
+  at("jp-chochin-ekimae-nishi-2", -374.9, 395.1, 0),
+  at("jp-chochin-ekimae-nishi-3", -340.2, 390.5, 180),
+  at("jp-chochin-ekimae-nishi-4", -305.5, 386.0, 0),
+  at("jp-chochin-ekimae-nishi-5", -270.8, 381.4, 180),
+  at("jp-chochin-ekimae-nishi-6", -236.1, 376.9, 0),
+  at("jp-chochin-ekimae-nishi-7", -201.4, 372.3, 180),
+  at("jp-chochin-ekimae-nishi-8", -166.7, 367.8, 0),
+  at("jp-chochin-ekimae-nishi-9", -132.0, 363.2, 180),
+  at("jp-chochin-ekimae-nishi-10", -97.3, 358.7, 0),
+  at("jp-chochin-ekimae-nishi-11", -62.6, 354.1, 180),
 ];
 
 /**
@@ -219,6 +242,115 @@ export const TOKYO_PARKED_BICYCLES: readonly TokyoParkedBicycle[] = [
   // Shotengai cluster C (south kerb, near the Chūō-dōri end).
   parked("jp-bike-24", 413.4, 35.5, 90),
   parked("jp-bike-25", 417.0, 35.5, 90),
+  // Street life pass (P9): a small two-bike pair outside one Hoshi Mart
+  // branch in each of the four newest residential districts (Hanamizu,
+  // Sumiregaoka, Minamimachi, Nishi Minami — plan section 6.3's "extend...
+  // into the new districts"; Ekimae-nishi already got its own treatment
+  // above and Kawabata has no venue at all, plan section 6.2). Solver-placed
+  // (scratchpad, the real `resolveVenuePlacement` for each venue's own
+  // curbside position, never hand-estimated): each pair sits ~1.8 m either
+  // side of the shop's own doorway at half its setback depth (on the
+  // pavement, between the kerb and the building line), >= 1.4 m clear of
+  // every lane centreline, >= 18 m from every junction node and clear of
+  // every block/landmark — the same TOKYO_PARKED_BICYCLES methodology this
+  // table's own header describes, just re-run for four new anchors.
+  parked("jp-bike-26", -25.7, 728.0, 0), // Hoshi Mart Hanamizu (jp-v54)
+  parked("jp-bike-27", -25.7, 731.6, 0),
+  parked("jp-bike-28", 295.7, -226.0, 180), // Hoshi Mart Sumiregaoka (jp-v56)
+  parked("jp-bike-29", 295.7, -229.6, 180),
+  parked("jp-bike-30", 202.0, -965.7, 270), // Hoshi Mart Minamimachi (jp-v58)
+  parked("jp-bike-31", 198.4, -965.7, 270),
+  parked("jp-bike-32", -962.0, -284.2, 90), // Hoshi Mart Nishi Minami (jp-v60)
+  parked("jp-bike-33", -958.4, -284.2, 90),
+];
+
+/**
+ * A wired hero run: a chain of hand-placed utility poles carrying a
+ * catenary-sagged cable strung between every consecutive pair — the plan's
+ * "wired hero runs" (section 6.3), deliberately confined to 2 named streets
+ * only (global wiring is out of scope). Each pole reuses the roadside
+ * scatter's own knockable `"utility-pole"` silhouette and destructible
+ * config (`DESTRUCTIBLE_PROP_CONFIGS["utility-pole"]`) — same fixture, just
+ * hand-placed here instead of scattered — so the procedural scatter's own
+ * poles elsewhere on the map and these read as one continuous species, not
+ * two different kinds of pole. Rendered by
+ * `render/tokyoLandmarks.ts`'s `buildWireRuns`.
+ */
+export interface TokyoWireSupport {
+  readonly position: WorldPoint;
+}
+
+export interface TokyoWireRun {
+  readonly id: string;
+  /** Mount height (m) both the pole's own crossarm and the cable sit at —
+   * matches the scattered utility-pole's own lower-arm height (6.25 m,
+   * `render/roadsideProps.ts`), so a run reads as strung from the same kind
+   * of fixture the rest of the street already has. */
+  readonly supportHeightM: number;
+  /** Cable droop (m) at each span's own midpoint. */
+  readonly sagM: number;
+  readonly supports: readonly TokyoWireSupport[];
+}
+
+const wireSupport = (x: number, z: number): TokyoWireSupport => ({ position: { x, z } });
+
+/**
+ * Two runs, per plan section 6.3: Region B's own shopping street
+ * (`jp-ekimae-nishi-dori`) and one Hanamizu lane (`jp-yuri-dori`, Region A).
+ * Every support solver-checked against the real `TOKYO_MAP_PACK` (scratchpad,
+ * the same methodology `TOKYO_CHOCHIN_POSTS`'s own header describes): 33-35 m
+ * spacing along each road's real centreline (matching the scattered
+ * utility-pole's own ~32 m rhythm), one consistent kerb per run (south for
+ * Ekimae Nishi-dōri — the wire run and the chochin row above deliberately
+ * take opposite kerbs of the same street, not the same one twice), lateral
+ * offset = half the carriageway + the pavement + 0.9 m (the scattered
+ * utility-pole's own `lateralMarginM`, so a hand-placed pole stands exactly
+ * where a scattered one would), every support >= 1.5 m clear of the nearest
+ * block edge. Each run covers its street's own busiest core stretch (where
+ * the venues actually are), not the full road — a hero accent, not blanket
+ * coverage, the same scale `TOKYO_CHOCHIN_POSTS`'s own Nakamise/Ekimae rows
+ * already set.
+ */
+export const TOKYO_WIRE_RUNS: readonly TokyoWireRun[] = [
+  {
+    id: "jp-wire-ekimae-nishi",
+    supportHeightM: 6.25,
+    sagM: 0.7,
+    supports: [
+      wireSupport(-411.8, 387.0),
+      wireSupport(-379.1, 382.7),
+      wireSupport(-346.3, 378.4),
+      wireSupport(-313.6, 374.1),
+      wireSupport(-280.9, 369.9),
+      wireSupport(-248.2, 365.6),
+      wireSupport(-215.5, 361.3),
+      wireSupport(-182.7, 357.0),
+      wireSupport(-150.0, 352.7),
+      wireSupport(-117.3, 348.4),
+      wireSupport(-84.6, 344.1),
+      wireSupport(-51.9, 339.8),
+      wireSupport(-19.1, 335.5),
+    ],
+  },
+  {
+    id: "jp-wire-yuri",
+    supportHeightM: 6.25,
+    sagM: 0.6,
+    supports: [
+      wireSupport(-197.5, 743.7),
+      wireSupport(-162.5, 743.7),
+      wireSupport(-127.5, 743.7),
+      wireSupport(-92.5, 743.7),
+      wireSupport(-57.5, 743.7),
+      wireSupport(-22.5, 743.7),
+      wireSupport(12.5, 743.7),
+      wireSupport(47.5, 743.7),
+      wireSupport(82.5, 743.7),
+      wireSupport(117.5, 743.7),
+      wireSupport(152.5, 743.7),
+      wireSupport(187.5, 743.7),
+    ],
+  },
 ];
 
 /**
@@ -227,11 +359,14 @@ export const TOKYO_PARKED_BICYCLES: readonly TokyoParkedBicycle[] = [
  * `LONDON_FURNITURE_POINTS`'s own shape exactly. Neon boards/billboards are
  * elevated well above the scatter's own placements, but are included anyway
  * (cheap insurance, same as London including its post boxes) since nothing
- * about the generic scatter knows about height.
+ * about the generic scatter knows about height. Wire-run supports are
+ * included so the scatter's own random utility poles never double one of
+ * these hand-placed ones a few metres away.
  */
 export const TOKYO_STREET_FURNITURE_POINTS: readonly WorldPoint[] = [
   ...TOKYO_CHOCHIN_POSTS.map((p) => p.position),
   ...TOKYO_NEON_SIGNS.map((p) => p.position),
   ...TOKYO_SCRAMBLE_BILLBOARDS.map((p) => p.position),
   ...TOKYO_PARKED_BICYCLES.map((p) => p.position),
+  ...TOKYO_WIRE_RUNS.flatMap((run) => run.supports.map((s) => s.position)),
 ];

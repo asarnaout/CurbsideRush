@@ -4236,24 +4236,34 @@ export const TOKYO_MAP_PACK: MapPack = {
       // konbini/famiresu/diner cluster the owner asked for (plan §6.4) —
       // 2 Hoshi Mart branches, 3 restaurants (ramen/izakaya/family diner)
       // and 2 general shops on the shopping street, one residence on the
-      // collector for gig variety. No `modelId` on any of these (unlike
-      // jp-v45's `shop` above): the plan's own P9 phase ("venue models'
-      // final polish") is explicitly where `tokyo-konbini`/`tokyo-ramen`/
-      // `tokyo-izakaya` get their `modelLibrary.ts`/`propFootprints.ts`
-      // wiring as PLACEABLE venue models, not this one — every anchor below
+      // collector for gig variety. `modelId` added by P9 ("venue models'
+      // final polish" — this comment originally deferred it to that phase;
+      // it now IS that phase): every "Hoshi Mart" shop takes
+      // `tokyo-konbini`, "Tsukimi Ramen" takes `tokyo-ramen` and "Izakaya
+      // Yoimachi" takes `tokyo-izakaya` by name match, and "Hinata Diner"
+      // (a generic family diner, no imported model of its own) takes
+      // `tokyo-izakaya` too — still an authentic Japanese eatery silhouette,
+      // and the only way a "diner" reads as Setagaya rather than generic
+      // Western fast food. Re-verified (scratchpad, the real
+      // `resolveVenuePlacement`) that every reassigned footprint keeps its
+      // venue inside the SAME real `buildingSet` block as before (shift
+      // 0.1-1.7 m, never past a block boundary) and >=22 m from every other
+      // venue/service point — see PROP_MODEL_REGISTRY's own header for the
+      // facing-confidence caveat on konbini. jp-v51/52 (bakery/stationery)
+      // stay generic: no imported model matches either. Every anchor below
       // was found the same way Phase 7's did: a scratchpad solver calling
       // the real `resolveVenuePlacement` (never a hand estimate), keeping
       // only results that land inside a real `buildingSet` block (not a
       // holdback facade-box one) and >=22 m from every other venue/service
       // point already on the map — see the PR body for the solver script.
-      { id: "jp-v46", kind: "shop", anchor: { laneId: "jp-ekimae-nishi-dori-1-reverse-1", distanceAlongM: 291 }, footprint: point(12, 9), name: "Hoshi Mart Ekimae-Nishi" },
-      { id: "jp-v47", kind: "shop", anchor: { laneId: "jp-nakasuji-dori-3-forward-1", distanceAlongM: 130 }, footprint: point(12, 9), name: "Hoshi Mart Nakasuji" },
-      { id: "jp-v48", kind: "restaurant", anchor: { laneId: "jp-ekimae-nishi-dori-1-reverse-1", distanceAlongM: 120 }, footprint: point(12, 9), name: "Tsukimi Ramen" },
-      { id: "jp-v49", kind: "restaurant", anchor: { laneId: "jp-ekimae-nishi-dori-2-forward-1", distanceAlongM: 40 }, footprint: point(12, 9), name: "Izakaya Yoimachi" },
+      { id: "jp-v46", kind: "shop", modelId: "tokyo-konbini", anchor: { laneId: "jp-ekimae-nishi-dori-1-reverse-1", distanceAlongM: 291 }, footprint: point(12, 9), name: "Hoshi Mart Ekimae-Nishi" },
+      { id: "jp-v47", kind: "shop", modelId: "tokyo-konbini", anchor: { laneId: "jp-nakasuji-dori-3-forward-1", distanceAlongM: 130 }, footprint: point(12, 9), name: "Hoshi Mart Nakasuji" },
+      { id: "jp-v48", kind: "restaurant", modelId: "tokyo-ramen", anchor: { laneId: "jp-ekimae-nishi-dori-1-reverse-1", distanceAlongM: 120 }, footprint: point(12, 9), name: "Tsukimi Ramen" },
+      { id: "jp-v49", kind: "restaurant", modelId: "tokyo-izakaya", anchor: { laneId: "jp-ekimae-nishi-dori-2-forward-1", distanceAlongM: 40 }, footprint: point(12, 9), name: "Izakaya Yoimachi" },
       // The owner's own "famiresu" ask (plan §6.4's "Gusto-style diner") —
       // an original name, the same way jp-v14's "Blue Moon Diner" invented
       // one rather than naming a real chain.
-      { id: "jp-v50", kind: "restaurant", anchor: { laneId: "jp-ekimae-nishi-dori-3-forward-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Hinata Diner" },
+      { id: "jp-v50", kind: "restaurant", modelId: "tokyo-izakaya", anchor: { laneId: "jp-ekimae-nishi-dori-3-forward-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Hinata Diner" },
       { id: "jp-v51", kind: "shop", anchor: { laneId: "jp-sakuramachi-dori-1-forward-1", distanceAlongM: 150 }, footprint: point(12, 9), name: "Sakuramachi Bakery" },
       { id: "jp-v52", kind: "shop", anchor: { laneId: "jp-tsukimi-dori-2-forward-1", distanceAlongM: 50 }, footprint: point(12, 9), name: "Ekimae-Nishi Stationery" },
       { id: "jp-v53", kind: "residence", anchor: { laneId: "jp-nakasuji-dori-1-reverse-1", distanceAlongM: 40 }, footprint: point(12, 10), name: "Nakasuji Flats" },
@@ -4262,9 +4272,11 @@ export const TOKYO_MAP_PACK: MapPack = {
       // solver-verified against the real resolveVenuePlacement (never a hand
       // estimate) to land inside a real buildingSet block, comfortably clear
       // of every other venue/service point already on the map (>250 m here,
-      // a brand-new district) and >=22 m from each other (41.3 m).
-      { id: "jp-v54", kind: "shop", anchor: { laneId: "jp-hanamizuki-dori-1-forward-1", distanceAlongM: 170 }, footprint: point(12, 9), name: "Hoshi Mart Hanamizu" },
-      { id: "jp-v55", kind: "restaurant", anchor: { laneId: "jp-yuri-dori-2-forward-1", distanceAlongM: 160 }, footprint: point(12, 9), name: "Hanamizu Shokudō" },
+      // a brand-new district) and >=22 m from each other (41.3 m). `modelId`
+      // added P9, re-verified against the same block/clearance bar (see the
+      // Ekimae-nishi block's own comment above for the methodology).
+      { id: "jp-v54", kind: "shop", modelId: "tokyo-konbini", anchor: { laneId: "jp-hanamizuki-dori-1-forward-1", distanceAlongM: 170 }, footprint: point(12, 9), name: "Hoshi Mart Hanamizu" },
+      { id: "jp-v55", kind: "restaurant", modelId: "tokyo-ramen", anchor: { laneId: "jp-yuri-dori-2-forward-1", distanceAlongM: 160 }, footprint: point(12, 9), name: "Hanamizu Shokudō" },
       // Sumiregaoka (Tokyo authenticity plan P6, Region C): a small shop +
       // restaurant pair on the collector, both anchored on its forward
       // (+1/"p"-side) lane — the reverse side's own block along this stretch
@@ -4274,9 +4286,10 @@ export const TOKYO_MAP_PACK: MapPack = {
       // against the real resolveVenuePlacement (never a hand estimate):
       // both land inside a real buildingSet block, comfortably clear of
       // every other venue/service point already on the map (>190 m here, a
-      // brand-new district) and >=22 m from each other (222 m).
-      { id: "jp-v56", kind: "shop", anchor: { laneId: "jp-sumiregaoka-dori-1-forward-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Hoshi Mart Sumiregaoka" },
-      { id: "jp-v57", kind: "restaurant", anchor: { laneId: "jp-sumiregaoka-dori-2-forward-1", distanceAlongM: 50 }, footprint: point(12, 9), name: "Sumire Teishoku" },
+      // brand-new district) and >=22 m from each other (222 m). `modelId`
+      // added P9, re-verified the same way.
+      { id: "jp-v56", kind: "shop", modelId: "tokyo-konbini", anchor: { laneId: "jp-sumiregaoka-dori-1-forward-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Hoshi Mart Sumiregaoka" },
+      { id: "jp-v57", kind: "restaurant", modelId: "tokyo-izakaya", anchor: { laneId: "jp-sumiregaoka-dori-2-forward-1", distanceAlongM: 50 }, footprint: point(12, 9), name: "Sumire Teishoku" },
       // Minamimachi (Tokyo authenticity plan P7, Region D): the konbini +
       // restaurant pair (plan §6.4), both on jp-minamimachi-dori's own
       // segment 2 (east of the jp-shion-x-minamimachi crossing, well clear
@@ -4290,16 +4303,18 @@ export const TOKYO_MAP_PACK: MapPack = {
       // real buildingSet block, comfortably clear of every other venue/
       // service point already on the map (>=280 m here, a brand-new
       // district) and >=22 m from each other (60 m) and from this phase's
-      // own two service points (>=490 m).
-      { id: "jp-v58", kind: "shop", anchor: { laneId: "jp-minamimachi-dori-2-reverse-1", distanceAlongM: 100 }, footprint: point(12, 9), name: "Hoshi Mart Minamimachi" },
-      { id: "jp-v59", kind: "restaurant", anchor: { laneId: "jp-minamimachi-dori-2-reverse-1", distanceAlongM: 160 }, footprint: point(12, 9), name: "Minamimachi Shokudō" },
+      // own two service points (>=490 m). `modelId` added P9, re-verified
+      // the same way.
+      { id: "jp-v58", kind: "shop", modelId: "tokyo-konbini", anchor: { laneId: "jp-minamimachi-dori-2-reverse-1", distanceAlongM: 100 }, footprint: point(12, 9), name: "Hoshi Mart Minamimachi" },
+      { id: "jp-v59", kind: "restaurant", modelId: "tokyo-ramen", anchor: { laneId: "jp-minamimachi-dori-2-reverse-1", distanceAlongM: 160 }, footprint: point(12, 9), name: "Minamimachi Shokudō" },
       // Nishi Minami (Tokyo authenticity plan P8, Region E): the plan's own
       // "1 pocket venue" (§6.2) — a single corner shop roughly centred in
       // the 380 m void (x=-950 is this region's own bbox midpoint). Solver-
       // verified against the real resolveVenuePlacement: lands inside a real
       // `tokyo-house` block, >=290 m clear of every other venue/service
-      // point already on the map (a brand-new district).
-      { id: "jp-v60", kind: "shop", anchor: { laneId: "jp-hiiragi-dori-1-forward-1", distanceAlongM: 240 }, footprint: point(12, 9), name: "Hoshi Mart Nishi Minami" },
+      // point already on the map (a brand-new district). `modelId` added
+      // P9, re-verified the same way.
+      { id: "jp-v60", kind: "shop", modelId: "tokyo-konbini", anchor: { laneId: "jp-hiiragi-dori-1-forward-1", distanceAlongM: 240 }, footprint: point(12, 9), name: "Hoshi Mart Nishi Minami" },
     ],
     landmarks: [
       { id: "jp-gotokuji-station", kind: "station", center: point(-14, 6), size: point(20, 9), color: "#e85e59" },

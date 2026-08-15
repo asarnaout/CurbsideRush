@@ -43,9 +43,15 @@ round of real building models for it (Tokyo authenticity plan, phase P1).
 (house-a/b/c/d + apato-a) and `tokyo-shotengai` (shop-a/b/c/d + konbini +
 house-a), dress miyanosaka/yamashita/nishi and the `jp-nakamise-yokocho`
 shotengai — see `docs/map-authoring.md`'s "Tokyo is two halves" section.
-`tokyo-izakaya`/`tokyo-ramen` stay catalogued but unplaced (venue models, a
-later phase's job) and `tokyo-apato-b` stays unplaced too (no set built so
-far names it). Every licence was verified on the model's own Sketchfab page
+**Tokyo authenticity plan P9 wires `tokyo-konbini`/`tokyo-izakaya`/
+`tokyo-ramen` a second way**, as standalone `PROP_MODEL_REGISTRY` venue
+models (`modelLibrary.ts`) distinct from `tokyo-konbini`'s own
+`tokyo-shotengai` street-wall-set membership above: twelve "Hoshi Mart"/
+ramen/izakaya gig venues across regions A-E now render the real glb instead
+of the generic `shop`/`restaurant` fallback box. `tokyo-apato-b` stays
+unplaced (no set names it — a live-measured perf exclusion, see
+`buildingSets.ts`'s own comment on its ~99-submesh merge cost). Every licence
+was verified on the model's own Sketchfab page
 and via the download panel at import time (2026-08-14), and every file's
 provenance is hashed below and baked into the glb itself
 (`asset.extras.curbsideRush`); `tests/tokyoAssets.test.ts` pins the

@@ -862,15 +862,45 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (`landmark-jp-<id>`, one per new landmark regardless of style) — the
     // real, measured total below is not in doubt; only the itemised
     // breakdown is left for a future pass to confirm.
-    totalMeshes: 14_029,
-    enabledMeshes: 14_029,
-    activeMeshes: 1_054,
-    materials: 283,
+    //
+    // -> Tokyo authenticity plan P9 (street life): totalMeshes/enabledMeshes
+    // 14_029 -> 16_374 (+2_345). This suite's forced-empty preload never
+    // instantiates a real glb (every venue/prop renders through its
+    // procedural fallback here — this file's own header), so the jump is
+    // NOT from the 12 re-modelled venues (inert in this suite); it is
+    // overwhelmingly the scattered `utility-pole` kind's own population.
+    // `generateRoadsidePropPlacements` (headless, scratchpad, the exact
+    // seeded call `render/roadsideProps.ts` makes) puts 563 utility poles on
+    // the real Tokyo road network — each pole's `partsFor` case grew from 3
+    // parts (pole + 2 crossarms) to 7 (+ a transformer can + 3 insulator
+    // studs), so +4 mesh INSTANCES per already-scattered pole is +2_252
+    // alone (the marginal draw-call cost stays ~0 either way — instancing —
+    // this suite counts mesh objects, not draw batches). The rest is the
+    // wired hero runs (25 hand-placed poles x 3 parts + 1 merged cable mesh
+    // = 76), the Ekimae-nishi chochin extension (11 posts x 4 parts = 44)
+    // and the 4 new bicycle pairs; not separately itemised past that bound,
+    // same as this file's own P4/P7/P8 entries above. materials 283 -> 287
+    // (+4), confirmed by dumping `survivingMaterialNames` and diffing: three
+    // new wire-run materials (`tokyo-wire-pole`/`-arm`/`-cable`, Tokyo-only,
+    // `render/tokyoLandmarks.ts`) plus one new insulator material
+    // (`utility-insulator`, gated `key === "tokyo"` in
+    // `render/roadsideProps.ts` exactly like the chochin/sakura bag beside
+    // it) — no new unconditional material, so NYC/London/Cairo's own rows
+    // stay byte-identical (confirmed: this diff touches no other city's
+    // block). activeMeshes 1_054 -> 1_202, mirrorCandidates 174 -> 207,
+    // mirrorDrawn 256 -> 262: the fixed test pose's own mirror-cull frustum
+    // reacting to the new content near it (the pose sits close to Region
+    // B's own shopping street), the same class of drift every earlier
+    // phase's paragraph in this file documents.
+    totalMeshes: 16_374,
+    enabledMeshes: 16_374,
+    activeMeshes: 1_202,
+    materials: 287,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 174,
-    mirrorDrawn: 256,
+    mirrorCandidates: 207,
+    mirrorDrawn: 262,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -983,7 +1013,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 1_018 -> 1_054, mirrorCandidates/mirrorDrawn 174/242 -> 174/256: the
     // fixed test pose's own mirror-cull frustum reacting to the new content,
     // the same class of drift every earlier phase's paragraph documents.
-    survivingMaterialNamesFingerprint: "305fa935",
+    // "305fa935" -> "cfd13ba7": Tokyo authenticity plan P9's +4 materials
+    // above (`tokyo-wire-pole`/`-arm`/`-cable`, `utility-insulator`).
+    survivingMaterialNamesFingerprint: "cfd13ba7",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
