@@ -313,10 +313,21 @@ export function roadsidePropKindsForMap(
       return [{ ...PROP_TREE, spacingM: 20 }, PROP_SIGN];
     case "tokyo":
       return [
-        // R17's light posts: same config as NYC, the repo's other night map —
-        // 5.2 m column + arm + emissive head, plus the fake night ground-light
-        // pool.
-        PROP_STREETLIGHT,
+        // R17's light posts: NYC's config plus `curbOffsetM` — Tokyo is the
+        // night map, and the owner reported whole streets pitch dark (61 of
+        // 101 roads measured with a >120 m lampless interval; the downtown
+        // core had ZERO lamps). Root cause: the default lateral band places
+        // a lamp 1 m BEYOND the sidewalk, and this map's street wall hugs
+        // the pavement edge on most roads, so `blocks.some(isInside...)`
+        // rejected nearly every candidate — 3x fewer lamps than NYC from
+        // the identical spacing. `curbOffsetM` seats the pole ON the
+        // pavement by the kerb instead (its documented purpose), where a
+        // real Japanese streetlight stands and where no street wall can
+        // swallow it. 0.7 m keeps the pole (0.32 m radius) clear of both
+        // the carriageway and the walker rail. Same random-draw count per
+        // candidate as the default branch, so the shared seeded stream
+        // stays aligned for the kinds below (the P9 retune trap).
+        { ...PROP_STREETLIGHT, curbOffsetM: 0.7 },
         {
           kind: "utility-pole",
           spacingM: 32,
