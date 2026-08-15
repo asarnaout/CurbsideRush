@@ -33,7 +33,7 @@ const COMMITTED_SHA256: Readonly<Record<string, string>> = {
   "tokyo-house-a.glb": "c88e4970840a6f19ba8752f5289a87be80b3bae452e647445d5815b4940e131f",
   "tokyo-house-b.glb": "6b8e20e0b733da3616640485e52ddc49e9b77dbb024c1d55c38a62537ea15def",
   "tokyo-house-c.glb": "0c0e4eaa7fcdbae349ef9cb2a8041cbcdf28d863162494fe440619864d9b1fee",
-  "tokyo-house-d.glb": "1c1f2e79417cf8b5b2ab5779f8cbac7424cf764b981d30f1af0a58f798fb177f",
+  "tokyo-house-d.glb": "82b249fe1d8d43463bf5828b470e2270c2fefd9f29b8c72914ce2ec9ec1650a4",
   "tokyo-apato-a.glb": "80dd62de4789d5f2798def067073e3f5f4751308ca9b2d9f6057d053c687d157",
   "tokyo-apato-b.glb": "db408a486fd98a1551d84c5fd92f6ea9881ae3d491046b16bd2b8eb52576f433",
   "tokyo-konbini.glb": "3abc6babc8f48dd605cd5f8cf0d21f04b6a64e9da101e9761626ddd24554f53e",

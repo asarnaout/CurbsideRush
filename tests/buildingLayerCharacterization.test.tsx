@@ -427,7 +427,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // itemised to the specific parcel (a 1-in-3300 shift, not worth a
     // dedicated repro), same as this file's own P4/P5/P6/P7 entries above
     // leave their own breakdowns unconfirmed past the measured total.
-    buildingInstanceCount: 3_313,
+    //
+    // 3_313 -> 3_730 (+417) (post-plan perf fix): tokyo-house-d left
+    // MERGE_INCOMPATIBLE_MODEL_IDS (its secondary-UV strip — see
+    // buildingCatalog.ts), so its 417 placements moved from
+    // `instantiateViaSubmeshes` (never counted here — this counter counts
+    // `createInstance` of a merged master) onto the ordinary merged-master
+    // path. +417 is exactly its placement count, and the total now equals
+    // the planner's own asset-slot count: every planned building is a real
+    // master instance again, none render per-submesh.
+    buildingInstanceCount: 3_730,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

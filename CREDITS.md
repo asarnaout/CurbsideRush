@@ -627,6 +627,15 @@ pins the committed SHA-256 of every file). **Normalized** by
 - Provenance baked into `asset.extras.curbsideRush`:
   `{style, author, title, license: "CC-BY 4.0", sourceUrl, sourceSha256,
   modifications}`, the same shape `tools/style-london-terraces.mjs` uses.
+- `tokyo-house-d` (2026-08-15, post-plan performance fix): 77 unused
+  secondary-UV (`TEXCOORD_1`..`TEXCOORD_7`) primitive-attribute references
+  stripped via `tools/normalize-glb-attributes.mjs` so all 290 primitives
+  share one vertex-attribute set and `Mesh.MergeMeshes` accepts the model
+  (it previously had to render per-submesh — one scene mesh per primitive
+  per placement, 87% of Tokyo's whole mesh count). The model has no
+  textures, so no material ever sampled those channels; the binary chunk is
+  byte-identical, only JSON attribute references were removed. Appended to
+  the same `asset.extras.curbsideRush.modifications` stamp.
 
 **Phase P3a's own normalization (the zakkyo split + the Nippori hero):**
 
@@ -701,7 +710,7 @@ step, the split tool embeds directly). Then, for every file,
 | **props/tokyo-house-a.glb** | Japanese Residential Home 01 | Morrissey Alexander | `japanese-residential-home-01-d690f83d8e8d48e6a532bebe84901595` | `8788dc786017a99a931307f8adfd8c2c4961423b5470324dd80b2ff6837131f5` | `c88e4970840a6f19ba8752f5289a87be80b3bae452e647445d5815b4940e131f` |
 | **props/tokyo-house-b.glb** | Japanese Residential Home 02 | Morrissey Alexander | `japanese-residential-home-02-c31697f09152453cb3ed215482e7a810` | `825aed04802350d83503e84d39a4012f8c34395da7a28d4ead74ace200edc9a9` | `6b8e20e0b733da3616640485e52ddc49e9b77dbb024c1d55c38a62537ea15def` |
 | **props/tokyo-house-c.glb** | Japanese Residential Home 03 | Morrissey Alexander | `japanese-residential-home-03-1c53f4f37fc44c32a8874464025aea48` | `911b4a5d52872135e73136ffccaef7c4d30daabbbbfca3acfe128e547903404e` | `0c0e4eaa7fcdbae349ef9cb2a8041cbcdf28d863162494fe440619864d9b1fee` |
-| **props/tokyo-house-d.glb** | Tokyo Japanese House / Casa Japonesa [Low Poly] | SitoNyaa | `tokyo-japanese-house-casa-japonesa-low-poly-05e04ee0c3d04ff9a2fe4c348b3c1bcd` | `cfe54e8c25daf66cb2c43a4519c6506ee86708b44744bf4709fcc7a3a8e8d2c0` | `1c1f2e79417cf8b5b2ab5779f8cbac7424cf764b981d30f1af0a58f798fb177f` |
+| **props/tokyo-house-d.glb** | Tokyo Japanese House / Casa Japonesa [Low Poly] | SitoNyaa | `tokyo-japanese-house-casa-japonesa-low-poly-05e04ee0c3d04ff9a2fe4c348b3c1bcd` | `cfe54e8c25daf66cb2c43a4519c6506ee86708b44744bf4709fcc7a3a8e8d2c0` | `82b249fe1d8d43463bf5828b470e2270c2fefd9f29b8c72914ce2ec9ec1650a4` |
 | **props/tokyo-apato-a.glb** | PSX Japanese Apartment | DeadFrame Studio† | `psx-japanese-apartment-0a12452df55c4e3687759732c81a8437` | `c4cae7d69a95f07b190fa236c01eb308c2b9ede31d7c51985e09a5e6f377578e` | `80dd62de4789d5f2798def067073e3f5f4751308ca9b2d9f6057d053c687d157` |
 | **props/tokyo-apato-b.glb** | Grey Japanease Apartment | Kasuga | `grey-japanease-apartment-8589efeb25284d709934497e02a25421` | `8969bd766b81998af72cb91d116fcb0c8f24250dbef3bd350b2afa5821c79295` | `db408a486fd98a1551d84c5fd92f6ea9881ae3d491046b16bd2b8eb52576f433` |
 | **props/tokyo-konbini.glb** | Konbini | Arthur Sauvaget | `konbini-6f66ee45303e4b90b1bcd13fad484269` | `cd48ed4f594929f5ded7a85ee406b961f1f0ea3897288ba2daff1af3649c1763` | `3abc6babc8f48dd605cd5f8cf0d21f04b6a64e9da101e9761626ddd24554f53e` |

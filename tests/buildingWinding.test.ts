@@ -96,6 +96,12 @@ describe("merged building winding", () => {
     "tokyo-block-slim": 2,
     "tokyo-zakkyo-e": 1,
     "tokyo-nippori-bldg": 4,
+    // Joined MERGED when its secondary-UV strip took it off
+    // MERGE_INCOMPATIBLE_MODEL_IDS (tools/normalize-glb-attributes.mjs —
+    // buildingCatalog.ts's own comment has the story); measured directly on
+    // first entry to this harness: 2 strays out of 9,329 tris, the same
+    // authoring-slip class as its P1 siblings above.
+    "tokyo-house-d": 2,
   };
 
   // The guard: after the winding fix every merged building's outward faces are
