@@ -203,16 +203,32 @@ export const LONDON_ENV_MODELS: readonly EnvModelMeta[] = [
  * plan's section 6.4), and `tokyo-apato-b` stays unwired too (no set built
  * that phase names it).
  *
- * **P3a** adds the downtown/zakkyo backbone (13 more models): six
+ * **P3a** added the downtown/zakkyo backbone (13 more models): six
  * `tokyo-zakkyo-*` files split from one 19-building Sketchfab night-city pack
  * (`tools/split-asian-city-pack.mjs`), the optional `tokyo-nippori-bldg`
  * hero, and six "restyle backbone" models — re-imports of already-committed
  * CC0 sources restyled for Tokyo (`tools/style-tokyo-buildings.mjs`'s
  * flat-palette path, `TOKYO_ZAKKYO_MODEL_IDS` below lists just the six
- * splits). **P3a is import-only, exactly like P1**: measured
+ * splits). **P3a was import-only, exactly like P1**: measured
  * `buildingSets.ts` PLACEMENTS/`buildingStructuralBounds.ts` BOUNDS entries,
- * but referenced by no `BuildingSetId`/block yet — see `CREDITS.md` for full
- * provenance.
+ * referenced by no `BuildingSetId`/block yet.
+ *
+ * **P3b** wires the six zakkyo splits plus `tokyo-block-slim/small/4story`
+ * into a new `tokyo-zakkyo` set (`downtown` + `ring`), and
+ * `tokyo-walkup-a/b`/`tokyo-block-4story`/`tokyo-tower-a` into a new
+ * `tokyo-manshon` set (`riverside` + `higashi`) — see
+ * `tokyoRoadsideBuildingSet` in `cities/tokyo.ts`. `tokyo-nippori-bldg`
+ * stays deliberately out of both sets' regular membership (a street-wall set
+ * repeats along every qualifying run, wrong for a one-of-a-kind hero) — see
+ * the P3b PR body for whether/where it got a hand-placed instance instead.
+ * `tokyo-apato-b` stays unwired too, live-measured out of `tokyo-manshon`
+ * this same phase (see that set's own comment in `buildingSets.ts`): its
+ * glb's ~99 distinct architectural-BIM-style submeshes each cost a real
+ * draw call the moment even one instance is on screen, nearly doubling the
+ * Tokyo scramble's drawCallsPerFrame in a live paired measurement.
+ * `tokyo-izakaya`/`tokyo-ramen` (P1, venue models) remain unwired, still
+ * waiting on the plan's section 6.4 venue-wiring phase. See `CREDITS.md` for
+ * full import provenance.
  *
  * The P1/P3a Sketchfab exports were downloaded as the autoconverted glTF
  * (separate `.gltf`+`.bin`+images), packed into a self-contained glb by
@@ -587,11 +603,15 @@ export function cairoEnvModelUrls(): string[] {
 }
 
 /** De-duplicated Tokyo street-wall kit URLs, for map-scoped preload/tests.
- * Ten of P1's 13 are live in a `BuildingSetId` since P2 (`tokyo-house`,
- * `tokyo-shotengai`); the rest — P1's `tokyo-izakaya`/`tokyo-ramen`/
- * `tokyo-apato-b` and all 13 of P3a's zakkyo/backbone models — are
- * catalogued but unreferenced by any set/block so far. See
- * `TOKYO_ENV_MODELS`'s header. */
+ * As of P3b, ten of P1's 13 are live in a `BuildingSetId` (P2's
+ * `tokyo-house`/`tokyo-shotengai`) — `tokyo-izakaya`/`tokyo-ramen` (venue
+ * models, still waiting on the plan's section 6.4 venue-wiring phase) and
+ * `tokyo-apato-b` (live-measured OUT of P3b's own `tokyo-manshon` this same
+ * phase — see that set's comment in `buildingSets.ts` — a real perf
+ * regression, not an oversight) stay unreferenced. Twelve of P3a's 13 are
+ * live too (`tokyo-zakkyo`/`tokyo-manshon`) — the optional
+ * `tokyo-nippori-bldg` hero remains catalogued but unplaced (see the P3b PR
+ * body for why). See `TOKYO_ENV_MODELS`'s header. */
 export function tokyoEnvModelUrls(): string[] {
   return [...new Set(TOKYO_ENV_MODELS.map((m) => m.url))];
 }

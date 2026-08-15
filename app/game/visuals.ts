@@ -289,9 +289,10 @@ export interface MapVisualProfile {
   /** Instanced building-set catalogues (`buildingSets.ts`) this city's block
    * content may draw from. Every map names at least one today; a district
    * left on procedural facades / landmark dispatch instead just never
-   * references one of the sets listed here (Tokyo's `higashi`/`ring`/
-   * `riverside`/most of `downtown`, as of the Tokyo authenticity plan's
-   * P2) — an empty array isn't required for that. */
+   * references one of the sets listed here (Tokyo's ~1-in-4 street-wall
+   * holdback parcels and its hand-authored quarter, as of the Tokyo
+   * authenticity plan's P3b — every generator zone now names a set) — an
+   * empty array isn't required for that. */
   readonly buildingSets: readonly BuildingSetId[];
   /** Park-planting catalogues (`natureCatalog.ts`) this city draws from. */
   readonly natureSets: readonly NatureSetId[];
@@ -337,11 +338,14 @@ const MAP_VISUAL_PROFILES: Readonly<Record<string, MapVisualProfile>> = {
   "tokyo-setagaya": {
     visualKey: "tokyo",
     plateRegion: "jp",
-    // Tokyo authenticity plan P2: the first two glb sets go live, wired to
-    // miyanosaka/yamashita/nishi and jp-nakamise-yokocho
-    // (`tokyoRoadsideBuildingSet` in cities/tokyo.ts). `tokyo-zakkyo`/
-    // `tokyo-manshon` wait on P3's imports.
-    buildingSets: ["tokyo-house", "tokyo-shotengai"],
+    // Tokyo authenticity plan: P2 wired the first two glb sets live, on
+    // miyanosaka/yamashita/nishi and jp-nakamise-yokocho; P3b adds
+    // tokyo-zakkyo (downtown + ring) and tokyo-manshon (riverside +
+    // higashi) — see `tokyoRoadsideBuildingSet` in cities/tokyo.ts for the
+    // exact zone->set mapping. Every generator zone now names a set; only
+    // the ~1-in-4 holdback parcels and the hand-authored quarter stay
+    // procedural.
+    buildingSets: ["tokyo-house", "tokyo-shotengai", "tokyo-zakkyo", "tokyo-manshon"],
     natureSets: natureSetsForMap("tokyo"),
     complexionWeights: [0, 1, 2, 6, 8, 7],
     hairWeights: [15, 5, 3, 1, 0, 0],

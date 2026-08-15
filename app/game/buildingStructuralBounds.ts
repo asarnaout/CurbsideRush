@@ -124,8 +124,12 @@ const BOUNDS: Record<string, BuildingStructuralBounds> = {
   "london-walkup-a": rect(-6, 6, -6, 6, 14.1),
   "london-walkup-b": rect(-6, 6, -6, 6, 14.1),
 
-  // ---- Tokyo (P1 — import-only, unreferenced by any set; see
-  // TOKYO_ENV_MODELS's header in buildingCatalog.ts). Measured independently
+  // ---- Tokyo (P1 — imported here; wired live into `tokyo-house`/
+  // `tokyo-shotengai` (P2) — `tokyo-izakaya`/`tokyo-ramen` (venue models) and
+  // `tokyo-apato-b` (live-measured out of P3b's own `tokyo-manshon` on perf
+  // grounds — see that set's own comment in buildingSets.ts) remain
+  // unreferenced; see TOKYO_ENV_MODELS's header in buildingCatalog.ts).
+  // Measured independently
   // of buildingSets.ts's own footprintM/depthM (which come from the FULL
   // merged-master bound): ground-touching triangles collected within 0.2 m
   // of each model's own ground reference (not always the absolute geometric
@@ -152,9 +156,9 @@ const BOUNDS: Record<string, BuildingStructuralBounds> = {
   "tokyo-izakaya": rect(-3.77, 3.78, -3.25, 3.44, 10.05),
   "tokyo-ramen": rect(-6.84, 6.6, -8.68, 8.28, 9.64),
 
-  // ---- Tokyo (P3a — import-only, unreferenced by any set; see
-  // TOKYO_ENV_MODELS's header in buildingCatalog.ts). Same measurement
-  // recipe as the P1 block above; none of these six hit the
+  // ---- Tokyo (P3a — imported here; wired live into `tokyo-zakkyo` (P3b)
+  // below; see TOKYO_ENV_MODELS's header in buildingCatalog.ts). Same
+  // measurement recipe as the P1 block above; none of these six hit the
   // heterogeneous-submesh MergeMeshes crash, so every bound here comes from
   // a real merged master, not a per-submesh union.
   //

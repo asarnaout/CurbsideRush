@@ -558,14 +558,14 @@ const KINDS_BY_BLOCK_MATERIAL: Record<string, readonly GigVenueKind[]> = {
   "london-glass-curtain": ["office"],
   // Tokyo (expansion Phase 7) started as `buildingSets: []` (fully
   // procedural facades), so this table alone governed its addresses. As of
-  // the Tokyo authenticity plan's P2, miyanosaka/yamashita/nishi and
-  // jp-nakamise-yokocho name a `buildingSet` on ~3 of every 4 parcels
-  // (`tokyoParcelKeepsFacadeBoxes`'s 1-in-4 holdback keeps the rest on
-  // plain facade boxes with no `buildingSet` at all) — `KINDS_BY_BUILDING_SET`
-  // wins for those, but this table still governs every holdback parcel AND
-  // every other district (`higashi`/`ring`/`riverside`/the rest of
-  // `downtown`, still fully procedural pending later phases). Its generated
-  // street wall (`buildTokyoGeneratedBlocks`, Phase 4) uses exactly four
+  // the Tokyo authenticity plan's P3b, every generator zone names a
+  // `buildingSet` on ~3 of every 4 parcels (`tokyoParcelKeepsFacadeBoxes`'s
+  // 1-in-4 holdback keeps the rest on plain facade boxes with no
+  // `buildingSet` at all) — `KINDS_BY_BUILDING_SET` wins for those, but this
+  // table still governs every holdback parcel across all seven zones AND
+  // the hand-authored quarter (never part of the generator loop, so never
+  // named a `buildingSet` at all). Its generated street wall
+  // (`buildTokyoGeneratedBlocks`, Phase 4) uses exactly four
   // facade materials, confirmed directly against `TOKYO_ZONE_STYLE` —
   // `wood-plaster` and `plaster` for the low-rise residential webs, `tile`
   // for the ring roads/riverside/downtown core, and `concrete` for the east
@@ -597,8 +597,8 @@ const KINDS_BY_BUILDING_SET: Record<string, readonly GigVenueKind[]> = {
   "london-highstreet": ["shop", "residence"],
   "london-city": ["office", "office", "residence"],
 
-  // Tokyo (authenticity plan P2). Mirrors what KINDS_BY_BLOCK_MATERIAL
-  // already produces for these same zones/road today, so the delivery pool
+  // Tokyo (authenticity plan P2/P3b). Mirrors what KINDS_BY_BLOCK_MATERIAL
+  // already produces for these same zones/roads today, so the delivery pool
   // does not silently reshuffle just because a parcel gained a
   // `buildingSet`: miyanosaka/yamashita/nishi alternate wood-plaster
   // (residence only) and plaster (residence, shop) parcels ~50/50, which
@@ -609,6 +609,28 @@ const KINDS_BY_BUILDING_SET: Record<string, readonly GigVenueKind[]> = {
   // food pickup (docs/map-authoring.md's Addresses section).
   "tokyo-house": ["residence", "residence", "residence", "shop"],
   "tokyo-shotengai": ["residence", "residence", "residence", "residence", "shop", "office"],
+  // tokyo-zakkyo dresses BOTH `downtown` (outside jp-nakamise-yokocho) and
+  // `ring` (`tokyoRoadsideBuildingSet` in cities/tokyo.ts) — both zones
+  // alternate tile (shop/office/residence, equal thirds) and plaster
+  // (residence/shop, halves) ~50/50, same two materials just listed in
+  // opposite order, so one mirrored mix covers both: weighting each
+  // material's own kind list by its 50% draw odds (not by list length)
+  // gives shop 5/12, office 2/12, residence 5/12 — written out as a
+  // 12-entry array below so the count matches exactly rather than rounding.
+  "tokyo-zakkyo": [
+    "shop", "shop", "shop", "shop", "shop",
+    "office", "office",
+    "residence", "residence", "residence", "residence", "residence",
+  ],
+  // tokyo-manshon dresses BOTH `riverside` (tile/plaster, the same mix as
+  // tokyo-zakkyo above: shop 5/12, office 2/12, residence 5/12) and
+  // `higashi` (plaster/concrete: residence 7/12, shop 3/12, office 2/12,
+  // since concrete alone already leans residence/office). One row has to
+  // cover both zones, so this averages the two computed mixes (shop 4/12,
+  // office 2/12, residence 6/12 -> 2:1:3), rather than favouring either
+  // zone's own number over the other with no way to know their relative
+  // parcel counts ahead of time.
+  "tokyo-manshon": ["residence", "residence", "residence", "shop", "shop", "office"],
 };
 
 const polylineLength = (points: readonly WorldPoint[]): number =>

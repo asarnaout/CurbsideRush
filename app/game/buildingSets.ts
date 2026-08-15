@@ -512,7 +512,9 @@ export type BuildingSetId =
   | "london-highstreet"
   | "london-city"
   | "tokyo-house"
-  | "tokyo-shotengai";
+  | "tokyo-shotengai"
+  | "tokyo-zakkyo"
+  | "tokyo-manshon";
 
 /** Which catalogue models make up each zone's street wall. */
 const SETS: Record<BuildingSetId, readonly string[]> = {
@@ -571,13 +573,13 @@ const SETS: Record<BuildingSetId, readonly string[]> = {
   ],
   "london-city": ["london-tower-a", "london-tower-b", "london-tower-c"],
 
-  // Tokyo authenticity plan, P2. Both sets mix five to six of P1's 13
-  // catalogued models — Cairo's own "a long run reads as copy-paste from
-  // the driver's seat with only two models" rationale applies just as much
-  // to a residential web or a shotengai. `tokyo-zakkyo`/`tokyo-manshon`
-  // (the plan's other two districts, downtown/riverside/higashi/ring) wait
-  // on P3's zakkyo-pack/restyle-backbone imports, so those zones stay
-  // procedural for now — see `tokyoRoadsideBuildingSet` in cities/tokyo.ts.
+  // Tokyo authenticity plan. P2 wired the first two sets, mixing five to six
+  // of P1's 13 catalogued models — Cairo's own "a long run reads as
+  // copy-paste from the driver's seat with only two models" rationale
+  // applies just as much to a residential web or a shotengai. P3b (this
+  // pass) adds the downtown/zakkyo backbone and the manshon mid-rise mix,
+  // both wired live in `tokyoRoadsideBuildingSet` (cities/tokyo.ts) — see
+  // that function's own doc comment for the zone->set mapping.
   "tokyo-house": [
     "tokyo-house-a", "tokyo-house-b", "tokyo-house-c", "tokyo-house-d",
     "tokyo-apato-a",
@@ -585,6 +587,57 @@ const SETS: Record<BuildingSetId, readonly string[]> = {
   "tokyo-shotengai": [
     "tokyo-shop-a", "tokyo-shop-b", "tokyo-shop-c", "tokyo-shop-d",
     "tokyo-konbini", "tokyo-house-a",
+  ],
+  // The downtown/ring backbone: the six-way zakkyo-pack split plus the three
+  // restyled Quaternius mid-rise blocks. `tokyo-nippori-bldg` (the optional
+  // 59.6k-tri hero) is deliberately NOT a member here — a street-wall set
+  // gets drawn repeatedly along every qualifying run, which is right for a
+  // 6-35 m building but wrong for a one-of-a-kind hero; see the P3b PR body
+  // for whether/where it got a hand-placed instance instead.
+  "tokyo-zakkyo": [
+    "tokyo-zakkyo-a", "tokyo-zakkyo-b", "tokyo-zakkyo-c", "tokyo-zakkyo-d",
+    "tokyo-zakkyo-e", "tokyo-zakkyo-f", "tokyo-block-slim", "tokyo-block-small",
+    "tokyo-block-4story",
+  ],
+  // Riverside + higashi: "mixed mid-rise, 8-22 m" (plan section 6.1) — the
+  // restyled KayKit walk-ups for the lower end, the restyled Quaternius
+  // 4-storey block and the restyled NYC/London/Cairo glass tower for the
+  // taller end.
+  //
+  // `tokyo-apato-b` is deliberately EXCLUDED, contrary to the plan's own
+  // suggested membership list — live-measured (headless CDP, paired
+  // before/after at the Tokyo scramble pose, P3b's own perf pass), not a
+  // guess: including it nearly DOUBLED the scramble's drawCallsPerFrame
+  // (391 -> 777 avg of 3 samples x 2 repeats each, both pairs reproducing
+  // within 0.5%, so not session noise). Root cause: `tokyo-apato-b` is one
+  // of `MERGE_INCOMPATIBLE_MODEL_IDS` (its glb's own architectural BIM-style
+  // export names each wall panel/moulding segment as its own submesh —
+  // "purely architectural node names — Wall/Slab/Floor/Ceiling/Moulding",
+  // buildingCatalog.ts's own comment), so it renders through
+  // `instantiateModelInstanced`'s per-submesh path instead of
+  // `getBuildingMaster`'s single merged mesh. A live mesh census at the
+  // scramble pose found 99 DISTINCT submesh families from this one model
+  // alone (`instance of Wall_<guid>`, `instance of Roof Gable_<guid>`,
+  // `instance of Slab_<guid>`, `instance of Crown/Base Right Moulding_<guid>`,
+  // ...), each its own draw call batched across placements — a ~99-draw
+  // FIXED tax the moment even one instance is in range, not a per-instance
+  // cost `slotBlockBuildings`' cheap-marginal-cost assumption (plan section
+  // 10) holds for every other model in this catalogue. Confirmed by a
+  // controlled experiment: removing it from this SETS entry alone (nothing
+  // else changed) dropped the scramble to 372 draws — BELOW the pre-plan
+  // baseline, delivering the improvement the plan hypothesized. Unlike
+  // `tokyo-nippori-bldg` (a tri-count cost that scales with instance count,
+  // so limiting placements helps), this is a submesh-count cost that does
+  // NOT scale down with fewer placements, so there is no sparse-placement
+  // compromise available short of re-processing the source glb to consolidate
+  // its submeshes (which would very likely hit the same heterogeneous-
+  // vertex-attribute `MergeMeshes` crash `MERGE_INCOMPATIBLE_MODEL_IDS`
+  // already documents) — out of this phase's scope. `tokyo-apato-b` stays
+  // catalogued and PLACEMENTS-configured but unreferenced by any set, the
+  // same status it has had since P1.
+  "tokyo-manshon": [
+    "tokyo-walkup-a", "tokyo-walkup-b", "tokyo-block-4story",
+    "tokyo-tower-a",
   ],
 };
 
