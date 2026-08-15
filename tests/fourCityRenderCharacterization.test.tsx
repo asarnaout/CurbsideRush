@@ -922,14 +922,24 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // rises because the spawn pose now faces new nearby frontage, and
     // mirrorCandidates 207 -> 178 for the same scatter-displacement reason
     // (the mirror ring's cell-hash gathers fewer roadside props nearby).
-    totalMeshes: 16_159,
-    enabledMeshes: 16_159,
-    activeMeshes: 1_224,
+    //
+    // 16_159 -> 19_409 (active 1_224 -> 1_342, mirrorCandidates 178 -> 198,
+    // owner-reported dark streets): Tokyo's streetlight kind gained
+    // `curbOffsetM` (propCatalog.ts's own comment has the story — the
+    // default beyond-sidewalk lamp band was swallowed by this map's tight
+    // street wall, leaving 61 of 101 roads with a >120 m dark interval and
+    // the downtown core at zero lamps). Kerbside placement survives the
+    // rejection: lamp meshes 1_616 -> 4_648 live (~4 meshes per lamp),
+    // matching NYC's own 4_768 for the identical spacing config. Only the
+    // Tokyo row moves — the other three cities keep the default band.
+    totalMeshes: 19_409,
+    enabledMeshes: 19_409,
+    activeMeshes: 1_342,
     materials: 287,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 178,
+    mirrorCandidates: 198,
     mirrorDrawn: 262,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
