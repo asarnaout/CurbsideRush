@@ -376,7 +376,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // either. No Cairo roof clutter (no `roofY` on any Tokyo PLACEMENTS
     // entry) and no storefront re-branding (no Tokyo set references
     // `STOREFRONT_MODEL_ID`), so both other fields stay zero.
-    buildingInstanceCount: 2_136,
+    //
+    // 2_136 -> 2_304 (Tokyo authenticity plan P4, Region B): four new roads'
+    // worth of `tokyo-house`/`tokyo-shotengai` street wall (the two mid-span
+    // node insertions on `jp-sangen-dori`/`jp-koshu-kaido` also resegment
+    // those roads' own existing parcels, which shifts which ones keep the
+    // holdback facade grid vs. draw a glb — net +168 instances).
+    buildingInstanceCount: 2_304,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

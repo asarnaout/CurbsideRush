@@ -834,15 +834,43 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the live drawCallsPerFrame regression `tokyo-apato-b` caused (a real
     // glb-instancing cost, invisible to a proxy-box characterization) — see
     // the P3b PR body for the live paired measurement that actually caught it.
-    totalMeshes: 10_208,
-    enabledMeshes: 10_208,
-    activeMeshes: 947,
-    materials: 242,
+    //
+    // enabledMeshes/totalMeshes 10_208 -> 10_808 (+600, Tokyo authenticity
+    // plan P4, Region B): four new roads' worth of street wall/kerb/pavement/
+    // scatter (`jp-ekimae-nishi-dori`/`jp-sakuramachi-dori`/`jp-tsukimi-dori`/
+    // `jp-nakasuji-dori`) plus 8 new venues, the same class of growth Phase 4's
+    // own 296-block street-wall pass and Phase 7's 41 venues already produced
+    // at map-build scale (this suite's forced-empty preload turns every new
+    // `buildingSet` parcel into a per-solid proxy box, same as P2/P3b's own
+    // paragraphs above). activeMeshes 947 -> 965 (+18), mirrorCandidates
+    // 166 -> 162 (-4), mirrorDrawn 210 -> 218 (+8): the fixed test pose's own
+    // mirror-cull frustum reacting to the new content near
+    // `jp-sangen-x-ekimae-nishi`/`jp-koshu-x-nakasuji` (the two mid-span
+    // node insertions sit close to this pose), the same class of drift every
+    // earlier phase's paragraph above documents. materials 242 -> 258 (+16):
+    // NOT root-caused to the same depth as the paragraphs above (would need
+    // a live before/after `survivingMaterialNames` dump under this exact
+    // suite, not done for this phase) — but bounded, not guessed: this
+    // region's `buildingSet` parcels reuse `tokyo-house`/`tokyo-shotengai`'s
+    // already-shared materials (same reasoning as P2/P3b's own paragraphs:
+    // a proxy box reuses `ProceduralFacades.materialFor`'s existing
+    // per-materialKey cache, so that alone mints nothing new here either),
+    // Region B posts only 30/40 km/h (both already used elsewhere on the
+    // map, so no new speed-limit plate), and 8 new venues is the right
+    // order of magnitude for +16 if each contributes a small, fixed number
+    // of its own materials the way Phase 6's park landmarks did
+    // (`landmark-jp-<id>`, one per new landmark regardless of style) — the
+    // real, measured total below is not in doubt; only the itemised
+    // breakdown is left for a future pass to confirm.
+    totalMeshes: 10_808,
+    enabledMeshes: 10_808,
+    activeMeshes: 965,
+    materials: 258,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 166,
-    mirrorDrawn: 210,
+    mirrorCandidates: 162,
+    mirrorDrawn: 218,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -891,7 +919,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "0edc496a" -> "a19c1cd9": Phase 7's +93 materials above.
     // "a19c1cd9" -> "48512f9d": Phase 8's +5 materials above.
     // "48512f9d" -> "70de85d2": Phase 9's +15 materials above.
-    survivingMaterialNamesFingerprint: "70de85d2",
+    // "70de85d2" -> "a630aab2": Tokyo authenticity plan P4's +16 materials
+    // above (Region B).
+    survivingMaterialNamesFingerprint: "a630aab2",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

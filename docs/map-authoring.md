@@ -78,7 +78,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 |---|---|---|---|---|---|---|
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
-| `tokyo-setagaya` | 404 | 79 | 71.9 | 42 | 14 | 2600 × 2400 |
+| `tokyo-setagaya` | 428 | 83 | 75.2 | 42 | 14 | 2600 × 2400 |
 | `london-south-kensington` | 338 | 73 | 61.3 | 12 | 4 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane
@@ -345,12 +345,15 @@ sites. Materials/height-range/`density` still come from the district's own
 zone style alone (no per-road override table for those — `TOKYO_ROAD_STYLE_OVERRIDE`
 is the one exception, a handful of named streets). **`buildingSet` is a
 separate, later decision** (Tokyo authenticity plan P2/P3b): `tokyoRoadsideBuildingSet`
-derives it from the zone — miyanosaka/yamashita/nishi → `tokyo-house`;
-downtown (outside one exception) and `ring` → `tokyo-zakkyo`; `riverside`
-and `higashi` → `tokyo-manshon` — with exactly one per-road override of its
-own (`jp-nakamise-yokocho` → `tokyo-shotengai`, regardless of its `downtown`
-zone — the plan is explicit that only this one shotengai road diverges from
-its zone's own set). Every generator zone now names a set; what still ships
+derives it from the zone — miyanosaka/yamashita/nishi/`ekimae-nishi` →
+`tokyo-house`; downtown (outside two exceptions) and `ring` → `tokyo-zakkyo`;
+`riverside` and `higashi` → `tokyo-manshon` — with exactly two per-road
+overrides of its own, checked before the zone switch so they win regardless
+of what their own zone would otherwise resolve to: `jp-nakamise-yokocho`
+(zoned `downtown`) and `jp-ekimae-nishi-dori` (zoned `ekimae-nishi`, P4's own
+neighbourhood shopping street) both read as `tokyo-shotengai` — the plan is
+explicit that only these two shotengai roads diverge from their own zone's
+set. Every generator zone now names a set; what still ships
 the procedural facade grid is only the ~1-in-4 street-wall holdback parcels
 (`tokyoParcelKeepsFacadeBoxes`) plus the hand-authored quarter, which this
 generator never touches. `density` is not a fill fraction: it is `facadeGridCells`'s grid-resolution
