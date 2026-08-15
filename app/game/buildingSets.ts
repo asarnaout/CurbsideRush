@@ -371,30 +371,26 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
     frontOffset: Math.PI,
   },
   "tokyo-shop-d": {
-    // Confidence: LOW-MED, checked live in P2 but genuinely inconclusive —
-    // NOT upgraded. A drive-by swept all four sides (two of them from a
-    // close, near-wall distance, given this model's real size) and found
-    // no decorated face on any of them: plain brick to the north and
-    // south, bare concrete to the east, one barred window to the west —
-    // none of the "kanji signage at three heights" the baseColor texture
-    // shows (see below) was actually visible from outside at this
-    // orientation, on any side. Left at the original no-evidence default
-    // (0) rather than guessed into a specific wrong turn; a case for a
-    // closer look (or a different placement instance) in a later phase,
-    // not a confirmed bug. No door submesh (one merged mesh); mass-centroid
-    // offset is weak on both axes (x=-0.05, z=-0.12). The baseColor texture
-    // (a trim-sheet atlas, not a spatial photo) shows repeated kanji
-    // signage at three different heights plus AC units and a mailbox —
-    // real signage, but not resolvable to a world-facing side without a
-    // rendered view. Measures noticeably larger than its "small shopfront"
-    // plan role (22.4 x 23.1 x 12.9 m) — trusted over the plan's guess,
-    // matching this repo's own "measure, don't estimate" rule; still a
-    // valid street-wall model, just a taller one than expected.
+    // Confidence: VERIFIED +PI/2 (2026-08-15, four-side probe of an
+    // isolated placement — the owner caught rows of these showing brick
+    // flanks to a Region B shopping street). The decorated face DOES
+    // exist: a tan ground-floor entrance band with framed panels and the
+    // pale roller shutter, on local +X — P2's drive-by sweep recorded "no
+    // decorated face on any side" because at that instance the +X face
+    // pointed at a near neighbour and its two close-range side views were
+    // exactly the ones a quarter-turned front hides between buildings
+    // (see tokyo-apato-a's comment for the protocol failure class).
+    // Mass-centroid was genuinely no help here (x=-0.05, z=-0.12), so the
+    // rendered four-side probe is the only evidence that ever existed.
+    // footprintM/depthM swapped with the quarter-turn, same as the
+    // izakaya/shop-b +-PI/2 precedent. Measures larger than its "small
+    // shopfront" plan role (22.4 x 23.1 x 12.9 m) — still trusted over
+    // the plan's guess, per the repo's own "measure, don't estimate" rule.
     scale: 1,
     groundY: -0.52,
-    footprintM: 22.41,
-    depthM: 12.91,
-    frontOffset: 0,
+    footprintM: 12.91,
+    depthM: 22.41,
+    frontOffset: Math.PI / 2,
   },
   "tokyo-izakaya": {
     // Confidence: HIGH. Named "Sign" + "Door Window" + "sign support"

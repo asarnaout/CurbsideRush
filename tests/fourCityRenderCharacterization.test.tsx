@@ -932,9 +932,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // rejection: lamp meshes 1_616 -> 4_648 live (~4 meshes per lamp),
     // matching NYC's own 4_768 for the identical spacing config. Only the
     // Tokyo row moves — the other three cities keep the default band.
-    totalMeshes: 19_409,
-    enabledMeshes: 19_409,
-    activeMeshes: 1_342,
+    //
+    // 19_409 -> 19_415 (active 1_342 -> 1_344, owner-reported sideways shop
+    // rows): tokyo-shop-d's quarter-turn footprint swap re-deals its rows,
+    // +6 planned buildings — the same +6 the building-layer suite pins
+    // (lockstep, one proxy per planned building).
+    totalMeshes: 19_415,
+    enabledMeshes: 19_415,
+    activeMeshes: 1_344,
     materials: 287,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

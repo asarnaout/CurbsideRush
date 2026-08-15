@@ -443,7 +443,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // protocol story), so every row containing either re-deals — apato-a's
     // kerb footprint narrowed 7.39 -> 4.79 (more fit per run) while
     // house-a's widened 8.11 -> 9.21 (fewer), netting +77 across the map.
-    buildingInstanceCount: 3_807,
+    //
+    // 3_807 -> 3_813 (+6, owner-reported sideways shop rows): tokyo-shop-d's
+    // frontOffset quarter-turn (buildingSets.ts — its decorated face is on
+    // local +X; P2's drive-by sweep missed it between neighbours) swaps its
+    // footprintM/depthM 22.41/12.91 -> 12.91/22.41, so every row containing
+    // it re-deals and the narrower kerb footprint fits six more members.
+    buildingInstanceCount: 3_813,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },
