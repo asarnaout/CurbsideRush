@@ -27,7 +27,8 @@
  *   Imports `driveHud/dayTimer.tsx`'s `DAY_TIMER_METRICS`/`HudDayTimer`;
  *   `driveHud/dayTimer.tsx` depends on nothing from here in return.
  * - `driveHud/money.tsx` — `DriveMoneyCluster` and its button shape.
- * - `driveHud/alerts.tsx` — `DriveSurgeBanner` and the generic `DriveToast`.
+ * - `driveHud/alerts.tsx` — `DriveSurgeBanner` (and its `SURGE_TOP_OFFSET_PX`)
+ *   and the generic `DriveToast`.
  * - `driveHud/offer.tsx` — the gig offer: `HudOffer`, `DriveOfferCard`,
  *   `DriveOfferGlow`, `DriveOfferBar`, `DriveOfferPanel`.
  * - `driveHud/cornerButton.tsx` — `DriveCornerButton`, the phone's own
@@ -80,7 +81,7 @@ export type { SpeedOverBand } from "./driveHud/speed";
 export { DriveMoneyCluster } from "./driveHud/money";
 export type { DriveMoneyClusterButton } from "./driveHud/money";
 
-export { DriveSurgeBanner, DriveToast } from "./driveHud/alerts";
+export { DriveSurgeBanner, DriveToast, SURGE_TOP_OFFSET_PX } from "./driveHud/alerts";
 
 export {
   OFFER_TOP_OFFSET_PX,

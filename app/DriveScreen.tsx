@@ -45,6 +45,7 @@ import { Minimap } from "./game/MinimapCanvas";
 import { parksFromLandmarks, type MapDestination } from "./game/minimapDraw";
 import type { MapPoi } from "./game/mapPoi";
 import {
+  DAY_TIMER_METRICS,
   DriveCornerButton,
   DriveDayEdge,
   DriveMoneyCluster,
@@ -55,6 +56,7 @@ import {
   DriveOfferGlow,
   DriveSpeedCluster,
   DriveSurgeBanner,
+  SURGE_TOP_OFFSET_PX,
   DriveToast,
   HUD_CORAL,
   HUD_GOLD,
@@ -492,7 +494,14 @@ export function DriveScreen({
         {surge && (
           <DriveSurgeBanner
             scale={hudScale}
-            inset={{ top: `calc(${hudInset.top} + ${touchFirst ? 3 : 7.2}rem)` }}
+            inset={{
+              // Touch keeps its own tight, safe-area-driven top band; only the
+              // desktop offset scaled with the header it clears (#349) — see
+              // `SURGE_TOP_OFFSET_PX`.
+              top: touchFirst
+                ? `calc(${hudInset.top} + 3rem)`
+                : `calc(${hudInset.top} + ${dayTimerInRow ? DAY_TIMER_METRICS.desktop.headroom : 0}px + ${Math.round(SURGE_TOP_OFFSET_PX * hudScale)}px)`,
+            }}
             multiplier={surge.multiplier}
             remaining={formatClock(Math.max(0, surge.endMs - driveElapsedMs))}
           />

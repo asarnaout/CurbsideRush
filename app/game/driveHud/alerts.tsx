@@ -14,6 +14,19 @@ import { cluster, HUD_GOLD, HUD_SANS } from "./tokens";
 // Surge
 // ---------------------------------------------------------------------------
 
+/**
+ * How far below the HUD's top inset the surge pill hangs, in comp pixels —
+ * scaled by the caller like `OFFER_TOP_OFFSET_PX`, so the gap to the speed
+ * cluster above it closes on a narrow window instead of staying fixed while
+ * that cluster shrinks around it, which is what used to leave the pill
+ * floating over open road on anything short of the full-width comp (#349).
+ * 88 is `DriveSpeedCluster`'s own non-compact `plateH`, the tallest thing in
+ * that row; 16 is the clearance kept beneath it. The caller adds the day
+ * timer's own `headroom` on top when that row is carrying the clock, the
+ * same way `DriveSpeedCluster` itself does.
+ */
+export const SURGE_TOP_OFFSET_PX = 104;
+
 export function DriveSurgeBanner({
   scale,
   inset,
