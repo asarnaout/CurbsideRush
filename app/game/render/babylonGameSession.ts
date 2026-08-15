@@ -238,6 +238,7 @@ import {
 import {
   buildPlanarUVs,
   defaultSidewalkWidthM,
+  distanceToPolylineM,
   hashStringToSeed,
   mixHexColors,
   PROMENADE_DRESSING_MAP_KEYS,
@@ -4072,6 +4073,14 @@ export class BabylonGameSession {
         parapetMaster.isVisible = false;
         parapetMaster.isPickable = false;
         for (const run of parapetRuns) {
+          // The rail line pierces the shoreline at its bridge abutments; a
+          // parapet run there would wall across the tracks. The collider
+          // underneath stays (the corridor is not drivable) — only the
+          // visible wall yields.
+          const nearRail = (mapPack.geometry.railLines ?? []).some(
+            (line) => distanceToPolylineM({ x: run.x, z: run.z }, line.points) < 9,
+          );
+          if (nearRail) continue;
           const parapet = parapetMaster.createInstance(`${run.id}-parapet`);
           parapet.position.set(run.x, CORNICHE_PARAPET_HEIGHT_M / 2, run.z);
           parapet.scaling.set(
@@ -4194,12 +4203,20 @@ export class BabylonGameSession {
         "rail-sleeper",
         new Color3(0.24, 0.19, 0.15),
       );
+      // Weathered blue-grey plate girders — the classic Japanese rail-bridge
+      // paint; the other cities read it as neutral steel.
+      const railGirder = makeMaterial(
+        scene,
+        "rail-girder",
+        new Color3(0.3, 0.42, 0.48),
+      );
       buildRailTracks(
         {
           scene,
           ballast,
           steel: railSteel,
           sleeper: railSleeper,
+          girder: railGirder,
           createRoadSurfaceMesh: (name, centerline, widthM, material, smoothClosed, surfaceY) =>
             this.createRoadSurfaceMesh(
               name,
@@ -4219,6 +4236,7 @@ export class BabylonGameSession {
       ballast.freeze();
       railSteel.freeze();
       railSleeper.freeze();
+      railGirder.freeze();
       for (const line of mapPack.geometry.railLines ?? []) {
         this.railTrains.push(new TrainVisual(scene, line));
       }

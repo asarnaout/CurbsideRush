@@ -195,7 +195,12 @@ describe("ambient traffic trace characterization", () => {
       // jp-d/x-renraku all disappear — and two generated crossings
       // (jp-rail-signal-miyanosaka / -shotengai) add railway stop lines to
       // four more lanes.
-      "free-jp": "ec7757b5",
+      // Moves again when the line extends east to the map edge (x=1306) with
+      // six more generated crossings (Niban/Chūō/Kawate/Kawagishi/Higashi
+      // Hon/Higashi Soto) — more railway stop lines, more timetable-driven
+      // light states in the hash — plus the Menya Sakura venue shifting off
+      // the corridor.
+      "free-jp": "ad670631",
       "free-eg": "eb350f99",
     });
   });

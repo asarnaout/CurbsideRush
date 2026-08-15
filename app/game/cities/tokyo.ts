@@ -2841,7 +2841,11 @@ const TOKYO_QUARTER_PARKS = [
  */
 const TOKYO_PHASE6_PARKS = [
   { id: "jp-kawabe-koen-a", kind: "park", center: point(594, -100), size: point(100, 20), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
-  { id: "jp-kawabe-koen-b", kind: "park", center: point(596.5, 5), size: point(110, 25), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
+  // Shortened from 110 m (centre z=5) to the 62 m north of the Setagaya
+  // Line's east run (rail feature): the corridor at z=-10 cut the old rect,
+  // and the strip south of the tracks is now the girder bridge's west
+  // abutment ground rather than lawn.
+  { id: "jp-kawabe-koen-b", kind: "park", center: point(596.5, 29), size: point(62, 25), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
   { id: "jp-kawabe-koen-c", kind: "park", center: point(596.5, 105), size: point(90, 25), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
   // Civic plaza around where Phase 8's Hikari Tower landmark will stand
   // (plan's own (1020,140) shifted east to (1053,140) — `jp-higashi-hondori`
@@ -4164,8 +4168,15 @@ const TOKYO_RAIL_POINTS: readonly WorldPoint[] = [
   point(18, -18),
   point(20.3, -12.3),
   point(26, -10),
-  point(280, -10),
+  point(1306, -10),
 ];
+
+/** Stations along TOKYO_RAIL_POINTS: the stub is 94 m + two 6.146 m corner
+ * chords, then the straight east run — station(x) = x + 80.29 for x >= 26.
+ * The Sakuragawa's banks at z=-10 sit at x = 617 and 735 (water polygon),
+ * so the girder span [692, 822] carries the full crossing with ~24 m of
+ * abutment approach each side. */
+const TOKYO_RAIL_BRIDGE_SPAN = { startM: 692, endM: 822, kind: "bridge" as const };
 
 const TOKYO_RAIL_LINES: readonly RailLine[] = [
   {
@@ -4177,7 +4188,14 @@ const TOKYO_RAIL_LINES: readonly RailLine[] = [
       "jp-rail-signal-2",
       "jp-rail-signal-miyanosaka",
       "jp-rail-signal-shotengai",
+      "jp-rail-signal-niban",
+      "jp-rail-signal-chuo",
+      "jp-rail-signal-kawate",
+      "jp-rail-signal-kawagishi",
+      "jp-rail-signal-higashi-hon",
+      "jp-rail-signal-higashi-soto",
     ],
+    elevatedSpans: [TOKYO_RAIL_BRIDGE_SPAN],
     schedule: {
       mode: "shuttle",
       speedMps: 8.5,
@@ -4230,6 +4248,26 @@ const tokyoRailCrossingShotengai = buildRailCrossingControl({
   surface: tokyoSurfaceById("jp-shotengai-nishi-dori"),
   lanes: tokyoAllLanes,
 });
+/** The east-run crossings, one per N-S street the extended line crosses
+ * (Niban/Chūō/Kawate west of the river, Kawagishi/Higashi Hon/Higashi Soto
+ * on the east bank). All generated from the measured lane centrelines; the
+ * corridor audit enumerates every road x rail intersection, so a future
+ * street through z=-10 fails the suite until it gets its own entry here. */
+const tokyoEastRailCrossings = [
+  ["jp-rail-signal-niban", "jp-niban-dori"],
+  ["jp-rail-signal-chuo", "jp-chuo-dori"],
+  ["jp-rail-signal-kawate", "jp-kawate-dori"],
+  ["jp-rail-signal-kawagishi", "jp-kawagishi-dori"],
+  ["jp-rail-signal-higashi-hon", "jp-higashi-hondori"],
+  ["jp-rail-signal-higashi-soto", "jp-higashi-soto-dori"],
+].map(([id, surfaceId]) =>
+  buildRailCrossingControl({
+    id,
+    railPoints: TOKYO_RAIL_POINTS,
+    surface: tokyoSurfaceById(surfaceId),
+    lanes: tokyoAllLanes,
+  }),
+);
 
 export const TOKYO_MAP_PACK: MapPack = {
   id: "tokyo-setagaya",
@@ -4410,7 +4448,11 @@ export const TOKYO_MAP_PACK: MapPack = {
       { id: "jp-v5", kind: "shop", anchor: { laneId: "jp-eki-mae-dori-2-forward-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Hoshi Mart Ekimae" },
       { id: "jp-v6", kind: "shop", anchor: { laneId: "jp-chuo-dori-3-forward-1", distanceAlongM: 51 }, footprint: point(12, 9), name: "Hoshi Mart Chuo" },
       { id: "jp-v7", kind: "shop", anchor: { laneId: "jp-kita-dori-3-forward-1", distanceAlongM: 69 }, footprint: point(12, 9), name: "Yotsuba Mart" },
-      { id: "jp-v8", kind: "restaurant", anchor: { laneId: "jp-chuo-dori-2-reverse-1", distanceAlongM: 51 }, footprint: point(12, 9), name: "Menya Sakura" },
+      // distanceAlongM 51 -> 34 (rail feature): at 51 the lot sat at z=-11,
+      // dead on the extended Setagaya Line corridor — the rail audit's catch,
+      // same as jp-v9. 34 keeps Menya Sakura on the same kerb, one lot north
+      // of the new Chūō-dōri crossing.
+      { id: "jp-v8", kind: "restaurant", anchor: { laneId: "jp-chuo-dori-2-reverse-1", distanceAlongM: 34 }, footprint: point(12, 9), name: "Menya Sakura" },
       // distanceAlongM 54 -> 68 (rail feature): at 54 the lot sat at z=-6,
       // square on the Setagaya Line's corridor — the rail audit's first real
       // catch. 68 puts the ramen shop just north of the crossing instead.
@@ -4616,6 +4658,7 @@ export const TOKYO_MAP_PACK: MapPack = {
     [
       tokyoRailCrossingMiyanosaka.control,
       tokyoRailCrossingShotengai.control,
+      ...tokyoEastRailCrossings.map((crossing) => crossing.control),
       control("jp-rail-signal", "railway_signal", 18, -72, 90, ["jp-south-east-2", "jp-south-west-2"], ["jp-rail-conflict"],
         [
           approach("jp-rail-eastbound-approach", "jp-south-east-2", 42, "railway", ["jp-rail-conflict"]),
@@ -4686,6 +4729,7 @@ export const TOKYO_MAP_PACK: MapPack = {
     [
       tokyoRailCrossingMiyanosaka.conflictZone,
       tokyoRailCrossingShotengai.conflictZone,
+      ...tokyoEastRailCrossings.map((crossing) => crossing.conflictZone),
       { id: "jp-rail-conflict", laneIds: ["jp-south-east-2", "jp-south-west-2"], polygon: [point(12, -80), point(24, -80), point(24, -64), point(12, -64)] },
       { id: "jp-rail-conflict-2", laneIds: ["jp-ichiban-dori-2-forward-1"], polygon: [point(172, -18), point(188, -18), point(188, -2), point(172, -2)] },
       { id: "jp-station-conflict", laneIds: ["jp-center-west-2", "jp-narrow-north-1"], polygon: [point(-38, 10), point(-22, 10), point(-22, 26), point(-38, 26)] },
