@@ -42,8 +42,12 @@ npm test             # full suite, ~2min
 npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
 ```
 
-Node >= 22.13. CI runs typecheck, lint, and the full test suite on pull requests
-and pushes to `main`; run the same checks locally before committing.
+Node >= 22.13. CI runs typecheck and lint on pull requests and pushes to `main`.
+It does **not** run the test suite — the suite outgrew the CI runner's memory
+(silent worker crashes, not real test failures; tests pass locally every time)
+and re-running an environment-only failure wasted more CI minutes than it
+saved. Run the full suite locally (`npm test`) before every commit/merge —
+that is the actual gate now, not a supplement to one.
 
 ## Two things to know before reading any file
 
