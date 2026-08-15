@@ -513,8 +513,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // mid-span/appended insertions) shifts which of their pre-existing
     // parcels draw from it too. Fingerprint moves for the same reason as
     // every other cell-count-driven baseline in this file.
+    //
+    // drawCount unchanged at 2_538, fingerprint moves (Tokyo authenticity
+    // plan P10): fixing tokyo-konbini's real facing bug (modelLibrary.ts's
+    // PROP_MODEL_REGISTRY yawOffset was showing every konbini venue's blind
+    // side to the street; the fix rotates it 90 degrees and swaps
+    // PROP_MODEL_FOOTPRINTS_M's X/Z spans to match) shifts each konbini
+    // venue's own keep-out footprint by the same rotation — same total area
+    // excluded from the procedural stream, but a different specific set of
+    // cells near each venue, so the same cell COUNT survives while WHICH
+    // cells and their world positions differ.
     drawCount: 2_538,
-    facadeMeshFingerprint: "9499dc94",
+    facadeMeshFingerprint: "b8b53ef1",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the
