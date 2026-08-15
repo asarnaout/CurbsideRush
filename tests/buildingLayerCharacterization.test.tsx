@@ -436,7 +436,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // path. +417 is exactly its placement count, and the total now equals
     // the planner's own asset-slot count: every planned building is a real
     // master instance again, none render per-submesh.
-    buildingInstanceCount: 3_730,
+    //
+    // 3_730 -> 3_807 (+77) (owner-reported sideways rows): tokyo-house-a
+    // and tokyo-apato-a's frontOffset quarter-turn fixes swapped their
+    // footprintM/depthM (buildingSets.ts, tokyo-apato-a's comment has the
+    // protocol story), so every row containing either re-deals — apato-a's
+    // kerb footprint narrowed 7.39 -> 4.79 (more fit per run) while
+    // house-a's widened 8.11 -> 9.21 (fewer), netting +77 across the map.
+    buildingInstanceCount: 3_807,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

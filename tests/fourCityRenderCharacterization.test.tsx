@@ -903,9 +903,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // Every other figure in this baseline (activeMeshes, materials,
     // drawCallsPerFrame, mirror counts) is unchanged, confirming the delta
     // is exactly this one cell, not a broader shift.
-    totalMeshes: 16_375,
-    enabledMeshes: 16_375,
-    activeMeshes: 1_202,
+    //
+    // -> Owner-reported sideways rows (post-plan): tokyo-house-a and
+    // tokyo-apato-a's frontOffset quarter-turn fixes swap their
+    // footprintM/depthM, re-dealing every row containing either model.
+    // 16_375 -> 16_452 = +77 planned buildings, the same +77 the
+    // building-layer characterization pins (this empty-preload suite
+    // renders one proxy box per planned building, so the two suites must
+    // move in lockstep); activeMeshes 1_202 -> 1_201 is one re-dealt
+    // building leaving the fixed pose's frustum. Materials unchanged.
+    totalMeshes: 16_452,
+    enabledMeshes: 16_452,
+    activeMeshes: 1_201,
     materials: 287,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
