@@ -338,12 +338,18 @@ describe("Tokyo street wall (expansion Phase 4, R18)", () => {
     // `hanamizu` (Tokyo authenticity plan P5, Region A) measured 100%
     // covered of 5840 m sampled kerb on first build — same reasoning and
     // same 0.85 floor as the other four 100%-measuring residential zones.
+    //
+    // `sumiregaoka` (Tokyo authenticity plan P6, Region C) measured 100%
+    // covered of 6376 m sampled kerb on first build — the biggest residential
+    // sample of any web so far, same reasoning and same 0.85 floor as the
+    // other five 100%-measuring residential zones.
     const FLOOR_BY_ZONE: Readonly<Record<TokyoBlockZone, number>> = {
       miyanosaka: 0.85,
       yamashita: 0.85,
       nishi: 0.85,
       "ekimae-nishi": 0.85,
       hanamizu: 0.85,
+      sumiregaoka: 0.85,
       higashi: 0.85,
       ring: 0.8,
       riverside: 0.8,

@@ -514,7 +514,8 @@ export type BuildingSetId =
   | "tokyo-house"
   | "tokyo-shotengai"
   | "tokyo-zakkyo"
-  | "tokyo-manshon";
+  | "tokyo-manshon"
+  | "tokyo-apato";
 
 /** Which catalogue models make up each zone's street wall. */
 const SETS: Record<BuildingSetId, readonly string[]> = {
@@ -638,6 +639,27 @@ const SETS: Record<BuildingSetId, readonly string[]> = {
   "tokyo-manshon": [
     "tokyo-walkup-a", "tokyo-walkup-b", "tokyo-block-4story",
     "tokyo-tower-a",
+  ],
+  // Tokyo authenticity plan P6 (Region C): the plan's own section 6.1 table
+  // always intended a fifth Tokyo set — "apāto (walk-up apartments with
+  // external stairs/corridors)... denser web edges", membership "apato-a/b,
+  // walkup-a/b, house-c" — but P3b's own scope was tokyo-zakkyo/tokyo-manshon
+  // only (see that commit's title) and no road ever referenced this one, so
+  // it was never grouped into a real `BuildingSetId` until now, when
+  // Sumiregaoka's own collector (`jp-sumiregaoka-dori`,
+  // `tokyoRoadsideBuildingSet` in cities/tokyo.ts) becomes the first road to
+  // actually use it. `tokyo-apato-b` is deliberately EXCLUDED here too, same
+  // reason as `tokyo-manshon` above (its own comment): it is one of
+  // `MERGE_INCOMPATIBLE_MODEL_IDS`, a ~99-draw fixed tax per instance in
+  // range, not a per-placement cost the sparse-placement compromise can
+  // absorb. Every model kept here is already a live member of another set
+  // (tokyo-house/tokyo-manshon), each already re-confirmed live (HIGH
+  // confidence, `buildingSets.ts`'s own PLACEMENTS comments) — this set adds
+  // no new glb parsing, no new merge-crash risk and no new preload weight
+  // (every url it needs is already fetched for those other sets' sake), only
+  // a new grouping/labelling of models already proven on this map.
+  "tokyo-apato": [
+    "tokyo-apato-a", "tokyo-walkup-a", "tokyo-walkup-b", "tokyo-house-c",
   ],
 };
 

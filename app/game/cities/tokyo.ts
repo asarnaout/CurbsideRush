@@ -593,6 +593,88 @@ const jpHanamizuNodes = {
   hanamizukiN: node("jp-hanamizuki-n", -30, 1140),
 };
 
+// --- Sumiregaoka residential web (Tokyo authenticity plan P6, Region C; the
+// void at x -400..380, z -740..-220, 40.6 ha — the biggest interior void in
+// the whole plan) --------------------------------------------------------
+// Bounded west by Sangen-dōri (shared with every other web's own west edge)
+// at the existing node `jp-ys-r6-sg` (-460,-400) — the plan's own "z~-380"
+// rounds to this node's real z=-400 exactly, the same "correct the
+// approximate coordinate to the real anchor" move Region A's own z~760/
+// z~950 -> 750/1050 correction made. Bounded north by the Setagaya-dōri row
+// (`jp-ss-w`/`jp-ss-m`/`jp-ichiban-x-setagaya`/`jp-niban-x-setagaya`, all
+// already-existing nodes); the plan's own "x~200" third-local anchor has no
+// real node at that x — `jp-ichiban-x-setagaya` (x=180) is the nearest real
+// one, so that is what this web actually ties into (this phase's own
+// version of the same correction). Reached in the south-east by a new
+// mid-span tee into `jp-minami-kaido` (z=-800) — see `TOKYO_SUMIREGAOKA_
+// SPECS`'s own comment for why only the collector reaches that far.
+//
+// The plan's design line reads "three N-S locals... all three tee onto
+// EXISTING nodes at both ends" — grepping every node table turns up no
+// pre-Region-C node anywhere south of the Setagaya-dōri row at x=-260/-30/
+// 180 (the three locals' own x positions), so a literal "both ends
+// pre-exist" is not achievable; the design below instead gives each local a
+// real, non-dead-end junction at BOTH ends — the existing arterial to the
+// north, this web's own southern E-W street (Suisen-dōri) to the south —
+// which is what the plan's traps section (§8) actually requires ("no dead
+// ends"), and documents the correction here rather than silently
+// reinterpreting it. Seven roads: `jp-nanohana-dori`/`jp-suisen-dori` (the
+// two E-W residential streets, z=-400/z=-580, BOTH reaching Sangen-dōri —
+// Nanohana-dōri at the existing `jp-ys-r6-sg`, Suisen-dōri at a second new
+// mid-span tee, `jp-sangen-x-suisen`); `jp-fuyo-dori`/`jp-renge-dori`/
+// `jp-asagao-dori` (the three N-S locals, x=-260/-30/180, each running from
+// its own Setagaya-dōri-row node down through Nanohana-dōri — a real 4-way,
+// since the local continues south of it — to a T-end at Suisen-dōri);
+// `jp-sumiregaoka-dori` (the N-S collector, x=300, collector tier `2,7,40`
+// like Suzukake/Yanagi/Hato/Hanamizuki-dōri's own numbers, `jp-niban-x-
+// setagaya` to a third new mid-span tee on `jp-minami-kaido`, crossing both
+// E-W streets as real 4-ways the whole way down). Every road here is
+// axis-aligned, zero bend at every node; the organic read comes from the
+// irregular N-S pitches (sangen tee at -460, then -260/-30/180/300 --
+// 200/230/210/120 m, none repeated) the same way every other web's own
+// spacing does it.
+//
+// Suisen-dōri's own Sangen-dōri tee is a deliberate, verified addition, not
+// the plan's own suggested shape: a first pass left Suisen-dōri starting at
+// Fuyō-dōri's own T (a real, legal, non-dead-end 2-road junction — the same
+// shape `jp-jct-kosumosu-x-yuri` already ships on Region A's own SE corner)
+// and re-ran the plan's own void raster (`voidRaster.mjs`) straight after —
+// the ORIGINAL 40.6 ha blob did fall off the >=4 ha interior list, but a
+// NEW 7.9 ha residual (x[-400..240] z[-740..-460]) appeared in its place: the
+// strip west of Fuyō-dōri and south of Nanohana-dōri, more than 60 m from
+// every road on the map, does not close just because the two streets either
+// side of it exist. Extending Suisen-dōri the extra ~200 m to Sangen-dōri —
+// mirroring how BOTH of Region A's own E-W streets reach it — closes that
+// strip; see this insertion's own lane-id reference check on jp-sangen-dori's
+// updated spec line (TOKYO_SKELETON_SPECS above) for what it found. The
+// residual west-of-collector story is not finished by this alone (see the
+// void-raster before/after in the PR body), but the qualifying interior blob
+// is gone.
+//
+// Node naming: an ordinary new crossing names the N-S road first (matching
+// Region A/B's own convention, e.g. `jp-tsutsuji-x-yuri`); a mid-span
+// insertion into an EXISTING road follows the same rule (the N-S road that
+// tees in comes first) rather than the older `jp-chuo-x-minami-kaido`'s
+// incidental order. "Sumire" (violet — the flower `Sumiregaoka`/"Violet
+// Hill" is named for) is already spoken for by Miyanosaka's own
+// `jp-mn-sumire-dori`, so the two new E-W streets take two other real
+// Setagaya-flavoured flower names instead (nanohana = canola flower, suisen
+// = narcissus) and the collector — this web's own spine — takes the
+// district's own name instead, mirroring how `jp-miyanosaka-kita-dori`
+// already does the same thing for its own web.
+const jpSumiregaokaNodes = {
+  sangenXSuisen: node("jp-sangen-x-suisen", -460, -580),
+  nanohanaXFuyo: node("jp-fuyo-x-nanohana", -260, -400),
+  nanohanaXRenge: node("jp-renge-x-nanohana", -30, -400),
+  nanohanaXAsagao: node("jp-asagao-x-nanohana", 180, -400),
+  nanohanaXSumiregaoka: node("jp-sumiregaoka-x-nanohana", 300, -400),
+  suisenXFuyo: node("jp-fuyo-x-suisen", -260, -580),
+  suisenXRenge: node("jp-renge-x-suisen", -30, -580),
+  suisenXAsagao: node("jp-asagao-x-suisen", 180, -580),
+  suisenXSumiregaoka: node("jp-sumiregaoka-x-suisen", 300, -580),
+  sumiregaokaXMinamiKaido: node("jp-sumiregaoka-x-minami-kaido", 300, -800),
+};
+
 // --- River nodes (Phase 3): where the west/east riverside collectors ------
 // (jp-kawate-dori, jp-kawagishi-dori) cross the three bridges. Every bridge
 // is dead straight (constant z) so each crossing is a shared node at zero
@@ -658,7 +740,20 @@ const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   // test.tsx`'s pinned arm-slug for the jp-sg-koshu signal's southbound
   // sangen-dori approach (`...-jp-sangen-dori-ni-r4-sg-...`, since that arm's
   // lane now departs the new node instead), re-baselined in the same commit.
-  tokyoRoad("jp-sangen-dori", "Sangen-dōri", ["jp-sg-s", "jp-ys-r2-sg", "jp-ys-coll-sg", "jp-ys-r4-sg", "jp-sg-minami", "jp-ys-r6-sg", "jp-sg-setagaya", "jp-ni-r2-sg", "jp-ni-coll-sg", "jp-ni-r4-sg", "jp-sangen-x-ekimae-nishi", "jp-sg-koshu", "jp-mn-r6-sg", "jp-mn-r2-sg", "jp-mn-coll-sg", "jp-mn-r5-sg", "jp-sg-n"], 2, 8, 40),
+  // "jp-sangen-x-suisen" (Tokyo authenticity plan P6) is a SECOND new node,
+  // spliced between jp-sg-minami and jp-ys-r6-sg (a 400 m gap with nothing
+  // else this file ever put between them) — Suisen-dōri's own west end,
+  // added after the plan's own void raster found a 7.9 ha residual west of
+  // Fuyō-dōri once this web's other six roads were in place (see
+  // `jpSumiregaokaNodes`'s own doc comment for the measured before/after).
+  // Unlike the ekimae-nishi insertion above, this one lands early (old
+  // segment 5->6 boundary, out of 16), so MANY later segments renumber —
+  // `grep -rn "jp-sangen-dori-" app/game tests` before this split found NO
+  // segment-index lane-id references anywhere on this road (every hit was
+  // either a node-named signal arm slug in trafficControlCharacterization.
+  // test.tsx, deferred to the bundle's final re-baseline pass, or a comment),
+  // so the renumbering itself is safe despite the early insertion point.
+  tokyoRoad("jp-sangen-dori", "Sangen-dōri", ["jp-sg-s", "jp-ys-r2-sg", "jp-ys-coll-sg", "jp-ys-r4-sg", "jp-sg-minami", "jp-sangen-x-suisen", "jp-ys-r6-sg", "jp-sg-setagaya", "jp-ni-r2-sg", "jp-ni-coll-sg", "jp-ni-r4-sg", "jp-sangen-x-ekimae-nishi", "jp-sg-koshu", "jp-mn-r6-sg", "jp-mn-r2-sg", "jp-mn-coll-sg", "jp-mn-r5-sg", "jp-sg-n"], 2, 8, 40),
   tokyoRoad("jp-yamashita-minami-dori", "Yamashita Minami-dōri", ["jp-nk-s", "jp-kp-s", "jp-sg-s"], 2, 7, 40),
   // Extends all the way to jp-chuo-n so Chūō-dōri-north's own far terminus
   // (its own spec's north end) closes into the ring instead of dead-ending —
@@ -682,7 +777,19 @@ const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   // this road, `jp-car-koshu`'s spawn anchor, names segment 1, well before
   // this split).
   tokyoRoad("jp-koshu-kaido", "Kōshū-kaidō", ["jp-nk-koshu", "jp-kp-koshu", "jp-sg-koshu", "jp-koshu-x-nakasuji", "jp-chuo-x-koshu"], 2, 12, 60),
-  tokyoRoad("jp-minami-kaido", "Minami-kaidō", ["jp-nk-minami", "jp-kp-minami", "jp-sg-minami", "jp-chuo-x-minami-kaido"], 2, 10, 50),
+  // "jp-sumiregaoka-x-minami-kaido" (Tokyo authenticity plan P6) is a NEW
+  // node spliced into this road's own LAST segment (jp-sg-minami ->
+  // jp-chuo-x-minami-kaido) — the same "insert past the last-referenced
+  // segment index" case Kōshū-kaidō's own split above used, so nothing
+  // downstream renumbers. `grep -rn "jp-minami-kaido-" app/game tests`
+  // before this split found only segment-1 references (jp-repair-minami's
+  // service-point anchor, jp-car-minami-kaido's spawn, both ~700-1200 m west
+  // on the FIRST segment, untouched by a split of the last one) and a run of
+  // trafficControlCharacterization.test.tsx arm-slug strings for the
+  // jp-chuo-x-minami-kaido signal's own westbound approach (named off its
+  // immediate neighbour node) — those DO shift and are deferred to the
+  // bundle's final re-baseline pass, per this phase's own scope note.
+  tokyoRoad("jp-minami-kaido", "Minami-kaidō", ["jp-nk-minami", "jp-kp-minami", "jp-sg-minami", "jp-sumiregaoka-x-minami-kaido", "jp-chuo-x-minami-kaido"], 2, 10, 50),
 
   tokyoRoad("jp-setagaya-dori-east", "Setagaya-dōri", ["jp-ss-e", "jp-ichiban-x-setagaya", "jp-niban-x-setagaya", "jp-chuo-x-setagaya"], 2, 10, 50),
   tokyoRoad("jp-chuo-dori-south", "Chūō-dōri", ["jp-chuo-x-minami-kaido", "jp-chuo-x-setagaya"], 2, 10, 50),
@@ -787,6 +894,28 @@ const TOKYO_HANAMIZU_SPECS: readonly TokyoRoadSpec[] = [
   tokyoRoad("jp-kosumosu-dori", "Kosumosu-dōri", ["jp-kosumosu-x-yuri", "jp-kosumosu-x-ajisai"], 2, 6.4, 30),
 ];
 
+// --- Sumiregaoka residential web (Tokyo authenticity plan P6, Region C) ----
+// See `jpSumiregaokaNodes`'s own doc comment above for the full design
+// rationale, the "both ends existing" correction and why Suisen-dōri reaches
+// Sangen-dōri (the void-raster finding). `jp-sumiregaoka-dori` carries the
+// collector tier (matching Suzukake/Yanagi/Hato/Hanamizuki-dōri's `2, 7,
+// 40`); every other road here is the ordinary residential-local tier
+// (`2, 6.4, 30`). Both E-W streets reach Sangen-dōri: `jp-nanohana-dori` at
+// the existing `jp-ys-r6-sg`, `jp-suisen-dori` at the new mid-span tee
+// `jp-sangen-x-suisen`.
+const TOKYO_SUMIREGAOKA_SPECS: readonly TokyoRoadSpec[] = [
+  tokyoRoad("jp-nanohana-dori", "Nanohana-dōri", ["jp-ys-r6-sg", "jp-fuyo-x-nanohana", "jp-renge-x-nanohana", "jp-asagao-x-nanohana", "jp-sumiregaoka-x-nanohana"], 2, 6.4, 30),
+  tokyoRoad("jp-suisen-dori", "Suisen-dōri", ["jp-sangen-x-suisen", "jp-fuyo-x-suisen", "jp-renge-x-suisen", "jp-asagao-x-suisen", "jp-sumiregaoka-x-suisen"], 2, 6.4, 30),
+  tokyoRoad("jp-fuyo-dori", "Fuyō-dōri", ["jp-ss-w", "jp-fuyo-x-nanohana", "jp-fuyo-x-suisen"], 2, 6.4, 30),
+  tokyoRoad("jp-renge-dori", "Renge-dōri", ["jp-ss-m", "jp-renge-x-nanohana", "jp-renge-x-suisen"], 2, 6.4, 30),
+  tokyoRoad("jp-asagao-dori", "Asagao-dōri", ["jp-ichiban-x-setagaya", "jp-asagao-x-nanohana", "jp-asagao-x-suisen"], 2, 6.4, 30),
+  // Reaches jp-minami-kaido (the SE anchor the plan hands over) via a new
+  // mid-span tee spliced into THAT road's own spec, not this one — see
+  // jp-minami-kaido's own updated line (TOKYO_SKELETON_SPECS above) for the
+  // lane-id reference check and what it found.
+  tokyoRoad("jp-sumiregaoka-dori", "Sumiregaoka-dōri", ["jp-niban-x-setagaya", "jp-sumiregaoka-x-nanohana", "jp-sumiregaoka-x-suisen", "jp-sumiregaoka-x-minami-kaido"], 2, 7, 40),
+];
+
 // --- The Sakuragawa's three bridges (Phase 3, R3) ---------------------------
 // Each ONE continuous spec bank-to-bank, including both approaches: never a
 // separate approach + span meeting at the bank (plan §4.4 — two specs sharing
@@ -852,13 +981,20 @@ const TOKYO_SKELETON_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-sg-n", "jp-sg-n", ["jp-sangen-dori", "jp-miyanosaka-kita-dori"]),
   tokyoJunction("jp-jct-chuo-n", "jp-chuo-n", ["jp-chuo-dori-north", "jp-miyanosaka-kita-dori"]),
 
-  tokyoJunction("jp-jct-ss-w", "jp-ss-w", ["jp-setagaya-dori-west", "jp-setagaya-dori", "jp-westside-south"]),
+  // Tokyo authenticity plan P6 adds jp-fuyo-dori as this node's 4th arm
+  // (south) — Sumiregaoka's own westmost local dropping off Setagaya-dōri.
+  tokyoJunction("jp-jct-ss-w", "jp-ss-w", ["jp-setagaya-dori-west", "jp-setagaya-dori", "jp-westside-south", "jp-fuyo-dori"]),
   tokyoJunction("jp-jct-ss-e", "jp-ss-e", ["jp-setagaya-dori-east", "jp-setagaya-dori", "jp-eastside-road"]),
   tokyoJunction("jp-jct-d", "jp-d", ["jp-renraku-dori", "jp-east-curve", "jp-center-road"]),
   tokyoJunction("jp-jct-ne2", "jp-ne2", ["jp-uptown-higashi", "jp-uptown-road", "jp-easthill-road"]),
 
-  tokyoJunction("jp-jct-ichiban-setagaya", "jp-ichiban-x-setagaya", ["jp-ichiban-dori", "jp-setagaya-dori-east"]),
-  tokyoJunction("jp-jct-niban-setagaya", "jp-niban-x-setagaya", ["jp-niban-dori", "jp-setagaya-dori-east"]),
+  // Tokyo authenticity plan P6 adds jp-asagao-dori as this node's 3rd arm
+  // (south) — Sumiregaoka's middle-east local (the plan's own approximate
+  // "x~200" corrected to this real node's x=180, its nearest anchor).
+  tokyoJunction("jp-jct-ichiban-setagaya", "jp-ichiban-x-setagaya", ["jp-ichiban-dori", "jp-setagaya-dori-east", "jp-asagao-dori"]),
+  // Tokyo authenticity plan P6 adds jp-sumiregaoka-dori as this node's 3rd
+  // arm (south) — Sumiregaoka's own collector, reaching jp-minami-kaido.
+  tokyoJunction("jp-jct-niban-setagaya", "jp-niban-x-setagaya", ["jp-niban-dori", "jp-setagaya-dori-east", "jp-sumiregaoka-dori"]),
   // Phase 3 adds jp-sakura-ohashi as this node's 4th arm (east); Chūō-dōri
   // still stops here (unchanged from Phase 2 — see TOKYO_SAME_STREET_GROUPS).
   tokyoJunction("jp-jct-chuo-setagaya", "jp-chuo-x-setagaya", ["jp-setagaya-dori-east", "jp-chuo-dori-south", "jp-chuo-dori", "jp-sakura-ohashi"]),
@@ -930,7 +1066,11 @@ const TOKYO_YAMASHITA_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-ys-r5-nk", "jp-ys-r5-nk", ["jp-nishi-kanjo-dori", "jp-ys-hagi-dori"]),
   tokyoJunction("jp-jct-ys-r5-kp", "jp-ys-r5-kp", ["jp-kanpachi-dori", "jp-ys-hagi-dori"]),
   tokyoJunction("jp-jct-ys-r6-kp", "jp-ys-r6-kp", ["jp-kanpachi-dori", "jp-ys-kikyo-dori"]),
-  tokyoJunction("jp-jct-ys-r6-sg", "jp-ys-r6-sg", ["jp-sangen-dori", "jp-ys-kikyo-dori"]),
+  // Tokyo authenticity plan P6 adds jp-nanohana-dori as this node's 3rd arm
+  // (east) — Sumiregaoka's own northern E-W street ties into Sangen-dōri
+  // here (the plan's own approximate "z~-380" corrected to this real node's
+  // z=-400, its nearest anchor).
+  tokyoJunction("jp-jct-ys-r6-sg", "jp-ys-r6-sg", ["jp-sangen-dori", "jp-ys-kikyo-dori", "jp-nanohana-dori"]),
 ];
 
 const TOKYO_NISHI_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
@@ -993,6 +1133,35 @@ const TOKYO_HANAMIZU_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-hanamizuki-n", "jp-hanamizuki-n", ["jp-miyanosaka-kita-dori", "jp-hanamizuki-dori"]),
 ];
 
+// Tokyo authenticity plan P6 (Region C). jp-ss-m gains a real connector entry
+// here for the FIRST time — no TOKYO_SKELETON_CONNECTORS entry existed for it
+// (nothing generated ever reached it before this phase, so the quarter's own
+// hand-authored jp-setagaya-dori/jp-shrine-road successors were the whole
+// story there, the same jp-nw2/jp-nm2 situation Region B's own connectors
+// hit first) — a brand-new table row, not an edit to an existing one, unlike
+// jp-jct-ss-w/jp-jct-ichiban-setagaya/jp-jct-niban-setagaya/jp-jct-ys-r6-sg
+// above. Every other node below is brand new (this phase's own nodes
+// crossing each other), matching Region A's own P5 table.
+const TOKYO_SUMIREGAOKA_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
+  tokyoJunction("jp-jct-ss-m", "jp-ss-m", ["jp-setagaya-dori", "jp-shrine-road", "jp-renge-dori"]),
+  // jp-sangen-x-suisen: Suisen-dōri's own west terminus, the second new
+  // mid-span tee into Sangen-dōri (see that road's own updated spec line,
+  // TOKYO_SKELETON_SPECS above, for why).
+  tokyoJunction("jp-jct-sangen-x-suisen", "jp-sangen-x-suisen", ["jp-sangen-dori", "jp-suisen-dori"]),
+  tokyoJunction("jp-jct-fuyo-x-nanohana", "jp-fuyo-x-nanohana", ["jp-fuyo-dori", "jp-nanohana-dori"]),
+  tokyoJunction("jp-jct-renge-x-nanohana", "jp-renge-x-nanohana", ["jp-renge-dori", "jp-nanohana-dori"]),
+  tokyoJunction("jp-jct-asagao-x-nanohana", "jp-asagao-x-nanohana", ["jp-asagao-dori", "jp-nanohana-dori"]),
+  tokyoJunction("jp-jct-sumiregaoka-x-nanohana", "jp-sumiregaoka-x-nanohana", ["jp-sumiregaoka-dori", "jp-nanohana-dori"]),
+  // jp-fuyo-x-suisen: Fuyō-dōri's own south terminus, an ordinary T onto
+  // Suisen-dōri (which continues through in both directions here now that it
+  // reaches Sangen-dōri to the west too).
+  tokyoJunction("jp-jct-fuyo-x-suisen", "jp-fuyo-x-suisen", ["jp-fuyo-dori", "jp-suisen-dori"]),
+  tokyoJunction("jp-jct-renge-x-suisen", "jp-renge-x-suisen", ["jp-renge-dori", "jp-suisen-dori"]),
+  tokyoJunction("jp-jct-asagao-x-suisen", "jp-asagao-x-suisen", ["jp-asagao-dori", "jp-suisen-dori"]),
+  tokyoJunction("jp-jct-sumiregaoka-x-suisen", "jp-sumiregaoka-x-suisen", ["jp-sumiregaoka-dori", "jp-suisen-dori"]),
+  tokyoJunction("jp-jct-sumiregaoka-x-minami-kaido", "jp-sumiregaoka-x-minami-kaido", ["jp-sumiregaoka-dori", "jp-minami-kaido"]),
+];
+
 // --- River crossings (Phase 3): kawate-dori/kawagishi-dori's own
 // intersections with the three bridges, plus each bridge's own inland east
 // landing (jp-higashi-w, jp-khh-w) — those ALSO need a same-street grouping
@@ -1039,6 +1208,7 @@ const jpGenNodeById = new Map<string, LaneNode>(
     ...Object.values(jpNishiNodes),
     ...Object.values(jpEkimaeNishiNodes),
     ...Object.values(jpHanamizuNodes),
+    ...Object.values(jpSumiregaokaNodes),
     ...Object.values(jpRiverNodes),
     ...Object.values(jpEastNodes),
   ].map((item) => [item.id, item]),
@@ -1122,6 +1292,7 @@ const tokyoRoadSpecs: readonly TokyoRoadSpec[] = [
   ...TOKYO_NISHI_SPECS,
   ...TOKYO_EKIMAE_NISHI_SPECS,
   ...TOKYO_HANAMIZU_SPECS,
+  ...TOKYO_SUMIREGAOKA_SPECS,
   ...TOKYO_RIVER_SPECS,
   ...TOKYO_EAST_SPECS,
 ];
@@ -1132,6 +1303,7 @@ const tokyoJunctionConnectors: readonly TokyoJunctionConnectorSpec[] = [
   ...TOKYO_NISHI_CONNECTORS,
   ...TOKYO_EKIMAE_NISHI_CONNECTORS,
   ...TOKYO_HANAMIZU_CONNECTORS,
+  ...TOKYO_SUMIREGAOKA_CONNECTORS,
   ...TOKYO_RIVER_CONNECTORS,
   ...TOKYO_EAST_CONNECTORS,
 ];
@@ -2668,6 +2840,7 @@ export type TokyoBlockZone =
   | "nishi"
   | "ekimae-nishi"
   | "hanamizu"
+  | "sumiregaoka"
   | "higashi"
   | "ring"
   | "riverside"
@@ -2743,6 +2916,12 @@ const TOKYO_ZONE_STYLE: Readonly<Record<TokyoBlockZone, TokyoZoneStyle>> = {
   // lower densities since this web is nowhere near the scramble's fog
   // bubble").
   hanamizu: { materials: ["wood-plaster", "plaster"], heightRange: [5, 14], density: 0.85, depthM: 30 },
+  // Sumiregaoka (Tokyo authenticity plan P6, Region C): the biggest single
+  // web shipped so far, still a pure-residential clone of miyanosaka's own
+  // numbers verbatim, per the plan's own general rule (§6.2) — this web is
+  // also nowhere near the scramble's fog bubble, so the Phase 10 cut buys
+  // nothing here either.
+  sumiregaoka: { materials: ["wood-plaster", "plaster"], heightRange: [5, 14], density: 0.85, depthM: 30 },
   // East bank: mixed mid-rise per §8.8. Original density — also far from the
   // scramble; reverted for the same reason as the three webs above.
   higashi: { materials: ["plaster", "concrete"], heightRange: [8, 22], density: 0.75, depthM: 32 },
@@ -2859,6 +3038,7 @@ const TOKYO_ZONE_ENTRIES: readonly (readonly [string, TokyoBlockZone])[] = [
   ...TOKYO_NISHI_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "nishi"]),
   ...TOKYO_EKIMAE_NISHI_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "ekimae-nishi"]),
   ...TOKYO_HANAMIZU_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "hanamizu"]),
+  ...TOKYO_SUMIREGAOKA_SPECS.map((spec): readonly [string, TokyoBlockZone] => [spec.id, "sumiregaoka"]),
   ...TOKYO_HIGASHI_WEB_ROAD_IDS.map((id): readonly [string, TokyoBlockZone] => [id, "higashi"]),
   ...TOKYO_RIVERSIDE_ROAD_IDS.map((id): readonly [string, TokyoBlockZone] => [id, "riverside"]),
   ...TOKYO_DOWNTOWN_ROAD_IDS.map((id): readonly [string, TokyoBlockZone] => [id, "downtown"]),
@@ -2926,8 +3106,14 @@ const tokyoDepthJitterM = (seedKey: string): number => (hashStringToSeed(`${seed
  * `jp-ekimae-nishi-dori` — the region's own neighbourhood shopping street,
  * zoned `ekimae-nishi` (a pure-residential zone otherwise) but reading as
  * shotengai territory just like the first exception, for the same reason.
+ * Tokyo authenticity plan P6 (Region C) adds a THIRD exception,
+ * `jp-sumiregaoka-dori` — the region's own N-S collector, zoned
+ * `sumiregaoka` (a pure-residential zone otherwise) but reading as the
+ * denser `tokyo-apato` mix per the plan's own §6.2 call-out ("apāto on the
+ * collector"), the same "one road within a zone gets a different set"
+ * pattern as the first two exceptions.
  *
- * P3b adds the other two sets, keyed by zone per the plan's section 6.1
+ * P3b adds the next two sets, keyed by zone per the plan's section 6.1
  * table: `downtown` (everywhere except the two roads above) and `ring` both
  * read as the same zakkyo backbone (dense mixed mid-rise/tower frontage —
  * the plan's own call, section 6.1: "ring-road frontages read as the same
@@ -2947,7 +3133,8 @@ const tokyoRoadsideBuildingSet = (
   roadId: string,
 ): string | undefined => {
   if (roadId === "jp-nakamise-yokocho" || roadId === "jp-ekimae-nishi-dori") return "tokyo-shotengai";
-  if (zone === "miyanosaka" || zone === "yamashita" || zone === "nishi" || zone === "ekimae-nishi" || zone === "hanamizu") return "tokyo-house";
+  if (roadId === "jp-sumiregaoka-dori") return "tokyo-apato";
+  if (zone === "miyanosaka" || zone === "yamashita" || zone === "nishi" || zone === "ekimae-nishi" || zone === "hanamizu" || zone === "sumiregaoka") return "tokyo-house";
   if (zone === "downtown" || zone === "ring") return "tokyo-zakkyo";
   if (zone === "riverside" || zone === "higashi") return "tokyo-manshon";
   return undefined;
@@ -3610,6 +3797,18 @@ export const TOKYO_MAP_PACK: MapPack = {
       // a brand-new district) and >=22 m from each other (41.3 m).
       { id: "jp-v54", kind: "shop", anchor: { laneId: "jp-hanamizuki-dori-1-forward-1", distanceAlongM: 170 }, footprint: point(12, 9), name: "Hoshi Mart Hanamizu" },
       { id: "jp-v55", kind: "restaurant", anchor: { laneId: "jp-yuri-dori-2-forward-1", distanceAlongM: 160 }, footprint: point(12, 9), name: "Hanamizu Shokudō" },
+      // Sumiregaoka (Tokyo authenticity plan P6, Region C): a small shop +
+      // restaurant pair on the collector, both anchored on its forward
+      // (+1/"p"-side) lane — the reverse side's own block along this stretch
+      // is a holdback facade-box parcel (`set=undefined`, the ~1-in-4 roll),
+      // confirmed by the same solver, so both deliberately anchor the side
+      // that actually lands on a real `tokyo-apato` block. Solver-verified
+      // against the real resolveVenuePlacement (never a hand estimate):
+      // both land inside a real buildingSet block, comfortably clear of
+      // every other venue/service point already on the map (>190 m here, a
+      // brand-new district) and >=22 m from each other (222 m).
+      { id: "jp-v56", kind: "shop", anchor: { laneId: "jp-sumiregaoka-dori-1-forward-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Hoshi Mart Sumiregaoka" },
+      { id: "jp-v57", kind: "restaurant", anchor: { laneId: "jp-sumiregaoka-dori-2-forward-1", distanceAlongM: 50 }, footprint: point(12, 9), name: "Sumire Teishoku" },
     ],
     landmarks: [
       { id: "jp-gotokuji-station", kind: "station", center: point(-14, 6), size: point(20, 9), color: "#e85e59" },
