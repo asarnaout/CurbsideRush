@@ -963,14 +963,23 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // `rail-ballast`/`rail-steel`/`rail-sleeper` (fingerprint moves for the
     // same swap). activeMeshes jumps more than total because the line runs
     // right through the fixed test pose's frustum at spawn.
-    totalMeshes: 19_658,
-    enabledMeshes: 19_658,
-    activeMeshes: 1_585,
+    //
+    // 19_658 -> 19_615 (-43, active 1_585 -> 1_607, mirrorCandidates 198 ->
+    // 196; rail centre-section surgery): Renraku-dōri's removal takes its
+    // asphalt/shoulder strips, centre-line dashes, roadside parcels and the
+    // x-renraku generated signal's 15 head meshes out; the two generated
+    // crossings (miyanosaka/shotengai) add 24 gate meshes (2 gates x 6 x 2)
+    // plus their approaches' stop-line markings. activeMeshes rises anyway:
+    // both new crossings sit inside the fixed test pose's frustum, the
+    // removed road was mostly outside it.
+    totalMeshes: 19_615,
+    enabledMeshes: 19_615,
+    activeMeshes: 1_607,
     materials: 287,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 198,
+    mirrorCandidates: 196,
     mirrorDrawn: 262,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,

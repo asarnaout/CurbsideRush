@@ -189,7 +189,13 @@ describe("ambient traffic trace characterization", () => {
       // authored timetable (rail-driven `trafficLightTiming` branch), so every
       // hashed crossing-light state — and every NPC hold at the crossings —
       // lands at different ticks. Same roads, lanes, spawns and gates.
-      "free-jp": "3eb33b56",
+      // Moves again for the same feature's centre-section surgery: Renraku-
+      // dōri (the 42 m jp-d connector the corridor crossed at 25°) is removed
+      // — its two lanes, its junction turns and its successor entries at
+      // jp-d/x-renraku all disappear — and two generated crossings
+      // (jp-rail-signal-miyanosaka / -shotengai) add railway stop lines to
+      // four more lanes.
+      "free-jp": "ec7757b5",
       "free-eg": "eb350f99",
     });
   });

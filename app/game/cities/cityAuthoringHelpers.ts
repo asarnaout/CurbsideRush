@@ -1,4 +1,5 @@
 import type {
+  ConflictZone,
   FrozenMapSource,
   LaneAnchor,
   LaneGraph,
@@ -348,6 +349,238 @@ export const graph = (
   conflictZones: connectorConflictZones(lanes, conflictZones),
   spawnPoints,
 });
+
+/** One rail level crossing, fully derived: control + conflict zone. */
+export interface RailCrossingBuild {
+  readonly control: TrafficControl;
+  readonly conflictZone: ConflictZone;
+}
+
+function polylineIntersection(
+  left: readonly WorldPoint[],
+  right: readonly WorldPoint[],
+): {
+  point: WorldPoint;
+  leftDir: WorldPoint;
+  rightDir: WorldPoint;
+} | null {
+  for (let l = 0; l < left.length - 1; l += 1) {
+    const a = left[l];
+    const b = left[l + 1];
+    for (let r = 0; r < right.length - 1; r += 1) {
+      const c = right[r];
+      const d = right[r + 1];
+      const denominator = (b.x - a.x) * (d.z - c.z) - (b.z - a.z) * (d.x - c.x);
+      if (Math.abs(denominator) < 1e-9) continue;
+      const t =
+        ((c.x - a.x) * (d.z - c.z) - (c.z - a.z) * (d.x - c.x)) / denominator;
+      const u =
+        ((c.x - a.x) * (b.z - a.z) - (c.z - a.z) * (b.x - a.x)) / denominator;
+      if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+      const leftLength = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+      const rightLength = Math.hypot(d.x - c.x, d.z - c.z) || 1;
+      return {
+        point: point(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t),
+        leftDir: point((b.x - a.x) / leftLength, (b.z - a.z) / leftLength),
+        rightDir: point((d.x - c.x) / rightLength, (d.z - c.z) / rightLength),
+      };
+    }
+  }
+  return null;
+}
+
+function distanceAlongPolylineTo(
+  points: readonly WorldPoint[],
+  target: WorldPoint,
+): number {
+  let best = Number.POSITIVE_INFINITY;
+  let bestAlong = 0;
+  let accumulated = 0;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const a = points[index];
+    const b = points[index + 1];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 1e-6) continue;
+    const t = Math.max(
+      0,
+      Math.min(1, ((target.x - a.x) * dx + (target.z - a.z) * dz) / (length * length)),
+    );
+    const distance = Math.hypot(target.x - (a.x + dx * t), target.z - (a.z + dz * t));
+    if (distance < best) {
+      best = distance;
+      bestAlong = accumulated + length * t;
+    }
+    accumulated += length;
+  }
+  return bestAlong;
+}
+
+const headingDegOf = (direction: WorldPoint): number => {
+  const degrees = (Math.atan2(direction.x, direction.z) * 180) / Math.PI;
+  return (degrees + 360) % 360;
+};
+
+/**
+ * Derive one railway level crossing where a rail line crosses a road: the
+ * `railway_signal` control with a stop-lined approach per crossing lane, two
+ * gate installations, and the conflict zone over the shared square.
+ *
+ * Hand-computing these per crossing is exactly how the first two Tokyo
+ * crossings were authored, and it does not scale to a network of them across
+ * four cities — every distance here is a projection someone can get one lane
+ * segment wrong. The generator measures the real lane centrelines instead.
+ * Gate placement mirrors the hand-authored originals: a diagonal pair for a
+ * two-way road (each gate before the crossing for its own approach, standing
+ * off the carriageway), a same-kerb before/after pair for a one-way.
+ */
+export function buildRailCrossingControl(options: {
+  readonly id: string;
+  readonly railPoints: readonly WorldPoint[];
+  readonly surface: RoadSurface;
+  readonly lanes: readonly LaneSegment[];
+  /** Metres the stop line sits before the track centreline. Default 6. */
+  readonly stopSetbackM?: number;
+  /** Which side of the rail the one-way pair stands on (+1/-1 along the
+   * road direction at the crossing). Default -1, matching jp-rail-signal-2. */
+  readonly oneWayGateSide?: 1 | -1;
+}): RailCrossingBuild {
+  const { id, railPoints, surface, lanes } = options;
+  const stopSetback = options.stopSetbackM ?? 6;
+  const hit = polylineIntersection(railPoints, surface.centerline);
+  if (!hit) {
+    throw new Error(
+      `buildRailCrossingControl(${id}): rail line does not cross surface ${surface.id}`,
+    );
+  }
+  const roadDir = hit.rightDir;
+  const railDir = hit.leftDir;
+  const crossingLanes = surface.laneIds
+    .map((laneId) => lanes.find((lane) => lane.id === laneId))
+    .filter((lane): lane is LaneSegment => Boolean(lane))
+    .map((lane) => {
+      const laneHit = polylineIntersection(railPoints, lane.centerline);
+      if (!laneHit) return null;
+      return {
+        lane,
+        distanceAlongM: distanceAlongPolylineTo(lane.centerline, laneHit.point),
+        direction: laneHit.rightDir,
+      };
+    })
+    .filter(
+      (entry): entry is { lane: LaneSegment; distanceAlongM: number; direction: WorldPoint } =>
+        Boolean(entry),
+    );
+  if (!crossingLanes.length) {
+    throw new Error(
+      `buildRailCrossingControl(${id}): no lane of ${surface.id} crosses the rail line`,
+    );
+  }
+  const approaches: TrafficControlApproach[] = crossingLanes.map(
+    (entry, index) => ({
+      id: `${id}-approach-${index + 1}`,
+      laneIds: [entry.lane.id],
+      stopLine: {
+        laneId: entry.lane.id,
+        distanceAlongM: Math.max(1, entry.distanceAlongM - stopSetback),
+      },
+      phaseGroup: "railway",
+      conflictZoneIds: [`${id}-conflict`],
+    }),
+  );
+  const gateLateral = surface.widthM / 2 + 1.8;
+  const gateAlongRoad = 6;
+  const forward = crossingLanes.filter(
+    (entry) => entry.direction.x * roadDir.x + entry.direction.z * roadDir.z > 0,
+  );
+  const twoWay = forward.length > 0 && forward.length < crossingLanes.length;
+  const installations: TrafficControlInstallation[] = twoWay
+    ? [
+        installation(
+          `${id}-gate-a`,
+          hit.point.x - roadDir.x * gateAlongRoad - railDir.x * gateLateral,
+          hit.point.z - roadDir.z * gateAlongRoad - railDir.z * gateLateral,
+          headingDegOf(roadDir),
+          "railway_crossing",
+          "japan_railway",
+          "primary",
+        ),
+        installation(
+          `${id}-gate-b`,
+          hit.point.x + roadDir.x * gateAlongRoad + railDir.x * gateLateral,
+          hit.point.z + roadDir.z * gateAlongRoad + railDir.z * gateLateral,
+          headingDegOf(point(-roadDir.x, -roadDir.z)),
+          "railway_crossing",
+          "japan_railway",
+          "secondary",
+        ),
+      ]
+    : (() => {
+        const travel = crossingLanes[0].direction;
+        const side = options.oneWayGateSide ?? -1;
+        const kerbX = railDir.x * gateLateral * side;
+        const kerbZ = railDir.z * gateLateral * side;
+        return [
+          installation(
+            `${id}-gate-a`,
+            hit.point.x - travel.x * gateAlongRoad + kerbX,
+            hit.point.z - travel.z * gateAlongRoad + kerbZ,
+            headingDegOf(travel),
+            "railway_crossing",
+            "japan_railway",
+            "primary",
+          ),
+          installation(
+            `${id}-gate-b`,
+            hit.point.x + travel.x * gateAlongRoad + kerbX,
+            hit.point.z + travel.z * gateAlongRoad + kerbZ,
+            headingDegOf(travel),
+            "railway_crossing",
+            "japan_railway",
+            "secondary",
+          ),
+        ];
+      })();
+  const zoneAlongRoad = surface.widthM / 2 + 2;
+  const zoneAlongRail = 4;
+  const conflictZone: ConflictZone = {
+    id: `${id}-conflict`,
+    laneIds: crossingLanes.map((entry) => entry.lane.id),
+    polygon: [
+      point(
+        hit.point.x - roadDir.x * zoneAlongRoad - railDir.x * zoneAlongRail,
+        hit.point.z - roadDir.z * zoneAlongRoad - railDir.z * zoneAlongRail,
+      ),
+      point(
+        hit.point.x + roadDir.x * zoneAlongRoad - railDir.x * zoneAlongRail,
+        hit.point.z + roadDir.z * zoneAlongRoad - railDir.z * zoneAlongRail,
+      ),
+      point(
+        hit.point.x + roadDir.x * zoneAlongRoad + railDir.x * zoneAlongRail,
+        hit.point.z + roadDir.z * zoneAlongRoad + railDir.z * zoneAlongRail,
+      ),
+      point(
+        hit.point.x - roadDir.x * zoneAlongRoad + railDir.x * zoneAlongRail,
+        hit.point.z - roadDir.z * zoneAlongRoad + railDir.z * zoneAlongRail,
+      ),
+    ],
+  };
+  return {
+    control: control(
+      id,
+      "railway_signal",
+      hit.point.x,
+      hit.point.z,
+      headingDegOf(roadDir),
+      crossingLanes.map((entry) => entry.lane.id),
+      [`${id}-conflict`],
+      approaches,
+      installations,
+    ),
+    conflictZone,
+  };
+}
 
 /** Same curry reason as `makeLaneTrue`: each city's `capturedOn` is its own
  * `*_CONTENT_REVIEWED_ON` constant, everything else about the source record
