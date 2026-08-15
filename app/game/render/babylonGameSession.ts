@@ -4770,7 +4770,16 @@ export class BabylonGameSession {
               : stopRed,
           pole,
         );
-        sign.rotation.x = Math.PI / 2;
+        // Stand the plate upright facing the approach, spun so a polygon
+        // vertex points straight down. Babylon's N-gon disc starts with a
+        // vertex on +X, so the previous bare `rotation.x` stood the give-way
+        // triangle up tip-sideways, and at a roundabout mouth it read as an
+        // arrow pointing against the circulation (issue #395). Tip-down is
+        // the real give-way plate, reads the same from either face, and is a
+        // vertex-for-vertex no-op for the octagons (90° is one of their
+        // symmetries — verified against the old transform).
+        sign.rotation.y = Math.PI / 2;
+        sign.rotation.z = -Math.PI / 2;
       }
       for (const approach of control.approaches ?? []) {
         const stop = resolveLaneAnchor(mapPack.laneGraph.lanes, approach.stopLine);
