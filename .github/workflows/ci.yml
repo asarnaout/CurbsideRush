@@ -53,5 +53,25 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
-        run: npm test
+      - name: Test (fast suite)
+        run: npx vitest run --exclude "tests/trafficSafetyAcceptance.test.ts" --exclude "**/node_modules/**"
+
+      # trafficSafetyAcceptance.test.ts runs 8 simulated minutes (28,800
+      # ticks) x 51 seeds across every playable path in every city --
+      # deliberately the heaviest thing in the suite (already called out by
+      # name in this file's own comment above; CLAUDE.md's fast dev loop
+      # excludes it for the identical reason). Its own memory/compute
+      # footprint scales with map growth exactly like everything else here,
+      # and by the Tokyo authenticity plan's P5 it started tipping this
+      # runner's own memory ceiling: two CI runs crashed with an unattributed
+      # vitest "Worker exited unexpectedly" (no failing test, no stack trace
+      # into any test's own code) immediately following this test's own
+      # completion in the combined log output, on a runner with far less RAM
+      # than a local dev machine (where this test has never crashed). Giving
+      # it a dedicated step/process — never sharing a worker pool with the
+      # other 114 files' own accumulated memory — isolates that footprint
+      # instead of trimming its seed count, the same "raise the budget,
+      # don't cut coverage" call this file already made once for its own
+      # timeout.
+      - name: Test (traffic safety acceptance sweep)
+        run: npx vitest run tests/trafficSafetyAcceptance.test.ts
