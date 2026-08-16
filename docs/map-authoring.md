@@ -505,6 +505,54 @@ shipped on the wrong side. Two rules hold it now: nothing inside a walled park
 (`serviceLots.test.ts`, deliberately not brownstone — a corner bodega on a
 brownstone street is Manhattan).
 
+## Rail lines: one per map, corridor first
+
+`ProceduralMapGeometry.railLines` (`RailLine`, `types.ts`) is the single
+source of truth for a city's railway — polyline, corridor half-width,
+timetable, consist recipe, elevated spans, crossings. Everything derives from
+it: the sim times the crossings (`buildRailLines` in `simulationAdapter.ts`
+projects each listed `railway_signal` control onto the polyline), the
+renderer lays track and runs the train, the minimap draws it, prop scatter
+keeps off it. Three rules keep the corridor honest:
+
+1. **The block list carves around it.** Every city's `geometry.blocks` passes
+   through `carveBlocksForRailCorridors` (`geometry/railCorridor.ts`) LAST —
+   a crossed block splits into its flanks, a swallowed one is dropped. No
+   hand-checking; a future block on the tracks cannot ship.
+2. **Crossings are generated, never hand-measured.**
+   `buildRailCrossingControl` (`cityAuthoringHelpers.ts`) derives the whole
+   control — stop lines measured on the real lane centrelines, gate pair,
+   conflict zone — from the rail polyline and the road surface. The two
+   original hand-authored Tokyo crossings stay as shipped; everything since
+   is generated.
+3. **`tests/railCorridors.test.ts` is the gate.** Zero solid obstacles on the
+   corridor (checked against the REAL `buildStaticObstacles` world), a
+   crossing at every at-grade road intersection, controls pinned to the
+   polyline, a `bridge` span over every water crossing, consist length in
+   lockstep with `schedule.trainLengthM`. Its map-id pin must grow when a
+   city gains a line.
+
+`elevationM` makes a line structure-borne end-to-end (London's viaduct):
+roads then thread the arches — the audit exempts elevated-span intersections
+from the crossing rule, viaduct piers dodge carriageways, and the train
+reports no obstacles. Ramps between ground and deck are deliberately
+unsupported. An at-grade `bridge` span is DRIVABLE (owner-requested): the
+adapter opens the shoreline collider a `RAIL_BRIDGE_MOUTH_CLEAR_M` mouth
+either side of the track (the corniche parapet's visual split uses the same
+constant, so wall face and collider always end together) and lays solid
+`railBridge` guards along the girders — the audit asserts a guard on each
+side of every such span, and that nothing crosses the running gauge. A
+fully elevated line keeps its banks closed. `terminus` dresses a shuttle's dwell end: `style: "platforms"`
+(the default) is open platforms + a buffer stop; `style: "depot_shed"` is an
+enclosed shed the dwelling consist hides inside (Tokyo — its stub is only
+40 m from a level crossing, too short for open platforms). Shed walls become
+solid `railShed` obstacles derived in the adapter from the same
+`railTerminusShedLayout` the renderer draws, and the corridor audit admits
+them only clear of the running gauge; the covered interval must be straight
+and at grade. A `through` line should end at the world edges so consists
+enter and leave out of sight, and its `headwaySeconds` must exceed the
+traversal time — `TrainVisual` budgets two rigs per through line.
+
 ## Private authoring helpers live in one shared module
 
 `cities/nyc.ts`, `cities/tokyo.ts` and `cities/london.ts` import common

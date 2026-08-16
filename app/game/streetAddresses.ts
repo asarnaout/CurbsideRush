@@ -489,7 +489,6 @@ const STREET_PROFILES: Record<string, StreetProfile> = {
   "jp-nishi-kanjo-dori": { ...TOKYO_NS, baseNumber: 200 },
   "jp-north-road": { ...TOKYO_EW, baseNumber: 200 },
   "jp-northrow-west": { ...TOKYO_EW, baseNumber: 240 },
-  "jp-renraku-dori": { ...TOKYO_EW, baseNumber: 170 },
   "jp-sangen-dori": { ...TOKYO_NS, baseNumber: 200 },
   "jp-setagaya-dori": { ...TOKYO_EW, baseNumber: 220 },
   "jp-setagaya-dori-east": { ...TOKYO_EW, baseNumber: 280 },

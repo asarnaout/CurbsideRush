@@ -26,6 +26,8 @@ const OVERLAY_COLORS: Record<StaticObstacleTag, Color4> = {
   venue: new Color4(0.15, 0.55, 1, 1),
   shoreline: new Color4(0.1, 0.85, 0.85, 1),
   parkEdge: new Color4(0.25, 0.85, 0.15, 1),
+  railBridge: new Color4(0.45, 0.6, 0.95, 1),
+  railShed: new Color4(0.65, 0.5, 0.9, 1),
   worldEdge: new Color4(1, 0.85, 0.1, 1),
 };
 

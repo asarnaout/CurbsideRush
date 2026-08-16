@@ -1330,7 +1330,24 @@ export interface PromenadeDecorInput {
    */
   readonly treeKind: string;
   readonly lampKind: string;
+  /**
+   * Rail corridors the promenade must keep out of. The corniche strip is
+   * exactly where a rail line pierces the bank at its bridge abutments, and
+   * this deliberate line never went through the random scatter's rail
+   * keep-outs — which is how a palm ended up standing inside the Imbaba
+   * corridor's girder mouth (owner-reported). Optional so non-rail callers
+   * and older tests stay unchanged; the live renderer always passes it.
+   */
+  readonly railLines?: readonly {
+    readonly points: readonly VisualPoint[];
+    readonly corridorHalfWidthM: number;
+  }[];
 }
+
+/** Extra clear metres a promenade piece keeps beyond a rail corridor's own
+ * half-width — enough that a palm fan or lantern never overhangs the fence
+ * line even at max prop scale. */
+export const PROMENADE_RAIL_CLEARANCE_M = 2;
 
 /**
  * The corniche promenade: a signature tree line, lamps and benches on the
@@ -1433,6 +1450,15 @@ export function generatePromenadeDecor(
             const z = baseZ + outZ * offsetM;
             if (Math.abs(x) > halfWorldX || Math.abs(z) > halfWorldZ) return;
             if (isOverWater({ x, z }, input.waterPolygons)) return;
+            if (
+              input.railLines?.some(
+                (line) =>
+                  distanceToPolylineM({ x, z }, line.points) <
+                  line.corridorHalfWidthM + PROMENADE_RAIL_CLEARANCE_M,
+              )
+            ) {
+              return;
+            }
             placements.push({ kind, x, z, rotationY, scale, variant });
           };
           if (stationIndex % 2 === 0) {

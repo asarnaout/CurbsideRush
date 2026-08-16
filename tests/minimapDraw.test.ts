@@ -7,10 +7,12 @@ import {
 } from "../app/game/minimap";
 import {
   drawMapOverlay,
+  drawMapRailLines,
   drawMapWaterBodies,
   drawPlayerMarker,
   drawRoadNetwork,
   minimapSymbolSizes,
+  railsFromGeometry,
   type MapSymbolSizes,
 } from "../app/game/minimapDraw";
 
@@ -258,5 +260,39 @@ describe("the overlay pass", () => {
     // One filled triangle: three points, closed.
     expect(ops.filter((entry) => entry.op === "closePath")).toHaveLength(1);
     expect(ops.filter((entry) => entry.op === "stroke")).toHaveLength(0);
+  });
+});
+
+describe("drawMapRailLines", () => {
+  it("draws the railway signature: a solid base line with cross-tie dashes over it", () => {
+    const ctx = recordingContext();
+    drawMapRailLines(
+      ctx,
+      [{ points: [{ x: 0, z: 0 }, { x: 500, z: 0 }] }],
+      projector(),
+      0.2,
+    );
+    // Two strokes per line: the base pass (no dash) then the tie pass (dashed).
+    const strokes = ops.filter((entry) => entry.op === "stroke");
+    expect(strokes).toHaveLength(2);
+    expect(strokes[0].dash).toEqual([]);
+    expect(strokes[1].dash.length).toBe(2);
+    // The dash state is reset for whoever draws next.
+    const lastDashOp = ops.filter((entry) => entry.op === "setLineDash").at(-1);
+    expect(lastDashOp?.dash).toEqual([]);
+  });
+
+  it("draws nothing for a railless map without touching the context", () => {
+    drawMapRailLines(recordingContext(), [], projector(), 0.2);
+    expect(ops).toHaveLength(0);
+  });
+});
+
+describe("railsFromGeometry", () => {
+  it("is referentially stable per geometry list, the parksFromLandmarks discipline", () => {
+    const lines = [{ points: [{ x: 0, z: 0 }, { x: 10, z: 0 }] }];
+    expect(railsFromGeometry(lines)).toBe(railsFromGeometry(lines));
+    expect(railsFromGeometry(undefined)).toBe(railsFromGeometry(undefined));
+    expect(railsFromGeometry(undefined)).toHaveLength(0);
   });
 });

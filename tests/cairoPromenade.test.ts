@@ -5,9 +5,11 @@ import { getMapPack } from "../app/game/content";
 import { buildStaticObstacles } from "../app/game/simulationAdapter";
 import { planMapBuildings } from "../app/game/geometry/buildingLayout";
 import {
+  distanceToPolylineM,
   generatePromenadeDecor,
   hashStringToSeed,
   PAVED_SIDEWALK_WIDTH_M,
+  PROMENADE_RAIL_CLEARANCE_M,
   type VisualPoint,
 } from "../app/game/visuals";
 
@@ -163,6 +165,12 @@ describe("Cairo corniche parapet", () => {
     // byte-identical-output claim below.
     treeKind: "palm",
     lampKind: "streetlight",
+    // The renderer's exact rail keep-out — the Imbaba corridor pierces the
+    // corniche at all four bridge abutments, exactly where this decor walks.
+    railLines: (pack.geometry.railLines ?? []).map((line) => ({
+      points: line.points,
+      corridorHalfWidthM: line.corridorHalfWidthM,
+    })),
   };
   const decor = generatePromenadeDecor(promenadeInput);
 
@@ -273,6 +281,28 @@ describe("Cairo corniche parapet", () => {
       }
     }
     expect(failures.slice(0, 10)).toEqual([]);
+  });
+
+  it("keeps every piece clear of the rail corridor", () => {
+    // The scene probe that motivated this found a palm 1.1 m off the rail
+    // centreline at an abutment — inside the corridor the carver keeps every
+    // block out of. The promenade honours the same right-of-way plus its own
+    // canopy clearance.
+    const failures: string[] = [];
+    for (const placement of decor) {
+      for (const line of promenadeInput.railLines) {
+        const distance = distanceToPolylineM(
+          { x: placement.x, z: placement.z },
+          line.points,
+        );
+        if (distance < line.corridorHalfWidthM + PROMENADE_RAIL_CLEARANCE_M) {
+          failures.push(
+            `${placement.kind} ${distance.toFixed(2)} m off the rail at (${placement.x.toFixed(1)}, ${placement.z.toFixed(1)})`,
+          );
+        }
+      }
+    }
+    expect(failures).toEqual([]);
   });
 
   it("leaves both drivable bridge portals unwalled", () => {

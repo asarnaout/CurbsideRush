@@ -5,18 +5,21 @@ import type {
   LaneSegment,
   MapPack,
   ProceduralBlock,
+  RailLine,
   RoadSurface,
   TrafficControl,
   TrafficControlApproach,
   TrafficControlInstallation,
   WorldPoint,
 } from "../types";
+import { carveBlocksForRailCorridors } from "../geometry/railCorridor";
 import { CONNECTOR_BLEND_RUN_M, buildLaneTrueGeometry } from "../laneConnectors";
 import { buildingSetDepthM, isBuildingSetId } from "../buildingSets";
 import { hashStringToSeed, PAVED_SIDEWALK_WIDTH_M } from "../visuals";
 import {
   anchoredSpawn,
   approach,
+  buildRailCrossingControl,
   control,
   distanceBetweenPoints,
   freeSpawn,
@@ -1122,7 +1125,13 @@ const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   tokyoRoad("jp-minami-dori", "Minami-dōri", ["jp-minami-dori-w", "jp-ichiban-x-minami-dori", "jp-niban-x-minami-dori", "jp-chuo-x-minami-dori", "jp-kawate-x-minami-dori"], 2, 8, 40),
   tokyoRoad("jp-kita-dori", "Kita-dōri", ["jp-kita-dori-w", "jp-ichiban-x-kita-dori", "jp-niban-x-kita-dori", "jp-chuo-x-kita-dori", "jp-kawate-x-kita-dori"], 2, 8, 40),
   tokyoRoad("jp-nakamise-yokocho", "Nakamise Yokochō", ["jp-ichiban-x-nakamise", "jp-niban-x-nakamise", "jp-chuo-x-nakamise"], 2, 5.8, 20, { surfaceType: "shared_space" }),
-  tokyoRoad("jp-renraku-dori", "Renraku-dōri", ["jp-d", "jp-shotengai-nishi-x-renraku"], 2, 7, 40),
+  // Renraku-dōri is gone (rail feature): the 42 m connector from jp-d to
+  // Shōtengai Nishi crossed the Setagaya Line's corridor at 25° from
+  // parallel — too oblique for a level crossing to be honest geometry — and
+  // its whole function (jp-d fan -> shotengai grid) is served 20 m east by
+  // Shōtengai Nishi-dōri's own southern leg, which now carries the corridor's
+  // generated level crossing instead. Its former x-renraku node stays as a
+  // plain interior vertex of Shōtengai Nishi-dōri below.
   tokyoRoad("jp-shotengai-nishi-dori", "Shōtengai Nishi-dōri", ["jp-minami-dori-w", "jp-shotengai-nishi-x-renraku", "jp-ekimae-w", "jp-shotengai-nishi-x-uptown", "jp-kita-dori-w"], 2, 7, 40),
   tokyoRoad("jp-uptown-higashi", "Uptown St", ["jp-ne2", "jp-shotengai-nishi-x-uptown"], 2, 6.4, 40),
 ];
@@ -1333,7 +1342,7 @@ const TOKYO_SKELETON_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   // (south) — Sumiregaoka's own westmost local dropping off Setagaya-dōri.
   tokyoJunction("jp-jct-ss-w", "jp-ss-w", ["jp-setagaya-dori-west", "jp-setagaya-dori", "jp-westside-south", "jp-fuyo-dori"]),
   tokyoJunction("jp-jct-ss-e", "jp-ss-e", ["jp-setagaya-dori-east", "jp-setagaya-dori", "jp-eastside-road"]),
-  tokyoJunction("jp-jct-d", "jp-d", ["jp-renraku-dori", "jp-east-curve", "jp-center-road"]),
+  tokyoJunction("jp-jct-d", "jp-d", ["jp-east-curve", "jp-center-road"]),
   tokyoJunction("jp-jct-ne2", "jp-ne2", ["jp-uptown-higashi", "jp-uptown-road", "jp-easthill-road"]),
 
   // Tokyo authenticity plan P6 adds jp-asagao-dori as this node's 3rd arm
@@ -1365,7 +1374,6 @@ const TOKYO_SKELETON_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-niban-ekimae", "jp-niban-x-ekimae", ["jp-niban-dori", "jp-eki-mae-dori"]),
   tokyoJunction("jp-jct-niban-kita-dori", "jp-niban-x-kita-dori", ["jp-niban-dori", "jp-kita-dori"]),
   tokyoJunction("jp-jct-minami-dori-w", "jp-minami-dori-w", ["jp-minami-dori", "jp-shotengai-nishi-dori"]),
-  tokyoJunction("jp-jct-shotengai-renraku", "jp-shotengai-nishi-x-renraku", ["jp-shotengai-nishi-dori", "jp-renraku-dori"]),
   // Tokyo authenticity plan P4 adds jp-ekimae-nishi-dori as this node's 3rd
   // arm (west) — the shopping street's own real east terminus.
   tokyoJunction("jp-jct-kita-dori-w", "jp-kita-dori-w", ["jp-kita-dori", "jp-shotengai-nishi-dori", "jp-ekimae-nishi-dori"]),
@@ -2255,7 +2263,6 @@ const TOKYO_SIGNAL_NODE_IDS: readonly string[] = [
   // with a cross-street, minus the three Nakamise-Yokochō ones (stay stops
   // + get a dedicated crosswalk at each real end, not a vehicle signal).
   "jp-minami-dori-w",
-  "jp-shotengai-nishi-x-renraku",
   "jp-ekimae-w",
   "jp-shotengai-nishi-x-uptown",
   "jp-kita-dori-w",
@@ -2834,7 +2841,11 @@ const TOKYO_QUARTER_PARKS = [
  */
 const TOKYO_PHASE6_PARKS = [
   { id: "jp-kawabe-koen-a", kind: "park", center: point(594, -100), size: point(100, 20), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
-  { id: "jp-kawabe-koen-b", kind: "park", center: point(596.5, 5), size: point(110, 25), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
+  // Shortened from 110 m (centre z=5) to the 62 m north of the Setagaya
+  // Line's east run (rail feature): the corridor at z=-10 cut the old rect,
+  // and the strip south of the tracks is now the girder bridge's west
+  // abutment ground rather than lawn.
+  { id: "jp-kawabe-koen-b", kind: "park", center: point(596.5, 29), size: point(62, 25), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
   { id: "jp-kawabe-koen-c", kind: "park", center: point(596.5, 105), size: point(90, 25), headingDeg: 90, parkStyle: "pocket_green", color: "#4d7a5e" },
   // Civic plaza around where Phase 8's Hikari Tower landmark will stand
   // (plan's own (1020,140) shifted east to (1053,140) — `jp-higashi-hondori`
@@ -3429,7 +3440,6 @@ const TOKYO_ROAD_STYLE_OVERRIDE: Readonly<Partial<Record<string, Partial<TokyoZo
   "jp-ekimae-nishi-dori": { materials: ["wood-plaster", "tile"], heightRange: [5, 11], density: 0.32, depthM: 20 },
   // Quarter<->downtown connectors: transitional height between the old
   // neighbourhood's low-rise and the downtown core proper.
-  "jp-renraku-dori": { heightRange: [7, 16], density: 0.32, depthM: 26 },
   "jp-shotengai-nishi-dori": { heightRange: [6, 15], density: 0.32, depthM: 28 },
   "jp-uptown-higashi": { heightRange: [6, 14], density: 0.32, depthM: 26 },
   "jp-chuo-dori-south": { heightRange: [9, 19], density: 0.32, depthM: 30 },
@@ -3457,7 +3467,6 @@ const TOKYO_DOWNTOWN_ROAD_IDS: readonly string[] = [
   "jp-minami-dori",
   "jp-kita-dori",
   "jp-nakamise-yokocho",
-  "jp-renraku-dori",
   "jp-shotengai-nishi-dori",
   "jp-uptown-higashi",
 ];
@@ -4141,6 +4150,131 @@ const TOKYO_QUARTER_ROAD_NAMES = {
   "jp-eastside-road": "Eastside St",
 } satisfies Readonly<Record<keyof typeof TOKYO_ROAD_SPEED_LIMITS, string>>;
 
+/**
+ * The Setagaya Line as an actual railway (rail feature, phase B): one
+ * polyline from the Gotokuji terminus stub, south across Yamashita St
+ * (jp-rail-signal — the level crossing by spawn), around the corner and
+ * east along z=-10 across Ichiban-dōri (jp-rail-signal-2). The timetable
+ * drives both crossings' lamps/barriers/citations and the visible tram
+ * (see docs/simulation-core.md). Hoisted above the pack because the block
+ * list is carved around this corridor (`carveBlocksForRailCorridors`) —
+ * one polyline, one keep-out, one audit (`tests/railCorridors.test.ts`).
+ * v0 ends at x=280 exactly where the retired decal landmarks ended; the
+ * eastward extension to the Sakuragawa and the east bank lands with the
+ * corridor surgery.
+ */
+const TOKYO_RAIL_POINTS: readonly WorldPoint[] = [
+  point(18, -112),
+  point(18, -18),
+  point(20.3, -12.3),
+  point(26, -10),
+  point(1306, -10),
+];
+
+/** Stations along TOKYO_RAIL_POINTS: the stub is 94 m + two 6.146 m corner
+ * chords, then the straight east run — station(x) = x + 80.29 for x >= 26.
+ * The Sakuragawa's banks at z=-10 sit at x = 617 and 735 (water polygon),
+ * so the girder span [692, 822] carries the full crossing with ~24 m of
+ * abutment approach each side. */
+const TOKYO_RAIL_BRIDGE_SPAN = { startM: 692, endM: 822, kind: "bridge" as const };
+
+const TOKYO_RAIL_LINES: readonly RailLine[] = [
+  {
+    id: "jp-setagaya-line-run",
+    points: TOKYO_RAIL_POINTS,
+    corridorHalfWidthM: 4.5,
+    crossingControlIds: [
+      "jp-rail-signal",
+      "jp-rail-signal-2",
+      "jp-rail-signal-miyanosaka",
+      "jp-rail-signal-shotengai",
+      "jp-rail-signal-niban",
+      "jp-rail-signal-chuo",
+      "jp-rail-signal-kawate",
+      "jp-rail-signal-kawagishi",
+      "jp-rail-signal-higashi-hon",
+      "jp-rail-signal-higashi-soto",
+    ],
+    elevatedSpans: [TOKYO_RAIL_BRIDGE_SPAN],
+    // A depot shed at the Gotokuji stub end by spawn (Miyanosaka-depot
+    // flavour): the dwelling tram waits inside, out of sight. The stub is
+    // 40 m from Yamashita St's centreline, so the old open platforms ran
+    // straight across the level crossing (owner-reported); the 30 m shed
+    // ends 4.75 m clear of the sidewalk.
+    terminus: { at: "start", style: "depot_shed" },
+    schedule: {
+      mode: "shuttle",
+      speedMps: 8.5,
+      trainLengthM: 25,
+      dwellSeconds: 22,
+      warningLeadSeconds: 8,
+      clearTrailSeconds: 1.5,
+    },
+    // Tōkyū 300-series flavour: a two-car tram in the Setagaya Line's own
+    // apple green with a cream window band. 2 x 12.2 m + coupling = the
+    // schedule's 25 m, which tests/railCorridors.test.ts holds in lockstep.
+    consist: { kind: "tram", cars: 2, liveryHex: "#3f9163", accentHex: "#f0e7d4" },
+  },
+];
+
+// Every lane and surface on the map, hoisted from the `graph(...)`/geometry
+// literals below so the rail-crossing generator can measure the real
+// centrelines it stop-lines. Same arrays, one construction.
+const tokyoAllLanes: readonly LaneSegment[] = [
+  ...tokyoGeneratedHalf.quarterLanesWithNewTurns,
+  ...tokyoGeneratedHalf.generatedLanes,
+];
+const tokyoAllSurfaces: readonly RoadSurface[] = [
+  ...jpQuarterSurfaces,
+  ...tokyoGeneratedHalf.generatedSurfaces,
+];
+const tokyoSurfaceById = (id: string): RoadSurface => {
+  const surface = tokyoAllSurfaces.find((candidate) => candidate.id === id);
+  if (!surface) throw new Error(`tokyo rail crossing: unknown surface ${id}`);
+  return surface;
+};
+
+/**
+ * The two centre-section crossings the audit demanded (the retired decal ran
+ * over both roads unmarked): Miyanosaka St's diagonal leg crosses the line
+ * obliquely — a very Japanese elongated fumikiri — and Shōtengai Nishi-dōri
+ * crosses square. Both fully generated from the measured lane centrelines;
+ * the two original hand-authored crossings (jp-rail-signal/-2) stay exactly
+ * as shipped, their approach distances pinned by tests/content.test.ts.
+ */
+const tokyoRailCrossingMiyanosaka = buildRailCrossingControl({
+  id: "jp-rail-signal-miyanosaka",
+  railPoints: TOKYO_RAIL_POINTS,
+  surface: tokyoSurfaceById("jp-center-road"),
+  lanes: tokyoAllLanes,
+});
+const tokyoRailCrossingShotengai = buildRailCrossingControl({
+  id: "jp-rail-signal-shotengai",
+  railPoints: TOKYO_RAIL_POINTS,
+  surface: tokyoSurfaceById("jp-shotengai-nishi-dori"),
+  lanes: tokyoAllLanes,
+});
+/** The east-run crossings, one per N-S street the extended line crosses
+ * (Niban/Chūō/Kawate west of the river, Kawagishi/Higashi Hon/Higashi Soto
+ * on the east bank). All generated from the measured lane centrelines; the
+ * corridor audit enumerates every road x rail intersection, so a future
+ * street through z=-10 fails the suite until it gets its own entry here. */
+const tokyoEastRailCrossings = [
+  ["jp-rail-signal-niban", "jp-niban-dori"],
+  ["jp-rail-signal-chuo", "jp-chuo-dori"],
+  ["jp-rail-signal-kawate", "jp-kawate-dori"],
+  ["jp-rail-signal-kawagishi", "jp-kawagishi-dori"],
+  ["jp-rail-signal-higashi-hon", "jp-higashi-hondori"],
+  ["jp-rail-signal-higashi-soto", "jp-higashi-soto-dori"],
+].map(([id, surfaceId]) =>
+  buildRailCrossingControl({
+    id,
+    railPoints: TOKYO_RAIL_POINTS,
+    surface: tokyoSurfaceById(surfaceId),
+    lanes: tokyoAllLanes,
+  }),
+);
+
 export const TOKYO_MAP_PACK: MapPack = {
   id: "tokyo-setagaya",
   name: "Tokyo — Setagaya",
@@ -4166,7 +4300,7 @@ export const TOKYO_MAP_PACK: MapPack = {
     worldSize: point(2600, 2400),
     roadWidth: 6.5,
     shoulderWidth: 0.8,
-    roadSurfaces: [...jpQuarterSurfaces, ...tokyoGeneratedHalf.generatedSurfaces],
+    roadSurfaces: tokyoAllSurfaces,
     // The Sakuragawa (Phase 3, R3): a deliberately irregular ~24-vertex shore
     // (never a straight canal — NYC's East River is the precedent), full
     // z-span so both ends exit the world at the edge margin (the world-edge
@@ -4180,7 +4314,13 @@ export const TOKYO_MAP_PACK: MapPack = {
     // copy of this polygon on the map. `TOKYO_PHASE6_WATER_BODIES` adds
     // Kitazawa-kōen's pond (Phase 6, R4).
     waterBodies: [...TOKYO_WATER_BODIES, ...TOKYO_PHASE6_WATER_BODIES],
-    blocks: [
+    // The whole block list — hand-carved quarter, generated street wall and
+    // every patch tier — passes through the rail-corridor carver last, so no
+    // block (present or future) can stand on the right-of-way. The carver
+    // splits a crossed block into its two flanks and drops slivers under
+    // 12 m; `tests/railCorridors.test.ts` re-proves the result against the
+    // planned building solids.
+    blocks: carveBlocksForRailCorridors([
       { id: "jp-block-west", center: point(-70, 46), size: point(64, 40), heightRange: [5, 14], density: 0.72, material: "plaster" },
       { id: "jp-block-center", center: point(10, 46), size: point(64, 40), heightRange: [6, 18], density: 0.78, material: "tile" },
       // Split either side of the narrow shrine street: the old single
@@ -4234,7 +4374,7 @@ export const TOKYO_MAP_PACK: MapPack = {
       // Post-plan void-frontage fill (owner's "no gaps unless scenic" rule)
       // — see `tokyoVoidFrontagePatches`'s own doc comment above.
       ...tokyoVoidFrontagePatches,
-    ],
+    ], TOKYO_RAIL_LINES).blocks,
     servicePoints: [
       // The narrow south road still needs a wide set-back because the lot is
       // anchored on the near lane. Shifted 4 m east of the old anchor so the
@@ -4314,8 +4454,15 @@ export const TOKYO_MAP_PACK: MapPack = {
       { id: "jp-v5", kind: "shop", anchor: { laneId: "jp-eki-mae-dori-2-forward-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Hoshi Mart Ekimae" },
       { id: "jp-v6", kind: "shop", anchor: { laneId: "jp-chuo-dori-3-forward-1", distanceAlongM: 51 }, footprint: point(12, 9), name: "Hoshi Mart Chuo" },
       { id: "jp-v7", kind: "shop", anchor: { laneId: "jp-kita-dori-3-forward-1", distanceAlongM: 69 }, footprint: point(12, 9), name: "Yotsuba Mart" },
-      { id: "jp-v8", kind: "restaurant", anchor: { laneId: "jp-chuo-dori-2-reverse-1", distanceAlongM: 51 }, footprint: point(12, 9), name: "Menya Sakura" },
-      { id: "jp-v9", kind: "restaurant", anchor: { laneId: "jp-ichiban-dori-2-forward-1", distanceAlongM: 54 }, footprint: point(12, 9), name: "Ichiban Ramen" },
+      // distanceAlongM 51 -> 34 (rail feature): at 51 the lot sat at z=-11,
+      // dead on the extended Setagaya Line corridor — the rail audit's catch,
+      // same as jp-v9. 34 keeps Menya Sakura on the same kerb, one lot north
+      // of the new Chūō-dōri crossing.
+      { id: "jp-v8", kind: "restaurant", anchor: { laneId: "jp-chuo-dori-2-reverse-1", distanceAlongM: 34 }, footprint: point(12, 9), name: "Menya Sakura" },
+      // distanceAlongM 54 -> 68 (rail feature): at 54 the lot sat at z=-6,
+      // square on the Setagaya Line's corridor — the rail audit's first real
+      // catch. 68 puts the ramen shop just north of the crossing instead.
+      { id: "jp-v9", kind: "restaurant", anchor: { laneId: "jp-ichiban-dori-2-forward-1", distanceAlongM: 68 }, footprint: point(12, 9), name: "Ichiban Ramen" },
       { id: "jp-v10", kind: "restaurant", anchor: { laneId: "jp-niban-dori-3-reverse-1", distanceAlongM: 51 }, footprint: point(12, 9), name: "Izakaya Tsukikage" },
       { id: "jp-v11", kind: "restaurant", anchor: { laneId: "jp-minami-dori-4-forward-1", distanceAlongM: 69 }, footprint: point(12, 9), name: "Torigen" },
       { id: "jp-v12", kind: "restaurant", anchor: { laneId: "jp-eki-mae-dori-3-reverse-1", distanceAlongM: 69 }, footprint: point(12, 9), name: "Sushi Kotobuki" },
@@ -4462,29 +4609,14 @@ export const TOKYO_MAP_PACK: MapPack = {
     ],
     landmarks: [
       { id: "jp-gotokuji-station", kind: "station", center: point(-14, 6), size: point(20, 9), color: "#e85e59" },
-      { id: "jp-setagaya-line", kind: "railway", center: point(18, -62), size: point(5, 72), color: "#656a70" },
-      // Rail extension (Tokyo expansion Phase 5, §8.6): the streetcar
-      // continues east to a second level crossing on jp-ichiban-dori (see
-      // jp-rail-signal-2 below). `kind: "railway"` renders as a flat double
-      // line whose ONLY consumed dimension is `size.x` (world-X length,
-      // fixed z) — render/babylonGameSession.ts's `landmark.kind ===
-      // "railway"` branch never reads `size.z` or any heading, so every
-      // segment here is a straight east-west band, same as the existing
-      // one above. z=-10 (not the existing marker's z=-62): the existing
-      // marker sits only 2 m off jp-ichiban-x-minami-dori's own junction
-      // node, far too tight for a level crossing's own conflict zone
-      // alongside a signalled road junction; z=-10 sits exactly midway
-      // between jp-ichiban-x-minami-dori (z=-60) and jp-ichiban-x-nakamise
-      // (z=40), 50 m clear of both. The engine cannot render a curve
-      // between the two z-values, so the line takes an unmodelled jog
-      // there — an accepted simplification of a kind the renderer forces on
-      // every "railway" landmark, not a Tokyo-specific shortcut. Two
-      // segments (not one) leave a small gap at x=180 so the decal does not
-      // draw through the crossing's own gate posts, and continue the line
-      // past the crossing rather than ending abruptly at it — Phase 8's
-      // station landmark can extend from here once it exists.
-      { id: "jp-setagaya-line-ext-1", kind: "railway", center: point(102.5, -10), size: point(145, 5), color: "#656a70" },
-      { id: "jp-setagaya-line-ext-2", kind: "railway", center: point(232.5, -10), size: point(95, 5), color: "#656a70" },
+      // The three `kind: "railway"` decal landmarks that used to sketch the
+      // Setagaya Line here (a 5x72 stub + two z=-10 extension bands) are
+      // retired: `geometry.railLines` below is now the single source of truth
+      // for the track, and `render/railLayer.ts` builds real ballast, rails
+      // and sleepers along its polyline — including the jog the decal
+      // renderer could never draw. Prop scatter's corridor keep-out follows
+      // the same polyline (`railCorridorExclusionRects`), so nothing scatters
+      // onto the right-of-way the rects used to shield.
       // The quarter's three parks — hoisted to `TOKYO_QUARTER_PARKS` above
       // (Tokyo expansion Phase 4) so the street-wall generator can check a
       // candidate parcel against them (R18 never walls a park frontage)
@@ -4522,19 +4654,29 @@ export const TOKYO_MAP_PACK: MapPack = {
       // rotationally symmetric, same as jp-carrot-tower above.
       { id: "jp-hikari-tower", kind: "tower", center: point(1053, 140), size: point(44, 44), color: "#c2703a" },
     ],
+    // See TOKYO_RAIL_LINES above (hoisted so the block carver reads the same
+    // polyline this field publishes).
+    railLines: TOKYO_RAIL_LINES,
   },
   laneGraph: graph(
     [...jpNodesList, ...tokyoGenNodeList],
-    [...tokyoGeneratedHalf.quarterLanesWithNewTurns, ...tokyoGeneratedHalf.generatedLanes],
+    tokyoAllLanes,
     [
+      tokyoRailCrossingMiyanosaka.control,
+      tokyoRailCrossingShotengai.control,
+      ...tokyoEastRailCrossings.map((crossing) => crossing.control),
       control("jp-rail-signal", "railway_signal", 18, -72, 90, ["jp-south-east-2", "jp-south-west-2"], ["jp-rail-conflict"],
         [
           approach("jp-rail-eastbound-approach", "jp-south-east-2", 42, "railway", ["jp-rail-conflict"]),
           approach("jp-rail-westbound-approach", "jp-south-west-2", 48, "railway", ["jp-rail-conflict"]),
         ],
         [
-          installation("jp-rail-east-crossing", 12, -77, 90, "railway_crossing", "japan_railway", "primary"),
-          installation("jp-rail-west-crossing", 24, -67, 270, "railway_crossing", "japan_railway", "secondary"),
+          // armHeadingDeg aims each boom at Yamashita St's carriageway
+          // (z=-72): the legacy heading-implied arm pointed both of these at
+          // the sidewalk (owner-reported class; the corridor audit now
+          // asserts every boom tip sweeps its road).
+          installation("jp-rail-east-crossing", 12, -77, 90, "railway_crossing", "japan_railway", "primary", undefined, 0),
+          installation("jp-rail-west-crossing", 24, -67, 270, "railway_crossing", "japan_railway", "secondary", undefined, 180),
         ]),
       // Second level crossing (Tokyo expansion Phase 5, §8.6): the rail
       // extension above crosses jp-ichiban-dori at (180,-10). Cloned in
@@ -4595,6 +4737,9 @@ export const TOKYO_MAP_PACK: MapPack = {
       ...tokyoGeneratedHalf.generatedControls,
     ],
     [
+      tokyoRailCrossingMiyanosaka.conflictZone,
+      tokyoRailCrossingShotengai.conflictZone,
+      ...tokyoEastRailCrossings.map((crossing) => crossing.conflictZone),
       { id: "jp-rail-conflict", laneIds: ["jp-south-east-2", "jp-south-west-2"], polygon: [point(12, -80), point(24, -80), point(24, -64), point(12, -64)] },
       { id: "jp-rail-conflict-2", laneIds: ["jp-ichiban-dori-2-forward-1"], polygon: [point(172, -18), point(188, -18), point(188, -2), point(172, -2)] },
       { id: "jp-station-conflict", laneIds: ["jp-center-west-2", "jp-narrow-north-1"], polygon: [point(-38, 10), point(-22, 10), point(-22, 26), point(-38, 26)] },

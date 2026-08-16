@@ -108,6 +108,12 @@ import {
   type CityRenderRegistryCtx,
 } from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
+import { buildRailTracks } from "./railLayer";
+import {
+  RAIL_BRIDGE_MOUTH_CLEAR_M,
+  splitParapetRunAroundRails,
+} from "../geometry/railGeometry";
+import { TrainVisual } from "./trainRender";
 import { BuildingLayer, type DebugBuildingAssetPolicy } from "./buildingLayer";
 import {
   buildOrUpdatePlayerCapsuleOverlay,
@@ -986,6 +992,10 @@ export class BabylonGameSession {
   private crowdSim: CrowdSim | null = null;
   private crowdRenderer: CrowdRenderer | null = null;
   private waterLayer: WaterLayer | null = null;
+  /** Procedural consists riding the authored rail lines; see trainRender.ts. */
+  private railTrains: TrainVisual[] = [];
+  private trainContactCooldownUntilTick = 0;
+  private barrierContactCooldownUntilTick = 0;
   private crowdDirty = false;
   private readonly crowdProbePoint = new Vector3();
   /** The gameplay camera's frustum for the crowd probes, refreshed each
@@ -1652,6 +1662,8 @@ export class BabylonGameSession {
     this.crowdSim = null;
     this.waterLayer?.dispose();
     this.waterLayer = null;
+    for (const train of this.railTrains) train.dispose();
+    this.railTrains = [];
     this.destructibles?.dispose();
     this.destructibles = null;
     this.buildingLayer?.dispose();
@@ -2188,6 +2200,9 @@ export class BabylonGameSession {
     }
     this.updatePlayerVisuals(interpolation);
     this.updateNpcVisuals(interpolation);
+    for (const train of this.railTrains) {
+      train.interpolate(interpolation);
+    }
     if (!this.paused) this.destructibles?.update(frameSeconds);
     if (this.damageSmoke?.isStarted()) {
       // Trail the smoke from the engine bay, wherever the car is facing.
@@ -2384,8 +2399,92 @@ export class BabylonGameSession {
     mark = performance.now();
     this.reportVulnerableRoadUserCollision();
     this.checkDestructiblePropCollisions();
+    this.checkTrainCollisions();
+    this.checkBarrierCollisions();
     this.perfSample(PERF_COLLISION, performance.now() - mark);
     this.perfFixedSteps += 1;
+  }
+
+  /**
+   * A lowered crossing boom is a soft breakaway, not scenery (owner-reported
+   * drive-through): contact scrubs nearly all speed and marks light prop
+   * damage, so pushing through is possible — a player caught inside when the
+   * barriers close must be able to escape — but never free or unfelt. The
+   * stop-line monitor still writes the actual ticket.
+   */
+  private checkBarrierCollisions() {
+    if (
+      this.simulationSnapshot.status !== "running" ||
+      this.cutsceneDirector?.isActive ||
+      !this.railwayCrossingVisuals.length
+    ) {
+      return;
+    }
+    if (this.simulationSnapshot.tick < this.barrierContactCooldownUntilTick) return;
+    const player = this.simulationSnapshot.player;
+    if (player.speedMps < 0.4) return;
+    for (const crossing of this.railwayCrossingVisuals) {
+      if (!crossing.lastWarningActive) continue;
+      const pivot = crossing.barrierPivot;
+      // -1.22 rad is fully raised, 0 is level across the road; only a boom
+      // most of the way down blocks anything.
+      if (pivot.rotation.z < -0.35) continue;
+      const matrix = pivot.computeWorldMatrix(true);
+      const origin = pivot.getAbsolutePosition();
+      const along = Vector3.TransformNormal(Vector3.Right(), matrix);
+      const axisLength = Math.hypot(along.x, along.z) || 1;
+      const axisX = along.x / axisLength;
+      const axisZ = along.z / axisLength;
+      const relX = player.x - origin.x;
+      const relZ = player.z - origin.z;
+      const alongBoom = relX * axisX + relZ * axisZ;
+      if (alongBoom < -0.6 || alongBoom > 5.0) continue;
+      const acrossBoom = Math.abs(relX * -axisZ + relZ * axisX);
+      if (acrossBoom > 1.35) continue;
+      this.simulation.reportExternalContact(
+        "Stop at the barrier and wait for the train to clear.",
+        0.12,
+        { obstacle: "prop", impactSpeedMps: Math.min(player.speedMps, 9) },
+      );
+      this.barrierContactCooldownUntilTick = this.simulationSnapshot.tick + 45;
+      return;
+    }
+  }
+
+  /**
+   * The train is renderer-owned (its pose is a pure function of sim time),
+   * so contact reaches the sim through the same external door pedestrians
+   * and destructible props use. A hit scrubs nearly all speed and reports a
+   * train-tagged collision — the heaviest impact class the damage table has.
+   */
+  private checkTrainCollisions() {
+    if (
+      this.simulationSnapshot.status !== "running" ||
+      this.cutsceneDirector?.isActive ||
+      !this.railTrains.length
+    ) {
+      return;
+    }
+    if (this.simulationSnapshot.tick < this.trainContactCooldownUntilTick) return;
+    const player = this.simulationSnapshot.player;
+    const margin = 1.15; // player capsule radius, roughly
+    for (const train of this.railTrains) {
+      for (const car of train.carObstacles()) {
+        const dx = player.x - car.x;
+        const dz = player.z - car.z;
+        const along = Math.abs(dx * car.ux + dz * car.uz);
+        const across = Math.abs(dx * -car.uz + dz * car.ux);
+        if (along > car.halfU + margin || across > car.halfV + margin) continue;
+        const impact = train.trainSpeedMps() + player.speedMps;
+        this.simulation.reportExternalContact(
+          "Never enter a crossing until the barriers are up and the track is clear.",
+          0.12,
+          { obstacle: "train", impactSpeedMps: impact },
+        );
+        this.trainContactCooldownUntilTick = this.simulationSnapshot.tick + 150;
+        return;
+      }
+    }
   }
 
   private reportVulnerableRoadUserCollision() {
@@ -3260,6 +3359,9 @@ export class BabylonGameSession {
     this.playerState.indicator = snapshot.player.signal;
     this.activeTrafficSide = snapshot.trafficSide;
     this.applySimulationNpcSnapshots(snapshot);
+    for (const train of this.railTrains) {
+      train.stepPose(snapshot.elapsedMs / 1000);
+    }
     this.updateAuthoredSignalVisuals();
 
     const npcHonkActive = snapshot.honk.active;
@@ -3316,6 +3418,11 @@ export class BabylonGameSession {
         // monitor's tolerance is set to coach, not to ticket, so a patrol only
         // acts on the wider citation band.
         (event.code === "speeding" && speedingWarrantsCitation(event.evidence)) ||
+        // A level crossing tickets only while its warning is live: the same
+        // monitor also fires for skipping Japan's courtesy stop at a dormant
+        // crossing, and that must stay coaching, never money.
+        (event.code === "railway_crossing" &&
+          event.evidence?.warningActive === true) ||
         // Crashing into cars or buildings is fined when witnessed too;
         // pedestrian strikes are cited unconditionally by the app instead.
         (event.code === "collision" && !event.evidence?.roadUserType)
@@ -4017,17 +4124,31 @@ export class BabylonGameSession {
         parapetMaster.isVisible = false;
         parapetMaster.isPickable = false;
         for (const run of parapetRuns) {
-          const parapet = parapetMaster.createInstance(`${run.id}-parapet`);
-          parapet.position.set(run.x, CORNICHE_PARAPET_HEIGHT_M / 2, run.z);
-          parapet.scaling.set(
-            run.halfU * 2,
-            CORNICHE_PARAPET_HEIGHT_M,
-            run.halfV * 2,
-          );
-          parapet.rotation.y = boxLengthYaw(run.ux, run.uz);
-          parapet.isPickable = false;
-          this.staticSceneryFreeze.push(parapet);
-          this.registerStaticCell(parapet, run.x, run.z, false);
+          // The rail line pierces the shoreline at its bridge abutments; a
+          // parapet wall there would stand across the tracks. Split the run
+          // and keep the flanks, at the same mouth clearance the adapter
+          // opens the shoreline COLLIDER with — at-grade bridges are
+          // drivable, and the wall face must end exactly where the solid
+          // does (never an invisible wall past a visible end).
+          for (const [pieceIndex, piece] of splitParapetRunAroundRails(
+            run,
+            mapPack.geometry.railLines ?? [],
+            RAIL_BRIDGE_MOUTH_CLEAR_M,
+          ).entries()) {
+            const parapet = parapetMaster.createInstance(
+              `${run.id}-parapet-${pieceIndex}`,
+            );
+            parapet.position.set(piece.x, CORNICHE_PARAPET_HEIGHT_M / 2, piece.z);
+            parapet.scaling.set(
+              piece.halfU * 2,
+              CORNICHE_PARAPET_HEIGHT_M,
+              run.halfV * 2,
+            );
+            parapet.rotation.y = boxLengthYaw(run.ux, run.uz);
+            parapet.isPickable = false;
+            this.staticSceneryFreeze.push(parapet);
+            this.registerStaticCell(parapet, piece.x, piece.z, false);
+          }
         }
         parapetMaterial.freeze();
       }
@@ -4120,6 +4241,85 @@ export class BabylonGameSession {
       );
       if (junctionFill) {
         this.registerStaticCell(junctionFill, fill.pivot.x, fill.pivot.z, false);
+      }
+    }
+
+    if (mapPack.geometry.railLines?.length) {
+      const ballast = makeMaterial(
+        scene,
+        "rail-ballast",
+        new Color3(0.32, 0.3, 0.28),
+      );
+      const railSteel = makeMaterial(
+        scene,
+        "rail-steel",
+        new Color3(0.58, 0.6, 0.64),
+      );
+      const railSleeper = makeMaterial(
+        scene,
+        "rail-sleeper",
+        new Color3(0.24, 0.19, 0.15),
+      );
+      // Neutral weathered steel for the plate girders — the first cut's
+      // blue-green proofed as a teal wedge in Cairo daylight (owner call).
+      const railGirder = makeMaterial(
+        scene,
+        "rail-girder",
+        new Color3(0.4, 0.42, 0.45),
+      );
+      // Near-black bridge decking, so the span reads as structure under the
+      // sleepers rather than a glowing plank.
+      const railDeck = makeMaterial(
+        scene,
+        "rail-deck",
+        new Color3(0.15, 0.16, 0.18),
+      );
+      const railBrick = makeMaterial(
+        scene,
+        "rail-brick",
+        new Color3(0.42, 0.27, 0.22),
+      );
+      const railPlatform = makeMaterial(
+        scene,
+        "rail-platform",
+        new Color3(0.62, 0.6, 0.56),
+      );
+      buildRailTracks(
+        {
+          scene,
+          night: this.visualPalette?.night ?? false,
+          ballast,
+          steel: railSteel,
+          sleeper: railSleeper,
+          girder: railGirder,
+          deck: railDeck,
+          brick: railBrick,
+          platform: railPlatform,
+          createRoadSurfaceMesh: (name, centerline, widthM, material, smoothClosed, surfaceY) =>
+            this.createRoadSurfaceMesh(
+              name,
+              centerline,
+              widthM,
+              material,
+              smoothClosed,
+              surfaceY,
+            ),
+          addStatic: (mesh, x, z) => {
+            this.staticSceneryFreeze.push(mesh);
+            this.registerStaticCell(mesh, x, z, false);
+          },
+        },
+        mapPack,
+      );
+      ballast.freeze();
+      railSteel.freeze();
+      railSleeper.freeze();
+      railGirder.freeze();
+      railDeck.freeze();
+      railBrick.freeze();
+      railPlatform.freeze();
+      for (const line of mapPack.geometry.railLines ?? []) {
+        this.railTrains.push(new TrainVisual(scene, line));
       }
     }
     // All lane paint pours into two merged meshes (one per colour) instead
@@ -4552,15 +4752,11 @@ export class BabylonGameSession {
         }
         buildParkFeatures(parksRenderCtx, landmark, mapPack, palette, mapId);
       } else if (landmark.kind === "railway") {
-        for (const offset of [-1.25, 1.25]) {
-          createBox(
-            scene,
-            `${landmark.id}-rail-${offset}`,
-            { width: landmark.size.x, height: 0.14, depth: 0.2 },
-            new Vector3(landmark.center.x, 0.16, landmark.center.z + offset),
-            material,
-          );
-        }
+        // Retired decal: real track (ballast/rails/sleepers along the authored
+        // `geometry.railLines` polyline) is built by `buildRailTracks` above.
+        // The kind stays in the schema for any map that wants a disused stub
+        // drawn without a live line — nothing ships one today.
+        continue;
       } else if (landmark.kind === "tower") {
         createCylinder(
           scene,

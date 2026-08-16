@@ -516,32 +516,52 @@ describe("SideSwap content", () => {
   it("shells the Queens outer bank streets bk40/bk56 so the ground stops reading to the world edge (plan Section 11.5)", () => {
     const nyc = MAP_PACKS.find((m) => m.id === "nyc-upper-west-side");
     expect(nyc).toBeDefined();
-    const south = nyc!.geometry.blocks.find((b) => b.id === "nyc-block-bk40-outer")!;
-    const north = nyc!.geometry.blocks.find((b) => b.id === "nyc-block-bk56-outer")!;
-    expect(south).toBeDefined();
-    expect(north).toBeDefined();
-    for (const block of [south, north]) {
-      expect(block.center.x).toBe(974.2);
-      expect(block.size).toEqual({ x: 365.6, z: 44 });
+    // The rail feature's corridor carver splits each authored 365.6 m shell
+    // into the two fragments flanking the borough freight lead at x=1030
+    // (corridor half-width 4.5 m + the carver's 1.2 m clearance) — the shell
+    // must NOT cross the tracks. Everything Section 11.5 pinned still holds
+    // per fragment; the pair together still spans park edge to world margin
+    // minus only the legitimate rail gap.
+    const fragments = (suffix: string) =>
+      nyc!.geometry.blocks
+        .filter((b) => b.id.startsWith(`nyc-block-${suffix}-outer-rw`))
+        .sort((a, b) => a.center.x - b.center.x);
+    const south = fragments("bk40");
+    const north = fragments("bk56");
+    expect(south).toHaveLength(2);
+    expect(north).toHaveLength(2);
+    for (const [index, block] of [...south, ...north].entries()) {
+      expect(block.size.z).toBe(44);
       expect(block.buildingSet).toBe("nyc-house");
       // A map-edge shell, not real frontage: single inward-facing edge, and
       // withdrawn from gig-pool probing entirely (plan Section 9.1).
       expect(block.addressable).toBe(false);
+      const west = index % 2 === 0;
+      // Fragment edges hug the rail gap: 1030 +/- 5.7.
+      if (west) expect(block.center.x + block.size.x / 2).toBeCloseTo(1024.3, 1);
+      else expect(block.center.x - block.size.x / 2).toBeCloseTo(1035.7, 1);
     }
-    expect(south.center.z).toBe(-1115);
-    expect(south.streetEdges).toEqual(["+z"]);
-    expect(north.center.z).toBe(1115);
-    expect(north.streetEdges).toEqual(["-z"]);
+    for (const block of south) {
+      expect(block.center.z).toBe(-1115);
+      expect(block.streetEdges).toEqual(["+z"]);
+    }
+    for (const block of north) {
+      expect(block.center.z).toBe(1115);
+      expect(block.streetEdges).toEqual(["-z"]);
+    }
     // Clear of the East River's own shore (x up to 726) on the west side,
-    // and its west edge meets the Queens riverbank park's own east edge
-    // exactly (Section 11.6) rather than the vern-cres column's generic
-    // 787 inset, which would overlap it by 4.4 m.
+    // and the west fragment's west edge meets the Queens riverbank park's own
+    // east edge exactly (Section 11.6) rather than the vern-cres column's
+    // generic 787 inset, which would overlap it by 4.4 m.
     const river = nyc!.geometry.waterBodies!.find((w) => w.id === "nyc-east-river")!;
     const riverMaxX = Math.max(...river.polygon.map((p) => p.x));
     const bank = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queens-bank-south")!;
-    for (const block of [south, north]) {
+    for (const block of [south[0], north[0]]) {
       expect(block.center.x - block.size.x / 2).toBeGreaterThan(riverMaxX);
-      expect(block.center.x - block.size.x / 2).toBe(bank.center.x + bank.size.x / 2);
+      expect(block.center.x - block.size.x / 2).toBeCloseTo(
+        bank.center.x + bank.size.x / 2,
+        6,
+      );
     }
   });
 
@@ -1704,10 +1724,10 @@ describe("SideSwap content", () => {
     ]);
   });
 
-  it("aligns the visible Tokyo railway and controls both crossing directions", () => {
+  it("aligns the Tokyo rail line with its crossings and controls both directions", () => {
     const tokyo = getMapPack("tokyo-setagaya");
-    const railway = tokyo.geometry.landmarks.find(
-      (landmark) => landmark.id === "jp-setagaya-line",
+    const line = tokyo.geometry.railLines?.find(
+      (candidate) => candidate.id === "jp-setagaya-line-run",
     );
     const railControl = tokyo.laneGraph.controls.find(
       (control) => control.id === "jp-rail-signal",
@@ -1716,10 +1736,39 @@ describe("SideSwap content", () => {
       (control) => control.id === "jp-crosswalk-station",
     );
 
-    expect(railway).toMatchObject({
-      center: { x: 18, z: -62 },
-      size: { x: 5, z: 72 },
-    });
+    // Every crossing the line claims must be a railway_signal whose position
+    // sits ON the polyline — the projection the adapter uses to place the
+    // crossing on the timetable must not be a long-range snap.
+    expect(line).toBeDefined();
+    for (const controlId of line?.crossingControlIds ?? []) {
+      const control = tokyo.laneGraph.controls.find(
+        (candidate) => candidate.id === controlId,
+      );
+      expect(control?.type).toBe("railway_signal");
+      const offLine = Math.min(
+        ...(line?.points.slice(0, -1).map((start, index) => {
+          const end = line.points[index + 1];
+          const dx = end.x - start.x;
+          const dz = end.z - start.z;
+          const lengthSq = dx * dx + dz * dz;
+          const t = Math.max(
+            0,
+            Math.min(
+              1,
+              (((control?.position.x ?? 0) - start.x) * dx +
+                ((control?.position.z ?? 0) - start.z) * dz) /
+                (lengthSq || 1),
+            ),
+          );
+          return Math.hypot(
+            (control?.position.x ?? 0) - (start.x + dx * t),
+            (control?.position.z ?? 0) - (start.z + dz * t),
+          );
+        }) ?? [Number.POSITIVE_INFINITY]),
+      );
+      expect(offLine).toBeLessThan(1);
+    }
+
     expect(railControl?.laneIds).toEqual([
       "jp-south-east-2",
       "jp-south-west-2",

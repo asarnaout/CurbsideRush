@@ -42,7 +42,7 @@ import {
 } from "./game/TouchDriveControls";
 import { ExpandedMap } from "./game/ExpandedMap";
 import { Minimap } from "./game/MinimapCanvas";
-import { parksFromLandmarks, type MapDestination } from "./game/minimapDraw";
+import { parksFromLandmarks, railsFromGeometry, type MapDestination } from "./game/minimapDraw";
 import type { MapPoi } from "./game/mapPoi";
 import {
   DAY_TIMER_METRICS,
@@ -721,6 +721,7 @@ export function DriveScreen({
             roadSurfaces={runtimeMap.geometry.roadSurfaces}
             waterBodies={runtimeMap.geometry.waterBodies}
             parks={parksFromLandmarks(runtimeMap.geometry.landmarks)}
+            railLines={railsFromGeometry(runtimeMap.geometry.railLines)}
             playerX={hud.playerX}
             playerZ={hud.playerZ}
             heading={hud.heading}
@@ -866,6 +867,7 @@ export function DriveScreen({
             roadSurfaces={runtimeMap.geometry.roadSurfaces}
             waterBodies={runtimeMap.geometry.waterBodies}
             parks={parksFromLandmarks(runtimeMap.geometry.landmarks)}
+            railLines={railsFromGeometry(runtimeMap.geometry.railLines)}
             pois={mapPois}
             destination={mapDestination}
             // The whole line, not the remainder the corner widget draws: the

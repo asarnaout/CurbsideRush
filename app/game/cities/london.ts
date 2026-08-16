@@ -9,6 +9,7 @@ import type {
   MapPack,
   OfficialRuleReference,
   ProceduralBlock,
+  RailLine,
   RoadMarkingPath,
   RoadSurface,
   TrafficControl,
@@ -18,6 +19,7 @@ import type {
   ScenarioClock,
 } from "../types";
 import { CONNECTOR_BLEND_RUN_M, buildLaneTrueGeometry } from "../laneConnectors";
+import { carveBlocksForRailCorridors } from "../geometry/railCorridor";
 import { PAVED_SIDEWALK_WIDTH_M } from "../visuals";
 import {
   anchor,
@@ -3256,6 +3258,53 @@ const londonLaneGraph: LaneGraph = {
   ],
 };
 
+/**
+ * The Grosvenor-pattern railway (rail feature, owner's chosen design): a
+ * brick viaduct rising from the south map edge past the power station, a
+ * girder span over the Thames, and an elevated Chelsea Riverside terminus
+ * between the Embankment and Royal Hospital Road, 300 m from spawn. NO
+ * level crossings anywhere — central London built viaducts precisely to
+ * avoid them, so the streets below thread the arches (the corridor audit
+ * exempts elevated spans from the crossing rule, and pier placement skips
+ * every carriageway). A Southern-green EMU shuttles out to the off-map
+ * "junction" beyond the south edge and back, dwelling at the terminus.
+ * Stations along the polyline: 0 / 384.1 / 525.3 / 592 / 647.5.
+ */
+const LONDON_RAIL_POINTS: readonly WorldPoint[] = [
+  point(-150, -1060),
+  point(-142, -676),
+  point(-135, -535),
+  point(-120, -470),
+  point(-112, -415),
+];
+
+const LONDON_RAIL_LINES: readonly RailLine[] = [
+  {
+    id: "uk-grosvenor-viaduct-run",
+    points: LONDON_RAIL_POINTS,
+    corridorHalfWidthM: 4.5,
+    crossingControlIds: [],
+    schedule: {
+      mode: "shuttle",
+      speedMps: 11,
+      trainLengthM: 46,
+      dwellSeconds: 30,
+      // No crossings on a fully elevated line; the lead/trail fields are
+      // schema-required but drive nothing here.
+      warningLeadSeconds: 8,
+      clearTrailSeconds: 1.5,
+    },
+    elevationM: 6.5,
+    elevatedSpans: [
+      { startM: 0, endM: 384, kind: "viaduct" },
+      { startM: 384, endM: 526, kind: "bridge" },
+      { startM: 526, endM: 648, kind: "viaduct" },
+    ],
+    terminus: { at: "end" },
+    consist: { kind: "emu", cars: 3, liveryHex: "#2f6e50", accentHex: "#e8e4d8" },
+  },
+];
+
 export const LONDON_MAP_PACK: MapPack = {
   id: "london-south-kensington",
   // Density is authored per drive, not per city, so every map used to get the
@@ -3381,7 +3430,10 @@ export const LONDON_MAP_PACK: MapPack = {
         ],
       },
     ],
-    blocks: [
+    railLines: LONDON_RAIL_LINES,
+    // Carved around the viaduct corridor last, same as every rail city —
+    // the arches need their right-of-way even though the deck flies over.
+    blocks: carveBlocksForRailCorridors([
       {
         id: "london-natural-history-museum-block",
         center: point(-26, -76),
@@ -3434,7 +3486,7 @@ export const LONDON_MAP_PACK: MapPack = {
         material: "london-brick",
       },
       ...londonSouthWestBlocks,
-    ],
+    ], LONDON_RAIL_LINES).blocks,
     servicePoints: [
       // Tucked into the square corner west of the quiet loop, where Cromwell
       // Road's far-west run meets the loop's straight west leg. Both edges are

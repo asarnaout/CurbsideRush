@@ -4,6 +4,7 @@ import type {
   SimulationCoreConfig,
   SimulationLane,
   SimulationPoint,
+  SimulationRailLine,
   SimulationTrafficGate,
   StopLineDefinition,
   TrafficLightDefinition,
@@ -60,6 +61,12 @@ import {
 } from "./geometry/buildingLayout";
 import { relaxationPolicyForMap } from "./geometry/cityRelaxationPolicies";
 import { landmarkGroundSolids, type GroundSolid } from "./geometry/landmarkGroundSolids";
+import {
+  RAIL_BRIDGE_MOUTH_CLEAR_M,
+  railBridgeGuardRects,
+  railTerminusShedLayout,
+  slicePolyline,
+} from "./geometry/railGeometry";
 // Re-exported: this adapter is where render/babylonGameSession.ts and several
 // tests have always imported venue placement from, and geometry/venuePlacement.ts
 // (its new home, extracted to break the adapter/keep-out import cycle — see
@@ -290,6 +297,88 @@ function projectDistanceAlongLane(
   return Number.isFinite(bestDistance) ? bestDistanceAlong : null;
 }
 
+function projectDistanceAlongPolyline(
+  points: readonly SimulationPoint[],
+  point: SimulationPoint,
+): number | null {
+  if (points.length < 2) return null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestDistanceAlong = 0;
+  let accumulated = 0;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 0.001) continue;
+    const amount = Math.min(
+      1,
+      Math.max(0, ((point.x - start.x) * dx + (point.z - start.z) * dz) / (length * length)),
+    );
+    const x = start.x + dx * amount;
+    const z = start.z + dz * amount;
+    const distance = Math.hypot(point.x - x, point.z - z);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestDistanceAlong = accumulated + length * amount;
+    }
+    accumulated += length;
+  }
+  return Number.isFinite(bestDistance) ? bestDistanceAlong : null;
+}
+
+function polylineLengthM(points: readonly SimulationPoint[]): number {
+  let length = 0;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    length += Math.hypot(
+      points[index + 1].x - points[index].x,
+      points[index + 1].z - points[index].z,
+    );
+  }
+  return length;
+}
+
+/**
+ * Authored rail lines → the simulation's timetable view, plus each listed
+ * crossing control projected onto its line. A `railway_signal` control the
+ * map ties to a line stops free-running and follows the timetable; one no
+ * line claims keeps the legacy fixed cycle (several tests author bare
+ * railway controls that way on purpose).
+ */
+export function buildRailLines(mapPack: GameCanvasMapPack): {
+  readonly lines: SimulationRailLine[];
+  readonly crossingByControlId: ReadonlyMap<
+    string,
+    { readonly lineId: string; readonly crossingDistanceM: number }
+  >;
+} {
+  const lines: SimulationRailLine[] = [];
+  const crossingByControlId = new Map<
+    string,
+    { lineId: string; crossingDistanceM: number }
+  >();
+  const controlsById = new Map(
+    mapPack.laneGraph.controls.map((control) => [control.id, control]),
+  );
+  for (const rail of mapPack.geometry.railLines ?? []) {
+    const lengthM = polylineLengthM(rail.points);
+    if (lengthM <= 1) continue;
+    lines.push({ id: rail.id, lengthM, schedule: rail.schedule });
+    for (const controlId of rail.crossingControlIds) {
+      const control = controlsById.get(controlId);
+      if (!control || control.type !== "railway_signal") continue;
+      const crossingDistanceM = projectDistanceAlongPolyline(
+        rail.points,
+        control.position,
+      );
+      if (crossingDistanceM === null) continue;
+      crossingByControlId.set(controlId, { lineId: rail.id, crossingDistanceM });
+    }
+  }
+  return { lines, crossingByControlId };
+}
+
 function inferVehicleVariant(spawnId: string): NpcVehicleVariant | undefined {
   const value = spawnId.toLowerCase();
   if (value.includes("police") || value.includes("patrol")) return "police";
@@ -301,6 +390,10 @@ function inferVehicleVariant(spawnId: string): NpcVehicleVariant | undefined {
 
 function buildTrafficLights(
   mapPack: GameCanvasMapPack,
+  railCrossingByControlId: ReadonlyMap<
+    string,
+    { readonly lineId: string; readonly crossingDistanceM: number }
+  > = new Map(),
 ): {
   readonly lights: TrafficLightDefinition[];
   readonly stopLines: StopLineDefinition[];
@@ -357,11 +450,18 @@ function buildTrafficLights(
         approach.stopLine,
       );
       if (!stopPose) continue;
+      const railCrossing = isRailway
+        ? railCrossingByControlId.get(control.id)
+        : undefined;
       lights.push({
         id: approach.id,
         phaseGroup: approach.phaseGroup,
         x: stopPose.x,
         z: stopPose.z,
+        // With `rail` set the cycle below is dead weight the timing branch
+        // never reads; it stays authored so an unmapped crossing (no rail
+        // line claims the control) degrades to the legacy free-run loop.
+        ...(railCrossing ? { rail: railCrossing } : {}),
         cycle: {
           greenSeconds,
           amberSeconds,
@@ -771,6 +871,19 @@ export function buildStaticObstacles({
   // never silently become a bridge. Whitelisted over-water spans receive
   // paired parapet OBBs, closing the former route off the side of a bridge and
   // onto the flat water material while leaving its travel corridor open.
+  // Drivable at-grade rail bridges (owner-requested): each `bridge` span on a
+  // line with no `elevationM` opens the shoreline the way a whitelisted road
+  // bridge does, and the guard pair below keeps a crossing car between the
+  // girders. London's fully elevated line deliberately does NOT open its
+  // banks — its shoreline stays solid under the flyover.
+  const atGradeRailBridges = (mapPack.geometry.railLines ?? [])
+    .filter((line) => !line.elevationM)
+    .flatMap((line) =>
+      (line.elevatedSpans ?? [])
+        .filter((span) => span.kind === "bridge")
+        .map((span) => slicePolyline(line.points, span.startM, span.endM)),
+    );
+
   for (const water of mapPack.geometry.waterBodies ?? []) {
     if (water.polygon.length < 3) continue;
     const portalSurfaceIds = new Set(
@@ -807,6 +920,23 @@ export function buildStaticObstacles({
           if (opening === null) continue;
           // Account for the 0.75 m physical depth of the shoreline OBB itself,
           // so a cut remains open when the portal meets a polygon vertex.
+          const edgePaddingT = 1.25 / edgeLength;
+          openings.push({
+            start: Math.max(0, opening.start - edgePaddingT),
+            end: Math.min(1, opening.end + edgePaddingT),
+          });
+        }
+      }
+      for (const bridge of atGradeRailBridges) {
+        for (let index = 0; index < bridge.length - 1; index += 1) {
+          const opening = portalIntervalOnShoreEdge(
+            from,
+            to,
+            bridge[index],
+            bridge[index + 1],
+            RAIL_BRIDGE_MOUTH_CLEAR_M,
+          );
+          if (opening === null) continue;
           const edgePaddingT = 1.25 / edgeLength;
           openings.push({
             start: Math.max(0, opening.start - edgePaddingT),
@@ -1091,6 +1221,55 @@ export function buildStaticObstacles({
     }
   }
 
+  // Girder guards on every drivable at-grade bridge span: with the shoreline
+  // mouth open (above), these are what keep a crossing car out of the water.
+  // Same not-across-the-gauge audit rule as the depot shed's walls.
+  for (const line of mapPack.geometry.railLines ?? []) {
+    if (line.elevationM) continue;
+    for (const span of line.elevatedSpans ?? []) {
+      if (span.kind !== "bridge") continue;
+      for (const solid of railBridgeGuardRects(line.points, span)) {
+        obstacles.push({
+          kind: "obb",
+          id: `rail-bridge-guard-${line.id}-${solid.id}`,
+          tag: "railBridge",
+          x: solid.x,
+          z: solid.z,
+          ux: solid.ux,
+          uz: solid.uz,
+          halfU: solid.halfU,
+          halfV: solid.halfV,
+        });
+      }
+    }
+  }
+
+  // A depot-shed terminus's walls are the one structure allowed INSIDE a
+  // rail corridor (tests/railCorridors.test.ts admits the `railShed` tag but
+  // still refuses anything across the running gauge). Derived from the rail
+  // line itself so the renderer's shed and these solids can never drift.
+  for (const line of mapPack.geometry.railLines ?? []) {
+    if (line.terminus?.style !== "depot_shed") continue;
+    const layout = railTerminusShedLayout(
+      line.points,
+      polylineLengthM(line.points),
+      line.terminus.at,
+    );
+    for (const solid of layout.solids) {
+      obstacles.push({
+        kind: "obb",
+        id: `rail-shed-${line.id}-${solid.id}`,
+        tag: "railShed",
+        x: solid.x,
+        z: solid.z,
+        ux: solid.ux,
+        uz: solid.uz,
+        halfU: solid.halfU,
+        halfV: solid.halfV,
+      });
+    }
+  }
+
   const fenceMinX = bounds.minX - WORLD_EDGE_STANDOFF_M;
   const fenceMaxX = bounds.maxX + WORLD_EDGE_STANDOFF_M;
   const fenceMinZ = bounds.minZ - WORLD_EDGE_STANDOFF_M;
@@ -1229,7 +1408,8 @@ export function buildSimulationCoreConfig({
       successorLaneIds: lane.successors ?? [],
       loop: false,
     }));
-  const traffic = buildTrafficLights(mapPack);
+  const rail = buildRailLines(mapPack);
+  const traffic = buildTrafficLights(mapPack, rail.crossingByControlId);
   const stopLines = [
     ...traffic.stopLines,
     ...buildStopAndYieldLines(mapPack),
@@ -1258,6 +1438,7 @@ export function buildSimulationCoreConfig({
     spawn: { x: start.x, z: start.z, heading: start.heading },
     trafficLights: traffic.lights,
     stopLines,
+    railLines: rail.lines,
     trafficGates: buildTrafficGates(mapPack),
     minRuntimeSpawnDistanceM: 70,
     scenarioClock: scenario.scenarioClock,

@@ -88,18 +88,31 @@ import type {
 // a third apparent lead (Agouza Approach's own east end) was built then
 // reverted once its failures' real distances (324-520 m) proved it was
 // systemic too -- see the closure array's own comment.
-const BLOCK_COUNT = 664;
-const ROADSIDE_COUNT = 626;
-const ROADSIDE_LEFT = 313;
+// 664 -> 662 (rail feature, the Imbaba corridor at z=-720): the corridor
+// carver (`carveBlocksForRailCorridors`) splits the four N-S downtown strips
+// the line crosses (qasr-el-ainy/talaat-harb/ramses left, galaa left — each
+// one parcel becomes -rw0/-rw1 flanks, +4) and removes six blocks whose
+// remainder fell under the 12 m floor (three roadside pieces plus
+// east-block-1-1/-1-2/west-block-1). Roadside 626 -> 627 (+4 splits, -3
+// removed), left 313 -> 316 (three of the four splits are left-side).
+const BLOCK_COUNT = 662;
+const ROADSIDE_COUNT = 627;
+const ROADSIDE_LEFT = 316;
 /** The second rank is gone — a one-sided kit means a back row can only stare
  * at the front row's service wall or plant its own on the next street over.
  * Zero, pinned, so it cannot quietly come back. */
 const ROADSIDE_RANKS = 0;
-const STREET_WALL_BLOCKS = 471;
+// 471 -> 470 (rail feature): one of the three roadside pieces the corridor
+// carve removed carried a building set; the other two were facade-grid.
+const STREET_WALL_BLOCKS = 470;
 // 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6) -> 1716 (Section
 // 12.7): the five cairo-west-nile-street-mid-land-edge-wall-* closures
 // have no buildingSet either, same formula, 5 blocks * 9 = 45 more.
-const FACADE_BOX_CELLS = 1716;
+// 1716 -> 1710 (rail feature): the corridor carve's block-census change
+// above re-deals the facade grid — the two removed east-block district
+// parcels take their cells out, the four split roadside strips re-derive
+// theirs at the fragments' new sizes.
+const FACADE_BOX_CELLS = 1710;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(

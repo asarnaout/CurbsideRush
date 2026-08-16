@@ -274,10 +274,23 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // every model unavailable — they are real meshes in the browser.
     // Materials, active meshes, draw calls, mirrors and the fingerprint all
     // hold: no material was added or lost, only water polygon vertices.
-    totalMeshes: 26_926,
-    enabledMeshes: 26_926,
+    // -> 29_847/29_797 (+2_921 total; rail feature, the borough freight
+    // lead): ~2_500 instanced sleepers over the full 3 km Queens run, 7
+    // generated crossings x 12 gate meshes, the rails and segmented ballast
+    // strips, and the corridor carve's re-deal of the strip blocks (the
+    // bk40/bk56 shells split into rail-flank fragments). The 50-mesh
+    // total/enabled gap is the disabled two-train freight consist. materials
+    // 192 -> 202: the four track/bridge paints plus the train's six.
+    // activeMeshes/mirrors hold — the line sits a map-width east of this
+    // suite's fixed west-side pose.
+    // materials 202 -> 204: rail-brick/rail-platform are minted for every
+    // rail city once the London viaduct/terminus recipes exist, used or not.
+    // materials 204 -> 205: rail-deck, minted per rail city (no bridge
+    // meshes here — the Queens line never crosses water).
+    totalMeshes: 29_847,
+    enabledMeshes: 29_797,
     activeMeshes: 962,
-    materials: 192,
+    materials: 205,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -287,7 +300,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "91c8963c",
+    // "91c8963c" -> "2d9d1a4b": the ten rail materials above.
+    // -> "757ab7bb": +rail-brick/+rail-platform (see the materials note).
+    // -> "1cadf565": +rail-deck (bridge-fix pass).
+    survivingMaterialNamesFingerprint: "1cadf565",
   },
   "london-south-kensington": {
     // 908 -> 887: London became a `paved` city, and a paved map draws a
@@ -528,10 +544,20 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 9_595: the Shoreditch/Canonbury north-east oblique-edge P0
     // (Section 10.5) — london-block-canonbury-ne-fab-north's 5 new slots,
     // +5 meshes (matching buildingLayerCharacterization's own +5 exactly).
-    totalMeshes: 9_595,
-    enabledMeshes: 9_595,
+    // -> 10_242/10_206 (+647 total; rail feature, the Grosvenor viaduct):
+    // ~560 instanced sleepers along the fully elevated 648 m line, the brick
+    // viaduct's parapet segments and road-dodging piers, the Thames girder
+    // span's deck/girders/stretched piers, the Chelsea Riverside terminus
+    // platforms + buffer, and the corridor carve's block re-deal. The
+    // 36-mesh total/enabled gap is the disabled three-car EMU. materials
+    // 302 -> 314: the six rail track/structure paints plus the train's six.
+    // activeMeshes holds — the line is across the map from the fixed pose.
+    // -> 10_249/10_213 (+7; bridge-fix pass): Thames-span girder flanges
+    // + flange master. materials +1: rail-deck.
+    totalMeshes: 10_249,
+    enabledMeshes: 10_213,
     activeMeshes: 878,
-    materials: 302,
+    materials: 315,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -583,7 +609,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "edd7eddb": the quiet island's procedural north band.
     // -> "e265e06c": the Chelsea garden square's greensward materials (walk,
     // railing, bench and lamp) and its six lawns' planting variants.
-    survivingMaterialNamesFingerprint: "e265e06c",
+    // -> "0b06ec67": the twelve rail materials above.
+    // -> "41d18af1": +rail-deck (bridge-fix pass).
+    survivingMaterialNamesFingerprint: "41d18af1",
   },
   "tokyo-setagaya": {
     // Phase 1 of the Tokyo expansion (night + paved): +88 meshes from the
@@ -952,14 +980,78 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // rows): tokyo-shop-d's quarter-turn footprint swap re-deals its rows,
     // +6 planned buildings — the same +6 the building-layer suite pins
     // (lockstep, one proxy per planned building).
-    totalMeshes: 19_415,
-    enabledMeshes: 19_415,
-    activeMeshes: 1_344,
-    materials: 287,
+    //
+    // 19_415 -> 19_658 (+243, active 1_344 -> 1_585; rail feature): the
+    // three `kind: "railway"` decal landmarks (6 fixed boxes) retire and
+    // `render/railLayer.ts` builds real track along `jp-setagaya-line-run`'s
+    // ~360 m polyline instead: ~230 instanced sleepers over the ballast
+    // intervals, ~14 rail-segment instances, 5 segmented ballast strips —
+    // net +243. materials stays 287 exactly: the three retired
+    // `landmark-jp-setagaya-line*` materials are replaced one-for-one by
+    // `rail-ballast`/`rail-steel`/`rail-sleeper` (fingerprint moves for the
+    // same swap). activeMeshes jumps more than total because the line runs
+    // right through the fixed test pose's frustum at spawn.
+    //
+    // 19_658 -> 19_615 (-43, active 1_585 -> 1_607, mirrorCandidates 198 ->
+    // 196; rail centre-section surgery): Renraku-dōri's removal takes its
+    // asphalt/shoulder strips, centre-line dashes, roadside parcels and the
+    // x-renraku generated signal's 15 head meshes out; the two generated
+    // crossings (miyanosaka/shotengai) add 24 gate meshes (2 gates x 6 x 2)
+    // plus their approaches' stop-line markings. activeMeshes rises anyway:
+    // both new crossings sit inside the fixed test pose's frustum, the
+    // removed road was mostly outside it.
+    //
+    // 19_615 -> 19_640 total (+25) while enabled STAYS 19_615: the procedural
+    // two-car tram (trainRender.ts — 11 boxes per car, 3 pantograph parts on
+    // the lead car) is built disabled and only enables when a simulation
+    // snapshot places it, which this suite's unstepped scene never does.
+    // materials 287 -> 293: the tram's six (body/accent/glass/under/roof/
+    // lamp), fingerprint moves for the same additions.
+    //
+    // -> 20_587/20_562 (+947 total, +947 enabled; active 1_607 -> 1_688):
+    // the Setagaya Line's east extension (x=280 -> 1306). ~820 instanced
+    // sleepers over the new ballast runs plus the girder bridge's open deck,
+    // 6 generated crossings x 12 gate meshes (72), the bridge itself (deck
+    // strip, 2 side-girder instances, 4 piers, 2 abutments), a handful of
+    // new ballast strips, and the kawabe-koen-b/jp-v8 re-deals. materials
+    // 293 -> 294: `rail-girder`, the one new bridge paint.
+    // -> 20_591/20_566 (+4, active 1_688 -> 1_691): the Gotokuji terminus
+    // (two platform slab instances + buffer stop + hidden platform master)
+    // lands beside spawn, inside the fixed pose's frustum. materials 294 ->
+    // 296: rail-brick/rail-platform, minted for every rail city.
+    // -> 20_596/20_571 (+5; bridge-fix pass): Sakuragawa girder flanges +
+    // flange master, abutment pads moved under-deck, parapet runs split
+    // around the corridor. materials +1: rail-deck.
+    // -> 20_598/20_573 (+2, active 1_691 -> 1_698; owner-reported terminus):
+    // the Gotokuji terminus becomes a depot shed (`terminus.style:
+    // "depot_shed"`) — the two 42 m platform slabs, which ran straight
+    // across the Yamashita St level crossing, retire with their hidden
+    // master (-3) for the shed's 9 pieces (2 side walls, 2 portal jambs,
+    // rear gable, portal header, 3 stepped roof slabs; the buffer stop
+    // survives under a new name), and the promenade's new rail keep-out
+    // removes the one chochin post standing in the corridor at the east
+    // bridge abutment (-4 part meshes). 9 - 3 - 4 = +2; active +7 because
+    // the shed stands beside spawn, inside the fixed pose's frustum, while
+    // the removed chochin was far outside it. materials and the fingerprint
+    // are unchanged: the shed reuses rail-platform/rail-girder/rail-sleeper.
+    // -> 20_600/20_575 (+2, active 1_698 -> 1_700, materials 297 -> 298;
+    // owner-requested depot lamp + drivable bridges): the shed's gable lamp
+    // is 2 meshes (shade + glow) in the spawn frustum, and its warm
+    // material (`rail-shed-jp-setagaya-line-run-lamp`, minted only where a
+    // depot shed exists) is the +1 — the fingerprint moves for it. The
+    // drivable-bridge pass moves NO counts anywhere: the shoreline collider
+    // runs now arrive pre-split around at-grade bridge mouths, so the
+    // corniche parapet builds the same number of pieces from shorter runs
+    // (Cairo's row is untouched), the girder guards are invisible sim
+    // obstacles, and the pier-cap sink is position-only.
+    totalMeshes: 20_600,
+    enabledMeshes: 20_575,
+    activeMeshes: 1_700,
+    materials: 298,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 198,
+    mirrorCandidates: 196,
     mirrorDrawn: 262,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
@@ -1075,7 +1167,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the same class of drift every earlier phase's paragraph documents.
     // "305fa935" -> "cfd13ba7": Tokyo authenticity plan P9's +4 materials
     // above (`tokyo-wire-pole`/`-arm`/`-cable`, `utility-insulator`).
-    survivingMaterialNamesFingerprint: "cfd13ba7",
+    // "cfd13ba7" -> "209b241d": the rail feature's one-for-one material swap
+    // documented in the mesh paragraph above (three `landmark-jp-setagaya-
+    // line*` out, `rail-ballast`/`rail-steel`/`rail-sleeper` in).
+    // "209b241d" -> "08173393": the tram's six train-* materials above.
+    // "08173393" -> "6b9c2401": +1 `rail-girder` (the bridge paint).
+    // -> "257fcb5f": +rail-brick/+rail-platform (terminus platforms note).
+    // -> "473e5725": +rail-deck (bridge-fix pass).
+    // -> "7d957807": +rail-shed-jp-setagaya-line-run-lamp (the depot shed's
+    // gable lamp, minted only where a depot shed exists).
+    survivingMaterialNamesFingerprint: "7d957807",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
@@ -1121,20 +1222,49 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // `cairo-west-nile-street-roadside-*-left` neighbours' own style), so
     // no new palette entry. activeMeshes unchanged for the same reason as
     // every other closure so far: none sit in this suite's fixed frustum.
-    totalMeshes: 10_822,
-    enabledMeshes: 10_822,
-    activeMeshes: 1_747,
-    materials: 218,
+    // -> 12_583/12_539 (+1_761/+1_717; active 1_747 -> 1_840; rail feature,
+    // the Imbaba corridor): ~1_630 instanced sleepers over 1.5 km of ballast
+    // plus BOTH bridges' open decks, 11 generated crossings x 12 gate meshes
+    // (132), two girder bridges (deck strips, side girders, piers,
+    // abutments), the segmented ballast strips, and the corridor carve's
+    // block re-deal. The 44-mesh total/enabled gap is the disabled
+    // diesel+wagon consist (2 trains x 5 cars for a through line), which
+    // this suite's unstepped scene never enables. materials 218 -> 228: the
+    // four rail track/bridge paints plus the train's six.
+    // mirrorCandidates/mirrorDrawn move because the carve near the fixed
+    // pose's frustum re-deals what the mirror cull ring holds.
+    // materials 228 -> 230: rail-brick/rail-platform, minted for every
+    // rail city once the London recipes exist, unused here.
+    // -> 12_589/12_545 (+6, active -1; owner-reported bridge fixes):
+    // per span, girder top-flange instances + a flange master land while
+    // the on-track abutment pads go under-deck; spans tightened to the
+    // waterline re-deal approach sleepers; parapet runs now SPLIT around
+    // the corridor instead of vanishing whole. materials +1: rail-deck.
+    // -> 12_577/12_533 (-12; owner-reported palm-in-the-railway): the
+    // promenade decor now honours the rail corridor
+    // (`generatePromenadeDecor`'s `railLines` keep-out) — a headless
+    // before/after diff of the exact production call shows exactly 4
+    // placements removed (2 palms, 2 streetlights, all at Imbaba-corridor
+    // bridge abutments where the line pierces the corniche), and each of
+    // those prop kinds is 3 mesh instances, 4 x 3 = -12. Nothing else
+    // moves: active/materials/mirror/fingerprint all unchanged.
+    totalMeshes: 12_577,
+    enabledMeshes: 12_533,
+    activeMeshes: 1_839,
+    materials: 231,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 64,
+    mirrorCandidates: 52,
     mirrorDrawn: 87,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "e2316bb7",
+    // "e2316bb7" -> "5469c8ba": the ten rail materials above.
+    // -> "e5294a40": +rail-brick/+rail-platform (see the materials note).
+    // -> "ae339a82": +rail-deck (bridge-fix pass).
+    survivingMaterialNamesFingerprint: "ae339a82",
   },
 };
 

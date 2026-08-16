@@ -5,6 +5,7 @@ import type {
   LaneSegment,
   MapPack,
   ProceduralBlock,
+  RailLine,
   RoadSurface,
   TrafficControl,
   TrafficControlApproach,
@@ -12,9 +13,11 @@ import type {
   WorldPoint,
 } from "../types";
 import { CONNECTOR_BLEND_RUN_M } from "../laneConnectors";
+import { carveBlocksForRailCorridors } from "../geometry/railCorridor";
 import {
   anchoredSpawn,
   approach,
+  buildRailCrossingControl,
   control,
   distanceBetweenPoints,
   freeSpawn,
@@ -1124,6 +1127,81 @@ const nycLanes = nycGrid.lanes;
 const nycControls = nycGrid.controls;
 const nycBlocks = buildNycBlocks(NYC_AVENUES, NYC_STREETS);
 
+/**
+ * The borough freight lead (rail feature): a New York & Atlantic-style line
+ * running the full Queens strip north-south along the Crescent–Steinway
+ * mid-block seam at x=1030 — the way the real Lower Montauk hides behind
+ * houses — with a gated crossing at all five numbered avenues AND both East
+ * River bridge approach roads, so every trip into the borough funnels past
+ * one. Manhattan stays rail-free on purpose: the island has had no street
+ * running since the West Side Improvement elevated "Death Avenue" in 1941,
+ * and the owner picked the authentic borough option over a throwback.
+ * No elevated spans: the line parallels the river and never crosses water.
+ */
+const NYC_RAIL_POINTS: readonly WorldPoint[] = [
+  point(1030, -1500),
+  point(1030, 1500),
+];
+
+const NYC_RAIL_LINES: readonly RailLine[] = [
+  {
+    id: "us-borough-freight-run",
+    points: NYC_RAIL_POINTS,
+    corridorHalfWidthM: 4.5,
+    crossingControlIds: [
+      "us-rail-x-40",
+      "us-rail-x-queensview",
+      "us-rail-x-44",
+      "us-rail-x-48",
+      "us-rail-x-52",
+      "us-rail-x-harborline",
+      "us-rail-x-56",
+    ],
+    schedule: {
+      mode: "through",
+      speedMps: 12,
+      trainLengthM: 78,
+      // A through timetable alternates directions every half-headway on ONE
+      // track, so the half-headway must exceed a full traversal —
+      // (3000 + 78) / 12 ≈ 256.5 s. The old 300 reasoned per-direction and
+      // missed the opposing offset: both directions shared the strip for
+      // ~106 s per cycle (the same head-on meet the owner caught in Cairo).
+      // 540/2 = 270 s leaves ~13 s of clear track between opposing runs;
+      // tests/railCorridors.test.ts samples the whole cycle to prove it.
+      // TrainVisual still budgets two rigs for a through line.
+      headwaySeconds: 540,
+      warningLeadSeconds: 10,
+      clearTrailSeconds: 2,
+    },
+    // Light enough to read as a train at night — #2e3f4a proofed near-black
+    // under the Queens streetlights.
+    consist: { kind: "diesel_freight", cars: 6, liveryHex: "#48606f", accentHex: "#d8a13a" },
+  },
+];
+
+const nycSurfaceById = (id: string): RoadSurface => {
+  const surface = nycGrid.roadSurfaces.find((candidate) => candidate.id === id);
+  if (!surface) throw new Error(`nyc rail crossing: unknown surface ${id}`);
+  return surface;
+};
+
+const nycRailCrossings = [
+  ["us-rail-x-40", "nyc-bank-40"],
+  ["us-rail-x-queensview", "nyc-queensview-bridge"],
+  ["us-rail-x-44", "nyc-bank-44"],
+  ["us-rail-x-48", "nyc-bank-48"],
+  ["us-rail-x-52", "nyc-bank-52"],
+  ["us-rail-x-harborline", "nyc-harborline-bridge"],
+  ["us-rail-x-56", "nyc-bank-56"],
+].map(([id, surfaceId]) =>
+  buildRailCrossingControl({
+    id,
+    railPoints: NYC_RAIL_POINTS,
+    surface: nycSurfaceById(surfaceId),
+    lanes: nycLanes,
+  }),
+);
+
 export const NYC_MAP_PACK: MapPack = {
   id: "nyc-upper-west-side",
   name: "NYC — Park to River",
@@ -1158,7 +1236,8 @@ export const NYC_MAP_PACK: MapPack = {
     roadWidth: 11,
     shoulderWidth: 1.5,
     roadSurfaces: nycGrid.roadSurfaces,
-    blocks: nycBlocks.concat([
+    railLines: NYC_RAIL_LINES,
+    blocks: carveBlocksForRailCorridors(nycBlocks.concat([
       // The two strips beyond the outermost cross streets, which no row
       // generates because they have grid on one side only. The north one is
       // wider: Riverside Drive reaches W 96th, so there is more frontage up
@@ -1210,7 +1289,9 @@ export const NYC_MAP_PACK: MapPack = {
       // not real frontage like the west-margin/gallery blocks above.
       { id: "nyc-block-bk40-outer", center: point(974.2, -1115), size: point(365.6, 44), streetEdges: ["+z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
       { id: "nyc-block-bk56-outer", center: point(974.2, 1115), size: point(365.6, 44), streetEdges: ["-z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
-    ]),
+    // The whole list carves around the borough freight corridor last, same
+    // as Tokyo and Cairo — tests/railCorridors.test.ts re-proves the result.
+    ]), NYC_RAIL_LINES).blocks,
     servicePoints: [
       // West 72nd is a wide two-way, and NYC is a paved city, so the lot must
       // clear the carriageway plus the full 3.4 m concrete sidewalk (not the
@@ -1565,8 +1646,14 @@ export const NYC_MAP_PACK: MapPack = {
   laneGraph: graph(
     nycGrid.nodes,
     nycLanes,
-    nycControls.map((entry) => entry.control),
-    nycControls.map((entry) => entry.zone),
+    [
+      ...nycControls.map((entry) => entry.control),
+      ...nycRailCrossings.map((crossing) => crossing.control),
+    ],
+    [
+      ...nycControls.map((entry) => entry.zone),
+      ...nycRailCrossings.map((crossing) => crossing.conflictZone),
+    ],
     [
       anchoredSpawn("nyc-player-1way", "player", "nyc-72-e-we", 30),
       anchoredSpawn("nyc-player-signals", "player", "nyc-bway-n-72", 30),

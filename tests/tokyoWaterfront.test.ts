@@ -174,11 +174,16 @@ describe("Tokyo waterfront shoreline collider", () => {
     // zero new portals. `sakuragawaShore`/`portalRuns` (filtered to the
     // river specifically, and to portals, which only the river has) are
     // unchanged.
+    // 46 -> 48 (drivable rail bridges): the Setagaya Line's at-grade girder
+    // span now opens the shoreline collider at both banks, splitting each
+    // pierced edge's solid range in two — +1 run per bank. Both extra runs
+    // are the river's own (`sakuragawaShore` 30 -> 32); the pond and the
+    // road-bridge portals are untouched.
     const byTag = new Map<string, number>();
     for (const o of obstacles) byTag.set(o.tag, (byTag.get(o.tag) ?? 0) + 1);
-    expect(byTag.get("shoreline")).toBe(46);
-    expect(shoreRuns.length).toBe(40);
+    expect(byTag.get("shoreline")).toBe(48);
+    expect(shoreRuns.length).toBe(42);
     expect(portalRuns.length).toBe(6);
-    expect(sakuragawaShore.length).toBe(30);
+    expect(sakuragawaShore.length).toBe(32);
   });
 });

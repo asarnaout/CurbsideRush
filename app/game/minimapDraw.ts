@@ -105,6 +105,68 @@ export function parksFromLandmarks(
   return parks;
 }
 
+/** A rail line, drawn between water and roads in the classic map style. */
+export interface MapDrawRailLine {
+  readonly points: readonly MapDrawPoint[];
+}
+
+const mapRailsCache = new WeakMap<object, readonly MapDrawRailLine[]>();
+
+/**
+ * The drawable rail polylines of a `geometry.railLines` list, referentially
+ * stable per list — the same WeakMap discipline as `parksFromLandmarks`, and
+ * for the same reason: the corner widget re-rasterises its sheet whenever a
+ * prop changes identity.
+ */
+export function railsFromGeometry(
+  railLines:
+    | readonly { readonly points: readonly MapDrawPoint[] }[]
+    | undefined,
+): readonly MapDrawRailLine[] {
+  if (!railLines || railLines.length === 0) return EMPTY_RAILS;
+  const cached = mapRailsCache.get(railLines);
+  if (cached) return cached;
+  const rails = railLines.map((line) => ({ points: line.points }));
+  mapRailsCache.set(railLines, rails);
+  return rails;
+}
+
+const EMPTY_RAILS: readonly MapDrawRailLine[] = [];
+
+const RAIL_BASE_STROKE = "rgba(120, 126, 138, 0.78)";
+const RAIL_TIE_STROKE = "rgba(222, 224, 230, 0.85)";
+
+/**
+ * The cartographic railway signature: a solid dark line with light cross-tie
+ * dashes over it. Drawn UNDER the road network so the streets stay the
+ * clearest navigation lines and a level crossing reads as road-over-rail —
+ * the same layering argument that puts water under roads.
+ */
+export function drawMapRailLines(
+  ctx: CanvasRenderingContext2D,
+  rails: readonly MapDrawRailLine[],
+  projector: MinimapProjector,
+  pixelsPerMetre: number,
+): void {
+  if (!rails.length) return;
+  const baseWidth = Math.max(1.4, pixelsPerMetre * 3.2);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "butt";
+  for (const rail of rails) {
+    if (rail.points.length < 2) continue;
+    ctx.strokeStyle = RAIL_BASE_STROKE;
+    ctx.lineWidth = baseWidth;
+    ctx.setLineDash([]);
+    strokePolyline(ctx, rail.points, projector);
+    ctx.strokeStyle = RAIL_TIE_STROKE;
+    ctx.lineWidth = Math.max(1, baseWidth * 0.5);
+    ctx.setLineDash([baseWidth * 0.9, baseWidth * 1.6]);
+    strokePolyline(ctx, rail.points, projector);
+  }
+  ctx.setLineDash([]);
+  ctx.lineCap = "round";
+}
+
 /**
  * Roundabout islands are parks too, 15-28 m squares that would rasterise to
  * near-invisible specks and just fuzz the junctions — the maps skip anything

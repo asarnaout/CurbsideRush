@@ -263,7 +263,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // -> 5_469 (Section 11.8, P1): nyc-block-east-south-margin/-north-margin
     // trimmed 4.1 m off their east edge to meet the esplanade exactly
     // instead of overlapping it by 0.5 m: -2, one building off each block.
-    buildingInstanceCount: 5_469,
+    // 5_469 -> 5_749 (rail feature, the borough freight corridor carve):
+    // seven Queens blocks split into rail-flank fragments, and each fragment
+    // walls its new corridor-facing edge — fresh nyc-house rows now flank
+    // the tracks on both sides, the classic houses-beside-the-railway look.
+    // tests/railCorridors.test.ts proves none stand ON the corridor.
+    buildingInstanceCount: 5_749,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 12,
   },
@@ -350,7 +355,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // existing fab block toward the London north edge (~z=1000), west-
     // facing only so it reads as a backdrop, not a duplicate row in front
     // of shoreditch-e's close wall; 5 new slots.
-    buildingInstanceCount: 4_393,
+    // 4_393 -> 4_382 (rail feature): the Grosvenor viaduct corridor carve
+    // trims the Battersea/Chelsea parcels the line threads.
+    buildingInstanceCount: 4_382,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },
@@ -449,13 +456,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // local +X; P2's drive-by sweep missed it between neighbours) swaps its
     // footprintM/depthM 22.41/12.91 -> 12.91/22.41, so every row containing
     // it re-deals and the narrower kerb footprint fits six more members.
-    buildingInstanceCount: 3_813,
+    // 3_813 -> 3_808 (rail feature): the Setagaya Line corridor carve
+    // trims the handful of set-dressed parcels along the east run.
+    buildingInstanceCount: 3_808,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },
   "cairo-central-nile": {
-    buildingInstanceCount: 1_396,
-    cairoRoofClutterInstanceCount: 464,
+    // 1_396 -> 1_377 / clutter 464 -> 465 (rail feature): the Imbaba
+    // corridor carve re-deals the four split downtown strips and drops
+    // three roadside pieces; the clutter scatter re-rolls on the new rects.
+    buildingInstanceCount: 1_377,
+    cairoRoofClutterInstanceCount: 465,
     storefrontSignMaterialCount: 0,
   },
 };

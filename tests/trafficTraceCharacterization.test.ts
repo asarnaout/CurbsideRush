@@ -94,7 +94,15 @@ describe("ambient traffic trace characterization", () => {
         ]),
       ),
     ).toEqual({
-      "free-us": "ea720991",
+      // Moves for the rail feature's borough freight lead: seven generated
+      // railway crossings put timetable-driven railway_signal lights and
+      // stop lines on every Queens avenue and both bridge approaches, and
+      // the corridor carve re-deals the strip's blocks.
+      // -> d4a4338c (single-track exclusivity, owner-reported head-on
+      // meets): headwaySeconds 300 -> 540 so opposing freights can never
+      // co-occupy the strip; every crossing's warning windows shift, which
+      // re-times the NPC holds at all seven crossings inside this trace.
+      "free-us": "d4a4338c",
       // Moves on any sim-visible London content change: the south-west
       // expansion (fourteen streets, three signals, both turning loops gone),
       // then the river (both embankments, the south bank, three bridges and
@@ -184,8 +192,34 @@ describe("ambient traffic trace characterization", () => {
       // changes" effect every earlier region's own paragraph describes, this
       // time across two separate rings/arterials at once. No new spawns this
       // phase.
-      "free-jp": "190980a3",
-      "free-eg": "eb350f99",
+      // Moves for the rail feature: the two `railway_signal` crossings stop
+      // free-running their 18 s dummy cycle and follow `jp-setagaya-line-run`'s
+      // authored timetable (rail-driven `trafficLightTiming` branch), so every
+      // hashed crossing-light state — and every NPC hold at the crossings —
+      // lands at different ticks. Same roads, lanes, spawns and gates.
+      // Moves again for the same feature's centre-section surgery: Renraku-
+      // dōri (the 42 m jp-d connector the corridor crossed at 25°) is removed
+      // — its two lanes, its junction turns and its successor entries at
+      // jp-d/x-renraku all disappear — and two generated crossings
+      // (jp-rail-signal-miyanosaka / -shotengai) add railway stop lines to
+      // four more lanes.
+      // Moves again when the line extends east to the map edge (x=1306) with
+      // six more generated crossings (Niban/Chūō/Kawate/Kawagishi/Higashi
+      // Hon/Higashi Soto) — more railway stop lines, more timetable-driven
+      // light states in the hash — plus the Menya Sakura venue shifting off
+      // the corridor.
+      "free-jp": "ad670631",
+      // Moves for the rail feature's Imbaba corridor: eleven generated
+      // railway crossings put timetable-driven railway_signal lights and
+      // stop lines on every N-S street at z=-720, and the corridor carve
+      // re-deals four downtown roadside strips — NPC holds land on
+      // different ticks across the whole north band.
+      // -> 2fa89223 (single-track exclusivity, owner-reported head-on
+      // meets): headwaySeconds 210 -> 320 so opposing ENR freights can
+      // never co-occupy the line; every mazla'an's warning windows shift,
+      // re-timing NPC holds across the north band. free-jp/free-uk are
+      // untouched — the shuttle timetables did not change.
+      "free-eg": "2fa89223",
     });
   });
 });
