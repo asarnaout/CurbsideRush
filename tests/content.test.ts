@@ -516,32 +516,52 @@ describe("SideSwap content", () => {
   it("shells the Queens outer bank streets bk40/bk56 so the ground stops reading to the world edge (plan Section 11.5)", () => {
     const nyc = MAP_PACKS.find((m) => m.id === "nyc-upper-west-side");
     expect(nyc).toBeDefined();
-    const south = nyc!.geometry.blocks.find((b) => b.id === "nyc-block-bk40-outer")!;
-    const north = nyc!.geometry.blocks.find((b) => b.id === "nyc-block-bk56-outer")!;
-    expect(south).toBeDefined();
-    expect(north).toBeDefined();
-    for (const block of [south, north]) {
-      expect(block.center.x).toBe(974.2);
-      expect(block.size).toEqual({ x: 365.6, z: 44 });
+    // The rail feature's corridor carver splits each authored 365.6 m shell
+    // into the two fragments flanking the borough freight lead at x=1030
+    // (corridor half-width 4.5 m + the carver's 1.2 m clearance) — the shell
+    // must NOT cross the tracks. Everything Section 11.5 pinned still holds
+    // per fragment; the pair together still spans park edge to world margin
+    // minus only the legitimate rail gap.
+    const fragments = (suffix: string) =>
+      nyc!.geometry.blocks
+        .filter((b) => b.id.startsWith(`nyc-block-${suffix}-outer-rw`))
+        .sort((a, b) => a.center.x - b.center.x);
+    const south = fragments("bk40");
+    const north = fragments("bk56");
+    expect(south).toHaveLength(2);
+    expect(north).toHaveLength(2);
+    for (const [index, block] of [...south, ...north].entries()) {
+      expect(block.size.z).toBe(44);
       expect(block.buildingSet).toBe("nyc-house");
       // A map-edge shell, not real frontage: single inward-facing edge, and
       // withdrawn from gig-pool probing entirely (plan Section 9.1).
       expect(block.addressable).toBe(false);
+      const west = index % 2 === 0;
+      // Fragment edges hug the rail gap: 1030 +/- 5.7.
+      if (west) expect(block.center.x + block.size.x / 2).toBeCloseTo(1024.3, 1);
+      else expect(block.center.x - block.size.x / 2).toBeCloseTo(1035.7, 1);
     }
-    expect(south.center.z).toBe(-1115);
-    expect(south.streetEdges).toEqual(["+z"]);
-    expect(north.center.z).toBe(1115);
-    expect(north.streetEdges).toEqual(["-z"]);
+    for (const block of south) {
+      expect(block.center.z).toBe(-1115);
+      expect(block.streetEdges).toEqual(["+z"]);
+    }
+    for (const block of north) {
+      expect(block.center.z).toBe(1115);
+      expect(block.streetEdges).toEqual(["-z"]);
+    }
     // Clear of the East River's own shore (x up to 726) on the west side,
-    // and its west edge meets the Queens riverbank park's own east edge
-    // exactly (Section 11.6) rather than the vern-cres column's generic
-    // 787 inset, which would overlap it by 4.4 m.
+    // and the west fragment's west edge meets the Queens riverbank park's own
+    // east edge exactly (Section 11.6) rather than the vern-cres column's
+    // generic 787 inset, which would overlap it by 4.4 m.
     const river = nyc!.geometry.waterBodies!.find((w) => w.id === "nyc-east-river")!;
     const riverMaxX = Math.max(...river.polygon.map((p) => p.x));
     const bank = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queens-bank-south")!;
-    for (const block of [south, north]) {
+    for (const block of [south[0], north[0]]) {
       expect(block.center.x - block.size.x / 2).toBeGreaterThan(riverMaxX);
-      expect(block.center.x - block.size.x / 2).toBe(bank.center.x + bank.size.x / 2);
+      expect(block.center.x - block.size.x / 2).toBeCloseTo(
+        bank.center.x + bank.size.x / 2,
+        6,
+      );
     }
   });
 

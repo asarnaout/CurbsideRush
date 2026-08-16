@@ -94,7 +94,11 @@ describe("ambient traffic trace characterization", () => {
         ]),
       ),
     ).toEqual({
-      "free-us": "ea720991",
+      // Moves for the rail feature's borough freight lead: seven generated
+      // railway crossings put timetable-driven railway_signal lights and
+      // stop lines on every Queens avenue and both bridge approaches, and
+      // the corridor carve re-deals the strip's blocks.
+      "free-us": "8edd9970",
       // Moves on any sim-visible London content change: the south-west
       // expansion (fourteen streets, three signals, both turning loops gone),
       // then the river (both embankments, the south bank, three bridges and

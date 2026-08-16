@@ -274,10 +274,19 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // every model unavailable — they are real meshes in the browser.
     // Materials, active meshes, draw calls, mirrors and the fingerprint all
     // hold: no material was added or lost, only water polygon vertices.
-    totalMeshes: 26_926,
-    enabledMeshes: 26_926,
+    // -> 29_847/29_797 (+2_921 total; rail feature, the borough freight
+    // lead): ~2_500 instanced sleepers over the full 3 km Queens run, 7
+    // generated crossings x 12 gate meshes, the rails and segmented ballast
+    // strips, and the corridor carve's re-deal of the strip blocks (the
+    // bk40/bk56 shells split into rail-flank fragments). The 50-mesh
+    // total/enabled gap is the disabled two-train freight consist. materials
+    // 192 -> 202: the four track/bridge paints plus the train's six.
+    // activeMeshes/mirrors hold — the line sits a map-width east of this
+    // suite's fixed west-side pose.
+    totalMeshes: 29_847,
+    enabledMeshes: 29_797,
     activeMeshes: 962,
-    materials: 192,
+    materials: 202,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -287,7 +296,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "91c8963c",
+    // "91c8963c" -> "2d9d1a4b": the ten rail materials above.
+    survivingMaterialNamesFingerprint: "2d9d1a4b",
   },
   "london-south-kensington": {
     // 908 -> 887: London became a `paved` city, and a paved map draws a

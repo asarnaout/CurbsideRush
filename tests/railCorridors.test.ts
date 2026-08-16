@@ -187,6 +187,7 @@ describe("rail corridors", () => {
     // ships a line. Grow this list as cities gain theirs.
     expect(railWorlds.map((world) => world.mapPack.id).sort()).toEqual([
       "cairo-central-nile",
+      "nyc-upper-west-side",
       "tokyo-setagaya",
     ]);
   });
