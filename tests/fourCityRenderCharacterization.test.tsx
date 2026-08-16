@@ -285,10 +285,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // suite's fixed west-side pose.
     // materials 202 -> 204: rail-brick/rail-platform are minted for every
     // rail city once the London viaduct/terminus recipes exist, used or not.
+    // materials 204 -> 205: rail-deck, minted per rail city (no bridge
+    // meshes here — the Queens line never crosses water).
     totalMeshes: 29_847,
     enabledMeshes: 29_797,
     activeMeshes: 962,
-    materials: 204,
+    materials: 205,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -300,7 +302,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     retiredGuidanceMaterialNames: [],
     // "91c8963c" -> "2d9d1a4b": the ten rail materials above.
     // -> "757ab7bb": +rail-brick/+rail-platform (see the materials note).
-    survivingMaterialNamesFingerprint: "757ab7bb",
+    // -> "1cadf565": +rail-deck (bridge-fix pass).
+    survivingMaterialNamesFingerprint: "1cadf565",
   },
   "london-south-kensington": {
     // 908 -> 887: London became a `paved` city, and a paved map draws a
@@ -549,10 +552,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 36-mesh total/enabled gap is the disabled three-car EMU. materials
     // 302 -> 314: the six rail track/structure paints plus the train's six.
     // activeMeshes holds — the line is across the map from the fixed pose.
-    totalMeshes: 10_242,
-    enabledMeshes: 10_206,
+    // -> 10_249/10_213 (+7; bridge-fix pass): Thames-span girder flanges
+    // + flange master. materials +1: rail-deck.
+    totalMeshes: 10_249,
+    enabledMeshes: 10_213,
     activeMeshes: 878,
-    materials: 314,
+    materials: 315,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -605,7 +610,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "e265e06c": the Chelsea garden square's greensward materials (walk,
     // railing, bench and lamp) and its six lawns' planting variants.
     // -> "0b06ec67": the twelve rail materials above.
-    survivingMaterialNamesFingerprint: "0b06ec67",
+    // -> "41d18af1": +rail-deck (bridge-fix pass).
+    survivingMaterialNamesFingerprint: "41d18af1",
   },
   "tokyo-setagaya": {
     // Phase 1 of the Tokyo expansion (night + paved): +88 meshes from the
@@ -1013,10 +1019,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (two platform slab instances + buffer stop + hidden platform master)
     // lands beside spawn, inside the fixed pose's frustum. materials 294 ->
     // 296: rail-brick/rail-platform, minted for every rail city.
-    totalMeshes: 20_591,
-    enabledMeshes: 20_566,
+    // -> 20_596/20_571 (+5; bridge-fix pass): Sakuragawa girder flanges +
+    // flange master, abutment pads moved under-deck, parapet runs split
+    // around the corridor. materials +1: rail-deck.
+    totalMeshes: 20_596,
+    enabledMeshes: 20_571,
     activeMeshes: 1_691,
-    materials: 296,
+    materials: 297,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1142,7 +1151,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "209b241d" -> "08173393": the tram's six train-* materials above.
     // "08173393" -> "6b9c2401": +1 `rail-girder` (the bridge paint).
     // -> "257fcb5f": +rail-brick/+rail-platform (terminus platforms note).
-    survivingMaterialNamesFingerprint: "257fcb5f",
+    // -> "473e5725": +rail-deck (bridge-fix pass).
+    survivingMaterialNamesFingerprint: "473e5725",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
@@ -1201,10 +1211,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // pose's frustum re-deals what the mirror cull ring holds.
     // materials 228 -> 230: rail-brick/rail-platform, minted for every
     // rail city once the London recipes exist, unused here.
-    totalMeshes: 12_583,
-    enabledMeshes: 12_539,
-    activeMeshes: 1_840,
-    materials: 230,
+    // -> 12_589/12_545 (+6, active -1; owner-reported bridge fixes):
+    // per span, girder top-flange instances + a flange master land while
+    // the on-track abutment pads go under-deck; spans tightened to the
+    // waterline re-deal approach sleepers; parapet runs now SPLIT around
+    // the corridor instead of vanishing whole. materials +1: rail-deck.
+    totalMeshes: 12_589,
+    enabledMeshes: 12_545,
+    activeMeshes: 1_839,
+    materials: 231,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1216,7 +1231,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     retiredGuidanceMaterialNames: [],
     // "e2316bb7" -> "5469c8ba": the ten rail materials above.
     // -> "e5294a40": +rail-brick/+rail-platform (see the materials note).
-    survivingMaterialNamesFingerprint: "e5294a40",
+    // -> "ae339a82": +rail-deck (bridge-fix pass).
+    survivingMaterialNamesFingerprint: "ae339a82",
   },
 };
 

@@ -109,6 +109,7 @@ import {
 } from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
 import { buildRailTracks } from "./railLayer";
+import { splitParapetRunAroundRails } from "../geometry/railGeometry";
 import { TrainVisual } from "./trainRender";
 import { BuildingLayer, type DebugBuildingAssetPolicy } from "./buildingLayer";
 import {
@@ -238,7 +239,6 @@ import {
 import {
   buildPlanarUVs,
   defaultSidewalkWidthM,
-  distanceToPolylineM,
   hashStringToSeed,
   mixHexColors,
   PROMENADE_DRESSING_MAP_KEYS,
@@ -992,6 +992,7 @@ export class BabylonGameSession {
   /** Procedural consists riding the authored rail lines; see trainRender.ts. */
   private railTrains: TrainVisual[] = [];
   private trainContactCooldownUntilTick = 0;
+  private barrierContactCooldownUntilTick = 0;
   private crowdDirty = false;
   private readonly crowdProbePoint = new Vector3();
   /** The gameplay camera's frustum for the crowd probes, refreshed each
@@ -2396,8 +2397,55 @@ export class BabylonGameSession {
     this.reportVulnerableRoadUserCollision();
     this.checkDestructiblePropCollisions();
     this.checkTrainCollisions();
+    this.checkBarrierCollisions();
     this.perfSample(PERF_COLLISION, performance.now() - mark);
     this.perfFixedSteps += 1;
+  }
+
+  /**
+   * A lowered crossing boom is a soft breakaway, not scenery (owner-reported
+   * drive-through): contact scrubs nearly all speed and marks light prop
+   * damage, so pushing through is possible — a player caught inside when the
+   * barriers close must be able to escape — but never free or unfelt. The
+   * stop-line monitor still writes the actual ticket.
+   */
+  private checkBarrierCollisions() {
+    if (
+      this.simulationSnapshot.status !== "running" ||
+      this.cutsceneDirector?.isActive ||
+      !this.railwayCrossingVisuals.length
+    ) {
+      return;
+    }
+    if (this.simulationSnapshot.tick < this.barrierContactCooldownUntilTick) return;
+    const player = this.simulationSnapshot.player;
+    if (player.speedMps < 0.4) return;
+    for (const crossing of this.railwayCrossingVisuals) {
+      if (!crossing.lastWarningActive) continue;
+      const pivot = crossing.barrierPivot;
+      // -1.22 rad is fully raised, 0 is level across the road; only a boom
+      // most of the way down blocks anything.
+      if (pivot.rotation.z < -0.35) continue;
+      const matrix = pivot.computeWorldMatrix(true);
+      const origin = pivot.getAbsolutePosition();
+      const along = Vector3.TransformNormal(Vector3.Right(), matrix);
+      const axisLength = Math.hypot(along.x, along.z) || 1;
+      const axisX = along.x / axisLength;
+      const axisZ = along.z / axisLength;
+      const relX = player.x - origin.x;
+      const relZ = player.z - origin.z;
+      const alongBoom = relX * axisX + relZ * axisZ;
+      if (alongBoom < -0.6 || alongBoom > 5.0) continue;
+      const acrossBoom = Math.abs(relX * -axisZ + relZ * axisX);
+      if (acrossBoom > 1.35) continue;
+      this.simulation.reportExternalContact(
+        "Stop at the barrier and wait for the train to clear.",
+        0.12,
+        { obstacle: "prop", impactSpeedMps: Math.min(player.speedMps, 9) },
+      );
+      this.barrierContactCooldownUntilTick = this.simulationSnapshot.tick + 45;
+      return;
+    }
   }
 
   /**
@@ -4074,24 +4122,28 @@ export class BabylonGameSession {
         parapetMaster.isPickable = false;
         for (const run of parapetRuns) {
           // The rail line pierces the shoreline at its bridge abutments; a
-          // parapet run there would wall across the tracks. The collider
-          // underneath stays (the corridor is not drivable) — only the
-          // visible wall yields.
-          const nearRail = (mapPack.geometry.railLines ?? []).some(
-            (line) => distanceToPolylineM({ x: run.x, z: run.z }, line.points) < 9,
-          );
-          if (nearRail) continue;
-          const parapet = parapetMaster.createInstance(`${run.id}-parapet`);
-          parapet.position.set(run.x, CORNICHE_PARAPET_HEIGHT_M / 2, run.z);
-          parapet.scaling.set(
-            run.halfU * 2,
-            CORNICHE_PARAPET_HEIGHT_M,
-            run.halfV * 2,
-          );
-          parapet.rotation.y = boxLengthYaw(run.ux, run.uz);
-          parapet.isPickable = false;
-          this.staticSceneryFreeze.push(parapet);
-          this.registerStaticCell(parapet, run.x, run.z, false);
+          // parapet wall there would stand across the tracks. Split the run
+          // and keep the flanks — the collider underneath stays (the
+          // corridor is not drivable), only the visible wall yields.
+          for (const [pieceIndex, piece] of splitParapetRunAroundRails(
+            run,
+            mapPack.geometry.railLines ?? [],
+            8,
+          ).entries()) {
+            const parapet = parapetMaster.createInstance(
+              `${run.id}-parapet-${pieceIndex}`,
+            );
+            parapet.position.set(piece.x, CORNICHE_PARAPET_HEIGHT_M / 2, piece.z);
+            parapet.scaling.set(
+              piece.halfU * 2,
+              CORNICHE_PARAPET_HEIGHT_M,
+              run.halfV * 2,
+            );
+            parapet.rotation.y = boxLengthYaw(run.ux, run.uz);
+            parapet.isPickable = false;
+            this.staticSceneryFreeze.push(parapet);
+            this.registerStaticCell(parapet, piece.x, piece.z, false);
+          }
         }
         parapetMaterial.freeze();
       }
@@ -4203,12 +4255,19 @@ export class BabylonGameSession {
         "rail-sleeper",
         new Color3(0.24, 0.19, 0.15),
       );
-      // Weathered blue-grey plate girders — the classic Japanese rail-bridge
-      // paint; the other cities read it as neutral steel.
+      // Neutral weathered steel for the plate girders — the first cut's
+      // blue-green proofed as a teal wedge in Cairo daylight (owner call).
       const railGirder = makeMaterial(
         scene,
         "rail-girder",
-        new Color3(0.3, 0.42, 0.48),
+        new Color3(0.4, 0.42, 0.45),
+      );
+      // Near-black bridge decking, so the span reads as structure under the
+      // sleepers rather than a glowing plank.
+      const railDeck = makeMaterial(
+        scene,
+        "rail-deck",
+        new Color3(0.15, 0.16, 0.18),
       );
       const railBrick = makeMaterial(
         scene,
@@ -4227,6 +4286,7 @@ export class BabylonGameSession {
           steel: railSteel,
           sleeper: railSleeper,
           girder: railGirder,
+          deck: railDeck,
           brick: railBrick,
           platform: railPlatform,
           createRoadSurfaceMesh: (name, centerline, widthM, material, smoothClosed, surfaceY) =>
@@ -4249,6 +4309,7 @@ export class BabylonGameSession {
       railSteel.freeze();
       railSleeper.freeze();
       railGirder.freeze();
+      railDeck.freeze();
       railBrick.freeze();
       railPlatform.freeze();
       for (const line of mapPack.geometry.railLines ?? []) {

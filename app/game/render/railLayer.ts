@@ -46,6 +46,7 @@ export interface RailRenderCtx {
   readonly steel: StandardMaterial;
   readonly sleeper: StandardMaterial;
   readonly girder: StandardMaterial;
+  readonly deck: StandardMaterial;
   readonly brick: StandardMaterial;
   readonly platform: StandardMaterial;
   readonly createRoadSurfaceMesh: (
@@ -214,11 +215,13 @@ function buildRailBridge(
   const sub = slicePolyline(railPoints, span.startM, span.endM);
   if (sub.length < 2) return;
   const baseY = RAIL_BALLAST_Y + elevationM;
+  // A dark deck: the rails and sleepers on top carry the read. The first cut
+  // used the pale rail-steel paint and the whole span glowed like a plank.
   ctx.createRoadSurfaceMesh(
     `rail-bridge-deck-${lineId}-${span.startM.toFixed(0)}`,
     sub,
     BRIDGE_DECK_WIDTH_M,
-    ctx.steel,
+    ctx.deck,
     false,
     baseY + 0.004,
   );
@@ -231,6 +234,17 @@ function buildRailBridge(
   );
   girderMaster.isVisible = false;
   girderMaster.isPickable = false;
+  // The flange strip along each girder's top edge is what makes the side
+  // read as a plate girder instead of a solid wall.
+  const flangeMaster = createBox(
+    ctx.scene,
+    `rail-girder-flange-${lineId}-${span.startM.toFixed(0)}-master`,
+    { width: 1, height: 0.14, depth: BRIDGE_GIRDER_THICKNESS_M + 0.3 },
+    Vector3.Zero(),
+    ctx.girder,
+  );
+  flangeMaster.isVisible = false;
+  flangeMaster.isPickable = false;
   for (const lateral of [-BRIDGE_GIRDER_OFFSET_M, BRIDGE_GIRDER_OFFSET_M]) {
     const offset = offsetPolyline(sub, lateral);
     for (let index = 0; index < offset.length - 1; index += 1) {
@@ -238,6 +252,7 @@ function buildRailBridge(
       const b = offset[index + 1];
       const length = Math.hypot(b.x - a.x, b.z - a.z);
       if (length < 0.05) continue;
+      const yaw = boxLengthYaw((b.x - a.x) / length, (b.z - a.z) / length);
       const girder = girderMaster.createInstance(
         `rail-girder-${lineId}-${span.startM.toFixed(0)}-${lateral > 0 ? "r" : "l"}-${index}`,
       );
@@ -247,17 +262,31 @@ function buildRailBridge(
         (a.z + b.z) / 2,
       );
       girder.scaling.x = length + BRIDGE_GIRDER_THICKNESS_M;
-      girder.rotation.y = boxLengthYaw((b.x - a.x) / length, (b.z - a.z) / length);
+      girder.rotation.y = yaw;
       girder.isPickable = false;
       ctx.addStatic(girder as unknown as Mesh, girder.position.x, girder.position.z);
+      const flange = flangeMaster.createInstance(
+        `rail-girder-flange-${lineId}-${span.startM.toFixed(0)}-${lateral > 0 ? "r" : "l"}-${index}`,
+      );
+      flange.position.set(
+        (a.x + b.x) / 2,
+        baseY + BRIDGE_GIRDER_HEIGHT_M - 0.3 + 0.07,
+        (a.z + b.z) / 2,
+      );
+      flange.scaling.x = length + BRIDGE_GIRDER_THICKNESS_M;
+      flange.rotation.y = yaw;
+      flange.isPickable = false;
+      ctx.addStatic(flange as unknown as Mesh, flange.position.x, flange.position.z);
     }
   }
+  // Concrete piers, not girder steel — and never anything above deck level
+  // on the running line itself.
   const pierMaster = createBox(
     ctx.scene,
     `rail-pier-${lineId}-${span.startM.toFixed(0)}-master`,
-    { width: 1.4, height: 2.6, depth: BRIDGE_DECK_WIDTH_M - 0.6 },
+    { width: 1.4, height: 2.6, depth: BRIDGE_DECK_WIDTH_M - 0.9 },
     Vector3.Zero(),
-    ctx.girder,
+    ctx.platform,
   );
   pierMaster.isVisible = false;
   pierMaster.isPickable = false;
@@ -279,13 +308,19 @@ function buildRailBridge(
     ctx.addStatic(pier as unknown as Mesh, pose.x, pose.z);
   }
   if (elevationM === 0) {
+    // Abutment = a headwall UNDER the deck at each bank, facing the water.
+    // The first cut put a pad ON the running line that rose above rail
+    // height — the train ploughed through it and it read as a floating slab
+    // (owner-reported). Everything here stays below the rails.
     for (const endM of [span.startM, span.endM]) {
       const pose = polylinePoseAt(railPoints, endM);
       const abutment = pierMaster.createInstance(
         `rail-abutment-${lineId}-${endM.toFixed(0)}`,
       );
-      abutment.position.set(pose.x, -0.75, pose.z);
-      abutment.scaling.set(2.4, 1, 1.25);
+      // Master is 2.6 tall centred on its origin; put the TOP just under
+      // the deck: centre = deckTop - 0.06 - 1.3.
+      abutment.position.set(pose.x, baseY - 0.06 - 1.3, pose.z);
+      abutment.scaling.set(1.7, 1, (BRIDGE_DECK_WIDTH_M + 0.8) / (BRIDGE_DECK_WIDTH_M - 0.9));
       abutment.rotation.y = pose.headingRad - Math.PI / 2;
       abutment.isPickable = false;
       ctx.addStatic(abutment as unknown as Mesh, pose.x, pose.z);

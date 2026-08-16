@@ -3336,11 +3336,14 @@ const CAIRO_RAIL_LINES: readonly RailLine[] = [
       warningLeadSeconds: 10,
       clearTrailSeconds: 2,
     },
-    // Nile banks at z=-720: west channel x in [-580, -469], east channel
-    // [-81, 44]; each span carries ~24 m of abutment approach.
+    // Nile banks at z=-720: west channel x in [-580, -469] (stations
+    // 425-536), east channel [-81, 44] (stations 924-1049). Spans hug the
+    // waterline with ~7 m of bank each side — the first cut's 24 m
+    // approaches marched girders across dry land and read as a wedge on the
+    // bank (owner-reported).
     elevatedSpans: [
-      { startM: 401, endM: 560, kind: "bridge" },
-      { startM: 900, endM: 1073, kind: "bridge" },
+      { startM: 418, endM: 543, kind: "bridge" },
+      { startM: 917, endM: 1056, kind: "bridge" },
     ],
     // ENR diesel in the fleet's deep blue with the yellow nose band, hauling
     // four box wagons — the classic mazla'an scene.

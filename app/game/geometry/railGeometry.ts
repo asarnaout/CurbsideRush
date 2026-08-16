@@ -237,6 +237,81 @@ export function railSleeperPlacements(
 }
 
 /**
+ * Split one shoreline-parapet run into the sub-runs that stay clear of every
+ * rail corridor. The old guard skipped runs whose CENTRE was near the rails —
+ * but a bank run can be 100 m long with a distant centre and still cross the
+ * corridor, which is exactly how a parapet wall ended up standing across the
+ * tracks at every bridge abutment. This walks the run's own axis, blanks the
+ * span within `clearanceM` of any rail polyline, and returns the flanks.
+ */
+export function splitParapetRunAroundRails(
+  run: {
+    readonly x: number;
+    readonly z: number;
+    readonly ux: number;
+    readonly uz: number;
+    readonly halfU: number;
+  },
+  railLines: readonly { readonly points: readonly GameCanvasPoint[] }[],
+  clearanceM: number,
+): { x: number; z: number; halfU: number }[] {
+  if (!railLines.length) return [{ x: run.x, z: run.z, halfU: run.halfU }];
+  const step = 1;
+  const samples = Math.max(2, Math.ceil((run.halfU * 2) / step) + 1);
+  const blocked: boolean[] = [];
+  for (let index = 0; index < samples; index += 1) {
+    const u = -run.halfU + (index * (run.halfU * 2)) / (samples - 1);
+    const point = { x: run.x + run.ux * u, z: run.z + run.uz * u };
+    blocked.push(
+      railLines.some((line) => {
+        let best = Number.POSITIVE_INFINITY;
+        for (let s = 0; s < line.points.length - 1; s += 1) {
+          const a = line.points[s];
+          const b = line.points[s + 1];
+          const dx = b.x - a.x;
+          const dz = b.z - a.z;
+          const lengthSq = dx * dx + dz * dz;
+          const t = Math.max(
+            0,
+            Math.min(1, ((point.x - a.x) * dx + (point.z - a.z) * dz) / (lengthSq || 1)),
+          );
+          best = Math.min(
+            best,
+            Math.hypot(point.x - (a.x + dx * t), point.z - (a.z + dz * t)),
+          );
+          if (best < clearanceM) return true;
+        }
+        return best < clearanceM;
+      }),
+    );
+  }
+  const kept: { x: number; z: number; halfU: number }[] = [];
+  let start: number | null = null;
+  const emit = (fromIndex: number, toIndex: number) => {
+    const u0 = -run.halfU + (fromIndex * (run.halfU * 2)) / (samples - 1);
+    const u1 = -run.halfU + (toIndex * (run.halfU * 2)) / (samples - 1);
+    const halfU = (u1 - u0) / 2;
+    if (halfU < 1.2) return;
+    const centreU = (u0 + u1) / 2;
+    kept.push({
+      x: run.x + run.ux * centreU,
+      z: run.z + run.uz * centreU,
+      halfU,
+    });
+  };
+  for (let index = 0; index < samples; index += 1) {
+    if (!blocked[index]) {
+      if (start === null) start = index;
+    } else if (start !== null) {
+      emit(start, index - 1);
+      start = null;
+    }
+  }
+  if (start !== null) emit(start, samples - 1);
+  return kept;
+}
+
+/**
  * Per-segment axis-aligned rectangles covering the corridor, for consumers
  * that reason in `{center, size}` rects (prop scatter's landmark keep-outs).
  * A diagonal segment's AABB over-covers slightly, which errs safe.
