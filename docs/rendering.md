@@ -80,10 +80,22 @@ water's own default in `geometry/waterGeometry.ts`):
 
 ```
 0.02 park lawn  <  0.025 water  <  0.0255 park beds  <  0.031 park paths/terraces
-<  0.0435 shoulder junction fill  <  0.045 shoulder/sidewalk  <  0.07 road surface
-<  0.0716 asphalt junction fill  <  0.08 walkers
+<  0.04 rail ballast  <  0.0435 shoulder junction fill  <  0.045 shoulder/sidewalk
+<  0.07 road surface  <  0.0716 asphalt junction fill  <  0.08 walkers
 <  0.1 crowd shadows  <  0.12 markings & vehicle nodes  <  0.144-0.147 chevrons/stop lines
 ```
+
+Rail ballast (`RAIL_BALLAST_Y`) deliberately loses to the shoulder and the
+carriageway, so a level crossing's asphalt paves OVER the corridor; the rails
+are 3D boxes riding above the rung and stay visible across the road.
+`render/railLayer.ts` builds all of it (segmented ballast, miter-offset rails,
+instanced sleepers, girder bridges, brick viaducts whose piers dodge
+carriageways, terminus platforms) from `geometry.railLines`, offset wholesale
+by the line's `elevationM`; `render/trainRender.ts` runs the procedural
+consist on the NPC pose-pair interpolation pattern, with poses from the same
+`simulation/railSchedule.ts` the crossings time against. Corniche parapet
+runs within 9 m of a rail polyline are skipped — the wall must not cross the
+tracks at a bridge abutment.
 
 Vehicle ground contact is a **two-value handshake**: nodes at `y = 0.12` and
 `LOCAL_GROUND_Y = -0.05` put tyres at exactly `0.07`. Change either alone and the

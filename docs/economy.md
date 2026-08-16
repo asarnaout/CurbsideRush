@@ -161,6 +161,17 @@ take a profile scaled from `VEHICLE_DIMENSIONS`, so a van's doors sit on its rea
 flanks; anything with no registered dimensions falls through to
 `DEFAULT_CUTSCENE_BODY` unchanged.
 
+## The level-crossing fine is the priced exception
+
+`FINE_BY_COUNTRY` is "deliberately modest" and `speedingFine` caps at 2x it.
+`railwayCrossingFine` (`economyTables.ts`) charges **5x flat** — above even a
+full rebuild — because ignoring closed barriers with a train coming is the
+one violation that risks the whole car, and it must never read as a routine
+cost of doing business. It is only ever charged with
+`evidence.warningActive` true; the dormant-crossing courtesy-stop event stays
+coaching. Hitting the train itself is a `collision` with
+`evidence.obstacle: "train"` — damage, not a second fine.
+
 ## Damage, repair and towing
 
 `damage.ts` is pure and imports nothing. Condition is per-drive app state starting

@@ -35,6 +35,17 @@ holds as a field and constructs once:
   — `events`/`ruleCooldowns` stay on `SimulationCore`, since
   `playerDynamics.ts`'s two collision paths and `reportExternalContact` all
   report into the same queue.
+- **`simulation/railSchedule.ts`** — pure rail timetables: closed-form
+  shuttle/through motion tables, per-crossing warning windows folded into
+  one period, and `railTrainStatesAt` for whoever draws the train. A
+  crossing head whose `TrafficLightDefinition` carries `rail` ignores its
+  cycle: `trafficLightTiming` answers red/green from the windows instead, so
+  NPC holds, the player citation, the lamps/barriers AND the rendered train
+  all derive from one function of `elapsedSeconds` and cannot disagree. A
+  railway head no line claims keeps the legacy free-run cycle (tests author
+  those). The train itself is renderer-owned (`render/trainRender.ts`
+  computes poses from this same module) and reports player contact through
+  `reportExternalContact` — there is no train entity in the core.
 
 **`checkCollisions` (the player/NPC impact resolver) stays on `SimulationCore`
 itself**, not in any seam: it reads and writes both the player's physical
@@ -126,7 +137,7 @@ derived from road-surface lane membership.
 
 ## Rule events never end a drive
 
-There are 20 `RuleCode`s (`app/game/types.ts`). Road monitors enqueue
+There are 19 `RuleCode`s (`app/game/types.ts`). Road monitors enqueue
 non-terminating events; the app decides whether an event affects a rider rating,
 damage or a witnessed fine. The core has no score, completion state, authored
 route or reset-enforcement mode.
@@ -168,9 +179,15 @@ The chain runs core → `BabylonGameSession.processSimulationEvents` →
 
 **A fine needs a witness or a camera, and one violation is answered once.**
 `processSimulationEvents` emits a `fine` runtime event for `wrong_way`,
-`out_of_bounds`, `red_light`, `speeding`, **and** `collision` without an
-`evidence.roadUserType` — but only if `patrolNearPlayer(35)` finds a patrol,
-**`else if`** `trafficCameraWitnesses(event)`.
+`out_of_bounds`, `red_light`, `speeding`, `railway_crossing` **only when
+`evidence.warningActive` is true** (the same monitor also fires for skipping
+Japan's courtesy stop at a dormant crossing, which must stay coaching), **and**
+`collision` without an `evidence.roadUserType` — but only if
+`patrolNearPlayer(35)` finds a patrol, **`else if`**
+`trafficCameraWitnesses(event)`. A live crossing pays `railwayCrossingFine`
+(5x flat — the deliberate exception to "deliberately modest"; its
+`RULE_COOLDOWNS` entry is 15 s so the paired opposite-direction stop line
+cannot ticket the same incursion twice).
 
 That `else` is the structural half of never double-charging. The other half is
 scope: a camera takes only `red_light` (matched exactly by

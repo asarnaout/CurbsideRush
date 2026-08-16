@@ -9,9 +9,10 @@ describe("rail line adapter plumbing (Tokyo)", () => {
     expect(rail.lines).toHaveLength(1);
     const line = rail.lines[0];
     expect(line.id).toBe("jp-setagaya-line-run");
-    // Stub (94 m) + two corner chords (~6.1 m each) + straight to x=280.
-    expect(line.lengthM).toBeGreaterThan(355);
-    expect(line.lengthM).toBeLessThan(366);
+    // Stub (94 m) + two corner chords (~6.1 m each) + straight to the east
+    // map edge at x=1306.
+    expect(line.lengthM).toBeGreaterThan(1382);
+    expect(line.lengthM).toBeLessThan(1391);
 
     const crossing1 = rail.crossingByControlId.get("jp-rail-signal");
     const crossing2 = rail.crossingByControlId.get("jp-rail-signal-2");
@@ -61,7 +62,9 @@ describe("rail line adapter plumbing (Tokyo)", () => {
     const statesAt = (seconds: number) => {
       // The tram departs the terminus at t=0, 40 m short of the crossing:
       // the warning is already up (lead 8 s > 40 m / 8.5 m/s), clears once
-      // the tail passes, and comes back for the return working ~90 s in.
+      // the tail passes, and comes back for the return working — on the
+      // full-length line (travel ~160 s + 22 s dwell each way) that return
+      // pass covers this crossing around t=335.
       const light = core
         .getSnapshot()
         .trafficLights.find((candidate) => candidate.id === "crossing-head");
@@ -78,8 +81,8 @@ describe("rail line adapter plumbing (Tokyo)", () => {
     };
 
     expect(sample(1)).toBe("red"); // departing across the crossing
-    expect(sample(30)).toBe("green"); // tram far east, line clear
-    expect(sample(90)).toBe("red"); // return working approaching
-    expect(sample(110)).toBe("green"); // parked back at the terminus
+    expect(sample(30)).toBe("green"); // tram off east, line clear
+    expect(sample(335)).toBe("red"); // return working on the crossing
+    expect(sample(350)).toBe("green"); // parked back at the terminus
   });
 });
