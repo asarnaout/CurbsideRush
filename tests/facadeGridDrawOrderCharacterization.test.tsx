@@ -529,8 +529,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // (`tokyoVoidFrontagePatches`) plus 8 hand micro blocks — each deals
     // its own facade cells from this stream. NYC/London/Cairo rows are
     // byte-identical, the per-map gate this suite exists for.
-    drawCount: 3_177,
-    facadeMeshFingerprint: "22c5de7c",
+    // 3_177 -> 3_312 (rail feature): the corridor carve's Tokyo block
+    // fragments re-derive their facade grids at the new rect sizes —
+    // density is a grid-RESOLUTION knob, so two fragments deal more cells
+    // than their parent did. London/NYC hold: their carved parcels are all
+    // building-set strips with no facade-grid cells.
+    drawCount: 3_312,
+    facadeMeshFingerprint: "4689c992",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the
@@ -575,8 +580,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // (2 calls, no height draw) -- the real mechanism was not traced
     // further. The measured number is trusted; the arithmetic behind it
     // is not claimed to be exact, per this suite's own honesty standard.
-    drawCount: 4_586,
-    facadeMeshFingerprint: "2ebb9e83",
+    // 4_586 -> 4_557 (rail feature): the Imbaba corridor carve's block
+    // census change above, same mechanics as the Tokyo entry.
+    drawCount: 4_557,
+    facadeMeshFingerprint: "4f60c748",
   },
 };
 
