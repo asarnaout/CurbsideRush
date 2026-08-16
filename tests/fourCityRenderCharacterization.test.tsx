@@ -283,10 +283,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 192 -> 202: the four track/bridge paints plus the train's six.
     // activeMeshes/mirrors hold — the line sits a map-width east of this
     // suite's fixed west-side pose.
+    // materials 202 -> 204: rail-brick/rail-platform are minted for every
+    // rail city once the London viaduct/terminus recipes exist, used or not.
     totalMeshes: 29_847,
     enabledMeshes: 29_797,
     activeMeshes: 962,
-    materials: 202,
+    materials: 204,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -297,7 +299,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
     // "91c8963c" -> "2d9d1a4b": the ten rail materials above.
-    survivingMaterialNamesFingerprint: "2d9d1a4b",
+    // -> "757ab7bb": +rail-brick/+rail-platform (see the materials note).
+    survivingMaterialNamesFingerprint: "757ab7bb",
   },
   "london-south-kensington": {
     // 908 -> 887: London became a `paved` city, and a paved map draws a
@@ -538,10 +541,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 9_595: the Shoreditch/Canonbury north-east oblique-edge P0
     // (Section 10.5) — london-block-canonbury-ne-fab-north's 5 new slots,
     // +5 meshes (matching buildingLayerCharacterization's own +5 exactly).
-    totalMeshes: 9_595,
-    enabledMeshes: 9_595,
+    // -> 10_242/10_206 (+647 total; rail feature, the Grosvenor viaduct):
+    // ~560 instanced sleepers along the fully elevated 648 m line, the brick
+    // viaduct's parapet segments and road-dodging piers, the Thames girder
+    // span's deck/girders/stretched piers, the Chelsea Riverside terminus
+    // platforms + buffer, and the corridor carve's block re-deal. The
+    // 36-mesh total/enabled gap is the disabled three-car EMU. materials
+    // 302 -> 314: the six rail track/structure paints plus the train's six.
+    // activeMeshes holds — the line is across the map from the fixed pose.
+    totalMeshes: 10_242,
+    enabledMeshes: 10_206,
     activeMeshes: 878,
-    materials: 302,
+    materials: 314,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -593,7 +604,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "edd7eddb": the quiet island's procedural north band.
     // -> "e265e06c": the Chelsea garden square's greensward materials (walk,
     // railing, bench and lamp) and its six lawns' planting variants.
-    survivingMaterialNamesFingerprint: "e265e06c",
+    // -> "0b06ec67": the twelve rail materials above.
+    survivingMaterialNamesFingerprint: "0b06ec67",
   },
   "tokyo-setagaya": {
     // Phase 1 of the Tokyo expansion (night + paved): +88 meshes from the
@@ -997,10 +1009,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // strip, 2 side-girder instances, 4 piers, 2 abutments), a handful of
     // new ballast strips, and the kawabe-koen-b/jp-v8 re-deals. materials
     // 293 -> 294: `rail-girder`, the one new bridge paint.
-    totalMeshes: 20_587,
-    enabledMeshes: 20_562,
-    activeMeshes: 1_688,
-    materials: 294,
+    // -> 20_591/20_566 (+4, active 1_688 -> 1_691): the Gotokuji terminus
+    // (two platform slab instances + buffer stop + hidden platform master)
+    // lands beside spawn, inside the fixed pose's frustum. materials 294 ->
+    // 296: rail-brick/rail-platform, minted for every rail city.
+    totalMeshes: 20_591,
+    enabledMeshes: 20_566,
+    activeMeshes: 1_691,
+    materials: 296,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1125,7 +1141,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // line*` out, `rail-ballast`/`rail-steel`/`rail-sleeper` in).
     // "209b241d" -> "08173393": the tram's six train-* materials above.
     // "08173393" -> "6b9c2401": +1 `rail-girder` (the bridge paint).
-    survivingMaterialNamesFingerprint: "6b9c2401",
+    // -> "257fcb5f": +rail-brick/+rail-platform (terminus platforms note).
+    survivingMaterialNamesFingerprint: "257fcb5f",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
@@ -1182,10 +1199,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // four rail track/bridge paints plus the train's six.
     // mirrorCandidates/mirrorDrawn move because the carve near the fixed
     // pose's frustum re-deals what the mirror cull ring holds.
+    // materials 228 -> 230: rail-brick/rail-platform, minted for every
+    // rail city once the London recipes exist, unused here.
     totalMeshes: 12_583,
     enabledMeshes: 12_539,
     activeMeshes: 1_840,
-    materials: 228,
+    materials: 230,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1196,7 +1215,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
     // "e2316bb7" -> "5469c8ba": the ten rail materials above.
-    survivingMaterialNamesFingerprint: "5469c8ba",
+    // -> "e5294a40": +rail-brick/+rail-platform (see the materials note).
+    survivingMaterialNamesFingerprint: "e5294a40",
   },
 };
 

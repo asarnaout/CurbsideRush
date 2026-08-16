@@ -4196,6 +4196,8 @@ const TOKYO_RAIL_LINES: readonly RailLine[] = [
       "jp-rail-signal-higashi-soto",
     ],
     elevatedSpans: [TOKYO_RAIL_BRIDGE_SPAN],
+    // Platforms + buffer stop at the Gotokuji stub end by spawn.
+    terminus: { at: "start" },
     schedule: {
       mode: "shuttle",
       speedMps: 8.5,

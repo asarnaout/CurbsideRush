@@ -46,6 +46,8 @@ export interface RailRenderCtx {
   readonly steel: StandardMaterial;
   readonly sleeper: StandardMaterial;
   readonly girder: StandardMaterial;
+  readonly brick: StandardMaterial;
+  readonly platform: StandardMaterial;
   readonly createRoadSurfaceMesh: (
     name: string,
     centerline: readonly GameCanvasPoint[],
@@ -62,6 +64,7 @@ function buildRailRibbon(
   namePrefix: string,
   railPoints: readonly GameCanvasPoint[],
   intervals: readonly RailInterval[],
+  baseY: number,
 ): void {
   // Each running rail is a chain of thin boxes, all instances of one hidden
   // unit master per line — segment count stays tiny (authored polylines are
@@ -89,7 +92,7 @@ function buildRailRibbon(
         );
         rail.position.set(
           (a.x + b.x) / 2,
-          RAIL_BALLAST_Y + RAIL_TOP_HEIGHT_M / 2 + 0.02,
+          baseY + RAIL_TOP_HEIGHT_M / 2 + 0.02,
           (a.z + b.z) / 2,
         );
         // Slight overlong so mitered joints never show a gap.
@@ -116,6 +119,7 @@ export function buildRailTracks(
   for (const line of railLines) {
     const lengthM = polylineLengthM(line.points);
     if (lengthM < 2) continue;
+    const baseY = RAIL_BALLAST_Y + (line.elevationM ?? 0);
     const elevated: RailInterval[] = (line.elevatedSpans ?? []).map((span) => ({
       startM: span.startM,
       endM: span.endM,
@@ -135,7 +139,7 @@ export function buildRailTracks(
         RAIL_BALLAST_WIDTH_M,
         ctx.ballast,
         false,
-        RAIL_BALLAST_Y,
+        baseY,
       );
     }
 
@@ -157,7 +161,7 @@ export function buildRailTracks(
       const sleeper = sleeperMaster.createInstance(
         `rail-sleeper-${line.id}-${index}`,
       );
-      sleeper.position.set(pose.x, RAIL_BALLAST_Y + SLEEPER_SIZE.height / 2, pose.z);
+      sleeper.position.set(pose.x, baseY + SLEEPER_SIZE.height / 2, pose.z);
       sleeper.rotation.y = pose.headingRad;
       sleeper.isPickable = false;
       ctx.addStatic(sleeper as unknown as Mesh, pose.x, pose.z);
@@ -165,14 +169,24 @@ export function buildRailTracks(
 
     // Rails run the whole line — ground, crossings and bridge decks sit at
     // one height, exactly like the road bridges' flat carriageways.
-    buildRailRibbon(ctx, `rail-track-${line.id}`, line.points, [
-      { startM: 0, endM: lengthM },
-    ]);
+    buildRailRibbon(
+      ctx,
+      `rail-track-${line.id}`,
+      line.points,
+      [{ startM: 0, endM: lengthM }],
+      baseY,
+    );
 
-    for (const span of (line.elevatedSpans ?? []).filter(
-      (candidate) => candidate.kind === "bridge",
-    )) {
-      buildRailBridge(ctx, line.id, line.points, span);
+    for (const span of line.elevatedSpans ?? []) {
+      if (span.kind === "bridge") {
+        buildRailBridge(ctx, line.id, line.points, span, line.elevationM ?? 0);
+      } else {
+        buildRailViaduct(ctx, line.id, line.points, span, line.elevationM ?? 0, roads);
+      }
+    }
+
+    if (line.terminus) {
+      buildRailTerminus(ctx, line.id, line.points, lengthM, line.terminus.at, baseY);
     }
   }
 }
@@ -195,16 +209,18 @@ function buildRailBridge(
   lineId: string,
   railPoints: readonly GameCanvasPoint[],
   span: { startM: number; endM: number },
+  elevationM: number,
 ): void {
   const sub = slicePolyline(railPoints, span.startM, span.endM);
   if (sub.length < 2) return;
+  const baseY = RAIL_BALLAST_Y + elevationM;
   ctx.createRoadSurfaceMesh(
     `rail-bridge-deck-${lineId}-${span.startM.toFixed(0)}`,
     sub,
     BRIDGE_DECK_WIDTH_M,
     ctx.steel,
     false,
-    RAIL_BALLAST_Y + 0.004,
+    baseY + 0.004,
   );
   const girderMaster = createBox(
     ctx.scene,
@@ -227,7 +243,7 @@ function buildRailBridge(
       );
       girder.position.set(
         (a.x + b.x) / 2,
-        RAIL_BALLAST_Y + BRIDGE_GIRDER_HEIGHT_M / 2 - 0.3,
+        baseY + BRIDGE_GIRDER_HEIGHT_M / 2 - 0.3,
         (a.z + b.z) / 2,
       );
       girder.scaling.x = length + BRIDGE_GIRDER_THICKNESS_M;
@@ -247,25 +263,195 @@ function buildRailBridge(
   pierMaster.isPickable = false;
   const spanLength = span.endM - span.startM;
   const bays = Math.max(1, Math.round(spanLength / BRIDGE_PIER_SPACING_M));
+  // On an elevated line the same pier stretches from the water up to the
+  // deck; at grade it is the original squat block sunk into the bank.
+  const pierStretch = (2.6 + elevationM) / 2.6;
+  const pierCentreY = -1.1 + elevationM / 2;
   for (let bay = 1; bay < bays; bay += 1) {
     const pose = polylinePoseAt(railPoints, span.startM + (spanLength * bay) / bays);
     const pier = pierMaster.createInstance(
       `rail-pier-${lineId}-${span.startM.toFixed(0)}-${bay}`,
     );
-    pier.position.set(pose.x, -1.1, pose.z);
+    pier.position.set(pose.x, pierCentreY, pose.z);
+    pier.scaling.y = pierStretch;
     pier.rotation.y = pose.headingRad - Math.PI / 2;
     pier.isPickable = false;
     ctx.addStatic(pier as unknown as Mesh, pose.x, pose.z);
   }
-  for (const endM of [span.startM, span.endM]) {
-    const pose = polylinePoseAt(railPoints, endM);
-    const abutment = pierMaster.createInstance(
-      `rail-abutment-${lineId}-${endM.toFixed(0)}`,
-    );
-    abutment.position.set(pose.x, -0.75, pose.z);
-    abutment.scaling.set(2.4, 1, 1.25);
-    abutment.rotation.y = pose.headingRad - Math.PI / 2;
-    abutment.isPickable = false;
-    ctx.addStatic(abutment as unknown as Mesh, pose.x, pose.z);
+  if (elevationM === 0) {
+    for (const endM of [span.startM, span.endM]) {
+      const pose = polylinePoseAt(railPoints, endM);
+      const abutment = pierMaster.createInstance(
+        `rail-abutment-${lineId}-${endM.toFixed(0)}`,
+      );
+      abutment.position.set(pose.x, -0.75, pose.z);
+      abutment.scaling.set(2.4, 1, 1.25);
+      abutment.rotation.y = pose.headingRad - Math.PI / 2;
+      abutment.isPickable = false;
+      ctx.addStatic(abutment as unknown as Mesh, pose.x, pose.z);
+    }
   }
+}
+
+const VIADUCT_DECK_WIDTH_M = 4.8;
+const VIADUCT_PARAPET_HEIGHT_M = 1.05;
+const VIADUCT_PARAPET_THICKNESS_M = 0.32;
+const VIADUCT_PIER_SPACING_M = 13;
+
+/**
+ * A brick viaduct bay-by-bay: deck strip, brick parapets both sides, and a
+ * pier per bay EXCEPT where one would land on a carriageway — the streets
+ * below thread the arches, exactly the Cairo flyover's pier-omission rule.
+ */
+function buildRailViaduct(
+  ctx: RailRenderCtx,
+  lineId: string,
+  railPoints: readonly GameCanvasPoint[],
+  span: { startM: number; endM: number },
+  elevationM: number,
+  roads: readonly {
+    readonly centerline: readonly GameCanvasPoint[];
+    readonly widthM: number;
+    readonly sidewalkWidthM?: number;
+  }[],
+): void {
+  const sub = slicePolyline(railPoints, span.startM, span.endM);
+  if (sub.length < 2 || elevationM <= 0) return;
+  const baseY = RAIL_BALLAST_Y + elevationM;
+  ctx.createRoadSurfaceMesh(
+    `rail-viaduct-deck-${lineId}-${span.startM.toFixed(0)}`,
+    sub,
+    VIADUCT_DECK_WIDTH_M,
+    ctx.brick,
+    false,
+    baseY + 0.002,
+  );
+  const parapetMaster = createBox(
+    ctx.scene,
+    `rail-viaduct-parapet-${lineId}-${span.startM.toFixed(0)}-master`,
+    { width: 1, height: VIADUCT_PARAPET_HEIGHT_M, depth: VIADUCT_PARAPET_THICKNESS_M },
+    Vector3.Zero(),
+    ctx.brick,
+  );
+  parapetMaster.isVisible = false;
+  parapetMaster.isPickable = false;
+  for (const lateral of [-(VIADUCT_DECK_WIDTH_M / 2 - 0.2), VIADUCT_DECK_WIDTH_M / 2 - 0.2]) {
+    const offset = offsetPolyline(sub, lateral);
+    for (let index = 0; index < offset.length - 1; index += 1) {
+      const a = offset[index];
+      const b = offset[index + 1];
+      const length = Math.hypot(b.x - a.x, b.z - a.z);
+      if (length < 0.05) continue;
+      const parapet = parapetMaster.createInstance(
+        `rail-viaduct-parapet-${lineId}-${span.startM.toFixed(0)}-${lateral > 0 ? "r" : "l"}-${index}`,
+      );
+      parapet.position.set(
+        (a.x + b.x) / 2,
+        baseY + VIADUCT_PARAPET_HEIGHT_M / 2 - 0.2,
+        (a.z + b.z) / 2,
+      );
+      parapet.scaling.x = length + VIADUCT_PARAPET_THICKNESS_M;
+      parapet.rotation.y = boxLengthYaw((b.x - a.x) / length, (b.z - a.z) / length);
+      parapet.isPickable = false;
+      ctx.addStatic(parapet as unknown as Mesh, parapet.position.x, parapet.position.z);
+    }
+  }
+  const pierMaster = createBox(
+    ctx.scene,
+    `rail-viaduct-pier-${lineId}-${span.startM.toFixed(0)}-master`,
+    { width: 1.7, height: 1, depth: 3.1 },
+    Vector3.Zero(),
+    ctx.brick,
+  );
+  pierMaster.isVisible = false;
+  pierMaster.isPickable = false;
+  const clearOfRoads = (pose: { x: number; z: number }): boolean =>
+    roads.every((road) => {
+      let best = Number.POSITIVE_INFINITY;
+      for (let index = 0; index < road.centerline.length - 1; index += 1) {
+        const a = road.centerline[index];
+        const b = road.centerline[index + 1];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const lengthSq = dx * dx + dz * dz;
+        const t = Math.max(
+          0,
+          Math.min(1, ((pose.x - a.x) * dx + (pose.z - a.z) * dz) / (lengthSq || 1)),
+        );
+        best = Math.min(
+          best,
+          Math.hypot(pose.x - (a.x + dx * t), pose.z - (a.z + dz * t)),
+        );
+      }
+      return best > road.widthM / 2 + (road.sidewalkWidthM ?? 2) + 1.4;
+    });
+  const spanLength = span.endM - span.startM;
+  const bays = Math.max(1, Math.round(spanLength / VIADUCT_PIER_SPACING_M));
+  for (let bay = 0; bay <= bays; bay += 1) {
+    const pose = polylinePoseAt(railPoints, span.startM + (spanLength * bay) / bays);
+    if (!clearOfRoads(pose)) continue;
+    const pier = pierMaster.createInstance(
+      `rail-viaduct-pier-${lineId}-${span.startM.toFixed(0)}-${bay}`,
+    );
+    // Sunk 0.4 so sloping ground never shows a floating pier foot.
+    pier.position.set(pose.x, (elevationM + 0.4) / 2 - 0.4, pose.z);
+    pier.scaling.y = elevationM + 0.4;
+    pier.rotation.y = pose.headingRad - Math.PI / 2;
+    pier.isPickable = false;
+    ctx.addStatic(pier as unknown as Mesh, pose.x, pose.z);
+  }
+}
+
+const TERMINUS_PLATFORM_LENGTH_M = 42;
+
+/** Two flanking platforms and a buffer stop at a shuttle's dwell end. */
+function buildRailTerminus(
+  ctx: RailRenderCtx,
+  lineId: string,
+  railPoints: readonly GameCanvasPoint[],
+  lengthM: number,
+  at: "start" | "end",
+  baseY: number,
+): void {
+  const from = at === "end" ? Math.max(0, lengthM - TERMINUS_PLATFORM_LENGTH_M - 2) : 2;
+  const to = at === "end" ? lengthM - 2 : Math.min(lengthM, TERMINUS_PLATFORM_LENGTH_M + 2);
+  const sub = slicePolyline(railPoints, from, to);
+  if (sub.length < 2) return;
+  const platformMaster = createBox(
+    ctx.scene,
+    `rail-terminus-${lineId}-platform-master`,
+    { width: 1, height: 0.62, depth: 2.3 },
+    Vector3.Zero(),
+    ctx.platform,
+  );
+  platformMaster.isVisible = false;
+  platformMaster.isPickable = false;
+  for (const lateral of [-2.8, 2.8]) {
+    const offset = offsetPolyline(sub, lateral);
+    for (let index = 0; index < offset.length - 1; index += 1) {
+      const a = offset[index];
+      const b = offset[index + 1];
+      const length = Math.hypot(b.x - a.x, b.z - a.z);
+      if (length < 0.05) continue;
+      const slab = platformMaster.createInstance(
+        `rail-terminus-${lineId}-platform-${lateral > 0 ? "r" : "l"}-${index}`,
+      );
+      slab.position.set((a.x + b.x) / 2, baseY + 0.31, (a.z + b.z) / 2);
+      slab.scaling.x = length;
+      slab.rotation.y = boxLengthYaw((b.x - a.x) / length, (b.z - a.z) / length);
+      slab.isPickable = false;
+      ctx.addStatic(slab as unknown as Mesh, slab.position.x, slab.position.z);
+    }
+  }
+  const stopPose = polylinePoseAt(railPoints, at === "end" ? lengthM - 1 : 1);
+  const buffer = createBox(
+    ctx.scene,
+    `rail-terminus-${lineId}-buffer`,
+    { width: 1.1, height: 1.15, depth: 2.6 },
+    new Vector3(stopPose.x, baseY + 0.55, stopPose.z),
+    ctx.sleeper,
+  );
+  buffer.rotation.y = stopPose.headingRad - Math.PI / 2;
+  buffer.isPickable = false;
+  ctx.addStatic(buffer, stopPose.x, stopPose.z);
 }

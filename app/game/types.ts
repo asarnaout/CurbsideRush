@@ -578,6 +578,18 @@ export interface RailLine {
   readonly crossingControlIds: readonly string[];
   readonly schedule: RailLineSchedule;
   readonly elevatedSpans?: readonly RailElevatedSpan[];
+  /**
+   * Constant deck height for a line carried on structure end-to-end
+   * (London's viaduct). Roads pass UNDER such a line — the corridor audit
+   * exempts elevated-span road crossings from needing a level crossing —
+   * and the train is unhittable, so no crossings and no contact checks.
+   * The line must be fully covered by `elevatedSpans` when this is set;
+   * ramps between ground and deck are deliberately unsupported.
+   */
+  readonly elevationM?: number;
+  /** Where the passenger platforms + buffer stop stand, for a shuttle whose
+   * dwell end is a real terminus rather than an off-map exit. */
+  readonly terminus?: { readonly at: "start" | "end" };
   readonly consist: RailConsist;
 }
 

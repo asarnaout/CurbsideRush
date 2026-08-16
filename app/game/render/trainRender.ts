@@ -212,9 +212,11 @@ export class TrainVisual {
   private readonly carsPerTrain: number;
   private readonly rigs: CarRig[] = [];
   private readonly speedMps: number;
+  private readonly elevationM: number;
 
   constructor(scene: Scene, line: RailLineContent) {
     this.points = line.points;
+    this.elevationM = line.elevationM ?? 0;
     this.simLine = {
       id: line.id,
       lengthM: polylineLengthM(line.points),
@@ -301,7 +303,7 @@ export class TrainVisual {
       while (dh > Math.PI) dh -= Math.PI * 2;
       while (dh < -Math.PI) dh += Math.PI * 2;
       const heading = rig.prev.heading + dh * blend;
-      rig.root.position.set(x, 0, z);
+      rig.root.position.set(x, this.elevationM, z);
       // polylinePoseAt heading is atan2(dx, dz); car length runs local +x,
       // so the yaw that aligns +x with (dx, dz) is heading - PI/2 in
       // Babylon's rotation.y frame (see boxLengthYaw).
@@ -309,8 +311,10 @@ export class TrainVisual {
     }
   }
 
-  /** Live car footprints for the player-collision check, in OBB form. */
+  /** Live car footprints for the player-collision check, in OBB form.
+   * An elevated line's train flies over the streets — nothing to hit. */
   carObstacles(): TrainCarObstacle[] {
+    if (this.elevationM > 2) return [];
     const result: TrainCarObstacle[] = [];
     for (const rig of this.rigs) {
       if (!rig.active) continue;

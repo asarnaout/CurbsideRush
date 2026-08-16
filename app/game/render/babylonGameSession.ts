@@ -4210,6 +4210,16 @@ export class BabylonGameSession {
         "rail-girder",
         new Color3(0.3, 0.42, 0.48),
       );
+      const railBrick = makeMaterial(
+        scene,
+        "rail-brick",
+        new Color3(0.42, 0.27, 0.22),
+      );
+      const railPlatform = makeMaterial(
+        scene,
+        "rail-platform",
+        new Color3(0.62, 0.6, 0.56),
+      );
       buildRailTracks(
         {
           scene,
@@ -4217,6 +4227,8 @@ export class BabylonGameSession {
           steel: railSteel,
           sleeper: railSleeper,
           girder: railGirder,
+          brick: railBrick,
+          platform: railPlatform,
           createRoadSurfaceMesh: (name, centerline, widthM, material, smoothClosed, surfaceY) =>
             this.createRoadSurfaceMesh(
               name,
@@ -4237,6 +4249,8 @@ export class BabylonGameSession {
       railSteel.freeze();
       railSleeper.freeze();
       railGirder.freeze();
+      railBrick.freeze();
+      railPlatform.freeze();
       for (const line of mapPack.geometry.railLines ?? []) {
         this.railTrains.push(new TrainVisual(scene, line));
       }

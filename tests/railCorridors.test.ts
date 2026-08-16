@@ -187,6 +187,7 @@ describe("rail corridors", () => {
     // ships a line. Grow this list as cities gain theirs.
     expect(railWorlds.map((world) => world.mapPack.id).sort()).toEqual([
       "cairo-central-nile",
+      "london-south-kensington",
       "nyc-upper-west-side",
       "tokyo-setagaya",
     ]);
@@ -225,9 +226,10 @@ describe("rail corridors", () => {
         expect(violations).toEqual([]);
       });
 
-      it("carries a level crossing wherever a road crosses the line", () => {
+      it("carries a level crossing wherever a road crosses the line at grade", () => {
         const missing: string[] = [];
         for (const line of world.railLines) {
+          const elevatedSpans = line.elevatedSpans ?? [];
           const crossingDistances = line.crossingControlIds.flatMap(
             (controlId) => {
               const control = world.mapPack.laneGraph.controls.find(
@@ -258,6 +260,12 @@ describe("rail corridors", () => {
                   z: a.z + (b.z - a.z) * t,
                 };
                 const along = distanceAlongAt(line.points, crossingPoint);
+                // A road under a bridge or viaduct threads the structure —
+                // no crossing wanted there, only clearance.
+                const flownOver = elevatedSpans.some(
+                  (span) => along >= span.startM - 1 && along <= span.endM + 1,
+                );
+                if (flownOver) continue;
                 const guarded = crossingDistances.some(
                   (candidate) => Math.abs(candidate - along) < 8,
                 );
