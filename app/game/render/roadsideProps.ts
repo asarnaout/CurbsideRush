@@ -1,6 +1,7 @@
 import {
   type AbstractMesh,
   Color3,
+  Constants,
   DynamicTexture,
   type Mesh,
   MeshBuilder,
@@ -304,10 +305,17 @@ export function buildRoadsideProps(
       headingDeg: block.headingDeg,
     })),
     landmarks: [
-      ...mapPack.geometry.landmarks.map((landmark) => ({
-        center: landmark.center,
-        size: landmark.size,
-      })),
+      // A bridge landmark is an illustrative rect ON a road (its center/size
+      // decorate the carriageway, spanning the whole crossing INCLUDING the
+      // land approaches). The carriageway itself already rejects scatter via
+      // isClearOfRoads, so as an exclusion the rect only wrongly shadows the
+      // kerb band — it kept all three Sakuragawa bridges lampless end to end.
+      ...mapPack.geometry.landmarks
+        .filter((landmark) => landmark.kind !== "bridge")
+        .map((landmark) => ({
+          center: landmark.center,
+          size: landmark.size,
+        })),
       // The rail right-of-way excludes scatter the same way a landmark rect
       // does — per-segment AABBs of the authored corridor, replacing the
       // retired `kind: "railway"` decal landmarks that used to shield it.
@@ -380,20 +388,31 @@ export function buildRoadsideProps(
       true,
     );
     const pctx = textureContext(poolTex);
-    const grad = pctx.createRadialGradient(64, 64, 3, 64, 64, 62);
-    grad.addColorStop(0, "rgba(255,190,110,0.85)");
-    grad.addColorStop(0.4, "rgba(255,155,80,0.42)");
+    // Wide bright core, long tail. The effective falloff is steeper than
+    // authored: with ALPHA_ADD the blend is src·alpha + dst, and the gradient
+    // rides in both the rgb and the alpha, so the add fades roughly as the
+    // square of these stops.
+    const grad = pctx.createRadialGradient(64, 64, 2, 64, 64, 62);
+    grad.addColorStop(0, "rgba(255,196,120,0.72)");
+    grad.addColorStop(0.22, "rgba(255,175,100,0.45)");
+    grad.addColorStop(0.55, "rgba(255,150,78,0.18)");
     grad.addColorStop(1, "rgba(255,140,60,0)");
     pctx.fillStyle = grad;
     pctx.fillRect(0, 0, 128, 128);
     poolTex.update();
     poolTex.hasAlpha = true;
     lampPool = new StandardMaterial("lamp-pool", scene);
-    // Dim warm tint (not white) so the pool reads as a soft sodium spill and
-    // its centre stays below the bloom threshold instead of blowing out.
-    lampPool.emissiveColor = new Color3(0.72, 0.44, 0.19);
+    // ADDITIVE, not alpha-combine: a combine pool at 85% centre alpha
+    // *replaces* the asphalt with a flat gradient card — the owner read it as
+    // "a yellow blurb, not lighting the street". Adding on top keeps the road
+    // texture visible through the glow, which is what makes it read as light
+    // falling on tarmac. Peak tuned to sit UNDER the night bloom threshold:
+    // at the first pass (0.8 emissive, 0.9 centre alpha) every pool bloomed
+    // into a white ellipse and the warm sodium colour was gone.
+    lampPool.emissiveColor = new Color3(0.62, 0.4, 0.17);
     lampPool.emissiveTexture = poolTex;
     lampPool.opacityTexture = poolTex;
+    lampPool.alphaMode = Constants.ALPHA_ADD;
     lampPool.diffuseColor = Color3.Black();
     lampPool.specularColor = Color3.Black();
     lampPool.disableLighting = true;
@@ -740,12 +759,18 @@ export function buildRoadsideProps(
           ...(lampPool
             ? [
                 {
+                  // 10 m pool pushed 2.1 m past the pole — with the pole
+                  // kerb-seated (curbOffsetM 0.7) that centres the spill
+                  // ~1.4 m INSIDE the carriageway, so the light visibly lands
+                  // on the street, spanning kerb to roughly mid-lane. (12 m
+                  // overlapped neighbouring pools into one washed band, and
+                  // overhung a bridge parapet onto the water below.)
                   master: masterBox(
                     `${cacheKey}-pool`,
-                    { width: 7, height: 0.02, depth: 7 },
+                    { width: 10, height: 0.02, depth: 10 },
                     lampPool,
                   ),
-                  offset: new Vector3(0, 0.07, 1.1),
+                  offset: new Vector3(0, 0.07, 2.1),
                   castShadow: false,
                 },
               ]
@@ -988,6 +1013,22 @@ export function buildRoadsideProps(
             ),
             offset: new Vector3(0, 2.81, 0),
           },
+          // A lantern casts a small warm circle around its own post — a
+          // quarter of a streetlight's spill, centred on the post since the
+          // chochin hangs on it rather than reaching over the road.
+          ...(lampPool
+            ? [
+                {
+                  master: masterBox(
+                    `${cacheKey}-pool`,
+                    { width: 5, height: 0.02, depth: 5 },
+                    lampPool,
+                  ),
+                  offset: new Vector3(0, 0.07, 0),
+                  castShadow: false,
+                },
+              ]
+            : []),
         ];
         break;
       }

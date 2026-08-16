@@ -71,6 +71,16 @@ export interface MapVisualPalette {
    */
   readonly night?: boolean;
   /**
+   * Night maps only: this palette's override of the moonlit rig's
+   * hemispheric/sun intensities (defaults 0.64/0.6 — NYC's tuning, applied
+   * when unset). Tokyo runs both higher: its sky, ground and sunTint are all
+   * authored cooler and darker than NYC's, so the identical rig play-tested
+   * as "very dim" there. A palette field so one night city can brighten
+   * without touching the other.
+   */
+  readonly nightHemiIntensity?: number;
+  readonly nightSunIntensity?: number;
+  /**
    * Day map's own ceiling on the fog's far end (metres). The size formula
    * hands a large day map up to 1100 m of draw; a palette that wants an
    * atmosphere shorter than its geography — Cairo's dust haze — caps it here,
@@ -228,10 +238,15 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     sunTint: "#9fb2e8",
     paved: true,
     // Cooler than NYC's neutral concrete: Tokyo's asphalt and pavement lean
-    // blue under the mercury-vapour-ish street lighting.
-    groundBase: "#2e323d",
-    pavement: "#3d4250",
+    // blue under the mercury-vapour-ish street lighting. Lifted a step from
+    // the original #2e323d/#3d4250 alongside the nightHemi/SunIntensity
+    // overrides below — the owner read the streets as "very dim" with both
+    // at NYC's values.
+    groundBase: "#39404e",
+    pavement: "#4a5162",
     night: true,
+    nightHemiIntensity: 0.78,
+    nightSunIntensity: 0.72,
     // No fogEndCapM: night's own 100/440m clamp (resolveEffectiveFogRange)
     // already governs a night map's draw distance — a second cap here would
     // just fight it.
@@ -1031,9 +1046,12 @@ export interface PropKindConfig {
   readonly lateralMarginM: number;
   /**
    * Optional centre offset beyond the carriageway edge, seating a prop at the
-   * kerb — before the sidewalk rather than beyond its outer edge. No prop kind
-   * sets it today (Cairo's kerb-parked vehicles were removed); it survives as
-   * the hook anything parked at the kerb would need.
+   * kerb — before the sidewalk rather than beyond its outer edge. Tokyo's
+   * streetlights set it (0.7 m): its street wall hugs the pavement edge, so
+   * the default beyond-the-sidewalk band landed lamps inside buildings and
+   * whole streets went dark. A kerb-seated candidate also skips the open-water
+   * rejection — it stands on its own road's kerb, which exists wherever the
+   * road does, bridge decks included.
    */
   readonly curbOffsetM?: number;
   readonly bothSides: boolean;
@@ -1259,6 +1277,15 @@ export function generateRoadsidePropPlacements(
               random() *
                 Math.max(0, (kindConfig.maxScale ?? 1) - (kindConfig.minScale ?? 1));
             const variant = Math.floor(random() * kindConfig.variants);
+            // A kerb-seated candidate over water is standing on a bridge
+            // deck: its road's kerb exists wherever the road does, and the
+            // water polygon there runs UNDER the carriageway. Testing decks
+            // against open water is how all three Sakuragawa bridges shipped
+            // pitch dark — every kerb lamp candidate "stood in the river".
+            // (Bridge LANDMARK rects are the other half of that bug; the
+            // call site never passes them — see buildRoadsideProps.) None of
+            // these rejection tests consume seeded draws, so acceptance
+            // changes never shift the stream for later kinds.
             if (
               Math.abs(candidate.x) > halfWorldX ||
               Math.abs(candidate.z) > halfWorldZ ||
@@ -1267,7 +1294,8 @@ export function generateRoadsidePropPlacements(
                 surface.id,
                 kindConfig.curbOffsetM,
               ) ||
-              isOverWater(candidate, input.waterPolygons ?? []) ||
+              (kindConfig.curbOffsetM === undefined &&
+                isOverWater(candidate, input.waterPolygons ?? [])) ||
               input.blocks.some((rect) => isInsideInflatedRect(candidate, rect)) ||
               input.landmarks.some((rect) =>
                 isInsideInflatedRect(candidate, rect),

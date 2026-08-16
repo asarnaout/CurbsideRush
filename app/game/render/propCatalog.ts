@@ -324,10 +324,20 @@ export function roadsidePropKindsForMap(
         // pavement by the kerb instead (its documented purpose), where a
         // real Japanese streetlight stands and where no street wall can
         // swallow it. 0.7 m keeps the pole (0.32 m radius) clear of both
-        // the carriageway and the walker rail. Same random-draw count per
-        // candidate as the default branch, so the shared seeded stream
-        // stays aligned for the kinds below (the P9 retune trap).
-        { ...PROP_STREETLIGHT, curbOffsetM: 0.7 },
+        // the carriageway and the walker rail.
+        //
+        // 38 -> 24 m spacing (owner: "not enough street lights", then "I'd
+        // prefer an alternating pattern"): the density bump must live in
+        // THIS pass, not a second appended streetlight pass — two
+        // independent passes each carry their own side toggle and phase, so
+        // their union produced same-side pairs and face-to-face pairs
+        // instead of the strict left-gap-right-gap rhythm one alternating
+        // walk gives (a rejected candidate still flips the toggle, so
+        // rejections leave gaps, never same-side pairs). Retuning spacing
+        // here re-dealt every kind below once (the P9 trap, accepted
+        // deliberately in that change); keep any FUTURE additions appended
+        // after the last kind so the stream stays aligned.
+        { ...PROP_STREETLIGHT, curbOffsetM: 0.7, spacingM: 24, jitterM: 5 },
         {
           kind: "utility-pole",
           spacingM: 32,

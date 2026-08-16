@@ -287,9 +287,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // rail city once the London viaduct/terminus recipes exist, used or not.
     // materials 204 -> 205: rail-deck, minted per rail city (no bridge
     // meshes here — the Queens line never crosses water).
+    // activeMeshes 962 -> 963 (Tokyo street-lighting pass): the shared lamp
+    // light-pool decal grew 7 -> 10 m, so one more streetlight's pool box
+    // crosses the fixed pose's frustum edge. Totals hold — NYC's lamp count
+    // and per-lamp part list are untouched by the Tokyo-only retune.
     totalMeshes: 29_847,
     enabledMeshes: 29_797,
-    activeMeshes: 962,
+    activeMeshes: 963,
     materials: 205,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1044,15 +1048,27 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // corniche parapet builds the same number of pieces from shorter runs
     // (Cairo's row is untouched), the girder guards are invisible sim
     // obstacles, and the pier-cap sink is position-only.
-    totalMeshes: 20_600,
-    enabledMeshes: 20_575,
-    activeMeshes: 1_700,
+    // -> 23_465/23_440 (+2_865, active 1_700 -> 1_758; owner-requested
+    // street lighting): the single alternating streetlight walk retunes
+    // 38 -> 24 m (1_168 -> 1_889 lamps x 4 instanced parts each incl. the
+    // light pool), every chochin post gains a pool part, and kerb-seated
+    // lamps are no longer rejected over water / inside the illustrative
+    // bridge landmarks — all three Sakuragawa bridges light up. The spacing
+    // retune re-deals the one shared seeded stream for the kinds after
+    // streetlight (signs 156 -> 142, trees 281 -> 277, vending 300 -> 292,
+    // utility poles 549 -> 551), which is the small negative correction on
+    // the raw +2_884 lamp-part delta. mirrorCandidates 196 -> 244 /
+    // mirrorDrawn 262 -> 263: the mirror cull ring around spawn now holds
+    // the denser lamp line's parts.
+    totalMeshes: 23_465,
+    enabledMeshes: 23_440,
+    activeMeshes: 1_758,
     materials: 298,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 196,
-    mirrorDrawn: 262,
+    mirrorCandidates: 244,
+    mirrorDrawn: 263,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1248,9 +1264,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // bridge abutments where the line pierces the corniche), and each of
     // those prop kinds is 3 mesh instances, 4 x 3 = -12. Nothing else
     // moves: active/materials/mirror/fingerprint all unchanged.
-    totalMeshes: 12_577,
-    enabledMeshes: 12_533,
-    activeMeshes: 1_839,
+    // -> 12_604/12_560 (+27, active 1_839 -> 1_851; Tokyo street-lighting
+    // pass, shared-rule side effect): bridge landmarks no longer feed the
+    // roadside-scatter exclusion list anywhere — they are illustrative
+    // rects ON a carriageway, and the carriageway test already rejects
+    // scatter, so as exclusions they only shadowed the kerb bands of the
+    // Nile bridges' LAND approaches. A handful of palms/trees/bollards
+    // return to those approaches (+27 part meshes), several inside the
+    // fixed pose's frustum (+12 active). Materials/mirrors/fingerprint
+    // hold.
+    totalMeshes: 12_604,
+    enabledMeshes: 12_560,
+    activeMeshes: 1_851,
     materials: 231,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

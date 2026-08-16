@@ -4026,7 +4026,9 @@ export class BabylonGameSession {
     // ground bounce, so building faces + the street pick up sodium warmth
     // against the cool sky — the classic blue-hour warm/cool split. Bright
     // enough that the road + car stay clearly readable.
-    hemi.intensity = night ? 0.64 : 0.5;
+    // Night defaults are NYC's tuning; a palette may override both (Tokyo
+    // runs brighter — see MapVisualPalette.nightHemiIntensity).
+    hemi.intensity = night ? palette.nightHemiIntensity ?? 0.64 : 0.5;
     hemi.diffuse = night
       ? new Color3(0.44, 0.54, 0.76)
       : new Color3(0.82, 0.88, 0.98);
@@ -4034,7 +4036,7 @@ export class BabylonGameSession {
       ? new Color3(0.38, 0.29, 0.18)
       : new Color3(0.34, 0.3, 0.24);
     const sun = new DirectionalLight("scenario-sun", new Vector3(-0.42, -1, 0.48), scene);
-    sun.intensity = night ? 0.6 : 1.3;
+    sun.intensity = night ? palette.nightSunIntensity ?? 0.6 : 1.3;
     if (night) scene.ambientColor = new Color3(0.23, 0.22, 0.26);
     const scenarioSunShadows = createSunShadows(
       {
