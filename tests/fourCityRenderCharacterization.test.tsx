@@ -979,10 +979,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // snapshot places it, which this suite's unstepped scene never does.
     // materials 287 -> 293: the tram's six (body/accent/glass/under/roof/
     // lamp), fingerprint moves for the same additions.
-    totalMeshes: 19_640,
-    enabledMeshes: 19_615,
-    activeMeshes: 1_607,
-    materials: 293,
+    //
+    // -> 20_587/20_562 (+947 total, +947 enabled; active 1_607 -> 1_688):
+    // the Setagaya Line's east extension (x=280 -> 1306). ~820 instanced
+    // sleepers over the new ballast runs plus the girder bridge's open deck,
+    // 6 generated crossings x 12 gate meshes (72), the bridge itself (deck
+    // strip, 2 side-girder instances, 4 piers, 2 abutments), a handful of
+    // new ballast strips, and the kawabe-koen-b/jp-v8 re-deals. materials
+    // 293 -> 294: `rail-girder`, the one new bridge paint.
+    totalMeshes: 20_587,
+    enabledMeshes: 20_562,
+    activeMeshes: 1_688,
+    materials: 294,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1106,7 +1114,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // documented in the mesh paragraph above (three `landmark-jp-setagaya-
     // line*` out, `rail-ballast`/`rail-steel`/`rail-sleeper` in).
     // "209b241d" -> "08173393": the tram's six train-* materials above.
-    survivingMaterialNamesFingerprint: "08173393",
+    // "08173393" -> "6b9c2401": +1 `rail-girder` (the bridge paint).
+    survivingMaterialNamesFingerprint: "6b9c2401",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
