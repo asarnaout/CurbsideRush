@@ -1168,7 +1168,9 @@ const NYC_RAIL_LINES: readonly RailLine[] = [
       warningLeadSeconds: 10,
       clearTrailSeconds: 2,
     },
-    consist: { kind: "diesel_freight", cars: 6, liveryHex: "#2e3f4a", accentHex: "#d8a13a" },
+    // Light enough to read as a train at night — #2e3f4a proofed near-black
+    // under the Queens streetlights.
+    consist: { kind: "diesel_freight", cars: 6, liveryHex: "#48606f", accentHex: "#d8a13a" },
   },
 ];
 
