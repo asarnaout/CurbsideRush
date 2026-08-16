@@ -1,7 +1,8 @@
 import {
+  Color3,
   Mesh,
   type Scene,
-  type StandardMaterial,
+  StandardMaterial,
   Vector3,
 } from "@babylonjs/core";
 import { createBox } from "./meshPrimitives";
@@ -48,6 +49,9 @@ const SLEEPER_SIZE = { width: 2.3, height: 0.06, depth: 0.26 };
 
 export interface RailRenderCtx {
   readonly scene: Scene;
+  /** Palette night flag — the depot shed's gable lamp blazes only at night
+   * (same warm sodium values as the roadside streetlights). */
+  readonly night: boolean;
   readonly ballast: StandardMaterial;
   readonly steel: StandardMaterial;
   readonly sleeper: StandardMaterial;
@@ -305,7 +309,10 @@ function buildRailBridge(
   // On an elevated line the same pier stretches from the water up to the
   // deck; at grade it is the original squat block sunk into the bank.
   const pierStretch = (2.6 + elevationM) / 2.6;
-  const pierCentreY = -1.1 + elevationM / 2;
+  // Cap the pier at 0.035 + elevation: just under the ballast plane (0.04)
+  // so no pale cap ever lies across the rails, and 1 cm proud of the water
+  // (0.025) so a side view still shows piers standing in the river.
+  const pierCentreY = -1.265 + elevationM / 2;
   for (let bay = 1; bay < bays; bay += 1) {
     const pose = polylinePoseAt(railPoints, span.startM + (spanLength * bay) / bays);
     const pier = pierMaster.createInstance(
@@ -570,6 +577,42 @@ function buildRailDepotShed(
   header.rotation.y = boxLengthYaw(-layout.fz, layout.fx);
   header.isPickable = false;
   ctx.addStatic(header, headerAt.x, headerAt.z);
+  // A lit gable lamp over the portal (owner-requested): shade on the header
+  // band, warm glow head under it — the same sodium diffuse/emissive pair the
+  // roadside streetlights use, so it blooms identically at night. The
+  // material is minted here, not in the shared rail ctx, so only a city that
+  // actually ships a depot shed carries it.
+  const lampMaterial = new StandardMaterial(`rail-shed-${lineId}-lamp`, ctx.scene);
+  lampMaterial.diffuseColor = new Color3(0.85, 0.66, 0.4);
+  lampMaterial.specularColor = Color3.Black();
+  lampMaterial.emissiveColor = ctx.night
+    ? new Color3(1.5, 0.86, 0.34)
+    : new Color3(0.3, 0.26, 0.12);
+  lampMaterial.freeze();
+  const lampAt = {
+    x: headerAt.x + layout.fx * 0.35,
+    z: headerAt.z + layout.fz * 0.35,
+  };
+  const lampShade = createBox(
+    ctx.scene,
+    `rail-shed-${lineId}-lamp-shade`,
+    { width: 0.66, height: 0.16, depth: 0.38 },
+    new Vector3(lampAt.x, 5.46, lampAt.z),
+    ctx.girder,
+  );
+  lampShade.rotation.y = boxLengthYaw(-layout.fz, layout.fx);
+  lampShade.isPickable = false;
+  ctx.addStatic(lampShade, lampAt.x, lampAt.z);
+  const lampGlow = createBox(
+    ctx.scene,
+    `rail-shed-${lineId}-lamp-glow`,
+    { width: 0.52, height: 0.24, depth: 0.28 },
+    new Vector3(lampAt.x, 5.24, lampAt.z),
+    lampMaterial,
+  );
+  lampGlow.rotation.y = boxLengthYaw(-layout.fz, layout.fx);
+  lampGlow.isPickable = false;
+  ctx.addStatic(lampGlow, lampAt.x, lampAt.z);
   // A stepped gable roof: three stacked slabs, faceted like the rest of the
   // kit — no pitched-box Euler gymnastics, and the step ends read as gables
   // at both faces. Widths/heights close over the eaves up toward the ridge.

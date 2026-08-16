@@ -1034,10 +1034,20 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the shed stands beside spawn, inside the fixed pose's frustum, while
     // the removed chochin was far outside it. materials and the fingerprint
     // are unchanged: the shed reuses rail-platform/rail-girder/rail-sleeper.
-    totalMeshes: 20_598,
-    enabledMeshes: 20_573,
-    activeMeshes: 1_698,
-    materials: 297,
+    // -> 20_600/20_575 (+2, active 1_698 -> 1_700, materials 297 -> 298;
+    // owner-requested depot lamp + drivable bridges): the shed's gable lamp
+    // is 2 meshes (shade + glow) in the spawn frustum, and its warm
+    // material (`rail-shed-jp-setagaya-line-run-lamp`, minted only where a
+    // depot shed exists) is the +1 — the fingerprint moves for it. The
+    // drivable-bridge pass moves NO counts anywhere: the shoreline collider
+    // runs now arrive pre-split around at-grade bridge mouths, so the
+    // corniche parapet builds the same number of pieces from shorter runs
+    // (Cairo's row is untouched), the girder guards are invisible sim
+    // obstacles, and the pier-cap sink is position-only.
+    totalMeshes: 20_600,
+    enabledMeshes: 20_575,
+    activeMeshes: 1_700,
+    materials: 298,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1164,7 +1174,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "08173393" -> "6b9c2401": +1 `rail-girder` (the bridge paint).
     // -> "257fcb5f": +rail-brick/+rail-platform (terminus platforms note).
     // -> "473e5725": +rail-deck (bridge-fix pass).
-    survivingMaterialNamesFingerprint: "473e5725",
+    // -> "7d957807": +rail-shed-jp-setagaya-line-run-lamp (the depot shed's
+    // gable lamp, minted only where a depot shed exists).
+    survivingMaterialNamesFingerprint: "7d957807",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-

@@ -61,7 +61,12 @@ import {
 } from "./geometry/buildingLayout";
 import { relaxationPolicyForMap } from "./geometry/cityRelaxationPolicies";
 import { landmarkGroundSolids, type GroundSolid } from "./geometry/landmarkGroundSolids";
-import { railTerminusShedLayout } from "./geometry/railGeometry";
+import {
+  RAIL_BRIDGE_MOUTH_CLEAR_M,
+  railBridgeGuardRects,
+  railTerminusShedLayout,
+  slicePolyline,
+} from "./geometry/railGeometry";
 // Re-exported: this adapter is where render/babylonGameSession.ts and several
 // tests have always imported venue placement from, and geometry/venuePlacement.ts
 // (its new home, extracted to break the adapter/keep-out import cycle — see
@@ -866,6 +871,19 @@ export function buildStaticObstacles({
   // never silently become a bridge. Whitelisted over-water spans receive
   // paired parapet OBBs, closing the former route off the side of a bridge and
   // onto the flat water material while leaving its travel corridor open.
+  // Drivable at-grade rail bridges (owner-requested): each `bridge` span on a
+  // line with no `elevationM` opens the shoreline the way a whitelisted road
+  // bridge does, and the guard pair below keeps a crossing car between the
+  // girders. London's fully elevated line deliberately does NOT open its
+  // banks — its shoreline stays solid under the flyover.
+  const atGradeRailBridges = (mapPack.geometry.railLines ?? [])
+    .filter((line) => !line.elevationM)
+    .flatMap((line) =>
+      (line.elevatedSpans ?? [])
+        .filter((span) => span.kind === "bridge")
+        .map((span) => slicePolyline(line.points, span.startM, span.endM)),
+    );
+
   for (const water of mapPack.geometry.waterBodies ?? []) {
     if (water.polygon.length < 3) continue;
     const portalSurfaceIds = new Set(
@@ -902,6 +920,23 @@ export function buildStaticObstacles({
           if (opening === null) continue;
           // Account for the 0.75 m physical depth of the shoreline OBB itself,
           // so a cut remains open when the portal meets a polygon vertex.
+          const edgePaddingT = 1.25 / edgeLength;
+          openings.push({
+            start: Math.max(0, opening.start - edgePaddingT),
+            end: Math.min(1, opening.end + edgePaddingT),
+          });
+        }
+      }
+      for (const bridge of atGradeRailBridges) {
+        for (let index = 0; index < bridge.length - 1; index += 1) {
+          const opening = portalIntervalOnShoreEdge(
+            from,
+            to,
+            bridge[index],
+            bridge[index + 1],
+            RAIL_BRIDGE_MOUTH_CLEAR_M,
+          );
+          if (opening === null) continue;
           const edgePaddingT = 1.25 / edgeLength;
           openings.push({
             start: Math.max(0, opening.start - edgePaddingT),
@@ -1183,6 +1218,29 @@ export function buildStaticObstacles({
         z: item.position.z,
         radius: LONDON_FURNITURE_RADIUS_M,
       });
+    }
+  }
+
+  // Girder guards on every drivable at-grade bridge span: with the shoreline
+  // mouth open (above), these are what keep a crossing car out of the water.
+  // Same not-across-the-gauge audit rule as the depot shed's walls.
+  for (const line of mapPack.geometry.railLines ?? []) {
+    if (line.elevationM) continue;
+    for (const span of line.elevatedSpans ?? []) {
+      if (span.kind !== "bridge") continue;
+      for (const solid of railBridgeGuardRects(line.points, span)) {
+        obstacles.push({
+          kind: "obb",
+          id: `rail-bridge-guard-${line.id}-${solid.id}`,
+          tag: "railBridge",
+          x: solid.x,
+          z: solid.z,
+          ux: solid.ux,
+          uz: solid.uz,
+          halfU: solid.halfU,
+          halfV: solid.halfV,
+        });
+      }
     }
   }
 

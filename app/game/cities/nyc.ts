@@ -1161,10 +1161,15 @@ const NYC_RAIL_LINES: readonly RailLine[] = [
       mode: "through",
       speedMps: 12,
       trainLengthM: 78,
-      // Slower cadence than travel time (3 km at 12 m/s), so at most one
-      // train per direction is ever on the strip — TrainVisual budgets two
-      // rigs for a through line.
-      headwaySeconds: 300,
+      // A through timetable alternates directions every half-headway on ONE
+      // track, so the half-headway must exceed a full traversal —
+      // (3000 + 78) / 12 ≈ 256.5 s. The old 300 reasoned per-direction and
+      // missed the opposing offset: both directions shared the strip for
+      // ~106 s per cycle (the same head-on meet the owner caught in Cairo).
+      // 540/2 = 270 s leaves ~13 s of clear track between opposing runs;
+      // tests/railCorridors.test.ts samples the whole cycle to prove it.
+      // TrainVisual still budgets two rigs for a through line.
+      headwaySeconds: 540,
       warningLeadSeconds: 10,
       clearTrailSeconds: 2,
     },

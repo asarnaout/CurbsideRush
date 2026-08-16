@@ -109,7 +109,10 @@ import {
 } from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
 import { buildRailTracks } from "./railLayer";
-import { splitParapetRunAroundRails } from "../geometry/railGeometry";
+import {
+  RAIL_BRIDGE_MOUTH_CLEAR_M,
+  splitParapetRunAroundRails,
+} from "../geometry/railGeometry";
 import { TrainVisual } from "./trainRender";
 import { BuildingLayer, type DebugBuildingAssetPolicy } from "./buildingLayer";
 import {
@@ -4123,12 +4126,14 @@ export class BabylonGameSession {
         for (const run of parapetRuns) {
           // The rail line pierces the shoreline at its bridge abutments; a
           // parapet wall there would stand across the tracks. Split the run
-          // and keep the flanks — the collider underneath stays (the
-          // corridor is not drivable), only the visible wall yields.
+          // and keep the flanks, at the same mouth clearance the adapter
+          // opens the shoreline COLLIDER with — at-grade bridges are
+          // drivable, and the wall face must end exactly where the solid
+          // does (never an invisible wall past a visible end).
           for (const [pieceIndex, piece] of splitParapetRunAroundRails(
             run,
             mapPack.geometry.railLines ?? [],
-            8,
+            RAIL_BRIDGE_MOUTH_CLEAR_M,
           ).entries()) {
             const parapet = parapetMaster.createInstance(
               `${run.id}-parapet-${pieceIndex}`,
@@ -4282,6 +4287,7 @@ export class BabylonGameSession {
       buildRailTracks(
         {
           scene,
+          night: this.visualPalette?.night ?? false,
           ballast,
           steel: railSteel,
           sleeper: railSleeper,

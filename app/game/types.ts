@@ -660,6 +660,7 @@ export type StaticObstacleTag =
   | "venue"
   | "shoreline"
   | "parkEdge"
+  | "railBridge"
   | "railShed"
   | "worldEdge";
 

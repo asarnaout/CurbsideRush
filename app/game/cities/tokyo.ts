@@ -4671,8 +4671,12 @@ export const TOKYO_MAP_PACK: MapPack = {
           approach("jp-rail-westbound-approach", "jp-south-west-2", 48, "railway", ["jp-rail-conflict"]),
         ],
         [
-          installation("jp-rail-east-crossing", 12, -77, 90, "railway_crossing", "japan_railway", "primary"),
-          installation("jp-rail-west-crossing", 24, -67, 270, "railway_crossing", "japan_railway", "secondary"),
+          // armHeadingDeg aims each boom at Yamashita St's carriageway
+          // (z=-72): the legacy heading-implied arm pointed both of these at
+          // the sidewalk (owner-reported class; the corridor audit now
+          // asserts every boom tip sweeps its road).
+          installation("jp-rail-east-crossing", 12, -77, 90, "railway_crossing", "japan_railway", "primary", undefined, 0),
+          installation("jp-rail-west-crossing", 24, -67, 270, "railway_crossing", "japan_railway", "secondary", undefined, 180),
         ]),
       // Second level crossing (Tokyo expansion Phase 5, §8.6): the rail
       // extension above crosses jp-ichiban-dori at (180,-10). Cloned in

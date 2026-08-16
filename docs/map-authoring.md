@@ -536,7 +536,13 @@ keeps off it. Three rules keep the corridor honest:
 roads then thread the arches — the audit exempts elevated-span intersections
 from the crossing rule, viaduct piers dodge carriageways, and the train
 reports no obstacles. Ramps between ground and deck are deliberately
-unsupported. `terminus` dresses a shuttle's dwell end: `style: "platforms"`
+unsupported. An at-grade `bridge` span is DRIVABLE (owner-requested): the
+adapter opens the shoreline collider a `RAIL_BRIDGE_MOUTH_CLEAR_M` mouth
+either side of the track (the corniche parapet's visual split uses the same
+constant, so wall face and collider always end together) and lays solid
+`railBridge` guards along the girders — the audit asserts a guard on each
+side of every such span, and that nothing crosses the running gauge. A
+fully elevated line keeps its banks closed. `terminus` dresses a shuttle's dwell end: `style: "platforms"`
 (the default) is open platforms + a buffer stop; `style: "depot_shed"` is an
 enclosed shed the dwelling consist hides inside (Tokyo — its stub is only
 40 m from a level crossing, too short for open platforms). Shed walls become

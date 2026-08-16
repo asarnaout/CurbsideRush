@@ -262,14 +262,33 @@ export const RAIL_SHED_EAVE_HEIGHT_M = 5.6;
 export const RAIL_SHED_PORTAL_HALF_OPENING_M = 2.3;
 export const RAIL_SHED_PORTAL_CLEAR_HEIGHT_M = 5.0;
 export const RAIL_SHED_RIDGE_HEIGHT_M = 6.7;
-/** No shed solid may reach within this half-width of the centreline — the
- * corridor audit's floor for the `railShed` exemption. */
-export const RAIL_SHED_GAUGE_CLEAR_M = 2.2;
+/** No shed or bridge-guard solid may reach within this half-width of the
+ * centreline — the corridor audit's floor for the `railShed`/`railBridge`
+ * exemptions. Wider than the widest consist (2.55 m cars). */
+export const RAIL_GAUGE_CLEAR_M = 2.2;
 
-/** One solid shed piece as a plan-view OBB: U is the unit long axis with
- * half-length `halfU`, V its perpendicular `(uz, -ux)` with `halfV` — the
- * exact axis convention `StaticObstacle`'s `obb` kind uses. */
-export interface RailShedSolid {
+/**
+ * Drivable at-grade rail bridges (owner-requested): a car may cross a
+ * `bridge` span on a line with no `elevationM`, so the shoreline collider
+ * opens a mouth either side of the track and a pair of solid guards runs
+ * along the girders to keep a straying car out of the water. The mouth
+ * half-width is also the corniche parapet's visual split clearance — the
+ * wall face and the collider end together, never an invisible wall.
+ */
+export const RAIL_BRIDGE_MOUTH_CLEAR_M = 3.0;
+/** Guard centreline offset and half-depth: inner face 2.25 (outside the
+ * running gauge, flush-ish with the visible girder), outer face 3.25
+ * (overlapping the mouth edge so no car-width gap opens at the abutment). */
+export const RAIL_BRIDGE_GUARD_LATERAL_M = 2.75;
+export const RAIL_BRIDGE_GUARD_HALF_DEPTH_M = 0.5;
+/** Metres each guard runs past the span ends onto the bank, sealing the
+ * corner between the girder and the split shoreline wall. */
+export const RAIL_BRIDGE_GUARD_OVERRUN_M = 3.5;
+
+/** One solid rail-structure piece as a plan-view OBB: U is the unit long
+ * axis with half-length `halfU`, V its perpendicular `(uz, -ux)` with
+ * `halfV` — the exact axis convention `StaticObstacle`'s `obb` kind uses. */
+export interface RailStructureSolid {
   readonly id: string;
   readonly x: number;
   readonly z: number;
@@ -290,7 +309,7 @@ export interface RailShedLayout {
   /** Unit direction from the tip INTO the line (out through the portal). */
   readonly fx: number;
   readonly fz: number;
-  readonly solids: readonly RailShedSolid[];
+  readonly solids: readonly RailStructureSolid[];
 }
 
 /** The depot shed's solid pieces: two side walls, the rear gable wall behind
@@ -312,7 +331,7 @@ export function railTerminusShedLayout(
   const rz = -fx;
   const shedLength = toM - fromM;
   const rearOverhangM = 0.6;
-  const solids: RailShedSolid[] = [];
+  const solids: RailStructureSolid[] = [];
   for (const side of [-1, 1]) {
     solids.push({
       id: side > 0 ? "wall-r" : "wall-l",
@@ -352,6 +371,74 @@ export function railTerminusShedLayout(
     heightM: RAIL_SHED_EAVE_HEIGHT_M,
   });
   return { fromM, toM, tipX: tip.x, tipZ: tip.z, fx, fz, solids };
+}
+
+/** Lowered crossing-boom length — shared by the renderer and the corridor
+ * audit's boom-sweeps-the-carriageway assertion. */
+export const RAIL_GATE_BARRIER_LENGTH_M = 4.6;
+
+/**
+ * The world-plane direction a crossing gate's lowered boom extends toward.
+ * With `armHeadingDeg` set it IS the compass direction of the boom (the
+ * generator aims it at the carriageway explicitly). Without it, the legacy
+ * mapping applies: a `+X` arm under `rotation.y = radians(headingDeg)`
+ * lands 90° clockwise of the pole's facing — the implicit twist that let
+ * sixteen generated booms across three cities point at the sidewalk
+ * (owner-reported) whenever road/rail orientation didn't happen to align.
+ * One function, imported by BOTH `trafficControlRender` and the audit, so
+ * the assertion can never drift from what the renderer draws.
+ */
+export function railGateArmDirection(
+  headingDeg: number,
+  armHeadingDeg?: number,
+): GameCanvasPoint {
+  if (armHeadingDeg !== undefined) {
+    const compass = (armHeadingDeg * Math.PI) / 180;
+    return { x: Math.sin(compass), z: Math.cos(compass) };
+  }
+  const yaw = (headingDeg * Math.PI) / 180;
+  return { x: Math.cos(yaw), z: -Math.sin(yaw) };
+}
+
+/**
+ * The solid guards flanking a drivable at-grade bridge span: one OBB per
+ * offset segment per side, riding the girder line and overrunning the span
+ * ends onto the bank. The adapter turns these into `railBridge` obstacles;
+ * the visible girders (railLayer) are their own meshes — same centreline,
+ * so what stops the car is what the player sees.
+ */
+export function railBridgeGuardRects(
+  railPoints: readonly GameCanvasPoint[],
+  span: RailInterval,
+): RailStructureSolid[] {
+  const solids: RailStructureSolid[] = [];
+  const sub = slicePolyline(railPoints, span.startM, span.endM);
+  if (sub.length < 2) return solids;
+  for (const side of [-1, 1]) {
+    const offset = offsetPolyline(sub, RAIL_BRIDGE_GUARD_LATERAL_M * side);
+    for (let index = 0; index < offset.length - 1; index += 1) {
+      const a = offset[index];
+      const b = offset[index + 1];
+      const length = Math.hypot(b.x - a.x, b.z - a.z);
+      if (length < 0.05) continue;
+      const ux = (b.x - a.x) / length;
+      const uz = (b.z - a.z) / length;
+      const headOverrun = index === 0 ? RAIL_BRIDGE_GUARD_OVERRUN_M : 0;
+      const tailOverrun =
+        index === offset.length - 2 ? RAIL_BRIDGE_GUARD_OVERRUN_M : 0;
+      solids.push({
+        id: `${side > 0 ? "r" : "l"}-${span.startM.toFixed(0)}-${index}`,
+        x: (a.x + b.x) / 2 + (ux * (tailOverrun - headOverrun)) / 2,
+        z: (a.z + b.z) / 2 + (uz * (tailOverrun - headOverrun)) / 2,
+        ux,
+        uz,
+        halfU: (length + headOverrun + tailOverrun) / 2,
+        halfV: RAIL_BRIDGE_GUARD_HALF_DEPTH_M,
+        heightM: 1.35,
+      });
+    }
+  }
+  return solids;
 }
 
 /**

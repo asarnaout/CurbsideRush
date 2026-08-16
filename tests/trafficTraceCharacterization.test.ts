@@ -98,7 +98,11 @@ describe("ambient traffic trace characterization", () => {
       // railway crossings put timetable-driven railway_signal lights and
       // stop lines on every Queens avenue and both bridge approaches, and
       // the corridor carve re-deals the strip's blocks.
-      "free-us": "8edd9970",
+      // -> d4a4338c (single-track exclusivity, owner-reported head-on
+      // meets): headwaySeconds 300 -> 540 so opposing freights can never
+      // co-occupy the strip; every crossing's warning windows shift, which
+      // re-times the NPC holds at all seven crossings inside this trace.
+      "free-us": "d4a4338c",
       // Moves on any sim-visible London content change: the south-west
       // expansion (fourteen streets, three signals, both turning loops gone),
       // then the river (both embankments, the south bank, three bridges and
@@ -210,7 +214,12 @@ describe("ambient traffic trace characterization", () => {
       // stop lines on every N-S street at z=-720, and the corridor carve
       // re-deals four downtown roadside strips — NPC holds land on
       // different ticks across the whole north band.
-      "free-eg": "7ca051d1",
+      // -> 2fa89223 (single-track exclusivity, owner-reported head-on
+      // meets): headwaySeconds 210 -> 320 so opposing ENR freights can
+      // never co-occupy the line; every mazla'an's warning windows shift,
+      // re-timing NPC holds across the north band. free-jp/free-uk are
+      // untouched — the shuttle timetables did not change.
+      "free-eg": "2fa89223",
     });
   });
 });

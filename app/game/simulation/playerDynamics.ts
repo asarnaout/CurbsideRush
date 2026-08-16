@@ -125,6 +125,7 @@ const STATIC_OBSTACLE_CORRECTIONS: Readonly<Record<StaticObstacleTag, string>> =
   venue: "Brake earlier and keep to the carriageway.",
   shoreline: "Follow the carriageway onto an authored bridge.",
   parkEdge: "Enter the park through one of its gates.",
+  railBridge: "Stay between the girders to cross.",
   railShed: "Keep off the railway depot.",
   worldEdge: "Turn back toward the streets.",
 };

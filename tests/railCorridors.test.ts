@@ -3,7 +3,16 @@ import { FREE_DRIVES, getCountryProfile, getMapPack } from "../app/game/content"
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { buildSimulationCoreConfig } from "../app/game/simulationAdapter";
 import { railConsistLengthM } from "../app/game/render/trainRender";
-import { RAIL_SHED_GAUGE_CLEAR_M } from "../app/game/geometry/railGeometry";
+import {
+  polylineLengthM,
+  RAIL_GATE_BARRIER_LENGTH_M,
+  RAIL_GAUGE_CLEAR_M,
+  railGateArmDirection,
+} from "../app/game/geometry/railGeometry";
+import {
+  railCyclePeriodSeconds,
+  railTrainStatesAt,
+} from "../app/game/simulation/railSchedule";
 import type { StaticObstacle, WorldPoint } from "../app/game/types";
 
 /**
@@ -200,19 +209,25 @@ describe("rail corridors", () => {
         const violations: string[] = [];
         for (const line of world.railLines) {
           const quads = corridorQuads(line.points, line.corridorHalfWidthM);
-          // A depot-shed terminus is the one structure allowed INSIDE the
-          // corridor — its walls flank the parked consist by design — but
-          // even a shed solid must never cross the running gauge itself.
-          const gaugeQuads = corridorQuads(line.points, RAIL_SHED_GAUGE_CLEAR_M);
-          const elevated = line.elevatedSpans ?? [];
+          // Three structures are allowed INSIDE the corridor — the split
+          // shoreline flanks at a drivable bridge mouth, a depot shed's
+          // walls, and the bridge girder guards — but nothing, ever, across
+          // the running gauge itself.
+          const gaugeQuads = corridorQuads(line.points, RAIL_GAUGE_CLEAR_M);
           for (const obstacle of world.obstacles) {
-            // The world's outer walls and shorelines are linear features the
-            // corridor legitimately crosses: shorelines only under a bridge
-            // span (asserted separately below), world edges where the line
-            // leaves the map. Everything else solid is a hard zero.
+            // The world's outer walls are linear features the corridor
+            // legitimately crosses where the line leaves the map. A fully
+            // elevated line (London) flies over its banks, so its shoreline
+            // stays solid underneath. Everything else beside the track must
+            // still clear the running gauge; everything unlisted is a hard
+            // zero on the whole corridor.
             if (obstacle.tag === "worldEdge") continue;
-            if (obstacle.tag === "shoreline" && elevated.length) continue;
-            if (obstacle.tag === "railShed") {
+            if (obstacle.tag === "shoreline" && line.elevationM) continue;
+            if (
+              obstacle.tag === "shoreline" ||
+              obstacle.tag === "railShed" ||
+              obstacle.tag === "railBridge"
+            ) {
               const polygon = obstaclePolygon(obstacle);
               if (
                 polygon &&
@@ -241,6 +256,152 @@ describe("rail corridors", () => {
           }
         }
         expect(violations).toEqual([]);
+      });
+
+      it("sweeps every crossing boom across a carriageway", () => {
+        // The lowered barrier must land on the road it guards, not the
+        // sidewalk beside it — sixteen generated booms across three cities
+        // shipped mis-aimed because the arm direction was implicit in the
+        // pole's facing (owner-reported). Uses the same
+        // `railGateArmDirection` the renderer rotates the pivot with, so
+        // this cannot drift from what is drawn.
+        const failures: string[] = [];
+        for (const ctl of world.mapPack.laneGraph.controls) {
+          for (const inst of ctl.installations ?? []) {
+            if (inst.mounting !== "railway_crossing") continue;
+            const arm = railGateArmDirection(inst.headingDeg, inst.armHeadingDeg);
+            const tipX = inst.position.x + arm.x * RAIL_GATE_BARRIER_LENGTH_M;
+            const tipZ = inst.position.z + arm.z * RAIL_GATE_BARRIER_LENGTH_M;
+            const onRoad = world.mapPack.geometry.roadSurfaces.some((surface) => {
+              for (let index = 0; index < surface.centerline.length - 1; index += 1) {
+                const a = surface.centerline[index];
+                const b = surface.centerline[index + 1];
+                const dx = b.x - a.x;
+                const dz = b.z - a.z;
+                const lengthSq = dx * dx + dz * dz;
+                if (lengthSq < 1e-9) continue;
+                const t = Math.max(
+                  0,
+                  Math.min(1, ((tipX - a.x) * dx + (tipZ - a.z) * dz) / lengthSq),
+                );
+                const distance = Math.hypot(
+                  tipX - (a.x + dx * t),
+                  tipZ - (a.z + dz * t),
+                );
+                if (distance < surface.widthM / 2 + 0.2) return true;
+              }
+              return false;
+            });
+            if (!onRoad) {
+              failures.push(
+                `${ctl.id} ${inst.id}: boom tip (${tipX.toFixed(1)}, ${tipZ.toFixed(1)}) misses every carriageway`,
+              );
+            }
+          }
+        }
+        expect(failures).toEqual([]);
+      });
+
+      it("never lets two consists co-occupy the single track", () => {
+        // Every line is one track. A `through` timetable alternates
+        // directions every half-headway, so a half-headway shorter than a
+        // full traversal sends opposing trains through each other mid-line
+        // (owner-reported in Cairo at headway 210). Sampled empirically over
+        // one whole cycle rather than asserted arithmetically, so any future
+        // timetable shape inherits the guarantee.
+        for (const line of world.railLines) {
+          const simLine = {
+            id: line.id,
+            lengthM: polylineLengthM(line.points),
+            schedule: line.schedule,
+          };
+          const period = railCyclePeriodSeconds(simLine);
+          const collisions: string[] = [];
+          for (let t = 0; t < period; t += 0.5) {
+            const states = railTrainStatesAt(simLine, t);
+            for (let a = 0; a < states.length; a += 1) {
+              for (let b = a + 1; b < states.length; b += 1) {
+                const left = states[a];
+                const right = states[b];
+                // A dwell/travel boundary instant enumerates the same
+                // consist from both motions (at a shuttle reversal even with
+                // opposite direction signs) — an identical occupied span is
+                // one train, not two. A real head-on pass only ever crosses,
+                // so its spans differ at the surrounding samples.
+                if (
+                  Math.abs(left.occupiedFromM - right.occupiedFromM) < 0.01 &&
+                  Math.abs(left.occupiedToM - right.occupiedToM) < 0.01
+                ) {
+                  continue;
+                }
+                const overlap =
+                  Math.min(left.occupiedToM, right.occupiedToM) -
+                  Math.max(left.occupiedFromM, right.occupiedFromM);
+                if (overlap > 0.5) {
+                  collisions.push(
+                    `${line.id} t=${t}: [${left.occupiedFromM.toFixed(0)},${left.occupiedToM.toFixed(0)}] dir ${left.direction} x [${right.occupiedFromM.toFixed(0)},${right.occupiedToM.toFixed(0)}] dir ${right.direction}`,
+                  );
+                }
+              }
+            }
+          }
+          expect(collisions.slice(0, 5)).toEqual([]);
+        }
+      });
+
+      it("guards both sides of every drivable at-grade bridge span", () => {
+        // With the shoreline mouth open (a car may cross the bridge), the
+        // girder guards are the only thing between a straying car and the
+        // water — so their presence is load-bearing, not dressing.
+        for (const line of world.railLines) {
+          if (line.elevationM) continue;
+          for (const span of (line.elevatedSpans ?? []).filter(
+            (candidate) => candidate.kind === "bridge",
+          )) {
+            const sides = new Set<number>();
+            for (const obstacle of world.obstacles) {
+              if (obstacle.tag !== "railBridge" || obstacle.kind !== "obb") continue;
+              const along = distanceAlongAt(line.points, {
+                x: obstacle.x,
+                z: obstacle.z,
+              });
+              if (along < span.startM - 5 || along > span.endM + 5) continue;
+              // Signed side of the line at the obstacle's own station.
+              let bestDistance = Number.POSITIVE_INFINITY;
+              let side = 0;
+              for (let index = 0; index < line.points.length - 1; index += 1) {
+                const a = line.points[index];
+                const b = line.points[index + 1];
+                const dx = b.x - a.x;
+                const dz = b.z - a.z;
+                const lengthSq = dx * dx + dz * dz;
+                if (lengthSq < 1e-9) continue;
+                const t = Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    ((obstacle.x - a.x) * dx + (obstacle.z - a.z) * dz) / lengthSq,
+                  ),
+                );
+                const distance = Math.hypot(
+                  obstacle.x - (a.x + dx * t),
+                  obstacle.z - (a.z + dz * t),
+                );
+                if (distance < bestDistance) {
+                  bestDistance = distance;
+                  side = Math.sign(
+                    dx * (obstacle.z - a.z) - dz * (obstacle.x - a.x),
+                  );
+                }
+              }
+              if (side !== 0) sides.add(side);
+            }
+            expect(
+              [...sides].sort(),
+              `${line.id} span ${span.startM}-${span.endM} must carry a guard on each side`,
+            ).toEqual([-1, 1]);
+          }
+        }
       });
 
       it("carries a level crossing wherever a road crosses the line at grade", () => {

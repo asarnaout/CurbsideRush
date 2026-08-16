@@ -98,9 +98,12 @@ the crossings time against. `offsetPolyline` must never apply its corner
 mitre at a polyline's endpoints — the degenerate end direction maxes the
 clamp and wedges every straight offset run (this shipped once: girders and
 platforms flared 2.5x at each run's first vertex). Corniche parapet runs
-within 9 m of a rail polyline are skipped, and `generatePromenadeDecor`
-takes the rail lines as a keep-out — bank furniture must not stand in the
-corridor where a line pierces the shore.
+split around each rail polyline at `RAIL_BRIDGE_MOUTH_CLEAR_M` — the same
+clearance the adapter opens the shoreline COLLIDER with, because at-grade
+bridge spans are drivable and the wall face must end exactly where the
+solid does. `generatePromenadeDecor` takes the rail lines as a keep-out —
+bank furniture must not stand in the corridor where a line pierces the
+shore.
 
 Vehicle ground contact is a **two-value handshake**: nodes at `y = 0.12` and
 `LOCAL_GROUND_Y = -0.05` put tyres at exactly `0.07`. Change either alone and the

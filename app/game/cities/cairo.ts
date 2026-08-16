@@ -3332,7 +3332,14 @@ const CAIRO_RAIL_LINES: readonly RailLine[] = [
       mode: "through",
       speedMps: 14,
       trainLengthM: 65,
-      headwaySeconds: 210,
+      // A through timetable alternates directions every half-headway on ONE
+      // track, so the half-headway must exceed a full traversal —
+      // (2015 + 65) / 14 ≈ 148.6 s — or the opposing trains meet head-on
+      // mid-line (owner-reported at 210). 320/2 = 160 s leaves ~11 s of
+      // clear track between an exit and the next opposing entry;
+      // tests/railCorridors.test.ts now samples the whole cycle to prove
+      // no two consists ever co-occupy the line.
+      headwaySeconds: 320,
       warningLeadSeconds: 10,
       clearTrailSeconds: 2,
     },

@@ -491,28 +491,74 @@ export function buildRailCrossingControl(options: {
   );
   const gateLateral = surface.widthM / 2 + 1.8;
   const gateAlongRoad = 6;
+  // Aim each gate's boom at the nearest point of the crossed carriageway —
+  // explicitly, per gate. The renderer's legacy heading-implied arm lands
+  // 90° clockwise of the pole facing, which pointed sixteen booms across
+  // three cities at the sidewalk (owner-reported); the corridor audit now
+  // asserts every boom tip sweeps its road via the same
+  // `railGateArmDirection` contract.
+  const armTowardRoadDeg = (gateX: number, gateZ: number): number => {
+    let bestX = hit.point.x;
+    let bestZ = hit.point.z;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < surface.centerline.length - 1; index += 1) {
+      const a = surface.centerline[index];
+      const b = surface.centerline[index + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const lengthSq = dx * dx + dz * dz;
+      if (lengthSq < 1e-9) continue;
+      const t = Math.max(
+        0,
+        Math.min(1, ((gateX - a.x) * dx + (gateZ - a.z) * dz) / lengthSq),
+      );
+      const px = a.x + dx * t;
+      const pz = a.z + dz * t;
+      const distance = Math.hypot(gateX - px, gateZ - pz);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestX = px;
+        bestZ = pz;
+      }
+    }
+    return headingDegOf(point(bestX - gateX, bestZ - gateZ));
+  };
   const forward = crossingLanes.filter(
     (entry) => entry.direction.x * roadDir.x + entry.direction.z * roadDir.z > 0,
   );
   const twoWay = forward.length > 0 && forward.length < crossingLanes.length;
+  const gate = (
+    suffix: "a" | "b",
+    x: number,
+    z: number,
+    headingDeg: number,
+    role: "primary" | "secondary",
+  ): TrafficControlInstallation =>
+    installation(
+      `${id}-gate-${suffix}`,
+      x,
+      z,
+      headingDeg,
+      "railway_crossing",
+      "japan_railway",
+      role,
+      undefined,
+      armTowardRoadDeg(x, z),
+    );
   const installations: TrafficControlInstallation[] = twoWay
     ? [
-        installation(
-          `${id}-gate-a`,
+        gate(
+          "a",
           hit.point.x - roadDir.x * gateAlongRoad - railDir.x * gateLateral,
           hit.point.z - roadDir.z * gateAlongRoad - railDir.z * gateLateral,
           headingDegOf(roadDir),
-          "railway_crossing",
-          "japan_railway",
           "primary",
         ),
-        installation(
-          `${id}-gate-b`,
+        gate(
+          "b",
           hit.point.x + roadDir.x * gateAlongRoad + railDir.x * gateLateral,
           hit.point.z + roadDir.z * gateAlongRoad + railDir.z * gateLateral,
           headingDegOf(point(-roadDir.x, -roadDir.z)),
-          "railway_crossing",
-          "japan_railway",
           "secondary",
         ),
       ]
@@ -522,22 +568,18 @@ export function buildRailCrossingControl(options: {
         const kerbX = railDir.x * gateLateral * side;
         const kerbZ = railDir.z * gateLateral * side;
         return [
-          installation(
-            `${id}-gate-a`,
+          gate(
+            "a",
             hit.point.x - travel.x * gateAlongRoad + kerbX,
             hit.point.z - travel.z * gateAlongRoad + kerbZ,
             headingDegOf(travel),
-            "railway_crossing",
-            "japan_railway",
             "primary",
           ),
-          installation(
-            `${id}-gate-b`,
+          gate(
+            "b",
             hit.point.x + travel.x * gateAlongRoad + kerbX,
             hit.point.z + travel.z * gateAlongRoad + kerbZ,
             headingDegOf(travel),
-            "railway_crossing",
-            "japan_railway",
             "secondary",
           ),
         ];

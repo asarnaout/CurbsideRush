@@ -11,6 +11,10 @@ import {
 } from "@babylonjs/core";
 import { createBox, createCylinder, setMeshMaterial } from "./meshPrimitives";
 import {
+  RAIL_GATE_BARRIER_LENGTH_M,
+  railGateArmDirection,
+} from "../geometry/railGeometry";
+import {
   crosswalkStripeLayout,
   EGYPT_SIGNAL_BORDER_BARS,
   roadSurfacePlacementForMarking,
@@ -479,13 +483,20 @@ export function buildRailwayCrossingInstallation(
     lamp.instancedBuffers.color = color;
     lampColors.push(color);
   }
-  const barrierLength = 4.6;
+  const barrierLength = RAIL_GATE_BARRIER_LENGTH_M;
   const barrierPivot = new TransformNode(
     `${controlId}-${installation.id}-barrier-pivot`,
     ctx.scene,
   );
   barrierPivot.position.set(base.x, 1.25, base.z);
-  barrierPivot.rotation.y = heading;
+  // Aim the +X arm along the shared arm-direction contract (see
+  // `railGateArmDirection` — the audit asserts the tip sweeps the
+  // carriageway using the same function).
+  const armDirection = railGateArmDirection(
+    installation.headingDeg,
+    installation.armHeadingDeg,
+  );
+  barrierPivot.rotation.y = Math.atan2(-armDirection.z, armDirection.x);
   const barrier = createBox(
     ctx.scene,
     `${controlId}-${installation.id}-barrier`,
