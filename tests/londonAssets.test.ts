@@ -18,7 +18,7 @@ const root = process.cwd();
  * Cairo's.
  */
 const COMMITTED_SHA256: Readonly<Record<string, string>> = {
-  "london-shop.glb": "1b70d4b0ade5a59d9542e157ca801ce0b2d438907dc04c802c8bf1bf31a88cee",
+  "london-shop.glb": "288b41013b87a6a5668c49f746b754dc3d1721fbd8a6a7ad52df246844dc294a",
   "london-stucco-a.glb": "6a1775b3d9f9373bab3387174500c71aed692cae371aac1ce361436c2f20ee56",
   "london-stucco-b.glb": "1574c95fbcfc5070778e8c69271d33c1feee2adce32e55151b03ab8e4cc294fd",
   "london-stucco-c.glb": "f7574c4acb2e8cc4bb34b3ee793fa0c818d6461cffe679f90171414524ccf371",
@@ -31,8 +31,8 @@ const COMMITTED_SHA256: Readonly<Record<string, string>> = {
   "london-tower-a.glb": "8a7de989d38632dad453f96c0d9924bbcec00acf5fda77090fde3ce2aba4c91a",
   "london-tower-b.glb": "49c6d1317007b5bf396d4ab88041509924ceccc7ce1a11d6cf51cd9543fc54a7",
   "london-tower-c.glb": "b0ad5bc830ca8c0255734e100515d7bc02bc6ca509e40a149001ce5a62cc04cc",
-  "london-walkup-a.glb": "5bb3c8791147a503045d626ac83e6ae7eaada83be6da8f04859f75cb9c066496",
-  "london-walkup-b.glb": "bb94180b3fdf24859c12fac98e207ca538f95915fe22ea494a4e4a3fd926c2da",
+  "london-walkup-a.glb": "a60938c4385d10f151ed2e54c8ef9baaf36892e99a4789d08f58efaaad8b8a44",
+  "london-walkup-b.glb": "e975fa11b8e15eaa5a1e55936991cc3d1aeca4b10256d6d16442d77228ed54f1",
 };
 
 const fileFor = (url: string) => resolve(root, "public", url.replace(/^\//, ""));

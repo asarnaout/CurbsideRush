@@ -5,6 +5,19 @@ glTF (`.glb`) assets, all free for commercial use. Vehicles + people live under
 `public/models/{vehicles,characters}/`; environment buildings (gig venues + gas
 stations) live under `public/models/props/`.
 
+**Window-glass split (`tools/window-glass.mjs`, 2026-08-16).** Eighteen building
+models below carry one extra modification not noted in their own entry, because
+it is identical in every case and changes no geometry, texture or licence: the
+window panes they already modelled were moved onto a second material named
+`<original>_Glass`, so the night renderer can light the windows without lighting
+the walls. The panes keep their exact vertices — only the triangles' material
+assignment changed — and the models remain byte-identical in every other
+respect. Re-runnable with `node tools/window-glass.mjs --write`; the tool's own
+header records which models were accepted and which were rejected, and why.
+Affected: `london-shop`, `london-walkup-{a,b}`, `cairo-shop`,
+`cairo-walkup-{a,b}`, `cairo-residence-kay`, `nyc-brownstone-{a,b,c,d}`,
+`nyc-house-b`, `tokyo-walkup-{a,b}`, `tokyo-house-{a,b,c}`, `tokyo-apato-a`.
+
 
 ## London
 
@@ -118,7 +131,7 @@ no bytes changed, only which sets reference which already-committed files.
   released **CC0 1.0**. Downloaded 2026-07-29. Source GLB SHA-256
   `5ebaa83522c99c877e28b9c482aa8629226d574fa398dc91ba71430d4e38e290`;
   committed GLB SHA-256
-  `2012755285875f9221074db08d58f48954a4ecb8fdfc5c1763bde421e13897ad`.
+  `dc973a835af27aebf9d2f0f45a981b478d26b2219b97e2f6786c25c39ffa9e9e`.
   Modified with a muted Cairo façade palette and matte materials by
   `tools/style-cairo-residences.mjs`, and its red/white striped door canopy
   deleted by `tools/cairo-shopfront.mjs` (v2); used as one of Cairo's
@@ -312,7 +325,7 @@ OBJ + MTL by `tools/obj-to-glb.mjs` before styling.
   **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
   `289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5`;
   committed GLB SHA-256
-  `8c4f9a9f613d5d68c0f3d001efa5191946368bbddc193790634383d73457a520`.
+  `e0475bb03cf9a182f11ff29788bd977d4f085f1261f0a862f24c3edcb92ed06c`.
   Cairo's copy of `shop.glb` — same source model, but recoloured to the Cairo
   palette with the striped awning flattened and the bundled hydrant removed by
   `tools/cairo-shopfront.mjs`. It exists as a separate file because `shop.glb`

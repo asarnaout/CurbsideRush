@@ -30,11 +30,11 @@ const root = process.cwd();
  * provenance recorded in CREDITS.md no longer describes what ships.
  */
 const COMMITTED_SHA256: Readonly<Record<string, string>> = {
-  "tokyo-house-a.glb": "c88e4970840a6f19ba8752f5289a87be80b3bae452e647445d5815b4940e131f",
-  "tokyo-house-b.glb": "6b8e20e0b733da3616640485e52ddc49e9b77dbb024c1d55c38a62537ea15def",
-  "tokyo-house-c.glb": "0c0e4eaa7fcdbae349ef9cb2a8041cbcdf28d863162494fe440619864d9b1fee",
+  "tokyo-house-a.glb": "5b68873e987dd09d84ac82064759a78b896aa3e4c4af0ca48b6b96b53fefb281",
+  "tokyo-house-b.glb": "d95b346c7c72f76f34661a1c6efe406c222e311dd3b432985ad95ae6821319bc",
+  "tokyo-house-c.glb": "45a32d1fbd9dc3efad50101cbc213247f9cf3758e783caec713b8bc1699743bb",
   "tokyo-house-d.glb": "82b249fe1d8d43463bf5828b470e2270c2fefd9f29b8c72914ce2ec9ec1650a4",
-  "tokyo-apato-a.glb": "c1a2c298a575827de6c43e6508572b7a3a6069dec785d98ad14f06c58b345f95",
+  "tokyo-apato-a.glb": "575b54ab2ffe6473a856c08bc0105cde6a68b3a78abcb7cb59f5d6f9dcb3de89",
   "tokyo-apato-b.glb": "db408a486fd98a1551d84c5fd92f6ea9881ae3d491046b16bd2b8eb52576f433",
   "tokyo-konbini.glb": "3abc6babc8f48dd605cd5f8cf0d21f04b6a64e9da101e9761626ddd24554f53e",
   "tokyo-shop-a.glb": "e8405c3f5e13850436d6e2cc09f847cc40031513f8b1d884165210917c6265cc",
@@ -50,8 +50,8 @@ const COMMITTED_SHA256: Readonly<Record<string, string>> = {
   "tokyo-zakkyo-e.glb": "d1fad097b42d646b9ecca85eb8a37f3d635cf53fadb2947ed8f4f21dadbedb13",
   "tokyo-zakkyo-f.glb": "fec33d9f808d6e31aabef855bc95651abd4e001022fc126eb73681e87f308f7d",
   "tokyo-nippori-bldg.glb": "3ef267714635cba4b15945715b06b13a6908fb51142857f8c910ef38aa511125",
-  "tokyo-walkup-a.glb": "9cebb30c4bdc100cfa6920afd29c614234f46f979ccda1cb0fbd47c9d6df01c7",
-  "tokyo-walkup-b.glb": "45779172dd14f3a41441b34b34041766ebff31b8e06ba80393b5dace9f789171",
+  "tokyo-walkup-a.glb": "fe7b2c4770d8d5901c1243044f046e08a52ab6cbed08938f10b0f97829b927bb",
+  "tokyo-walkup-b.glb": "79af3e7d98da87b1b72ab4a4b9afd2165bf7d4b565e1d501c107866b00ecd48b",
   "tokyo-tower-a.glb": "21bb529bb66b64e174ee2e110c81fb1426b77239400ab246c007ffa3d29d7917",
   "tokyo-block-slim.glb": "03e01c862605a6dbe99ee405f72ac06f77770c832d370b39e31226bbe5dee577",
   "tokyo-block-small.glb": "7c24defc0bd2b2da1be718394a0101b19c556fa7b0f5d96182832e7c87ff8068",

@@ -87,7 +87,7 @@ describe("Cairo bundled assets", () => {
       {
         file: "cairo-residence-kay.glb",
         finalSha256:
-          "2012755285875f9221074db08d58f48954a4ecb8fdfc5c1763bde421e13897ad",
+          "dc973a835af27aebf9d2f0f45a981b478d26b2219b97e2f6786c25c39ffa9e9e",
         provenance: {
           style: "cairo-residence-v1",
           author: "Kay Lousberg",
@@ -100,6 +100,7 @@ describe("Cairo bundled assets", () => {
             "5ebaa83522c99c877e28b9c482aa8629226d574fa398dc91ba71430d4e38e290",
           modifications: "Cairo palette and matte material pass",
           shopfront: "cairo-shopfront-v2",
+          windowGlass: "window-glass-v1",
         },
         creditNeedles: [
           "https://static.poly.pizza/1c40976f-9fd1-4779-ba85-8105d523f3d8.glb",
@@ -110,7 +111,7 @@ describe("Cairo bundled assets", () => {
         // NYC and London keep the original, stripes, hydrant and all.
         file: "cairo-shop.glb",
         finalSha256:
-          "8c4f9a9f613d5d68c0f3d001efa5191946368bbddc193790634383d73457a520",
+          "e0475bb03cf9a182f11ff29788bd977d4f085f1261f0a862f24c3edcb92ed06c",
         provenance: {
           style: "cairo-residence-v1",
           author: "Kay Lousberg",
@@ -123,6 +124,7 @@ describe("Cairo bundled assets", () => {
             "289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5",
           modifications: "Cairo palette and matte material pass",
           shopfront: "cairo-shopfront-v2",
+          windowGlass: "window-glass-v1",
         },
         creditNeedles: ["tools/cairo-shopfront.mjs"],
       },
