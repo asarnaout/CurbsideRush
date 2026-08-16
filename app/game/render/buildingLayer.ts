@@ -84,6 +84,19 @@ import type { BuildingRepresentationRecord } from "./buildingRepresentation";
  * seeded draw no matter when it runs.
  */
 
+/**
+ * `emissiveIntensity` for a lit window pane (`applyNightGlow` case 2).
+ *
+ * **This number is only readable against the wall beside it.** It was 0.72
+ * back when every facade emitted its own albedo, so a pane had to shout to
+ * out-read a glowing wall. With walls returned to being lit by the scene, the
+ * same 0.72 blows the pane out to a flat white-yellow rectangle under night's
+ * 1.55 exposure and 0.72 bloom threshold — the window stops looking like a
+ * room and starts looking like a sticker. Retune it against a screenshot of a
+ * dark wall, never on its own.
+ */
+const WINDOW_GLOW = 0.34;
+
 /** Test/development-only forced-unavailable policy, evaluated before any URL
  * discovery or load attempt — plan Section 7.7. Production omits it and
  * follows normal loading; never exposed as a player setting. A forced model
@@ -156,56 +169,80 @@ export class BuildingLayer {
   }
 
   /**
-   * Night city: make every building material glow its own albedo/texture, so
-   * facades and painted windows read as lit-from-within under the dim moonlight
-   * (the low-poly glbs have no emissive of their own). Bloom does the rest.
-   * Mutates the shared container materials once — all instances light up.
+   * Night city: light the windows, never the walls. Mutates the shared
+   * container materials once, before any master is merged or any instance is
+   * created — all instances of a model light up together.
+   *
+   * Every building material falls into exactly one of three cases, tested in
+   * this order:
+   *
+   * 1. **The model brought its own emissive map.** The Tokyo zakkyo pack and
+   *    `tokyo-izakaya` ship a hand-painted night layer — lit panes, neon,
+   *    shopfront signage, black everywhere else — and `tokyo-shop-b` /
+   *    `tokyo-house-d` ship authored emissive *colours* on their sign and
+   *    porch-lamp materials. Nothing computed here can improve on an artist's
+   *    own night pass, so an authored emissive is left exactly as it arrived.
+   * 2. **A glass material**, by name. Its albedo is forced dark and only the
+   *    warm emissive shows: otherwise the pane's own (light) albedo, lit by
+   *    the sky, washes it out to white instead of reading as a lit room.
+   * 3. **Everything else is a wall**, and a wall emits nothing — it is lit by
+   *    the moonlit hemi/sun and the streetlights like every other surface.
+   *    Walls arrive with a zero `emissiveFactor`, so this case is a no-op and
+   *    needs no branch; case 1 is what keeps it from stealing case 2's job.
+   *
+   * **Never synthesise a glow for a model whose windows you cannot find.** The
+   * fallback this replaced set `emissive = warm x the model's own albedo
+   * texture` on every material of every single-texture model. Three things go
+   * wrong at once: emissive proportional to albedo lights a facade hardest
+   * where it is *brightest*, so it lights the plaster and leaves the glass
+   * dark — the exact inverse of a lit building; emissive ignores the light
+   * direction, so the sunlit face, the shaded face, the roof and the underside
+   * of an awning all come out identical and the model loses its shading; and
+   * feeding a texture that already carries baked top-light/bottom-dark shading
+   * back in as light cancels the depth it was painted to give. Measured on
+   * King's Road it was half of a wall's warmth and a quarter of its
+   * brightness, and it is what made 2_873 NYC and 2_726 Tokyo buildings read
+   * as flat orange card. Worse, it *overwrote* the models that already got
+   * this right — case 1 exists because that fallback was silently replacing
+   * the zakkyo pack's hand-painted night maps with warm x albedo.
+   *
+   * Recovering a window mask from these atlases was tried three ways — a
+   * luminance/saturation threshold, geometry-weighted texel classification
+   * (which faces are vertical), and per-swatch identification on the KayKit
+   * colour sheet — and none is reliable: the glass shares its swatch with the
+   * stall riser and the awning, and the photographic facades' windows are not
+   * separable from wood, doors or roofs. A model with no glass material
+   * therefore has no lit windows, and that is the honest result: it is lit by
+   * the street, exactly like every other wall in the scene.
    */
   private applyNightGlow(buildingModelUrls: readonly string[]): void {
     // Warm sodium/incandescent colour for lit windows (blue-hour amber). Kept
     // below pure white so bloom softens it to a glow instead of blowing it out.
     const WARM = new Color3(0.95, 0.6, 0.29);
+    // A lit window is a dark pane that only glows warm — see case 2 above.
+    const DARK_PANE = new Color3(0.05, 0.045, 0.04);
     for (const url of buildingModelUrls) {
-      const mats = modelMaterials(this.scene, url);
-      // Models with a dedicated window material get the realistic treatment:
-      // light only the windows, keep the walls dark (lit by moonlight +
-      // streetlights). Single-texture models (windows baked into one texture)
-      // can't isolate windows, so they get a dim warm self-glow — enough to read
-      // as lit without blowing the whole facade out to white.
-      const hasWindowMat = mats.some((mm) =>
-        /window|glass/.test((mm.name ?? "").toLowerCase()),
-      );
-      for (const mat of mats) {
-        const name = (mat.name ?? "").toLowerCase();
+      for (const mat of modelMaterials(this.scene, url)) {
         const m = mat as unknown as {
           albedoColor?: Color3;
           diffuseColor?: Color3;
-          albedoTexture?: unknown;
-          diffuseTexture?: unknown;
           emissiveColor?: Color3;
           emissiveTexture?: unknown;
           emissiveIntensity?: number;
         };
-        if (hasWindowMat) {
-          const isWindow = /window|glass|trim/.test(name);
-          if (isWindow) {
-            // A lit window is a dark pane that only glows warm — otherwise the
-            // pane's own (light) albedo, lit by the sky, washes it out to white.
-            const dark = new Color3(0.05, 0.045, 0.04);
-            if (m.albedoColor) m.albedoColor = dark;
-            if (m.diffuseColor) m.diffuseColor = dark;
-            m.emissiveColor = WARM.clone();
-            if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 0.72;
-          } else {
-            m.emissiveColor = new Color3(0, 0, 0);
-            if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 0;
-          }
-        } else {
-          const tex = m.albedoTexture ?? m.diffuseTexture;
-          m.emissiveColor = new Color3(0.42, 0.32, 0.19);
-          if (tex) m.emissiveTexture = tex;
-          if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 0.32;
-        }
+        const authored =
+          m.emissiveTexture != null ||
+          (m.emissiveColor != null &&
+            m.emissiveColor.r + m.emissiveColor.g + m.emissiveColor.b > 0.001);
+        if (authored) continue;
+        // `cristal` is glass in the Spanish-authored `tokyo-house-d`; its
+        // `Ventana` is the frame, not the pane, so window-in-another-language
+        // names are added one confirmed asset at a time, never speculatively.
+        if (!/window|glass|trim|cristal/.test((mat.name ?? "").toLowerCase())) continue;
+        if (m.albedoColor) m.albedoColor = DARK_PANE.clone();
+        if (m.diffuseColor) m.diffuseColor = DARK_PANE.clone();
+        m.emissiveColor = WARM.clone();
+        if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = WINDOW_GLOW;
       }
     }
   }

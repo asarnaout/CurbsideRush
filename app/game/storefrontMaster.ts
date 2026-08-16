@@ -158,9 +158,14 @@ export function assembleStorefrontVariantMaster(
       };
       if (m.albedoColor) m.albedoColor = colour;
       if (m.diffuseColor) m.diffuseColor = colour;
-      // The shared awning material was already glow-zeroed by the night pass
-      // before masters build; give the clone a faint self-light of its own
-      // tint so it doesn't read black under the night sky.
+      // The shared awning material carries no emissive of its own (it is not
+      // glass, so `applyNightGlow` leaves it alone); give the clone a faint
+      // self-light of its own tint so the fabric doesn't read black under the
+      // night sky. This is the one deliberate exception to "a surface is lit
+      // by the scene, never by itself" — a shop awning is backlit by the
+      // window under it — and it stays this dim precisely because the
+      // whole-facade version of the same idea is what `applyNightGlow`'s
+      // header exists to warn against.
       if (options?.nightGlow) m.emissiveColor = colour.scale(0.22);
       master.material.subMaterials[slot] = tinted;
     }

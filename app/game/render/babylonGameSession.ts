@@ -900,8 +900,10 @@ export class BabylonGameSession {
   /**
    * This map's park planting glbs. Deliberately NOT in `buildingModelUrls`,
    * even though both are map-scoped and preloaded together: everything in that
-   * list is treated as a building, and `BuildingLayer`'s night-glow pass gives
-   * each of them a warm sodium self-glow. Trees listed there came out tan.
+   * list is treated as a building. `BuildingLayer`'s night pass used to give
+   * each of them a warm self-glow of its own albedo — trees listed there came
+   * out tan — and while it now lights only materials named as glass, this list
+   * is still what decides which models a night, decal or merge pass may touch.
    */
   private natureModelUrls: string[] = [];
   /** Owns the queue of building-set blocks awaiting an instanced glb street

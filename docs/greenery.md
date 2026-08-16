@@ -173,11 +173,15 @@ near 1 plants saplings — which is exactly what the first pass shipped.
 `natureCatalog`'s scales are measured, and `tests/natureAssets.test.ts` pins the
 resulting world heights per role.
 
-**Planting must stay out of `buildingModelUrls`.** Both consumers treat that
-list as buildings, and `BuildingLayer`'s night-glow pass gives every material in
-it a warm sodium self-glow — which turned Central Park's trees tan.
-`natureModelUrls` rides the same preload and nothing else; the same reasoning
-gates the Cairo boat models on the map rather than on "has water".
+**Planting must stay out of `buildingModelUrls`.** Everything in that list is
+treated as a building. It used to be actively dangerous — `applyNightGlow` gave
+every material in it a warm self-glow of its own albedo, which turned Central
+Park's trees tan — and although that pass now only lights materials *named* as
+glass, so it can no longer discolour a tree, the separation stands: it is the
+list that decides what a night pass, a decal pass or a merge policy is allowed
+to touch, and each new pass would otherwise have to re-derive "but not the
+trees". `natureModelUrls` rides the same preload and nothing else; the same
+reasoning gates the Cairo boat models on the map rather than on "has water".
 
 Scatter `variants` has to be wide enough to reach the whole species pool:
 `variant % pool.length` at 3 variants never got past the first three species,
