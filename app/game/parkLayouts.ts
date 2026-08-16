@@ -114,7 +114,21 @@ export interface ParkPath {
   readonly widthM: number;
 }
 
-export type ParkPropKind = "tree" | "shrub" | "bench" | "lamp" | "monument";
+/**
+ * `"palm"` is not a park-layout output — no park scatter emits it, and it is
+ * listed here because `pendingPlantedProps` is the one queue for "an imported
+ * planting model, instanced after the preload", and Cairo's street palms ride
+ * it too (see `buildRoadsideProps`). Keeping them off a second parallel queue
+ * is what keeps a street palm and a park palm the same model, the same
+ * shadow caster and the same knockable prop.
+ */
+export type ParkPropKind =
+  | "tree"
+  | "palm"
+  | "shrub"
+  | "bench"
+  | "lamp"
+  | "monument";
 
 /**
  * A built piece a park needs that no scatter would produce: a temple's torii

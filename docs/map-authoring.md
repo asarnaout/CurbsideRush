@@ -431,6 +431,16 @@ figure per road, nothing non-`standard` out-ranking an ordinary road.
 Both guarded by `content.test.ts`'s "gives every lane somewhere legal to go"
 and `roadRealism.test.ts`'s per-pack circuit walk.
 
+**And in Cairo, a road's `widthM` also picks its trees.** `PropKindConfig`'s
+`roadSpecies` swaps the street line's species per road above a width
+threshold — 9 m there, which is the gap between the map's waterfront drives
+and boulevards (9–16 m) and its Wust el-Balad lanes (7.4–8.4). So renarrowing
+a Cairo avenue below 9 m turns a palm avenue into a broadleaf street with no
+other symptom. It is width and not a road-id hash precisely because a hash is
+blind: the deal it produced left Corniche el-Nil, the palm avenue the city is
+known for, planted with shade trees. `cairoVisuals.test.ts`'s "street
+planting" block pins the species on the real map.
+
 ## Addresses
 
 **`streetAddressesForMap` caches by `pack.id`** in a module-level Map (mutating

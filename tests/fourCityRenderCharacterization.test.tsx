@@ -1273,15 +1273,37 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // return to those approaches (+27 part meshes), several inside the
     // fixed pose's frustum (+12 active). Materials/mirrors/fingerprint
     // hold.
-    totalMeshes: 12_604,
-    enabledMeshes: 12_560,
-    activeMeshes: 1_851,
+    // -> 10_648/10_604 (-1_956, active 1_851 -> 1_621; owner-reported
+    // "no Christmas trees, many more palms"). Three parts, and the first is
+    // why the drop is so large:
+    //
+    //  - Palms are now imported glbs (`nature-palm-tall/short`, queued on
+    //    `pendingPlantedProps`) instead of three procedural cones each, and
+    //    THIS SUITE MOCKS THE PRELOAD EMPTY — so `getBuildingMaster` returns
+    //    null and all 693 of them render as nothing here, where in the real
+    //    game they are 693 single-mesh instances. -1_335, and it is a
+    //    measurement artifact of the fixture, not content that left the map.
+    //    Live headless count at the Cairo spawn confirms the palms present:
+    //    `park-plant-*` 691, `prop-palm-*` 0.
+    //  - Cairo's two tree passes folded into one 34 m per-road line
+    //    (`roadSpecies`), so 303 procedural trees become 114 — the rest of
+    //    the map's street planting IS the palms above. ~-728 part meshes.
+    //  - The fold re-deals the kinds authored after it, and bollards gain
+    //    ~51 placements on the freed kerb. ~+100.
+    //
+    // materials hold at 231: the procedural palm shared the tree kit's trunk
+    // and leaf paints, so retiring it mints and retires nothing.
+    // mirrorCandidates/mirrorDrawn move because the re-deal changes what
+    // stands inside the mirror cull ring.
+    totalMeshes: 10_648,
+    enabledMeshes: 10_604,
+    activeMeshes: 1_621,
     materials: 231,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 52,
-    mirrorDrawn: 87,
+    mirrorCandidates: 49,
+    mirrorDrawn: 85,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,

@@ -86,7 +86,7 @@ const PROMENADE_DECOR_KINDS_BY_KEY: Partial<
  *
  * `registerShadowCaster`/`registerDestructibleProp` are threaded as ctx
  * callbacks — shared class-wide, not exclusive to this cargo.
- * `pendingParkProps`/`pendingParkThickets`/`pendingVendors`/
+ * `pendingPlantedProps`/`pendingParkThickets`/`pendingVendors`/
  * `staticSceneryFreeze` are passed as live array references, matching how
  * the class already treats them (push-only accumulators, drained
  * elsewhere). `setMeshMaterial`/`textureContext` are imported from their
@@ -118,7 +118,7 @@ export interface RoadsidePropsCtx {
     z: number;
     yaw: number;
   }[];
-  readonly pendingParkProps: ParkPlacement[];
+  readonly pendingPlantedProps: ParkPlacement[];
   readonly pendingParkThickets: ParkPlacement[];
   /** General scenery density — renamed from `buildingKeepFraction`, which
    * this never was: park/vendor prop thinning has nothing to do with
@@ -196,7 +196,7 @@ function collectParkPlacements(
         if (placement.kind === "bench" || placement.kind === "lamp") {
           reachable.push(placement);
         } else {
-          ctx.pendingParkProps.push(placement);
+          ctx.pendingPlantedProps.push(placement);
         }
         continue;
       }
@@ -526,8 +526,7 @@ export function buildRoadsideProps(
           chochinCap: material("chochin-cap", new Color3(0.07, 0.06, 0.06)),
           sakuraTrunk: material("sakura-trunk", new Color3(0.3, 0.24, 0.22)),
           // White (Someiyoshino) and deep pink (Kanzan) — the two commonest
-          // real cherry varieties, alternated by variant the same way the
-          // palm case alternates its two crown tints.
+          // real cherry varieties, alternated by variant.
           sakuraBlossoms: [
             material("sakura-blossom-0", new Color3(0.86, 0.8, 0.78)),
             material("sakura-blossom-1", new Color3(0.82, 0.5, 0.6)),
@@ -686,52 +685,6 @@ export function buildRoadsideProps(
             lobe("c2", 1, new Vector3(-0.77, 3.42, 0.51), false),
           ];
         }
-        break;
-      }
-      case "palm": {
-        // A tall faceted date palm: ringed tapering trunk and a broad pair of
-        // low-poly crowns. The compressed crown stays legible from the chase
-        // camera without introducing fragile transparent frond textures.
-        const palmLeaf = variant % 2 === 0 ? leaves[1] : leaves[0];
-        parts = [
-          {
-            master: masterCylinder(
-              `${cacheKey}-trunk`,
-              {
-                height: 5.8,
-                diameterTop: 0.28,
-                diameterBottom: 0.52,
-              },
-              trunk,
-            ),
-            offset: new Vector3(0, 2.9, 0),
-          },
-          {
-            master: masterCylinder(
-              `${cacheKey}-lower-crown`,
-              {
-                height: 0.42,
-                diameterTop: 3.8,
-                diameterBottom: 0.55,
-              },
-              palmLeaf,
-            ),
-            offset: new Vector3(0, 5.78, 0),
-          },
-          {
-            master: masterCylinder(
-              `${cacheKey}-upper-crown`,
-              {
-                height: 0.38,
-                diameterTop: 0.45,
-                diameterBottom: 3.1,
-              },
-              palmLeaf,
-            ),
-            offset: new Vector3(0, 6.08, 0),
-            castShadow: false,
-          },
-        ];
         break;
       }
       case "streetlight":
@@ -1073,6 +1026,28 @@ export function buildRoadsideProps(
       if (config) {
         ctx.pendingVendors.push({ config, x: placement.x, z: placement.z, yaw: placement.rotationY });
       }
+      continue;
+    }
+    if (placement.kind === "palm") {
+      // Same deal as the vendor cart: an imported model, so it can only be
+      // instanced once the preload is in. It rides the planting queue rather
+      // than a queue of its own, which is what makes a street palm and a
+      // park palm literally the same master — see `pendingPlantedProps`.
+      //
+      // The procedural palm this replaced was a bare trunk under a pair of
+      // flat cones, and the owner did not read it as a palm at all: shown a
+      // screenshot of the Corniche's own palm line, they asked for "a tree
+      // that is very frequent" to be swapped FOR palms, and said they
+      // "rarely if ever" saw one in Cairo. Fronds are not a detail here —
+      // they are the whole of whether the species registers.
+      ctx.pendingPlantedProps.push({
+        kind: "palm",
+        x: placement.x,
+        z: placement.z,
+        rotationY: placement.rotationY,
+        scale: placement.scale,
+        variant: placement.variant,
+      });
       continue;
     }
     const parts = partsFor(placement.kind, placement.variant);

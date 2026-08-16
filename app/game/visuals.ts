@@ -1058,6 +1058,51 @@ export interface PropKindConfig {
   /** Alternate sides along the road (streetlight rhythm). */
   readonly alternateSides?: boolean;
   readonly variants: number;
+  /**
+   * Which variant indices this line may actually draw, when the renderer's
+   * variant set is wider than the map wants. Cairo's street trees pass
+   * `[0, 2]` because `partsFor("tree", 1)` is a stacked-cone conifer and there
+   * are no conifers in Cairo — narrowing `variants` to 2 would have excluded
+   * variant 2 instead, which is a second broadleaf and perfectly wanted.
+   *
+   * Still exactly one seeded draw, like the plain `variants` path: the pool
+   * indexes the draw, it does not add one. Every rejection test below is
+   * likewise draw-free, so which variants a map allows can never shift the
+   * stream for the kinds that follow it.
+   */
+  readonly variantPool?: readonly number[];
+  /**
+   * A second species for this same line, chosen once per **road** rather than
+   * per prop, off the road's own width.
+   *
+   * Cairo's street trees are mostly palms, and the way that must NOT be done
+   * is a per-prop coin flip: five palms and one lone broadleaf down the same
+   * street reads as a bug, not as variety (the owner's words). Deciding per
+   * road is what rules that out — a street is a palm avenue or a shade-tree
+   * street end to end, never a mix.
+   *
+   * Width is the criterion, and not for want of a tidier one. A hash over the
+   * road id was written first and thrown away: it is uniform but it is blind,
+   * and the deal it happened to produce made Corniche el-Nil — the palm
+   * avenue the whole city is known for — a broadleaf street, with no share
+   * below 0.94 that fixed it. Width is the thing actually being described.
+   * Cairo's carriageways separate at 9 m with nothing in the gap: every
+   * waterfront drive and grand avenue is 9-16 m, every downtown lane 7.4-8.4,
+   * so the boulevards take palms and the tight Wust el-Balad streets keep
+   * their shade trees — which is also what the real city does. A road added
+   * later obeys the rule by construction, where a hash would have re-rolled.
+   *
+   * `variants` is the substituted species' own variant count, because the two
+   * species rarely share one (Cairo's palms are two imported models, its
+   * procedural trees three shapes) — and because reusing the host's
+   * `variantPool` would silently pin every swapped road to a single palm.
+   */
+  readonly roadSpecies?: {
+    readonly kind: string;
+    /** Roads at least this wide are planted with `kind` instead. */
+    readonly minRoadWidthM: number;
+    readonly variants: number;
+  };
   readonly minScale?: number;
   readonly maxScale?: number;
   /** Face the carriageway instead of taking a random rotation. */
@@ -1229,6 +1274,19 @@ export function generateRoadsidePropPlacements(
 
   for (const kindConfig of input.kinds) {
     for (const surface of input.roadSurfaces) {
+      // One species per road (see `roadSpecies`), off the road's width rather
+      // than the seeded stream, so this decision costs no draw and retuning
+      // it can never re-deal the kinds authored after this one.
+      const swap =
+        kindConfig.roadSpecies &&
+        surface.widthM >= kindConfig.roadSpecies.minRoadWidthM
+          ? kindConfig.roadSpecies
+          : null;
+      const emitKind = swap ? swap.kind : kindConfig.kind;
+      const variantPool = swap ? null : kindConfig.variantPool;
+      const variantCount = swap
+        ? swap.variants
+        : (variantPool?.length ?? kindConfig.variants);
       let sideToggle = random() < 0.5 ? 1 : -1;
       let nextAt = kindConfig.spacingM * (0.3 + random() * 0.7);
       let travelled = 0;
@@ -1276,7 +1334,8 @@ export function generateRoadsidePropPlacements(
               (kindConfig.minScale ?? 1) +
               random() *
                 Math.max(0, (kindConfig.maxScale ?? 1) - (kindConfig.minScale ?? 1));
-            const variant = Math.floor(random() * kindConfig.variants);
+            const drawn = Math.floor(random() * variantCount);
+            const variant = variantPool ? variantPool[drawn] : drawn;
             // A kerb-seated candidate over water is standing on a bridge
             // deck: its road's kerb exists wherever the road does, and the
             // water polygon there runs UNDER the carriageway. Testing decks
@@ -1306,7 +1365,7 @@ export function generateRoadsidePropPlacements(
             }
             gridInsert(grid, candidate);
             placements.push({
-              kind: kindConfig.kind,
+              kind: emitKind,
               x: candidate.x,
               z: candidate.z,
               rotationY,
@@ -1495,7 +1554,13 @@ export function generatePromenadeDecor(
               waterDistM - 3.2,
               random() * Math.PI * 2,
               0.95 + random() * 0.25,
-              stationIndex % 4 === 0 ? 0 : 1,
+              // Variant 0 leads, every fourth station takes variant 1. For
+              // Cairo that is the tall date palm with the short one as the
+              // accent — the Corniche's own proportions, and the reason the
+              // waterline row reads from the carriageway at all. (Tokyo's
+              // sakura only tints its blossoms by variant, so the swap is
+              // cosmetic there.)
+              stationIndex % 4 === 0 ? 1 : 0,
             );
             if (stationIndex % 4 === 0 && waterDistM - envelope > 20) {
               drop(
