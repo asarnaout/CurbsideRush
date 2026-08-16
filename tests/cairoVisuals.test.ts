@@ -14,7 +14,10 @@ import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
 import { resolveVenuePlacement } from "../app/game/simulationAdapter";
 import { PARK_BED_Y, PARK_LAWN_Y, PARK_PATH_Y } from "../app/game/render/renderConstants";
-import { crowdClothingPaletteForMap } from "../app/game/render/propCatalog";
+import {
+  crowdClothingPaletteForMap,
+  roadsidePropKindsForMap,
+} from "../app/game/render/propCatalog";
 import {
   CAIRO_DIRECTION_PANEL_DESIGN_V,
   cairoDirectionPanelFaceUv,
@@ -66,11 +69,16 @@ import {
   defaultSidewalkWidthM,
   distanceToPolylineM,
   generateRoadsidePropPlacements,
+  hashStringToSeed,
+  PAVED_SIDEWALK_WIDTH_M,
 } from "../app/game/visuals";
 import { buildingSetUrls } from "../app/game/buildingSets";
 import { isPointInPolygon } from "../app/game/simulation";
 import { authoredSignalAspectAt } from "../app/game/trafficSignals";
-import { CAIRO_MAP_PACK } from "../app/game/cities/cairo";
+import {
+  CAIRO_MAP_PACK,
+  CAIRO_OPEN_WATERFRONT_SIDES,
+} from "../app/game/cities/cairo";
 import {
   CAIRO_OPERA_AXIS_X,
   CAIRO_OPERA_CROSS_Z,
@@ -1457,6 +1465,108 @@ describe("Cairo street identity", () => {
       expect(lateral).toBeGreaterThan(5);
       expect(lateral).toBeLessThan(9);
     }
+  });
+
+  // Cairo's street planting, as reported by the owner from a live drive:
+  // conifers standing on the Corniche, and palms so rarely seen they asked
+  // whether the game had a palm model at all. All three assertions below are
+  // about the map as shipped, not about a fixture — a retune that quietly
+  // undoes any of them puts the Christmas trees back.
+  describe("street planting", () => {
+    const cairoStreetPlacements = () =>
+      generateRoadsidePropPlacements({
+        roadSurfaces: (CAIRO_MAP_PACK.geometry.roadSurfaces ?? []).map(
+          (surface) => ({
+            id: surface.id,
+            centerline: surface.centerline,
+            widthM: surface.widthM,
+            sidewalkWidthM: surface.sidewalkWidthM,
+          }),
+        ),
+        blocks: CAIRO_MAP_PACK.geometry.blocks.map((block) => ({
+          center: block.center,
+          size: block.size,
+          headingDeg: block.headingDeg,
+        })),
+        landmarks: [],
+        worldSize: CAIRO_MAP_PACK.geometry.worldSize,
+        shoulderWidthM: PAVED_SIDEWALK_WIDTH_M,
+        seed: hashStringToSeed(`${CAIRO_MAP_PACK.id}-props`),
+        kinds: roadsidePropKindsForMap("cairo"),
+        waterPolygons: (CAIRO_MAP_PACK.geometry.waterBodies ?? []).map(
+          (body) => body.polygon,
+        ),
+      });
+
+    it("plants no conifer anywhere in Cairo", () => {
+      // `partsFor("tree", 1)` is a stacked-cone conifer, which is what the
+      // owner photographed on the Corniche. Cairo's `variantPool` excludes
+      // it; nothing else in the scatter can produce one.
+      const trees = cairoStreetPlacements().filter(
+        (placement) => placement.kind === "tree",
+      );
+      expect(trees.length).toBeGreaterThan(50);
+      expect(trees.some((tree) => tree.variant === 1)).toBe(false);
+    });
+
+    it("plants each road with one species end to end", () => {
+      // The rejected shape was a per-prop coin flip: five palms and one lone
+      // broadleaf down the same street. Attribution is by the road each
+      // placement was generated from, so this is exact — a palm standing at
+      // the mouth of a tree street belongs to the avenue crossing it, which
+      // is both correct and what a driver expects to see.
+      for (const surface of CAIRO_MAP_PACK.geometry.roadSurfaces ?? []) {
+        const perRoad = generateRoadsidePropPlacements({
+          roadSurfaces: [
+            {
+              id: surface.id,
+              centerline: surface.centerline,
+              widthM: surface.widthM,
+              sidewalkWidthM: surface.sidewalkWidthM,
+            },
+          ],
+          blocks: [],
+          landmarks: [],
+          worldSize: CAIRO_MAP_PACK.geometry.worldSize,
+          shoulderWidthM: PAVED_SIDEWALK_WIDTH_M,
+          seed: 7,
+          kinds: roadsidePropKindsForMap("cairo"),
+        });
+        const species = new Set(
+          perRoad
+            .filter(({ kind }) => kind === "tree" || kind === "palm")
+            .map(({ kind }) => kind),
+        );
+        expect(
+          [...species],
+          `${surface.id} (${surface.widthM} m) mixes species`,
+        ).toHaveLength(species.size ? 1 : 0);
+      }
+    });
+
+    it("gives every waterfront drive palms and keeps the downtown lanes leafy", () => {
+      // The width rule has to land on the RIGHT roads, not merely on a
+      // consistent set of them: a Corniche el-Nil without palms was exactly
+      // the outcome that retired the road-id hash this replaced.
+      const widthOf = (id: string) =>
+        (CAIRO_MAP_PACK.geometry.roadSurfaces ?? []).find(
+          (surface) => surface.id === id,
+        )?.widthM ?? 0;
+      const swap = roadsidePropKindsForMap("cairo").find(
+        (kind) => kind.roadSpecies,
+      )?.roadSpecies;
+      expect(swap?.kind).toBe("palm");
+      const isPalmRoad = (id: string) =>
+        widthOf(id) >= (swap?.minRoadWidthM ?? Infinity);
+      for (const id of Object.keys(CAIRO_OPEN_WATERFRONT_SIDES)) {
+        expect(isPalmRoad(id), `${id} should be a palm avenue`).toBe(true);
+      }
+      // Wust el-Balad's narrow grid keeps its shade trees — the owner asked
+      // for most of them swapped, not all of them.
+      for (const id of ["cairo-talaat-harb", "cairo-champollion"]) {
+        expect(isPalmRoad(id), `${id} should keep shade trees`).toBe(false);
+      }
+    });
   });
 
   it("uses a dedicated contemporary clothing palette", () => {

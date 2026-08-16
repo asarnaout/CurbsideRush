@@ -622,6 +622,72 @@ describe("roadside prop scatter", () => {
     expect(placements).toEqual([]);
   });
 
+  it("draws only the variants a map's pool allows, at no extra seeded cost", () => {
+    const narrow = { ...STRAIGHT_ROAD, widthM: 7 };
+    const withPool = (variantPool?: readonly number[]) =>
+      generateRoadsidePropPlacements({
+        ...SCATTER_FIXTURE,
+        roadSurfaces: [narrow],
+        kinds: [
+          { ...SCATTER_FIXTURE.kinds[0], variants: 3, variantPool },
+          SCATTER_FIXTURE.kinds[1],
+        ],
+      });
+    const pooled = withPool([0, 2]);
+    const trees = pooled.filter(({ kind }) => kind === "tree");
+    expect(trees.length).toBeGreaterThan(4);
+    expect(new Set(trees.map(({ variant }) => variant))).toEqual(
+      new Set([0, 2]),
+    );
+    // The pool indexes the draw, it does not add one — so every kind
+    // authored after this one lands exactly where it did before. Cairo's
+    // conifer ban must not silently move its streetlights.
+    expect(pooled.filter(({ kind }) => kind === "streetlight")).toEqual(
+      withPool().filter(({ kind }) => kind === "streetlight"),
+    );
+  });
+
+  it("swaps species per road, never per prop, above a width threshold", () => {
+    const kinds = [
+      {
+        ...SCATTER_FIXTURE.kinds[0],
+        variantPool: [0, 2],
+        roadSpecies: { kind: "palm", minRoadWidthM: 9, variants: 2 },
+      },
+      SCATTER_FIXTURE.kinds[1],
+    ];
+    const speciesOn = (widthM: number) => {
+      const placements = generateRoadsidePropPlacements({
+        ...SCATTER_FIXTURE,
+        roadSurfaces: [{ ...STRAIGHT_ROAD, widthM }],
+        blocks: [],
+        landmarks: [],
+        kinds,
+      });
+      return placements.filter(
+        ({ kind }) => kind === "tree" || kind === "palm",
+      );
+    };
+    const boulevard = speciesOn(10);
+    const lane = speciesOn(7.4);
+    expect(boulevard.length).toBeGreaterThan(4);
+    expect(lane.length).toBeGreaterThan(4);
+    // Each road is one species end to end — the whole point of deciding this
+    // per road rather than per prop.
+    expect(new Set(boulevard.map(({ kind }) => kind))).toEqual(
+      new Set(["palm"]),
+    );
+    expect(new Set(lane.map(({ kind }) => kind))).toEqual(new Set(["tree"]));
+    // The substituted species draws from its OWN variant count, not the
+    // host's pool — reusing `variantPool` here pinned every swapped road to
+    // a single palm model.
+    expect(new Set(boulevard.map(({ variant }) => variant))).toEqual(
+      new Set([0, 1]),
+    );
+    // A road exactly at the threshold takes the swap.
+    expect(speciesOn(9).every(({ kind }) => kind === "palm")).toBe(true);
+  });
+
   it("uses each road's own sidewalk width and rotated block footprint", () => {
     const block = {
       center: { x: 0, z: 12 },

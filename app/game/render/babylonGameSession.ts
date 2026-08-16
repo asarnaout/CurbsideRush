@@ -968,12 +968,16 @@ export class BabylonGameSession {
   /** Sidewalk vendor carts to instantiate once their glbs preload. */
   private readonly pendingVendors: { config: StreetPropConfig; x: number; z: number; yaw: number }[] = [];
   /**
-   * Park planting waiting on the model preload. Split at collection time:
-   * `pendingParkProps` become individual knockable instances, the thickets
+   * Imported planting waiting on the model preload. Split at collection time:
+   * `pendingPlantedProps` become individual knockable instances, the thickets
    * merge one mesh per cell. Both need glb masters, which only exist once
    * `preloadVehicleModels` has run — the same reason vendor carts queue.
+   *
+   * Named for the planting, not for parks: Cairo's street palms queue here
+   * too, so that a palm on the Corniche and a palm in the Opera Grounds are
+   * one master, one shadow caster and one knockable prop.
    */
-  private readonly pendingParkProps: ParkPlacement[] = [];
+  private readonly pendingPlantedProps: ParkPlacement[] = [];
   private readonly pendingParkThickets: ParkPlacement[] = [];
   private destructibles: Destructibles | null = null;
   // Built in the constructor, unlike every other collaborator (built in
@@ -2977,7 +2981,8 @@ export class BabylonGameSession {
   }
 
   /**
-   * The imported planting, once its glbs are in.
+   * The imported planting, once its glbs are in — park scatter plus (Cairo)
+   * the street palms, which are the same models on the same queue.
    *
    * Species are chosen from what this city actually downloaded
    * (`natureModelsForMap`), so Cairo's "trees" resolve to palms and Tokyo's to
@@ -2992,14 +2997,25 @@ export class BabylonGameSession {
     );
     const shrubs = catalogue.filter((model) => model.role === "shrub");
     const monuments = catalogue.filter((model) => model.role === "monument");
+    // `"palm"` asks for a palm and nothing else, where `"tree"` takes whatever
+    // canopy the city downloaded. Cairo's street line names the species
+    // deliberately (`roadSpecies`), and drawing it from the mixed canopy pool
+    // would have planted oaks down the Corniche.
+    const palms = catalogue.filter((model) => model.role === "palm");
     const speciesFor = (kind: string, variant: number) => {
       const pool =
-        kind === "shrub" ? shrubs : kind === "monument" ? monuments : canopy;
+        kind === "shrub"
+          ? shrubs
+          : kind === "monument"
+            ? monuments
+            : kind === "palm"
+              ? palms
+              : canopy;
       return pool.length ? pool[variant % pool.length] : null;
     };
 
     let index = 0;
-    for (const placement of this.pendingParkProps) {
+    for (const placement of this.pendingPlantedProps) {
       const species = speciesFor(placement.kind, placement.variant);
       if (!species) continue;
       const master = this.getBuildingMaster(species.url);
@@ -3024,7 +3040,7 @@ export class BabylonGameSession {
         [{ node: instance, isLightPool: false }],
       );
     }
-    this.pendingParkProps.length = 0;
+    this.pendingPlantedProps.length = 0;
 
     // Deep planting is instanced, not merged. Merging a cell into one mesh
     // duplicates its geometry per plant, and on Central Park that cost **+100
@@ -5052,7 +5068,7 @@ export class BabylonGameSession {
         scene,
         staticSceneryFreeze: this.staticSceneryFreeze,
         pendingVendors: this.pendingVendors,
-        pendingParkProps: this.pendingParkProps,
+        pendingPlantedProps: this.pendingPlantedProps,
         pendingParkThickets: this.pendingParkThickets,
         sceneryKeepFraction: this.sceneryKeepFraction,
         registerShadowCaster: (mesh, x, z) =>

@@ -371,18 +371,37 @@ export function roadsidePropKindsForMap(
     case "cairo":
       return [
         { ...PROP_STREETLIGHT, spacingM: 36, jitterM: 7 },
-        { ...PROP_TREE, spacingM: 54, minScale: 0.8, maxScale: 1.15 },
+        // Cairo's ONE street-tree line, and it is mostly palms.
+        //
+        // It used to be two passes — a 54 m tree line plus a separate 68 m
+        // palm line — which is precisely what the owner rejected: 22 of the
+        // map's 27 roads came out with both species interleaved at random,
+        // "five palms in one road and one dangling tree". Species is now a
+        // per-road decision (`roadSpecies`), so a street is a palm avenue or
+        // a shade-tree street end to end. Folding the two passes into one is
+        // also the only way to say that: two independent passes each carry
+        // their own rhythm and their own side toggle, so no amount of
+        // retuning either could stop them mixing on the same kerb (the same
+        // structural reason Tokyo's lamps had to be ONE denser pass rather
+        // than two — see the streetlight note above).
+        //
+        // 9 m splits this map's carriageways with nothing in the gap: the 18
+        // waterfront drives and boulevards go palm, the 9 narrow Wust
+        // el-Balad lanes keep shade trees. See `roadSpecies` for why width
+        // and not a hash.
+        //
+        // 54 -> 34 m, and it was already `bothSides` (owner: "much more
+        // recurring and visible") — a palm every ~34 m each side, against
+        // the 68 m single-sided rhythm the palms had before. `variantPool`
+        // drops the conifer: an owner-reported Christmas tree on the
+        // Corniche, and not a species that grows in Cairo.
         {
-          kind: "palm",
-          spacingM: 68,
-          jitterM: 16,
-          lateralMarginM: 1.2,
-          bothSides: false,
-          alternateSides: true,
-          variants: 2,
-          minScale: 0.85,
-          maxScale: 1.2,
-          faceRoad: true,
+          ...PROP_TREE,
+          spacingM: 34,
+          minScale: 0.8,
+          maxScale: 1.15,
+          variantPool: [0, 2],
+          roadSpecies: { kind: "palm", minRoadWidthM: 9, variants: 2 },
         },
         {
           kind: "bollard",

@@ -153,9 +153,19 @@ Egyptian felucca on it. `buildWaterBodies` gates the call on the map.
 Species come from `natureModelsForMap`, so a city plants only what it
 downloaded: Tokyo its temple set, Cairo a palm-heavy mix, with none of that
 spelled out at the call site. Placements queue in
-`pendingParkProps` / `pendingParkThickets` and drain in `buildParkPlanting`
+`pendingPlantedProps` / `pendingParkThickets` and drain in `buildParkPlanting`
 after the preload, the way vendor carts do — glb masters do not exist when the
 scene is built.
+
+**The queue is named for planting, not for parks.** Cairo's street palms ride
+it too: `buildRoadsideProps` diverts every `"palm"` placement onto it instead
+of building one procedurally, so a palm on the Corniche and a palm in the
+Opera Grounds are one master, one shadow caster and one knockable prop. That
+is also the cheaper shape — an imported palm is a single mesh where the
+procedural one was three. **A queued placement is silently dropped when its
+master is missing**, which is exactly what a suite mocking the preload empty
+does; `fourCityRenderCharacterization` counts Cairo with zero palms for that
+reason, and its baseline says so.
 
 **Kenney's kit is authored at roughly a fifth of world scale.** Its trees are
 1.1–1.9 m tall in the file, not the 4–6 m their silhouettes suggest, so a scale
@@ -174,7 +184,10 @@ Scatter `variants` has to be wide enough to reach the whole species pool:
 so no conifer was ever planted in a temperate park. The inverse trap: a
 bespoke piece that means ONE species must pick its pool index deliberately —
 Cairo's canopy pool leads with broadleaf and oak, so the opera allée at
-`variant: 0` planted ten broadleaves down the axis.
+`variant: 0` planted ten broadleaves down the axis. Where a caller means
+*palms specifically*, `speciesFor`'s `"palm"` kind draws from a palm-only pool
+rather than the mixed canopy; asking the canopy for them would have planted
+oaks down the Corniche.
 
 ## Named parks get pieces no scatter would produce
 

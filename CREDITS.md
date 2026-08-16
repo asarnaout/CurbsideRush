@@ -393,9 +393,11 @@ download.
 ### Park planting kit (CC0)
 
 Added so parks are planted with real models rather than procedural cones
-(issue #206). Placement, scoping and per-city tinting live in
-`app/game/natureCatalog.ts`; `tests/natureAssets.test.ts` pins every committed
-byte.
+(issue #206), and since extended to Cairo's street and Corniche palms for the
+same reason — the procedural palm was a bare trunk under two flat cones, and
+the owner did not read it as a palm at all. Placement, scoping and per-city
+tinting live in `app/game/natureCatalog.ts`; `tests/natureAssets.test.ts` pins
+every committed byte.
 
 All of these come from **Kenney**'s **Nature Kit** version 2.1
 (<https://kenney.nl/assets/nature-kit>, zip

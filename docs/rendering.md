@@ -397,10 +397,13 @@ city file already imports FROM `visuals.ts`, so that would be a real cycle.
 The decor's own species (`treeKind`/`lampKind`, Tokyo expansion Phase 9) are
 a second, separate per-map lookup in the same file
 (`PROMENADE_DECOR_KINDS_BY_KEY`) for the same reason — Cairo keeps its
-original "palm"/"streetlight" literals, Tokyo passes "sakura"/"chochin-post",
-and each needs its own `DESTRUCTIBLE_PROP_CONFIGS` row and `partsFor` render
-case since the promenade places them directly rather than through the
-generic roadside-scatter `PropKindConfig` path.
+original "palm"/"streetlight" literals, Tokyo passes "sakura"/"chochin-post".
+Each needs its own `DESTRUCTIBLE_PROP_CONFIGS` row, since the promenade places
+them directly rather than through the generic roadside-scatter
+`PropKindConfig` path — and then either a `partsFor` case (procedural) or a
+route onto `pendingPlantedProps` (an imported glb). "palm" takes the second:
+its `partsFor` case is gone, and `buildRoadsideProps` diverts every palm
+placement, promenade and scatter alike, to the planting queue.
 
 ## Render scaling
 
