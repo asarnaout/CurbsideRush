@@ -9,7 +9,7 @@
  * renderer uses, which is why that maths lives here rather than being repeated
  * per caller.
  */
-import type { ServicePointKind, WorldPoint } from "./types";
+import type { ServiceArea, ServicePointKind, WorldPoint } from "./types";
 import { resolveSimulationLaneAnchor } from "./laneAnchors";
 
 // Re-exported so `GameCanvas` can name the union without importing `./types`,
@@ -150,6 +150,64 @@ export function resolveServicePointLot(
     x: pose.x + Math.cos(pose.heading) * setback,
     z: pose.z - Math.sin(pose.heading) * setback,
     yaw: pose.heading + SERVICE_MODEL_FRAME[service.kind].yawOffset,
+  };
+}
+
+/**
+ * How far past its lot's own edges the rule amnesty (`resolveServiceLotArea`)
+ * reaches, along the street.
+ *
+ * A car does not arrive at a forecourt square-on: it starts swinging off the
+ * carriageway a few metres up-street of the entrance and its centre traces an
+ * arc across the pavement into the lot. That arc is the whole "entering /
+ * leaving" case issue #86 is about, and none of it is inside the authored
+ * square. Three metres of flare covers it without the box ever reaching the
+ * next frontage along — and the 0.8 s the off-road accumulator needs before
+ * it fires absorbs anything wider, since at a plausible turn-in speed that is
+ * another four metres of travel.
+ *
+ * Deliberately not applied to the road side: that edge is set by the lane
+ * centreline instead (see `resolveServiceLotArea`), which is both further out
+ * and exactly contiguous with the carriageway.
+ */
+export const SERVICE_AREA_TURN_IN_MARGIN_M = 3;
+
+/**
+ * The ground a driver may legally leave the road for at this service point:
+ * its lot, flared by `SERVICE_AREA_TURN_IN_MARGIN_M` along the street, and
+ * extended on the road side all the way to the anchor lane's centreline so the
+ * pavement crossing between kerb and forecourt is inside it too.
+ *
+ * Reaching the centreline sounds over-broad and is not: the simulation only
+ * honours the box for a car that is *already* off the carriageway, so the
+ * half of it lying on the road itself can never excuse anything. That is what
+ * makes the amnesty exactly contiguous with the road — there is no band
+ * between "on the lane" and "on the forecourt" where a driver is judged by
+ * lane rules while off the lane.
+ */
+export function resolveServiceLotArea(
+  lanes: readonly AnchoredLane[],
+  service: AnchoredServicePoint,
+  id: string,
+): ServiceArea | null {
+  const pose = resolveSimulationLaneAnchor(lanes, service.anchor);
+  if (!pose) return null;
+  const setback = service.setbackM ?? DEFAULT_SERVICE_SETBACK_M;
+  const half = SERVICE_LOT_HALF_M[service.kind] + SERVICE_AREA_TURN_IN_MARGIN_M;
+  // From the lane centreline (v = 0) to the far edge of the flared lot.
+  const depth = setback + half;
+  const ux = Math.sin(pose.heading);
+  const uz = Math.cos(pose.heading);
+  return {
+    id,
+    kind: service.kind,
+    // V is (uz, -ux) — the lane's right-hand normal, the side the lot is on.
+    x: pose.x + uz * (depth / 2),
+    z: pose.z - ux * (depth / 2),
+    ux,
+    uz,
+    halfU: half,
+    halfV: depth / 2,
   };
 }
 

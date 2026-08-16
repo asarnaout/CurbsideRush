@@ -10,6 +10,7 @@ import type {
   RuleCode,
   RuleEvent,
   ScenarioClock,
+  ServiceArea,
   SpeedUnit,
   StaticObstacle,
   TrafficSide,
@@ -188,6 +189,13 @@ export interface SimulationCoreConfig {
    * leaves the world open for focused physics tests.
    */
   readonly staticObstacles?: readonly StaticObstacle[];
+  /**
+   * Forecourts and repair-shop aprons: ground the driver is *meant* to leave
+   * the carriageway for, where the lane-relative rules stop applying. See
+   * `ServiceArea` and `updateRoadState`. Omitting it (focused tests, a map
+   * with no service points) simply means no amnesty anywhere.
+   */
+  readonly serviceAreas?: readonly ServiceArea[];
 }
 
 export interface SimulationInput {
@@ -323,6 +331,13 @@ interface RoadState {
   projection: LaneProjection | null;
   wrongWay: boolean;
   offRoad: boolean;
+  /**
+   * The car is off the carriageway *and* on a service point's forecourt or
+   * apron — legally off the road rather than illegally off it. `projection`,
+   * `wrongWay` and `offRoad` stay factual about the nearest lane while this is
+   * set; it is `roadRuleMonitor` that stops judging the car against it.
+   */
+  inServiceArea: boolean;
 }
 
 const RULE_COOLDOWNS: Readonly<Partial<Record<RuleCode, number>>> = {
@@ -373,6 +388,8 @@ export class SimulationCore {
    * pure query against them — see `simulation/roadNetwork.ts`. */
   private readonly roadNetwork: RoadNetwork;
   private readonly staticObstacles: StaticObstacleInternal[];
+  /** Forecourts and repair-shop aprons — see `isInsideServiceArea`. */
+  private readonly serviceAreas: readonly ServiceArea[];
   private readonly initialSeed: number;
   /**
    * Static-collision instrumentation (see docs/simulation-core.md). Zeroed at
@@ -427,6 +444,7 @@ export class SimulationCore {
     projection: null,
     wrongWay: false,
     offRoad: false,
+    inServiceArea: false,
   };
   // Honk playback state is set by roadRuleMonitor.monitorPassingLane (via the
   // onHonk callback) but stays facade-owned: getSnapshot (output) and
@@ -537,6 +555,7 @@ export class SimulationCore {
     this.staticObstacles = (configuration.staticObstacles ?? []).map(
       (obstacle) => normalizeStaticObstacle(obstacle, obstacleInflationM),
     );
+    this.serviceAreas = configuration.serviceAreas ?? [];
 
     // Matches the pre-split field initializers exactly (signalStartHeading
     // was `= 0`, not spawn-derived) — inert either way, since reset() below
@@ -1128,7 +1147,12 @@ export class SimulationCore {
       this.playerState.player.z >= this.config.bounds.minZ &&
       this.playerState.player.z <= this.config.bounds.maxZ;
     if (!projection) {
-      this.roadState = { projection: null, wrongWay: false, offRoad: true };
+      this.roadState = {
+        projection: null,
+        wrongWay: false,
+        offRoad: true,
+        inServiceArea: this.isInsideServiceArea(),
+      };
       return;
     }
     const effectiveHeading =
@@ -1139,11 +1163,39 @@ export class SimulationCore {
       Math.abs(this.playerState.signedSpeedMps) > 1.2 &&
       Math.abs(angleDifference(effectiveHeading, projection.heading)) > Math.PI / 2;
     const allowedDistance = projection.lane.width / 2 + 2.1;
+    const offRoad = !withinBounds || projection.distance > allowedDistance;
     this.roadState = {
       projection,
       wrongWay,
-      offRoad: !withinBounds || projection.distance > allowedDistance,
+      offRoad,
+      // Conjoined with `offRoad` deliberately: a service area reaches back to
+      // its lane's centreline so the pavement crossing is inside it (issue
+      // #86), which means its road-side half lies on the carriageway. Requiring
+      // the car to be off the carriageway first is what stops a station beside
+      // a junction from becoming a licence to run that junction's red light.
+      inServiceArea: offRoad && this.isInsideServiceArea(),
     };
+  }
+
+  /**
+   * Is the car standing on a forecourt or a repair-shop apron?
+   *
+   * Point-in-OBB against each authored `ServiceArea`, the car treated as a
+   * point rather than a capsule: a wheel overhanging the amnesty is still on
+   * the forecourt as far as a traffic officer is concerned, and the boxes carry
+   * a turn-in margin precisely so the edges do not have to be exact. Linear in
+   * the service-point count, which is single digits per map.
+   */
+  private isInsideServiceArea(): boolean {
+    const { x, z } = this.playerState.player;
+    for (const area of this.serviceAreas) {
+      const dx = x - area.x;
+      const dz = z - area.z;
+      if (Math.abs(dx * area.ux + dz * area.uz) > area.halfU) continue;
+      if (Math.abs(dx * area.uz - dz * area.ux) > area.halfV) continue;
+      return true;
+    }
+    return false;
   }
 
   private restoreSpawnPose(): void {

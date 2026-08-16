@@ -187,12 +187,44 @@ export class RoadRuleMonitor {
     this.restrictedLaneSeconds.clear();
   }
 
+  /**
+   * Every rule in this class is judged against `roadState.projection` — the
+   * nearest lane — so on a service forecourt, sixteen to twenty-three metres
+   * off the carriageway, all of them measure the car against a road it is
+   * legitimately not on. The result was a ticket for "leaving the road" while
+   * sitting at a pump (issue #86), and reachable wrong-way and stop-line
+   * tickets for manoeuvring on the forecourt beside them.
+   *
+   * So a car inside a `ServiceArea` is treated as being on no lane at all,
+   * exactly as if `projection` were null: nothing here judges it. Both
+   * accumulators still *decay* while it is in there, so pulling onto a
+   * forecourt discards a part-served off-road or wrong-way count rather than
+   * freezing it to resume on the way out.
+   *
+   * This covers only what this class detects. Collisions are staged elsewhere
+   * and are untouched: hitting a pump island, a wall, another car or a person
+   * on a forecourt is cited exactly as it is anywhere else.
+   */
+  private serviceAreaAmnesty(deltaSeconds: number): void {
+    // Each at its own rule's decay rate, so a car that dips through a forecourt
+    // unwinds its counts exactly as fast as one that returned to the lane.
+    this.wrongWaySeconds = Math.max(0, this.wrongWaySeconds - deltaSeconds * 2);
+    this.offRoadSeconds = Math.max(0, this.offRoadSeconds - deltaSeconds * 2);
+    this.speedingSeconds = Math.max(0, this.speedingSeconds - deltaSeconds * 1.5);
+    this.followingSeconds = Math.max(0, this.followingSeconds - deltaSeconds * 2);
+    this.passingLaneSeconds = Math.max(0, this.passingLaneSeconds - deltaSeconds * 2);
+  }
+
   monitorRoadRules(
     deltaSeconds: number,
     ctx: TrafficTickCtx,
     emitEvent: EmitEventFn,
     onHonk: (npcId: string) => void,
   ): void {
+    if (ctx.roadState.inServiceArea) {
+      this.serviceAreaAmnesty(deltaSeconds);
+      return;
+    }
     const projection = ctx.roadState.projection;
     const speed = Math.abs(this.playerState.signedSpeedMps);
 
@@ -253,7 +285,8 @@ export class RoadRuleMonitor {
     emitEvent: EmitEventFn,
   ): void {
     const projection = ctx.roadState.projection;
-    if (!projection || Math.abs(this.playerState.signedSpeedMps) < 0.5) return;
+    if (!projection || ctx.roadState.inServiceArea) return;
+    if (Math.abs(this.playerState.signedSpeedMps) < 0.5) return;
 
     for (const junction of this.boxJunctions) {
       if (!junction.laneIds.includes(projection.lane.id)) continue;
@@ -426,7 +459,7 @@ export class RoadRuleMonitor {
     ctx: TrafficTickCtx,
     emitEvent: EmitEventFn,
   ): void {
-    if (!currentProjection) return;
+    if (!currentProjection || ctx.roadState.inServiceArea) return;
     const laneStopLines = this.roadNetwork.stopLinesByLaneId.get(currentProjection.lane.id);
     if (!laneStopLines) return;
     const speed = Math.abs(this.playerState.signedSpeedMps);

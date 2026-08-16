@@ -270,6 +270,7 @@ export interface TrafficTickCtx {
     readonly projection: LaneProjection | null;
     readonly wrongWay: boolean;
     readonly offRoad: boolean;
+    readonly inServiceArea: boolean;
   };
   readonly elapsedSeconds: number;
   readonly tick: number;

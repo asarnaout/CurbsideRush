@@ -515,6 +515,12 @@ shipped on the wrong side. Two rules hold it now: nothing inside a walled park
 (`serviceLots.test.ts`, deliberately not brownstone — a corner bodega on a
 brownstone street is Manhattan).
 
+The same anchor and set-back also derive the lot's **rule amnesty** — the box
+inside which the road rules stop judging a car, so a driver is not fined for
+pulling in (see docs/simulation-core.md). Nothing extra to author, but it does
+mean a lot set back far from its anchor lane drags that amnesty across whatever
+lies between the two.
+
 ## Rail lines: one per map, corridor first
 
 `ProceduralMapGeometry.railLines` (`RailLine`, `types.ts`) is the single

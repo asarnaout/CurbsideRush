@@ -710,6 +710,37 @@ export type StaticObstacle =
       readonly points: readonly WorldPoint[];
     };
 
+/**
+ * Ground a driver is *meant* to leave the carriageway for: a gas station's
+ * forecourt or a repair shop's apron and bay, together with the pavement
+ * crossing that reaches it from the street.
+ *
+ * The lane-relative rules (off-road, wrong way, stop lines, the posted limit)
+ * all judge the player against the nearest lane's centreline, and a forecourt
+ * sits 16-23 m off it — so without this the game tickets you for "leaving the
+ * road" while you sit at a pump waiting to press Refuel (issue #86). The
+ * simulation treats a car that is *both* inside one of these boxes *and*
+ * already off the carriageway as off-lane rather than off-side: no lane, no
+ * lane rule. Collisions are untouched — hitting a pump, a wall, a car or a
+ * person on a forecourt is still exactly as culpable as anywhere else.
+ *
+ * Built by `resolveServiceLotArea` from the same anchor and set-back the
+ * renderer places the building with, so the amnesty and the forecourt you can
+ * see are one rectangle. OBB axes follow `StaticObstacle`: U is given as an
+ * explicit unit vector (here, the anchor lane's direction) and V is its
+ * perpendicular `(uz, -ux)`, which points from the road towards the lot.
+ */
+export interface ServiceArea {
+  readonly id: string;
+  readonly kind: ServicePointKind;
+  readonly x: number;
+  readonly z: number;
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+}
+
 export interface FreeDriveDefinition {
   readonly id: FreeDriveId;
   readonly countryId: CountryId;

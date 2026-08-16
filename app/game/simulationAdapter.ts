@@ -10,7 +10,7 @@ import type {
   TrafficLightDefinition,
   TrafficLightSequence,
 } from "./simulation";
-import type { StaticObstacle, StaticObstacleTag } from "./types";
+import type { ServiceArea, StaticObstacle, StaticObstacleTag } from "./types";
 
 // Re-exported for the same reason `servicePoints` re-exports `ServicePointKind`:
 // `GameCanvas` reads the obstacles this module builds, and otherwise keeps clear
@@ -30,6 +30,7 @@ import {
   type ResolvedSimulationAnchor,
 } from "./laneAnchors";
 import {
+  resolveServiceLotArea,
   resolveServicePointLot,
   SERVICE_MODEL_FRAME,
   type ServicePointKind,
@@ -767,6 +768,29 @@ function groundSolidToStaticObstacle(solid: GroundSolid): StaticObstacle {
  *   makes the bay a bay rather than a sealed box.
  * - world edges -> fences just outside the bounds.
  */
+/**
+ * The rule-amnesty box around every service point on a map — the counterpart
+ * to the solid furniture `buildStaticObstacles` puts *on* those lots.
+ *
+ * A forecourt is the one place the game asks a driver to leave the road, so
+ * the lane-relative rules have to stop applying there; see `ServiceArea` and
+ * `SimulationCore.updateRoadState` for the exact contract. Ids are positional
+ * (`service-3`) to match the `station-3-shop` scheme the obstacle builder uses
+ * for the same list, so a lot and its amnesty are traceable to one another.
+ */
+export function buildServiceAreas(mapPack: GameCanvasMapPack): ServiceArea[] {
+  const areas: ServiceArea[] = [];
+  for (const [index, service] of (mapPack.geometry.servicePoints ?? []).entries()) {
+    const area = resolveServiceLotArea(
+      mapPack.laneGraph.lanes,
+      service,
+      `service-${index}`,
+    );
+    if (area) areas.push(area);
+  }
+  return areas;
+}
+
 export function buildStaticObstacles({
   mapPack,
   bounds,
@@ -1435,6 +1459,7 @@ export function buildSimulationCoreConfig({
     lanes,
     bounds,
     staticObstacles: buildStaticObstacles({ mapPack, bounds, buildingLayout: resolvedBuildingLayout }),
+    serviceAreas: buildServiceAreas(mapPack),
     spawn: { x: start.x, z: start.z, heading: start.heading },
     trafficLights: traffic.lights,
     stopLines,

@@ -61,14 +61,10 @@ explicit `TrafficTickCtx`, built fresh by `simulation.ts` at each call site —
 (themselves, `playerState`, `config`) are captured once at construction
 instead, since none of those three are ever reassigned wholesale.
 
-The purity guard (`tests/architecture.test.ts`) that used to check only
-`simulation.ts` now walks every file in `app/game/simulation/`: each may
-import type-only from `../types`, type-only back to `../simulation` itself
-(for shared vocabulary like `SimulationPoint`/`TurnSignal`/`MutablePose` —
-the same pattern issue #291 used for `MAP_VISUAL_PROFILES`), or freely from
-a sibling `simulation/*.ts` module — nothing else, and the same forbidden-
-token check (no `Math.random`, `Date.now(`, `@babylonjs`, ...) applies to
-every file, not just `simulation.ts`.
+`tests/architecture.test.ts` enforces the import and purity rules on every
+file here, not just `simulation.ts`. The one clause worth knowing before you
+reach for it: a type-only back-import from `../simulation` is allowed, for
+shared vocabulary like `SimulationPoint`/`TurnSignal`/`MutablePose`.
 
 ## Static obstacles come from the shared building plan, not from blocks
 
@@ -202,6 +198,31 @@ can never see the `collision` event a pedestrian fine rides on.
   speeding, 4 s pedestrian) cannot see each other, so one swerve that leaves the
   road *and* hits someone used to pay twice. Keep that window short: it collapses
   one incident, it is not a rate limit.
+
+### A forecourt is off-lane, not off-side
+
+Every rule `RoadRuleMonitor` enforces is measured against the *nearest* lane, and
+a forecourt sits 16-23 m off one — so standing at a pump read as `out_of_bounds`
+every 2 s and became a fine whenever a patrol passed (issue #86), with
+`wrong_way` and `red_light` both reachable from ground the car had never left.
+
+The adapter now emits a `ServiceArea` per service point (`resolveServiceLotArea`:
+the authored lot, flared by `SERVICE_AREA_TURN_IN_MARGIN_M`, reaching back to the
+anchor lane's centreline so the pavement crossing is inside it). `updateRoadState`
+sets `roadState.inServiceArea`, and the monitor then treats the car as on **no
+lane at all** — `monitorRoadRules`, `checkBoxJunctions` and `checkStopLines`
+return early, accumulators decaying rather than freezing. Two halves keep that
+honest, and neither is optional:
+
+- **`inServiceArea` is conjoined with `offRoad`.** Reaching the centreline is what
+  makes the amnesty exactly contiguous with the road — no band where a driver is
+  off the lane but still judged by it — and requiring the car to be off the
+  carriageway first is what stops a station beside a junction from becoming a
+  licence to run that junction's red light.
+- **Collisions are staged outside this class and are untouched.** A lot excuses
+  your *position*, never what you hit.
+
+`tests/serviceLotRuleAmnesty.test.ts` pins both directions at every service point.
 
 ### Speeding is the one fineable rule with two thresholds and a price
 
