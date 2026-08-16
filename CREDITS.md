@@ -137,7 +137,7 @@ no bytes changed, only which sets reference which already-committed files.
   released **CC0 1.0**. Downloaded 2026-07-29. Source GLB SHA-256
   `5ebaa83522c99c877e28b9c482aa8629226d574fa398dc91ba71430d4e38e290`;
   committed GLB SHA-256
-  `dc973a835af27aebf9d2f0f45a981b478d26b2219b97e2f6786c25c39ffa9e9e`.
+  `d6c89e0b79472677eea5dabdc5e3b236a5aee7125ba3bde0cfc859f9d3b43a52`.
   Modified with a muted Cairo façade palette and matte materials by
   `tools/style-cairo-residences.mjs`, and its red/white striped door canopy
   deleted by `tools/cairo-shopfront.mjs` (v2); used as one of Cairo's
@@ -331,7 +331,7 @@ OBJ + MTL by `tools/obj-to-glb.mjs` before styling.
   **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
   `289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5`;
   committed GLB SHA-256
-  `e0475bb03cf9a182f11ff29788bd977d4f085f1261f0a862f24c3edcb92ed06c`.
+  `a378e221bc1fda319da5e881ceba76a2186b9ac3a4016179c72ccf9ace0def27`.
   Cairo's copy of `shop.glb` — same source model, but recoloured to the Cairo
   palette with the striped awning flattened and the bundled hydrant removed by
   `tools/cairo-shopfront.mjs`. It exists as a separate file because `shop.glb`

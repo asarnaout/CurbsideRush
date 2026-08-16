@@ -303,12 +303,29 @@ function splitPanes(model, file) {
     };
     appended.push({ prim: p, keep: write(keep), move: write(move), componentType,
                     keepCount: keep.length * 3, moveCount: move.length * 3,
-                    srcAccessor, glassIndex });
+                    srcAccessor, srcView: p.prim.indices, glassIndex });
     movedTris += move.length;
   }
   if (!appended.length) return "nothing to split";
 
-  // Repack: every existing bufferView verbatim, then the new index buffers.
+  // The wall's own index accessor is REUSED for the kept triangles, and its
+  // bufferView's bytes are replaced in place. Appending a second buffer and
+  // leaving the original behind instead costs the original index buffer in
+  // dead weight in every shipped file — 188 KB across the eighteen models
+  // before this was caught, for a pass whose whole job is to move triangles,
+  // not to duplicate them. Only the pane buffer is genuinely new.
+  const replacements = new Map();
+  for (const a of appended) {
+    const shared = json.accessors.filter(
+      (acc, i) => i !== a.srcView && acc.bufferView === a.srcAccessor.bufferView,
+    ).length;
+    if (shared) continue; // someone else reads these bytes; fall back to appending
+    replacements.set(a.srcAccessor.bufferView, a.keep);
+    a.reusedView = a.srcAccessor.bufferView;
+  }
+
+  // Repack: every existing bufferView (replaced where the kept indices took it
+  // over), then the new pane index buffers.
   const chunks = [];
   let cursor = 0;
   const push = (buf) => {
@@ -319,22 +336,32 @@ function splitPanes(model, file) {
     if (pad) { chunks.push(Buffer.alloc(pad)); cursor += pad; }
     return at;
   };
-  for (const view of json.bufferViews) {
+  for (const [index, view] of json.bufferViews.entries()) {
     const start = view.byteOffset ?? 0;
-    const slice = bin.subarray(start, start + view.byteLength);
-    view.byteOffset = push(Buffer.from(slice));
+    const source = replacements.get(index) ?? Buffer.from(bin.subarray(start, start + view.byteLength));
+    view.byteOffset = push(source);
+    view.byteLength = source.length;
   }
   for (const a of appended) {
-    const keepView = json.bufferViews.push({
-      buffer: 0, byteOffset: push(a.keep), byteLength: a.keep.length, target: 34963,
-    }) - 1;
     const moveView = json.bufferViews.push({
       buffer: 0, byteOffset: push(a.move), byteLength: a.move.length, target: 34963,
     }) - 1;
-    // The wall keeps the original primitive, now indexing only its own tris.
-    a.prim.prim.indices = json.accessors.push({
-      bufferView: keepView, componentType: a.componentType, count: a.keepCount, type: "SCALAR",
-    }) - 1;
+    // The wall keeps its original primitive AND its original accessor, now
+    // counting only its own triangles.
+    if (a.reusedView !== undefined) {
+      a.srcAccessor.componentType = a.componentType;
+      a.srcAccessor.count = a.keepCount;
+      delete a.srcAccessor.byteOffset;
+      delete a.srcAccessor.min;
+      delete a.srcAccessor.max;
+    } else {
+      const keepView = json.bufferViews.push({
+        buffer: 0, byteOffset: push(a.keep), byteLength: a.keep.length, target: 34963,
+      }) - 1;
+      a.prim.prim.indices = json.accessors.push({
+        bufferView: keepView, componentType: a.componentType, count: a.keepCount, type: "SCALAR",
+      }) - 1;
+    }
     const glassAccessor = json.accessors.push({
       bufferView: moveView, componentType: a.componentType, count: a.moveCount, type: "SCALAR",
     }) - 1;

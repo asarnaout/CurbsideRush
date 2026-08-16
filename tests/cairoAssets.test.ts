@@ -87,7 +87,7 @@ describe("Cairo bundled assets", () => {
       {
         file: "cairo-residence-kay.glb",
         finalSha256:
-          "dc973a835af27aebf9d2f0f45a981b478d26b2219b97e2f6786c25c39ffa9e9e",
+          "d6c89e0b79472677eea5dabdc5e3b236a5aee7125ba3bde0cfc859f9d3b43a52",
         provenance: {
           style: "cairo-residence-v1",
           author: "Kay Lousberg",
@@ -111,7 +111,7 @@ describe("Cairo bundled assets", () => {
         // NYC and London keep the original, stripes, hydrant and all.
         file: "cairo-shop.glb",
         finalSha256:
-          "e0475bb03cf9a182f11ff29788bd977d4f085f1261f0a862f24c3edcb92ed06c",
+          "a378e221bc1fda319da5e881ceba76a2186b9ac3a4016179c72ccf9ace0def27",
         provenance: {
           style: "cairo-residence-v1",
           author: "Kay Lousberg",
