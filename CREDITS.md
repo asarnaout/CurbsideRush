@@ -18,6 +18,12 @@ Affected: `london-shop`, `london-walkup-{a,b}`, `cairo-shop`,
 `cairo-walkup-{a,b}`, `cairo-residence-kay`, `nyc-brownstone-{a,b,c,d}`,
 `nyc-house-b`, `tokyo-walkup-{a,b}`, `tokyo-house-{a,b,c}`, `tokyo-apato-a`.
 
+Three further models — `london-terrace-{b,e}` and `london-stucco-b`, the kit
+variants exported without their siblings' `Glass` material — carry an even
+smaller edit from the same tool: one existing material renamed `Bricks` ->
+`Bricks_Glass`, so the night renderer lights the window reveals it already
+owns. No geometry, texture, material count or licence changes.
+
 
 ## London
 

@@ -217,6 +217,53 @@ function proposePanes(prim, box) {
 const STYLE_ID = "window-glass-v1";
 
 /**
+ * The other half of the problem, and a different fix.
+ *
+ * `london-terrace-{b,e}` and `london-stucco-b` are the same Quaternius kit as
+ * their `a/c/d` siblings but were exported without the siblings' `Glass`
+ * material, so ~1_537 London buildings had no lit window at all. They cannot
+ * be split: their panes are not separate islands (`--report` proposes only
+ * three or four, and they made no visible difference), because the window
+ * openings are cut into the wall mesh itself.
+ *
+ * What they do have is a material used for the window reveals and nothing
+ * else on the street face. Renaming it is enough — the runtime test is by
+ * name, so `Bricks` -> `Bricks_Glass` lights exactly those reveals with no
+ * geometry change whatsoever.
+ *
+ * **This is only safe per model, and only after looking.** `Bricks` is real
+ * brickwork on `london-terrace-a`, and on these variants it also owns some
+ * large islands; the entries below were kept because three different street
+ * faces of two placements each showed small lit windows and no glowing panel.
+ * Their Cairo and Tokyo cousins (`cairo-block-slim`, `tokyo-block-slim`) have
+ * the same shape of problem and are deliberately NOT here — their candidate
+ * material is `Light`, which is a wall tone, and neither has been checked.
+ */
+const GLASS_RENAMES = {
+  "london-terrace-b": "Bricks",
+  "london-terrace-e": "Bricks",
+  "london-stucco-b": "Bricks",
+};
+
+/** Renames one material so the runtime's by-name glass test picks it up. */
+function renameGlass(file, material) {
+  const { json, bin } = parseGlb(fs.readFileSync(file));
+  if (json.asset?.extras?.curbsideRush?.windowGlass === STYLE_ID) return "already renamed";
+  let renamed = 0;
+  for (const m of json.materials ?? []) {
+    if (m.name === material) { m.name = `${material}_Glass`; renamed++; }
+  }
+  if (!renamed) return `no material named ${material}`;
+  json.asset ??= { version: "2.0" };
+  json.asset.extras = {
+    ...(json.asset.extras ?? {}),
+    curbsideRush: { ...(json.asset.extras?.curbsideRush ?? {}), windowGlass: STYLE_ID },
+  };
+  fs.writeFileSync(file, serializeGlb(json, bin));
+  return `renamed ${material} -> ${material}_Glass`;
+}
+
+/**
  * Moves the proposed pane triangles of one primitive onto their own material.
  * The new primitive reuses the source's attribute accessors verbatim, so the
  * two stay attribute-identical for `Mesh.MergeMeshes`; only the index buffer
@@ -340,10 +387,19 @@ for (const file of files) {
   if (lines.length) {
     console.log(`\n${id}${named ? "  (already has a named glass material)" : ""}`);
     for (const l of lines) console.log(l);
-    if (WRITE) {
+    if (WRITE && !GLASS_RENAMES[id]) {
       console.log(
         `    -> ${ACCEPTED.has(id) ? splitPanes(model, file) : "not in ACCEPTED — left alone"}`,
       );
     }
+  }
+}
+
+// The rename pass stands apart from the split pass: these models are reached
+// by model id, not by whether the pane proposal happened to find anything.
+if (WRITE) {
+  for (const [id, material] of Object.entries(GLASS_RENAMES)) {
+    if (targets.length && !targets.includes(id)) continue;
+    console.log(`\n${id}\n    -> ${renameGlass(`${PROPS}/${id}.glb`, material)}`);
   }
 }
