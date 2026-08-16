@@ -1022,9 +1022,21 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 20_596/20_571 (+5; bridge-fix pass): Sakuragawa girder flanges +
     // flange master, abutment pads moved under-deck, parapet runs split
     // around the corridor. materials +1: rail-deck.
-    totalMeshes: 20_596,
-    enabledMeshes: 20_571,
-    activeMeshes: 1_691,
+    // -> 20_598/20_573 (+2, active 1_691 -> 1_698; owner-reported terminus):
+    // the Gotokuji terminus becomes a depot shed (`terminus.style:
+    // "depot_shed"`) — the two 42 m platform slabs, which ran straight
+    // across the Yamashita St level crossing, retire with their hidden
+    // master (-3) for the shed's 9 pieces (2 side walls, 2 portal jambs,
+    // rear gable, portal header, 3 stepped roof slabs; the buffer stop
+    // survives under a new name), and the promenade's new rail keep-out
+    // removes the one chochin post standing in the corridor at the east
+    // bridge abutment (-4 part meshes). 9 - 3 - 4 = +2; active +7 because
+    // the shed stands beside spawn, inside the fixed pose's frustum, while
+    // the removed chochin was far outside it. materials and the fingerprint
+    // are unchanged: the shed reuses rail-platform/rail-girder/rail-sleeper.
+    totalMeshes: 20_598,
+    enabledMeshes: 20_573,
+    activeMeshes: 1_698,
     materials: 297,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1216,8 +1228,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the on-track abutment pads go under-deck; spans tightened to the
     // waterline re-deal approach sleepers; parapet runs now SPLIT around
     // the corridor instead of vanishing whole. materials +1: rail-deck.
-    totalMeshes: 12_589,
-    enabledMeshes: 12_545,
+    // -> 12_577/12_533 (-12; owner-reported palm-in-the-railway): the
+    // promenade decor now honours the rail corridor
+    // (`generatePromenadeDecor`'s `railLines` keep-out) — a headless
+    // before/after diff of the exact production call shows exactly 4
+    // placements removed (2 palms, 2 streetlights, all at Imbaba-corridor
+    // bridge abutments where the line pierces the corniche), and each of
+    // those prop kinds is 3 mesh instances, 4 x 3 = -12. Nothing else
+    // moves: active/materials/mirror/fingerprint all unchanged.
+    totalMeshes: 12_577,
+    enabledMeshes: 12_533,
     activeMeshes: 1_839,
     materials: 231,
     drawCallsPerFrame: 0,

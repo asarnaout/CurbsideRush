@@ -4196,8 +4196,12 @@ const TOKYO_RAIL_LINES: readonly RailLine[] = [
       "jp-rail-signal-higashi-soto",
     ],
     elevatedSpans: [TOKYO_RAIL_BRIDGE_SPAN],
-    // Platforms + buffer stop at the Gotokuji stub end by spawn.
-    terminus: { at: "start" },
+    // A depot shed at the Gotokuji stub end by spawn (Miyanosaka-depot
+    // flavour): the dwelling tram waits inside, out of sight. The stub is
+    // 40 m from Yamashita St's centreline, so the old open platforms ran
+    // straight across the level crossing (owner-reported); the 30 m shed
+    // ends 4.75 m clear of the sidewalk.
+    terminus: { at: "start", style: "depot_shed" },
     schedule: {
       mode: "shuttle",
       speedMps: 8.5,

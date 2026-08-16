@@ -13,7 +13,13 @@ import {
   railBallastIntervals,
   RAIL_BALLAST_WIDTH_M,
   RAIL_HALF_GAUGE_M,
+  RAIL_SHED_EAVE_HEIGHT_M,
+  RAIL_SHED_HALF_WIDTH_M,
+  RAIL_SHED_PORTAL_CLEAR_HEIGHT_M,
+  RAIL_SHED_RIDGE_HEIGHT_M,
+  RAIL_SHED_WALL_THICKNESS_M,
   railSleeperPlacements,
+  railTerminusShedLayout,
   slicePolyline,
   type RailInterval,
 } from "../geometry/railGeometry";
@@ -187,7 +193,11 @@ export function buildRailTracks(
     }
 
     if (line.terminus) {
-      buildRailTerminus(ctx, line.id, line.points, lengthM, line.terminus.at, baseY);
+      if (line.terminus.style === "depot_shed") {
+        buildRailDepotShed(ctx, line.id, line.points, lengthM, line.terminus.at, baseY);
+      } else {
+        buildRailTerminus(ctx, line.id, line.points, lengthM, line.terminus.at, baseY);
+      }
     }
   }
 }
@@ -478,10 +488,21 @@ function buildRailTerminus(
       ctx.addStatic(slab as unknown as Mesh, slab.position.x, slab.position.z);
     }
   }
+  buildBufferStop(ctx, `rail-terminus-${lineId}-buffer`, railPoints, lengthM, at, baseY);
+}
+
+function buildBufferStop(
+  ctx: RailRenderCtx,
+  name: string,
+  railPoints: readonly GameCanvasPoint[],
+  lengthM: number,
+  at: "start" | "end",
+  baseY: number,
+): void {
   const stopPose = polylinePoseAt(railPoints, at === "end" ? lengthM - 1 : 1);
   const buffer = createBox(
     ctx.scene,
-    `rail-terminus-${lineId}-buffer`,
+    name,
     { width: 1.1, height: 1.15, depth: 2.6 },
     new Vector3(stopPose.x, baseY + 0.55, stopPose.z),
     ctx.sleeper,
@@ -489,4 +510,87 @@ function buildRailTerminus(
   buffer.rotation.y = stopPose.headingRad - Math.PI / 2;
   buffer.isPickable = false;
   ctx.addStatic(buffer, stopPose.x, stopPose.z);
+}
+
+/**
+ * The depot-shed terminus: an enclosed shed over the dwell end so the parked
+ * consist waits out of sight (`terminus.style: "depot_shed"`). Walls, jambs
+ * and the rear gable come from `railTerminusShedLayout` — the same solids the
+ * adapter turns into `railShed` obstacles, so what the player sees is exactly
+ * what stops the car. The stepped roof and portal header are dressing above
+ * car height, renderer-only. No passenger platforms: a depot end has none.
+ */
+function buildRailDepotShed(
+  ctx: RailRenderCtx,
+  lineId: string,
+  railPoints: readonly GameCanvasPoint[],
+  lengthM: number,
+  at: "start" | "end",
+  baseY: number,
+): void {
+  const layout = railTerminusShedLayout(railPoints, lengthM, at);
+  const shedLength = layout.toM - layout.fromM;
+  const yaw = boxLengthYaw(layout.fx, layout.fz);
+  // Walls sink 0.2 m so sloping ground never shows a floating sill.
+  for (const solid of layout.solids) {
+    const wall = createBox(
+      ctx.scene,
+      `rail-shed-${lineId}-${solid.id}`,
+      { width: solid.halfU * 2, height: solid.heightM + 0.2, depth: solid.halfV * 2 },
+      new Vector3(solid.x, solid.heightM / 2 - 0.1, solid.z),
+      ctx.platform,
+    );
+    wall.rotation.y = boxLengthYaw(solid.ux, solid.uz);
+    wall.isPickable = false;
+    ctx.addStatic(wall, solid.x, solid.z);
+  }
+  const alongAt = (metres: number): { x: number; z: number } => ({
+    x: layout.tipX + layout.fx * metres,
+    z: layout.tipZ + layout.fz * metres,
+  });
+  const headerAt = alongAt(shedLength - RAIL_SHED_WALL_THICKNESS_M / 2);
+  const header = createBox(
+    ctx.scene,
+    // "entry", not "portal": tests/trafficControlCharacterization.test.tsx
+    // sweeps mesh names matching /portal/ (bridge-portal furniture) and a
+    // shed lintel is not traffic control.
+    `rail-shed-${lineId}-entry-header`,
+    {
+      width: RAIL_SHED_HALF_WIDTH_M * 2 + RAIL_SHED_WALL_THICKNESS_M,
+      height: RAIL_SHED_EAVE_HEIGHT_M - RAIL_SHED_PORTAL_CLEAR_HEIGHT_M,
+      depth: RAIL_SHED_WALL_THICKNESS_M,
+    },
+    new Vector3(
+      headerAt.x,
+      (RAIL_SHED_EAVE_HEIGHT_M + RAIL_SHED_PORTAL_CLEAR_HEIGHT_M) / 2,
+      headerAt.z,
+    ),
+    ctx.platform,
+  );
+  header.rotation.y = boxLengthYaw(-layout.fz, layout.fx);
+  header.isPickable = false;
+  ctx.addStatic(header, headerAt.x, headerAt.z);
+  // A stepped gable roof: three stacked slabs, faceted like the rest of the
+  // kit — no pitched-box Euler gymnastics, and the step ends read as gables
+  // at both faces. Widths/heights close over the eaves up toward the ridge.
+  const roofCentre = alongAt((shedLength - 0.4) / 2);
+  const roofLength = shedLength + 0.8;
+  const steps: readonly (readonly [number, number, number])[] = [
+    [RAIL_SHED_HALF_WIDTH_M * 2 + 0.9, RAIL_SHED_EAVE_HEIGHT_M, 6.0],
+    [RAIL_SHED_HALF_WIDTH_M + 2.4, 6.0, 6.4],
+    [3.6, 6.4, RAIL_SHED_RIDGE_HEIGHT_M],
+  ];
+  for (const [index, [widthM, fromY, toY]] of steps.entries()) {
+    const slab = createBox(
+      ctx.scene,
+      `rail-shed-${lineId}-roof-${index}`,
+      { width: roofLength, height: toY - fromY, depth: widthM },
+      new Vector3(roofCentre.x, (fromY + toY) / 2, roofCentre.z),
+      ctx.girder,
+    );
+    slab.rotation.y = yaw;
+    slab.isPickable = false;
+    ctx.addStatic(slab, roofCentre.x, roofCentre.z);
+  }
+  buildBufferStop(ctx, `rail-shed-${lineId}-buffer`, railPoints, lengthM, at, baseY);
 }

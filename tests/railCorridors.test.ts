@@ -3,6 +3,7 @@ import { FREE_DRIVES, getCountryProfile, getMapPack } from "../app/game/content"
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { buildSimulationCoreConfig } from "../app/game/simulationAdapter";
 import { railConsistLengthM } from "../app/game/render/trainRender";
+import { RAIL_SHED_GAUGE_CLEAR_M } from "../app/game/geometry/railGeometry";
 import type { StaticObstacle, WorldPoint } from "../app/game/types";
 
 /**
@@ -199,6 +200,10 @@ describe("rail corridors", () => {
         const violations: string[] = [];
         for (const line of world.railLines) {
           const quads = corridorQuads(line.points, line.corridorHalfWidthM);
+          // A depot-shed terminus is the one structure allowed INSIDE the
+          // corridor — its walls flank the parked consist by design — but
+          // even a shed solid must never cross the running gauge itself.
+          const gaugeQuads = corridorQuads(line.points, RAIL_SHED_GAUGE_CLEAR_M);
           const elevated = line.elevatedSpans ?? [];
           for (const obstacle of world.obstacles) {
             // The world's outer walls and shorelines are linear features the
@@ -207,6 +212,18 @@ describe("rail corridors", () => {
             // leaves the map. Everything else solid is a hard zero.
             if (obstacle.tag === "worldEdge") continue;
             if (obstacle.tag === "shoreline" && elevated.length) continue;
+            if (obstacle.tag === "railShed") {
+              const polygon = obstaclePolygon(obstacle);
+              if (
+                polygon &&
+                gaugeQuads.some((quad) => polygonsOverlap(quad.points, polygon))
+              ) {
+                violations.push(
+                  `${line.id}: ${obstacle.tag} ${obstacle.id} crosses the running gauge`,
+                );
+              }
+              continue;
+            }
             const polygon = obstaclePolygon(obstacle);
             const hit = polygon
               ? quads.some((quad) => polygonsOverlap(quad.points, polygon))

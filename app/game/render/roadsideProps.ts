@@ -285,6 +285,10 @@ export function buildRoadsideProps(
         seed: hashStringToSeed(`${mapId}-promenade`),
         treeKind: promenadeDecorKinds.treeKind,
         lampKind: promenadeDecorKinds.lampKind,
+        railLines: (mapPack.geometry.railLines ?? []).map((line) => ({
+          points: line.points,
+          corridorHalfWidthM: line.corridorHalfWidthM,
+        })),
       })
     : [];
   const roadsidePlacements = generateRoadsidePropPlacements({

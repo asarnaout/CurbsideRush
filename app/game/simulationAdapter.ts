@@ -61,6 +61,7 @@ import {
 } from "./geometry/buildingLayout";
 import { relaxationPolicyForMap } from "./geometry/cityRelaxationPolicies";
 import { landmarkGroundSolids, type GroundSolid } from "./geometry/landmarkGroundSolids";
+import { railTerminusShedLayout } from "./geometry/railGeometry";
 // Re-exported: this adapter is where render/babylonGameSession.ts and several
 // tests have always imported venue placement from, and geometry/venuePlacement.ts
 // (its new home, extracted to break the adapter/keep-out import cycle — see
@@ -1181,6 +1182,32 @@ export function buildStaticObstacles({
         x: item.position.x,
         z: item.position.z,
         radius: LONDON_FURNITURE_RADIUS_M,
+      });
+    }
+  }
+
+  // A depot-shed terminus's walls are the one structure allowed INSIDE a
+  // rail corridor (tests/railCorridors.test.ts admits the `railShed` tag but
+  // still refuses anything across the running gauge). Derived from the rail
+  // line itself so the renderer's shed and these solids can never drift.
+  for (const line of mapPack.geometry.railLines ?? []) {
+    if (line.terminus?.style !== "depot_shed") continue;
+    const layout = railTerminusShedLayout(
+      line.points,
+      polylineLengthM(line.points),
+      line.terminus.at,
+    );
+    for (const solid of layout.solids) {
+      obstacles.push({
+        kind: "obb",
+        id: `rail-shed-${line.id}-${solid.id}`,
+        tag: "railShed",
+        x: solid.x,
+        z: solid.z,
+        ux: solid.ux,
+        uz: solid.uz,
+        halfU: solid.halfU,
+        halfV: solid.halfV,
       });
     }
   }

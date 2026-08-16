@@ -536,10 +536,16 @@ keeps off it. Three rules keep the corridor honest:
 roads then thread the arches — the audit exempts elevated-span intersections
 from the crossing rule, viaduct piers dodge carriageways, and the train
 reports no obstacles. Ramps between ground and deck are deliberately
-unsupported. `terminus` places platforms + a buffer stop at a shuttle's
-dwell end. A `through` line should end at the world edges so consists enter
-and leave out of sight, and its `headwaySeconds` must exceed the traversal
-time — `TrainVisual` budgets two rigs per through line.
+unsupported. `terminus` dresses a shuttle's dwell end: `style: "platforms"`
+(the default) is open platforms + a buffer stop; `style: "depot_shed"` is an
+enclosed shed the dwelling consist hides inside (Tokyo — its stub is only
+40 m from a level crossing, too short for open platforms). Shed walls become
+solid `railShed` obstacles derived in the adapter from the same
+`railTerminusShedLayout` the renderer draws, and the corridor audit admits
+them only clear of the running gauge; the covered interval must be straight
+and at grade. A `through` line should end at the world edges so consists
+enter and leave out of sight, and its `headwaySeconds` must exceed the
+traversal time — `TrainVisual` budgets two rigs per through line.
 
 ## Private authoring helpers live in one shared module
 

@@ -90,12 +90,17 @@ carriageway, so a level crossing's asphalt paves OVER the corridor; the rails
 are 3D boxes riding above the rung and stay visible across the road.
 `render/railLayer.ts` builds all of it (segmented ballast, miter-offset rails,
 instanced sleepers, girder bridges, brick viaducts whose piers dodge
-carriageways, terminus platforms) from `geometry.railLines`, offset wholesale
-by the line's `elevationM`; `render/trainRender.ts` runs the procedural
-consist on the NPC pose-pair interpolation pattern, with poses from the same
-`simulation/railSchedule.ts` the crossings time against. Corniche parapet
-runs within 9 m of a rail polyline are skipped — the wall must not cross the
-tracks at a bridge abutment.
+carriageways, terminus platforms or a depot shed per `terminus.style`) from
+`geometry.railLines`, offset wholesale by the line's `elevationM`;
+`render/trainRender.ts` runs the procedural consist on the NPC pose-pair
+interpolation pattern, with poses from the same `simulation/railSchedule.ts`
+the crossings time against. `offsetPolyline` must never apply its corner
+mitre at a polyline's endpoints — the degenerate end direction maxes the
+clamp and wedges every straight offset run (this shipped once: girders and
+platforms flared 2.5x at each run's first vertex). Corniche parapet runs
+within 9 m of a rail polyline are skipped, and `generatePromenadeDecor`
+takes the rail lines as a keep-out — bank furniture must not stand in the
+corridor where a line pierces the shore.
 
 Vehicle ground contact is a **two-value handshake**: nodes at `y = 0.12` and
 `LOCAL_GROUND_Y = -0.05` put tyres at exactly `0.07`. Change either alone and the

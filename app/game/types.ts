@@ -587,9 +587,18 @@ export interface RailLine {
    * ramps between ground and deck are deliberately unsupported.
    */
   readonly elevationM?: number;
-  /** Where the passenger platforms + buffer stop stand, for a shuttle whose
-   * dwell end is a real terminus rather than an off-map exit. */
-  readonly terminus?: { readonly at: "start" | "end" };
+  /** Where the terminus stands, for a shuttle whose dwell end is a real
+   * terminus rather than an off-map exit. `platforms` (the default) is a
+   * pair of open passenger platforms + buffer stop; `depot_shed` is an
+   * enclosed shed straddling the track so the dwelling consist waits out of
+   * sight (Tokyo's Gotokuji stub — its platforms used to run straight
+   * across the Yamashita St crossing). A shed terminus requires the covered
+   * interval to be straight and at grade; its walls become solid
+   * `railShed` obstacles derived in the adapter, never authored by hand. */
+  readonly terminus?: {
+    readonly at: "start" | "end";
+    readonly style?: "platforms" | "depot_shed";
+  };
   readonly consist: RailConsist;
 }
 
@@ -651,6 +660,7 @@ export type StaticObstacleTag =
   | "venue"
   | "shoreline"
   | "parkEdge"
+  | "railShed"
   | "worldEdge";
 
 /**

@@ -138,8 +138,14 @@ export function offsetPolyline(
       nz /= normalLength;
     }
     // Miter scale so the offset holds parallel through the corner, clamped.
+    // An endpoint has only one real direction — its other difference vector is
+    // zero, which drives `dot` to 0 — so the corner clamp must not fire there:
+    // it would push the vertex out at the full 2.5x clamp and turn every
+    // straight offset run (bridge girders, terminus platforms, the rails
+    // themselves) into a wedge anchored at the polyline's first vertex.
+    const endpoint = index === 0 || index === points.length - 1;
     const dot = nx * inNx + nz * inNz;
-    const miter = Math.min(2.5, 1 / Math.max(0.4, Math.abs(dot)));
+    const miter = endpoint ? 1 : Math.min(2.5, 1 / Math.max(0.4, Math.abs(dot)));
     result.push({
       x: points[index].x + nx * lateralM * miter,
       z: points[index].z + nz * lateralM * miter,
@@ -234,6 +240,118 @@ export function railSleeperPlacements(
     }
   }
   return placements;
+}
+
+/**
+ * Depot-shed terminus (rail feature): one enclosed shed straddling the track
+ * at a shuttle's dwell end, so the parked consist waits out of sight and
+ * nothing terminus-shaped reaches the neighbouring street. These constants
+ * are the single source for the renderer (walls, roof, portal), the
+ * simulation adapter (the solid walls the player collides with) and the
+ * corridor audit (which lets `railShed` solids stand inside the corridor but
+ * never across the running gauge). The covered interval must be straight and
+ * at grade.
+ */
+export const RAIL_SHED_LENGTH_M = 30;
+export const RAIL_SHED_HALF_WIDTH_M = 4.2;
+export const RAIL_SHED_WALL_THICKNESS_M = 0.35;
+export const RAIL_SHED_EAVE_HEIGHT_M = 5.6;
+/** Portal opening: half-width past the centreline and clear height under the
+ * header. The tallest consist piece (the tram pantograph head) tops out at
+ * ~4.7 m over a 2.55 m car — both clear these with margin. */
+export const RAIL_SHED_PORTAL_HALF_OPENING_M = 2.3;
+export const RAIL_SHED_PORTAL_CLEAR_HEIGHT_M = 5.0;
+export const RAIL_SHED_RIDGE_HEIGHT_M = 6.7;
+/** No shed solid may reach within this half-width of the centreline — the
+ * corridor audit's floor for the `railShed` exemption. */
+export const RAIL_SHED_GAUGE_CLEAR_M = 2.2;
+
+/** One solid shed piece as a plan-view OBB: U is the unit long axis with
+ * half-length `halfU`, V its perpendicular `(uz, -ux)` with `halfV` — the
+ * exact axis convention `StaticObstacle`'s `obb` kind uses. */
+export interface RailShedSolid {
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  readonly ux: number;
+  readonly uz: number;
+  readonly halfU: number;
+  readonly halfV: number;
+  readonly heightM: number;
+}
+
+export interface RailShedLayout {
+  /** Arclength interval covered on the line. */
+  readonly fromM: number;
+  readonly toM: number;
+  /** The buffer-stop end of the shed. */
+  readonly tipX: number;
+  readonly tipZ: number;
+  /** Unit direction from the tip INTO the line (out through the portal). */
+  readonly fx: number;
+  readonly fz: number;
+  readonly solids: readonly RailShedSolid[];
+}
+
+/** The depot shed's solid pieces: two side walls, the rear gable wall behind
+ * the buffer, and two portal jambs. Roof and portal header are renderer
+ * dressing above car height and deliberately not solids. */
+export function railTerminusShedLayout(
+  points: readonly GameCanvasPoint[],
+  lengthM: number,
+  at: "start" | "end",
+): RailShedLayout {
+  const fromM = at === "start" ? 0 : Math.max(0, lengthM - RAIL_SHED_LENGTH_M);
+  const toM = at === "start" ? Math.min(lengthM, RAIL_SHED_LENGTH_M) : lengthM;
+  const tip = polylinePoseAt(points, at === "start" ? 0 : lengthM);
+  const sign = at === "start" ? 1 : -1;
+  const fx = Math.sin(tip.headingRad) * sign;
+  const fz = Math.cos(tip.headingRad) * sign;
+  // Right-hand normal of the portal direction.
+  const rx = fz;
+  const rz = -fx;
+  const shedLength = toM - fromM;
+  const rearOverhangM = 0.6;
+  const solids: RailShedSolid[] = [];
+  for (const side of [-1, 1]) {
+    solids.push({
+      id: side > 0 ? "wall-r" : "wall-l",
+      x: tip.x + fx * (shedLength - rearOverhangM) / 2 + rx * RAIL_SHED_HALF_WIDTH_M * side,
+      z: tip.z + fz * (shedLength - rearOverhangM) / 2 + rz * RAIL_SHED_HALF_WIDTH_M * side,
+      ux: fx,
+      uz: fz,
+      halfU: (shedLength + rearOverhangM) / 2,
+      halfV: RAIL_SHED_WALL_THICKNESS_M / 2,
+      heightM: RAIL_SHED_EAVE_HEIGHT_M,
+    });
+    solids.push({
+      id: side > 0 ? "jamb-r" : "jamb-l",
+      x:
+        tip.x +
+        fx * (shedLength - RAIL_SHED_WALL_THICKNESS_M / 2) +
+        rx * ((RAIL_SHED_PORTAL_HALF_OPENING_M + RAIL_SHED_HALF_WIDTH_M) / 2) * side,
+      z:
+        tip.z +
+        fz * (shedLength - RAIL_SHED_WALL_THICKNESS_M / 2) +
+        rz * ((RAIL_SHED_PORTAL_HALF_OPENING_M + RAIL_SHED_HALF_WIDTH_M) / 2) * side,
+      ux: rx,
+      uz: rz,
+      halfU: (RAIL_SHED_HALF_WIDTH_M - RAIL_SHED_PORTAL_HALF_OPENING_M) / 2,
+      halfV: RAIL_SHED_WALL_THICKNESS_M / 2,
+      heightM: RAIL_SHED_EAVE_HEIGHT_M,
+    });
+  }
+  solids.push({
+    id: "rear",
+    x: tip.x - fx * (rearOverhangM - RAIL_SHED_WALL_THICKNESS_M / 2),
+    z: tip.z - fz * (rearOverhangM - RAIL_SHED_WALL_THICKNESS_M / 2),
+    ux: rx,
+    uz: rz,
+    halfU: RAIL_SHED_HALF_WIDTH_M + RAIL_SHED_WALL_THICKNESS_M / 2,
+    halfV: RAIL_SHED_WALL_THICKNESS_M / 2,
+    heightM: RAIL_SHED_EAVE_HEIGHT_M,
+  });
+  return { fromM, toM, tipX: tip.x, tipZ: tip.z, fx, fz, solids };
 }
 
 /**

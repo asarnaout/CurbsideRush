@@ -246,7 +246,10 @@ export interface GameCanvasMapPack {
         readonly kind: "bridge" | "viaduct";
       }[];
       readonly elevationM?: number;
-      readonly terminus?: { readonly at: "start" | "end" };
+      readonly terminus?: {
+        readonly at: "start" | "end";
+        readonly style?: "platforms" | "depot_shed";
+      };
       readonly consist: {
         readonly kind: "tram" | "emu" | "diesel_freight";
         readonly cars: number;
