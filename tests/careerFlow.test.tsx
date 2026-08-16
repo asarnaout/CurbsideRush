@@ -703,9 +703,8 @@ describe("career mode flow", () => {
     expect(clock).toHaveTextContent("DAY 1");
     expect(screen.getByTestId("day-clock-value")).toHaveTextContent("5:59");
     expect(screen.getByTestId("day-phrase")).toHaveTextContent("ON SHIFT");
-    // The corner keeps the money and gives up the clock.
-    expect(screen.getByTestId("session-label")).toHaveTextContent("TODAY");
-    expect(screen.getByTestId("session-label")).not.toHaveTextContent("5:59");
+    // The corner keeps only the money now — the clock never crept back in.
+    expect(screen.queryByTestId("session-label")).not.toBeInTheDocument();
     // And the same day drains across the top edge, all but full at one second.
     expect(
       parseFloat(screen.getByTestId("day-edge-fill").style.width),
@@ -2215,7 +2214,6 @@ describe("free-drive gig settlement", () => {
     };
     expect(stored.walletByCountry.us).toBeGreaterThan(startingWallet);
     expect(screen.getByTestId("dispatch-toast")).toHaveTextContent(/^\+/);
-    expect(screen.getByTestId("session-label")).not.toHaveTextContent("$0.00");
     expect(screen.getByTestId("dispatch-idle")).toBeVisible();
   });
 });

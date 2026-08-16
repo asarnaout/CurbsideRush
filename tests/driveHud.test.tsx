@@ -617,9 +617,6 @@ describe("the money cluster", () => {
         inset={inset}
         balance="$248.60"
         balanceLabel="Wallet"
-        session="+$62.10"
-        sessionLabel="TODAY"
-        sessionVisible
         gain={null}
         buttons={[
           { id: "music", label: "Mute music", pressed: false, onPress: press },
@@ -633,21 +630,9 @@ describe("the money cluster", () => {
     return press;
   };
 
-  it("shows the balance and what the shift has made", () => {
+  it("shows the balance", () => {
     money();
     expect(screen.getByTestId("day-cash")).toHaveTextContent("$248.60");
-    expect(screen.getByText("+$62.10")).toBeVisible();
-    expect(screen.getByTestId("session-label")).toHaveTextContent("TODAY");
-  });
-
-  it("reserves the shift line's place but hides it on an exactly even day (#267)", () => {
-    money({ session: "+$0.00", sessionVisible: false });
-    const label = screen.getByTestId("session-label");
-    expect(label).not.toBeVisible();
-    expect(screen.getByText("+$0.00")).not.toBeVisible();
-    // Hidden via `visibility`, not unmounted or `display: none` — the row
-    // still occupies its line, so the balance above it never jumps down.
-    expect(label.parentElement).toHaveStyle({ visibility: "hidden" });
   });
 
   it("leaves the shift clock to the top-centre readout", () => {
@@ -699,9 +684,6 @@ describe("the money cluster", () => {
         inset={inset}
         balance="$0.00"
         balanceLabel="Wallet"
-        session="+$0.00"
-        sessionLabel="TODAY"
-        sessionVisible={false}
         gain={null}
         buttons={[]}
       />,

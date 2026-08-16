@@ -828,9 +828,6 @@ export function DriveScreen({
           inset={{ top: hudInset.top, right: hudInset.right }}
           balance={formatMoney(careerRun ? dayCash : walletHere, driveCountry)}
           balanceLabel={careerRun ? "Cash today" : "Wallet"}
-          session={`+${formatMoney(sessionEarnings, driveCountry)}`}
-          sessionLabel="TODAY"
-          sessionVisible={sessionEarnings !== 0}
           gain={payoutGain}
           compact={touchFirst}
           buttons={moneyClusterButtons}

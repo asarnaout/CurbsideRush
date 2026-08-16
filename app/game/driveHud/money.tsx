@@ -22,9 +22,6 @@ export function DriveMoneyCluster({
   inset,
   balance,
   balanceLabel,
-  session,
-  sessionLabel,
-  sessionVisible,
   gain,
   buttons,
   compact = false,
@@ -34,15 +31,6 @@ export function DriveMoneyCluster({
   compact?: boolean;
   balance: string;
   balanceLabel: string;
-  session: string;
-  sessionLabel: string;
-  /**
-   * False while today's total is exactly zero. The row stays mounted at its
-   * usual size — only `visibility` toggles — so the balance above it never
-   * jumps down to fill the gap the instant a shift starts, then back up the
-   * moment it ends in an even wash (#267).
-   */
-  sessionVisible: boolean;
   /** The `+$x.xx` that floats up on a payout, cleared once it has run. */
   gain: string | null;
   buttons: readonly DriveMoneyClusterButton[];
@@ -54,8 +42,8 @@ export function DriveMoneyCluster({
     pause: PAUSE_ICON,
   };
   const m = compact
-    ? { balance: 26, wallet: 15, session: 9, label: 7, gain: 13, button: 39, glyph: 16, gap: 7 }
-    : { balance: 47, wallet: 28, session: 16, label: 11, gain: 23, button: 46, glyph: 21, gap: 10 };
+    ? { balance: 26, wallet: 15, gain: 13, button: 39, glyph: 16, gap: 7 }
+    : { balance: 47, wallet: 28, gain: 23, button: 46, glyph: 21, gap: 10 };
   return (
     <div
       style={cluster(scale, "top right", {
@@ -68,14 +56,6 @@ export function DriveMoneyCluster({
         zIndex: DRIVE_LAYER.action,
       })}
     >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-end",
-          gap: compact ? 3 : 10,
-        }}
-      >
       <div
         style={{ position: "relative", display: "flex", alignItems: "center", gap: compact ? 8 : 14 }}
       >
@@ -118,44 +98,15 @@ export function DriveMoneyCluster({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 8,
-          // Hidden, not unmounted: an even shift has nothing worth reporting,
-          // but the row still has to hold its line so the balance above it
-          // doesn't drop down to meet the buttons the moment there's nothing
-          // to show (#267).
-          visibility: sessionVisible ? "visible" : "hidden",
+          gap: m.gap,
+          marginTop: compact ? 0 : 6,
+          // The balance's glow (`day-cash`'s 16px text-shadow blur) reads as
+          // wider than its box, so a flex-end edge that is technically flush
+          // with the button row looks short by a few px. Nudge to match the
+          // eye, not the box.
+          marginRight: compact ? 0 : -6,
         }}
       >
-        <span
-          style={{
-            font: `900 ${m.session}px ${HUD_SANS}`,
-            color: HUD_GOLD,
-            fontVariantNumeric: "tabular-nums",
-            textShadow: "0 2px 10px rgba(0,0,0,.85)",
-          }}
-        >
-          {session}
-        </span>
-        {/*
-          Just what the figure beside it means. The shift clock used to be
-          crammed in here too, at 11px and 34% opacity beside a 47px balance,
-          which is how it came to be invisible (#236); it is a top-centre
-          readout now — see `resolveDayTimer`.
-        */}
-        <span
-          data-testid="session-label"
-          style={{
-            font: `800 ${m.label}px ${HUD_SANS}`,
-            letterSpacing: "2px",
-            color: "rgba(244,239,222,.34)",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {sessionLabel}
-        </span>
-      </div>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: m.gap, marginTop: compact ? 0 : 6 }}>
         {buttons.map((button) => {
           const muted = button.id === "music" && button.pressed;
           return (
