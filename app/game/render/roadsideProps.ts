@@ -15,7 +15,7 @@ import { NYC_VENDORS, type StreetPropConfig } from "../buildingSets";
 import { CAIRO_OPEN_WATERFRONT_SIDES } from "../cities/cairo";
 import { TOKYO_OPEN_WATERFRONT_SIDES } from "../cities/tokyo";
 import { deterministicSceneryKeep } from "../geometry/facadesAndKeepouts";
-import { railCorridorExclusionRects } from "../geometry/railGeometry";
+import { roadsidePropKeepOuts } from "../geometry/roadFurnitureLayout";
 import { type ParkPlacement, parkLayoutForLandmark } from "../parkLayouts";
 import {
   cairoDirectionPanelFaceUv,
@@ -28,8 +28,6 @@ import {
   TOKYO_FURNITURE_POINTS,
   type DestructiblePropPart,
 } from "./propCatalog";
-import { DEFAULT_SERVICE_SETBACK_M } from "../servicePoints";
-import { resolveSimulationLaneAnchor } from "../simulationAdapter";
 import type { GameCanvasMapPack, GameCanvasPoint } from "../sessionContract";
 import {
   distanceToPolylineM,
@@ -230,34 +228,15 @@ export function buildRoadsideProps(
   const kinds = roadsidePropKindsForMap(key);
   if (!kinds.length || !roadSurfaces.length) return;
 
-  // Keep scattered trees / street furniture off the gas-station forecourts and
-  // venue lots — those models already fill that ground, and a tree sprouting on
-  // a forecourt reads as a bug. Treated as extra avoid-rectangles at each POI's
-  // set-back model centre.
-  const poiExclusions: { center: GameCanvasPoint; size: GameCanvasPoint }[] = [
-    ...(mapPack.geometry.servicePoints ?? []).map((sp) => ({
-      anchor: sp.anchor,
-      setback: sp.setbackM ?? DEFAULT_SERVICE_SETBACK_M,
-      span: 22,
-    })),
-    ...(mapPack.geometry.gigVenues ?? []).map((venue) => ({
-      anchor: venue.anchor,
-      setback: venue.setbackM ?? 13,
-      span: 13,
-    })),
-  ].flatMap((poi) => {
-    const pose = resolveSimulationLaneAnchor(mapPack.laneGraph.lanes, poi.anchor);
-    if (!pose) return [];
-    return [
-      {
-        center: {
-          x: pose.x + Math.cos(pose.heading) * poi.setback,
-          z: pose.z - Math.sin(pose.heading) * poi.setback,
-        },
-        size: { x: poi.span, z: poi.span },
-      },
-    ];
-  });
+  // Ground the scatter must keep off — gas-station forecourts and venue lots
+  // (those models already fill that ground, and a tree sprouting on a forecourt
+  // reads as a bug), the rail right-of-way, and authored landmarks — bucketed
+  // by how hard the rule is. Derived by `roadsidePropKeepOuts`, a pure geometry
+  // function rather than inline here, because which bucket a rect lands in is
+  // exactly what a test has to be able to assert: see its own doc comment for
+  // the lamp posts that shipped between the rails when the buckets were one
+  // array, and `tests/roadsidePropKeepOuts.test.ts` for the net.
+  const keepOuts = roadsidePropKeepOuts(mapPack);
   // The corniche promenade is laid before the random scatter so its points
   // pre-seed the spacing grid — scatter can jitter around the tree line but
   // never stand a prop inside it. Per-map open-sides lookup: a map absent
@@ -290,6 +269,7 @@ export function buildRoadsideProps(
           points: line.points,
           corridorHalfWidthM: line.corridorHalfWidthM,
         })),
+        keepOutRects: keepOuts.poiRects,
       })
     : [];
   const roadsidePlacements = generateRoadsidePropPlacements({
@@ -304,24 +284,8 @@ export function buildRoadsideProps(
       size: block.size,
       headingDeg: block.headingDeg,
     })),
-    landmarks: [
-      // A bridge landmark is an illustrative rect ON a road (its center/size
-      // decorate the carriageway, spanning the whole crossing INCLUDING the
-      // land approaches). The carriageway itself already rejects scatter via
-      // isClearOfRoads, so as an exclusion the rect only wrongly shadows the
-      // kerb band — it kept all three Sakuragawa bridges lampless end to end.
-      ...mapPack.geometry.landmarks
-        .filter((landmark) => landmark.kind !== "bridge")
-        .map((landmark) => ({
-          center: landmark.center,
-          size: landmark.size,
-        })),
-      // The rail right-of-way excludes scatter the same way a landmark rect
-      // does — per-segment AABBs of the authored corridor, replacing the
-      // retired `kind: "railway"` decal landmarks that used to shield it.
-      ...railCorridorExclusionRects(mapPack.geometry.railLines ?? []),
-      ...poiExclusions,
-    ],
+    landmarks: keepOuts.hardRects,
+    roadCrossedRects: keepOuts.roadCrossedRects,
     worldSize: mapPack.geometry.worldSize,
     shoulderWidthM: palette.paved
       ? PAVED_SIDEWALK_WIDTH_M

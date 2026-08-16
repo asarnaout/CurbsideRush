@@ -98,11 +98,14 @@ describe("London flagship content", () => {
     }
   });
 
-  it("runs at a fixed active Tuesday morning restriction window", () => {
+  it("runs at a fixed active Tuesday evening restriction window", () => {
+    // 08:30 -> 18:30 when the map went night (see LONDON_SCENARIO_CLOCK). The
+    // hour is free to move, the window membership below is not: it is what
+    // keeps the Cromwell Road bus lane live.
     expect(LONDON_SCENARIO_CLOCK).toEqual({
       weekday: "tue",
-      minutesAfterMidnight: 510,
-      label: "Tuesday · 08:30",
+      minutesAfterMidnight: 1110,
+      label: "Tuesday · 18:30",
     });
 
     const restriction = LONDON_MAP_PACK.laneGraph.restrictions?.[0];

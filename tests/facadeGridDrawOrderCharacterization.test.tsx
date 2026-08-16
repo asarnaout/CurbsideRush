@@ -829,6 +829,10 @@ describe("facade-grid draw-order characterization (#304 safety net)", () => {
 
       expect(baselines).toEqual(EXPECTED_BASELINES);
     },
-    120_000,
+    // 120s -> 180s for the same reason `buildingLayerCharacterization`'s did
+    // — see the note there. This loop is the faster of the two (~19s alone),
+    // but it timed out in the same full-suite run, so both budgets move
+    // together rather than leaving one to fail next time the scene grows.
+    180_000,
   );
 });

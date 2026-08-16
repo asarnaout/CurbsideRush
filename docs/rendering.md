@@ -44,25 +44,79 @@ queryable via `window.__sideswapBuildingRepresentationDebug()`.
 
 ## Fog is the draw-distance budget
 
-A day map's fog range comes from its world size, and a palette that wants a
-shorter atmosphere than its geography caps it with `fogEndCapM` — the camera's
-far plane follows. It is the cheapest lever in the renderer and the two big
-day maps both pull it: Cairo's dust haze at 650 m, London's at 800 m.
+A map's fog range comes from its world size; the camera's far plane rides the
+band (`resolveCameraFarPlane`), so raising fog raises draw distance with it. It
+is the cheapest lever in the renderer, and there are two ways to pull it:
 
-Measured on London, capping it took **412 draw calls to 171** and active
-meshes from 984 to 569, with no change to what the map contains. Its tree and
-thicket layer alone is 45% of its mesh count, and most of that is a kilometre
-away behind haze.
+- **`night`** clamps the band to 100/440 m. Every shipped city sets it, so 440 m
+  is the real draw radius of the game.
+- **`fogEndCapM`** is a palette's own ceiling, applied first. Both surviving
+  caps (Cairo 650 m, London 800 m) now sit above night's clamp and change
+  nothing a player sees. They are kept because `auditMapVisualGaps` passes
+  `night: false` deliberately — a city being dark must never make its own
+  sightline audit lenient — so retiring them would silently widen that audit.
+
+Measured on London before it went night, capping the day range took **412 draw
+calls to 171** and active meshes from 984 to 569 with no change to what the map
+contains; Cairo's cap was −31% draw calls/frame against the uncapped 1100 m.
+Night's tighter clamp is why both cities absorbed a thousand new streetlights
+each and still came out with *fewer* active meshes at the same pose (London
+878 → 500, Cairo 1_621 → 1_314; `fourCityRenderCharacterization`).
+
+## Every city is a night city, and a night city needs a lamp line
+
+`night` on a `MapVisualPalette` is one flag that turns on a whole rig —
+moonlit hemi/sun (per-palette `nightHemiIntensity`/`nightSunIntensity`), a
+lower bloom threshold with more weight, lifted exposure, `BuildingLayer`'s
+window glow, the water's night tiles, emissive lamp heads and their ground
+pools. All four cities set it. **None of that lights the street.** The rig is
+moonlight; what makes a map drivable is the scattered `streetlight` line in
+`roadsidePropKindsForMap`, and three things about it are load-bearing:
+
+- **`curbOffsetM` (0.7 m) is not a detail — it is the difference between a lit
+  city and a dark one.** The default lateral band seats a prop a metre *beyond*
+  the pavement, which on a real street wall is inside a ground floor, so
+  `blocks.some(isInside…)` rejects it. At the same 26 m spacing London measures
+  264 lamps on the default band against 1_076 kerb-seated; Cairo 521 against
+  1_005.
+- **A kerb-seated candidate skips the open-water test and `roadCrossedRects`,
+  and nothing else.** Its kerb exists wherever its road does — over a river,
+  through a park. Skipping only water left London's 749 m Serpentine Road unlit
+  inside the royal park's 902×631 m rect, and (before that) every Sakuragawa
+  bridge. But the tempting generalisation — *"any rect overlapping a
+  carriageway must be illustrative, so skip `landmarks` wholesale"* — is FALSE
+  and ships lamps between rails: `buildRoadsideProps` packs authored landmarks,
+  `railCorridorExclusionRects` and the service/venue keep-outs into one array,
+  and a rail right-of-way crosses roads *by construction* at every level
+  crossing. Only rects the call site positively identifies as road-crossed
+  (parks) go in `roadCrossedRects`; everything else stays hard.
+- **One pass, never two.** `alternateSides` gives left-gap-right-gap only
+  within a single walk; a second appended streetlight pass carries its own side
+  toggle and phase and their union reads as same-side and face-to-face pairs.
+  Density changes go in `spacingM` (24 m Tokyo, 26 m London/Cairo, 38 m NYC on
+  the wider default band).
+
+Both halves are measurable without a browser, by running the real content
+modules in plain Node:
+
+- **Coverage.** Attribute each lamp to its **nearest** road — projecting onto
+  every road within a width tolerance instead counts a crossing road's corner
+  lamps and invents same-side pairs — and report each road's longest lampless
+  run. The bar London, Tokyo and Cairo hold is no road over ~120 m.
+- **Intrusion.** Test every emitted placement against every keep-out rect
+  (rail corridors, service/venue lots, landmarks). The expected answer is
+  zero, on all four maps — which is what turns "a light post in the middle of
+  the railroad" from a thing the owner has to spot from the car into a number.
+  Run it on a worktree at the last good commit too: that is what separates a
+  regression from a pre-existing defect (it found one — a promenade palm on a
+  Cairo forecourt, since `generatePromenadeDecor` had no `keepOutRects`).
 
 ## London's landmarks share one material trio
 
-Every landmark in `render/londonLandmarks.ts` dresses itself with the same
-pale trim, dark glazing and dark roof. They used to be minted per landmark
-with the id baked into the name and identical colours every time — 78 of them
-for the parks alone, and materials are GPU state changes. `landmarkPalette`
-caches the trio per `Scene` (not a module-level `let`: a session rebuild gets
-a fresh scene, and the second mount would otherwise get the first's disposed
-materials).
+Every landmark in `render/londonLandmarks.ts` uses the same pale trim, dark
+glazing and dark roof, cached by `landmarkPalette` per `Scene` — **not** in a
+module-level `let`: a session rebuild gets a fresh scene, and the second mount
+would otherwise draw with the first's disposed materials.
 
 ## Three angle conventions coexist
 
@@ -201,11 +255,6 @@ The player and NPCs draw at the prev/current sim-pose blend
 teleport — reset, cutscene repose, NPC slot reuse — must pin prev = current** or
 the entity streaks for a frame; `shouldSnapPose` catches >2.5 m jumps
 automatically.
-
-The far plane rides the fog band (`resolveCameraFarPlane`) — raise fog and you
-raise draw distance with it. A day palette may cap its own fog end
-(`fogEndCapM`): Cairo's 650 m dust haze is both the look and the perf budget
-for its dense street wall (draw calls/frame −31% vs the uncapped 1100 m).
 
 ## Models load in two phases
 

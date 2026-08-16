@@ -678,6 +678,15 @@ describe("building-layer characterization (#288 safety net)", () => {
 
       expect(baselines).toEqual(EXPECTED_BASELINES);
     },
-    120_000,
+    // 120s -> 180s when London and Cairo went night: their scenes gained ~7_000
+    // instanced streetlight meshes between them, which is ~12% on this
+    // four-city loop's own runtime (measured 67.6s -> 75.6s alongside
+    // facadeGridDrawOrder, both alone). Alone that is nowhere near either
+    // budget — this test runs in ~38s — but `npm test` runs 119 files across
+    // shared cores, and under that contention the same work stretches 3-6x.
+    // At 120s this and facadeGridDrawOrder both started timing out in the full
+    // suite while passing in isolation, which makes the local suite (the
+    // project's actual gate, since CI does not run it) useless as a signal.
+    180_000,
   );
 });

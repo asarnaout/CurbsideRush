@@ -171,6 +171,27 @@ const PROP_TREE: PropKindConfig = {
   maxScale: 1.3,
 };
 
+/**
+ * The shared streetlight line. Every city is a night city, so every city
+ * scatters one — and the three things that make it work are all in here:
+ *
+ * - `alternateSides` + `bothSides: false` is the left-gap-right-gap rhythm a
+ *   real street has. It only holds for ONE pass: a second appended streetlight
+ *   pass carries its own side toggle and phase, and their union produced
+ *   same-side and face-to-face pairs (owner-caught on Tokyo). Density changes
+ *   belong in `spacingM` here, never in a second pass.
+ * - `curbOffsetM` seats the pole ON the pavement by the kerb. Without it the
+ *   default band lands lamps a metre past the pavement — inside the street
+ *   wall — and roughly three in four are rejected. See `PropKindConfig`.
+ * - `faceRoad` turns the arm, the head and the ground light pool toward the
+ *   carriageway, so the spill lands on the street rather than behind the pole.
+ *
+ * A per-city entry overrides `spacingM`/`jitterM` and nothing else. NYC is the
+ * one city still on the default beyond-the-pavement band: its avenues are
+ * authored with a genuinely deep setback, it measures 1 lamp per 44 m as it
+ * stands, and moving its poles would re-deal every other NYC prop for no
+ * lighting gain.
+ */
 const PROP_STREETLIGHT: PropKindConfig = {
   kind: "streetlight",
   spacingM: 38,
@@ -180,6 +201,22 @@ const PROP_STREETLIGHT: PropKindConfig = {
   alternateSides: true,
   variants: 1,
   faceRoad: true,
+};
+
+/**
+ * Kerb-seated lamps at the spacing the night maps settled on: measured on
+ * London (30.9 km of centreline, 1_076 lamps) and Cairo (25.0 km, 1_005), 26 m
+ * alternating gives ~1 lamp per 25-30 m of road and leaves NEITHER city a
+ * single road with a >120 m unlit run (worst: London 104 m, Cairo 83 m) —
+ * against 1 per 117 m and 48 such roads for the same spacing on the default
+ * lateral band. Tokyo runs 24 m for its tighter lanes; NYC's avenues run the
+ * wider default.
+ */
+const PROP_NIGHT_STREETLIGHT: PropKindConfig = {
+  ...PROP_STREETLIGHT,
+  curbOffsetM: 0.7,
+  spacingM: 26,
+  jitterM: 5,
 };
 
 const PROP_SIGN: PropKindConfig = {
@@ -305,12 +342,31 @@ export function roadsidePropKindsForMap(
         },
       ];
     case "london":
-      // Street lamps are hand-placed for South Kensington; scattered props
-      // stay clear of them via LONDON_FURNITURE_POINTS. 30 -> 20 m spacing
-      // with the street-life pass: the reference streets keep a plane tree
-      // every few doors, and the fog cap means the extra canopy is only ever
-      // drawn near the car.
-      return [{ ...PROP_TREE, spacingM: 20 }, PROP_SIGN];
+      return [
+        // London had NO scattered street lighting at all until it went night:
+        // eight hand-placed heritage lamps in the original museum quarter
+        // (LONDON_LAMP_POSITIONS) covered 30.9 km of centreline, which under a
+        // daylight palette nobody noticed and under a night one is the whole
+        // map unplayable — 65 of 73 roads with a >120 m unlit run, King's
+        // Road and both embankments pitch dark end to end.
+        //
+        // Placed FIRST, matching every other city, rather than appended after
+        // the tree line. The seeded scatter walks `kinds` in order through one
+        // shared stream and one shared spacing grid, so first means the lamp
+        // rhythm is dealt on clear ground and the trees jitter around it —
+        // the right way round when the lamps are what makes the map drivable.
+        // It also re-dealt this map's trees and signs once (637 -> 658 trees,
+        // 72 -> 62 signs); that is the accepted one-time cost of inserting a
+        // kind, and any FUTURE addition should be appended last so the stream
+        // stays aligned.
+        PROP_NIGHT_STREETLIGHT,
+        // 30 -> 20 m spacing with the street-life pass: the reference streets
+        // keep a plane tree every few doors, and the fog cap means the extra
+        // canopy is only ever drawn near the car. Scattered props stay clear
+        // of the hand-placed furniture via LONDON_FURNITURE_POINTS.
+        { ...PROP_TREE, spacingM: 20 },
+        PROP_SIGN,
+      ];
     case "tokyo":
       return [
         // R17's light posts: NYC's config plus `curbOffsetM` — Tokyo is the
@@ -328,16 +384,13 @@ export function roadsidePropKindsForMap(
         //
         // 38 -> 24 m spacing (owner: "not enough street lights", then "I'd
         // prefer an alternating pattern"): the density bump must live in
-        // THIS pass, not a second appended streetlight pass — two
-        // independent passes each carry their own side toggle and phase, so
-        // their union produced same-side pairs and face-to-face pairs
-        // instead of the strict left-gap-right-gap rhythm one alternating
-        // walk gives (a rejected candidate still flips the toggle, so
-        // rejections leave gaps, never same-side pairs). Retuning spacing
-        // here re-dealt every kind below once (the P9 trap, accepted
-        // deliberately in that change); keep any FUTURE additions appended
-        // after the last kind so the stream stays aligned.
-        { ...PROP_STREETLIGHT, curbOffsetM: 0.7, spacingM: 24, jitterM: 5 },
+        // THIS pass, not a second appended streetlight pass — see
+        // PROP_STREETLIGHT. Retuning spacing here re-dealt every kind below
+        // once (the P9 trap, accepted deliberately in that change); keep any
+        // FUTURE additions appended after the last kind so the stream stays
+        // aligned. 24 rather than the 26 m London and Cairo settled on: this
+        // map's residential capillaries are the narrowest of the four.
+        { ...PROP_NIGHT_STREETLIGHT, spacingM: 24 },
         {
           kind: "utility-pole",
           spacingM: 32,
@@ -370,7 +423,15 @@ export function roadsidePropKindsForMap(
       ];
     case "cairo":
       return [
-        { ...PROP_STREETLIGHT, spacingM: 36, jitterM: 7 },
+        // 36 m on the default lateral band -> 26 m kerb-seated, when the map
+        // went night. The spacing was never the problem: at 36 m the walk
+        // offered a lamp every 36 m and delivered one every 59 m, because
+        // Wust el-Balad's street wall stands right on the pavement and ate
+        // two candidates in five. Qasr el-Ainy carried a 656 m unlit run and
+        // 21 of 27 roads had one over 120 m; kerb-seating alone closes every
+        // one of them (worst run now 83 m, on Dokki Nile Drive). Re-dealt
+        // every kind below once — same accepted cost as Tokyo's own retune.
+        PROP_NIGHT_STREETLIGHT,
         // Cairo's ONE street-tree line, and it is mostly palms.
         //
         // It used to be two passes — a 54 m tree line plus a separate 68 m

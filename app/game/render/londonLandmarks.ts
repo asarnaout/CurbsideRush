@@ -1371,11 +1371,18 @@ export function buildSpeedLimitSigns(
 export function buildLondonStreetFurniture(ctx: LondonLandmarksCtx) {
   const scene = ctx.scene;
   const iron = makeMaterial(scene, "london-street-iron", new Color3(0.055, 0.065, 0.065));
+  // The museum quarter's eight hand-placed heritage lamps. Their head carries
+  // the same warm sodium emissive as the scattered `streetlight` line's
+  // (`roadsideProps.ts`'s `lampHead`), because they now stand among about a
+  // thousand of them: the old value was a faint daytime warm cast, and eight
+  // dark lanterns in a lit street read as eight broken lamps. No ground light
+  // pool, matching the park lamp — the pool is the roadside line's signature,
+  // and these sit inside its rhythm rather than filling a gap in it.
   const lamp = makeMaterial(
     scene,
     "london-street-lamp",
     new Color3(0.78, 0.72, 0.5),
-    new Color3(0.16, 0.12, 0.05),
+    new Color3(1.5, 0.86, 0.34),
   );
   const planter = makeMaterial(scene, "london-planter", new Color3(0.2, 0.34, 0.19));
   const postBoxRed = makeMaterial(scene, "london-post-box", new Color3(0.62, 0.045, 0.04));

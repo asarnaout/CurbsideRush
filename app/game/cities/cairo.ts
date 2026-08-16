@@ -84,10 +84,17 @@ export const CAIRO_RULE_REFERENCES: readonly OfficialRuleReference[] = [
   },
 ];
 
+/**
+ * Moved 10:30 -> 21:00 when the map went night, for the same reason London's
+ * moved: the label prints on the drive screen, and a morning clock over a dark
+ * sky is the first thing that reads as broken. Unlike London's, this map
+ * authors no timed lane restriction, so the hour is free — and 21:00 is when
+ * central Cairo is at its busiest anyway.
+ */
 export const CAIRO_SCENARIO_CLOCK = {
   weekday: "wed",
-  minutesAfterMidnight: 10 * 60 + 30,
-  label: "Wednesday · 10:30",
+  minutesAfterMidnight: 21 * 60,
+  label: "Wednesday · 21:00",
 } as const;
 
 const point = (x: number, z: number): WorldPoint => ({ x, z });
@@ -1396,18 +1403,36 @@ addRoadClearBlock({
   buildingSet: "cairo-downtown",
 });
 
+/**
+ * Both Nile channels, in a night tone.
+ *
+ * The colours were `#2f7f91`/`#2d8295` — a bright daylight teal, authored when
+ * this map ran in sun. They do not survive the switch to night, and not
+ * because night is darker: `waterLayer`'s tile gain goes UP after dark
+ * (`RIVER_TILE_GAIN_NIGHT` 0.85 against the day's 0.52, because the night sun
+ * runs at half the intensity), so a colour tuned for the day rig comes back
+ * off this map's brighter-than-NYC night rig as a glowing turquoise band —
+ * the one thing in the city that did not look lit but *emitting*.
+ *
+ * Retuned to sit alongside the other night rivers rather than by taste: NYC's
+ * `#24404d`/`#2f4a55` and Tokyo's `#1d2a3d` are what a river reads as at
+ * night, which is mostly reflected sky. The green cast stays — the Nile is not
+ * the Hudson — but the value drops to theirs. `color` is also what the minimap
+ * and the expanded map paint the river in, and this is still comfortably
+ * legible against their near-black sheet, exactly as NYC's is.
+ */
 const cairoWaterBodies: readonly WaterBody[] = [
   {
     id: "cairo-nile-west-channel",
     polygon: CAIRO_NILE_WEST_POLYGON,
-    color: "#2f7f91",
+    color: "#1e3f42",
     flowHeadingDeg: 180,
     bridgePortalSurfaceIds: ["cairo-al-galaa-bridge"],
   },
   {
     id: "cairo-nile-east-channel",
     polygon: CAIRO_NILE_EAST_POLYGON,
-    color: "#2d8295",
+    color: "#1d4146",
     flowHeadingDeg: 180,
     bridgePortalSurfaceIds: ["cairo-qasr-el-nil-bridge"],
   },

@@ -1,4 +1,8 @@
+import { resolveSimulationLaneAnchor } from "../laneAnchors";
 import type { GameCanvasMapPack, GameCanvasPoint } from "../sessionContract";
+import { DEFAULT_SERVICE_SETBACK_M } from "../servicePoints";
+import type { PropScatterRect } from "../visuals";
+import { railCorridorExclusionRects } from "./railGeometry";
 import { nearestPointOnPolyline, roadAxisHeadingNear } from "./roadStrips";
 
 /**
@@ -435,5 +439,96 @@ export function roadSurfacePlacementForMarking(
     widthM:
       installation.spanM ?? surface?.widthM ?? mapPack.geometry.roadWidth,
     surfaceId: surface?.id,
+  };
+}
+
+/**
+ * Ground the roadside prop scatter must keep off, bucketed by how hard the
+ * rule is.
+ *
+ * This exists as a function because getting the buckets wrong is invisible
+ * until someone drives past it. The scatter's `landmarks` input has always
+ * been three different things unioned into one array — authored landmark
+ * rects, the rail right-of-way, and service/venue keep-outs — and once
+ * kerb-seated props (`PropKindConfig.curbOffsetM`) gained an exemption from
+ * "rects drawn over a road", that union quietly handed the exemption to the
+ * rail corridor too. A rail corridor crosses a carriageway BY CONSTRUCTION at
+ * every level crossing, so the next scatter stood a lit lamp post between the
+ * rails: four in Cairo, five in Tokyo, one in London, owner-reported. The
+ * split is the fix, and `tests/roadsidePropKeepOuts.test.ts` is what keeps it
+ * split.
+ *
+ * - `hardRects` — nothing stands here, however it is seated.
+ * - `roadCrossedRects` — parks. A carriageway legitimately runs through one
+ *   (Serpentine Road crosses 749 m of London's royal park), so a kerb-seated
+ *   prop inside is standing on its own road's kerb; ordinary scatter still
+ *   stops at the boundary, because a park lays its own planting.
+ * - `poiRects` — the forecourt/venue subset on its own, because the corniche
+ *   promenade line needs the same keep-out and takes it separately.
+ *
+ * Bridge landmarks are in NO bucket: their rect is an illustrative decoration
+ * ON a carriageway spanning the land approaches too, and the carriageway test
+ * already rejects scatter, so as an exclusion it only shadowed the kerb band —
+ * that is what kept all three Sakuragawa bridges lampless end to end.
+ */
+export interface RoadsidePropKeepOuts {
+  readonly hardRects: readonly PropScatterRect[];
+  readonly roadCrossedRects: readonly PropScatterRect[];
+  readonly poiRects: readonly PropScatterRect[];
+}
+
+/** Square span reserved around a service point's set-back model centre. */
+const SERVICE_KEEP_OUT_SPAN_M = 22;
+/** …and around a gig venue's, whose lot is smaller. */
+const VENUE_KEEP_OUT_SPAN_M = 13;
+const VENUE_DEFAULT_SETBACK_M = 13;
+
+export function roadsidePropKeepOuts(
+  mapPack: GameCanvasMapPack,
+): RoadsidePropKeepOuts {
+  const rect = (landmark: {
+    center: GameCanvasPoint;
+    size: GameCanvasPoint;
+  }): PropScatterRect => ({ center: landmark.center, size: landmark.size });
+
+  const poiRects = [
+    ...(mapPack.geometry.servicePoints ?? []).map((service) => ({
+      anchor: service.anchor,
+      setbackM: service.setbackM ?? DEFAULT_SERVICE_SETBACK_M,
+      spanM: SERVICE_KEEP_OUT_SPAN_M,
+    })),
+    ...(mapPack.geometry.gigVenues ?? []).map((venue) => ({
+      anchor: venue.anchor,
+      setbackM: venue.setbackM ?? VENUE_DEFAULT_SETBACK_M,
+      spanM: VENUE_KEEP_OUT_SPAN_M,
+    })),
+  ].flatMap((poi) => {
+    const pose = resolveSimulationLaneAnchor(mapPack.laneGraph.lanes, poi.anchor);
+    if (!pose) return [];
+    return [
+      {
+        center: {
+          x: pose.x + Math.cos(pose.heading) * poi.setbackM,
+          z: pose.z - Math.sin(pose.heading) * poi.setbackM,
+        },
+        size: { x: poi.spanM, z: poi.spanM },
+      },
+    ];
+  });
+
+  return {
+    hardRects: [
+      ...mapPack.geometry.landmarks
+        .filter(
+          (landmark) => landmark.kind !== "bridge" && landmark.kind !== "park",
+        )
+        .map(rect),
+      ...railCorridorExclusionRects(mapPack.geometry.railLines ?? []),
+      ...poiRects,
+    ],
+    roadCrossedRects: mapPack.geometry.landmarks
+      .filter((landmark) => landmark.kind === "park")
+      .map(rect),
+    poiRects,
   };
 }

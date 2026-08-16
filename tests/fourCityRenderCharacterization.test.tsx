@@ -558,10 +558,25 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // activeMeshes holds — the line is across the map from the fixed pose.
     // -> 10_249/10_213 (+7; bridge-fix pass): Thames-span girder flanges
     // + flange master. materials +1: rail-deck.
-    totalMeshes: 10_249,
-    enabledMeshes: 10_213,
-    activeMeshes: 878,
-    materials: 315,
+    // -> 14_588/14_552 (+4_339): London goes NIGHT, and with it gets the
+    // street lighting it never had. 1_076 scattered streetlights at 26 m
+    // kerb-seated and alternating, each four meshes (column, arm, emissive
+    // head, and the ground light pool a night palette turns on) = +4_304;
+    // the rest is the one-time re-deal of the tree and sign lines that
+    // inserting a kind ahead of them causes (trees 637 -> 658, signs 72 ->
+    // 62). materials +1 and a new fingerprint: `lamp-pool`, built only under
+    // a night palette. (Three of those lamps existed briefly on an
+    // intermediate tree and were rail-corridor/forecourt intrusions — see
+    // `roadCrossedRects`.)
+    //
+    // activeMeshes 878 -> 500 — DOWN, and the whole point of the number:
+    // night clamps the fog band to 440 m where London's own `fogEndCapM`
+    // capped it at 800, so a thousand new lamps still leave far fewer meshes
+    // in frustum than before. The map got brighter and cheaper at once.
+    totalMeshes: 14_588,
+    enabledMeshes: 14_552,
+    activeMeshes: 500,
+    materials: 316,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -590,8 +605,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 217 -> 224: the Chelsea greens add lawn planes within the spawn's
     // mirror radius; the candidate count is unchanged.
     // (Unmoved when the square's railing went: walls are not mirror surfaces.)
-    mirrorCandidates: 45,
-    mirrorDrawn: 224,
+    // 45 -> 87 / 224 -> 226 with the night streetlight line: a lamp's column,
+    // arm and head each file into the static-cell hash the mirror ring reads
+    // (its ground pool does not — `castShadow: false` skips registration
+    // entirely), so the quiet loop's own lamps roughly double the candidate
+    // ring around the spawn.
+    mirrorCandidates: 87,
+    mirrorDrawn: 226,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -615,7 +635,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // railing, bench and lamp) and its six lawns' planting variants.
     // -> "0b06ec67": the twelve rail materials above.
     // -> "41d18af1": +rail-deck (bridge-fix pass).
-    survivingMaterialNamesFingerprint: "41d18af1",
+    // -> "0414a968": +lamp-pool, the streetlights' additive ground-spill
+    // material, which only a night palette builds.
+    survivingMaterialNamesFingerprint: "0414a968",
   },
   "tokyo-setagaya": {
     // Phase 1 of the Tokyo expansion (night + paved): +88 meshes from the
@@ -1060,8 +1082,20 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the raw +2_884 lamp-part delta. mirrorCandidates 196 -> 244 /
     // mirrorDrawn 262 -> 263: the mirror cull ring around spawn now holds
     // the denser lamp line's parts.
-    totalMeshes: 23_465,
-    enabledMeshes: 23_440,
+    // -> 23_473/23_448 (+8, active unchanged): the London/Cairo night pass
+    // extended the kerb-seated exemption from "skip the open-water test" to
+    // "skip `roadCrossedRects` too" (the same argument: a kerb exists wherever
+    // its road does). Tokyo's park drives run through park landmark rects
+    // exactly as London's Serpentine Road does, so +20 lamps survive there —
+    // and 18 previously-accepted ones do NOT, because rail-corridor and
+    // service-lot rects moved onto the hard list at the same time (they had
+    // been sharing the `landmarks` array, and skipping them wholesale put five
+    // Tokyo lamps between the rails). Net +2 lamps x 4 parts. No re-deal:
+    // rejection tests consume no seeded draws, so every other kind is
+    // byte-identical, as materials and the fingerprint holding at
+    // 298/"7d957807" confirm.
+    totalMeshes: 23_473,
+    enabledMeshes: 23_448,
     activeMeshes: 1_758,
     materials: 298,
     drawCallsPerFrame: 0,
@@ -1295,15 +1329,31 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // and leaf paints, so retiring it mints and retires nothing.
     // mirrorCandidates/mirrorDrawn move because the re-deal changes what
     // stands inside the mirror cull ring.
-    totalMeshes: 10_648,
-    enabledMeshes: 10_604,
-    activeMeshes: 1_621,
-    materials: 231,
+    // -> 13_428/13_384 (+2_780, active 1_621 -> 1_310): Cairo goes NIGHT.
+    // Its streetlight line already existed but was 36 m on the default
+    // beyond-the-pavement band, which Wust el-Balad's street wall rejected
+    // two candidates in five of — 426 lamps for 25 km of road, and a 656 m
+    // unlit run on Qasr el-Ainy. Kerb-seated at 26 m it is 1_005 lamps with
+    // no unlit run over 83 m, and each is now four meshes rather than three
+    // (the night palette adds the ground pool): 426x3 -> 1_005x4 = +2_742,
+    // the balance being the one-time re-deal of the palm/tree, bollard and
+    // sign lines behind it. materials +1 and a new fingerprint: `lamp-pool`.
+    //
+    // activeMeshes DOWN for the same reason London's is: night clamps the fog
+    // band to 440 m against this palette's own 650 m dust cap, so the fixed
+    // pose has markedly less in frustum than before despite the extra lamps.
+    totalMeshes: 13_428,
+    enabledMeshes: 13_384,
+    activeMeshes: 1_310,
+    materials: 232,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 49,
-    mirrorDrawn: 85,
+    // 49 -> 71 / 85 -> 93: the denser lamp line puts more poles inside the
+    // spawn's mirror cull ring (the pools themselves never register — see
+    // London's note).
+    mirrorCandidates: 71,
+    mirrorDrawn: 93,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1311,7 +1361,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "e2316bb7" -> "5469c8ba": the ten rail materials above.
     // -> "e5294a40": +rail-brick/+rail-platform (see the materials note).
     // -> "ae339a82": +rail-deck (bridge-fix pass).
-    survivingMaterialNamesFingerprint: "ae339a82",
+    // -> "1b18079f": +lamp-pool, once the palette went night.
+    survivingMaterialNamesFingerprint: "1b18079f",
   },
 };
 

@@ -68,23 +68,45 @@ export interface MapVisualPalette {
    * materials gain a warm emissive so windows/facades glow, streetlights and
    * signage light up, and bloom is nudged — a night drive lit by the city
    * itself. The sky/fog/silhouette colours above are authored dark to match.
+   *
+   * **Every shipped city sets it.** It stays optional because it is the flag
+   * that carries the whole night rig, and a future daylight map should be able
+   * to opt out by omission rather than by a second flag — but no `night:
+   * false` path is exercised by anything a player can load, so a change to a
+   * day-map branch is untested by the four-city characterization.
+   *
+   * A night map is also responsible for its own lighting AT STREET LEVEL: the
+   * rig below is moonlight, and moonlight alone leaves a city unplayably dark.
+   * Every night palette needs a real streetlight line under it — see
+   * `roadsidePropKindsForMap`, where all four cities scatter a kerb-seated,
+   * side-alternating lamp pass whose heads glow and whose ground pools light
+   * the carriageway.
    */
   readonly night?: boolean;
   /**
    * Night maps only: this palette's override of the moonlit rig's
    * hemispheric/sun intensities (defaults 0.64/0.6 — NYC's tuning, applied
-   * when unset). Tokyo runs both higher: its sky, ground and sunTint are all
-   * authored cooler and darker than NYC's, so the identical rig play-tested
-   * as "very dim" there. A palette field so one night city can brighten
-   * without touching the other.
+   * when unset). The other three all run higher, and for one reason: their
+   * skies, grounds and sunTints are authored darker and less saturated than
+   * NYC's golden-sodium set, so the identical rig play-tests as "very dim"
+   * (the owner's words about Tokyo, which is what put these fields here).
+   * Cairo runs the highest of the four — a warm ground bouncing a dense lit
+   * street wall — then London, then Tokyo.
    */
   readonly nightHemiIntensity?: number;
   readonly nightSunIntensity?: number;
   /**
-   * Day map's own ceiling on the fog's far end (metres). The size formula
-   * hands a large day map up to 1100 m of draw; a palette that wants an
-   * atmosphere shorter than its geography — Cairo's dust haze — caps it here,
-   * and the camera far plane follows (resolveEffectiveFogRange).
+   * This palette's own ceiling on the fog's far end (metres), applied BEFORE
+   * night's tighter clamp. The size formula hands a large map up to 1100 m of
+   * draw; a palette that wants an atmosphere shorter than its geography —
+   * Cairo's dust haze, London's — caps it here, and the camera far plane
+   * follows (`resolveEffectiveFogRange`).
+   *
+   * Now that every city is a night city, both shipped caps (800 and 650) sit
+   * above night's own 440 m end, so neither changes what a player sees. They
+   * still bind on `auditMapVisualGaps`, which passes `night: false`
+   * deliberately so a city being dark can never make its own sightline audit
+   * lenient — which is why they are kept rather than retired.
    */
   readonly fogEndCapM?: number;
 }
@@ -144,13 +166,21 @@ export function defaultSidewalkWidthM(mapPack: {
     : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
 }
 
-// Warm cinematic low-poly palette. Each sky is a saturated blue zenith that
-// warms into a COLORED horizon (retiring the old near-white haze that washed
-// every map out); fog matches the horizon so distance reads as atmosphere;
-// grass is richer, dirt warmer, and distant silhouettes recede into a warm
-// haze rather than a cold grey. Per-map moods: NYC golden-hour, London rich
-// late-afternoon, Tokyo soft warm residential, Cairo clear hot daylight over
-// warm stone and blue-green Nile water.
+// Cinematic low-poly palette. Each sky is a deep zenith easing into a COLORED
+// horizon (retiring the old near-white haze that washed every map out); fog
+// matches the horizon so distance reads as atmosphere, and distant silhouettes
+// recede into that haze rather than a flat grey.
+//
+// **All four cities now drive after dark** — `night: true` everywhere. The
+// game is a night game, and the four palettes differ by what each city's night
+// actually looks like rather than by time of day: NYC's cool sodium navy,
+// London's light-polluted violet-grey, Tokyo's mercury-vapour blue, Cairo's
+// warm dust-lit amber. Anything that reads a `night` palette (the moonlit
+// light rig, the bloom/exposure nudge, `BuildingLayer`'s window glow, the
+// water's night tiles, the streetlights' emissive heads and their ground light
+// pools) is therefore live on every map; there is no longer a daylight path
+// exercised by a shipped city, only by the day-map branches those consumers
+// keep for a future one.
 const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
   nyc: {
     // Realistic city night: a deep navy zenith easing to a slightly lit
@@ -177,43 +207,61 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     night: true,
   },
   london: {
-    skyTop: "#3f7fb8",
-    skyHorizon: "#ecd7bb",
-    fogColor: "#e2d0ba",
-    grassBase: "#3c6444",
-    grassAlt: "#4a7550",
-    // Rich and damp — a London square keeps its green through the afternoon.
-    grassDeep: "#28472f",
-    grassDry: "#6a7048",
-    floraAccent: "#e6e3d2",
-    dirtShoulder: "#5f5540",
-    silhouetteNear: "#a6a89f",
-    silhouetteFar: "#cdc8b6",
-    sunTint: "#ffe6c0",
+    // London after dark. The sky is the one thing that is NOT simply "NYC's
+    // navy, dimmer": a British city night is overcast and heavily light-
+    // polluted, so the zenith stays a deep blue but the horizon lifts into a
+    // warm violet-grey rather than a clean blue — the sodium glow bouncing off
+    // low cloud that stops you ever seeing stars over Kensington.
+    skyTop: "#101a2e",
+    skyHorizon: "#3c3743",
+    fogColor: "#262a38",
+    grassBase: "#2d4c36",
+    grassAlt: "#395b3e",
+    // Rich and damp, but unlit: the royal park's lawns keep their green only
+    // where a lamp reaches them, so these sit a clear step under NYC's — where
+    // Central Park is lit by the avenue on all four sides.
+    grassDeep: "#1d3526",
+    grassDry: "#4d5139",
+    floraAccent: "#c8c5b6",
+    dirtShoulder: "#4a4132",
+    silhouetteNear: "#282b39",
+    silhouetteFar: "#3b3a49",
+    // Moonlight, cooled: the "sun" runs at reduced intensity at night.
+    sunTint: "#b9c2dc",
     // London is a paved city. Its ground was the grass plane until the map
     // grew past the museum quarter, and that single missing flag was most of
     // why a "London" drive read as parkland: the base plane painted grass
     // between the roads and `defaultSidewalkWidthM` collapsed to the 1.5 m
     // unpaved fallback, so there was barely a kerb to walk on.
     //
-    // Cooler and darker than Cairo's sun-bleached concrete: British asphalt is
-    // a blue-grey, and the pavement is Portland-ish stone rather than dust.
-    // The warm late-afternoon sky above stays exactly as authored — grey
-    // streets under golden light IS the London look, and washing the ground
-    // warm to match the sky would throw that contrast away.
+    // Blue-grey asphalt under Portland-ish stone paving, both dropped to their
+    // night values. The pavement deliberately stays the lightest ground tone
+    // on the map: it is what the streetlights' pools actually land on at the
+    // kerb, and a too-dark footway swallows the spill that makes a lit street
+    // read as lit.
     paved: true,
-    groundBase: "#54565b",
-    pavement: "#8b8d89",
-    // London haze, and the draw-call budget. A 2950x2000 world would
-    // otherwise draw to the size formula's 1100 m ceiling, and the royal
-    // park's planting alone is 4_400 meshes — measured in-browser, the whole
-    // map's tree and thicket layer is 45% of its mesh count. 800 m of soft
-    // haze is both the atmosphere London actually has and the one lever that
-    // does not cost the city anything you can see from a car. (A 700 m cap
-    // was tried when the instanced street wall landed and bought only ~5
-    // draw calls — the first-person camera's extra cost is the mirrors
-    // re-rendering the spawn's near-field wall, not the far plane — so the
-    // 800 m look stays.)
+    groundBase: "#3a3d43",
+    pavement: "#5c5f62",
+    night: true,
+    // Above NYC's 0.64/0.6 defaults for the same reason Tokyo is: this sky,
+    // ground and sunTint are all authored darker and less saturated than
+    // NYC's, so the identical rig reads as murk rather than as night. Held a
+    // notch under Cairo's, which has both a warmer bounce and a denser lit
+    // street wall to carry it.
+    nightHemiIntensity: 0.78,
+    nightSunIntensity: 0.7,
+    // Night's own 100/440 m clamp (`resolveEffectiveFogRange`) governs the
+    // live fog and the camera far plane now, and it is far tighter than this
+    // — so this cap no longer changes anything a player sees. It stays for
+    // the one consumer that deliberately measures against the DAY range:
+    // `auditMapVisualGaps` passes `night: false` on purpose, so that the
+    // visual-gap sightline audit is never made lenient by a city being dark.
+    // Retiring it would silently widen that audit's reach 820 -> 1120 m.
+    //
+    // The number is still London's own: a 2950x2000 world would otherwise
+    // draw to the size formula's 1100 m ceiling, and the royal park's
+    // planting alone is 4_400 meshes — measured in-browser, the whole map's
+    // tree and thicket layer is 45% of its mesh count.
     fogEndCapM: 800,
   },
   tokyo: {
@@ -252,30 +300,45 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     // just fight it.
   },
   cairo: {
-    // Central Cairo is bright rather than desert-orange: a hard blue sky,
-    // dusty cream haze over the dense city, warm stone/plaster, and neutral
-    // grey paving. Keeping the fog pale-blue instead of tan prevents the Nile
-    // loop from reading as a sand level.
-    skyTop: "#4c9ac8",
-    skyHorizon: "#e7d7bd",
-    fogColor: "#d8cfbd",
-    grassBase: "#3f7046",
-    grassAlt: "#5c8150",
+    // Central Cairo after dark, and the warmest night of the four. The city's
+    // own dust is still the defining fact about its air — it just scatters
+    // streetlight now instead of sun, so the horizon glows amber-brown where
+    // London's glows violet and NYC's blue. The zenith stays a deep indigo so
+    // the warmth reads as a ground-lit band low down rather than as dusk.
+    skyTop: "#101728",
+    skyHorizon: "#42382a",
+    fogColor: "#2c2823",
+    grassBase: "#27412b",
+    grassAlt: "#325033",
     // Arid: Cairo's greens are irrigated islands, and they show the dust. The
     // dry tone runs much closer to the sand than the other cities' do.
-    grassDeep: "#2c5133",
-    grassDry: "#8a8552",
-    floraAccent: "#e8d59c",
-    dirtShoulder: "#8b795b",
-    silhouetteNear: "#8d8377",
-    silhouetteFar: "#b9aa96",
-    sunTint: "#fff0c8",
+    grassDeep: "#182c1e",
+    grassDry: "#4f4a33",
+    floraAccent: "#cbb98d",
+    dirtShoulder: "#4b4232",
+    silhouetteNear: "#2c2822",
+    silhouetteFar: "#3f382d",
+    // A warm moon: the "sun" runs at reduced intensity at night, and what
+    // little of it survives Cairo's dust arrives warm — the one night sunTint
+    // of the four that is not cooled toward blue.
+    sunTint: "#e6d4ad",
     paved: true,
-    groundBase: "#77736a",
-    pavement: "#aaa18f",
-    // Cairo's famous dust haze, and the perf budget for its dense street
-    // wall: the 1770x1830 world would otherwise draw to 1100 m — 2.4x the
-    // radius NYC's density was priced under.
+    groundBase: "#403c35",
+    pavement: "#5f594c",
+    night: true,
+    // The brightest night rig of the four, and deliberately: central Cairo at
+    // night is not a dark city — it is dense, lit and busy well past midnight,
+    // and its warm ground bounces far more of the lamplight back than
+    // London's wet grey does.
+    nightHemiIntensity: 0.8,
+    nightSunIntensity: 0.74,
+    // Inert for the live fog now — night's own 100/440 m clamp is tighter —
+    // and kept for the same reason London's is: `auditMapVisualGaps`
+    // deliberately measures sightlines against the DAY range, so dropping
+    // this would widen that audit's reach 670 -> 1120 m. The number is still
+    // Cairo's own dust haze, and the perf budget for its dense street wall:
+    // the 1770x1830 world would otherwise draw to 1100 m — 2.4x the radius
+    // NYC's density was priced under.
     fogEndCapM: 650,
   },
 };
@@ -1046,12 +1109,19 @@ export interface PropKindConfig {
   readonly lateralMarginM: number;
   /**
    * Optional centre offset beyond the carriageway edge, seating a prop at the
-   * kerb — before the sidewalk rather than beyond its outer edge. Tokyo's
-   * streetlights set it (0.7 m): its street wall hugs the pavement edge, so
-   * the default beyond-the-sidewalk band landed lamps inside buildings and
-   * whole streets went dark. A kerb-seated candidate also skips the open-water
-   * rejection — it stands on its own road's kerb, which exists wherever the
-   * road does, bridge decks included.
+   * kerb — before the sidewalk rather than beyond its outer edge. **Every
+   * night city's streetlight line sets it (0.7 m), and street lighting does
+   * not work without it.** The default band puts a prop a metre BEYOND the
+   * pavement's outer edge, which on a real street wall is inside the ground
+   * floor of a building, so `blocks.some(isInside…)` rejects it: at the same
+   * 26 m spacing it is the difference between London's 264 lamps and 1_076,
+   * and between Cairo's 521 and 1_005.
+   *
+   * A kerb-seated candidate also skips the open-water and `roadCrossedRects`
+   * rejections — it stands on its own road's kerb, which exists wherever the
+   * road does: bridge decks and park drives included. It skips NOTHING else;
+   * see the rejection block in `generateRoadsidePropPlacements` for the three
+   * bugs that boundary cost.
    */
   readonly curbOffsetM?: number;
   readonly bothSides: boolean;
@@ -1127,7 +1197,30 @@ export interface PropScatterRect {
 export interface PropScatterInput {
   readonly roadSurfaces: readonly PropScatterRoadSurface[];
   readonly blocks: readonly PropScatterRect[];
+  /**
+   * Ground nothing may stand on, whatever its seating. Authored landmark
+   * rects, the rail right-of-way, service forecourts and venue lots all
+   * arrive here (see `buildRoadsideProps`, which assembles them).
+   */
   readonly landmarks: readonly PropScatterRect[];
+  /**
+   * Rects a **carriageway legitimately runs through** — a park with a drive
+   * across it, a plaza. They reject an ordinary scatter candidate exactly like
+   * a landmark rect does (a park lays its own planting; a street tree inside
+   * one is double-planting), but a *kerb-seated* candidate passes: it is
+   * standing on its own road's kerb, and that kerb is as real inside the park
+   * as anywhere else.
+   *
+   * Separate from `landmarks` because that array is not one thing. It is the
+   * union of authored landmarks, `railCorridorExclusionRects` and the
+   * service/venue keep-outs, and the second and third of those must stop a
+   * kerb-seated prop dead: a rail corridor crosses a carriageway BY
+   * CONSTRUCTION at every level crossing, so a kerb-seated lamp on that road
+   * gets a candidate right between the rails. Ten of them shipped across three
+   * cities on a working tree that let kerb-seated candidates skip `landmarks`
+   * wholesale — owner-reported, "a light post in the middle of the railroad".
+   */
+  readonly roadCrossedRects?: readonly PropScatterRect[];
   readonly worldSize: VisualPoint;
   readonly shoulderWidthM: number;
   readonly seed: number;
@@ -1336,15 +1429,31 @@ export function generateRoadsidePropPlacements(
                 Math.max(0, (kindConfig.maxScale ?? 1) - (kindConfig.minScale ?? 1));
             const drawn = Math.floor(random() * variantCount);
             const variant = variantPool ? variantPool[drawn] : drawn;
-            // A kerb-seated candidate over water is standing on a bridge
-            // deck: its road's kerb exists wherever the road does, and the
-            // water polygon there runs UNDER the carriageway. Testing decks
-            // against open water is how all three Sakuragawa bridges shipped
-            // pitch dark — every kerb lamp candidate "stood in the river".
-            // (Bridge LANDMARK rects are the other half of that bug; the
-            // call site never passes them — see buildRoadsideProps.) None of
-            // these rejection tests consume seeded draws, so acceptance
-            // changes never shift the stream for later kinds.
+            // **A kerb-seated candidate stands on its own road's kerb, and
+            // that kerb exists wherever the road does** — over a river, through
+            // a park. It is therefore exempt from exactly two tests, and only
+            // those two:
+            //
+            // - Open water. The water polygon under a bridge deck runs beneath
+            //   the carriageway, so every kerb lamp candidate on one "stood in
+            //   the river" — which is how all three Sakuragawa bridges shipped
+            //   pitch dark.
+            // - `roadCrossedRects`. London's 902x631 m royal park swallowed
+            //   the whole 749 m of Serpentine Road — one continuous unlit
+            //   stretch of a road the player is invited to drive.
+            //
+            // **`landmarks` and `blocks` are never skipped**, and the reason is
+            // worth stating: "a rect overlapping a carriageway must be
+            // illustrative" is FALSE. A rail right-of-way crosses roads by
+            // construction, and a forecourt keep-out sits on the kerb by
+            // definition — exempting them put a lamp between the rails at four
+            // Cairo crossings, five Tokyo ones and one London one, plus
+            // fifteen more on filling-station forecourts. Only a rect the call
+            // site has positively identified as road-crossed earns the pass.
+            //
+            // None of these rejection tests consume seeded draws, so which
+            // candidates are accepted never shifts the stream for later kinds.
+            const kerbSeated = kindConfig.curbOffsetM !== undefined;
             if (
               Math.abs(candidate.x) > halfWorldX ||
               Math.abs(candidate.z) > halfWorldZ ||
@@ -1353,12 +1462,16 @@ export function generateRoadsidePropPlacements(
                 surface.id,
                 kindConfig.curbOffsetM,
               ) ||
-              (kindConfig.curbOffsetM === undefined &&
+              (!kerbSeated &&
                 isOverWater(candidate, input.waterPolygons ?? [])) ||
               input.blocks.some((rect) => isInsideInflatedRect(candidate, rect)) ||
               input.landmarks.some((rect) =>
                 isInsideInflatedRect(candidate, rect),
               ) ||
+              (!kerbSeated &&
+                (input.roadCrossedRects ?? []).some((rect) =>
+                  isInsideInflatedRect(candidate, rect),
+                )) ||
               gridHasNeighborWithin(grid, candidate, PROP_MIN_MUTUAL_SPACING_M)
             ) {
               continue;
@@ -1429,6 +1542,16 @@ export interface PromenadeDecorInput {
     readonly points: readonly VisualPoint[];
     readonly corridorHalfWidthM: number;
   }[];
+  /**
+   * Service forecourts and venue lots, exactly as `generateRoadsidePropPlacements`
+   * receives them. The same argument as `railLines` above, one keep-out later:
+   * the corniche strip is also where a filling station's apron reaches the
+   * bank, and this deliberate line never went through the random scatter's POI
+   * keep-outs either — which left one palm growing on a Cairo forecourt. Found
+   * by auditing every placement against every keep-out rect rather than by
+   * anyone spotting it from the car.
+   */
+  readonly keepOutRects?: readonly PropScatterRect[];
 }
 
 /** Extra clear metres a promenade piece keeps beyond a rail corridor's own
@@ -1542,6 +1665,13 @@ export function generatePromenadeDecor(
                 (line) =>
                   distanceToPolylineM({ x, z }, line.points) <
                   line.corridorHalfWidthM + PROMENADE_RAIL_CLEARANCE_M,
+              )
+            ) {
+              return;
+            }
+            if (
+              input.keepOutRects?.some((rect) =>
+                isInsideInflatedRect({ x, z }, rect),
               )
             ) {
               return;

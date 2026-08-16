@@ -242,7 +242,13 @@ describe("fog ranges", () => {
     });
   });
 
-  it("lets a day palette cap its own far end — Cairo's dust haze", () => {
+  it("lets a palette cap its own far end — Cairo's dust haze", () => {
+    // The `night: false` cases here are no longer a shipped city (all four
+    // set `night`), but they ARE the contract `auditMapVisualGaps` runs on:
+    // it deliberately measures sightlines against the day range so a dark
+    // city cannot make its own audit lenient. Hence the caps stay authored,
+    // and hence this stays pinned.
+    //
     // Cairo's world size with its palette cap: the 1100 m formula result
     // hazes down to 650, start untouched.
     expect(resolveEffectiveFogRange(false, { x: 1770, z: 1830 }, 650)).toEqual({

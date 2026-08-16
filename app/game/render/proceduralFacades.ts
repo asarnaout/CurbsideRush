@@ -204,12 +204,17 @@ export class ProceduralFacades {
     // branch only sets `castsShadow`, never drops the spatial-hash entry).
     // `docs/rendering.md`'s own `registerStaticCell` note already documents
     // this exact trade-off for NYC's instanced street wall ("deliberately
-    // casts none"); Tokyo is the only OTHER night map, its procedural boxes
-    // are the one part of R18's street wall NYC's glb kit does not have to
-    // pay this cost for, and at 0.42 shadow darkness under a bloom-heavy
-    // night palette the loss is not something a player stops to notice.
-    // Every other procedural-facade city (Cairo, London) is untouched — the
-    // default stays true.
+    // casts none"); Tokyo's procedural boxes are the one part of R18's street
+    // wall NYC's glb kit does not have to pay this cost for, and at 0.42
+    // shadow darkness under a bloom-heavy night palette the loss is not
+    // something a player stops to notice.
+    //
+    // It stays Tokyo-only even though every city is now a night city and the
+    // "you cannot see it under bloom" argument therefore applies to all four:
+    // this was a remediation for a MEASURED collapse on one map, and Cairo and
+    // London both hold frame budget with their procedural boxes still casting.
+    // Widening it is a perf change to make against a measurement, not a
+    // consequence of the palette flip.
     ctx.registerShadowCaster(facade, entry.x, entry.z, !ctx.mapId.includes("tokyo"));
 
     const solid = entry.solids[0];

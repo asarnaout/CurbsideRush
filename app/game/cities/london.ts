@@ -127,10 +127,22 @@ export const LONDON_RULE_REFERENCES: readonly OfficialRuleReference[] = [
   },
 ];
 
+/**
+ * The clock the HUD prints and the parking/bus-lane rules are judged against.
+ *
+ * Moved 08:30 -> 18:30 when the map went night: the label is shown on the
+ * drive screen, and "Tuesday · 08:30" over a dark sky and a thousand lit
+ * streetlights is a contradiction the player reads before anything else. A
+ * London winter evening is fully dark by 16:30, so 18:30 is both night and
+ * still inside the Cromwell Road bus lane's Mon-Fri 07:00-19:00 window — which
+ * is the constraint that actually pins this number. Any future move has to
+ * keep it inside that window or the map silently loses its only timed
+ * restriction, and with it the `restricted_lane` rule's one live test case.
+ */
 export const LONDON_SCENARIO_CLOCK: ScenarioClock = {
   weekday: "tue",
-  minutesAfterMidnight: 8 * 60 + 30,
-  label: "Tuesday · 08:30",
+  minutesAfterMidnight: 18 * 60 + 30,
+  label: "Tuesday · 18:30",
 };
 
 const roadIdForLane = (id: string): string => {
