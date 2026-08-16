@@ -201,7 +201,12 @@ describe("ambient traffic trace characterization", () => {
       // light states in the hash — plus the Menya Sakura venue shifting off
       // the corridor.
       "free-jp": "ad670631",
-      "free-eg": "eb350f99",
+      // Moves for the rail feature's Imbaba corridor: eleven generated
+      // railway crossings put timetable-driven railway_signal lights and
+      // stop lines on every N-S street at z=-720, and the corridor carve
+      // re-deals four downtown roadside strips — NPC holds land on
+      // different ticks across the whole north band.
+      "free-eg": "7ca051d1",
     });
   });
 });

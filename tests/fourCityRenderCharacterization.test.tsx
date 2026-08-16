@@ -1161,20 +1161,32 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // `cairo-west-nile-street-roadside-*-left` neighbours' own style), so
     // no new palette entry. activeMeshes unchanged for the same reason as
     // every other closure so far: none sit in this suite's fixed frustum.
-    totalMeshes: 10_822,
-    enabledMeshes: 10_822,
-    activeMeshes: 1_747,
-    materials: 218,
+    // -> 12_583/12_539 (+1_761/+1_717; active 1_747 -> 1_840; rail feature,
+    // the Imbaba corridor): ~1_630 instanced sleepers over 1.5 km of ballast
+    // plus BOTH bridges' open decks, 11 generated crossings x 12 gate meshes
+    // (132), two girder bridges (deck strips, side girders, piers,
+    // abutments), the segmented ballast strips, and the corridor carve's
+    // block re-deal. The 44-mesh total/enabled gap is the disabled
+    // diesel+wagon consist (2 trains x 5 cars for a through line), which
+    // this suite's unstepped scene never enables. materials 218 -> 228: the
+    // four rail track/bridge paints plus the train's six.
+    // mirrorCandidates/mirrorDrawn move because the carve near the fixed
+    // pose's frustum re-deals what the mirror cull ring holds.
+    totalMeshes: 12_583,
+    enabledMeshes: 12_539,
+    activeMeshes: 1_840,
+    materials: 228,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 64,
+    mirrorCandidates: 52,
     mirrorDrawn: 87,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
     retiredGuidanceMaterialNames: [],
-    survivingMaterialNamesFingerprint: "e2316bb7",
+    // "e2316bb7" -> "5469c8ba": the ten rail materials above.
+    survivingMaterialNamesFingerprint: "5469c8ba",
   },
 };
 

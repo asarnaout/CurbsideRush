@@ -186,6 +186,7 @@ describe("rail corridors", () => {
     // A sanity pin so the suite cannot silently go vacuous: today only Tokyo
     // ships a line. Grow this list as cities gain theirs.
     expect(railWorlds.map((world) => world.mapPack.id).sort()).toEqual([
+      "cairo-central-nile",
       "tokyo-setagaya",
     ]);
   });

@@ -1,4 +1,6 @@
 import { buildLaneTrueGeometry, CONNECTOR_BLEND_RUN_M } from "../laneConnectors";
+import { buildRailCrossingControl } from "./cityAuthoringHelpers";
+import { carveBlocksForRailCorridors } from "../geometry/railCorridor";
 import { buildingSetDepthM, isBuildingSetId } from "../buildingSets";
 import { ROAD_DIVIDED_PARK_IDS } from "../parkLayouts";
 import { hashStringToSeed } from "../visuals";
@@ -14,6 +16,7 @@ import type {
   OfficialRuleReference,
   ProceduralBlock,
   ProceduralLandmark,
+  RailLine,
   RoadMarkingPath,
   RoadSurface,
   ServicePoint,
@@ -3291,6 +3294,91 @@ const cairoSpawnPoints: readonly MapSpawnPoint[] = [
   })),
 ];
 
+/**
+ * The Imbaba corridor (rail feature): an ENR mainline straight across the
+ * map's north band at z=-720 — right past spawn — from the west bank
+ * ("to Upper Egypt") over BOTH Nile channels on Imbaba-style spans, through
+ * downtown's north edge toward Ramses station off-map east. Level crossings
+ * (mazla'an) guard all eleven streets it crosses, Ramsis Street included —
+ * every one generated from the measured lane centrelines. In reality the
+ * Imbaba bridge sits ~5 km north of Tahrir; pulling it into frame is the
+ * same compression this map already applies to Tahrir/Garden City/Gezira.
+ * Stations along the line are x + 1005 (straight run from x=-1005).
+ */
+const CAIRO_RAIL_POINTS: readonly WorldPoint[] = [
+  point(-1005, -720),
+  point(1010, -720),
+];
+
+const CAIRO_RAIL_LINES: readonly RailLine[] = [
+  {
+    id: "eg-imbaba-corridor-run",
+    points: CAIRO_RAIL_POINTS,
+    corridorHalfWidthM: 4.5,
+    crossingControlIds: [
+      "eg-rail-x-west-nile",
+      "eg-rail-x-dokki",
+      "eg-rail-x-saray",
+      "eg-rail-x-gabalaya",
+      "eg-rail-x-opera",
+      "eg-rail-x-nile-island",
+      "eg-rail-x-corniche",
+      "eg-rail-x-qasr-el-ainy",
+      "eg-rail-x-talaat-harb",
+      "eg-rail-x-ramses",
+      "eg-rail-x-galaa",
+    ],
+    schedule: {
+      mode: "through",
+      speedMps: 14,
+      trainLengthM: 65,
+      headwaySeconds: 210,
+      warningLeadSeconds: 10,
+      clearTrailSeconds: 2,
+    },
+    // Nile banks at z=-720: west channel x in [-580, -469], east channel
+    // [-81, 44]; each span carries ~24 m of abutment approach.
+    elevatedSpans: [
+      { startM: 401, endM: 560, kind: "bridge" },
+      { startM: 900, endM: 1073, kind: "bridge" },
+    ],
+    // ENR diesel in the fleet's deep blue with the yellow nose band, hauling
+    // four box wagons — the classic mazla'an scene.
+    consist: { kind: "diesel_freight", cars: 5, liveryHex: "#24518f", accentHex: "#e0b23c" },
+  },
+];
+
+const cairoSurfaceById = (id: string): RoadSurface => {
+  const surface = cairoRoadSurfaces.find((candidate) => candidate.id === id);
+  if (!surface) throw new Error(`cairo rail crossing: unknown surface ${id}`);
+  return surface;
+};
+
+const cairoRailCrossings = [
+  ["eg-rail-x-west-nile", "cairo-west-nile-street"],
+  ["eg-rail-x-dokki", "cairo-dokki-nile-drive"],
+  ["eg-rail-x-saray", "cairo-saray-el-gezira"],
+  ["eg-rail-x-gabalaya", "cairo-el-gabalaya"],
+  ["eg-rail-x-opera", "cairo-opera-corridor"],
+  ["eg-rail-x-nile-island", "cairo-nile-island-drive"],
+  ["eg-rail-x-corniche", "cairo-corniche-el-nil"],
+  ["eg-rail-x-qasr-el-ainy", "cairo-qasr-el-ainy"],
+  ["eg-rail-x-talaat-harb", "cairo-talaat-harb"],
+  ["eg-rail-x-ramses", "cairo-ramses"],
+  ["eg-rail-x-galaa", "cairo-galaa-street"],
+].map(([id, surfaceId]) =>
+  buildRailCrossingControl({
+    id,
+    railPoints: CAIRO_RAIL_POINTS,
+    surface: cairoSurfaceById(surfaceId),
+    lanes: cairoLanes,
+  }),
+);
+cairoControls.push(...cairoRailCrossings.map((crossing) => crossing.control));
+cairoConflictZones.push(
+  ...cairoRailCrossings.map((crossing) => crossing.conflictZone),
+);
+
 const cairoLaneGraph: LaneGraph = {
   nodes: cairoNodes,
   lanes: cairoLanes,
@@ -3329,7 +3417,10 @@ export const CAIRO_MAP_PACK: MapPack = {
     shoulderWidth: 1.2,
     roadSurfaces: cairoRoadSurfaces,
     waterBodies: cairoWaterBodies,
-    blocks: cairoBlocks,
+    // Carved around the Imbaba corridor last, same as Tokyo — no block can
+    // stand on the right-of-way (tests/railCorridors.test.ts re-proves it).
+    blocks: carveBlocksForRailCorridors(cairoBlocks, CAIRO_RAIL_LINES).blocks,
+    railLines: CAIRO_RAIL_LINES,
     landmarks: cairoLandmarks,
     servicePoints: cairoServicePoints,
     gigVenues: cairoGigVenues,
