@@ -1720,7 +1720,9 @@ describe("SideSwap content", () => {
     // Section 11.8 trimmed nyc-block-east-south-margin/-north-margin and
     // reshaped the esplanade to meet exactly, not overlap.
     expect(violations).toEqual([
-      "cairo-opera-corridor-roadside-3-3-right stands 2.81 m inside cairo-opera-grounds",
+      // Same strip, same 2.81 m nip — the id moved when the hara network's
+      // Saleh Selim insert renumbered Montazah Al Gezira Street's segments.
+      "cairo-opera-corridor-roadside-4-3-right-s1 stands 2.81 m inside cairo-opera-grounds",
     ]);
   });
 

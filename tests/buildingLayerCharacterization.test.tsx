@@ -466,8 +466,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // 1_396 -> 1_377 / clutter 464 -> 465 (rail feature): the Imbaba
     // corridor carve re-deals the four split downtown strips and drops
     // three roadside pieces; the clutter scatter re-rolls on the new rects.
-    buildingInstanceCount: 1_377,
-    cairoRoofClutterInstanceCount: 465,
+    // -> 1_625 / clutter 552 (hara network): the alley strips deep enough
+    // to keep a glb set add ~248 real instanced buildings, and the tanks/
+    // dishes scatter lands on the new roofY-carrying models among them.
+    buildingInstanceCount: 1_625,
+    cairoRoofClutterInstanceCount: 552,
     storefrontSignMaterialCount: 0,
   },
 };

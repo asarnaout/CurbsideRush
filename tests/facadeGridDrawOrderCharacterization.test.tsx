@@ -582,8 +582,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // is not claimed to be exact, per this suite's own honesty standard.
     // 4_586 -> 4_557 (rail feature): the Imbaba corridor carve's block
     // census change above, same mechanics as the Tokyo entry.
-    drawCount: 4_557,
-    facadeMeshFingerprint: "4f60c748",
+    // 4_557 -> 6_930, fingerprint "4f60c748" -> "dce5639b" (hara network):
+    // 294 net new roadside parcels, most demoted to facade boxes by
+    // `backEdgeNearsARoad` in the alley interiors (FACADE_BOX_CELLS
+    // 1_716 -> 2_601 in cairoContent.test.ts is the same census), each
+    // surviving cell drawing its width/depth (and sometimes height) from
+    // the shared stream.
+    drawCount: 6_930,
+    facadeMeshFingerprint: "dce5639b",
   },
 };
 

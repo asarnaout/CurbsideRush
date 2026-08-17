@@ -1342,9 +1342,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // activeMeshes DOWN for the same reason London's is: night clamps the fog
     // band to 440 m against this palette's own 650 m dust cap, so the fixed
     // pose has markedly less in frustum than before despite the extra lamps.
-    totalMeshes: 13_428,
-    enabledMeshes: 13_384,
-    activeMeshes: 1_310,
+    // -> 16_997/16_953 (+3_569, active 1_310 -> 1_246; hara network): 23
+    // one-way alleys add ~7 km of kerb the slot/gap passes line with 294
+    // net new roadside parcels, most demoted to all-faces-glazed facade
+    // boxes by `backEdgeNearsARoad` in the tight interiors (this suite's
+    // empty preload renders every asset-slot survivor as a proxy box, so
+    // the delta is all boxes and dressing). activeMeshes falls again by
+    // the familiar mechanism: new blocks near the spawn reject scatter
+    // props that used to stand in the fixed pose's frustum. Materials and
+    // the fingerprint hold — no new palette entries.
+    totalMeshes: 16_997,
+    enabledMeshes: 16_953,
+    activeMeshes: 1_246,
     materials: 232,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1352,8 +1361,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 49 -> 71 / 85 -> 93: the denser lamp line puts more poles inside the
     // spawn's mirror cull ring (the pools themselves never register — see
     // London's note).
-    mirrorCandidates: 71,
-    mirrorDrawn: 93,
+    // 71 -> 93 / 93 -> 141 (hara network): the Qasr El-Ainy spawn now has
+    // the Lazoghly hara's street wall inside its cull ring.
+    mirrorCandidates: 93,
+    mirrorDrawn: 141,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
