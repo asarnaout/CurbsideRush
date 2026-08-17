@@ -63,11 +63,11 @@ export async function generateMetadata(): Promise<Metadata> {
       images: [
         {
           // 1200x630 is the card size every platform lays out for; the file is
-          // a ~181 KB JPEG because WhatsApp drops preview images past ~300 KB.
+          // a ~103 KB JPEG because WhatsApp drops preview images past ~300 KB.
           url: imageUrl,
           width: 1200,
           height: 630,
-          alt: "Curbside Rush key art: a bicycle, motorbike and blue sedan on a New York street under the title Rise and Grind",
+          alt: "Curbside Rush key art: a bicycle, motorbike and blue sedan on a nighttime New York street under the title Rise and Grind",
         },
       ],
     },

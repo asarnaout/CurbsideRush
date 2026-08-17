@@ -842,15 +842,18 @@ public-space character, and currency naming:
 - **`public/landing/*.webp`** (per-city preview illustrations) — generated with
   OpenAI (ChatGPT) by the project owner, who owns the output under OpenAI's
   Terms of Use. Stylised generic city scenes; no third-party assets, logos, or
-  branding. `cairo.webp` was supplied separately by the project owner, who
-  confirmed commercial-use rights, and converted locally from the original
-  1672×941 PNG without changing the composition.
+  branding. The current nighttime variants were generated or edited with
+  OpenAI on 2026-08-16. New York, London and Tokyo preserve their original city
+  compositions while adding the blue player sedan and modern traffic. Cairo is
+  a new Central Nile composition featuring the Qasr El-Nil Bridge lions, Cairo
+  Tower, a felucca and the blue player sedan.
 - **og.jpg** (the link-preview card) — generated with OpenAI (ChatGPT) by the
   project owner on 2026-07-24, who owns the output under OpenAI's Terms of Use.
   Downloaded as `curbside-rush-og-image-generic-vehicles.jpg`. A stylised
   generic New York street with the game's own title and mark; no third-party
-  assets, marque or branding. Sized 1200x630 at ~181 KB for the reasons noted in
-  `app/layout.tsx`.
+  assets, marque or branding. Its current nighttime variant was relit with
+  OpenAI on 2026-08-16 while preserving the title, mark and layout. Sized
+  1200x630 at ~103 KB for the reasons noted in `app/layout.tsx`.
   It replaces an `og.png` that still carried the pre-rebrand "SideSwap" name.
 - **`public/vehicles/*.webp`** (Career garage card art) — generated with OpenAI
   (ChatGPT) by the project owner on 2026-07-24, who owns the output under
