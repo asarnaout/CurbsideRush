@@ -588,8 +588,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // 1_716 -> 2_601 in cairoContent.test.ts is the same census), each
     // surviving cell drawing its width/depth (and sometimes height) from
     // the shared stream.
-    drawCount: 6_930,
-    facadeMeshFingerprint: "dce5639b",
+    // 6_930 -> 12_864, "dce5639b" -> "dd376b1d" (interior cores): 294
+    // facade-grid cores at density 0.5 — 7 cells each, each drawing from
+    // the shared stream, plus the height draws their taller ranges take.
+    drawCount: 12_864,
+    facadeMeshFingerprint: "dd376b1d",
   },
 };
 

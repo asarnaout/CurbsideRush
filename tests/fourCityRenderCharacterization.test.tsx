@@ -1351,9 +1351,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the familiar mechanism: new blocks near the spawn reject scatter
     // props that used to stand in the fixed pose's frustum. Materials and
     // the fingerprint hold — no new palette entries.
-    totalMeshes: 16_997,
-    enabledMeshes: 16_953,
-    activeMeshes: 1_246,
+    // -> 21_744/21_700 (+4_747, active 1_246 -> 1_684; interior cores):
+    // 294 validator-gated facade-grid cores fill the block interiors
+    // behind the strips (~7 cells each plus Cairo dressing under this
+    // suite's all-proxy preload). activeMeshes rises because the cores
+    // ringing the spawn's own block sit inside the fixed frustum.
+    totalMeshes: 21_744,
+    enabledMeshes: 21_700,
+    activeMeshes: 1_684,
     materials: 232,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1362,8 +1367,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // spawn's mirror cull ring (the pools themselves never register — see
     // London's note).
     // 71 -> 93 / 93 -> 141 (hara network): the Qasr El-Ainy spawn now has
-    // the Lazoghly hara's street wall inside its cull ring.
-    mirrorCandidates: 93,
+    // the Lazoghly hara's street wall inside its cull ring. 93 -> 119
+    // candidates (interior cores in the ring); drawn holds at 141.
+    mirrorCandidates: 119,
     mirrorDrawn: 141,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,

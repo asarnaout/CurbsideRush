@@ -101,7 +101,11 @@ import type {
 // nodes re-tiles their own strips (+~29 net, including the retirement of
 // cairo-west-nile-street-mid-land-edge-wall-4, whose interval a
 // now-longer strip occupies — see CAIRO_VISUAL_CLOSURES' own comment).
-const BLOCK_COUNT = 956;
+// 956 -> 1250 (interior cores): 294 machine-generated, validator-gated
+// core blocks fill the block interiors behind the strips — see
+// CAIRO_INTERIOR_CORES' own comment. Roadside/street-wall counts are
+// untouched (cores are facade-grid interiors, never kerbside parcels).
+const BLOCK_COUNT = 1250;
 const ROADSIDE_COUNT = 922;
 const ROADSIDE_LEFT = 465;
 /** The second rank is gone — a one-sided kit means a back row can only stare
@@ -123,7 +127,8 @@ const STREET_WALL_BLOCKS = 665;
 // theirs at the fragments' new sizes.
 // 1716 -> 2601 (hara network): the demoted-to-boxes alley strips above,
 // at the same round(3 + density * 7) cells each.
-const FACADE_BOX_CELLS = 2601;
+// 2601 -> 4659 (interior cores): 294 cores x round(3 + 0.5 * 7) = 7 cells.
+const FACADE_BOX_CELLS = 4659;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
