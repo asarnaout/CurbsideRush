@@ -372,7 +372,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // (extraInsetM) to make room for the new close frontage in front of it.
     // Same cell count (40 m depth unchanged, so drawCount stays 972), every
     // cell's world position shifts with the block.
-    facadeMeshFingerprint: "5b48e8b8",
+    // -> "ecdd55b8": facade-chunk merging (see Cairo's note).
+    facadeMeshFingerprint: "ecdd55b8",
   },
   "tokyo-setagaya": {
     // drawCount unchanged by the building-collision-visual-parity plan:
@@ -535,7 +536,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // than their parent did. London/NYC hold: their carved parcels are all
     // building-set strips with no facade-grid cells.
     drawCount: 3_312,
-    facadeMeshFingerprint: "4689c992",
+    // "4689c992" -> "2a378f07": facade-chunk merging (see Cairo's note).
+    facadeMeshFingerprint: "2a378f07",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the
@@ -598,7 +600,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // on the facade grid, and the core list regenerated around the
     // landmark's exclusion.
     drawCount: 19_787,
-    facadeMeshFingerprint: "f2628a4c",
+    // "f2628a4c" -> "e25257d5" (facade-chunk merging): the per-box meshes
+    // merge into facade-chunk-* meshes post-preload, so the census hashes
+    // chunk names and bounds now. drawCount — the actual seeded-stream
+    // sensor — is untouched, and a planner draw-order regression still
+    // surfaces through the chunks' bounds (a re-dealt box moves its
+    // chunk's AABB).
+    facadeMeshFingerprint: "e25257d5",
   },
 };
 

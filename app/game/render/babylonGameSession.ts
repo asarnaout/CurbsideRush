@@ -4524,6 +4524,10 @@ export class BabylonGameSession {
       const block = blockById.get(blockId);
       if (block) proceduralFacades.renderGardenCityCompound(block, proceduralFacadesCtx);
     }
+    // Collapse every procedural box and dressing piece into per-material
+    // spatial chunks — see ProceduralFacades.finalize's own comment. This
+    // must come after the loop above painted every planned building.
+    proceduralFacades.finalize(proceduralFacadesCtx);
     this.buildingLayer?.setPlan(assetSlotEntries);
     // Preload just this map's building-set glbs (not every map's), derived
     // from the plan's own asset-slot entries rather than rescanning authored

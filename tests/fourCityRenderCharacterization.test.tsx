@@ -573,8 +573,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // night clamps the fog band to 440 m where London's own `fogEndCapM`
     // capped it at 800, so a thousand new lamps still leave far fewer meshes
     // in frustum than before. The map got brighter and cheaper at once.
-    totalMeshes: 14_588,
-    enabledMeshes: 14_552,
+    // -> 14_345/14_309 (facade-chunk merging, the Cairo reimagining's
+    // cross-city render change): London's own modest procedural-box
+    // population merges the same way.
+    totalMeshes: 14_345,
+    enabledMeshes: 14_309,
     activeMeshes: 500,
     materials: 316,
     drawCallsPerFrame: 0,
@@ -610,7 +613,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (its ground pool does not — `castShadow: false` skips registration
     // entirely), so the quiet loop's own lamps roughly double the candidate
     // ring around the spawn.
-    mirrorCandidates: 87,
+    mirrorCandidates: 83,
     mirrorDrawn: 226,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
@@ -1094,14 +1097,17 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // rejection tests consume no seeded draws, so every other kind is
     // byte-identical, as materials and the fingerprint holding at
     // 298/"7d957807" confirm.
-    totalMeshes: 23_473,
-    enabledMeshes: 23_448,
-    activeMeshes: 1_758,
+    // -> 22_706/22_681 (active 1_758 -> 1_658; facade-chunk merging): the
+    // ~1-in-4 holdback parcels' boxes merge; the glb street wall and its
+    // proxies are untouched.
+    totalMeshes: 22_706,
+    enabledMeshes: 22_681,
+    activeMeshes: 1_658,
     materials: 298,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 244,
+    mirrorCandidates: 224,
     mirrorDrawn: 263,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
@@ -1370,9 +1376,17 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the regulatory-sign family): ~886 one-way/do-not-enter post meshes at
     // the hara and one-way street mouths, three sign materials, and the
     // crowd bump changes nothing here (walkers are thin instances).
-    totalMeshes: 24_706,
-    enabledMeshes: 24_662,
-    activeMeshes: 1_755,
+    // -> 13_688/13_644 (active 1_755 -> 897; facade-chunk merging): every
+    // procedural box and dressing piece now merges per material and 96 m
+    // cell (ProceduralFacades.finalize) — ~11k individually-drawn meshes
+    // collapse into a few hundred chunks with identical pixels. The live
+    // paired measurement that motivated it: the reimagined map had halved
+    // the frame rate; with the merge it runs at (and in draw calls below)
+    // the pre-reimagining baseline. Materials unchanged: merging reuses
+    // the shared per-key materials.
+    totalMeshes: 13_688,
+    enabledMeshes: 13_644,
+    activeMeshes: 897,
     materials: 246,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1386,8 +1400,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 119 -> 216 / 141 -> 147 (baladi rezoning): each strip that flipped
     // from one instanced glb to several boxes multiplies what the ring
     // holds near the spawn.
-    mirrorCandidates: 220,
-    mirrorDrawn: 149,
+    // 220 -> 97 / 149 -> 147 (facade-chunk merging): the ring holds a few
+    // chunks where it held hundreds of boxes.
+    mirrorCandidates: 97,
+    mirrorDrawn: 147,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
