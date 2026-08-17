@@ -269,7 +269,12 @@ export const AMBIENT_CROWD_CONFIG: Readonly<
   // The crowd is 3-5 meshes total whatever the count — this is CPU stepping,
   // not draw calls.
   "london-south-kensington": { count: 104, innerRadiusM: 22, outerRadiusM: 130, recycleRadiusM: 170 },
-  "cairo-central-nile": { count: 88, innerRadiusM: 22, outerRadiusM: 125, recycleRadiusM: 165 },
+  // 88 -> 140 (Cairo reimagining): central Cairo at 21:00 is the busiest
+  // street scene of the four cities, and the hara network's pavements
+  // joined the walkable rail graph — the pool has a whole informal city to
+  // cover now. Above NYC's 96 on purpose; the crowd is CPU stepping, not
+  // draw calls.
+  "cairo-central-nile": { count: 140, innerRadiusM: 22, outerRadiusM: 125, recycleRadiusM: 165 },
 };
 
 /** Bubble radii for scenario road users on maps with no crowd config. */

@@ -1366,10 +1366,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // sixteen meshes and eight named materials (stone/dome/neon/portal
     // etc.), the wider baladi band re-tiles its strips, and the core list
     // regenerates around the landmark's exclusion.
-    totalMeshes: 23_820,
-    enabledMeshes: 23_776,
-    activeMeshes: 1_686,
-    materials: 243,
+    // -> 24_706/24_662 (materials 243 -> 246, new fingerprint; Cairo joins
+    // the regulatory-sign family): ~886 one-way/do-not-enter post meshes at
+    // the hara and one-way street mouths, three sign materials, and the
+    // crowd bump changes nothing here (walkers are thin instances).
+    totalMeshes: 24_706,
+    enabledMeshes: 24_662,
+    activeMeshes: 1_755,
+    materials: 246,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1382,7 +1386,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 119 -> 216 / 141 -> 147 (baladi rezoning): each strip that flipped
     // from one instanced glb to several boxes multiplies what the ring
     // holds near the spawn.
-    mirrorCandidates: 216,
+    mirrorCandidates: 220,
     mirrorDrawn: 149,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
@@ -1395,7 +1399,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "96f3eb90": +facade-cairo-brick/-brick-worn/-render-grey (the
     // baladi skeleton-and-infill materials).
     // -> "52079508": the mosque's eight named materials.
-    survivingMaterialNamesFingerprint: "52079508",
+    // -> "df94522e": the three regulatory-sign materials.
+    survivingMaterialNamesFingerprint: "df94522e",
   },
 };
 

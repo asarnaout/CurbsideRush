@@ -5037,8 +5037,13 @@ export class BabylonGameSession {
           .map((installation) => installation.position),
       ),
     };
+    // NYC first grew these; Cairo joined when the hara network filled the
+    // map with one-way lanes — 24 harat plus the five original one-way
+    // streets, every mouth of which needs its ممنوع الدخول (do-not-enter)
+    // or one-way arrow, or a wrong-way fine arrives with zero warning.
     const regulatorySigns =
-      mapPack.id === "nyc-upper-west-side"
+      mapPack.id === "nyc-upper-west-side" ||
+      mapPack.id === "cairo-central-nile"
         ? regulatorySignPlacements(signInput)
         : [];
     const speedLimitSigns = speedLimitSignPlacements(signInput);
