@@ -1553,20 +1553,26 @@ const cairoLandmarks: readonly ProceduralLandmark[] = [
   },
 ];
 
-const lanesForAnchors = cairoLanes.filter(
-  (lane) => lane.id.includes("-forward-") && laneLength(lane) > 80,
-);
-const safeDistance = (lane: LaneSegment, ratio = 0.5): number =>
-  Math.max(14, Math.min(laneLength(lane) - 14, laneLength(lane) * ratio));
-
+/**
+ * Venue, service and spawn anchors are FROZEN literals, not computed deals.
+ *
+ * They used to be dealt from a filtered, ordered lane list
+ * (`lanesForAnchors[(index * 7 + 3) % length]` with a handful of named
+ * overrides), which made every venue's position a function of the whole
+ * lane census: adding one road — or one node to an existing road, which
+ * renumbers that road's segment-indexed lane ids — silently re-dealt every
+ * venue and vehicle gate on the map. The alley network needs exactly those
+ * edits, so the deal as of 2026-08-16 (27 roads / 224 lanes) is pinned
+ * here verbatim: same lane ids, same distances, byte-identical resolved
+ * pack. A road edit that renumbers lanes must update these literals in the
+ * same change — re-anchor each entry by its world position onto the same
+ * road, never by guessing at segment arithmetic.
+ */
 const cairoServicePoints: readonly ServicePoint[] = [
   {
     id: "cairo-gas-garden-city",
     kind: "gas_station",
-    anchor: anchor(
-      "cairo-qasr-el-ainy-1-forward-1",
-      safeDistance(cairoLaneById.get("cairo-qasr-el-ainy-1-forward-1")!, 0.52),
-    ),
+    anchor: anchor("cairo-qasr-el-ainy-1-forward-1", 96.61345819256853),
     footprint: point(12, 8),
     label: "Garden City Fuel",
     setbackM: 18.8,
@@ -1574,10 +1580,7 @@ const cairoServicePoints: readonly ServicePoint[] = [
   {
     id: "cairo-gas-west-bank",
     kind: "gas_station",
-    anchor: anchor(
-      "cairo-west-nile-street-4-forward-1",
-      safeDistance(cairoLaneById.get("cairo-west-nile-street-4-forward-1")!, 0.48),
-    ),
+    anchor: anchor("cairo-west-nile-street-4-forward-1", 118.46267802853997),
     footprint: point(12, 8),
     label: "Nile Bank Fuel",
     setbackM: 18.8,
@@ -1585,10 +1588,7 @@ const cairoServicePoints: readonly ServicePoint[] = [
   {
     id: "cairo-repair-downtown",
     kind: "repair_shop",
-    anchor: anchor(
-      "cairo-galaa-street-2-forward-1",
-      safeDistance(cairoLaneById.get("cairo-galaa-street-2-forward-1")!, 0.55),
-    ),
+    anchor: anchor("cairo-galaa-street-2-forward-1", 102.63163868736932),
     footprint: point(10, 8),
     label: "Downtown Motors",
     setbackM: 11.4,
@@ -1596,101 +1596,285 @@ const cairoServicePoints: readonly ServicePoint[] = [
   {
     id: "cairo-repair-dokki",
     kind: "repair_shop",
-    anchor: anchor(
-      "cairo-dokki-nile-drive-2-forward-1",
-      safeDistance(cairoLaneById.get("cairo-dokki-nile-drive-2-forward-1")!, 0.45),
-    ),
+    anchor: anchor("cairo-dokki-nile-drive-2-forward-1", 104.34588515886699),
     footprint: point(10, 8),
     label: "Dokki Auto Works",
     setbackM: 11.35,
   },
 ];
 
-const venueKinds = [
-  "restaurant",
-  "shop",
-  "residence",
-  "office",
-  "depot",
-] as const;
-const CAIRO_RESIDENCE_MODEL_IDS = [
-  "cairo-residence-kay",
-  "cairo-residence-quaternius",
-] as const;
-const venueNames = [
-  "Garden City Kitchen",
-  "Nile Books",
-  "Tahrir Residences",
-  "Downtown Exchange",
-  "Gezira Dispatch",
-  "Opera Terrace",
-  "Zamalek Grocers",
-  "Corniche Apartments",
-  "Dokki Business Centre",
-  "Ramses Depot",
-  "Lotus Cafe",
-  "Champollion Market",
-  "Museum View Flats",
-  "Bolivar Offices",
-  "Nile Courier Hub",
-  "Saray Bistro",
-  "Gabalaya Corner Shop",
-  "Opera Gardens Homes",
-  "Agouza Workspace",
-  "West Bank Depot",
-  "Tahrir Bakery",
-  "Garden City Supplies",
-  "Gezira Court",
-  "Qasr El-Nil Offices",
-  "Cairo Dispatch Yard",
-  "Nile Terrace Cafe",
-  "Dokki Mini Market",
-  "Zamalek Residences",
-  "Corniche Trade House",
-  "Central Cairo Depot",
-] as const;
-
-const venueLaneOverrides: Readonly<Partial<Record<number, string>>> = {
-  // Keep the Dokki office parcel on the west bank, away from Tahrir's fan.
-  8: "cairo-west-nile-street-6-forward-1",
-  // Keep this residence away from the Garden City fuel forecourt.
-  17: "cairo-el-gabalaya-6-forward-1",
-  // Keep the depot clear of the converging Tahrir/Qasr El-Nil approaches.
-  24: "cairo-west-nile-street-2-forward-1",
-};
-
-const cairoGigVenues: readonly GigVenue[] = venueNames.map((name, index) => {
-  const lane =
-    cairoLaneById.get(venueLaneOverrides[index] ?? "") ??
-    lanesForAnchors[(index * 7 + 3) % lanesForAnchors.length];
-  const kind = venueKinds[index % venueKinds.length];
-  // Offices and depots used to share `office.glb` — Quaternius's "Big Building",
-  // whose hipped roof is a European shape Cairo does not have, placed 12 times
-  // across the map. Both now get their own flat-roofed block. `office.glb`
-  // itself still serves NYC and London.
-  const modelId =
-    kind === "residence"
-      ? CAIRO_RESIDENCE_MODEL_IDS[
-          Math.floor(index / venueKinds.length) %
-            CAIRO_RESIDENCE_MODEL_IDS.length
-        ]
-      : kind === "depot"
-        ? "cairo-depot"
-        : kind === "office"
-          ? "cairo-office-block"
-          : kind === "shop"
-            ? "cairo-shop"
-            : undefined;
-  return {
-    id: `cairo-venue-${String(index + 1).padStart(2, "0")}`,
-    kind,
-    anchor: anchor(lane.id, safeDistance(lane, 0.3 + (index % 5) * 0.1)),
-    footprint: point(index % 2 === 0 ? 14 : 12, index % 3 === 0 ? 12 : 10),
-    name,
+/**
+ * Thirty venues across all five venue kinds. Residences alternate the two
+ * residence models; offices and depots keep their flat-roofed Cairo blocks
+ * (`office.glb`'s hipped roof is a European shape Cairo does not have —
+ * NYC and London still use it, Cairo never).
+ */
+const cairoGigVenues: readonly GigVenue[] = [
+  {
+    id: "cairo-venue-01",
+    kind: "restaurant",
+    anchor: anchor("cairo-corniche-el-nil-4-forward-1", 51.20072861494737),
+    footprint: point(14, 12),
+    name: "Garden City Kitchen",
     setbackM: 15,
-    ...(modelId ? { modelId } : {}),
-  };
-});
+  },
+  {
+    id: "cairo-venue-02",
+    kind: "shop",
+    anchor: anchor("cairo-qasr-el-ainy-3-forward-1", 75.91998843190946),
+    footprint: point(12, 10),
+    name: "Nile Books",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-03",
+    kind: "residence",
+    anchor: anchor("cairo-simon-bolivar-2-forward-1", 90.55385138137423),
+    footprint: point(14, 10),
+    name: "Tahrir Residences",
+    setbackM: 15,
+    modelId: "cairo-residence-kay",
+  },
+  {
+    id: "cairo-venue-04",
+    kind: "office",
+    anchor: anchor("cairo-talaat-harb-5-forward-1", 149.45902448497384),
+    footprint: point(12, 12),
+    name: "Downtown Exchange",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-05",
+    kind: "depot",
+    anchor: anchor("cairo-ramses-7-forward-1", 124.79043499924916),
+    footprint: point(14, 10),
+    name: "Gezira Dispatch",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+  {
+    id: "cairo-venue-06",
+    kind: "restaurant",
+    anchor: anchor("cairo-galaa-street-4-forward-1", 63.44258096087592),
+    footprint: point(12, 10),
+    name: "Opera Terrace",
+    setbackM: 15,
+  },
+  {
+    id: "cairo-venue-07",
+    kind: "shop",
+    anchor: anchor("cairo-garden-city-south-3-forward-1", 72.21001550891866),
+    footprint: point(14, 12),
+    name: "Zamalek Grocers",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-08",
+    kind: "residence",
+    anchor: anchor("cairo-tahrir-approach-3-forward-2", 46.34500302832127),
+    footprint: point(12, 10),
+    name: "Corniche Apartments",
+    setbackM: 15,
+    modelId: "cairo-residence-quaternius",
+  },
+  {
+    id: "cairo-venue-09",
+    kind: "office",
+    anchor: anchor("cairo-west-nile-street-6-forward-1", 154.04855896720548),
+    footprint: point(14, 10),
+    name: "Dokki Business Centre",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-10",
+    kind: "depot",
+    anchor: anchor("cairo-saray-el-gezira-1-forward-1", 156.30421301022585),
+    footprint: point(12, 12),
+    name: "Ramses Depot",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+  {
+    id: "cairo-venue-11",
+    kind: "restaurant",
+    anchor: anchor("cairo-el-gabalaya-1-forward-1", 68.55836929215862),
+    footprint: point(14, 10),
+    name: "Lotus Cafe",
+    setbackM: 15,
+  },
+  {
+    id: "cairo-venue-12",
+    kind: "shop",
+    anchor: anchor("cairo-nile-island-drive-1-forward-1", 91.29239580280426),
+    footprint: point(12, 10),
+    name: "Champollion Market",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-13",
+    kind: "residence",
+    anchor: anchor("cairo-south-gezira-road-1-forward-1", 43.05562630770752),
+    footprint: point(14, 12),
+    name: "Museum View Flats",
+    setbackM: 15,
+    modelId: "cairo-residence-kay",
+  },
+  {
+    id: "cairo-venue-14",
+    kind: "office",
+    anchor: anchor("cairo-zamalek-north-3-forward-1", 69.31502326337797),
+    footprint: point(12, 10),
+    name: "Bolivar Offices",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-15",
+    kind: "depot",
+    anchor: anchor("cairo-west-nile-street-4-forward-1", 172.7580721249541),
+    footprint: point(14, 10),
+    name: "Nile Courier Hub",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+  {
+    id: "cairo-venue-16",
+    kind: "restaurant",
+    anchor: anchor("cairo-dokki-nile-drive-4-forward-1", 72.5470827037709),
+    footprint: point(12, 12),
+    name: "Saray Bistro",
+    setbackM: 15,
+  },
+  {
+    id: "cairo-venue-17",
+    kind: "shop",
+    anchor: anchor("cairo-corniche-el-nil-1-forward-1", 78.3125122679852),
+    footprint: point(14, 10),
+    name: "Gabalaya Corner Shop",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-18",
+    kind: "residence",
+    anchor: anchor("cairo-el-gabalaya-6-forward-1", 129.92786460186284),
+    footprint: point(12, 10),
+    name: "Opera Gardens Homes",
+    setbackM: 15,
+    modelId: "cairo-residence-quaternius",
+  },
+  {
+    id: "cairo-venue-19",
+    kind: "office",
+    anchor: anchor("cairo-qasr-el-ainy-7-forward-1", 151.06315758019133),
+    footprint: point(14, 12),
+    name: "Agouza Workspace",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-20",
+    kind: "depot",
+    anchor: anchor("cairo-talaat-harb-2-forward-1", 117.39356881873891),
+    footprint: point(12, 10),
+    name: "West Bank Depot",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+  {
+    id: "cairo-venue-21",
+    kind: "restaurant",
+    anchor: anchor("cairo-ramses-4-forward-1", 38.867975333380805),
+    footprint: point(14, 10),
+    name: "Tahrir Bakery",
+    setbackM: 15,
+  },
+  {
+    id: "cairo-venue-22",
+    kind: "shop",
+    anchor: anchor("cairo-galaa-street-1-forward-1", 74.21001550891867),
+    footprint: point(12, 12),
+    name: "Garden City Supplies",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-23",
+    kind: "residence",
+    anchor: anchor("cairo-galaa-street-8-forward-1", 124.68619076744137),
+    footprint: point(14, 10),
+    name: "Gezira Court",
+    setbackM: 15,
+    modelId: "cairo-residence-kay",
+  },
+  {
+    id: "cairo-venue-24",
+    kind: "office",
+    anchor: anchor("cairo-tahrir-approach-2-forward-1", 92.07908813489837),
+    footprint: point(12, 10),
+    name: "Qasr El-Nil Offices",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-25",
+    kind: "depot",
+    anchor: anchor("cairo-west-nile-street-2-forward-1", 162.31582135823754),
+    footprint: point(14, 12),
+    name: "Cairo Dispatch Yard",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+  {
+    id: "cairo-venue-26",
+    kind: "restaurant",
+    anchor: anchor("cairo-ramses-approach-1-forward-1", 85.67066851412432),
+    footprint: point(12, 10),
+    name: "Nile Terrace Cafe",
+    setbackM: 15,
+  },
+  {
+    id: "cairo-venue-27",
+    kind: "shop",
+    anchor: anchor("cairo-saray-el-gezira-5-forward-1", 100.5295051407943),
+    footprint: point(14, 10),
+    name: "Dokki Mini Market",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-28",
+    kind: "residence",
+    anchor: anchor("cairo-el-gabalaya-5-forward-1", 122.09115447074774),
+    footprint: point(12, 12),
+    name: "Zamalek Residences",
+    setbackM: 15,
+    modelId: "cairo-residence-quaternius",
+  },
+  {
+    id: "cairo-venue-29",
+    kind: "office",
+    anchor: anchor("cairo-nile-island-drive-5-forward-1", 149.26132231105493),
+    footprint: point(14, 10),
+    name: "Corniche Trade House",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-30",
+    kind: "depot",
+    anchor: anchor("cairo-zamalek-south-2-forward-1", 84.29116205154607),
+    footprint: point(12, 10),
+    name: "Central Cairo Depot",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+];
 
 /**
  * Thin street-wall parcels fill only the land a driver can see from the
@@ -3280,43 +3464,47 @@ for (const closure of CAIRO_VISUAL_CLOSURES) {
   addReviewedCairoClosure(closure);
 }
 
-const playerLaneIds = [
-  "cairo-qasr-el-ainy-1-forward-1",
-  "cairo-nile-island-drive-2-forward-1",
-  "cairo-dokki-nile-drive-3-forward-1",
-] as const;
-const vehicleLanes = lanesForAnchors
-  .filter((lane) => !playerLaneIds.includes(lane.id as (typeof playerLaneIds)[number]))
-  .filter((_, index) => index % 3 === 0)
-  .slice(0, 30);
-
+/**
+ * Spawn gates: the same freeze as the venue/service anchors above (see that
+ * comment for why). The vehicle roles keep the old index arithmetic's
+ * result — three dedicated patrol gates (7, 34, 58) so Cairo's police
+ * presence never hangs on the ambient one-in-five patrol roll, plus buses,
+ * taxis and vans at their dealt gates.
+ */
 const cairoSpawnPoints: readonly MapSpawnPoint[] = [
-  ...playerLaneIds.map((laneId, index) => {
-    const lane = cairoLaneById.get(laneId)!;
-    return {
-      id: `cairo-player-${index + 1}`,
-      kind: "player" as const,
-      anchor: anchor(laneId, safeDistance(lane, 0.35 + index * 0.12)),
-    };
-  }),
-  ...vehicleLanes.map((lane, index) => ({
-    // Three dedicated patrol gates (indices 3, 14, 25). Without them Cairo's
-    // police presence hung on the ambient one-in-five patrol roll landing on
-    // a car-capable gate, which this seed rarely granted — whole sessions
-    // passed without a single patrol while NYC showed four or five.
-    id:
-      index % 11 === 3
-        ? `cairo-police-${index + 1}`
-        : index % 9 === 0
-          ? `cairo-bus-${index + 1}`
-          : index % 5 === 0
-            ? `cairo-taxi-${index + 1}`
-            : index % 7 === 0
-              ? `cairo-van-${index + 1}`
-              : `cairo-car-${index + 1}`,
-    kind: "vehicle" as const,
-    anchor: anchor(lane.id, safeDistance(lane, 0.28 + (index % 5) * 0.1)),
-  })),
+  { id: "cairo-player-1", kind: "player", anchor: anchor("cairo-qasr-el-ainy-1-forward-1", 65.02828916807496) },
+  { id: "cairo-player-2", kind: "player", anchor: anchor("cairo-nile-island-drive-2-forward-1", 105.7876726155418) },
+  { id: "cairo-player-3", kind: "player", anchor: anchor("cairo-dokki-nile-drive-3-forward-1", 143.01173502053933) },
+  { id: "cairo-bus-1", kind: "vehicle", anchor: anchor("cairo-corniche-el-nil-1-forward-1", 54.818758587589635) },
+  { id: "cairo-car-2", kind: "vehicle", anchor: anchor("cairo-corniche-el-nil-4-forward-1", 64.85425624560001) },
+  { id: "cairo-car-3", kind: "vehicle", anchor: anchor("cairo-corniche-el-nil-7-forward-1", 122.67554576132815) },
+  { id: "cairo-police-4", kind: "vehicle", anchor: anchor("cairo-qasr-el-ainy-3-forward-1", 110.08398322626871) },
+  { id: "cairo-car-5", kind: "vehicle", anchor: anchor("cairo-qasr-el-ainy-6-forward-1", 156.90478265697192) },
+  { id: "cairo-taxi-6", kind: "vehicle", anchor: anchor("cairo-simon-bolivar-1-forward-1", 42.371688661180336) },
+  { id: "cairo-car-7", kind: "vehicle", anchor: anchor("cairo-simon-bolivar-4-forward-1", 76.09494069910295) },
+  { id: "cairo-van-8", kind: "vehicle", anchor: anchor("cairo-talaat-harb-3-forward-1", 84.13703108619897) },
+  { id: "cairo-car-9", kind: "vehicle", anchor: anchor("cairo-ramses-1-forward-1", 118.60177520328469) },
+  { id: "cairo-bus-10", kind: "vehicle", anchor: anchor("cairo-ramses-4-forward-1", 88.1007440889965) },
+  { id: "cairo-taxi-11", kind: "vehicle", anchor: anchor("cairo-ramses-7-forward-1", 49.916173999699666) },
+  { id: "cairo-car-12", kind: "vehicle", anchor: anchor("cairo-ramses-10-forward-1", 101.82731604787682) },
+  { id: "cairo-car-13", kind: "vehicle", anchor: anchor("cairo-galaa-street-3-forward-1", 103.89756844281048) },
+  { id: "cairo-car-14", kind: "vehicle", anchor: anchor("cairo-galaa-street-6-forward-1", 131.3190636656196) },
+  { id: "cairo-police-15", kind: "vehicle", anchor: anchor("cairo-garden-city-south-1-forward-1", 92.21996775068456) },
+  { id: "cairo-taxi-16", kind: "vehicle", anchor: anchor("cairo-garden-city-south-4-forward-1", 42.240240715687214) },
+  { id: "cairo-car-17", kind: "vehicle", anchor: anchor("cairo-tahrir-approach-2-forward-1", 58.31675581876896) },
+  { id: "cairo-car-18", kind: "vehicle", anchor: anchor("cairo-tahrir-approach-3-forward-2", 44.49120290718842) },
+  { id: "cairo-bus-19", kind: "vehicle", anchor: anchor("cairo-qasr-el-nil-street-1-forward-1", 132.6716543598586) },
+  { id: "cairo-car-20", kind: "vehicle", anchor: anchor("cairo-qasr-el-nil-street-2-forward-2", 104.83229217740514) },
+  { id: "cairo-taxi-21", kind: "vehicle", anchor: anchor("cairo-qasr-el-nil-street-4-forward-1", 34.00849339909696) },
+  { id: "cairo-van-22", kind: "vehicle", anchor: anchor("cairo-ramses-approach-2-forward-1", 59.58781324420628) },
+  { id: "cairo-car-23", kind: "vehicle", anchor: anchor("cairo-saray-el-gezira-2-forward-1", 107.75916069903063) },
+  { id: "cairo-car-24", kind: "vehicle", anchor: anchor("cairo-saray-el-gezira-5-forward-1", 145.76778245415176) },
+  { id: "cairo-car-25", kind: "vehicle", anchor: anchor("cairo-el-gabalaya-1-forward-1", 155.39897039555953) },
+  { id: "cairo-police-26", kind: "vehicle", anchor: anchor("cairo-el-gabalaya-4-forward-1", 70.0139986002799) },
+  { id: "cairo-car-27", kind: "vehicle", anchor: anchor("cairo-el-gabalaya-7-forward-1", 101.84070895275613) },
+  { id: "cairo-bus-28", kind: "vehicle", anchor: anchor("cairo-nile-island-drive-4-forward-1", 122.67554576132817) },
+  { id: "cairo-van-29", kind: "vehicle", anchor: anchor("cairo-nile-island-drive-7-forward-1", 146.71862699975836) },
+  { id: "cairo-car-30", kind: "vehicle", anchor: anchor("cairo-south-gezira-road-3-forward-1", 75.23425922001553) },
 ];
 
 /**
