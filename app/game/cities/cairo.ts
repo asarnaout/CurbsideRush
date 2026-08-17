@@ -1361,6 +1361,97 @@ const sixthOctoberCorridor = orientedParcel(
   CAIRO_SIXTH_OCTOBER_SCENIC_BRIDGE.headingDeg - 90,
 );
 
+/**
+ * The vibe zoning (Cairo reimagining, owner's brief): Corniche, Tahrir/
+ * downtown and Zamalek read POLISHED — floodlit stone, cream, the glb street
+ * wall — while the rest of the city reads as the red-brick informal Cairo
+ * that is just as much its identity. "baladi" is Bulaq/Ramses east of the
+ * downtown core plus the whole rail belt and the Mounira/Sayeda side of
+ * Garden City; the west bank is the Dokki/Agouza mix — concrete mid-rises
+ * shoulder to shoulder with brick.
+ */
+type CairoDistrict = "westbank" | "zamalek" | "garden" | "downtown" | "baladi";
+
+const cairoDistrictAt = (position: WorldPoint): CairoDistrict => {
+  if (position.x < -590) return "westbank";
+  if (position.x < 55) return "zamalek";
+  // Bulaq/Ramses: east of the khedivial core, north of Qasr El-Nil Street.
+  if (position.x > 455 && position.z > -70) return "baladi";
+  // The rail belt: informal on every bank of the corridor, as it really is.
+  if (position.z < -640) return "baladi";
+  // Mounira/Sayeda east of Garden City proper.
+  if (position.z < -350) return position.x > 310 ? "baladi" : "garden";
+  return "downtown";
+};
+
+/**
+ * Baladi facades are a per-parcel patchwork, not one tone: every building is
+ * its own state of brick, render or bare concrete. Hashed on a 10 m grid so
+ * split pieces of one frontage still vary while re-runs stay identical.
+ */
+const baladiMaterialAt = (position: WorldPoint, concreteLean: boolean): string => {
+  const roll = hashStringToSeed(
+    `baladi-${Math.round(position.x / 10)}-${Math.round(position.z / 10)}`,
+  ) % 5;
+  if (concreteLean) {
+    return roll < 2
+      ? "cairo-west-bank-concrete"
+      : roll === 2
+        ? "cairo-brick"
+        : roll === 3
+          ? "cairo-brick-worn"
+          : "cairo-render-grey";
+  }
+  return roll < 2
+    ? "cairo-brick"
+    : roll === 2
+      ? "cairo-brick-worn"
+      : roll === 3
+        ? "cairo-render-grey"
+        : "cairo-west-bank-concrete";
+};
+
+const cairoRoadsideStyle = (
+  position: WorldPoint,
+): {
+  readonly material: string;
+  readonly heightRange: readonly [number, number];
+  readonly depthM: number;
+} => {
+  switch (cairoDistrictAt(position)) {
+    case "westbank":
+      return {
+        material: baladiMaterialAt(position, true),
+        heightRange: [14, 34],
+        depthM: 14,
+      };
+    case "zamalek":
+      return {
+        material: "cairo-gezira-cream",
+        heightRange: [14, 34],
+        depthM: 14,
+      };
+    case "garden":
+      return {
+        material: "cairo-garden-stucco",
+        heightRange: [12, 28],
+        depthM: 14,
+      };
+    case "baladi":
+      return {
+        material: baladiMaterialAt(position, false),
+        heightRange: [10, 28],
+        depthM: 14,
+      };
+    default:
+      return {
+        material: "cairo-khedivial-stone",
+        heightRange: [20, 46],
+        depthM: 14,
+      };
+  }
+};
+
 const cairoBlocks: ProceduralBlock[] = [];
 
 /**
@@ -1454,21 +1545,26 @@ for (const [bandIndex, band] of eastParcelBands.entries()) {
     if (columnIndex >= 2) continue;
     if (bandIndex === 5 && columnIndex === 1) continue;
     if ((bandIndex === 6 || bandIndex === 7) && columnIndex === 1) continue;
-    addRoadClearBlock(
-      block(
-        `cairo-east-block-${bandIndex + 1}-${columnIndex + 1}`,
-        column.x + (bandIndex % 2 === 0 ? -5 : 7),
-        band.z,
-        column.width,
-        band.depth,
-        band.heading + columnIndex * 1.5,
-        bandIndex <= 2
-          ? "cairo-garden-stucco"
-          : "cairo-khedivial-stone",
-        bandIndex <= 2 ? [10, 25] : [18, 42],
-        bandIndex <= 2 ? 0.66 : 0.82,
-      ),
-    );
+    {
+      const centerX = column.x + (bandIndex % 2 === 0 ? -5 : 7);
+      // Style follows the district map, so the Mounira/Sayeda-side column
+      // (x=350, z < -350) turns baladi brick while Garden City proper and
+      // the downtown columns keep their stucco and stone.
+      const style = cairoRoadsideStyle(point(centerX, band.z));
+      addRoadClearBlock(
+        block(
+          `cairo-east-block-${bandIndex + 1}-${columnIndex + 1}`,
+          centerX,
+          band.z,
+          column.width,
+          band.depth,
+          band.heading + columnIndex * 1.5,
+          style.material,
+          style.heightRange,
+          bandIndex <= 2 ? 0.66 : 0.82,
+        ),
+      );
+    }
   }
 }
 
@@ -1513,19 +1609,23 @@ for (const [index, parcel] of [
   { z: 450, depth: 130, heading: -6 },
   { z: 710, depth: 135, heading: 8 },
 ].entries()) {
-  addRoadClearBlock(
-    block(
-      `cairo-west-block-${index + 1}`,
-      -720 + (index % 2 === 0 ? -4 : 5),
-      parcel.z,
-      108,
-      parcel.depth,
-      parcel.heading,
-      "cairo-west-bank-concrete",
-      [16, 38],
-      0.78,
-    ),
-  );
+  {
+    const centerX = -720 + (index % 2 === 0 ? -4 : 5);
+    const style = cairoRoadsideStyle(point(centerX, parcel.z));
+    addRoadClearBlock(
+      block(
+        `cairo-west-block-${index + 1}`,
+        centerX,
+        parcel.z,
+        108,
+        parcel.depth,
+        parcel.heading,
+        style.material,
+        style.heightRange,
+        0.78,
+      ),
+    );
+  }
 }
 
 // One deliberate parcel where the roadside generator cannot go: Tahrir's 18 m
@@ -2483,41 +2583,6 @@ const addCairoRoadsideBlock = (
  * model bound of its own to derive one from. */
 const CAIRO_FACADE_PARCEL_DEPTH_M = 15;
 
-const cairoRoadsideStyle = (
-  position: WorldPoint,
-): {
-  readonly material: string;
-  readonly heightRange: readonly [number, number];
-  readonly depthM: number;
-} => {
-  if (position.x < -590) {
-    return {
-      material: "cairo-west-bank-concrete",
-      heightRange: [18, 40],
-      depthM: 14,
-    };
-  }
-  if (position.x < 55) {
-    return {
-      material: "cairo-gezira-cream",
-      heightRange: [14, 34],
-      depthM: 14,
-    };
-  }
-  if (position.z < -350) {
-    return {
-      material: "cairo-garden-stucco",
-      heightRange: [12, 28],
-      depthM: 14,
-    };
-  }
-  return {
-    material: "cairo-khedivial-stone",
-    heightRange: [20, 46],
-    depthM: 14,
-  };
-};
-
 // These carriageway sides face directly onto a Nile channel. Preserve their
 // promenade, trees and open water view; density belongs on the inland side.
 // Exported for the renderer's promenade decor (generatePromenadeDecor), which
@@ -2542,11 +2607,19 @@ export const CAIRO_OPEN_WATERFRONT_SIDES: Readonly<
  * and it is the one place on the map that should have a skyline.
  */
 const cairoDistrictBuildingSet = (position: WorldPoint): string => {
-  if (position.x < -590) return "cairo-westbank";
-  if (position.x < 55) return "cairo-zamalek";
-  // Garden City: elegant low-rise blocks rather than Downtown's Khedivial bulk.
-  if (position.z < -350) return "cairo-zamalek";
-  return "cairo-downtown";
+  switch (cairoDistrictAt(position)) {
+    case "westbank":
+    // The baladi glb accents draw from the humbler west-bank mix — the
+    // ornate downtown kit is exactly what must NOT dominate here.
+    case "baladi":
+      return "cairo-westbank";
+    case "zamalek":
+    // Garden City: elegant low-rise blocks rather than Downtown's bulk.
+    case "garden":
+      return "cairo-zamalek";
+    default:
+      return "cairo-downtown";
+  }
 };
 
 const cairoRoadsideBuildingSet = (
@@ -2568,8 +2641,27 @@ const cairoRoadsideBuildingSet = (
  * cannot be the majority any more. Deterministic on the block id so the same
  * parcels stay boxes across loads; `Math.random` here would desync the map.
  */
-const cairoParcelKeepsFacadeBoxes = (blockId: string): boolean =>
-  hashStringToSeed(`${blockId}-street-wall`) % 6 === 0;
+/**
+ * In the polished districts the glb street wall dominates and one parcel in
+ * six keeps the boxes (the original ratio). The informal districts INVERT
+ * that: baladi keeps boxes five in six — the brick-and-skeleton fabric IS
+ * the architecture there, and the imported kit appears only as the odd
+ * better-off building — and the west bank keeps boxes three in six.
+ */
+const cairoParcelKeepsFacadeBoxes = (
+  blockId: string,
+  position: WorldPoint,
+): boolean => {
+  const roll = hashStringToSeed(`${blockId}-street-wall`) % 6;
+  switch (cairoDistrictAt(position)) {
+    case "baladi":
+      return roll !== 0;
+    case "westbank":
+      return roll < 3;
+    default:
+      return roll === 0;
+  }
+};
 
 /**
  * The glb street wall is one-sided: the Quaternius kit puts every door and
@@ -2706,7 +2798,7 @@ for (const surface of cairoRoadSurfaces) {
         // hundreds of metres wide and the two points are ~10 m apart, so this
         // only ever differs where a parcel already straddles a district edge.
         // Decided once per parcel so a parcel and its retries agree.
-        const preferredSet = cairoParcelKeepsFacadeBoxes(sideId)
+        const preferredSet = cairoParcelKeepsFacadeBoxes(sideId, provisional)
           ? undefined
           : cairoRoadsideBuildingSet(surface.id, provisional);
         const roadEnvelopeM =
@@ -3009,7 +3101,7 @@ for (const surface of cairoRoadSurfaces) {
             start.x + alongX * centerAlongM + normalX * side * 30,
             start.z + alongZ * centerAlongM + normalZ * side * 30,
           );
-          const preferredSet = cairoParcelKeepsFacadeBoxes(pieceBaseId)
+          const preferredSet = cairoParcelKeepsFacadeBoxes(pieceBaseId, provisional)
             ? undefined
             : cairoRoadsideBuildingSet(surface.id, provisional);
           // The corniche set is 21.7 m deep and the island's parallel roads
@@ -3284,25 +3376,12 @@ export const CAIRO_VISUAL_CLOSURES: readonly CairoVisualClosureSpec[] = [
     },
     baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
   },
-  {
-    id: "cairo-galaa-ne-land-edge-wall-3",
-    sourceRoadId: "cairo-galaa-street",
-    side: 1,
-    causeCode: "boundary-rejection",
-    treatment: "land-edge-wall",
-    block: {
-      id: "cairo-galaa-ne-land-edge-wall-3",
-      center: point(878, 827.67),
-      size: point(18, 4),
-      headingDeg: -90,
-      frontageAxis: "z",
-      streetEdges: ["+z"],
-      material: "sandstone",
-      heightRange: [10, 16],
-      density: 0.82,
-    },
-    baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
-  },
+  // Piece 3 of this run (center (878, 827.67)) was RETIRED by the baladi
+  // rezoning: Al-Galaa's NE strips flipped from the glb wall to the deeper
+  // facade-box fabric, and `cairo-galaa-street-roadside-10-3-right` (a 73 m
+  // box strip) now stands across — and occludes — exactly the interval this
+  // wall closed; the validator's sibling check refuses the overlap,
+  // correctly. The P7 visual-gap re-audit re-checks this seam.
   {
     id: "cairo-galaa-ne-land-edge-wall-4",
     sourceRoadId: "cairo-galaa-street",
@@ -3624,8 +3703,6 @@ interface CairoInteriorCore {
   readonly w: number;
   readonly d: number;
   readonly headingDeg: number;
-  readonly material: string;
-  readonly heightRange: readonly [number, number];
 }
 
 const core = (
@@ -3634,315 +3711,315 @@ const core = (
   w: number,
   d: number,
   headingDeg: number,
-  material: string,
-  heightRange: readonly [number, number],
-): CairoInteriorCore => ({ x, z, w, d, headingDeg, material, heightRange });
+): CairoInteriorCore => ({ x, z, w, d, headingDeg });
 
 const CAIRO_INTERIOR_CORES: readonly CairoInteriorCore[] = [
-  core(-788, -816, 28, 18, 3, "cairo-west-bank-concrete", [16, 38]),
-  core(-788, -690, 28, 18, -88, "cairo-west-bank-concrete", [16, 38]),
-  core(-788, -508, 46, 28, -94.2, "cairo-west-bank-concrete", [16, 38]),
-  core(-746, -816, 28, 18, -2, "cairo-west-bank-concrete", [16, 38]),
-  core(-746, -424, 36, 24, 1, "cairo-west-bank-concrete", [16, 38]),
-  core(-746, -354, 46, 28, 1, "cairo-west-bank-concrete", [16, 38]),
-  core(-746, 528, 36, 24, -3, "cairo-west-bank-concrete", [16, 38]),
-  core(-746, 612, 28, 18, 0, "cairo-west-bank-concrete", [16, 38]),
-  core(-732, -886, 28, 18, 2, "cairo-west-bank-concrete", [16, 38]),
-  core(-732, -746, 46, 28, -2, "cairo-west-bank-concrete", [16, 38]),
-  core(-732, 52, 46, 28, 3.4, "cairo-west-bank-concrete", [16, 38]),
-  core(-732, 808, 46, 28, 0, "cairo-west-bank-concrete", [16, 38]),
-  core(-718, -662, 46, 28, 2, "cairo-west-bank-concrete", [16, 38]),
-  core(-718, -186, 36, 24, -2, "cairo-west-bank-concrete", [16, 38]),
-  core(-718, -116, 28, 18, 2, "cairo-west-bank-concrete", [16, 38]),
-  core(-718, 892, 46, 28, 3, "cairo-west-bank-concrete", [16, 38]),
-  core(-690, 808, 28, 18, 1, "cairo-west-bank-concrete", [16, 38]),
-  core(-662, -690, 36, 24, -84.3, "cairo-west-bank-concrete", [16, 38]),
-  core(-452, -522, 28, 18, -101.8, "cairo-gezira-cream", [13, 32]),
-  core(-438, -690, 36, 24, -82, "cairo-gezira-cream", [13, 32]),
-  core(-396, -466, 28, 18, -102.8, "cairo-gezira-cream", [13, 32]),
-  core(-396, 10, 28, 18, -102, "cairo-gezira-cream", [13, 32]),
-  core(-396, 108, 28, 18, 5.5, "cairo-gezira-cream", [13, 32]),
-  core(-396, 136, 28, 18, -85.4, "cairo-gezira-cream", [13, 32]),
-  core(-396, 612, 36, 24, 6.4, "cairo-gezira-cream", [13, 32]),
-  core(-382, 38, 28, 18, 5.5, "cairo-gezira-cream", [13, 32]),
-  core(-382, 654, 36, 24, -96.6, "cairo-gezira-cream", [13, 32]),
-  core(-354, 878, 46, 28, -12.5, "cairo-gezira-cream", [13, 32]),
-  core(-340, -690, 28, 18, -97.1, "cairo-gezira-cream", [13, 32]),
-  core(-340, -578, 28, 18, -74.2, "cairo-gezira-cream", [13, 32]),
-  core(-340, -214, 36, 24, -101.6, "cairo-gezira-cream", [13, 32]),
-  core(-326, -886, 46, 28, 5.6, "cairo-gezira-cream", [13, 32]),
-  core(-326, -662, 28, 18, 2.8, "cairo-gezira-cream", [13, 32]),
-  core(-326, -536, 36, 24, -74.2, "cairo-gezira-cream", [13, 32]),
-  core(-326, -494, 28, 18, -77.2, "cairo-gezira-cream", [13, 32]),
-  core(-326, -284, 28, 18, -104.6, "cairo-gezira-cream", [13, 32]),
-  core(-326, -130, 28, 18, -7.5, "cairo-gezira-cream", [13, 32]),
-  core(-326, -88, 28, 18, -80.5, "cairo-gezira-cream", [13, 32]),
-  core(-326, 234, 28, 18, -103.6, "cairo-gezira-cream", [13, 32]),
-  core(-326, 360, 28, 18, -11.8, "cairo-gezira-cream", [13, 32]),
-  core(-326, 766, 28, 18, -101.6, "cairo-gezira-cream", [13, 32]),
-  core(-312, -690, 28, 18, -100.3, "cairo-gezira-cream", [13, 32]),
-  core(-312, -466, 28, 18, -75.2, "cairo-gezira-cream", [13, 32]),
-  core(-312, 136, 28, 18, -101.6, "cairo-gezira-cream", [13, 32]),
-  core(-312, 472, 28, 18, -79.9, "cairo-gezira-cream", [13, 32]),
-  core(-312, 794, 28, 18, -6.5, "cairo-gezira-cream", [13, 32]),
-  core(-312, 878, 28, 18, -8.5, "cairo-gezira-cream", [13, 32]),
-  core(-298, -746, 46, 28, -1, "cairo-gezira-cream", [13, 32]),
-  core(-298, 38, 28, 18, -7.5, "cairo-gezira-cream", [13, 32]),
-  core(-298, 248, 36, 24, -99.4, "cairo-gezira-cream", [13, 32]),
-  core(-298, 374, 28, 18, -77.9, "cairo-gezira-cream", [13, 32]),
-  core(-298, 528, 28, 18, -77.9, "cairo-gezira-cream", [13, 32]),
-  core(-298, 612, 28, 18, -101.6, "cairo-gezira-cream", [13, 32]),
-  core(-284, 164, 46, 28, -99.4, "cairo-gezira-cream", [13, 32]),
-  core(-284, 206, 28, 18, -97.4, "cairo-gezira-cream", [13, 32]),
-  core(-284, 794, 28, 18, -100.7, "cairo-gezira-cream", [13, 32]),
-  core(-270, 122, 46, 28, -10.5, "cairo-gezira-cream", [13, 32]),
-  core(-270, 612, 28, 18, -10.8, "cairo-gezira-cream", [13, 32]),
-  core(-214, -690, 36, 24, -103.3, "cairo-gezira-cream", [13, 32]),
-  core(-214, -578, 36, 24, -76.2, "cairo-gezira-cream", [13, 32]),
-  core(-214, -536, 28, 18, -75.2, "cairo-gezira-cream", [13, 32]),
-  core(-214, -242, 28, 18, -100.2, "cairo-gezira-cream", [13, 32]),
-  core(-214, -200, 36, 24, -103.2, "cairo-gezira-cream", [13, 32]),
-  core(-214, -116, 28, 18, 1.8, "cairo-gezira-cream", [13, 32]),
-  core(-214, -88, 28, 18, -78.5, "cairo-gezira-cream", [13, 32]),
-  core(-214, 304, 28, 18, -2.5, "cairo-gezira-cream", [13, 32]),
-  core(-214, 388, 28, 18, -76.9, "cairo-gezira-cream", [13, 32]),
-  core(-200, -746, 36, 24, 0, "cairo-gezira-cream", [13, 32]),
-  core(-200, -508, 28, 18, -74.2, "cairo-gezira-cream", [13, 32]),
-  core(-200, -326, 28, 18, -100.2, "cairo-gezira-cream", [13, 32]),
-  core(-200, -284, 46, 28, -98.2, "cairo-gezira-cream", [13, 32]),
-  core(-200, -46, 28, 18, -77.5, "cairo-gezira-cream", [13, 32]),
-  core(-200, -4, 28, 18, -78.5, "cairo-gezira-cream", [13, 32]),
-  core(-200, 206, 28, 18, -97.4, "cairo-gezira-cream", [13, 32]),
-  core(-200, 416, 28, 18, -77.9, "cairo-gezira-cream", [13, 32]),
-  core(-200, 458, 28, 18, -81.9, "cairo-gezira-cream", [13, 32]),
-  core(-200, 794, 28, 18, -97.7, "cairo-gezira-cream", [13, 32]),
-  core(-186, -690, 36, 24, -99.8, "cairo-gezira-cream", [13, 32]),
-  core(-186, -564, 28, 18, -79.4, "cairo-gezira-cream", [13, 32]),
-  core(-186, -466, 46, 28, -79.2, "cairo-gezira-cream", [13, 32]),
-  core(-186, 24, 28, 18, -78.5, "cairo-gezira-cream", [13, 32]),
-  core(-186, 136, 28, 18, -101.4, "cairo-gezira-cream", [13, 32]),
-  core(-186, 500, 46, 28, -79.9, "cairo-gezira-cream", [13, 32]),
-  core(-172, -536, 28, 18, -77.4, "cairo-gezira-cream", [13, 32]),
-  core(-172, -368, 28, 18, -2.5, "cairo-gezira-cream", [13, 32]),
-  core(-172, -200, 46, 28, 3.8, "cairo-gezira-cream", [13, 32]),
-  core(-172, 52, 28, 18, -1.6, "cairo-gezira-cream", [13, 32]),
-  core(-172, 178, 36, 24, -100.3, "cairo-gezira-cream", [13, 32]),
-  core(-172, 220, 36, 24, -101.3, "cairo-gezira-cream", [13, 32]),
-  core(-172, 430, 28, 18, -82.2, "cairo-gezira-cream", [13, 32]),
-  core(-172, 542, 36, 24, -80.9, "cairo-gezira-cream", [13, 32]),
-  core(-172, 626, 28, 18, -8.2, "cairo-gezira-cream", [13, 32]),
-  core(-172, 794, 28, 18, -100, "cairo-gezira-cream", [13, 32]),
-  core(-116, -690, 36, 24, -96.8, "cairo-gezira-cream", [13, 32]),
-  core(52, -396, 28, 18, -90.4, "cairo-gezira-cream", [13, 32]),
-  core(52, -242, 36, 24, -87.6, "cairo-gezira-cream", [13, 32]),
-  core(52, -200, 28, 18, -84.6, "cairo-gezira-cream", [13, 32]),
-  core(66, -774, 46, 28, -89.9, "cairo-garden-stucco", [12, 26]),
-  core(66, -592, 46, 28, -90.6, "cairo-garden-stucco", [12, 26]),
-  core(66, -550, 28, 18, -92.6, "cairo-garden-stucco", [12, 26]),
-  core(66, -4, 46, 28, -86.2, "cairo-khedivial-stone", [18, 42]),
-  core(122, 430, 28, 18, -90.9, "cairo-khedivial-stone", [18, 42]),
-  core(136, -60, 28, 18, -87.2, "cairo-khedivial-stone", [18, 42]),
-  core(136, -18, 28, 18, -87.2, "cairo-khedivial-stone", [18, 42]),
-  core(136, 24, 28, 18, -87.2, "cairo-khedivial-stone", [18, 42]),
-  core(150, 66, 36, 24, -11.1, "cairo-khedivial-stone", [18, 42]),
-  core(150, 150, 36, 24, -6.1, "cairo-khedivial-stone", [18, 42]),
-  core(150, 192, 46, 28, -87.7, "cairo-khedivial-stone", [18, 42]),
-  core(150, 262, 36, 24, -87.7, "cairo-khedivial-stone", [18, 42]),
-  core(150, 374, 28, 18, -8.6, "cairo-khedivial-stone", [18, 42]),
-  core(150, 626, 28, 18, -4.8, "cairo-khedivial-stone", [18, 42]),
-  core(150, 808, 28, 18, -91.9, "cairo-khedivial-stone", [18, 42]),
-  core(164, -340, 28, 18, 12.2, "cairo-khedivial-stone", [18, 42]),
-  core(164, -60, 36, 24, -89.2, "cairo-khedivial-stone", [18, 42]),
-  core(164, -18, 36, 24, -92.2, "cairo-khedivial-stone", [18, 42]),
-  core(164, 24, 36, 24, -90.2, "cairo-khedivial-stone", [18, 42]),
-  core(164, 304, 28, 18, -7.6, "cairo-khedivial-stone", [18, 42]),
-  core(164, 542, 28, 18, -4.8, "cairo-khedivial-stone", [18, 42]),
-  core(192, -760, 28, 18, -91.1, "cairo-garden-stucco", [12, 26]),
-  core(192, 388, 46, 28, -10.6, "cairo-khedivial-stone", [18, 42]),
-  core(192, 626, 28, 18, -2.8, "cairo-khedivial-stone", [18, 42]),
-  core(206, -466, 28, 18, 9.6, "cairo-garden-stucco", [12, 26]),
-  core(206, -438, 28, 18, -79.8, "cairo-garden-stucco", [12, 26]),
-  core(206, -354, 46, 28, 13.2, "cairo-garden-stucco", [12, 26]),
-  core(206, 430, 36, 24, -93, "cairo-khedivial-stone", [18, 42]),
-  core(206, 472, 36, 24, -91, "cairo-khedivial-stone", [18, 42]),
-  core(206, 514, 36, 24, -92, "cairo-khedivial-stone", [18, 42]),
-  core(206, 556, 36, 24, -6.8, "cairo-khedivial-stone", [18, 42]),
-  core(206, 654, 28, 18, -92, "cairo-khedivial-stone", [18, 42]),
-  core(206, 696, 36, 24, -91, "cairo-khedivial-stone", [18, 42]),
-  core(206, 794, 28, 18, -90, "cairo-khedivial-stone", [18, 42]),
-  core(220, -396, 36, 24, -75.8, "cairo-garden-stucco", [12, 26]),
-  core(234, 276, 28, 18, -94.8, "cairo-khedivial-stone", [18, 42]),
-  core(248, -242, 46, 28, -80.5, "cairo-khedivial-stone", [18, 42]),
-  core(248, -200, 28, 18, -77.5, "cairo-khedivial-stone", [18, 42]),
-  core(248, -158, 46, 28, -2.5, "cairo-khedivial-stone", [18, 42]),
-  core(248, -60, 28, 18, -88.2, "cairo-khedivial-stone", [18, 42]),
-  core(248, -18, 46, 28, -88.2, "cairo-khedivial-stone", [18, 42]),
-  core(248, 24, 28, 18, -91.2, "cairo-khedivial-stone", [18, 42]),
-  core(248, 66, 46, 28, -89.2, "cairo-khedivial-stone", [18, 42]),
-  core(248, 164, 36, 24, -1.8, "cairo-khedivial-stone", [18, 42]),
-  core(248, 304, 28, 18, -8.6, "cairo-khedivial-stone", [18, 42]),
-  core(276, -620, 46, 28, -84.6, "cairo-garden-stucco", [12, 26]),
-  core(276, -578, 28, 18, -89.6, "cairo-garden-stucco", [12, 26]),
-  core(276, -60, 28, 18, -92.2, "cairo-khedivial-stone", [18, 42]),
-  core(276, -18, 28, 18, -93.2, "cairo-khedivial-stone", [18, 42]),
-  core(276, 24, 28, 18, -89.2, "cairo-khedivial-stone", [18, 42]),
-  core(276, 66, 28, 18, -88.2, "cairo-khedivial-stone", [18, 42]),
-  core(276, 192, 28, 18, -84.5, "cairo-khedivial-stone", [18, 42]),
-  core(276, 248, 36, 24, -88.5, "cairo-khedivial-stone", [18, 42]),
-  core(276, 290, 28, 18, -86.5, "cairo-khedivial-stone", [18, 42]),
-  core(290, -816, 36, 24, -2, "cairo-garden-stucco", [12, 26]),
-  core(290, 402, 36, 24, -85.3, "cairo-khedivial-stone", [18, 42]),
-  core(290, 444, 36, 24, -92, "cairo-khedivial-stone", [18, 42]),
-  core(290, 486, 36, 24, -91, "cairo-khedivial-stone", [18, 42]),
-  core(290, 528, 36, 24, -91, "cairo-khedivial-stone", [18, 42]),
-  core(290, 570, 28, 18, -5.8, "cairo-khedivial-stone", [18, 42]),
-  core(290, 640, 28, 18, -5.8, "cairo-khedivial-stone", [18, 42]),
-  core(290, 668, 28, 18, -89, "cairo-khedivial-stone", [18, 42]),
-  core(290, 710, 46, 28, -91, "cairo-khedivial-stone", [18, 42]),
-  core(290, 752, 28, 18, -87, "cairo-khedivial-stone", [18, 42]),
-  core(290, 794, 46, 28, -93, "cairo-khedivial-stone", [18, 42]),
-  core(304, -746, 28, 18, 3, "cairo-garden-stucco", [12, 26]),
-  core(304, -564, 28, 18, 3.3, "cairo-garden-stucco", [12, 26]),
-  core(304, -452, 28, 18, -76.8, "cairo-garden-stucco", [12, 26]),
-  core(318, -648, 28, 18, 7.4, "cairo-garden-stucco", [12, 26]),
-  core(318, 654, 28, 18, -80.6, "cairo-khedivial-stone", [18, 42]),
-  core(318, 696, 28, 18, -82.6, "cairo-khedivial-stone", [18, 42]),
-  core(318, 738, 28, 18, -76.6, "cairo-khedivial-stone", [18, 42]),
-  core(332, -816, 36, 24, -3, "cairo-garden-stucco", [12, 26]),
-  core(332, -480, 28, 18, 4.3, "cairo-garden-stucco", [12, 26]),
-  core(332, -284, 36, 24, -77.5, "cairo-khedivial-stone", [18, 42]),
-  core(332, -242, 28, 18, -77.5, "cairo-khedivial-stone", [18, 42]),
-  core(332, 766, 28, 18, -78.6, "cairo-khedivial-stone", [18, 42]),
-  core(332, 808, 46, 28, -3, "cairo-khedivial-stone", [18, 42]),
-  core(346, -746, 28, 18, -2, "cairo-garden-stucco", [12, 26]),
-  core(346, -214, 28, 18, -78.5, "cairo-khedivial-stone", [18, 42]),
-  core(360, -298, 28, 18, 12.3, "cairo-khedivial-stone", [18, 42]),
-  core(360, 94, 46, 28, -91.2, "cairo-khedivial-stone", [18, 42]),
-  core(360, 136, 28, 18, -87.5, "cairo-khedivial-stone", [18, 42]),
-  core(360, 234, 28, 18, -88.5, "cairo-khedivial-stone", [18, 42]),
-  core(374, -816, 28, 18, 0, "cairo-garden-stucco", [12, 26]),
-  core(374, -256, 46, 28, -129, "cairo-khedivial-stone", [18, 42]),
-  core(374, 276, 46, 28, -86.5, "cairo-khedivial-stone", [18, 42]),
-  core(374, 388, 28, 18, 11.1, "cairo-khedivial-stone", [18, 42]),
-  core(374, 416, 28, 18, -82.3, "cairo-khedivial-stone", [18, 42]),
-  core(388, -424, 28, 18, -89.7, "cairo-garden-stucco", [12, 26]),
-  core(388, 556, 36, 24, -83.3, "cairo-khedivial-stone", [18, 42]),
-  core(402, -298, 28, 18, -83, "cairo-khedivial-stone", [18, 42]),
-  core(402, 430, 28, 18, 2.9, "cairo-khedivial-stone", [18, 42]),
-  core(402, 514, 46, 28, -0.1, "cairo-khedivial-stone", [18, 42]),
-  core(402, 640, 36, 24, 10, "cairo-khedivial-stone", [18, 42]),
-  core(416, -158, 46, 28, -127, "cairo-khedivial-stone", [18, 42]),
-  core(416, 94, 46, 28, -62.7, "cairo-khedivial-stone", [18, 42]),
-  core(416, 290, 46, 28, 12.1, "cairo-khedivial-stone", [18, 42]),
-  core(416, 388, 46, 28, 9.1, "cairo-khedivial-stone", [18, 42]),
-  core(416, 542, 28, 18, 8, "cairo-khedivial-stone", [18, 42]),
-  core(416, 668, 28, 18, -1, "cairo-khedivial-stone", [18, 42]),
-  core(416, 738, 28, 18, 3, "cairo-khedivial-stone", [18, 42]),
-  core(416, 766, 28, 18, -82.6, "cairo-khedivial-stone", [18, 42]),
-  core(430, 136, 28, 18, -58.7, "cairo-khedivial-stone", [18, 42]),
-  core(430, 808, 28, 18, 7.4, "cairo-khedivial-stone", [18, 42]),
-  core(444, -200, 28, 18, -130, "cairo-khedivial-stone", [18, 42]),
-  core(444, -46, 46, 28, -6.8, "cairo-khedivial-stone", [18, 42]),
-  core(444, 416, 28, 18, -85.8, "cairo-khedivial-stone", [18, 42]),
-  core(444, 514, 28, 18, 2.9, "cairo-khedivial-stone", [18, 42]),
-  core(444, 626, 28, 18, 14, "cairo-khedivial-stone", [18, 42]),
-  core(458, -746, 28, 18, -1, "cairo-garden-stucco", [12, 26]),
-  core(458, -452, 28, 18, -86.7, "cairo-garden-stucco", [12, 26]),
-  core(458, -172, 28, 18, -50.5, "cairo-khedivial-stone", [18, 42]),
-  core(458, -144, 28, 18, -4.8, "cairo-khedivial-stone", [18, 42]),
-  core(458, -4, 36, 24, -49.1, "cairo-khedivial-stone", [18, 42]),
-  core(458, 542, 28, 18, -83.8, "cairo-khedivial-stone", [18, 42]),
-  core(458, 654, 36, 24, -1, "cairo-khedivial-stone", [18, 42]),
-  core(458, 738, 46, 28, 2, "cairo-khedivial-stone", [18, 42]),
-  core(472, 276, 46, 28, 12.1, "cairo-khedivial-stone", [18, 42]),
-  core(472, 794, 46, 28, 5.4, "cairo-khedivial-stone", [18, 42]),
-  core(486, -816, 28, 18, -1, "cairo-garden-stucco", [12, 26]),
-  core(486, -46, 28, 18, -13.9, "cairo-khedivial-stone", [18, 42]),
-  core(486, 24, 28, 18, -61.7, "cairo-khedivial-stone", [18, 42]),
-  core(486, 234, 36, 24, -63.4, "cairo-khedivial-stone", [18, 42]),
-  core(500, -746, 28, 18, -2, "cairo-garden-stucco", [12, 26]),
-  core(500, -270, 36, 24, -128.5, "cairo-khedivial-stone", [18, 42]),
-  core(500, 738, 28, 18, -80, "cairo-khedivial-stone", [18, 42]),
-  core(514, -620, 28, 18, 89.4, "cairo-garden-stucco", [12, 26]),
-  core(514, -32, 28, 18, -10.9, "cairo-khedivial-stone", [18, 42]),
-  core(514, 52, 36, 24, 1, "cairo-khedivial-stone", [18, 42]),
-  core(514, 262, 28, 18, -63.4, "cairo-khedivial-stone", [18, 42]),
-  core(514, 304, 28, 18, -16.9, "cairo-khedivial-stone", [18, 42]),
-  core(528, -816, 28, 18, 1, "cairo-garden-stucco", [12, 26]),
-  core(528, -242, 36, 24, -53.5, "cairo-khedivial-stone", [18, 42]),
-  core(528, 388, 36, 24, -12.9, "cairo-khedivial-stone", [18, 42]),
-  core(528, 430, 36, 24, -84.8, "cairo-khedivial-stone", [18, 42]),
-  core(542, -886, 28, 18, -2, "cairo-garden-stucco", [12, 26]),
-  core(542, -746, 28, 18, -1, "cairo-garden-stucco", [12, 26]),
-  core(542, 514, 36, 24, -0.1, "cairo-khedivial-stone", [18, 42]),
-  core(542, 542, 36, 24, 3.5, "cairo-khedivial-stone", [18, 42]),
-  core(556, -424, 28, 18, -90, "cairo-garden-stucco", [12, 26]),
-  core(556, -298, 46, 28, -27.3, "cairo-khedivial-stone", [18, 42]),
-  core(556, -32, 46, 28, -12.9, "cairo-khedivial-stone", [18, 42]),
-  core(556, 52, 36, 24, 3, "cairo-khedivial-stone", [18, 42]),
-  core(556, 150, 36, 24, -3, "cairo-khedivial-stone", [18, 42]),
-  core(556, 612, 28, 18, 2.5, "cairo-khedivial-stone", [18, 42]),
-  core(556, 640, 28, 18, -80, "cairo-khedivial-stone", [18, 42]),
-  core(570, 402, 36, 24, -15.9, "cairo-khedivial-stone", [18, 42]),
-  core(570, 430, 28, 18, 0.9, "cairo-khedivial-stone", [18, 42]),
-  core(570, 668, 28, 18, -1, "cairo-khedivial-stone", [18, 42]),
-  core(570, 738, 28, 18, -83, "cairo-khedivial-stone", [18, 42]),
-  core(584, -564, 28, 18, -107.5, "cairo-garden-stucco", [12, 26]),
-  core(584, -522, 36, 24, -104.5, "cairo-garden-stucco", [12, 26]),
-  core(584, -438, 28, 18, 2.9, "cairo-garden-stucco", [12, 26]),
-  core(584, -396, 36, 24, -29.3, "cairo-garden-stucco", [12, 26]),
-  core(584, 10, 36, 24, -102.6, "cairo-khedivial-stone", [18, 42]),
-  core(584, 514, 36, 24, 3.9, "cairo-khedivial-stone", [18, 42]),
-  core(584, 542, 36, 24, 2.5, "cairo-khedivial-stone", [18, 42]),
-  core(584, 780, 46, 28, -79, "cairo-khedivial-stone", [18, 42]),
-  core(598, -606, 28, 18, -103.5, "cairo-garden-stucco", [12, 26]),
-  core(598, -158, 46, 28, -48.5, "cairo-khedivial-stone", [18, 42]),
-  core(598, 612, 36, 24, 1.5, "cairo-khedivial-stone", [18, 42]),
-  core(598, 738, 28, 18, 3, "cairo-khedivial-stone", [18, 42]),
-  core(612, -368, 28, 18, -28.3, "cairo-garden-stucco", [12, 26]),
-  core(612, -116, 28, 18, -50.5, "cairo-khedivial-stone", [18, 42]),
-  core(612, 654, 46, 28, 1, "cairo-khedivial-stone", [18, 42]),
-  core(626, -438, 36, 24, -0.1, "cairo-garden-stucco", [12, 26]),
-  core(626, 276, 46, 28, -89.4, "cairo-khedivial-stone", [18, 42]),
-  core(626, 514, 28, 18, -66.1, "cairo-khedivial-stone", [18, 42]),
-  core(626, 542, 28, 18, 1.5, "cairo-khedivial-stone", [18, 42]),
-  core(626, 780, 46, 28, 3.4, "cairo-khedivial-stone", [18, 42]),
-  core(640, -746, 28, 18, 2, "cairo-garden-stucco", [12, 26]),
-  core(640, 150, 28, 18, -99.6, "cairo-khedivial-stone", [18, 42]),
-  core(640, 206, 28, 18, -90.4, "cairo-khedivial-stone", [18, 42]),
-  core(640, 318, 28, 18, -63.4, "cairo-khedivial-stone", [18, 42]),
-  core(640, 612, 36, 24, 1.5, "cairo-khedivial-stone", [18, 42]),
-  core(640, 738, 46, 28, 3, "cairo-khedivial-stone", [18, 42]),
-  core(654, -186, 46, 28, -86.6, "cairo-khedivial-stone", [18, 42]),
-  core(654, -116, 36, 24, -7.1, "cairo-khedivial-stone", [18, 42]),
-  core(654, 654, 28, 18, 1, "cairo-khedivial-stone", [18, 42]),
-  core(668, -438, 36, 24, 4.9, "cairo-garden-stucco", [12, 26]),
-  core(668, -396, 46, 28, -93.3, "cairo-garden-stucco", [12, 26]),
-  core(668, 10, 28, 18, -100.6, "cairo-khedivial-stone", [18, 42]),
-  core(668, 52, 46, 28, -104.6, "cairo-khedivial-stone", [18, 42]),
-  core(668, 150, 36, 24, -91.5, "cairo-khedivial-stone", [18, 42]),
-  core(668, 206, 36, 24, -84.9, "cairo-khedivial-stone", [18, 42]),
-  core(668, 248, 36, 24, -85.9, "cairo-khedivial-stone", [18, 42]),
-  core(668, 290, 36, 24, -82.9, "cairo-khedivial-stone", [18, 42]),
-  core(668, 780, 28, 18, 2.4, "cairo-khedivial-stone", [18, 42]),
-  core(682, -746, 28, 18, -1, "cairo-garden-stucco", [12, 26]),
-  core(682, 332, 36, 24, -84.9, "cairo-khedivial-stone", [18, 42]),
-  core(682, 430, 28, 18, -67.1, "cairo-khedivial-stone", [18, 42]),
-  core(682, 738, 28, 18, -2, "cairo-khedivial-stone", [18, 42]),
-  core(696, 472, 36, 24, -71.1, "cairo-khedivial-stone", [18, 42]),
-  core(710, 766, 36, 24, -71.2, "cairo-khedivial-stone", [18, 42]),
-  core(752, -368, 46, 28, -94.3, "cairo-garden-stucco", [12, 26]),
-  core(752, -158, 46, 28, -87.6, "cairo-khedivial-stone", [18, 42]),
+  core(-788, -690, 28, 18, -88),
+  core(-788, -508, 46, 28, -94.2),
+  core(-746, -424, 36, 24, 1),
+  core(-746, -354, 36, 24, 1),
+  core(-746, 528, 36, 24, -3),
+  core(-746, 612, 28, 18, 0),
+  core(-732, -886, 28, 18, 2),
+  core(-732, -746, 46, 28, -2),
+  core(-732, 52, 46, 28, 3.4),
+  core(-732, 808, 46, 28, 0),
+  core(-718, -662, 46, 28, 2),
+  core(-718, -186, 36, 24, -2),
+  core(-718, -116, 28, 18, 2),
+  core(-718, 892, 46, 28, 3),
+  core(-690, 808, 28, 18, 1),
+  core(-662, -690, 36, 24, -84.3),
+  core(-452, -522, 28, 18, -101.8),
+  core(-438, -690, 36, 24, -82),
+  core(-396, -466, 28, 18, -102.8),
+  core(-396, 10, 28, 18, -102),
+  core(-396, 108, 28, 18, 5.5),
+  core(-396, 136, 28, 18, -85.4),
+  core(-396, 612, 36, 24, 6.4),
+  core(-382, 38, 28, 18, 5.5),
+  core(-382, 654, 36, 24, -96.6),
+  core(-354, 878, 46, 28, -12.5),
+  core(-340, -690, 28, 18, -97.1),
+  core(-340, -578, 28, 18, -74.2),
+  core(-340, -214, 36, 24, -101.6),
+  core(-326, -886, 46, 28, 5.6),
+  core(-326, -662, 28, 18, 2.8),
+  core(-326, -536, 36, 24, -74.2),
+  core(-326, -494, 28, 18, -77.2),
+  core(-326, -284, 28, 18, -104.6),
+  core(-326, -130, 28, 18, -7.5),
+  core(-326, -88, 28, 18, -80.5),
+  core(-326, 234, 28, 18, -103.6),
+  core(-326, 360, 28, 18, -11.8),
+  core(-326, 766, 28, 18, -101.6),
+  core(-312, -690, 28, 18, -100.3),
+  core(-312, -466, 28, 18, -75.2),
+  core(-312, 136, 28, 18, -101.6),
+  core(-312, 472, 28, 18, -79.9),
+  core(-312, 794, 28, 18, -6.5),
+  core(-312, 878, 28, 18, -8.5),
+  core(-298, -746, 46, 28, -1),
+  core(-298, 38, 28, 18, -7.5),
+  core(-298, 248, 36, 24, -99.4),
+  core(-298, 374, 28, 18, -77.9),
+  core(-298, 528, 28, 18, -77.9),
+  core(-298, 612, 28, 18, -101.6),
+  core(-284, 164, 46, 28, -99.4),
+  core(-284, 206, 28, 18, -97.4),
+  core(-284, 794, 28, 18, -100.7),
+  core(-270, 122, 46, 28, -10.5),
+  core(-270, 612, 28, 18, -10.8),
+  core(-214, -690, 36, 24, -103.3),
+  core(-214, -578, 36, 24, -76.2),
+  core(-214, -536, 28, 18, -75.2),
+  core(-214, -242, 28, 18, -100.2),
+  core(-214, -200, 36, 24, -103.2),
+  core(-214, -116, 28, 18, 1.8),
+  core(-214, -88, 28, 18, -78.5),
+  core(-214, 304, 28, 18, -2.5),
+  core(-214, 388, 28, 18, -76.9),
+  core(-200, -746, 36, 24, 0),
+  core(-200, -508, 28, 18, -74.2),
+  core(-200, -326, 28, 18, -100.2),
+  core(-200, -284, 46, 28, -98.2),
+  core(-200, -46, 28, 18, -77.5),
+  core(-200, -4, 28, 18, -78.5),
+  core(-200, 206, 28, 18, -97.4),
+  core(-200, 416, 28, 18, -77.9),
+  core(-200, 458, 28, 18, -81.9),
+  core(-200, 794, 28, 18, -97.7),
+  core(-186, -690, 36, 24, -99.8),
+  core(-186, -564, 28, 18, -79.4),
+  core(-186, -466, 46, 28, -79.2),
+  core(-186, 24, 28, 18, -78.5),
+  core(-186, 136, 28, 18, -101.4),
+  core(-186, 500, 46, 28, -79.9),
+  core(-172, -536, 28, 18, -77.4),
+  core(-172, -368, 28, 18, -2.5),
+  core(-172, -200, 46, 28, 3.8),
+  core(-172, 52, 28, 18, -1.6),
+  core(-172, 178, 36, 24, -100.3),
+  core(-172, 220, 36, 24, -101.3),
+  core(-172, 430, 28, 18, -82.2),
+  core(-172, 542, 36, 24, -80.9),
+  core(-172, 626, 28, 18, -8.2),
+  core(-172, 794, 28, 18, -100),
+  core(-116, -690, 36, 24, -96.8),
+  core(52, -396, 28, 18, -90.4),
+  core(52, -242, 36, 24, -87.6),
+  core(52, -200, 28, 18, -84.6),
+  core(66, -774, 46, 28, -89.9),
+  core(66, -592, 46, 28, -90.6),
+  core(66, -550, 28, 18, -92.6),
+  core(66, -4, 46, 28, -86.2),
+  core(122, 430, 28, 18, -90.9),
+  core(136, -60, 28, 18, -87.2),
+  core(136, -18, 28, 18, -87.2),
+  core(136, 24, 28, 18, -87.2),
+  core(150, 66, 36, 24, -11.1),
+  core(150, 150, 36, 24, -6.1),
+  core(150, 192, 46, 28, -87.7),
+  core(150, 262, 36, 24, -87.7),
+  core(150, 374, 28, 18, -8.6),
+  core(150, 626, 28, 18, -4.8),
+  core(150, 808, 28, 18, -91.9),
+  core(164, -340, 28, 18, 12.2),
+  core(164, -60, 36, 24, -89.2),
+  core(164, -18, 36, 24, -92.2),
+  core(164, 24, 36, 24, -90.2),
+  core(164, 304, 28, 18, -7.6),
+  core(164, 542, 28, 18, -4.8),
+  core(192, -760, 28, 18, -91.1),
+  core(192, 388, 46, 28, -10.6),
+  core(192, 626, 28, 18, -2.8),
+  core(206, -466, 28, 18, 9.6),
+  core(206, -438, 28, 18, -79.8),
+  core(206, -354, 46, 28, 13.2),
+  core(206, 430, 36, 24, -93),
+  core(206, 472, 36, 24, -91),
+  core(206, 514, 36, 24, -92),
+  core(206, 556, 36, 24, -6.8),
+  core(206, 654, 28, 18, -92),
+  core(206, 696, 36, 24, -91),
+  core(206, 794, 28, 18, -90),
+  core(220, -396, 36, 24, -75.8),
+  core(234, 276, 28, 18, -94.8),
+  core(248, -242, 46, 28, -80.5),
+  core(248, -200, 28, 18, -77.5),
+  core(248, -158, 46, 28, -2.5),
+  core(248, -60, 28, 18, -88.2),
+  core(248, -18, 46, 28, -88.2),
+  core(248, 24, 28, 18, -91.2),
+  core(248, 66, 46, 28, -89.2),
+  core(248, 164, 36, 24, -1.8),
+  core(248, 304, 28, 18, -8.6),
+  core(276, -620, 46, 28, -84.6),
+  core(276, -578, 28, 18, -89.6),
+  core(276, -60, 28, 18, -92.2),
+  core(276, -18, 28, 18, -93.2),
+  core(276, 24, 28, 18, -89.2),
+  core(276, 66, 28, 18, -88.2),
+  core(276, 192, 28, 18, -84.5),
+  core(276, 248, 36, 24, -88.5),
+  core(276, 290, 28, 18, -86.5),
+  core(290, -816, 36, 24, -2),
+  core(290, 402, 36, 24, -85.3),
+  core(290, 444, 36, 24, -92),
+  core(290, 486, 36, 24, -91),
+  core(290, 528, 36, 24, -91),
+  core(290, 570, 28, 18, -5.8),
+  core(290, 640, 28, 18, -5.8),
+  core(290, 668, 28, 18, -89),
+  core(290, 710, 46, 28, -91),
+  core(290, 752, 28, 18, -87),
+  core(290, 794, 46, 28, -93),
+  core(304, -746, 28, 18, 3),
+  core(304, -564, 28, 18, 3.3),
+  core(304, -452, 28, 18, -76.8),
+  core(318, -648, 28, 18, 7.4),
+  core(318, 654, 28, 18, -80.6),
+  core(318, 696, 28, 18, -82.6),
+  core(318, 738, 28, 18, -76.6),
+  core(332, -816, 36, 24, -3),
+  core(332, -480, 28, 18, 4.3),
+  core(332, -284, 36, 24, -77.5),
+  core(332, -242, 28, 18, -77.5),
+  core(332, 766, 28, 18, -78.6),
+  core(332, 808, 46, 28, -3),
+  core(346, -746, 28, 18, -2),
+  core(346, -214, 28, 18, -78.5),
+  core(360, -298, 28, 18, 12.3),
+  core(360, 94, 46, 28, -91.2),
+  core(360, 136, 28, 18, -87.5),
+  core(360, 234, 28, 18, -88.5),
+  core(374, -816, 28, 18, 0),
+  core(374, -256, 46, 28, -129),
+  core(374, 276, 46, 28, -86.5),
+  core(374, 388, 28, 18, 11.1),
+  core(374, 416, 28, 18, -82.3),
+  core(388, -424, 28, 18, -89.7),
+  core(388, 556, 36, 24, -83.3),
+  core(402, -298, 28, 18, -83),
+  core(402, 430, 28, 18, 2.9),
+  core(402, 514, 46, 28, -0.1),
+  core(402, 640, 36, 24, 10),
+  core(416, -158, 46, 28, -127),
+  core(416, 94, 46, 28, -62.7),
+  core(416, 290, 46, 28, 12.1),
+  core(416, 388, 46, 28, 9.1),
+  core(416, 542, 28, 18, 8),
+  core(416, 668, 28, 18, -1),
+  core(416, 738, 28, 18, 3),
+  core(416, 766, 28, 18, -82.6),
+  core(430, 136, 28, 18, -58.7),
+  core(430, 808, 28, 18, 7.4),
+  core(444, -200, 28, 18, -130),
+  core(444, -46, 46, 28, -6.8),
+  core(444, 416, 28, 18, -85.8),
+  core(444, 514, 28, 18, 2.9),
+  core(444, 626, 28, 18, 14),
+  core(458, -746, 28, 18, -1),
+  core(458, -172, 28, 18, -50.5),
+  core(458, -144, 28, 18, -4.8),
+  core(458, -4, 36, 24, -49.1),
+  core(458, 542, 28, 18, -83.8),
+  core(458, 654, 36, 24, -1),
+  core(458, 738, 46, 28, 2),
+  core(472, -452, 28, 18, -25.8),
+  core(472, 276, 46, 28, 12.1),
+  core(472, 794, 46, 28, 5.4),
+  core(486, -46, 28, 18, -13.9),
+  core(486, 24, 28, 18, -61.7),
+  core(486, 234, 36, 24, -63.4),
+  core(500, -746, 28, 18, -2),
+  core(500, -270, 36, 24, -128.5),
+  core(500, 738, 28, 18, -80),
+  core(514, -620, 28, 18, 89.4),
+  core(514, -32, 28, 18, -10.9),
+  core(514, 52, 36, 24, 1),
+  core(514, 262, 28, 18, -63.4),
+  core(514, 304, 28, 18, -16.9),
+  core(528, -242, 36, 24, -53.5),
+  core(528, 388, 36, 24, -12.9),
+  core(528, 430, 36, 24, -84.8),
+  core(542, -886, 28, 18, -2),
+  core(542, -746, 28, 18, -1),
+  core(542, 514, 36, 24, -0.1),
+  core(542, 542, 36, 24, 3.5),
+  core(556, -424, 28, 18, -90),
+  core(556, -298, 46, 28, -27.3),
+  core(556, -32, 46, 28, -12.9),
+  core(556, 52, 36, 24, 3),
+  core(556, 150, 28, 18, -3),
+  core(556, 612, 28, 18, 2.5),
+  core(556, 640, 28, 18, -80),
+  core(570, 402, 36, 24, -15.9),
+  core(570, 430, 28, 18, 0.9),
+  core(570, 668, 28, 18, -1),
+  core(570, 738, 28, 18, -83),
+  core(584, -564, 28, 18, -107.5),
+  core(584, -522, 36, 24, -104.5),
+  core(584, -438, 28, 18, 2.9),
+  core(584, -396, 36, 24, -29.3),
+  core(584, 10, 36, 24, -102.6),
+  core(584, 514, 36, 24, 3.9),
+  core(584, 542, 36, 24, 2.5),
+  core(584, 780, 46, 28, -79),
+  core(598, -606, 28, 18, -103.5),
+  core(598, -158, 46, 28, -48.5),
+  core(598, 612, 36, 24, 1.5),
+  core(598, 738, 28, 18, 3),
+  core(612, -368, 28, 18, -28.3),
+  core(612, -116, 28, 18, -50.5),
+  core(612, 654, 46, 28, 1),
+  core(626, -690, 28, 18, 7.6),
+  core(626, -438, 28, 18, -0.1),
+  core(626, 276, 46, 28, -89.4),
+  core(626, 514, 28, 18, -66.1),
+  core(626, 542, 28, 18, 1.5),
+  core(626, 780, 46, 28, 3.4),
+  core(640, -746, 28, 18, 2),
+  core(640, 150, 28, 18, -99.6),
+  core(640, 206, 28, 18, -90.4),
+  core(640, 318, 28, 18, -63.4),
+  core(640, 612, 36, 24, 1.5),
+  core(640, 738, 46, 28, 3),
+  core(654, -186, 46, 28, -86.6),
+  core(654, -116, 36, 24, -7.1),
+  core(654, 654, 28, 18, 1),
+  core(668, -438, 36, 24, 4.9),
+  core(668, -396, 46, 28, -93.3),
+  core(668, 10, 28, 18, -100.6),
+  core(668, 52, 46, 28, -104.6),
+  core(668, 136, 28, 18, 0),
+  core(668, 206, 36, 24, -84.9),
+  core(668, 248, 36, 24, -85.9),
+  core(668, 290, 36, 24, -82.9),
+  core(668, 780, 28, 18, 2.4),
+  core(682, -746, 28, 18, -1),
+  core(682, 332, 36, 24, -84.9),
+  core(682, 430, 28, 18, -67.1),
+  core(682, 738, 28, 18, -2),
+  core(696, 472, 36, 24, -71.1),
+  core(710, 514, 28, 18, -79.4),
+  core(710, 766, 36, 24, -71.2),
+  core(752, -368, 46, 28, -94.3),
+  core(752, -158, 46, 28, -87.6),
+  core(752, 24, 28, 18, -95.5),
 ];
 
 for (const [index, entry] of CAIRO_INTERIOR_CORES.entries()) {
+  // Material and heights come from the district map at the core's own
+  // centre — the single source of truth the strips and bands read too.
+  const coreStyle = cairoRoadsideStyle(point(entry.x, entry.z));
   const candidate: ProceduralBlock = {
     id: `cairo-core-${index + 1}`,
     center: point(entry.x, entry.z),
     size: point(entry.w, entry.d),
     headingDeg: entry.headingDeg,
-    material: entry.material,
-    heightRange: entry.heightRange,
+    material: coreStyle.material,
+    heightRange: coreStyle.heightRange,
     density: 0.5,
   };
   const result = validateCairoClosureCandidate(candidate);

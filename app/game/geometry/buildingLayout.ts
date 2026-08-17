@@ -325,7 +325,15 @@ function planProceduralBlock(
   layoutReason: ProceduralLayoutReason,
   relaxationPolicy: RelaxationPolicy = DEFAULT_RELAXATION_POLICY,
 ): PlannedProceduralBuilding[] {
-  const isWestBank = block.material === "cairo-west-bank-concrete";
+  // The baladi brick keys take the same density bump as the west bank —
+  // informal Cairo packs more, smaller buildings into the same ground. The
+  // renderer's `ProceduralFacades.renderPlannedBuilding` reconstructs this
+  // exact grid to place its street detail, so the two condition sets MUST
+  // stay identical or every detail lands on the wrong cell.
+  const isWestBank =
+    block.material === "cairo-west-bank-concrete" ||
+    block.material.startsWith("cairo-brick") ||
+    block.material === "cairo-render-grey";
   const cells = facadeGridCells(
     isWestBank ? { ...block, density: Math.min(1, block.density + 0.17) } : block,
   );

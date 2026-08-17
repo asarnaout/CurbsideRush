@@ -105,9 +105,13 @@ import type {
 // core blocks fill the block interiors behind the strips — see
 // CAIRO_INTERIOR_CORES' own comment. Roadside/street-wall counts are
 // untouched (cores are facade-grid interiors, never kerbside parcels).
-const BLOCK_COUNT = 1250;
-const ROADSIDE_COUNT = 922;
-const ROADSIDE_LEFT = 465;
+// -> 1247/921/464 (baladi rezoning): the box-vs-glb ratio flip re-tiles
+// the informal districts' strips (one more closure retired to a strip
+// that now covers its interval — wall-3, see CAIRO_VISUAL_CLOSURES), and
+// the regenerated core list settles at 293.
+const BLOCK_COUNT = 1247;
+const ROADSIDE_COUNT = 921;
+const ROADSIDE_LEFT = 464;
 /** The second rank is gone — a one-sided kit means a back row can only stare
  * at the front row's service wall or plant its own on the next street over.
  * Zero, pinned, so it cannot quietly come back. */
@@ -117,7 +121,11 @@ const ROADSIDE_RANKS = 0;
 // 470 -> 665 (hara network): most alley strips deep enough for a glb set
 // take their district's; the rest (backEdgeNearsARoad demotions in the
 // tight interiors, by design) stay facade boxes.
-const STREET_WALL_BLOCKS = 665;
+// 665 -> 450 (baladi rezoning): the informal districts hold back five
+// parcels in six (west bank three in six) from the glb wall — the boxes
+// ARE the architecture there, and the imported kit retreats to the
+// polished centre where it belongs.
+const STREET_WALL_BLOCKS = 450;
 // 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6) -> 1716 (Section
 // 12.7): the five cairo-west-nile-street-mid-land-edge-wall-* closures
 // have no buildingSet either, same formula, 5 blocks * 9 = 45 more.
@@ -128,7 +136,9 @@ const STREET_WALL_BLOCKS = 665;
 // 1716 -> 2601 (hara network): the demoted-to-boxes alley strips above,
 // at the same round(3 + density * 7) cells each.
 // 2601 -> 4659 (interior cores): 294 cores x round(3 + 0.5 * 7) = 7 cells.
-const FACADE_BOX_CELLS = 4659;
+// -> 6_569 (baladi rezoning): the glb holdback flip moves ~215 strips onto
+// the facade grid.
+const FACADE_BOX_CELLS = 6569;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(

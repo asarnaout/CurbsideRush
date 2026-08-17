@@ -591,8 +591,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // 6_930 -> 12_864, "dce5639b" -> "dd376b1d" (interior cores): 294
     // facade-grid cores at density 0.5 — 7 cells each, each drawing from
     // the shared stream, plus the height draws their taller ranges take.
-    drawCount: 12_864,
-    facadeMeshFingerprint: "dd376b1d",
+    // -> 18_679, "fdff7684" (baladi rezoning): ~215 strips flip from glb
+    // to the facade grid and the baladi keys take the west-bank density
+    // bump, so both the cell count and the per-cell draw mix move.
+    drawCount: 18_679,
+    facadeMeshFingerprint: "fdff7684",
   },
 };
 

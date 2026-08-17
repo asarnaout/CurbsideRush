@@ -469,8 +469,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // -> 1_625 / clutter 552 (hara network): the alley strips deep enough
     // to keep a glb set add ~248 real instanced buildings, and the tanks/
     // dishes scatter lands on the new roofY-carrying models among them.
-    buildingInstanceCount: 1_625,
-    cairoRoofClutterInstanceCount: 552,
+    // -> 1_112 / clutter 391 (baladi rezoning): the informal districts
+    // hold back five parcels in six from the glb wall, so the imported kit
+    // — and the glb-path roof clutter that rides it — retreats to the
+    // polished centre. The boxes that replace them grow their own tanks
+    // and dishes through the facade-grid dressing instead.
+    buildingInstanceCount: 1_112,
+    cairoRoofClutterInstanceCount: 391,
     storefrontSignMaterialCount: 0,
   },
 };

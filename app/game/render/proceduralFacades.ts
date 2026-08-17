@@ -18,7 +18,10 @@ import {
   createFacadeBox,
   makeFacadeMaterial,
 } from "./meshPrimitives";
-import { makeFacadeEmissiveTexture } from "./proceduralTextures";
+import {
+  makeBaladiFacadeTextures,
+  makeFacadeEmissiveTexture,
+} from "./proceduralTextures";
 
 /**
  * The procedural windowed-facade-box renderer: paints exactly the boxes
@@ -139,6 +142,34 @@ export class ProceduralFacades {
     "cairo-west-bank-concrete": new Color3(0.58, 0.56, 0.5),
   };
 
+  /**
+   * The baladi keys render through `makeBaladiFacadeTextures` (brick infill
+   * in an exposed concrete skeleton) rather than the flat windowed wall the
+   * palette above paints — see `materialFor`. Infill tones straddle the
+   * red-brown band of Cairo's actual brick stock; the frame is always the
+   * pale unpainted concrete that holds it.
+   */
+  private static readonly BALADI_PALETTE: Record<
+    string,
+    { readonly infill: Color3; readonly frame: Color3; readonly courses: boolean }
+  > = {
+    "cairo-brick": {
+      infill: new Color3(0.4, 0.24, 0.17),
+      frame: new Color3(0.5, 0.48, 0.43),
+      courses: true,
+    },
+    "cairo-brick-worn": {
+      infill: new Color3(0.47, 0.31, 0.22),
+      frame: new Color3(0.53, 0.51, 0.45),
+      courses: true,
+    },
+    "cairo-render-grey": {
+      infill: new Color3(0.5, 0.46, 0.4),
+      frame: new Color3(0.55, 0.53, 0.48),
+      courses: false,
+    },
+  };
+
   /** Per-materialKey memoized facade material — see `materialFor`. */
   private readonly facadeMaterials = new Map<string, StandardMaterial>();
   private facadeEmissiveTexture: DynamicTexture | null = null;
@@ -165,14 +196,32 @@ export class ProceduralFacades {
   materialFor(materialKey: string): StandardMaterial {
     const cached = this.facadeMaterials.get(materialKey);
     if (cached) return cached;
-    const wallColor =
-      ProceduralFacades.BUILDING_PALETTE[materialKey] ?? new Color3(0.56, 0.5, 0.43);
-    const created = makeFacadeMaterial(
-      this.scene,
-      `facade-${materialKey}`,
-      wallColor,
-      this.emissiveTexture,
-    );
+    const baladi = ProceduralFacades.BALADI_PALETTE[materialKey];
+    let created: StandardMaterial;
+    if (baladi) {
+      const textures = makeBaladiFacadeTextures(
+        this.scene,
+        `facade-${materialKey}`,
+        baladi.infill,
+        baladi.frame,
+        baladi.courses,
+      );
+      created = new StandardMaterial(`facade-${materialKey}`, this.scene);
+      created.diffuseColor = new Color3(1, 1, 1);
+      created.diffuseTexture = textures.diffuse;
+      created.emissiveTexture = textures.emissive;
+      created.emissiveColor = new Color3(1, 1, 1);
+      created.specularColor = new Color3(0.04, 0.04, 0.04);
+    } else {
+      const wallColor =
+        ProceduralFacades.BUILDING_PALETTE[materialKey] ?? new Color3(0.56, 0.5, 0.43);
+      created = makeFacadeMaterial(
+        this.scene,
+        `facade-${materialKey}`,
+        wallColor,
+        this.emissiveTexture,
+      );
+    }
     this.facadeMaterials.set(materialKey, created);
     return created;
   }
@@ -234,7 +283,10 @@ export class ProceduralFacades {
       ctx.staticSceneryFreeze.push(mesh);
     };
     const isGardenCity = block.material === "cairo-garden-stucco";
-    const isWestBank = block.material === "cairo-west-bank-concrete";
+    const isBaladi = block.material.startsWith("cairo-brick") ||
+      block.material === "cairo-render-grey";
+    const isWestBank =
+      block.material === "cairo-west-bank-concrete" || isBaladi;
     const cellIndex = entry.cellIndex;
     const width = entry.widthM;
     const depth = entry.depthM;

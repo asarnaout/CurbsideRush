@@ -1356,10 +1356,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // behind the strips (~7 cells each plus Cairo dressing under this
     // suite's all-proxy preload). activeMeshes rises because the cores
     // ringing the spawn's own block sit inside the fixed frustum.
-    totalMeshes: 21_744,
-    enabledMeshes: 21_700,
-    activeMeshes: 1_684,
-    materials: 232,
+    // -> 23_239/23_195 (materials 232 -> 235, new fingerprint; baladi
+    // rezoning): ~215 informal-district strips flip from one instanced glb
+    // to several facade boxes each with their AC/awning dressing, and the
+    // three baladi materials (cairo-brick, cairo-brick-worn,
+    // cairo-render-grey) mint their skeleton-and-infill texture pairs.
+    totalMeshes: 23_239,
+    enabledMeshes: 23_195,
+    activeMeshes: 1_687,
+    materials: 235,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1369,8 +1374,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 71 -> 93 / 93 -> 141 (hara network): the Qasr El-Ainy spawn now has
     // the Lazoghly hara's street wall inside its cull ring. 93 -> 119
     // candidates (interior cores in the ring); drawn holds at 141.
-    mirrorCandidates: 119,
-    mirrorDrawn: 141,
+    // 119 -> 216 / 141 -> 147 (baladi rezoning): each strip that flipped
+    // from one instanced glb to several boxes multiplies what the ring
+    // holds near the spawn.
+    mirrorCandidates: 216,
+    mirrorDrawn: 147,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1379,7 +1387,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "e5294a40": +rail-brick/+rail-platform (see the materials note).
     // -> "ae339a82": +rail-deck (bridge-fix pass).
     // -> "1b18079f": +lamp-pool, once the palette went night.
-    survivingMaterialNamesFingerprint: "1b18079f",
+    // -> "96f3eb90": +facade-cairo-brick/-brick-worn/-render-grey (the
+    // baladi skeleton-and-infill materials).
+    survivingMaterialNamesFingerprint: "96f3eb90",
   },
 };
 
