@@ -313,11 +313,49 @@ so on a parcel shallower than two depths the opposite rows occupy the same
 ground. Guarded twice in `buildingPlacement.test.ts` — the per-parcel and the
 map-wide cross-parcel interpenetration sweeps, both seeded like the renderer
 because the overlap depends on which models the seed draws.
-**One roadside parcel in six deliberately keeps the procedural facade boxes**
-(`cairoParcelKeepsFacadeBoxes`), as do all the inland district parcels: plain
-stucco blocks are real Cairo, and their size/height jitter varies in a way the
-model catalogue cannot — deleting the holdback would make the map *more*
-repetitive. Deterministic on the block id; `Math.random` would desync loads.
+**The box-vs-glb holdback is a district decision, not one ratio**
+(`cairoParcelKeepsFacadeBoxes(blockId, position)`): the polished districts
+keep one parcel in six on the procedural facade boxes (the original ratio),
+the west bank three in six, and the baladi districts INVERT it to five in
+six — there the brick-and-skeleton boxes ARE the architecture and the
+imported kit appears only as the odd better-off building. Deterministic on
+the block id; `Math.random` would desync loads.
+
+### Cairo's districts, harat and interior cores (the reimagining)
+
+**One resolver, `cairoDistrictAt`, feeds every fabric decision** — strip
+materials/heights (`cairoRoadsideStyle`), the glb set
+(`cairoDistrictBuildingSet`), the holdback ratio above, and the interior
+cores. Corniche frontage, the khedivial core (floodlit gold), Zamalek and
+Garden City read polished; Bulaq (east of the core AND the whole band north
+of Champollion), the rail belt and the Mounira/Sayeda side are "baladi" —
+the brick/render/concrete patchwork (`baladiMaterialAt`, hashed per 10 m so
+re-runs agree). Materials starting `cairo-brick`/`cairo-render` select the
+skeleton-and-infill facade textures (docs/rendering.md).
+
+**The hara network is 24 one-way, single-lane roads** (`cairo-haret-*`,
+4.8 m, 40 km/h) threading the block interiors — one-way because a two-way
+needs an even `laneCount` and 4.8 m cannot carry opposing NPC lanes; the
+alternating directions provide circulation. Every name is a real street
+from the frozen OSM extract (the provenance test requires it). Endpoints
+are existing nodes or nodes INSERTED collinearly into a host road's
+`nodeIds` — insertion renumbers that road's later segment-indexed lane
+ids, which is why the venue/service/spawn anchors are FROZEN literals
+(re-anchor by world position after any such edit, never by segment
+arithmetic). Alley-to-alley crossings share plain new nodes; nothing
+crosses the rail corridor or enters an existing 3-4-arm junction (the ~45°
+arm rule). Regulatory one-way/do-not-enter signage renders on NYC **and
+Cairo** (`babylonGameSession`'s map gate) — a hara city without mouth
+signs fines wrong-way with zero warning.
+
+**`CAIRO_INTERIOR_CORES` fills the block middles** the kerb-driven passes
+never touch: machine-generated offline (grid probe, road-aligned, margin
+land excluded), pasted as plain authored data, and re-validated at import
+through `validateCairoClosureCandidate` with a throw — content drifting
+into a core fails loudly, and the fix is to regenerate the list against
+the moved content, not to nudge one entry. Tahrir's ceremonial clearing
+and the museum forecourt are deliberate keep-opens. Cores derive material
+and heights from `cairoRoadsideStyle` at their own centre.
 
 ### Tokyo is two halves
 
