@@ -306,8 +306,14 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     // London's glows violet and NYC's blue. The zenith stays a deep indigo so
     // the warmth reads as a ground-lit band low down rather than as dusk.
     skyTop: "#101728",
-    skyHorizon: "#42382a",
-    fogColor: "#2c2823",
+    // The dusty amber band stays, but dimmed from #42382a/#2c2823: fog
+    // TINTS every wall beyond ~60 m, and at the old saturation the whole
+    // middle distance read as the same amber wash the wall fixes had just
+    // removed up close. The horizon keeps a step more warmth than the fog
+    // so the skyline still glows Cairo without repainting the buildings
+    // in front of it.
+    skyHorizon: "#332d24",
+    fogColor: "#232120",
     grassBase: "#27412b",
     grassAlt: "#325033",
     // Arid: Cairo's greens are irrigated islands, and they show the dust. The
@@ -319,19 +325,26 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     silhouetteNear: "#2c2822",
     silhouetteFar: "#3f382d",
     // A warm moon: the "sun" runs at reduced intensity at night, and what
-    // little of it survives Cairo's dust arrives warm — the one night sunTint
-    // of the four that is not cooled toward blue.
-    sunTint: "#e6d4ad",
+    // little of it survives Cairo's dust arrives warm — still the warmest
+    // night sunTint of the four, but pulled back from the original #e6d4ad:
+    // that amber on eleven warm wall families read as paint, not light.
+    sunTint: "#d9cdb6",
     paved: true,
     groundBase: "#403c35",
     pavement: "#5f594c",
     night: true,
-    // The brightest night rig of the four, and deliberately: central Cairo at
-    // night is not a dark city — it is dense, lit and busy well past midnight,
-    // and its warm ground bounces far more of the lamplight back than
-    // London's wet grey does.
-    nightHemiIntensity: 0.8,
-    nightSunIntensity: 0.74,
+    // Was 0.8/0.74 — the brightest rig of the four, on the warmest building
+    // palette of the four, and that pairing is what kept re-creating the
+    // owner's "flat orange"/"sandy shade" wall complaint no matter which
+    // surface got muted. Cairo's busy-past-midnight identity is carried by
+    // what is LIT (the densest lamp set of the four, lit windows,
+    // shopfronts, the crowd) rather than by wall-wide brightness. Now under
+    // London/Tokyo's 0.78 and above NYC's 0.64 floor; the warm ground
+    // bounce keeps the Cairo character. Retune only against night wall
+    // screenshots (the palette block in proceduralFacades moves with this),
+    // never in isolation.
+    nightHemiIntensity: 0.7,
+    nightSunIntensity: 0.64,
     // Inert for the live fog now — night's own 100/440 m clamp is tighter —
     // and kept for the same reason London's is: `auditMapVisualGaps`
     // deliberately measures sightlines against the DAY range, so dropping
