@@ -95,16 +95,40 @@ import type {
 // remainder fell under the 12 m floor (three roadside pieces plus
 // east-block-1-1/-1-2/west-block-1). Roadside 626 -> 627 (+4 splits, -3
 // removed), left 313 -> 316 (three of the four splits are left-side).
-const BLOCK_COUNT = 662;
-const ROADSIDE_COUNT = 627;
-const ROADSIDE_LEFT = 316;
+// 662 -> 956 (Cairo reimagining, hara network): 23 one-way alleys give the
+// slot and gap-fill passes ~7 km of new kerb to line (+271 hara strips),
+// and splitting 15 corridor roads' segments at the 28 inserted junction
+// nodes re-tiles their own strips (+~29 net, including the retirement of
+// cairo-west-nile-street-mid-land-edge-wall-4, whose interval a
+// now-longer strip occupies — see CAIRO_VISUAL_CLOSURES' own comment).
+// 956 -> 1250 (interior cores): 294 machine-generated, validator-gated
+// core blocks fill the block interiors behind the strips — see
+// CAIRO_INTERIOR_CORES' own comment. Roadside/street-wall counts are
+// untouched (cores are facade-grid interiors, never kerbside parcels).
+// -> 1247/921/464 (baladi rezoning): the box-vs-glb ratio flip re-tiles
+// the informal districts' strips (one more closure retired to a strip
+// that now covers its interval — wall-3, see CAIRO_VISUAL_CLOSURES), and
+// the regenerated core list settles at 293.
+// -> 1243/920/463 (the mosque + west-Bulaq district widening): the
+// landmark's exclusion re-tiles the strips beside Haret Abou Al Ela and
+// the regenerated core list settles at 290.
+const BLOCK_COUNT = 1243;
+const ROADSIDE_COUNT = 922;
+const ROADSIDE_LEFT = 465;
 /** The second rank is gone — a one-sided kit means a back row can only stare
  * at the front row's service wall or plant its own on the next street over.
  * Zero, pinned, so it cannot quietly come back. */
 const ROADSIDE_RANKS = 0;
 // 471 -> 470 (rail feature): one of the three roadside pieces the corridor
 // carve removed carried a building set; the other two were facade-grid.
-const STREET_WALL_BLOCKS = 470;
+// 470 -> 665 (hara network): most alley strips deep enough for a glb set
+// take their district's; the rest (backEdgeNearsARoad demotions in the
+// tight interiors, by design) stay facade boxes.
+// 665 -> 450 (baladi rezoning): the informal districts hold back five
+// parcels in six (west bank three in six) from the glb wall — the boxes
+// ARE the architecture there, and the imported kit retreats to the
+// polished centre where it belongs.
+const STREET_WALL_BLOCKS = 411;
 // 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6) -> 1716 (Section
 // 12.7): the five cairo-west-nile-street-mid-land-edge-wall-* closures
 // have no buildingSet either, same formula, 5 blocks * 9 = 45 more.
@@ -112,7 +136,12 @@ const STREET_WALL_BLOCKS = 470;
 // above re-deals the facade grid — the two removed east-block district
 // parcels take their cells out, the four split roadside strips re-derive
 // theirs at the fragments' new sizes.
-const FACADE_BOX_CELLS = 1710;
+// 1716 -> 2601 (hara network): the demoted-to-boxes alley strips above,
+// at the same round(3 + density * 7) cells each.
+// 2601 -> 4659 (interior cores): 294 cores x round(3 + 0.5 * 7) = 7 cells.
+// -> 6_569 (baladi rezoning): the glb holdback flip moves ~215 strips onto
+// the facade grid.
+const FACADE_BOX_CELLS = 6894;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
@@ -517,8 +546,12 @@ describe("Cairo Central Nile content", () => {
 
   it("matches NYC-scale scope without turning Cairo into a cardinal grid", () => {
     expect(CAIRO_MAP_PACK.geometry.worldSize).toEqual({ x: 1770, z: 1830 });
+    // 27 corridor roads -> 50 with the hara network (23 one-way single-lane
+    // alleys threading the block interiors, Cairo reimagining 2026-08-16).
+    // The corridor count still lives inside the old band; the ceiling covers
+    // the harat.
     expect(CAIRO_ROAD_SPECS.length).toBeGreaterThanOrEqual(22);
-    expect(CAIRO_ROAD_SPECS.length).toBeLessThanOrEqual(28);
+    expect(CAIRO_ROAD_SPECS.length).toBeLessThanOrEqual(55);
     expect(CAIRO_MAP_PACK.geometry.roadSurfaces).toHaveLength(
       CAIRO_ROAD_SPECS.length,
     );
@@ -533,12 +566,16 @@ describe("Cairo Central Nile content", () => {
         (total, lane) => total + lengthOf(lane.centerline),
         0,
       ) / 1000;
+    // 25.0 -> 32.2 road-km and 44.8 -> 51.9 lane-km with the harat: ~7 km of
+    // one-way alley adds one lane-km per road-km, so the two bands widen by
+    // the same amount. Lane count 224 -> 327 (44 alley lanes plus the splits
+    // the 28 inserted junction nodes make in existing corridors).
     expect(roadKm).toBeGreaterThanOrEqual(23);
-    expect(roadKm).toBeLessThanOrEqual(28);
+    expect(roadKm).toBeLessThanOrEqual(35);
     expect(CAIRO_MAP_PACK.laneGraph.lanes.length).toBeGreaterThanOrEqual(180);
-    expect(CAIRO_MAP_PACK.laneGraph.lanes.length).toBeLessThanOrEqual(230);
+    expect(CAIRO_MAP_PACK.laneGraph.lanes.length).toBeLessThanOrEqual(340);
     expect(laneKm).toBeGreaterThanOrEqual(42);
-    expect(laneKm).toBeLessThanOrEqual(50);
+    expect(laneKm).toBeLessThanOrEqual(56);
 
     const segmentAngles = CAIRO_MAP_PACK.geometry.roadSurfaces.flatMap(
       (surface) =>
@@ -591,6 +628,31 @@ describe("Cairo Central Nile content", () => {
       "cairo-dokki-south",
       "cairo-dokki-midtown",
       "cairo-agouza-approach",
+      // The hara network, appended in authored order (east bank, island,
+      // west bank) so every pre-existing road keeps its position.
+      "cairo-haret-sahafa",
+      "cairo-haret-khadrawy",
+      "cairo-haret-maamari",
+      "cairo-haret-taha",
+      "cairo-haret-abouela",
+      "cairo-haret-turgoman",
+      "cairo-haret-farnsawi",
+      "cairo-haret-bustan",
+      "cairo-haret-maarouf",
+      "cairo-haret-merit",
+      "cairo-haret-youssef",
+      "cairo-haret-diwan",
+      "cairo-haret-lazoghly",
+      "cairo-haret-marsafi",
+      "cairo-haret-borg",
+      "cairo-haret-ozoris",
+      "cairo-haret-mokhtar",
+      "cairo-haret-selim",
+      "cairo-haret-sad",
+      "cairo-haret-gohar",
+      "cairo-haret-wasef",
+      "cairo-haret-refaei",
+      "cairo-haret-amer",
     ]);
 
     for (const road of CAIRO_ROAD_SPECS) {
@@ -1199,6 +1261,8 @@ describe("Cairo Central Nile content", () => {
         "cairo-tahrir-obelisk",
         "cairo-tahrir-ministries",
         "cairo-opera-house",
+        // Bulaq's mosque, the hara web's own landmark (Cairo reimagining).
+        "cairo-abou-ela-mosque",
         "cairo-qasr-el-nil-bridge",
         "cairo-al-galaa-bridge",
         "cairo-sixth-october-bridge",
@@ -1362,7 +1426,9 @@ describe("Cairo Central Nile content", () => {
       "cairo-corniche-el-nil-roadside-1-1-right-s1",
     );
     expect(roadside.at(-1)?.id).toBe(
-      "cairo-west-nile-street-roadside-2-g1-right",
+      // Spec order ends on the hara network now; Saleh Selim Street is the
+      // last alley whose gap-fill pass lands a piece.
+      "cairo-haret-selim-roadside-1-g1-right",
     );
     // `includes`, not `endsWith`: the halving ladder appends -s1/-s2 after the
     // side slug, and every piece of a left frontage still counts as left.
@@ -1393,7 +1459,7 @@ describe("Cairo Central Nile content", () => {
     const nonBridgeRoads = CAIRO_MAP_PACK.geometry.roadSurfaces.filter(
       (surface) => !surface.id.includes("-bridge"),
     );
-    expect(nonBridgeRoads).toHaveLength(25);
+    expect(nonBridgeRoads).toHaveLength(48);
     for (const surface of nonBridgeRoads) {
       expect(
         roadside.some((block) =>
@@ -1452,8 +1518,10 @@ describe("Cairo Central Nile content", () => {
         }),
       );
       // Every roadside parcel stands just past the pavement — the band is
-      // tight enough to catch one drifting out into open ground.
-      expect(distance, block.id).toBeGreaterThan(11);
+      // tight enough to catch one drifting out into open ground. The floor
+      // is the hara case: a 4.8 m alley's envelope (2.4 + 1.4 sidewalk +
+      // 0.75) plus the 1.5 m stand-off plus half a 9 m sliver box = 10.45.
+      expect(distance, block.id).toBeGreaterThan(10.4);
       expect(distance, block.id).toBeLessThan(31);
 
       const parcel = testOrientedRect(
@@ -1878,7 +1946,7 @@ describe("Cairo Central Nile content", () => {
     const first = run();
     const replay = run();
     expect(replay).toEqual(first);
-    expect(first.hash).toBe("cf5ab089");
+    expect(first.hash).toBe("942c1c67");
     expect(first.snapshot).toMatchObject({
       tick: 1_800,
       status: "running",

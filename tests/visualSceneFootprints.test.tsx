@@ -466,7 +466,10 @@ describe("collectMapVisualGeometry — real maps: known issues (regression-pinne
   // caught immediately rather than laundered through a loose upper bound.
   const KNOWN_ISSUE_COUNTS: Readonly<Record<string, number>> = {
     "london-south-kensington": 9,
-    "cairo-central-nile": 5,
+    // 5 -> 6: cairo-abou-ela-mosque (Cairo reimagining) — a sixth bespoke
+    // ground-solid landmark joining the same known/accepted
+    // no-height-banded-visual-recipe gap the other five already carry.
+    "cairo-central-nile": 6,
     "nyc-upper-west-side": 0,
     // jp-hikari-tower (Tokyo expansion Phase 8): Tokyo's first bespoke
     // ground-solid landmark (geometry/landmarkGroundSolids.ts's

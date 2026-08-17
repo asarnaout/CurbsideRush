@@ -725,6 +725,193 @@ export function makeFacadeEmissiveTexture(scene: Scene): DynamicTexture {
   return texture;
 }
 
+/**
+ * The baladi (informal Cairo) facade pair: red-brick infill held in an
+ * exposed concrete skeleton — a column at every window-column boundary and a
+ * slab band at every floor line, the unfinished construction grammar most of
+ * Cairo actually wears — with smaller, deeper-set windows and a sparse night
+ * mix of incandescent amber and fluorescent tube-green rooms. One pair per
+ * palette key, shared by every box that key paints, so the entire informal
+ * city costs two DynamicTextures per key and zero extra meshes. The lit
+ * cells are a SUBSET of `FACADE_LAYOUT`'s (about two-thirds, hash-picked) so
+ * the poorer districts read dimmer than downtown without a separate layout.
+ */
+/**
+ * The floodlit facade pair for the khedivial downtown (the golden belle
+ * epoque look of the owner's Tahrir reference): the WALL glows a warm
+ * uplight gradient — brightest at street level, dying out by the cornice —
+ * while the windows stay dark voids, which is exactly how a floodlit
+ * building reads at night (the inverse of the window-glow treatment every
+ * other district gets). The gradient exploits the facade UV convention:
+ * v=0 (canvas bottom) is every building's own base regardless of height,
+ * so a two-storey block and a nine-storey one both light from the street.
+ */
+export function makeFloodlitFacadeTextures(
+  scene: Scene,
+  name: string,
+  stone: Color3,
+): { readonly diffuse: DynamicTexture; readonly emissive: DynamicTexture } {
+  const { cellW, cellH, marginX, marginY, winW, winH } = facadeCellMetrics();
+
+  const diffuse = new DynamicTexture(
+    `${name}-diffuse`,
+    { width: FACADE_TEX_W, height: FACADE_TEX_H },
+    scene,
+    true,
+  );
+  const ctx = textureContext(diffuse);
+  ctx.fillStyle = facadeColorHex(stone);
+  ctx.fillRect(0, 0, FACADE_TEX_W, FACADE_TEX_H);
+  // Cornice/string-course bands on every floor line — the moulding rhythm
+  // the khedivial facades carry.
+  for (let row = 0; row <= FACADE_ROWS; row += 1) {
+    ctx.fillStyle = "rgba(255,244,214,0.28)";
+    ctx.fillRect(0, Math.round(row * cellH) - 2, FACADE_TEX_W, 3);
+    ctx.fillStyle = "rgba(30,22,12,0.25)";
+    ctx.fillRect(0, Math.round(row * cellH) + 1, FACADE_TEX_W, 2);
+  }
+  for (const cell of FACADE_LAYOUT) {
+    const x = cell.col * cellW + marginX;
+    const y = cell.row * cellH + marginY;
+    // Tall shuttered windows, all dark: a floodlit facade's rooms read as
+    // voids against the lit stone.
+    ctx.fillStyle = "#191310";
+    ctx.fillRect(x, y, winW, winH);
+    ctx.fillStyle = "rgba(255,240,205,0.35)";
+    ctx.fillRect(x - 2, y - 2, winW + 4, 2);
+  }
+  diffuse.update();
+  diffuse.wrapU = Texture.WRAP_ADDRESSMODE;
+  diffuse.wrapV = Texture.WRAP_ADDRESSMODE;
+
+  const emissive = new DynamicTexture(
+    `${name}-emissive`,
+    { width: FACADE_TEX_W, height: FACADE_TEX_H },
+    scene,
+    true,
+  );
+  const ectx = textureContext(emissive);
+  // Uplight: canvas bottom is UV v=0, every building's own street level.
+  const gradient = ectx.createLinearGradient(0, FACADE_TEX_H, 0, 0);
+  gradient.addColorStop(0, "rgb(96,66,30)");
+  gradient.addColorStop(0.45, "rgb(56,38,18)");
+  gradient.addColorStop(1, "rgb(16,11,6)");
+  ectx.fillStyle = gradient;
+  ectx.fillRect(0, 0, FACADE_TEX_W, FACADE_TEX_H);
+  for (const cell of FACADE_LAYOUT) {
+    ectx.fillStyle = "#000000";
+    ectx.fillRect(
+      cell.col * cellW + marginX,
+      cell.row * cellH + marginY,
+      winW,
+      winH,
+    );
+  }
+  emissive.update();
+  emissive.wrapU = Texture.WRAP_ADDRESSMODE;
+  emissive.wrapV = Texture.WRAP_ADDRESSMODE;
+  return { diffuse, emissive };
+}
+
+export function makeBaladiFacadeTextures(
+  scene: Scene,
+  name: string,
+  infill: Color3,
+  frame: Color3,
+  courses = true,
+): { readonly diffuse: DynamicTexture; readonly emissive: DynamicTexture } {
+  const { cellW, cellH, marginX, marginY, winW, winH } = facadeCellMetrics();
+  const frameW = Math.round(cellW * 0.16);
+  const frameH = Math.round(cellH * 0.2);
+  const litKind = (col: number, row: number): "warm" | "tube" | null => {
+    const cell = FACADE_LAYOUT.find((c) => c.col === col && c.row === row);
+    if (!cell?.lit) return null;
+    const h = (col * 31 + row * 17) % 9;
+    if (h < 4) return null; // nearly half of downtown's lit rooms stay dark here
+    return h % 3 === 0 ? "tube" : "warm";
+  };
+  const WARM = "rgb(244,193,118)";
+  const TUBE = "rgb(196,228,192)";
+
+  const diffuse = new DynamicTexture(
+    `${name}-diffuse`,
+    { width: FACADE_TEX_W, height: FACADE_TEX_H },
+    scene,
+    true,
+  );
+  const ctx = textureContext(diffuse);
+  ctx.fillStyle = facadeColorHex(infill);
+  ctx.fillRect(0, 0, FACADE_TEX_W, FACADE_TEX_H);
+  // Brick coursing: thin darker lines, slightly varied so the field reads
+  // as laid brick rather than flat paint. Skipped for rendered infill —
+  // courses on smooth render read as clapboard siding, not masonry.
+  if (courses) {
+    for (let y = 0; y < FACADE_TEX_H; y += 5) {
+      ctx.fillStyle = `rgba(20,10,6,${y % 15 === 0 ? 0.22 : 0.13})`;
+      ctx.fillRect(0, y, FACADE_TEX_W, 1);
+    }
+  }
+  // Concrete skeleton: slabs on every floor line, columns on every window
+  // column boundary. Drawn after the brick so the frame sits proud of it.
+  ctx.fillStyle = facadeColorHex(frame);
+  for (let row = 0; row <= FACADE_ROWS; row += 1) {
+    ctx.fillRect(0, Math.round(row * cellH - frameH / 2), FACADE_TEX_W, frameH);
+  }
+  for (let col = 0; col <= FACADE_COLS; col += 1) {
+    ctx.fillRect(Math.round(col * cellW - frameW / 2), 0, frameW, FACADE_TEX_H);
+  }
+  // A faint weathering streak under each slab edge.
+  for (let row = 1; row <= FACADE_ROWS; row += 1) {
+    ctx.fillStyle = "rgba(30,20,12,0.18)";
+    ctx.fillRect(0, Math.round(row * cellH + frameH / 2), FACADE_TEX_W, 2);
+  }
+  // Windows: markedly smaller than downtown's — baladi rooms have one
+  // shuttered opening, not a curtain-wall pane — deep-set dark unless lit.
+  const winScaleW = 0.7;
+  const winScaleH = 0.76;
+  const smallW = winW * winScaleW;
+  const smallH = winH * winScaleH;
+  for (const cell of FACADE_LAYOUT) {
+    const x = cell.col * cellW + marginX + (winW - smallW) / 2;
+    const y = cell.row * cellH + marginY + (winH - smallH) / 2;
+    const kind = litKind(cell.col, cell.row);
+    ctx.fillStyle =
+      kind === "warm" ? WARM : kind === "tube" ? TUBE : "#221812";
+    ctx.fillRect(x, y, smallW, smallH);
+    // lintel shadow so even dark windows read as openings, not paint
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
+    ctx.fillRect(x, y, smallW, 2);
+  }
+  diffuse.update();
+  diffuse.wrapU = Texture.WRAP_ADDRESSMODE;
+  diffuse.wrapV = Texture.WRAP_ADDRESSMODE;
+
+  const emissive = new DynamicTexture(
+    `${name}-emissive`,
+    { width: FACADE_TEX_W, height: FACADE_TEX_H },
+    scene,
+    true,
+  );
+  const ectx = textureContext(emissive);
+  ectx.fillStyle = "#000000";
+  ectx.fillRect(0, 0, FACADE_TEX_W, FACADE_TEX_H);
+  for (const cell of FACADE_LAYOUT) {
+    const kind = litKind(cell.col, cell.row);
+    if (!kind) continue;
+    ectx.fillStyle = kind === "tube" ? TUBE : WARM;
+    ectx.fillRect(
+      cell.col * cellW + marginX + (winW - smallW) / 2,
+      cell.row * cellH + marginY + (winH - smallH) / 2,
+      smallW,
+      smallH,
+    );
+  }
+  emissive.update();
+  emissive.wrapU = Texture.WRAP_ADDRESSMODE;
+  emissive.wrapV = Texture.WRAP_ADDRESSMODE;
+  return { diffuse, emissive };
+}
+
 export function makeFacadeDiffuseTexture(
   scene: Scene,
   name: string,

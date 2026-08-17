@@ -3,6 +3,7 @@ import {
   Color3,
   DynamicTexture,
   Mesh,
+  MeshBuilder,
   type Scene,
   StandardMaterial,
   TransformNode,
@@ -13,6 +14,8 @@ import {
   CAIRO_STREET_WALL_URL_RE,
 } from "../geometry/cairoParkland";
 import { buildingPlacementConfig } from "../buildingSets";
+import { buildingStructuralBoundsFor } from "../buildingStructuralBounds";
+import { ARABIC_CANVAS_FONT_FAMILY } from "../arabicFont";
 import { MERGE_INCOMPATIBLE_MODEL_IDS } from "../buildingCatalog";
 import type { PlannedAssetBuilding } from "../geometry/buildingLayout";
 import { instantiateModel, instantiateModelInstanced, modelMaterials } from "../modelLibrary";
@@ -97,6 +100,39 @@ import type { BuildingRepresentationRecord } from "./buildingRepresentation";
  */
 const WINDOW_GLOW = 0.34;
 
+/**
+ * Cairo's polished-district night identity (the owner's reference photos):
+ * the khedivial kit reads FLOODLIT — a modest constant warm wall emissive,
+ * windows dimmed to voids — while the two Corniche towers keep dark walls
+ * with the standard lit window grid and grow neon rooftop signs. The wall
+ * emissive here is NOT the retired albedo-glow fallback: it is a small
+ * constant colour (no texture feedback, so shading and baked depth
+ * survive), applied to one city's kit deliberately, the way the real
+ * downtown is uplit. WINDOW_GLOW's own caution applies: these panes are
+ * readable only against their own wall treatment, so the floodlit models'
+ * panes run dimmer than everyone else's.
+ */
+const CAIRO_FLOODLIT_WALL_EMISSIVE = new Color3(0.115, 0.082, 0.042);
+const CAIRO_FLOODLIT_PANE_GLOW = 0.14;
+const CAIRO_FLOODLIT_URL_RE =
+  /\/cairo-(?:block-|walkup-|residence-|office-block|depot|shop)[^/]*\.glb$/;
+const CAIRO_TOWER_URL_RE = /\/cairo-tower-[ab]\.glb$/;
+
+/** Rooftop neon signs for the Corniche towers — the bank-and-hotel crowns
+ * of the owner's Nile reference photos. Arabic is safe here: GameCanvas
+ * awaits the bundled Arabic canvas font before a Cairo session constructs. */
+const CAIRO_CROWN_SIGNS: readonly {
+  readonly text: string;
+  readonly color: string;
+}[] = [
+  { text: "بنك القاهرة", color: "#39e07a" },
+  { text: "فندق النيل", color: "#48c8ff" },
+  { text: "بنك مصر", color: "#ffc23e" },
+  { text: "مصر للتأمين", color: "#ff5748" },
+  { text: "شركة النصر", color: "#39e07a" },
+  { text: "فندق أم كلثوم", color: "#48c8ff" },
+];
+
 /** Test/development-only forced-unavailable policy, evaluated before any URL
  * discovery or load attempt — plan Section 7.7. Production omits it and
  * follows normal loading; never exposed as a player setting. A forced model
@@ -152,6 +188,7 @@ export class BuildingLayer {
    * (falls back to the plain building master for that url). */
   private readonly storefrontMasters = new Map<string, Mesh | null>();
   private readonly storefrontSignMaterials = new Map<string, StandardMaterial>();
+  private readonly crownSignMaterials = new Map<number, StandardMaterial>();
 
   constructor(private readonly scene: Scene) {}
 
@@ -382,6 +419,95 @@ export class BuildingLayer {
     ctx.registerStaticCell(inst, building.x, building.z, false);
   }
 
+  /** See CAIRO_FLOODLIT_WALL_EMISSIVE's comment. Runs after applyNightGlow
+   * so the generic pane treatment exists to be re-tuned; url matching is
+   * inherently map-scoped because building glbs preload per map. */
+  private applyCairoNightIdentity(buildingModelUrls: readonly string[]): void {
+    for (const url of buildingModelUrls) {
+      if (!CAIRO_FLOODLIT_URL_RE.test(url)) continue;
+      for (const mat of modelMaterials(this.scene, url)) {
+        const m = mat as unknown as {
+          emissiveColor?: Color3;
+          emissiveTexture?: unknown;
+          emissiveIntensity?: number;
+        };
+        const isPane = /window|glass|trim|cristal/.test((mat.name ?? "").toLowerCase());
+        if (isPane) {
+          if (typeof m.emissiveIntensity === "number") {
+            m.emissiveIntensity = CAIRO_FLOODLIT_PANE_GLOW;
+          } else if (m.emissiveColor) {
+            m.emissiveColor = m.emissiveColor.scale(
+              CAIRO_FLOODLIT_PANE_GLOW / WINDOW_GLOW,
+            );
+          }
+          continue;
+        }
+        if (m.emissiveTexture != null) continue;
+        m.emissiveColor = CAIRO_FLOODLIT_WALL_EMISSIVE.clone();
+        if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 1;
+      }
+    }
+  }
+
+  private getCrownSignMaterial(variant: number): StandardMaterial {
+    const cached = this.crownSignMaterials.get(variant);
+    if (cached) return cached;
+    const sign = CAIRO_CROWN_SIGNS[variant % CAIRO_CROWN_SIGNS.length];
+    const texture = new DynamicTexture(
+      `cairo-crown-${variant}-texture`,
+      { width: 512, height: 128 },
+      this.scene,
+      true,
+    );
+    const context = texture.getContext() as unknown as CanvasRenderingContext2D;
+    context.fillStyle = "#0a0a0c";
+    context.fillRect(0, 0, 512, 128);
+    context.font = `bold 74px ${ARABIC_CANVAS_FONT_FAMILY}, Arial, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillStyle = sign.color;
+    context.fillText(sign.text, 256, 68);
+    context.strokeStyle = sign.color;
+    context.lineWidth = 5;
+    context.strokeRect(10, 10, 492, 108);
+    texture.update();
+    const material = new StandardMaterial(`cairo-crown-${variant}`, this.scene);
+    material.diffuseTexture = texture;
+    material.diffuseColor = new Color3(0.1, 0.1, 0.1);
+    material.emissiveTexture = texture;
+    material.emissiveColor = new Color3(1, 1, 1);
+    material.specularColor = Color3.Black();
+    material.backFaceCulling = false;
+    this.crownSignMaterials.set(variant, material);
+    return material;
+  }
+
+  /** One neon rooftop sign per Corniche tower, colour and name hashed on the
+   * placement so reloads agree. A single quad per tower; the shared
+   * per-variant material blooms under the night pipeline. */
+  private addCornicheCrown(
+    entry: PlannedAssetBuilding,
+    ctx: BuildingLayerInstantiateCtx,
+  ): void {
+    const bounds = buildingStructuralBoundsFor(entry.modelId);
+    if (!bounds) return;
+    const variant =
+      hashStringToSeed(
+        `crown-${Math.round(entry.x)}-${Math.round(entry.z)}`,
+      ) % CAIRO_CROWN_SIGNS.length;
+    const plate = MeshBuilder.CreatePlane(
+      `cairo-crown-${entry.renderOrdinal}`,
+      { width: 14, height: 3.4 },
+      this.scene,
+    );
+    plate.position.set(entry.x, bounds.proxyHeightM + 2.5, entry.z);
+    plate.rotation.y = entry.yaw + Math.PI;
+    plate.material = this.getCrownSignMaterial(variant);
+    plate.isPickable = false;
+    ctx.staticSceneryFreeze.push(plate);
+    ctx.registerStaticCell(plate, entry.x, entry.z, false);
+  }
+
   private isForcedUnavailable(modelId: string, ctx: BuildingLayerInstantiateCtx): boolean {
     const policy = ctx.debugAssetPolicy;
     if (!policy) return false;
@@ -492,7 +618,10 @@ export class BuildingLayer {
    * call the code this replaces — see the class doc comment.
    */
   instantiate(ctx: BuildingLayerInstantiateCtx): void {
-    if (ctx.night) this.applyNightGlow(ctx.buildingModelUrls);
+    if (ctx.night) {
+      this.applyNightGlow(ctx.buildingModelUrls);
+      this.applyCairoNightIdentity(ctx.buildingModelUrls);
+    }
     // Pull the Cairo kit's decal primitives off their wall planes; see
     // CAIRO_DECAL_Z_OFFSET_UNITS. Container materials are shared by every
     // instance and by the merged masters, so once per url covers the map.
@@ -533,6 +662,9 @@ export class BuildingLayer {
         // broken, and the rear view is mostly buildings.
         ctx.registerStaticCell(inst, entry.x, entry.z, false);
         this.addCairoRoofClutter(entry, ctx);
+        if (ctx.night && CAIRO_TOWER_URL_RE.test(entry.url)) {
+          this.addCornicheCrown(entry, ctx);
+        }
         ctx.registerRepresentation({
           planId: entry.id,
           source: "asset-slot",
@@ -559,5 +691,6 @@ export class BuildingLayer {
     this.plannedEntries = [];
     this.storefrontMasters.clear();
     this.storefrontSignMaterials.clear();
+    this.crownSignMaterials.clear();
   }
 }

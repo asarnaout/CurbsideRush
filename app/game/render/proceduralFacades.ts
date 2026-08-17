@@ -18,7 +18,11 @@ import {
   createFacadeBox,
   makeFacadeMaterial,
 } from "./meshPrimitives";
-import { makeFacadeEmissiveTexture } from "./proceduralTextures";
+import {
+  makeBaladiFacadeTextures,
+  makeFacadeEmissiveTexture,
+  makeFloodlitFacadeTextures,
+} from "./proceduralTextures";
 
 /**
  * The procedural windowed-facade-box renderer: paints exactly the boxes
@@ -139,9 +143,55 @@ export class ProceduralFacades {
     "cairo-west-bank-concrete": new Color3(0.58, 0.56, 0.5),
   };
 
+  /**
+   * The baladi keys render through `makeBaladiFacadeTextures` (brick infill
+   * in an exposed concrete skeleton) rather than the flat windowed wall the
+   * palette above paints — see `materialFor`. Infill tones straddle the
+   * red-brown band of Cairo's actual brick stock; the frame is always the
+   * pale unpainted concrete that holds it.
+   */
+  private static readonly BALADI_PALETTE: Record<
+    string,
+    { readonly infill: Color3; readonly frame: Color3; readonly courses: boolean }
+  > = {
+    "cairo-brick": {
+      infill: new Color3(0.4, 0.24, 0.17),
+      frame: new Color3(0.5, 0.48, 0.43),
+      courses: true,
+    },
+    "cairo-brick-worn": {
+      infill: new Color3(0.47, 0.31, 0.22),
+      frame: new Color3(0.53, 0.51, 0.45),
+      courses: true,
+    },
+    "cairo-render-grey": {
+      infill: new Color3(0.5, 0.46, 0.4),
+      frame: new Color3(0.55, 0.53, 0.48),
+      courses: false,
+    },
+  };
+
   /** Per-materialKey memoized facade material — see `materialFor`. */
   private readonly facadeMaterials = new Map<string, StandardMaterial>();
   private facadeEmissiveTexture: DynamicTexture | null = null;
+
+  /**
+   * Static-merge buckets: every facade box and dressing piece this class
+   * creates is collected per (material, shadow flag, ~96 m grid cell) and
+   * merged into one mesh per bucket by `finalize()`. A box city the size of
+   * reimagined Cairo is thousands of individually-drawn 12-triangle meshes
+   * — the merge collapses them to a few hundred chunks with identical
+   * pixels (same materials, same world-baked geometry), which is the
+   * difference between the informal fabric being affordable and not. The
+   * cell size bounds two costs at once: frustum-culling granularity (a
+   * chunk stays active while any corner shows) and the mirror ring's
+   * centroid-keyed pickup error.
+   */
+  private readonly mergeBuckets = new Map<
+    string,
+    { readonly meshes: Mesh[]; readonly castsShadow: boolean }
+  >();
+  private static readonly MERGE_CELL_M = 96;
 
   constructor(private readonly scene: Scene) {}
 
@@ -165,14 +215,46 @@ export class ProceduralFacades {
   materialFor(materialKey: string): StandardMaterial {
     const cached = this.facadeMaterials.get(materialKey);
     if (cached) return cached;
-    const wallColor =
-      ProceduralFacades.BUILDING_PALETTE[materialKey] ?? new Color3(0.56, 0.5, 0.43);
-    const created = makeFacadeMaterial(
-      this.scene,
-      `facade-${materialKey}`,
-      wallColor,
-      this.emissiveTexture,
-    );
+    const baladi = ProceduralFacades.BALADI_PALETTE[materialKey];
+    let created: StandardMaterial;
+    if (materialKey === "cairo-khedivial-stone") {
+      // Downtown's floodlit gold: the wall itself glows an uplight
+      // gradient and the windows stay dark — see makeFloodlitFacadeTextures.
+      const textures = makeFloodlitFacadeTextures(
+        this.scene,
+        `facade-${materialKey}`,
+        ProceduralFacades.BUILDING_PALETTE[materialKey],
+      );
+      created = new StandardMaterial(`facade-${materialKey}`, this.scene);
+      created.diffuseColor = new Color3(1, 1, 1);
+      created.diffuseTexture = textures.diffuse;
+      created.emissiveTexture = textures.emissive;
+      created.emissiveColor = new Color3(1, 1, 1);
+      created.specularColor = new Color3(0.05, 0.05, 0.05);
+    } else if (baladi) {
+      const textures = makeBaladiFacadeTextures(
+        this.scene,
+        `facade-${materialKey}`,
+        baladi.infill,
+        baladi.frame,
+        baladi.courses,
+      );
+      created = new StandardMaterial(`facade-${materialKey}`, this.scene);
+      created.diffuseColor = new Color3(1, 1, 1);
+      created.diffuseTexture = textures.diffuse;
+      created.emissiveTexture = textures.emissive;
+      created.emissiveColor = new Color3(1, 1, 1);
+      created.specularColor = new Color3(0.04, 0.04, 0.04);
+    } else {
+      const wallColor =
+        ProceduralFacades.BUILDING_PALETTE[materialKey] ?? new Color3(0.56, 0.5, 0.43);
+      created = makeFacadeMaterial(
+        this.scene,
+        `facade-${materialKey}`,
+        wallColor,
+        this.emissiveTexture,
+      );
+    }
     this.facadeMaterials.set(materialKey, created);
     return created;
   }
@@ -215,7 +297,7 @@ export class ProceduralFacades {
     // London both hold frame budget with their procedural boxes still casting.
     // Widening it is a perf change to make against a measurement, not a
     // consequence of the palette flip.
-    ctx.registerShadowCaster(facade, entry.x, entry.z, !ctx.mapId.includes("tokyo"));
+    this.enqueueStatic(facade, entry.x, entry.z, !ctx.mapId.includes("tokyo"));
 
     const solid = entry.solids[0];
     const representation: BuildingSolidRepresentation = {
@@ -230,11 +312,13 @@ export class ProceduralFacades {
     }
 
     const freezeDetail = (mesh: Mesh) => {
-      mesh.isPickable = false;
-      ctx.staticSceneryFreeze.push(mesh);
+      this.enqueueStatic(mesh, entry.x, entry.z, false);
     };
     const isGardenCity = block.material === "cairo-garden-stucco";
-    const isWestBank = block.material === "cairo-west-bank-concrete";
+    const isBaladi = block.material.startsWith("cairo-brick") ||
+      block.material === "cairo-render-grey";
+    const isWestBank =
+      block.material === "cairo-west-bank-concrete" || isBaladi;
     const cellIndex = entry.cellIndex;
     const width = entry.widthM;
     const depth = entry.depthM;
@@ -330,8 +414,7 @@ export class ProceduralFacades {
         new Vector3(entry.x, height + 0.62, entry.z),
         ctx.cairoRooftopMaterial,
       );
-      ctx.registerShadowCaster(tank, entry.x, entry.z);
-      ctx.staticSceneryFreeze.push(tank);
+      this.enqueueStatic(tank, entry.x, entry.z, true);
     } else if (ctx.cairoDishMaterial && cellIndex % 3 === 1) {
       const dish = createCylinder(
         this.scene,
@@ -342,8 +425,7 @@ export class ProceduralFacades {
       );
       dish.rotation.x = -0.7;
       dish.rotation.y = entry.yaw + 0.4;
-      ctx.registerShadowCaster(dish, entry.x, entry.z);
-      ctx.staticSceneryFreeze.push(dish);
+      this.enqueueStatic(dish, entry.x, entry.z, true);
     }
 
     return representation;
@@ -360,8 +442,7 @@ export class ProceduralFacades {
   renderGardenCityCompound(block: MapBlock, ctx: ProceduralFacadesCtx): void {
     if (!ctx.cairoFacadeTrimMaterial || !ctx.cairoBalconyRailMaterial) return;
     const freezeDetail = (mesh: Mesh) => {
-      mesh.isPickable = false;
-      ctx.staticSceneryFreeze.push(mesh);
+      this.enqueueStatic(mesh, block.center.x, block.center.z, false);
     };
     const compound = new TransformNode(`${block.id}-compound`, this.scene);
     compound.position.set(block.center.x, 0, block.center.z);
@@ -406,8 +487,57 @@ export class ProceduralFacades {
     ctx.staticSceneryFreeze.push(compound);
   }
 
+  private enqueueStatic(mesh: Mesh, x: number, z: number, castsShadow: boolean): void {
+    mesh.isPickable = false;
+    const materialName = mesh.material?.name ?? "none";
+    const key = `${materialName}|${castsShadow ? 1 : 0}|${Math.floor(
+      x / ProceduralFacades.MERGE_CELL_M,
+    )}|${Math.floor(z / ProceduralFacades.MERGE_CELL_M)}`;
+    const bucket = this.mergeBuckets.get(key);
+    if (bucket) bucket.meshes.push(mesh);
+    else this.mergeBuckets.set(key, { meshes: [mesh], castsShadow });
+  }
+
+  /**
+   * Merge every bucket into one static mesh, register it in the shadow/
+   * mirror hash at its own centroid, and hand it to the shared freeze pass.
+   * Must run once, after the block loop has painted every planned
+   * procedural building (the session calls it right after the garden
+   * compounds) — `BuildingLayer`'s later proxy boxes deliberately stay
+   * individual (they exist only for missing glbs).
+   */
+  finalize(ctx: ProceduralFacadesCtx): void {
+    for (const [key, bucket] of this.mergeBuckets) {
+      // A degenerate piece (a compound wall run squeezed to nothing by a
+      // small block) carries no positions and poisons the whole merge —
+      // drop it the way it used to silently render nothing.
+      const meshes = bucket.meshes.filter((mesh) => {
+        if (mesh.getTotalVertices() > 0) return true;
+        mesh.dispose();
+        return false;
+      });
+      if (!meshes.length) continue;
+      let result: Mesh | null;
+      if (meshes.length === 1) {
+        result = meshes[0];
+      } else {
+        for (const mesh of meshes) mesh.computeWorldMatrix(true);
+        result = Mesh.MergeMeshes(meshes, true, true, undefined, false, false);
+        if (result) result.name = `facade-chunk-${key}`;
+      }
+      if (!result) continue;
+      result.isPickable = false;
+      result.computeWorldMatrix(true);
+      const center = result.getBoundingInfo().boundingBox.centerWorld;
+      ctx.registerShadowCaster(result, center.x, center.z, bucket.castsShadow);
+      ctx.staticSceneryFreeze.push(result);
+    }
+    this.mergeBuckets.clear();
+  }
+
   dispose(): void {
     this.facadeMaterials.clear();
     this.facadeEmissiveTexture = null;
+    this.mergeBuckets.clear();
   }
 }

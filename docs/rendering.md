@@ -222,6 +222,24 @@ decal-on-wall fixes, and treat camera `minZ` as a depth-precision budget
 (precision varies as `minZ/z²`; the chase camera's 0.5 keeps millimetre
 offsets resolvable — don't lower it to "fix" near clipping).
 
+## Cairo's night identity is three texture families plus a kit pass
+
+The baladi districts' boxes take `makeBaladiFacadeTextures` (brick or bare
+render inside an exposed concrete skeleton, smaller shuttered windows, a
+sparse warm/fluorescent night mix); the khedivial key takes
+`makeFloodlitFacadeTextures` — the WALL glows an uplight gradient and the
+windows stay dark voids, exploiting the facade UV convention (v=0 is every
+building's own base, so any height lights from the street). Both live in
+`proceduralTextures.ts` and cost two DynamicTextures per key, zero extra
+meshes. On the glb side, `BuildingLayer.applyCairoNightIdentity` gives the
+khedivial kit a small CONSTANT warm wall emissive (never the retired
+albedo-feedback glow) with panes dimmed to `CAIRO_FLOODLIT_PANE_GLOW` —
+`WINDOW_GLOW`'s own caution applies: a pane is readable only against its
+own wall treatment. The two Corniche towers keep dark walls and standard
+panes, and every placement grows an Arabic neon rooftop sign
+(`addCornicheCrown`; the Arabic canvas font is awaited before any Cairo
+session constructs, so the signs rasterise with the real face).
+
 ## Grass, parks and planting are their own page
 
 Ground grass, park lawns, paths and planting live in [greenery.md](greenery.md); their y-layer rungs are in the stack above.
@@ -433,7 +451,15 @@ thing that should stay BLEND.
 `registerStaticCell` takes an explicit `castsShadow` flag because the instanced
 building street wall deliberately casts none — flipping one silently adds it to
 the shadow map and changes every camera. The instanced glb wall casts no sun
-shadow while every procedural facade box does (`registerShadowCaster`); the
+shadow while the procedural facade fabric does — as merged chunks:
+**`ProceduralFacades.finalize` world-bakes every box and dressing piece into
+one mesh per (material, shadow flag, 96 m cell)** after the block loop, which
+is what makes a box city the size of reimagined Cairo affordable (a live
+paired measurement had the unmerged fabric halving the frame rate; merged, the
+map draws at or below the pre-reimagining baseline with identical pixels). A
+zero-vertex degenerate piece is dropped before merging — it used to render
+nothing harmlessly and would otherwise poison its bucket. `BuildingLayer`'s
+proxy boxes stay individual (they exist only for missing glbs); the
 corniche parapet follows the instanced rule, rendering a map's own shoreline
 collider OBBs verbatim (`shorelineParapetRuns`) — you see the wall you hit.
 Gated on `PROMENADE_DRESSING_MAP_KEYS` (`visuals.ts`, currently Cairo and

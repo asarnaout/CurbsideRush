@@ -216,6 +216,47 @@ const cairoNodes: readonly LaneNode[] = [
   node("cairo-wi-5", -610, 325),
   node("cairo-wi-6", -635, 580),
   node("cairo-wi-7", -610, 850),
+  // Hara network nodes (Cairo reimagining). Two kinds: `*-x-*` nodes are
+  // INSERTED into a host road's polyline (collinear on the host segment, so
+  // the host's geometry is unchanged — only its segment count and therefore
+  // its later lane ids move), and `cairo-h-*` nodes are interior alley
+  // crossings no main road touches. Every coordinate was solved against the
+  // host segment line, never eyeballed.
+  node("cairo-qn-x-merit", 137, -113.026),
+  node("cairo-qn-x-bustan", 212, -109.737),
+  node("cairo-qn-x-turgoman", 650, -63.75),
+  node("cairo-ch-x-bustan", 200, 343.333),
+  node("cairo-ch-x-abouela", 250, 350),
+  node("cairo-ta-x-merit", 125, -292.18),
+  node("cairo-qa-x-maamari", 336.5, 475),
+  node("cairo-qa-x-taha", 366.531, 700),
+  node("cairo-rm-x-farnsawi", 475.098, 105.001),
+  node("cairo-rm-x-turgoman", 565.574, 276.148),
+  node("cairo-rm-x-maamari", 650, 470),
+  node("cairo-rm-x-taha", 737.5, 700),
+  node("cairo-gl-x-farnsawi", 712.889, 105),
+  node("cairo-sb-x-youssef", 470, -497.5),
+  node("cairo-sb-x-diwan", 640, -476),
+  node("cairo-hz-x-youssef", 475, -671.111),
+  node("cairo-hz-x-diwan", 640, -658.077),
+  node("cairo-ra-x-abouela", 250, 852.456),
+  node("cairo-qa-x-lazoghly", 235.676, -780),
+  node("cairo-th-x-lazoghly", 412.5, -780),
+  node("cairo-rm-x-lazoghly", 596, -780),
+  node("cairo-gl-x-lazoghly", 739.429, -780),
+  node("cairo-iw-x-marsafi", -431.6, 280),
+  node("cairo-iw-x-selim", -424.659, -785),
+  node("cairo-ia-x-selim", -359.778, -785),
+  node("cairo-ib-x-selim", -238, -785),
+  node("cairo-ie-x-selim", -124.333, -785.001),
+  node("cairo-wo-x-sad", -834.348, -785),
+  node("cairo-wi-x-sad", -615.761, -785),
+  node("cairo-h-bustan-maarouf", 207, 121),
+  node("cairo-h-sahafa-maamari", 493.37, 472.54),
+  node("cairo-h-sahafa-taha", 526.18, 700),
+  node("cairo-h-abouela-khadrawy", 250, 599.8),
+  node("cairo-h-turgoman-farnsawi", 615.38, 105),
+  node("cairo-h-turgoman-bend", 598, 260),
 ];
 
 const cairoNodeById = new Map(cairoNodes.map((item) => [item.id, item]));
@@ -285,33 +326,71 @@ const road = (
  */
 export const CAIRO_ROAD_SPECS: readonly CairoRoadSpec[] = [
   road("cairo-corniche-el-nil", "Corniche El-Nil", ["cairo-ec-0", "cairo-ec-1", "cairo-ec-2", "cairo-ec-3", "cairo-ec-4", "cairo-ec-5", "cairo-ec-6", "cairo-ec-7", "cairo-ec-8"], 60, 2, 10.6, 3.4, { arterial: true }),
-  road("cairo-qasr-el-ainy", "Qasr El-Ainy Street", ["cairo-eq-0", "cairo-eq-1", "cairo-eq-2", "cairo-eq-3", "cairo-tahrir-hub", "cairo-eq-4", "cairo-eq-5", "cairo-eq-6", "cairo-eq-7"], 60, 2, 10.6, 3.4, { arterial: true }),
-  road("cairo-simon-bolivar", "Al Tahrir Street", ["cairo-ec-2", "cairo-eq-2", "cairo-ed-2", "cairo-er-2", "cairo-eg-2"], 40, 1, 7.4, 2.6, { oneWay: "forward" }),
-  road("cairo-talaat-harb", "Abd Al Khaleq Tharwat Street", ["cairo-ed-0", "cairo-ed-1", "cairo-ed-2", "cairo-ed-3", "cairo-tahrir-radial-cross", "cairo-qasr-tharwat"], 40, 1, 8.4, 2.6, { oneWay: "forward" }),
-  road("cairo-ramses", "Ramsis Street", ["cairo-er-0", "cairo-er-1", "cairo-er-2", "cairo-er-3", "cairo-tahrir-radial-cross", "cairo-tahrir-hub", "cairo-er-4", "cairo-er-5", "cairo-er-6", "cairo-er-7", "cairo-er-8"], 60, 2, 10.6, 3.4, { arterial: true }),
-  road("cairo-galaa-street", "Al-Galaa Street", ["cairo-eg-0", "cairo-eg-1", "cairo-eg-2", "cairo-eg-3", "cairo-eg-4", "cairo-eg-5", "cairo-eg-6", "cairo-eg-7", "cairo-eg-8"], 60, 2, 9.6, 3.4, { arterial: true }),
+  road("cairo-qasr-el-ainy", "Qasr El-Ainy Street", ["cairo-eq-0", "cairo-qa-x-lazoghly", "cairo-eq-1", "cairo-eq-2", "cairo-eq-3", "cairo-tahrir-hub", "cairo-eq-4", "cairo-eq-5", "cairo-qa-x-maamari", "cairo-eq-6", "cairo-qa-x-taha", "cairo-eq-7"], 60, 2, 10.6, 3.4, { arterial: true }),
+  road("cairo-simon-bolivar", "Al Tahrir Street", ["cairo-ec-2", "cairo-eq-2", "cairo-ed-2", "cairo-sb-x-youssef", "cairo-er-2", "cairo-sb-x-diwan", "cairo-eg-2"], 40, 1, 7.4, 2.6, { oneWay: "forward" }),
+  road("cairo-talaat-harb", "Abd Al Khaleq Tharwat Street", ["cairo-ed-0", "cairo-th-x-lazoghly", "cairo-ed-1", "cairo-ed-2", "cairo-ed-3", "cairo-tahrir-radial-cross", "cairo-qasr-tharwat"], 40, 1, 8.4, 2.6, { oneWay: "forward" }),
+  road("cairo-ramses", "Ramsis Street", ["cairo-er-0", "cairo-rm-x-lazoghly", "cairo-er-1", "cairo-er-2", "cairo-er-3", "cairo-tahrir-radial-cross", "cairo-tahrir-hub", "cairo-er-4", "cairo-rm-x-farnsawi", "cairo-er-5", "cairo-rm-x-turgoman", "cairo-er-6", "cairo-rm-x-maamari", "cairo-er-7", "cairo-rm-x-taha", "cairo-er-8"], 60, 2, 10.6, 3.4, { arterial: true }),
+  road("cairo-galaa-street", "Al-Galaa Street", ["cairo-eg-0", "cairo-gl-x-lazoghly", "cairo-eg-1", "cairo-eg-2", "cairo-eg-3", "cairo-eg-4", "cairo-gl-x-farnsawi", "cairo-eg-5", "cairo-eg-6", "cairo-eg-7", "cairo-eg-8"], 60, 2, 9.6, 3.4, { arterial: true }),
   road("cairo-garden-city-south", "Al Sheikh Rihan Street", ["cairo-ec-0", "cairo-eq-0", "cairo-ed-0", "cairo-er-0", "cairo-eg-0"], 40, 2, 9, 2.2),
-  road("cairo-abdel-qader-hamza", "Abd Al Qader Hamza Street", ["cairo-ec-1", "cairo-eq-1", "cairo-ed-1", "cairo-er-1", "cairo-eg-1"], 40, 1, 7.4, 2.4, { oneWay: "reverse" }),
-  road("cairo-tahrir-approach", "Magmaa Al Tahrir Street", ["cairo-ec-3", "cairo-eq-3", "cairo-ed-3", "cairo-er-3", "cairo-eg-3"], 60, 2, 9.6, 3.4, { arterial: true, oneWay: "forward" }),
-  road("cairo-qasr-el-nil-street", "Qasr El-Nil Street", ["cairo-ec-4", "cairo-tahrir-hub", "cairo-qasr-east", "cairo-qasr-tharwat", "cairo-eg-4"], 60, 4, 16, 3.4, { arterial: true }),
-  road("cairo-champollion", "Champollion Street", ["cairo-ec-6", "cairo-eq-5", "cairo-ed-5", "cairo-er-6", "cairo-eg-6"], 40, 1, 7.4, 2.4, { oneWay: "reverse" }),
-  road("cairo-ramses-approach", "Abd Al Moneim Riyad Street", ["cairo-ec-8", "cairo-eq-7", "cairo-ed-7", "cairo-er-8", "cairo-eg-8"], 60, 2, 9.6, 3.4, { arterial: true }),
-  road("cairo-saray-el-gezira", "Al Saraya Street", ["cairo-iw-0", "cairo-iw-1", "cairo-iw-2", "cairo-iw-3", "cairo-iw-4", "cairo-iw-5", "cairo-iw-6", "cairo-iw-7"], 40, 2, 9, 2.4),
-  road("cairo-el-gabalaya", "El Gabalaya Street", ["cairo-ia-0", "cairo-ia-1", "cairo-ia-2", "cairo-ia-3", "cairo-ia-4", "cairo-ia-5", "cairo-ia-6", "cairo-ia-7"], 40, 1, 7.4, 2.2, { oneWay: "forward" }),
-  road("cairo-opera-corridor", "Montazah Al Gezira Street", ["cairo-ib-0", "cairo-ib-1", "cairo-ib-2", "cairo-ib-3", "cairo-ib-4", "cairo-ib-5", "cairo-ib-6", "cairo-ib-7"], 40, 1, 7.4, 2.6, { oneWay: "reverse" }),
-  road("cairo-nile-island-drive", "El-Nil Street", ["cairo-ie-0", "cairo-ie-1", "cairo-ie-2", "cairo-ie-3", "cairo-ie-4", "cairo-ie-5", "cairo-ie-6", "cairo-ie-7"], 60, 2, 9.6, 3.4, { arterial: true }),
+  road("cairo-abdel-qader-hamza", "Abd Al Qader Hamza Street", ["cairo-ec-1", "cairo-eq-1", "cairo-ed-1", "cairo-hz-x-youssef", "cairo-er-1", "cairo-hz-x-diwan", "cairo-eg-1"], 40, 1, 7.4, 2.4, { oneWay: "reverse" }),
+  road("cairo-tahrir-approach", "Magmaa Al Tahrir Street", ["cairo-ec-3", "cairo-ta-x-merit", "cairo-eq-3", "cairo-ed-3", "cairo-er-3", "cairo-eg-3"], 60, 2, 9.6, 3.4, { arterial: true, oneWay: "forward" }),
+  road("cairo-qasr-el-nil-street", "Qasr El-Nil Street", ["cairo-ec-4", "cairo-qn-x-merit", "cairo-qn-x-bustan", "cairo-tahrir-hub", "cairo-qasr-east", "cairo-qasr-tharwat", "cairo-qn-x-turgoman", "cairo-eg-4"], 60, 4, 16, 3.4, { arterial: true }),
+  road("cairo-champollion", "Champollion Street", ["cairo-ec-6", "cairo-ch-x-bustan", "cairo-ch-x-abouela", "cairo-eq-5", "cairo-ed-5", "cairo-er-6", "cairo-eg-6"], 40, 1, 7.4, 2.4, { oneWay: "reverse" }),
+  road("cairo-ramses-approach", "Abd Al Moneim Riyad Street", ["cairo-ec-8", "cairo-ra-x-abouela", "cairo-eq-7", "cairo-ed-7", "cairo-er-8", "cairo-eg-8"], 60, 2, 9.6, 3.4, { arterial: true }),
+  road("cairo-saray-el-gezira", "Al Saraya Street", ["cairo-iw-0", "cairo-iw-x-selim", "cairo-iw-1", "cairo-iw-2", "cairo-iw-3", "cairo-iw-4", "cairo-iw-x-marsafi", "cairo-iw-5", "cairo-iw-6", "cairo-iw-7"], 40, 2, 9, 2.4),
+  road("cairo-el-gabalaya", "El Gabalaya Street", ["cairo-ia-0", "cairo-ia-x-selim", "cairo-ia-1", "cairo-ia-2", "cairo-ia-3", "cairo-ia-4", "cairo-ia-5", "cairo-ia-6", "cairo-ia-7"], 40, 1, 7.4, 2.2, { oneWay: "forward" }),
+  road("cairo-opera-corridor", "Montazah Al Gezira Street", ["cairo-ib-0", "cairo-ib-x-selim", "cairo-ib-1", "cairo-ib-2", "cairo-ib-3", "cairo-ib-4", "cairo-ib-5", "cairo-ib-6", "cairo-ib-7"], 40, 1, 7.4, 2.6, { oneWay: "reverse" }),
+  road("cairo-nile-island-drive", "El-Nil Street", ["cairo-ie-0", "cairo-ie-x-selim", "cairo-ie-1", "cairo-ie-2", "cairo-ie-3", "cairo-ie-4", "cairo-ie-5", "cairo-ie-6", "cairo-ie-7"], 60, 2, 9.6, 3.4, { arterial: true }),
   road("cairo-south-gezira-road", "Al Malek Abd Al Aziz Aal Seoud Street", ["cairo-iw-0", "cairo-ia-0", "cairo-ib-0", "cairo-ie-0"], 40, 2, 9, 2.4),
   road("cairo-zamalek-south", "Hassan Sabry Street", ["cairo-iw-2", "cairo-ia-2", "cairo-ib-2", "cairo-ie-2"], 40, 1, 7.4, 2.2, { oneWay: "forward" }),
   road("cairo-opera-square", "Al Gezira Street", ["cairo-iw-4", "cairo-ia-4", "cairo-ib-4", "cairo-ie-4"], 40, 1, 7.4, 2.6, { oneWay: "reverse" }),
   road("cairo-zamalek-north", "26th July Street", ["cairo-iw-7", "cairo-ia-7", "cairo-ib-7", "cairo-ie-7"], 40, 2, 9, 2.4),
   road("cairo-qasr-el-nil-bridge", "Qasr El-Nil Bridge", ["cairo-ie-3", "cairo-ec-4"], 60, 2, 11.2, 3.4, { arterial: true }),
   road("cairo-al-galaa-bridge", "Al-Galaa Bridge", ["cairo-wi-5", "cairo-iw-5"], 60, 4, 15, 3.4, { arterial: true }),
-  road("cairo-west-nile-street", "Charles De Gaulle Street", ["cairo-wo-0", "cairo-wo-1", "cairo-wo-2", "cairo-wo-3", "cairo-wo-4", "cairo-wo-5", "cairo-wo-6", "cairo-wo-7"], 60, 2, 10.4, 3.4, { arterial: true }),
-  road("cairo-dokki-nile-drive", "Al Dokki Street", ["cairo-wi-0", "cairo-wi-1", "cairo-wi-2", "cairo-wi-3", "cairo-wi-4", "cairo-wi-5", "cairo-wi-6", "cairo-wi-7"], 60, 2, 9.6, 3.4, { arterial: true }),
+  road("cairo-west-nile-street", "Charles De Gaulle Street", ["cairo-wo-0", "cairo-wo-x-sad", "cairo-wo-1", "cairo-wo-2", "cairo-wo-3", "cairo-wo-4", "cairo-wo-5", "cairo-wo-6", "cairo-wo-7"], 60, 2, 10.4, 3.4, { arterial: true }),
+  road("cairo-dokki-nile-drive", "Al Dokki Street", ["cairo-wi-0", "cairo-wi-x-sad", "cairo-wi-1", "cairo-wi-2", "cairo-wi-3", "cairo-wi-4", "cairo-wi-5", "cairo-wi-6", "cairo-wi-7"], 60, 2, 9.6, 3.4, { arterial: true }),
   road("cairo-dokki-south", "Al Mesaha Street", ["cairo-wo-0", "cairo-wi-0"], 40, 2, 9, 2.4),
   road("cairo-dokki-midtown", "Gaber Ibn Hayan Street", ["cairo-wo-3", "cairo-wi-3"], 40, 1, 7.4, 2.4, { oneWay: "forward" }),
   road("cairo-agouza-approach", "26th July Street", ["cairo-wo-7", "cairo-wi-7"], 40, 2, 9, 2.4),
+
+  // ---- The hara network (Cairo reimagining, 2026-08-16). ----
+  // Twenty-four one-way, single-lane lanes ("harat"/"sikak" — the streets that
+  // could at most allow one car through, per the owner's brief) threading the
+  // interiors the corridor roads leave empty. Every name is a real street from
+  // the frozen OSM extract (the provenance test requires it) picked for the
+  // district it serves: Bulaq gets Wabour Al Turgoman and Abou Al Ela, the
+  // museum gets Merit Pasha, Zamalek gets Marsafi/Ozoris/Al Borg, the Gezira
+  // club south gets Saleh Selim, Dokki gets Suliman Gawhar. One-way is not a
+  // style choice: a two-way road needs an even laneCount and a 4.8 m
+  // carriageway cannot carry two opposing NPC lanes, so alternating one-way
+  // directions provide the circulation instead. Endpoints are existing nodes
+  // or `*-x-*` inserts; interior `cairo-h-*` nodes are alley-to-alley
+  // crossings. Nothing here crosses the rail corridor or a Nile channel.
+  road("cairo-haret-sahafa", "El Sahafa Street", ["cairo-ed-5", "cairo-h-sahafa-maamari", "cairo-ed-6", "cairo-h-sahafa-taha", "cairo-ed-7"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-khadrawy", "Al Khadrawy Street", ["cairo-ec-7", "cairo-h-abouela-khadrawy", "cairo-eq-6", "cairo-ed-6", "cairo-er-7"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-maamari", "Hussain Pasha Al Maamari Street", ["cairo-qa-x-maamari", "cairo-h-sahafa-maamari", "cairo-rm-x-maamari"], 40, 1, 4.8, 1.4, { oneWay: "reverse" }),
+  road("cairo-haret-taha", "Sayed Taha Street", ["cairo-qa-x-taha", "cairo-h-sahafa-taha", "cairo-rm-x-taha"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-abouela", "Al Sultan Abou Al Ela Street", ["cairo-ch-x-abouela", "cairo-h-abouela-khadrawy", "cairo-ra-x-abouela"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-turgoman", "Wabour Al Turgoman Street", ["cairo-qn-x-turgoman", "cairo-h-turgoman-farnsawi", "cairo-ed-4", "cairo-h-turgoman-bend", "cairo-rm-x-turgoman"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-farnsawi", "Wabour Al Farnsawi Street", ["cairo-rm-x-farnsawi", "cairo-h-turgoman-farnsawi", "cairo-gl-x-farnsawi"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-bustan", "Al Bostan Al Saedi Street", ["cairo-qn-x-bustan", "cairo-h-bustan-maarouf", "cairo-ch-x-bustan"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-maarouf", "Al Sheikh Maarouf Street", ["cairo-ec-5", "cairo-h-bustan-maarouf", "cairo-eq-4"], 40, 1, 4.8, 1.4, { oneWay: "reverse" }),
+  road("cairo-haret-merit", "Merit Pasha Street", ["cairo-qn-x-merit", "cairo-ta-x-merit"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-youssef", "Al Sheikh Ali Youssef Street", ["cairo-sb-x-youssef", "cairo-hz-x-youssef"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-diwan", "Al Diwan Street", ["cairo-sb-x-diwan", "cairo-hz-x-diwan"], 40, 1, 4.8, 1.4, { oneWay: "reverse" }),
+  road("cairo-haret-lazoghly", "Lazoghly Street", ["cairo-qa-x-lazoghly", "cairo-th-x-lazoghly", "cairo-rm-x-lazoghly", "cairo-gl-x-lazoghly"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-marsafi", "Al Sheikh Al Marsafi Street", ["cairo-iw-x-marsafi", "cairo-ia-5", "cairo-ib-5", "cairo-ie-5"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-borg", "Al Borg Street", ["cairo-ia-3", "cairo-ib-3", "cairo-ie-3"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-ozoris", "Ozoris Street", ["cairo-iw-6", "cairo-ia-6", "cairo-ib-6", "cairo-ie-6"], 40, 1, 4.8, 1.4, { oneWay: "reverse" }),
+  road("cairo-haret-mokhtar", "Mahmoud Mokhtar Street", ["cairo-ia-1", "cairo-ib-1", "cairo-ie-1"], 40, 1, 4.8, 1.4, { oneWay: "reverse" }),
+  road("cairo-haret-selim", "Saleh Selim Street", ["cairo-iw-x-selim", "cairo-ia-x-selim", "cairo-ib-x-selim", "cairo-ie-x-selim"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-sad", "Al Sad Al Aali Street", ["cairo-wo-x-sad", "cairo-wi-x-sad"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-gohar", "Suliman Gawhar Street", ["cairo-wo-1", "cairo-wi-1"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-wasef", "Hussein Wasef Pasha Street", ["cairo-wo-2", "cairo-wi-2"], 40, 1, 4.8, 1.4, { oneWay: "reverse" }),
+  road("cairo-haret-refaei", "Amin Al Refaei Street", ["cairo-wo-4", "cairo-wi-4"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
+  road("cairo-haret-amer", "Amer Street", ["cairo-wo-6", "cairo-wi-6"], 40, 1, 4.8, 1.4, { oneWay: "forward" }),
 ];
+
 
 export interface CairoConnectorMovement {
   readonly fromRoadId: string;
@@ -391,7 +470,7 @@ export const CAIRO_JUNCTION_CONNECTORS: readonly CairoJunctionConnectorSpec[] = 
   junction("cairo-junction-zamalek-north-gabalaya", "cairo-ia-7", ["cairo-el-gabalaya", "cairo-zamalek-north"]),
   junction("cairo-junction-zamalek-north-opera", "cairo-ib-7", ["cairo-opera-corridor", "cairo-zamalek-north"]),
   junction("cairo-junction-zamalek-north-east", "cairo-ie-7", ["cairo-nile-island-drive", "cairo-zamalek-north"]),
-  junction("cairo-junction-qasr-bridge-island", "cairo-ie-3", ["cairo-nile-island-drive", "cairo-qasr-el-nil-bridge"]),
+  junction("cairo-junction-qasr-bridge-island", "cairo-ie-3", ["cairo-nile-island-drive", "cairo-qasr-el-nil-bridge", "cairo-haret-borg"]),
   junction("cairo-junction-galaa-bridge-island", "cairo-iw-5", ["cairo-saray-el-gezira", "cairo-al-galaa-bridge"]),
   junction("cairo-junction-galaa-bridge-west", "cairo-wi-5", ["cairo-dokki-nile-drive", "cairo-al-galaa-bridge"]),
   junction("cairo-junction-dokki-south-outer", "cairo-wo-0", ["cairo-west-nile-street", "cairo-dokki-south"]),
@@ -400,7 +479,73 @@ export const CAIRO_JUNCTION_CONNECTORS: readonly CairoJunctionConnectorSpec[] = 
   junction("cairo-junction-dokki-mid-inner", "cairo-wi-3", ["cairo-dokki-nile-drive", "cairo-dokki-midtown"]),
   junction("cairo-junction-agouza-outer", "cairo-wo-7", ["cairo-west-nile-street", "cairo-agouza-approach"]),
   junction("cairo-junction-agouza-inner", "cairo-wi-7", ["cairo-dokki-nile-drive", "cairo-agouza-approach"]),
+  // Hara-network turn grants. Same-road continuation stays implicit; each
+  // entry is one alley mouth or alley-to-alley crossing. The two bridge
+  // landings above additionally admit the haras that end on them.
+  junction("cairo-junction-hara-lazoghly-qasr", "cairo-qa-x-lazoghly", ["cairo-qasr-el-ainy", "cairo-haret-lazoghly"]),
+  junction("cairo-junction-hara-lazoghly-tharwat", "cairo-th-x-lazoghly", ["cairo-talaat-harb", "cairo-haret-lazoghly"]),
+  junction("cairo-junction-hara-lazoghly-ramsis", "cairo-rm-x-lazoghly", ["cairo-ramses", "cairo-haret-lazoghly"]),
+  junction("cairo-junction-hara-lazoghly-galaa", "cairo-gl-x-lazoghly", ["cairo-galaa-street", "cairo-haret-lazoghly"]),
+  junction("cairo-junction-hara-youssef-bolivar", "cairo-sb-x-youssef", ["cairo-simon-bolivar", "cairo-haret-youssef"]),
+  junction("cairo-junction-hara-youssef-hamza", "cairo-hz-x-youssef", ["cairo-abdel-qader-hamza", "cairo-haret-youssef"]),
+  junction("cairo-junction-hara-diwan-bolivar", "cairo-sb-x-diwan", ["cairo-simon-bolivar", "cairo-haret-diwan"]),
+  junction("cairo-junction-hara-diwan-hamza", "cairo-hz-x-diwan", ["cairo-abdel-qader-hamza", "cairo-haret-diwan"]),
+  junction("cairo-junction-hara-merit-qasr-nil", "cairo-qn-x-merit", ["cairo-qasr-el-nil-street", "cairo-haret-merit"]),
+  junction("cairo-junction-hara-merit-tahrir", "cairo-ta-x-merit", ["cairo-tahrir-approach", "cairo-haret-merit"]),
+  junction("cairo-junction-hara-bustan-qasr-nil", "cairo-qn-x-bustan", ["cairo-qasr-el-nil-street", "cairo-haret-bustan"]),
+  junction("cairo-junction-hara-bustan-champollion", "cairo-ch-x-bustan", ["cairo-champollion", "cairo-haret-bustan"]),
+  junction("cairo-junction-hara-bustan-maarouf", "cairo-h-bustan-maarouf", ["cairo-haret-bustan", "cairo-haret-maarouf"]),
+  junction("cairo-junction-hara-maarouf-corniche", "cairo-ec-5", ["cairo-corniche-el-nil", "cairo-haret-maarouf"]),
+  junction("cairo-junction-hara-maarouf-qasr", "cairo-eq-4", ["cairo-qasr-el-ainy", "cairo-haret-maarouf"]),
+  junction("cairo-junction-hara-turgoman-qasr-nil", "cairo-qn-x-turgoman", ["cairo-qasr-el-nil-street", "cairo-haret-turgoman"]),
+  junction("cairo-junction-hara-turgoman-farnsawi", "cairo-h-turgoman-farnsawi", ["cairo-haret-turgoman", "cairo-haret-farnsawi"]),
+  junction("cairo-junction-hara-turgoman-ramsis", "cairo-rm-x-turgoman", ["cairo-ramses", "cairo-haret-turgoman"]),
+  junction("cairo-junction-hara-farnsawi-ramsis", "cairo-rm-x-farnsawi", ["cairo-ramses", "cairo-haret-farnsawi"]),
+  junction("cairo-junction-hara-farnsawi-galaa", "cairo-gl-x-farnsawi", ["cairo-galaa-street", "cairo-haret-farnsawi"]),
+  junction("cairo-junction-hara-abouela-champollion", "cairo-ch-x-abouela", ["cairo-champollion", "cairo-haret-abouela"]),
+  junction("cairo-junction-hara-abouela-khadrawy", "cairo-h-abouela-khadrawy", ["cairo-haret-abouela", "cairo-haret-khadrawy"]),
+  junction("cairo-junction-hara-abouela-riyad", "cairo-ra-x-abouela", ["cairo-ramses-approach", "cairo-haret-abouela"]),
+  junction("cairo-junction-hara-khadrawy-corniche", "cairo-ec-7", ["cairo-corniche-el-nil", "cairo-haret-khadrawy"]),
+  junction("cairo-junction-hara-khadrawy-qasr", "cairo-eq-6", ["cairo-qasr-el-ainy", "cairo-haret-khadrawy"]),
+  junction("cairo-junction-hara-khadrawy-sahafa", "cairo-ed-6", ["cairo-haret-khadrawy", "cairo-haret-sahafa"]),
+  junction("cairo-junction-hara-khadrawy-ramsis", "cairo-er-7", ["cairo-ramses", "cairo-haret-khadrawy"]),
+  junction("cairo-junction-hara-sahafa-champollion", "cairo-ed-5", ["cairo-champollion", "cairo-haret-sahafa"]),
+  junction("cairo-junction-hara-sahafa-maamari", "cairo-h-sahafa-maamari", ["cairo-haret-sahafa", "cairo-haret-maamari"]),
+  junction("cairo-junction-hara-sahafa-taha", "cairo-h-sahafa-taha", ["cairo-haret-sahafa", "cairo-haret-taha"]),
+  junction("cairo-junction-hara-sahafa-riyad", "cairo-ed-7", ["cairo-ramses-approach", "cairo-haret-sahafa"]),
+  junction("cairo-junction-hara-maamari-qasr", "cairo-qa-x-maamari", ["cairo-qasr-el-ainy", "cairo-haret-maamari"]),
+  junction("cairo-junction-hara-maamari-ramsis", "cairo-rm-x-maamari", ["cairo-ramses", "cairo-haret-maamari"]),
+  junction("cairo-junction-hara-taha-qasr", "cairo-qa-x-taha", ["cairo-qasr-el-ainy", "cairo-haret-taha"]),
+  junction("cairo-junction-hara-taha-ramsis", "cairo-rm-x-taha", ["cairo-ramses", "cairo-haret-taha"]),
+  junction("cairo-junction-hara-borg-gabalaya", "cairo-ia-3", ["cairo-el-gabalaya", "cairo-haret-borg"]),
+  junction("cairo-junction-hara-borg-opera", "cairo-ib-3", ["cairo-opera-corridor", "cairo-haret-borg"]),
+  junction("cairo-junction-hara-marsafi-saray", "cairo-iw-x-marsafi", ["cairo-saray-el-gezira", "cairo-haret-marsafi"]),
+  junction("cairo-junction-hara-marsafi-gabalaya", "cairo-ia-5", ["cairo-el-gabalaya", "cairo-haret-marsafi"]),
+  junction("cairo-junction-hara-marsafi-opera", "cairo-ib-5", ["cairo-opera-corridor", "cairo-haret-marsafi"]),
+  junction("cairo-junction-hara-marsafi-island", "cairo-ie-5", ["cairo-nile-island-drive", "cairo-haret-marsafi"]),
+  junction("cairo-junction-hara-ozoris-saray", "cairo-iw-6", ["cairo-saray-el-gezira", "cairo-haret-ozoris"]),
+  junction("cairo-junction-hara-ozoris-gabalaya", "cairo-ia-6", ["cairo-el-gabalaya", "cairo-haret-ozoris"]),
+  junction("cairo-junction-hara-ozoris-opera", "cairo-ib-6", ["cairo-opera-corridor", "cairo-haret-ozoris"]),
+  junction("cairo-junction-hara-ozoris-island", "cairo-ie-6", ["cairo-nile-island-drive", "cairo-haret-ozoris"]),
+  junction("cairo-junction-hara-mokhtar-gabalaya", "cairo-ia-1", ["cairo-el-gabalaya", "cairo-haret-mokhtar"]),
+  junction("cairo-junction-hara-mokhtar-opera", "cairo-ib-1", ["cairo-opera-corridor", "cairo-haret-mokhtar"]),
+  junction("cairo-junction-hara-mokhtar-island", "cairo-ie-1", ["cairo-nile-island-drive", "cairo-haret-mokhtar"]),
+  junction("cairo-junction-hara-selim-saray", "cairo-iw-x-selim", ["cairo-saray-el-gezira", "cairo-haret-selim"]),
+  junction("cairo-junction-hara-selim-gabalaya", "cairo-ia-x-selim", ["cairo-el-gabalaya", "cairo-haret-selim"]),
+  junction("cairo-junction-hara-selim-opera", "cairo-ib-x-selim", ["cairo-opera-corridor", "cairo-haret-selim"]),
+  junction("cairo-junction-hara-selim-island", "cairo-ie-x-selim", ["cairo-nile-island-drive", "cairo-haret-selim"]),
+  junction("cairo-junction-hara-sad-west", "cairo-wo-x-sad", ["cairo-west-nile-street", "cairo-haret-sad"]),
+  junction("cairo-junction-hara-sad-dokki", "cairo-wi-x-sad", ["cairo-dokki-nile-drive", "cairo-haret-sad"]),
+  junction("cairo-junction-hara-gohar-west", "cairo-wo-1", ["cairo-west-nile-street", "cairo-haret-gohar"]),
+  junction("cairo-junction-hara-gohar-dokki", "cairo-wi-1", ["cairo-dokki-nile-drive", "cairo-haret-gohar"]),
+  junction("cairo-junction-hara-wasef-west", "cairo-wo-2", ["cairo-west-nile-street", "cairo-haret-wasef"]),
+  junction("cairo-junction-hara-wasef-dokki", "cairo-wi-2", ["cairo-dokki-nile-drive", "cairo-haret-wasef"]),
+  junction("cairo-junction-hara-refaei-west", "cairo-wo-4", ["cairo-west-nile-street", "cairo-haret-refaei"]),
+  junction("cairo-junction-hara-refaei-dokki", "cairo-wi-4", ["cairo-dokki-nile-drive", "cairo-haret-refaei"]),
+  junction("cairo-junction-hara-amer-west", "cairo-wo-6", ["cairo-west-nile-street", "cairo-haret-amer"]),
+  junction("cairo-junction-hara-amer-dokki", "cairo-wi-6", ["cairo-dokki-nile-drive", "cairo-haret-amer"]),
 ];
+
 
 interface RawLane extends LaneSegment {
   readonly reverseKey: string;
@@ -1216,6 +1361,100 @@ const sixthOctoberCorridor = orientedParcel(
   CAIRO_SIXTH_OCTOBER_SCENIC_BRIDGE.headingDeg - 90,
 );
 
+/**
+ * The vibe zoning (Cairo reimagining, owner's brief): Corniche, Tahrir/
+ * downtown and Zamalek read POLISHED — floodlit stone, cream, the glb street
+ * wall — while the rest of the city reads as the red-brick informal Cairo
+ * that is just as much its identity. "baladi" is Bulaq/Ramses east of the
+ * downtown core plus the whole rail belt and the Mounira/Sayeda side of
+ * Garden City; the west bank is the Dokki/Agouza mix — concrete mid-rises
+ * shoulder to shoulder with brick.
+ */
+type CairoDistrict = "westbank" | "zamalek" | "garden" | "downtown" | "baladi";
+
+const cairoDistrictAt = (position: WorldPoint): CairoDistrict => {
+  if (position.x < -590) return "westbank";
+  if (position.x < 55) return "zamalek";
+  // Bulaq/Ramses: east of the khedivial core, north of Qasr El-Nil Street —
+  // and west Bulaq too, the whole band north of Champollion up to the rail
+  // belt (the Corniche frontage stays corniche via the waterfront override).
+  if (position.x > 455 && position.z > -70) return "baladi";
+  if (position.x > 100 && position.z > 390) return "baladi";
+  // The rail belt: informal on every bank of the corridor, as it really is.
+  if (position.z < -640) return "baladi";
+  // Mounira/Sayeda east of Garden City proper.
+  if (position.z < -350) return position.x > 310 ? "baladi" : "garden";
+  return "downtown";
+};
+
+/**
+ * Baladi facades are a per-parcel patchwork, not one tone: every building is
+ * its own state of brick, render or bare concrete. Hashed on a 10 m grid so
+ * split pieces of one frontage still vary while re-runs stay identical.
+ */
+const baladiMaterialAt = (position: WorldPoint, concreteLean: boolean): string => {
+  const roll = hashStringToSeed(
+    `baladi-${Math.round(position.x / 10)}-${Math.round(position.z / 10)}`,
+  ) % 5;
+  if (concreteLean) {
+    return roll < 2
+      ? "cairo-west-bank-concrete"
+      : roll === 2
+        ? "cairo-brick"
+        : roll === 3
+          ? "cairo-brick-worn"
+          : "cairo-render-grey";
+  }
+  return roll < 2
+    ? "cairo-brick"
+    : roll === 2
+      ? "cairo-brick-worn"
+      : roll === 3
+        ? "cairo-render-grey"
+        : "cairo-west-bank-concrete";
+};
+
+const cairoRoadsideStyle = (
+  position: WorldPoint,
+): {
+  readonly material: string;
+  readonly heightRange: readonly [number, number];
+  readonly depthM: number;
+} => {
+  switch (cairoDistrictAt(position)) {
+    case "westbank":
+      return {
+        material: baladiMaterialAt(position, true),
+        heightRange: [14, 34],
+        depthM: 14,
+      };
+    case "zamalek":
+      return {
+        material: "cairo-gezira-cream",
+        heightRange: [14, 34],
+        depthM: 14,
+      };
+    case "garden":
+      return {
+        material: "cairo-garden-stucco",
+        heightRange: [12, 28],
+        depthM: 14,
+      };
+    case "baladi":
+      return {
+        material: baladiMaterialAt(position, false),
+        heightRange: [10, 28],
+        depthM: 14,
+      };
+    default:
+      return {
+        material: "cairo-khedivial-stone",
+        heightRange: [20, 46],
+        depthM: 14,
+      };
+  }
+};
+
 const cairoBlocks: ProceduralBlock[] = [];
 
 /**
@@ -1309,21 +1548,26 @@ for (const [bandIndex, band] of eastParcelBands.entries()) {
     if (columnIndex >= 2) continue;
     if (bandIndex === 5 && columnIndex === 1) continue;
     if ((bandIndex === 6 || bandIndex === 7) && columnIndex === 1) continue;
-    addRoadClearBlock(
-      block(
-        `cairo-east-block-${bandIndex + 1}-${columnIndex + 1}`,
-        column.x + (bandIndex % 2 === 0 ? -5 : 7),
-        band.z,
-        column.width,
-        band.depth,
-        band.heading + columnIndex * 1.5,
-        bandIndex <= 2
-          ? "cairo-garden-stucco"
-          : "cairo-khedivial-stone",
-        bandIndex <= 2 ? [10, 25] : [18, 42],
-        bandIndex <= 2 ? 0.66 : 0.82,
-      ),
-    );
+    {
+      const centerX = column.x + (bandIndex % 2 === 0 ? -5 : 7);
+      // Style follows the district map, so the Mounira/Sayeda-side column
+      // (x=350, z < -350) turns baladi brick while Garden City proper and
+      // the downtown columns keep their stucco and stone.
+      const style = cairoRoadsideStyle(point(centerX, band.z));
+      addRoadClearBlock(
+        block(
+          `cairo-east-block-${bandIndex + 1}-${columnIndex + 1}`,
+          centerX,
+          band.z,
+          column.width,
+          band.depth,
+          band.heading + columnIndex * 1.5,
+          style.material,
+          style.heightRange,
+          bandIndex <= 2 ? 0.66 : 0.82,
+        ),
+      );
+    }
   }
 }
 
@@ -1368,19 +1612,23 @@ for (const [index, parcel] of [
   { z: 450, depth: 130, heading: -6 },
   { z: 710, depth: 135, heading: 8 },
 ].entries()) {
-  addRoadClearBlock(
-    block(
-      `cairo-west-block-${index + 1}`,
-      -720 + (index % 2 === 0 ? -4 : 5),
-      parcel.z,
-      108,
-      parcel.depth,
-      parcel.heading,
-      "cairo-west-bank-concrete",
-      [16, 38],
-      0.78,
-    ),
-  );
+  {
+    const centerX = -720 + (index % 2 === 0 ? -4 : 5);
+    const style = cairoRoadsideStyle(point(centerX, parcel.z));
+    addRoadClearBlock(
+      block(
+        `cairo-west-block-${index + 1}`,
+        centerX,
+        parcel.z,
+        108,
+        parcel.depth,
+        parcel.heading,
+        style.material,
+        style.heightRange,
+        0.78,
+      ),
+    );
+  }
 }
 
 // One deliberate parcel where the roadside generator cannot go: Tahrir's 18 m
@@ -1487,6 +1735,19 @@ const cairoLandmarks: readonly ProceduralLandmark[] = [
     color: "#e4dbc7",
   },
   {
+    // Bulaq's own mosque, at the heart of the hara web and a street away
+    // from the lane that shares its name — discovered down an alley the way
+    // Cairo's mosques are, not presented on a plaza. Bespoke render in
+    // `buildCairoLandmark` (pointed Mamluk dome, arcaded front, and the
+    // green-lit minaret every Egyptian mosque wears at night); ground
+    // solids are its own recipe in `landmarkGroundSolids.ts`.
+    id: "cairo-abou-ela-mosque",
+    kind: "cultural",
+    center: point(285, 560),
+    size: point(26, 20),
+    color: "#d9cdb4",
+  },
+  {
     id: "cairo-qasr-el-nil-bridge",
     kind: "bridge",
     center: point(-9, -137.5),
@@ -1553,20 +1814,26 @@ const cairoLandmarks: readonly ProceduralLandmark[] = [
   },
 ];
 
-const lanesForAnchors = cairoLanes.filter(
-  (lane) => lane.id.includes("-forward-") && laneLength(lane) > 80,
-);
-const safeDistance = (lane: LaneSegment, ratio = 0.5): number =>
-  Math.max(14, Math.min(laneLength(lane) - 14, laneLength(lane) * ratio));
-
+/**
+ * Venue, service and spawn anchors are FROZEN literals, not computed deals.
+ *
+ * They used to be dealt from a filtered, ordered lane list
+ * (`lanesForAnchors[(index * 7 + 3) % length]` with a handful of named
+ * overrides), which made every venue's position a function of the whole
+ * lane census: adding one road — or one node to an existing road, which
+ * renumbers that road's segment-indexed lane ids — silently re-dealt every
+ * venue and vehicle gate on the map. The alley network needs exactly those
+ * edits, so the deal as of 2026-08-16 (27 roads / 224 lanes) is pinned
+ * here verbatim: same lane ids, same distances, byte-identical resolved
+ * pack. A road edit that renumbers lanes must update these literals in the
+ * same change — re-anchor each entry by its world position onto the same
+ * road, never by guessing at segment arithmetic.
+ */
 const cairoServicePoints: readonly ServicePoint[] = [
   {
     id: "cairo-gas-garden-city",
     kind: "gas_station",
-    anchor: anchor(
-      "cairo-qasr-el-ainy-1-forward-1",
-      safeDistance(cairoLaneById.get("cairo-qasr-el-ainy-1-forward-1")!, 0.52),
-    ),
+    anchor: anchor("cairo-qasr-el-ainy-2-forward-1", 16.496682233955028),
     footprint: point(12, 8),
     label: "Garden City Fuel",
     setbackM: 18.8,
@@ -1574,10 +1841,7 @@ const cairoServicePoints: readonly ServicePoint[] = [
   {
     id: "cairo-gas-west-bank",
     kind: "gas_station",
-    anchor: anchor(
-      "cairo-west-nile-street-4-forward-1",
-      safeDistance(cairoLaneById.get("cairo-west-nile-street-4-forward-1")!, 0.48),
-    ),
+    anchor: anchor("cairo-west-nile-street-5-forward-1", 118.46267802853994),
     footprint: point(12, 8),
     label: "Nile Bank Fuel",
     setbackM: 18.8,
@@ -1585,10 +1849,7 @@ const cairoServicePoints: readonly ServicePoint[] = [
   {
     id: "cairo-repair-downtown",
     kind: "repair_shop",
-    anchor: anchor(
-      "cairo-galaa-street-2-forward-1",
-      safeDistance(cairoLaneById.get("cairo-galaa-street-2-forward-1")!, 0.55),
-    ),
+    anchor: anchor("cairo-galaa-street-3-forward-1", 102.6316386873693),
     footprint: point(10, 8),
     label: "Downtown Motors",
     setbackM: 11.4,
@@ -1596,101 +1857,285 @@ const cairoServicePoints: readonly ServicePoint[] = [
   {
     id: "cairo-repair-dokki",
     kind: "repair_shop",
-    anchor: anchor(
-      "cairo-dokki-nile-drive-2-forward-1",
-      safeDistance(cairoLaneById.get("cairo-dokki-nile-drive-2-forward-1")!, 0.45),
-    ),
+    anchor: anchor("cairo-dokki-nile-drive-3-forward-1", 104.34588515886699),
     footprint: point(10, 8),
     label: "Dokki Auto Works",
     setbackM: 11.35,
   },
 ];
 
-const venueKinds = [
-  "restaurant",
-  "shop",
-  "residence",
-  "office",
-  "depot",
-] as const;
-const CAIRO_RESIDENCE_MODEL_IDS = [
-  "cairo-residence-kay",
-  "cairo-residence-quaternius",
-] as const;
-const venueNames = [
-  "Garden City Kitchen",
-  "Nile Books",
-  "Tahrir Residences",
-  "Downtown Exchange",
-  "Gezira Dispatch",
-  "Opera Terrace",
-  "Zamalek Grocers",
-  "Corniche Apartments",
-  "Dokki Business Centre",
-  "Ramses Depot",
-  "Lotus Cafe",
-  "Champollion Market",
-  "Museum View Flats",
-  "Bolivar Offices",
-  "Nile Courier Hub",
-  "Saray Bistro",
-  "Gabalaya Corner Shop",
-  "Opera Gardens Homes",
-  "Agouza Workspace",
-  "West Bank Depot",
-  "Tahrir Bakery",
-  "Garden City Supplies",
-  "Gezira Court",
-  "Qasr El-Nil Offices",
-  "Cairo Dispatch Yard",
-  "Nile Terrace Cafe",
-  "Dokki Mini Market",
-  "Zamalek Residences",
-  "Corniche Trade House",
-  "Central Cairo Depot",
-] as const;
-
-const venueLaneOverrides: Readonly<Partial<Record<number, string>>> = {
-  // Keep the Dokki office parcel on the west bank, away from Tahrir's fan.
-  8: "cairo-west-nile-street-6-forward-1",
-  // Keep this residence away from the Garden City fuel forecourt.
-  17: "cairo-el-gabalaya-6-forward-1",
-  // Keep the depot clear of the converging Tahrir/Qasr El-Nil approaches.
-  24: "cairo-west-nile-street-2-forward-1",
-};
-
-const cairoGigVenues: readonly GigVenue[] = venueNames.map((name, index) => {
-  const lane =
-    cairoLaneById.get(venueLaneOverrides[index] ?? "") ??
-    lanesForAnchors[(index * 7 + 3) % lanesForAnchors.length];
-  const kind = venueKinds[index % venueKinds.length];
-  // Offices and depots used to share `office.glb` — Quaternius's "Big Building",
-  // whose hipped roof is a European shape Cairo does not have, placed 12 times
-  // across the map. Both now get their own flat-roofed block. `office.glb`
-  // itself still serves NYC and London.
-  const modelId =
-    kind === "residence"
-      ? CAIRO_RESIDENCE_MODEL_IDS[
-          Math.floor(index / venueKinds.length) %
-            CAIRO_RESIDENCE_MODEL_IDS.length
-        ]
-      : kind === "depot"
-        ? "cairo-depot"
-        : kind === "office"
-          ? "cairo-office-block"
-          : kind === "shop"
-            ? "cairo-shop"
-            : undefined;
-  return {
-    id: `cairo-venue-${String(index + 1).padStart(2, "0")}`,
-    kind,
-    anchor: anchor(lane.id, safeDistance(lane, 0.3 + (index % 5) * 0.1)),
-    footprint: point(index % 2 === 0 ? 14 : 12, index % 3 === 0 ? 12 : 10),
-    name,
+/**
+ * Thirty venues across all five venue kinds. Residences alternate the two
+ * residence models; offices and depots keep their flat-roofed Cairo blocks
+ * (`office.glb`'s hipped roof is a European shape Cairo does not have —
+ * NYC and London still use it, Cairo never).
+ */
+const cairoGigVenues: readonly GigVenue[] = [
+  {
+    id: "cairo-venue-01",
+    kind: "restaurant",
+    anchor: anchor("cairo-corniche-el-nil-4-forward-1", 51.20335254039153),
+    footprint: point(14, 12),
+    name: "Garden City Kitchen",
     setbackM: 15,
-    ...(modelId ? { modelId } : {}),
-  };
-});
+  },
+  {
+    id: "cairo-venue-02",
+    kind: "shop",
+    anchor: anchor("cairo-qasr-el-ainy-4-forward-1", 75.91965911100725),
+    footprint: point(12, 10),
+    name: "Nile Books",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-03",
+    kind: "residence",
+    anchor: anchor("cairo-simon-bolivar-2-forward-1", 90.55385138137416),
+    footprint: point(14, 10),
+    name: "Tahrir Residences",
+    setbackM: 15,
+    modelId: "cairo-residence-kay",
+  },
+  {
+    id: "cairo-venue-04",
+    kind: "office",
+    anchor: anchor("cairo-talaat-harb-6-forward-1", 149.45902448497378),
+    footprint: point(12, 12),
+    name: "Downtown Exchange",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-05",
+    kind: "depot",
+    anchor: anchor("cairo-ramses-9-forward-1", 38.778762774923905),
+    footprint: point(14, 10),
+    name: "Gezira Dispatch",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+  {
+    id: "cairo-venue-06",
+    kind: "restaurant",
+    anchor: anchor("cairo-galaa-street-5-forward-1", 63.44329871344446),
+    footprint: point(12, 10),
+    name: "Opera Terrace",
+    setbackM: 15,
+  },
+  {
+    id: "cairo-venue-07",
+    kind: "shop",
+    anchor: anchor("cairo-garden-city-south-3-forward-1", 72.2125193861483),
+    footprint: point(14, 12),
+    name: "Zamalek Grocers",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-08",
+    kind: "residence",
+    anchor: anchor("cairo-tahrir-approach-4-forward-2", 46.34174907145398),
+    footprint: point(12, 10),
+    name: "Corniche Apartments",
+    setbackM: 15,
+    modelId: "cairo-residence-quaternius",
+  },
+  {
+    id: "cairo-venue-09",
+    kind: "office",
+    anchor: anchor("cairo-west-nile-street-7-forward-1", 154.04503594483953),
+    footprint: point(14, 10),
+    name: "Dokki Business Centre",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-10",
+    kind: "depot",
+    anchor: anchor("cairo-saray-el-gezira-2-forward-1", 90.48298465993933),
+    footprint: point(12, 12),
+    name: "Ramses Depot",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+  {
+    id: "cairo-venue-11",
+    kind: "restaurant",
+    anchor: anchor("cairo-el-gabalaya-2-forward-1", 12.695955417333149),
+    footprint: point(14, 10),
+    name: "Lotus Cafe",
+    setbackM: 15,
+  },
+  {
+    id: "cairo-venue-12",
+    kind: "shop",
+    anchor: anchor("cairo-nile-island-drive-2-forward-1", 30.569894236154997),
+    footprint: point(12, 10),
+    name: "Champollion Market",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-13",
+    kind: "residence",
+    anchor: anchor("cairo-south-gezira-road-1-forward-1", 43.05270527651837),
+    footprint: point(14, 12),
+    name: "Museum View Flats",
+    setbackM: 15,
+    modelId: "cairo-residence-kay",
+  },
+  {
+    id: "cairo-venue-14",
+    kind: "office",
+    anchor: anchor("cairo-zamalek-north-3-forward-1", 69.31251938614831),
+    footprint: point(12, 10),
+    name: "Bolivar Offices",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-15",
+    kind: "depot",
+    anchor: anchor("cairo-west-nile-street-5-forward-1", 172.7562022775164),
+    footprint: point(14, 10),
+    name: "Nile Courier Hub",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+  {
+    id: "cairo-venue-16",
+    kind: "restaurant",
+    anchor: anchor("cairo-dokki-nile-drive-5-forward-1", 72.55076370782447),
+    footprint: point(12, 12),
+    name: "Saray Bistro",
+    setbackM: 15,
+  },
+  {
+    id: "cairo-venue-17",
+    kind: "shop",
+    anchor: anchor("cairo-corniche-el-nil-1-forward-1", 78.3104724343634),
+    footprint: point(14, 10),
+    name: "Gabalaya Corner Shop",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-18",
+    kind: "residence",
+    anchor: anchor("cairo-el-gabalaya-7-forward-1", 129.92786460186284),
+    footprint: point(12, 10),
+    name: "Opera Gardens Homes",
+    setbackM: 15,
+    modelId: "cairo-residence-quaternius",
+  },
+  {
+    id: "cairo-venue-19",
+    kind: "office",
+    anchor: anchor("cairo-qasr-el-ainy-9-forward-1", 35.491811105532946),
+    footprint: point(14, 12),
+    name: "Agouza Workspace",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-20",
+    kind: "depot",
+    anchor: anchor("cairo-talaat-harb-3-forward-1", 117.39356881873897),
+    footprint: point(12, 10),
+    name: "West Bank Depot",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+  {
+    id: "cairo-venue-21",
+    kind: "restaurant",
+    anchor: anchor("cairo-ramses-5-forward-1", 38.86719773658328),
+    footprint: point(14, 10),
+    name: "Tahrir Bakery",
+    setbackM: 15,
+  },
+  {
+    id: "cairo-venue-22",
+    kind: "shop",
+    anchor: anchor("cairo-galaa-street-2-forward-1", 10.785162522109303),
+    footprint: point(12, 12),
+    name: "Garden City Supplies",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-23",
+    kind: "residence",
+    anchor: anchor("cairo-galaa-street-10-forward-1", 124.6879991050149),
+    footprint: point(14, 10),
+    name: "Gezira Court",
+    setbackM: 15,
+    modelId: "cairo-residence-kay",
+  },
+  {
+    id: "cairo-venue-24",
+    kind: "office",
+    anchor: anchor("cairo-tahrir-approach-3-forward-1", 92.07669985896014),
+    footprint: point(12, 10),
+    name: "Qasr El-Nil Offices",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-25",
+    kind: "depot",
+    anchor: anchor("cairo-west-nile-street-3-forward-1", 162.31303758878505),
+    footprint: point(14, 12),
+    name: "Cairo Dispatch Yard",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+  {
+    id: "cairo-venue-26",
+    kind: "restaurant",
+    anchor: anchor("cairo-ramses-approach-1-forward-1", 85.66674731450837),
+    footprint: point(12, 10),
+    name: "Nile Terrace Cafe",
+    setbackM: 15,
+  },
+  {
+    id: "cairo-venue-27",
+    kind: "shop",
+    anchor: anchor("cairo-saray-el-gezira-6-forward-1", 100.53336443243137),
+    footprint: point(14, 10),
+    name: "Dokki Mini Market",
+    setbackM: 15,
+    modelId: "cairo-shop",
+  },
+  {
+    id: "cairo-venue-28",
+    kind: "residence",
+    anchor: anchor("cairo-el-gabalaya-6-forward-1", 122.09115447074781),
+    footprint: point(12, 12),
+    name: "Zamalek Residences",
+    setbackM: 15,
+    modelId: "cairo-residence-quaternius",
+  },
+  {
+    id: "cairo-venue-29",
+    kind: "office",
+    anchor: anchor("cairo-nile-island-drive-6-forward-1", 149.26360327945196),
+    footprint: point(14, 10),
+    name: "Corniche Trade House",
+    setbackM: 15,
+    modelId: "cairo-office-block",
+  },
+  {
+    id: "cairo-venue-30",
+    kind: "depot",
+    anchor: anchor("cairo-zamalek-south-2-forward-1", 84.29116205154608),
+    footprint: point(12, 10),
+    name: "Central Cairo Depot",
+    setbackM: 15,
+    modelId: "cairo-depot",
+  },
+];
 
 /**
  * Thin street-wall parcels fill only the land a driver can see from the
@@ -2154,41 +2599,6 @@ const addCairoRoadsideBlock = (
  * model bound of its own to derive one from. */
 const CAIRO_FACADE_PARCEL_DEPTH_M = 15;
 
-const cairoRoadsideStyle = (
-  position: WorldPoint,
-): {
-  readonly material: string;
-  readonly heightRange: readonly [number, number];
-  readonly depthM: number;
-} => {
-  if (position.x < -590) {
-    return {
-      material: "cairo-west-bank-concrete",
-      heightRange: [18, 40],
-      depthM: 14,
-    };
-  }
-  if (position.x < 55) {
-    return {
-      material: "cairo-gezira-cream",
-      heightRange: [14, 34],
-      depthM: 14,
-    };
-  }
-  if (position.z < -350) {
-    return {
-      material: "cairo-garden-stucco",
-      heightRange: [12, 28],
-      depthM: 14,
-    };
-  }
-  return {
-    material: "cairo-khedivial-stone",
-    heightRange: [20, 46],
-    depthM: 14,
-  };
-};
-
 // These carriageway sides face directly onto a Nile channel. Preserve their
 // promenade, trees and open water view; density belongs on the inland side.
 // Exported for the renderer's promenade decor (generatePromenadeDecor), which
@@ -2213,11 +2623,19 @@ export const CAIRO_OPEN_WATERFRONT_SIDES: Readonly<
  * and it is the one place on the map that should have a skyline.
  */
 const cairoDistrictBuildingSet = (position: WorldPoint): string => {
-  if (position.x < -590) return "cairo-westbank";
-  if (position.x < 55) return "cairo-zamalek";
-  // Garden City: elegant low-rise blocks rather than Downtown's Khedivial bulk.
-  if (position.z < -350) return "cairo-zamalek";
-  return "cairo-downtown";
+  switch (cairoDistrictAt(position)) {
+    case "westbank":
+    // The baladi glb accents draw from the humbler west-bank mix — the
+    // ornate downtown kit is exactly what must NOT dominate here.
+    case "baladi":
+      return "cairo-westbank";
+    case "zamalek":
+    // Garden City: elegant low-rise blocks rather than Downtown's bulk.
+    case "garden":
+      return "cairo-zamalek";
+    default:
+      return "cairo-downtown";
+  }
 };
 
 const cairoRoadsideBuildingSet = (
@@ -2239,8 +2657,27 @@ const cairoRoadsideBuildingSet = (
  * cannot be the majority any more. Deterministic on the block id so the same
  * parcels stay boxes across loads; `Math.random` here would desync the map.
  */
-const cairoParcelKeepsFacadeBoxes = (blockId: string): boolean =>
-  hashStringToSeed(`${blockId}-street-wall`) % 6 === 0;
+/**
+ * In the polished districts the glb street wall dominates and one parcel in
+ * six keeps the boxes (the original ratio). The informal districts INVERT
+ * that: baladi keeps boxes five in six — the brick-and-skeleton fabric IS
+ * the architecture there, and the imported kit appears only as the odd
+ * better-off building — and the west bank keeps boxes three in six.
+ */
+const cairoParcelKeepsFacadeBoxes = (
+  blockId: string,
+  position: WorldPoint,
+): boolean => {
+  const roll = hashStringToSeed(`${blockId}-street-wall`) % 6;
+  switch (cairoDistrictAt(position)) {
+    case "baladi":
+      return roll !== 0;
+    case "westbank":
+      return roll < 3;
+    default:
+      return roll === 0;
+  }
+};
 
 /**
  * The glb street wall is one-sided: the Quaternius kit puts every door and
@@ -2377,7 +2814,7 @@ for (const surface of cairoRoadSurfaces) {
         // hundreds of metres wide and the two points are ~10 m apart, so this
         // only ever differs where a parcel already straddles a district edge.
         // Decided once per parcel so a parcel and its retries agree.
-        const preferredSet = cairoParcelKeepsFacadeBoxes(sideId)
+        const preferredSet = cairoParcelKeepsFacadeBoxes(sideId, provisional)
           ? undefined
           : cairoRoadsideBuildingSet(surface.id, provisional);
         const roadEnvelopeM =
@@ -2680,7 +3117,7 @@ for (const surface of cairoRoadSurfaces) {
             start.x + alongX * centerAlongM + normalX * side * 30,
             start.z + alongZ * centerAlongM + normalZ * side * 30,
           );
-          const preferredSet = cairoParcelKeepsFacadeBoxes(pieceBaseId)
+          const preferredSet = cairoParcelKeepsFacadeBoxes(pieceBaseId, provisional)
             ? undefined
             : cairoRoadsideBuildingSet(surface.id, provisional);
           // The corniche set is 21.7 m deep and the island's parallel roads
@@ -2955,25 +3392,12 @@ export const CAIRO_VISUAL_CLOSURES: readonly CairoVisualClosureSpec[] = [
     },
     baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
   },
-  {
-    id: "cairo-galaa-ne-land-edge-wall-3",
-    sourceRoadId: "cairo-galaa-street",
-    side: 1,
-    causeCode: "boundary-rejection",
-    treatment: "land-edge-wall",
-    block: {
-      id: "cairo-galaa-ne-land-edge-wall-3",
-      center: point(878, 827.67),
-      size: point(18, 4),
-      headingDeg: -90,
-      frontageAxis: "z",
-      streetEdges: ["+z"],
-      material: "sandstone",
-      heightRange: [10, 16],
-      density: 0.82,
-    },
-    baselineFailureIds: ["urban_world_edge:cairo-galaa-street/seg-7"],
-  },
+  // Piece 3 of this run (center (878, 827.67)) was RETIRED by the baladi
+  // rezoning: Al-Galaa's NE strips flipped from the glb wall to the deeper
+  // facade-box fabric, and `cairo-galaa-street-roadside-10-3-right` (a 73 m
+  // box strip) now stands across — and occludes — exactly the interval this
+  // wall closed; the validator's sibling check refuses the overlap,
+  // correctly. The P7 visual-gap re-audit re-checks this seam.
   {
     id: "cairo-galaa-ne-land-edge-wall-4",
     sourceRoadId: "cairo-galaa-street",
@@ -3236,25 +3660,12 @@ export const CAIRO_VISUAL_CLOSURES: readonly CairoVisualClosureSpec[] = [
     },
     baselineFailureIds: ["urban_world_edge:cairo-west-nile-street/mid-gap"],
   },
-  {
-    id: "cairo-west-nile-street-mid-land-edge-wall-4",
-    sourceRoadId: "cairo-west-nile-street",
-    side: -1,
-    causeCode: "boundary-rejection",
-    treatment: "land-edge-wall",
-    block: {
-      id: "cairo-west-nile-street-mid-land-edge-wall-4",
-      center: point(-874, -399.5),
-      size: point(19, 8),
-      headingDeg: -90,
-      frontageAxis: "z",
-      streetEdges: ["+z"],
-      material: "cairo-west-bank-concrete",
-      heightRange: [18, 40],
-      density: 0.82,
-    },
-    baselineFailureIds: ["urban_world_edge:cairo-west-nile-street/mid-gap"],
-  },
+  // Piece 4 of this run (center (-874, -399.5)) was RETIRED when the hara
+  // network landed: splitting West Nile Street's segments re-tiled its
+  // roadside strips and `cairo-west-nile-street-roadside-3-2-left` grew to
+  // ~104 m, its southern corner now standing in (and occluding) exactly the
+  // interval wall-4 closed — the validator's sibling check refuses the
+  // overlap, correctly. The P7 visual-gap re-audit re-checks this seam.
   {
     id: "cairo-west-nile-street-mid-land-edge-wall-5",
     sourceRoadId: "cairo-west-nile-street",
@@ -3280,43 +3691,398 @@ for (const closure of CAIRO_VISUAL_CLOSURES) {
   addReviewedCairoClosure(closure);
 }
 
-const playerLaneIds = [
-  "cairo-qasr-el-ainy-1-forward-1",
-  "cairo-nile-island-drive-2-forward-1",
-  "cairo-dokki-nile-drive-3-forward-1",
-] as const;
-const vehicleLanes = lanesForAnchors
-  .filter((lane) => !playerLaneIds.includes(lane.id as (typeof playerLaneIds)[number]))
-  .filter((_, index) => index % 3 === 0)
-  .slice(0, 30);
+/**
+ * Interior core blocks (Cairo reimagining): the building mass INSIDE the
+ * hara-and-strip fabric. The roadside passes line kerbs and never fill a
+ * block's middle, so every pocket deeper than a parcel used to stay bare —
+ * the owner's "no empty blocks" brief is about exactly that ground.
+ *
+ * The entries were machine-generated offline (grid probe at 14 m pitch,
+ * sizes 46x28 down to 28x18, aligned to the nearest road with a hashed
+ * +/-3 deg jitter) and each was accepted only if it cleared
+ * `validateCairoClosureCandidate` plus a rail-corridor check and a local
+ * sibling check — then reviewed and pasted here as plain authored data.
+ * Two zones are deliberately left open (the generator's own KEEP_OPEN):
+ * Tahrir's ceremonial clearing and the museum forecourt, the polished
+ * set-pieces that need air. The import-time loop below re-validates every
+ * core and throws on the first failure, so surrounding content cannot
+ * silently drift into one (the closure discipline, applied to interiors).
+ *
+ * Every core keeps the procedural facade grid (no `buildingSet`): interior
+ * mass reads through gaps and over rooftops, and the boxes glaze all four
+ * faces where a one-sided glb kit would show service backs down every
+ * alley.
+ */
+interface CairoInteriorCore {
+  readonly x: number;
+  readonly z: number;
+  readonly w: number;
+  readonly d: number;
+  readonly headingDeg: number;
+}
 
+const core = (
+  x: number,
+  z: number,
+  w: number,
+  d: number,
+  headingDeg: number,
+): CairoInteriorCore => ({ x, z, w, d, headingDeg });
+
+const CAIRO_INTERIOR_CORES: readonly CairoInteriorCore[] = [
+  core(-788, -690, 28, 18, -88),
+  core(-788, -508, 46, 28, -94.2),
+  core(-746, -424, 36, 24, 1),
+  core(-746, -354, 36, 24, 1),
+  core(-746, 528, 36, 24, -3),
+  core(-746, 612, 28, 18, 0),
+  core(-732, -886, 28, 18, 2),
+  core(-732, -746, 46, 28, -2),
+  core(-732, 52, 46, 28, 3.4),
+  core(-732, 808, 46, 28, 0),
+  core(-718, -662, 46, 28, 2),
+  core(-718, -186, 36, 24, -2),
+  core(-718, -116, 28, 18, 2),
+  core(-718, 892, 46, 28, 3),
+  core(-690, 808, 28, 18, 1),
+  core(-662, -690, 36, 24, -84.3),
+  core(-452, -522, 28, 18, -101.8),
+  core(-438, -690, 36, 24, -82),
+  core(-396, -466, 28, 18, -102.8),
+  core(-396, 10, 28, 18, -102),
+  core(-396, 108, 28, 18, 5.5),
+  core(-396, 136, 28, 18, -85.4),
+  core(-396, 612, 36, 24, 6.4),
+  core(-382, 38, 28, 18, 5.5),
+  core(-382, 654, 36, 24, -96.6),
+  core(-354, 878, 46, 28, -12.5),
+  core(-340, -690, 28, 18, -97.1),
+  core(-340, -578, 28, 18, -74.2),
+  core(-340, -214, 36, 24, -101.6),
+  core(-326, -886, 46, 28, 5.6),
+  core(-326, -662, 28, 18, 2.8),
+  core(-326, -536, 36, 24, -74.2),
+  core(-326, -494, 28, 18, -77.2),
+  core(-326, -284, 28, 18, -104.6),
+  core(-326, -130, 28, 18, -7.5),
+  core(-326, -88, 28, 18, -80.5),
+  core(-326, 234, 28, 18, -103.6),
+  core(-326, 360, 28, 18, -11.8),
+  core(-326, 766, 28, 18, -101.6),
+  core(-312, -690, 28, 18, -100.3),
+  core(-312, -466, 28, 18, -75.2),
+  core(-312, 136, 28, 18, -101.6),
+  core(-312, 472, 28, 18, -79.9),
+  core(-312, 794, 28, 18, -6.5),
+  core(-312, 878, 28, 18, -8.5),
+  core(-298, -746, 46, 28, -1),
+  core(-298, 38, 28, 18, -7.5),
+  core(-298, 248, 36, 24, -99.4),
+  core(-298, 374, 28, 18, -77.9),
+  core(-298, 528, 28, 18, -77.9),
+  core(-298, 612, 28, 18, -101.6),
+  core(-284, 164, 46, 28, -99.4),
+  core(-284, 206, 28, 18, -97.4),
+  core(-284, 794, 28, 18, -100.7),
+  core(-270, 122, 46, 28, -10.5),
+  core(-270, 612, 28, 18, -10.8),
+  core(-214, -690, 36, 24, -103.3),
+  core(-214, -578, 36, 24, -76.2),
+  core(-214, -536, 28, 18, -75.2),
+  core(-214, -242, 28, 18, -100.2),
+  core(-214, -200, 36, 24, -103.2),
+  core(-214, -116, 28, 18, 1.8),
+  core(-214, -88, 28, 18, -78.5),
+  core(-214, 304, 28, 18, -2.5),
+  core(-214, 388, 28, 18, -76.9),
+  core(-200, -746, 36, 24, 0),
+  core(-200, -508, 28, 18, -74.2),
+  core(-200, -326, 28, 18, -100.2),
+  core(-200, -284, 46, 28, -98.2),
+  core(-200, -46, 28, 18, -77.5),
+  core(-200, -4, 28, 18, -78.5),
+  core(-200, 206, 28, 18, -97.4),
+  core(-200, 416, 28, 18, -77.9),
+  core(-200, 458, 28, 18, -81.9),
+  core(-200, 794, 28, 18, -97.7),
+  core(-186, -690, 36, 24, -99.8),
+  core(-186, -564, 28, 18, -79.4),
+  core(-186, -466, 46, 28, -79.2),
+  core(-186, 24, 28, 18, -78.5),
+  core(-186, 136, 28, 18, -101.4),
+  core(-186, 500, 46, 28, -79.9),
+  core(-172, -536, 28, 18, -77.4),
+  core(-172, -368, 28, 18, -2.5),
+  core(-172, -200, 46, 28, 3.8),
+  core(-172, 52, 28, 18, -1.6),
+  core(-172, 178, 36, 24, -100.3),
+  core(-172, 220, 36, 24, -101.3),
+  core(-172, 430, 28, 18, -82.2),
+  core(-172, 542, 36, 24, -80.9),
+  core(-172, 626, 28, 18, -8.2),
+  core(-172, 794, 28, 18, -100),
+  core(-116, -690, 36, 24, -96.8),
+  core(52, -396, 28, 18, -90.4),
+  core(52, -242, 36, 24, -87.6),
+  core(52, -200, 28, 18, -84.6),
+  core(66, -774, 46, 28, -89.9),
+  core(66, -592, 46, 28, -90.6),
+  core(66, -550, 28, 18, -92.6),
+  core(66, -4, 46, 28, -86.2),
+  core(136, -60, 28, 18, -87.2),
+  core(136, -18, 28, 18, -87.2),
+  core(136, 24, 28, 18, -87.2),
+  core(150, 66, 36, 24, -11.1),
+  core(150, 150, 36, 24, -6.1),
+  core(150, 192, 46, 28, -87.7),
+  core(150, 262, 36, 24, -87.7),
+  core(150, 374, 28, 18, -8.6),
+  core(150, 556, 28, 18, -2.8),
+  core(150, 640, 28, 18, -85.9),
+  core(150, 808, 28, 18, -91.9),
+  core(164, -340, 28, 18, 12.2),
+  core(164, -60, 36, 24, -89.2),
+  core(164, -18, 36, 24, -92.2),
+  core(164, 24, 36, 24, -90.2),
+  core(164, 304, 28, 18, -7.6),
+  core(178, 626, 28, 18, -8.8),
+  core(192, -760, 28, 18, -91.1),
+  core(192, 388, 46, 28, -10.6),
+  core(192, 542, 28, 18, -3.8),
+  core(206, -466, 28, 18, 9.6),
+  core(206, -438, 28, 18, -79.8),
+  core(206, -354, 46, 28, 13.2),
+  core(206, 430, 36, 24, -93),
+  core(206, 472, 36, 24, -91),
+  core(206, 514, 28, 18, -92),
+  core(206, 640, 28, 18, -92),
+  core(206, 682, 36, 24, -93),
+  core(206, 794, 28, 18, -90),
+  core(220, -396, 36, 24, -75.8),
+  core(234, 276, 28, 18, -94.8),
+  core(248, -242, 46, 28, -80.5),
+  core(248, -200, 28, 18, -77.5),
+  core(248, -158, 46, 28, -2.5),
+  core(248, -60, 28, 18, -88.2),
+  core(248, -18, 46, 28, -88.2),
+  core(248, 24, 28, 18, -91.2),
+  core(248, 66, 46, 28, -89.2),
+  core(248, 164, 36, 24, -1.8),
+  core(248, 304, 28, 18, -8.6),
+  core(276, -620, 46, 28, -84.6),
+  core(276, -578, 28, 18, -89.6),
+  core(276, -60, 28, 18, -92.2),
+  core(276, -18, 28, 18, -93.2),
+  core(276, 24, 28, 18, -89.2),
+  core(276, 66, 28, 18, -88.2),
+  core(276, 192, 28, 18, -84.5),
+  core(276, 248, 36, 24, -88.5),
+  core(276, 290, 28, 18, -86.5),
+  core(290, -816, 36, 24, -2),
+  core(290, 402, 28, 18, -85.3),
+  core(290, 444, 36, 24, -92),
+  core(290, 486, 36, 24, -91),
+  core(290, 640, 28, 18, -5.8),
+  core(290, 668, 28, 18, -89),
+  core(290, 710, 46, 28, -91),
+  core(290, 752, 28, 18, -87),
+  core(290, 794, 46, 28, -93),
+  core(304, -746, 28, 18, 3),
+  core(304, -564, 28, 18, 3.3),
+  core(304, -452, 28, 18, -76.8),
+  core(318, -648, 28, 18, 7.4),
+  core(318, 654, 28, 18, -80.6),
+  core(318, 696, 28, 18, -82.6),
+  core(318, 738, 28, 18, -76.6),
+  core(332, -816, 36, 24, -3),
+  core(332, -480, 28, 18, 4.3),
+  core(332, -284, 36, 24, -77.5),
+  core(332, -242, 28, 18, -77.5),
+  core(332, 766, 28, 18, -78.6),
+  core(332, 808, 46, 28, -3),
+  core(346, -746, 28, 18, -2),
+  core(346, -214, 28, 18, -78.5),
+  core(360, -298, 28, 18, 12.3),
+  core(360, 94, 46, 28, -91.2),
+  core(360, 136, 28, 18, -87.5),
+  core(360, 234, 28, 18, -88.5),
+  core(374, -816, 28, 18, 0),
+  core(374, -256, 46, 28, -129),
+  core(374, 276, 46, 28, -86.5),
+  core(374, 388, 28, 18, 11.1),
+  core(374, 416, 28, 18, -82.3),
+  core(388, -424, 28, 18, -89.7),
+  core(388, 556, 46, 28, -83.3),
+  core(402, -298, 28, 18, -83),
+  core(402, 430, 28, 18, 2.9),
+  core(402, 514, 46, 28, -0.1),
+  core(402, 640, 36, 24, 10),
+  core(416, -158, 46, 28, -127),
+  core(416, 94, 46, 28, -62.7),
+  core(416, 290, 46, 28, 12.1),
+  core(416, 388, 46, 28, 9.1),
+  core(416, 668, 28, 18, -1),
+  core(416, 752, 28, 18, -82.6),
+  core(430, 136, 28, 18, -58.7),
+  core(430, 542, 36, 24, 8),
+  core(430, 794, 46, 28, -81.6),
+  core(444, -200, 28, 18, -130),
+  core(444, -46, 46, 28, -6.8),
+  core(444, 416, 28, 18, -85.8),
+  core(444, 514, 28, 18, 2.9),
+  core(444, 626, 28, 18, 14),
+  core(444, 738, 28, 18, 3),
+  core(458, -746, 28, 18, -1),
+  core(458, -172, 28, 18, -50.5),
+  core(458, -144, 28, 18, -4.8),
+  core(458, -4, 36, 24, -49.1),
+  core(458, 654, 36, 24, -1),
+  core(472, -452, 28, 18, -25.8),
+  core(472, 276, 46, 28, 12.1),
+  core(472, 794, 46, 28, 5.4),
+  core(486, -46, 28, 18, -13.9),
+  core(486, 24, 28, 18, -61.7),
+  core(486, 234, 36, 24, -63.4),
+  core(486, 738, 36, 24, 0),
+  core(500, -746, 28, 18, -2),
+  core(500, -270, 36, 24, -128.5),
+  core(514, -620, 28, 18, 89.4),
+  core(514, -32, 28, 18, -10.9),
+  core(514, 52, 36, 24, 1),
+  core(514, 262, 28, 18, -63.4),
+  core(514, 304, 28, 18, -16.9),
+  core(528, -242, 36, 24, -53.5),
+  core(528, 388, 36, 24, -12.9),
+  core(528, 430, 36, 24, -84.8),
+  core(542, -886, 28, 18, -2),
+  core(542, -746, 28, 18, -1),
+  core(542, 514, 36, 24, -0.1),
+  core(542, 542, 36, 24, 3.5),
+  core(556, -424, 28, 18, -90),
+  core(556, -298, 46, 28, -27.3),
+  core(556, -32, 46, 28, -12.9),
+  core(556, 52, 36, 24, 3),
+  core(556, 150, 28, 18, -3),
+  core(556, 612, 28, 18, 2.5),
+  core(556, 640, 28, 18, -80),
+  core(570, 402, 36, 24, -15.9),
+  core(570, 430, 28, 18, 0.9),
+  core(570, 668, 28, 18, -1),
+  core(570, 738, 28, 18, -83),
+  core(584, -564, 28, 18, -107.5),
+  core(584, -522, 36, 24, -104.5),
+  core(584, -438, 28, 18, 2.9),
+  core(584, -396, 36, 24, -29.3),
+  core(584, 10, 36, 24, -102.6),
+  core(584, 514, 36, 24, 3.9),
+  core(584, 542, 36, 24, 2.5),
+  core(584, 780, 46, 28, -79),
+  core(598, -606, 28, 18, -103.5),
+  core(598, -158, 46, 28, -48.5),
+  core(598, 612, 36, 24, 1.5),
+  core(598, 738, 28, 18, 3),
+  core(612, -368, 28, 18, -28.3),
+  core(612, -116, 28, 18, -50.5),
+  core(612, 654, 46, 28, 1),
+  core(626, -690, 28, 18, 7.6),
+  core(626, -438, 28, 18, -0.1),
+  core(626, 276, 46, 28, -89.4),
+  core(626, 514, 28, 18, -66.1),
+  core(626, 542, 28, 18, 1.5),
+  core(626, 780, 46, 28, 3.4),
+  core(640, -746, 28, 18, 2),
+  core(640, 150, 28, 18, -99.6),
+  core(640, 206, 28, 18, -90.4),
+  core(640, 318, 28, 18, -63.4),
+  core(640, 612, 36, 24, 1.5),
+  core(640, 738, 46, 28, 3),
+  core(654, -186, 46, 28, -86.6),
+  core(654, -116, 36, 24, -7.1),
+  core(654, 654, 28, 18, 1),
+  core(668, -438, 36, 24, 4.9),
+  core(668, -396, 46, 28, -93.3),
+  core(668, 10, 28, 18, -100.6),
+  core(668, 52, 46, 28, -104.6),
+  core(668, 136, 28, 18, 0),
+  core(668, 206, 36, 24, -84.9),
+  core(668, 248, 36, 24, -85.9),
+  core(668, 290, 36, 24, -82.9),
+  core(668, 780, 28, 18, 2.4),
+  core(682, -746, 28, 18, -1),
+  core(682, 332, 36, 24, -84.9),
+  core(682, 430, 28, 18, -67.1),
+  core(682, 738, 28, 18, -2),
+  core(696, 472, 36, 24, -71.1),
+  core(710, 514, 28, 18, -79.4),
+  core(710, 766, 36, 24, -71.2),
+  core(752, -368, 46, 28, -94.3),
+  core(752, -158, 46, 28, -87.6),
+  core(752, 24, 28, 18, -95.5),
+];
+
+for (const [index, entry] of CAIRO_INTERIOR_CORES.entries()) {
+  // Material and heights come from the district map at the core's own
+  // centre — the single source of truth the strips and bands read too.
+  const coreStyle = cairoRoadsideStyle(point(entry.x, entry.z));
+  const candidate: ProceduralBlock = {
+    id: `cairo-core-${index + 1}`,
+    center: point(entry.x, entry.z),
+    size: point(entry.w, entry.d),
+    headingDeg: entry.headingDeg,
+    material: coreStyle.material,
+    heightRange: coreStyle.heightRange,
+    density: 0.5,
+  };
+  const result = validateCairoClosureCandidate(candidate);
+  if (!result.valid) {
+    throw new Error(
+      `cairo.ts: interior core ${candidate.id} failed validation (${result.reason}) — regenerate the core list against the content that moved`,
+    );
+  }
+  addRoadClearBlock(candidate);
+}
+
+/**
+ * Spawn gates: the same freeze as the venue/service anchors above (see that
+ * comment for why). The vehicle roles keep the old index arithmetic's
+ * result — three dedicated patrol gates (7, 34, 58) so Cairo's police
+ * presence never hangs on the ambient one-in-five patrol roll, plus buses,
+ * taxis and vans at their dealt gates.
+ */
 const cairoSpawnPoints: readonly MapSpawnPoint[] = [
-  ...playerLaneIds.map((laneId, index) => {
-    const lane = cairoLaneById.get(laneId)!;
-    return {
-      id: `cairo-player-${index + 1}`,
-      kind: "player" as const,
-      anchor: anchor(laneId, safeDistance(lane, 0.35 + index * 0.12)),
-    };
-  }),
-  ...vehicleLanes.map((lane, index) => ({
-    // Three dedicated patrol gates (indices 3, 14, 25). Without them Cairo's
-    // police presence hung on the ambient one-in-five patrol roll landing on
-    // a car-capable gate, which this seed rarely granted — whole sessions
-    // passed without a single patrol while NYC showed four or five.
-    id:
-      index % 11 === 3
-        ? `cairo-police-${index + 1}`
-        : index % 9 === 0
-          ? `cairo-bus-${index + 1}`
-          : index % 5 === 0
-            ? `cairo-taxi-${index + 1}`
-            : index % 7 === 0
-              ? `cairo-van-${index + 1}`
-              : `cairo-car-${index + 1}`,
-    kind: "vehicle" as const,
-    anchor: anchor(lane.id, safeDistance(lane, 0.28 + (index % 5) * 0.1)),
-  })),
+  { id: "cairo-player-1", kind: "player", anchor: anchor("cairo-qasr-el-ainy-1-forward-1", 65.02797789256041) },
+  { id: "cairo-player-2", kind: "player", anchor: anchor("cairo-nile-island-drive-3-forward-1", 105.78316149261117) },
+  { id: "cairo-player-3", kind: "player", anchor: anchor("cairo-dokki-nile-drive-4-forward-1", 143.00913403548475) },
+  { id: "cairo-bus-1", kind: "vehicle", anchor: anchor("cairo-corniche-el-nil-1-forward-1", 54.81980214683493) },
+  { id: "cairo-car-2", kind: "vehicle", anchor: anchor("cairo-corniche-el-nil-4-forward-1", 64.85525461836113) },
+  { id: "cairo-car-3", kind: "vehicle", anchor: anchor("cairo-corniche-el-nil-7-forward-1", 122.67840094754963) },
+  { id: "cairo-police-4", kind: "vehicle", anchor: anchor("cairo-qasr-el-ainy-4-forward-1", 110.08134085709322) },
+  { id: "cairo-car-5", kind: "vehicle", anchor: anchor("cairo-qasr-el-ainy-7-forward-1", 156.90192822118155) },
+  { id: "cairo-taxi-6", kind: "vehicle", anchor: anchor("cairo-simon-bolivar-1-forward-1", 42.37168866118036) },
+  { id: "cairo-car-7", kind: "vehicle", anchor: anchor("cairo-simon-bolivar-5-forward-1", 76.09494069910296) },
+  { id: "cairo-van-8", kind: "vehicle", anchor: anchor("cairo-talaat-harb-4-forward-1", 84.13703108619892) },
+  { id: "cairo-car-9", kind: "vehicle", anchor: anchor("cairo-ramses-2-forward-1", 47.21076097687822) },
+  { id: "cairo-bus-10", kind: "vehicle", anchor: anchor("cairo-ramses-5-forward-1", 88.10272265014046) },
+  { id: "cairo-taxi-11", kind: "vehicle", anchor: anchor("cairo-ramses-8-forward-1", 49.913604450481486) },
+  { id: "cairo-car-12", kind: "vehicle", anchor: anchor("cairo-ramses-14-forward-1", 101.82264236931786) },
+  { id: "cairo-car-13", kind: "vehicle", anchor: anchor("cairo-galaa-street-4-forward-1", 103.89556506345087) },
+  { id: "cairo-car-14", kind: "vehicle", anchor: anchor("cairo-galaa-street-8-forward-1", 131.3235439537349) },
+  { id: "cairo-police-15", kind: "vehicle", anchor: anchor("cairo-garden-city-south-1-forward-1", 92.21650945652542) },
+  { id: "cairo-taxi-16", kind: "vehicle", anchor: anchor("cairo-garden-city-south-4-forward-1", 42.23601502664967) },
+  { id: "cairo-car-17", kind: "vehicle", anchor: anchor("cairo-tahrir-approach-3-forward-1", 58.32119067897588) },
+  { id: "cairo-car-18", kind: "vehicle", anchor: anchor("cairo-tahrir-approach-4-forward-2", 44.48807830939357) },
+  { id: "cairo-bus-19", kind: "vehicle", anchor: anchor("cairo-qasr-el-nil-street-3-forward-1", 12.551886525146315) },
+  { id: "cairo-car-20", kind: "vehicle", anchor: anchor("cairo-qasr-el-nil-street-4-forward-2", 104.83163820760134) },
+  { id: "cairo-taxi-21", kind: "vehicle", anchor: anchor("cairo-qasr-el-nil-street-6-forward-1", 34.0086496258343) },
+  { id: "cairo-van-22", kind: "vehicle", anchor: anchor("cairo-ramses-approach-3-forward-1", 59.59163115322792) },
+  { id: "cairo-car-23", kind: "vehicle", anchor: anchor("cairo-saray-el-gezira-3-forward-1", 107.76055324240026) },
+  { id: "cairo-car-24", kind: "vehicle", anchor: anchor("cairo-saray-el-gezira-6-forward-1", 145.76764559406647) },
+  { id: "cairo-car-25", kind: "vehicle", anchor: anchor("cairo-el-gabalaya-2-forward-1", 99.53655652066436) },
+  { id: "cairo-police-26", kind: "vehicle", anchor: anchor("cairo-el-gabalaya-5-forward-1", 70.0139986002799) },
+  { id: "cairo-car-27", kind: "vehicle", anchor: anchor("cairo-el-gabalaya-8-forward-1", 101.84070895275626) },
+  { id: "cairo-bus-28", kind: "vehicle", anchor: anchor("cairo-nile-island-drive-5-forward-1", 122.67840094754963) },
+  { id: "cairo-van-29", kind: "vehicle", anchor: anchor("cairo-nile-island-drive-8-forward-1", 146.7180201829856) },
+  { id: "cairo-car-30", kind: "vehicle", anchor: anchor("cairo-south-gezira-road-3-forward-1", 75.23510832893129) },
 ];
 
 /**

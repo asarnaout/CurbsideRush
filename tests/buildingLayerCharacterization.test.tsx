@@ -466,8 +466,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // 1_396 -> 1_377 / clutter 464 -> 465 (rail feature): the Imbaba
     // corridor carve re-deals the four split downtown strips and drops
     // three roadside pieces; the clutter scatter re-rolls on the new rects.
-    buildingInstanceCount: 1_377,
-    cairoRoofClutterInstanceCount: 465,
+    // -> 1_625 / clutter 552 (hara network): the alley strips deep enough
+    // to keep a glb set add ~248 real instanced buildings, and the tanks/
+    // dishes scatter lands on the new roofY-carrying models among them.
+    // -> 1_112 / clutter 391 (baladi rezoning): the informal districts
+    // hold back five parcels in six from the glb wall, so the imported kit
+    // — and the glb-path roof clutter that rides it — retreats to the
+    // polished centre. The boxes that replace them grow their own tanks
+    // and dishes through the facade-grid dressing instead.
+    // -> 1_000 / 351 (mosque + west-Bulaq widening): the wider baladi band
+    // holds more parcels back from the glb wall.
+    buildingInstanceCount: 1_000,
+    cairoRoofClutterInstanceCount: 351,
     storefrontSignMaterialCount: 0,
   },
 };

@@ -641,11 +641,31 @@ const LONDON_RECIPES: Readonly<
   "london-natural-history-museum": londonNaturalHistoryMuseum,
 };
 
+/** `cairo-abou-ela-mosque`: the walled plinth is the thing a car meets —
+ * one box over the full authored footprint (hall, arcade and minaret all
+ * stand within it), which is exactly what the generic cultural-kind box
+ * would give, restated bespoke so the id is classified with the other
+ * hand-built Cairo landmarks rather than riding the generic fallback. */
+function cairoAbouElaMosque(landmark: LandmarkGroundSolidInput): readonly GroundSolid[] {
+  const { x: cx, z: cz } = landmark.center;
+  return [
+    {
+      kind: "aabb",
+      id: `${landmark.id}:plinth`,
+      minX: cx - landmark.size.x / 2,
+      maxX: cx + landmark.size.x / 2,
+      minZ: cz - landmark.size.z / 2,
+      maxZ: cz + landmark.size.z / 2,
+    },
+  ];
+}
+
 const CAIRO_RECIPES: Readonly<
   Record<string, (landmark: LandmarkGroundSolidInput) => readonly GroundSolid[]>
 > = {
   "cairo-tower": cairoTower,
   "cairo-tahrir-obelisk": cairoTahrirObelisk,
+  "cairo-abou-ela-mosque": cairoAbouElaMosque,
   "cairo-tahrir-ministries": cairoTahrirMinistries,
   "cairo-opera-house": cairoOperaHouse,
   "cairo-egyptian-museum": cairoEgyptianMuseum,

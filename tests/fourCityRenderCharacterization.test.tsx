@@ -573,8 +573,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // night clamps the fog band to 440 m where London's own `fogEndCapM`
     // capped it at 800, so a thousand new lamps still leave far fewer meshes
     // in frustum than before. The map got brighter and cheaper at once.
-    totalMeshes: 14_588,
-    enabledMeshes: 14_552,
+    // -> 14_345/14_309 (facade-chunk merging, the Cairo reimagining's
+    // cross-city render change): London's own modest procedural-box
+    // population merges the same way.
+    totalMeshes: 14_345,
+    enabledMeshes: 14_309,
     activeMeshes: 500,
     materials: 316,
     drawCallsPerFrame: 0,
@@ -610,7 +613,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (its ground pool does not — `castShadow: false` skips registration
     // entirely), so the quiet loop's own lamps roughly double the candidate
     // ring around the spawn.
-    mirrorCandidates: 87,
+    mirrorCandidates: 83,
     mirrorDrawn: 226,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
@@ -1094,14 +1097,17 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // rejection tests consume no seeded draws, so every other kind is
     // byte-identical, as materials and the fingerprint holding at
     // 298/"7d957807" confirm.
-    totalMeshes: 23_473,
-    enabledMeshes: 23_448,
-    activeMeshes: 1_758,
+    // -> 22_706/22_681 (active 1_758 -> 1_658; facade-chunk merging): the
+    // ~1-in-4 holdback parcels' boxes merge; the glb street wall and its
+    // proxies are untouched.
+    totalMeshes: 22_706,
+    enabledMeshes: 22_681,
+    activeMeshes: 1_658,
     materials: 298,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 244,
+    mirrorCandidates: 224,
     mirrorDrawn: 263,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
@@ -1342,18 +1348,62 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // activeMeshes DOWN for the same reason London's is: night clamps the fog
     // band to 440 m against this palette's own 650 m dust cap, so the fixed
     // pose has markedly less in frustum than before despite the extra lamps.
-    totalMeshes: 13_428,
-    enabledMeshes: 13_384,
-    activeMeshes: 1_310,
-    materials: 232,
+    // -> 16_997/16_953 (+3_569, active 1_310 -> 1_246; hara network): 23
+    // one-way alleys add ~7 km of kerb the slot/gap passes line with 294
+    // net new roadside parcels, most demoted to all-faces-glazed facade
+    // boxes by `backEdgeNearsARoad` in the tight interiors (this suite's
+    // empty preload renders every asset-slot survivor as a proxy box, so
+    // the delta is all boxes and dressing). activeMeshes falls again by
+    // the familiar mechanism: new blocks near the spawn reject scatter
+    // props that used to stand in the fixed pose's frustum. Materials and
+    // the fingerprint hold — no new palette entries.
+    // -> 21_744/21_700 (+4_747, active 1_246 -> 1_684; interior cores):
+    // 294 validator-gated facade-grid cores fill the block interiors
+    // behind the strips (~7 cells each plus Cairo dressing under this
+    // suite's all-proxy preload). activeMeshes rises because the cores
+    // ringing the spawn's own block sit inside the fixed frustum.
+    // -> 23_239/23_195 (materials 232 -> 235, new fingerprint; baladi
+    // rezoning): ~215 informal-district strips flip from one instanced glb
+    // to several facade boxes each with their AC/awning dressing, and the
+    // three baladi materials (cairo-brick, cairo-brick-worn,
+    // cairo-render-grey) mint their skeleton-and-infill texture pairs.
+    // -> 23_820/23_776 (materials 235 -> 243, new fingerprint; the mosque
+    // + west-Bulaq widening): the bespoke Abou El-Ela mosque adds its
+    // sixteen meshes and eight named materials (stone/dome/neon/portal
+    // etc.), the wider baladi band re-tiles its strips, and the core list
+    // regenerates around the landmark's exclusion.
+    // -> 24_706/24_662 (materials 243 -> 246, new fingerprint; Cairo joins
+    // the regulatory-sign family): ~886 one-way/do-not-enter post meshes at
+    // the hara and one-way street mouths, three sign materials, and the
+    // crowd bump changes nothing here (walkers are thin instances).
+    // -> 13_688/13_644 (active 1_755 -> 897; facade-chunk merging): every
+    // procedural box and dressing piece now merges per material and 96 m
+    // cell (ProceduralFacades.finalize) — ~11k individually-drawn meshes
+    // collapse into a few hundred chunks with identical pixels. The live
+    // paired measurement that motivated it: the reimagined map had halved
+    // the frame rate; with the merge it runs at (and in draw calls below)
+    // the pre-reimagining baseline. Materials unchanged: merging reuses
+    // the shared per-key materials.
+    totalMeshes: 13_688,
+    enabledMeshes: 13_644,
+    activeMeshes: 897,
+    materials: 246,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     // 49 -> 71 / 85 -> 93: the denser lamp line puts more poles inside the
     // spawn's mirror cull ring (the pools themselves never register — see
     // London's note).
-    mirrorCandidates: 71,
-    mirrorDrawn: 93,
+    // 71 -> 93 / 93 -> 141 (hara network): the Qasr El-Ainy spawn now has
+    // the Lazoghly hara's street wall inside its cull ring. 93 -> 119
+    // candidates (interior cores in the ring); drawn holds at 141.
+    // 119 -> 216 / 141 -> 147 (baladi rezoning): each strip that flipped
+    // from one instanced glb to several boxes multiplies what the ring
+    // holds near the spawn.
+    // 220 -> 97 / 149 -> 147 (facade-chunk merging): the ring holds a few
+    // chunks where it held hundreds of boxes.
+    mirrorCandidates: 97,
+    mirrorDrawn: 147,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1362,7 +1412,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "e5294a40": +rail-brick/+rail-platform (see the materials note).
     // -> "ae339a82": +rail-deck (bridge-fix pass).
     // -> "1b18079f": +lamp-pool, once the palette went night.
-    survivingMaterialNamesFingerprint: "1b18079f",
+    // -> "96f3eb90": +facade-cairo-brick/-brick-worn/-render-grey (the
+    // baladi skeleton-and-infill materials).
+    // -> "52079508": the mosque's eight named materials.
+    // -> "df94522e": the three regulatory-sign materials.
+    survivingMaterialNamesFingerprint: "df94522e",
   },
 };
 

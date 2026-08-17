@@ -219,7 +219,12 @@ describe("ambient traffic trace characterization", () => {
       // never co-occupy the line; every mazla'an's warning windows shift,
       // re-timing NPC holds across the north band. free-jp/free-uk are
       // untouched — the shuttle timetables did not change.
-      "free-eg": "2fa89223",
+      // -> 6f064731 (hara network): 23 one-way alleys join the lane graph
+      // and 28 junction nodes split corridor segments, so every NPC's
+      // successor draw re-deals from tick 0. The other three cities'
+      // hashes are untouched, which is the isolation this pin exists to
+      // prove.
+      "free-eg": "6f064731",
     });
   });
 });

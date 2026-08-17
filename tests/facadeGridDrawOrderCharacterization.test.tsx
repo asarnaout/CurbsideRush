@@ -372,7 +372,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // (extraInsetM) to make room for the new close frontage in front of it.
     // Same cell count (40 m depth unchanged, so drawCount stays 972), every
     // cell's world position shifts with the block.
-    facadeMeshFingerprint: "5b48e8b8",
+    // -> "ecdd55b8": facade-chunk merging (see Cairo's note).
+    facadeMeshFingerprint: "ecdd55b8",
   },
   "tokyo-setagaya": {
     // drawCount unchanged by the building-collision-visual-parity plan:
@@ -535,7 +536,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // than their parent did. London/NYC hold: their carved parcels are all
     // building-set strips with no facade-grid cells.
     drawCount: 3_312,
-    facadeMeshFingerprint: "4689c992",
+    // "4689c992" -> "2a378f07": facade-chunk merging (see Cairo's note).
+    facadeMeshFingerprint: "2a378f07",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the
@@ -582,8 +584,29 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // is not claimed to be exact, per this suite's own honesty standard.
     // 4_586 -> 4_557 (rail feature): the Imbaba corridor carve's block
     // census change above, same mechanics as the Tokyo entry.
-    drawCount: 4_557,
-    facadeMeshFingerprint: "4f60c748",
+    // 4_557 -> 6_930, fingerprint "4f60c748" -> "dce5639b" (hara network):
+    // 294 net new roadside parcels, most demoted to facade boxes by
+    // `backEdgeNearsARoad` in the alley interiors (FACADE_BOX_CELLS
+    // 1_716 -> 2_601 in cairoContent.test.ts is the same census), each
+    // surviving cell drawing its width/depth (and sometimes height) from
+    // the shared stream.
+    // 6_930 -> 12_864, "dce5639b" -> "dd376b1d" (interior cores): 294
+    // facade-grid cores at density 0.5 — 7 cells each, each drawing from
+    // the shared stream, plus the height draws their taller ranges take.
+    // -> 18_679, "fdff7684" (baladi rezoning): ~215 strips flip from glb
+    // to the facade grid and the baladi keys take the west-bank density
+    // bump, so both the cell count and the per-cell draw mix move.
+    // -> 19_787, "f2628a4c" (mosque + west-Bulaq widening): more parcels
+    // on the facade grid, and the core list regenerated around the
+    // landmark's exclusion.
+    drawCount: 19_787,
+    // "f2628a4c" -> "e25257d5" (facade-chunk merging): the per-box meshes
+    // merge into facade-chunk-* meshes post-preload, so the census hashes
+    // chunk names and bounds now. drawCount — the actual seeded-stream
+    // sensor — is untouched, and a planner draw-order regression still
+    // surfaces through the chunks' bounds (a re-dealt box moves its
+    // chunk's AABB).
+    facadeMeshFingerprint: "e25257d5",
   },
 };
 
