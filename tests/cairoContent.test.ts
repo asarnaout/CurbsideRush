@@ -109,9 +109,12 @@ import type {
 // the informal districts' strips (one more closure retired to a strip
 // that now covers its interval — wall-3, see CAIRO_VISUAL_CLOSURES), and
 // the regenerated core list settles at 293.
-const BLOCK_COUNT = 1247;
-const ROADSIDE_COUNT = 921;
-const ROADSIDE_LEFT = 464;
+// -> 1243/920/463 (the mosque + west-Bulaq district widening): the
+// landmark's exclusion re-tiles the strips beside Haret Abou Al Ela and
+// the regenerated core list settles at 290.
+const BLOCK_COUNT = 1243;
+const ROADSIDE_COUNT = 922;
+const ROADSIDE_LEFT = 465;
 /** The second rank is gone — a one-sided kit means a back row can only stare
  * at the front row's service wall or plant its own on the next street over.
  * Zero, pinned, so it cannot quietly come back. */
@@ -125,7 +128,7 @@ const ROADSIDE_RANKS = 0;
 // parcels in six (west bank three in six) from the glb wall — the boxes
 // ARE the architecture there, and the imported kit retreats to the
 // polished centre where it belongs.
-const STREET_WALL_BLOCKS = 450;
+const STREET_WALL_BLOCKS = 411;
 // 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6) -> 1716 (Section
 // 12.7): the five cairo-west-nile-street-mid-land-edge-wall-* closures
 // have no buildingSet either, same formula, 5 blocks * 9 = 45 more.
@@ -138,7 +141,7 @@ const STREET_WALL_BLOCKS = 450;
 // 2601 -> 4659 (interior cores): 294 cores x round(3 + 0.5 * 7) = 7 cells.
 // -> 6_569 (baladi rezoning): the glb holdback flip moves ~215 strips onto
 // the facade grid.
-const FACADE_BOX_CELLS = 6569;
+const FACADE_BOX_CELLS = 6894;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
@@ -1258,6 +1261,8 @@ describe("Cairo Central Nile content", () => {
         "cairo-tahrir-obelisk",
         "cairo-tahrir-ministries",
         "cairo-opera-house",
+        // Bulaq's mosque, the hara web's own landmark (Cairo reimagining).
+        "cairo-abou-ela-mosque",
         "cairo-qasr-el-nil-bridge",
         "cairo-al-galaa-bridge",
         "cairo-sixth-october-bridge",

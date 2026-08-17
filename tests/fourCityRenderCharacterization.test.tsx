@@ -1361,10 +1361,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // to several facade boxes each with their AC/awning dressing, and the
     // three baladi materials (cairo-brick, cairo-brick-worn,
     // cairo-render-grey) mint their skeleton-and-infill texture pairs.
-    totalMeshes: 23_239,
-    enabledMeshes: 23_195,
-    activeMeshes: 1_687,
-    materials: 235,
+    // -> 23_820/23_776 (materials 235 -> 243, new fingerprint; the mosque
+    // + west-Bulaq widening): the bespoke Abou El-Ela mosque adds its
+    // sixteen meshes and eight named materials (stone/dome/neon/portal
+    // etc.), the wider baladi band re-tiles its strips, and the core list
+    // regenerates around the landmark's exclusion.
+    totalMeshes: 23_820,
+    enabledMeshes: 23_776,
+    activeMeshes: 1_686,
+    materials: 243,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1378,7 +1383,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // from one instanced glb to several boxes multiplies what the ring
     // holds near the spawn.
     mirrorCandidates: 216,
-    mirrorDrawn: 147,
+    mirrorDrawn: 149,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1389,7 +1394,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "1b18079f": +lamp-pool, once the palette went night.
     // -> "96f3eb90": +facade-cairo-brick/-brick-worn/-render-grey (the
     // baladi skeleton-and-infill materials).
-    survivingMaterialNamesFingerprint: "96f3eb90",
+    // -> "52079508": the mosque's eight named materials.
+    survivingMaterialNamesFingerprint: "52079508",
   },
 };
 

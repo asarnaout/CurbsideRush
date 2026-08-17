@@ -1375,8 +1375,11 @@ type CairoDistrict = "westbank" | "zamalek" | "garden" | "downtown" | "baladi";
 const cairoDistrictAt = (position: WorldPoint): CairoDistrict => {
   if (position.x < -590) return "westbank";
   if (position.x < 55) return "zamalek";
-  // Bulaq/Ramses: east of the khedivial core, north of Qasr El-Nil Street.
+  // Bulaq/Ramses: east of the khedivial core, north of Qasr El-Nil Street —
+  // and west Bulaq too, the whole band north of Champollion up to the rail
+  // belt (the Corniche frontage stays corniche via the waterfront override).
   if (position.x > 455 && position.z > -70) return "baladi";
+  if (position.x > 100 && position.z > 390) return "baladi";
   // The rail belt: informal on every bank of the corridor, as it really is.
   if (position.z < -640) return "baladi";
   // Mounira/Sayeda east of Garden City proper.
@@ -1730,6 +1733,19 @@ const cairoLandmarks: readonly ProceduralLandmark[] = [
     center: point(-275, -315),
     size: point(32, 58),
     color: "#e4dbc7",
+  },
+  {
+    // Bulaq's own mosque, at the heart of the hara web and a street away
+    // from the lane that shares its name — discovered down an alley the way
+    // Cairo's mosques are, not presented on a plaza. Bespoke render in
+    // `buildCairoLandmark` (pointed Mamluk dome, arcaded front, and the
+    // green-lit minaret every Egyptian mosque wears at night); ground
+    // solids are its own recipe in `landmarkGroundSolids.ts`.
+    id: "cairo-abou-ela-mosque",
+    kind: "cultural",
+    center: point(285, 560),
+    size: point(26, 20),
+    color: "#d9cdb4",
   },
   {
     id: "cairo-qasr-el-nil-bridge",
@@ -3813,7 +3829,6 @@ const CAIRO_INTERIOR_CORES: readonly CairoInteriorCore[] = [
   core(66, -592, 46, 28, -90.6),
   core(66, -550, 28, 18, -92.6),
   core(66, -4, 46, 28, -86.2),
-  core(122, 430, 28, 18, -90.9),
   core(136, -60, 28, 18, -87.2),
   core(136, -18, 28, 18, -87.2),
   core(136, 24, 28, 18, -87.2),
@@ -3822,26 +3837,26 @@ const CAIRO_INTERIOR_CORES: readonly CairoInteriorCore[] = [
   core(150, 192, 46, 28, -87.7),
   core(150, 262, 36, 24, -87.7),
   core(150, 374, 28, 18, -8.6),
-  core(150, 626, 28, 18, -4.8),
+  core(150, 556, 28, 18, -2.8),
+  core(150, 640, 28, 18, -85.9),
   core(150, 808, 28, 18, -91.9),
   core(164, -340, 28, 18, 12.2),
   core(164, -60, 36, 24, -89.2),
   core(164, -18, 36, 24, -92.2),
   core(164, 24, 36, 24, -90.2),
   core(164, 304, 28, 18, -7.6),
-  core(164, 542, 28, 18, -4.8),
+  core(178, 626, 28, 18, -8.8),
   core(192, -760, 28, 18, -91.1),
   core(192, 388, 46, 28, -10.6),
-  core(192, 626, 28, 18, -2.8),
+  core(192, 542, 28, 18, -3.8),
   core(206, -466, 28, 18, 9.6),
   core(206, -438, 28, 18, -79.8),
   core(206, -354, 46, 28, 13.2),
   core(206, 430, 36, 24, -93),
   core(206, 472, 36, 24, -91),
-  core(206, 514, 36, 24, -92),
-  core(206, 556, 36, 24, -6.8),
-  core(206, 654, 28, 18, -92),
-  core(206, 696, 36, 24, -91),
+  core(206, 514, 28, 18, -92),
+  core(206, 640, 28, 18, -92),
+  core(206, 682, 36, 24, -93),
   core(206, 794, 28, 18, -90),
   core(220, -396, 36, 24, -75.8),
   core(234, 276, 28, 18, -94.8),
@@ -3864,11 +3879,9 @@ const CAIRO_INTERIOR_CORES: readonly CairoInteriorCore[] = [
   core(276, 248, 36, 24, -88.5),
   core(276, 290, 28, 18, -86.5),
   core(290, -816, 36, 24, -2),
-  core(290, 402, 36, 24, -85.3),
+  core(290, 402, 28, 18, -85.3),
   core(290, 444, 36, 24, -92),
   core(290, 486, 36, 24, -91),
-  core(290, 528, 36, 24, -91),
-  core(290, 570, 28, 18, -5.8),
   core(290, 640, 28, 18, -5.8),
   core(290, 668, 28, 18, -89),
   core(290, 710, 46, 28, -91),
@@ -3899,7 +3912,7 @@ const CAIRO_INTERIOR_CORES: readonly CairoInteriorCore[] = [
   core(374, 388, 28, 18, 11.1),
   core(374, 416, 28, 18, -82.3),
   core(388, -424, 28, 18, -89.7),
-  core(388, 556, 36, 24, -83.3),
+  core(388, 556, 46, 28, -83.3),
   core(402, -298, 28, 18, -83),
   core(402, 430, 28, 18, 2.9),
   core(402, 514, 46, 28, -0.1),
@@ -3908,33 +3921,31 @@ const CAIRO_INTERIOR_CORES: readonly CairoInteriorCore[] = [
   core(416, 94, 46, 28, -62.7),
   core(416, 290, 46, 28, 12.1),
   core(416, 388, 46, 28, 9.1),
-  core(416, 542, 28, 18, 8),
   core(416, 668, 28, 18, -1),
-  core(416, 738, 28, 18, 3),
-  core(416, 766, 28, 18, -82.6),
+  core(416, 752, 28, 18, -82.6),
   core(430, 136, 28, 18, -58.7),
-  core(430, 808, 28, 18, 7.4),
+  core(430, 542, 36, 24, 8),
+  core(430, 794, 46, 28, -81.6),
   core(444, -200, 28, 18, -130),
   core(444, -46, 46, 28, -6.8),
   core(444, 416, 28, 18, -85.8),
   core(444, 514, 28, 18, 2.9),
   core(444, 626, 28, 18, 14),
+  core(444, 738, 28, 18, 3),
   core(458, -746, 28, 18, -1),
   core(458, -172, 28, 18, -50.5),
   core(458, -144, 28, 18, -4.8),
   core(458, -4, 36, 24, -49.1),
-  core(458, 542, 28, 18, -83.8),
   core(458, 654, 36, 24, -1),
-  core(458, 738, 46, 28, 2),
   core(472, -452, 28, 18, -25.8),
   core(472, 276, 46, 28, 12.1),
   core(472, 794, 46, 28, 5.4),
   core(486, -46, 28, 18, -13.9),
   core(486, 24, 28, 18, -61.7),
   core(486, 234, 36, 24, -63.4),
+  core(486, 738, 36, 24, 0),
   core(500, -746, 28, 18, -2),
   core(500, -270, 36, 24, -128.5),
-  core(500, 738, 28, 18, -80),
   core(514, -620, 28, 18, 89.4),
   core(514, -32, 28, 18, -10.9),
   core(514, 52, 36, 24, 1),

@@ -338,6 +338,144 @@ export function buildCairoLandmark(
   // cylinder run for the colonnade, no shadow casters. Every dimension
   // derives from the landmark so re-authoring its rect reshapes the
   // building instead of stranding it.
+  if (landmark.id === "cairo-abou-ela-mosque") {
+    // Impressionistic Bulaq mosque: plinth, arcaded hall, pointed Mamluk
+    // dome on an octagonal drum, and the minaret with its green night ring —
+    // the one light every Egyptian mosque shows after dark. The front faces
+    // -x, toward Haret Abou Al Ela.
+    const cx = landmark.center.x;
+    const cz = landmark.center.z;
+    // Egyptian mosques are the most floodlit buildings in the country, and
+    // a plain diffuse wall reads as a silhouette under the night rig (the
+    // cockpit's own black-ambient lesson) — so every stone surface carries
+    // a small warm emissive of its own.
+    const stone = makeMaterial(
+      scene,
+      `${landmark.id}-stone`,
+      new Color3(0.72, 0.64, 0.5),
+      new Color3(0.155, 0.115, 0.06),
+    );
+    const domeStone = makeMaterial(
+      scene,
+      `${landmark.id}-dome`,
+      new Color3(0.62, 0.56, 0.46),
+      new Color3(0.1, 0.08, 0.05),
+    );
+    const neonGreen = makeMaterial(
+      scene,
+      `${landmark.id}-neon`,
+      new Color3(0.05, 0.14, 0.08),
+      new Color3(0.24, 0.98, 0.45),
+    );
+    const lampWarm = makeMaterial(
+      scene,
+      `${landmark.id}-portal-glow`,
+      new Color3(0.16, 0.1, 0.05),
+      new Color3(0.88, 0.6, 0.28),
+    );
+    // Plinth and hall.
+    createBox(
+      scene,
+      landmark.id,
+      { width: landmark.size.x, height: 0.7, depth: landmark.size.z },
+      new Vector3(cx, 0.35, cz),
+      paleStone,
+    );
+    createBox(
+      scene,
+      `${landmark.id}-hall`,
+      { width: 17, height: 7.6, depth: 14 },
+      new Vector3(cx + 2.5, 0.7 + 3.8, cz),
+      stone,
+    );
+    // Arcaded front (-x): three dark arches with a warm glow in the centre one.
+    for (const bay of [-1, 0, 1] as const) {
+      createBox(
+        scene,
+        `${landmark.id}-arch-${bay}`,
+        { width: 0.2, height: 4.4, depth: 2.6 },
+        new Vector3(cx + 2.5 - 8.6, 0.7 + 2.2, cz + bay * 4),
+        bay === 0 ? lampWarm : darkWindow,
+      );
+    }
+    // Drum and pointed dome, set toward the hall's east half.
+    createCylinder(
+      scene,
+      `${landmark.id}-drum`,
+      { height: 2.2, diameter: 8.6, tessellation: 8 },
+      new Vector3(cx + 4.5, 0.7 + 7.6 + 1.1, cz),
+      stone,
+    );
+    createCylinder(
+      scene,
+      `${landmark.id}-dome-lower`,
+      { height: 3.4, diameterBottom: 8.2, diameterTop: 4.6, tessellation: 8 },
+      new Vector3(cx + 4.5, 0.7 + 9.8 + 1.7, cz),
+      domeStone,
+    );
+    createCylinder(
+      scene,
+      `${landmark.id}-dome-tip`,
+      { height: 2.6, diameterBottom: 4.6, diameterTop: 0.5, tessellation: 8 },
+      new Vector3(cx + 4.5, 0.7 + 13.2 + 1.3, cz),
+      domeStone,
+    );
+    // Minaret at the south-west corner, where the alley sees it end-on.
+    const mx = cx - 8.5;
+    const mz = cz - 6.5;
+    createBox(
+      scene,
+      `${landmark.id}-minaret-base`,
+      { width: 2.8, height: 4.2, depth: 2.8 },
+      new Vector3(mx, 0.7 + 2.1, mz),
+      stone,
+    );
+    createCylinder(
+      scene,
+      `${landmark.id}-minaret-shaft`,
+      { height: 13.5, diameter: 2.05, tessellation: 8 },
+      new Vector3(mx, 0.7 + 4.2 + 6.75, mz),
+      stone,
+    );
+    createCylinder(
+      scene,
+      `${landmark.id}-minaret-balcony`,
+      { height: 0.55, diameter: 3.1, tessellation: 8 },
+      new Vector3(mx, 0.7 + 17.9, mz),
+      paleStone,
+    );
+    // The green neon ring under the balcony — the night signature.
+    createCylinder(
+      scene,
+      `${landmark.id}-minaret-neon`,
+      { height: 0.42, diameter: 2.35, tessellation: 8 },
+      new Vector3(mx, 0.7 + 17.35, mz),
+      neonGreen,
+    );
+    createCylinder(
+      scene,
+      `${landmark.id}-minaret-upper`,
+      { height: 4.4, diameter: 1.5, tessellation: 8 },
+      new Vector3(mx, 0.7 + 18.2 + 2.2, mz),
+      stone,
+    );
+    createCylinder(
+      scene,
+      `${landmark.id}-minaret-cap`,
+      { height: 2.7, diameterBottom: 1.9, diameterTop: 0.1, tessellation: 8 },
+      new Vector3(mx, 0.7 + 22.6 + 1.35, mz),
+      domeStone,
+    );
+    createCylinder(
+      scene,
+      `${landmark.id}-minaret-tip-neon`,
+      { height: 0.3, diameter: 0.9, tessellation: 8 },
+      new Vector3(mx, 0.7 + 22.45, mz),
+      neonGreen,
+    );
+    return true;
+  }
+
   if (landmark.id === "cairo-tahrir-ministries") {
     const centralWidth = landmark.size.x * 0.5;
     const wingWidth = landmark.size.x * 0.25;

@@ -594,8 +594,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // -> 18_679, "fdff7684" (baladi rezoning): ~215 strips flip from glb
     // to the facade grid and the baladi keys take the west-bank density
     // bump, so both the cell count and the per-cell draw mix move.
-    drawCount: 18_679,
-    facadeMeshFingerprint: "fdff7684",
+    // -> 19_787, "f2628a4c" (mosque + west-Bulaq widening): more parcels
+    // on the facade grid, and the core list regenerated around the
+    // landmark's exclusion.
+    drawCount: 19_787,
+    facadeMeshFingerprint: "f2628a4c",
   },
 };
 
