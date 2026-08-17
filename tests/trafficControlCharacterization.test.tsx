@@ -1554,6 +1554,11 @@ describe("traffic control characterization (Phase 3.9 safety net)", () => {
         expect(mesh.sz, mesh.n).toBeGreaterThan(0);
       }
     },
-    30_000,
+    // 30s -> 90s: this mount was already the documented flaky-under-load
+    // timeout, and the facade-chunk merge (ProceduralFacades.finalize)
+    // adds real build-time work to Tokyo's scene construction — the same
+    // surgical per-test bump the night-conversion pass applied to the
+    // buildingLayer/facadeGrid siblings.
+    90_000,
   );
 });
