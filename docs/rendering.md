@@ -222,23 +222,42 @@ decal-on-wall fixes, and treat camera `minZ` as a depth-precision budget
 (precision varies as `minZ/z²`; the chase camera's 0.5 keeps millimetre
 offsets resolvable — don't lower it to "fix" near clipping).
 
-## Cairo's night identity is three texture families plus a kit pass
+## Cairo's night identity: no wall may be painted with light
 
-The baladi districts' boxes take `makeBaladiFacadeTextures` (brick or bare
-render inside an exposed concrete skeleton, smaller shuttered windows, a
-sparse warm/fluorescent night mix); the khedivial key takes
-`makeFloodlitFacadeTextures` — the WALL glows an uplight gradient and the
-windows stay dark voids, exploiting the facade UV convention (v=0 is every
-building's own base, so any height lights from the street). Both live in
-`proceduralTextures.ts` and cost two DynamicTextures per key, zero extra
-meshes. On the glb side, `BuildingLayer.applyCairoNightIdentity` gives the
-khedivial kit a small CONSTANT warm wall emissive (never the retired
-albedo-feedback glow) with panes dimmed to `CAIRO_FLOODLIT_PANE_GLOW` —
-`WINDOW_GLOW`'s own caution applies: a pane is readable only against its
-own wall treatment. The two Corniche towers keep dark walls and standard
-panes, and every placement grows an Arabic neon rooftop sign
-(`addCornicheCrown`; the Arabic canvas font is awaited before any Cairo
-session constructs, so the signs rasterise with the real face).
+**Nothing in Cairo gets a wall-wide warm treatment — no emissive, no tint, no
+uplight gradient.** Four owner rejections bought this rule, each a different
+mechanism producing one complaint ("flat orange", then "sandy shade… I
+absolutely hate it"): the albedo-glow fallback, a flat constant emissive on
+the whole kit, a height-pooled `MaterialPluginBase` floodlight with a
+compensating albedo mute, and — the one that survived all three fixes because
+it was not in the renderer at all — a **sand hue baked into the assets**, both
+the eleven `cairo-*` `ProceduralFacades.BUILDING_PALETTE` entries and the
+imported glbs themselves (`tools/style-cairo-residences.mjs` remapped the
+KayKit colour atlas into a sand band and assigned the Quaternius blocks
+literal sand walls).
+
+The load-bearing lesson: **a warm wash is a HUE problem, not a brightness
+problem.** Dimming every warm surface was tried and failed — London's palette
+entries are just as bright and read fine at night. What fixes it is hue
+spread: the Cairo families are now neutral limestones/concretes, dusty
+off-whites, sage and red-leaning rose/terracotta. Nothing yellow-dominant
+(R≈G≫B) may enter that palette; that ratio *is* the sandy signature.
+
+So the kit is treated exactly like every other city's: real albedo under the
+scene rig, lit panes from `applyNightGlow`, no Cairo branch. The baladi
+districts' boxes still take `makeBaladiFacadeTextures` (brick or bare render
+inside an exposed concrete skeleton, smaller shuttered windows, a sparse
+warm/fluorescent night mix) — the one Cairo-specific facade family left, and
+it survives because it paints *material*, not light. Cairo's night character
+is carried by what is genuinely lit: the densest lamp set of the four, lit
+windows, shopfronts, the mosque's floodlighting, and the Corniche towers'
+Arabic neon rooftop signs (`addCornicheCrown`; the Arabic canvas font is
+awaited before any Cairo session constructs, so the signs rasterise with the
+real face). The rig (`nightHemiIntensity`/`nightSunIntensity`/`sunTint`/
+`fogColor` in visuals.ts) was pulled down alongside the palette, fog included
+— fog tints every wall past ~60 m, so an amber fog re-creates the wash in the
+middle distance no matter what the near walls do. Retune palette, rig and fog
+together against wall screenshots, never one alone.
 
 ## Grass, parks and planting are their own page
 

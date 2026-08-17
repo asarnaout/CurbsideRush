@@ -101,21 +101,18 @@ import type { BuildingRepresentationRecord } from "./buildingRepresentation";
 const WINDOW_GLOW = 0.34;
 
 /**
- * Cairo's polished-district night identity (the owner's reference photos):
- * the khedivial kit reads FLOODLIT — a modest constant warm wall emissive,
- * windows dimmed to voids — while the two Corniche towers keep dark walls
- * with the standard lit window grid and grow neon rooftop signs. The wall
- * emissive here is NOT the retired albedo-glow fallback: it is a small
- * constant colour (no texture feedback, so shading and baked depth
- * survive), applied to one city's kit deliberately, the way the real
- * downtown is uplit. WINDOW_GLOW's own caution applies: these panes are
- * readable only against their own wall treatment, so the floodlit models'
- * panes run dimmer than everyone else's.
+ * Cairo's kit gets NO special night wall treatment. Every incarnation of
+ * one — the albedo-glow fallback, a flat constant kit emissive, a
+ * height-pooled "floodlit" emissive with a compensating albedo mute — was
+ * owner-rejected as the same complaint (an orange/sandy wash painted over
+ * the buildings' real colours; four reports as of 2026-08-17). The sand
+ * itself turned out to be baked into the kit by the v1 styling pass, since
+ * retired (`tools/style-cairo-residences.mjs` restores the imported models'
+ * real colours). The kit now reads exactly like every other city's: real
+ * albedo under the scene rig, lit panes from `applyNightGlow`, and Cairo's
+ * night identity carried by what is genuinely lit — lamps, windows,
+ * shopfronts and the Corniche towers' neon crowns.
  */
-const CAIRO_FLOODLIT_WALL_EMISSIVE = new Color3(0.115, 0.082, 0.042);
-const CAIRO_FLOODLIT_PANE_GLOW = 0.14;
-const CAIRO_FLOODLIT_URL_RE =
-  /\/cairo-(?:block-|walkup-|residence-|office-block|depot|shop)[^/]*\.glb$/;
 const CAIRO_TOWER_URL_RE = /\/cairo-tower-[ab]\.glb$/;
 
 /** Rooftop neon signs for the Corniche towers — the bank-and-hotel crowns
@@ -419,36 +416,6 @@ export class BuildingLayer {
     ctx.registerStaticCell(inst, building.x, building.z, false);
   }
 
-  /** See CAIRO_FLOODLIT_WALL_EMISSIVE's comment. Runs after applyNightGlow
-   * so the generic pane treatment exists to be re-tuned; url matching is
-   * inherently map-scoped because building glbs preload per map. */
-  private applyCairoNightIdentity(buildingModelUrls: readonly string[]): void {
-    for (const url of buildingModelUrls) {
-      if (!CAIRO_FLOODLIT_URL_RE.test(url)) continue;
-      for (const mat of modelMaterials(this.scene, url)) {
-        const m = mat as unknown as {
-          emissiveColor?: Color3;
-          emissiveTexture?: unknown;
-          emissiveIntensity?: number;
-        };
-        const isPane = /window|glass|trim|cristal/.test((mat.name ?? "").toLowerCase());
-        if (isPane) {
-          if (typeof m.emissiveIntensity === "number") {
-            m.emissiveIntensity = CAIRO_FLOODLIT_PANE_GLOW;
-          } else if (m.emissiveColor) {
-            m.emissiveColor = m.emissiveColor.scale(
-              CAIRO_FLOODLIT_PANE_GLOW / WINDOW_GLOW,
-            );
-          }
-          continue;
-        }
-        if (m.emissiveTexture != null) continue;
-        m.emissiveColor = CAIRO_FLOODLIT_WALL_EMISSIVE.clone();
-        if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = 1;
-      }
-    }
-  }
-
   private getCrownSignMaterial(variant: number): StandardMaterial {
     const cached = this.crownSignMaterials.get(variant);
     if (cached) return cached;
@@ -618,10 +585,7 @@ export class BuildingLayer {
    * call the code this replaces — see the class doc comment.
    */
   instantiate(ctx: BuildingLayerInstantiateCtx): void {
-    if (ctx.night) {
-      this.applyNightGlow(ctx.buildingModelUrls);
-      this.applyCairoNightIdentity(ctx.buildingModelUrls);
-    }
+    if (ctx.night) this.applyNightGlow(ctx.buildingModelUrls);
     // Pull the Cairo kit's decal primitives off their wall planes; see
     // CAIRO_DECAL_Z_OFFSET_UNITS. Container materials are shared by every
     // instance and by the merged masters, so once per url covers the map.

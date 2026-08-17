@@ -21,7 +21,6 @@ import {
 import {
   makeBaladiFacadeTextures,
   makeFacadeEmissiveTexture,
-  makeFloodlitFacadeTextures,
 } from "./proceduralTextures";
 
 /**
@@ -130,17 +129,28 @@ export class ProceduralFacades {
     // that goes above 40 m.
     "london-glass-curtain": new Color3(0.42, 0.5, 0.56),
     "white-stucco": new Color3(0.82, 0.81, 0.75),
-    "cairo-cream": new Color3(0.76, 0.69, 0.57),
-    "cairo-ochre": new Color3(0.67, 0.53, 0.36),
-    "cairo-stone": new Color3(0.7, 0.63, 0.51),
-    "cairo-concrete": new Color3(0.58, 0.56, 0.5),
-    "cairo-villa": new Color3(0.77, 0.72, 0.62),
-    "cairo-modern": new Color3(0.62, 0.64, 0.62),
-    "cairo-warm-stone": new Color3(0.72, 0.61, 0.46),
-    "cairo-garden-stucco": new Color3(0.78, 0.69, 0.56),
-    "cairo-khedivial-stone": new Color3(0.68, 0.59, 0.46),
-    "cairo-gezira-cream": new Color3(0.78, 0.73, 0.63),
-    "cairo-west-bank-concrete": new Color3(0.58, 0.56, 0.5),
+    // The Cairo wall families were originally one yellow-sand monotone
+    // (every entry R≈G≫B at mid-high lightness), and under Cairo's warm
+    // night rig the whole polished city read as a single amber wash — the
+    // owner's four-times-reported "flat orange"/"sandy shade" complaint.
+    // Dimming them did not fix it (the wash is a HUE problem, and London's
+    // equally bright entries above read fine at night), so the families now
+    // vary the hue instead: neutral limestones and concretes, dusty
+    // off-whites, and deliberate rose/terracotta entries whose warmth is
+    // red-leaning (R>G, G−B small — reads brick, not sand). Nothing here
+    // may be yellow-dominant; that is the sandy signature. The baladi
+    // families below were always authored dark brick and are untouched.
+    "cairo-cream": new Color3(0.68, 0.66, 0.61),
+    "cairo-ochre": new Color3(0.55, 0.4, 0.33),
+    "cairo-stone": new Color3(0.58, 0.56, 0.52),
+    "cairo-concrete": new Color3(0.5, 0.5, 0.48),
+    "cairo-villa": new Color3(0.66, 0.58, 0.54),
+    "cairo-modern": new Color3(0.52, 0.55, 0.53),
+    "cairo-warm-stone": new Color3(0.56, 0.45, 0.38),
+    "cairo-garden-stucco": new Color3(0.64, 0.62, 0.57),
+    "cairo-khedivial-stone": new Color3(0.6, 0.58, 0.54),
+    "cairo-gezira-cream": new Color3(0.66, 0.64, 0.6),
+    "cairo-west-bank-concrete": new Color3(0.5, 0.5, 0.47),
   };
 
   /**
@@ -217,21 +227,7 @@ export class ProceduralFacades {
     if (cached) return cached;
     const baladi = ProceduralFacades.BALADI_PALETTE[materialKey];
     let created: StandardMaterial;
-    if (materialKey === "cairo-khedivial-stone") {
-      // Downtown's floodlit gold: the wall itself glows an uplight
-      // gradient and the windows stay dark — see makeFloodlitFacadeTextures.
-      const textures = makeFloodlitFacadeTextures(
-        this.scene,
-        `facade-${materialKey}`,
-        ProceduralFacades.BUILDING_PALETTE[materialKey],
-      );
-      created = new StandardMaterial(`facade-${materialKey}`, this.scene);
-      created.diffuseColor = new Color3(1, 1, 1);
-      created.diffuseTexture = textures.diffuse;
-      created.emissiveTexture = textures.emissive;
-      created.emissiveColor = new Color3(1, 1, 1);
-      created.specularColor = new Color3(0.05, 0.05, 0.05);
-    } else if (baladi) {
+    if (baladi) {
       const textures = makeBaladiFacadeTextures(
         this.scene,
         `facade-${materialKey}`,
