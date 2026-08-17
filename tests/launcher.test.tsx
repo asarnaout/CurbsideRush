@@ -215,10 +215,9 @@ describe("gig launcher", () => {
     );
 
     const preview = screen.getByLabelText(/Cairo driving preview/i);
-    expect(preview.querySelector("img")).toHaveAttribute(
-      "src",
-      "/landing/cairo.webp",
-    );
+    const previewImage = preview.querySelector("img");
+    expect(previewImage).toHaveAttribute("src", "/landing/cairo.webp");
+    expect(previewImage).toHaveStyle({ objectPosition: "30% center" });
     expect(startButton("eg-cairo")).toBeEnabled();
   });
 

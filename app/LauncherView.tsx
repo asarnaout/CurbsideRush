@@ -28,7 +28,9 @@ export const DESTINATION_PREVIEW_IMAGES: Record<DestinationId, string> = {
 
 // Horizontal focus for the cover-cropped preview, for a city whose subject sits
 // off-centre. Anything absent takes the default `center`.
-const DESTINATION_PREVIEW_FOCUS: Partial<Record<DestinationId, string>> = {};
+const DESTINATION_PREVIEW_FOCUS: Partial<Record<DestinationId, string>> = {
+  "eg-cairo": "30% center",
+};
 
 /**
  * Short commit ref of the running build, frozen in by `vite.config.ts` from
