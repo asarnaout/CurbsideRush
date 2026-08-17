@@ -21,6 +21,7 @@ import {
 import {
   makeBaladiFacadeTextures,
   makeFacadeEmissiveTexture,
+  makeFloodlitFacadeTextures,
 } from "./proceduralTextures";
 
 /**
@@ -198,7 +199,21 @@ export class ProceduralFacades {
     if (cached) return cached;
     const baladi = ProceduralFacades.BALADI_PALETTE[materialKey];
     let created: StandardMaterial;
-    if (baladi) {
+    if (materialKey === "cairo-khedivial-stone") {
+      // Downtown's floodlit gold: the wall itself glows an uplight
+      // gradient and the windows stay dark — see makeFloodlitFacadeTextures.
+      const textures = makeFloodlitFacadeTextures(
+        this.scene,
+        `facade-${materialKey}`,
+        ProceduralFacades.BUILDING_PALETTE[materialKey],
+      );
+      created = new StandardMaterial(`facade-${materialKey}`, this.scene);
+      created.diffuseColor = new Color3(1, 1, 1);
+      created.diffuseTexture = textures.diffuse;
+      created.emissiveTexture = textures.emissive;
+      created.emissiveColor = new Color3(1, 1, 1);
+      created.specularColor = new Color3(0.05, 0.05, 0.05);
+    } else if (baladi) {
       const textures = makeBaladiFacadeTextures(
         this.scene,
         `facade-${materialKey}`,
