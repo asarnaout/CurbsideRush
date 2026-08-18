@@ -270,6 +270,14 @@ export function buildRoadsideProps(
           corridorHalfWidthM: line.corridorHalfWidthM,
         })),
         keepOutRects: keepOuts.poiRects,
+        buildingRects:
+          key === "cairo"
+            ? mapPack.geometry.blocks.map((block) => ({
+                center: block.center,
+                size: block.size,
+                headingDeg: block.headingDeg,
+              }))
+            : undefined,
       })
     : [];
   const roadsidePlacements = generateRoadsidePropPlacements({

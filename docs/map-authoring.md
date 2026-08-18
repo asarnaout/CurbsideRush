@@ -251,10 +251,14 @@ parcels on its **own side** of the fronted road (`RoadsideExclusion`'s
 raw/inflated pair + `nearestPointOnOrientedParcel`): the opera park's margin
 once erased the kerb *across the street* from itself, so a road-divided park's
 exclusion is first clipped to the side its centre is on. Four Nile-facing
-sides stay building-free (`CAIRO_OPEN_WATERFRONT_SIDES`, exported) and carry
-the derived corniche promenade instead — a parapet off the shoreline colliders
-(`shorelineParapetRuns`) plus `generatePromenadeDecor`'s palm/lamp/bench line;
-see docs/rendering.md for the render side.
+sides skip the automatic continuous roadside wall
+(`CAIRO_OPEN_WATERFRONT_SIDES`, exported) and carry the derived corniche
+promenade — a parapet off the shoreline colliders (`shorelineParapetRuns`) plus
+`generatePromenadeDecor`'s palm/lamp/bench line. Sparse reviewed river-side
+accent parcels are allowed where broad view corridors remain, including the
+east-bank Corniche rhythm and the single southern Gezira bay accent; promenade
+decor receives every block footprint and relocates along the bank instead of
+standing inside one. See docs/rendering.md for the render side.
 
 **Cairo's `buildingSet` is derived from where a parcel landed**
 (`cairoRoadsideBuildingSet`), not listed per road, so a new road picks up its

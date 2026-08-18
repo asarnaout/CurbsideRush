@@ -2599,11 +2599,13 @@ const addCairoRoadsideBlock = (
  * model bound of its own to derive one from. */
 const CAIRO_FACADE_PARCEL_DEPTH_M = 15;
 
-// These carriageway sides face directly onto a Nile channel. Preserve their
-// promenade, trees and open water view; density belongs on the inland side.
-// Exported for the renderer's promenade decor (generatePromenadeDecor), which
-// dresses exactly these sides; the kerb tests keep their own literal copy so
-// a change here is a two-place decision.
+// These carriageway sides face directly onto a Nile channel. They skip the
+// automatic roadside generator -- a continuous wall would erase the Nile --
+// and instead carry the promenade plus any deliberately sparse, reviewed
+// river-side accents (the east-bank Corniche and south Gezira accents are
+// authored beside the rail definition below). Exported for
+// generatePromenadeDecor, which dresses exactly these sides; the kerb tests
+// keep their own literal copy so a change here is a two-place decision.
 export const CAIRO_OPEN_WATERFRONT_SIDES: Readonly<
   Partial<Record<string, readonly (-1 | 1)[]>>
 > = {
@@ -4148,6 +4150,196 @@ const CAIRO_RAIL_LINES: readonly RailLine[] = [
     consist: { kind: "diesel_freight", cars: 5, liveryHex: "#24518f", accentHex: "#e0b23c" },
   },
 ];
+
+/**
+ * Sparse buildings on the river side of the east-bank Corniche.
+ *
+ * The ordinary roadside passes intentionally skip this side because their
+ * continuous street-wall rhythm would hide the Nile. The opposite extreme was
+ * just as visible from the chase camera, though: north of the existing core at
+ * z~=20, more than 800 m of promenade contained only palms and paving. These
+ * short parcels each produce exactly one model from Cairo's existing Corniche
+ * set, with roughly 80-85 m of clear Nile view between ordinary beats. The
+ * railway, Qasr El-Nil portal and Sixth October flyover remain wider structural
+ * breaks in the rhythm rather than gaps to squeeze another building into.
+ *
+ * Authored after the interior cores and rail line so every accent must clear
+ * the full existing block plan, the Nile, roads/bridges, the scenic flyover
+ * corridor and the rail carver before it can be inserted. Promenade furniture
+ * receives these same block footprints and relocates along the bank when one
+ * of its deterministic stations lands inside a building.
+ */
+export const CAIRO_CORNICHE_RIVERFRONT_ACCENTS: readonly ProceduralBlock[] = [
+  // One genuine southern void between the existing -396 and -242 cores.
+  {
+    id: "cairo-corniche-riverfront-accent-1",
+    center: point(64.68, -314.53),
+    size: point(20.5, 20.2),
+    headingDeg: -91.43,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-khedivial-stone",
+    heightRange: [20, 46],
+    density: 0.82,
+    buildingSet: "cairo-corniche",
+    addressable: false,
+  },
+  // North of the last existing river-side core: sparse single-building beats.
+  {
+    id: "cairo-corniche-riverfront-accent-2",
+    center: point(73.47, 70.29),
+    size: point(20.5, 20.2),
+    headingDeg: -89.22,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-khedivial-stone",
+    heightRange: [20, 46],
+    density: 0.82,
+    buildingSet: "cairo-corniche",
+    addressable: false,
+  },
+  {
+    id: "cairo-corniche-riverfront-accent-3",
+    center: point(75.51, 175.47),
+    size: point(20.5, 20.2),
+    headingDeg: -88.73,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-khedivial-stone",
+    heightRange: [20, 46],
+    density: 0.82,
+    buildingSet: "cairo-corniche",
+    addressable: false,
+  },
+  {
+    id: "cairo-corniche-riverfront-accent-4",
+    center: point(78.51, 310.47),
+    size: point(20.5, 20.2),
+    headingDeg: -88.73,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-khedivial-stone",
+    heightRange: [20, 46],
+    density: 0.82,
+    buildingSet: "cairo-corniche",
+    addressable: false,
+  },
+  {
+    id: "cairo-corniche-riverfront-accent-5",
+    center: point(80.64, 416.41),
+    size: point(20.5, 20.2),
+    headingDeg: -88.88,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-khedivial-stone",
+    heightRange: [20, 46],
+    density: 0.82,
+    buildingSet: "cairo-corniche",
+    addressable: false,
+  },
+  {
+    id: "cairo-corniche-riverfront-accent-6",
+    center: point(82.64, 518.41),
+    size: point(20.5, 20.2),
+    headingDeg: -88.88,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-khedivial-stone",
+    heightRange: [20, 46],
+    density: 0.82,
+    buildingSet: "cairo-corniche",
+    addressable: false,
+  },
+  {
+    id: "cairo-corniche-riverfront-accent-7",
+    center: point(84.6, 619.4),
+    size: point(20.5, 20.2),
+    headingDeg: -88.92,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-khedivial-stone",
+    heightRange: [20, 46],
+    density: 0.82,
+    buildingSet: "cairo-corniche",
+    addressable: false,
+  },
+  {
+    id: "cairo-corniche-riverfront-accent-8",
+    center: point(86.56, 723.4),
+    size: point(20.5, 20.2),
+    headingDeg: -88.92,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-khedivial-stone",
+    heightRange: [20, 46],
+    density: 0.82,
+    buildingSet: "cairo-corniche",
+    addressable: false,
+  },
+  {
+    id: "cairo-corniche-riverfront-accent-9",
+    center: point(88.56, 829.4),
+    size: point(20.5, 20.2),
+    headingDeg: -88.92,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-khedivial-stone",
+    heightRange: [20, 46],
+    density: 0.82,
+    buildingSet: "cairo-corniche",
+    addressable: false,
+  },
+];
+
+/**
+ * One Gezira mid-rise in the otherwise empty river-side bay at the south end
+ * of Nile Island Drive. The parcel sits between South Gezira Road and Saleh
+ * Selim Street, exactly where the fitted map places a player around
+ * (-100, -741) looking south. One short building breaks up the oversized slab
+ * of paving while the rest of the bay remains an open Nile view.
+ */
+export const CAIRO_NILE_ISLAND_RIVERFRONT_ACCENTS: readonly ProceduralBlock[] = [
+  {
+    id: "cairo-nile-island-riverfront-accent-1",
+    center: point(-99, -820),
+    size: point(20.5, 20.2),
+    headingDeg: -98.84,
+    frontageAxis: "z",
+    // At this heading +z faces west, back toward Nile Island Drive.
+    streetEdges: ["+z"],
+    material: "cairo-gezira-cream",
+    heightRange: [14, 34],
+    density: 0.82,
+    buildingSet: "cairo-corniche",
+    addressable: false,
+  },
+];
+
+const CAIRO_REVIEWED_RIVERFRONT_ACCENTS: readonly ProceduralBlock[] = [
+  ...CAIRO_CORNICHE_RIVERFRONT_ACCENTS,
+  ...CAIRO_NILE_ISLAND_RIVERFRONT_ACCENTS,
+];
+
+for (const accent of CAIRO_REVIEWED_RIVERFRONT_ACCENTS) {
+  const validation = validateCairoClosureCandidate(accent);
+  if (!validation.valid) {
+    throw new Error(
+      `cairo.ts: reviewed riverfront accent ${accent.id} failed validation (${validation.reason})`,
+    );
+  }
+  const railCheck = carveBlocksForRailCorridors([accent], CAIRO_RAIL_LINES);
+  if (
+    railCheck.blocks.length !== 1 ||
+    railCheck.blocks[0].id !== accent.id ||
+    railCheck.removedBlockIds.length > 0 ||
+    railCheck.trimmedBlockIds.length > 0
+  ) {
+    throw new Error(
+      `cairo.ts: reviewed riverfront accent ${accent.id} reaches the rail corridor`,
+    );
+  }
+  addRoadClearBlock(accent);
+}
 
 const cairoSurfaceById = (id: string): RoadSurface => {
   const surface = cairoRoadSurfaces.find((candidate) => candidate.id === id);

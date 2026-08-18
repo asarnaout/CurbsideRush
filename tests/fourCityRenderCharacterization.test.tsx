@@ -1384,9 +1384,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // the frame rate; with the merge it runs at (and in draw calls below)
     // the pre-reimagining baseline. Materials unchanged: merging reuses
     // the shared per-key materials.
-    totalMeshes: 13_688,
-    enabledMeshes: 13_644,
-    activeMeshes: 897,
+    // -> 13_697/13_653 (active 897 -> 898; sparse Corniche riverfront
+    // accents): nine existing-set instances, one close enough to the fixed
+    // test pose to enter the active set. Promenade furniture that conflicts
+    // with a block is relocated, not removed, so the delta is exactly +9.
+    // -> 13_698/13_654 (south Gezira riverfront accent): one more existing-set
+    // building; the photographed bay is outside the fixed active-mesh pose.
+    totalMeshes: 13_698,
+    enabledMeshes: 13_654,
+    activeMeshes: 898,
     materials: 246,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

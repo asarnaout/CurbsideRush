@@ -171,6 +171,11 @@ describe("Cairo corniche parapet", () => {
       points: line.points,
       corridorHalfWidthM: line.corridorHalfWidthM,
     })),
+    buildingRects: pack.geometry.blocks.map((block) => ({
+      center: block.center,
+      size: block.size,
+      headingDeg: block.headingDeg,
+    })),
   };
   const decor = generatePromenadeDecor(promenadeInput);
 
@@ -303,6 +308,28 @@ describe("Cairo corniche parapet", () => {
       }
     }
     expect(failures).toEqual([]);
+  });
+
+  it("moves promenade furniture out of every building footprint", () => {
+    const failures: string[] = [];
+    for (const placement of decor) {
+      for (const block of pack.geometry.blocks) {
+        const heading = ((block.headingDeg ?? 0) * Math.PI) / 180;
+        const dx = placement.x - block.center.x;
+        const dz = placement.z - block.center.z;
+        const localX = dx * Math.cos(heading) - dz * Math.sin(heading);
+        const localZ = dx * Math.sin(heading) + dz * Math.cos(heading);
+        if (
+          Math.abs(localX) <= block.size.x / 2 + 1 &&
+          Math.abs(localZ) <= block.size.z / 2 + 1
+        ) {
+          failures.push(
+            `${placement.kind} inside ${block.id} at (${placement.x.toFixed(1)}, ${placement.z.toFixed(1)})`,
+          );
+        }
+      }
+    }
+    expect(failures.slice(0, 10)).toEqual([]);
   });
 
   it("leaves both drivable bridge portals unwalled", () => {
