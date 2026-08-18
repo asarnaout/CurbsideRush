@@ -294,6 +294,9 @@ export interface NpcInternal extends MutablePose {
   localityRoutePlanTargetExitDistance: number;
   localityRoutePlanGeneration: number;
   localityRoutePlanDeferredUntilReservationClears: boolean;
+  /** A car placed on the predicted rolling corridor cruises slightly below
+   * player speed until it reaches the fog boundary. */
+  rollingCorridorLead: boolean;
   /** A hidden portal and its materialized goal plan proved before this active
    * slot was retired. The id survives the required inactive snapshot so the
    * next locality decision activates the exact admission it made room for. */
@@ -620,6 +623,14 @@ interface LocalTrafficPortalPreference {
    * its stable lookahead, so filling fog cannot become a delayed centre wave. */
   readonly outerLocalOnly?: boolean;
   readonly preferredSector?: LocalTrafficSector;
+  /** Prefer an opposing lane alongside the player's most likely successor
+   * chain, so hidden recycling follows bends instead of a straight compass
+   * ray that becomes stale at the next turn. */
+  readonly preferRollingCorridor?: boolean;
+  readonly requireRollingCorridor?: boolean;
+  /** Rolling-corridor recycling must place a safely hidden replacement in
+   * the requested sector, rather than merely using the sector as a score. */
+  readonly requirePreferredSector?: boolean;
   /** Density replacement must prove a route into its target. Pure circulation
    * deliberately stays in the hidden outer/recycle band instead. */
   readonly requireRouteConnection?: boolean;
@@ -699,6 +710,7 @@ export class TrafficSystem {
   private localityForwardAdmissionRouteTableDirty = true;
   private localityApproachAdmissionRouteTableDirty = true;
   private localityProjectedRouteLaneLoadScratch = new Uint16Array(0);
+  private localityApproachTargetLoadScratch = new Uint16Array(0);
   private localityRouteGoalAnchorX = Number.NaN;
   private localityRouteGoalAnchorZ = Number.NaN;
   private localityRouteGoalRoadId = "";
@@ -751,6 +763,7 @@ export class TrafficSystem {
   private localityApproachRouteFeedAvailable = false;
   private localityNextAheadFeedAdmissionSeconds = Number.NEGATIVE_INFINITY;
   private localityNextLocalHandoffAttemptSeconds = Number.NEGATIVE_INFINITY;
+  private localityNextRollingRecycleSeconds = Number.NEGATIVE_INFINITY;
   private localityLocalHandoffs = 0;
   private localityLocalHandoffAttempts = 0;
   private localityLocalHandoffCadenceBlocks = 0;
@@ -937,6 +950,7 @@ export class TrafficSystem {
     this.localityForwardAdmissionRouteTableDirty = true;
     this.localityApproachAdmissionRouteTableDirty = true;
     this.localityProjectedRouteLaneLoadScratch = new Uint16Array(0);
+    this.localityApproachTargetLoadScratch = new Uint16Array(0);
     this.localityRouteGoalAnchorX = Number.NaN;
     this.localityRouteGoalAnchorZ = Number.NaN;
     this.localityRouteGoalRoadId = "";
@@ -984,6 +998,7 @@ export class TrafficSystem {
     this.localityApproachRouteFeedAvailable = false;
     this.localityNextAheadFeedAdmissionSeconds = Number.NEGATIVE_INFINITY;
     this.localityNextLocalHandoffAttemptSeconds = Number.NEGATIVE_INFINITY;
+    this.localityNextRollingRecycleSeconds = Number.NEGATIVE_INFINITY;
     this.localityLocalHandoffs = 0;
     this.localityLocalHandoffAttempts = 0;
     this.localityLocalHandoffCadenceBlocks = 0;
@@ -1031,6 +1046,7 @@ export class TrafficSystem {
     npc.localityRoutePlanTargetExitDistance = Number.NaN;
     npc.localityRoutePlanGeneration = 0;
     npc.localityRoutePlanDeferredUntilReservationClears = false;
+    npc.rollingCorridorLead = false;
     npc.preparedLocalityGateId = undefined;
     npc.speedMps = 0;
     npc.targetSpeedMps = 0;
@@ -1112,6 +1128,7 @@ export class TrafficSystem {
         localityRoutePlanTargetExitDistance: Number.NaN,
         localityRoutePlanGeneration: 0,
         localityRoutePlanDeferredUntilReservationClears: false,
+        rollingCorridorLead: false,
         preparedLocalityGateId: undefined,
         preferredGateId: preferredGate.id,
         activatedAtSeconds: Number.NEGATIVE_INFINITY,
@@ -1683,10 +1700,31 @@ export class TrafficSystem {
     }
     this.localityCurrentCorridorLaneMask =
       this.buildLocalityCurrentCorridorMask(playerProjection);
+    // While driving, reserve crossings through the full fog look-ahead so a
+    // car has time to arrive before the player reaches it. At rest, only the
+    // immediate contribution circle is useful; staging a distant crossing
+    // for a player who may turn would waste the fixed pool.
+    const approachStagingRadiusM =
+      Math.abs(this.playerState.signedSpeedMps) >= 1
+        ? LOCAL_TRAFFIC_FOG_RADIUS_M
+        : LOCAL_TRAFFIC_INNER_RADIUS_M;
     this.invalidateLocalityAdmissionRouteTables();
     const currentTargets: LocalityRouteGoalSeed[] = [];
     const forwardTargets: LocalityRouteGoalSeed[] = [];
     const approachTargets: LocalityRouteGoalSeed[] = [];
+    const corridorJunctionPoints: SimulationPoint[] = [];
+    for (const corridorLane of this.roadNetwork.lanes) {
+      if (
+        corridorLane.index === undefined ||
+        this.localityCurrentCorridorLaneMask[corridorLane.index] !== 1
+      ) {
+        continue;
+      }
+      corridorJunctionPoints.push(
+        corridorLane.points[0],
+        corridorLane.points[corridorLane.points.length - 1],
+      );
+    }
     for (const lane of this.roadNetwork.lanes) {
       if (lane.index === undefined) continue;
       const matchesCurrentRoad =
@@ -1736,56 +1774,79 @@ export class TrafficSystem {
           });
         }
       }
-      const approachInterval = this.firstLaneLocalityInterval(
-        lane,
-        LOCAL_TRAFFIC_INNER_RADIUS_M,
-        playerProjection,
-        false,
+      const junctionPoint = lane.points[lane.points.length - 1];
+      const sharesCorridorJunction = corridorJunctionPoints.some(
+        (point) => distanceSquared(point, junctionPoint) <= 0.75 ** 2,
       );
-      const approachPose = approachInterval
+      const fallbackApproachInterval = sharesCorridorJunction
+        ? null
+        : this.firstLaneLocalityInterval(
+            lane,
+            approachStagingRadiusM,
+            playerProjection,
+            false,
+          );
+      const fallbackApproachPose = fallbackApproachInterval
         ? this.closestLanePoseToPlayer(
             lane,
-            approachInterval.entryDistance,
-            approachInterval.exitDistance,
+            fallbackApproachInterval.entryDistance,
+            fallbackApproachInterval.exitDistance,
           )
         : null;
-      const approachEntryPose = approachInterval
-        ? this.roadNetwork.pointOnLane(lane, approachInterval.entryDistance)
+      const fallbackApproachEntryPose = fallbackApproachInterval
+        ? this.roadNetwork.pointOnLane(
+            lane,
+            fallbackApproachInterval.entryDistance,
+          )
         : null;
+      const approachEntryDistance = Math.max(
+        0,
+        lane.length - LOCAL_TRAFFIC_CORRIDOR_CAPACITY_SPACING_M,
+      );
+      const approachPose = sharesCorridorJunction
+        ? this.roadNetwork.pointOnLane(lane, approachEntryDistance)
+        : fallbackApproachPose;
+      const junctionLongitudinal = this.localityLongitudinal(
+        junctionPoint,
+        playerProjection,
+      );
       const isIndependentCrossApproach =
         lane.index !== undefined &&
         this.localityCurrentCorridorLaneMask[lane.index] === 0 &&
+        this.trafficCapacityLaneIds.has(lane.id) &&
         approachPose !== null &&
         Math.abs(
           Math.cos(
             angleDifference(approachPose.heading, playerProjection.heading),
           ),
         ) < Math.cos((40 * Math.PI) / 180) &&
-        approachEntryPose !== null &&
-        this.headingApproachesPlayer(approachEntryPose, approachEntryPose.heading) &&
-        this.localityLongitudinal(approachPose, playerProjection) >= -1e-9 &&
-        this.localityLongitudinal(approachPose, playerProjection) <=
-          LOCAL_TRAFFIC_INNER_RADIUS_M + 1e-9 &&
-        approachInterval !== null &&
-        this.laneSegmentReachesLocalRadius(
-          lane,
-          approachInterval.entryDistance,
-          approachInterval.exitDistance,
-          LOCAL_TRAFFIC_INNER_RADIUS_M,
-        );
-      if (approachInterval && isIndependentCrossApproach) {
-        // Route ownership aims at the actual forward crossing, not the outer
-        // edge of the 250 m staging disc. The short post-crossing interval
-        // gives direct origins a deterministic passed-target test while the
-        // commitment itself remains live until an actual <=90 m contribution.
+        (sharesCorridorJunction
+          ? junctionLongitudinal >= -1e-9 &&
+            junctionLongitudinal <= approachStagingRadiusM + 1e-9 &&
+            distanceSquared(junctionPoint, this.playerState.player) <=
+              approachStagingRadiusM ** 2 + 1e-9
+          : fallbackApproachInterval !== null &&
+            fallbackApproachEntryPose !== null &&
+            this.headingApproachesPlayer(
+              fallbackApproachEntryPose,
+              fallbackApproachEntryPose.heading,
+            ) &&
+            this.localityLongitudinal(approachPose, playerProjection) >= -1e-9 &&
+            this.localityLongitudinal(approachPose, playerProjection) <=
+              approachStagingRadiusM + 1e-9);
+      if (isIndependentCrossApproach) {
+        // Target a real shared junction on the connected road, 28 m before
+        // the node. This is O(lanes × corridor nodes) on an eight-metre
+        // refresh and avoids both arbitrary side-street promises and a costly
+        // all-polyline intersection scan.
         approachTargets.push({
           laneIndex: lane.index,
-          entryDistance: approachPose.distanceAlong,
-          exitDistance: Math.min(
-            approachInterval.exitDistance,
-            approachPose.distanceAlong +
-              LOCAL_TRAFFIC_CORRIDOR_CAPACITY_SPACING_M,
-          ),
+          entryDistance: sharesCorridorJunction
+            ? approachEntryDistance
+            : fallbackApproachPose!.distanceAlong,
+          exitDistance: sharesCorridorJunction
+            ? lane.length
+            : fallbackApproachInterval!.exitDistance,
         });
       }
     }
@@ -1820,7 +1881,7 @@ export class TrafficSystem {
         targetLane,
         npc.localityRoutePlanTargetDistance,
         npc.localityRoutePlanTargetExitDistance,
-        LOCAL_TRAFFIC_INNER_RADIUS_M,
+        LOCAL_TRAFFIC_FOG_RADIUS_M,
       )
     ) {
       return false;
@@ -1843,7 +1904,7 @@ export class TrafficSystem {
       // Keep a crossing that is still inside the actual 90 m contribution
       // window; release it once the player has genuinely passed that window.
       longitudinal >= -LOCAL_TRAFFIC_APPROACHING_ROAD_RADIUS_M - 1e-9 &&
-      longitudinal <= LOCAL_TRAFFIC_INNER_RADIUS_M + 1e-9
+      longitudinal <= LOCAL_TRAFFIC_FOG_RADIUS_M + 1e-9
     );
   }
 
@@ -2011,6 +2072,13 @@ export class TrafficSystem {
       : LOCAL_TRAFFIC_DESKTOP_LANE_OCCUPANCY_CAP;
   }
 
+  /** Several staggered journeys may reserve the same future junction without
+   * being co-located. Runtime headway and lane-entry checks still enforce the
+   * smaller physical occupancy cap when those cars arrive. */
+  private localityApproachReservationCap(): number {
+    return this.config.touchFirst ? 6 : 10;
+  }
+
   /** Current occupancy plus each materialized plan's still-unvisited lanes.
    * The fixed 32/16 pool makes this bounded walk cheaper than maintaining a
    * second mutable graph index, and it runs only for a real admission table. */
@@ -2038,6 +2106,34 @@ export class TrafficSystem {
       ) {
         const laneIndex = npc.localityRoutePlanLaneIndices[cursor];
         if (laneIndex !== lane?.index) loads[laneIndex] += 1;
+      }
+    }
+    return loads;
+  }
+
+  /** Approach destination capacity is ownership, not general occupancy.
+   * Ordinary cars merely passing through a cross street must not consume all
+   * rolling-corridor rendezvous slots. Physical lane/headway checks remain the
+   * authority when a planned car actually reaches that street. */
+  private localityApproachTargetLoads(): Uint16Array {
+    if (
+      this.localityApproachTargetLoadScratch.length !==
+      this.roadNetwork.lanes.length
+    ) {
+      this.localityApproachTargetLoadScratch = new Uint16Array(
+        this.roadNetwork.lanes.length,
+      );
+    } else {
+      this.localityApproachTargetLoadScratch.fill(0);
+    }
+    const loads = this.localityApproachTargetLoadScratch;
+    for (const npc of this.npcsList) {
+      if (
+        npc.active &&
+        npc.localityRouteGoal === LOCALITY_ROUTE_GOAL_APPROACH &&
+        npc.localityRoutePlanTargetLaneIndex >= 0
+      ) {
+        loads[npc.localityRoutePlanTargetLaneIndex] += 1;
       }
     }
     return loads;
@@ -2082,22 +2178,28 @@ export class TrafficSystem {
         : new Int32Array(stateCount);
     targetLaneIndexByHopBudget.fill(-1);
     const projectedLoads = this.localityProjectedRouteLaneLoads();
+    const targetLoads =
+      goal === LOCALITY_ROUTE_GOAL_APPROACH
+        ? this.localityApproachTargetLoads()
+        : projectedLoads;
     const laneCap = this.localityLaneOccupancyCap();
     const targetLaneCap =
-      goal === LOCALITY_ROUTE_GOAL_APPROACH ? Math.min(2, laneCap) : laneCap;
+      goal === LOCALITY_ROUTE_GOAL_APPROACH
+        ? this.localityApproachReservationCap()
+        : laneCap;
 
     for (let laneIndex = 0; laneIndex < laneCount; laneIndex += 1) {
       const entryDistance = base.targetEntryDistance[laneIndex];
       if (
         !Number.isFinite(entryDistance) ||
-        projectedLoads[laneIndex] >= targetLaneCap
+        targetLoads[laneIndex] >= targetLaneCap
       ) {
         continue;
       }
       physicalDistanceByHopBudget[laneIndex] = entryDistance;
       routingCostByHopBudget[laneIndex] =
         entryDistance +
-        projectedLoads[laneIndex] * LOCALITY_ROUTE_TARGET_LOAD_COST_M;
+        targetLoads[laneIndex] * LOCALITY_ROUTE_TARGET_LOAD_COST_M;
       usedHopsByHopBudget[laneIndex] = 0;
       targetLaneIndexByHopBudget[laneIndex] = laneIndex;
     }
@@ -2649,6 +2751,164 @@ export class TrafficSystem {
     return etaSeconds;
   }
 
+  /** Select a fixed cross-street rendezvous for an already-active car. The
+   * generic reverse table intentionally optimizes route/load distance; a
+   * rolling corridor instead needs the target whose arrival time best matches
+   * the moving player. This bounded forward walk runs at most once per second
+   * and never changes pose, identity or lifecycle state. */
+  private materializeApproachRendezvousPlan(
+    npc: NpcInternal,
+    firstLane: NormalizedLane,
+    firstDistance: number,
+  ): LocalityRoutePlan | null {
+    const table = this.localityApproachRouteGoalTable;
+    if (firstLane.index === undefined || !table) return null;
+    const laneCount = this.roadNetwork.lanes.length;
+    const maximumHops = RUNTIME_TRAFFIC_PORTAL_INNER_ROUTE_MAX_HOPS;
+    const bestTravelSeconds = new Float64Array(
+      laneCount * (maximumHops + 1),
+    );
+    bestTravelSeconds.fill(Number.POSITIVE_INFINITY);
+    const targetLoads = this.localityApproachTargetLoads();
+    const targetCap = this.localityApproachReservationCap();
+    const playerSpeedMps = Math.abs(this.playerState.signedSpeedMps);
+    const speedOn = (lane: NormalizedLane): number =>
+      Math.max(
+        1,
+        lane.speedLimitMps *
+          LOCAL_TRAFFIC_STREAMABLE_DRIVER_SPEED_FACTOR,
+      );
+    type SearchState = {
+      readonly lane: NormalizedLane;
+      readonly distance: number;
+      readonly hops: number;
+      readonly physicalDistanceM: number;
+      readonly travelSeconds: number;
+      readonly path: readonly number[];
+    };
+    const queue: SearchState[] = [
+      {
+        lane: firstLane,
+        distance: clamp(firstDistance, 0, firstLane.length),
+        hops: 0,
+        physicalDistanceM: 0,
+        travelSeconds: 0,
+        path: [],
+      },
+    ];
+    let cursor = 0;
+    let bestPlan: LocalityRoutePlan | null = null;
+    let bestTimingError = Number.POSITIVE_INFINITY;
+    let bestTargetLoad = Number.POSITIVE_INFINITY;
+    while (cursor < queue.length) {
+      const state = queue[cursor++];
+      const laneIndex = state.lane.index;
+      if (laneIndex === undefined) continue;
+      const stateIndex = state.hops * laneCount + laneIndex;
+      if (state.travelSeconds > bestTravelSeconds[stateIndex] + 1e-9) {
+        continue;
+      }
+      bestTravelSeconds[stateIndex] = state.travelSeconds;
+      const targetEntry = table.targetEntryDistance[laneIndex];
+      const targetExit = table.targetExitDistance[laneIndex];
+      if (
+        Number.isFinite(targetEntry) &&
+        state.distance <= targetExit + 1e-9 &&
+        targetLoads[laneIndex] < targetCap
+      ) {
+        const finalDistance = Math.max(0, targetEntry - state.distance);
+        const physicalDistanceM = state.physicalDistanceM + finalDistance;
+        const npcEtaSeconds =
+          state.travelSeconds + finalDistance / speedOn(state.lane);
+        const forwardLongitudinal =
+          this.localityApproachTargetForwardLongitudinal(
+            laneIndex,
+            targetEntry,
+            targetExit,
+          );
+        const playerEtaSeconds =
+          playerSpeedMps < 1
+            ? npcEtaSeconds
+            : forwardLongitudinal /
+              Math.max(
+                LOCAL_TRAFFIC_APPROACH_INTERCEPT_MIN_PLAYER_SPEED_MPS,
+                playerSpeedMps,
+              );
+        const timingError = Math.abs(npcEtaSeconds - playerEtaSeconds);
+        const targetLoad = targetLoads[laneIndex];
+        const candidate: LocalityRoutePlan = {
+          successorLaneIndices: state.path,
+          targetLaneIndex: laneIndex,
+          targetEntryDistance: targetEntry,
+          targetExitDistance: targetExit,
+          physicalDistanceM,
+        };
+        if (
+          forwardLongitudinal >= -1e-9 &&
+          forwardLongitudinal <= LOCAL_TRAFFIC_FOG_RADIUS_M + 1e-9 &&
+          npcEtaSeconds <= LOCAL_TRAFFIC_LOCAL_HANDOFF_MAX_ETA_SECONDS + 1e-9 &&
+          npcEtaSeconds <=
+            playerEtaSeconds +
+              LOCAL_TRAFFIC_APPROACH_INTERCEPT_GRACE_SECONDS +
+              1e-9 &&
+          this.npcRouteCanContinue(
+            npc,
+            firstLane,
+            firstDistance,
+            LOCALITY_ROUTE_GOAL_APPROACH,
+            candidate,
+          ) &&
+          (timingError < bestTimingError - 1e-9 ||
+            (Math.abs(timingError - bestTimingError) <= 1e-9 &&
+              (targetLoad < bestTargetLoad ||
+                (targetLoad === bestTargetLoad &&
+                  (bestPlan === null ||
+                    laneIndex < bestPlan.targetLaneIndex)))))
+        ) {
+          bestPlan = candidate;
+          bestTimingError = timingError;
+          bestTargetLoad = targetLoad;
+        }
+      }
+      if (state.hops >= maximumHops) continue;
+      const distanceToEnd = Math.max(0, state.lane.length - state.distance);
+      const physicalAtEnd = state.physicalDistanceM + distanceToEnd;
+      if (
+        physicalAtEnd >
+        RUNTIME_TRAFFIC_PORTAL_INNER_ROUTE_LOOKAHEAD_M + 1e-9
+      ) {
+        continue;
+      }
+      const travelAtEnd =
+        state.travelSeconds + distanceToEnd / speedOn(state.lane);
+      for (const successorId of state.lane.successorLaneIds) {
+        const successor = this.roadNetwork.lanesById.get(successorId);
+        if (
+          successor?.index === undefined ||
+          !this.roadNetwork.areLaneEndpointsContinuous(state.lane, successor)
+        ) {
+          continue;
+        }
+        const nextHops = state.hops + 1;
+        const nextStateIndex = nextHops * laneCount + successor.index;
+        if (
+          travelAtEnd >= bestTravelSeconds[nextStateIndex] - 1e-9
+        ) {
+          continue;
+        }
+        queue.push({
+          lane: successor,
+          distance: 0,
+          hops: nextHops,
+          physicalDistanceM: physicalAtEnd,
+          travelSeconds: travelAtEnd,
+          path: [...state.path, successor.index],
+        });
+      }
+    }
+    return bestPlan;
+  }
+
   private localityApproachTargetForwardLongitudinal(
     targetLaneIndex: number,
     targetEntryDistance: number,
@@ -2689,7 +2949,7 @@ export class TrafficSystem {
       );
     if (
       forwardLongitudinal < -1e-9 ||
-      forwardLongitudinal > LOCAL_TRAFFIC_INNER_RADIUS_M + 1e-9
+      forwardLongitudinal > LOCAL_TRAFFIC_FOG_RADIUS_M + 1e-9
     ) {
       return false;
     }
@@ -3204,6 +3464,95 @@ export class TrafficSystem {
       return longitudinal >= 0 ? 0 : 2;
     }
     return lateral >= 0 ? 1 : 3;
+  }
+
+  /** Bounded, allocation-free prediction of the player's likely road path.
+   * It mirrors ordinary driver intent: continue through the successor with
+   * the smallest heading change. A portal on the opposing carriageway of that
+   * path will naturally meet the player without chasing a moving target. */
+  private rollingCorridorPortalFlow(
+    portal: SimulationPoint & { readonly heading: number },
+    playerProjection: LaneProjection | null,
+    portalLane?: NormalizedLane,
+  ): -2 | -1 | 0 | 1 | 2 {
+    if (!playerProjection) return 0;
+    let lane = playerProjection.lane;
+    let laneDistance = playerProjection.distanceAlong;
+    let routeDistanceM = 0;
+    const maximumRouteDistanceM =
+      RUNTIME_TRAFFIC_PORTAL_INNER_ROUTE_LOOKAHEAD_M;
+    const sampleStepM = 20;
+    const maximumSeparationM = 24;
+    const opposingAlignmentCos = -Math.cos((40 * Math.PI) / 180);
+    const alignedCos = Math.cos((40 * Math.PI) / 180);
+    let sameRoadFallback: -2 | 0 | 2 = 0;
+
+    for (
+      let hop = 0;
+      hop <= RUNTIME_TRAFFIC_PORTAL_INNER_ROUTE_MAX_HOPS &&
+      routeDistanceM <= maximumRouteDistanceM;
+      hop += 1
+    ) {
+      const remainingLaneM = Math.max(0, lane.length - laneDistance);
+      for (
+        let offsetM = 0;
+        offsetM <= remainingLaneM + 1e-9;
+        offsetM += sampleStepM
+      ) {
+        const progressM = routeDistanceM + offsetM;
+        if (progressM > maximumRouteDistanceM + 1e-9) break;
+        const pose = this.roadNetwork.pointOnLane(
+          lane,
+          Math.min(lane.length, laneDistance + offsetM),
+        );
+        const geometricallyPaired =
+          distanceSquared(pose, portal) <= maximumSeparationM ** 2;
+        const sameAuthoredRoad =
+          lane.roadId !== undefined && lane.roadId === portalLane?.roadId;
+        if (geometricallyPaired || sameAuthoredRoad) {
+          const alignment = Math.cos(
+            angleDifference(portal.heading, pose.heading),
+          );
+          if (alignment <= opposingAlignmentCos) {
+            if (geometricallyPaired) return -1;
+            sameRoadFallback = -2;
+          } else if (alignment >= alignedCos) {
+            if (geometricallyPaired) return 1;
+            sameRoadFallback = 2;
+          }
+        }
+      }
+      routeDistanceM += remainingLaneM;
+      if (routeDistanceM > maximumRouteDistanceM) break;
+      const endHeading = this.roadNetwork.pointOnLane(lane, lane.length).heading;
+      let bestSuccessor: NormalizedLane | null = null;
+      let bestHeadingDelta = Number.POSITIVE_INFINITY;
+      for (const successorId of lane.successorLaneIds) {
+        const successor = this.roadNetwork.lanesById.get(successorId);
+        if (
+          !successor ||
+          !this.roadNetwork.areLaneEndpointsContinuous(lane, successor)
+        ) {
+          continue;
+        }
+        const successorHeading = this.roadNetwork.pointOnLane(successor, 0).heading;
+        const headingDelta = Math.abs(
+          angleDifference(successorHeading, endHeading),
+        );
+        if (
+          headingDelta < bestHeadingDelta - 1e-9 ||
+          (Math.abs(headingDelta - bestHeadingDelta) <= 1e-9 &&
+            (bestSuccessor === null || successor.id < bestSuccessor.id))
+        ) {
+          bestSuccessor = successor;
+          bestHeadingDelta = headingDelta;
+        }
+      }
+      if (!bestSuccessor) break;
+      lane = bestSuccessor;
+      laneDistance = 0;
+    }
+    return sameRoadFallback;
   }
 
   private isAheadOfPlayer(point: SimulationPoint): boolean {
@@ -3737,6 +4086,20 @@ export class TrafficSystem {
       return false;
     }
     if (
+      preference?.requirePreferredSector &&
+      preference.preferredSector !== undefined &&
+      this.localitySector(portal, this.localityPlayerProjection) !==
+        preference.preferredSector
+    ) {
+      return false;
+    }
+    if (
+      preference?.requireRollingCorridor &&
+      this.rollingCorridorPortalFlow(portal, playerProjection, lane) === 0
+    ) {
+      return false;
+    }
+    if (
       preference?.outerLocalOnly &&
       !this.npcRouteStaysOutsideRadiusUntilRecycle(
         npc,
@@ -3780,6 +4143,17 @@ export class TrafficSystem {
       this.localitySector(portal, playerProjection) !== preference.preferredSector
     ) {
       score += 80;
+    }
+    if (
+      preference?.preferRollingCorridor &&
+      Math.abs(
+        this.rollingCorridorPortalFlow(portal, playerProjection, lane),
+      ) !== 1
+    ) {
+      score +=
+        this.rollingCorridorPortalFlow(portal, playerProjection, lane) === 0
+          ? 1_200
+          : 300;
     }
     const preferInbound = preference?.preferInbound !== false;
     // For a materialized destination route the portal's first tangent is not
@@ -5236,6 +5610,29 @@ export class TrafficSystem {
     return npc.active;
   }
 
+  private activatePreparedLocalityNpcs(
+    ctx: TrafficTickCtx,
+    maximumActivations: number,
+  ): number {
+    if (maximumActivations <= 0) return 0;
+    const playerProjection = this.projectPlayerToLocalityRoad();
+    let activations = 0;
+    for (const npc of this.npcsList) {
+      if (activations >= maximumActivations) break;
+      if (
+        npc.active ||
+        !npc.preparedLocalityGateId ||
+        npc.runtimeActivationEligibleTick >= ctx.tick
+      ) {
+        continue;
+      }
+      if (this.activatePreparedLocalityNpc(npc, ctx, playerProjection)) {
+        activations += 1;
+      }
+    }
+    return activations;
+  }
+
   private activateLocalQueuedNpcs(
     ctx: TrafficTickCtx,
     maximumActivations = LOCAL_TRAFFIC_DECISION_ACTIVATION_BUDGET,
@@ -5313,6 +5710,16 @@ export class TrafficSystem {
       ) {
         continue;
       }
+      if (preference?.requireRollingCorridor) {
+        const rollingGateLane = this.roadNetwork.lanesById.get(gate.laneId);
+        npc.rollingCorridorLead =
+          rollingGateLane !== undefined &&
+          this.rollingCorridorPortalFlow(
+            this.roadNetwork.pointOnLane(rollingGateLane, gate.distance),
+            playerProjection,
+            rollingGateLane,
+          ) !== 0;
+      }
       this.activateNpcAtGate(npc, gate, ctx);
       activations += 1;
       // Fold the first activation into the second candidate's lane/corridor
@@ -5362,6 +5769,7 @@ export class TrafficSystem {
     requiredRouteRadiusM: number,
     preference: LocalTrafficPortalPreference,
     portalAttemptCeiling: number,
+    retireOutsideForwardFlow = false,
   ): number {
     if (
       maximumRetirements <= 0 ||
@@ -5392,6 +5800,15 @@ export class TrafficSystem {
       const distance = Math.hypot(dx, dz);
       if (distance < RUNTIME_TRAFFIC_APPROACH_MIN_M) continue;
       if (this.isInsidePlayerVisibilityEnvelope(npc, ctx)) continue;
+      if (
+        retireOutsideForwardFlow &&
+        (npc.rollingCorridorLead ||
+          (this.localitySector(npc, playerProjection) === 0 &&
+          this.headingApproachesPlayer(npc, npc.heading))
+        )
+      ) {
+        continue;
+      }
       if (
         preference.requireRouteConnection !== false &&
         npc.patrol &&
@@ -5454,6 +5871,15 @@ export class TrafficSystem {
         this.discardPreparedLocalityActivation(npc);
         continue;
       }
+      const rollingGateLane = this.roadNetwork.lanesById.get(gate.laneId);
+      npc.rollingCorridorLead =
+        preference.requireRollingCorridor === true &&
+        rollingGateLane !== undefined &&
+        this.rollingCorridorPortalFlow(
+          this.roadNetwork.pointOnLane(rollingGateLane, gate.distance),
+          playerProjection,
+          rollingGateLane,
+        ) !== 0;
       npc.preparedLocalityGateId = gate.id;
       this.localityRetirements += 1;
       this.localityDecisionRetirements += 1;
@@ -5481,11 +5907,19 @@ export class TrafficSystem {
     if (!this.localityApproachTargetAvailable) return false;
     if (
       ctx.elapsedSeconds + 1e-9 <
-      this.localityNextAheadFeedAdmissionSeconds
+      Math.max(
+        this.localityNextAheadFeedAdmissionSeconds,
+        this.localityNextLocalHandoffAttemptSeconds,
+      )
     ) {
       this.localityLocalHandoffCadenceBlocks += 1;
       return false;
     }
+    // A failed bounded graph search is still work. Retry at the same one-Hz
+    // cadence as successful admissions instead of burning it at every 10-Hz
+    // traffic decision while the candidate set is unchanged.
+    this.localityNextLocalHandoffAttemptSeconds =
+      ctx.elapsedSeconds + LOCAL_TRAFFIC_AHEAD_FEED_ADMISSION_CADENCE_SECONDS;
     this.localityLocalHandoffAttempts += 1;
     let bestNpc: NpcInternal | null = null;
     let bestPlan: LocalityRoutePlan | null = null;
@@ -5563,8 +5997,8 @@ export class TrafficSystem {
         continue;
       }
       sawStructurallyReachableCandidate = true;
-      const plan = this.materializeLocalityRoutePlan(
-        LOCALITY_ROUTE_GOAL_APPROACH,
+      const plan = this.materializeApproachRendezvousPlan(
+        npc,
         lane,
         npc.distance,
       );
@@ -5654,19 +6088,89 @@ export class TrafficSystem {
     this.localityDecisionActivations = 0;
     this.localityDecisionRetirements = 0;
     this.settlePendingRecycles(ctx);
-    // Retirement is a lifecycle property, not a reaction to a density score.
-    // A car that has completed its local pass must release its slot at the
-    // hidden 800 m boundary even while the radial target is currently healthy;
-    // otherwise the fixed pool gradually strands itself on remote map roads.
-    this.recycleFarNpcSlots(
-      ctx,
-      Math.max(
-        0,
-        LOCAL_TRAFFIC_DECISION_RETIREMENT_BUDGET -
-          this.localityDecisionRetirements,
-      ),
-    );
+    // Never retire a healthy remote car before proving its replacement. The
+    // rolling-corridor pass below transactionally reserves a hidden forward
+    // portal first; without that guarantee a long drive can drain the fixed
+    // fleet into the queued state when a map has a temporarily sparse annulus.
+    // At rest there is no moving corridor to preserve, so the established
+    // hidden 800 m lifecycle cleanup remains appropriate.
+    if (Math.abs(this.playerState.signedSpeedMps) < 5) {
+      this.recycleFarNpcSlots(
+        ctx,
+        Math.max(
+          0,
+          LOCAL_TRAFFIC_DECISION_RETIREMENT_BUDGET -
+            this.localityDecisionRetirements,
+        ),
+      );
+    }
     this.refreshLocalityPopulation(ctx);
+    if (
+      this.activatePreparedLocalityNpcs(
+        ctx,
+        Math.max(
+          0,
+          LOCAL_TRAFFIC_DECISION_ACTIVATION_BUDGET -
+            this.localityDecisionActivations,
+        ),
+      ) > 0
+    ) {
+      this.refreshLocalityPopulation(ctx);
+    }
+    // Give the moving corridor first claim on the bounded portal budget. The
+    // general density controller below may legitimately inspect every portal
+    // attempt while repairing a hard deficit; running the conveyor afterward
+    // would then starve it precisely when the player is leaving traffic behind.
+    if (
+      Math.abs(this.playerState.signedSpeedMps) >= 5 &&
+      ctx.elapsedSeconds + 1e-9 >= this.localityNextRollingRecycleSeconds
+    ) {
+      this.localityNextRollingRecycleSeconds =
+        ctx.elapsedSeconds +
+        LOCAL_TRAFFIC_AHEAD_FEED_ADMISSION_CADENCE_SECONDS;
+      const rollingPreference: LocalTrafficPortalPreference = {
+        preferredSector: 0,
+        preferRollingCorridor: true,
+        requireRollingCorridor: true,
+        requireRouteConnection: false,
+        preferInbound: true,
+      };
+      const rollingBudget = Math.min(
+        this.config.touchFirst ? 1 : 2,
+        Math.max(
+          0,
+          LOCAL_TRAFFIC_DECISION_ACTIVATION_BUDGET -
+            this.localityDecisionActivations,
+        ),
+      );
+      const rollingActivations = this.activateLocalQueuedNpcs(
+        ctx,
+        rollingBudget,
+        LOCAL_TRAFFIC_FOG_RADIUS_M,
+        rollingPreference,
+        LOCAL_TRAFFIC_PORTAL_ATTEMPT_BUDGET,
+      );
+      if (
+        rollingActivations < rollingBudget &&
+        this.localityDecisionRetirements <
+          LOCAL_TRAFFIC_DECISION_RETIREMENT_BUDGET &&
+        this.portalAttemptsThisDecision < LOCAL_TRAFFIC_PORTAL_ATTEMPT_BUDGET
+      ) {
+        this.preflightAndRecycleHiddenNpcSlotsForDeficit(
+          ctx,
+          Math.min(
+            rollingBudget - rollingActivations,
+            LOCAL_TRAFFIC_DECISION_RETIREMENT_BUDGET -
+              this.localityDecisionRetirements,
+          ),
+          LOCAL_TRAFFIC_FOG_RADIUS_M,
+          rollingPreference,
+          LOCAL_TRAFFIC_PORTAL_ATTEMPT_BUDGET,
+          true,
+        );
+      }
+      this.refreshLocalityPopulation(ctx);
+    }
     const hasSurplus =
       this.localityWithinFogCount > this.localityTarget.withinFog + 1 ||
       this.localityWithinInnerCount > this.localityTarget.withinInner + 1;
@@ -5739,7 +6243,7 @@ export class TrafficSystem {
         ? LOCAL_TRAFFIC_TOUCH_APPROACH_RESERVE
         : LOCAL_TRAFFIC_DESKTOP_APPROACH_RESERVE,
     );
-    let desiredAheadJourneyCount = this.localityApproachTargetAvailable
+    const desiredAheadJourneyCount = this.localityApproachTargetAvailable
       ? Math.min(
           aheadJourneyReserve,
           Math.max(
@@ -5764,15 +6268,6 @@ export class TrafficSystem {
           ? this.localityGhostGapDecisionCount + 1
           : 0;
       return;
-    }
-    if (!this.localityApproachRouteFeedAvailable) {
-      // No local candidate and no hidden route: do not let an impossible
-      // journey suppress unrelated radial/corridor work this decision.
-      desiredAheadJourneyCount = Math.min(
-        desiredAheadJourneyCount,
-        this.localityInboundPerceptualTransitCount,
-      );
-      this.localityTargetAheadJourneyCount = desiredAheadJourneyCount;
     }
     const aheadPipelineMissing = Math.max(
       0,
@@ -5896,7 +6391,11 @@ export class TrafficSystem {
     // next 10 Hz snapshot recomputes the hard missing feed before another slot
     // can be spent, avoiding two-car waves that both satisfy the same bit.
     const replacementBudget = Math.min(
-      LOCAL_TRAFFIC_DECISION_ACTIVATION_BUDGET,
+      Math.max(
+        0,
+        LOCAL_TRAFFIC_DECISION_ACTIVATION_BUDGET -
+          this.localityDecisionActivations,
+      ),
       availableApproachSlots,
       perceptualAdmissionMissing > 0 || proactivePipelineMissing > 0
         ? 1
@@ -6057,6 +6556,7 @@ export class TrafficSystem {
         this.densitySurplusDecisions = 0;
       }
     }
+
     this.refreshLocalityPopulation(ctx);
     this.localityGhostGapDecisionCount =
       this.localityAheadOrApproachingCount === 0
@@ -6128,6 +6628,83 @@ export class TrafficSystem {
       } else {
         npc.state = "cruising";
         npc.targetSpeedMps = npc.desiredSpeedMps;
+      }
+
+      if (npc.rollingCorridorLead) {
+        const playerDistanceM = Math.hypot(
+          npc.x - this.playerState.player.x,
+          npc.z - this.playerState.player.z,
+        );
+        const playerSpeedMps = Math.abs(this.playerState.signedSpeedMps);
+        if (
+          playerSpeedMps < 5 ||
+          playerDistanceM <= LOCAL_TRAFFIC_FOG_RADIUS_M
+        ) {
+          // Once naturally inside the rendered traffic bubble this is just an
+          // ordinary member of the same fleet again.
+          npc.rollingCorridorLead = false;
+        } else if (playerDistanceM > RUNTIME_TRAFFIC_RECYCLE_RADIUS_M) {
+          // The player chose another road; release the hint so the slot can be
+          // transactionally reassigned on a later hidden corridor pass.
+          npc.rollingCorridorLead = false;
+        } else if (npc.state === "cruising") {
+          npc.targetSpeedMps = Math.min(
+            npc.targetSpeedMps,
+            Math.max(3, playerSpeedMps * 0.35),
+          );
+        }
+      }
+
+      // A rolling-corridor car owns a fixed crossing. If its ordinary cruise
+      // speed would carry it through that crossing well before the player,
+      // pace the approach instead of moving the destination or manufacturing
+      // another feeder. The lower bound keeps it visibly alive and ordinary
+      // red/yield/lead rules above remain authoritative.
+      if (
+        npc.localityRouteGoal === LOCALITY_ROUTE_GOAL_APPROACH &&
+        npc.state === "cruising"
+      ) {
+        const plan = this.snapshotNpcLocalityRoutePlan(npc);
+        if (plan) {
+          const npcEtaSeconds = this.localityRoutePlanTravelTimeSeconds(
+            lane,
+            npc.distance,
+            plan,
+          );
+          const forwardLongitudinal =
+            this.localityApproachTargetForwardLongitudinal(
+              plan.targetLaneIndex,
+              plan.targetEntryDistance,
+              plan.targetExitDistance,
+            );
+          const playerSpeedMps = Math.abs(this.playerState.signedSpeedMps);
+          if (
+            Number.isFinite(npcEtaSeconds) &&
+            forwardLongitudinal > LOCAL_TRAFFIC_APPROACHING_ROAD_RADIUS_M &&
+            playerSpeedMps >= 1
+          ) {
+            const playerEtaSeconds =
+              forwardLongitudinal /
+              Math.max(
+                LOCAL_TRAFFIC_APPROACH_INTERCEPT_MIN_PLAYER_SPEED_MPS,
+                playerSpeedMps,
+              );
+            if (
+              npcEtaSeconds +
+                LOCAL_TRAFFIC_APPROACH_INTERCEPT_GRACE_SECONDS <
+              playerEtaSeconds
+            ) {
+              npc.targetSpeedMps = Math.min(
+                npc.targetSpeedMps,
+                Math.max(
+                  2,
+                  npc.desiredSpeedMps *
+                    (npcEtaSeconds / Math.max(1, playerEtaSeconds)),
+                ),
+              );
+            }
+          }
+        }
       }
 
       if (npc.speedMps < 0.1 && npc.targetSpeedMps > 0.5) {
@@ -7229,6 +7806,42 @@ export class TrafficSystem {
             return goalNextLane;
           }
         }
+      }
+      if (
+        routeGoal === LOCALITY_ROUTE_GOAL_NONE &&
+        npc.rollingCorridorLead
+      ) {
+        const endHeading = this.roadNetwork.pointOnLane(
+          lane,
+          lane.length,
+        ).heading;
+        let bestSuccessor: NormalizedLane | null = null;
+        let bestHeadingDelta = Number.POSITIVE_INFINITY;
+        for (const successorId of lane.successorLaneIds) {
+          const successor = this.roadNetwork.lanesById.get(successorId);
+          if (
+            !successor ||
+            !this.roadNetwork.areLaneEndpointsContinuous(lane, successor)
+          ) {
+            continue;
+          }
+          const successorHeading = this.roadNetwork.pointOnLane(
+            successor,
+            0,
+          ).heading;
+          const headingDelta = Math.abs(
+            angleDifference(successorHeading, endHeading),
+          );
+          if (
+            headingDelta < bestHeadingDelta - 1e-9 ||
+            (Math.abs(headingDelta - bestHeadingDelta) <= 1e-9 &&
+              (bestSuccessor === null || successor.id < bestSuccessor.id))
+          ) {
+            bestSuccessor = successor;
+            bestHeadingDelta = headingDelta;
+          }
+        }
+        if (bestSuccessor) return bestSuccessor;
       }
       const laneSalt =
         lane.index === undefined
