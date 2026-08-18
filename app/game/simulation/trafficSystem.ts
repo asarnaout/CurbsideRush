@@ -750,6 +750,9 @@ export class TrafficSystem {
   private localityGhostGapDecisionCount = 0;
   private localityApproachCount = 0;
   private localityCirculatingCount = 0;
+  /** Useful hidden cars already staged on the moving player's forward flow.
+   * The rolling conveyor refills this reservoir instead of recycling forever. */
+  private localityRollingCorridorLeadCount = 0;
   private localityInboundApproachCount = 0;
   private localityInboundPipelineCount = 0;
   private localityInboundTransitCount = 0;
@@ -985,6 +988,7 @@ export class TrafficSystem {
     this.localityGhostGapDecisionCount = 0;
     this.localityApproachCount = 0;
     this.localityCirculatingCount = 0;
+    this.localityRollingCorridorLeadCount = 0;
     this.localityInboundApproachCount = 0;
     this.localityInboundPipelineCount = 0;
     this.localityInboundTransitCount = 0;
@@ -4450,6 +4454,7 @@ export class TrafficSystem {
     let balanceCurrentRoadCorridorCount = 0;
     let approachCount = 0;
     let circulatingCount = 0;
+    let rollingCorridorLeadCount = 0;
     let inboundApproachCount = 0;
     let inboundPipelineCount = 0;
     let inboundTransitCount = 0;
@@ -4486,13 +4491,26 @@ export class TrafficSystem {
       const forward =
         onCurrentRoad &&
         this.localityLongitudinal(npc, this.localityPlayerProjection) >= 0;
+      const localitySector = this.localitySector(
+        npc,
+        this.localityPlayerProjection,
+      );
+      if (
+        npc.rollingCorridorLead &&
+        distance > LOCAL_TRAFFIC_FOG_RADIUS_M &&
+        distance <= RUNTIME_TRAFFIC_RECYCLE_RADIUS_M &&
+        localitySector !== 2 &&
+        (localitySector === 0 || this.headingApproachesPlayer(npc, npc.heading))
+      ) {
+        rollingCorridorLeadCount += 1;
+      }
       const ahead =
         distance <= LOCAL_TRAFFIC_INNER_RADIUS_M && this.isAheadOfPlayer(npc);
       const approaching =
         distance <= LOCAL_TRAFFIC_INNER_RADIUS_M &&
         this.isApproachingCrossTraffic(npc, lane);
       if (distance <= RUNTIME_TRAFFIC_APPROACH_MAX_M) {
-        switch (this.localitySector(npc, this.localityPlayerProjection)) {
+        switch (localitySector) {
           case 0:
             balanceSectorForwardCount += 1;
             break;
@@ -4511,7 +4529,7 @@ export class TrafficSystem {
       if (distance <= LOCAL_TRAFFIC_FOG_RADIUS_M) {
         withinFogCount += 1;
         if (npc.patrol) patrolWithinFogCount += 1;
-        switch (this.localitySector(npc, this.localityPlayerProjection)) {
+        switch (localitySector) {
           case 0:
             sectorForwardCount += 1;
             break;
@@ -4707,6 +4725,7 @@ export class TrafficSystem {
       balanceCurrentRoadCorridorCount;
     this.localityApproachCount = approachCount;
     this.localityCirculatingCount = circulatingCount;
+    this.localityRollingCorridorLeadCount = rollingCorridorLeadCount;
     this.localityInboundApproachCount = inboundApproachCount;
     this.localityInboundPipelineCount = inboundPipelineCount;
     this.localityInboundTransitCount = inboundTransitCount;
@@ -5800,14 +5819,20 @@ export class TrafficSystem {
       const distance = Math.hypot(dx, dz);
       if (distance < RUNTIME_TRAFFIC_APPROACH_MIN_M) continue;
       if (this.isInsidePlayerVisibilityEnvelope(npc, ctx)) continue;
-      if (
-        retireOutsideForwardFlow &&
-        (npc.rollingCorridorLead ||
-          (this.localitySector(npc, playerProjection) === 0 &&
-          this.headingApproachesPlayer(npc, npc.heading))
-        )
-      ) {
-        continue;
+      if (retireOutsideForwardFlow) {
+        const localitySector = this.localitySector(npc, playerProjection);
+        const headingApproachesPlayer = this.headingApproachesPlayer(
+          npc,
+          npc.heading,
+        );
+        if (
+          (npc.rollingCorridorLead &&
+            localitySector !== 2 &&
+            (localitySector === 0 || headingApproachesPlayer)) ||
+          (localitySector === 0 && headingApproachesPlayer)
+        ) {
+          continue;
+        }
       }
       if (
         preference.requireRouteConnection !== false &&
@@ -6121,8 +6146,10 @@ export class TrafficSystem {
     // general density controller below may legitimately inspect every portal
     // attempt while repairing a hard deficit; running the conveyor afterward
     // would then starve it precisely when the player is leaving traffic behind.
+    const rollingCorridorTarget = this.config.touchFirst ? 4 : 8;
     if (
       Math.abs(this.playerState.signedSpeedMps) >= 5 &&
+      this.localityRollingCorridorLeadCount < rollingCorridorTarget &&
       ctx.elapsedSeconds + 1e-9 >= this.localityNextRollingRecycleSeconds
     ) {
       this.localityNextRollingRecycleSeconds =
@@ -6137,6 +6164,7 @@ export class TrafficSystem {
       };
       const rollingBudget = Math.min(
         this.config.touchFirst ? 1 : 2,
+        rollingCorridorTarget - this.localityRollingCorridorLeadCount,
         Math.max(
           0,
           LOCAL_TRAFFIC_DECISION_ACTIVATION_BUDGET -
@@ -6630,12 +6658,38 @@ export class TrafficSystem {
         npc.targetSpeedMps = npc.desiredSpeedMps;
       }
 
-      if (npc.rollingCorridorLead) {
-        const playerDistanceM = Math.hypot(
-          npc.x - this.playerState.player.x,
-          npc.z - this.playerState.player.z,
+      const playerSpeedMps = Math.abs(this.playerState.signedSpeedMps);
+      const playerDistanceM = Math.hypot(
+        npc.x - this.playerState.player.x,
+        npc.z - this.playerState.player.z,
+      );
+      const sameDirectionCurrentRoadCatchup =
+        playerSpeedMps >= 5 &&
+        this.localityWithinInnerCount < this.localityTarget.withinInner &&
+        playerDistanceM > LOCAL_TRAFFIC_INNER_RADIUS_M &&
+        playerDistanceM <= LOCAL_TRAFFIC_FOG_RADIUS_M &&
+        this.localityLongitudinal(npc, this.localityPlayerProjection) >= 0 &&
+        Math.cos(
+          angleDifference(
+            npc.heading,
+            this.localityRoadHeading(this.localityPlayerProjection),
+          ),
+        ) >= Math.cos((40 * Math.PI) / 180) &&
+        this.isOnCurrentRoadCorridor(
+          lane,
+          npc.distance,
+          npc,
+          npc.heading,
+          this.localityPlayerProjection,
         );
-        const playerSpeedMps = Math.abs(this.playerState.signedSpeedMps);
+      if (sameDirectionCurrentRoadCatchup && npc.state === "cruising") {
+        npc.targetSpeedMps = Math.min(
+          npc.targetSpeedMps,
+          Math.max(3.5, playerSpeedMps * 0.35),
+        );
+      }
+
+      if (npc.rollingCorridorLead) {
         if (
           playerSpeedMps < 5 ||
           playerDistanceM <= LOCAL_TRAFFIC_FOG_RADIUS_M
