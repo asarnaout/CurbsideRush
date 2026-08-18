@@ -12,6 +12,28 @@ lets **one** `DynamicTexture` serve every grass material through
 ratio — per-mesh `uScale` would need a texture per mesh. The tiles are
 non-divisible (12 m against 3.1 m) so they beat rather than reinforce a grid.
 
+**A roadside lawn may draw larger than its logical park rectangle.**
+`lawnEdgeLaps` names the park-local edge facing the road and independently
+overscans that edge and its building-facing opposite. `parkLawnEdgeLapBands`
+creates only two narrow transverse bands; `parkLawnEdgeLapGeometry` unions them
+and cuts out every foreign pavement and shoulder-junction fill. Renderer and
+visual-ground collector consume that same clipped MultiPolygon, so the long
+ends stay exact, grass covers only the named sidewalk(s) up to the asphalt curb,
+and perpendicular footways remain concrete. The far band disappears beneath
+building foundations or the adjoining lawn. The authored middle remains at
+0.02; x-normal bands start at 0.050 and z-normal bands at 0.052, so perpendicular
+corner laps and neighbouring logical lawns never become coplanar. `depthLayer`
+raises a same-axis bend by another 4 mm when its bands meet.
+
+The middle is not raised, so paths and beds remain visible. Pin `parkStyle:
+"lawn"` only when a derived cross path would terminate at a raised transverse
+band (the Gloucester, Park West, Exhibition Road and other pathless kerb
+ribbons do); a path running along the ribbon can stay. Layout, scatter, walls,
+collisions and park/block overlap checks continue to use the authored `center`
+and `size`. The visual ground collector records both rungs at their real
+heights, so its geometry describes the pixels rather than only the smaller
+gameplay rectangle.
+
 **A detail map is four channels, and three have a non-zero neutral.**
 `default.fragment` reads `2 · mix(0.5, detailColor.r, diffuseBlendLevel)`, so R
 neutral is 0.5 — and `bumpFragment` reads a tangent normal out of **alpha and

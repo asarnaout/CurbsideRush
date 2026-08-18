@@ -30,6 +30,7 @@ import {
 } from "../app/game/geometry/visualSceneFootprints";
 import { FREE_DRIVES, MAP_PACKS } from "../app/game/content";
 import { planMapBuildings } from "../app/game/geometry/buildingLayout";
+import { parkLawnEdgeLapLiftM } from "../app/game/parkLayouts";
 import {
   PARK_LAWN_Y,
   ROAD_JUNCTION_FILL_Y,
@@ -299,7 +300,22 @@ describe("collectGroundSurfaces — real maps vs. production's y-layer stack", (
       // Bridge decks are a road surface reclassified, not a distinct height.
       for (const s of byKind.get("bridge-deck") ?? []) expect(s.surfaceY).toBe(ROAD_SURFACE_Y);
       for (const s of byKind.get("sidewalk") ?? []) expect(s.surfaceY).toBe(ROAD_SHOULDER_Y);
-      for (const s of byKind.get("park") ?? []) expect(s.surfaceY).toBe(PARK_LAWN_Y);
+      for (const s of byKind.get("park") ?? []) {
+        if (!s.id.startsWith("park-edge-lap-")) {
+          expect(s.surfaceY).toBe(PARK_LAWN_Y);
+          continue;
+        }
+        const landmark = pack.geometry.landmarks.find(
+          (candidate) => candidate.id === s.ownerId,
+        );
+        expect(landmark, s.id).toBeDefined();
+        if (landmark) {
+          expect(s.surfaceY).toBeCloseTo(
+            PARK_LAWN_Y + parkLawnEdgeLapLiftM(landmark),
+            8,
+          );
+        }
+      }
       // Both the asphalt and shoulder junction-fill heights are collected
       // under one "junction" kind (two distinct owners' worth of fill).
       // Closeness, not exact membership: ROAD_JUNCTION_FILL_Y is computed

@@ -337,13 +337,30 @@ function planProceduralBlock(
   const cells = facadeGridCells(
     isWestBank ? { ...block, density: Math.min(1, block.density + 0.17) } : block,
   );
+  const columns = Math.ceil(Math.sqrt(cells.length));
+  const firstRowWidths = new Map<number, number>();
   const isCairo = mapPack.id.includes("cairo");
   const placedFrontages: CairoFrontageFootprint[] = [];
   const entries: PlannedProceduralBuilding[] = [];
   const lookups = buildReservationLookups(reservations, relaxationPolicy);
 
   for (const cell of cells) {
-    const width = Math.max(5, cell.cellWidth * (0.58 + random() * 0.24));
+    // Always consume the ordinary width draw, even when this block locks its
+    // facade columns. Seeded dimensions in every later block depend on this
+    // exact draw count and order.
+    const sampledWidth = Math.max(
+      5,
+      cell.cellWidth * (0.58 + random() * 0.24),
+    );
+    const column = cell.index % columns;
+    const firstRowWidth = firstRowWidths.get(column);
+    const width =
+      block.lockFacadeWidthsByColumn && firstRowWidth !== undefined
+        ? firstRowWidth
+        : sampledWidth;
+    if (block.lockFacadeWidthsByColumn && firstRowWidth === undefined) {
+      firstRowWidths.set(column, sampledWidth);
+    }
     const depth = Math.max(5, cell.cellDepth * (0.58 + random() * 0.24));
     const frontagePlacement = isCairo
       ? cairoFrontagePosition(block, cell, width, depth)

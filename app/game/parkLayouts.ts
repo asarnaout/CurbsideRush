@@ -89,12 +89,42 @@ export type ParkStyle =
   // Crescent island play-tested as.
   | "lawn";
 
+export type ParkLocalEdge = "+x" | "-x" | "+z" | "-z";
+
+/**
+ * Render-only overscan for a roadside lawn ribbon.
+ *
+ * The authored park rectangle remains the layout, planting and collision
+ * boundary. The lawn mesh alone grows past its two transverse edges so it can
+ * cover the sidewalk up to the asphalt curb at the road side and disappear
+ * beneath the building foundations at the other side. That hides concrete
+ * seams without moving either piece of gameplay geometry.
+ */
+export interface ParkLawnEdgeLaps {
+  /** Authored road whose sidewalk this lawn intentionally replaces. */
+  readonly roadSurfaceId: string;
+  /**
+   * Continuations of the same kerb frontage that this lawn may also replace.
+   * Kept separate from the primary id so ordinary one-road ribbons stay terse.
+   */
+  readonly additionalRoadSurfaceIds?: readonly string[];
+  /** Park-local edge that faces the road. */
+  readonly roadEdge: ParkLocalEdge;
+  /** Metres the lawn extends beyond `roadEdge`. */
+  readonly roadM: number;
+  /** Metres the lawn extends beyond the opposite, building-facing edge. */
+  readonly buildingM: number;
+  /** Extra 4 mm sub-rung for same-axis aprons that meet on a bend. */
+  readonly depthLayer?: 1;
+}
+
 export interface ParkLandmarkInput {
   readonly id: string;
   readonly center: VisualPoint;
   readonly size: VisualPoint;
   readonly headingDeg?: number;
   readonly parkStyle?: ParkStyle;
+  readonly lawnEdgeLaps?: ParkLawnEdgeLaps;
   /**
    * Opt in to a boundary wall that clears each road's own pavement band by the
    * tightest legal margin instead of by a blanket 1.8 m. See
@@ -106,6 +136,120 @@ export interface ParkLandmarkInput {
    * city relies on it.
    */
   readonly wallsFollowRoadEdges?: boolean;
+}
+
+export interface ParkLawnVisualRect {
+  readonly center: VisualPoint;
+  readonly size: VisualPoint;
+  readonly headingDeg?: number;
+}
+
+/** Raised bands overlap the ordinary lawn by this much, hiding their step. */
+export const PARK_LAWN_EDGE_LAP_SEAM_M = 0.15;
+
+/**
+ * The two narrow raised grids that close a lawn's transverse seams. Keeping
+ * the logical middle out of the apron preserves paths, beds and other park
+ * dressing while the road-side band replaces pavement and the far band fills
+ * only the ground before the building line.
+ */
+export function parkLawnEdgeLapBands(
+  landmark: ParkLandmarkInput,
+): readonly ParkLawnVisualRect[] {
+  const laps = landmark.lawnEdgeLaps;
+  if (!laps) return [];
+  const transverseIsX = laps.roadEdge.endsWith("x");
+  const sign: 1 | -1 = laps.roadEdge.startsWith("+") ? 1 : -1;
+  const halfTransverse =
+    (transverseIsX ? landmark.size.x : landmark.size.z) / 2;
+  const heading = ((landmark.headingDeg ?? 0) * Math.PI) / 180;
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
+  const band = (metres: number, sideSign: 1 | -1): ParkLawnVisualRect => {
+    const clampedM = Math.max(0, metres);
+    const transverseSizeM = clampedM + PARK_LAWN_EDGE_LAP_SEAM_M;
+    const transverseCenterM =
+      sideSign *
+      (halfTransverse +
+        (clampedM - PARK_LAWN_EDGE_LAP_SEAM_M) / 2);
+    const localX = transverseIsX ? transverseCenterM : 0;
+    const localZ = transverseIsX ? 0 : transverseCenterM;
+    return {
+      center: {
+        x: landmark.center.x + localX * cos + localZ * sin,
+        z: landmark.center.z - localX * sin + localZ * cos,
+      },
+      size: transverseIsX
+        ? { x: transverseSizeM, z: landmark.size.z }
+        : { x: landmark.size.x, z: transverseSizeM },
+      headingDeg: landmark.headingDeg,
+    };
+  };
+
+  const buildingSign: 1 | -1 = sign === 1 ? -1 : 1;
+  return [band(laps.roadM, sign), band(laps.buildingM, buildingSign)];
+}
+
+/**
+ * A visual apron sits just above the sidewalk, with perpendicular ribbons on
+ * different sub-rungs. That makes a corner overlap deterministic while all
+ * apron rungs remain safely beneath roads and lifted building foundations.
+ */
+export function parkLawnEdgeLapLiftM(landmark: ParkLandmarkInput): number {
+  const laps = landmark.lawnEdgeLaps;
+  if (!laps) return 0;
+  // PARK_LAWN_Y is 0.02: x-normal aprons therefore render at 0.050,
+  // z-normal ones at 0.052, then alternate in 4 mm steps. All supported
+  // rungs stay below ROAD_SURFACE_Y (0.07).
+  const axisLiftM = laps.roadEdge.endsWith("x") ? 0.03 : 0.032;
+  return axisLiftM + (laps.depthLayer ?? 0) * 0.004;
+}
+
+/**
+ * Unclipped measurement envelope for a lapped lawn. Production drawing uses
+ * the two `parkLawnEdgeLapBands` after foreign-pavement clipping; this helper
+ * exists for edge-distance assertions and deliberately says nothing about the
+ * resulting MultiPolygon. Only the axis normal to `roadEdge` is enlarged.
+ */
+export function parkLawnVisualRect(
+  landmark: ParkLandmarkInput,
+): ParkLawnVisualRect {
+  const laps = landmark.lawnEdgeLaps;
+  if (!laps) {
+    return {
+      center: landmark.center,
+      size: landmark.size,
+      headingDeg: landmark.headingDeg,
+    };
+  }
+
+  const roadM = Math.max(0, laps.roadM);
+  const buildingM = Math.max(0, laps.buildingM);
+  const axisShiftM = (roadM - buildingM) / 2;
+  let localShiftX = 0;
+  let localShiftZ = 0;
+  let sizeX = landmark.size.x;
+  let sizeZ = landmark.size.z;
+
+  if (laps.roadEdge.endsWith("x")) {
+    sizeX += roadM + buildingM;
+    localShiftX = laps.roadEdge === "+x" ? axisShiftM : -axisShiftM;
+  } else {
+    sizeZ += roadM + buildingM;
+    localShiftZ = laps.roadEdge === "+z" ? axisShiftM : -axisShiftM;
+  }
+
+  const heading = ((landmark.headingDeg ?? 0) * Math.PI) / 180;
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
+  return {
+    center: {
+      x: landmark.center.x + localShiftX * cos + localShiftZ * sin,
+      z: landmark.center.z - localShiftX * sin + localShiftZ * cos,
+    },
+    size: { x: sizeX, z: sizeZ },
+    headingDeg: landmark.headingDeg,
+  };
 }
 
 export interface ParkPath {

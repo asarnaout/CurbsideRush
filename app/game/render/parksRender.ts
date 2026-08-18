@@ -1,6 +1,7 @@
 import {
   type AbstractMesh,
   Color3,
+  CreateGroundVertexData,
   type DynamicTexture,
   Mesh,
   MeshBuilder,
@@ -8,11 +9,17 @@ import {
   StandardMaterial,
   Vector3,
   VertexData,
+  VertexBuffer,
 } from "@babylonjs/core";
 import { boxLengthYaw, clipRectToRoadSide } from "../geometry/cairoParkland";
+import { parkLawnEdgeLapGeometry } from "../geometry/visualSceneFootprints";
 import { earClipPolygonIndices } from "../geometry/waterGeometry";
 import { createBox, createCylinder, setMeshMaterial } from "./meshPrimitives";
-import { parkLayoutForLandmark, type ParkFeature } from "../parkLayouts";
+import {
+  parkLawnEdgeLapLiftM,
+  parkLayoutForLandmark,
+  type ParkFeature,
+} from "../parkLayouts";
 import {
   createAsphaltTexture,
   createFlowerbedTexture,
@@ -197,28 +204,104 @@ export function buildParkLawn(
   landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
   palette: MapVisualPalette,
   mapId: string,
+  mapPack: GameCanvasMapPack,
 ): Mesh {
-  const lawn = MeshBuilder.CreateGround(
-    landmark.id,
-    {
+  const subdivisions = (sizeM: number) => Math.max(1, Math.round(sizeM / 25));
+  let lawn: Mesh;
+  if (!landmark.lawnEdgeLaps) {
+    lawn = MeshBuilder.CreateGround(
+      landmark.id,
+      {
+        width: landmark.size.x,
+        height: landmark.size.z,
+        // ~25 m cells. One quad would do for a flat plane today, but the sun's
+        // shadow map and any later per-vertex tinting both need vertices to
+        // land on, and a grid this coarse costs nothing (Central Park: ~1k).
+        subdivisionsX: subdivisions(landmark.size.x),
+        subdivisionsY: subdivisions(landmark.size.z),
+      },
+      ctx.scene,
+    );
+  } else {
+    // Keep the authored lawn at the ordinary park rung, then add two clipped
+    // edge bands inside the SAME mesh and draw call. The raised bands reach
+    // the asphalt curb and the building line; foreign pavement is carved out
+    // so a perpendicular sidewalk still crosses at each junction.
+    const heading = ((landmark.headingDeg ?? 0) * Math.PI) / 180;
+    const cos = Math.cos(heading);
+    const sin = Math.sin(heading);
+    const apronGeometry = parkLawnEdgeLapGeometry(mapPack, landmark);
+    const apronPositions: number[] = [];
+    const apronIndices: number[] = [];
+    const apronLiftM = parkLawnEdgeLapLiftM(landmark);
+    for (const part of apronGeometry.parts) {
+      if (part.holes?.length) {
+        throw new Error(
+          `${landmark.id}: clipped lawn apron contains an unsupported hole`,
+        );
+      }
+      if (part.outer.length < 3) continue;
+      const offset = apronPositions.length / 3;
+      const localPolygon = part.outer.map((point) => {
+        const dx = point.x - landmark.center.x;
+        const dz = point.z - landmark.center.z;
+        return {
+          x: dx * cos - dz * sin,
+          z: dx * sin + dz * cos,
+        };
+      });
+      for (const point of localPolygon) {
+        apronPositions.push(point.x, apronLiftM, point.z);
+      }
+      apronIndices.push(...earClipPolygonIndices(localPolygon, offset));
+    }
+    const logical = CreateGroundVertexData({
       width: landmark.size.x,
       height: landmark.size.z,
-      // ~25 m cells. One quad would do for a flat plane today, but the sun's
-      // shadow map and any later per-vertex tinting both need vertices to
-      // land on, and a grid this coarse costs nothing (Central Park: ~1k).
-      subdivisionsX: Math.max(1, Math.round(landmark.size.x / 25)),
-      subdivisionsY: Math.max(1, Math.round(landmark.size.z / 25)),
-    },
-    ctx.scene,
-  );
+      subdivisionsX: subdivisions(landmark.size.x),
+      subdivisionsY: subdivisions(landmark.size.z),
+    });
+    const logicalPositions = Array.from(logical.positions ?? []);
+    const apronVertexCount = apronPositions.length / 3;
+    const data = new VertexData();
+    data.positions = [...apronPositions, ...logicalPositions];
+    data.indices = [
+      ...apronIndices,
+      ...Array.from(logical.indices ?? [], (index) => index + apronVertexCount),
+    ];
+    const normals: number[] = [];
+    VertexData.ComputeNormals(data.positions, data.indices, normals);
+    data.normals = normals;
+    data.uvs = new Array((data.positions.length / 3) * 2).fill(0);
+    lawn = new Mesh(landmark.id, ctx.scene);
+    data.applyToMesh(lawn);
+  }
   lawn.position.set(landmark.center.x, PARK_LAWN_Y, landmark.center.z);
   if (landmark.headingDeg !== undefined) {
     lawn.rotation.y = degreesToRadians(landmark.headingDeg);
   }
-  // `CreateGround` emits local positions, so the park's own centre has to be
-  // folded in or every park restarts the tile at its own corner and shows a
-  // seam against the ground plane.
-  ctx.applyWorldPlanarGrassUVs(lawn, landmark.center.x, landmark.center.z);
+  // Both ground builders emit local positions. Rotate them by the lawn's real
+  // yaw before deriving UVs; merely adding the centre mirrors the geometry/UV
+  // phase on a rotated ribbon and makes its butt-joined apron change texture
+  // at the handoff.
+  const positions = lawn.getVerticesData(VertexBuffer.PositionKind);
+  if (positions) {
+    const heading = degreesToRadians(landmark.headingDeg ?? 0);
+    const cos = Math.cos(heading);
+    const sin = Math.sin(heading);
+    const worldPositions = Array.from(positions);
+    for (let index = 0; index < worldPositions.length; index += 3) {
+      const localX = worldPositions[index];
+      const localZ = worldPositions[index + 2];
+      worldPositions[index] = landmark.center.x + localX * cos + localZ * sin;
+      worldPositions[index + 2] =
+        landmark.center.z - localX * sin + localZ * cos;
+    }
+    lawn.setVerticesData(
+      VertexBuffer.UVKind,
+      buildPlanarUVs(worldPositions, 1 / GRASS_TILE_M),
+    );
+  }
   setMeshMaterial(lawn, getParkLawnMaterial(ctx, palette, mapId), true);
   lawn.freezeWorldMatrix();
   // Too large for any spatial cull to reject — Central Park is 2.9 km long,

@@ -6,8 +6,8 @@
  * docs/rendering.md's "y-layer stack" table, which this module backs):
  *
  *   0.02 park lawn  <  0.025 water  <  0.0255 park beds
- *   <  0.031 park paths/terraces
- *   <  0.045 shoulder  <  0.0435 shoulder junction fill  <  0.07 road surface
+ *   <  0.031 park paths/terraces < 0.0435 shoulder junction fill
+ *   <  0.045 shoulder < 0.050-0.056 roadside lawn aprons < 0.07 road surface
  *   <  0.0716 asphalt junction fill  <  ...
  *
  * They are spread across four modules in total (here, crowdRenderer.ts,

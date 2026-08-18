@@ -144,6 +144,76 @@ describe("planMapBuildings — determinism", () => {
   });
 });
 
+describe("planMapBuildings — locked facade column widths", () => {
+  it.each([2251, 781_501_526])(
+    "keeps Queen's Gate's deeper rows inside row zero without consuming fewer RNG draws (seed %i)",
+    (trafficSeed) => {
+      const blockId = "london-queen-gate-terraces";
+      const sentinelBlockId = "london-cromwell-terraces";
+      const block = LONDON_MAP_PACK.geometry.blocks.find(
+        (candidate) => candidate.id === blockId,
+      );
+      expect(block?.lockFacadeWidthsByColumn).toBe(true);
+
+      const unlockedBlocks = LONDON_MAP_PACK.geometry.blocks.map(
+        (candidate) => {
+          if (candidate.id !== blockId) return candidate;
+          return { ...candidate, lockFacadeWidthsByColumn: false };
+        },
+      );
+      const lockedPlan = planMapBuildings(
+        LONDON_MAP_PACK,
+        trafficSeed,
+        relaxationPolicyForMap(LONDON_MAP_PACK.id),
+      );
+      const unlockedPlan = planMapBuildings(
+        mapWithBlocks(LONDON_MAP_PACK, unlockedBlocks),
+        trafficSeed,
+        relaxationPolicyForMap(LONDON_MAP_PACK.id),
+      );
+      const entriesFor = (plan: BuildingLayoutPlan, id: string) =>
+        plan.buildings.filter(
+          (building): building is PlannedProceduralBuilding =>
+            building.source === "procedural-cell" && building.blockId === id,
+        );
+      const locked = entriesFor(lockedPlan, blockId);
+      const unlocked = entriesFor(unlockedPlan, blockId);
+      const lockedByCell = new Map(
+        locked.map((building) => [building.cellIndex, building]),
+      );
+
+      // This block's density resolves to an eight-cell, three-column grid. Its
+      // repair-shop keep-out always removes cell 5; every surviving deeper cell
+      // must exactly reuse its first-row column width.
+      expect(locked.map((building) => building.cellIndex)).toEqual([
+        0, 1, 2, 3, 4, 6, 7,
+      ]);
+      for (const building of locked) {
+        if (building.cellIndex === undefined || building.cellIndex < 3) continue;
+        expect(building.widthM, `cell ${building.cellIndex}`).toBe(
+          lockedByCell.get(building.cellIndex % 3)?.widthM,
+        );
+      }
+
+      // Width locking changes silhouettes, not occupancy, and still consumes
+      // every discarded width draw. The next procedural block therefore keeps
+      // its complete byte-for-byte plan.
+      expect(locked.map((building) => building.id)).toEqual(
+        unlocked.map((building) => building.id),
+      );
+      expect(
+        locked.some(
+          (building, index) =>
+            building.widthM !== unlocked[index]?.widthM,
+        ),
+      ).toBe(true);
+      expect(entriesFor(lockedPlan, sentinelBlockId)).toEqual(
+        entriesFor(unlockedPlan, sentinelBlockId),
+      );
+    },
+  );
+});
+
 describe("planMapBuildings — stable ids", () => {
   for (const map of MAPS) {
     it(`${map.id} produces unique ids in the documented schemes`, () => {

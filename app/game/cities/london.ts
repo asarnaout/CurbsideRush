@@ -3485,6 +3485,11 @@ export const LONDON_MAP_PACK: MapPack = {
         // trimmed off each side leaves the frontage flush behind both
         // pavements (the quiet loop's inner edge is at x-157.4).
         size: point(41.2, 80.2),
+        // Keep the deeper courtyard rows inside the south/front row's exact
+        // column silhouette. Otherwise their independently jittered widths can
+        // peek through two hairline gaps and falsely become the lawn's nearest
+        // backing facade on some career-day traffic seeds.
+        lockFacadeWidthsByColumn: true,
         heightRange: [12, 24],
         density: 0.72,
         material: "white-stucco",
@@ -3761,6 +3766,17 @@ export const LONDON_MAP_PACK: MapPack = {
         // +5.85 here, this ribbon rendered at -5.85 and swung 12.7 m off its
         // own kerb by the west end. See the Notting Hill pair below.
         headingDeg: -5.85,
+        // Visual lawn only: cover The Mall's pavement to the asphalt curb and
+        // tuck beneath the irregular Portland-stone facade cells. The authored
+        // 14 m park rect still owns planting, layout and overlap validation.
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-mall",
+          roadEdge: "+z",
+          roadM: 4.2,
+          // The procedural civic row jitters by career seed; this reaches the
+          // theoretical deepest surviving facade corner with 0.15 m to spare.
+          buildingM: 34.1,
+        },
         color: "#5f9a4e",
       },
       {
@@ -3772,17 +3788,30 @@ export const LONDON_MAP_PACK: MapPack = {
         size: point(88.68, 14),
         // Clockwise yaw, as above: was +3.43, rendering 5.3 m off the kerb.
         headingDeg: -3.43,
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-mall",
+          roadEdge: "+z",
+          roadM: 4.2,
+          buildingM: 33.8,
+          // The two angled apron rects overlap slightly at their handoff.
+          depthLayer: 1,
+        },
         color: "#5f9a4e",
       },
       // Boulevard strips for the museum quarter's west environs — the owner
       // asked for greenery between the road and the street wall here rather
       // than buildings hard against the kerb: a 14 m lawn ribbon hugs each
-      // kerb (near edge ~1.2 m past the pavement band) and the parcels
-      // behind carry a 15.6 m extraInsetM so the terraces rise behind the
-      // green. All four are pockets (unwalled); planting derives.
+      // kerb (logical near edge 0.3 m past the pavement band) and the parcels
+      // behind carry a 13.5 m extraInsetM so the terraces rise behind the
+      // green. The visual lawn covers the pavement and laps beneath the higher
+      // road/building edges; its logical rectangle remains non-overlapping.
+      // All four are unwalled; the pathless ones still derive tree planting.
       {
         id: "london-gloucester-west-strip",
         kind: "park",
+        // A kerb ribbon is scenery, not a pocket park: the derived cross path
+        // would otherwise terminate in the two raised edge bands.
+        parkStyle: "lawn",
         // South end at z-96.4, tucked a hair under Old Brompton's north
         // pavement — the strip used to stop at z-48, 50 m short of the
         // junction, and the play-test flagged the bare run twice: a strip
@@ -3790,17 +3819,30 @@ export const LONDON_MAP_PACK: MapPack = {
         // end is pulled back to x-322.3 so the parcel rect clears this band.
         center: point(-314.3, 58.15),
         size: point(14, 309.1),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-gloucester",
+          roadEdge: "+x",
+          roadM: 4.2,
+          buildingM: 1.5,
+        },
         color: "#5f9a4e",
       },
       {
         id: "london-gloucester-east-strip",
         kind: "park",
+        parkStyle: "lawn",
         // South end at z-43.7, 0.3 m off gloucester-e-1's rect: the ribbon
         // hands over to that row's at-kerb frontage there. It runs UNDER the
-        // Cromwell far-west mouth on the way (lawns draw below carriageway
-        // and pavement), so the green reads continuous across the junction.
+        // Cromwell far-west mouth on the way (lawns draw below carriageway),
+        // so the green reads continuous across the junction.
         center: point(-285.7, 84.5),
         size: point(14, 256.4),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-gloucester",
+          roadEdge: "-x",
+          roadM: 4.2,
+          buildingM: 1.5,
+        },
         color: "#5f9a4e",
       },
       // The 1.7 m sliver between the east ribbon's far edge and the Cromwell
@@ -3824,6 +3866,12 @@ export const LONDON_MAP_PACK: MapPack = {
         parkStyle: "lawn",
         center: point(-142.5, -113.5),
         size: point(69, 5),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-quiet-loop",
+          roadEdge: "+z",
+          roadM: 3.7,
+          buildingM: 1.5,
+        },
         color: "#5f9a4e",
       },
       // The verge turns the corner: a right-angle arm up the west leg's
@@ -3836,6 +3884,14 @@ export const LONDON_MAP_PACK: MapPack = {
         parkStyle: "lawn",
         center: point(-174.5, -76),
         size: point(5, 70),
+        // This authored arm starts 1.15 m beyond the pavement, unlike the
+        // canonical ribbons' 0.3 m, so it needs the wider road-side lap.
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-quiet-loop",
+          roadEdge: "+x",
+          roadM: 4.9,
+          buildingM: 1.5,
+        },
         color: "#5f9a4e",
       },
       // Cromwell Fuel's side lot. The station's building keep-out (r28 about
@@ -3899,8 +3955,15 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-park-west-strip",
         kind: "park",
+        parkStyle: "lawn",
         center: point(-315.2, 581.35),
         size: point(14, 699.7),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-park-west",
+          roadEdge: "+x",
+          roadM: 4.2,
+          buildingM: 1.5,
+        },
         color: "#5f9a4e",
       },
       // parkStyle "lawn" here and on the east piece below, same reason as
@@ -3911,6 +3974,12 @@ export const LONDON_MAP_PACK: MapPack = {
         parkStyle: "lawn",
         center: point(-222.35, -17.7),
         size: point(112.7, 14),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-cromwell-far-west",
+          roadEdge: "-z",
+          roadM: 4.2,
+          buildingM: 1.5,
+        },
         color: "#5f9a4e",
       },
       // The same ribbon carried east to the end of the road. It used to stop
@@ -3929,6 +3998,15 @@ export const LONDON_MAP_PACK: MapPack = {
         parkStyle: "lawn",
         center: point(-140.75, -17.7),
         size: point(50.5, 14),
+        // Queen's Gate's column-locked facade rows make the south/front row
+        // the nearest solid for every covered ray, so this only has to reach
+        // that row's theoretical shallowest-depth face.
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-cromwell-far-west",
+          roadEdge: "-z",
+          roadM: 4.2,
+          buildingM: 6.3,
+        },
         color: "#5f9a4e",
       },
       // The lawn between Kensington Road and the royal park's south edge —
@@ -4034,6 +4112,12 @@ export const LONDON_MAP_PACK: MapPack = {
         center: point(-488.78, 919.57),
         size: point(332.74, 14),
         headingDeg: 178.41,
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-notting-hill",
+          roadEdge: "-z",
+          roadM: 4.2,
+          buildingM: 9.9,
+        },
         color: "#5f9a4e",
       },
       // East end extended 6 m to reach Westbourne Grove's pavement band — a
@@ -4046,6 +4130,12 @@ export const LONDON_MAP_PACK: MapPack = {
         size: point(325.64, 14),
         // Clockwise yaw, as above: was -179.16, rendering 4.8 m off the kerb.
         headingDeg: 179.16,
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-notting-hill",
+          roadEdge: "-z",
+          roadM: 4.2,
+          buildingM: 10.7,
+        },
         color: "#5f9a4e",
       },
       // The Notting Hill district's two squares: a walled garden square in
@@ -4109,11 +4199,10 @@ export const LONDON_MAP_PACK: MapPack = {
         // `london-chelsea-gardens` behind it, which is a place to walk.
         parkStyle: "lawn",
         // Deepened 28 -> 31.6 northward (the south edge does not move, so the
-        // seam lawn behind is unchanged): the near edge used to sit 1.2 m PAST
+        // seam lawn behind is unchanged): the near edge used to sit 1.2 m past
         // the pavement band and read from the car as a thin grey line running
-        // the whole frontage. It now laps 0.6 m UNDER the band — lawns draw at
-        // PARK_LAWN_Y 0.02, below the shoulder at 0.045, so the lap is
-        // invisible and the alternative is a fringe. Past 30 m the shape would
+        // the whole frontage. The raised road band below now carries the grass
+        // the remaining 0.62 m to the asphalt curb. Past 30 m the shape would
         // derive a walled greensward, which is why the depth was pinned at 28
         // before; the explicit `parkStyle` above now decides the style, so the
         // threshold no longer governs — do not remove that pin.
@@ -4124,6 +4213,13 @@ export const LONDON_MAP_PACK: MapPack = {
         // worst of the five. Every measurement in the comment above was taken
         // against the intended alignment, which is what this sign now gives.
         headingDeg: -8.2,
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-kings-road",
+          roadEdge: "+z",
+          roadM: 0.8,
+          // The north-side band tucks under the first Chelsea-gardens lawn.
+          buildingM: 0.7,
+        },
         color: "#5f9a4e",
       },
       // ── The Chelsea garden square and its lawns ────────────────────────
@@ -4400,6 +4496,14 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         center: point(-33.4, -11.7),
         size: point(136.2, 18.4),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-cromwell-west",
+          roadEdge: "-z",
+          roadM: 3.9,
+          // The museum wings are nearer at each end; the central body is the
+          // deeper visible frontage and sets the full forecourt depth.
+          buildingM: 20,
+        },
         color: "#5f9a4e",
       },
       {
@@ -4407,6 +4511,12 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         center: point(96.5, -14.5),
         size: point(94.4, 20),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-cromwell-east",
+          roadEdge: "-z",
+          roadM: 3.9,
+          buildingM: 18,
+        },
         color: "#5f9a4e",
       },
       // ...and the matching pair on the south kerb, in front of the natural
@@ -4417,6 +4527,15 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         center: point(-26.25, -46.1),
         size: point(150.4, 12.8),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-cromwell-west",
+          // Its east tip follows the narrower continuation after Exhibition
+          // Road; both ids therefore own the same road-facing grass band.
+          additionalRoadSurfaceIds: ["london-cromwell-east"],
+          roadEdge: "+z",
+          roadM: 4.1,
+          buildingM: 8,
+        },
         color: "#5f9a4e",
       },
       {
@@ -4424,6 +4543,12 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         center: point(96.4, -45.7),
         size: point(94.2, 13.6),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-cromwell-east",
+          roadEdge: "+z",
+          roadM: 3.3,
+          buildingM: 19.1,
+        },
         color: "#5f9a4e",
       },
       // The two greens this half of the sweep chose over a street wall. Both
@@ -4465,6 +4590,12 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         center: point(-32.85, 68.6),
         size: point(137.3, 12.2),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-thurloe-place",
+          roadEdge: "+z",
+          roadM: 3.9,
+          buildingM: 20,
+        },
         color: "#5f9a4e",
       },
       // North edge into Thurloe Place's band: the old edge at z73.3 left a
@@ -4475,6 +4606,12 @@ export const LONDON_MAP_PACK: MapPack = {
         kind: "park",
         center: point(96.05, 68.1),
         size: point(95.3, 15.2),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-thurloe-place",
+          roadEdge: "+z",
+          roadM: 2.9,
+          buildingM: 18,
+        },
         color: "#5f9a4e",
       },
       // Two hairline lawns that butt the west museum block's ends to the
@@ -4499,12 +4636,19 @@ export const LONDON_MAP_PACK: MapPack = {
       {
         id: "london-exhibition-road-public-space",
         kind: "park",
+        parkStyle: "lawn",
         // Public-space planting belongs beside Exhibition Road; rendering it
         // over the shared carriageway made the road appear to be missing.
         // East edge grown to 0.3 m off the V&A block's face — growing AWAY
         // from the carriageway, so the driveable-clearance pin still holds.
         center: point(51.45, 30),
         size: point(10.9, 40),
+        lawnEdgeLaps: {
+          roadSurfaceId: "london-exhibition-road",
+          roadEdge: "-x",
+          roadM: 0.7,
+          buildingM: 13,
+        },
         color: "#708c66",
       },
     ],

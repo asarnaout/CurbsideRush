@@ -5457,7 +5457,7 @@ export class BabylonGameSession {
             mapId,
           );
         } else {
-          buildParkLawn(parksRenderCtx, landmark, palette, mapId);
+          buildParkLawn(parksRenderCtx, landmark, palette, mapId, mapPack);
         }
         buildParkFeatures(parksRenderCtx, landmark, mapPack, palette, mapId);
       } else if (landmark.kind === "railway") {

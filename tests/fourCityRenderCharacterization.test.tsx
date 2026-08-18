@@ -576,8 +576,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 14_345/14_309 (facade-chunk merging, the Cairo reimagining's
     // cross-city render change): London's own modest procedural-box
     // population merges the same way.
-    totalMeshes: 14_345,
-    enabledMeshes: 14_309,
+    // -> 14_342/14_306: Gloucester's two long ribbons and Park West become
+    // pathless lawns, retiring the three cross-path meshes that would end in
+    // the new raised curb/building grass bands. The bands stay inside each
+    // lawn's existing mesh and therefore add no draw or mesh of their own.
+    totalMeshes: 14_342,
+    enabledMeshes: 14_306,
     activeMeshes: 500,
     materials: 316,
     drawCallsPerFrame: 0,

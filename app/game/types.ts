@@ -1,7 +1,7 @@
 // Type-only: career.ts imports back from this module at runtime, but a
 // type-level cycle is erased at compile time.
 import type { CareerPersisted, CareerVehicleId } from "./career";
-import type { ParkStyle } from "./parkLayouts";
+import type { ParkLawnEdgeLaps, ParkStyle } from "./parkLayouts";
 
 export type TrafficSide = "left" | "right";
 export type SteeringSide = TrafficSide;
@@ -401,6 +401,12 @@ export interface ProceduralBlock {
    * keep the nearest-edge heuristic when this is absent.
    */
   readonly frontageAxis?: "x" | "z";
+  /**
+   * Reuse each facade-grid column's first-row width in every deeper row.
+   * The planner still consumes the discarded per-cell width draw, so enabling
+   * this cannot perturb the seeded dimensions of later blocks.
+   */
+  readonly lockFacadeWidthsByColumn?: boolean;
   readonly heightRange: readonly [number, number];
   readonly density: number;
   readonly material: string;
@@ -454,6 +460,8 @@ export interface ProceduralLandmark {
    * overrule that.
    */
   readonly parkStyle?: ParkStyle;
+  /** Visual-only lawn overscan; park layout and collisions keep using `size`. */
+  readonly lawnEdgeLaps?: ParkLawnEdgeLaps;
   /**
    * Opt in to a boundary wall that follows the roads it runs alongside rather
    * than being deleted by them — see `parkPerimeterPlan`. A park tucked to its

@@ -135,9 +135,22 @@ water's own default in `geometry/waterGeometry.ts`):
 ```
 0.02 park lawn  <  0.025 water  <  0.0255 park beds  <  0.031 park paths/terraces
 <  0.04 rail ballast  <  0.0435 shoulder junction fill  <  0.045 shoulder/sidewalk
-<  0.07 road surface  <  0.0716 asphalt junction fill  <  0.08 walkers
+<  0.050-0.056 roadside lawn edge aprons  <  0.07 road surface
+<  0.0716 asphalt junction fill  <  0.08 walkers/building bases
 <  0.1 crowd shadows  <  0.12 markings & vehicle nodes  <  0.144-0.147 chevrons/stop lines
 ```
+
+Roadside `lawnEdgeLaps` add their apron grids to the lawn's existing mesh and
+draw call. An x-normal apron starts at 0.050 and a z-normal one at 0.052, so
+perpendicular ribbons can cross at a corner without a coplanar fight;
+`depthLayer` supplies further 4 mm sub-rungs for same-axis bends. The authored
+lawn remains at 0.02, including its paths and beds. Only the two narrow edge
+bands rise: the road band wins over the 0.045 target sidewalk, making grass
+visibly meet the asphalt curb, while the building band disappears below the
+0.08 foundation. `parkLawnEdgeLapGeometry` cuts foreign pavement and all
+shoulder-junction fills out before triangulation; the 0.07 carriageway masks the
+road band's outer edge. Pin path-free `lawn` styling only where a derived path
+would terminate at a raised transverse band.
 
 Rail ballast (`RAIL_BALLAST_Y`) deliberately loses to the shoulder and the
 carriageway, so a level crossing's asphalt paves OVER the corridor; the rails

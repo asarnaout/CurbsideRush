@@ -31,7 +31,11 @@ import polygonClipping, {
   type Ring as ClippingRing,
 } from "polygon-clipping";
 import { buildingVisualOcclusionFor } from "../buildingVisualOcclusion";
-import { ROAD_DIVIDED_PARK_IDS } from "../parkLayouts";
+import {
+  parkLawnEdgeLapBands,
+  parkLawnEdgeLapLiftM,
+  ROAD_DIVIDED_PARK_IDS,
+} from "../parkLayouts";
 import { GAS_STATION_CANOPY_M } from "../propFootprints";
 import type { GameCanvasMapPack } from "../sessionContract";
 import { gasStationCanopyWorld } from "../servicePoints";
@@ -953,6 +957,72 @@ function stripGeometryToPolygon(strip: {
 }
 
 /**
+ * The exact raised grass bands shared by the renderer and the visual audit.
+ * A lapped lawn intentionally replaces only its named road sidewalk(s); every
+ * foreign pavement band and every shoulder junction fill is cut back out so a
+ * perpendicular footway remains concrete through the corner.
+ */
+export function parkLawnEdgeLapGeometry(
+  mapPack: GameCanvasMapPack,
+  landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
+): MultiPolygon {
+  const laps = landmark.lawnEdgeLaps;
+  if (!laps) return { kind: "multiPolygon", parts: [] };
+  const roadSurfaces = mapPack.geometry.roadSurfaces ?? [];
+  const targetRoadIds = new Set([
+    laps.roadSurfaceId,
+    ...(laps.additionalRoadSurfaceIds ?? []),
+  ]);
+  const missingRoadIds = [...targetRoadIds].filter(
+    (roadId) => !roadSurfaces.some((surface) => surface.id === roadId),
+  );
+  if (missingRoadIds.length) {
+    throw new Error(
+      `${landmark.id}: lawnEdgeLaps road surface ${missingRoadIds.join(", ")} does not resolve`,
+    );
+  }
+
+  const bands = parkLawnEdgeLapBands(landmark).map(
+    (rect): Polygon => ({
+      kind: "polygon",
+      outer: rectLandmarkWorldPoints(rect),
+    }),
+  );
+  const subject = booleanUnion(...bands);
+  const sidewalkWidthOf = (surface: (typeof roadSurfaces)[number]) =>
+    Math.max(0, surface.sidewalkWidthM ?? defaultSidewalkWidthM(mapPack));
+  const clips: Shape2d[] = [];
+  for (const surface of roadSurfaces) {
+    if (targetRoadIds.has(surface.id)) continue;
+    const smoothClosed = surface.surfaceType === "roundabout" ? true : undefined;
+    clips.push(
+      stripGeometryToPolygon(
+        buildRoadSurfaceStripGeometry(
+          surface.centerline,
+          surface.widthM + sidewalkWidthOf(surface) * 2,
+          smoothClosed,
+        ),
+      ),
+    );
+  }
+
+  const shoulderJunctionSources = roadSurfaces.map((surface) => ({
+    id: surface.id,
+    centerline: surface.centerline,
+    widthM: surface.widthM + sidewalkWidthOf(surface) * 2,
+  }));
+  for (const fill of collectRoadJunctionFills(
+    shoulderJunctionSources,
+    0,
+    0,
+  )) {
+    clips.push({ kind: "polygon", outer: fill.polygon });
+  }
+
+  return clips.length ? booleanDifference(subject, ...clips) : subject;
+}
+
+/**
  * Every `GroundSurface` derived from a map's authored roads/sidewalks/
  * junctions/parks/water, using the exact same pure builders the renderer
  * calls (`roadStrips.ts`, `cairoParkland.ts`, `waterGeometry.ts`) — Section
@@ -1062,6 +1132,23 @@ export function collectGroundSurfaces(mapPack: GameCanvasMapPack): readonly Grou
       layerPriority: 1,
       provenance: "geometry/cairoParkland.ts / rectLandmarkWorldPoints",
     });
+    if (
+      landmark.lawnEdgeLaps &&
+      !ROAD_DIVIDED_PARK_IDS.has(landmark.id) &&
+      landmark.id !== "cairo-tahrir-square"
+    ) {
+      const apron = parkLawnEdgeLapGeometry(mapPack, landmark);
+      if (apron.parts.length === 0) continue;
+      surfaces.push({
+        id: `park-edge-lap-${landmark.id}`,
+        ownerId: landmark.id,
+        kind: "park",
+        geometry: apron,
+        surfaceY: 0.02 + parkLawnEdgeLapLiftM(landmark),
+        layerPriority: 1,
+        provenance: "visualSceneFootprints.ts:parkLawnEdgeLapGeometry",
+      });
+    }
   }
 
   for (const water of mapPack.geometry.waterBodies ?? []) {

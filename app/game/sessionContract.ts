@@ -1,5 +1,6 @@
 import type { Color4, TransformNode } from "@babylonjs/core";
 import type { CutsceneKind } from "./cutsceneScript";
+import type { ParkLawnEdgeLaps } from "./parkLayouts";
 import type { ServicePointKind } from "./servicePoints";
 import type { SimulationCoreConfig } from "./simulation";
 import type { AuthoredSignalAspect, AuthoredSignalStyle } from "./trafficSignals";
@@ -211,6 +212,8 @@ export interface GameCanvasMapPack {
       readonly size: GameCanvasPoint;
       readonly headingDeg?: number;
       readonly frontageAxis?: "x" | "z";
+      /** Keep deeper procedural rows inside their first-row column silhouette. */
+      readonly lockFacadeWidthsByColumn?: boolean;
       readonly streetEdges?: readonly ("+x" | "-x" | "+z" | "-z")[];
       readonly heightRange: readonly [number, number];
       readonly density: number;
@@ -265,6 +268,8 @@ export interface GameCanvasMapPack {
       readonly color: string;
       /** Compass heading of the landmark's long axis, clockwise from +z. */
       readonly headingDeg?: number;
+      /** Visual-only lawn overscan; the authored park rect stays unchanged. */
+      readonly lawnEdgeLaps?: ParkLawnEdgeLaps;
     }[];
     // `kind` is the real union rather than `string` (as the neighbouring
     // structural types use), because placement resolves the lot's yaw from it —

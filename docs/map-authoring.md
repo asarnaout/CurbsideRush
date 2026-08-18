@@ -137,8 +137,11 @@ a park edge facing a road more than 0.6 m off the pavement band (0.3 m is
 the convention; unwalled lawns fix it by extending INTO the band, walled
 parks hold at +0.3 or their wall dies to the 0.65 m veto), including
 park-to-park concrete seams; **(H)** a kerb green whose first content behind
-its far edge is beyond ~1.5 m. Exemptions: Thames-facing frontage (encode
-the outward-ray test) and the world-edge margin only. The proof pass is a
+its far edge is beyond ~1.5 m. For a boulevard ribbon these are checks on the
+**visible** lawn from `parkLawnEdgeLapGeometry`, not just its logical park rect — a
+sub-metre strip of paved world ground still fails. Exemptions: Thames-facing
+frontage (encode the outward-ray test) and the world-edge margin only. The
+proof pass is a
 **teleport camera sweep**: `__sideswapTeleport` poses the chase view along
 every road both ways (~50 m steps) and each frame is pixel-scored; the score
 RANKS work (white stucco reads as grey, so it cannot be a zero-bar) and the
@@ -164,14 +167,28 @@ venue, and where a circle blankets a kerb band outright, green it instead
 
 Where a wall against the kerb is wrong, the **boulevard grammar** applies: a
 14 m lawn ribbon on the kerb (a pocket park, rotated to the road's bearing via
-the park `headingDeg` if the road is off-axis, and **always
-`parkStyle: "lawn"`** — a kerb ribbon is scenery seen from the carriageway, and
-left to the default dressing a long one elects a full-length trail across its
-own width) and the parcel behind it through
+the park `headingDeg` if the road is off-axis). Pin `parkStyle: "lawn"` when the
+derived pocket-green cross would run across the ribbon's width and terminate in
+its raised curb/building bands; a walk running honestly along the long axis may
+remain. The parcel behind it comes from
 `roadsideParcel`'s `extraInsetM`. It comes with two obligations — the ribbon
 runs its road **junction to junction**, and it has a building row tucked behind
-it for its whole length. A road that bends needs **one rect per centreline
-segment**, butt-joined on an exact shared edge where the headings match and
+it for its whole length. The logical park rectangle stays clear of both the
+pavement and the backing block, because planting and overlap validation use
+it. `lawnEdgeLaps` closes the visual seams instead: extend the road-facing edge
+across the sidewalk and at least 0.15 m beneath the asphalt curb, and the
+opposite edge at least 0.15 m beneath the nearest **planned building solid**.
+Measure the solid from `planMapBuildings`, never from the parcel rectangle —
+procedural facade cells may sit several metres inside their block, and career
+traffic seeds jitter their dimensions. `parkLawnEdgeLapBands` makes only the two
+transverse edge strips; `parkLawnEdgeLapGeometry` clips those strips against
+foreign pavements and supplies the exact same MultiPolygon to the renderer and
+visual-gap ground collector. It never grows the ribbon's longitudinal axis or
+raises its path-and-bed-bearing middle. Use `parkStyle: "lawn"` when a derived
+cross path would otherwise terminate at one of the raised bands. A frontage
+that continues under another road id lists it in `additionalRoadSurfaceIds`; no
+other sidewalk may be replaced. A road that bends needs **one rect per centreline segment**,
+butt-joined on an exact shared edge where the headings match and
 left a ≤0.4 m seam where they cannot; two coplanar lawns must never overlap.
 Parcels pushed past the address probe's 22 m reach simply yield no letterboxes.
 
