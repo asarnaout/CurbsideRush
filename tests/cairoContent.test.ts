@@ -109,10 +109,16 @@ import type {
 // the informal districts' strips (one more closure retired to a strip
 // that now covers its interval — wall-3, see CAIRO_VISUAL_CLOSURES), and
 // the regenerated core list settles at 293.
-// -> 1243/920/463 (the mosque + west-Bulaq district widening): the
+// -> 1243/922/465 (the mosque + west-Bulaq district widening): the
 // landmark's exclusion re-tiles the strips beside Haret Abou Al Ela and
 // the regenerated core list settles at 290.
-const BLOCK_COUNT = 1243;
+// -> 1252/922/465 (sparse east-bank Corniche riverfront accents): nine
+// one-asset blocks break up the 800 m furniture-only north promenade while
+// remaining outside the automatic `-roadside-` census and preserving broad
+// Nile-view gaps.
+// -> 1253/922/465 (south Gezira riverfront accent): one Cairo mid-rise fills
+// the photographed empty bay between South Gezira Road and Saleh Selim Street.
+const BLOCK_COUNT = 1253;
 const ROADSIDE_COUNT = 922;
 const ROADSIDE_LEFT = 465;
 /** The second rank is gone — a one-sided kit means a back row can only stare
@@ -128,7 +134,7 @@ const ROADSIDE_RANKS = 0;
 // parcels in six (west bank three in six) from the glb wall — the boxes
 // ARE the architecture there, and the imported kit retreats to the
 // polished centre where it belongs.
-const STREET_WALL_BLOCKS = 411;
+const STREET_WALL_BLOCKS = 421;
 // 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6) -> 1716 (Section
 // 12.7): the five cairo-west-nile-street-mid-land-edge-wall-* closures
 // have no buildingSet either, same formula, 5 blocks * 9 = 45 more.
@@ -1482,7 +1488,7 @@ describe("Cairo Central Nile content", () => {
             // the side slug, the waterfront must stay protected regardless.
             block.id.includes(`-${openSide}`),
         ),
-        `${surfaceId} ${openSide} side should retain its Nile view`,
+        `${surfaceId} ${openSide} side should skip the automatic continuous wall`,
       ).toBe(false);
     }
 
@@ -1720,9 +1726,9 @@ describe("Cairo Central Nile content", () => {
   // `MAX_KNOWN_UNSUPPORTED_CELLS` does, and a genuinely NEW local defect —
   // one with no nearby qualifying blob to explain it — still fails here.
   it("leaves no qualifying bare-kerb run unexplained by a known systemic void (Section 12.11, 28 m standard)", () => {
-    // Sides that open onto the Nile and are meant to stay visually open —
-    // Section 12.2's own concern, not a frontage gap. Still true domain
-    // knowledge after the rewrite; unchanged from the legacy test.
+    // Sides that open onto the Nile skip automatic frontage and remain
+    // promenade/view-corridor ground even where sparse reviewed accents stand.
+    // Section 12.2's own concern, not an ordinary frontage gap.
     const OPEN_WATERFRONT_SIDE: Readonly<Record<string, "side-left" | "side-right">> = {
       "cairo-corniche-el-nil": "side-left",
       "cairo-saray-el-gezira": "side-left",

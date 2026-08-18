@@ -1565,6 +1565,14 @@ export interface PromenadeDecorInput {
    * anyone spotting it from the car.
    */
   readonly keepOutRects?: readonly PropScatterRect[];
+  /**
+   * Building footprints inside the promenade band. Most waterfront roads keep
+   * this ground wholly open, but Cairo deliberately intersperses short
+   * river-side Corniche buildings with broad view corridors. A deterministic
+   * furniture station that lands in one is shifted along the bank before it
+   * is dropped, so adding a building never leaves a palm or lamp inside it.
+   */
+  readonly buildingRects?: readonly PropScatterRect[];
 }
 
 /** Extra clear metres a promenade piece keeps beyond a rail corridor's own
@@ -1650,18 +1658,19 @@ export function generatePromenadeDecor(
           if (!waterDistM || waterDistM - envelope < 6) continue;
           // Gap at every other road's envelope: junctions and the bridge
           // approaches carry their own furniture and their own openings.
-          const clearOfOtherRoads = input.roadSurfaces.every((other) => {
-            if (other.id === surface.id) return true;
-            const otherEnvelope =
-              other.widthM / 2 +
-              (other.sidewalkWidthM ?? input.sidewalkWidthM) +
-              2;
-            return (
-              distanceToPolylineM({ x: baseX, z: baseZ }, other.centerline) >
-              otherEnvelope + 6
-            );
-          });
-          if (!clearOfOtherRoads) continue;
+          const clearOfOtherRoadsAt = (roadPoint: VisualPoint): boolean =>
+            input.roadSurfaces.every((other) => {
+              if (other.id === surface.id) return true;
+              const otherEnvelope =
+                other.widthM / 2 +
+                (other.sidewalkWidthM ?? input.sidewalkWidthM) +
+                2;
+              return (
+                distanceToPolylineM(roadPoint, other.centerline) >
+                otherEnvelope + 6
+              );
+            });
+          if (!clearOfOtherRoadsAt({ x: baseX, z: baseZ })) continue;
           const drop = (
             kind: string,
             offsetM: number,
@@ -1669,27 +1678,78 @@ export function generatePromenadeDecor(
             scale: number,
             variant: number,
           ): void => {
-            const x = baseX + outX * offsetM;
-            const z = baseZ + outZ * offsetM;
-            if (Math.abs(x) > halfWorldX || Math.abs(z) > halfWorldZ) return;
-            if (isOverWater({ x, z }, input.waterPolygons)) return;
-            if (
-              input.railLines?.some(
+            const candidateAt = (
+              shiftAlongM: number,
+            ): { readonly x: number; readonly z: number } => ({
+              x: baseX + alongX * shiftAlongM + outX * offsetM,
+              z: baseZ + alongZ * shiftAlongM + outZ * offsetM,
+            });
+            const clearsNonBuildingKeepOuts = (
+              candidate: VisualPoint,
+              shiftAlongM: number,
+            ): boolean =>
+              Math.abs(candidate.x) <= halfWorldX &&
+              Math.abs(candidate.z) <= halfWorldZ &&
+              clearOfOtherRoadsAt({
+                x: baseX + alongX * shiftAlongM,
+                z: baseZ + alongZ * shiftAlongM,
+              }) &&
+              !isOverWater(candidate, input.waterPolygons) &&
+              !input.railLines?.some(
                 (line) =>
-                  distanceToPolylineM({ x, z }, line.points) <
+                  distanceToPolylineM(candidate, line.points) <
                   line.corridorHalfWidthM + PROMENADE_RAIL_CLEARANCE_M,
-              )
-            ) {
+              ) &&
+              !input.keepOutRects?.some((rect) =>
+                isInsideInflatedRect(candidate, rect),
+              );
+            const blockedByBuilding = (candidate: VisualPoint): boolean =>
+              Boolean(
+                input.buildingRects?.some((rect) =>
+                  isInsideInflatedRect(candidate, rect),
+                ),
+              );
+
+            const original = candidateAt(0);
+            if (!clearsNonBuildingKeepOuts(original, 0)) return;
+            if (!blockedByBuilding(original)) {
+              placements.push({
+                kind,
+                x: original.x,
+                z: original.z,
+                rotationY,
+                scale,
+                variant,
+              });
               return;
             }
-            if (
-              input.keepOutRects?.some((rect) =>
-                isInsideInflatedRect({ x, z }, rect),
-              )
-            ) {
+
+            // Half-station steps land between the promenade's normal 13 m
+            // rhythm. Alternate directions so a building never shifts every
+            // affected piece to the same end, and cap the search at 26 m -- a
+            // small local move, not furniture leaking into the next district.
+            for (const shiftAlongM of [6.5, -6.5, 13, -13, 19.5, -19.5, 26, -26]) {
+              const moved = candidateAt(shiftAlongM);
+              if (
+                !clearsNonBuildingKeepOuts(moved, shiftAlongM) ||
+                blockedByBuilding(moved) ||
+                placements.some(
+                  (existing) =>
+                    Math.hypot(existing.x - moved.x, existing.z - moved.z) < 3,
+                )
+              ) {
+                continue;
+              }
+              placements.push({
+                kind,
+                x: moved.x,
+                z: moved.z,
+                rotationY,
+                scale,
+                variant,
+              });
               return;
             }
-            placements.push({ kind, x, z, rotationY, scale, variant });
           };
           if (stationIndex % 2 === 0) {
             drop(

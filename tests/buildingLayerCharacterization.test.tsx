@@ -476,8 +476,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // and dishes through the facade-grid dressing instead.
     // -> 1_000 / 351 (mosque + west-Bulaq widening): the wider baladi band
     // holds more parcels back from the glb wall.
-    buildingInstanceCount: 1_000,
-    cairoRoofClutterInstanceCount: 351,
+    // -> 1_009 / 355 (sparse Corniche riverfront accents): nine short
+    // one-edge blocks each add one existing Cairo asset; four of those
+    // deterministic models carry roofY and therefore one clutter instance.
+    // -> 1_010 / 356 (south Gezira riverfront accent): the single existing
+    // Cairo four-storey asset carries one authored rooftop-clutter point.
+    buildingInstanceCount: 1_010,
+    cairoRoofClutterInstanceCount: 356,
     storefrontSignMaterialCount: 0,
   },
 };

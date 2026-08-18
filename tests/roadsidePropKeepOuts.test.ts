@@ -111,6 +111,14 @@ function scatterFor(mapPack: GameCanvasMapPack): readonly PropPlacement[] {
           lampKind: promenadeKinds.lampKind,
           railLines,
           keepOutRects: keepOuts.poiRects,
+          buildingRects:
+            key === "cairo"
+              ? mapPack.geometry.blocks.map((block) => ({
+                  center: block.center,
+                  size: block.size,
+                  headingDeg: block.headingDeg,
+                }))
+              : undefined,
         })
       : [];
 
