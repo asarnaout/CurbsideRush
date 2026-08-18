@@ -270,18 +270,52 @@ you mid-scene does no damage either.
 
 ## Ambient traffic and its cost model
 
-**Count comes from `resolveAmbientVehicleCount`** (`simulationAdapter.ts`) — one
-source for both sim and renderer, which allocate separately and must agree. A map
-sets `ambientTraffic` when its size makes the scenario's density band wrong; NYC
-and Cairo do (32 desktop / 16 touch, against the core's clamp of 32).
+**Count comes from `resolveAmbientVehicleCount`** (`simulationAdapter.ts`),
+backed by `normalizeAmbientVehicleSlotCount` and
+`AMBIENT_VEHICLE_SLOT_CEILING` (`simulation/ambientTraffic.ts`). The adapter
+normalizes every map override or density fallback, and `SimulationCore` repeats
+that same defensive normalization before it creates its NPC pool; renderer and
+core therefore cannot own different slot counts. All four shipped maps override
+their bands with 32 desktop / 16 touch slots.
 
 **Patrols are not authored.** `isPatrolVehicle` (`vehicleVisuals.ts`) marks one
 `variant: "car"` in five (`PATROL_IN_EVERY`), hashed off the vehicle's own
 identity rather than its render slot — so the car count *is* the police count,
 and a car stays a patrol for as long as it exists.
 
-Cars being cheap depends on `routeDistanceAhead` being bounded by **distance** as
-well as hops (`ROUTE_LOOKAHEAD_LIMIT_M`, 240 m): it runs for every pair of cars
-every step, six hops out of a three-exit junction is hundreds of lanes, and it
-was 97% of the step before the limit existed. Raising it re-opens the cost; below
-~62 m it changes following behaviour.
+### Local population window
+
+`buildTrafficLocalityConfig` gives the core a separate, deterministic runtime
+portal catalogue. Authored `SimulationTrafficGate`s remain the source of named
+vehicle identity/variant placements: fresh-core priming preserves explicit
+variant coordinates, and admits a generic authored coordinate only while it
+fits the current local target; other slots use nearby runtime portals. Runtime
+portals are sampled every 140 m from eligible
+directed lanes, with a 25 m endpoint/stop-line/connector exclusion, and live in
+`RuntimeTrafficPortalIndex`'s static spatial cells.
+
+The controller targets traffic from *eligible directional lane length*, not map
+area: desktop targets 8–18 vehicles in 440 m and 4–10 in 250 m (touch: 5–12 and
+2–6). Fresh reset may prime the local bands; later activation is only in the
+500–650 m approach annulus. Approach selection requires an inbound tangent and
+the NPC's deterministic successor path into the fog circle; an inner-target
+replacement proves a route into 250 m using its own bounded 750 m/12-hop
+selector horizon. The
+controller also treats inbound cars in the final 480–500 m hand-off as already
+in flight so it cannot issue a duplicate arrival batch just before they enter
+the fog band. Ordinary population shedding first becomes
+`pendingRecycle` and retires only beyond 750 m; exceptional jam, route, and
+collision recovery may release beyond the conservative 480 m hidden
+envelope. Both paths use bounded 10 Hz batches. All traffic remains normal
+authoritative `TrafficSystem` NPCs — locality never creates a decorative vehicle
+class. `SimulationCore.getTrafficDiagnostics()` exposes the current bands,
+targets, lifecycle work, route-search and spatial-index counters for external
+profiling without feeding any of them back into simulation decisions.
+
+`TrafficSpatialIndex` keeps lane buckets keyed by stable NPC slots. For
+`leadVehicleGap`, it marks the source lane plus conservative successor-lane
+candidates within the same six-hop/240 m topology envelope, then still runs the
+unchanged exact `routeDistanceAhead` check in stable NPC order. That preserves
+loop and route semantics while avoiding an exact route search for every active
+car pair. Raising `ROUTE_LOOKAHEAD_LIMIT_M` re-opens cost; lowering it below
+roughly 62 m changes following behaviour.

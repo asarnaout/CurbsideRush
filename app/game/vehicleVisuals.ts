@@ -7,6 +7,7 @@
  * string key containing the traffic seed and simulation vehicle id.
  */
 import { resolveMapVisualKey, resolveMapVisualProfile, type MapVisualKey } from "./visuals";
+import { isTrafficNpcPatrol } from "./simulation/trafficIdentity";
 
 export type PassengerVehicleStyle =
   | "electric-fastback"
@@ -237,9 +238,6 @@ export function policeLiveryForMap(mapId: string): PoliceLivery {
   return POLICE_LIVERIES[plateRegionForMap(mapId)];
 }
 
-/** One patrol per this many passenger cars, on average. */
-const PATROL_IN_EVERY = 5;
-
 /**
  * Whether this vehicle is a patrol car. Derived from the vehicle's own identity
  * rather than its render slot, so a car stays a patrol (or stays civilian) for
@@ -247,9 +245,10 @@ const PATROL_IN_EVERY = 5;
  * to a slot that later recycled into a bus.
  */
 export function isPatrolVehicle(input: TrafficVehicleAppearanceInput): boolean {
-  if (input.variant !== "car") return false;
-  const identity = `${normalizedSeed(input.trafficSeed)}|${input.vehicleId}`;
-  return hashAppearanceKey(`${identity}|patrol`) % PATROL_IN_EVERY === 0;
+  // Preserve this public helper's historic meaning: it answers only the
+  // ambient passenger-car roll. The shared role predicate additionally treats
+  // an explicitly-authored `police` variant as a patrol.
+  return input.variant === "car" && isTrafficNpcPatrol(input);
 }
 
 /** Flash cycle length; both lamps blip twice within it. */
@@ -530,17 +529,11 @@ export function resolveTrafficVehicleAppearance(
   const plateIdentity = `${normalizedSeed(input.trafficSeed)}|${input.vehicleId}`;
   const plateNumber = plateNumberForVehicle(plateRegion, plateIdentity);
 
-  // A police-variant NPC comes from a named patrol gate and is always a
-  // patrol; ambient cars still roll the one-in-PATROL_IN_EVERY chance below.
-  if (input.variant === "police") {
-    return policeAppearance(input);
-  }
+  // Authored police variants and ambient passenger cars share the same pure
+  // identity-role predicate used by simulation diagnostics.
+  if (isTrafficNpcPatrol(input)) return policeAppearance(input);
 
-  if (input.variant === "car") {
-    return isPatrolVehicle(input)
-      ? policeAppearance(input)
-      : passengerAppearance(input);
-  }
+  if (input.variant === "car") return passengerAppearance(input);
 
   if (input.variant === "taxi") {
     const policy = CITY_VEHICLE_POLICY[resolveMapVisualKey(input.mapId)];

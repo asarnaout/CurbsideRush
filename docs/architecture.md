@@ -66,11 +66,12 @@ directly, including `GameCanvas.tsx`, `render/babylonGameSession.ts` and
 another.
 
 `simulation.ts` is itself split across a stable facade (`SimulationCore`, the
-fixed-step tick order, and the public API) and four seam modules under
-`app/game/simulation/` — `roadNetwork.ts`, `playerDynamics.ts`,
-`trafficSystem.ts`, `roadRuleMonitor.ts` — see
+fixed-step tick order, and the public API) and seam modules under
+`app/game/simulation/` — notably `roadNetwork.ts`, `playerDynamics.ts`,
+`trafficSystem.ts`, `trafficLocality.ts`, `trafficSpatialIndex.ts`, and
+`roadRuleMonitor.ts` — see
 [simulation-core.md](simulation-core.md) for what each owns. The purity that
-matters spans the whole set, not just the facade file: every one of the five
+matters spans the whole set, not just the facade file: every source in that set
 imports only from `./types`/`../types`, a sibling `simulation/*.ts` module,
 or — type-only — back to the facade for shared vocabulary
 (`SimulationPoint`/`TurnSignal`/`MutablePose`, the same pattern #291 used for

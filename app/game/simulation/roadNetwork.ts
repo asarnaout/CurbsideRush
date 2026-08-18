@@ -1,5 +1,5 @@
 import type { SimulationPoint, SimulationPose, SimulationBounds, TurnSignal } from "../simulation";
-import { clamp, distanceSquared } from "./mathUtils";
+import { angleDifference, clamp, distanceSquared } from "./mathUtils";
 import {
   railCrossingSignalAt,
   railCrossingWarningWindows,
@@ -38,6 +38,9 @@ export type TrafficLightSequence = "standard" | "uk";
 
 export interface SimulationLane {
   readonly id: string;
+  /** Stable authored road/corridor identity. Optional for synthetic callers
+   * that predate map-pack road metadata. */
+  readonly roadId?: string;
   /** Points are ordered in the legal direction of travel. */
   readonly points: readonly SimulationPoint[];
   readonly width?: number;
@@ -106,6 +109,7 @@ export interface StopLineDefinition {
 
 export interface NormalizedLane {
   id: string;
+  roadId?: string;
   points: SimulationPoint[];
   width: number;
   role: LaneRole;
@@ -143,6 +147,23 @@ export interface LaneProjection {
   z: number;
 }
 
+export interface RoadProjectionPreference {
+  /** Direction used only to break near-equal geometric projections. */
+  readonly heading: number;
+  /** Global minimum-distance band. The 0.1 m default covers authored shared
+   * node tolerances while remaining far below a lane width. */
+  readonly distanceTieEpsilonM?: number;
+}
+
+/** Read-only instrumentation for external traffic benchmarks. It is never
+ * consulted by a routing decision, so resetting/polling it cannot desync a
+ * deterministic replay. */
+export interface RouteSearchCounterSnapshot {
+  readonly calls: number;
+  readonly lanesVisited: number;
+  readonly maxLanesVisited: number;
+}
+
 /**
  * How far along the route ahead `routeDistanceAhead` will look before giving
  * up and calling a car "not ahead of me".
@@ -154,7 +175,11 @@ export interface LaneProjection {
  * outright. This is set several times over the largest of them, so it prunes
  * the search without any caller being able to tell.
  */
-const ROUTE_LOOKAHEAD_LIMIT_M = 240;
+// Kept public for TrafficSpatialIndex's conservative lane-topology broad
+// phase. The index may include extra lane occupants, but must never omit a
+// lane `routeDistanceAhead` could examine under these same bounds.
+export const ROUTE_LOOKAHEAD_LIMIT_M = 240;
+export const ROUTE_LOOKAHEAD_MAX_HOPS = 6;
 
 function normalizeLane(lane: SimulationLane): NormalizedLane {
   const points = lane.points
@@ -175,6 +200,7 @@ function normalizeLane(lane: SimulationLane): NormalizedLane {
   }
   return {
     id: lane.id,
+    roadId: lane.roadId,
     points,
     width: clamp(lane.width ?? 3.5, 2.4, 8),
     role: lane.role ?? "travel",
@@ -275,10 +301,12 @@ export class RoadNetwork {
   readonly stopLines: StopLineDefinition[];
   readonly stopLinesByLaneId: Map<string, StopLineDefinition[]>;
 
-  // routeDistanceAhead scratch. The search runs for every pair of cars,
-  // every step (~61k/s at 32 cars) and used to allocate a queue array, a
-  // visited Map and a node literal per pushed lane — over a million
-  // short-lived objects a second, pure GC feed. The queue is now three
+  // routeDistanceAhead scratch. Route-leading now reaches this exact search
+  // only through TrafficSpatialIndex's conservative topology candidates;
+  // gate and junction safety still use it where an exact route answer is
+  // required. The queue used to allocate an array, a visited Map and a node
+  // literal per pushed lane — over a million short-lived objects a second in
+  // dense pair scans. It is now three
   // parallel arrays walked by a moving head (no shift() memmove); visited is
   // a generation-stamped pair keyed by lane.index, cleared by bumping the
   // generation (pre-incremented per call, so the post-reset zero can never
@@ -290,6 +318,11 @@ export class RoadNetwork {
   private routeVisitedGeneration: Float64Array;
   private routeVisitedBest: Float64Array;
   private routeSearchGeneration = 0;
+  private routeSearchCounters = {
+    calls: 0,
+    lanesVisited: 0,
+    maxLanesVisited: 0,
+  };
 
   constructor(
     lanes: readonly SimulationLane[],
@@ -342,6 +375,22 @@ export class RoadNetwork {
     this.routeVisitedGeneration.fill(0);
   }
 
+  getRouteSearchCounters(): RouteSearchCounterSnapshot {
+    return { ...this.routeSearchCounters };
+  }
+
+  resetRouteSearchCounters(): void {
+    this.routeSearchCounters = { calls: 0, lanesVisited: 0, maxLanesVisited: 0 };
+  }
+
+  private recordRouteSearch(lanesVisited: number): void {
+    this.routeSearchCounters.calls += 1;
+    this.routeSearchCounters.lanesVisited += lanesVisited;
+    if (lanesVisited > this.routeSearchCounters.maxLanesVisited) {
+      this.routeSearchCounters.maxLanesVisited = lanesVisited;
+    }
+  }
+
   pointOnLane(lane: NormalizedLane, rawDistance: number): SimulationPose {
     let distance = rawDistance;
     if (lane.loop && (distance < 0 || distance > lane.length)) {
@@ -368,7 +417,98 @@ export class RoadNetwork {
     return { x: final.x, z: final.z, heading: 0 };
   }
 
-  projectToRoad(x: number, z: number): LaneProjection | null {
+  projectToRoad(
+    x: number,
+    z: number,
+    preference?: RoadProjectionPreference,
+  ): LaneProjection | null {
+    if (preference) {
+      let minimumDistance = Number.POSITIVE_INFINITY;
+      for (const lane of this.lanes) {
+        for (let index = 0; index < lane.points.length - 1; index += 1) {
+          const start = lane.points[index];
+          const end = lane.points[index + 1];
+          const dx = end.x - start.x;
+          const dz = end.z - start.z;
+          const lengthSquared = dx * dx + dz * dz;
+          const amount =
+            lengthSquared > Number.EPSILON
+              ? clamp(
+                  ((x - start.x) * dx + (z - start.z) * dz) / lengthSquared,
+                  0,
+                  1,
+                )
+              : 0;
+          const nearestX = start.x + dx * amount;
+          const nearestZ = start.z + dz * amount;
+          minimumDistance = Math.min(
+            minimumDistance,
+            Math.hypot(x - nearestX, z - nearestZ),
+          );
+        }
+      }
+      if (!Number.isFinite(minimumDistance)) return null;
+      const tieEpsilon = Math.max(
+        0,
+        Number.isFinite(preference.distanceTieEpsilonM)
+          ? (preference.distanceTieEpsilonM ?? 0.1)
+          : 0.1,
+      );
+      let best: LaneProjection | null = null;
+      let bestHeadingDifference = Number.POSITIVE_INFINITY;
+      let accumulated = 0;
+      for (const lane of this.lanes) {
+        accumulated = 0;
+        for (let index = 0; index < lane.points.length - 1; index += 1) {
+          const start = lane.points[index];
+          const end = lane.points[index + 1];
+          const dx = end.x - start.x;
+          const dz = end.z - start.z;
+          const lengthSquared = dx * dx + dz * dz;
+          const amount =
+            lengthSquared > Number.EPSILON
+              ? clamp(
+                  ((x - start.x) * dx + (z - start.z) * dz) / lengthSquared,
+                  0,
+                  1,
+                )
+              : 0;
+          const nearestX = start.x + dx * amount;
+          const nearestZ = start.z + dz * amount;
+          const distance = Math.hypot(x - nearestX, z - nearestZ);
+          if (distance > minimumDistance + tieEpsilon + 1e-9) {
+            accumulated += lane.segmentLengths[index];
+            continue;
+          }
+          const heading = Math.atan2(dx, dz);
+          const headingDifference = Math.abs(
+            angleDifference(heading, preference.heading),
+          );
+          const distanceAlong =
+            accumulated + lane.segmentLengths[index] * amount;
+          if (
+            !best ||
+            headingDifference < bestHeadingDifference - 1e-9 ||
+            (Math.abs(headingDifference - bestHeadingDifference) <= 1e-9 &&
+              (lane.id < best.lane.id ||
+                (lane.id === best.lane.id &&
+                  distanceAlong < best.distanceAlong)))
+          ) {
+            best = {
+              lane,
+              distance,
+              distanceAlong,
+              heading,
+              x: nearestX,
+              z: nearestZ,
+            };
+            bestHeadingDifference = headingDifference;
+          }
+          accumulated += lane.segmentLengths[index];
+        }
+      }
+      return best;
+    }
     let best: LaneProjection | null = null;
     for (const lane of this.lanes) {
       let accumulated = 0;
@@ -423,8 +563,11 @@ export class RoadNetwork {
     targetLane: NormalizedLane,
     targetDistance: number,
   ): number {
+    let lanesVisited = 0;
     if (fromLane.id === targetLane.id) {
-      return this.distanceAhead(fromLane, fromDistance, targetDistance);
+      const direct = this.distanceAhead(fromLane, fromDistance, targetDistance);
+      this.recordRouteSearch(lanesVisited);
+      return direct;
     }
     const queueLanes = this.routeQueueLanes;
     const queueDistances = this.routeQueueDistances;
@@ -448,11 +591,13 @@ export class RoadNetwork {
       const distanceToStart = queueDistances[head];
       const depth = queueDepths[head];
       head += 1;
-      if (depth > 6) continue;
+      lanesVisited += 1;
+      if (depth > ROUTE_LOOKAHEAD_MAX_HOPS) continue;
       // Nothing asks about a car this far along the route. The depth cap alone
       // bounded the search by *hops*, so on a city with more roads leading out
       // of each junction the same six hops walked several hundred lanes — and
-      // this runs for every pair of cars, every step. Every caller's threshold
+      // TrafficSpatialIndex limits 60 Hz route-leading calls to candidates
+      // whose lane topology can reach this branch. Every caller's threshold
       // is a following gap; the largest is a car at top speed wanting its
       // 1.8 s headway, under 62 m. See the note on the constant.
       if (distanceToStart > ROUTE_LOOKAHEAD_LIMIT_M) continue;
@@ -481,6 +626,7 @@ export class RoadNetwork {
     // Drop the lane references so a search burst cannot pin lanes between
     // calls; the number arrays just keep their capacity.
     queueLanes.length = 0;
+    this.recordRouteSearch(lanesVisited);
     return result;
   }
 

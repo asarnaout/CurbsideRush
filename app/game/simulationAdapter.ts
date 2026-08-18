@@ -10,7 +10,14 @@ import type {
   TrafficLightDefinition,
   TrafficLightSequence,
 } from "./simulation";
+import type { RuntimeTrafficPortal } from "./simulation/trafficLocality";
+import {
+  RUNTIME_TRAFFIC_PORTAL_ENDPOINT_SETBACK_M,
+  RUNTIME_TRAFFIC_PORTAL_INTERVAL_M,
+} from "./simulation/trafficLocality";
 import type { ServiceArea, StaticObstacle, StaticObstacleTag } from "./types";
+import { normalizeAmbientVehicleSlotCount } from "./simulation/ambientTraffic";
+import { distanceToPolygon } from "./simulation/mathUtils";
 
 // Re-exported for the same reason `servicePoints` re-exports `ServicePointKind`:
 // `GameCanvas` reads the obstacles this module builds, and otherwise keeps clear
@@ -627,9 +634,246 @@ export function resolveAmbientVehicleCount(
   touchFirst: boolean,
 ): number {
   const override = mapPack.ambientTraffic;
-  if (override) return touchFirst ? override.touch : override.desktop;
+  if (override) {
+    return normalizeAmbientVehicleSlotCount(
+      touchFirst ? override.touch : override.desktop,
+    );
+  }
   const configured = DENSITY_COUNTS[density];
-  return touchFirst ? Math.min(TOUCH_DENSITY_CAP, configured) : configured;
+  return normalizeAmbientVehicleSlotCount(
+    touchFirst ? Math.min(TOUCH_DENSITY_CAP, configured) : configured,
+  );
+}
+
+/**
+ * Lanes that can support ordinary ambient circulation count toward a player's
+ * local traffic capacity. Passing lanes are legal settled traffic lanes too;
+ * connector/roundabout/terminal geometry is intentionally excluded because
+ * it represents a junction manoeuvre, not neighbourhood road supply.
+ */
+export function isLocalTrafficCapacityLane(
+  lane: Pick<GameCanvasLane, "role">,
+): boolean {
+  return (
+    lane.role === "travel" ||
+    lane.role === "one_way" ||
+    lane.role === "rail_crossing" ||
+    lane.role === "passing"
+  );
+}
+
+/**
+ * Runtime portals are stricter than local capacity: never materialize a car
+ * on a passing/merge/roundabout/connector fragment. It may still drive onto
+ * those lanes through the usual authoritative routing after entering safely.
+ */
+export function isRuntimeTrafficPortalLane(
+  lane: Pick<GameCanvasLane, "role">,
+): boolean {
+  return (
+    lane.role === "travel" ||
+    lane.role === "one_way" ||
+    lane.role === "rail_crossing"
+  );
+}
+
+function portalDistanceOverlapsUnsafeLaneRange(
+  lane: GameCanvasLane,
+  distance: number,
+  stopDistances: ReadonlyMap<string, readonly number[]>,
+  conflictZonesByLane: ReadonlyMap<
+    string,
+    readonly { readonly polygon: readonly SimulationPoint[] }[]
+  >,
+): boolean {
+  const clearance = RUNTIME_TRAFFIC_PORTAL_ENDPOINT_SETBACK_M;
+  if (
+    (lane.connectorRanges ?? []).some(
+      (range) =>
+        distance >= range.startDistanceAlongM - clearance &&
+        distance <= range.endDistanceAlongM + clearance,
+    )
+  ) {
+    return true;
+  }
+  if ((stopDistances.get(lane.id) ?? []).some(
+    (stopDistance) => Math.abs(stopDistance - distance) < clearance,
+  )) {
+    return true;
+  }
+  const conflictZones = conflictZonesByLane.get(lane.id);
+  if (!conflictZones?.length) return false;
+  const pose = resolveSimulationLaneAnchor([lane], {
+    laneId: lane.id,
+    distanceAlongM: distance,
+  });
+  // An unresolved lane anchor cannot become a portal later either. Keep this
+  // branch conservative and let the caller skip it without treating a broken
+  // anchor as a safe junction point.
+  if (!pose) return true;
+  return conflictZones.some(
+    (zone) => distanceToPolygon(pose, zone.polygon) < clearance,
+  );
+}
+
+function trafficControlStopDistances(
+  mapPack: GameCanvasMapPack,
+): ReadonlyMap<string, readonly number[]> {
+  const distances = new Map<string, number[]>();
+  const lanesById = new Map(
+    mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]),
+  );
+  for (const control of mapPack.laneGraph.controls) {
+    if (
+      control.type !== "signal" &&
+      control.type !== "railway_signal" &&
+      control.type !== "stop" &&
+      control.type !== "yield"
+    ) {
+      continue;
+    }
+    // Mirror buildTrafficLights/buildStopAndYieldLines exactly: an explicit
+    // approach applies its stop arclength to every listed parallel lane, and
+    // older controls without approaches synthesize one stop line per lane.
+    const approaches = control.approaches?.length
+      ? control.approaches
+      : control.laneIds.flatMap((laneId, index) => {
+          const lane = lanesById.get(laneId);
+          const distance = lane
+            ? projectDistanceAlongLane(lane, control.position)
+            : null;
+          return distance === null
+            ? []
+            : [{
+                id: `${control.id}-approach-${index + 1}`,
+                laneIds: [laneId],
+                stopLine: { laneId, distanceAlongM: distance },
+                phaseGroup: `${control.id}-${index + 1}`,
+              }];
+        });
+    for (const approach of approaches) {
+      for (const laneId of new Set([
+        ...approach.laneIds,
+        approach.stopLine.laneId,
+      ])) {
+        if (!lanesById.has(laneId)) continue;
+        const bucket = distances.get(laneId);
+        if (bucket) bucket.push(approach.stopLine.distanceAlongM);
+        else distances.set(laneId, [approach.stopLine.distanceAlongM]);
+      }
+    }
+  }
+  return distances;
+}
+
+function trafficConflictZonesByLane(
+  mapPack: GameCanvasMapPack,
+): ReadonlyMap<
+  string,
+  readonly { readonly polygon: readonly SimulationPoint[] }[]
+> {
+  const zonesByLane = new Map<
+    string,
+    { readonly polygon: readonly SimulationPoint[] }[]
+  >();
+  for (const zone of mapPack.laneGraph.conflictZones) {
+    if (zone.polygon.length < 3) continue;
+    for (const laneId of zone.laneIds) {
+      const bucket = zonesByLane.get(laneId);
+      if (bucket) bucket.push(zone);
+      else zonesByLane.set(laneId, [zone]);
+    }
+  }
+  return zonesByLane;
+}
+
+/**
+ * Builds a dense, stable catalogue distinct from authored gates. Samples are
+ * evenly distributed across each safe lane interval so short authored pieces
+ * of one continuous roadId still expose two or three headway-safe choices. A
+ * control/conflict fallback shifts by at most ten percent of the nominal
+ * spacing; adjacent samples therefore remain at least 80% of the configured
+ * 28 m interval apart. Unsafe samples are skipped rather than collapsed. The
+ * sample index is part of the id, making a later map reorder unable to change
+ * identity.
+ */
+export function buildRuntimeTrafficPortals(
+  mapPack: GameCanvasMapPack,
+): RuntimeTrafficPortal[] {
+  const stopDistances = trafficControlStopDistances(mapPack);
+  const conflictZonesByLane = trafficConflictZonesByLane(mapPack);
+  const portals: RuntimeTrafficPortal[] = [];
+  for (const lane of mapPack.laneGraph.lanes) {
+    if (!isRuntimeTrafficPortalLane(lane) || lane.centerline.length < 2) continue;
+    const length = laneLength(lane);
+    const safeStart = RUNTIME_TRAFFIC_PORTAL_ENDPOINT_SETBACK_M;
+    const safeEnd = length - RUNTIME_TRAFFIC_PORTAL_ENDPOINT_SETBACK_M;
+    if (safeEnd < safeStart) continue;
+    const safeSpan = safeEnd - safeStart;
+    const sampleCount = Math.max(
+      1,
+      Math.floor(safeSpan / RUNTIME_TRAFFIC_PORTAL_INTERVAL_M) + 1,
+    );
+    const sampleSpacing =
+      sampleCount > 1 ? safeSpan / (sampleCount - 1) : safeSpan;
+    let previousDistance = Number.NEGATIVE_INFINITY;
+    for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+      const regularDistance =
+        sampleCount === 1
+          ? safeStart + safeSpan / 2
+          : safeStart + sampleSpacing * sampleIndex;
+      const fallbackShift = sampleSpacing * 0.1;
+      // Ordered without randomness. A small symmetric fallback can clear a
+      // stop/conflict range while preserving a conservative catalogue
+      // headway; it never walks toward a neighbouring regular sample by more
+      // than ten percent of their spacing.
+      const candidates = [
+        regularDistance,
+        Math.max(safeStart, regularDistance - fallbackShift),
+        Math.min(safeEnd, regularDistance + fallbackShift),
+      ];
+      const distance = candidates.find(
+        (candidate) =>
+          candidate - previousDistance >= sampleSpacing * 0.8 - 1e-6 &&
+          !portalDistanceOverlapsUnsafeLaneRange(
+            lane,
+            candidate,
+            stopDistances,
+            conflictZonesByLane,
+          ),
+      );
+      if (distance === undefined) continue;
+      const pose = resolveSimulationLaneAnchor([lane], {
+        laneId: lane.id,
+        distanceAlongM: distance,
+      });
+      if (!pose) continue;
+      previousDistance = distance;
+      portals.push({
+        id: `runtime-${lane.id}-${String(sampleIndex).padStart(4, "0")}`,
+        laneId: lane.id,
+        distance,
+        x: pose.x,
+        z: pose.z,
+        heading: pose.heading,
+      });
+    }
+  }
+  return portals.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+/** Exposed together so callers cannot accidentally calculate capacity over a
+ * different lane universe than the catalogue that will feed it. */
+export function buildTrafficLocalityConfig(mapPack: GameCanvasMapPack): {
+  readonly runtimeTrafficPortals: readonly RuntimeTrafficPortal[];
+  readonly trafficCapacityLaneIds: readonly string[];
+} {
+  return {
+    runtimeTrafficPortals: buildRuntimeTrafficPortals(mapPack),
+    trafficCapacityLaneIds: mapPack.laneGraph.lanes
+      .filter(isLocalTrafficCapacityLane)
+      .map((lane) => lane.id),
+  };
 }
 
 /** Arclength fractions for the supplemental oncoming gates on a two-way road. */
@@ -1419,6 +1663,7 @@ export function buildSimulationCoreConfig({
     .filter((lane) => lane.centerline.length >= 2)
     .map((lane) => ({
       id: lane.id,
+      roadId: lane.roadId,
       points: lane.centerline,
       width: lane.widthM ?? DEFAULT_LANE_WIDTH_M,
       role: coreLaneRole(lane.role),
@@ -1443,6 +1688,7 @@ export function buildSimulationCoreConfig({
     scenario.trafficDensity,
     touchFirst,
   );
+  const trafficLocality = buildTrafficLocalityConfig(mapPack);
   const restrictions = mapPack.laneGraph.restrictions ?? [];
   const boundsPadding = Math.max(2, mapPack.geometry.shoulderWidth ?? 0);
   const bounds = {
@@ -1465,6 +1711,9 @@ export function buildSimulationCoreConfig({
     stopLines,
     railLines: rail.lines,
     trafficGates: buildTrafficGates(mapPack),
+    runtimeTrafficPortals: trafficLocality.runtimeTrafficPortals,
+    trafficCapacityLaneIds: trafficLocality.trafficCapacityLaneIds,
+    touchFirst,
     minRuntimeSpawnDistanceM: 70,
     scenarioClock: scenario.scenarioClock,
     laneRestrictions: restrictions,

@@ -3322,7 +3322,7 @@ export const LONDON_MAP_PACK: MapPack = {
   // Density is authored per drive, not per city, so every map used to get the
   // same twelve cars whatever its size. Twelve over 56 lane-km is an empty
   // city — and patrols with them, since a patrol is one ambient car in five.
-  // The core clamps at 32.
+  // The shared production slot ceiling is 32.
   ambientTraffic: { desktop: 32, touch: 16 },
   name: "London — Kensington to the City",
   areaLabel:

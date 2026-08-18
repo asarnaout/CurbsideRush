@@ -21,6 +21,7 @@ import {
   type LaneKind,
   type LaneProjection,
   type LaneRole,
+  type RouteSearchCounterSnapshot,
   type SimulationLane,
   type StopLineDefinition,
   type TrafficLightCycle,
@@ -34,6 +35,7 @@ import {
 export type {
   LaneKind,
   LaneRole,
+  RouteSearchCounterSnapshot,
   SimulationLane,
   StopLineDefinition,
   TrafficLightCycle,
@@ -56,6 +58,8 @@ import {
   isPointInPolygon,
   wrapAngle,
 } from "./simulation/mathUtils";
+import { normalizeAmbientVehicleSlotCount } from "./simulation/ambientTraffic";
+import type { RuntimeTrafficPortal } from "./simulation/trafficLocality";
 // Re-exported: isPointInPolygon is a genuine external (non-test) dependency
 // — app/game/geometry/waterGeometry.ts imports it from "./simulation" at
 // runtime — so both names must keep resolving from this path unchanged.
@@ -90,10 +94,19 @@ import {
   type NpcInternal,
   type NpcVehicleVariant,
   type SimulationTrafficGate,
+  type TrafficLocalityDiagnostics,
+  type TrafficSpatialIndexDiagnostics,
   type TrafficTickCtx,
 } from "./simulation/trafficSystem";
 // Re-exported for the same reason as roadNetwork.ts's block above.
-export type { NpcDrivingState, NpcVehicleVariant, SimulationTrafficGate };
+export type {
+  NpcDrivingState,
+  NpcVehicleVariant,
+  SimulationTrafficGate,
+  TrafficLocalityDiagnostics,
+  TrafficSpatialIndexDiagnostics,
+};
+export type { RuntimeTrafficPortal };
 import {
   isLaneRestrictionActive,
   isRestrictionWindowActive,
@@ -154,6 +167,16 @@ export interface SimulationCoreConfig {
   /** Rail timetables driving `rail`-tied crossing heads; see railSchedule.ts. */
   readonly railLines?: readonly SimulationRailLine[];
   readonly trafficGates?: readonly SimulationTrafficGate[];
+  /**
+   * Dense runtime-only portals used to keep the fixed fleet around the player.
+   * Authored traffic gates remain separate so authored identities/placements
+   * keep their existing semantics.
+   */
+  readonly runtimeTrafficPortals?: readonly RuntimeTrafficPortal[];
+  /** Directional lanes that contribute to local traffic-capacity targets. */
+  readonly trafficCapacityLaneIds?: readonly string[];
+  /** The same device class used to resolve the shared ambient slot budget. */
+  readonly touchFirst?: boolean;
   /** Minimum player-to-gate distance for deferred runtime activation. */
   readonly minRuntimeSpawnDistanceM?: number;
   /** Fixed authored time used for signed, time-based restrictions. */
@@ -309,6 +332,9 @@ interface InternalConfig {
   spawn: SimulationPose;
   scenarioClock: ScenarioClock | null;
   npcCount: number;
+  runtimeTrafficPortals: readonly RuntimeTrafficPortal[];
+  trafficCapacityLaneIds: readonly string[];
+  touchFirst: boolean;
   minRuntimeSpawnDistanceM: number;
   maxForwardSpeedMps: number;
   maxReverseSpeedMps: number;
@@ -373,6 +399,16 @@ export interface StaticCollisionCounterSnapshot {
     readonly maxCandidates: number;
     readonly maxNarrowTests: number;
   };
+}
+
+/** External-only traffic instrumentation. The simulation never reads these
+ * counters, so browser/benchmark polling cannot influence a replay. */
+export interface TrafficDiagnosticsSnapshot {
+  readonly routeSearch: RouteSearchCounterSnapshot;
+  readonly spatialIndex: TrafficSpatialIndexDiagnostics;
+  readonly locality: TrafficLocalityDiagnostics;
+  readonly activeNpcCount: number;
+  readonly queuedNpcCount: number;
 }
 
 /**
@@ -490,7 +526,14 @@ export class SimulationCore {
       scenarioClock: configuration.scenarioClock
         ? { ...configuration.scenarioClock }
         : null,
-      npcCount: Math.trunc(clamp(configuration.npcCount ?? 10, 0, 32)),
+      npcCount: normalizeAmbientVehicleSlotCount(configuration.npcCount ?? 10),
+      runtimeTrafficPortals: configuration.runtimeTrafficPortals
+        ? [...configuration.runtimeTrafficPortals]
+        : [],
+      trafficCapacityLaneIds: configuration.trafficCapacityLaneIds
+        ? [...configuration.trafficCapacityLaneIds]
+        : [],
+      touchFirst: Boolean(configuration.touchFirst),
       minRuntimeSpawnDistanceM: clamp(
         configuration.minRuntimeSpawnDistanceM ?? 70,
         30,
@@ -766,6 +809,30 @@ export class SimulationCore {
       maxCandidates: 0,
       maxNarrowTests: 0,
     };
+  }
+
+  /** A point-in-time traffic cost/debug snapshot for the browser perf hook and
+   * deterministic benchmark harness. It allocates only when an external
+   * caller asks for it, never in the fixed-step path. */
+  getTrafficDiagnostics(): TrafficDiagnosticsSnapshot {
+    let activeNpcCount = 0;
+    for (const npc of this.trafficSystem.npcs) {
+      if (npc.active) activeNpcCount += 1;
+    }
+    return {
+      routeSearch: this.roadNetwork.getRouteSearchCounters(),
+      spatialIndex: this.trafficSystem.getSpatialIndexDiagnostics(),
+      locality: this.trafficSystem.getLocalityDiagnostics(),
+      activeNpcCount,
+      queuedNpcCount: this.trafficSystem.npcs.length - activeNpcCount,
+    };
+  }
+
+  /** Starts a clean route-search measurement window. Spatial counters are
+   * deliberately run-lifetime and reset with a full traffic reset, so paired
+   * benchmarks construct a fresh core for each sample. */
+  resetRouteSearchCounters(): void {
+    this.roadNetwork.resetRouteSearchCounters();
   }
 
   /** Debug-only: the two capsule circle centres (front/rear along heading)
@@ -1063,7 +1130,7 @@ export class SimulationCore {
       );
       if (sweptDistanceSquared < collisionRadius * collisionRadius) {
         if (this.isNpcFaultCollision(npc)) {
-          this.trafficSystem.deactivateNpc(npc);
+          this.trafficSystem.requestNpcRecycle(npc, this.trafficCtx());
           this.playerState.signedSpeedMps = 0;
           continue;
         }

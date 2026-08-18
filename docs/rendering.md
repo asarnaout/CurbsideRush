@@ -293,6 +293,52 @@ teleport — reset, cutscene repose, NPC slot reuse — must pin prev = current*
 the entity streaks for a frame; `shouldSnapPose` catches >2.5 m jumps
 automatically.
 
+## Traffic slots and profiling
+
+The renderer owns one fixed visual slot for every normalized simulation NPC
+slot (32 desktop / 16 touch on shipped maps). `NpcVisualSlotAssignmentResolver`
+reuses its lookup maps and typed generation marks, so normal snapshot assignment
+is O(N) without per-tick collection rebuilding. `applySimulationNpcSnapshots`
+only writes a root's enabled state when assignment, cutscene hiding, or active
+state actually changes; recycling keeps an NPC id and appearance in its slot and
+therefore does not imply a visual rebuild.
+
+`window.__sideswapPerfDebug()` includes `traffic` from
+`SimulationCore.getTrafficDiagnostics()` (pool/bands, portal/lifecycle work,
+route and spatial counters) and `vehiclePresentation` (allocated/enabled vehicle
+meshes, unique material/texture counts, active/enabled roots, actual current sun-
+shadow submissions, mirror-frustum candidates, rebuild/reassignment and root-
+transition counters). `renderTiers.enabled` is deliberately `false` in the first
+32/16 locality candidate: Phase 4 distance LOD remains conditional on a measured
+device failure, and there is no decorative second fleet. The current full/mid/
+far/outside counts make that absence explicit instead of implying a hidden tier.
+
+Stage measurements include bounded p50/p95/max samples as well as window
+averages. `trafficSnapshotApplyMs` isolates fixed-tick NPC snapshot assignment/
+root updates and `trafficVisualUpdateMs` isolates render-frame NPC interpolation;
+`simStepMs` still includes all authoritative simulation work. The same drained
+window reports catch-up frames, long frames, and maximum fixed steps in one
+render frame, while the enclosing snapshot includes simulation tick/player pose
+for correlation with activation and retirement counter deltas. Do not claim the
+plan's traffic-only 25% frame-budget gate from either presentation timer alone.
+These are diagnostic reads only; adaptive rendering and presentation never
+choose simulation traffic behaviour.
+
+Browser performance runs use `window.__sideswapInputReplay(command)`, not timed
+calls to `__sideswapDriveControl`. Start a compact half-open fixed-tick trace
+with `{action: "start", segments: [{fromTick: 0, toTick: 600, input:
+{throttle: 1}}], sampleEveryTicks: 60}`; omitted controls and gaps are neutral.
+Calling the hook with no argument (or `{action: "status"}`) returns the map,
+scenario, seed, camera/input profile, absolute/relative tick progress, distance,
+bounds, sampled poses, and an FNV trajectory hash over every fixed-tick pose.
+Baseline and candidate hashes/coverage must match before comparing timing.
+`{action: "stop"}` releases all controls; natural completion does the same.
+Reset or debug teleport aborts the run rather than silently changing its route.
+
+Every session records the exact QA-hook closures it installed. Disposal removes
+a hook only if that same closure still owns the window property, so a retiring
+React/HMR session cannot delete the replacement session's newer hooks.
+
 ## Models load in two phases
 
 Everything starts as an empty placeholder; an async preload then upgrades

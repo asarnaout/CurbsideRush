@@ -149,7 +149,7 @@ view meant to show the whole thing at once anyway.
 
 `createMinimapFitProjector` is the only way in. It takes a width *and* a height
 because the cities are nothing like square (2600×3000 for NYC against London's
-800×540), and `fitMinimapPanel` cuts the canvas to the world's own aspect
+2950×2000), and `fitMinimapPanel` cuts the canvas to the world's own aspect
 so no part of it is spent on empty ground.
 
 Its road floor is flat pixels (`MAP_ROAD_WIDTH_FLOOR_PX`, 1.75), the **opposite

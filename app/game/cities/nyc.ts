@@ -1216,12 +1216,11 @@ export const NYC_MAP_PACK: MapPack = {
   // one in five of the *car* variant only (isPatrolVehicle), which after the
   // bus/taxi/van gate and roll shares is roughly one vehicle in eight, so
   // twelve vehicles is one police car in the whole city if the seed is kind.
-  // 32 is the simulation core's own clamp; a phone keeps a lower count
-  // because each car costs it much more, and the O(n^2) car-following work
-  // is paid per decision. The east expansion doubled the lane total again
-  // (96 km) without raising the clamp: the same fleet spreads thinner still,
-  // topped up near the vehicle gates (nyc-car-18 on) so arrival scenes east
-  // of the park and in the borough are not bare.
+  // 32 is the shared production slot ceiling; a phone keeps a lower count
+  // because each car costs it much more. The east expansion doubled the lane
+  // total again (96 km) without raising the ceiling, so the fixed fleet now
+  // uses deterministic local runtime portals rather than spending cars on
+  // roads far from the player.
   ambientTraffic: { desktop: 32, touch: 16 },
   source: osmSource(
     { south: 40.7738, west: -73.9919, north: 40.7836, east: -73.9738 },

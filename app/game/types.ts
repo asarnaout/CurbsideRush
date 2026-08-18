@@ -625,7 +625,7 @@ export interface ProceduralMapGeometry {
  * leave it empty, and patrols with them, since a patrol is one car in five.
  */
 export interface AmbientTrafficConfig {
-  /** Cars on a desktop-class machine. The simulation core clamps at 32. */
+  /** Cars on a desktop-class machine. Shared slot normalization caps these at 32. */
   readonly desktop: number;
   /** Cars on a phone, where each one costs a good deal more. */
   readonly touch: number;

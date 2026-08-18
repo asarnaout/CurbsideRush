@@ -11,9 +11,22 @@ npm run lint         # eslint, ~11s
 npm test             # vitest run, ~2min
 ```
 
-Node >= 22.13 (repo currently runs v26). GitHub Actions runs typecheck, lint,
-and the full test suite on pull requests and pushes to `main`; run the same
-checks locally before committing.
+Traffic-only CPU measurements use a fixed-tick replay and remain outside the
+pure simulation ring:
+
+```bash
+npx vitest bench tests/perf/trafficSimulation.bench.ts --pool=forks --maxWorkers=1
+```
+
+The report includes deterministic replay status, p50/p95/max step and replay
+time, route-search work, spatial candidates, portal attempts, lifecycle work,
+and queued peak for every shipped map. Compare paired runs on the same machine;
+it is a profiling harness, not a gameplay assertion.
+
+Node >= 22.13 (repo currently runs v26). GitHub Actions runs typecheck and lint
+on pull requests and pushes to `main`; the full suite exceeds the hosted
+runner's reliable memory budget, so `npm test` is the required local gate before
+committing or merging.
 
 ## The fast loop
 
@@ -176,6 +189,9 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | Test | What it pins |
 |---|---|
 | `trafficSafetyAcceptance` | Determinism (trace hash over two replays) + no collisions across 4 cities × 51 seeds |
+| `trafficLocality` | Exact clipped lane length and density targets, deterministic portal catalogue/indexing, safe endpoint/control/conflict-zone setbacks and one-way coverage, bounded locality lifecycle work, a tick-indexed moving-player recycle/re-entry trace, and fresh/full-reset parity across all four maps |
+| `trafficPortalCoverage` | Every eligible shipped lane sampled at 100 m, including terminal remainders, has a deterministic 500–650 m hidden-approach portal; current maps have no topology exceptions |
+| `trafficSpatialIndex` | Lane/world-cell lifecycle and a conservative route-leading candidate oracle for same-lane, successor, long-target-lane, and six-hop/240 m cases |
 | `buildingColliderAgreement` | Every "building" static obstacle traces back to exactly one `planMapBuildings` solid, at float epsilon, across all four maps — the building-collision-visual-parity plan's Section 10.2 proof that render and collision cannot drift |
 | `landmarkGroundSolids` | Every over/under-collided bespoke landmark's exact ground solid (positive/negative probes against the real map descriptor); every landmark on every map classified as bespoke, semantic exception (park/railway/bridge), or hand-verified generic — the building-collision-visual-parity plan's Section 10.3 proof, doubling as the audit's regression lock |
 | `visualSceneFootprints` | The visual-gap audit's own geometry kernel (point-in-shape, boolean ops, circle sagitta, winding) against hand-authored shapes; `collectGroundSurfaces`/`collectOccluderVolumes` against all four real map packs — every surface's `surfaceY`/`layerPriority` matches `render/renderConstants.ts`'s y-layer stack, sidewalks never substantially overlap their own carriageway, every landmark-building occluder matches `babylonGameSession.ts`'s own tower/facade-box fallback formula byte-for-byte, and the current `audit_geometry_missing` issue set is pinned per map |

@@ -417,6 +417,406 @@ interface AnalogInput {
   quickLook: number;
 }
 
+/** One fixed-tick control sample accepted by the browser replay seam. */
+export interface TickIndexedReplayInput {
+  readonly throttle: number;
+  readonly brake: number;
+  readonly reverse: number;
+  readonly steer: number;
+  readonly quickLook: number;
+}
+
+/** A compact half-open run of identical controls. Tick zero is the first
+ * fixed update after `start`; gaps between segments deliberately replay
+ * neutral input. */
+export interface TickIndexedReplaySegment {
+  readonly fromTick: number;
+  readonly toTick: number;
+  readonly input?: Partial<TickIndexedReplayInput>;
+}
+
+export interface TickIndexedReplayCheckpoint {
+  /** Simulation-core tick, useful for spotting an unexpected reset. */
+  readonly tick: number;
+  /** Tick relative to the beginning of this replay. */
+  readonly replayTick: number;
+  readonly x: number;
+  readonly z: number;
+  readonly heading: number;
+  readonly speedMps: number;
+}
+
+export interface TickIndexedReplayStatus {
+  readonly state: "idle" | "running" | "completed" | "stopped" | "aborted";
+  readonly reason: string | null;
+  readonly active: boolean;
+  readonly startTick: number | null;
+  readonly currentTick: number | null;
+  readonly completedTicks: number;
+  readonly durationTicks: number;
+  readonly segmentCount: number;
+  readonly sampleEveryTicks: number;
+  /** FNV-1a over every fixed-tick pose, quantized to millimetres/milliradians.
+   * Paired runs with different values did not cover the same route. */
+  readonly trajectoryHash: string | null;
+  readonly distanceM: number;
+  readonly bounds: Readonly<{
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  }> | null;
+  readonly checkpoints: readonly TickIndexedReplayCheckpoint[];
+}
+
+export type TickIndexedReplayCommand =
+  | Readonly<{ action: "status" }>
+  | Readonly<{ action: "stop" }>
+  | Readonly<{
+      action: "start";
+      segments: readonly TickIndexedReplaySegment[];
+      sampleEveryTicks?: number;
+    }>;
+
+interface TickIndexedReplayPoseSource {
+  readonly tick: number;
+  readonly player: Readonly<{
+    x: number;
+    z: number;
+    heading: number;
+    speedMps: number;
+  }>;
+}
+
+interface NormalizedTickIndexedReplaySegment {
+  readonly fromTick: number;
+  readonly toTick: number;
+  readonly input: TickIndexedReplayInput;
+}
+
+interface TickIndexedReplayRun {
+  state: Exclude<TickIndexedReplayStatus["state"], "idle">;
+  reason: string | null;
+  readonly startTick: number;
+  currentTick: number;
+  completedTicks: number;
+  readonly durationTicks: number;
+  readonly segments: readonly NormalizedTickIndexedReplaySegment[];
+  segmentCursor: number;
+  readonly sampleEveryTicks: number;
+  trajectoryHash: number;
+  distanceM: number;
+  previousX: number;
+  previousZ: number;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  readonly checkpoints: TickIndexedReplayCheckpoint[];
+}
+
+const NEUTRAL_REPLAY_INPUT: TickIndexedReplayInput = {
+  throttle: 0,
+  brake: 0,
+  reverse: 0,
+  steer: 0,
+  quickLook: 0,
+};
+
+const REPLAY_HASH_OFFSET = 0x811c9dc5;
+const DEFAULT_REPLAY_SAMPLE_TICKS = 60;
+
+/**
+ * Fixed-tick browser replay state, kept independent of Babylon so its input
+ * boundaries, completion and trajectory fingerprint can be unit tested.
+ * Nothing from this controller feeds the simulation except the selected
+ * control sample; all pose bookkeeping is write-only diagnostics.
+ */
+export class TickIndexedInputReplay {
+  private run: TickIndexedReplayRun | null = null;
+  private currentInputField: TickIndexedReplayInput | null = null;
+  private controlReleaseRequested = false;
+
+  start(
+    snapshot: TickIndexedReplayPoseSource,
+    segments: readonly TickIndexedReplaySegment[],
+    sampleEveryTicks = DEFAULT_REPLAY_SAMPLE_TICKS,
+  ): TickIndexedReplayStatus {
+    const normalized = this.normalizeSegments(segments);
+    if (!Number.isInteger(sampleEveryTicks) || sampleEveryTicks < 1) {
+      throw new Error("sampleEveryTicks must be a positive integer.");
+    }
+    const durationTicks = normalized[normalized.length - 1].toTick;
+    this.run = {
+      state: "running",
+      reason: null,
+      startTick: snapshot.tick,
+      currentTick: snapshot.tick,
+      completedTicks: 0,
+      durationTicks,
+      segments: normalized,
+      segmentCursor: 0,
+      sampleEveryTicks,
+      trajectoryHash: REPLAY_HASH_OFFSET,
+      distanceM: 0,
+      previousX: snapshot.player.x,
+      previousZ: snapshot.player.z,
+      minX: snapshot.player.x,
+      maxX: snapshot.player.x,
+      minZ: snapshot.player.z,
+      maxZ: snapshot.player.z,
+      checkpoints: [],
+    };
+    this.capturePose(snapshot, 0, true);
+    this.currentInputField = this.inputAtReplayTick(0);
+    this.controlReleaseRequested = false;
+    return this.status();
+  }
+
+  /** Selects the control that the next fixed update must consume. */
+  prepare(snapshot: TickIndexedReplayPoseSource): TickIndexedReplayInput | null {
+    const run = this.run;
+    if (!run || run.state !== "running") return null;
+    const expectedTick = run.startTick + run.completedTicks;
+    if (snapshot.tick !== expectedTick) {
+      this.abort("simulation-tick-discontinuity");
+      return null;
+    }
+    this.currentInputField = this.inputAtReplayTick(run.completedTicks);
+    return this.currentInputField;
+  }
+
+  /** Records the pose produced by one replayed fixed update. */
+  record(snapshot: TickIndexedReplayPoseSource): void {
+    const run = this.run;
+    if (!run || run.state !== "running") return;
+    const nextCompletedTick = run.completedTicks + 1;
+    if (snapshot.tick !== run.startTick + nextCompletedTick) {
+      this.abort("simulation-tick-discontinuity");
+      return;
+    }
+    run.completedTicks = nextCompletedTick;
+    run.currentTick = snapshot.tick;
+    this.capturePose(
+      snapshot,
+      nextCompletedTick,
+      nextCompletedTick === run.durationTicks,
+    );
+    if (nextCompletedTick < run.durationTicks) return;
+    run.state = "completed";
+    run.reason = null;
+    this.currentInputField = null;
+    this.controlReleaseRequested = true;
+  }
+
+  stop(reason = "requested-by-debug-client"): TickIndexedReplayStatus {
+    if (this.run?.state === "running") {
+      this.run.state = "stopped";
+      this.run.reason = reason;
+      this.currentInputField = null;
+      this.controlReleaseRequested = true;
+    }
+    return this.status();
+  }
+
+  abort(reason: string): TickIndexedReplayStatus {
+    if (this.run?.state === "running") {
+      this.run.state = "aborted";
+      this.run.reason = reason;
+      this.currentInputField = null;
+      this.controlReleaseRequested = true;
+    }
+    return this.status();
+  }
+
+  get currentInput(): TickIndexedReplayInput | null {
+    return this.run?.state === "running" ? this.currentInputField : null;
+  }
+
+  takeControlReleaseRequest(): boolean {
+    const requested = this.controlReleaseRequested;
+    this.controlReleaseRequested = false;
+    return requested;
+  }
+
+  status(): TickIndexedReplayStatus {
+    const run = this.run;
+    if (!run) {
+      return {
+        state: "idle",
+        reason: null,
+        active: false,
+        startTick: null,
+        currentTick: null,
+        completedTicks: 0,
+        durationTicks: 0,
+        segmentCount: 0,
+        sampleEveryTicks: DEFAULT_REPLAY_SAMPLE_TICKS,
+        trajectoryHash: null,
+        distanceM: 0,
+        bounds: null,
+        checkpoints: [],
+      };
+    }
+    return {
+      state: run.state,
+      reason: run.reason,
+      active: run.state === "running",
+      startTick: run.startTick,
+      currentTick: run.currentTick,
+      completedTicks: run.completedTicks,
+      durationTicks: run.durationTicks,
+      segmentCount: run.segments.length,
+      sampleEveryTicks: run.sampleEveryTicks,
+      trajectoryHash: run.trajectoryHash.toString(16).padStart(8, "0"),
+      distanceM: Math.round(run.distanceM * 1000) / 1000,
+      bounds: {
+        minX: run.minX,
+        maxX: run.maxX,
+        minZ: run.minZ,
+        maxZ: run.maxZ,
+      },
+      checkpoints: run.checkpoints.map((checkpoint) => ({ ...checkpoint })),
+    };
+  }
+
+  private normalizeSegments(
+    segments: readonly TickIndexedReplaySegment[],
+  ): readonly NormalizedTickIndexedReplaySegment[] {
+    if (!Array.isArray(segments) || segments.length === 0) {
+      throw new Error("A replay needs at least one input segment.");
+    }
+    const normalized: NormalizedTickIndexedReplaySegment[] = [];
+    let previousEnd = 0;
+    for (const [index, segment] of segments.entries()) {
+      if (
+        !Number.isInteger(segment.fromTick) ||
+        !Number.isInteger(segment.toTick) ||
+        segment.fromTick < 0 ||
+        segment.toTick <= segment.fromTick
+      ) {
+        throw new Error(`Replay segment ${index} has an invalid tick range.`);
+      }
+      if (segment.fromTick < previousEnd) {
+        throw new Error(`Replay segment ${index} overlaps or is out of order.`);
+      }
+      previousEnd = segment.toTick;
+      const input = segment.input ?? {};
+      const finite = (name: keyof TickIndexedReplayInput): number => {
+        const value = input[name] ?? 0;
+        if (!Number.isFinite(value)) {
+          throw new Error(`Replay segment ${index} has non-finite ${name}.`);
+        }
+        return value;
+      };
+      normalized.push({
+        fromTick: segment.fromTick,
+        toTick: segment.toTick,
+        input: {
+          throttle: clamp(finite("throttle"), 0, 1),
+          brake: clamp(finite("brake"), 0, 1),
+          reverse: clamp(finite("reverse"), 0, 1),
+          steer: clamp(finite("steer"), -1, 1),
+          // Values beyond |1.5| are the existing look-behind selector.
+          quickLook: clamp(finite("quickLook"), -2, 2),
+        },
+      });
+    }
+    return normalized;
+  }
+
+  private inputAtReplayTick(replayTick: number): TickIndexedReplayInput {
+    const run = this.run;
+    if (!run) return NEUTRAL_REPLAY_INPUT;
+    while (
+      run.segmentCursor < run.segments.length &&
+      replayTick >= run.segments[run.segmentCursor].toTick
+    ) {
+      run.segmentCursor += 1;
+    }
+    const segment = run.segments[run.segmentCursor];
+    return segment && replayTick >= segment.fromTick
+      ? segment.input
+      : NEUTRAL_REPLAY_INPUT;
+  }
+
+  private capturePose(
+    snapshot: TickIndexedReplayPoseSource,
+    replayTick: number,
+    forceCheckpoint: boolean,
+  ) {
+    const run = this.run;
+    if (!run) return;
+    const { x, z, heading, speedMps } = snapshot.player;
+    if (replayTick > 0) {
+      run.distanceM += Math.hypot(x - run.previousX, z - run.previousZ);
+    }
+    run.previousX = x;
+    run.previousZ = z;
+    run.minX = Math.min(run.minX, x);
+    run.maxX = Math.max(run.maxX, x);
+    run.minZ = Math.min(run.minZ, z);
+    run.maxZ = Math.max(run.maxZ, z);
+    for (const value of [
+      replayTick,
+      Math.round(x * 1000),
+      Math.round(z * 1000),
+      Math.round(heading * 1000),
+      Math.round(speedMps * 1000),
+    ]) {
+      let word = value >>> 0;
+      for (let byte = 0; byte < 4; byte += 1) {
+        run.trajectoryHash ^= word & 0xff;
+        run.trajectoryHash = Math.imul(run.trajectoryHash, 0x01000193) >>> 0;
+        word >>>= 8;
+      }
+    }
+    if (
+      !forceCheckpoint &&
+      replayTick % run.sampleEveryTicks !== 0
+    ) {
+      return;
+    }
+    run.checkpoints.push({
+      tick: snapshot.tick,
+      replayTick,
+      x,
+      z,
+      heading,
+      speedMps,
+    });
+  }
+}
+
+export function removeOwnedDebugHooks(
+  target: Record<string, unknown>,
+  ownedHooks: ReadonlyMap<string, unknown>,
+): void {
+  for (const [key, ownedHook] of ownedHooks) {
+    // During a React rebuild/HMR hand-off, a newer session may already have
+    // replaced this key. The retiring session may delete only its own closure.
+    if (target[key] === ownedHook) delete target[key];
+  }
+}
+
+const SIDESWAP_SESSION_DEBUG_HOOK_KEYS = [
+  "__sideswapDriveControl",
+  "__sideswapInputReplay",
+  "__sideswapTeleport",
+  "__sideswapAudioDebug",
+  "__sideswapMeshes",
+  "__sideswapPerfDebug",
+  "__sideswapCutsceneDebug",
+  "__sideswapLampDebug",
+  "__sideswapCrowdDebug",
+  "__sideswapEnforcementDebug",
+  "__sideswapCollisionDebug",
+  "__sideswapCollisionOverlay",
+  "__sideswapBuildingRepresentationDebug",
+  "__sideswapVisualGapReport",
+  "__sideswapVisualGapOverlay",
+] as const;
+
 /**
  * The input with the largest magnitude, ties to the earlier argument —
  * reduce-with-rest-args semantics without the per-call array. A value only
@@ -508,6 +908,12 @@ interface NpcVehicle {
   prevPoseZ: number;
   prevPoseHeading: number;
   active?: boolean;
+  /** Last enabled state written to the visual root (separate from `active`: a
+   * cutscene can temporarily hide an otherwise active simulated vehicle). */
+  rootEnabled: boolean;
+  /** Snapshot pass that most recently assigned this root; avoids clearing the
+   * whole pool before applying the next authoritative snapshot. */
+  snapshotAssignmentEpoch?: number;
   currentSpeed?: number;
   signal?: TurnIndicator;
   braking?: boolean;
@@ -542,57 +948,229 @@ function appearanceVisualKey(appearance: VehicleAppearance): string {
  * prevents a newly activated ambient car from evicting a scripted vehicle.
  */
 
+/**
+ * Parses the `npc-N` preference without allocating a RegExp match. A value
+ * outside the actual render-pool range can never resolve to a slot, so stop
+ * as soon as it crosses that bound rather than letting a long id lose integer
+ * precision.
+ */
+function preferredNpcVisualSlotIndex(id: string, slotCount: number): number {
+  if (
+    id.length < 5 ||
+    id.charCodeAt(0) !== 110 || // n
+    id.charCodeAt(1) !== 112 || // p
+    id.charCodeAt(2) !== 99 || // c
+    id.charCodeAt(3) !== 45 // -
+  ) {
+    return -1;
+  }
+  let numericId = 0;
+  for (let index = 4; index < id.length; index += 1) {
+    const digit = id.charCodeAt(index) - 48;
+    if (digit < 0 || digit > 9) return -1;
+    numericId = numericId * 10 + digit;
+    if (numericId > slotCount) return -1;
+  }
+  return numericId - 1;
+}
+
+/**
+ * Reusable scratch for the fixed NPC visual pool. The session owns one for
+ * its lifetime: its maps and typed slot marks are retained between fixed
+ * ticks, so resolving the normal fixed-size pool does not build Sets, Maps,
+ * arrays, or RegExp matches at 60 Hz.
+ *
+ * The three passes deliberately preserve the old assignment policy: existing
+ * ids first, then numeric ambient slots, then free slots for scripted tails.
+ * `firstSlotById` is populated in slot order and `nextSlotWithSameId` keeps
+ * even malformed duplicate ids deterministic without turning that first pass
+ * back into a nested scan.
+ */
+export class NpcVisualSlotAssignmentResolver {
+  private assignments: number[] = [];
+  private usedSlotGenerations = new Uint32Array(0);
+  private nextSlotWithSameId = new Int32Array(0);
+  private slotIds: (string | undefined)[] = [];
+  private slotCount = 0;
+  private slotLookupDirty = false;
+  private assignmentGeneration = 0;
+  private readonly firstSlotById = new Map<string, number>();
+  private readonly nextAvailableSlotById = new Map<string, number>();
+  private readonly nextAvailableSlotGenerations = new Map<string, number>();
+  private readonly activeIdGenerations = new Map<string, number>();
+
+  resolve(
+    slots: readonly Readonly<{ simulationId?: string }>[],
+    vehicles: readonly Readonly<{ id: string }>[],
+  ): readonly number[] {
+    this.ensureSlotCapacity(slots.length);
+    this.assignments.length = vehicles.length;
+    this.assignments.fill(-1);
+    const generation = this.nextGeneration();
+    this.synchronizeSlotLookup(slots);
+    for (let vehicleIndex = 0; vehicleIndex < vehicles.length; vehicleIndex += 1) {
+      this.activeIdGenerations.set(vehicles[vehicleIndex].id, generation);
+    }
+
+    // Existing associations always win, including their order when malformed
+    // input happens to repeat an id in more than one root or snapshot entry.
+    for (let vehicleIndex = 0; vehicleIndex < vehicles.length; vehicleIndex += 1) {
+      const id = vehicles[vehicleIndex].id;
+      let slotIndex = -1;
+      if (this.nextAvailableSlotGenerations.get(id) === generation) {
+        slotIndex = this.nextAvailableSlotById.get(id) ?? -1;
+      } else {
+        slotIndex = this.firstSlotById.get(id) ?? -1;
+      }
+      if (slotIndex < 0) continue;
+      this.assignments[vehicleIndex] = slotIndex;
+      this.usedSlotGenerations[slotIndex] = generation;
+      this.nextAvailableSlotById.set(
+        id,
+        this.nextSlotWithSameId[slotIndex],
+      );
+      this.nextAvailableSlotGenerations.set(id, generation);
+    }
+
+    // Ambient identities retain their numeric roots whenever that root is not
+    // already claimed or still occupied by a live snapshot vehicle.
+    for (let vehicleIndex = 0; vehicleIndex < vehicles.length; vehicleIndex += 1) {
+      if (this.assignments[vehicleIndex] >= 0) continue;
+      const slotIndex = preferredNpcVisualSlotIndex(
+        vehicles[vehicleIndex].id,
+        slots.length,
+      );
+      if (
+        slotIndex < 0 ||
+        this.usedSlotGenerations[slotIndex] === generation
+      ) {
+        continue;
+      }
+      const currentId = slots[slotIndex].simulationId;
+      if (
+        currentId &&
+        this.activeIdGenerations.get(currentId) === generation
+      ) {
+        continue;
+      }
+      this.assignments[vehicleIndex] = slotIndex;
+      this.usedSlotGenerations[slotIndex] = generation;
+    }
+
+    // Both cursors only move forward. The first preserves the old preference
+    // for stale/empty roots; once it exhausts, the second has the old final
+    // "any unused slot" fallback without rescanning from zero per vehicle.
+    let reusableSlotCursor = 0;
+    let fallbackSlotCursor = 0;
+    for (let vehicleIndex = 0; vehicleIndex < vehicles.length; vehicleIndex += 1) {
+      if (this.assignments[vehicleIndex] >= 0) continue;
+      while (
+        reusableSlotCursor < slots.length &&
+        (this.usedSlotGenerations[reusableSlotCursor] === generation ||
+          (slots[reusableSlotCursor].simulationId &&
+            this.activeIdGenerations.get(
+              slots[reusableSlotCursor].simulationId!,
+            ) === generation))
+      ) {
+        reusableSlotCursor += 1;
+      }
+      let slotIndex = reusableSlotCursor;
+      if (slotIndex < slots.length) {
+        reusableSlotCursor += 1;
+      } else {
+        while (
+          fallbackSlotCursor < slots.length &&
+          this.usedSlotGenerations[fallbackSlotCursor] === generation
+        ) {
+          fallbackSlotCursor += 1;
+        }
+        slotIndex = fallbackSlotCursor;
+        if (slotIndex < slots.length) fallbackSlotCursor += 1;
+      }
+      if (slotIndex >= slots.length) continue;
+      this.assignments[vehicleIndex] = slotIndex;
+      this.usedSlotGenerations[slotIndex] = generation;
+    }
+
+    return this.assignments;
+  }
+
+  /**
+   * The session calls this immediately after a root receives a new simulation
+   * id. A later resolve rebuilds the id chains only when one of those roots
+   * actually changed, while the standalone test seam still detects callers
+   * that mutate slot objects directly.
+   */
+  commitSlotAssignment(slotIndex: number, simulationId: string) {
+    if (this.slotIds[slotIndex] === simulationId) return;
+    this.slotIds[slotIndex] = simulationId;
+    this.slotLookupDirty = true;
+  }
+
+  private ensureSlotCapacity(slotCount: number) {
+    if (this.usedSlotGenerations.length >= slotCount) return;
+    const capacity = Math.max(slotCount, this.usedSlotGenerations.length * 2, 4);
+    this.usedSlotGenerations = new Uint32Array(capacity);
+    this.nextSlotWithSameId = new Int32Array(capacity);
+  }
+
+  private synchronizeSlotLookup(
+    slots: readonly Readonly<{ simulationId?: string }>[],
+  ) {
+    let changed = this.slotLookupDirty || this.slotCount !== slots.length;
+    if (!changed) {
+      for (let slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
+        if (this.slotIds[slotIndex] !== slots[slotIndex].simulationId) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!changed) return;
+
+    this.slotCount = slots.length;
+    this.slotIds.length = slots.length;
+    for (let slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
+      this.slotIds[slotIndex] = slots[slotIndex].simulationId;
+    }
+    // Build id chains backwards so `firstSlotById` points at the same earliest
+    // slot `findIndex` previously selected. This only repopulates after an
+    // actual root reassignment, not on every steady-state fixed tick.
+    this.firstSlotById.clear();
+    for (let slotIndex = slots.length - 1; slotIndex >= 0; slotIndex -= 1) {
+      const id = this.slotIds[slotIndex];
+      if (id === undefined) {
+        this.nextSlotWithSameId[slotIndex] = -1;
+        continue;
+      }
+      const nextSlot = this.firstSlotById.get(id);
+      this.nextSlotWithSameId[slotIndex] = nextSlot ?? -1;
+      this.firstSlotById.set(id, slotIndex);
+    }
+    this.slotLookupDirty = false;
+  }
+
+  private nextGeneration(): number {
+    this.assignmentGeneration = (this.assignmentGeneration + 1) >>> 0;
+    if (this.assignmentGeneration !== 0) return this.assignmentGeneration;
+    // A session would need years of uninterrupted 60 Hz snapshots to reach
+    // this, but reset marks rather than accidentally treating old slots live.
+    this.usedSlotGenerations.fill(0);
+    this.nextAvailableSlotById.clear();
+    this.nextAvailableSlotGenerations.clear();
+    this.activeIdGenerations.clear();
+    this.assignmentGeneration = 1;
+    return this.assignmentGeneration;
+  }
+}
+
 export function resolveNpcVisualSlotAssignments(
   slots: readonly Readonly<{ simulationId?: string }>[],
   vehicles: readonly Readonly<{ id: string }>[],
 ): readonly number[] {
-  const assignments = Array<number>(vehicles.length).fill(-1);
-  const usedSlots = new Set<number>();
-  const activeIds = new Set(vehicles.map((vehicle) => vehicle.id));
-
-  for (const [vehicleIndex, vehicle] of vehicles.entries()) {
-    const existingIndex = slots.findIndex(
-      (slot, slotIndex) =>
-        !usedSlots.has(slotIndex) && slot.simulationId === vehicle.id,
-    );
-    if (existingIndex < 0) continue;
-    assignments[vehicleIndex] = existingIndex;
-    usedSlots.add(existingIndex);
-  }
-
-  for (const [vehicleIndex, vehicle] of vehicles.entries()) {
-    if (assignments[vehicleIndex] >= 0) continue;
-    const numeric = /^npc-(\d+)$/.exec(vehicle.id);
-    if (!numeric) continue;
-    const preferredIndex = Number.parseInt(numeric[1], 10) - 1;
-    const preferredSlot = slots[preferredIndex];
-    if (
-      !preferredSlot ||
-      usedSlots.has(preferredIndex) ||
-      (preferredSlot.simulationId && activeIds.has(preferredSlot.simulationId))
-    ) {
-      continue;
-    }
-    assignments[vehicleIndex] = preferredIndex;
-    usedSlots.add(preferredIndex);
-  }
-
-  for (const vehicleIndex of vehicles.keys()) {
-    if (assignments[vehicleIndex] >= 0) continue;
-    const availableIndex = slots.findIndex(
-      (slot, slotIndex) =>
-        !usedSlots.has(slotIndex) &&
-        (!slot.simulationId || !activeIds.has(slot.simulationId)),
-    );
-    const fallbackIndex = availableIndex >= 0
-      ? availableIndex
-      : slots.findIndex((_, slotIndex) => !usedSlots.has(slotIndex));
-    if (fallbackIndex < 0) continue;
-    assignments[vehicleIndex] = fallbackIndex;
-    usedSlots.add(fallbackIndex);
-  }
-
-  return assignments;
+  // Keep the export as a pure, Babylon-free test seam. Real sessions retain
+  // one resolver below so their fixed-tick path reuses all scratch storage.
+  return new NpcVisualSlotAssignmentResolver().resolve(slots, vehicles);
 }
 
 interface Pedestrian {
@@ -623,9 +1201,9 @@ interface Pedestrian {
 const FIXED_STEP = 1 / 60;
 
 // Frame-budget accounting drained by __sideswapPerfDebug. Indices into the
-// session's perfSumMs/perfMaxMs arrays; the first four are per-fixed-step
-// stages, the rest per-rendered-frame, and drainPerfStats averages each over
-// its own denominator.
+// session's perfSumMs/perfMaxMs arrays; stages through PERF_COLLISION are
+// per-fixed-step, the rest per-rendered-frame, and drainPerfStats averages
+// each over its own denominator.
 // Caps the camera shake/bob phase rate: 12 m/s * 2.7 rad/m ≈ 5.2 Hz for the
 // chase shake (whose |sin| height term doubles that), ~3.6 Hz for head bob —
 // both comfortably under the 30 Hz Nyquist limit of 60 Hz sampling.
@@ -633,19 +1211,26 @@ const CAMERA_MOTION_SPEED_CAP_MPS = 12;
 
 const PERF_SIM_STEP = 0;
 const PERF_SNAPSHOT_APPLY = 1;
-const PERF_CROWD = 2;
-const PERF_COLLISION = 3;
-const PERF_CAMERA = 4;
-const PERF_SCENE_RENDER = 5;
-const PERF_STAGE_COUNT = 6;
+const PERF_TRAFFIC_SNAPSHOT_APPLY = 2;
+const PERF_CROWD = 3;
+const PERF_COLLISION = 4;
+const PERF_TRAFFIC_VISUAL_UPDATE = 5;
+const PERF_CAMERA = 6;
+const PERF_SCENE_RENDER = 7;
+const PERF_STAGE_COUNT = 8;
 const PERF_STAGE_NAMES = [
   "simStepMs",
   "snapshotApplyMs",
+  "trafficSnapshotApplyMs",
   "crowdMs",
   "collisionMs",
+  "trafficVisualUpdateMs",
   "cameraMs",
   "sceneRenderMs",
 ] as const;
+/** A bounded recent-sample window supplies tail latency without retaining an
+ * unbounded frame history in a long browser session. */
+const PERF_SAMPLE_RING_CAPACITY = 180;
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
@@ -851,6 +1436,15 @@ export class BabylonGameSession {
   private modelsReady = false;
   private readyEmitted = false;
   private readonly npcVehicles: NpcVehicle[] = [];
+  /** Reuses slot lookup maps and marks across the 60 Hz snapshot path. */
+  private readonly npcVisualSlotAssignments = new NpcVisualSlotAssignmentResolver();
+  /** Monotonic marker for roots assigned by the current NPC snapshot. */
+  private npcSnapshotAssignmentEpoch = 0;
+  /** Presentation churn counters are read only by __sideswapPerfDebug; they
+   * never feed assignment or simulation behaviour. */
+  private npcVisualRebuildCount = 0;
+  private npcVisualReassignmentCount = 0;
+  private npcRootVisibilityTransitionCount = 0;
   private readonly pedestrians: Pedestrian[] = [];
   /**
    * Curbside standing spot (+facing) for every place a gig can send you —
@@ -1059,6 +1653,11 @@ export class BabylonGameSession {
   private readonly trafficCameraControlIdByLightId = new Map<string, string>();
   private readonly trafficCameraPoints: GameCanvasPoint[] = [];
   private readonly disposers: Array<() => void> = [];
+  /** Exact closures installed by this session. A retiring HMR/React session
+   * may remove only these, never a newer session's replacements. */
+  private readonly ownedDebugHooks = new Map<string, unknown>();
+  /** Browser-only deterministic control trace; idle during ordinary play. */
+  private readonly tickIndexedInputReplay = new TickIndexedInputReplay();
   private callbacks: SessionCallbacks;
   private options: SessionOptions;
   private cameraMode: CameraMode;
@@ -1074,9 +1673,17 @@ export class BabylonGameSession {
   // (polling drains them). Flat typed arrays so the hot loops allocate nothing.
   private readonly perfSumMs = new Float64Array(PERF_STAGE_COUNT);
   private readonly perfMaxMs = new Float64Array(PERF_STAGE_COUNT);
+  private readonly perfSampleRingMs = new Float64Array(
+    PERF_STAGE_COUNT * PERF_SAMPLE_RING_CAPACITY,
+  );
+  private readonly perfSampleCounts = new Uint16Array(PERF_STAGE_COUNT);
+  private readonly perfSampleWrites = new Uint16Array(PERF_STAGE_COUNT);
   private perfFrames = 0;
   private perfFixedSteps = 0;
   private perfDrawCalls = 0;
+  private perfCatchUpFrames = 0;
+  private perfLongFrames = 0;
+  private perfMaxFixedStepsPerFrame = 0;
   private collisionGraceUntil = 0;
   private ruleElapsedSeconds = 0;
   private instruction = "Explore the city.";
@@ -1436,6 +2043,12 @@ export class BabylonGameSession {
     const cutsceneRequest = this.options.cutscene;
     if (cutsceneRequest && cutsceneRequest.nonce !== this.handledCutsceneNonce) {
       this.handledCutsceneNonce = cutsceneRequest.nonce;
+      // The inactive chase camera is intentionally not advanced while the
+      // player drives in first person. A cutscene promotes that camera back to
+      // the active stack, so seed it from the current car pose first; otherwise
+      // its cinematic glide could begin kilometres behind after a long cockpit
+      // drive, defeating any finite player-centred traffic visibility envelope.
+      if (this.cameraMode === "first_person") this.snapChaseCameraToPose();
       this.cutsceneDirector?.start(this.cutsceneDirectorCtx(), cutsceneRequest);
     }
   }
@@ -1584,6 +2197,7 @@ export class BabylonGameSession {
   }
 
   reset() {
+    this.tickIndexedInputReplay.abort("session-reset");
     this.cutsceneDirector?.cancel(this.cutsceneDirectorCtx());
     this.simulation.resetToSpawn();
     this.applySimulationSnapshot(this.simulation.getSnapshot());
@@ -1605,28 +2219,15 @@ export class BabylonGameSession {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    // QA hooks close over this session; left on window after dispose they pin the disposed scene
-    // graph — and hand QA a dead session — until the next mount overwrites them.
+    this.tickIndexedInputReplay.abort("session-disposed");
+    // QA hooks close over this session; left on window after dispose they pin
+    // the disposed scene graph. Identity checks matter during HMR/rebuild:
+    // an older cleanup can run after the replacement session installed its
+    // own hooks, and must not delete those newer closures.
     if (typeof window !== "undefined") {
       const debugWindow = window as unknown as Record<string, unknown>;
-      for (const key of [
-        "__sideswapDriveControl",
-        "__sideswapTeleport",
-        "__sideswapAudioDebug",
-        "__sideswapMeshes",
-        "__sideswapPerfDebug",
-        "__sideswapCutsceneDebug",
-        "__sideswapLampDebug",
-        "__sideswapCrowdDebug",
-        "__sideswapEnforcementDebug",
-        "__sideswapCollisionDebug",
-        "__sideswapCollisionOverlay",
-        "__sideswapBuildingRepresentationDebug",
-        "__sideswapVisualGapReport",
-        "__sideswapVisualGapOverlay",
-      ]) {
-        delete debugWindow[key];
-      }
+      removeOwnedDebugHooks(debugWindow, this.ownedDebugHooks);
+      this.ownedDebugHooks.clear();
     }
     this.collisionOverlayObstacleMesh?.dispose();
     this.collisionOverlayObstacleMesh = null;
@@ -2180,13 +2781,22 @@ export class BabylonGameSession {
     this.lastFrameTime = now;
     this.pollGamepad();
 
+    let fixedStepsThisFrame = 0;
     if (!this.paused) {
       this.accumulator = Math.min(this.accumulator + frameSeconds, FIXED_STEP * 6);
       while (this.accumulator >= FIXED_STEP && !this.paused) {
         this.fixedUpdate(FIXED_STEP);
+        fixedStepsThisFrame += 1;
         this.accumulator -= FIXED_STEP;
       }
     }
+    if (fixedStepsThisFrame > 1) this.perfCatchUpFrames += 1;
+    this.perfMaxFixedStepsPerFrame = Math.max(
+      this.perfMaxFixedStepsPerFrame,
+      fixedStepsThisFrame,
+    );
+    const targetFrameSeconds = 1 / (this.renderScaling ? TOUCH_TARGET_FPS : 60);
+    if (frameSeconds > targetFrameSeconds * 1.5) this.perfLongFrames += 1;
 
     if (this.crowdRenderer) {
       if (!this.paused) this.crowdRenderer.advanceTime(frameSeconds);
@@ -2205,7 +2815,9 @@ export class BabylonGameSession {
       this.cutsceneDirector?.advance(this.cutsceneDirectorCtx(), frameSeconds);
     }
     this.updatePlayerVisuals(interpolation);
+    let mark = performance.now();
     this.updateNpcVisuals(interpolation);
+    this.perfSample(PERF_TRAFFIC_VISUAL_UPDATE, performance.now() - mark);
     for (const train of this.railTrains) {
       train.interpolate(interpolation);
     }
@@ -2218,7 +2830,7 @@ export class BabylonGameSession {
         this.displayedZ + Math.cos(this.displayedHeading) * 1.05,
       );
     }
-    let mark = performance.now();
+    mark = performance.now();
     this.updateCamera(frameSeconds);
     this.perfSample(PERF_CAMERA, performance.now() - mark);
     this.updateIndicatorLights(frameSeconds);
@@ -2275,6 +2887,13 @@ export class BabylonGameSession {
   private perfSample(stage: number, ms: number) {
     this.perfSumMs[stage] += ms;
     if (ms > this.perfMaxMs[stage]) this.perfMaxMs[stage] = ms;
+    const write = this.perfSampleWrites[stage];
+    this.perfSampleRingMs[stage * PERF_SAMPLE_RING_CAPACITY + write] = ms;
+    this.perfSampleWrites[stage] = (write + 1) % PERF_SAMPLE_RING_CAPACITY;
+    this.perfSampleCounts[stage] = Math.min(
+      PERF_SAMPLE_RING_CAPACITY,
+      this.perfSampleCounts[stage] + 1,
+    );
   }
 
   // Cumulative since page load (no per-frame reset without scene
@@ -2295,11 +2914,27 @@ export class BabylonGameSession {
     const frames = Math.max(1, this.perfFrames);
     const steps = Math.max(1, this.perfFixedSteps);
     const round = (value: number) => Math.round(value * 1000) / 1000;
-    const stages: Record<string, { avgMs: number; maxMs: number }> = {};
+    const stages: Record<
+      string,
+      { avgMs: number; p50Ms: number; p95Ms: number; maxMs: number }
+    > = {};
     for (let stage = 0; stage < PERF_STAGE_COUNT; stage += 1) {
       const denominator = stage <= PERF_COLLISION ? steps : frames;
+      const sampleCount = this.perfSampleCounts[stage];
+      const samples: number[] = [];
+      const start = stage * PERF_SAMPLE_RING_CAPACITY;
+      for (let index = 0; index < sampleCount; index += 1) {
+        samples.push(this.perfSampleRingMs[start + index]);
+      }
+      samples.sort((left, right) => left - right);
+      const percentile = (fraction: number) =>
+        sampleCount === 0
+          ? 0
+          : samples[Math.min(sampleCount - 1, Math.floor(fraction * sampleCount))];
       stages[PERF_STAGE_NAMES[stage]] = {
         avgMs: round(this.perfSumMs[stage] / denominator),
+        p50Ms: round(percentile(0.5)),
+        p95Ms: round(percentile(0.95)),
         maxMs: round(this.perfMaxMs[stage]),
       };
     }
@@ -2311,14 +2946,22 @@ export class BabylonGameSession {
       perfWindowFixedSteps: this.perfFixedSteps,
       stages,
       drawCallsPerFrame: Math.round(this.perfDrawCalls / frames),
+      catchUpFrames: this.perfCatchUpFrames,
+      longFrames: this.perfLongFrames,
+      maxFixedStepsPerFrame: this.perfMaxFixedStepsPerFrame,
       // Chrome only; Safari has no performance.memory, so null there.
       heapUsedMB: heapBytes ? Math.round(heapBytes / 1048576) : null,
     };
     this.perfSumMs.fill(0);
     this.perfMaxMs.fill(0);
+    this.perfSampleCounts.fill(0);
+    this.perfSampleWrites.fill(0);
     this.perfFrames = 0;
     this.perfFixedSteps = 0;
     this.perfDrawCalls = 0;
+    this.perfCatchUpFrames = 0;
+    this.perfLongFrames = 0;
+    this.perfMaxFixedStepsPerFrame = 0;
     return report;
   }
 
@@ -2365,9 +3008,11 @@ export class BabylonGameSession {
   }
 
   private fixedUpdate(dt: number) {
+    this.tickIndexedInputReplay.prepare(this.simulationSnapshot);
+    this.releaseReplayControlsIfRequested();
     // Runs before mergedInput reads it: a lifted thumb eases the wheel back to
     // centre over ~120ms instead of dropping it, which would read as a twitch.
-    if (this.touchSteerReleasing) {
+    if (!this.tickIndexedInputReplay.currentInput && this.touchSteerReleasing) {
       this.touch.steer = releaseTouchSteer(this.touch.steer, dt);
       if (this.touch.steer === 0) this.touchSteerReleasing = false;
     }
@@ -2390,8 +3035,10 @@ export class BabylonGameSession {
     const snapshot = this.simulation.step(dt, simulationInput);
     this.perfSample(PERF_SIM_STEP, performance.now() - mark);
     mark = performance.now();
-    this.applySimulationSnapshot(snapshot);
+    this.applySimulationSnapshot(snapshot, true);
     this.perfSample(PERF_SNAPSHOT_APPLY, performance.now() - mark);
+    this.tickIndexedInputReplay.record(snapshot);
+    this.releaseReplayControlsIfRequested();
     const events = this.simulation.drainEvents();
     this.processSimulationEvents(events);
     this.updateCollisionCapsuleOverlay();
@@ -2641,6 +3288,8 @@ export class BabylonGameSession {
     // every consumer (sim input, engine audio, steering visual, quick-look)
     // reads through here, so one gate locks them all.
     if (this.cutsceneDirector?.isActive) return CUTSCENE_LOCKED_INPUT;
+    const replayInput = this.tickIndexedInputReplay.currentInput;
+    if (replayInput) return replayInput;
     // Reuses one scratch object: this runs ~5x per frame and every consumer
     // reads it synchronously — nothing may hold the result across frames.
     const merged = this.mergedInputScratch;
@@ -2742,6 +3391,7 @@ export class BabylonGameSession {
       appearance,
     );
     npc.visualKey = visualKey;
+    this.npcVisualRebuildCount += 1;
   }
 
   /** The closest active patrol car within `radiusM` of the player, if any. */
@@ -3270,20 +3920,24 @@ export class BabylonGameSession {
   }
 
   private applySimulationNpcSnapshots(snapshot: SimulationSnapshot) {
-    for (const npc of this.npcVehicles) {
-      npc.active = false;
-      npc.node.setEnabled(false);
-    }
-    const slotAssignments = resolveNpcVisualSlotAssignments(
+    const assignmentEpoch = ++this.npcSnapshotAssignmentEpoch;
+    const slotAssignments = this.npcVisualSlotAssignments.resolve(
       this.npcVehicles,
       snapshot.npcs,
     );
+    const hiddenNpcSimulationId = this.cutsceneDirector?.hiddenNpcSimulationId;
     for (const [vehicleIndex, vehicle] of snapshot.npcs.entries()) {
       const npc = this.npcVehicles[slotAssignments[vehicleIndex]];
       if (!npc) continue;
       const previousSpeed = npc.currentSpeed ?? vehicle.speedMps;
       const reassigned = npc.simulationId !== vehicle.id;
+      if (reassigned) this.npcVisualReassignmentCount += 1;
       npc.simulationId = vehicle.id;
+      this.npcVisualSlotAssignments.commitSlotAssignment(
+        slotAssignments[vehicleIndex],
+        vehicle.id,
+      );
+      npc.snapshotAssignmentEpoch = assignmentEpoch;
       this.ensureNpcVehicleVisual(npc, vehicle.id, vehicle.variant);
       npc.active = true;
       npc.currentSpeed = vehicle.speedMps;
@@ -3314,9 +3968,12 @@ export class BabylonGameSession {
       npc.z = vehicle.z;
       // Held off screen for a running cutscene (the patrol a traffic stop is
       // standing its own rig in for). Keyed on the simulation id rather than
-      // the render slot, and re-applied every tick because this loop enables
-      // every active vehicle from scratch.
-      npc.node.setEnabled(vehicle.id !== this.cutsceneDirector?.hiddenNpcSimulationId);
+      // the render slot. `active` remains true while hidden: the simulation,
+      // mirrors, shadows, and patrol logic still own this authoritative car.
+      this.setNpcVehicleRootEnabled(
+        npc,
+        vehicle.id !== hiddenNpcSimulationId,
+      );
       // Shift the pose pair for updateNpcVisuals' render-rate blend. A slot
       // that changed cars, or a car that jumped a teleport-sized gap, snaps —
       // blending across either would streak the vehicle through the map.
@@ -3342,9 +3999,28 @@ export class BabylonGameSession {
       npc.poseZ = vehicle.z;
       npc.poseHeading = vehicle.heading;
     }
+    // Roots omitted by the authoritative snapshot have become inactive. Do
+    // this after assignment so a recycled root stays continuously enabled
+    // rather than being needlessly toggled off and back on each fixed tick.
+    for (const npc of this.npcVehicles) {
+      if (npc.snapshotAssignmentEpoch === assignmentEpoch) continue;
+      npc.active = false;
+      this.setNpcVehicleRootEnabled(npc, false);
+    }
   }
 
-  private applySimulationSnapshot(snapshot: SimulationSnapshot) {
+  /** Writes Babylon's enabled flag only for a genuine visibility transition. */
+  private setNpcVehicleRootEnabled(npc: NpcVehicle, enabled: boolean) {
+    if (npc.rootEnabled === enabled) return;
+    npc.node.setEnabled(enabled);
+    npc.rootEnabled = enabled;
+    this.npcRootVisibilityTransitionCount += 1;
+  }
+
+  private applySimulationSnapshot(
+    snapshot: SimulationSnapshot,
+    measureTrafficPresentation = false,
+  ) {
     const previousX = this.playerState.x;
     const previousZ = this.playerState.z;
     const previousHeading = this.playerState.heading;
@@ -3376,7 +4052,16 @@ export class BabylonGameSession {
     this.playerState.gear = snapshot.player.gear === "drive" ? "D" : "R";
     this.playerState.indicator = snapshot.player.signal;
     this.activeTrafficSide = snapshot.trafficSide;
+    const trafficPresentationMark = measureTrafficPresentation
+      ? performance.now()
+      : 0;
     this.applySimulationNpcSnapshots(snapshot);
+    if (measureTrafficPresentation) {
+      this.perfSample(
+        PERF_TRAFFIC_SNAPSHOT_APPLY,
+        performance.now() - trafficPresentationMark,
+      );
+    }
     for (const train of this.railTrains) {
       train.stepPose(snapshot.elapsedMs / 1000);
     }
@@ -5283,6 +5968,43 @@ export class BabylonGameSession {
         this.touch.reverse = clamp(input.reverse ?? 0, 0, 1);
         this.touch.steer = clamp(input.steer ?? 0, -1, 1);
       };
+      const replayDebugStatus = () => ({
+        ...this.tickIndexedInputReplay.status(),
+        mapId: this.options.mapPack.id,
+        scenarioId: this.options.scenario.id,
+        trafficSeed: this.options.scenario.trafficSeed,
+        cameraMode: this.cameraMode,
+        touchFirst: this.options.inputCapabilities.touchFirst,
+        player: {
+          tick: this.simulationSnapshot.tick,
+          x: this.simulationSnapshot.player.x,
+          z: this.simulationSnapshot.player.z,
+          heading: this.simulationSnapshot.player.heading,
+          speedMps: this.simulationSnapshot.player.speedMps,
+        },
+      });
+      // Performance comparisons drive by fixed simulation tick, never by
+      // wall-clock timeout. `segments` are relative to the first fixed update
+      // after start; status carries a per-tick trajectory hash plus sampled
+      // fixed-tick checkpoints so a paired run can reject different coverage.
+      debugWindow.__sideswapInputReplay = (
+        command?: TickIndexedReplayCommand,
+      ) => {
+        if (!command || command.action === "status") return replayDebugStatus();
+        if (command.action === "stop") {
+          this.tickIndexedInputReplay.stop();
+          this.releaseReplayControlsIfRequested();
+          return replayDebugStatus();
+        }
+        this.tickIndexedInputReplay.start(
+          this.simulationSnapshot,
+          command.segments,
+          command.sampleEveryTicks,
+        );
+        // Hardware/control state must not leak into or resume after a trace.
+        this.clearHeldInputs();
+        return replayDebugStatus();
+      };
       // Repositions the car instantly (heading in radians), so the screenshot
       // sweep can pose the chase view anywhere without driving there. The pose
       // goes through the simulation — the pull-over cutscene's own entry point,
@@ -5294,6 +6016,8 @@ export class BabylonGameSession {
         z: number;
         heading: number;
       }) => {
+        this.tickIndexedInputReplay.abort("debug-teleport");
+        this.releaseReplayControlsIfRequested();
         this.simulation.setPlayerPose(
           { x: pose.x, z: pose.z, heading: pose.heading },
           0,
@@ -5362,7 +6086,50 @@ export class BabylonGameSession {
           staticObstacleCountByTag[obstacle.tag] =
             (staticObstacleCountByTag[obstacle.tag] ?? 0) + 1;
         }
+        // Debug-only accounting: walking these roots is intentionally outside
+        // the fixed snapshot path. It distinguishes the vehicle fleet's own
+        // resource footprint from the whole city scene when profiling a
+        // locality-heavy view.
+        const trafficDiagnostics = this.simulation.getTrafficDiagnostics();
+        const vehicleMaterials = new Set<object>();
+        const vehicleTextures = new Set<object>();
+        const shadowSubmissionSet = new Set(this.shadowRenderList);
+        let vehicleMeshCount = 0;
+        let enabledVehicleMeshCount = 0;
+        let activeVehicleRootCount = 0;
+        let enabledVehicleRootCount = 0;
+        let activeVehicleShadowCasterCount = 0;
+        let vehicleShadowSubmissionCount = 0;
+        for (const npc of this.npcVehicles) {
+          for (const mesh of npc.node.getChildMeshes(false)) {
+            vehicleMeshCount += 1;
+            if (mesh.isEnabled()) enabledVehicleMeshCount += 1;
+            if (!mesh.material) continue;
+            vehicleMaterials.add(mesh.material);
+            for (const texture of mesh.material.getActiveTextures()) {
+              vehicleTextures.add(texture);
+            }
+          }
+          if (!npc.active) continue;
+          activeVehicleRootCount += 1;
+          if (npc.rootEnabled) enabledVehicleRootCount += 1;
+          const casterCount = npc.visual.shadowCasters.length;
+          activeVehicleShadowCasterCount += casterCount;
+          for (const caster of npc.visual.shadowCasters) {
+            if (shadowSubmissionSet.has(caster)) {
+              vehicleShadowSubmissionCount += 1;
+            }
+          }
+        }
         return {
+          simulationTick: this.simulationSnapshot.tick,
+          cameraMode: this.cameraMode,
+          playerPose: {
+            x: this.simulationSnapshot.player.x,
+            z: this.simulationSnapshot.player.z,
+            heading: this.simulationSnapshot.player.heading,
+            speedMps: this.simulationSnapshot.player.speedMps,
+          },
           fps: Math.round(this.engine.getFps()),
           // CSS px per rendered px, so lower is sharper. Watching this settle is
           // how you tell a throttling device from a slow one. Null rung means
@@ -5383,6 +6150,37 @@ export class BabylonGameSession {
           mirrorRenders: this.mirrorRig?.renderCount ?? 0,
           mirrorCandidates: this.mirrorRig?.candidateCount ?? 0,
           mirrorDrawn: this.mirrorRig?.drawnCount ?? 0,
+          traffic: trafficDiagnostics,
+          vehiclePresentation: {
+            visualSlots: this.npcVehicles.length,
+            activeRoots: activeVehicleRootCount,
+            enabledRoots: enabledVehicleRootCount,
+            cutsceneHiddenRoots:
+              activeVehicleRootCount - enabledVehicleRootCount,
+            allocatedMeshes: vehicleMeshCount,
+            enabledMeshes: enabledVehicleMeshCount,
+            // Kept as a compatibility alias for existing browser probes.
+            meshes: vehicleMeshCount,
+            uniqueMaterials: vehicleMaterials.size,
+            uniqueTextures: vehicleTextures.size,
+            activeShadowCasters: activeVehicleShadowCasterCount,
+            shadowSubmissions: vehicleShadowSubmissionCount,
+            // Every active NPC caster is handed to MirrorRig's vehicle
+            // frustum pass. `mirrorDrawn` above is the resulting total render
+            // list (vehicles + world); MirrorRig does not retain attribution.
+            mirrorSubmissionCandidates: activeVehicleShadowCasterCount,
+            visualRebuilds: this.npcVisualRebuildCount,
+            visualReassignments: this.npcVisualReassignmentCount,
+            rootVisibilityTransitions: this.npcRootVisibilityTransitionCount,
+            renderTiers: {
+              enabled: false,
+              full: activeVehicleRootCount,
+              mid: 0,
+              far: 0,
+              outside: this.npcVehicles.length - activeVehicleRootCount,
+              transitions: 0,
+            },
+          },
           crowdInstances: this.crowdRenderer?.instanceCount ?? 0,
           crowdMeshes: this.crowdRenderer?.meshCount ?? 0,
           // Section 14.1: block/planned-structure/solid/obstacle counts and
@@ -5632,6 +6430,11 @@ export class BabylonGameSession {
           this.visualGapGeometryCache.geometry,
         );
       };
+      this.ownedDebugHooks.clear();
+      for (const key of SIDESWAP_SESSION_DEBUG_HOOK_KEYS) {
+        const hook = debugWindow[key];
+        if (hook !== undefined) this.ownedDebugHooks.set(key, hook);
+      }
     }
   }
 
@@ -6072,6 +6875,7 @@ export class BabylonGameSession {
         prevPoseZ: z,
         prevPoseHeading: heading,
         active: Boolean(initialSnapshot),
+        rootEnabled: Boolean(initialSnapshot),
       };
       node.position.set(x, 0.12, z);
       node.rotation.y = heading;
@@ -6453,6 +7257,11 @@ export class BabylonGameSession {
         : "Controller disconnected. Drive paused — use the keyboard to continue.";
     this.setPaused(true);
     this.publishHud(true);
+  }
+
+  private releaseReplayControlsIfRequested() {
+    if (!this.tickIndexedInputReplay.takeControlReleaseRequest()) return;
+    this.clearHeldInputs();
   }
 
   private clearHeldInputs() {

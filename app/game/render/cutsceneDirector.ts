@@ -56,6 +56,7 @@ import {
 } from "../vehicleVisuals";
 import { createVehicleMesh, type VehicleMeshVisual } from "../vehicleMeshes";
 import type { SimulationPose } from "../simulation";
+import type { WorldPoint } from "../types";
 import type {
   CameraMode,
   CutsceneRequest,
@@ -259,6 +260,37 @@ export interface CutsceneDebugSnapshot {
   readonly patrolX: number | null;
   readonly patrolZ: number | null;
   readonly patrolVisualPresent: boolean;
+}
+
+export interface StagedCameraFraming {
+  readonly midX: number;
+  readonly midZ: number;
+  readonly span: number;
+  readonly radius: number;
+  readonly cameraY: number;
+}
+
+/**
+ * Pure framing dimensions shared by the live director and camera-envelope
+ * safety tests. Keeping this calculation outside the Babylon-owned director
+ * lets traffic prove its hidden lifecycle radius against the actual staged
+ * shot instead of maintaining a second, inevitably drifting copy.
+ */
+export function resolveStagedCameraFraming(
+  stage: CutsceneCarPose,
+  focus: WorldPoint,
+  pullover: boolean,
+): StagedCameraFraming {
+  const midX = (stage.x + focus.x) / 2;
+  const midZ = (stage.z + focus.z) / 2;
+  const span = Math.hypot(focus.x - stage.x, focus.z - stage.z);
+  return {
+    midX,
+    midZ,
+    span,
+    radius: pullover ? Math.max(14, span * 1.25) : Math.max(9, span * 0.85),
+    cameraY: 4.2 + span * 0.25,
+  };
 }
 
 export class CutsceneDirector {
@@ -526,9 +558,12 @@ export class CutsceneDirector {
     const focus = pullover
       ? { x: pullover.patrol.x, z: pullover.patrol.z }
       : scriptFocusPoint(car, script);
-    const midX = (stage.x + focus.x) / 2;
-    const midZ = (stage.z + focus.z) / 2;
-    const span = Math.hypot(focus.x - stage.x, focus.z - stage.z);
+    const framingDimensions = resolveStagedCameraFraming(
+      stage,
+      focus,
+      Boolean(pullover),
+    );
+    const { midX, midZ, radius, cameraY } = framingDimensions;
     let perpX = focus.z - stage.z;
     let perpZ = -(focus.x - stage.x);
     const perpLength = Math.hypot(perpX, perpZ);
@@ -545,11 +580,6 @@ export class CutsceneDirector {
       perpX = -perpX;
       perpZ = -perpZ;
     }
-    const radius = pullover
-      ? Math.max(14, span * 1.25)
-      : Math.max(9, span * 0.85);
-    const cameraY = 4.2 + span * 0.25;
-
     // The repair scene is the one that plays inside a building, so it does not
     // take the generic framing — see `repairCameraPosition`.
     const framing =

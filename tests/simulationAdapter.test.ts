@@ -6,7 +6,13 @@ import {
 } from "../app/game/content";
 import { SimulationCore } from "../app/game/simulation";
 import {
+  AMBIENT_VEHICLE_SLOT_CEILING,
+  normalizeAmbientVehicleSlotCount,
+} from "../app/game/simulation/ambientTraffic";
+import {
   buildSimulationCoreConfig,
+  buildRuntimeTrafficPortals,
+  resolveAmbientVehicleCount,
   resolveSimulationStartPose,
 } from "../app/game/simulationAdapter";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
@@ -118,14 +124,29 @@ describe("simulation runtime adapter (free-roam)", () => {
     if (!freeDrive) return;
     const country = getCountryProfile(freeDrive.countryId);
     const scenario = buildFreeDriveScenario(freeDrive);
-    const simulation = new SimulationCore(
-      buildSimulationCoreConfig({
-        scenario,
-        mapPack: getMapPack(freeDrive.mapId),
-        trafficSide: country.trafficSide,
-        speedUnit: country.speedUnit,
-      }),
-    );
+    const productionConfig = buildSimulationCoreConfig({
+      scenario,
+      mapPack: getMapPack(freeDrive.mapId),
+      trafficSide: country.trafficSide,
+      speedUnit: country.speedUnit,
+    });
+    // Exercise the production London lane graph directly. Local streaming is
+    // intentionally disabled in this narrow route-continuity regression: a
+    // changing neighbourhood population must not decide whether the one bus
+    // needed by this assertion happens to visit its authored lane in 120 s.
+    const simulation = new SimulationCore({
+      ...productionConfig,
+      npcCount: 1,
+      spawn: { x: 1_000, z: 850, heading: 0 },
+      trafficGates: [{
+        id: "london-red-bus-route-regression",
+        laneId: BUS_LANE_ID,
+        distance: 68,
+        variant: "bus",
+      }],
+      runtimeTrafficPortals: [],
+      trafficCapacityLaneIds: [],
+    });
 
     const vanished: string[] = [];
     let continuations = 0;
@@ -329,5 +350,165 @@ describe("simulation runtime adapter (free-roam)", () => {
         ),
       ).toThrow(/could not resolve authored start anchor/i);
     });
+  });
+});
+
+describe("ambient vehicle slot budget", () => {
+  it("normalizes finite counts into the shared production slot range", () => {
+    expect(AMBIENT_VEHICLE_SLOT_CEILING).toBe(32);
+    expect(normalizeAmbientVehicleSlotCount(12.9)).toBe(12);
+    expect(normalizeAmbientVehicleSlotCount(-0.9)).toBe(0);
+    expect(normalizeAmbientVehicleSlotCount(AMBIENT_VEHICLE_SLOT_CEILING + 1)).toBe(
+      AMBIENT_VEHICLE_SLOT_CEILING,
+    );
+    expect(normalizeAmbientVehicleSlotCount(Number.NaN)).toBe(0);
+    expect(normalizeAmbientVehicleSlotCount(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+
+  it("resolves every shipped map override for desktop and touch", () => {
+    for (const freeDrive of FREE_DRIVES) {
+      const mapPack = getMapPack(freeDrive.mapId);
+      const scenario = buildFreeDriveScenario(freeDrive);
+      expect(
+        resolveAmbientVehicleCount(mapPack, scenario.trafficDensity, false),
+        `${freeDrive.id} desktop`,
+      ).toBe(32);
+      expect(
+        resolveAmbientVehicleCount(mapPack, scenario.trafficDensity, true),
+        `${freeDrive.id} touch`,
+      ).toBe(16);
+    }
+  });
+
+  it("uses the density bands when a map has no explicit traffic budget", () => {
+    const mapWithoutOverride = {};
+    expect(resolveAmbientVehicleCount(mapWithoutOverride, "none", false)).toBe(0);
+    expect(resolveAmbientVehicleCount(mapWithoutOverride, "light", false)).toBe(6);
+    expect(resolveAmbientVehicleCount(mapWithoutOverride, "moderate", false)).toBe(12);
+    expect(resolveAmbientVehicleCount(mapWithoutOverride, "busy", false)).toBe(18);
+    expect(resolveAmbientVehicleCount(mapWithoutOverride, "busy", true)).toBe(12);
+  });
+
+  it("normalizes override values before either consumer can allocate slots", () => {
+    const malformedOverride = {
+      ambientTraffic: { desktop: 47.9, touch: -3.4 },
+    };
+    expect(resolveAmbientVehicleCount(malformedOverride, "none", false)).toBe(
+      AMBIENT_VEHICLE_SLOT_CEILING,
+    );
+    expect(resolveAmbientVehicleCount(malformedOverride, "busy", true)).toBe(0);
+  });
+
+  it("applies the same defensive budget inside SimulationCore", () => {
+    const gates = Array.from({ length: AMBIENT_VEHICLE_SLOT_CEILING + 1 }, (_, index) => ({
+      id: `slot-gate-${index}`,
+      laneId: "slot-lane",
+      distance: 500 + index * 250,
+    }));
+    const activeNpcCount = (npcCount: number) =>
+      new SimulationCore({
+        npcCount,
+        lanes: [
+          {
+            id: "slot-lane",
+            points: [
+              { x: 0, z: 0 },
+              { x: 0, z: 12_000 },
+            ],
+            width: 3.5,
+            speedLimitMps: 12,
+            loop: false,
+          },
+        ],
+        trafficGates: gates,
+        spawn: { x: 1_000, z: -1_000, heading: 0 },
+      }).getSnapshot().npcs.length;
+
+    expect(activeNpcCount(4.8)).toBe(4);
+    expect(activeNpcCount(-1)).toBe(0);
+    expect(activeNpcCount(AMBIENT_VEHICLE_SLOT_CEILING + 9)).toBe(
+      AMBIENT_VEHICLE_SLOT_CEILING,
+    );
+    expect(activeNpcCount(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+});
+
+describe("runtime traffic portal safety", () => {
+  it("keeps portal samples clear of parallel/fallback stop lines and conflict zones", () => {
+    // The adapter's simulation stop-line builders apply one approach's
+    // arclength to every approach lane, and synthesize approaches for older
+    // controls with no `approaches`. This narrow fixture makes all three
+    // exclusions observable through the public portal catalogue.
+    const mapPack = {
+      laneGraph: {
+        lanes: [
+          {
+            id: "multi-primary",
+            role: "travel",
+            centerline: [{ x: 0, z: 0 }, { x: 100, z: 0 }],
+          },
+          {
+            id: "multi-parallel",
+            role: "travel",
+            centerline: [{ x: 0, z: 4 }, { x: 100, z: 4 }],
+          },
+          {
+            id: "fallback-stop",
+            role: "travel",
+            centerline: [{ x: 0, z: 12 }, { x: 100, z: 12 }],
+          },
+          {
+            id: "conflict-lane",
+            role: "travel",
+            centerline: [{ x: 0, z: 24 }, { x: 100, z: 24 }],
+          },
+        ],
+        controls: [
+          {
+            id: "parallel-signal",
+            type: "signal",
+            position: { x: 50, z: 0 },
+            headingDeg: 0,
+            laneIds: ["multi-primary", "multi-parallel"],
+            approaches: [{
+              id: "parallel-approach",
+              laneIds: ["multi-primary", "multi-parallel"],
+              stopLine: { laneId: "multi-primary", distanceAlongM: 50 },
+              phaseGroup: "parallel",
+            }],
+            installations: [],
+          },
+          {
+            id: "legacy-stop",
+            type: "stop",
+            position: { x: 50, z: 12 },
+            headingDeg: 0,
+            laneIds: ["fallback-stop"],
+            approaches: [],
+            installations: [],
+          },
+        ],
+        conflictZones: [{
+          id: "junction-conflict",
+          laneIds: ["conflict-lane"],
+          polygon: [
+            { x: 40, z: 18 },
+            { x: 60, z: 18 },
+            { x: 60, z: 30 },
+            { x: 40, z: 30 },
+          ],
+        }],
+      },
+    } as unknown as GameCanvasMapPack;
+    const portals = buildRuntimeTrafficPortals(mapPack);
+    for (const laneId of ["multi-primary", "multi-parallel", "fallback-stop"]) {
+      const lanePortals = portals.filter((portal) => portal.laneId === laneId);
+      expect(lanePortals, laneId).not.toHaveLength(0);
+      expect(
+        lanePortals.every((portal) => Math.abs(portal.distance - 50) >= 25),
+        `${laneId} must retain the control's 25 m portal clearance`,
+      ).toBe(true);
+    }
+    expect(portals.filter((portal) => portal.laneId === "conflict-lane")).toEqual([]);
   });
 });

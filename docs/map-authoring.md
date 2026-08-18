@@ -77,8 +77,8 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 | Map | Lanes | Roads | Lane km | Signals | Cameras | World (x × z m) |
 |---|---|---|---|---|---|---|
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
-| `cairo-central-nile` | 224 | 27 | 44.8 | 10 | 3 | 1770 × 1830 |
-| `tokyo-setagaya` | 540 | 103 | 96.2 | 42 | 14 | 2600 × 2400 |
+| `cairo-central-nile` | 327 | 50 | 51.9 | 10 | 3 | 1770 × 1830 |
+| `tokyo-setagaya` | 538 | 102 | 96.1 | 41 | 14 | 2600 × 2400 |
 | `london-south-kensington` | 338 | 73 | 61.3 | 12 | 4 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane
@@ -452,6 +452,30 @@ cited in `LONDON_RULE_REFERENCES` *and shown to the player*.
 
 `roadRealism.test.ts` holds the rest: only figures that country signs, one
 figure per road, nothing non-`standard` out-ranking an ordinary road.
+
+## Local traffic portal authoring
+
+Traffic locality derives its runtime portal catalogue from `laneGraph.lanes`; do
+not hand-author another population list. `isLocalTrafficCapacityLane` counts
+`travel`, `one_way`, `rail_crossing`, and `passing` lanes toward local capacity.
+`isRuntimeTrafficPortalLane` is deliberately stricter: only `travel`,
+`one_way`, and `rail_crossing` lanes may host a hidden runtime entry. Connector,
+roundabout, entry/exit, terminal, and passing fragments remain legal routing
+geometry but are not safe materialisation points.
+
+`buildRuntimeTrafficPortals` samples each safe directed lane interval at about
+140 m, keeps 25 m clear of endpoints, every parallel/fallback control stop
+line, `connectorRanges`, and authored conflict-zone polygons, and
+uses a stable `runtime-<lane-id>-<sample-index>` id. If an interval centre is
+unsafe, it shifts deterministically within that same interval; it never adds a
+second portal. Named `spawnPoints` of `kind: "vehicle"` are still authored
+gates: explicit variants retain their fresh-reset placement, while generic
+starts are admitted only when they fit the player-centred local target. After changing a
+lane's role, control, connector range, or geometry, run the locality tests so
+coverage and setbacks are rechecked. At runtime, a hidden approach candidate
+also needs an inbound tangent and a bounded legal successor path into the local
+circle; a portal's geometric proximity alone is never permission to materialize
+a vehicle there.
 
 ## Two authoring tolerances that fail silently
 

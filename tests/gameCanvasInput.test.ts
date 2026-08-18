@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VertexData } from "@babylonjs/core";
-import { resolveNpcVisualSlotAssignments } from "../app/game/render/babylonGameSession";
+import {
+  NpcVisualSlotAssignmentResolver,
+  TickIndexedInputReplay,
+  removeOwnedDebugHooks,
+  resolveNpcVisualSlotAssignments,
+} from "../app/game/render/babylonGameSession";
 import {
   AdaptiveInputRouter,
   INPUT_PROMPT_SWITCH_COOLDOWN_MS,
@@ -74,6 +79,132 @@ describe("authoritative NPC visual slots", () => {
     const assignments = resolveNpcVisualSlotAssignments(slots, vehicles);
     expect(assignments).toEqual([0, 2, 1]);
     expect(new Set(assignments).size).toBe(assignments.length);
+  });
+
+  it("retains reusable lookup scratch while refreshing changed slot ids", () => {
+    const resolver = new NpcVisualSlotAssignmentResolver();
+    const slots = [
+      { simulationId: "npc-1" },
+      { simulationId: "npc-1" },
+      { simulationId: "scripted-lead" },
+      {},
+    ];
+
+    const first = resolver.resolve(slots, [
+      { id: "npc-1" },
+      { id: "npc-1" },
+      { id: "scripted-lead" },
+    ]);
+    expect(first).toEqual([0, 1, 2]);
+
+    // Simulate the root's new association before the next fixed snapshot.
+    slots[1].simulationId = "npc-2";
+    resolver.commitSlotAssignment(1, "npc-2");
+    const second = resolver.resolve(slots, [
+      { id: "npc-2" },
+      { id: "npc-1" },
+      { id: "scripted-lead" },
+    ]);
+
+    expect(second).toBe(first);
+    expect(second).toEqual([1, 0, 2]);
+  });
+});
+
+describe("tick-indexed browser input replay", () => {
+  const pose = (tick: number, x = tick, z = 0) => ({
+    tick,
+    player: { x, z, heading: tick * 0.01, speedMps: 6 },
+  });
+
+  it("selects controls by relative fixed tick and fingerprints route coverage", () => {
+    const run = () => {
+      const replay = new TickIndexedInputReplay();
+      replay.start(
+        pose(40, 0),
+        [
+          { fromTick: 0, toTick: 2, input: { throttle: 1 } },
+          { fromTick: 3, toTick: 4, input: { steer: -0.5 } },
+        ],
+        2,
+      );
+
+      expect(replay.prepare(pose(40, 0))).toMatchObject({ throttle: 1 });
+      replay.record(pose(41, 1));
+      expect(replay.prepare(pose(41, 1))).toMatchObject({ throttle: 1 });
+      replay.record(pose(42, 2));
+      // Tick two is the deliberate neutral gap between the two segments.
+      expect(replay.prepare(pose(42, 2))).toEqual({
+        throttle: 0,
+        brake: 0,
+        reverse: 0,
+        steer: 0,
+        quickLook: 0,
+      });
+      replay.record(pose(43, 3));
+      expect(replay.prepare(pose(43, 3))).toMatchObject({ steer: -0.5 });
+      replay.record(pose(44, 4));
+      return { replay, status: replay.status() };
+    };
+
+    const first = run();
+    const second = run();
+    expect(first.status).toMatchObject({
+      state: "completed",
+      active: false,
+      startTick: 40,
+      currentTick: 44,
+      completedTicks: 4,
+      durationTicks: 4,
+      distanceM: 4,
+    });
+    expect(first.status.checkpoints.map((checkpoint) => checkpoint.replayTick)).toEqual([
+      0,
+      2,
+      4,
+    ]);
+    expect(first.status.trajectoryHash).toBe(second.status.trajectoryHash);
+    expect(first.replay.currentInput).toBeNull();
+    expect(first.replay.takeControlReleaseRequest()).toBe(true);
+    expect(first.replay.takeControlReleaseRequest()).toBe(false);
+  });
+
+  it("rejects ambiguous traces and aborts on a simulation tick discontinuity", () => {
+    const replay = new TickIndexedInputReplay();
+    expect(() =>
+      replay.start(pose(0), [
+        { fromTick: 0, toTick: 3 },
+        { fromTick: 2, toTick: 4 },
+      ]),
+    ).toThrow(/overlaps or is out of order/);
+
+    replay.start(pose(10), [{ fromTick: 0, toTick: 2 }]);
+    expect(replay.prepare(pose(11))).toBeNull();
+    expect(replay.status()).toMatchObject({
+      state: "aborted",
+      reason: "simulation-tick-discontinuity",
+    });
+    expect(replay.takeControlReleaseRequest()).toBe(true);
+  });
+});
+
+describe("session-owned debug hook cleanup", () => {
+  it("does not let an older session delete a newer session's HMR hooks", () => {
+    const oldHook = () => "old";
+    const newHook = () => "new";
+    const target: Record<string, unknown> = { __sideswapPerfDebug: newHook };
+
+    removeOwnedDebugHooks(
+      target,
+      new Map([["__sideswapPerfDebug", oldHook]]),
+    );
+    expect(target.__sideswapPerfDebug).toBe(newHook);
+
+    removeOwnedDebugHooks(
+      target,
+      new Map([["__sideswapPerfDebug", newHook]]),
+    );
+    expect("__sideswapPerfDebug" in target).toBe(false);
   });
 });
 

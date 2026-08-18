@@ -85,7 +85,7 @@ const trafficTraceHash = (freeDrive: (typeof FREE_DRIVES)[number]): string => {
 };
 
 describe("ambient traffic trace characterization", () => {
-  it("preserves the authored 30-second traffic trace in all four cities", () => {
+  it("characterizes the 30-second local-traffic trace in all four cities", () => {
     expect(
       Object.fromEntries(
         FREE_DRIVES.map((freeDrive) => [
@@ -94,6 +94,9 @@ describe("ambient traffic trace characterization", () => {
         ]),
       ),
     ).toEqual({
+      // Issue #142 replaces map-wide gate filling with the deterministic
+      // player-centred portal window. All four values below intentionally
+      // change together when that traffic policy changes.
       // Moves for the rail feature's borough freight lead: seven generated
       // railway crossings put timetable-driven railway_signal lights and
       // stop lines on every Queens avenue and both bridge approaches, and
@@ -102,7 +105,7 @@ describe("ambient traffic trace characterization", () => {
       // meets): headwaySeconds 300 -> 540 so opposing freights can never
       // co-occupy the strip; every crossing's warning windows shift, which
       // re-times the NPC holds at all seven crossings inside this trace.
-      "free-us": "d4a4338c",
+      "free-us": "d8b23063",
       // Moves on any sim-visible London content change: the south-west
       // expansion (fourteen streets, three signals, both turning loops gone),
       // then the river (both embankments, the south bank, three bridges and
@@ -119,7 +122,7 @@ describe("ambient traffic trace characterization", () => {
       // the final gates run Oxford east / Bishopsgate / King's Road plus a
       // Notting Hill cab — the fourth gate's count change re-deals the
       // recycler and is what actually dissolved the graze).
-      "free-uk-london": "e57b53ee",
+      "free-uk-london": "c16fa530",
       // Moves on any sim-visible Tokyo content change: Phase 2 of the Tokyo
       // expansion (road-network skeleton + all three residential-web
       // districts) takes the map from 20 to 66 roads and 56 to 338 lanes,
@@ -208,7 +211,7 @@ describe("ambient traffic trace characterization", () => {
       // Hon/Higashi Soto) — more railway stop lines, more timetable-driven
       // light states in the hash — plus the Menya Sakura venue shifting off
       // the corridor.
-      "free-jp": "ad670631",
+      "free-jp": "1684e3c9",
       // Moves for the rail feature's Imbaba corridor: eleven generated
       // railway crossings put timetable-driven railway_signal lights and
       // stop lines on every N-S street at z=-720, and the corridor carve
@@ -224,7 +227,7 @@ describe("ambient traffic trace characterization", () => {
       // successor draw re-deals from tick 0. The other three cities'
       // hashes are untouched, which is the isolation this pin exists to
       // prove.
-      "free-eg": "6f064731",
+      "free-eg": "e3e10b4c",
     });
   });
 });

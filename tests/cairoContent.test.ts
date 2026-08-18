@@ -1946,13 +1946,15 @@ describe("Cairo Central Nile content", () => {
     const first = run();
     const replay = run();
     expect(replay).toEqual(first);
-    expect(first.hash).toBe("942c1c67");
+    // Issue #142's deterministic local-traffic window intentionally changes
+    // Cairo's ambient placement while preserving this replay's determinism.
+    expect(first.hash).toBe("b4b3f7fd");
     expect(first.snapshot).toMatchObject({
       tick: 1_800,
       status: "running",
-      queuedNpcCount: 0,
+      queuedNpcCount: 17,
     });
-    expect(first.snapshot.npcs).toHaveLength(32);
+    expect(first.snapshot.npcs).toHaveLength(15);
   });
 
   it("matches the committed frozen OSM provenance and content checksum", async () => {

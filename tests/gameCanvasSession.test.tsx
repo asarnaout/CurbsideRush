@@ -63,6 +63,7 @@ import { LONDON_FREE_DRIVE, LONDON_MAP_PACK } from "../app/game/cities/london";
 /** installDebugHooks' exact set (render/babylonGameSession.ts, `dispose()`). */
 const SIDESWAP_DEBUG_HOOKS = [
   "__sideswapDriveControl",
+  "__sideswapInputReplay",
   "__sideswapTeleport",
   "__sideswapAudioDebug",
   "__sideswapMeshes",
@@ -235,6 +236,40 @@ describe("BabylonGameSession smoke test", () => {
       for (const hook of SIDESWAP_DEBUG_HOOKS) {
         expect(typeof debugWindow[hook], hook).toBe("function");
       }
+      const replayHook = debugWindow.__sideswapInputReplay as (
+        command?:
+          | { action: "status" | "stop" }
+          | {
+              action: "start";
+              segments: readonly {
+                fromTick: number;
+                toTick: number;
+                input?: { throttle?: number; steer?: number };
+              }[];
+              sampleEveryTicks?: number;
+            },
+      ) => {
+        state: string;
+        active: boolean;
+        durationTicks: number;
+        mapId: string;
+      };
+      expect(replayHook()).toMatchObject({
+        state: "idle",
+        active: false,
+        mapId: LONDON_MAP_PACK.id,
+      });
+      expect(
+        replayHook({
+          action: "start",
+          segments: [{ fromTick: 0, toTick: 2, input: { throttle: 0.5 } }],
+          sampleEveryTicks: 1,
+        }),
+      ).toMatchObject({ state: "running", active: true, durationTicks: 2 });
+      expect(replayHook({ action: "stop" })).toMatchObject({
+        state: "stopped",
+        active: false,
+      });
       // Reaching "ready" only proves markReady() ran; this proves
       // buildScenarioEnvironment actually populated the scene rather than
       // silently building an empty one.
@@ -256,6 +291,24 @@ describe("BabylonGameSession smoke test", () => {
           structuralSolidCount: number;
           staticObstacleCountByTag: Record<string, number>;
           sceneReadyMs: number | null;
+          stages: Record<
+            string,
+            { avgMs: number; p50Ms: number; p95Ms: number; maxMs: number }
+          >;
+          simulationTick: number;
+          catchUpFrames: number;
+          longFrames: number;
+          maxFixedStepsPerFrame: number;
+          vehiclePresentation: {
+            visualSlots: number;
+            activeRoots: number;
+            enabledRoots: number;
+            allocatedMeshes: number;
+            enabledMeshes: number;
+            shadowSubmissions: number;
+            mirrorSubmissionCandidates: number;
+            renderTiers: { enabled: boolean; full: number; transitions: number };
+          };
         }
       )();
       expect(perf.blockCount).toBeGreaterThan(0);
@@ -270,6 +323,33 @@ describe("BabylonGameSession smoke test", () => {
       // above), so this must be a real measured duration, not null.
       expect(perf.sceneReadyMs).not.toBeNull();
       expect(perf.sceneReadyMs).toBeGreaterThan(0);
+      expect(perf.stages.trafficSnapshotApplyMs).toMatchObject({
+        avgMs: expect.any(Number),
+        p50Ms: expect.any(Number),
+        p95Ms: expect.any(Number),
+        maxMs: expect.any(Number),
+      });
+      expect(perf.stages.trafficVisualUpdateMs).toBeDefined();
+      expect(perf.simulationTick).toBeGreaterThanOrEqual(0);
+      expect(perf.catchUpFrames).toBeGreaterThanOrEqual(0);
+      expect(perf.longFrames).toBeGreaterThanOrEqual(0);
+      expect(perf.maxFixedStepsPerFrame).toBeGreaterThanOrEqual(0);
+      expect(perf.vehiclePresentation.visualSlots).toBeGreaterThan(0);
+      expect(perf.vehiclePresentation.activeRoots).toBeGreaterThan(0);
+      expect(perf.vehiclePresentation.enabledRoots).toBeLessThanOrEqual(
+        perf.vehiclePresentation.activeRoots,
+      );
+      expect(perf.vehiclePresentation.allocatedMeshes).toBeGreaterThan(0);
+      expect(perf.vehiclePresentation.enabledMeshes).toBeLessThanOrEqual(
+        perf.vehiclePresentation.allocatedMeshes,
+      );
+      expect(perf.vehiclePresentation.shadowSubmissions).toBeGreaterThanOrEqual(0);
+      expect(perf.vehiclePresentation.mirrorSubmissionCandidates).toBeGreaterThanOrEqual(0);
+      expect(perf.vehiclePresentation.renderTiers).toMatchObject({
+        enabled: false,
+        full: perf.vehiclePresentation.activeRoots,
+        transitions: 0,
+      });
 
       // The default (no `fan`) call is the fast raster/blob census only —
       // proves the hook reuses this session's OWN `buildingLayout` (a fresh

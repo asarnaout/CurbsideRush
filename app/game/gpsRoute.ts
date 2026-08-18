@@ -13,8 +13,9 @@
 // The cost model that matters is *when* this runs, not what it costs: callers
 // must search once per destination change and once per off-route deviation,
 // never per frame and never per simulation step. `routeDistanceAhead` in
-// simulation.ts is the hot lane search — it runs for every pair of cars every
-// step — and this module deliberately shares none of its state.
+// simulation/roadNetwork.ts is the hot lane search — route-leading reaches it
+// through a conservative traffic spatial index at fixed-step rate — and this
+// module deliberately shares none of its state.
 
 export interface GpsPoint {
   readonly x: number;
