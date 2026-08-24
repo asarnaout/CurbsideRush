@@ -75,6 +75,16 @@ import type { CountryProfile, PlayerProgressV2 } from "./game/types";
 const FINE_MIN_SPACING_MS = 3000;
 
 /**
+ * Breathing room after an officer releases the driver from a pull-over.
+ *
+ * The scene itself can outlast the ordinary witnessed-fine debounce. Anchoring
+ * that same eight-second window to `done` prevents the rule that prompted the
+ * stop from immediately staging another one while the driver is still pulling
+ * away from the kerb.
+ */
+const PULLOVER_RELEASE_GRACE_MS = 8000;
+
+/**
  * Human-readable reason for a fine toast, from the violation's rule code.
  *
  * Speeding is the only one that cites figures, because it is the only one
@@ -348,6 +358,13 @@ export function useGameEventHandler({
           return;
         }
         if (event.phase === "done") {
+          if (active.kind === "pullover") {
+            // A pull-over can run longer than the debounce stamped when it was
+            // staged. Re-arm from the officer's release instead, so a rule
+            // still true at the kerb cannot throw the driver straight back
+            // into the same scene.
+            drive.stampFineAt(clock.now());
+          }
           drive.clearCutscene();
           if (active.kind === "board" || active.kind === "food_pickup") {
             gigDispatch.setGig((current) =>
@@ -469,7 +486,7 @@ export function useGameEventHandler({
       if (event.type !== "fine") return;
       const now = clock.now();
       if (now - drive.lastAnyFineAtRef.current < FINE_MIN_SPACING_MS) return;
-      if (now - drive.lastFineAtRef.current < 8000) return;
+      if (now - drive.lastFineAtRef.current < PULLOVER_RELEASE_GRACE_MS) return;
       const speeding = event.ruleCode === "speeding";
       if (
         speeding &&

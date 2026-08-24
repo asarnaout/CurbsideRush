@@ -814,6 +814,44 @@ describe("career mode flow", () => {
     expect(screen.getByTestId("day-cash")).toHaveTextContent("-$6.00");
   });
 
+  it("gives the driver a cooldown after a pull-over ends", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+
+    fireEvent.click(screen.getByTestId("mock-fine"));
+    fireEvent.click(screen.getByTestId("mock-scene-cite"));
+    // Let the stop itself outlast every ordinary debounce. Before #415, the
+    // next violation could stage another pull-over as soon as this scene ended.
+    advanceWallClock(30_000);
+    fireEvent.click(screen.getByTestId("mock-scene-done"));
+
+    fireEvent.click(screen.getByTestId("mock-fine"));
+    expect(screen.getByLabelText("Mock driving scene")).not.toHaveAttribute(
+      "data-cutscene-kind",
+      "pullover",
+    );
+    expect(screen.getByTestId("day-cash")).toHaveTextContent("-$4.00");
+
+    // The grace is measured from release, not from when the stop began. Once
+    // its full eight seconds have elapsed, a genuinely new offence is cited.
+    advanceWallClock(7_999);
+    fireEvent.click(screen.getByTestId("mock-fine"));
+    expect(screen.getByLabelText("Mock driving scene")).not.toHaveAttribute(
+      "data-cutscene-kind",
+      "pullover",
+    );
+    advanceWallClock(1);
+    fireEvent.click(screen.getByTestId("mock-fine"));
+    expect(screen.getByLabelText("Mock driving scene")).toHaveAttribute(
+      "data-cutscene-kind",
+      "pullover",
+    );
+  });
+
   it("lets a camera write the ticket where the driver stands, with no stop to stage", async () => {
     await enterCareerMode();
     fireEvent.click(screen.getByTestId("career-start"));
