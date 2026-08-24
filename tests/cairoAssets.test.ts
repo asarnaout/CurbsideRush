@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { CAIRO_ENV_MODELS } from "../app/game/buildingCatalog";
 import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
 
 const root = process.cwd();
+const execFileAsync = promisify(execFile);
 
 interface CairoResidenceProvenance {
   readonly style: string;
@@ -38,7 +41,7 @@ const parseGlbJson = (glb: Buffer): {
 describe("Cairo bundled assets", () => {
   it("cache-busts only the four Cairo shopfront files whose geometry was corrected", () => {
     const revised = CAIRO_ENV_MODELS.filter((model) =>
-      model.url.includes("?rev=shopfront-v2"),
+      model.url.includes("?rev=shopfront-v3"),
     ).map((model) => model.id);
     expect(revised).toEqual([
       "cairo-walkup-a",
@@ -48,13 +51,22 @@ describe("Cairo bundled assets", () => {
     ]);
 
     expect(PROP_MODEL_REGISTRY["cairo-residence-kay"].url).toContain(
-      "?rev=shopfront-v2",
+      "?rev=shopfront-v3",
     );
     expect(PROP_MODEL_REGISTRY["cairo-shop"].url).toContain(
-      "?rev=shopfront-v2",
+      "?rev=shopfront-v3",
     );
     expect(PROP_MODEL_REGISTRY.residence.url).not.toContain("?rev=");
     expect(PROP_MODEL_REGISTRY.shop.url).not.toContain("?rev=");
+  });
+
+  it("audits that every corrected Cairo model has no canopy or hydrant geometry", async () => {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ["tools/cairo-shopfront.mjs", "--dry"],
+      { cwd: root },
+    );
+    expect(stdout.match(/verified no canopy or hydrant geometry remains/g)).toHaveLength(4);
   });
 
   it("ships the cleared landing art at its source dimensions under 200 KB", async () => {
@@ -110,7 +122,7 @@ describe("Cairo bundled assets", () => {
       {
         file: "cairo-residence-kay.glb",
         finalSha256:
-          "d6c89e0b79472677eea5dabdc5e3b236a5aee7125ba3bde0cfc859f9d3b43a52",
+          "7e5aa6e920349484c61e4cc7f944c1fa593deede39e9ffaedecbe2ac49dedb60",
         provenance: {
           style: "cairo-residence-v1",
           author: "Kay Lousberg",
@@ -122,7 +134,7 @@ describe("Cairo bundled assets", () => {
           sourceSha256:
             "5ebaa83522c99c877e28b9c482aa8629226d574fa398dc91ba71430d4e38e290",
           modifications: "Cairo palette and matte material pass",
-          shopfront: "cairo-shopfront-v2",
+          shopfront: "cairo-shopfront-v3",
           windowGlass: "window-glass-v1",
         },
         creditNeedles: [
@@ -134,7 +146,7 @@ describe("Cairo bundled assets", () => {
         // NYC and London keep the original, stripes, hydrant and all.
         file: "cairo-shop.glb",
         finalSha256:
-          "a378e221bc1fda319da5e881ceba76a2186b9ac3a4016179c72ccf9ace0def27",
+          "6dcfc00008e3d116ed7364ff38ea07410b426dd64ed7e9dfe961d135171ec1ad",
         provenance: {
           style: "cairo-residence-v1",
           author: "Kay Lousberg",
@@ -146,7 +158,7 @@ describe("Cairo bundled assets", () => {
           sourceSha256:
             "289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5",
           modifications: "Cairo palette and matte material pass",
-          shopfront: "cairo-shopfront-v2",
+          shopfront: "cairo-shopfront-v3",
           windowGlass: "window-glass-v1",
         },
         creditNeedles: ["tools/cairo-shopfront.mjs"],

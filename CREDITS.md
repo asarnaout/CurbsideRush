@@ -137,10 +137,10 @@ no bytes changed, only which sets reference which already-committed files.
   released **CC0 1.0**. Downloaded 2026-07-29. Source GLB SHA-256
   `5ebaa83522c99c877e28b9c482aa8629226d574fa398dc91ba71430d4e38e290`;
   committed GLB SHA-256
-  `d6c89e0b79472677eea5dabdc5e3b236a5aee7125ba3bde0cfc859f9d3b43a52`.
+  `7e5aa6e920349484c61e4cc7f944c1fa593deede39e9ffaedecbe2ac49dedb60`.
   Modified with a muted Cairo façade palette and matte materials by
   `tools/style-cairo-residences.mjs`, and its red/white striped door canopy
-  deleted by `tools/cairo-shopfront.mjs` (v2); used as one of Cairo's
+  deleted by `tools/cairo-shopfront.mjs` (v3); used as one of Cairo's
   flat-roofed urban residence venues.
 - **props/cairo-residence-quaternius.glb** (`3Story_Balcony_Mat`) — by
   **Quaternius**, from the Ultimate Textured Buildings Pack
@@ -185,19 +185,13 @@ the specular, and bakes provenance into `asset.extras.curbsideRush`. CC0 permits
 modification; re-run the script to regenerate from a fresh download.
 
 **Modified — shopfront corrections (KayKit models only).**
-`tools/cairo-shopfront.mjs` then flattens the pack's two-tone scalloped awning to
-a single colour and deletes the American fire hydrant that came bundled in the
-diorama base. Neither belongs on a Cairo street: the local vocabulary is a flat
-signboard fascia and a rigid one-colour canopy, and Cairo's roadside prop list
-places no hydrants. The stripe is geometry rather than paint (the atlas is a grid
-of gradient swatches, and the stripes are alternating faces pointed at two of
-them), so it is corrected by a UV remap of the pale faces onto the dark swatch —
-editing the texture would recolour every other surface sharing that swatch.
-v2 additionally deletes `cairo-residence-kay`'s striped door canopy outright: at
-29 triangles it slipped under v1's size filter, and its stripes pair two
-lower-half swatches, which the half-atlas remap could never have reached. Each
-target now declares what the filter must find, and the run refuses to stamp on
-any mismatch.
+`tools/cairo-shopfront.mjs` deletes the pack's large Western-style canopy and
+the American fire hydrants bundled in the diorama bases. Neither belongs on
+these Cairo streets: the local shopfront vocabulary is a flat signboard fascia
+and roller shutter, and Cairo's roadside prop list places no hydrants. v3 also
+audits already-stamped files rather than trusting their metadata: its exact
+connected-component counts catch both the source geometry and the later
+window-glass split, and the run refuses to stamp or verify on any mismatch.
 
 All the Quaternius models below come from the **Ultimate Textured Buildings
 Pack** (<https://quaternius.com/packs/ultimatetexturedbuildings.html>), released
@@ -331,9 +325,9 @@ OBJ + MTL by `tools/obj-to-glb.mjs` before styling.
   **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
   `289278117dd1564c1ae190faa85c9dc309df94e45675431765e362b0b0ad36a5`;
   committed GLB SHA-256
-  `a378e221bc1fda319da5e881ceba76a2186b9ac3a4016179c72ccf9ace0def27`.
+  `6dcfc00008e3d116ed7364ff38ea07410b426dd64ed7e9dfe961d135171ec1ad`.
   Cairo's copy of `shop.glb` — same source model, but recoloured to the Cairo
-  palette with the striped awning flattened and the bundled hydrant removed by
+  palette with the canopy and bundled hydrant removed by
   `tools/cairo-shopfront.mjs`. It exists as a separate file because `shop.glb`
   is also placed by NYC and London, and `modelLibrary` keys asset containers by
   URL, so one file cannot carry two cities' decisions. The original is unchanged.
@@ -346,7 +340,7 @@ OBJ + MTL by `tools/obj-to-glb.mjs` before styling.
   released **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
   `a98d4fa6bf1e261da717fbdeef7937ef7578af86db3ba31a14296d814cf44e65`;
   committed GLB SHA-256
-  `bfe108c90afb5ba5faa47b976dd8f37e1f98065f4d669a9204656bb3bd1b7ea3`.
+  `ec4fab23662acca7e17899bb841db769e77b3cfb5dcf08f894ace6d6fd6cae12`.
   Same pack (and same flat roof + rooftop water tank) as
   `cairo-residence-kay.glb`.
 - **props/cairo-walkup-b.glb** ("Building") — by **Kay Lousberg**, same pack via
@@ -355,7 +349,7 @@ OBJ + MTL by `tools/obj-to-glb.mjs` before styling.
   released **CC0 1.0**. Downloaded 2026-07-30. Source GLB SHA-256
   `ecda4d8e3a89bb751f61e179725ca59d2a19f7f3aa88fedd4fc371eb8f0eaede`;
   committed GLB SHA-256
-  `d63a6174590d3b631f7f4da7edd7b76f14032fbe4dbcdd3c05426c8928f22555`.
+  `3223bcf464560c03f373edb79d950888b7361a4e26107cacff448efdbe0fc983`.
   The same source model as `nyc-brownstone-b.glb`, imported separately because
   `modelLibrary` keys asset containers by URL — one file cannot carry both the
   New York and the Cairo palette.

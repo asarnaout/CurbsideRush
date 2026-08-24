@@ -372,7 +372,7 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   "cairo-residence-kay": {
     // Keep the venue loader on the corrected Cairo-only bytes too. Without the
     // revision, a browser that cached the old prop could retain its hydrant.
-    url: `${P}/cairo-residence-kay.glb?rev=shopfront-v2`,
+    url: `${P}/cairo-residence-kay.glb?rev=shopfront-v3`,
     scale: 5.5,
     yawOffset: Math.PI / 2,
   },
@@ -383,11 +383,11 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
     groundY: 0.011,
   },
   // Cairo's own copy of `shop` below. Same model, but recoloured to the Cairo
-  // palette, with the pack's diner-stripe awning flattened to one colour and its
+  // palette, with the pack's Western-style canopy and its
   // bundled American fire hydrant deleted (tools/cairo-shopfront.mjs). `shop`
   // itself is untouched because NYC and London still place it.
   "cairo-shop": {
-    url: `${P}/cairo-shop.glb?rev=shopfront-v2`,
+    url: `${P}/cairo-shop.glb?rev=shopfront-v3`,
     scale: 4,
     yawOffset: Math.PI / 2,
   },

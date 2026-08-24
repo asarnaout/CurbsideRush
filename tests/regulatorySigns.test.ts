@@ -437,6 +437,37 @@ describe("robustness across map packs", () => {
       }
     }
   });
+
+  it("keeps Cairo's Tahrir repeater out of the Corniche carriageway", () => {
+    const pack = getMapPack("cairo-central-nile");
+    const placements = regulatorySignPlacements({
+      lanes: pack.laneGraph.lanes,
+      roadSurfaces: pack.geometry.roadSurfaces,
+      defaultRoadWidthM: pack.geometry.roadWidth,
+    });
+
+    expect(
+      placements.some(
+        (placement) =>
+          placement.refId === "cairo-tahrir-approach@125,-292.2:ww35:l",
+      ),
+    ).toBe(false);
+    expect(
+      placements.some(
+        (placement) =>
+          placement.refId === "cairo-tahrir-approach@125,-292.2:ww35:r",
+      ),
+    ).toBe(true);
+
+    for (const placement of placements) {
+      for (const surface of pack.geometry.roadSurfaces ?? []) {
+        expect(
+          distanceToPolyline(placement, surface.centerline),
+          `${placement.refId} vs ${surface.id}`,
+        ).toBeGreaterThanOrEqual(surface.widthM / 2 + 0.5);
+      }
+    }
+  });
 });
 
 /**

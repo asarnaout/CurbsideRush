@@ -10,6 +10,7 @@ import {
   CAIRO_MAP_PACK,
   CAIRO_ROAD_SPECS,
   CAIRO_RULE_REFERENCES,
+  CAIRO_SOUTH_RAILSIDE_INFILL_BLOCKS,
 } from "../app/game/cities/cairo";
 import { defaultSidewalkWidthM, hashStringToSeed } from "../app/game/visuals";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
@@ -29,6 +30,7 @@ import {
   collectMapVisualGeometry,
   distanceFromPointToShape,
 } from "../app/game/geometry/visualSceneFootprints";
+import { carveBlocksForRailCorridors } from "../app/game/geometry/railCorridor";
 import {
   bareKerbRuns,
   type BareKerbRun,
@@ -123,7 +125,10 @@ import type {
 // Existing marked procedural footprints are promoted in place, so they do
 // not change this block count; roads, water, the flyover and rail corridor
 // reject candidates before insertion.
-const BLOCK_COUNT = 1492;
+// -> 1497/922/465 (south rail-side void): three explicit asset rows replace
+// the nominal cairo-east-block-1-1 parcel that the rail carver removes whole;
+// two more lots close the real Garden City South street-front gaps.
+const BLOCK_COUNT = 1497;
 const ROADSIDE_COUNT = 922;
 const ROADSIDE_LEFT = 465;
 /** The second rank is gone — a one-sided kit means a back row can only stare
@@ -142,7 +147,9 @@ const ROADSIDE_RANKS = 0;
 // -> 670 (owner-marked gaps): 239 new asset blocks plus ten safe in-place
 // promotions from facade boxes; four other proposed promotions stay boxes
 // because the one-sided GLB backs would crowd a second road.
-const STREET_WALL_BLOCKS = 670;
+// -> 675 (south rail-side void): all five replacements use Cairo's existing
+// west-bank/baladi asset set rather than introducing another facade-box row.
+const STREET_WALL_BLOCKS = 675;
 // 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6) -> 1716 (Section
 // 12.7): the five cairo-west-nile-street-mid-land-edge-wall-* closures
 // have no buildingSet either, same formula, 5 blocks * 9 = 45 more.
@@ -1612,6 +1619,65 @@ describe("Cairo Central Nile content", () => {
         ).toBe(false);
       }
     }
+  });
+
+  it("fills the owner-marked south rail-side void without touching the track", () => {
+    expect(CAIRO_SOUTH_RAILSIDE_INFILL_BLOCKS).toHaveLength(5);
+    const finalBlocks = new Map(
+      CAIRO_MAP_PACK.geometry.blocks.map((block) => [block.id, block]),
+    );
+    const railLines = CAIRO_MAP_PACK.geometry.railLines ?? [];
+    const buildingPlan = planMapBuildings(
+      CAIRO_MAP_PACK,
+      CAIRO_FREE_DRIVE.trafficSeed,
+    );
+    const infillIds = new Set(
+      CAIRO_SOUTH_RAILSIDE_INFILL_BLOCKS.map((block) => block.id),
+    );
+    const infillBuildings = buildingPlan.buildings.filter((building) =>
+      infillIds.has(building.blockId),
+    );
+
+    // These five authored rows currently resolve to twelve real Cairo kit
+    // buildings. Pin the visible result as well as the abstract block data so
+    // a future reservation/layout change cannot silently turn the parcel back
+    // into an empty or procedural fallback area.
+    expect(infillBuildings).toHaveLength(12);
+    expect(
+      infillBuildings.every(
+        (building) =>
+          building.source === "asset-slot" &&
+          building.modelId.startsWith("cairo-"),
+      ),
+    ).toBe(true);
+
+    for (const block of CAIRO_SOUTH_RAILSIDE_INFILL_BLOCKS) {
+      expect(finalBlocks.get(block.id), block.id).toEqual(block);
+      expect(block.buildingSet, block.id).toBe("cairo-westbank");
+      expect(
+        infillBuildings.some((building) => building.blockId === block.id),
+        block.id,
+      ).toBe(true);
+      const railCheck = carveBlocksForRailCorridors([block], railLines);
+      expect(railCheck.blocks, block.id).toEqual([block]);
+      expect(railCheck.removedBlockIds, block.id).toEqual([]);
+      expect(railCheck.trimmedBlockIds, block.id).toEqual([]);
+    }
+
+    expect(
+      CAIRO_SOUTH_RAILSIDE_INFILL_BLOCKS.slice(0, 2).map(
+        (block) => block.headingDeg,
+      ),
+    ).toEqual([0, 0]);
+    expect(CAIRO_SOUTH_RAILSIDE_INFILL_BLOCKS[2].headingDeg).toBeCloseTo(
+      -93.09,
+      2,
+    );
+    expect(
+      CAIRO_SOUTH_RAILSIDE_INFILL_BLOCKS.slice(3).map(
+        (block) => block.headingDeg,
+      ),
+    ).toEqual([2.121, 2.121]);
   });
 
   it("closes Tahrir's northern horizon without touching a road envelope", () => {

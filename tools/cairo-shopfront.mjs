@@ -1,12 +1,11 @@
 /**
  * Two Cairo-only corrections to the KayKit shopfronts.
  *
- * 1. **Un-stripes the awning.** The pack gives its ground-floor canopy a
+ * 1. **Deletes the awning.** The pack gives its ground-floor canopy a
  *    scalloped two-tone stripe, which reads American-diner / European-seaside.
- *    Cairo's shopfront vocabulary is a flat signboard fascia, a roller shutter,
- *    and where there is a canopy at all it is rigid and one colour — even Café
- *    Riche, the most self-consciously European address in Downtown, has a plain
- *    valance under a dark wood canopy.
+ *    Cairo's shopfront vocabulary here is a flat signboard fascia and roller
+ *    shutter. Recolouring the canopy in v2 removed the stripes but left the
+ *    large Western-style silhouette visible, so v3 removes it outright.
  *
  * 2. **Deletes the imported fire hydrant.** The Poly Pizza exports carry the
  *    pack's diorama base, and an American pillar hydrant came with it. Cairo's
@@ -22,13 +21,6 @@
  * next to `nyc-brownstone-b`: `modelLibrary` keys containers by URL, so one file
  * cannot hold two cities' worth of decisions.
  *
- * The stripe is geometry, not paint: the atlas is a grid of gradient swatches
- * and the stripes are alternating faces pointed at two of them. So the fix is a
- * UV remap of the pale faces onto the dark swatch, not a texture edit — a
- * texture edit would recolour every other surface sharing that swatch. The two
- * swatches sit exactly 0.5 apart in v, which is what makes the remap exact
- * rather than approximate.
- *
  * v2: cairo-residence-kay's door canopy is a 29-triangle component — one
  * triangle under v1's >=30 filter — and its stripes alternate two *lower-half*
  * swatches (terracotta u≈0.97, white u≈0.18), so the v-0.5 remap could never
@@ -38,29 +30,35 @@
  * "verified", not merely "visited" — v1 stamped walkup-b and residence-kay
  * without changing a byte, which is how the striped canopy shipped twice.
  *
+ * v3: the two v2 "darken" targets are now deleted as well. This also forces a
+ * fresh connected-component scan instead of trusting the old v2 stamp, so a
+ * surviving hydrant cannot hide behind "already fixed".
+ *
  * Run after tools/style-cairo-residences.mjs. Idempotent.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
 const sharp = require("sharp");
 
 const dry = process.argv.includes("--dry");
+const verbose = process.argv.includes("--verbose");
+const fromHead = process.argv.includes("--from-head");
 const PROPS = "public/models/props";
-const FIXUP_ID = "cairo-shopfront-v2";
+const FIXUP_ID = "cairo-shopfront-v3";
 
 /**
  * Cairo-only files. Never add a shared one here. `awning` is what the filter
- * must find: "darken" / "delete" require exactly one canopy component, "none"
- * requires zero.
+ * must find: "delete" requires exactly one canopy component and "none" zero.
  */
 const TARGETS = [
-  { id: "cairo-shop", awning: "darken" },
-  { id: "cairo-walkup-a", awning: "darken" },
-  { id: "cairo-walkup-b", awning: "none" },
-  { id: "cairo-residence-kay", awning: "delete" },
+  { id: "cairo-shop", awning: "delete", hydrants: 1 },
+  { id: "cairo-walkup-a", awning: "delete", hydrants: 1 },
+  { id: "cairo-walkup-b", awning: "none", hydrants: 0 },
+  { id: "cairo-residence-kay", awning: "none", hydrants: 0 },
 ];
 
 function parseGlb(buffer) {
@@ -113,17 +111,19 @@ const viewOf = (json, accessorIndex) => {
   return { accessor, view, start: (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0) };
 };
 
-for (const { id, awning: awningPolicy } of TARGETS) {
+for (const { id, awning: awningPolicy, hydrants: expectedHydrants } of TARGETS) {
   const file = path.join(PROPS, `${id}.glb`);
   if (!fs.existsSync(file)) throw new Error(`missing ${file}`);
-  const { json, bin } = parseGlb(fs.readFileSync(file));
-  if (json.asset?.extras?.curbsideRush?.shopfront === FIXUP_ID) {
-    console.log(`${id}: already fixed up`);
-    continue;
-  }
+  const input = fromHead
+    ? execFileSync("git", ["show", `HEAD:${file.replaceAll("\\", "/")}`], {
+        maxBuffer: 8 * 1024 * 1024,
+      })
+    : fs.readFileSync(file);
+  const { json, bin } = parseGlb(input);
+  const alreadyFixed = json.asset?.extras?.curbsideRush?.shopfront === FIXUP_ID;
   const prim = json.meshes[0].primitives[0];
-  if (json.meshes.length !== 1 || json.meshes[0].primitives.length !== 1) {
-    throw new Error(`${id}: expected one merged primitive`);
+  if (json.meshes.length !== 1 || !prim) {
+    throw new Error(`${id}: expected one merged mesh with an opaque primitive`);
   }
   const image = json.images?.[0];
   if (image?.bufferView === undefined) throw new Error(`${id}: expected an embedded atlas`);
@@ -243,7 +243,7 @@ for (const { id, awning: awningPolicy } of TARGETS) {
       p.tris.length >= 25
     );
   });
-  const expectedAwnings = awningPolicy === "none" ? 0 : 1;
+  const expectedAwnings = alreadyFixed || awningPolicy === "none" ? 0 : 1;
   if (awnings.length !== expectedAwnings) {
     throw new Error(
       `${id}: awning policy "${awningPolicy}" expects ${expectedAwnings} ` +
@@ -252,25 +252,9 @@ for (const { id, awning: awningPolicy } of TARGETS) {
   }
 
   const uvEdits = [];
-  for (const awning of awningPolicy === "darken" ? awnings : []) {
-    // The pale stripe sits exactly half the atlas above the dark one. Take the
-    // dark column's u from the faces already below the midline.
-    const darkUs = [...awning.verts]
-      .map((i) => uvAt(i))
-      .filter(([, v]) => v < 0.5)
-      .map(([u]) => u);
-    if (!darkUs.length) continue;
-    const darkU = darkUs.sort((a, b) => a - b)[Math.floor(darkUs.length / 2)];
-    for (const vi of awning.verts) {
-      const [, v] = uvAt(vi);
-      if (v < 0.5) continue;
-      uvEdits.push([vi, darkU, v - 0.5]);
-    }
-  }
 
   // A vertex shared with anything outside the awning would drag that face's
   // colour along with it. glTF splits vertices per uv so this should never fire.
-  const awningVerts = new Set(awnings.flatMap((a) => [...a.verts]));
   for (const awning of awnings) {
     for (const part of partList) {
       if (part === awning) continue;
@@ -305,34 +289,68 @@ for (const { id, awning: awningPolicy } of TARGETS) {
     return n ? [r / n, g / n, b / n] : [0, 0, 0];
   };
 
-  // The KayKit hydrant is the same 15-triangle lump in every file in the pack,
-  // so triangle count plus its terracotta tone is a far tighter signature than
-  // position. An earlier "sits outside the building footprint" rule missed the
-  // second hydrant on cairo-walkup-a, which is tucked against the facade, and a
-  // shape-only rule deleted four evenly-spaced frontage posts by mistake.
-  const clutter = partList.filter((p) => {
-    if (awningVerts.has(indices[p.tris[0]])) return false;
-    const spanX = p.x[1] - p.x[0];
-    const spanZ = p.z[1] - p.z[0];
-    const spanY = p.y[1] - p.y[0];
-    if (
-      p.tris.length < 10 ||
-      p.tris.length > 20 ||
-      p.y[0] >= 0.15 ||
-      spanY <= 0.005 ||
-      Math.max(spanX, spanZ) >= 0.1
-    ) {
-      return false;
-    }
-    const [r, g, b] = meanColour(p);
-    if (dry) {
+  if (dry && verbose) {
+    for (const p of partList) {
+      const spanX = p.x[1] - p.x[0];
+      const spanZ = p.z[1] - p.z[0];
+      const spanY = p.y[1] - p.y[0];
+      if (p.y[0] >= 0.2 || spanY <= 0.005 || Math.max(spanX, spanZ) >= 0.25) continue;
+      const [r, g, b] = meanColour(p);
       console.log(
-        `    considered tris=${p.tris.length} rgb(${r.toFixed(0)},${g.toFixed(0)},${b.toFixed(0)})` +
+        `    compact tris=${p.tris.length} rgb(${r.toFixed(0)},${g.toFixed(0)},${b.toFixed(0)})` +
           ` x[${p.x[0].toFixed(2)},${p.x[1].toFixed(2)}] y[${p.y[0].toFixed(2)},${p.y[1].toFixed(2)}] z[${p.z[0].toFixed(2)},${p.z[1].toFixed(2)}]`,
       );
     }
-    return r - Math.max(g, b) > 30 && r > 120;
+  }
+
+  // The actual hydrant is a three-component cluster: its 120-triangle body,
+  // 40-triangle collar and 12-triangle cap. v2 mistook a separate 18-triangle
+  // cardboard box for the hydrant, which is why the screenshot still showed
+  // the hydrant and lost the box. Anchor on the distinctive body, then remove
+  // only the three co-located component signatures; never colour-match it.
+  const hydrantCores = partList.filter((p) => {
+    const spanX = p.x[1] - p.x[0];
+    const spanZ = p.z[1] - p.z[0];
+    const spanY = p.y[1] - p.y[0];
+    return (
+      p.tris.length === 120 &&
+      p.y[0] < 0.15 &&
+      p.y[1] < 0.25 &&
+      spanY > 0.05 &&
+      Math.max(spanX, spanZ) < 0.1
+    );
   });
+  const expectedHydrantCount = alreadyFixed ? 0 : expectedHydrants;
+  if (hydrantCores.length !== expectedHydrantCount) {
+    throw new Error(
+      `${id}: expected ${expectedHydrantCount} hydrant body component(s), found ${hydrantCores.length} — refusing to stamp`,
+    );
+  }
+
+  const componentCentre = (p, axis) => (p[axis][0] + p[axis][1]) / 2;
+  const clutter = partList.filter((p) =>
+    hydrantCores.some((core) => {
+      const dx = Math.abs(componentCentre(p, "x") - componentCentre(core, "x"));
+      const dz = Math.abs(componentCentre(p, "z") - componentCentre(core, "z"));
+      return (
+        (p.tris.length === 120 || p.tris.length === 40 || p.tris.length === 12) &&
+        p.y[0] < 0.2 &&
+        p.y[1] < 0.25 &&
+        dx < 0.04 &&
+        dz < 0.04
+      );
+    }),
+  );
+  if (clutter.length !== hydrantCores.length * 3) {
+    throw new Error(
+      `${id}: each hydrant body must resolve to exactly three geometry components; found ${clutter.length}`,
+    );
+  }
+
+  if (alreadyFixed) {
+    console.log(`${id}: verified no canopy or hydrant geometry remains`);
+    continue;
+  }
 
   const dropped = new Set(clutter.flatMap((p) => p.tris));
   if (awningPolicy === "delete") {

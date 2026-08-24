@@ -107,6 +107,8 @@ const WRONG_WAY_NEAR_M = 35;
 const WRONG_WAY_MIDBLOCK_MIN_M = 320;
 /** Shared-node tolerance, matching the map's 0.08 m authoring convention. */
 const NODE_EPSILON_M = 0.08;
+/** A post needs half a metre beyond the asphalt edge to read as kerbside. */
+const REGULATORY_SIGN_CARRIAGEWAY_CLEARANCE_M = 0.5;
 
 /**
  * Limit posts stand further in than mouth signs deliberately, so a SPEED LIMIT
@@ -183,6 +185,31 @@ interface LaneEnd {
 
 const nodeKey = (point: WorldPoint): string =>
   `${Math.round(point.x / NODE_EPSILON_M)}:${Math.round(point.z / NODE_EPSILON_M)}`;
+
+const distanceToPolyline = (
+  point: WorldPoint,
+  polyline: readonly WorldPoint[],
+): number => {
+  let best = Number.POSITIVE_INFINITY;
+  for (let index = 0; index + 1 < polyline.length; index += 1) {
+    const a = polyline[index];
+    const b = polyline[index + 1];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const lengthSq = dx * dx + dz * dz;
+    const t = lengthSq
+      ? Math.max(
+          0,
+          Math.min(1, ((point.x - a.x) * dx + (point.z - a.z) * dz) / lengthSq),
+        )
+      : 0;
+    best = Math.min(
+      best,
+      Math.hypot(point.x - (a.x + dx * t), point.z - (a.z + dz * t)),
+    );
+  }
+  return best;
+};
 
 /** Bearing octants, indexed the way the arm bucket counts them. */
 const COMPASS_POINTS = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
@@ -352,13 +379,26 @@ export function regulatorySignPlacements(
         suffix: string,
       ) => {
         for (const side of [-1, 1] as const) {
-          placements.push({
+          const candidate = {
             kind,
             x: node.position.x + arm.ux * distance + rx * lateral * side,
             z: node.position.z + arm.uz * distance + rz * lateral * side,
             flowHeadingRad,
             refId: `${nodeRef}:${suffix}:${side < 0 ? "l" : "r"}`,
-          });
+          } satisfies RegulatorySignPlacement;
+          // A short one-way block can put its 35 m WRONG WAY repeater almost
+          // on the next junction. Cairo's westbound Tahrir approach did just
+          // that: one member of the pair stood in the Corniche traffic lane.
+          // Keep any post that is genuinely kerbside, but omit a pair member
+          // whose centre falls on this or any crossing carriageway. Its mate
+          // remains to carry the warning on the clear side of the road.
+          const intrudesOnCarriageway = (input.roadSurfaces ?? []).some(
+            (surface) =>
+              surface.centerline &&
+              distanceToPolyline(candidate, surface.centerline) <
+                surface.widthM / 2 + REGULATORY_SIGN_CARRIAGEWAY_CLEARANCE_M,
+          );
+          if (!intrudesOnCarriageway) placements.push(candidate);
         }
       };
       if (arm.departing) {

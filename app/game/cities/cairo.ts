@@ -2517,10 +2517,18 @@ export const validateCairoClosureCandidate = (
   options?: {
     readonly sideContext?: RoadsideSideContext;
     readonly allowInflatedOverlapOwnerIds?: ReadonlySet<string>;
+    /**
+     * A reviewed replacement may occupy a source parcel that is known to be
+     * removed later by the rail carver. This does not waive overlap with any
+     * block that can reach the rendered map, and callers still have to prove
+     * the replacement itself survives the rail carver unchanged.
+     */
+    readonly allowSiblingOverlapBlockIds?: ReadonlySet<string>;
   },
 ): CairoClosureValidation => {
   const sideContext = options?.sideContext;
   const allowInflatedOverlapOwnerIds = options?.allowInflatedOverlapOwnerIds;
+  const allowSiblingOverlapBlockIds = options?.allowSiblingOverlapBlockIds;
   const parcel = orientedParcel(
     candidate.center,
     candidate.size,
@@ -2576,15 +2584,17 @@ export const validateCairoClosureCandidate = (
     candidate.headingDeg ?? 0,
   );
   if (
-    cairoBlocks.some((existing) =>
-      orientedParcelsOverlap(
-        parcelWithGap,
-        orientedParcel(
-          existing.center,
-          existing.size,
-          existing.headingDeg ?? 0,
+    cairoBlocks.some(
+      (existing) =>
+        !allowSiblingOverlapBlockIds?.has(existing.id) &&
+        orientedParcelsOverlap(
+          parcelWithGap,
+          orientedParcel(
+            existing.center,
+            existing.size,
+            existing.headingDeg ?? 0,
+          ),
         ),
-      ),
     )
   ) {
     return { valid: false, reason: "sibling-block" };
@@ -4589,6 +4599,151 @@ for (const gapBlock of CAIRO_MARKED_GAP_ASSET_BLOCKS) {
     );
   }
   addRoadClearBlock(gapBlock);
+}
+
+/**
+ * Five explicit rows in the owner-marked void south of the Imbaba line,
+ * between Corniche El Nil and Qasr El Ainy.
+ *
+ * `cairo-east-block-1-1` used to reserve this whole parcel as one deep,
+ * slightly rotated procedural block. The railway carver then removed that
+ * source block completely: its local long axis was unsuitable for splitting
+ * around the east-west railway, so the rendered map received none of it even
+ * though later infill still saw its nominal footprint as occupied. These
+ * replacements use only Cairo's existing west-bank/baladi asset set. Two run
+ * exactly east-west, parallel to the track; the short eastern row follows the
+ * local Qasr El Ainy bearing. Two additional one-building lots stitch the
+ * literal gaps in the north frontage of Garden City South, using that road's
+ * 2.12 degree bearing rather than floating another row inside the parcel.
+ * The insertion proof below permits overlap only
+ * with that known-to-be-erased source reservation and with the generous outer
+ * margin of Gabalaya Corner Shop, never the shop's real lot.
+ */
+const CAIRO_SOUTH_RAILSIDE_ERASED_SOURCE_ID = "cairo-east-block-1-1";
+const cairoSouthRailsideErasedSource = cairoBlocks.find(
+  (candidate) => candidate.id === CAIRO_SOUTH_RAILSIDE_ERASED_SOURCE_ID,
+);
+if (!cairoSouthRailsideErasedSource) {
+  throw new Error(
+    `cairo.ts: missing erased south-railside source ${CAIRO_SOUTH_RAILSIDE_ERASED_SOURCE_ID}`,
+  );
+}
+const cairoSouthRailsideSourceRailCheck = carveBlocksForRailCorridors(
+  [cairoSouthRailsideErasedSource],
+  CAIRO_RAIL_LINES,
+);
+if (
+  !cairoSouthRailsideSourceRailCheck.removedBlockIds.includes(
+    CAIRO_SOUTH_RAILSIDE_ERASED_SOURCE_ID,
+  ) ||
+  cairoSouthRailsideSourceRailCheck.blocks.length > 0
+) {
+  throw new Error(
+    `cairo.ts: south-railside replacement source ${CAIRO_SOUTH_RAILSIDE_ERASED_SOURCE_ID} is no longer erased by the rail carver`,
+  );
+}
+
+export const CAIRO_SOUTH_RAILSIDE_INFILL_BLOCKS: readonly ProceduralBlock[] = [
+  {
+    id: "cairo-south-railside-infill-track",
+    center: point(141, -743),
+    size: point(42, 13.5),
+    headingDeg: 0,
+    frontageAxis: "z",
+    streetEdges: ["+z"],
+    material: "cairo-brick-worn",
+    heightRange: [10, 28],
+    density: 0.82,
+    buildingSet: "cairo-westbank",
+    addressable: false,
+  },
+  {
+    id: "cairo-south-railside-infill-inner",
+    center: point(154, -792),
+    size: point(44, 13.5),
+    headingDeg: 0,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-render-grey",
+    heightRange: [10, 28],
+    density: 0.82,
+    buildingSet: "cairo-westbank",
+    addressable: false,
+  },
+  {
+    id: "cairo-south-railside-infill-qasr",
+    center: point(202, -793),
+    size: point(28, 13.5),
+    headingDeg: -93.09,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-brick",
+    heightRange: [10, 28],
+    density: 0.82,
+    buildingSet: "cairo-westbank",
+    addressable: false,
+  },
+  {
+    id: "cairo-south-railside-infill-garden-west",
+    center: point(137, -841),
+    size: point(10, 11.5),
+    headingDeg: 2.121,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-render-grey",
+    density: 0.82,
+    heightRange: [10, 28],
+    buildingSet: "cairo-westbank",
+    addressable: false,
+  },
+  {
+    id: "cairo-south-railside-infill-garden-east",
+    center: point(208, -841),
+    size: point(9, 11.5),
+    headingDeg: 2.121,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-brick-worn",
+    density: 0.82,
+    heightRange: [10, 28],
+    buildingSet: "cairo-westbank",
+    addressable: false,
+  },
+];
+
+const cairoSouthRailsideValidationOptions = {
+  allowInflatedOverlapOwnerIds: new Set(["cairo-venue-17"]),
+  allowSiblingOverlapBlockIds: new Set([
+    CAIRO_SOUTH_RAILSIDE_ERASED_SOURCE_ID,
+  ]),
+};
+
+for (const infill of CAIRO_SOUTH_RAILSIDE_INFILL_BLOCKS) {
+  const validation = validateCairoClosureCandidate(
+    infill,
+    cairoSouthRailsideValidationOptions,
+  );
+  if (!validation.valid) {
+    throw new Error(
+      `cairo.ts: south-railside infill ${infill.id} failed validation (${validation.reason})`,
+    );
+  }
+  const railCheck = carveBlocksForRailCorridors([infill], CAIRO_RAIL_LINES);
+  if (
+    railCheck.blocks.length !== 1 ||
+    railCheck.blocks[0].id !== infill.id ||
+    railCheck.removedBlockIds.length > 0 ||
+    railCheck.trimmedBlockIds.length > 0
+  ) {
+    throw new Error(
+      `cairo.ts: south-railside infill ${infill.id} reaches the Imbaba rail corridor`,
+    );
+  }
+  if (!addRoadClearBlock(infill)) {
+    throw new Error(
+      `cairo.ts: south-railside infill ${infill.id} reaches a road or scenic corridor`,
+    );
+  }
 }
 
 /**

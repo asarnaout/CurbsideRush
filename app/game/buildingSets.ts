@@ -132,7 +132,7 @@ const PLACEMENTS: Record<string, BuildingPlacementConfig> = {
   // buildingSetDepthM so promoting them cannot move a single parcel.
   "cairo-office-block": { scale: 3.6, groundY: 0.09, footprintM: 24.6, depthM: 9.8, frontOffset: Math.PI, roofY: 18.5 },
   "cairo-depot": { scale: 4, groundY: 0.07, footprintM: 27.4, depthM: 9.1, frontOffset: Math.PI, roofY: 10.9 },
-  // KayKit corner shop at its venue scale; models its own awning, no roofY.
+  // KayKit corner shop at its venue scale; no synthetic roof extension.
   "cairo-shop": { scale: 4, groundY: 0, footprintM: 8, frontOffset: Math.PI },
 
   // ---- London ----
