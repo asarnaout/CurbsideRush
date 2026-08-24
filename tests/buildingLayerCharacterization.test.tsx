@@ -481,8 +481,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // deterministic models carry roofY and therefore one clutter instance.
     // -> 1_010 / 356 (south Gezira riverfront accent): the single existing
     // Cairo four-storey asset carries one authored rooftop-clutter point.
-    buildingInstanceCount: 1_010,
-    cairoRoofClutterInstanceCount: 356,
+    // -> 1_336 / 505 (owner-marked land gaps): 239 small reviewed parcels
+    // plus ten safe in-place promotions use only Cairo's existing sets;
+    // clutter follows the authored roof points of the deterministic models.
+    buildingInstanceCount: 1_336,
+    cairoRoofClutterInstanceCount: 505,
     storefrontSignMaterialCount: 0,
   },
 };

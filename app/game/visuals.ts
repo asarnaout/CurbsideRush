@@ -1573,12 +1573,17 @@ export interface PromenadeDecorInput {
    * is dropped, so adding a building never leaves a palm or lamp inside it.
    */
   readonly buildingRects?: readonly PropScatterRect[];
+  /** Minimum distance from the exact water-polygon edge. Building avoidance
+   * may shift a station along a bending bank; this keeps that relocation off
+   * the shoreline parapet instead of relying on the original cross-section. */
+  readonly shorelineClearanceM?: number;
 }
 
 /** Extra clear metres a promenade piece keeps beyond a rail corridor's own
  * half-width — enough that a palm fan or lantern never overhangs the fence
  * line even at max prop scale. */
 export const PROMENADE_RAIL_CLEARANCE_M = 2;
+export const PROMENADE_SHORELINE_CLEARANCE_M = 2;
 
 /**
  * The corniche promenade: a signature tree line, lamps and benches on the
@@ -1607,6 +1612,10 @@ export function generatePromenadeDecor(
   const random = seededUnit(input.seed);
   const halfWorldX = input.worldSize.x / 2 - 4;
   const halfWorldZ = input.worldSize.z / 2 - 4;
+  const waterEdges = input.waterPolygons.map((polygon) =>
+    polygon.length > 0 ? [...polygon, polygon[0]] : polygon,
+  );
+  const shorelineClearanceM = input.shorelineClearanceM ?? 0;
   const STATION_M = 13;
   for (const surface of input.roadSurfaces) {
     const sides = input.openSides[surface.id];
@@ -1695,6 +1704,11 @@ export function generatePromenadeDecor(
                 z: baseZ + alongZ * shiftAlongM,
               }) &&
               !isOverWater(candidate, input.waterPolygons) &&
+              (!shorelineClearanceM ||
+                waterEdges.every(
+                  (edge) =>
+                    distanceToPolylineM(candidate, edge) >= shorelineClearanceM,
+                )) &&
               !input.railLines?.some(
                 (line) =>
                   distanceToPolylineM(candidate, line.points) <

@@ -35,6 +35,7 @@ import {
   generateRoadsidePropPlacements,
   hashStringToSeed,
   PAVED_SIDEWALK_WIDTH_M,
+  PROMENADE_SHORELINE_CLEARANCE_M,
   resolveMapVisualKey,
   type MapVisualKey,
   type MapVisualPalette,
@@ -279,6 +280,8 @@ export function buildRoadsideProps(
                 headingDeg: block.headingDeg,
               }))
             : undefined,
+        shorelineClearanceM:
+          key === "cairo" ? PROMENADE_SHORELINE_CLEARANCE_M : undefined,
       })
     : [];
   const roadsidePlacements = generateRoadsidePropPlacements({

@@ -14,6 +14,7 @@ import {
   generateRoadsidePropPlacements,
   hashStringToSeed,
   PAVED_SIDEWALK_WIDTH_M,
+  PROMENADE_SHORELINE_CLEARANCE_M,
   resolveMapVisualKey,
   resolveMapVisualPalette,
   type PropPlacement,
@@ -119,6 +120,8 @@ function scatterFor(mapPack: GameCanvasMapPack): readonly PropPlacement[] {
                   headingDeg: block.headingDeg,
                 }))
               : undefined,
+          shorelineClearanceM:
+            key === "cairo" ? PROMENADE_SHORELINE_CLEARANCE_M : undefined,
         })
       : [];
 

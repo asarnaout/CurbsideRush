@@ -599,14 +599,17 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // -> 19_787, "f2628a4c" (mosque + west-Bulaq widening): more parcels
     // on the facade grid, and the core list regenerated around the
     // landmark's exclusion.
-    drawCount: 19_787,
+    // -> 19_540, "80a99a63" (owner-marked land gaps): the ten safe
+    // in-place promotions leave the facade stream for existing Cairo GLBs;
+    // all 239 new one-edge parcels are asset-backed and never enter it.
+    drawCount: 19_540,
     // "f2628a4c" -> "e25257d5" (facade-chunk merging): the per-box meshes
     // merge into facade-chunk-* meshes post-preload, so the census hashes
     // chunk names and bounds now. drawCount — the actual seeded-stream
     // sensor — is untouched, and a planner draw-order regression still
     // surfaces through the chunks' bounds (a re-dealt box moves its
     // chunk's AABB).
-    facadeMeshFingerprint: "e25257d5",
+    facadeMeshFingerprint: "80a99a63",
   },
 };
 

@@ -10,6 +10,7 @@ import {
   hashStringToSeed,
   PAVED_SIDEWALK_WIDTH_M,
   PROMENADE_RAIL_CLEARANCE_M,
+  PROMENADE_SHORELINE_CLEARANCE_M,
   type VisualPoint,
 } from "../app/game/visuals";
 
@@ -176,6 +177,7 @@ describe("Cairo corniche parapet", () => {
       size: block.size,
       headingDeg: block.headingDeg,
     })),
+    shorelineClearanceM: PROMENADE_SHORELINE_CLEARANCE_M,
   };
   const decor = generatePromenadeDecor(promenadeInput);
 

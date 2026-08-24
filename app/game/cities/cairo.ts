@@ -1,7 +1,11 @@
 import { buildLaneTrueGeometry, CONNECTOR_BLEND_RUN_M } from "../laneConnectors";
 import { buildRailCrossingControl } from "./cityAuthoringHelpers";
 import { carveBlocksForRailCorridors } from "../geometry/railCorridor";
-import { buildingSetDepthM, isBuildingSetId } from "../buildingSets";
+import {
+  buildingSetDepthM,
+  isBuildingSetId,
+  type BuildingSetId,
+} from "../buildingSets";
 import { ROAD_DIVIDED_PARK_IDS } from "../parkLayouts";
 import { hashStringToSeed } from "../visuals";
 import type {
@@ -4045,6 +4049,132 @@ for (const [index, entry] of CAIRO_INTERIOR_CORES.entries()) {
 }
 
 /**
+ * Some of the owner's marked gaps already contain a procedural facade block:
+ * adding a second footprint there would overlap the existing building rather
+ * than close the visual gap. Promote those reviewed blocks to Cairo's existing
+ * GLB street-wall sets instead. Their footprints do not change, so all road,
+ * water, landmark, flyover and later rail clearances remain exactly the ones
+ * that admitted the original blocks.
+ *
+ * Interior cores name one edge explicitly because their 18-24 m depth is too
+ * shallow for two opposing asset rows. The large east district block has ample
+ * depth and deliberately keeps its four-edge street wall.
+ */
+export const CAIRO_MARKED_GAP_ASSET_PROMOTIONS: Readonly<
+  Record<string, { readonly marks: readonly number[]; readonly buildingSet: string; readonly streetEdges?: readonly ("+x" | "-x" | "+z" | "-z")[] }>
+> = {
+  "cairo-el-gabalaya-roadside-8-1-left-s1-s2": {
+    marks: [5],
+    buildingSet: "cairo-zamalek",
+  },
+  "cairo-qasr-el-nil-street-roadside-4-1-right-s2": {
+    marks: [12],
+    buildingSet: "cairo-downtown",
+  },
+  "cairo-core-84": {
+    marks: [15],
+    buildingSet: "cairo-zamalek",
+    streetEdges: ["+z"],
+  },
+  "cairo-dokki-nile-drive-roadside-3-2-left": {
+    marks: [16],
+    buildingSet: "cairo-westbank",
+  },
+  "cairo-dokki-nile-drive-roadside-4-1-left": {
+    marks: [16],
+    buildingSet: "cairo-westbank",
+  },
+  "cairo-east-block-3-2": {
+    marks: [17],
+    buildingSet: "cairo-westbank",
+  },
+  "cairo-core-98": {
+    marks: [20],
+    buildingSet: "cairo-zamalek",
+    streetEdges: ["+z"],
+  },
+  "cairo-dokki-nile-drive-roadside-2-1-left": {
+    marks: [25],
+    buildingSet: "cairo-westbank",
+  },
+  "cairo-garden-city-south-roadside-1-1-left-s2": {
+    marks: [28],
+    buildingSet: "cairo-westbank",
+  },
+  "cairo-garden-city-south-roadside-1-2-left-s1": {
+    marks: [28],
+    buildingSet: "cairo-westbank",
+  },
+};
+
+/** Marks whose red stroke landed on content that was already asset-backed, or
+ * on the narrow two-road Dokki strip whose existing four-sided procedural
+ * buildings are the only safe treatment. Kept explicit so all 31 marks remain
+ * accounted for even though these four need no additional footprint. */
+export const CAIRO_MARKED_GAP_EXISTING_COVERAGE: Readonly<
+  Record<number, { readonly blockIds: readonly string[]; readonly reason: "existing-assets" | "two-road-sliver" }>
+> = {
+  8: {
+    blockIds: [
+      "cairo-saray-el-gezira-roadside-8-1-right-s1-s2",
+      "cairo-saray-el-gezira-roadside-8-2-right-s1-s2",
+      "cairo-saray-el-gezira-roadside-8-g1-right",
+      "cairo-saray-el-gezira-roadside-8-g2-right",
+    ],
+    reason: "existing-assets",
+  },
+  9: {
+    blockIds: ["cairo-saray-el-gezira-roadside-6-2-right-s1-s2"],
+    reason: "existing-assets",
+  },
+  14: {
+    blockIds: [
+      "cairo-dokki-nile-drive-roadside-4-3-left-s1",
+      "cairo-dokki-nile-drive-roadside-4-3-left-s2-s1",
+    ],
+    reason: "existing-assets",
+  },
+  22: {
+    blockIds: [
+      "cairo-dokki-nile-drive-roadside-2-2-left",
+      "cairo-dokki-nile-drive-roadside-3-1-left",
+    ],
+    reason: "two-road-sliver",
+  },
+};
+
+for (const [blockId, promotion] of Object.entries(
+  CAIRO_MARKED_GAP_ASSET_PROMOTIONS,
+)) {
+  const index = cairoBlocks.findIndex((candidate) => candidate.id === blockId);
+  if (index < 0) {
+    throw new Error(
+      `cairo.ts: marked-gap asset promotion cannot find block ${blockId}`,
+    );
+  }
+  if (!isBuildingSetId(promotion.buildingSet)) {
+    throw new Error(
+      `cairo.ts: marked-gap asset promotion ${blockId} names unknown set ${promotion.buildingSet}`,
+    );
+  }
+  const existing = cairoBlocks[index];
+  const requiredDepthM = buildingSetDepthM(promotion.buildingSet) + 1.5;
+  if (existing.size.z + 1e-7 < requiredDepthM) {
+    throw new Error(
+      `cairo.ts: marked-gap asset promotion ${blockId} is ${existing.size.z.toFixed(1)} m deep; ${promotion.buildingSet} requires ${requiredDepthM.toFixed(1)} m`,
+    );
+  }
+  cairoBlocks[index] = {
+    ...existing,
+    buildingSet: promotion.buildingSet,
+    ...(promotion.streetEdges
+      ? { streetEdges: promotion.streetEdges }
+      : {}),
+    addressable: false,
+  };
+}
+
+/**
  * Spawn gates: the same freeze as the venue/service anchors above (see that
  * comment for why). The vehicle roles keep the old index arithmetic's
  * result — three dedicated patrol gates (7, 34, 58) so Cairo's police
@@ -4150,6 +4280,310 @@ const CAIRO_RAIL_LINES: readonly RailLine[] = [
     consist: { kind: "diesel_freight", cars: 5, liveryHex: "#24518f", accentHex: "#e0b23c" },
   },
 ];
+
+/**
+ * Asset-backed blocks placed in the buildable parts of the owner's 31 red
+ * review marks. These are deliberately small, usually one-building parcels:
+ * each passed the same road/water/landmark/flyover validator as Cairo's normal
+ * frontage, and the insertion loop below additionally proves the Imbaba rail
+ * carver leaves it byte-for-byte unchanged. Marks that already sat on an
+ * existing block are handled by CAIRO_MARKED_GAP_ASSET_PROMOTIONS instead;
+ * road, bridge, service and venue footprints remain protected.
+ */
+const markedGapAsset = (
+  mark: number,
+  index: number | string,
+  x: number,
+  z: number,
+  runM: number,
+  headingDeg: number,
+  streetEdge: "+z" | "-z",
+  buildingSet: BuildingSetId,
+): ProceduralBlock => {
+  const center = point(x, z);
+  const style = cairoRoadsideStyle(center);
+  return {
+    id: `cairo-marked-gap-${mark}-${index}`,
+    center,
+    size: point(runM, buildingSetDepthM(buildingSet) + 1.5),
+    headingDeg,
+    frontageAxis: "z",
+    streetEdges: [streetEdge],
+    material: style.material,
+    heightRange: style.heightRange,
+    density: 0.82,
+    buildingSet,
+    addressable: false,
+  };
+};
+
+export const CAIRO_MARKED_GAP_ASSET_BLOCKS: readonly ProceduralBlock[] = [
+  markedGapAsset(1, 1, 77.5, 216.3, 27.4, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, 2, 77.5, 272.3, 27.4, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, 3, 49.5, 328.3, 27.4, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, 4, 77.5, 356.3, 27.4, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, 5, 77.5, 384.3, 20.5, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, 6, 77.5, 440.3, 20.5, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, 7, 77.5, 468.3, 27.4, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, 8, 77.5, 496.3, 20.5, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, 9, 77.5, 552.3, 27.4, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, 10, 77.5, 580.3, 20.5, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, 11, 77.5, 664.3, 27.4, -88.92, "-z", "cairo-corniche"),
+  markedGapAsset(1, 12, 77.5, 692.3, 20.5, -88.92, "-z", "cairo-corniche"),
+  markedGapAsset(1, 13, 77.5, 748.3, 20.5, -88.92, "-z", "cairo-corniche"),
+  markedGapAsset(1, 14, 77.5, 776.3, 27.4, -88.92, "-z", "cairo-corniche"),
+  markedGapAsset(1, 15, 77.5, 804.3, 20.5, -88.92, "-z", "cairo-corniche"),
+  markedGapAsset(1, 16, 77.5, 860.3, 27.4, -88.92, "-z", "cairo-corniche"),
+  markedGapAsset(1, 17, 49.5, 888.3, 27.4, -88.92, "-z", "cairo-zamalek"),
+  markedGapAsset(1, 18, 77.5, 888.3, 20.5, -88.92, "-z", "cairo-corniche"),
+  markedGapAsset(1, 19, 105.5, 888.3, 27.4, -88.92, "-z", "cairo-corniche"),
+  markedGapAsset(2, 1, -672.3, 885.5, 27.4, 0, "-z", "cairo-westbank"),
+  markedGapAsset(2, 2, -644.3, 885.5, 20.5, 0, "-z", "cairo-westbank"),
+  markedGapAsset(2, 3, -616.3, 885.5, 27.4, 0, "-z", "cairo-westbank"),
+  markedGapAsset(3, 1, -433.2, 816.9, 27.4, -82.48, "-z", "cairo-corniche"),
+  markedGapAsset(3, 2, -433.2, 844.9, 20.5, -82.48, "-z", "cairo-corniche"),
+  markedGapAsset(3, 3, -433.2, 872.9, 27.4, -82.48, "-z", "cairo-corniche"),
+  markedGapAsset(4, 1, -607.4, 503.7, 27.4, -95.6, "+z", "cairo-corniche"),
+  markedGapAsset(4, 2, -607.4, 531.7, 20.5, -95.6, "+z", "cairo-corniche"),
+  markedGapAsset(4, 3, -607.4, 559.7, 27.4, -95.6, "+z", "cairo-corniche"),
+  markedGapAsset(4, 4, -607.4, 587.7, 20.5, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, 5, -607.4, 615.7, 27.4, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, 6, -607.4, 643.7, 20.5, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(6, 1, -100.9, 208, 20.5, -99.27, "+z", "cairo-corniche"),
+  markedGapAsset(6, 2, -100.9, 292, 20.5, -99.27, "+z", "cairo-corniche"),
+  markedGapAsset(6, 3, -100.9, 320, 14, -99.27, "+z", "cairo-corniche"),
+  markedGapAsset(6, 4, -100.9, 348, 27.4, -80.18, "+z", "cairo-corniche"),
+  markedGapAsset(6, 5, -100.9, 376, 20.5, -80.18, "+z", "cairo-corniche"),
+  markedGapAsset(6, 6, -100.9, 404, 27.4, -80.18, "+z", "cairo-corniche"),
+  markedGapAsset(6, 7, -100.9, 432, 20.5, -80.18, "+z", "cairo-corniche"),
+  markedGapAsset(6, 8, -100.9, 460, 27.4, -80.18, "+z", "cairo-corniche"),
+  markedGapAsset(7, 1, -706.8, 274.8, 14, -86.35, "-z", "cairo-westbank"),
+  markedGapAsset(7, 2, -678.8, 274.8, 20.5, -86.35, "-z", "cairo-corniche"),
+  markedGapAsset(7, 3, -650.8, 274.8, 27.4, -86.35, "-z", "cairo-corniche"),
+  markedGapAsset(7, 4, -762.8, 302.8, 27.4, -82.57, "+z", "cairo-westbank"),
+  markedGapAsset(7, 5, -734.8, 302.8, 27.4, -82.57, "+z", "cairo-westbank"),
+  markedGapAsset(7, 6, -706.8, 302.8, 20.5, -86.35, "-z", "cairo-westbank"),
+  markedGapAsset(7, 7, -678.8, 302.8, 14, -86.35, "-z", "cairo-corniche"),
+  markedGapAsset(7, 8, -762.8, 358.8, 27.4, -95.6, "+z", "cairo-westbank"),
+  markedGapAsset(7, 9, -734.8, 358.8, 27.4, -95.6, "+z", "cairo-westbank"),
+  markedGapAsset(7, 10, -706.8, 358.8, 27.4, -95.6, "-z", "cairo-westbank"),
+  markedGapAsset(7, 11, -678.8, 358.8, 27.4, -95.6, "-z", "cairo-corniche"),
+  markedGapAsset(10, 1, -584, -33.5, 14, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(10, 2, -584, -5.5, 27.4, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(11, 1, -384.9, -359.4, 27.4, -101.56, "-z", "cairo-zamalek"),
+  markedGapAsset(11, 2, -440.9, -275.4, 27.4, -81.24, "-z", "cairo-corniche"),
+  markedGapAsset(11, 3, -440.9, -247.4, 20.5, -81.24, "-z", "cairo-corniche"),
+  markedGapAsset(11, 4, -440.9, -219.4, 27.4, -81.24, "-z", "cairo-corniche"),
+  markedGapAsset(11, 5, -440.9, -191.4, 20.5, -81.24, "-z", "cairo-corniche"),
+  markedGapAsset(11, 6, -440.9, -163.4, 20.5, -99.95, "-z", "cairo-corniche"),
+  markedGapAsset(11, 7, -440.9, -135.4, 27.4, -99.95, "-z", "cairo-corniche"),
+  markedGapAsset(11, 8, -440.9, -107.4, 20.5, -99.95, "-z", "cairo-corniche"),
+  markedGapAsset(11, 9, -440.9, -79.4, 27.4, -99.95, "-z", "cairo-corniche"),
+  markedGapAsset(13, 1, 51.1, -278.5, 27.4, -87.64, "-z", "cairo-corniche"),
+  markedGapAsset(18, 1, -721.5, -360.6, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(18, 2, -693.5, -360.6, 27.4, 0, "-z", "cairo-westbank"),
+  markedGapAsset(18, 3, -665.5, -360.6, 20.5, 0, "-z", "cairo-westbank"),
+  markedGapAsset(19, 1, -101.8, -641.8, 27.4, -98.84, "+z", "cairo-corniche"),
+  markedGapAsset(19, 2, -101.8, -613.8, 14, -78.44, "+z", "cairo-corniche"),
+  markedGapAsset(19, 3, -101.8, -585.8, 27.4, -78.44, "+z", "cairo-corniche"),
+  markedGapAsset(19, 4, -101.8, -557.8, 20.5, -78.44, "+z", "cairo-corniche"),
+  markedGapAsset(19, 5, -101.8, -529.8, 27.4, -78.44, "+z", "cairo-corniche"),
+  markedGapAsset(19, 6, -101.8, -501.8, 20.5, -78.44, "+z", "cairo-corniche"),
+  markedGapAsset(19, 7, -129.8, -417.8, 14, -2.49, "+z", "cairo-zamalek"),
+  markedGapAsset(21, 1, -437.8, -748.9, 27.4, -80.96, "-z", "cairo-corniche"),
+  markedGapAsset(21, 2, -297.8, -664.9, 27.4, -101.31, "-z", "cairo-westbank"),
+  markedGapAsset(21, 3, -437.8, -636.9, 27.4, -80.96, "-z", "cairo-corniche"),
+  markedGapAsset(21, 4, -297.8, -636.9, 10, 4.76, "+z", "cairo-zamalek"),
+  markedGapAsset(21, 5, -437.8, -608.9, 14, -100.81, "-z", "cairo-corniche"),
+  markedGapAsset(21, 6, -297.8, -608.9, 10, 4.76, "-z", "cairo-zamalek"),
+  markedGapAsset(21, 7, -437.8, -580.9, 27.4, -100.81, "-z", "cairo-corniche"),
+  markedGapAsset(21, 8, -297.8, -580.9, 14, -77.2, "-z", "cairo-zamalek"),
+  markedGapAsset(21, 9, -437.8, -552.9, 20.5, -100.81, "-z", "cairo-corniche"),
+  markedGapAsset(23, 1, 76, -875.4, 27.4, -92.94, "-z", "cairo-corniche"),
+  markedGapAsset(23, 2, 76, -847.4, 20.5, -92.94, "-z", "cairo-corniche"),
+  markedGapAsset(23, 3, 76, -819.4, 27.4, -92.94, "-z", "cairo-corniche"),
+  markedGapAsset(23, 4, 76, -735.4, 14, -92.94, "-z", "cairo-corniche"),
+  markedGapAsset(23, 5, 76, -679.4, 27.4, -92.94, "-z", "cairo-corniche"),
+  markedGapAsset(24, 1, -787.4, -744.3, 27.4, 0, "-z", "cairo-westbank"),
+  markedGapAsset(24, 2, -675.4, -744.3, 27.4, 0, "-z", "cairo-westbank"),
+  markedGapAsset(24, 3, -759.4, -688.3, 27.4, -85.03, "+z", "cairo-westbank"),
+  markedGapAsset(24, 4, -731.4, -688.3, 27.4, 0, "+z", "cairo-westbank"),
+  markedGapAsset(24, 5, -703.4, -688.3, 20.5, 0, "+z", "cairo-westbank"),
+  markedGapAsset(24, 6, -787.4, -660.3, 27.4, -85.03, "+z", "cairo-westbank"),
+  markedGapAsset(24, 7, -759.4, -660.3, 27.4, 0, "+z", "cairo-westbank"),
+  markedGapAsset(24, 8, -675.4, -660.3, 27.4, 0, "+z", "cairo-westbank"),
+  markedGapAsset(24, 9, -647.4, -660.3, 20.5, -86.27, "-z", "cairo-corniche"),
+  markedGapAsset(26, 1, 367.7, -736.3, 14, -104.04, "-z", "cairo-westbank"),
+  markedGapAsset(27, 1, -444, -901.5, 14, -80.96, "-z", "cairo-corniche"),
+  markedGapAsset(27, 2, -416, -901.5, 27.4, -6.71, "+z", "cairo-westbank"),
+  markedGapAsset(27, 3, -444, -873.5, 27.4, -80.96, "-z", "cairo-corniche"),
+  markedGapAsset(27, 4, -444, -789.5, 27.4, -80.96, "-z", "cairo-corniche"),
+  markedGapAsset(29, 1, -395.1, -900, 10, -6.71, "+z", "cairo-westbank"),
+  markedGapAsset(29, 2, -367.1, -900, 27.4, -6.71, "+z", "cairo-westbank"),
+  markedGapAsset(29, 3, -423.1, -872, 10, -6.71, "+z", "cairo-westbank"),
+  markedGapAsset(30, 1, -858.5, -901.5, 14, -85.03, "-z", "cairo-westbank"),
+  markedGapAsset(30, 2, -830.5, -901.5, 27.4, 0, "+z", "cairo-westbank"),
+  markedGapAsset(30, 3, -802.5, -901.5, 20.5, 0, "+z", "cairo-westbank"),
+  markedGapAsset(30, 4, -830.5, -873.5, 27.4, 0, "+z", "cairo-westbank"),
+  markedGapAsset(31, 1, -190.8, -893.8, 27.4, -2.6, "+z", "cairo-westbank"),
+  markedGapAsset(31, 2, -162.8, -893.8, 20.5, -2.6, "+z", "cairo-westbank"),
+  markedGapAsset(31, 3, -134.8, -893.8, 27.4, -2.6, "+z", "cairo-westbank"),
+  markedGapAsset(31, 4, -106.8, -893.8, 27.4, -98.84, "+z", "cairo-corniche"),
+  markedGapAsset(31, 5, -106.8, -865.8, 20.5, -98.84, "+z", "cairo-corniche"),
+  // Denser reviewed pass: these small parcels close the remaining visible
+  // land-side holes along the Corniche and in the marked block corners.
+  markedGapAsset(1, "dense-1", 65, 36, 12, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-2", 65, 96, 12, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-3", 65, 120, 12, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-4", 65, 144, 12, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-5", 53, 216, 12, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-6", 53, 264, 12, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-7", 53, 288, 12, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-8", 53, 360, 12, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-9", 53, 384, 12, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-10", 53, 408, 12, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-11", 65, 600, 12, -88.88, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-12", 65, 720, 12, -88.92, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-13", 65, 828, 12, -88.92, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-14", 53, 864, 10, -88.92, "-z", "cairo-zamalek"),
+  markedGapAsset(2, "dense-1", -664, 809, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(2, "dense-2", -652, 809, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(2, "dense-3", -592, 809, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(2, "dense-4", -628, 833, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(2, "dense-5", -592, 833, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(2, "dense-6", -592, 857, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(2, "dense-7", -604, 869, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(2, "dense-8", -592, 881, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(3, "dense-1", -445, 721, 12, -82.48, "-z", "cairo-corniche"),
+  markedGapAsset(3, "dense-2", -445, 745, 12, -82.48, "-z", "cairo-corniche"),
+  markedGapAsset(3, "dense-3", -445, 769, 12, -82.48, "-z", "cairo-corniche"),
+  markedGapAsset(3, "dense-4", -445, 793, 12, -82.48, "-z", "cairo-corniche"),
+  markedGapAsset(3, "dense-5", -457, 865, 12, -82.48, "-z", "cairo-corniche"),
+  markedGapAsset(4, "dense-1", -603, 456, 12, -95.6, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-2", -603, 480, 12, -95.6, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-3", -591, 660, 12, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-4", -603, 684, 12, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-5", -603, 708, 12, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-6", -591, 732, 12, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-7", -591, 756, 12, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-8", -591, 780, 12, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(6, "dense-1", -89, 512, 12, -80.18, "+z", "cairo-corniche"),
+  markedGapAsset(6, "dense-2", -149, 536, 12, -80.18, "+z", "cairo-corniche"),
+  markedGapAsset(6, "dense-3", -89, 536, 12, -80.18, "+z", "cairo-corniche"),
+  markedGapAsset(7, "dense-1", -771, 283, 10, -82.57, "+z", "cairo-westbank"),
+  markedGapAsset(7, "dense-2", -747, 283, 10, -82.57, "+z", "cairo-westbank"),
+  markedGapAsset(7, "dense-3", -639, 343, 12, -95.6, "-z", "cairo-corniche"),
+  markedGapAsset(7, "dense-4", -771, 379, 10, -95.6, "+z", "cairo-westbank"),
+  markedGapAsset(7, "dense-5", -687, 379, 12, -95.6, "-z", "cairo-corniche"),
+  markedGapAsset(7, "dense-6", -783, 451, 10, -95.6, "+z", "cairo-westbank"),
+  markedGapAsset(8, "dense-1", -458, 355, 12, -93.8141, "+z", "cairo-corniche"),
+  markedGapAsset(8, "dense-2", -458, 379, 12, -93.8141, "+z", "cairo-corniche"),
+  markedGapAsset(9, "dense-1", -456, 212, 12, -85.4261, "+z", "cairo-corniche"),
+  markedGapAsset(9, "dense-2", -456, 236, 12, -85.4261, "+z", "cairo-corniche"),
+  markedGapAsset(9, "dense-3", -456, 260, 12, -85.4261, "+z", "cairo-corniche"),
+  markedGapAsset(10, "dense-1", -596, 18, 12, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(10, "dense-2", -596, 42, 12, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(10, "dense-3", -596, 66, 12, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(10, "dense-4", -596, 90, 12, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(10, "dense-5", -596, 114, 12, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(10, "dense-6", -596, 138, 12, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(10, "dense-7", -596, 162, 12, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(10, "dense-8", -596, 186, 12, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(10, "dense-9", -596, 210, 12, -95.95, "+z", "cairo-corniche"),
+  markedGapAsset(11, "dense-1", -453, -352, 10, -101.56, "-z", "cairo-zamalek"),
+  markedGapAsset(11, "dense-2", -453, -328, 12, -81.24, "-z", "cairo-corniche"),
+  markedGapAsset(11, "dense-3", -453, -304, 12, -81.24, "-z", "cairo-corniche"),
+  markedGapAsset(13, "dense-1", 199, -271, 12, -87.64, "-z", "cairo-corniche"),
+  markedGapAsset(13, "dense-2", 175, -151, 12, -87.64, "-z", "cairo-corniche"),
+  markedGapAsset(13, "dense-3", 199, -151, 12, -87.64, "-z", "cairo-corniche"),
+  markedGapAsset(16, "dense-1", -584, -652, 10, -96.2034, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-2", -584, -628, 10, -96.2034, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-3", -584, -604, 10, -96.2034, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-4", -584, -580, 10, -96.2034, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-5", -596, -556, 10, -96.2034, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-6", -596, -484, 10, -96.2034, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-7", -596, -460, 10, -96.2034, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-8", -608, -436, 10, -96.2034, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-10", -608, -400, 10, -96.2034, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-11", -608, -376, 10, -82.875, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-12", -608, -352, 10, -82.875, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-13", -596, -304, 10, -82.875, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-14", -596, -280, 10, -82.875, "-z", "cairo-westbank"),
+  markedGapAsset(16, "dense-15", -596, -256, 10, -82.875, "-z", "cairo-westbank"),
+  markedGapAsset(17, "dense-1", 358, -485, 10, -5.5, "-z", "cairo-westbank"),
+  markedGapAsset(17, "dense-2", 286, -473, 10, -5.5, "-z", "cairo-westbank"),
+  markedGapAsset(17, "dense-3", 310, -425, 10, -5.5, "-z", "cairo-westbank"),
+  markedGapAsset(17, "dense-4", 298, -401, 10, -5.5, "-z", "cairo-westbank"),
+  markedGapAsset(18, "dense-1", -714, -425, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(18, "dense-2", -702, -425, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(18, "dense-3", -690, -425, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(18, "dense-4", -678, -425, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(18, "dense-5", -666, -425, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(19, "dense-1", -124, -662, 12, -98.84, "+z", "cairo-corniche"),
+  markedGapAsset(19, "dense-2", -124, -638, 12, -98.84, "+z", "cairo-corniche"),
+  markedGapAsset(19, "dense-3", -124, -614, 12, -78.44, "+z", "cairo-corniche"),
+  markedGapAsset(19, "dense-4", -100, -482, 12, -78.44, "+z", "cairo-corniche"),
+  markedGapAsset(19, "dense-5", -160, -470, 10, -2.49, "+z", "cairo-zamalek"),
+  markedGapAsset(19, "dense-6", -160, -446, 10, -2.49, "+z", "cairo-zamalek"),
+  markedGapAsset(20, "dense-1", 55, -523, 10, -92.6, "+z", "cairo-zamalek"),
+  markedGapAsset(20, "dense-2", 67, -511, 10, -92.6, "+z", "cairo-zamalek"),
+  markedGapAsset(20, "dense-3", 55, -487, 10, -92.6, "+z", "cairo-zamalek"),
+  markedGapAsset(20, "dense-4", 67, -475, 10, -92.6, "+z", "cairo-zamalek"),
+  markedGapAsset(21, "dense-1", -330, -733, 10, -101.31, "-z", "cairo-westbank"),
+  markedGapAsset(21, "dense-2", -294, -685, 10, -101.31, "-z", "cairo-westbank"),
+  markedGapAsset(21, "dense-3", -450, -661, 12, -80.96, "-z", "cairo-corniche"),
+  markedGapAsset(21, "dense-4", -426, -661, 12, -80.96, "-z", "cairo-corniche"),
+  markedGapAsset(21, "dense-5", -318, -589, 10, -77.2, "-z", "cairo-zamalek"),
+  markedGapAsset(21, "dense-6", -450, -493, 12, -100.81, "-z", "cairo-corniche"),
+  markedGapAsset(23, "dense-1", 53, -867, 12, -92.94, "-z", "cairo-corniche"),
+  markedGapAsset(23, "dense-2", 53, -843, 12, -92.94, "-z", "cairo-corniche"),
+  markedGapAsset(23, "dense-3", 53, -819, 12, -92.94, "-z", "cairo-corniche"),
+  markedGapAsset(23, "dense-4", 65, -651, 12, -92.94, "-z", "cairo-corniche"),
+  markedGapAsset(23, "dense-5", 65, -627, 12, -92.94, "-z", "cairo-corniche"),
+  markedGapAsset(24, "dense-1", -699, -752, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(24, "dense-2", -651, -752, 10, 0, "-z", "cairo-westbank"),
+  markedGapAsset(24, "dense-3", -735, -704, 10, 0, "+z", "cairo-westbank"),
+  markedGapAsset(24, "dense-4", -723, -704, 10, 0, "+z", "cairo-westbank"),
+  markedGapAsset(24, "dense-5", -711, -704, 10, 0, "+z", "cairo-westbank"),
+  markedGapAsset(24, "dense-6", -699, -704, 10, 0, "+z", "cairo-westbank"),
+  markedGapAsset(24, "dense-7", -687, -704, 10, 0, "+z", "cairo-westbank"),
+  markedGapAsset(24, "dense-8", -687, -680, 10, 0, "+z", "cairo-westbank"),
+  markedGapAsset(25, "dense-1", -595, -844, 10, -86.2686, "-z", "cairo-westbank"),
+  markedGapAsset(25, "dense-2", -595, -820, 10, -86.2686, "-z", "cairo-westbank"),
+  markedGapAsset(25, "dense-3", -595, -796, 10, -86.2686, "-z", "cairo-westbank"),
+  markedGapAsset(25, "dense-4", -595, -772, 10, -86.2686, "-z", "cairo-westbank"),
+  markedGapAsset(25, "dense-5", -595, -748, 10, -86.2686, "-z", "cairo-westbank"),
+  markedGapAsset(27, "dense-1", -456, -846, 12, -80.96, "-z", "cairo-corniche"),
+  markedGapAsset(27, "dense-2", -456, -822, 12, -80.96, "-z", "cairo-corniche"),
+  markedGapAsset(29, "dense-1", -355, -868, 10, -6.71, "+z", "cairo-westbank"),
+  markedGapAsset(30, "dense-1", -803, -882, 10, 0, "+z", "cairo-westbank"),
+  markedGapAsset(30, "dense-2", -851, -870, 10, 0, "+z", "cairo-westbank"),
+  markedGapAsset(30, "dense-3", -815, -834, 10, 0, "+z", "cairo-westbank"),
+];
+
+for (const gapBlock of CAIRO_MARKED_GAP_ASSET_BLOCKS) {
+  const validation = validateCairoClosureCandidate(gapBlock);
+  if (!validation.valid) {
+    throw new Error(
+      `cairo.ts: marked-gap asset block ${gapBlock.id} failed validation (${validation.reason})`,
+    );
+  }
+  const railCheck = carveBlocksForRailCorridors(
+    [gapBlock],
+    CAIRO_RAIL_LINES,
+  );
+  if (
+    railCheck.blocks.length !== 1 ||
+    railCheck.blocks[0].id !== gapBlock.id ||
+    railCheck.removedBlockIds.length > 0 ||
+    railCheck.trimmedBlockIds.length > 0
+  ) {
+    throw new Error(
+      `cairo.ts: marked-gap asset block ${gapBlock.id} reaches the Imbaba rail corridor`,
+    );
+  }
+  addRoadClearBlock(gapBlock);
+}
 
 /**
  * Sparse buildings on the river side of the east-bank Corniche.

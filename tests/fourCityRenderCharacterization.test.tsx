@@ -1403,9 +1403,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // their kerb slots before scatter. As with Tokyo, this all-glbs-unavailable
     // characterization sees only the 101 conflicting prop meshes removed;
     // the real preload adds one merged-master car instance for every plan row.
-    totalMeshes: 13_597,
-    enabledMeshes: 13_553,
-    activeMeshes: 898,
+    // -> 13_874/13_830 (active 915; owner-marked land gaps): 326 exact
+    // proxy buildings land in the 239 new parcels and ten promotions while
+    // their occupancy displaces 37 scatter meshes. The shoreline-clearance
+    // guard drops four three-mesh promenade props that could not relocate
+    // clear of the parapet. Seventeen proxies enter the fixed camera frustum.
+    totalMeshes: 13_874,
+    enabledMeshes: 13_830,
+    activeMeshes: 915,
     materials: 246,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1421,8 +1426,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // holds near the spawn.
     // 220 -> 97 / 149 -> 147 (facade-chunk merging): the ring holds a few
     // chunks where it held hundreds of boxes.
-    mirrorCandidates: 97,
-    mirrorDrawn: 147,
+    // -> 93 / 142: the same new occupancy re-deals the fixed mirror ring.
+    mirrorCandidates: 93,
+    mirrorDrawn: 142,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,

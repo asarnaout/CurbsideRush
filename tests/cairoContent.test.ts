@@ -118,7 +118,12 @@ import type {
 // Nile-view gaps.
 // -> 1253/922/465 (south Gezira riverfront accent): one Cairo mid-rise fills
 // the photographed empty bay between South Gezira Road and Saleh Selim Street.
-const BLOCK_COUNT = 1253;
+// -> 1492/922/465 (owner-marked gap passes): 239 reviewed, asset-backed
+// one-edge blocks fill the buildable portions of the 31 red review marks.
+// Existing marked procedural footprints are promoted in place, so they do
+// not change this block count; roads, water, the flyover and rail corridor
+// reject candidates before insertion.
+const BLOCK_COUNT = 1492;
 const ROADSIDE_COUNT = 922;
 const ROADSIDE_LEFT = 465;
 /** The second rank is gone — a one-sided kit means a back row can only stare
@@ -134,7 +139,10 @@ const ROADSIDE_RANKS = 0;
 // parcels in six (west bank three in six) from the glb wall — the boxes
 // ARE the architecture there, and the imported kit retreats to the
 // polished centre where it belongs.
-const STREET_WALL_BLOCKS = 421;
+// -> 670 (owner-marked gaps): 239 new asset blocks plus ten safe in-place
+// promotions from facade boxes; four other proposed promotions stay boxes
+// because the one-sided GLB backs would crowd a second road.
+const STREET_WALL_BLOCKS = 670;
 // 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6) -> 1716 (Section
 // 12.7): the five cairo-west-nile-street-mid-land-edge-wall-* closures
 // have no buildingSet either, same formula, 5 blocks * 9 = 45 more.
@@ -147,7 +155,9 @@ const STREET_WALL_BLOCKS = 421;
 // 2601 -> 4659 (interior cores): 294 cores x round(3 + 0.5 * 7) = 7 cells.
 // -> 6_569 (baladi rezoning): the glb holdback flip moves ~215 strips onto
 // the facade grid.
-const FACADE_BOX_CELLS = 6894;
+// -> 6809 (owner-marked gaps): the ten safe in-place asset promotions retire
+// 85 deterministic facade-grid cells without changing their footprints.
+const FACADE_BOX_CELLS = 6809;
 
 const lengthOf = (points: readonly WorldPoint[]): number =>
   points.slice(1).reduce(
@@ -1954,13 +1964,15 @@ describe("Cairo Central Nile content", () => {
     expect(replay).toEqual(first);
     // Issue #142's deterministic local-traffic window intentionally changes
     // Cairo's ambient placement while preserving this replay's determinism.
-    expect(first.hash).toBe("b4b3f7fd");
+    // The marked building obstacles intentionally change Cairo's deterministic
+    // local traffic trace while preserving repeatability.
+    expect(first.hash).toBe("917eab22");
     expect(first.snapshot).toMatchObject({
       tick: 1_800,
       status: "running",
-      queuedNpcCount: 17,
+      queuedNpcCount: 13,
     });
-    expect(first.snapshot.npcs).toHaveLength(15);
+    expect(first.snapshot.npcs).toHaveLength(19);
   });
 
   it("matches the committed frozen OSM provenance and content checksum", async () => {
