@@ -1,13 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VertexData } from "@babylonjs/core";
 import {
+  MOUSE_LOOK_HALF_TURN_PX,
+  MOUSE_LOOK_MAX_PITCH_OFFSET_RAD,
+  MOUSE_LOOK_MAX_YAW_RAD,
   NpcVisualSlotAssignmentResolver,
   TickIndexedInputReplay,
+  pointerMouseLookAngles,
+  pointerLookSource,
+  pointerTouchQuickLookValue,
   removeOwnedDebugHooks,
+  resolveChaseCameraDistanceFromWheel,
   resolveNpcVisualSlotAssignments,
 } from "../app/game/render/babylonGameSession";
 import {
   AdaptiveInputRouter,
+  COCKPIT_LOOK_MAX_PITCH_RAD,
+  COCKPIT_LOOK_MIN_PITCH_RAD,
   INPUT_PROMPT_SWITCH_COOLDOWN_MS,
   TOUCH_CONTROL_DIM_DELAY_MS,
   isCameraStackActive,
@@ -32,6 +41,38 @@ import {
   resolveCockpitSteeringGeometry,
   resolveSteeringWheelSpin,
 } from "../app/game/cockpitLayout";
+
+describe("pointer camera look", () => {
+  it("accepts touch and the mouse secondary button, but not a primary click", () => {
+    expect(pointerLookSource("touch", 0)).toBe("touch");
+    expect(pointerLookSource("mouse", 2)).toBe("mouse");
+    expect(pointerLookSource("mouse", 0)).toBeNull();
+    expect(pointerLookSource("pen", 2)).toBeNull();
+  });
+
+  it("maps a desktop drag across both axes and preserves touch's existing reach", () => {
+    const look = pointerMouseLookAngles(MOUSE_LOOK_HALF_TURN_PX / 2, -90);
+    expect(look.yawRad).toBeCloseTo(Math.PI / 2);
+    expect(look.pitchRad).toBeCloseTo(-Math.PI / 6);
+    expect(MOUSE_LOOK_HALF_TURN_PX).toBe(540);
+    expect(pointerTouchQuickLookValue(90)).toBe(1);
+  });
+
+  it("clamps a drag that continues beyond either look edge", () => {
+    expect(pointerMouseLookAngles(10_000, 10_000)).toEqual({
+      yawRad: MOUSE_LOOK_MAX_YAW_RAD,
+      pitchRad: MOUSE_LOOK_MAX_PITCH_OFFSET_RAD,
+    });
+    expect(pointerTouchQuickLookValue(-10_000)).toBe(-1);
+  });
+
+  it("dollies chase distance proportionally and clamps both zoom limits", () => {
+    expect(resolveChaseCameraDistanceFromWheel(10.5, 50)).toBeCloseTo(11);
+    expect(resolveChaseCameraDistanceFromWheel(10.5, -50)).toBeCloseTo(10);
+    expect(resolveChaseCameraDistanceFromWheel(23.8, 1_000)).toBe(24);
+    expect(resolveChaseCameraDistanceFromWheel(7.2, -1_000)).toBe(7);
+  });
+});
 
 describe("authoritative NPC visual slots", () => {
   it("preserves live ids regardless of snapshot order", () => {
@@ -417,6 +458,32 @@ describe("cockpit camera tracking", () => {
     expect(pose.rear.x).toBeCloseTo(11.48);
     expect(pose.rear.rotationX).toBeCloseTo(0.04);
     expect(pose.rear.rotationY).toBeCloseTo(Math.PI / 2 + 0.1 + Math.PI);
+  });
+
+  it("allows vertical cockpit look without turning through the roof or seat", () => {
+    const lookUp = resolveCockpitCameraPoses({
+      x: 0,
+      z: 0,
+      vehicleHeading: 0,
+      cameraHeading: 0,
+      seatSide: -0.46,
+      headBob: 0,
+      quickLookAngle: 0,
+      lookPitchAngle: -10,
+    });
+    const lookDown = resolveCockpitCameraPoses({
+      x: 0,
+      z: 0,
+      vehicleHeading: 0,
+      cameraHeading: 0,
+      seatSide: -0.46,
+      headBob: 0,
+      quickLookAngle: 0,
+      lookPitchAngle: 10,
+    });
+
+    expect(lookUp.first.rotationX).toBe(COCKPIT_LOOK_MIN_PITCH_RAD);
+    expect(lookDown.first.rotationX).toBe(COCKPIT_LOOK_MAX_PITCH_RAD);
   });
 
   it("keeps the saved cockpit FOV within the supported horizontal range", () => {

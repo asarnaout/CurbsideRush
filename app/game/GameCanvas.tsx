@@ -544,7 +544,17 @@ export function GameCanvas({
               zIndex: DRIVE_LAYER.action,
             }}
           >
-            <div style={{ ...glassPanelStyle, padding: "24px 28px", borderRadius: 20, textAlign: "center", fontFamily: "system-ui" }}>
+            <div
+              style={{
+                ...glassPanelStyle,
+                width: "min(430px, calc(100% - 32px))",
+                boxSizing: "border-box",
+                padding: "24px 28px",
+                borderRadius: 20,
+                textAlign: "center",
+                fontFamily: "system-ui",
+              }}
+            >
               <strong style={{ display: "block", marginBottom: 6, fontSize: 24 }}>Paused</strong>
               <span style={{ display: "block", marginBottom: 8, opacity: 0.9, fontSize: 13 }}>{hud.instruction}</span>
               <span style={{ display: "block", marginBottom: 18, opacity: 0.62, fontSize: 11 }}>Inputs have been cleared for safety.</span>

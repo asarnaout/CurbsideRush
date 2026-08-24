@@ -17,6 +17,8 @@ import type { CameraMode } from "./sessionContract";
 
 export const INPUT_PROMPT_SWITCH_COOLDOWN_MS = 750;
 export const TOUCH_CONTROL_DIM_DELAY_MS = 1_500;
+export const COCKPIT_LOOK_MIN_PITCH_RAD = (-26 * Math.PI) / 180;
+export const COCKPIT_LOOK_MAX_PITCH_RAD = (37 * Math.PI) / 180;
 
 export interface AdaptiveInputPresentation {
   readonly activeFamily: InputFamily;
@@ -71,6 +73,7 @@ export function resolveCockpitCameraPoses({
   seatSide,
   headBob,
   quickLookAngle,
+  lookPitchAngle = 0,
   viewportAspectRatio = 2,
 }: {
   readonly x: number;
@@ -80,18 +83,24 @@ export function resolveCockpitCameraPoses({
   readonly seatSide: number;
   readonly headBob: number;
   readonly quickLookAngle: number;
+  readonly lookPitchAngle?: number;
   readonly viewportAspectRatio?: number;
 }): CockpitCameraPoses {
   const forwardX = Math.sin(vehicleHeading);
   const forwardZ = Math.cos(vehicleHeading);
   const rightX = forwardZ;
   const rightZ = -forwardX;
+  const authoredPitch = resolveCockpitPitch(viewportAspectRatio);
+  const lookPitch = Math.min(
+    COCKPIT_LOOK_MAX_PITCH_RAD,
+    Math.max(COCKPIT_LOOK_MIN_PITCH_RAD, authoredPitch + lookPitchAngle),
+  );
   return {
     first: {
       x: x + rightX * seatSide - forwardX * 0.6,
       y: 1.49 + headBob,
       z: z + rightZ * seatSide - forwardZ * 0.6,
-      rotationX: resolveCockpitPitch(viewportAspectRatio),
+      rotationX: lookPitch,
       rotationY: cameraHeading + quickLookAngle,
     },
     rear: {

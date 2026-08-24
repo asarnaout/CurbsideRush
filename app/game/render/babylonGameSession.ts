@@ -182,9 +182,19 @@ import { WATER_BOAT_MODEL_URLS } from "../geometry/waterGeometry";
 import { stagedBlockersOf } from "../geometry/facadesAndKeepouts";
 import { resolveWorldGroundBounds } from "../geometry/worldGround";
 import {
+  CHASE_CAMERA_MAX_DISTANCE_M,
+  CHASE_CAMERA_MAX_ELEVATION_RAD,
+  CHASE_CAMERA_MIN_DISTANCE_M,
+  CHASE_CAMERA_MIN_ELEVATION_RAD,
   CHASE_TUNING_BY_MODEL,
   DEFAULT_CHASE_TUNING,
+  chaseLookAheadScale,
+  prepareChaseCameraBlockers,
+  quickLookAngleForInput,
   resolveChaseCameraPose,
+  resolveChaseCameraSafeFraction,
+  smoothQuickLookAngle,
+  type PreparedChaseCameraBlocker,
 } from "../cameraPoses";
 import {
   boxLengthYaw,
@@ -837,6 +847,68 @@ function strongestOfThree(first: number, second: number, third: number): number 
   return best;
 }
 
+const TOUCH_LOOK_FULL_SWEEP_PX = 90;
+export const MOUSE_LOOK_HALF_TURN_PX = 540;
+export const MOUSE_LOOK_MAX_YAW_RAD = (170 * Math.PI) / 180;
+export const MOUSE_LOOK_MAX_PITCH_OFFSET_RAD = (60 * Math.PI) / 180;
+const MOUSE_LOOK_RADIANS_PER_PIXEL = Math.PI / MOUSE_LOOK_HALF_TURN_PX;
+const WHEEL_LINE_HEIGHT_PX = 16;
+const WHEEL_PAGE_HEIGHT_PX = 240;
+const CHASE_ZOOM_METRES_PER_PIXEL = 0.01;
+
+export function pointerLookSource(
+  pointerType: string,
+  button: number,
+): "touch" | "mouse" | null {
+  if (pointerType === "touch") return "touch";
+  return pointerType === "mouse" && button === 2 ? "mouse" : null;
+}
+
+/** Existing touch swipe displacement to the shared -1..1 glance selector. */
+export function pointerTouchQuickLookValue(deltaX: number): number {
+  return clamp(deltaX / TOUCH_LOOK_FULL_SWEEP_PX, -1, 1);
+}
+
+/** Two-axis desktop drag, independent from the discrete quick-look selector. */
+export function pointerMouseLookAngles(
+  deltaX: number,
+  deltaY: number,
+): { readonly yawRad: number; readonly pitchRad: number } {
+  return {
+    yawRad: clamp(
+      deltaX * MOUSE_LOOK_RADIANS_PER_PIXEL,
+      -MOUSE_LOOK_MAX_YAW_RAD,
+      MOUSE_LOOK_MAX_YAW_RAD,
+    ),
+    pitchRad: clamp(
+      deltaY * MOUSE_LOOK_RADIANS_PER_PIXEL,
+      -MOUSE_LOOK_MAX_PITCH_OFFSET_RAD,
+      MOUSE_LOOK_MAX_PITCH_OFFSET_RAD,
+    ),
+  };
+}
+
+/** Wheel down moves the chase eye away; trackpads retain proportional motion. */
+export function resolveChaseCameraDistanceFromWheel(
+  currentDistanceM: number,
+  deltaY: number,
+  deltaMode = 0,
+): number {
+  const pixels =
+    deltaY *
+    (deltaMode === 1
+      ? WHEEL_LINE_HEIGHT_PX
+      : deltaMode === 2
+        ? WHEEL_PAGE_HEIGHT_PX
+        : 1);
+  const boundedPixels = clamp(pixels, -100, 100);
+  return clamp(
+    currentDistanceM + boundedPixels * CHASE_ZOOM_METRES_PER_PIXEL,
+    CHASE_CAMERA_MIN_DISTANCE_M,
+    CHASE_CAMERA_MAX_DISTANCE_M,
+  );
+}
+
 /** Driving input while a cutscene owns the car: everything at rest. */
 const CUTSCENE_LOCKED_INPUT: Readonly<AnalogInput> = Object.freeze({
   throttle: 0,
@@ -1461,6 +1533,9 @@ export class BabylonGameSession {
    * two answers to "what is solid" that are free to disagree.
    */
   private readonly stagedBlockers: readonly StagedBlocker[];
+  /** Broad-phase bounds for the same tall solids, prepared once for chase
+   * mouse-look rather than re-derived in the render loop. */
+  private readonly chaseCameraBlockers: readonly PreparedChaseCameraBlocker[];
   /** The scenario's full solid set, kept so scenery that renders a collider
    * (the corniche parapet) reads the SAME source the simulation stands on. */
   private readonly scenarioStaticObstacles: readonly StaticObstacle[];
@@ -1787,8 +1862,19 @@ export class BabylonGameSession {
   private previousIndicatorBlinkOn = false;
   private trafficLightSeconds = 0;
   private trafficLightIsRed = false;
-  private swipePointer: number | null = null;
-  private swipeStartX = 0;
+  private lookPointer: number | null = null;
+  private lookPointerSource: "touch" | "mouse" | null = null;
+  private lookStartX = 0;
+  private lookStartY = 0;
+  private mouseLookYaw = 0;
+  private mouseLookPitch = 0;
+  /** Rendered angles lag the requested look just enough for their return to
+   * read as head/camera motion rather than a cut. */
+  private displayedLookYaw = 0;
+  private displayedLookPitch = 0;
+  /** Horizontal eye distance. Wheel zoom persists across camera switches and
+   * car resets for the rest of this drive, but never changes optical FOV. */
+  private chaseDistanceM = DEFAULT_CHASE_TUNING.backM;
   private playerState: PlayerState;
   private displayedX = 0;
   private displayedZ = 0;
@@ -1849,6 +1935,10 @@ export class BabylonGameSession {
     this.canvas = canvas;
     this.options = options;
     this.callbacks = callbacks;
+    this.chaseDistanceM =
+      (options.playerVehicle?.model &&
+        CHASE_TUNING_BY_MODEL[options.playerVehicle.model]?.backM) ||
+      DEFAULT_CHASE_TUNING.backM;
     this.debugBuildingAssetPolicy = options.debugBuildingAssetPolicy;
     // Two-wheelers have no cockpit to sit in — the first-person camera would
     // be a car-interior lie, so bike and motorbike days are third-person only.
@@ -1887,6 +1977,7 @@ export class BabylonGameSession {
     this.stagedBlockers = stagedBlockersOf(
       simulationConfig.staticObstacles ?? [],
     );
+    this.chaseCameraBlockers = prepareChaseCameraBlockers(this.stagedBlockers);
     this.scenarioStaticObstacles = simulationConfig.staticObstacles ?? [];
     this.simulation = new SimulationCore({
       ...simulationConfig,
@@ -2289,6 +2380,8 @@ export class BabylonGameSession {
     this.displayedX = this.playerState.x;
     this.displayedZ = this.playerState.z;
     this.displayedHeading = this.playerState.heading;
+    this.displayedLookYaw = 0;
+    this.displayedLookPitch = 0;
     this.snapChaseCameraToPose();
     this.instruction = "Reset to the authored start.";
     this.publishHud(true);
@@ -3096,8 +3189,9 @@ export class BabylonGameSession {
     }
     const input = this.mergedInput();
     this.ruleElapsedSeconds += dt;
-    const quickLookAngle =
-      Math.abs(input.quickLook) > 1.5 ? Math.PI : input.quickLook * 1.18;
+    const quickLookAngle = quickLookAngleForInput(input.quickLook);
+    const requestedViewYaw =
+      this.lookPointerSource === "mouse" ? this.mouseLookYaw : quickLookAngle;
     const simulationInput: SimulationInput = {
       throttle: this.options.outOfFuel ? 0 : input.throttle,
       brake: input.brake,
@@ -3107,7 +3201,7 @@ export class BabylonGameSession {
         -1,
         1,
       ),
-      viewHeading: this.playerState.heading + quickLookAngle,
+      viewHeading: this.playerState.heading + requestedViewYaw,
     };
     let mark = performance.now();
     const snapshot = this.simulation.step(dt, simulationInput);
@@ -4485,11 +4579,15 @@ export class BabylonGameSession {
     // call the shared pure resolver directly rather than duplicate its math
     // against the scratch Vector3 fields `updateCamera` reuses for GC
     // discipline in the hot path below.
-    const { eye, target } = resolveChaseCameraPose(this.options.playerVehicle?.model, {
-      x: this.displayedX,
-      z: this.displayedZ,
-      heading: this.displayedHeading,
-    });
+    const { eye, target } = resolveChaseCameraPose(
+      this.options.playerVehicle?.model,
+      {
+        x: this.displayedX,
+        z: this.displayedZ,
+        heading: this.displayedHeading,
+      },
+      { distanceM: this.chaseDistanceM },
+    );
     this.thirdCamera.position.copyFrom(this.cameraDesiredScratch.set(eye.x, eye.y, eye.z));
     this.thirdCamera.setTarget(
       this.cameraTargetScratch.set(target.x, target.y, target.z),
@@ -4499,12 +4597,6 @@ export class BabylonGameSession {
   }
 
   private updateCamera(dt: number) {
-    const forward = this.cameraForwardScratch.set(
-      Math.sin(this.displayedHeading),
-      0,
-      Math.cos(this.displayedHeading),
-    );
-    const right = this.cameraRightScratch.set(forward.z, 0, -forward.x);
     const base = this.cameraBaseScratch.set(
       this.displayedX,
       0.12,
@@ -4517,8 +4609,35 @@ export class BabylonGameSession {
     // with true speed below.
     this.cameraMotionSeconds +=
       dt * Math.min(this.playerState.speedMps, CAMERA_MOTION_SPEED_CAP_MPS);
-    const look = this.mergedInput().quickLook;
-    const quickLookAngle = Math.abs(look) > 1.5 ? Math.PI : look * 1.18;
+    const deviceLookYaw = quickLookAngleForInput(
+      this.mergedInput().quickLook,
+    );
+    const mouseLookActive = this.lookPointerSource === "mouse";
+    const requestedLookYaw = mouseLookActive
+      ? this.mouseLookYaw
+      : deviceLookYaw;
+    const requestedLookPitch = mouseLookActive ? this.mouseLookPitch : 0;
+    this.displayedLookYaw = smoothQuickLookAngle(
+      this.displayedLookYaw,
+      requestedLookYaw,
+      dt,
+      this.options.reducedMotion,
+    );
+    this.displayedLookPitch = smoothQuickLookAngle(
+      this.displayedLookPitch,
+      requestedLookPitch,
+      dt,
+      this.options.reducedMotion,
+    );
+    const lookYaw = this.displayedLookYaw;
+    const lookPitch = this.displayedLookPitch;
+    const cameraHeading = this.displayedHeading + lookYaw;
+    const forward = this.cameraForwardScratch.set(
+      Math.sin(cameraHeading),
+      0,
+      Math.cos(cameraHeading),
+    );
+    const right = this.cameraRightScratch.set(forward.z, 0, -forward.x);
 
     const cutsceneCameraPosition = this.cutsceneDirector?.cameraPosition ?? null;
     const cutsceneCameraTarget = this.cutsceneDirector?.cameraTarget ?? null;
@@ -4555,7 +4674,8 @@ export class BabylonGameSession {
         cameraHeading: this.displayedHeading,
         seatSide,
         headBob,
-        quickLookAngle,
+        quickLookAngle: lookYaw,
+        lookPitchAngle: lookPitch,
         viewportAspectRatio:
           this.engine.getRenderWidth() /
           Math.max(1, this.engine.getRenderHeight()),
@@ -4599,7 +4719,10 @@ export class BabylonGameSession {
           CHASE_TUNING_BY_MODEL[this.options.playerVehicle.model]) ||
         DEFAULT_CHASE_TUNING;
       const target = this.cameraTargetScratch.copyFrom(base);
-      forward.scaleAndAddToRef(chase.targetAheadM, target);
+      const targetAheadM =
+        chase.targetAheadM * chaseLookAheadScale(lookYaw);
+      target.x += Math.sin(this.displayedHeading) * targetAheadM;
+      target.z += Math.cos(this.displayedHeading) * targetAheadM;
       target.y += 1.05;
       const cameraShake =
         this.options.cameraShake && !this.options.reducedMotion
@@ -4607,9 +4730,38 @@ export class BabylonGameSession {
             Math.min(0.08, this.playerState.speedMps * 0.004)
           : 0;
       const desiredPosition = this.cameraDesiredScratch.copyFrom(base);
-      forward.scaleAndAddToRef(-chase.backM, desiredPosition);
+      forward.scaleAndAddToRef(-this.chaseDistanceM, desiredPosition);
       right.scaleAndAddToRef(cameraShake, desiredPosition);
-      desiredPosition.y += chase.upM + Math.abs(cameraShake) * 0.35;
+      const authoredElevation = Math.atan2(chase.upM, chase.backM);
+      const chaseElevation = clamp(
+        authoredElevation + lookPitch,
+        CHASE_CAMERA_MIN_ELEVATION_RAD,
+        CHASE_CAMERA_MAX_ELEVATION_RAD,
+      );
+      desiredPosition.y +=
+        Math.tan(chaseElevation) * this.chaseDistanceM +
+        Math.abs(cameraShake) * 0.35;
+      // Orbiting a 10 m boom across a narrow street can put its eye inside a
+      // facade. Contract along the target-to-eye sightline, preserving the
+      // angle and composition instead of clipping through the building.
+      if (
+        Math.abs(lookYaw) > 1e-4 ||
+        Math.abs(lookPitch) > 1e-4 ||
+        Math.abs(this.chaseDistanceM - chase.backM) > 1e-4
+      ) {
+        const safeFraction = resolveChaseCameraSafeFraction(
+          target,
+          desiredPosition,
+          this.chaseCameraBlockers,
+        );
+        if (safeFraction < 1) {
+          desiredPosition.set(
+            target.x + (desiredPosition.x - target.x) * safeFraction,
+            target.y + (desiredPosition.y - target.y) * safeFraction,
+            target.z + (desiredPosition.z - target.z) * safeFraction,
+          );
+        }
+      }
       if (this.options.reducedMotion) {
         this.thirdCamera.position.copyFrom(desiredPosition);
       } else {
@@ -7341,19 +7493,67 @@ export class BabylonGameSession {
       this.callbacks.onContextRestored?.();
     };
     const onPointerDown = (event: PointerEvent) => {
-      if (event.pointerType !== "touch" || this.swipePointer !== null) return;
-      this.registerTouchInput();
-      this.swipePointer = event.pointerId;
-      this.swipeStartX = event.clientX;
+      const source = pointerLookSource(event.pointerType, event.button);
+      if (
+        source === null ||
+        this.lookPointer !== null ||
+        this.paused ||
+        this.cutsceneDirector?.isActive
+      ) {
+        return;
+      }
+      if (source === "touch") this.registerTouchInput();
+      else this.inputRouter.registerMeaningfulInput("keyboard");
+      this.lookPointer = event.pointerId;
+      this.lookPointerSource = source;
+      this.lookStartX = event.clientX;
+      this.lookStartY = event.clientY;
+      this.canvas.setPointerCapture(event.pointerId);
     };
     const onPointerMove = (event: PointerEvent) => {
-      if (event.pointerId !== this.swipePointer) return;
-      this.touch.quickLook = clamp((event.clientX - this.swipeStartX) / 90, -1, 1);
+      if (
+        event.pointerId !== this.lookPointer ||
+        this.lookPointerSource === null
+      ) {
+        return;
+      }
+      if (this.lookPointerSource === "touch") {
+        this.touch.quickLook = pointerTouchQuickLookValue(
+          event.clientX - this.lookStartX,
+        );
+      } else {
+        const look = pointerMouseLookAngles(
+          event.clientX - this.lookStartX,
+          event.clientY - this.lookStartY,
+        );
+        this.mouseLookYaw = look.yawRad;
+        this.mouseLookPitch = look.pitchRad;
+      }
     };
     const onPointerEnd = (event: PointerEvent) => {
-      if (event.pointerId !== this.swipePointer) return;
-      this.swipePointer = null;
-      this.touch.quickLook = 0;
+      if (event.pointerId !== this.lookPointer) return;
+      this.clearPointerLook();
+    };
+    // The game view owns right-drag. Suppress the browser menu on the canvas
+    // only; HUD controls and the rest of the app keep their normal behaviour.
+    const onContextMenu = (event: MouseEvent) => event.preventDefault();
+    const onWheel = (event: WheelEvent) => {
+      if (
+        this.cameraMode !== "third_person" ||
+        this.paused ||
+        this.cutsceneDirector?.isActive
+      ) {
+        return;
+      }
+      event.preventDefault();
+      const nextDistance = resolveChaseCameraDistanceFromWheel(
+        this.chaseDistanceM,
+        event.deltaY,
+        event.deltaMode,
+      );
+      if (nextDistance === this.chaseDistanceM) return;
+      this.chaseDistanceM = nextDistance;
+      this.inputRouter.registerMeaningfulInput("keyboard");
     };
     const onGamepadDisconnected = () => {
       const remaining = "getGamepads" in navigator
@@ -7375,6 +7575,9 @@ export class BabylonGameSession {
     this.canvas.addEventListener("pointermove", onPointerMove, { passive: true });
     this.canvas.addEventListener("pointerup", onPointerEnd, { passive: true });
     this.canvas.addEventListener("pointercancel", onPointerEnd, { passive: true });
+    this.canvas.addEventListener("lostpointercapture", onPointerEnd, { passive: true });
+    this.canvas.addEventListener("contextmenu", onContextMenu);
+    this.canvas.addEventListener("wheel", onWheel, { passive: false });
     const resizeObserver = new ResizeObserver(onResize);
     resizeObserver.observe(this.canvas);
 
@@ -7393,6 +7596,9 @@ export class BabylonGameSession {
     this.disposers.push(() => this.canvas.removeEventListener("pointermove", onPointerMove));
     this.disposers.push(() => this.canvas.removeEventListener("pointerup", onPointerEnd));
     this.disposers.push(() => this.canvas.removeEventListener("pointercancel", onPointerEnd));
+    this.disposers.push(() => this.canvas.removeEventListener("lostpointercapture", onPointerEnd));
+    this.disposers.push(() => this.canvas.removeEventListener("contextmenu", onContextMenu));
+    this.disposers.push(() => this.canvas.removeEventListener("wheel", onWheel));
     this.disposers.push(() => resizeObserver.disconnect());
   }
 
@@ -7475,7 +7681,26 @@ export class BabylonGameSession {
     this.clearHeldInputs();
   }
 
+  private clearPointerLook() {
+    const pointer = this.lookPointer;
+    if (this.lookPointerSource === "touch") this.touch.quickLook = 0;
+    if (this.lookPointerSource === "mouse") {
+      this.mouseLookYaw = 0;
+      this.mouseLookPitch = 0;
+    }
+    this.lookPointer = null;
+    this.lookPointerSource = null;
+    if (
+      pointer !== null &&
+      typeof this.canvas.hasPointerCapture === "function" &&
+      this.canvas.hasPointerCapture(pointer)
+    ) {
+      this.canvas.releasePointerCapture(pointer);
+    }
+  }
+
   private clearHeldInputs() {
+    this.clearPointerLook();
     this.keyboard = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
     this.touch = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };
     this.gamepad = { throttle: 0, brake: 0, reverse: 0, steer: 0, quickLook: 0 };

@@ -3,11 +3,18 @@ import { NullEngine, Scene, UniversalCamera, Vector3 } from "@babylonjs/core";
 import {
   AUDIT_CHASE_VEHICLE_PROFILES,
   AUDIT_VIEWPORT_PROFILES,
+  CHASE_CAMERA_MAX_DISTANCE_M,
+  CHASE_CAMERA_MAX_ELEVATION_RAD,
+  CHASE_CAMERA_MIN_DISTANCE_M,
   CHASE_TUNING_BY_MODEL,
   COCKPIT_SEAT_SIDE_BY_STEERING,
   DEFAULT_CHASE_TUNING,
   forwardVectorFromYawPitch,
+  prepareChaseCameraBlockers,
+  quickLookAngleForInput,
   resolveChaseCameraPose,
+  resolveChaseCameraSafeFraction,
+  smoothQuickLookAngle,
   verticalFovForHorizontal,
   viewportAspectRatio,
   type ChaseTuning,
@@ -61,6 +68,106 @@ describe("resolveChaseCameraPose", () => {
     expect(result.target.z).toBeCloseTo(0, 5);
     expect(result.eye.x).toBeCloseTo(-DEFAULT_CHASE_TUNING.backM);
     expect(result.eye.z).toBeCloseTo(0, 5);
+  });
+
+  it("orbits the eye while keeping its focus ahead of the car", () => {
+    const result = resolveChaseCameraPose(
+      undefined,
+      { x: 0, z: 0, heading: 0 },
+      { yawOffsetRad: Math.PI / 2 },
+    );
+    expect(result.eye.x).toBeCloseTo(-DEFAULT_CHASE_TUNING.backM);
+    expect(result.eye.z).toBeCloseTo(0, 5);
+    expect(result.target.x).toBeCloseTo(0, 5);
+    expect(result.target.z).toBeCloseTo(0, 5);
+  });
+
+  it("dollies along the authored elevation and clamps supported distances", () => {
+    const authoredElevation = Math.atan2(
+      DEFAULT_CHASE_TUNING.upM,
+      DEFAULT_CHASE_TUNING.backM,
+    );
+    const near = resolveChaseCameraPose(
+      undefined,
+      { x: 0, z: 0, heading: 0 },
+      { distanceM: -100 },
+    );
+    const far = resolveChaseCameraPose(
+      undefined,
+      { x: 0, z: 0, heading: 0 },
+      { distanceM: 100 },
+    );
+
+    expect(near.eye.z).toBeCloseTo(-CHASE_CAMERA_MIN_DISTANCE_M);
+    expect(far.eye.z).toBeCloseTo(-CHASE_CAMERA_MAX_DISTANCE_M);
+    expect(far.eye.y).toBeCloseTo(
+      0.12 + Math.tan(authoredElevation) * CHASE_CAMERA_MAX_DISTANCE_M,
+    );
+  });
+
+  it("raises the orbit camera without exceeding its safe elevation", () => {
+    const result = resolveChaseCameraPose(
+      undefined,
+      { x: 0, z: 0, heading: 0 },
+      { elevationOffsetRad: Math.PI },
+    );
+    expect(result.eye.y).toBeCloseTo(
+      0.12 +
+        Math.tan(CHASE_CAMERA_MAX_ELEVATION_RAD) *
+          DEFAULT_CHASE_TUNING.backM,
+    );
+  });
+});
+
+describe("quick-look presentation", () => {
+  it("maps analogue sides and the discrete rear selector", () => {
+    expect(quickLookAngleForInput(-1)).toBeCloseTo(-1.18);
+    expect(quickLookAngleForInput(1)).toBeCloseTo(1.18);
+    expect(quickLookAngleForInput(2)).toBeCloseTo(Math.PI);
+  });
+
+  it("eases normally and snaps when reduced motion is requested", () => {
+    const eased = smoothQuickLookAngle(0, 1.18, 1 / 60, false);
+    expect(eased).toBeGreaterThan(0);
+    expect(eased).toBeLessThan(1.18);
+    expect(smoothQuickLookAngle(eased, 0, 1 / 60, false)).toBeLessThan(eased);
+    expect(smoothQuickLookAngle(0, 1.18, 1 / 60, true)).toBe(1.18);
+  });
+});
+
+describe("chase camera obstruction", () => {
+  const target = { x: 0, y: 1.2, z: 0 };
+  const desiredEye = { x: 0, y: 5.6, z: -14 };
+
+  it("leaves an unobstructed boom at full length", () => {
+    const blockers = prepareChaseCameraBlockers([
+      { x: 20, z: -7, ux: 1, uz: 0, halfU: 2, halfV: 2 },
+    ]);
+    expect(resolveChaseCameraSafeFraction(target, desiredEye, blockers)).toBe(1);
+  });
+
+  it("shortens before an oriented building with facade clearance", () => {
+    const blockers = prepareChaseCameraBlockers([
+      { x: 0, z: -8, ux: 1, uz: 0, halfU: 2, halfV: 1 },
+    ]);
+    const fraction = resolveChaseCameraSafeFraction(target, desiredEye, blockers);
+    expect(fraction).toBeGreaterThan(0.4);
+    expect(fraction).toBeLessThan(0.5);
+    expect(desiredEye.z * fraction).toBeGreaterThan(-7);
+  });
+
+  it("also shortens against a convex landmark footprint", () => {
+    const blockers = prepareChaseCameraBlockers([
+      {
+        points: [
+          { x: -2, z: -9 },
+          { x: 2, z: -9 },
+          { x: 2, z: -7 },
+          { x: -2, z: -7 },
+        ],
+      },
+    ]);
+    expect(resolveChaseCameraSafeFraction(target, desiredEye, blockers)).toBeLessThan(0.5);
   });
 });
 

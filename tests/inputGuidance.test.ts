@@ -20,6 +20,7 @@ const ALWAYS_LIVE_KEYS: readonly { readonly key: RegExp; readonly bound: string 
   { key: /\bSpace\b/, bound: "session" },
   { key: /\bA\/D\b/, bound: "session" },
   { key: /\bQ\/E\b/, bound: "session" },
+  { key: /\bZ\/X\/V\b/, bound: "session" },
   { key: /\bC\b/, bound: "session" },
   { key: /\bH\b/, bound: "session" },
   { key: /\bM\b/, bound: "app" },
@@ -38,6 +39,13 @@ describe("what the pause card promises", () => {
   it("tells a keyboard player that M opens the map", () => {
     // Issue #216 asks for exactly this sentence.
     expect(INPUT_GUIDANCE.keyboard.details).toMatch(/M opens the map/i);
+  });
+
+  it("teaches desktop players both continuous mouse-look and quick glances", () => {
+    expect(INPUT_GUIDANCE.keyboard.label).toMatch(/mouse/i);
+    expect(INPUT_GUIDANCE.keyboard.details).toMatch(/right mouse.*drag.*look/i);
+    expect(INPUT_GUIDANCE.keyboard.details).toMatch(/wheel.*zoom.*chase/i);
+    expect(INPUT_GUIDANCE.keyboard.details).toMatch(/Z\/X\/V.*left\/right\/behind/i);
   });
 
   it("points a phone at the corner button instead, since there is no M", () => {

@@ -19,9 +19,9 @@ export interface InputGuidance {
 export const INPUT_GUIDANCE: Readonly<Record<InputFamily, InputGuidance>> =
   Object.freeze({
     keyboard: {
-      label: "Keyboard",
+      label: "Keyboard + mouse",
       details:
-        "W or ↑ drives. S or ↓ brakes, and keeps going into reverse once you have stopped. Space is the brake on its own, and A/D or ←/→ steer. Q/E signal, C changes camera, M opens the map of the whole city, H sounds the horn, and P or Escape pauses.",
+        "W or ↑ drives. S or ↓ brakes, and keeps going into reverse once you have stopped. Space is the brake on its own, and A/D or ←/→ steer. Hold right mouse and drag in any direction to look around; use the wheel to zoom the chase camera. Z/X/V glance left/right/behind. Q/E signal, C changes camera, M opens the map of the whole city, H sounds the horn, and P or Escape pauses.",
     },
     gamepad: {
       // No map here on purpose: nothing on a controller opens it, and copy that
