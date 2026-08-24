@@ -222,6 +222,7 @@ export function buildRoadsideProps(
     readonly sidewalkWidthM?: number;
   }[],
   signPoints: readonly GameCanvasPoint[] = [],
+  occupiedPoints: readonly GameCanvasPoint[] = [],
 ) {
   const scene = ctx.scene;
   const key = resolveMapVisualKey(mapId);
@@ -307,11 +308,16 @@ export function buildRoadsideProps(
     // pre-seed the mutual spacing grid so the random scatter can never
     // stand a prop on them.
     occupiedPoints:
-      key === "london" || key === "tokyo" || signPoints.length || promenadePlacements.length
+      key === "london" ||
+      key === "tokyo" ||
+      signPoints.length ||
+      occupiedPoints.length ||
+      promenadePlacements.length
         ? [
             ...(key === "london" ? LONDON_FURNITURE_POINTS : []),
             ...(key === "tokyo" ? TOKYO_FURNITURE_POINTS : []),
             ...signPoints,
+            ...occupiedPoints,
             ...promenadePlacements,
           ]
         : undefined,

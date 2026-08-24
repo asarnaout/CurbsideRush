@@ -109,7 +109,7 @@ export const DESTRUCTIBLE_PROP_CONFIGS: Readonly<Record<string, DestructibleProp
   // Kerbside parked cars are knockable, never solid — the lane-corridor and
   // walkable-band collider tests reserve both, and a shunted car reads better
   // than an invisible wall. Heavy to hit: half the player's speed survives.
-  "london-parked-car": { radiusM: 1.2, speedScale: 0.5, damage: "medium", noun: "a parked car", fall: "topple" },
+  "parked-car": { radiusM: 1.2, speedScale: 0.5, damage: "medium", noun: "a parked car", fall: "topple" },
   // Tokyo expansion Phase 9 (R14). Absent from this table, a chochin post
   // would be silently indestructible — the same "palm comment" trap as
   // above. A paper lantern on a slim pole gives way easily.
@@ -477,13 +477,11 @@ export function roadsidePropKindsForMap(
           bothSides: false,
           variants: 1,
         },
-        // Nothing parks at the Cairo kerb: the parked cars, microbuses, vendor
-        // carts and scooters that used to are all gone. They were scattered on
-        // road geometry alone, so they landed wherever the band allowed rather
-        // than where a vehicle would plausibly stand — clutter dumped on the
-        // pavement, not a parked street. The box-built ones were also badly
-        // modelled (the scooter's handlebar floated free of its frame). Any
-        // future kerb parking wants real placement, not scatter.
+        // Vehicles never ride this ordinary prop scatter. The old Cairo cars,
+        // microbuses and scooters landed wherever the pavement band allowed;
+        // `parkedCarsForMap` now plans real slots with legal-lane headings and
+        // vehicle-scale clearance instead. The box-built scooter whose
+        // handlebar floated free stays retired.
         { ...PROP_SIGN, spacingM: 78, variants: 2 },
       ];
   }
