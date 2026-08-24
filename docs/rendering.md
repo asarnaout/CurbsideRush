@@ -475,13 +475,16 @@ This is what makes mirrors cheap: `refreshRate` skips whole frames (the texture
 keeps its contents), which a viewport camera cannot do. First-person draw calls
 fell from 488 to 390 *while gaining* a wing mirror.
 
-London's kerbside parked cars are the vendor-cart recipe at street scale:
-one table (`LONDON_PARKED_CARS` in `londonStreetFurniture.ts`, solver-placed)
-read by the session's build (merged-master `createInstance` per car off the
-traffic fleet's own four glbs) and by the scatter keep-out, **knockable via
-`DESTRUCTIBLE_PROP_CONFIGS`, never solid** — the lane-corridor and
-walkable-band collider tests reserve the kerbside, and a shunted car reads
-better than an invisible wall. Measured cost of all 182: ~27 draw calls.
+Kerbside parked cars use the vendor-cart recipe at street scale: one
+`parkedCarsForMap` plan is read by the session's build (merged-master
+`createInstance` per car off the traffic fleet's own four glbs) and by the
+scatter keep-out. London preserves its 182 solver-authored
+`LONDON_PARKED_CARS`; the other cities derive deterministic placements from
+their real carriageways, adjacent legal-lane headings and geometry keep-outs.
+They are **knockable via `DESTRUCTIBLE_PROP_CONFIGS`, never solid** — the
+lane-corridor and walkable-band collider tests reserve the kerbside, and a
+shunted car reads better than an invisible wall. Measured cost of London's
+182: ~27 draw calls.
 
 Tokyo's own parked bicycles (`TOKYO_PARKED_BICYCLES` in
 `tokyoStreetFurniture.ts`, Tokyo expansion Phase 9) are the same idea but

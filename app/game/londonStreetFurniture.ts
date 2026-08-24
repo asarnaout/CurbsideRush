@@ -124,7 +124,7 @@ export type LondonParkedCarModel = "sedan" | "sports" | "suv" | "van";
  * reserves the whole lane corridor plus the walkable band for solid
  * obstacles, and a shunted parked car giving way reads better than an
  * invisible wall at the kerb anyway — so these register through
- * `DESTRUCTIBLE_PROP_CONFIGS` ("london-parked-car"), not the adapter's
+ * `DESTRUCTIBLE_PROP_CONFIGS` ("parked-car"), not the adapter's
  * obstacle builder.
  */
 export interface LondonParkedCar {

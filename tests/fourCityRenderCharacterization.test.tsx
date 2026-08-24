@@ -1104,9 +1104,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 22_706/22_681 (active 1_758 -> 1_658; facade-chunk merging): the
     // ~1-in-4 holdback parcels' boxes merge; the glb street wall and its
     // proxies are untouched.
-    totalMeshes: 22_706,
-    enabledMeshes: 22_681,
-    activeMeshes: 1_658,
+    // -> 22_512/22_487 (active 1_658 -> 1_642; issue #421): 448 planned
+    // parked cars reserve their real kerb slots before roadside scatter. This
+    // suite deliberately forces every glb unavailable, so those cars add no
+    // meshes here while 194 conflicting lamp/furniture meshes disappear; the
+    // browser replaces them with one merged-master instance per car.
+    totalMeshes: 22_512,
+    enabledMeshes: 22_487,
+    activeMeshes: 1_642,
     materials: 298,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1394,8 +1399,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // with a block is relocated, not removed, so the delta is exactly +9.
     // -> 13_698/13_654 (south Gezira riverfront accent): one more existing-set
     // building; the photographed bay is outside the fixed active-mesh pose.
-    totalMeshes: 13_698,
-    enabledMeshes: 13_654,
+    // -> 13_597/13_553 (issue #421): Cairo's 262 planned parked cars reserve
+    // their kerb slots before scatter. As with Tokyo, this all-glbs-unavailable
+    // characterization sees only the 101 conflicting prop meshes removed;
+    // the real preload adds one merged-master car instance for every plan row.
+    totalMeshes: 13_597,
+    enabledMeshes: 13_553,
     activeMeshes: 898,
     materials: 246,
     drawCallsPerFrame: 0,

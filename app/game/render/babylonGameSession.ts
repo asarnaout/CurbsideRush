@@ -96,12 +96,16 @@ import {
 import { createSkyAndHorizon, createSunShadows } from "./skyAndShadows";
 import { buildRoadsideProps } from "./roadsideProps";
 import {
+  parkedCarsForMap,
+  type ParkedCarModel,
+  type ParkedCarPlacement,
+} from "../parkedCars";
+import {
   buildRepairShop,
   instantiateProp,
   placeProp,
 } from "./venueProps";
 import { buildRegulatorySigns, buildSpeedLimitSigns } from "./londonLandmarks";
-import { LONDON_PARKED_CARS } from "../londonStreetFurniture";
 import { TOKYO_PARKED_BICYCLES } from "../tokyoStreetFurniture";
 import {
   cityRenderRegistryFor,
@@ -1575,6 +1579,8 @@ export class BabylonGameSession {
    */
   private readonly pendingPlantedProps: ParkPlacement[] = [];
   private readonly pendingParkThickets: ParkPlacement[] = [];
+  /** Authored for London, derived once from real kerbs and keep-outs elsewhere. */
+  private parkedCars: readonly ParkedCarPlacement[] = [];
   private destructibles: Destructibles | null = null;
   // Built in the constructor, unlike every other collaborator (built in
   // buildScenarioEnvironment): the rear-view mirror must exist before
@@ -3555,15 +3561,15 @@ export class BabylonGameSession {
     }
     this.pendingVendors.length = 0;
 
-    // London's kerbside parked cars: the traffic fleet's own glbs through the
+    // Kerbside parked cars: the traffic fleet's own glbs through the
     // same merged-master path as the vendors, one cheap instance each,
     // knockable via the destructibles grid (never solid — the lane-corridor
     // collider test reserves the kerbside, and a shunted car reads better
     // than an invisible wall). The van's -90-degree authored yaw comes from
     // VEHICLE_MODEL_REGISTRY's own row.
-    if (resolveMapVisualKey(this.options.mapPack.id) === "london") {
+    if (this.parkedCars.length) {
       const PARKED_MODELS: Record<
-        string,
+        ParkedCarModel,
         { readonly url: string; readonly scale: number; readonly yawOffset: number }
       > = {
         sedan: { url: "/models/vehicles/sedan.glb", scale: 1, yawOffset: 0 },
@@ -3571,7 +3577,7 @@ export class BabylonGameSession {
         suv: { url: "/models/vehicles/suv.glb", scale: 1, yawOffset: 0 },
         van: { url: "/models/vehicles/van.glb", scale: 0.85, yawOffset: -Math.PI / 2 },
       };
-      for (const car of LONDON_PARKED_CARS) {
+      for (const car of this.parkedCars) {
         const model = PARKED_MODELS[car.model];
         const master = this.getBuildingMaster(model.url);
         if (!master) continue;
@@ -3581,7 +3587,7 @@ export class BabylonGameSession {
         inst.scaling.setAll(model.scale);
         inst.isPickable = false;
         this.staticSceneryFreeze.push(inst);
-        this.destructibles?.register("london-parked-car", car.position.x, car.position.z, 1, [
+        this.destructibles?.register("parked-car", car.position.x, car.position.z, 1, [
           { node: inst, isLightPool: false },
         ]);
       }
@@ -5759,6 +5765,10 @@ export class BabylonGameSession {
         mapPack.countryIds?.[0] ?? "us",
       );
     }
+    this.parkedCars = parkedCarsForMap(mapPack, [
+      ...regulatorySigns,
+      ...speedLimitSigns,
+    ]);
     buildRoadsideProps(
       {
         scene,
@@ -5777,6 +5787,7 @@ export class BabylonGameSession {
       mapId,
       roadSurfaces,
       [...regulatorySigns, ...speedLimitSigns],
+      this.parkedCars.map((car) => car.position),
     );
 
   }
