@@ -14,7 +14,7 @@ import type { WorldPoint } from "./types";
  * Every position here was solver-checked against the real built map
  * (`TOKYO_MAP_PACK`'s blocks/landmarks/water/lane graph) with a scratchpad
  * script, never eyeballed — chochin posts and neon boards against block/
- * landmark/water containment and (for the ekimae row) junction clearance;
+ * landmark/water containment and every intersecting carriageway;
  * parked bicycles by the full `LONDON_PARKED_CARS` methodology at bicycle
  * scale (see that table's own header): clear of every lane centreline by a
  * bicycle's own envelope (much less than a car's 2.6 m), >= 18 m from every
@@ -53,10 +53,12 @@ export interface TokyoChochinPost {
 }
 
 /**
- * Ten posts along Nakamise Yokochō (the shotengai), alternating sides every
+ * Nine posts along Nakamise Yokochō (the shotengai), alternating sides every
  * ~24 m, standing just past the shared-space pavement's outer edge (half the
  * road's 5.8 m width + its 1.4 m pavement + 0.5 m clearance = 4.8 m off the
- * centreline) — verified clear of every flanking block. Six more along
+ * centreline) — verified clear of every flanking block and cross street. The
+ * row deliberately breaks at Niban-dōri instead of putting a lantern in that
+ * road's turning envelope. Six more along
  * Ekimae-dōri's western stretch (the station-front approach), north side
  * only (checked clear of Hoshi Mart Ekimae's own block; the south side sits
  * tighter there).
@@ -66,7 +68,8 @@ export const TOKYO_CHOCHIN_POSTS: readonly TokyoChochinPost[] = [
   at("jp-chochin-yokocho-2", 229, 35.2, 0),
   at("jp-chochin-yokocho-3", 253, 44.8, 180),
   at("jp-chochin-yokocho-4", 277, 35.2, 0),
-  at("jp-chochin-yokocho-5", 301, 44.8, 180),
+  // Sequence position 5 would be (301, 44.8), only 1 m from Niban-dōri's
+  // centreline at its Nakamise crossing. Leave the intersection open.
   at("jp-chochin-yokocho-6", 325, 35.2, 0),
   at("jp-chochin-yokocho-7", 349, 44.8, 180),
   at("jp-chochin-yokocho-8", 373, 35.2, 0),

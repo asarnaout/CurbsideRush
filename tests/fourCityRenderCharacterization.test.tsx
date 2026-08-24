@@ -1109,9 +1109,13 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // suite deliberately forces every glb unavailable, so those cars add no
     // meshes here while 194 conflicting lamp/furniture meshes disappear; the
     // browser replaces them with one merged-master instance per car.
-    totalMeshes: 22_512,
-    enabledMeshes: 22_487,
-    activeMeshes: 1_642,
+    // 22_512/22_487 -> 22_508/22_483 (active 1_642 -> 1_638): remove
+    // jp-chochin-yokocho-5 from the middle of the Niban-dori carriageway.
+    // One hand-authored lantern is four instanced parts, all in this pose's
+    // frustum; its shared masters/materials and every mirror count remain.
+    totalMeshes: 22_508,
+    enabledMeshes: 22_483,
+    activeMeshes: 1_638,
     materials: 298,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1418,10 +1422,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // one-in-eleven frontage removes more facade chunks than the new balconies
     // and AC units add. Seven additional sign materials expand the old three-
     // business palette to ten. NYC/London/Tokyo remain byte-for-byte fixed.
-    totalMeshes: 13_862,
-    enabledMeshes: 13_818,
-    activeMeshes: 918,
-    materials: 257,
+    // 13_862/13_818 -> 14_622/14_578: the reviewed Khedivial wedge set and
+    // Tahrir marked-lot infill are now part of the committed Cairo scene.
+    // The bespoke wedge façades account for the material/fingerprint move;
+    // the fixed pose sees slightly fewer meshes after the surrounding re-tile.
+    totalMeshes: 14_622,
+    enabledMeshes: 14_578,
+    activeMeshes: 913,
+    materials: 322,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1442,7 +1450,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 93 / 144: sparse signs and rebalanced facade dressing reduce the
     // nearby chunk set without changing the mirror rig itself.
     mirrorCandidates: 93,
-    mirrorDrawn: 144,
+    mirrorDrawn: 143,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1457,7 +1465,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "df94522e": the three regulatory-sign materials.
     // -> "48a1630c": the three Cairo shop signs plus storefront shutter.
     // -> "2e92838d": seven more Cairo business-sign materials.
-    survivingMaterialNamesFingerprint: "2e92838d",
+    survivingMaterialNamesFingerprint: "24ede971",
   },
 };
 
