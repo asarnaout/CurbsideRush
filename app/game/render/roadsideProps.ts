@@ -12,7 +12,10 @@ import {
   type Vector4,
 } from "@babylonjs/core";
 import { NYC_VENDORS, type StreetPropConfig } from "../buildingSets";
-import { CAIRO_OPEN_WATERFRONT_SIDES } from "../cities/cairo";
+import {
+  CAIRO_OPEN_WATERFRONT_SIDES,
+  cairoTahrirMarkedLotAllowsRoadsidePlacement,
+} from "../cities/cairo";
 import { TOKYO_OPEN_WATERFRONT_SIDES } from "../cities/tokyo";
 import { deterministicSceneryKeep } from "../geometry/facadesAndKeepouts";
 import { roadsidePropKeepOuts } from "../geometry/roadFurnitureLayout";
@@ -336,7 +339,11 @@ export function buildRoadsideProps(
     ...roadsidePlacements,
     ...promenadePlacements,
     ...park.reachable,
-  ];
+  ].filter(
+    (placement) =>
+      key !== "cairo" ||
+      cairoTahrirMarkedLotAllowsRoadsidePlacement(placement),
+  );
   if (!placements.length && !park.interior.length) return;
 
   const material = (name: string, color: Color3, emissive?: Color3) =>

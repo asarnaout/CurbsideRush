@@ -4623,6 +4623,81 @@ for (const gapBlock of CAIRO_MARKED_GAP_ASSET_BLOCKS) {
 }
 
 /**
+ * Fills the owner-marked paved lot between Tahrir Approach and the Egyptian
+ * Museum with a visible row rather than the two-building strip that previously
+ * hid against its rear edge. The small, separately validated lots let the row
+ * span the forecourt without touching the museum's real footprint, either
+ * carriageway, or the street wall already facing Tahrir Approach.
+ */
+const cairoTahrirMarkedLotBlock = (
+  id: string,
+  x: number,
+  z: number,
+  widthM: number,
+): ProceduralBlock => ({
+    id,
+    center: point(x, z),
+    size: point(widthM, buildingSetDepthM("cairo-downtown") + 1.5),
+    headingDeg: 0,
+    frontageAxis: "z",
+    streetEdges: ["-z"],
+    material: "cairo-khedivial-stone",
+    heightRange: [18, 42],
+    density: 1,
+    buildingSet: "cairo-downtown",
+    addressable: false,
+  });
+
+export const CAIRO_TAHRIR_MARKED_LOT_INFILL_BLOCKS: readonly ProceduralBlock[] = [
+  // Close the western end before the six-building street wall begins.
+  cairoTahrirMarkedLotBlock("cairo-tahrir-marked-lot-infill-west", 108, -252, 22),
+  ...[140, 155, 170, 185, 200, 215].map((x, index) =>
+    cairoTahrirMarkedLotBlock(
+      `cairo-tahrir-marked-lot-infill-${index + 1}`,
+      x,
+      -255,
+      12,
+    ),
+  ),
+];
+
+/** Only the marked palm is cleared; the corner's lamps, signs and bollards stay. */
+export const CAIRO_TAHRIR_MARKED_LOT_PLANTING_CLEARING = {
+  // Exact promenade-placement coordinate for the oversized palm visible in
+  // the review screenshots (the previous clearing was 47 m away from it).
+  center: point(73.84, -223.18),
+  radiusM: 8,
+} as const;
+
+export const cairoTahrirMarkedLotAllowsRoadsidePlacement = (placement: {
+  readonly kind: string;
+  readonly x: number;
+  readonly z: number;
+}): boolean =>
+  (placement.kind !== "tree" && placement.kind !== "palm") ||
+  Math.hypot(
+    placement.x - CAIRO_TAHRIR_MARKED_LOT_PLANTING_CLEARING.center.x,
+    placement.z - CAIRO_TAHRIR_MARKED_LOT_PLANTING_CLEARING.center.z,
+  ) >= CAIRO_TAHRIR_MARKED_LOT_PLANTING_CLEARING.radiusM;
+
+for (const infillBlock of CAIRO_TAHRIR_MARKED_LOT_INFILL_BLOCKS) {
+  const validation = validateCairoClosureCandidate(infillBlock, {
+    // The row deliberately enters only the museum's generous scenery margin;
+    // its actual 50 x 64 m landmark body remains untouched.
+    allowInflatedOverlapOwnerIds: new Set([
+      "cairo-egyptian-museum",
+      "cairo-venue-01",
+    ]),
+  });
+  if (!validation.valid) {
+    throw new Error(
+      `cairo.ts: Tahrir marked-lot infill ${infillBlock.id} failed validation (${validation.reason})`,
+    );
+  }
+  addRoadClearBlock(infillBlock);
+}
+
+/**
  * Five explicit rows in the owner-marked void south of the Imbaba line,
  * between Corniche El Nil and Qasr El Ainy.
  *

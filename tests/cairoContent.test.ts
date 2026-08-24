@@ -133,7 +133,7 @@ import type {
 // envelopes re-tile the adjacent Qasr El-Nil/Qasr El-Ainy transition into one
 // additional safe roadside piece while the wedge renderer supplies the five
 // missing corner buildings themselves.
-const BLOCK_COUNT = 1498;
+const BLOCK_COUNT = 1505;
 const ROADSIDE_COUNT = 923;
 const ROADSIDE_LEFT = 466;
 /** The second rank is gone — a one-sided kit means a back row can only stare
@@ -154,10 +154,10 @@ const ROADSIDE_RANKS = 0;
 // because the one-sided GLB backs would crowd a second road.
 // -> 675 (south rail-side void): all five replacements use Cairo's existing
 // west-bank/baladi asset set rather than introducing another facade-box row.
-// -> 676 (Tahrir wedge corners): the adjacent re-tiled roadside transition
-// keeps Cairo's existing downtown wall set; the five wedges render separately
-// as bespoke exact-footprint landmarks and are not counted here.
-const STREET_WALL_BLOCKS = 676;
+// -> 676 (Tahrir wedge corners) -> 683 (marked-lot infill): the adjacent
+// re-tiled roadside transition and seven forecourt lots use Cairo's downtown
+// wall set; the five wedges render as bespoke landmarks and are not counted.
+const STREET_WALL_BLOCKS = 683;
 // 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6) -> 1716 (Section
 // 12.7): the five cairo-west-nile-street-mid-land-edge-wall-* closures
 // have no buildingSet either, same formula, 5 blocks * 9 = 45 more.
