@@ -1,11 +1,12 @@
 import {
   Color3,
-  type Mesh,
+  Mesh,
   MeshBuilder,
   type Scene,
   StandardMaterial,
   TransformNode,
   Vector3,
+  VertexData,
 } from "@babylonjs/core";
 import { createBox, createCylinder, createIcoSphere, setMeshMaterial } from "./meshPrimitives";
 import {
@@ -26,6 +27,10 @@ import { CAIRO_TAHRIR_PLAZA_RADIUS_M } from "../parkLayouts";
 import { PARK_PATH_Y } from "./renderConstants";
 import type { GameCanvasMapPack, GameCanvasPoint } from "../sessionContract";
 import { defaultSidewalkWidthM, type MapVisualPalette } from "../visuals";
+import {
+  cairoDowntownWedgeBuilding,
+  type CairoDowntownWedgeBuilding,
+} from "../geometry/cairoWedgeBuildings";
 
 /**
  * Original low-poly silhouettes for central Cairo's navigation anchors.
@@ -54,6 +59,398 @@ function makeMaterial(
   material.specularColor = Color3.Black();
   material.emissiveColor = emissive ?? Color3.Black();
   return material;
+}
+
+interface WedgeEdgeFrame {
+  readonly a: GameCanvasPoint;
+  readonly b: GameCanvasPoint;
+  readonly length: number;
+  readonly ux: number;
+  readonly uz: number;
+  /** Outward normal for a clockwise polygon. */
+  readonly outX: number;
+  readonly outZ: number;
+}
+
+function wedgeEdgeFrame(
+  footprint: readonly GameCanvasPoint[],
+  edgeIndex: number,
+): WedgeEdgeFrame {
+  const a = footprint[edgeIndex];
+  const b = footprint[(edgeIndex + 1) % footprint.length];
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.01) {
+    throw new Error(`cairo wedge has a degenerate edge at ${edgeIndex}`);
+  }
+  const ux = dx / length;
+  const uz = dz / length;
+  return { a, b, length, ux, uz, outX: -uz, outZ: ux };
+}
+
+/** Crisp-sided convex prism in world XZ coordinates. */
+function createWedgePrism(
+  scene: Scene,
+  name: string,
+  footprint: readonly GameCanvasPoint[],
+  baseY: number,
+  height: number,
+  material: StandardMaterial,
+  parent: TransformNode,
+): Mesh {
+  const positions: number[] = [];
+  const indices: number[] = [];
+
+  // Duplicate each facade's vertices so the corner normals stay hard rather
+  // than smoothing an ornate stone building into a rounded low-poly crystal.
+  for (let edge = 0; edge < footprint.length; edge += 1) {
+    const a = footprint[edge];
+    const b = footprint[(edge + 1) % footprint.length];
+    const offset = positions.length / 3;
+    positions.push(
+      a.x,
+      baseY,
+      a.z,
+      b.x,
+      baseY,
+      b.z,
+      b.x,
+      baseY + height,
+      b.z,
+      a.x,
+      baseY + height,
+      a.z,
+    );
+    // Babylon treats clockwise screen winding as the front of a mesh in its
+    // left-handed scene. Reverse the mathematical outward winding here; the
+    // computed normals still face the street. The old order culled the near
+    // facade and exposed the far wall,
+    // which made every shop opening look like a tunnel through the building.
+    indices.push(offset, offset + 2, offset + 1, offset, offset + 3, offset + 2);
+  }
+
+  // Footprints are clockwise; the same winding viewed in XZ points the roof
+  // triangles upward in Babylon's left-handed XYZ space.
+  const roofOffset = positions.length / 3;
+  for (const point of footprint) positions.push(point.x, baseY + height, point.z);
+  for (let index = 1; index < footprint.length - 1; index += 1) {
+    indices.push(roofOffset, roofOffset + index + 1, roofOffset + index);
+  }
+
+  // Cap the underside as well. It is normally below the pavement, but a
+  // complete watertight prism prevents any camera/collision edge case from
+  // ever revealing an open shell.
+  const floorOffset = positions.length / 3;
+  for (const point of footprint) positions.push(point.x, baseY, point.z);
+  for (let index = 1; index < footprint.length - 1; index += 1) {
+    indices.push(floorOffset, floorOffset + index, floorOffset + index + 1);
+  }
+
+  const normals: number[] = [];
+  VertexData.ComputeNormals(positions, indices, normals);
+  const data = new VertexData();
+  data.positions = positions;
+  data.indices = indices;
+  data.normals = normals;
+  const mesh = new Mesh(name, scene);
+  data.applyToMesh(mesh);
+  mesh.parent = parent;
+  setMeshMaterial(mesh, material, true);
+  return mesh;
+}
+
+function createWedgeEdgeBox(
+  scene: Scene,
+  name: string,
+  frame: WedgeEdgeFrame,
+  alongM: number,
+  widthM: number,
+  centerY: number,
+  heightM: number,
+  depthM: number,
+  material: StandardMaterial,
+  parent: TransformNode,
+  extraOutsetM = 0.015,
+): Mesh {
+  const centerAlong = Math.max(
+    widthM / 2,
+    Math.min(frame.length - widthM / 2, alongM),
+  );
+  const outward = depthM / 2 + extraOutsetM;
+  const mesh = createBox(
+    scene,
+    name,
+    { width: widthM, height: heightM, depth: depthM },
+    new Vector3(
+      frame.a.x + frame.ux * centerAlong + frame.outX * outward,
+      centerY,
+      frame.a.z + frame.uz * centerAlong + frame.outZ * outward,
+    ),
+    material,
+    parent,
+  );
+  // Local X follows the facade; local +Z points out from the clockwise shell.
+  mesh.rotation.y = Math.atan2(-frame.uz, frame.ux);
+  return mesh;
+}
+
+function buildDowntownWedgeBuilding(
+  ctx: CairoLandmarkCtx,
+  recipe: CairoDowntownWedgeBuilding,
+): void {
+  const scene = ctx.scene;
+  const root = new TransformNode(recipe.id, scene);
+  const body = makeMaterial(
+    scene,
+    `${recipe.id}-weathered-stone`,
+    Color3.FromHexString(recipe.color),
+  );
+  body.specularColor = new Color3(0.025, 0.022, 0.018);
+  const trim = makeMaterial(
+    scene,
+    `${recipe.id}-limestone-trim`,
+    Color3.FromHexString(recipe.trimColor),
+  );
+  const roof = makeMaterial(
+    scene,
+    `${recipe.id}-roof`,
+    Color3.FromHexString(recipe.roofColor),
+  );
+  const windowDark = makeMaterial(
+    scene,
+    `${recipe.id}-window-dark`,
+    new Color3(0.045, 0.055, 0.06),
+  );
+  const windowWarm = makeMaterial(
+    scene,
+    `${recipe.id}-window-warm`,
+    new Color3(0.72, 0.53, 0.24),
+    new Color3(0.3, 0.2, 0.075),
+  );
+  const iron = makeMaterial(
+    scene,
+    `${recipe.id}-iron`,
+    new Color3(0.075, 0.065, 0.055),
+  );
+  const acMaterial = makeMaterial(
+    scene,
+    `${recipe.id}-ac`,
+    new Color3(0.62, 0.61, 0.55),
+  );
+  const shopGlass = makeMaterial(
+    scene,
+    `${recipe.id}-shop-glass`,
+    new Color3(0.065, 0.09, 0.095),
+    new Color3(0.025, 0.035, 0.03),
+  );
+  const signMaterials = [
+    makeMaterial(scene, `${recipe.id}-sign-teal`, new Color3(0.07, 0.25, 0.24)),
+    makeMaterial(scene, `${recipe.id}-sign-burgundy`, new Color3(0.34, 0.08, 0.075)),
+    makeMaterial(scene, `${recipe.id}-sign-blue`, new Color3(0.08, 0.17, 0.34)),
+    makeMaterial(scene, `${recipe.id}-sign-ochre`, new Color3(0.48, 0.29, 0.08)),
+  ];
+
+  createWedgePrism(
+    scene,
+    `${recipe.id}-shell`,
+    recipe.footprint,
+    0,
+    recipe.heightM,
+    body,
+    root,
+  );
+
+  const streetEdgeIndices = new Set(recipe.streetEdges.map((edge) => edge.edgeIndex));
+  const upperStories = recipe.stories - 1;
+  const upperBandM = recipe.heightM - 5.2;
+  for (let edgeIndex = 0; edgeIndex < recipe.footprint.length; edgeIndex += 1) {
+    const frame = wedgeEdgeFrame(recipe.footprint, edgeIndex);
+    // Ground-floor string course, top cornice and roof parapet wrap the full
+    // footprint, including the narrow prow and plain rear party wall.
+    for (const [suffix, y, height, depth] of [
+      ["ground-band", 4.45, 0.48, 0.32],
+      ["upper-cornice", recipe.heightM - 0.72, 0.72, 0.5],
+      ["parapet", recipe.heightM + 0.42, 0.84, 0.38],
+    ] as const) {
+      createWedgeEdgeBox(
+        scene,
+        `${recipe.id}-${suffix}-${edgeIndex}`,
+        frame,
+        frame.length / 2,
+        frame.length + 0.18,
+        y,
+        height,
+        depth,
+        trim,
+        root,
+      );
+    }
+
+    if (!streetEdgeIndices.has(edgeIndex)) continue;
+
+    const shopCount = Math.max(1, Math.min(5, Math.floor((frame.length - 1.2) / 4.4)));
+    const shopSpacing = frame.length / shopCount;
+    for (let shop = 0; shop < shopCount; shop += 1) {
+      const width = Math.min(3.45, shopSpacing - 0.45);
+      const along = (shop + 0.5) * shopSpacing;
+      createWedgeEdgeBox(
+        scene,
+        `${recipe.id}-shop-${edgeIndex}-${shop}`,
+        frame,
+        along,
+        width,
+        2.15,
+        3.35,
+        0.2,
+        shopGlass,
+        root,
+      );
+      createWedgeEdgeBox(
+        scene,
+        `${recipe.id}-shop-sign-${edgeIndex}-${shop}`,
+        frame,
+        along,
+        width + 0.2,
+        4.05,
+        0.55,
+        0.26,
+        signMaterials[(shop + edgeIndex) % signMaterials.length],
+        root,
+      );
+    }
+
+    const bayCount = Math.max(1, Math.min(7, Math.floor((frame.length - 1.5) / 3.25)));
+    const baySpacing = frame.length / bayCount;
+    for (let story = 0; story < upperStories; story += 1) {
+      const storyY = 5.2 + ((story + 0.52) * upperBandM) / upperStories;
+      for (let bay = 0; bay < bayCount; bay += 1) {
+        const along = (bay + 0.5) * baySpacing;
+        const windowWidth = Math.min(1.55, baySpacing - 0.55);
+        const lit = (story * 5 + bay * 3 + edgeIndex) % 9 === 2;
+        createWedgeEdgeBox(
+          scene,
+          `${recipe.id}-window-${edgeIndex}-${story}-${bay}`,
+          frame,
+          along,
+          windowWidth,
+          storyY,
+          2.35,
+          0.16,
+          lit ? windowWarm : windowDark,
+          root,
+        );
+
+        // The reference skyline is defined as much by projecting balconies
+        // and condenser boxes as by the stonework. Stagger them instead of
+        // repeating one synthetic pattern across every facade.
+        if (story >= 1 && story % 2 === 1 && (bay + edgeIndex) % 2 === 0) {
+          const balconyWidth = Math.min(2.6, baySpacing - 0.25);
+          createWedgeEdgeBox(
+            scene,
+            `${recipe.id}-balcony-slab-${edgeIndex}-${story}-${bay}`,
+            frame,
+            along,
+            balconyWidth,
+            storyY - 1.42,
+            0.18,
+            0.9,
+            trim,
+            root,
+            0.03,
+          );
+          createWedgeEdgeBox(
+            scene,
+            `${recipe.id}-balcony-rail-${edgeIndex}-${story}-${bay}`,
+            frame,
+            along,
+            balconyWidth,
+            storyY - 1.03,
+            0.62,
+            0.1,
+            iron,
+            root,
+            0.92,
+          );
+        } else if ((story * 7 + bay + edgeIndex) % 8 === 3) {
+          createWedgeEdgeBox(
+            scene,
+            `${recipe.id}-ac-${edgeIndex}-${story}-${bay}`,
+            frame,
+            Math.min(frame.length - 0.55, along + windowWidth / 2 + 0.58),
+            0.82,
+            storyY - 0.42,
+            0.62,
+            0.42,
+            acMaterial,
+            root,
+            0.05,
+          );
+        }
+      }
+    }
+
+    // Pale stone pilasters hold the vertical Khedivial rhythm between the
+    // crowded balconies, windows, signs and AC units.
+    for (const along of [0.35, frame.length - 0.35]) {
+      createWedgeEdgeBox(
+        scene,
+        `${recipe.id}-pilaster-${edgeIndex}-${along > 1 ? "end" : "start"}`,
+        frame,
+        along,
+        0.38,
+        (recipe.heightM + 4.6) / 2,
+        recipe.heightM - 4.6,
+        0.3,
+        trim,
+        root,
+      );
+    }
+  }
+
+  // One stacked bay on the chamfered prow makes the acute corner a facade,
+  // not an undecorated seam between the two street walls.
+  const prow = wedgeEdgeFrame(recipe.footprint, 3);
+  if (prow.length > 1.25) {
+    for (let story = 0; story < upperStories; story += 1) {
+      const storyY = 5.2 + ((story + 0.52) * upperBandM) / upperStories;
+      createWedgeEdgeBox(
+        scene,
+        `${recipe.id}-prow-window-${story}`,
+        prow,
+        prow.length / 2,
+        Math.min(1.35, prow.length - 0.35),
+        storyY,
+        2.25,
+        0.16,
+        story === 2 ? windowWarm : windowDark,
+        root,
+      );
+    }
+  }
+
+  // A compact corner pavilion and shallow terracotta cap recreate the varied
+  // roofline in the reference without pushing ground collision toward a road.
+  const prowX = (recipe.footprint[0].x + recipe.footprint[3].x) / 2;
+  const prowZ = (recipe.footprint[0].z + recipe.footprint[3].z) / 2;
+  createCylinder(
+    scene,
+    `${recipe.id}-corner-pavilion`,
+    { height: 2.8, diameterBottom: 3.8, diameterTop: 3.2, tessellation: 8 },
+    new Vector3(prowX, recipe.heightM + 1.8, prowZ),
+    trim,
+    root,
+  );
+  createCylinder(
+    scene,
+    `${recipe.id}-corner-cap`,
+    { height: 2.3, diameterBottom: 3.65, diameterTop: 0.35, tessellation: 8 },
+    new Vector3(prowX, recipe.heightM + 4.35, prowZ),
+    roof,
+    root,
+  );
+
+  ctx.staticSceneryFreeze.push(root);
 }
 
 export interface CairoLandmarkCtx {
@@ -85,6 +482,11 @@ export function buildCairoLandmark(
   mapPack: GameCanvasMapPack,
 ): boolean {
   const scene = ctx.scene;
+  const downtownWedge = cairoDowntownWedgeBuilding(landmark.id);
+  if (downtownWedge) {
+    buildDowntownWedgeBuilding(ctx, downtownWedge);
+    return true;
+  }
   const paleStone = makeMaterial(
     scene,
     `${landmark.id}-pale-stone`,

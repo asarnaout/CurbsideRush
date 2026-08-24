@@ -1,6 +1,7 @@
 import { CAREER_VEHICLES } from "../career";
 import { VEHICLE_DIMENSIONS } from "../vehicleVisuals";
 import type { GameCanvasPoint } from "../sessionContract";
+import { cairoDowntownWedgeBuilding } from "./cairoWedgeBuildings";
 
 /**
  * Exact vehicle-height ground solids for landmarks whose bespoke renderer
@@ -682,7 +683,19 @@ export function landmarkGroundSolids(
   landmark: LandmarkGroundSolidInput,
 ): readonly GroundSolid[] | undefined {
   if (mapId.includes("london")) return LONDON_RECIPES[landmark.id]?.(landmark);
-  if (mapId.includes("cairo")) return CAIRO_RECIPES[landmark.id]?.(landmark);
+  if (mapId.includes("cairo")) {
+    const wedge = cairoDowntownWedgeBuilding(landmark.id);
+    if (wedge) {
+      return [
+        {
+          kind: "convex",
+          id: `${landmark.id}:footprint`,
+          points: wedge.footprint,
+        },
+      ];
+    }
+    return CAIRO_RECIPES[landmark.id]?.(landmark);
+  }
   if (mapId.includes("tokyo")) return TOKYO_RECIPES[landmark.id]?.(landmark);
   return undefined;
 }

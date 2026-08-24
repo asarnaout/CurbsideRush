@@ -128,9 +128,14 @@ import type {
 // -> 1497/922/465 (south rail-side void): three explicit asset rows replace
 // the nominal cairo-east-block-1-1 parcel that the rail carver removes whole;
 // two more lots close the real Garden City South street-front gaps.
-const BLOCK_COUNT = 1497;
-const ROADSIDE_COUNT = 922;
-const ROADSIDE_LEFT = 465;
+// -> 1498/923/466 (Tahrir wedge corners): the five exact convex landmarks
+// occupy the acute parcels at the six-arm downtown junction. Their reviewed
+// envelopes re-tile the adjacent Qasr El-Nil/Qasr El-Ainy transition into one
+// additional safe roadside piece while the wedge renderer supplies the five
+// missing corner buildings themselves.
+const BLOCK_COUNT = 1498;
+const ROADSIDE_COUNT = 923;
+const ROADSIDE_LEFT = 466;
 /** The second rank is gone — a one-sided kit means a back row can only stare
  * at the front row's service wall or plant its own on the next street over.
  * Zero, pinned, so it cannot quietly come back. */
@@ -149,7 +154,10 @@ const ROADSIDE_RANKS = 0;
 // because the one-sided GLB backs would crowd a second road.
 // -> 675 (south rail-side void): all five replacements use Cairo's existing
 // west-bank/baladi asset set rather than introducing another facade-box row.
-const STREET_WALL_BLOCKS = 675;
+// -> 676 (Tahrir wedge corners): the adjacent re-tiled roadside transition
+// keeps Cairo's existing downtown wall set; the five wedges render separately
+// as bespoke exact-footprint landmarks and are not counted here.
+const STREET_WALL_BLOCKS = 676;
 // 1590 -> 1644 (Section 12.5) -> 1671 (Section 12.6) -> 1716 (Section
 // 12.7): the five cairo-west-nile-street-mid-land-edge-wall-* closures
 // have no buildingSet either, same formula, 5 blocks * 9 = 45 more.
@@ -1300,6 +1308,11 @@ describe("Cairo Central Nile content", () => {
         "cairo-egyptian-museum",
         "cairo-tahrir-obelisk",
         "cairo-tahrir-ministries",
+        "cairo-downtown-wedge-northeast",
+        "cairo-downtown-wedge-northwest",
+        "cairo-downtown-wedge-southwest",
+        "cairo-downtown-wedge-southeast",
+        "cairo-downtown-wedge-east",
         "cairo-opera-house",
         // Bulaq's mosque, the hara web's own landmark (Cairo reimagining).
         "cairo-abou-ela-mosque",

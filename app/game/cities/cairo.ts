@@ -8,6 +8,10 @@ import {
 } from "../buildingSets";
 import { ROAD_DIVIDED_PARK_IDS } from "../parkLayouts";
 import { hashStringToSeed } from "../visuals";
+import {
+  CAIRO_DOWNTOWN_WEDGE_LANDMARKS,
+  cairoDowntownWedgeBuilding,
+} from "../geometry/cairoWedgeBuildings";
 import type {
   FreeDriveDefinition,
   GigVenue,
@@ -1737,6 +1741,11 @@ const cairoLandmarks: readonly ProceduralLandmark[] = [
     size: point(44, 22),
     color: "#c9b18f",
   },
+  // Five acute Khedivial corner buildings fill every non-park sector of the
+  // six-arm Tahrir hub. Their exact convex footprints follow both adjoining
+  // kerbs; the broad landmark envelopes also remove the palms/loose props
+  // that used to stand alone in these otherwise empty triangles.
+  ...CAIRO_DOWNTOWN_WEDGE_LANDMARKS,
   {
     id: "cairo-opera-house",
     kind: "cultural",
@@ -2407,6 +2416,7 @@ export const cairoRoadsideExclusions: readonly RoadsideExclusion[] = [
       landmark.kind === "park" && ROAD_DIVIDED_PARK_IDS.has(landmark.id)
         ? dividedParkExclusionRect(landmark)
         : { center: landmark.center, size: landmark.size };
+    const isDowntownWedge = cairoDowntownWedgeBuilding(landmark.id) !== undefined;
     return {
       id: `landmark:${landmark.id}`,
       ownerId: landmark.id,
@@ -2422,7 +2432,18 @@ export const cairoRoadsideExclusions: readonly RoadsideExclusion[] = [
         // RoadSurfaces whose envelopes addRoadClearBlock enforces. The old
         // 4 m margin on the 1500 m scenic deck blanked a band across every
         // road it crossed — real Cairo builds hard against its flyovers.
-        landmark.kind === "park" ? 18 : landmark.kind === "bridge" ? 0 : 12,
+        // The five downtown wedges already contain a reviewed 0.55 m setback
+        // in their exact convex footprints. Their landmark sizes are only
+        // conservative bounding boxes for broad-phase prop clearing; adding
+        // the ordinary 12 m rectangular moat here would erase valid buildings
+        // beside the acute corners that the wedges exist to complete.
+        isDowntownWedge
+          ? 0
+          : landmark.kind === "park"
+            ? 18
+            : landmark.kind === "bridge"
+              ? 0
+              : 12,
       ),
     };
   }),
