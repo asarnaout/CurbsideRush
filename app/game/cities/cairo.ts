@@ -745,9 +745,15 @@ const roadMarkings = (
         }]
       : [];
   }
+  // Cairo's capillaries are not uniformly painted. A continuous bright line
+  // down every hara was one of the strongest "planned game city" tells: keep
+  // paint on the broad roads where drivers need lane guidance, but let the
+  // narrow local fabric read through its asphalt, parked cars and kerbs.
+  if (spec.widthM < 9 && !spec.arterial) return [];
+  const isBridge = spec.id.includes("bridge");
   const markings: RoadMarkingPath[] = [{
     id: `${spec.id}-centre`,
-    style: spec.arterial ? "centre_solid" : "centre_dashed",
+    style: isBridge ? "centre_solid" : "centre_dashed",
     points: centerline,
     color: "white",
   }];

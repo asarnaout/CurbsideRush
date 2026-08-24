@@ -36,6 +36,21 @@ const RECT_CLEARANCE_M = 1.8;
 const FOREIGN_ROAD_CLEARANCE_M = 1.5;
 const WORLD_EDGE_MARGIN_M = 4;
 
+interface GeneratedParkingProfile {
+  readonly keepRate: number;
+}
+
+const generatedParkingProfile = (mapId: string): GeneratedParkingProfile =>
+  mapId === "cairo-central-nile"
+    ? {
+        // Cairo's occupied kerbs are part of the street wall. The shared 16%
+        // deal left long pristine pavement runs even on commercial avenues;
+        // the existing full-slot/junction/control checks below still decide
+        // whether every individual car is physically legal.
+        keepRate: 0.28,
+      }
+    : { keepRate: SLOT_KEEP_RATE };
+
 const MODEL_POOL: readonly ParkedCarModel[] = [
   "sedan",
   "sedan",
@@ -147,6 +162,7 @@ export function parkedCarsForMap(
   if (mapPack.id === "london-south-kensington") {
     return LONDON_PARKED_CARS;
   }
+  const parkingProfile = generatedParkingProfile(mapPack.id);
 
   const surfaces = (mapPack.geometry.roadSurfaces ?? []).filter(
     (surface) => surface.surfaceType === "standard" && surface.centerline.length > 1,
@@ -223,7 +239,7 @@ export function parkedCarsForMap(
           z: start.z + tangentZ * along,
         };
         for (const side of [1, -1] as const) {
-          const shouldKeep = random() < SLOT_KEEP_RATE;
+          const shouldKeep = random() < parkingProfile.keepRate;
           const model = MODEL_POOL[Math.floor(random() * MODEL_POOL.length)];
           if (!shouldKeep) continue;
           const lateral = surface.widthM / 2 + CAR_CENTER_PAST_KERB_M;

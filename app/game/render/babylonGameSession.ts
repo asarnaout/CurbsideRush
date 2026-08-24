@@ -74,6 +74,7 @@ import {
   createAsphaltTexture,
   createGrassDetailTexture,
   createGrassTexture,
+  textureContext,
 } from "./proceduralTextures";
 import {
   appendDashedMarkingBoxes,
@@ -245,6 +246,8 @@ import {
 } from "../trafficSignals";
 import {
   buildPlanarUVs,
+  CAIRO_ASPHALT_PROFILE,
+  CAIRO_SIDEWALK_PROFILE,
   defaultSidewalkWidthM,
   hashStringToSeed,
   mixHexColors,
@@ -1299,6 +1302,46 @@ function makeMaterial(
   material.diffuseColor = color;
   material.specularColor = Color3.Black();
   material.emissiveColor = emissive ?? Color3.Black();
+  return material;
+}
+
+function makeCairoShopSignMaterial(
+  scene: Scene,
+  name: string,
+  background: string,
+  border: string,
+  arabic: string,
+  english: string,
+): StandardMaterial {
+  const texture = new DynamicTexture(
+    `${name}-texture`,
+    { width: 512, height: 128 },
+    scene,
+    true,
+  );
+  const context = textureContext(texture);
+  context.fillStyle = background;
+  context.fillRect(0, 0, 512, 128);
+  context.strokeStyle = border;
+  context.lineWidth = 10;
+  context.strokeRect(5, 5, 502, 118);
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillStyle = "#fff2cf";
+  context.font = "700 58px Tahoma, Arial, sans-serif";
+  context.fillText(arabic, 310, 62);
+  context.font = "700 25px Arial, sans-serif";
+  context.fillText(english, 90, 64);
+  texture.update();
+
+  const material = makeMaterial(
+    scene,
+    name,
+    Color3.White(),
+    new Color3(0.34, 0.27, 0.17),
+  );
+  material.diffuseTexture = texture;
+  material.emissiveTexture = texture;
   return material;
 }
 
@@ -4684,8 +4727,9 @@ export class BabylonGameSession {
       "scenario-asphalt-texture",
       // Medium-dark grey (was near-black #1b2125) so dark/black vehicles read
       // against the road instead of vanishing into it.
-      "#383d42",
+      cairoScene ? "#302f2c" : "#383d42",
       hashStringToSeed(`${mapId}-asphalt`),
+      cairoScene ? CAIRO_ASPHALT_PROFILE : undefined,
     );
     const sharedSpace = makeMaterial(scene, "scenario-shared-space", Color3.White());
     sharedSpace.diffuseTexture = createAsphaltTexture(
@@ -4716,12 +4760,21 @@ export class BabylonGameSession {
       paved ? "scenario-sidewalk-texture" : "scenario-verge-texture",
       paved ? palette.pavement ?? "#6a6e71" : palette.dirtShoulder,
       hashStringToSeed(`${mapId}-${paved ? "sidewalk" : "verge"}`),
+      cairoScene && paved ? CAIRO_SIDEWALK_PROFILE : undefined,
     );
-    const laneMaterial = makeMaterial(scene, "scenario-marking", new Color3(0.88, 0.88, 0.79));
+    const laneMaterial = makeMaterial(
+      scene,
+      "scenario-marking",
+      cairoScene
+        ? new Color3(0.5, 0.47, 0.39)
+        : new Color3(0.88, 0.88, 0.79),
+    );
     const yellowMarkingMaterial = makeMaterial(
       scene,
       "scenario-yellow-marking",
-      new Color3(0.9, 0.68, 0.08),
+      cairoScene
+        ? new Color3(0.56, 0.43, 0.09)
+        : new Color3(0.9, 0.68, 0.08),
     );
     const dark = makeMaterial(scene, "scenario-fixture", new Color3(0.08, 0.1, 0.1));
     const stopRed = makeMaterial(scene, "scenario-stop", new Color3(0.72, 0.08, 0.06));
@@ -4768,6 +4821,7 @@ export class BabylonGameSession {
           "scenario-ground-texture",
           palette.groundBase ?? "#4c5053",
           hashStringToSeed(`${mapId}-ground`),
+          cairoScene ? CAIRO_SIDEWALK_PROFILE : undefined,
         )
       : createGrassTexture(
           scene,
@@ -5058,25 +5112,39 @@ export class BabylonGameSession {
             appendDashedMarkingBoxes(
               paint,
               run,
-              marking.style === "give_way" ? 0.24 : 0.11,
+              marking.style === "give_way"
+                ? 0.24
+                : cairoScene
+                  ? 0.085
+                  : 0.11,
               0.12,
               marking.style === "centre_dashed"
-                ? 3.2
+                ? cairoScene
+                  ? 1.7
+                  : 3.2
                 : marking.style === "give_way"
                   ? 0.65
                   : 2.2,
               marking.style === "centre_dashed"
-                ? 4.3
+                ? cairoScene
+                  ? 5.8
+                  : 4.3
                 : marking.style === "give_way"
                   ? 0.55
-                  : 3.4,
+                  : cairoScene
+                    ? 4.8
+                    : 3.4,
             );
             continue;
           }
           appendSolidMarkingBoxes(
             paint,
             run,
-            marking.style === "box_junction" ? 0.18 : 0.11,
+            marking.style === "box_junction"
+              ? 0.18
+              : cairoScene
+                ? 0.085
+                : 0.11,
             0.12,
           );
         }
@@ -5167,6 +5235,41 @@ export class BabylonGameSession {
           ),
         ]
       : [];
+    const cairoShopSignMaterials = cairoScene
+      ? [
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-pharmacy",
+            "#175c4a",
+            "#d5b65a",
+            "صيدلية",
+            "PHARMACY",
+          ),
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-clothing",
+            "#7a1f25",
+            "#e5b24e",
+            "ملابس",
+            "CLOTHING",
+          ),
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-cafe",
+            "#183f70",
+            "#e2c576",
+            "مقهى",
+            "CAFE",
+          ),
+        ]
+      : [];
+    const cairoShopShutterMaterial = cairoScene
+      ? makeMaterial(
+          scene,
+          "cairo-shop-shutters",
+          new Color3(0.32, 0.31, 0.28),
+        )
+      : null;
     // Buildings no longer need a render-time keep-out pass at all: every
     // planned entry already excludes service/venue reservations at plan
     // time (`geometry/buildingLayout.ts`/`geometry/facadesAndKeepouts.ts`'s
@@ -5178,6 +5281,8 @@ export class BabylonGameSession {
       cairoBalconyRailMaterial,
       cairoAcMaterial,
       cairoAwningMaterials,
+      cairoShopSignMaterials,
+      cairoShopShutterMaterial,
       cairoRooftopMaterial,
       cairoDishMaterial,
       staticSceneryFreeze: this.staticSceneryFreeze,

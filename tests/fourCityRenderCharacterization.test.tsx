@@ -1408,10 +1408,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // their occupancy displaces 37 scatter meshes. The shoreline-clearance
     // guard drops four three-mesh promenade props that could not relocate
     // clear of the parapet. Seventeen proxies enter the fixed camera frustum.
-    totalMeshes: 13_874,
-    enabledMeshes: 13_830,
-    activeMeshes: 915,
-    materials: 246,
+    // -> 14_008/13_964 (active 931, materials 250; Cairo street-weathering):
+    // sparse shop signs/shutters add four Cairo-only materials and facade
+    // chunks; two extra streetlight variants add eight shared prop parts;
+    // denser legal parking reserves more kerb slots and re-deals nearby
+    // scatter. Other city baselines remain unchanged.
+    totalMeshes: 14_008,
+    enabledMeshes: 13_964,
+    activeMeshes: 931,
+    materials: 250,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1427,8 +1432,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // 220 -> 97 / 149 -> 147 (facade-chunk merging): the ring holds a few
     // chunks where it held hundreds of boxes.
     // -> 93 / 142: the same new occupancy re-deals the fixed mirror ring.
-    mirrorCandidates: 93,
-    mirrorDrawn: 142,
+    // -> 102 / 145: Cairo-only storefront dressing and parking reservations
+    // re-deal the street furniture held inside that ring.
+    mirrorCandidates: 102,
+    mirrorDrawn: 145,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1441,7 +1448,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // baladi skeleton-and-infill materials).
     // -> "52079508": the mosque's eight named materials.
     // -> "df94522e": the three regulatory-sign materials.
-    survivingMaterialNamesFingerprint: "df94522e",
+    // -> "48a1630c": the three Cairo shop signs plus storefront shutter.
+    survivingMaterialNamesFingerprint: "48a1630c",
   },
 };
 

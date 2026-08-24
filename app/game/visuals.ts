@@ -743,18 +743,102 @@ export interface AsphaltTextureSpec {
     readonly r: number;
     readonly lighten: number;
   }[];
+  readonly repairs: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+    readonly rotation: number;
+    readonly darken: number;
+  }[];
+  readonly dust: readonly {
+    readonly x: number;
+    readonly y: number;
+    readonly radius: number;
+    readonly alpha: number;
+  }[];
 }
 
-/** Subtle wear spec: wandering thin cracks plus soft lighter patches. */
-export function buildAsphaltTextureSpec(seed: number): AsphaltTextureSpec {
+export interface AsphaltTextureProfile {
+  readonly noiseAmplitude: number;
+  readonly crackCount: readonly [minimum: number, maximum: number];
+  readonly crackSteps: readonly [minimum: number, maximum: number];
+  readonly patchCount: readonly [minimum: number, maximum: number];
+  readonly patchRadius: readonly [minimum: number, maximum: number];
+  readonly patchLighten: readonly [minimum: number, maximum: number];
+  readonly repairCount: readonly [minimum: number, maximum: number];
+  readonly dustCount: readonly [minimum: number, maximum: number];
+  readonly crackAlpha: number;
+  readonly crackWidthPx: number;
+  readonly paverGrid?: boolean;
+}
+
+const STANDARD_ASPHALT_PROFILE: AsphaltTextureProfile = {
+  noiseAmplitude: 0.03,
+  crackCount: [6, 9],
+  crackSteps: [4, 7],
+  patchCount: [2, 3],
+  patchRadius: [0.035, 0.085],
+  patchLighten: [0.015, 0.035],
+  repairCount: [0, 0],
+  dustCount: [0, 0],
+  crackAlpha: 0.14,
+  crackWidthPx: 2,
+};
+
+/** Cairo's road surface: accumulated utility cuts, dusty aggregate and
+ * repairs, stronger at the 20 m world-planar tile than the shared subtle wear. */
+export const CAIRO_ASPHALT_PROFILE: AsphaltTextureProfile = {
+  noiseAmplitude: 0.085,
+  crackCount: [16, 23],
+  crackSteps: [5, 10],
+  patchCount: [7, 11],
+  patchRadius: [0.045, 0.18],
+  patchLighten: [-0.025, 0.055],
+  repairCount: [3, 5],
+  dustCount: [70, 105],
+  crackAlpha: 0.28,
+  crackWidthPx: 2.4,
+};
+
+/** Cairo's pavement band: repaired concrete/interlocking pavers with dusty
+ * joints. It is intentionally distinct from the road profile. */
+export const CAIRO_SIDEWALK_PROFILE: AsphaltTextureProfile = {
+  noiseAmplitude: 0.07,
+  crackCount: [12, 18],
+  crackSteps: [4, 8],
+  patchCount: [8, 12],
+  patchRadius: [0.035, 0.13],
+  patchLighten: [-0.035, 0.045],
+  repairCount: [2, 4],
+  dustCount: [85, 125],
+  crackAlpha: 0.22,
+  crackWidthPx: 1.8,
+  paverGrid: true,
+};
+
+const rangedCount = (
+  random: () => number,
+  range: readonly [number, number],
+): number =>
+  range[0] === range[1]
+    ? range[0]
+    : range[0] + Math.floor(random() * (range[1] - range[0] + 1));
+
+/** Deterministic wear spec. The default profile preserves the shared subtle
+ * road exactly; Cairo opts into the stronger profiles above at render time. */
+export function buildAsphaltTextureSpec(
+  seed: number,
+  profile: AsphaltTextureProfile = STANDARD_ASPHALT_PROFILE,
+): AsphaltTextureSpec {
   const random = seededUnit(seed);
   const cracks: AsphaltCrack[] = [];
-  const crackCount = 6 + Math.floor(random() * 4);
+  const crackCount = rangedCount(random, profile.crackCount);
   for (let crack = 0; crack < crackCount; crack += 1) {
     let x = random();
     let y = random();
     const points = [{ x, y }];
-    const steps = 4 + Math.floor(random() * 4);
+    const steps = rangedCount(random, profile.crackSteps);
     const drift = random() * Math.PI * 2;
     for (let step = 0; step < steps; step += 1) {
       const angle = drift + (random() - 0.5) * 1.6;
@@ -764,13 +848,37 @@ export function buildAsphaltTextureSpec(seed: number): AsphaltTextureSpec {
     }
     cracks.push({ points });
   }
-  const patches = Array.from({ length: 2 + Math.floor(random() * 2) }, () => ({
+  const patches = Array.from({ length: rangedCount(random, profile.patchCount) }, () => ({
     x: random(),
     y: random(),
-    r: 0.035 + random() * 0.05,
-    lighten: 0.015 + random() * 0.02,
+    r:
+      profile.patchRadius[0] +
+      random() * (profile.patchRadius[1] - profile.patchRadius[0]),
+    lighten:
+      profile.patchLighten[0] +
+      random() * (profile.patchLighten[1] - profile.patchLighten[0]),
   }));
-  return { noiseSeed: Math.floor(random() * 0xffff) + 1, cracks, patches };
+  const repairs = Array.from({ length: rangedCount(random, profile.repairCount) }, () => ({
+    x: random(),
+    y: random(),
+    width: 0.08 + random() * 0.24,
+    height: 0.018 + random() * 0.055,
+    rotation: (random() - 0.5) * 0.7,
+    darken: 0.08 + random() * 0.12,
+  }));
+  const dust = Array.from({ length: rangedCount(random, profile.dustCount) }, () => ({
+    x: random(),
+    y: random(),
+    radius: 0.0015 + random() * 0.006,
+    alpha: 0.025 + random() * 0.07,
+  }));
+  return {
+    noiseSeed: Math.floor(random() * 0xffff) + 1,
+    cracks,
+    patches,
+    repairs,
+    dust,
+  };
 }
 
 /**

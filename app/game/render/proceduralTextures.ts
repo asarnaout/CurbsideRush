@@ -12,6 +12,7 @@ import {
   buildGrassDetailSpec,
   buildGrassTextureSpec,
   buildHorizonSilhouetteSpec,
+  type AsphaltTextureProfile,
   type GrassBlade,
   hashStringToSeed,
   type MapVisualPalette,
@@ -294,6 +295,7 @@ export function createAsphaltTexture(
   name: string,
   baseColorHex: string,
   seed: number,
+  profile?: AsphaltTextureProfile,
 ): DynamicTexture {
   const size = 512;
   const texture = new DynamicTexture(name, size, scene, true);
@@ -301,18 +303,82 @@ export function createAsphaltTexture(
   context.fillStyle = baseColorHex;
   context.fillRect(0, 0, size, size);
 
-  const spec = buildAsphaltTextureSpec(seed);
-  applyLuminanceNoise(context, size, spec.noiseSeed, 0.03);
-  context.fillStyle = "rgba(255, 255, 255, 1)";
+  const spec = buildAsphaltTextureSpec(seed, profile);
+  applyLuminanceNoise(
+    context,
+    size,
+    spec.noiseSeed,
+    profile?.noiseAmplitude ?? 0.03,
+  );
+  if (profile?.paverGrid) {
+    context.strokeStyle = "rgba(35, 29, 23, 0.22)";
+    context.lineWidth = 1;
+    const step = 12;
+    for (let y = 0; y <= size; y += step) {
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(size, y);
+      context.stroke();
+      const offset = (Math.floor(y / step) % 2) * (step / 2);
+      for (let x = offset; x <= size; x += step) {
+        context.beginPath();
+        context.moveTo(x, y);
+        context.lineTo(x, Math.min(size, y + step));
+        context.stroke();
+      }
+    }
+  }
   for (const patch of spec.patches) {
-    context.globalAlpha = patch.lighten;
+    context.fillStyle =
+      patch.lighten >= 0
+        ? "rgba(255, 255, 255, 1)"
+        : "rgba(0, 0, 0, 1)";
+    context.globalAlpha = Math.abs(patch.lighten);
     context.beginPath();
     context.arc(patch.x * size, patch.y * size, patch.r * size, 0, Math.PI * 2);
     context.fill();
   }
+  for (const repair of spec.repairs) {
+    context.globalAlpha = repair.darken;
+    context.fillStyle = "rgba(0, 0, 0, 1)";
+    const centreX = repair.x * size;
+    const centreY = repair.y * size;
+    const halfWidth = (repair.width * size) / 2;
+    const halfHeight = (repair.height * size) / 2;
+    const cos = Math.cos(repair.rotation);
+    const sin = Math.sin(repair.rotation);
+    const corners = [
+      [-halfWidth, -halfHeight],
+      [halfWidth, -halfHeight],
+      [halfWidth, halfHeight],
+      [-halfWidth, halfHeight],
+    ] as const;
+    context.beginPath();
+    for (const [cornerIndex, [x, y]] of corners.entries()) {
+      const rotatedX = centreX + x * cos - y * sin;
+      const rotatedY = centreY + x * sin + y * cos;
+      if (cornerIndex === 0) context.moveTo(rotatedX, rotatedY);
+      else context.lineTo(rotatedX, rotatedY);
+    }
+    context.closePath();
+    context.fill();
+  }
+  context.fillStyle = "rgba(190, 164, 116, 1)";
+  for (const speck of spec.dust) {
+    context.globalAlpha = speck.alpha;
+    context.beginPath();
+    context.arc(
+      speck.x * size,
+      speck.y * size,
+      speck.radius * size,
+      0,
+      Math.PI * 2,
+    );
+    context.fill();
+  }
   context.globalAlpha = 1;
-  context.strokeStyle = "rgba(0, 0, 0, 0.14)";
-  context.lineWidth = 2;
+  context.strokeStyle = `rgba(0, 0, 0, ${profile?.crackAlpha ?? 0.14})`;
+  context.lineWidth = profile?.crackWidthPx ?? 2;
   context.lineJoin = "round";
   for (const crack of spec.cracks) {
     context.beginPath();

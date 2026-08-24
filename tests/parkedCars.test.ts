@@ -37,7 +37,10 @@ describe("parkedCarsForMap", () => {
       "nyc-upper-west-side": 467,
       "london-south-kensington": 182,
       "tokyo-setagaya": 449,
-      "cairo-central-nile": 274,
+      // Cairo's occupied kerbs are deliberate street character; every other
+      // map holds its established count while Cairo alone takes the denser
+      // keep profile (all physical-clearance assertions below still apply).
+      "cairo-central-nile": 459,
     });
   });
 

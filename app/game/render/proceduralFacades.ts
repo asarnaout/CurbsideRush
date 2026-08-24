@@ -51,7 +51,7 @@ import {
  * `ProceduralFacadesCtx` instead — the same "explicit inputs, not reaching
  * into the session" shape `BuildingLayerInstantiateCtx` uses:
  *
- * - **The six Cairo material locals** (`cairoFacadeTrimMaterial`,
+ * - **The Cairo material locals** (`cairoFacadeTrimMaterial`,
  *   `cairoBalconyRailMaterial`, `cairoAcMaterial`, `cairoAwningMaterials`,
  *   `cairoRooftopMaterial`, `cairoDishMaterial`). Built alongside the rest of
  *   Cairo's procedural materials in `buildScenarioEnvironment` (the
@@ -86,6 +86,8 @@ export interface ProceduralFacadesCtx {
   readonly cairoBalconyRailMaterial: StandardMaterial | null;
   readonly cairoAcMaterial: StandardMaterial | null;
   readonly cairoAwningMaterials: readonly StandardMaterial[];
+  readonly cairoShopSignMaterials: readonly StandardMaterial[];
+  readonly cairoShopShutterMaterial: StandardMaterial | null;
   readonly cairoRooftopMaterial: StandardMaterial | null;
   readonly cairoDishMaterial: StandardMaterial | null;
   /** Nodes to freeze once, after the first render — shared with every other
@@ -396,6 +398,48 @@ export class ProceduralFacades {
             { width: Math.min(5.8, frontageSpan * 0.62), height: 0.18, depth: 1.5 },
             new Vector3(0, 3.15 - height / 2, frontageDepth / 2 + 0.72),
             ctx.cairoAwningMaterials[cellIndex % ctx.cairoAwningMaterials.length],
+            detailRoot,
+          ),
+        );
+      }
+      if (
+        ctx.cairoShopSignMaterials.length > 0 &&
+        cellIndex % 3 === 0 &&
+        (!isGardenCity || cellIndex % 6 === 0)
+      ) {
+        freezeDetail(
+          createBox(
+            this.scene,
+            `${facade.name}-shop-sign`,
+            {
+              width: Math.min(6.4, Math.max(2.8, frontageSpan * 0.72)),
+              height: 0.72,
+              depth: 0.14,
+            },
+            new Vector3(0, 2.9 - height / 2, frontageDepth / 2 + 0.14),
+            ctx.cairoShopSignMaterials[
+              cellIndex % ctx.cairoShopSignMaterials.length
+            ],
+            detailRoot,
+          ),
+        );
+      }
+      if (
+        !isGardenCity &&
+        ctx.cairoShopShutterMaterial &&
+        cellIndex % 4 === 2
+      ) {
+        freezeDetail(
+          createBox(
+            this.scene,
+            `${facade.name}-shop-shutter`,
+            {
+              width: Math.min(5.6, Math.max(2.5, frontageSpan * 0.64)),
+              height: 2.35,
+              depth: 0.1,
+            },
+            new Vector3(0, 1.25 - height / 2, frontageDepth / 2 + 0.1),
+            ctx.cairoShopShutterMaterial,
             detailRoot,
           ),
         );

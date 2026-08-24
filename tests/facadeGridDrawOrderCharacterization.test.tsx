@@ -602,6 +602,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // -> 19_540, "80a99a63" (owner-marked land gaps): the ten safe
     // in-place promotions leave the facade stream for existing Cairo GLBs;
     // all 239 new one-edge parcels are asset-backed and never enter it.
+    // -> "9720e60f" (Cairo street-weathering pass): the seeded facade draw
+    // stream remains fixed, while Cairo-only shop signs and shutters join the
+    // facade chunks and intentionally change their names/bounds fingerprint.
     drawCount: 19_540,
     // "f2628a4c" -> "e25257d5" (facade-chunk merging): the per-box meshes
     // merge into facade-chunk-* meshes post-preload, so the census hashes
@@ -609,7 +612,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // sensor — is untouched, and a planner draw-order regression still
     // surfaces through the chunks' bounds (a re-dealt box moves its
     // chunk's AABB).
-    facadeMeshFingerprint: "80a99a63",
+    facadeMeshFingerprint: "9720e60f",
   },
 };
 

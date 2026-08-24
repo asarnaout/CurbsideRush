@@ -436,7 +436,7 @@ export function roadsidePropKindsForMap(
         // 21 of 27 roads had one over 120 m; kerb-seating alone closes every
         // one of them (worst run now 83 m, on Dokki Nile Drive). Re-dealt
         // every kind below once — same accepted cost as Tokyo's own retune.
-        PROP_NIGHT_STREETLIGHT,
+        { ...PROP_NIGHT_STREETLIGHT, variants: 3 },
         // Cairo's ONE street-tree line, and it is mostly palms.
         //
         // It used to be two passes — a 54 m tree line plus a separate 68 m

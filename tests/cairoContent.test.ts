@@ -615,6 +615,23 @@ describe("Cairo Central Nile content", () => {
     ).toBeGreaterThanOrEqual(0.3);
   });
 
+  it("keeps Cairo's local streets free of pristine lane paint", () => {
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces;
+    expect(surfaces.filter((surface) => surface.markings.length === 0)).toHaveLength(
+      32,
+    );
+    expect(
+      surfaces.filter(
+        (surface) => surface.widthM < 9 && surface.markings.length > 0,
+      ),
+    ).toEqual([]);
+    expect(
+      surfaces
+        .flatMap((surface) => surface.markings)
+        .filter((marking) => marking.style === "centre_solid"),
+    ).toHaveLength(2);
+  });
+
   it("pins the authored road order, lane counts and synchronized surfaces", () => {
     expect(CAIRO_ROAD_SPECS.map((road) => road.id)).toEqual([
       "cairo-corniche-el-nil",

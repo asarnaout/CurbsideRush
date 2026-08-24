@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  CAIRO_ASPHALT_PROFILE,
+  CAIRO_SIDEWALK_PROFILE,
   buildAsphaltTextureSpec,
   buildGrassDetailSpec,
   buildGrassTextureSpec,
@@ -344,6 +346,20 @@ describe("texture specs", () => {
         expect(point.y).toBeLessThan(1);
       }
     }
+    expect(asphalt.repairs).toEqual([]);
+    expect(asphalt.dust).toEqual([]);
+
+    const cairoRoad = buildAsphaltTextureSpec(7, CAIRO_ASPHALT_PROFILE);
+    expect(cairoRoad.cracks.length).toBeGreaterThanOrEqual(16);
+    expect(cairoRoad.repairs.length).toBeGreaterThanOrEqual(3);
+    expect(cairoRoad.dust.length).toBeGreaterThanOrEqual(70);
+
+    const cairoSidewalk = buildAsphaltTextureSpec(
+      7,
+      CAIRO_SIDEWALK_PROFILE,
+    );
+    expect(CAIRO_SIDEWALK_PROFILE.paverGrid).toBe(true);
+    expect(cairoSidewalk.repairs.length).toBeGreaterThanOrEqual(2);
     const grass = buildGrassTextureSpec(11);
     expect(grass.blobs.length).toBeGreaterThan(100);
   });

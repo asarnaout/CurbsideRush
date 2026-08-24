@@ -668,7 +668,9 @@ export function buildRoadsideProps(
         }
         break;
       }
-      case "streetlight":
+      case "streetlight": {
+        const cairoPoolSize =
+          key === "cairo" ? [7.4, 8.8, 10][variant % 3] : 10;
         parts = [
           {
             master: masterCylinder(cacheKey, { height: 5.2, diameter: 0.16 }, iron),
@@ -701,7 +703,11 @@ export function buildRoadsideProps(
                   // overhung a bridge parapet onto the water below.)
                   master: masterBox(
                     `${cacheKey}-pool`,
-                    { width: 10, height: 0.02, depth: 10 },
+                    {
+                      width: cairoPoolSize,
+                      height: 0.02,
+                      depth: cairoPoolSize,
+                    },
                     lampPool,
                   ),
                   offset: new Vector3(0, 0.07, 2.1),
@@ -711,6 +717,7 @@ export function buildRoadsideProps(
             : []),
         ];
         break;
+      }
       case "sign":
         parts = [
           {
