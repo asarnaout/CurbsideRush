@@ -117,7 +117,7 @@ describe("prop (environment building) model assets", () => {
   registerBuiltInLoaders();
   const dir = path.join(process.cwd(), "public/models/props");
   const files = Object.values(PROP_MODEL_REGISTRY).map((config) =>
-    config.url.replace("/models/props/", ""),
+    config.url.replace("/models/props/", "").split(/[?#]/, 1)[0],
   );
 
   const load = async (file: string) => {
@@ -314,7 +314,9 @@ describe("NYC environment model catalogue", () => {
   const load = async (url: string) => {
     const engine = new NullEngine();
     const scene = new Scene(engine);
-    const buf = fs.readFileSync(path.join(process.cwd(), "public", url));
+    const buf = fs.readFileSync(
+      path.join(process.cwd(), "public", url.split(/[?#]/, 1)[0]),
+    );
     const dataUrl = "data:model/gltf-binary;base64," + buf.toString("base64");
     const container = await LoadAssetContainerAsync(dataUrl, scene, {
       pluginExtension: ".glb",

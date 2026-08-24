@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { CAIRO_ENV_MODELS } from "../app/game/buildingCatalog";
+import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
 
 const root = process.cwd();
 
@@ -34,6 +36,27 @@ const parseGlbJson = (glb: Buffer): {
 };
 
 describe("Cairo bundled assets", () => {
+  it("cache-busts only the four Cairo shopfront files whose geometry was corrected", () => {
+    const revised = CAIRO_ENV_MODELS.filter((model) =>
+      model.url.includes("?rev=shopfront-v2"),
+    ).map((model) => model.id);
+    expect(revised).toEqual([
+      "cairo-walkup-a",
+      "cairo-walkup-b",
+      "cairo-residence-kay",
+      "cairo-shop",
+    ]);
+
+    expect(PROP_MODEL_REGISTRY["cairo-residence-kay"].url).toContain(
+      "?rev=shopfront-v2",
+    );
+    expect(PROP_MODEL_REGISTRY["cairo-shop"].url).toContain(
+      "?rev=shopfront-v2",
+    );
+    expect(PROP_MODEL_REGISTRY.residence.url).not.toContain("?rev=");
+    expect(PROP_MODEL_REGISTRY.shop.url).not.toContain("?rev=");
+  });
+
   it("ships the cleared landing art at its source dimensions under 200 KB", async () => {
     const path = resolve(root, "public", "landing", "cairo.webp");
     const [image, metadata] = await Promise.all([readFile(path), stat(path)]);

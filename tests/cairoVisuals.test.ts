@@ -1867,7 +1867,9 @@ describe("Cairo decal depth bias", () => {
       expect(CAIRO_STREET_WALL_URL_RE.test(url), url).toBe(true);
       const engine = new NullEngine();
       const scene = new Scene(engine);
-      const buf = fs.readFileSync(path.join(process.cwd(), "public", url));
+      const buf = fs.readFileSync(
+        path.join(process.cwd(), "public", url.split(/[?#]/, 1)[0]),
+      );
       const container = await LoadAssetContainerAsync(
         "data:model/gltf-binary;base64," + buf.toString("base64"),
         scene,
@@ -1928,7 +1930,9 @@ describe("Cairo venue buildings face their road", () => {
       expect(config, modelKey).toBeDefined();
       const engine = new NullEngine();
       const scene = new Scene(engine);
-      const buf = fs.readFileSync(path.join(process.cwd(), "public", config.url));
+      const buf = fs.readFileSync(
+        path.join(process.cwd(), "public", config.url.split(/[?#]/, 1)[0]),
+      );
       const container = await LoadAssetContainerAsync(
         "data:model/gltf-binary;base64," + buf.toString("base64"),
         scene,

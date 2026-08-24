@@ -137,7 +137,9 @@ const withMaster = async <T>(url: string, measure: (master: Mesh) => T): Promise
   const engine = new NullEngine();
   const scene = new Scene(engine);
   try {
-    const buf = fs.readFileSync(path.join(process.cwd(), "public", url));
+    const buf = fs.readFileSync(
+      path.join(process.cwd(), "public", url.split(/[?#]/, 1)[0]),
+    );
     const container = await LoadAssetContainerAsync(
       "data:model/gltf-binary;base64," + buf.toString("base64"),
       scene,

@@ -86,7 +86,9 @@ const masters = new Map<string, Mesh>();
 const masterFor = async (model: { id: string; url: string }) => {
   const cached = masters.get(model.id);
   if (cached) return cached;
-  const buf = fs.readFileSync(path.join(process.cwd(), "public", model.url));
+  const buf = fs.readFileSync(
+    path.join(process.cwd(), "public", model.url.split(/[?#]/, 1)[0]),
+  );
   const dataUrl = "data:model/gltf-binary;base64," + buf.toString("base64");
   const container = await LoadAssetContainerAsync(dataUrl, scene, { pluginExtension: ".glb" });
   const entries = container.instantiateModelsToScene(undefined, false, { doNotInstantiate: true });

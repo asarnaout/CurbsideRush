@@ -605,6 +605,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // -> "9720e60f" (Cairo street-weathering pass): the seeded facade draw
     // stream remains fixed, while Cairo-only shop signs and shutters join the
     // facade chunks and intentionally change their names/bounds fingerprint.
+    // -> "c655a129" (Cairo storefront/apartment correction): world-hashed,
+    // sparser business signs plus balconies and denser AC dressing reshape the
+    // Cairo-only merged chunks; the planner draw stream remains 19_540.
     drawCount: 19_540,
     // "f2628a4c" -> "e25257d5" (facade-chunk merging): the per-box meshes
     // merge into facade-chunk-* meshes post-preload, so the census hashes
@@ -612,7 +615,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // sensor — is untouched, and a planner draw-order regression still
     // surfaces through the chunks' bounds (a re-dealt box moves its
     // chunk's AABB).
-    facadeMeshFingerprint: "9720e60f",
+    facadeMeshFingerprint: "c655a129",
   },
 };
 

@@ -1413,10 +1413,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // chunks; two extra streetlight variants add eight shared prop parts;
     // denser legal parking reserves more kerb slots and re-deals nearby
     // scatter. Other city baselines remain unchanged.
-    totalMeshes: 14_008,
-    enabledMeshes: 13_964,
-    activeMeshes: 931,
-    materials: 250,
+    // -> 13_862/13_818 (active 918, materials 257; Cairo storefront/apartment
+    // correction): reducing signs from every third local cell to a world-hashed
+    // one-in-eleven frontage removes more facade chunks than the new balconies
+    // and AC units add. Seven additional sign materials expand the old three-
+    // business palette to ten. NYC/London/Tokyo remain byte-for-byte fixed.
+    totalMeshes: 13_862,
+    enabledMeshes: 13_818,
+    activeMeshes: 918,
+    materials: 257,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1434,8 +1439,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 93 / 142: the same new occupancy re-deals the fixed mirror ring.
     // -> 102 / 145: Cairo-only storefront dressing and parking reservations
     // re-deal the street furniture held inside that ring.
-    mirrorCandidates: 102,
-    mirrorDrawn: 145,
+    // -> 93 / 144: sparse signs and rebalanced facade dressing reduce the
+    // nearby chunk set without changing the mirror rig itself.
+    mirrorCandidates: 93,
+    mirrorDrawn: 144,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1449,7 +1456,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "52079508": the mosque's eight named materials.
     // -> "df94522e": the three regulatory-sign materials.
     // -> "48a1630c": the three Cairo shop signs plus storefront shutter.
-    survivingMaterialNamesFingerprint: "48a1630c",
+    // -> "2e92838d": seven more Cairo business-sign materials.
+    survivingMaterialNamesFingerprint: "2e92838d",
   },
 };
 

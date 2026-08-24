@@ -67,7 +67,9 @@ vi.mock("../app/game/modelLibrary", async (importOriginal) => {
       for (const url of new Set(urls)) {
         if (!REAL_URLS.has(url) || map.has(url)) continue;
         try {
-          const buf = fs.readFileSync(path.join(process.cwd(), "public", url));
+          const buf = fs.readFileSync(
+            path.join(process.cwd(), "public", url.split(/[?#]/, 1)[0]),
+          );
           const dataUrl = "data:model/gltf-binary;base64," + buf.toString("base64");
           const container = await babylon.LoadAssetContainerAsync(dataUrl, scene, {
             pluginExtension: ".glb",

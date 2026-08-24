@@ -107,7 +107,7 @@ export const CAIRO_DECAL_MATERIAL_NAMES: readonly string[] = [
   "DarkWood",
   "Glass",
 ];
-export const CAIRO_STREET_WALL_URL_RE = /\/cairo-[^/]+\.glb$/;
+export const CAIRO_STREET_WALL_URL_RE = /\/cairo-[^/?#]+\.glb(?:[?#].*)?$/;
 export function biasCairoDecalMaterials(
   materials: readonly { name: string; zOffsetUnits: number }[],
 ): number {

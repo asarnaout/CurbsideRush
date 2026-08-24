@@ -20,6 +20,7 @@ import {
 } from "./meshPrimitives";
 import {
   makeBaladiFacadeTextures,
+  makeCairoFacadeTextures,
   makeFacadeEmissiveTexture,
 } from "./proceduralTextures";
 
@@ -105,6 +106,44 @@ export interface ProceduralFacadesCtx {
 }
 
 const degreesToRadians = (degrees: number) => (degrees * Math.PI) / 180;
+
+export interface CairoFacadeDetailPlan {
+  readonly hash: number;
+  readonly shopSign: boolean;
+  readonly businessIndex: number;
+  readonly shutter: boolean;
+  readonly awning: boolean;
+  readonly balcony: boolean;
+  readonly acCount: 0 | 1 | 2;
+}
+
+/** Stable world-aware detail selection. `cellIndex` restarts for every block,
+ * so using it alone made every first shop a green pharmacy; this hash keeps
+ * neighbouring blocks from repeating while remaining deterministic. */
+export function cairoFacadeDetailPlan(
+  blockId: string,
+  cellIndex: number,
+  x: number,
+  z: number,
+  businessCount: number,
+): CairoFacadeDetailPlan {
+  const input = `${blockId}:${cellIndex}:${Math.round(x * 10)}:${Math.round(z * 10)}`;
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  const businessIndex = businessCount > 0 ? ((hash >>> 7) % businessCount) : 0;
+  return {
+    hash,
+    shopSign: hash % 11 === 0,
+    businessIndex,
+    shutter: ((hash >>> 3) % 5) === 0,
+    awning: ((hash >>> 6) % 5) === 0,
+    balcony: ((hash >>> 10) % 4) === 0,
+    acCount: hash % 7 === 0 ? 2 : hash % 5 === 1 ? 0 : 1,
+  };
+}
 
 export class ProceduralFacades {
   private static readonly BUILDING_PALETTE: Record<string, Color3> = {
@@ -243,6 +282,20 @@ export class ProceduralFacades {
       created.emissiveTexture = textures.emissive;
       created.emissiveColor = new Color3(1, 1, 1);
       created.specularColor = new Color3(0.04, 0.04, 0.04);
+    } else if (materialKey.startsWith("cairo-")) {
+      const wallColor =
+        ProceduralFacades.BUILDING_PALETTE[materialKey] ?? new Color3(0.56, 0.5, 0.43);
+      const textures = makeCairoFacadeTextures(
+        this.scene,
+        `facade-${materialKey}`,
+        wallColor,
+      );
+      created = new StandardMaterial(`facade-${materialKey}`, this.scene);
+      created.diffuseColor = Color3.White();
+      created.diffuseTexture = textures.diffuse;
+      created.emissiveTexture = textures.emissive;
+      created.emissiveColor = Color3.White();
+      created.specularColor = new Color3(0.035, 0.035, 0.035);
     } else {
       const wallColor =
         ProceduralFacades.BUILDING_PALETTE[materialKey] ?? new Color3(0.56, 0.5, 0.43);
@@ -339,6 +392,13 @@ export class ProceduralFacades {
       ctx.staticSceneryFreeze.push(detailRoot);
       const frontageSpan = frontagePlacement.edgeAxis === "x" ? depth : width;
       const frontageDepth = frontagePlacement.edgeAxis === "x" ? width : depth;
+      const detailPlan = cairoFacadeDetailPlan(
+        block.id,
+        cellIndex,
+        entry.x,
+        entry.z,
+        ctx.cairoShopSignMaterials.length,
+      );
       if (isGardenCity) {
         freezeDetail(
           createBox(
@@ -350,7 +410,7 @@ export class ProceduralFacades {
             facade,
           ),
         );
-        if (cellIndex % 2 === 0) {
+        if (detailPlan.hash % 2 === 0) {
           const balconyWidth = Math.min(5.4, frontageSpan * 0.54);
           const balconyY = Math.min(6.8, Math.max(4.3, height * 0.34));
           freezeDetail(
@@ -374,22 +434,56 @@ export class ProceduralFacades {
             ),
           );
         }
-      } else if (cellIndex % 2 === 0) {
-        const acY = Math.min(height - 2.1, Math.max(5.3, height * 0.58));
-        freezeDetail(
-          createBox(
-            this.scene,
-            `${facade.name}-ac`,
-            { width: 1.15, height: 0.72, depth: 0.38 },
-            new Vector3(frontageSpan * 0.24, acY - height / 2, frontageDepth / 2 + 0.18),
-            ctx.cairoAcMaterial,
-            detailRoot,
-          ),
-        );
+      } else {
+        for (let acIndex = 0; acIndex < detailPlan.acCount; acIndex += 1) {
+          const acY = Math.min(
+            height - 2.1,
+            Math.max(4.6, height * (acIndex === 0 ? 0.48 : 0.7)),
+          );
+          const acSide = ((detailPlan.hash >>> (acIndex + 2)) & 1) === 0 ? -1 : 1;
+          freezeDetail(
+            createBox(
+              this.scene,
+              `${facade.name}-ac-${acIndex}`,
+              { width: 1.15, height: 0.72, depth: 0.38 },
+              new Vector3(
+                acSide * frontageSpan * (acIndex === 0 ? 0.24 : 0.18),
+                acY - height / 2,
+                frontageDepth / 2 + 0.18,
+              ),
+              ctx.cairoAcMaterial,
+              detailRoot,
+            ),
+          );
+        }
+        if (!isBaladi && detailPlan.balcony && height > 8) {
+          const balconyWidth = Math.min(5.8, frontageSpan * 0.58);
+          const balconyY = Math.min(height - 2.5, Math.max(4.5, height * 0.39));
+          freezeDetail(
+            createBox(
+              this.scene,
+              `${facade.name}-balcony`,
+              { width: balconyWidth, height: 0.2, depth: 1.05 },
+              new Vector3(0, balconyY - height / 2, frontageDepth / 2 + 0.46),
+              ctx.cairoFacadeTrimMaterial,
+              detailRoot,
+            ),
+          );
+          freezeDetail(
+            createBox(
+              this.scene,
+              `${facade.name}-balcony-rail`,
+              { width: balconyWidth, height: 0.62, depth: 0.08 },
+              new Vector3(0, balconyY + 0.38 - height / 2, frontageDepth / 2 + 0.96),
+              ctx.cairoBalconyRailMaterial,
+              detailRoot,
+            ),
+          );
+        }
       }
       if (
         (isWestBank || block.material === "cairo-khedivial-stone") &&
-        cellIndex % 3 === 1
+        detailPlan.awning
       ) {
         freezeDetail(
           createBox(
@@ -404,8 +498,8 @@ export class ProceduralFacades {
       }
       if (
         ctx.cairoShopSignMaterials.length > 0 &&
-        cellIndex % 3 === 0 &&
-        (!isGardenCity || cellIndex % 6 === 0)
+        detailPlan.shopSign &&
+        (!isGardenCity || detailPlan.hash % 11 === 0)
       ) {
         freezeDetail(
           createBox(
@@ -418,7 +512,7 @@ export class ProceduralFacades {
             },
             new Vector3(0, 2.9 - height / 2, frontageDepth / 2 + 0.14),
             ctx.cairoShopSignMaterials[
-              cellIndex % ctx.cairoShopSignMaterials.length
+              detailPlan.businessIndex
             ],
             detailRoot,
           ),
@@ -427,7 +521,7 @@ export class ProceduralFacades {
       if (
         !isGardenCity &&
         ctx.cairoShopShutterMaterial &&
-        cellIndex % 4 === 2
+        detailPlan.shutter
       ) {
         freezeDetail(
           createBox(

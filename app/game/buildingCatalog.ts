@@ -134,16 +134,20 @@ export const CAIRO_ENV_MODELS: readonly EnvModelMeta[] = [
 
   // ---- Walk-ups (KayKit): flat roofs with their own water tanks, which is as
   // Cairo as the kit gets. Same family as the residence venues below.
-  { id: "cairo-walkup-a", url: `${P}/cairo-walkup-a.glb`, category: "brownstone", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("qOhhGLftam") },
-  { id: "cairo-walkup-b", url: `${P}/cairo-walkup-b.glb`, category: "brownstone", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("T3oyvK6VEU") },
+  // The revision query is deliberate. These four Cairo-only copies had their
+  // bundled hydrants removed and striped canopies flattened/deleted after the
+  // original filenames had already shipped; without a URL revision a warm
+  // browser cache can keep serving the pre-fix geometry indefinitely.
+  { id: "cairo-walkup-a", url: `${P}/cairo-walkup-a.glb?rev=shopfront-v2`, category: "brownstone", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("qOhhGLftam") },
+  { id: "cairo-walkup-b", url: `${P}/cairo-walkup-b.glb?rev=shopfront-v2`, category: "brownstone", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("T3oyvK6VEU") },
 
   // ---- Already shipping as gig-venue props; also placed in the street wall so
   // the two the map already had stop being rarities.
-  { id: "cairo-residence-kay", url: `${P}/cairo-residence-kay.glb`, category: "brownstone", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("otRsYa6pan") },
+  { id: "cairo-residence-kay", url: `${P}/cairo-residence-kay.glb?rev=shopfront-v2`, category: "brownstone", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("otRsYa6pan") },
   { id: "cairo-residence-quaternius", url: `${P}/cairo-residence-quaternius.glb`, category: "midrise", title: "3Story_Balcony_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
   { id: "cairo-office-block", url: `${P}/cairo-office-block.glb`, category: "midrise", title: "4Story_Wide_2Doors_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
   { id: "cairo-depot", url: `${P}/cairo-depot.glb`, category: "brownstone", title: "2Story_Wide_2Doors_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
-  { id: "cairo-shop", url: `${P}/cairo-shop.glb`, category: "shop", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("EL3ePInr1N") },
+  { id: "cairo-shop", url: `${P}/cairo-shop.glb?rev=shopfront-v2`, category: "shop", title: "Building", author: "Kay Lousberg", license: "CC0 1.0", sourceUrl: src("EL3ePInr1N") },
 ];
 
 /**

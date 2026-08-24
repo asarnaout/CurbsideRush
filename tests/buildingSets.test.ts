@@ -26,7 +26,7 @@ describe("building sets", () => {
     for (const setId of ALL_BUILDING_SET_IDS) {
       const urls = buildingSetUrls([setId]);
       expect(urls.length).toBeGreaterThan(0);
-      for (const url of urls) expect(url).toMatch(/^\/models\/props\/.+\.glb$/);
+      for (const url of urls) expect(url).toMatch(/^\/models\/props\/.+\.glb(?:\?.+)?$/);
     }
     expect(isBuildingSetId("nyc-downtown")).toBe(true);
     expect(isBuildingSetId("not-a-set")).toBe(false);
@@ -46,7 +46,7 @@ describe("building sets", () => {
         expect(Math.abs(p.z - center.z)).toBeLessThanOrEqual(size.z / 2 + 0.5);
         expect(Number.isFinite(p.yaw)).toBe(true);
         expect(p.scale).toBeGreaterThan(0);
-        expect(p.url).toMatch(/\.glb$/);
+        expect(p.url).toMatch(/\.glb(?:\?.+)?$/);
       }
     }
     // A different seed yields a different arrangement.

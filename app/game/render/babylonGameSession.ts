@@ -1312,6 +1312,7 @@ function makeCairoShopSignMaterial(
   border: string,
   arabic: string,
   english: string,
+  layout: "split" | "stacked" | "badge",
 ): StandardMaterial {
   const texture = new DynamicTexture(
     `${name}-texture`,
@@ -1328,11 +1329,39 @@ function makeCairoShopSignMaterial(
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillStyle = "#fff2cf";
-  context.font = "700 58px Tahoma, Arial, sans-serif";
-  context.fillText(arabic, 310, 62);
-  context.font = "700 25px Arial, sans-serif";
-  context.fillText(english, 90, 64);
+  context.direction = "rtl";
+  if (layout === "stacked") {
+    context.font = "700 54px 'Noto Sans Arabic', Tahoma, Arial, sans-serif";
+    context.fillText(arabic, 256, 43);
+    context.direction = "ltr";
+    context.font = "700 23px Arial, sans-serif";
+    context.fillText(english, 256, 94);
+  } else if (layout === "badge") {
+    context.fillStyle = border;
+    context.fillRect(18, 18, 128, 92);
+    context.fillStyle = background;
+    context.direction = "ltr";
+    context.font = "700 18px Arial, sans-serif";
+    context.fillText(english, 82, 64);
+    context.fillStyle = "#fff2cf";
+    context.direction = "rtl";
+    context.font = "700 59px 'Noto Sans Arabic', Tahoma, Arial, sans-serif";
+    context.fillText(arabic, 326, 63);
+  } else {
+    context.font = "700 58px 'Noto Sans Arabic', Tahoma, Arial, sans-serif";
+    context.fillText(arabic, 324, 62);
+    context.direction = "ltr";
+    context.font = "700 24px Arial, sans-serif";
+    context.fillText(english, 96, 64);
+  }
   texture.update();
+  // The outward +Z face of Babylon's box carries the authored UVs rotated
+  // 180 degrees. Undo both axes here so Arabic and English read upright from
+  // the street; the previous material made every sign visibly upside down.
+  texture.uScale = -1;
+  texture.uOffset = 1;
+  texture.vScale = -1;
+  texture.vOffset = 1;
 
   const material = makeMaterial(
     scene,
@@ -5244,22 +5273,88 @@ export class BabylonGameSession {
             "#d5b65a",
             "صيدلية",
             "PHARMACY",
-          ),
-          makeCairoShopSignMaterial(
-            scene,
-            "cairo-shop-sign-clothing",
-            "#7a1f25",
-            "#e5b24e",
-            "ملابس",
-            "CLOTHING",
+            "split",
           ),
           makeCairoShopSignMaterial(
             scene,
             "cairo-shop-sign-cafe",
-            "#183f70",
-            "#e2c576",
+            "#7a1f25",
+            "#e5b24e",
             "مقهى",
             "CAFE",
+            "stacked",
+          ),
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-bakery",
+            "#8a4e1f",
+            "#efd39a",
+            "مخبز",
+            "BAKERY",
+            "badge",
+          ),
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-tailor",
+            "#1f3655",
+            "#d2b477",
+            "خياط",
+            "TAILOR",
+            "split",
+          ),
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-market",
+            "#28605c",
+            "#e8d58e",
+            "بقالة",
+            "MARKET",
+            "stacked",
+          ),
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-books",
+            "#573350",
+            "#d4b98d",
+            "مكتبة",
+            "BOOKS",
+            "badge",
+          ),
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-electronics",
+            "#283139",
+            "#58b7bd",
+            "إلكترونيات",
+            "ELECTRONICS",
+            "stacked",
+          ),
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-restaurant",
+            "#8a3025",
+            "#f0c768",
+            "مطعم",
+            "RESTAURANT",
+            "split",
+          ),
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-sweets",
+            "#68405f",
+            "#edc8b4",
+            "حلويات",
+            "SWEETS",
+            "badge",
+          ),
+          makeCairoShopSignMaterial(
+            scene,
+            "cairo-shop-sign-mobiles",
+            "#272525",
+            "#d88031",
+            "موبايلات",
+            "MOBILES",
+            "stacked",
           ),
         ]
       : [];

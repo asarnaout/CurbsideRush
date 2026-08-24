@@ -901,6 +901,159 @@ export function makeBaladiFacadeTextures(
   return { diffuse, emissive };
 }
 
+/**
+ * Cairo's rendered apartment blocks: narrower recessed openings, dusty stone
+ * surrounds, mismatched shutters, balcony rails, wall-mounted AC boxes and
+ * runoff streaks. This deliberately replaces the generic polished window grid
+ * only for `cairo-*` procedural materials; the shared facade texture below is
+ * still what NYC, London and Tokyo receive.
+ */
+export function makeCairoFacadeTextures(
+  scene: Scene,
+  name: string,
+  wallColor: Color3,
+): { readonly diffuse: DynamicTexture; readonly emissive: DynamicTexture } {
+  let seed = 0x811c9dc5;
+  for (let index = 0; index < name.length; index += 1) {
+    seed ^= name.charCodeAt(index);
+    seed = Math.imul(seed, 0x01000193) >>> 0;
+  }
+  const cellHash = (col: number, row: number, salt = 0) => {
+    let value = seed ^ Math.imul(col + 11, 0x45d9f3b) ^ Math.imul(row + 17, 0x27d4eb2d) ^ salt;
+    value ^= value >>> 16;
+    value = Math.imul(value, 0x7feb352d);
+    value ^= value >>> 15;
+    return value >>> 0;
+  };
+  const mix = (target: Color3, amount: number) =>
+    new Color3(
+      wallColor.r + (target.r - wallColor.r) * amount,
+      wallColor.g + (target.g - wallColor.g) * amount,
+      wallColor.b + (target.b - wallColor.b) * amount,
+    );
+  const { cellW, cellH } = facadeCellMetrics();
+  const windowRect = (col: number, row: number) => {
+    const hash = cellHash(col, row);
+    const width = cellW * (0.43 + ((hash >>> 4) % 10) / 100);
+    const height = cellH * (0.55 + ((hash >>> 9) % 12) / 100);
+    return {
+      x: col * cellW + (cellW - width) / 2,
+      y: row * cellH + (cellH - height) / 2,
+      width,
+      height,
+      hash,
+    };
+  };
+  const lightKind = (hash: number): "warm" | "tube" | null => {
+    const choice = hash % 13;
+    if (choice < 3) return "warm";
+    if (choice === 3) return "tube";
+    return null;
+  };
+  const WARM = "#e5bd78";
+  const TUBE = "#bfd6ba";
+
+  const diffuse = new DynamicTexture(
+    `${name}-diffuse`,
+    { width: FACADE_TEX_W, height: FACADE_TEX_H },
+    scene,
+    true,
+  );
+  const ctx = textureContext(diffuse);
+  ctx.fillStyle = facadeColorHex(wallColor);
+  ctx.fillRect(0, 0, FACADE_TEX_W, FACADE_TEX_H);
+
+  // Uneven render, slab lines and runoff. They interrupt the perfect beige
+  // grid without turning the wall into high-frequency noise at driving speed.
+  for (let col = 0; col < FACADE_COLS; col += 1) {
+    const hash = cellHash(col, 0, 0x3a91);
+    ctx.fillStyle = `rgba(48,38,29,${0.035 + (hash % 5) * 0.012})`;
+    const streakX = col * cellW + ((hash >>> 5) % Math.max(1, Math.round(cellW)));
+    ctx.fillRect(streakX, 0, 2 + ((hash >>> 10) % 4), FACADE_TEX_H);
+  }
+  for (let row = 1; row < FACADE_ROWS; row += 1) {
+    ctx.fillStyle = "rgba(42,34,27,0.13)";
+    ctx.fillRect(0, Math.round(row * cellH), FACADE_TEX_W, 3);
+    ctx.fillStyle = "rgba(229,218,194,0.09)";
+    ctx.fillRect(0, Math.round(row * cellH) - 2, FACADE_TEX_W, 2);
+  }
+
+  for (let row = 0; row < FACADE_ROWS; row += 1) {
+    for (let col = 0; col < FACADE_COLS; col += 1) {
+      const rect = windowRect(col, row);
+      const kind = lightKind(rect.hash);
+      const surround =
+        rect.hash % 3 === 0
+          ? mix(new Color3(0.76, 0.7, 0.6), 0.26)
+          : mix(new Color3(0.39, 0.35, 0.3), 0.14);
+      ctx.fillStyle = facadeColorHex(surround);
+      ctx.fillRect(rect.x - 4, rect.y - 3, rect.width + 8, rect.height + 7);
+      ctx.fillStyle = "rgba(20,17,15,0.62)";
+      ctx.fillRect(rect.x - 1, rect.y - 1, rect.width + 2, rect.height + 2);
+      ctx.fillStyle = kind === "warm" ? WARM : kind === "tube" ? TUBE : "#191817";
+      ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+
+      // Aluminium/wood window divisions and the occasional mismatched shutter.
+      ctx.fillStyle = rect.hash % 4 === 0 ? "#5b4a3b" : "#5d625f";
+      ctx.fillRect(rect.x + rect.width * 0.48, rect.y, 2, rect.height);
+      if (rect.hash % 9 === 0) {
+        ctx.fillStyle = "rgba(77,57,42,0.86)";
+        ctx.fillRect(rect.x, rect.y, rect.width * 0.44, rect.height);
+      }
+
+      // Many Cairo flats wear shallow projecting balconies and split AC units;
+      // paint their small-scale read into every face while the frontage gets
+      // real geometry from ProceduralFacades.
+      if (rect.hash % 5 === 0) {
+        const railY = rect.y + rect.height + 3;
+        ctx.fillStyle = "#363531";
+        ctx.fillRect(rect.x - 5, railY, rect.width + 10, 3);
+        for (let x = rect.x - 2; x < rect.x + rect.width + 4; x += 7) {
+          ctx.fillRect(x, railY - 9, 2, 11);
+        }
+      }
+      if (rect.hash % 4 === 1) {
+        const acW = Math.max(9, rect.width * 0.34);
+        const acH = Math.max(6, rect.height * 0.15);
+        const acX = rect.x + rect.width - acW * 0.55;
+        const acY = Math.min(row * cellH + cellH - acH - 2, rect.y + rect.height + 5);
+        ctx.fillStyle = "#aaa89e";
+        ctx.fillRect(acX, acY, acW, acH);
+        ctx.fillStyle = "#555650";
+        for (let grille = acX + 3; grille < acX + acW - 2; grille += 4) {
+          ctx.fillRect(grille, acY + 2, 1, Math.max(2, acH - 4));
+        }
+      }
+    }
+  }
+  diffuse.update();
+  diffuse.wrapU = Texture.WRAP_ADDRESSMODE;
+  diffuse.wrapV = Texture.WRAP_ADDRESSMODE;
+
+  const emissive = new DynamicTexture(
+    `${name}-emissive`,
+    { width: FACADE_TEX_W, height: FACADE_TEX_H },
+    scene,
+    true,
+  );
+  const ectx = textureContext(emissive);
+  ectx.fillStyle = "#000000";
+  ectx.fillRect(0, 0, FACADE_TEX_W, FACADE_TEX_H);
+  for (let row = 0; row < FACADE_ROWS; row += 1) {
+    for (let col = 0; col < FACADE_COLS; col += 1) {
+      const rect = windowRect(col, row);
+      const kind = lightKind(rect.hash);
+      if (!kind) continue;
+      ectx.fillStyle = kind === "tube" ? TUBE : WARM;
+      ectx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    }
+  }
+  emissive.update();
+  emissive.wrapU = Texture.WRAP_ADDRESSMODE;
+  emissive.wrapV = Texture.WRAP_ADDRESSMODE;
+  return { diffuse, emissive };
+}
+
 export function makeFacadeDiffuseTexture(
   scene: Scene,
   name: string,

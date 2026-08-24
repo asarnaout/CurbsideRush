@@ -370,7 +370,9 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   // the intact reflection into vertices, hence `frontOffset: Math.PI` there
   // for the same +Z-authored models.)
   "cairo-residence-kay": {
-    url: `${P}/cairo-residence-kay.glb`,
+    // Keep the venue loader on the corrected Cairo-only bytes too. Without the
+    // revision, a browser that cached the old prop could retain its hydrant.
+    url: `${P}/cairo-residence-kay.glb?rev=shopfront-v2`,
     scale: 5.5,
     yawOffset: Math.PI / 2,
   },
@@ -385,7 +387,7 @@ export const PROP_MODEL_REGISTRY: Readonly<Record<string, PropModelConfig>> = {
   // bundled American fire hydrant deleted (tools/cairo-shopfront.mjs). `shop`
   // itself is untouched because NYC and London still place it.
   "cairo-shop": {
-    url: `${P}/cairo-shop.glb`,
+    url: `${P}/cairo-shop.glb?rev=shopfront-v2`,
     scale: 4,
     yawOffset: Math.PI / 2,
   },
