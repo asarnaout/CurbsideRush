@@ -20,6 +20,7 @@ interface CairoResidenceProvenance {
   readonly sourceSha256: string;
   readonly modifications: string;
   readonly shopfront?: string;
+  readonly canopy?: string;
 }
 
 const parseGlbJson = (glb: Buffer): {
@@ -67,6 +68,62 @@ describe("Cairo bundled assets", () => {
       { cwd: root },
     );
     expect(stdout.match(/verified no canopy or hydrant geometry remains/g)).toHaveLength(4);
+  });
+
+  it("cache-busts and audits only the two Cairo Quaternius canopy fixes", async () => {
+    const revised = CAIRO_ENV_MODELS.filter((model) =>
+      model.url.includes("?rev=canopies-v1"),
+    );
+    expect(revised.map((model) => model.id)).toEqual([
+      "cairo-block-4story",
+      "cairo-block-4story-centre",
+    ]);
+    for (const model of revised) {
+      expect(model.url).toMatch(/^\/models\/props\/cairo-[^/]+\.glb\?rev=canopies-v1$/);
+    }
+    expect(
+      CAIRO_ENV_MODELS.find((model) => model.id === "cairo-block-small")?.url,
+    ).not.toContain("?rev=canopies-v1");
+
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ["tools/cairo-quaternius-canopies.mjs", "--dry"],
+      { cwd: root },
+    );
+    expect(stdout.match(/verified no Western canopy geometry remains/g)).toHaveLength(2);
+
+    const expectedHashes = {
+      "cairo-block-4story.glb":
+        "91e7bc004dbcd3a20bcbd3fa37223fde66573b6c55935d3772a4beeda34b577d",
+      "cairo-block-4story-centre.glb":
+        "279f3850c37aff8f5118273e41285bd399dfff5be3bbd6ba240f4537ef6674f4",
+    } as const;
+    const credits = await readFile(resolve(root, "CREDITS.md"), "utf8");
+    for (const [file, expectedHash] of Object.entries(expectedHashes)) {
+      const bytes = await readFile(
+        resolve(root, "public", "models", "props", file),
+      );
+      expect(createHash("sha256").update(bytes).digest("hex"), file).toBe(
+        expectedHash,
+      );
+      expect(
+        parseGlbJson(bytes).asset.extras?.curbsideRush?.canopy,
+        file,
+      ).toBe("cairo-canopies-v1");
+      expect(credits).toContain(expectedHash);
+    }
+
+    // Tokyo deliberately retains the source pack's canopy geometry. Pinning
+    // its unchanged bytes proves the Cairo surgery cannot bleed across maps.
+    const tokyoCopy = await readFile(
+      resolve(root, "public", "models", "props", "tokyo-block-4story.glb"),
+    );
+    expect(createHash("sha256").update(tokyoCopy).digest("hex")).toBe(
+      "b998bb3ce5141037d3a2d53f440ce3ed4a7abfb6b0fd340e4cf73f8da5809f1e",
+    );
+    expect(
+      parseGlbJson(tokyoCopy).asset.extras?.curbsideRush?.canopy,
+    ).toBeUndefined();
   });
 
   it("ships the cleared landing art at its source dimensions under 200 KB", async () => {

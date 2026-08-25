@@ -124,8 +124,11 @@ export const CAIRO_ENV_MODELS: readonly EnvModelMeta[] = [
   { id: "cairo-tower-b", url: `${P}/cairo-tower-b.glb`, category: "tower", title: "Skyscraper", author: "Kenney", license: "CC0 1.0", sourceUrl: src("jIRx0AhYOR") },
 
   // ---- Khedivial / Downtown blocks (Quaternius, Ultimate Textured Buildings) ----
-  { id: "cairo-block-4story", url: `${P}/cairo-block-4story.glb`, category: "midrise", title: "4Story_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
-  { id: "cairo-block-4story-centre", url: `${P}/cairo-block-4story-centre.glb`, category: "midrise", title: "4Story_Center_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  // Cairo-only copies: their Western striped canopies are surgically removed
+  // by tools/cairo-quaternius-canopies.mjs. The URL revision prevents a warm
+  // browser cache from continuing to serve the pre-fix geometry.
+  { id: "cairo-block-4story", url: `${P}/cairo-block-4story.glb?rev=canopies-v1`, category: "midrise", title: "4Story_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
+  { id: "cairo-block-4story-centre", url: `${P}/cairo-block-4story-centre.glb?rev=canopies-v1`, category: "midrise", title: "4Story_Center_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
   { id: "cairo-block-slim", url: `${P}/cairo-block-slim.glb`, category: "midrise", title: "3Story_Slim_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
   { id: "cairo-block-small", url: `${P}/cairo-block-small.glb`, category: "midrise", title: "3Story_Small_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },
   { id: "cairo-block-colonnade", url: `${P}/cairo-block-colonnade.glb`, category: "brownstone", title: "2Story_Columns_Mat", author: "Quaternius", license: "CC0 1.0", sourceUrl: QUATERNIUS_PACK },

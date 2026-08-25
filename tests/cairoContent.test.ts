@@ -25,6 +25,10 @@ import {
   distanceToStaticObstacle,
   resolveVenuePlacement,
 } from "../app/game/simulationAdapter";
+import {
+  gasStationPumpPositions,
+  gasStationsOf,
+} from "../app/game/servicePoints";
 import { planMapBuildings } from "../app/game/geometry/buildingLayout";
 import {
   collectMapVisualGeometry,
@@ -2027,6 +2031,40 @@ describe("Cairo Central Nile content", () => {
       (spawn) => spawn.id === CAIRO_FREE_DRIVE.startSpawnId,
     );
     expect(start?.kind).toBe("player");
+    expect(start).toMatchObject({
+      anchor: {
+        laneId: "cairo-qasr-el-ainy-5-forward-1",
+        distanceAlongM: 92.25,
+      },
+    });
+
+    const configuration = buildSimulationCoreConfig({
+      scenario: buildFreeDriveScenario(CAIRO_FREE_DRIVE),
+      mapPack: CAIRO_MAP_PACK,
+      trafficSide: "right",
+      speedUnit: "kmh",
+    });
+    const resolvedStart = configuration.spawn;
+    expect(resolvedStart).toBeDefined();
+    if (!resolvedStart) throw new Error("Cairo free drive has no resolved start");
+    expect(resolvedStart.x).toBeCloseTo(298.4474, 4);
+    expect(resolvedStart.z).toBeCloseTo(-229.8661, 4);
+    expect(resolvedStart.heading).toBeCloseTo(0.1839435, 6);
+
+    // A service point does not follow the player start. The nearest existing
+    // pump is over half a kilometre away at its unchanged authored lot.
+    const pumpDistances = gasStationsOf(
+      CAIRO_MAP_PACK.geometry.servicePoints ?? [],
+    ).flatMap((service) =>
+      gasStationPumpPositions(CAIRO_MAP_PACK.laneGraph.lanes, service).map(
+        (pump) =>
+          Math.hypot(
+            pump.x - resolvedStart.x,
+            pump.z - resolvedStart.z,
+          ),
+      ),
+    );
+    expect(Math.min(...pumpDistances)).toBeGreaterThan(535);
   });
 
   it("pins the authored Cairo traffic replay", () => {
@@ -2058,17 +2096,17 @@ describe("Cairo Central Nile content", () => {
     const first = run();
     const replay = run();
     expect(replay).toEqual(first);
-    // Issue #142's deterministic local-traffic window intentionally changes
-    // Cairo's ambient placement while preserving this replay's determinism.
-    // The marked building obstacles intentionally change Cairo's deterministic
-    // local traffic trace while preserving repeatability.
-    expect(first.hash).toBe("917eab22");
+    // The owner-selected Tahrir/Qasr El-Ainy start intentionally moves Cairo's
+    // deterministic local-traffic window with the player. All 32 ambient cars
+    // now begin active instead of 19 active + 13 queued; no static map content
+    // is part of this replay decision.
+    expect(first.hash).toBe("00945e48");
     expect(first.snapshot).toMatchObject({
       tick: 1_800,
       status: "running",
-      queuedNpcCount: 13,
+      queuedNpcCount: 0,
     });
-    expect(first.snapshot.npcs).toHaveLength(19);
+    expect(first.snapshot.npcs).toHaveLength(32);
   });
 
   it("matches the committed frozen OSM provenance and content checksum", async () => {

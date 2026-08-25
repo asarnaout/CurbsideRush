@@ -8,6 +8,8 @@
  *      `node tools/obj-to-glb.mjs <in.obj> <out.glb>`, writing to its
  *      `cairo-*.glb` name.
  *   3. Run `node tools/style-cairo-residences.mjs`.
+ *   4. Run `node tools/cairo-quaternius-canopies.mjs` to delete the Western
+ *      striped canopies from Cairo's two four-storey block copies.
  *
  * Two palette paths, picked per source pack:
  *   - `texturePalette: true` — the model carries one embedded gradient atlas
@@ -448,8 +450,9 @@ for (const target of TARGETS) {
     ...(json.asset.extras ?? {}),
     curbsideRush: {
       // Keep provenance keys this script does not own — notably the `shopfront`
-      // marker from tools/cairo-shopfront.mjs, which runs after this one and
-      // would otherwise redo its geometry surgery on every palette re-run.
+      // and `canopy` markers from the Cairo-only geometry passes, which run
+      // after this one and would otherwise redo their surgery on every palette
+      // re-run.
       ...(json.asset.extras?.curbsideRush ?? {}),
       style: STYLE_ID,
       author: target.author,

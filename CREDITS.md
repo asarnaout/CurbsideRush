@@ -202,6 +202,14 @@ Pack** (<https://quaternius.com/packs/ultimatetexturedbuildings.html>), released
 converted from OBJ + MTL to a self-contained quantized GLB by
 `tools/obj-to-glb.mjs` before styling.
 
+**Modified — Cairo-only Quaternius canopy removal.**
+`tools/cairo-quaternius-canopies.mjs` removes the striped Western-style window
+and entrance canopies from `cairo-block-4story` and
+`cairo-block-4story-centre`. Their `Dark`/`White` materials are shared with
+the base and cornices, so the tool deletes only the canopy components' indexed
+triangles and verifies exact component counts. It targets the Cairo-named GLBs
+only; Tokyo's copy of the same Quaternius geometry is deliberately untouched.
+
 | File | Source model | Source OBJ SHA-256 | Source MTL SHA-256 | Committed GLB SHA-256 |
 |---|---|---|---|---|
 | **props/cairo-block-balcony.glb** | `2Story_Balcony_Mat` | `e00078c7618953cefcc39e16277b9a275cef0957e0daf081b72517fb0f790e5b` | `69fe57424d6ed1bf663e9a62bee02b98cc9110d7adfd529dce6609c95b060234` | `f97128e028dd57409fc0bde89fd84bd88c9d51dccc5ec83fff5cb6d954e47e99` |
@@ -209,8 +217,8 @@ converted from OBJ + MTL to a self-contained quantized GLB by
 | **props/cairo-block-terrace.glb** | `2Story_Wide_Mat` | `3af55ffba86a236169814f39de768d5a496afaee63d0ad0a3aa2fd3a6d2900f5` | `6585298a9dacd61bc71768ab0267e72d7111aad2ea2b57e26f8a32a8bc4e27a8` | `7066e3a9df2eeb6e4da4ee70eb4ff596cbf45660b8e27e83cb18e46abe7f24b9` |
 | **props/cairo-block-slim.glb** | `3Story_Slim_Mat` | `778673a3cd8508d7b484c2b243fde8b59ebda9b507dcbf9198daa3a02429fe3f` | `6f97086bad010e876d8bc35b0a51d9cabca187eca8250ce77e412a332ceb4692` | `a6d45cd63cc4a1dfb04fec66c95902fd0f417372288e94b736d30457e852443c` |
 | **props/cairo-block-small.glb** | `3Story_Small_Mat` | `26377da6033df73d46eed0a1953ac149e07c93eb4b10d0587417e16cd7bd8863` | `cac01cb1df1d5022e574e03ed02e73b6c199f6f55350b1f411fb9906386390fa` | `33c751ffe82ec2b5605839192fb09523986f51dd7935866ea4ecfad3e99fc9b6` |
-| **props/cairo-block-4story.glb** | `4Story_Mat` | `d326d20f0c29ad2499132dd7773aacab675946efadf18f56a926a5a8d004366a` | `df1c8f0fdff17e0fecffec423d57f240011a024d9d16b16ff092dfe8e72fb44a` | `a36fc88b9d40eb2f854cd54b5d726f4d2d28d863da00678c243fa5b9f448f6ae` |
-| **props/cairo-block-4story-centre.glb** | `4Story_Center_Mat` | `7b457088cfd108df84cb534cc46837595382a34b59fc148893a3eaec2c99462f` | `0c1dae7711350389ea8988da39022704821861862a81127f99120a398fe01e58` | `7e056cb6b6bc02bbbebc00d1032c3038e6b4fd9315f0ce5233a9f3e98eda8445` |
+| **props/cairo-block-4story.glb** | `4Story_Mat` | `d326d20f0c29ad2499132dd7773aacab675946efadf18f56a926a5a8d004366a` | `df1c8f0fdff17e0fecffec423d57f240011a024d9d16b16ff092dfe8e72fb44a` | `91e7bc004dbcd3a20bcbd3fa37223fde66573b6c55935d3772a4beeda34b577d` |
+| **props/cairo-block-4story-centre.glb** | `4Story_Center_Mat` | `7b457088cfd108df84cb534cc46837595382a34b59fc148893a3eaec2c99462f` | `0c1dae7711350389ea8988da39022704821861862a81127f99120a398fe01e58` | `279f3850c37aff8f5118273e41285bd399dfff5be3bbd6ba240f4537ef6674f4` |
 | **props/cairo-office-block.glb** | `4Story_Wide_2Doors_Mat` | `d489f21bc4c06b0315ad81670f511adf44edbfcc10084668bbed83c97261b54b` | `39ecc25676df1db1d9b85e9041e844f28b0cc5b2587e3ef2f25ee5707b5b6ea5` | `e400ad21d2207d82f295e02981baa36e01bbc1a452a1b771e9a4c3b0b1d549e6` |
 | **props/cairo-depot.glb** | `2Story_Wide_2Doors_Mat` | `eb46c1b5ef9fe4c0c91a97a5d10f082d590f7cc2c3960b94e94610ec2c818bc3` | `fb8b60be78ed5ec844899916136c77d512f668819403fbf0898d462c747a169a` | `ab7f01d005c1817f3c9a4f078a95822d966e28ca62110f062d0f2cdd4558a738` |
 

@@ -4219,7 +4219,11 @@ for (const [blockId, promotion] of Object.entries(
  * taxis and vans at their dealt gates.
  */
 const cairoSpawnPoints: readonly MapSpawnPoint[] = [
-  { id: "cairo-player-1", kind: "player", anchor: anchor("cairo-qasr-el-ainy-1-forward-1", 65.02797789256041) },
+  // Owner-selected free-drive start (2026-08-25): Qasr El-Ainy beside the
+  // Tahrir approach, matching the yellow-arrow position in the reviewed map.
+  // This is only a lane anchor. Service lots and building placement are frozen
+  // independently above, so changing it cannot drag a gas station or a block.
+  { id: "cairo-player-1", kind: "player", anchor: anchor("cairo-qasr-el-ainy-5-forward-1", 92.25) },
   { id: "cairo-player-2", kind: "player", anchor: anchor("cairo-nile-island-drive-3-forward-1", 105.78316149261117) },
   { id: "cairo-player-3", kind: "player", anchor: anchor("cairo-dokki-nile-drive-4-forward-1", 143.00913403548475) },
   { id: "cairo-bus-1", kind: "vehicle", anchor: anchor("cairo-corniche-el-nil-1-forward-1", 54.81980214683493) },
