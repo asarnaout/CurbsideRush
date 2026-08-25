@@ -443,6 +443,23 @@ const londonEastNodes = {
   shoreditchMid: node("london-node-shoreditch-mid", 1385, 660),
 };
 
+/**
+ * Fine-grain streets added by the London density/public-realm revamp. These
+ * nodes live only on new roads: no shipped polyline gains a point, so venue
+ * anchors and spawn lane ids on the original 73 roads remain stable.
+ *
+ * The west/central streets deliberately join existing shape nodes at their
+ * ends. The intermediate nodes are the crossings between new streets, giving
+ * Chelsea, Mayfair and Bloomsbury real small-block permeability rather than
+ * decorative asphalt that the route graph cannot enter.
+ */
+const londonRevampNodes = {
+  cheyneWest: node("london-node-cheyne-west", -920, -470),
+  cheyneMid: node("london-node-cheyne-mid", -650, -455),
+  bondBrook: node("london-node-bond-brook", 800, 550),
+  bloomsburyCross: node("london-node-bloomsbury-cross", 1000, 842),
+};
+
 const londonNodeById = new Map(
   [
     ...Object.values(londonNodes),
@@ -450,6 +467,7 @@ const londonNodeById = new Map(
     ...Object.values(londonRiverNodes),
     ...Object.values(londonCentreNodes),
     ...Object.values(londonEastNodes),
+    ...Object.values(londonRevampNodes),
   ].map((item) => [item.id, item]),
 );
 
@@ -597,6 +615,36 @@ export const LONDON_ROAD_SPECS: readonly LondonRoadSpec[] = [
   road("london-canonbury", "Canonbury Road", ["london-node-upper-street-mid", "london-node-canonbury-east"], 2, 8),
   road("london-shoreditch", "Shoreditch Lane", ["london-node-canonbury-east", "london-node-shoreditch-mid", "london-node-bishopsgate-2"], 2, 8),
 
+  // --- Fine-grain London. --------------------------------------------------
+  // Chelsea: Cheyne Walk is the east-west seam the old King's Road/Thames
+  // superblock lacked. Edith Grove and Beaufort Street then cut it into
+  // garden-square-sized cells, with every crossing present in the legal graph.
+  road("london-cheyne-walk", "Cheyne Walk", ["london-node-lots-mid", "london-node-cheyne-west", "london-node-cheyne-mid", "london-node-hospital-west"], 2, 7.8),
+  road("london-edith-grove", "Edith Grove", ["london-node-kings-earls", "london-node-cheyne-west", "london-node-chelsea-emb-1"], 2, 7.4),
+  road("london-beaufort-street", "Beaufort Street", ["london-node-kings-beaufort", "london-node-cheyne-mid", "london-node-chelsea-emb-2"], 2, 7.4),
+
+  // The west: short cross streets break the two 300-600 m Notting Hill cells,
+  // while Kensington Park Road gives the district a diagonal London seam.
+  road("london-pembridge-road", "Pembridge Road", ["london-node-porchester-1", "london-node-westbourne-1"], 2, 7.2),
+  road("london-earls-court-gardens", "Earl's Court Gardens", ["london-node-porchester-2", "london-node-westbourne-2"], 2, 7.2),
+  road("london-kensington-park-road", "Kensington Park Road", ["london-node-westbourne-1", "london-node-gloucester-kensington"], 2, 8),
+
+  // Mayfair: the Bond/Brook cross is a compact four-block street pattern,
+  // not a generic grid laid over Regent Street's quadrant.
+  road("london-new-bond-street", "New Bond Street", ["london-node-piccadilly-mid", "london-node-bond-brook", "london-node-oxford-mid"], 2, 7.8),
+  road("london-brook-street", "Brook Street", ["london-node-park-lane-mid", "london-node-bond-brook", "london-node-regent-3"], 2, 7.6),
+
+  // Bloomsbury/Marylebone: two oblique streets divide the former single
+  // Euston-to-Oxford void without making central London rectilinear.
+  road("london-marylebone-road", "Marylebone Road", ["london-node-great-portland-mid", "london-node-bloomsbury-cross", "london-node-upper-street-mid"], 2, 8.6),
+  road("london-tottenham-court-road", "Tottenham Court Road", ["london-node-oxford-east", "london-node-bloomsbury-cross", "london-node-euston-mid"], 2, 8.6),
+
+  // South Bank: three real cross streets halve the long riverside cells and
+  // make the back road useful for routing rather than a distant parallel line.
+  road("london-chelsea-bridge-road", "Chelsea Bridge Road", ["london-node-riverbank-1", "london-node-battersea-1"], 2, 7.8),
+  road("london-vauxhall-bridge-road", "Vauxhall Bridge Road", ["london-node-riverbank-2", "london-node-battersea-2"], 2, 7.8),
+  road("london-waterloo-road", "Waterloo Road", ["london-node-riverbank-4", "london-node-battersea-3"], 2, 7.8),
+
   // --- Roundabouts. ---------------------------------------------------------
   road("london-sloane-circus", "Sloane Circus", ["london-node-sloane-arm-sydney", "london-node-sloane-arm-buckingham", "london-node-sloane-arm-smith", "london-node-sloane-arm-kings"], 1, 7, {
     oneWay: "forward",
@@ -630,6 +678,21 @@ export const LONDON_ROAD_SPECS: readonly LondonRoadSpec[] = [
     roundabout: { center: point(740, -296), radiusM: 26, islandRadiusM: 17, signalled: true },
   }),
 ];
+
+/**
+ * Thames-facing carriageway sides. All three roads run west-to-east: side +1
+ * is south toward the water on the north bank, while side -1 is north toward
+ * the water on the South Bank. The landward sides keep London's street wall;
+ * these sides receive the green walk, broadleaf line, benches, black lamps
+ * and visible stone parapet instead of another row of buildings.
+ */
+export const LONDON_OPEN_WATERFRONT_SIDES: Readonly<
+  Partial<Record<string, readonly (-1 | 1)[]>>
+> = {
+  "london-chelsea-embankment": [1],
+  "london-victoria-embankment": [1],
+  "london-riverbank": [-1],
+};
 
 interface LondonConnectorMovement {
   readonly fromRoadId: string;
@@ -665,7 +728,8 @@ const junction = (
  */
 export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] = [
   junction("london-junction-kings-west", "london-node-kings-west", ["london-kings-road", "london-warwick-road"]),
-  junction("london-junction-kings-earls", "london-node-kings-earls", ["london-kings-road", "london-earls-court-road"]),
+  junction("london-junction-kings-earls", "london-node-kings-earls", ["london-kings-road", "london-earls-court-road", "london-edith-grove"]),
+  junction("london-junction-kings-beaufort", "london-node-kings-beaufort", ["london-kings-road", "london-beaufort-street"]),
   junction("london-junction-kings-gloucester", "london-node-kings-gloucester", ["london-kings-road", "london-gloucester-south", "london-chelsea-manor", "london-cheyne-mews"]),
   junction("london-junction-kings-queens", "london-node-kings-queens", ["london-kings-road", "london-drayton-gardens", "london-flood-street"]),
   junction("london-junction-flood-cheyne", "london-node-flood-mid", ["london-flood-street", "london-cheyne-mews"]),
@@ -677,6 +741,10 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-nevern-porchester", "london-node-nevern-mid", ["london-nevern-place", "london-porchester"]),
   junction("london-junction-westbourne-corner", "london-node-westbourne-corner", ["london-notting-hill", "london-westbourne"]),
   junction("london-junction-porchester-corner", "london-node-porchester-corner", ["london-notting-hill", "london-porchester"]),
+  junction("london-junction-porchester-pembridge", "london-node-porchester-1", ["london-porchester", "london-pembridge-road"]),
+  junction("london-junction-porchester-gardens", "london-node-porchester-2", ["london-porchester", "london-earls-court-gardens"]),
+  junction("london-junction-westbourne-pembridge", "london-node-westbourne-1", ["london-westbourne", "london-pembridge-road", "london-kensington-park-road"]),
+  junction("london-junction-westbourne-gardens", "london-node-westbourne-2", ["london-westbourne", "london-earls-court-gardens"]),
   junction("london-junction-bayswater-serpentine", "london-node-bayswater-mid", ["london-bayswater", "london-serpentine-road"]),
   junction("london-junction-earls-crescent-north", "london-node-earls-north", ["london-earls-court-road", "london-pembroke-crescent"]),
   junction("london-junction-earls-crescent-south", "london-node-earls-crescent", ["london-earls-court-road", "london-pembroke-crescent"]),
@@ -691,7 +759,12 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-kings-lots", "london-node-kings-west", ["london-kings-road", "london-warwick-road", "london-lots-road"]),
   junction("london-junction-lots-embankment", "london-node-chelsea-emb-west", ["london-lots-road", "london-chelsea-embankment"]),
   junction("london-junction-albert-north", "london-node-albert-north", ["london-chelsea-embankment", "london-oakley-street", "london-albert-bridge"]),
-  junction("london-junction-oakley-hospital", "london-node-hospital-west", ["london-royal-hospital-road", "london-chelsea-manor", "london-oakley-street"]),
+  junction("london-junction-oakley-hospital", "london-node-hospital-west", ["london-royal-hospital-road", "london-chelsea-manor", "london-oakley-street", "london-cheyne-walk"]),
+  junction("london-junction-lots-cheyne", "london-node-lots-mid", ["london-lots-road", "london-cheyne-walk"]),
+  junction("london-junction-cheyne-edith", "london-node-cheyne-west", ["london-cheyne-walk", "london-edith-grove"]),
+  junction("london-junction-cheyne-beaufort", "london-node-cheyne-mid", ["london-cheyne-walk", "london-beaufort-street"]),
+  junction("london-junction-embankment-edith", "london-node-chelsea-emb-1", ["london-chelsea-embankment", "london-edith-grove"]),
+  junction("london-junction-embankment-beaufort", "london-node-chelsea-emb-2", ["london-chelsea-embankment", "london-beaufort-street"]),
   junction("london-junction-embankment-join", "london-node-embankment-join", ["london-chelsea-embankment", "london-victoria-embankment"]),
   junction("london-junction-westminster-north", "london-node-westminster-north", ["london-victoria-embankment", "london-westminster-bridge"]),
   junction("london-junction-tower-north", "london-node-tower-north", ["london-victoria-embankment", "london-tower-bridge"]),
@@ -700,10 +773,16 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-tower-south", "london-node-tower-south", ["london-riverbank", "london-tower-bridge"]),
   junction("london-junction-riverbank-west", "london-node-riverbank-west", ["london-riverbank", "london-lombard-lane"]),
   junction("london-junction-riverbank-east", "london-node-riverbank-east", ["london-riverbank", "london-tooley-street"]),
+  junction("london-junction-riverbank-chelsea-bridge-road", "london-node-riverbank-1", ["london-riverbank", "london-chelsea-bridge-road"]),
+  junction("london-junction-riverbank-vauxhall", "london-node-riverbank-2", ["london-riverbank", "london-vauxhall-bridge-road"]),
+  junction("london-junction-riverbank-waterloo", "london-node-riverbank-4", ["london-riverbank", "london-waterloo-road"]),
   junction("london-junction-nine-elms-north", "london-node-riverbank-3", ["london-riverbank", "london-nine-elms"]),
   junction("london-junction-battersea-west", "london-node-battersea-west", ["london-battersea-road", "london-lombard-lane"]),
+  junction("london-junction-battersea-chelsea-bridge-road", "london-node-battersea-1", ["london-battersea-road", "london-chelsea-bridge-road"]),
   junction("london-junction-battersea-albert", "london-node-battersea-albert", ["london-battersea-road", "london-parkgate"]),
   junction("london-junction-battersea-nine", "london-node-battersea-nine", ["london-battersea-road", "london-nine-elms"]),
+  junction("london-junction-battersea-vauxhall", "london-node-battersea-2", ["london-battersea-road", "london-vauxhall-bridge-road"]),
+  junction("london-junction-battersea-waterloo", "london-node-battersea-3", ["london-battersea-road", "london-waterloo-road"]),
   junction("london-junction-battersea-east", "london-node-battersea-east", ["london-battersea-road", "london-tooley-street"]),
   // --- Knightsbridge, Mayfair, the park and Westminster. ---------------------
   junction("london-junction-kensington-knightsbridge", "london-node-kensington-exhibition", ["london-kensington", "london-exhibition-north", "london-knightsbridge", "london-serpentine-road"]),
@@ -715,7 +794,7 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-wellington-grosvenor", "london-node-wellington-arm-grosvenor", ["london-grosvenor", "london-wellington-circus"]),
   junction("london-junction-park-north-east", "london-node-park-corner-north-east", ["london-park-lane", "london-bayswater"]),
   junction("london-junction-park-north-west", "london-node-park-corner-north-west", ["london-bayswater", "london-park-west", "london-notting-hill"]),
-  junction("london-junction-park-south-west", "london-node-gloucester-kensington", ["london-gloucester", "london-kensington", "london-park-west"]),
+  junction("london-junction-park-south-west", "london-node-gloucester-kensington", ["london-gloucester", "london-kensington", "london-park-west", "london-kensington-park-road"]),
   junction("london-junction-victoria-grosvenor", "london-node-victoria-arm-grosvenor", ["london-grosvenor", "london-victoria-circus"]),
   junction("london-junction-victoria-mall", "london-node-victoria-arm-mall", ["london-mall", "london-victoria-circus"]),
   junction("london-junction-victoria-buckingham", "london-node-victoria-arm-buckingham", ["london-buckingham-palace-road", "london-victoria-circus"]),
@@ -729,10 +808,18 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-regent-oxford", "london-node-regent-oxford", ["london-regent", "london-oxford-street"]),
   junction("london-junction-park-lane-oxford", "london-node-park-lane-oxford", ["london-park-lane", "london-oxford-street"]),
   // --- The City, Soho and the north east. -----------------------------------
-  junction("london-junction-oxford-portland", "london-node-oxford-mid", ["london-oxford-street", "london-great-portland"]),
+  junction("london-junction-oxford-portland", "london-node-oxford-mid", ["london-oxford-street", "london-great-portland", "london-new-bond-street"]),
+  junction("london-junction-piccadilly-bond", "london-node-piccadilly-mid", ["london-piccadilly", "london-new-bond-street"]),
+  junction("london-junction-bond-brook", "london-node-bond-brook", ["london-new-bond-street", "london-brook-street"]),
+  junction("london-junction-park-lane-brook", "london-node-park-lane-mid", ["london-park-lane", "london-brook-street"]),
+  junction("london-junction-regent-brook", "london-node-regent-3", ["london-regent", "london-brook-street"]),
   junction("london-junction-euston-portland", "london-node-euston-soho", ["london-euston", "london-great-portland"]),
   junction("london-junction-park-euston", "london-node-park-corner-north-east", ["london-park-lane", "london-bayswater", "london-euston"]),
   junction("london-junction-euston-upper", "london-node-euston-east", ["london-euston", "london-upper-street"]),
+  junction("london-junction-great-portland-marylebone", "london-node-great-portland-mid", ["london-great-portland", "london-marylebone-road"]),
+  junction("london-junction-bloomsbury-cross", "london-node-bloomsbury-cross", ["london-marylebone-road", "london-tottenham-court-road"]),
+  junction("london-junction-oxford-tottenham", "london-node-oxford-east", ["london-oxford-street", "london-tottenham-court-road"]),
+  junction("london-junction-euston-tottenham", "london-node-euston-mid", ["london-euston", "london-tottenham-court-road"]),
   junction("london-junction-islington-north", "london-node-islington-arm-north", ["london-upper-street", "london-islington-circus"]),
   junction("london-junction-islington-south", "london-node-islington-arm-south", ["london-bishopsgate", "london-islington-circus"]),
   junction("london-junction-islington-west", "london-node-islington-arm-west", ["london-oxford-street", "london-islington-circus"]),
@@ -746,7 +833,7 @@ export const LONDON_JUNCTION_CONNECTORS: readonly LondonJunctionConnectorSpec[] 
   junction("london-junction-wall-cornmarket", "london-node-london-wall-mid", ["london-london-wall", "london-cornmarket"]),
   junction("london-junction-leadenhall-minories", "london-node-leadenhall-east", ["london-leadenhall", "london-minories"]),
   junction("london-junction-tower-city", "london-node-tower-north", ["london-victoria-embankment", "london-tower-bridge", "london-king-william", "london-minories"]),
-  junction("london-junction-upper-canonbury", "london-node-upper-street-mid", ["london-upper-street", "london-canonbury"]),
+  junction("london-junction-upper-canonbury", "london-node-upper-street-mid", ["london-upper-street", "london-canonbury", "london-marylebone-road"]),
   junction("london-junction-canonbury-shoreditch", "london-node-canonbury-east", ["london-canonbury", "london-shoreditch"]),
   junction("london-junction-westminster-bridge-street", "london-node-westminster-north", ["london-victoria-embankment", "london-westminster-bridge", "london-bridge-street"]),
 ];
@@ -1850,6 +1937,160 @@ const londonBuildingSetFor = (
     ? "london-highstreet"
     : LONDON_SET_BY_MATERIAL[material];
 
+/**
+ * The three southwest parks after the block/street rethink. They are compact,
+ * legible places with entrances on a real street network, not solver-shaped
+ * filler spread across a superblock. The Chelsea pair become formal London
+ * garden squares in `parkLayouts.ts`; Battersea keeps the looser greensward
+ * recipe, but at civic-park proportions rather than as a 500 x 65 m strip.
+ */
+const LONDON_REIMAGINED_PARKS: readonly ProceduralLandmark[] = [
+  {
+    id: "london-chelsea-garden-square",
+    kind: "park",
+    parkStyle: "urban_greensward",
+    wallsFollowRoadEdges: true,
+    // Shifted west and narrowed so Beaufort Street's diagonal owns a full
+    // pavement band at the square's east gate instead of clipping the lawn.
+    center: point(-720, -404),
+    size: point(150, 72),
+    headingDeg: -4.5,
+    color: "#4f7a3d",
+  },
+  {
+    id: "london-chelsea-physic-garden",
+    kind: "park",
+    parkStyle: "urban_greensward",
+    wallsFollowRoadEdges: true,
+    center: point(-462, -386),
+    size: point(118, 54),
+    headingDeg: -7.1,
+    color: "#4f7a3d",
+  },
+  {
+    id: "london-battersea-park",
+    kind: "park",
+    parkStyle: "urban_greensward",
+    wallsFollowRoadEdges: true,
+    center: point(-650, -850),
+    size: point(260, 70),
+    headingDeg: -3.8,
+    color: "#47753f",
+  },
+];
+
+/**
+ * One low, walkable green per Thames-road segment. The logical lawn begins
+ * just past the pavement and stops well before the water; the remaining stone
+ * band carries the parapet-side benches, lamps and plane trees. Keeping the
+ * short side under 30 m intentionally suppresses a park wall, so the only
+ * river barrier is the visible parapet backed by the shoreline collider.
+ */
+const londonThamesPromenadeParks: readonly ProceduralLandmark[] =
+  LONDON_ROAD_SPECS.flatMap((spec) => {
+    const waterSides = LONDON_OPEN_WATERFRONT_SIDES[spec.id];
+    if (!waterSides?.length || spec.roundabout) return [];
+    return spec.nodeIds.slice(1).flatMap((toId, segmentIndex) => {
+      const from = nodeAt(spec.nodeIds[segmentIndex]);
+      const to = nodeAt(toId);
+      const dx = to.x - from.x;
+      const dz = to.z - from.z;
+      const length = Math.hypot(dx, dz);
+      if (length < 46) return [];
+      const ux = dx / length;
+      const uz = dz / length;
+      const rightX = uz;
+      const rightZ = -ux;
+      const depthM = 22;
+      const offsetM = spec.widthM / 2 + PAVED_SIDEWALK_WIDTH_M + 0.4 + depthM / 2;
+      return waterSides.map((side) => ({
+        id: `london-thames-promenade-${spec.id.replace("london-", "")}-${segmentIndex}-${side > 0 ? "s" : "n"}`,
+        kind: "park" as const,
+        parkStyle: "riverside_strip" as const,
+        center: point(
+          (from.x + to.x) / 2 + rightX * side * offsetM,
+          (from.z + to.z) / 2 + rightZ * side * offsetM,
+        ),
+        size: point(length - 24, depthM),
+        headingDeg: (Math.atan2(-uz, ux) * 180) / Math.PI,
+        color: "#476f45",
+      }));
+    });
+  });
+
+const LONDON_FINE_GRAIN_ROAD_IDS: ReadonlySet<string> = new Set([
+  "london-cheyne-walk",
+  "london-edith-grove",
+  "london-beaufort-street",
+  "london-pembridge-road",
+  "london-earls-court-gardens",
+  "london-kensington-park-road",
+  "london-new-bond-street",
+  "london-brook-street",
+  "london-marylebone-road",
+  "london-tottenham-court-road",
+  "london-chelsea-bridge-road",
+  "london-vauxhall-bridge-road",
+  "london-waterloo-road",
+]);
+
+/** Historical fill slabs superseded by the new streets or garden squares. */
+const LONDON_REBUILT_BLOCK_IDS: ReadonlySet<string> = new Set([
+  "london-block-kings-s-2",
+  "london-block-ce-fab-a",
+  "london-block-ce-fab-b",
+  "london-block-ce-w-fab",
+  "london-block-cex-fab-a",
+  "london-block-cex-fab-b",
+  "london-block-nv-fab-b",
+  "london-block-pm-fab-a",
+  "london-block-pm-fab-b",
+  "london-block-ne-fab-b",
+  "london-block-sb-fab-a",
+  "london-block-bbe-fab-a",
+  "london-block-bms-fab",
+  "london-block-wc-fab-d",
+  "london-block-wc-fab-e2",
+  "london-block-bayswater-band-c",
+  "london-block-pwx-fab-b",
+  "london-block-fitzrovia-b",
+  "london-block-fitzrovia-a",
+  "london-block-battersea-fab-a",
+  "london-block-bpw-fab",
+  "london-block-sbx-fab",
+]);
+
+const LONDON_FINE_BLOCK_IDS_TO_SKIP: ReadonlySet<string> = new Set([
+  // Marylebone's north side opens directly into the royal park. Kensington
+  // Park Road is NOT skipped: its small Westbourne green sits well behind the
+  // road and must never erase hundreds of metres of diagonal street wall.
+  "london-block-fine-marylebone-road-0-r",
+]);
+
+/**
+ * Existing west-London greens crossed by the fine-grain street pass. Most of
+ * London's new formal gardens are declared above the generated blocks, but
+ * these older landmarks live in the final map-pack literal below. Keeping
+ * their fitted rectangles here lets the same interval subtractor protect
+ * them; it is intentionally data, not another whole-frontage skip list.
+ */
+const LONDON_FINE_GRAIN_EXISTING_GREENS = [
+  { center: point(-315.2, 581.35), size: point(14, 699.7) }, // Park west ribbon
+  { center: point(-314.75, 222.1), size: point(13.1, 18.8) }, // Gloucester corner
+  { center: point(-480, 470), size: point(120, 28) }, // Westbourne Green
+] as const;
+
+const LONDON_RETIRED_PATCHWORK_PARK_IDS: ReadonlySet<string> = new Set([
+  "london-chelsea-square-green",
+  "london-chelsea-gardens",
+  "london-chelsea-gardens-north-lawn",
+  "london-chelsea-mews-lawn-west",
+  "london-chelsea-mews-lawn-east",
+  "london-chelsea-manor-lawn",
+  "london-cheyne-emb-lawn",
+  "london-lots-road-lawn",
+]);
+
 const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // --- The museum quarter's environs. The quarter's five museum blocks and
   // the Queen's Gate terraces were preserved byte-for-byte through the
@@ -2559,7 +2800,795 @@ const londonSouthWestBlocks: readonly ProceduralBlock[] = [
   // (toward the road/bend), so it reads as a backdrop behind the existing
   // wall, not a duplicate row in front of it.
   { id: "london-block-canonbury-ne-fab-north", center: point(1394, 965), size: point(36, 70), streetEdges: ["-x"] as const, heightRange: [12, 20] as const, density: 0.72, material: LONDON_RED_BRICK, buildingSet: "london-terrace", addressable: false },
-].filter((block): block is ProceduralBlock => block !== null);
+].filter(
+  (block): block is ProceduralBlock =>
+    block !== null && !LONDON_REBUILT_BLOCK_IDS.has(block.id),
+);
+
+/**
+ * Subtracts formal gardens and promenade openings from a kerbside frontage
+ * without throwing away the rest of its street wall. The first revamp used a
+ * whole-rectangle overlap veto here; a 70 m garden touching the middle of a
+ * 270 m Cheyne Walk parcel consequently erased buildings for the full 270 m,
+ * recreating the very paved void the new street was meant to cure.
+ *
+ * Rotation into the block's own frame makes this work for London's oblique
+ * roads as well as its axis-aligned ones. The park polygon is clipped to the
+ * block's depth band before its longitudinal interval is measured: projecting
+ * all four corners directly would let a long, narrow lawn crossing at an angle
+ * erase most of the street. Short scraps under 18 m are discarded because
+ * they cannot hold a believable terrace; everything else keeps the parent
+ * material, frontage and density.
+ */
+const splitFineBlockAroundParks = (
+  block: ProceduralBlock,
+): readonly ProceduralBlock[] => {
+  const blockYaw = ((block.headingDeg ?? 0) * Math.PI) / 180;
+  const blockCos = Math.cos(blockYaw);
+  const blockSin = Math.sin(blockYaw);
+  const toBlockLocal = (world: WorldPoint): WorldPoint => {
+    const dx = world.x - block.center.x;
+    const dz = world.z - block.center.z;
+    return point(
+      dx * blockCos - dz * blockSin,
+      dx * blockSin + dz * blockCos,
+    );
+  };
+  const parkRects = [
+    ...LONDON_REIMAGINED_PARKS,
+    ...londonThamesPromenadeParks,
+    ...LONDON_FINE_GRAIN_EXISTING_GREENS,
+  ];
+  const cuts = parkRects.flatMap((park) => {
+    const parkHeadingDeg =
+      "headingDeg" in park && typeof park.headingDeg === "number"
+        ? park.headingDeg
+        : 0;
+    const parkYaw = (parkHeadingDeg * Math.PI) / 180;
+    const parkCos = Math.cos(parkYaw);
+    const parkSin = Math.sin(parkYaw);
+    const corners = ([
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ] as const).map(([sx, sz]) => {
+        const localX = (park.size.x / 2) * sx;
+        const localZ = (park.size.z / 2) * sz;
+        return toBlockLocal(
+          point(
+            park.center.x + parkCos * localX + parkSin * localZ,
+            park.center.z - parkSin * localX + parkCos * localZ,
+          ),
+        );
+      });
+    const halfDepth = block.size.z / 2;
+    const clipAtZ = (
+      polygon: readonly WorldPoint[],
+      boundaryZ: number,
+      keepAbove: boolean,
+    ): readonly WorldPoint[] => {
+      const clipped: WorldPoint[] = [];
+      for (let index = 0; index < polygon.length; index += 1) {
+        const from = polygon[(index + polygon.length - 1) % polygon.length];
+        const to = polygon[index];
+        const fromInside = keepAbove
+          ? from.z >= boundaryZ
+          : from.z <= boundaryZ;
+        const toInside = keepAbove ? to.z >= boundaryZ : to.z <= boundaryZ;
+        if (fromInside !== toInside) {
+          const t = (boundaryZ - from.z) / (to.z - from.z);
+          clipped.push(point(
+            from.x + (to.x - from.x) * t,
+            boundaryZ,
+          ));
+        }
+        if (toInside) clipped.push(to);
+      }
+      return clipped;
+    };
+    const withinDepth = clipAtZ(
+      clipAtZ(corners, -halfDepth - 0.75, true),
+      halfDepth + 0.75,
+      false,
+    );
+    if (withinDepth.length === 0) return [];
+    return [
+      {
+        lo: Math.min(...withinDepth.map((corner) => corner.x)) - 0.75,
+        hi: Math.max(...withinDepth.map((corner) => corner.x)) + 0.75,
+      },
+    ];
+  });
+
+  let spans: Array<{ lo: number; hi: number }> = [
+    { lo: -block.size.x / 2, hi: block.size.x / 2 },
+  ];
+  for (const cut of cuts) {
+    spans = spans.flatMap((span) => {
+      if (cut.hi <= span.lo || cut.lo >= span.hi) return [span];
+      return [
+        { lo: span.lo, hi: Math.max(span.lo, cut.lo) },
+        { lo: Math.min(span.hi, cut.hi), hi: span.hi },
+      ].filter((candidate) => candidate.hi - candidate.lo >= 18);
+    });
+  }
+  if (
+    spans.length === 1 &&
+    spans[0].lo === -block.size.x / 2 &&
+    spans[0].hi === block.size.x / 2
+  ) {
+    return [block];
+  }
+  return spans.map((span, index) => {
+    const localMid = (span.lo + span.hi) / 2;
+    return {
+      ...block,
+      id: `${block.id}-part-${index + 1}`,
+      center: point(
+        block.center.x + blockCos * localMid,
+        block.center.z - blockSin * localMid,
+      ),
+      size: point(span.hi - span.lo, block.size.z),
+    };
+  });
+};
+
+/**
+ * Conservative frontage for a fine-grain segment the general parcel trimmer
+ * cannot salvage. That trimmer can retreat only one end at a time; on a short
+ * cross street bracketed by two oblique junctions it can consume the entire
+ * span even though the middle 60-100 m is perfectly buildable. A 30 m inset
+ * at both ends clears London's widest junction apron, then the same park
+ * subtraction below cuts any garden or promenade opening out of the middle.
+ */
+const fallbackFineGrainParcel = (
+  id: string,
+  roadId: string,
+  from: WorldPoint,
+  to: WorldPoint,
+  side: 1 | -1,
+  roadWidthM: number,
+  depthM: number,
+  material: string,
+  heightRange: readonly [number, number],
+  density: number,
+): ProceduralBlock | null => {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const length = Math.hypot(dx, dz);
+  const frontageLengthM = length - 60;
+  if (frontageLengthM < 18) return null;
+  const ux = dx / length;
+  const uz = dz / length;
+  const rightX = uz;
+  const rightZ = -ux;
+  const offsetM = blockInsetFor(roadWidthM) + depthM / 2;
+  const buildingSet = londonBuildingSetFor(roadId, material);
+  return {
+    id,
+    center: point(
+      (from.x + to.x) / 2 + rightX * side * offsetM,
+      (from.z + to.z) / 2 + rightZ * side * offsetM,
+    ),
+    size: point(frontageLengthM, depthM),
+    headingDeg: (Math.atan2(-uz, ux) * 180) / Math.PI,
+    frontageAxis: "z",
+    heightRange,
+    density,
+    material,
+    ...(buildingSet
+      ? { buildingSet, streetEdges: [side === 1 ? "+z" : "-z"] as const }
+      : {}),
+  };
+};
+
+/**
+ * Dense London street wall for every added segment. Unlike the old broad
+ * interior slabs, these rows are derived from the new kerbs, trim against all
+ * 86 carriageways, and alternate stock brick, red brick and stucco by segment.
+ * A conservative park AABB veto leaves the formal gardens and Thames ribbons
+ * wholly open even though `roadsideParcel` itself intentionally knows only
+ * about roads.
+ */
+const londonFineGrainBlocks: readonly ProceduralBlock[] =
+  LONDON_ROAD_SPECS.filter((spec) => LONDON_FINE_GRAIN_ROAD_IDS.has(spec.id))
+    .flatMap((spec, roadIndex) =>
+      spec.nodeIds.slice(1).flatMap((toId, segmentIndex) => {
+        const from = nodeAt(spec.nodeIds[segmentIndex]);
+        const to = nodeAt(toId);
+        const midpoint = point((from.x + to.x) / 2, (from.z + to.z) / 2);
+        const cityScale = midpoint.x > 650 && midpoint.z > 250;
+        const southBank = midpoint.z < -620;
+        const depthM = cityScale ? 36 : southBank ? 30 : 34;
+        const heightRange = cityScale
+          ? ([14, 24] as const)
+          : southBank
+            ? ([11, 18] as const)
+            : ([11, 20] as const);
+        return ([-1, 1] as const).map((side) => {
+          const palette = cityScale
+            ? [LONDON_STOCK_BRICK, LONDON_RED_BRICK, LONDON_STUCCO]
+            : [LONDON_STOCK_BRICK, LONDON_STUCCO, LONDON_RED_BRICK];
+          const id = `london-block-fine-${spec.id.replace("london-", "")}-${segmentIndex}-${side > 0 ? "r" : "l"}`;
+          return roadsideParcel(
+            id,
+            spec.id,
+            from,
+            to,
+            side,
+            spec.widthM,
+            depthM,
+            palette[(roadIndex + segmentIndex + (side > 0 ? 1 : 0)) % palette.length],
+            heightRange,
+            cityScale ? 0.84 : 0.8,
+          ) ?? fallbackFineGrainParcel(
+            id,
+            spec.id,
+            from,
+            to,
+            side,
+            spec.widthM,
+            depthM,
+            palette[(roadIndex + segmentIndex + (side > 0 ? 1 : 0)) % palette.length],
+            heightRange,
+            cityScale ? 0.84 : 0.8,
+          );
+        });
+      }),
+    )
+    .filter((block): block is ProceduralBlock => block !== null)
+    .filter((block) => !LONDON_FINE_BLOCK_IDS_TO_SKIP.has(block.id))
+    .flatMap(splitFineBlockAroundParks);
+
+/**
+ * The five original South Kensington solids are kept outside the map-pack
+ * literal so the whole-city infill pass below can treat them as occupied
+ * ground. Previously they existed only inside `LONDON_MAP_PACK.blocks`, which
+ * made a coverage generator blind to the map's oldest and densest quarter.
+ */
+const londonQuarterCoreBlocks: readonly ProceduralBlock[] = [
+  {
+    id: "london-natural-history-museum-block",
+    center: point(-26, -76),
+    size: point(118, 46),
+    heightRange: [18, 34],
+    density: 0.82,
+    material: "terracotta-museum",
+  },
+  {
+    id: "london-science-museum-block",
+    center: point(-24, 30),
+    size: point(116, 64),
+    heightRange: [15, 29],
+    density: 0.76,
+    material: "pale-stone-museum",
+  },
+  {
+    id: "london-v-and-a-block",
+    center: point(98, 28),
+    size: point(82, 64),
+    heightRange: [17, 31],
+    density: 0.8,
+    material: "red-brick-museum",
+  },
+  {
+    id: "london-queen-gate-terraces",
+    center: point(-136, 29.9),
+    size: point(41.2, 80.2),
+    lockFacadeWidthsByColumn: true,
+    heightRange: [12, 24],
+    density: 0.72,
+    material: "white-stucco",
+  },
+  {
+    id: "london-cromwell-terraces",
+    center: point(102, -76),
+    size: point(82, 46),
+    heightRange: [10, 22],
+    density: 0.68,
+    material: "london-brick",
+  },
+];
+
+const LONDON_THAMES_POLYGON: readonly WorldPoint[] = [
+  point(-1500, -654),
+  point(-1240, -644),
+  point(-1000, -638),
+  point(-700, -610),
+  point(-347, -581),
+  point(-100, -528),
+  point(100, -507),
+  point(400, -456),
+  point(780, -416),
+  point(1020, -380),
+  point(1260, -362),
+  point(1500, -334),
+  point(1500, -474),
+  point(1260, -502),
+  point(1020, -520),
+  point(780, -556),
+  point(400, -596),
+  point(100, -646),
+  point(-100, -668),
+  point(-347, -713),
+  point(-700, -760),
+  point(-1000, -768),
+  point(-1240, -776),
+  point(-1500, -786),
+];
+
+interface LondonInfillReservation {
+  readonly center: WorldPoint;
+  readonly size: WorldPoint;
+  readonly headingDeg?: number;
+}
+
+/**
+ * Coherent open places that the urban-fabric pass must preserve. Narrow kerb
+ * ribbons need no entry here: the road-corridor clearance already protects
+ * them. These are the deep spaces far enough from a carriageway to otherwise
+ * look like an unbuilt parcel to the generator.
+ */
+const LONDON_INFILL_RESERVATIONS: readonly LondonInfillReservation[] = [
+  ...LONDON_REIMAGINED_PARKS,
+  ...londonThamesPromenadeParks,
+  { center: point(159, 615.55), size: point(902.4, 631.1) }, // royal park
+  { center: point(-956, 112), size: point(230, 180) }, // Pembroke Crescent island
+  { center: point(-480, 470), size: point(134, 44) }, // Westbourne Green
+  { center: point(-830, 758), size: point(62, 44) }, // Notting Hill square
+  { center: point(-205, 267), size: point(230, 115) }, // Kensington lawns
+  { center: point(-5, 12), size: point(235, 180) }, // museum campus + forecourts
+  { center: point(620, -72), size: point(240, 220) }, // St James's/palace gardens
+  { center: point(824, 820), size: point(50, 44) }, // Fitzrovia green
+];
+
+const londonBaseBlocks: readonly ProceduralBlock[] = [
+  ...londonQuarterCoreBlocks,
+  ...londonSouthWestBlocks,
+  ...londonFineGrainBlocks,
+];
+
+const OPPOSITE_BLOCK_EDGE = {
+  "+x": "-x",
+  "-x": "+x",
+  "+z": "-z",
+  "-z": "+z",
+} as const;
+
+interface AxisAabb {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+}
+
+const rotatedRectAabb = (rect: LondonInfillReservation): AxisAabb => {
+  const yaw = ((rect.headingDeg ?? 0) * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(yaw));
+  const sin = Math.abs(Math.sin(yaw));
+  const halfX = (rect.size.x * cos + rect.size.z * sin) / 2;
+  const halfZ = (rect.size.x * sin + rect.size.z * cos) / 2;
+  return {
+    minX: rect.center.x - halfX,
+    maxX: rect.center.x + halfX,
+    minZ: rect.center.z - halfZ,
+    maxZ: rect.center.z + halfZ,
+  };
+};
+
+const aabbsOverlap = (a: AxisAabb, b: AxisAabb, padM = 0): boolean =>
+  a.minX < b.maxX + padM &&
+  a.maxX > b.minX - padM &&
+  a.minZ < b.maxZ + padM &&
+  a.maxZ > b.minZ - padM;
+
+const rotatedRectsOverlap = (
+  a: LondonInfillReservation,
+  b: LondonInfillReservation,
+  padM = 0,
+): boolean => {
+  const frame = (rect: LondonInfillReservation) => {
+    const yaw = ((rect.headingDeg ?? 0) * Math.PI) / 180;
+    return {
+      u: point(Math.cos(yaw), -Math.sin(yaw)),
+      v: point(Math.sin(yaw), Math.cos(yaw)),
+      halfU: rect.size.x / 2,
+      halfV: rect.size.z / 2,
+    };
+  };
+  const af = frame(a);
+  const bf = frame(b);
+  const delta = point(b.center.x - a.center.x, b.center.z - a.center.z);
+  const dot = (left: WorldPoint, right: WorldPoint): number =>
+    left.x * right.x + left.z * right.z;
+  return [af.u, af.v, bf.u, bf.v].every((axis) => {
+    const aRadius =
+      af.halfU * Math.abs(dot(af.u, axis)) +
+      af.halfV * Math.abs(dot(af.v, axis));
+    const bRadius =
+      bf.halfU * Math.abs(dot(bf.u, axis)) +
+      bf.halfV * Math.abs(dot(bf.v, axis));
+    return Math.abs(dot(delta, axis)) < aRadius + bRadius + padM;
+  });
+};
+
+const pointToSegmentDistance = (
+  candidate: WorldPoint,
+  from: WorldPoint,
+  to: WorldPoint,
+): number => {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const lengthSquared = dx * dx + dz * dz;
+  if (lengthSquared <= 1e-9) return distanceBetweenPoints(candidate, from);
+  const t = Math.max(
+    0,
+    Math.min(
+      1,
+      ((candidate.x - from.x) * dx + (candidate.z - from.z) * dz) /
+        lengthSquared,
+    ),
+  );
+  return Math.hypot(
+    candidate.x - (from.x + dx * t),
+    candidate.z - (from.z + dz * t),
+  );
+};
+
+/**
+ * A roadside parcel's named edge is its public street wall. On a deep parcel
+ * that single row is not enough: the rest of the rectangle remains a paved
+ * driveable field even though the raw block AABB makes static coverage look
+ * occupied. Give every sufficiently deep one-sided modelled parcel a rear
+ * mews row on the opposite local edge. A sampled all-road clearance gate
+ * removes a rear row where an oblique cross street reaches that far edge.
+ */
+const londonRearMewsBlocks: readonly ProceduralBlock[] = londonBaseBlocks.flatMap(
+  (block) => {
+    if (!block.buildingSet || block.streetEdges?.length !== 1) return [];
+    const edge = block.streetEdges[0];
+    const depthM = edge.endsWith("z") ? block.size.z : block.size.x;
+    // The 46 m gate catches every genuinely two-row parcel (including the
+    // Cheyne Walk–Embankment block) without duplicating the many ordinary
+    // 34–44 m terrace strips, where a second model row mostly overlaps the
+    // first and makes scene startup substantially more expensive.
+    if (depthM < 46) return [];
+    const rearEdge = OPPOSITE_BLOCK_EDGE[edge];
+    const alongX = edge.endsWith("z");
+    const frontageM = alongX ? block.size.x : block.size.z;
+    const yaw = ((block.headingDeg ?? 0) * Math.PI) / 180;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const rearLocalDepthM =
+      rearEdge === "+z"
+        ? block.size.z / 2
+        : rearEdge === "-z"
+          ? -block.size.z / 2
+          : rearEdge === "+x"
+            ? block.size.x / 2
+            : -block.size.x / 2;
+    const roadSurfaces = [...londonQuarterSurfaces, ...londonGeneratedSurfaces];
+    const sampleCount = Math.max(1, Math.ceil(frontageM / 6));
+    const sampleLengthM = frontageM / sampleCount;
+    const safe = Array.from({ length: sampleCount }, (_, sampleIndex) => {
+      const localAlongM =
+        -frontageM / 2 + sampleLengthM * (sampleIndex + 0.5);
+      const localX = alongX ? localAlongM : rearLocalDepthM;
+      const localZ = alongX ? rearLocalDepthM : localAlongM;
+      const sample = point(
+        block.center.x + cos * localX + sin * localZ,
+        block.center.z - sin * localX + cos * localZ,
+      );
+      return !roadSurfaces.some((surface) => {
+        const clearanceM =
+          (surface.widthM ?? 10) / 2 + PAVED_SIDEWALK_WIDTH_M + 5;
+        return surface.centerline.slice(1).some(
+          (to, index) =>
+            pointToSegmentDistance(sample, surface.centerline[index], to) <
+            clearanceM,
+        );
+      });
+    });
+
+    const spans: Array<{ start: number; end: number }> = [];
+    let start = -1;
+    for (let index = 0; index <= safe.length; index += 1) {
+      if (safe[index] && start < 0) start = index;
+      if ((!safe[index] || index === safe.length) && start >= 0) {
+        spans.push({ start, end: index });
+        start = -1;
+      }
+    }
+    return spans.flatMap((span, spanIndex) => {
+      const lengthM = (span.end - span.start) * sampleLengthM;
+      if (lengthM < 18) return [];
+      const localAlongM =
+        -frontageM / 2 + ((span.start + span.end) / 2) * sampleLengthM;
+      return [{
+        ...block,
+        id: `${block.id}-rear-mews-${spanIndex + 1}`,
+        center: point(
+          block.center.x + (alongX ? cos : sin) * localAlongM,
+          block.center.z + (alongX ? -sin : cos) * localAlongM,
+        ),
+        size: alongX
+          ? point(lengthM, block.size.z)
+          : point(block.size.x, lengthM),
+        streetEdges: [rearEdge],
+        density: Math.max(0.76, block.density),
+        addressable: false,
+      }];
+    });
+  },
+);
+
+/** Liang-Barsky segment/AABB test, used with a road-clearance-expanded box. */
+const segmentIntersectsAabb = (
+  from: WorldPoint,
+  to: WorldPoint,
+  box: AxisAabb,
+): boolean => {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  let lo = 0;
+  let hi = 1;
+  const clip = (p: number, q: number): boolean => {
+    if (Math.abs(p) < 1e-9) return q >= 0;
+    const amount = q / p;
+    if (p < 0) lo = Math.max(lo, amount);
+    else hi = Math.min(hi, amount);
+    return lo <= hi;
+  };
+  return (
+    clip(-dx, from.x - box.minX) &&
+    clip(dx, box.maxX - from.x) &&
+    clip(-dz, from.z - box.minZ) &&
+    clip(dz, box.maxZ - from.z)
+  );
+};
+
+const pointInsidePolygon = (
+  candidate: WorldPoint,
+  polygon: readonly WorldPoint[],
+): boolean => {
+  let inside = false;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
+    const a = polygon[index];
+    const b = polygon[previous];
+    if (
+      (a.z > candidate.z) !== (b.z > candidate.z) &&
+      candidate.x <
+        ((b.x - a.x) * (candidate.z - a.z)) / (b.z - a.z) + a.x
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+};
+
+const aabbTouchesPolygon = (
+  box: AxisAabb,
+  polygon: readonly WorldPoint[],
+): boolean => {
+  const corners = [
+    point(box.minX, box.minZ),
+    point(box.minX, box.maxZ),
+    point(box.maxX, box.minZ),
+    point(box.maxX, box.maxZ),
+  ];
+  if (corners.some((corner) => pointInsidePolygon(corner, polygon))) return true;
+  if (
+    polygon.some(
+      (candidate) =>
+        candidate.x >= box.minX &&
+        candidate.x <= box.maxX &&
+        candidate.z >= box.minZ &&
+        candidate.z <= box.maxZ,
+    )
+  ) {
+    return true;
+  }
+  for (let index = 0; index < polygon.length; index += 1) {
+    if (segmentIntersectsAabb(polygon[index], polygon[(index + 1) % polygon.length], box)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * Courtyard grain inside oversized authored fabric blocks.
+ *
+ * A block with two populated outer edges can still hide a block-sized paved
+ * field between them. That was the second failure exposed beside Kensington
+ * Park Road: `london-block-wc-fab-e` was 200 x 160 m, but its modelled stock
+ * occupied only the north and south rims. These compact, four-sided terrace
+ * courts fill the safe interior of every large modelled London block rather
+ * than special-casing that one rectangle. A 26 m rim preserves the parent's
+ * street wall; roads, other blocks, formal open spaces and the Thames veto
+ * individual cells, so the generator naturally leaves real squares and
+ * crossings open.
+ */
+const buildLondonInteriorCourtyards = (): readonly ProceduralBlock[] => {
+  const roadSurfaces = [...londonQuarterSurfaces, ...londonGeneratedSurfaces];
+  const reservations = LONDON_INFILL_RESERVATIONS.map(rotatedRectAabb);
+  const marginM = 26;
+  const pitchM = 52;
+  const nominalSizeM = 44;
+  const generated: ProceduralBlock[] = [];
+
+  for (const parent of londonBaseBlocks) {
+    if (
+      !parent.buildingSet ||
+      parent.size.x < 70 ||
+      parent.size.z < 70 ||
+      parent.size.x * parent.size.z < 9_000
+    ) {
+      continue;
+    }
+    const usableX = parent.size.x - marginM * 2;
+    const usableZ = parent.size.z - marginM * 2;
+    if (usableX < nominalSizeM || usableZ < nominalSizeM) continue;
+    const columns = Math.max(
+      1,
+      Math.floor((usableX + pitchM - nominalSizeM) / pitchM),
+    );
+    const rows = Math.max(
+      1,
+      Math.floor((usableZ + pitchM - nominalSizeM) / pitchM),
+    );
+    const stepX = usableX / columns;
+    const stepZ = usableZ / rows;
+    const cellSizeX = Math.min(nominalSizeM, stepX - 6);
+    const cellSizeZ = Math.min(nominalSizeM, stepZ - 6);
+    const yaw = ((parent.headingDeg ?? 0) * Math.PI) / 180;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        const localX = -usableX / 2 + stepX * (column + 0.5);
+        const localZ = -usableZ / 2 + stepZ * (row + 0.5);
+        const center = point(
+          parent.center.x + cos * localX + sin * localZ,
+          parent.center.z - sin * localX + cos * localZ,
+        );
+        const candidateBlock: ProceduralBlock = {
+          ...parent,
+          id: `london-block-interior-${parent.id.replace("london-block-", "")}-${column}-${row}`,
+          center,
+          size: point(cellSizeX, cellSizeZ),
+          streetEdges: undefined,
+          density: Math.max(0.8, parent.density),
+          addressable: false,
+        };
+        const candidate = rotatedRectAabb(candidateBlock);
+        if (reservations.some((box) => aabbsOverlap(candidate, box, 3))) continue;
+        if (aabbTouchesPolygon(candidate, LONDON_THAMES_POLYGON)) continue;
+        if (
+          londonBaseBlocks.some(
+            (other) =>
+              other !== parent && rotatedRectsOverlap(candidateBlock, other, 2),
+          )
+        ) {
+          continue;
+        }
+
+        let crossesRoad = false;
+        for (const surface of roadSurfaces) {
+          const clearanceM =
+            (surface.widthM ?? 10) / 2 + PAVED_SIDEWALK_WIDTH_M + 1.5;
+          const expanded: AxisAabb = {
+            minX: candidate.minX - clearanceM,
+            maxX: candidate.maxX + clearanceM,
+            minZ: candidate.minZ - clearanceM,
+            maxZ: candidate.maxZ + clearanceM,
+          };
+          if (
+            surface.centerline.slice(1).some((to, index) =>
+              segmentIntersectsAabb(surface.centerline[index], to, expanded),
+            )
+          ) {
+            crossesRoad = true;
+            break;
+          }
+        }
+        if (!crossesRoad) generated.push(candidateBlock);
+      }
+    }
+  }
+  return generated;
+};
+
+const londonInteriorCourtyardBlocks = buildLondonInteriorCourtyards();
+
+/**
+ * Map-wide second-row urban fabric.
+ *
+ * The former void-kill literals filled a handful of hand-picked rectangles.
+ * Retiring those rectangles when streets were inserted reopened their deep
+ * interiors: a shallow 34 m street wall can look complete from the kerb while
+ * leaving 20,000 m² of concrete behind it. This pass instead lays a 50 m
+ * London courtyard grain through every road-served, genuinely unoccupied
+ * cell. It is derived from all 86 carriageways and every authored block, so a
+ * future street edit cannot silently recreate a superblock-sized hole.
+ */
+const buildLondonCourtyardInfill = (): readonly ProceduralBlock[] => {
+  const roadSurfaces = [...londonQuarterSurfaces, ...londonGeneratedSurfaces];
+  const occupied = londonBaseBlocks.map(rotatedRectAabb);
+  const reservations = LONDON_INFILL_RESERVATIONS.map(rotatedRectAabb);
+  const pitchM = 58;
+  const sizeM = 50;
+  const halfM = sizeM / 2;
+  const generated: ProceduralBlock[] = [];
+
+  let row = 0;
+  for (let z = -905; z <= 955; z += pitchM, row += 1) {
+    let column = 0;
+    for (let x = -1415; x <= 1415; x += pitchM, column += 1) {
+      const center = point(x, z);
+      const candidate: AxisAabb = {
+        minX: x - halfM,
+        maxX: x + halfM,
+        minZ: z - halfM,
+        maxZ: z + halfM,
+      };
+      if (occupied.some((box) => aabbsOverlap(candidate, box, 2))) continue;
+      if (reservations.some((box) => aabbsOverlap(candidate, box, 3))) continue;
+      if (aabbTouchesPolygon(candidate, LONDON_THAMES_POLYGON)) continue;
+
+      let nearestRoadM = Number.POSITIVE_INFINITY;
+      let crossesRoad = false;
+      for (const surface of roadSurfaces) {
+        const clearanceM = (surface.widthM ?? 10) / 2 + PAVED_SIDEWALK_WIDTH_M + 1.5;
+        const expanded: AxisAabb = {
+          minX: candidate.minX - clearanceM,
+          maxX: candidate.maxX + clearanceM,
+          minZ: candidate.minZ - clearanceM,
+          maxZ: candidate.maxZ + clearanceM,
+        };
+        for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
+          const from = surface.centerline[index];
+          const to = surface.centerline[index + 1];
+          nearestRoadM = Math.min(nearestRoadM, pointToSegmentDistance(center, from, to));
+          if (segmentIntersectsAabb(from, to, expanded)) {
+            crossesRoad = true;
+            break;
+          }
+        }
+        if (crossesRoad) break;
+      }
+      if (crossesRoad || nearestRoadM > 165) continue;
+
+      const cityCore = x > 650 && z > -360;
+      const stucco = (row + column) % 4 === 0;
+      generated.push({
+        id: `london-block-courtyard-${column}-${row}`,
+        center,
+        size: point(sizeM, sizeM),
+        heightRange: cityCore ? [18, 32] : [11, 20],
+        density: cityCore ? 0.86 : 0.82,
+        material: cityCore
+          ? LONDON_GLASS_CURTAIN
+          : stucco
+            ? LONDON_STUCCO
+            : (row + column) % 2 === 0
+              ? LONDON_STOCK_BRICK
+              : LONDON_RED_BRICK,
+        buildingSet: cityCore
+          ? "london-city"
+          : stucco
+            ? "london-stucco"
+            : "london-terrace",
+        addressable: false,
+      });
+    }
+  }
+  return generated;
+};
+
+const londonCourtyardInfillBlocks = buildLondonCourtyardInfill();
 
 // ---------------------------------------------------------------------------
 // Generated junction control: UK signals on the arterial crossings.
@@ -3414,96 +4443,21 @@ export const LONDON_MAP_PACK: MapPack = {
           "london-westminster-bridge",
           "london-tower-bridge",
         ],
-        polygon: [
-          point(-1500, -654),
-          point(-1240, -644),
-          point(-1000, -638),
-          point(-700, -610),
-          point(-347, -581),
-          point(-100, -528),
-          point(100, -507),
-          point(400, -456),
-          point(780, -416),
-          point(1020, -380),
-          point(1260, -362),
-          point(1500, -334),
-          point(1500, -474),
-          point(1260, -502),
-          point(1020, -520),
-          point(780, -556),
-          point(400, -596),
-          point(100, -646),
-          point(-100, -668),
-          point(-347, -713),
-          point(-700, -760),
-          point(-1000, -768),
-          point(-1240, -776),
-          point(-1500, -786),
-        ],
+        polygon: LONDON_THAMES_POLYGON,
       },
     ],
     railLines: LONDON_RAIL_LINES,
     // Carved around the viaduct corridor last, same as every rail city —
     // the arches need their right-of-way even though the deck flies over.
-    blocks: carveBlocksForRailCorridors([
-      {
-        id: "london-natural-history-museum-block",
-        center: point(-26, -76),
-        size: point(118, 46),
-        heightRange: [18, 34],
-        density: 0.82,
-        material: "terracotta-museum",
-      },
-      {
-        id: "london-science-museum-block",
-        center: point(-24, 30),
-        size: point(116, 64),
-        heightRange: [15, 29],
-        density: 0.76,
-        material: "pale-stone-museum",
-      },
-      {
-        id: "london-v-and-a-block",
-        center: point(98, 28),
-        size: point(82, 64),
-        heightRange: [17, 31],
-        density: 0.8,
-        material: "red-brick-museum",
-      },
-      {
-        id: "london-queen-gate-terraces",
-        // 84 -> 80.2 m deep, south face z-14 -> z-10.2: the Cromwell ribbon
-        // now runs the road's full length and its far edge is z-10.7, so the
-        // old south face overlapped it by 3.3 m. Giving the 3.8 m back puts
-        // the terrace frontage 0.5 m behind the lawn — the owner's rule that
-        // buildings behind a grass strip stand tucked right against it —
-        // instead of 11 m back with bare ground in between.
-        center: point(-136, 29.9),
-        // 42 -> 41.2 m wide: Queen's Gate's pavement widened to 3.4 m with the
-        // `paved` flip, and its outer walking edge now runs at x-114.8 — the
-        // old 42 m block put a solid terrace face 0.2 m from it. The 0.4 m
-        // trimmed off each side leaves the frontage flush behind both
-        // pavements (the quiet loop's inner edge is at x-157.4).
-        size: point(41.2, 80.2),
-        // Keep the deeper courtyard rows inside the south/front row's exact
-        // column silhouette. Otherwise their independently jittered widths can
-        // peek through two hairline gaps and falsely become the lawn's nearest
-        // backing facade on some career-day traffic seeds.
-        lockFacadeWidthsByColumn: true,
-        heightRange: [12, 24],
-        density: 0.72,
-        material: "white-stucco",
-      },
-      {
-        id: "london-cromwell-terraces",
-        center: point(102, -76),
-        size: point(82, 46),
-        heightRange: [10, 22],
-        density: 0.68,
-        material: "london-brick",
-      },
-      ...londonSouthWestBlocks,
-    ], LONDON_RAIL_LINES).blocks,
+    blocks: carveBlocksForRailCorridors(
+      [
+        ...londonBaseBlocks,
+        ...londonRearMewsBlocks,
+        ...londonInteriorCourtyardBlocks,
+        ...londonCourtyardInfillBlocks,
+      ],
+      LONDON_RAIL_LINES,
+    ).blocks,
     servicePoints: [
       // Tucked into the square corner west of the quiet loop, where Cromwell
       // Road's far-west run meets the loop's straight west leg. Both edges are
@@ -3531,7 +4485,10 @@ export const LONDON_MAP_PACK: MapPack = {
       // rather than a walk home.
       { id: "london-gas-embankment", kind: "gas_station", anchor: { laneId: "london-victoria-embankment-4-forward-1", distanceAlongM: 26 }, footprint: point(12, 8), label: "Embankment Petrol", setbackM: 22.55 },
       { id: "london-gas-city", kind: "gas_station", anchor: { laneId: "london-euston-3-reverse-1", distanceAlongM: 80 }, footprint: point(12, 8), label: "Euston Road Petrol", setbackM: 22.55 },
-      { id: "london-gas-riverside", kind: "gas_station", anchor: { laneId: "london-battersea-road-1-reverse-1", distanceAlongM: 26 }, footprint: point(12, 8), label: "Riverside Petrol", setbackM: 21.15 },
+      // Shifted one block east when Chelsea Bridge Road landed at the old
+      // forecourt. Segment 2 preserves the same Battersea landward setting
+      // without making the new cross street drive through pumps and shop.
+      { id: "london-gas-riverside", kind: "gas_station", anchor: { laneId: "london-battersea-road-2-reverse-1", distanceAlongM: 140 }, footprint: point(12, 8), label: "Riverside Petrol", setbackM: 21.15 },
       { id: "london-repair-bankside", kind: "repair_shop", anchor: { laneId: "london-riverbank-4-forward-1", distanceAlongM: 202 }, footprint: point(10, 8), label: "Bankside MOT Centre", setbackM: 15.2 },
       { id: "london-repair-wallside", kind: "repair_shop", anchor: { laneId: "london-canonbury-1-forward-1", distanceAlongM: 54 }, footprint: point(10, 8), label: "Wallside Motors", setbackM: 14 },
     ],
@@ -3586,7 +4543,7 @@ export const LONDON_MAP_PACK: MapPack = {
       { id: "london-v39", kind: "restaurant", anchor: { laneId: "london-oxford-street-3-forward-1", distanceAlongM: 70 }, footprint: point(16, 12), name: "Marble Row Grill", setbackM: 18 },
       { id: "london-v40", kind: "shop", anchor: { laneId: "london-gloucester-south-1-reverse-1", distanceAlongM: 26 }, footprint: point(14, 10), name: "Sloane Grocers", setbackM: 17 },
     ],
-    landmarks: [
+    landmarks: ([
       {
         id: "london-natural-history-museum",
         kind: "shops",
@@ -3635,52 +4592,6 @@ export const LONDON_MAP_PACK: MapPack = {
       { id: "london-albert-bridge", kind: "bridge", center: point(-347, -647), size: point(236, 9), headingDeg: 0, color: "#cbb9c6" },
       { id: "london-westminster-bridge", kind: "bridge", center: point(780, -482), size: point(236, 12), headingDeg: 0, color: "#5c7a55" },
       { id: "london-tower-bridge", kind: "bridge", center: point(1260, -428), size: point(236, 11), headingDeg: 0, color: "#c8bda4" },
-      // Battersea Park, filling the strip between the riverside spine and the
-      // back street behind it. Big enough to be walled, which is what the
-      // south bank needs to stop reading as one long terrace. Deepened from
-      // 44 m to 65 m so the lawn meets both roads' pavements instead of
-      // floating in a concrete band between them (the parcel that used to
-      // stand in it is gone — the park IS that stretch's street wall).
-      {
-        id: "london-battersea-park",
-        kind: "park",
-        wallsFollowRoadEdges: true,
-        center: point(-690, -847.5),
-        size: point(500, 65),
-        color: "#4f7a3d",
-      },
-      // Battersea Park Road runs 3-33 m south of the park's straight south
-      // edge (its polyline drops to z-920.7 at the park's west end), so a
-      // bare band opened between the boundary wall and the road for the
-      // park's whole frontage. Three stepped verge lawns butt the park's
-      // south edge and run their south edges into the road's sloping
-      // pavement band — grass below the wall, the way a park road verge
-      // reads. Step widths are bounded by the band: a horizontal edge can
-      // only stay hidden while the road climbs less than the band's 15.4 m.
-      {
-        id: "london-battersea-verge-w",
-        kind: "park",
-        parkStyle: "lawn",
-        center: point(-910, -899.5),
-        size: point(60, 39),
-        color: "#4f7a3d",
-      },
-      {
-        id: "london-battersea-verge-m",
-        kind: "park",
-        parkStyle: "lawn",
-        center: point(-770, -895.5),
-        size: point(220, 31),
-        color: "#4f7a3d",
-      },
-      {
-        id: "london-battersea-verge-e",
-        kind: "park",
-        parkStyle: "lawn",
-        center: point(-550, -888.75),
-        size: point(220, 17.5),
-        color: "#4f7a3d",
-      },
       ...londonRoundaboutIslands,
       // --- Bespoke silhouettes. Every one of these is procedural, drawn by
       // `render/londonLandmarks.ts` and dispatched by id; the generic
@@ -4161,6 +5072,11 @@ export const LONDON_MAP_PACK: MapPack = {
         size: point(120, 28),
         color: "#5f9a4e",
       },
+      // Legacy Chelsea patchwork literals below are retained only as the fit
+      // history for this heavily tuned source file. Every id is removed by
+      // `LONDON_RETIRED_PATCHWORK_PARK_IDS` before the map pack is exported;
+      // the connected formal gardens in `LONDON_REIMAGINED_PARKS` are the
+      // only Chelsea parks that ship.
       {
         id: "london-chelsea-square-green",
         kind: "park",
@@ -4651,7 +5567,11 @@ export const LONDON_MAP_PACK: MapPack = {
         },
         color: "#708c66",
       },
-    ],
+    ] as ProceduralLandmark[])
+      .filter(
+        (landmark) => !LONDON_RETIRED_PATCHWORK_PARK_IDS.has(landmark.id),
+      )
+      .concat(LONDON_REIMAGINED_PARKS, londonThamesPromenadeParks),
   },
   laneGraph: londonLaneGraph,
 };

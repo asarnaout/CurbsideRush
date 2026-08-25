@@ -131,12 +131,16 @@ export type OpenWaterfrontSides = Readonly<Partial<Record<string, readonly (-1 |
  * one for `hashStringToSeed`/`PAVED_SIDEWALK_WIDTH_M`/etc; a `visuals.ts` ->
  * `cities/cairo.ts` -> `visuals.ts` circular import would make whichever
  * table loses the race a TDZ crash, not silently wrong data). Consumers
- * needing the real per-road table (`render/roadsideProps.ts`) import both
- * cities' tables directly and key a small local lookup off this same
+ * needing the real per-road table (`render/roadsideProps.ts`) import the
+ * three cities' tables directly and key a small local lookup off this same
  * `MapVisualKey`; consumers only needing a yes/no gate
  * (`render/babylonGameSession.ts`) use this set alone.
  */
-export const PROMENADE_DRESSING_MAP_KEYS: ReadonlySet<MapVisualKey> = new Set(["cairo", "tokyo"]);
+export const PROMENADE_DRESSING_MAP_KEYS: ReadonlySet<MapVisualKey> = new Set([
+  "cairo",
+  "tokyo",
+  "london",
+]);
 
 /**
  * How wide the concrete sidewalk band renders on `paved` maps. Shared by the
@@ -1651,6 +1655,11 @@ export interface PromenadeDecorInput {
    */
   readonly treeKind: string;
   readonly lampKind: string;
+  /** Optional deterministic tree variants for a city's waterfront species
+   * mix. London passes broadleaf-only [0, 2], so the shared generic tree kind
+   * cannot put conifers along the Thames. Cairo/Tokyo omit this and keep their
+   * established two-variant rhythm byte-for-byte. */
+  readonly treeVariants?: readonly number[];
   /**
    * Rail corridors the promenade must keep out of. The corniche strip is
    * exactly where a rail line pierces the bank at its bridge abutments, and
@@ -1874,6 +1883,12 @@ export function generatePromenadeDecor(
             }
           };
           if (stationIndex % 2 === 0) {
+            const establishedVariant = stationIndex % 4 === 0 ? 1 : 0;
+            const treeVariant = input.treeVariants?.length
+              ? input.treeVariants[
+                  establishedVariant % input.treeVariants.length
+                ]
+              : establishedVariant;
             drop(
               input.treeKind,
               waterDistM - 3.2,
@@ -1885,7 +1900,7 @@ export function generatePromenadeDecor(
               // waterline row reads from the carriageway at all. (Tokyo's
               // sakura only tints its blossoms by variant, so the swap is
               // cosmetic there.)
-              stationIndex % 4 === 0 ? 1 : 0,
+              treeVariant,
             );
             if (stationIndex % 4 === 0 && waterDistM - envelope > 20) {
               drop(
@@ -1893,7 +1908,9 @@ export function generatePromenadeDecor(
                 envelope + 5,
                 random() * Math.PI * 2,
                 0.9 + random() * 0.2,
-                1,
+                input.treeVariants?.length
+                  ? input.treeVariants[1 % input.treeVariants.length]
+                  : 1,
               );
             }
           }

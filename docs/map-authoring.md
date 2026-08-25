@@ -79,7 +79,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 327 | 50 | 51.9 | 10 | 3 | 1770 × 1830 |
 | `tokyo-setagaya` | 538 | 102 | 96.1 | 41 | 14 | 2600 × 2400 |
-| `london-south-kensington` | 338 | 73 | 61.3 | 12 | 4 | 2950 × 2000 |
+| `london-south-kensington` | 380 | 86 | 69.9 | 12 | 4 | 2950 × 2000 |
 
 ### NYC is declared as a grid, not written lane by lane
 
@@ -139,15 +139,51 @@ parks hold at +0.3 or their wall dies to the 0.65 m veto), including
 park-to-park concrete seams; **(H)** a kerb green whose first content behind
 its far edge is beyond ~1.5 m. For a boulevard ribbon these are checks on the
 **visible** lawn from `parkLawnEdgeLapGeometry`, not just its logical park rect — a
-sub-metre strip of paved world ground still fails. Exemptions: Thames-facing
-frontage (encode the outward-ray test) and the world-edge margin only. The
-proof pass is a
+sub-metre strip of paved world ground still fails. Thames-facing frontage is
+exempt from a building wall only when its side appears in
+`LONDON_OPEN_WATERFRONT_SIDES` and the segment-aligned promenade/parapet
+system dresses it; open concrete is never an exemption. The world-edge margin
+is the only other exception. The proof pass is a
 **teleport camera sweep**: `__sideswapTeleport` poses the chase view along
 every road both ways (~50 m steps) and each frame is pixel-scored; the score
 RANKS work (white stucco reads as grey, so it cannot be a zero-bar) and the
 detectors above are the bar. An authored `roadsideParcel` span under ~50 m
 ships **nothing** (26 m floor after the 12 m end insets) — always re-query
 the block after authoring.
+
+The London density pass adds thirteen connected cross streets without
+inserting nodes into a shipped road: Cheyne Walk plus Edith Grove/Beaufort
+Street split Chelsea; Pembridge Road, Earls Court Gardens and Kensington Park
+Road split the west; New Bond Street/Brook Street and Marylebone Road/Tottenham
+Court Road split Mayfair and Bloomsbury; and three South Bank links halve the
+river cells. New frontage first uses `roadsideParcel`; a short oblique segment
+that the one-ended trimmer cannot salvage takes a conservative 30 m junction
+inset. Formal gardens and Thames ribbons are projected into each block's local
+frame and subtracted as intervals, so an opening trims only the part it
+occupies instead of erasing a 200–300 m terrace row. A park reservation may
+therefore clip the metres it owns, but it must never appear in a whole-road
+frontage skip list: the old Kensington Park Road exception let a 120 × 28 m
+lawn erase both sides of a 500 m street.
+
+**A one-edge modelled block is a frontage prescription, not proof that its
+whole parcel is built.** London now derives a second, opposite-edge mews row
+for every such block at least 46 m deep. Shallower 34–44 m terrace strips are
+authored as one-row parcels; another model row mostly overlaps the first and
+doubles their scene cost. Six-metre samples split a derived row at
+every foreign carriageway and pavement, so the infill closes the rear of a
+terrace parcel without building across a side street. A conservative 58 m
+whole-map lattice then adds compact courtyard blocks only where no authored
+block, intentional garden, Thames polygon or road corridor already owns the
+ground. Large modelled parents with two or more street edges also receive a
+rotation-aware internal lattice inside their 26 m perimeter rim; this closes
+the hollow middle of a perimeter block without duplicating its frontage or
+crossing an oblique neighbour. `londonUrbanFabricCoverage.test.ts` is the
+permanent gate: both Kensington Park Road frontage blocks must ship, every
+road-clear rear-edge run of 18 m or more needs a derived mews descendant, and
+the oversized-block court population may not fall below its audited floor.
+These rules exist because a shallow street wall—or two perimeter rows—once
+made a parcel look occupied to AABB audits while leaving most of the visible
+block bare concrete.
 
 Four parcel traps: `roadsideParcel`'s trimmer clears *foreign roads only* —
 a parcel spanning its own road's **bend** chords across its own carriageway

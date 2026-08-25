@@ -163,14 +163,6 @@ const ROADSIDE_LAWNS: readonly RoadsideLawnTarget[] = [
     stressSeeds: [1_232_987_091],
   },
   {
-    id: "london-chelsea-square-green",
-    roadId: "london-kings-road",
-    roadEdge: "+z",
-    sampleLongM: 0,
-    expectedBackingOwnerId: "london-chelsea-gardens-north-lawn",
-    backingLandmarkIds: ["london-chelsea-gardens-north-lawn"],
-  },
-  {
     id: "london-museum-forecourt-west",
     roadId: "london-cromwell-west",
     roadEdge: "-z",
@@ -592,7 +584,10 @@ function assertBackingFacadeOverlap(
 
 describe("London roadside lawn visual edge laps", () => {
   it("authors every curbside ribbon and changes only its transverse visual extent", () => {
-    expect(ROADSIDE_LAWNS).toHaveLength(19);
+    // Chelsea's old King's Road lawn ribbon was retired with the disconnected
+    // patchwork parks; the two formal Cheyne Walk gardens are ordinary park
+    // rectangles and do not use the curb-lap system.
+    expect(ROADSIDE_LAWNS).toHaveLength(18);
     expect(
       LONDON_MAP_PACK.geometry.landmarks
         .filter((landmark) => landmark.lawnEdgeLaps)

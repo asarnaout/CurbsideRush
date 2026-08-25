@@ -351,22 +351,24 @@ const COMMITTED_REPRESENTATIVE_ANCHORS: Readonly<
 > = {
   "london-south-kensington": {
     sparse: {
-      laneId: "london-bayswater-2-forward-1",
+      // Re-anchored after London's thirteen-road density pass expanded the
+      // sampled lane population from 527 to 587 positions.
+      laneId: "london-riverbank-8-reverse-1",
       distanceAlongM: 50,
-      expectedFogLaneKm: 3.569_797_458_713_125_6,
-      expectedInnerLaneKm: 1.484_968_708_447_909_7,
+      expectedFogLaneKm: 4.299_806_912,
+      expectedInnerLaneKm: 1.786_322_329,
     },
     median: {
-      laneId: "london-riverbank-7-reverse-1",
-      distanceAlongM: 150,
-      expectedFogLaneKm: 6.097_837_107_260_216,
-      expectedInnerLaneKm: 2.539_044_612_290_570_8,
+      laneId: "london-riverbank-2-reverse-1",
+      distanceAlongM: 550,
+      expectedFogLaneKm: 7.469_092_196,
+      expectedInnerLaneKm: 2.665_941_339,
     },
     dense: {
-      laneId: "london-chelsea-embankment-5-forward-1",
-      distanceAlongM: 50,
-      expectedFogLaneKm: 9.519_085_431_962_15,
-      expectedInnerLaneKm: 3.139_432_207_901_972_3,
+      laneId: "london-cheyne-walk-3-reverse-1",
+      distanceAlongM: 250,
+      expectedFogLaneKm: 10.706_194_513,
+      expectedInnerLaneKm: 3.608_837_335,
     },
   },
   "cairo-central-nile": {
@@ -2124,8 +2126,9 @@ function representativeAnchors(
       );
     }
     if (Math.abs(selectedIndex - expectedIndex) > 1) {
+      const expected = sampled[expectedIndex];
       throw new Error(
-        `${mapPack.id}/${kind} committed anchor rank ${selectedIndex}/${sampled.length} drifted from quantile index ${expectedIndex}`,
+        `${mapPack.id}/${kind} committed anchor rank ${selectedIndex}/${sampled.length} drifted from quantile index ${expectedIndex}; current quantile is ${expected.laneId}@${expected.distanceAlongM} with ${(expected.laneLengthWithinFogM / 1_000).toFixed(9)}/${(expected.laneLengthWithinInnerM / 1_000).toFixed(9)} lane-km`,
       );
     }
     const selected = sampled[selectedIndex];

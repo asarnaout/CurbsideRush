@@ -580,10 +580,21 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // pathless lawns, retiring the three cross-path meshes that would end in
     // the new raised curb/building grass bands. The bands stay inside each
     // lawn's existing mesh and therefore add no draw or mesh of their own.
-    totalMeshes: 14_342,
-    enabledMeshes: 14_306,
-    activeMeshes: 500,
-    materials: 316,
+    // -> 16_707/16_671, 571 active, 332 materials (London neighbourhood
+    // and Thames revamp): thirteen connected streets and their fine-grain
+    // frontage add the missing urban fabric; seventeen promenade runs add
+    // broadleaf trees, short black lamps, benches and parapets; three
+    // reauthored parks replace the disconnected Chelsea lawn stamps.
+    // -> 18_265/18_229, 606 active (whole-map urban-fabric coverage): 69
+    // safe courtyard cells and 61 genuinely deep parcels add modelled London
+    // fabric; shallow strips remain one-row and do not duplicate meshes.
+    // -> 18_498/18_462, 649 active: Kensington Park Road's two fitted
+    // frontage walls and the internal courts of oversized perimeter blocks
+    // close the marked west-London concrete fields.
+    totalMeshes: 18_498,
+    enabledMeshes: 18_462,
+    activeMeshes: 649,
+    materials: 332,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -617,8 +628,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // (its ground pool does not — `castShadow: false` skips registration
     // entirely), so the quiet loop's own lamps roughly double the candidate
     // ring around the spawn.
-    mirrorCandidates: 83,
-    mirrorDrawn: 226,
+    mirrorCandidates: 81,
+    mirrorDrawn: 268,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -644,7 +655,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "41d18af1": +rail-deck (bridge-fix pass).
     // -> "0414a968": +lamp-pool, the streetlights' additive ground-spill
     // material, which only a night palette builds.
-    survivingMaterialNamesFingerprint: "0414a968",
+    // -> "829f69cb": London promenade and formal-garden materials.
+    survivingMaterialNamesFingerprint: "829f69cb",
   },
   "tokyo-setagaya": {
     // Phase 1 of the Tokyo expansion (night + paved): +88 meshes from the

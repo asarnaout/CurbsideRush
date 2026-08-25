@@ -16,6 +16,7 @@ import {
   CAIRO_OPEN_WATERFRONT_SIDES,
   cairoTahrirMarkedLotAllowsRoadsidePlacement,
 } from "../cities/cairo";
+import { LONDON_OPEN_WATERFRONT_SIDES } from "../cities/london";
 import { TOKYO_OPEN_WATERFRONT_SIDES } from "../cities/tokyo";
 import { deterministicSceneryKeep } from "../geometry/facadesAndKeepouts";
 import { roadsidePropKeepOuts } from "../geometry/roadFurnitureLayout";
@@ -49,13 +50,14 @@ import {
 /**
  * Real per-road open-waterfront tables, by map key — each city keeps its own
  * table with its own content (`CAIRO_OPEN_WATERFRONT_SIDES`,
- * `TOKYO_OPEN_WATERFRONT_SIDES`); this is just the lookup that picks the
+ * `LONDON_OPEN_WATERFRONT_SIDES`, `TOKYO_OPEN_WATERFRONT_SIDES`); this is just the lookup that picks the
  * right one. A map with no entry here gets no promenade decor at all (the
  * `?? []` fallback below), which is what keeps this additive — every other
  * city's roadside output is unchanged.
  */
 const OPEN_WATERFRONT_SIDES_BY_KEY: Partial<Record<MapVisualKey, OpenWaterfrontSides>> = {
   cairo: CAIRO_OPEN_WATERFRONT_SIDES,
+  london: LONDON_OPEN_WATERFRONT_SIDES,
   tokyo: TOKYO_OPEN_WATERFRONT_SIDES,
 };
 
@@ -64,14 +66,26 @@ const OPEN_WATERFRONT_SIDES_BY_KEY: Partial<Record<MapVisualKey, OpenWaterfrontS
  * Phase 9: `generatePromenadeDecor`'s `treeKind`/`lampKind` used to be
  * hardcoded `"palm"`/`"streetlight"` inside that function — Cairo-only, the
  * exact kind of hidden assumption `visuals.ts`'s own per-map lookups above
- * exist to avoid). Cairo keeps its literal palm/streetlight; Tokyo swaps in
- * cherry trees and chochin lanterns. A map absent from either this table or
+ * exist to avoid). Cairo keeps its literal palm/streetlight, London takes
+ * broadleaf trees and park lamps, and Tokyo swaps in cherry trees and chochin
+ * lanterns. A map absent from either this table or
  * `OPEN_WATERFRONT_SIDES_BY_KEY` gets no promenade decor at all.
  */
 const PROMENADE_DECOR_KINDS_BY_KEY: Partial<
-  Record<MapVisualKey, { readonly treeKind: string; readonly lampKind: string }>
+  Record<
+    MapVisualKey,
+    {
+      readonly treeKind: string;
+      readonly lampKind: string;
+      readonly treeVariants?: readonly number[];
+    }
+  >
 > = {
   cairo: { treeKind: "palm", lampKind: "streetlight" },
+  // Mature plane-tree silhouettes and short black globe lamps: recognisably
+  // London civic riverfront, deliberately neither Cairo palms nor Tokyo's
+  // blossom/chochin language. Variant 1 is the shared conifer, so exclude it.
+  london: { treeKind: "tree", lampKind: "lamp", treeVariants: [0, 2] },
   tokyo: { treeKind: "sakura", lampKind: "chochin-post" },
 };
 
@@ -246,7 +260,7 @@ export function buildRoadsideProps(
   // pre-seed the spacing grid — scatter can jitter around the tree line but
   // never stand a prop inside it. Per-map open-sides lookup: a map absent
   // from OPEN_WATERFRONT_SIDES_BY_KEY gets no promenade decor at all, so
-  // this stays additive for every city but Cairo and (Tokyo expansion
+  // this stays additive for every city but Cairo, London and (Tokyo expansion
   // Phase 3) Tokyo — Cairo's own output is unchanged (same table, same
   // values, just read through a lookup instead of a ternary). The kind
   // lookup (PROMENADE_DECOR_KINDS_BY_KEY) is the same shape for the same
@@ -270,11 +284,17 @@ export function buildRoadsideProps(
         seed: hashStringToSeed(`${mapId}-promenade`),
         treeKind: promenadeDecorKinds.treeKind,
         lampKind: promenadeDecorKinds.lampKind,
+        treeVariants: promenadeDecorKinds.treeVariants,
         railLines: (mapPack.geometry.railLines ?? []).map((line) => ({
           points: line.points,
           corridorHalfWidthM: line.corridorHalfWidthM,
         })),
-        keepOutRects: keepOuts.poiRects,
+        // The promenade is deterministic rather than random, but it must
+        // honour the same immovable landmarks, rail exclusion rectangles and
+        // POI forecourts as roadside scatter. Passing only `poiRects` let a
+        // Thames lamp into the elevated rail approach and a tree into a venue
+        // lot when London joined the promenade system.
+        keepOutRects: keepOuts.hardRects,
         buildingRects:
           key === "cairo"
             ? mapPack.geometry.blocks.map((block) => ({

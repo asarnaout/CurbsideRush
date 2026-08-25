@@ -121,8 +121,11 @@ describe("ambient traffic trace characterization", () => {
       // gate ids and phased a 1.999 m graze into the acceptance replay, so
       // the final gates run Oxford east / Bishopsgate / King's Road plus a
       // Notting Hill cab — the fourth gate's count change re-deals the
-      // recycler and is what actually dissolved the graze).
-      "free-uk-london": "c16fa530",
+      // recycler and is what actually dissolved the graze). The London
+      // public-realm rebuild then adds thirteen connected streets and 42
+      // lanes; the successor graph and deterministic gate assignment move
+      // together even though the original player spawn remains unchanged.
+      "free-uk-london": "3c8afd5c",
       // Moves on any sim-visible Tokyo content change: Phase 2 of the Tokyo
       // expansion (road-network skeleton + all three residential-web
       // districts) takes the map from 20 to 66 roads and 56 to 338 lanes,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CAIRO_MAP_PACK, CAIRO_OPEN_WATERFRONT_SIDES } from "../app/game/cities/cairo";
-import { LONDON_MAP_PACK } from "../app/game/cities/london";
+import { LONDON_MAP_PACK, LONDON_OPEN_WATERFRONT_SIDES } from "../app/game/cities/london";
 import { NYC_MAP_PACK } from "../app/game/cities/nyc";
 import { TOKYO_MAP_PACK, TOKYO_OPEN_WATERFRONT_SIDES } from "../app/game/cities/tokyo";
 import { railCorridorExclusionRects } from "../app/game/geometry/railGeometry";
@@ -67,10 +67,12 @@ const inflatedRectContains = (
 
 const OPEN_WATERFRONT_SIDES_BY_KEY = {
   cairo: CAIRO_OPEN_WATERFRONT_SIDES,
+  london: LONDON_OPEN_WATERFRONT_SIDES,
   tokyo: TOKYO_OPEN_WATERFRONT_SIDES,
 } as const;
 const PROMENADE_KINDS_BY_KEY = {
   cairo: { treeKind: "palm", lampKind: "streetlight" },
+  london: { treeKind: "tree", lampKind: "lamp", treeVariants: [0, 2] },
   tokyo: { treeKind: "sakura", lampKind: "chochin-post" },
 } as const;
 
@@ -110,8 +112,12 @@ function scatterFor(mapPack: GameCanvasMapPack): readonly PropPlacement[] {
           seed: hashStringToSeed(`${mapId}-promenade`),
           treeKind: promenadeKinds.treeKind,
           lampKind: promenadeKinds.lampKind,
+          treeVariants:
+            "treeVariants" in promenadeKinds
+              ? promenadeKinds.treeVariants
+              : undefined,
           railLines,
-          keepOutRects: keepOuts.poiRects,
+          keepOutRects: keepOuts.hardRects,
           buildingRects:
             key === "cairo"
               ? mapPack.geometry.blocks.map((block) => ({

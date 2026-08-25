@@ -94,7 +94,7 @@ describe("park layouts", () => {
     // Twenty-eight — NYC's three original (Central Park now split into four
     // segments, net +3) plus Riverside and Joan of Arc plus the three-part
     // East River Esplanade plus Queensbridge Green, three Tokyo, two Cairo,
-    // and London's Exhibition Road strip, its two garden squares and
+    // and London's Exhibition Road strip, its formal garden squares,
     // Battersea Park, the royal park, and the islands of all six
     // roundabouts. Pinned so adding a park is a deliberate act, not a
     // surprise. 26 -> 28: the Kensington lawn (the walled greensward that
@@ -166,7 +166,11 @@ describe("park layouts", () => {
     // across the residential webs (Miyanosaka, Yamashita x2, the Nishi
     // boundary x2), each sized to fully replace one short existing
     // street-wall parcel rather than orphan a fragment of a longer one.
-    expect(parkCases().length).toBe(95);
+    // 95 -> 103: London's river-and-block rebuild retired twelve disconnected
+    // patchwork lawns, then authored three coherent formal/urban parks and
+    // seventeen segment-aligned Thames promenade ribbons (net +8). Each
+    // ribbon is its own park because bridge mouths must stay open.
+    expect(parkCases().length).toBe(103);
   });
 
   it("is deterministic — two builds are identical", () => {
@@ -194,26 +198,14 @@ describe("park layouts", () => {
     // and gets gravel and an approach rather than a lawn with a bench.
     expect(styleOf("jp-temple-green")).toBe("temple_grounds");
     // London's two turning-island greens went with the turning loops when
-    // Chelsea and the King's Road gave both dead ends somewhere to go. Their
-    // replacements are proper garden squares — the pocket-green style, which
-    // is still the one that must never grow a solid perimeter.
+    // Chelsea and the King's Road gave both dead ends somewhere to go.
     expect(styleOf("london-pembroke-trail")).toBe("pocket_green");
-    // The Chelsea green was pocket_green until the garden square went in
-    // behind it. Its shape still derives that, but the style is now pinned to
-    // "lawn": pocket_green's cross path ran the ribbon's whole 170 m and
-    // stopped dead at both tips, and a kerb ribbon carries no trail — the
-    // walks belong to `london-chelsea-gardens`, which is somewhere to walk.
-    expect(styleOf("london-chelsea-square-green")).toBe("lawn");
-    // The Chelsea square is 184 x 116 — clear of POCKET_GREEN_MAX_SHORT_SIDE_M
-    // and under STRIP_ASPECT — so its SHAPE derives `urban_greensward`, the
-    // one style that emits benches. It is pinned down to pocket_green anyway:
-    // greensward's 0.95 m railing read from inside the block as a stripe ruled
-    // across the green, and it is solid, so it is also a crash. Losing the
-    // benches was the accepted price. Drop this pin and the wall returns.
-    // "lawn" and not "pocket_green": that style's one edge-to-edge path would
-    // dead-end in grass at both ends here, which is the complaint that
-    // started this block. Nothing interior can end a trail at a pavement.
-    expect(styleOf("london-chelsea-gardens")).toBe("lawn");
+    // Chelsea's replacement spaces are intentionally formal greenswards:
+    // coherent paths, parterres, benches and lamps instead of isolated lawn
+    // rectangles. The long Thames ribbons remain unwallable riverside strips.
+    expect(styleOf("london-chelsea-garden-square")).toBe("urban_greensward");
+    expect(styleOf("london-chelsea-physic-garden")).toBe("urban_greensward");
+    expect(styleOf("london-battersea-park")).toBe("urban_greensward");
     // Authored-only: nothing derives "lawn", and a lawn tile has no paths at
     // all — so no gravel, no benches or lamps (they hang off paths), no
     // shrubs (they only grow in a band beside a path), and never a wall.
@@ -476,10 +468,16 @@ describe("park layouts", () => {
     for (const { landmark, layout } of parkCases()) {
       walled.set(landmark.id, layout.wall.length);
     }
-    // A solid ring around a garden square in the middle of a Chelsea block,
-    // or across Tahrir's road-cut rectangle, is a hazard rather than a
-    // boundary.
-    expect(walled.get("london-chelsea-square-green")).toBe(0);
+    // The two new Chelsea gardens follow their road edges and are proper
+    // enclosed London squares; the Thames ribbons remain open so their own
+    // shoreline parapet is the only barrier beside the water.
+    expect(walled.get("london-chelsea-garden-square") ?? 0).toBeGreaterThan(0);
+    expect(walled.get("london-chelsea-physic-garden") ?? 0).toBeGreaterThan(0);
+    for (const [id, wallCount] of walled) {
+      if (id.startsWith("london-thames-promenade-")) {
+        expect(wallCount, id).toBe(0);
+      }
+    }
     expect(walled.get("london-pembroke-green")).toBe(0);
     expect(walled.get("cairo-tahrir-square")).toBe(0);
     expect(walled.get("jp-temple-green")).toBe(0);
@@ -643,6 +641,21 @@ describe("park layouts", () => {
     expect(kinds("jp-shoin-shrine")).toContain("torii");
     expect(kinds("cairo-opera-grounds")).toContain("parterre");
     expect(kinds("nyc-joan-of-arc-park")).toContain("plinth");
+    for (const id of [
+      "london-chelsea-garden-square",
+      "london-chelsea-physic-garden",
+    ]) {
+      const features = featuresOf(id);
+      expect(features.filter((feature) => feature.kind === "parterre").length, id).toBe(4);
+      expect(kinds(id), id).toContain("plaza");
+      const garden = parkCases().find((candidate) => candidate.landmark.id === id);
+      expect(
+        garden?.layout.placements.some(
+          (placement) => placement.kind === "tree" && placement.variant === 1,
+        ),
+        id,
+      ).toBe(false);
+    }
 
     // Every solid piece must stand clear of its park's own walks, or the
     // driver meets masonry in the middle of a path. Monuments settle for this

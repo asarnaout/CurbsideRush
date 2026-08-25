@@ -258,20 +258,18 @@ Give ONE rect the trail (a `pocket_green` band spanning the full run, its
 ends inside the bounding roads' hidden corridors so the path emerges at both
 pavements) and make every filler `"lawn"`.
 
-**Benches, walks and a railing are one package — no seating without the
-fence.** `pathFurniture` returns nothing for `pocket_green` and `lawn` has no
-path to hang furniture on, so the only styles emitting a bench also grow a wall.
-A green meant to be sat in must clear `POCKET_GREEN_MAX_SHORT_SIDE_M` (30) and
-stay under `STRIP_ASPECT` (6) to derive `urban_greensward`, and its railing is a
-collider — that ground stops being drivable. Weigh that before reaching for the
-seating: London's Chelsea square is 184 x 116 and derives greensward by shape,
-but ships pinned to `pocket_green`, because **a perimeter wall inside a block
-reads side-on as a black-and-cream stripe ruled across the lawn** and play-tested
-worse than the missing benches. A railing earns its place fronting a street,
-where it is seen end-on and reads as a garden's edge.
+**Generic benches, walks and a railing are one package; bespoke furniture is
+the deliberate escape hatch.** `pathFurniture` returns nothing for
+`pocket_green` and `lawn` has no path to hang furniture on, so an ordinary green
+that emits benches also grows a wall. Its railing is a collider — that ground
+stops being drivable. Chelsea's rebuilt garden square and physic garden are the
+positive case: both front Cheyne Walk, opt into `wallsFollowRoadEdges`, and use
+an id-keyed formal recipe with two crossing paths, four parterres, a paved
+centre, inward-facing benches and lamps. The wall reads end-on from the street
+as a garden boundary rather than as a stripe floating inside a superblock.
 
 **A promenade beside a derived shoreline parapet must stay unwallable.**
-Cairo and Tokyo both render a corniche-style parapet off the water body's own
+Cairo, Tokyo and London render a corniche/embankment parapet off the water body's own
 shoreline colliders (`shorelineParapetRuns`, gated in
 `babylonGameSession.ts`) — NYC has no such pass, so its riverside parks' own
 walls are that map's *only* river-edge barrier, a different, equally correct
@@ -281,6 +279,10 @@ Tokyo's riverside promenade (`jp-kawabe-koen`) stays `pocket_green` on every
 segment for exactly this reason, and hand-places its lost benches back
 through `bespokeFeatures`'s id-keyed props (the Opera Grounds/Joan of Arc
 mechanism) rather than reaching for a walled style to get them free.
+London's seventeen `london-thames-promenade-*` segments use
+`riverside_strip`: bridge mouths stay open, while the renderer lays broadleaf
+trees, black park lamps and benches along both banks. They are separate from
+Tokyo's blossom/chochin language and Cairo's palms/streetlights on purpose.
 `pocket_green`'s path is a fixed cross along local +x — wrong for a park
 hugging a road running the *other* way. `headingDeg: 90` fixes it (swaps
 which world axis `size.x`/`size.z` each span) and is one of the few angles

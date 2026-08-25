@@ -359,7 +359,19 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // of shoreditch-e's close wall; 5 new slots.
     // 4_393 -> 4_382 (rail feature): the Grosvenor viaduct corridor carve
     // trims the Battersea/Chelsea parcels the line threads.
-    buildingInstanceCount: 4_382,
+    // -> 4_132 (London block-and-riverfront revamp): thirteen new streets
+    // split the oversized parcels into real neighbourhood-scale frontage,
+    // while 22 obsolete fill slabs and the old Chelsea park patchwork are
+    // retired. The lower count is intentional: shorter, better-oriented
+    // street walls replace several four-sided interior slabs.
+    // -> 5_700 (whole-map urban-fabric coverage): compact courtyard infill
+    // occupies safe unclaimed cells and genuinely deep one-sided parcels gain
+    // a road-clipped opposite-edge mews row. Ordinary shallow terrace strips
+    // stay single-row, avoiding overlapping instances and unnecessary load.
+    // -> 6_221 (Kensington/oversized-block regression): both modelled sides
+    // of Kensington Park Road return, clipped only at the fitted greens, and
+    // every large perimeter parent receives compact internal terrace courts.
+    buildingInstanceCount: 6_221,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },
@@ -486,8 +498,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // -> 1_336 / 505 (owner-marked land gaps): 239 small reviewed parcels
     // plus ten safe in-place promotions use only Cairo's existing sets;
     // clutter follows the authored roof points of the deterministic models.
-    buildingInstanceCount: 1_336,
-    cairoRoofClutterInstanceCount: 505,
+    // -> 1_353 / 512 (Corniche/park public-realm dressing): the final safe
+    // frontage accents use the same deterministic Cairo kit and roof points.
+    buildingInstanceCount: 1_353,
+    cairoRoofClutterInstanceCount: 512,
     storefrontSignMaterialCount: 0,
   },
 };

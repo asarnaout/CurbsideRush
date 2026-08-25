@@ -641,6 +641,99 @@ function bespokeFeatures(
   const id = landmark.id.toLowerCase();
   const longIsZ = landmark.size.z >= landmark.size.x;
 
+  if (
+    id === "london-chelsea-garden-square" ||
+    id === "london-chelsea-physic-garden"
+  ) {
+    // London garden squares are formal rooms: four low parterres around a
+    // small paved centre, benches facing inward, and black park lamps at the
+    // four street gates. This is intentionally not Tokyo's open riverside
+    // language and not the generic wandering-path greensward either.
+    const headingRad = ((landmark.headingDeg ?? 0) * Math.PI) / 180;
+    const bedSizeX = landmark.size.x * 0.34;
+    const bedSizeZ = landmark.size.z * 0.28;
+    const bedHalfX = bedSizeX / 2;
+    const bedHalfZ = bedSizeZ / 2;
+    const cos = Math.abs(Math.cos(headingRad));
+    const sin = Math.abs(Math.sin(headingRad));
+    for (const [index, [u, v]] of [
+      [-0.23, -0.23],
+      [0.23, -0.23],
+      [-0.23, 0.23],
+      [0.23, 0.23],
+    ].entries()) {
+      const bed = toWorld(landmark, u, v);
+      features.push({
+        id: `${landmark.id}-parterre-${index}`,
+        kind: "parterre",
+        x: bed.x,
+        z: bed.z,
+        rotationY: headingRad,
+        sizeX: bedSizeX,
+        sizeZ: bedSizeZ,
+        solid: false,
+      });
+      clearings.push({
+        x: bed.x,
+        z: bed.z,
+        halfX: cos * bedHalfX + sin * bedHalfZ,
+        halfZ: sin * bedHalfX + cos * bedHalfZ,
+      });
+    }
+
+    const centre = toWorld(landmark, 0, 0);
+    const plazaSize = Math.min(12, Math.min(landmark.size.x, landmark.size.z) * 0.2);
+    features.push({
+      id: `${landmark.id}-plaza`,
+      kind: "plaza",
+      x: centre.x,
+      z: centre.z,
+      rotationY: headingRad,
+      sizeX: plazaSize,
+      sizeZ: plazaSize,
+      solid: false,
+    });
+    clearings.push({
+      x: centre.x,
+      z: centre.z,
+      halfX: plazaSize / 2,
+      halfZ: plazaSize / 2,
+    });
+
+    for (const [u, v] of [
+      [-0.09, -0.1],
+      [0.09, -0.1],
+      [-0.09, 0.1],
+      [0.09, 0.1],
+    ] as const) {
+      const bench = toWorld(landmark, u, v);
+      props.push({
+        kind: "bench",
+        x: bench.x,
+        z: bench.z,
+        rotationY: Math.atan2(centre.x - bench.x, centre.z - bench.z),
+        scale: 1,
+        variant: 0,
+      });
+    }
+    for (const [u, v] of [
+      [-0.46, 0],
+      [0.46, 0],
+      [0, -0.43],
+      [0, 0.43],
+    ] as const) {
+      const lamp = toWorld(landmark, u, v);
+      props.push({
+        kind: "lamp",
+        x: lamp.x,
+        z: lamp.z,
+        rotationY: 0,
+        scale: 1,
+        variant: 0,
+      });
+    }
+  }
+
   if (style === "temple_grounds") {
     // A raked gravel court over the middle, and the axial approach through it.
     const court = toWorld(landmark, 0, 0);
@@ -961,6 +1054,25 @@ function pathRecipe(
     }
     return { id, points, widthM };
   };
+
+  const id = landmark.id.toLowerCase();
+  if (
+    id === "london-chelsea-garden-square" ||
+    id === "london-chelsea-physic-garden"
+  ) {
+    return [
+      {
+        id: "formal-east-west",
+        points: [toWorld(landmark, -0.5, 0), toWorld(landmark, 0.5, 0)],
+        widthM: 3.2,
+      },
+      {
+        id: "formal-north-south",
+        points: [toWorld(landmark, 0, -0.5), toWorld(landmark, 0, 0.5)],
+        widthM: 3.2,
+      },
+    ];
+  }
 
   // Keyed on id like `bespokeFeatures`: the Opera Grounds keep their
   // greensward style (and its scatter and wall rules) but not the greensward
@@ -1558,10 +1670,24 @@ export function buildParkLayout(
   placements.push(
     ...pathFurniture(paths, style, clearings, dividers, context, random),
   );
+  const londonFormalGarden =
+    landmark.id === "london-chelsea-garden-square" ||
+    landmark.id === "london-chelsea-physic-garden";
   return {
     style,
     paths,
-    placements,
+    // Plane/lime silhouettes keep the two formal Chelsea gardens legibly
+    // London civic. The shared generic tree's variant 1 is a conifer; leaving
+    // the seeded scatter untouched put a Christmas-tree line through the new
+    // parterres and made the composition read like neither a square nor a
+    // physic garden. Variant 2 is the second broadleaf crown.
+    placements: londonFormalGarden
+      ? placements.map((placement) =>
+          placement.kind === "tree" && placement.variant === 1
+            ? { ...placement, variant: 2 }
+            : placement,
+        )
+      : placements,
     wall: parkPerimeterPlan(landmark, style, paths, context, dividers),
     features: bespoke.features,
   };

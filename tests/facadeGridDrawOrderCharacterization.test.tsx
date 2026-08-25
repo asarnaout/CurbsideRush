@@ -373,7 +373,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // Same cell count (40 m depth unchanged, so drawCount stays 972), every
     // cell's world position shifts with the block.
     // -> "ecdd55b8": facade-chunk merging (see Cairo's note).
-    facadeMeshFingerprint: "ecdd55b8",
+    // -> "4094aefd": the London revamp repositions the same 972 direct
+    // procedural draws around its subdivided blocks and coherent parks.
+    facadeMeshFingerprint: "4094aefd",
   },
   "tokyo-setagaya": {
     // drawCount unchanged by the building-collision-visual-parity plan:
@@ -608,14 +610,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // -> "c655a129" (Cairo storefront/apartment correction): world-hashed,
     // sparser business signs plus balconies and denser AC dressing reshape the
     // Cairo-only merged chunks; the planner draw stream remains 19_540.
-    drawCount: 19_540,
+    // -> 19_565, "cbbb4850" (Corniche/park public-realm correction): the
+    // remaining safe facade cells and their deterministic dressing join the
+    // Cairo stream. London's new infill is asset-backed and does not touch its
+    // facade-grid stream.
+    drawCount: 19_565,
     // "f2628a4c" -> "e25257d5" (facade-chunk merging): the per-box meshes
     // merge into facade-chunk-* meshes post-preload, so the census hashes
     // chunk names and bounds now. drawCount — the actual seeded-stream
     // sensor — is untouched, and a planner draw-order regression still
     // surfaces through the chunks' bounds (a re-dealt box moves its
     // chunk's AABB).
-    facadeMeshFingerprint: "c655a129",
+    facadeMeshFingerprint: "cbbb4850",
   },
 };
 
