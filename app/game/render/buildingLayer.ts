@@ -17,6 +17,10 @@ import {
   biasLondonDecalMaterials,
   LONDON_QUATERNIUS_STREET_WALL_URL_RE,
 } from "../geometry/londonBuildingDecals";
+import {
+  biasTokyoBlockDecalMaterials,
+  TOKYO_QUATERNIUS_BLOCK_URL_RE,
+} from "../geometry/tokyoBuildingDecals";
 import { buildingPlacementConfig } from "../buildingSets";
 import { buildingStructuralBoundsFor } from "../buildingStructuralBounds";
 import { ARABIC_CANVAS_FONT_FAMILY } from "../arabicFont";
@@ -598,6 +602,8 @@ export class BuildingLayer {
         biasCairoDecalMaterials(modelMaterials(this.scene, url));
       } else if (LONDON_QUATERNIUS_STREET_WALL_URL_RE.test(url)) {
         biasLondonDecalMaterials(modelMaterials(this.scene, url));
+      } else if (TOKYO_QUATERNIUS_BLOCK_URL_RE.test(url)) {
+        biasTokyoBlockDecalMaterials(modelMaterials(this.scene, url));
       }
     }
     const fraction = Math.max(0, Math.min(1, ctx.buildingAssetDetailFraction));

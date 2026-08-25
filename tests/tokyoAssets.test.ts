@@ -10,6 +10,12 @@ import {
 } from "../app/game/buildingCatalog";
 import { buildingPlacementConfig } from "../app/game/buildingSets";
 import { buildingStructuralBoundsFor } from "../app/game/buildingStructuralBounds";
+import {
+  biasTokyoBlockDecalMaterials,
+  TOKYO_BLOCK_DECAL_MATERIAL_NAMES,
+  TOKYO_BLOCK_DECAL_Z_OFFSET_UNITS,
+  TOKYO_QUATERNIUS_BLOCK_URL_RE,
+} from "../app/game/geometry/tokyoBuildingDecals";
 import { parseGlb } from "../tools/pack-gltf.mjs";
 
 const root = process.cwd();
@@ -131,6 +137,79 @@ describe("Tokyo street-wall kit assets (P1 + P3a — import only)", () => {
       expect(provenance?.sourceUrl, file).toBeTruthy();
       expect(provenance?.sourceSha256, file).toBeTruthy();
       expect(provenance?.modifications, file).toBeTruthy();
+    }
+  });
+
+  it("pulls only the Quaternius block overlays toward the camera", () => {
+    const names = [
+      "Bricks", "Dark", "DarkBrown", "DarkWood", "Glass",
+      "Main", "White", "Light", "Windows", "Black", "Wood",
+    ];
+    const materials = names.map((name) => ({ name, zOffsetUnits: 0 }));
+
+    expect(biasTokyoBlockDecalMaterials(materials)).toBe(5);
+    for (const material of materials) {
+      expect(material.zOffsetUnits, material.name).toBe(
+        TOKYO_BLOCK_DECAL_MATERIAL_NAMES.includes(material.name)
+          ? TOKYO_BLOCK_DECAL_Z_OFFSET_UNITS
+          : 0,
+      );
+    }
+    expect(TOKYO_BLOCK_DECAL_Z_OFFSET_UNITS).toBeLessThan(0);
+  });
+
+  it("targets only the three Tokyo Quaternius block urls", () => {
+    for (const variant of ["slim", "small", "4story"]) {
+      expect(
+        TOKYO_QUATERNIUS_BLOCK_URL_RE.test(
+          `/models/props/tokyo-block-${variant}.glb`,
+        ),
+      ).toBe(true);
+    }
+    expect(
+      TOKYO_QUATERNIUS_BLOCK_URL_RE.test(
+        "/models/props/tokyo-block-small.glb?rev=2",
+      ),
+    ).toBe(true);
+    expect(
+      TOKYO_QUATERNIUS_BLOCK_URL_RE.test(
+        "/models/props/tokyo-walkup-a.glb",
+      ),
+    ).toBe(false);
+    expect(
+      TOKYO_QUATERNIUS_BLOCK_URL_RE.test(
+        "/models/props/cairo-block-small.glb",
+      ),
+    ).toBe(false);
+  });
+
+  it("finds depth-biased overlays in every affected committed glb", async () => {
+    const affected = TOKYO_ENV_MODELS.filter((model) =>
+      TOKYO_QUATERNIUS_BLOCK_URL_RE.test(model.url),
+    );
+    expect(affected.map((model) => model.id)).toEqual([
+      "tokyo-block-slim",
+      "tokyo-block-small",
+      "tokyo-block-4story",
+    ]);
+
+    for (const model of affected) {
+      const json = parseGlbJson(await readFile(fileFor(model.url)));
+      const materials = json.materials.map((material: { name: string }) => ({
+        name: material.name,
+        zOffsetUnits: 0,
+      }));
+      expect(
+        biasTokyoBlockDecalMaterials(materials),
+        model.id,
+      ).toBeGreaterThanOrEqual(3);
+      for (const material of materials) {
+        expect(material.zOffsetUnits, `${model.id} ${material.name}`).toBe(
+          TOKYO_BLOCK_DECAL_MATERIAL_NAMES.includes(material.name)
+            ? TOKYO_BLOCK_DECAL_Z_OFFSET_UNITS
+            : 0,
+        );
+      }
     }
   });
 
