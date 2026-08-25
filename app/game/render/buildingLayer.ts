@@ -13,6 +13,10 @@ import {
   biasCairoDecalMaterials,
   CAIRO_STREET_WALL_URL_RE,
 } from "../geometry/cairoParkland";
+import {
+  biasLondonDecalMaterials,
+  LONDON_QUATERNIUS_STREET_WALL_URL_RE,
+} from "../geometry/londonBuildingDecals";
 import { buildingPlacementConfig } from "../buildingSets";
 import { buildingStructuralBoundsFor } from "../buildingStructuralBounds";
 import { ARABIC_CANVAS_FONT_FAMILY } from "../arabicFont";
@@ -586,12 +590,14 @@ export class BuildingLayer {
    */
   instantiate(ctx: BuildingLayerInstantiateCtx): void {
     if (ctx.night) this.applyNightGlow(ctx.buildingModelUrls);
-    // Pull the Cairo kit's decal primitives off their wall planes; see
-    // CAIRO_DECAL_Z_OFFSET_UNITS. Container materials are shared by every
-    // instance and by the merged masters, so once per url covers the map.
+    // Pull the affected Quaternius kits' decal primitives off their wall
+    // planes. Container materials are shared by every instance and by the
+    // merged masters, so once per url covers the map.
     for (const url of ctx.buildingModelUrls) {
       if (CAIRO_STREET_WALL_URL_RE.test(url)) {
         biasCairoDecalMaterials(modelMaterials(this.scene, url));
+      } else if (LONDON_QUATERNIUS_STREET_WALL_URL_RE.test(url)) {
+        biasLondonDecalMaterials(modelMaterials(this.scene, url));
       }
     }
     const fraction = Math.max(0, Math.min(1, ctx.buildingAssetDetailFraction));

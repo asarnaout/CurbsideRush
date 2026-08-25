@@ -3,6 +3,12 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LONDON_ENV_MODELS, londonEnvModelUrls } from "../app/game/buildingCatalog";
+import {
+  biasLondonDecalMaterials,
+  LONDON_DECAL_MATERIAL_NAMES,
+  LONDON_DECAL_Z_OFFSET_UNITS,
+  LONDON_QUATERNIUS_STREET_WALL_URL_RE,
+} from "../app/game/geometry/londonBuildingDecals";
 
 const root = process.cwd();
 
@@ -87,6 +93,87 @@ describe("london street-wall kit assets", () => {
       expect(model.id, model.id).toBe(
         model.url.split("/").at(-1)!.replace(/\.glb$/, ""),
       );
+    }
+  });
+
+  it("pulls only the Quaternius overlay materials toward the camera", () => {
+    const names = [
+      "Bricks",
+      "Bricks_Glass",
+      "Dark",
+      "DarkBrown",
+      "DarkWood",
+      "Glass",
+      "Main",
+      "White",
+      "Light",
+      "Windows",
+      "RoofBricks",
+      "Wood",
+    ];
+    const materials = names.map((name) => ({ name, zOffsetUnits: 0 }));
+
+    expect(biasLondonDecalMaterials(materials)).toBe(6);
+    for (const material of materials) {
+      expect(material.zOffsetUnits, material.name).toBe(
+        LONDON_DECAL_MATERIAL_NAMES.includes(material.name)
+          ? LONDON_DECAL_Z_OFFSET_UNITS
+          : 0,
+      );
+    }
+    expect(LONDON_DECAL_Z_OFFSET_UNITS).toBeLessThan(0);
+  });
+
+  it("targets terrace/stucco urls without touching other London models", () => {
+    expect(
+      LONDON_QUATERNIUS_STREET_WALL_URL_RE.test(
+        "/models/props/london-terrace-a.glb",
+      ),
+    ).toBe(true);
+    expect(
+      LONDON_QUATERNIUS_STREET_WALL_URL_RE.test(
+        "/models/props/london-stucco-d.glb?rev=2",
+      ),
+    ).toBe(true);
+    expect(
+      LONDON_QUATERNIUS_STREET_WALL_URL_RE.test(
+        "/models/props/london-tower-a.glb",
+      ),
+    ).toBe(false);
+    expect(
+      LONDON_QUATERNIUS_STREET_WALL_URL_RE.test(
+        "/models/props/london-shop.glb",
+      ),
+    ).toBe(false);
+    expect(
+      LONDON_QUATERNIUS_STREET_WALL_URL_RE.test(
+        "/models/props/cairo-residence-quaternius.glb",
+      ),
+    ).toBe(false);
+  });
+
+  it("finds depth-biased overlays in every affected committed glb", async () => {
+    const affected = LONDON_ENV_MODELS.filter((model) =>
+      LONDON_QUATERNIUS_STREET_WALL_URL_RE.test(model.url),
+    );
+    expect(affected).toHaveLength(9);
+
+    for (const model of affected) {
+      const json = parseGlbJson(await readFile(fileFor(model.url)));
+      const materials = json.materials.map((material: { name: string }) => ({
+        name: material.name,
+        zOffsetUnits: 0,
+      }));
+      expect(biasLondonDecalMaterials(materials), model.id).toBeGreaterThanOrEqual(
+        3,
+      );
+      for (const material of materials) {
+        expect(material.zOffsetUnits, `${model.id} ${material.name}`).toBe(
+          LONDON_DECAL_MATERIAL_NAMES.includes(material.name)
+            ? LONDON_DECAL_Z_OFFSET_UNITS
+            : 0,
+        );
+      }
     }
   });
 });
