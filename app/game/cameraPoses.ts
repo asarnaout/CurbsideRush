@@ -65,6 +65,8 @@ export interface ChaseCameraPose {
 
 export const CHASE_CAMERA_MIN_DISTANCE_M = 7;
 export const CHASE_CAMERA_MAX_DISTANCE_M = 24;
+/** Every new drive begins at the closest wheel-zoom position. */
+export const CHASE_CAMERA_START_DISTANCE_M = CHASE_CAMERA_MIN_DISTANCE_M;
 export const CHASE_CAMERA_MIN_ELEVATION_RAD = (12 * Math.PI) / 180;
 export const CHASE_CAMERA_MAX_ELEVATION_RAD = (55 * Math.PI) / 180;
 
@@ -116,7 +118,9 @@ export function smoothQuickLookAngle(
  * `vehicleModel` selects the tuning the same way production does — an
  * unlisted model (including the default `electric-fastback`) falls back to
  * `DEFAULT_CHASE_TUNING`, matching `CHASE_TUNING_BY_MODEL[model] ||
- * DEFAULT_CHASE_TUNING`'s truthy-fallback semantics exactly.
+ * DEFAULT_CHASE_TUNING`'s truthy-fallback semantics exactly. With no explicit
+ * orbit distance, every vehicle starts at the closest supported wheel zoom;
+ * model tuning still supplies its elevation angle and look-ahead framing.
  */
 export function resolveChaseCameraPose(
   vehicleModel: VehicleModel | null | undefined,
@@ -132,7 +136,10 @@ export function resolveChaseCameraPose(
   const orbitForwardZ = Math.cos(cameraHeading);
   const distanceM = Math.min(
     CHASE_CAMERA_MAX_DISTANCE_M,
-    Math.max(CHASE_CAMERA_MIN_DISTANCE_M, orbit.distanceM ?? chase.backM),
+    Math.max(
+      CHASE_CAMERA_MIN_DISTANCE_M,
+      orbit.distanceM ?? CHASE_CAMERA_START_DISTANCE_M,
+    ),
   );
   const authoredElevation = Math.atan2(chase.upM, chase.backM);
   const elevation = Math.min(

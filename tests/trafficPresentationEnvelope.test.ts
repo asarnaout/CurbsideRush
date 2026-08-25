@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUDIT_CHASE_VEHICLE_PROFILES,
+  CHASE_CAMERA_MAX_DISTANCE_M,
   resolveChaseCameraPose,
   resolveCockpitCameraPoses,
 } from "../app/game/cameraPoses";
@@ -77,7 +78,13 @@ describe("traffic presentation envelope", () => {
     for (const model of playerModels) {
       maximumMainCameraOffsetM = Math.max(
         maximumMainCameraOffsetM,
-        horizontalDistance(resolveChaseCameraPose(model, origin).eye),
+        // Startup is the closest setting, but the presentation envelope must
+        // remain safe after a player wheels all the way out too.
+        horizontalDistance(
+          resolveChaseCameraPose(model, origin, {
+            distanceM: CHASE_CAMERA_MAX_DISTANCE_M,
+          }).eye,
+        ),
       );
     }
 
@@ -122,7 +129,10 @@ describe("traffic presentation envelope", () => {
     const worstVisibleVehicleCentreM =
       maximumMainCameraOffsetM + maximumFarPlaneM + completeVehicleRadiusM;
 
-    expect(maximumMainCameraOffsetM).toBeCloseTo(11.6, 9);
+    expect(maximumMainCameraOffsetM).toBeCloseTo(
+      CHASE_CAMERA_MAX_DISTANCE_M,
+      9,
+    );
     expect(maximumFarPlaneM).toBe(460);
     expect(completeVehicleRadiusM).toBeGreaterThan(3);
     expect(worstVisibleVehicleCentreM).toBeLessThan(

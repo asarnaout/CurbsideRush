@@ -35,6 +35,10 @@ import {
   MIN_HORIZONTAL_FOV,
 } from "../app/game/render/renderConstants";
 import {
+  CHASE_CAMERA_MIN_DISTANCE_M,
+  CHASE_CAMERA_START_DISTANCE_M,
+} from "../app/game/cameraPoses";
+import {
   COCKPIT_DASH_DRIVER_Z,
   COCKPIT_STEERING_EMBLEM,
   COCKPIT_STEERING_HUB,
@@ -69,6 +73,13 @@ describe("pointer camera look", () => {
   });
 
   it("dollies chase distance proportionally and clamps both zoom limits", () => {
+    expect(CHASE_CAMERA_START_DISTANCE_M).toBe(CHASE_CAMERA_MIN_DISTANCE_M);
+    expect(
+      resolveChaseCameraDistanceFromWheel(
+        CHASE_CAMERA_START_DISTANCE_M,
+        -1_000,
+      ),
+    ).toBe(CHASE_CAMERA_START_DISTANCE_M);
     expect(resolveChaseCameraDistanceFromWheel(10.5, 50)).toBeCloseTo(11);
     expect(resolveChaseCameraDistanceFromWheel(10.5, -50)).toBeCloseTo(10);
     expect(resolveChaseCameraDistanceFromWheel(23.8, 1_000)).toBe(24);

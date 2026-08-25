@@ -6,6 +6,7 @@ import {
   CHASE_CAMERA_MAX_DISTANCE_M,
   CHASE_CAMERA_MAX_ELEVATION_RAD,
   CHASE_CAMERA_MIN_DISTANCE_M,
+  CHASE_CAMERA_START_DISTANCE_M,
   CHASE_TUNING_BY_MODEL,
   COCKPIT_SEAT_SIDE_BY_STEERING,
   DEFAULT_CHASE_TUNING,
@@ -31,9 +32,14 @@ describe("resolveChaseCameraPose", () => {
     result: ReturnType<typeof resolveChaseCameraPose>,
     tuning: ChaseTuning,
   ) => {
+    const elevation = Math.atan2(tuning.upM, tuning.backM);
     expect(result.eye.x).toBeCloseTo(pose.x);
-    expect(result.eye.y).toBeCloseTo(0.12 + tuning.upM);
-    expect(result.eye.z).toBeCloseTo(pose.z - tuning.backM);
+    expect(result.eye.y).toBeCloseTo(
+      0.12 + Math.tan(elevation) * CHASE_CAMERA_START_DISTANCE_M,
+    );
+    expect(result.eye.z).toBeCloseTo(
+      pose.z - CHASE_CAMERA_START_DISTANCE_M,
+    );
     expect(result.target.x).toBeCloseTo(pose.x);
     expect(result.target.y).toBeCloseTo(0.12 + 1.05);
     expect(result.target.z).toBeCloseTo(pose.z + tuning.targetAheadM);
@@ -61,12 +67,26 @@ describe("resolveChaseCameraPose", () => {
     }
   });
 
+  it("starts every vehicle at the closest supported wheel zoom", () => {
+    expect(CHASE_CAMERA_START_DISTANCE_M).toBe(CHASE_CAMERA_MIN_DISTANCE_M);
+    for (const profile of AUDIT_CHASE_VEHICLE_PROFILES) {
+      const result = resolveChaseCameraPose(profile.model, {
+        x: 0,
+        z: 0,
+        heading: 0,
+      });
+      expect(Math.hypot(result.eye.x, result.eye.z)).toBeCloseTo(
+        CHASE_CAMERA_MIN_DISTANCE_M,
+      );
+    }
+  });
+
   it("places eye behind and target ahead along an arbitrary heading, not just heading 0", () => {
     // heading = +90deg (clockwise) -> forward is +x.
     const result = resolveChaseCameraPose(undefined, { x: 0, z: 0, heading: Math.PI / 2 });
     expect(result.target.x).toBeCloseTo(DEFAULT_CHASE_TUNING.targetAheadM);
     expect(result.target.z).toBeCloseTo(0, 5);
-    expect(result.eye.x).toBeCloseTo(-DEFAULT_CHASE_TUNING.backM);
+    expect(result.eye.x).toBeCloseTo(-CHASE_CAMERA_START_DISTANCE_M);
     expect(result.eye.z).toBeCloseTo(0, 5);
   });
 
@@ -76,7 +96,7 @@ describe("resolveChaseCameraPose", () => {
       { x: 0, z: 0, heading: 0 },
       { yawOffsetRad: Math.PI / 2 },
     );
-    expect(result.eye.x).toBeCloseTo(-DEFAULT_CHASE_TUNING.backM);
+    expect(result.eye.x).toBeCloseTo(-CHASE_CAMERA_START_DISTANCE_M);
     expect(result.eye.z).toBeCloseTo(0, 5);
     expect(result.target.x).toBeCloseTo(0, 5);
     expect(result.target.z).toBeCloseTo(0, 5);
@@ -114,7 +134,7 @@ describe("resolveChaseCameraPose", () => {
     expect(result.eye.y).toBeCloseTo(
       0.12 +
         Math.tan(CHASE_CAMERA_MAX_ELEVATION_RAD) *
-          DEFAULT_CHASE_TUNING.backM,
+          CHASE_CAMERA_START_DISTANCE_M,
     );
   });
 });

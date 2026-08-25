@@ -186,6 +186,7 @@ import {
   CHASE_CAMERA_MAX_ELEVATION_RAD,
   CHASE_CAMERA_MIN_DISTANCE_M,
   CHASE_CAMERA_MIN_ELEVATION_RAD,
+  CHASE_CAMERA_START_DISTANCE_M,
   CHASE_TUNING_BY_MODEL,
   DEFAULT_CHASE_TUNING,
   chaseLookAheadScale,
@@ -1872,9 +1873,10 @@ export class BabylonGameSession {
    * read as head/camera motion rather than a cut. */
   private displayedLookYaw = 0;
   private displayedLookPitch = 0;
-  /** Horizontal eye distance. Wheel zoom persists across camera switches and
-   * car resets for the rest of this drive, but never changes optical FOV. */
-  private chaseDistanceM = DEFAULT_CHASE_TUNING.backM;
+  /** Horizontal eye distance. Every drive starts at maximum wheel zoom-in;
+   * later wheel zoom persists across camera switches and car resets for the
+   * rest of the drive, but never changes optical FOV. */
+  private chaseDistanceM = CHASE_CAMERA_START_DISTANCE_M;
   private playerState: PlayerState;
   private displayedX = 0;
   private displayedZ = 0;
@@ -1935,10 +1937,6 @@ export class BabylonGameSession {
     this.canvas = canvas;
     this.options = options;
     this.callbacks = callbacks;
-    this.chaseDistanceM =
-      (options.playerVehicle?.model &&
-        CHASE_TUNING_BY_MODEL[options.playerVehicle.model]?.backM) ||
-      DEFAULT_CHASE_TUNING.backM;
     this.debugBuildingAssetPolicy = options.debugBuildingAssetPolicy;
     // Two-wheelers have no cockpit to sit in — the first-person camera would
     // be a car-interior lie, so bike and motorbike days are third-person only.
