@@ -36,6 +36,8 @@ import {
 } from "../app/game/render/renderConstants";
 import {
   COCKPIT_DASH_DRIVER_Z,
+  COCKPIT_STEERING_EMBLEM,
+  COCKPIT_STEERING_HUB,
   MAX_STEERING_WHEEL_SPIN,
   resolveCockpitPitch,
   resolveCockpitSteeringGeometry,
@@ -505,6 +507,27 @@ describe("cockpit camera tracking", () => {
     expect(resolveSteeringWheelSpin(1)).toBe(-MAX_STEERING_WHEEL_SPIN);
     expect(resolveSteeringWheelSpin(-1)).toBe(MAX_STEERING_WHEEL_SPIN);
     expect(resolveSteeringWheelSpin(4)).toBe(-MAX_STEERING_WHEEL_SPIN);
+  });
+
+  it("keeps the steering emblem proud of the hub without exposing its rear", () => {
+    // The tilted wheel presents local -Y to the driver. These used to both be
+    // exactly -0.021 m, so their circular caps z-fought into black triangles.
+    const hubFrontY =
+      COCKPIT_STEERING_HUB.centerY - COCKPIT_STEERING_HUB.height / 2;
+    const hubBackY =
+      COCKPIT_STEERING_HUB.centerY + COCKPIT_STEERING_HUB.height / 2;
+    const emblemFrontY =
+      COCKPIT_STEERING_EMBLEM.centerY -
+      COCKPIT_STEERING_EMBLEM.height / 2;
+    const emblemBackY =
+      COCKPIT_STEERING_EMBLEM.centerY +
+      COCKPIT_STEERING_EMBLEM.height / 2;
+
+    expect(hubFrontY - emblemFrontY).toBeCloseTo(0.006);
+    expect(emblemBackY).toBeLessThan(hubBackY);
+    expect(COCKPIT_STEERING_EMBLEM.diameter).toBeLessThan(
+      COCKPIT_STEERING_HUB.diameter,
+    );
   });
 
   it("mirrors the cockpit without embedding the wheel behind the dashboard", () => {

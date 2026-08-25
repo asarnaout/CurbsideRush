@@ -33,6 +33,8 @@ import {
   COCKPIT_PILLAR_X,
   COCKPIT_ROOF_PROFILE,
   COCKPIT_SCREEN,
+  COCKPIT_STEERING_EMBLEM,
+  COCKPIT_STEERING_HUB,
   COCKPIT_VENT_PROFILE,
   COCKPIT_VENT_SLOTS,
   resolveCockpitSteeringGeometry,
@@ -498,21 +500,37 @@ export function buildCockpit(ctx: CockpitBuilderCtx): CockpitBuildResult {
   const steeringHub = createCylinder(
     scene,
     "steering-hub",
-    { height: 0.05, diameter: 0.148, tessellation: 20 },
-    new Vector3(0, 0.004, 0.012),
+    {
+      height: COCKPIT_STEERING_HUB.height,
+      diameter: COCKPIT_STEERING_HUB.diameter,
+      tessellation: COCKPIT_STEERING_HUB.tessellation,
+    },
+    new Vector3(
+      0,
+      COCKPIT_STEERING_HUB.centerY,
+      COCKPIT_STEERING_HUB.centerZ,
+    ),
     cockpitTrim,
     steeringAssembly,
   );
-  steeringHub.scaling.z = 0.62;
+  steeringHub.scaling.z = COCKPIT_STEERING_HUB.scaleZ;
   const steeringEmblem = createCylinder(
     scene,
     "steering-emblem",
-    { height: 0.054, diameter: 0.056, tessellation: 16 },
-    new Vector3(0, 0.006, 0.012),
+    {
+      height: COCKPIT_STEERING_EMBLEM.height,
+      diameter: COCKPIT_STEERING_EMBLEM.diameter,
+      tessellation: COCKPIT_STEERING_EMBLEM.tessellation,
+    },
+    new Vector3(
+      0,
+      COCKPIT_STEERING_EMBLEM.centerY,
+      COCKPIT_STEERING_EMBLEM.centerZ,
+    ),
     steeringRubber,
     steeringAssembly,
   );
-  steeringEmblem.scaling.z = 0.62;
+  steeringEmblem.scaling.z = COCKPIT_STEERING_EMBLEM.scaleZ;
 
   ctx.buildWingMirror(steeringRubber, cockpitTrim);
   mergeCockpitStatics(ctx.scene, ctx.playerCockpit, windscreenParts);

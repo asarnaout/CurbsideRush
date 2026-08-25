@@ -611,6 +611,31 @@ export function resolveSteeringWheelSpin(steer: number): number {
   return -clamp(steer, -1, 1) * MAX_STEERING_WHEEL_SPIN;
 }
 
+/**
+ * The wheel hub and its dark centre badge. Babylon cylinders extend along
+ * local Y, and after the steering-column tilt the camera sees their -Y caps.
+ * Keep the emblem's front cap 6 mm proud of the hub while its rear cap remains
+ * inside it; making those caps coplanar produces severe triangular z-fighting
+ * at first-person viewing distance.
+ */
+export const COCKPIT_STEERING_HUB = Object.freeze({
+  height: 0.05,
+  diameter: 0.148,
+  tessellation: 20,
+  centerY: 0.004,
+  centerZ: 0.012,
+  scaleZ: 0.62,
+});
+
+export const COCKPIT_STEERING_EMBLEM = Object.freeze({
+  height: 0.054,
+  diameter: 0.056,
+  tessellation: 16,
+  centerY: 0,
+  centerZ: 0.012,
+  scaleZ: 0.62,
+});
+
 export interface CockpitSteeringGeometry {
   readonly x: number;
   readonly y: number;
