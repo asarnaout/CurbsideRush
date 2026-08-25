@@ -13,6 +13,7 @@ import { nearestPointOnPolyline } from "../geometry/roadStrips";
 import type { DestructiblePropPart } from "./propCatalog";
 import {
   TOKYO_CHOCHIN_POSTS,
+  TOKYO_NEON_SIGN_GEOMETRY,
   TOKYO_NEON_SIGNS,
   TOKYO_SCRAMBLE_BILLBOARDS,
   TOKYO_WIRE_RUNS,
@@ -539,10 +540,11 @@ export interface TokyoStreetFurnitureCtx {
   ) => void;
 }
 
-/** Four neon colours, built once and shared across every instance of that
+/** Four neon face colours, built once and shared across every instance of that
  * variant — "a handful of materials, hundreds of instances" (plan §8.11),
- * not a material per sign. Bright, saturated diffuse so the panel reads even
- * without the emissive term; the emissive channel is what blooms. */
+ * not a material per sign. The housing uses the billboard frame material;
+ * keeping the emissive material on the inset face alone prevents the narrow
+ * sides reading as unsupported light rods. */
 const NEON_VARIANT_COLORS: readonly [Color3, Color3][] = [
   [new Color3(0.4, 0.06, 0.24), new Color3(1.1, 0.18, 0.62)], // magenta
   [new Color3(0.05, 0.26, 0.4), new Color3(0.14, 0.68, 1.05)], // cyan
@@ -612,19 +614,95 @@ function buildChochinPosts(ctx: TokyoStreetFurnitureCtx): void {
 }
 
 /**
- * Downtown neon sign boards: thin emissive panels bracket-mounted off a
- * facade line, well above the reachable band — never destructible, never a
- * collider (the block behind each one already collides). One master box per
- * colour variant (`NEON_VARIANT_COLORS`), so `TOKYO_NEON_SIGNS.length`
- * instances cost four draw calls total, not one each.
+ * Downtown neon sign boards: a dark casing, one road-facing emissive panel and
+ * two arms reaching back to a vertical facade plate, well above the reachable
+ * band — never destructible, never a collider (the block behind each one
+ * already collides). The plate spans narrow seams between adjacent facade
+ * models, which an 8 cm arm can otherwise miss. Each colour is merged into one
+ * compound MultiMaterial master, so every sign is still one cull/instance.
  */
-function buildNeonSigns(ctx: TokyoStreetFurnitureCtx): void {
+function buildNeonSigns(
+  ctx: TokyoStreetFurnitureCtx,
+  housingMaterial: StandardMaterial,
+): void {
   if (!TOKYO_NEON_SIGNS.length) return;
   const scene = ctx.scene;
+  const geometry = TOKYO_NEON_SIGN_GEOMETRY;
   const masters = NEON_VARIANT_COLORS.map(([diffuse, emissive], variantIndex) => {
     const material = makeMaterial(scene, `tokyo-neon-${variantIndex}`, diffuse, emissive);
-    const mesh = createBox(scene, `prop-master-tokyo-neon-${variantIndex}`, { width: 1.3, height: 3.0, depth: 0.08 }, Vector3.Zero(), material);
+    const housing = createBox(
+      scene,
+      `prop-master-tokyo-neon-${variantIndex}-housing-source`,
+      {
+        width: geometry.housingWidthM,
+        height: geometry.housingHeightM,
+        depth: geometry.housingDepthM,
+      },
+      Vector3.Zero(),
+      housingMaterial,
+    );
+    const face = createBox(
+      scene,
+      `prop-master-tokyo-neon-${variantIndex}-face-source`,
+      {
+        width: geometry.panelWidthM,
+        height: geometry.panelHeightM,
+        depth: geometry.panelDepthM,
+      },
+      new Vector3(
+        0,
+        0,
+        geometry.housingDepthM / 2 + geometry.panelDepthM / 2 + 0.001,
+      ),
+      material,
+    );
+    const armCentreZ =
+      -(geometry.housingDepthM + geometry.facadeArmReachM) / 2;
+    const arms = geometry.facadeArmYOffsetsM.map((y, armIndex) =>
+      createBox(
+        scene,
+        `prop-master-tokyo-neon-${variantIndex}-arm-${armIndex}-source`,
+        {
+          width: geometry.facadeArmThicknessM,
+          height: geometry.facadeArmThicknessM,
+          depth: geometry.facadeArmReachM,
+        },
+        new Vector3(0, y, armCentreZ),
+        housingMaterial,
+      ),
+    );
+    const facadePlate = createBox(
+      scene,
+      `prop-master-tokyo-neon-${variantIndex}-facade-plate-source`,
+      {
+        width: geometry.facadePlateWidthM,
+        height: geometry.facadePlateHeightM,
+        depth: geometry.facadePlateDepthM,
+      },
+      new Vector3(
+        0,
+        0,
+        -geometry.housingDepthM / 2 -
+          geometry.facadeArmReachM +
+          geometry.facadePlateDepthM / 2,
+      ),
+      housingMaterial,
+    );
+    const target = new Mesh(`prop-master-tokyo-neon-${variantIndex}`, scene);
+    const mesh = Mesh.MergeMeshes(
+      [housing, face, ...arms, facadePlate],
+      true,
+      true,
+      target,
+      false,
+      true,
+    );
+    if (!mesh) {
+      target.dispose();
+      throw new Error(`failed to assemble Tokyo neon sign variant ${variantIndex}`);
+    }
     mesh.isVisible = false;
+    mesh.isPickable = false;
     return { mesh, material };
   });
 
@@ -648,11 +726,13 @@ function buildNeonSigns(ctx: TokyoStreetFurnitureCtx): void {
  * built (only two, so instancing would save nothing). Mounted well above the
  * reachable band; never destructible, never a collider.
  */
-function buildScrambleBillboards(ctx: TokyoStreetFurnitureCtx): void {
+function buildScrambleBillboards(
+  ctx: TokyoStreetFurnitureCtx,
+  frameMaterial: StandardMaterial,
+): void {
   const scene = ctx.scene;
   if (!TOKYO_SCRAMBLE_BILLBOARDS.length) return;
   const screenMaterial = makeMaterial(scene, "tokyo-billboard-screen", new Color3(0.08, 0.28, 0.4), new Color3(0.55, 0.85, 1.15));
-  const frameMaterial = makeMaterial(scene, "tokyo-billboard-frame", new Color3(0.09, 0.09, 0.1));
   for (const billboard of TOKYO_SCRAMBLE_BILLBOARDS) {
     const root = new TransformNode(`${billboard.id}-root`, scene);
     root.position.set(billboard.position.x, billboard.mountHeightM, billboard.position.z);
@@ -680,7 +760,6 @@ function buildScrambleBillboards(ctx: TokyoStreetFurnitureCtx): void {
     ctx.staticSceneryFreeze.push(screen);
   }
   screenMaterial.freeze();
-  frameMaterial.freeze();
 }
 
 /** Sub-segments per span, approximating a shallow catenary as a faceted
@@ -809,8 +888,17 @@ function buildWireRuns(ctx: TokyoStreetFurnitureCtx): void {
 }
 
 export function buildTokyoStreetFurniture(ctx: TokyoStreetFurnitureCtx): void {
+  // Neon kanban housings and scramble billboards are the same dark exterior
+  // sign casing. Sharing this existing material keeps the pass at its original
+  // material count even after giving the kanban real supports.
+  const signHousingMaterial = makeMaterial(
+    ctx.scene,
+    "tokyo-billboard-frame",
+    new Color3(0.09, 0.09, 0.1),
+  );
   buildChochinPosts(ctx);
-  buildNeonSigns(ctx);
-  buildScrambleBillboards(ctx);
+  buildNeonSigns(ctx, signHousingMaterial);
+  buildScrambleBillboards(ctx, signHousingMaterial);
   buildWireRuns(ctx);
+  signHousingMaterial.freeze();
 }

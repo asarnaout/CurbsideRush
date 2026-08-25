@@ -127,13 +127,38 @@ export interface TokyoNeonSign {
 }
 
 /**
+ * Shared geometry for Chūō-dōri's facade-mounted kanban. The authored sign
+ * centres sit 9.8 m off the road centreline while the real block faces vary
+ * from roughly 11.5–12.6 m, so the arms deliberately reach 3 m back into the
+ * facade. A dark housing keeps the narrow edge from blooming like a floating
+ * light rod; only the road-facing inset panel is emissive.
+ */
+export const TOKYO_NEON_SIGN_GEOMETRY = Object.freeze({
+  panelWidthM: 1.3,
+  panelHeightM: 3,
+  panelDepthM: 0.02,
+  housingWidthM: 1.5,
+  housingHeightM: 3.2,
+  housingDepthM: 0.14,
+  facadeArmReachM: 3,
+  facadeArmThicknessM: 0.08,
+  facadeArmYOffsetsM: Object.freeze([-1.1, 1.1] as const),
+  // Wide enough to bridge the narrow frontage seam behind jp-neon-chuo-3;
+  // the arms meet this vertical plate instead of requiring their 8 cm axes
+  // to land on one exact facade model.
+  facadePlateWidthM: 0.8,
+  facadePlateHeightM: 2.5,
+  facadePlateDepthM: 0.08,
+});
+
+/**
  * Chūō-dōri's downtown stretch (the tallest, densest zone,
  * `TOKYO_ROAD_STYLE_OVERRIDE["jp-chuo-dori"]`), both flanks, six along-road
  * stations each — checked clear of every flanking block at 9.8 m off the
  * centreline (the 4-lane road's own half-width 6.8 m + 3 m, inside the
- * pavement gap ahead of the real block face at ~11.5-12.6 m). Heights
- * alternate low/high so the corridor reads as layered signage, not one
- * shelf.
+ * pavement gap ahead of the real block face at ~11.5-12.6 m). The renderer's
+ * 3 m facade arms bridge that whole variable gap. Heights alternate low/high
+ * so the corridor reads as layered signage, not one shelf.
  */
 export const TOKYO_NEON_SIGNS: readonly TokyoNeonSign[] = [
   { id: "jp-neon-chuo-1", position: { x: 449.8, z: -130 }, headingDeg: 270, variant: 0, heightM: 4.5 },
