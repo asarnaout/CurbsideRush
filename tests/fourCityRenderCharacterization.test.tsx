@@ -1468,10 +1468,26 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // added while merge-aware road/junction generation retires ten obsolete
     // flat pieces, net +28. Six enter the fixed frustum and two additional
     // pieces enter mirror draws; materials/fingerprint remain unchanged.
-    totalMeshes: 14_870,
-    enabledMeshes: 14_826,
-    activeMeshes: 1_791,
-    materials: 316,
+    // -> 14_917/14_873 (active 1_831, materials 319; Cairo bridge barrier
+    // character pass): all 58 trimmed edge runs replace the generic box with
+    // the same-count profiled concrete shell and batch a pale coping, a
+    // close-spaced three-rail fence and traffic-facing marker plates. Those
+    // run batches replace 179 separate generic reflector boxes for a measured
+    // net +47 meshes; 40 enter the fixed pose's frustum. Marker plates are
+    // outward quads rather than buried six-face boxes. The three Cairo-only
+    // materials are weathered parapet concrete, sunlit coping and aged green
+    // steel. Other cities keep their original depth and marker palette.
+    // -> 15_072/15_028 (active 1_829): Dokki's former low two-way mouth is
+    // replaced by independent one-way entry and exit grades plus a high shared
+    // stem. The longer profiled network adds 155 net structural/road meshes;
+    // all frontage blocks remain, with the constrained row set back six metres
+    // and the obstructed promenade palm relocated along its original row.
+    // Two meshes leave this fixed camera's frustum and two extra meshes enter
+    // mirror draws; materials/fingerprint remain unchanged.
+    totalMeshes: 15_072,
+    enabledMeshes: 15_028,
+    activeMeshes: 1_829,
+    materials: 319,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1492,7 +1508,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 93 / 144: sparse signs and rebalanced facade dressing reduce the
     // nearby chunk set without changing the mirror rig itself.
     mirrorCandidates: 30,
-    mirrorDrawn: 150,
+    mirrorDrawn: 152,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1507,7 +1523,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "df94522e": the three regulatory-sign materials.
     // -> "48a1630c": the three Cairo shop signs plus storefront shutter.
     // -> "2e92838d": seven more Cairo business-sign materials.
-    survivingMaterialNamesFingerprint: "12c22b0c",
+    // -> "807eeb5f": the three Cairo-only barrier materials above.
+    survivingMaterialNamesFingerprint: "807eeb5f",
   },
 };
 

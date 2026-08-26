@@ -23,9 +23,24 @@ real references:
   access ramps above Corniche, Ramses and Dokki corridors. Source:
   <https://openjicareport.jica.go.jp/pdf/11928470_02.pdf>
 - The Wikimedia Commons 6 October Bridge archive was used as a visual cross
-  check for dusty concrete, long low parapets, dense urban surroundings and
-  the bridge's relationship to the Nile. Source:
+  check for dusty concrete, dense urban surroundings, the bridge's
+  relationship to the Nile and the older spans whose dark maintenance rail
+  sits above a solid concrete crash base. Source:
   <https://commons.wikimedia.org/wiki/Category:6_October_Bridge>
+- The Arab Contractors' 26th of July Axis gallery shows the same family on
+  ramps and urban viaducts: a continuous concrete crash sill/toe with a
+  close-spaced green metal railing above it. The rail is never left floating
+  as an open substitute for the solid road edge. Source:
+  <https://www.arabcont.com/English/project-88>
+
+Those references produce a Cairo-specific treatment rather than one generic
+box. All Cairo elevated roads use a warm, weathered, tapered concrete shell
+with a wide traffic-side toe and a pale coping. A close-spaced, dull
+green-black three-rail maintenance fence continues above that solid base on
+the main span and ramps, matching the 6th October/26th July silhouette. The
+edge runs stop before every merge mouth, so the stronger silhouette never
+becomes a transverse visual or physical wall. Small amber studs face traffic
+instead of being mounted invisibly on the outer face.
 
 The user's Cairo aerial and New York elevated-rail photographs supplied the
 composition target: elevated infrastructure woven through occupied streets,
@@ -38,7 +53,7 @@ from the west-bank road network to a 10.5 m deck, crosses both Nile channels,
 continues above the central city and descends into Al-Galaa Street. Four access
 locations connect it to the rest of the directed lane graph:
 
-- paired one-way Dokki entrance/exit slips feeding a two-way ramp;
+- separate one-way Dokki entrance/exit grades feeding a high two-way stem;
 - paired one-way Gezira entrance/exit slips feeding a two-way ramp;
 - separate one-way Corniche entrance and exit ramps, each with its own slip;
 - paired one-way Ramses entrance/exit slips feeding a two-way ramp.
@@ -55,6 +70,16 @@ the street rather than forcing two decks through buildings.
 
 Two approaches are especially important regression examples:
 
+- The far-west Dokki access preserves Al Dokki Street as a complete two-way
+  road. Its entrance climbs in a 4.2 m Nile-side auxiliary lane south of the
+  merge; its exit descends in the same widened corridor farther north. The low
+  grades never sit beside or on top of one another. Entry, shared stem and exit
+  meet only at a 7 m-high directional braid, so the old low 7.6 m two-way slab
+  cannot cover the continuing street. The six waterfront frontage parcels and
+  all eight dense infill buildings remain; the six parcels plus five affected
+  dense buildings move back only 6 m, while the northern three stay in place.
+  The one promenade palm whose measured crown reached the new grade is
+  relocated along the same bank rather than filtered out.
 - The far-east Ramses access does not drop a two-way ramp onto the road
   centreline. Separate 4.2 m entry and exit grades follow opposite kerbs and
   remain distinct until they reach 7 m over the Turgoman clearance point. The
@@ -90,8 +115,15 @@ surface—not a landmark mesh—provides the drivable deck.
   below; zero is not treated as a missing value.
 - Structural slabs and parapets are clipped below 0.65 m, leaving the complete
   merge taper open instead of erecting a concrete wall across its street end.
-- Concrete slabs, edge girders, parapets, reflectors, tapered octagonal columns,
-  caps and footings derive from the elevated road surfaces.
+- Concrete slabs, edge girders, profiled parapets, coping, traffic-facing
+  reflectors, tapered octagonal columns, caps and footings derive from the
+  elevated road surfaces. Repeating marker and rail-post rhythms use
+  accumulated surface distance, so they do not restart at every authored
+  polyline segment.
+- The solid parapet toe remains the gameplay boundary. Coping, marker plates
+  and the maintenance rail are visual dressing attached to
+  the same trimmed edge run; they never mint a second collider or span a merge
+  opening.
 - Physical parapet OBBs derive from those same trimmed edge runs. Slopes are
   divided into short local-height bands, so the visible wall contains a bridge
   car without becoming an invisible barrier for a ground car below it.
@@ -158,8 +190,10 @@ nodes are topological only, so they do not re-segment the visible street or its
 procedural frontage. A regression test compares every elevated deck segment's
 oriented footprint with every block OBB and requires zero intersections. The
 lane-corridor and full pavement-band audits also include every new slip. No
-building or landmark asset was deleted or relocated to make room for the
-network.
+building or landmark asset was deleted. At Dokki, the complete affected
+frontage row is explicitly retained and set back 6 m as a unit; a 0.75 m
+façade guard is tested against every entry, stem and exit segment so that the
+setback cannot regress into clipping or become a pretext for deletion.
 
 The structural regression suite also checks signal headroom, model-specific
 parked-car clearance, both west/east landing-apron pedestrian exclusion,
@@ -179,7 +213,7 @@ entry fixture proves the legitimate Dokki on-ramp still
 acquires its rising profile. Synthetic vehicle-envelope regressions separately
 prove that a 1.38 m soffit and the pre-slab raised apron block a 1.5 m car, a
 high span remains passable, and a connected ramp climb reaches the elevated
-level without a false deck collision. Eight production traces now cross every
+level without a false deck collision. Ten production traces now cross every
 Dokki, Gezira, Corniche and Ramses profile/slip handoff in both authored access
 directions. A wrong-way exit-mouth trace remains blocked, and a dense Corniche
 exit sweep verifies at least 1.58 m of usable headroom where that ramp braids

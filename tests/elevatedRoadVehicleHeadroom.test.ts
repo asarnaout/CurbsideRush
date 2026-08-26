@@ -493,15 +493,29 @@ describe("elevated-road vehicle headroom", () => {
   type TravelDirection = "forward" | "reverse";
   const cairoRampHandoffs = [
     {
-      label: "Dokki entrance",
+      label: "Dokki entrance slip",
       approachSurfaceId: "cairo-sixth-october-dokki-entry-slip",
+      approachDirection: "forward" as TravelDirection,
+      outgoingSurfaceId: "cairo-sixth-october-bridge-dokki-entry",
+      outgoingDirection: "forward" as TravelDirection,
+    },
+    {
+      label: "Dokki entrance braid",
+      approachSurfaceId: "cairo-sixth-october-bridge-dokki-entry",
       approachDirection: "forward" as TravelDirection,
       outgoingSurfaceId: "cairo-sixth-october-bridge-dokki-ramp",
       outgoingDirection: "reverse" as TravelDirection,
     },
     {
-      label: "Dokki exit",
+      label: "Dokki exit braid",
       approachSurfaceId: "cairo-sixth-october-bridge-dokki-ramp",
+      approachDirection: "forward" as TravelDirection,
+      outgoingSurfaceId: "cairo-sixth-october-bridge-dokki-exit",
+      outgoingDirection: "forward" as TravelDirection,
+    },
+    {
+      label: "Dokki exit slip",
+      approachSurfaceId: "cairo-sixth-october-bridge-dokki-exit",
       approachDirection: "forward" as TravelDirection,
       outgoingSurfaceId: "cairo-sixth-october-dokki-exit-slip",
       outgoingDirection: "forward" as TravelDirection,

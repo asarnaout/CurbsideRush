@@ -107,6 +107,14 @@ correct sides of the street. Keep the low portions separate. They may braid
 into a shared two-way stem only after both soffits clear traffic and people
 below.
 
+When dense frontage leaves room for only one auxiliary corridor, separate the
+directions *longitudinally* instead of stacking two low grades side by side:
+let the entrance climb in one block-length, let the exit descend farther along
+the street, and join them at a high directional braid. End the two-way stem at
+that braid; extending one reverse lane past the join creates an unreachable
+lane even if the asphalt looks continuous. Cairo's west Dokki access is the
+reference implementation.
+
 The following are authoring failures:
 
 - attaching a two-way ramp to the host centreline;
@@ -168,8 +176,12 @@ Use this order when a proposed alignment conflicts with the environment:
 5. move one asset only when the first four cannot produce a valid result.
 
 Record any moved authored asset explicitly. Procedural pavement furniture that
-cannot physically fit beneath a low ramp may be vetoed by the clearance query;
-the same furniture remains beneath high spans with real headroom.
+cannot physically fit beneath a low ramp must first search deterministic local
+positions along its original street or promenade run. Only abandon it when no
+safe local position exists; the same furniture remains beneath high spans with
+real headroom. Pin both the original asset count and a façade-clearance guard
+when a frontage row is moved, so a later alignment change cannot silently
+delete buildings or push the deck through them.
 
 ## Runtime level ownership
 
@@ -352,6 +364,30 @@ Without a minimum, a parapet at 10.5 m blocks ground traffic below; without
 subdivision, one long ramp barrier has a vertical range broad enough to block
 both levels. Never author a second, approximate set of side-wall colliders.
 
+### Separate the crash profile from city-specific dressing
+
+The visible edge should communicate its physical job before decoration is
+added. Start with a solid crash profile whose wide lower toe matches the
+shared barrier OBB. A metal maintenance or pedestrian rail may sit above that
+mass where the real bridge uses one, but an open rail alone is not a vehicle
+barrier and must not replace the solid base. The upper rail, coping, paint and
+marker plates remain render-only; do not expand their silhouettes into extra
+colliders that can catch a car below the bridge or at a ramp mouth.
+
+Treat those details as a map-specific visual grammar:
+
+- put contrast panels and reflectors on the traffic face, where a driver can
+  actually see them;
+- phase repeating posts, paint panels and reflectors by accumulated surface
+  distance, so the rhythm survives segment splits and trimmed junction runs;
+- batch repeated pieces per edge run instead of creating one scene mesh per
+  post or reflector;
+- use the exact trimmed edge runs, including their merge openings, for every
+  visual layer;
+- preserve the city's material language and context: Cairo's 6th October and
+  26th July references combine a solid weathered concrete base with a dark,
+  close-spaced maintenance rail on both main spans and ramps.
+
 The collision response should:
 
 - prevent penetration from either side;
@@ -439,9 +475,11 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
 3. Run deck, block, pavement, pier and through-lane clearance audits before
    changing any building. Adjust alignment and grade first.
 4. Generate asphalt and all structure runs from the surface profile. Register
-   local-height parapet OBBs from the same trimmed edge runs. Offset elevated
-   poles, signal heads, enforcement cameras and crossing rigs by their authored
-   base height, and pitch stop bars/road markings between endpoint heights.
+   local-height parapet OBBs from the same trimmed edge runs, then attach any
+   city-specific coping, paint, markers or upper rail to those runs as
+   render-only dressing. Offset elevated poles, signal heads, enforcement
+   cameras and crossing rigs by their authored base height, and pitch stop
+   bars/road markings between endpoint heights.
 5. Enable height-continuous projection for player and NPC traffic and propagate
    previous/current elevation through snapshots and render interpolation. Pose
    snap detection must measure vertical displacement too, so a pure level
@@ -466,6 +504,8 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
 - stacked crossings have distinct nodes and no accidental turn grant;
 - each ramp is reachable in its intended direction and can return to the host;
 - the host road has a continuous through route past every mouth;
+- a constrained pair of low grades occupies separate longitudinal zones and
+  shares no low two-way slab;
 - low ramp structure does not overlap the host through-lane envelope;
 - blocks/landmarks do not intersect the deck or ramp volume;
 - pier footings clear the full road-and-pavement envelope of every other road;
@@ -474,6 +514,8 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
   markings render at their authored road height;
 - each parked-car model and each roadside/park prop clears the soffit over its
   full footprint;
+- any blocked promenade asset is deterministically relocated along its own run
+  before final rendering rather than silently disappearing;
 - every rendered edge run is fully covered by barrier chunks, with no extra
   barrier crossing a trimmed merge opening.
 
@@ -549,6 +591,9 @@ stop once on the ground and once above it. Confirm:
 - no pedestrian, signal, sign, tree or lamp intersects a low deck;
 - the continuing street is visibly and physically open beside the ramp;
 - parapets contain the vehicle without invisible transverse walls at merges;
+- barrier profiles, coping and traffic-side markers remain clearly legible in
+  the map's night palette; any decorative upper rail stays visibly seated on a
+  solid crash base;
 - low ramp soffits stop the vehicle cleanly, while every authored high-clearance
   underpass remains open and does not trigger a collision event;
 - nearby buildings remain present and clear of the structure;

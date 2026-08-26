@@ -38,6 +38,9 @@ describe("simulation runtime adapter (free-roam)", () => {
       expect(config.spawn, freeDrive.id).toEqual({
         x: start.x,
         z: start.z,
+        ...(start.elevationM !== undefined
+          ? { elevationM: start.elevationM }
+          : {}),
         heading: start.heading,
       });
       expect((config.lanes ?? []).length, freeDrive.id).toBeGreaterThan(0);
@@ -123,7 +126,9 @@ describe("simulation runtime adapter (free-roam)", () => {
     });
     const elevatedRoadIds = [
       "cairo-sixth-october-bridge",
+      "cairo-sixth-october-bridge-dokki-entry",
       "cairo-sixth-october-bridge-dokki-ramp",
+      "cairo-sixth-october-bridge-dokki-exit",
       "cairo-sixth-october-bridge-gezira-ramp",
       "cairo-sixth-october-bridge-corniche-entry",
       "cairo-sixth-october-bridge-corniche-exit",
@@ -293,13 +298,14 @@ describe("simulation runtime adapter (free-roam)", () => {
       );
     }
 
-    // The directed entrance remains functional: its immediate successor is
-    // the reverse ramp lane, so it may begin acquiring the rising profile.
-    const entryHeading = Math.atan2(-0.0642968618157, -0.4958486801038);
+    // The rebuilt directed entrance remains functional: the auxiliary slip
+    // owns its own lane beside Al Dokki Street, then hands directly to the
+    // separate one-way rising structure without snapping back to the host.
+    const entryHeading = Math.atan2(3.5, -15);
     simulation.setPlayerPose(
       {
-        x: -628.3357031381843,
-        z: 505.4958486801038,
+        x: -618.8633776936385,
+        z: 510.8430472584508,
         elevationM: 0,
         heading: entryHeading,
       },
@@ -310,17 +316,17 @@ describe("simulation runtime adapter (free-roam)", () => {
     );
     simulation.setPlayerPose(
       {
-        x: -628.3885096824854,
-        z: 504.4990788815945,
-        heading: 3.118658,
+        x: -617.4443479617763,
+        z: 504.50310680157446,
+        heading: Math.atan2(2.8, -25),
       },
       4,
     );
     const onRamp = simulation.getSnapshot();
     expect(onRamp.road.laneId).toBe(
-      "cairo-sixth-october-bridge-dokki-ramp-3-reverse-1",
+      "cairo-sixth-october-bridge-dokki-entry-1-forward-1",
     );
-    expect(onRamp.player.elevationM).toBeCloseTo(0.0513715, 5);
+    expect(onRamp.player.elevationM).toBeCloseTo(0.0397515, 5);
   });
 
   it("carries Cromwell Road's bus lane through the Exhibition Road signal", () => {
@@ -564,6 +570,43 @@ describe("simulation runtime adapter (free-roam)", () => {
           mapWith(spawn, [unresolvedLane, ...baseMap.laneGraph.lanes]),
         ),
       ).toThrow(/could not resolve authored start anchor/i);
+    });
+
+    it("preserves an authored elevated start through the runtime adapter", () => {
+      const groundLane = baseMap.laneGraph.lanes[0];
+      const elevatedLane = {
+        ...groundLane,
+        id: "elevated-player-start-lane",
+        roadId: "elevated-player-start-road",
+        centerline: groundLane.centerline.map((point) => ({
+          x: point.x,
+          z: point.z,
+          elevationM: 6,
+        })),
+        successors: [],
+      };
+      const spawn: SpawnPoint = {
+        id: "elevated-player-start",
+        kind: "player",
+        anchor: { laneId: elevatedLane.id, distanceAlongM: 1 },
+      };
+      const map = mapWith(spawn, [elevatedLane, ...baseMap.laneGraph.lanes]);
+      const scenario = scenarioWithStart(spawn.id);
+      const country = getCountryProfile(freeDrive.countryId);
+      const start = resolveSimulationStartPose(scenario, map);
+      const config = buildSimulationCoreConfig({
+        scenario,
+        mapPack: map,
+        trafficSide: country.trafficSide,
+        speedUnit: country.speedUnit,
+      });
+
+      expect(start.elevationM).toBe(6);
+      expect(config.spawn?.elevationM).toBe(6);
+      const snapshot = new SimulationCore({ ...config, npcCount: 0 }).getSnapshot();
+      expect(snapshot.player.elevationM).toBe(6);
+      expect(snapshot.road.laneId).toBe(elevatedLane.id);
+      expect(snapshot.road.offRoad).toBe(false);
     });
   });
 });

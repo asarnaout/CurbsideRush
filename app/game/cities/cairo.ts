@@ -223,9 +223,12 @@ const cairoNodes: readonly LaneNode[] = [
   node("cairo-wi-3", -600, -150),
   node("cairo-wi-4", -625, 90),
   node("cairo-wi-5", -610, 325),
-  node("cairo-wi-sixth-exit-merge", -631.569, 545),
-  node("cairo-wi-sixth-entry-merge", -634.51, 575),
+  node("cairo-wi-sixth-entry-merge", -631.569, 545),
   node("cairo-wi-6", -635, 580),
+  // The Dokki exit rejoins well north of the entrance. This point is exact
+  // on the cairo-wi-6 -> cairo-wi-7 segment, so inserting it does not bend or
+  // replace any part of Al Dokki Street.
+  node("cairo-wi-sixth-exit-merge", -623.8888888888889, 700),
   node("cairo-wi-7", -610, 850),
   // Hara network nodes (Cairo reimagining). Two kinds: `*-x-*` nodes are
   // INSERTED into a host road's polyline (collinear on the host segment, so
@@ -297,14 +300,22 @@ const cairoNodes: readonly LaneNode[] = [
   // and a direction-specific elevated branch. The paired branches sit on the
   // appropriate kerb sides instead of dropping one two-way deck onto the
   // street centreline and severing the through road.
-  // Dokki's built frontage is tight on the west side, so both auxiliary lanes
-  // use the open Nile-side reservation; the entry sits outside the exit until
-  // the pair converges at deck height.
-  node("cairo-sixth-dokki-entry-taper", -622.5, 550.5),
-  node("cairo-sixth-dokki-ramp-lift", -628.4, 505),
-  node("cairo-sixth-dokki-ramp-mid", -624, 455),
+  // Dokki has room for only one extra lane between the live carriageway and
+  // its preserved Nile-side frontage. The exit descends south of the shared
+  // high stem and the entrance climbs north of it, so the two narrow grades
+  // never combine into a low two-way slab over Al Dokki Street. They braid
+  // into the common stem only after both decks have full vehicle clearance.
+  node("cairo-sixth-dokki-entry-taper", -621, 520),
+  node("cairo-sixth-dokki-entry-lift", -617.5, 505),
+  node("cairo-sixth-dokki-entry-bend-b", -614.7, 480),
+  node("cairo-sixth-dokki-entry-bend-a", -612.7, 456),
+  node("cairo-sixth-dokki-entry-clear", -611, 430),
+  node("cairo-sixth-dokki-entry-braid", -614, 400),
   node("cairo-sixth-dokki-over-wi5", -610, 325),
-  node("cairo-sixth-dokki-exit-taper", -622.66, 510.54),
+  node("cairo-sixth-dokki-exit-braid", -630, 570),
+  node("cairo-sixth-dokki-exit-clear", -618.5, 590),
+  node("cairo-sixth-dokki-exit-lift", -618.3, 655),
+  node("cairo-sixth-dokki-exit-taper", -615.5, 675),
   node("cairo-sixth-gezira-entry-taper", -421, -104.14),
   node("cairo-sixth-gezira-ramp-lift", -428, -60),
   node("cairo-sixth-gezira-over-iw4", -456, 75),
@@ -435,7 +446,7 @@ export const CAIRO_ROAD_SPECS: readonly CairoRoadSpec[] = [
   road("cairo-qasr-el-nil-bridge", "Qasr El-Nil Bridge", ["cairo-ie-3", "cairo-ec-4"], 60, 2, 11.2, 3.4, { arterial: true }),
   road("cairo-al-galaa-bridge", "Al-Galaa Bridge", ["cairo-wi-5", "cairo-iw-5"], 60, 4, 15, 3.4, { arterial: true }),
   road("cairo-west-nile-street", "Charles De Gaulle Street", ["cairo-wo-0", "cairo-wo-x-sad", "cairo-wo-1", "cairo-wo-2", "cairo-wo-3", "cairo-wo-4", "cairo-wo-5", "cairo-wo-6", "cairo-wo-7"], 60, 2, 10.4, 3.4, { arterial: true }),
-  road("cairo-dokki-nile-drive", "Al Dokki Street", ["cairo-wi-0", "cairo-wi-x-sad", "cairo-wi-1", "cairo-wi-2", "cairo-wi-3", "cairo-wi-4", "cairo-wi-5", "cairo-wi-sixth-exit-merge", "cairo-wi-sixth-entry-merge", "cairo-wi-6", "cairo-wi-7"], 60, 2, 9.6, 3.4, { arterial: true }),
+  road("cairo-dokki-nile-drive", "Al Dokki Street", ["cairo-wi-0", "cairo-wi-x-sad", "cairo-wi-1", "cairo-wi-2", "cairo-wi-3", "cairo-wi-4", "cairo-wi-5", "cairo-wi-sixth-entry-merge", "cairo-wi-6", "cairo-wi-sixth-exit-merge", "cairo-wi-7"], 60, 2, 9.6, 3.4, { arterial: true }),
   road("cairo-dokki-south", "Al Mesaha Street", ["cairo-wo-0", "cairo-wi-0"], 40, 2, 9, 2.4),
   road("cairo-dokki-midtown", "Gaber Ibn Hayan Street", ["cairo-wo-3", "cairo-wi-3"], 40, 1, 7.4, 2.4, { oneWay: "forward" }),
   road("cairo-agouza-approach", "26th July Street", ["cairo-wo-7", "cairo-wi-7"], 40, 2, 9, 2.4),
@@ -506,13 +517,17 @@ export const CAIRO_ROAD_SPECS: readonly CairoRoadSpec[] = [
       elevationsM: [0, 5.2, 10.5, 10.5, 10.5, 10.5, 10.5, 10.5, 10.5, 0],
     },
   ),
-  // Dokki's old 7.6 m two-way mouth covered Al Dokki Street from kerb to
-  // kerb. These one-way branches land in paired auxiliary lanes: southbound
-  // traffic peels off on its right to enter, and the northbound exit tapers
-  // back into its own right-hand lane. The original street remains continuous.
-  road("cairo-sixth-october-dokki-entry-slip", "6th October Bridge Entrance", ["cairo-wi-sixth-entry-merge", "cairo-sixth-dokki-entry-taper", "cairo-sixth-dokki-ramp-lift"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
-  road("cairo-sixth-october-bridge-dokki-ramp", "6th October Bridge", ["cairo-sixth-dokki-merge", "cairo-sixth-dokki-over-wi5", "cairo-sixth-dokki-ramp-mid", "cairo-sixth-dokki-ramp-lift"], 40, 2, 7.6, 0, { arterial: true, elevationsM: [10.5, 10.5, 5.2, 0] }),
-  road("cairo-sixth-october-dokki-exit-slip", "6th October Bridge Exit", ["cairo-sixth-dokki-ramp-lift", "cairo-sixth-dokki-exit-taper", "cairo-wi-sixth-exit-merge"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
+  // Dokki's former 7.6 m mouth still covered Al Dokki Street even though its
+  // lane graph had separate slips. The rebuilt entrance and exit are 4.2 m
+  // one-way structures in non-overlapping parts of a widened Nile-side lane.
+  // A two-way stem exists only at 7 m and above, where the complete surface
+  // street remains safely drivable underneath it. Every frontage block stays;
+  // the narrow Nile-side row is set back six metres as one intact streetscape.
+  road("cairo-sixth-october-dokki-entry-slip", "6th October Bridge Entrance", ["cairo-wi-sixth-entry-merge", "cairo-sixth-dokki-entry-taper", "cairo-sixth-dokki-entry-lift"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
+  road("cairo-sixth-october-bridge-dokki-entry", "6th October Bridge Entrance", ["cairo-sixth-dokki-entry-lift", "cairo-sixth-dokki-entry-bend-b", "cairo-sixth-dokki-entry-bend-a", "cairo-sixth-dokki-entry-clear", "cairo-sixth-dokki-entry-braid"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 2, 4, 6.2, 7] }),
+  road("cairo-sixth-october-bridge-dokki-ramp", "6th October Bridge", ["cairo-sixth-dokki-merge", "cairo-sixth-dokki-over-wi5", "cairo-sixth-dokki-entry-braid"], 40, 2, 7.6, 0, { arterial: true, elevationsM: [10.5, 10.5, 7] }),
+  road("cairo-sixth-october-bridge-dokki-exit", "6th October Bridge Exit", ["cairo-sixth-dokki-entry-braid", "cairo-sixth-dokki-exit-braid", "cairo-sixth-dokki-exit-clear", "cairo-sixth-dokki-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [7, 7, 6.2, 0] }),
+  road("cairo-sixth-october-dokki-exit-slip", "6th October Bridge Exit", ["cairo-sixth-dokki-exit-lift", "cairo-sixth-dokki-exit-taper", "cairo-wi-sixth-exit-merge"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
 
   // Gezira uses the same paired slip-road grammar on Al Saraya Street. Its
   // entry stays on the northbound/east kerb and its exit reaches the
@@ -717,9 +732,23 @@ export const CAIRO_JUNCTION_CONNECTORS: readonly CairoJunctionConnectorSpec[] = 
   junction("cairo-junction-sixth-west-ground", "cairo-wo-5", ["cairo-west-nile-street", "cairo-sixth-october-bridge"]),
   junction("cairo-junction-sixth-east-ground", "cairo-eg-5", ["cairo-galaa-street", "cairo-sixth-october-bridge"]),
   junction("cairo-junction-sixth-dokki-merge", "cairo-sixth-dokki-merge", ["cairo-sixth-october-bridge", "cairo-sixth-october-bridge-dokki-ramp"]),
-  directedJunction("cairo-junction-sixth-dokki-lift", "cairo-sixth-dokki-ramp-lift", [
-    { fromRoadId: "cairo-sixth-october-dokki-entry-slip", toRoadIds: ["cairo-sixth-october-bridge-dokki-ramp"] },
-    { fromRoadId: "cairo-sixth-october-bridge-dokki-ramp", toRoadIds: ["cairo-sixth-october-dokki-exit-slip"] },
+  directedJunction("cairo-junction-sixth-dokki-entry-lift", "cairo-sixth-dokki-entry-lift", [
+    { fromRoadId: "cairo-sixth-october-dokki-entry-slip", toRoadIds: ["cairo-sixth-october-bridge-dokki-entry"] },
+  ]),
+  directedJunction("cairo-junction-sixth-dokki-entry-braid", "cairo-sixth-dokki-entry-braid", [
+    {
+      fromRoadId: "cairo-sixth-october-bridge-dokki-entry",
+      toRoadIds: ["cairo-sixth-october-bridge-dokki-ramp"],
+      toDirections: { "cairo-sixth-october-bridge-dokki-ramp": ["reverse"] },
+    },
+    {
+      fromRoadId: "cairo-sixth-october-bridge-dokki-ramp",
+      fromDirection: "forward",
+      toRoadIds: ["cairo-sixth-october-bridge-dokki-exit"],
+    },
+  ]),
+  directedJunction("cairo-junction-sixth-dokki-exit-lift", "cairo-sixth-dokki-exit-lift", [
+    { fromRoadId: "cairo-sixth-october-bridge-dokki-exit", toRoadIds: ["cairo-sixth-october-dokki-exit-slip"] },
   ]),
   directedJunction("cairo-junction-sixth-dokki-ground", "cairo-wi-sixth-entry-merge", [
     { fromRoadId: "cairo-dokki-nile-drive", fromDirection: "reverse", toRoadIds: ["cairo-sixth-october-dokki-entry-slip"] },
@@ -1088,6 +1117,10 @@ const roadSurfaceForSpec = (
     id: spec.id,
     centerline,
     widthM: spec.widthM,
+    // Cairo's bridge edges use a broad traffic-side concrete toe. Author the
+    // matching collision width on the surface rather than widening the shared
+    // fallback used by every other city.
+    parapetDepthM: spec.id.startsWith("cairo-sixth-october") ? 0.36 : undefined,
     sidewalkWidthM: spec.sidewalkWidthM,
     laneIds: cairoLanes
       .filter((lane) => lane.roadId === spec.id)
@@ -4730,12 +4763,15 @@ export const CAIRO_MARKED_GAP_ASSET_BLOCKS: readonly ProceduralBlock[] = [
   markedGapAsset(3, 1, -433.2, 816.9, 27.4, -82.48, "-z", "cairo-corniche"),
   markedGapAsset(3, 2, -433.2, 844.9, 20.5, -82.48, "-z", "cairo-corniche"),
   markedGapAsset(3, 3, -433.2, 872.9, 27.4, -82.48, "-z", "cairo-corniche"),
-  markedGapAsset(4, 1, -607.4, 503.7, 27.4, -95.6, "+z", "cairo-corniche"),
-  markedGapAsset(4, 2, -607.4, 531.7, 20.5, -95.6, "+z", "cairo-corniche"),
-  markedGapAsset(4, 3, -607.4, 559.7, 27.4, -95.6, "+z", "cairo-corniche"),
-  markedGapAsset(4, 4, -607.4, 587.7, 20.5, -84.71, "+z", "cairo-corniche"),
-  markedGapAsset(4, 5, -607.4, 615.7, 27.4, -84.71, "+z", "cairo-corniche"),
-  markedGapAsset(4, 6, -607.4, 643.7, 20.5, -84.71, "+z", "cairo-corniche"),
+  // The western Dokki flyover widening keeps all six reviewed frontage
+  // parcels, set back only 6 m so the auxiliary lane and the original
+  // pavement rail both fit between Al Dokki Street and the buildings.
+  markedGapAsset(4, 1, -601.4, 503.7, 27.4, -95.6, "+z", "cairo-corniche"),
+  markedGapAsset(4, 2, -601.4, 531.7, 20.5, -95.6, "+z", "cairo-corniche"),
+  markedGapAsset(4, 3, -601.4, 559.7, 27.4, -95.6, "+z", "cairo-corniche"),
+  markedGapAsset(4, 4, -601.4, 587.7, 20.5, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, 5, -601.4, 615.7, 27.4, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, 6, -601.4, 643.7, 20.5, -84.71, "+z", "cairo-corniche"),
   markedGapAsset(6, 1, -100.9, 208, 20.5, -99.27, "+z", "cairo-corniche"),
   markedGapAsset(6, 2, -100.9, 292, 20.5, -99.27, "+z", "cairo-corniche"),
   markedGapAsset(6, 3, -100.9, 320, 14, -99.27, "+z", "cairo-corniche"),
@@ -4846,11 +4882,11 @@ export const CAIRO_MARKED_GAP_ASSET_BLOCKS: readonly ProceduralBlock[] = [
   markedGapAsset(3, "dense-3", -445, 769, 12, -82.48, "-z", "cairo-corniche"),
   markedGapAsset(3, "dense-4", -445, 793, 12, -82.48, "-z", "cairo-corniche"),
   markedGapAsset(3, "dense-5", -457, 865, 12, -82.48, "-z", "cairo-corniche"),
-  markedGapAsset(4, "dense-1", -603, 456, 12, -95.6, "+z", "cairo-corniche"),
-  markedGapAsset(4, "dense-2", -603, 480, 12, -95.6, "+z", "cairo-corniche"),
-  markedGapAsset(4, "dense-3", -591, 660, 12, -84.71, "+z", "cairo-corniche"),
-  markedGapAsset(4, "dense-4", -603, 684, 12, -84.71, "+z", "cairo-corniche"),
-  markedGapAsset(4, "dense-5", -603, 708, 12, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-1", -597, 456, 12, -95.6, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-2", -597, 480, 12, -95.6, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-3", -585, 660, 12, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-4", -597, 684, 12, -84.71, "+z", "cairo-corniche"),
+  markedGapAsset(4, "dense-5", -597, 708, 12, -84.71, "+z", "cairo-corniche"),
   markedGapAsset(4, "dense-6", -591, 732, 12, -84.71, "+z", "cairo-corniche"),
   markedGapAsset(4, "dense-7", -591, 756, 12, -84.71, "+z", "cairo-corniche"),
   markedGapAsset(4, "dense-8", -591, 780, 12, -84.71, "+z", "cairo-corniche"),

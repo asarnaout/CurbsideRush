@@ -13,13 +13,13 @@ import {
   ELEVATED_ROAD_DECK_SLAB_THICKNESS_M,
   ELEVATED_ROAD_PARAPET_BASE_LIFT_M,
   ELEVATED_ROAD_PARAPET_DECK_INSET_M,
-  ELEVATED_ROAD_PARAPET_DEPTH_M,
   ELEVATED_ROAD_PARAPET_HEIGHT_M,
   ELEVATED_ROAD_PIER_COLUMN_BOTTOM_DIAMETER_M,
   ELEVATED_ROAD_PIER_COLUMN_TOP_DIAMETER_M,
   ELEVATED_ROAD_PIER_FOOTING_DIAMETER_M,
   elevatedRoadDeckRun,
   elevatedRoadEdgeRuns,
+  elevatedRoadParapetDepthM,
   elevatedRoadPierPlacements,
   elevatedRoadSegmentPlacements,
   type ElevatedRoadDeckRunPlacement,
@@ -33,6 +33,75 @@ import { createBox, setMeshMaterial } from "./meshPrimitives";
 
 const GIRDER_HEIGHT_M = 0.72;
 
+export const CAIRO_BRIDGE_PARAPET_COPING_HEIGHT_M = 0.1;
+export const CAIRO_BRIDGE_PARAPET_RAIL_HEIGHT_M = 0.52;
+export const CAIRO_BRIDGE_PARAPET_RAIL_POST_SPACING_M = 1.35;
+export const CAIRO_BRIDGE_PARAPET_REFLECTOR_SPACING_M = 9;
+export const CAIRO_BRIDGE_PARAPET_TOTAL_HEIGHT_M =
+  ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
+  ELEVATED_ROAD_PARAPET_HEIGHT_M +
+  CAIRO_BRIDGE_PARAPET_RAIL_HEIGHT_M;
+
+export interface CairoBridgeBarrierVisualPlan {
+  readonly railPostOffsetsM: readonly number[];
+  readonly reflectorOffsetsM: readonly number[];
+}
+
+const gridOffsetsWithinRun = (
+  runLengthM: number,
+  runStartDistanceM: number,
+  spacingM: number,
+  insetM: number,
+): number[] => {
+  const startM = runStartDistanceM + insetM;
+  const endM = runStartDistanceM + runLengthM - insetM;
+  if (endM < startM) return [];
+  const offsets: number[] = [];
+  for (
+    let distanceM = Math.ceil(startM / spacingM) * spacingM;
+    distanceM <= endM + 1e-6;
+    distanceM += spacingM
+  ) {
+    offsets.push(distanceM - (runStartDistanceM + runLengthM / 2));
+  }
+  return offsets;
+};
+
+/**
+ * Repeatable Cairo barrier detail laid out in surface-distance space. Keeping
+ * the post/reflector phase global stops the visual rhythm restarting at each
+ * authored polyline segment or trimmed flyover junction.
+ */
+export function cairoBridgeBarrierVisualPlan(
+  runLengthM: number,
+  runStartDistanceM = 0,
+): CairoBridgeBarrierVisualPlan {
+  const lengthM = Math.max(0, runLengthM);
+  const railInsetM = Math.min(0.08, lengthM / 4);
+  const railPostOffsetsM = gridOffsetsWithinRun(
+    lengthM,
+    runStartDistanceM,
+    CAIRO_BRIDGE_PARAPET_RAIL_POST_SPACING_M,
+    railInsetM,
+  );
+  if (lengthM >= 0.2) {
+    railPostOffsetsM.unshift(-lengthM / 2 + railInsetM);
+    railPostOffsetsM.push(lengthM / 2 - railInsetM);
+  }
+
+  const reflectorOffsetsM = gridOffsetsWithinRun(
+    lengthM,
+    runStartDistanceM,
+    CAIRO_BRIDGE_PARAPET_REFLECTOR_SPACING_M,
+    0.55,
+  );
+  if (!reflectorOffsetsM.length && lengthM >= 1.2) {
+    reflectorOffsetsM.push(0);
+  }
+
+  return { railPostOffsetsM, reflectorOffsetsM };
+}
+
 const appendQuad = (
   positions: number[],
   indices: number[],
@@ -41,6 +110,212 @@ const appendQuad = (
   const base = positions.length / 3;
   for (const point of points) positions.push(...point);
   indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+};
+
+const appendTriangle = (
+  positions: number[],
+  indices: number[],
+  points: readonly [number, number, number][],
+): void => {
+  const base = positions.length / 3;
+  for (const point of points) positions.push(...point);
+  indices.push(base, base + 1, base + 2);
+};
+
+interface CompoundBox {
+  readonly center: readonly [number, number, number];
+  readonly size: readonly [number, number, number];
+}
+
+interface CompoundQuad {
+  readonly center: readonly [number, number, number];
+  readonly size: readonly [number, number];
+  readonly normalZ: -1 | 1;
+}
+
+const appendCompoundBox = (
+  positions: number[],
+  indices: number[],
+  box: CompoundBox,
+): void => {
+  const [cx, cy, cz] = box.center;
+  const [width, height, depth] = box.size;
+  const x0 = cx - width / 2;
+  const x1 = cx + width / 2;
+  const y0 = cy - height / 2;
+  const y1 = cy + height / 2;
+  const z0 = cz - depth / 2;
+  const z1 = cz + depth / 2;
+  appendQuad(positions, indices, [
+    [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1],
+  ]);
+  appendQuad(positions, indices, [
+    [x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0],
+  ]);
+  appendQuad(positions, indices, [
+    [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0],
+  ]);
+  appendQuad(positions, indices, [
+    [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1],
+  ]);
+  appendQuad(positions, indices, [
+    [x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1],
+  ]);
+  appendQuad(positions, indices, [
+    [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0],
+  ]);
+};
+
+const appendCompoundQuad = (
+  positions: number[],
+  indices: number[],
+  quad: CompoundQuad,
+): void => {
+  const [cx, cy, cz] = quad.center;
+  const [width, height] = quad.size;
+  const x0 = cx - width / 2;
+  const x1 = cx + width / 2;
+  const y0 = cy - height / 2;
+  const y1 = cy + height / 2;
+  appendQuad(
+    positions,
+    indices,
+    quad.normalZ > 0
+      ? [[x0, y0, cz], [x1, y0, cz], [x1, y1, cz], [x0, y1, cz]]
+      : [[x1, y0, cz], [x0, y0, cz], [x0, y1, cz], [x1, y1, cz]],
+  );
+};
+
+const createVertexMesh = (
+  scene: Scene,
+  name: string,
+  positions: number[],
+  indices: number[],
+  meshMaterial: StandardMaterial,
+  parent: TransformNode,
+): Mesh => {
+  const normals: number[] = [];
+  VertexData.ComputeNormals(positions, indices, normals);
+  const mesh = new Mesh(name, scene);
+  const data = new VertexData();
+  data.positions = positions;
+  data.indices = indices;
+  data.normals = normals;
+  data.applyToMesh(mesh);
+  setMeshMaterial(mesh, meshMaterial);
+  mesh.parent = parent;
+  mesh.isPickable = false;
+  return mesh;
+};
+
+const createCompoundBoxMesh = (
+  scene: Scene,
+  name: string,
+  boxes: readonly CompoundBox[],
+  meshMaterial: StandardMaterial,
+  parent: TransformNode,
+): Mesh | null => {
+  if (!boxes.length) return null;
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (const box of boxes) appendCompoundBox(positions, indices, box);
+  return createVertexMesh(scene, name, positions, indices, meshMaterial, parent);
+};
+
+const createCompoundQuadMesh = (
+  scene: Scene,
+  name: string,
+  quads: readonly CompoundQuad[],
+  meshMaterial: StandardMaterial,
+  parent: TransformNode,
+): Mesh | null => {
+  if (!quads.length) return null;
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (const quad of quads) appendCompoundQuad(positions, indices, quad);
+  return createVertexMesh(scene, name, positions, indices, meshMaterial, parent);
+};
+
+const createCairoParapetShell = (
+  scene: Scene,
+  name: string,
+  run: ElevatedRoadEdgeRunPlacement,
+  segment: ElevatedRoadSegmentPlacement,
+  parapetDepthM: number,
+  meshMaterial: StandardMaterial,
+  parent: TransformNode,
+): Mesh => {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const startX = run.centerAlongM - run.lengthM / 2;
+  const endX = run.centerAlongM + run.lengthM / 2;
+  const lateralCenterM =
+    run.side *
+    (segment.deckWidthM / 2 - ELEVATED_ROAD_PARAPET_DECK_INSET_M);
+  const halfDepthM = parapetDepthM / 2;
+  const bottomY = ELEVATED_ROAD_PARAPET_BASE_LIFT_M;
+  const topY = bottomY + ELEVATED_ROAD_PARAPET_HEIGHT_M;
+  // Cross-section proceeds around a New-Jersey-style traffic toe, narrower
+  // upper stem and nearly vertical outer fascia. `outwardM` is mirrored for
+  // the two bridge edges.
+  const profile: readonly { readonly outwardM: number; readonly y: number }[] = [
+    { outwardM: -halfDepthM, y: bottomY },
+    { outwardM: halfDepthM, y: bottomY },
+    { outwardM: halfDepthM - 0.025, y: topY },
+    { outwardM: -0.07, y: topY },
+    { outwardM: -0.07, y: bottomY + 0.58 },
+    { outwardM: -halfDepthM, y: bottomY + 0.19 },
+  ];
+  const point = (
+    x: number,
+    item: (typeof profile)[number],
+  ): [number, number, number] => [
+    x,
+    item.y,
+    lateralCenterM + run.side * item.outwardM,
+  ];
+  const appendProfileQuad = (
+    points: readonly [number, number, number][],
+  ): void => {
+    appendQuad(
+      positions,
+      indices,
+      run.side > 0
+        ? points
+        : [points[0], points[3], points[2], points[1]],
+    );
+  };
+  const appendProfileTriangle = (
+    points: readonly [number, number, number][],
+  ): void => {
+    appendTriangle(
+      positions,
+      indices,
+      run.side > 0 ? points : [points[0], points[2], points[1]],
+    );
+  };
+  for (let index = 0; index < profile.length; index += 1) {
+    const next = (index + 1) % profile.length;
+    appendProfileQuad([
+      point(startX, profile[index]),
+      point(endX, profile[index]),
+      point(endX, profile[next]),
+      point(startX, profile[next]),
+    ]);
+  }
+  for (let index = 1; index + 1 < profile.length; index += 1) {
+    appendProfileTriangle([
+      point(startX, profile[0]),
+      point(startX, profile[index + 1]),
+      point(startX, profile[index]),
+    ]);
+    appendProfileTriangle([
+      point(endX, profile[0]),
+      point(endX, profile[index]),
+      point(endX, profile[index + 1]),
+    ]);
+  }
+  return createVertexMesh(scene, name, positions, indices, meshMaterial, parent);
 };
 
 /**
@@ -207,6 +482,8 @@ export function buildElevatedRoadStructures(
   );
   if (!surfaces.length) return;
 
+  const usesCairoBarrierStyle = mapPack.id.toLowerCase().includes("cairo");
+
   const concrete = material(
     ctx.scene,
     "elevated-road-dusty-concrete",
@@ -220,12 +497,47 @@ export function buildElevatedRoadStructures(
   const reflector = material(
     ctx.scene,
     "elevated-road-amber-reflector",
-    new Color3(0.78, 0.52, 0.12),
+    usesCairoBarrierStyle
+      ? new Color3(0.86, 0.62, 0.18)
+      : new Color3(0.78, 0.52, 0.12),
   );
-  reflector.emissiveColor = new Color3(0.2, 0.105, 0.018);
+  reflector.emissiveColor = usesCairoBarrierStyle
+    ? new Color3(0.16, 0.085, 0.014)
+    : new Color3(0.2, 0.105, 0.018);
+
+  const cairoParapetConcrete = usesCairoBarrierStyle
+    ? material(
+        ctx.scene,
+        "cairo-bridge-weathered-parapet",
+        new Color3(0.6, 0.56, 0.48),
+      )
+    : concrete;
+  const cairoCoping = usesCairoBarrierStyle
+    ? material(
+        ctx.scene,
+        "cairo-bridge-sunlit-coping",
+        new Color3(0.78, 0.72, 0.61),
+      )
+    : concrete;
+  cairoCoping.emissiveColor = usesCairoBarrierStyle
+    ? new Color3(0.025, 0.021, 0.014)
+    : Color3.Black();
+  const cairoRail = usesCairoBarrierStyle
+    ? material(
+        ctx.scene,
+        "cairo-bridge-aged-green-steel",
+        new Color3(0.055, 0.12, 0.095),
+      )
+    : underside;
+  if (usesCairoBarrierStyle) {
+    cairoRail.specularColor = new Color3(0.12, 0.13, 0.1);
+  }
 
   for (const surface of surfaces) {
-    for (const segment of elevatedRoadSegmentPlacements(surface)) {
+    const segments = elevatedRoadSegmentPlacements(surface);
+    const parapetDepthM = elevatedRoadParapetDepthM(surface);
+    let surfaceDistanceBeforeSegmentM = 0;
+    for (const segment of segments) {
       const root = new TransformNode(
         `elevated-road-${surface.id}-segment-${segment.segmentIndex}`,
         ctx.scene,
@@ -278,29 +590,170 @@ export function buildElevatedRoadStructures(
         girder.receiveShadows = true;
         ctx.registerStatic(girder, segment.center.x, segment.center.z);
 
-        const parapet = createBox(
-          ctx.scene,
-          `${root.name}-parapet-${side}-${runIndex}`,
-          {
-            width: run.lengthM,
-            height: ELEVATED_ROAD_PARAPET_HEIGHT_M,
-            depth: ELEVATED_ROAD_PARAPET_DEPTH_M,
-          },
-          new Vector3(
-            run.centerAlongM,
-            ELEVATED_ROAD_PARAPET_HEIGHT_M / 2 +
-              ELEVATED_ROAD_PARAPET_BASE_LIFT_M,
-            side *
-              (segment.deckWidthM / 2 -
-                ELEVATED_ROAD_PARAPET_DECK_INSET_M),
-          ),
-          concrete,
-          root,
-        );
+        const parapet = usesCairoBarrierStyle
+          ? createCairoParapetShell(
+              ctx.scene,
+              `${root.name}-parapet-profile-${side}-${runIndex}`,
+              run,
+              segment,
+              parapetDepthM,
+              cairoParapetConcrete,
+              root,
+            )
+          : createBox(
+              ctx.scene,
+              `${root.name}-parapet-${side}-${runIndex}`,
+              {
+                width: run.lengthM,
+                height: ELEVATED_ROAD_PARAPET_HEIGHT_M,
+                depth: parapetDepthM,
+              },
+              new Vector3(
+                run.centerAlongM,
+                ELEVATED_ROAD_PARAPET_HEIGHT_M / 2 +
+                  ELEVATED_ROAD_PARAPET_BASE_LIFT_M,
+                side *
+                  (segment.deckWidthM / 2 -
+                    ELEVATED_ROAD_PARAPET_DECK_INSET_M),
+              ),
+              concrete,
+              root,
+            );
         ctx.registerShadowCaster(parapet, segment.center.x, segment.center.z);
 
-        // A restrained reflector rhythm makes long Cairo ramps readable after
-        // dark without turning the concrete into an emissive ribbon.
+        if (usesCairoBarrierStyle) {
+          const lateralCenterM =
+            side *
+            (segment.deckWidthM / 2 -
+              ELEVATED_ROAD_PARAPET_DECK_INSET_M);
+          const runStartDistanceM =
+            surfaceDistanceBeforeSegmentM +
+            segment.lengthM / 2 +
+            run.centerAlongM -
+            run.lengthM / 2;
+          const visualPlan = cairoBridgeBarrierVisualPlan(
+            run.lengthM,
+            runStartDistanceM,
+          );
+          const coping = createBox(
+            ctx.scene,
+            `${root.name}-parapet-coping-${side}-${runIndex}`,
+            {
+              width: run.lengthM,
+              height: CAIRO_BRIDGE_PARAPET_COPING_HEIGHT_M,
+              depth: 0.3,
+            },
+            new Vector3(
+              run.centerAlongM,
+              ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
+                ELEVATED_ROAD_PARAPET_HEIGHT_M -
+                CAIRO_BRIDGE_PARAPET_COPING_HEIGHT_M / 2,
+              lateralCenterM + side * 0.025,
+            ),
+            cairoCoping,
+            root,
+          );
+          coping.isPickable = false;
+          ctx.registerShadowCaster(coping, segment.center.x, segment.center.z);
+
+          // Cairo's 6 October and 26 July bridge photographs consistently pair
+          // a solid concrete crash base with a close-spaced dark metal rail.
+          // The rail follows the already-trimmed run, so ramp mouths stay open.
+          const railBaseY =
+            ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
+            ELEVATED_ROAD_PARAPET_HEIGHT_M;
+          const railCenterZ = lateralCenterM + side * 0.03;
+          const railBoxes: CompoundBox[] = [
+              {
+                center: [run.centerAlongM, railBaseY + 0.1, railCenterZ],
+                size: [run.lengthM, 0.065, 0.07],
+              },
+              {
+                center: [run.centerAlongM, railBaseY + 0.285, railCenterZ],
+                size: [run.lengthM, 0.065, 0.07],
+              },
+              {
+                center: [
+                  run.centerAlongM,
+                  railBaseY + CAIRO_BRIDGE_PARAPET_RAIL_HEIGHT_M - 0.035,
+                  railCenterZ,
+                ],
+                size: [run.lengthM, 0.07, 0.085],
+              },
+              ...visualPlan.railPostOffsetsM.map((offsetM) => ({
+                center: [
+                  run.centerAlongM + offsetM,
+                  railBaseY + CAIRO_BRIDGE_PARAPET_RAIL_HEIGHT_M / 2,
+                  railCenterZ,
+                ] as const,
+                size: [
+                  0.065,
+                  CAIRO_BRIDGE_PARAPET_RAIL_HEIGHT_M,
+                  0.065,
+                ] as const,
+              })),
+          ];
+          const railing = createCompoundBoxMesh(
+            ctx.scene,
+            `${root.name}-parapet-maintenance-rail-${side}-${runIndex}`,
+            railBoxes,
+            cairoRail,
+            root,
+          );
+          if (railing) {
+            ctx.staticSceneryFreeze.push(railing);
+            ctx.registerShadowCaster(
+              railing,
+              segment.center.x,
+              segment.center.z,
+            );
+          }
+
+          const upperTrafficFaceZ = lateralCenterM - side * 0.095;
+          const reflectorBackings = visualPlan.reflectorOffsetsM.map(
+            (offsetM): CompoundQuad => ({
+              center: [
+                run.centerAlongM + offsetM,
+                ELEVATED_ROAD_PARAPET_BASE_LIFT_M + 0.665,
+                upperTrafficFaceZ - side * 0.002,
+              ],
+              size: [0.31, 0.16],
+              normalZ: -side as -1 | 1,
+            }),
+          );
+          const reflectorLenses = visualPlan.reflectorOffsetsM.map(
+            (offsetM): CompoundQuad => ({
+              center: [
+                run.centerAlongM + offsetM,
+                ELEVATED_ROAD_PARAPET_BASE_LIFT_M + 0.665,
+                upperTrafficFaceZ - side * 0.006,
+              ],
+              size: [0.16, 0.07],
+              normalZ: -side as -1 | 1,
+            }),
+          );
+          const backingMesh = createCompoundQuadMesh(
+            ctx.scene,
+            `${root.name}-reflector-backing-${side}-${runIndex}`,
+            reflectorBackings,
+            cairoCoping,
+            root,
+          );
+          const lensMesh = createCompoundQuadMesh(
+            ctx.scene,
+            `${root.name}-reflector-lens-${side}-${runIndex}`,
+            reflectorLenses,
+            reflector,
+            root,
+          );
+          if (backingMesh) ctx.staticSceneryFreeze.push(backingMesh);
+          if (lensMesh) ctx.staticSceneryFreeze.push(lensMesh);
+          continue;
+        }
+
+        // Generic elevated-road fallback: sparse markers preserve the old
+        // treatment outside Cairo without turning the edge into an emissive
+        // ribbon.
         const reflectorCount = Math.max(1, Math.floor(run.lengthM / 26));
         for (let index = 0; index < reflectorCount; index += 1) {
           const alongM =
@@ -322,6 +775,7 @@ export function buildElevatedRoadStructures(
           ctx.staticSceneryFreeze.push(marker);
         }
       }
+      surfaceDistanceBeforeSegmentM += segment.lengthM;
     }
 
     for (const pier of elevatedRoadPierPlacements(
@@ -385,4 +839,9 @@ export function buildElevatedRoadStructures(
   concrete.freeze();
   underside.freeze();
   reflector.freeze();
+  if (usesCairoBarrierStyle) {
+    cairoParapetConcrete.freeze();
+    cairoCoping.freeze();
+    cairoRail.freeze();
+  }
 }

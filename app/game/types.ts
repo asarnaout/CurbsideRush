@@ -214,6 +214,8 @@ export interface RoadSurface {
   readonly id: string;
   readonly centerline: readonly WorldPoint[];
   readonly widthM: number;
+  /** Physical/visual depth of each elevated crash-parapet edge. */
+  readonly parapetDepthM?: number;
   /**
    * Width of the walkable band beside this surface. Paved maps fall back to
    * `PAVED_SIDEWALK_WIDTH_M` when absent, preserving every existing city.

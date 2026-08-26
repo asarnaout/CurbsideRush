@@ -427,6 +427,15 @@ export function buildRoadsideProps(
                 headingDeg: block.headingDeg,
               }))
             : undefined,
+        // Cairo's imported palms have a much wider measured crown than the
+        // generator's generic half-metre deck allowance. Give the generator
+        // the same final headroom query used by the renderer so a newly
+        // widened flyover moves the palm along the Corniche instead of the
+        // later render filter simply deleting it.
+        canPlaceProp:
+          key === "cairo"
+            ? (placement) => groundPropFits(ctx, placement, key)
+            : undefined,
         shorelineClearanceM:
           key === "cairo" ? PROMENADE_SHORELINE_CLEARANCE_M : undefined,
       })

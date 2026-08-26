@@ -4,6 +4,8 @@ import { CAIRO_OPEN_WATERFRONT_SIDES } from "../app/game/cities/cairo";
 import { getMapPack } from "../app/game/content";
 import { buildStaticObstacles } from "../app/game/simulationAdapter";
 import { planMapBuildings } from "../app/game/geometry/buildingLayout";
+import { createElevatedRoadGroundClearanceQuery } from "../app/game/geometry/elevatedRoadGeometry";
+import { groundPropClearanceEnvelope } from "../app/game/render/roadsideProps";
 import {
   distanceToPolylineM,
   generatePromenadeDecor,
@@ -35,6 +37,26 @@ describe("Cairo corniche parapet", () => {
   });
   const runs = shorelineParapetRuns(obstacles, pack.geometry.worldSize.z / 2);
   const water = pack.geometry.waterBodies ?? [];
+  const elevatedRoadGroundClearanceAt =
+    createElevatedRoadGroundClearanceQuery(pack.geometry.roadSurfaces ?? []);
+  const canPlacePromenadeProp = (placement: {
+    readonly kind: string;
+    readonly x: number;
+    readonly z: number;
+    readonly variant: number;
+    readonly scale: number;
+  }): boolean => {
+    const envelope = groundPropClearanceEnvelope(placement, "cairo");
+    const obstruction = elevatedRoadGroundClearanceAt(
+      placement,
+      0,
+      envelope.footprintRadiusM,
+    );
+    return (
+      obstruction === null ||
+      obstruction.clearanceM >= envelope.requiredHeadroomM
+    );
+  };
 
   it("rails both banks of both channels and nothing else", () => {
     // Achieved: 27 runs across the two channels. A collapse here means the
@@ -196,6 +218,7 @@ describe("Cairo corniche parapet", () => {
       size: block.size,
       headingDeg: block.headingDeg,
     })),
+    canPlaceProp: canPlacePromenadeProp,
     shorelineClearanceM: PROMENADE_SHORELINE_CLEARANCE_M,
   };
   const decor = generatePromenadeDecor(promenadeInput);
@@ -219,6 +242,69 @@ describe("Cairo corniche parapet", () => {
       "streetlight",
     ]);
     expect(generatePromenadeDecor(promenadeInput)).toEqual(decor);
+  });
+
+  it("relocates the full-size west Dokki palm around the new grade instead of deleting it", () => {
+    const inputWithoutMeasuredClearance = {
+      ...promenadeInput,
+      canPlaceProp: undefined,
+    };
+    const approximate = generatePromenadeDecor(
+      inputWithoutMeasuredClearance,
+    );
+    const physicallyBlocked = approximate.filter(
+      (placement) => !canPlacePromenadeProp(placement),
+    );
+
+    // The generic centre-point deck allowance cannot see the broad crown of
+    // the reviewed Dokki palm. Production's measured query finds it, then the
+    // generator keeps the asset by trying half-station shifts along the bank.
+    const blockedDokkiPalm = physicallyBlocked.find(
+      (placement) =>
+        placement.kind === "palm" &&
+        placement.x < -600 &&
+        placement.z > 430 &&
+        placement.z < 470,
+    );
+    expect(blockedDokkiPalm).toMatchObject({
+      kind: "palm",
+      x: -609.2811449753331,
+      z: 452.9510023514729,
+      variant: 1,
+      scale: 1.0465892425738275,
+    });
+    const blockedEnvelope = groundPropClearanceEnvelope(
+      blockedDokkiPalm!,
+      "cairo",
+    );
+    expect(
+      elevatedRoadGroundClearanceAt(
+        blockedDokkiPalm!,
+        0,
+        blockedEnvelope.footprintRadiusM,
+      ),
+    ).toMatchObject({
+      surfaceId: "cairo-sixth-october-bridge-dokki-entry",
+    });
+    const relocatedDokkiPalm = decor.find(
+      (placement) =>
+        placement.kind === blockedDokkiPalm!.kind &&
+        placement.variant === blockedDokkiPalm!.variant &&
+        placement.scale === blockedDokkiPalm!.scale &&
+        placement.rotationY === blockedDokkiPalm!.rotationY,
+    );
+    expect(relocatedDokkiPalm).toMatchObject({
+      x: -606.7442445492482,
+      z: 427.07506495341653,
+    });
+    const relocationM = Math.hypot(
+      relocatedDokkiPalm!.x - blockedDokkiPalm!.x,
+      relocatedDokkiPalm!.z - blockedDokkiPalm!.z,
+    );
+    expect(relocationM).toBeGreaterThanOrEqual(6.5);
+    expect(relocationM).toBeLessThanOrEqual(26.01);
+    expect(canPlacePromenadeProp(relocatedDokkiPalm!)).toBe(true);
+    expect(decor.every(canPlacePromenadeProp)).toBe(true);
   });
 
   it("keeps every piece on dry land, off every carriageway", () => {

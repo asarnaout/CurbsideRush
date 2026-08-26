@@ -1783,7 +1783,14 @@ export function buildSimulationCoreConfig({
         minimumVerticalSeparationM,
       ),
     serviceAreas: buildServiceAreas(mapPack),
-    spawn: { x: start.x, z: start.z, heading: start.heading },
+    spawn: {
+      x: start.x,
+      z: start.z,
+      ...(start.elevationM !== undefined
+        ? { elevationM: start.elevationM }
+        : {}),
+      heading: start.heading,
+    },
     trafficLights: traffic.lights,
     stopLines,
     railLines: rail.lines,

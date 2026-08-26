@@ -189,6 +189,7 @@ export interface GameCanvasMapPack {
       readonly id: string;
       readonly centerline: readonly GameCanvasPoint[];
       readonly widthM: number;
+      readonly parapetDepthM?: number;
       readonly sidewalkWidthM?: number;
       readonly laneIds: readonly string[];
       readonly surfaceType:

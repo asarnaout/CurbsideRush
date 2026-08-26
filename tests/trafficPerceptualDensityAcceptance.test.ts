@@ -373,22 +373,24 @@ const COMMITTED_REPRESENTATIVE_ANCHORS: Readonly<
   },
   "cairo-central-nile": {
     sparse: {
-      laneId: "cairo-south-gezira-road-3-reverse-1",
+      // Re-anchored after the separated Dokki entry/exit added six legal lane
+      // segments while leaving the ground street continuous.
+      laneId: "cairo-ramses-approach-2-reverse-1",
       distanceAlongM: 50,
-      expectedFogLaneKm: 5.332_637_383,
-      expectedInnerLaneKm: 1.894_673_590,
+      expectedFogLaneKm: 5.469_904_801,
+      expectedInnerLaneKm: 2.240_644_232,
     },
     median: {
-      laneId: "cairo-nile-island-drive-4-forward-1",
+      laneId: "cairo-dokki-nile-drive-5-reverse-1",
       distanceAlongM: 150,
-      expectedFogLaneKm: 10.870_521_262,
-      expectedInnerLaneKm: 3.188_147_892,
+      expectedFogLaneKm: 11.088_985_536,
+      expectedInnerLaneKm: 3.289_470_095,
     },
     dense: {
-      laneId: "cairo-corniche-el-nil-5-forward-1",
-      distanceAlongM: 150,
-      expectedFogLaneKm: 14.422_792_133,
-      expectedInnerLaneKm: 5.311_058_669,
+      laneId: "cairo-sixth-october-bridge-5-forward-2",
+      distanceAlongM: 350,
+      expectedFogLaneKm: 14.500_843_675,
+      expectedInnerLaneKm: 4.900_649_771,
     },
   },
   "nyc-upper-west-side": {

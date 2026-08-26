@@ -1702,6 +1702,15 @@ export interface PromenadeDecorInput {
    * is dropped, so adding a building never leaves a palm or lamp inside it.
    */
   readonly buildingRects?: readonly PropScatterRect[];
+  /**
+   * Optional final physical-clearance query for a fully authored prop. The
+   * generic promenade generator knows road and water footprints, but only the
+   * renderer knows the measured height/radius of an imported palm (and the
+   * exact deck underside above it). A rejected placement is searched along
+   * the same waterfront run before it is abandoned, preserving the asset
+   * instead of letting the renderer silently filter it out afterward.
+   */
+  readonly canPlaceProp?: (placement: PropPlacement) => boolean;
   /** Minimum distance from the exact water-polygon edge. Building avoidance
    * may shift a station along a bending bank; this keeps that relocation off
    * the shoreline parapet instead of relying on the original cross-section. */
@@ -1848,7 +1857,18 @@ export function generatePromenadeDecor(
               x: baseX + alongX * shiftAlongM + outX * offsetM,
               z: baseZ + alongZ * shiftAlongM + outZ * offsetM,
             });
-            const clearsNonBuildingKeepOuts = (
+            const placementAt = (shiftAlongM: number): PropPlacement => {
+              const candidate = candidateAt(shiftAlongM);
+              return {
+                kind,
+                x: candidate.x,
+                z: candidate.z,
+                rotationY,
+                scale,
+                variant,
+              };
+            };
+            const clearsFixedKeepOuts = (
               candidate: VisualPoint,
               shiftAlongM: number,
             ): boolean =>
@@ -1858,7 +1878,6 @@ export function generatePromenadeDecor(
                 x: baseX + alongX * shiftAlongM,
                 z: baseZ + alongZ * shiftAlongM,
               }) &&
-              clearOfElevatedRoadsAt(candidate) &&
               !isOverWater(candidate, input.waterPolygons) &&
               (!shorelineClearanceM ||
                 waterEdges.every(
@@ -1873,6 +1892,11 @@ export function generatePromenadeDecor(
               !input.keepOutRects?.some((rect) =>
                 isInsideInflatedRect(candidate, rect),
               );
+            const clearsRelocatableKeepOuts = (
+              placement: PropPlacement,
+            ): boolean =>
+              clearOfElevatedRoadsAt(placement) &&
+              (input.canPlaceProp?.(placement) ?? true);
             const blockedByBuilding = (candidate: VisualPoint): boolean =>
               Boolean(
                 input.buildingRects?.some((rect) =>
@@ -1880,17 +1904,13 @@ export function generatePromenadeDecor(
                 ),
               );
 
-            const original = candidateAt(0);
-            if (!clearsNonBuildingKeepOuts(original, 0)) return;
-            if (!blockedByBuilding(original)) {
-              placements.push({
-                kind,
-                x: original.x,
-                z: original.z,
-                rotationY,
-                scale,
-                variant,
-              });
+            const original = placementAt(0);
+            if (!clearsFixedKeepOuts(original, 0)) return;
+            if (
+              clearsRelocatableKeepOuts(original) &&
+              !blockedByBuilding(original)
+            ) {
+              placements.push(original);
               return;
             }
 
@@ -1898,27 +1918,34 @@ export function generatePromenadeDecor(
             // rhythm. Alternate directions so a building never shifts every
             // affected piece to the same end, and cap the search at 26 m -- a
             // small local move, not furniture leaking into the next district.
-            for (const shiftAlongM of [6.5, -6.5, 13, -13, 19.5, -19.5, 26, -26]) {
-              const moved = candidateAt(shiftAlongM);
+            const tryRelocated = (shiftAlongM: number): boolean => {
+              const moved = placementAt(shiftAlongM);
               if (
-                !clearsNonBuildingKeepOuts(moved, shiftAlongM) ||
+                !clearsFixedKeepOuts(moved, shiftAlongM) ||
+                !clearsRelocatableKeepOuts(moved) ||
                 blockedByBuilding(moved) ||
                 placements.some(
                   (existing) =>
                     Math.hypot(existing.x - moved.x, existing.z - moved.z) < 3,
                 )
               ) {
-                continue;
+                return false;
               }
-              placements.push({
-                kind,
-                x: moved.x,
-                z: moved.z,
-                rotationY,
-                scale,
-                variant,
-              });
-              return;
+              placements.push(moved);
+              return true;
+            };
+            const alongShiftsM = [
+              6.5,
+              -6.5,
+              13,
+              -13,
+              19.5,
+              -19.5,
+              26,
+              -26,
+            ];
+            for (const shiftAlongM of alongShiftsM) {
+              if (tryRelocated(shiftAlongM)) return;
             }
           };
           if (stationIndex % 2 === 0) {

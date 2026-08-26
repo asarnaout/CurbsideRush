@@ -5,6 +5,7 @@ export interface ElevatedRoadGeometrySurface {
   readonly id: string;
   readonly centerline: readonly GameCanvasPoint[];
   readonly widthM: number;
+  readonly parapetDepthM?: number;
   readonly sidewalkWidthM?: number;
 }
 
@@ -181,6 +182,18 @@ export const ELEVATED_ROAD_BARRIER_COLLIDER_MAX_LENGTH_M = 8;
  * genuinely different street level remains non-interacting.
  */
 export const ELEVATED_ROAD_BARRIER_LEVEL_TOLERANCE_M = 0.35;
+
+/** Resolve an authored bridge-edge depth without changing another map's fallback. */
+export function elevatedRoadParapetDepthM(
+  surface: ElevatedRoadGeometrySurface,
+): number {
+  const authoredDepthM = surface.parapetDepthM;
+  return typeof authoredDepthM === "number" &&
+    Number.isFinite(authoredDepthM) &&
+    authoredDepthM > 0
+    ? authoredDepthM
+    : ELEVATED_ROAD_PARAPET_DEPTH_M;
+}
 
 export function elevatedRoadSegmentPlacements(
   surface: ElevatedRoadGeometrySurface,
@@ -536,6 +549,7 @@ export function elevatedRoadBarrierPlacements(
 ): readonly ElevatedRoadBarrierPlacement[] {
   const placements: ElevatedRoadBarrierPlacement[] = [];
   const maximumLengthM = Math.max(0.5, maxColliderLengthM);
+  const parapetDepthM = elevatedRoadParapetDepthM(surface);
 
   for (const segment of elevatedRoadSegmentPlacements(surface)) {
     const authoredStart = surface.centerline[segment.segmentIndex];
@@ -607,7 +621,7 @@ export function elevatedRoadBarrierPlacements(
             (chunkLengthM * cosSlope +
               ELEVATED_ROAD_PARAPET_HEIGHT_M * Math.abs(sinSlope)) /
             2,
-          halfV: ELEVATED_ROAD_PARAPET_DEPTH_M / 2,
+          halfV: parapetDepthM / 2,
           centerAlongM,
           lengthM: chunkLengthM,
           minElevationM:

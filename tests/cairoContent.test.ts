@@ -37,6 +37,7 @@ import {
 import { carveBlocksForRailCorridors } from "../app/game/geometry/railCorridor";
 import {
   createElevatedRoadDeckHeadroomQuery,
+  createElevatedRoadGroundClearanceQuery,
   ELEVATED_DECK_START_M,
   elevatedRoadSegmentPlacements,
 } from "../app/game/geometry/elevatedRoadGeometry";
@@ -670,7 +671,7 @@ describe("Cairo Central Nile content", () => {
   it("keeps Cairo's local streets free of pristine lane paint", () => {
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces;
     expect(surfaces.filter((surface) => surface.markings.length === 0)).toHaveLength(
-      44,
+      46,
     );
     expect(
       surfaces.filter(
@@ -746,7 +747,9 @@ describe("Cairo Central Nile content", () => {
       // authored order.
       "cairo-sixth-october-bridge",
       "cairo-sixth-october-dokki-entry-slip",
+      "cairo-sixth-october-bridge-dokki-entry",
       "cairo-sixth-october-bridge-dokki-ramp",
+      "cairo-sixth-october-bridge-dokki-exit",
       "cairo-sixth-october-dokki-exit-slip",
       "cairo-sixth-october-gezira-entry-slip",
       "cairo-sixth-october-bridge-gezira-ramp",
@@ -2125,12 +2128,12 @@ describe("Cairo Central Nile content", () => {
         host: "cairo-dokki-nile-drive",
         entrySlip: "cairo-sixth-october-dokki-entry-slip",
         exitSlip: "cairo-sixth-october-dokki-exit-slip",
-        entryRamp: "cairo-sixth-october-bridge-dokki-ramp",
-        exitRamp: "cairo-sixth-october-bridge-dokki-ramp",
+        entryRamp: "cairo-sixth-october-bridge-dokki-entry",
+        exitRamp: "cairo-sixth-october-bridge-dokki-exit",
         entryMerge: "cairo-wi-sixth-entry-merge",
         exitMerge: "cairo-wi-sixth-exit-merge",
-        entryLift: "cairo-sixth-dokki-ramp-lift",
-        exitLift: "cairo-sixth-dokki-ramp-lift",
+        entryLift: "cairo-sixth-dokki-entry-lift",
+        exitLift: "cairo-sixth-dokki-exit-lift",
         entryDirection: "reverse",
         exitDirection: "forward",
       },
@@ -2294,6 +2297,177 @@ describe("Cairo Central Nile content", () => {
           (laneId) => laneById.get(laneId)?.roadId === item.exitSlip,
         ),
       ).toBe(true);
+    }
+  });
+
+  it("keeps Dokki's entry, exit, through lanes and pavement physically separate", () => {
+    const surfaceById = new Map(
+      CAIRO_MAP_PACK.geometry.roadSurfaces.map((surface) => [
+        surface.id,
+        surface,
+      ]),
+    );
+    const specById = new Map(
+      CAIRO_ROAD_SPECS.map((spec) => [spec.id, spec]),
+    );
+    const host = surfaceById.get("cairo-dokki-nile-drive")!;
+    const entry = surfaceById.get(
+      "cairo-sixth-october-bridge-dokki-entry",
+    )!;
+    const stem = surfaceById.get(
+      "cairo-sixth-october-bridge-dokki-ramp",
+    )!;
+    const exit = surfaceById.get(
+      "cairo-sixth-october-bridge-dokki-exit",
+    )!;
+    const entrySpec = specById.get(entry.id)!;
+    const stemSpec = specById.get(stem.id)!;
+    const exitSpec = specById.get(exit.id)!;
+    const braidNodeId = "cairo-sixth-dokki-entry-braid";
+
+    expect(entrySpec.oneWay).toBe("forward");
+    expect(exitSpec.oneWay).toBe("forward");
+    expect(entrySpec.nodeIds.at(-1)).toBe(braidNodeId);
+    expect(stemSpec.nodeIds.at(-1)).toBe(braidNodeId);
+    expect(exitSpec.nodeIds[0]).toBe(braidNodeId);
+    expect(entrySpec.nodeIds[0]).toBe("cairo-sixth-dokki-entry-lift");
+    expect(exitSpec.nodeIds.at(-1)).toBe("cairo-sixth-dokki-exit-lift");
+    expect(entrySpec.elevationsM?.at(-1)).toBeGreaterThanOrEqual(6);
+    expect(exitSpec.elevationsM?.[0]).toBeGreaterThanOrEqual(6);
+
+    // One narrow grade occupies the widened kerb lane south of the braid and
+    // the other occupies it to the north. They never form the old low, wide
+    // two-way slab across the live street.
+    expect(
+      Math.max(...entry.centerline.map((candidate) => candidate.z)),
+    ).toBeLessThan(
+      Math.min(...exit.centerline.slice(1).map((candidate) => candidate.z)),
+    );
+
+    const hostLanes = CAIRO_MAP_PACK.laneGraph.lanes.filter(
+      (lane) => lane.roadId === host.id,
+    );
+    const DECK_OVERHANG_M = 0.7;
+    const MIN_LANE_GAP_M = 0.5;
+    const FULL_CLEARANCE_DECK_M = 6;
+    let lowDeckSamples = 0;
+    for (const ramp of [entry, exit]) {
+      for (
+        let segmentIndex = 0;
+        segmentIndex + 1 < ramp.centerline.length;
+        segmentIndex += 1
+      ) {
+        const start = ramp.centerline[segmentIndex];
+        const end = ramp.centerline[segmentIndex + 1];
+        for (let step = 0; step <= 32; step += 1) {
+          const amount = step / 32;
+          const elevationM =
+            (start.elevationM ?? 0) +
+            ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+          if (
+            elevationM < ELEVATED_DECK_START_M ||
+            elevationM >= FULL_CLEARANCE_DECK_M
+          ) {
+            continue;
+          }
+          const sample = point(
+            start.x + (end.x - start.x) * amount,
+            start.z + (end.z - start.z) * amount,
+          );
+          const nearestLaneGapM = Math.min(
+            ...hostLanes.map(
+              (lane) =>
+                distanceToTestPolyline(sample, lane.centerline) -
+                (ramp.widthM / 2 + DECK_OVERHANG_M + lane.widthM / 2),
+            ),
+          );
+          expect(
+            nearestLaneGapM,
+            `${ramp.id} low structure at ${sample.x.toFixed(1)},${sample.z.toFixed(1)}`,
+          ).toBeGreaterThanOrEqual(MIN_LANE_GAP_M);
+          lowDeckSamples += 1;
+        }
+      }
+    }
+    expect(lowDeckSamples).toBeGreaterThan(70);
+
+    // The original Nile-side pavement rail remains a continuous ground-level
+    // walking route between the live street and each ramp. The frontage was
+    // set back rather than deleting buildings or forcing walkers through the
+    // abutment.
+    const clearanceAt = createElevatedRoadGroundClearanceQuery(
+      CAIRO_MAP_PACK.geometry.roadSurfaces,
+    );
+    const railOffsetM =
+      host.widthM / 2 + (host.sidewalkWidthM ?? 3.4) / 2;
+    let pavementSamples = 0;
+    for (
+      let segmentIndex = 0;
+      segmentIndex + 1 < host.centerline.length;
+      segmentIndex += 1
+    ) {
+      const start = host.centerline[segmentIndex];
+      const end = host.centerline[segmentIndex + 1];
+      const dx = end.x - start.x;
+      const dz = end.z - start.z;
+      const lengthM = Math.hypot(dx, dz);
+      if (lengthM < 0.01) continue;
+      const outwardX = dz / lengthM;
+      const outwardZ = -dx / lengthM;
+      const steps = Math.max(1, Math.ceil(lengthM / 2));
+      for (let step = 0; step <= steps; step += 1) {
+        const amount = step / steps;
+        const center = point(
+          start.x + dx * amount,
+          start.z + dz * amount,
+        );
+        const inAbutmentBand =
+          (center.z >= 390 && center.z <= 520) ||
+          (center.z >= 560 && center.z <= 670);
+        if (!inAbutmentBand) continue;
+        const railPoint = point(
+          center.x + outwardX * railOffsetM,
+          center.z + outwardZ * railOffsetM,
+        );
+        const obstruction = clearanceAt(railPoint, 0, 0.5);
+        expect(
+          obstruction === null || obstruction.clearanceM >= 2.25,
+          `Dokki pavement at ${railPoint.x.toFixed(1)},${railPoint.z.toFixed(1)} blocked by ${obstruction?.surfaceId ?? "unknown"}`,
+        ).toBe(true);
+        pavementSamples += 1;
+      }
+    }
+    expect(pavementSamples).toBeGreaterThan(100);
+
+    // Preserve a visible façade gap as well as non-overlap. This turns the
+    // user's no-building-removal requirement into a spatial regression: the
+    // original block count remains pinned below, and the small setback cannot
+    // silently collapse back into a deck clipping a building wall.
+    const FACADE_GUARD_M = 0.75;
+    for (const ramp of [entry, stem, exit]) {
+      for (const segment of elevatedRoadSegmentPlacements(ramp)) {
+        const deckFootprint = testOrientedRect(
+          segment.center,
+          point(segment.lengthM, segment.deckWidthM),
+          (segment.boxYawRad * 180) / Math.PI,
+        );
+        for (const block of CAIRO_MAP_PACK.geometry.blocks) {
+          expect(
+            testOrientedRectsOverlap(
+              deckFootprint,
+              testOrientedRect(
+                block.center,
+                point(
+                  block.size.x + FACADE_GUARD_M * 2,
+                  block.size.z + FACADE_GUARD_M * 2,
+                ),
+                block.headingDeg ?? 0,
+              ),
+            ),
+            `${ramp.id} lacks a façade guard at ${block.id}`,
+          ).toBe(false);
+        }
+      }
     }
   });
 
@@ -2582,7 +2756,9 @@ describe("Cairo Central Nile content", () => {
     );
     expect(elevated.map((surface) => surface.id)).toEqual([
       "cairo-sixth-october-bridge",
+      "cairo-sixth-october-bridge-dokki-entry",
       "cairo-sixth-october-bridge-dokki-ramp",
+      "cairo-sixth-october-bridge-dokki-exit",
       "cairo-sixth-october-bridge-gezira-ramp",
       "cairo-sixth-october-bridge-corniche-entry",
       "cairo-sixth-october-bridge-corniche-exit",

@@ -136,6 +136,18 @@ describe("elevated-road structure placement", () => {
       .sort((left, right) => left.chunkIndex - right.chunkIndex);
     expect(ascending[0].minElevationM).toBeGreaterThan(0);
     expect(ascending.at(-1)?.minElevationM ?? 0).toBeGreaterThan(8);
+
+    const cairoDepth = 0.36;
+    const cairoBarriers = elevatedRoadBarrierPlacements(
+      { ...viaduct, id: "cairo-profile", parapetDepthM: cairoDepth },
+      [{ ...viaduct, id: "cairo-profile", parapetDepthM: cairoDepth }],
+    );
+    expect(cairoBarriers.length).toBe(barriers.length);
+    expect(
+      cairoBarriers.every((barrier) =>
+        Math.abs(barrier.halfV - cairoDepth / 2) < 1e-9,
+      ),
+    ).toBe(true);
   });
 
   it("reports exact pitched-slab headroom only beneath rendered deck", () => {
