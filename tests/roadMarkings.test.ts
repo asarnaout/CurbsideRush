@@ -233,6 +233,20 @@ describe("merged marking geometry", () => {
     expect(hi.z - lo.z).toBeCloseTo(0.11, 10);
   });
 
+  it("pitches and lifts paint along an elevated ramp profile", () => {
+    const geometry = createMarkingGeometry();
+    appendMarkingBox(
+      geometry,
+      { x: 0, z: 0, elevationM: 0 },
+      { x: 0, z: 100, elevationM: 10 },
+      0.11,
+      0.12,
+    );
+    expect(boxCenter(geometry, 0).y).toBeCloseTo(5.12, 10);
+    const { lo, hi } = boxBounds(geometry, 0);
+    expect(hi.y - lo.y).toBeGreaterThan(9.9);
+  });
+
   it("skips degenerate segments", () => {
     const geometry = createMarkingGeometry();
     appendMarkingBox(geometry, { x: 3, z: 3 }, { x: 3, z: 3.005 }, 0.11, 0.12);

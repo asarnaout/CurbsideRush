@@ -36,6 +36,11 @@ import {
 } from "../app/game/geometry/visualSceneFootprints";
 import { carveBlocksForRailCorridors } from "../app/game/geometry/railCorridor";
 import {
+  createElevatedRoadDeckHeadroomQuery,
+  ELEVATED_DECK_START_M,
+  elevatedRoadSegmentPlacements,
+} from "../app/game/geometry/elevatedRoadGeometry";
+import {
   bareKerbRuns,
   type BareKerbRun,
   buildGroundRaster,
@@ -412,6 +417,35 @@ const pointAtDistance = (
     Math.max(0, Math.min(1, distanceAlongM / lengthOf(points))),
   );
 
+const distanceToTestPolyline = (
+  candidate: WorldPoint,
+  points: readonly WorldPoint[],
+): number =>
+  Math.min(
+    ...points.slice(1).map((end, index) => {
+      const start = points[index];
+      const dx = end.x - start.x;
+      const dz = end.z - start.z;
+      const lengthSquared = dx * dx + dz * dz;
+      const amount =
+        lengthSquared > 0
+          ? Math.max(
+              0,
+              Math.min(
+                1,
+                ((candidate.x - start.x) * dx +
+                  (candidate.z - start.z) * dz) /
+                  lengthSquared,
+              ),
+            )
+          : 0;
+      return Math.hypot(
+        candidate.x - (start.x + dx * amount),
+        candidate.z - (start.z + dz * amount),
+      );
+    }),
+  );
+
 interface TestOrientedRect {
   readonly center: WorldPoint;
   readonly axisU: WorldPoint;
@@ -581,12 +615,11 @@ describe("Cairo Central Nile content", () => {
 
   it("matches NYC-scale scope without turning Cairo into a cardinal grid", () => {
     expect(CAIRO_MAP_PACK.geometry.worldSize).toEqual({ x: 1770, z: 1830 });
-    // 27 corridor roads -> 50 with the hara network (23 one-way single-lane
-    // alleys threading the block interiors, Cairo reimagining 2026-08-16).
-    // The corridor count still lives inside the old band; the ceiling covers
-    // the harat.
+    // The bridge rebuild adds eight explicit auxiliary slip roads. They are
+    // separate legal lanes rather than painted decoration, so they count as
+    // roads while the underlying Cairo fabric stays unchanged.
     expect(CAIRO_ROAD_SPECS.length).toBeGreaterThanOrEqual(22);
-    expect(CAIRO_ROAD_SPECS.length).toBeLessThanOrEqual(55);
+    expect(CAIRO_ROAD_SPECS.length).toBeLessThanOrEqual(70);
     expect(CAIRO_MAP_PACK.geometry.roadSurfaces).toHaveLength(
       CAIRO_ROAD_SPECS.length,
     );
@@ -606,11 +639,11 @@ describe("Cairo Central Nile content", () => {
     // the same amount. Lane count 224 -> 327 (44 alley lanes plus the splits
     // the 28 inserted junction nodes make in existing corridors).
     expect(roadKm).toBeGreaterThanOrEqual(23);
-    expect(roadKm).toBeLessThanOrEqual(35);
+    expect(roadKm).toBeLessThanOrEqual(38);
     expect(CAIRO_MAP_PACK.laneGraph.lanes.length).toBeGreaterThanOrEqual(180);
-    expect(CAIRO_MAP_PACK.laneGraph.lanes.length).toBeLessThanOrEqual(340);
+    expect(CAIRO_MAP_PACK.laneGraph.lanes.length).toBeLessThanOrEqual(450);
     expect(laneKm).toBeGreaterThanOrEqual(42);
-    expect(laneKm).toBeLessThanOrEqual(56);
+    expect(laneKm).toBeLessThanOrEqual(64);
 
     const segmentAngles = CAIRO_MAP_PACK.geometry.roadSurfaces.flatMap(
       (surface) =>
@@ -637,18 +670,21 @@ describe("Cairo Central Nile content", () => {
   it("keeps Cairo's local streets free of pristine lane paint", () => {
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces;
     expect(surfaces.filter((surface) => surface.markings.length === 0)).toHaveLength(
-      32,
+      44,
     );
     expect(
       surfaces.filter(
-        (surface) => surface.widthM < 9 && surface.markings.length > 0,
+        (surface) =>
+          surface.widthM < 9 &&
+          surface.markings.length > 0 &&
+          !surface.centerline.some((point) => (point.elevationM ?? 0) > 0),
       ),
     ).toEqual([]);
     expect(
       surfaces
         .flatMap((surface) => surface.markings)
         .filter((marking) => marking.style === "centre_solid"),
-    ).toHaveLength(2);
+    ).toHaveLength(6);
   });
 
   it("pins the authored road order, lane counts and synchronized surfaces", () => {
@@ -705,6 +741,25 @@ describe("Cairo Central Nile content", () => {
       "cairo-haret-wasef",
       "cairo-haret-refaei",
       "cairo-haret-amer",
+      // Drivable replacement for the old scenic-only flyover, followed by
+      // its curb-side auxiliary lanes and connected access ramps in stable
+      // authored order.
+      "cairo-sixth-october-bridge",
+      "cairo-sixth-october-dokki-entry-slip",
+      "cairo-sixth-october-bridge-dokki-ramp",
+      "cairo-sixth-october-dokki-exit-slip",
+      "cairo-sixth-october-gezira-entry-slip",
+      "cairo-sixth-october-bridge-gezira-ramp",
+      "cairo-sixth-october-gezira-exit-slip",
+      "cairo-sixth-october-corniche-entry-slip",
+      "cairo-sixth-october-bridge-corniche-entry",
+      "cairo-sixth-october-bridge-corniche-exit",
+      "cairo-sixth-october-corniche-exit-slip",
+      "cairo-sixth-october-ramses-entry-slip",
+      "cairo-sixth-october-bridge-ramses-entry",
+      "cairo-sixth-october-bridge-ramses-ramp",
+      "cairo-sixth-october-bridge-ramses-exit",
+      "cairo-sixth-october-ramses-exit-slip",
     ]);
 
     for (const road of CAIRO_ROAD_SPECS) {
@@ -716,11 +771,15 @@ describe("Cairo Central Nile content", () => {
       );
       expect(surface, road.id).toBeDefined();
       expect(surface!.centerline, road.id).toEqual(
-        road.nodeIds.map(
-          (nodeId) =>
-            CAIRO_MAP_PACK.laneGraph.nodes.find((node) => node.id === nodeId)!
-              .position,
-        ),
+        road.nodeIds
+          .map((nodeId, index) => ({
+            ...CAIRO_MAP_PACK.laneGraph.nodes.find(
+              (node) => node.id === nodeId,
+            )!.position,
+            ...(road.elevationsM
+              ? { elevationM: road.elevationsM[index] }
+              : { elevationM: 0 }),
+          }))
       );
       expect(lanes, road.id).toHaveLength(
         (road.nodeIds.length - 1) * road.laneCount,
@@ -799,10 +858,10 @@ describe("Cairo Central Nile content", () => {
         expect(new Set(movement.toRoadIds).size, connector.id).toBe(
           movement.toRoadIds.length,
         );
-        connectorByNodeAndRoad.set(
-          `${connector.nodeId}:${movement.fromRoadId}`,
-          new Set(movement.toRoadIds),
-        );
+        const key = `${connector.nodeId}:${movement.fromRoadId}`;
+        const allowed = new Set(connectorByNodeAndRoad.get(key) ?? []);
+        for (const roadId of movement.toRoadIds) allowed.add(roadId);
+        connectorByNodeAndRoad.set(key, allowed);
       }
     }
 
@@ -895,7 +954,7 @@ describe("Cairo Central Nile content", () => {
     }
   });
 
-  it("keeps ordinary streets off the Nile and makes both bridge routes drivable", () => {
+  it("keeps ordinary streets off the Nile and makes every bridge route drivable", () => {
     const water = CAIRO_MAP_PACK.geometry.waterBodies ?? [];
     expect(water.map((body) => body.id)).toEqual([
       "cairo-nile-west-channel",
@@ -908,10 +967,20 @@ describe("Cairo Central Nile content", () => {
     const bridgeRoads = new Set([
       "cairo-qasr-el-nil-bridge",
       "cairo-al-galaa-bridge",
+      "cairo-sixth-october-bridge",
+      "cairo-sixth-october-bridge-corniche-exit",
     ]);
     const expectedChannelByBridge = new Map([
-      ["cairo-qasr-el-nil-bridge", "cairo-nile-east-channel"],
-      ["cairo-al-galaa-bridge", "cairo-nile-west-channel"],
+      ["cairo-qasr-el-nil-bridge", ["cairo-nile-east-channel"]],
+      ["cairo-al-galaa-bridge", ["cairo-nile-west-channel"]],
+      [
+        "cairo-sixth-october-bridge",
+        ["cairo-nile-west-channel", "cairo-nile-east-channel"],
+      ],
+      [
+        "cairo-sixth-october-bridge-corniche-exit",
+        ["cairo-nile-east-channel"],
+      ],
     ]);
     for (const bridgeId of bridgeRoads) {
       const surface = CAIRO_MAP_PACK.geometry.roadSurfaces.find(
@@ -922,18 +991,28 @@ describe("Cairo Central Nile content", () => {
       const crossedChannels = new Set(
         surface!.centerline.slice(1).flatMap((candidate, index) => {
           const previous = surface!.centerline[index];
-          const midpoint = point(
-            (previous.x + candidate.x) / 2,
-            (previous.z + candidate.z) / 2,
+          const steps = Math.max(
+            1,
+            Math.ceil(
+              Math.hypot(candidate.x - previous.x, candidate.z - previous.z) /
+                5,
+            ),
           );
-          return water
-            .filter((body) => pointInPolygon(midpoint, body.polygon))
-            .map((body) => body.id);
+          return Array.from({ length: steps + 1 }, (_, step) => {
+            const amount = step / steps;
+            const sample = point(
+              previous.x + (candidate.x - previous.x) * amount,
+              previous.z + (candidate.z - previous.z) * amount,
+            );
+            return water
+              .filter((body) => pointInPolygon(sample, body.polygon))
+              .map((body) => body.id);
+          }).flat();
         }),
       );
-      expect([...crossedChannels], bridgeId).toEqual([
+      expect([...crossedChannels], bridgeId).toEqual(
         expectedChannelByBridge.get(bridgeId),
-      ]);
+      );
     }
 
     for (const surface of CAIRO_MAP_PACK.geometry.roadSurfaces) {
@@ -1158,6 +1237,9 @@ describe("Cairo Central Nile content", () => {
 
   it("stands every signal head on its own approach's kerb, beside the bar", () => {
     const graph = CAIRO_MAP_PACK.laneGraph;
+    const elevatedHeadroomAt = createElevatedRoadDeckHeadroomQuery(
+      CAIRO_MAP_PACK.geometry.roadSurfaces,
+    );
     const laneById = new Map(graph.lanes.map((lane) => [lane.id, lane]));
     const signals = graph.controls.filter(
       (control) => control.type === "signal",
@@ -1214,7 +1296,15 @@ describe("Cairo Central Nile content", () => {
         // face. A positive-and-small offset is the whole invariant — scoring
         // candidates by open space instead put these 13-24 m out in the plaza,
         // most of them across the carriageway.
-        expect(lateral - surface.widthM / 2, head[0].id).toBeCloseTo(1.1, 5);
+        const kerbClearance = lateral - surface.widthM / 2;
+        if (head[0].id.includes("ec-sixth-entry-merge")) {
+          // The Corniche's widened exit lane occupies the ordinary pole
+          // station, so this one head stands farther out on the ramp island.
+          expect(kerbClearance, head[0].id).toBeGreaterThanOrEqual(1.1);
+          expect(kerbClearance, head[0].id).toBeLessThanOrEqual(7.4);
+        } else {
+          expect(kerbClearance, head[0].id).toBeCloseTo(1.1, 4);
+        }
         // Beside or just behind the bar, never past it, and never so far back
         // that a car stopped at the line has it over its shoulder.
         expect(along, head[0].id).toBeLessThanOrEqual(0);
@@ -1236,6 +1326,10 @@ describe("Cairo Central Nile content", () => {
           }),
         );
         expect(clearance, head[0].id).toBeGreaterThanOrEqual(0.6);
+        const deck = elevatedHeadroomAt(head[0].position, 0, 0.4);
+        expect(deck?.headroomM ?? Number.POSITIVE_INFINITY, head[0].id).toBeGreaterThanOrEqual(
+          4.05,
+        );
       }
     }
   });
@@ -1362,7 +1456,12 @@ describe("Cairo Central Nile content", () => {
   // it verifies the generator rather than repeating it.
   it("keeps every glb parcel's windowless back clear of other roads", () => {
     const blocks = CAIRO_MAP_PACK.geometry.blocks;
-    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces;
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces.filter(
+      (surface) =>
+        Math.max(
+          ...surface.centerline.map((point) => point.elevationM ?? 0),
+        ) < 3.5,
+    );
     const glbRoadside = blocks.filter(
       (block) => block.buildingSet && block.id.includes("-roadside-"),
     );
@@ -1514,7 +1613,9 @@ describe("Cairo Central Nile content", () => {
     );
 
     const nonBridgeRoads = CAIRO_MAP_PACK.geometry.roadSurfaces.filter(
-      (surface) => !surface.id.includes("-bridge"),
+      (surface) =>
+        !surface.id.includes("-bridge") &&
+        !surface.id.startsWith("cairo-sixth-october"),
     );
     expect(nonBridgeRoads).toHaveLength(48);
     for (const surface of nonBridgeRoads) {
@@ -2018,6 +2119,515 @@ describe("Cairo Central Nile content", () => {
     }
   });
 
+  it("widens each host street with directional slip lanes instead of cutting it off", () => {
+    const cases = [
+      {
+        host: "cairo-dokki-nile-drive",
+        entrySlip: "cairo-sixth-october-dokki-entry-slip",
+        exitSlip: "cairo-sixth-october-dokki-exit-slip",
+        entryRamp: "cairo-sixth-october-bridge-dokki-ramp",
+        exitRamp: "cairo-sixth-october-bridge-dokki-ramp",
+        entryMerge: "cairo-wi-sixth-entry-merge",
+        exitMerge: "cairo-wi-sixth-exit-merge",
+        entryLift: "cairo-sixth-dokki-ramp-lift",
+        exitLift: "cairo-sixth-dokki-ramp-lift",
+        entryDirection: "reverse",
+        exitDirection: "forward",
+      },
+      {
+        host: "cairo-saray-el-gezira",
+        entrySlip: "cairo-sixth-october-gezira-entry-slip",
+        exitSlip: "cairo-sixth-october-gezira-exit-slip",
+        entryRamp: "cairo-sixth-october-bridge-gezira-ramp",
+        exitRamp: "cairo-sixth-october-bridge-gezira-ramp",
+        entryMerge: "cairo-iw-sixth-entry-merge",
+        exitMerge: "cairo-iw-sixth-exit-merge",
+        entryLift: "cairo-sixth-gezira-ramp-lift",
+        exitLift: "cairo-sixth-gezira-ramp-lift",
+        entryDirection: "forward",
+        exitDirection: "reverse",
+      },
+      {
+        host: "cairo-corniche-el-nil",
+        entrySlip: "cairo-sixth-october-corniche-entry-slip",
+        exitSlip: "cairo-sixth-october-corniche-exit-slip",
+        entryRamp: "cairo-sixth-october-bridge-corniche-entry",
+        exitRamp: "cairo-sixth-october-bridge-corniche-exit",
+        entryMerge: "cairo-ec-sixth-entry-merge",
+        exitMerge: "cairo-ec-sixth-exit-merge",
+        entryLift: "cairo-sixth-corniche-entry-lift",
+        exitLift: "cairo-sixth-corniche-exit-lift",
+        entryDirection: "forward",
+        exitDirection: "forward",
+      },
+      {
+        host: "cairo-ramses",
+        entrySlip: "cairo-sixth-october-ramses-entry-slip",
+        exitSlip: "cairo-sixth-october-ramses-exit-slip",
+        entryRamp: "cairo-sixth-october-bridge-ramses-entry",
+        exitRamp: "cairo-sixth-october-bridge-ramses-exit",
+        entryMerge: "cairo-er-sixth-entry-merge",
+        exitMerge: "cairo-er-sixth-exit-merge",
+        entryLift: "cairo-sixth-ramses-entry-lift",
+        exitLift: "cairo-sixth-ramses-exit-lift",
+        entryDirection: "reverse",
+        exitDirection: "forward",
+      },
+    ] as const;
+    const lanes = CAIRO_MAP_PACK.laneGraph.lanes;
+    const laneById = new Map(lanes.map((lane) => [lane.id, lane]));
+    const surfaceById = new Map(
+      CAIRO_MAP_PACK.geometry.roadSurfaces.map((surface) => [
+        surface.id,
+        surface,
+      ]),
+    );
+    const nodeById = new Map(
+      CAIRO_MAP_PACK.laneGraph.nodes.map((node) => [node.id, node]),
+    );
+    const distanceToPolyline = (
+      candidate: WorldPoint,
+      points: readonly WorldPoint[],
+    ): number =>
+      Math.min(
+        ...points.slice(1).map((end, index) => {
+          const start = points[index];
+          const dx = end.x - start.x;
+          const dz = end.z - start.z;
+          const lengthSquared = dx * dx + dz * dz;
+          const amount =
+            lengthSquared > 0
+              ? Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    ((candidate.x - start.x) * dx +
+                      (candidate.z - start.z) * dz) /
+                      lengthSquared,
+                  ),
+                )
+              : 0;
+          return Math.hypot(
+            candidate.x - (start.x + dx * amount),
+            candidate.z - (start.z + dz * amount),
+          );
+        }),
+      );
+
+    for (const item of cases) {
+      const hostSurface = surfaceById.get(item.host)!;
+      const entrySurface = surfaceById.get(item.entrySlip)!;
+      const exitSurface = surfaceById.get(item.exitSlip)!;
+      for (const slip of [entrySurface, exitSurface]) {
+        expect(slip.widthM, slip.id).toBe(4.2);
+        expect(
+          slip.centerline.every((point) => (point.elevationM ?? 0) === 0),
+          slip.id,
+        ).toBe(true);
+        expect(
+          lanes.filter((lane) => lane.roadId === slip.id),
+          slip.id,
+        ).toHaveLength(2);
+      }
+
+      for (const mergeId of [item.entryMerge, item.exitMerge]) {
+        const merge = nodeById.get(mergeId)!.position;
+        expect(distanceToPolyline(merge, hostSurface.centerline), mergeId).toBeLessThan(
+          0.01,
+        );
+      }
+      const entryMerge = nodeById.get(item.entryMerge)!.position;
+      const entryLift = nodeById.get(item.entryLift)!.position;
+      const exitMerge = nodeById.get(item.exitMerge)!.position;
+      const exitLift = nodeById.get(item.exitLift)!.position;
+      expect(Math.hypot(entryLift.x - entryMerge.x, entryLift.z - entryMerge.z)).toBeGreaterThan(35);
+      expect(Math.hypot(exitLift.x - exitMerge.x, exitLift.z - exitMerge.z)).toBeGreaterThan(30);
+
+      const hostEntry = lanes.find(
+        (lane) =>
+          lane.roadId === item.host &&
+          lane.to === item.entryMerge &&
+          lane.id.includes(`-${item.entryDirection}-`),
+      )!;
+      const entrySuccessors = hostEntry.successors.map(
+        (laneId) => laneById.get(laneId)!,
+      );
+      expect(entrySuccessors.some((lane) => lane.roadId === item.host)).toBe(true);
+      expect(
+        entrySuccessors.some((lane) => lane.roadId === item.entrySlip),
+      ).toBe(true);
+
+      const exitLane = lanes.find(
+        (lane) => lane.roadId === item.exitSlip && lane.to === item.exitMerge,
+      )!;
+      const exitSuccessors = exitLane.successors.map(
+        (laneId) => laneById.get(laneId)!,
+      );
+      expect(
+        exitSuccessors.some(
+          (lane) =>
+            lane.roadId === item.host &&
+            lane.id.includes(`-${item.exitDirection}-`),
+        ),
+      ).toBe(true);
+      expect(
+        exitSuccessors.some(
+          (lane) =>
+            lane.roadId === item.host &&
+            !lane.id.includes(`-${item.exitDirection}-`),
+        ),
+      ).toBe(false);
+
+      const entryAtLift = lanes.find(
+        (lane) => lane.roadId === item.entrySlip && lane.to === item.entryLift,
+      )!;
+      expect(
+        entryAtLift.successors.some(
+          (laneId) => laneById.get(laneId)?.roadId === item.entryRamp,
+        ),
+      ).toBe(true);
+      const exitAtLift = lanes.find(
+        (lane) => lane.roadId === item.exitRamp && lane.to === item.exitLift,
+      )!;
+      expect(
+        exitAtLift.successors.some(
+          (laneId) => laneById.get(laneId)?.roadId === item.exitSlip,
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("keeps both Ramses through lanes physically open below the ramp braid", () => {
+    const surfaceById = new Map(
+      CAIRO_MAP_PACK.geometry.roadSurfaces.map((surface) => [
+        surface.id,
+        surface,
+      ]),
+    );
+    const specById = new Map(
+      CAIRO_ROAD_SPECS.map((spec) => [spec.id, spec]),
+    );
+    const host = surfaceById.get("cairo-ramses")!;
+    const entry = surfaceById.get(
+      "cairo-sixth-october-bridge-ramses-entry",
+    )!;
+    const stem = surfaceById.get(
+      "cairo-sixth-october-bridge-ramses-ramp",
+    )!;
+    const exit = surfaceById.get(
+      "cairo-sixth-october-bridge-ramses-exit",
+    )!;
+    const entrySpec = specById.get(entry.id)!;
+    const stemSpec = specById.get(stem.id)!;
+    const exitSpec = specById.get(exit.id)!;
+
+    // These are separate one-way structures at street level. Their only
+    // shared node is the high braid over Turgoman, never a ground-level lift.
+    expect(entrySpec.oneWay).toBe("forward");
+    expect(exitSpec.oneWay).toBe("forward");
+    expect(
+      entrySpec.nodeIds.filter((nodeId) => exitSpec.nodeIds.includes(nodeId)),
+    ).toEqual(["cairo-sixth-ramses-over-turgoman"]);
+    expect(stemSpec.nodeIds.at(-1)).toBe(
+      "cairo-sixth-ramses-over-turgoman",
+    );
+    expect(entrySpec.nodeIds[0]).toBe("cairo-sixth-ramses-entry-lift");
+    expect(exitSpec.nodeIds.at(-1)).toBe("cairo-sixth-ramses-exit-lift");
+    expect(entrySpec.elevationsM?.at(-1)).toBeGreaterThanOrEqual(6);
+    expect(exitSpec.elevationsM?.[0]).toBeGreaterThanOrEqual(6);
+
+    const distanceToPolyline = (
+      candidate: WorldPoint,
+      points: readonly WorldPoint[],
+    ): number =>
+      Math.min(
+        ...points.slice(1).map((end, index) => {
+          const start = points[index];
+          const dx = end.x - start.x;
+          const dz = end.z - start.z;
+          const lengthSquared = dx * dx + dz * dz;
+          const amount =
+            lengthSquared > 0
+              ? Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    ((candidate.x - start.x) * dx +
+                      (candidate.z - start.z) * dz) /
+                      lengthSquared,
+                  ),
+                )
+              : 0;
+          return Math.hypot(
+            candidate.x - (start.x + dx * amount),
+            candidate.z - (start.z + dz * amount),
+          );
+        }),
+      );
+
+    // Ramses' two 3.2 m lanes are centred 1.65 m from its centreline. A
+    // low slab must leave their complete 3.25 m half-corridor plus a physical
+    // buffer open. The structural half-width includes the renderer's 0.7 m
+    // deck overhang, so this catches the former centred 7.6 m stem rather
+    // than merely proving that its abstract lane successor still existed.
+    const RAMSES_THROUGH_HALF_M = 1.65 + 3.2 / 2;
+    const DECK_OVERHANG_M = 0.7;
+    const MIN_PHYSICAL_GAP_M = 0.5;
+    const FULL_CLEARANCE_DECK_M = 6;
+    let lowDeckSamples = 0;
+    for (const ramp of [entry, exit]) {
+      for (
+        let segmentIndex = 0;
+        segmentIndex + 1 < ramp.centerline.length;
+        segmentIndex += 1
+      ) {
+        const start = ramp.centerline[segmentIndex];
+        const end = ramp.centerline[segmentIndex + 1];
+        for (let step = 0; step <= 32; step += 1) {
+          const amount = step / 32;
+          const elevationM =
+            (start.elevationM ?? 0) +
+            ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+          if (
+            elevationM < ELEVATED_DECK_START_M ||
+            elevationM >= FULL_CLEARANCE_DECK_M
+          ) {
+            continue;
+          }
+          const sample = point(
+            start.x + (end.x - start.x) * amount,
+            start.z + (end.z - start.z) * amount,
+          );
+          const innerStructuralEdgeM =
+            distanceToPolyline(sample, host.centerline) -
+            (ramp.widthM / 2 + DECK_OVERHANG_M);
+          expect(
+            innerStructuralEdgeM,
+            `${ramp.id} low deck at ${sample.x.toFixed(1)},${sample.z.toFixed(1)}`,
+          ).toBeGreaterThanOrEqual(
+            RAMSES_THROUGH_HALF_M + MIN_PHYSICAL_GAP_M,
+          );
+          lowDeckSamples += 1;
+        }
+      }
+    }
+    expect(lowDeckSamples).toBeGreaterThan(40);
+  });
+
+  it("ends the Corniche exit structure before the Champollion junction", () => {
+    const surfaceById = new Map(
+      CAIRO_MAP_PACK.geometry.roadSurfaces.map((surface) => [
+        surface.id,
+        surface,
+      ]),
+    );
+    const exitRamp = surfaceById.get(
+      "cairo-sixth-october-bridge-corniche-exit",
+    )!;
+    const exitSlip = surfaceById.get(
+      "cairo-sixth-october-corniche-exit-slip",
+    )!;
+    const corniche = surfaceById.get("cairo-corniche-el-nil")!;
+    const champollion = CAIRO_MAP_PACK.laneGraph.nodes.find(
+      (node) => node.id === "cairo-ec-6",
+    )!.position;
+    const exitSpec = CAIRO_ROAD_SPECS.find(
+      (spec) => spec.id === exitRamp.id,
+    )!;
+
+    expect(exitSpec.oneWay).toBe("forward");
+    expect(exitRamp.widthM).toBe(4.2);
+    expect(exitSpec.nodeIds[0]).toBe("cairo-sixth-corniche-exit-merge");
+    expect(exitSpec.nodeIds.at(-1)).toBe("cairo-sixth-corniche-exit-lift");
+
+    // Both descending legs stay at or below a constrained urban-ramp grade.
+    // The earlier high-level divergence supplies the length that the old
+    // 246-to-340 m straight descent lacked.
+    for (let index = 0; index + 1 < exitRamp.centerline.length; index += 1) {
+      const start = exitRamp.centerline[index];
+      const end = exitRamp.centerline[index + 1];
+      const planLengthM = Math.hypot(end.x - start.x, end.z - start.z);
+      expect(
+        Math.abs((end.elevationM ?? 0) - (start.elevationM ?? 0)) /
+          planLengthM,
+        `Corniche exit grade ${index}`,
+      ).toBeLessThanOrEqual(0.12);
+    }
+
+    // The last concrete deck/parapet ends at the renderer's structural cutoff
+    // more than 12 m before Champollion's signal/crosswalk. Only the flat
+    // auxiliary slip continues through z=330 and then merges into Corniche.
+    const lowStart = exitRamp.centerline.at(-2)!;
+    const touchdown = exitRamp.centerline.at(-1)!;
+    const lastStructureAmount =
+      ((lowStart.elevationM ?? 0) - ELEVATED_DECK_START_M) /
+      ((lowStart.elevationM ?? 0) - (touchdown.elevationM ?? 0));
+    const lastStructure = point(
+      lowStart.x + (touchdown.x - lowStart.x) * lastStructureAmount,
+      lowStart.z + (touchdown.z - lowStart.z) * lastStructureAmount,
+    );
+    expect(lastStructure.z).toBeLessThan(champollion.z - 12);
+    expect(exitSlip.centerline[0].z).toBeLessThan(champollion.z);
+    expect(exitSlip.centerline.at(-1)!.z).toBeGreaterThan(champollion.z);
+    expect(
+      exitSlip.centerline.every((candidate) =>
+        (candidate.elevationM ?? 0) === 0
+      ),
+    ).toBe(true);
+
+    // While the exit is low it stays in the added east-side lane. Where its
+    // earlier diagonal crosses the old Corniche footprint, it is already high
+    // enough for a full vehicle envelope beneath it.
+    const THROUGH_LANE_HALF_M = 1.65 + 3.2 / 2;
+    const STRUCTURAL_HALF_M = exitRamp.widthM / 2 + 0.7;
+    let lowSideSamples = 0;
+    let highCrossingSamples = 0;
+    for (let segmentIndex = 0; segmentIndex + 1 < exitRamp.centerline.length; segmentIndex += 1) {
+      const start = exitRamp.centerline[segmentIndex];
+      const end = exitRamp.centerline[segmentIndex + 1];
+      for (let step = 0; step <= 48; step += 1) {
+        const amount = step / 48;
+        const sample = point(
+          start.x + (end.x - start.x) * amount,
+          start.z + (end.z - start.z) * amount,
+        );
+        const elevationM =
+          (start.elevationM ?? 0) +
+          ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+        const hostDistanceM = distanceToTestPolyline(
+          sample,
+          corniche.centerline,
+        );
+        if (
+          elevationM >= ELEVATED_DECK_START_M &&
+          elevationM < 6
+        ) {
+          expect(
+            hostDistanceM - STRUCTURAL_HALF_M,
+            `low Corniche exit at ${sample.x.toFixed(1)},${sample.z.toFixed(1)}`,
+          ).toBeGreaterThanOrEqual(THROUGH_LANE_HALF_M + 0.5);
+          lowSideSamples += 1;
+        }
+        if (hostDistanceM <= STRUCTURAL_HALF_M + THROUGH_LANE_HALF_M) {
+          expect(elevationM).toBeGreaterThanOrEqual(6);
+          highCrossingSamples += 1;
+        }
+      }
+    }
+    expect(lowSideSamples).toBeGreaterThan(30);
+    expect(highCrossingSamples).toBeGreaterThan(2);
+  });
+
+  it("keeps the direct Sixth October terminal structures outside their host streets", () => {
+    const bridge = CAIRO_MAP_PACK.geometry.roadSurfaces.find(
+      (surface) => surface.id === "cairo-sixth-october-bridge",
+    )!;
+    const cases = [
+      {
+        id: "west",
+        hostId: "cairo-west-nile-street",
+        bridgeStart: bridge.centerline[0],
+        bridgeEnd: bridge.centerline[1],
+        hostNodeIndex: 6,
+      },
+      {
+        id: "east",
+        hostId: "cairo-galaa-street",
+        bridgeStart: bridge.centerline.at(-2)!,
+        bridgeEnd: bridge.centerline.at(-1)!,
+        hostNodeIndex: 7,
+      },
+    ] as const;
+
+    for (const item of cases) {
+      const host = CAIRO_MAP_PACK.geometry.roadSurfaces.find(
+        (surface) => surface.id === item.hostId,
+      )!;
+      const startElevationM = item.bridgeStart.elevationM ?? 0;
+      const endElevationM = item.bridgeEnd.elevationM ?? 0;
+      const amount =
+        (ELEVATED_DECK_START_M - startElevationM) /
+        (endElevationM - startElevationM);
+      const structuralEnd = point(
+        item.bridgeStart.x +
+          (item.bridgeEnd.x - item.bridgeStart.x) * amount,
+        item.bridgeStart.z +
+          (item.bridgeEnd.z - item.bridgeStart.z) * amount,
+      );
+      expect(
+        distanceToTestPolyline(structuralEnd, host.centerline) - host.widthM / 2,
+        `${item.id} terminal structural clearance`,
+      ).toBeGreaterThanOrEqual(1);
+
+      // These are perpendicular T landings with an at-grade junction apron,
+      // not the parallel low-deck-over-live-lane bug fixed at Ramses.
+      const hostBefore = host.centerline[item.hostNodeIndex - 1];
+      const hostAfter = host.centerline[item.hostNodeIndex + 1];
+      const hostDx = hostAfter.x - hostBefore.x;
+      const hostDz = hostAfter.z - hostBefore.z;
+      const bridgeDx = item.bridgeEnd.x - item.bridgeStart.x;
+      const bridgeDz = item.bridgeEnd.z - item.bridgeStart.z;
+      const directionDot =
+        Math.abs(hostDx * bridgeDx + hostDz * bridgeDz) /
+        (Math.hypot(hostDx, hostDz) * Math.hypot(bridgeDx, bridgeDz));
+      expect(directionDot, `${item.id} terminal approach angle`).toBeLessThan(
+        0.25,
+      );
+    }
+  });
+
+  it("authors a multi-ramp elevated road network without sacrificing a Cairo block", () => {
+    const elevated = CAIRO_MAP_PACK.geometry.roadSurfaces.filter((surface) =>
+      surface.centerline.some((point) => (point.elevationM ?? 0) > 0),
+    );
+    expect(elevated.map((surface) => surface.id)).toEqual([
+      "cairo-sixth-october-bridge",
+      "cairo-sixth-october-bridge-dokki-ramp",
+      "cairo-sixth-october-bridge-gezira-ramp",
+      "cairo-sixth-october-bridge-corniche-entry",
+      "cairo-sixth-october-bridge-corniche-exit",
+      "cairo-sixth-october-bridge-ramses-entry",
+      "cairo-sixth-october-bridge-ramses-ramp",
+      "cairo-sixth-october-bridge-ramses-exit",
+    ]);
+    expect(CAIRO_MAP_PACK.geometry.blocks).toHaveLength(BLOCK_COUNT);
+
+    const mainline = elevated[0];
+    expect(mainline.widthM).toBe(14);
+    expect(mainline.centerline[0].elevationM).toBe(0);
+    expect(mainline.centerline.at(-1)?.elevationM).toBe(0);
+    expect(
+      Math.max(...mainline.centerline.map((point) => point.elevationM ?? 0)),
+    ).toBe(10.5);
+
+    for (const surface of elevated) {
+      const placements = elevatedRoadSegmentPlacements(surface);
+      expect(placements, surface.id).toHaveLength(
+        surface.centerline.length - 1,
+      );
+      for (const segment of placements) {
+        const deckFootprint = testOrientedRect(
+          segment.center,
+          point(segment.lengthM, segment.deckWidthM),
+          (segment.boxYawRad * 180) / Math.PI,
+        );
+        for (const block of CAIRO_MAP_PACK.geometry.blocks) {
+          expect(
+            testOrientedRectsOverlap(
+              deckFootprint,
+              testOrientedRect(
+                block.center,
+                block.size,
+                block.headingDeg ?? 0,
+              ),
+            ),
+            `${surface.id} segment ${segment.segmentIndex} intersects ${block.id}`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
   it("anchors the free drive at the first Cairo player start", () => {
     expect(CAIRO_FREE_DRIVE).toMatchObject({
       id: "free-eg",
@@ -2096,11 +2706,11 @@ describe("Cairo Central Nile content", () => {
     const first = run();
     const replay = run();
     expect(replay).toEqual(first);
-    // The owner-selected Tahrir/Qasr El-Ainy start intentionally moves Cairo's
-    // deterministic local-traffic window with the player. All 32 ambient cars
-    // now begin active instead of 19 active + 13 queued; no static map content
-    // is part of this replay decision.
-    expect(first.hash).toBe("00945e48");
+    // The owner-selected Tahrir/Qasr El-Ainy start keeps 31 ambient cars active
+    // and one waiting for a safe gap. The hash also pins the new flyover/ramp
+    // successor choices so a later edit cannot silently disconnect or re-route
+    // elevated traffic.
+    expect(first.hash).toBe("779106d2");
     expect(first.snapshot).toMatchObject({
       tick: 1_800,
       status: "running",

@@ -9,6 +9,11 @@ import {
   LIMIT_REPEATER_SPACING_M,
   type RegulatorySignPlacement,
 } from "../app/game/regulatorySigns";
+import {
+  ELEVATED_ROAD_LEVEL_THRESHOLD_M,
+  elevationOnPolylineAt,
+  roadLevelAtElevation,
+} from "../app/game/roadElevation";
 
 /**
  * Regulatory signs are derived from the lane graph so signage can never
@@ -461,6 +466,14 @@ describe("robustness across map packs", () => {
 
     for (const placement of placements) {
       for (const surface of pack.geometry.roadSurfaces ?? []) {
+        if (
+          roadLevelAtElevation(placement.elevationM ?? 0) !==
+          roadLevelAtElevation(
+            elevationOnPolylineAt(surface.centerline, placement.x, placement.z),
+          )
+        ) {
+          continue;
+        }
         expect(
           distanceToPolyline(placement, surface.centerline),
           `${placement.refId} vs ${surface.id}`,
@@ -498,6 +511,48 @@ describe("speed-limit signage", () => {
         .filter((lane) => lane.role !== "roundabout")
         .map((lane) => lane.roadId),
     );
+
+  it("follows Cairo's flyover profile from low ramps to the main deck", () => {
+    const pack = getMapPack("cairo-central-nile");
+    const signs = signsFor(pack).filter((sign) =>
+      sign.roadId.startsWith("cairo-sixth-october"),
+    );
+
+    expect(signs.length).toBeGreaterThan(8);
+    for (const sign of signs) {
+      const surface = pack.geometry.roadSurfaces?.find(
+        (candidate) => candidate.id === sign.roadId,
+      );
+      expect(surface, sign.refId).toBeDefined();
+      expect(sign.elevationM ?? 0, sign.refId).toBeCloseTo(
+        elevationOnPolylineAt(surface!.centerline, sign.x, sign.z),
+        6,
+      );
+    }
+
+    // A bridge-prefixed ramp is still a continuous grade: this repeater is
+    // correctly above the street but below the broad minimap/deck threshold.
+    const lowRampRepeater = signs.find(
+      (sign) =>
+        sign.roadId === "cairo-sixth-october-bridge-corniche-entry" &&
+        sign.reason === "repeater",
+    );
+    expect(lowRampRepeater).toBeDefined();
+    expect(lowRampRepeater!.elevationM ?? 0).toBeCloseTo(2.376173, 6);
+    expect(lowRampRepeater!.elevationM ?? 0).toBeLessThan(
+      ELEVATED_ROAD_LEVEL_THRESHOLD_M,
+    );
+
+    const mainDeckSigns = signs.filter(
+      (sign) => sign.roadId === "cairo-sixth-october-bridge",
+    );
+    expect(mainDeckSigns.length).toBeGreaterThan(4);
+    expect(
+      mainDeckSigns.every(
+        (sign) => Math.abs((sign.elevationM ?? 0) - 10.5) < 1e-6,
+      ),
+    ).toBe(true);
+  });
 
   it("posts every map, including the one that posts a single figure", () => {
     // London is 20 everywhere, so a "sign only where the limit changes" rule
@@ -606,6 +661,14 @@ describe("speed-limit signage", () => {
     for (const pack of MAP_PACKS) {
       for (const sign of signsFor(pack)) {
         for (const surface of pack.geometry.roadSurfaces ?? []) {
+          if (
+            roadLevelAtElevation(sign.elevationM ?? 0) !==
+            roadLevelAtElevation(
+              elevationOnPolylineAt(surface.centerline, sign.x, sign.z),
+            )
+          ) {
+            continue;
+          }
           expect(
             distanceToPolyline(sign, surface.centerline),
             `${pack.id}/${sign.refId} vs ${surface.id}`,

@@ -5,7 +5,11 @@ import { LONDON_MAP_PACK } from "../app/game/cities/london";
 import { NYC_MAP_PACK } from "../app/game/cities/nyc";
 import { TOKYO_MAP_PACK } from "../app/game/cities/tokyo";
 import { LONDON_PARKED_CARS } from "../app/game/londonStreetFurniture";
-import { parkedCarsForMap } from "../app/game/parkedCars";
+import {
+  PARKED_CAR_REQUIRED_HEADROOM_M,
+  parkedCarsForMap,
+} from "../app/game/parkedCars";
+import { createElevatedRoadDeckHeadroomQuery } from "../app/game/geometry/elevatedRoadGeometry";
 
 const MAPS = [NYC_MAP_PACK, LONDON_MAP_PACK, TOKYO_MAP_PACK, CAIRO_MAP_PACK];
 
@@ -39,8 +43,9 @@ describe("parkedCarsForMap", () => {
       "tokyo-setagaya": 449,
       // Cairo's occupied kerbs are deliberate street character; every other
       // map holds its established count while Cairo alone takes the denser
-      // keep profile (all physical-clearance assertions below still apply).
-      "cairo-central-nile": 459,
+      // keep profile. One formerly generated car sat inside the new physical
+      // ramp-headroom envelope and is intentionally rejected.
+      "cairo-central-nile": 449,
     });
   });
 
@@ -76,6 +81,19 @@ describe("parkedCarsForMap", () => {
         }
       }
       expect(nearest).toBeGreaterThanOrEqual(13);
+    }
+  });
+
+  it("keeps Cairo parked vehicles out of low ramp structure", () => {
+    const headroomAt = createElevatedRoadDeckHeadroomQuery(
+      CAIRO_MAP_PACK.geometry.roadSurfaces,
+    );
+    for (const car of parkedCarsForMap(CAIRO_MAP_PACK)) {
+      const deck = headroomAt(car.position, 0, 2.7);
+      expect(
+        deck?.headroomM ?? Number.POSITIVE_INFINITY,
+        car.id,
+      ).toBeGreaterThanOrEqual(PARKED_CAR_REQUIRED_HEADROOM_M[car.model]);
     }
   });
 });

@@ -632,6 +632,18 @@ const NORTH_ROAD: PulloverRoad = {
 };
 
 describe("projectOntoPolyline / pointAlongPolyline", () => {
+  it("interpolates the authored deck height with the planar road pose", () => {
+    const ramp = [
+      { x: 0, z: 0, elevationM: 0 },
+      { x: 0, z: 100, elevationM: 10 },
+    ];
+    expect(projectOntoPolyline(ramp, 2, 25)?.point.elevationM).toBeCloseTo(
+      2.5,
+      6,
+    );
+    expect(pointAlongPolyline(ramp, 75)?.point.elevationM).toBeCloseTo(7.5, 6);
+  });
+
   it("finds the nearest point, its tangent and its arc length", () => {
     const hit = projectOntoPolyline(NORTH_ROAD.centerline, 3, 25);
     expect(hit).not.toBeNull();
@@ -674,6 +686,25 @@ describe("settleEase", () => {
 });
 
 describe("pulloverPose", () => {
+  it("keeps the stopped player and patrol choreography on an elevated deck", () => {
+    const road = {
+      centerline: [
+        { x: 0, z: 0, elevationM: 10.5 },
+        { x: 0, z: 400, elevationM: 10.5 },
+      ],
+      halfWidthM: 7,
+    };
+    const car: CutsceneCarPose = {
+      x: -1.7,
+      z: 20,
+      heading: 0,
+      elevationM: 10.5,
+    };
+    const parked = pulloverPose(car, 20, "right", road);
+    expect(parked.elevationM).toBe(10.5);
+    expect(lerpCarPose(car, parked, 0.5).elevationM).toBe(10.5);
+  });
+
   it("parks against the kerb on the correct side, both traffic sides", () => {
     for (const trafficSide of ["right", "left"] as const) {
       const car: CutsceneCarPose = { x: -1.7, z: 0, heading: 0 };
@@ -734,6 +765,35 @@ describe("buildPulloverScript", () => {
     // map is a legal combination the launcher allows.
     { trafficSide: "left", steeringSide: "left" },
   ];
+
+  it("samples the ramp for both patrol poses and every officer walking mark", () => {
+    const ramp: PulloverRoad = {
+      centerline: [
+        { x: 0, z: 0, elevationM: 0 },
+        { x: 0, z: 200, elevationM: 20 },
+      ],
+      halfWidthM: 6,
+    };
+    const plan = buildPulloverScript(
+      { x: -1.7, z: 100, heading: 0, elevationM: 10 },
+      10,
+      "left",
+      "right",
+      ramp,
+    );
+
+    expect(plan.patrolStart.elevationM).toBeLessThan(plan.patrol.elevationM!);
+    expect(plan.patrol.elevationM).toBeLessThan(plan.parked.elevationM!);
+    for (const pose of [plan.parked, plan.patrol, plan.patrolStart]) {
+      expect(pose.elevationM, `${pose.z}`).toBeCloseTo(pose.z / 10, 6);
+    }
+    for (const mark of plan.steps.flatMap((step) => step.path ?? [])) {
+      expect(mark.elevationM, `${mark.x},${mark.z}`).toBeCloseTo(
+        mark.z / 10,
+        6,
+      );
+    }
+  });
 
   it("puts the patrol behind the parked car, nose to tail, not through it", () => {
     for (const { trafficSide, steeringSide } of CASES) {
@@ -933,6 +993,21 @@ describe("chooseStagedShot", () => {
     const pillar = boxAt(0, 4.5, 0.35, 0.35);
     const shot = chooseStagedShot(0, 0, 9, 4.7, NORTH, [CAR], [pillar], null);
     expect(sightlineHits(shot, CAR, pillar)).toBe(false);
+  });
+
+  it("moves the camera itself out from beneath an unsafe low deck", () => {
+    const shot = chooseStagedShot(
+      0,
+      0,
+      9,
+      4.7,
+      NORTH,
+      [CAR],
+      [],
+      null,
+      ({ x, z }) => !(Math.abs(x) < 2 && z > 4),
+    );
+    expect(Math.abs(shot.x) < 2 && shot.z > 4).toBe(false);
   });
 
   it("keeps every subject in view, not just the car", () => {

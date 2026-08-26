@@ -83,6 +83,8 @@ const MAX_MITER_RATIO = 3.25;
 /** Corners tighter than this get a bare point instead of a fillet arc. */
 const MIN_FILLET_WEDGE_RAD = (30 * Math.PI) / 180;
 const MIN_EDGE_LENGTH_M = 0.05;
+/** Never spawn a crowd on a clipped sliver left between merge-lane cuts. */
+const MIN_WALKABLE_COMPONENT_M = 40;
 const NODE_MERGE_EPSILON_M = 0.05;
 
 interface Direction {
@@ -124,6 +126,39 @@ interface Rail {
   readonly length: number;
 }
 
+/**
+ * Whether a point is over the rectangular asphalt strips of a rail. Keeping
+ * the longitudinal test matters at road mouths: a pavement corner can be
+ * radially close to the centreline endpoint while sitting safely beyond the
+ * carriageway's end face.
+ */
+function pointInsideRailCarriageway(
+  point: PavementPoint,
+  rail: Rail,
+  marginM: number,
+): boolean {
+  const segmentCount = rail.closed ? rail.points.length : rail.points.length - 1;
+  for (let index = 0; index < segmentCount; index += 1) {
+    const start = rail.points[index];
+    const end = rail.points[(index + 1) % rail.points.length];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 1e-9) continue;
+    const along = ((point.x - start.x) * dx + (point.z - start.z) * dz) / length;
+    const lateral =
+      ((point.x - start.x) * dz - (point.z - start.z) * dx) / length;
+    if (
+      along >= -marginM &&
+      along <= length + marginM &&
+      Math.abs(lateral) < rail.carriagewayHalf + marginM
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function prepareSurface(
   surface: PavementSurface,
   sidewalkWidthM: number,
@@ -162,6 +197,11 @@ function prepareSurface(
     0,
     surface.sidewalkWidthM ?? sidewalkWidthM,
   );
+  // Zero explicitly means there is no pedestrian facility. In particular,
+  // Cairo's flyover surfaces author `sidewalkWidthM: 0`; treating the kerb
+  // line itself as a pavement rail would put walkers on the bridge deck if a
+  // future caller forgot to pre-filter elevated roads.
+  if (effectiveSidewalkWidthM <= 0) return null;
   return {
     id: surface.id,
     points: compact,
@@ -818,6 +858,86 @@ export function buildPavementGraph(
     nodes[a].edgeIds.push(id);
     if (b !== a) nodes[b].edgeIds.push(id);
   };
+  const auxiliarySlipRails = rails.filter((rail) =>
+    rail.id.endsWith("-slip"),
+  );
+  const addRailRun = (
+    rail: Rail,
+    rawPoints: readonly PavementPoint[],
+    closed: boolean,
+  ) => {
+    // A widening/merge can envelop part of the host street's old inner
+    // pavement. Clip just the enveloped portion: dropping the whole run would
+    // strand an otherwise valid sidewalk all the way back at the preceding
+    // ordinary junction. Half-metre samples are much narrower than the
+    // smallest authored carriageway and therefore cannot jump across one.
+    const guardedCarriageways = rail.id.endsWith("-slip")
+      ? rails
+      : auxiliarySlipRails;
+    const samples: PavementPoint[] = [];
+    for (let index = 0; index + 1 < rawPoints.length; index += 1) {
+      const start = rawPoints[index];
+      const end = rawPoints[index + 1];
+      const steps = Math.max(1, Math.ceil(pointDistance(start, end) / 0.5));
+      for (let step = index === 0 ? 0 : 1; step <= steps; step += 1) {
+        const t = step / steps;
+        samples.push({
+          x: start.x + (end.x - start.x) * t,
+          z: start.z + (end.z - start.z) * t,
+        });
+      }
+    }
+    const isBlocked = (point: PavementPoint) =>
+      guardedCarriageways.some(
+        (other) =>
+          other !== rail &&
+          pointInsideRailCarriageway(point, other, 0.25),
+      );
+    if (samples.every((point) => !isBlocked(point))) {
+      addEdge(rawPoints, closed, "run");
+      return;
+    }
+    let clearRun: PavementPoint[] = [];
+    const flushClearRun = () => {
+      if (clearRun.length > 1) addEdge(clearRun, false, "run");
+      clearRun = [];
+    };
+    for (const point of samples) {
+      if (isBlocked(point)) flushClearRun();
+      else clearRun.push(point);
+    }
+    flushClearRun();
+  };
+  const addJunctionLink = (
+    rawPoints: readonly PavementPoint[],
+    carriageways: readonly Rail[],
+  ) => {
+    // At a shallow lane split, the nominal "corner" on the inside of the
+    // fork can cut back across the host carriageway. That is a traffic island,
+    // not a pedestrian crossing; retain only the links that stay outside all
+    // asphalt and let the outer-kerb links carry the route around the merge.
+    const samples = rawPoints.flatMap((point, index) => {
+      const next = rawPoints[index + 1];
+      return next
+        ? [
+            point,
+            { x: point.x * 0.75 + next.x * 0.25, z: point.z * 0.75 + next.z * 0.25 },
+            { x: (point.x + next.x) / 2, z: (point.z + next.z) / 2 },
+            { x: point.x * 0.25 + next.x * 0.75, z: point.z * 0.25 + next.z * 0.75 },
+          ]
+        : [point];
+    });
+    const intrudesOnCarriageway = carriageways.some((rail) =>
+      samples.some(
+        (point) =>
+          // Match the walkability clearance used by the pavement invariant;
+          // the rectangular query does not misclassify a corner merely for
+          // sitting radially near a road's open end.
+          pointInsideRailCarriageway(point, rail, 0.25),
+      ),
+    );
+    if (!intrudesOnCarriageway) addEdge(rawPoints, false, "link");
+  };
 
   // Rail runs: the complement of the merged junction cuts, per side.
   for (const rail of rails) {
@@ -827,9 +947,9 @@ export function buildPavementGraph(
         if (rail.closed) {
           const ring = rail.points.map((_, index) => mitredVertex(rail, sigma, index));
           ring.push({ ...ring[0] });
-          addEdge(ring, true, "run");
+          addRailRun(rail, ring, true);
         } else {
-          addEdge(runPoints(rail, sigma, 0, rail.length), false, "run");
+          addRailRun(rail, runPoints(rail, sigma, 0, rail.length), false);
         }
         continue;
       }
@@ -837,12 +957,20 @@ export function buildPavementGraph(
         let cursor = 0;
         for (const cut of merged) {
           if (cut.start > cursor + 1e-6) {
-            addEdge(runPoints(rail, sigma, cursor, cut.start), false, "run");
+            addRailRun(
+              rail,
+              runPoints(rail, sigma, cursor, cut.start),
+              false,
+            );
           }
           cursor = Math.max(cursor, cut.end);
         }
         if (cursor < rail.length - 1e-6) {
-          addEdge(runPoints(rail, sigma, cursor, rail.length), false, "run");
+          addRailRun(
+            rail,
+            runPoints(rail, sigma, cursor, rail.length),
+            false,
+          );
         }
       } else {
         for (let index = 0; index < merged.length; index += 1) {
@@ -851,7 +979,11 @@ export function buildPavementGraph(
           const runEnd =
             index + 1 < merged.length ? nextCut.start : nextCut.start + rail.length;
           if (runEnd > runStart + 1e-6) {
-            addEdge(runPoints(rail, sigma, runStart, runEnd), false, "run");
+            addRailRun(
+              rail,
+              runPoints(rail, sigma, runStart, runEnd),
+              false,
+            );
           }
         }
       }
@@ -864,11 +996,20 @@ export function buildPavementGraph(
   for (const cluster of junctions) {
     const legs = cluster.pairing;
     if (legs.length < 2) continue;
+    const isAuxiliaryMerge =
+      legs.some((leg) => leg.rail.id.endsWith("-slip")) ||
+      auxiliarySlipRails.some((rail) =>
+        pointInsideRailCarriageway(cluster, rail, 20),
+      );
     for (const [index, leg] of legs.entries()) {
-      addEdge(
-        cornerLinkPoints(leg, legs[(index + 1) % legs.length], kerbRadius),
-        false,
-        "link",
+      const linkPoints = cornerLinkPoints(
+        leg,
+        legs[(index + 1) % legs.length],
+        kerbRadius,
+      );
+      addJunctionLink(
+        linkPoints,
+        isAuxiliaryMerge ? rails : auxiliarySlipRails,
       );
     }
   }
@@ -878,14 +1019,66 @@ export function buildPavementGraph(
     if (rail.closed) continue;
     for (const pointIndex of [0, rail.points.length - 1]) {
       if (!junctionMemberKeys.has(`${rail.id}:${pointIndex}`)) {
+        // A slip lane continues into a vehicle-only ramp. Its pavement ends
+        // at a guardrail; wrapping a semicircular pedestrian cap around that
+        // mouth would send walkers across the asphalt (and, on the Corniche,
+        // into the retained frontage immediately beside it).
+        if (rail.id.endsWith("-slip")) continue;
         addEdge(deadEndCapPoints(rail, pointIndex === 0), false, "cap");
       }
     }
   }
 
+  // Filtering the inside of a shallow merge can strand centimetre- or
+  // metre-long rail crumbs between two cuts. They are not useful routes and
+  // make poor spawn candidates, so keep only substantial connected pieces.
+  const parent = nodes.map((_, index) => index);
+  const find = (id: number): number => {
+    let cursor = id;
+    while (parent[cursor] !== cursor) {
+      parent[cursor] = parent[parent[cursor]];
+      cursor = parent[cursor];
+    }
+    return cursor;
+  };
+  for (const edge of edges) parent[find(edge.a)] = find(edge.b);
+  const componentLengthM = new Map<number, number>();
+  for (const edge of edges) {
+    const root = find(edge.a);
+    componentLengthM.set(
+      root,
+      (componentLengthM.get(root) ?? 0) + edge.lengthM,
+    );
+  }
+  const keptEdges = edges.filter(
+    (edge) =>
+      (componentLengthM.get(find(edge.a)) ?? 0) > MIN_WALKABLE_COMPONENT_M,
+  );
+  const compactNodes: Array<{ x: number; z: number; edgeIds: number[] }> = [];
+  const compactNodeAt = (point: PavementPoint): number => {
+    const existing = compactNodes.findIndex(
+      (node) => pointDistance(node, point) <= NODE_MERGE_EPSILON_M,
+    );
+    if (existing >= 0) return existing;
+    compactNodes.push({ x: point.x, z: point.z, edgeIds: [] });
+    return compactNodes.length - 1;
+  };
+  const compactEdges = keptEdges.map((edge, id): PavementEdge => {
+    const a = compactNodeAt(edge.points[0]);
+    const b = edge.closed ? a : compactNodeAt(edge.points.at(-1)!);
+    compactNodes[a].edgeIds.push(id);
+    if (b !== a) compactNodes[b].edgeIds.push(id);
+    return { ...edge, id, a, b };
+  });
+
   return {
-    nodes: nodes.map((node, id) => ({ id, x: node.x, z: node.z, edgeIds: node.edgeIds })),
-    edges,
+    nodes: compactNodes.map((node, id) => ({
+      id,
+      x: node.x,
+      z: node.z,
+      edgeIds: node.edgeIds,
+    })),
+    edges: compactEdges,
     junctions: junctions.map((cluster) => ({ x: cluster.x, z: cluster.z })),
   };
 }

@@ -18,6 +18,7 @@ import {
 import type { ServiceArea, StaticObstacle, StaticObstacleTag } from "./types";
 import { normalizeAmbientVehicleSlotCount } from "./simulation/ambientTraffic";
 import { distanceToPolygon } from "./simulation/mathUtils";
+import { ELEVATED_ROAD_LEVEL_THRESHOLD_M } from "./roadElevation";
 
 // Re-exported for the same reason `servicePoints` re-exports `ServicePointKind`:
 // `GameCanvas` reads the obstacles this module builds, and otherwise keeps clear
@@ -67,6 +68,13 @@ import {
   planMapBuildings,
   type BuildingLayoutPlan,
 } from "./geometry/buildingLayout";
+import {
+  ELEVATED_ROAD_DECK_SLAB_THICKNESS_M,
+  ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
+  createElevatedRoadGroundClearanceQuery,
+  elevatedRoadBarrierPlacements,
+  elevatedRoadPierPlacements,
+} from "./geometry/elevatedRoadGeometry";
 import { relaxationPolicyForMap } from "./geometry/cityRelaxationPolicies";
 import { landmarkGroundSolids, type GroundSolid } from "./geometry/landmarkGroundSolids";
 import {
@@ -855,6 +863,7 @@ export function buildRuntimeTrafficPortals(
         distance,
         x: pose.x,
         z: pose.z,
+        ...(pose.elevationM ? { elevationM: pose.elevationM } : {}),
         heading: pose.heading,
       });
     }
@@ -1066,6 +1075,52 @@ export function buildStaticObstacles({
     }
   }
 
+  // The visible elevated-road parapets are also the physical guard rails.
+  // Build from the renderer's shared edge-run geometry so a merge opening,
+  // slope clip, or deck-width adjustment can never leave an invisible wall
+  // or a visible barrier the car can drive through. Long pitched runs are
+  // split into local elevation bands by the geometry helper: ground traffic
+  // under a high span ignores them while a car on that span is contained.
+  const roadSurfaces = mapPack.geometry.roadSurfaces ?? [];
+  for (const surface of roadSurfaces) {
+    for (const barrier of elevatedRoadBarrierPlacements(
+      surface,
+      roadSurfaces,
+    )) {
+      obstacles.push({
+        kind: "obb",
+        id: barrier.id,
+        tag: "roadBarrier",
+        x: barrier.x,
+        z: barrier.z,
+        ux: barrier.ux,
+        uz: barrier.uz,
+        halfU: barrier.halfU,
+        halfV: barrier.halfV,
+        minElevationM: barrier.minElevationM,
+        maxElevationM: barrier.maxElevationM,
+      });
+    }
+    // Columns/footings are genuine ground-world solids. Their upper bound
+    // ends at the soffit so the car carried by the deck does not collide with
+    // its own support when both share x/z.
+    for (const pier of elevatedRoadPierPlacements(surface, roadSurfaces)) {
+      obstacles.push({
+        kind: "circle",
+        id: `elevated-road-${surface.id}-pier-${pier.index}-collider`,
+        tag: "roadSupport",
+        x: pier.position.x,
+        z: pier.position.z,
+        radius: ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
+        minElevationM: 0,
+        maxElevationM: Math.max(
+          0,
+          pier.elevationM - ELEVATED_ROAD_DECK_SLAB_THICKNESS_M,
+        ),
+      });
+    }
+  }
+
   // Resolved here so the service-point furniture below (the shop/pump-island
   // solids) has a pose to place from. Buildings no longer carve around a lot
   // at all: the plan already omits any building that would stand inside one.
@@ -1241,6 +1296,7 @@ export function buildStaticObstacles({
           kind: "obb",
           id: `${water.id}-shore-${edgeIndex}-${rangeIndex}`,
           tag: "shoreline",
+          maxElevationM: ELEVATED_ROAD_LEVEL_THRESHOLD_M,
           x: from.x + edgeX * midpoint,
           z: from.z + edgeZ * midpoint,
           ux,
@@ -1264,6 +1320,7 @@ export function buildStaticObstacles({
             kind: "obb",
             id: `${water.id}-portal-${surface.id}-${span.segmentIndex}-${span.intervalIndex}-${side < 0 ? "left" : "right"}`,
             tag: "shoreline",
+            maxElevationM: ELEVATED_ROAD_LEVEL_THRESHOLD_M,
             x: span.center.x + rightX * lateralOffset * side,
             z: span.center.z + rightZ * lateralOffset * side,
             ux: span.ux,
@@ -1697,6 +1754,8 @@ export function buildSimulationCoreConfig({
     minZ: -mapPack.geometry.worldSize.z / 2 - boundsPadding,
     maxZ: mapPack.geometry.worldSize.z / 2 + boundsPadding,
   };
+  const elevatedRoadGroundClearanceAt =
+    createElevatedRoadGroundClearanceQuery(mapPack.geometry.roadSurfaces ?? []);
   return {
     trafficSide,
     speedUnit: normalizedSpeedUnit,
@@ -1705,6 +1764,16 @@ export function buildSimulationCoreConfig({
     lanes,
     bounds,
     staticObstacles: buildStaticObstacles({ mapPack, bounds, buildingLayout: resolvedBuildingLayout }),
+    // Supports stay in `staticObstacles`: those circular solids provide the
+    // collision normal and slide/bonk response. This query covers only the
+    // raised asphalt and structural slab a vehicle roof must fit beneath.
+    elevatedRoadGroundClearanceAt: (point, groundElevationM, footprintRadiusM) =>
+      elevatedRoadGroundClearanceAt(
+        point,
+        groundElevationM,
+        footprintRadiusM,
+        false,
+      ),
     serviceAreas: buildServiceAreas(mapPack),
     spawn: { x: start.x, z: start.z, heading: start.heading },
     trafficLights: traffic.lights,

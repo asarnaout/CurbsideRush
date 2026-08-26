@@ -118,7 +118,13 @@ export function nearestPointOnPolyline(
             ),
           )
         : 0;
-    const point = { x: start.x + dx * t, z: start.z + dz * t };
+    const point = {
+      x: start.x + dx * t,
+      z: start.z + dz * t,
+      elevationM:
+        (start.elevationM ?? 0) +
+        ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * t,
+    };
     const distance = Math.hypot(query.x - point.x, query.z - point.z);
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -275,10 +281,10 @@ export function buildRoadSurfaceStripGeometry(
     const point = points[index];
     positions.push(
       point.x + lateral.x,
-      0,
+      point.elevationM ?? 0,
       point.z + lateral.z,
       point.x - lateral.x,
-      0,
+      point.elevationM ?? 0,
       point.z - lateral.z,
     );
   }
@@ -541,6 +547,7 @@ export function collectRoadJunctionFills(
   const clusters: Array<{
     x: number;
     z: number;
+    elevationM: number;
     surfaceIds: Set<string>;
     maxHalf: number;
     arms: Array<{
@@ -559,12 +566,15 @@ export function collectRoadJunctionFills(
       let cluster = clusters.find(
         (candidate) =>
           Math.hypot(candidate.x - node.x, candidate.z - node.z) <=
-          ROAD_POINT_EPSILON_M,
+            ROAD_POINT_EPSILON_M &&
+          Math.abs(candidate.elevationM - (node.elevationM ?? 0)) <=
+            ROAD_POINT_EPSILON_M,
       );
       if (!cluster) {
         cluster = {
           x: node.x,
           z: node.z,
+          elevationM: node.elevationM ?? 0,
           surfaceIds: new Set(),
           maxHalf: 0,
           arms: [],
@@ -601,13 +611,21 @@ export function collectRoadJunctionFills(
       const own = clusters.find(
         (candidate) =>
           Math.hypot(candidate.x - tip.x, candidate.z - tip.z) <=
-          ROAD_POINT_EPSILON_M,
+            ROAD_POINT_EPSILON_M &&
+          Math.abs(candidate.elevationM - (tip.elevationM ?? 0)) <=
+            ROAD_POINT_EPSILON_M,
       );
       if (own && own.surfaceIds.size > 1) continue;
       let adopter: (typeof clusters)[number] | null = null;
       let best = Number.POSITIVE_INFINITY;
       for (const cluster of clusters) {
         if (cluster === own || cluster.surfaceIds.size <= 1) continue;
+        if (
+          Math.abs(cluster.elevationM - (tip.elevationM ?? 0)) >
+          ROAD_POINT_EPSILON_M
+        ) {
+          continue;
+        }
         const distance = Math.hypot(cluster.x - tip.x, cluster.z - tip.z);
         if (distance <= cluster.maxHalf + half && distance < best) {
           adopter = cluster;
@@ -629,7 +647,25 @@ export function collectRoadJunctionFills(
   const fills: RoadJunctionFill[] = [];
   for (const cluster of clusters) {
     if (cluster.surfaceIds.size <= 1) continue;
-    const pivot = { x: cluster.x, z: cluster.z };
+    const hasProfiledArm = cluster.arms.some((arm) =>
+      arm.neighbours.some(
+        (neighbour) =>
+          Math.abs((neighbour.elevationM ?? 0) - cluster.elevationM) >
+          ROAD_POINT_EPSILON_M,
+      ),
+    );
+    // This fill is a flat triangle fan at the pivot's height. At an elevated
+    // ramp merge that would project the 10.5 m deck plane several metres down
+    // the sloped arm, roofing over the car. The independently mitered road
+    // strips already overlap at that throat, so only a genuinely level high
+    // junction needs the supplemental fill. Ground junctions keep their fill:
+    // there it sits below an ascending strip rather than above it.
+    if (cluster.elevationM > ROAD_POINT_EPSILON_M && hasProfiledArm) continue;
+    const pivot = {
+      x: cluster.x,
+      z: cluster.z,
+      elevationM: cluster.elevationM,
+    };
     const legs: RoadJunctionLeg[] = [];
     for (const arm of cluster.arms) {
       for (const neighbour of arm.neighbours) {

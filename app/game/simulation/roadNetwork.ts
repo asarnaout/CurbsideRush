@@ -1,5 +1,6 @@
 import type { SimulationPoint, SimulationPose, SimulationBounds, TurnSignal } from "../simulation";
 import { angleDifference, clamp, distanceSquared } from "./mathUtils";
+import { ELEVATED_ROAD_STRUCTURE_THRESHOLD_M } from "./roadLevels";
 import {
   railCrossingSignalAt,
   railCrossingWarningWindows,
@@ -120,6 +121,10 @@ export interface NormalizedLane {
   loop: boolean;
   segmentLengths: number[];
   length: number;
+  /** Highest authored point on this lane. A lane whose profile ever rises
+   * into structural bridge height cannot be acquired from an unrelated
+   * ground street merely because their x/z projections overlap. */
+  maxElevationM: number;
   /** Position in RoadNetwork.lanes, stamped in the constructor — lets hot
    * paths key typed arrays by lane without a map lookup. */
   index?: number;
@@ -145,6 +150,7 @@ export interface LaneProjection {
   heading: number;
   x: number;
   z: number;
+  elevationM: number;
 }
 
 export interface RoadProjectionPreference {
@@ -153,6 +159,32 @@ export interface RoadProjectionPreference {
   /** Global minimum-distance band. The 0.1 m default covers authored shared
    * node tolerances while remaining far below a lane width. */
   readonly distanceTieEpsilonM?: number;
+  /** Keeps exactly stacked lanes stable, but yields once another connected
+   * surface is measurably closer so an on-ramp can acquire the car. */
+  readonly preferredLaneId?: string;
+  /** Height occupied on the previous simulation step. When a nearby lane
+   * continues at this height, a geometrically closer road underneath it must
+   * not steal the projection and snap the vehicle vertically. Zero remains a
+   * real ground-height preference. Fully at-grade lanes remain global so a
+   * one-tick intersection projection cannot trap the car; a lane whose profile
+   * rises into bridge structure requires a connected, directed transition. */
+  readonly preferredElevationM?: number;
+  /** Maximum per-step height difference still considered the same continuous
+   * road surface. Defaults to 0.55 m, comfortably above any authored ramp's
+   * fixed-step rise while remaining far below a separate road level. */
+  readonly elevationContinuityM?: number;
+  /** Above ground, the height lock is abandoned when no compatible lane is
+   * this close, so teleports and genuine departures from a ramp can still
+   * reach the street. Ground itself never expires by distance. Defaults to
+   * 12 m: a four-lane flyover plus an oblique ramp gore can put the car 7–10 m
+   * from every lane centre while it is still on continuous elevated asphalt. */
+  readonly elevationCaptureDistanceM?: number;
+  /**
+   * Lets an explicit authored 3D placement acquire any lane at the supplied
+   * height. Live driving leaves this false: a ground car may enter a profiled
+   * ramp only through the occupied lane's graph neighbours.
+   */
+  readonly allowUnconnectedElevationCapture?: boolean;
 }
 
 /** Read-only instrumentation for external traffic benchmarks. It is never
@@ -184,7 +216,15 @@ export const ROUTE_LOOKAHEAD_MAX_HOPS = 6;
 function normalizeLane(lane: SimulationLane): NormalizedLane {
   const points = lane.points
     .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.z))
-    .map((point) => ({ x: point.x, z: point.z }));
+    .map((point) =>
+      Number.isFinite(point.elevationM)
+        ? {
+            x: point.x,
+            z: point.z,
+            elevationM: Math.max(0, point.elevationM ?? 0),
+          }
+        : { x: point.x, z: point.z },
+    );
   if (points.length < 2) {
     throw new Error(`Simulation lane "${lane.id}" needs at least two finite points.`);
   }
@@ -198,6 +238,10 @@ function normalizeLane(lane: SimulationLane): NormalizedLane {
   if (length <= Number.EPSILON) {
     throw new Error(`Simulation lane "${lane.id}" has no usable length.`);
   }
+  const maxElevationM = points.reduce(
+    (highest, point) => Math.max(highest, point.elevationM ?? 0),
+    0,
+  );
   return {
     id: lane.id,
     roadId: lane.roadId,
@@ -211,6 +255,7 @@ function normalizeLane(lane: SimulationLane): NormalizedLane {
     loop: lane.loop ?? true,
     segmentLengths,
     length,
+    maxElevationM,
   };
 }
 
@@ -300,6 +345,14 @@ export class RoadNetwork {
   readonly trafficLightsById: Map<string, NormalizedTrafficLight>;
   readonly stopLines: StopLineDefinition[];
   readonly stopLinesByLaneId: Map<string, StopLineDefinition[]>;
+  private readonly predecessorLaneIdsById = new Map<string, string[]>();
+  /** Reused by player projection; at most the occupied lane plus its immediate
+   * legal neighbours. Clearing it avoids a Set allocation every fixed step. */
+  private readonly projectionContinuityLaneIds = new Set<string>();
+  /** Directional subset used only while acquiring a rising profile from
+   * ground. Predecessors are intentionally absent: accepting one lets a car
+   * on a through street latch onto a nearby exit ramp backwards. */
+  private readonly groundProfileCaptureLaneIds = new Set<string>();
 
   // routeDistanceAhead scratch. Route-leading now reaches this exact search
   // only through TrafficSpatialIndex's conservative topology candidates;
@@ -342,6 +395,11 @@ export class RoadNetwork {
           this.lanesById.has(successorId) &&
           values.indexOf(successorId) === index,
       );
+      for (const successorId of lane.successorLaneIds) {
+        const predecessors = this.predecessorLaneIdsById.get(successorId);
+        if (predecessors) predecessors.push(lane.id);
+        else this.predecessorLaneIdsById.set(successorId, [lane.id]);
+      }
     }
     this.conflictApproachLaneIds = buildConflictApproachLaneIds(this.lanes);
 
@@ -405,16 +463,28 @@ export class RoadNetwork {
         const amount = segmentLength > 0 ? (distance - accumulated) / segmentLength : 0;
         const start = lane.points[index];
         const end = lane.points[index + 1];
+        const clampedAmount = clamp(amount, 0, 1);
+        const elevationM =
+          (start.elevationM ?? 0) +
+          ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * clampedAmount;
         return {
-          x: start.x + (end.x - start.x) * clamp(amount, 0, 1),
-          z: start.z + (end.z - start.z) * clamp(amount, 0, 1),
+          x: start.x + (end.x - start.x) * clampedAmount,
+          z: start.z + (end.z - start.z) * clampedAmount,
+          ...(elevationM > 0 ? { elevationM } : {}),
           heading: Math.atan2(end.x - start.x, end.z - start.z),
         };
       }
       accumulated += segmentLength;
     }
     const final = lane.points[lane.points.length - 1];
-    return { x: final.x, z: final.z, heading: 0 };
+    return {
+      x: final.x,
+      z: final.z,
+      ...((final.elevationM ?? 0) > 0
+        ? { elevationM: final.elevationM }
+        : {}),
+      heading: 0,
+    };
   }
 
   projectToRoad(
@@ -424,7 +494,78 @@ export class RoadNetwork {
   ): LaneProjection | null {
     if (preference) {
       let minimumDistance = Number.POSITIVE_INFINITY;
+      let minimumElevationCompatibleDistance = Number.POSITIVE_INFINITY;
+      const preferredElevationM = Number.isFinite(preference.preferredElevationM)
+        ? Math.max(0, preference.preferredElevationM ?? 0)
+        : null;
+      const elevationContinuityM = Math.max(
+        0,
+        Number.isFinite(preference.elevationContinuityM)
+          ? (preference.elevationContinuityM ?? 0.55)
+          : 0.55,
+      );
+      const elevationCaptureDistanceM = Math.max(
+        0,
+        Number.isFinite(preference.elevationCaptureDistanceM)
+          ? (preference.elevationCaptureDistanceM ?? 12)
+          : 12,
+      );
+      const continuityLaneIds = this.projectionContinuityLaneIds;
+      continuityLaneIds.clear();
+      const groundProfileCaptureLaneIds = this.groundProfileCaptureLaneIds;
+      groundProfileCaptureLaneIds.clear();
+      const preferredLane = preference.preferredLaneId
+        ? this.lanesById.get(preference.preferredLaneId)
+        : undefined;
+      if (preferredLane) {
+        continuityLaneIds.add(preferredLane.id);
+        groundProfileCaptureLaneIds.add(preferredLane.id);
+        if (preferredLane.adjacentLaneId) {
+          continuityLaneIds.add(preferredLane.adjacentLaneId);
+          groundProfileCaptureLaneIds.add(preferredLane.adjacentLaneId);
+        }
+        for (const laneId of preferredLane.successorLaneIds) {
+          continuityLaneIds.add(laneId);
+          groundProfileCaptureLaneIds.add(laneId);
+          const successor = this.lanesById.get(laneId);
+          if (successor?.adjacentLaneId) {
+            continuityLaneIds.add(successor.adjacentLaneId);
+            groundProfileCaptureLaneIds.add(successor.adjacentLaneId);
+          }
+        }
+        for (const laneId of this.predecessorLaneIdsById.get(preferredLane.id) ?? []) {
+          continuityLaneIds.add(laneId);
+          const predecessor = this.lanesById.get(laneId);
+          if (predecessor?.adjacentLaneId) {
+            continuityLaneIds.add(predecessor.adjacentLaneId);
+          }
+        }
+      }
+      const groundHeightPreference =
+        preferredElevationM !== null &&
+        preferredElevationM <= ELEVATED_ROAD_STRUCTURE_THRESHOLD_M;
+      const allowUnconnectedElevationCapture = Boolean(
+        preference.allowUnconnectedElevationCapture,
+      );
+      // An authored elevated spawn has a height but no preceding lane yet, so
+      // it needs a one-off all-lane height search. Ground projection stays
+      // global only across lanes that remain entirely at grade: that recovers
+      // from transient crossing/opposing projections without letting an
+      // unrelated ramp's shallow apron become a staircase onto the bridge.
+      // A live ground-to-ramp transition must instead come from the occupied
+      // lane, its adjacent lane, or an immediate directed successor. A raised
+      // predecessor is an exit ramp, not a valid entrance from this lane.
+      const scanAllLanesForElevation =
+        preferredElevationM !== null &&
+        (allowUnconnectedElevationCapture ||
+          (continuityLaneIds.size === 0 && !groundHeightPreference));
       for (const lane of this.lanes) {
+        const elevationCandidateLane =
+          scanAllLanesForElevation ||
+          (groundHeightPreference
+            ? lane.maxElevationM < ELEVATED_ROAD_STRUCTURE_THRESHOLD_M ||
+              groundProfileCaptureLaneIds.has(lane.id)
+            : continuityLaneIds.has(lane.id));
         for (let index = 0; index < lane.points.length - 1; index += 1) {
           const start = lane.points[index];
           const end = lane.points[index + 1];
@@ -441,23 +582,67 @@ export class RoadNetwork {
               : 0;
           const nearestX = start.x + dx * amount;
           const nearestZ = start.z + dz * amount;
-          minimumDistance = Math.min(
-            minimumDistance,
-            Math.hypot(x - nearestX, z - nearestZ),
-          );
+          const distance = Math.hypot(x - nearestX, z - nearestZ);
+          minimumDistance = Math.min(minimumDistance, distance);
+          if (
+            elevationCandidateLane &&
+            preferredElevationM !== null &&
+            Math.abs(
+              (start.elevationM ?? 0) +
+                ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount -
+                preferredElevationM,
+            ) <= elevationContinuityM
+          ) {
+            minimumElevationCompatibleDistance = Math.min(
+              minimumElevationCompatibleDistance,
+              distance,
+            );
+          }
         }
       }
       if (!Number.isFinite(minimumDistance)) return null;
+      // Ground is a physical layer, not a proximity hint. If no legal lane at
+      // that layer exists, returning no projection keeps the car on the ground
+      // and off-road instead of assigning the closest deck's height.
+      if (
+        groundHeightPreference &&
+        !Number.isFinite(minimumElevationCompatibleDistance)
+      ) {
+        return null;
+      }
+      const lockToContinuousElevation =
+        preferredElevationM !== null &&
+        (groundHeightPreference ||
+          minimumElevationCompatibleDistance <= elevationCaptureDistanceM);
+      if (lockToContinuousElevation) {
+        minimumDistance = minimumElevationCompatibleDistance;
+      }
       const tieEpsilon = Math.max(
         0,
         Number.isFinite(preference.distanceTieEpsilonM)
           ? (preference.distanceTieEpsilonM ?? 0.1)
           : 0.1,
       );
+      // Lane identity is a much narrower hysteresis than the heading tie
+      // band. At a ramp mouth the rising lane can be only centimetres closer
+      // than the road below; letting the old lane own the entire 0.1 m heading
+      // band prevents the car from ever acquiring the ramp. Exact stacks still
+      // retain their previous lane deterministically.
+      const preferredLaneHysteresisM = Math.min(tieEpsilon, 0.025);
       let best: LaneProjection | null = null;
       let bestHeadingDifference = Number.POSITIVE_INFINITY;
+      let bestPreferred = false;
       let accumulated = 0;
       for (const lane of this.lanes) {
+        const elevationCandidateLane =
+          scanAllLanesForElevation ||
+          (groundHeightPreference
+            ? lane.maxElevationM < ELEVATED_ROAD_STRUCTURE_THRESHOLD_M ||
+              groundProfileCaptureLaneIds.has(lane.id)
+            : continuityLaneIds.has(lane.id));
+        if (lockToContinuousElevation && !elevationCandidateLane) {
+          continue;
+        }
         accumulated = 0;
         for (let index = 0; index < lane.points.length - 1; index += 1) {
           const start = lane.points[index];
@@ -476,6 +661,17 @@ export class RoadNetwork {
           const nearestX = start.x + dx * amount;
           const nearestZ = start.z + dz * amount;
           const distance = Math.hypot(x - nearestX, z - nearestZ);
+          const elevationM =
+            (start.elevationM ?? 0) +
+            ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+          if (
+            lockToContinuousElevation &&
+            preferredElevationM !== null &&
+            Math.abs(elevationM - preferredElevationM) > elevationContinuityM
+          ) {
+            accumulated += lane.segmentLengths[index];
+            continue;
+          }
           if (distance > minimumDistance + tieEpsilon + 1e-9) {
             accumulated += lane.segmentLengths[index];
             continue;
@@ -486,13 +682,23 @@ export class RoadNetwork {
           );
           const distanceAlong =
             accumulated + lane.segmentLengths[index] * amount;
+          const preferred = lane.id === preference.preferredLaneId;
+          const preferredLaneDecision =
+            best && preferred !== bestPreferred
+              ? preferred
+                ? distance <= best.distance + preferredLaneHysteresisM
+                : distance < best.distance - preferredLaneHysteresisM
+              : null;
           if (
             !best ||
-            headingDifference < bestHeadingDifference - 1e-9 ||
-            (Math.abs(headingDifference - bestHeadingDifference) <= 1e-9 &&
-              (lane.id < best.lane.id ||
-                (lane.id === best.lane.id &&
-                  distanceAlong < best.distanceAlong)))
+            preferredLaneDecision === true ||
+            (preferred === bestPreferred &&
+              (headingDifference < bestHeadingDifference - 1e-9 ||
+                (Math.abs(headingDifference - bestHeadingDifference) <=
+                  1e-9 &&
+                  (lane.id < best.lane.id ||
+                    (lane.id === best.lane.id &&
+                      distanceAlong < best.distanceAlong)))))
           ) {
             best = {
               lane,
@@ -501,8 +707,10 @@ export class RoadNetwork {
               heading,
               x: nearestX,
               z: nearestZ,
+              elevationM,
             };
             bestHeadingDifference = headingDifference;
+            bestPreferred = preferred;
           }
           accumulated += lane.segmentLengths[index];
         }
@@ -535,6 +743,9 @@ export class RoadNetwork {
             heading: Math.atan2(dx, dz),
             x: nearestX,
             z: nearestZ,
+            elevationM:
+              (start.elevationM ?? 0) +
+              ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount,
           };
         }
         accumulated += lane.segmentLengths[index];

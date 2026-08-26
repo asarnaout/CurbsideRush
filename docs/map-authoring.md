@@ -3,6 +3,11 @@
 There is **no generic procedural city generator and no runtime map import**.
 `getMapPack(id)` is a pure frozen lookup that throws on unknown ids.
 
+For any bridge, flyover or ramp, the mandatory cross-system checklist is
+[grade-separated-road-implementation-guide.md](grade-separated-road-implementation-guide.md).
+The Cairo reference network and its preservation decisions are documented in
+[cairo-elevated-road-network.md](cairo-elevated-road-network.md).
+
 ## Two parallel truths that must stay in sync
 
 - **`laneGraph.lanes`** — directed *legal* truth. What the simulation, GPS
@@ -11,6 +16,59 @@ There is **no generic procedural city generator and no runtime map import**.
 
 Linked only by `LaneSegment.roadId` ↔ `RoadSurface.id`/`laneIds`. Two-way streets
 mirror one directed lane onto each side of the surface centreline.
+
+Both truths may carry `WorldPoint.elevationM`. Every lane and its matching
+surface must use the same profile: x/z still drive steering, routing and legal
+connectivity, while elevation places the road strip, paint, player, traffic and
+camera. At an x/z overlap, projection prefers the vehicle's current lane so a
+ground road and flyover cannot exchange cars merely because one is declared
+first. Junction fills also cluster by elevation; a flyover crossing is not an
+intersection unless explicit same-height ramp nodes connect it.
+
+Projection is three-dimensional even though steering remains planar. The
+previous fixed step's elevation locks selection to a nearby height-continuous
+lane, with a 12 m capture limit so a teleport or real departure can escape.
+The continuity search includes the occupied lane plus its adjacent,
+predecessor and successor lanes. Authored map points may omit ground
+`elevationM`, but pose APIs must preserve an explicitly supplied zero:
+`setPlayerPose({..., elevationM: 0})` clears an old elevated projection before
+resolving the street beneath it.
+
+At the ground mouth, an on/off ramp must be an auxiliary lane rather than a
+replacement for the host street. Keep the host road continuous, insert a
+topology-only merge node on its centreline, taper a narrow one-way slip toward
+a lift point, and begin the graded deck only beyond that point. Direction-limit
+the connector so only the adjacent travel direction can enter or receive the
+ramp. This supplies real x/z separation for projection, preserves the through
+lane, and keeps the parapet out of the junction. The structural renderer clips
+the slab and parapet below 0.65 m so the full ground taper remains open.
+
+An elevated `RoadSurface` derives its concrete slab, edge girders, parapets and
+hammerhead supports through `buildElevatedRoadStructures`. Supports yield to
+every at-grade road. Do not add a high bridge to a water body's
+`bridgePortalSurfaceIds`: an elevated deck passes over a continuous shoreline;
+that list is only for at-grade decks which must cut the bank and receive planar
+parapet colliders. Ground-height banks and parapets may set
+`StaticObstacle.maxElevationM`; Cairo ends those colliders at the elevated-road
+threshold so a flyover vehicle clears them while a street-level car still meets
+the continuous shore. Regulatory signs and runtime traffic portals inherit the
+road profile too, so they render and populate on the deck rather than beneath it.
+
+The elevated-road geometry prepares both exact structural headroom and the
+complete raised-asphalt footprint. Ground actors must use the combined query:
+the ramp surface rises from 0 m even though its slab is clipped until 0.65 m,
+so a slab-only test leaves a shin-height pedestrian seam at the landing. Every
+placement system must ask with the object's real envelope: full pole/head for a
+signal, selected model for a parked car, and kind/variant/scale for roadside or
+park dressing. Apply the gate before planting is split into reachable and
+batched queues. A single tallest-prop constant is not acceptable because it
+unnecessarily strips benches and bollards from otherwise usable undercrofts.
+
+Elevated parapets are simulation obstacles as well as meshes. Their OBBs come
+from the exact trimmed edge runs the renderer uses, are split into short local
+height bands on slopes, and leave the same merge mouths open. Do not hand-author
+parallel barrier rectangles or give one long ramp obstacle a ground-to-crest
+height range.
 
 Also authored: `RoadSurface.sidewalkWidthM` overrides the map default per road;
 `ProceduralBlock.headingDeg` rotates its façade slots, exclusions and every
@@ -37,6 +95,8 @@ A park's dressing, wall and gates are derived ([greenery.md](greenery.md));
 |---|---|---|
 | asphalt strips, kerb/junction fills | `roadSurfaces` | `buildRoadSurfaceStripGeometry`, `collectRoadJunctionFills` |
 | paint broken at junctions | `roadSurfaces` | `splitMarkingAtCrossings` |
+| elevated slab, edges, supports and headroom | elevated `roadSurfaces` | `geometry/elevatedRoadGeometry.ts`, `render/elevatedRoadLayer.ts` |
+| height-banded parapet obstacles | rendered elevated edge runs | `elevatedRoadBarrierPlacements`, `buildStaticObstacles` |
 | walkable pavement rails | `roadSurfaces` | `buildPavementGraph` |
 | ambient traffic routes | `lanes.successors` | `SimulationCore.advanceNpcAlongLegalRoute` |
 | gig drop-off addresses | `lanes` + `blocks` | `generateStreetAddresses` |
@@ -65,6 +125,12 @@ the bar and a metre past the kerb face, on the traffic side. Clearance is a
 **veto** on that ideal spot, never the thing being maximised — maximising it is
 how every Cairo head once stood 13–24 m out on open ground.
 
+On an elevated approach, every control installation position must carry the
+road's `elevationM`. Pole, signal head, crossing rig and enforcement camera add
+that base height; crosswalks and stop bars inherit their selected surface/lane
+height. Marking segments pitch between endpoint elevations, so a bar or hatch
+on a grade cannot fall back to the ground plane or remain artificially flat.
+
 **Signage is derived, controls are authored, so the post is what moves.**
 `RegulatorySignInput.occupiedPositions` carries every authored pole; a
 speed-limit sign landing within `LIMIT_FURNITURE_CLEARANCE_M` of one slides
@@ -77,7 +143,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 | Map | Lanes | Roads | Lane km | Signals | Cameras | World (x × z m) |
 |---|---|---|---|---|---|---|
 | `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
-| `cairo-central-nile` | 327 | 50 | 51.9 | 10 | 3 | 1770 × 1830 |
+| `cairo-central-nile` | 377 | 56 | 60.2 | 10 | 3 | 1770 × 1830 |
 | `tokyo-setagaya` | 538 | 102 | 96.1 | 41 | 14 | 2600 × 2400 |
 | `london-south-kensington` | 380 | 86 | 69.9 | 12 | 4 | 2950 × 2000 |
 
@@ -296,6 +362,18 @@ per-road building-set overrides to hand-tune around.
 `CAIRO_ROAD_SPECS` plus the turn whitelist in `CAIRO_JUNCTION_CONNECTORS`.
 `tests/cairoContent.test.ts` pins its winding/radial headings, lane counts,
 kilometre bands, graph connectivity and stable ordering.
+
+The Sixth October network is the elevation reference implementation: one
+four-lane mainline spans both Nile channels and the city, with paired Dokki,
+Gezira, Corniche and Ramses entrance/exit slips. Dokki, Gezira and Ramses braid
+their slips into a two-way elevated stem after leaving the host road; Corniche
+keeps separate one-way decks. Host merge nodes split legal lanes but are
+removed from the visible host surface so they cannot re-segment or regenerate
+the reviewed frontage. All Sixth October surfaces are ignored by Cairo's
+frontage acceptance and windowless-back demotion passes—the ground streets
+already decided where the buildings belong. Deck-vs-block OBB and full
+lane/pavement clearance regressions prove that this preservation does not hide
+a physical clash.
 
 Its shallow roadside parcels generate only *after* POIs exist, and must clear
 roads, water, bounds, existing blocks, the Sixth October corridor and every

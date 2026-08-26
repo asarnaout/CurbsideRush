@@ -115,6 +115,7 @@ import {
   repairShopsOf,
 } from "./game/servicePoints";
 import type { MapDestination } from "./game/minimapDraw";
+import { roadElevationsCanInteract } from "./game/roadElevation";
 import {
   collectMapPois,
   mapPoisOfKinds,
@@ -1044,6 +1045,9 @@ export default function SideSwapApp() {
   useEffect(() => {
     if (view !== "driving" || !hud || !gig || gig.state === "delivered") return;
     if (cutscene || towing || hud.speed > 1) return;
+    // Every current venue is an at-grade building entrance. A bridge can pass
+    // through the same x/z arrival radius without placing the car at that door.
+    if (!roadElevationsCanInteract(hud.playerElevationM ?? 0, 0)) return;
     const target = gigTarget(gig);
     if (!target) return;
     const distance = Math.hypot(
@@ -1667,7 +1671,10 @@ export default function SideSwapApp() {
   // back ~16-19m from its anchor, so an anchor-radius check offered fuel to a
   // car stopped on the carriageway while refusing it at the pumps themselves.
   const activeGasStation =
-    view === "driving" && hud && hud.speed <= 1
+    view === "driving" &&
+    hud &&
+    hud.speed <= 1 &&
+    roadElevationsCanInteract(hud.playerElevationM ?? 0, 0)
       ? gasStationsOf(runtimeMap.geometry.servicePoints).find(
           (service) =>
             distanceToNearestPump(
@@ -1740,7 +1747,10 @@ export default function SideSwapApp() {
   // Measured to the bay the car has to be standing in, for the same reason the
   // fuel prompt measures to the pumps: the lane anchor is out on the road.
   const activeRepairShop =
-    view === "driving" && hud && hud.speed <= 1
+    view === "driving" &&
+    hud &&
+    hud.speed <= 1 &&
+    roadElevationsCanInteract(hud.playerElevationM ?? 0, 0)
       ? repairShopsOf(runtimeMap.geometry.servicePoints).find(
           (service) =>
             distanceToRepairBay(
@@ -1965,6 +1975,7 @@ export default function SideSwapApp() {
       gig &&
       gig.state !== "delivered" &&
       gigTargetVenue &&
+      roadElevationsCanInteract(hud.playerElevationM ?? 0, 0) &&
       Math.hypot(
         hud.playerX - gigTargetVenue.x,
         hud.playerZ - gigTargetVenue.z,

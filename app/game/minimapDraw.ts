@@ -23,6 +23,7 @@ import {
   resolveMapRoadWidth,
   type MinimapProjector,
 } from "./minimap";
+import { roadSurfaceLevel } from "./roadElevation";
 
 /**
  * The one place the route line ends at.
@@ -42,6 +43,7 @@ export interface MapDestination {
 export interface MapDrawPoint {
   readonly x: number;
   readonly z: number;
+  readonly elevationM?: number;
 }
 
 /** Enough of a road surface to stroke it. */
@@ -259,6 +261,11 @@ export const MAP_ROUTE_COLOR = "#f2c658";
  * its own — the reason there is no junction pass anywhere in here.
  */
 const ROAD_STROKE = "rgba(170, 182, 192, 0.28)";
+const INACTIVE_GROUND_ROAD_STROKE = "rgba(170, 182, 192, 0.10)";
+const ACTIVE_ELEVATED_ROAD_STROKE = "rgba(231, 205, 154, 0.66)";
+const INACTIVE_ELEVATED_ROAD_STROKE = "rgba(219, 203, 173, 0.18)";
+
+export type MapRoadLevel = "ground" | "elevated";
 
 /** Draws water before roads so bridge surfaces remain clear navigation lines. */
 export function drawMapWaterBodies(
@@ -294,11 +301,31 @@ export function drawRoadNetwork(
   projector: MinimapProjector,
   pixelsPerMetre: number,
   floorPx: number,
+  activeLevel?: MapRoadLevel,
 ): void {
-  ctx.strokeStyle = ROAD_STROKE;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  for (const line of projectRoadNetwork(roadSurfaces, projector)) {
+  const orderedSurfaces = activeLevel
+    ? [...roadSurfaces].sort((left, right) => {
+        const leftActive = roadSurfaceLevel(left) === activeLevel ? 1 : 0;
+        const rightActive = roadSurfaceLevel(right) === activeLevel ? 1 : 0;
+        return leftActive - rightActive;
+      })
+    : roadSurfaces;
+  for (const surface of orderedSurfaces) {
+    const level = roadSurfaceLevel(surface);
+    ctx.strokeStyle =
+      activeLevel === undefined
+        ? ROAD_STROKE
+        : level === activeLevel
+          ? level === "elevated"
+            ? ACTIVE_ELEVATED_ROAD_STROKE
+            : ROAD_STROKE
+          : level === "elevated"
+            ? INACTIVE_ELEVATED_ROAD_STROKE
+            : INACTIVE_GROUND_ROAD_STROKE;
+    const [line] = projectRoadNetwork([surface], projector);
+    if (!line) continue;
     if (line.points.length < 2) continue;
     ctx.lineWidth = resolveMapRoadWidth(line.widthM, pixelsPerMetre, floorPx);
     ctx.beginPath();

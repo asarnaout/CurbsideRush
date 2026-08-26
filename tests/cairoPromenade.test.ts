@@ -146,12 +146,31 @@ describe("Cairo corniche parapet", () => {
   });
 
   const promenadeInput = {
-    roadSurfaces: pack.geometry.roadSurfaces.map((surface) => ({
-      id: surface.id,
-      centerline: surface.centerline,
-      widthM: surface.widthM,
-      sidewalkWidthM: surface.sidewalkWidthM,
-    })),
+    roadSurfaces: pack.geometry.roadSurfaces
+      .filter(
+        (surface) =>
+          !surface.centerline.some(
+            (point) => (point.elevationM ?? 0) > 0.35,
+          ),
+      )
+      .map((surface) => ({
+        id: surface.id,
+        centerline: surface.centerline,
+        widthM: surface.widthM,
+        sidewalkWidthM: surface.sidewalkWidthM,
+      })),
+    elevatedRoadSurfaces: pack.geometry.roadSurfaces
+      .filter((surface) =>
+        surface.centerline.some(
+          (point) => (point.elevationM ?? 0) > 0.35,
+        ),
+      )
+      .map((surface) => ({
+        id: surface.id,
+        centerline: surface.centerline,
+        widthM: surface.widthM,
+        sidewalkWidthM: surface.sidewalkWidthM,
+      })),
     waterPolygons: (pack.geometry.waterBodies ?? []).map(
       (body) => body.polygon,
     ),

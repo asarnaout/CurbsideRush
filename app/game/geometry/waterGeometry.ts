@@ -3,6 +3,8 @@ import { nearestPointOnPolyline } from "./roadStrips";
 import { isPointInPolygon } from "../simulation";
 import type { GameCanvasMapPack, GameCanvasPoint, GameCanvasWaterBody } from "../sessionContract";
 import { hashStringToSeed, seededUnit } from "../visuals";
+import { elevatedRoadPierPlacements } from "./elevatedRoadGeometry";
+import { isElevatedRoadSurface } from "../roadElevation";
 
 /**
  * Water-sheet geometry: ear-clipping an authored `WaterBody` outline into a
@@ -572,6 +574,17 @@ export function cairoWaterBoatObstacles(
       (candidate) => candidate.id === surfaceId,
     );
     if (!surface) continue;
+    // A road deck with real vertical clearance is not a wall to river
+    // traffic. Boats pass below it and avoid only the support columns added
+    // beneath the Sixth October corridor; at-grade bridge portals retain the
+    // established full-span obstacle.
+    if (
+      surface.centerline.some(
+        (point) => (point.elevationM ?? 0) >= CAIRO_ELEVATED_DECK_Y * 0.75,
+      )
+    ) {
+      continue;
+    }
     for (const span of bridgePortalRailSpans(body, surface)) {
       spans.push({
         x: span.center.x,
@@ -584,6 +597,22 @@ export function cairoWaterBoatObstacles(
     }
   }
   const piers: WaterBoatObstacles["piers"][number][] = [];
+  const sixthOctoberSurface = geometry.roadSurfaces?.find(
+    (surface) => surface.id === "cairo-sixth-october-bridge",
+  );
+  if (sixthOctoberSurface && isElevatedRoadSurface(sixthOctoberSurface)) {
+    for (const pier of elevatedRoadPierPlacements(
+      sixthOctoberSurface,
+      geometry.roadSurfaces ?? [],
+    )) {
+      piers.push({
+        x: pier.position.x,
+        z: pier.position.z,
+        radiusM: CAIRO_ELEVATED_PIER_RADIUS_M,
+      });
+    }
+    return { spans, piers };
+  }
   const scenic = geometry.landmarks?.find(
     (landmark) => landmark.id === "cairo-sixth-october-bridge",
   );

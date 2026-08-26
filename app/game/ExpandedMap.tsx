@@ -14,6 +14,7 @@ import {
   type HudOffer,
 } from "./DriveHud";
 import { DRIVE_LAYER } from "./driveLayers";
+import { roadLevelAtElevation } from "./roadElevation";
 import { CLOSE_ICON } from "./hudIcons";
 import {
   countMapPois,
@@ -104,6 +105,7 @@ export interface ExpandedMapProps {
   readonly previewRoute?: readonly MapDrawPoint[];
   readonly playerX: number;
   readonly playerZ: number;
+  readonly playerElevationM?: number;
   readonly heading: number;
   readonly viewport: { readonly width: number; readonly height: number };
   /** Keyboard hints are a lie on a phone. */
@@ -159,6 +161,7 @@ export function ExpandedMap({
   previewRoute,
   playerX,
   playerZ,
+  playerElevationM = 0,
   heading,
   viewport,
   showKeyHints = false,
@@ -168,6 +171,7 @@ export function ExpandedMap({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playerRef = useRef<HTMLCanvasElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const activeRoadLevel = roadLevelAtElevation(playerElevationM);
 
   const tight = viewport.height < TIGHT_BELOW_PX;
   const room = tight ? TIGHT : ROOMY;
@@ -217,6 +221,7 @@ export function ExpandedMap({
       projector,
       projector.pixelsPerMetre,
       MAP_ROAD_WIDTH_FLOOR_PX,
+      activeRoadLevel,
     );
     drawMapOverlay(ctx, {
       projector,
@@ -236,6 +241,7 @@ export function ExpandedMap({
     route,
     previewRoute,
     destination,
+    activeRoadLevel,
   ]);
 
   // The car, above the place icons — see `drawPlayerMarker`.

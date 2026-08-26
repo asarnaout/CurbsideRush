@@ -23,9 +23,12 @@ import {
   lerpCarPose,
   MOTORBIKE_CUTSCENE_BODY,
   projectOntoPolyline,
+  pulloverRunM,
   repairCameraPosition,
   scriptFocusPoint,
   settleEase,
+  STAGED_COVER_HEADROOM_M,
+  STAGED_MIN_HEIGHT_M,
   type CutsceneAction,
   type CutsceneBodyProfile,
   type CutsceneCarPose,
@@ -39,6 +42,10 @@ import {
   type StagedCover,
 } from "../cutsceneScript";
 import {
+  createElevatedRoadDeckHeadroomQuery,
+  type ElevatedRoadDeckHeadroomQuery,
+} from "../geometry/elevatedRoadGeometry";
+import {
   distanceToRepairBay,
   FUEL_PUMP_REACH_M,
   gasStationCanopyWorld,
@@ -48,6 +55,7 @@ import {
   repairShopsOf,
 } from "../servicePoints";
 import { resolveSimulationLaneAnchor } from "../laneAnchors";
+import { elevationOnPolylineAt } from "../roadElevation";
 import { REPAIR_BAY_REACH_M } from "../repairShopLayout";
 import {
   policeAppearanceForMap,
@@ -114,6 +122,18 @@ const CUTSCENE_GROUND_Y: Partial<Record<CutsceneKind, number>> = {
  * stop parks heading-relative instead of dragging the car back to a street it
  * has left. Half a wide road plus a pavement. */
 const PULLOVER_ROAD_REACH_M = 14;
+/** A person plus animation/foot-placement slack below a structural soffit. */
+const CUTSCENE_ACTOR_HEADROOM_M = 2.25;
+/** Shoulder/step reach used when rejecting marks beside a support footing. */
+const CUTSCENE_ACTOR_FOOTPRINT_RADIUS_M = 0.45;
+/** Conservative half-width for either staged car around a structural mark. */
+const CUTSCENE_CAR_FOOTPRINT_RADIUS_M = 1.25;
+const CUTSCENE_CAR_HEADROOM_M = 2.1;
+/** Search farther along the live street rather than staging inside a low ramp. */
+const PULLOVER_CLEARANCE_SEARCH_STEP_M = 8;
+const PULLOVER_CLEARANCE_SEARCH_STEPS = 12;
+/** Deck-occlusion sampling interval along camera-to-subject sightlines. */
+const STAGED_DECK_SIGHTLINE_SAMPLE_M = 1.5;
 
 /**
  * One staged interaction scene, in progress: a walking actor (and, for a
@@ -175,8 +195,10 @@ export interface ActiveCutscene {
   /** The staged wide shot, framing the car and the farthest scene point. */
   readonly cameraPosition: Vector3;
   readonly cameraTarget: Vector3;
-  /** The plane the actor's feet walk on (forecourt slab vs walker plane). */
-  readonly groundY: number;
+  /** Local foot lift above the sampled road/forecourt plane. */
+  readonly actorFootOffsetY: number;
+  /** Fallback height for paths without authored per-point elevation. */
+  readonly stageElevationM: number;
   /** The waiting rider was hidden for a boarding scene (restored on cancel). */
   riderWasHidden: boolean;
   /** The player's own bike rider was hidden for a dismount (restored on cancel). */
@@ -201,8 +223,10 @@ export interface CutsceneDirectorCtx {
   readonly playerState: {
     x: number;
     z: number;
+    elevationM: number;
     previousX: number;
     previousZ: number;
+    previousElevationM: number;
     heading: number;
     previousHeading: number;
     speedMps: number;
@@ -252,12 +276,14 @@ export interface CutsceneDebugSnapshot {
   readonly step: number;
   readonly action: CutsceneAction | null;
   readonly actorX: number;
+  readonly actorY: number;
   readonly actorZ: number;
   readonly actorVisible: boolean;
   readonly cameraX: number;
   readonly cameraY: number;
   readonly cameraZ: number;
   readonly patrolX: number | null;
+  readonly patrolY: number | null;
   readonly patrolZ: number | null;
   readonly patrolVisualPresent: boolean;
 }
@@ -293,11 +319,29 @@ export function resolveStagedCameraFraming(
   };
 }
 
+/**
+ * Relative camera height that stays visibly below an elevated-road soffit.
+ * `null` means the available space is too low for a usable staged shot and the
+ * caller must move the scene instead of filming through the concrete.
+ */
+export function stagedCameraHeightBelowRoadDeck(
+  requestedHeightM: number,
+  stageElevationM: number,
+  soffitElevationM: number,
+): number | null {
+  const ceilingM =
+    soffitElevationM - stageElevationM - STAGED_COVER_HEADROOM_M;
+  if (ceilingM < STAGED_MIN_HEIGHT_M) return null;
+  return Math.min(requestedHeightM, ceilingM);
+}
+
 export class CutsceneDirector {
   private active: ActiveCutscene | null = null;
   private dipSeconds = 0;
   private dipOffsetField = 0;
   private hiddenNpcId: string | null = null;
+  private headroomMapPack: GameCanvasMapPack | null = null;
+  private elevatedRoadHeadroomAt: ElevatedRoadDeckHeadroomQuery | null = null;
 
   constructor(private readonly scene: Scene) {}
 
@@ -330,6 +374,7 @@ export class CutsceneDirector {
       step: cutscene.stepIndex,
       action: cutscene.script[cutscene.stepIndex]?.action ?? null,
       actorX: Math.round(cutscene.actorNode.position.x * 100) / 100,
+      actorY: Math.round(cutscene.actorNode.position.y * 100) / 100,
       actorZ: Math.round(cutscene.actorNode.position.z * 100) / 100,
       actorVisible: cutscene.actorNode.isEnabled(),
       // Where the scene is watched from. A staged shot that ends up
@@ -343,6 +388,9 @@ export class CutsceneDirector {
       // pulls in behind rather than parking on top of the player.
       patrolX: cutscene.patrolNode
         ? Math.round(cutscene.patrolNode.position.x * 100) / 100
+        : null,
+      patrolY: cutscene.patrolNode
+        ? Math.round(cutscene.patrolNode.position.y * 100) / 100
         : null,
       patrolZ: cutscene.patrolNode
         ? Math.round(cutscene.patrolNode.position.z * 100) / 100
@@ -384,6 +432,7 @@ export class CutsceneDirector {
       x: ctx.playerState.x,
       z: ctx.playerState.z,
       heading: ctx.playerState.heading,
+      elevationM: ctx.playerState.elevationM,
     };
     const body = this.cutsceneBody(ctx);
     let script: readonly CutsceneStep[] | null = null;
@@ -396,14 +445,7 @@ export class CutsceneDirector {
         // on that: the fine is debited on the scene's citation step, so a
         // traffic stop that could not be staged would be a violation that
         // silently cost nothing.
-        pullover = buildPulloverScript(
-          car,
-          Math.max(0, ctx.playerState.speedMps),
-          ctx.steeringSide,
-          ctx.trafficSide,
-          this.pulloverRoadAt(ctx, car.x, car.z),
-          body,
-        );
+        pullover = this.buildStructurallySafePullover(ctx, car, body);
         script = pullover.steps;
         // Stand the scene's own patrol in for the one that clocked you: the
         // ambient car is still under the simulation's control and would drive
@@ -555,6 +597,7 @@ export class CutsceneDirector {
     // taken across the pair and the pull-back is wider than the one-actor
     // scenes need.
     const stage: CutsceneCarPose = pullover?.parked ?? car;
+    const stageElevationM = stage.elevationM ?? 0;
     const focus = pullover
       ? { x: pullover.patrol.x, z: pullover.patrol.z }
       : scriptFocusPoint(car, script);
@@ -602,7 +645,12 @@ export class CutsceneDirector {
     // visible: framing that clears the car and hides the pump is the wrong side
     // to film a refuel from. See `chooseStagedShot`.
     const subjects = [{ x: stage.x, z: stage.z }, focus];
-    const shot =
+    const scenePoints: readonly WorldPoint[] = [
+      ...subjects,
+      ...script.flatMap((step) => step.path ?? []),
+      ...(pullover ? [pullover.patrolStart] : []),
+    ];
+    const unconstrainedShot =
       repairShot ??
       chooseStagedShot(
         midX,
@@ -613,7 +661,73 @@ export class CutsceneDirector {
         subjects,
         ctx.stagedBlockers,
         this.coverOverScene(ctx, subjects),
+        (position) => {
+          const cameraAndSightlines = [
+            { ...position, elevationM: stageElevationM },
+            ...this.stagedSightlinePoints(
+              position,
+              subjects,
+              stageElevationM,
+            ),
+          ];
+          const overheadSoffit = this.lowestRoadDeckSoffitOverScene(
+            ctx,
+            cameraAndSightlines,
+            stageElevationM,
+          );
+          return (
+            overheadSoffit === null ||
+            stagedCameraHeightBelowRoadDeck(
+              cameraY,
+              stageElevationM,
+              overheadSoffit,
+            ) !== null
+          );
+        },
       );
+    const bridgeSoffitElevationM = this.lowestRoadDeckSoffitOverScene(
+      ctx,
+      [
+        ...scenePoints,
+        {
+          x: unconstrainedShot.x,
+          z: unconstrainedShot.z,
+          elevationM: stageElevationM,
+        },
+        ...this.stagedSightlinePoints(
+          unconstrainedShot,
+          subjects,
+          stageElevationM,
+        ),
+      ],
+      stageElevationM,
+    );
+    const bridgeSafeHeightM =
+      bridgeSoffitElevationM === null
+        ? unconstrainedShot.y
+        : stagedCameraHeightBelowRoadDeck(
+            unconstrainedShot.y,
+            stageElevationM,
+            bridgeSoffitElevationM,
+          );
+    // A pullover is searched forward until this is non-null. The fallback is
+    // retained for arbitrary non-roadside scenes authored under an impossibly
+    // low future structure: it stays beneath the slab instead of reproducing
+    // the camera-through-concrete failure.
+    const shot = {
+      ...unconstrainedShot,
+      y:
+        bridgeSafeHeightM ??
+        Math.min(
+          unconstrainedShot.y,
+          Math.max(
+            0.2,
+            (bridgeSoffitElevationM ?? stageElevationM) -
+              stageElevationM -
+              0.15,
+          ),
+        ),
+    };
 
     const riderWasHidden = request.kind === "board" && ctx.riderNode !== null;
     if (riderWasHidden) ctx.riderNode?.setEnabled(false);
@@ -639,15 +753,24 @@ export class CutsceneDirector {
       segmentTotal: 0,
       actorNode,
       actorVisual,
-      cameraPosition: new Vector3(shot.x, shot.y, shot.z),
+      cameraPosition: new Vector3(
+        shot.x,
+        shot.y + stageElevationM,
+        shot.z,
+      ),
       // Both ends of the repair shot come off the shop: aiming at the scene's
       // own midpoint instead leaves the bay off to one side, because the
       // midpoint drifts with wherever the car stopped and whichever flank the
       // driver is working on.
       cameraTarget: framing
-        ? new Vector3(framing.bay.x, 1.0, framing.bay.z)
-        : new Vector3(midX, 1.0, midZ),
-      groundY: CUTSCENE_GROUND_Y[request.kind] ?? ACTOR_WALK_Y,
+        ? new Vector3(
+            framing.bay.x,
+            1.0 + stageElevationM,
+            framing.bay.z,
+          )
+        : new Vector3(midX, 1.0 + stageElevationM, midZ),
+      actorFootOffsetY: CUTSCENE_GROUND_Y[request.kind] ?? ACTOR_WALK_Y,
+      stageElevationM,
       riderWasHidden,
       playerRiderHidden,
       pumpEmitted: false,
@@ -658,6 +781,170 @@ export class CutsceneDirector {
       elapsedSeconds: 0,
     };
     ctx.applyCameraStack(false);
+  }
+
+  /** One immutable structural query per map/session, shared by every scene. */
+  private roadHeadroomQuery(ctx: CutsceneDirectorCtx): ElevatedRoadDeckHeadroomQuery {
+    if (
+      this.headroomMapPack !== ctx.mapPack ||
+      this.elevatedRoadHeadroomAt === null
+    ) {
+      this.headroomMapPack = ctx.mapPack;
+      this.elevatedRoadHeadroomAt = createElevatedRoadDeckHeadroomQuery(
+        ctx.mapPack.geometry.roadSurfaces ?? [],
+      );
+    }
+    return this.elevatedRoadHeadroomAt;
+  }
+
+  /** Lowest real slab above any point the scene films, in absolute world Y. */
+  private lowestRoadDeckSoffitOverScene(
+    ctx: CutsceneDirectorCtx,
+    points: readonly WorldPoint[],
+    fallbackElevationM: number,
+  ): number | null {
+    const headroomAt = this.roadHeadroomQuery(ctx);
+    let lowest: number | null = null;
+    for (const point of points) {
+      const obstruction = headroomAt(
+        point,
+        point.elevationM ?? fallbackElevationM,
+        COVER_REACH_M,
+        false,
+      );
+      if (!obstruction || obstruction.structureKind === "pier") continue;
+      if (
+        lowest === null ||
+        obstruction.soffitElevationM < lowest
+      ) {
+        lowest = obstruction.soffitElevationM;
+      }
+    }
+    return lowest;
+  }
+
+  /** Sample every camera-to-subject ray so a low slab between clear endpoints
+   * cannot be selected as an apparently unobstructed shot. */
+  private stagedSightlinePoints(
+    camera: { readonly x: number; readonly z: number },
+    subjects: readonly { readonly x: number; readonly z: number }[],
+    stageElevationM: number,
+  ): readonly WorldPoint[] {
+    const samples: WorldPoint[] = [];
+    for (const subject of subjects) {
+      const lengthM = Math.hypot(subject.x - camera.x, subject.z - camera.z);
+      const steps = Math.max(
+        1,
+        Math.ceil(lengthM / STAGED_DECK_SIGHTLINE_SAMPLE_M),
+      );
+      for (let index = 1; index < steps; index += 1) {
+        const amount = index / steps;
+        samples.push({
+          x: camera.x + (subject.x - camera.x) * amount,
+          z: camera.z + (subject.z - camera.z) * amount,
+          elevationM: stageElevationM,
+        });
+      }
+    }
+    return samples;
+  }
+
+  /**
+   * Whether cars, officer marks and camera all fit at this traffic-stop mark.
+   * Supports are checked with body radii; the camera asks only about slabs.
+   */
+  private pulloverPlanFitsStructures(
+    ctx: CutsceneDirectorCtx,
+    plan: PulloverPlan,
+  ): boolean {
+    const headroomAt = this.roadHeadroomQuery(ctx);
+    const stageElevationM = plan.parked.elevationM ?? 0;
+    const fits = (
+      point: WorldPoint,
+      footprintRadiusM: number,
+      requiredHeadroomM: number,
+    ) => {
+      const obstruction = headroomAt(
+        point,
+        point.elevationM ?? stageElevationM,
+        footprintRadiusM,
+      );
+      return obstruction === null || obstruction.headroomM >= requiredHeadroomM;
+    };
+
+    for (const vehicle of [plan.parked, plan.patrol, plan.patrolStart]) {
+      if (
+        !fits(
+          vehicle,
+          CUTSCENE_CAR_FOOTPRINT_RADIUS_M,
+          CUTSCENE_CAR_HEADROOM_M,
+        )
+      ) {
+        return false;
+      }
+    }
+    const actorPoints = plan.steps.flatMap((step) => step.path ?? []);
+    for (const point of actorPoints) {
+      if (
+        !fits(
+          point,
+          CUTSCENE_ACTOR_FOOTPRINT_RADIUS_M,
+          CUTSCENE_ACTOR_HEADROOM_M,
+        )
+      ) {
+        return false;
+      }
+    }
+
+    const focus = { x: plan.patrol.x, z: plan.patrol.z };
+    const cameraY = resolveStagedCameraFraming(
+      plan.parked,
+      focus,
+      true,
+    ).cameraY;
+    const soffit = this.lowestRoadDeckSoffitOverScene(
+      ctx,
+      [plan.parked, plan.patrol, plan.patrolStart, ...actorPoints],
+      stageElevationM,
+    );
+    return (
+      soffit === null ||
+      stagedCameraHeightBelowRoadDeck(cameraY, stageElevationM, soffit) !== null
+    );
+  }
+
+  /**
+   * The nominal braking mark is preferred. If it lands inside a pier or under
+   * the low end of a ramp, continue forward on the same live street in short
+   * increments until the complete stop choreography has structural clearance.
+   */
+  private buildStructurallySafePullover(
+    ctx: CutsceneDirectorCtx,
+    car: CutsceneCarPose,
+    body: CutsceneBodyProfile,
+  ): PulloverPlan {
+    const speedMps = Math.max(0, ctx.playerState.speedMps);
+    const road = this.pulloverRoadAt(ctx, car.x, car.z, car.elevationM ?? 0);
+    const nominalRunM = pulloverRunM(speedMps);
+    let nominal: PulloverPlan | null = null;
+    for (let index = 0; index <= PULLOVER_CLEARANCE_SEARCH_STEPS; index += 1) {
+      const plan = buildPulloverScript(
+        car,
+        speedMps,
+        ctx.steeringSide,
+        ctx.trafficSide,
+        road,
+        body,
+        nominalRunM + index * PULLOVER_CLEARANCE_SEARCH_STEP_M,
+      );
+      nominal ??= plan;
+      if (this.pulloverPlanFitsStructures(ctx, plan)) return plan;
+      // Without a road profile every farther candidate is merely the same
+      // blind heading-relative construction shifted again; do not invent a
+      // long off-road drive in search of map geometry that is not authored.
+      if (!road) break;
+    }
+    return nominal!;
   }
 
   /**
@@ -671,15 +958,27 @@ export class CutsceneDirector {
     ctx: CutsceneDirectorCtx,
     x: number,
     z: number,
+    elevationM: number,
   ): PulloverRoad | null {
     const surfaces = ctx.mapPack.geometry.roadSurfaces;
     if (!surfaces?.length) return null;
     let best: PulloverRoad | null = null;
-    let bestDistance = PULLOVER_ROAD_REACH_M;
+    let bestScore = Number.POSITIVE_INFINITY;
     for (const surface of surfaces) {
       const hit = projectOntoPolyline(surface.centerline, x, z);
-      if (!hit || hit.distance > bestDistance) continue;
-      bestDistance = hit.distance;
+      if (!hit || hit.distance > PULLOVER_ROAD_REACH_M) continue;
+      const surfaceElevationM = elevationOnPolylineAt(
+        surface.centerline,
+        hit.point.x,
+        hit.point.z,
+      );
+      // At a stacked crossing, horizontal distance alone is ambiguous. A
+      // metre of height mismatch costs more than a lane-width error, so the
+      // scene remains on the same road deck as the player throughout a ramp.
+      const score =
+        hit.distance + Math.abs(surfaceElevationM - elevationM) * 4;
+      if (score >= bestScore) continue;
+      bestScore = score;
       best = {
         centerline: surface.centerline,
         halfWidthM: surface.widthM / 2,
@@ -697,7 +996,11 @@ export class CutsceneDirector {
     plan: PulloverPlan,
   ): { node: TransformNode; visual: VehicleMeshVisual } {
     const node = new TransformNode(`cutscene-patrol-${nonce}`, this.scene);
-    node.position.set(plan.patrolStart.x, 0.12, plan.patrolStart.z);
+    node.position.set(
+      plan.patrolStart.x,
+      0.12 + (plan.patrolStart.elevationM ?? 0),
+      plan.patrolStart.z,
+    );
     node.rotation.y = plan.patrolStart.heading;
     const visual = createVehicleMesh(
       this.scene,
@@ -765,7 +1068,14 @@ export class CutsceneDirector {
       case "walk":
       case "run": {
         const at = path[0];
-        if (at) cutscene.actorNode.position.set(at.x, cutscene.groundY, at.z);
+        if (at) {
+          cutscene.actorNode.position.set(
+            at.x,
+            cutscene.actorFootOffsetY +
+              (at.elevationM ?? cutscene.stageElevationM),
+            at.z,
+          );
+        }
         if (step.face !== undefined) cutscene.actorNode.rotation.y = step.face;
         cutscene.actorNode.setEnabled(true);
         if (step.action === "show") {
@@ -864,9 +1174,13 @@ export class CutsceneDirector {
       const a = path[segment];
       const b = path[segment + 1];
       const t = segmentLength > 0 ? (along - segmentStart) / segmentLength : 1;
+      const aElevationM = a.elevationM ?? cutscene.stageElevationM;
+      const bElevationM = b.elevationM ?? cutscene.stageElevationM;
       cutscene.actorNode.position.set(
         a.x + (b.x - a.x) * t,
-        cutscene.groundY,
+        cutscene.actorFootOffsetY +
+          aElevationM +
+          (bElevationM - aElevationM) * t,
         a.z + (b.z - a.z) * t,
       );
       if (segmentLength > 0.01) {
@@ -904,13 +1218,19 @@ export class CutsceneDirector {
         // rather than one blend step behind it.
         ctx.playerState.previousX = pose.x;
         ctx.playerState.previousZ = pose.z;
+        ctx.playerState.previousElevationM = pose.elevationM ?? 0;
         ctx.playerState.previousHeading = pose.heading;
         ctx.playerState.x = pose.x;
         ctx.playerState.z = pose.z;
+        ctx.playerState.elevationM = pose.elevationM ?? 0;
         ctx.playerState.heading = pose.heading;
         ctx.playerState.speedMps = 0;
       } else if (cutscene.patrolNode) {
-        cutscene.patrolNode.position.set(pose.x, 0.12, pose.z);
+        cutscene.patrolNode.position.set(
+          pose.x,
+          0.12 + (pose.elevationM ?? 0),
+          pose.z,
+        );
         cutscene.patrolNode.rotation.y = pose.heading;
       }
     }

@@ -76,6 +76,11 @@ import {
   type TrafficPerceptualTargets,
   type TrafficPopulationTargets,
 } from "./trafficLocality";
+import {
+  ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
+  roadElevationsCanInteract,
+  roadElevationSweepsCanInteract,
+} from "./roadLevels";
 
 /**
  * Seeded NPC spawn, routing, movement, signals, and jam/incident recovery —
@@ -254,6 +259,8 @@ interface NormalizedTrafficGate {
 }
 
 export interface NpcInternal extends MutablePose {
+  /** Authoritative road-surface height; ground is represented explicitly as 0. */
+  elevationM: number;
   id: string;
   /** Stable `npcsList` position, used as the deterministic spatial-index key. */
   slotIndex: number;
@@ -344,6 +351,8 @@ export interface NpcInternal extends MutablePose {
   decisionCooldown: number;
   previousX: number;
   previousZ: number;
+  /** Height at the start of the current fixed step for swept collision tests. */
+  previousElevationM: number;
 }
 
 // Exported: simulation.ts's own fixedUpdate uses this for the traffic-decision
@@ -674,6 +683,7 @@ export class TrafficSystem {
   private readonly routeLaneSalts: Uint32Array;
   private readonly predecessorLaneIndicesByLaneIndex: readonly (readonly number[])[];
   private readonly localityEnabled: boolean;
+  private readonly hasElevatedRoads: boolean;
   private readonly trafficSpatialIndex: TrafficSpatialIndex;
   /** Memo for parsedNpcDigits; NPC ids are stable within a session. */
   private readonly npcDigitCache = new Map<string, number>();
@@ -799,6 +809,12 @@ export class TrafficSystem {
     this.roadNetwork = roadNetwork;
     this.playerState = playerState;
     this.config = config;
+    this.hasElevatedRoads = this.roadNetwork.lanes.some((lane) =>
+      lane.points.some(
+        (point) =>
+          (point.elevationM ?? 0) >= ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
+      ),
+    );
     this.routeLaneSalts = Uint32Array.from(this.roadNetwork.lanes, (lane) =>
       stableRouteLaneSalt(lane.id),
     );
@@ -834,6 +850,9 @@ export class TrafficSystem {
           distance,
           x: pose.x,
           z: pose.z,
+          ...((pose.elevationM ?? 0) > 0
+            ? { elevationM: pose.elevationM }
+            : {}),
           heading: pose.heading,
         }];
       })
@@ -1157,9 +1176,11 @@ export class TrafficSystem {
         decisionCooldown: 4 + this.random.next() * 8,
         x: pose.x,
         z: pose.z,
+        elevationM: pose.elevationM ?? 0,
         heading: pose.heading,
         previousX: pose.x,
         previousZ: pose.z,
+        previousElevationM: pose.elevationM ?? 0,
       };
       this.npcsList.push(npc);
     }
@@ -1585,8 +1606,15 @@ export class TrafficSystem {
    * street and the player's actual heading. */
   private projectPlayerToLocalityRoad(): LaneProjection | null {
     const player = this.playerState.player;
+    if (!this.hasElevatedRoads) {
+      return this.roadNetwork.projectToRoad(player.x, player.z, {
+        heading: player.heading,
+      });
+    }
     return this.roadNetwork.projectToRoad(player.x, player.z, {
       heading: player.heading,
+      preferredLaneId: this.localityPlayerProjection?.lane.id,
+      preferredElevationM: player.elevationM ?? 0,
     });
   }
 
@@ -3972,6 +4000,14 @@ export class TrafficSystem {
     playerProjection: LaneProjection | null,
     preference: LocalTrafficPortalPreference | undefined,
   ): number {
+    if (
+      !roadElevationsCanInteract(
+        portal.elevationM ?? 0,
+        this.playerState.player.elevationM ?? 0,
+      )
+    ) {
+      return 8;
+    }
     const portalDistance = Math.hypot(
       portal.x - this.playerState.player.x,
       portal.z - this.playerState.player.z,
@@ -5112,8 +5148,20 @@ export class TrafficSystem {
     const pose = this.roadNetwork.pointOnLane(lane, gate.distance);
     const desiredSpeedMps = gate.desiredSpeedMps ?? npc.desiredSpeedMps;
     const playerDistanceM = Math.sqrt(distanceSquared(pose, this.playerState.player));
-    if (playerDistanceM < INITIAL_CROSS_LANE_CLEARANCE_M) return false;
-    if (!initial && playerDistanceM < this.config.minRuntimeSpawnDistanceM) return false;
+    const sharesPlayerElevation = roadElevationsCanInteract(
+      pose.elevationM ?? 0,
+      this.playerState.player.elevationM ?? 0,
+    );
+    if (sharesPlayerElevation && playerDistanceM < INITIAL_CROSS_LANE_CLEARANCE_M) {
+      return false;
+    }
+    if (
+      sharesPlayerElevation &&
+      !initial &&
+      playerDistanceM < this.config.minRuntimeSpawnDistanceM
+    ) {
+      return false;
+    }
     if (!initial && this.isInsidePlayerVisibilityEnvelope(pose, ctx)) return false;
 
     if (playerProjection?.lane.id === lane.id && playerProjection.distance < lane.width) {
@@ -5143,6 +5191,12 @@ export class TrafficSystem {
     const predictedClearance =
       this.config.playerRadiusM + NPC_RADIUS_METRES + 1.5;
     if (
+      roadElevationSweepsCanInteract(
+        pose.elevationM ?? 0,
+        predictedPose.elevationM ?? 0,
+        this.playerState.player.elevationM ?? 0,
+        this.playerState.player.elevationM ?? 0,
+      ) &&
       distanceToSegmentSquared(
         this.playerState.player.x,
         this.playerState.player.z,
@@ -5190,6 +5244,10 @@ export class TrafficSystem {
           ? NPC_RADIUS_METRES * 2
           : 12;
         if (
+          roadElevationsCanInteract(
+            other.elevationM,
+            pose.elevationM ?? 0,
+          ) &&
           distanceSquared(other, pose) <
           crossLaneClearance * crossLaneClearance
         ) {
@@ -5227,9 +5285,9 @@ export class TrafficSystem {
     gate: NormalizedTrafficGate,
     ctx: TrafficTickCtx,
     initial = false,
-  ): void {
+  ): boolean {
     const lane = this.roadNetwork.lanesById.get(gate.laneId);
-    if (!lane) return;
+    if (!lane) return false;
     const pose = this.roadNetwork.pointOnLane(lane, gate.distance);
     this.invalidateLocalityAdmissionRouteTables();
     npc.active = true;
@@ -5259,15 +5317,28 @@ export class TrafficSystem {
     npc.stoppedSeconds = 0;
     npc.jamSeconds = 0;
     npc.incidentLeanRad = 0;
+    // A gate inside its lane's corner window must own the same successor that
+    // its first moving tick will use before its initial pose becomes visible.
+    // Otherwise it appears on the raw centreline for one frame, then jumps
+    // sideways when movement acquires the reservation and enables the arc.
+    // If congestion prevents an atomic reservation, keep the slot queued; a
+    // later activation can retry without ever publishing the discontinuity.
+    if (!this.reserveNpcSuccessorBeforeCornerArc(npc, lane, gate.distance, 0)) {
+      this.deactivateNpc(npc);
+      npc.runtimeActivationEligibleTick = ctx.tick + 1;
+      return false;
+    }
     // A gate can sit inside the corner-arc window of its lane's end; posing
     // the spawn through the same overlay keeps the first moved tick from
     // reading as a sideways teleport onto the arc.
     const displayPose = this.npcCornerPose(npc, lane, pose);
     npc.x = displayPose.x;
     npc.z = displayPose.z;
+    npc.elevationM = displayPose.elevationM ?? 0;
     npc.heading = displayPose.heading;
     npc.previousX = displayPose.x;
     npc.previousZ = displayPose.z;
+    npc.previousElevationM = displayPose.elevationM ?? 0;
     npc.activatedAtSeconds = initial ? Number.NEGATIVE_INFINITY : ctx.elapsedSeconds;
     npc.runtimeActivationEligibleTick = 0;
     if (gate.runtime && !initial) {
@@ -5289,6 +5360,7 @@ export class TrafficSystem {
       }
     }
     this.syncNpcSpatialIndex(npc);
+    return true;
   }
 
   /** The index stores positions only by stable slot. Keeping this beside the
@@ -5739,7 +5811,7 @@ export class TrafficSystem {
             rollingGateLane,
           ) !== 0;
       }
-      this.activateNpcAtGate(npc, gate, ctx);
+      if (!this.activateNpcAtGate(npc, gate, ctx)) continue;
       activations += 1;
       // Fold the first activation into the second candidate's lane/corridor
       // and sector score without maintaining a second mutable population view.
@@ -6856,6 +6928,9 @@ export class TrafficSystem {
     const t = clamp(progressM / total, 0, 1);
     const start = this.roadNetwork.pointOnLane(fromLane, fromLane.length - fromWindow);
     const end = this.roadNetwork.pointOnLane(toLane, toWindow);
+    const elevationM =
+      (start.elevationM ?? 0) +
+      ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * t;
     const turn = angleDifference(end.heading, start.heading);
     const chordX = end.x - start.x;
     const chordZ = end.z - start.z;
@@ -6929,6 +7004,7 @@ export class TrafficSystem {
             return {
               x: position.x,
               z: position.z,
+              ...(elevationM > 0 ? { elevationM } : {}),
               heading:
                 Math.abs(tangentX) + Math.abs(tangentZ) > 1e-9
                   ? Math.atan2(tangentX, tangentZ)
@@ -6943,6 +7019,7 @@ export class TrafficSystem {
     return {
       x: start.x + chordX * t,
       z: start.z + chordZ * t,
+      ...(elevationM > 0 ? { elevationM } : {}),
       heading: Math.atan2(chordX, chordZ),
     };
   }
@@ -7026,6 +7103,7 @@ export class TrafficSystem {
       if (!npc.active) continue;
       npc.previousX = npc.x;
       npc.previousZ = npc.z;
+      npc.previousElevationM = npc.elevationM;
       if (ctx.tick < npc.struckUntilTick) {
         // Knocked by the player: hold position (and the askew lean) until the
         // struck window expires, then rejoin traffic normally.
@@ -7137,6 +7215,10 @@ export class TrafficSystem {
             );
             npc.x = sourcePose.x + (targetPose.x - sourcePose.x) * amount;
             npc.z = sourcePose.z + (targetPose.z - sourcePose.z) * amount;
+            npc.elevationM =
+              (sourcePose.elevationM ?? 0) +
+              ((targetPose.elevationM ?? 0) - (sourcePose.elevationM ?? 0)) *
+                amount;
             this.chaseNpcHeading(
               npc,
               lerpAngle(sourcePose.heading, targetPose.heading, amount),
@@ -7160,6 +7242,10 @@ export class TrafficSystem {
           );
           npc.x = sourcePose.x + (targetPose.x - sourcePose.x) * amount;
           npc.z = sourcePose.z + (targetPose.z - sourcePose.z) * amount;
+          npc.elevationM =
+            (sourcePose.elevationM ?? 0) +
+            ((targetPose.elevationM ?? 0) - (sourcePose.elevationM ?? 0)) *
+              amount;
           this.chaseNpcHeading(
             npc,
             lerpAngle(sourcePose.heading, targetPose.heading, amount),
@@ -7182,6 +7268,7 @@ export class TrafficSystem {
       const displayPose = this.npcCornerPose(npc, activeSourceLane, sourcePose);
       npc.x = displayPose.x;
       npc.z = displayPose.z;
+      npc.elevationM = displayPose.elevationM ?? 0;
       this.chaseNpcHeading(npc, displayPose.heading, deltaSeconds);
       this.syncNpcSpatialIndex(npc);
     }
@@ -7229,6 +7316,9 @@ export class TrafficSystem {
         ) &&
         this.npcsList.some((other) => {
           if (!other.active || other.id === npc.id) return false;
+          if (!roadElevationsCanInteract(npc.elevationM, other.elevationM)) {
+            return false;
+          }
           const reach = NPC_BODY_CLEARANCE_M + 0.5;
           return distanceSquared(npc, other) <= reach * reach;
         });
@@ -7240,8 +7330,12 @@ export class TrafficSystem {
       npc.jamSeconds += deltaSeconds;
       if (
         npc.jamSeconds >= NPC_INCIDENT_STUCK_SECONDS &&
-        distanceSquared(npc, this.playerState.player) >
-          NPC_INCIDENT_PLAYER_CLEARANCE_M * NPC_INCIDENT_PLAYER_CLEARANCE_M
+        (!roadElevationsCanInteract(
+          npc.elevationM,
+          this.playerState.player.elevationM ?? 0,
+        ) ||
+          distanceSquared(npc, this.playerState.player) >
+            NPC_INCIDENT_PLAYER_CLEARANCE_M * NPC_INCIDENT_PLAYER_CLEARANCE_M)
       ) {
         this.requestNpcRecycle(npc, ctx);
         continue;
@@ -7316,6 +7410,7 @@ export class TrafficSystem {
       const stopPose = this.roadNetwork.pointOnLane(lane, arcStartDistance);
       npc.x = stopPose.x;
       npc.z = stopPose.z;
+      npc.elevationM = stopPose.elevationM ?? 0;
       this.chaseNpcHeading(npc, stopPose.heading, deltaSeconds);
     }
     npc.speedMps = 0;
@@ -7373,6 +7468,7 @@ export class TrafficSystem {
         const endPose = this.roadNetwork.pointOnLane(lane, lane.length);
         npc.x = endPose.x;
         npc.z = endPose.z;
+        npc.elevationM = endPose.elevationM ?? 0;
         npc.heading = endPose.heading;
         this.requestNpcRecycle(npc, ctx);
         npc.speedMps = 0;
@@ -7560,6 +7656,16 @@ export class TrafficSystem {
       if (!other.active || other.id === npc.id) continue;
       const nearbyRadius = NPC_CROSSING_YIELD_CLEARANCE_M + travel + 2;
       if (distanceSquared(npc, other) > nearbyRadius * nearbyRadius) continue;
+      if (
+        !roadElevationSweepsCanInteract(
+          npc.elevationM,
+          candidate.elevationM ?? 0,
+          other.previousElevationM,
+          other.elevationM,
+        )
+      ) {
+        continue;
+      }
 
       const sameFlow =
         npc.laneId === other.laneId ||
@@ -7758,9 +7864,13 @@ export class TrafficSystem {
     const amount = smoothStep(progress);
     const targetDistance = (sourceDistance / sourceLane.length) * targetLane.length;
     const targetPose = this.roadNetwork.pointOnLane(targetLane, targetDistance);
+    const elevationM =
+      (sourcePose.elevationM ?? 0) +
+      ((targetPose.elevationM ?? 0) - (sourcePose.elevationM ?? 0)) * amount;
     return {
       x: sourcePose.x + (targetPose.x - sourcePose.x) * amount,
       z: sourcePose.z + (targetPose.z - sourcePose.z) * amount,
+      ...(elevationM > 0 ? { elevationM } : {}),
       heading: lerpAngle(sourcePose.heading, targetPose.heading, amount),
     };
   }
@@ -7771,6 +7881,16 @@ export class TrafficSystem {
     obstacle: SimulationPoint,
     clearance: number,
   ): boolean {
+    if (
+      !roadElevationSweepsCanInteract(
+        npc.elevationM,
+        candidate.elevationM ?? 0,
+        obstacle.elevationM ?? 0,
+        obstacle.elevationM ?? 0,
+      )
+    ) {
+      return true;
+    }
     const clearanceSquared = clearance * clearance;
     const initialSquared = distanceSquared(npc, obstacle);
     const candidateSquared = distanceSquared(candidate, obstacle);
@@ -8038,7 +8158,13 @@ export class TrafficSystem {
         );
         if (reservedTarget) {
           const reservedStart = this.roadNetwork.pointOnLane(reservedTarget, 0);
-          if (distanceSquared(reservedStart, targetStart) <= 0.75 ** 2) {
+          if (
+            roadElevationsCanInteract(
+              reservedStart.elevationM ?? 0,
+              targetStart.elevationM ?? 0,
+            ) &&
+            distanceSquared(reservedStart, targetStart) <= 0.75 ** 2
+          ) {
             return false;
           }
         }
@@ -8052,7 +8178,13 @@ export class TrafficSystem {
       ) {
         return false;
       }
-      if (distanceSquared(other, targetStart) < NPC_LANE_ENTRY_CLEARANCE_M ** 2) {
+      if (
+        roadElevationsCanInteract(
+          other.elevationM,
+          targetStart.elevationM ?? 0,
+        ) &&
+        distanceSquared(other, targetStart) < NPC_LANE_ENTRY_CLEARANCE_M ** 2
+      ) {
         const otherLane = this.roadNetwork.lanesById.get(other.laneId);
         if (
           sourceLane &&
@@ -8100,13 +8232,22 @@ export class TrafficSystem {
     );
     if (
       playerDistanceAlongTarget !== null &&
-      playerDistanceAlongTarget < minimumEntryHeadwayM
+      playerDistanceAlongTarget < minimumEntryHeadwayM &&
+      roadElevationsCanInteract(
+        this.roadNetwork.pointOnLane(target, playerDistanceAlongTarget)
+          .elevationM ?? 0,
+        this.playerState.player.elevationM ?? 0,
+      )
     ) {
       return false;
     }
     return (
+      !roadElevationsCanInteract(
+        targetStart.elevationM ?? 0,
+        this.playerState.player.elevationM ?? 0,
+      ) ||
       distanceSquared(this.playerState.player, targetStart) >=
-      (this.config.playerRadiusM + NPC_RADIUS_METRES + 4) ** 2
+        (this.config.playerRadiusM + NPC_RADIUS_METRES + 4) ** 2
     );
   }
 
@@ -8295,6 +8436,14 @@ export class TrafficSystem {
       const rightZ = -Math.sin(linePose.heading);
       const hasConflict = this.npcsList.some((other) => {
         if (!other.active || other.laneId === lane.id) return false;
+        if (
+          !roadElevationsCanInteract(
+            other.elevationM,
+            linePose.elevationM ?? 0,
+          )
+        ) {
+          return false;
+        }
         if (distanceSquared(other, linePose) >= conflictRadius * conflictRadius) {
           return false;
         }

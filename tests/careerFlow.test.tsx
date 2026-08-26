@@ -80,7 +80,7 @@ import type {
 /** Sim-clock the mock canvas advances, so a test can run time forward. */
 const mockClock = { ms: 0 };
 /** Where `mock-hud-at-stop` parks the car — a test sets it to the gig's stop. */
-const mockStop = { x: 0, z: 0 };
+const mockStop = { x: 0, z: 0, elevationM: 0 };
 /** How many 39m ticks `mock-drain` fires — lower for a partial drain. */
 const mockDrainTicks = { count: 600 };
 /**
@@ -123,6 +123,7 @@ vi.mock("next/dynamic", () => ({
         simElapsedMs: number,
         playerX = 0,
         playerZ = 0,
+        playerElevationM = 0,
       ): GameHudSnapshot => ({
         speed: 0,
         speedUnit: "mph",
@@ -134,6 +135,7 @@ vi.mock("next/dynamic", () => ({
         rearViewVisible: false,
         playerX,
         playerZ,
+        playerElevationM,
         heading: 0,
         simElapsedMs,
         speedLimit: 30,
@@ -196,7 +198,12 @@ vi.mock("next/dynamic", () => ({
             onClick={() => {
               mockClock.ms += 1_000;
               props.onHudUpdate?.(
-                snapshot(mockClock.ms, mockStop.x, mockStop.z),
+                snapshot(
+                  mockClock.ms,
+                  mockStop.x,
+                  mockStop.z,
+                  mockStop.elevationM,
+                ),
               );
             }}
           >
@@ -452,6 +459,7 @@ beforeEach(() => {
   mockClock.ms = 0;
   mockStop.x = 0;
   mockStop.z = 0;
+  mockStop.elevationM = 0;
   mockDrainTicks.count = 600;
   wallClock.ms = 1_700_000_000_000;
   vi.spyOn(Date, "now").mockImplementation(() => wallClock.ms);
@@ -1417,7 +1425,7 @@ describe("career mode flow", () => {
   });
 
   /** Parks the car at the first pump on New York's map. */
-  const parkAtThePumps = () => {
+  const parkAtThePumps = (elevationM = 0) => {
     const nycMap = getMapPack(
       getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
     );
@@ -1425,6 +1433,7 @@ describe("career mode flow", () => {
     const pump = gasStationPumpPositions(nycMap.laneGraph.lanes, gasStation)[0];
     mockStop.x = pump.x;
     mockStop.z = pump.z;
+    mockStop.elevationM = elevationM;
     fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
   };
 
@@ -1450,6 +1459,23 @@ describe("career mode flow", () => {
 
     fireEvent.keyDown(window, { code: "Enter" });
     expect(scene).toHaveAttribute("data-cutscene-kind", "refuel");
+  });
+
+  it("does not offer an at-grade fuel pump to a car on an overlapping flyover", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+    mockDrainTicks.count = 171;
+    fireEvent.click(screen.getByTestId("mock-drain"));
+
+    parkAtThePumps(10);
+    expect(screen.queryByTestId("refuel-button")).not.toBeInTheDocument();
+
+    parkAtThePumps(0);
+    expect(await screen.findByTestId("refuel-button")).toBeVisible();
   });
 
   /*
@@ -1586,7 +1612,7 @@ describe("career mode flow", () => {
   });
 
   /** Parks the car in the bay of New York's first repair shop. */
-  const parkInTheBay = () => {
+  const parkInTheBay = (elevationM = 0) => {
     const nycMap = getMapPack(
       getFreeDrive(getDestinationProfile("us-nyc").freeDriveId).mapId,
     );
@@ -1594,6 +1620,7 @@ describe("career mode flow", () => {
     const bay = repairShopBayPosition(nycMap.laneGraph.lanes, shop)!;
     mockStop.x = bay.x;
     mockStop.z = bay.z;
+    mockStop.elevationM = elevationM;
     fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
   };
 
@@ -1669,6 +1696,22 @@ describe("career mode flow", () => {
     expect(await screen.findByTestId("repair-button")).toHaveTextContent(
       /nothing to fix/i,
     );
+  });
+
+  it("does not offer an at-grade repair bay to a car on an overlapping flyover", async () => {
+    await enterCareerMode();
+    fireEvent.click(screen.getByTestId("career-start"));
+    await screen.findByRole("heading", { name: /Pick today's ride/i });
+    fireEvent.click(screen.getByTestId("garage-vehicle-compact-hatch"));
+    fireEvent.click(screen.getByTestId("garage-start-day"));
+    await screen.findByLabelText("Mock driving scene");
+    fireEvent.click(screen.getByTestId("mock-collision"));
+
+    parkInTheBay(10);
+    expect(screen.queryByTestId("repair-button")).not.toBeInTheDocument();
+
+    parkInTheBay(0);
+    expect(await screen.findByTestId("repair-button")).toBeVisible();
   });
 
   it("charges a write-off once, then resets the session with a repaired car", async () => {
@@ -1875,9 +1918,10 @@ describe("dispatch: a job from offer to payout", () => {
     await screen.findByLabelText("Mock driving scene");
   };
 
-  const driveTo = (point: { x: number; z: number }) => {
+  const driveTo = (point: { x: number; z: number }, elevationM = 0) => {
     mockStop.x = point.x;
     mockStop.z = point.z;
+    mockStop.elevationM = elevationM;
     fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
   };
 
@@ -1922,6 +1966,21 @@ describe("dispatch: a job from offer to payout", () => {
 
     // Nothing queued behind it, so the driver goes back to waiting.
     expect(screen.getByTestId("dispatch-idle")).toBeVisible();
+  });
+
+  it("does not trigger an at-grade gig stop from an overlapping bridge", async () => {
+    const CAREER_SEED = 4_242;
+    const expected = firstOfferOf("us-nyc", CAREER_SEED);
+    await startSeededDay(CAREER_SEED);
+    fireEvent.click(screen.getByTestId("mock-hud-advance"));
+    fireEvent.click(screen.getByTestId("offer-accept"));
+    const scene = screen.getByLabelText("Mock driving scene");
+
+    driveTo(expected.pickup, 10);
+    expect(scene).toHaveAttribute("data-cutscene-kind", "none");
+
+    driveTo(expected.pickup, 0);
+    expect(scene).toHaveAttribute("data-cutscene-kind", "food_pickup");
   });
 
   it("boards and exits a passenger before revealing and banking the fare", async () => {

@@ -245,7 +245,11 @@ function createSignalHead(
   >,
 ) {
   const head = new TransformNode(`${name}-head`, ctx.scene);
-  head.position.set(position.x, height, position.z);
+  head.position.set(
+    position.x,
+    (position.elevationM ?? 0) + height,
+    position.z,
+  );
   head.rotation.y = heading;
   if (runtime.style === "egypt_signal") {
     // Cairo's roadside signals commonly frame the black head in the same
@@ -318,6 +322,7 @@ export function buildSignalInstallation(
     installation.armHeadingDeg ?? installation.headingDeg,
   );
   const base = installation.position;
+  const baseElevationM = base.elevationM ?? 0;
   const mastArm = installation.mounting === "mast_arm";
   const poleHeight = mastArm
     ? SIGNAL_MAST.poleHeightM
@@ -332,7 +337,7 @@ export function buildSignalInstallation(
         : SIGNAL_MAST.kerbsidePoleDiameterM,
       tessellation: 14,
     },
-    new Vector3(base.x, poleHeight / 2, base.z),
+    new Vector3(base.x, baseElevationM + poleHeight / 2, base.z),
     materials.dark,
   );
   if (runtime.style === "egypt_signal") {
@@ -357,7 +362,7 @@ export function buildSignalInstallation(
         },
         new Vector3(
           base.x,
-          (band + 0.5) * bandHeight,
+          baseElevationM + (band + 0.5) * bandHeight,
           base.z,
         ),
         materials.warningYellow,
@@ -380,7 +385,7 @@ export function buildSignalInstallation(
       // camera stands on — is at `mastArmTopY(poleHeight)`.
       new Vector3(
         base.x + sideX * span / 2,
-        poleHeight - SIGNAL_MAST.armThicknessM,
+        baseElevationM + poleHeight - SIGNAL_MAST.armThicknessM,
         base.z + sideZ * span / 2,
       ),
       materials.dark,
@@ -389,7 +394,13 @@ export function buildSignalInstallation(
     createSignalHead(
       ctx,
       `${controlId}-${installation.id}`,
-      { x: base.x + sideX * (span - 0.45), z: base.z + sideZ * (span - 0.45) },
+      {
+        x: base.x + sideX * (span - 0.45),
+        z: base.z + sideZ * (span - 0.45),
+        ...(base.elevationM !== undefined
+          ? { elevationM: base.elevationM }
+          : {}),
+      },
       headHeading,
       poleHeight - 0.95,
       materials,
@@ -439,16 +450,17 @@ export function buildRailwayCrossingInstallation(
 ) {
   const heading = degreesToRadians(installation.headingDeg);
   const base = installation.position;
+  const baseElevationM = base.elevationM ?? 0;
   const poleHeight = 3.4;
   createCylinder(
     ctx.scene,
     `${controlId}-${installation.id}-rail-pole`,
     { height: poleHeight, diameter: 0.18, tessellation: 14 },
-    new Vector3(base.x, poleHeight / 2, base.z),
+    new Vector3(base.x, baseElevationM + poleHeight / 2, base.z),
     materials.dark,
   );
   const crossbuck = new TransformNode(`${controlId}-${installation.id}-crossbuck`, ctx.scene);
-  crossbuck.position.set(base.x, 3.15, base.z);
+  crossbuck.position.set(base.x, baseElevationM + 3.15, base.z);
   crossbuck.rotation.y = heading;
   for (const angle of [-0.63, 0.63]) {
     const bar = createBox(
@@ -470,7 +482,7 @@ export function buildRailwayCrossingInstallation(
     );
     lamp.position.set(
       base.x + sideX * side * 0.34,
-      2.38,
+      baseElevationM + 2.38,
       base.z + sideZ * side * 0.34,
     );
     lamp.rotation.x = Math.PI / 2;
@@ -488,7 +500,7 @@ export function buildRailwayCrossingInstallation(
     `${controlId}-${installation.id}-barrier-pivot`,
     ctx.scene,
   );
-  barrierPivot.position.set(base.x, 1.25, base.z);
+  barrierPivot.position.set(base.x, baseElevationM + 1.25, base.z);
   // Aim the +X arm along the shared arm-direction contract (see
   // `railGateArmDirection` — the audit asserts the tip sweeps the
   // carriageway using the same function).
@@ -547,7 +559,11 @@ export function buildRoadMarkingInstallation(
       const marking = ctx.masters.crosswalkStripe.createInstance(
         `${control.id}-${installation.id}-stripe-${stripe}`,
       );
-      marking.position.set(layout.center.x, 0.14, layout.center.z);
+      marking.position.set(
+        layout.center.x,
+        (layout.center.elevationM ?? 0) + 0.14,
+        layout.center.z,
+      );
       marking.rotation.y = layout.rotationY;
       marking.scaling.set(layout.widthM, 1, layout.depthM);
       marking.isPickable = false;
@@ -574,10 +590,23 @@ export function buildRoadMarkingInstallation(
     const maxX = Math.max(...zone.polygon.map((point) => point.x));
     const minZ = Math.min(...zone.polygon.map((point) => point.z));
     const maxZ = Math.max(...zone.polygon.map((point) => point.z));
+    const zoneElevationM =
+      zone.polygon.reduce(
+        (sum, point) => sum + (point.elevationM ?? 0),
+        0,
+      ) / zone.polygon.length;
     const span = Math.max(maxX - minX, maxZ - minZ);
     for (let offset = -span; offset <= span; offset += 3) {
-      const start = { x: Math.max(minX, minX + offset), z: Math.max(minZ, minZ - offset) };
-      const end = { x: Math.min(maxX, maxX + offset), z: Math.min(maxZ, maxZ - offset) };
+      const start = {
+        x: Math.max(minX, minX + offset),
+        z: Math.max(minZ, minZ - offset),
+        elevationM: zoneElevationM,
+      };
+      const end = {
+        x: Math.min(maxX, maxX + offset),
+        z: Math.min(maxZ, maxZ - offset),
+        elevationM: zoneElevationM,
+      };
       if (Math.hypot(end.x - start.x, end.z - start.z) > 1) {
         ctx.createFlatSegment(
           `${control.id}-${installation.id}-box-hatch-${offset}`,

@@ -8,12 +8,17 @@
 
 export interface AnchorableLane {
   readonly id: string;
-  readonly centerline: readonly { readonly x: number; readonly z: number }[];
+  readonly centerline: readonly {
+    readonly x: number;
+    readonly z: number;
+    readonly elevationM?: number;
+  }[];
 }
 
 export interface ResolvedSimulationAnchor {
   readonly x: number;
   readonly z: number;
+  readonly elevationM?: number;
   readonly heading: number;
   readonly segmentIndex: number;
   readonly distanceOnSegment: number;
@@ -34,9 +39,13 @@ export function resolveSimulationLaneAnchor(
     if (remaining <= length || index === lane.centerline.length - 2) {
       const distanceOnSegment = Math.min(remaining, length);
       const amount = distanceOnSegment / length;
+      const elevationM =
+        (start.elevationM ?? 0) +
+        ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
       return {
         x: start.x + (end.x - start.x) * amount,
         z: start.z + (end.z - start.z) * amount,
+        ...(elevationM > 0 ? { elevationM } : {}),
         heading: Math.atan2(end.x - start.x, end.z - start.z),
         segmentIndex: index,
         distanceOnSegment,

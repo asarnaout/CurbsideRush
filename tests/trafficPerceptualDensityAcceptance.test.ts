@@ -373,22 +373,22 @@ const COMMITTED_REPRESENTATIVE_ANCHORS: Readonly<
   },
   "cairo-central-nile": {
     sparse: {
-      laneId: "cairo-west-nile-street-4-reverse-1",
+      laneId: "cairo-south-gezira-road-3-reverse-1",
       distanceAlongM: 50,
-      expectedFogLaneKm: 5.080_849_316_813_861,
-      expectedInnerLaneKm: 2.000_720_053_185_874,
+      expectedFogLaneKm: 5.332_637_383,
+      expectedInnerLaneKm: 1.894_673_590,
     },
     median: {
-      laneId: "cairo-al-galaa-bridge-1-forward-2",
-      distanceAlongM: 50,
-      expectedFogLaneKm: 8.518_234_374_648_408,
-      expectedInnerLaneKm: 3.186_512_272_158_249,
+      laneId: "cairo-nile-island-drive-4-forward-1",
+      distanceAlongM: 150,
+      expectedFogLaneKm: 10.870_521_262,
+      expectedInnerLaneKm: 3.188_147_892,
     },
     dense: {
-      laneId: "cairo-haret-bustan-1-forward-1",
+      laneId: "cairo-corniche-el-nil-5-forward-1",
       distanceAlongM: 150,
-      expectedFogLaneKm: 11.964_580_948_065_43,
-      expectedInnerLaneKm: 4.563_817_000_430_538,
+      expectedFogLaneKm: 14.422_792_133,
+      expectedInnerLaneKm: 5.311_058_669,
     },
   },
   "nyc-upper-west-side": {
@@ -451,15 +451,15 @@ const AUTHORED_CORRIDOR_CAPACITY_EVIDENCE = {
     },
   },
   "cairo-central-nile": {
-    currentM: 1_018.56,
-    forwardM: 888.5,
+    currentM: 4_245.36,
+    forwardM: 3_172.28,
     desktop: {
-      current: 12, forward: 8, streamCurrent: 5, streamForward: 5,
-      inner: 15, ahead: 15,
+      current: 12, forward: 8, streamCurrent: 9, streamForward: 10,
+      inner: 16, ahead: 11,
     },
     touch: {
-      current: 8, forward: 5, streamCurrent: 4, streamForward: 4,
-      inner: 10, ahead: 10,
+      current: 8, forward: 5, streamCurrent: 8, streamForward: 8,
+      inner: 9, ahead: 6,
     },
   },
   "nyc-upper-west-side": {
@@ -2143,7 +2143,7 @@ function representativeAnchors(
       ) > 0.001
     ) {
       throw new Error(
-        `${mapPack.id}/${kind} committed lane-km drifted from ${definition.expectedFogLaneKm.toFixed(3)}/${definition.expectedInnerLaneKm.toFixed(3)} to ${(selected.laneLengthWithinFogM / 1_000).toFixed(3)}/${(selected.laneLengthWithinInnerM / 1_000).toFixed(3)}`,
+        `${mapPack.id}/${kind} committed lane-km drifted from ${definition.expectedFogLaneKm.toFixed(9)}/${definition.expectedInnerLaneKm.toFixed(9)} to ${(selected.laneLengthWithinFogM / 1_000).toFixed(9)}/${(selected.laneLengthWithinInnerM / 1_000).toFixed(9)}`,
       );
     }
     return { ...selected, kind };

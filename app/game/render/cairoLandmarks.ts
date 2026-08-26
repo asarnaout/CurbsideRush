@@ -1230,8 +1230,20 @@ export function buildCairoLandmark(
     return true;
   }
 
+  // The Sixth October entry remains a semantic landmark (boat clearance,
+  // authored-corridor reservations and map provenance), but its visible deck
+  // is now built from the drivable RoadSurface by elevatedRoadLayer. Returning
+  // here prevents the retired flat scenic slab from z-fighting the real ramped
+  // carriageway.
   if (
     landmark.id === "cairo-sixth-october-bridge" ||
+    landmark.id === "cairo-sixth-october-west-ramp-stub" ||
+    landmark.id === "cairo-sixth-october-east-ramp-stub"
+  ) {
+    return true;
+  }
+
+  if (
     landmark.id === "cairo-sixth-october-west-ramp-stub" ||
     landmark.id === "cairo-sixth-october-east-ramp-stub"
   ) {

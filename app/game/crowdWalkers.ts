@@ -85,6 +85,12 @@ export interface CrowdConfig {
   readonly tintCount: number;
   readonly complexionCount: number;
   readonly hairCount: number;
+  /**
+   * Optional static world-space occupancy test. Grade-separated maps use it
+   * to reserve the low-headroom envelope below ramps while leaving genuinely
+   * clear viaduct spans available to people on foot.
+   */
+  readonly canWalkAt?: (x: number, z: number) => boolean;
 }
 
 export interface CrowdFocus {
@@ -302,7 +308,20 @@ export class CrowdSim {
     return walker.lateralM * EDGE_KIND_SCATTER[edge.kind];
   }
 
+  private canWalkAt(x: number, z: number): boolean {
+    return this.config.canWalkAt?.(x, z) ?? true;
+  }
+
   private advance(walker: CrowdWalker, dt: number): void {
+    const previous = {
+      edgeId: walker.edgeId,
+      s: walker.s,
+      dir: walker.dir,
+      segmentHint: walker.segmentHint,
+      x: walker.x,
+      z: walker.z,
+      headingRad: walker.headingRad,
+    };
     const edge = this.graph.edges[walker.edgeId];
     walker.s += walker.dir * walker.speedMps * dt;
     if (edge.closed) {
@@ -342,6 +361,21 @@ export class CrowdSim {
         : walker.dir === 1
           ? pose.headingRad
           : pose.headingRad + Math.PI;
+    if (!this.canWalkAt(walker.x, walker.z)) {
+      // A pavement rail can legitimately continue below a high viaduct, but
+      // it must stop short of a ramp whose soffit is below head height. Keep
+      // the last valid pose and turn around; never teleport across the
+      // clearance keepout or let a walker clip through its deck.
+      walker.edgeId = previous.edgeId;
+      walker.s = previous.s;
+      walker.dir = -previous.dir as 1 | -1;
+      walker.segmentHint = previous.segmentHint;
+      walker.x = previous.x;
+      walker.z = previous.z;
+      walker.headingRad = previous.headingRad + Math.PI;
+      walker.state = "pause";
+      walker.pauseRemaining = this.config.turnPauseSeconds;
+    }
   }
 
   private crossNode(walker: CrowdWalker, nodeId: number): void {
@@ -430,7 +464,7 @@ export class CrowdSim {
     let hiddenEdge = -1;
     let hiddenS = 0;
     let hiddenScore = Number.POSITIVE_INFINITY;
-    let anyEdge = 0;
+    let anyEdge = -1;
     let anyS = 0;
     let anyScore = Number.POSITIVE_INFINITY;
     for (let attempt = 0; attempt < RESPAWN_ATTEMPTS; attempt += 1) {
@@ -464,6 +498,7 @@ export class CrowdSim {
       }
       const edge = this.graph.edges[edgeIndex];
       const pose = samplePavementEdgeOffset(edge, s, this.scatterOf(walker, edge));
+      if (!this.canWalkAt(pose.x, pose.z)) continue;
       const distance = Math.hypot(pose.x - focus.x, pose.z - focus.z);
       const hidden = !isVisible(pose.x, pose.z, spawnHideMarginM(distance));
       if (hidden && distance >= innerRadiusM && distance <= outerRadiusM) {
@@ -491,6 +526,47 @@ export class CrowdSim {
     if (chosenEdge < 0) {
       chosenEdge = hiddenEdge >= 0 ? hiddenEdge : anyEdge;
       chosenS = hiddenEdge >= 0 ? hiddenS : anyS;
+    }
+    if (chosenEdge < 0) {
+      // The random annulus samples can all land in a ramp keepout. Make the
+      // fallback deterministic and bounded: scan nearby bucket segments,
+      // then the whole graph, at their midpoints. This path is rare and only
+      // runs during recycling, never in the per-walker movement hot loop.
+      const fallbackSegments = segments.length
+        ? segments
+        : this.graph.edges.flatMap((edge, edgeIndex) =>
+            edge.points.slice(1).map((_, pointIndex) => ({
+              edgeIndex,
+              sStart: edge.cumulativeM[pointIndex],
+              lengthM:
+                edge.cumulativeM[pointIndex + 1] - edge.cumulativeM[pointIndex],
+            })),
+          );
+      for (const segment of fallbackSegments) {
+        const edge = this.graph.edges[segment.edgeIndex];
+        for (const amount of [0.2, 0.5, 0.8]) {
+          const s = segment.sStart + segment.lengthM * amount;
+          const pose = samplePavementEdgeOffset(
+            edge,
+            s,
+            this.scatterOf(walker, edge),
+          );
+          if (!this.canWalkAt(pose.x, pose.z)) continue;
+          chosenEdge = segment.edgeIndex;
+          chosenS = s;
+          break;
+        }
+        if (chosenEdge >= 0) break;
+      }
+    }
+    // A graph with no occupiable sample is malformed for this pool. Keeping
+    // the previous pose is safer than indexing -1; normal maps always have
+    // extensive pavement outside the small low-ramp envelopes.
+    if (chosenEdge < 0) {
+      walker.state = "pause";
+      walker.pauseRemaining = this.config.turnPauseSeconds;
+      walker.justRecycled = false;
+      return;
     }
     walker.edgeId = chosenEdge;
     walker.s = chosenS;

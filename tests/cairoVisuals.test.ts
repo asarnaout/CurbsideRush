@@ -59,12 +59,13 @@ import {
   CAIRO_ELEVATED_DECK_Y,
   cairoBridgePortalVisualAxis,
   cairoBridgeVisualAxis,
-  cairoElevatedBridgePierPlacements,
   cairoWaterBoatObstacles,
   generateWaterBoatPlacements,
   WATER_BOAT_AIR_DRAFTS_M,
   waterBoatPoseAt,
 } from "../app/game/geometry/waterGeometry";
+import { elevatedRoadPierPlacements } from "../app/game/geometry/elevatedRoadGeometry";
+import { isElevatedRoadSurface } from "../app/game/roadElevation";
 import {
   defaultSidewalkWidthM,
   distanceToPolylineM,
@@ -363,8 +364,14 @@ describe("Cairo visual axes", () => {
       (candidate) => candidate.id === "cairo-sixth-october-bridge",
     )!;
     const axis = cairoBridgeVisualAxis(elevated, surfaces);
-    expect(axis.headingRad).toBeCloseTo((96 * Math.PI) / 180, 8);
-    expect(axis.boxYawRad).toBeCloseTo((6 * Math.PI) / 180, 8);
+    const elevatedSurface = surfaces.find(
+      (surface) => surface.id === elevated.id,
+    )!;
+    const first = elevatedSurface.centerline[0];
+    const last = elevatedSurface.centerline.at(-1)!;
+    const authoredRoadHeading = Math.atan2(last.x - first.x, last.z - first.z);
+    expect(axis.headingRad).toBeCloseTo(authoredRoadHeading, 8);
+    expect(axis.boxYawRad).toBeCloseTo(authoredRoadHeading - Math.PI / 2, 8);
   });
 
   it("clips drivable bridge rails to the Nile before shoreline junctions", () => {
@@ -539,18 +546,20 @@ describe("Cairo visual axes", () => {
     }
   });
 
-  it("omits elevated expressway piers from every drivable surface", () => {
-    const landmark = CAIRO_MAP_PACK.geometry.landmarks.find(
-      (candidate) => candidate.id === "cairo-sixth-october-bridge",
-    )!;
+  it("omits elevated expressway piers from every at-grade carriageway", () => {
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
-    const placements = cairoElevatedBridgePierPlacements(
-      cairoBridgeVisualAxis(landmark, surfaces),
+    const mainline = surfaces.find(
+      (surface) => surface.id === "cairo-sixth-october-bridge",
+    )!;
+    const placements = elevatedRoadPierPlacements(
+      mainline,
       surfaces,
     );
     expect(placements.length).toBeGreaterThan(20);
     for (const pier of placements) {
-      for (const surface of surfaces) {
+      for (const surface of surfaces.filter(
+        (candidate) => !isElevatedRoadSurface(candidate),
+      )) {
         let nearest = Number.POSITIVE_INFINITY;
         for (let index = 0; index + 1 < surface.centerline.length; index += 1) {
           const start = surface.centerline[index];

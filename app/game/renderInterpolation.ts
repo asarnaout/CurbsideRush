@@ -53,8 +53,11 @@ export function shouldSnapPose(
   x: number,
   z: number,
   maxStepM: number,
+  previousElevationM = 0,
+  elevationM = 0,
 ): boolean {
   const dx = x - previousX;
   const dz = z - previousZ;
-  return dx * dx + dz * dz > maxStepM * maxStepM;
+  const dy = elevationM - previousElevationM;
+  return dx * dx + dy * dy + dz * dz > maxStepM * maxStepM;
 }

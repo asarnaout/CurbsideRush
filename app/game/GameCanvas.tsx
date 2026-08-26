@@ -237,6 +237,7 @@ export function GameCanvas({
       rearViewVisible: cameraMode === "first_person",
       playerX: 0,
       playerZ: 0,
+      playerElevationM: 0,
       heading: 0,
       simElapsedMs: 0,
       speedLimit: 0,

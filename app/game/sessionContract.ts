@@ -44,6 +44,8 @@ export interface GameHudSnapshot {
   /** Player world position and heading (radians), for the corner minimap. */
   playerX: number;
   playerZ: number;
+  /** Road-deck height used to switch the map between ground and bridge layers. */
+  playerElevationM?: number;
   heading: number;
   /**
    * Deterministic sim-clock milliseconds since the session started (or last
@@ -133,6 +135,8 @@ export interface DriveScenario {
 export interface GameCanvasPoint {
   readonly x: number;
   readonly z: number;
+  /** Height above the ordinary road plane; omitted means at grade. */
+  readonly elevationM?: number;
 }
 
 export interface GameCanvasWaterBody {
@@ -414,6 +418,7 @@ export type PlayerVehiclePhysics = Pick<
   | "playerRadiusM"
   | "playerCapsuleHalfLengthM"
   | "playerCapsuleRadiusM"
+  | "playerClearanceHeightM"
 >;
 
 /**

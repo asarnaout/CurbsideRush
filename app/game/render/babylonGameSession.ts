@@ -114,6 +114,8 @@ import {
 } from "./cityRenderRegistry";
 import { WaterLayer } from "./waterLayer";
 import { buildRailTracks } from "./railLayer";
+import { buildElevatedRoadStructures } from "./elevatedRoadLayer";
+import { createElevatedRoadGroundClearanceQuery } from "../geometry/elevatedRoadGeometry";
 import {
   RAIL_BRIDGE_MOUTH_CLEAR_M,
   splitParapetRunAroundRails,
@@ -175,6 +177,7 @@ import {
 import { CutsceneDirector, type CutsceneDirectorCtx } from "./cutsceneDirector";
 import {
   LANE_PAINT_STYLES,
+  roadMarkingSegmentPlacement,
   signalStopBarSegment,
   trafficCameraHeadIds,
 } from "../geometry/roadFurnitureLayout";
@@ -269,7 +272,10 @@ import {
   seededUnit,
   type MapVisualPalette,
 } from "../visuals";
-import { natureModelsForMap, natureSetUrls } from "../natureCatalog";
+import {
+  natureModelForPlacement,
+  natureSetUrls,
+} from "../natureCatalog";
 import {
   ROAD_DIVIDED_PARK_IDS,
   type ParkPlacement,
@@ -308,6 +314,11 @@ import {
   splitMarkingAtCrossings,
   type MarkingPoint,
 } from "../roadMarkings";
+import {
+  elevationOnPolylineAt,
+  isElevatedRoadSurface,
+  roadElevationsCanInteract,
+} from "../roadElevation";
 
 import {
   BICYCLE_MODEL,
@@ -352,6 +363,9 @@ const STOPPED_AUDIO_SPEED_MPS = 0.2;
 /** Corniche parapet height — a masonry balustrade you read instantly at
  * speed, taller than the 0.95 m park wall by a lean. */
 const CORNICHE_PARAPET_HEIGHT_M = 1.05;
+/** Standing person/cyclist envelope, including a small animation margin. */
+const GROUND_ROAD_USER_HEADROOM_M = 2.25;
+const GROUND_ROAD_USER_FOOTPRINT_RADIUS_M = 0.5;
 
 /**
  * `BabylonGameSession`: the Babylon scene, engine, simulation adapter and
@@ -946,8 +960,10 @@ const STREET_DOOR_INSET_M = 3.2;
 interface PlayerState {
   x: number;
   z: number;
+  elevationM: number;
   previousX: number;
   previousZ: number;
+  previousElevationM: number;
   heading: number;
   previousHeading: number;
   speedMps: number;
@@ -976,6 +992,7 @@ interface NpcVehicle {
   visualVehicleId: string;
   visualVariant: NpcVehicleVariant;
   simulationId?: string;
+  laneId?: string;
   speed: number;
   z: number;
   laneX: number;
@@ -984,9 +1001,11 @@ interface NpcVehicle {
   poseX: number;
   poseZ: number;
   poseHeading: number;
+  poseElevationM: number;
   prevPoseX: number;
   prevPoseZ: number;
   prevPoseHeading: number;
+  prevPoseElevationM: number;
   active?: boolean;
   /** Last enabled state written to the visual root (separate from `active`: a
    * cutscene can temporarily hide an otherwise active simulated vehicle). */
@@ -1352,9 +1371,13 @@ function resolveLaneAnchor(
     if (remaining <= length || index === lane.centerline.length - 2) {
       const distanceOnSegment = Math.min(remaining, length);
       const amount = distanceOnSegment / length;
+      const elevationM =
+        (start.elevationM ?? 0) +
+        ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
       return {
         x: start.x + (end.x - start.x) * amount,
         z: start.z + (end.z - start.z) * amount,
+        ...(elevationM > 0 ? { elevationM } : {}),
         heading: Math.atan2(end.x - start.x, end.z - start.z),
         segmentIndex: index,
         distanceOnSegment,
@@ -1582,6 +1605,8 @@ export class BabylonGameSession {
   private readonly constructedAtMs: number;
   private sceneReadyMs: number | null = null;
   private simulationSnapshot: SimulationSnapshot;
+  /** Stable lookup for placing vehicles on authored ramp/viaduct profiles. */
+  private readonly laneById: ReadonlyMap<string, GameCanvasLane>;
   private playerVehicleVisual: VehicleMeshVisual | null = null;
   /** The player-as-cyclist rig (career bicycle days); null on car days. */
   private playerCyclistVisual: CharacterVisual | null = null;
@@ -1767,6 +1792,9 @@ export class BabylonGameSession {
   private readonly crowdFrustumMatrix = new Matrix();
   /** Cached per-map pavement graph; null once known to be unavailable. */
   private pavementGraph: PavementGraph | null | undefined;
+  private readonly elevatedRoadGroundClearanceAt: ReturnType<
+    typeof createElevatedRoadGroundClearanceQuery
+  >;
   /** The sidewalk band the graph was built with; drives the crowd's scatter. */
   private pavementSidewalkWidthM = 0;
   private complexions: readonly CharacterTone[] | undefined;
@@ -1881,6 +1909,7 @@ export class BabylonGameSession {
   private displayedX = 0;
   private displayedZ = 0;
   private displayedHeading = 0;
+  private displayedElevationM = 0;
   private cameraMotionSeconds = 0;
   // Set by createSkyAndHorizon from the map's fog band, applied to every
   // camera in the constructor. Babylon's default far plane is 10km.
@@ -1937,6 +1966,12 @@ export class BabylonGameSession {
     this.canvas = canvas;
     this.options = options;
     this.callbacks = callbacks;
+    this.elevatedRoadGroundClearanceAt = createElevatedRoadGroundClearanceQuery(
+      options.mapPack.geometry.roadSurfaces ?? [],
+    );
+    this.laneById = new Map(
+      options.mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]),
+    );
     this.debugBuildingAssetPolicy = options.debugBuildingAssetPolicy;
     // Two-wheelers have no cockpit to sit in — the first-person camera would
     // be a car-interior lie, so bike and motorbike days are third-person only.
@@ -1977,9 +2012,21 @@ export class BabylonGameSession {
     );
     this.chaseCameraBlockers = prepareChaseCameraBlockers(this.stagedBlockers);
     this.scenarioStaticObstacles = simulationConfig.staticObstacles ?? [];
+    const playerClearanceHeightM =
+      options.playerVehicle?.visualKind === "bicycle"
+        ? 1.85
+        : options.playerVehicle?.visualKind === "motorbike"
+          ? 1.8
+          : resolvePlayerVehicleAppearance(
+              options.mapPack.id,
+              options.playerVehicle,
+            ).dimensions.height;
     this.simulation = new SimulationCore({
       ...simulationConfig,
       ...(options.vehiclePhysics ?? {}),
+      // The roof envelope follows the rendered vehicle, independently of the
+      // handling/capsule preset. Two-wheelers include their seated rider.
+      playerClearanceHeightM,
     });
     if (options.paused) this.simulation.setPaused(true);
     this.simulationSnapshot = this.simulation.getSnapshot();
@@ -1987,8 +2034,10 @@ export class BabylonGameSession {
     this.playerState = {
       x: start.x,
       z: start.z,
+      elevationM: start.elevationM ?? 0,
       previousX: start.x,
       previousZ: start.z,
+      previousElevationM: start.elevationM ?? 0,
       heading: start.heading,
       previousHeading: start.heading,
       speedMps: 0,
@@ -1999,6 +2048,7 @@ export class BabylonGameSession {
     this.displayedX = start.x;
     this.displayedZ = start.z;
     this.displayedHeading = start.heading;
+    this.displayedElevationM = start.elevationM ?? 0;
 
     const touchFirst = options.inputCapabilities.touchFirst;
     this.engine = new Engine(
@@ -2374,10 +2424,12 @@ export class BabylonGameSession {
     // authored spawn pose.
     this.playerState.previousX = this.playerState.x;
     this.playerState.previousZ = this.playerState.z;
+    this.playerState.previousElevationM = this.playerState.elevationM;
     this.playerState.previousHeading = this.playerState.heading;
     this.displayedX = this.playerState.x;
     this.displayedZ = this.playerState.z;
     this.displayedHeading = this.playerState.heading;
+    this.displayedElevationM = this.playerState.elevationM;
     this.displayedLookYaw = 0;
     this.displayedLookPitch = 0;
     this.snapChaseCameraToPose();
@@ -2708,7 +2760,9 @@ export class BabylonGameSession {
     if (this.pavementGraph !== undefined) return this.pavementGraph;
     this.pavementGraph = null;
     const mapPack = this.options.mapPack;
-    const surfaces = mapPack.geometry.roadSurfaces;
+    const surfaces = mapPack.geometry.roadSurfaces?.filter(
+      (surface) => !isElevatedRoadSurface(surface),
+    );
     if (!surfaces?.length) return null;
     // The exact sidewalk band the environment renders, so walkers stay on it.
     const sidewalkWidthM = defaultSidewalkWidthM(mapPack);
@@ -2722,6 +2776,21 @@ export class BabylonGameSession {
       console.warn("[crowd] pavement graph build failed", error);
     }
     return this.pavementGraph;
+  }
+
+  /** Whether a ground-level body of `requiredM` height fits below every deck. */
+  private groundHeadroomAllows(
+    x: number,
+    z: number,
+    requiredM: number,
+    footprintRadiusM = 0,
+  ): boolean {
+    const obstruction = this.elevatedRoadGroundClearanceAt(
+      { x, z },
+      0,
+      footprintRadiusM,
+    );
+    return obstruction === null || obstruction.clearanceM >= requiredM;
   }
 
   /** Half-width of the crowd's scatter band: the pavement band less standing
@@ -2752,6 +2821,13 @@ export class BabylonGameSession {
       tintCount: clothing.length,
       complexionCount: this.complexionPalette().length,
       hairCount: this.hairPalette().length,
+      canWalkAt: (x, z) =>
+        this.groundHeadroomAllows(
+          x,
+          z,
+          GROUND_ROAD_USER_HEADROOM_M,
+          GROUND_ROAD_USER_FOOTPRINT_RADIUS_M,
+        ),
     });
     if (!sim) return;
     // Prime the pool around the spawn point so the street is already lived-in
@@ -2995,7 +3071,7 @@ export class BabylonGameSession {
       // Trail the smoke from the engine bay, wherever the car is facing.
       this.damageSmokeEmitter.set(
         this.displayedX + Math.sin(this.displayedHeading) * 1.05,
-        0.92,
+        0.92 + this.displayedElevationM,
         this.displayedZ + Math.cos(this.displayedHeading) * 1.05,
       );
     }
@@ -3245,6 +3321,7 @@ export class BabylonGameSession {
     }
     if (this.simulationSnapshot.tick < this.barrierContactCooldownUntilTick) return;
     const player = this.simulationSnapshot.player;
+    if (!roadElevationsCanInteract(player.elevationM ?? 0, 0)) return;
     if (player.speedMps < 0.4) return;
     for (const crossing of this.railwayCrossingVisuals) {
       if (!crossing.lastWarningActive) continue;
@@ -3290,6 +3367,7 @@ export class BabylonGameSession {
     }
     if (this.simulationSnapshot.tick < this.trainContactCooldownUntilTick) return;
     const player = this.simulationSnapshot.player;
+    if (!roadElevationsCanInteract(player.elevationM ?? 0, 0)) return;
     const margin = 1.15; // player capsule radius, roughly
     for (const train of this.railTrains) {
       for (const car of train.carObstacles()) {
@@ -3318,6 +3396,9 @@ export class BabylonGameSession {
       return;
     }
     const impactSpeedMps = Math.round(this.playerState.speedMps * 10) / 10;
+    // Scenario road users and the ambient crowd occupy the at-grade pavement
+    // graph. A bridge can cross the same x/z without sharing physical space.
+    if (!roadElevationsCanInteract(this.playerState.elevationM, 0)) return;
     for (const roadUser of this.pedestrians) {
       if (roadUser.downedUntilSeconds !== undefined) continue;
       const safetyRadius = roadUser.kind === "cyclist" ? 1.9 : 1.55;
@@ -3571,6 +3652,14 @@ export class BabylonGameSession {
     let closestDistance = radiusM;
     for (const npc of this.npcVehicles) {
       if (!npc.police || !npc.active) continue;
+      if (
+        !roadElevationsCanInteract(
+          this.playerState.elevationM,
+          npc.poseElevationM,
+        )
+      ) {
+        continue;
+      }
       const distance = Math.hypot(npc.laneX - x, npc.z - z);
       if (distance <= closestDistance) {
         closest = npc;
@@ -3605,6 +3694,10 @@ export class BabylonGameSession {
       const { x, z } = this.playerState;
       return this.trafficCameraPoints.some(
         (point) =>
+          roadElevationsCanInteract(
+            this.playerState.elevationM,
+            point.elevationM ?? 0,
+          ) &&
           Math.hypot(point.x - x, point.z - z) <= TRAFFIC_CAMERA_SPEED_RADIUS_M,
       );
     }
@@ -3812,29 +3905,8 @@ export class BabylonGameSession {
    */
   private buildParkPlanting() {
     const key = resolveMapVisualKey(this.options.mapPack.id);
-    const catalogue = natureModelsForMap(key);
-    const canopy = catalogue.filter(
-      (model) =>
-        model.role === "tree" || model.role === "conifer" || model.role === "palm",
-    );
-    const shrubs = catalogue.filter((model) => model.role === "shrub");
-    const monuments = catalogue.filter((model) => model.role === "monument");
-    // `"palm"` asks for a palm and nothing else, where `"tree"` takes whatever
-    // canopy the city downloaded. Cairo's street line names the species
-    // deliberately (`roadSpecies`), and drawing it from the mixed canopy pool
-    // would have planted oaks down the Corniche.
-    const palms = catalogue.filter((model) => model.role === "palm");
-    const speciesFor = (kind: string, variant: number) => {
-      const pool =
-        kind === "shrub"
-          ? shrubs
-          : kind === "monument"
-            ? monuments
-            : kind === "palm"
-              ? palms
-              : canopy;
-      return pool.length ? pool[variant % pool.length] : null;
-    };
+    const speciesFor = (kind: string, variant: number) =>
+      natureModelForPlacement(key, kind, variant);
 
     let index = 0;
     for (const placement of this.pendingPlantedProps) {
@@ -3929,6 +4001,7 @@ export class BabylonGameSession {
       this.playerState.x,
       this.playerState.z,
       this.playerState.heading,
+      this.playerState.elevationM,
       (prop) => this.reportDestructibleStrike(prop),
       (x, y, z, count) => this.emitImpactBurst(x, y, z, count),
     );
@@ -4103,6 +4176,7 @@ export class BabylonGameSession {
       const reassigned = npc.simulationId !== vehicle.id;
       if (reassigned) this.npcVisualReassignmentCount += 1;
       npc.simulationId = vehicle.id;
+      npc.laneId = vehicle.laneId;
       this.npcVisualSlotAssignments.commitSlotAssignment(
         slotAssignments[vehicleIndex],
         vehicle.id,
@@ -4155,19 +4229,24 @@ export class BabylonGameSession {
           vehicle.x,
           vehicle.z,
           POSE_SNAP_STEP_M,
+          npc.poseElevationM,
+          vehicle.elevationM ?? 0,
         )
       ) {
         npc.prevPoseX = vehicle.x;
         npc.prevPoseZ = vehicle.z;
         npc.prevPoseHeading = vehicle.heading;
+        npc.prevPoseElevationM = vehicle.elevationM ?? 0;
       } else {
         npc.prevPoseX = npc.poseX;
         npc.prevPoseZ = npc.poseZ;
         npc.prevPoseHeading = npc.poseHeading;
+        npc.prevPoseElevationM = npc.poseElevationM;
       }
       npc.poseX = vehicle.x;
       npc.poseZ = vehicle.z;
       npc.poseHeading = vehicle.heading;
+      npc.poseElevationM = vehicle.elevationM ?? 0;
     }
     // Roots omitted by the authoritative snapshot have become inactive. Do
     // this after assignment so a recycled root stays continuously enabled
@@ -4193,6 +4272,7 @@ export class BabylonGameSession {
   ) {
     const previousX = this.playerState.x;
     const previousZ = this.playerState.z;
+    const previousElevationM = this.playerState.elevationM;
     const previousHeading = this.playerState.heading;
     this.simulationSnapshot = snapshot;
     // A gap no legal drive can produce is a teleport (for example a tow
@@ -4205,18 +4285,23 @@ export class BabylonGameSession {
         snapshot.player.x,
         snapshot.player.z,
         POSE_SNAP_STEP_M,
+        previousElevationM,
+        snapshot.player.elevationM ?? 0,
       )
     ) {
       this.playerState.previousX = snapshot.player.x;
       this.playerState.previousZ = snapshot.player.z;
+      this.playerState.previousElevationM = snapshot.player.elevationM ?? 0;
       this.playerState.previousHeading = snapshot.player.heading;
     } else {
       this.playerState.previousX = previousX;
       this.playerState.previousZ = previousZ;
+      this.playerState.previousElevationM = previousElevationM;
       this.playerState.previousHeading = previousHeading;
     }
     this.playerState.x = snapshot.player.x;
     this.playerState.z = snapshot.player.z;
+    this.playerState.elevationM = snapshot.player.elevationM ?? 0;
     this.playerState.heading = snapshot.player.heading;
     this.playerState.speedMps = snapshot.player.speedMps;
     this.playerState.gear = snapshot.player.gear === "drive" ? "D" : "R";
@@ -4482,6 +4567,15 @@ export class BabylonGameSession {
    * each frame — the high-speed "nodding" jitter, at its worst on 120 Hz
    * displays where the sim steps on alternating frames.
    */
+  private elevationForLanePosition(
+    laneId: string | null | undefined,
+    x: number,
+    z: number,
+  ): number {
+    const lane = laneId ? this.laneById.get(laneId) : undefined;
+    return lane ? elevationOnPolylineAt(lane.centerline, x, z) : 0;
+  }
+
   private updatePlayerVisuals(interpolation: number) {
     const state = this.playerState;
     const alpha = this.options.reducedMotion ? 1 : interpolation;
@@ -4492,9 +4586,16 @@ export class BabylonGameSession {
       state.heading,
       alpha,
     );
+    this.displayedElevationM = lerpValue(
+      state.previousElevationM,
+      state.elevationM,
+      alpha,
+    );
     this.player.position.set(
       this.displayedX,
-      0.12 - (this.cutsceneDirector?.dipOffset ?? 0),
+      0.12 +
+        this.displayedElevationM -
+        (this.cutsceneDirector?.dipOffset ?? 0),
       this.displayedZ,
     );
     this.player.rotation.y = this.displayedHeading;
@@ -4550,10 +4651,12 @@ export class BabylonGameSession {
     const alpha = this.options.reducedMotion ? 1 : interpolation;
     for (const npc of this.npcVehicles) {
       if (!npc.active) continue;
+      const x = lerpValue(npc.prevPoseX, npc.poseX, alpha);
+      const z = lerpValue(npc.prevPoseZ, npc.poseZ, alpha);
       npc.node.position.set(
-        lerpValue(npc.prevPoseX, npc.poseX, alpha),
-        0.12,
-        lerpValue(npc.prevPoseZ, npc.poseZ, alpha),
+        x,
+        0.12 + lerpValue(npc.prevPoseElevationM, npc.poseElevationM, alpha),
+        z,
       );
       npc.node.rotation.y = lerpHeading(
         npc.prevPoseHeading,
@@ -4586,9 +4689,19 @@ export class BabylonGameSession {
       },
       { distanceM: this.chaseDistanceM },
     );
-    this.thirdCamera.position.copyFrom(this.cameraDesiredScratch.set(eye.x, eye.y, eye.z));
+    this.thirdCamera.position.copyFrom(
+      this.cameraDesiredScratch.set(
+        eye.x,
+        eye.y + this.displayedElevationM,
+        eye.z,
+      ),
+    );
     this.thirdCamera.setTarget(
-      this.cameraTargetScratch.set(target.x, target.y, target.z),
+      this.cameraTargetScratch.set(
+        target.x,
+        target.y + this.displayedElevationM,
+        target.z,
+      ),
       undefined,
       true,
     );
@@ -4597,7 +4710,7 @@ export class BabylonGameSession {
   private updateCamera(dt: number) {
     const base = this.cameraBaseScratch.set(
       this.displayedX,
-      0.12,
+      0.12 + this.displayedElevationM,
       this.displayedZ,
     );
     // Shake/bob phase advances with distance covered, capped: uncapped, the
@@ -4680,7 +4793,7 @@ export class BabylonGameSession {
       });
       this.firstCamera.position.set(
         poses.first.x,
-        poses.first.y,
+        poses.first.y + this.displayedElevationM,
         poses.first.z,
       );
       this.firstCamera.rotation.set(
@@ -4690,7 +4803,7 @@ export class BabylonGameSession {
       );
       this.rearCamera.position.set(
         poses.rear.x,
-        poses.rear.y,
+        poses.rear.y + this.displayedElevationM,
         poses.rear.z,
       );
       this.rearCamera.rotation.set(
@@ -4708,7 +4821,11 @@ export class BabylonGameSession {
           vehicleHeading: this.displayedHeading,
           steeringSide: this.options.steeringSide,
         });
-        this.wingMirrorCamera.position.set(wing.x, wing.y, wing.z);
+        this.wingMirrorCamera.position.set(
+          wing.x,
+          wing.y + this.displayedElevationM,
+          wing.z,
+        );
         this.wingMirrorCamera.rotation.set(wing.rotationX, wing.rotationY, 0);
       }
     } else {
@@ -4882,8 +4999,8 @@ export class BabylonGameSession {
       staticSceneryFreeze: this.staticSceneryFreeze,
       visualPalette: palette,
       registerShadowCaster: (mesh, x, z) => this.registerShadowCaster(mesh, x, z),
-      registerDestructibleProp: (kind, x, z, scale, parts) =>
-        this.destructibles?.register(kind, x, z, scale, parts),
+      registerDestructibleProp: (kind, x, z, scale, parts, elevationM) =>
+        this.destructibles?.register(kind, x, z, scale, parts, elevationM),
       buildFlatPolygonMesh: (id, polygon, y, polygonMaterial) =>
         buildFlatPolygonMesh(parksRenderCtx, id, polygon, y, polygonMaterial),
       buildParkLawnPolygon: (id, polygon, polygonPalette, mapPackId) =>
@@ -5115,6 +5232,17 @@ export class BabylonGameSession {
         }));
     const roadSurfaces = authoredRoadSurfaces;
     const defaultShoulderWidth = defaultSidewalkWidthM(mapPack);
+    buildElevatedRoadStructures(
+      {
+        scene,
+        staticSceneryFreeze: this.staticSceneryFreeze,
+        registerStatic: (mesh, x, z) =>
+          this.registerStaticCell(mesh, x, z, false),
+        registerShadowCaster: (mesh, x, z) =>
+          this.registerShadowCaster(mesh, x, z),
+      },
+      mapPack,
+    );
     for (const surface of roadSurfaces) {
       const shoulderWidth = Math.max(
         0,
@@ -5126,18 +5254,22 @@ export class BabylonGameSession {
           : surface.surfaceType === "terminal"
           ? terminalSurface
             : asphalt;
-      // A slightly wider dirt band under each carriageway grounds the road
-      // in the landscape instead of letting it float on the green plane.
-      this.mirrorRig?.registerSurface(
-        this.createRoadSurfaceMesh(
-          `road-shoulder-${surface.id}`,
-          surface.centerline,
-          surface.widthM + shoulderWidth * 2,
-          dirtShoulder,
-          surface.surfaceType === "roundabout",
-          ROAD_SHOULDER_Y,
-        ),
-      );
+      // A slightly wider dirt band grounds at-grade roads in the landscape.
+      // Elevated roads own a structural concrete deck below their asphalt;
+      // carrying this ground shoulder up the ramp would look like soil poured
+      // onto the flyover and would double the deck edge.
+      if (!isElevatedRoadSurface(surface)) {
+        this.mirrorRig?.registerSurface(
+          this.createRoadSurfaceMesh(
+            `road-shoulder-${surface.id}`,
+            surface.centerline,
+            surface.widthM + shoulderWidth * 2,
+            dirtShoulder,
+            surface.surfaceType === "roundabout",
+            ROAD_SHOULDER_Y,
+          ),
+        );
+      }
       this.mirrorRig?.registerSurface(
         this.createRoadSurfaceMesh(
           `road-${surface.id}`,
@@ -5151,16 +5283,18 @@ export class BabylonGameSession {
     // Dirt-shoulder fills first (lowest), then the asphalt fills, mirroring the
     // strip layering so a junction reads as one continuous surface. Square
     // corners here: this band's outer edge is the building line.
-    const shoulderJunctionSurfaces = roadSurfaces.map((surface) => ({
-      ...surface,
-      widthM:
-        surface.widthM +
-        Math.max(
-          0,
-          surface.sidewalkWidthM ?? defaultShoulderWidth,
-        ) *
-          2,
-    }));
+    const shoulderJunctionSurfaces = roadSurfaces
+      .filter((surface) => !isElevatedRoadSurface(surface))
+      .map((surface) => ({
+        ...surface,
+        widthM:
+          surface.widthM +
+          Math.max(
+            0,
+            surface.sidewalkWidthM ?? defaultShoulderWidth,
+          ) *
+            2,
+      }));
     for (const [index, fill] of collectRoadJunctionFills(
       shoulderJunctionSurfaces,
       0,
@@ -5283,7 +5417,15 @@ export class BabylonGameSession {
         const runs = LANE_PAINT_STYLES.has(marking.style)
           ? splitMarkingAtCrossings(
               marking.points,
-              roadSurfaces.filter((other) => other.id !== surface.id),
+              roadSurfaces.filter(
+                (other) =>
+                  other.id !== surface.id &&
+                  // A flyover neither interrupts paint on the street below
+                  // nor has its own paint erased by that street. At-grade
+                  // junctions still use the established splitting rule.
+                  !isElevatedRoadSurface(surface) &&
+                  !isElevatedRoadSurface(other),
+              ),
             )
           : [marking.points as MarkingPoint[]];
         for (const run of runs) {
@@ -6018,7 +6160,13 @@ export class BabylonGameSession {
           scene,
           `${control.id}-${installation.id}-pole`,
           { height: 3.1, diameter: 0.17, tessellation: 14 },
-          new Vector3(installation.position.x, 1.55, installation.position.z),
+          new Vector3(
+            installation.position.x,
+            ("elevationM" in installation.position
+              ? (installation.position.elevationM ?? 0)
+              : 0) + 1.55,
+            installation.position.z,
+          ),
           dark,
         );
         pole.rotation.y = degreesToRadians(installation.headingDeg);
@@ -6107,7 +6255,8 @@ export class BabylonGameSession {
         z: number,
         scale: number,
         parts: readonly DestructiblePropPart[],
-      ) => this.destructibles?.register(kind, x, z, scale, parts),
+        elevationM?: number,
+      ) => this.destructibles?.register(kind, x, z, scale, parts, elevationM),
     };
     if (regulatorySigns.length) {
       buildRegulatorySigns(londonLandmarksCtx, regulatorySigns);
@@ -6123,6 +6272,9 @@ export class BabylonGameSession {
       ...regulatorySigns,
       ...speedLimitSigns,
     ]);
+    const atGradeRoadSurfaces = roadSurfaces.filter(
+      (surface) => !isElevatedRoadSurface(surface),
+    );
     buildRoadsideProps(
       {
         scene,
@@ -6133,13 +6285,20 @@ export class BabylonGameSession {
         sceneryKeepFraction: this.sceneryKeepFraction,
         registerShadowCaster: (mesh, x, z) =>
           this.registerShadowCaster(mesh, x, z),
-        registerDestructibleProp: (kind, x, z, scale, parts) =>
-          this.destructibles?.register(kind, x, z, scale, parts),
+        registerDestructibleProp: (kind, x, z, scale, parts, elevationM) =>
+          this.destructibles?.register(kind, x, z, scale, parts, elevationM),
+        canPlaceGroundProp: (x, z, requiredHeadroomM, footprintRadiusM) =>
+          this.groundHeadroomAllows(
+            x,
+            z,
+            requiredHeadroomM,
+            footprintRadiusM,
+          ),
       },
       mapPack,
       palette,
       mapId,
-      roadSurfaces,
+      atGradeRoadSurfaces,
       [...regulatorySigns, ...speedLimitSigns],
       this.parkedCars.map((car) => car.position),
     );
@@ -6169,7 +6328,7 @@ export class BabylonGameSession {
     if (!geometry.positions.length || !geometry.indices.length) return undefined;
 
     const positions = geometry.positions.map((value, index) =>
-      index % 3 === 1 ? surfaceY : value,
+      index % 3 === 1 ? value + surfaceY : value,
     );
     const normals: number[] = [];
     VertexData.ComputeNormals(positions, [...geometry.indices], normals);
@@ -6198,8 +6357,9 @@ export class BabylonGameSession {
     // Fan from the shared node, not from a vertex: the outline is a plus with
     // rounded corners, so no vertex of it can see the whole boundary — but the
     // node it was built around can.
-    const positions: number[] = [pivot.x, y, pivot.z];
-    for (const point of polygon) positions.push(point.x, y, point.z);
+    const surfaceY = y + (pivot.elevationM ?? 0);
+    const positions: number[] = [pivot.x, surfaceY, pivot.z];
+    for (const point of polygon) positions.push(point.x, surfaceY, point.z);
     const indices: number[] = [];
     for (let index = 0; index < polygon.length; index += 1) {
       indices.push(0, index + 1, ((index + 1) % polygon.length) + 1);
@@ -6260,18 +6420,25 @@ export class BabylonGameSession {
     y: number,
     material: StandardMaterial,
   ): Mesh | undefined {
-    const dx = end.x - start.x;
-    const dz = end.z - start.z;
-    const length = Math.hypot(dx, dz);
-    if (length < 0.01) return undefined;
+    const placement = roadMarkingSegmentPlacement(start, end, y);
+    if (!placement) return undefined;
     const segment = createBox(
       this.scene,
       name,
-      { width, height: Math.max(0.025, y * 0.45), depth: length + 0.25 },
-      new Vector3((start.x + end.x) / 2, y, (start.z + end.z) / 2),
+      {
+        width,
+        height: Math.max(0.025, y * 0.45),
+        depth: placement.lengthM + 0.25,
+      },
+      new Vector3(
+        placement.center.x,
+        placement.center.y,
+        placement.center.z,
+      ),
       material,
     );
-    segment.rotation.y = Math.atan2(dx, dz);
+    segment.rotation.y = placement.yawRad;
+    segment.rotation.x = placement.pitchRad;
     return segment;
   }
 
@@ -6380,20 +6547,30 @@ export class BabylonGameSession {
         x: number;
         z: number;
         heading: number;
+        elevationM?: number;
       }) => {
         this.tickIndexedInputReplay.abort("debug-teleport");
         this.releaseReplayControlsIfRequested();
         this.simulation.setPlayerPose(
-          { x: pose.x, z: pose.z, heading: pose.heading },
+          {
+            x: pose.x,
+            z: pose.z,
+            heading: pose.heading,
+            ...(Number.isFinite(pose.elevationM)
+              ? { elevationM: pose.elevationM }
+              : {}),
+          },
           0,
         );
         this.applySimulationSnapshot(this.simulation.getSnapshot());
         this.playerState.previousX = this.playerState.x;
         this.playerState.previousZ = this.playerState.z;
+        this.playerState.previousElevationM = this.playerState.elevationM;
         this.playerState.previousHeading = this.playerState.heading;
         this.displayedX = this.playerState.x;
         this.displayedZ = this.playerState.z;
         this.displayedHeading = this.playerState.heading;
+        this.displayedElevationM = this.playerState.elevationM;
         this.snapChaseCameraToPose();
       };
       // Revs, gear and per-voice levels, so QA can assert the engine actually
@@ -7222,6 +7399,7 @@ export class BabylonGameSession {
       const x = initialSnapshot?.x ?? 0;
       const z = initialSnapshot?.z ?? 0;
       const heading = initialSnapshot?.heading ?? 0;
+      const elevationM = initialSnapshot?.elevationM ?? 0;
       const speed = initialSnapshot?.speedMps ?? 0;
       const npc: NpcVehicle = {
         node,
@@ -7236,13 +7414,15 @@ export class BabylonGameSession {
         poseX: x,
         poseZ: z,
         poseHeading: heading,
+        poseElevationM: elevationM,
         prevPoseX: x,
         prevPoseZ: z,
         prevPoseHeading: heading,
+        prevPoseElevationM: elevationM,
         active: Boolean(initialSnapshot),
         rootEnabled: Boolean(initialSnapshot),
       };
-      node.position.set(x, 0.12, z);
+      node.position.set(x, 0.12 + elevationM, z);
       node.rotation.y = heading;
       node.setEnabled(Boolean(initialSnapshot));
       // Patrol status rides on the appearance (light bar + livery are built into
@@ -7293,6 +7473,13 @@ export class BabylonGameSession {
         tintCount: trafficColors.length,
         complexionCount: this.complexionPalette().length,
         hairCount: this.hairPalette().length,
+        canWalkAt: (x, z) =>
+          this.groundHeadroomAllows(
+            x,
+            z,
+            GROUND_ROAD_USER_HEADROOM_M,
+            GROUND_ROAD_USER_FOOTPRINT_RADIUS_M,
+          ),
       });
       sim?.step(0, { x: this.playerState.x, z: this.playerState.z }, () => true);
       return sim;
@@ -7734,6 +7921,7 @@ export class BabylonGameSession {
       rearViewVisible: this.cameraMode === "first_person",
       playerX: this.playerState.x,
       playerZ: this.playerState.z,
+      playerElevationM: this.displayedElevationM,
       heading: this.playerState.heading,
       simElapsedMs: this.simulationSnapshot.elapsedMs,
       speedLimit: this.postedSpeedLimit(),

@@ -153,6 +153,53 @@ describe("the road network pass", () => {
     drawRoadNetwork(recordingContext(), ROADS, projector(), 0.2, minimapRoadFloorPx(150));
     expect(ops.filter((entry) => entry.op === "stroke")[0].lineWidth).toBeCloseTo(8.7, 6);
   });
+
+  it("fades the bridge layer on the ground and reverses the hierarchy on the deck", () => {
+    const layered = [
+      {
+        centerline: [{ x: -400, z: 0 }, { x: 400, z: 0 }],
+        widthM: 12,
+      },
+      {
+        centerline: [
+          { x: 0, z: -400, elevationM: 0 },
+          { x: 0, z: 400, elevationM: 10.5 },
+        ],
+        widthM: 14,
+      },
+    ];
+
+    drawRoadNetwork(
+      recordingContext(),
+      layered,
+      projector(),
+      0.2,
+      MAP_ROAD_WIDTH_FLOOR_PX,
+      "ground",
+    );
+    expect(
+      ops.filter((entry) => entry.op === "stroke").map((entry) => entry.strokeStyle),
+    ).toEqual([
+      "rgba(219, 203, 173, 0.18)",
+      "rgba(170, 182, 192, 0.28)",
+    ]);
+
+    ops = [];
+    drawRoadNetwork(
+      recordingContext(),
+      layered,
+      projector(),
+      0.2,
+      MAP_ROAD_WIDTH_FLOOR_PX,
+      "elevated",
+    );
+    expect(
+      ops.filter((entry) => entry.op === "stroke").map((entry) => entry.strokeStyle),
+    ).toEqual([
+      "rgba(170, 182, 192, 0.10)",
+      "rgba(231, 205, 154, 0.66)",
+    ]);
+  });
 });
 
 describe("the water pass", () => {

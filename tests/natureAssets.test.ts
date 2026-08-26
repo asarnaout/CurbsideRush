@@ -175,20 +175,38 @@ describe("nature kit assets", () => {
       );
       let low = Number.POSITIVE_INFINITY;
       let high = Number.NEGATIVE_INFINITY;
+      let minX = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let minZ = Number.POSITIVE_INFINITY;
+      let maxZ = Number.NEGATIVE_INFINITY;
       for (const mesh of container.meshes) {
         if (!mesh.getTotalVertices()) continue;
         mesh.computeWorldMatrix(true);
         const box = mesh.getBoundingInfo().boundingBox;
         low = Math.min(low, box.minimumWorld.y);
         high = Math.max(high, box.maximumWorld.y);
+        minX = Math.min(minX, box.minimumWorld.x);
+        maxX = Math.max(maxX, box.maximumWorld.x);
+        minZ = Math.min(minZ, box.minimumWorld.z);
+        maxZ = Math.max(maxZ, box.maximumWorld.z);
       }
       const worldHeight = (high - low) * model.scale;
+      const worldFootprintRadius =
+        Math.max(maxX - minX, maxZ - minZ) * model.scale / 2;
       const [min, max] = BANDS[model.role];
       expect(
         worldHeight,
         `${model.id} stands ${worldHeight.toFixed(1)}m as a ${model.role}`,
       ).toBeGreaterThanOrEqual(min);
       expect(worldHeight, `${model.id} stands ${worldHeight.toFixed(1)}m`).toBeLessThanOrEqual(max);
+      expect(model.heightM, `${model.id} clearance height is stale`).toBeCloseTo(
+        worldHeight,
+        2,
+      );
+      expect(
+        model.footprintRadiusM,
+        `${model.id} clearance footprint is stale`,
+      ).toBeCloseTo(worldFootprintRadius, 2);
       scene.dispose();
       engine.dispose();
     }

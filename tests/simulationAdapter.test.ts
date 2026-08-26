@@ -108,6 +108,221 @@ describe("simulation runtime adapter (free-roam)", () => {
     }
   });
 
+  it("tracks every Cairo ramp profile without dropping onto an overlapping ground road", () => {
+    const freeDrive = FREE_DRIVES.find(
+      (candidate) => candidate.mapId === "cairo-central-nile",
+    )!;
+    const country = getCountryProfile(freeDrive.countryId);
+    const mapPack = getMapPack(freeDrive.mapId);
+    const scenario = buildFreeDriveScenario(freeDrive);
+    const baseConfig = buildSimulationCoreConfig({
+      scenario,
+      mapPack,
+      trafficSide: country.trafficSide,
+      speedUnit: country.speedUnit,
+    });
+    const elevatedRoadIds = [
+      "cairo-sixth-october-bridge",
+      "cairo-sixth-october-bridge-dokki-ramp",
+      "cairo-sixth-october-bridge-gezira-ramp",
+      "cairo-sixth-october-bridge-corniche-entry",
+      "cairo-sixth-october-bridge-corniche-exit",
+      "cairo-sixth-october-bridge-ramses-ramp",
+    ] as const;
+
+    for (const roadId of elevatedRoadIds) {
+      for (const direction of ["forward", "reverse"] as const) {
+        const lanes = mapPack.laneGraph.lanes
+          .filter(
+            (lane) =>
+              lane.roadId === roadId &&
+              lane.id.endsWith(`-${direction}-1`),
+          )
+          .sort((left, right) => {
+            const segmentOf = (id: string) =>
+              Number(id.slice(roadId.length + 1).split("-")[0]);
+            const difference = segmentOf(left.id) - segmentOf(right.id);
+            return direction === "forward" ? difference : -difference;
+          });
+        if (lanes.length === 0) continue;
+
+        const authoredPath = lanes.flatMap((lane, laneIndex) =>
+          lane.centerline.slice(laneIndex === 0 ? 0 : 1),
+        );
+        const path = [authoredPath[0]];
+        for (let pointIndex = 1; pointIndex < authoredPath.length; pointIndex += 1) {
+          const start = authoredPath[pointIndex - 1];
+          const end = authoredPath[pointIndex];
+          const horizontalM = Math.hypot(end.x - start.x, end.z - start.z);
+          const verticalM = Math.abs((end.elevationM ?? 0) - (start.elevationM ?? 0));
+          const steps = Math.max(1, Math.ceil(horizontalM / 2), Math.ceil(verticalM / 0.2));
+          for (let step = 1; step <= steps; step += 1) {
+            const amount = step / steps;
+            const elevationM =
+              (start.elevationM ?? 0) +
+              ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+            path.push({
+              x: start.x + (end.x - start.x) * amount,
+              z: start.z + (end.z - start.z) * amount,
+              ...(elevationM > 0 ? { elevationM } : {}),
+            });
+          }
+        }
+        const simulation = new SimulationCore({ ...baseConfig, npcCount: 0 });
+        // This test deliberately teleports onto an authored 3D profile rather
+        // than entering through its approach lane, so make the starting zero
+        // explicit. Live driving is stricter and may acquire a rising profile
+        // only through lane-graph continuity.
+        let carriedElevationM = path[0].elevationM ?? 0;
+        for (let index = 0; index < path.length; index += 1) {
+          const point = path[index];
+          const next = path[Math.min(index + 1, path.length - 1)];
+          const previous = path[Math.max(0, index - 1)];
+          const tangent = index + 1 < path.length
+            ? { x: next.x - point.x, z: next.z - point.z }
+            : { x: point.x - previous.x, z: point.z - previous.z };
+          simulation.setPlayerPose(
+            {
+              x: point.x,
+              z: point.z,
+              elevationM: carriedElevationM,
+              heading: Math.atan2(tangent.x, tangent.z),
+            },
+            5,
+          );
+          const snapshot = simulation.getSnapshot();
+          const expectedElevationM = point.elevationM ?? 0;
+          if (expectedElevationM >= 0.75) {
+            expect(snapshot.road.laneId, `${roadId}/${direction}/${index}`).toContain(
+              roadId,
+            );
+            expect(
+              snapshot.player.elevationM ?? 0,
+              `${roadId}/${direction}/${index}`,
+            ).toBeCloseTo(expectedElevationM, 1);
+          }
+          carriedElevationM = snapshot.player.elevationM ?? 0;
+        }
+      }
+    }
+  });
+
+  it("keeps the real Cairo underpass path on the ground beyond the old 12 m cutoff", () => {
+    const freeDrive = FREE_DRIVES.find(
+      (candidate) => candidate.mapId === "cairo-central-nile",
+    )!;
+    const country = getCountryProfile(freeDrive.countryId);
+    const mapPack = getMapPack(freeDrive.mapId);
+    const scenario = buildFreeDriveScenario(freeDrive);
+    const simulation = new SimulationCore({
+      ...buildSimulationCoreConfig({
+        scenario,
+        mapPack,
+        trafficSide: country.trafficSide,
+        speedUnit: country.speedUnit,
+      }),
+      npcCount: 0,
+      staticObstacles: [],
+    });
+    const heading = 1.675507183;
+    const beneathMainlineZ = (x: number) =>
+      237.91 + ((193.77 - 237.91) * (x - 100)) / 420;
+
+    simulation.setPlayerPose(
+      { x: 317, z: beneathMainlineZ(317), elevationM: 0, heading },
+      0,
+    );
+    for (let x = 318; x <= 416; x += 2) {
+      simulation.setPlayerPose(
+        { x, z: beneathMainlineZ(x), heading },
+        4,
+      );
+      const snapshot = simulation.getSnapshot();
+      expect(snapshot.player.elevationM, `x=${x}`).toBeUndefined();
+      expect(snapshot.road.laneId ?? "", `x=${x}`).not.toMatch(
+        /^cairo-sixth-october/,
+      );
+    }
+
+    // This point sat directly below the deck but more than 12 m from the
+    // nearest ground lane. It previously initialized at 10.5 m immediately.
+    simulation.setPlayerPose(
+      { x: 415.09, z: 203.14, elevationM: 0, heading },
+      0,
+    );
+    const underDeck = simulation.getSnapshot();
+    expect(underDeck.player.elevationM).toBeUndefined();
+    expect(underDeck.road.laneId ?? "").not.toMatch(/^cairo-sixth-october/);
+    expect(underDeck.road.offRoad).toBe(true);
+
+    // Al-Galaa reproduces the exact threshold edge behind the airborne bug:
+    // at z=308.25 the carried ground lane was 11.90 m away; one 25 cm move
+    // made it 12.15 m away and the old code selected a deck only 2.15 m away.
+    simulation.setPlayerPose(
+      { x: -500, z: 309, elevationM: 0, heading: Math.PI },
+      0,
+    );
+    for (let z = 308.75; z >= 307.25; z -= 0.25) {
+      simulation.setPlayerPose({ x: -500, z, heading: Math.PI }, 4);
+      const snapshot = simulation.getSnapshot();
+      expect(snapshot.player.elevationM, `Al-Galaa z=${z}`).toBeUndefined();
+      expect(snapshot.road.laneId ?? "", `Al-Galaa z=${z}`).not.toMatch(
+        /^cairo-sixth-october/,
+      );
+    }
+
+    // Follow Dokki's through street through the exact overlap where the old
+    // projection walked backwards through the exit topology and then climbed
+    // the ramp to more than 5 m without the car entering an on-ramp.
+    const dokkiHeading = 3.0438640689482375;
+    const dokkiX = (z: number) =>
+      -628.105275 + (505 - z) * 0.098041;
+    simulation.setPlayerPose(
+      { x: dokkiX(512), z: 512, elevationM: 0, heading: dokkiHeading },
+      0,
+    );
+    for (let z = 511; z >= 440; z -= 1) {
+      simulation.setPlayerPose(
+        { x: dokkiX(z), z, heading: dokkiHeading },
+        4,
+      );
+      const snapshot = simulation.getSnapshot();
+      expect(snapshot.player.elevationM, `Dokki z=${z}`).toBeUndefined();
+      expect(snapshot.road.laneId ?? "", `Dokki z=${z}`).not.toContain(
+        "bridge-dokki-ramp",
+      );
+    }
+
+    // The directed entrance remains functional: its immediate successor is
+    // the reverse ramp lane, so it may begin acquiring the rising profile.
+    const entryHeading = Math.atan2(-0.0642968618157, -0.4958486801038);
+    simulation.setPlayerPose(
+      {
+        x: -628.3357031381843,
+        z: 505.4958486801038,
+        elevationM: 0,
+        heading: entryHeading,
+      },
+      0,
+    );
+    expect(simulation.getSnapshot().road.laneId).toBe(
+      "cairo-sixth-october-dokki-entry-slip-2-forward-1",
+    );
+    simulation.setPlayerPose(
+      {
+        x: -628.3885096824854,
+        z: 504.4990788815945,
+        heading: 3.118658,
+      },
+      4,
+    );
+    const onRamp = simulation.getSnapshot();
+    expect(onRamp.road.laneId).toBe(
+      "cairo-sixth-october-bridge-dokki-ramp-3-reverse-1",
+    );
+    expect(onRamp.player.elevationM).toBeCloseTo(0.0513715, 5);
+  });
+
   it("carries Cromwell Road's bus lane through the Exhibition Road signal", () => {
     // The bus lane used to dead-end at the junction, so `advanceNpcAlongLegalRoute`
     // recycled the double-decker the moment the light went green and it popped
@@ -434,6 +649,14 @@ describe("ambient vehicle slot budget", () => {
 });
 
 describe("runtime traffic portal safety", () => {
+  it("preserves Cairo flyover height on runtime traffic portals", () => {
+    const portals = buildRuntimeTrafficPortals(getMapPack("cairo-central-nile"));
+    const elevated = portals.filter((portal) => (portal.elevationM ?? 0) >= 3.5);
+
+    expect(elevated.length).toBeGreaterThan(100);
+    expect(Math.max(...elevated.map((portal) => portal.elevationM ?? 0))).toBe(10.5);
+  });
+
   it("keeps portal samples clear of parallel/fallback stop lines and conflict zones", () => {
     // The adapter's simulation stop-line builders apply one approach's
     // arclength to every approach lane, and synthesize approaches for older

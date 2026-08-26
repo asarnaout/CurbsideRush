@@ -72,6 +72,8 @@ export interface StaticCollisionStepCounters {
 interface StaticObstacleInternalBounds {
   readonly id: string;
   readonly tag: StaticObstacleTag;
+  readonly minElevationM: number;
+  readonly maxElevationM: number;
   /** Broad-phase reject bounds, already inflated by the capsule reach so the
    * hot loop's first test is one rectangle compare. */
   readonly minX: number;
@@ -125,6 +127,8 @@ const STATIC_OBSTACLE_CORRECTIONS: Readonly<Record<StaticObstacleTag, string>> =
   venue: "Brake earlier and keep to the carriageway.",
   shoreline: "Follow the carriageway onto an authored bridge.",
   parkEdge: "Enter the park through one of its gates.",
+  roadBarrier: "Stay between the elevated-road barriers.",
+  roadSupport: "Keep clear of the elevated-road supports.",
   railBridge: "Stay between the girders to cross.",
   railShed: "Keep off the railway depot.",
   worldEdge: "Turn back toward the streets.",
@@ -134,11 +138,20 @@ export function normalizeStaticObstacle(
   obstacle: StaticObstacle,
   inflateM: number,
 ): StaticObstacleInternal {
+  const minElevationM = Number.isFinite(obstacle.minElevationM)
+    ? (obstacle.minElevationM ?? Number.NEGATIVE_INFINITY)
+    : Number.NEGATIVE_INFINITY;
+  const requestedMaxElevationM = Number.isFinite(obstacle.maxElevationM)
+    ? Math.max(0, obstacle.maxElevationM ?? 0)
+    : Number.POSITIVE_INFINITY;
+  const maxElevationM = Math.max(minElevationM, requestedMaxElevationM);
   if (obstacle.kind === "circle") {
     return {
       shape: "circle",
       id: obstacle.id,
       tag: obstacle.tag,
+      minElevationM,
+      maxElevationM,
       x: obstacle.x,
       z: obstacle.z,
       radius: Math.max(0, obstacle.radius),
@@ -153,6 +166,8 @@ export function normalizeStaticObstacle(
       shape: "box",
       id: obstacle.id,
       tag: obstacle.tag,
+      minElevationM,
+      maxElevationM,
       x: (obstacle.minX + obstacle.maxX) / 2,
       z: (obstacle.minZ + obstacle.maxZ) / 2,
       ux: 1,
@@ -175,6 +190,8 @@ export function normalizeStaticObstacle(
       shape: "box",
       id: obstacle.id,
       tag: obstacle.tag,
+      minElevationM,
+      maxElevationM,
       x: obstacle.x,
       z: obstacle.z,
       ux,
@@ -201,6 +218,8 @@ export function normalizeStaticObstacle(
     shape: "convex",
     id: obstacle.id,
     tag: obstacle.tag,
+    minElevationM,
+    maxElevationM,
     points: obstacle.points,
     minX: minX - inflateM,
     maxX: maxX + inflateM,
@@ -491,7 +510,14 @@ export function resolveStaticCollisions(
     let normalZ = 0;
     const px = state.player.x;
     const pz = state.player.z;
+    const playerElevationM = state.player.elevationM ?? 0;
     for (const obstacle of staticObstacles) {
+      if (
+        playerElevationM < obstacle.minElevationM ||
+        playerElevationM > obstacle.maxElevationM
+      ) {
+        continue;
+      }
       if (px < obstacle.minX || px > obstacle.maxX || pz < obstacle.minZ || pz > obstacle.maxZ) {
         continue;
       }

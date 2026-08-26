@@ -21,6 +21,10 @@
  * forbidden one; both, an ordinary two-way road.
  */
 import type { TrafficSide, WorldPoint } from "./types";
+import {
+  elevationOnPolylineAt,
+  roadLevelAtElevation,
+} from "./roadElevation";
 
 export type RegulatorySignKind = "one_way" | "do_not_enter" | "wrong_way";
 
@@ -28,6 +32,7 @@ export interface RegulatorySignPlacement {
   readonly kind: RegulatorySignKind;
   readonly x: number;
   readonly z: number;
+  readonly elevationM?: number;
   /**
    * Heading (rad, 0 = +z north) of legal travel on the arm's road at the
    * sign. DO NOT ENTER / WRONG WAY message faces point along it (into the
@@ -81,6 +86,7 @@ export type SpeedLimitSignFamily = "mutcd" | "vienna";
 export interface SpeedLimitSignPlacement {
   readonly x: number;
   readonly z: number;
+  readonly elevationM?: number;
   /**
    * Heading (rad, 0 = +z north) of legal travel *past* the sign — the driver
    * it is for. The message face looks back along it, which is the opposite of
@@ -379,10 +385,16 @@ export function regulatorySignPlacements(
         suffix: string,
       ) => {
         for (const side of [-1, 1] as const) {
+          const amount = Math.max(0, Math.min(1, distance / arm.lengthM));
           const candidate = {
             kind,
             x: node.position.x + arm.ux * distance + rx * lateral * side,
             z: node.position.z + arm.uz * distance + rz * lateral * side,
+            elevationM:
+              (arm.position.elevationM ?? 0) +
+              ((arm.farPoint.elevationM ?? 0) -
+                (arm.position.elevationM ?? 0)) *
+                amount,
             flowHeadingRad,
             refId: `${nodeRef}:${suffix}:${side < 0 ? "l" : "r"}`,
           } satisfies RegulatorySignPlacement;
@@ -395,6 +407,14 @@ export function regulatorySignPlacements(
           const intrudesOnCarriageway = (input.roadSurfaces ?? []).some(
             (surface) =>
               surface.centerline &&
+              roadLevelAtElevation(candidate.elevationM ?? 0) ===
+                roadLevelAtElevation(
+                  elevationOnPolylineAt(
+                    surface.centerline,
+                    candidate.x,
+                    candidate.z,
+                  ),
+                ) &&
               distanceToPolyline(candidate, surface.centerline) <
                 surface.widthM / 2 + REGULATORY_SIGN_CARRIAGEWAY_CLEARANCE_M,
           );
@@ -424,6 +444,7 @@ export function regulatorySignPlacements(
 interface Station {
   readonly x: number;
   readonly z: number;
+  readonly elevationM: number;
   /** Unit tangent, pointing the way the walk went. */
   readonly tx: number;
   readonly tz: number;
@@ -492,6 +513,9 @@ function stationAlongSurface(
       return {
         x: a.x + dx * t,
         z: a.z + dz * t,
+        elevationM:
+          (a.elevationM ?? 0) +
+          ((b.elevationM ?? 0) - (a.elevationM ?? 0)) * t,
         tx: (dx / segment) * sign,
         tz: (dz / segment) * sign,
       };
@@ -613,12 +637,16 @@ export function speedLimitSignPlacements(
     const reason = signed.get(arm.id);
     if (!reason) continue;
     // Station at LIMIT_OFFSET_M, then further down the same kerb if authored
-    // furniture already stands there. Sliding rather than dropping is what
-    // keeps the corridor floor honest: a corridor whose only sign collided
-    // would otherwise go silent, which is exactly what the floor exists to
-    // prevent. Both ends are bounded by the arm so a post cannot walk into
-    // the next junction.
-    let posted: { x: number; z: number; heading: number } | null = null;
+    // furniture or an adjacent slip lane already stands there. Both ends are
+    // bounded by the arm so a post cannot walk into the next junction. A
+    // floor sign may be omitted only when every station is physically invalid;
+    // retaining an invalid fallback would put the post in live traffic.
+    let posted: {
+      x: number;
+      z: number;
+      heading: number;
+      elevationM: number;
+    } | null = null;
     for (const slide of LIMIT_SLIDE_STEPS_M) {
       const offset = LIMIT_OFFSET_M + slide;
       if (slide > 0 && offset > arm.lengthM - LIMIT_OFFSET_M) break;
@@ -632,6 +660,11 @@ export function speedLimitSignPlacements(
         ({
           x: arm.position.x + arm.ux * offset,
           z: arm.position.z + arm.uz * offset,
+          elevationM:
+            (arm.position.elevationM ?? 0) +
+            ((arm.farPoint.elevationM ?? 0) -
+              (arm.position.elevationM ?? 0)) *
+              Math.max(0, Math.min(1, offset / arm.lengthM)),
           tx: arm.ux,
           tz: arm.uz,
         } satisfies Station);
@@ -643,14 +676,31 @@ export function speedLimitSignPlacements(
       const candidate = {
         x: station.x + Math.cos(heading) * lateral * side,
         z: station.z - Math.sin(heading) * lateral * side,
+        elevationM: station.elevationM,
         heading,
       };
-      posted ??= candidate;
+      const intrudesOnCarriageway = (input.roadSurfaces ?? []).some(
+        (surface) =>
+          surface.centerline &&
+          roadLevelAtElevation(candidate.elevationM) ===
+            roadLevelAtElevation(
+              elevationOnPolylineAt(
+                surface.centerline,
+                candidate.x,
+                candidate.z,
+              ),
+            ) &&
+          distanceToPolyline(candidate, surface.centerline) <
+            surface.widthM / 2 + REGULATORY_SIGN_CARRIAGEWAY_CLEARANCE_M,
+      );
       if (
+        !intrudesOnCarriageway &&
         occupied.every(
           (item) =>
+            roadLevelAtElevation(item.elevationM ?? 0) !==
+              roadLevelAtElevation(candidate.elevationM) ||
             Math.hypot(item.x - candidate.x, item.z - candidate.z) >=
-            LIMIT_FURNITURE_CLEARANCE_M,
+              LIMIT_FURNITURE_CLEARANCE_M,
         )
       ) {
         posted = candidate;
@@ -658,7 +708,7 @@ export function speedLimitSignPlacements(
       }
     }
     if (!posted) continue;
-    const { x, z, heading } = posted;
+    const { x, z, heading, elevationM } = posted;
     // Two roads that continue each other can both open a corridor at one node
     // and land their floor signs on the same square metre.
     if (
@@ -671,6 +721,7 @@ export function speedLimitSignPlacements(
     placements.push({
       x,
       z,
+      elevationM,
       flowHeadingRad: normalizeRad(heading),
       limitFigure: arm.speedLimit!,
       roadId: arm.roadId,

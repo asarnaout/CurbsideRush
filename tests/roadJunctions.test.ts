@@ -53,6 +53,54 @@ describe("collectRoadJunctionFills", () => {
     expect(collectRoadJunctionFills([CROSSROADS[0]])).toHaveLength(0);
   });
 
+  it("does not merge a flyover with the street crossing below it", () => {
+    const stacked: RoadJunctionSource[] = [
+      CROSSROADS[0],
+      {
+        id: "flyover",
+        centerline: [
+          { x: 0, z: -40, elevationM: 10.5 },
+          { x: 0, z: 0, elevationM: 10.5 },
+          { x: 0, z: 40, elevationM: 10.5 },
+        ],
+        widthM: NS_HALF * 2,
+      },
+    ];
+    expect(collectRoadJunctionFills(stacked)).toHaveLength(0);
+  });
+
+  it("does not roof a sloped elevated ramp with a flat junction fill", () => {
+    const elevatedTee: RoadJunctionSource[] = [
+      {
+        id: "level-mainline",
+        centerline: [
+          { x: -40, z: 0, elevationM: 10.5 },
+          { x: 0, z: 0, elevationM: 10.5 },
+          { x: 40, z: 0, elevationM: 10.5 },
+        ],
+        widthM: 14,
+      },
+      {
+        id: "descending-ramp",
+        centerline: [
+          { x: 0, z: 0, elevationM: 10.5 },
+          { x: 0, z: 50, elevationM: 5.2 },
+        ],
+        widthM: 7.6,
+      },
+    ];
+    expect(collectRoadJunctionFills(elevatedTee)).toHaveLength(0);
+
+    const levelBranch = {
+      ...elevatedTee[1],
+      centerline: elevatedTee[1].centerline.map((point) => ({
+        ...point,
+        elevationM: 10.5,
+      })),
+    };
+    expect(collectRoadJunctionFills([elevatedTee[0], levelBranch])).toHaveLength(1);
+  });
+
   it("covers the throat of a T-junction where a side road ends on an avenue", () => {
     const tee: RoadJunctionSource[] = [
       CROSSROADS[0], // E-W avenue passing through (0,0)

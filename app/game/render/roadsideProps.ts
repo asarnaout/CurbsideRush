@@ -21,6 +21,7 @@ import { TOKYO_OPEN_WATERFRONT_SIDES } from "../cities/tokyo";
 import { deterministicSceneryKeep } from "../geometry/facadesAndKeepouts";
 import { roadsidePropKeepOuts } from "../geometry/roadFurnitureLayout";
 import { type ParkPlacement, parkLayoutForLandmark } from "../parkLayouts";
+import { natureModelForPlacement } from "../natureCatalog";
 import {
   cairoDirectionPanelFaceUv,
   textureContext,
@@ -152,8 +153,111 @@ export interface RoadsidePropsCtx {
     z: number,
     scale: number,
     parts: readonly DestructiblePropPart[],
+    elevationM?: number,
   ) => void;
+  /** True when this ground prop's measured envelope fits below every deck. */
+  readonly canPlaceGroundProp?: (
+    x: number,
+    z: number,
+    requiredHeadroomM: number,
+    footprintRadiusM: number,
+  ) => boolean;
 }
+
+export interface GroundPropClearanceEnvelope {
+  readonly requiredHeadroomM: number;
+  readonly footprintRadiusM: number;
+}
+
+type GroundPropRenderSource = "procedural" | "nature";
+
+/** Air above the visible top and around the measured x/z footprint. */
+const PROP_VERTICAL_CLEARANCE_MARGIN_M = 0.3;
+const PROP_FOOTPRINT_CLEARANCE_MARGIN_M = 0.1;
+
+/**
+ * The physical envelope of a prop before its authored placement scale.
+ * Values come directly from `partsFor` below; pools of projected light are
+ * intentionally excluded because they lie on the pavement rather than pierce
+ * a deck. Imported planting uses measured GLB bounds from `natureCatalog`.
+ */
+const proceduralPropBounds = (
+  kind: string,
+  variant: number,
+): readonly [heightM: number, footprintRadiusM: number] => {
+  switch (kind) {
+    case "tree":
+      return variant === 1 ? [4.79, 1.25] : variant === 2 ? [4.92, 1.64] : [4.94, 1.86];
+    case "streetlight":
+      return [5.2, 1.53];
+    case "sign":
+      return [2.44, 0.76];
+    case "shrub":
+      return [1.08, 0.78];
+    case "bench":
+      return [0.89, 0.88];
+    case "lamp":
+      return [3.46, 0.22];
+    case "hydrant":
+      return [0.86, 0.2];
+    case "bollard":
+      return [0.855, 0.1];
+    case "utility-pole":
+      return [7.4, 0.85];
+    case "vending":
+      return [1.7, 0.59];
+    case "chochin-post":
+      return [2.84, 0.17];
+    case "sakura":
+      return [5.2, 1.9];
+    case "vendor":
+      return [2.35, 1.25];
+    default:
+      // Unknown future furniture retains the old conservative safety rule.
+      return [8.25, 1.4];
+  }
+};
+
+export function groundPropClearanceEnvelope(
+  placement: Pick<PropPlacement, "kind" | "variant" | "scale">,
+  mapVisualKey: string,
+  source: GroundPropRenderSource = "procedural",
+): GroundPropClearanceEnvelope {
+  const scale = Math.max(0.01, Math.abs(placement.scale));
+  const nature =
+    source === "nature" || placement.kind === "palm" || placement.kind === "monument"
+      ? natureModelForPlacement(mapVisualKey, placement.kind, placement.variant)
+      : null;
+  const [heightM, footprintRadiusM] = nature
+    ? [nature.heightM, nature.footprintRadiusM]
+    : proceduralPropBounds(placement.kind, placement.variant);
+  return {
+    requiredHeadroomM: heightM * scale + PROP_VERTICAL_CLEARANCE_MARGIN_M,
+    footprintRadiusM:
+      footprintRadiusM * scale + PROP_FOOTPRINT_CLEARANCE_MARGIN_M,
+  };
+}
+
+const groundPropFits = (
+  ctx: RoadsidePropsCtx,
+  placement: Pick<PropPlacement, "kind" | "x" | "z" | "variant" | "scale">,
+  mapVisualKey: string,
+  source: GroundPropRenderSource = "procedural",
+): boolean => {
+  const envelope = groundPropClearanceEnvelope(
+    placement,
+    mapVisualKey,
+    source,
+  );
+  return (
+    ctx.canPlaceGroundProp?.(
+      placement.x,
+      placement.z,
+      envelope.requiredHeadroomM,
+      envelope.footprintRadiusM,
+    ) ?? true
+  );
+};
 
 /**
  * How close to a path a plant must be to stay an individually instanced,
@@ -176,6 +280,7 @@ function collectParkPlacements(
 ): { reachable: PropPlacement[]; interior: ParkPlacement[] } {
   const reachable: PropPlacement[] = [];
   const interior: ParkPlacement[] = [];
+  const key = resolveMapVisualKey(mapPack.id);
   for (const landmark of mapPack.geometry.landmarks) {
     if (landmark.kind !== "park") continue;
     const layout = parkLayoutForLandmark(mapPack, landmark);
@@ -210,14 +315,18 @@ function collectParkPlacements(
         // procedural and ride the roadside pipeline as before. Planting goes
         // to the glb queue, which can only be drained after the preload.
         if (placement.kind === "bench" || placement.kind === "lamp") {
-          reachable.push(placement);
+          if (groundPropFits(ctx, placement, key)) reachable.push(placement);
         } else {
-          ctx.pendingPlantedProps.push(placement);
+          if (groundPropFits(ctx, placement, key, "nature")) {
+            ctx.pendingPlantedProps.push(placement);
+          }
         }
         continue;
       }
-      interior.push(placement);
-      ctx.pendingParkThickets.push(placement);
+      if (groundPropFits(ctx, placement, key, "nature")) {
+        interior.push(placement);
+        ctx.pendingParkThickets.push(placement);
+      }
     }
   }
   return { reachable, interior };
@@ -275,6 +384,21 @@ export function buildRoadsideProps(
           widthM: surface.widthM,
           sidewalkWidthM: surface.sidewalkWidthM,
         })),
+        // The caller deliberately supplies only at-grade roads for ordinary
+        // scatter. Promenade offsets still need the omitted flyover footprints
+        // so furniture cannot pierce an elevated deck.
+        elevatedRoadSurfaces: (mapPack.geometry.roadSurfaces ?? [])
+          .filter((surface) =>
+            surface.centerline.some(
+              (point) => (point.elevationM ?? 0) > 0.35,
+            ),
+          )
+          .map((surface) => ({
+            id: surface.id,
+            centerline: surface.centerline,
+            widthM: surface.widthM,
+            sidewalkWidthM: surface.sidewalkWidthM,
+          })),
         waterPolygons: (mapPack.geometry.waterBodies ?? []).map(
           (body) => body.polygon,
         ),
@@ -361,8 +485,9 @@ export function buildRoadsideProps(
     ...park.reachable,
   ].filter(
     (placement) =>
-      key !== "cairo" ||
-      cairoTahrirMarkedLotAllowsRoadsidePlacement(placement),
+      (key !== "cairo" ||
+        cairoTahrirMarkedLotAllowsRoadsidePlacement(placement)) &&
+      groundPropFits(ctx, placement, key),
   );
   if (!placements.length && !park.interior.length) return;
 

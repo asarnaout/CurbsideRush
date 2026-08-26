@@ -537,6 +537,7 @@ export interface TokyoStreetFurnitureCtx {
     z: number,
     scale: number,
     parts: readonly DestructiblePropPart[],
+    elevationM?: number,
   ) => void;
 }
 

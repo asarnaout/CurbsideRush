@@ -59,6 +59,10 @@ import {
   wrapAngle,
 } from "./simulation/mathUtils";
 import { normalizeAmbientVehicleSlotCount } from "./simulation/ambientTraffic";
+import {
+  ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
+  roadElevationSweepsCanInteract,
+} from "./simulation/roadLevels";
 import type { RuntimeTrafficPortal } from "./simulation/trafficLocality";
 // Re-exported: isPointInPolygon is a genuine external (non-test) dependency
 // — app/game/geometry/waterGeometry.ts imports it from "./simulation" at
@@ -132,6 +136,10 @@ const MAX_FRAME_SECONDS = 0.25;
 // RUNTIME_FORWARD_VISIBILITY_DISTANCE_M,
 // RUNTIME_REAR_VISIBILITY_DISTANCE_M) are imported above instead.
 const MAX_EVENT_HISTORY = 80;
+/** Small visual/physics tolerance above the model's authored roof height. */
+const PLAYER_ROOF_CLEARANCE_MARGIN_M = 0.08;
+const OVERHEAD_COLLISION_EVENT_MIN_MPS = 2;
+const OVERHEAD_BOUNDARY_SEARCH_STEPS = 12;
 
 export type SimulationRuleEvent = RuleEvent;
 export type SimulationStatus = "running" | "paused" | "disposed";
@@ -140,12 +148,34 @@ export type TurnSignal = "off" | "left" | "right";
 export interface SimulationPoint {
   readonly x: number;
   readonly z: number;
+  /** Authored road height used for flyover presentation; omitted is at grade. */
+  readonly elevationM?: number;
 }
 
 export interface SimulationPose extends SimulationPoint {
   /** Radians, with zero pointing toward positive Z. */
   readonly heading: number;
 }
+
+/**
+ * The lowest raised-road obstruction above one vehicle-footprint sample.
+ * This deliberately mirrors only the plain-data portion of
+ * `ElevatedRoadGroundClearance`; the simulation does not depend on render
+ * geometry, and the adapter supplies the prepared authored query.
+ */
+export interface SimulationElevatedRoadGroundClearance {
+  readonly surfaceId: string;
+  readonly segmentIndex: number;
+  readonly obstructionKind: "raised_surface" | "deck" | "pier";
+  readonly roadSurfaceElevationM: number;
+  readonly clearanceM: number;
+}
+
+export type SimulationElevatedRoadGroundClearanceQuery = (
+  point: { readonly x: number; readonly z: number },
+  groundElevationM?: number,
+  footprintRadiusM?: number,
+) => SimulationElevatedRoadGroundClearance | null;
 
 export interface SimulationBounds {
   readonly minX: number;
@@ -206,6 +236,13 @@ export interface SimulationCoreConfig {
   readonly playerRadiusM?: number;
   readonly playerCapsuleHalfLengthM?: number;
   readonly playerCapsuleRadiusM?: number;
+  /** Highest physical point above the tyres, used for bridge soffit checks. */
+  readonly playerClearanceHeightM?: number;
+  /**
+   * Prepared authored raised-road query. The adapter excludes supports here
+   * because their existing static colliders remain the authoritative response.
+   */
+  readonly elevatedRoadGroundClearanceAt?: SimulationElevatedRoadGroundClearanceQuery;
   /**
    * Solid world geometry (buildings, venue lots, world edges) the player car
    * is resolved against every step. Plain data from the adapter; omitting it
@@ -314,6 +351,7 @@ export interface MutablePose {
   x: number;
   z: number;
   heading: number;
+  elevationM?: number;
 }
 
 interface ContinuousInput {
@@ -351,6 +389,7 @@ interface InternalConfig {
   playerRadiusM: number;
   playerCapsuleHalfLengthM: number;
   playerCapsuleRadiusM: number;
+  playerClearanceHeightM: number;
 }
 
 interface RoadState {
@@ -423,6 +462,10 @@ export class SimulationCore {
   /** The authored lane graph, traffic lights, and stop lines, plus every
    * pure query against them — see `simulation/roadNetwork.ts`. */
   private readonly roadNetwork: RoadNetwork;
+  private readonly hasElevatedRoads: boolean;
+  private readonly elevatedRoadGroundClearanceAt:
+    | SimulationElevatedRoadGroundClearanceQuery
+    | null;
   private readonly staticObstacles: StaticObstacleInternal[];
   /** Forecourts and repair-shop aprons — see `isInsideServiceArea`. */
   private readonly serviceAreas: readonly ServiceArea[];
@@ -501,6 +544,14 @@ export class SimulationCore {
       configuration.stopLines ?? [],
       configuration.railLines ?? [],
     );
+    this.hasElevatedRoads = this.roadNetwork.lanes.some((lane) =>
+      lane.points.some(
+        (point) =>
+          (point.elevationM ?? 0) >= ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
+      ),
+    );
+    this.elevatedRoadGroundClearanceAt =
+      configuration.elevatedRoadGroundClearanceAt ?? null;
 
     const defaultSpawnLane =
       this.roadNetwork.lanes.find((lane) => lane.role === "travel") ?? this.roadNetwork.lanes[0];
@@ -511,6 +562,10 @@ export class SimulationCore {
       ? {
           x: configuration.spawn.x,
           z: configuration.spawn.z,
+          ...(Number.isFinite(configuration.spawn.elevationM) &&
+          (configuration.spawn.elevationM ?? 0) > 0
+            ? { elevationM: configuration.spawn.elevationM }
+            : {}),
           heading: wrapAngle(configuration.spawn.heading),
         }
       : defaultSpawn;
@@ -588,6 +643,11 @@ export class SimulationCore {
         configuration.playerCapsuleRadiusM ?? PLAYER_CAPSULE_RADIUS_M,
         0.3,
         2,
+      ),
+      playerClearanceHeightM: clamp(
+        configuration.playerClearanceHeightM ?? 1.5,
+        0.5,
+        4,
       ),
     };
 
@@ -743,9 +803,23 @@ export class SimulationCore {
     this.playerState.player.x = pose.x;
     this.playerState.player.z = pose.z;
     this.playerState.player.heading = wrapAngle(pose.heading);
+    const hasExplicitElevation = Number.isFinite(pose.elevationM);
+    if (hasExplicitElevation) {
+      const elevationM = Math.max(0, pose.elevationM ?? 0);
+      if (elevationM > 0) this.playerState.player.elevationM = elevationM;
+      else delete this.playerState.player.elevationM;
+      // An explicit 3D pose is authoritative. Do not let the lane occupied
+      // before a teleport/cutscene constrain the height search; at a stacked
+      // road it would discard the supplied elevation and choose the old level
+      // solely because that was the preferred lane. Zero is just as explicit
+      // as a bridge height here: it means the street beneath the flyover.
+      this.roadState.projection = null;
+    } else {
+      delete this.playerState.player.elevationM;
+    }
     this.playerState.signedSpeedMps = speedMps;
     this.viewHeading = this.playerState.player.heading;
-    this.updateRoadState();
+    this.updateRoadState(hasExplicitElevation);
   }
 
   /** Returns to the authored player spawn without clearing traffic or events. */
@@ -886,6 +960,9 @@ export class SimulationCore {
       player: {
         x: this.playerState.player.x,
         z: this.playerState.player.z,
+        ...(this.playerState.player.elevationM
+          ? { elevationM: this.playerState.player.elevationM }
+          : {}),
         heading: this.playerState.player.heading,
         speedMps: Math.abs(this.playerState.signedSpeedMps),
         signedSpeedMps: this.playerState.signedSpeedMps,
@@ -913,6 +990,7 @@ export class SimulationCore {
           variant: npc.variant,
           x: npc.x,
           z: npc.z,
+          ...(npc.elevationM > 0 ? { elevationM: npc.elevationM } : {}),
           // Add the display-only incident lean; the model keeps npc.heading clean.
           heading: wrapAngle(npc.heading + npc.incidentLeanRad),
           speedMps: npc.speedMps,
@@ -960,8 +1038,15 @@ export class SimulationCore {
     // still needs this step's counters folded in exactly once.
     try {
       const oldPlayer = { ...this.playerState.player };
-      const previousProjection = this.roadNetwork.projectToRoad(oldPlayer.x, oldPlayer.z);
+      const previousProjection = this.hasElevatedRoads
+        ? this.roadNetwork.projectToRoad(oldPlayer.x, oldPlayer.z, {
+            heading: oldPlayer.heading,
+            preferredLaneId: this.roadState.projection?.lane.id,
+            preferredElevationM: oldPlayer.elevationM ?? 0,
+          })
+        : this.roadNetwork.projectToRoad(oldPlayer.x, oldPlayer.z);
       this.movePlayer(deltaSeconds);
+      this.resolveElevatedRoadRoofCollision(oldPlayer);
 
       this.trafficDecisionAccumulator += deltaSeconds;
       while (this.trafficDecisionAccumulator + Number.EPSILON >= TRAFFIC_DECISION_SECONDS) {
@@ -1044,6 +1129,176 @@ export class SimulationCore {
   }
 
   /**
+   * Keeps the player's roof out of a low flyover/ramp without turning every
+   * elevated deck into a planar wall. The adapter's prepared query reports
+   * actual clearance above each capsule sample. A prospective lane projection
+   * supplies that sample's tyre height: when the player legally climbs the
+   * ramp, its own asphalt/deck is therefore at or below the tyres and the
+   * geometry query ignores it; a ground lane beneath the same x/z remains at
+   * zero and sees the ramp as an obstruction.
+   */
+  private elevatedRoadRoofObstructionAt(
+    x: number,
+    z: number,
+    heading: number,
+  ): SimulationElevatedRoadGroundClearance | null {
+    const clearanceAt = this.elevatedRoadGroundClearanceAt;
+    if (!clearanceAt || !this.hasElevatedRoads) return null;
+
+    const carriedElevationM = this.playerState.player.elevationM ?? 0;
+    const currentLaneId = this.roadState.projection?.lane.id;
+    const forwardX = Math.sin(heading);
+    const forwardZ = Math.cos(heading);
+    const halfLengthM = this.config.playerCapsuleHalfLengthM;
+    const requiredClearanceM =
+      this.config.playerClearanceHeightM + PLAYER_ROOF_CLEARANCE_MARGIN_M;
+    let lowest: SimulationElevatedRoadGroundClearance | null = null;
+    let centreProjection: LaneProjection | null | undefined;
+
+    // End discs match the planar car capsule. The centre disc closes the gap
+    // for long vans/two-wheelers so the roof envelope is continuous even when
+    // their two static-collision end circles do not overlap.
+    for (const alongM of [-halfLengthM, 0, halfLengthM]) {
+      const sampleX = x + forwardX * alongM;
+      const sampleZ = z + forwardZ * alongM;
+      const carriedObstruction = clearanceAt(
+        { x: sampleX, z: sampleZ },
+        carriedElevationM,
+        this.config.playerCapsuleRadiusM,
+      );
+      if (
+        !carriedObstruction ||
+        carriedObstruction.clearanceM + 1e-6 >= requiredClearanceM
+      ) {
+        continue;
+      }
+      // Most ticks are nowhere near a low structure, and high viaducts pass
+      // the cheap clearance comparison above. Only a potential roof contact
+      // pays for topology-aware projection to distinguish a legal ramp climb
+      // from the unrelated ground road below it.
+      if (centreProjection === undefined) {
+        centreProjection = this.roadNetwork.projectToRoad(x, z, {
+          heading,
+          preferredLaneId: currentLaneId,
+          preferredElevationM: carriedElevationM,
+        });
+      }
+      const centreElevationM = centreProjection?.elevationM ?? carriedElevationM;
+      const prospectiveLaneId = centreProjection?.lane.id ?? currentLaneId;
+      const sampleProjection = this.roadNetwork.projectToRoad(
+        sampleX,
+        sampleZ,
+        {
+          heading,
+          preferredLaneId: prospectiveLaneId,
+          preferredElevationM: centreElevationM,
+        },
+      );
+      const sampleElevationM = sampleProjection?.elevationM ?? centreElevationM;
+      const obstruction = clearanceAt(
+        { x: sampleX, z: sampleZ },
+        sampleElevationM,
+        this.config.playerCapsuleRadiusM,
+      );
+      // Near the point where a ramp's concrete slab begins, the capsule's
+      // footprint reaches slightly farther uphill than its tyre sample. The
+      // slab soffit is then geometrically below the car, not a wall in front
+      // of it. Lane/surface identity is the decisive continuity signal here:
+      // only an unrelated road above the projected lane is an obstruction.
+      if (
+        obstruction &&
+        sampleProjection?.lane.roadId === obstruction.surfaceId
+      ) {
+        continue;
+      }
+      if (
+        !obstruction ||
+        obstruction.clearanceM + 1e-6 >= requiredClearanceM
+      ) {
+        continue;
+      }
+      if (!lowest || obstruction.clearanceM < lowest.clearanceM) {
+        lowest = obstruction;
+      }
+    }
+    return lowest;
+  }
+
+  /**
+   * Clips a clear-to-blocked fixed-step move at the exact roof-clearance
+   * boundary. An authored/teleported pose already inside a low structure is
+   * allowed to move out instead of being trapped; normal driving always ends
+   * the first entering step on the clear side, so subsequent pressure cannot
+   * tunnel through it.
+   */
+  private resolveElevatedRoadRoofCollision(oldPlayer: MutablePose): void {
+    const blocked = this.elevatedRoadRoofObstructionAt(
+      this.playerState.player.x,
+      this.playerState.player.z,
+      this.playerState.player.heading,
+    );
+    if (!blocked) return;
+    if (
+      this.elevatedRoadRoofObstructionAt(
+        oldPlayer.x,
+        oldPlayer.z,
+        oldPlayer.heading,
+      )
+    ) {
+      return;
+    }
+
+    const targetX = this.playerState.player.x;
+    const targetZ = this.playerState.player.z;
+    let clearAmount = 0;
+    let blockedAmount = 1;
+    for (let iteration = 0; iteration < OVERHEAD_BOUNDARY_SEARCH_STEPS; iteration += 1) {
+      const amount = (clearAmount + blockedAmount) / 2;
+      const candidateX = oldPlayer.x + (targetX - oldPlayer.x) * amount;
+      const candidateZ = oldPlayer.z + (targetZ - oldPlayer.z) * amount;
+      if (
+        this.elevatedRoadRoofObstructionAt(
+          candidateX,
+          candidateZ,
+          this.playerState.player.heading,
+        )
+      ) {
+        blockedAmount = amount;
+      } else {
+        clearAmount = amount;
+      }
+    }
+    const travelM = Math.hypot(targetX - oldPlayer.x, targetZ - oldPlayer.z);
+    const setbackAmount =
+      travelM > 1e-6 ? Math.min(clearAmount, 0.002 / travelM) : 0;
+    const resolvedAmount = Math.max(0, clearAmount - setbackAmount);
+    this.playerState.player.x =
+      oldPlayer.x + (targetX - oldPlayer.x) * resolvedAmount;
+    this.playerState.player.z =
+      oldPlayer.z + (targetZ - oldPlayer.z) * resolvedAmount;
+    const impactSpeedMps = Math.abs(this.playerState.signedSpeedMps);
+    this.playerState.signedSpeedMps = 0;
+    if (impactSpeedMps >= OVERHEAD_COLLISION_EVENT_MIN_MPS) {
+      this.emitEvent({
+        code: "collision",
+        correction: "Use the ramp or a route with enough overhead clearance.",
+        evidence: {
+          obstacle: "roadDeck",
+          obstacleId: `elevated-road-${blocked.surfaceId}-segment-${blocked.segmentIndex}-${blocked.obstructionKind}`,
+          clearanceM: Math.round(blocked.clearanceM * 100) / 100,
+          requiredClearanceM:
+            Math.round(
+              (this.config.playerClearanceHeightM +
+                PLAYER_ROOF_CLEARANCE_MARGIN_M) *
+                100,
+            ) / 100,
+          impactSpeedMps: Math.round(impactSpeedMps * 10) / 10,
+        },
+      });
+    }
+  }
+
+  /**
    * Keeps the player car out of the solid world: the car is a two-circle
    * capsule along its heading, each obstacle a box or circle, and a contact
    * pushes the car out along the contact normal. The velocity response is the
@@ -1116,6 +1371,16 @@ export class SimulationCore {
     const collisionRadius = this.config.playerRadiusM + NPC_RADIUS_METRES;
     for (const npc of this.trafficSystem.npcs) {
       if (!npc.active) continue;
+      if (
+        !roadElevationSweepsCanInteract(
+          oldPlayer.elevationM ?? 0,
+          this.playerState.player.elevationM ?? 0,
+          npc.previousElevationM,
+          npc.elevationM,
+        )
+      ) {
+        continue;
+      }
       const relativeOldX = oldPlayer.x - npc.previousX;
       const relativeOldZ = oldPlayer.z - npc.previousZ;
       const relativeNewX = this.playerState.player.x - npc.x;
@@ -1206,14 +1471,29 @@ export class SimulationCore {
     return true;
   }
 
-  private updateRoadState(): void {
-    const projection = this.roadNetwork.projectToRoad(this.playerState.player.x, this.playerState.player.z);
+  private updateRoadState(allowUnconnectedElevationCapture = false): void {
+    const projection = this.hasElevatedRoads
+      ? this.roadNetwork.projectToRoad(
+          this.playerState.player.x,
+          this.playerState.player.z,
+          {
+            heading: this.playerState.player.heading,
+            preferredLaneId: this.roadState.projection?.lane.id,
+            preferredElevationM: this.playerState.player.elevationM ?? 0,
+            allowUnconnectedElevationCapture,
+          },
+        )
+      : this.roadNetwork.projectToRoad(
+          this.playerState.player.x,
+          this.playerState.player.z,
+        );
     const withinBounds =
       this.playerState.player.x >= this.config.bounds.minX &&
       this.playerState.player.x <= this.config.bounds.maxX &&
       this.playerState.player.z >= this.config.bounds.minZ &&
       this.playerState.player.z <= this.config.bounds.maxZ;
     if (!projection) {
+      delete this.playerState.player.elevationM;
       this.roadState = {
         projection: null,
         wrongWay: false,
@@ -1221,6 +1501,11 @@ export class SimulationCore {
         inServiceArea: this.isInsideServiceArea(),
       };
       return;
+    }
+    if (projection.elevationM > 0) {
+      this.playerState.player.elevationM = projection.elevationM;
+    } else {
+      delete this.playerState.player.elevationM;
     }
     const effectiveHeading =
       this.playerState.signedSpeedMps < -STOPPED_SPEED_MPS

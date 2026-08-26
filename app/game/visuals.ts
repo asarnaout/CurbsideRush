@@ -30,6 +30,7 @@ export function seededUnit(seed: number) {
 export interface VisualPoint {
   readonly x: number;
   readonly z: number;
+  readonly elevationM?: number;
 }
 
 export interface MapVisualPalette {
@@ -1633,6 +1634,17 @@ export interface PromenadeDecorInput {
     readonly widthM: number;
     readonly sidewalkWidthM?: number;
   }[];
+  /**
+   * Elevated deck footprints that offset props must clear. Kept separate from
+   * `roadSurfaces` so those decks do not open an oversized station-base gap in
+   * an otherwise continuous waterfront promenade.
+   */
+  readonly elevatedRoadSurfaces?: readonly {
+    readonly id: string;
+    readonly centerline: readonly VisualPoint[];
+    readonly widthM: number;
+    readonly sidewalkWidthM?: number;
+  }[];
   readonly waterPolygons: readonly (readonly VisualPoint[])[];
   /** Road side(s) that face open water (cairoContent's
    * CAIRO_OPEN_WATERFRONT_SIDES shape). */
@@ -1796,6 +1808,32 @@ export function generatePromenadeDecor(
                 otherEnvelope + 6
               );
             });
+          // The ordinary station check above already opens the promenade at
+          // at-grade junctions.  Re-check the actual offset prop only against
+          // elevated structures: a deep waterfront strip can otherwise put a
+          // palm beneath/inside a bridge whose centreline is clear of the road
+          // base, while applying this second envelope to every ground street
+          // would unnecessarily thin established promenade dressing map-wide.
+          const clearOfElevatedRoadsAt = (candidate: VisualPoint): boolean =>
+            (input.elevatedRoadSurfaces ?? input.roadSurfaces).every((other) => {
+              if (
+                other.id === surface.id ||
+                !other.centerline.some(
+                  (point) => (point.elevationM ?? 0) > 0.35,
+                )
+              ) {
+                return true;
+              }
+              // This is a physical deck-footprint check, not the generous
+              // junction opening used for the station base. Keep the existing
+              // promenade rhythm right up to a flyover while rejecting only
+              // props that would actually pierce its carriageway.
+              const otherEnvelope = other.widthM / 2 + 0.5;
+              return (
+                distanceToPolylineM(candidate, other.centerline) >
+                otherEnvelope
+              );
+            });
           if (!clearOfOtherRoadsAt({ x: baseX, z: baseZ })) continue;
           const drop = (
             kind: string,
@@ -1820,6 +1858,7 @@ export function generatePromenadeDecor(
                 x: baseX + alongX * shiftAlongM,
                 z: baseZ + alongZ * shiftAlongM,
               }) &&
+              clearOfElevatedRoadsAt(candidate) &&
               !isOverWater(candidate, input.waterPolygons) &&
               (!shorelineClearanceM ||
                 waterEdges.every(

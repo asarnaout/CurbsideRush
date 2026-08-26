@@ -1438,10 +1438,40 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // Tahrir marked-lot infill are now part of the committed Cairo scene.
     // The bespoke wedge façades account for the material/fingerprint move;
     // the fixed pose sees slightly fewer meshes after the surrounding re-tile.
-    totalMeshes: 14_622,
-    enabledMeshes: 14_578,
-    activeMeshes: 913,
-    materials: 322,
+    // -> 14_864/14_820 (active 1_760): the drivable Sixth of October
+    // network adds profiled deck slabs, underside girders, parapets,
+    // reflectors and hammerhead supports. The former decorative bridge mesh
+    // is retired, so the material set contracts to the shared elevated-road
+    // kit even as the connected structure adds 242 scene meshes.
+    // -> 14_843/14_799 (active 1_782): all four bridge access streets now
+    // retain their through carriageway while paired, direction-qualified slip
+    // lanes taper beside it. Merge-aware pavement routing removes the obsolete
+    // inner-kerb fragments and the re-authored Corniche/Ramses mouths re-deal
+    // a small number of derived road/support meshes near the fixed camera.
+    // -> 14_828/14_784: the promenade offset audit now sees the elevated
+    // deck footprint separately from its at-grade station gaps, removing the
+    // one palm whose multi-part render instance pierced the Sixth October
+    // carriageway without thinning London or Tokyo's promenade rhythm.
+    // -> 14_827/14_783 (active 1_781): elevated T-junction edge runs now
+    // stop before each joining ramp. One short, fully consumed parapet/girder
+    // run disappears at the fixed Cairo pose; slabs and material inventory are
+    // unchanged while the former transverse wall becomes a drivable opening.
+    // -> 14_842/14_798 (active 1_785): four full-height deck-edge nodes give
+    // every oblique ramp a level merge throat before it enters the mainline
+    // footprint. Their short profiled segments add the net 15 structural and
+    // road meshes after obsolete flat elevated-junction caps are omitted.
+    // Materials and the surviving-material fingerprint remain unchanged.
+    // -> 14_870/14_826 (active 1_791): the Ramses rebuild replaces the
+    // centred two-way grade with separate kerb-side entry/exit structures;
+    // the Corniche exit gains a full-height merge throat and stepped descent.
+    // Five slabs, twelve edge girders, twelve parapets and nine reflectors are
+    // added while merge-aware road/junction generation retires ten obsolete
+    // flat pieces, net +28. Six enter the fixed frustum and two additional
+    // pieces enter mirror draws; materials/fingerprint remain unchanged.
+    totalMeshes: 14_870,
+    enabledMeshes: 14_826,
+    activeMeshes: 1_791,
+    materials: 316,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1461,8 +1491,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // re-deal the street furniture held inside that ring.
     // -> 93 / 144: sparse signs and rebalanced facade dressing reduce the
     // nearby chunk set without changing the mirror rig itself.
-    mirrorCandidates: 93,
-    mirrorDrawn: 143,
+    mirrorCandidates: 30,
+    mirrorDrawn: 150,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1477,7 +1507,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "df94522e": the three regulatory-sign materials.
     // -> "48a1630c": the three Cairo shop signs plus storefront shutter.
     // -> "2e92838d": seven more Cairo business-sign materials.
-    survivingMaterialNamesFingerprint: "24ede971",
+    survivingMaterialNamesFingerprint: "12c22b0c",
   },
 };
 

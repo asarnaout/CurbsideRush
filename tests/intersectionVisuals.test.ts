@@ -4,6 +4,7 @@ import { BUILDING_BASE_CLEARANCE_M } from "../app/game/render/renderConstants";
 import { roadAxisHeadingNear } from "../app/game/geometry/roadStrips";
 import {
   mastArmTopY,
+  roadMarkingSegmentPlacement,
   signalStopBarSegment,
   SIGNAL_MAST,
   TRAFFIC_CAMERA_BODY,
@@ -88,6 +89,28 @@ const stopBars = (pack: MapPack) => {
 };
 
 describe("signal stop bars (#149)", () => {
+  it("keeps an elevated stop bar on its authored road level", () => {
+    const bar = signalStopBarSegment(
+      { x: 0, z: 0, elevationM: 10.5, heading: 0 },
+      { widthM: 3.2 },
+      undefined,
+    );
+    expect(bar.start.elevationM).toBe(10.5);
+    expect(bar.end.elevationM).toBe(10.5);
+  });
+
+  it("pitches a marking between its authored endpoint elevations", () => {
+    const placement = roadMarkingSegmentPlacement(
+      { x: 0, z: 0, elevationM: 4 },
+      { x: 0, z: 10, elevationM: 6 },
+      0.147,
+    );
+    expect(placement).not.toBeNull();
+    expect(placement!.center.y).toBeCloseTo(5.147, 9);
+    expect(placement!.lengthM).toBeCloseTo(Math.hypot(10, 2), 9);
+    expect(placement!.pitchRad).toBeCloseTo(-Math.atan2(2, 10), 9);
+  });
+
   it("paints every stop bar square to its road surface", () => {
     let checked = 0;
     for (const pack of MAP_PACKS) {
@@ -289,6 +312,31 @@ describe("enforcement camera placement", () => {
       0,
     );
     expect(east.lens.x).toBeLessThan(east.x);
+  });
+
+  it("adds the complete authored road elevation to body and lens", () => {
+    const ground = trafficCameraPlacement(
+      {
+        position: { x: 4, z: 8 },
+        headingDeg: 0,
+        armHeadingDeg: 0,
+        mounting: "mast_arm",
+      },
+      MAST_POLE_HEIGHT,
+      6,
+    );
+    const elevated = trafficCameraPlacement(
+      {
+        position: { x: 4, z: 8, elevationM: 10.5 },
+        headingDeg: 0,
+        armHeadingDeg: 0,
+        mounting: "mast_arm",
+      },
+      MAST_POLE_HEIGHT,
+      6,
+    );
+    expect(elevated.y - ground.y).toBeCloseTo(10.5, 9);
+    expect(elevated.lens.y - ground.lens.y).toBeCloseTo(10.5, 9);
   });
 
   it("rests on the arm rather than hovering over it", () => {

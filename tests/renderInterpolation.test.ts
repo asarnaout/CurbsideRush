@@ -74,4 +74,13 @@ describe("shouldSnapPose", () => {
   it("measures diagonal gaps, not per-axis ones", () => {
     expect(shouldSnapPose(0, 0, 2, 2, POSE_SNAP_STEP_M)).toBe(true);
   });
+
+  it("snaps a pure road-level reassignment without snapping normal ramp motion", () => {
+    expect(
+      shouldSnapPose(0, 0, 0.1, 0.1, POSE_SNAP_STEP_M, 0, 10.5),
+    ).toBe(true);
+    expect(
+      shouldSnapPose(0, 0, 0.1, 0.1, POSE_SNAP_STEP_M, 4, 4.04),
+    ).toBe(false);
+  });
 });

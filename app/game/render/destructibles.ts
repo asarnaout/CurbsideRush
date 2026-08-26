@@ -11,6 +11,7 @@ import {
   type DestructibleProp,
   type DestructiblePropPart,
 } from "./propCatalog";
+import { roadElevationsCanInteract } from "../roadElevation";
 
 /**
  * Street furniture the car can knock over: the broad-phase grid, the capsule
@@ -50,6 +51,7 @@ export class Destructibles {
     z: number,
     scale: number,
     parts: readonly DestructiblePropPart[],
+    elevationM = 0,
   ): void {
     const config = DESTRUCTIBLE_PROP_CONFIGS[kind];
     if (!config || !parts.length) return;
@@ -58,6 +60,7 @@ export class Destructibles {
       config,
       x,
       z,
+      elevationM: Math.max(0, Number.isFinite(elevationM) ? elevationM : 0),
       radiusM: config.radiusM * scale,
       parts,
       state: "standing",
@@ -73,6 +76,7 @@ export class Destructibles {
     playerX: number,
     playerZ: number,
     playerHeading: number,
+    playerElevationM: number,
     onContact: (prop: DestructibleProp) => boolean,
     emitImpactBurst: (x: number, y: number, z: number, count: number) => void,
   ): void {
@@ -87,6 +91,9 @@ export class Destructibles {
         if (!bucket) continue;
         for (const prop of bucket) {
           if (prop.state !== "standing") continue;
+          if (!roadElevationsCanInteract(playerElevationM, prop.elevationM)) {
+            continue;
+          }
           const reach = prop.radiusM + PLAYER_CAPSULE_RADIUS_M;
           let contact = false;
           for (let end = -1; end <= 1 && !contact; end += 2) {
@@ -124,7 +131,7 @@ export class Destructibles {
     }
 
     const pivot = new TransformNode(`prop-fall-${prop.kind}`, this.scene);
-    pivot.position.set(prop.x, 0, prop.z);
+    pivot.position.set(prop.x, prop.elevationM, prop.z);
     const poolParts: TransformNode[] = [];
     for (const part of prop.parts) {
       part.node.unfreezeWorldMatrix();
@@ -147,7 +154,12 @@ export class Destructibles {
       return;
     }
     this.activeFalls.push(fall);
-    emitImpactBurst(prop.x, 0.7, prop.z, prop.config.damage === "none" ? 6 : 14);
+    emitImpactBurst(
+      prop.x,
+      prop.elevationM + 0.7,
+      prop.z,
+      prop.config.damage === "none" ? 6 : 14,
+    );
   }
 
   private applyFallPose(fall: ActivePropFall): void {
@@ -168,9 +180,9 @@ export class Destructibles {
       PROP_TOPPLE_MAX_ANGLE_RAD * overshoot,
       pivot.rotationQuaternion!,
     );
-    pivot.position.y = -0.06 * eased;
+    pivot.position.y = prop.elevationM - 0.06 * eased;
     for (const pool of fall.poolParts) {
-      pool.position.y = 0.07 - 1.4 * eased;
+      pool.position.y = prop.elevationM + 0.07 - 1.4 * eased;
     }
   }
 

@@ -19,6 +19,15 @@ import {
 } from "../app/game/buildingSets";
 import { hashStringToSeed } from "../app/game/visuals";
 import {
+  isElevatedRoadSurface,
+} from "../app/game/roadElevation";
+import {
+  ELEVATED_ROAD_DECK_SLAB_THICKNESS_M,
+  ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
+  elevatedRoadBarrierPlacements,
+  elevatedRoadPierPlacements,
+} from "../app/game/geometry/elevatedRoadGeometry";
+import {
   buildSimulationCoreConfig,
   buildStaticObstacles,
   distanceToStaticObstacle,
@@ -114,17 +123,29 @@ const clearanceToNearestObstacle = (
   obstacles: readonly StaticObstacle[],
   x: number,
   z: number,
-): { distance: number; id: string } => {
+  elevationM?: number,
+): { distance: number; id: string; tag?: StaticObstacle["tag"] } => {
   let best = Number.POSITIVE_INFINITY;
   let bestId = "";
+  let bestTag: StaticObstacle["tag"] | undefined;
   for (const obstacle of obstacles) {
+    if (
+      elevationM !== undefined &&
+      (elevationM <
+        (obstacle.minElevationM ?? Number.NEGATIVE_INFINITY) ||
+        elevationM >
+          (obstacle.maxElevationM ?? Number.POSITIVE_INFINITY))
+    ) {
+      continue;
+    }
     const distance = distanceToStaticObstacle(obstacle, x, z);
     if (distance < best) {
       best = distance;
       bestId = obstacle.id;
+      bestTag = obstacle.tag;
     }
   }
-  return { distance: best, id: bestId };
+  return { distance: best, id: bestId, tag: bestTag };
 };
 
 /**
@@ -274,8 +295,9 @@ const clearanceToNearestIndexedObstacle = (
   index: SpatialIndex<StaticObstacle>,
   x: number,
   z: number,
-): { distance: number; id: string } =>
-  clearanceToNearestObstacle(index.query(x, z), x, z);
+  elevationM?: number,
+): { distance: number; id: string; tag?: StaticObstacle["tag"] } =>
+  clearanceToNearestObstacle(index.query(x, z), x, z, elevationM);
 
 const blockerBoundsM = (
   box: StagedBlocker,
@@ -411,6 +433,86 @@ describe("static obstacle build", () => {
       expect(again).toEqual(world.obstacles);
     }
   });
+
+  it("makes every rendered Cairo parapet an exact height-banded OBB", () => {
+    const world = driveWorlds.find(
+      (candidate) => candidate.freeDrive.mapId === "cairo-central-nile",
+    );
+    expect(world).toBeDefined();
+    if (!world) return;
+    const mapPack = getMapPack(world.freeDrive.mapId);
+    const surfaces = mapPack.geometry.roadSurfaces;
+    const expected = surfaces.flatMap((surface) =>
+      elevatedRoadBarrierPlacements(surface, surfaces),
+    );
+    const actual = world.obstacles.filter(
+      (obstacle) => obstacle.tag === "roadBarrier",
+    );
+    expect(actual).toHaveLength(expected.length);
+    expect(expected.length).toBeGreaterThan(20);
+
+    const actualById = new Map(actual.map((obstacle) => [obstacle.id, obstacle]));
+    for (const barrier of expected) {
+      expect(actualById.get(barrier.id)).toEqual({
+        kind: "obb",
+        id: barrier.id,
+        tag: "roadBarrier",
+        x: barrier.x,
+        z: barrier.z,
+        ux: barrier.ux,
+        uz: barrier.uz,
+        halfU: barrier.halfU,
+        halfV: barrier.halfV,
+        minElevationM: barrier.minElevationM,
+        maxElevationM: barrier.maxElevationM,
+      });
+    }
+    expect(
+      actual.some(
+        (obstacle) =>
+          (obstacle.minElevationM ?? Number.NEGATIVE_INFINITY) > 0,
+      ),
+    ).toBe(true);
+  });
+
+  it("makes every rendered Cairo support a ground-only physical collider", () => {
+    const world = driveWorlds.find(
+      (candidate) => candidate.freeDrive.mapId === "cairo-central-nile",
+    );
+    expect(world).toBeDefined();
+    if (!world) return;
+    const mapPack = getMapPack(world.freeDrive.mapId);
+    const surfaces = mapPack.geometry.roadSurfaces;
+    const expected = surfaces.flatMap((surface) =>
+      elevatedRoadPierPlacements(surface, surfaces),
+    );
+    const actualById = new Map(
+      world.obstacles
+        .filter((obstacle) => obstacle.tag === "roadSupport")
+        .map((obstacle) => [obstacle.id, obstacle]),
+    );
+    expect(actualById.size).toBe(expected.length);
+    expect(expected.length).toBeGreaterThan(0);
+    for (const pier of expected) {
+      expect(
+        actualById.get(
+          `elevated-road-${pier.surfaceId}-pier-${pier.index}-collider`,
+        ),
+      ).toEqual({
+        kind: "circle",
+        id: `elevated-road-${pier.surfaceId}-pier-${pier.index}-collider`,
+        tag: "roadSupport",
+        x: pier.position.x,
+        z: pier.position.z,
+        radius: ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
+        minElevationM: 0,
+        maxElevationM: Math.max(
+          0,
+          pier.elevationM - ELEVATED_ROAD_DECK_SLAB_THICKNESS_M,
+        ),
+      });
+    }
+  });
 });
 
 describe("the drivable world stays open", () => {
@@ -441,10 +543,27 @@ describe("the drivable world stays open", () => {
             const t = step / steps;
             const x = start.x + (end.x - start.x) * t;
             const z = start.z + (end.z - start.z) * t;
-            const nearest = clearanceToNearestIndexedObstacle(index, x, z);
-            if (nearest.distance < required) {
+            const elevationM =
+              (start.elevationM ?? 0) +
+              ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * t;
+            const nearest = clearanceToNearestIndexedObstacle(
+              index,
+              x,
+              z,
+              elevationM,
+            );
+            // A parapet intentionally sits beside the usable lane and should
+            // stop a driver who steers toward it. It only needs to clear a
+            // centred vehicle body; demanding the entire lane band plus the
+            // body radius would require an extra full vehicle-width shoulder
+            // and reject the visible Cairo bridge design by nine centimetres.
+            const requiredAtObstacle =
+              nearest.tag === "roadBarrier"
+                ? PLAYER_CAPSULE_RADIUS_M + 0.1
+                : required;
+            if (nearest.distance < requiredAtObstacle) {
               failures.push(
-                `${world.freeDrive.mapId} lane ${lane.id} @ (${x.toFixed(1)}, ${z.toFixed(1)}): ${nearest.id} within ${nearest.distance.toFixed(2)}m (< ${required.toFixed(2)}m)`,
+                `${world.freeDrive.mapId} lane ${lane.id} @ (${x.toFixed(1)}, ${z.toFixed(1)}): ${nearest.id} within ${nearest.distance.toFixed(2)}m (< ${requiredAtObstacle.toFixed(2)}m)`,
               );
             }
           }
@@ -460,6 +579,7 @@ describe("the drivable world stays open", () => {
         world.obstacles,
         world.spawn.x,
         world.spawn.z,
+        world.spawn.elevationM ?? 0,
       );
       expect(
         nearest.distance,
@@ -486,13 +606,16 @@ describe("the drivable world stays open", () => {
       const defaultSidewalkWidthM = palette.paved
         ? PAVED_SIDEWALK_WIDTH_M
         : Math.max(0.9, mapPack.geometry.shoulderWidth ?? 1.2);
+      const groundSurfaces = mapPack.geometry.roadSurfaces.filter(
+        (surface) => !isElevatedRoadSurface(surface),
+      );
       const sidewalkWidthM = Math.min(
         defaultSidewalkWidthM,
-        ...mapPack.geometry.roadSurfaces.map(
+        ...groundSurfaces.map(
           (surface) => surface.sidewalkWidthM ?? defaultSidewalkWidthM,
         ),
       );
-      const graph = buildPavementGraph(mapPack.geometry.roadSurfaces, {
+      const graph = buildPavementGraph(groundSurfaces, {
         sidewalkWidthM: defaultSidewalkWidthM,
       });
       const lateralOffsets = [
@@ -515,7 +638,12 @@ describe("the drivable world stays open", () => {
           for (const offset of lateralOffsets) {
             const x = pose.x + lateralX * offset;
             const z = pose.z + lateralZ * offset;
-            const nearest = clearanceToNearestIndexedObstacle(index, x, z);
+            const nearest = clearanceToNearestIndexedObstacle(
+              index,
+              x,
+              z,
+              0,
+            );
             if (nearest.distance < 0.3) {
               failures.push(
                 `${world.freeDrive.mapId}: ${nearest.id} covers the pavement at (${x.toFixed(1)}, ${z.toFixed(1)}) — ${nearest.distance.toFixed(2)}m`,

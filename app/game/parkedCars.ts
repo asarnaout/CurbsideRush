@@ -1,4 +1,5 @@
 import { roadsidePropKeepOuts } from "./geometry/roadFurnitureLayout";
+import { createElevatedRoadDeckHeadroomQuery } from "./geometry/elevatedRoadGeometry";
 import { LONDON_PARKED_CARS } from "./londonStreetFurniture";
 import type {
   GameCanvasLane,
@@ -6,6 +7,7 @@ import type {
   GameCanvasPoint,
 } from "./sessionContract";
 import { TOKYO_STREET_FURNITURE_POINTS } from "./tokyoStreetFurniture";
+import { isElevatedRoadSurface } from "./roadElevation";
 import {
   distanceToPolylineM,
   hashStringToSeed,
@@ -35,6 +37,18 @@ const OCCUPIED_CLEARANCE_M = 3.2;
 const RECT_CLEARANCE_M = 1.8;
 const FOREIGN_ROAD_CLEARANCE_M = 1.5;
 const WORLD_EDGE_MARGIN_M = 4;
+/** Circular reach of the longest parked model, including a placement margin. */
+const PARKED_CAR_DECK_FOOTPRINT_RADIUS_M = 2.7;
+
+/** Model roof plus visual/authoring clearance beneath a sloped concrete slab. */
+export const PARKED_CAR_REQUIRED_HEADROOM_M: Readonly<
+  Record<ParkedCarModel, number>
+> = {
+  sedan: 1.95,
+  sports: 1.75,
+  suv: 2.2,
+  van: 2.55,
+};
 
 interface GeneratedParkingProfile {
   readonly keepRate: number;
@@ -163,9 +177,15 @@ export function parkedCarsForMap(
     return LONDON_PARKED_CARS;
   }
   const parkingProfile = generatedParkingProfile(mapPack.id);
+  const elevatedRoadHeadroomAt = createElevatedRoadDeckHeadroomQuery(
+    mapPack.geometry.roadSurfaces ?? [],
+  );
 
   const surfaces = (mapPack.geometry.roadSurfaces ?? []).filter(
-    (surface) => surface.surfaceType === "standard" && surface.centerline.length > 1,
+    (surface) =>
+      surface.surfaceType === "standard" &&
+      surface.centerline.length > 1 &&
+      !isElevatedRoadSurface(surface),
   );
   if (!surfaces.length) return [];
 
@@ -249,7 +269,14 @@ export function parkedCarsForMap(
           };
           const lanePose = nearestLanePose(candidate, lanes);
           if (!lanePose) continue;
+          const deck = elevatedRoadHeadroomAt(
+            candidate,
+            0,
+            PARKED_CAR_DECK_FOOTPRINT_RADIUS_M,
+          );
           const clear =
+            (!deck ||
+              deck.headroomM >= PARKED_CAR_REQUIRED_HEADROOM_M[model]) &&
             Math.abs(candidate.x) <= halfWorldX &&
             Math.abs(candidate.z) <= halfWorldZ &&
             laneEndpoints.every(

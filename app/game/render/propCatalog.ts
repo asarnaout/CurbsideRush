@@ -136,6 +136,8 @@ export interface DestructibleProp {
   readonly config: DestructiblePropConfig;
   readonly x: number;
   readonly z: number;
+  /** Road or ground height occupied by the prop's base. */
+  readonly elevationM: number;
   readonly radiusM: number;
   readonly parts: readonly DestructiblePropPart[];
   state: "standing" | "falling" | "down";

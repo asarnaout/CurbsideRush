@@ -713,6 +713,8 @@ describe("deterministic simulation", () => {
     });
 
     let previous = simulation.getSnapshot().npcs[0];
+    expect(previous.x).toBeGreaterThan(0.5);
+    expect(previous.z).toBeLessThan(17.5);
     let enteredSuccessor = false;
     for (let index = 0; index < 180; index += 1) {
       const current = simulation.step(1 / 60).npcs[0];
@@ -1193,6 +1195,353 @@ describe("static world collision", () => {
       typeof collision?.evidence.impactSpeedMps === "number" &&
         (collision.evidence.impactSpeedMps as number) > 2,
     ).toBe(true);
+  });
+
+  it("drives an elevated lane above a ground-height obstacle", () => {
+    const simulation = new SimulationCore({
+      scenarioId: "flyover-height-test",
+      trafficSide: "right",
+      npcCount: 0,
+      lanes: [
+        {
+          ...NORTH_LANE,
+          points: [
+            { x: 0, z: -100, elevationM: 8 },
+            { x: 0, z: 100, elevationM: 8 },
+          ],
+        },
+      ],
+      spawn: { x: 0, z: 0, elevationM: 8, heading: 0 },
+      bounds: { minX: -60, maxX: 60, minZ: -120, maxZ: 120 },
+      staticObstacles: [
+        {
+          kind: "aabb",
+          id: "ground-wall",
+          tag: "shoreline",
+          minX: -30,
+          maxX: 30,
+          minZ: 40,
+          maxZ: 60,
+          maxElevationM: 3.5,
+        },
+      ],
+    });
+    for (let index = 0; index < 480; index += 1) {
+      simulation.step(1 / 60, { throttle: 1 });
+    }
+    expect(simulation.getSnapshot().player.z).toBeGreaterThan(60);
+    expect(simulation.getEvents().some((event) => event.code === "collision")).toBe(false);
+  });
+
+  it("collides with an elevated parapet only on its authored road level", () => {
+    const barrier: StaticObstacle = {
+      kind: "obb",
+      id: "height-banded-parapet",
+      tag: "roadBarrier",
+      x: 0,
+      z: 50,
+      ux: 1,
+      uz: 0,
+      halfU: 30,
+      halfV: 0.14,
+      minElevationM: 6.25,
+      maxElevationM: 9.75,
+    };
+    const driveAtElevation = (elevationM: number) => {
+      const simulation = new SimulationCore({
+        scenarioId: `parapet-height-${elevationM}`,
+        trafficSide: "right",
+        npcCount: 0,
+        lanes: [
+          {
+            ...NORTH_LANE,
+            points: [
+              { x: 0, z: -100, elevationM },
+              { x: 0, z: 100, elevationM },
+            ],
+          },
+        ],
+        spawn: { x: 0, z: 0, elevationM, heading: 0 },
+        bounds: { minX: -60, maxX: 60, minZ: -120, maxZ: 120 },
+        staticObstacles: [barrier],
+      });
+      for (let index = 0; index < 480; index += 1) {
+        simulation.step(1 / 60, { throttle: 1 });
+      }
+      return simulation;
+    };
+
+    const ground = driveAtElevation(0);
+    expect(ground.getSnapshot().player.z).toBeGreaterThan(60);
+    expect(ground.getEvents().some((event) => event.code === "collision")).toBe(
+      false,
+    );
+
+    const elevated = driveAtElevation(8);
+    expect(elevated.getSnapshot().player.z).toBeLessThan(50);
+    const collision = elevated
+      .getEvents()
+      .find((event) => event.code === "collision");
+    expect(collision?.evidence).toMatchObject({
+      obstacle: "roadBarrier",
+      obstacleId: "height-banded-parapet",
+    });
+    expect(collision?.correction).toContain("elevated-road barriers");
+  });
+
+  it("does not oscillate from an ascending ramp to the closer road below", () => {
+    const simulation = new SimulationCore({
+      scenarioId: "ramp-height-continuity-test",
+      trafficSide: "right",
+      npcCount: 0,
+      lanes: [
+        {
+          id: "ground",
+          points: [{ x: 0, z: 0 }, { x: 0, z: 20 }],
+          width: 3.2,
+          loop: false,
+        },
+        {
+          id: "ramp",
+          points: [
+            { x: 1, z: 0, elevationM: 5 },
+            { x: 1, z: 20, elevationM: 7 },
+          ],
+          width: 3.2,
+          loop: false,
+        },
+      ],
+      spawn: { x: 1, z: 0, elevationM: 5, heading: 0 },
+      bounds: { minX: -20, maxX: 20, minZ: -20, maxZ: 40 },
+    });
+
+    for (const [x, z] of [[0.3, 1], [0.25, 2], [0.35, 3]] as const) {
+      simulation.setPlayerPose(
+        {
+          x,
+          z,
+          elevationM: simulation.getSnapshot().player.elevationM,
+          heading: 0,
+        },
+        5,
+      );
+      const snapshot = simulation.getSnapshot();
+      expect(snapshot.road.laneId).toBe("ramp");
+      expect(snapshot.player.elevationM).toBeGreaterThan(5);
+    }
+  });
+
+  it("keeps the ground lane beneath a closer elevated centreline", () => {
+    const simulation = new SimulationCore({
+      scenarioId: "ground-under-flyover-continuity-test",
+      trafficSide: "right",
+      npcCount: 0,
+      lanes: [
+        {
+          id: "ground",
+          points: [{ x: 0, z: 0 }, { x: 0, z: 30 }],
+          width: 3.2,
+          loop: false,
+        },
+        {
+          id: "flyover",
+          points: [
+            { x: 0.3, z: 0, elevationM: 10.5 },
+            { x: 0.3, z: 30, elevationM: 10.5 },
+          ],
+          width: 3.2,
+          loop: false,
+        },
+      ],
+      spawn: { x: 0, z: 2, heading: 0 },
+      bounds: { minX: -20, maxX: 20, minZ: -20, maxZ: 50 },
+    });
+
+    for (const [x, z] of [[0.2, 4], [0.22, 8], [0.18, 12]] as const) {
+      simulation.setPlayerPose({ x, z, heading: 0 }, 5);
+      const snapshot = simulation.getSnapshot();
+      expect(snapshot.road.laneId).toBe("ground");
+      expect(snapshot.player.elevationM).toBeUndefined();
+    }
+  });
+
+  it("treats an explicit zero-height pose as authoritative at a stacked road", () => {
+    const simulation = new SimulationCore({
+      scenarioId: "explicit-ground-teleport-under-flyover-test",
+      trafficSide: "right",
+      npcCount: 0,
+      lanes: [
+        {
+          id: "ground",
+          points: [{ x: 0, z: 0 }, { x: 0, z: 30 }],
+          width: 3.2,
+          loop: false,
+        },
+        {
+          id: "flyover",
+          points: [
+            { x: 0, z: 0, elevationM: 10.5 },
+            { x: 0, z: 30, elevationM: 10.5 },
+          ],
+          width: 3.2,
+          loop: false,
+        },
+      ],
+      spawn: { x: 0, z: 5, elevationM: 10.5, heading: 0 },
+      bounds: { minX: -20, maxX: 20, minZ: -20, maxZ: 50 },
+    });
+
+    expect(simulation.getSnapshot().road.laneId).toBe("flyover");
+    simulation.setPlayerPose(
+      { x: 0, z: 10, elevationM: 0, heading: 0 },
+      0,
+    );
+
+    const snapshot = simulation.getSnapshot();
+    expect(snapshot.road.laneId).toBe("ground");
+    expect(snapshot.player.elevationM).toBeUndefined();
+  });
+
+  it("does not lift an off-road ground car onto the nearest overhead deck", () => {
+    const simulation = new SimulationCore({
+      scenarioId: "ground-under-remote-flyover-test",
+      trafficSide: "right",
+      npcCount: 0,
+      lanes: [
+        {
+          id: "ground",
+          points: [{ x: 20, z: 0 }, { x: 20, z: 30 }],
+          width: 3.2,
+          loop: false,
+        },
+        {
+          id: "flyover",
+          points: [
+            { x: 0, z: 0, elevationM: 10.5 },
+            { x: 0, z: 30, elevationM: 10.5 },
+          ],
+          width: 3.2,
+          loop: false,
+        },
+      ],
+      spawn: { x: 20, z: 5, heading: 0 },
+      bounds: { minX: -30, maxX: 30, minZ: -10, maxZ: 40 },
+    });
+
+    simulation.setPlayerPose(
+      { x: 0, z: 10, elevationM: 0, heading: 0 },
+      0,
+    );
+
+    const snapshot = simulation.getSnapshot();
+    expect(snapshot.player.elevationM).toBeUndefined();
+    expect(snapshot.road.laneId).toBe("ground");
+    expect(snapshot.road.distanceFromLaneCentreM).toBe(20);
+    expect(snapshot.road.offRoad).toBe(true);
+  });
+
+  it("keeps stacked traffic on its own elevation and suppresses cross-level contact", () => {
+    const simulation = new SimulationCore({
+      scenarioId: "stacked-traffic-contact-test",
+      trafficSide: "right",
+      npcCount: 1,
+      lanes: [
+        {
+          id: "ground",
+          points: [{ x: 0, z: -50 }, { x: 0, z: 50 }],
+          width: 3.2,
+          speedLimitMps: 10,
+          loop: false,
+        },
+        {
+          id: "flyover",
+          points: [
+            { x: 0, z: -50, elevationM: 10.5 },
+            { x: 0, z: 50, elevationM: 10.5 },
+          ],
+          width: 3.2,
+          speedLimitMps: 10,
+          loop: false,
+        },
+      ],
+      spawn: { x: 0, z: 0, elevationM: 10.5, heading: 0 },
+      trafficGates: [
+        {
+          id: "ground-car",
+          laneId: "ground",
+          distance: 50,
+          desiredSpeedMps: 6,
+        },
+      ],
+      bounds: { minX: -20, maxX: 20, minZ: -60, maxZ: 60 },
+    });
+
+    const initialNpc = simulation.getSnapshot().npcs[0];
+    expect(initialNpc).toMatchObject({ laneId: "ground", x: 0, z: 0 });
+    expect(initialNpc.elevationM).toBeUndefined();
+
+    simulation.setPlayerPose(
+      { x: initialNpc.x, z: initialNpc.z, elevationM: 10.5, heading: 0 },
+      5,
+    );
+    for (let index = 0; index < 30; index += 1) {
+      simulation.step(1 / 60);
+    }
+
+    const snapshot = simulation.getSnapshot();
+    expect(snapshot.npcs).toHaveLength(1);
+    expect(snapshot.npcs[0].z).toBeGreaterThan(initialNpc.z);
+    expect(snapshot.player.elevationM).toBeCloseTo(10.5);
+    expect(simulation.getEvents().some((event) => event.code === "collision")).toBe(false);
+  });
+
+  it("publishes continuously changing NPC elevation on a ramp", () => {
+    const simulation = new SimulationCore({
+      scenarioId: "npc-ramp-height-test",
+      trafficSide: "right",
+      npcCount: 1,
+      lanes: [
+        {
+          id: "player-road",
+          points: [{ x: 40, z: -60 }, { x: 40, z: 60 }],
+          width: 3.2,
+          loop: false,
+        },
+        {
+          id: "ramp",
+          points: [
+            { x: 0, z: -50 },
+            { x: 0, z: 50, elevationM: 10 },
+          ],
+          width: 3.2,
+          speedLimitMps: 10,
+          loop: false,
+        },
+      ],
+      spawn: { x: 40, z: 0, heading: 0 },
+      trafficGates: [
+        {
+          id: "ramp-car",
+          laneId: "ramp",
+          distance: 50,
+          desiredSpeedMps: 6,
+        },
+      ],
+      bounds: { minX: -20, maxX: 60, minZ: -60, maxZ: 60 },
+    });
+
+    const initial = simulation.getSnapshot().npcs[0];
+    expect(initial.elevationM).toBeCloseTo(5);
+    let previousElevationM = initial.elevationM ?? 0;
+    for (let index = 0; index < 60; index += 1) {
+      const npc = simulation.step(1 / 60).npcs[0];
+      expect(npc).toBeDefined();
+      const elevationM = npc.elevationM ?? 0;
+      expect(elevationM).toBeGreaterThanOrEqual(previousElevationM);
+      expect(elevationM - previousElevationM).toBeLessThan(0.02);
+      previousElevationM = elevationM;
+    }
+    expect(previousElevationM).toBeGreaterThan(5.2);
   });
 
   it("never tunnels through a wall even at the physics ceiling", () => {

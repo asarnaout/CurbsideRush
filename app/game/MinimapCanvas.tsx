@@ -24,11 +24,16 @@ import {
 import { MapPoiLayer } from "./MapPoiLayer";
 import type { MapPoi } from "./mapPoi";
 import { DRIVE_LAYER } from "./driveLayers";
+import { roadLevelAtElevation } from "./roadElevation";
 
 interface MinimapProps {
   readonly worldSize: { readonly x: number; readonly z: number };
   readonly roadSurfaces: readonly {
-    readonly centerline: readonly { readonly x: number; readonly z: number }[];
+    readonly centerline: readonly {
+      readonly x: number;
+      readonly z: number;
+      readonly elevationM?: number;
+    }[];
     readonly widthM?: number;
   }[];
   readonly waterBodies?: readonly MapDrawWaterBody[];
@@ -38,6 +43,7 @@ interface MinimapProps {
   readonly railLines?: readonly MapDrawRailLine[];
   readonly playerX: number;
   readonly playerZ: number;
+  readonly playerElevationM?: number;
   readonly heading: number;
   /**
    * Where the player is going. The only marker on the canvas, so it can never
@@ -108,6 +114,7 @@ export function Minimap({
   railLines = [],
   playerX,
   playerZ,
+  playerElevationM = 0,
   heading,
   destination,
   pois = [],
@@ -121,6 +128,7 @@ export function Minimap({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playerRef = useRef<HTMLCanvasElement>(null);
   const networkRef = useRef<HTMLCanvasElement | null>(null);
+  const activeRoadLevel = roadLevelAtElevation(playerElevationM);
   const scale = useMemo(
     () => resolveMinimapScale(worldSize, size),
     [worldSize, size],
@@ -161,10 +169,20 @@ export function Minimap({
         sheet,
         scale.pixelsPerMetre,
         minimapRoadFloorPx(size),
+        activeRoadLevel,
       );
     }
     networkRef.current = offscreen;
-  }, [roadSurfaces, waterBodies, parks, railLines, sheet, scale, size]);
+  }, [
+    roadSurfaces,
+    waterBodies,
+    parks,
+    railLines,
+    sheet,
+    scale,
+    size,
+    activeRoadLevel,
+  ]);
 
   // Composite the cached network, the route and the destination each update.
   useEffect(() => {

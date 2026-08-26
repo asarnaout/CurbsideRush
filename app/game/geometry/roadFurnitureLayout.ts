@@ -20,6 +20,40 @@ import { nearestPointOnPolyline, roadAxisHeadingNear } from "./roadStrips";
 
 const degreesToRadians = (degrees: number) => (degrees * Math.PI) / 180;
 
+export interface RoadMarkingSegmentPlacement {
+  readonly center: { readonly x: number; readonly y: number; readonly z: number };
+  readonly lengthM: number;
+  readonly yawRad: number;
+  readonly pitchRad: number;
+}
+
+/** World transform for a painted segment laid on a possibly sloped road. */
+export function roadMarkingSegmentPlacement(
+  start: GameCanvasPoint,
+  end: GameCanvasPoint,
+  surfaceOffsetY: number,
+): RoadMarkingSegmentPlacement | null {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const planLengthM = Math.hypot(dx, dz);
+  if (planLengthM < 0.01) return null;
+  const startElevationM = start.elevationM ?? 0;
+  const endElevationM = end.elevationM ?? 0;
+  const elevationDeltaM = endElevationM - startElevationM;
+  return {
+    center: {
+      x: (start.x + end.x) / 2,
+      y: surfaceOffsetY + (startElevationM + endElevationM) / 2,
+      z: (start.z + end.z) / 2,
+    },
+    lengthM: Math.hypot(planLengthM, elevationDeltaM),
+    yawRad: Math.atan2(dx, dz),
+    // Local +Z points start->end after yaw. Babylon's X rotation raises +Z
+    // with a negative angle.
+    pitchRad: -Math.atan2(elevationDeltaM, planLengthM),
+  };
+}
+
 /** Marking styles that run along a road, and so break where one crosses. */
 export const LANE_PAINT_STYLES = new Set([
   "centre_solid",
@@ -46,7 +80,12 @@ export const LANE_PAINT_STYLES = new Set([
  * carriageway half-width so it never spills onto the shoulder.
  */
 export function signalStopBarSegment(
-  stop: { readonly x: number; readonly z: number; readonly heading: number },
+  stop: {
+    readonly x: number;
+    readonly z: number;
+    readonly elevationM?: number;
+    readonly heading: number;
+  },
   lane: { readonly widthM?: number },
   surface:
     | {
@@ -81,13 +120,28 @@ export function signalStopBarSegment(
       end: {
         x: centre.x + towardKerb * roadHalfWidth * sideX,
         z: centre.z + towardKerb * roadHalfWidth * sideZ,
+        ...(centre.elevationM !== undefined
+          ? { elevationM: centre.elevationM }
+          : {}),
       },
     };
   }
   const halfWidth = Math.min((lane.widthM ?? 3.2) / 2 + 1.4, roadHalfWidth);
   return {
-    start: { x: stop.x - sideX * halfWidth, z: stop.z - sideZ * halfWidth },
-    end: { x: stop.x + sideX * halfWidth, z: stop.z + sideZ * halfWidth },
+    start: {
+      x: stop.x - sideX * halfWidth,
+      z: stop.z - sideZ * halfWidth,
+      ...(stop.elevationM !== undefined
+        ? { elevationM: stop.elevationM }
+        : {}),
+    },
+    end: {
+      x: stop.x + sideX * halfWidth,
+      z: stop.z + sideZ * halfWidth,
+      ...(stop.elevationM !== undefined
+        ? { elevationM: stop.elevationM }
+        : {}),
+    },
   };
 }
 
@@ -232,6 +286,7 @@ export function trafficCameraPlacement(
   const facingX = -Math.sin(yaw);
   const facingZ = -Math.cos(yaw);
   const base = installation.position;
+  const baseElevationM = base.elevationM ?? 0;
   let x: number;
   let z: number;
   let y: number;
@@ -244,13 +299,14 @@ export function trafficCameraPlacement(
     z = base.z - Math.sin(armHeading) * along;
     // Sat on the arm's upper surface, bedded in a shade so no seam shows.
     y =
+      baseElevationM +
       mastArmTopY(poleHeight) +
       TRAFFIC_CAMERA_BODY.housing.height / 2 -
       TRAFFIC_CAMERA_BODY.seatM;
   } else {
     x = base.x + facingX * TRAFFIC_CAMERA_BODY.poleClearM;
     z = base.z + facingZ * TRAFFIC_CAMERA_BODY.poleClearM;
-    y = poleHeight - TRAFFIC_CAMERA_BODY.poleDropM;
+    y = baseElevationM + poleHeight - TRAFFIC_CAMERA_BODY.poleDropM;
   }
   return {
     x,
@@ -286,6 +342,9 @@ export function crosswalkStripeLayout(
       center: {
         x: position.x + travelX * stripe * 1.05,
         z: position.z + travelZ * stripe * 1.05,
+        ...(position.elevationM !== undefined
+          ? { elevationM: position.elevationM }
+          : {}),
       },
       // A box's local +x maps to (cos yaw, -sin yaw): perpendicular to the
       // travel vector above when yaw equals the compass heading.

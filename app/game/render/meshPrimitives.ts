@@ -71,14 +71,21 @@ export function appendMarkingBox(
   const dz = end.z - start.z;
   const length = Math.hypot(dx, dz);
   if (length < 0.01) return;
+  const startElevationM = start.elevationM ?? 0;
+  const endElevationM = end.elevationM ?? 0;
+  const riseM = endElevationM - startElevationM;
+  const slope = Math.atan2(riseM, length);
+  const pitchSin = Math.sin(-slope);
+  const pitchCos = Math.cos(-slope);
   const heading = Math.atan2(dx, dz);
   const box = VertexData.CreateBox({
     width,
     height: Math.max(0.025, y * 0.45),
-    depth: length + 0.25,
+    depth: Math.hypot(length, riseM) + 0.25,
   });
   const centerX = (start.x + end.x) / 2;
   const centerZ = (start.z + end.z) / 2;
+  const centerY = y + (startElevationM + endElevationM) / 2;
   const sin = Math.sin(heading);
   const cos = Math.cos(heading);
   const indexBase = geometry.positions.length / 3;
@@ -88,15 +95,24 @@ export function appendMarkingBox(
     const px = positions[i];
     const py = positions[i + 1];
     const pz = positions[i + 2];
+    const pitchedY = py * pitchCos - pz * pitchSin;
+    const pitchedZ = py * pitchSin + pz * pitchCos;
     // rotation.y = heading, as Babylon applies it to a mesh.
     geometry.positions.push(
-      centerX + px * cos + pz * sin,
-      y + py,
-      centerZ - px * sin + pz * cos,
+      centerX + px * cos + pitchedZ * sin,
+      centerY + pitchedY,
+      centerZ - px * sin + pitchedZ * cos,
     );
     const nx = normals[i];
+    const ny = normals[i + 1];
     const nz = normals[i + 2];
-    geometry.normals.push(nx * cos + nz * sin, normals[i + 1], -nx * sin + nz * cos);
+    const pitchedNy = ny * pitchCos - nz * pitchSin;
+    const pitchedNz = ny * pitchSin + nz * pitchCos;
+    geometry.normals.push(
+      nx * cos + pitchedNz * sin,
+      pitchedNy,
+      -nx * sin + pitchedNz * cos,
+    );
   }
   for (const index of box.indices as number[]) {
     geometry.indices.push(indexBase + index);
@@ -130,10 +146,20 @@ export function appendDashedMarkingBoxes(
       const from = Math.max(0, distance);
       const to = Math.min(length, distance + dashLength);
       if (to - from > 0.2) {
+        const startElevationM = start.elevationM ?? 0;
+        const elevationDeltaM = (end.elevationM ?? 0) - startElevationM;
         appendMarkingBox(
           geometry,
-          { x: start.x + ux * from, z: start.z + uz * from },
-          { x: start.x + ux * to, z: start.z + uz * to },
+          {
+            x: start.x + ux * from,
+            z: start.z + uz * from,
+            elevationM: startElevationM + elevationDeltaM * (from / length),
+          },
+          {
+            x: start.x + ux * to,
+            z: start.z + uz * to,
+            elevationM: startElevationM + elevationDeltaM * (to / length),
+          },
           width,
           y,
         );

@@ -12,6 +12,7 @@ import {
   type PavementSurface,
 } from "../app/game/pavementPaths";
 import { resolveMapVisualPalette } from "../app/game/visuals";
+import { isElevatedRoadSurface } from "../app/game/roadElevation";
 
 type Pt = PavementPoint;
 
@@ -167,6 +168,24 @@ describe("buildPavementGraph", () => {
         }
       }
     }
+  });
+
+  it("does not invent a pedestrian rail for an explicitly sidewalkless road", () => {
+    const graph = buildPavementGraph(
+      [
+        {
+          id: "vehicle-only-ramp",
+          centerline: [
+            { x: -30, z: 0 },
+            { x: 30, z: 0 },
+          ],
+          widthM: 8,
+          sidewalkWidthM: 0,
+        },
+      ],
+      { sidewalkWidthM: 3.4 },
+    );
+    expect(graph).toEqual({ nodes: [], edges: [], junctions: [] });
   });
 
   it("keeps every rail on its own pavement band", () => {
@@ -325,9 +344,13 @@ describe("buildPavementGraph", () => {
     // end recentred off the shared node (Cromwell Road) or a vertex landing on
     // another road's asphalt mid-segment (the quiet loop's corner) are
     // physical crossings the fill papers over with overlapping strips, but a
-    // walker has to be routed around them. It must never know fewer.
+    // walker has to be routed around them. Cairo's paired auxiliary-lane
+    // tapers add six deliberate mid-segment adoptions around three host
+    // streets. It must never know fewer.
     for (const { pack, sidewalkWidthM } of TARGET_MAPS) {
-      const surfaces = pack.geometry.roadSurfaces;
+      const surfaces = pack.geometry.roadSurfaces.filter(
+        (surface) => !isElevatedRoadSurface(surface),
+      );
       const graph = buildPavementGraph(surfaces, { sidewalkWidthM });
       const fills = collectRoadJunctionFills(surfaces);
       for (const fill of fills) {
@@ -338,13 +361,19 @@ describe("buildPavementGraph", () => {
         expect(match, `${pack.id} fill at ${fill.pivot.x},${fill.pivot.z}`).toBe(true);
       }
       expect(graph.junctions.length, pack.id).toBeGreaterThanOrEqual(fills.length);
-      expect(graph.junctions.length, pack.id).toBeLessThanOrEqual(fills.length + 2);
+      const virtualJunctionAllowance =
+        pack.id === "cairo-central-nile" ? 6 : 2;
+      expect(graph.junctions.length, pack.id).toBeLessThanOrEqual(
+        fills.length + virtualJunctionAllowance,
+      );
     }
   });
 
   it("keeps every kept map's rails off the carriageways and walkable", () => {
     for (const { pack, sidewalkWidthM, maxSidewalkWidthM } of TARGET_MAPS) {
-      const surfaces = pack.geometry.roadSurfaces;
+      const surfaces = pack.geometry.roadSurfaces.filter(
+        (surface) => !isElevatedRoadSurface(surface),
+      );
       const graph = buildPavementGraph(surfaces, { sidewalkWidthM });
       expect(graph.edges.length, pack.id).toBeGreaterThan(0);
       const maxRailOffset = Math.max(
@@ -386,7 +415,24 @@ describe("buildPavementGraph", () => {
         }
       }
       for (const node of graph.nodes) {
-        expect(node.edgeIds.length, `${pack.id} node ${node.id}`).toBeGreaterThanOrEqual(2);
+        if (node.edgeIds.length >= 2) continue;
+        // Cairo's auxiliary lanes deliberately terminate the old inner kerb
+        // instead of routing pedestrians across a motorway merge. Crowd
+        // walkers understand a degree-one end and turn around there; every
+        // other map still has the original all-circuit pavement contract.
+        const auxiliarySlips = surfaces.filter((surface) =>
+          surface.id.endsWith("-slip"),
+        );
+        const distanceToNearestSlip = Math.min(
+          ...auxiliarySlips.map((surface) =>
+            distanceToPolyline(node, surface.centerline),
+          ),
+        );
+        expect(pack.id, `node ${node.id}`).toBe("cairo-central-nile");
+        expect(
+          distanceToNearestSlip,
+          `${pack.id} node ${node.id} is not a guarded ramp-pavement end`,
+        ).toBeLessThanOrEqual(20);
       }
       // Every connected piece of pavement is a walkable circuit, not a crumb.
       for (const length of componentLengths(graph)) {
@@ -516,7 +562,9 @@ describe("samplePavementEdgeOffset", () => {
     // crowdScatterHalfM derivation (band half-width minus standing room).
     const violations: string[] = [];
     for (const { pack, sidewalkWidthM, minSidewalkWidthM } of TARGET_MAPS) {
-      const surfaces = pack.geometry.roadSurfaces;
+      const surfaces = pack.geometry.roadSurfaces.filter(
+        (surface) => !isElevatedRoadSurface(surface),
+      );
       const graph = buildPavementGraph(surfaces, { sidewalkWidthM });
       const scatterHalf = Math.max(0, minSidewalkWidthM / 2 - 0.55);
       if (scatterHalf === 0) continue;

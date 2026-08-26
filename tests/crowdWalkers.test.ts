@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CAIRO_MAP_PACK } from "../app/game/cities/cairo";
 import {
   createCrowdSim,
   spawnHideMarginM,
@@ -10,6 +11,7 @@ import {
   type CrowdConfig,
   type CrowdSim,
 } from "../app/game/crowdWalkers";
+import { createElevatedRoadGroundClearanceQuery } from "../app/game/geometry/elevatedRoadGeometry";
 import {
   buildPavementGraph,
   EDGE_KIND_SCATTER,
@@ -17,6 +19,8 @@ import {
   samplePavementEdgeOffset,
   type PavementSurface,
 } from "../app/game/pavementPaths";
+import { isElevatedRoadSurface } from "../app/game/roadElevation";
+import { defaultSidewalkWidthM, hashStringToSeed } from "../app/game/visuals";
 
 // A small city block fixture: a 2×2 grid of roads, so the graph has block
 // circuits, corner links and a perimeter — every transition kind but rings.
@@ -76,6 +80,74 @@ describe("createCrowdSim", () => {
 });
 
 describe("CrowdSim.step", () => {
+  it("never spawns in or walks through a low-ramp clearance keepout", () => {
+    const canWalkAt = (x: number, z: number) =>
+      !(x > -12 && x < 12 && z > 34 && z < 48);
+    const sim = makeSim({ canWalkAt, outerRadiusM: 95, recycleRadiusM: 120 });
+    for (let step = 0; step < 12_000; step += 1) {
+      sim.step(DT, CENTRE, never);
+      for (const walker of sim.walkers) {
+        expect(canWalkAt(walker.x, walker.z)).toBe(true);
+      }
+    }
+  });
+
+  it(
+    "keeps the seeded Cairo crowd out of both raised bridge landing aprons",
+    { timeout: 20_000 },
+    () => {
+      const allSurfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
+      const groundSurfaces = allSurfaces.filter(
+        (surface) => !isElevatedRoadSurface(surface),
+      );
+      const sidewalkWidthM = defaultSidewalkWidthM(CAIRO_MAP_PACK);
+      const graph = buildPavementGraph(groundSurfaces, { sidewalkWidthM });
+      const clearanceAt = createElevatedRoadGroundClearanceQuery(allSurfaces);
+      const canWalkAt = (x: number, z: number) => {
+        const obstruction = clearanceAt({ x, z }, 0, 0.5);
+        return obstruction === null || obstruction.clearanceM >= 2.25;
+      };
+      const minimumSidewalkWidthM = Math.min(
+        sidewalkWidthM,
+        ...groundSurfaces.map(
+          (surface) => surface.sidewalkWidthM ?? sidewalkWidthM,
+        ),
+      );
+      const config: CrowdConfig = {
+        count: 140,
+        seed: hashStringToSeed(`${CAIRO_MAP_PACK.id}-crowd`),
+        innerRadiusM: 22,
+        outerRadiusM: 125,
+        recycleRadiusM: 165,
+        minSpeedMps: 0.9,
+        maxSpeedMps: 1.7,
+        scatterHalfWidthM: Math.max(0, minimumSidewalkWidthM / 2 - 0.55),
+        turnPauseSeconds: 1,
+        modelCount: 5,
+        tintCount: 8,
+        complexionCount: 8,
+        hairCount: 8,
+        canWalkAt,
+      };
+
+      for (const focus of [
+        { x: -805, z: 325 },
+        { x: 710, z: 170 },
+      ]) {
+        const sim = createCrowdSim(graph, config)!;
+        for (let step = 0; step < 1_000; step += 1) {
+          sim.step(DT, focus, never);
+          for (const walker of sim.walkers) {
+            expect(
+              canWalkAt(walker.x, walker.z),
+              `${focus.x},${focus.z} walker ${walker.edgeId} at ${walker.x},${walker.z}`,
+            ).toBe(true);
+          }
+        }
+      }
+    },
+  );
+
   it("keeps every walker inside its rail's scatter band", () => {
     const sim = makeSim();
     for (let step = 0; step < 5_000; step += 1) {

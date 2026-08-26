@@ -10,6 +10,7 @@
 export interface MarkingPoint {
   readonly x: number;
   readonly z: number;
+  readonly elevationM?: number;
 }
 
 /** A carriageway that interrupts the marking where it crosses. */
@@ -78,6 +79,11 @@ function pointAt(
       return {
         x: points[index].x + (points[index + 1].x - points[index].x) * amount,
         z: points[index].z + (points[index + 1].z - points[index].z) * amount,
+        elevationM:
+          (points[index].elevationM ?? 0) +
+          ((points[index + 1].elevationM ?? 0) -
+            (points[index].elevationM ?? 0)) *
+            amount,
       };
     }
   }

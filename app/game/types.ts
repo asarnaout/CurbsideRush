@@ -53,6 +53,14 @@ export type RuleCode =
 export interface WorldPoint {
   readonly x: number;
   readonly z: number;
+  /**
+   * Height of authored transport geometry above the ordinary ground plane.
+   * Optional so every existing at-grade map remains byte-for-byte equivalent;
+   * omitted means zero. Roads and their legal lane centrelines carry the same
+   * profile, which keeps driving, traffic and cartography on one source of
+   * truth instead of treating a flyover as a decorative landmark.
+   */
+  readonly elevationM?: number;
 }
 
 export interface WorldPose {
@@ -668,6 +676,8 @@ export type StaticObstacleTag =
   | "venue"
   | "shoreline"
   | "parkEdge"
+  | "roadBarrier"
+  | "roadSupport"
   | "railBridge"
   | "railShed"
   | "worldEdge";
@@ -688,6 +698,10 @@ export type StaticObstacle =
       readonly maxX: number;
       readonly minZ: number;
       readonly maxZ: number;
+      /** Lowest road-surface elevation this obstacle can block. Omitted is unbounded. */
+      readonly minElevationM?: number;
+      /** Highest road-surface elevation this obstacle can block. Omitted is unbounded. */
+      readonly maxElevationM?: number;
     }
   | {
       readonly kind: "obb";
@@ -699,6 +713,10 @@ export type StaticObstacle =
       readonly uz: number;
       readonly halfU: number;
       readonly halfV: number;
+      /** Lowest road-surface elevation this obstacle can block. Omitted is unbounded. */
+      readonly minElevationM?: number;
+      /** Highest road-surface elevation this obstacle can block. Omitted is unbounded. */
+      readonly maxElevationM?: number;
     }
   | {
       readonly kind: "circle";
@@ -707,6 +725,10 @@ export type StaticObstacle =
       readonly x: number;
       readonly z: number;
       readonly radius: number;
+      /** Lowest road-surface elevation this obstacle can block. Omitted is unbounded. */
+      readonly minElevationM?: number;
+      /** Highest road-surface elevation this obstacle can block. Omitted is unbounded. */
+      readonly maxElevationM?: number;
     }
   | {
       readonly kind: "convex";
@@ -716,6 +738,10 @@ export type StaticObstacle =
        * this codebase's clockwise-yaw convention) at construction time —
        * normalized once by whatever built it, never re-checked per query. */
       readonly points: readonly WorldPoint[];
+      /** Lowest road-surface elevation this obstacle can block. Omitted is unbounded. */
+      readonly minElevationM?: number;
+      /** Highest road-surface elevation this obstacle can block. Omitted is unbounded. */
+      readonly maxElevationM?: number;
     };
 
 /**

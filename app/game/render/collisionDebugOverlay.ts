@@ -26,6 +26,8 @@ const OVERLAY_COLORS: Record<StaticObstacleTag, Color4> = {
   venue: new Color4(0.15, 0.55, 1, 1),
   shoreline: new Color4(0.1, 0.85, 0.85, 1),
   parkEdge: new Color4(0.25, 0.85, 0.15, 1),
+  roadBarrier: new Color4(1, 0.55, 0.08, 1),
+  roadSupport: new Color4(0.95, 0.72, 0.18, 1),
   railBridge: new Color4(0.45, 0.6, 0.95, 1),
   railShed: new Color4(0.65, 0.5, 0.9, 1),
   worldEdge: new Color4(1, 0.85, 0.1, 1),
@@ -40,6 +42,7 @@ function rectLoop(
   uz: number,
   halfU: number,
   halfV: number,
+  y = OVERLAY_Y,
 ): Vector3[] {
   // V is the U axis rotated a quarter turn: (uz, -ux) — the same convention
   // `resolveStaticCollisions` uses, so an overlaid box matches the solver.
@@ -52,29 +55,44 @@ function rectLoop(
     [-halfU, halfV],
   ];
   const loop = corners.map(
-    ([u, v]) => new Vector3(cx + ux * u + vx * v, OVERLAY_Y, cz + uz * u + vz * v),
+    ([u, v]) => new Vector3(cx + ux * u + vx * v, y, cz + uz * u + vz * v),
   );
   loop.push(loop[0]);
   return loop;
 }
 
-function circleLoop(cx: number, cz: number, radius: number): Vector3[] {
+function circleLoop(
+  cx: number,
+  cz: number,
+  radius: number,
+  y = OVERLAY_Y,
+): Vector3[] {
   const loop: Vector3[] = [];
   for (let i = 0; i <= CIRCLE_SEGMENTS; i += 1) {
     const angle = (i / CIRCLE_SEGMENTS) * Math.PI * 2;
-    loop.push(new Vector3(cx + Math.cos(angle) * radius, OVERLAY_Y, cz + Math.sin(angle) * radius));
+    loop.push(new Vector3(cx + Math.cos(angle) * radius, y, cz + Math.sin(angle) * radius));
   }
   return loop;
 }
 
-function convexLoop(obstacle: Extract<StaticObstacle, { kind: "convex" }>): Vector3[] {
-  const loop = obstacle.points.map((point) => new Vector3(point.x, OVERLAY_Y, point.z));
+function convexLoop(
+  obstacle: Extract<StaticObstacle, { kind: "convex" }>,
+  y = OVERLAY_Y,
+): Vector3[] {
+  const loop = obstacle.points.map((point) => new Vector3(point.x, y, point.z));
   loop.push(loop[0]);
   return loop;
 }
 
 function obstacleLoop(obstacle: StaticObstacle): Vector3[] {
-  if (obstacle.kind === "circle") return circleLoop(obstacle.x, obstacle.z, obstacle.radius);
+  const y =
+    Number.isFinite(obstacle.minElevationM) &&
+    Number.isFinite(obstacle.maxElevationM)
+      ? ((obstacle.minElevationM ?? 0) + (obstacle.maxElevationM ?? 0)) / 2
+      : OVERLAY_Y;
+  if (obstacle.kind === "circle") {
+    return circleLoop(obstacle.x, obstacle.z, obstacle.radius, y);
+  }
   if (obstacle.kind === "aabb") {
     return rectLoop(
       (obstacle.minX + obstacle.maxX) / 2,
@@ -83,6 +101,7 @@ function obstacleLoop(obstacle: StaticObstacle): Vector3[] {
       0,
       (obstacle.maxX - obstacle.minX) / 2,
       (obstacle.maxZ - obstacle.minZ) / 2,
+      y,
     );
   }
   if (obstacle.kind === "obb") {
@@ -94,9 +113,10 @@ function obstacleLoop(obstacle: StaticObstacle): Vector3[] {
       obstacle.uz / axisLength,
       obstacle.halfU,
       obstacle.halfV,
+      y,
     );
   }
-  return convexLoop(obstacle);
+  return convexLoop(obstacle, y);
 }
 
 /** Builds one line-system mesh for every obstacle's exact outline, colour-coded

@@ -122,6 +122,7 @@ export interface LondonLandmarksCtx {
     z: number,
     scale: number,
     parts: readonly DestructiblePropPart[],
+    elevationM?: number,
   ) => void;
 }
 
@@ -1159,7 +1160,7 @@ export function buildRegulatorySigns(
       instanceIndex += 1;
       instance.position.set(
         placement.x + part.offset.x * cos + part.offset.z * sin,
-        part.offset.y,
+        (placement.elevationM ?? 0) + part.offset.y,
         placement.z - part.offset.x * sin + part.offset.z * cos,
       );
       instance.rotation.y = yaw;
@@ -1174,6 +1175,7 @@ export function buildRegulatorySigns(
       placement.z,
       1,
       destructibleParts,
+      placement.elevationM ?? 0,
     );
   }
   materials.one_way.freeze();
@@ -1348,7 +1350,7 @@ export function buildSpeedLimitSigns(
       instanceIndex += 1;
       instance.position.set(
         placement.x + part.offset.x * cos + part.offset.z * sin,
-        part.offset.y,
+        (placement.elevationM ?? 0) + part.offset.y,
         placement.z - part.offset.x * sin + part.offset.z * cos,
       );
       instance.rotation.y = yaw;
@@ -1363,6 +1365,7 @@ export function buildSpeedLimitSigns(
       placement.z,
       1,
       destructibleParts,
+      placement.elevationM ?? 0,
     );
   }
   for (const material of materials) material.freeze();

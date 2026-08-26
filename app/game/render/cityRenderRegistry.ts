@@ -56,6 +56,7 @@ export interface CityRenderRegistryCtx {
     z: number,
     scale: number,
     parts: readonly DestructiblePropPart[],
+    elevationM?: number,
   ) => void;
   readonly buildFlatPolygonMesh: (
     id: string,

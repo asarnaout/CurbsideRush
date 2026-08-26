@@ -724,6 +724,7 @@ export function DriveScreen({
             railLines={railsFromGeometry(runtimeMap.geometry.railLines)}
             playerX={hud.playerX}
             playerZ={hud.playerZ}
+            playerElevationM={hud.playerElevationM}
             heading={hud.heading}
             destination={mapDestination}
             pois={minimapPois}
@@ -873,6 +874,7 @@ export function DriveScreen({
             previewRoute={previewRoute ? previewRoute.points : undefined}
             playerX={hud.playerX}
             playerZ={hud.playerZ}
+            playerElevationM={hud.playerElevationM}
             heading={hud.heading}
             viewport={{ width: viewportWidth, height: viewportHeight }}
             showKeyHints={!touchFirst}

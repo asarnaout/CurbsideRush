@@ -19,6 +19,44 @@ The session is rebuilt only on `[trafficSide, steeringSide, scenario.id, mapPack
 every other prop flows through `session.updateOptions(...)`. Not orientation —
 rotating a phone pauses the drive, it does not rebuild the city.
 
+## Grade-separated roads render from simulation geometry
+
+An elevated road is never a scenic mesh with separate gameplay beneath it.
+The renderer consumes the same `RoadSurface.centerline` elevation profile as
+the legal lane graph. `geometry/elevatedRoadGeometry.ts` derives pitched asphalt
+structure placements, clipped deck runs, trimmed edge runs, piers, local-height
+barrier OBB placements and a prepared soffit query from that profile. See
+[grade-separated-road-implementation-guide.md](grade-separated-road-implementation-guide.md)
+for the full simulation/authoring contract and
+[cairo-elevated-road-network.md](cairo-elevated-road-network.md) for the Cairo
+reference implementation.
+
+Three render-side rules are load-bearing:
+
+- visible parapets and simulation barriers share the trimmed edge runs; merge
+  openings cannot be trimmed from only one representation;
+- the soffit query is called with each object's real height and footprint before
+  signals, parked cars, roadside props or either park-planting queue is built;
+  a global tallest-prop envelope would erase valid low furniture;
+- pier placement clears the full local pavement envelope and lower-deck
+  overhang with the rendered footing radius, not merely the other road's
+  centreline or carriageway;
+- any destructible registration carries its elevation, and its pivot, fall,
+  light pool and impact particles remain relative to that level.
+
+Player and NPC nodes interpolate elevation with x/z and heading. A discontinuous
+height reassignment participates in teleport/snap detection, so unchanged x/z
+cannot blend a vehicle vertically through a slab. Traffic-stop
+cars and walking actors sample the selected road profile at their own positions
+rather than sharing one constant Y; the actor's foot offset is kept separate
+from road elevation. The staged camera tests its own ring position, all scene
+marks and sampled camera-to-subject sightlines against the shared soffit query,
+chooses a clear azimuth and ducks below the lowest usable deck. Elevated
+traffic-control hardware adds its installation height, while marking segments
+pitch between their endpoint heights. The minimap and expanded map derive their active
+ground/elevated stroke from the player's road height, draw the occupied level
+strongly and retain the other level as a translucent context layer.
+
 ## Every building is planned once, before `buildScenarioEnvironment` runs
 
 Two seeding mechanisms coexist: `seededUnit` (`visuals.ts`) is a stateful
@@ -201,10 +239,20 @@ were otherwise traced without the 11.4 m road present. A four-map pin in
 `tests/roadJunctions.test.ts` asserts Cromwell's two arms stay the only
 adopted ones.
 
-QA hooks: `__sideswapTeleport({x, z, heading})` (radians) poses the car
+QA hooks: `__sideswapTeleport({x, z, heading, elevationM?})` (radians) poses the car
 through `SimulationCore.setPlayerPose` — the cutscene's replay-invisible entry
 point — and snaps the chase camera, which is what lets a headless sweep
-screenshot every road in one session (`installDebugHooks`).
+screenshot every road in one session (`installDebugHooks`). Supply an explicit
+`elevationM: 0` or bridge height at stacked roads so a QA pose selects the
+intended level deterministically.
+
+For bridge QA, pair that teleport with `__sideswapCollisionOverlay(true)` and
+`__sideswapCollisionDebug()` to compare visible parapets with nearby obstacle
+OBBs and their elevation bands. `__sideswapEnforcementDebug()` exposes the live
+patrol/camera witness decision, while `__sideswapCutsceneDebug().active` reports
+the staged actor and patrol Y values during a pull-over. Repeat each stacked
+location at ground and deck height; the x/z position alone is intentionally not
+enough to choose or test a level.
 
 `__sideswapVisualGapReport(options?)` runs the plan's own visual-gap audit
 (`geometry/visualGapCoverage.ts`) against this session's real map/plan, live:
@@ -302,8 +350,9 @@ and glazing submesh centroids on the holder's road-facing −x, per
 
 The player and NPCs draw at the prev/current sim-pose blend
 (`renderInterpolation.ts`, alpha = the accumulator remainder). **Every pose
-teleport — reset, cutscene repose, NPC slot reuse — must pin prev = current** or
-the entity streaks for a frame; `shouldSnapPose` catches >2.5 m jumps
+teleport — reset, cutscene repose, NPC slot reuse or a discontinuous level
+reassignment — must pin prev = current** or the entity streaks through the map
+or deck for a frame; `shouldSnapPose` catches >2.5 m three-dimensional jumps
 automatically.
 
 ## Traffic slots and profiling

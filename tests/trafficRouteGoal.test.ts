@@ -519,6 +519,217 @@ describe("deterministic locality route goals", () => {
     ).toBe("z-cross");
   });
 
+  it("keeps stacked roads on the previously occupied lane and reports its height", () => {
+    const ground: SimulationLane = {
+      id: "ground",
+      points: [{ x: 0, z: -20 }, { x: 0, z: 20 }],
+      loop: false,
+    };
+    const bridge: SimulationLane = {
+      id: "bridge",
+      points: [
+        { x: 0, z: -20, elevationM: 10.5 },
+        { x: 0, z: 20, elevationM: 10.5 },
+      ],
+      loop: false,
+    };
+    const network = new RoadNetwork([ground, bridge], [], []);
+
+    expect(network.projectToRoad(0, 0)?.lane.id).toBe("ground");
+    expect(
+      network.projectToRoad(0, 0, {
+        heading: 0,
+        preferredLaneId: "bridge",
+      }),
+    ).toMatchObject({ lane: { id: "bridge" }, elevationM: 10.5 });
+  });
+
+  it("reacquires the nearest ground lane after a transient intersection projection", () => {
+    const ground: SimulationLane = {
+      id: "ground-forward",
+      points: [{ x: 0, z: -20 }, { x: 0, z: 20 }],
+      loop: false,
+    };
+    const transientCrossing: SimulationLane = {
+      id: "transient-crossing",
+      points: [{ x: -20, z: 0 }, { x: 20, z: 0 }],
+      loop: false,
+    };
+    const bridge: SimulationLane = {
+      id: "stacked-bridge",
+      points: [
+        { x: 0, z: -20, elevationM: 10.5 },
+        { x: 0, z: 20, elevationM: 10.5 },
+      ],
+      loop: false,
+    };
+    const network = new RoadNetwork(
+      [transientCrossing, bridge, ground],
+      [],
+      [],
+    );
+
+    // A ground-height continuity preference filters out the flyover, but it
+    // must not restrict the search to the crossing lane selected at the exact
+    // junction on the previous tick. The through lane is now 1.0 m closer.
+    expect(
+      network.projectToRoad(0.017, 1, {
+        heading: 0,
+        preferredLaneId: "transient-crossing",
+        preferredElevationM: 0,
+      }),
+    ).toMatchObject({ lane: { id: "ground-forward" }, elevationM: 0 });
+  });
+
+  it("keeps a ground projection below a remote flyover instead of releasing its height lock", () => {
+    const ground: SimulationLane = {
+      id: "remote-ground",
+      points: [{ x: 20, z: 0 }, { x: 20, z: 30 }],
+      loop: false,
+    };
+    const flyover: SimulationLane = {
+      id: "overhead-deck",
+      points: [
+        { x: 0, z: 0, elevationM: 10.5 },
+        { x: 0, z: 30, elevationM: 10.5 },
+      ],
+      loop: false,
+    };
+    const network = new RoadNetwork([ground, flyover], [], []);
+
+    // The old 12 m capture radius abandoned the explicit ground layer here
+    // and returned the plan-view-nearest deck, lifting the player by 10.5 m.
+    expect(
+      network.projectToRoad(0, 10, {
+        heading: 0,
+        preferredElevationM: 0,
+      }),
+    ).toMatchObject({
+      lane: { id: "remote-ground" },
+      distance: 20,
+      elevationM: 0,
+    });
+  });
+
+  it("acquires a shallow ramp only through lane-graph continuity", () => {
+    const ramp: SimulationLane = {
+      id: "raised-ramp",
+      points: [
+        { x: 0.3, z: 0, elevationM: 0 },
+        { x: 0.3, z: 10, elevationM: 5 },
+      ],
+      loop: false,
+    };
+    const ground = (connected: boolean): SimulationLane => ({
+      id: "through-ground",
+      points: [{ x: 0, z: 0 }, { x: 0, z: 10 }],
+      successorLaneIds: connected ? [ramp.id] : [],
+      loop: false,
+    });
+    const project = (connected: boolean) =>
+      new RoadNetwork([ground(connected), ramp], [], []).projectToRoad(
+        0.26,
+        1,
+        {
+          heading: 0,
+          preferredLaneId: "through-ground",
+          preferredElevationM: 0,
+        },
+      );
+
+    // In plan view the ramp is 4 cm away and the street is 26 cm away. That
+    // must not matter when the two lanes are unrelated: otherwise repeated
+    // projections ratchet a through-street car all the way up the ramp.
+    expect(project(false)).toMatchObject({
+      lane: { id: "through-ground" },
+      elevationM: 0,
+    });
+    const exitLane: SimulationLane = {
+      ...ground(false),
+      id: "ground-exit",
+    };
+    const descendingRamp: SimulationLane = {
+      ...ramp,
+      id: "descending-ramp",
+      successorLaneIds: [exitLane.id],
+    };
+    expect(
+      new RoadNetwork([exitLane, descendingRamp], [], []).projectToRoad(
+        0.26,
+        1,
+        {
+          heading: Math.PI,
+          preferredLaneId: exitLane.id,
+          preferredElevationM: 0,
+        },
+      ),
+    ).toMatchObject({ lane: { id: exitLane.id }, elevationM: 0 });
+    // The same geometry is a valid ramp entry when the authored graph says it
+    // is the occupied lane's immediate successor.
+    expect(project(true)).toMatchObject({
+      lane: { id: "raised-ramp" },
+      elevationM: 0.5,
+    });
+  });
+
+  it("keeps a ramp projection at its continuous height when the road below is closer in plan view", () => {
+    const ground: SimulationLane = {
+      id: "ground",
+      points: [{ x: 0, z: 0 }, { x: 0, z: 10 }],
+      loop: false,
+    };
+    const ramp: SimulationLane = {
+      id: "ramp",
+      points: [
+        { x: 1, z: 0, elevationM: 5 },
+        { x: 1, z: 10, elevationM: 6 },
+      ],
+      loop: false,
+    };
+    const network = new RoadNetwork([ground, ramp], [], []);
+
+    // In x/z the car is 0.3 m from the ground lane and 0.7 m from the ramp.
+    // Its previous 5 m height is the missing third dimension: the projection
+    // must remain on the ramp rather than snapping through its deck.
+    expect(
+      network.projectToRoad(0.3, 1, {
+        heading: 0,
+        preferredLaneId: "ramp",
+        preferredElevationM: 5,
+      }),
+    ).toMatchObject({ lane: { id: "ramp" }, elevationM: 5.1 });
+
+    // A wide, oblique merge can carry the car across a gore farther than the
+    // old 6.5 m capture radius from every lane centre. It is still on the
+    // continuous elevated route and must not fall through to the street.
+    const wideGore = new RoadNetwork(
+      [ground, { ...ramp, points: ramp.points.map((point) => ({ ...point, x: 9 })) }],
+      [],
+      [],
+    );
+    expect(
+      wideGore.projectToRoad(0, 1, {
+        heading: 0,
+        preferredLaneId: "ramp",
+        preferredElevationM: 5,
+      })?.lane.id,
+    ).toBe("ramp");
+
+    // A stale height cannot glue a teleported car to a remote structure.
+    const remoteRamp = new RoadNetwork(
+      [ground, { ...ramp, points: ramp.points.map((point) => ({ ...point, x: 20 })) }],
+      [],
+      [],
+    );
+    expect(
+      remoteRamp.projectToRoad(0, 1, {
+        heading: 0,
+        preferredLaneId: "ramp",
+        preferredElevationM: 5,
+      })?.lane.id,
+    ).toBe("ground");
+  });
+
   it("counts unique ETA-reachable destination slots instead of feeder portals", () => {
     const oneFeeder = new SimulationCore(
       streamableTargetFixture({ feederCount: 1 }),

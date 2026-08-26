@@ -27,6 +27,8 @@ export interface CutsceneCarPose {
   readonly x: number;
   readonly z: number;
   readonly heading: number;
+  /** Authored road-surface height; omitted is the ordinary ground plane. */
+  readonly elevationM?: number;
 }
 
 export type CutsceneAction = "walk" | "run" | "idle" | "show" | "hide";
@@ -203,6 +205,9 @@ function toWorld(car: CutsceneCarPose, long: number, lat: number): WorldPoint {
   return {
     x: car.x + long * sin + lat * cos,
     z: car.z + long * cos - lat * sin,
+    ...(car.elevationM !== undefined
+      ? { elevationM: car.elevationM }
+      : {}),
   };
 }
 
@@ -720,9 +725,9 @@ const STAGED_AZIMUTH_COUNT = 12;
  * exists to fix. Under the station's 4.36 m canopy this lands at ~3.0 m, a
  * sightline about 15° off level at the nine metres the stager pulls back.
  */
-const STAGED_COVER_HEADROOM_M = 1.35;
+export const STAGED_COVER_HEADROOM_M = 1.35;
 /** Below this the car is in the way whatever the cover is doing. */
-const STAGED_MIN_HEIGHT_M = 2.4;
+export const STAGED_MIN_HEIGHT_M = 2.4;
 
 /** Is (px, pz) inside the convex polygon? Same clockwise-winding cross-product
  * test as the collision core's own `convexEndpointPenetration`
@@ -905,6 +910,12 @@ export function chooseStagedShot(
   subjects: readonly WorldPoint[],
   blockers: readonly StagedBlocker[],
   cover: StagedCover | null,
+  /**
+   * Optional structural test for the camera mark itself. A low flyover may
+   * cover one ring azimuth while leaving the people and cars outside it; safe
+   * azimuths rank ahead of those that would put the lens inside concrete.
+   */
+  cameraPositionAllowed?: (position: WorldPoint) => boolean,
 ): { readonly x: number; readonly y: number; readonly z: number } {
   // Only solids that could reach the ring are worth testing against it. One
   // pass, so the per-candidate loop below stays over a handful rather than over
@@ -917,6 +928,7 @@ export function chooseStagedShot(
   let best: {
     x: number;
     z: number;
+    structurallyUnsafe: boolean;
     covered: boolean;
     blocked: number;
     turn: number;
@@ -926,6 +938,9 @@ export function chooseStagedShot(
     const angle = baseAngle + turn;
     const x = midX + Math.sin(angle) * radius;
     const z = midZ + Math.cos(angle) * radius;
+    const structurallyUnsafe = cameraPositionAllowed
+      ? !cameraPositionAllowed({ x, z })
+      : false;
     const covered = cover !== null && pointInBlocker(x, z, cover);
     let blocked = 0;
     for (const subject of subjects) {
@@ -938,13 +953,15 @@ export function chooseStagedShot(
     const swing = Math.min(turn, 2 * Math.PI - turn);
     if (
       best === null ||
-      (covered !== best.covered
-        ? !covered
-        : blocked !== best.blocked
-          ? blocked < best.blocked
-          : swing < best.turn)
+      (structurallyUnsafe !== best.structurallyUnsafe
+        ? !structurallyUnsafe
+        : covered !== best.covered
+          ? !covered
+          : blocked !== best.blocked
+            ? blocked < best.blocked
+            : swing < best.turn)
     ) {
-      best = { x, z, covered, blocked, turn: swing };
+      best = { x, z, structurallyUnsafe, covered, blocked, turn: swing };
     }
   }
   const under = cover
@@ -1133,7 +1150,19 @@ export function projectOntoPolyline(
       0,
       Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (length * length)),
     );
-    const point = { x: a.x + dx * t, z: a.z + dz * t };
+    const hasElevation =
+      a.elevationM !== undefined || b.elevationM !== undefined;
+    const point: WorldPoint = {
+      x: a.x + dx * t,
+      z: a.z + dz * t,
+      ...(hasElevation
+        ? {
+            elevationM:
+              (a.elevationM ?? 0) +
+              ((b.elevationM ?? 0) - (a.elevationM ?? 0)) * t,
+          }
+        : {}),
+    };
     const distance = Math.hypot(x - point.x, z - point.z);
     if (!best || distance < best.distance) {
       best = {
@@ -1166,8 +1195,20 @@ export function pointAlongPolyline(
     const tangent = Math.atan2(dx, dz);
     if (along <= travelled + length) {
       const t = Math.max(0, Math.min(1, (along - travelled) / length));
+      const hasElevation =
+        a.elevationM !== undefined || b.elevationM !== undefined;
       return {
-        point: { x: a.x + dx * t, z: a.z + dz * t },
+        point: {
+          x: a.x + dx * t,
+          z: a.z + dz * t,
+          ...(hasElevation
+            ? {
+                elevationM:
+                  (a.elevationM ?? 0) +
+                  ((b.elevationM ?? 0) - (a.elevationM ?? 0)) * t,
+              }
+            : {}),
+        },
         tangent,
         along: travelled + length * t,
         distance: 0,
@@ -1200,6 +1241,13 @@ export function lerpCarPose(
     x: from.x + (to.x - from.x) * t,
     z: from.z + (to.z - from.z) * t,
     heading: lerpHeading(from.heading, to.heading, t),
+    ...(from.elevationM !== undefined || to.elevationM !== undefined
+      ? {
+          elevationM:
+            (from.elevationM ?? 0) +
+            ((to.elevationM ?? 0) - (from.elevationM ?? 0)) * t,
+        }
+      : {}),
   };
 }
 
@@ -1250,7 +1298,14 @@ export function pulloverPose(
   const hit = road ? projectOntoPolyline(road.centerline, car.x, car.z) : null;
   if (!road || !hit) {
     const blind = toWorld(car, runM, kerbSign * PULLOVER_BLIND_SHIFT_M);
-    return { x: blind.x, z: blind.z, heading: car.heading };
+    return {
+      x: blind.x,
+      z: blind.z,
+      heading: car.heading,
+      ...(blind.elevationM !== undefined
+        ? { elevationM: blind.elevationM }
+        : {}),
+    };
   }
   // Which way along the centreline the car is travelling; a road's centreline
   // is authored in one direction and the player may be going either way.
@@ -1266,6 +1321,11 @@ export function pulloverPose(
     x: target.point.x + Math.cos(heading) * lateral * kerbSign,
     z: target.point.z - Math.sin(heading) * lateral * kerbSign,
     heading,
+    ...(target.point.elevationM !== undefined || car.elevationM !== undefined
+      ? {
+          elevationM: target.point.elevationM ?? car.elevationM ?? 0,
+        }
+      : {}),
   };
 }
 
@@ -1296,33 +1356,111 @@ export function buildPulloverScript(
   trafficSide: TrafficSide,
   road: PulloverRoad | null,
   body: CutsceneBodyProfile = DEFAULT_CUTSCENE_BODY,
+  /**
+   * Explicit stopping run used by the renderer when the nominal mark lands
+   * beneath a low flyover or on a support footing. Gameplay callers omit it
+   * and retain the speed-derived braking distance exactly.
+   */
+  stoppingRunM: number = pulloverRunM(speedMps),
 ): PulloverPlan {
-  const runM = pulloverRunM(speedMps);
+  const runM = Math.max(MIN_PULLOVER_RUN_M, stoppingRunM);
   const parked = pulloverPose(car, runM, trafficSide, road, body);
   const behindM =
     body.bodyHalfLongM + PATROL_BODY.bodyHalfLongM + PATROL_STOP_GAP_M;
+  const parkedRoadHit = road
+    ? projectOntoPolyline(road.centerline, parked.x, parked.z)
+    : null;
+  const roadForward = parkedRoadHit
+    ? Math.cos(parked.heading - parkedRoadHit.tangent) >= 0
+      ? 1
+      : -1
+    : 0;
+  const kerbSign = trafficSide === "right" ? 1 : -1;
+  const lateral = road
+    ? Math.max(
+        0,
+        road.halfWidthM - body.bodyHalfLatM - PULLOVER_KERB_GAP_M,
+      )
+    : 0;
   const patrolAt = (back: number): CutsceneCarPose => {
+    const target =
+      road && parkedRoadHit
+        ? pointAlongPolyline(
+            road.centerline,
+            parkedRoadHit.along - roadForward * back,
+          )
+        : null;
+    if (target) {
+      const heading =
+        roadForward > 0 ? target.tangent : target.tangent + Math.PI;
+      return {
+        x: target.point.x + Math.cos(heading) * lateral * kerbSign,
+        z: target.point.z - Math.sin(heading) * lateral * kerbSign,
+        heading,
+        ...(target.point.elevationM !== undefined ||
+        parked.elevationM !== undefined
+          ? {
+              elevationM:
+                target.point.elevationM ?? parked.elevationM ?? 0,
+            }
+          : {}),
+      };
+    }
     const point = toWorld(parked, -back, 0);
-    return { x: point.x, z: point.z, heading: parked.heading };
+    return {
+      x: point.x,
+      z: point.z,
+      heading: parked.heading,
+      ...(point.elevationM !== undefined
+        ? { elevationM: point.elevationM }
+        : {}),
+    };
   };
   const patrol = patrolAt(behindM);
   const patrolStart = patrolAt(behindM + PATROL_RUN_UP_M);
+
+  // A ramp is not a single actor plane. Re-project each walking mark to the
+  // same road profile as the cars so the officer's feet follow the grade from
+  // the patrol door to the driver's window.
+  const withRoadElevation = (worldPoint: WorldPoint): WorldPoint => {
+    const hit = road
+      ? projectOntoPolyline(road.centerline, worldPoint.x, worldPoint.z)
+      : null;
+    if (!hit || hit.point.elevationM === undefined) return worldPoint;
+    return { ...worldPoint, elevationM: hit.point.elevationM };
+  };
 
   // Both cars are driven from the same seat, so the officer's door and the
   // driver's window are on the same side of the road — he steps out and walks
   // straight up the flank.
   const side = driverLat(steeringSide, body) >= 0 ? 1 : -1;
-  const officerDoor = toWorld(
-    patrol,
-    PATROL_BODY.frontDoorForwardM,
-    side * (PATROL_BODY.doorLateralM + OFFICER_CLEAR_M),
+  const officerDoor = withRoadElevation(
+    toWorld(
+      patrol,
+      PATROL_BODY.frontDoorForwardM,
+      side * (PATROL_BODY.doorLateralM + OFFICER_CLEAR_M),
+    ),
   );
   const walkLat = side * (body.doorLateralM + OFFICER_CLEAR_M);
-  const flank = toWorld(parked, -body.bodyHalfLongM - OFFICER_FLANK_BACK_M, walkLat);
-  const window = toWorld(parked, body.frontDoorForwardM, walkLat);
+  const flank = withRoadElevation(
+    toWorld(
+      parked,
+      -body.bodyHalfLongM - OFFICER_FLANK_BACK_M,
+      walkLat,
+    ),
+  );
+  const window = withRoadElevation(
+    toWorld(parked, body.frontDoorForwardM, walkLat),
+  );
   const approach = [officerDoor, flank, window];
   const back = [window, flank, officerDoor];
-  const parkedPoint: WorldPoint = { x: parked.x, z: parked.z };
+  const parkedPoint: WorldPoint = {
+    x: parked.x,
+    z: parked.z,
+    ...(parked.elevationM !== undefined
+      ? { elevationM: parked.elevationM }
+      : {}),
+  };
 
   return {
     parked,
