@@ -573,6 +573,79 @@ describe("the drivable world stays open", () => {
     expect(failures.slice(0, 25)).toEqual([]);
   });
 
+  it("keeps Cairo bridge parapets outside the widest legal vehicle sweep", () => {
+    const world = driveWorlds.find(
+      (candidate) => candidate.freeDrive.mapId === "cairo-central-nile",
+    );
+    expect(world).toBeDefined();
+    if (!world) return;
+    const barriers = world.obstacles.filter(
+      (obstacle) => obstacle.tag === "roadBarrier",
+    );
+    const index = buildObstacleIndex(barriers);
+    const failures: string[] = [];
+
+    for (const lane of world.lanes.filter((candidate) =>
+      candidate.roadId?.includes("sixth-october"),
+    )) {
+      const maximumCrossTrackM = Math.max(
+        0,
+        (lane.width ?? 3.5) / 2 - PLAYER_CAPSULE_RADIUS_M,
+      );
+      const offsetsM =
+        maximumCrossTrackM > 0.01
+          ? [-maximumCrossTrackM, 0, maximumCrossTrackM]
+          : [0];
+      for (let pointIndex = 0; pointIndex + 1 < lane.points.length; pointIndex += 1) {
+        const start = lane.points[pointIndex];
+        const end = lane.points[pointIndex + 1];
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const lengthM = Math.hypot(dx, dz);
+        if (lengthM < 0.001) continue;
+        const forwardX = dx / lengthM;
+        const forwardZ = dz / lengthM;
+        const leftX = -forwardZ;
+        const leftZ = forwardX;
+        const steps = Math.max(1, Math.ceil(lengthM / 0.5));
+        for (let step = 0; step <= steps; step += 1) {
+          const amount = step / steps;
+          const baseX = start.x + dx * amount;
+          const baseZ = start.z + dz * amount;
+          const elevationM =
+            (start.elevationM ?? 0) +
+            ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+          for (const offsetM of offsetsM) {
+            const centreX = baseX + leftX * offsetM;
+            const centreZ = baseZ + leftZ * offsetM;
+            for (const endSign of [-1, 1] as const) {
+              const discX =
+                centreX +
+                forwardX * PLAYER_CAPSULE_HALF_LENGTH_M * endSign;
+              const discZ =
+                centreZ +
+                forwardZ * PLAYER_CAPSULE_HALF_LENGTH_M * endSign;
+              const nearest = clearanceToNearestIndexedObstacle(
+                index,
+                discX,
+                discZ,
+                elevationM,
+              );
+              if (nearest.distance + 1e-6 >= PLAYER_CAPSULE_RADIUS_M) {
+                continue;
+              }
+              failures.push(
+                `${lane.id} point ${pointIndex}/${step} offset ${offsetM.toFixed(2)} end ${endSign}: ${nearest.id} within ${nearest.distance.toFixed(3)}m`,
+              );
+            }
+          }
+        }
+      }
+    }
+
+    expect(failures.slice(0, 25)).toEqual([]);
+  });
+
   it("keeps every free-drive spawn pose clear of the solid world", () => {
     for (const world of driveWorlds) {
       const nearest = clearanceToNearestObstacle(

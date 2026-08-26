@@ -19,6 +19,7 @@ import {
   ELEVATED_ROAD_PIER_FOOTING_DIAMETER_M,
   elevatedRoadDeckRun,
   elevatedRoadEdgeRuns,
+  elevatedRoadEndpointHasStructuralContinuation,
   elevatedRoadParapetDepthM,
   elevatedRoadPierPlacements,
   elevatedRoadSegmentPlacements,
@@ -330,6 +331,7 @@ const createJunctionAwareDeck = (
   segment: ElevatedRoadSegmentPlacement,
   deckRun: ElevatedRoadDeckRunPlacement,
   edgeRuns: readonly ElevatedRoadEdgeRunPlacement[],
+  allSurfaces: readonly ElevatedRoadGeometrySurface[],
   deckMaterial: StandardMaterial,
   parent: TransformNode,
 ): Mesh => {
@@ -412,11 +414,23 @@ const createJunctionAwareDeck = (
     Math.abs(segment.endElevationM - (authoredEnd?.elevationM ?? 0)) > 0.05;
   const capStart =
     deckRun.startTrimM <= 0.001 &&
-    (startWasClipped || segment.segmentIndex === 0);
+    (startWasClipped || segment.segmentIndex === 0) &&
+    !elevatedRoadEndpointHasStructuralContinuation(
+      surface,
+      segment,
+      allSurfaces,
+      "start",
+    );
   const capEnd =
     deckRun.endTrimM <= 0.001 &&
     (endWasClipped ||
-      segment.segmentIndex + 2 === surface.centerline.length);
+      segment.segmentIndex + 2 === surface.centerline.length) &&
+    !elevatedRoadEndpointHasStructuralContinuation(
+      surface,
+      segment,
+      allSurfaces,
+      "end",
+    );
   if (capStart) {
     appendQuad(positions, indices, [
       [startX, 0, -halfWidthM],
@@ -561,6 +575,7 @@ export function buildElevatedRoadStructures(
           segment,
           deckRun,
           edgeRuns,
+          surfaces,
           concrete,
           root,
         );

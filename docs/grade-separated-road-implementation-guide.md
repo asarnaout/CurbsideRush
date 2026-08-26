@@ -216,9 +216,15 @@ lock never expires because of plan distance: otherwise a ground lane more than
 12 m away loses to an overhead deck and the deck's parapet collision can then
 throw the newly elevated car sideways. The 12 m capture limit applies only
 after the car is already elevated, allowing genuine departures and recovery
-from stale bridge state. Lane-id hysteresis is deliberately much narrower than
-the heading tie band, so an exactly stacked road stays stable while a genuinely
-closer, connected ramp lane can still acquire the car at its mouth.
+from stale bridge state. Ordinary lane-id hysteresis is deliberately much
+narrower than the heading tie band, so an exactly stacked road stays stable
+while a genuinely closer, connected ramp lane can still acquire the car at its
+mouth. Once that directed rising lane owns the vehicle, use a wider but still
+sub-lane heading/hysteresis band through its low apron. Otherwise a nearby
+opposite-direction exit can win one plan-distance sample, erase the legal
+successor set and drop an ascending car back onto the host street. The wider
+band is permitted only when the preferred lane itself has a structural-height
+profile; it must never be a global bridge-capture tolerance.
 
 An explicit finite `setPlayerPose` elevation is a separate authored/debug
 operation and may perform a global height-matching capture; this is required to
@@ -364,6 +370,16 @@ Without a minimum, a parapet at 10.5 m blocks ground traffic below; without
 subdivision, one long ramp barrier has a vertical range broad enough to block
 both levels. Never author a second, approximate set of side-wall colliders.
 
+Polyline bends need the same treatment as branch mouths. At each internal
+surface node, intersect the two physical edge lines. Set the inside run back to
+its miter plus junction breathing room; on the outside, where the virtual miter
+would require an unsafe extension beyond the slab, use the corresponding
+non-negative relief instead. Apply those exact runs to the crash profile,
+upper rail and collision chunks together. At a joined endpoint, suppress both
+the ordinary deck seam extension and the transverse terminal cap whenever
+another elevated surface carries structure away from that point. A cap hidden
+below asphalt is still a roof/wall to vehicle physics.
+
 ### Separate the crash profile from city-specific dressing
 
 The visible edge should communicate its physical job before decoration is
@@ -461,6 +477,13 @@ several systems:
 12. the first roof fix exempted only an exact projected road id, so every
     differently named ramp/slip handoff could become an invisible wall as the
     axle changed lanes before the vehicle's trailing footprint did.
+13. a low opposite-direction apron could be a few centimetres closer in plan
+    than the legal rising successor, steal level ownership for one tick and
+    make the ramp's own raised asphalt become a roof;
+14. square parapet ends at sharp internal bends cleared the lane centre but
+    intersected the front/rear capsule of the widest playable vehicle;
+15. separately authored elevated branches overlapped before reaching full
+    clearance, so topology exemptions could not make the physical slabs fit.
 
 Fixing only a mesh or one ramp could not solve those failures. The implementation
 now treats grade separation as a shared simulation invariant and then reauthors
@@ -518,6 +541,10 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
   before final rendering rather than silently disappearing;
 - every rendered edge run is fully covered by barrier chunks, with no extra
   barrier crossing a trimmed merge opening.
+- every sharp bend clears the centre and both ends of the widest playable
+  capsule at the full legal lateral lane envelope;
+- joined elevated endpoints emit neither a transverse terminal cap nor an
+  ordinary seam extension into the connected carriageway.
 
 ### Simulation tests
 
@@ -541,6 +568,10 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
   profiled ramp that carries the vehicle;
 - every profile/slip handoff passes in its legal direction, while approaching
   an exit ramp backward from its ground slip still collides;
+- a no-steering continuation follows each near-collinear entry tangent for at
+  least 20 m beyond the handoff without losing the rising lane;
+- the tallest playable vehicle clears every legal ramp/deck overlap, including
+  all three roof samples and the simulation's roof margin;
 - excluding the carrier before lowest-candidate selection still reveals a
   separate stacked deck above it;
 - pedestrians cannot spawn in or walk into low-clearance ramp envelopes;

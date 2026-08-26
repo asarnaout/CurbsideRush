@@ -212,6 +212,55 @@ describe("simulation runtime adapter (free-roam)", () => {
     }
   });
 
+  it("keeps the Dokki entrance clear through the shared elevated braid", () => {
+    const freeDrive = FREE_DRIVES.find(
+      (candidate) => candidate.mapId === "cairo-central-nile",
+    )!;
+    const country = getCountryProfile(freeDrive.countryId);
+    const mapPack = getMapPack(freeDrive.mapId);
+    const scenario = buildFreeDriveScenario(freeDrive);
+    const simulation = new SimulationCore({
+      ...buildSimulationCoreConfig({
+        scenario,
+        mapPack,
+        trafficSide: country.trafficSide,
+        speedUnit: country.speedUnit,
+      }),
+      npcCount: 0,
+    });
+    const entry = mapPack.geometry.roadSurfaces.find(
+      (surface) =>
+        surface.id === "cairo-sixth-october-bridge-dokki-entry",
+    )!;
+    const start = entry.centerline.at(-2)!;
+    const merge = entry.centerline.at(-1)!;
+    const heading = Math.atan2(merge.x - start.x, merge.z - start.z);
+
+    simulation.setPlayerPose(
+      {
+        x: start.x,
+        z: start.z,
+        elevationM: start.elevationM,
+        heading,
+      },
+      5,
+    );
+    for (let tick = 0; tick < 180; tick += 1) {
+      simulation.step(1 / 60, { throttle: 1 });
+    }
+
+    const deckCollision = simulation
+      .getEvents()
+      .find(
+        (event) =>
+          event.code === "collision" &&
+          (event.evidence.obstacle === "roadDeck" ||
+            event.evidence.obstacle === "roadBarrier"),
+      );
+    expect(deckCollision).toBeUndefined();
+    expect(simulation.getSnapshot().player.z).toBeLessThan(410);
+  });
+
   it("keeps the real Cairo underpass path on the ground beyond the old 12 m cutoff", () => {
     const freeDrive = FREE_DRIVES.find(
       (candidate) => candidate.mapId === "cairo-central-nile",

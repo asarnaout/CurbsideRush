@@ -108,8 +108,11 @@ surface—not a landmark mesh—provides the drivable deck.
   nearest ground centreline is more than 12 m away and a deck is directly
   overhead. A live ground car can acquire a profiled ramp only through its
   current/adjacent lane or a directed successor; predecessors are excluded so
-  a nearby exit cannot be climbed backward. The at-grade slips give every
-  legal entry a unique x/z approach before vertical separation begins.
+  a nearby exit cannot be climbed backward. Once a directed rising lane owns
+  the car, a sub-lane heading/hysteresis band prevents an overlapping
+  opposite-direction apron from stealing that ownership for one tick. The
+  at-grade slips give every legal entry a unique x/z approach before vertical
+  separation begins.
 - Any authored pose with a finite elevation is authoritative. In particular,
   `elevationM: 0` clears an old bridge projection before selecting the street
   below; zero is not treated as a missing value.
@@ -126,7 +129,11 @@ surface—not a landmark mesh—provides the drivable deck.
   opening.
 - Physical parapet OBBs derive from those same trimmed edge runs. Slopes are
   divided into short local-height bands, so the visible wall contains a bridge
-  car without becoming an invisible barrier for a ground car below it.
+  car without becoming an invisible barrier for a ground car below it. Sharp
+  internal bends miter the inside edge and relieve the outside edge using the
+  same non-negative runs for rendering and collision. Joined elevated mouths
+  suppress terminal deck caps and seam extensions instead of hiding a
+  transverse wall below the asphalt.
 - Player roof collision uses the combined raised-asphalt/structural-clearance
   query at the centre and both ends of the real vehicle capsule. Low ramp
   aprons and soffits stop a lower-level car at their physical boundary; high
@@ -193,7 +200,10 @@ lane-corridor and full pavement-band audits also include every new slip. No
 building or landmark asset was deleted. At Dokki, the complete affected
 frontage row is explicitly retained and set back 6 m as a unit; a 0.75 m
 façade guard is tested against every entry, stem and exit segment so that the
-setback cannot regress into clipping or become a pretext for deletion.
+setback cannot regress into clipping or become a pretext for deletion. The
+full-height exit now splays away from the still-rising entrance before turning
+north, so the fix removes the physical slab overlap rather than granting a
+broad collision exemption.
 
 The structural regression suite also checks signal headroom, model-specific
 parked-car clearance, both west/east landing-apron pedestrian exclusion,
@@ -216,8 +226,12 @@ high span remains passable, and a connected ramp climb reaches the elevated
 level without a false deck collision. Ten production traces now cross every
 Dokki, Gezira, Corniche and Ramses profile/slip handoff in both authored access
 directions. A wrong-way exit-mouth trace remains blocked, and a dense Corniche
-exit sweep verifies at least 1.58 m of usable headroom where that ramp braids
-beneath the mainline.
+exit sweep uses the delivery van's complete rear/centre/front roof envelope and
+verifies at least 2.26 m of usable headroom where that ramp braids beneath the
+mainline. A second production-core sweep steps that same largest vehicle across
+more than 10,000 positions on every Cairo bridge and access-lane profile; a
+full legal-lane-width capsule sweep separately checks every parapet bend and
+mouth.
 
 For the implementation order and required drive checklist before extending
 this system to another city, see

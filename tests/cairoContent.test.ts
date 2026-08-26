@@ -2324,6 +2324,7 @@ describe("Cairo Central Nile content", () => {
     const stemSpec = specById.get(stem.id)!;
     const exitSpec = specById.get(exit.id)!;
     const braidNodeId = "cairo-sixth-dokki-entry-braid";
+    const FULL_CLEARANCE_DECK_M = 6;
 
     expect(entrySpec.oneWay).toBe("forward");
     expect(exitSpec.oneWay).toBe("forward");
@@ -2335,13 +2336,22 @@ describe("Cairo Central Nile content", () => {
     expect(entrySpec.elevationsM?.at(-1)).toBeGreaterThanOrEqual(6);
     expect(exitSpec.elevationsM?.[0]).toBeGreaterThanOrEqual(6);
 
-    // One narrow grade occupies the widened kerb lane south of the braid and
-    // the other occupies it to the north. They never form the old low, wide
-    // two-way slab across the live street.
+    // One low grade occupies the widened kerb lane south of the braid and the
+    // other occupies it to the north. The exit's new full-height splay may
+    // leave the braid immediately, but no low soffit returns across the entry
+    // envelope or recreates the old wide two-way slab over the live street.
+    const lowEntryPoints = entry.centerline.filter(
+      (candidate) =>
+        (candidate.elevationM ?? 0) < FULL_CLEARANCE_DECK_M,
+    );
+    const lowExitPoints = exit.centerline.filter(
+      (candidate) =>
+        (candidate.elevationM ?? 0) < FULL_CLEARANCE_DECK_M,
+    );
     expect(
-      Math.max(...entry.centerline.map((candidate) => candidate.z)),
+      Math.max(...lowEntryPoints.map((candidate) => candidate.z)),
     ).toBeLessThan(
-      Math.min(...exit.centerline.slice(1).map((candidate) => candidate.z)),
+      Math.min(...lowExitPoints.map((candidate) => candidate.z)),
     );
 
     const hostLanes = CAIRO_MAP_PACK.laneGraph.lanes.filter(
@@ -2349,7 +2359,6 @@ describe("Cairo Central Nile content", () => {
     );
     const DECK_OVERHANG_M = 0.7;
     const MIN_LANE_GAP_M = 0.5;
-    const FULL_CLEARANCE_DECK_M = 6;
     let lowDeckSamples = 0;
     for (const ramp of [entry, exit]) {
       for (

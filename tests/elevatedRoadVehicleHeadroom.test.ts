@@ -4,12 +4,14 @@ import {
   getCountryProfile,
   getMapPack,
 } from "../app/game/content";
+import { getCareerVehicle } from "../app/game/career";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { createElevatedRoadGroundClearanceQuery } from "../app/game/geometry/elevatedRoadGeometry";
 import { SimulationCore, type SimulationCoreConfig } from "../app/game/simulation";
 import { RoadNetwork } from "../app/game/simulation/roadNetwork";
 import { ELEVATED_ROAD_STRUCTURE_THRESHOLD_M } from "../app/game/simulation/roadLevels";
 import { buildSimulationCoreConfig } from "../app/game/simulationAdapter";
+import { VEHICLE_DIMENSIONS } from "../app/game/vehicleVisuals";
 
 const crossingFixture = (
   deckElevationM: number,
@@ -421,11 +423,84 @@ describe("elevated-road vehicle headroom", () => {
   });
   const cairoSurfaces = cairoMapPack.geometry.roadSurfaces ?? [];
   const cairoRoadNetwork = new RoadNetwork(cairoConfig.lanes ?? [], [], []);
+  const deliveryVan = getCareerVehicle("delivery-van");
+  const deliveryVanClearanceHeightM =
+    VEHICLE_DIMENSIONS["delivery-van"].height;
+  const deliveryVanRequiredHeadroomM = deliveryVanClearanceHeightM + 0.08;
 
-  it("keeps full vehicle headroom where the Corniche exit crosses beneath the mainline", () => {
+  it("steps the delivery-van roof through every Cairo bridge and access-lane profile", { timeout: 60_000 }, () => {
+    const simulation = new SimulationCore({
+      ...cairoConfig,
+      ...deliveryVan.physics,
+      playerClearanceHeightM: deliveryVanClearanceHeightM,
+      npcCount: 0,
+      staticObstacles: [],
+      trafficLights: [],
+      stopLines: [],
+    });
+    const failures: string[] = [];
+    let samples = 0;
+
+    for (const lane of cairoRoadNetwork.lanes.filter(
+      (candidate) =>
+        candidate.roadId?.includes("sixth-october") &&
+        (candidate.id.endsWith("-forward-1") ||
+          candidate.id.endsWith("-reverse-1")),
+    )) {
+      // A 15 m/s fixed step advances just under 25 cm after drag. Half-metre
+      // starts still overlap through the delivery van's three-disc roof
+      // envelope, while keeping this production-core sweep practical. Each
+      // prospective roof interval is entered from its clear side; merely
+      // teleporting onto the profile would never exercise that path.
+      for (let distanceM = 0; distanceM + 0.3 < lane.length; distanceM += 0.5) {
+        const start = cairoRoadNetwork.pointOnLane(lane, distanceM);
+        const ahead = cairoRoadNetwork.pointOnLane(lane, distanceM + 0.3);
+        const heading = Math.atan2(ahead.x - start.x, ahead.z - start.z);
+        simulation.setPlayerPose(
+          {
+            x: start.x,
+            z: start.z,
+            elevationM: start.elevationM ?? 0,
+            heading,
+          },
+          15,
+        );
+        simulation.drainEvents();
+        simulation.step(1 / 60);
+        samples += 1;
+        const deckCollision = simulation
+          .drainEvents()
+          .find((event) => event.evidence.obstacle === "roadDeck");
+        if (deckCollision) {
+          failures.push(
+            `${lane.id} at ${distanceM.toFixed(1)}m: ${String(
+              deckCollision.evidence.obstacleId,
+            )} (${String(deckCollision.evidence.clearanceM)}m < ${String(
+              deckCollision.evidence.requiredClearanceM,
+            )}m)`,
+          );
+        }
+      }
+    }
+
+    expect(samples).toBeGreaterThan(9_000);
+    expect(failures.slice(0, 25)).toEqual([]);
+  });
+
+  it("keeps full delivery-van headroom where the Corniche exit crosses beneath the mainline", () => {
     const exitSurfaceId =
       "cairo-sixth-october-bridge-corniche-exit";
     const mainlineSurfaceId = "cairo-sixth-october-bridge";
+    const exitSurface = cairoSurfaces.find(
+      (surface) => surface.id === exitSurfaceId,
+    );
+    if (!exitSurface) throw new Error("Missing Corniche exit surface");
+    // The exit is a true deck-height diverge. Its descent begins only after
+    // the throat has carried the whole vehicle laterally clear of mainline.
+    expect(exitSurface.centerline[0]?.elevationM).toBe(10.5);
+    expect(exitSurface.centerline[1]?.elevationM).toBe(10.5);
+    expect(exitSurface.centerline[2]?.elevationM).toBeLessThan(10.5);
+
     const clearanceAt = createElevatedRoadGroundClearanceQuery(cairoSurfaces);
     const carrierSurfaceIds = new Set([exitSurfaceId]);
     let crossingSamples = 0;
@@ -440,47 +515,60 @@ describe("elevated-road vehicle headroom", () => {
       }
       for (let distanceM = 0; distanceM <= lane.length; distanceM += 0.25) {
         const point = cairoRoadNetwork.pointOnLane(lane, distanceM);
-        const obstruction = clearanceAt(
-          point,
-          point.elevationM ?? 0,
-          1,
-          false,
-          carrierSurfaceIds,
-          ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
-        );
-        if (obstruction?.surfaceId !== mainlineSurfaceId) continue;
-        crossingSamples += 1;
-        minimumHeadroomM = Math.min(
-          minimumHeadroomM,
-          obstruction.clearanceM,
-        );
+        for (const alongM of [
+          -deliveryVan.physics.playerCapsuleHalfLengthM,
+          0,
+          deliveryVan.physics.playerCapsuleHalfLengthM,
+        ]) {
+          const roofSample = {
+            x: point.x + Math.sin(point.heading) * alongM,
+            z: point.z + Math.cos(point.heading) * alongM,
+          };
+          const obstruction = clearanceAt(
+            roofSample,
+            point.elevationM ?? 0,
+            deliveryVan.physics.playerCapsuleRadiusM,
+            false,
+            carrierSurfaceIds,
+            ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
+          );
+          if (obstruction?.surfaceId !== mainlineSurfaceId) continue;
+          crossingSamples += 1;
+          minimumHeadroomM = Math.min(
+            minimumHeadroomM,
+            obstruction.clearanceM,
+          );
+        }
       }
     }
 
     expect(crossingSamples).toBeGreaterThan(20);
-    // Production sedans require 1.50 m plus the simulation's 0.08 m margin.
-    expect(minimumHeadroomM).toBeGreaterThanOrEqual(1.58);
+    expect(minimumHeadroomM).toBeGreaterThanOrEqual(
+      deliveryVanRequiredHeadroomM,
+    );
   });
 
-  it("drives the lane-centred Corniche exit trace beneath the mainline without a deck collision", () => {
+  it("drives a delivery van beneath the mainline on the lane-centred Corniche exit trace", () => {
     const crossingLane = cairoRoadNetwork.lanesById.get(
       "cairo-sixth-october-bridge-corniche-exit-3-forward-1",
     );
     if (!crossingLane) throw new Error("Missing Corniche exit crossing lane");
-    const start = cairoRoadNetwork.pointOnLane(crossingLane, 7);
+    const start = cairoRoadNetwork.pointOnLane(crossingLane, 3);
     const simulation = new SimulationCore({
       ...cairoConfig,
+      ...deliveryVan.physics,
+      playerClearanceHeightM: deliveryVanClearanceHeightM,
       npcCount: 0,
       staticObstacles: [],
     });
     simulation.setPlayerPose(start, 8);
 
-    for (let tick = 0; tick < 120; tick += 1) {
+    for (let tick = 0; tick < 80; tick += 1) {
       simulation.step(1 / 60, { throttle: 1 });
     }
 
     const snapshot = simulation.getSnapshot();
-    expect(snapshot.player.distanceTravelledM).toBeGreaterThan(20);
+    expect(snapshot.player.distanceTravelledM).toBeGreaterThan(12);
     expect(snapshot.road.laneId).toBe(crossingLane.id);
     expect(snapshot.road.distanceFromLaneCentreM).toBeLessThan(0.1);
     expect(
@@ -488,6 +576,59 @@ describe("elevated-road vehicle headroom", () => {
         .getEvents()
         .filter((event) => event.evidence.obstacle === "roadDeck"),
     ).toEqual([]);
+  });
+
+  it("keeps the natural Gezira entrance tangent on its rising ramp", () => {
+    const approach = cairoRoadNetwork.lanesById.get(
+      "cairo-sixth-october-gezira-entry-slip-2-forward-1",
+    );
+    const ramp = cairoRoadNetwork.lanesById.get(
+      "cairo-sixth-october-bridge-gezira-ramp-3-reverse-1",
+    );
+    if (!approach || !ramp) {
+      throw new Error("Missing Gezira entrance handoff lanes");
+    }
+    expect(approach.successorLaneIds).toContain(ramp.id);
+
+    // Keep the driver's incoming tangent instead of snapping the heading to
+    // the ramp. The two differ by only about one degree at the handoff, so a
+    // real driver naturally carries this line onto the ramp. The old level
+    // projection lost the rising carrier 8.3 m beyond the join, selected Al
+    // Saraya Street below, and treated the ramp's own asphalt as an invisible
+    // wall. Start eight metres before the join and require another twenty
+    // metres beyond it so a short handoff-only trace cannot miss that point.
+    const simulation = new SimulationCore({
+      ...cairoConfig,
+      npcCount: 0,
+      staticObstacles: [],
+    });
+    const start = cairoRoadNetwork.pointOnLane(
+      approach,
+      Math.max(0, approach.length - 8),
+    );
+    simulation.setPlayerPose(start, 8);
+
+    for (
+      let tick = 0;
+      tick < 240 &&
+      simulation.getSnapshot().player.distanceTravelledM <= 28 &&
+      !simulation
+        .getEvents()
+        .some((event) => event.evidence.obstacle === "roadDeck");
+      tick += 1
+    ) {
+      simulation.step(1 / 60, { throttle: 1 });
+    }
+
+    const snapshot = simulation.getSnapshot();
+    expect(
+      simulation
+        .getEvents()
+        .filter((event) => event.evidence.obstacle === "roadDeck"),
+    ).toEqual([]);
+    expect(snapshot.player.distanceTravelledM).toBeGreaterThan(28);
+    expect(snapshot.road.laneId).toBe(ramp.id);
+    expect(snapshot.player.elevationM ?? 0).toBeGreaterThan(0.5);
   });
 
   type TravelDirection = "forward" | "reverse";
@@ -572,24 +713,47 @@ describe("elevated-road vehicle headroom", () => {
       outgoingSurfaceId,
       outgoingDirection,
     }) => {
-      const directedPoints = (surfaceId: string, direction: TravelDirection) => {
-        const surface = cairoSurfaces.find((candidate) => candidate.id === surfaceId);
-        if (!surface) throw new Error(`Missing Cairo surface ${surfaceId}`);
-        return direction === "forward"
-          ? [...surface.centerline]
-          : [...surface.centerline].reverse();
-      };
-      const approach = directedPoints(approachSurfaceId, approachDirection);
-      const outgoing = directedPoints(outgoingSurfaceId, outgoingDirection);
-      const lift = approach.at(-1);
-      const beforeLift = approach.at(-2);
-      const afterLift = outgoing.at(1);
+      // Resolve the actual directed graph edge rather than assuming every
+      // access joins at a surface endpoint. Dokki's entrance now joins the
+      // middle of its safely splayed two-way stem, which is exactly the sort
+      // of topology this test must follow instead of reconstructing from a
+      // hand-authored point order.
+      const approachLane = cairoRoadNetwork.lanes.find(
+        (lane) =>
+          lane.roadId === approachSurfaceId &&
+          lane.id.includes(`-${approachDirection}-`) &&
+          lane.successorLaneIds.some((successorId) => {
+            const successor = cairoRoadNetwork.lanesById.get(successorId);
+            return (
+              successor?.roadId === outgoingSurfaceId &&
+              successor.id.includes(`-${outgoingDirection}-`)
+            );
+          }),
+      );
+      const outgoingLane = approachLane?.successorLaneIds
+        .map((successorId) => cairoRoadNetwork.lanesById.get(successorId))
+        .find(
+          (lane) =>
+            lane?.roadId === outgoingSurfaceId &&
+            lane.id.includes(`-${outgoingDirection}-`),
+        );
+      if (!approachLane || !outgoingLane) {
+        throw new Error(
+          `Missing directed Cairo handoff ${approachSurfaceId} -> ${outgoingSurfaceId}`,
+        );
+      }
+      const lift = approachLane.points.at(-1);
+      const beforeLift = approachLane.points.at(-2);
+      const afterLift = outgoingLane.points.at(1);
       if (!lift || !beforeLift || !afterLift) {
         throw new Error(`Incomplete Cairo handoff ${approachSurfaceId}`);
       }
-      expect(Math.hypot(lift.x - outgoing[0].x, lift.z - outgoing[0].z)).toBeLessThan(
-        0.05,
-      );
+      expect(
+        Math.hypot(
+          lift.x - outgoingLane.points[0].x,
+          lift.z - outgoingLane.points[0].z,
+        ),
+      ).toBeLessThan(0.05);
 
       const approachDx = lift.x - beforeLift.x;
       const approachDz = lift.z - beforeLift.z;

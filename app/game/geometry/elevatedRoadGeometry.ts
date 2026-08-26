@@ -326,6 +326,47 @@ const retainedEndpointFrames = (
 };
 
 /**
+ * Whether another authored elevated surface carries structure away from this
+ * endpoint. Deck boxes need this even when the continuation is almost
+ * collinear or no wider than the current surface: a terminal concrete cap or
+ * ordinary seam overlap at a joined mouth becomes a transverse face below the
+ * shared asphalt.
+ */
+export function elevatedRoadEndpointHasStructuralContinuation(
+  surface: ElevatedRoadGeometrySurface,
+  segment: ElevatedRoadSegmentPlacement,
+  allSurfaces: readonly ElevatedRoadGeometrySurface[],
+  key: ElevatedEndpointKey,
+): boolean {
+  const endpoint = retainedEndpointFrames(surface, segment).find(
+    (candidate) => candidate.key === key,
+  );
+  if (!endpoint) return false;
+  for (const other of allSurfaces) {
+    if (other.id === surface.id || !isElevatedRoadSurface(other)) continue;
+    for (let pointIndex = 0; pointIndex < other.centerline.length; pointIndex += 1) {
+      const otherPoint = other.centerline[pointIndex];
+      if (!sameElevatedJunctionPoint(endpoint.point, otherPoint)) continue;
+      for (const neighbourIndex of [pointIndex - 1, pointIndex + 1]) {
+        const neighbour = other.centerline[neighbourIndex];
+        if (!neighbour) continue;
+        const dx = neighbour.x - otherPoint.x;
+        const dz = neighbour.z - otherPoint.z;
+        const lengthM = Math.hypot(dx, dz);
+        if (lengthM < 0.001) continue;
+        // A ray pointing back through the current segment (or across it) is a
+        // genuine continuation. A same-direction duplicate is not.
+        const alignment =
+          endpoint.outwardX * (dx / lengthM) +
+          endpoint.outwardZ * (dz / lengthM);
+        if (alignment < 0.9) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Structural slab at an elevated merge. The wider mainline remains continuous;
  * a narrower branch ends exactly outside its edge and lets that mainline slab
  * carry the paved junction. Without this cut two rotated boxes overlap through
@@ -400,8 +441,26 @@ export function elevatedRoadDeckRun(
   // Ordinary span seams overlap by 17.5 cm at each end. A deliberately cut
   // junction end gets no overlap, otherwise the slab face would re-enter the
   // opening this calculation just cleared.
-  const startExtensionM = startTrimM <= 0.001 ? 0.175 : 0;
-  const endExtensionM = endTrimM <= 0.001 ? 0.175 : 0;
+  const startExtensionM =
+    startTrimM <= 0.001 &&
+    !elevatedRoadEndpointHasStructuralContinuation(
+      surface,
+      segment,
+      allSurfaces,
+      "start",
+    )
+      ? 0.175
+      : 0;
+  const endExtensionM =
+    endTrimM <= 0.001 &&
+    !elevatedRoadEndpointHasStructuralContinuation(
+      surface,
+      segment,
+      allSurfaces,
+      "end",
+    )
+      ? 0.175
+      : 0;
   return {
     surfaceId: surface.id,
     segmentIndex: segment.segmentIndex,
@@ -451,6 +510,64 @@ export function elevatedRoadEdgeRuns(
     ELEVATED_ROAD_DECK_OVERHANG_M -
     ELEVATED_ROAD_PARAPET_DECK_INSET_M;
 
+  const trimSameSurfaceCorner = (
+    endpoint: ElevatedEndpointFrame,
+  ): void => {
+    const junctionIndex =
+      endpoint.key === "start"
+        ? segment.segmentIndex
+        : segment.segmentIndex + 1;
+    const neighbourIndex =
+      endpoint.key === "start" ? junctionIndex - 1 : junctionIndex + 1;
+    const neighbour = surface.centerline[neighbourIndex];
+    if (!neighbour) return;
+    const qx = neighbour.x - endpoint.point.x;
+    const qz = neighbour.z - endpoint.point.z;
+    const qLengthM = Math.hypot(qx, qz);
+    if (qLengthM < 0.001) return;
+    const rayX = qx / qLengthM;
+    const rayZ = qz / qLengthM;
+    // The adjacent authored direction enters a segment-start junction and
+    // leaves a segment-end junction.
+    const adjacentDirectionX = endpoint.key === "start" ? -rayX : rayX;
+    const adjacentDirectionZ = endpoint.key === "start" ? -rayZ : rayZ;
+    const adjacentPositiveSideX = -adjacentDirectionZ;
+    const adjacentPositiveSideZ = adjacentDirectionX;
+    const denominator =
+      endpoint.outwardX * rayZ - endpoint.outwardZ * rayX;
+    if (Math.abs(denominator) < 0.001) return;
+
+    for (const side of [-1, 1] as const) {
+      const currentEdgeX = side * positiveSideX * edgeOffsetM;
+      const currentEdgeZ = side * positiveSideZ * edgeOffsetM;
+      const adjacentEdgeX =
+        side * adjacentPositiveSideX * edgeOffsetM;
+      const adjacentEdgeZ =
+        side * adjacentPositiveSideZ * edgeOffsetM;
+      const differenceX = adjacentEdgeX - currentEdgeX;
+      const differenceZ = adjacentEdgeZ - currentEdgeZ;
+      const intersectionPlanM =
+        (differenceX * rayZ - differenceZ * rayX) / denominator;
+      if (Math.abs(intersectionPlanM) <= 0.001) continue;
+      // Positive is the inside corner: stop at the true miter plus the usual
+      // junction breathing room instead of letting a square parapet end
+      // project into the next road segment. A negative intersection is the
+      // virtual miter beyond the authored endpoint on the outside corner.
+      // Extending the run to it would put structure beyond its slab; retreat
+      // by the same distance instead. That non-negative relief also keeps a
+      // long vehicle's leading/trailing capsule clear while it changes
+      // heading across the sharp bend.
+      const cornerReliefPlanM =
+        intersectionPlanM > 0
+          ? intersectionPlanM + junctionMarginM
+          : -intersectionPlanM;
+      trims[side][endpoint.key] = Math.max(
+        trims[side][endpoint.key],
+        cornerReliefPlanM * slopeScale,
+      );
+    }
+  };
+
   const trimAtEndpoint = (
     endpoint: ElevatedEndpointFrame,
   ): void => {
@@ -466,17 +583,35 @@ export function elevatedRoadEdgeRuns(
           const branchDz = neighbour.z - otherPoint.z;
           const branchLengthM = Math.hypot(branchDx, branchDz);
           if (branchLengthM < 0.001) continue;
+          const otherDirectionX = branchDx / branchLengthM;
+          const otherDirectionZ = branchDz / branchLengthM;
           const lateralAmount =
             (branchDx * positiveSideX + branchDz * positiveSideZ) /
             branchLengthM;
           // Collinear surfaces are structural continuations: their barriers
-          // should meet, not disappear on both sides of the seam.
+          // normally meet. A narrower continuation is different: square
+          // parapet starts sit inside the wider carriageway, so open a short
+          // two-sided throat on the narrow surface instead.
           if (Math.abs(lateralAmount) < 0.12) {
+            const continuationAmount =
+              endpoint.outwardX * otherDirectionX +
+              endpoint.outwardZ * otherDirectionZ;
+            if (
+              continuationAmount < -0.9 &&
+              other.widthM > surface.widthM + 0.05
+            ) {
+              const throatM =
+                (other.widthM / 2 + junctionMarginM) * slopeScale;
+              for (const side of [-1, 1] as const) {
+                trims[side][endpoint.key] = Math.max(
+                  trims[side][endpoint.key],
+                  throatM,
+                );
+              }
+            }
             continue;
           }
           const side: -1 | 1 = lateralAmount > 0 ? 1 : -1;
-          const otherDirectionX = branchDx / branchLengthM;
-          const otherDirectionZ = branchDz / branchLengthM;
           const otherNormalX = -otherDirectionZ;
           const otherNormalZ = otherDirectionX;
           const edgeX = side * positiveSideX * edgeOffsetM;
@@ -509,6 +644,7 @@ export function elevatedRoadEdgeRuns(
   // A clipped grade begins away from its authored ground endpoint. It cannot
   // share an elevated junction there, so only exact retained endpoints trim.
   for (const endpoint of retainedEndpointFrames(surface, segment)) {
+    trimSameSurfaceCorner(endpoint);
     trimAtEndpoint(endpoint);
   }
 

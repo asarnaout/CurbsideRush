@@ -586,6 +586,18 @@ export class RoadNetwork {
       const groundHeightPreference =
         preferredElevationM !== null &&
         preferredElevationM <= ELEVATED_ROAD_STRUCTURE_THRESHOLD_M;
+      let hasDirectedRisingProfile = false;
+      if (groundHeightPreference) {
+        for (const laneId of groundProfileCaptureLaneIds) {
+          if (
+            (this.lanesById.get(laneId)?.maxElevationM ?? 0) >=
+            ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
+          ) {
+            hasDirectedRisingProfile = true;
+            break;
+          }
+        }
+      }
       const allowUnconnectedElevationCapture = Boolean(
         preference.allowUnconnectedElevationCapture,
       );
@@ -659,18 +671,33 @@ export class RoadNetwork {
       if (lockToContinuousElevation) {
         minimumDistance = minimumElevationCompatibleDistance;
       }
-      const tieEpsilon = Math.max(
+      const authoredTieEpsilon = Math.max(
         0,
         Number.isFinite(preference.distanceTieEpsilonM)
           ? (preference.distanceTieEpsilonM ?? 0.1)
           : 0.1,
       );
-      // Lane identity is a much narrower hysteresis than the heading tie
-      // band. At a ramp mouth the rising lane can be only centimetres closer
-      // than the road below; letting the old lane own the entire 0.1 m heading
-      // band prevents the car from ever acquiring the ramp. Exact stacks still
-      // retain their previous lane deterministically.
-      const preferredLaneHysteresisM = Math.min(tieEpsilon, 0.025);
+      // At the low end of a legal ramp, the opposite-direction exit apron or
+      // the host street can remain a few decimetres closer in plan even while
+      // the driver's heading follows the connected rising lane. Give heading
+      // enough room to select that graph-authorised profile. Unrelated ramps
+      // never enter `groundProfileCaptureLaneIds`, so this cannot pull a car
+      // from a street onto an arbitrary bridge above it.
+      const tieEpsilon = hasDirectedRisingProfile
+        ? Math.max(authoredTieEpsilon, 0.75)
+        : authoredTieEpsilon;
+      // Ordinary lane identity remains much narrower than the heading band so
+      // an on-ramp can acquire the car as soon as it is measurably closer. At
+      // a directed rising profile, however, that same narrow window lets an
+      // overlapping wrong-way exit apron steal the car for one tick and erase
+      // its legal successor set. Keep the occupied approach/ramp until the
+      // matching-heading continuation is clearly closer; the enlarged value
+      // is topology-gated and still far inside a lane width.
+      const preferredLaneHysteresisM =
+        (preferredLane?.maxElevationM ?? 0) >=
+        ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
+        ? tieEpsilon
+        : Math.min(tieEpsilon, 0.025);
       let best: LaneProjection | null = null;
       let bestHeadingDifference = Number.POSITIVE_INFINITY;
       let bestPreferred = false;

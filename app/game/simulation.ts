@@ -1206,8 +1206,14 @@ export class SimulationCore {
       const travelSign = this.playerState.signedSpeedMps < 0 ? -1 : 1;
       const relativeTravelM = alongM * travelSign;
       const connectionOptions = {
-        includePredecessors: relativeTravelM < -1e-6,
-        includeSuccessors: relativeTravelM > 1e-6,
+        // The centre disc straddles both sides of a lane handoff: its radius
+        // reaches the predecessor and successor even though its along-body
+        // offset is exactly zero. Excluding both there made a legal rising
+        // successor look like a low roof during the last metre of a ramp
+        // merge. Front and rear samples remain directional, while the centre
+        // retains both legal pieces of the same pavement seam.
+        includePredecessors: relativeTravelM <= 1e-6,
+        includeSuccessors: relativeTravelM >= -1e-6,
       };
       this.roadNetwork.addLaneRoadSurfaceIds(
         currentLaneId,

@@ -349,6 +349,82 @@ describe("elevated-road structure placement", () => {
     expect(Math.min(...edges.map((run) => run.startTrimM))).toBeGreaterThan(5);
   });
 
+  it("miters the inside parapet and relieves the outside of a same-surface bend", () => {
+    const bent = {
+      id: "bent-ramp",
+      widthM: 7.6,
+      centerline: [
+        { x: -40, z: 0, elevationM: 7 },
+        { x: 0, z: 0, elevationM: 7 },
+        { x: 24, z: 32, elevationM: 7 },
+      ],
+    };
+    const segments = elevatedRoadSegmentPlacements(bent);
+    const incoming = elevatedRoadEdgeRuns(bent, segments[0], [bent]);
+    const outgoing = elevatedRoadEdgeRuns(bent, segments[1], [bent]);
+    const incomingBySide = new Map(
+      incoming.map((run) => [run.side, run.endTrimM]),
+    );
+    const outgoingBySide = new Map(
+      outgoing.map((run) => [run.side, run.startTrimM]),
+    );
+
+    expect(incomingBySide.get(-1)).toBeGreaterThan(0);
+    expect(incomingBySide.get(1)).toBeGreaterThan(0);
+    expect(outgoingBySide.get(-1)).toBeCloseTo(incomingBySide.get(-1)!, 9);
+    expect(outgoingBySide.get(1)).toBeCloseTo(incomingBySide.get(1)!, 9);
+    const trims = [...incomingBySide.values()].sort(
+      (left, right) => left - right,
+    );
+    expect(trims[1] - trims[0]).toBeCloseTo(0.8, 9);
+  });
+
+  it("opens both sides of a narrower near-collinear continuation", () => {
+    const wide = {
+      id: "wide-stem",
+      widthM: 7.6,
+      centerline: [
+        { x: 0, z: -40, elevationM: 7 },
+        { x: 0, z: 0, elevationM: 7 },
+      ],
+    };
+    const narrow = {
+      id: "narrow-branch",
+      widthM: 4.2,
+      centerline: [
+        { x: 0, z: 0, elevationM: 7 },
+        { x: 2.5, z: 40, elevationM: 7 },
+      ],
+    };
+    const surfaces = [wide, narrow];
+    const narrowSegment = elevatedRoadSegmentPlacements(narrow)[0];
+    const narrowRuns = elevatedRoadEdgeRuns(
+      narrow,
+      narrowSegment,
+      surfaces,
+    );
+    const wideRuns = elevatedRoadEdgeRuns(
+      wide,
+      elevatedRoadSegmentPlacements(wide)[0],
+      surfaces,
+    );
+
+    expect(narrowRuns).toHaveLength(2);
+    expect(
+      narrowRuns.every((run) => run.startTrimM > wide.widthM / 2),
+    ).toBe(true);
+    expect(wideRuns.every((run) => run.endTrimM === 0)).toBe(true);
+    const narrowDeck = elevatedRoadDeckRun(
+      narrow,
+      narrowSegment,
+      surfaces,
+    )!;
+    expect(narrowDeck.startTrimM).toBe(0);
+    expect(
+      narrowDeck.centerAlongM - narrowDeck.lengthM / 2,
+    ).toBeCloseTo(-narrowSegment.lengthM / 2, 9);
+  });
+
   it("opens every Cairo ramp-to-mainline merge instead of walling it off", () => {
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces;
     const mainline = surfaces.find(
