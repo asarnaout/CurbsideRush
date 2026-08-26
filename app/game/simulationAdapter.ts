@@ -1767,12 +1767,20 @@ export function buildSimulationCoreConfig({
     // Supports stay in `staticObstacles`: those circular solids provide the
     // collision normal and slide/bonk response. This query covers only the
     // raised asphalt and structural slab a vehicle roof must fit beneath.
-    elevatedRoadGroundClearanceAt: (point, groundElevationM, footprintRadiusM) =>
+    elevatedRoadGroundClearanceAt: (
+      point,
+      groundElevationM,
+      footprintRadiusM,
+      excludedSurfaceIds,
+      minimumVerticalSeparationM,
+    ) =>
       elevatedRoadGroundClearanceAt(
         point,
         groundElevationM,
         footprintRadiusM,
         false,
+        excludedSurfaceIds,
+        minimumVerticalSeparationM,
       ),
     serviceAreas: buildServiceAreas(mapPack),
     spawn: { x: start.x, z: start.z, heading: start.heading },

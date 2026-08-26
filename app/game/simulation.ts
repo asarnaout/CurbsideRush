@@ -175,6 +175,8 @@ export type SimulationElevatedRoadGroundClearanceQuery = (
   point: { readonly x: number; readonly z: number },
   groundElevationM?: number,
   footprintRadiusM?: number,
+  excludedSurfaceIds?: ReadonlySet<string>,
+  minimumVerticalSeparationM?: number,
 ) => SimulationElevatedRoadGroundClearance | null;
 
 export interface SimulationBounds {
@@ -466,6 +468,8 @@ export class SimulationCore {
   private readonly elevatedRoadGroundClearanceAt:
     | SimulationElevatedRoadGroundClearanceQuery
     | null;
+  /** Reused carrier-road filter for the three vehicle roof samples. */
+  private readonly elevatedRoadCarrierSurfaceIds = new Set<string>();
   private readonly staticObstacles: StaticObstacleInternal[];
   /** Forecourts and repair-shop aprons — see `isInsideServiceArea`. */
   private readonly serviceAreas: readonly ServiceArea[];
@@ -1165,6 +1169,8 @@ export class SimulationCore {
         { x: sampleX, z: sampleZ },
         carriedElevationM,
         this.config.playerCapsuleRadiusM,
+        undefined,
+        ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
       );
       if (
         !carriedObstruction ||
@@ -1195,10 +1201,35 @@ export class SimulationCore {
         },
       );
       const sampleElevationM = sampleProjection?.elevationM ?? centreElevationM;
+      const carrierSurfaceIds = this.elevatedRoadCarrierSurfaceIds;
+      carrierSurfaceIds.clear();
+      const travelSign = this.playerState.signedSpeedMps < 0 ? -1 : 1;
+      const relativeTravelM = alongM * travelSign;
+      const connectionOptions = {
+        includePredecessors: relativeTravelM < -1e-6,
+        includeSuccessors: relativeTravelM > 1e-6,
+      };
+      this.roadNetwork.addLaneRoadSurfaceIds(
+        currentLaneId,
+        carrierSurfaceIds,
+        connectionOptions,
+      );
+      this.roadNetwork.addLaneRoadSurfaceIds(
+        prospectiveLaneId,
+        carrierSurfaceIds,
+        connectionOptions,
+      );
+      this.roadNetwork.addLaneRoadSurfaceIds(
+        sampleProjection?.lane.id,
+        carrierSurfaceIds,
+        connectionOptions,
+      );
       const obstruction = clearanceAt(
         { x: sampleX, z: sampleZ },
         sampleElevationM,
         this.config.playerCapsuleRadiusM,
+        carrierSurfaceIds,
+        ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
       );
       // Near the point where a ramp's concrete slab begins, the capsule's
       // footprint reaches slightly farther uphill than its tyre sample. The

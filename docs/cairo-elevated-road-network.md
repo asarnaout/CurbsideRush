@@ -60,11 +60,12 @@ Two approaches are especially important regression examples:
   remain distinct until they reach 7 m over the Turgoman clearance point. The
   existing Ramses lanes stay continuous underneath and the two grades braid
   only after they have cleared ground traffic and pedestrians.
-- The Corniche exit diverges from the mainline before descending, curves away
-  from the continuing street, reaches ground south of Champollion and then
-  runs as an at-grade auxiliary lane to its merge. The street therefore does
-  not appear to continue underneath a low slab that physically occupies its
-  full width.
+- The Corniche exit diverges at deck height, uses the open river corridor to
+  descend, and does not turn back beneath the parent mainline until its soffit
+  has a complete vehicle envelope. It then stays above 6 m while crossing the
+  Corniche carriageway, reaches ground south of Champollion and continues as
+  an at-grade auxiliary lane. Neither the mainline braid nor the continuing
+  street is occupied by a low, impassable slab.
 
 The former bridge landmark and ramp-stub ids remain as non-rendered reservation
 parcels. This preserves the exact deterministic building layout while the road
@@ -97,10 +98,17 @@ surface—not a landmark mesh—provides the drivable deck.
 - Player roof collision uses the combined raised-asphalt/structural-clearance
   query at the centre and both ends of the real vehicle capsule. Low ramp
   aprons and soffits stop a lower-level car at their physical boundary; high
-  spans remain open. The prospective directed lane projection exempts the
-  player's own connected ramp, while rendered model or seated-rider height
-  supplies the required clearance. Pier impacts stay with the existing static
-  support colliders instead of being applied twice.
+  spans remain open. Before the query chooses its lowest obstruction it removes
+  the exact carrier surface and, only for the capsule edge travelling through
+  a legal junction, that edge's directed predecessor or successor. This lets
+  the front enter an on-ramp and the rear leave an off-ramp without treating a
+  few centimetres of their own asphalt as an invisible wall; the opposite
+  wrong-way approach remains solid. Road tops within the same 0.35 m capture
+  band as the tyres are pavement seams, not ceilings. These filters run inside
+  the query so an ignored carrier cannot conceal a genuinely separate stacked
+  deck above it. Rendered model or seated-rider height supplies the required
+  clearance. Pier impacts stay with the existing static support colliders
+  instead of being applied twice.
 - Column candidates are omitted anywhere their complete footing plus a 0.10 m
   visual margin would occupy another road's carriageway, local sidewalk or a
   lower elevated deck. The check uses each street's authored sidewalk width,
@@ -171,7 +179,11 @@ entry fixture proves the legitimate Dokki on-ramp still
 acquires its rising profile. Synthetic vehicle-envelope regressions separately
 prove that a 1.38 m soffit and the pre-slab raised apron block a 1.5 m car, a
 high span remains passable, and a connected ramp climb reaches the elevated
-level without a false deck collision.
+level without a false deck collision. Eight production traces now cross every
+Dokki, Gezira, Corniche and Ramses profile/slip handoff in both authored access
+directions. A wrong-way exit-mouth trace remains blocked, and a dense Corniche
+exit sweep verifies at least 1.58 m of usable headroom where that ramp braids
+beneath the mainline.
 
 For the implementation order and required drive checklist before extending
 this system to another city, see

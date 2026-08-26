@@ -320,9 +320,9 @@ const cairoNodes: readonly LaneNode[] = [
   // concrete grade/parapet no longer can.
   node("cairo-sixth-corniche-exit-merge", 0, 248.42),
   // Hold the diverge inside the mainline's departure tangent before opening
-  // the gore. The old throat at z=226 made the generated lane connector snap
-  // roughly 34 degrees at the split.
-  node("cairo-sixth-corniche-exit-throat", 40, 233),
+  // the gore, then use the open river corridor to reach full underpass
+  // clearance before the branch turns back beneath the parent deck.
+  node("cairo-sixth-corniche-exit-throat", 30, 230),
   node("cairo-sixth-corniche-exit-curve", 60, 235),
   node("cairo-sixth-corniche-exit-clear", 92, 247),
   node("cairo-sixth-corniche-exit-turn", 105.2, 266),
@@ -523,12 +523,13 @@ export const CAIRO_ROAD_SPECS: readonly CairoRoadSpec[] = [
 
   // Corniche's northbound entrance and exit use separate roadside tapers;
   // neither elevated parapet now starts inside the Corniche carriageway. The
-  // exit diverges over the river early enough to finish its 9.3% descent
-  // south of Champollion, then continues through as an at-grade auxiliary
-  // lane before merging into Corniche traffic.
+  // exit first peels into the open river corridor, descends to full vehicle
+  // clearance, and only then braids beneath the parent mainline. It touches
+  // down south of Champollion, then continues through as an at-grade
+  // auxiliary lane before merging into Corniche traffic.
   road("cairo-sixth-october-corniche-entry-slip", "6th October Bridge Entrance", ["cairo-ec-sixth-entry-merge", "cairo-sixth-corniche-entry-taper", "cairo-sixth-corniche-entry-lift"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
   road("cairo-sixth-october-bridge-corniche-entry", "6th October Bridge Entrance", ["cairo-sixth-corniche-entry-lift", "cairo-sixth-corniche-entry-mid", "cairo-sixth-corniche-entry-deck-edge", "cairo-sixth-corniche-merge"], 40, 1, 5.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 5.2, 10.5, 10.5] }),
-  road("cairo-sixth-october-bridge-corniche-exit", "6th October Bridge Exit", ["cairo-sixth-corniche-exit-merge", "cairo-sixth-corniche-exit-throat", "cairo-sixth-corniche-exit-curve", "cairo-sixth-corniche-exit-clear", "cairo-sixth-corniche-exit-turn", "cairo-sixth-corniche-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [10.5, 10.5, 9.3, 8.2, 6.2, 0] }),
+  road("cairo-sixth-october-bridge-corniche-exit", "6th October Bridge Exit", ["cairo-sixth-corniche-exit-merge", "cairo-sixth-corniche-exit-throat", "cairo-sixth-corniche-exit-curve", "cairo-sixth-corniche-exit-clear", "cairo-sixth-corniche-exit-turn", "cairo-sixth-corniche-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [10.5, 10.5, 7.2, 6.4, 6.2, 0] }),
   road("cairo-sixth-october-corniche-exit-slip", "6th October Bridge Exit", ["cairo-sixth-corniche-exit-lift", "cairo-sixth-corniche-exit-taper", "cairo-ec-sixth-exit-merge"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
 
   // Ramses cannot carry a low two-way ramp down its centre: that consumes

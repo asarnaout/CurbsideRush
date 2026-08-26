@@ -441,6 +441,48 @@ export class RoadNetwork {
     this.routeSearchCounters = { calls: 0, lanesVisited: 0, maxLanesVisited: 0 };
   }
 
+  /**
+   * Adds the road surfaces that physically continue from one directed lane.
+   * Vehicle headroom uses this at its leading/trailing capsule samples: the
+   * leading edge may overlap a legal successor before the axle changes lanes,
+   * and the trailing edge may remain over a predecessor just after it does.
+   * Keeping direction selection at the caller prevents a wrong-way approach
+   * from treating an exit ramp as its own pavement.
+   */
+  addLaneRoadSurfaceIds(
+    laneId: string | undefined,
+    target: Set<string>,
+    {
+      includePredecessors = false,
+      includeSuccessors = false,
+    }: {
+      readonly includePredecessors?: boolean;
+      readonly includeSuccessors?: boolean;
+    } = {},
+  ): void {
+    if (!laneId) return;
+    const addLane = (candidateId: string): void => {
+      const candidate = this.lanesById.get(candidateId);
+      if (!candidate) return;
+      if (candidate.roadId) target.add(candidate.roadId);
+      if (candidate.adjacentLaneId) {
+        const adjacent = this.lanesById.get(candidate.adjacentLaneId);
+        if (adjacent?.roadId) target.add(adjacent.roadId);
+      }
+    };
+    const lane = this.lanesById.get(laneId);
+    if (!lane) return;
+    addLane(lane.id);
+    if (includePredecessors) {
+      for (const predecessorId of this.predecessorLaneIdsById.get(lane.id) ?? []) {
+        addLane(predecessorId);
+      }
+    }
+    if (includeSuccessors) {
+      for (const successorId of lane.successorLaneIds) addLane(successorId);
+    }
+  }
+
   private recordRouteSearch(lanesVisited: number): void {
     this.routeSearchCounters.calls += 1;
     this.routeSearchCounters.lanesVisited += lanesVisited;

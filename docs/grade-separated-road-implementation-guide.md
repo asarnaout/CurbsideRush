@@ -273,6 +273,25 @@ move back to the precise clearance boundary and stop the vehicle. A car already
 authored inside a low envelope may move outward so a debug pose cannot become
 permanently trapped.
 
+Do not implement carrier ownership as a comparison against only the single
+obstruction returned by the query. At a ramp/slip seam the axle may already
+project to the flat road while the trailing capsule disc still overlaps the
+profiled predecessor; an exact road-id comparison then turns a centimetre-high
+pavement seam into an invisible transverse wall. Filter candidates *inside*
+the prepared query before it selects the lowest one:
+
+- discard road tops within the 0.35 m road-level capture band of the tyres;
+- always exclude the projected carrier road;
+- for the leading capsule sample, exclude only a directed successor;
+- for the trailing sample, exclude only a directed predecessor;
+- never use the predecessor exemption on a leading/wrong-way ground approach;
+- after removing carrier candidates, still return any genuinely separate deck
+  above them.
+
+The front/centre/rear distinction matters. Broadly exempting every connected
+road makes an off-ramp climbable backward; rejecting every differently named
+surface blocks legal handoffs. Directional capsule ownership resolves both.
+
 ## Pedestrians, signals and ground props
 
 Building pavement rails only from ground surfaces is necessary but not
@@ -402,7 +421,10 @@ several systems:
     capture a shallow exit apron and ratchet upward against legal direction;
 11. player physics had no roof-versus-soffit test, so a ground car could enter
     beneath a physically impassable low ramp even though tall props and walkers
-    were already excluded there.
+    were already excluded there;
+12. the first roof fix exempted only an exact projected road id, so every
+    differently named ramp/slip handoff could become an invisible wall as the
+    axle changed lanes before the vehicle's trailing footprint did.
 
 Fixing only a mesh or one ramp could not solve those failures. The implementation
 now treats grade separation as a shared simulation invariant and then reauthors
@@ -475,6 +497,10 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
   their actual footprint boundary, while a high span remains driveable below;
 - the same clearance query does not block a player climbing the connected
   profiled ramp that carries the vehicle;
+- every profile/slip handoff passes in its legal direction, while approaching
+  an exit ramp backward from its ground slip still collides;
+- excluding the carrier before lowest-candidate selection still reveals a
+  separate stacked deck above it;
 - pedestrians cannot spawn in or walk into low-clearance ramp envelopes;
 - an elevated car cannot strike a ground pedestrian or destructible, and an
   elevated destructible falls and emits effects at its own level;

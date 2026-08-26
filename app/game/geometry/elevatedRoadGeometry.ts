@@ -106,6 +106,18 @@ export type ElevatedRoadDeckHeadroomQuery = (
    * slab alone; placement/collision callers keep the default and see both.
    */
   includeSupports?: boolean,
+  /**
+   * Surfaces that carry the caller at this sample. Filtering happens before
+   * the lowest obstruction is selected so an ignored ramp cannot conceal a
+   * genuinely separate deck above it.
+   */
+  excludedSurfaceIds?: ReadonlySet<string>,
+  /**
+   * Road tops this close to the caller's tyres are a continuous pavement
+   * seam, not an overhead structure. Walkers keep the zero default; vehicle
+   * physics supplies its road-level capture threshold.
+   */
+  minimumVerticalSeparationM?: number,
 ) => ElevatedRoadDeckHeadroom | null;
 
 /**
@@ -135,6 +147,10 @@ export type ElevatedRoadGroundClearanceQuery = (
    * response; walkers and placement callers keep the default.
    */
   includeSupports?: boolean,
+  /** Road surfaces that form the caller's legal carrier at this sample. */
+  excludedSurfaceIds?: ReadonlySet<string>,
+  /** Minimum road-top separation that can count as overhead structure. */
+  minimumVerticalSeparationM?: number,
 ) => ElevatedRoadGroundClearance | null;
 
 /**
@@ -636,6 +652,14 @@ interface ElevatedRoadSurfaceClearanceFrame {
   readonly halfWidthM: number;
 }
 
+type ElevatedRoadSurfaceClearanceQuery = (
+  point: { readonly x: number; readonly z: number },
+  groundElevationM?: number,
+  footprintRadiusM?: number,
+  excludedSurfaceIds?: ReadonlySet<string>,
+  minimumVerticalSeparationM?: number,
+) => ElevatedRoadGroundClearance | null;
+
 /**
  * Full pitched-asphalt footprint, including the 0→0.65 m ramp apron that is
  * intentionally too low for a rendered concrete slab or parapet. This query
@@ -644,7 +668,7 @@ interface ElevatedRoadSurfaceClearanceFrame {
  */
 function createElevatedRoadSurfaceClearanceQuery(
   allSurfaces: readonly ElevatedRoadGeometrySurface[],
-): ElevatedRoadGroundClearanceQuery {
+): ElevatedRoadSurfaceClearanceQuery {
   const frames: ElevatedRoadSurfaceClearanceFrame[] = [];
   for (const surface of allSurfaces) {
     if (!isElevatedRoadSurface(surface)) continue;
@@ -670,10 +694,18 @@ function createElevatedRoadSurfaceClearanceQuery(
     }
   }
 
-  return (point, groundElevationM = 0, footprintRadiusM = 0) => {
+  return (
+    point,
+    groundElevationM = 0,
+    footprintRadiusM = 0,
+    excludedSurfaceIds,
+    minimumVerticalSeparationM = 0,
+  ) => {
     const radiusM = Math.max(0, footprintRadiusM);
+    const minimumSeparationM = Math.max(0, minimumVerticalSeparationM);
     let lowest: ElevatedRoadGroundClearance | null = null;
     for (const frame of frames) {
+      if (excludedSurfaceIds?.has(frame.surfaceId)) continue;
       const offsetX = point.x - frame.startX;
       const offsetZ = point.z - frame.startZ;
       const alongM = offsetX * frame.ux + offsetZ * frame.uz;
@@ -697,7 +729,7 @@ function createElevatedRoadSurfaceClearanceQuery(
         (frame.endElevationM - frame.startElevationM) * amount;
       const clearanceM = roadSurfaceElevationM - groundElevationM;
       // A shared at-grade endpoint is ordinary street, not an obstruction.
-      if (clearanceM <= 0.01) continue;
+      if (clearanceM <= Math.max(0.01, minimumSeparationM)) continue;
       const sample: ElevatedRoadGroundClearance = {
         surfaceId: frame.surfaceId,
         segmentIndex: frame.segmentIndex,
@@ -763,10 +795,14 @@ export function createElevatedRoadDeckHeadroomQuery(
     groundElevationM = 0,
     footprintRadiusM = 0,
     includeSupports = true,
+    excludedSurfaceIds,
+    minimumVerticalSeparationM = 0,
   ) => {
     let lowest: ElevatedRoadDeckHeadroom | null = null;
     const radiusM = Math.max(0, footprintRadiusM);
+    const minimumSeparationM = Math.max(0, minimumVerticalSeparationM);
     for (const frame of frames) {
+      if (excludedSurfaceIds?.has(frame.surfaceId)) continue;
       const offsetX = point.x - frame.centerX;
       const offsetZ = point.z - frame.centerZ;
       const alongPlanM = offsetX * frame.ux + offsetZ * frame.uz;
@@ -799,7 +835,10 @@ export function createElevatedRoadDeckHeadroomQuery(
       // an elevated road sits below its tyres and must not mask a still-higher
       // deck at a stacked interchange. For a ground caller, though, a ramp
       // slab whose soffit intersects the ground is zero clearance, not absent.
-      if (deckElevationM <= groundElevationM + 0.01) continue;
+      if (
+        deckElevationM <=
+        groundElevationM + Math.max(0.01, minimumSeparationM)
+      ) continue;
       const sample = {
         surfaceId: frame.surfaceId,
         segmentIndex: frame.segmentIndex,
@@ -819,6 +858,7 @@ export function createElevatedRoadDeckHeadroomQuery(
     // object answers the same overlap question.
     if (!includeSupports) return lowest;
     for (const pier of piers) {
+      if (excludedSurfaceIds?.has(pier.surfaceId)) continue;
       // The support rises only as far as its own deck. From that deck (or any
       // higher level) it is below the caller, not a column through the road.
       if (
@@ -865,13 +905,23 @@ export function createElevatedRoadGroundClearanceQuery(
     groundElevationM = 0,
     footprintRadiusM = 0,
     includeSupports = true,
+    excludedSurfaceIds,
+    minimumVerticalSeparationM = 0,
   ) => {
-    const raised = raisedSurfaceAt(point, groundElevationM, footprintRadiusM);
+    const raised = raisedSurfaceAt(
+      point,
+      groundElevationM,
+      footprintRadiusM,
+      excludedSurfaceIds,
+      minimumVerticalSeparationM,
+    );
     const deck = deckHeadroomAt(
       point,
       groundElevationM,
       footprintRadiusM,
       includeSupports,
+      excludedSurfaceIds,
+      minimumVerticalSeparationM,
     );
     const structural: ElevatedRoadGroundClearance | null = deck
       ? {
