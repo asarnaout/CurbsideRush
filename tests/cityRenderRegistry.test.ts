@@ -4,6 +4,7 @@ import {
   cityRenderRegistryFor,
 } from "../app/game/render/cityRenderRegistry";
 import { buildCairoLandmark } from "../app/game/render/cairoLandmarks";
+import { buildCairoAdvertising } from "../app/game/render/cairoAdvertising";
 import {
   buildLondonLandmark,
   buildLondonStreetFurniture,
@@ -38,10 +39,10 @@ describe("cityRenderRegistry", () => {
     expect(entry?.streetFurniture).toBe(buildLondonStreetFurniture);
   });
 
-  it("routes Cairo's real map id to its own landmark builder, with no street-furniture entry", () => {
+  it("routes Cairo's real map id to its landmark and advertising builders", () => {
     const entry = cityRenderRegistryFor(CAIRO_MAP_PACK.id);
     expect(entry?.landmarks).toBe(buildCairoLandmark);
-    expect(entry?.streetFurniture).toBeUndefined();
+    expect(entry?.streetFurniture).toBe(buildCairoAdvertising);
   });
 
   it("routes NYC's real map id to its own landmark builder, with no street-furniture entry", () => {

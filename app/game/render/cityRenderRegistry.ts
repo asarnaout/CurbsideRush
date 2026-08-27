@@ -6,11 +6,13 @@ import type {
   TransformNode,
 } from "@babylonjs/core";
 import { buildCairoLandmark } from "./cairoLandmarks";
+import { buildCairoAdvertising } from "./cairoAdvertising";
 import { buildLondonLandmark, buildLondonStreetFurniture } from "./londonLandmarks";
 import { buildNycLandmark } from "./nycLandmarks";
 import { buildTokyoLandmark, buildTokyoStreetFurniture } from "./tokyoLandmarks";
 import type { DestructiblePropPart } from "./propCatalog";
 import type { GameCanvasMapPack, GameCanvasPoint } from "../sessionContract";
+import type { BuildingLayoutPlan } from "../geometry/buildingLayout";
 import type { MapVisualPalette } from "../visuals";
 
 /**
@@ -44,6 +46,7 @@ import type { MapVisualPalette } from "../visuals";
 export interface CityRenderRegistryCtx {
   readonly scene: Scene;
   readonly staticSceneryFreeze: TransformNode[];
+  readonly buildingLayout: BuildingLayoutPlan;
   readonly visualPalette: MapVisualPalette;
   readonly registerShadowCaster: (
     mesh: AbstractMesh,
@@ -79,7 +82,10 @@ export interface CityRenderRegistryEntry {
     material: StandardMaterial,
     mapPack: GameCanvasMapPack,
   ) => boolean;
-  readonly streetFurniture?: (ctx: CityRenderRegistryCtx) => void;
+  readonly streetFurniture?: (
+    ctx: CityRenderRegistryCtx,
+    mapPack: GameCanvasMapPack,
+  ) => void;
 }
 
 export const CITY_RENDER_REGISTRY: Readonly<Record<string, CityRenderRegistryEntry>> = {
@@ -89,6 +95,7 @@ export const CITY_RENDER_REGISTRY: Readonly<Record<string, CityRenderRegistryEnt
   },
   "cairo-central-nile": {
     landmarks: buildCairoLandmark,
+    streetFurniture: buildCairoAdvertising,
   },
   "nyc-upper-west-side": {
     landmarks: buildNycLandmark,

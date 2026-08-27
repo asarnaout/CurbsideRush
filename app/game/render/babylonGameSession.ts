@@ -4997,6 +4997,7 @@ export class BabylonGameSession {
     const cityRenderCtx: CityRenderRegistryCtx = {
       scene,
       staticSceneryFreeze: this.staticSceneryFreeze,
+      buildingLayout: this.buildingLayout,
       visualPalette: palette,
       registerShadowCaster: (mesh, x, z) => this.registerShadowCaster(mesh, x, z),
       registerDestructibleProp: (kind, x, z, scale, parts, elevationM) =>
@@ -6000,7 +6001,7 @@ export class BabylonGameSession {
       }
     }
 
-    cityRenderRegistryFor(mapId)?.streetFurniture?.(cityRenderCtx);
+    cityRenderRegistryFor(mapId)?.streetFurniture?.(cityRenderCtx, mapPack);
 
     const redLamp = makeMaterial(scene, "scenario-signal-red", new Color3(0.45, 0.02, 0.01));
     const amberLamp = makeMaterial(scene, "scenario-signal-amber", new Color3(0.55, 0.27, 0.015));
@@ -6279,6 +6280,7 @@ export class BabylonGameSession {
       {
         scene,
         staticSceneryFreeze: this.staticSceneryFreeze,
+        buildingLayout: this.buildingLayout,
         pendingVendors: this.pendingVendors,
         pendingPlantedProps: this.pendingPlantedProps,
         pendingParkThickets: this.pendingParkThickets,

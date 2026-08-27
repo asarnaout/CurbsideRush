@@ -12,6 +12,7 @@ import {
   type Vector4,
 } from "@babylonjs/core";
 import { NYC_VENDORS, type StreetPropConfig } from "../buildingSets";
+import { cairoAdPlacements } from "../cairoAdvertising";
 import {
   CAIRO_OPEN_WATERFRONT_SIDES,
   cairoTahrirMarkedLotAllowsRoadsidePlacement,
@@ -19,6 +20,7 @@ import {
 import { LONDON_OPEN_WATERFRONT_SIDES } from "../cities/london";
 import { TOKYO_OPEN_WATERFRONT_SIDES } from "../cities/tokyo";
 import { deterministicSceneryKeep } from "../geometry/facadesAndKeepouts";
+import type { BuildingLayoutPlan } from "../geometry/buildingLayout";
 import { roadsidePropKeepOuts } from "../geometry/roadFurnitureLayout";
 import { type ParkPlacement, parkLayoutForLandmark } from "../parkLayouts";
 import { natureModelForPlacement } from "../natureCatalog";
@@ -129,6 +131,7 @@ function makeMaterial(
 export interface RoadsidePropsCtx {
   readonly scene: Scene;
   readonly staticSceneryFreeze: TransformNode[];
+  readonly buildingLayout?: BuildingLayoutPlan;
   readonly pendingVendors: {
     config: StreetPropConfig;
     x: number;
@@ -440,6 +443,12 @@ export function buildRoadsideProps(
           key === "cairo" ? PROMENADE_SHORELINE_CLEARANCE_M : undefined,
       })
     : [];
+  const cairoAdSupportPoints =
+    key === "cairo" && ctx.buildingLayout
+      ? cairoAdPlacements(mapPack, ctx.buildingLayout)
+          .filter((placement) => placement.kind !== "bridge-gantry")
+          .map((placement) => placement.position)
+      : [];
   const roadsidePlacements = generateRoadsidePropPlacements({
     roadSurfaces: roadSurfaces.map((surface) => ({
       id: surface.id,
@@ -471,12 +480,14 @@ export function buildRoadsideProps(
       key === "tokyo" ||
       signPoints.length ||
       occupiedPoints.length ||
+      cairoAdSupportPoints.length ||
       promenadePlacements.length
         ? [
             ...(key === "london" ? LONDON_FURNITURE_POINTS : []),
             ...(key === "tokyo" ? TOKYO_FURNITURE_POINTS : []),
             ...signPoints,
             ...occupiedPoints,
+            ...cairoAdSupportPoints,
             ...promenadePlacements,
           ]
         : undefined,

@@ -69,6 +69,7 @@ that is the actual gate now, not a supplement to one.
 | [docs/map-authoring.md](docs/map-authoring.md) | Edit `content.ts` or a `cities/*.ts`, add a city, or change a road's shape, width or speed limit |
 | [docs/economy.md](docs/economy.md) | Change what work appears, what it pays, what anything costs, or what persists to `localStorage` |
 | [docs/rendering.md](docs/rendering.md) | Touch `GameCanvas.tsx`, world geometry, water, models, the crowd, the cockpit/mirrors, or anything performance-shaped |
+| [docs/city-advertising-playbook.md](docs/city-advertising-playbook.md) | Add or expand citywide ads, pole signs, skyline billboards or bridge gantries in any map |
 | [docs/greenery.md](docs/greenery.md) | Touch grass, a park lawn, park paths or planting — or add a park |
 | [docs/drive-hud.md](docs/drive-hud.md) | Touch `DriveHud` / `TouchDriveControls` / either map, or position any overlay on the drive screen |
 | [docs/audio.md](docs/audio.md) | Touch `app/game/audio/`, or anything that starts a drive |

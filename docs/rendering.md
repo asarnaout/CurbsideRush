@@ -320,6 +320,45 @@ real face). The rig (`nightHemiIntensity`/`nightSunIntensity`/`sunTint`/
 middle distance no matter what the near walls do. Retune palette, rig and fog
 together against wall screenshots, never one alone.
 
+### Cairo advertising is a campaign layer, not roadside scatter
+
+For the reusable cross-map recipe—including content policy, atlas handling,
+gap search, complete-installation collision checks and the porting test matrix—
+read [city-advertising-playbook.md](city-advertising-playbook.md).
+
+`cairoAdPlacements` covers 27 surface corridors—including both Nile bridges—
+rather than a spawn-centred subset. Pole stations sit inside their source pavement
+band, face approaching traffic, and reject the complete pavement envelope of
+every crossing road plus the rail reservation; a valid kerb offset on one road
+is not enough, because that same point can be the centre of another road at a
+junction. Large roadside boards are resolved against the session's exact
+`BuildingLayoutPlan`, not coarse authored block parcels: each nominal station
+searches in deterministic five-metre steps for a genuine gap between rendered
+buildings, tries the opposite side when useful, and keeps the original readable
+55-degree approach cant. This fills all 69 nominal stations across 13 corridors
+without deleting a board. Regression coverage checks the complete 1.08 m-deep
+frame/lamp/pedestal envelope against every drivable road segment, measured asset
+visual, procedural solid, rail/landmark/POI reservation and water edge, with a
+half-metre building buffer. Checking only the pedestal—or rejecting a whole
+block that contains a valid gap—is not sufficient.
+
+The three drivable bridge corridors are a separate third pass. The Sixth of
+October main deck has eight approach-facing gantries over its full 1.2 km run;
+Qasr El-Nil and Al-Galaa receive one each. Gantry faces span the carriageway
+above vehicle clearance while their legs land beyond the asphalt/parapet.
+`buildCairoAdvertising` consumes all three kinds through the city registry's
+`streetFurniture` slot. Geometry is instanced and the eight material variants
+are shared across the whole city; increasing density by creating one material
+or texture per placement defeats that contract.
+
+The committed atlas is artwork only and contains no baked copy. Arabic-majority
+fictional slogans are composed at runtime on `DynamicTexture` layers after the
+same bundled Arabic font gate used by the Corniche crowns. Keep those text and
+art planes separate: it is what makes the words auditable, correctly shaped,
+and replaceable without regenerating imagery. Emission belongs only to the ad
+face and its small lamps; the polished frame uses specular response, never a
+wall-wide light treatment.
+
 ## Grass, parks and planting are their own page
 
 Ground grass, park lawns, paths and planting live in [greenery.md](greenery.md); their y-layer rungs are in the stack above.

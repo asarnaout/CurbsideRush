@@ -1484,10 +1484,34 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // and the obstructed promenade palm relocated along its original row.
     // Two meshes leave this fixed camera's frustum and two extra meshes enter
     // mirror draws; materials/fingerprint remain unchanged.
-    totalMeshes: 15_072,
-    enabledMeshes: 15_028,
-    activeMeshes: 1_829,
-    materials: 319,
+    // -> 16_116/16_072 (active 1_990, materials 346): Cairo's commercial-
+    // advertising layer adds 114 repeated pole panels and 27 skyline boards.
+    // The raw +1,044 enabled meshes are almost entirely instances of shared
+    // pole/frame/face/support/lamp masters; the 27 new materials are the eight
+    // atlas crops, eight transparent text overlays, eight portrait campaign
+    // faces, and three shared polished-frame/support/lamp materials. Moving
+    // the panels into real arterial sightlines puts 161 inside the fixed spawn
+    // frustum; no other city's registry entry changes.
+    // -> 17_883/17_839 (active 2_105): the corrected city-wide pass replaces
+    // the spawn-biased eight-road layout with 534 pavement-seated pole cards
+    // across all 27 boulevards/collectors, 51 skyline boards across 13 axes,
+    // and ten bridge gantries (eight on Sixth October). Foreign-road/rail
+    // envelope rejection removes junction intrusions, approach-facing cards
+    // replace edge-on ones, and reserving the ad support points re-deals the
+    // ordinary roadside scatter. -> 17_880/17_836: centring all 51 skyline
+    // pedestals in their sidewalks and turning their complete frames almost
+    // parallel to the kerb clears roads/buildings; those shifted reservation
+    // points re-deal three ordinary roadside props. The shared 27-material
+    // inventory, active set and mirror ring remain unchanged.
+    // -> 18_076/18_032: exact rendered-building gap search restores the
+    // readable 55-degree cant and fills all 69 nominal skyline slots. The 18
+    // added boards contribute 180 instances; relocating all support
+    // reservations into real gaps re-deals 16 ordinary roadside props. The
+    // fixed spawn's active set, materials and mirror ring remain unchanged.
+    totalMeshes: 18_076,
+    enabledMeshes: 18_032,
+    activeMeshes: 2_105,
+    materials: 346,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1507,8 +1531,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // re-deal the street furniture held inside that ring.
     // -> 93 / 144: sparse signs and rebalanced facade dressing reduce the
     // nearby chunk set without changing the mirror rig itself.
-    mirrorCandidates: 30,
-    mirrorDrawn: 152,
+    // The nearby Qasr El-Ainy pole run adds mirror-visible instances while one
+    // previous candidate drops out of the fixed distance/cull ordering.
+    mirrorCandidates: 29,
+    mirrorDrawn: 168,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1524,7 +1550,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "48a1630c": the three Cairo shop signs plus storefront shutter.
     // -> "2e92838d": seven more Cairo business-sign materials.
     // -> "807eeb5f": the three Cairo-only barrier materials above.
-    survivingMaterialNamesFingerprint: "807eeb5f",
+    // -> "edd55ddc": 24 ad-face/copy campaign materials plus polished frame,
+    // support steel and billboard lamp.
+    survivingMaterialNamesFingerprint: "edd55ddc",
   },
 };
 

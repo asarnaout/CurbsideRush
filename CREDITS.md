@@ -849,6 +849,13 @@ public-space character, and currency naming:
   compositions while adding the blue player sedan and modern traffic. Cairo is
   a new Central Nile composition featuring the Qasr El-Nil Bridge lions, Cairo
   Tower, a felucca and the blue player sedan.
+- **`public/art/cairo/fictional-ad-atlas-v1.png`** — original fictional
+  commercial artwork generated with OpenAI (ChatGPT) for the project owner on
+  2026-08-27. The supplied Cairo street photographs were used only as visual
+  references for billboard colour, scale and variety; none is reproduced or
+  bundled. The atlas contains generic unbranded product imagery with no people,
+  text, trademarks or third-party logos. All visible Arabic/English copy is
+  authored separately by Curbside Rush and composited at runtime.
 - **og.jpg** (the link-preview card) — generated with OpenAI (ChatGPT) by the
   project owner on 2026-07-24, who owns the output under OpenAI's Terms of Use.
   Downloaded as `curbside-rush-og-image-generic-vehicles.jpg`. A stylised
