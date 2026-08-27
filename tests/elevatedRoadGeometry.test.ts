@@ -228,9 +228,37 @@ describe("elevated-road structure placement", () => {
     const structural = createElevatedRoadDeckHeadroomQuery(surfaces);
     const groundClearance = createElevatedRoadGroundClearanceQuery(surfaces);
     const apronPoints = [
-      { x: -798.87, z: 318.44 },
-      { x: 703.77, z: 163.26 },
-    ];
+      "cairo-sixth-october-bridge-west-entry",
+      "cairo-sixth-october-bridge-east-entry",
+    ].map((surfaceId) => {
+      const surface = surfaces.find((candidate) => candidate.id === surfaceId)!;
+      const targetElevationM = 0.4;
+      for (
+        let index = 0;
+        index + 1 < surface.centerline.length;
+        index += 1
+      ) {
+        const start = surface.centerline[index];
+        const end = surface.centerline[index + 1];
+        const startElevationM = start.elevationM ?? 0;
+        const endElevationM = end.elevationM ?? 0;
+        if (
+          targetElevationM < Math.min(startElevationM, endElevationM) ||
+          targetElevationM > Math.max(startElevationM, endElevationM) ||
+          startElevationM === endElevationM
+        ) {
+          continue;
+        }
+        const amount =
+          (targetElevationM - startElevationM) /
+          (endElevationM - startElevationM);
+        return {
+          x: start.x + (end.x - start.x) * amount,
+          z: start.z + (end.z - start.z) * amount,
+        };
+      }
+      throw new Error(`${surfaceId} has no 0.4 m landing apron`);
+    });
     for (const point of apronPoints) {
       expect(structural(point, 0, 0.5), `${point.x},${point.z} slab`).toBeNull();
       const obstruction = groundClearance(point, 0, 0.5);
@@ -524,6 +552,69 @@ describe("elevated-road structure placement", () => {
           `${branchId} mainline opening`,
         ).toBeGreaterThan(branch.widthM / 2 + 0.6);
       }
+    }
+  });
+
+  it("keeps both terminal carrier joins open and level through the mainline throat", () => {
+    const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces;
+    const mainline = surfaces.find(
+      (surface) => surface.id === "cairo-sixth-october-bridge",
+    )!;
+    const terminalIds = [
+      "cairo-sixth-october-bridge-west-ramp",
+      "cairo-sixth-october-bridge-east-ramp",
+    ] as const;
+
+    for (const terminalId of terminalIds) {
+      const carrier = surfaces.find((surface) => surface.id === terminalId)!;
+      const shared = carrier.centerline[0];
+      const mainlinePointIndex = mainline.centerline.findIndex(
+        (point) =>
+          Math.hypot(point.x - shared.x, point.z - shared.z) < 0.05 &&
+          Math.abs((point.elevationM ?? 0) - (shared.elevationM ?? 0)) < 0.05,
+      );
+      expect(mainlinePointIndex, terminalId).toBeGreaterThanOrEqual(0);
+      expect(
+        carrier.centerline[1].elevationM,
+        `${terminalId} stays level beyond the four-lane footprint`,
+      ).toBeCloseTo(shared.elevationM ?? 0, 3);
+
+      const carrierSegment = elevatedRoadSegmentPlacements(carrier)[0];
+      const carrierRuns = elevatedRoadEdgeRuns(
+        carrier,
+        carrierSegment,
+        surfaces,
+      );
+      expect(carrierRuns, terminalId).toHaveLength(2);
+      expect(
+        carrierRuns.every(
+          (run) => run.startTrimM > mainline.widthM / 2 + 0.6,
+        ),
+        `${terminalId} parapets clear the mainline fan/funnel`,
+      ).toBe(true);
+      expect(
+        elevatedRoadDeckRun(carrier, carrierSegment, surfaces)?.startTrimM,
+        `${terminalId} asphalt remains continuous`,
+      ).toBe(0);
+
+      const mainlineSegmentIndex =
+        mainlinePointIndex === 0
+          ? 0
+          : mainlinePointIndex - 1;
+      const mainlineSegment = elevatedRoadSegmentPlacements(mainline).find(
+        (segment) => segment.segmentIndex === mainlineSegmentIndex,
+      )!;
+      const mainlineRuns = elevatedRoadEdgeRuns(
+        mainline,
+        mainlineSegment,
+        surfaces,
+      );
+      const sharedTrim = (run: (typeof mainlineRuns)[number]) =>
+        mainlinePointIndex === 0 ? run.startTrimM : run.endTrimM;
+      expect(
+        mainlineRuns.every((run) => sharedTrim(run) === 0),
+        `${terminalId} does not cut a side opening into the mainline end`,
+      ).toBe(true);
     }
   });
 

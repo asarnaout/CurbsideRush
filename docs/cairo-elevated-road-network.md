@@ -48,39 +48,61 @@ with buildings remaining alongside and ordinary roads continuing beneath.
 
 ## Authored network
 
-`cairo-sixth-october-bridge` is now a legal four-lane, 60 km/h road. It rises
-from the west-bank road network to a 10.5 m deck, crosses both Nile channels,
-continues above the central city and descends into Al-Galaa Street. Four access
-locations connect it to the rest of the directed lane graph:
+`cairo-sixth-october-bridge` is now a legal four-lane, 60 km/h road held at a
+10.5 m deck through the main corridor. Six access sites connect it to the
+directed lane graph, providing twelve movements in total:
 
-- separate one-way Dokki entrance/exit grades feeding a high two-way stem;
-- paired one-way Gezira entrance/exit slips feeding a two-way ramp;
-- separate one-way Corniche entrance and exit ramps, each with its own slip;
-- paired one-way Ramses entrance/exit slips feeding a two-way ramp.
+| Access site | Host street | Elevated connection |
+|---|---|---|
+| West terminal | Charles De Gaulle Street (`cairo-west-nile-street`) | Separate one-way grades meet the west high terminal carrier at a 7 m braid. |
+| Dokki | Al Dokki Street (`cairo-dokki-nile-drive`) | Separate one-way grades meet a high two-way stem. |
+| Gezira | Al Saraya Street (`cairo-saray-el-gezira`) | Separate one-way grades meet a high two-way stem. |
+| Corniche | Corniche El-Nil (`cairo-corniche-el-nil`) | Independent one-way entry and exit structures connect directly to the mainline. |
+| Ramses | Ramsis Street (`cairo-ramses`) | Separate one-way grades meet a high two-way stem. |
+| East terminal | Al-Galaa Street (`cairo-galaa-street`) | Separate one-way grades meet the east high terminal carrier at a 7 m braid. |
+
+The terminal carriers are distinct two-way elevated roads between the 10.5 m
+mainline crest and their 7 m directional braids. Each remains level through a
+short collinear throat beyond the four-lane footprint before descending, so
+the lane fan/funnel and its parapets cannot form a mismatched slab seam inside
+the join. Below each braid, entry and
+exit remain separate one-way grades and at-grade slips. On entry, the single
+carrier lane fans into both same-direction mainline lanes; on exit, both
+mainline lanes funnel into the single carrier lane. At the four intermediate
+mainline connections, entries and exits use only the outer/curb-side travel
+lane. The terminal fan/funnel is the deliberate exception. The former direct
+centreline T-junctions are retired; terminal connections now obey the same
+street-preserving access grammar as the four intermediate sites.
 
 Every street connection is a local widening, not a replacement carriageway.
-The original two-way street continues through two inserted topology nodes. A
-4.2 m auxiliary lane peels toward a lift point 40–70 m away, and only there
-does it meet the elevated ramp. Direction-qualified turn grants admit the
-entry from the correct host lane and return the exit to the correct travel
-direction; the opposite side of the street cannot make an implausible turn
-through the ramp. Where Cairo's preserved frontage leaves only one vertical
-reservation, the two ground slips braid into one two-way deck after leaving
-the street rather than forcing two decks through buildings.
+The original two-way street continues through two inserted topology nodes.
+For the legal direction of travel, each 4.2 m auxiliary lane begins or ends on
+the driver's right; opposite host directions therefore use opposite physical
+kerbs. The entry may not cross the opposing host lane after leaving its mouth,
+and an exit returns only to its direction-qualified host lane.
 
-Two approaches are especially important regression examples:
+Each at-grade slip stays at zero elevation through the merge and widening.
+The profiled ramp begins only after the host through lane is visibly and
+physically continuous and the auxiliary lane has separated. Where the ramp
+must turn through dense frontage, ascent and the turn are delayed until a full
+vehicle envelope has cleared the live street and the coordinated frontage
+setback. Where preserved frontage leaves only one vertical reservation, the
+two ground slips braid into one two-way deck after leaving the street rather
+than forcing two decks through buildings.
 
-- The far-west Dokki access preserves Al Dokki Street as a complete two-way
+Several approaches are especially important regression examples:
+
+- The Dokki access preserves Al Dokki Street as a complete two-way
   road. Its entrance climbs in a 4.2 m Nile-side auxiliary lane south of the
   merge; its exit descends in the same widened corridor farther north. The low
   grades never sit beside or on top of one another. Entry, shared stem and exit
   meet only at a 7 m-high directional braid, so the old low 7.6 m two-way slab
-  cannot cover the continuing street. The six waterfront frontage parcels and
-  all eight dense infill buildings remain; the six parcels plus five affected
-  dense buildings move back only 6 m, while the northern three stay in place.
+  cannot cover the continuing street. The complete waterfront and dense
+  frontage rows remain. A coordinated setback creates the kerb-side lane
+  without deleting individual buildings or routing the grade through façades.
   The one promenade palm whose measured crown reached the new grade is
   relocated along the same bank rather than filtered out.
-- The far-east Ramses access does not drop a two-way ramp onto the road
+- The Ramses access does not drop a two-way ramp onto the road
   centreline. Separate 4.2 m entry and exit grades follow opposite kerbs and
   remain distinct until they reach 7 m over the Turgoman clearance point. The
   existing Ramses lanes stay continuous underneath and the two grades braid
@@ -91,6 +113,10 @@ Two approaches are especially important regression examples:
   Corniche carriageway, reaches ground south of Champollion and continues as
   an at-grade auxiliary lane. Neither the mainline braid nor the continuing
   street is occupied by a low, impassable slab.
+- The west and east terminal approaches keep their high carriers separate
+  from both the four-lane mainline and the low one-way grades. This makes the
+  two-to-one lane fan/funnel explicit at deck height while preserving Charles
+  De Gaulle Street and Al-Galaa Street as ordinary two-way roads below.
 
 The former bridge landmark and ramp-stub ids remain as non-rendered reservation
 parcels. This preserves the exact deterministic building layout while the road
@@ -165,9 +191,16 @@ surface—not a landmark mesh—provides the drivable deck.
   relocated.
 - Low shoreline and at-grade bridge-parapet colliders stop at 3.5 m: street
   vehicles still meet the bank, while cars on the 10.5 m main deck pass over it.
-- Regulatory signs and hidden traffic portals inherit their lane height. Local
-  traffic can therefore enter the flyover without materialising below the deck,
-  and inactive-level portals are excluded from the player's nearby population.
+- Regulatory signs and hidden traffic portals inherit their lane height. A
+  split road-id seam is treated as continuous only when it has exactly one
+  arriving one-way arm, one departing one-way arm and an explicit successor
+  link; that authoring-only seam emits no duplicate junction signs. Real
+  entry/exit mouths remain signed, and a bounded same-road/successor station
+  search keeps correctly oriented `ONE WAY`, `DO NOT ENTER` and `WRONG WAY`
+  posts on short first or last segments instead of silently dropping them.
+  Local traffic can therefore enter the flyover without materialising below
+  the deck, and inactive-level portals are excluded from the player's nearby
+  population.
 - NPC state and render interpolation carry previous/current elevation. Player,
   NPC and NPC/NPC swept contacts include swept height, so stacked plan-view
   crossings neither collide nor reserve one another's space.
@@ -197,41 +230,53 @@ nodes are topological only, so they do not re-segment the visible street or its
 procedural frontage. A regression test compares every elevated deck segment's
 oriented footprint with every block OBB and requires zero intersections. The
 lane-corridor and full pavement-band audits also include every new slip. No
-building or landmark asset was deleted. At Dokki, the complete affected
-frontage row is explicitly retained and set back 6 m as a unit; a 0.75 m
-façade guard is tested against every entry, stem and exit segment so that the
-setback cannot regress into clipping or become a pretext for deletion. The
-full-height exit now splays away from the still-rising entrance before turning
-north, so the fix removes the physical slab overlap rather than granting a
-broad collision exemption.
+building or landmark asset was deleted. Only the exact frontage pieces that
+intersect a reviewed auxiliary-lane envelope receive small explicit setbacks;
+unaffected neighbours remain fixed, and every building id, dimension, height
+and material remains stable.
+At Dokki, a 0.75 m façade guard is tested against every entry, stem and exit
+segment so that the setback cannot regress into clipping or become a pretext
+for deletion. The full-height exit now splays away from the still-rising
+entrance before turning north, so the fix removes the physical slab overlap
+rather than granting a broad collision exemption.
 
 The structural regression suite also checks signal headroom, model-specific
 parked-car clearance, both west/east landing-apron pedestrian exclusion,
-seeded crowd motion at those mouths, low-deck pedestrian exclusion and complete coverage of
-each rendered parapet run by physical barrier chunks, without barriers across
-trimmed merge openings. Simulation regressions exercise
+seeded crowd motion at those mouths, low-deck pedestrian exclusion and complete
+coverage of each rendered parapet run by physical barrier chunks, without
+barriers across trimmed merge openings. The topology regression pins all six
+sites and twelve movements, and the structural-opening regression includes
+both terminal-carrier joins as well as every intermediate mainline mouth.
+Simulation regressions exercise
 ground/elevated projection at the same x/z, swept cross-level traffic contacts,
 same-level barrier response, enforcement filtering, elevation-aware
 destructibles, 3D render-snap detection and exact Ramses/Corniche under-deck
-plus slope-aware pull-over choreography. Additional production-map regressions
-drive the Qasr El Ainy underpass from `(318, 215)` through `(416, 203)` and the
-Dokki Nile Drive through route from `z=511` to `z=440`; both must stay at zero
-elevation and must never capture the 6th October Bridge or Dokki ramp. A
-separate Al-Galaa threshold trace crosses `z=308.25` to `z=308.00`, where the
-old 12 m cutoff lifted the car from zero to 10.5 m in one 25 cm move. A directed
-entry fixture proves the legitimate Dokki on-ramp still
-acquires its rising profile. Synthetic vehicle-envelope regressions separately
-prove that a 1.38 m soffit and the pre-slab raised apron block a 1.5 m car, a
-high span remains passable, and a connected ramp climb reaches the elevated
-level without a false deck collision. Ten production traces now cross every
-Dokki, Gezira, Corniche and Ramses profile/slip handoff in both authored access
-directions. A wrong-way exit-mouth trace remains blocked, and a dense Corniche
-exit sweep uses the delivery van's complete rear/centre/front roof envelope and
-verifies at least 2.26 m of usable headroom where that ramp braids beneath the
-mainline. A second production-core sweep steps that same largest vehicle across
-more than 10,000 positions on every Cairo bridge and access-lane profile; a
-full legal-lane-width capsule sweep separately checks every parapet bend and
-mouth.
+plus slope-aware pull-over choreography. Ground-lock projection traces cover
+the Qasr El Ainy underpass, the Dokki Nile Drive through route and the former
+12 m capture-threshold edge beneath the west/main corridor. They must stay at
+zero elevation and never capture the 6th October Bridge or a nearby ramp. A
+directed entry fixture proves the legitimate Dokki on-ramp still acquires its
+rising profile. Synthetic vehicle-envelope regressions separately prove that
+a 1.38 m soffit and the pre-slab raised apron block a 1.5 m car, a high span
+remains passable, and a connected ramp climb reaches the elevated level without
+a false deck collision. Profile-derived production traces automatically
+inventory and traverse every elevated 6th October mainline, carrier, entry,
+stem and exit surface, including both terminals; a hand-maintained
+intermediate-only list is not accepted. A wrong-way exit-mouth trace remains
+blocked, and a dense
+Corniche exit sweep uses the delivery van's complete rear/centre/front roof
+envelope and verifies at least 2.26 m of usable headroom where that ramp braids
+beneath the mainline.
+
+Two production static-collider sweeps are mandatory and serve different
+purposes. The all-map sweep samples every legal lane at no more than 2 m
+intervals, interpolates the lane elevation and checks every production solid.
+The Cairo bridge sweep samples every 6th October lane at no more than 0.5 m
+intervals against the actual `roadBarrier` colliders. It uses the maximum
+catalogue capsule radius and half-length, left/centre/right legal vehicle
+positions and front/rear capsule discs. Together they prevent a clear
+centreline from concealing a stale barrier, intrusive miter, transverse end cap
+or non-barrier solid.
 
 For the implementation order and required drive checklist before extending
 this system to another city, see

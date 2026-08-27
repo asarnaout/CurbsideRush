@@ -16,14 +16,17 @@ application of the contract is recorded in
 2. Roads that cross in plan but at different heights do not share a graph
    node. Only a real ramp, merge or junction connects their lanes.
 3. The host street remains continuous through every ramp area. An entrance or
-   exit begins as an auxiliary lane and tapers into the host; it never replaces
-   the full street.
+   exit begins as an auxiliary lane on the driver's right and tapers into the
+   host; it never replaces the full street or crosses the opposing host lane.
 4. Rendered solids and physical solids come from the same geometry runs.
 5. A ground actor, prop, camera or enforcement vehicle cannot interact with an
    elevated vehicle merely because their plan-view footprints overlap.
 6. Buildings are preserved by routing through reviewed reservations and by
    adjusting bridge geometry. Deleting the surrounding city is not a bridge
    authoring technique.
+7. Acceptance requires a sweep against the actual production static colliders
+   over the complete legal lane envelope. A clear centreline or a successful
+   drive in one small vehicle is not proof of clearance.
 
 ## One source of height truth
 
@@ -65,6 +68,7 @@ drivable, its lane graph and road surface must own its height.
 | Barrier obstacle registration and response | `simulationAdapter.ts`, `simulation/playerDynamics.ts` |
 | Ground-walker occupancy | `crowdWalkers.ts`, wired by `render/babylonGameSession.ts` |
 | Parked-car and prop headroom | `parkedCars.ts`, `render/roadsideProps.ts` |
+| Regulatory sign mouths and road-id seams | `regulatorySigns.ts` |
 | Destructible level ownership | `render/destructibles.ts` |
 | Pull-over grade sampling and actor interpolation | `cutsceneScript.ts`, `render/cutsceneDirector.ts` |
 | Map level emphasis | `minimapDraw.ts`, `MinimapCanvas.tsx`, `ExpandedMap.tsx` |
@@ -103,17 +107,44 @@ host through lane ────────────────┬───�
 ```
 
 For a two-way connection, use direction-specific entry and exit slips on the
-correct sides of the street. Keep the low portions separate. They may braid
-into a shared two-way stem only after both soffits clear traffic and people
-below.
+driver's right for each legal host direction. This means the two directions
+normally use opposite physical kerbs. The host lane continues straight while
+an entry auxiliary lane diverges from it; an exit auxiliary lane joins and
+then tapers into it. The ramp connector grants only this curb-side movement,
+not a turn across the opposing carriageway. Keep the low portions separate.
+They may braid into a shared two-way stem only after both soffits clear traffic
+and people below.
+
+Keep the whole slip and widening at ground elevation. Put the first rising
+profile point beyond the mouth, after a full vehicle can occupy the auxiliary
+lane without overlapping the through lane. If the alignment must turn through
+dense frontage, delay that turn and the meaningful ascent until the vehicle
+has cleared both the live street and the coordinated frontage setback. A short
+diagonal from the host centreline to an already-raised slab is neither a taper
+nor a usable on-ramp.
 
 When dense frontage leaves room for only one auxiliary corridor, separate the
 directions *longitudinally* instead of stacking two low grades side by side:
 let the entrance climb in one block-length, let the exit descend farther along
 the street, and join them at a high directional braid. End the two-way stem at
 that braid; extending one reverse lane past the join creates an unreachable
-lane even if the asphalt looks continuous. Cairo's west Dokki access is the
+lane even if the asphalt looks continuous. Cairo's Dokki access is the
 reference implementation.
+
+At a network terminal, do not use the four-lane mainline itself as the low
+approach. End it at full deck height and connect it to a distinct high carrier;
+then connect that carrier to separate one-way entry and exit grades at a lower,
+still-clear braid. Keep a short collinear carrier throat at mainline elevation
+until it has cleared the full mainline footprint; beginning the descent at the
+shared node creates mismatched slabs and parapet cutbacks inside the merge.
+Author every lane-count transition with explicit lane successors: the carrier's
+single lane fans out to the mainline lanes on entry, while the mainline lanes
+funnel into it on exit.
+This keeps the high lane-count change separate from the street mouth and
+prevents a two-way slab from covering the host road. Cairo uses one such
+carrier at each end of its mainline. At nonterminal connections, restrict an
+entry or exit to the mainline's outer/curb-side travel lane; the terminal
+fan/funnel is a deliberate exception, not the default merge rule.
 
 The following are authoring failures:
 
@@ -174,6 +205,14 @@ Use this order when a proposed alignment conflicts with the environment:
 3. split the directions and braid them after gaining clearance;
 4. adjust the grade or add a deliberate curve around frontage;
 5. move one asset only when the first four cannot produce a valid result.
+
+When a kerb-side lane requires more room, move only the exact affected
+frontage pieces outward by the smallest reviewed setbacks rather than deleting
+isolated buildings or shifting an untouched row wholesale. Preserve asset ids,
+dimensions, heights and materials, keep unaffected neighbours fixed, and make
+the ramp turn through an existing or coordinated frontage break only after
+vehicle clearance. A setback is a last geometric accommodation, not permission
+to erase the streetscape.
 
 Record any moved authored asset explicitly. Procedural pavement furniture that
 cannot physically fit beneath a low ramp must first search deterministic local
@@ -301,10 +340,15 @@ the prepared query before it selects the lowest one:
 - discard road tops within the 0.35 m road-level capture band of the tyres;
 - always exclude the projected carrier road;
 - for the leading capsule sample, exclude only a directed successor;
+- for the centre capsule sample, exclude both its directed predecessor and
+  successor;
 - for the trailing sample, exclude only a directed predecessor;
 - never use the predecessor exemption on a leading/wrong-way ground approach;
 - after removing carrier candidates, still return any genuinely separate deck
   above them.
+
+Leading and trailing are measured in the lane's signed legal travel direction,
+not in polyline storage order.
 
 The front/centre/rear distinction matters. Broadly exempting every connected
 road makes an off-ramp climbable backward; rejecting every differently named
@@ -345,6 +389,30 @@ structure. If no such position exists, reauthor the ramp touchdown rather than
 putting a signal through concrete. Conversely, do not apply one excessively
 tall clearance constant to every prop: that erases plausible low furniture and
 makes a high, useful undercroft needlessly empty.
+
+### Regulatory signs at road-id seams
+
+Road ids often change where a ground slip hands to its elevated continuation.
+That name change is not automatically a junction. Suppress junction sign
+clutter only when the node is an explicit successor-linked, degree-two one-way
+continuation: exactly one one-way arm arrives, exactly one one-way arm departs,
+every arriving lane links to a departing lane and every departing lane is
+reached by an arrival. There is no branch or legal choice. Do not infer
+continuity from matching names, collinearity or visual overlap. A real
+entry/exit mouth must retain its controls:
+
+- `ONE WAY` blades identify an enterable one-way mouth;
+- `DO NOT ENTER` faces the driver approaching a forbidden mouth;
+- `WRONG WAY` repeaters face against legal flow beyond that mouth;
+- every placement inherits the local road elevation and tangent.
+
+Short first or last segments do not justify silently omitting a sign. A bounded
+station search may continue through same-road segments and explicit degree-two
+successor seams, but it must stop before a real branch, crossing or terminal.
+Search each kerb independently for a point clear of same-level carriageways and
+authored furniture, preserving the sign's legal-flow orientation. This keeps a
+blocked post from deleting its mate and keeps an authoring seam from filling a
+ramp with contradictory `ONE WAY` / `DO NOT ENTER` posts.
 
 ### Destructible props retain their level
 
@@ -455,6 +523,20 @@ The Cairo network uses the 6th October Bridge corridor and retains its original
 reservation parcels so deterministic frontage does not reshuffle. The mainline
 and access roads are legal lane-graph surfaces, not the old scenic landmark.
 
+Its current topology has six access sites and twelve directed movements: west
+terminal, Dokki, Gezira, Corniche, Ramses and east terminal, with one entry and
+one exit at each. Every street mouth is a right-side auxiliary lane while the
+host keeps both through directions. Dokki, Gezira and Ramses join through high
+two-way stems; Corniche uses independent one-way structures. At the outer ends,
+the flat 10.5 m four-lane mainline meets separate west and east high terminal
+carriers, each of which descends only to a 7 m braid before splitting into the
+low one-way grades. Intermediate ramps use the outer travel lane (zero-based
+lane index 1 in each mainline direction). The terminals are the explicit
+exception: one carrier lane fans into both mainline lanes on entry, and both
+mainline lanes funnel into it on exit. This six-site/12-movement inventory is
+the minimum Cairo coverage unit: describing or testing only the four
+intermediate sites leaves both terminal access systems unaccounted for.
+
 The bugs that prompted this guide came from independent planar assumptions in
 several systems:
 
@@ -491,33 +573,45 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
 
 ## Implementation order for another map
 
-1. Author matching lane and road-surface elevation profiles; split stacked
-   nodes and grant turns only at real ramps or same-height junctions.
-2. Preserve each host street, then add direction-specific auxiliary entry and
-   exit slips with a real taper and an open ground mouth.
-3. Run deck, block, pavement, pier and through-lane clearance audits before
-   changing any building. Adjust alignment and grade first.
-4. Generate asphalt and all structure runs from the surface profile. Register
+1. Inventory every access site as explicit entry and exit movements. Author
+   matching lane and road-surface elevation profiles, split stacked nodes and
+   grant turns only at real ramps or same-height junctions.
+2. Preserve each host street, then add direction-specific, right-side auxiliary
+   entry and exit slips with a real taper and an open, at-grade mouth. Delay
+   ascent and any frontage turn until a full vehicle has cleared the through
+   carriageway.
+3. Where a terminal changes mainline lane count or elevation, introduce a
+   separate high carrier and a still-clear directional braid before the low
+   one-way grades. Do not make the mainline or a two-way stem the street mouth.
+4. Run deck, block, pavement, pier and through-lane clearance audits before
+   changing any building. Adjust alignment and grade first; if a setback is
+   unavoidable, move the coordinated frontage row without deleting assets.
+5. Generate asphalt and all structure runs from the surface profile. Register
    local-height parapet OBBs from the same trimmed edge runs, then attach any
    city-specific coping, paint, markers or upper rail to those runs as
    render-only dressing. Offset elevated poles, signal heads, enforcement
    cameras and crossing rigs by their authored base height, and pitch stop
    bars/road markings between endpoint heights.
-5. Enable height-continuous projection for player and NPC traffic and propagate
+6. Enable height-continuous projection for player and NPC traffic and propagate
    previous/current elevation through snapshots and render interpolation. Pose
    snap detection must measure vertical displacement too, so a pure level
    reassignment cannot be blended through a deck.
-6. Gate collisions, vulnerable users, enforcement, ground-only interactions
+7. Gate collisions, vulnerable users, enforcement, ground-only interactions
    and destructibles with the shared physical elevation band.
-7. Prepare one structural headroom query and apply object-specific envelopes to
+8. Prepare one structural headroom query and apply object-specific envelopes to
    the player's full roof capsule, walkers, signals, parked cars, roadside props
    and every park-planting queue. Preserve high underpasses and legal ramp
    travel; never substitute a blanket two-dimensional slab collider.
-8. Make cutscene vehicles, walking actors and camera targets sample the chosen
-   road profile instead of using a constant stage Y.
-9. Add ground/elevated emphasis to both map views from the player's road
-   elevation.
-10. Complete the automated and in-game checks below before copying the pattern.
+9. Generate regulatory signs from legal flow. Suppress only explicit
+   successor-linked degree-two road-id seams, and station real mouth controls
+   along short connected segments without crossing a true junction.
+10. Make cutscene vehicles, walking actors and camera targets sample the chosen
+    road profile instead of using a constant stage Y.
+11. Add ground/elevated emphasis to both map views from the player's road
+    elevation.
+12. Run both production static-collider sweeps—the all-solid lane corridor and
+    the barrier-only legal lateral envelope—then complete the remaining
+    automated and in-game checks below before copying the pattern.
 
 ## Required verification for every future map
 
@@ -525,8 +619,14 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
 
 - every elevated surface and lane has the same elevation profile;
 - stacked crossings have distinct nodes and no accidental turn grant;
-- each ramp is reachable in its intended direction and can return to the host;
-- the host road has a continuous through route past every mouth;
+- the access inventory contains a reachable entry and exit for every declared
+  site (all twelve movements across Cairo's six sites);
+- the host road has a continuous through route past every mouth and each
+  auxiliary lane lies on the driver's right for its legal direction;
+- every slip remains at grade through its widening, with ascent and any
+  frontage turn delayed until the auxiliary lane clears the live street;
+- a terminal mainline uses a distinct high carrier and high braid instead of
+  covering its host road with the mainline or a low two-way approach;
 - a constrained pair of low grades occupies separate longitudinal zones and
   shares no low two-way slab;
 - low ramp structure does not overlap the host through-lane envelope;
@@ -540,11 +640,20 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
 - any blocked promenade asset is deterministically relocated along its own run
   before final rendering rather than silently disappearing;
 - every rendered edge run is fully covered by barrier chunks, with no extra
-  barrier crossing a trimmed merge opening.
+  barrier crossing a trimmed merge opening;
 - every sharp bend clears the centre and both ends of the widest playable
   capsule at the full legal lateral lane envelope;
 - joined elevated endpoints emit neither a transverse terminal cap nor an
-  ordinary seam extension into the connected carriageway.
+  ordinary seam extension into the connected carriageway;
+- an explicit successor-linked degree-two road-id seam produces no junction
+  sign clutter, while every real one-way mouth retains correctly faced controls
+  even when its first or last segment is short;
+- the mandatory all-map sweep samples every legal lane at no more than 2 m
+  intervals, interpolates elevation and checks every production static solid;
+- the mandatory network barrier sweep samples at no more than 0.5 m intervals
+  and uses the maximum catalogue capsule radius and half-length at left, centre
+  and right legal vehicle positions, including front and rear discs, on every
+  elevated lane and ramp.
 
 ### Simulation tests
 
@@ -586,8 +695,8 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
   cover either filmed subject.
 
 The shipped regression homes are `tests/elevatedRoadGeometry.test.ts`,
-`tests/elevatedRoadVehicleHeadroom.test.ts`,
-`tests/cairoContent.test.ts`, `tests/simulation.test.ts`,
+`tests/elevatedRoadVehicleHeadroom.test.ts`, `tests/staticColliders.test.ts`,
+`tests/regulatorySigns.test.ts`, `tests/cairoContent.test.ts`, `tests/simulation.test.ts`,
 `tests/simulationAdapter.test.ts`, `tests/trafficRouteGoal.test.ts`,
 `tests/crowdWalkers.test.ts`, `tests/parkedCars.test.ts`,
 `tests/roadsidePropHeadroom.test.ts`, `tests/destructibles.test.ts`,
@@ -614,13 +723,17 @@ not replace shared coverage with screenshots.
 
 ### In-game acceptance drive
 
-Drive every entry and exit in both camera modes. At each stacked crossing,
-stop once on the ground and once above it. Confirm:
+Drive every declared entry and exit in both camera modes—twelve movements
+across six sites in Cairo. Repeat every ramp mouth and sharp edge bend in the
+widest/longest playable vehicle. At each stacked crossing, stop once on the
+ground and once above it. Confirm:
 
 - no vertical snapping or ground meshing;
 - no phantom collision, horn, impact sound, pause or fine;
 - no pedestrian, signal, sign, tree or lamp intersects a low deck;
 - the continuing street is visibly and physically open beside the ramp;
+- each entry and exit is visibly unambiguous, with no duplicate or conflicting
+  signs at successor-linked road-id seams;
 - parapets contain the vehicle without invisible transverse walls at merges;
 - barrier profiles, coping and traffic-side markers remain clearly legible in
   the map's night palette; any decorative upper rail stays visibly seated on a

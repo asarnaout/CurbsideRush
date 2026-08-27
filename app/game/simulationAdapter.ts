@@ -888,7 +888,7 @@ export function buildTrafficLocalityConfig(mapPack: GameCanvasMapPack): {
 /** Arclength fractions for the supplemental oncoming gates on a two-way road. */
 const ONCOMING_GATE_FRACTIONS = [0.72, 0.28] as const;
 
-function buildTrafficGates(
+export function buildTrafficGates(
   mapPack: GameCanvasMapPack,
 ): SimulationTrafficGate[] {
   const lanes = mapPack.laneGraph.lanes;
@@ -921,6 +921,17 @@ function buildTrafficGates(
     const surfaceLanes = surface.laneIds
       .map((id) => laneById.get(id))
       .filter((lane): lane is GameCanvasLane => Boolean(lane));
+    // Direction is authored explicitly on one-way lanes. Do not try to infer
+    // an opposing carriageway from their end-to-end geometry: on a hairpin or
+    // loop, later pieces naturally point against the first piece even though
+    // every vehicle still travels in the same legal direction. The geometric
+    // split below is only meaningful for a genuinely two-way surface.
+    if (
+      surfaceLanes.length > 0 &&
+      surfaceLanes.every((lane) => lane.role === "one_way")
+    ) {
+      continue;
+    }
     const reference = surfaceLanes.map(laneForwardDirection).find(Boolean);
     if (!reference) continue;
     const forward: GameCanvasLane[] = [];

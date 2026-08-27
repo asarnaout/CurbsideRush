@@ -616,11 +616,11 @@ describe("Cairo Central Nile content", () => {
 
   it("matches NYC-scale scope without turning Cairo into a cardinal grid", () => {
     expect(CAIRO_MAP_PACK.geometry.worldSize).toEqual({ x: 1770, z: 1830 });
-    // The bridge rebuild adds eight explicit auxiliary slip roads. They are
-    // separate legal lanes rather than painted decoration, so they count as
-    // roads while the underlying Cairo fabric stays unchanged.
+    // The bridge rebuild authors every terminal, auxiliary lane and grade as
+    // a real road. The twelve access movements are therefore included in the
+    // census rather than hidden inside decorative pavement.
     expect(CAIRO_ROAD_SPECS.length).toBeGreaterThanOrEqual(22);
-    expect(CAIRO_ROAD_SPECS.length).toBeLessThanOrEqual(70);
+    expect(CAIRO_ROAD_SPECS.length).toBeLessThanOrEqual(82);
     expect(CAIRO_MAP_PACK.geometry.roadSurfaces).toHaveLength(
       CAIRO_ROAD_SPECS.length,
     );
@@ -642,7 +642,7 @@ describe("Cairo Central Nile content", () => {
     expect(roadKm).toBeGreaterThanOrEqual(23);
     expect(roadKm).toBeLessThanOrEqual(38);
     expect(CAIRO_MAP_PACK.laneGraph.lanes.length).toBeGreaterThanOrEqual(180);
-    expect(CAIRO_MAP_PACK.laneGraph.lanes.length).toBeLessThanOrEqual(450);
+    expect(CAIRO_MAP_PACK.laneGraph.lanes.length).toBeLessThanOrEqual(470);
     expect(laneKm).toBeGreaterThanOrEqual(42);
     expect(laneKm).toBeLessThanOrEqual(64);
 
@@ -671,7 +671,7 @@ describe("Cairo Central Nile content", () => {
   it("keeps Cairo's local streets free of pristine lane paint", () => {
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces;
     expect(surfaces.filter((surface) => surface.markings.length === 0)).toHaveLength(
-      46,
+      56,
     );
     expect(
       surfaces.filter(
@@ -685,7 +685,7 @@ describe("Cairo Central Nile content", () => {
       surfaces
         .flatMap((surface) => surface.markings)
         .filter((marking) => marking.style === "centre_solid"),
-    ).toHaveLength(6);
+    ).toHaveLength(8);
   });
 
   it("pins the authored road order, lane counts and synchronized surfaces", () => {
@@ -746,13 +746,25 @@ describe("Cairo Central Nile content", () => {
       // its curb-side auxiliary lanes and connected access ramps in stable
       // authored order.
       "cairo-sixth-october-bridge",
+      "cairo-sixth-october-west-entry-slip",
+      "cairo-sixth-october-bridge-west-entry",
+      "cairo-sixth-october-bridge-west-ramp",
+      "cairo-sixth-october-bridge-west-exit",
+      "cairo-sixth-october-west-exit-slip",
+      "cairo-sixth-october-east-entry-slip",
+      "cairo-sixth-october-bridge-east-entry",
+      "cairo-sixth-october-bridge-east-ramp",
+      "cairo-sixth-october-bridge-east-exit",
+      "cairo-sixth-october-east-exit-slip",
       "cairo-sixth-october-dokki-entry-slip",
       "cairo-sixth-october-bridge-dokki-entry",
       "cairo-sixth-october-bridge-dokki-ramp",
       "cairo-sixth-october-bridge-dokki-exit",
       "cairo-sixth-october-dokki-exit-slip",
       "cairo-sixth-october-gezira-entry-slip",
+      "cairo-sixth-october-bridge-gezira-entry",
       "cairo-sixth-october-bridge-gezira-ramp",
+      "cairo-sixth-october-bridge-gezira-exit",
       "cairo-sixth-october-gezira-exit-slip",
       "cairo-sixth-october-corniche-entry-slip",
       "cairo-sixth-october-bridge-corniche-entry",
@@ -952,6 +964,33 @@ describe("Cairo Central Nile content", () => {
           expect(reverseOffsets[laneIndex], road.id).toBeLessThan(
             reverseOffsets[laneIndex - 1],
           );
+        }
+      }
+    }
+  });
+
+  it("assigns travel to the outer curb lanes and passing to the inner lanes", () => {
+    const fourLaneRoads = CAIRO_ROAD_SPECS.filter(
+      (road) => !road.oneWay && road.laneCount === 4,
+    );
+    expect(fourLaneRoads.length).toBeGreaterThanOrEqual(3);
+
+    for (const road of fourLaneRoads) {
+      for (
+        let segmentIndex = 0;
+        segmentIndex + 1 < road.nodeIds.length;
+        segmentIndex += 1
+      ) {
+        for (const direction of ["forward", "reverse"] as const) {
+          const prefix = `${road.id}-${segmentIndex + 1}-${direction}`;
+          const inner = CAIRO_MAP_PACK.laneGraph.lanes.find(
+            (lane) => lane.id === `${prefix}-1`,
+          );
+          const outer = CAIRO_MAP_PACK.laneGraph.lanes.find(
+            (lane) => lane.id === `${prefix}-2`,
+          );
+          expect(inner?.role, `${prefix} inner`).toBe("passing");
+          expect(outer?.role, `${prefix} outer curb`).toBe("travel");
         }
       }
     }
@@ -2122,9 +2161,63 @@ describe("Cairo Central Nile content", () => {
     }
   });
 
-  it("widens each host street with directional slip lanes instead of cutting it off", () => {
+  it("authors all twelve bridge movements as right-side auxiliary lanes", () => {
+    const mainline = "cairo-sixth-october-bridge";
     const cases = [
       {
+        id: "west terminal",
+        host: "cairo-west-nile-street",
+        entrySlip: "cairo-sixth-october-west-entry-slip",
+        exitSlip: "cairo-sixth-october-west-exit-slip",
+        entryRamp: "cairo-sixth-october-bridge-west-entry",
+        exitRamp: "cairo-sixth-october-bridge-west-exit",
+        entryMerge: "cairo-sixth-west-entry-merge",
+        exitMerge: "cairo-sixth-west-exit-merge",
+        entryLift: "cairo-sixth-west-entry-lift",
+        exitLift: "cairo-sixth-west-exit-lift",
+        entryDirection: "forward",
+        exitDirection: "forward",
+        entryHigh: {
+          node: "cairo-sixth-west-crest",
+          fromRoad: "cairo-sixth-october-bridge-west-ramp",
+          toRoad: mainline,
+          expected: ["reverse:0>forward:0", "reverse:0>forward:1"],
+        },
+        exitHigh: {
+          node: "cairo-sixth-west-crest",
+          fromRoad: mainline,
+          toRoad: "cairo-sixth-october-bridge-west-ramp",
+          expected: ["reverse:0>forward:0", "reverse:1>forward:0"],
+        },
+      },
+      {
+        id: "east terminal",
+        host: "cairo-galaa-street",
+        entrySlip: "cairo-sixth-october-east-entry-slip",
+        exitSlip: "cairo-sixth-october-east-exit-slip",
+        entryRamp: "cairo-sixth-october-bridge-east-entry",
+        exitRamp: "cairo-sixth-october-bridge-east-exit",
+        entryMerge: "cairo-sixth-east-entry-merge",
+        exitMerge: "cairo-sixth-east-exit-merge",
+        entryLift: "cairo-sixth-east-entry-lift",
+        exitLift: "cairo-sixth-east-exit-lift",
+        entryDirection: "reverse",
+        exitDirection: "reverse",
+        entryHigh: {
+          node: "cairo-sixth-east-crest",
+          fromRoad: "cairo-sixth-october-bridge-east-ramp",
+          toRoad: mainline,
+          expected: ["reverse:0>reverse:0", "reverse:0>reverse:1"],
+        },
+        exitHigh: {
+          node: "cairo-sixth-east-crest",
+          fromRoad: mainline,
+          toRoad: "cairo-sixth-october-bridge-east-ramp",
+          expected: ["forward:0>forward:0", "forward:1>forward:0"],
+        },
+      },
+      {
+        id: "Dokki",
         host: "cairo-dokki-nile-drive",
         entrySlip: "cairo-sixth-october-dokki-entry-slip",
         exitSlip: "cairo-sixth-october-dokki-exit-slip",
@@ -2136,21 +2229,47 @@ describe("Cairo Central Nile content", () => {
         exitLift: "cairo-sixth-dokki-exit-lift",
         entryDirection: "reverse",
         exitDirection: "forward",
+        entryHigh: {
+          node: "cairo-sixth-dokki-merge",
+          fromRoad: "cairo-sixth-october-bridge-dokki-ramp",
+          toRoad: mainline,
+          expected: ["reverse:0>reverse:1"],
+        },
+        exitHigh: {
+          node: "cairo-sixth-dokki-merge",
+          fromRoad: mainline,
+          toRoad: "cairo-sixth-october-bridge-dokki-ramp",
+          expected: ["reverse:1>forward:0"],
+        },
       },
       {
+        id: "Gezira",
         host: "cairo-saray-el-gezira",
         entrySlip: "cairo-sixth-october-gezira-entry-slip",
         exitSlip: "cairo-sixth-october-gezira-exit-slip",
-        entryRamp: "cairo-sixth-october-bridge-gezira-ramp",
-        exitRamp: "cairo-sixth-october-bridge-gezira-ramp",
+        entryRamp: "cairo-sixth-october-bridge-gezira-entry",
+        exitRamp: "cairo-sixth-october-bridge-gezira-exit",
         entryMerge: "cairo-iw-sixth-entry-merge",
         exitMerge: "cairo-iw-sixth-exit-merge",
-        entryLift: "cairo-sixth-gezira-ramp-lift",
-        exitLift: "cairo-sixth-gezira-ramp-lift",
+        entryLift: "cairo-sixth-gezira-entry-lift",
+        exitLift: "cairo-sixth-gezira-exit-lift",
         entryDirection: "forward",
         exitDirection: "reverse",
+        entryHigh: {
+          node: "cairo-sixth-gezira-merge",
+          fromRoad: "cairo-sixth-october-bridge-gezira-ramp",
+          toRoad: mainline,
+          expected: ["reverse:0>forward:1"],
+        },
+        exitHigh: {
+          node: "cairo-sixth-gezira-merge",
+          fromRoad: mainline,
+          toRoad: "cairo-sixth-october-bridge-gezira-ramp",
+          expected: ["forward:1>forward:0"],
+        },
       },
       {
+        id: "Corniche",
         host: "cairo-corniche-el-nil",
         entrySlip: "cairo-sixth-october-corniche-entry-slip",
         exitSlip: "cairo-sixth-october-corniche-exit-slip",
@@ -2162,8 +2281,21 @@ describe("Cairo Central Nile content", () => {
         exitLift: "cairo-sixth-corniche-exit-lift",
         entryDirection: "forward",
         exitDirection: "forward",
+        entryHigh: {
+          node: "cairo-sixth-corniche-merge",
+          fromRoad: "cairo-sixth-october-bridge-corniche-entry",
+          toRoad: mainline,
+          expected: ["forward:0>forward:1"],
+        },
+        exitHigh: {
+          node: "cairo-sixth-corniche-exit-merge",
+          fromRoad: mainline,
+          toRoad: "cairo-sixth-october-bridge-corniche-exit",
+          expected: ["forward:1>forward:0"],
+        },
       },
       {
+        id: "Ramses",
         host: "cairo-ramses",
         entrySlip: "cairo-sixth-october-ramses-entry-slip",
         exitSlip: "cairo-sixth-october-ramses-exit-slip",
@@ -2175,6 +2307,18 @@ describe("Cairo Central Nile content", () => {
         exitLift: "cairo-sixth-ramses-exit-lift",
         entryDirection: "reverse",
         exitDirection: "forward",
+        entryHigh: {
+          node: "cairo-sixth-ramses-merge",
+          fromRoad: "cairo-sixth-october-bridge-ramses-ramp",
+          toRoad: mainline,
+          expected: ["reverse:0>reverse:1"],
+        },
+        exitHigh: {
+          node: "cairo-sixth-ramses-merge",
+          fromRoad: mainline,
+          toRoad: "cairo-sixth-october-bridge-ramses-ramp",
+          expected: ["reverse:1>forward:0"],
+        },
       },
     ] as const;
     const lanes = CAIRO_MAP_PACK.laneGraph.lanes;
@@ -2185,118 +2329,262 @@ describe("Cairo Central Nile content", () => {
         surface,
       ]),
     );
+    const specById = new Map(CAIRO_ROAD_SPECS.map((road) => [road.id, road]));
     const nodeById = new Map(
-      CAIRO_MAP_PACK.laneGraph.nodes.map((node) => [node.id, node]),
+      CAIRO_MAP_PACK.laneGraph.nodes.map((node) => [node.id, node.position]),
     );
-    const distanceToPolyline = (
-      candidate: WorldPoint,
-      points: readonly WorldPoint[],
-    ): number =>
-      Math.min(
-        ...points.slice(1).map((end, index) => {
-          const start = points[index];
-          const dx = end.x - start.x;
-          const dz = end.z - start.z;
-          const lengthSquared = dx * dx + dz * dz;
-          const amount =
-            lengthSquared > 0
-              ? Math.max(
-                  0,
-                  Math.min(
-                    1,
-                    ((candidate.x - start.x) * dx +
-                      (candidate.z - start.z) * dz) /
-                      lengthSquared,
-                  ),
-                )
-              : 0;
-          return Math.hypot(
-            candidate.x - (start.x + dx * amount),
-            candidate.z - (start.z + dz * amount),
-          );
-        }),
+    const laneIdentity = (lane: LaneSegment) => {
+      const match = lane.id.match(/-(forward|reverse)-(\d+)$/);
+      expect(match, lane.id).not.toBeNull();
+      return {
+        direction: match![1] as "forward" | "reverse",
+        laneIndex: Number(match![2]) - 1,
+      };
+    };
+    const crossRoadMovements = (
+      nodeId: string,
+      fromRoadId: string,
+      toRoadId: string,
+    ): readonly string[] =>
+      lanes
+        .filter((lane) => lane.roadId === fromRoadId && lane.to === nodeId)
+        .flatMap((lane) => {
+          const from = laneIdentity(lane);
+          return lane.successors.flatMap((successorId) => {
+            const successor = laneById.get(successorId)!;
+            if (successor.roadId !== toRoadId || successor.from !== nodeId) {
+              return [];
+            }
+            const to = laneIdentity(successor);
+            return [
+              `${from.direction}:${from.laneIndex}>${to.direction}:${to.laneIndex}`,
+            ];
+          });
+        })
+        .sort();
+    const rightOffsetAtMouth = (
+      hostId: string,
+      mergeId: string,
+      direction: "forward" | "reverse",
+      rampSidePoint: WorldPoint,
+    ): number => {
+      const host = specById.get(hostId)!;
+      const nodeIndex = host.nodeIds.indexOf(mergeId);
+      expect(nodeIndex, `${hostId}:${mergeId}`).toBeGreaterThan(0);
+      expect(nodeIndex, `${hostId}:${mergeId}`).toBeLessThan(
+        host.nodeIds.length - 1,
       );
+      const before = nodeById.get(
+        host.nodeIds[direction === "forward" ? nodeIndex - 1 : nodeIndex + 1],
+      )!;
+      const after = nodeById.get(
+        host.nodeIds[direction === "forward" ? nodeIndex + 1 : nodeIndex - 1],
+      )!;
+      const merge = nodeById.get(mergeId)!;
+      const dx = after.x - before.x;
+      const dz = after.z - before.z;
+      const lengthM = Math.hypot(dx, dz);
+      const right = point(dz / lengthM, -dx / lengthM);
+      return (
+        (rampSidePoint.x - merge.x) * right.x +
+        (rampSidePoint.z - merge.z) * right.z
+      );
+    };
+    const afterFirstMetre = (
+      polyline: readonly WorldPoint[],
+    ): readonly WorldPoint[] => {
+      const first = pointAtDistance(polyline, 1);
+      let travelledM = 0;
+      for (let index = 1; index < polyline.length; index += 1) {
+        const segmentM = Math.hypot(
+          polyline[index].x - polyline[index - 1].x,
+          polyline[index].z - polyline[index - 1].z,
+        );
+        if (travelledM + segmentM >= 1) {
+          return [first, ...polyline.slice(index)];
+        }
+        travelledM += segmentM;
+      }
+      return [first];
+    };
 
+    expect(cases).toHaveLength(6);
     for (const item of cases) {
-      const hostSurface = surfaceById.get(item.host)!;
+      const hostSpec = specById.get(item.host)!;
+      const entrySpec = specById.get(item.entrySlip)!;
+      const exitSpec = specById.get(item.exitSlip)!;
       const entrySurface = surfaceById.get(item.entrySlip)!;
       const exitSurface = surfaceById.get(item.exitSlip)!;
-      for (const slip of [entrySurface, exitSurface]) {
-        expect(slip.widthM, slip.id).toBe(4.2);
+
+      for (const [spec, surface] of [
+        [entrySpec, entrySurface],
+        [exitSpec, exitSurface],
+      ] as const) {
+        expect(spec.oneWay, spec.id).toBe("forward");
+        expect(spec.laneCount, spec.id).toBe(1);
+        expect(surface.widthM, surface.id).toBe(4.2);
         expect(
-          slip.centerline.every((point) => (point.elevationM ?? 0) === 0),
-          slip.id,
+          surface.centerline.every((candidate) =>
+            (candidate.elevationM ?? 0) === 0
+          ),
+          surface.id,
         ).toBe(true);
         expect(
-          lanes.filter((lane) => lane.roadId === slip.id),
-          slip.id,
-        ).toHaveLength(2);
+          lanes.filter((lane) => lane.roadId === spec.id),
+          spec.id,
+        ).toHaveLength(spec.nodeIds.length - 1);
       }
 
+      expect(
+        crossRoadMovements(item.entryMerge, item.host, item.entrySlip),
+        `${item.id} ground entry direction`,
+      ).toEqual([`${item.entryDirection}:0>forward:0`]);
+      expect(
+        crossRoadMovements(item.exitMerge, item.exitSlip, item.host),
+        `${item.id} ground exit direction`,
+      ).toEqual([`forward:0>${item.exitDirection}:0`]);
+      expect(
+        crossRoadMovements(item.entryLift, item.entrySlip, item.entryRamp),
+        `${item.id} entry lift`,
+      ).toEqual(["forward:0>forward:0"]);
+      expect(
+        crossRoadMovements(item.exitLift, item.exitRamp, item.exitSlip),
+        `${item.id} exit lift`,
+      ).toEqual(["forward:0>forward:0"]);
+
+      // Both directions of the host retain a same-road continuation at both
+      // mouths. The ramp is a dedicated diverge/merge lane, never the street.
       for (const mergeId of [item.entryMerge, item.exitMerge]) {
-        const merge = nodeById.get(mergeId)!.position;
-        expect(distanceToPolyline(merge, hostSurface.centerline), mergeId).toBeLessThan(
-          0.01,
+        const incomingHostLanes = lanes.filter(
+          (lane) => lane.roadId === item.host && lane.to === mergeId,
         );
+        expect(incomingHostLanes, `${item.id}:${mergeId}`).toHaveLength(
+          hostSpec.laneCount,
+        );
+        for (const incoming of incomingHostLanes) {
+          const direction = laneIdentity(incoming).direction;
+          expect(
+            incoming.successors.some((successorId) => {
+              const successor = laneById.get(successorId)!;
+              return (
+                successor.roadId === item.host &&
+                laneIdentity(successor).direction === direction
+              );
+            }),
+            `${item.id}:${mergeId}:${direction} through lane`,
+          ).toBe(true);
+        }
       }
-      const entryMerge = nodeById.get(item.entryMerge)!.position;
-      const entryLift = nodeById.get(item.entryLift)!.position;
-      const exitMerge = nodeById.get(item.exitMerge)!.position;
-      const exitLift = nodeById.get(item.exitLift)!.position;
-      expect(Math.hypot(entryLift.x - entryMerge.x, entryLift.z - entryMerge.z)).toBeGreaterThan(35);
-      expect(Math.hypot(exitLift.x - exitMerge.x, exitLift.z - exitMerge.z)).toBeGreaterThan(30);
 
-      const hostEntry = lanes.find(
+      expect(
+        crossRoadMovements(
+          item.entryHigh.node,
+          item.entryHigh.fromRoad,
+          item.entryHigh.toRoad,
+        ),
+        `${item.id} high entry merge`,
+      ).toEqual([...item.entryHigh.expected].sort());
+      expect(
+        crossRoadMovements(
+          item.exitHigh.node,
+          item.exitHigh.fromRoad,
+          item.exitHigh.toRoad,
+        ),
+        `${item.id} high exit diverge`,
+      ).toEqual([...item.exitHigh.expected].sort());
+
+      const entryOffsetM = rightOffsetAtMouth(
+        item.host,
+        item.entryMerge,
+        item.entryDirection,
+        entrySurface.centerline[1],
+      );
+      const exitOffsetM = rightOffsetAtMouth(
+        item.host,
+        item.exitMerge,
+        item.exitDirection,
+        exitSurface.centerline.at(-2)!,
+      );
+      expect(entryOffsetM, `${item.id} entry on driver's right`).toBeGreaterThan(
+        1,
+      );
+      expect(exitOffsetM, `${item.id} exit on driver's right`).toBeGreaterThan(
+        1,
+      );
+
+      // Ignore only the common authored mouth point. Once the entry peels
+      // away it may not cross the opposing generated host lane on the way to
+      // its taper — the exact failure that made the west-side ramp wrong-way.
+      const entryAfterMouth = afterFirstMetre(entrySurface.centerline);
+      const opposingDirection =
+        item.entryDirection === "forward" ? "reverse" : "forward";
+      const opposingHostLanes = lanes.filter(
         (lane) =>
           lane.roadId === item.host &&
-          lane.to === item.entryMerge &&
-          lane.id.includes(`-${item.entryDirection}-`),
-      )!;
-      const entrySuccessors = hostEntry.successors.map(
-        (laneId) => laneById.get(laneId)!,
+          laneIdentity(lane).direction === opposingDirection,
       );
-      expect(entrySuccessors.some((lane) => lane.roadId === item.host)).toBe(true);
-      expect(
-        entrySuccessors.some((lane) => lane.roadId === item.entrySlip),
-      ).toBe(true);
+      for (
+        let entryIndex = 1;
+        entryIndex < entryAfterMouth.length;
+        entryIndex += 1
+      ) {
+        for (const opposing of opposingHostLanes) {
+          for (
+            let hostIndex = 1;
+            hostIndex < opposing.centerline.length;
+            hostIndex += 1
+          ) {
+            expect(
+              testSegmentsIntersect(
+                entryAfterMouth[entryIndex - 1],
+                entryAfterMouth[entryIndex],
+                opposing.centerline[hostIndex - 1],
+                opposing.centerline[hostIndex],
+              ),
+              `${item.id} entry crosses opposing lane ${opposing.id}`,
+            ).toBe(false);
+          }
+        }
+      }
+    }
+  });
 
-      const exitLane = lanes.find(
-        (lane) => lane.roadId === item.exitSlip && lane.to === item.exitMerge,
-      )!;
-      const exitSuccessors = exitLane.successors.map(
-        (laneId) => laneById.get(laneId)!,
+  it("retires the old direct west and east terminal T junctions", () => {
+    const mainline = CAIRO_ROAD_SPECS.find(
+      (road) => road.id === "cairo-sixth-october-bridge",
+    )!;
+    const oldTerminals = [
+      { nodeId: "cairo-wo-5", hostId: "cairo-west-nile-street" },
+      { nodeId: "cairo-eg-5", hostId: "cairo-galaa-street" },
+    ] as const;
+
+    for (const terminal of oldTerminals) {
+      expect(mainline.nodeIds, terminal.nodeId).not.toContain(terminal.nodeId);
+      const connector = CAIRO_JUNCTION_CONNECTORS.find(
+        (candidate) => candidate.nodeId === terminal.nodeId,
       );
-      expect(
-        exitSuccessors.some(
-          (lane) =>
-            lane.roadId === item.host &&
-            lane.id.includes(`-${item.exitDirection}-`),
-        ),
-      ).toBe(true);
-      expect(
-        exitSuccessors.some(
-          (lane) =>
-            lane.roadId === item.host &&
-            !lane.id.includes(`-${item.exitDirection}-`),
-        ),
-      ).toBe(false);
+      for (const movement of connector?.movements ?? []) {
+        expect(movement.fromRoadId, terminal.nodeId).not.toBe(mainline.id);
+        if (movement.fromRoadId === terminal.hostId) {
+          expect(movement.toRoadIds, terminal.nodeId).not.toContain(mainline.id);
+        }
+      }
 
-      const entryAtLift = lanes.find(
-        (lane) => lane.roadId === item.entrySlip && lane.to === item.entryLift,
-      )!;
-      expect(
-        entryAtLift.successors.some(
-          (laneId) => laneById.get(laneId)?.roadId === item.entryRamp,
-        ),
-      ).toBe(true);
-      const exitAtLift = lanes.find(
-        (lane) => lane.roadId === item.exitRamp && lane.to === item.exitLift,
-      )!;
-      expect(
-        exitAtLift.successors.some(
-          (laneId) => laneById.get(laneId)?.roadId === item.exitSlip,
-        ),
-      ).toBe(true);
+      const hostArrivals = CAIRO_MAP_PACK.laneGraph.lanes.filter(
+        (lane) => lane.roadId === terminal.hostId && lane.to === terminal.nodeId,
+      );
+      for (const arrival of hostArrivals) {
+        expect(
+          arrival.successors
+            .map((successorId) =>
+              CAIRO_MAP_PACK.laneGraph.lanes.find(
+                (lane) => lane.id === successorId,
+              )!,
+            )
+            .some((successor) => successor.roadId === mainline.id),
+          terminal.nodeId,
+        ).toBe(false);
+      }
     }
   });
 
@@ -2701,61 +2989,91 @@ describe("Cairo Central Nile content", () => {
     expect(highCrossingSamples).toBeGreaterThan(2);
   });
 
-  it("keeps the direct Sixth October terminal structures outside their host streets", () => {
-    const bridge = CAIRO_MAP_PACK.geometry.roadSurfaces.find(
-      (surface) => surface.id === "cairo-sixth-october-bridge",
-    )!;
+  it("keeps both terminal grades outside their host through lanes", () => {
+    const surfaceById = new Map(
+      CAIRO_MAP_PACK.geometry.roadSurfaces.map((surface) => [
+        surface.id,
+        surface,
+      ]),
+    );
+    const specById = new Map(CAIRO_ROAD_SPECS.map((road) => [road.id, road]));
+    const mainline = surfaceById.get("cairo-sixth-october-bridge")!;
     const cases = [
       {
         id: "west",
-        hostId: "cairo-west-nile-street",
-        bridgeStart: bridge.centerline[0],
-        bridgeEnd: bridge.centerline[1],
-        hostNodeIndex: 6,
+        host: "cairo-west-nile-street",
+        carrier: "cairo-sixth-october-bridge-west-ramp",
+        grades: [
+          "cairo-sixth-october-bridge-west-entry",
+          "cairo-sixth-october-bridge-west-exit",
+        ],
       },
       {
         id: "east",
-        hostId: "cairo-galaa-street",
-        bridgeStart: bridge.centerline.at(-2)!,
-        bridgeEnd: bridge.centerline.at(-1)!,
-        hostNodeIndex: 7,
+        host: "cairo-galaa-street",
+        carrier: "cairo-sixth-october-bridge-east-ramp",
+        grades: [
+          "cairo-sixth-october-bridge-east-entry",
+          "cairo-sixth-october-bridge-east-exit",
+        ],
       },
     ] as const;
+    const DECK_OVERHANG_M = 0.7;
+    const HOST_THROUGH_HALF_M = 1.65 + 3.2 / 2;
+    const MIN_PHYSICAL_GAP_M = 0.5;
+    const FULL_CLEARANCE_DECK_M = 6;
+
+    expect(
+      mainline.centerline.every(
+        (candidate) => (candidate.elevationM ?? 0) === 10.5,
+      ),
+    ).toBe(true);
 
     for (const item of cases) {
-      const host = CAIRO_MAP_PACK.geometry.roadSurfaces.find(
-        (surface) => surface.id === item.hostId,
-      )!;
-      const startElevationM = item.bridgeStart.elevationM ?? 0;
-      const endElevationM = item.bridgeEnd.elevationM ?? 0;
-      const amount =
-        (ELEVATED_DECK_START_M - startElevationM) /
-        (endElevationM - startElevationM);
-      const structuralEnd = point(
-        item.bridgeStart.x +
-          (item.bridgeEnd.x - item.bridgeStart.x) * amount,
-        item.bridgeStart.z +
-          (item.bridgeEnd.z - item.bridgeStart.z) * amount,
-      );
-      expect(
-        distanceToTestPolyline(structuralEnd, host.centerline) - host.widthM / 2,
-        `${item.id} terminal structural clearance`,
-      ).toBeGreaterThanOrEqual(1);
+      const host = surfaceById.get(item.host)!;
+      const carrierSpec = specById.get(item.carrier)!;
+      expect(carrierSpec.laneCount, `${item.id} terminal carrier`).toBe(2);
+      expect(carrierSpec.oneWay, `${item.id} terminal carrier`).toBeUndefined();
 
-      // These are perpendicular T landings with an at-grade junction apron,
-      // not the parallel low-deck-over-live-lane bug fixed at Ramses.
-      const hostBefore = host.centerline[item.hostNodeIndex - 1];
-      const hostAfter = host.centerline[item.hostNodeIndex + 1];
-      const hostDx = hostAfter.x - hostBefore.x;
-      const hostDz = hostAfter.z - hostBefore.z;
-      const bridgeDx = item.bridgeEnd.x - item.bridgeStart.x;
-      const bridgeDz = item.bridgeEnd.z - item.bridgeStart.z;
-      const directionDot =
-        Math.abs(hostDx * bridgeDx + hostDz * bridgeDz) /
-        (Math.hypot(hostDx, hostDz) * Math.hypot(bridgeDx, bridgeDz));
-      expect(directionDot, `${item.id} terminal approach angle`).toBeLessThan(
-        0.25,
-      );
+      let lowDeckSamples = 0;
+      for (const gradeId of item.grades) {
+        const grade = surfaceById.get(gradeId)!;
+        for (
+          let segmentIndex = 0;
+          segmentIndex + 1 < grade.centerline.length;
+          segmentIndex += 1
+        ) {
+          const start = grade.centerline[segmentIndex];
+          const end = grade.centerline[segmentIndex + 1];
+          for (let step = 0; step <= 32; step += 1) {
+            const amount = step / 32;
+            const elevationM =
+              (start.elevationM ?? 0) +
+              ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+            if (
+              elevationM < ELEVATED_DECK_START_M ||
+              elevationM >= FULL_CLEARANCE_DECK_M
+            ) {
+              continue;
+            }
+            const sample = point(
+              start.x + (end.x - start.x) * amount,
+              start.z + (end.z - start.z) * amount,
+            );
+            const innerStructuralEdgeM =
+              distanceToTestPolyline(sample, host.centerline) -
+              (grade.widthM / 2 + DECK_OVERHANG_M);
+            expect(
+              innerStructuralEdgeM,
+              `${grade.id} low deck at ${sample.x.toFixed(1)},${sample.z.toFixed(1)}`,
+            ).toBeGreaterThanOrEqual(
+              HOST_THROUGH_HALF_M + MIN_PHYSICAL_GAP_M,
+            );
+            lowDeckSamples += 1;
+          }
+        }
+      }
+      expect(lowDeckSamples, item.id).toBeGreaterThan(80);
     }
   });
 
@@ -2765,10 +3083,18 @@ describe("Cairo Central Nile content", () => {
     );
     expect(elevated.map((surface) => surface.id)).toEqual([
       "cairo-sixth-october-bridge",
+      "cairo-sixth-october-bridge-west-entry",
+      "cairo-sixth-october-bridge-west-ramp",
+      "cairo-sixth-october-bridge-west-exit",
+      "cairo-sixth-october-bridge-east-entry",
+      "cairo-sixth-october-bridge-east-ramp",
+      "cairo-sixth-october-bridge-east-exit",
       "cairo-sixth-october-bridge-dokki-entry",
       "cairo-sixth-october-bridge-dokki-ramp",
       "cairo-sixth-october-bridge-dokki-exit",
+      "cairo-sixth-october-bridge-gezira-entry",
       "cairo-sixth-october-bridge-gezira-ramp",
+      "cairo-sixth-october-bridge-gezira-exit",
       "cairo-sixth-october-bridge-corniche-entry",
       "cairo-sixth-october-bridge-corniche-exit",
       "cairo-sixth-october-bridge-ramses-entry",
@@ -2779,11 +3105,11 @@ describe("Cairo Central Nile content", () => {
 
     const mainline = elevated[0];
     expect(mainline.widthM).toBe(14);
-    expect(mainline.centerline[0].elevationM).toBe(0);
-    expect(mainline.centerline.at(-1)?.elevationM).toBe(0);
     expect(
-      Math.max(...mainline.centerline.map((point) => point.elevationM ?? 0)),
-    ).toBe(10.5);
+      mainline.centerline.every(
+        (candidate) => (candidate.elevationM ?? 0) === 10.5,
+      ),
+    ).toBe(true);
 
     for (const surface of elevated) {
       const placements = elevatedRoadSegmentPlacements(surface);
@@ -2895,7 +3221,7 @@ describe("Cairo Central Nile content", () => {
     // and one waiting for a safe gap. The hash also pins the new flyover/ramp
     // successor choices so a later edit cannot silently disconnect or re-route
     // elevated traffic.
-    expect(first.hash).toBe("779106d2");
+    expect(first.hash).toBe("707a5f59");
     expect(first.snapshot).toMatchObject({
       tick: 1_800,
       status: "running",

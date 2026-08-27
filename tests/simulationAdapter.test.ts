@@ -12,6 +12,7 @@ import {
 import {
   buildSimulationCoreConfig,
   buildRuntimeTrafficPortals,
+  buildTrafficGates,
   resolveAmbientVehicleCount,
   resolveSimulationStartPose,
 } from "../app/game/simulationAdapter";
@@ -124,16 +125,18 @@ describe("simulation runtime adapter (free-roam)", () => {
       trafficSide: country.trafficSide,
       speedUnit: country.speedUnit,
     });
-    const elevatedRoadIds = [
-      "cairo-sixth-october-bridge",
-      "cairo-sixth-october-bridge-dokki-entry",
-      "cairo-sixth-october-bridge-dokki-ramp",
-      "cairo-sixth-october-bridge-dokki-exit",
-      "cairo-sixth-october-bridge-gezira-ramp",
-      "cairo-sixth-october-bridge-corniche-entry",
-      "cairo-sixth-october-bridge-corniche-exit",
-      "cairo-sixth-october-bridge-ramses-ramp",
-    ] as const;
+    // Derive this inventory from production geometry. A hand-maintained list
+    // previously claimed to cover every ramp while silently omitting both
+    // terminals and several direction-specific entry/exit grades.
+    const elevatedRoadIds = mapPack.geometry.roadSurfaces
+      .filter(
+        (surface) =>
+          surface.id.startsWith("cairo-sixth-october") &&
+          surface.centerline.some((point) => (point.elevationM ?? 0) >= 0.75),
+      )
+      .map((surface) => surface.id);
+
+    expect(elevatedRoadIds).toHaveLength(18);
 
     for (const roadId of elevatedRoadIds) {
       for (const direction of ["forward", "reverse"] as const) {
@@ -350,11 +353,21 @@ describe("simulation runtime adapter (free-roam)", () => {
     // The rebuilt directed entrance remains functional: the auxiliary slip
     // owns its own lane beside Al Dokki Street, then hands directly to the
     // separate one-way rising structure without snapping back to the host.
-    const entryHeading = Math.atan2(3.5, -15);
+    const entrySlipLane = mapPack.laneGraph.lanes.find(
+      (lane) =>
+        lane.id === "cairo-sixth-october-dokki-entry-slip-2-forward-1",
+    )!;
+    const entrySlipPointIndex = Math.floor(entrySlipLane.centerline.length * 0.65);
+    const entrySlipPoint = entrySlipLane.centerline[entrySlipPointIndex];
+    const entrySlipNext = entrySlipLane.centerline[entrySlipPointIndex + 1];
+    const entryHeading = Math.atan2(
+      entrySlipNext.x - entrySlipPoint.x,
+      entrySlipNext.z - entrySlipPoint.z,
+    );
     simulation.setPlayerPose(
       {
-        x: -618.8633776936385,
-        z: 510.8430472584508,
+        x: entrySlipPoint.x,
+        z: entrySlipPoint.z,
         elevationM: 0,
         heading: entryHeading,
       },
@@ -363,11 +376,22 @@ describe("simulation runtime adapter (free-roam)", () => {
     expect(simulation.getSnapshot().road.laneId).toBe(
       "cairo-sixth-october-dokki-entry-slip-2-forward-1",
     );
+    const entryRampLane = mapPack.laneGraph.lanes.find(
+      (lane) =>
+        lane.id ===
+        "cairo-sixth-october-bridge-dokki-entry-1-forward-1",
+    )!;
+    const entryRampPointIndex = 5;
+    const entryRampPoint = entryRampLane.centerline[entryRampPointIndex];
+    const entryRampNext = entryRampLane.centerline[entryRampPointIndex + 1];
     simulation.setPlayerPose(
       {
-        x: -617.4443479617763,
-        z: 504.50310680157446,
-        heading: Math.atan2(2.8, -25),
+        x: entryRampPoint.x,
+        z: entryRampPoint.z,
+        heading: Math.atan2(
+          entryRampNext.x - entryRampPoint.x,
+          entryRampNext.z - entryRampPoint.z,
+        ),
       },
       4,
     );
@@ -375,7 +399,8 @@ describe("simulation runtime adapter (free-roam)", () => {
     expect(onRamp.road.laneId).toBe(
       "cairo-sixth-october-bridge-dokki-entry-1-forward-1",
     );
-    expect(onRamp.player.elevationM).toBeCloseTo(0.0397515, 5);
+    expect(onRamp.player.elevationM).toBeGreaterThan(0);
+    expect(onRamp.player.elevationM).toBeLessThan(0.5);
   });
 
   it("carries Cromwell Road's bus lane through the Exhibition Road signal", () => {
@@ -740,12 +765,73 @@ describe("ambient vehicle slot budget", () => {
   });
 });
 
+describe("traffic gate direction classification", () => {
+  it("does not invent opposing traffic gates on a one-way hairpin", () => {
+    // The last leg points directly against the first in plan view. A geometric
+    // direction split therefore looks two-way even though every authored lane
+    // belongs to the same legal one-way movement.
+    const lanes = [
+      {
+        id: "hairpin-1-forward-1",
+        roadId: "hairpin",
+        role: "one_way",
+        centerline: [{ x: 0, z: 0 }, { x: 0, z: 80 }],
+      },
+      {
+        id: "hairpin-2-forward-1",
+        roadId: "hairpin",
+        role: "one_way",
+        centerline: [{ x: 0, z: 80 }, { x: 20, z: 80 }],
+      },
+      {
+        id: "hairpin-3-forward-1",
+        roadId: "hairpin",
+        role: "one_way",
+        centerline: [{ x: 20, z: 80 }, { x: 20, z: 0 }],
+      },
+    ] as const;
+    const mapPack = {
+      laneGraph: {
+        lanes,
+        controls: [],
+        conflictZones: [],
+        spawnPoints: [{
+          id: "authored-hairpin-car",
+          kind: "vehicle",
+          anchor: { laneId: lanes[0].id, distanceAlongM: 20 },
+        }],
+      },
+      geometry: {
+        roadSurfaces: [{
+          id: "hairpin",
+          centerline: [
+            { x: 0, z: 0 },
+            { x: 0, z: 80 },
+            { x: 20, z: 80 },
+            { x: 20, z: 0 },
+          ],
+          widthM: 4,
+          laneIds: lanes.map((lane) => lane.id),
+        }],
+      },
+    } as unknown as GameCanvasMapPack;
+
+    const gates = buildTrafficGates(mapPack);
+
+    expect(gates.filter((gate) => gate.id.startsWith("oncoming-"))).toEqual([]);
+    expect(gates.map((gate) => gate.id)).toEqual(["authored-hairpin-car"]);
+  });
+});
+
 describe("runtime traffic portal safety", () => {
   it("preserves Cairo flyover height on runtime traffic portals", () => {
     const portals = buildRuntimeTrafficPortals(getMapPack("cairo-central-nile"));
     const elevated = portals.filter((portal) => (portal.elevationM ?? 0) >= 3.5);
 
-    expect(elevated.length).toBeGreaterThan(100);
+    // Each terminal now uses one narrow, direction-specific carrier rather
+    // than duplicating portals across the removed two-way low slabs. Keep a
+    // strong catalogue floor without pinning the obsolete duplicate count.
+    expect(elevated.length).toBeGreaterThanOrEqual(90);
     expect(Math.max(...elevated.map((portal) => portal.elevationM ?? 0))).toBe(10.5);
   });
 

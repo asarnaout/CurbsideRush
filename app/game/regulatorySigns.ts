@@ -48,6 +48,12 @@ export interface RegulatorySignLaneInput {
   readonly roadId?: string;
   readonly role?: string;
   readonly centerline: readonly WorldPoint[];
+  /**
+   * Legal next lanes. Regulatory signs use this only to distinguish a real
+   * junction mouth from an authoring seam where one one-way road id hands
+   * directly to another without offering the driver a choice.
+   */
+  readonly successors?: readonly string[];
   /** Posted limit on this lane's road, in the host country's own unit. */
   readonly speedLimit?: number;
   readonly trafficSide?: TrafficSide;
@@ -115,6 +121,14 @@ const WRONG_WAY_MIDBLOCK_MIN_M = 320;
 const NODE_EPSILON_M = 0.08;
 /** A post needs half a metre beyond the asphalt edge to read as kerbside. */
 const REGULATORY_SIGN_CARRIAGEWAY_CLEARANCE_M = 0.5;
+/** Keep a mouth post far enough from an authored pole to read separately. */
+const REGULATORY_SIGN_FURNITURE_CLEARANCE_M = 2.6;
+/** A mouth sign may slide this far down its own kerb to find clear ground. */
+const REGULATORY_SIGN_MAX_SLIDE_M = 48;
+/** Fine-grained enough to clear a crossing carriageway without a large jump. */
+const REGULATORY_SIGN_SLIDE_STEP_M = 2;
+/** Never station a post exactly on the next lane-graph node. */
+const REGULATORY_SIGN_END_MARGIN_M = 2;
 
 /**
  * Limit posts stand further in than mouth signs deliberately, so a SPEED LIMIT
@@ -192,6 +206,56 @@ interface LaneEnd {
 const nodeKey = (point: WorldPoint): string =>
   `${Math.round(point.x / NODE_EPSILON_M)}:${Math.round(point.z / NODE_EPSILON_M)}`;
 
+/**
+ * True only for a degree-two, successor-linked hand-off between differently
+ * named one-way roads. This is the lane-graph definition of an authoring seam:
+ * one arriving arm, one departing arm, and no choice in either direction.
+ */
+const isSuccessorContinuitySeam = (
+  position: WorldPoint,
+  ends: readonly LaneEnd[],
+): boolean => {
+  const roadIds = new Set(ends.map((end) => end.lane.roadId ?? end.lane.id));
+  if (roadIds.size !== 2) return false;
+  const armKeys = new Set(
+    ends.map((end) => {
+      const bearing = Math.atan2(
+        end.opposite.x - position.x,
+        end.opposite.z - position.z,
+      );
+      const bucket = ((Math.round(bearing / (Math.PI / 4)) % 8) + 8) % 8;
+      return `${end.lane.roadId ?? end.lane.id}|${bucket}`;
+    }),
+  );
+  if (armKeys.size !== 2) return false;
+
+  const arriving = ends.filter((end) => !end.departing);
+  const departing = ends.filter((end) => end.departing);
+  if (!arriving.length || !departing.length) return false;
+  const arrivingRoads = new Set(
+    arriving.map((end) => end.lane.roadId ?? end.lane.id),
+  );
+  const departingRoads = new Set(
+    departing.map((end) => end.lane.roadId ?? end.lane.id),
+  );
+  if (arrivingRoads.size !== 1 || departingRoads.size !== 1) return false;
+  if (arrivingRoads.values().next().value === departingRoads.values().next().value) {
+    return false;
+  }
+
+  const departingIds = new Set(departing.map((end) => end.lane.id));
+  return (
+    arriving.every((end) =>
+      (end.lane.successors ?? []).some((id) => departingIds.has(id)),
+    ) &&
+    departing.every((end) =>
+      arriving.some((arrival) =>
+        (arrival.lane.successors ?? []).includes(end.lane.id),
+      ),
+    )
+  );
+};
+
 const distanceToPolyline = (
   point: WorldPoint,
   polyline: readonly WorldPoint[],
@@ -236,6 +300,12 @@ interface JunctionArm {
   readonly arriving: boolean;
   readonly farPoint: WorldPoint;
   readonly lengthM: number;
+  /**
+   * Physical walk away through same-road segments and successor-linked
+   * road-id hand-offs. Unlike `lengthM`, it may span authoring-only seams.
+   */
+  readonly regulatoryPath: readonly WorldPoint[];
+  readonly regulatoryLengthM: number;
   /** Unit chord from the node toward the far end. */
   readonly ux: number;
   readonly uz: number;
@@ -267,6 +337,15 @@ function buildJunctionModel(
   input: RegulatorySignInput,
   options: { readonly skipRoundaboutNodes: boolean },
 ): JunctionModel {
+  const lanesById = new Map(input.lanes.map((lane) => [lane.id, lane]));
+  const predecessorsByLaneId = new Map<string, RegulatorySignLaneInput[]>();
+  for (const lane of input.lanes) {
+    for (const successorId of lane.successors ?? []) {
+      const predecessors = predecessorsByLaneId.get(successorId);
+      if (predecessors) predecessors.push(lane);
+      else predecessorsByLaneId.set(successorId, [lane]);
+    }
+  }
   const nodes = new Map<string, { position: WorldPoint; ends: LaneEnd[] }>();
   const addEnd = (position: WorldPoint, end: LaneEnd) => {
     const key = nodeKey(position);
@@ -294,6 +373,92 @@ function buildJunctionModel(
       addEnd(end, { lane, departing: false, opposite: start });
     }
   }
+
+  const polylineLength = (points: readonly WorldPoint[]): number => {
+    let lengthM = 0;
+    for (let index = 0; index + 1 < points.length; index += 1) {
+      lengthM += Math.hypot(
+        points[index + 1].x - points[index].x,
+        points[index + 1].z - points[index].z,
+      );
+    }
+    return lengthM;
+  };
+
+  /**
+   * Follow the reference lane physically away from its junction, crossing
+   * same-road lane seams and successor-linked degree-two road-id hand-offs.
+   * Any node that offers a branch or crossing remains a hard stationing
+   * boundary, so a post can never slide through a real junction.
+   */
+  const regulatoryPathFor = (reference: LaneEnd): readonly WorldPoint[] => {
+    const orientAway = (
+      lane: RegulatorySignLaneInput,
+    ): readonly WorldPoint[] =>
+      reference.departing ? lane.centerline : [...lane.centerline].reverse();
+    const path = [...orientAway(reference.lane)];
+    let cursor = reference.lane;
+    const visited = new Set<string>([cursor.id]);
+
+    while (path.length >= 2) {
+      const seam = path[path.length - 1];
+      const seamEnds = nodes.get(nodeKey(seam))?.ends ?? [];
+      const cursorRoadId = cursor.roadId ?? cursor.id;
+      const roadIdsAtSeam = new Set(
+        seamEnds.map((end) => end.lane.roadId ?? end.lane.id),
+      );
+      const successorContinuity = isSuccessorContinuitySeam(seam, seamEnds);
+      if (roadIdsAtSeam.size > 1 && !successorContinuity) break;
+
+      const candidates = (
+        reference.departing
+          ? (cursor.successors ?? [])
+              .map((id) => lanesById.get(id))
+              .filter(
+                (lane): lane is RegulatorySignLaneInput => lane !== undefined,
+              )
+          : (predecessorsByLaneId.get(cursor.id) ?? [])
+      ).filter(
+        (lane) =>
+          !visited.has(lane.id) &&
+          ((lane.roadId ?? lane.id) === cursorRoadId || successorContinuity) &&
+          lane.centerline.length >= 2,
+      );
+
+      const previous = path[path.length - 2];
+      const previousDx = seam.x - previous.x;
+      const previousDz = seam.z - previous.z;
+      const previousLength = Math.hypot(previousDx, previousDz);
+      let best:
+        | { readonly lane: RegulatorySignLaneInput; readonly points: readonly WorldPoint[] }
+        | undefined;
+      let bestDot = Number.NEGATIVE_INFINITY;
+      for (const lane of candidates) {
+        const points = orientAway(lane);
+        if (nodeKey(points[0]) !== nodeKey(seam)) continue;
+        const nextDx = points[1].x - points[0].x;
+        const nextDz = points[1].z - points[0].z;
+        const nextLength = Math.hypot(nextDx, nextDz);
+        const dot =
+          previousLength > 0 && nextLength > 0
+            ? (previousDx * nextDx + previousDz * nextDz) /
+              (previousLength * nextLength)
+            : -1;
+        if (
+          dot > bestDot ||
+          (dot === bestDot && best && lane.id.localeCompare(best.lane.id) < 0)
+        ) {
+          best = { lane, points };
+          bestDot = dot;
+        }
+      }
+      if (!best) break;
+      visited.add(best.lane.id);
+      cursor = best.lane;
+      path.push(...best.points.slice(1));
+    }
+    return path;
+  };
 
   const surfaceFor = (
     ends: readonly LaneEnd[],
@@ -332,6 +497,7 @@ function buildJunctionModel(
       const lengthM = Math.hypot(dx, dz);
       if (lengthM <= 0) continue;
       const surface = surfaceFor(sorted);
+      const regulatoryPath = regulatoryPathFor(reference);
       const arm: JunctionArm = {
         id: `${key}|${bucketKey}`,
         nodeKey: key,
@@ -342,6 +508,8 @@ function buildJunctionModel(
         arriving: sorted.some((end) => !end.departing),
         farPoint: reference.opposite,
         lengthM,
+        regulatoryPath,
+        regulatoryLengthM: polylineLength(regulatoryPath),
         ux: dx / lengthM,
         uz: dz / lengthM,
         headingRad: Math.atan2(dx / lengthM, dz / lengthM),
@@ -370,71 +538,112 @@ export function regulatorySignPlacements(
     const roadIds = new Set(node.arms.map((arm) => arm.roadId));
     if (roadIds.size < 2) continue;
 
+    // Generated ramps deliberately change road ids where a ground-level slip
+    // lane hands to its elevated continuation (and back again on exits). That
+    // degree-two seam is not a junction: there is exactly one legal movement
+    // and the player cannot choose another road. Successors are the authority
+    // here, so a sharp but continuous ramp still stays free of contradictory
+    // ONE WAY / DO NOT ENTER clutter while a real two-road mouth remains
+    // signed even when its geometry happens to be straight.
+    if (
+      isSuccessorContinuitySeam(
+        node.position,
+        node.arms.flatMap((arm) => arm.ends),
+      )
+    ) {
+      continue;
+    }
+
     for (const arm of node.arms) {
       if (arm.departing === arm.arriving) continue; // two-way — no signs
-      if (arm.lengthM < MOUTH_OFFSET_M * 2) continue;
       const lateral = arm.widthM / 2 + KERB_MARGIN_M;
-      // Right normal of the arm axis; the two kerbs sit at +/- lateral.
-      const rx = Math.cos(arm.headingRad);
-      const rz = -Math.sin(arm.headingRad);
       const nodeRef = `${arm.roadId}@${Math.round(node.position.x * 10) / 10},${Math.round(node.position.z * 10) / 10}`;
       const post = (
         kind: RegulatorySignKind,
-        distance: number,
-        flowHeadingRad: number,
+        preferredDistanceM: number,
         suffix: string,
       ) => {
         for (const side of [-1, 1] as const) {
-          const amount = Math.max(0, Math.min(1, distance / arm.lengthM));
-          const candidate = {
-            kind,
-            x: node.position.x + arm.ux * distance + rx * lateral * side,
-            z: node.position.z + arm.uz * distance + rz * lateral * side,
-            elevationM:
-              (arm.position.elevationM ?? 0) +
-              ((arm.farPoint.elevationM ?? 0) -
-                (arm.position.elevationM ?? 0)) *
-                amount,
-            flowHeadingRad,
-            refId: `${nodeRef}:${suffix}:${side < 0 ? "l" : "r"}`,
-          } satisfies RegulatorySignPlacement;
-          // A short one-way block can put its 35 m WRONG WAY repeater almost
-          // on the next junction. Cairo's westbound Tahrir approach did just
-          // that: one member of the pair stood in the Corniche traffic lane.
-          // Keep any post that is genuinely kerbside, but omit a pair member
-          // whose centre falls on this or any crossing carriageway. Its mate
-          // remains to carry the warning on the clear side of the road.
-          const intrudesOnCarriageway = (input.roadSurfaces ?? []).some(
-            (surface) =>
-              surface.centerline &&
-              roadLevelAtElevation(candidate.elevationM ?? 0) ===
-                roadLevelAtElevation(
-                  elevationOnPolylineAt(
-                    surface.centerline,
-                    candidate.x,
-                    candidate.z,
-                  ),
-                ) &&
-              distanceToPolyline(candidate, surface.centerline) <
-                surface.widthM / 2 + REGULATORY_SIGN_CARRIAGEWAY_CLEARANCE_M,
+          const maxStationM =
+            arm.regulatoryLengthM - REGULATORY_SIGN_END_MARGIN_M;
+          if (maxStationM <= 0) continue;
+          const firstStationM = Math.min(preferredDistanceM, maxStationM);
+          const lastStationM = Math.min(
+            maxStationM,
+            preferredDistanceM + REGULATORY_SIGN_MAX_SLIDE_M,
           );
-          if (!intrudesOnCarriageway) placements.push(candidate);
+          for (
+            let distanceM = firstStationM;
+            distanceM <= lastStationM + 1e-6;
+            distanceM += REGULATORY_SIGN_SLIDE_STEP_M
+          ) {
+            const toward = arm.regulatoryPath[1] ?? arm.farPoint;
+            const station =
+              stationAlongSurface(
+                arm.surfaceCenterline,
+                arm.position,
+                toward,
+                distanceM,
+                false,
+              ) ?? stationAlongPolyline(arm.regulatoryPath, distanceM);
+            if (!station) break;
+            // The walked tangent points physically away from the junction.
+            // Arriving-only arms carry legal traffic in the reverse direction.
+            const awayHeading = Math.atan2(station.tx, station.tz);
+            const flowHeadingRad = normalizeRad(
+              arm.departing ? awayHeading : awayHeading + Math.PI,
+            );
+            // Right normal of the local arm tangent; each side searches its
+            // own kerb independently so one blocked post never costs its mate.
+            const candidate = {
+              kind,
+              x: station.x + Math.cos(awayHeading) * lateral * side,
+              z: station.z - Math.sin(awayHeading) * lateral * side,
+              elevationM: station.elevationM,
+              flowHeadingRad,
+              refId: `${nodeRef}:${suffix}:${side < 0 ? "l" : "r"}`,
+            } satisfies RegulatorySignPlacement;
+            const intrudesOnCarriageway = (input.roadSurfaces ?? []).some(
+              (surface) =>
+                surface.centerline &&
+                roadLevelAtElevation(candidate.elevationM ?? 0) ===
+                  roadLevelAtElevation(
+                    elevationOnPolylineAt(
+                      surface.centerline,
+                      candidate.x,
+                      candidate.z,
+                    ),
+                  ) &&
+                distanceToPolyline(candidate, surface.centerline) <
+                  surface.widthM / 2 +
+                    REGULATORY_SIGN_CARRIAGEWAY_CLEARANCE_M,
+            );
+            const intrudesOnFurniture = (input.occupiedPositions ?? []).some(
+              (item) =>
+                roadLevelAtElevation(item.elevationM ?? 0) ===
+                  roadLevelAtElevation(candidate.elevationM ?? 0) &&
+                Math.hypot(item.x - candidate.x, item.z - candidate.z) <
+                  REGULATORY_SIGN_FURNITURE_CLEARANCE_M,
+            );
+            if (intrudesOnCarriageway || intrudesOnFurniture) continue;
+            placements.push(candidate);
+            break;
+          }
         }
       };
       if (arm.departing) {
         // Enterable one-way mouth: blades tell cross traffic the only legal
         // direction, which here points away from the junction.
-        post("one_way", MOUTH_OFFSET_M, arm.headingRad, "oneway");
+        post("one_way", MOUTH_OFFSET_M, "oneway");
         continue;
       }
       // Forbidden mouth: flow arrives along the arm, so legal travel at the
       // mouth points INTO the junction — and so do the message faces.
-      const flowHeading = normalizeRad(arm.headingRad + Math.PI);
-      post("do_not_enter", MOUTH_OFFSET_M, flowHeading, "dne");
-      post("wrong_way", WRONG_WAY_NEAR_M, flowHeading, `ww${WRONG_WAY_NEAR_M}`);
-      if (arm.lengthM > WRONG_WAY_MIDBLOCK_MIN_M) {
-        const midBlock = Math.round(arm.lengthM / 2);
-        post("wrong_way", arm.lengthM / 2, flowHeading, `ww${midBlock}`);
+      post("do_not_enter", MOUTH_OFFSET_M, "dne");
+      post("wrong_way", WRONG_WAY_NEAR_M, `ww${WRONG_WAY_NEAR_M}`);
+      if (arm.regulatoryLengthM > WRONG_WAY_MIDBLOCK_MIN_M) {
+        const midBlock = Math.round(arm.regulatoryLengthM / 2);
+        post("wrong_way", arm.regulatoryLengthM / 2, `ww${midBlock}`);
       }
     }
   }
@@ -448,6 +657,37 @@ interface Station {
   /** Unit tangent, pointing the way the walk went. */
   readonly tx: number;
   readonly tz: number;
+}
+
+/** Point and tangent at an arc-length station on an already oriented path. */
+function stationAlongPolyline(
+  path: readonly WorldPoint[],
+  distanceM: number,
+): Station | null {
+  if (path.length < 2 || distanceM < 0) return null;
+  let travelled = 0;
+  for (let index = 0; index + 1 < path.length; index += 1) {
+    const a = path[index];
+    const b = path[index + 1];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const segment = Math.hypot(dx, dz);
+    if (segment <= 0) continue;
+    if (distanceM <= travelled + segment || index + 2 === path.length) {
+      const t = Math.max(0, Math.min(1, (distanceM - travelled) / segment));
+      return {
+        x: a.x + dx * t,
+        z: a.z + dz * t,
+        elevationM:
+          (a.elevationM ?? 0) +
+          ((b.elevationM ?? 0) - (a.elevationM ?? 0)) * t,
+        tx: dx / segment,
+        tz: dz / segment,
+      };
+    }
+    travelled += segment;
+  }
+  return null;
 }
 
 /** Arc length along `centerline` of the point on it closest to `point`. */
@@ -494,11 +734,22 @@ function stationAlongSurface(
   from: WorldPoint,
   toward: WorldPoint,
   distanceM: number,
+  clampToSurface = true,
 ): Station | null {
   if (!centerline || centerline.length < 2) return null;
   const start = arcLengthNearest(centerline, from);
   const forward = arcLengthNearest(centerline, toward) >= start;
   const target = start + (forward ? distanceM : -distanceM);
+  if (!clampToSurface) {
+    let totalLengthM = 0;
+    for (let index = 0; index + 1 < centerline.length; index += 1) {
+      totalLengthM += Math.hypot(
+        centerline[index + 1].x - centerline[index].x,
+        centerline[index + 1].z - centerline[index].z,
+      );
+    }
+    if (target < 0 || target > totalLengthM) return null;
+  }
   let travelled = 0;
   for (let index = 0; index + 1 < centerline.length; index += 1) {
     const a = centerline[index];

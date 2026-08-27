@@ -7,6 +7,7 @@ import {
   speedLimitSignPlacements,
   speedLimitSignYawRad,
   LIMIT_REPEATER_SPACING_M,
+  type RegulatorySignLaneInput,
   type RegulatorySignPlacement,
 } from "../app/game/regulatorySigns";
 import {
@@ -54,6 +55,30 @@ const NODE_EPSILON_M = 0.08;
 const MIN_ARM_LENGTH_M = MOUTH_OFFSET_M * 2;
 
 type Point = { readonly x: number; readonly z: number };
+
+const fixtureLane = (
+  id: string,
+  roadId: string,
+  from: Point,
+  to: Point,
+  successors: readonly string[] = [],
+): RegulatorySignLaneInput => ({
+  id,
+  roadId,
+  role: "one_way",
+  centerline: [from, to],
+  successors,
+  speedLimit: 40,
+  trafficSide: "right",
+});
+
+const crossingAt = (roadId: string, z: number) =>
+  [
+    fixtureLane(`${roadId}-west-in`, roadId, { x: -40, z }, { x: 0, z }),
+    fixtureLane(`${roadId}-west-out`, roadId, { x: 0, z }, { x: -40, z }),
+    fixtureLane(`${roadId}-east-in`, roadId, { x: 40, z }, { x: 0, z }),
+    fixtureLane(`${roadId}-east-out`, roadId, { x: 0, z }, { x: 40, z }),
+  ] as const;
 
 const nodeKey = (point: Point): string =>
   `${Math.round(point.x / NODE_EPSILON_M)}:${Math.round(point.z / NODE_EPSILON_M)}`;
@@ -221,6 +246,202 @@ const distanceToPolyline = (
   }
   return best;
 };
+
+describe("one-way road-id seams and short mouths", () => {
+  it("suppresses only a successor-linked degree-two authoring seam", () => {
+    const slip = fixtureLane(
+      "slip-lane",
+      "slip-road",
+      { x: 0, z: -40 },
+      { x: 0, z: 0 },
+      ["deck-lane"],
+    );
+    const deck = fixtureLane(
+      "deck-lane",
+      "deck-road",
+      { x: 0, z: 0 },
+      { x: 0, z: 40 },
+    );
+    const roadSurfaces = [
+      { widthM: 6, laneIds: [slip.id], centerline: slip.centerline },
+      { widthM: 6, laneIds: [deck.id], centerline: deck.centerline },
+    ];
+
+    expect(
+      regulatorySignPlacements({
+        lanes: [slip, deck],
+        roadSurfaces,
+        defaultRoadWidthM: 6,
+      }),
+    ).toEqual([]);
+
+    const unlinked = regulatorySignPlacements({
+      lanes: [{ ...slip, successors: [] }, deck],
+      roadSurfaces,
+      defaultRoadWidthM: 6,
+    });
+    expect(unlinked.map((placement) => placement.refId)).toEqual([
+      "deck-road@0,0:oneway:l",
+      "deck-road@0,0:oneway:r",
+      "slip-road@0,0:dne:l",
+      "slip-road@0,0:dne:r",
+      "slip-road@0,0:ww35:l",
+      "slip-road@0,0:ww35:r",
+    ]);
+  });
+
+  it("stations real mouth signs through short successor-linked end segments", () => {
+    const south = crossingAt("south-cross", 0);
+    const north = crossingAt("north-cross", 60);
+    const first = fixtureLane(
+      "ramp-first-lane",
+      "ramp-first",
+      { x: 0, z: 0 },
+      { x: 0, z: 6 },
+      ["ramp-body-lane"],
+    );
+    const body = fixtureLane(
+      "ramp-body-lane",
+      "ramp-body",
+      { x: 0, z: 6 },
+      { x: 0, z: 54 },
+      ["ramp-tail-lane"],
+    );
+    const tail = fixtureLane(
+      "ramp-tail-lane",
+      "ramp-tail",
+      { x: 0, z: 54 },
+      { x: 0, z: 60 },
+    );
+    const roadSurfaces = [
+      { widthM: 6, laneIds: [first.id], centerline: first.centerline },
+      { widthM: 6, laneIds: [body.id], centerline: body.centerline },
+      { widthM: 6, laneIds: [tail.id], centerline: tail.centerline },
+      {
+        widthM: 8,
+        laneIds: south.map((lane) => lane.id),
+        centerline: [
+          { x: -40, z: 0 },
+          { x: 40, z: 0 },
+        ],
+      },
+      {
+        widthM: 8,
+        laneIds: north.map((lane) => lane.id),
+        centerline: [
+          { x: -40, z: 60 },
+          { x: 40, z: 60 },
+        ],
+      },
+    ];
+    const placements = regulatorySignPlacements({
+      lanes: [first, body, tail, ...south, ...north],
+      roadSurfaces,
+      defaultRoadWidthM: 6,
+    });
+
+    const expected = new Map<
+      string,
+      readonly [RegulatorySignPlacement["kind"], number, number]
+    >([
+      ["ramp-first@0,0:oneway:l", ["one_way", -3.9, 10]],
+      ["ramp-first@0,0:oneway:r", ["one_way", 3.9, 10]],
+      ["ramp-tail@0,60:dne:l", ["do_not_enter", 3.9, 50]],
+      ["ramp-tail@0,60:dne:r", ["do_not_enter", -3.9, 50]],
+      ["ramp-tail@0,60:ww35:l", ["wrong_way", 3.9, 25]],
+      ["ramp-tail@0,60:ww35:r", ["wrong_way", -3.9, 25]],
+    ]);
+    expect(placements.map((placement) => placement.refId)).toEqual([
+      ...expected.keys(),
+    ]);
+    for (const placement of placements) {
+      const [kind, x, z] = expected.get(placement.refId)!;
+      expect(placement.kind, placement.refId).toBe(kind);
+      expect(placement.x, placement.refId).toBeCloseTo(x, 9);
+      expect(placement.z, placement.refId).toBeCloseTo(z, 9);
+      expect(placement.flowHeadingRad, placement.refId).toBeCloseTo(0, 9);
+    }
+  });
+
+  it("slides a blocked kerb post while preserving legal-flow facing", () => {
+    const cross = crossingAt("cross", 0);
+    const approach = fixtureLane(
+      "approach-lane",
+      "approach",
+      { x: 0, z: -80 },
+      { x: 0, z: 0 },
+    );
+    const blocker = [
+      fixtureLane(
+        "blocker-forward",
+        "blocker",
+        { x: 3.9, z: -14 },
+        { x: 3.9, z: -6 },
+      ),
+      fixtureLane(
+        "blocker-reverse",
+        "blocker",
+        { x: 3.9, z: -6 },
+        { x: 3.9, z: -14 },
+      ),
+    ] as const;
+    const roadSurfaces = [
+      { widthM: 6, laneIds: [approach.id], centerline: approach.centerline },
+      {
+        widthM: 8,
+        laneIds: cross.map((lane) => lane.id),
+        centerline: [
+          { x: -40, z: 0 },
+          { x: 40, z: 0 },
+        ],
+      },
+      {
+        widthM: 2,
+        laneIds: blocker.map((lane) => lane.id),
+        centerline: [
+          { x: 3.9, z: -14 },
+          { x: 3.9, z: -6 },
+        ],
+      },
+    ];
+    const placements = regulatorySignPlacements({
+      lanes: [approach, ...cross, ...blocker],
+      roadSurfaces,
+      defaultRoadWidthM: 6,
+    });
+
+    expect(placements.map((placement) => placement.refId)).toEqual([
+      "approach@0,0:dne:l",
+      "approach@0,0:dne:r",
+      "approach@0,0:ww35:l",
+      "approach@0,0:ww35:r",
+    ]);
+    const left = placements.find((placement) =>
+      placement.refId.endsWith("dne:l"),
+    )!;
+    const right = placements.find((placement) =>
+      placement.refId.endsWith("dne:r"),
+    )!;
+    expect(right.x).toBeCloseTo(-3.9, 9);
+    expect(right.z).toBeCloseTo(-10, 9);
+    expect(left.x).toBeCloseTo(3.9, 9);
+    expect(left.z).toBeLessThan(-14.5);
+
+    for (const placement of placements) {
+      expect(placement.flowHeadingRad, placement.refId).toBeCloseTo(0, 9);
+      expect(
+        regulatorySignYawRad(placement.kind, placement.flowHeadingRad),
+        placement.refId,
+      ).toBeCloseTo(Math.PI, 9);
+      for (const surface of roadSurfaces) {
+        expect(
+          distanceToPolyline(placement, surface.centerline),
+          `${placement.refId} vs ${surface.laneIds.join(",")}`,
+        ).toBeGreaterThanOrEqual(surface.widthM / 2 + 0.5);
+      }
+    }
+  });
+});
 
 describe("NYC regulatory sign inventory", () => {
   const placements = nycPlacements();
@@ -538,7 +759,8 @@ describe("speed-limit signage", () => {
         sign.reason === "repeater",
     );
     expect(lowRampRepeater).toBeDefined();
-    expect(lowRampRepeater!.elevationM ?? 0).toBeCloseTo(2.376173, 6);
+    // Its exact height moves when the authored ramp profile is refined; the
+    // loop above pins the real contract by deriving height from that profile.
     expect(lowRampRepeater!.elevationM ?? 0).toBeLessThan(
       ELEVATED_ROAD_LEVEL_THRESHOLD_M,
     );
