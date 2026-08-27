@@ -2,20 +2,23 @@ import { describe, expect, it } from "vitest";
 import { isTrafficNpcPatrol } from "../app/game/simulation/trafficIdentity";
 
 describe("traffic identity roles", () => {
-  it("preserves the ambient patrol identity roll", () => {
+  it("keeps only one deterministic half of the former ambient patrol identities", () => {
     const patrolIds = Array.from({ length: 20 }, (_, index) => `npc-${index}`).filter(
       (vehicleId) => isTrafficNpcPatrol({ vehicleId, trafficSeed: 512, variant: "car" }),
     );
 
-    expect(patrolIds).toEqual([
-      "npc-1",
-      "npc-9",
-      "npc-10",
-      "npc-12",
-      "npc-14",
-      "npc-17",
-      "npc-18",
-    ]);
+    expect(patrolIds).toEqual(["npc-1", "npc-12", "npc-14", "npc-18"]);
+
+    const largeFleet = Array.from({ length: 10_000 }, (_, index) =>
+      isTrafficNpcPatrol({
+        vehicleId: `npc-${index + 1}`,
+        trafficSeed: 512,
+        variant: "car",
+      }),
+    );
+    const share = largeFleet.filter(Boolean).length / largeFleet.length;
+    expect(share).toBeGreaterThan(0.09);
+    expect(share).toBeLessThan(0.11);
   });
 
   it("makes authored police unconditional and excludes non-car civilians", () => {

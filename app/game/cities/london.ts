@@ -4244,7 +4244,9 @@ const londonLaneGraph: LaneGraph = {
     // The variant comes off the id itself (`inferVehicleVariant`): "bus"
     // gives London its red double-decker, "cab" its black cab, "van" a van,
     // and a named "police" gate guarantees a patrol rather than leaving one
-    // to the 1-in-5 roll every ambient car makes.
+    // to the 1-in-10 roll every ambient car makes. One of the former pair of
+    // authored patrol gates is now an ordinary car gate: the position and
+    // total traffic slot remain, while the guaranteed police share is halved.
     anchoredSpawn("london-bus-knightsbridge", "vehicle", "london-knightsbridge-2-forward-1", 60),
     anchoredSpawn("london-bus-oxford", "vehicle", "london-oxford-street-2-forward-1", 80),
     anchoredSpawn("london-bus-embankment", "vehicle", "london-victoria-embankment-2-forward-1", 120),
@@ -4259,7 +4261,7 @@ const londonLaneGraph: LaneGraph = {
     anchoredSpawn("london-car-park-lane", "vehicle", "london-park-lane-1-forward-1", 120),
     anchoredSpawn("london-car-upper-street", "vehicle", "london-upper-street-1-forward-1", 60),
     anchoredSpawn("london-police-embankment", "vehicle", "london-chelsea-embankment-3-forward-1", 100),
-    anchoredSpawn("london-police-city", "vehicle", "london-london-wall-1-forward-1", 70),
+    anchoredSpawn("london-car-city", "vehicle", "london-london-wall-1-forward-1", 70),
     // Three more double-decker gates (street-life pass), on stretches the
     // four existing bus gates never reach: Oxford Street's east end, the
     // Bishopsgate spine, and the King's Road shopping run. A named `bus`

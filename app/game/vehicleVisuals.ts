@@ -456,7 +456,7 @@ function policeAppearance(
 }
 
 /**
- * A patrol car's appearance for a map, bypassing the one-in-five roll that
+ * A patrol car's appearance for a map, bypassing the one-in-ten roll that
  * decides whether an *ambient* car is a patrol. The traffic-stop cutscene
  * stages its own patrol rig and needs it to be a patrol every time.
  */

@@ -640,7 +640,7 @@ export interface ProceduralMapGeometry {
  * Density is authored per drive ("moderate"), not per city, so every map got
  * the same twelve cars whatever its size. That is a very different street on a
  * 600 m grid and on a 3 km one — the same cars spread over five times the road
- * leave it empty, and patrols with them, since a patrol is one car in five.
+ * leave it empty, and patrols with them, since a patrol is one car in ten.
  */
 export interface AmbientTrafficConfig {
   /** Cars on a desktop-class machine. Shared slot normalization caps these at 32. */

@@ -364,7 +364,7 @@ describe("patrol car liveries", () => {
     expect(new Set(CITIES.map((city) => policeLiveryForMap(city).force)).size).toBe(4);
   });
 
-  it("keeps patrols a minority of traffic, and only ever cars", () => {
+  it("keeps patrols near ten percent of cars and replaces every removed patrol with a civilian", () => {
     for (const mapId of CITIES) {
       const cars = Array.from({ length: 200 }, (_, index) => ({
         vehicleId: `npc-${index + 1}`,
@@ -373,8 +373,16 @@ describe("patrol car liveries", () => {
         mapId,
       }));
       const share = cars.filter(isPatrolVehicle).length / cars.length;
-      expect(share).toBeGreaterThan(0.1);
-      expect(share).toBeLessThan(0.32);
+      expect(share).toBeGreaterThan(0.08);
+      expect(share).toBeLessThan(0.16);
+      const appearances = cars.map(resolveTrafficVehicleAppearance);
+      expect(appearances).toHaveLength(cars.length);
+      expect(appearances.filter(({ role }) => role === "police")).toHaveLength(
+        cars.filter(isPatrolVehicle).length,
+      );
+      expect(appearances.filter(({ role }) => role === "car")).toHaveLength(
+        cars.length - cars.filter(isPatrolVehicle).length,
+      );
 
       // A bus, van or taxi is never a patrol, whatever its id hashes to.
       for (const variant of ["bus", "van", "taxi"] as const) {

@@ -105,7 +105,9 @@ describe("ambient traffic trace characterization", () => {
       // meets): headwaySeconds 300 -> 540 so opposing freights can never
       // co-occupy the strip; every crossing's warning windows shift, which
       // re-times the NPC holds at all seven crossings inside this trace.
-      "free-us": "d8b23063",
+      // -> 745a72a6 (patrol-density reduction): the fixed fleet remains 32
+      // vehicles, but only three of its former six patrol identities remain.
+      "free-us": "745a72a6",
       // Moves on any sim-visible London content change: the south-west
       // expansion (fourteen streets, three signals, both turning loops gone),
       // then the river (both embankments, the south bank, three bridges and
@@ -125,7 +127,10 @@ describe("ambient traffic trace characterization", () => {
       // public-realm rebuild then adds thirteen connected streets and 42
       // lanes; the successor graph and deterministic gate assignment move
       // together even though the original player spawn remains unchanged.
-      "free-uk-london": "3c8afd5c",
+      // -> a5525292 (patrol-density reduction): one authored patrol gate is
+      // now a regular-car gate and only one ambient patrol identity remains;
+      // the same 32 vehicle slots continue through the replay.
+      "free-uk-london": "a5525292",
       // Moves on any sim-visible Tokyo content change: Phase 2 of the Tokyo
       // expansion (road-network skeleton + all three residential-web
       // districts) takes the map from 20 to 66 roads and 56 to 338 lanes,
@@ -214,7 +219,9 @@ describe("ambient traffic trace characterization", () => {
       // Hon/Higashi Soto) — more railway stop lines, more timetable-driven
       // light states in the hash — plus the Menya Sakura venue shifting off
       // the corridor.
-      "free-jp": "1684e3c9",
+      // -> 66c10afe (patrol-density reduction): two of five desktop patrol
+      // identities remain, with no change to Tokyo's 32 vehicle slots.
+      "free-jp": "66c10afe",
       // Moves for the rail feature's Imbaba corridor: eleven generated
       // railway crossings put timetable-driven railway_signal lights and
       // stop lines on every N-S street at z=-720, and the corridor carve
@@ -230,7 +237,10 @@ describe("ambient traffic trace characterization", () => {
       // successor draw re-deals from tick 0. The other three cities'
       // hashes are untouched, which is the isolation this pin exists to
       // prove.
-      "free-eg": "e3e10b4c",
+      // -> 153ea548 (patrol-density reduction): two old authored patrol gates
+      // become regular cars and one ambient patrol remains beside the single
+      // guaranteed patrol, preserving all 32 slots.
+      "free-eg": "153ea548",
     });
   });
 });

@@ -1213,9 +1213,8 @@ export const NYC_MAP_PACK: MapPack = {
   // Twelve cars is what every map got, and it is what this one had when it
   // was a fifth the size (47 km of lane, the west grid alone). Spread that
   // thin they left the streets empty, and patrols with them — a patrol is
-  // one in five of the *car* variant only (isPatrolVehicle), which after the
-  // bus/taxi/van gate and roll shares is roughly one vehicle in eight, so
-  // twelve vehicles is one police car in the whole city if the seed is kind.
+  // one in ten of the *car* variant only (isPatrolVehicle), which after the
+  // bus/taxi/van gate and roll shares is roughly one vehicle in seventeen.
   // 32 is the shared production slot ceiling; a phone keeps a lower count
   // because each car costs it much more. The east expansion doubled the lane
   // total again (96 km) without raising the ceiling, so the fixed fleet now

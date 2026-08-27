@@ -4913,9 +4913,10 @@ for (const [blockId, promotion] of Object.entries(
 /**
  * Spawn gates: the same freeze as the venue/service anchors above (see that
  * comment for why). The vehicle roles keep the old index arithmetic's
- * result — three dedicated patrol gates (7, 34, 58) so Cairo's police
- * presence never hangs on the ambient one-in-five patrol roll, plus buses,
- * taxis and vans at their dealt gates.
+ * result. One dedicated patrol gate remains so Cairo's police presence does
+ * not hang entirely on the ambient one-in-ten patrol roll. The other two old
+ * patrol positions remain ordinary car gates, preserving the full fleet and
+ * its spatial distribution while halving the default on-street patrol count.
  */
 const cairoSpawnPoints: readonly MapSpawnPoint[] = [
   // Owner-selected free-drive start (2026-08-25): Qasr El-Ainy beside the
@@ -4939,7 +4940,7 @@ const cairoSpawnPoints: readonly MapSpawnPoint[] = [
   { id: "cairo-car-12", kind: "vehicle", anchor: anchor("cairo-ramses-16-forward-1", 101.82264236931786) },
   { id: "cairo-car-13", kind: "vehicle", anchor: anchor("cairo-galaa-street-4-forward-1", 103.89556506345087) },
   { id: "cairo-car-14", kind: "vehicle", anchor: anchor("cairo-galaa-street-10-forward-1", 45.988362838323894) },
-  { id: "cairo-police-15", kind: "vehicle", anchor: anchor("cairo-garden-city-south-1-forward-1", 92.21650945652542) },
+  { id: "cairo-car-15", kind: "vehicle", anchor: anchor("cairo-garden-city-south-1-forward-1", 92.21650945652542) },
   { id: "cairo-taxi-16", kind: "vehicle", anchor: anchor("cairo-garden-city-south-4-forward-1", 42.23601502664967) },
   { id: "cairo-car-17", kind: "vehicle", anchor: anchor("cairo-tahrir-approach-3-forward-1", 58.32119067897588) },
   { id: "cairo-car-18", kind: "vehicle", anchor: anchor("cairo-tahrir-approach-4-forward-2", 44.48807830939357) },
@@ -4950,7 +4951,7 @@ const cairoSpawnPoints: readonly MapSpawnPoint[] = [
   { id: "cairo-car-23", kind: "vehicle", anchor: anchor("cairo-saray-el-gezira-3-forward-1", 107.76055324240026) },
   { id: "cairo-car-24", kind: "vehicle", anchor: anchor("cairo-saray-el-gezira-8-forward-1", 145.76764559406647) },
   { id: "cairo-car-25", kind: "vehicle", anchor: anchor("cairo-el-gabalaya-2-forward-1", 99.53655652066436) },
-  { id: "cairo-police-26", kind: "vehicle", anchor: anchor("cairo-el-gabalaya-5-forward-1", 70.0139986002799) },
+  { id: "cairo-car-26", kind: "vehicle", anchor: anchor("cairo-el-gabalaya-5-forward-1", 70.0139986002799) },
   { id: "cairo-car-27", kind: "vehicle", anchor: anchor("cairo-el-gabalaya-8-forward-1", 101.84070895275626) },
   { id: "cairo-bus-28", kind: "vehicle", anchor: anchor("cairo-nile-island-drive-5-forward-1", 122.67840094754963) },
   { id: "cairo-van-29", kind: "vehicle", anchor: anchor("cairo-nile-island-drive-8-forward-1", 146.7180201829856) },

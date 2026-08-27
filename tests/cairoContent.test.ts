@@ -1202,11 +1202,12 @@ describe("Cairo Central Nile content", () => {
     expect(
       graph.spawnPoints.filter((spawn) => spawn.kind === "vehicle").length,
     ).toBeLessThanOrEqual(32);
-    // Three dedicated patrol gates: Cairo's visible police presence must not
-    // hang on the ambient patrol roll landing on a car-capable gate.
+    // One dedicated patrol gate keeps a visible police presence. The two
+    // former patrol positions remain vehicle gates but now supply regular cars,
+    // so the full 30-gate traffic distribution is unchanged.
     expect(
       graph.spawnPoints.filter((spawn) => spawn.id.includes("cairo-police-")),
-    ).toHaveLength(3);
+    ).toHaveLength(1);
     expect(CAIRO_MAP_PACK.geometry.gigVenues).toHaveLength(30);
     expect(
       CAIRO_MAP_PACK.geometry.servicePoints?.filter(
@@ -3217,11 +3218,11 @@ describe("Cairo Central Nile content", () => {
     const first = run();
     const replay = run();
     expect(replay).toEqual(first);
-    // The owner-selected Tahrir/Qasr El-Ainy start keeps 31 ambient cars active
-    // and one waiting for a safe gap. The hash also pins the new flyover/ramp
-    // successor choices so a later edit cannot silently disconnect or re-route
-    // elevated traffic.
-    expect(first.hash).toBe("707a5f59");
+    // The owner-selected Tahrir/Qasr El-Ainy start keeps the full 32-car pool
+    // active. The hash also pins the halved patrol mix and the flyover/ramp
+    // successor choices so a later edit cannot silently change either role
+    // distribution or elevated traffic routing.
+    expect(first.hash).toBe("e9432864");
     expect(first.snapshot).toMatchObject({
       tick: 1_800,
       status: "running",
