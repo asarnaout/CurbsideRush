@@ -19,7 +19,8 @@ export interface CairoAdCreative {
   readonly headline: string;
   readonly subline: string;
   readonly language: "ar" | "en" | "bilingual";
-  /** Cell in public/art/cairo/fictional-ad-atlas-v1.png, row-major. */
+  /** Artwork atlas version; each atlas contains eight row-major cells. */
+  readonly artAtlas: CairoAdAtlasId;
   readonly artIndex: number;
   /** Copy sits in the art atlas's deliberately clear right-hand field. */
   readonly copySide: "right";
@@ -38,6 +39,7 @@ export const CAIRO_AD_CREATIVES: readonly CairoAdCreative[] = [
     headline: "كل يوم أطيب",
     subline: "انتعاش بطعم جديد",
     language: "ar",
+    artAtlas: "v1",
     artIndex: 0,
     copySide: "right",
     accent: "#fff1a6",
@@ -47,6 +49,7 @@ export const CAIRO_AD_CREATIVES: readonly CairoAdCreative[] = [
     headline: "أقرب إليك",
     subline: "اتصال أسرع كل يوم",
     language: "ar",
+    artAtlas: "v1",
     artIndex: 1,
     copySide: "right",
     accent: "#71e8ff",
@@ -56,6 +59,7 @@ export const CAIRO_AD_CREATIVES: readonly CairoAdCreative[] = [
     headline: "MOVE BRIGHT",
     subline: "Comfort in every step",
     language: "en",
+    artAtlas: "v1",
     artIndex: 2,
     copySide: "right",
     accent: "#fff3df",
@@ -65,6 +69,7 @@ export const CAIRO_AD_CREATIVES: readonly CairoAdCreative[] = [
     headline: "طازة من أول رشفة",
     subline: "نكهة تفتح يومك",
     language: "ar",
+    artAtlas: "v1",
     artIndex: 3,
     copySide: "right",
     accent: "#fff4b0",
@@ -74,6 +79,7 @@ export const CAIRO_AD_CREATIVES: readonly CairoAdCreative[] = [
     headline: "صباحك له مزاج",
     subline: "لحظة دافية على مهلك",
     language: "ar",
+    artAtlas: "v1",
     artIndex: 4,
     copySide: "right",
     accent: "#ffd39b",
@@ -83,6 +89,7 @@ export const CAIRO_AD_CREATIVES: readonly CairoAdCreative[] = [
     headline: "بيت على ذوقك",
     subline: "مساحة أهدى كل يوم",
     language: "ar",
+    artAtlas: "v1",
     artIndex: 5,
     copySide: "right",
     accent: "#baf6ef",
@@ -92,6 +99,7 @@ export const CAIRO_AD_CREATIVES: readonly CairoAdCreative[] = [
     headline: "يوصل بسرعة",
     subline: "من الباب للباب",
     language: "ar",
+    artAtlas: "v1",
     artIndex: 6,
     copySide: "right",
     accent: "#ffd5a4",
@@ -101,23 +109,124 @@ export const CAIRO_AD_CREATIVES: readonly CairoAdCreative[] = [
     headline: "HEAR THE CITY",
     subline: "اسمع الفرق",
     language: "bilingual",
+    artAtlas: "v1",
     artIndex: 7,
     copySide: "right",
     accent: "#8ee7ff",
   },
+  {
+    id: "time-looks-better",
+    headline: "وقتك أجمل",
+    subline: "أناقة لكل لحظة",
+    language: "ar",
+    artAtlas: "v2",
+    artIndex: 0,
+    copySide: "right",
+    accent: "#ffd47a",
+  },
+  {
+    id: "cooler-sweetness",
+    headline: "حلاوة تبرد يومك",
+    subline: "اختار نكهتك",
+    language: "ar",
+    artAtlas: "v2",
+    artIndex: 1,
+    copySide: "right",
+    accent: "#b8dcff",
+  },
+  {
+    id: "your-new-place",
+    headline: "مكانك الجديد",
+    subline: "مساحة تبدأ منها حكايتك",
+    language: "ar",
+    artAtlas: "v2",
+    artIndex: 2,
+    copySide: "right",
+    accent: "#ffd7a3",
+  },
+  {
+    id: "comfort-everywhere",
+    headline: "الراحة في كل ركن",
+    subline: "هواء منعش طول اليوم",
+    language: "ar",
+    artAtlas: "v2",
+    artIndex: 3,
+    copySide: "right",
+    accent: "#7de7ff",
+  },
+  {
+    id: "your-trip-starts",
+    headline: "رحلتك تبدأ هنا",
+    subline: "جهز شنطتك وانطلق",
+    language: "ar",
+    artAtlas: "v2",
+    artIndex: 4,
+    copySide: "right",
+    accent: "#ffc875",
+  },
+  {
+    id: "your-idea-closer",
+    headline: "فكرتك أقرب",
+    subline: "شاشة لكل إنجاز",
+    language: "ar",
+    artAtlas: "v2",
+    artIndex: 5,
+    copySide: "right",
+    accent: "#78f4ef",
+  },
+  {
+    id: "noticeable-presence",
+    headline: "حضور يلفت",
+    subline: "لمسة تكمّل يومك",
+    language: "ar",
+    artAtlas: "v2",
+    artIndex: 6,
+    copySide: "right",
+    accent: "#ff9de1",
+  },
+  {
+    id: "fresh-every-morning",
+    headline: "طازة كل صباح",
+    subline: "دفا الفرن في كل لقمة",
+    language: "ar",
+    artAtlas: "v2",
+    artIndex: 7,
+    copySide: "right",
+    accent: "#ffd18a",
+  },
 ];
 
 /**
- * ImageGen produced a visually regular 2x4 atlas, but its horizontal rules are
- * not mathematically quarter-height. Equal 0.25 UV slices therefore straddled
- * two campaigns (most visibly a strip of shoe art over the coffee board).
- * These are the measured source-pixel cell edges; the two-pixel inset keeps
+ * ImageGen produced visually regular 2x4 atlases, but their horizontal rules
+ * are not mathematically quarter-height. Equal 0.25 UV slices therefore
+ * straddle campaigns (the original bug repeated a shoe strip over a coffee
+ * board). These are measured source-pixel cell edges; the two-pixel inset keeps
  * bilinear filtering wholly inside one creative at every edge.
  */
-const CAIRO_AD_ATLAS_WIDTH_PX = 1774;
-const CAIRO_AD_ATLAS_HEIGHT_PX = 887;
-const CAIRO_AD_ATLAS_COLUMN_EDGES_PX = [0, 887, 1774] as const;
-const CAIRO_AD_ATLAS_ROW_EDGES_PX = [0, 249, 478, 674, 887] as const;
+export type CairoAdAtlasId = "v1" | "v2";
+
+const CAIRO_AD_ATLAS_SPECS = {
+  v1: {
+    widthPx: 1774,
+    heightPx: 887,
+    columnEdgesPx: [0, 887, 1774],
+    rowEdgesPx: [0, 249, 478, 674, 887],
+  },
+  v2: {
+    widthPx: 1774,
+    heightPx: 887,
+    columnEdgesPx: [0, 887, 1774],
+    rowEdgesPx: [0, 241, 456, 668, 887],
+  },
+} as const satisfies Record<
+  CairoAdAtlasId,
+  {
+    readonly widthPx: number;
+    readonly heightPx: number;
+    readonly columnEdgesPx: readonly [number, number, number];
+    readonly rowEdgesPx: readonly [number, number, number, number, number];
+  }
+>;
 const CAIRO_AD_ATLAS_INSET_PX = 2;
 
 export interface CairoAdAtlasUv {
@@ -128,27 +237,35 @@ export interface CairoAdAtlasUv {
 }
 
 /** UV crop for the atlas's `invertY: true` Babylon texture. */
-export function cairoAdAtlasUv(artIndex: number): CairoAdAtlasUv {
+export function cairoAdAtlasUv(
+  artIndex: number,
+  atlasId: CairoAdAtlasId = "v1",
+): CairoAdAtlasUv {
+  const atlas = CAIRO_AD_ATLAS_SPECS[atlasId];
   const column = artIndex % 2;
   const row = Math.floor(artIndex / 2);
-  const leftPx = CAIRO_AD_ATLAS_COLUMN_EDGES_PX[column] + CAIRO_AD_ATLAS_INSET_PX;
+  const leftPx = atlas.columnEdgesPx[column] + CAIRO_AD_ATLAS_INSET_PX;
   const rightPx =
-    CAIRO_AD_ATLAS_COLUMN_EDGES_PX[column + 1] - CAIRO_AD_ATLAS_INSET_PX;
-  const topPx = CAIRO_AD_ATLAS_ROW_EDGES_PX[row] + CAIRO_AD_ATLAS_INSET_PX;
-  const bottomPx = CAIRO_AD_ATLAS_ROW_EDGES_PX[row + 1] - CAIRO_AD_ATLAS_INSET_PX;
+    atlas.columnEdgesPx[column + 1] - CAIRO_AD_ATLAS_INSET_PX;
+  const topPx = atlas.rowEdgesPx[row] + CAIRO_AD_ATLAS_INSET_PX;
+  const bottomPx = atlas.rowEdgesPx[row + 1] - CAIRO_AD_ATLAS_INSET_PX;
   return {
-    uOffset: leftPx / CAIRO_AD_ATLAS_WIDTH_PX,
-    uScale: (rightPx - leftPx) / CAIRO_AD_ATLAS_WIDTH_PX,
+    uOffset: leftPx / atlas.widthPx,
+    uScale: (rightPx - leftPx) / atlas.widthPx,
     // The texture is loaded with invertY=true, so a top-origin pixel crop has
     // to be addressed upward from the bottom of Babylon's V range.
-    vOffset: 1 - bottomPx / CAIRO_AD_ATLAS_HEIGHT_PX,
-    vScale: (bottomPx - topPx) / CAIRO_AD_ATLAS_HEIGHT_PX,
+    vOffset: 1 - bottomPx / atlas.heightPx,
+    vScale: (bottomPx - topPx) / atlas.heightPx,
   };
 }
 
 export interface CairoAdPlacement {
   readonly id: string;
-  readonly kind: "pole-banner" | "skyline-billboard" | "bridge-gantry";
+  readonly kind:
+    | "pole-banner"
+    | "skyline-billboard"
+    | "bridge-side-sign"
+    | "bridge-gantry";
   readonly sourceRoadId: string;
   readonly position: GameCanvasPoint;
   /** Babylon yaw. A plane's local Z normal is the direction of the ad face. */
@@ -159,6 +276,8 @@ export interface CairoAdPlacement {
   readonly panelCenterYM: number;
   /** Gantry leg distance from road centre; absent on ordinary roadside ads. */
   readonly supportOffsetM?: number;
+  /** Signed road side for a parapet-mounted bridge sign. */
+  readonly side?: 1 | -1;
 }
 
 type RoadSurface = NonNullable<
@@ -179,52 +298,52 @@ interface CampaignRule {
  * These runs cover every ordinary named boulevard/collector in the authored
  * centre, not just the long north-south roads near the default spawn. Wide
  * roads carry a pair at each station; smaller collectors alternate sides.
- * A 60-78 m station interval reads as the repeated lamp-post campaigns in the
+ * A 44-62 m station interval reads as the repeated lamp-post campaigns in the
  * references once junction/rail clearances remove unsafe candidates.
  */
 const POLE_CAMPAIGNS: readonly CampaignRule[] = [
-  { roadId: "cairo-corniche-el-nil", spacingM: 66, startM: 34, endPadM: 32, creativeStart: 0, firstSide: 1, bothSides: true },
-  { roadId: "cairo-qasr-el-ainy", spacingM: 68, startM: 36, endPadM: 34, creativeStart: 1, firstSide: -1, bothSides: true },
-  { roadId: "cairo-simon-bolivar", spacingM: 76, startM: 38, endPadM: 36, creativeStart: 2, firstSide: 1 },
-  { roadId: "cairo-talaat-harb", spacingM: 72, startM: 38, endPadM: 36, creativeStart: 3, firstSide: -1 },
-  { roadId: "cairo-ramses", spacingM: 66, startM: 34, endPadM: 32, creativeStart: 3, firstSide: 1, bothSides: true },
-  { roadId: "cairo-galaa-street", spacingM: 68, startM: 36, endPadM: 34, creativeStart: 4, firstSide: -1, bothSides: true },
-  { roadId: "cairo-garden-city-south", spacingM: 76, startM: 40, endPadM: 38, creativeStart: 5, firstSide: 1 },
-  { roadId: "cairo-abdel-qader-hamza", spacingM: 76, startM: 40, endPadM: 38, creativeStart: 6, firstSide: -1 },
-  { roadId: "cairo-tahrir-approach", spacingM: 64, startM: 34, endPadM: 32, creativeStart: 7, firstSide: 1, bothSides: true },
-  { roadId: "cairo-qasr-el-nil-street", spacingM: 60, startM: 32, endPadM: 30, creativeStart: 7, firstSide: -1, bothSides: true },
-  { roadId: "cairo-champollion", spacingM: 74, startM: 38, endPadM: 36, creativeStart: 0, firstSide: 1 },
-  { roadId: "cairo-ramses-approach", spacingM: 70, startM: 36, endPadM: 34, creativeStart: 1, firstSide: -1, bothSides: true },
-  { roadId: "cairo-saray-el-gezira", spacingM: 70, startM: 36, endPadM: 34, creativeStart: 2, firstSide: 1, bothSides: true },
-  { roadId: "cairo-el-gabalaya", spacingM: 74, startM: 38, endPadM: 36, creativeStart: 3, firstSide: -1 },
-  { roadId: "cairo-opera-corridor", spacingM: 72, startM: 38, endPadM: 36, creativeStart: 4, firstSide: 1 },
-  { roadId: "cairo-nile-island-drive", spacingM: 66, startM: 34, endPadM: 32, creativeStart: 5, firstSide: -1, bothSides: true },
-  { roadId: "cairo-south-gezira-road", spacingM: 68, startM: 34, endPadM: 32, creativeStart: 6, firstSide: 1 },
-  { roadId: "cairo-zamalek-south", spacingM: 66, startM: 34, endPadM: 32, creativeStart: 7, firstSide: -1 },
-  { roadId: "cairo-opera-square", spacingM: 64, startM: 34, endPadM: 32, creativeStart: 0, firstSide: 1 },
-  { roadId: "cairo-zamalek-north", spacingM: 62, startM: 32, endPadM: 30, creativeStart: 1, firstSide: -1 },
-  { roadId: "cairo-qasr-el-nil-bridge", spacingM: 55, startM: 30, endPadM: 28, creativeStart: 2, firstSide: 1, bothSides: true },
-  { roadId: "cairo-al-galaa-bridge", spacingM: 50, startM: 28, endPadM: 26, creativeStart: 3, firstSide: -1, bothSides: true },
-  { roadId: "cairo-west-nile-street", spacingM: 68, startM: 36, endPadM: 34, creativeStart: 4, firstSide: 1, bothSides: true },
-  { roadId: "cairo-dokki-nile-drive", spacingM: 66, startM: 34, endPadM: 32, creativeStart: 5, firstSide: -1, bothSides: true },
-  { roadId: "cairo-dokki-south", spacingM: 58, startM: 30, endPadM: 28, creativeStart: 6, firstSide: 1 },
-  { roadId: "cairo-dokki-midtown", spacingM: 55, startM: 28, endPadM: 26, creativeStart: 7, firstSide: -1 },
-  { roadId: "cairo-agouza-approach", spacingM: 52, startM: 27, endPadM: 25, creativeStart: 0, firstSide: 1 },
+  { roadId: "cairo-corniche-el-nil", spacingM: 54, startM: 34, endPadM: 32, creativeStart: 0, firstSide: 1, bothSides: true },
+  { roadId: "cairo-qasr-el-ainy", spacingM: 56, startM: 36, endPadM: 34, creativeStart: 8, firstSide: -1, bothSides: true },
+  { roadId: "cairo-simon-bolivar", spacingM: 62, startM: 38, endPadM: 36, creativeStart: 2, firstSide: 1 },
+  { roadId: "cairo-talaat-harb", spacingM: 60, startM: 38, endPadM: 36, creativeStart: 10, firstSide: -1 },
+  { roadId: "cairo-ramses", spacingM: 54, startM: 34, endPadM: 32, creativeStart: 4, firstSide: 1, bothSides: true },
+  { roadId: "cairo-galaa-street", spacingM: 56, startM: 36, endPadM: 34, creativeStart: 12, firstSide: -1, bothSides: true },
+  { roadId: "cairo-garden-city-south", spacingM: 62, startM: 40, endPadM: 38, creativeStart: 6, firstSide: 1 },
+  { roadId: "cairo-abdel-qader-hamza", spacingM: 56, startM: 40, endPadM: 38, creativeStart: 14, firstSide: -1 },
+  { roadId: "cairo-tahrir-approach", spacingM: 54, startM: 34, endPadM: 32, creativeStart: 1, firstSide: 1, bothSides: true },
+  { roadId: "cairo-qasr-el-nil-street", spacingM: 50, startM: 32, endPadM: 30, creativeStart: 9, firstSide: -1, bothSides: true },
+  { roadId: "cairo-champollion", spacingM: 62, startM: 38, endPadM: 36, creativeStart: 3, firstSide: 1 },
+  { roadId: "cairo-ramses-approach", spacingM: 58, startM: 36, endPadM: 34, creativeStart: 11, firstSide: -1, bothSides: true },
+  { roadId: "cairo-saray-el-gezira", spacingM: 58, startM: 36, endPadM: 34, creativeStart: 5, firstSide: 1, bothSides: true },
+  { roadId: "cairo-el-gabalaya", spacingM: 62, startM: 38, endPadM: 36, creativeStart: 13, firstSide: -1 },
+  { roadId: "cairo-opera-corridor", spacingM: 60, startM: 38, endPadM: 36, creativeStart: 7, firstSide: 1 },
+  { roadId: "cairo-nile-island-drive", spacingM: 54, startM: 34, endPadM: 32, creativeStart: 15, firstSide: -1, bothSides: true },
+  { roadId: "cairo-south-gezira-road", spacingM: 56, startM: 34, endPadM: 32, creativeStart: 0, firstSide: 1 },
+  { roadId: "cairo-zamalek-south", spacingM: 54, startM: 34, endPadM: 32, creativeStart: 8, firstSide: -1 },
+  { roadId: "cairo-opera-square", spacingM: 54, startM: 34, endPadM: 32, creativeStart: 2, firstSide: 1 },
+  { roadId: "cairo-zamalek-north", spacingM: 52, startM: 32, endPadM: 30, creativeStart: 10, firstSide: -1 },
+  { roadId: "cairo-qasr-el-nil-bridge", spacingM: 46, startM: 30, endPadM: 28, creativeStart: 4, firstSide: 1, bothSides: true },
+  { roadId: "cairo-al-galaa-bridge", spacingM: 44, startM: 28, endPadM: 26, creativeStart: 12, firstSide: -1, bothSides: true },
+  { roadId: "cairo-west-nile-street", spacingM: 56, startM: 36, endPadM: 34, creativeStart: 6, firstSide: 1, bothSides: true },
+  { roadId: "cairo-dokki-nile-drive", spacingM: 54, startM: 34, endPadM: 32, creativeStart: 14, firstSide: -1, bothSides: true },
+  { roadId: "cairo-dokki-south", spacingM: 48, startM: 30, endPadM: 28, creativeStart: 1, firstSide: 1 },
+  { roadId: "cairo-dokki-midtown", spacingM: 46, startM: 28, endPadM: 26, creativeStart: 9, firstSide: -1 },
+  { roadId: "cairo-agouza-approach", spacingM: 44, startM: 27, endPadM: 25, creativeStart: 3, firstSide: 1 },
 ];
 
 const SKYLINE_CAMPAIGNS: readonly CampaignRule[] = [
   { roadId: "cairo-corniche-el-nil", spacingM: 220, startM: 105, endPadM: 95, creativeStart: 0, firstSide: 1 },
-  { roadId: "cairo-qasr-el-ainy", spacingM: 245, startM: 120, endPadM: 105, creativeStart: 4, firstSide: 1 },
+  { roadId: "cairo-qasr-el-ainy", spacingM: 245, startM: 120, endPadM: 105, creativeStart: 8, firstSide: 1 },
   { roadId: "cairo-simon-bolivar", spacingM: 230, startM: 105, endPadM: 95, creativeStart: 6, firstSide: -1 },
-  { roadId: "cairo-ramses", spacingM: 220, startM: 105, endPadM: 95, creativeStart: 1, firstSide: -1 },
-  { roadId: "cairo-galaa-street", spacingM: 235, startM: 110, endPadM: 100, creativeStart: 6, firstSide: 1 },
-  { roadId: "cairo-tahrir-approach", spacingM: 195, startM: 92, endPadM: 82, creativeStart: 2, firstSide: 1 },
-  { roadId: "cairo-qasr-el-nil-street", spacingM: 185, startM: 88, endPadM: 78, creativeStart: 3, firstSide: -1 },
-  { roadId: "cairo-ramses-approach", spacingM: 210, startM: 98, endPadM: 88, creativeStart: 7, firstSide: -1 },
-  { roadId: "cairo-saray-el-gezira", spacingM: 245, startM: 115, endPadM: 105, creativeStart: 4, firstSide: 1 },
-  { roadId: "cairo-nile-island-drive", spacingM: 235, startM: 110, endPadM: 100, creativeStart: 5, firstSide: -1 },
-  { roadId: "cairo-zamalek-north", spacingM: 160, startM: 72, endPadM: 62, creativeStart: 0, firstSide: 1 },
-  { roadId: "cairo-west-nile-street", spacingM: 235, startM: 110, endPadM: 100, creativeStart: 2, firstSide: -1 },
+  { roadId: "cairo-ramses", spacingM: 220, startM: 105, endPadM: 95, creativeStart: 10, firstSide: -1 },
+  { roadId: "cairo-galaa-street", spacingM: 235, startM: 110, endPadM: 100, creativeStart: 4, firstSide: 1 },
+  { roadId: "cairo-tahrir-approach", spacingM: 195, startM: 92, endPadM: 82, creativeStart: 12, firstSide: 1 },
+  { roadId: "cairo-qasr-el-nil-street", spacingM: 185, startM: 88, endPadM: 78, creativeStart: 6, firstSide: -1 },
+  { roadId: "cairo-ramses-approach", spacingM: 210, startM: 98, endPadM: 88, creativeStart: 14, firstSide: -1 },
+  { roadId: "cairo-saray-el-gezira", spacingM: 245, startM: 115, endPadM: 105, creativeStart: 1, firstSide: 1 },
+  { roadId: "cairo-nile-island-drive", spacingM: 235, startM: 110, endPadM: 100, creativeStart: 9, firstSide: -1 },
+  { roadId: "cairo-zamalek-north", spacingM: 160, startM: 72, endPadM: 62, creativeStart: 3, firstSide: 1 },
+  { roadId: "cairo-west-nile-street", spacingM: 235, startM: 110, endPadM: 100, creativeStart: 11, firstSide: -1 },
   { roadId: "cairo-dokki-nile-drive", spacingM: 230, startM: 108, endPadM: 98, creativeStart: 5, firstSide: 1 },
 ];
 
@@ -239,9 +358,26 @@ interface BridgeCampaignRule {
 /** Approach-facing boards that physically span the deck with kerb-side legs. */
 const BRIDGE_GANTRY_CAMPAIGNS: readonly BridgeCampaignRule[] = [
   { roadId: "cairo-sixth-october-bridge", spacingM: 150, startM: 70, endPadM: 65, creativeStart: 0 },
-  { roadId: "cairo-qasr-el-nil-bridge", spacingM: 180, startM: 102, endPadM: 90, creativeStart: 5 },
-  { roadId: "cairo-al-galaa-bridge", spacingM: 160, startM: 88, endPadM: 80, creativeStart: 7 },
+  { roadId: "cairo-qasr-el-nil-bridge", spacingM: 180, startM: 102, endPadM: 90, creativeStart: 9 },
+  { roadId: "cairo-al-galaa-bridge", spacingM: 160, startM: 88, endPadM: 80, creativeStart: 14 },
 ];
+
+/**
+ * Portrait signs mounted just outside the Sixth of October parapets. They are
+ * deliberately separate from ordinary pavement poles because this deck has no
+ * sidewalk, and they leave a breathing gap around every overhead gantry.
+ */
+const BRIDGE_SIDE_SIGN_CAMPAIGNS: readonly BridgeCampaignRule[] = [
+  {
+    roadId: "cairo-sixth-october-bridge",
+    spacingM: 42,
+    startM: 35,
+    endPadM: 35,
+    creativeStart: 8,
+  },
+];
+
+const BRIDGE_SIDE_SIGN_GANTRY_CLEARANCE_M = 18;
 
 interface PolylineSample extends GameCanvasPoint {
   readonly headingRad: number;
@@ -762,6 +898,93 @@ function skylineBillboardPlacements(
   return placements;
 }
 
+function bridgeSideSignPlacements(
+  mapPack: GameCanvasMapPack,
+): CairoAdPlacement[] {
+  const roads = new Map(
+    (mapPack.geometry.roadSurfaces ?? []).map((road) => [road.id, road]),
+  );
+  const placements: CairoAdPlacement[] = [];
+  for (const rule of BRIDGE_SIDE_SIGN_CAMPAIGNS) {
+    const road = roads.get(rule.roadId);
+    if (!road) continue;
+    const lengthM = roadLength(road);
+    const gantryRule = BRIDGE_GANTRY_CAMPAIGNS.find(
+      (candidate) => candidate.roadId === rule.roadId,
+    );
+    const gantryStationsM: number[] = [];
+    if (gantryRule) {
+      for (
+        let distanceM = gantryRule.startM;
+        distanceM <= lengthM - gantryRule.endPadM;
+        distanceM += gantryRule.spacingM
+      ) {
+        gantryStationsM.push(distanceM);
+      }
+    }
+
+    let stationIndex = 0;
+    for (
+      let distanceM = rule.startM;
+      distanceM <= lengthM - rule.endPadM;
+      distanceM += rule.spacingM
+    ) {
+      const thisStationIndex = stationIndex;
+      stationIndex += 1;
+      if (
+        gantryStationsM.some(
+          (gantryDistanceM) =>
+            Math.abs(distanceM - gantryDistanceM) <
+            BRIDGE_SIDE_SIGN_GANTRY_CLEARANCE_M,
+        )
+      ) {
+        continue;
+      }
+      const sample = sampleRoad(road, distanceM);
+      if (!sample) continue;
+      const normalX = Math.cos(sample.headingRad);
+      const normalZ = -Math.sin(sample.headingRad);
+      const widthM = 1.55;
+      const frameHalfWidthM = (widthM + 0.18) / 2;
+      const lateralM =
+        road.widthM / 2 +
+        (road.parapetDepthM ?? 0) +
+        frameHalfWidthM +
+        0.18;
+      const creativeIndex =
+        (rule.creativeStart + Math.floor(thisStationIndex / 2)) %
+        CAIRO_AD_CREATIVES.length;
+
+      for (const side of [-1, 1] as const) {
+        const position = {
+          x: sample.x + normalX * lateralM * side,
+          z: sample.z + normalZ * lateralM * side,
+          elevationM: sample.elevationM,
+        };
+        // This also clears same-level merge ramps. It conservatively treats
+        // underpassing streets as occupied in XZ, which creates believable
+        // breathing gaps at flyover junctions instead of a solid sign wall.
+        if (!pointIsClearOfCrossings(mapPack, position, road.id, 0.8)) {
+          continue;
+        }
+        placements.push({
+          id: `cairo-ad-bridge-side-sign-${rule.roadId}-${thisStationIndex}-${side > 0 ? "r" : "l"}`,
+          kind: "bridge-side-sign",
+          sourceRoadId: rule.roadId,
+          position,
+          headingRad: sample.headingRad,
+          creativeIndex,
+          widthM,
+          heightM: 2.35,
+          panelCenterYM: 4.55,
+          side,
+        });
+      }
+    }
+  }
+  return placements;
+}
+
 function bridgeGantryPlacements(mapPack: GameCanvasMapPack): CairoAdPlacement[] {
   const roads = new Map(
     (mapPack.geometry.roadSurfaces ?? []).map((road) => [road.id, road]),
@@ -814,6 +1037,7 @@ export function cairoAdPlacements(
   const placements = [
     ...poleBannerPlacements(mapPack),
     ...skylineBillboardPlacements(mapPack, buildingLayout),
+    ...bridgeSideSignPlacements(mapPack),
     ...bridgeGantryPlacements(mapPack),
   ];
   CAIRO_AD_PLACEMENT_CACHE.set(buildingLayout, placements);

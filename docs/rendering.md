@@ -327,7 +327,7 @@ gap search, complete-installation collision checks and the porting test matrix�
 read [city-advertising-playbook.md](city-advertising-playbook.md).
 
 `cairoAdPlacements` covers 27 surface corridors—including both Nile bridges—
-rather than a spawn-centred subset. Pole stations sit inside their source pavement
+rather than a spawn-centred subset. Its denser 627 pole stations sit inside their source pavement
 band, face approaching traffic, and reject the complete pavement envelope of
 every crossing road plus the rail reservation; a valid kerb offset on one road
 is not enough, because that same point can be the centre of another road at a
@@ -345,13 +345,18 @@ block that contains a valid gap—is not sufficient.
 The three drivable bridge corridors are a separate third pass. The Sixth of
 October main deck has eight approach-facing gantries over its full 1.2 km run;
 Qasr El-Nil and Al-Galaa receive one each. Gantry faces span the carriageway
-above vehicle clearance while their legs land beyond the asphalt/parapet.
-`buildCairoAdvertising` consumes all three kinds through the city registry's
-`streetFurniture` slot. Geometry is instanced and the eight material variants
+above vehicle clearance while their legs land beyond the asphalt/parapet. A
+fourth pass mounts 34 portrait campaign signs along both outside parapets of
+the Sixth of October deck. Their complete frames sit beyond the live lanes,
+short brackets reach inward to parapet-edge posts, and stations leave at least
+15 m of longitudinal breathing room around every gantry.
+`buildCairoAdvertising` consumes all four kinds through the city registry's
+`streetFurniture` slot. Geometry is instanced and the sixteen material variants
 are shared across the whole city; increasing density by creating one material
 or texture per placement defeats that contract.
 
-The committed atlas is artwork only and contains no baked copy. Arabic-majority
+The two committed atlases are artwork only and contain no baked copy. The 16
+campaigns are Arabic-majority, and their
 fictional slogans are composed at runtime on `DynamicTexture` layers after the
 same bundled Arabic font gate used by the Corniche crowns. Keep those text and
 art planes separate: it is what makes the words auditable, correctly shaped,

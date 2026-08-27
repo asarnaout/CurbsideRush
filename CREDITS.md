@@ -856,6 +856,15 @@ public-space character, and currency naming:
   bundled. The atlas contains generic unbranded product imagery with no people,
   text, trademarks or third-party logos. All visible Arabic/English copy is
   authored separately by Curbside Rush and composited at runtime.
+- **`public/art/cairo/fictional-ad-atlas-v2.png`** — a second original fictional
+  commercial atlas generated and refined with OpenAI (ChatGPT) on 2026-08-27.
+  Its eight text-free, unbranded scenes cover a generic watch, ice cream, a
+  home interior, air conditioning, travel luggage, personal computers,
+  fragrance and bakery goods. The generation brief required glossy nighttime
+  billboard lighting, a quiet right-hand copy field, no people, text, logos,
+  trademarks, political/religious imagery or sexual/inappropriate content.
+  Arabic campaign copy remains separate and is composited by the game at
+  runtime.
 - **og.jpg** (the link-preview card) — generated with OpenAI (ChatGPT) by the
   project owner on 2026-07-24, who owns the output under OpenAI's Terms of Use.
   Downloaded as `curbside-rush-og-image-generic-vehicles.jpg`. A stylised

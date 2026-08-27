@@ -92,8 +92,9 @@ makes a citywide buy read as a campaign. Give every placement a deterministic,
 unique ID derived from corridor, station and chosen side.
 
 Treat structures as different placement kinds. Cairo has `pole-banner`,
-`skyline-billboard` and `bridge-gantry`; each has different geometry and safety
-rules. Do not force them through one generic root-point test.
+`skyline-billboard`, `bridge-side-sign` and `bridge-gantry`; each has different
+geometry and safety rules. Do not force them through one generic root-point
+test.
 
 Cairo's skyline boards are freestanding, double-sided structures. Façade wraps,
 roof mounts and building-mounted signs need separate envelopes and mounting
@@ -202,11 +203,20 @@ Cairo currently pins gantry span, leg setback, vertical clearance, corridor
 identity and route distribution. A map with dense bridge furniture, nearby
 buildings or rail needs an additional full gantry collision audit.
 
+Side-mounted bridge campaigns are not ordinary sidewalk poles. On a deck with
+no pavement band, put the complete portrait frame outside the asphalt and
+parapet envelope, land the vertical post on the parapet edge, and connect it
+with short outward brackets. Keep both faces readable to traffic, reserve gaps
+around gantries and same-level merge ramps, and do not let elevated signs erase
+unrelated at-grade roadside scatter beneath the overpass. Cairo repeats these
+signs down both sides of the Sixth of October deck while conservatively leaving
+underpassing junctions visually open.
+
 ## Rendering and performance
 
 Build one set of master meshes and shared materials, then instance every
-placement. Cairo shares eight atlas materials, eight landscape-copy materials,
-eight portrait campaign materials and three frame/support/lamp materials across
+placement. Cairo shares sixteen atlas materials, sixteen landscape-copy materials,
+sixteen portrait campaign materials and three frame/support/lamp materials across
 the city. Never create a material or texture per placement.
 
 Use double-sided faces where both travel directions should read the board. Keep
@@ -236,6 +246,8 @@ The city-specific suite should pin:
 - billboard-to-billboard separation and non-overlap;
 - proof of genuine within-parcel building-gap placement;
 - bridge span, support setback, vertical clearance and full-route distribution;
+- bridge-side frame clearance beyond asphalt/parapets, gantry separation and
+  full-route distribution;
   and
 - no advertising leakage into other map IDs.
 
@@ -269,9 +281,10 @@ advertising change.
 10. Run focused tests, typecheck, lint, production build and render
     characterization. Update player-facing scope and asset credits when needed.
 
-The current Cairo output is 534 pole banners on 27 surface corridors, 69 skyline
-boards on 13 corridors and 10 bridge gantries, including eight across the Sixth
-of October Bridge. The focused suite pins 69 and eight exactly while using
-minimums for the broader pole/gantry totals. These numbers are evidence that the
-method scales; they are not universal targets for London, New York or another
-map.
+The current Cairo output is 627 pole banners on 27 surface corridors, 69 skyline
+boards on 13 corridors, 34 parapet signs along the Sixth of October Bridge and
+10 bridge gantries, including eight across that main deck. Sixteen campaigns
+draw from two measured atlases. The focused suite pins 69 and eight exactly
+while using minimums for the broader pole, side-sign and gantry totals. These
+numbers are evidence that the method scales; they are not universal targets for
+London, New York or another map.

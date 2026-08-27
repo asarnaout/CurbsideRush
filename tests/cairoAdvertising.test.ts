@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CAIRO_AD_CREATIVES,
@@ -160,18 +162,23 @@ function cairoPlannedVisualBuildingRects(): readonly {
 
 describe("Cairo advertising", () => {
   it("keeps every campaign fictional, copy-led, and majority Arabic", () => {
-    expect(CAIRO_AD_CREATIVES).toHaveLength(8);
-    expect(CAIRO_AD_CREATIVES.filter((creative) => creative.language === "ar")).toHaveLength(6);
+    expect(CAIRO_AD_CREATIVES).toHaveLength(16);
+    expect(CAIRO_AD_CREATIVES.filter((creative) => creative.language === "ar")).toHaveLength(14);
     expect(
       CAIRO_AD_CREATIVES.filter((creative) => ARABIC_RE.test(creative.headline)),
-    ).toHaveLength(6);
+    ).toHaveLength(14);
     expect(
       CAIRO_AD_CREATIVES.filter((creative) => ARABIC_RE.test(creative.subline))
         .length,
-    ).toBeGreaterThanOrEqual(6);
-    expect(CAIRO_AD_CREATIVES.map((creative) => creative.artIndex).sort()).toEqual(
-      [0, 1, 2, 3, 4, 5, 6, 7],
-    );
+    ).toBeGreaterThanOrEqual(15);
+    expect(new Set(CAIRO_AD_CREATIVES.map((creative) => creative.id)).size).toBe(16);
+    for (const atlasId of ["v1", "v2"] as const) {
+      expect(
+        CAIRO_AD_CREATIVES.filter((creative) => creative.artAtlas === atlasId)
+          .map((creative) => creative.artIndex)
+          .sort((left, right) => left - right),
+      ).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    }
 
     const allCopy = CAIRO_AD_CREATIVES.flatMap((creative) => [
       creative.headline,
@@ -188,30 +195,62 @@ describe("Cairo advertising", () => {
       "toshiba",
       "b.tech",
       "mall of egypt",
+      "rolex",
+      "apple",
+      "samsung",
+      "emirates",
+      "chanel",
     ]) {
       expect(allCopy).not.toContain(excluded);
     }
   });
 
-  it("crops each irregular atlas cell without sampling a neighbouring campaign", () => {
-    const expectedRows = [
-      [2, 247],
-      [251, 476],
-      [480, 672],
-      [676, 885],
-    ] as const;
-    for (let artIndex = 0; artIndex < 8; artIndex += 1) {
-      const crop = cairoAdAtlasUv(artIndex);
-      const leftPx = crop.uOffset * 1774;
-      const rightPx = (crop.uOffset + crop.uScale) * 1774;
-      const topPx = (1 - (crop.vOffset + crop.vScale)) * 887;
-      const bottomPx = (1 - crop.vOffset) * 887;
-      const [expectedTopPx, expectedBottomPx] =
-        expectedRows[Math.floor(artIndex / 2)];
-      expect(leftPx).toBeCloseTo(artIndex % 2 === 0 ? 2 : 889);
-      expect(rightPx).toBeCloseTo(artIndex % 2 === 0 ? 885 : 1772);
-      expect(topPx).toBeCloseTo(expectedTopPx);
-      expect(bottomPx).toBeCloseTo(expectedBottomPx);
+  it("crops every irregular atlas cell without sampling a neighbouring campaign", () => {
+    const expectedRowsByAtlas = {
+      v1: [
+        [2, 247],
+        [251, 476],
+        [480, 672],
+        [676, 885],
+      ],
+      v2: [
+        [2, 239],
+        [243, 454],
+        [458, 666],
+        [670, 885],
+      ],
+    } as const;
+    for (const atlasId of ["v1", "v2"] as const) {
+      for (let artIndex = 0; artIndex < 8; artIndex += 1) {
+        const crop = cairoAdAtlasUv(artIndex, atlasId);
+        const leftPx = crop.uOffset * 1774;
+        const rightPx = (crop.uOffset + crop.uScale) * 1774;
+        const topPx = (1 - (crop.vOffset + crop.vScale)) * 887;
+        const bottomPx = (1 - crop.vOffset) * 887;
+        const [expectedTopPx, expectedBottomPx] =
+          expectedRowsByAtlas[atlasId][Math.floor(artIndex / 2)];
+        expect(leftPx).toBeCloseTo(artIndex % 2 === 0 ? 2 : 889);
+        expect(rightPx).toBeCloseTo(artIndex % 2 === 0 ? 885 : 1772);
+        expect(topPx).toBeCloseTo(expectedTopPx);
+        expect(bottomPx).toBeCloseTo(expectedBottomPx);
+      }
+    }
+  });
+
+  it("pins both committed atlas dimensions and bytes to the measured UV crops", () => {
+    const expectedHashes = {
+      v1: "dc1a59cca3a8437850792d915eebe9d40387764306fb383f2b5203b4499a7edb",
+      v2: "307a0aa891530a1ea425079e64fa28ae32bf76491ebec9db3e96eca3545700fc",
+    } as const;
+    for (const atlasId of ["v1", "v2"] as const) {
+      const bytes = readFileSync(
+        `public/art/cairo/fictional-ad-atlas-${atlasId}.png`,
+      );
+      expect(bytes.readUInt32BE(16)).toBe(1774);
+      expect(bytes.readUInt32BE(20)).toBe(887);
+      expect(createHash("sha256").update(bytes).digest("hex")).toBe(
+        expectedHashes[atlasId],
+      );
     }
   });
 
@@ -226,17 +265,27 @@ describe("Cairo advertising", () => {
     const bridgeGantries = placements.filter(
       (placement) => placement.kind === "bridge-gantry",
     );
+    const bridgeSideSigns = placements.filter(
+      (placement) => placement.kind === "bridge-side-sign",
+    );
 
-    expect(poleBanners.length).toBeGreaterThanOrEqual(500);
+    expect(poleBanners.length).toBeGreaterThanOrEqual(625);
     // This exact count is intentional: gap resolution adds every nominal slot
     // instead of quietly solving a collision by deleting a board.
     expect(skylineBoards).toHaveLength(69);
+    expect(bridgeSideSigns.length).toBeGreaterThanOrEqual(30);
     expect(bridgeGantries.length).toBeGreaterThanOrEqual(10);
     expect(new Set(placements.map((placement) => placement.id)).size).toBe(
       placements.length,
     );
     expect(new Set(poleBanners.map((placement) => placement.sourceRoadId)).size).toBe(27);
     expect(new Set(skylineBoards.map((placement) => placement.sourceRoadId)).size).toBe(13);
+    expect(
+      new Set(bridgeSideSigns.map((placement) => placement.sourceRoadId)),
+    ).toEqual(new Set(["cairo-sixth-october-bridge"]));
+    expect(new Set(placements.map((placement) => placement.creativeIndex))).toEqual(
+      new Set(Array.from({ length: 16 }, (_, index) => index)),
+    );
     for (const road of CAIRO_MAP_PACK.geometry.roadSurfaces ?? []) {
       const lengthM = road.centerline.slice(1).reduce(
         (total, point, index) =>
@@ -286,6 +335,42 @@ describe("Cairo advertising", () => {
       Math.max(...sixthOctoberGantries.map((placement) => placement.position.x)) -
         Math.min(...sixthOctoberGantries.map((placement) => placement.position.x)),
     ).toBeGreaterThan(1_000);
+    expect(
+      Math.max(...bridgeSideSigns.map((placement) => placement.position.x)) -
+        Math.min(...bridgeSideSigns.map((placement) => placement.position.x)),
+    ).toBeGreaterThan(1_000);
+    const leftSideSignCount = bridgeSideSigns.filter(
+      (placement) => placement.side === -1,
+    ).length;
+    const rightSideSignCount = bridgeSideSigns.filter(
+      (placement) => placement.side === 1,
+    ).length;
+    expect(Math.min(leftSideSignCount, rightSideSignCount)).toBeGreaterThanOrEqual(16);
+    expect(Math.abs(leftSideSignCount - rightSideSignCount)).toBeLessThanOrEqual(2);
+    const sixthOctoberRoad = (CAIRO_MAP_PACK.geometry.roadSurfaces ?? []).find(
+      (road) => road.id === "cairo-sixth-october-bridge",
+    )!;
+    for (const sign of bridgeSideSigns) {
+      const distanceFromCenterM = distanceToPolylineM(
+        sign.position,
+        sixthOctoberRoad.centerline,
+      );
+      const innerFrameEdgeM = distanceFromCenterM - (sign.widthM + 0.18) / 2;
+      expect(innerFrameEdgeM).toBeGreaterThan(
+        sixthOctoberRoad.widthM / 2 +
+          (sixthOctoberRoad.parapetDepthM ?? 0),
+      );
+      expect(sign.side === -1 || sign.side === 1).toBe(true);
+      expect(sign.panelCenterYM - sign.heightM / 2).toBeGreaterThan(3.3);
+      for (const gantry of sixthOctoberGantries) {
+        expect(
+          Math.hypot(
+            sign.position.x - gantry.position.x,
+            sign.position.z - gantry.position.z,
+          ),
+        ).toBeGreaterThan(15);
+      }
+    }
     expect(
       skylineBoards.every(
         (placement) =>
@@ -499,18 +584,18 @@ describe("Cairo advertising", () => {
     }
   });
 
-  it("repeats one pole creative in runs before changing campaign", () => {
+  it("repeats pole creatives in campaign runs while using the expanded set", () => {
     const corniche = cairoPlacements().filter(
       (placement) =>
         placement.kind === "pole-banner" &&
         placement.sourceRoadId === "cairo-corniche-el-nil",
     );
-    expect(corniche.slice(0, 8).map((placement) => placement.creativeIndex)).toEqual([
-      0, 0, 0, 0, 0, 0, 0, 0,
-    ]);
-    expect(corniche.slice(8, 12).map((placement) => placement.creativeIndex)).toEqual([
-      1, 1, 1, 1,
-    ]);
+    const transitionCount = corniche.slice(1).filter(
+      (placement, index) =>
+        placement.creativeIndex !== corniche[index].creativeIndex,
+    ).length;
+    expect(transitionCount).toBeLessThan(corniche.length / 4);
+    expect(new Set(corniche.map((placement) => placement.creativeIndex)).size).toBeGreaterThanOrEqual(6);
   });
 
   it("never leaks Cairo advertising into another city", () => {

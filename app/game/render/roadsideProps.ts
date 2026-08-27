@@ -446,7 +446,13 @@ export function buildRoadsideProps(
   const cairoAdSupportPoints =
     key === "cairo" && ctx.buildingLayout
       ? cairoAdPlacements(mapPack, ctx.buildingLayout)
-          .filter((placement) => placement.kind !== "bridge-gantry")
+          // Elevated bridge furniture must not erase unrelated at-grade props
+          // beneath the flyover merely because their XZ positions coincide.
+          .filter(
+            (placement) =>
+              placement.kind === "pole-banner" ||
+              placement.kind === "skyline-billboard",
+          )
           .map((placement) => placement.position)
       : [];
   const roadsidePlacements = generateRoadsidePropPlacements({

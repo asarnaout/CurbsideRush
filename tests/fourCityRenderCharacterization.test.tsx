@@ -1508,10 +1508,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // added boards contribute 180 instances; relocating all support
     // reservations into real gaps re-deals 16 ordinary roadside props. The
     // fixed spawn's active set, materials and mirror ring remain unchanged.
-    totalMeshes: 18_076,
-    enabledMeshes: 18_032,
-    activeMeshes: 2_105,
-    materials: 346,
+    // -> 18_683/18_639 (active 2_236, materials 370): the second eight-cell
+    // atlas doubles the audited campaign set to 16, adding 24 shared art/copy/
+    // portrait masters and materials. Ninety-three denser pavement banners
+    // add 372 instances and the 34 Sixth October parapet signs add 272; their
+    // changed support reservations re-deal 61 ordinary roadside meshes, for a
+    // measured net +607. Other cities remain byte-for-byte characterized.
+    totalMeshes: 18_683,
+    enabledMeshes: 18_639,
+    activeMeshes: 2_236,
+    materials: 370,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1533,8 +1539,10 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // nearby chunk set without changing the mirror rig itself.
     // The nearby Qasr El-Ainy pole run adds mirror-visible instances while one
     // previous candidate drops out of the fixed distance/cull ordering.
-    mirrorCandidates: 29,
-    mirrorDrawn: 168,
+    // 29 -> 26 / 168 -> 165: denser advertising reservations re-deal three
+    // ordinary props from the fixed spawn mirror ring.
+    mirrorCandidates: 26,
+    mirrorDrawn: 165,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1552,7 +1560,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "807eeb5f": the three Cairo-only barrier materials above.
     // -> "edd55ddc": 24 ad-face/copy campaign materials plus polished frame,
     // support steel and billboard lamp.
-    survivingMaterialNamesFingerprint: "edd55ddc",
+    // -> "26724b2c": eight more atlas/copy/portrait campaign materials each.
+    survivingMaterialNamesFingerprint: "26724b2c",
   },
 };
 

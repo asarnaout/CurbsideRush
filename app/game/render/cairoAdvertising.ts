@@ -13,6 +13,7 @@ import {
   CAIRO_AD_CREATIVES,
   cairoAdAtlasUv,
   cairoAdPlacements,
+  type CairoAdAtlasId,
   type CairoAdCreative,
   type CairoAdPlacement,
 } from "../cairoAdvertising";
@@ -23,14 +24,17 @@ import { createBox, createCylinder, createIcoSphere } from "./meshPrimitives";
 
 /**
  * Cairo's commercial-sign pass: glossy image-led skyline boards, repeated
- * text-led pole campaigns, and unmistakable bridge gantries. The image atlas
+ * text-led pole campaigns, parapet signs, and unmistakable bridge gantries. The image atlases
  * contains no baked copy; every word is rasterised here so Arabic uses the
  * bundled shaping-capable font and never inherits image-generation gibberish.
  * All materials are shared and all repeated geometry is instanced: city-wide
  * density does not turn into one texture or mesh recipe per placement.
  */
 
-const AD_ATLAS_URL = "/art/cairo/fictional-ad-atlas-v1.png";
+const AD_ATLAS_URLS: Readonly<Record<CairoAdAtlasId, string>> = {
+  v1: "/art/cairo/fictional-ad-atlas-v1.png",
+  v2: "/art/cairo/fictional-ad-atlas-v2.png",
+};
 
 export interface CairoAdvertisingCtx {
   readonly scene: Scene;
@@ -158,6 +162,14 @@ const POLE_BACKGROUNDS: readonly [string, string][] = [
   ["#0b6a72", "#183c5c"],
   ["#8a1b69", "#401371"],
   ["#0d3e81", "#172049"],
+  ["#7b4b16", "#24150b"],
+  ["#43307a", "#182854"],
+  ["#78511f", "#283448"],
+  ["#156a83", "#102c61"],
+  ["#9a4a1a", "#432316"],
+  ["#0b7775", "#173255"],
+  ["#7d1d5c", "#281342"],
+  ["#9b5619", "#3a1f12"],
 ];
 
 function makePoleFaceMaterial(
@@ -239,8 +251,8 @@ function makeAtlasMaterial(
   scene: Scene,
   creative: CairoAdCreative,
 ): StandardMaterial {
-  const texture = new Texture(AD_ATLAS_URL, scene, true, true);
-  const crop = cairoAdAtlasUv(creative.artIndex);
+  const texture = new Texture(AD_ATLAS_URLS[creative.artAtlas], scene, true, true);
+  const crop = cairoAdAtlasUv(creative.artIndex, creative.artAtlas);
   texture.wrapU = Texture.CLAMP_ADDRESSMODE;
   texture.wrapV = Texture.CLAMP_ADDRESSMODE;
   texture.uScale = crop.uScale;
@@ -441,6 +453,85 @@ function buildPoleBanner(
   }
 }
 
+function buildBridgeSideSign(
+  ctx: CairoAdvertisingCtx,
+  placement: CairoAdPlacement,
+  masters: CairoAdMasters,
+): void {
+  const root = new TransformNode(`${placement.id}-root`, ctx.scene);
+  root.position.set(
+    placement.position.x,
+    placement.position.elevationM ?? 0,
+    placement.position.z,
+  );
+  root.rotation.y = placement.headingRad;
+  ctx.staticSceneryFreeze.push(root);
+
+  const side = placement.side ?? 1;
+  const frameHalfWidthM = (placement.widthM + 0.18) / 2;
+  // The face's inner edge sits outside the parapet. This pole lands on the
+  // parapet edge and short brackets cantilever outward to the luminous card,
+  // so neither the frame nor any support intrudes into a live lane.
+  const mountX = -side * (frameHalfWidthM + 0.18);
+  const supportHeightM =
+    placement.panelCenterYM + placement.heightM / 2 + 0.32;
+  placeInstance(
+    ctx,
+    root,
+    masters.unitBox,
+    `${placement.id}-parapet-post`,
+    new Vector3(mountX, supportHeightM / 2, 0),
+    new Vector3(0.18, supportHeightM, 0.18),
+  );
+  for (const bracketY of [
+    placement.panelCenterYM - placement.heightM * 0.32,
+    placement.panelCenterYM + placement.heightM * 0.32,
+  ]) {
+    placeInstance(
+      ctx,
+      root,
+      masters.unitBox,
+      `${placement.id}-bracket-${bracketY}`,
+      new Vector3(mountX / 2, bracketY, 0),
+      new Vector3(Math.abs(mountX), 0.14, 0.18),
+    );
+  }
+  placeInstance(
+    ctx,
+    root,
+    masters.poleBacking,
+    `${placement.id}-frame`,
+    new Vector3(0, placement.panelCenterYM, 0),
+    new Vector3(placement.widthM + 0.18, placement.heightM + 0.18, 1.35),
+  );
+  const faceMaster = masters.poleFaces[placement.creativeIndex];
+  for (const faceSide of [-1, 1] as const) {
+    placeInstance(
+      ctx,
+      root,
+      faceMaster,
+      `${placement.id}-face-${faceSide === -1 ? "front" : "back"}`,
+      new Vector3(0, placement.panelCenterYM, faceSide * 0.1),
+      new Vector3(placement.widthM, placement.heightM, 1),
+      faceSide === -1 ? 0 : Math.PI,
+    );
+  }
+  for (const lampX of [-0.28, 0.28]) {
+    placeInstance(
+      ctx,
+      root,
+      masters.lamp,
+      `${placement.id}-lamp-${lampX}`,
+      new Vector3(
+        placement.widthM * lampX,
+        placement.panelCenterYM + placement.heightM / 2 + 0.18,
+        -0.22,
+      ),
+      new Vector3(0.82, 0.82, 0.82),
+    );
+  }
+}
+
 function buildSkylineBillboard(
   ctx: CairoAdvertisingCtx,
   placement: CairoAdPlacement,
@@ -621,6 +712,8 @@ export function buildCairoAdvertising(
   for (const placement of placements) {
     if (placement.kind === "pole-banner") {
       buildPoleBanner(ctx, placement, masters);
+    } else if (placement.kind === "bridge-side-sign") {
+      buildBridgeSideSign(ctx, placement, masters);
     } else if (placement.kind === "skyline-billboard") {
       buildSkylineBillboard(ctx, placement, masters);
     } else {
