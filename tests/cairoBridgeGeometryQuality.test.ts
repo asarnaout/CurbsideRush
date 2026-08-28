@@ -9,6 +9,8 @@ import {
   createElevatedRoadDeckHeadroomQuery,
   elevatedRoadDeckRun,
   elevatedRoadEdgeRuns,
+  elevatedRoadJunctionEnvelopes,
+  elevatedRoadJunctionSurfaceElevationAt,
   elevatedRoadSegmentPlacements,
   type ElevatedRoadEdgeRunPlacement,
   type ElevatedRoadGeometrySurface,
@@ -24,6 +26,9 @@ const MINIMUM_LOCAL_CURVE_RADIUS_M = 14;
 const MAXIMUM_RAMP_GRADE = 0.105;
 const MAXIMUM_ROAD_HANDOFF_DEG = 22;
 const MAXIMUM_EDGE_ENDPOINT_GAP_M = 0.15;
+const MAXIMUM_COLLAR_SURFACE_GRADE = 0.15;
+const MAXIMUM_COLLAR_SURFACE_MISMATCH_M = 0.001;
+const MAXIMUM_BARRIER_SURFACE_DEVIATION_M = 0.012;
 const NON_DEGENERATE_CHORD_M = 0.001;
 const SHARED_JUNCTION_TOLERANCE_M = 0.05;
 const GEZIRA_LOW_APPROACH_TOP_M = 6.2;
@@ -57,6 +62,23 @@ const allElevatedSurfaces = CAIRO_MAP_PACK.geometry.roadSurfaces.filter(
 const sixthOctoberElevatedSurfaces = allElevatedSurfaces.filter((surface) =>
   surface.id.startsWith(SIXTH_OCTOBER_PREFIX),
 );
+const elevatedJunctionEnvelopes =
+  elevatedRoadJunctionEnvelopes(allElevatedSurfaces);
+const junctionOwnedSegments = new Set(
+  elevatedJunctionEnvelopes.flatMap((envelope) =>
+    envelope.arms.flatMap((arm) =>
+      arm.coverages.map(
+        (coverage) => `${coverage.surfaceId}:${coverage.segmentIndex}`,
+      ),
+    ),
+  ),
+);
+
+const junctionOwnsSegment = (
+  surface: ElevatedRoadGeometrySurface,
+  segment: ElevatedRoadSegmentPlacement,
+): boolean =>
+  junctionOwnedSegments.has(`${surface.id}:${segment.segmentIndex}`);
 
 const sameElevatedJunctionPoint = (
   left: { readonly x: number; readonly z: number; readonly elevationM?: number },
@@ -237,7 +259,11 @@ const edgeRunEndpoint = (
   segment: ElevatedRoadSegmentPlacement,
   run: ElevatedRoadEdgeRunPlacement,
   endpoint: "start" | "end",
-): { readonly x: number; readonly z: number } => {
+): {
+  readonly x: number;
+  readonly z: number;
+  readonly elevationM: number;
+} => {
   const authoredStart = surface.centerline[segment.segmentIndex];
   const authoredEnd = surface.centerline[segment.segmentIndex + 1];
   const dx = authoredEnd.x - authoredStart.x;
@@ -263,7 +289,53 @@ const edgeRunEndpoint = (
       segment.center.z +
       uz * alongPlanM +
       positiveSideZ * run.side * lateralOffsetM,
+    elevationM:
+      (authoredStart.elevationM ?? 0) +
+      ((authoredEnd.elevationM ?? 0) -
+        (authoredStart.elevationM ?? 0)) *
+        (0.5 + alongPlanM / planLengthM),
   };
+};
+
+const pointToSpatialSegmentDistanceM = (
+  point: {
+    readonly x: number;
+    readonly z: number;
+    readonly elevationM?: number;
+  },
+  start: {
+    readonly x: number;
+    readonly z: number;
+    readonly elevationM?: number;
+  },
+  end: {
+    readonly x: number;
+    readonly z: number;
+    readonly elevationM?: number;
+  },
+): number => {
+  const dx = end.x - start.x;
+  const dy = (end.elevationM ?? 0) - (start.elevationM ?? 0);
+  const dz = end.z - start.z;
+  const lengthSquared = dx * dx + dy * dy + dz * dz;
+  const amount =
+    lengthSquared > 1e-9
+      ? Math.max(
+          0,
+          Math.min(
+            1,
+            ((point.x - start.x) * dx +
+              ((point.elevationM ?? 0) - (start.elevationM ?? 0)) * dy +
+              (point.z - start.z) * dz) /
+              lengthSquared,
+          ),
+        )
+      : 0;
+  return Math.hypot(
+    point.x - (start.x + dx * amount),
+    (point.elevationM ?? 0) - ((start.elevationM ?? 0) + dy * amount),
+    point.z - (start.z + dz * amount),
+  );
 };
 
 interface PlanObb {
@@ -518,6 +590,17 @@ describe("Cairo Sixth October Bridge geometry quality", () => {
           continue;
         }
 
+        // Shared cross-surface collars can extend across several short
+        // authored chords while a ramp peels away or a wide deck eases into a
+        // narrower one. Their exterior guard owns those chords, so this test
+        // resumes at the first ordinary per-surface parapet beyond the collar.
+        if (
+          junctionOwnsSegment(surface, incoming) ||
+          junctionOwnsSegment(surface, outgoing)
+        ) {
+          continue;
+        }
+
         const incomingRuns = elevatedRoadEdgeRuns(
           surface,
           incoming,
@@ -575,6 +658,203 @@ describe("Cairo Sixth October Bridge geometry quality", () => {
     expect(
       violations,
       `Ordinary same-surface parapet endpoints must meet within ${MAXIMUM_EDGE_ENDPOINT_GAP_M}m`,
+    ).toEqual([]);
+  });
+
+  it("hands every junction-collar guard endpoint to another barrier run", () => {
+    const ordinaryBarrierRuns = allElevatedSurfaces.flatMap((surface) =>
+      elevatedRoadSegmentPlacements(surface).flatMap((segment) =>
+        elevatedRoadEdgeRuns(surface, segment, allElevatedSurfaces).map(
+          (run) => ({
+            id: `${surface.id} segment ${segment.segmentIndex} side ${run.side}`,
+            start: edgeRunEndpoint(surface, segment, run, "start"),
+            end: edgeRunEndpoint(surface, segment, run, "end"),
+          }),
+        ),
+      ),
+    );
+    const collarBarrierRuns = elevatedJunctionEnvelopes.flatMap((envelope) =>
+      envelope.barrierGuardRuns.map((run, runIndex) => ({
+        id: `${envelope.id} run ${runIndex}`,
+        envelopeId: envelope.id,
+        belongsToSixthOctoberBridge: envelope.surfaceIds.some((surfaceId) =>
+          surfaceId.startsWith(SIXTH_OCTOBER_PREFIX),
+        ),
+        runIndex,
+        start: run.start,
+        end: run.end,
+      })),
+    );
+    const violations: string[] = [];
+    let checkedEndpointCount = 0;
+
+    for (const collarRun of collarBarrierRuns) {
+      if (!collarRun.belongsToSixthOctoberBridge) continue;
+
+      for (const [endpointName, endpoint] of [
+        ["start", collarRun.start],
+        ["end", collarRun.end],
+      ] as const) {
+        checkedEndpointCount += 1;
+        const nearestCollarGapM = Math.min(
+          ...collarBarrierRuns
+            .filter(
+              (candidate) =>
+                candidate.envelopeId !== collarRun.envelopeId ||
+                candidate.runIndex !== collarRun.runIndex,
+            )
+            .map((candidate) =>
+              pointToSpatialSegmentDistanceM(
+                endpoint,
+                candidate.start,
+                candidate.end,
+              ),
+            ),
+        );
+        const nearestOrdinary = ordinaryBarrierRuns
+          .map((candidate) => ({
+            candidate,
+            gapM: pointToSpatialSegmentDistanceM(
+              endpoint,
+              candidate.start,
+              candidate.end,
+            ),
+          }))
+          .sort((left, right) => left.gapM - right.gapM)[0];
+
+        // The transverse span between the two sides of an arm is the legal
+        // drive-through mouth and intentionally has no barrier. Each side of
+        // that opening must still land on a longitudinal ordinary rail (or on
+        // another collar), which is what this endpoint contract measures.
+        if (
+          nearestCollarGapM > MAXIMUM_EDGE_ENDPOINT_GAP_M + 1e-9 &&
+          nearestOrdinary.gapM > MAXIMUM_EDGE_ENDPOINT_GAP_M + 1e-9
+        ) {
+          violations.push(
+            `${collarRun.id} ${endpointName}: ${Math.min(
+              nearestCollarGapM,
+              nearestOrdinary.gapM,
+            ).toFixed(3)}m gap (nearest ordinary ${nearestOrdinary.candidate.id})`,
+          );
+        }
+      }
+    }
+
+    expect(checkedEndpointCount).toBeGreaterThan(0);
+    expect(
+      violations,
+      `Every Sixth October collar guard endpoint must meet another collar or ordinary parapet in 3D within ${MAXIMUM_EDGE_ENDPOINT_GAP_M}m without closing a legal road mouth`,
+    ).toEqual([]);
+  });
+
+  it("keeps each collar road, slab, and barrier on one supported smooth surface", () => {
+    const violations: string[] = [];
+    let checkedTriangleCount = 0;
+    let checkedBarrierSampleCount = 0;
+
+    for (const envelope of elevatedJunctionEnvelopes) {
+      if (
+        !envelope.surfaceIds.some((surfaceId) =>
+          surfaceId.startsWith(SIXTH_OCTOBER_PREFIX),
+        )
+      ) {
+        continue;
+      }
+
+      for (let index = 0; index < envelope.deckMesh.indices.length; index += 3) {
+        checkedTriangleCount += 1;
+        const first =
+          envelope.deckMesh.points[envelope.deckMesh.indices[index]];
+        const second =
+          envelope.deckMesh.points[envelope.deckMesh.indices[index + 1]];
+        const third =
+          envelope.deckMesh.points[envelope.deckMesh.indices[index + 2]];
+        const firstX = second.x - first.x;
+        const firstZ = second.z - first.z;
+        const firstY =
+          (second.elevationM ?? 0) - (first.elevationM ?? 0);
+        const secondX = third.x - first.x;
+        const secondZ = third.z - first.z;
+        const secondY =
+          (third.elevationM ?? 0) - (first.elevationM ?? 0);
+        const determinant = firstX * secondZ - firstZ * secondX;
+        if (Math.abs(determinant) < 1e-9) {
+          violations.push(`${envelope.id} has a degenerate deck triangle`);
+          continue;
+        }
+        const grade = Math.hypot(
+          (firstY * secondZ - firstZ * secondY) / determinant,
+          (firstX * secondY - firstY * secondX) / determinant,
+        );
+        if (grade > MAXIMUM_COLLAR_SURFACE_GRADE + 1e-9) {
+          violations.push(
+            `${envelope.id} deck triangle ${index / 3}: ${(grade * 100).toFixed(2)}% grade`,
+          );
+        }
+      }
+
+      for (const [pointIndex, point] of envelope.asphaltMesh.points.entries()) {
+        const deckElevationM = elevatedRoadJunctionSurfaceElevationAt(
+          envelope.deckMesh,
+          point,
+        );
+        const mismatchM =
+          deckElevationM === undefined
+            ? Number.POSITIVE_INFINITY
+            : Math.abs(deckElevationM - (point.elevationM ?? 0));
+        if (mismatchM > MAXIMUM_COLLAR_SURFACE_MISMATCH_M) {
+          violations.push(
+            `${envelope.id} asphalt point ${pointIndex}: ${mismatchM.toFixed(4)}m from slab`,
+          );
+        }
+      }
+
+      for (const [runIndex, run] of envelope.barrierGuardRuns.entries()) {
+        const planLengthM = Math.hypot(
+          run.end.x - run.start.x,
+          run.end.z - run.start.z,
+        );
+        const grade =
+          Math.abs(
+            (run.end.elevationM ?? 0) - (run.start.elevationM ?? 0),
+          ) / Math.max(NON_DEGENERATE_CHORD_M, planLengthM);
+        if (grade > MAXIMUM_COLLAR_SURFACE_GRADE + 1e-9) {
+          violations.push(
+            `${envelope.id} barrier run ${runIndex}: ${(grade * 100).toFixed(2)}% grade`,
+          );
+        }
+        for (const amount of [0.25, 0.5, 0.75]) {
+          checkedBarrierSampleCount += 1;
+          const sample = {
+            x: run.start.x + (run.end.x - run.start.x) * amount,
+            z: run.start.z + (run.end.z - run.start.z) * amount,
+          };
+          const deckElevationM = elevatedRoadJunctionSurfaceElevationAt(
+            envelope.deckMesh,
+            sample,
+          );
+          const barrierElevationM =
+            (run.start.elevationM ?? 0) +
+            ((run.end.elevationM ?? 0) - (run.start.elevationM ?? 0)) *
+              amount;
+          const deviationM =
+            deckElevationM === undefined
+              ? Number.POSITIVE_INFINITY
+              : Math.abs(deckElevationM - barrierElevationM);
+          if (deviationM > MAXIMUM_BARRIER_SURFACE_DEVIATION_M) {
+            violations.push(
+              `${envelope.id} barrier run ${runIndex} at ${amount}: ${deviationM.toFixed(4)}m from slab`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(checkedTriangleCount).toBeGreaterThan(0);
+    expect(checkedBarrierSampleCount).toBeGreaterThan(0);
+    expect(
+      violations.slice(0, 25),
+      "Collar asphalt and barriers must remain seated on a complete, driveable slab",
     ).toEqual([]);
   });
 

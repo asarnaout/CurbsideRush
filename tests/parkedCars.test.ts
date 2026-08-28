@@ -43,9 +43,10 @@ describe("parkedCarsForMap", () => {
       "tokyo-setagaya": 449,
       // Cairo's occupied kerbs are deliberate street character; every other
       // map holds its established count while Cairo alone takes the denser
-      // keep profile. One formerly generated car sat inside the new physical
-      // ramp-headroom envelope and is intentionally rejected.
-      "cairo-central-nile": 449,
+      // keep profile. Eight formerly generated cars sat beneath the newly
+      // continuous low-ramp collars and are intentionally rejected by the
+      // shared physical headroom envelope.
+      "cairo-central-nile": 441,
     });
   });
 

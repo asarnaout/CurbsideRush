@@ -362,6 +362,24 @@ const BRIDGE_GANTRY_CAMPAIGNS: readonly BridgeCampaignRule[] = [
   { roadId: "cairo-al-galaa-bridge", spacingM: 160, startM: 88, endPadM: 80, creativeStart: 14 },
 ];
 
+/** Small local station corrections where a regular gantry rhythm meets a ramp gore. */
+const BRIDGE_GANTRY_STATION_NUDGES_M: Readonly<Record<string, number>> = {
+  // Retain the Corniche billboard, but seat its south leg behind the exit
+  // split instead of inside the descending ramp's driven pavement.
+  "cairo-sixth-october-bridge:4": -12,
+};
+
+function bridgeGantryStationM(
+  rule: BridgeCampaignRule,
+  index: number,
+  regularStationM: number,
+): number {
+  return (
+    regularStationM +
+    (BRIDGE_GANTRY_STATION_NUDGES_M[`${rule.roadId}:${index}`] ?? 0)
+  );
+}
+
 /**
  * Portrait signs mounted just outside the Sixth of October parapets. They are
  * deliberately separate from ordinary pavement poles because this deck has no
@@ -914,12 +932,16 @@ function bridgeSideSignPlacements(
     );
     const gantryStationsM: number[] = [];
     if (gantryRule) {
+      let gantryIndex = 0;
       for (
         let distanceM = gantryRule.startM;
         distanceM <= lengthM - gantryRule.endPadM;
         distanceM += gantryRule.spacingM
       ) {
-        gantryStationsM.push(distanceM);
+        gantryStationsM.push(
+          bridgeGantryStationM(gantryRule, gantryIndex, distanceM),
+        );
+        gantryIndex += 1;
       }
     }
 
@@ -1000,7 +1022,8 @@ function bridgeGantryPlacements(mapPack: GameCanvasMapPack): CairoAdPlacement[] 
       distanceM <= lengthM - rule.endPadM;
       distanceM += rule.spacingM
     ) {
-      const sample = sampleRoad(road, distanceM);
+      const stationM = bridgeGantryStationM(rule, index, distanceM);
+      const sample = sampleRoad(road, stationM);
       if (!sample) continue;
       placements.push({
         id: `cairo-ad-bridge-gantry-${rule.roadId}-${index}`,

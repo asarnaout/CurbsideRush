@@ -1,5 +1,23 @@
 import type { GameCanvasPoint } from "../sessionContract";
 import { isElevatedRoadSurface } from "../roadElevation";
+import {
+  buildElevatedRoadJunctionEnvelopes,
+  elevatedRoadJunctionElevationAt,
+  type ElevatedRoadJunctionEnvelope,
+} from "./elevatedRoadJunctions";
+
+export {
+  buildElevatedRoadJunctionSurfaceMesh,
+  clipElevatedRoadJunctionSurfaceMesh,
+  elevatedRoadJunctionSurfaceElevationAt,
+  triangulateElevatedRoadJunctionBoundary,
+  type ElevatedRoadJunctionArm,
+  type ElevatedRoadJunctionArmCoverage,
+  type ElevatedRoadJunctionArmSection,
+  type ElevatedRoadJunctionEnvelope,
+  type ElevatedRoadJunctionGuardRun,
+  type ElevatedRoadJunctionSurfaceMesh,
+} from "./elevatedRoadJunctions";
 
 export interface ElevatedRoadGeometrySurface {
   readonly id: string;
@@ -186,6 +204,31 @@ export const ELEVATED_ROAD_BARRIER_COLLIDER_MAX_LENGTH_M = 8;
  * genuinely different street level remains non-interacting.
  */
 export const ELEVATED_ROAD_BARRIER_LEVEL_TOLERANCE_M = 0.35;
+
+const elevatedRoadJunctionEnvelopeCache = new WeakMap<
+  object,
+  readonly ElevatedRoadJunctionEnvelope[]
+>();
+
+/**
+ * Shared tapered collars for elevated cross-surface joins. The array identity
+ * is stable for a loaded map, so cache the moderately expensive polygon union
+ * once and let rendering, collision, and headroom consume the same result.
+ */
+export function elevatedRoadJunctionEnvelopes(
+  allSurfaces: readonly ElevatedRoadGeometrySurface[],
+): readonly ElevatedRoadJunctionEnvelope[] {
+  const key = allSurfaces as object;
+  const cached = elevatedRoadJunctionEnvelopeCache.get(key);
+  if (cached) return cached;
+  const envelopes = buildElevatedRoadJunctionEnvelopes(allSurfaces, {
+    minimumElevationM: ELEVATED_DECK_START_M,
+    deckOverhangM: ELEVATED_ROAD_DECK_OVERHANG_M,
+    parapetDeckInsetM: ELEVATED_ROAD_PARAPET_DECK_INSET_M,
+  });
+  elevatedRoadJunctionEnvelopeCache.set(key, envelopes);
+  return envelopes;
+}
 
 /** Resolve an authored bridge-edge depth without changing another map's fallback. */
 export function elevatedRoadParapetDepthM(
@@ -1032,6 +1075,39 @@ export function elevatedRoadEdgeRuns(
     trimInsideConnectedCorridor(side);
   }
 
+  // A shared tapered collar owns the complete exterior through its transition
+  // reach. Remove the ordinary constant-width edge beneath it, including every
+  // short sampled chord the collar crosses, so the replacement rail meets the
+  // first retained run exactly instead of leaving duplicates or concrete ears.
+  const collarTrimByEnd: {
+    start?: number;
+    end?: number;
+  } = {};
+  for (const envelope of elevatedRoadJunctionEnvelopes(allSurfaces)) {
+    for (const arm of envelope.arms) {
+      if (arm.surfaceId !== surface.id) continue;
+      for (const coverage of arm.coverages) {
+        if (coverage.segmentIndex !== segment.segmentIndex) continue;
+        const trimM = coverage.planLengthM * slopeScale;
+        collarTrimByEnd[coverage.junctionEnd] = Math.max(
+          collarTrimByEnd[coverage.junctionEnd] ?? 0,
+          trimM,
+        );
+      }
+    }
+  }
+  for (const end of ["start", "end"] as const) {
+    const trimM = collarTrimByEnd[end];
+    if (trimM === undefined) continue;
+    // The collar is now the physical/visual owner of this interval. Letting
+    // the legacy square-mouth suppression trim farther would leave a bare gap
+    // between the collar guard and the first ordinary parapet.
+    for (const side of [-1, 1] as const) {
+      trims[side][end] = trimM;
+      if (trimM > 0.001) trimmedInsideConnectedCorridor[side] = true;
+    }
+  }
+
   const runs: ElevatedRoadEdgeRunPlacement[] = [];
   for (const side of [-1, 1] as const) {
     // A corridor cutback that consumes the authored chord also consumes its
@@ -1173,6 +1249,92 @@ export function elevatedRoadBarrierPlacements(
   return placements;
 }
 
+/**
+ * Collision twins for the free-form parapet runs around tapered junction
+ * collars. Kept separate from per-surface barriers so every collar is emitted
+ * exactly once even though several roads own its shared pavement.
+ */
+export function elevatedRoadJunctionBarrierPlacements(
+  allSurfaces: readonly ElevatedRoadGeometrySurface[],
+  maxColliderLengthM = ELEVATED_ROAD_BARRIER_COLLIDER_MAX_LENGTH_M,
+): readonly ElevatedRoadBarrierPlacement[] {
+  const placements: ElevatedRoadBarrierPlacement[] = [];
+  const maximumLengthM = Math.max(0.5, maxColliderLengthM);
+  const surfaceById = new Map(allSurfaces.map((surface) => [surface.id, surface]));
+  for (const envelope of elevatedRoadJunctionEnvelopes(allSurfaces)) {
+    const ownerSurfaceId = envelope.surfaceIds[0] ?? envelope.id;
+    const parapetDepthM = Math.max(
+      ELEVATED_ROAD_PARAPET_DEPTH_M,
+      ...envelope.surfaceIds.map((surfaceId) =>
+        elevatedRoadParapetDepthM(
+          surfaceById.get(surfaceId) ?? {
+            id: surfaceId,
+            centerline: [],
+            widthM: 1,
+          },
+        ),
+      ),
+    );
+    for (const [runIndex, run] of envelope.barrierGuardRuns.entries()) {
+      const dx = run.end.x - run.start.x;
+      const dz = run.end.z - run.start.z;
+      const planLengthM = Math.hypot(dx, dz);
+      if (planLengthM < 0.001) continue;
+      const ux = dx / planLengthM;
+      const uz = dz / planLengthM;
+      const riseM = (run.end.elevationM ?? 0) - (run.start.elevationM ?? 0);
+      const slopeRad = Math.atan2(riseM, planLengthM);
+      const sinSlope = Math.sin(slopeRad);
+      const parapetCenterLocalY =
+        ELEVATED_ROAD_PARAPET_HEIGHT_M / 2 +
+        ELEVATED_ROAD_PARAPET_BASE_LIFT_M;
+      const chunkCount = Math.max(1, Math.ceil(run.lengthM / maximumLengthM));
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        const startAmount = chunkIndex / chunkCount;
+        const endAmount = (chunkIndex + 1) / chunkCount;
+        const centerAmount = (startAmount + endAmount) / 2;
+        const startElevationM =
+          (run.start.elevationM ?? 0) + riseM * startAmount;
+        const endElevationM =
+          (run.start.elevationM ?? 0) + riseM * endAmount;
+        const chunkPlanLengthM = planLengthM / chunkCount;
+        placements.push({
+          id: `elevated-road-${envelope.id}-parapet-${runIndex}-collider-${chunkIndex}`,
+          surfaceId: ownerSurfaceId,
+          segmentIndex: -1,
+          runIndex,
+          chunkIndex,
+          side: 1,
+          x:
+            run.start.x +
+            dx * centerAmount -
+            ux * sinSlope * parapetCenterLocalY,
+          z:
+            run.start.z +
+            dz * centerAmount -
+            uz * sinSlope * parapetCenterLocalY,
+          ux,
+          uz,
+          halfU:
+            (chunkPlanLengthM +
+              ELEVATED_ROAD_PARAPET_HEIGHT_M * Math.abs(Math.sin(slopeRad))) /
+            2,
+          halfV: parapetDepthM / 2,
+          centerAlongM: run.lengthM * (centerAmount - 0.5),
+          lengthM: run.lengthM / chunkCount,
+          minElevationM:
+            Math.min(startElevationM, endElevationM) -
+            ELEVATED_ROAD_BARRIER_LEVEL_TOLERANCE_M,
+          maxElevationM:
+            Math.max(startElevationM, endElevationM) +
+            ELEVATED_ROAD_BARRIER_LEVEL_TOLERANCE_M,
+        });
+      }
+    }
+  }
+  return placements;
+}
+
 interface ElevatedRoadDeckHeadroomFrame {
   readonly surfaceId: string;
   readonly segmentIndex: number;
@@ -1186,6 +1348,14 @@ interface ElevatedRoadDeckHeadroomFrame {
   readonly deckStartM: number;
   readonly deckEndM: number;
   readonly deckHalfWidthM: number;
+}
+
+interface ElevatedRoadJunctionHeadroomFrame {
+  readonly envelope: ElevatedRoadJunctionEnvelope;
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
 }
 
 interface ElevatedRoadSurfaceClearanceFrame {
@@ -1212,6 +1382,62 @@ const ELEVATED_ROAD_CLEARANCE_CELL_SIZE_M = 32;
 const ELEVATED_ROAD_CLEARANCE_CELL_PADDING_M = 1e-9;
 const ELEVATED_ROAD_CLEARANCE_MAX_FRAME_CELLS = 256;
 const EMPTY_ELEVATED_ROAD_CLEARANCE_INDICES: readonly number[] = [];
+
+const pointInPlanRing = (
+  point: { readonly x: number; readonly z: number },
+  ring: readonly { readonly x: number; readonly z: number }[],
+): boolean => {
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    const a = ring[index];
+    const b = ring[previous];
+    if (
+      (a.z > point.z) !== (b.z > point.z) &&
+      point.x <
+        ((b.x - a.x) * (point.z - a.z)) / (b.z - a.z) + a.x
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+};
+
+const distanceToPlanSegmentM = (
+  point: { readonly x: number; readonly z: number },
+  start: { readonly x: number; readonly z: number },
+  end: { readonly x: number; readonly z: number },
+): number => {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const lengthSquared = dx * dx + dz * dz;
+  const amount =
+    lengthSquared > 1e-9
+      ? Math.max(
+          0,
+          Math.min(
+            1,
+            ((point.x - start.x) * dx + (point.z - start.z) * dz) /
+              lengthSquared,
+          ),
+        )
+      : 0;
+  return Math.hypot(
+    point.x - (start.x + dx * amount),
+    point.z - (start.z + dz * amount),
+  );
+};
+
+const planRingReachesPoint = (
+  point: { readonly x: number; readonly z: number },
+  ring: readonly { readonly x: number; readonly z: number }[],
+  radiusM: number,
+): boolean =>
+  pointInPlanRing(point, ring) ||
+  ring.some(
+    (start, index) =>
+      distanceToPlanSegmentM(point, start, ring[(index + 1) % ring.length]) <=
+      radiusM,
+  );
 
 /**
  * Conservative immutable broadphase for the hot ground-clearance queries.
@@ -1449,6 +1675,14 @@ export function createElevatedRoadDeckHeadroomQuery(
   allSurfaces: readonly ElevatedRoadGeometrySurface[],
 ): ElevatedRoadDeckHeadroomQuery {
   const frames: ElevatedRoadDeckHeadroomFrame[] = [];
+  const junctionFrames: ElevatedRoadJunctionHeadroomFrame[] =
+    elevatedRoadJunctionEnvelopes(allSurfaces).map((envelope) => ({
+      envelope,
+      minX: Math.min(...envelope.deckBoundary.map((point) => point.x)),
+      maxX: Math.max(...envelope.deckBoundary.map((point) => point.x)),
+      minZ: Math.min(...envelope.deckBoundary.map((point) => point.z)),
+      maxZ: Math.max(...envelope.deckBoundary.map((point) => point.z)),
+    }));
   const piers = allSurfaces.flatMap((surface) =>
     elevatedRoadPierPlacements(surface, allSurfaces),
   );
@@ -1511,6 +1745,9 @@ export function createElevatedRoadDeckHeadroomQuery(
       maxZ: pier.position.z + ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
     })),
   );
+  const junctionFramesAt = createElevatedRoadClearanceFrameIndex(
+    junctionFrames,
+  );
 
   return (
     point,
@@ -1566,6 +1803,38 @@ export function createElevatedRoadDeckHeadroomQuery(
         surfaceId: frame.surfaceId,
         segmentIndex: frame.segmentIndex,
         structureKind: "deck" as const,
+        deckElevationM,
+        soffitElevationM,
+        headroomM: Math.max(0, soffitElevationM - groundElevationM),
+      };
+      if (!lowest || sample.soffitElevationM < lowest.soffitElevationM) {
+        lowest = sample;
+      }
+    }
+    for (const frameIndex of junctionFramesAt(point, radiusM)) {
+      const frame = junctionFrames[frameIndex];
+      const { envelope } = frame;
+      if (
+        envelope.surfaceIds.some((surfaceId) =>
+          excludedSurfaceIds?.has(surfaceId),
+        ) ||
+        !planRingReachesPoint(point, envelope.deckBoundary, radiusM)
+      ) {
+        continue;
+      }
+      const deckElevationM = elevatedRoadJunctionElevationAt(envelope, point);
+      if (
+        deckElevationM <=
+        groundElevationM + Math.max(0.01, minimumSeparationM)
+      ) {
+        continue;
+      }
+      const soffitElevationM =
+        deckElevationM - ELEVATED_ROAD_DECK_SLAB_THICKNESS_M;
+      const sample: ElevatedRoadDeckHeadroom = {
+        surfaceId: envelope.surfaceIds[0] ?? envelope.id,
+        segmentIndex: -1,
+        structureKind: "deck",
         deckElevationM,
         soffitElevationM,
         headroomM: Math.max(0, soffitElevationM - groundElevationM),

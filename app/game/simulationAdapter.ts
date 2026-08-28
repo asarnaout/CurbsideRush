@@ -73,6 +73,7 @@ import {
   ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
   createElevatedRoadGroundClearanceQuery,
   elevatedRoadBarrierPlacements,
+  elevatedRoadJunctionBarrierPlacements,
   elevatedRoadPierPlacements,
 } from "./geometry/elevatedRoadGeometry";
 import { relaxationPolicyForMap } from "./geometry/cityRelaxationPolicies";
@@ -1130,6 +1131,21 @@ export function buildStaticObstacles({
         ),
       });
     }
+  }
+  for (const barrier of elevatedRoadJunctionBarrierPlacements(roadSurfaces)) {
+    obstacles.push({
+      kind: "obb",
+      id: barrier.id,
+      tag: "roadBarrier",
+      x: barrier.x,
+      z: barrier.z,
+      ux: barrier.ux,
+      uz: barrier.uz,
+      halfU: barrier.halfU,
+      halfV: barrier.halfV,
+      minElevationM: barrier.minElevationM,
+      maxElevationM: barrier.maxElevationM,
+    });
   }
 
   // Resolved here so the service-point furniture below (the shop/pump-island

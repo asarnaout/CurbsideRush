@@ -7,6 +7,7 @@ import {
   cairoAdPlacements,
 } from "../app/game/cairoAdvertising";
 import { buildingPlacementConfig } from "../app/game/buildingSets";
+import { getCareerVehicle } from "../app/game/career";
 import { CAIRO_FREE_DRIVE, CAIRO_MAP_PACK } from "../app/game/cities/cairo";
 import { NYC_MAP_PACK } from "../app/game/cities/nyc";
 import { planMapBuildings } from "../app/game/geometry/buildingLayout";
@@ -328,6 +329,40 @@ describe("Cairo advertising", () => {
         road.widthM / 2 + (road.parapetDepthM ?? 0) + 0.5,
       );
     }
+
+    const cornicheExit = (CAIRO_MAP_PACK.geometry.roadSurfaces ?? []).find(
+      (road) => road.id === "cairo-sixth-october-bridge-corniche-exit",
+    )!;
+    const cornicheGantry = bridgeGantries.find(
+      (placement) =>
+        placement.id ===
+        "cairo-ad-bridge-gantry-cairo-sixth-october-bridge-4",
+    )!;
+    expect(cornicheGantry, "The Corniche billboard must be retained").toBeDefined();
+    const gantrySupportOffsetM = cornicheGantry.supportOffsetM!;
+    const deliveryVan = getCareerVehicle("delivery-van");
+    const supportHalfDiagonalM = Math.hypot(0.2, 0.2);
+    const roadsideMarginM = 0.5;
+    const requiredCenterlineClearanceM =
+      cornicheExit.widthM / 2 +
+      deliveryVan.physics.playerCapsuleRadiusM +
+      supportHalfDiagonalM +
+      roadsideMarginM;
+    for (const side of [-1, 1] as const) {
+      const support = {
+        x:
+          cornicheGantry.position.x +
+          Math.cos(cornicheGantry.headingRad) * gantrySupportOffsetM * side,
+        z:
+          cornicheGantry.position.z -
+          Math.sin(cornicheGantry.headingRad) * gantrySupportOffsetM * side,
+      };
+      expect(
+        distanceToPolylineM(support, cornicheExit.centerline),
+        `Corniche gantry support ${side} must stay behind the exit gore`,
+      ).toBeGreaterThan(requiredCenterlineClearanceM);
+    }
+
     const sixthOctoberGantries = bridgeGantries.filter(
       (placement) => placement.sourceRoadId === "cairo-sixth-october-bridge",
     );

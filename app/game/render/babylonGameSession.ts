@@ -115,7 +115,11 @@ import {
 import { WaterLayer } from "./waterLayer";
 import { buildRailTracks } from "./railLayer";
 import { buildElevatedRoadStructures } from "./elevatedRoadLayer";
-import { createElevatedRoadGroundClearanceQuery } from "../geometry/elevatedRoadGeometry";
+import {
+  createElevatedRoadGroundClearanceQuery,
+  elevatedRoadJunctionEnvelopes,
+  type ElevatedRoadJunctionEnvelope,
+} from "../geometry/elevatedRoadGeometry";
 import {
   RAIL_BRIDGE_MOUTH_CLEAR_M,
   splitParapetRunAroundRails,
@@ -5326,6 +5330,21 @@ export class BabylonGameSession {
         this.registerStaticCell(junctionFill, fill.pivot.x, fill.pivot.z, false);
       }
     }
+    for (const envelope of elevatedRoadJunctionEnvelopes(roadSurfaces)) {
+      const junctionSurface = this.createElevatedRoadJunctionSurface(
+        `road-${envelope.id}-collar`,
+        envelope,
+        asphalt,
+      );
+      if (junctionSurface) {
+        this.registerStaticCell(
+          junctionSurface,
+          envelope.pivot.x,
+          envelope.pivot.z,
+          false,
+        );
+      }
+    }
 
     if (mapPack.geometry.railLines?.length) {
       const ballast = makeMaterial(
@@ -6388,6 +6407,48 @@ export class BabylonGameSession {
     // texture is continuous across the seam with the surrounding carriageway.
     vertexData.uvs = buildPlanarUVs(positions, 0.05);
     vertexData.applyToMesh(mesh);
+    setMeshMaterial(mesh, material, true);
+    mesh.receiveShadows = true;
+    mesh.freezeWorldMatrix();
+    return mesh;
+  }
+
+  private createElevatedRoadJunctionSurface(
+    name: string,
+    envelope: ElevatedRoadJunctionEnvelope,
+    material: StandardMaterial,
+  ): Mesh | undefined {
+    const { points, indices: triangles } = envelope.asphaltMesh;
+    if (points.length < 3 || triangles.length < 3) return undefined;
+    const positions: number[] = [];
+    for (const point of points) {
+      positions.push(
+        point.x,
+        (point.elevationM ?? envelope.pivot.elevationM ?? 0) +
+          ROAD_JUNCTION_FILL_Y,
+        point.z,
+      );
+    }
+    const indices: number[] = [];
+    for (let index = 0; index < triangles.length; index += 3) {
+      // The collar TIN is counter-clockwise in x/z. Babylon's left-handed
+      // front-face convention presents that winding upward, matching the road
+      // strips around the collar.
+      indices.push(
+        triangles[index],
+        triangles[index + 1],
+        triangles[index + 2],
+      );
+    }
+    const normals: number[] = [];
+    VertexData.ComputeNormals(positions, indices, normals);
+    const mesh = new Mesh(name, this.scene);
+    const data = new VertexData();
+    data.positions = positions;
+    data.indices = indices;
+    data.normals = normals;
+    data.uvs = buildPlanarUVs(positions, 0.05);
+    data.applyToMesh(mesh);
     setMeshMaterial(mesh, material, true);
     mesh.receiveShadows = true;
     mesh.freezeWorldMatrix();

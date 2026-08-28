@@ -20,12 +20,15 @@ import {
   elevatedRoadDeckRun,
   elevatedRoadEdgeRuns,
   elevatedRoadEndpointHasStructuralContinuation,
+  elevatedRoadJunctionEnvelopes,
   elevatedRoadParapetDepthM,
   elevatedRoadPierPlacements,
   elevatedRoadSegmentPlacements,
   type ElevatedRoadDeckRunPlacement,
   type ElevatedRoadEdgeRunPlacement,
   type ElevatedRoadGeometrySurface,
+  type ElevatedRoadJunctionEnvelope,
+  type ElevatedRoadJunctionGuardRun,
   type ElevatedRoadSegmentPlacement,
 } from "../geometry/elevatedRoadGeometry";
 import type { GameCanvasMapPack } from "../sessionContract";
@@ -462,6 +465,284 @@ const createJunctionAwareDeck = (
   return mesh;
 };
 
+/** One profiled polygonal slab beneath a shared elevated-road collar. */
+const createElevatedJunctionDeck = (
+  scene: Scene,
+  envelope: ElevatedRoadJunctionEnvelope,
+  deckMaterial: StandardMaterial,
+  parent: TransformNode,
+): Mesh | null => {
+  const { points, indices: triangles } = envelope.deckMesh;
+  if (points.length < 3 || triangles.length < 3) return null;
+  const positions: number[] = [];
+  const pivotElevationM = envelope.pivot.elevationM ?? 0;
+  for (const point of points) {
+    positions.push(
+      point.x - envelope.pivot.x,
+      (point.elevationM ?? pivotElevationM) - pivotElevationM,
+      point.z - envelope.pivot.z,
+    );
+  }
+  const bottomOffset = points.length;
+  for (const point of points) {
+    positions.push(
+      point.x - envelope.pivot.x,
+      (point.elevationM ?? pivotElevationM) -
+        pivotElevationM -
+        ELEVATED_ROAD_DECK_SLAB_THICKNESS_M,
+      point.z - envelope.pivot.z,
+    );
+  }
+  const indices: number[] = [];
+  for (let index = 0; index < triangles.length; index += 3) {
+    const a = triangles[index];
+    const b = triangles[index + 1];
+    const c = triangles[index + 2];
+    // Babylon's left-handed front-face convention presents the collar TIN's
+    // counter-clockwise x/z winding upward. Reverse only the underside.
+    indices.push(a, b, c);
+    indices.push(bottomOffset + a, bottomOffset + c, bottomOffset + b);
+  }
+  // Only the exterior guard boundary receives fascia. Arm-mouth caps stay
+  // open because the ordinary deck continues beneath them.
+  for (const run of envelope.deckGuardRuns) {
+    const startTop: [number, number, number] = [
+      run.start.x - envelope.pivot.x,
+      (run.start.elevationM ?? pivotElevationM) - pivotElevationM,
+      run.start.z - envelope.pivot.z,
+    ];
+    const endTop: [number, number, number] = [
+      run.end.x - envelope.pivot.x,
+      (run.end.elevationM ?? pivotElevationM) - pivotElevationM,
+      run.end.z - envelope.pivot.z,
+    ];
+    appendQuad(positions, indices, [
+      startTop,
+      endTop,
+      [endTop[0], endTop[1] - ELEVATED_ROAD_DECK_SLAB_THICKNESS_M, endTop[2]],
+      [
+        startTop[0],
+        startTop[1] - ELEVATED_ROAD_DECK_SLAB_THICKNESS_M,
+        startTop[2],
+      ],
+    ]);
+  }
+  return createVertexMesh(
+    scene,
+    `elevated-road-${envelope.id}-collar-slab`,
+    positions,
+    indices,
+    deckMaterial,
+    parent,
+  );
+};
+
+const junctionRunFrame = (
+  envelope: ElevatedRoadJunctionEnvelope,
+  run: ElevatedRoadJunctionGuardRun,
+): {
+  readonly rootPosition: Vector3;
+  readonly boxYawRad: number;
+  readonly slopeRad: number;
+  readonly segment: ElevatedRoadSegmentPlacement;
+  readonly edgeRun: ElevatedRoadEdgeRunPlacement;
+} | null => {
+  const dx = run.end.x - run.start.x;
+  const dz = run.end.z - run.start.z;
+  const planLengthM = Math.hypot(dx, dz);
+  if (planLengthM < 0.001) return null;
+  const startElevationM = run.start.elevationM ?? envelope.pivot.elevationM ?? 0;
+  const endElevationM = run.end.elevationM ?? envelope.pivot.elevationM ?? 0;
+  const slopeRad = Math.atan2(endElevationM - startElevationM, planLengthM);
+  const segment: ElevatedRoadSegmentPlacement = {
+    surfaceId: envelope.id,
+    segmentIndex: -1,
+    center: {
+      x: (run.start.x + run.end.x) / 2,
+      z: (run.start.z + run.end.z) / 2,
+      elevationM: (startElevationM + endElevationM) / 2,
+    },
+    lengthM: run.lengthM,
+    // Places `createCairoParapetShell`'s side=+1 centre line at local z=0.
+    deckWidthM: ELEVATED_ROAD_PARAPET_DECK_INSET_M * 2,
+    boxYawRad: Math.atan2(dx, dz) - Math.PI / 2,
+    slopeRad,
+    startElevationM,
+    endElevationM,
+  };
+  return {
+    rootPosition: new Vector3(
+      segment.center.x,
+      segment.center.elevationM ?? 0,
+      segment.center.z,
+    ),
+    boxYawRad: segment.boxYawRad,
+    slopeRad,
+    segment,
+    edgeRun: {
+      surfaceId: envelope.id,
+      segmentIndex: -1,
+      side: 1,
+      centerAlongM: 0,
+      lengthM: run.lengthM,
+      startTrimM: 0,
+      endTrimM: 0,
+    },
+  };
+};
+
+const createElevatedJunctionBarriers = (
+  ctx: ElevatedRoadRenderCtx,
+  envelope: ElevatedRoadJunctionEnvelope,
+  surfaces: readonly ElevatedRoadGeometrySurface[],
+  usesCairoBarrierStyle: boolean,
+  concrete: StandardMaterial,
+  underside: StandardMaterial,
+  cairoParapetConcrete: StandardMaterial,
+  cairoCoping: StandardMaterial,
+  cairoRail: StandardMaterial,
+): void => {
+  const surfaceById = new Map(surfaces.map((surface) => [surface.id, surface]));
+  const parapetDepthM = Math.max(
+    ...envelope.surfaceIds.map((surfaceId) =>
+      elevatedRoadParapetDepthM(surfaceById.get(surfaceId)!),
+    ),
+  );
+  let distanceBeforeRunM = 0;
+  for (const [runIndex, run] of envelope.barrierGuardRuns.entries()) {
+    const frame = junctionRunFrame(envelope, run);
+    if (!frame) continue;
+    const root = new TransformNode(
+      `elevated-road-${envelope.id}-collar-guard-${runIndex}`,
+      ctx.scene,
+    );
+    root.position.copyFrom(frame.rootPosition);
+    root.rotation.y = frame.boxYawRad;
+    root.rotation.z = frame.slopeRad;
+    ctx.staticSceneryFreeze.push(root);
+
+    const girder = createBox(
+      ctx.scene,
+      `${root.name}-edge-girder`,
+      { width: run.lengthM, height: GIRDER_HEIGHT_M, depth: 0.46 },
+      new Vector3(
+        0,
+        -ELEVATED_ROAD_DECK_SLAB_THICKNESS_M - GIRDER_HEIGHT_M / 2 + 0.08,
+        -0.22,
+      ),
+      underside,
+      root,
+    );
+    girder.receiveShadows = true;
+    ctx.registerStatic(girder, frame.segment.center.x, frame.segment.center.z);
+
+    const parapet = usesCairoBarrierStyle
+      ? createCairoParapetShell(
+          ctx.scene,
+          `${root.name}-parapet-profile`,
+          frame.edgeRun,
+          frame.segment,
+          parapetDepthM,
+          cairoParapetConcrete,
+          root,
+        )
+      : createBox(
+          ctx.scene,
+          `${root.name}-parapet`,
+          {
+            width: run.lengthM,
+            height: ELEVATED_ROAD_PARAPET_HEIGHT_M,
+            depth: parapetDepthM,
+          },
+          new Vector3(
+            0,
+            ELEVATED_ROAD_PARAPET_HEIGHT_M / 2 +
+              ELEVATED_ROAD_PARAPET_BASE_LIFT_M,
+            0,
+          ),
+          concrete,
+          root,
+        );
+    ctx.registerShadowCaster(parapet, frame.segment.center.x, frame.segment.center.z);
+
+    if (usesCairoBarrierStyle) {
+      const coping = createBox(
+        ctx.scene,
+        `${root.name}-parapet-coping`,
+        {
+          width: run.lengthM,
+          height: CAIRO_BRIDGE_PARAPET_COPING_HEIGHT_M,
+          depth: 0.3,
+        },
+        new Vector3(
+          0,
+          ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
+            ELEVATED_ROAD_PARAPET_HEIGHT_M -
+            CAIRO_BRIDGE_PARAPET_COPING_HEIGHT_M / 2,
+          0.025,
+        ),
+        cairoCoping,
+        root,
+      );
+      coping.isPickable = false;
+      ctx.registerShadowCaster(coping, frame.segment.center.x, frame.segment.center.z);
+
+      const railBaseY =
+        ELEVATED_ROAD_PARAPET_BASE_LIFT_M + ELEVATED_ROAD_PARAPET_HEIGHT_M;
+      const visualPlan = cairoBridgeBarrierVisualPlan(
+        run.lengthM,
+        distanceBeforeRunM,
+      );
+      const railBoxes: CompoundBox[] = [
+        {
+          center: [0, railBaseY + 0.1, 0.03],
+          size: [run.lengthM, 0.065, 0.07],
+        },
+        {
+          center: [0, railBaseY + 0.285, 0.03],
+          size: [run.lengthM, 0.065, 0.07],
+        },
+        {
+          center: [
+            0,
+            railBaseY + CAIRO_BRIDGE_PARAPET_RAIL_HEIGHT_M - 0.035,
+            0.03,
+          ],
+          size: [run.lengthM, 0.07, 0.085],
+        },
+        ...visualPlan.railPostOffsetsM.map((offsetM) => ({
+          center: [
+            offsetM,
+            railBaseY + CAIRO_BRIDGE_PARAPET_RAIL_HEIGHT_M / 2,
+            0.03,
+          ] as const,
+          size: [
+            0.065,
+            CAIRO_BRIDGE_PARAPET_RAIL_HEIGHT_M,
+            0.065,
+          ] as const,
+        })),
+      ];
+      const railing = createCompoundBoxMesh(
+        ctx.scene,
+        `${root.name}-parapet-maintenance-rail`,
+        railBoxes,
+        cairoRail,
+        root,
+      );
+      if (railing) {
+        ctx.staticSceneryFreeze.push(railing);
+        ctx.registerShadowCaster(
+          railing,
+          frame.segment.center.x,
+          frame.segment.center.z,
+        );
+      }
+    }
+    distanceBeforeRunM += run.lengthM;
+  }
+};
+
 export interface ElevatedRoadRenderCtx {
   readonly scene: Scene;
   readonly staticSceneryFreeze: TransformNode[];
@@ -849,6 +1130,43 @@ export function buildElevatedRoadStructures(
       footing.isPickable = false;
       ctx.registerStatic(footing, pier.position.x, pier.position.z);
     }
+  }
+
+  // Constant-width per-road slabs stop at different offsets around a merge.
+  // Pour one profiled collar over that shared throat, then wrap its exterior
+  // with the same barrier grammar as the ordinary bridge edges.
+  for (const envelope of elevatedRoadJunctionEnvelopes(surfaces)) {
+    const root = new TransformNode(
+      `elevated-road-${envelope.id}-collar`,
+      ctx.scene,
+    );
+    root.position.set(
+      envelope.pivot.x,
+      envelope.pivot.elevationM ?? 0,
+      envelope.pivot.z,
+    );
+    ctx.staticSceneryFreeze.push(root);
+    const slab = createElevatedJunctionDeck(
+      ctx.scene,
+      envelope,
+      concrete,
+      root,
+    );
+    if (slab) {
+      slab.receiveShadows = true;
+      ctx.registerStatic(slab, envelope.pivot.x, envelope.pivot.z);
+    }
+    createElevatedJunctionBarriers(
+      ctx,
+      envelope,
+      surfaces,
+      usesCairoBarrierStyle,
+      concrete,
+      underside,
+      cairoParapetConcrete,
+      cairoCoping,
+      cairoRail,
+    );
   }
 
   concrete.freeze();

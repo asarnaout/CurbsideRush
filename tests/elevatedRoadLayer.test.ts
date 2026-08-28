@@ -229,6 +229,40 @@ describe("elevated road barrier rendering", () => {
     );
   });
 
+  it("faces tapered collar slab tops upward and undersides downward", () => {
+    const throughRoad = surface("cairo-test-collar-through", [
+      { x: -36, z: 0, elevationM: 8 },
+      { x: 0, z: 0, elevationM: 8 },
+      { x: 36, z: 0, elevationM: 8 },
+    ]);
+    const branch = surface("cairo-test-collar-branch", [
+      { x: 0, z: 0, elevationM: 8 },
+      { x: 30, z: 24, elevationM: 6 },
+    ]);
+    const rendered = renderRoadLayer("synthetic-cairo", [throughRoad, branch]);
+    const collar = rendered.meshes.find((mesh) =>
+      mesh.name.endsWith("-collar-slab"),
+    );
+    expect(collar).toBeDefined();
+
+    const indices = collar!.getIndices();
+    const normals = collar!.getVerticesData(VertexBuffer.NormalKind);
+    expect(indices).not.toBeNull();
+    expect(normals).not.toBeNull();
+    const averageTriangleNormalY = (triangleOffset: number): number =>
+      [0, 1, 2].reduce(
+        (sum, corner) =>
+          sum + normals![indices![triangleOffset + corner] * 3 + 1],
+        0,
+      ) / 3;
+
+    // Top and bottom triangles are emitted as a pair for each TIN face. This
+    // guards the Babylon winding contract that previously culled the collar's
+    // asphalt and slab top, exposing a broad gray underside at every taper.
+    expect(averageTriangleNormalY(0)).toBeGreaterThan(0.9);
+    expect(averageTriangleNormalY(3)).toBeLessThan(-0.9);
+  });
+
   it("retains the generic simple box parapet outside Cairo", () => {
     const genericSurface = surface("generic-overpass", mainline.centerline);
     const rendered = renderRoadLayer("synthetic-london", [genericSurface]);

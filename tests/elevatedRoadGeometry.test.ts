@@ -15,6 +15,8 @@ import {
   elevatedRoadDeckHeadroomAt,
   elevatedRoadDeckRun,
   elevatedRoadEdgeRuns,
+  elevatedRoadJunctionEnvelopes,
+  elevatedRoadJunctionSurfaceElevationAt,
   elevatedRoadPierPlacements,
   elevatedRoadSegmentPlacements,
 } from "../app/game/geometry/elevatedRoadGeometry";
@@ -412,7 +414,7 @@ describe("elevated-road structure placement", () => {
     ).not.toBe("pier");
   });
 
-  it("opens only the joining side of a mainline and both sides of its ramp", () => {
+  it("wraps a three-arm mainline junction in one gradual collar", () => {
     const mainline = {
       id: "mainline",
       widthM: 14,
@@ -431,30 +433,48 @@ describe("elevated-road structure placement", () => {
       ],
     };
     const surfaces = [mainline, ramp];
+    const [collar] = elevatedRoadJunctionEnvelopes(surfaces);
+    expect(collar).toBeDefined();
+    expect(collar.arms).toHaveLength(3);
+    expect(collar.barrierGuardRuns.length).toBeGreaterThan(2);
+    const rampArm = collar.arms.find((arm) => arm.surfaceId === ramp.id)!;
+    const rampThroat = rampArm.sections[0];
+    expect(
+      Math.min(
+        rampThroat.positiveHalfWidthM,
+        rampThroat.negativeHalfWidthM,
+      ),
+      "the merge keeps its inner edge at the authored ramp width",
+    ).toBeCloseTo(ramp.widthM / 2, 9);
+    expect(
+      Math.max(
+        rampThroat.positiveHalfWidthM,
+        rampThroat.negativeHalfWidthM,
+      ),
+      "only the outside edge fans toward the mainline parapet",
+    ).toBeGreaterThan(mainline.widthM / 2);
+
     const mainlineSegments = elevatedRoadSegmentPlacements(mainline);
     for (const segment of mainlineSegments) {
       const runs = elevatedRoadEdgeRuns(mainline, segment, surfaces);
-      const joiningSide = runs.find((run) => run.side === -1)!;
-      const outside = runs.find((run) => run.side === 1)!;
+      expect(runs).toHaveLength(2);
       expect(
-        Math.max(joiningSide.startTrimM, joiningSide.endTrimM),
-      ).toBeCloseTo(ramp.widthM / 2 + 0.05);
-      expect(outside.startTrimM + outside.endTrimM).toBe(0);
+        runs.every(
+          (run) =>
+            Math.max(run.startTrimM, run.endTrimM) >= collar.arms[0].reachM,
+        ),
+        "the collar replaces both square mainline ends through its full taper",
+      ).toBe(true);
     }
 
     const rampSegment = elevatedRoadSegmentPlacements(ramp)[0];
     const rampRuns = elevatedRoadEdgeRuns(ramp, rampSegment, surfaces);
     expect(rampRuns).toHaveLength(2);
     for (const run of rampRuns) {
-      // The ramp is pitched, so the carrier half-width plus the safety gap
-      // and the joining parapet's own half-depth project slightly longer
-      // along the physical concrete edge.
+      // The ramp is pitched, so the plan taper projects slightly longer along
+      // the physical concrete edge.
       expect(run.endTrimM).toBeCloseTo(
-        (mainline.widthM / 2 +
-          0.05 +
-          ELEVATED_ROAD_PARAPET_DEPTH_M / 2) *
-          Math.hypot(40, 4) /
-          40,
+        rampArm.reachM * Math.hypot(40, 4) / 40,
       );
     }
 
@@ -488,6 +508,7 @@ describe("elevated-road structure placement", () => {
       ],
     };
     const surfaces = [mainline, branch];
+    const [collar] = elevatedRoadJunctionEnvelopes(surfaces);
     const segment = elevatedRoadSegmentPlacements(branch)[0];
     const deck = elevatedRoadDeckRun(branch, segment, surfaces)!;
     const edges = elevatedRoadEdgeRuns(branch, segment, surfaces);
@@ -515,9 +536,26 @@ describe("elevated-road structure placement", () => {
           supportingDeck,
           `branch deck support at ${amount}:${lateralM}`,
         ).toBeDefined();
-        expect(supportingDeck!.deckElevationM).toBeCloseTo(
+        const collarElevationM = elevatedRoadJunctionSurfaceElevationAt(
+          collar.deckMesh,
+          {
+            x: amount * 24 + normal.x * lateralM,
+            z: -amount * 40 + normal.z * lateralM,
+          },
+        );
+        const expectedPhysicalElevationM = Math.min(
           expectedElevationM,
-          2,
+          collarElevationM ?? Number.POSITIVE_INFINITY,
+        );
+        expect(supportingDeck!.deckElevationM).toBeCloseTo(
+          expectedPhysicalElevationM,
+          9,
+        );
+        expect(supportingDeck!.segmentIndex).toBe(
+          collarElevationM !== undefined &&
+            collarElevationM < expectedElevationM - 1e-6
+            ? -1
+            : 0,
         );
       }
     }
@@ -604,7 +642,27 @@ describe("elevated-road structure placement", () => {
     expect(
       narrowRuns.every((run) => run.startTrimM > wide.widthM / 2),
     ).toBe(true);
-    expect(wideRuns.every((run) => run.endTrimM === 0)).toBe(true);
+    expect(
+      wideRuns.every((run) => run.endTrimM > narrow.widthM / 2),
+      "the collar owns both sides of the wide stem while it eases inward",
+    ).toBe(true);
+    const [collar] = elevatedRoadJunctionEnvelopes(surfaces);
+    const narrowArm = collar.arms.find((arm) => arm.surfaceId === narrow.id)!;
+    expect(narrowArm.sections[0].halfWidthM).toBeGreaterThan(
+      narrow.widthM / 2,
+    );
+    expect(narrowArm.sections.at(-1)!.halfWidthM).toBeCloseTo(
+      narrow.widthM / 2,
+      9,
+    );
+    expect(
+      narrowArm.sections.every(
+        (section, index) =>
+          index === 0 ||
+          section.halfWidthM <= narrowArm.sections[index - 1].halfWidthM + 1e-9,
+      ),
+      "the narrowed side eases monotonically instead of stepping inward",
+    ).toBe(true);
     const narrowDeck = elevatedRoadDeckRun(
       narrow,
       narrowSegment,
@@ -703,19 +761,56 @@ describe("elevated-road structure placement", () => {
       ],
     };
     const surfaces = [carrier, left, right];
-    const branchTrims: number[][] = [];
+    const [collar] = elevatedRoadJunctionEnvelopes(surfaces);
+    const branchReachesM: number[] = [];
 
     for (const branch of [left, right]) {
       const firstSegment = elevatedRoadSegmentPlacements(branch)[0];
       const runs = elevatedRoadEdgeRuns(branch, firstSegment, surfaces);
-      expect(runs).toHaveLength(2);
       expect(
-        runs.every((run) => run.startTrimM > carrier.widthM / 2),
-        `${branch.id} must not restore a barrier inside the shared throat`,
-      ).toBe(true);
-      branchTrims.push(
-        runs.map((run) => run.startTrimM).sort((a, b) => a - b),
+        runs,
+        `${branch.id} leaves its shared first chord entirely to the collar`,
+      ).toHaveLength(0);
+      const branchArm = collar.arms.find(
+        (arm) => arm.surfaceId === branch.id,
+      )!;
+      const firstCoverage = branchArm.coverages.find(
+        (coverage) => coverage.segmentIndex === firstSegment.segmentIndex,
+      )!;
+      expect(
+        firstCoverage.planLengthM,
+        `${branch.id} collar coverage owns the complete first chord`,
+      ).toBeCloseTo(firstSegment.lengthM, 9);
+      const continuationSegment = elevatedRoadSegmentPlacements(branch).at(-1)!;
+      const continuationRuns = elevatedRoadEdgeRuns(
+        branch,
+        continuationSegment,
+        surfaces,
       );
+      expect(
+        continuationRuns,
+        `${branch.id} restores both ordinary rails after the shared fan`,
+      ).toHaveLength(2);
+      const continuationCoverage = branchArm.coverages.find(
+        (coverage) =>
+          coverage.segmentIndex === continuationSegment.segmentIndex,
+      )!;
+      expect(continuationCoverage.planLengthM).toBeGreaterThan(0);
+      expect(
+        continuationRuns.every(
+          (run) =>
+            Math.abs(run.startTrimM - continuationCoverage.planLengthM) <
+            1e-9,
+        ),
+        `${branch.id} ordinary rails begin exactly where collar coverage ends`,
+      ).toBe(true);
+      expect(
+        branchArm.coverages.reduce(
+          (totalM, coverage) => totalM + coverage.planLengthM,
+          0,
+        ),
+      ).toBeCloseTo(branchArm.reachM, 9);
+      branchReachesM.push(branchArm.reachM);
 
       const deck = elevatedRoadDeckRun(branch, firstSegment, surfaces)!;
       expect(deck.startTrimM).toBe(0);
@@ -725,7 +820,7 @@ describe("elevated-road structure placement", () => {
       ).toBeCloseTo(-firstSegment.lengthM / 2 - 0.175, 9);
     }
 
-    expect(branchTrims[0]).toEqual(branchTrims[1]);
+    expect(branchReachesM[0]).toBeCloseTo(branchReachesM[1], 9);
   });
 
   it("opens every Cairo ramp-to-mainline merge instead of walling it off", () => {

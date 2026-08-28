@@ -25,6 +25,7 @@ import {
   ELEVATED_ROAD_DECK_SLAB_THICKNESS_M,
   ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
   elevatedRoadBarrierPlacements,
+  elevatedRoadJunctionBarrierPlacements,
   elevatedRoadPierPlacements,
 } from "../app/game/geometry/elevatedRoadGeometry";
 import {
@@ -442,9 +443,12 @@ describe("static obstacle build", () => {
     if (!world) return;
     const mapPack = getMapPack(world.freeDrive.mapId);
     const surfaces = mapPack.geometry.roadSurfaces;
-    const expected = surfaces.flatMap((surface) =>
-      elevatedRoadBarrierPlacements(surface, surfaces),
-    );
+    const expected = [
+      ...surfaces.flatMap((surface) =>
+        elevatedRoadBarrierPlacements(surface, surfaces),
+      ),
+      ...elevatedRoadJunctionBarrierPlacements(surfaces),
+    ];
     const actual = world.obstacles.filter(
       (obstacle) => obstacle.tag === "roadBarrier",
     );
