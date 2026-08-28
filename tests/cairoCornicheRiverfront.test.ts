@@ -20,7 +20,11 @@ describe("Cairo Corniche riverfront buildings", () => {
       expect(accent.streetEdges, accent.id).toEqual(["-z"]);
       expect(accent.frontageAxis, accent.id).toBe("z");
       expect(accent.addressable, accent.id).toBe(false);
-      expect(accent.size, accent.id).toEqual({ x: 20.5, z: 20.2 });
+      expect(accent.size, accent.id).toEqual(
+        accent.id === "cairo-corniche-riverfront-accent-3"
+          ? { x: 14, z: 6 }
+          : { x: 20.5, z: 20.2 },
+      );
     }
 
     const plan = planMapBuildings(CAIRO_MAP_PACK, 2601);
@@ -52,16 +56,28 @@ describe("Cairo Corniche riverfront buildings", () => {
 
     const clearGaps = northern.slice(1).map((accent, index) => {
       const previous = northern[index];
-      return (
-        accent.center.z -
-        accent.size.x / 2 -
-        (previous.center.z + previous.size.x / 2)
-      );
+      return {
+        fromId: previous.id,
+        toId: accent.id,
+        gapM:
+          accent.center.z -
+          accent.size.x / 2 -
+          (previous.center.z + previous.size.x / 2),
+      };
     });
-    // The ordinary rhythm is ~80 m of open river view. The one larger gap is
-    // intentional: the Sixth October flyover occupies it at z~=240.
-    expect(Math.min(...clearGaps)).toBeGreaterThanOrEqual(79);
-    expect(Math.max(...clearGaps)).toBeLessThanOrEqual(116);
+    // Ordinary beats retain ~80m of open river view. Accent 3 is a shallow
+    // southern bookend for the rebuilt flyover reservation: it leaves a 44m
+    // view corridor to the south and a much wider 161m structural opening to
+    // the north, with no façade squeezed beneath the deck.
+    const stagingGap = clearGaps[0];
+    const flyoverGap = clearGaps[1];
+    const ordinaryGaps = clearGaps.slice(2).map(({ gapM }) => gapM);
+    expect(stagingGap.gapM).toBeGreaterThanOrEqual(44);
+    expect(stagingGap.gapM).toBeLessThanOrEqual(45);
+    expect(flyoverGap.gapM).toBeGreaterThanOrEqual(160);
+    expect(flyoverGap.gapM).toBeLessThanOrEqual(162);
+    expect(Math.min(...ordinaryGaps)).toBeGreaterThanOrEqual(80);
+    expect(Math.max(...ordinaryGaps)).toBeLessThanOrEqual(86);
     expect(
       CAIRO_CORNICHE_RIVERFRONT_ACCENTS.some(
         (accent) => accent.center.z >= 215 && accent.center.z <= 270,

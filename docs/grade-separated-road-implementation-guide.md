@@ -157,6 +157,23 @@ The following are authoring failures:
 - beginning parapets at the shared ground node and creating a wall across the
   live lane.
 
+### Author curves once, then reuse them everywhere
+
+A sequence of sharp polyline corners is not a plausible interchange ramp.
+Sample one C1-continuous open curve through the authored topology knots and
+use that exact sampled path for lanes, road surfaces, paint, structural slabs,
+barriers and both maps. Authored knots remain exact graph ownership points;
+the curve only replaces the chords between them. Endpoint tangents should
+inherit the wider connected carrier where appropriate, while explicit tangent
+overrides handle constrained frontage.
+
+Sampling must be adaptive enough that neither a long chord nor a large heading
+step hides a tight bend. Cairo caps sampled chords at 7.5 m and heading changes
+at 5 degrees, then rejects any local radius below 14 m, grade above 10.5%, or
+legal cross-road handoff above 22 degrees. Those are regression floors for the
+current compact map, not universal civil-design standards; a future city may
+require gentler limits.
+
 ### Use a physical clearance envelope
 
 Review the whole *raised road* footprint, not only its centreline. Include the
@@ -439,14 +456,13 @@ subdivision, one long ramp barrier has a vertical range broad enough to block
 both levels. Never author a second, approximate set of side-wall colliders.
 
 Polyline bends need the same treatment as branch mouths. At each internal
-surface node, intersect the two physical edge lines. Set the inside run back to
-its miter plus junction breathing room; on the outside, where the virtual miter
-would require an unsafe extension beyond the slab, use the corresponding
-non-negative relief instead. Apply those exact runs to the crash profile,
-upper rail and collision chunks together. At a joined endpoint, suppress both
-the ordinary deck seam extension and the transverse terminal cap whenever
-another elevated surface carries structure away from that point. A cap hidden
-below asphalt is still a roof/wall to vehicle physics.
+surface node, intersect the two physical edge lines. Trim the inside run to its
+exact miter and extend the outside run to its exact miter; clamping both values
+positive leaves a real barrier gap at every turn. Apply those signed runs to
+the crash profile, upper rail and collision chunks together. At a joined
+endpoint, suppress the transverse terminal cap, but keep the complete slab and
+lap it 0.175 m beneath the adjoining pavement. A cap hidden below asphalt is
+still a roof/wall to vehicle physics, while a deck cutback is a drive-off hole.
 
 ### Separate the crash profile from city-specific dressing
 
@@ -643,8 +659,9 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
   barrier crossing a trimmed merge opening;
 - every sharp bend clears the centre and both ends of the widest playable
   capsule at the full legal lateral lane envelope;
-- joined elevated endpoints emit neither a transverse terminal cap nor an
-  ordinary seam extension into the connected carriageway;
+- joined elevated endpoints emit no transverse terminal cap; their full-width
+  slabs overlap 0.175 m beneath the connected carriageway while only edge runs
+  are trimmed;
 - an explicit successor-linked degree-two road-id seam produces no junction
   sign clutter, while every real one-way mouth retains correctly faced controls
   even when its first or last segment is short;

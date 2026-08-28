@@ -924,10 +924,22 @@ export function speedLimitSignPlacements(
       const heading = Math.atan2(station.tx, station.tz);
       const side = arm.trafficSide === "left" ? -1 : 1;
       const lateral = arm.widthM / 2 + KERB_MARGIN_M;
+      const candidateX = station.x + Math.cos(heading) * lateral * side;
+      const candidateZ = station.z - Math.sin(heading) * lateral * side;
       const candidate = {
-        x: station.x + Math.cos(heading) * lateral * side,
-        z: station.z - Math.sin(heading) * lateral * side,
-        elevationM: station.elevationM,
+        x: candidateX,
+        z: candidateZ,
+        // On a curved grade the kerb-offset point's nearest centreline
+        // station is not exactly the centre station used to find its x/z.
+        // Reproject the finished post so it follows the same authoritative
+        // sampled road profile as asphalt, lanes, deck and barriers.
+        elevationM: arm.surfaceCenterline
+          ? elevationOnPolylineAt(
+              arm.surfaceCenterline,
+              candidateX,
+              candidateZ,
+            )
+          : station.elevationM,
         heading,
       };
       const intrudesOnCarriageway = (input.roadSurfaces ?? []).some(

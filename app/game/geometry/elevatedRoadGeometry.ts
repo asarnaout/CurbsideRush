@@ -31,7 +31,9 @@ export interface ElevatedRoadEdgeRunPlacement {
   /** Local +x offset from the structural segment's centre. */
   readonly centerAlongM: number;
   readonly lengthM: number;
+  /** Positive cuts back at a mouth; negative extends to an outside miter. */
   readonly startTrimM: number;
+  /** Positive cuts back at a mouth; negative extends to an outside miter. */
   readonly endTrimM: number;
 }
 
@@ -166,7 +168,9 @@ export const ELEVATED_ROAD_DECK_SLAB_THICKNESS_M = 0.62;
 export const ELEVATED_ROAD_PARAPET_HEIGHT_M = 0.86;
 export const ELEVATED_ROAD_PARAPET_DEPTH_M = 0.28;
 export const ELEVATED_ROAD_PARAPET_DECK_INSET_M = 0.2;
-export const ELEVATED_ROAD_PARAPET_BASE_LIFT_M = 0.04;
+// Keep the concrete shell seated directly on the structural deck. Even a
+// small positive offset is visible as a bright floating seam at night.
+export const ELEVATED_ROAD_PARAPET_BASE_LIFT_M = 0;
 export const ELEVATED_ROAD_PIER_COLUMN_TOP_DIAMETER_M = 1.35;
 export const ELEVATED_ROAD_PIER_COLUMN_BOTTOM_DIAMETER_M = 2.25;
 export const ELEVATED_ROAD_PIER_FOOTING_DIAMETER_M = 2.65;
@@ -240,7 +244,10 @@ export function elevatedRoadSegmentPlacements(
     const dx = end.x - start.x;
     const dz = end.z - start.z;
     const planLengthM = Math.hypot(dx, dz);
-    if (planLengthM < 0.5) continue;
+    // Curved alignments can contain a short chord at a high-curvature apex.
+    // Retain it: dropping that chord removes the complete slab and both edge
+    // structures even though the asphalt strip remains continuous above it.
+    if (planLengthM < 0.001) continue;
     const startElevationM = start.elevationM ?? 0;
     const endElevationM = end.elevationM ?? 0;
     placements.push({
@@ -282,6 +289,72 @@ const structuralMetresPerPlanMetre = (
     Math.max(0, segment.lengthM * segment.lengthM - riseM * riseM),
   );
   return planLengthM > 0.001 ? segment.lengthM / planLengthM : 1;
+};
+
+/**
+ * Whether a point on one road edge still occupies another elevated road's
+ * carriageway. Keeping the height check local to the nearest polyline chord
+ * avoids opening parapets where two roads merely cross at different levels.
+ */
+const pointInsideElevatedRoadCorridor = (
+  point: { readonly x: number; readonly z: number },
+  elevationM: number,
+  surface: ElevatedRoadGeometrySurface,
+  halfWidthM: number,
+  elevationToleranceM = ELEVATED_ROAD_BARRIER_LEVEL_TOLERANCE_M,
+): boolean => {
+  const maximumDistanceSquared = halfWidthM * halfWidthM;
+  for (let index = 1; index < surface.centerline.length; index += 1) {
+    const start = surface.centerline[index - 1];
+    const end = surface.centerline[index];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const lengthSquared = dx * dx + dz * dz;
+    const amount =
+      lengthSquared > 0.000001
+        ? Math.max(
+            0,
+            Math.min(
+              1,
+              ((point.x - start.x) * dx + (point.z - start.z) * dz) /
+                lengthSquared,
+            ),
+          )
+        : 0;
+    const nearestX = start.x + dx * amount;
+    const nearestZ = start.z + dz * amount;
+    const offsetX = point.x - nearestX;
+    const offsetZ = point.z - nearestZ;
+    if (
+      offsetX * offsetX + offsetZ * offsetZ >
+      maximumDistanceSquared
+    ) {
+      continue;
+    }
+    const roadElevationM =
+      (start.elevationM ?? 0) +
+      ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+    if (
+      Math.abs(elevationM - roadElevationM) <= elevationToleranceM
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const surfaceEndpointJoins = (
+  surface: ElevatedRoadGeometrySurface,
+  other: ElevatedRoadGeometrySurface,
+): boolean => {
+  const first = surface.centerline[0];
+  const last = surface.centerline[surface.centerline.length - 1];
+  if (!first || !last) return false;
+  return [first, last].some((endpoint) =>
+    other.centerline.some((point) =>
+      sameElevatedJunctionPoint(endpoint, point),
+    ),
+  );
 };
 
 type ElevatedEndpointKey = "start" | "end";
@@ -367,16 +440,19 @@ export function elevatedRoadEndpointHasStructuralContinuation(
 }
 
 /**
- * Structural slab at an elevated merge. The wider mainline remains continuous;
- * a narrower branch ends exactly outside its edge and lets that mainline slab
- * carry the paved junction. Without this cut two rotated boxes overlap through
- * the mouth and expose their concrete side faces as long transverse fingers.
+ * Structural slab beneath one elevated asphalt chord.
+ *
+ * The slab always covers the chord's complete paved footprint. At a
+ * cross-surface merge it continues a short distance beneath the adjoining
+ * carrier, keeping the joint watertight while the separately derived edge runs
+ * still open the parapets and fascia around the legal driving mouth. The
+ * overlap remains inside that carrier's footprint, so no transverse concrete
+ * end face is exposed beside the road.
  */
 export function elevatedRoadDeckRun(
   surface: ElevatedRoadGeometrySurface,
   segment: ElevatedRoadSegmentPlacement,
   allSurfaces: readonly ElevatedRoadGeometrySurface[],
-  deckOverhangM = ELEVATED_ROAD_DECK_OVERHANG_M,
 ): ElevatedRoadDeckRunPlacement | null {
   const authoredStart = surface.centerline[segment.segmentIndex];
   const authoredEnd = surface.centerline[segment.segmentIndex + 1];
@@ -385,81 +461,46 @@ export function elevatedRoadDeckRun(
   const authoredDz = authoredEnd.z - authoredStart.z;
   const authoredLengthM = Math.hypot(authoredDx, authoredDz);
   if (authoredLengthM < 0.001) return null;
-  const positiveSideX = -authoredDz / authoredLengthM;
-  const positiveSideZ = authoredDx / authoredLengthM;
-  const currentHalfM = surface.widthM / 2 + deckOverhangM;
-  const slopeScale = structuralMetresPerPlanMetre(segment);
-  const trims = { start: 0, end: 0 };
-
-  for (const endpoint of retainedEndpointFrames(surface, segment)) {
-    for (const other of allSurfaces) {
-      if (
-        other.id === surface.id ||
-        !isElevatedRoadSurface(other) ||
-        other.widthM <= surface.widthM + 0.05
-      ) {
-        continue;
-      }
-      for (let pointIndex = 0; pointIndex < other.centerline.length; pointIndex += 1) {
-        const otherPoint = other.centerline[pointIndex];
-        if (!sameElevatedJunctionPoint(endpoint.point, otherPoint)) continue;
-        for (const neighbourIndex of [pointIndex - 1, pointIndex + 1]) {
-          const neighbour = other.centerline[neighbourIndex];
-          if (!neighbour) continue;
-          const otherDx = neighbour.x - otherPoint.x;
-          const otherDz = neighbour.z - otherPoint.z;
-          const otherLengthM = Math.hypot(otherDx, otherDz);
-          if (otherLengthM < 0.001) continue;
-          const otherNormalX = -otherDz / otherLengthM;
-          const otherNormalZ = otherDx / otherLengthM;
-          const crossingAmount = Math.abs(
-            endpoint.outwardX * otherNormalX +
-              endpoint.outwardZ * otherNormalZ,
-          );
-          // A collinear wider continuation should inherit the branch slab,
-          // not erase it. Only an actual crossing/merge needs a cutback.
-          if (crossingAmount < 0.12) continue;
-          const cornerProjectionM =
-            currentHalfM *
-            Math.abs(
-              positiveSideX * otherNormalX +
-                positiveSideZ * otherNormalZ,
-            );
-          const otherHalfM = other.widthM / 2 + deckOverhangM;
-          const trimM =
-            ((otherHalfM + cornerProjectionM) / crossingAmount) * slopeScale;
-          trims[endpoint.key] = Math.max(trims[endpoint.key], trimM);
-        }
-      }
-    }
-  }
-
-  const startTrimM = Math.min(segment.lengthM, trims.start);
-  const endTrimM = Math.min(segment.lengthM - startTrimM, trims.end);
-  const coreLengthM = segment.lengthM - startTrimM - endTrimM;
-  if (coreLengthM < 0.2) return null;
-  // Ordinary span seams overlap by 17.5 cm at each end. A deliberately cut
-  // junction end gets no overlap, otherwise the slab face would re-enter the
-  // opening this calculation just cleared.
+  const startTrimM = 0;
+  const endTrimM = 0;
+  const coreLengthM = segment.lengthM;
+  const edgeRuns = elevatedRoadEdgeRuns(surface, segment, allSurfaces);
+  const startMiterExtensionM = Math.max(
+    0,
+    ...edgeRuns.map((run) => -run.startTrimM),
+  );
+  const endMiterExtensionM = Math.max(
+    0,
+    ...edgeRuns.map((run) => -run.endTrimM),
+  );
+  const startHasContinuation = elevatedRoadEndpointHasStructuralContinuation(
+    surface,
+    segment,
+    allSurfaces,
+    "start",
+  );
+  const endHasContinuation = elevatedRoadEndpointHasStructuralContinuation(
+    surface,
+    segment,
+    allSurfaces,
+    "end",
+  );
+  const junctionDeckOverlapM = 0.175;
+  // Ordinary span seams reach the outside edge miter (plus a tiny overlap),
+  // so the rectangular slab pieces fully support the watertight asphalt
+  // strip. At a retained merge, each slab overlaps beneath the paved junction
+  // while its parapet/fascia runs stop at the carrier corridor.
   const startExtensionM =
-    startTrimM <= 0.001 &&
-    !elevatedRoadEndpointHasStructuralContinuation(
-      surface,
-      segment,
-      allSurfaces,
-      "start",
-    )
-      ? 0.175
+    startTrimM <= 0.001
+      ? startHasContinuation
+        ? junctionDeckOverlapM
+        : Math.max(0.175, startMiterExtensionM + 0.04)
       : 0;
   const endExtensionM =
-    endTrimM <= 0.001 &&
-    !elevatedRoadEndpointHasStructuralContinuation(
-      surface,
-      segment,
-      allSurfaces,
-      "end",
-    )
-      ? 0.175
+    endTrimM <= 0.001
+      ? endHasContinuation
+        ? junctionDeckOverlapM
+        : Math.max(0.175, endMiterExtensionM + 0.04)
       : 0;
   return {
     surfaceId: surface.id,
@@ -483,7 +524,7 @@ export function elevatedRoadEdgeRuns(
   surface: ElevatedRoadGeometrySurface,
   segment: ElevatedRoadSegmentPlacement,
   allSurfaces: readonly ElevatedRoadGeometrySurface[],
-  junctionMarginM = 0.8,
+  junctionMarginM = 0.05,
 ): readonly ElevatedRoadEdgeRunPlacement[] {
   const authoredStart = surface.centerline[segment.segmentIndex];
   const authoredEnd = surface.centerline[segment.segmentIndex + 1];
@@ -509,6 +550,194 @@ export function elevatedRoadEdgeRuns(
     surface.widthM / 2 +
     ELEVATED_ROAD_DECK_OVERHANG_M -
     ELEVATED_ROAD_PARAPET_DECK_INSET_M;
+  const parapetHalfDepthM = elevatedRoadParapetDepthM(surface) / 2;
+  // Only a physically joined, wider carrier may suppress this surface's
+  // parapets. This prevents an unrelated same-height crossing elsewhere in
+  // the map from silently opening a guardrail.
+  const widerConnectedSurfaces = allSurfaces.filter(
+    (other) =>
+      other.id !== surface.id &&
+      isElevatedRoadSurface(other) &&
+      other.widthM > surface.widthM + 0.05 &&
+      surfaceEndpointJoins(surface, other),
+  );
+
+  /**
+   * Paired one-way branches can share a long, shallow throat before their
+   * centrelines have separated. They are not wider than one another, so the
+   * carrier-only rule above used to leave both interior parapets standing in
+   * the live lanes. Recognise only siblings that share the same terminal node
+   * and the same wider carrier there. The initial-throat index set prevents a
+   * later, unrelated recrossing from punching a hole in either guardrail.
+   */
+  const siblingCorridorsBySide: Record<
+    -1 | 1,
+    ElevatedRoadGeometrySurface[]
+  > = { [-1]: [], [1]: [] };
+  const firstSurfacePoint = surface.centerline[0];
+  const lastSurfacePoint = surface.centerline.at(-1);
+  for (const other of allSurfaces) {
+    if (
+      other.id === surface.id ||
+      !isElevatedRoadSurface(other) ||
+      Math.abs(other.widthM - surface.widthM) > 0.05
+    ) {
+      continue;
+    }
+    const otherFirst = other.centerline[0];
+    const otherLast = other.centerline.at(-1);
+    if (!firstSurfacePoint || !lastSurfacePoint || !otherFirst || !otherLast) {
+      continue;
+    }
+    const shared = [
+      { point: firstSurfacePoint, surfaceIndex: 0 },
+      {
+        point: lastSurfacePoint,
+        surfaceIndex: surface.centerline.length - 1,
+      },
+    ].flatMap((candidate) =>
+      [
+        { point: otherFirst, otherIndex: 0 },
+        { point: otherLast, otherIndex: other.centerline.length - 1 },
+      ]
+        .filter((otherCandidate) =>
+          sameElevatedJunctionPoint(candidate.point, otherCandidate.point),
+        )
+        .map((otherCandidate) => ({
+          point: candidate.point,
+          surfaceIndex: candidate.surfaceIndex,
+          otherIndex: otherCandidate.otherIndex,
+        })),
+    )[0];
+    if (!shared) continue;
+
+    const commonWiderCarrier = allSurfaces.some(
+      (carrier) =>
+        carrier.id !== surface.id &&
+        carrier.id !== other.id &&
+        isElevatedRoadSurface(carrier) &&
+        carrier.widthM > Math.max(surface.widthM, other.widthM) + 0.05 &&
+        carrier.centerline.some((point) =>
+          sameElevatedJunctionPoint(shared.point, point),
+        ),
+    );
+    if (!commonWiderCarrier) continue;
+
+    const throatSegmentIndices = new Set<number>();
+    const segmentIndices = Array.from(
+      { length: Math.max(0, surface.centerline.length - 1) },
+      (_, index) => index,
+    );
+    if (shared.surfaceIndex !== 0) segmentIndices.reverse();
+    const combinedCorridorHalfWidthM =
+      edgeOffsetM +
+      other.widthM / 2 +
+      junctionMarginM +
+      parapetHalfDepthM;
+    for (const candidateIndex of segmentIndices) {
+      throatSegmentIndices.add(candidateIndex);
+      const outwardPoint =
+        shared.surfaceIndex === 0
+          ? surface.centerline[candidateIndex + 1]
+          : surface.centerline[candidateIndex];
+      if (
+        !outwardPoint ||
+        !pointInsideElevatedRoadCorridor(
+          outwardPoint,
+          outwardPoint.elevationM ?? 0,
+          other,
+          combinedCorridorHalfWidthM,
+        )
+      ) {
+        break;
+      }
+    }
+    if (throatSegmentIndices.has(segment.segmentIndex)) {
+      // Curved siblings can change their global side long after the throat,
+      // so a far endpoint is not a reliable facing-edge selector. Register
+      // both physical edges; `insideAt` below removes only the one whose
+      // parapet centre actually enters the sibling pavement corridor.
+      siblingCorridorsBySide[-1].push(other);
+      siblingCorridorsBySide[1].push(other);
+    }
+  }
+
+  // The inverse of the narrow-branch case above matters just as much: a
+  // carrier rail can run diagonally across a ramp lane for several sampled
+  // chords after an internal, tangent merge. Follow the carrier out from the
+  // exact joined point and expose only the physical edge that still occupies
+  // the narrower branch corridor. Once the two roads have separated, later
+  // crossings are deliberately ignored and both rails remain intact.
+  const narrowerBranchCorridorsBySide: Record<
+    -1 | 1,
+    ElevatedRoadGeometrySurface[]
+  > = { [-1]: [], [1]: [] };
+  for (const other of allSurfaces) {
+    if (
+      other.id === surface.id ||
+      !isElevatedRoadSurface(other) ||
+      other.widthM >= surface.widthM - 0.05
+    ) {
+      continue;
+    }
+    const otherEndpoints = [other.centerline[0], other.centerline.at(-1)].filter(
+      (point): point is GameCanvasPoint => point !== undefined,
+    );
+    const sharedIndex = surface.centerline.findIndex((point) =>
+      otherEndpoints.some((endpoint) =>
+        sameElevatedJunctionPoint(point, endpoint),
+      ),
+    );
+    if (sharedIndex < 0) continue;
+
+    const throatSegmentIndices = new Set<number>();
+    const combinedCorridorHalfWidthM =
+      edgeOffsetM +
+      other.widthM / 2 +
+      junctionMarginM +
+      parapetHalfDepthM;
+    const scanFromJunction = (
+      firstSegmentIndex: number,
+      step: -1 | 1,
+    ): void => {
+      for (
+        let candidateIndex = firstSegmentIndex;
+        candidateIndex >= 0 &&
+        candidateIndex + 1 < surface.centerline.length;
+        candidateIndex += step
+      ) {
+        throatSegmentIndices.add(candidateIndex);
+        const outwardPoint =
+          step > 0
+            ? surface.centerline[candidateIndex + 1]
+            : surface.centerline[candidateIndex];
+        if (
+          !outwardPoint ||
+          !pointInsideElevatedRoadCorridor(
+            outwardPoint,
+            outwardPoint.elevationM ?? 0,
+            other,
+            combinedCorridorHalfWidthM,
+          )
+        ) {
+          break;
+        }
+      }
+    };
+    if (sharedIndex > 0) scanFromJunction(sharedIndex - 1, -1);
+    if (sharedIndex + 1 < surface.centerline.length) {
+      scanFromJunction(sharedIndex, 1);
+    }
+    if (throatSegmentIndices.has(segment.segmentIndex)) {
+      narrowerBranchCorridorsBySide[-1].push(other);
+      narrowerBranchCorridorsBySide[1].push(other);
+    }
+  }
+
+  const trimmedInsideConnectedCorridor: Record<-1 | 1, boolean> = {
+    [-1]: false,
+    [1]: false,
+  };
 
   const trimSameSurfaceCorner = (
     endpoint: ElevatedEndpointFrame,
@@ -549,28 +778,24 @@ export function elevatedRoadEdgeRuns(
       const intersectionPlanM =
         (differenceX * rayZ - differenceZ * rayX) / denominator;
       if (Math.abs(intersectionPlanM) <= 0.001) continue;
-      // Positive is the inside corner: stop at the true miter plus the usual
-      // junction breathing room instead of letting a square parapet end
-      // project into the next road segment. A negative intersection is the
-      // virtual miter beyond the authored endpoint on the outside corner.
-      // Extending the run to it would put structure beyond its slab; retreat
-      // by the same distance instead. That non-negative relief also keeps a
-      // long vehicle's leading/trailing capsule clear while it changes
-      // heading across the sharp bend.
-      const cornerReliefPlanM =
-        intersectionPlanM > 0
-          ? intersectionPlanM + junctionMarginM
-          : -intersectionPlanM;
-      trims[side][endpoint.key] = Math.max(
-        trims[side][endpoint.key],
-        cornerReliefPlanM * slopeScale,
-      );
+      // Meet both adjacent edge axes at their exact miter. Positive values
+      // trim the inside corner; negative values extend the outside corner.
+      // The former implementation turned both values into positive cutbacks
+      // and added the junction margin, leaving a real hole on every bend.
+      trims[side][endpoint.key] = intersectionPlanM * slopeScale;
     }
   };
 
   const trimAtEndpoint = (
     endpoint: ElevatedEndpointFrame,
   ): void => {
+    const surfacePointIndex =
+      endpoint.key === "start"
+        ? segment.segmentIndex
+        : segment.segmentIndex + 1;
+    const currentJunctionIsInternal =
+      surfacePointIndex > 0 &&
+      surfacePointIndex + 1 < surface.centerline.length;
     for (const other of allSurfaces) {
       if (other.id === surface.id || !isElevatedRoadSurface(other)) continue;
       for (let pointIndex = 0; pointIndex < other.centerline.length; pointIndex += 1) {
@@ -608,6 +833,38 @@ export function elevatedRoadEdgeRuns(
                   throatM,
                 );
               }
+            } else if (
+              currentJunctionIsInternal &&
+              surface.widthM > other.widthM + 0.05 &&
+              (pointIndex === 0 ||
+                pointIndex === other.centerline.length - 1)
+            ) {
+              // A ramp can be deliberately tangent to its carrier at the
+              // exact merge point, then peel away over the next several
+              // samples. Its first chord therefore looks like a harmless
+              // continuation even though leaving this carrier rail intact
+              // would put a physical wall across the ramp mouth. Use the
+              // branch's eventual departure only to choose the opening side;
+              // keep the opening length local to the ramp width.
+              const departurePoint =
+                pointIndex === 0
+                  ? other.centerline[other.centerline.length - 1]
+                  : other.centerline[0];
+              const departureDx = departurePoint.x - otherPoint.x;
+              const departureDz = departurePoint.z - otherPoint.z;
+              const departureLateralM =
+                departureDx * positiveSideX +
+                departureDz * positiveSideZ;
+              if (Math.abs(departureLateralM) > 0.05) {
+                const departureSide: -1 | 1 =
+                  departureLateralM > 0 ? 1 : -1;
+                const throatM =
+                  (other.widthM / 2 + junctionMarginM) * slopeScale;
+                trims[departureSide][endpoint.key] = Math.max(
+                  trims[departureSide][endpoint.key],
+                  throatM,
+                );
+              }
             }
             continue;
           }
@@ -641,22 +898,164 @@ export function elevatedRoadEdgeRuns(
     }
   };
 
+  /**
+   * A tangent branch can remain inside its wider carrier for several sampled
+   * chords after the shared node. Endpoint-only trimming removes the first
+   * chord, then immediately restores a row of parapets through live lanes.
+   * Clip each physical edge until its concrete footprint has actually left
+   * the connected carrier corridor.
+   */
+  const trimInsideConnectedCorridor = (side: -1 | 1): void => {
+    const connectedCorridors = [
+      ...widerConnectedSurfaces,
+      ...siblingCorridorsBySide[side],
+      ...narrowerBranchCorridorsBySide[side],
+    ];
+    if (connectedCorridors.length === 0) return;
+    const structuralPlanLengthM = segment.lengthM / slopeScale;
+    if (structuralPlanLengthM < 0.001) return;
+    const directionX = planDx / planLengthM;
+    const directionZ = planDz / planLengthM;
+    const startX =
+      segment.center.x - directionX * structuralPlanLengthM / 2;
+    const startZ =
+      segment.center.z - directionZ * structuralPlanLengthM / 2;
+    const edgeStartX = startX + side * positiveSideX * edgeOffsetM;
+    const edgeStartZ = startZ + side * positiveSideZ * edgeOffsetM;
+    const insideAt = (amount: number): boolean => {
+      const elevationM =
+        segment.startElevationM +
+        (segment.endElevationM - segment.startElevationM) * amount;
+      const point = {
+        x: edgeStartX + directionX * structuralPlanLengthM * amount,
+        z: edgeStartZ + directionZ * structuralPlanLengthM * amount,
+      };
+      return connectedCorridors.some((other) =>
+        pointInsideElevatedRoadCorridor(
+          point,
+          elevationM,
+          other,
+          other.widthM / 2 + junctionMarginM + parapetHalfDepthM,
+          // Barrier colliders are height-banded across this complete chord.
+          // Match that conservative vertical envelope while deciding whether
+          // a connected road has already replaced the physical edge.
+          ELEVATED_ROAD_BARRIER_LEVEL_TOLERANCE_M +
+            Math.abs(segment.endElevationM - segment.startElevationM),
+        ),
+      );
+    };
+
+    // Short road chords make this mostly an endpoint test. The intermediate
+    // samples also catch a curved carrier or a long authored branch chord
+    // that briefly re-enters the carriageway. Since one edge-run record
+    // cannot represent two disjoint remnants, omit such a middle crossing
+    // instead of putting a collision wall through the carrier.
+    const sampleCount = 8;
+    const samples = Array.from(
+      { length: sampleCount + 1 },
+      (_, index) => insideAt(index / sampleCount),
+    );
+    const startsInside = samples[0];
+    const endsInside = samples[sampleCount];
+    if (samples.some(Boolean)) trimmedInsideConnectedCorridor[side] = true;
+    if (startsInside && endsInside) {
+      trims[side].start = Math.max(trims[side].start, segment.lengthM);
+      return;
+    }
+    if (!startsInside && !endsInside) {
+      if (samples.some(Boolean)) {
+        trims[side].start = Math.max(trims[side].start, segment.lengthM);
+      }
+      return;
+    }
+
+    if (startsInside) {
+      const firstOutsideIndex = samples.findIndex((inside) => !inside);
+      if (
+        firstOutsideIndex < 1 ||
+        samples.slice(firstOutsideIndex + 1).some(Boolean)
+      ) {
+        trims[side].start = Math.max(trims[side].start, segment.lengthM);
+        return;
+      }
+      let insideAmount = (firstOutsideIndex - 1) / sampleCount;
+      let outsideAmount = firstOutsideIndex / sampleCount;
+      for (let iteration = 0; iteration < 18; iteration += 1) {
+        const middleAmount = (insideAmount + outsideAmount) / 2;
+        if (insideAt(middleAmount)) {
+          insideAmount = middleAmount;
+        } else {
+          outsideAmount = middleAmount;
+        }
+      }
+      trims[side].start = Math.max(
+        trims[side].start,
+        outsideAmount * segment.lengthM,
+      );
+      return;
+    }
+
+    let lastOutsideIndex = sampleCount - 1;
+    while (lastOutsideIndex >= 0 && samples[lastOutsideIndex]) {
+      lastOutsideIndex -= 1;
+    }
+    if (
+      lastOutsideIndex < 0 ||
+      samples.slice(0, lastOutsideIndex).some(Boolean)
+    ) {
+      trims[side].end = Math.max(trims[side].end, segment.lengthM);
+      return;
+    }
+    let outsideAmount = lastOutsideIndex / sampleCount;
+    let insideAmount = (lastOutsideIndex + 1) / sampleCount;
+    for (let iteration = 0; iteration < 18; iteration += 1) {
+      const middleAmount = (outsideAmount + insideAmount) / 2;
+      if (insideAt(middleAmount)) {
+        insideAmount = middleAmount;
+      } else {
+        outsideAmount = middleAmount;
+      }
+    }
+    trims[side].end = Math.max(
+      trims[side].end,
+      (1 - outsideAmount) * segment.lengthM,
+    );
+  };
+
   // A clipped grade begins away from its authored ground endpoint. It cannot
   // share an elevated junction there, so only exact retained endpoints trim.
   for (const endpoint of retainedEndpointFrames(surface, segment)) {
     trimSameSurfaceCorner(endpoint);
     trimAtEndpoint(endpoint);
   }
+  for (const side of [-1, 1] as const) {
+    trimInsideConnectedCorridor(side);
+  }
 
   const runs: ElevatedRoadEdgeRunPlacement[] = [];
   for (const side of [-1, 1] as const) {
-    const startTrimM = Math.min(segment.lengthM, trims[side].start);
+    // A corridor cutback that consumes the authored chord also consumes its
+    // virtual outside-miter extension. Letting the negative trim at the other
+    // end revive that extension creates the detached parapet chips seen along
+    // a shallow merge.
+    if (
+      trims[side].start >= segment.lengthM - 0.001 ||
+      trims[side].end >= segment.lengthM - 0.001
+    ) {
+      continue;
+    }
+    const startTrimM = Math.max(
+      -segment.lengthM,
+      Math.min(segment.lengthM, trims[side].start),
+    );
     const endTrimM = Math.min(
       segment.lengthM - startTrimM,
       trims[side].end,
     );
     const lengthM = segment.lengthM - startTrimM - endTrimM;
-    if (lengthM < 0.35) continue;
+    // Sub-decimetre remnants at a merge mouth read as detached railing chips
+    // and are too short to provide useful collision containment.
+    if (lengthM < (trimmedInsideConnectedCorridor[side] ? 0.2 : 0.1)) continue;
     runs.push({
       surfaceId: surface.id,
       segmentIndex: segment.segmentIndex,
@@ -802,6 +1201,138 @@ interface ElevatedRoadSurfaceClearanceFrame {
   readonly halfWidthM: number;
 }
 
+interface ElevatedRoadClearanceFrameBounds {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+}
+
+const ELEVATED_ROAD_CLEARANCE_CELL_SIZE_M = 32;
+const ELEVATED_ROAD_CLEARANCE_CELL_PADDING_M = 1e-9;
+const ELEVATED_ROAD_CLEARANCE_MAX_FRAME_CELLS = 256;
+const EMPTY_ELEVATED_ROAD_CLEARANCE_INDICES: readonly number[] = [];
+
+/**
+ * Conservative immutable broadphase for the hot ground-clearance queries.
+ *
+ * Every exact frame is inserted into every grid cell touched by its AABB.
+ * Querying the footprint's own AABB can therefore add false positives, but
+ * never omit a frame whose oriented rectangle/circle reaches the footprint.
+ * Candidate indices are sorted back into authored order so equal-height ties
+ * keep the same deterministic winner as the former complete linear scan.
+ */
+function createElevatedRoadClearanceFrameIndex(
+  bounds: readonly ElevatedRoadClearanceFrameBounds[],
+): (
+  point: { readonly x: number; readonly z: number },
+  footprintRadiusM: number,
+) => readonly number[] {
+  const cells = new Map<string, number[]>();
+  const allIndices = bounds.map((_, index) => index);
+  const alwaysScanIndices: number[] = [];
+  const cellCoordinate = (value: number): number =>
+    Math.floor(value / ELEVATED_ROAD_CLEARANCE_CELL_SIZE_M);
+  for (const [index, box] of bounds.entries()) {
+    const minCellX = cellCoordinate(
+      box.minX - ELEVATED_ROAD_CLEARANCE_CELL_PADDING_M,
+    );
+    const maxCellX = cellCoordinate(
+      box.maxX + ELEVATED_ROAD_CLEARANCE_CELL_PADDING_M,
+    );
+    const minCellZ = cellCoordinate(
+      box.minZ - ELEVATED_ROAD_CLEARANCE_CELL_PADDING_M,
+    );
+    const maxCellZ = cellCoordinate(
+      box.maxZ + ELEVATED_ROAD_CLEARANCE_CELL_PADDING_M,
+    );
+    if (
+      !Number.isSafeInteger(minCellX) ||
+      !Number.isSafeInteger(maxCellX) ||
+      !Number.isSafeInteger(minCellZ) ||
+      !Number.isSafeInteger(maxCellZ)
+    ) {
+      alwaysScanIndices.push(index);
+      continue;
+    }
+    const occupiedCellCount =
+      (maxCellX - minCellX + 1) * (maxCellZ - minCellZ + 1);
+    if (
+      !Number.isSafeInteger(occupiedCellCount) ||
+      occupiedCellCount < 1 ||
+      occupiedCellCount > ELEVATED_ROAD_CLEARANCE_MAX_FRAME_CELLS
+    ) {
+      alwaysScanIndices.push(index);
+      continue;
+    }
+    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+      for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+        const key = `${cellX}:${cellZ}`;
+        const existing = cells.get(key);
+        if (existing) existing.push(index);
+        else cells.set(key, [index]);
+      }
+    }
+  }
+
+  return (point, footprintRadiusM) => {
+    const radiusM = Math.max(0, footprintRadiusM);
+    if (
+      !Number.isFinite(point.x) ||
+      !Number.isFinite(point.z) ||
+      !Number.isFinite(radiusM)
+    ) {
+      return allIndices;
+    }
+    const minCellX = cellCoordinate(
+      point.x - radiusM - ELEVATED_ROAD_CLEARANCE_CELL_PADDING_M,
+    );
+    const maxCellX = cellCoordinate(
+      point.x + radiusM + ELEVATED_ROAD_CLEARANCE_CELL_PADDING_M,
+    );
+    const minCellZ = cellCoordinate(
+      point.z - radiusM - ELEVATED_ROAD_CLEARANCE_CELL_PADDING_M,
+    );
+    const maxCellZ = cellCoordinate(
+      point.z + radiusM + ELEVATED_ROAD_CLEARANCE_CELL_PADDING_M,
+    );
+    if (
+      !Number.isSafeInteger(minCellX) ||
+      !Number.isSafeInteger(maxCellX) ||
+      !Number.isSafeInteger(minCellZ) ||
+      !Number.isSafeInteger(maxCellZ)
+    ) {
+      return allIndices;
+    }
+    const queriedCellCount =
+      (maxCellX - minCellX + 1) * (maxCellZ - minCellZ + 1);
+    // Very large placement envelopes are cheaper as the original exact scan
+    // than as a walk across thousands of empty world cells.
+    if (
+      !Number.isSafeInteger(queriedCellCount) ||
+      queriedCellCount >= Math.max(1, bounds.length)
+    ) return allIndices;
+
+    if (
+      queriedCellCount === 1 &&
+      alwaysScanIndices.length === 0
+    ) {
+      return cells.get(`${minCellX}:${minCellZ}`) ??
+        EMPTY_ELEVATED_ROAD_CLEARANCE_INDICES;
+    }
+
+    const candidateIndices = new Set<number>(alwaysScanIndices);
+    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+      for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+        const bucket = cells.get(`${cellX}:${cellZ}`);
+        if (!bucket) continue;
+        for (const index of bucket) candidateIndices.add(index);
+      }
+    }
+    return [...candidateIndices].sort((left, right) => left - right);
+  };
+}
+
 type ElevatedRoadSurfaceClearanceQuery = (
   point: { readonly x: number; readonly z: number },
   groundElevationM?: number,
@@ -843,6 +1374,20 @@ function createElevatedRoadSurfaceClearanceQuery(
       });
     }
   }
+  const framesAt = createElevatedRoadClearanceFrameIndex(
+    frames.map((frame) => {
+      const endX = frame.startX + frame.ux * frame.lengthM;
+      const endZ = frame.startZ + frame.uz * frame.lengthM;
+      const lateralExtentX = Math.abs(frame.uz) * frame.halfWidthM;
+      const lateralExtentZ = Math.abs(frame.ux) * frame.halfWidthM;
+      return {
+        minX: Math.min(frame.startX, endX) - lateralExtentX,
+        maxX: Math.max(frame.startX, endX) + lateralExtentX,
+        minZ: Math.min(frame.startZ, endZ) - lateralExtentZ,
+        maxZ: Math.max(frame.startZ, endZ) + lateralExtentZ,
+      };
+    }),
+  );
 
   return (
     point,
@@ -854,7 +1399,8 @@ function createElevatedRoadSurfaceClearanceQuery(
     const radiusM = Math.max(0, footprintRadiusM);
     const minimumSeparationM = Math.max(0, minimumVerticalSeparationM);
     let lowest: ElevatedRoadGroundClearance | null = null;
-    for (const frame of frames) {
+    for (const frameIndex of framesAt(point, radiusM)) {
+      const frame = frames[frameIndex];
       if (excludedSurfaceIds?.has(frame.surfaceId)) continue;
       const offsetX = point.x - frame.startX;
       const offsetZ = point.z - frame.startZ;
@@ -939,6 +1485,32 @@ export function createElevatedRoadDeckHeadroomQuery(
       });
     }
   }
+  const framesAt = createElevatedRoadClearanceFrameIndex(
+    frames.map((frame) => {
+      const startAlongPlanM = frame.deckStartM * frame.cosSlope;
+      const endAlongPlanM = frame.deckEndM * frame.cosSlope;
+      const startX = frame.centerX + frame.ux * startAlongPlanM;
+      const startZ = frame.centerZ + frame.uz * startAlongPlanM;
+      const endX = frame.centerX + frame.ux * endAlongPlanM;
+      const endZ = frame.centerZ + frame.uz * endAlongPlanM;
+      const lateralExtentX = Math.abs(frame.uz) * frame.deckHalfWidthM;
+      const lateralExtentZ = Math.abs(frame.ux) * frame.deckHalfWidthM;
+      return {
+        minX: Math.min(startX, endX) - lateralExtentX,
+        maxX: Math.max(startX, endX) + lateralExtentX,
+        minZ: Math.min(startZ, endZ) - lateralExtentZ,
+        maxZ: Math.max(startZ, endZ) + lateralExtentZ,
+      };
+    }),
+  );
+  const piersAt = createElevatedRoadClearanceFrameIndex(
+    piers.map((pier) => ({
+      minX: pier.position.x - ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
+      maxX: pier.position.x + ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
+      minZ: pier.position.z - ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
+      maxZ: pier.position.z + ELEVATED_ROAD_PIER_FOOTPRINT_RADIUS_M,
+    })),
+  );
 
   return (
     point,
@@ -951,7 +1523,8 @@ export function createElevatedRoadDeckHeadroomQuery(
     let lowest: ElevatedRoadDeckHeadroom | null = null;
     const radiusM = Math.max(0, footprintRadiusM);
     const minimumSeparationM = Math.max(0, minimumVerticalSeparationM);
-    for (const frame of frames) {
+    for (const frameIndex of framesAt(point, radiusM)) {
+      const frame = frames[frameIndex];
       if (excludedSurfaceIds?.has(frame.surfaceId)) continue;
       const offsetX = point.x - frame.centerX;
       const offsetZ = point.z - frame.centerZ;
@@ -1007,7 +1580,8 @@ export function createElevatedRoadDeckHeadroomQuery(
     // exact rendered footing by the caller's own footprint so every ground
     // object answers the same overlap question.
     if (!includeSupports) return lowest;
-    for (const pier of piers) {
+    for (const pierIndex of piersAt(point, radiusM)) {
+      const pier = piers[pierIndex];
       if (excludedSurfaceIds?.has(pier.surfaceId)) continue;
       // The support rises only as far as its own deck. From that deck (or any
       // higher level) it is below the caller, not a column through the road.

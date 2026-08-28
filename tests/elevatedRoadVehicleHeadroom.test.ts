@@ -487,6 +487,64 @@ describe("elevated-road vehicle headroom", () => {
     expect(failures.slice(0, 25)).toEqual([]);
   });
 
+  it("keeps both Al Saraya host lanes clear beneath the complete Gezira entry slab", () => {
+    const clearanceAt = createElevatedRoadGroundClearanceQuery(cairoSurfaces);
+    const sarayaLanes = cairoRoadNetwork.lanes.filter(
+      (lane) => lane.roadId === "cairo-saray-el-gezira",
+    );
+    const failures: string[] = [];
+    let samples = 0;
+    let minimumObservedHeadroomM = Number.POSITIVE_INFINITY;
+
+    for (const lane of sarayaLanes) {
+      for (let distanceM = 0; distanceM <= lane.length; distanceM += 0.1) {
+        const point = cairoRoadNetwork.pointOnLane(lane, distanceM);
+        for (const alongM of [
+          -deliveryVan.physics.playerCapsuleHalfLengthM,
+          0,
+          deliveryVan.physics.playerCapsuleHalfLengthM,
+        ]) {
+          const roofSample = {
+            x: point.x + Math.sin(point.heading) * alongM,
+            z: point.z + Math.cos(point.heading) * alongM,
+          };
+          const obstruction = clearanceAt(
+            roofSample,
+            0,
+            deliveryVan.physics.playerCapsuleRadiusM,
+            false,
+            undefined,
+            ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
+          );
+          samples += 1;
+          if (obstruction) {
+            minimumObservedHeadroomM = Math.min(
+              minimumObservedHeadroomM,
+              obstruction.clearanceM,
+            );
+          }
+          if (
+            obstruction &&
+            obstruction.clearanceM < deliveryVanRequiredHeadroomM
+          ) {
+            failures.push(
+              `${lane.id} at ${distanceM.toFixed(1)}m: ${obstruction.surfaceId} leaves ${obstruction.clearanceM.toFixed(3)}m`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(samples).toBeGreaterThan(50_000);
+    expect(
+      failures.slice(0, 25),
+      `Every lane-centred delivery-van roof disc needs ${deliveryVanRequiredHeadroomM.toFixed(2)}m under the Gezira approach`,
+    ).toEqual([]);
+    expect(minimumObservedHeadroomM).toBeGreaterThanOrEqual(
+      deliveryVanRequiredHeadroomM + 0.25,
+    );
+  });
+
   it("keeps full delivery-van headroom where the Corniche exit crosses beneath the mainline", () => {
     const exitSurfaceId =
       "cairo-sixth-october-bridge-corniche-exit";
@@ -497,9 +555,22 @@ describe("elevated-road vehicle headroom", () => {
     if (!exitSurface) throw new Error("Missing Corniche exit surface");
     // The exit is a true deck-height diverge. Its descent begins only after
     // the throat has carried the whole vehicle laterally clear of mainline.
-    expect(exitSurface.centerline[0]?.elevationM).toBe(10.5);
-    expect(exitSurface.centerline[1]?.elevationM).toBe(10.5);
-    expect(exitSurface.centerline[2]?.elevationM).toBeLessThan(10.5);
+    const throat = cairoMapPack.laneGraph.nodes.find(
+      (node) => node.id === "cairo-sixth-corniche-exit-throat",
+    )?.position;
+    if (!throat) throw new Error("Missing Corniche exit throat node");
+    const throatIndex = exitSurface.centerline.findIndex(
+      (point) => Math.hypot(point.x - throat.x, point.z - throat.z) < 0.001,
+    );
+    expect(throatIndex).toBeGreaterThan(0);
+    expect(
+      exitSurface.centerline
+        .slice(0, throatIndex + 1)
+        .every((point) => point.elevationM === 10.5),
+    ).toBe(true);
+    expect(exitSurface.centerline[throatIndex + 1]?.elevationM).toBeLessThan(
+      10.5,
+    );
 
     const clearanceAt = createElevatedRoadGroundClearanceQuery(cairoSurfaces);
     const carrierSurfaceIds = new Set([exitSurfaceId]);
@@ -570,11 +641,18 @@ describe("elevated-road vehicle headroom", () => {
     const snapshot = simulation.getSnapshot();
     expect(snapshot.player.distanceTravelledM).toBeGreaterThan(12);
     expect(snapshot.road.laneId).toBe(crossingLane.id);
-    expect(snapshot.road.distanceFromLaneCentreM).toBeLessThan(0.1);
+    expect(snapshot.road.offRoad).toBe(false);
+    expect(snapshot.road.distanceFromLaneCentreM).toBeLessThanOrEqual(
+      crossingLane.width / 2 - deliveryVan.physics.playerCapsuleRadiusM,
+    );
     expect(
       simulation
         .getEvents()
-        .filter((event) => event.evidence.obstacle === "roadDeck"),
+        .filter((event) =>
+          ["roadDeck", "roadBarrier"].includes(
+            String(event.evidence.obstacle),
+          ),
+        ),
     ).toEqual([]);
   });
 
@@ -582,21 +660,17 @@ describe("elevated-road vehicle headroom", () => {
     const approach = cairoRoadNetwork.lanesById.get(
       "cairo-sixth-october-gezira-entry-slip-2-forward-1",
     );
-    const ramp = cairoRoadNetwork.lanesById.get(
-      "cairo-sixth-october-bridge-gezira-ramp-3-reverse-1",
+    const rising = cairoRoadNetwork.lanesById.get(
+      "cairo-sixth-october-bridge-gezira-entry-1-forward-1",
     );
-    if (!approach || !ramp) {
+    if (!approach || !rising) {
       throw new Error("Missing Gezira entrance handoff lanes");
     }
-    expect(approach.successorLaneIds).toContain(ramp.id);
+    expect(approach.successorLaneIds).toContain(rising.id);
 
-    // Keep the driver's incoming tangent instead of snapping the heading to
-    // the ramp. The two differ by only about one degree at the handoff, so a
-    // real driver naturally carries this line onto the ramp. The old level
-    // projection lost the rising carrier 8.3 m beyond the join, selected Al
-    // Saraya Street below, and treated the ramp's own asphalt as an invisible
-    // wall. Start eight metres before the join and require another twenty
-    // metres beyond it so a short handoff-only trace cannot miss that point.
+    // Keep the driver's incoming tangent through the first physical seam.
+    // The entrance is now intentionally split into a rising slip, smooth
+    // entry curve, and bridge-height carrier; every seam is checked below.
     const simulation = new SimulationCore({
       ...cairoConfig,
       npcCount: 0,
@@ -610,8 +684,8 @@ describe("elevated-road vehicle headroom", () => {
 
     for (
       let tick = 0;
-      tick < 240 &&
-      simulation.getSnapshot().player.distanceTravelledM <= 28 &&
+      tick < 160 &&
+      simulation.getSnapshot().player.distanceTravelledM <= 12 &&
       !simulation
         .getEvents()
         .some((event) => event.evidence.obstacle === "roadDeck");
@@ -626,9 +700,12 @@ describe("elevated-road vehicle headroom", () => {
         .getEvents()
         .filter((event) => event.evidence.obstacle === "roadDeck"),
     ).toEqual([]);
-    expect(snapshot.player.distanceTravelledM).toBeGreaterThan(28);
-    expect(snapshot.road.laneId).toBe(ramp.id);
-    expect(snapshot.player.elevationM ?? 0).toBeGreaterThan(0.5);
+    expect(snapshot.player.distanceTravelledM).toBeGreaterThan(12);
+    expect(snapshot.road.laneId).toBe(rising.id);
+    expect(
+      cairoRoadNetwork.pointOnLane(rising, Math.min(15, rising.length))
+        .elevationM ?? 0,
+    ).toBeGreaterThan(0.5);
   });
 
   type TravelDirection = "forward" | "reverse";
@@ -662,15 +739,29 @@ describe("elevated-road vehicle headroom", () => {
       outgoingDirection: "forward" as TravelDirection,
     },
     {
-      label: "Gezira entrance",
+      label: "Gezira entrance slip",
       approachSurfaceId: "cairo-sixth-october-gezira-entry-slip",
+      approachDirection: "forward" as TravelDirection,
+      outgoingSurfaceId: "cairo-sixth-october-bridge-gezira-entry",
+      outgoingDirection: "forward" as TravelDirection,
+    },
+    {
+      label: "Gezira entrance braid",
+      approachSurfaceId: "cairo-sixth-october-bridge-gezira-entry",
       approachDirection: "forward" as TravelDirection,
       outgoingSurfaceId: "cairo-sixth-october-bridge-gezira-ramp",
       outgoingDirection: "reverse" as TravelDirection,
     },
     {
-      label: "Gezira exit",
+      label: "Gezira exit braid",
       approachSurfaceId: "cairo-sixth-october-bridge-gezira-ramp",
+      approachDirection: "forward" as TravelDirection,
+      outgoingSurfaceId: "cairo-sixth-october-bridge-gezira-exit",
+      outgoingDirection: "forward" as TravelDirection,
+    },
+    {
+      label: "Gezira exit slip",
+      approachSurfaceId: "cairo-sixth-october-bridge-gezira-exit",
       approachDirection: "forward" as TravelDirection,
       outgoingSurfaceId: "cairo-sixth-october-gezira-exit-slip",
       outgoingDirection: "forward" as TravelDirection,

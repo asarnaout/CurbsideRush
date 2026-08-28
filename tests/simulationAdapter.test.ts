@@ -248,7 +248,11 @@ describe("simulation runtime adapter (free-roam)", () => {
       },
       5,
     );
-    for (let tick = 0; tick < 180; tick += 1) {
+    // Run far enough to cross the shared mouth onto the carrier. Continuing
+    // this fixed steering angle for three seconds is no longer meaningful:
+    // the rebuilt carrier is a real curve, so a driver who never follows it
+    // should eventually meet its correctly placed outside parapet.
+    for (let tick = 0; tick < 120; tick += 1) {
       simulation.step(1 / 60, { throttle: 1 });
     }
 
@@ -261,7 +265,10 @@ describe("simulation runtime adapter (free-roam)", () => {
             event.evidence.obstacle === "roadBarrier"),
       );
     expect(deckCollision).toBeUndefined();
-    expect(simulation.getSnapshot().player.z).toBeLessThan(410);
+    expect(simulation.getSnapshot().road.laneId).toBe(
+      "cairo-sixth-october-bridge-dokki-ramp-2-reverse-1",
+    );
+    expect(simulation.getSnapshot().player.z).toBeLessThan(400);
   });
 
   it("keeps the real Cairo underpass path on the ground beyond the old 12 m cutoff", () => {
@@ -381,7 +388,15 @@ describe("simulation runtime adapter (free-roam)", () => {
         lane.id ===
         "cairo-sixth-october-bridge-dokki-entry-1-forward-1",
     )!;
-    const entryRampPointIndex = 5;
+    // Curved roads are adaptively sampled, so no particular array index is a
+    // stable physical station. Select the first genuinely rising sample that
+    // still has a successor chord instead.
+    const entryRampPointIndex = entryRampLane.centerline.findIndex(
+      (point, index) =>
+        index + 1 < entryRampLane.centerline.length &&
+        (point.elevationM ?? 0) >= 0.2,
+    );
+    expect(entryRampPointIndex).toBeGreaterThan(0);
     const entryRampPoint = entryRampLane.centerline[entryRampPointIndex];
     const entryRampNext = entryRampLane.centerline[entryRampPointIndex + 1];
     simulation.setPlayerPose(

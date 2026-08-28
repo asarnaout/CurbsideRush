@@ -24,8 +24,10 @@ rotating a phone pauses the drive, it does not rebuild the city.
 An elevated road is never a scenic mesh with separate gameplay beneath it.
 The renderer consumes the same `RoadSurface.centerline` elevation profile as
 the legal lane graph. `geometry/elevatedRoadGeometry.ts` derives pitched asphalt
-structure placements, clipped deck runs, trimmed edge runs, piers, local-height
-barrier OBB placements and a prepared soffit query from that profile. See
+structure placements, full-width watertight deck runs, independently trimmed
+edge runs, piers, local-height barrier OBB placements and a prepared soffit
+query from that profile. Connected slabs overlap 0.175 m beneath the paved
+mouth; only parapet/fascia runs open around the legal carriageway. See
 [grade-separated-road-implementation-guide.md](grade-separated-road-implementation-guide.md)
 for the full simulation/authoring contract and
 [cairo-elevated-road-network.md](cairo-elevated-road-network.md) for the Cairo

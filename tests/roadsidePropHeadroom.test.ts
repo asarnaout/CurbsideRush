@@ -55,30 +55,73 @@ describe("roadside prop deck headroom", () => {
     );
   });
 
-  it("rejects the formerly retained Qasr El Ainy palm that overlaps a mainline pier", () => {
-    const palm = {
-      x: 330.283,
-      z: 215.5543,
-      kind: "palm",
-      variant: 1,
-      scale: 0.8693,
-    } as const;
-    const envelope = groundPropClearanceEnvelope(palm, "cairo");
-    const obstruction = createElevatedRoadDeckHeadroomQuery(
+  it("rejects real Cairo props whose measured envelope intersects bridge structure", () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const headroomAt = createElevatedRoadDeckHeadroomQuery(
       CAIRO_MAP_PACK.geometry.roadSurfaces ?? [],
-    )(
-      palm,
-      0,
-      envelope.footprintRadiusM,
+    );
+    const rejected: Array<{
+      readonly headroomM: number;
+      readonly requiredHeadroomM: number;
+      readonly structureKind: "deck" | "pier" | undefined;
+    }> = [];
+
+    buildRoadsideProps(
+      {
+        scene,
+        staticSceneryFreeze: [] as TransformNode[],
+        pendingVendors: [],
+        pendingPlantedProps: [],
+        pendingParkThickets: [],
+        sceneryKeepFraction: 1,
+        registerShadowCaster: () => undefined,
+        registerDestructibleProp: () => undefined,
+        canPlaceGroundProp: (x, z, requiredHeadroomM, footprintRadiusM) => {
+          const obstruction = headroomAt(
+            { x, z },
+            0,
+            footprintRadiusM,
+          );
+          const fits =
+            !obstruction || obstruction.headroomM >= requiredHeadroomM;
+          if (obstruction && !fits) {
+            rejected.push({
+              headroomM: obstruction.headroomM,
+              requiredHeadroomM,
+              structureKind: obstruction.structureKind,
+            });
+          }
+          // Keep this a pure placement audit: rejecting even the fitting
+          // candidates prevents Babylon from building unrelated lamp-pool
+          // textures in the headless test while still exercising every
+          // production clearance-gate call.
+          return false;
+        },
+      },
+      CAIRO_MAP_PACK,
+      resolveMapVisualPalette(CAIRO_MAP_PACK.id),
+      CAIRO_MAP_PACK.id,
+      (CAIRO_MAP_PACK.geometry.roadSurfaces ?? []).filter(
+        (surface) => !isElevatedRoadSurface(surface),
+      ),
     );
 
-    expect(obstruction).toMatchObject({
-      structureKind: "pier",
-      headroomM: 0,
-    });
-    expect(obstruction!.headroomM).toBeLessThan(
-      envelope.requiredHeadroomM,
-    );
+    expect(rejected.length).toBeGreaterThan(0);
+    expect(
+      rejected.every(
+        ({ headroomM, requiredHeadroomM }) =>
+          headroomM < requiredHeadroomM,
+      ),
+    ).toBe(true);
+    expect(
+      rejected.some(
+        ({ structureKind, headroomM }) =>
+          structureKind === "pier" && headroomM === 0,
+      ),
+    ).toBe(true);
+    scene.dispose();
+    engine.dispose();
   });
 
   it("applies the clearance gate before reachable plants or interior thickets enter GLB queues", () => {

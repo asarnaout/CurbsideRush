@@ -785,17 +785,29 @@ describe("Cairo Central Nile content", () => {
         (lane) => lane.roadId === road.id,
       );
       expect(surface, road.id).toBeDefined();
-      expect(surface!.centerline, road.id).toEqual(
-        road.nodeIds
-          .map((nodeId, index) => ({
-            ...CAIRO_MAP_PACK.laneGraph.nodes.find(
-              (node) => node.id === nodeId,
-            )!.position,
-            ...(road.elevationsM
-              ? { elevationM: road.elevationsM[index] }
-              : { elevationM: 0 }),
-          }))
-      );
+      // Curved roads insert render/drive samples between authored graph
+      // nodes. The synchronization contract is that every authored knot
+      // survives, in order, rather than that the two arrays have equal size.
+      const authoredKnots = road.nodeIds.map((nodeId, index) => ({
+        ...CAIRO_MAP_PACK.laneGraph.nodes.find(
+          (node) => node.id === nodeId,
+        )!.position,
+        elevationM: road.elevationsM?.[index] ?? 0,
+      }));
+      let previousKnotIndex = -1;
+      for (const [knotIndex, knot] of authoredKnots.entries()) {
+        const sampledKnotIndex = surface!.centerline.findIndex(
+          (candidate, candidateIndex) =>
+            candidateIndex > previousKnotIndex &&
+            Math.hypot(candidate.x - knot.x, candidate.z - knot.z) < 0.001 &&
+            Math.abs((candidate.elevationM ?? 0) - knot.elevationM) < 0.001,
+        );
+        expect(
+          sampledKnotIndex,
+          `${road.id} authored knot ${knotIndex}`,
+        ).toBeGreaterThan(previousKnotIndex);
+        previousKnotIndex = sampledKnotIndex;
+      }
       expect(lanes, road.id).toHaveLength(
         (road.nodeIds.length - 1) * road.laneCount,
       );
@@ -912,24 +924,98 @@ describe("Cairo Central Nile content", () => {
     const laneById = new Map(
       CAIRO_MAP_PACK.laneGraph.lanes.map((lane) => [lane.id, lane]),
     );
+    const surfaceById = new Map(
+      CAIRO_MAP_PACK.geometry.roadSurfaces.map((surface) => [
+        surface.id,
+        surface,
+      ]),
+    );
+    const localRightOffsetM = (
+      candidate: WorldPoint,
+      sampledSpan: readonly WorldPoint[],
+    ): number => {
+      // Project onto the nearest sampled chord so a broad curve is judged
+      // against its local tangent, not the remote authored-knot chord.
+      let nearest:
+        | {
+            readonly x: number;
+            readonly z: number;
+            readonly rightX: number;
+            readonly rightZ: number;
+            readonly distanceSquared: number;
+          }
+        | undefined;
+      for (let index = 1; index < sampledSpan.length; index += 1) {
+        const start = sampledSpan[index - 1];
+        const end = sampledSpan[index];
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        const lengthSquared = dx * dx + dz * dz;
+        if (lengthSquared < 0.000001) continue;
+        const amount = Math.max(
+          0,
+          Math.min(
+            1,
+            ((candidate.x - start.x) * dx +
+              (candidate.z - start.z) * dz) /
+              lengthSquared,
+          ),
+        );
+        const x = start.x + dx * amount;
+        const z = start.z + dz * amount;
+        const distanceSquared =
+          (candidate.x - x) * (candidate.x - x) +
+          (candidate.z - z) * (candidate.z - z);
+        if (nearest && nearest.distanceSquared <= distanceSquared) continue;
+        const lengthM = Math.sqrt(lengthSquared);
+        nearest = {
+          x,
+          z,
+          rightX: dz / lengthM,
+          rightZ: -dx / lengthM,
+          distanceSquared,
+        };
+      }
+      expect(nearest, "sampled road span has a usable tangent").toBeDefined();
+      return (
+        (candidate.x - nearest!.x) * nearest!.rightX +
+        (candidate.z - nearest!.z) * nearest!.rightZ
+      );
+    };
 
     for (const road of CAIRO_ROAD_SPECS) {
       if (road.oneWay) continue;
+      const surface = surfaceById.get(road.id)!;
+      let sampledSearchIndex = 0;
+      const sampledKnotIndices = road.nodeIds.map((nodeId, knotIndex) => {
+        const authored = nodeById.get(nodeId)!.position;
+        const authoredElevationM = road.elevationsM?.[knotIndex] ?? 0;
+        const sampledIndex = surface.centerline.findIndex(
+          (candidate, candidateIndex) =>
+            candidateIndex >= sampledSearchIndex &&
+            Math.hypot(
+              candidate.x - authored.x,
+              candidate.z - authored.z,
+            ) < 0.001 &&
+            Math.abs(
+              (candidate.elevationM ?? 0) - authoredElevationM,
+            ) < 0.001,
+        );
+        expect(sampledIndex, `${road.id}:${nodeId}`).toBeGreaterThanOrEqual(
+          sampledSearchIndex,
+        );
+        sampledSearchIndex = sampledIndex + 1;
+        return sampledIndex;
+      });
       const lanesPerDirection = road.laneCount / 2;
       for (
         let segmentIndex = 0;
         segmentIndex + 1 < road.nodeIds.length;
         segmentIndex += 1
       ) {
-        const start = nodeById.get(road.nodeIds[segmentIndex])!.position;
-        const end = nodeById.get(road.nodeIds[segmentIndex + 1])!.position;
-        const dx = end.x - start.x;
-        const dz = end.z - start.z;
-        const segmentLength = Math.hypot(dx, dz);
-        const right = { x: dz / segmentLength, z: -dx / segmentLength };
-        const roadMidpoint = point(
-          (start.x + end.x) / 2,
-          (start.z + end.z) / 2,
+        const sampledSpan = surface.centerline.slice(
+          sampledKnotIndices[segmentIndex],
+          sampledKnotIndices[segmentIndex + 1] + 1,
         );
         const forwardOffsets: number[] = [];
         const reverseOffsets: number[] = [];
@@ -941,14 +1027,8 @@ describe("Cairo Central Nile content", () => {
           const reverse = laneById.get(`${road.id}-${reverseSuffix}`)!;
           const forwardMidpoint = pointAtFraction(forward.centerline, 0.5);
           const reverseMidpoint = pointAtFraction(reverse.centerline, 0.5);
-          forwardOffsets.push(
-            (forwardMidpoint.x - roadMidpoint.x) * right.x +
-              (forwardMidpoint.z - roadMidpoint.z) * right.z,
-          );
-          reverseOffsets.push(
-            (reverseMidpoint.x - roadMidpoint.x) * right.x +
-              (reverseMidpoint.z - roadMidpoint.z) * right.z,
-          );
+          forwardOffsets.push(localRightOffsetM(forwardMidpoint, sampledSpan));
+          reverseOffsets.push(localRightOffsetM(reverseMidpoint, sampledSpan));
         }
 
         expect(forwardOffsets[0], `${road.id}:${segmentIndex}:forward`).toBeGreaterThan(
@@ -2234,7 +2314,7 @@ describe("Cairo Central Nile content", () => {
           node: "cairo-sixth-dokki-merge",
           fromRoad: "cairo-sixth-october-bridge-dokki-ramp",
           toRoad: mainline,
-          expected: ["reverse:0>reverse:1"],
+          expected: ["reverse:0>forward:1"],
         },
         exitHigh: {
           node: "cairo-sixth-dokki-merge",
@@ -2266,7 +2346,7 @@ describe("Cairo Central Nile content", () => {
           node: "cairo-sixth-gezira-merge",
           fromRoad: mainline,
           toRoad: "cairo-sixth-october-bridge-gezira-ramp",
-          expected: ["forward:1>forward:0"],
+          expected: ["reverse:1>forward:0"],
         },
       },
       {
@@ -2318,7 +2398,7 @@ describe("Cairo Central Nile content", () => {
           node: "cairo-sixth-ramses-merge",
           fromRoad: mainline,
           toRoad: "cairo-sixth-october-bridge-ramses-ramp",
-          expected: ["reverse:1>forward:0"],
+          expected: ["forward:1>forward:0"],
         },
       },
     ] as const;
@@ -2498,13 +2578,15 @@ describe("Cairo Central Nile content", () => {
         item.host,
         item.entryMerge,
         item.entryDirection,
-        entrySurface.centerline[1],
+        // Densification can make centerline[1] only centimetres beyond the
+        // mouth; the authored taper knot is the intended side-of-road probe.
+        nodeById.get(entrySpec.nodeIds[1])!,
       );
       const exitOffsetM = rightOffsetAtMouth(
         item.host,
         item.exitMerge,
         item.exitDirection,
-        exitSurface.centerline.at(-2)!,
+        nodeById.get(exitSpec.nodeIds.at(-2)!)!,
       );
       expect(entryOffsetM, `${item.id} entry on driver's right`).toBeGreaterThan(
         1,
@@ -2762,7 +2844,7 @@ describe("Cairo Central Nile content", () => {
                 block.headingDeg ?? 0,
               ),
             ),
-            `${ramp.id} lacks a façade guard at ${block.id}`,
+            `${ramp.id} segment ${segment.segmentIndex} lacks a façade guard at ${block.id}`,
           ).toBe(false);
         }
       }
@@ -3114,9 +3196,34 @@ describe("Cairo Central Nile content", () => {
 
     for (const surface of elevated) {
       const placements = elevatedRoadSegmentPlacements(surface);
-      expect(placements, surface.id).toHaveLength(
-        surface.centerline.length - 1,
-      );
+      // At-grade taper samples remain drivable asphalt but intentionally do
+      // not receive a slab or parapet before the structural cutoff.
+      const expectedStructuralSegmentIndices = surface.centerline
+        .slice(0, -1)
+        .flatMap((start, index) =>
+          Math.max(
+            start.elevationM ?? 0,
+            surface.centerline[index + 1].elevationM ?? 0,
+          ) >= ELEVATED_DECK_START_M
+            ? [index]
+            : [],
+        );
+      expect(
+        placements.map((placement) => placement.segmentIndex),
+        surface.id,
+      ).toEqual(expectedStructuralSegmentIndices);
+      expect(
+        placements.every(
+          (placement) =>
+            placement.startElevationM >= ELEVATED_DECK_START_M &&
+            placement.endElevationM >= ELEVATED_DECK_START_M,
+        ),
+        `${surface.id} structural cutoff`,
+      ).toBe(true);
+      expect(
+        placements.length,
+        `${surface.id} retains elevated structure`,
+      ).toBeGreaterThan(0);
       for (const segment of placements) {
         const deckFootprint = testOrientedRect(
           segment.center,

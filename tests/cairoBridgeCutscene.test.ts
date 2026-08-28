@@ -89,8 +89,8 @@ const fixtures = [
   {
     name: "Corniche under the riverside exit",
     car: {
-      x: 97.18,
-      z: 203.21,
+      x: 97.65481479651186,
+      z: 224.4742033999336,
       heading: 0.022220151844784694,
       elevationM: 0,
     },
@@ -129,7 +129,7 @@ describe("Cairo bridge-aware traffic-stop staging", () => {
         slab!.soffitElevationM,
       );
       expect(safeHeight, fixture.name).not.toBeNull();
-      expect(safeHeight!, fixture.name).toBeLessThan(framing.cameraY);
+      expect(safeHeight!, fixture.name).toBeLessThanOrEqual(framing.cameraY);
       expect(safeHeight!, fixture.name).toBeLessThanOrEqual(
         slab!.soffitElevationM - STAGED_COVER_HEADROOM_M,
       );

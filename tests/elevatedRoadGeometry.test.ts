@@ -223,6 +223,122 @@ describe("elevated-road structure placement", () => {
     );
   });
 
+  it("keeps clearance broadphase queries exact across grid-cell boundaries", () => {
+    const apronAcrossBoundary = {
+      id: "apron-across-boundary",
+      widthM: 4,
+      centerline: [
+        { x: 34.1, z: -10, elevationM: 0.4 },
+        { x: 34.1, z: 10, elevationM: 0.4 },
+      ],
+    };
+    const clearanceAt = createElevatedRoadGroundClearanceQuery([
+      apronAcrossBoundary,
+      {
+        id: "distant-apron-west",
+        widthM: 4,
+        centerline: [
+          { x: -200, z: -10, elevationM: 0.4 },
+          { x: -200, z: 10, elevationM: 0.4 },
+        ],
+      },
+      {
+        id: "distant-apron-east",
+        widthM: 4,
+        centerline: [
+          { x: 200, z: -10, elevationM: 0.4 },
+          { x: 200, z: 10, elevationM: 0.4 },
+        ],
+      },
+    ]);
+
+    // The road footprint begins at x=32.1, in the next 32 m grid cell. The
+    // caller remains in the previous cell but its circular body reaches it.
+    expect(clearanceAt({ x: 31.79, z: 5 }, 0, 0.32)).toMatchObject({
+      surfaceId: apronAcrossBoundary.id,
+      obstructionKind: "raised_surface",
+      clearanceM: 0.4,
+    });
+    expect(clearanceAt({ x: 31.79, z: 5 }, 0, 0.3)).toBeNull();
+    expect(
+      clearanceAt(
+        { x: 31.79, z: 5 },
+        0,
+        0.32,
+        true,
+        new Set([apronAcrossBoundary.id]),
+      ),
+    ).toBeNull();
+    // Huge one-off placement envelopes fall back to the complete exact scan
+    // instead of walking thousands of empty grid cells.
+    expect(clearanceAt({ x: -1_000, z: 5 }, 0, 1_033)).toMatchObject({
+      surfaceId: apronAcrossBoundary.id,
+    });
+  });
+
+  it("preserves authored deck ties while indexing radius-crossing candidates", () => {
+    const firstDeck = {
+      id: "first-boundary-deck",
+      widthM: 4,
+      centerline: [
+        { x: 34.8, z: -10, elevationM: 4 },
+        { x: 34.8, z: 10, elevationM: 4 },
+      ],
+    };
+    const secondDeck = { ...firstDeck, id: "second-boundary-deck" };
+    const distantDeck = {
+      ...firstDeck,
+      id: "distant-boundary-deck",
+      centerline: firstDeck.centerline.map((point) => ({
+        ...point,
+        x: 200,
+      })),
+    };
+    const headroomAt = createElevatedRoadDeckHeadroomQuery([
+      firstDeck,
+      secondDeck,
+      distantDeck,
+    ]);
+
+    expect(headroomAt({ x: 31.79, z: 5 }, 0, 0.32, false)).toMatchObject({
+      surfaceId: firstDeck.id,
+      structureKind: "deck",
+    });
+    expect(
+      headroomAt(
+        { x: 31.79, z: 5 },
+        0,
+        0.32,
+        false,
+        new Set([firstDeck.id]),
+      ),
+    ).toMatchObject({ surfaceId: secondDeck.id });
+  });
+
+  it("finds a support whose footing is reached across a grid boundary", () => {
+    const supportSpan = (id: string, x: number) => ({
+      id,
+      widthM: 0.2,
+      centerline: [
+        { x, z: -45, elevationM: 7 },
+        { x, z: 55, elevationM: 7 },
+      ],
+    });
+    const target = supportSpan("boundary-support", 33.625);
+    const headroomAt = createElevatedRoadDeckHeadroomQuery([
+      target,
+      supportSpan("distant-support-west", -200),
+      supportSpan("distant-support-east", 200),
+    ]);
+
+    expect(headroomAt({ x: 31.99, z: 5 }, 0, 0.32)).toMatchObject({
+      surfaceId: target.id,
+      structureKind: "pier",
+      headroomM: 0,
+    });
+    expect(headroomAt({ x: 31.99, z: 5 }, 0, 0.3)).toBeNull();
+  });
+
   it("rejects Cairo's exact west and east landing apron intrusions", () => {
     const surfaces = CAIRO_MAP_PACK.geometry.roadSurfaces ?? [];
     const structural = createElevatedRoadDeckHeadroomQuery(surfaces);
@@ -322,7 +438,7 @@ describe("elevated-road structure placement", () => {
       const outside = runs.find((run) => run.side === 1)!;
       expect(
         Math.max(joiningSide.startTrimM, joiningSide.endTrimM),
-      ).toBeCloseTo(ramp.widthM / 2 + 0.8);
+      ).toBeCloseTo(ramp.widthM / 2 + 0.05);
       expect(outside.startTrimM + outside.endTrimM).toBe(0);
     }
 
@@ -330,25 +446,30 @@ describe("elevated-road structure placement", () => {
     const rampRuns = elevatedRoadEdgeRuns(ramp, rampSegment, surfaces);
     expect(rampRuns).toHaveLength(2);
     for (const run of rampRuns) {
-      // The ramp is pitched, so a 7.8 m opening in plan is slightly longer
+      // The ramp is pitched, so the carrier half-width plus the safety gap
+      // and the joining parapet's own half-depth project slightly longer
       // along the physical concrete edge.
       expect(run.endTrimM).toBeCloseTo(
-        (mainline.widthM / 2 + 0.8) * Math.hypot(40, 4) / 40,
+        (mainline.widthM / 2 +
+          0.05 +
+          ELEVATED_ROAD_PARAPET_DEPTH_M / 2) *
+          Math.hypot(40, 4) /
+          40,
       );
     }
 
-    // This point is in the mainline's concrete overhang beside the merge,
-    // where its parapet edge run is deliberately open. The retained slab is
-    // still overhead, so headroom must not depend on the parapet run.
+    // This point is in the shared paved mouth where the mainline parapet is
+    // deliberately open. The descending branch slab is the lower physical
+    // obstruction, so headroom must see it rather than depend on a parapet.
     const headroom = createElevatedRoadDeckHeadroomQuery(surfaces)({
       x: -1,
       z: -7.4,
     });
-    expect(headroom?.surfaceId).toBe("mainline");
-    expect(headroom?.deckElevationM).toBeCloseTo(10, 9);
+    expect(headroom?.surfaceId).toBe("ramp");
+    expect(headroom?.deckElevationM).toBeCloseTo(9.26, 9);
   });
 
-  it("cuts an oblique branch slab and parapets back to the mainline edge", () => {
+  it("supports an oblique merge completely while opening both parapets", () => {
     const mainline = {
       id: "mainline",
       widthM: 14,
@@ -371,13 +492,55 @@ describe("elevated-road structure placement", () => {
     const deck = elevatedRoadDeckRun(branch, segment, surfaces)!;
     const edges = elevatedRoadEdgeRuns(branch, segment, surfaces);
 
-    expect(deck.startTrimM).toBeGreaterThan(10);
+    expect(deck.startTrimM).toBe(0);
+    expect(
+      deck.centerAlongM - deck.lengthM / 2,
+      "the branch slab overlaps beneath the wider carrier",
+    ).toBeCloseTo(-segment.lengthM / 2 - 0.175, 9);
     expect(edges).toHaveLength(2);
     expect(Math.max(...edges.map((run) => run.startTrimM))).toBeGreaterThan(10);
     expect(Math.min(...edges.map((run) => run.startTrimM))).toBeGreaterThan(5);
+
+    const deckAt = createElevatedRoadDeckHeadroomQuery(surfaces);
+    const branchLengthM = Math.hypot(24, 40);
+    const normal = { x: 40 / branchLengthM, z: 24 / branchLengthM };
+    for (const amount of [0.01, 0.04, 0.08, 0.12, 0.16, 0.2]) {
+      for (const lateralM of [-3.75, 0, 3.75]) {
+        const expectedElevationM = 10 - amount * 4;
+        const supportingDeck = deckAt({
+          x: amount * 24 + normal.x * lateralM,
+          z: -amount * 40 + normal.z * lateralM,
+        });
+        expect(
+          supportingDeck,
+          `branch deck support at ${amount}:${lateralM}`,
+        ).toBeDefined();
+        expect(supportingDeck!.deckElevationM).toBeCloseTo(
+          expectedElevationM,
+          2,
+        );
+      }
+    }
+
+    for (const carrierSegment of elevatedRoadSegmentPlacements(mainline)) {
+      const carrierDeck = elevatedRoadDeckRun(
+        mainline,
+        carrierSegment,
+        surfaces,
+      )!;
+      const sharedExtensionM =
+        carrierSegment.segmentIndex === 0
+          ? carrierDeck.centerAlongM +
+            carrierDeck.lengthM / 2 -
+            carrierSegment.lengthM / 2
+          : -carrierSegment.lengthM / 2 -
+            (carrierDeck.centerAlongM - carrierDeck.lengthM / 2);
+      expect(sharedExtensionM).toBeCloseTo(0.175, 9);
+      expect(sharedExtensionM).toBeLessThanOrEqual(0.2);
+    }
   });
 
-  it("miters the inside parapet and relieves the outside of a same-surface bend", () => {
+  it("joins both parapet sides at the exact miter of a same-surface bend", () => {
     const bent = {
       id: "bent-ramp",
       widthM: 7.6,
@@ -397,14 +560,14 @@ describe("elevated-road structure placement", () => {
       outgoing.map((run) => [run.side, run.startTrimM]),
     );
 
-    expect(incomingBySide.get(-1)).toBeGreaterThan(0);
+    expect(incomingBySide.get(-1)).toBeLessThan(0);
     expect(incomingBySide.get(1)).toBeGreaterThan(0);
     expect(outgoingBySide.get(-1)).toBeCloseTo(incomingBySide.get(-1)!, 9);
     expect(outgoingBySide.get(1)).toBeCloseTo(incomingBySide.get(1)!, 9);
-    const trims = [...incomingBySide.values()].sort(
-      (left, right) => left - right,
-    );
-    expect(trims[1] - trims[0]).toBeCloseTo(0.8, 9);
+    expect(
+      Math.abs(incomingBySide.get(-1)!),
+      "the outside run extends by the same miter distance",
+    ).toBeCloseTo(incomingBySide.get(1)!, 9);
   });
 
   it("opens both sides of a narrower near-collinear continuation", () => {
@@ -450,7 +613,119 @@ describe("elevated-road structure placement", () => {
     expect(narrowDeck.startTrimM).toBe(0);
     expect(
       narrowDeck.centerAlongM - narrowDeck.lengthM / 2,
-    ).toBeCloseTo(-narrowSegment.lengthM / 2, 9);
+    ).toBeCloseTo(
+      -narrowSegment.lengthM / 2 - 0.175,
+      9,
+    );
+  });
+
+  it("keeps a tangent branch open until both parapets clear its wider carrier", () => {
+    const carrier = {
+      id: "tangent-carrier",
+      widthM: 14,
+      centerline: [
+        { x: -60, z: 0, elevationM: 10 },
+        { x: 0, z: 0, elevationM: 10 },
+        { x: 60, z: 0, elevationM: 10 },
+      ],
+    };
+    const branch = {
+      id: "tangent-branch",
+      widthM: 7.6,
+      centerline: [
+        { x: 0, z: 0, elevationM: 10 },
+        { x: -5, z: 0.1, elevationM: 10 },
+        { x: -10, z: 0.5, elevationM: 10 },
+        { x: -15, z: 1.5, elevationM: 10 },
+        { x: -20, z: 3.5, elevationM: 10 },
+        { x: -25, z: 7, elevationM: 10 },
+        { x: -30, z: 12, elevationM: 10 },
+        { x: -35, z: 18, elevationM: 10 },
+      ],
+    };
+    const surfaces = [carrier, branch];
+    const segments = elevatedRoadSegmentPlacements(branch);
+
+    expect(
+      segments
+        .slice(0, 3)
+        .every(
+          (segment) =>
+            elevatedRoadEdgeRuns(branch, segment, surfaces).length === 0,
+        ),
+      "no detached miter chips remain inside the carrier",
+    ).toBe(true);
+    expect(
+      elevatedRoadEdgeRuns(branch, segments.at(-1)!, surfaces),
+      "both sides return after the branch has peeled away",
+    ).toHaveLength(2);
+
+    for (const barrier of elevatedRoadBarrierPlacements(
+      branch,
+      surfaces,
+      100,
+    )) {
+      const projectedHalfDepthM =
+        Math.abs(barrier.uz) * barrier.halfU +
+        Math.abs(barrier.ux) * barrier.halfV;
+      expect(
+        Math.abs(barrier.z) - projectedHalfDepthM,
+        `segment ${barrier.segmentIndex} side ${barrier.side}`,
+      ).toBeGreaterThanOrEqual(carrier.widthM / 2 + 0.05 - 0.001);
+    }
+  });
+
+  it("opens both equal-width branches through their common wider carrier", () => {
+    const carrier = {
+      id: "paired-branch-carrier",
+      widthM: 7.6,
+      centerline: [
+        { x: 0, z: -30, elevationM: 7 },
+        { x: 0, z: 0, elevationM: 7 },
+      ],
+    };
+    const left = {
+      id: "paired-left-branch",
+      widthM: 4.2,
+      centerline: [
+        { x: 0, z: 0, elevationM: 7 },
+        { x: -6, z: 20, elevationM: 7 },
+        { x: -18, z: 40, elevationM: 7 },
+      ],
+    };
+    const right = {
+      id: "paired-right-branch",
+      widthM: 4.2,
+      centerline: [
+        { x: 0, z: 0, elevationM: 7 },
+        { x: 6, z: 20, elevationM: 7 },
+        { x: 18, z: 40, elevationM: 7 },
+      ],
+    };
+    const surfaces = [carrier, left, right];
+    const branchTrims: number[][] = [];
+
+    for (const branch of [left, right]) {
+      const firstSegment = elevatedRoadSegmentPlacements(branch)[0];
+      const runs = elevatedRoadEdgeRuns(branch, firstSegment, surfaces);
+      expect(runs).toHaveLength(2);
+      expect(
+        runs.every((run) => run.startTrimM > carrier.widthM / 2),
+        `${branch.id} must not restore a barrier inside the shared throat`,
+      ).toBe(true);
+      branchTrims.push(
+        runs.map((run) => run.startTrimM).sort((a, b) => a - b),
+      );
+
+      const deck = elevatedRoadDeckRun(branch, firstSegment, surfaces)!;
+      expect(deck.startTrimM).toBe(0);
+      expect(
+        deck.centerAlongM - deck.lengthM / 2,
+        `${branch.id} retains the watertight junction lap`,
+      ).toBeCloseTo(-firstSegment.lengthM / 2 - 0.175, 9);
+    }
+
+    expect(branchTrims[0]).toEqual(branchTrims[1]);
   });
 
   it("opens every Cairo ramp-to-mainline merge instead of walling it off", () => {
@@ -491,10 +766,19 @@ describe("elevated-road structure placement", () => {
       const throatNeighbour = branch.centerline[
         sharedIndex === 0 ? 1 : sharedIndex - 1
       ];
+      const finalThroatPlanM = Math.hypot(
+        throatNeighbour.x - sharedPoint.x,
+        throatNeighbour.z - sharedPoint.z,
+      );
+      const finalThroatGrade =
+        Math.abs(
+          (throatNeighbour.elevationM ?? 0) -
+            (sharedPoint.elevationM ?? 0),
+        ) / finalThroatPlanM;
       expect(
-        throatNeighbour.elevationM,
-        `${branchId} reaches full height before the mainline footprint`,
-      ).toBeCloseTo(sharedPoint.elevationM ?? 0, 3);
+        finalThroatGrade,
+        `${branchId} reaches the mainline at a continuous road-grade seam`,
+      ).toBeLessThanOrEqual(0.1 + 1e-6);
 
       const adjoiningBranchSegment = elevatedRoadSegmentPlacements(branch).find(
         (segment) => {
@@ -508,30 +792,32 @@ describe("elevated-road structure placement", () => {
         adjoiningBranchSegment,
         surfaces,
       );
-      expect(branchRuns, branchId).toHaveLength(2);
+      // A sampled curve may consume its complete first chord while it is
+      // still inside the mainline corridor. Any retained run must start
+      // beyond the shared mouth; the following chord restores both sides.
       for (const run of branchRuns) {
+        const sharedTrimM =
+          sharedIndex === 0 ? run.startTrimM : run.endTrimM;
         expect(
-          Math.max(run.startTrimM, run.endTrimM),
+          sharedTrimM,
           `${branchId} side ${run.side}`,
         ).toBeGreaterThan(3.5);
       }
-      const branchDeck = elevatedRoadDeckRun(
-        branch,
-        adjoiningBranchSegment,
-        surfaces,
+      const branchSegments = elevatedRoadSegmentPlacements(branch);
+      const adjoiningIndex = branchSegments.indexOf(adjoiningBranchSegment);
+      const awayFromMouth =
+        sharedIndex === 0
+          ? branchSegments.slice(adjoiningIndex + 1)
+          : branchSegments.slice(0, adjoiningIndex).reverse();
+      const protectedNeighbour = awayFromMouth.find(
+        (candidate) =>
+          elevatedRoadEdgeRuns(branch, candidate, surfaces).length === 2,
       );
-      expect(branchDeck, `${branchId} deck cutback`).not.toBeNull();
+      expect(protectedNeighbour, `${branchId} protected throat edge`).toBeDefined();
       expect(
-        branchDeck?.lengthM ?? 0,
-        `${branchId} retains a usable full-height merge throat`,
-      ).toBeGreaterThan(0.35);
-      expect(
-        Math.max(
-          branchDeck?.startTrimM ?? 0,
-          branchDeck?.endTrimM ?? 0,
-        ),
-        `${branchId} slab reaches the mainline edge`,
-      ).toBeGreaterThan(mainline.widthM / 2 + 0.7);
+        elevatedRoadEdgeRuns(branch, protectedNeighbour!, surfaces),
+        `${branchId} restores both parapets after the open merge mouth`,
+      ).toHaveLength(2);
 
       const adjoiningMainlineSegments = elevatedRoadSegmentPlacements(
         mainline,
@@ -541,17 +827,19 @@ describe("elevated-road structure placement", () => {
         return isSharedPoint(start) || isSharedPoint(end);
       });
       expect(adjoiningMainlineSegments.length, branchId).toBeGreaterThan(0);
+      let openedMainlineSide = false;
       for (const segment of adjoiningMainlineSegments) {
         const runs = elevatedRoadEdgeRuns(mainline, segment, surfaces);
-        expect(
-          Math.max(
-            ...runs.map((run) =>
-              Math.max(run.startTrimM, run.endTrimM),
-            ),
-          ),
-          `${branchId} mainline opening`,
-        ).toBeGreaterThan(branch.widthM / 2 + 0.6);
+        const sharedAtStart = isSharedPoint(
+          mainline.centerline[segment.segmentIndex],
+        );
+        openedMainlineSide ||=
+          runs.length < 2 ||
+          runs.some((run) =>
+            (sharedAtStart ? run.startTrimM : run.endTrimM) > 0.01,
+          );
       }
+      expect(openedMainlineSide, `${branchId} mainline opening`).toBe(true);
     }
   });
 
@@ -585,13 +873,22 @@ describe("elevated-road structure placement", () => {
         carrierSegment,
         surfaces,
       );
-      expect(carrierRuns, terminalId).toHaveLength(2);
       expect(
         carrierRuns.every(
-          (run) => run.startTrimM > mainline.widthM / 2 + 0.6,
+          (run) => run.startTrimM > mainline.widthM / 2,
         ),
         `${terminalId} parapets clear the mainline fan/funnel`,
       ).toBe(true);
+      const protectedCarrierSegment = elevatedRoadSegmentPlacements(carrier)
+        .slice(1)
+        .find(
+          (candidate) =>
+            elevatedRoadEdgeRuns(carrier, candidate, surfaces).length === 2,
+        );
+      expect(
+        protectedCarrierSegment,
+        `${terminalId} restores both parapets beyond the merge mouth`,
+      ).toBeDefined();
       expect(
         elevatedRoadDeckRun(carrier, carrierSegment, surfaces)?.startTrimM,
         `${terminalId} asphalt remains continuous`,

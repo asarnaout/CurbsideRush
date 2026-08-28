@@ -25,6 +25,13 @@ ground road and flyover cannot exchange cars merely because one is declared
 first. Junction fills also cluster by elevation; a flyover crossing is not an
 intersection unless explicit same-height ramp nodes connect it.
 
+When a road is curved, its sampled curve is part of that same shared truth.
+Generate it once, preserve every authored topology knot exactly, and reuse the
+result for legal lanes, asphalt, markings, deck, barriers and map strokes. Do
+not smooth only the rendered road or offset lanes independently: either choice
+can leave a driveable chord outside its slab. Cairo's 6th October roads use
+`geometry/openRoadCurve.ts` for this canonical C1-continuous sampling.
+
 Projection is three-dimensional even though steering remains planar. The
 previous fixed step's elevation locks selection to a nearby height-continuous
 lane, with a 12 m capture limit so a teleport or real departure can escape.
@@ -68,7 +75,9 @@ Elevated parapets are simulation obstacles as well as meshes. Their OBBs come
 from the exact trimmed edge runs the renderer uses, are split into short local
 height bands on slopes, and leave the same merge mouths open. Do not hand-author
 parallel barrier rectangles or give one long ramp obstacle a ground-to-crest
-height range.
+height range. The structural slab remains complete beneath those openings and
+laps a connected slab by 0.175 m, so trimming a barrier can never punch a hole
+in the road floor.
 
 Also authored: `RoadSurface.sidewalkWidthM` overrides the map default per road;
 `ProceduralBlock.headingDeg` rotates its façade slots, exclusions and every

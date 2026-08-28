@@ -244,7 +244,7 @@ describe("Cairo corniche parapet", () => {
     expect(generatePromenadeDecor(promenadeInput)).toEqual(decor);
   });
 
-  it("relocates the full-size west Dokki palm around the new grade instead of deleting it", () => {
+  it("relocates a full-size palm around raised bridge structure instead of deleting it", () => {
     const inputWithoutMeasuredClearance = {
       ...promenadeInput,
       canPlaceProp: undefined,
@@ -256,54 +256,42 @@ describe("Cairo corniche parapet", () => {
       (placement) => !canPlacePromenadeProp(placement),
     );
 
-    // The generic centre-point deck allowance cannot see the broad crown of
-    // the reviewed Dokki palm. Production's measured query finds it, then the
-    // generator keeps the asset by trying half-station shifts along the bank.
-    const blockedDokkiPalm = physicallyBlocked.find(
-      (placement) =>
-        placement.kind === "palm" &&
-        placement.x < -600 &&
-        placement.z > 430 &&
-        placement.z < 470,
+    // Adaptive bridge sampling can move the exact blocked station. Pin the
+    // behavior that matters: production's measured crown envelope finds a
+    // real rejected palm and keeps that same deterministic asset by trying
+    // half-station shifts along its bank.
+    const blockedPalm = physicallyBlocked.find(
+      (placement) => placement.kind === "palm",
     );
-    expect(blockedDokkiPalm).toMatchObject({
-      kind: "palm",
-      x: -609.2811449753331,
-      z: 452.9510023514729,
-      variant: 1,
-      scale: 1.0465892425738275,
-    });
+    expect(blockedPalm).toBeDefined();
     const blockedEnvelope = groundPropClearanceEnvelope(
-      blockedDokkiPalm!,
+      blockedPalm!,
       "cairo",
     );
-    expect(
-      elevatedRoadGroundClearanceAt(
-        blockedDokkiPalm!,
-        0,
-        blockedEnvelope.footprintRadiusM,
-      ),
-    ).toMatchObject({
-      surfaceId: "cairo-sixth-october-bridge-dokki-entry",
-    });
-    const relocatedDokkiPalm = decor.find(
+    const obstruction = elevatedRoadGroundClearanceAt(
+      blockedPalm!,
+      0,
+      blockedEnvelope.footprintRadiusM,
+    );
+    expect(obstruction).not.toBeNull();
+    expect(obstruction!.clearanceM).toBeLessThan(
+      blockedEnvelope.requiredHeadroomM,
+    );
+    const relocatedPalm = decor.find(
       (placement) =>
-        placement.kind === blockedDokkiPalm!.kind &&
-        placement.variant === blockedDokkiPalm!.variant &&
-        placement.scale === blockedDokkiPalm!.scale &&
-        placement.rotationY === blockedDokkiPalm!.rotationY,
+        placement.kind === blockedPalm!.kind &&
+        placement.variant === blockedPalm!.variant &&
+        placement.scale === blockedPalm!.scale &&
+        placement.rotationY === blockedPalm!.rotationY,
     );
-    expect(relocatedDokkiPalm).toMatchObject({
-      x: -606.7442445492482,
-      z: 427.07506495341653,
-    });
+    expect(relocatedPalm).toBeDefined();
     const relocationM = Math.hypot(
-      relocatedDokkiPalm!.x - blockedDokkiPalm!.x,
-      relocatedDokkiPalm!.z - blockedDokkiPalm!.z,
+      relocatedPalm!.x - blockedPalm!.x,
+      relocatedPalm!.z - blockedPalm!.z,
     );
-    expect(relocationM).toBeGreaterThanOrEqual(6.5);
+    expect(relocationM).toBeGreaterThanOrEqual(6.5 - 1e-6);
     expect(relocationM).toBeLessThanOrEqual(26.01);
-    expect(canPlacePromenadeProp(relocatedDokkiPalm!)).toBe(true);
+    expect(canPlacePromenadeProp(relocatedPalm!)).toBe(true);
     expect(decor.every(canPlacePromenadeProp)).toBe(true);
   });
 

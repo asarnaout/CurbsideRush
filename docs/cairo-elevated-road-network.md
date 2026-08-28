@@ -125,7 +125,13 @@ surface—not a landmark mesh—provides the drivable deck.
 ## Rendering and navigation contract
 
 - Every lane and road-surface point carries the same elevation profile.
-- Asphalt strips and lane paint pitch with that profile.
+- Each Sixth October alignment is sampled once as a C1-continuous cubic path
+  through its exact authored junction knots. Adaptive chords are no longer
+  than 7.5 m and turn no more than 5 degrees; that one path feeds asphalt,
+  lanes, paint, structure and both maps. The quality gate requires at least a
+  14 m local radius, no more than 10.5% grade and no more than a 22-degree
+  legal handoff.
+- Asphalt strips and lane paint pitch with that shared curved profile.
 - Player, NPC traffic, engine smoke, cockpit/chase cameras and mirrors use the
   occupied lane's interpolated height.
 - Player projection carries the previous fixed step's height as layer
@@ -156,10 +162,10 @@ surface—not a landmark mesh—provides the drivable deck.
 - Physical parapet OBBs derive from those same trimmed edge runs. Slopes are
   divided into short local-height bands, so the visible wall contains a bridge
   car without becoming an invisible barrier for a ground car below it. Sharp
-  internal bends miter the inside edge and relieve the outside edge using the
-  same non-negative runs for rendering and collision. Joined elevated mouths
-  suppress terminal deck caps and seam extensions instead of hiding a
-  transverse wall below the asphalt.
+  internal bends trim the inside edge and extend the outside edge to their
+  exact shared miter. Joined elevated mouths suppress terminal deck caps, keep
+  the complete slab beneath every paved chord and overlap the next slab by
+  0.175 m; parapet and fascia runs alone open around the legal mouth.
 - Player roof collision uses the combined raised-asphalt/structural-clearance
   query at the centre and both ends of the real vehicle capsule. Low ramp
   aprons and soffits stop a lower-level car at their physical boundary; high
@@ -231,14 +237,22 @@ procedural frontage. A regression test compares every elevated deck segment's
 oriented footprint with every block OBB and requires zero intersections. The
 lane-corridor and full pavement-band audits also include every new slip. No
 building or landmark asset was deleted. Only the exact frontage pieces that
-intersect a reviewed auxiliary-lane envelope receive small explicit setbacks;
-unaffected neighbours remain fixed, and every building id, dimension, height
-and material remains stable.
+intersect a reviewed auxiliary-lane envelope receive small explicit setbacks
+or shallower footprints; unaffected neighbours remain fixed, and every
+building id, height and material remains stable.
 At Dokki, a 0.75 m façade guard is tested against every entry, stem and exit
 segment so that the setback cannot regress into clipping or become a pretext
 for deletion. The full-height exit now splays away from the still-rising
 entrance before turning north, so the fix removes the physical slab overlap
 rather than granting a broad collision exemption.
+At Gezira, the opposing entry and exit curves are separated in plan before
+their seven-metre braid. A 35-degree westward tangent keeps the complete entry
+slab east of the descending exit, leaving over 0.68 m between the complete
+decks below the high throat and at least 2.536 m above a lane-centred delivery
+van on Al Saraya Street. The nearby Saray bays retain their complete street
+frontages with at most a 1.43 m landward setback and a 0.15 m rear-depth trim.
+The three high-carrier infill bays keep a measured 0.75 m-plus guard from the
+full slab footprint.
 
 The structural regression suite also checks signal headroom, model-specific
 parked-car clearance, both west/east landing-apron pedestrian exclusion,

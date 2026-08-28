@@ -3,6 +3,12 @@ import { buildRailCrossingControl } from "./cityAuthoringHelpers";
 import { carveBlocksForRailCorridors } from "../geometry/railCorridor";
 import { createElevatedRoadDeckHeadroomQuery } from "../geometry/elevatedRoadGeometry";
 import {
+  offsetOpenRoadPolyline,
+  sampleOpenRoadCurve,
+  type OpenRoadCurveGeometry,
+  type OpenRoadCurveOptions,
+} from "../geometry/openRoadCurve";
+import {
   buildingSetDepthM,
   isBuildingSetId,
   type BuildingSetId,
@@ -306,9 +312,9 @@ const cairoNodes: readonly LaneNode[] = [
   // Direct terminal ramps. Each pair stays one-way and on the correct kerb
   // until reaching a seven-metre braid in the old reserved approach strip.
   node("cairo-sixth-west-entry-taper", -805, 270),
-  node("cairo-sixth-west-entry-lift", -799.5, 300),
-  node("cairo-sixth-west-entry-mid", -797.5, 330),
-  node("cairo-sixth-west-entry-clear", -760, 325),
+  node("cairo-sixth-west-entry-lift", -798.5, 300),
+  node("cairo-sixth-west-entry-mid", -788, 330),
+  node("cairo-sixth-west-entry-clear", -754, 332),
   node("cairo-sixth-west-terminal-braid", -720, 340),
   node("cairo-sixth-west-exit-clear", -760, 337),
   node("cairo-sixth-west-exit-mid", -797, 350),
@@ -320,12 +326,12 @@ const cairoNodes: readonly LaneNode[] = [
   node("cairo-sixth-west-terminal-deck-edge", -664, 318.2035),
   node("cairo-sixth-east-terminal-braid", 638, 180),
   node("cairo-sixth-east-terminal-deck-edge", 584, 187.0372),
-  node("cairo-sixth-east-entry-clear", 680, 180),
-  node("cairo-sixth-east-entry-mid", 702, 180),
+  node("cairo-sixth-east-entry-clear", 686, 175),
+  node("cairo-sixth-east-entry-mid", 703, 193),
   node("cairo-sixth-east-entry-lift", 707, 220),
   node("cairo-sixth-east-entry-taper", 711, 240),
-  node("cairo-sixth-east-exit-clear", 680, 165),
-  node("cairo-sixth-east-exit-mid", 702.5, 168),
+  node("cairo-sixth-east-exit-clear", 675, 165),
+  node("cairo-sixth-east-exit-mid", 692, 150),
   node("cairo-sixth-east-exit-lift", 705, 120),
   node("cairo-sixth-east-exit-taper", 708, 105),
   // Every street landing below has three distinct pieces: a narrow at-grade
@@ -338,36 +344,48 @@ const cairoNodes: readonly LaneNode[] = [
   // high stem and the entrance climbs north of it, so the two narrow grades
   // never combine into a low two-way slab over Al Dokki Street. They braid
   // into the common stem only after both decks have full vehicle clearance.
-  node("cairo-sixth-dokki-entry-taper", -636, 520),
-  node("cairo-sixth-dokki-entry-lift", -635.5, 505),
-  node("cairo-sixth-dokki-entry-bend-b", -635, 480),
-  node("cairo-sixth-dokki-entry-bend-a", -631.5, 456),
-  node("cairo-sixth-dokki-entry-clear", -632, 430),
+  node("cairo-sixth-dokki-entry-taper", -634.5, 540),
+  node("cairo-sixth-dokki-entry-lift", -635.5, 530),
+  node("cairo-sixth-dokki-entry-bend-b", -636.65, 505),
+  node("cairo-sixth-dokki-entry-bend-a", -635, 480),
+  // The low structure stays inside the narrow kerb-side corridor until this
+  // point has full delivery-van clearance. Two surveyed 17.9 m-radius arcs
+  // then make the high-level S-turn needed to meet the carrier tangentially;
+  // no chord cuts across a live lane or into the Nile-side frontage.
+  node("cairo-sixth-dokki-entry-clear", -633, 460),
+  node("cairo-sixth-dokki-entry-curve-west", -627.758, 447.345),
+  node("cairo-sixth-dokki-entry-curve-throat", -615.103, 442.103),
+  node("cairo-sixth-dokki-entry-curve-southeast", -602.448, 436.861),
+  node("cairo-sixth-dokki-entry-curve-east", -597.206, 424.207),
+  node("cairo-sixth-dokki-entry-curve-northeast", -602.448, 411.552),
   node("cairo-sixth-dokki-entry-braid", -614, 400),
-  node("cairo-sixth-dokki-over-wi5", -610, 325),
+  node("cairo-sixth-dokki-over-wi5", -660, 352),
   // The full-height exit branch splays clear of the still-rising entrance
   // before running north. Without this short shoulder, its broad flat slab
   // overlapped the inbound lane before the legal merge and became a 14 cm
   // roof gap to the vehicle physics.
-  node("cairo-sixth-dokki-exit-splay", -621, 420),
-  node("cairo-sixth-dokki-exit-braid", -630, 570),
-  node("cairo-sixth-dokki-exit-clear", -618.5, 590),
+  node("cairo-sixth-dokki-exit-splay", -636, 450),
+  node("cairo-sixth-dokki-exit-braid", -618, 525),
+  node("cairo-sixth-dokki-exit-clear", -618, 590),
   node("cairo-sixth-dokki-exit-lift", -618.3, 655),
   node("cairo-sixth-dokki-exit-taper", -615.5, 675),
   node("cairo-sixth-gezira-entry-taper", -413, -104.14),
-  node("cairo-sixth-gezira-entry-lift", -439, 60),
-  node("cairo-sixth-gezira-entry-mid", -444, 95),
-  node("cairo-sixth-gezira-entry-clear", -449, 118),
+  node("cairo-sixth-gezira-entry-lift", -430.5, 0),
+  node("cairo-sixth-gezira-entry-mid", -442.5, 45),
+  // Keep the opposing one-way decks physically distinct through their
+  // parallel approach; the former centreline overlap read as a near-zero
+  // soffit and left no credible median between entry and exit traffic.
+  node("cairo-sixth-gezira-entry-clear", -451.5, 90),
   node("cairo-sixth-gezira-braid", -454, 125),
-  node("cairo-sixth-gezira-exit-clear", -456, 75),
+  node("cairo-sixth-gezira-exit-clear", -458.5, 75),
   node("cairo-sixth-gezira-exit-lift", -430, -60),
-  node("cairo-sixth-gezira-deck-edge", -431.063, 284.663),
-  node("cairo-sixth-gezira-carrier-bend", -438, 225),
+  node("cairo-sixth-gezira-deck-edge", -465, 258.6),
+  node("cairo-sixth-gezira-carrier-bend", -465, 215),
   node("cairo-sixth-gezira-exit-taper", -430, -80.86),
   node("cairo-sixth-corniche-entry-taper", 101, 124),
   node("cairo-sixth-corniche-entry-lift", 103, 130),
-  node("cairo-sixth-corniche-entry-mid", 103, 185),
-  node("cairo-sixth-corniche-entry-deck-edge", 100.71, 228.938),
+  node("cairo-sixth-corniche-entry-mid", 70, 175),
+  node("cairo-sixth-corniche-entry-deck-edge", 65, 226),
   // The northbound exit leaves the mainline over the river, crosses to the
   // Corniche's east-side auxiliary lane at full clearance, and touches down
   // before Champollion. Its ground slip can pass through that junction; a
@@ -378,23 +396,23 @@ const cairoNodes: readonly LaneNode[] = [
   // only after its whole vehicle envelope is laterally clear, then uses the
   // open river corridor to reach full delivery-van clearance before turning
   // back beneath the parent deck.
-  node("cairo-sixth-corniche-exit-throat", 25, 230),
-  node("cairo-sixth-corniche-exit-descent-clear", 62, 234),
+  node("cairo-sixth-corniche-exit-throat", 30, 218),
+  node("cairo-sixth-corniche-exit-descent-clear", 62, 232),
   node("cairo-sixth-corniche-exit-curve", 80, 239),
   node("cairo-sixth-corniche-exit-clear", 92, 247),
   node("cairo-sixth-corniche-exit-turn", 105.2, 266),
-  node("cairo-sixth-corniche-exit-lift", 106.3, 319),
+  node("cairo-sixth-corniche-exit-lift", 106.6, 323.2),
   node("cairo-sixth-corniche-exit-taper", 108, 355),
   node("cairo-sixth-ramses-entry-taper", 606.96, 371.88),
   // Ramses' two access directions stay on opposite kerb-side auxiliary
   // lanes while the slab is low. They meet over the Turgoman junction only
   // after both soffits clear the live Ramses carriageway below.
-  node("cairo-sixth-ramses-entry-lift", 591.512, 343.676),
-  node("cairo-sixth-ramses-entry-clear", 562.891, 286.433),
+  node("cairo-sixth-ramses-entry-lift", 596.6106, 353.4265),
+  node("cairo-sixth-ramses-entry-clear", 569.3306, 298.8665),
   node("cairo-sixth-ramses-over-turgoman", 567.574, 276.148),
-  node("cairo-sixth-ramses-deck-edge", 525.751, 203.73),
-  node("cairo-sixth-ramses-exit-clear", 575.413, 280.172),
-  node("cairo-sixth-ramses-exit-lift", 604.034, 337.416),
+  node("cairo-sixth-ramses-deck-edge", 550, 215),
+  node("cairo-sixth-ramses-exit-clear", 581.4948, 292.7843),
+  node("cairo-sixth-ramses-exit-lift", 608.7748, 347.3444),
   node("cairo-sixth-ramses-exit-taper", 612.2, 357.6),
 ];
 
@@ -574,9 +592,9 @@ export const CAIRO_ROAD_SPECS: readonly CairoRoadSpec[] = [
   road("cairo-sixth-october-west-exit-slip", "6th October Bridge Exit", ["cairo-sixth-west-exit-lift", "cairo-sixth-west-exit-taper", "cairo-sixth-west-exit-merge"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
 
   road("cairo-sixth-october-east-entry-slip", "6th October Bridge Entrance", ["cairo-sixth-east-entry-merge", "cairo-sixth-east-entry-taper", "cairo-sixth-east-entry-lift"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
-  road("cairo-sixth-october-bridge-east-entry", "6th October Bridge Entrance", ["cairo-sixth-east-entry-lift", "cairo-sixth-east-entry-mid", "cairo-sixth-east-entry-clear", "cairo-sixth-east-terminal-braid"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 2.6, 5.8, 7] }),
+  road("cairo-sixth-october-bridge-east-entry", "6th October Bridge Entrance", ["cairo-sixth-east-entry-lift", "cairo-sixth-east-entry-mid", "cairo-sixth-east-entry-clear", "cairo-sixth-east-terminal-braid"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 2, 4, 7] }),
   road("cairo-sixth-october-bridge-east-ramp", "6th October Bridge", ["cairo-sixth-east-crest", "cairo-sixth-east-terminal-deck-edge", "cairo-sixth-east-terminal-braid"], 40, 2, 7.6, 0, { arterial: true, elevationsM: [10.5, 10.5, 7] }),
-  road("cairo-sixth-october-bridge-east-exit", "6th October Bridge Exit", ["cairo-sixth-east-terminal-braid", "cairo-sixth-east-exit-clear", "cairo-sixth-east-exit-mid", "cairo-sixth-east-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [7, 5.8, 2.6, 0] }),
+  road("cairo-sixth-october-bridge-east-exit", "6th October Bridge Exit", ["cairo-sixth-east-terminal-braid", "cairo-sixth-east-exit-clear", "cairo-sixth-east-exit-mid", "cairo-sixth-east-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [7, 5, 3, 0] }),
   road("cairo-sixth-october-east-exit-slip", "6th October Bridge Exit", ["cairo-sixth-east-exit-lift", "cairo-sixth-east-exit-taper", "cairo-sixth-east-exit-merge"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
   // Dokki's former 7.6 m mouth still covered Al Dokki Street even though its
   // lane graph had separate slips. The rebuilt entrance and exit are 4.2 m
@@ -585,9 +603,9 @@ export const CAIRO_ROAD_SPECS: readonly CairoRoadSpec[] = [
   // street remains safely drivable underneath it. Every frontage block stays;
   // the narrow Nile-side row is set back six metres as one intact streetscape.
   road("cairo-sixth-october-dokki-entry-slip", "6th October Bridge Entrance", ["cairo-wi-sixth-entry-merge", "cairo-sixth-dokki-entry-taper", "cairo-sixth-dokki-entry-lift"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
-  road("cairo-sixth-october-bridge-dokki-entry", "6th October Bridge Entrance", ["cairo-sixth-dokki-entry-lift", "cairo-sixth-dokki-entry-bend-b", "cairo-sixth-dokki-entry-bend-a", "cairo-sixth-dokki-entry-clear", "cairo-sixth-dokki-entry-braid"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 2, 4, 6.2, 7] }),
-  road("cairo-sixth-october-bridge-dokki-ramp", "6th October Bridge", ["cairo-sixth-dokki-merge", "cairo-sixth-dokki-over-wi5", "cairo-sixth-dokki-entry-braid"], 40, 2, 7.6, 0, { arterial: true, elevationsM: [10.5, 10.5, 7] }),
-  road("cairo-sixth-october-bridge-dokki-exit", "6th October Bridge Exit", ["cairo-sixth-dokki-entry-braid", "cairo-sixth-dokki-exit-splay", "cairo-sixth-dokki-exit-braid", "cairo-sixth-dokki-exit-clear", "cairo-sixth-dokki-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [7, 7, 7, 6.2, 0] }),
+  road("cairo-sixth-october-bridge-dokki-entry", "6th October Bridge Entrance", ["cairo-sixth-dokki-entry-lift", "cairo-sixth-dokki-entry-bend-b", "cairo-sixth-dokki-entry-bend-a", "cairo-sixth-dokki-entry-clear", "cairo-sixth-dokki-entry-curve-west", "cairo-sixth-dokki-entry-curve-throat", "cairo-sixth-dokki-entry-curve-southeast", "cairo-sixth-dokki-entry-curve-east", "cairo-sixth-dokki-entry-curve-northeast", "cairo-sixth-dokki-entry-braid"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 1.6, 3, 4.8, 6.2, 6.7, 7.2, 7.7, 8.2, 8.5] }),
+  road("cairo-sixth-october-bridge-dokki-ramp", "6th October Bridge", ["cairo-sixth-dokki-merge", "cairo-sixth-dokki-over-wi5", "cairo-sixth-dokki-entry-braid"], 40, 2, 7.6, 0, { arterial: true, elevationsM: [10.5, 10.5, 8.5] }),
+  road("cairo-sixth-october-bridge-dokki-exit", "6th October Bridge Exit", ["cairo-sixth-dokki-entry-braid", "cairo-sixth-dokki-exit-splay", "cairo-sixth-dokki-exit-braid", "cairo-sixth-dokki-exit-clear", "cairo-sixth-dokki-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [8.5, 8.5, 8.5, 6.2, 0] }),
   road("cairo-sixth-october-dokki-exit-slip", "6th October Bridge Exit", ["cairo-sixth-dokki-exit-lift", "cairo-sixth-dokki-exit-taper", "cairo-wi-sixth-exit-merge"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
 
   // Gezira's old shared at-grade lift put the northbound entrance on the
@@ -596,7 +614,7 @@ export const CAIRO_ROAD_SPECS: readonly CairoRoadSpec[] = [
   // kerb, the exit descends beside the west/right kerb, and they do not meet
   // until a seven-metre braid above the complete Al Saraya carriageway.
   road("cairo-sixth-october-gezira-entry-slip", "6th October Bridge Entrance", ["cairo-iw-sixth-entry-merge", "cairo-sixth-gezira-entry-taper", "cairo-sixth-gezira-entry-lift"], 40, 1, 4.2, 1.2, { arterial: true, oneWay: "forward" }),
-  road("cairo-sixth-october-bridge-gezira-entry", "6th October Bridge Entrance", ["cairo-sixth-gezira-entry-lift", "cairo-sixth-gezira-entry-mid", "cairo-sixth-gezira-entry-clear", "cairo-sixth-gezira-braid"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 4, 6.2, 7] }),
+  road("cairo-sixth-october-bridge-gezira-entry", "6th October Bridge Entrance", ["cairo-sixth-gezira-entry-lift", "cairo-sixth-gezira-entry-mid", "cairo-sixth-gezira-entry-clear", "cairo-sixth-gezira-braid"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 4.25, 6.2, 7] }),
   road("cairo-sixth-october-bridge-gezira-ramp", "6th October Bridge", ["cairo-sixth-gezira-merge", "cairo-sixth-gezira-deck-edge", "cairo-sixth-gezira-carrier-bend", "cairo-sixth-gezira-braid"], 40, 2, 7.6, 0, { arterial: true, elevationsM: [10.5, 10.5, 9, 7] }),
   road("cairo-sixth-october-bridge-gezira-exit", "6th October Bridge Exit", ["cairo-sixth-gezira-braid", "cairo-sixth-gezira-exit-clear", "cairo-sixth-gezira-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [7, 6.2, 0] }),
   road("cairo-sixth-october-gezira-exit-slip", "6th October Bridge Exit", ["cairo-sixth-gezira-exit-lift", "cairo-sixth-gezira-exit-taper", "cairo-iw-sixth-exit-merge"], 40, 1, 4.2, 1.2, { arterial: true, oneWay: "forward" }),
@@ -608,8 +626,8 @@ export const CAIRO_ROAD_SPECS: readonly CairoRoadSpec[] = [
   // down south of Champollion, then continues through as an at-grade
   // auxiliary lane before merging into Corniche traffic.
   road("cairo-sixth-october-corniche-entry-slip", "6th October Bridge Entrance", ["cairo-ec-sixth-entry-merge", "cairo-sixth-corniche-entry-taper", "cairo-sixth-corniche-entry-lift"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
-  road("cairo-sixth-october-bridge-corniche-entry", "6th October Bridge Entrance", ["cairo-sixth-corniche-entry-lift", "cairo-sixth-corniche-entry-mid", "cairo-sixth-corniche-entry-deck-edge", "cairo-sixth-corniche-merge"], 40, 1, 5.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 5.2, 10.5, 10.5] }),
-  road("cairo-sixth-october-bridge-corniche-exit", "6th October Bridge Exit", ["cairo-sixth-corniche-exit-merge", "cairo-sixth-corniche-exit-throat", "cairo-sixth-corniche-exit-descent-clear", "cairo-sixth-corniche-exit-curve", "cairo-sixth-corniche-exit-clear", "cairo-sixth-corniche-exit-turn", "cairo-sixth-corniche-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [10.5, 10.5, 6.4, 6.4, 6.4, 6.2, 0] }),
+  road("cairo-sixth-october-bridge-corniche-entry", "6th October Bridge Entrance", ["cairo-sixth-corniche-entry-lift", "cairo-sixth-corniche-entry-mid", "cairo-sixth-corniche-entry-deck-edge", "cairo-sixth-corniche-merge"], 40, 1, 5.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 5, 10.5, 10.5] }),
+  road("cairo-sixth-october-bridge-corniche-exit", "6th October Bridge Exit", ["cairo-sixth-corniche-exit-merge", "cairo-sixth-corniche-exit-throat", "cairo-sixth-corniche-exit-descent-clear", "cairo-sixth-corniche-exit-curve", "cairo-sixth-corniche-exit-clear", "cairo-sixth-corniche-exit-turn", "cairo-sixth-corniche-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [10.5, 10.5, 7.1, 7, 6, 6, 0] }),
   road("cairo-sixth-october-corniche-exit-slip", "6th October Bridge Exit", ["cairo-sixth-corniche-exit-lift", "cairo-sixth-corniche-exit-taper", "cairo-ec-sixth-exit-merge"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
 
   // Ramses cannot carry a low two-way ramp down its centre: that consumes
@@ -883,7 +901,7 @@ export const CAIRO_JUNCTION_CONNECTORS: readonly CairoJunctionConnectorSpec[] = 
       fromRoadId: "cairo-sixth-october-bridge-dokki-ramp",
       fromDirection: "reverse",
       toRoadIds: ["cairo-sixth-october-bridge"],
-      toDirections: { "cairo-sixth-october-bridge": ["reverse"] },
+      toDirections: { "cairo-sixth-october-bridge": ["forward"] },
       toLaneIndices: { "cairo-sixth-october-bridge": [1] },
     },
     {
@@ -929,7 +947,7 @@ export const CAIRO_JUNCTION_CONNECTORS: readonly CairoJunctionConnectorSpec[] = 
     },
     {
       fromRoadId: "cairo-sixth-october-bridge",
-      fromDirection: "forward",
+      fromDirection: "reverse",
       fromLaneIndices: [1],
       toRoadIds: ["cairo-sixth-october-bridge-gezira-ramp"],
       toDirections: { "cairo-sixth-october-bridge-gezira-ramp": ["forward"] },
@@ -989,7 +1007,7 @@ export const CAIRO_JUNCTION_CONNECTORS: readonly CairoJunctionConnectorSpec[] = 
     },
     {
       fromRoadId: "cairo-sixth-october-bridge",
-      fromDirection: "reverse",
+      fromDirection: "forward",
       fromLaneIndices: [1],
       toRoadIds: ["cairo-sixth-october-bridge-ramses-ramp"],
       toDirections: { "cairo-sixth-october-bridge-ramses-ramp": ["forward"] },
@@ -1028,6 +1046,267 @@ interface RawLane extends LaneSegment {
   readonly laneIndex: number;
 }
 
+const SIXTH_OCTOBER_ROAD_PREFIX = "cairo-sixth-october";
+
+interface CairoOpenRoadCurveAuthoring {
+  readonly handleRatio?: number;
+  readonly tangentByNodeId?: Readonly<Record<string, PlanDirection>>;
+}
+
+// Most bridge paths use the generous common handle ratio below. Dokki's
+// inbound high-level S-curve is a surveyed pair of circular arcs, so its
+// authored cardinal/diagonal tangents and near-circular cubic handle ratio
+// are explicit rather than inferred from a legacy polyline corner.
+const cairoOpenRoadCurveAuthoringByRoadId: Readonly<
+  Record<string, CairoOpenRoadCurveAuthoring>
+> = {
+  "cairo-sixth-october-bridge-east-entry": {
+    // Keep the terminal approach in the reserved street opening with two
+    // broad, orthogonal arcs. This preserves the full Galaa frontage row and
+    // avoids manufacturing clearance by shaving individual façades.
+    handleRatio: 0.39,
+    tangentByNodeId: {
+      "cairo-sixth-east-entry-mid": { x: 0, z: -1 },
+      "cairo-sixth-east-entry-clear": { x: -1, z: 0 },
+    },
+  },
+  "cairo-sixth-october-bridge-dokki-entry": {
+    handleRatio: 0.34,
+    tangentByNodeId: {
+      "cairo-sixth-dokki-entry-clear": { x: 0, z: -1 },
+      "cairo-sixth-dokki-entry-curve-west": {
+        x: Math.SQRT1_2,
+        z: -Math.SQRT1_2,
+      },
+      "cairo-sixth-dokki-entry-curve-throat": { x: 1, z: 0 },
+      "cairo-sixth-dokki-entry-curve-southeast": {
+        x: Math.SQRT1_2,
+        z: -Math.SQRT1_2,
+      },
+      "cairo-sixth-dokki-entry-curve-east": { x: 0, z: -1 },
+      "cairo-sixth-dokki-entry-curve-northeast": {
+        x: -Math.SQRT1_2,
+        z: -Math.SQRT1_2,
+      },
+    },
+  },
+  "cairo-sixth-october-bridge-dokki-exit": {
+    handleRatio: 0.42,
+    tangentByNodeId: {
+      // A shallow 18.8deg departure from the shared carrier opens the gore
+      // progressively, then lets the exit settle into its straight frontage
+      // corridor without the cubic bowing through the riverfront buildings.
+      "cairo-sixth-dokki-entry-braid": {
+        x: 0.4226182617,
+        z: 0.906307787,
+      },
+    },
+  },
+  "cairo-sixth-october-bridge-gezira-entry": {
+    tangentByNodeId: {
+      // Climb beside the northbound right kerb until the slab has full
+      // vehicle clearance, then cross the host road on a broad diagonal.
+      "cairo-sixth-gezira-entry-lift": {
+        x: 0.1736481777,
+        z: 0.984807753,
+      },
+      "cairo-sixth-gezira-entry-mid": {
+        // A 35deg westward sweep holds the complete entry slab east of the
+        // descending exit until both structures reach the authored high
+        // braid. The former 45deg tangent left the vehicle paths clear but
+        // let their 5.6m structural decks interpenetrate below clearance.
+        x: -0.573576436351046,
+        z: 0.819152044288992,
+      },
+      "cairo-sixth-gezira-entry-clear": {
+        x: -0.0523359562,
+        z: 0.9986295348,
+      },
+    },
+  },
+  "cairo-sixth-october-bridge-gezira-ramp": {
+    // Westbound bridge traffic peels into a broad 35 m-class left turn,
+    // then follows one straight carrier above the riverfront edge. Keeping
+    // this high stem west of the Saray façades avoids the old zig-zag through
+    // buildings while meeting both one-way branches on their natural axis.
+    handleRatio: 0.39,
+    tangentByNodeId: {
+      "cairo-sixth-gezira-merge": {
+        x: -0.984807753,
+        z: 0.1736481777,
+      },
+      "cairo-sixth-gezira-deck-edge": { x: 0, z: -1 },
+      "cairo-sixth-gezira-carrier-bend": { x: 0, z: -1 },
+    },
+  },
+  "cairo-sixth-october-bridge-corniche-exit": {
+    // Hold deck height through the complete gore, then descend only after the
+    // legal lane has moved clear of the mainline's full vehicle envelope.
+    handleRatio: 0.48,
+    tangentByNodeId: {
+      "cairo-sixth-corniche-exit-throat": {
+        x: 0.9612616959,
+        z: -0.2756373558,
+      },
+    },
+  },
+  "cairo-sixth-october-bridge-ramses-entry": {
+    tangentByNodeId: {
+      "cairo-sixth-ramses-entry-lift": {
+        x: -0.4472135955,
+        z: -0.894427191,
+      },
+      "cairo-sixth-ramses-entry-clear": {
+        x: -0.4472135955,
+        z: -0.894427191,
+      },
+      // Meet the high stem on its local chord instead of forcing the straight
+      // low-level frontage axis through the final turn.
+      "cairo-sixth-ramses-over-turgoman": {
+        x: -0.0770901503,
+        z: -0.9970241264,
+      },
+    },
+  },
+  "cairo-sixth-october-bridge-ramses-exit": {
+    tangentByNodeId: {
+      // A 54deg departure stays comfortably tangent to the high stem while
+      // opening into a broad-radius descent toward the straight low span.
+      "cairo-sixth-ramses-over-turgoman": {
+        x: 0.5,
+        z: 0.8660254038,
+      },
+      "cairo-sixth-ramses-exit-clear": {
+        x: 0.4472135955,
+        z: 0.894427191,
+      },
+      "cairo-sixth-ramses-exit-lift": {
+        x: 0.4472135955,
+        z: 0.894427191,
+      },
+    },
+  },
+};
+
+const authoredRoadCenterline = (
+  spec: CairoRoadSpec,
+): readonly WorldPoint[] =>
+  spec.nodeIds.map((id, index) => ({
+    ...cairoNodeById.get(id)!.position,
+    elevationM: spec.elevationsM?.[index] ?? 0,
+  }));
+
+interface PlanDirection {
+  readonly x: number;
+  readonly z: number;
+}
+
+const normalizedDirection = (x: number, z: number): PlanDirection | null => {
+  const lengthM = Math.hypot(x, z);
+  return lengthM > 0.001 ? { x: x / lengthM, z: z / lengthM } : null;
+};
+
+const authoredTangentAt = (
+  points: readonly WorldPoint[],
+  index: number,
+): PlanDirection => {
+  const incoming = index > 0
+    ? normalizedDirection(
+        points[index].x - points[index - 1].x,
+        points[index].z - points[index - 1].z,
+      )
+    : null;
+  const outgoing = index + 1 < points.length
+    ? normalizedDirection(
+        points[index + 1].x - points[index].x,
+        points[index + 1].z - points[index].z,
+      )
+    : null;
+  if (!incoming) return outgoing ?? { x: 1, z: 0 };
+  if (!outgoing) return incoming;
+  return normalizedDirection(incoming.x + outgoing.x, incoming.z + outgoing.z) ?? outgoing;
+};
+
+// Shared bridge mouths inherit the axis of the widest road at that node. A
+// ramp therefore peels away tangentially from the mainline/carrier instead of
+// meeting it at a right angle. Ground slips inherit their host-street axis in
+// the same way. The sign is selected per road below, so this is an undirected
+// alignment rather than an imposed travel direction.
+const dominantRoadAxisByNodeId = new Map<
+  string,
+  { readonly direction: PlanDirection; readonly widthM: number }
+>();
+for (const candidate of CAIRO_ROAD_SPECS) {
+  const points = authoredRoadCenterline(candidate);
+  for (let index = 0; index < candidate.nodeIds.length; index += 1) {
+    const nodeId = candidate.nodeIds[index];
+    const current = dominantRoadAxisByNodeId.get(nodeId);
+    if (!current || candidate.widthM > current.widthM) {
+      dominantRoadAxisByNodeId.set(nodeId, {
+        direction: authoredTangentAt(points, index),
+        widthM: candidate.widthM,
+      });
+    }
+  }
+}
+
+const openRoadGeometryForSpec = (
+  spec: CairoRoadSpec,
+): OpenRoadCurveGeometry => {
+  const authored = authoredRoadCenterline(spec);
+  if (!spec.id.startsWith(SIXTH_OCTOBER_ROAD_PREFIX)) {
+    return {
+      centerline: authored,
+      segments: authored.slice(1).map((point, index) => [authored[index], point]),
+    };
+  }
+
+  const tangentOverrides: Record<number, PlanDirection> = Object.fromEntries(
+    spec.nodeIds.flatMap((nodeId, index) => {
+      const dominant = dominantRoadAxisByNodeId.get(nodeId);
+      if (!dominant) return [];
+      const local = authoredTangentAt(authored, index);
+      const alignment =
+        local.x * dominant.direction.x + local.z * dominant.direction.z;
+      // Only a genuinely shallow mouth can inherit the carrier tangent
+      // without folding a short ramp arm back on itself. Sharper legacy
+      // approaches retain their own C1 tangent and are rounded over the full
+      // authored ramp instead of hiding a microscopic loop at the junction.
+      if (Math.abs(alignment) < Math.cos((55 * Math.PI) / 180)) return [];
+      return [[
+        index,
+        alignment >= 0
+          ? dominant.direction
+          : { x: -dominant.direction.x, z: -dominant.direction.z },
+      ] as const];
+    }),
+  );
+  const explicitCurveAuthoring =
+    cairoOpenRoadCurveAuthoringByRoadId[spec.id];
+  for (const [nodeId, tangent] of Object.entries(
+    explicitCurveAuthoring?.tangentByNodeId ?? {},
+  )) {
+    const index = spec.nodeIds.indexOf(nodeId);
+    if (index < 0) {
+      throw new Error(`${spec.id} curve authoring references missing ${nodeId}`);
+    }
+    tangentOverrides[index] = tangent;
+  }
+  // One sampled curve is authoritative for asphalt, paint, lanes, deck,
+  // render structure and collision. Authored knots remain exact topology
+  // points, while the cubic spans make the formerly angular ramps driveable.
+  return sampleOpenRoadCurve(authored, {
+    tangentOverrides,
+    handleRatio: explicitCurveAuthoring?.handleRatio ?? 0.46,
+    maximumChordM: 7.5,
+    maximumHeadingStepDeg: 5,
+  } satisfies OpenRoadCurveOptions);
+};
+
+const cairoRoadGeometryById = new Map(
+  CAIRO_ROAD_SPECS.map((spec) => [spec.id, openRoadGeometryForSpec(spec)]),
+);
+
 const distanceBetween = (a: WorldPoint, b: WorldPoint): number =>
   Math.hypot(b.x - a.x, b.z - a.z);
 
@@ -1037,31 +1316,6 @@ const laneLength = (lane: Pick<LaneSegment, "centerline">): number =>
       total + distanceBetween(lane.centerline[index], current),
     0,
   );
-
-const offsetPath = (
-  from: WorldPoint,
-  to: WorldPoint,
-  offsetM: number,
-): readonly WorldPoint[] => {
-  const dx = to.x - from.x;
-  const dz = to.z - from.z;
-  const length = Math.hypot(dx, dz);
-  const ux = dx / length;
-  const uz = dz / length;
-  const rightX = uz;
-  const rightZ = -ux;
-  const inset = Math.min(12, length * 0.2);
-  return [
-    point(
-      from.x + ux * inset + rightX * offsetM,
-      from.z + uz * inset + rightZ * offsetM,
-    ),
-    point(
-      to.x - ux * inset + rightX * offsetM,
-      to.z - uz * inset + rightZ * offsetM,
-    ),
-  ];
-};
 
 const withLinearElevation = (
   centerline: readonly WorldPoint[],
@@ -1083,6 +1337,28 @@ const withLinearElevation = (
         startElevationM + (endElevationM - startElevationM) * amount,
     };
   });
+};
+
+const withLaneConnectorRun = (
+  path: readonly WorldPoint[],
+): readonly WorldPoint[] => {
+  if (path.length <= 2) return path;
+  const prefixM = [0];
+  for (let index = 1; index < path.length; index += 1) {
+    prefixM.push(
+      prefixM[index - 1] + distanceBetween(path[index - 1], path[index]),
+    );
+  }
+  const totalLengthM = prefixM.at(-1)!;
+  const minimumEndRunM = CONNECTOR_BLEND_RUN_M + 0.3;
+  const retained = path.filter(
+    (_, index) =>
+      index === 0 ||
+      index === path.length - 1 ||
+      (prefixM[index] >= minimumEndRunM &&
+        totalLengthM - prefixM[index] >= minimumEndRunM),
+  );
+  return retained.length >= 2 ? retained : [path[0], path.at(-1)!];
 };
 
 const laneId = (
@@ -1107,25 +1383,38 @@ for (const spec of CAIRO_ROAD_SPECS) {
   const lanesPerDirection = spec.oneWay
     ? spec.laneCount
     : spec.laneCount / 2;
+  const roadGeometry = cairoRoadGeometryById.get(spec.id)!;
   for (let segment = 0; segment + 1 < spec.nodeIds.length; segment += 1) {
     const start = cairoNodeById.get(spec.nodeIds[segment]);
     const end = cairoNodeById.get(spec.nodeIds[segment + 1]);
     if (!start || !end) {
       throw new Error(`${spec.id} references a missing node`);
     }
+    const sampledSegment = roadGeometry.segments[segment];
+    if (!sampledSegment) {
+      throw new Error(`${spec.id} has no geometry for segment ${segment}`);
+    }
     for (const direction of directions) {
       const from = direction === "forward" ? start : end;
       const to = direction === "forward" ? end : start;
+      const travelPath =
+        direction === "forward"
+          ? sampledSegment
+          : [...sampledSegment].reverse();
       for (let laneIndex = 0; laneIndex < lanesPerDirection; laneIndex += 1) {
         const lateralOffset = spec.oneWay
           ? (laneIndex - (lanesPerDirection - 1) / 2) * 3.2
           : 1.65 + laneIndex * 3.2;
-        const geometry = buildLaneTrueGeometry(
-          from.position,
-          to.position,
-          offsetPath(from.position, to.position, lateralOffset),
-          { maxBlendLateralM: 5.25, connectorBlendSteps: 12 },
-        );
+        const laneCenterline = Math.abs(lateralOffset) < 0.001
+          ? travelPath
+          : buildLaneTrueGeometry(
+              from.position,
+              to.position,
+              withLaneConnectorRun(
+                offsetOpenRoadPolyline(travelPath, lateralOffset),
+              ),
+              { maxBlendLateralM: 5.25, connectorBlendSteps: 12 },
+            ).centerline;
         const authoredStartElevationM = spec.elevationsM?.[segment] ?? 0;
         const authoredEndElevationM = spec.elevationsM?.[segment + 1] ?? 0;
         const fromElevationM =
@@ -1146,7 +1435,7 @@ for (const spec of CAIRO_ROAD_SPECS) {
           from: from.id,
           to: to.id,
           centerline: withLinearElevation(
-            geometry.centerline,
+            laneCenterline,
             fromElevationM,
             toElevationM,
           ),
@@ -1248,25 +1537,6 @@ const cairoLanes: readonly LaneSegment[] = rawLanes.map((lane) => {
 
 const cairoLaneById = new Map(cairoLanes.map((lane) => [lane.id, lane]));
 
-const offsetPolyline = (
-  centerline: readonly WorldPoint[],
-  offsetM: number,
-): readonly WorldPoint[] =>
-  centerline.map((current, index) => {
-    const previous = centerline[Math.max(0, index - 1)];
-    const next = centerline[Math.min(centerline.length - 1, index + 1)];
-    const dx = next.x - previous.x;
-    const dz = next.z - previous.z;
-    const length = Math.hypot(dx, dz);
-    return length < 0.01
-      ? current
-      : {
-          x: current.x + (dz / length) * offsetM,
-          z: current.z - (dx / length) * offsetM,
-          elevationM: current.elevationM,
-        };
-  });
-
 const roadMarkings = (
   spec: CairoRoadSpec,
   centerline: readonly WorldPoint[],
@@ -1298,13 +1568,13 @@ const roadMarkings = (
       {
         id: `${spec.id}-forward-divider`,
         style: "lane_dashed",
-        points: offsetPolyline(centerline, 3.2),
+        points: offsetOpenRoadPolyline(centerline, 3.2),
         color: "white",
       },
       {
         id: `${spec.id}-reverse-divider`,
         style: "lane_dashed",
-        points: offsetPolyline(centerline, -3.2),
+        points: offsetOpenRoadPolyline(centerline, -3.2),
         color: "white",
       },
     );
@@ -1316,21 +1586,20 @@ const roadSurfaceForSpec = (
   spec: CairoRoadSpec,
   omitAuxiliaryHostMergeNodes = false,
 ): RoadSurface => {
-  const centerline = spec.nodeIds
-    .map((id, index) => ({
-      id,
-      point: {
-        ...cairoNodeById.get(id)!.position,
-        elevationM: spec.elevationsM?.[index] ?? 0,
-      },
-    }))
-    .filter(
-      ({ id }) =>
-        !omitAuxiliaryHostMergeNodes ||
-        spec.id.startsWith("cairo-sixth-october") ||
-        !id.includes("-sixth-"),
-    )
-    .map(({ point }) => point);
+  const centerline =
+    !omitAuxiliaryHostMergeNodes ||
+    spec.id.startsWith(SIXTH_OCTOBER_ROAD_PREFIX)
+      ? cairoRoadGeometryById.get(spec.id)!.centerline
+      : spec.nodeIds
+          .map((id, index) => ({
+            id,
+            point: {
+              ...cairoNodeById.get(id)!.position,
+              elevationM: spec.elevationsM?.[index] ?? 0,
+            },
+          }))
+          .filter(({ id }) => !id.includes("-sixth-"))
+          .map(({ point }) => point);
   return {
     id: spec.id,
     centerline,
@@ -1338,7 +1607,9 @@ const roadSurfaceForSpec = (
     // Cairo's bridge edges use a broad traffic-side concrete toe. Author the
     // matching collision width on the surface rather than widening the shared
     // fallback used by every other city.
-    parapetDepthM: spec.id.startsWith("cairo-sixth-october") ? 0.36 : undefined,
+    parapetDepthM: spec.id.startsWith(SIXTH_OCTOBER_ROAD_PREFIX)
+      ? 0.36
+      : undefined,
     sidewalkWidthM: spec.sidewalkWidthM,
     laneIds: cairoLanes
       .filter((lane) => lane.roadId === spec.id)
@@ -3892,15 +4163,28 @@ for (const surface of cairoFrontageRoadSurfaces) {
 
 /**
  * A ramp auxiliary lane belongs between the live carriageway and its street
- * wall. These are coordinated frontage setbacks, never deletions: every
- * existing parcel keeps its id, dimensions, height, material and neighbour
- * spacing while the complete row moves outward just far enough to make room
- * for the new kerb-side lane. The ramps then turn through an existing break
- * in the frontage only after they have vehicle clearance.
+ * wall. These are coordinated frontage adjustments, never deletions: every
+ * existing parcel keeps its id, height and material while the row moves only
+ * far enough to make room for the new kerb-side lane. One Dokki bay is
+ * shortened around its high carrier opening; two Ramses bays retain their
+ * outer wall while becoming shallower beside the high stem. The ramps turn
+ * through those reviewed openings only after they have vehicle clearance.
  */
 const cairoRampFrontageSetback = (
   id: string,
-): { readonly dx: number; readonly dz: number } | null => {
+): {
+  readonly dx: number;
+  readonly dz: number;
+  readonly frontageLengthM?: number;
+  readonly depthM?: number;
+} | null => {
+  if (id === "cairo-dokki-nile-drive-roadside-7-1-left-s2") {
+    // Retain the reviewed parcel as the short southern frontage bay beside
+    // the high carrier opening. The former 35.7 m bar crossed the flyover's
+    // swept deck; a 12 m bay preserves the row and building count while the
+    // infrastructure occupies the intentional break immediately north of it.
+    return { dx: 0, dz: 14, frontageLengthM: 12 };
+  }
   if (
     id.startsWith("cairo-dokki-nile-drive-roadside-7-2-") &&
     id.includes("-left")
@@ -3934,6 +4218,70 @@ const cairoRampFrontageSetback = (
   if (id === "cairo-saray-el-gezira-roadside-5-2-right") {
     return { dx: 1, dz: 0 };
   }
+  if (id === "cairo-saray-el-gezira-roadside-5-3-right-s1") {
+    // Preserve the complete outer façade and frontage length while pulling
+    // only the ramp-facing rear wall out of the rising entry's swept deck.
+    return { dx: 1.43, dz: 0.25, depthM: 17.15 };
+  }
+  if (id === "cairo-saray-el-gezira-roadside-5-3-right-s2-s1") {
+    // Preserve the complete frontage bay. Its sub-metre landward adjustment
+    // leaves a generous guard to the swept entry slab without shortening or
+    // deleting the building that visually protects the bridge edge.
+    return { dx: 0.72, dz: 0.75 };
+  }
+  if (id === "cairo-el-gabalaya-roadside-6-g2-left") {
+    return { dx: -5.1109353721, dz: -0.9583003823, depthM: 9 };
+  }
+  if (id === "cairo-el-gabalaya-roadside-6-3-left-s1") {
+    return {
+      dx: 2.8380434398,
+      dz: -15.1362316788,
+      frontageLengthM: 12,
+    };
+  }
+  if (id === "cairo-saray-el-gezira-roadside-6-2-right-s1-s2") {
+    return {
+      dx: 1.39554139,
+      dz: 17.4442673744,
+      frontageLengthM: 12,
+    };
+  }
+  if (id === "cairo-saray-el-gezira-roadside-6-2-right-s2") {
+    return {
+      dx: 0.5023949004,
+      dz: 6.2799362548,
+      frontageLengthM: 31,
+    };
+  }
+  if (id === "cairo-corniche-el-nil-roadside-6-2-right-s1-s2") {
+    // Keep the entire street frontage while giving the outside of the long
+    // Corniche curve a deliberate visual reveal from the bridge deck.
+    return { dx: 0.05, dz: 0 };
+  }
+  if (id === "cairo-corniche-el-nil-roadside-6-2-right-s2") {
+    // A small landward nudge and a rear-only depth trim preserve the complete
+    // façade line while clearing the full curved slab and its safety guard.
+    return { dx: 0.4, dz: 0, depthM: 19.5 };
+  }
+  if (id === "cairo-ramses-roadside-10-1-right-s1-s2") {
+    // The high two-way stem occupies the former kerb-side strip. Move both
+    // matching frontage bays together and make them shallower, retaining the
+    // outer building line while opening the kerb-side flyover corridor.
+    return { dx: 4.025, dz: -2.012, depthM: 6 };
+  }
+  if (id === "cairo-ramses-roadside-10-1-right-s2") {
+    return { dx: 4.025, dz: -2.012, depthM: 6 };
+  }
+  if (id === "cairo-galaa-street-roadside-7-1-left") {
+    // Keep the southern end of this long bar as a compact bay and leave its
+    // northern half as the exit-ramp opening. The frontage-length slide gives
+    // the last curved deck chord the same intentional reveal as the ramp body.
+    return {
+      dx: 0.816741970274,
+      dz: -18.367161671109,
+      frontageLengthM: 12,
+    };
+  }
   if (
     (id.startsWith("cairo-galaa-street-roadside-8-1-") ||
       id.startsWith("cairo-galaa-street-roadside-8-g1-")) &&
@@ -3949,6 +4297,7 @@ const cairoRampSetbackBlockIds = new Set(
     .filter((candidate) => cairoRampFrontageSetback(candidate.id) !== null)
     .map((candidate) => candidate.id),
 );
+const appliedCairoRampSetbacks: ProceduralBlock[] = [];
 for (const [index, existing] of cairoBlocks.entries()) {
   const setback = cairoRampFrontageSetback(existing.id);
   if (!setback) continue;
@@ -3958,11 +4307,15 @@ for (const [index, existing] of cairoBlocks.entries()) {
       existing.center.x + setback.dx,
       existing.center.z + setback.dz,
     ),
+    size: point(
+      setback.frontageLengthM ?? existing.size.x,
+      setback.depthM ?? existing.size.z,
+    ),
   };
   const validation = validateCairoClosureCandidate(moved, {
-    // Every member of a row receives the same translation, so their existing
-    // reviewed spacing is preserved. Ignore their old, not-yet-replaced
-    // footprints while still checking all other buildings and infrastructure.
+    // Ignore old, not-yet-replaced footprints while still checking every
+    // untouched building and all infrastructure. The complete planned set is
+    // checked against itself immediately after replacement below.
     allowSiblingOverlapBlockIds: cairoRampSetbackBlockIds,
   });
   if (!validation.valid) {
@@ -3990,6 +4343,36 @@ for (const [index, existing] of cairoBlocks.entries()) {
     );
   }
   cairoBlocks[index] = moved;
+  appliedCairoRampSetbacks.push(moved);
+}
+
+for (let index = 0; index < appliedCairoRampSetbacks.length; index += 1) {
+  const first = appliedCairoRampSetbacks[index];
+  for (
+    let otherIndex = index + 1;
+    otherIndex < appliedCairoRampSetbacks.length;
+    otherIndex += 1
+  ) {
+    const second = appliedCairoRampSetbacks[otherIndex];
+    if (
+      orientedParcelsOverlap(
+        orientedParcel(
+          first.center,
+          point(first.size.x + 2, first.size.z + 2),
+          first.headingDeg ?? 0,
+        ),
+        orientedParcel(
+          second.center,
+          second.size,
+          second.headingDeg ?? 0,
+        ),
+      )
+    ) {
+      throw new Error(
+        `cairo.ts: coordinated ramp frontage setbacks overlap (${first.id}:${second.id})`,
+      );
+    }
+  }
 }
 
 /**
@@ -5040,13 +5423,14 @@ const markedGapAsset = (
   headingDeg: number,
   streetEdge: "+z" | "-z",
   buildingSet: BuildingSetId,
+  depthM?: number,
 ): ProceduralBlock => {
   const center = point(x, z);
   const style = cairoRoadsideStyle(center);
   return {
     id: `cairo-marked-gap-${mark}-${index}`,
     center,
-    size: point(runM, buildingSetDepthM(buildingSet) + 1.5),
+    size: point(runM, depthM ?? buildingSetDepthM(buildingSet) + 1.5),
     headingDeg,
     frontageAxis: "z",
     streetEdges: [streetEdge],
@@ -5059,7 +5443,10 @@ const markedGapAsset = (
 };
 
 export const CAIRO_MARKED_GAP_ASSET_BLOCKS: readonly ProceduralBlock[] = [
-  markedGapAsset(1, 1, 77.5, 216.3, 27.4, -88.73, "-z", "cairo-corniche"),
+  // The inbound flyover takes the old diagonal void. These two shallow bays
+  // sit in sequence along the Corniche wall, leaving a deliberate clear slot
+  // around its deck rather than clipping either building.
+  markedGapAsset(1, 1, 81.25, 215.25, 20, -88.73, "-z", "cairo-corniche", 8),
   markedGapAsset(1, 2, 77.5, 272.3, 27.4, -88.73, "-z", "cairo-corniche"),
   markedGapAsset(1, 3, 49.5, 328.3, 27.4, -88.73, "-z", "cairo-corniche"),
   markedGapAsset(1, 4, 77.5, 356.3, 27.4, -88.88, "-z", "cairo-corniche"),
@@ -5109,7 +5496,7 @@ export const CAIRO_MARKED_GAP_ASSET_BLOCKS: readonly ProceduralBlock[] = [
   markedGapAsset(7, 6, -706.8, 302.8, 20.5, -86.35, "-z", "cairo-westbank"),
   markedGapAsset(7, 7, -678.8, 302.8, 14, -86.35, "-z", "cairo-corniche"),
   markedGapAsset(7, 8, -762.8, 358.8, 27.4, -95.6, "+z", "cairo-westbank"),
-  markedGapAsset(7, 9, -734.8, 358.8, 27.4, -95.6, "+z", "cairo-westbank"),
+  markedGapAsset(7, 9, -734.83, 359.1, 27.4, -95.6, "+z", "cairo-westbank"),
   markedGapAsset(7, 10, -706.8, 358.8, 27.4, -95.6, "-z", "cairo-westbank"),
   markedGapAsset(7, 11, -678.8, 358.8, 27.4, -95.6, "-z", "cairo-corniche"),
   markedGapAsset(10, 1, -584, -33.5, 14, -95.95, "+z", "cairo-corniche"),
@@ -5182,7 +5569,7 @@ export const CAIRO_MARKED_GAP_ASSET_BLOCKS: readonly ProceduralBlock[] = [
   markedGapAsset(1, "dense-2", 65, 96, 12, -88.73, "-z", "cairo-corniche"),
   markedGapAsset(1, "dense-3", 65, 120, 12, -88.73, "-z", "cairo-corniche"),
   markedGapAsset(1, "dense-4", 65, 144, 12, -88.73, "-z", "cairo-corniche"),
-  markedGapAsset(1, "dense-5", 53, 216, 12, -88.73, "-z", "cairo-corniche"),
+  markedGapAsset(1, "dense-5", 79, 196, 12, -88.73, "-z", "cairo-corniche", 12),
   markedGapAsset(1, "dense-6", 53, 264, 12, -88.73, "-z", "cairo-corniche"),
   markedGapAsset(1, "dense-7", 53, 288, 12, -88.73, "-z", "cairo-corniche"),
   markedGapAsset(1, "dense-8", 53, 360, 12, -88.88, "-z", "cairo-corniche"),
@@ -5224,9 +5611,12 @@ export const CAIRO_MARKED_GAP_ASSET_BLOCKS: readonly ProceduralBlock[] = [
   markedGapAsset(7, "dense-6", -783, 451, 10, -95.6, "+z", "cairo-westbank"),
   markedGapAsset(8, "dense-1", -458, 355, 12, -93.8141, "+z", "cairo-corniche"),
   markedGapAsset(8, "dense-2", -458, 379, 12, -93.8141, "+z", "cairo-corniche"),
-  markedGapAsset(9, "dense-1", -456, 212, 12, -85.4261, "+z", "cairo-corniche"),
-  markedGapAsset(9, "dense-2", -456, 236, 12, -85.4261, "+z", "cairo-corniche"),
-  markedGapAsset(9, "dense-3", -456, 260, 12, -85.4261, "+z", "cairo-corniche"),
+  // These three shallow landward bays keep a measured 0.75 m-plus guard to
+  // the carrier's complete slab, rather than letting the building backs hide
+  // inside the deck overhang.
+  markedGapAsset(9, "dense-1", -452.75, 212, 12, -85.4261, "+z", "cairo-corniche", 12),
+  markedGapAsset(9, "dense-2", -452.75, 236, 12, -85.4261, "+z", "cairo-corniche", 12),
+  markedGapAsset(9, "dense-3", -452.75, 260, 12, -85.4261, "+z", "cairo-corniche", 12),
   markedGapAsset(10, "dense-1", -596, 18, 12, -95.95, "+z", "cairo-corniche"),
   markedGapAsset(10, "dense-2", -596, 42, 12, -95.95, "+z", "cairo-corniche"),
   markedGapAsset(10, "dense-3", -596, 66, 12, -95.95, "+z", "cairo-corniche"),
@@ -5617,8 +6007,8 @@ export const CAIRO_CORNICHE_RIVERFRONT_ACCENTS: readonly ProceduralBlock[] = [
   },
   {
     id: "cairo-corniche-riverfront-accent-3",
-    center: point(75.51, 175.47),
-    size: point(20.5, 20.2),
+    center: point(80, 132),
+    size: point(14, 6),
     headingDeg: -88.73,
     frontageAxis: "z",
     streetEdges: ["-z"],
