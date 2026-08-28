@@ -1,8 +1,10 @@
 import {
   Color3,
   DynamicTexture,
+  Matrix,
   Mesh,
   MeshBuilder,
+  Quaternion,
   type Scene,
   StandardMaterial,
   Texture,
@@ -41,6 +43,13 @@ export interface CairoAdvertisingCtx {
   readonly staticSceneryFreeze: TransformNode[];
   readonly buildingLayout: BuildingLayoutPlan;
 }
+
+export interface CairoAdvertisingRenderOptions {
+  /** Test-only escape hatch for comparing the legacy node-per-part renderer. */
+  readonly batchStaticMeshes?: boolean;
+}
+
+const CAIRO_AD_BATCH_CELL_M = 128;
 
 interface CairoAdMaterials {
   readonly frame: StandardMaterial;
@@ -251,7 +260,12 @@ function makeAtlasMaterial(
   scene: Scene,
   creative: CairoAdCreative,
 ): StandardMaterial {
-  const texture = new Texture(AD_ATLAS_URLS[creative.artAtlas], scene, true, true);
+  const texture = new Texture(
+    AD_ATLAS_URLS[creative.artAtlas],
+    scene,
+    true,
+    true,
+  );
   const crop = cairoAdAtlasUv(creative.artIndex, creative.artAtlas);
   texture.wrapU = Texture.CLAMP_ADDRESSMODE;
   texture.wrapV = Texture.CLAMP_ADDRESSMODE;
@@ -392,48 +406,203 @@ function buildMasters(
   return { pole, poleBacking, poleFaces, unitBox, artFaces, copyFaces, lamp };
 }
 
+interface CairoAdPlacementFrame {
+  readonly worldMatrix: Matrix;
+  readonly legacyRoot?: TransformNode;
+}
+
+interface CairoAdThinInstanceChunk {
+  readonly master: Mesh;
+  readonly cellX: number;
+  readonly cellZ: number;
+  readonly matrices: Matrix[];
+}
+
+interface CairoAdInstanceSink {
+  createPlacementFrame(placement: CairoAdPlacement): CairoAdPlacementFrame;
+  placeInstance(
+    frame: CairoAdPlacementFrame,
+    master: Mesh,
+    name: string,
+    position: Vector3,
+    scaling: Vector3,
+    yaw?: number,
+  ): void;
+  finalize(): void;
+}
+
+class LegacyCairoAdInstanceSink implements CairoAdInstanceSink {
+  constructor(private readonly ctx: CairoAdvertisingCtx) {}
+
+  createPlacementFrame(placement: CairoAdPlacement): CairoAdPlacementFrame {
+    const root = new TransformNode(`${placement.id}-root`, this.ctx.scene);
+    root.position.set(
+      placement.position.x,
+      placement.position.elevationM ?? 0,
+      placement.position.z,
+    );
+    root.rotation.y = placement.headingRad;
+    this.ctx.staticSceneryFreeze.push(root);
+    return {
+      worldMatrix: root.computeWorldMatrix(true).clone(),
+      legacyRoot: root,
+    };
+  }
+
+  placeInstance(
+    frame: CairoAdPlacementFrame,
+    master: Mesh,
+    name: string,
+    position: Vector3,
+    scaling: Vector3,
+    yaw = 0,
+  ): void {
+    const instance = master.createInstance(name);
+    instance.parent = frame.legacyRoot ?? null;
+    instance.position.copyFrom(position);
+    instance.scaling.copyFrom(scaling);
+    instance.rotation.y = yaw;
+    instance.isPickable = false;
+    this.ctx.staticSceneryFreeze.push(instance);
+  }
+
+  finalize(): void {}
+}
+
+class BatchedCairoAdInstanceSink implements CairoAdInstanceSink {
+  private readonly chunksByMaster = new Map<
+    Mesh,
+    Map<string, CairoAdThinInstanceChunk>
+  >();
+
+  constructor(private readonly ctx: CairoAdvertisingCtx) {}
+
+  createPlacementFrame(placement: CairoAdPlacement): CairoAdPlacementFrame {
+    return {
+      worldMatrix: Matrix.Compose(
+        Vector3.One(),
+        Quaternion.FromEulerAngles(0, placement.headingRad, 0),
+        new Vector3(
+          placement.position.x,
+          placement.position.elevationM ?? 0,
+          placement.position.z,
+        ),
+      ),
+    };
+  }
+
+  placeInstance(
+    frame: CairoAdPlacementFrame,
+    master: Mesh,
+    _name: string,
+    position: Vector3,
+    scaling: Vector3,
+    yaw = 0,
+  ): void {
+    // Babylon composes a child's world matrix as local * parent. Baking that
+    // exact order into the thin-instance buffer preserves every existing
+    // front/back face, cant, bracket and bridge-relative elevation without
+    // retaining thousands of TransformNodes and InstancedMeshes.
+    const worldMatrix = Matrix.Compose(
+      scaling,
+      Quaternion.FromEulerAngles(0, yaw, 0),
+      position,
+    ).multiply(frame.worldMatrix);
+    const cellX = Math.floor(worldMatrix.m[12] / CAIRO_AD_BATCH_CELL_M);
+    const cellZ = Math.floor(worldMatrix.m[14] / CAIRO_AD_BATCH_CELL_M);
+    let chunks = this.chunksByMaster.get(master);
+    if (!chunks) {
+      chunks = new Map();
+      this.chunksByMaster.set(master, chunks);
+    }
+    const key = `${cellX}:${cellZ}`;
+    let chunk = chunks.get(key);
+    if (!chunk) {
+      chunk = { master, cellX, cellZ, matrices: [] };
+      chunks.set(key, chunk);
+    }
+    chunk.matrices.push(worldMatrix);
+  }
+
+  finalize(): void {
+    for (const chunks of this.chunksByMaster.values()) {
+      for (const chunk of chunks.values()) {
+        const batch = chunk.master.clone(
+          `${chunk.master.name}-batch-${chunk.cellX}-${chunk.cellZ}`,
+          null,
+          true,
+          false,
+        );
+        if (!batch) {
+          throw new Error(
+            `Unable to clone Cairo ad master ${chunk.master.name}`,
+          );
+        }
+        // Thin-instance matrix attributes (`world0` ... `world3`) live on the
+        // mesh Geometry in Babylon. Cloned meshes share that Geometry by
+        // default, so installing a later spatial chunk would otherwise replace
+        // the GPU matrices used by every earlier chunk of the same ad part.
+        // Keep the lightweight shared material, but give each culling chunk
+        // its own vertex-buffer container before attaching instance matrices.
+        batch.makeGeometryUnique();
+        batch.position.setAll(0);
+        batch.rotation.setAll(0);
+        batch.scaling.setAll(1);
+        batch.rotationQuaternion = null;
+        batch.isVisible = true;
+        batch.isPickable = false;
+        batch.thinInstanceEnablePicking = false;
+        batch.alwaysSelectAsActiveMesh = false;
+        batch.receiveShadows = chunk.master.receiveShadows;
+        batch.renderingGroupId = chunk.master.renderingGroupId;
+        batch.alphaIndex = chunk.master.alphaIndex;
+        batch.layerMask = chunk.master.layerMask;
+        const matrices = new Float32Array(chunk.matrices.length * 16);
+        for (let index = 0; index < chunk.matrices.length; index += 1) {
+          chunk.matrices[index].copyToArray(matrices, index * 16);
+        }
+        // The scene's aggressive performance mode can already disable bound
+        // syncing on construction. Set the final chunk bounds explicitly once
+        // so frustum culling remains conservative in every scene mode.
+        batch.computeWorldMatrix(true);
+        batch.doNotSyncBoundingInfo = true;
+        batch.thinInstanceSetBuffer("matrix", matrices, 16, true);
+        batch.thinInstanceRefreshBoundingInfo(true);
+        this.ctx.staticSceneryFreeze.push(batch);
+      }
+    }
+  }
+}
+
 function placeInstance(
-  ctx: CairoAdvertisingCtx,
-  root: TransformNode,
+  sink: CairoAdInstanceSink,
+  frame: CairoAdPlacementFrame,
   master: Mesh,
   name: string,
   position: Vector3,
   scaling: Vector3,
   yaw = 0,
 ): void {
-  const instance = master.createInstance(name);
-  instance.parent = root;
-  instance.position.copyFrom(position);
-  instance.scaling.copyFrom(scaling);
-  instance.rotation.y = yaw;
-  instance.isPickable = false;
-  ctx.staticSceneryFreeze.push(instance);
+  sink.placeInstance(frame, master, name, position, scaling, yaw);
 }
 
 function buildPoleBanner(
-  ctx: CairoAdvertisingCtx,
+  sink: CairoAdInstanceSink,
+  frame: CairoAdPlacementFrame,
   placement: CairoAdPlacement,
   masters: CairoAdMasters,
 ): void {
-  const root = new TransformNode(`${placement.id}-root`, ctx.scene);
-  root.position.set(
-    placement.position.x,
-    placement.position.elevationM ?? 0,
-    placement.position.z,
-  );
-  root.rotation.y = placement.headingRad;
-  ctx.staticSceneryFreeze.push(root);
   placeInstance(
-    ctx,
-    root,
+    sink,
+    frame,
     masters.pole,
     `${placement.id}-pole`,
     new Vector3(0, 3.175, 0),
     Vector3.One(),
   );
   placeInstance(
-    ctx,
-    root,
+    sink,
+    frame,
     masters.poleBacking,
     `${placement.id}-frame`,
     new Vector3(0, placement.panelCenterYM, 0),
@@ -442,8 +611,8 @@ function buildPoleBanner(
   const faceMaster = masters.poleFaces[placement.creativeIndex];
   for (const side of [-1, 1] as const) {
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       faceMaster,
       `${placement.id}-face-${side === -1 ? "front" : "back"}`,
       new Vector3(0, placement.panelCenterYM, side * 0.081),
@@ -454,30 +623,21 @@ function buildPoleBanner(
 }
 
 function buildBridgeSideSign(
-  ctx: CairoAdvertisingCtx,
+  sink: CairoAdInstanceSink,
+  frame: CairoAdPlacementFrame,
   placement: CairoAdPlacement,
   masters: CairoAdMasters,
 ): void {
-  const root = new TransformNode(`${placement.id}-root`, ctx.scene);
-  root.position.set(
-    placement.position.x,
-    placement.position.elevationM ?? 0,
-    placement.position.z,
-  );
-  root.rotation.y = placement.headingRad;
-  ctx.staticSceneryFreeze.push(root);
-
   const side = placement.side ?? 1;
   const frameHalfWidthM = (placement.widthM + 0.18) / 2;
   // The face's inner edge sits outside the parapet. This pole lands on the
   // parapet edge and short brackets cantilever outward to the luminous card,
   // so neither the frame nor any support intrudes into a live lane.
   const mountX = -side * (frameHalfWidthM + 0.18);
-  const supportHeightM =
-    placement.panelCenterYM + placement.heightM / 2 + 0.32;
+  const supportHeightM = placement.panelCenterYM + placement.heightM / 2 + 0.32;
   placeInstance(
-    ctx,
-    root,
+    sink,
+    frame,
     masters.unitBox,
     `${placement.id}-parapet-post`,
     new Vector3(mountX, supportHeightM / 2, 0),
@@ -488,8 +648,8 @@ function buildBridgeSideSign(
     placement.panelCenterYM + placement.heightM * 0.32,
   ]) {
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       masters.unitBox,
       `${placement.id}-bracket-${bracketY}`,
       new Vector3(mountX / 2, bracketY, 0),
@@ -497,8 +657,8 @@ function buildBridgeSideSign(
     );
   }
   placeInstance(
-    ctx,
-    root,
+    sink,
+    frame,
     masters.poleBacking,
     `${placement.id}-frame`,
     new Vector3(0, placement.panelCenterYM, 0),
@@ -507,8 +667,8 @@ function buildBridgeSideSign(
   const faceMaster = masters.poleFaces[placement.creativeIndex];
   for (const faceSide of [-1, 1] as const) {
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       faceMaster,
       `${placement.id}-face-${faceSide === -1 ? "front" : "back"}`,
       new Vector3(0, placement.panelCenterYM, faceSide * 0.1),
@@ -518,8 +678,8 @@ function buildBridgeSideSign(
   }
   for (const lampX of [-0.28, 0.28]) {
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       masters.lamp,
       `${placement.id}-lamp-${lampX}`,
       new Vector3(
@@ -533,18 +693,11 @@ function buildBridgeSideSign(
 }
 
 function buildSkylineBillboard(
-  ctx: CairoAdvertisingCtx,
+  sink: CairoAdInstanceSink,
+  frame: CairoAdPlacementFrame,
   placement: CairoAdPlacement,
   masters: CairoAdMasters,
 ): void {
-  const root = new TransformNode(`${placement.id}-root`, ctx.scene);
-  root.position.set(
-    placement.position.x,
-    placement.position.elevationM ?? 0,
-    placement.position.z,
-  );
-  root.rotation.y = placement.headingRad;
-  ctx.staticSceneryFreeze.push(root);
   const frameDepthM = 0.34;
   const frameBottomY = placement.panelCenterYM - placement.heightM / 2;
   const supportHeightM = Math.max(4, frameBottomY - 0.25);
@@ -552,36 +705,40 @@ function buildSkylineBillboard(
   // wall gap. Placement has already audited the complete 55-degree frame,
   // lamps and pedestal against roads and the exact rendered buildings.
   placeInstance(
-    ctx,
-    root,
+    sink,
+    frame,
     masters.unitBox,
     `${placement.id}-support`,
     new Vector3(0, supportHeightM / 2, 0),
     new Vector3(0.68, supportHeightM, 0.68),
   );
   placeInstance(
-    ctx,
-    root,
+    sink,
+    frame,
     masters.unitBox,
     `${placement.id}-crossbar`,
     new Vector3(0, frameBottomY - 0.42, 0),
     new Vector3(placement.widthM * 0.72, 0.26, 0.26),
   );
   placeInstance(
-    ctx,
-    root,
+    sink,
+    frame,
     masters.poleBacking,
     `${placement.id}-frame`,
     new Vector3(0, placement.panelCenterYM, 0),
-    new Vector3(placement.widthM + 0.55, placement.heightM + 0.55, frameDepthM / 0.14),
+    new Vector3(
+      placement.widthM + 0.55,
+      placement.heightM + 0.55,
+      frameDepthM / 0.14,
+    ),
   );
   const artMaster = masters.artFaces[placement.creativeIndex];
   const copyMaster = masters.copyFaces[placement.creativeIndex];
   for (const side of [-1, 1] as const) {
     const yaw = side === -1 ? 0 : Math.PI;
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       artMaster,
       `${placement.id}-art-${side === -1 ? "front" : "back"}`,
       new Vector3(0, placement.panelCenterYM, side * 0.185),
@@ -589,8 +746,8 @@ function buildSkylineBillboard(
       yaw,
     );
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       copyMaster,
       `${placement.id}-copy-${side === -1 ? "front" : "back"}`,
       new Vector3(0, placement.panelCenterYM, side * 0.205),
@@ -600,34 +757,22 @@ function buildSkylineBillboard(
   }
   for (const lampOffset of [-0.31, 0, 0.31]) {
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       masters.lamp,
       `${placement.id}-lamp-${lampOffset}`,
-      new Vector3(
-        placement.widthM * lampOffset,
-        frameBottomY - 0.08,
-        -0.38,
-      ),
+      new Vector3(placement.widthM * lampOffset, frameBottomY - 0.08, -0.38),
       Vector3.One(),
     );
   }
 }
 
 function buildBridgeGantry(
-  ctx: CairoAdvertisingCtx,
+  sink: CairoAdInstanceSink,
+  frame: CairoAdPlacementFrame,
   placement: CairoAdPlacement,
   masters: CairoAdMasters,
 ): void {
-  const root = new TransformNode(`${placement.id}-root`, ctx.scene);
-  root.position.set(
-    placement.position.x,
-    placement.position.elevationM ?? 0,
-    placement.position.z,
-  );
-  root.rotation.y = placement.headingRad;
-  ctx.staticSceneryFreeze.push(root);
-
   const frameDepthM = 0.42;
   const frameBottomY = placement.panelCenterYM - placement.heightM / 2;
   const supportHeightM = frameBottomY - 0.2;
@@ -636,8 +781,8 @@ function buildBridgeGantry(
   const supportOffsetM = placement.supportOffsetM ?? placement.widthM * 0.42;
   for (const side of [-1, 1] as const) {
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       masters.unitBox,
       `${placement.id}-support-${side}`,
       new Vector3(side * supportOffsetM, supportHeightM / 2, 0),
@@ -645,16 +790,16 @@ function buildBridgeGantry(
     );
   }
   placeInstance(
-    ctx,
-    root,
+    sink,
+    frame,
     masters.unitBox,
     `${placement.id}-crossbar`,
     new Vector3(0, frameBottomY - 0.34, 0),
     new Vector3(placement.widthM * 0.9, 0.34, 0.32),
   );
   placeInstance(
-    ctx,
-    root,
+    sink,
+    frame,
     masters.poleBacking,
     `${placement.id}-frame`,
     new Vector3(0, placement.panelCenterYM, 0),
@@ -670,8 +815,8 @@ function buildBridgeGantry(
   for (const side of [-1, 1] as const) {
     const yaw = side === -1 ? 0 : Math.PI;
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       artMaster,
       `${placement.id}-art-${side === -1 ? "front" : "back"}`,
       new Vector3(0, placement.panelCenterYM, side * 0.225),
@@ -679,8 +824,8 @@ function buildBridgeGantry(
       yaw,
     );
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       copyMaster,
       `${placement.id}-copy-${side === -1 ? "front" : "back"}`,
       new Vector3(0, placement.panelCenterYM, side * 0.245),
@@ -690,8 +835,8 @@ function buildBridgeGantry(
   }
   for (const lampOffset of [-0.36, -0.12, 0.12, 0.36]) {
     placeInstance(
-      ctx,
-      root,
+      sink,
+      frame,
       masters.lamp,
       `${placement.id}-lamp-${lampOffset}`,
       new Vector3(placement.widthM * lampOffset, frameBottomY - 0.08, -0.46),
@@ -704,22 +849,29 @@ function buildBridgeGantry(
 export function buildCairoAdvertising(
   ctx: CairoAdvertisingCtx,
   mapPack: GameCanvasMapPack,
+  options: CairoAdvertisingRenderOptions = {},
 ): void {
   const placements = cairoAdPlacements(mapPack, ctx.buildingLayout);
   if (!placements.length) return;
   const materials = buildMaterials(ctx.scene);
   const masters = buildMasters(ctx.scene, materials);
+  const sink: CairoAdInstanceSink =
+    options.batchStaticMeshes === false
+      ? new LegacyCairoAdInstanceSink(ctx)
+      : new BatchedCairoAdInstanceSink(ctx);
   for (const placement of placements) {
+    const frame = sink.createPlacementFrame(placement);
     if (placement.kind === "pole-banner") {
-      buildPoleBanner(ctx, placement, masters);
+      buildPoleBanner(sink, frame, placement, masters);
     } else if (placement.kind === "bridge-side-sign") {
-      buildBridgeSideSign(ctx, placement, masters);
+      buildBridgeSideSign(sink, frame, placement, masters);
     } else if (placement.kind === "skyline-billboard") {
-      buildSkylineBillboard(ctx, placement, masters);
+      buildSkylineBillboard(sink, frame, placement, masters);
     } else {
-      buildBridgeGantry(ctx, placement, masters);
+      buildBridgeGantry(sink, frame, placement, masters);
     }
   }
+  sink.finalize();
   for (const material of [
     materials.frame,
     materials.steel,

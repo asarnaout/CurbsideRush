@@ -4400,12 +4400,18 @@ export class TrafficSystem {
     return null;
   }
 
-  private refreshLocalityPopulation(ctx: TrafficTickCtx): void {
+  private refreshLocalityPopulation(
+    ctx: TrafficTickCtx,
+    playerProjection: LaneProjection | null =
+      this.projectPlayerToLocalityRoad(),
+  ): void {
     const centre = this.playerState.player;
     // Road identity/direction can change across a junction without the player
     // travelling the 8 m used to amortize lane-length target recomputation.
-    // Perceptual classification therefore owns a fresh 10 Hz projection.
-    this.localityPlayerProjection = this.projectPlayerToLocalityRoad();
+    // Direct refresh callers therefore still own a fresh projection, while a
+    // 10 Hz population decision shares its one current-pose projection across
+    // every recount performed before the player can move again.
+    this.localityPlayerProjection = playerProjection;
     this.refreshLocalityRouteGoalTables();
     const targetAnchorDistanceSquared =
       (centre.x - this.localityTargetAnchorX) ** 2 +
@@ -5704,9 +5710,13 @@ export class TrafficSystem {
   private activatePreparedLocalityNpcs(
     ctx: TrafficTickCtx,
     maximumActivations: number,
+    playerProjection?: LaneProjection | null,
   ): number {
     if (maximumActivations <= 0) return 0;
-    const playerProjection = this.projectPlayerToLocalityRoad();
+    const currentPlayerProjection =
+      playerProjection === undefined
+        ? this.projectPlayerToLocalityRoad()
+        : playerProjection;
     let activations = 0;
     for (const npc of this.npcsList) {
       if (activations >= maximumActivations) break;
@@ -5717,7 +5727,7 @@ export class TrafficSystem {
       ) {
         continue;
       }
-      if (this.activatePreparedLocalityNpc(npc, ctx, playerProjection)) {
+      if (this.activatePreparedLocalityNpc(npc, ctx, currentPlayerProjection)) {
         activations += 1;
       }
     }
@@ -5730,10 +5740,11 @@ export class TrafficSystem {
     requiredRouteRadiusM = LOCAL_TRAFFIC_FOG_RADIUS_M,
     preference?: LocalTrafficPortalPreference,
     portalAttemptCeiling = LOCAL_TRAFFIC_PORTAL_ATTEMPT_BUDGET,
+    playerProjection?: LaneProjection | null,
   ): number {
     // The player pose is unchanged throughout one 10 Hz decision. Mark the
-    // fixed hidden annulus and project it once, so a blocked pool cannot turn
-    // a two-car activation budget into one expensive spatial query per slot.
+    // fixed hidden annulus once, so a blocked pool cannot turn a two-car
+    // activation budget into one expensive spatial query per slot.
     if (this.portalAttemptsThisDecision >= portalAttemptCeiling) return 0;
     this.runtimePortalIndex.markAnnulus(
       this.playerState.player,
@@ -5741,7 +5752,10 @@ export class TrafficSystem {
       RUNTIME_TRAFFIC_APPROACH_MAX_M,
     );
     if (this.runtimePortalIndex.markedCount === 0) return 0;
-    const playerProjection = this.projectPlayerToLocalityRoad();
+    const currentPlayerProjection =
+      playerProjection === undefined
+        ? this.projectPlayerToLocalityRoad()
+        : playerProjection;
     let activations = 0;
     for (const npc of this.npcsList) {
       if (activations >= maximumActivations) break;
@@ -5750,10 +5764,10 @@ export class TrafficSystem {
       if (npc.runtimeActivationEligibleTick >= ctx.tick) continue;
       if (
         npc.preparedLocalityGateId &&
-        this.activatePreparedLocalityNpc(npc, ctx, playerProjection)
+        this.activatePreparedLocalityNpc(npc, ctx, currentPlayerProjection)
       ) {
         activations += 1;
-        this.refreshLocalityPopulation(ctx);
+        this.refreshLocalityPopulation(ctx, currentPlayerProjection);
         continue;
       }
       if (
@@ -5777,7 +5791,7 @@ export class TrafficSystem {
         false,
         ctx,
         requiredRouteRadiusM,
-        playerProjection,
+        currentPlayerProjection,
         true,
         preference,
         Math.min(
@@ -5807,7 +5821,7 @@ export class TrafficSystem {
           rollingGateLane !== undefined &&
           this.rollingCorridorPortalFlow(
             this.roadNetwork.pointOnLane(rollingGateLane, gate.distance),
-            playerProjection,
+            currentPlayerProjection,
             rollingGateLane,
           ) !== 0;
       }
@@ -5815,7 +5829,7 @@ export class TrafficSystem {
       activations += 1;
       // Fold the first activation into the second candidate's lane/corridor
       // and sector score without maintaining a second mutable population view.
-      this.refreshLocalityPopulation(ctx);
+      this.refreshLocalityPopulation(ctx, currentPlayerProjection);
     }
     return activations;
   }
@@ -5861,6 +5875,7 @@ export class TrafficSystem {
     preference: LocalTrafficPortalPreference,
     portalAttemptCeiling: number,
     retireOutsideForwardFlow = false,
+    playerProjection?: LaneProjection | null,
   ): number {
     if (
       maximumRetirements <= 0 ||
@@ -5874,7 +5889,10 @@ export class TrafficSystem {
       RUNTIME_TRAFFIC_APPROACH_MAX_M,
     );
     if (this.runtimePortalIndex.markedCount === 0) return 0;
-    const playerProjection = this.projectPlayerToLocalityRoad();
+    const currentPlayerProjection =
+      playerProjection === undefined
+        ? this.projectPlayerToLocalityRoad()
+        : playerProjection;
     let retirements = 0;
     for (const npc of this.npcsList) {
       if (retirements >= maximumRetirements) break;
@@ -5892,7 +5910,10 @@ export class TrafficSystem {
       if (distance < RUNTIME_TRAFFIC_APPROACH_MIN_M) continue;
       if (this.isInsidePlayerVisibilityEnvelope(npc, ctx)) continue;
       if (retireOutsideForwardFlow) {
-        const localitySector = this.localitySector(npc, playerProjection);
+        const localitySector = this.localitySector(
+          npc,
+          currentPlayerProjection,
+        );
         const headingApproachesPlayer = this.headingApproachesPlayer(
           npc,
           npc.heading,
@@ -5934,7 +5955,7 @@ export class TrafficSystem {
         false,
         ctx,
         requiredRouteRadiusM,
-        playerProjection,
+        currentPlayerProjection,
         true,
         preference,
         Math.min(
@@ -5974,7 +5995,7 @@ export class TrafficSystem {
         rollingGateLane !== undefined &&
         this.rollingCorridorPortalFlow(
           this.roadNetwork.pointOnLane(rollingGateLane, gate.distance),
-          playerProjection,
+          currentPlayerProjection,
           rollingGateLane,
         ) !== 0;
       npc.preparedLocalityGateId = gate.id;
@@ -6201,7 +6222,12 @@ export class TrafficSystem {
         ),
       );
     }
-    this.refreshLocalityPopulation(ctx);
+    // `ctx.roadState.projection` belongs to the preceding fixed player
+    // update. Take one fresh heading/elevation-aware projection at the same
+    // point the first recount historically did, then reuse it for this whole
+    // synchronous 10 Hz decision: no branch below can move the player.
+    const playerProjection = this.projectPlayerToLocalityRoad();
+    this.refreshLocalityPopulation(ctx, playerProjection);
     if (
       this.activatePreparedLocalityNpcs(
         ctx,
@@ -6210,9 +6236,10 @@ export class TrafficSystem {
           LOCAL_TRAFFIC_DECISION_ACTIVATION_BUDGET -
             this.localityDecisionActivations,
         ),
+        playerProjection,
       ) > 0
     ) {
-      this.refreshLocalityPopulation(ctx);
+      this.refreshLocalityPopulation(ctx, playerProjection);
     }
     // Give the moving corridor first claim on the bounded portal budget. The
     // general density controller below may legitimately inspect every portal
@@ -6249,6 +6276,7 @@ export class TrafficSystem {
         LOCAL_TRAFFIC_FOG_RADIUS_M,
         rollingPreference,
         LOCAL_TRAFFIC_PORTAL_ATTEMPT_BUDGET,
+        playerProjection,
       );
       if (
         rollingActivations < rollingBudget &&
@@ -6267,9 +6295,10 @@ export class TrafficSystem {
           rollingPreference,
           LOCAL_TRAFFIC_PORTAL_ATTEMPT_BUDGET,
           true,
+          playerProjection,
         );
       }
-      this.refreshLocalityPopulation(ctx);
+      this.refreshLocalityPopulation(ctx, playerProjection);
     }
     const hasSurplus =
       this.localityWithinFogCount > this.localityTarget.withinFog + 1 ||
@@ -6362,7 +6391,7 @@ export class TrafficSystem {
       // A handoff is the one bounded population action for this decision. It
       // changes no lifecycle count or pose; refresh only the scalar buckets so
       // the next 10 Hz pass sees the exact new commitment.
-      this.refreshLocalityPopulation(ctx);
+      this.refreshLocalityPopulation(ctx, playerProjection);
       this.localityGhostGapDecisionCount =
         this.localityAheadOrApproachingCount === 0
           ? this.localityGhostGapDecisionCount + 1
@@ -6591,6 +6620,7 @@ export class TrafficSystem {
         requiredRouteRadiusM,
         preference,
         portalAttemptCeiling,
+        playerProjection,
       );
       if (activations === 0 && inboundDemand > 0) {
         this.preflightAndRecycleHiddenNpcSlotsForDeficit(
@@ -6606,6 +6636,8 @@ export class TrafficSystem {
           requiredRouteRadiusM,
           preference,
           portalAttemptCeiling,
+          false,
+          playerProjection,
         );
       }
       radialFallbackActivations =
@@ -6623,6 +6655,7 @@ export class TrafficSystem {
                 outerLocalOnly: !innerDeficit,
               },
               LOCAL_TRAFFIC_PORTAL_ATTEMPT_BUDGET,
+              playerProjection,
             )
           : 0;
     } else if (persistentSurplus) {
@@ -6657,7 +6690,7 @@ export class TrafficSystem {
       }
     }
 
-    this.refreshLocalityPopulation(ctx);
+    this.refreshLocalityPopulation(ctx, playerProjection);
     this.localityGhostGapDecisionCount =
       this.localityAheadOrApproachingCount === 0
         ? this.localityGhostGapDecisionCount + 1

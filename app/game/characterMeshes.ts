@@ -618,8 +618,8 @@ const BAG_DROP_M = 0.08;
  *
  * Generated rather than imported for the same reason the peaked cap is: at the
  * distance these scenes play, a sack, a rolled rim and two handles is the whole
- * silhouette — and `propModelUrls()` is not map-scoped, so a glb would cost all
- * four cities their download bytes forever.
+ * silhouette — and no map needs extra download and parse work for a prop this
+ * small.
  *
  * Three things here are measured rather than assumed, and all three fail
  * silently:

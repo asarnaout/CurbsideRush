@@ -114,7 +114,9 @@ describe("minimap drawing", () => {
     const roadStrokes = ops.filter(
       (entry) => entry.op === "stroke" && entry.strokeStyle.startsWith("rgba(170"),
     );
-    expect(roadStrokes).toHaveLength(2);
+    // Both road-level sheets are pre-rendered so crossing the bridge threshold
+    // can switch canvases without redrawing the city.
+    expect(roadStrokes).toHaveLength(4);
     // Every authored street is under the floor and takes it — that is the
     // normal case, and the reason the grid is legible at all.
     expect(roadStrokes[0].lineWidth).toBeCloseTo(
@@ -125,6 +127,33 @@ describe("minimap drawing", () => {
     // The absurdly wide one clears the floor and draws to scale instead.
     expect(roadStrokes[1].lineWidth).toBeCloseTo(90 * scale.pixelsPerMetre, 6);
     expect(roadStrokes[1].lineWidth).toBeGreaterThan(roadStrokes[0].lineWidth);
+  });
+
+  it("switches to the cached elevated sheet without rerasterising the network", () => {
+    const rendered = renderMap({ playerElevationM: 0 });
+    const strokesAfterMount = ops.filter(
+      (entry) => entry.op === "stroke" && entry.strokeStyle.startsWith("rgba(170"),
+    ).length;
+    expect(strokesAfterMount).toBe(4);
+
+    rendered.rerender(
+      <Minimap
+        worldSize={WORLD}
+        roadSurfaces={ROADS}
+        playerX={0}
+        playerZ={0}
+        playerElevationM={4}
+        heading={0}
+        size={SIZE}
+      />,
+    );
+
+    expect(
+      ops.filter(
+        (entry) =>
+          entry.op === "stroke" && entry.strokeStyle.startsWith("rgba(170"),
+      ),
+    ).toHaveLength(strokesAfterMount);
   });
 
   it("draws no route line when there is no destination", () => {

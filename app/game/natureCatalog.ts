@@ -6,10 +6,9 @@
  * can both read it. Provenance for every file is in `CREDITS.md`; the bytes are
  * pinned by `tests/natureAssets.test.ts`.
  *
- * **Scoped per map on purpose.** `propModelUrls()` is not scoped — every city
- * downloads every venue and service prop — and that is exactly the cost this
- * avoids repeating: Tokyo has no reason to fetch Cairo's palms, and Cairo none
- * to fetch a conifer. Scoping follows `buildingSetUrls`.
+ * **Scoped per map on purpose.** Venue props and buildings follow the same
+ * rule: Tokyo has no reason to fetch Cairo's palms, and Cairo none to fetch a
+ * conifer. Scoping follows `buildingSetUrls` and `propModelUrlsForMap`.
  */
 
 const P = "/models/props";

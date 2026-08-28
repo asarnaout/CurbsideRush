@@ -89,6 +89,14 @@ interface MinimapProps {
   readonly anchorStyle?: CSSProperties;
 }
 
+// Optional layers must keep one identity when omitted. A literal `=[]` in the
+// parameter list creates a new dependency on every HUD render and defeats the
+// static-sheet cache even when the map itself has not changed.
+const EMPTY_WATER_BODIES: readonly MapDrawWaterBody[] = [];
+const EMPTY_PARKS: readonly MapDrawPark[] = [];
+const EMPTY_RAIL_LINES: readonly MapDrawRailLine[] = [];
+const EMPTY_POIS: readonly MapPoi[] = [];
+
 /**
  * Corner minimap: rasterises the static road network once per map to an
  * offscreen canvas, then each update blits it and overlays the route line, the
@@ -109,15 +117,15 @@ interface MinimapProps {
 export function Minimap({
   worldSize,
   roadSurfaces,
-  waterBodies = [],
-  parks = [],
-  railLines = [],
+  waterBodies = EMPTY_WATER_BODIES,
+  parks = EMPTY_PARKS,
+  railLines = EMPTY_RAIL_LINES,
   playerX,
   playerZ,
   playerElevationM = 0,
   heading,
   destination,
-  pois = [],
+  pois = EMPTY_POIS,
   route,
   previewRoute,
   previewLabel,
@@ -127,7 +135,10 @@ export function Minimap({
 }: MinimapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playerRef = useRef<HTMLCanvasElement>(null);
-  const networkRef = useRef<HTMLCanvasElement | null>(null);
+  const networkRefs = useRef<{
+    ground: HTMLCanvasElement | null;
+    elevated: HTMLCanvasElement | null;
+  }>({ ground: null, elevated: null });
   const activeRoadLevel = roadLevelAtElevation(playerElevationM);
   const scale = useMemo(
     () => resolveMinimapScale(worldSize, size),
@@ -153,48 +164,46 @@ export function Minimap({
     [scale, playerX, playerZ, size, sheet],
   );
 
-  // Rasterise the static road network once per map/size.
+  // Rasterise both static road-level views once per map/size. Rebuilding the
+  // whole Cairo sheet at the 3.5 m bridge threshold caused a conspicuous
+  // main-thread hitch precisely while the player was entering or leaving a
+  // ramp. The two sheets use the exact same draw pass and pixels as before;
+  // switching levels now only changes which cached canvas is blitted.
   useEffect(() => {
-    const offscreen = document.createElement("canvas");
-    offscreen.width = sheet.width;
-    offscreen.height = sheet.height;
-    const ctx = offscreen.getContext("2d");
-    if (ctx) {
-      drawMapParks(ctx, parks, sheet);
-      drawMapWaterBodies(ctx, waterBodies, sheet);
-      drawMapRailLines(ctx, railLines, sheet, scale.pixelsPerMetre);
-      drawRoadNetwork(
-        ctx,
-        roadSurfaces,
-        sheet,
-        scale.pixelsPerMetre,
-        minimapRoadFloorPx(size),
-        activeRoadLevel,
-      );
+    for (const level of ["ground", "elevated"] as const) {
+      const offscreen = document.createElement("canvas");
+      offscreen.width = sheet.width;
+      offscreen.height = sheet.height;
+      const ctx = offscreen.getContext("2d");
+      if (ctx) {
+        drawMapParks(ctx, parks, sheet);
+        drawMapWaterBodies(ctx, waterBodies, sheet);
+        drawMapRailLines(ctx, railLines, sheet, scale.pixelsPerMetre);
+        drawRoadNetwork(
+          ctx,
+          roadSurfaces,
+          sheet,
+          scale.pixelsPerMetre,
+          minimapRoadFloorPx(size),
+          level,
+        );
+      }
+      networkRefs.current[level] = offscreen;
     }
-    networkRef.current = offscreen;
-  }, [
-    roadSurfaces,
-    waterBodies,
-    parks,
-    railLines,
-    sheet,
-    scale,
-    size,
-    activeRoadLevel,
-  ]);
+  }, [roadSurfaces, waterBodies, parks, railLines, sheet, scale, size]);
 
   // Composite the cached network, the route and the destination each update.
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, size, size);
-    if (networkRef.current) {
+    const network = networkRefs.current[activeRoadLevel];
+    if (network) {
       if (scale.follows) {
         // Blit the slice of the sheet the player stands in the middle of.
         const at = sheet.project(playerX, playerZ);
         ctx.drawImage(
-          networkRef.current,
+          network,
           at.x - size / 2,
           at.y - size / 2,
           size,
@@ -205,7 +214,7 @@ export function Minimap({
           size,
         );
       } else {
-        ctx.drawImage(networkRef.current, 0, 0);
+        ctx.drawImage(network, 0, 0);
       }
     }
 
@@ -229,6 +238,7 @@ export function Minimap({
     size,
     scale,
     sheet,
+    activeRoadLevel,
   ]);
 
   // The car, onto its own canvas above the place icons — see `drawPlayerMarker`.

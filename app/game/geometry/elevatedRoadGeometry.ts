@@ -496,6 +496,7 @@ export function elevatedRoadDeckRun(
   surface: ElevatedRoadGeometrySurface,
   segment: ElevatedRoadSegmentPlacement,
   allSurfaces: readonly ElevatedRoadGeometrySurface[],
+  precomputedEdgeRuns?: readonly ElevatedRoadEdgeRunPlacement[],
 ): ElevatedRoadDeckRunPlacement | null {
   const authoredStart = surface.centerline[segment.segmentIndex];
   const authoredEnd = surface.centerline[segment.segmentIndex + 1];
@@ -507,7 +508,12 @@ export function elevatedRoadDeckRun(
   const startTrimM = 0;
   const endTrimM = 0;
   const coreLengthM = segment.lengthM;
-  const edgeRuns = elevatedRoadEdgeRuns(surface, segment, allSurfaces);
+  // Rendering needs both outputs for every segment. Accepting its already
+  // resolved edge runs avoids repeating the junction/corridor walk while the
+  // default keeps every independent geometry caller unchanged.
+  const edgeRuns =
+    precomputedEdgeRuns ??
+    elevatedRoadEdgeRuns(surface, segment, allSurfaces);
   const startMiterExtensionM = Math.max(
     0,
     ...edgeRuns.map((run) => -run.startTrimM),

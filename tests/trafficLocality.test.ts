@@ -386,9 +386,17 @@ function genericAuthoredInitialGateFixture(): SimulationCoreConfig {
 interface TrafficSystemTestAccess {
   readonly npcs: readonly NpcInternal[];
   portalAttemptsThisDecision: number;
+  localityPlayerProjection: {
+    readonly x: number;
+    readonly z: number;
+  } | null;
   readonly roadNetwork: {
     readonly lanesById: ReadonlyMap<string, unknown>;
   };
+  projectPlayerToLocalityRoad(): {
+    readonly x: number;
+    readonly z: number;
+  } | null;
   npcRouteCanReachLocalRadius(
     npc: NpcInternal,
     firstLane: unknown,
@@ -1009,6 +1017,42 @@ describe("local traffic primitives", () => {
         preparedLocalityGateId: undefined,
       });
       expect(queued.active).toBe(false);
+    } finally {
+      simulation.dispose();
+    }
+  });
+
+  it("projects the fresh player pose exactly once per 10 Hz locality decision", () => {
+    const simulation = new SimulationCore(movingRecycleFixture());
+    try {
+      const trafficSystem = trafficSystemForTest(simulation);
+      const originalProjection =
+        trafficSystem.projectPlayerToLocalityRoad.bind(trafficSystem);
+      let projectionCalls = 0;
+      trafficSystem.projectPlayerToLocalityRoad = () => {
+        projectionCalls += 1;
+        return originalProjection();
+      };
+
+      // The tick context deliberately carries no road projection. Locality
+      // must project the just-updated player pose itself, then share that
+      // immutable result through every recount/admission branch in the pass.
+      simulation.setPlayerPose({ x: 1_000, z: 0, heading: Math.PI / 2 });
+      trafficSystem.makeTrafficDecisions(inertTrafficCtx(0.1, 6));
+      expect(projectionCalls).toBe(1);
+      expect(trafficSystem.localityPlayerProjection).toMatchObject({
+        x: 1_000,
+        z: 0,
+      });
+
+      // The projection is decision-scoped, not cached across player motion.
+      simulation.setPlayerPose({ x: 990, z: 0, heading: Math.PI / 2 });
+      trafficSystem.makeTrafficDecisions(inertTrafficCtx(0.2, 12));
+      expect(projectionCalls).toBe(2);
+      expect(trafficSystem.localityPlayerProjection).toMatchObject({
+        x: 990,
+        z: 0,
+      });
     } finally {
       simulation.dispose();
     }

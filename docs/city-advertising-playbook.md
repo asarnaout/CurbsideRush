@@ -76,6 +76,14 @@ the same `BuildingLayoutPlan` that the renderer sees. Cairo caches its placement
 array by that plan object so `buildRoadsideProps` and `buildCairoAdvertising`
 consume identical results without paying for the gap search twice.
 
+Fixed reservation sets should use a conservative spatial broadphase once they
+grow beyond trivial size. Cairo indexes each complete OBB AABB into every
+touched 48 m cell, queries the candidate installation AABB, restores original
+reservation order, and then applies the unchanged exact OBB SAT. Inclusive cell
+boundaries are required because tangency counts as overlap. Never index only an
+OBB centre, and never reorder the first-valid cant/offset/side/setback search or
+the sequential accepted-board list.
+
 ## Author campaigns along whole corridors
 
 Define named corridor rules with a station spacing, start pad, end pad, initial
@@ -215,14 +223,24 @@ underpassing junctions visually open.
 ## Rendering and performance
 
 Build one set of master meshes and shared materials, then instance every
-placement. Cairo shares sixteen atlas materials, sixteen landscape-copy materials,
-sixteen portrait campaign materials and three frame/support/lamp materials across
-the city. Never create a material or texture per placement.
+placement. Cairo shares sixteen atlas materials, sixteen landscape-copy
+materials, sixteen portrait campaign materials and three frame/support/lamp
+materials across the city. Its static parts are thin-instanced by master and
+128 m cell using the exact composed placement/part matrices. That removes
+per-part scene nodes while retaining frustum culling; a single city-wide batch
+per master is too coarse. Never create a material or texture per placement.
+Each spatial mesh needs its own Babylon `Geometry` container before
+`thinInstanceSetBuffer`: the instance attributes live on geometry even though
+the CPU matrix cache lives on the mesh. Materials remain shared.
 
-Use double-sided faces where both travel directions should read the board. Keep
-the support compact; a central pedestal avoids end legs projecting into traffic
-when a wide face is canted. Freeze static instances/materials through the same
-scene pipeline as other city furniture.
+Use explicit front and back faces where both travel directions should read the
+board. Keep the support compact; a central pedestal avoids end legs projecting
+into traffic when a wide face is canted. Freeze static batches/materials through
+the same scene pipeline as other city furniture. Regression tests should compare
+the role plus every world-matrix float against the legacy instance renderer and
+verify each chunk's bounds cover all transformed source geometry. They must also
+read `world0`–`world3` from each chunk's actual vertex buffers; checking only
+`thinInstanceGetWorldMatrices()` cannot catch shared-geometry GPU overwrites.
 
 Adding or relocating advertisements changes roadside occupied points, which can
 re-deal ordinary generated props. A render-characterization mesh-count change is
@@ -281,7 +299,7 @@ advertising change.
 10. Run focused tests, typecheck, lint, production build and render
     characterization. Update player-facing scope and asset credits when needed.
 
-The current Cairo output is 627 pole banners on 27 surface corridors, 69 skyline
+The current Cairo output is 635 pole banners on 27 surface corridors, 69 skyline
 boards on 13 corridors, 34 parapet signs along the Sixth of October Bridge and
 10 bridge gantries, including eight across that main deck. Sixteen campaigns
 draw from two measured atlases. The focused suite pins 69 and eight exactly

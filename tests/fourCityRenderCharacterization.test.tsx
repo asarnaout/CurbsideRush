@@ -1514,9 +1514,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // add 372 instances and the 34 Sixth October parapet signs add 272; their
     // changed support reservations re-deal 61 ordinary roadside meshes, for a
     // measured net +607. Other cities remain byte-for-byte characterized.
-    totalMeshes: 18_683,
-    enabledMeshes: 18_639,
-    activeMeshes: 2_236,
+    // -> 20_669/20_625 (active 2_883): regression-safe static batching keeps
+    // the current detailed bridge's 665_906 vertices/976_068 indices but bakes
+    // its 13_566 authored pieces into 5_349 batches. The 5_007 shadow batches
+    // retain each source's exact registration point instead of averaging a
+    // 45 m cell, so the 90 m radial cutoff selects identical source geometry.
+    // Advertising keeps all 3_622 part transforms but replaces 3_674 meshes
+    // plus 748 roots with 966 meshes (52 hidden masters and 914 frustum-
+    // cullable thin-instance chunks). The material inventory/fingerprint and
+    // mirror draw set remain unchanged.
+    totalMeshes: 20_669,
+    enabledMeshes: 20_625,
+    activeMeshes: 2_883,
     materials: 370,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1541,7 +1550,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // previous candidate drops out of the fixed distance/cull ordering.
     // 29 -> 26 / 168 -> 165: denser advertising reservations re-deal three
     // ordinary props from the fixed spawn mirror ring.
-    mirrorCandidates: 26,
+    mirrorCandidates: 27,
     mirrorDrawn: 165,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,

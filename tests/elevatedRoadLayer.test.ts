@@ -4,9 +4,11 @@ import {
   Mesh,
   StandardMaterial,
   TransformNode,
+  Vector3,
   VertexBuffer,
 } from "@babylonjs/core";
 import { afterEach, describe, expect, it } from "vitest";
+import { CAIRO_MAP_PACK } from "../app/game/cities/cairo";
 import {
   CAIRO_BRIDGE_PARAPET_RAIL_POST_SPACING_M,
   CAIRO_BRIDGE_PARAPET_TOTAL_HEIGHT_M,
@@ -50,6 +52,15 @@ interface RenderedRoadLayer {
   readonly engine: NullEngine;
   readonly scene: Scene;
   readonly meshes: readonly Mesh[];
+  readonly staticMeshes: readonly Mesh[];
+  readonly shadowMeshes: readonly Mesh[];
+  readonly shadowRegistrations: readonly {
+    readonly mesh: Mesh;
+    readonly x: number;
+    readonly z: number;
+  }[];
+  readonly staticCells: readonly string[];
+  readonly shadowCells: readonly string[];
 }
 
 const renderedLayers: RenderedRoadLayer[] = [];
@@ -57,10 +68,22 @@ const renderedLayers: RenderedRoadLayer[] = [];
 const renderRoadLayer = (
   mapId: string,
   roadSurfaces: readonly RoadSurface[],
+  batchStaticMeshes = false,
 ): RenderedRoadLayer => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const staticSceneryFreeze: TransformNode[] = [];
+  const staticMeshes: Mesh[] = [];
+  const shadowMeshes: Mesh[] = [];
+  const shadowRegistrations: {
+    mesh: Mesh;
+    x: number;
+    z: number;
+  }[] = [];
+  const staticCells: string[] = [];
+  const shadowCells: string[] = [];
+  const cellFor = (x: number, z: number): string =>
+    `${Math.floor(x / 45)}:${Math.floor(z / 45)}`;
   const mapPack = {
     id: mapId,
     geometry: { roadSurfaces },
@@ -69,18 +92,85 @@ const renderRoadLayer = (
     {
       scene,
       staticSceneryFreeze,
-      registerStatic: () => undefined,
-      registerShadowCaster: () => undefined,
+      registerStatic: (mesh, x, z) => {
+        if (mesh instanceof Mesh) staticMeshes.push(mesh);
+        staticCells.push(cellFor(x, z));
+      },
+      registerShadowCaster: (mesh, x, z) => {
+        if (mesh instanceof Mesh) {
+          shadowMeshes.push(mesh);
+          shadowRegistrations.push({ mesh, x, z });
+        }
+        shadowCells.push(cellFor(x, z));
+      },
     },
     mapPack,
+    { batchStaticMeshes },
   );
   const rendered = {
     engine,
     scene,
     meshes: scene.meshes.filter((mesh): mesh is Mesh => mesh instanceof Mesh),
+    staticMeshes,
+    shadowMeshes,
+    shadowRegistrations,
+    staticCells,
+    shadowCells,
   };
   renderedLayers.push(rendered);
   return rendered;
+};
+
+/**
+ * Geometry grouped by the exact point the session uses for its 90 m shadow
+ * predicate. Equality here proves batching cannot change radial membership,
+ * even when the player is standing on a ramp near the cutoff.
+ */
+const registeredShadowGeometrySignature = (
+  rendered: RenderedRoadLayer,
+): string[] => {
+  const signature: string[] = [];
+  for (const registration of rendered.shadowRegistrations) {
+    const positions = registration.mesh.getVerticesData(
+      VertexBuffer.PositionKind,
+    );
+    if (!positions) continue;
+    const world = registration.mesh.computeWorldMatrix(true);
+    for (let offset = 0; offset < positions.length; offset += 3) {
+      const position = Vector3.TransformCoordinates(
+        Vector3.FromArray(positions, offset),
+        world,
+      );
+      signature.push(
+        `${registration.x}|${registration.z}|${registration.mesh.material?.name ?? "none"}|${registration.mesh.receiveShadows ? 1 : 0}|${position.x.toFixed(5)}|${position.y.toFixed(5)}|${position.z.toFixed(5)}`,
+      );
+    }
+  }
+  return signature.sort();
+};
+
+const worldGeometrySignature = (rendered: RenderedRoadLayer): string[] => {
+  const signature: string[] = [];
+  for (const mesh of rendered.meshes) {
+    const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+    if (!positions) continue;
+    const world = mesh.computeWorldMatrix(true);
+    const role = rendered.shadowMeshes.includes(mesh)
+      ? "shadow"
+      : rendered.staticMeshes.includes(mesh)
+        ? "static"
+        : "freeze-only";
+    for (let offset = 0; offset < positions.length; offset += 3) {
+      const position = Vector3.TransformCoordinates(
+        Vector3.FromArray(positions, offset),
+        world,
+      );
+      signature.push(
+        `${mesh.material?.name ?? "none"}|${role}|${mesh.receiveShadows ? 1 : 0}|${position.x.toFixed(5)}|${position.y.toFixed(5)}|${position.z.toFixed(5)}`,
+      );
+    }
+  }
+  return signature.sort();
 };
 
 const meshesFor = (
@@ -128,6 +218,75 @@ afterEach(() => {
 });
 
 describe("elevated road barrier rendering", () => {
+  it("batches the exact world-space bridge geometry without changing render roles", () => {
+    const bentRamp = surface("cairo-batched-bent-ramp", [
+      { x: -28, z: -12, elevationM: 0 },
+      { x: -8, z: -4, elevationM: 3.2 },
+      { x: 10, z: 8, elevationM: 7.1 },
+      { x: 34, z: 12, elevationM: 8 },
+    ], 0.36);
+    const branch = surface("cairo-batched-branch", [
+      { x: 10, z: 8, elevationM: 7.1 },
+      { x: 28, z: 28, elevationM: 4.2 },
+      { x: 36, z: 46, elevationM: 0 },
+    ], 0.36);
+    const unbatched = renderRoadLayer("synthetic-cairo", [bentRamp, branch]);
+    const batched = renderRoadLayer(
+      "synthetic-cairo",
+      [bentRamp, branch],
+      true,
+    );
+
+    expect(worldGeometrySignature(batched)).toEqual(
+      worldGeometrySignature(unbatched),
+    );
+    expect(registeredShadowGeometrySignature(batched)).toEqual(
+      registeredShadowGeometrySignature(unbatched),
+    );
+    expect(
+      batched.meshes.reduce((sum, mesh) => sum + mesh.getTotalIndices(), 0),
+    ).toBe(
+      unbatched.meshes.reduce((sum, mesh) => sum + mesh.getTotalIndices(), 0),
+    );
+    expect(batched.meshes.length).toBeLessThan(unbatched.meshes.length);
+    expect(batched.shadowMeshes.length).toBeLessThan(
+      unbatched.shadowMeshes.length,
+    );
+    expect(batched.shadowMeshes.every((mesh) => !mesh.isDisposed())).toBe(true);
+    expect(new Set(batched.staticCells)).toEqual(new Set(unbatched.staticCells));
+    expect(new Set(batched.shadowCells)).toEqual(new Set(unbatched.shadowCells));
+  });
+
+  it("keeps the production Cairo bridge inside its exact geometry and batch budgets", () => {
+    const rendered = renderRoadLayer(
+      CAIRO_MAP_PACK.id,
+      CAIRO_MAP_PACK.geometry.roadSurfaces,
+      true,
+    );
+    const vertexCount = rendered.meshes.reduce(
+      (sum, mesh) => sum + mesh.getTotalVertices(),
+      0,
+    );
+    const indexCount = rendered.meshes.reduce(
+      (sum, mesh) => sum + mesh.getTotalIndices(),
+      0,
+    );
+
+    // These characterize the detailed bridge skin, not a simplified proxy.
+    // A geometry change must deliberately update both budgets, while a
+    // batching regression is caught by the scene-object caps below.
+    expect(vertexCount).toBe(665_906);
+    expect(indexCount).toBe(976_068);
+    // Shadow meshes merge only at identical legacy registration points; the
+    // larger count than main-view chunks is the no-pop correctness budget.
+    expect(rendered.meshes.length).toBeLessThanOrEqual(5_400);
+    expect(rendered.shadowMeshes.length).toBeLessThanOrEqual(5_100);
+    expect(rendered.scene.transformNodes.length).toBe(0);
+    expect(
+      Math.max(...rendered.meshes.map((mesh) => mesh.getTotalVertices())),
+    ).toBeLessThan(65_536);
+  });
+
   it("keeps Cairo posts and reflectors on one deterministic global phase", () => {
     const whole = cairoBridgeBarrierVisualPlan(24, 0);
     expect(cairoBridgeBarrierVisualPlan(24, 0)).toEqual(whole);

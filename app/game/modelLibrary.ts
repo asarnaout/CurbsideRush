@@ -26,6 +26,7 @@ import {
   Scene,
 } from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
+import type { GameCanvasMapPack } from "./sessionContract";
 import type { VehicleModel } from "./vehicleVisuals";
 
 // Babylon 9 registers loaders as dynamic factories: the old
@@ -479,4 +480,29 @@ export function propModelUrls(): string[] {
   return [
     ...new Set(Object.values(PROP_MODEL_REGISTRY).map((config) => config.url)),
   ];
+}
+
+/**
+ * De-duplicated prop glbs that one map can actually instantiate. Venue
+ * `modelId` overrides use the same resolution as the render path; service
+ * points fall back to their kind. Registry misses are intentional for
+ * procedural-only props such as repair shops.
+ *
+ * Keeping this resolver beside the registry makes the preload set a pure
+ * consequence of authored map data instead of forcing Cairo to download and
+ * parse Tokyo, London and NYC storefronts it can never place.
+ */
+export function propModelUrlsForMap(mapPack: GameCanvasMapPack): string[] {
+  const urls = new Set<string>();
+  const add = (modelKey: string): void => {
+    const config = PROP_MODEL_REGISTRY[modelKey];
+    if (config) urls.add(config.url);
+  };
+  for (const venue of mapPack.geometry.gigVenues ?? []) {
+    add(venue.modelId ?? venue.kind);
+  }
+  for (const service of mapPack.geometry.servicePoints ?? []) {
+    add(service.kind);
+  }
+  return [...urls];
 }

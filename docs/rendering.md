@@ -46,6 +46,25 @@ Three render-side rules are load-bearing:
 - any destructible registration carries its elevation, and its pivot, fall,
   light pool and impact particles remain relative to that level.
 
+The detailed bridge skin is authored at full fidelity and then world-baked into
+spatial batches keyed by material, role, vertex layout, side orientation and
+`receiveShadows`. Freeze-only and mirror/static pieces use the session's 45 m
+grid. Shadow casters deliberately merge only at an **identical original x/z
+registration point**: averaging a whole cell changes the exact 90 m radial
+shadow predicate and can make ramp shadows pop at the cutoff. Source transforms,
+vertices, indices, materials and the separate freeze-only/static/shadow roles
+are preserved. Cairo therefore keeps all 665,906 vertices and 325,356 triangles
+while replacing 13,566 meshes with 5,349 batches (a 60.6% reduction), including
+7,284 shadow meshes/registrations reduced to 5,007. At the Dokki ramp the live
+shadow units fall from 1,029 to 609 with the same 36,904 submitted source
+triangles. Tests compare world-space geometry grouped by the exact shadow
+registration point, not merely cell coverage.
+
+The renderer also passes the map pack's stable road-surface array through the
+shared junction-envelope cache and hands its already-resolved edge runs to the
+deck resolver. Do not replace that stable key with a freshly filtered array or
+recompute the same edge plan per slab; neither result changes during a session.
+
 Player and NPC nodes interpolate elevation with x/z and heading. A discontinuous
 height reassignment participates in teleport/snap detection, so unchanged x/z
 cannot blend a vehicle vertically through a slab. Traffic-stop
@@ -55,9 +74,12 @@ from road elevation. The staged camera tests its own ring position, all scene
 marks and sampled camera-to-subject sightlines against the shared soffit query,
 chooses a clear azimuth and ducks below the lowest usable deck. Elevated
 traffic-control hardware adds its installation height, while marking segments
-pitch between their endpoint heights. The minimap and expanded map derive their active
-ground/elevated stroke from the player's road height, draw the occupied level
-strongly and retain the other level as a translucent context layer.
+pitch between their endpoint heights. The minimap and expanded map derive their
+active ground/elevated stroke from the player's road height, draw the occupied
+level strongly and retain the other level as a translucent context layer. The
+corner minimap pre-rasterises both exact road-level sheets when the map/size
+changes; crossing the 3.5 m level threshold switches cached canvases and never
+rebuilds the whole Cairo network during a ramp transition.
 
 ## Every building is planned once, before `buildScenarioEnvironment` runs
 
@@ -329,7 +351,7 @@ gap search, complete-installation collision checks and the porting test matrix�
 read [city-advertising-playbook.md](city-advertising-playbook.md).
 
 `cairoAdPlacements` covers 27 surface corridors—including both Nile bridges—
-rather than a spawn-centred subset. Its denser 627 pole stations sit inside their source pavement
+rather than a spawn-centred subset. Its 635 pole stations sit inside their source pavement
 band, face approaching traffic, and reject the complete pavement envelope of
 every crossing road plus the rail reservation; a valid kerb offset on one road
 is not enough, because that same point can be the centre of another road at a
@@ -344,6 +366,13 @@ visual, procedural solid, rail/landmark/POI reservation and water edge, with a
 half-metre building buffer. Checking only the pedestal—or rejecting a whole
 block that contains a valid gap—is not sufficient.
 
+The fixed road/building/ground reservations are indexed by their conservative
+world AABBs in a 48 m grid. A query restores original authored order and still
+runs the same exact oriented-footprint SAT on every broadphase result; the
+cant/offset/side/setback first-valid search and sequential accepted-board checks
+are untouched. Full-Cairo exhaustive equivalence pins all 748 placement objects
+while reducing exact overlap tests from 9,346,613 to 27,419.
+
 The three drivable bridge corridors are a separate third pass. The Sixth of
 October main deck has eight approach-facing gantries over its full 1.2 km run;
 Qasr El-Nil and Al-Galaa receive one each. Gantry faces span the carriageway
@@ -353,9 +382,17 @@ the Sixth of October deck. Their complete frames sit beyond the live lanes,
 short brackets reach inward to parapet-edge posts, and stations leave at least
 15 m of longitudinal breathing room around every gantry.
 `buildCairoAdvertising` consumes all four kinds through the city registry's
-`streetFurniture` slot. Geometry is instanced and the sixteen material variants
-are shared across the whole city; increasing density by creating one material
-or texture per placement defeats that contract.
+`streetFurniture` slot. Geometry uses the exact former instance world matrices,
+batched as thin instances by master/creative and 128 m culling cell. This keeps
+the same 3,622 rendered parts and all shared materials while replacing 3,622
+`InstancedMesh` nodes plus 748 placement roots with 914 frustum-cullable chunks.
+Increasing density by creating one material or texture per placement defeats
+that contract. Keep chunks spatial: one city-wide batch per creative would stay
+active everywhere and submit remote signs on every frame. Babylon stores the
+`world0`–`world3` thin-instance attributes on `Geometry`, so spatial chunks may
+share materials but must make their cloned geometry unique before installing
+their matrix buffer; otherwise the last chunk silently replaces every earlier
+chunk's GPU transforms and separates faces from supports.
 
 The two committed atlases are artwork only and contain no baked copy. The 16
 campaigns are Arabic-majority, and their
@@ -456,8 +493,11 @@ no procedural vehicle/character fallback any more, so **anything that lifts
 `markReady` early ships invisible cars and people.**
 
 Building glbs are **map-scoped** (`buildingSetUrls` over the sets the map's blocks
-name), so Cairo never downloads NYC's towers. Venue/service props are not — every
-map pays for all of `propModelUrls()`.
+name), so Cairo never downloads NYC's towers. Venue/service props follow the
+same rule: `propModelUrlsForMap` resolves each authored venue's `modelId ?? kind`
+and each service kind, ignoring procedural-only registry misses. Do not replace
+it with the all-registry `propModelUrls()` asset-audit list; that made Cairo
+download and parse roughly 15 MiB of other cities' storefronts.
 
 Asset provenance and licences live in [CREDITS.md](../CREDITS.md). An OBJ-only
 source pack goes through `tools/obj-to-glb.mjs`; a separate glTF-with-external-

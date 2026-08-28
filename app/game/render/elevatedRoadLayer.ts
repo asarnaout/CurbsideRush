@@ -750,6 +750,173 @@ export interface ElevatedRoadRenderCtx {
   readonly registerShadowCaster: (mesh: AbstractMesh, x: number, z: number) => void;
 }
 
+export interface ElevatedRoadRenderOptions {
+  /** Disable only in geometry-characterization tests that need source names. */
+  readonly batchStaticMeshes?: boolean;
+}
+
+const ELEVATED_ROAD_BATCH_CELL_M = 45;
+
+type ElevatedRoadBatchRole = "freeze-only" | "static" | "shadow";
+
+interface ElevatedRoadMeshBatch {
+  readonly meshes: Mesh[];
+  readonly role: ElevatedRoadBatchRole;
+  readonly receiveShadows: boolean;
+  readonly cellX: number;
+  readonly cellZ: number;
+  readonly materialName: string;
+  readonly registrationX: number;
+  readonly registrationZ: number;
+  registrationXSum: number;
+  registrationZSum: number;
+  registrationCount: number;
+}
+
+/**
+ * The detailed Cairo bridge skin is intentionally authored as small, exact
+ * pieces. Submitting each piece separately, however, made the bridge cost
+ * thousands of main/shadow draw calls. This collector bakes those unchanged
+ * world-space vertices into material/role/spatial batches. Main-camera and
+ * mirror-only pieces use the session's 45 m static-visibility cell. Shadow
+ * casters are deliberately stricter: they merge only when their original
+ * registration coordinates are identical, preserving the session's exact
+ * 90 m radial shadow selection and avoiding coarse shadow pop at ramps.
+ */
+class ElevatedRoadStaticBatcher {
+  readonly freezeNodes: TransformNode[] = [];
+
+  private readonly batches = new Map<string, ElevatedRoadMeshBatch>();
+  private readonly enqueued = new Set<AbstractMesh>();
+
+  constructor(private readonly destination: ElevatedRoadRenderCtx) {}
+
+  enqueue(
+    mesh: AbstractMesh,
+    x: number,
+    z: number,
+    role: ElevatedRoadBatchRole,
+  ): void {
+    if (this.enqueued.has(mesh)) return;
+    this.enqueued.add(mesh);
+
+    if (!(mesh instanceof Mesh) || mesh.getTotalVertices() === 0) {
+      this.destination.staticSceneryFreeze.push(mesh);
+      if (role === "static") this.destination.registerStatic(mesh, x, z);
+      if (role === "shadow") {
+        this.destination.registerShadowCaster(mesh, x, z);
+      }
+      return;
+    }
+
+    mesh.isPickable = false;
+    const cellX = Math.floor(x / ELEVATED_ROAD_BATCH_CELL_M);
+    const cellZ = Math.floor(z / ELEVATED_ROAD_BATCH_CELL_M);
+    const materialId = mesh.material?.uniqueId ?? -1;
+    const vertexLayout = mesh.getVerticesDataKinds().sort().join(",");
+    const spatialKey =
+      role === "shadow" ? `${x},${z}` : `${cellX},${cellZ}`;
+    const key = [
+      materialId,
+      role,
+      mesh.receiveShadows ? 1 : 0,
+      mesh.sideOrientation,
+      spatialKey,
+      vertexLayout,
+    ].join("|");
+    let batch = this.batches.get(key);
+    if (!batch) {
+      batch = {
+        meshes: [],
+        role,
+        receiveShadows: mesh.receiveShadows,
+        cellX,
+        cellZ,
+        materialName: mesh.material?.name ?? "unmaterialed",
+        registrationX: x,
+        registrationZ: z,
+        registrationXSum: 0,
+        registrationZSum: 0,
+        registrationCount: 0,
+      };
+      this.batches.set(key, batch);
+    }
+    batch.meshes.push(mesh);
+    batch.registrationXSum += x;
+    batch.registrationZSum += z;
+    batch.registrationCount += 1;
+  }
+
+  finalize(): void {
+    // Anything placed only on the freeze list still needs to be collected.
+    // Its world bounds provide the same spatial locality the registered
+    // bridge pieces already carry explicitly.
+    for (const node of this.freezeNodes) {
+      if (!(node instanceof Mesh) || this.enqueued.has(node)) continue;
+      node.computeWorldMatrix(true);
+      const center = node.getBoundingInfo().boundingBox.centerWorld;
+      this.enqueue(node, center.x, center.z, "freeze-only");
+    }
+
+    let batchIndex = 0;
+    for (const batch of this.batches.values()) {
+      const meshes = batch.meshes.filter(
+        (mesh) => !mesh.isDisposed() && mesh.getTotalVertices() > 0,
+      );
+      if (!meshes.length) continue;
+      for (const mesh of meshes) mesh.computeWorldMatrix(true);
+      const merged = Mesh.MergeMeshes(
+        meshes,
+        true,
+        true,
+        undefined,
+        false,
+        false,
+      );
+      if (!merged) continue;
+      merged.name = `elevated-road-batch-${batch.materialName}-${batch.cellX}-${batch.cellZ}-${batchIndex}`;
+      batchIndex += 1;
+      merged.isPickable = false;
+      merged.receiveShadows = batch.receiveShadows;
+
+      const registrationX =
+        batch.role === "shadow"
+          ? batch.registrationX
+          : batch.registrationXSum / Math.max(1, batch.registrationCount);
+      const registrationZ =
+        batch.role === "shadow"
+          ? batch.registrationZ
+          : batch.registrationZSum / Math.max(1, batch.registrationCount);
+      if (batch.role === "static") {
+        this.destination.registerStatic(
+          merged,
+          registrationX,
+          registrationZ,
+        );
+      } else if (batch.role === "shadow") {
+        this.destination.registerShadowCaster(
+          merged,
+          registrationX,
+          registrationZ,
+        );
+      } else {
+        this.destination.staticSceneryFreeze.push(merged);
+      }
+    }
+
+    // Source meshes were disposed by MergeMeshes. Their now-empty segment and
+    // collar roots otherwise remain as thousands of inert scene nodes.
+    for (const node of this.freezeNodes) {
+      if (node instanceof Mesh) continue;
+      if (node.getChildMeshes(false).length === 0) node.dispose();
+      else this.destination.staticSceneryFreeze.push(node);
+    }
+    this.batches.clear();
+    this.enqueued.clear();
+    this.freezeNodes.length = 0;
+  }
+}
+
 const material = (
   scene: Scene,
   name: string,
@@ -769,13 +936,30 @@ const material = (
  * this layer can never become a decorative, undrivable duplicate.
  */
 export function buildElevatedRoadStructures(
-  ctx: ElevatedRoadRenderCtx,
+  destinationCtx: ElevatedRoadRenderCtx,
   mapPack: GameCanvasMapPack,
+  options: ElevatedRoadRenderOptions = {},
 ): void {
-  const surfaces = (mapPack.geometry.roadSurfaces ?? []).filter(
+  const allRoadSurfaces = mapPack.geometry.roadSurfaces ?? [];
+  const surfaces = allRoadSurfaces.filter(
     isElevatedRoadSurface,
   );
   if (!surfaces.length) return;
+
+  const batcher =
+    options.batchStaticMeshes === false
+      ? undefined
+      : new ElevatedRoadStaticBatcher(destinationCtx);
+  const ctx: ElevatedRoadRenderCtx = batcher
+    ? {
+        scene: destinationCtx.scene,
+        staticSceneryFreeze: batcher.freezeNodes,
+        registerStatic: (mesh, x, z) =>
+          batcher.enqueue(mesh, x, z, "static"),
+        registerShadowCaster: (mesh, x, z) =>
+          batcher.enqueue(mesh, x, z, "shadow"),
+      }
+    : destinationCtx;
 
   const usesCairoBarrierStyle = mapPack.id.toLowerCase().includes("cairo");
 
@@ -846,8 +1030,17 @@ export function buildElevatedRoadStructures(
       root.rotation.z = segment.slopeRad;
       ctx.staticSceneryFreeze.push(root);
 
-      const edgeRuns = elevatedRoadEdgeRuns(surface, segment, surfaces);
-      const deckRun = elevatedRoadDeckRun(surface, segment, surfaces);
+      const edgeRuns = elevatedRoadEdgeRuns(
+        surface,
+        segment,
+        allRoadSurfaces,
+      );
+      const deckRun = elevatedRoadDeckRun(
+        surface,
+        segment,
+        allRoadSurfaces,
+        edgeRuns,
+      );
       if (deckRun) {
         const slab = createJunctionAwareDeck(
           ctx.scene,
@@ -856,7 +1049,7 @@ export function buildElevatedRoadStructures(
           segment,
           deckRun,
           edgeRuns,
-          surfaces,
+          allRoadSurfaces,
           concrete,
           root,
         );
@@ -1076,7 +1269,7 @@ export function buildElevatedRoadStructures(
 
     for (const pier of elevatedRoadPierPlacements(
       surface,
-      mapPack.geometry.roadSurfaces ?? [],
+      allRoadSurfaces,
     )) {
       const columnHeightM = Math.max(1, pier.elevationM - 0.62);
       const column = MeshBuilder.CreateCylinder(
@@ -1135,7 +1328,7 @@ export function buildElevatedRoadStructures(
   // Constant-width per-road slabs stop at different offsets around a merge.
   // Pour one profiled collar over that shared throat, then wrap its exterior
   // with the same barrier grammar as the ordinary bridge edges.
-  for (const envelope of elevatedRoadJunctionEnvelopes(surfaces)) {
+  for (const envelope of elevatedRoadJunctionEnvelopes(allRoadSurfaces)) {
     const root = new TransformNode(
       `elevated-road-${envelope.id}-collar`,
       ctx.scene,
@@ -1159,7 +1352,7 @@ export function buildElevatedRoadStructures(
     createElevatedJunctionBarriers(
       ctx,
       envelope,
-      surfaces,
+      allRoadSurfaces,
       usesCairoBarrierStyle,
       concrete,
       underside,
@@ -1177,4 +1370,5 @@ export function buildElevatedRoadStructures(
     cairoCoping.freeze();
     cairoRail.freeze();
   }
+  batcher?.finalize();
 }

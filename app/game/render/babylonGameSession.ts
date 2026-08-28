@@ -299,7 +299,7 @@ import {
   instantiateModel,
   instantiateModelInstanced,
   preloadModels,
-  propModelUrls,
+  propModelUrlsForMap,
   vehicleModelUrls,
 } from "../modelLibrary";
 import { nycVendorUrls, type StreetPropConfig } from "../buildingSets";
@@ -2550,7 +2550,7 @@ export class BabylonGameSession {
         [
           ...vehicleModelUrls(),
           ...characterModelUrls(),
-          ...propModelUrls(),
+          ...propModelUrlsForMap(this.options.mapPack),
           ...this.buildingModelUrls,
           ...this.natureModelUrls,
         ],

@@ -5,6 +5,7 @@ import {
   CAIRO_AD_CREATIVES,
   cairoAdAtlasUv,
   cairoAdPlacements,
+  type CairoAdPlacementPlanningMetrics,
 } from "../app/game/cairoAdvertising";
 import { buildingPlacementConfig } from "../app/game/buildingSets";
 import { getCareerVehicle } from "../app/game/career";
@@ -414,6 +415,44 @@ describe("Cairo advertising", () => {
           placement.panelCenterYM >= 12.8,
       ),
     ).toBe(true);
+  });
+
+  it("keeps the spatial skyline search exhaustive-equivalent while pruning distant SAT checks", () => {
+    let spatialMetrics: CairoAdPlacementPlanningMetrics | undefined;
+    let exhaustiveMetrics: CairoAdPlacementPlanningMetrics | undefined;
+    const spatial = cairoAdPlacements(CAIRO_MAP_PACK, CAIRO_BUILDING_LAYOUT, {
+      skylineReservationSearch: "spatial",
+      onPlanningMetrics: (metrics) => {
+        spatialMetrics = metrics;
+      },
+    });
+    const exhaustive = cairoAdPlacements(
+      CAIRO_MAP_PACK,
+      CAIRO_BUILDING_LAYOUT,
+      {
+        skylineReservationSearch: "exhaustive",
+        onPlanningMetrics: (metrics) => {
+          exhaustiveMetrics = metrics;
+        },
+      },
+    );
+
+    // Equality covers every first-valid search decision: IDs, sides, fallback
+    // offsets, headings and exact coordinates all remain byte-for-byte stable.
+    expect(spatial).toEqual(exhaustive);
+    expect(spatialMetrics).toBeDefined();
+    expect(exhaustiveMetrics).toBeDefined();
+    expect(spatialMetrics!.skylineCandidateAttempts).toBe(
+      exhaustiveMetrics!.skylineCandidateAttempts,
+    );
+    expect(exhaustiveMetrics!.totalExactFootprintTests).toBeGreaterThan(
+      9_000_000,
+    );
+    expect(spatialMetrics!.totalExactFootprintTests).toBeLessThan(
+      exhaustiveMetrics!.totalExactFootprintTests / 100,
+    );
+    expect(spatialMetrics!.roadReservationTests).toBeLessThan(20_000);
+    expect(spatialMetrics!.buildingReservationTests).toBeLessThan(20_000);
   });
 
   it("keeps every pole-banner support in its source pavement band and out of every crossing road", () => {

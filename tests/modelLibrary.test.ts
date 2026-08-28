@@ -3,7 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { NullEngine, Scene, LoadAssetContainerAsync } from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
-import { PROP_MODEL_REGISTRY } from "../app/game/modelLibrary";
+import {
+  PROP_MODEL_REGISTRY,
+  propModelUrlsForMap,
+} from "../app/game/modelLibrary";
 import { ALL_ENV_MODELS } from "../app/game/buildingCatalog";
 import { MAP_PACKS } from "../app/game/content";
 import { SERVICE_MODEL_FRAME, gasStationsOf } from "../app/game/servicePoints";
@@ -164,6 +167,27 @@ describe("prop (environment building) model assets", () => {
           .toBeDefined();
       }
     }
+  });
+
+  it("preloads exactly the prop models authored by each map", () => {
+    for (const pack of MAP_PACKS) {
+      const expected = new Set<string>();
+      for (const venue of pack.geometry.gigVenues ?? []) {
+        const config = PROP_MODEL_REGISTRY[venue.modelId ?? venue.kind];
+        if (config) expected.add(config.url);
+      }
+      for (const service of pack.geometry.servicePoints ?? []) {
+        const config = PROP_MODEL_REGISTRY[service.kind];
+        if (config) expected.add(config.url);
+      }
+      expect(new Set(propModelUrlsForMap(pack)), pack.id).toEqual(expected);
+    }
+
+    const cairo = MAP_PACKS.find((pack) => pack.id === "cairo-central-nile");
+    expect(cairo).toBeDefined();
+    const cairoUrls = propModelUrlsForMap(cairo!);
+    expect(cairoUrls).toHaveLength(7);
+    expect(cairoUrls.some((url) => url.includes("tokyo-"))).toBe(false);
   });
 
   it("uses the Cairo residence variants only on the Cairo map", () => {

@@ -120,6 +120,17 @@ export interface NormalizedLane {
   successorLaneIds: string[];
   loop: boolean;
   segmentLengths: number[];
+  /** Per-segment geometry derived once at normalization. Projection and traffic
+   * queries used to rebuild each of these values in their inner loops; Cairo's
+   * 10k-segment graph made that repeated arithmetic a measurable fixed-tick
+   * cost. All arrays share `segmentLengths`' index and never mutate. */
+  segmentDeltaX: number[];
+  segmentDeltaZ: number[];
+  segmentLengthSquared: number[];
+  segmentHeadings: number[];
+  segmentEndDistances: number[];
+  segmentStartElevationsM: number[];
+  segmentElevationDeltasM: number[];
   length: number;
   /** Highest authored point on this lane. A lane whose profile ever rises
    * into structural bridge height cannot be acquired from an unrelated
@@ -196,6 +207,50 @@ export interface RouteSearchCounterSnapshot {
   readonly maxLanesVisited: number;
 }
 
+/** Optional, behavior-neutral scan accounting for projection benchmarks and
+ * regression tests. Counters stay disabled until resetProjectionScanCounters
+ * is called, so production projection does not increment per-segment metrics. */
+export interface ProjectionScanCounterSnapshot {
+  readonly calls: number;
+  readonly plainCalls: number;
+  readonly preferredCalls: number;
+  readonly totalSegmentVisits: number;
+  readonly compatibleSegmentVisits: number;
+  readonly globalSegmentVisits: number;
+  readonly selectionSegmentVisits: number;
+  readonly raisedFallbackCalls: number;
+}
+
+export interface LanePointSearchCounterSnapshot {
+  readonly calls: number;
+  readonly comparisons: number;
+  readonly maxComparisons: number;
+}
+
+interface MutableProjectionScanCounters {
+  calls: number;
+  plainCalls: number;
+  preferredCalls: number;
+  totalSegmentVisits: number;
+  compatibleSegmentVisits: number;
+  globalSegmentVisits: number;
+  selectionSegmentVisits: number;
+  raisedFallbackCalls: number;
+}
+
+function emptyProjectionScanCounters(): MutableProjectionScanCounters {
+  return {
+    calls: 0,
+    plainCalls: 0,
+    preferredCalls: 0,
+    totalSegmentVisits: 0,
+    compatibleSegmentVisits: 0,
+    globalSegmentVisits: 0,
+    selectionSegmentVisits: 0,
+    raisedFallbackCalls: 0,
+  };
+}
+
 /**
  * How far along the route ahead `routeDistanceAhead` will look before giving
  * up and calling a car "not ahead of me".
@@ -229,11 +284,32 @@ function normalizeLane(lane: SimulationLane): NormalizedLane {
     throw new Error(`Simulation lane "${lane.id}" needs at least two finite points.`);
   }
   const segmentLengths: number[] = [];
+  const segmentDeltaX: number[] = [];
+  const segmentDeltaZ: number[] = [];
+  const segmentLengthSquared: number[] = [];
+  const segmentHeadings: number[] = [];
+  const segmentEndDistances: number[] = [];
+  const segmentStartElevationsM: number[] = [];
+  const segmentElevationDeltasM: number[] = [];
   let length = 0;
   for (let index = 0; index < points.length - 1; index += 1) {
-    const segmentLength = Math.sqrt(distanceSquared(points[index], points[index + 1]));
+    const start = points[index];
+    const end = points[index + 1];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const lengthSquared = dx * dx + dz * dz;
+    const segmentLength = Math.sqrt(lengthSquared);
     segmentLengths.push(segmentLength);
+    segmentDeltaX.push(dx);
+    segmentDeltaZ.push(dz);
+    segmentLengthSquared.push(lengthSquared);
+    segmentHeadings.push(Math.atan2(dx, dz));
+    segmentStartElevationsM.push(start.elevationM ?? 0);
+    segmentElevationDeltasM.push(
+      (end.elevationM ?? 0) - (start.elevationM ?? 0),
+    );
     length += segmentLength;
+    segmentEndDistances.push(length);
   }
   if (length <= Number.EPSILON) {
     throw new Error(`Simulation lane "${lane.id}" has no usable length.`);
@@ -254,6 +330,13 @@ function normalizeLane(lane: SimulationLane): NormalizedLane {
     successorLaneIds: [...(lane.successorLaneIds ?? [])],
     loop: lane.loop ?? true,
     segmentLengths,
+    segmentDeltaX,
+    segmentDeltaZ,
+    segmentLengthSquared,
+    segmentHeadings,
+    segmentEndDistances,
+    segmentStartElevationsM,
+    segmentElevationDeltasM,
     length,
     maxElevationM,
   };
@@ -376,6 +459,12 @@ export class RoadNetwork {
     lanesVisited: 0,
     maxLanesVisited: 0,
   };
+  private projectionScanCounters: MutableProjectionScanCounters | null = null;
+  private lanePointSearchCounters: {
+    calls: number;
+    comparisons: number;
+    maxComparisons: number;
+  } | null = null;
 
   constructor(
     lanes: readonly SimulationLane[],
@@ -441,6 +530,33 @@ export class RoadNetwork {
     this.routeSearchCounters = { calls: 0, lanesVisited: 0, maxLanesVisited: 0 };
   }
 
+  /** Enables and clears projection scan accounting. Kept opt-in so the live
+   * fixed-step path pays no counter writes unless a benchmark explicitly asks
+   * for them. */
+  resetProjectionScanCounters(): void {
+    this.projectionScanCounters = emptyProjectionScanCounters();
+  }
+
+  getProjectionScanCounters(): ProjectionScanCounterSnapshot {
+    return this.projectionScanCounters
+      ? { ...this.projectionScanCounters }
+      : emptyProjectionScanCounters();
+  }
+
+  resetLanePointSearchCounters(): void {
+    this.lanePointSearchCounters = {
+      calls: 0,
+      comparisons: 0,
+      maxComparisons: 0,
+    };
+  }
+
+  getLanePointSearchCounters(): LanePointSearchCounterSnapshot {
+    return this.lanePointSearchCounters
+      ? { ...this.lanePointSearchCounters }
+      : { calls: 0, comparisons: 0, maxComparisons: 0 };
+  }
+
   /**
    * Adds the road surfaces that physically continue from one directed lane.
    * Vehicle headroom uses this at its leading/trailing capsule samples: the
@@ -492,31 +608,55 @@ export class RoadNetwork {
   }
 
   pointOnLane(lane: NormalizedLane, rawDistance: number): SimulationPose {
+    const searchCounters = this.lanePointSearchCounters;
+    if (searchCounters) searchCounters.calls += 1;
     let distance = rawDistance;
     if (lane.loop && (distance < 0 || distance > lane.length)) {
       distance = ((distance % lane.length) + lane.length) % lane.length;
     } else {
       distance = clamp(distance, 0, lane.length);
     }
-    let accumulated = 0;
-    for (let index = 0; index < lane.segmentLengths.length; index += 1) {
-      const segmentLength = lane.segmentLengths[index];
-      if (distance <= accumulated + segmentLength || index === lane.segmentLengths.length - 1) {
-        const amount = segmentLength > 0 ? (distance - accumulated) / segmentLength : 0;
-        const start = lane.points[index];
-        const end = lane.points[index + 1];
-        const clampedAmount = clamp(amount, 0, 1);
-        const elevationM =
-          (start.elevationM ?? 0) +
-          ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * clampedAmount;
-        return {
-          x: start.x + (end.x - start.x) * clampedAmount,
-          z: start.z + (end.z - start.z) * clampedAmount,
-          ...(elevationM > 0 ? { elevationM } : {}),
-          heading: Math.atan2(end.x - start.x, end.z - start.z),
-        };
+    // First cumulative endpoint >= distance. `<=` is load-bearing: at an exact
+    // authored vertex the legacy linear walk selected the segment ending there,
+    // not the one beginning there, so its incoming heading remains observable.
+    let low = 0;
+    let high = lane.segmentEndDistances.length - 1;
+    if (searchCounters) {
+      let comparisons = 0;
+      while (low < high) {
+        comparisons += 1;
+        const middle = Math.floor((low + high) / 2);
+        if (distance <= lane.segmentEndDistances[middle]) high = middle;
+        else low = middle + 1;
       }
-      accumulated += segmentLength;
+      searchCounters.comparisons += comparisons;
+      searchCounters.maxComparisons = Math.max(
+        searchCounters.maxComparisons,
+        comparisons,
+      );
+    } else {
+      while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (distance <= lane.segmentEndDistances[middle]) high = middle;
+        else low = middle + 1;
+      }
+    }
+    if (low >= 0) {
+      const index = low;
+      const segmentLength = lane.segmentLengths[index];
+      const accumulated = index === 0 ? 0 : lane.segmentEndDistances[index - 1];
+      const amount = segmentLength > 0 ? (distance - accumulated) / segmentLength : 0;
+      const start = lane.points[index];
+      const clampedAmount = clamp(amount, 0, 1);
+      const elevationM =
+        lane.segmentStartElevationsM[index] +
+        lane.segmentElevationDeltasM[index] * clampedAmount;
+      return {
+        x: start.x + lane.segmentDeltaX[index] * clampedAmount,
+        z: start.z + lane.segmentDeltaZ[index] * clampedAmount,
+        ...(elevationM > 0 ? { elevationM } : {}),
+        heading: lane.segmentHeadings[index],
+      };
     }
     const final = lane.points[lane.points.length - 1];
     return {
@@ -534,8 +674,13 @@ export class RoadNetwork {
     z: number,
     preference?: RoadProjectionPreference,
   ): LaneProjection | null {
+    const scanCounters = this.projectionScanCounters;
+    if (scanCounters) {
+      scanCounters.calls += 1;
+      if (preference) scanCounters.preferredCalls += 1;
+      else scanCounters.plainCalls += 1;
+    }
     if (preference) {
-      let minimumDistance = Number.POSITIVE_INFINITY;
       let minimumElevationCompatibleDistance = Number.POSITIVE_INFINITY;
       const preferredElevationM = Number.isFinite(preference.preferredElevationM)
         ? Math.max(0, preference.preferredElevationM ?? 0)
@@ -613,40 +758,48 @@ export class RoadNetwork {
         preferredElevationM !== null &&
         (allowUnconnectedElevationCapture ||
           (continuityLaneIds.size === 0 && !groundHeightPreference));
-      for (const lane of this.lanes) {
-        const elevationCandidateLane =
-          scanAllLanesForElevation ||
-          (groundHeightPreference
-            ? lane.maxElevationM < ELEVATED_ROAD_STRUCTURE_THRESHOLD_M ||
-              groundProfileCaptureLaneIds.has(lane.id)
-            : continuityLaneIds.has(lane.id));
-        for (let index = 0; index < lane.points.length - 1; index += 1) {
-          const start = lane.points[index];
-          const end = lane.points[index + 1];
-          const dx = end.x - start.x;
-          const dz = end.z - start.z;
-          const lengthSquared = dx * dx + dz * dz;
-          const amount =
-            lengthSquared > Number.EPSILON
-              ? clamp(
-                  ((x - start.x) * dx + (z - start.z) * dz) / lengthSquared,
-                  0,
-                  1,
-                )
-              : 0;
-          const nearestX = start.x + dx * amount;
-          const nearestZ = start.z + dz * amount;
-          const distance = Math.hypot(x - nearestX, z - nearestZ);
-          minimumDistance = Math.min(minimumDistance, distance);
-          if (
-            elevationCandidateLane &&
-            preferredElevationM !== null &&
-            Math.abs(
-              (start.elevationM ?? 0) +
-                ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount -
-                preferredElevationM,
-            ) <= elevationContinuityM
-          ) {
+      // Find the nearest legal height first. The former implementation found
+      // the global plan-view minimum in the same pass, but then discarded it
+      // whenever the height lock engaged. Ground always locks; a raised road
+      // locks whenever continuity is within the existing capture radius. Only
+      // a genuinely detached raised pose therefore needs the global fallback.
+      if (preferredElevationM !== null) {
+        for (const lane of this.lanes) {
+          const elevationCandidateLane =
+            scanAllLanesForElevation ||
+            (groundHeightPreference
+              ? lane.maxElevationM < ELEVATED_ROAD_STRUCTURE_THRESHOLD_M ||
+                groundProfileCaptureLaneIds.has(lane.id)
+              : continuityLaneIds.has(lane.id));
+          if (!elevationCandidateLane) continue;
+          if (scanCounters) {
+            scanCounters.totalSegmentVisits += lane.segmentLengths.length;
+            scanCounters.compatibleSegmentVisits += lane.segmentLengths.length;
+          }
+          for (let index = 0; index < lane.segmentLengths.length; index += 1) {
+            const start = lane.points[index];
+            const dx = lane.segmentDeltaX[index];
+            const dz = lane.segmentDeltaZ[index];
+            const lengthSquared = lane.segmentLengthSquared[index];
+            const amount =
+              lengthSquared > Number.EPSILON
+                ? clamp(
+                    ((x - start.x) * dx + (z - start.z) * dz) / lengthSquared,
+                    0,
+                    1,
+                  )
+                : 0;
+            const elevationM =
+              lane.segmentStartElevationsM[index] +
+              lane.segmentElevationDeltasM[index] * amount;
+            if (
+              Math.abs(elevationM - preferredElevationM) > elevationContinuityM
+            ) {
+              continue;
+            }
+            const nearestX = start.x + dx * amount;
+            const nearestZ = start.z + dz * amount;
+            const distance = Math.hypot(x - nearestX, z - nearestZ);
             minimumElevationCompatibleDistance = Math.min(
               minimumElevationCompatibleDistance,
               distance,
@@ -654,7 +807,6 @@ export class RoadNetwork {
           }
         }
       }
-      if (!Number.isFinite(minimumDistance)) return null;
       // Ground is a physical layer, not a proximity hint. If no legal lane at
       // that layer exists, returning no projection keeps the car on the ground
       // and off-road instead of assigning the closest deck's height.
@@ -668,9 +820,42 @@ export class RoadNetwork {
         preferredElevationM !== null &&
         (groundHeightPreference ||
           minimumElevationCompatibleDistance <= elevationCaptureDistanceM);
-      if (lockToContinuousElevation) {
-        minimumDistance = minimumElevationCompatibleDistance;
+      let minimumDistance = minimumElevationCompatibleDistance;
+      if (!lockToContinuousElevation) {
+        minimumDistance = Number.POSITIVE_INFINITY;
+        if (
+          scanCounters &&
+          preferredElevationM !== null &&
+          !groundHeightPreference
+        ) {
+          scanCounters.raisedFallbackCalls += 1;
+        }
+        for (const lane of this.lanes) {
+          if (scanCounters) {
+            scanCounters.totalSegmentVisits += lane.segmentLengths.length;
+            scanCounters.globalSegmentVisits += lane.segmentLengths.length;
+          }
+          for (let index = 0; index < lane.segmentLengths.length; index += 1) {
+            const start = lane.points[index];
+            const dx = lane.segmentDeltaX[index];
+            const dz = lane.segmentDeltaZ[index];
+            const lengthSquared = lane.segmentLengthSquared[index];
+            const amount =
+              lengthSquared > Number.EPSILON
+                ? clamp(
+                    ((x - start.x) * dx + (z - start.z) * dz) / lengthSquared,
+                    0,
+                    1,
+                  )
+                : 0;
+            const nearestX = start.x + dx * amount;
+            const nearestZ = start.z + dz * amount;
+            const distance = Math.hypot(x - nearestX, z - nearestZ);
+            minimumDistance = Math.min(minimumDistance, distance);
+          }
+        }
       }
+      if (!Number.isFinite(minimumDistance)) return null;
       const authoredTieEpsilon = Math.max(
         0,
         Number.isFinite(preference.distanceTieEpsilonM)
@@ -698,10 +883,15 @@ export class RoadNetwork {
         ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
         ? tieEpsilon
         : Math.min(tieEpsilon, 0.025);
-      let best: LaneProjection | null = null;
+      let bestLane: NormalizedLane | null = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      let bestDistanceAlong = 0;
+      let bestHeading = 0;
+      let bestX = 0;
+      let bestZ = 0;
+      let bestElevationM = 0;
       let bestHeadingDifference = Number.POSITIVE_INFINITY;
       let bestPreferred = false;
-      let accumulated = 0;
       for (const lane of this.lanes) {
         const elevationCandidateLane =
           scanAllLanesForElevation ||
@@ -712,13 +902,15 @@ export class RoadNetwork {
         if (lockToContinuousElevation && !elevationCandidateLane) {
           continue;
         }
-        accumulated = 0;
-        for (let index = 0; index < lane.points.length - 1; index += 1) {
+        if (scanCounters) {
+          scanCounters.totalSegmentVisits += lane.segmentLengths.length;
+          scanCounters.selectionSegmentVisits += lane.segmentLengths.length;
+        }
+        for (let index = 0; index < lane.segmentLengths.length; index += 1) {
           const start = lane.points[index];
-          const end = lane.points[index + 1];
-          const dx = end.x - start.x;
-          const dz = end.z - start.z;
-          const lengthSquared = dx * dx + dz * dz;
+          const dx = lane.segmentDeltaX[index];
+          const dz = lane.segmentDeltaZ[index];
+          const lengthSquared = lane.segmentLengthSquared[index];
           const amount =
             lengthSquared > Number.EPSILON
               ? clamp(
@@ -731,61 +923,71 @@ export class RoadNetwork {
           const nearestZ = start.z + dz * amount;
           const distance = Math.hypot(x - nearestX, z - nearestZ);
           const elevationM =
-            (start.elevationM ?? 0) +
-            ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+            lane.segmentStartElevationsM[index] +
+            lane.segmentElevationDeltasM[index] * amount;
           if (
             lockToContinuousElevation &&
             preferredElevationM !== null &&
             Math.abs(elevationM - preferredElevationM) > elevationContinuityM
           ) {
-            accumulated += lane.segmentLengths[index];
             continue;
           }
           if (distance > minimumDistance + tieEpsilon + 1e-9) {
-            accumulated += lane.segmentLengths[index];
             continue;
           }
-          const heading = Math.atan2(dx, dz);
+          const heading = lane.segmentHeadings[index];
           const headingDifference = Math.abs(
             angleDifference(heading, preference.heading),
           );
           const distanceAlong =
-            accumulated + lane.segmentLengths[index] * amount;
+            (index === 0 ? 0 : lane.segmentEndDistances[index - 1]) +
+            lane.segmentLengths[index] * amount;
           const preferred = lane.id === preference.preferredLaneId;
           const preferredLaneDecision =
-            best && preferred !== bestPreferred
+            bestLane && preferred !== bestPreferred
               ? preferred
-                ? distance <= best.distance + preferredLaneHysteresisM
-                : distance < best.distance - preferredLaneHysteresisM
+                ? distance <= bestDistance + preferredLaneHysteresisM
+                : distance < bestDistance - preferredLaneHysteresisM
               : null;
           if (
-            !best ||
+            !bestLane ||
             preferredLaneDecision === true ||
             (preferred === bestPreferred &&
               (headingDifference < bestHeadingDifference - 1e-9 ||
                 (Math.abs(headingDifference - bestHeadingDifference) <=
                   1e-9 &&
-                  (lane.id < best.lane.id ||
-                    (lane.id === best.lane.id &&
-                      distanceAlong < best.distanceAlong)))))
+                  (lane.id < bestLane.id ||
+                    (lane.id === bestLane.id &&
+                      distanceAlong < bestDistanceAlong)))))
           ) {
-            best = {
-              lane,
-              distance,
-              distanceAlong,
-              heading,
-              x: nearestX,
-              z: nearestZ,
-              elevationM,
-            };
+            bestLane = lane;
+            bestDistance = distance;
+            bestDistanceAlong = distanceAlong;
+            bestHeading = heading;
+            bestX = nearestX;
+            bestZ = nearestZ;
+            bestElevationM = elevationM;
             bestHeadingDifference = headingDifference;
             bestPreferred = preferred;
           }
-          accumulated += lane.segmentLengths[index];
         }
       }
-      return best;
+      return bestLane
+        ? {
+            lane: bestLane,
+            distance: bestDistance,
+            distanceAlong: bestDistanceAlong,
+            heading: bestHeading,
+            x: bestX,
+            z: bestZ,
+            elevationM: bestElevationM,
+          }
+        : null;
     }
+    // The no-preference path is already one exact-nearest pass. Keep its
+    // compact legacy loop: the elevation-aware optimization above is where a
+    // discarded global pass existed, while parallel cache-array reads here
+    // benchmark slower than V8's direct point-object access on small maps.
     let best: LaneProjection | null = null;
     for (const lane of this.lanes) {
       let accumulated = 0;
@@ -819,6 +1021,15 @@ export class RoadNetwork {
         }
         accumulated += lane.segmentLengths[index];
       }
+    }
+    if (scanCounters) {
+      const segmentVisits = this.lanes.reduce(
+        (sum, lane) => sum + lane.segmentLengths.length,
+        0,
+      );
+      scanCounters.totalSegmentVisits += segmentVisits;
+      scanCounters.globalSegmentVisits += segmentVisits;
+      scanCounters.selectionSegmentVisits += segmentVisits;
     }
     return best;
   }

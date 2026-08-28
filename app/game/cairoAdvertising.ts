@@ -517,6 +517,12 @@ const SKYLINE_MIN_MUTUAL_SPACING_M = 50;
 const SKYLINE_GAP_SEARCH_STEP_M = 5;
 const SKYLINE_GAP_SEARCH_FRACTION = 0.48;
 const SKYLINE_EXTRA_SETBACKS_M = [0, 0.75, 1.5, 2.25] as const;
+// The billboard resolver used to test every candidate against every road
+// segment and every rendered building. Cairo has thousands of those solids,
+// so scene construction spent most of its time proving that distant objects
+// could not overlap. A conservative AABB grid only narrows the candidate set;
+// the exact oriented-footprint SAT below remains the final predicate.
+const SKYLINE_RESERVATION_GRID_CELL_M = 48;
 // 55 degrees is the original, strongly driver-facing stance. Later entries
 // are fallbacks only; the current Cairo layout finds a real gap for every
 // board at the first angle.
@@ -525,6 +531,140 @@ const CAIRO_AD_PLACEMENT_CACHE = new WeakMap<
   BuildingLayoutPlan,
   readonly CairoAdPlacement[]
 >();
+
+export interface CairoAdPlacementPlanningMetrics {
+  readonly skylineCandidateAttempts: number;
+  readonly roadReservationTests: number;
+  readonly buildingReservationTests: number;
+  readonly groundReservationTests: number;
+  readonly acceptedBillboardTests: number;
+  readonly totalExactFootprintTests: number;
+}
+
+/**
+ * Optional uncached planning controls used by performance characterization and
+ * the exhaustive-equivalence regression test. Ordinary callers should omit
+ * this argument and receive the cached, spatially indexed production plan.
+ */
+export interface CairoAdPlacementPlanningOptions {
+  readonly skylineReservationSearch?: "spatial" | "exhaustive";
+  readonly onPlanningMetrics?: (
+    metrics: CairoAdPlacementPlanningMetrics,
+  ) => void;
+}
+
+interface MutableCairoAdPlacementPlanningMetrics {
+  skylineCandidateAttempts: number;
+  roadReservationTests: number;
+  buildingReservationTests: number;
+  groundReservationTests: number;
+  acceptedBillboardTests: number;
+}
+
+interface FootprintBounds {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+}
+
+function footprintBounds(footprint: OrientedFootprint): FootprintBounds {
+  const radiusX =
+    footprint.halfU * Math.abs(footprint.axisU.x) +
+    footprint.halfV * Math.abs(footprint.axisV.x);
+  const radiusZ =
+    footprint.halfU * Math.abs(footprint.axisU.z) +
+    footprint.halfV * Math.abs(footprint.axisV.z);
+  return {
+    minX: footprint.center.x - radiusX,
+    maxX: footprint.center.x + radiusX,
+    minZ: footprint.center.z - radiusZ,
+    maxZ: footprint.center.z + radiusZ,
+  };
+}
+
+/**
+ * Conservative broadphase over immutable reservation footprints. Every OBB is
+ * inserted into every grid cell touched by its world-space AABB. Therefore any
+ * pair that can pass the exact SAT necessarily shares at least one queried
+ * cell. Results are sorted back into authored array order so even the existing
+ * short-circuit traversal stays deterministic.
+ */
+class SkylineReservationGrid {
+  private readonly rows = new Map<number, Map<number, number[]>>();
+  private readonly queryMarks: Uint32Array;
+  private queryGeneration = 0;
+
+  constructor(private readonly footprints: readonly OrientedFootprint[]) {
+    this.queryMarks = new Uint32Array(footprints.length);
+    footprints.forEach((footprint, footprintIndex) => {
+      const bounds = footprintBounds(footprint);
+      const minCellX = Math.floor(
+        bounds.minX / SKYLINE_RESERVATION_GRID_CELL_M,
+      );
+      const maxCellX = Math.floor(
+        bounds.maxX / SKYLINE_RESERVATION_GRID_CELL_M,
+      );
+      const minCellZ = Math.floor(
+        bounds.minZ / SKYLINE_RESERVATION_GRID_CELL_M,
+      );
+      const maxCellZ = Math.floor(
+        bounds.maxZ / SKYLINE_RESERVATION_GRID_CELL_M,
+      );
+      for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+        let row = this.rows.get(cellZ);
+        if (!row) {
+          row = new Map<number, number[]>();
+          this.rows.set(cellZ, row);
+        }
+        for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+          const existing = row.get(cellX);
+          if (existing) existing.push(footprintIndex);
+          else row.set(cellX, [footprintIndex]);
+        }
+      }
+    });
+  }
+
+  candidatesFor(footprint: OrientedFootprint): readonly OrientedFootprint[] {
+    if (this.footprints.length === 0) return [];
+    this.queryGeneration += 1;
+    if (this.queryGeneration === 0xffffffff) {
+      this.queryMarks.fill(0);
+      this.queryGeneration = 1;
+    }
+    const generation = this.queryGeneration;
+    const bounds = footprintBounds(footprint);
+    const minCellX = Math.floor(
+      bounds.minX / SKYLINE_RESERVATION_GRID_CELL_M,
+    );
+    const maxCellX = Math.floor(
+      bounds.maxX / SKYLINE_RESERVATION_GRID_CELL_M,
+    );
+    const minCellZ = Math.floor(
+      bounds.minZ / SKYLINE_RESERVATION_GRID_CELL_M,
+    );
+    const maxCellZ = Math.floor(
+      bounds.maxZ / SKYLINE_RESERVATION_GRID_CELL_M,
+    );
+    const candidateIndices: number[] = [];
+    for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+      const row = this.rows.get(cellZ);
+      if (!row) continue;
+      for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+        const cell = row.get(cellX);
+        if (!cell) continue;
+        for (const footprintIndex of cell) {
+          if (this.queryMarks[footprintIndex] === generation) continue;
+          this.queryMarks[footprintIndex] = generation;
+          candidateIndices.push(footprintIndex);
+        }
+      }
+    }
+    candidateIndices.sort((left, right) => left - right);
+    return candidateIndices.map((index) => this.footprints[index]);
+  }
+}
 
 function orientedFootprint(
   center: GameCanvasPoint,
@@ -577,6 +717,57 @@ function footprintsOverlap(
       return separationM <= firstRadiusM + secondRadiusM;
     },
   );
+}
+
+type FixedReservationMetricKey =
+  | "roadReservationTests"
+  | "buildingReservationTests"
+  | "groundReservationTests";
+
+function overlapsAnyReservation(
+  footprint: OrientedFootprint,
+  exhaustiveReservations: readonly OrientedFootprint[],
+  spatialReservations: SkylineReservationGrid | undefined,
+  metrics: MutableCairoAdPlacementPlanningMetrics,
+  metricKey: FixedReservationMetricKey,
+): boolean {
+  const reservations = spatialReservations
+    ? spatialReservations.candidatesFor(footprint)
+    : exhaustiveReservations;
+  return reservations.some((reserved) => {
+    metrics[metricKey] += 1;
+    return footprintsOverlap(footprint, reserved);
+  });
+}
+
+function overlapsAcceptedBillboard(
+  position: GameCanvasPoint,
+  widthM: number,
+  headingRad: number,
+  sourceRoadId: string,
+  accepted: readonly SkylineCandidate[],
+  metrics: MutableCairoAdPlacementPlanningMetrics,
+): boolean {
+  let spacingFootprint: OrientedFootprint | undefined;
+  return accepted.some((other) => {
+    if (
+      other.sourceRoadId === sourceRoadId &&
+      Math.hypot(
+        position.x - other.position.x,
+        position.z - other.position.z,
+      ) < SKYLINE_MIN_MUTUAL_SPACING_M
+    ) {
+      return true;
+    }
+    metrics.acceptedBillboardTests += 1;
+    spacingFootprint ??= billboardInstallationFootprint(
+      position,
+      widthM,
+      headingRad,
+      0.7,
+    );
+    return footprintsOverlap(spacingFootprint, other.footprint);
+  });
 }
 
 function roadFootprints(mapPack: GameCanvasMapPack): OrientedFootprint[] {
@@ -745,6 +936,8 @@ function poleBannerPlacements(mapPack: GameCanvasMapPack): CairoAdPlacement[] {
 function skylineBillboardPlacements(
   mapPack: GameCanvasMapPack,
   buildingLayout: BuildingLayoutPlan,
+  options: CairoAdPlacementPlanningOptions,
+  metrics: MutableCairoAdPlacementPlanningMetrics,
 ): CairoAdPlacement[] {
   const roads = new Map(
     (mapPack.geometry.roadSurfaces ?? []).map((road) => [road.id, road]),
@@ -786,6 +979,17 @@ function skylineBillboardPlacements(
       SKYLINE_BUILDING_BUFFER_M,
     ),
   );
+  const useSpatialReservations =
+    options.skylineReservationSearch !== "exhaustive";
+  const roadsSpatial = useSpatialReservations
+    ? new SkylineReservationGrid(roadsReserved)
+    : undefined;
+  const buildingsSpatial = useSpatialReservations
+    ? new SkylineReservationGrid(buildingsReserved)
+    : undefined;
+  const groundSpatial = useSpatialReservations
+    ? new SkylineReservationGrid(groundReserved)
+    : undefined;
   const accepted: SkylineCandidate[] = [];
   const placements: CairoAdPlacement[] = [];
 
@@ -848,33 +1052,37 @@ function skylineBillboardPlacements(
                 widthM,
                 headingRad,
               );
+              metrics.skylineCandidateAttempts += 1;
               if (
-                roadsReserved.some((reserved) =>
-                  footprintsOverlap(footprint, reserved),
+                overlapsAnyReservation(
+                  footprint,
+                  roadsReserved,
+                  roadsSpatial,
+                  metrics,
+                  "roadReservationTests",
                 ) ||
-                buildingsReserved.some((reserved) =>
-                  footprintsOverlap(footprint, reserved),
+                overlapsAnyReservation(
+                  footprint,
+                  buildingsReserved,
+                  buildingsSpatial,
+                  metrics,
+                  "buildingReservationTests",
                 ) ||
-                groundReserved.some((reserved) =>
-                  footprintsOverlap(footprint, reserved),
+                overlapsAnyReservation(
+                  footprint,
+                  groundReserved,
+                  groundSpatial,
+                  metrics,
+                  "groundReservationTests",
                 ) ||
                 supportIsOverWater(mapPack, position) ||
-                accepted.some(
-                  (other) =>
-                    (other.sourceRoadId === road.id &&
-                      Math.hypot(
-                        position.x - other.position.x,
-                        position.z - other.position.z,
-                      ) < SKYLINE_MIN_MUTUAL_SPACING_M) ||
-                    footprintsOverlap(
-                      billboardInstallationFootprint(
-                        position,
-                        widthM,
-                        headingRad,
-                        0.7,
-                      ),
-                      other.footprint,
-                    ),
+                overlapsAcceptedBillboard(
+                  position,
+                  widthM,
+                  headingRad,
+                  road.id,
+                  accepted,
+                  metrics,
                 )
               ) {
                 continue;
@@ -1048,6 +1256,7 @@ function bridgeGantryPlacements(mapPack: GameCanvasMapPack): CairoAdPlacement[] 
 export function cairoAdPlacements(
   mapPack: GameCanvasMapPack,
   buildingLayout?: BuildingLayoutPlan,
+  options?: CairoAdPlacementPlanningOptions,
 ): readonly CairoAdPlacement[] {
   if (mapPack.id !== "cairo-central-nile") return [];
   if (!buildingLayout || buildingLayout.mapId !== mapPack.id) {
@@ -1055,14 +1264,38 @@ export function cairoAdPlacements(
       `Cairo advertising requires the exact ${mapPack.id} building layout`,
     );
   }
-  const cached = CAIRO_AD_PLACEMENT_CACHE.get(buildingLayout);
+  // Diagnostic/exhaustive calls deliberately bypass the production cache so
+  // tests can measure both planners against the very same immutable layout.
+  const cached = options
+    ? undefined
+    : CAIRO_AD_PLACEMENT_CACHE.get(buildingLayout);
   if (cached) return cached;
+  const metrics: MutableCairoAdPlacementPlanningMetrics = {
+    skylineCandidateAttempts: 0,
+    roadReservationTests: 0,
+    buildingReservationTests: 0,
+    groundReservationTests: 0,
+    acceptedBillboardTests: 0,
+  };
   const placements = [
     ...poleBannerPlacements(mapPack),
-    ...skylineBillboardPlacements(mapPack, buildingLayout),
+    ...skylineBillboardPlacements(
+      mapPack,
+      buildingLayout,
+      options ?? {},
+      metrics,
+    ),
     ...bridgeSideSignPlacements(mapPack),
     ...bridgeGantryPlacements(mapPack),
   ];
-  CAIRO_AD_PLACEMENT_CACHE.set(buildingLayout, placements);
+  options?.onPlanningMetrics?.({
+    ...metrics,
+    totalExactFootprintTests:
+      metrics.roadReservationTests +
+      metrics.buildingReservationTests +
+      metrics.groundReservationTests +
+      metrics.acceptedBillboardTests,
+  });
+  if (!options) CAIRO_AD_PLACEMENT_CACHE.set(buildingLayout, placements);
   return placements;
 }

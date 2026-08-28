@@ -66,6 +66,29 @@ file here, not just `simulation.ts`. The one clause worth knowing before you
 reach for it: a type-only back-import from `../simulation` is allowed, for
 shared vocabulary like `SimulationPoint`/`TurnSignal`/`MutablePose`.
 
+### Road projection is cached geometry with legacy-exact selection
+
+`RoadNetwork` derives segment deltas, squared lengths, headings, cumulative
+end distances and elevation slopes once while normalizing a lane. Hot queries
+must consume those arrays rather than rebuilding the same geometry. A
+`pointOnLane` lookup uses a left-biased binary search over cumulative endpoints;
+the bias is deliberate because an exact authored vertex retains the legacy
+incoming-segment heading.
+
+Height-aware `projectToRoad` searches only topology/elevation-compatible lanes
+first. Ground projection always locks to that set, and an occupied raised ramp
+locks when its legal continuation is inside the existing capture radius. Only
+a detached raised pose runs the old global fallback. The lane choice, heading
+tie-breaks, hysteresis and returned floats remain unchanged. The frozen legacy
+oracle covers 49,592 lane-point samples and 42,597 Cairo projections, including
+all 814 directed seams; keep that exact equality when changing the scan.
+
+One 10 Hz traffic-locality decision also owns one fresh player projection and
+threads it through every recount, activation and preflight branch. The player
+cannot move during that synchronous decision, so re-projecting inside a recount
+only repeats work. Do not cache it across decisions or substitute the preceding
+fixed tick's `ctx.roadState.projection`.
+
 ## Static obstacles come from the shared building plan, not from blocks
 
 `simulationAdapter.ts`'s `buildStaticObstacles` does not walk
