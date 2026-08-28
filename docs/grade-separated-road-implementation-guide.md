@@ -123,6 +123,12 @@ has cleared both the live street and the coordinated frontage setback. A short
 diagonal from the host centreline to an already-raised slab is neither a taper
 nor a usable on-ramp.
 
+If a kerb-side climb approaches its parent mainline, keep its complete driven
+vehicle envelope out from beneath the parent deck until the ramp is effectively
+at deck height. The shoulder slabs may then overlap to form a closed, gap-free
+gore before the final directed merge span. Match the parent tangent there so
+the pavement seam and barriers converge without a kink.
+
 When dense frontage leaves room for only one auxiliary corridor, separate the
 directions *longitudinally* instead of stacking two low grades side by side:
 let the entrance climb in one block-length, let the exit descend farther along

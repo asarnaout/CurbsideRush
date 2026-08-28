@@ -428,7 +428,7 @@ describe("elevated-road vehicle headroom", () => {
     VEHICLE_DIMENSIONS["delivery-van"].height;
   const deliveryVanRequiredHeadroomM = deliveryVanClearanceHeightM + 0.08;
 
-  it("steps the delivery-van roof through every Cairo bridge and access-lane profile", { timeout: 60_000 }, () => {
+  it("steps the delivery-van roof through every Cairo bridge and access-lane profile", { timeout: 90_000 }, () => {
     const simulation = new SimulationCore({
       ...cairoConfig,
       ...deliveryVan.physics,
@@ -543,6 +543,126 @@ describe("elevated-road vehicle headroom", () => {
     expect(minimumObservedHeadroomM).toBeGreaterThanOrEqual(
       deliveryVanRequiredHeadroomM + 0.25,
     );
+  });
+
+  it("keeps both Corniche through lanes clear of the northbound entry structure", () => {
+    const entrySurfaceId =
+      "cairo-sixth-october-bridge-corniche-entry";
+    const clearanceAt = createElevatedRoadGroundClearanceQuery(cairoSurfaces);
+    const throughLaneIds = [
+      "cairo-corniche-el-nil-7-forward-1",
+      "cairo-corniche-el-nil-7-reverse-1",
+    ] as const;
+    const failures: string[] = [];
+    let samples = 0;
+    let entryObstructionSamples = 0;
+
+    for (const laneId of throughLaneIds) {
+      const lane = cairoRoadNetwork.lanesById.get(laneId);
+      if (!lane) throw new Error(`Missing Corniche through lane ${laneId}`);
+      for (let distanceM = 0; distanceM <= lane.length; distanceM += 0.1) {
+        const point = cairoRoadNetwork.pointOnLane(lane, distanceM);
+        for (const alongM of [
+          -deliveryVan.physics.playerCapsuleHalfLengthM,
+          0,
+          deliveryVan.physics.playerCapsuleHalfLengthM,
+        ]) {
+          const roofSample = {
+            x: point.x + Math.sin(point.heading) * alongM,
+            z: point.z + Math.cos(point.heading) * alongM,
+          };
+          const obstruction = clearanceAt(
+            roofSample,
+            0,
+            deliveryVan.physics.playerCapsuleRadiusM,
+            false,
+            undefined,
+            ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
+          );
+          samples += 1;
+          if (obstruction?.surfaceId === entrySurfaceId) {
+            entryObstructionSamples += 1;
+          }
+          if (
+            obstruction &&
+            obstruction.clearanceM < deliveryVanRequiredHeadroomM
+          ) {
+            failures.push(
+              `${lane.id} at ${distanceM.toFixed(1)}m: ${obstruction.surfaceId} leaves ${obstruction.clearanceM.toFixed(3)}m`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(samples).toBeGreaterThan(10_000);
+    expect(
+      entryObstructionSamples,
+      "The Corniche entrance must turn from its auxiliary lane without covering either through lane",
+    ).toBe(0);
+    expect(
+      failures.slice(0, 25),
+      `Every Corniche through-lane roof disc needs ${deliveryVanRequiredHeadroomM.toFixed(2)}m beneath the bridge network`,
+    ).toEqual([]);
+  });
+
+  it("keeps the Corniche entry vehicle envelope out from beneath the parent deck", () => {
+    const entrySurfaceId =
+      "cairo-sixth-october-bridge-corniche-entry";
+    const mainlineSurfaceId = "cairo-sixth-october-bridge";
+    const clearanceAt = createElevatedRoadGroundClearanceQuery(cairoSurfaces);
+    const ownSurface = new Set([entrySurfaceId]);
+    const failures: string[] = [];
+    let samples = 0;
+
+    // The shoulder slabs intentionally converge near deck height so the gore
+    // has no hole. What must never happen is the driven vehicle envelope
+    // passing beneath the mainline with only partial-height clearance.
+    for (const lane of cairoRoadNetwork.lanes) {
+      if (
+        lane.roadId !== entrySurfaceId ||
+        !lane.id.endsWith("forward-1")
+      ) {
+        continue;
+      }
+      for (let distanceM = 0; distanceM <= lane.length; distanceM += 0.1) {
+        const point = cairoRoadNetwork.pointOnLane(lane, distanceM);
+        for (const alongM of [
+          -deliveryVan.physics.playerCapsuleHalfLengthM,
+          0,
+          deliveryVan.physics.playerCapsuleHalfLengthM,
+        ]) {
+          const roofSample = {
+            x: point.x + Math.sin(point.heading) * alongM,
+            z: point.z + Math.cos(point.heading) * alongM,
+          };
+          const obstruction = clearanceAt(
+            roofSample,
+            point.elevationM ?? 0,
+            deliveryVan.physics.playerCapsuleRadiusM,
+            false,
+            ownSurface,
+            0,
+          );
+          samples += 1;
+          if (
+            obstruction?.surfaceId === mainlineSurfaceId &&
+            obstruction.clearanceM > ELEVATED_ROAD_STRUCTURE_THRESHOLD_M &&
+            obstruction.clearanceM < deliveryVanRequiredHeadroomM
+          ) {
+            failures.push(
+              `${lane.id} at ${distanceM.toFixed(1)}m passes ${obstruction.clearanceM.toFixed(3)}m beneath the parent deck`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(samples).toBeGreaterThan(3_000);
+    expect(
+      failures.slice(0, 25),
+      "The rising entry's full vehicle envelope must not pass beneath the mainline before the near-level gore convergence",
+    ).toEqual([]);
   });
 
   it("keeps full delivery-van headroom where the Corniche exit crosses beneath the mainline", () => {

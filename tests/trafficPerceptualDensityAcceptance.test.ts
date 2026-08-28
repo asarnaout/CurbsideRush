@@ -373,24 +373,24 @@ const COMMITTED_REPRESENTATIVE_ANCHORS: Readonly<
   },
   "cairo-central-nile": {
     sparse: {
-      // Re-anchored after the separated Dokki entry/exit added six legal lane
-      // segments while leaving the ground street continuous.
-      laneId: "cairo-ramses-approach-2-reverse-1",
+      // Re-anchored after the Corniche entry's broad right-hand curve moved
+      // its high merge east along the unchanged Sixth October alignment.
+      laneId: "cairo-ramses-17-forward-1",
       distanceAlongM: 50,
-      expectedFogLaneKm: 5.469_904_801,
-      expectedInnerLaneKm: 2.240_644_232,
+      expectedFogLaneKm: 5.501_011_796,
+      expectedInnerLaneKm: 2.610_399_489,
     },
     median: {
-      laneId: "cairo-dokki-nile-drive-5-reverse-1",
-      distanceAlongM: 150,
-      expectedFogLaneKm: 11.088_985_536,
-      expectedInnerLaneKm: 3.289_470_095,
+      laneId: "cairo-haret-farnsawi-2-forward-1",
+      distanceAlongM: 48.7545,
+      expectedFogLaneKm: 10.897_330_022,
+      expectedInnerLaneKm: 4.619_713_008,
     },
     dense: {
-      laneId: "cairo-sixth-october-bridge-5-forward-2",
-      distanceAlongM: 350,
-      expectedFogLaneKm: 14.500_843_675,
-      expectedInnerLaneKm: 4.900_649_771,
+      laneId: "cairo-qasr-el-nil-street-2-reverse-2",
+      distanceAlongM: 39.4521269695,
+      expectedFogLaneKm: 14.474_889_966,
+      expectedInnerLaneKm: 5.105_351_456,
     },
   },
   "nyc-upper-west-side": {

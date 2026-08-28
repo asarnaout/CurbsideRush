@@ -306,7 +306,10 @@ const cairoNodes: readonly LaneNode[] = [
   node("cairo-sixth-west-crest", -650, 316.73),
   node("cairo-sixth-dokki-merge", -610, 312.52),
   node("cairo-sixth-gezira-merge", -430, 293.6),
-  node("cairo-sixth-corniche-merge", 100, 237.91),
+  // Keep the Corniche entrance merge on the original straight mainline span.
+  // Moving this existing knot east opens enough room for a broad entry arc
+  // without adding a graph segment or changing the bridge's traced alignment.
+  node("cairo-sixth-corniche-merge", 160, 231.6043),
   node("cairo-sixth-ramses-merge", 520, 193.77),
   node("cairo-sixth-east-crest", 570, 188.51),
   // Direct terminal ramps. Each pair stays one-way and on the correct kerb
@@ -383,9 +386,12 @@ const cairoNodes: readonly LaneNode[] = [
   node("cairo-sixth-gezira-carrier-bend", -465, 215),
   node("cairo-sixth-gezira-exit-taper", -430, -80.86),
   node("cairo-sixth-corniche-entry-taper", 101, 124),
-  node("cairo-sixth-corniche-entry-lift", 103, 130),
-  node("cairo-sixth-corniche-entry-mid", 70, 175),
-  node("cairo-sixth-corniche-entry-deck-edge", 65, 226),
+  node("cairo-sixth-corniche-entry-lift", 104.5, 135),
+  // The entrance rises beside the northbound right kerb before it turns.
+  // It reaches full delivery-van clearance before the natural right turn
+  // begins, replacing the old low diagonal slab across the street.
+  node("cairo-sixth-corniche-entry-mid", 104.5, 200),
+  node("cairo-sixth-corniche-entry-deck-edge", 129, 224.5),
   // The northbound exit leaves the mainline over the river, crosses to the
   // Corniche's east-side auxiliary lane at full clearance, and touches down
   // before Champollion. Its ground slip can pass through that junction; a
@@ -626,7 +632,7 @@ export const CAIRO_ROAD_SPECS: readonly CairoRoadSpec[] = [
   // down south of Champollion, then continues through as an at-grade
   // auxiliary lane before merging into Corniche traffic.
   road("cairo-sixth-october-corniche-entry-slip", "6th October Bridge Entrance", ["cairo-ec-sixth-entry-merge", "cairo-sixth-corniche-entry-taper", "cairo-sixth-corniche-entry-lift"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
-  road("cairo-sixth-october-bridge-corniche-entry", "6th October Bridge Entrance", ["cairo-sixth-corniche-entry-lift", "cairo-sixth-corniche-entry-mid", "cairo-sixth-corniche-entry-deck-edge", "cairo-sixth-corniche-merge"], 40, 1, 5.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 5, 10.5, 10.5] }),
+  road("cairo-sixth-october-bridge-corniche-entry", "6th October Bridge Entrance", ["cairo-sixth-corniche-entry-lift", "cairo-sixth-corniche-entry-mid", "cairo-sixth-corniche-entry-deck-edge", "cairo-sixth-corniche-merge"], 40, 1, 5.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 6.63, 10.5, 10.5] }),
   road("cairo-sixth-october-bridge-corniche-exit", "6th October Bridge Exit", ["cairo-sixth-corniche-exit-merge", "cairo-sixth-corniche-exit-throat", "cairo-sixth-corniche-exit-descent-clear", "cairo-sixth-corniche-exit-curve", "cairo-sixth-corniche-exit-clear", "cairo-sixth-corniche-exit-turn", "cairo-sixth-corniche-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [10.5, 10.5, 7.1, 7, 6, 6, 0] }),
   road("cairo-sixth-october-corniche-exit-slip", "6th October Bridge Exit", ["cairo-sixth-corniche-exit-lift", "cairo-sixth-corniche-exit-taper", "cairo-ec-sixth-exit-merge"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
 
@@ -1137,6 +1143,21 @@ const cairoOpenRoadCurveAuthoringByRoadId: Readonly<
       },
       "cairo-sixth-gezira-deck-edge": { x: 0, z: -1 },
       "cairo-sixth-gezira-carrier-bend": { x: 0, z: -1 },
+    },
+  },
+  "cairo-sixth-october-bridge-corniche-entry": {
+    // The first span is a true kerb-side climb, not a diagonal wall across
+    // Corniche traffic. Once fully clear, the branch follows a broad natural
+    // right turn and meets the eastbound bridge on its departure tangent.
+    handleRatio: 0.3905242918,
+    tangentByNodeId: {
+      "cairo-sixth-corniche-entry-lift": { x: 0, z: 1 },
+      "cairo-sixth-corniche-entry-mid": { x: 0, z: 1 },
+      "cairo-sixth-corniche-entry-deck-edge": { x: 1, z: 0 },
+      "cairo-sixth-corniche-merge": {
+        x: 0.9945223332,
+        z: -0.1045242972,
+      },
     },
   },
   "cairo-sixth-october-bridge-corniche-exit": {
@@ -4252,6 +4273,18 @@ const cairoRampFrontageSetback = (
       dz: 6.2799362548,
       frontageLengthM: 31,
     };
+  }
+  if (id === "cairo-corniche-el-nil-roadside-6-1-right-s1-s2") {
+    // Preserve both complete frontage runs while opening a deliberate
+    // auxiliary lane for the northbound entrance. Moving each centre half
+    // the 3.2 m setback and trimming only its road-facing depth keeps the
+    // established rear wall fixed against the neighbouring interior cores.
+    return { dx: 1.6, dz: 0, depthM: 17 };
+  }
+  if (id === "cairo-corniche-el-nil-roadside-6-1-right-s2") {
+    // The northern bay follows the full-height quarter-turn flare to 7 m;
+    // preserve its rear wall with the matching half-shift/depth treatment.
+    return { dx: 3.5, dz: 0, depthM: 13.2 };
   }
   if (id === "cairo-corniche-el-nil-roadside-6-2-right-s1-s2") {
     // Keep the entire street frontage while giving the outside of the long

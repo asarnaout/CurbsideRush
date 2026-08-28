@@ -107,6 +107,13 @@ Several approaches are especially important regression examples:
   remain distinct until they reach 7 m over the Turgoman clearance point. The
   existing Ramses lanes stay continuous underneath and the two grades braid
   only after they have cleared ground traffic and pedestrians.
+- The Corniche entry leaves a ground-level auxiliary lane on the northbound
+  driver's right, climbs straight beside that kerb, and begins its broad
+  right-hand turn only after reaching full vehicle clearance. Its final span
+  joins the eastbound mainline on the bridge tangent; the ramp mouth and low
+  slab never cross or narrow either Corniche through lane. Two adjacent
+  frontage bays step back by 3.2 m and 7 m, with their rear walls fixed,
+  to make the auxiliary corridor read as an intentional street widening.
 - The Corniche exit diverges at deck height, uses the open river corridor to
   descend, and does not turn back beneath the parent mainline until its soffit
   has a complete vehicle envelope. It then stays above 6 m while crossing the
@@ -278,9 +285,10 @@ inventory and traverse every elevated 6th October mainline, carrier, entry,
 stem and exit surface, including both terminals; a hand-maintained
 intermediate-only list is not accepted. A wrong-way exit-mouth trace remains
 blocked, and a dense
-Corniche exit sweep uses the delivery van's complete rear/centre/front roof
-envelope and verifies at least 2.26 m of usable headroom where that ramp braids
-beneath the mainline.
+Corniche entry and exit sweeps use the delivery van's complete
+rear/centre/front roof envelope. The entry check proves both through lanes are
+untouched by its structure; the exit check verifies at least 2.26 m of usable
+headroom where that ramp braids beneath the mainline.
 
 Two production static-collider sweeps are mandatory and serve different
 purposes. The all-map sweep samples every legal lane at no more than 2 m

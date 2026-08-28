@@ -2968,6 +2968,82 @@ describe("Cairo Central Nile content", () => {
     expect(lowDeckSamples).toBeGreaterThan(40);
   });
 
+  it("keeps the Corniche entry climb beside the live carriageway", () => {
+    const surfaceById = new Map(
+      CAIRO_MAP_PACK.geometry.roadSurfaces.map((surface) => [
+        surface.id,
+        surface,
+      ]),
+    );
+    const entryRamp = surfaceById.get(
+      "cairo-sixth-october-bridge-corniche-entry",
+    )!;
+    const entrySlip = surfaceById.get(
+      "cairo-sixth-october-corniche-entry-slip",
+    )!;
+    const corniche = surfaceById.get("cairo-corniche-el-nil")!;
+    const entrySpec = CAIRO_ROAD_SPECS.find(
+      (spec) => spec.id === entryRamp.id,
+    )!;
+
+    expect(entrySpec.oneWay).toBe("forward");
+    expect(entryRamp.widthM).toBe(5.2);
+    expect(entrySpec.nodeIds).toEqual([
+      "cairo-sixth-corniche-entry-lift",
+      "cairo-sixth-corniche-entry-mid",
+      "cairo-sixth-corniche-entry-deck-edge",
+      "cairo-sixth-corniche-merge",
+    ]);
+    expect(
+      entrySlip.centerline.every((candidate) =>
+        (candidate.elevationM ?? 0) === 0
+      ),
+    ).toBe(true);
+
+    // The ramp may rise beside the northbound right kerb, but its slab and
+    // parapets must not cover either Corniche through lane while they are too
+    // low to drive beneath. The authored quarter-turn starts only after full
+    // vehicle clearance, so the entry never forms a wall across the street.
+    const THROUGH_LANE_HALF_M = 1.65 + 3.2 / 2;
+    const STRUCTURAL_HALF_M = entryRamp.widthM / 2 + 0.7;
+    let lowSideSamples = 0;
+    let hostOverlapSamples = 0;
+    for (let segmentIndex = 0; segmentIndex + 1 < entryRamp.centerline.length; segmentIndex += 1) {
+      const start = entryRamp.centerline[segmentIndex];
+      const end = entryRamp.centerline[segmentIndex + 1];
+      for (let step = 0; step <= 48; step += 1) {
+        const amount = step / 48;
+        const sample = point(
+          start.x + (end.x - start.x) * amount,
+          start.z + (end.z - start.z) * amount,
+        );
+        const elevationM =
+          (start.elevationM ?? 0) +
+          ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+        const hostDistanceM = distanceToTestPolyline(
+          sample,
+          corniche.centerline,
+        );
+        if (
+          elevationM >= ELEVATED_DECK_START_M &&
+          elevationM < 6
+        ) {
+          expect(
+            hostDistanceM - STRUCTURAL_HALF_M,
+            `low Corniche entry at ${sample.x.toFixed(1)},${sample.z.toFixed(1)}`,
+          ).toBeGreaterThanOrEqual(THROUGH_LANE_HALF_M + 0.5);
+          lowSideSamples += 1;
+        }
+        if (hostDistanceM <= STRUCTURAL_HALF_M + THROUGH_LANE_HALF_M) {
+          expect(elevationM).toBeGreaterThanOrEqual(6);
+          hostOverlapSamples += 1;
+        }
+      }
+    }
+    expect(lowSideSamples).toBeGreaterThan(30);
+    expect(hostOverlapSamples).toBe(0);
+  });
+
   it("ends the Corniche exit structure before the Champollion junction", () => {
     const surfaceById = new Map(
       CAIRO_MAP_PACK.geometry.roadSurfaces.map((surface) => [
