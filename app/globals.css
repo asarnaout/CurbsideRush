@@ -58,11 +58,12 @@
   --hud-line-3: rgba(255, 255, 255, 0.16); /* button borders */
   --font-sans: "Figtree", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-serif: "Playfair Display", Georgia, "Times New Roman", serif;
-  /* Launcher, settings and career screens share this cap so their header and
-     body edges do not jump while navigating between them. It leaves the same
-     near-full-width frame on a 2516px display that the 64px gutter gives a
-     regular monitor, without growing without bound on larger canvases. */
-  --wide-page-max: 2400px;
+  /* Launcher, settings and career screens share one responsive desktop stage
+     so their header and body edges do not jump while navigating. Ordinary
+     monitors retain the authored 1380px composition; wider canvases grow
+     gradually, then stop before the chrome or content reaches the display's
+     far edges. Mobile widths are still governed by the overrides below. */
+  --wide-page-max: clamp(1380px, 80vw, 1900px);
 
   /* ── Legacy semantic tokens, remapped onto the dark palette ───────────── */
   --ink: var(--hud-cream);
@@ -761,6 +762,16 @@ canvas:focus-visible {
   min-height: max(488px, calc(100dvh - 72px));
   margin: 0 auto;
   padding: clamp(20px, 3.4vh, 38px) 0 clamp(28px, 4vh, 46px);
+}
+
+/* Past the compact desktop range, the copy becomes an editorial rail rather
+   than an elastic half of the screen. Route widescreen growth into the scene
+   instead of an invisible inter-column void. The 1280px floor avoids changing
+   the tablet/landscape-phone transition immediately above the 1160px layout. */
+@media (min-width: 1280px) {
+  .launcher-page {
+    grid-template-columns: clamp(520px, 38vw, 574px) minmax(460px, 1fr);
+  }
 }
 
 .launcher-copy {
@@ -2050,6 +2061,13 @@ canvas:focus-visible {
   font-size: 9px;
 }
 
+/* Once the regular desktop heading has reached its authored 72px ceiling,
+   let it gain just enough presence to hold its own beside an ultrawide scene.
+   Controls and supporting copy stay at their familiar, readable scale. */
+@media (min-width: 1532px) {
+  .launcher-copy h1 { font-size: clamp(72px, calc(48px + 1.25vw), 80px); }
+}
+
 @media (max-width: 1160px) {
   .launcher-page { grid-template-columns: minmax(390px, .95fr) minmax(390px, 1.05fr); width: calc(100% - 40px); gap: 28px; }
   .launcher-copy h1 { font-size: clamp(39px, 5vw, 58px); }
@@ -2220,6 +2238,14 @@ canvas:focus-visible {
   /* Already sideways — the rotate hint is the one thing here with nothing to
      say to this reader. */
   .launcher-tip-rotate { display: none; }
+}
+
+/* Keep the compact vertical rhythm above, but do not let its phone-oriented
+   fractional tracks reopen the copy/scene chasm on a short desktop window. */
+@media (min-width: 1280px) and (max-height: 520px) {
+  .launcher-page {
+    grid-template-columns: clamp(520px, 38vw, 574px) minmax(460px, 1fr);
+  }
 }
 
 /* ══ Career travel board ═══════════════════════════════════════════════════
