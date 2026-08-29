@@ -264,14 +264,16 @@ car stays at elevation zero; `offRoad` must never be used as permission to copy
 an unrelated road's height.
 
 A lane whose profile eventually rises into structural bridge height is more
-strictly owned. Live ground driving may acquire it only from the occupied lane,
-its adjacent lane, or an immediate **directed successor** (including that
-successor's adjacent lane). Do not admit predecessors to this ground-to-ramp
-set: on an exit connection, the raised ramp is a predecessor of the continuing
-ground slip, and accepting it lets ordinary through traffic climb the off-ramp
-backwards. Once the car is elevated, predecessor and successor lanes are both
-valid continuity candidates so legitimate travel through either end remains
-stable.
+strictly owned. Default projection admits only the occupied lane, its adjacent
+lane, or an immediate directed successor, which remains the correct contract
+for routing. Player level ownership opts into bidirectional profile capture:
+its immediate predecessors and their adjacent lanes become candidates too,
+and heading comparison is direction-neutral only for those connected ramp
+arms. That lets a player deliberately climb an exit while keeping an unrelated
+nearby ramp out of the height search. It does not add reverse successor edges;
+NPCs, route guidance, signs and wrong-way enforcement remain directed. Once the
+car is elevated, predecessor and successor lanes are both continuity candidates
+so travel through either physical end remains stable.
 
 The shipped defaults allow 0.55 m of per-step height change. A ground-height
 lock never expires because of plan distance: otherwise a ground lane more than
@@ -346,12 +348,12 @@ responsible for support impacts and normals; exclude them from this second
 query rather than resolving one column twice.
 
 A prospective, topology-constrained lane projection supplies each sample's
-tyre height. Thus the player's own legal ramp is at or below the vehicle and is
-not mistaken for a roof obstruction, while the identical x/z footprint remains
-solid to a car on an unrelated lower street. Clip a clear-to-blocked fixed-step
-move back to the precise clearance boundary and stop the vehicle. A car already
-authored inside a low envelope may move outward so a debug pose cannot become
-permanently trapped.
+tyre height. Thus the player's own connected ramp is at or below the vehicle
+and is not mistaken for a roof obstruction, while the identical x/z footprint
+remains solid to a car on an unrelated lower street. Clip a clear-to-blocked
+fixed-step move back to the precise clearance boundary and stop the vehicle. A
+car already authored inside a low envelope may move outward so a debug pose
+cannot become permanently trapped.
 
 Do not implement carrier ownership as a comparison against only the single
 obstruction returned by the query. At a ramp/slip seam the axle may already
@@ -362,20 +364,25 @@ the prepared query before it selects the lowest one:
 
 - discard road tops within the 0.35 m road-level capture band of the tyres;
 - always exclude the projected carrier road;
-- for the leading capsule sample, exclude only a directed successor;
-- for the centre capsule sample, exclude both its directed predecessor and
-  successor;
-- for the trailing sample, exclude only a directed predecessor;
-- never use the predecessor exemption on a leading/wrong-way ground approach;
+- at the leading capsule sample, exclude the one-hop neighbour in the direction
+  the player's body points: a successor when aligned with the lane, or a
+  predecessor when pointing wrong-way;
+- at the centre sample, exclude both the immediate predecessor and successor;
+- at the trailing sample, exclude the opposite one-hop neighbour;
+- gate each connected-road exemption by distance to that lane endpoint so a
+  branch that crosses again later becomes solid structure there;
+- keep the exemption to one graph hop rather than walking a route, so a nearby
+  but unrelated ramp remains structural obstruction;
 - after removing carrier candidates, still return any genuinely separate deck
   above them.
 
-Leading and trailing are measured in the lane's signed legal travel direction,
-not in polyline storage order.
-
-The front/centre/rear distinction matters. Broadly exempting every connected
-road makes an off-ramp climbable backward; rejecting every differently named
-surface blocks legal handoffs. Directional capsule ownership resolves both.
+This physical-pavement filter is intentionally different from the directed
+successor graph. Leading and trailing are expressed in the stored lane
+direction after comparing it with the player's body heading, not assumed to
+follow the law or changed by gear selection. Broadly exempting both connected
+roads along the whole roof
+could hide a later overlap; rejecting a connected predecessor would rebuild
+the invisible wall at an exit mouth.
 
 ## Pedestrians, signals and ground props
 
@@ -573,8 +580,10 @@ several systems:
 8. pull-over choreography treated a sloped road as one flat Y plane;
 9. a 12 m plan-distance cutoff discarded the ground lock beneath a wide or
    oblique flyover, selected the deck above and activated its parapet collider;
-10. ground projection accepted profiled predecessors, so through traffic could
-    capture a shallow exit apron and ratchet upward against legal direction;
+10. an early ground projection admitted every profiled predecessor, so through
+    traffic could capture a shallow exit apron without first entering its
+    physical slip; the player-only replacement admits just the immediate graph
+    neighbour and uses the ramp-axis heading to require a real turn into it;
 11. player physics had no roof-versus-soffit test, so a ground car could enter
     beneath a physically impassable low ramp even though tall props and walkers
     were already excluded there;
@@ -622,8 +631,9 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
    and destructibles with the shared physical elevation band.
 8. Prepare one structural headroom query and apply object-specific envelopes to
    the player's full roof capsule, walkers, signals, parked cars, roadside props
-   and every park-planting queue. Preserve high underpasses and legal ramp
-   travel; never substitute a blanket two-dimensional slab collider.
+   and every park-planting queue. Preserve high underpasses and player travel
+   in either direction on a connected ramp; never substitute a blanket
+   two-dimensional slab collider.
 9. Generate regulatory signs from legal flow. Suppress only explicit
    successor-linked degree-two road-id seams, and station real mouth controls
    along short connected segments without crossing a true junction.
@@ -685,8 +695,8 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
   the elevated capture radius and the overhead deck is closest in plan view;
 - an unrelated shallow ramp cannot capture a ground player within the normal
   per-step elevation tolerance;
-- a profiled exit predecessor cannot be acquired backward from its ground slip,
-  while the same profile is acquired when it is a directed entry successor;
+- an aligned player inside a connected ground slip can acquire either a
+  successor entry or a predecessor exit profile;
 - an elevated player remains elevated at the same crossing;
 - ramp ascent/descent changes height monotonically without oscillation;
 - cross-level player/NPC swept paths do not collide or brake for each other;
@@ -698,8 +708,9 @@ the Cairo approaches that violate the auxiliary-lane/clearance contract.
   their actual footprint boundary, while a high span remains driveable below;
 - the same clearance query does not block a player climbing the connected
   profiled ramp that carries the vehicle;
-- every profile/slip handoff passes in its legal direction, while approaching
-  an exit ramp backward from its ground slip still collides;
+- every profile/slip handoff passes in both physical directions without a deck
+  collision; reverse exit entry still reports wrong-way and does not alter NPC
+  successor routing;
 - a no-steering continuation follows each near-collinear entry tangent for at
   least 20 m beyond the handoff without losing the rising lane;
 - the tallest playable vehicle clears every legal ramp/deck overlap, including

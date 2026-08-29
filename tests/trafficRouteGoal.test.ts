@@ -611,7 +611,7 @@ describe("deterministic locality route goals", () => {
     });
   });
 
-  it("acquires a shallow ramp only through lane-graph continuity", () => {
+  it("keeps directed ramp capture legal-only by default but lets the player enter an exit backward", () => {
     const ramp: SimulationLane = {
       id: "raised-ramp",
       points: [
@@ -647,23 +647,34 @@ describe("deterministic locality route goals", () => {
     const exitLane: SimulationLane = {
       ...ground(false),
       id: "ground-exit",
+      points: [{ x: 0, z: 0 }, { x: 0, z: -10 }],
     };
     const descendingRamp: SimulationLane = {
       ...ramp,
       id: "descending-ramp",
+      points: [...ramp.points].reverse(),
       successorLaneIds: [exitLane.id],
     };
+    const exitNetwork = new RoadNetwork(
+      [exitLane, descendingRamp],
+      [],
+      [],
+    );
     expect(
-      new RoadNetwork([exitLane, descendingRamp], [], []).projectToRoad(
-        0.26,
-        1,
-        {
-          heading: Math.PI,
-          preferredLaneId: exitLane.id,
-          preferredElevationM: 0,
-        },
-      ),
+      exitNetwork.projectToRoad(0.26, 1, {
+        heading: 0,
+        preferredLaneId: exitLane.id,
+        preferredElevationM: 0,
+      }),
     ).toMatchObject({ lane: { id: exitLane.id }, elevationM: 0 });
+    expect(
+      exitNetwork.projectToRoad(0.26, 1, {
+        heading: 0,
+        preferredLaneId: exitLane.id,
+        preferredElevationM: 0,
+        allowBidirectionalProfileCapture: true,
+      }),
+    ).toMatchObject({ lane: { id: descendingRamp.id }, elevationM: 0.5 });
     // The same geometry is a valid ramp entry when the authored graph says it
     // is the occupied lane's immediate successor.
     expect(project(true)).toMatchObject({

@@ -333,7 +333,7 @@ describe("elevated-road vehicle headroom", () => {
     ).toBe(false);
   });
 
-  it("keeps an exit ramp solid when a ground vehicle approaches it backward", () => {
+  it("lets the player climb an exit ramp backward without an invisible deck collision", () => {
     const exitRampSurface = {
       id: "test-directed-exit-ramp",
       centerline: [
@@ -389,24 +389,31 @@ describe("elevated-road vehicle headroom", () => {
           minimumVerticalSeparationM,
         ),
     });
-    const snapshot = driveForward(simulation, 300);
+    const elevationsM: number[] = [];
+    for (
+      let tick = 0;
+      tick < 360 && simulation.getSnapshot().player.x > -12;
+      tick += 1
+    ) {
+      simulation.step(1 / 60, { throttle: 1 });
+      elevationsM.push(simulation.getSnapshot().player.elevationM ?? 0);
+    }
+    const snapshot = simulation.getSnapshot();
     const deckCollisions = simulation
       .getEvents()
       .filter((event) => event.evidence.obstacle === "roadDeck");
 
-    expect(snapshot.player.x).toBeGreaterThan(-10);
-    expect(snapshot.player.elevationM).toBeUndefined();
-    expect(deckCollisions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          evidence: expect.objectContaining({
-            obstacleId: expect.stringContaining(
-              "elevated-road-test-directed-exit-ramp",
-            ),
-          }),
-        }),
-      ]),
-    );
+    expect(snapshot.player.x).toBeLessThanOrEqual(-12);
+    expect(snapshot.player.elevationM ?? 0).toBeGreaterThanOrEqual(1.2);
+    expect(snapshot.road.laneId).toBe("directed-exit-ramp");
+    expect(snapshot.road.wrongWay).toBe(true);
+    expect(
+      elevationsM
+        .slice(1)
+        .every((elevationM, index) => elevationM + 1e-6 >= elevationsM[index]),
+      "the car must follow the ramp profile instead of blending back into it",
+    ).toBe(true);
+    expect(deckCollisions).toEqual([]);
   });
 
   const cairoFreeDrive = FREE_DRIVES.find(
@@ -827,6 +834,173 @@ describe("elevated-road vehicle headroom", () => {
         .elevationM ?? 0,
     ).toBeGreaterThan(0.5);
   });
+
+  const cairoBridgeMouthNames = [
+    "west",
+    "east",
+    "dokki",
+    "gezira",
+    "corniche",
+    "ramses",
+  ] as const;
+  const cairoGroundHandoffLane = (roadId: string) => {
+    const lane = cairoRoadNetwork.lanes.find((candidate) => {
+      if (candidate.roadId !== roadId || !candidate.id.includes("-forward-")) {
+        return false;
+      }
+      const elevationsM = [
+        candidate.points[0]?.elevationM ?? 0,
+        candidate.points.at(-1)?.elevationM ?? 0,
+      ];
+      return Math.min(...elevationsM) < 0.01 && Math.max(...elevationsM) > 0.5;
+    });
+    if (!lane) throw new Error(`Missing ground handoff lane for ${roadId}`);
+    return lane;
+  };
+
+  it.each(cairoBridgeMouthNames)(
+    "lets the player enter the Cairo %s exit mouth uphill in reverse",
+    (mouthName) => {
+      const rampRoadId = `cairo-sixth-october-bridge-${mouthName}-exit`;
+      const rampLane = cairoGroundHandoffLane(rampRoadId);
+      const groundPoint = rampLane.points.at(-1);
+      if (!groundPoint) throw new Error(`Missing ${mouthName} exit endpoint`);
+      const slipRoadId = `cairo-sixth-october-${mouthName}-exit-slip`;
+      const slipLane = cairoRoadNetwork.lanes.find(
+        (candidate) =>
+          candidate.roadId === slipRoadId &&
+          candidate.id.includes("-forward-") &&
+          Math.hypot(
+            candidate.points[0].x - groundPoint.x,
+            candidate.points[0].z - groundPoint.z,
+          ) < 0.05,
+      );
+      if (!slipLane) throw new Error(`Missing ${mouthName} exit slip lane`);
+
+      const start = cairoRoadNetwork.pointOnLane(
+        slipLane,
+        Math.min(5, slipLane.length / 2),
+      );
+      const simulation = new SimulationCore({
+        ...cairoConfig,
+        npcCount: 0,
+        staticObstacles: [],
+        trafficLights: [],
+        stopLines: [],
+      });
+      simulation.setPlayerPose(
+        {
+          ...start,
+          elevationM: 0,
+          heading: Math.atan2(groundPoint.x - start.x, groundPoint.z - start.z),
+        },
+        5,
+      );
+      simulation.drainEvents();
+
+      const profileElevationsM: number[] = [];
+      const profileWrongWay: boolean[] = [];
+      for (let tick = 0; tick < 240; tick += 1) {
+        simulation.step(1 / 60, { throttle: 1 });
+        const snapshot = simulation.getSnapshot();
+        if (snapshot.road.laneId?.startsWith(`${rampRoadId}-`)) {
+          profileElevationsM.push(snapshot.player.elevationM ?? 0);
+          profileWrongWay.push(snapshot.road.wrongWay);
+        }
+        if ((snapshot.player.elevationM ?? 0) >= 0.75) break;
+      }
+
+      expect(profileElevationsM.length).toBeGreaterThan(5);
+      expect(profileElevationsM.at(-1)).toBeGreaterThanOrEqual(0.75);
+      expect(
+        profileElevationsM
+          .slice(1)
+          .every(
+            (elevationM, index) =>
+              elevationM + 0.002 >= profileElevationsM[index],
+          ),
+        `${mouthName} exit elevation must follow its rising profile`,
+      ).toBe(true);
+      expect(profileWrongWay.every(Boolean)).toBe(true);
+      expect(
+        simulation
+          .getEvents()
+          .filter((event) => event.evidence.obstacle === "roadDeck"),
+      ).toEqual([]);
+    },
+  );
+
+  it.each(cairoBridgeMouthNames)(
+    "lets the player descend the Cairo %s entrance profile in reverse",
+    (mouthName) => {
+      const rampRoadId = `cairo-sixth-october-bridge-${mouthName}-entry`;
+      const rampLane = cairoGroundHandoffLane(rampRoadId);
+      let startDistanceM = 0;
+      while (
+        startDistanceM < rampLane.length &&
+        (cairoRoadNetwork.pointOnLane(rampLane, startDistanceM).elevationM ??
+          0) < 0.8
+      ) {
+        startDistanceM += 0.25;
+      }
+      const start = cairoRoadNetwork.pointOnLane(rampLane, startDistanceM);
+      const behind = cairoRoadNetwork.pointOnLane(
+        rampLane,
+        Math.max(0, startDistanceM - 0.5),
+      );
+      const simulation = new SimulationCore({
+        ...cairoConfig,
+        npcCount: 0,
+        staticObstacles: [],
+        trafficLights: [],
+        stopLines: [],
+      });
+      simulation.setPlayerPose(
+        {
+          ...start,
+          heading: Math.atan2(behind.x - start.x, behind.z - start.z),
+        },
+        5,
+      );
+      simulation.drainEvents();
+
+      const profileElevationsM: number[] = [];
+      const profileWrongWay: boolean[] = [];
+      let acquiredProfile = false;
+      for (let tick = 0; tick < 240; tick += 1) {
+        simulation.step(1 / 60, { throttle: 1 });
+        const snapshot = simulation.getSnapshot();
+        if (snapshot.road.laneId?.startsWith(`${rampRoadId}-`)) {
+          acquiredProfile = true;
+          profileElevationsM.push(snapshot.player.elevationM ?? 0);
+          profileWrongWay.push(snapshot.road.wrongWay);
+          if ((snapshot.player.elevationM ?? 0) <= 0.05) break;
+        } else if (acquiredProfile) {
+          break;
+        }
+      }
+
+      expect(profileElevationsM.length).toBeGreaterThan(5);
+      expect(
+        profileElevationsM[0] - Math.min(...profileElevationsM),
+      ).toBeGreaterThan(0.6);
+      expect(
+        profileElevationsM
+          .slice(1)
+          .every(
+            (elevationM, index) =>
+              elevationM <= profileElevationsM[index] + 0.002,
+          ),
+        `${mouthName} entrance elevation must follow its descending profile`,
+      ).toBe(true);
+      expect(profileWrongWay.every(Boolean)).toBe(true);
+      expect(
+        simulation
+          .getEvents()
+          .filter((event) => event.evidence.obstacle === "roadDeck"),
+      ).toEqual([]);
+    },
+  );
 
   type TravelDirection = "forward" | "reverse";
   const cairoRampHandoffs = [

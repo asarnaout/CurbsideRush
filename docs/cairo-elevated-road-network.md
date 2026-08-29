@@ -145,13 +145,15 @@ surface—not a landmark mesh—provides the drivable deck.
   ownership. Ground recovery considers all fully at-grade lanes but never an
   unrelated lane whose profile rises into bridge structure, even when the
   nearest ground centreline is more than 12 m away and a deck is directly
-  overhead. A live ground car can acquire a profiled ramp only through its
-  current/adjacent lane or a directed successor; predecessors are excluded so
-  a nearby exit cannot be climbed backward. Once a directed rising lane owns
-  the car, a sub-lane heading/hysteresis band prevents an overlapping
-  opposite-direction apron from stealing that ownership for one tick. The
-  at-grade slips give every legal entry a unique x/z approach before vertical
-  separation begins.
+  overhead. A live player car can acquire a profiled ramp only through its
+  current/adjacent lane or an immediate graph neighbour. For player level
+  ownership that neighbourhood includes predecessors as well as successors,
+  and its ramp heading is treated bidirectionally, so either an entrance or an
+  exit can be climbed from its physical mouth. NPC routing, signs and wrong-way
+  reporting continue to use the directed successor graph. Once a rising lane
+  owns the car, a sub-lane heading/hysteresis band prevents an overlapping
+  apron from stealing that ownership for one tick. The at-grade slips give
+  every ramp a unique x/z approach before vertical separation begins.
 - Any authored pose with a finite elevation is authoritative. In particular,
   `elevationM: 0` clears an old bridge projection before selecting the street
   below; zero is not treated as a missing value.
@@ -177,16 +179,20 @@ surface—not a landmark mesh—provides the drivable deck.
   query at the centre and both ends of the real vehicle capsule. Low ramp
   aprons and soffits stop a lower-level car at their physical boundary; high
   spans remain open. Before the query chooses its lowest obstruction it removes
-  the exact carrier surface and, only for the capsule edge travelling through
-  a legal junction, that edge's directed predecessor or successor. This lets
-  the front enter an on-ramp and the rear leave an off-ramp without treating a
-  few centimetres of their own asphalt as an invisible wall; the opposite
-  wrong-way approach remains solid. Road tops within the same 0.35 m capture
-  band as the tyres are pavement seams, not ceilings. These filters run inside
-  the query so an ignored carrier cannot conceal a genuinely separate stacked
-  deck above it. Rendered model or seated-rider height supplies the required
-  clearance. Pier impacts stay with the existing static support colliders
-  instead of being applied twice.
+  the exact carrier surface plus the one-hop connected surface beneath each
+  capsule edge in the direction that end of the car points; the centre sample
+  retains both sides of the seam. Comparing player heading with stored lane
+  heading swaps predecessor and successor for wrong-way travel, while an
+  endpoint-distance gate confines the exemption to the handoff. This lets the
+  player cross an entrance or exit handoff in either direction without
+  treating a few centimetres of connected asphalt as an invisible wall, without blanket-
+  exempting both connected roads across the whole roof envelope. Road tops
+  within the same 0.35 m capture band as the tyres are pavement seams, not
+  ceilings. These
+  filters run inside the query, so an ignored carrier cannot conceal a
+  genuinely separate stacked deck above it. Rendered model or seated-rider
+  height supplies the required clearance. Pier impacts stay with the existing
+  static support colliders instead of being applied twice.
 - Column candidates are omitted anywhere their complete footing plus a 0.10 m
   visual margin would occupy another road's carriageway, local sidewalk or a
   lower elevated deck. The check uses each street's authored sidewalk width,
@@ -283,8 +289,10 @@ remains passable, and a connected ramp climb reaches the elevated level without
 a false deck collision. Profile-derived production traces automatically
 inventory and traverse every elevated 6th October mainline, carrier, entry,
 stem and exit surface, including both terminals; a hand-maintained
-intermediate-only list is not accepted. A wrong-way exit-mouth trace remains
-blocked, and a dense
+intermediate-only list is not accepted. Reverse-direction traces cover all six
+exit mouths uphill and all six entrances downhill; each follows its profile
+monotonically while continuing to report wrong-way and emits no deck collision.
+A dense
 Corniche entry and exit sweeps use the delivery van's complete
 rear/centre/front roof envelope. The entry check proves both through lanes are
 untouched by its structure; the exit check verifies at least 2.26 m of usable

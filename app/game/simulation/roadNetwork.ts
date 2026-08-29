@@ -196,6 +196,13 @@ export interface RoadProjectionPreference {
    * ramp only through the occupied lane's graph neighbours.
    */
   readonly allowUnconnectedElevationCapture?: boolean;
+  /**
+   * Treats an immediate predecessor as a physically driveable ramp approach
+   * when projecting from ground. This is for player level ownership only:
+   * authored successor lists remain directed, so NPC routing still obeys the
+   * one-way network while a player driving against traffic can climb an exit.
+   */
+  readonly allowBidirectionalProfileCapture?: boolean;
 }
 
 /** Read-only instrumentation for external traffic benchmarks. It is never
@@ -433,9 +440,13 @@ export class RoadNetwork {
    * legal neighbours. Clearing it avoids a Set allocation every fixed step. */
   private readonly projectionContinuityLaneIds = new Set<string>();
   /** Directional subset used only while acquiring a rising profile from
-   * ground. Predecessors are intentionally absent: accepting one lets a car
-   * on a through street latch onto a nearby exit ramp backwards. */
+   * ground. Player projection may explicitly add immediate predecessors so
+   * physical ramp ownership is independent from the NPC routing direction. */
   private readonly groundProfileCaptureLaneIds = new Set<string>();
+  /** Ground-profile candidates whose stored lane heading may be reversed by
+   * the player. Kept separate so ordinary opposing ground lanes retain their
+   * directed heading tie-break. */
+  private readonly bidirectionalProfileCaptureLaneIds = new Set<string>();
 
   // routeDistanceAhead scratch. Route-leading now reaches this exact search
   // only through TrafficSpatialIndex's conservative topology candidates;
@@ -558,12 +569,13 @@ export class RoadNetwork {
   }
 
   /**
-   * Adds the road surfaces that physically continue from one directed lane.
+   * Adds the road surfaces that physically continue from one lane.
    * Vehicle headroom uses this at its leading/trailing capsule samples: the
-   * leading edge may overlap a legal successor before the axle changes lanes,
-   * and the trailing edge may remain over a predecessor just after it does.
-   * Keeping direction selection at the caller prevents a wrong-way approach
-   * from treating an exit ramp as its own pavement.
+   * vehicle may overlap either adjoining surface before the axle changes
+   * lanes. Direction flags let non-player callers retain directed semantics;
+   * player roof clearance swaps them when actual travel opposes the stored
+   * lane direction because pavement is usable from either side. An optional
+   * endpoint gate keeps that exemption local to the physical handoff.
    */
   addLaneRoadSurfaceIds(
     laneId: string | undefined,
@@ -571,9 +583,13 @@ export class RoadNetwork {
     {
       includePredecessors = false,
       includeSuccessors = false,
+      connectionPoint,
+      connectionCaptureDistanceM,
     }: {
       readonly includePredecessors?: boolean;
       readonly includeSuccessors?: boolean;
+      readonly connectionPoint?: { readonly x: number; readonly z: number };
+      readonly connectionCaptureDistanceM?: number;
     } = {},
   ): void {
     if (!laneId) return;
@@ -588,13 +604,25 @@ export class RoadNetwork {
     };
     const lane = this.lanesById.get(laneId);
     if (!lane) return;
+    const connectionCaptureDistanceSquared =
+      connectionPoint !== undefined &&
+      Number.isFinite(connectionCaptureDistanceM)
+        ? Math.max(0, connectionCaptureDistanceM ?? 0) ** 2
+        : null;
+    const isNearConnection = (endpoint: SimulationPoint): boolean =>
+      connectionCaptureDistanceSquared === null ||
+      distanceSquared(connectionPoint!, endpoint) <=
+        connectionCaptureDistanceSquared;
     addLane(lane.id);
-    if (includePredecessors) {
+    if (includePredecessors && isNearConnection(lane.points[0])) {
       for (const predecessorId of this.predecessorLaneIdsById.get(lane.id) ?? []) {
         addLane(predecessorId);
       }
     }
-    if (includeSuccessors) {
+    if (
+      includeSuccessors &&
+      isNearConnection(lane.points[lane.points.length - 1])
+    ) {
       for (const successorId of lane.successorLaneIds) addLane(successorId);
     }
   }
@@ -701,15 +729,39 @@ export class RoadNetwork {
       continuityLaneIds.clear();
       const groundProfileCaptureLaneIds = this.groundProfileCaptureLaneIds;
       groundProfileCaptureLaneIds.clear();
+      const bidirectionalProfileCaptureLaneIds =
+        this.bidirectionalProfileCaptureLaneIds;
+      bidirectionalProfileCaptureLaneIds.clear();
+      const allowBidirectionalProfileCapture = Boolean(
+        preference.allowBidirectionalProfileCapture,
+      );
       const preferredLane = preference.preferredLaneId
         ? this.lanesById.get(preference.preferredLaneId)
         : undefined;
       if (preferredLane) {
         continuityLaneIds.add(preferredLane.id);
         groundProfileCaptureLaneIds.add(preferredLane.id);
+        if (
+          allowBidirectionalProfileCapture &&
+          preferredLane.maxElevationM >= ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
+        ) {
+          bidirectionalProfileCaptureLaneIds.add(preferredLane.id);
+        }
         if (preferredLane.adjacentLaneId) {
           continuityLaneIds.add(preferredLane.adjacentLaneId);
           groundProfileCaptureLaneIds.add(preferredLane.adjacentLaneId);
+          const adjacentPreferredLane = this.lanesById.get(
+            preferredLane.adjacentLaneId,
+          );
+          if (
+            allowBidirectionalProfileCapture &&
+            (adjacentPreferredLane?.maxElevationM ?? 0) >=
+              ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
+          ) {
+            bidirectionalProfileCaptureLaneIds.add(
+              preferredLane.adjacentLaneId,
+            );
+          }
         }
         for (const laneId of preferredLane.successorLaneIds) {
           continuityLaneIds.add(laneId);
@@ -723,22 +775,43 @@ export class RoadNetwork {
         for (const laneId of this.predecessorLaneIdsById.get(preferredLane.id) ?? []) {
           continuityLaneIds.add(laneId);
           const predecessor = this.lanesById.get(laneId);
+          if (
+            allowBidirectionalProfileCapture &&
+            (predecessor?.maxElevationM ?? 0) >=
+              ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
+          ) {
+            groundProfileCaptureLaneIds.add(laneId);
+            bidirectionalProfileCaptureLaneIds.add(laneId);
+          }
           if (predecessor?.adjacentLaneId) {
             continuityLaneIds.add(predecessor.adjacentLaneId);
+            const adjacentPredecessor = this.lanesById.get(
+              predecessor.adjacentLaneId,
+            );
+            if (
+              allowBidirectionalProfileCapture &&
+              (adjacentPredecessor?.maxElevationM ?? 0) >=
+                ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
+            ) {
+              groundProfileCaptureLaneIds.add(predecessor.adjacentLaneId);
+              bidirectionalProfileCaptureLaneIds.add(
+                predecessor.adjacentLaneId,
+              );
+            }
           }
         }
       }
       const groundHeightPreference =
         preferredElevationM !== null &&
         preferredElevationM <= ELEVATED_ROAD_STRUCTURE_THRESHOLD_M;
-      let hasDirectedRisingProfile = false;
+      let hasConnectedRisingProfile = false;
       if (groundHeightPreference) {
         for (const laneId of groundProfileCaptureLaneIds) {
           if (
             (this.lanesById.get(laneId)?.maxElevationM ?? 0) >=
             ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
           ) {
-            hasDirectedRisingProfile = true;
+            hasConnectedRisingProfile = true;
             break;
           }
         }
@@ -752,8 +825,9 @@ export class RoadNetwork {
       // from transient crossing/opposing projections without letting an
       // unrelated ramp's shallow apron become a staircase onto the bridge.
       // A live ground-to-ramp transition must instead come from the occupied
-      // lane, its adjacent lane, or an immediate directed successor. A raised
-      // predecessor is an exit ramp, not a valid entrance from this lane.
+      // lane, its adjacent lane, or an immediate graph neighbour. Callers that
+      // model legal routing retain directed successors only; player projection
+      // opts into predecessors because the physical pavement works both ways.
       const scanAllLanesForElevation =
         preferredElevationM !== null &&
         (allowUnconnectedElevationCapture ||
@@ -862,18 +936,18 @@ export class RoadNetwork {
           ? (preference.distanceTieEpsilonM ?? 0.1)
           : 0.1,
       );
-      // At the low end of a legal ramp, the opposite-direction exit apron or
+      // At the low end of a connected ramp, the opposite-direction apron or
       // the host street can remain a few decimetres closer in plan even while
       // the driver's heading follows the connected rising lane. Give heading
       // enough room to select that graph-authorised profile. Unrelated ramps
       // never enter `groundProfileCaptureLaneIds`, so this cannot pull a car
       // from a street onto an arbitrary bridge above it.
-      const tieEpsilon = hasDirectedRisingProfile
+      const tieEpsilon = hasConnectedRisingProfile
         ? Math.max(authoredTieEpsilon, 0.75)
         : authoredTieEpsilon;
       // Ordinary lane identity remains much narrower than the heading band so
       // an on-ramp can acquire the car as soon as it is measurably closer. At
-      // a directed rising profile, however, that same narrow window lets an
+      // a connected rising profile, however, that same narrow window lets an
       // overlapping wrong-way exit apron steal the car for one tick and erase
       // its legal successor set. Keep the occupied approach/ramp until the
       // matching-heading continuation is clearly closer; the enlarged value
@@ -936,9 +1010,17 @@ export class RoadNetwork {
             continue;
           }
           const heading = lane.segmentHeadings[index];
-          const headingDifference = Math.abs(
+          const directedHeadingDifference = Math.abs(
             angleDifference(heading, preference.heading),
           );
+          const headingDifference =
+            allowBidirectionalProfileCapture &&
+            bidirectionalProfileCaptureLaneIds.has(lane.id)
+              ? Math.min(
+                  directedHeadingDifference,
+                  Math.PI - directedHeadingDifference,
+                )
+              : directedHeadingDifference;
           const distanceAlong =
             (index === 0 ? 0 : lane.segmentEndDistances[index - 1]) +
             lane.segmentLengths[index] * amount;

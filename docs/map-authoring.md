@@ -49,6 +49,10 @@ the connector so only the adjacent travel direction can enter or receive the
 ramp. This supplies real x/z separation for projection, preserves the through
 lane, and keeps the parapet out of the junction. The structural renderer clips
 the slab and parapet below 0.65 m so the full ground taper remains open.
+The directed connector governs NPCs, route guidance and wrong-way rules; player
+level ownership treats the immediately connected paved arms bidirectionally so
+choosing to enter an exit never creates a hidden wall or leaves the car below
+the ramp surface.
 
 An elevated `RoadSurface` derives its concrete slab, edge girders, parapets and
 hammerhead supports through `buildElevatedRoadStructures`. Supports yield to

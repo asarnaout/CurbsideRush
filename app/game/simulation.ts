@@ -1047,6 +1047,7 @@ export class SimulationCore {
             heading: oldPlayer.heading,
             preferredLaneId: this.roadState.projection?.lane.id,
             preferredElevationM: oldPlayer.elevationM ?? 0,
+            allowBidirectionalProfileCapture: true,
           })
         : this.roadNetwork.projectToRoad(oldPlayer.x, oldPlayer.z);
       this.movePlayer(deltaSeconds);
@@ -1136,10 +1137,10 @@ export class SimulationCore {
    * Keeps the player's roof out of a low flyover/ramp without turning every
    * elevated deck into a planar wall. The adapter's prepared query reports
    * actual clearance above each capsule sample. A prospective lane projection
-   * supplies that sample's tyre height: when the player legally climbs the
-   * ramp, its own asphalt/deck is therefore at or below the tyres and the
-   * geometry query ignores it; a ground lane beneath the same x/z remains at
-   * zero and sees the ramp as an obstruction.
+   * supplies that sample's tyre height: when the player climbs a connected
+   * ramp in either direction, its own asphalt/deck is therefore at or below
+   * the tyres and the geometry query ignores it; a ground lane beneath the
+   * same x/z remains at zero and sees the ramp as an obstruction.
    */
   private elevatedRoadRoofObstructionAt(
     x: number,
@@ -1180,13 +1181,14 @@ export class SimulationCore {
       }
       // Most ticks are nowhere near a low structure, and high viaducts pass
       // the cheap clearance comparison above. Only a potential roof contact
-      // pays for topology-aware projection to distinguish a legal ramp climb
-      // from the unrelated ground road below it.
+      // pays for topology-aware projection to distinguish a connected ramp
+      // climb from the unrelated ground road below it.
       if (centreProjection === undefined) {
         centreProjection = this.roadNetwork.projectToRoad(x, z, {
           heading,
           preferredLaneId: currentLaneId,
           preferredElevationM: carriedElevationM,
+          allowBidirectionalProfileCapture: true,
         });
       }
       const centreElevationM = centreProjection?.elevationM ?? carriedElevationM;
@@ -1198,37 +1200,50 @@ export class SimulationCore {
           heading,
           preferredLaneId: prospectiveLaneId,
           preferredElevationM: centreElevationM,
+          allowBidirectionalProfileCapture: true,
         },
       );
       const sampleElevationM = sampleProjection?.elevationM ?? centreElevationM;
       const carrierSurfaceIds = this.elevatedRoadCarrierSurfaceIds;
       carrierSurfaceIds.clear();
-      const travelSign = this.playerState.signedSpeedMps < 0 ? -1 : 1;
-      const relativeTravelM = alongM * travelSign;
-      const connectionOptions = {
-        // The centre disc straddles both sides of a lane handoff: its radius
-        // reaches the predecessor and successor even though its along-body
-        // offset is exactly zero. Excluding both there made a legal rising
-        // successor look like a low roof during the last metre of a ramp
-        // merge. Front and rear samples remain directional, while the centre
-        // retains both legal pieces of the same pavement seam.
-        includePredecessors: relativeTravelM <= 1e-6,
-        includeSuccessors: relativeTravelM >= -1e-6,
+      const connectionPoint = { x: sampleX, z: sampleZ };
+      const connectionCaptureDistanceM =
+        halfLengthM + this.config.playerCapsuleRadiusM + 0.75;
+      const connectionOptionsFor = (laneHeading: number | undefined) => {
+        // Express the capsule sample in the lane's stored direction. A player
+        // pointing against that direction swaps predecessor and successor, so
+        // a wrong-way exit climb receives exactly the same seam clearance as
+        // a legal entry. Gear does not enter this calculation: changing gear
+        // cannot change which pavement lies beneath a fixed roof disc. Only
+        // the centre disc retains both sides, and the endpoint gate keeps each
+        // exemption inside the physical handoff envelope.
+        const bodyMatchesLaneSign =
+          laneHeading !== undefined &&
+          Math.abs(angleDifference(heading, laneHeading)) > Math.PI / 2
+            ? -1
+            : 1;
+        const relativeLaneM = alongM * bodyMatchesLaneSign;
+        return {
+          includePredecessors: relativeLaneM <= 1e-6,
+          includeSuccessors: relativeLaneM >= -1e-6,
+          connectionPoint,
+          connectionCaptureDistanceM,
+        };
       };
       this.roadNetwork.addLaneRoadSurfaceIds(
         currentLaneId,
         carrierSurfaceIds,
-        connectionOptions,
+        connectionOptionsFor(this.roadState.projection?.heading),
       );
       this.roadNetwork.addLaneRoadSurfaceIds(
         prospectiveLaneId,
         carrierSurfaceIds,
-        connectionOptions,
+        connectionOptionsFor(centreProjection?.heading),
       );
       this.roadNetwork.addLaneRoadSurfaceIds(
         sampleProjection?.lane.id,
         carrierSurfaceIds,
-        connectionOptions,
+        connectionOptionsFor(sampleProjection?.heading),
       );
       const obstruction = clearanceAt(
         { x: sampleX, z: sampleZ },
@@ -1518,6 +1533,7 @@ export class SimulationCore {
             preferredLaneId: this.roadState.projection?.lane.id,
             preferredElevationM: this.playerState.player.elevationM ?? 0,
             allowUnconnectedElevationCapture,
+            allowBidirectionalProfileCapture: true,
           },
         )
       : this.roadNetwork.projectToRoad(
