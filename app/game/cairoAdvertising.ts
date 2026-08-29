@@ -527,6 +527,12 @@ const SKYLINE_RESERVATION_GRID_CELL_M = 48;
 // are fallbacks only; the current Cairo layout finds a real gap for every
 // board at the first angle.
 const SKYLINE_APPROACH_CANTS_DEG = [55, 58, 61, 64, 67] as const;
+const SUPPRESSED_SKYLINE_BILLBOARD_IDS = new Set([
+  // Rotating this pastry board far enough to clear the Sixth of October deck
+  // puts its frame into Ramses Street. Keep its gap reserved below so removing
+  // this one installation cannot reshuffle any later campaign placements.
+  "cairo-ad-skyline-billboard-cairo-ramses-5-r",
+]);
 const CAIRO_AD_PLACEMENT_CACHE = new WeakMap<
   BuildingLayoutPlan,
   readonly CairoAdPlacement[]
@@ -1105,9 +1111,14 @@ function skylineBillboardPlacements(
           `No safe skyline-billboard gap for ${rule.roadId} station ${stationIndex}`,
         );
       }
+      const placementId = `cairo-ad-skyline-billboard-${rule.roadId}-${stationIndex}-${chosen.side > 0 ? "r" : "l"}`;
       accepted.push(chosen);
+      if (SUPPRESSED_SKYLINE_BILLBOARD_IDS.has(placementId)) {
+        stationIndex += 1;
+        continue;
+      }
       placements.push({
-        id: `cairo-ad-skyline-billboard-${rule.roadId}-${stationIndex}-${chosen.side > 0 ? "r" : "l"}`,
+        id: placementId,
         kind: "skyline-billboard",
         sourceRoadId: rule.roadId,
         position: chosen.position,

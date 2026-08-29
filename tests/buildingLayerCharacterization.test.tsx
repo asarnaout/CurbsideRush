@@ -500,8 +500,11 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // clutter follows the authored roof points of the deterministic models.
     // -> 1_353 / 512 (Corniche/park public-realm dressing): the final safe
     // frontage accents use the same deterministic Cairo kit and roof points.
-    buildingInstanceCount: 1_353,
-    cairoRoofClutterInstanceCount: 512,
+    // -> 1_366 / 514 (Sixth October bridge-side infill): 17 planned Cairo
+    // assets are added; 13 survive this fixed quality profile and two of
+    // those deterministic models carry authored roof clutter.
+    buildingInstanceCount: 1_366,
+    cairoRoofClutterInstanceCount: 514,
     storefrontSignMaterialCount: 0,
   },
 };

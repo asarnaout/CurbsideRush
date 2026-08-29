@@ -274,7 +274,7 @@ describe("Cairo advertising", () => {
     expect(poleBanners.length).toBeGreaterThanOrEqual(625);
     // This exact count is intentional: gap resolution adds every nominal slot
     // instead of quietly solving a collision by deleting a board.
-    expect(skylineBoards).toHaveLength(69);
+    expect(skylineBoards).toHaveLength(68);
     expect(bridgeSideSigns.length).toBeGreaterThanOrEqual(30);
     expect(bridgeGantries.length).toBeGreaterThanOrEqual(10);
     expect(new Set(placements.map((placement) => placement.id)).size).toBe(
@@ -282,6 +282,13 @@ describe("Cairo advertising", () => {
     );
     expect(new Set(poleBanners.map((placement) => placement.sourceRoadId)).size).toBe(27);
     expect(new Set(skylineBoards.map((placement) => placement.sourceRoadId)).size).toBe(13);
+    expect(
+      skylineBoards.some(
+        (placement) =>
+          placement.id ===
+          "cairo-ad-skyline-billboard-cairo-ramses-5-r",
+      ),
+    ).toBe(false);
     expect(
       new Set(bridgeSideSigns.map((placement) => placement.sourceRoadId)),
     ).toEqual(new Set(["cairo-sixth-october-bridge"]));

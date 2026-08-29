@@ -150,10 +150,10 @@ describe("Cairo advertising renderer", () => {
   it("spatially batches the exact legacy part transforms without changing roles or materials", () => {
     const legacy = renderAds({ batchStaticMeshes: false });
     const expectedFingerprints = legacyFingerprints(legacy.scene);
-    expect(expectedFingerprints).toHaveLength(3_622);
-    expect(legacy.scene.meshes).toHaveLength(3_674);
-    expect(legacy.scene.transformNodes).toHaveLength(748);
-    expect(legacy.frozen).toHaveLength(4_370);
+    expect(expectedFingerprints).toHaveLength(3_612);
+    expect(legacy.scene.meshes).toHaveLength(3_664);
+    expect(legacy.scene.transformNodes).toHaveLength(747);
+    expect(legacy.frozen).toHaveLength(4_359);
     legacy.scene.dispose();
 
     const batched = renderAds({ batchStaticMeshes: true });
@@ -284,10 +284,10 @@ describe("Cairo advertising renderer", () => {
     ).toHaveLength(0);
     expect(
       batches.reduce((count, batch) => count + batch.thinInstanceCount, 0),
-    ).toBe(3_622);
-    expect(batches).toHaveLength(914);
-    expect(batched.scene.meshes).toHaveLength(966);
-    expect(batched.frozen).toHaveLength(914);
+    ).toBe(3_612);
+    expect(batches).toHaveLength(912);
+    expect(batched.scene.meshes).toHaveLength(964);
+    expect(batched.frozen).toHaveLength(912);
     batched.scene.dispose();
   }, 30_000);
 });

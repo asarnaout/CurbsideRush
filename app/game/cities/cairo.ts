@@ -5730,6 +5730,98 @@ export const CAIRO_MARKED_GAP_ASSET_BLOCKS: readonly ProceduralBlock[] = [
   markedGapAsset(30, "dense-3", -815, -834, 10, 0, "+z", "cairo-westbank"),
 ];
 
+type SixthOctoberBridgesideZone =
+  | "west-south"
+  | "gezira-north"
+  | "gezira-south"
+  | "east-north"
+  | "east-south";
+
+const sixthOctoberBridgesideAsset = (
+  zone: SixthOctoberBridgesideZone,
+  index: number,
+  x: number,
+  z: number,
+  headingDeg: number,
+  streetEdge: "+z" | "-z",
+  buildingSet: BuildingSetId,
+): ProceduralBlock => {
+  const center = point(x, z);
+  const style = cairoRoadsideStyle(center);
+  return {
+    id: `cairo-sixth-october-bridgeside-${zone}-${index}`,
+    center,
+    size: point(12, buildingSetDepthM(buildingSet) + 1.5),
+    headingDeg,
+    frontageAxis: "z",
+    streetEdges: [streetEdge],
+    material: style.material,
+    heightRange: style.heightRange,
+    density: 0.82,
+    buildingSet,
+    addressable: false,
+  };
+};
+
+/**
+ * Dense Cairo-only frontage in the four dry-land voids visible from the Sixth
+ * October carrier. Each centre is sampled from the real mainline tangent and
+ * moved 17 m along its normal, leaving the two Nile crossings open. Small
+ * one-building parcels let the normal closure validator enforce roads, ramps,
+ * landmarks and neighbouring blocks without reserving another broad empty lot.
+ */
+export const CAIRO_SIXTH_OCTOBER_BRIDGESIDE_ASSET_BLOCKS: readonly ProceduralBlock[] = [
+  sixthOctoberBridgesideAsset(
+    "west-south",
+    1,
+    -649.779562,
+    299.612882,
+    6.008736,
+    "+z",
+    "cairo-westbank",
+  ),
+  sixthOctoberBridgesideAsset(
+    "gezira-north",
+    1,
+    -190.223659,
+    285.500162,
+    5.99782,
+    "-z",
+    "cairo-zamalek",
+  ),
+  sixthOctoberBridgesideAsset(
+    "gezira-south",
+    1,
+    -203.776341,
+    252.73694,
+    5.997821,
+    "+z",
+    "cairo-zamalek",
+  ),
+  sixthOctoberBridgesideAsset(
+    "gezira-south",
+    2,
+    -185.77634,
+    250.845757,
+    5.997819,
+    "+z",
+    "cairo-zamalek",
+  ),
+  sixthOctoberBridgesideAsset("east-north", 1, 383.776806, 225.180496, 5.999397, "-z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-north", 2, 399.776811, 223.498996, 5.999415, "-z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-north", 3, 415.776818, 221.817489, 5.999436, "-z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-north", 4, 431.776828, 220.135975, 5.999473, "-z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-north", 5, 447.776842, 218.454449, 5.99952, "-z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-south", 1, 360.2232, 193.468581, 5.999377, "+z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-south", 2, 376.223196, 191.787088, 5.999391, "+z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-south", 3, 392.223191, 190.10559, 5.999408, "+z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-south", 4, 408.223185, 188.424087, 5.999429, "+z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-south", 5, 424.223175, 186.742576, 5.999463, "+z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-south", 6, 440.223162, 185.061057, 5.999507, "+z", "cairo-downtown"),
+  sixthOctoberBridgesideAsset("east-south", 7, 456.223145, 183.379524, 5.999565, "+z", "cairo-westbank"),
+  sixthOctoberBridgesideAsset("east-south", 8, 472.223121, 181.697972, 5.999643, "+z", "cairo-westbank"),
+];
+
 for (const gapBlock of CAIRO_MARKED_GAP_ASSET_BLOCKS) {
   const validation = validateCairoClosureCandidate(gapBlock);
   if (!validation.valid) {
@@ -5769,6 +5861,30 @@ for (const gapBlock of CAIRO_MARKED_GAP_ASSET_BLOCKS) {
     );
   }
   addRoadClearBlock(gapBlock);
+}
+
+for (const bridgesideBlock of CAIRO_SIXTH_OCTOBER_BRIDGESIDE_ASSET_BLOCKS) {
+  const validation = validateCairoClosureCandidate(bridgesideBlock);
+  if (!validation.valid) {
+    throw new Error(
+      `cairo.ts: Sixth October bridgeside block ${bridgesideBlock.id} failed validation (${validation.reason})`,
+    );
+  }
+  const railCheck = carveBlocksForRailCorridors(
+    [bridgesideBlock],
+    CAIRO_RAIL_LINES,
+  );
+  if (
+    railCheck.blocks.length !== 1 ||
+    railCheck.blocks[0].id !== bridgesideBlock.id ||
+    railCheck.removedBlockIds.length > 0 ||
+    railCheck.trimmedBlockIds.length > 0
+  ) {
+    throw new Error(
+      `cairo.ts: Sixth October bridgeside block ${bridgesideBlock.id} reaches the Imbaba rail corridor`,
+    );
+  }
+  addRoadClearBlock(bridgesideBlock);
 }
 
 /**

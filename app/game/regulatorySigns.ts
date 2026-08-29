@@ -30,6 +30,8 @@ export type RegulatorySignKind = "one_way" | "do_not_enter" | "wrong_way";
 
 export interface RegulatorySignPlacement {
   readonly kind: RegulatorySignKind;
+  /** The road this sign belongs to; also encoded before `@` in `refId`. */
+  readonly roadId: string;
   readonly x: number;
   readonly z: number;
   readonly elevationM?: number;
@@ -595,11 +597,25 @@ export function regulatorySignPlacements(
             );
             // Right normal of the local arm tangent; each side searches its
             // own kerb independently so one blocked post never costs its mate.
+            const candidateX =
+              station.x + Math.cos(awayHeading) * lateral * side;
+            const candidateZ =
+              station.z - Math.sin(awayHeading) * lateral * side;
             const candidate = {
               kind,
-              x: station.x + Math.cos(awayHeading) * lateral * side,
-              z: station.z - Math.sin(awayHeading) * lateral * side,
-              elevationM: station.elevationM,
+              roadId: arm.roadId,
+              x: candidateX,
+              z: candidateZ,
+              // The offset post can project to a different point on a curved
+              // grade than its centreline station. Audit the finished post at
+              // that actual elevation, matching speed-limit placement below.
+              elevationM: arm.surfaceCenterline
+                ? elevationOnPolylineAt(
+                    arm.surfaceCenterline,
+                    candidateX,
+                    candidateZ,
+                  )
+                : station.elevationM,
               flowHeadingRad,
               refId: `${nodeRef}:${suffix}:${side < 0 ? "l" : "r"}`,
             } satisfies RegulatorySignPlacement;

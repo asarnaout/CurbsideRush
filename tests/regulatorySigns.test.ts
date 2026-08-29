@@ -11,6 +11,11 @@ import {
   type RegulatorySignPlacement,
 } from "../app/game/regulatorySigns";
 import {
+  CAIRO_REMOVED_WEST_RAMP_SPEED_SIGN_REF_ID,
+  curateCairoRegulatorySigns,
+  curateCairoSpeedLimitSigns,
+} from "../app/game/cairoRoadSigns";
+import {
   ELEVATED_ROAD_LEVEL_THRESHOLD_M,
   elevationOnPolylineAt,
   roadLevelAtElevation,
@@ -704,6 +709,122 @@ describe("robustness across map packs", () => {
   });
 });
 
+describe("Cairo regulatory sign presentation", () => {
+  const pack = getMapPack("cairo-central-nile");
+  const signInput = {
+    lanes: pack.laneGraph.lanes,
+    roadSurfaces: pack.geometry.roadSurfaces,
+    defaultRoadWidthM: pack.geometry.roadWidth,
+    occupiedPositions: pack.laneGraph.controls.flatMap((control) =>
+      (control.installations ?? [])
+        .filter((installation) => installation.mounting !== "road_marking")
+        .map((installation) => installation.position),
+    ),
+  };
+  const raw = regulatorySignPlacements(signInput);
+  const placements = curateCairoRegulatorySigns(raw);
+
+  it("de-pairs posts and limits negative warnings to two well-spaced signs per road", () => {
+    expect(placements.length).toBeLessThan(raw.length / 3);
+    const warningsByRoad = new Map<string, RegulatorySignPlacement[]>();
+    for (const placement of placements) {
+      if (placement.kind === "one_way") continue;
+      const list = warningsByRoad.get(placement.roadId) ?? [];
+      list.push(placement);
+      warningsByRoad.set(placement.roadId, list);
+    }
+    for (const [roadId, warnings] of warningsByRoad) {
+      expect(warnings.length, roadId).toBeLessThanOrEqual(2);
+      expect(
+        warnings.filter((placement) => placement.kind === "do_not_enter").length,
+        `${roadId} DO NOT ENTER count`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        warnings.filter((placement) => placement.kind === "wrong_way").length,
+        `${roadId} WRONG WAY count`,
+      ).toBeLessThanOrEqual(1);
+      if (warnings.length === 2) {
+        expect(
+          Math.hypot(
+            warnings[0].x - warnings[1].x,
+            warnings[0].z - warnings[1].z,
+          ),
+          roadId,
+        ).toBeGreaterThanOrEqual(72);
+      }
+    }
+    for (let first = 0; first < placements.length; first += 1) {
+      for (let second = first + 1; second < placements.length; second += 1) {
+        expect(
+          Math.hypot(
+            placements[first].x - placements[second].x,
+            placements[first].z - placements[second].z,
+          ),
+          `${placements[first].refId} vs ${placements[second].refId}`,
+        ).toBeGreaterThanOrEqual(4);
+      }
+    }
+  });
+
+  it("removes the reviewed east, Corniche, and west bridge intrusions", () => {
+    const refs = new Set(placements.map((placement) => placement.refId));
+    for (const removed of [
+      "cairo-sixth-october-bridge-east-entry@638,180:dne:l",
+      "cairo-sixth-october-bridge-east-entry@638,180:dne:r",
+      "cairo-sixth-october-bridge-east-entry@638,180:ww35:l",
+      "cairo-sixth-october-bridge-east-entry@638,180:ww35:r",
+      "cairo-sixth-october-bridge-east-exit@638,180:oneway:l",
+      "cairo-sixth-october-bridge-east-exit@638,180:oneway:r",
+      "cairo-sixth-october-bridge-corniche-entry@160,231.6:dne:l",
+      "cairo-sixth-october-bridge-corniche-entry@160,231.6:ww35:l",
+      "cairo-sixth-october-bridge-corniche-entry@160,231.6:ww35:r",
+      "cairo-sixth-october-bridge-west-entry@-720,340:dne:l",
+      "cairo-sixth-october-bridge-west-exit@-720,340:oneway:r",
+    ]) {
+      expect(refs, removed).not.toContain(removed);
+    }
+    expect(refs).toContain(
+      "cairo-sixth-october-bridge-corniche-entry@160,231.6:dne:r",
+    );
+    expect(refs).toContain(
+      "cairo-sixth-october-east-exit-slip@713.8,85:dne:l",
+    );
+  });
+
+  it("keeps every retained Sixth of October post on its own kerb profile", () => {
+    for (const placement of placements.filter((candidate) =>
+      candidate.roadId.startsWith("cairo-sixth-october"),
+    )) {
+      const surface = pack.geometry.roadSurfaces?.find(
+        (candidate) => candidate.id === placement.roadId,
+      );
+      expect(surface, placement.refId).toBeDefined();
+      const expectedOffsetM = surface!.widthM / 2 + KERB_MARGIN_M;
+      expect(
+        distanceToPolyline(placement, surface!.centerline),
+        placement.refId,
+      ).toBeCloseTo(expectedOffsetM, 1);
+      expect(placement.elevationM ?? 0, placement.refId).toBeCloseTo(
+        elevationOnPolylineAt(
+          surface!.centerline,
+          placement.x,
+          placement.z,
+        ),
+        6,
+      );
+    }
+  });
+
+  it("derives deterministically with unique ids", () => {
+    expect(placements).toEqual(
+      curateCairoRegulatorySigns(regulatorySignPlacements(signInput)),
+    );
+    expect(new Set(placements.map((placement) => placement.refId)).size).toBe(
+      placements.length,
+    );
+  });
+});
+
 /**
  * Speed-limit signage runs on every map, not just New York's MUTCD grid, and
  * it exists because the limit is now the one number the game charges you for
@@ -725,6 +846,13 @@ describe("speed-limit signage", () => {
           .map((installation) => installation.position),
       ),
     });
+
+  const presentedSignsFor = (pack: ReturnType<typeof nycPack>) => {
+    const signs = signsFor(pack);
+    return pack.id === "cairo-central-nile"
+      ? curateCairoSpeedLimitSigns(signs)
+      : signs;
+  };
 
   const drivenRoadIds = (pack: ReturnType<typeof nycPack>) =>
     new Set(
@@ -774,6 +902,22 @@ describe("speed-limit signage", () => {
         (sign) => Math.abs((sign.elevationM ?? 0) - 10.5) < 1e-6,
       ),
     ).toBe(true);
+  });
+
+  it("removes only the reviewed 40 sign from the west bridge ramp", () => {
+    const pack = getMapPack("cairo-central-nile");
+    const raw = signsFor(pack);
+    const presented = presentedSignsFor(pack);
+    expect(raw.map((sign) => sign.refId)).toContain(
+      CAIRO_REMOVED_WEST_RAMP_SPEED_SIGN_REF_ID,
+    );
+    expect(presented.map((sign) => sign.refId)).not.toContain(
+      CAIRO_REMOVED_WEST_RAMP_SPEED_SIGN_REF_ID,
+    );
+    expect(presented.map((sign) => sign.refId)).toContain(
+      "cairo-sixth-october-bridge-west-entry@-788,330:e:limit40:repeater",
+    );
+    expect(presented).toHaveLength(raw.length - 1);
   });
 
   it("posts every map, including the one that posts a single figure", () => {

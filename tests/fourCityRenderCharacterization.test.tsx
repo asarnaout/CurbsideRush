@@ -1523,9 +1523,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // plus 748 roots with 966 meshes (52 hidden masters and 914 frustum-
     // cullable thin-instance chunks). The material inventory/fingerprint and
     // mirror draw set remain unchanged.
-    totalMeshes: 20_669,
-    enabledMeshes: 20_625,
-    activeMeshes: 2_883,
+    // -> 20_686/20_642 (active 2_896): the four reviewed dry-land flanks of
+    // Sixth October gain 17 existing Cairo asset instances. Thirteen enter
+    // the fixed spawn frustum; materials, mirrors and advertising are stable.
+    // -> 19_937/19_893 (active 2_851): Cairo presents a sparse, kerb-safe
+    // subset of its regulatory signs and suppresses the single Sixth October
+    // pastry billboard that intersected the bridge. Materials stay stable.
+    totalMeshes: 19_937,
+    enabledMeshes: 19_893,
+    activeMeshes: 2_851,
     materials: 370,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
@@ -1550,7 +1556,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // previous candidate drops out of the fixed distance/cull ordering.
     // 29 -> 26 / 168 -> 165: denser advertising reservations re-deal three
     // ordinary props from the fixed spawn mirror ring.
-    mirrorCandidates: 27,
+    mirrorCandidates: 23,
     mirrorDrawn: 165,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,

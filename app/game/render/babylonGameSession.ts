@@ -315,6 +315,10 @@ import {
   speedLimitSignPlacements,
 } from "../regulatorySigns";
 import {
+  curateCairoRegulatorySigns,
+  curateCairoSpeedLimitSigns,
+} from "../cairoRoadSigns";
+import {
   splitMarkingAtCrossings,
   type MarkingPoint,
 } from "../roadMarkings";
@@ -6258,12 +6262,20 @@ export class BabylonGameSession {
     // map with one-way lanes — 24 harat plus the five original one-way
     // streets, every mouth of which needs its ممنوع الدخول (do-not-enter)
     // or one-way arrow, or a wrong-way fine arrives with zero warning.
-    const regulatorySigns =
+    const rawRegulatorySigns =
       mapPack.id === "nyc-upper-west-side" ||
       mapPack.id === "cairo-central-nile"
         ? regulatorySignPlacements(signInput)
         : [];
-    const speedLimitSigns = speedLimitSignPlacements(signInput);
+    const regulatorySigns =
+      mapPack.id === "cairo-central-nile"
+        ? curateCairoRegulatorySigns(rawRegulatorySigns)
+        : rawRegulatorySigns;
+    const rawSpeedLimitSigns = speedLimitSignPlacements(signInput);
+    const speedLimitSigns =
+      mapPack.id === "cairo-central-nile"
+        ? curateCairoSpeedLimitSigns(rawSpeedLimitSigns)
+        : rawSpeedLimitSigns;
     const londonLandmarksCtx = {
       scene,
       staticSceneryFreeze: this.staticSceneryFreeze,
