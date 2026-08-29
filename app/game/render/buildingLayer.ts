@@ -102,11 +102,18 @@ import type { BuildingRepresentationRecord } from "./buildingRepresentation";
  * back when every facade emitted its own albedo, so a pane had to shout to
  * out-read a glowing wall. With walls returned to being lit by the scene, the
  * same 0.72 blows the pane out to a flat white-yellow rectangle under night's
- * 1.55 exposure and 0.72 bloom threshold — the window stops looking like a
- * room and starts looking like a sticker. Retune it against a screenshot of a
- * dark wall, never on its own.
+ * 1.55 exposure and the default 0.72 bloom threshold — the window stops
+ * looking like a room and starts looking like a sticker. This is the shared
+ * default; Cairo's palette deliberately raises PBR panes to 0.46 while lowering
+ * bloom threshold, so either value must be retuned against its wall, never in
+ * isolation.
  */
 const WINDOW_GLOW = 0.34;
+
+/** Material-name aliases verified as actual panes in the shipped kits. */
+export function isNightWindowMaterialName(name: string): boolean {
+  return /window|glass|cristal/.test(name.toLowerCase());
+}
 
 /**
  * Cairo's kit gets NO special night wall treatment. Every incarnation of
@@ -150,6 +157,8 @@ export interface DebugBuildingAssetPolicy {
 export interface BuildingLayerInstantiateCtx {
   /** Whether this map's palette is a night city — gates `applyNightGlow`. */
   readonly night: boolean;
+  /** Optional per-palette pane intensity; omitted maps keep `WINDOW_GLOW`. */
+  readonly nightWindowGlowIntensity?: number;
   /** This map's building-set glb urls (preloaded off the critical path) —
    * also what `applyNightGlow` and the Cairo decal bias pass iterate. */
   readonly buildingModelUrls: readonly string[];
@@ -257,7 +266,10 @@ export class BuildingLayer {
    * therefore has no lit windows, and that is the honest result: it is lit by
    * the street, exactly like every other wall in the scene.
    */
-  private applyNightGlow(buildingModelUrls: readonly string[]): void {
+  private applyNightGlow(
+    buildingModelUrls: readonly string[],
+    windowGlowIntensity = WINDOW_GLOW,
+  ): void {
     // Warm sodium/incandescent colour for lit windows (blue-hour amber). Kept
     // below pure white so bloom softens it to a glow instead of blowing it out.
     const WARM = new Color3(0.95, 0.6, 0.29);
@@ -280,11 +292,13 @@ export class BuildingLayer {
         // `cristal` is glass in the Spanish-authored `tokyo-house-d`; its
         // `Ventana` is the frame, not the pane, so window-in-another-language
         // names are added one confirmed asset at a time, never speculatively.
-        if (!/window|glass|trim|cristal/.test((mat.name ?? "").toLowerCase())) continue;
+        if (!isNightWindowMaterialName(mat.name ?? "")) continue;
         if (m.albedoColor) m.albedoColor = DARK_PANE.clone();
         if (m.diffuseColor) m.diffuseColor = DARK_PANE.clone();
         m.emissiveColor = WARM.clone();
-        if (typeof m.emissiveIntensity === "number") m.emissiveIntensity = WINDOW_GLOW;
+        if (typeof m.emissiveIntensity === "number") {
+          m.emissiveIntensity = windowGlowIntensity;
+        }
       }
     }
   }
@@ -593,7 +607,12 @@ export class BuildingLayer {
    * call the code this replaces — see the class doc comment.
    */
   instantiate(ctx: BuildingLayerInstantiateCtx): void {
-    if (ctx.night) this.applyNightGlow(ctx.buildingModelUrls);
+    if (ctx.night) {
+      this.applyNightGlow(
+        ctx.buildingModelUrls,
+        ctx.nightWindowGlowIntensity ?? WINDOW_GLOW,
+      );
+    }
     // Pull the affected Quaternius kits' decal primitives off their wall
     // planes. Container materials are shared by every instance and by the
     // merged masters, so once per url covers the map.

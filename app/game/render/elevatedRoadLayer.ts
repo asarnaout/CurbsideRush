@@ -1,7 +1,9 @@
 import {
   Color3,
+  Constants,
   Mesh,
   MeshBuilder,
+  RawTexture,
   Scene,
   StandardMaterial,
   TransformNode,
@@ -41,6 +43,9 @@ export const CAIRO_BRIDGE_PARAPET_COPING_HEIGHT_M = 0.1;
 export const CAIRO_BRIDGE_PARAPET_RAIL_HEIGHT_M = 0.52;
 export const CAIRO_BRIDGE_PARAPET_RAIL_POST_SPACING_M = 1.35;
 export const CAIRO_BRIDGE_PARAPET_REFLECTOR_SPACING_M = 9;
+export const CAIRO_BRIDGE_LAMP_SPACING_M = 26;
+export const CAIRO_BRIDGE_LAMP_END_INSET_M = 3;
+export const CAIRO_BRIDGE_LAMP_HEIGHT_M = 5.8;
 export const CAIRO_BRIDGE_PARAPET_TOTAL_HEIGHT_M =
   ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
   ELEVATED_ROAD_PARAPET_HEIGHT_M +
@@ -49,6 +54,11 @@ export const CAIRO_BRIDGE_PARAPET_TOTAL_HEIGHT_M =
 export interface CairoBridgeBarrierVisualPlan {
   readonly railPostOffsetsM: readonly number[];
   readonly reflectorOffsetsM: readonly number[];
+}
+
+export interface CairoBridgeLampStation {
+  readonly offsetM: number;
+  readonly side: -1 | 1;
 }
 
 const gridOffsetsWithinRun = (
@@ -104,6 +114,35 @@ export function cairoBridgeBarrierVisualPlan(
   }
 
   return { railPostOffsetsM, reflectorOffsetsM };
+}
+
+/**
+ * One globally phased, alternating lamp line for Cairo's elevated roads.
+ * Planning in surface-distance space keeps the rhythm continuous across the
+ * short authored segments while the renderer can still discard stations that
+ * land in a junction opening with no supporting parapet run.
+ */
+export function cairoBridgeLampVisualPlan(
+  runLengthM: number,
+  runStartDistanceM = 0,
+): readonly CairoBridgeLampStation[] {
+  const lengthM = Math.max(0, runLengthM);
+  return gridOffsetsWithinRun(
+    lengthM,
+    runStartDistanceM,
+    CAIRO_BRIDGE_LAMP_SPACING_M,
+    Math.min(CAIRO_BRIDGE_LAMP_END_INSET_M, lengthM / 2),
+  ).map((offsetM) => {
+    const stationDistanceM =
+      runStartDistanceM + lengthM / 2 + offsetM;
+    const stationIndex = Math.round(
+      stationDistanceM / CAIRO_BRIDGE_LAMP_SPACING_M,
+    );
+    return {
+      offsetM,
+      side: stationIndex % 2 === 0 ? -1 : 1,
+    };
+  });
 }
 
 const appendQuad = (
@@ -1011,9 +1050,83 @@ export function buildElevatedRoadStructures(
   if (usesCairoBarrierStyle) {
     cairoRail.specularColor = new Color3(0.12, 0.13, 0.1);
   }
+  const cairoBridgeLampIron = usesCairoBarrierStyle
+    ? material(
+        ctx.scene,
+        "cairo-bridge-lamp-iron",
+        new Color3(0.075, 0.085, 0.085),
+      )
+    : null;
+  const cairoBridgeLampHead = usesCairoBarrierStyle
+    ? material(
+        ctx.scene,
+        "cairo-bridge-lamp-head",
+        new Color3(0.88, 0.68, 0.38),
+      )
+    : null;
+  if (cairoBridgeLampHead) {
+    cairoBridgeLampHead.emissiveColor = new Color3(1.55, 0.88, 0.32);
+    cairoBridgeLampHead.specularColor = Color3.Black();
+  }
+  let cairoBridgeLampPool: StandardMaterial | null = null;
+  if (usesCairoBarrierStyle) {
+    // Raw RGBA keeps the bridge builder usable under Babylon's NullEngine
+    // (no DOM/OffscreenCanvas) while producing the same soft additive spill
+    // as the canvas-backed ground streetlights.
+    const poolTextureSize = 128;
+    const poolTextureData = new Uint8Array(
+      poolTextureSize * poolTextureSize * 4,
+    );
+    for (let y = 0; y < poolTextureSize; y += 1) {
+      for (let x = 0; x < poolTextureSize; x += 1) {
+        const distance = Math.hypot(x - 63.5, y - 63.5) / 63;
+        const falloff = Math.max(0, 1 - distance);
+        const offset = (y * poolTextureSize + x) * 4;
+        poolTextureData[offset] = 255;
+        poolTextureData[offset + 1] = 178;
+        poolTextureData[offset + 2] = 96;
+        poolTextureData[offset + 3] = Math.round(
+          255 * 0.74 * falloff * falloff,
+        );
+      }
+    }
+    const poolTexture = RawTexture.CreateRGBATexture(
+      poolTextureData,
+      poolTextureSize,
+      poolTextureSize,
+      ctx.scene,
+      true,
+      false,
+    );
+    poolTexture.name = "cairo-bridge-lamp-pool-tex";
+    poolTexture.hasAlpha = true;
+
+    cairoBridgeLampPool = new StandardMaterial(
+      "cairo-bridge-lamp-pool",
+      ctx.scene,
+    );
+    cairoBridgeLampPool.emissiveColor = new Color3(0.64, 0.41, 0.17);
+    cairoBridgeLampPool.emissiveTexture = poolTexture;
+    cairoBridgeLampPool.opacityTexture = poolTexture;
+    cairoBridgeLampPool.alphaMode = Constants.ALPHA_ADD;
+    cairoBridgeLampPool.diffuseColor = Color3.Black();
+    cairoBridgeLampPool.specularColor = Color3.Black();
+    cairoBridgeLampPool.disableLighting = true;
+    cairoBridgeLampPool.disableDepthWrite = true;
+  }
 
   for (const surface of surfaces) {
     const segments = elevatedRoadSegmentPlacements(surface);
+    const surfaceLengthM = segments.reduce(
+      (totalM, segment) => totalM + segment.lengthM,
+      0,
+    );
+    const surfaceLampStations = usesCairoBarrierStyle
+      ? cairoBridgeLampVisualPlan(surfaceLengthM).map((station) => ({
+          distanceM: surfaceLengthM / 2 + station.offsetM,
+          side: station.side,
+        }))
+      : [];
     const parapetDepthM = elevatedRoadParapetDepthM(surface);
     let surfaceDistanceBeforeSegmentM = 0;
     for (const segment of segments) {
@@ -1237,6 +1350,100 @@ export function buildElevatedRoadStructures(
           );
           if (backingMesh) ctx.staticSceneryFreeze.push(backingMesh);
           if (lensMesh) ctx.staticSceneryFreeze.push(lensMesh);
+
+          const lampStations = surfaceLampStations
+            .filter(
+              (station) =>
+                station.side === side &&
+                station.distanceM >= runStartDistanceM + 0.4 &&
+                station.distanceM <=
+                  runStartDistanceM + run.lengthM - 0.4,
+            )
+            .map((station) => ({
+              offsetM:
+                station.distanceM -
+                (runStartDistanceM + run.lengthM / 2),
+              side: station.side,
+            }));
+          if (
+            lampStations.length &&
+            cairoBridgeLampIron &&
+            cairoBridgeLampHead &&
+            cairoBridgeLampPool
+          ) {
+            const poleBaseY =
+              ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
+              ELEVATED_ROAD_PARAPET_HEIGHT_M;
+            const poleCenterZ = lateralCenterM + side * 0.025;
+            const poleBoxes: CompoundBox[] = [];
+            const headBoxes: CompoundBox[] = [];
+            for (const station of lampStations) {
+              const alongM = run.centerAlongM + station.offsetM;
+              poleBoxes.push(
+                {
+                  center: [
+                    alongM,
+                    poleBaseY + CAIRO_BRIDGE_LAMP_HEIGHT_M / 2,
+                    poleCenterZ,
+                  ],
+                  size: [0.14, CAIRO_BRIDGE_LAMP_HEIGHT_M, 0.14],
+                },
+                {
+                  center: [
+                    alongM,
+                    poleBaseY + CAIRO_BRIDGE_LAMP_HEIGHT_M - 0.07,
+                    poleCenterZ - side * 0.78,
+                  ],
+                  size: [0.12, 0.12, 1.7],
+                },
+              );
+              headBoxes.push({
+                center: [
+                  alongM,
+                  poleBaseY + CAIRO_BRIDGE_LAMP_HEIGHT_M - 0.15,
+                  poleCenterZ - side * 1.62,
+                ],
+                size: [0.34, 0.16, 0.56],
+              });
+
+              const poolDepthM = Math.min(
+                7.5,
+                Math.max(4.4, segment.deckWidthM - 0.8),
+              );
+              const poolCenterZ =
+                side *
+                (segment.deckWidthM / 2 - 0.4 - poolDepthM / 2);
+              const pool = createBox(
+                ctx.scene,
+                `${root.name}-lamp-pool-${side}-${runIndex}-${alongM.toFixed(2)}`,
+                { width: 10.5, height: 0.018, depth: poolDepthM },
+                new Vector3(alongM, 0.095, poolCenterZ),
+                cairoBridgeLampPool,
+                root,
+              );
+              ctx.registerStatic(pool, segment.center.x, segment.center.z);
+            }
+            const poles = createCompoundBoxMesh(
+              ctx.scene,
+              `${root.name}-lamp-poles-${side}-${runIndex}`,
+              poleBoxes,
+              cairoBridgeLampIron,
+              root,
+            );
+            const heads = createCompoundBoxMesh(
+              ctx.scene,
+              `${root.name}-lamp-heads-${side}-${runIndex}`,
+              headBoxes,
+              cairoBridgeLampHead,
+              root,
+            );
+            if (poles) {
+              ctx.registerStatic(poles, segment.center.x, segment.center.z);
+            }
+            if (heads) {
+              ctx.registerStatic(heads, segment.center.x, segment.center.z);
+            }
+          }
           continue;
         }
 
@@ -1369,6 +1576,9 @@ export function buildElevatedRoadStructures(
     cairoParapetConcrete.freeze();
     cairoCoping.freeze();
     cairoRail.freeze();
+    cairoBridgeLampIron?.freeze();
+    cairoBridgeLampHead?.freeze();
+    cairoBridgeLampPool?.freeze();
   }
   batcher?.finalize();
 }

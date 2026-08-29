@@ -12,6 +12,7 @@ import {
   buildGrassDetailSpec,
   buildGrassTextureSpec,
   buildHorizonSilhouetteSpec,
+  buildHorizonWindowLightSpec,
   type AsphaltTextureProfile,
   type GrassBlade,
   hashStringToSeed,
@@ -191,6 +192,18 @@ export function createHorizonSilhouetteTexture(
   context.clearRect(0, 0, width, height);
 
   const shapes = buildHorizonSilhouetteSpec(mapId, hashStringToSeed(mapId));
+  const lightsByShape = new Map<
+    number,
+    ReturnType<typeof buildHorizonWindowLightSpec>
+  >();
+  for (const light of buildHorizonWindowLightSpec(mapId, shapes)) {
+    const existing = lightsByShape.get(light.shapeIndex);
+    if (existing) {
+      lightsByShape.set(light.shapeIndex, [...existing, light]);
+    } else {
+      lightsByShape.set(light.shapeIndex, [light]);
+    }
+  }
   // Keep the shared terrain band shallow: a tall band reads as a wall around
   // the map instead of a distant skyline.
   const baseBandHeight = height * 0.1;
@@ -198,13 +211,37 @@ export function createHorizonSilhouetteTexture(
 
   const drawShape = (
     shape: (typeof shapes)[number],
+    shapeIndex: number,
     offsetX: number,
+    silhouetteColor: string,
   ): void => {
+    context.fillStyle = silhouetteColor;
     const centerX = (shape.x + offsetX) * width;
     const shapeWidth = Math.max(2, shape.w * width);
     const top = height - baseBandHeight - shape.h * usableHeight;
     if (shape.kind === "box") {
       context.fillRect(centerX - shapeWidth / 2, top, shapeWidth, height - top);
+      const warm = palette.horizonWindowWarm;
+      const cool = palette.horizonWindowCool;
+      const lights = lightsByShape.get(shapeIndex);
+      if (warm && cool && lights?.length) {
+        const faceBottom = height - baseBandHeight * 0.55;
+        const faceHeight = Math.max(3, faceBottom - top);
+        const windowWidth = Math.max(1.4, Math.min(3.2, shapeWidth * 0.09));
+        const windowHeight = Math.max(1.4, Math.min(2.8, faceHeight * 0.045));
+        context.globalAlpha = shape.layer === 0 ? 0.94 : 0.68;
+        for (const light of lights) {
+          context.fillStyle = light.tone === "cool" ? cool : warm;
+          context.fillRect(
+            centerX - shapeWidth / 2 + light.u * shapeWidth - windowWidth / 2,
+            top + light.v * faceHeight - windowHeight / 2,
+            windowWidth,
+            windowHeight,
+          );
+        }
+        context.globalAlpha = 1;
+        context.fillStyle = silhouetteColor;
+      }
       return;
     }
     if (shape.kind === "spike") {
@@ -256,14 +293,14 @@ export function createHorizonSilhouetteTexture(
   context.fillStyle = palette.silhouetteFar;
   context.fillRect(0, height - baseBandHeight, width, baseBandHeight);
   for (const layer of [1, 0] as const) {
-    context.fillStyle =
+    const silhouetteColor =
       layer === 1 ? palette.silhouetteFar : palette.silhouetteNear;
-    for (const shape of shapes) {
+    for (const [shapeIndex, shape] of shapes.entries()) {
       if (shape.layer !== layer) continue;
       // Draw wrapped copies so shapes crossing the seam stay continuous.
-      drawShape(shape, -1);
-      drawShape(shape, 0);
-      drawShape(shape, 1);
+      drawShape(shape, shapeIndex, -1, silhouetteColor);
+      drawShape(shape, shapeIndex, 0, silhouetteColor);
+      drawShape(shape, shapeIndex, 1, silhouetteColor);
     }
   }
   texture.update();
@@ -799,8 +836,9 @@ export function makeFacadeEmissiveTexture(scene: Scene): DynamicTexture {
  * mix of incandescent amber and fluorescent tube-green rooms. One pair per
  * palette key, shared by every box that key paints, so the entire informal
  * city costs two DynamicTextures per key and zero extra meshes. The lit
- * cells are a SUBSET of `FACADE_LAYOUT`'s (about two-thirds, hash-picked) so
- * the poorer districts read dimmer than downtown without a separate layout.
+ * cells are a SUBSET of `FACADE_LAYOUT`'s (about three-quarters, hash-picked)
+ * so the poorer districts read dimmer than downtown without going dead at
+ * night.
  */
 export function makeBaladiFacadeTextures(
   scene: Scene,
@@ -816,7 +854,7 @@ export function makeBaladiFacadeTextures(
     const cell = FACADE_LAYOUT.find((c) => c.col === col && c.row === row);
     if (!cell?.lit) return null;
     const h = (col * 31 + row * 17) % 9;
-    if (h < 4) return null; // nearly half of downtown's lit rooms stay dark here
+    if (h < 2) return null; // retain the dimmer district while keeping street life visible
     return h % 3 === 0 ? "tube" : "warm";
   };
   const WARM = "rgb(244,193,118)";
@@ -946,8 +984,8 @@ export function makeCairoFacadeTextures(
   };
   const lightKind = (hash: number): "warm" | "tube" | null => {
     const choice = hash % 13;
-    if (choice < 3) return "warm";
-    if (choice === 3) return "tube";
+    if (choice < 5) return "warm";
+    if (choice === 5) return "tube";
     return null;
   };
   const WARM = "#e5bd78";

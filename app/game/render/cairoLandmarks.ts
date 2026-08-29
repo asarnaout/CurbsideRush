@@ -879,6 +879,39 @@ export function buildCairoLandmark(
   }
 
   if (landmark.id === "cairo-tahrir-ministries") {
+    // This is the building the default Cairo spawn faces. Its old 27-for-27
+    // dark-window assignment made the city's opening view read abandoned,
+    // even though the surrounding traffic and signs were alive. Keep a real
+    // office-night mix instead: roughly half occupied, two lamp temperatures,
+    // and dark rooms left between them so the facade still has depth.
+    const warmOfficeWindow = makeMaterial(
+      scene,
+      `${landmark.id}-window-warm`,
+      new Color3(0.12, 0.075, 0.035),
+      new Color3(0.78, 0.48, 0.18),
+    );
+    const coolOfficeWindow = makeMaterial(
+      scene,
+      `${landmark.id}-window-cool`,
+      new Color3(0.07, 0.09, 0.075),
+      new Color3(0.48, 0.62, 0.48),
+    );
+    const officeWindowMaterial = (key: number): StandardMaterial => {
+      switch (((key % 10) + 10) % 10) {
+        case 0:
+        case 2:
+        case 5:
+          return warmOfficeWindow;
+        case 3:
+        case 8:
+          return coolOfficeWindow;
+        default:
+          return darkWindow;
+      }
+    };
+    // A narrow cornice/portico glow gives the civic frontage an architectural
+    // outline without putting emissive colour on either broad wall slab.
+    paleStone.emissiveColor = new Color3(0.2, 0.13, 0.045);
     const centralWidth = landmark.size.x * 0.5;
     const wingWidth = landmark.size.x * 0.25;
     const centralHeight = 30;
@@ -935,8 +968,10 @@ export function buildCairoLandmark(
         paleStone,
       );
       // Two tiers of two bays per wing.
-      for (const tier of [10, 16]) {
+      for (const [tierIndex, tier] of [10, 16].entries()) {
         for (const bay of [-1, 1] as const) {
+          const windowKey =
+            tierIndex * 4 + (side === -1 ? 0 : 2) + (bay === -1 ? 0 : 1);
           createBox(
             scene,
             `${landmark.id}-wing-window-${side}-${tier}-${bay}`,
@@ -946,7 +981,7 @@ export function buildCairoLandmark(
               tier,
               landmark.center.z + 1 - (landmark.size.z - 4) / 2 - 0.11,
             ),
-            darkWindow,
+            officeWindowMaterial(windowKey),
           );
         }
       }
@@ -964,7 +999,7 @@ export function buildCairoLandmark(
             tier,
             southFaceZ - 0.11,
           ),
-          darkWindow,
+          officeWindowMaterial(20 + tierIndex * 5 + bay + 2),
         );
       }
     }
@@ -995,7 +1030,7 @@ export function buildCairoLandmark(
       `${landmark.id}-entrance`,
       { width: 6, height: 7, depth: 0.28 },
       new Vector3(landmark.center.x, 3.5, southFaceZ - 0.11),
-      darkWindow,
+      warmOfficeWindow,
     );
     for (const side of [-1, 1] as const) {
       createBox(

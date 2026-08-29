@@ -17,6 +17,11 @@ import {
   type ElevatedRoadSegmentPlacement,
 } from "../app/game/geometry/elevatedRoadGeometry";
 import { isElevatedRoadSurface } from "../app/game/roadElevation";
+import {
+  CAIRO_BRIDGE_LAMP_END_INSET_M,
+  CAIRO_BRIDGE_LAMP_SPACING_M,
+  cairoBridgeLampVisualPlan,
+} from "../app/game/render/elevatedRoadLayer";
 
 const SIXTH_OCTOBER_PREFIX = "cairo-sixth-october";
 const MAXIMUM_CHORD_HEADING_CHANGE_DEG = 12;
@@ -399,6 +404,47 @@ const planObbSeparatingGapM = (left: PlanObb, right: PlanObb): number => {
 };
 
 describe("Cairo Sixth October Bridge geometry quality", () => {
+  it("keeps one globally phased alternating lamp line across segment seams", () => {
+    const first = cairoBridgeLampVisualPlan(91, 0);
+    const second = cairoBridgeLampVisualPlan(91, 91);
+    const stations = [...first, ...second].map((station, index) => ({
+      distanceM:
+        (index < first.length ? 0 : 91) +
+        91 / 2 +
+        station.offsetM,
+      side: station.side,
+    }));
+
+    expect(stations.length).toBeGreaterThan(5);
+    for (let index = 1; index < stations.length; index += 1) {
+      expect(stations[index].distanceM - stations[index - 1].distanceM).toBe(
+        CAIRO_BRIDGE_LAMP_SPACING_M,
+      );
+      expect(stations[index].side).toBe(-stations[index - 1].side);
+    }
+    expect(
+      first.every(
+        (station) =>
+          Math.abs(station.offsetM) <=
+          91 / 2 - CAIRO_BRIDGE_LAMP_END_INSET_M,
+      ),
+    ).toBe(true);
+  });
+
+  it("gives the complete elevated network a dense but finite bridge lamp line", () => {
+    let stationCount = 0;
+    for (const surface of sixthOctoberElevatedSurfaces) {
+      const surfaceLengthM = elevatedRoadSegmentPlacements(surface).reduce(
+        (totalM, segment) => totalM + segment.lengthM,
+        0,
+      );
+      stationCount += cairoBridgeLampVisualPlan(surfaceLengthM).length;
+    }
+
+    expect(stationCount).toBeGreaterThan(80);
+    expect(stationCount).toBeLessThan(400);
+  });
+
   it("keeps the established elevated surface identities in the quality sweep", () => {
     const actualIds = new Set(
       sixthOctoberElevatedSurfaces.map((surface) => surface.id),

@@ -1515,7 +1515,7 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // changed support reservations re-deal 61 ordinary roadside meshes, for a
     // measured net +607. Other cities remain byte-for-byte characterized.
     // -> 20_669/20_625 (active 2_883): regression-safe static batching keeps
-    // the current detailed bridge's 665_906 vertices/976_068 indices but bakes
+    // the then-detailed bridge's 665_906 vertices/976_068 indices but bakes
     // its 13_566 authored pieces into 5_349 batches. The 5_007 shadow batches
     // retain each source's exact registration point instead of averaging a
     // 45 m cell, so the 90 m radial cutoff selects identical source geometry.
@@ -1529,10 +1529,16 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 19_937/19_893 (active 2_851): Cairo presents a sparse, kerb-safe
     // subset of its regulatory signs and suppresses the single Sixth October
     // pastry billboard that intersected the bridge. Materials stay stable.
-    totalMeshes: 19_937,
-    enabledMeshes: 19_893,
-    activeMeshes: 2_851,
-    materials: 370,
+    // -> 20_078/20_034 (active 2_888, materials 375): 65 elevation-aware
+    // Sixth October lamp stations add warm heads and additive road pools in
+    // 141 spatial batches; the lamp iron/head/pool are three materials. The
+    // other two materials are Tahrir ministries' deterministic warm/cool
+    // occupied panes. Palette, bloom and texture-only horizon changes add no
+    // meshes or materials. Other cities remain byte-for-byte unchanged.
+    totalMeshes: 20_078,
+    enabledMeshes: 20_034,
+    activeMeshes: 2_888,
+    materials: 375,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1576,7 +1582,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "edd55ddc": 24 ad-face/copy campaign materials plus polished frame,
     // support steel and billboard lamp.
     // -> "26724b2c": eight more atlas/copy/portrait campaign materials each.
-    survivingMaterialNamesFingerprint: "26724b2c",
+    // -> "bc3bdeee": +Tahrir warm/cool panes and the three bridge-lamp
+    // materials described above.
+    survivingMaterialNamesFingerprint: "bc3bdeee",
   },
 };
 

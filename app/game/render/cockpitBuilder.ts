@@ -140,8 +140,8 @@ export function buildCockpit(ctx: CockpitBuilderCtx): CockpitBuildResult {
   // dash were part of the night outside — the emissive term is a floor that
   // keeps surfaces legible through the pipeline's vignette, which lands
   // squarely on the lower half of the frame where the cockpit is. All of them
-  // stay well under `bloomThreshold` (0.72 at night); only the gauge accents
-  // are allowed anywhere near it.
+  // stay well under the lowest shipped `bloomThreshold` (Cairo's 0.62); only
+  // the gauge accents are allowed anywhere near it.
   // A cabin needs a big ambient floor after dark and almost none at noon.
   // Diffuse is the term the sun multiplies, and the sun runs at 1.3 by day
   // against 0.6 at night, while ambient and emissive are flat in both — so a

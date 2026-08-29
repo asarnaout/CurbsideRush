@@ -3792,6 +3792,7 @@ export class BabylonGameSession {
   private buildInstancedBuildings() {
     this.buildingLayer?.instantiate({
       night: this.visualPalette?.night ?? false,
+      nightWindowGlowIntensity: this.visualPalette?.nightWindowGlowIntensity,
       buildingModelUrls: this.buildingModelUrls,
       buildingAssetDetailFraction: this.buildingAssetDetailFraction,
       cairoRoofClutterMasters: this.cairoRoofClutterMasters,
@@ -5031,9 +5032,9 @@ export class BabylonGameSession {
     asphalt.diffuseTexture = createAsphaltTexture(
       scene,
       "scenario-asphalt-texture",
-      // Medium-dark grey (was near-black #1b2125) so dark/black vehicles read
-      // against the road instead of vanishing into it.
-      cairoScene ? "#302f2c" : "#383d42",
+      // Cairo's road keeps a warm-neutral dusty cast, but not the near-black
+      // value that swallowed dark cars and the lamp pools between fixtures.
+      cairoScene ? "#393733" : "#383d42",
       hashStringToSeed(`${mapId}-asphalt`),
       cairoScene ? CAIRO_ASPHALT_PROFILE : undefined,
     );
@@ -7328,10 +7329,14 @@ export class BabylonGameSession {
     // bloom harder — lower threshold + more weight so lit windows, streetlights
     // and signage bloom into a glowing skyline.
     const night = this.visualPalette?.night ?? false;
-    // Softer night bloom (higher threshold, lower weight): the warm lights glow
-    // rather than blowing out to white.
-    pipeline.bloomThreshold = night ? 0.72 : 0.9;
-    pipeline.bloomWeight = night ? 0.3 : 0.18;
+    // Defaults keep night bloom soft; a palette whose identity is many small
+    // practical lights may opt into a lower threshold / slightly higher weight.
+    pipeline.bloomThreshold = night
+      ? this.visualPalette.nightBloomThreshold ?? 0.72
+      : 0.9;
+    pipeline.bloomWeight = night
+      ? this.visualPalette.nightBloomWeight ?? 0.3
+      : 0.18;
     pipeline.bloomScale = 0.5;
     pipeline.bloomKernel = night ? 64 : 48;
     pipeline.imageProcessingEnabled = true;

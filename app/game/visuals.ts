@@ -91,11 +91,24 @@ export interface MapVisualPalette {
    * skies, grounds and sunTints are authored darker and less saturated than
    * NYC's golden-sodium set, so the identical rig play-tests as "very dim"
    * (the owner's words about Tokyo, which is what put these fields here).
-   * Cairo runs the highest of the four — a warm ground bouncing a dense lit
-   * street wall — then London, then Tokyo.
+   * London and Tokyo carry the strongest broad fill. Cairo stays a step below
+   * them so its warm masonry keeps its real hue, then gets its extra energy
+   * from practical lights and Cairo-only bloom/window controls instead.
    */
   readonly nightHemiIntensity?: number;
   readonly nightSunIntensity?: number;
+  /**
+   * Night post-processing overrides. The defaults preserve the shared city
+   * grade; a map may lower the threshold / raise the weight when its identity
+   * comes from many small practical lights rather than bright wall surfaces.
+   */
+  readonly nightBloomThreshold?: number;
+  readonly nightBloomWeight?: number;
+  /** PBR pane emissive intensity for imported building kits at night. */
+  readonly nightWindowGlowIntensity?: number;
+  /** Optional practical-light colours painted into the distant skyline ring. */
+  readonly horizonWindowWarm?: string;
+  readonly horizonWindowCool?: string;
   /**
    * This palette's own ceiling on the fog's far end (metres), applied BEFORE
    * night's tighter clamp. The size formula hands a large map up to 1100 m of
@@ -311,14 +324,15 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     // London's glows violet and NYC's blue. The zenith stays a deep indigo so
     // the warmth reads as a ground-lit band low down rather than as dusk.
     skyTop: "#101728",
-    // The dusty amber band stays, but dimmed from #42382a/#2c2823: fog
-    // TINTS every wall beyond ~60 m, and at the old saturation the whole
-    // middle distance read as the same amber wash the wall fixes had just
-    // removed up close. The horizon keeps a step more warmth than the fog
-    // so the skyline still glows Cairo without repainting the buildings
-    // in front of it.
-    skyHorizon: "#332d24",
-    fogColor: "#232120",
+    // A brighter dusty amber sky supplies the low-cloud/light-pollution band.
+    // Its geometry haze stays separate and neutral below: fog tints every
+    // wall beyond 100 m, so using this same colour for fog would simply
+    // recreate the rejected orange wash in the middle distance.
+    skyHorizon: "#4b392f",
+    // Keep the geometry haze comparatively neutral. The warmer sky above it
+    // supplies Cairo's light pollution without repainting every middle-
+    // distance wall orange, the failure mode of the old amber fog pass.
+    fogColor: "#2d2b2b",
     grassBase: "#27412b",
     grassAlt: "#325033",
     // Arid: Cairo's greens are irrigated islands, and they show the dust. The
@@ -327,8 +341,10 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     grassDry: "#4f4a33",
     floraAccent: "#cbb98d",
     dirtShoulder: "#4b4232",
-    silhouetteNear: "#2c2822",
-    silhouetteFar: "#3f382d",
+    silhouetteNear: "#403a34",
+    silhouetteFar: "#584a3f",
+    horizonWindowWarm: "#f2bd70",
+    horizonWindowCool: "#c7d9c0",
     // A warm moon: the "sun" runs at reduced intensity at night, and what
     // little of it survives Cairo's dust arrives warm — still the warmest
     // night sunTint of the four, but pulled back from the original #e6d4ad:
@@ -338,18 +354,15 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     groundBase: "#403c35",
     pavement: "#5f594c",
     night: true,
-    // Was 0.8/0.74 — the brightest rig of the four, on the warmest building
-    // palette of the four, and that pairing is what kept re-creating the
-    // owner's "flat orange"/"sandy shade" wall complaint no matter which
-    // surface got muted. Cairo's busy-past-midnight identity is carried by
-    // what is LIT (the densest lamp set of the four, lit windows,
-    // shopfronts, the crowd) rather than by wall-wide brightness. Now under
-    // London/Tokyo's 0.78 and above NYC's 0.64 floor; the warm ground
-    // bounce keeps the Cairo character. Retune only against night wall
-    // screenshots (the palette block in proceduralFacades moves with this),
-    // never in isolation.
-    nightHemiIntensity: 0.7,
-    nightSunIntensity: 0.64,
+    // Still below the rejected 0.8/0.74 wall-wide wash: this is a modest
+    // neutral readability lift, while occupied panes and skyline practicals
+    // below carry the actual brightness. Keeping those jobs separate is what
+    // lets Cairo feel alive without turning its real wall colours sandy.
+    nightHemiIntensity: 0.74,
+    nightSunIntensity: 0.68,
+    nightBloomThreshold: 0.62,
+    nightBloomWeight: 0.36,
+    nightWindowGlowIntensity: 0.46,
     // Inert for the live fog now — night's own 100/440 m clamp is tighter —
     // and kept for the same reason London's is: `auditMapVisualGaps`
     // deliberately measures sightlines against the DAY range, so dropping
@@ -602,6 +615,14 @@ export interface SilhouetteShape {
   readonly layer: 0 | 1;
 }
 
+export interface HorizonWindowLight {
+  readonly shapeIndex: number;
+  /** Centre within the owning box, normalised left-to-right / top-to-bottom. */
+  readonly u: number;
+  readonly v: number;
+  readonly tone: "warm" | "cool";
+}
+
 const pushRange = (
   shapes: SilhouetteShape[],
   random: () => number,
@@ -733,6 +754,47 @@ export function buildHorizonSilhouetteSpec(
     layer: 0,
   });
   return shapes;
+}
+
+/**
+ * Cairo's skyline ring represents more city beyond the rendered draw radius,
+ * not an uninhabited black cut-out. Seed a modest, irregular grid of occupied
+ * rooms into its box silhouettes. This stays a texture-only detail (zero scene
+ * meshes/draw calls) and intentionally does not generalise to the other maps:
+ * Cairo is the palette that authors practical-light colours for the ring.
+ */
+export function buildHorizonWindowLightSpec(
+  mapId: string,
+  shapes: readonly SilhouetteShape[] = buildHorizonSilhouetteSpec(
+    mapId,
+    hashStringToSeed(mapId),
+  ),
+): readonly HorizonWindowLight[] {
+  if (resolveMapVisualKey(mapId) !== "cairo") return [];
+  const lights: HorizonWindowLight[] = [];
+  for (const [shapeIndex, shape] of shapes.entries()) {
+    if (shape.kind !== "box") continue;
+    const columns = Math.max(2, Math.min(5, Math.round(shape.w * 100)));
+    const rows = Math.max(2, Math.min(6, Math.round(shape.h * 12)));
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        const roll = hashStringToSeed(
+          `${mapId}-horizon-${shapeIndex}-${column}-${row}`,
+        );
+        // Near buildings carry a busier pattern; the far layer recedes with
+        // fewer rooms on, instead of becoming a second equally bright wall.
+        const occupiedPercent = shape.layer === 0 ? 52 : 38;
+        if (roll % 100 >= occupiedPercent) continue;
+        lights.push({
+          shapeIndex,
+          u: (column + 1) / (columns + 1),
+          v: (row + 1) / (rows + 1),
+          tone: (roll >>> 8) % 5 === 0 ? "cool" : "warm",
+        });
+      }
+    }
+  }
+  return lights;
 }
 
 export interface AsphaltCrack {

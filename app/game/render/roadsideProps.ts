@@ -848,7 +848,7 @@ export function buildRoadsideProps(
       }
       case "streetlight": {
         const cairoPoolSize =
-          key === "cairo" ? [7.4, 8.8, 10][variant % 3] : 10;
+          key === "cairo" ? [9, 10, 11][variant % 3] : 10;
         parts = [
           {
             master: masterCylinder(cacheKey, { height: 5.2, diameter: 0.16 }, iron),
@@ -873,11 +873,11 @@ export function buildRoadsideProps(
           ...(lampPool
             ? [
                 {
-                  // 10 m pool pushed 2.1 m past the pole — with the pole
+                  // 9–11 m pool pushed 2.1 m past the pole — with the pole
                   // kerb-seated (curbOffsetM 0.7) that centres the spill
                   // ~1.4 m INSIDE the carriageway, so the light visibly lands
-                  // on the street, spanning kerb to roughly mid-lane. (12 m
-                  // overlapped neighbouring pools into one washed band, and
+                  // on the street, spanning kerb to roughly mid-lane. (A 12 m
+                  // pool overlapped neighbouring pools into one washed band and
                   // overhung a bridge parapet onto the water below.)
                   master: masterBox(
                     `${cacheKey}-pool`,

@@ -6,6 +6,7 @@ import {
   buildGrassDetailSpec,
   buildGrassTextureSpec,
   buildHorizonSilhouetteSpec,
+  buildHorizonWindowLightSpec,
   buildPlanarUVs,
   buildRiverWaveField,
   distanceToPolylineM,
@@ -123,6 +124,23 @@ describe("map visual palettes", () => {
     expect(mixHexColors("#204060", "#204060", 0.7)).toBe("#204060");
     expect(mixHexColors("#000000", "#ffffff", 0)).toBe("#000000");
     expect(mixHexColors("#000000", "#ffffff", 1)).toBe("#ffffff");
+  });
+
+  it("keeps Cairo's light-polluted horizon separate from its neutral geometry haze", () => {
+    const cairo = resolveMapVisualPalette("cairo-central-nile");
+    expect(cairo).toMatchObject({
+      skyHorizon: "#4b392f",
+      fogColor: "#2d2b2b",
+      silhouetteNear: "#403a34",
+      silhouetteFar: "#584a3f",
+      horizonWindowWarm: "#f2bd70",
+      horizonWindowCool: "#c7d9c0",
+      nightHemiIntensity: 0.74,
+      nightSunIntensity: 0.68,
+      nightBloomThreshold: 0.62,
+      nightBloomWeight: 0.36,
+      nightWindowGlowIntensity: 0.46,
+    });
   });
 });
 
@@ -329,6 +347,31 @@ describe("horizon silhouettes", () => {
     expect(cairoKinds.has("box")).toBe(true);
     expect(cairoKinds.has("spike")).toBe(true);
     expect(cairoKinds.has("pylon")).toBe(true);
+  });
+
+  it("seeds Cairo's distant box skyline with deterministic warm and cool rooms", () => {
+    const mapId = "cairo-central-nile";
+    const shapes = buildHorizonSilhouetteSpec(mapId, hashStringToSeed(mapId));
+    const first = buildHorizonWindowLightSpec(mapId, shapes);
+    expect(buildHorizonWindowLightSpec(mapId, shapes)).toEqual(first);
+    expect(first.length).toBeGreaterThan(100);
+    expect(new Set(first.map((light) => light.tone))).toEqual(
+      new Set(["warm", "cool"]),
+    );
+    for (const light of first) {
+      expect(shapes[light.shapeIndex]?.kind).toBe("box");
+      expect(light.u).toBeGreaterThan(0);
+      expect(light.u).toBeLessThan(1);
+      expect(light.v).toBeGreaterThan(0);
+      expect(light.v).toBeLessThan(1);
+    }
+    for (const otherMapId of [
+      "nyc-upper-west-side",
+      "london-south-kensington",
+      "tokyo-setagaya",
+    ]) {
+      expect(buildHorizonWindowLightSpec(otherMapId)).toEqual([]);
+    }
   });
 });
 

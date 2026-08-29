@@ -129,11 +129,13 @@ each and still came out with *fewer* active meshes at the same pose (London
 
 `night` on a `MapVisualPalette` is one flag that turns on a whole rig —
 moonlit hemi/sun (per-palette `nightHemiIntensity`/`nightSunIntensity`), a
-lower bloom threshold with more weight, lifted exposure, `BuildingLayer`'s
-window glow, the water's night tiles, emissive lamp heads and their ground
-pools. All four cities set it. **None of that lights the street.** The rig is
+lower bloom threshold with more weight (optionally overridden by
+`nightBloomThreshold`/`nightBloomWeight`), lifted exposure,
+`BuildingLayer`'s window glow (optionally `nightWindowGlowIntensity`), the
+water's night tiles, emissive lamp heads and their ground pools. All four
+cities set it. **None of that lights the street.** The rig is
 moonlight; what makes a map drivable is the scattered `streetlight` line in
-`roadsidePropKindsForMap`, and three things about it are load-bearing:
+`roadsidePropKindsForMap`, and four things about it are load-bearing:
 
 - **`curbOffsetM` (0.7 m) is not a detail — it is the difference between a lit
   city and a dark one.** The default lateral band seats a prop a metre *beyond*
@@ -157,6 +159,14 @@ moonlight; what makes a map drivable is the scattered `streetlight` line in
   toggle and phase and their union reads as same-side and face-to-face pairs.
   Density changes go in `spacingM` (24 m Tokyo, 26 m London/Cairo, 38 m NYC on
   the wider default band).
+- **Elevated roads own their lamp line.** The generic roadside pass rejects
+  elevated surfaces because a ground-height prop cannot inherit a sloped
+  deck. Cairo's bridge layer therefore lays a globally phased, alternating
+  26 m line in surface-distance space (65 stations survive on the authored
+  network), mounts each pole on the actual segment transform, and trims lamps
+  wherever the parapet opens at a merge. Its warm additive pools are
+  registered in the same static-visibility cells as the bridge instead of
+  becoming unculled point lights.
 
 Both halves are measurable without a browser, by running the real content
 modules in plain Node:
@@ -328,21 +338,33 @@ spread: the Cairo families are now neutral limestones/concretes, dusty
 off-whites, sage and red-leaning rose/terracotta. Nothing yellow-dominant
 (R≈G≫B) may enter that palette; that ratio *is* the sandy signature.
 
-So the kit is treated exactly like every other city's: real albedo under the
-scene rig, lit panes from `applyNightGlow`, no Cairo branch. The baladi
-districts' boxes still take `makeBaladiFacadeTextures` (brick or bare render
-inside an exposed concrete skeleton, smaller shuttered windows, a sparse
-warm/fluorescent night mix) — the one Cairo-specific facade family left, and
-it survives because it paints *material*, not light. Cairo's night character
-is carried by what is genuinely lit: the densest lamp set of the four, lit
+The reusable kit still follows the generic path: real albedo under the scene
+rig, and only material names that are actually panes (`window`, `glass`, or
+`cristal`) receive `applyNightGlow`; `trim` is deliberately excluded. Cairo
+raises that pane glow and lowers bloom onset through palette values, without
+making walls emissive. The bespoke Tahrir ministries landmark carries a
+stable occupied-office mix across its 27 facade windows (warm, fluorescent,
+and dark), a lit entrance, and a faint emissive edge on its narrow cornice and
+columns; the broad central and wing slabs remain ordinary stone.
+
+The baladi districts' boxes still take `makeBaladiFacadeTextures` (brick or
+bare render inside an exposed concrete skeleton, smaller shuttered windows,
+and a fuller deterministic warm/fluorescent night mix). Cairo's night
+character is carried by what is genuinely lit: the densest ground-level lamp
+set of the four, the elevation-aware Sixth October bridge line, occupied
 windows, shopfronts, the mosque's floodlighting, and the Corniche towers'
 Arabic neon rooftop signs (`addCornicheCrown`; the Arabic canvas font is
 awaited before any Cairo session constructs, so the signs rasterise with the
-real face). The rig (`nightHemiIntensity`/`nightSunIntensity`/`sunTint`/
-`fogColor` in visuals.ts) was pulled down alongside the palette, fog included
-— fog tints every wall past ~60 m, so an amber fog re-creates the wash in the
-middle distance no matter what the near walls do. Retune palette, rig and fog
-together against wall screenshots, never one alone.
+real face).
+
+The camera-following horizon ring remains a cheap fog-exempt canvas, so Cairo
+paints deterministic warm/cool occupied rooms directly into its box shapes
+instead of adding hundreds of meshes. Its near/far silhouettes and sky
+horizon are lifted enough to avoid black cardboard cut-outs, while `fogColor`
+stays neutral: night fog starts at 100 m and an amber value there would tint
+every mid-distance wall back into the rejected sandy wash. Retune the palette,
+rig, bloom, panes, horizon and fog together against street-level screenshots;
+brightness must come from practical lights, not a city-wide wall tint.
 
 ### Cairo advertising is a campaign layer, not roadside scatter
 

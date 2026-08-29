@@ -272,14 +272,21 @@ describe("elevated road barrier rendering", () => {
       0,
     );
 
-    // These characterize the detailed bridge skin, not a simplified proxy.
-    // A geometry change must deliberately update both budgets, while a
-    // batching regression is caught by the scene-object caps below.
-    expect(vertexCount).toBe(665_906);
-    expect(indexCount).toBe(976_068);
+    // These characterize the detailed bridge skin plus 65 batched lamp
+    // stations, not a simplified proxy. A geometry change must deliberately
+    // update both budgets, while a batching regression is caught by the
+    // scene-object caps below.
+    expect(vertexCount).toBe(672_146);
+    expect(indexCount).toBe(985_428);
+    const lampVertices = rendered.meshes
+      .filter((mesh) => mesh.material?.name.startsWith("cairo-bridge-lamp-"))
+      .reduce((sum, mesh) => sum + mesh.getTotalVertices(), 0);
+    expect(lampVertices).toBe(65 * 96);
     // Shadow meshes merge only at identical legacy registration points; the
     // larger count than main-view chunks is the no-pop correctness budget.
-    expect(rendered.meshes.length).toBeLessThanOrEqual(5_400);
+    // Three lamp materials add spatial batches, but the finished layer still
+    // stays below one hundred scene meshes over its previous 5.4k cap.
+    expect(rendered.meshes.length).toBeLessThanOrEqual(5_500);
     expect(rendered.shadowMeshes.length).toBeLessThanOrEqual(5_100);
     expect(rendered.scene.transformNodes.length).toBe(0);
     expect(
