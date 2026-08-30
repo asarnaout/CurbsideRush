@@ -3,9 +3,11 @@ import { NullEngine, Scene, UniversalCamera, Vector3 } from "@babylonjs/core";
 import {
   AUDIT_CHASE_VEHICLE_PROFILES,
   AUDIT_VIEWPORT_PROFILES,
+  CHASE_CAMERA_DEFAULT_DOWNWARD_PAN_FRACTION,
   CHASE_CAMERA_MAX_DISTANCE_M,
   CHASE_CAMERA_MAX_ELEVATION_RAD,
   CHASE_CAMERA_MIN_DISTANCE_M,
+  CHASE_CAMERA_MIN_ELEVATION_RAD,
   CHASE_CAMERA_START_DISTANCE_M,
   CHASE_TUNING_BY_MODEL,
   COCKPIT_SEAT_SIDE_BY_STEERING,
@@ -14,6 +16,7 @@ import {
   prepareChaseCameraBlockers,
   quickLookAngleForInput,
   resolveChaseCameraPose,
+  resolveChaseCameraElevationRad,
   resolveChaseCameraSafeFraction,
   smoothQuickLookAngle,
   verticalFovForHorizontal,
@@ -32,7 +35,7 @@ describe("resolveChaseCameraPose", () => {
     result: ReturnType<typeof resolveChaseCameraPose>,
     tuning: ChaseTuning,
   ) => {
-    const elevation = Math.atan2(tuning.upM, tuning.backM);
+    const elevation = resolveChaseCameraElevationRad(tuning);
     expect(result.eye.x).toBeCloseTo(pose.x);
     expect(result.eye.y).toBeCloseTo(
       0.12 + Math.tan(elevation) * CHASE_CAMERA_START_DISTANCE_M,
@@ -81,6 +84,21 @@ describe("resolveChaseCameraPose", () => {
     }
   });
 
+  it("rests 56% of the way from the old authored elevation toward the downward stop", () => {
+    expect(CHASE_CAMERA_DEFAULT_DOWNWARD_PAN_FRACTION).toBe(0.56);
+    for (const profile of AUDIT_CHASE_VEHICLE_PROFILES) {
+      const tuning =
+        (profile.model && CHASE_TUNING_BY_MODEL[profile.model]) ||
+        DEFAULT_CHASE_TUNING;
+      const authoredElevation = Math.atan2(tuning.upM, tuning.backM);
+      const restingElevation = resolveChaseCameraElevationRad(tuning);
+      expect(
+        (authoredElevation - restingElevation) /
+          (authoredElevation - CHASE_CAMERA_MIN_ELEVATION_RAD),
+      ).toBeCloseTo(0.56);
+    }
+  });
+
   it("places eye behind and target ahead along an arbitrary heading, not just heading 0", () => {
     // heading = +90deg (clockwise) -> forward is +x.
     const result = resolveChaseCameraPose(undefined, { x: 0, z: 0, heading: Math.PI / 2 });
@@ -102,10 +120,9 @@ describe("resolveChaseCameraPose", () => {
     expect(result.target.z).toBeCloseTo(0, 5);
   });
 
-  it("dollies along the authored elevation and clamps supported distances", () => {
-    const authoredElevation = Math.atan2(
-      DEFAULT_CHASE_TUNING.upM,
-      DEFAULT_CHASE_TUNING.backM,
+  it("dollies along the resting elevation and clamps supported distances", () => {
+    const restingElevation = resolveChaseCameraElevationRad(
+      DEFAULT_CHASE_TUNING,
     );
     const near = resolveChaseCameraPose(
       undefined,
@@ -121,7 +138,7 @@ describe("resolveChaseCameraPose", () => {
     expect(near.eye.z).toBeCloseTo(-CHASE_CAMERA_MIN_DISTANCE_M);
     expect(far.eye.z).toBeCloseTo(-CHASE_CAMERA_MAX_DISTANCE_M);
     expect(far.eye.y).toBeCloseTo(
-      0.12 + Math.tan(authoredElevation) * CHASE_CAMERA_MAX_DISTANCE_M,
+      0.12 + Math.tan(restingElevation) * CHASE_CAMERA_MAX_DISTANCE_M,
     );
   });
 

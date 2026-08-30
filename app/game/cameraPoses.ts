@@ -69,6 +69,9 @@ export const CHASE_CAMERA_MAX_DISTANCE_M = 24;
 export const CHASE_CAMERA_START_DISTANCE_M = CHASE_CAMERA_MIN_DISTANCE_M;
 export const CHASE_CAMERA_MIN_ELEVATION_RAD = (12 * Math.PI) / 180;
 export const CHASE_CAMERA_MAX_ELEVATION_RAD = (55 * Math.PI) / 180;
+/** Rest 56% of the way from each vehicle's authored angle toward the same
+ * downward stop reached by dragging the secondary mouse button upward. */
+export const CHASE_CAMERA_DEFAULT_DOWNWARD_PAN_FRACTION = 0.56;
 
 export interface ChaseCameraOrbit {
   /** Horizontal orbit relative to the vehicle's heading. */
@@ -77,6 +80,26 @@ export interface ChaseCameraOrbit {
   readonly elevationOffsetRad?: number;
   /** Horizontal distance from the vehicle, not optical/FOV zoom. */
   readonly distanceM?: number;
+}
+
+/** Applies the resting downward pan before a live mouse-look offset. Keeping
+ * this here makes construction/teleports and the per-frame chase camera agree. */
+export function resolveChaseCameraElevationRad(
+  tuning: ChaseTuning,
+  elevationOffsetRad = 0,
+): number {
+  const authoredElevation = Math.atan2(tuning.upM, tuning.backM);
+  const restingElevation =
+    authoredElevation +
+    (CHASE_CAMERA_MIN_ELEVATION_RAD - authoredElevation) *
+      CHASE_CAMERA_DEFAULT_DOWNWARD_PAN_FRACTION;
+  return Math.min(
+    CHASE_CAMERA_MAX_ELEVATION_RAD,
+    Math.max(
+      CHASE_CAMERA_MIN_ELEVATION_RAD,
+      restingElevation + elevationOffsetRad,
+    ),
+  );
 }
 
 /** Keeps the authored road-ahead composition behind the car, then blends the
@@ -141,13 +164,9 @@ export function resolveChaseCameraPose(
       orbit.distanceM ?? CHASE_CAMERA_START_DISTANCE_M,
     ),
   );
-  const authoredElevation = Math.atan2(chase.upM, chase.backM);
-  const elevation = Math.min(
-    CHASE_CAMERA_MAX_ELEVATION_RAD,
-    Math.max(
-      CHASE_CAMERA_MIN_ELEVATION_RAD,
-      authoredElevation + (orbit.elevationOffsetRad ?? 0),
-    ),
+  const elevation = resolveChaseCameraElevationRad(
+    chase,
+    orbit.elevationOffsetRad,
   );
   const baseY = 0.12;
   const targetAheadM =

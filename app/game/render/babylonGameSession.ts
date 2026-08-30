@@ -190,15 +190,14 @@ import { stagedBlockersOf } from "../geometry/facadesAndKeepouts";
 import { resolveWorldGroundBounds } from "../geometry/worldGround";
 import {
   CHASE_CAMERA_MAX_DISTANCE_M,
-  CHASE_CAMERA_MAX_ELEVATION_RAD,
   CHASE_CAMERA_MIN_DISTANCE_M,
-  CHASE_CAMERA_MIN_ELEVATION_RAD,
   CHASE_CAMERA_START_DISTANCE_M,
   CHASE_TUNING_BY_MODEL,
   DEFAULT_CHASE_TUNING,
   chaseLookAheadScale,
   prepareChaseCameraBlockers,
   quickLookAngleForInput,
+  resolveChaseCameraElevationRad,
   resolveChaseCameraPose,
   resolveChaseCameraSafeFraction,
   smoothQuickLookAngle,
@@ -4856,12 +4855,7 @@ export class BabylonGameSession {
       const desiredPosition = this.cameraDesiredScratch.copyFrom(base);
       forward.scaleAndAddToRef(-this.chaseDistanceM, desiredPosition);
       right.scaleAndAddToRef(cameraShake, desiredPosition);
-      const authoredElevation = Math.atan2(chase.upM, chase.backM);
-      const chaseElevation = clamp(
-        authoredElevation + lookPitch,
-        CHASE_CAMERA_MIN_ELEVATION_RAD,
-        CHASE_CAMERA_MAX_ELEVATION_RAD,
-      );
+      const chaseElevation = resolveChaseCameraElevationRad(chase, lookPitch);
       desiredPosition.y +=
         Math.tan(chaseElevation) * this.chaseDistanceM +
         Math.abs(cameraShake) * 0.35;
