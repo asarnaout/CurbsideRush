@@ -272,16 +272,16 @@ describe("elevated road barrier rendering", () => {
       0,
     );
 
-    // These characterize the detailed bridge skin plus 65 batched lamp
+    // These characterize the detailed bridge skin plus 63 batched lamp
     // stations, not a simplified proxy. A geometry change must deliberately
     // update both budgets, while a batching regression is caught by the
     // scene-object caps below.
-    expect(vertexCount).toBe(672_146);
-    expect(indexCount).toBe(985_428);
+    expect(vertexCount).toBe(668_150);
+    expect(indexCount).toBe(979_614);
     const lampVertices = rendered.meshes
       .filter((mesh) => mesh.material?.name.startsWith("cairo-bridge-lamp-"))
       .reduce((sum, mesh) => sum + mesh.getTotalVertices(), 0);
-    expect(lampVertices).toBe(65 * 96);
+    expect(lampVertices).toBe(63 * 96);
     // Shadow meshes merge only at identical legacy registration points; the
     // larger count than main-view chunks is the no-pop correctness budget.
     // Three lamp materials add spatial batches, but the finished layer still
@@ -393,6 +393,24 @@ describe("elevated road barrier rendering", () => {
     expect(meshesFor(rendered, RAMP_ID, "-parapet-maintenance-rail-")).toHaveLength(
       2,
     );
+  });
+
+  it("omits a lower-ramp lamp when its pole would pierce a crossing deck", () => {
+    const lower = surface("cairo-stacked-lower", [
+      { x: -26, z: 0, elevationM: 5 },
+      { x: 26, z: 0, elevationM: 5 },
+    ]);
+    const crossing = (elevationM: number) =>
+      surface("cairo-stacked-upper", [
+        { x: 0, z: -18, elevationM },
+        { x: 0, z: 18, elevationM },
+      ]);
+
+    const blocked = renderRoadLayer("synthetic-cairo", [lower, crossing(8)]);
+    expect(meshesFor(blocked, lower.id, "-lamp-poles-")).toHaveLength(0);
+
+    const clear = renderRoadLayer("synthetic-cairo", [lower, crossing(14)]);
+    expect(meshesFor(clear, lower.id, "-lamp-poles-")).toHaveLength(1);
   });
 
   it("faces tapered collar slab tops upward and undersides downward", () => {

@@ -13,12 +13,14 @@ import {
 } from "@babylonjs/core";
 import {
   ELEVATED_ROAD_DECK_SLAB_THICKNESS_M,
+  ELEVATED_ROAD_BARRIER_LEVEL_TOLERANCE_M,
   ELEVATED_ROAD_PARAPET_BASE_LIFT_M,
   ELEVATED_ROAD_PARAPET_DECK_INSET_M,
   ELEVATED_ROAD_PARAPET_HEIGHT_M,
   ELEVATED_ROAD_PIER_COLUMN_BOTTOM_DIAMETER_M,
   ELEVATED_ROAD_PIER_COLUMN_TOP_DIAMETER_M,
   ELEVATED_ROAD_PIER_FOOTING_DIAMETER_M,
+  createElevatedRoadDeckHeadroomQuery,
   elevatedRoadDeckRun,
   elevatedRoadEdgeRuns,
   elevatedRoadEndpointHasStructuralContinuation,
@@ -46,6 +48,10 @@ export const CAIRO_BRIDGE_PARAPET_REFLECTOR_SPACING_M = 9;
 export const CAIRO_BRIDGE_LAMP_SPACING_M = 26;
 export const CAIRO_BRIDGE_LAMP_END_INSET_M = 3;
 export const CAIRO_BRIDGE_LAMP_HEIGHT_M = 5.8;
+const CAIRO_BRIDGE_LAMP_OVERHEAD_CLEARANCE_M = 0.1;
+// The inward-facing arm and head reach almost two metres from the parapet
+// pole. Test that complete plan footprint against any higher flyover deck.
+const CAIRO_BRIDGE_LAMP_OVERHEAD_FOOTPRINT_RADIUS_M = 2;
 export const CAIRO_BRIDGE_PARAPET_TOTAL_HEIGHT_M =
   ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
   ELEVATED_ROAD_PARAPET_HEIGHT_M +
@@ -1001,6 +1007,9 @@ export function buildElevatedRoadStructures(
     : destinationCtx;
 
   const usesCairoBarrierStyle = mapPack.id.toLowerCase().includes("cairo");
+  const cairoLampOverheadDeckAt = usesCairoBarrierStyle
+    ? createElevatedRoadDeckHeadroomQuery(allRoadSurfaces)
+    : null;
 
   const concrete = material(
     ctx.scene,
@@ -1116,6 +1125,7 @@ export function buildElevatedRoadStructures(
   }
 
   for (const surface of surfaces) {
+    const lampCarrierSurfaceIds = new Set([surface.id]);
     const segments = elevatedRoadSegmentPlacements(surface);
     const surfaceLengthM = segments.reduce(
       (totalM, segment) => totalM + segment.lengthM,
@@ -1379,6 +1389,33 @@ export function buildElevatedRoadStructures(
             const headBoxes: CompoundBox[] = [];
             for (const station of lampStations) {
               const alongM = run.centerAlongM + station.offsetM;
+              // A lamp mounted on a lower ramp can fit beside that ramp's own
+              // parapet while still punching through a higher crossing deck.
+              // The Corniche exit station at (84, 239) did exactly that on the
+              // Sixth October mainline. Suppress any station whose complete
+              // pole/arm envelope lacks headroom below a different surface.
+              if (cairoLampOverheadDeckAt) {
+                const base = Vector3.TransformCoordinates(
+                  new Vector3(alongM, poleBaseY, poleCenterZ),
+                  root.computeWorldMatrix(true),
+                );
+                const overhead = cairoLampOverheadDeckAt(
+                  base,
+                  base.y,
+                  CAIRO_BRIDGE_LAMP_OVERHEAD_FOOTPRINT_RADIUS_M,
+                  true,
+                  lampCarrierSurfaceIds,
+                  ELEVATED_ROAD_BARRIER_LEVEL_TOLERANCE_M,
+                );
+                if (
+                  overhead &&
+                  overhead.headroomM <
+                    CAIRO_BRIDGE_LAMP_HEIGHT_M +
+                      CAIRO_BRIDGE_LAMP_OVERHEAD_CLEARANCE_M
+                ) {
+                  continue;
+                }
+              }
               poleBoxes.push(
                 {
                   center: [
