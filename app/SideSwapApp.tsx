@@ -34,13 +34,15 @@ import {
 import {
   clearCareer,
   createDefaultProgress,
-  credit,
   loadProgress,
+  recordFreeDriveDistance,
   resetProgress,
   saveProgress,
+  settleFreeDriveGig,
   setFuel,
   writeCareer,
 } from "./game/progress";
+import { trackedDistanceDelta } from "./game/drivingStats";
 import {
   activeCity,
   applySettlement,
@@ -91,6 +93,7 @@ import {
 import type { TravelCityFacts } from "./CareerViews";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SettingsView } from "./SettingsView";
+import { StatusView } from "./StatusView";
 import { LauncherView, DESTINATION_PREVIEW_IMAGES } from "./LauncherView";
 import { useGamepadUiNavigation } from "./useGamepadUiNavigation";
 import { DriveScreen } from "./DriveScreen";
@@ -196,6 +199,7 @@ import type {
 
 export type View =
   | "launcher"
+  | "status"
   | "driving"
   | "settings"
   | "career-garage"
@@ -451,6 +455,10 @@ export default function SideSwapApp() {
   const [progress, setProgress] = useState<PlayerProgressV2>(() =>
     createDefaultProgress(),
   );
+  const progressRef = useRef(progress);
+  useEffect(() => {
+    progressRef.current = progress;
+  }, [progress]);
   const [hydrated, setHydrated] = useState(false);
   const [view, setView] = useState<View>("launcher");
   const [destinationId, setDestinationId] =
@@ -527,6 +535,13 @@ export default function SideSwapApp() {
     announcePayout,
   } = gigDispatch;
   const lastPoseRef = useRef<{ x: number; z: number } | null>(null);
+  /** Distance not yet folded into the local Free Drive save. */
+  const freeDriveDistancePendingRef = useRef(0);
+  const takeFreeDriveDistance = useCallback((): number => {
+    const metres = Math.max(0, Math.floor(freeDriveDistancePendingRef.current));
+    freeDriveDistancePendingRef.current -= metres;
+    return metres;
+  }, []);
   const lastHeadingRef = useRef(0);
   // The kinds offered so far this drive, newest last, capped to the streak
   // window. Threaded into nextGigFor so no drive opens on a long run of one
@@ -831,14 +846,31 @@ export default function SideSwapApp() {
     const run = careerRunRef.current;
     const last = lastPoseRef.current;
     if (last) {
-      const moved = Math.hypot(
-        snapshot.playerX - last.x,
-        snapshot.playerZ - last.z,
+      const moved = trackedDistanceDelta(
+        { x: last.x, z: last.z },
+        { x: snapshot.playerX, z: snapshot.playerZ },
       );
-      if (moved > 0 && moved < 40) {
+      if (moved > 0) {
         const rate = run ? run.vehicle.fuelLPerM : FUEL_CONSUMPTION_L_PER_M;
         if (rate > 0) {
           setDriveFuel((fuel) => Math.max(0, fuel - moved * rate));
+        }
+        if (run) {
+          dayLogRef.current = {
+            ...dayLogRef.current,
+            distanceDrivenM: dayLogRef.current.distanceDrivenM + moved,
+          };
+        } else {
+          freeDriveDistancePendingRef.current += moved;
+          if (freeDriveDistancePendingRef.current >= 250) {
+            const distanceDrivenM = takeFreeDriveDistance();
+            setProgress((current) => {
+              const next = recordFreeDriveDistance(current, distanceDrivenM);
+              progressRef.current = next;
+              saveProgress(next);
+              return next;
+            });
+          }
         }
       }
     }
@@ -881,6 +913,8 @@ export default function SideSwapApp() {
     pendingSettleRef,
     endCareerDayRef,
     setDayRemainingMs,
+    takeFreeDriveDistance,
+    dayLogRef,
   ]);
 
   /**
@@ -1103,6 +1137,7 @@ export default function SideSwapApp() {
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const loaded = loadProgress();
+      progressRef.current = loaded;
       setProgress(loaded);
       setDestinationId(loaded.lastDestinationId);
       setCamera(loaded.preferredCamera);
@@ -1110,6 +1145,20 @@ export default function SideSwapApp() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, []);
+
+  // A normal exit flushes below; pagehide catches refreshes, closed tabs and
+  // mobile browsers discarding a backgrounded page between odometer batches.
+  useEffect(() => {
+    const persistPendingDistance = () => {
+      const distanceDrivenM = takeFreeDriveDistance();
+      if (distanceDrivenM <= 0) return;
+      const next = recordFreeDriveDistance(progressRef.current, distanceDrivenM);
+      progressRef.current = next;
+      saveProgress(next);
+    };
+    window.addEventListener("pagehide", persistPendingDistance);
+    return () => window.removeEventListener("pagehide", persistPendingDistance);
+  }, [takeFreeDriveDistance]);
 
   const activeSteeringSide = driveCountry.defaultSteeringSide;
 
@@ -1129,6 +1178,7 @@ export default function SideSwapApp() {
     driveCountry,
     driveFuel,
     setDriveFuel,
+    takeFreeDriveDistance,
   });
 
   // Auto-dismiss the fine toast a few seconds after it appears.
@@ -1242,14 +1292,22 @@ export default function SideSwapApp() {
       carryViolationsRef.current,
     );
     endCarryingLeg();
-    const settled = credit(progress, driveCountry.id, gig.reward + tip);
-    setProgress(settled);
-    saveProgress(settled);
+    const distanceDrivenM = takeFreeDriveDistance();
+    setProgress((current) => {
+      const settled = settleFreeDriveGig(
+        recordFreeDriveDistance(current, distanceDrivenM),
+        driveCountry.id,
+        gig.kind,
+        gig.reward + tip,
+      );
+      progressRef.current = settled;
+      saveProgress(settled);
+      return settled;
+    });
     announcePayout(gig.reward, tip);
     promoteQueuedGig();
   }, [
     gig,
-    progress,
     driveCountry,
     promoteQueuedGig,
     announcePayout,
@@ -1258,6 +1316,7 @@ export default function SideSwapApp() {
     carryingSinceRef,
     endCarryingLeg,
     paidGigRef,
+    takeFreeDriveDistance,
   ]);
 
   const chooseDestination = (id: DestinationId) => {
@@ -1284,6 +1343,7 @@ export default function SideSwapApp() {
     saveProgress(committedProgress);
     setDestinationId(nextDestinationId);
     setDriveFuel(committedProgress.fuelByCountry[nextCountryId]);
+    freeDriveDistancePendingRef.current = 0;
     lastPoseRef.current = null;
     const nextFreeDrive = getFreeDrive(nextDestination.freeDriveId);
     gigKindHistoryRef.current = [];
@@ -1334,9 +1394,17 @@ export default function SideSwapApp() {
       return;
     }
     // Persist the current tank level back to the country's saved fuel.
-    const persisted = setFuel(progress, driveCountry.id, driveFuel);
-    setProgress(persisted);
-    saveProgress(persisted);
+    const distanceDrivenM = takeFreeDriveDistance();
+    setProgress((current) => {
+      const persisted = setFuel(
+        recordFreeDriveDistance(current, distanceDrivenM),
+        driveCountry.id,
+        driveFuel,
+      );
+      progressRef.current = persisted;
+      saveProgress(persisted);
+      return persisted;
+    });
     setGig(null);
     setPaused(false);
     setMapOpen(false);
@@ -1407,6 +1475,7 @@ export default function SideSwapApp() {
 
   const resetCareer = (nextView: View = "launcher") => {
     const cleared = clearCareer(progress);
+    progressRef.current = cleared;
     setProgress(cleared);
     saveProgress(cleared);
     setLastSettlement(null);
@@ -1450,6 +1519,7 @@ export default function SideSwapApp() {
     setDestinationId(careerCity.destinationId);
     // Rentals come with a full tank, included in the rent; nothing persists.
     setDriveFuel(vehicle.tankL);
+    freeDriveDistancePendingRef.current = 0;
     lastPoseRef.current = null;
     const dayGigSeed = careerGigSeedBase(
       careerSlice.careerSeed,
@@ -1623,6 +1693,7 @@ export default function SideSwapApp() {
     : country;
 
   const saveSettings = (next: PlayerProgressV2) => {
+    progressRef.current = next;
     setProgress(next);
     setDestinationId(next.lastDestinationId);
     setCamera(next.preferredCamera);
@@ -2264,7 +2335,9 @@ export default function SideSwapApp() {
         effectiveView === "career-garage" || effectiveView === "career-travel"
           ? "career-shell"
           : ""
-      } ${effectiveView === "settings" ? "settings-shell" : ""}`}
+      } ${effectiveView === "settings" ? "settings-shell" : ""} ${
+        effectiveView === "status" ? "status-shell" : ""
+      }`}
       style={themeStyle}
     >
       <header className="app-header">
@@ -2281,6 +2354,13 @@ export default function SideSwapApp() {
           </span>
         </button>
         <nav className="header-actions" aria-label="Main navigation">
+          <button
+            className={effectiveView === "status" ? "active" : ""}
+            type="button"
+            onClick={() => setView("status")}
+          >
+            Status
+          </button>
           <button
             className={effectiveView === "settings" ? "active" : ""}
             type="button"
@@ -2301,7 +2381,8 @@ export default function SideSwapApp() {
           </button>
           {mobileMenuOpen && (
             <nav id="mobile-menu-panel" aria-label="Mobile navigation">
-              <button type="button" onClick={() => { setView("settings"); setMobileMenuOpen(false); }}>Settings & accessibility</button>
+              <button className={effectiveView === "status" ? "active" : ""} type="button" onClick={() => { setView("status"); setMobileMenuOpen(false); }}>Status</button>
+              <button className={effectiveView === "settings" ? "active" : ""} type="button" onClick={() => { setView("settings"); setMobileMenuOpen(false); }}>Settings & accessibility</button>
             </nav>
           )}
         </div>
@@ -2313,12 +2394,22 @@ export default function SideSwapApp() {
           onSave={saveSettings}
           onReset={() => {
             const reset = resetProgress();
+            freeDriveDistancePendingRef.current = 0;
+            progressRef.current = reset;
             setProgress(reset);
             setDestinationId(reset.lastDestinationId);
             setCamera(reset.preferredCamera);
             setView("launcher");
           }}
           onBack={() => setView("launcher")}
+        />
+      )}
+
+      {effectiveView === "status" && (
+        <StatusView
+          freeDriveStats={progress.freeDriveStats}
+          career={progress.career}
+          initialMode={gameMode}
         />
       )}
 

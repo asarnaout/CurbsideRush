@@ -48,6 +48,7 @@ vi.mock("next/dynamic", () => ({
       cutscene?: { readonly nonce: number; readonly kind: string } | null;
       onHudUpdate?: (snapshot: GameHudSnapshot) => void;
       onEvent?: (event: GameRuntimeEvent) => void;
+      onExit?: () => void;
     }) {
       return (
         <section
@@ -91,6 +92,9 @@ vi.mock("next/dynamic", () => ({
             }
           >
             pump
+          </button>
+          <button type="button" data-testid="mock-exit-drive" onClick={props.onExit}>
+            exit drive
           </button>
         </section>
       );
@@ -216,6 +220,13 @@ const storedFuel = (): number =>
     }
   ).fuelByCountry.us;
 
+const storedDistance = (): number =>
+  (
+    JSON.parse(window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}") as {
+      freeDriveStats: { distanceDrivenM: number };
+    }
+  ).freeDriveStats.distanceDrivenM;
+
 describe("free-drive refuelling", () => {
   it("fills the tank and bills the wallet when the money is there", async () => {
     // 30 L missing at $0.40 = $12, against $20 in hand.
@@ -286,5 +297,42 @@ describe("free-drive refuelling", () => {
       "data-cutscene-kind",
       "none",
     );
+  });
+});
+
+describe("free-drive odometer persistence", () => {
+  const moveThirtyMetres = () => {
+    mockStop.x += 30;
+    fireEvent.click(screen.getByTestId("mock-hud-at-stop"));
+  };
+
+  it("flushes without a render-facing state update after crossing 250 metres", async () => {
+    await driveToThePumpsWith(20, 10);
+    for (let step = 0; step < 9; step += 1) moveThirtyMetres();
+
+    expect(storedDistance()).toBe(270);
+  });
+
+  it("flushes the remaining distance on normal exit", async () => {
+    await driveToThePumpsWith(20, 10);
+    moveThirtyMetres();
+    moveThirtyMetres();
+    fireEvent.click(screen.getByTestId("mock-exit-drive"));
+
+    expect(await screen.findByRole("heading", { name: /Rise and Grind/i })).toBeVisible();
+    expect(storedDistance()).toBe(60);
+  });
+
+  it("flushes on pagehide and reloads the saved odometer", async () => {
+    await driveToThePumpsWith(20, 10);
+    for (let step = 0; step < 8; step += 1) moveThirtyMetres();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(storedDistance()).toBe(240);
+
+    cleanup();
+    render(<SideSwapApp />);
+    await screen.findByRole("heading", { name: /Rise and Grind/i });
+    fireEvent.click(screen.getByRole("button", { name: /^Status$/i }));
+    expect(await screen.findByLabelText("0.1 miles driven")).toBeVisible();
   });
 });

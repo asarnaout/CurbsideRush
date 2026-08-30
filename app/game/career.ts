@@ -1,16 +1,22 @@
 // Pure Career Mode economy core: the vehicle catalog, the end-of-day
 // settlement (loans, final notice, bankruptcy), fare/tip/par maths, per-day
 // seed derivation and the persisted-slice codec. Kept free of app, renderer
-// and simulation dependencies (type-only imports), in the style of gigs.ts:
-// the app supplies numbers in, gets decisions out, and every rule here is
-// unit-testable without a browser.
+// and simulation dependencies. Its only runtime helper is the pure status
+// accumulator; the app supplies numbers in, gets decisions out, and every rule
+// remains unit-testable without a browser.
 //
 // Money is integer-only in the career country's own currency (JPY has no minor
 // units, and integer ledgers avoid float drift across hundreds of days).
 
 import type { GigKind } from "./gigs";
-import type { CountryId, DestinationId } from "./types";
+import type { CountryId, DestinationId, DrivingStats } from "./types";
 import type { VehicleModel } from "./vehicleVisuals";
+import {
+  accumulateDrivingStats,
+  createEmptyDrivingStats,
+  drivingStatsIncrement,
+  isDrivingStats,
+} from "./drivingStats";
 
 // ---------------------------------------------------------------------------
 // Tunables. Balance rationale lives beside each table; adjust here, not at
@@ -539,6 +545,12 @@ export interface CareerSliceV2 {
   readonly victoryDay: number | null;
   /** Frozen per career so mid-run rule changes can't strand a save. */
   readonly rule: BankruptcyRule;
+  /**
+   * Lifetime totals across every city in this career. Optional only so a save
+   * written before Status existed can verify its old checksum before being
+   * re-stamped with an empty ledger.
+   */
+  readonly statusStats?: DrivingStats;
   /** Storage integrity stamp — see stampCareerChecksum. */
   readonly checksum: string;
 }
@@ -736,6 +748,7 @@ export function parseCareerSlice(value: unknown): CareerPersisted {
     !isRecord(value.cities) ||
     (value.victoryDay !== null && !isInteger(value.victoryDay)) ||
     (value.rule !== "strict" && value.rule !== "grace") ||
+    (value.statusStats !== undefined && !isDrivingStats(value.statusStats)) ||
     typeof value.checksum !== "string"
   ) {
     return { state: "corrupt" };
@@ -760,14 +773,21 @@ export function parseCareerSlice(value: unknown): CareerPersisted {
   // the new fleet is required for completion while preserving London, every
   // existing city ledger and the current location. This must remain after the
   // checksum comparison: migration is never a repair path for tampered data.
-  if (slice.state === "won" && slice.cities["eg-cairo"] === undefined) {
-    return stampCareerChecksum({
-      ...slice,
+  let migrated = slice;
+  if (migrated.state === "won" && migrated.cities["eg-cairo"] === undefined) {
+    migrated = stampCareerChecksum({
+      ...migrated,
       state: "active",
       victoryDay: null,
     });
   }
-  return slice;
+  if (migrated.statusStats === undefined) {
+    migrated = stampCareerChecksum({
+      ...migrated,
+      statusStats: createEmptyDrivingStats(),
+    });
+  }
+  return migrated;
 }
 
 type UnknownCities = Record<string, unknown>;
@@ -870,6 +890,7 @@ export function createCareerSlice(input: {
     },
     victoryDay: null,
     rule: input.rule ?? "grace",
+    statusStats: createEmptyDrivingStats(),
   });
 }
 
@@ -1165,6 +1186,10 @@ export interface DayLedgerInput {
   readonly rentPaid: number;
   readonly gigsCompleted: number;
   readonly gigsOnTime: number;
+  readonly deliveriesCompleted: number;
+  readonly ridesharesCompleted: number;
+  readonly trafficCitations: number;
+  readonly distanceDrivenM: number;
   /**
    * Stars awarded today, in the order they came in — shorter than
    * `gigsCompleted`, since about a quarter of customers never rate. Collected
@@ -1185,6 +1210,10 @@ export function emptyDayLog(): DayLedgerInput {
     rentPaid: 0,
     gigsCompleted: 0,
     gigsOnTime: 0,
+    deliveriesCompleted: 0,
+    ridesharesCompleted: 0,
+    trafficCitations: 0,
+    distanceDrivenM: 0,
     ratings: [],
   };
 }
@@ -1362,27 +1391,83 @@ export function applySettlement(
       settlement.loan?.principalRemaining ?? 0,
     ),
   };
+  let nextSlice: CareerSliceV2;
   if (settlement.outcome === "game_over" || rating?.verdict === "ended") {
     // Both endings are local and land in the same place. The city is wiped back
     // to the day you arrived — starting float, day 1, debts gone, standing
     // cleared, and the fleet repossessed, which is what stops going bust from
     // being a free bailout out of a bad loan. Every other city on the ladder is
     // untouched and still there to fly back to.
-    return withCity(
+    nextSlice = withCity(
       slice,
       city.destinationId,
       createCityState(city.countryId),
     );
+  } else {
+    nextSlice = withCity(slice, city.destinationId, {
+      day: city.day + 1,
+      cash: settlement.cash,
+      loan: settlement.loan,
+      finalNotice: settlement.finalNotice,
+      ownedVehicleIds: city.ownedVehicleIds,
+      stats,
+      rating: rating ? rating.rating : city.rating,
+    });
   }
-  return withCity(slice, city.destinationId, {
-    day: city.day + 1,
-    cash: settlement.cash,
-    loan: settlement.loan,
-    finalNotice: settlement.finalNotice,
-    ownedVehicleIds: city.ownedVehicleIds,
-    stats,
-    rating: rating ? rating.rating : city.rating,
+
+  const settlementSpend = settlement.lines.reduce(
+    (total, line) =>
+      line.kind === "platform_fee" || line.kind === "loan_installment"
+        ? total + Math.max(0, -line.amount)
+        : total,
+    0,
+  );
+  const daySpend =
+    ledger.rentPaid +
+    ledger.finesTotal +
+    ledger.repairsTotal +
+    ledger.fuelSpendTotal +
+    settlementSpend;
+  const increment = drivingStatsIncrement({
+    deliveriesCompleted: ledger.deliveriesCompleted,
+    ridesharesCompleted: ledger.ridesharesCompleted,
+    trafficCitations: ledger.trafficCitations,
+    distanceDrivenM: ledger.distanceDrivenM,
+    earned: { countryId: city.countryId, amount: ledger.netFares + ledger.tips },
+    spent: { countryId: city.countryId, amount: daySpend },
   });
+  return withCareerStatusStats(
+    nextSlice,
+    accumulateDrivingStats(careerStatusStats(slice), increment),
+  );
+}
+
+/** Reads the career-wide Status ledger, including verified pre-feature saves. */
+export function careerStatusStats(slice: CareerSliceV2): DrivingStats {
+  return slice.statusStats ?? createEmptyDrivingStats();
+}
+
+/** Replaces the career-wide Status ledger and re-stamps the career checksum. */
+export function withCareerStatusStats(
+  slice: CareerSliceV2,
+  statusStats: DrivingStats,
+): CareerSliceV2 {
+  return stampCareerChecksum({ ...slice, statusStats });
+}
+
+/** Records a saved, non-day-boundary career purchase in its local currency. */
+export function recordCareerExpense(
+  slice: CareerSliceV2,
+  countryId: CountryId,
+  amount: number,
+): CareerSliceV2 {
+  return withCareerStatusStats(
+    slice,
+    accumulateDrivingStats(
+      careerStatusStats(slice),
+      drivingStatsIncrement({ spent: { countryId, amount } }),
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1424,12 +1509,13 @@ export function applyVehiclePurchase(
     throw new Error(`Cannot buy ${vehicle.id} here`);
   }
   const city = activeCity(slice);
+  const price = buyoutPrice(vehicle, city.countryId);
   return withVictoryIfEarned(
-    withCity(slice, city.destinationId, {
+    recordCareerExpense(withCity(slice, city.destinationId, {
       ...city,
-      cash: city.cash - buyoutPrice(vehicle, city.countryId),
+      cash: city.cash - price,
       ownedVehicleIds: [...city.ownedVehicleIds, vehicle.id],
-    }),
+    }), city.countryId, price),
   );
 }
 
@@ -1477,10 +1563,10 @@ export function applyTicket(slice: CareerSliceV2): CareerSliceV2 {
   const city = activeCity(slice);
   const next = nextCareerCity(city.destinationId) as DestinationId;
   const price = ticketPrice(city.destinationId) as number;
-  const paid = withCity(slice, city.destinationId, {
+  const paid = recordCareerExpense(withCity(slice, city.destinationId, {
     ...city,
     cash: city.cash - price,
-  });
+  }), city.countryId, price);
   return withVictoryIfEarned(
     stampCareerChecksum({
       ...paid,

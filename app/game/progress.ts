@@ -13,6 +13,14 @@ import type {
   DestinationId,
   PlayerProgressV2,
 } from "./types";
+import {
+  accumulateDrivingStats,
+  createEmptyDrivingStats,
+  drivingStatsIncrement,
+  isDrivingStats,
+  parseDrivingStats,
+} from "./drivingStats";
+import type { GigKind } from "./gigs";
 
 export const PROGRESS_STORAGE_KEY = "sideswap:v2";
 
@@ -153,6 +161,7 @@ export function createDefaultProgress(): PlayerProgressV2 {
     lastDestinationId: "uk-london",
     preferredCamera: "third_person",
     accessibility: { ...DEFAULT_ACCESSIBILITY },
+    freeDriveStats: createEmptyDrivingStats(),
     career: null,
     lastCareerVehicleId: DEFAULT_GARAGE_VEHICLE_ID,
   };
@@ -181,6 +190,7 @@ const parseProgress = (value: unknown): PlayerProgressV2 => {
       parseDestinationId(value.lastDestinationId) ?? fallback.lastDestinationId,
     preferredCamera: parseCamera(value.preferredCamera),
     accessibility: parseAccessibility(value.accessibility),
+    freeDriveStats: parseDrivingStats(value.freeDriveStats),
     career: parseCareerSlice(value.career),
     lastCareerVehicleId: parseCareerVehicleId(value.lastCareerVehicleId),
   };
@@ -235,6 +245,7 @@ export function isPlayerProgressV2(value: unknown): value is PlayerProgressV2 {
   }
   return (
     isAccessibilityPreferences(value.accessibility) &&
+    isDrivingStats(value.freeDriveStats) &&
     isCareerVehicleId(value.lastCareerVehicleId)
   );
 }
@@ -345,6 +356,68 @@ export function debit(
       progress.walletByCountry,
       countryId,
       Math.max(0, progress.walletByCountry[countryId] - spend),
+    ),
+  };
+}
+
+/** Credits one completed Free Drive gig and its status totals atomically. */
+export function settleFreeDriveGig(
+  progress: PlayerProgressV2,
+  countryId: CountryId,
+  kind: GigKind,
+  amount: number,
+): PlayerProgressV2 {
+  const gain = Number.isFinite(amount)
+    ? Math.round(Math.max(0, amount) * 100) / 100
+    : 0;
+  const credited = credit(progress, countryId, gain);
+  return {
+    ...credited,
+    freeDriveStats: accumulateDrivingStats(
+      progress.freeDriveStats,
+      drivingStatsIncrement({
+        deliveriesCompleted: kind === "delivery" ? 1 : 0,
+        ridesharesCompleted: kind === "passenger" ? 1 : 0,
+        earned: { countryId, amount: gain },
+      }),
+    ),
+  };
+}
+
+/**
+ * Debits a Free Drive wallet and records only the cash that really left it.
+ * A citation is counted independently, so an empty wallet still records the ticket.
+ */
+export function chargeFreeDrive(
+  progress: PlayerProgressV2,
+  countryId: CountryId,
+  amount: number,
+  citation = false,
+): PlayerProgressV2 {
+  const debited = debit(progress, countryId, amount);
+  const spent = progress.walletByCountry[countryId] - debited.walletByCountry[countryId];
+  return {
+    ...debited,
+    freeDriveStats: accumulateDrivingStats(
+      progress.freeDriveStats,
+      drivingStatsIncrement({
+        trafficCitations: citation ? 1 : 0,
+        spent: { countryId, amount: spent },
+      }),
+    ),
+  };
+}
+
+/** Adds whole, validated metres to the Free Drive odometer. */
+export function recordFreeDriveDistance(
+  progress: PlayerProgressV2,
+  metres: number,
+): PlayerProgressV2 {
+  return {
+    ...progress,
+    freeDriveStats: accumulateDrivingStats(
+      progress.freeDriveStats,
+      drivingStatsIncrement({ distanceDrivenM: metres }),
     ),
   };
 }

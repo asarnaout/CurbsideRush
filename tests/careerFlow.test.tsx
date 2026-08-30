@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CAREER_STARTING_CASH_BY_COUNTRY,
   activeCity,
+  careerStatusStats,
   createCareerSlice,
   getCareerVehicle,
   withCity,
@@ -969,6 +970,10 @@ describe("career mode flow", () => {
     expect(settled.day).toBe(2);
     expect(settled.cash).toBe(0);
     expect(settled.loan).toEqual({ principalRemaining: 9, daysRemaining: 3 });
+    expect(careerStatusStats(storedCareer() as CareerSliceV2)).toMatchObject({
+      trafficCitations: 1,
+      spentByCountry: { us: 27 },
+    });
 
     fireEvent.click(screen.getByTestId("ledger-continue"));
     expect(
@@ -1076,6 +1081,7 @@ describe("career mode flow", () => {
     const stored = storedCareer() as CareerSliceV2;
     expect(activeCity(stored).day).toBe(1);
     expect(activeCity(stored).cash).toBe(US_START_CASH);
+    expect(careerStatusStats(stored).trafficCitations).toBe(0);
   });
 
   it("offers only a reset for a tampered career, leaving free-drive progress alone", async () => {
@@ -1083,7 +1089,14 @@ describe("career mode flow", () => {
       destinationId: "uk-london",
       careerSeed: 99,
     });
-    const progress = writeCareer(createDefaultProgress(), slice);
+    const blank = createDefaultProgress();
+    const progress = writeCareer(
+      {
+        ...blank,
+        freeDriveStats: { ...blank.freeDriveStats, deliveriesCompleted: 5 },
+      },
+      slice,
+    );
     const raw = JSON.parse(JSON.stringify(progress)) as {
       career: { cash: number };
     };
@@ -1098,8 +1111,12 @@ describe("career mode flow", () => {
     expect(storedCareer()).toBeNull();
     const stored = JSON.parse(
       window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
-    ) as { walletByCountry: Record<string, number> };
+    ) as {
+      walletByCountry: Record<string, number>;
+      freeDriveStats: { deliveriesCompleted: number };
+    };
     expect(stored.walletByCountry.uk).toBe(20);
+    expect(stored.freeDriveStats.deliveriesCompleted).toBe(5);
   });
 
   it("rides the motorbike: composed visual kind, 24 cap, fuel gauge, deliveries only", async () => {
@@ -2308,8 +2325,16 @@ describe("free-drive gig settlement", () => {
       window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? "{}",
     ) as {
       walletByCountry: Record<string, number>;
+      freeDriveStats: {
+        deliveriesCompleted: number;
+        earnedByCountry: Record<string, number>;
+      };
     };
     expect(stored.walletByCountry.us).toBeGreaterThan(startingWallet);
+    expect(stored.freeDriveStats.deliveriesCompleted).toBe(1);
+    expect(stored.freeDriveStats.earnedByCountry.us).toBe(
+      stored.walletByCountry.us - startingWallet,
+    );
     expect(screen.getByTestId("dispatch-toast")).toHaveTextContent(/^\+/);
     expect(screen.getByTestId("dispatch-idle")).toBeVisible();
   });

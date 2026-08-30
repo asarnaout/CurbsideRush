@@ -231,6 +231,26 @@ describe("gig launcher", () => {
     ).toBeVisible();
   });
 
+  it("opens Status from the header and mirrors the launcher's selected mode", async () => {
+    render(<SideSwapApp />);
+    await findTagline();
+
+    const gameMode = screen.getByRole("group", { name: "Game mode" });
+    fireEvent.click(within(gameMode).getByRole("button", { name: "Career" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Status$/i }));
+
+    expect(
+      await screen.findByRole("heading", { name: /The city keeps score/i }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: /^Status$/i })).toHaveClass("active");
+    const statusMode = screen.getByRole("group", { name: "Status mode" });
+    expect(within(statusMode).getByRole("button", { name: "Career" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("Start a career to build your stats.")).toBeVisible();
+  });
+
   it("boots a corrupted save straight to a playable launcher", async () => {
     window.localStorage.setItem(PROGRESS_STORAGE_KEY, "{broken");
     render(<SideSwapApp />);

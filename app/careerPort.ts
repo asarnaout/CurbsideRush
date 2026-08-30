@@ -25,10 +25,12 @@
 import { useCallback, useRef, useState, type MutableRefObject } from "react";
 import type { DayLedgerInput } from "./game/career";
 import { DAY_LENGTH_MS, emptyDayLog } from "./game/career";
+import type { GigKind } from "./game/gigs";
 import type { CareerRun } from "./SideSwapApp";
 
 /** What one completed career gig settles into the day's ledger. */
 export interface CareerGigPayoutInput {
+  readonly kind: GigKind;
   readonly gross: number;
   readonly net: number;
   readonly tip: number;
@@ -110,6 +112,10 @@ export function useCareerPort(): CareerPort {
       tips: dayLogRef.current.tips + input.tip,
       gigsCompleted: dayLogRef.current.gigsCompleted + 1,
       gigsOnTime: dayLogRef.current.gigsOnTime + (input.onTime ? 1 : 0),
+      deliveriesCompleted:
+        dayLogRef.current.deliveriesCompleted + (input.kind === "delivery" ? 1 : 0),
+      ridesharesCompleted:
+        dayLogRef.current.ridesharesCompleted + (input.kind === "passenger" ? 1 : 0),
       ratings:
         input.stars === null
           ? dayLogRef.current.ratings

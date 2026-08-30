@@ -807,6 +807,19 @@ export interface AccessibilityPreferences {
   readonly musicMuted: boolean;
 }
 
+/** Lifetime driving totals for one game mode, kept in local progress. */
+export interface DrivingStats {
+  readonly deliveriesCompleted: number;
+  readonly ridesharesCompleted: number;
+  /** Traffic citations actually issued, whether or not the wallet covered them. */
+  readonly trafficCitations: number;
+  /** Stored as whole metres; the Status page presents the aggregate in miles. */
+  readonly distanceDrivenM: number;
+  /** Never sum currencies: every country keeps its own total, including minor units. */
+  readonly earnedByCountry: Readonly<Record<CountryId, number>>;
+  readonly spentByCountry: Readonly<Record<CountryId, number>>;
+}
+
 export interface PlayerProgressV2 {
   readonly version: 2;
   /** Money on hand per country, in that country's own currency units. */
@@ -816,6 +829,8 @@ export interface PlayerProgressV2 {
   readonly lastDestinationId: DestinationId;
   readonly preferredCamera: CameraMode;
   readonly accessibility: AccessibilityPreferences;
+  /** Device-local lifetime totals for Free Drive. */
+  readonly freeDriveStats: DrivingStats;
   /**
    * Career Mode's whole persisted state (null until a career starts, or the
    * corrupt marker when the stored slice fails its checksum). Career money is

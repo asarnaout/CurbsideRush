@@ -48,6 +48,21 @@ export const WALLET_ICON = [
   "M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5",
   "M17 13h.01",
 ];
+/** The issued citation on the Status page — distinct from a travel ticket. */
+export const TICKET_ICON = [
+  "M2 9a3 3 0 0 0 0 6v4a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4a3 3 0 0 0 0-6V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z",
+  "M13 5v2",
+  "M13 11v2",
+  "M13 17v2",
+];
+/** A compact speedometer/odometer mark for distance readouts. */
+export const ODOMETER_ICON = [
+  "M4 18a8 8 0 1 1 16 0",
+  "M12 18l4-5",
+  "M7 14l-1-1",
+  "M12 10V8",
+  "M17 14l1-1",
+];
 export const MUSIC_ICON = [
   "M9 18V5l12-2v13",
   "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6",

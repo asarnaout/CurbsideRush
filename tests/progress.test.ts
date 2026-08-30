@@ -52,6 +52,14 @@ describe("player progress (current V2 schema)", () => {
       version: 2,
       walletByCountry: STARTING_WALLET_BY_COUNTRY,
       fuelByCountry: fullTank,
+      freeDriveStats: {
+        deliveriesCompleted: 0,
+        ridesharesCompleted: 0,
+        trafficCitations: 0,
+        distanceDrivenM: 0,
+        earnedByCountry: { us: 0, uk: 0, jp: 0, eg: 0 },
+        spentByCountry: { us: 0, uk: 0, jp: 0, eg: 0 },
+      },
       lastDestinationId: "uk-london",
       preferredCamera: "third_person",
       accessibility: {

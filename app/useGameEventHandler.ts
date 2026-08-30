@@ -50,7 +50,12 @@ import {
   speedingFine,
 } from "./game/economyTables";
 import { SPEEDING_STOP_GRACE_MS, speedingExcessMps } from "./game/speeding";
-import { debit, saveProgress, setFuel } from "./game/progress";
+import {
+  chargeFreeDrive,
+  recordFreeDriveDistance,
+  saveProgress,
+  setFuel,
+} from "./game/progress";
 import {
   careerFare,
   ratingFareFactor,
@@ -146,6 +151,8 @@ export interface UseGameEventHandlerArgs {
   readonly driveCountry: CountryProfile;
   readonly driveFuel: number;
   readonly setDriveFuel: Dispatch<SetStateAction<number>>;
+  /** Takes whole unsaved Free Drive metres for an atomic transaction. */
+  readonly takeFreeDriveDistance: () => number;
   /** Defaults to real `Date.now`/`window.setTimeout`; a test may override both. */
   readonly clock?: GameEventClock;
 }
@@ -159,6 +166,7 @@ export function useGameEventHandler({
   driveCountry,
   driveFuel,
   setDriveFuel,
+  takeFreeDriveDistance,
   clock = REAL_CLOCK,
 }: UseGameEventHandlerArgs): (event: GameRuntimeEvent) => void {
   /**
@@ -179,15 +187,24 @@ export function useGameEventHandler({
         career.chargeCareer(amount, (log) => ({
           ...log,
           finesTotal: log.finesTotal + amount,
+          trafficCitations: log.trafficCitations + 1,
         }));
       } else {
-        const fined = debit(progress, driveCountry.id, amount);
-        setProgress(fined);
-        saveProgress(fined);
+        const distanceDrivenM = takeFreeDriveDistance();
+        setProgress((current) => {
+          const fined = chargeFreeDrive(
+            recordFreeDriveDistance(current, distanceDrivenM),
+            driveCountry.id,
+            amount,
+            true,
+          );
+          saveProgress(fined);
+          return fined;
+        });
       }
       drive.setFineToast({ amount, reason, issuedBy });
     },
-    [progress, driveCountry, career, drive, clock, setProgress],
+    [driveCountry, career, drive, clock, setProgress, takeFreeDriveDistance],
   );
 
   // The car is a write-off: fade to the tow overlay, debit the repair bill,
@@ -212,9 +229,16 @@ export function useGameEventHandler({
         repairsTotal: log.repairsTotal + fee,
       }));
     } else {
-      const paid = debit(progress, driveCountry.id, fee);
-      setProgress(paid);
-      saveProgress(paid);
+      const distanceDrivenM = takeFreeDriveDistance();
+      setProgress((current) => {
+        const paid = chargeFreeDrive(
+          recordFreeDriveDistance(current, distanceDrivenM),
+          driveCountry.id,
+          fee,
+        );
+        saveProgress(paid);
+        return paid;
+      });
     }
     const reduced = progress.accessibility.reducedMotion;
     clock.setTimeout(() => {
@@ -228,7 +252,7 @@ export function useGameEventHandler({
         career.endCareerDayRef.current();
       }
     }, reduced ? 500 : 2400);
-  }, [progress, driveCountry, drive, career, clock, setProgress]);
+  }, [progress, driveCountry, drive, career, clock, setProgress, takeFreeDriveDistance]);
 
   // Collision events wear the car down (and striking a person is cited on the
   // spot); a fine event reaches us only when a patrol witnessed the violation.
@@ -288,9 +312,16 @@ export function useGameEventHandler({
               repairsTotal: log.repairsTotal + price,
             }));
           } else {
-            const paid = debit(progress, driveCountry.id, price);
-            setProgress(paid);
-            saveProgress(paid);
+            const distanceDrivenM = takeFreeDriveDistance();
+            setProgress((current) => {
+              const paid = chargeFreeDrive(
+                recordFreeDriveDistance(current, distanceDrivenM),
+                driveCountry.id,
+                price,
+              );
+              saveProgress(paid);
+              return paid;
+            });
           }
           // No session reset, unlike the tow — the car is mended where it
           // stands, in the bay it drove into.
@@ -346,13 +377,20 @@ export function useGameEventHandler({
             progress.walletByCountry[driveCountry.id],
           );
           const filled = driveFuel + purchased.litres;
-          const refueled = setFuel(
-            debit(progress, driveCountry.id, purchased.cost),
-            driveCountry.id,
-            filled,
-          );
-          setProgress(refueled);
-          saveProgress(refueled);
+          const distanceDrivenM = takeFreeDriveDistance();
+          setProgress((current) => {
+            const refueled = setFuel(
+              chargeFreeDrive(
+                recordFreeDriveDistance(current, distanceDrivenM),
+                driveCountry.id,
+                purchased.cost,
+              ),
+              driveCountry.id,
+              filled,
+            );
+            saveProgress(refueled);
+            return refueled;
+          });
           drive.setFuelFillMs(event.durationMs ?? 0);
           setDriveFuel(filled);
           return;
@@ -432,7 +470,14 @@ export function useGameEventHandler({
                 violations: gigDispatch.carryViolationsRef.current,
               });
               gigDispatch.endCarryingLeg();
-              career.recordGigPayout({ gross, net, tip, onTime, stars });
+              career.recordGigPayout({
+                kind: current.kind,
+                gross,
+                net,
+                tip,
+                onTime,
+                stars,
+              });
               gigDispatch.announcePayout(net, tip);
               // The next job is whatever was accepted while this one ran —
               // nothing is conjured on completion any more. With an empty queue
@@ -539,6 +584,7 @@ export function useGameEventHandler({
       clock,
       chargeFine,
       beginTow,
+      takeFreeDriveDistance,
     ],
   );
 
