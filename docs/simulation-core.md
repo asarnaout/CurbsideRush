@@ -79,13 +79,19 @@ Height-aware `projectToRoad` searches only topology/elevation-compatible lanes
 first. Ground projection always locks to that set, and an occupied raised ramp
 locks when its graph-adjacent continuation is inside the existing capture
 radius. Player callers enable bidirectional profile capture, which admits an
-immediate predecessor and compares that connected ramp as an undirected axis;
-the default query and every NPC successor route remain directed. Only a
-detached raised pose runs the old global fallback. The default lane choice,
-heading tie-breaks, hysteresis and returned floats remain unchanged. The frozen
-legacy oracle covers 49,592 lane-point samples and 42,597 Cairo projections,
-including all 814 directed seams; keep that exact equality when changing the
-scan.
+immediate predecessor and compares that connected ramp as an undirected axis.
+At a same-height raised endpoint, the player query also admits physically
+  coincident branches without adding them to `successorLaneIds`; the driver's
+  trajectory selects between those visible surfaces across a short
+  full-pavement-width endpoint strip before projection commits to the chosen
+  grade. A connected sibling is reconsidered later only if the car's centre
+  has physically left the preferred lane's paved half-width. The default query
+  and every NPC successor route remain
+directed. Only a detached raised pose runs the old global fallback. The default
+lane choice, heading tie-breaks, hysteresis and returned floats remain
+unchanged outside this player-only junction rule. The frozen legacy oracle
+covers 49,592 lane-point samples and 42,597 Cairo projections, including all
+814 directed seams; keep that exact equality when changing the scan.
 
 One 10 Hz traffic-locality decision also owns one fresh player projection and
 threads it through every recount, activation and preflight branch. The player

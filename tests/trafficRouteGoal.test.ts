@@ -683,6 +683,231 @@ describe("deterministic locality route goals", () => {
     });
   });
 
+  it("keeps a wrong-way player on the continuous raised branch after a shared terminal", () => {
+    const braid = { x: 0, z: 0, elevationM: 7 };
+    const entry: SimulationLane = {
+      id: "z-entry-uphill",
+      roadId: "physical-entry",
+      points: [{ x: -24, z: 0, elevationM: 4.6 }, braid],
+      successorLaneIds: ["ramp-reverse"],
+      loop: false,
+    };
+    const exit: SimulationLane = {
+      id: "a-exit-downhill",
+      roadId: "physical-exit",
+      points: [braid, { x: -24, z: 0.24, elevationM: 4.6 }],
+      loop: false,
+    };
+    const rampForward: SimulationLane = {
+      id: "ramp-forward",
+      roadId: "shared-ramp",
+      points: [{ x: 10, z: 0, elevationM: 8 }, braid],
+      successorLaneIds: [exit.id],
+      loop: false,
+    };
+    const rampReverse: SimulationLane = {
+      id: "ramp-reverse",
+      roadId: "shared-ramp",
+      points: [braid, { x: 10, z: 0, elevationM: 8 }],
+      loop: false,
+    };
+    const network = new RoadNetwork(
+      [rampForward, rampReverse, exit, entry],
+      [],
+      [],
+    );
+
+    let preferredLaneId = rampForward.id;
+    let preferredElevationM = 7;
+    let maximumProfileErrorM = 0;
+    const acquiredLaneIds: string[] = [];
+    const physicalHeading = Math.atan2(-24, 0.24);
+    for (const distanceFromBraidM of [
+      0.2, 1, 4, 8, 12, 13, 16, 20, 21, 24,
+    ]) {
+      const projection = network.projectToRoad(-distanceFromBraidM, 0, {
+        heading: -Math.PI / 2,
+        preferredLaneId,
+        preferredElevationM,
+        allowBidirectionalProfileCapture: true,
+      });
+      expect(projection).not.toBeNull();
+      acquiredLaneIds.push(projection!.lane.id);
+      preferredLaneId = projection!.lane.id;
+      preferredElevationM = projection!.elevationM;
+      maximumProfileErrorM = Math.max(
+        maximumProfileErrorM,
+        Math.abs(
+          preferredElevationM - (7 - distanceFromBraidM * 0.1),
+        ),
+      );
+    }
+
+    expect(acquiredLaneIds).toContain(entry.id);
+    expect(acquiredLaneIds.at(-1)).toBe(entry.id);
+    expect(preferredElevationM).toBeCloseTo(4.6, 5);
+    expect(maximumProfileErrorM).toBeLessThan(0.01);
+
+    // The immediate tangents overlap, so the player-only short-lookahead
+    // steering heading selects the physical branch without mutating the
+    // directed successor graph.
+    const cleanBranchHandoff = network.projectToRoad(-10, 0.035, {
+      heading: -Math.PI / 2,
+      endpointBranchTravelHeading: -Math.PI / 2,
+      endpointBranchIntentHeading: -Math.PI / 2,
+      preferredLaneId: rampForward.id,
+      preferredElevationM: 6,
+      allowBidirectionalProfileCapture: true,
+    });
+    expect(cleanBranchHandoff).toMatchObject({
+      lane: { id: entry.id },
+      elevationM: expect.closeTo(6, 2),
+    });
+    const legalExitChoice = network.projectToRoad(-10, 0.05, {
+      heading: physicalHeading,
+      endpointBranchTravelHeading: physicalHeading,
+      endpointBranchIntentHeading: physicalHeading,
+      preferredLaneId: rampForward.id,
+      preferredElevationM: 6,
+      allowBidirectionalProfileCapture: true,
+    });
+    expect(legalExitChoice).toMatchObject({ lane: { id: exit.id } });
+
+    // At the exact seam both branches can be indistinguishable. The compact
+    // decision envelope keeps the sibling available just long enough for the
+    // first metres of steering intent to resolve that tie in either direction.
+    expect(
+      network.projectToRoad(-1, 0, {
+        heading: -Math.PI / 2,
+        endpointBranchTravelHeading: -Math.PI / 2,
+        endpointBranchIntentHeading: -Math.PI / 2,
+        preferredLaneId: exit.id,
+        preferredElevationM: 6.8,
+        allowBidirectionalProfileCapture: true,
+      })?.lane.id,
+    ).toBe(entry.id);
+    expect(
+      network.projectToRoad(-1, 0.01, {
+        heading: physicalHeading,
+        endpointBranchTravelHeading: physicalHeading,
+        endpointBranchIntentHeading: physicalHeading,
+        preferredLaneId: exit.id,
+        preferredElevationM: 6.8,
+        allowBidirectionalProfileCapture: true,
+      })?.lane.id,
+    ).toBe(exit.id);
+    expect(
+      network.projectToRoad(-1, 0.01, {
+        heading: physicalHeading,
+        endpointBranchTravelHeading: physicalHeading,
+        endpointBranchIntentHeading: physicalHeading,
+        preferredLaneId: entry.id,
+        preferredElevationM: 6.8,
+        allowBidirectionalProfileCapture: true,
+      })?.lane.id,
+    ).toBe(exit.id);
+
+    // Body heading points the other way while reversing, but physical travel
+    // and steering intent still choose the same slab.
+    expect(
+      network.projectToRoad(-1, 0, {
+        heading: Math.PI / 2,
+        endpointBranchTravelHeading: -Math.PI / 2,
+        endpointBranchIntentHeading: -Math.PI / 2,
+        preferredLaneId: exit.id,
+        preferredElevationM: 6.8,
+        allowBidirectionalProfileCapture: true,
+      })?.lane.id,
+    ).toBe(entry.id);
+
+    // Immediately after that physical overlap, the selected branch is
+    // committed even if a later steering sample happens to favour its sibling.
+    expect(
+      network.projectToRoad(-1.6, 0, {
+        heading: -Math.PI / 2,
+        endpointBranchTravelHeading: -Math.PI / 2,
+        endpointBranchIntentHeading: -Math.PI / 2,
+        preferredLaneId: exit.id,
+        preferredElevationM: 6.8,
+        allowBidirectionalProfileCapture: true,
+      })?.lane.id,
+    ).toBe(exit.id);
+    expect(
+      network.projectToRoad(-1.6, 0.02, {
+        heading: physicalHeading,
+        endpointBranchTravelHeading: physicalHeading,
+        endpointBranchIntentHeading: physicalHeading,
+        preferredLaneId: entry.id,
+        preferredElevationM: 6.8,
+        allowBidirectionalProfileCapture: true,
+      })?.lane.id,
+    ).toBe(entry.id);
+
+    // If that first ambiguous choice was wrong, the sibling becomes eligible
+    // again only after the player centre has left the preferred pavement.
+    // Nearest visible geometry can then recover either physical direction.
+    const separatedExit: SimulationLane = {
+      ...exit,
+      id: "separated-exit-downhill",
+      points: [braid, { x: -24, z: 2.4, elevationM: 4.6 }],
+    };
+    const recoveryCarrier: SimulationLane = {
+      ...rampForward,
+      id: "recovery-ramp-forward",
+      successorLaneIds: [separatedExit.id],
+    };
+    const recoveryNetwork = new RoadNetwork(
+      [recoveryCarrier, rampReverse, separatedExit, entry],
+      [],
+      [],
+    );
+    const separatedExitHeading = Math.atan2(-24, 2.4);
+    expect(
+      recoveryNetwork.projectToRoad(-21, 2.1, {
+        heading: separatedExitHeading,
+        endpointBranchTravelHeading: separatedExitHeading,
+        endpointBranchIntentHeading: separatedExitHeading,
+        preferredLaneId: entry.id,
+        preferredElevationM: 4.9,
+        allowBidirectionalProfileCapture: true,
+      })?.lane.id,
+    ).toBe(separatedExit.id);
+    expect(
+      recoveryNetwork.projectToRoad(-21, 0, {
+        heading: -Math.PI / 2,
+        endpointBranchTravelHeading: -Math.PI / 2,
+        endpointBranchIntentHeading: -Math.PI / 2,
+        preferredLaneId: separatedExit.id,
+        preferredElevationM: 4.9,
+        allowBidirectionalProfileCapture: true,
+      })?.lane.id,
+    ).toBe(entry.id);
+
+    // While the car remains over the selected pavement, a sibling cannot
+    // steal it later: legal exits and wrong-way entries are equally stable.
+    // The recovery checks above cover the separate case where the car has
+    // genuinely left that pavement.
+    expect(
+      network.projectToRoad(-21, 0.21, {
+        heading: physicalHeading,
+        preferredLaneId: exit.id,
+        preferredElevationM: 4.9,
+        allowBidirectionalProfileCapture: true,
+      })?.lane.id,
+    ).toBe(exit.id);
+    expect(
+      network.projectToRoad(-21, 0, {
+        heading: -Math.PI / 2,
+        preferredLaneId: entry.id,
+        preferredElevationM: 4.9,
+        allowBidirectionalProfileCapture: true,
+      })?.lane.id,
+    ).toBe(entry.id);
+    expect(network.lanesById.get(rampForward.id)?.successorLaneIds).toEqual([
+      exit.id,
+    ]);
+  });
+
   it("keeps a ramp projection at its continuous height when the road below is closer in plan view", () => {
     const ground: SimulationLane = {
       id: "ground",

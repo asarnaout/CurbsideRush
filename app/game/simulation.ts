@@ -21,6 +21,7 @@ import {
   type LaneKind,
   type LaneProjection,
   type LaneRole,
+  type RoadProjectionPreference,
   type RouteSearchCounterSnapshot,
   type SimulationLane,
   type StopLineDefinition,
@@ -140,6 +141,9 @@ const MAX_EVENT_HISTORY = 80;
 const PLAYER_ROOF_CLEARANCE_MARGIN_M = 0.08;
 const OVERHEAD_COLLISION_EVENT_MIN_MPS = 2;
 const OVERHEAD_BOUNDARY_SEARCH_STEPS = 12;
+/** Compact manual-steering preview used only while choosing between
+ * overlapping raised-road branches. */
+const ENDPOINT_BRANCH_STEER_HEADING_PREVIEW_RAD = 0.25;
 
 export type SimulationRuleEvent = RuleEvent;
 export type SimulationStatus = "running" | "paused" | "disposed";
@@ -1045,6 +1049,9 @@ export class SimulationCore {
       const previousProjection = this.hasElevatedRoads
         ? this.roadNetwork.projectToRoad(oldPlayer.x, oldPlayer.z, {
             heading: oldPlayer.heading,
+            ...this.playerEndpointBranchProjectionPreference(
+              oldPlayer.heading,
+            ),
             preferredLaneId: this.roadState.projection?.lane.id,
             preferredElevationM: oldPlayer.elevationM ?? 0,
             allowBidirectionalProfileCapture: true,
@@ -1120,6 +1127,43 @@ export class SimulationCore {
     this.accumulatorSeconds = 0;
   }
 
+  /** Player-only intent for the short junction strip in which two raised ramp
+   * surfaces leave the same physical endpoint. Body yaw lags steering at a
+   * fork, so a short input-derived preview identifies the chosen slab before
+   * their elevations diverge. NPC routing never calls this projection mode. */
+  private playerEndpointBranchProjectionPreference(
+    bodyHeading: number,
+  ): Pick<
+    RoadProjectionPreference,
+    "endpointBranchTravelHeading" | "endpointBranchIntentHeading"
+  > {
+    const signedSpeedMps = this.playerState.signedSpeedMps;
+    const travelSign =
+      signedSpeedMps > STOPPED_SPEED_MPS
+        ? 1
+        : signedSpeedMps < -STOPPED_SPEED_MPS
+          ? -1
+          : this.continuousInput.reverse > this.continuousInput.throttle
+            ? -1
+            : this.continuousInput.throttle > this.continuousInput.reverse
+              ? 1
+              : this.playerState.gear === "reverse"
+                ? -1
+                : 1;
+    const endpointBranchTravelHeading = wrapAngle(
+      bodyHeading + (travelSign < 0 ? Math.PI : 0),
+    );
+    return {
+      endpointBranchTravelHeading,
+      endpointBranchIntentHeading: wrapAngle(
+        endpointBranchTravelHeading +
+          this.continuousInput.steer *
+            travelSign *
+            ENDPOINT_BRANCH_STEER_HEADING_PREVIEW_RAD,
+      ),
+    };
+  }
+
   private movePlayer(deltaSeconds: number): void {
     movePlayerImpl(
       this.playerState,
@@ -1186,6 +1230,7 @@ export class SimulationCore {
       if (centreProjection === undefined) {
         centreProjection = this.roadNetwork.projectToRoad(x, z, {
           heading,
+          ...this.playerEndpointBranchProjectionPreference(heading),
           preferredLaneId: currentLaneId,
           preferredElevationM: carriedElevationM,
           allowBidirectionalProfileCapture: true,
@@ -1198,6 +1243,7 @@ export class SimulationCore {
         sampleZ,
         {
           heading,
+          ...this.playerEndpointBranchProjectionPreference(heading),
           preferredLaneId: prospectiveLaneId,
           preferredElevationM: centreElevationM,
           allowBidirectionalProfileCapture: true,
@@ -1530,6 +1576,9 @@ export class SimulationCore {
           this.playerState.player.z,
           {
             heading: this.playerState.player.heading,
+            ...this.playerEndpointBranchProjectionPreference(
+              this.playerState.player.heading,
+            ),
             preferredLaneId: this.roadState.projection?.lane.id,
             preferredElevationM: this.playerState.player.elevationM ?? 0,
             allowUnconnectedElevationCapture,

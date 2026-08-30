@@ -577,16 +577,17 @@ describe("the drivable world stays open", () => {
     expect(failures.slice(0, 25)).toEqual([]);
   });
 
-  it("keeps Cairo bridge parapets outside the widest legal vehicle sweep", () => {
+  it("keeps every Cairo bridge vehicle envelope clear of every solid obstacle", () => {
     const world = driveWorlds.find(
       (candidate) => candidate.freeDrive.mapId === "cairo-central-nile",
     );
     expect(world).toBeDefined();
     if (!world) return;
-    const barriers = world.obstacles.filter(
-      (obstacle) => obstacle.tag === "roadBarrier",
-    );
-    const index = buildObstacleIndex(barriers);
+    // Sweep the full playable width, not only each lane centre. This includes
+    // the front and rear discs of the largest player capsule and the complete
+    // production obstacle set, so a support, prop, building or other hidden
+    // collider at any ramp mouth is caught alongside the visible parapets.
+    const index = buildObstacleIndex(world.obstacles);
     const failures: string[] = [];
 
     for (const lane of world.lanes.filter((candidate) =>

@@ -167,6 +167,15 @@ export interface LaneProjection {
 export interface RoadProjectionPreference {
   /** Direction used only to break near-equal geometric projections. */
   readonly heading: number;
+  /** Physical direction in which the player is moving. Unlike `heading`, this
+   * points behind the vehicle body while reversing. It is consulted only to
+   * decide whether a player is approaching or leaving a shared raised-road
+   * endpoint. */
+  readonly endpointBranchTravelHeading?: number;
+  /** Short-lookahead travel heading implied by the current steering input.
+   * Only physically coincident raised endpoint branches consult it; ordinary
+   * projection and the directed NPC graph remain unchanged. */
+  readonly endpointBranchIntentHeading?: number;
   /** Global minimum-distance band. The 0.1 m default covers authored shared
    * node tolerances while remaining far below a lane width. */
   readonly distanceTieEpsilonM?: number;
@@ -244,6 +253,33 @@ interface MutableProjectionScanCounters {
   selectionSegmentVisits: number;
   raisedFallbackCalls: number;
 }
+
+interface ElevatedEndpointConnection {
+  readonly laneId: string;
+  readonly sourceAtStart: boolean;
+  readonly sourceX: number;
+  readonly sourceZ: number;
+  readonly sourceDepartureHeading: number;
+  readonly departureHeading: number;
+  /** Leaving the shared endpoint traverses this lane against its authored
+   * direction. */
+  readonly reversedFromEndpoint: boolean;
+}
+
+interface ElevatedLaneEndpoint {
+  readonly laneId: string;
+  readonly x: number;
+  readonly z: number;
+  readonly elevationM: number;
+  readonly atStart: boolean;
+  readonly departureHeading: number;
+}
+
+const PHYSICAL_ENDPOINT_POSITION_TOLERANCE_M = 0.05;
+const PHYSICAL_ENDPOINT_ELEVATION_TOLERANCE_M = 0.05;
+const ELEVATED_ENDPOINT_BRANCH_DECISION_PROGRESS_M = 1.5;
+const ELEVATED_ENDPOINT_BRANCH_HEADING_LOOKAHEAD_M = 8;
+const ELEVATED_ENDPOINT_BRANCH_INTENT_TIE_RAD = 0.005;
 
 function emptyProjectionScanCounters(): MutableProjectionScanCounters {
   return {
@@ -349,6 +385,164 @@ function normalizeLane(lane: SimulationLane): NormalizedLane {
   };
 }
 
+/** Heading of the physical path leaving one lane endpoint, sampled far enough
+ * down the branch to distinguish two slabs whose immediate tangents overlap. */
+function elevatedEndpointDepartureHeading(
+  lane: NormalizedLane,
+  atStart: boolean,
+): number {
+  const lookaheadM = Math.min(
+    ELEVATED_ENDPOINT_BRANCH_HEADING_LOOKAHEAD_M,
+    lane.length,
+  );
+  const distanceAlong = atStart ? lookaheadM : lane.length - lookaheadM;
+  let segmentIndex = lane.segmentEndDistances.findIndex(
+    (segmentEndDistance) => segmentEndDistance >= distanceAlong,
+  );
+  if (segmentIndex < 0) segmentIndex = lane.segmentLengths.length - 1;
+  const segmentStartDistance =
+    segmentIndex === 0 ? 0 : lane.segmentEndDistances[segmentIndex - 1];
+  const segmentLength = lane.segmentLengths[segmentIndex];
+  const amount =
+    segmentLength > Number.EPSILON
+      ? clamp((distanceAlong - segmentStartDistance) / segmentLength, 0, 1)
+      : 0;
+  const departurePoint = {
+    x:
+      lane.points[segmentIndex].x +
+      lane.segmentDeltaX[segmentIndex] * amount,
+    z:
+      lane.points[segmentIndex].z +
+      lane.segmentDeltaZ[segmentIndex] * amount,
+  };
+  const endpoint = atStart ? lane.points[0] : lane.points.at(-1)!;
+  return Math.atan2(
+    departurePoint.x - endpoint.x,
+    departurePoint.z - endpoint.z,
+  );
+}
+
+function planarDistanceToLane(
+  lane: NormalizedLane,
+  x: number,
+  z: number,
+): number {
+  let minimumDistanceSquared = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < lane.segmentLengths.length; index += 1) {
+    const start = lane.points[index];
+    const lengthSquared = lane.segmentLengthSquared[index];
+    const amount =
+      lengthSquared > Number.EPSILON
+        ? clamp(
+            ((x - start.x) * lane.segmentDeltaX[index] +
+              (z - start.z) * lane.segmentDeltaZ[index]) /
+              lengthSquared,
+            0,
+            1,
+          )
+        : 0;
+    const nearestX = start.x + lane.segmentDeltaX[index] * amount;
+    const nearestZ = start.z + lane.segmentDeltaZ[index] * amount;
+    const dx = x - nearestX;
+    const dz = z - nearestZ;
+    minimumDistanceSquared = Math.min(
+      minimumDistanceSquared,
+      dx * dx + dz * dz,
+    );
+  }
+  return Math.sqrt(minimumDistanceSquared);
+}
+
+/**
+ * Projection-only neighbours at a shared raised pavement endpoint. These do
+ * not alter `successorLaneIds`: NPC routes remain authored and directional.
+ *
+ * A terminal can have two one-way branches attached to opposite directions
+ * of the same two-way bridge ramp. Looking only one directed graph hop away
+ * then hides the physically continuous wrong-way branch from the player as
+ * soon as the legal exit wins an exact-junction heading tie. Build the small
+ * geometric neighbourhood once so live projection can retain every surface
+ * that actually meets the occupied raised endpoint.
+ */
+function buildElevatedEndpointConnections(
+  lanes: readonly NormalizedLane[],
+): ReadonlyMap<string, readonly ElevatedEndpointConnection[]> {
+  const endpoints: ElevatedLaneEndpoint[] = [];
+  for (const lane of lanes) {
+    for (const [point, atStart] of [
+      [lane.points[0], true],
+      [lane.points.at(-1)!, false],
+    ] as const) {
+      const elevationM = point.elevationM ?? 0;
+      if (elevationM < ELEVATED_ROAD_STRUCTURE_THRESHOLD_M) continue;
+      endpoints.push({
+        laneId: lane.id,
+        x: point.x,
+        z: point.z,
+        elevationM,
+        atStart,
+        departureHeading: elevatedEndpointDepartureHeading(lane, atStart),
+      });
+    }
+  }
+  endpoints.sort(
+    (left, right) =>
+      left.x - right.x ||
+      left.z - right.z ||
+      left.elevationM - right.elevationM ||
+      left.laneId.localeCompare(right.laneId),
+  );
+
+  const mutable = new Map<string, ElevatedEndpointConnection[]>();
+  const add = (
+    source: ElevatedLaneEndpoint,
+    target: ElevatedLaneEndpoint,
+  ): void => {
+    const connections = mutable.get(source.laneId);
+    const connection = {
+      laneId: target.laneId,
+      sourceAtStart: source.atStart,
+      sourceX: source.x,
+      sourceZ: source.z,
+      sourceDepartureHeading: source.departureHeading,
+      departureHeading: target.departureHeading,
+      reversedFromEndpoint: !target.atStart,
+    };
+    if (connections) connections.push(connection);
+    else mutable.set(source.laneId, [connection]);
+  };
+  const planarToleranceSquared =
+    PHYSICAL_ENDPOINT_POSITION_TOLERANCE_M ** 2;
+  for (let leftIndex = 0; leftIndex < endpoints.length; leftIndex += 1) {
+    const left = endpoints[leftIndex];
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < endpoints.length;
+      rightIndex += 1
+    ) {
+      const right = endpoints[rightIndex];
+      if (
+        right.x - left.x > PHYSICAL_ENDPOINT_POSITION_TOLERANCE_M
+      ) {
+        break;
+      }
+      if (
+        left.laneId === right.laneId ||
+        Math.abs(right.z - left.z) >
+          PHYSICAL_ENDPOINT_POSITION_TOLERANCE_M ||
+        Math.abs(right.elevationM - left.elevationM) >
+          PHYSICAL_ENDPOINT_ELEVATION_TOLERANCE_M ||
+        distanceSquared(left, right) > planarToleranceSquared
+      ) {
+        continue;
+      }
+      add(left, right);
+      add(right, left);
+    }
+  }
+  return mutable;
+}
+
 function buildConflictApproachLaneIds(lanes: readonly NormalizedLane[]): Set<string> {
   const result = new Set<string>();
   for (let leftIndex = 0; leftIndex < lanes.length; leftIndex += 1) {
@@ -447,6 +641,25 @@ export class RoadNetwork {
    * the player. Kept separate so ordinary opposing ground lanes retain their
    * directed heading tie-break. */
   private readonly bidirectionalProfileCaptureLaneIds = new Set<string>();
+  /** Projection-only branches admitted through a coincident raised endpoint.
+   * Separate from continuity so hysteresis can yield when one of these
+   * physical alternatives is actually near the player, while retaining the
+   * larger ramp-mouth capture window when every branch is still remote. */
+  private readonly projectionEndpointAlternativeLaneIds = new Set<string>();
+  /** Eight-metre chord for each outgoing endpoint choice. Immediate tangents
+   * at a braid can be identical, so active player steering compares against
+   * this short physical lookahead before committing to one slab. */
+  private readonly projectionEndpointChoiceHeadings = new Map<string, number>();
+  /** Road identities already authorized by the directed one-hop graph before
+   * projection-only endpoint branches are added. */
+  private readonly projectionAuthorizedRoadIds = new Set<string>();
+  /** Same-height lanes whose raised endpoints physically coincide. Consulted
+   * only for the player's opt-in bidirectional projection; it is deliberately
+   * separate from the directed NPC route graph. */
+  private readonly elevatedEndpointConnectionsByLaneId: ReadonlyMap<
+    string,
+    readonly ElevatedEndpointConnection[]
+  >;
 
   // routeDistanceAhead scratch. Route-leading now reaches this exact search
   // only through TrafficSpatialIndex's conservative topology candidates;
@@ -485,6 +698,8 @@ export class RoadNetwork {
   ) {
     this.lanes = lanes.map(normalizeLane);
     this.lanesById = new Map(this.lanes.map((lane) => [lane.id, lane]));
+    this.elevatedEndpointConnectionsByLaneId =
+      buildElevatedEndpointConnections(this.lanes);
     for (const [index, lane] of this.lanes.entries()) lane.index = index;
     this.routeVisitedGeneration = new Float64Array(this.lanes.length);
     this.routeVisitedBest = new Float64Array(this.lanes.length);
@@ -732,6 +947,11 @@ export class RoadNetwork {
       const bidirectionalProfileCaptureLaneIds =
         this.bidirectionalProfileCaptureLaneIds;
       bidirectionalProfileCaptureLaneIds.clear();
+      const endpointAlternativeLaneIds =
+        this.projectionEndpointAlternativeLaneIds;
+      endpointAlternativeLaneIds.clear();
+      const endpointChoiceHeadings = this.projectionEndpointChoiceHeadings;
+      endpointChoiceHeadings.clear();
       const allowBidirectionalProfileCapture = Boolean(
         preference.allowBidirectionalProfileCapture,
       );
@@ -800,6 +1020,146 @@ export class RoadNetwork {
             }
           }
         }
+        if (
+          allowBidirectionalProfileCapture &&
+          preferredLane.maxElevationM >= ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
+        ) {
+          const preferredEndpointConnections =
+            this.elevatedEndpointConnectionsByLaneId.get(preferredLane.id) ??
+            [];
+          const preferredLanePlanarDistance =
+            preferredEndpointConnections.length > 0
+              ? planarDistanceToLane(preferredLane, x, z)
+              : 0;
+          const authorizedRoadIds = this.projectionAuthorizedRoadIds;
+          authorizedRoadIds.clear();
+          for (const laneId of continuityLaneIds) {
+            const roadId = this.lanesById.get(laneId)?.roadId;
+            if (roadId !== undefined) authorizedRoadIds.add(roadId);
+          }
+          for (const connection of preferredEndpointConnections) {
+            const sourceEndpointHeading = connection.sourceAtStart
+              ? preferredLane.segmentHeadings[0]
+              : preferredLane.segmentHeadings.at(-1)!;
+            const endpointBranchTravelHeading = Number.isFinite(
+              preference.endpointBranchTravelHeading,
+            )
+              ? preference.endpointBranchTravelHeading!
+              : preference.heading;
+            const sourceHeadingDifference = Math.abs(
+              angleDifference(
+                sourceEndpointHeading,
+                endpointBranchTravelHeading,
+              ),
+            );
+            const approachesSourceEndpoint = connection.sourceAtStart
+              ? sourceHeadingDifference > Math.PI / 2
+              : sourceHeadingDifference <= Math.PI / 2;
+            const sourceTravelHeading =
+              sourceHeadingDifference <= Math.PI / 2
+                ? sourceEndpointHeading
+                : sourceEndpointHeading + Math.PI;
+            const endpointDeltaX = x - connection.sourceX;
+            const endpointDeltaZ = z - connection.sourceZ;
+            const endpointProgressM =
+              endpointDeltaX * Math.sin(sourceTravelHeading) +
+              endpointDeltaZ * Math.cos(sourceTravelHeading);
+            const endpointCrossTrackM = Math.abs(
+              endpointDeltaX * Math.cos(sourceTravelHeading) -
+                endpointDeltaZ * Math.sin(sourceTravelHeading),
+            );
+            const insideBranchDecisionEnvelope =
+              endpointProgressM >= -PHYSICAL_ENDPOINT_POSITION_TOLERANCE_M &&
+              endpointProgressM <=
+                ELEVATED_ENDPOINT_BRANCH_DECISION_PROGRESS_M &&
+              endpointCrossTrackM <=
+                preferredLane.width / 2 +
+                  PHYSICAL_ENDPOINT_POSITION_TOLERANCE_M;
+            const needsPhysicalBranchRecovery =
+              !approachesSourceEndpoint &&
+              !insideBranchDecisionEnvelope &&
+              preferredLanePlanarDistance >
+                preferredLane.width / 2 +
+                  PHYSICAL_ENDPOINT_POSITION_TOLERANCE_M;
+            // Branch choice exists only while the player is approaching this
+            // particular shared endpoint or crossing its short, full-pavement
+            // junction strip. Longitudinal progress—not radial distance—gives
+            // a car at either paved edge the same choice distance. Once the
+            // player leaves that strip, the sibling cannot steal while the
+            // preferred pavement still contains the player's centre. If an
+            // ambiguous first choice was wrong, geometry can recover only
+            // after the player has visibly left that preferred pavement.
+            if (
+              !approachesSourceEndpoint &&
+              !insideBranchDecisionEnvelope &&
+              !needsPhysicalBranchRecovery
+            ) {
+              continue;
+            }
+            // Once the preferred lane itself is leaving this endpoint it is
+            // one of the branch choices too. An approaching carrier is not:
+            // it ends at the seam and cannot continue through the fork.
+            if (insideBranchDecisionEnvelope && !approachesSourceEndpoint) {
+              endpointChoiceHeadings.set(
+                preferredLane.id,
+                connection.sourceDepartureHeading,
+              );
+            }
+            const connectedLane = this.lanesById.get(connection.laneId);
+            if (
+              !connectedLane ||
+              connectedLane.maxElevationM <
+                ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
+            ) {
+              continue;
+            }
+            if (continuityLaneIds.has(connectedLane.id)) {
+              if (!needsPhysicalBranchRecovery) {
+                endpointChoiceHeadings.set(
+                  connectedLane.id,
+                  connection.departureHeading,
+                );
+              }
+              continue;
+            }
+            // Outside the decision strip, only a lane that ends at this
+            // endpoint normally needs projection-only admission: leaving on
+            // it is the wrong-way branch missing from the directed graph. A
+            // car already beyond its wrongly selected pavement instead admits
+            // both branches for one geometry-only recovery.
+            if (
+              !insideBranchDecisionEnvelope &&
+              !needsPhysicalBranchRecovery &&
+              !connection.reversedFromEndpoint
+            ) {
+              continue;
+            }
+            // The directed neighbour set already contains the correct lane
+            // for a same-road handoff. Do not also admit its opposing lane at
+            // the shared node: making both directions heading-neutral would
+            // turn a legal bridge continuation into an arbitrary id tie.
+            if (
+              connectedLane.roadId !== undefined &&
+              authorizedRoadIds.has(connectedLane.roadId)
+            ) {
+              continue;
+            }
+            // This is level ownership only. The authored successor graph is
+            // untouched, so NPCs still use the legal entry/exit direction.
+            continuityLaneIds.add(connectedLane.id);
+            groundProfileCaptureLaneIds.add(connectedLane.id);
+            endpointAlternativeLaneIds.add(connectedLane.id);
+            if (!needsPhysicalBranchRecovery) {
+              endpointChoiceHeadings.set(
+                connectedLane.id,
+                connection.departureHeading,
+              );
+            }
+            if (connection.reversedFromEndpoint) {
+              bidirectionalProfileCaptureLaneIds.add(connectedLane.id);
+            }
+          }
+        }
       }
       const groundHeightPreference =
         preferredElevationM !== null &&
@@ -832,6 +1192,7 @@ export class RoadNetwork {
         preferredElevationM !== null &&
         (allowUnconnectedElevationCapture ||
           (continuityLaneIds.size === 0 && !groundHeightPreference));
+      let minimumEndpointAlternativeDistance = Number.POSITIVE_INFINITY;
       // Find the nearest legal height first. The former implementation found
       // the global plan-view minimum in the same pass, but then discarded it
       // whenever the height lock engaged. Ground always locks; a raised road
@@ -878,6 +1239,12 @@ export class RoadNetwork {
               minimumElevationCompatibleDistance,
               distance,
             );
+            if (endpointAlternativeLaneIds.has(lane.id)) {
+              minimumEndpointAlternativeDistance = Math.min(
+                minimumEndpointAlternativeDistance,
+                distance,
+              );
+            }
           }
         }
       }
@@ -946,17 +1313,23 @@ export class RoadNetwork {
         ? Math.max(authoredTieEpsilon, 0.75)
         : authoredTieEpsilon;
       // Ordinary lane identity remains much narrower than the heading band so
-      // an on-ramp can acquire the car as soon as it is measurably closer. At
-      // a connected rising profile, however, that same narrow window lets an
-      // overlapping wrong-way exit apron steal the car for one tick and erase
-      // its legal successor set. Keep the occupied approach/ramp until the
-      // matching-heading continuation is clearly closer; the enlarged value
-      // is topology-gated and still far inside a lane width.
+      // an on-ramp can acquire the car as soon as it is measurably closer. A
+      // rising profile away from a raised junction still needs the larger
+      // window: an overlapping wrong-way apron must not steal its height lock.
+      // At a shared raised endpoint, however, every physically meeting branch
+      // remains in the projection set. Use the narrow window there so the
+      // nearest branch takes ownership promptly as the pavement diverges.
       const preferredLaneHysteresisM =
         (preferredLane?.maxElevationM ?? 0) >=
-        ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
+          ELEVATED_ROAD_STRUCTURE_THRESHOLD_M &&
+        minimumEndpointAlternativeDistance > elevationCaptureDistanceM
         ? tieEpsilon
         : Math.min(tieEpsilon, 0.025);
+      const endpointBranchIntentHeading = Number.isFinite(
+        preference.endpointBranchIntentHeading,
+      )
+        ? preference.endpointBranchIntentHeading!
+        : null;
       let bestLane: NormalizedLane | null = null;
       let bestDistance = Number.POSITIVE_INFINITY;
       let bestDistanceAlong = 0;
@@ -965,6 +1338,8 @@ export class RoadNetwork {
       let bestZ = 0;
       let bestElevationM = 0;
       let bestHeadingDifference = Number.POSITIVE_INFINITY;
+      let bestEndpointBranchIntentDifference = Number.POSITIVE_INFINITY;
+      let bestHasEndpointBranchIntent = false;
       let bestPreferred = false;
       for (const lane of this.lanes) {
         const elevationCandidateLane =
@@ -1024,24 +1399,78 @@ export class RoadNetwork {
           const distanceAlong =
             (index === 0 ? 0 : lane.segmentEndDistances[index - 1]) +
             lane.segmentLengths[index] * amount;
+          const endpointChoiceHeading = endpointChoiceHeadings.get(lane.id);
+          const hasEndpointBranchIntent =
+            endpointBranchIntentHeading !== null &&
+            endpointChoiceHeading !== undefined;
+          const endpointBranchIntentDifference = hasEndpointBranchIntent
+            ? Math.abs(
+                angleDifference(
+                  endpointChoiceHeading,
+                  endpointBranchIntentHeading,
+                ),
+              )
+            : Number.POSITIVE_INFINITY;
+          // Steering intent is the only unambiguous signal while two raised
+          // slabs overlap with the same immediate tangent. Compare their
+          // eight-metre departure chords as one choice, then use the nearest
+          // segment on the winning lane for the returned position/elevation.
+          // With no supplied intent, exact preferred identity retains the
+          // branch already occupied.
           const preferred = lane.id === preference.preferredLaneId;
-          const preferredLaneDecision =
-            bestLane && preferred !== bestPreferred
-              ? preferred
-                ? distance <= bestDistance + preferredLaneHysteresisM
-                : distance < bestDistance - preferredLaneHysteresisM
-              : null;
-          if (
-            !bestLane ||
-            preferredLaneDecision === true ||
-            (preferred === bestPreferred &&
-              (headingDifference < bestHeadingDifference - 1e-9 ||
-                (Math.abs(headingDifference - bestHeadingDifference) <=
-                  1e-9 &&
-                  (lane.id < bestLane.id ||
-                    (lane.id === bestLane.id &&
-                      distanceAlong < bestDistanceAlong)))))
-          ) {
+          let chooseCandidate = bestLane === null;
+          if (bestLane) {
+            const bothEndpointIntentChoices =
+              hasEndpointBranchIntent && bestHasEndpointBranchIntent;
+            if (bothEndpointIntentChoices) {
+              if (
+                endpointBranchIntentDifference <
+                bestEndpointBranchIntentDifference -
+                  ELEVATED_ENDPOINT_BRANCH_INTENT_TIE_RAD
+              ) {
+                chooseCandidate = true;
+              } else if (
+                Math.abs(
+                  endpointBranchIntentDifference -
+                    bestEndpointBranchIntentDifference,
+                ) <= ELEVATED_ENDPOINT_BRANCH_INTENT_TIE_RAD
+              ) {
+                const preferredLaneDecision =
+                  preferred !== bestPreferred
+                    ? preferred
+                      ? distance <=
+                        bestDistance + preferredLaneHysteresisM
+                      : distance <
+                        bestDistance - preferredLaneHysteresisM
+                    : null;
+                chooseCandidate =
+                  preferredLaneDecision === true ||
+                  (preferred === bestPreferred &&
+                    (distance < bestDistance - 1e-9 ||
+                      (Math.abs(distance - bestDistance) <= 1e-9 &&
+                        (lane.id < bestLane.id ||
+                          (lane.id === bestLane.id &&
+                            distanceAlong < bestDistanceAlong)))));
+              }
+            } else {
+              const preferredLaneDecision =
+                preferred !== bestPreferred
+                  ? preferred
+                    ? distance <= bestDistance + preferredLaneHysteresisM
+                    : distance < bestDistance - preferredLaneHysteresisM
+                  : null;
+              chooseCandidate =
+                preferredLaneDecision === true ||
+                (preferred === bestPreferred &&
+                  (headingDifference < bestHeadingDifference - 1e-9 ||
+                    (Math.abs(headingDifference - bestHeadingDifference) <=
+                      1e-9 &&
+                      (lane.id < bestLane.id ||
+                        (lane.id === bestLane.id &&
+                          distanceAlong < bestDistanceAlong)))));
+            }
+          }
+          if (chooseCandidate) {
             bestLane = lane;
             bestDistance = distance;
             bestDistanceAlong = distanceAlong;
@@ -1050,6 +1479,9 @@ export class RoadNetwork {
             bestZ = nearestZ;
             bestElevationM = elevationM;
             bestHeadingDifference = headingDifference;
+            bestEndpointBranchIntentDifference =
+              endpointBranchIntentDifference;
+            bestHasEndpointBranchIntent = hasEndpointBranchIntent;
             bestPreferred = preferred;
           }
         }

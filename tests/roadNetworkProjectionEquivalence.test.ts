@@ -337,8 +337,8 @@ describe("RoadNetwork projection hot-path equivalence", () => {
       expect(differences).toEqual([]);
       expect(plainCases).toBe(10_104);
       expect(preferredCases).toBe(32_493);
-      expect(raisedCases).toBe(9_582);
-      expect(groundCases).toBe(20_730);
+      expect(raisedCases).toBe(9_570);
+      expect(groundCases).toBe(20_742);
       expect(directedSeams).toBe(814);
     },
   );

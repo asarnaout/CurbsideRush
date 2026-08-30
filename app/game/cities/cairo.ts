@@ -594,13 +594,19 @@ export const CAIRO_ROAD_SPECS: readonly CairoRoadSpec[] = [
   road("cairo-sixth-october-west-entry-slip", "6th October Bridge Entrance", ["cairo-sixth-west-entry-merge", "cairo-sixth-west-entry-taper", "cairo-sixth-west-entry-lift"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
   road("cairo-sixth-october-bridge-west-entry", "6th October Bridge Entrance", ["cairo-sixth-west-entry-lift", "cairo-sixth-west-entry-mid", "cairo-sixth-west-entry-clear", "cairo-sixth-west-terminal-braid"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 2.6, 5.8, 7] }),
   road("cairo-sixth-october-bridge-west-ramp", "6th October Bridge", ["cairo-sixth-west-crest", "cairo-sixth-west-terminal-deck-edge", "cairo-sixth-west-terminal-braid"], 40, 2, 7.6, 0, { arterial: true, elevationsM: [10.5, 10.5, 7] }),
-  road("cairo-sixth-october-bridge-west-exit", "6th October Bridge Exit", ["cairo-sixth-west-terminal-braid", "cairo-sixth-west-exit-clear", "cairo-sixth-west-exit-mid", "cairo-sixth-west-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [7, 5.8, 2.6, 0] }),
+  // The paired entry/exit slabs overlap in the curving terminal throat. Keep
+  // their road tops within the pavement capture band throughout that overlap
+  // so neither direction sees the sibling branch as an invisible ceiling.
+  road("cairo-sixth-october-bridge-west-exit", "6th October Bridge Exit", ["cairo-sixth-west-terminal-braid", "cairo-sixth-west-exit-clear", "cairo-sixth-west-exit-mid", "cairo-sixth-west-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [7, 5.33, 1.25, 0] }),
   road("cairo-sixth-october-west-exit-slip", "6th October Bridge Exit", ["cairo-sixth-west-exit-lift", "cairo-sixth-west-exit-taper", "cairo-sixth-west-exit-merge"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
 
   road("cairo-sixth-october-east-entry-slip", "6th October Bridge Entrance", ["cairo-sixth-east-entry-merge", "cairo-sixth-east-entry-taper", "cairo-sixth-east-entry-lift"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
   road("cairo-sixth-october-bridge-east-entry", "6th October Bridge Entrance", ["cairo-sixth-east-entry-lift", "cairo-sixth-east-entry-mid", "cairo-sixth-east-entry-clear", "cairo-sixth-east-terminal-braid"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [0, 2, 4, 7] }),
   road("cairo-sixth-october-bridge-east-ramp", "6th October Bridge", ["cairo-sixth-east-crest", "cairo-sixth-east-terminal-deck-edge", "cairo-sixth-east-terminal-braid"], 40, 2, 7.6, 0, { arterial: true, elevationsM: [10.5, 10.5, 7] }),
-  road("cairo-sixth-october-bridge-east-exit", "6th October Bridge Exit", ["cairo-sixth-east-terminal-braid", "cairo-sixth-east-exit-clear", "cairo-sixth-east-exit-mid", "cairo-sixth-east-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [7, 5, 3, 0] }),
+  // Match both 7 m throat grades where their slabs overlap beside the braid.
+  // A 5 m clear point left the exit soffit only ~0.4 m above the legal entry
+  // lane, turning that visible shared pavement into an invisible obstruction.
+  road("cairo-sixth-october-bridge-east-exit", "6th October Bridge Exit", ["cairo-sixth-east-terminal-braid", "cairo-sixth-east-exit-clear", "cairo-sixth-east-exit-mid", "cairo-sixth-east-exit-lift"], 40, 1, 4.2, 0, { arterial: true, oneWay: "forward", elevationsM: [7, 4.5, 3, 0] }),
   road("cairo-sixth-october-east-exit-slip", "6th October Bridge Exit", ["cairo-sixth-east-exit-lift", "cairo-sixth-east-exit-taper", "cairo-sixth-east-exit-merge"], 40, 1, 4.2, 1.4, { arterial: true, oneWay: "forward" }),
   // Dokki's former 7.6 m mouth still covered Al Dokki Street even though its
   // lane graph had separate slips. The rebuilt entrance and exit are 4.2 m

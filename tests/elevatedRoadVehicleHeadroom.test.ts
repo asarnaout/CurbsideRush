@@ -4,11 +4,17 @@ import {
   getCountryProfile,
   getMapPack,
 } from "../app/game/content";
-import { getCareerVehicle } from "../app/game/career";
+import { CAREER_VEHICLES, getCareerVehicle } from "../app/game/career";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
 import { createElevatedRoadGroundClearanceQuery } from "../app/game/geometry/elevatedRoadGeometry";
-import { SimulationCore, type SimulationCoreConfig } from "../app/game/simulation";
-import { RoadNetwork } from "../app/game/simulation/roadNetwork";
+import {
+  SimulationCore,
+  type SimulationCoreConfig,
+} from "../app/game/simulation";
+import {
+  RoadNetwork,
+  type NormalizedLane,
+} from "../app/game/simulation/roadNetwork";
 import { ELEVATED_ROAD_STRUCTURE_THRESHOLD_M } from "../app/game/simulation/roadLevels";
 import { buildSimulationCoreConfig } from "../app/game/simulationAdapter";
 import { VEHICLE_DIMENSIONS } from "../app/game/vehicleVisuals";
@@ -25,9 +31,7 @@ const crossingFixture = (
     ],
     widthM: 6,
   } as const;
-  const clearanceAt = createElevatedRoadGroundClearanceQuery([
-    elevatedSurface,
-  ]);
+  const clearanceAt = createElevatedRoadGroundClearanceQuery([elevatedSurface]);
   const config: SimulationCoreConfig = {
     npcCount: 0,
     bounds: { minX: -40, maxX: 40, minZ: -30, maxZ: 30 },
@@ -144,13 +148,7 @@ describe("elevated-road vehicle headroom", () => {
       carrier.id,
     );
     expect(
-      clearanceAt(
-        { x: 0, z: 0 },
-        0,
-        0,
-        false,
-        new Set([carrier.id]),
-      ),
+      clearanceAt({ x: 0, z: 0 }, 0, 0, false, new Set([carrier.id])),
     ).toEqual(
       expect.objectContaining({
         surfaceId: higherDeck.id,
@@ -431,68 +429,137 @@ describe("elevated-road vehicle headroom", () => {
   const cairoSurfaces = cairoMapPack.geometry.roadSurfaces ?? [];
   const cairoRoadNetwork = new RoadNetwork(cairoConfig.lanes ?? [], [], []);
   const deliveryVan = getCareerVehicle("delivery-van");
-  const deliveryVanClearanceHeightM =
-    VEHICLE_DIMENSIONS["delivery-van"].height;
+  const deliveryVanClearanceHeightM = VEHICLE_DIMENSIONS["delivery-van"].height;
   const deliveryVanRequiredHeadroomM = deliveryVanClearanceHeightM + 0.08;
 
-  it("steps the delivery-van roof through every Cairo bridge and access-lane profile", { timeout: 90_000 }, () => {
-    const simulation = new SimulationCore({
-      ...cairoConfig,
-      ...deliveryVan.physics,
-      playerClearanceHeightM: deliveryVanClearanceHeightM,
-      npcCount: 0,
-      staticObstacles: [],
-      trafficLights: [],
-      stopLines: [],
-    });
-    const failures: string[] = [];
-    let samples = 0;
+  it(
+    "sweeps every career vehicle's full paved envelope through every Cairo Sixth October access profile",
+    { timeout: 150_000 },
+    () => {
+      const accessSurfaces = cairoSurfaces.filter(
+        (surface) =>
+          surface.id.includes("sixth-october") &&
+          Math.max(
+            ...surface.centerline.map((point) => point.elevationM ?? 0),
+          ) > 0 &&
+          surface.id !== "cairo-sixth-october-bridge",
+      );
+      const surfaceSampler = new RoadNetwork(
+        accessSurfaces.map((surface) => ({
+          id: `sweep-${surface.id}`,
+          roadId: surface.id,
+          points: surface.centerline,
+          width: surface.widthM,
+          loop: false,
+        })),
+        [],
+        [],
+      );
+      const surfacesById = new Map(
+        accessSurfaces.map((surface) => [surface.id, surface]),
+      );
+      const failures: string[] = [];
+      let samples = 0;
 
-    for (const lane of cairoRoadNetwork.lanes.filter(
-      (candidate) =>
-        candidate.roadId?.includes("sixth-october") &&
-        (candidate.id.endsWith("-forward-1") ||
-          candidate.id.endsWith("-reverse-1")),
-    )) {
-      // A 15 m/s fixed step advances just under 25 cm after drag. Half-metre
-      // starts still overlap through the delivery van's three-disc roof
-      // envelope, while keeping this production-core sweep practical. Each
-      // prospective roof interval is entered from its clear side; merely
-      // teleporting onto the profile would never exercise that path.
-      for (let distanceM = 0; distanceM + 0.3 < lane.length; distanceM += 0.5) {
-        const start = cairoRoadNetwork.pointOnLane(lane, distanceM);
-        const ahead = cairoRoadNetwork.pointOnLane(lane, distanceM + 0.3);
-        const heading = Math.atan2(ahead.x - start.x, ahead.z - start.z);
-        simulation.setPlayerPose(
-          {
-            x: start.x,
-            z: start.z,
-            elevationM: start.elevationM ?? 0,
-            heading,
-          },
-          15,
-        );
-        simulation.drainEvents();
-        simulation.step(1 / 60);
-        samples += 1;
-        const deckCollision = simulation
-          .drainEvents()
-          .find((event) => event.evidence.obstacle === "roadDeck");
-        if (deckCollision) {
-          failures.push(
-            `${lane.id} at ${distanceM.toFixed(1)}m: ${String(
-              deckCollision.evidence.obstacleId,
-            )} (${String(deckCollision.evidence.clearanceM)}m < ${String(
-              deckCollision.evidence.requiredClearanceM,
-            )}m)`,
+      for (const vehicle of CAREER_VEHICLES) {
+        const playerClearanceHeightM = (() => {
+          if (vehicle.visualKind === "bicycle") return 1.85;
+          if (vehicle.visualKind === "motorbike") return 1.8;
+          if (vehicle.model) return VEHICLE_DIMENSIONS[vehicle.model].height;
+          throw new Error(
+            `Missing rendered clearance height for ${vehicle.id}`,
           );
+        })();
+        const simulation = new SimulationCore({
+          ...cairoConfig,
+          ...vehicle.physics,
+          playerClearanceHeightM,
+          npcCount: 0,
+        });
+
+        for (const samplingLane of surfaceSampler.lanes) {
+          const surface = samplingLane.roadId
+            ? surfacesById.get(samplingLane.roadId)
+            : undefined;
+          if (!surface) {
+            throw new Error(`Missing sampled surface for ${samplingLane.id}`);
+          }
+          const maximumLateralOffsetM = Math.max(
+            0,
+            surface.widthM / 2 - vehicle.physics.playerCapsuleRadiusM,
+          );
+          const lateralOffsetsM =
+            maximumLateralOffsetM > 0.01
+              ? [-maximumLateralOffsetM, 0, maximumLateralOffsetM]
+              : [0];
+
+          // At 15 m/s one fixed step advances less than 0.25 m. Stations
+          // 0.75 m apart therefore overlap through every vehicle's front/rear
+          // capsule discs, while the lateral tracks cover both usable pavement
+          // edges and centre. Each station is entered in both headings.
+          for (
+            let distanceM = 0;
+            distanceM + 0.3 < samplingLane.length;
+            distanceM += 0.75
+          ) {
+            const centre = surfaceSampler.pointOnLane(samplingLane, distanceM);
+            const ahead = surfaceSampler.pointOnLane(
+              samplingLane,
+              distanceM + 0.3,
+            );
+            const authoredHeading = Math.atan2(
+              ahead.x - centre.x,
+              ahead.z - centre.z,
+            );
+
+            for (const lateralOffsetM of lateralOffsetsM) {
+              const x = centre.x + Math.cos(authoredHeading) * lateralOffsetM;
+              const z = centre.z - Math.sin(authoredHeading) * lateralOffsetM;
+              for (const reversePhysicalHeading of [false, true] as const) {
+                const heading =
+                  authoredHeading + (reversePhysicalHeading ? Math.PI : 0);
+                simulation.setPlayerPose(
+                  {
+                    x,
+                    z,
+                    elevationM: centre.elevationM ?? 0,
+                    heading,
+                  },
+                  Math.min(15, vehicle.physics.maxForwardSpeedMps),
+                );
+                simulation.drainEvents();
+                const snapshot = simulation.step(1 / 60);
+                samples += 1;
+                const collision = simulation
+                  .drainEvents()
+                  .find((event) => event.code === "collision");
+                if (!collision) continue;
+
+                failures.push(
+                  `${vehicle.id} on ${surface.id} (${snapshot.road.laneId ?? "no projected lane"}) at ${distanceM.toFixed(2)}m, lateral ${lateralOffsetM.toFixed(2)}m, ${
+                    reversePhysicalHeading ? "reverse" : "forward"
+                  } heading: ${String(
+                    collision.evidence.obstacle ?? "unknown obstacle",
+                  )}/${String(
+                    collision.evidence.obstacleId ?? "unknown id",
+                  )} (${collision.correction})`,
+                );
+              }
+            }
+          }
         }
       }
-    }
 
-    expect(samples).toBeGreaterThan(9_000);
-    expect(failures.slice(0, 25)).toEqual([]);
-  });
+      expect(accessSurfaces).toHaveLength(17);
+      expect(samples).toBeGreaterThan(85_000);
+      expect(
+        failures.slice(0, 25),
+        `${failures.length} production collider contacts across the Sixth October paved envelope:\n${failures
+          .slice(0, 25)
+          .join("\n")}`,
+      ).toEqual([]);
+    },
+  );
 
   it("keeps both Al Saraya host lanes clear beneath the complete Gezira entry slab", () => {
     const clearanceAt = createElevatedRoadGroundClearanceQuery(cairoSurfaces);
@@ -553,8 +620,7 @@ describe("elevated-road vehicle headroom", () => {
   });
 
   it("keeps both Corniche through lanes clear of the northbound entry structure", () => {
-    const entrySurfaceId =
-      "cairo-sixth-october-bridge-corniche-entry";
+    const entrySurfaceId = "cairo-sixth-october-bridge-corniche-entry";
     const clearanceAt = createElevatedRoadGroundClearanceQuery(cairoSurfaces);
     const throughLaneIds = [
       "cairo-corniche-el-nil-7-forward-1",
@@ -614,8 +680,7 @@ describe("elevated-road vehicle headroom", () => {
   });
 
   it("keeps the Corniche entry vehicle envelope out from beneath the parent deck", () => {
-    const entrySurfaceId =
-      "cairo-sixth-october-bridge-corniche-entry";
+    const entrySurfaceId = "cairo-sixth-october-bridge-corniche-entry";
     const mainlineSurfaceId = "cairo-sixth-october-bridge";
     const clearanceAt = createElevatedRoadGroundClearanceQuery(cairoSurfaces);
     const ownSurface = new Set([entrySurfaceId]);
@@ -626,10 +691,7 @@ describe("elevated-road vehicle headroom", () => {
     // has no hole. What must never happen is the driven vehicle envelope
     // passing beneath the mainline with only partial-height clearance.
     for (const lane of cairoRoadNetwork.lanes) {
-      if (
-        lane.roadId !== entrySurfaceId ||
-        !lane.id.endsWith("forward-1")
-      ) {
+      if (lane.roadId !== entrySurfaceId || !lane.id.endsWith("forward-1")) {
         continue;
       }
       for (let distanceM = 0; distanceM <= lane.length; distanceM += 0.1) {
@@ -673,8 +735,7 @@ describe("elevated-road vehicle headroom", () => {
   });
 
   it("keeps full delivery-van headroom where the Corniche exit crosses beneath the mainline", () => {
-    const exitSurfaceId =
-      "cairo-sixth-october-bridge-corniche-exit";
+    const exitSurfaceId = "cairo-sixth-october-bridge-corniche-exit";
     const mainlineSurfaceId = "cairo-sixth-october-bridge";
     const exitSurface = cairoSurfaces.find(
       (surface) => surface.id === exitSurfaceId,
@@ -705,10 +766,7 @@ describe("elevated-road vehicle headroom", () => {
     let minimumHeadroomM = Number.POSITIVE_INFINITY;
 
     for (const lane of cairoRoadNetwork.lanes) {
-      if (
-        lane.roadId !== exitSurfaceId ||
-        !lane.id.endsWith("forward-1")
-      ) {
+      if (lane.roadId !== exitSurfaceId || !lane.id.endsWith("forward-1")) {
         continue;
       }
       for (let distanceM = 0; distanceM <= lane.length; distanceM += 0.25) {
@@ -732,10 +790,7 @@ describe("elevated-road vehicle headroom", () => {
           );
           if (obstruction?.surfaceId !== mainlineSurfaceId) continue;
           crossingSamples += 1;
-          minimumHeadroomM = Math.min(
-            minimumHeadroomM,
-            obstruction.clearanceM,
-          );
+          minimumHeadroomM = Math.min(minimumHeadroomM, obstruction.clearanceM);
         }
       }
     }
@@ -776,9 +831,7 @@ describe("elevated-road vehicle headroom", () => {
       simulation
         .getEvents()
         .filter((event) =>
-          ["roadDeck", "roadBarrier"].includes(
-            String(event.evidence.obstacle),
-          ),
+          ["roadDeck", "roadBarrier"].includes(String(event.evidence.obstacle)),
         ),
     ).toEqual([]);
   });
@@ -858,6 +911,115 @@ describe("elevated-road vehicle headroom", () => {
     return lane;
   };
 
+  type CairoPhysicalRoutePoint = {
+    readonly x: number;
+    readonly z: number;
+    readonly elevationM: number;
+    readonly heading: number;
+    readonly physicalLaneId: string;
+  };
+
+  const buildCairoPhysicalRoute = (
+    legs: readonly {
+      readonly lane: NormalizedLane;
+      readonly startDistanceM: number;
+      readonly endDistanceM: number;
+    }[],
+    sampleSpacingM = 0.5,
+  ): CairoPhysicalRoutePoint[] => {
+    const sampled: Omit<CairoPhysicalRoutePoint, "heading">[] = [];
+    const append = (lane: NormalizedLane, distanceM: number): void => {
+      const point = cairoRoadNetwork.pointOnLane(lane, distanceM);
+      const previous = sampled.at(-1);
+      if (
+        previous &&
+        Math.hypot(previous.x - point.x, previous.z - point.z) < 0.01
+      ) {
+        return;
+      }
+      sampled.push({
+        x: point.x,
+        z: point.z,
+        elevationM: point.elevationM ?? 0,
+        physicalLaneId: lane.id,
+      });
+    };
+
+    for (const { lane, startDistanceM, endDistanceM } of legs) {
+      const direction = endDistanceM >= startDistanceM ? 1 : -1;
+      for (
+        let distanceM = startDistanceM;
+        direction > 0 ? distanceM < endDistanceM : distanceM > endDistanceM;
+        distanceM += direction * sampleSpacingM
+      ) {
+        append(lane, distanceM);
+      }
+      append(lane, endDistanceM);
+    }
+
+    return sampled.map((point, index) => {
+      const behind = sampled[Math.max(0, index - 3)];
+      const ahead = sampled[Math.min(sampled.length - 1, index + 3)];
+      return {
+        ...point,
+        heading: Math.atan2(ahead.x - behind.x, ahead.z - behind.z),
+      };
+    });
+  };
+
+  const offsetCairoPhysicalRoute = (
+    route: readonly CairoPhysicalRoutePoint[],
+    lateralOffsetM: number,
+  ): CairoPhysicalRoutePoint[] =>
+    route.map((point) => ({
+      ...point,
+      x: point.x + Math.cos(point.heading) * lateralOffsetM,
+      z: point.z - Math.sin(point.heading) * lateralOffsetM,
+    }));
+
+  const advanceCairoPathCursor = (
+    route: readonly CairoPhysicalRoutePoint[],
+    currentCursor: number,
+    x: number,
+    z: number,
+  ): { readonly cursor: number; readonly crossTrackM: number } => {
+    let nearestIndex = currentCursor;
+    let nearestDistanceM = Number.POSITIVE_INFINITY;
+    for (
+      let index = Math.max(0, currentCursor - 8);
+      index < Math.min(route.length, currentCursor + 35);
+      index += 1
+    ) {
+      const distanceM = Math.hypot(route[index].x - x, route[index].z - z);
+      if (distanceM < nearestDistanceM) {
+        nearestIndex = index;
+        nearestDistanceM = distanceM;
+      }
+    }
+    return {
+      cursor: Math.max(currentCursor, nearestIndex),
+      crossTrackM: nearestDistanceM,
+    };
+  };
+
+  const cairoPathFollowerInput = (
+    route: readonly CairoPhysicalRoutePoint[],
+    cursor: number,
+    pose: { readonly x: number; readonly z: number; readonly heading: number },
+  ) => {
+    const target = route[Math.min(route.length - 1, cursor + 10)];
+    const desiredHeading = Math.atan2(target.x - pose.x, target.z - pose.z);
+    const headingError = Math.atan2(
+      Math.sin(desiredHeading - pose.heading),
+      Math.cos(desiredHeading - pose.heading),
+    );
+    return {
+      throttle: Math.abs(headingError) > 0.55 ? 0.15 : 0.48,
+      brake: Math.abs(headingError) > 0.95 ? 0.35 : 0,
+      steer: Math.max(-1, Math.min(1, headingError / 0.24)) * 0.9,
+    };
+  };
+
   it.each(cairoBridgeMouthNames)(
     "lets the player enter the Cairo %s exit mouth uphill in reverse",
     (mouthName) => {
@@ -877,10 +1039,30 @@ describe("elevated-road vehicle headroom", () => {
       );
       if (!slipLane) throw new Error(`Missing ${mouthName} exit slip lane`);
 
-      const start = cairoRoadNetwork.pointOnLane(
-        slipLane,
-        Math.min(5, slipLane.length / 2),
-      );
+      const startDistanceM = Math.min(5, slipLane.length / 2);
+      let raisedTargetDistanceM = rampLane.length;
+      while (
+        raisedTargetDistanceM > 0 &&
+        (cairoRoadNetwork.pointOnLane(rampLane, raisedTargetDistanceM)
+          .elevationM ?? 0) < 1
+      ) {
+        raisedTargetDistanceM -= 0.25;
+      }
+      const route = buildCairoPhysicalRoute([
+        {
+          lane: slipLane,
+          startDistanceM,
+          endDistanceM: 0,
+        },
+        {
+          lane: rampLane,
+          startDistanceM: rampLane.length,
+          endDistanceM: Math.max(0, raisedTargetDistanceM),
+        },
+      ]);
+      if (route.length < 8) {
+        throw new Error(`Incomplete ${mouthName} reverse exit route`);
+      }
       const simulation = new SimulationCore({
         ...cairoConfig,
         npcCount: 0,
@@ -888,21 +1070,42 @@ describe("elevated-road vehicle headroom", () => {
         trafficLights: [],
         stopLines: [],
       });
-      simulation.setPlayerPose(
-        {
-          ...start,
-          elevationM: 0,
-          heading: Math.atan2(groundPoint.x - start.x, groundPoint.z - start.z),
-        },
-        5,
-      );
+      simulation.setPlayerPose(route[0], 5);
       simulation.drainEvents();
 
       const profileElevationsM: number[] = [];
       const profileWrongWay: boolean[] = [];
-      for (let tick = 0; tick < 240; tick += 1) {
-        simulation.step(1 / 60, { throttle: 1 });
-        const snapshot = simulation.getSnapshot();
+      const deckCollisions: string[] = [];
+      let cursor = 0;
+      let firstOffRoad: string | null = null;
+      for (let tick = 0; tick < 480; tick += 1) {
+        const before = simulation.getSnapshot();
+        cursor = advanceCairoPathCursor(
+          route,
+          cursor,
+          before.player.x,
+          before.player.z,
+        ).cursor;
+        const snapshot = simulation.step(
+          1 / 60,
+          cairoPathFollowerInput(route, cursor, before.player),
+        );
+        cursor = advanceCairoPathCursor(
+          route,
+          cursor,
+          snapshot.player.x,
+          snapshot.player.z,
+        ).cursor;
+        if (snapshot.road.offRoad && !firstOffRoad) {
+          firstOffRoad = `tick ${tick}, lane ${snapshot.road.laneId ?? "none"}, ${snapshot.road.distanceFromLaneCentreM.toFixed(2)}m from centre`;
+        }
+        for (const event of simulation.drainEvents()) {
+          if (event.evidence.obstacle === "roadDeck") {
+            deckCollisions.push(
+              `${String(event.evidence.obstacleId ?? "unknown deck")}: ${event.correction}`,
+            );
+          }
+        }
         if (snapshot.road.laneId?.startsWith(`${rampRoadId}-`)) {
           profileElevationsM.push(snapshot.player.elevationM ?? 0);
           profileWrongWay.push(snapshot.road.wrongWay);
@@ -912,6 +1115,7 @@ describe("elevated-road vehicle headroom", () => {
 
       expect(profileElevationsM.length).toBeGreaterThan(5);
       expect(profileElevationsM.at(-1)).toBeGreaterThanOrEqual(0.75);
+      expect(firstOffRoad).toBeNull();
       expect(
         profileElevationsM
           .slice(1)
@@ -922,11 +1126,7 @@ describe("elevated-road vehicle headroom", () => {
         `${mouthName} exit elevation must follow its rising profile`,
       ).toBe(true);
       expect(profileWrongWay.every(Boolean)).toBe(true);
-      expect(
-        simulation
-          .getEvents()
-          .filter((event) => event.evidence.obstacle === "roadDeck"),
-      ).toEqual([]);
+      expect(deckCollisions).toEqual([]);
     },
   );
 
@@ -1002,200 +1202,688 @@ describe("elevated-road vehicle headroom", () => {
     },
   );
 
-  type TravelDirection = "forward" | "reverse";
-  const cairoRampHandoffs = [
-    {
-      label: "Dokki entrance slip",
-      approachSurfaceId: "cairo-sixth-october-dokki-entry-slip",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-bridge-dokki-entry",
-      outgoingDirection: "forward" as TravelDirection,
-    },
-    {
-      label: "Dokki entrance braid",
-      approachSurfaceId: "cairo-sixth-october-bridge-dokki-entry",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-bridge-dokki-ramp",
-      outgoingDirection: "reverse" as TravelDirection,
-    },
-    {
-      label: "Dokki exit braid",
-      approachSurfaceId: "cairo-sixth-october-bridge-dokki-ramp",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-bridge-dokki-exit",
-      outgoingDirection: "forward" as TravelDirection,
-    },
-    {
-      label: "Dokki exit slip",
-      approachSurfaceId: "cairo-sixth-october-bridge-dokki-exit",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-dokki-exit-slip",
-      outgoingDirection: "forward" as TravelDirection,
-    },
-    {
-      label: "Gezira entrance slip",
-      approachSurfaceId: "cairo-sixth-october-gezira-entry-slip",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-bridge-gezira-entry",
-      outgoingDirection: "forward" as TravelDirection,
-    },
-    {
-      label: "Gezira entrance braid",
-      approachSurfaceId: "cairo-sixth-october-bridge-gezira-entry",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-bridge-gezira-ramp",
-      outgoingDirection: "reverse" as TravelDirection,
-    },
-    {
-      label: "Gezira exit braid",
-      approachSurfaceId: "cairo-sixth-october-bridge-gezira-ramp",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-bridge-gezira-exit",
-      outgoingDirection: "forward" as TravelDirection,
-    },
-    {
-      label: "Gezira exit slip",
-      approachSurfaceId: "cairo-sixth-october-bridge-gezira-exit",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-gezira-exit-slip",
-      outgoingDirection: "forward" as TravelDirection,
-    },
-    {
-      label: "Corniche entrance",
-      approachSurfaceId: "cairo-sixth-october-corniche-entry-slip",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-bridge-corniche-entry",
-      outgoingDirection: "forward" as TravelDirection,
-    },
-    {
-      label: "Corniche exit",
-      approachSurfaceId: "cairo-sixth-october-bridge-corniche-exit",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-corniche-exit-slip",
-      outgoingDirection: "forward" as TravelDirection,
-    },
-    {
-      label: "Ramses entrance",
-      approachSurfaceId: "cairo-sixth-october-ramses-entry-slip",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-bridge-ramses-entry",
-      outgoingDirection: "forward" as TravelDirection,
-    },
-    {
-      label: "Ramses exit",
-      approachSurfaceId: "cairo-sixth-october-bridge-ramses-exit",
-      approachDirection: "forward" as TravelDirection,
-      outgoingSurfaceId: "cairo-sixth-october-ramses-exit-slip",
-      outgoingDirection: "forward" as TravelDirection,
-    },
-  ] as const;
-
-  it.each(cairoRampHandoffs)(
-    "does not mistake the connected $label profile/slip handoff for headroom",
-    ({
-      approachSurfaceId,
-      approachDirection,
-      outgoingSurfaceId,
-      outgoingDirection,
-    }) => {
-      // Resolve the actual directed graph edge rather than assuming every
-      // access joins at a surface endpoint. Dokki's entrance now joins the
-      // middle of its safely splayed two-way stem, which is exactly the sort
-      // of topology this test must follow instead of reconstructing from a
-      // hand-authored point order.
-      const approachLane = cairoRoadNetwork.lanes.find(
-        (lane) =>
-          lane.roadId === approachSurfaceId &&
-          lane.id.includes(`-${approachDirection}-`) &&
-          lane.successorLaneIds.some((successorId) => {
-            const successor = cairoRoadNetwork.lanesById.get(successorId);
-            return (
-              successor?.roadId === outgoingSurfaceId &&
-              successor.id.includes(`-${outgoingDirection}-`)
-            );
-          }),
+  it(
+    "traces both west braid choices across every usable pavement track with production colliders",
+    { timeout: 90_000 },
+    () => {
+      const lane = (laneId: string) => {
+        const result = cairoRoadNetwork.lanesById.get(laneId);
+        if (!result) throw new Error(`Missing west braid lane ${laneId}`);
+        return result;
+      };
+      const carrier = lane("cairo-sixth-october-bridge-west-ramp-2-forward-1");
+      const exitLanes = [
+        lane("cairo-sixth-october-bridge-west-exit-1-forward-1"),
+        lane("cairo-sixth-october-bridge-west-exit-2-forward-1"),
+        lane("cairo-sixth-october-bridge-west-exit-3-forward-1"),
+      ] as const;
+      const entryLanes = [
+        lane("cairo-sixth-october-bridge-west-entry-3-forward-1"),
+        lane("cairo-sixth-october-bridge-west-entry-2-forward-1"),
+        lane("cairo-sixth-october-bridge-west-entry-1-forward-1"),
+      ] as const;
+      const carrierLeg = {
+        lane: carrier,
+        startDistanceM: Math.max(0, carrier.length - 20),
+        endDistanceM: carrier.length,
+      };
+      const routeCases = [
+        {
+          name: "legal exit",
+          route: buildCairoPhysicalRoute([
+            carrierLeg,
+            ...exitLanes.map((exitLane) => ({
+              lane: exitLane,
+              startDistanceM: 0,
+              endDistanceM: exitLane.length,
+            })),
+          ]),
+          expectedPrefix: "cairo-sixth-october-bridge-west-exit-",
+          expectedLaneIds: exitLanes.map((exitLane) => exitLane.id),
+          expectedWrongWay: false,
+        },
+        {
+          name: "wrong-way entry",
+          route: buildCairoPhysicalRoute([
+            carrierLeg,
+            ...entryLanes.map((entryLane) => ({
+              lane: entryLane,
+              startDistanceM: entryLane.length,
+              endDistanceM: 0,
+            })),
+          ]),
+          expectedPrefix: "cairo-sixth-october-bridge-west-entry-",
+          expectedLaneIds: entryLanes.map((entryLane) => entryLane.id),
+          expectedWrongWay: true,
+        },
+      ] as const;
+      const westPavedWidthM = Math.min(
+        ...cairoSurfaces
+          .filter((surface) =>
+            [
+              "cairo-sixth-october-bridge-west-entry",
+              "cairo-sixth-october-bridge-west-exit",
+            ].includes(surface.id),
+          )
+          .map((surface) => surface.widthM),
       );
-      const outgoingLane = approachLane?.successorLaneIds
-        .map((successorId) => cairoRoadNetwork.lanesById.get(successorId))
-        .find(
-          (lane) =>
-            lane?.roadId === outgoingSurfaceId &&
-            lane.id.includes(`-${outgoingDirection}-`),
-        );
-      if (!approachLane || !outgoingLane) {
-        throw new Error(
-          `Missing directed Cairo handoff ${approachSurfaceId} -> ${outgoingSurfaceId}`,
-        );
+      expect(westPavedWidthM).toBe(4.2);
+      const representativeVehicles = [
+        {
+          vehicle: getCareerVehicle("compact-hatch"),
+          clearanceHeightM: VEHICLE_DIMENSIONS["compact-hatch"].height,
+        },
+        {
+          vehicle: deliveryVan,
+          clearanceHeightM: deliveryVanClearanceHeightM,
+        },
+      ] as const;
+      const failures: string[] = [];
+      let casesRun = 0;
+
+      for (const { vehicle, clearanceHeightM } of representativeVehicles) {
+        const usableEdgeOffsetM =
+          westPavedWidthM / 2 - vehicle.physics.playerCapsuleRadiusM;
+        const lateralOffsetsM = [
+          -usableEdgeOffsetM,
+          -0.9,
+          0,
+          0.9,
+          usableEdgeOffsetM,
+        ];
+        for (const routeCase of routeCases) {
+          const carrierEndIndex = routeCase.route.findLastIndex(
+            (point) => point.physicalLaneId === carrier.id,
+          );
+          const ownershipDeadlineIndex = carrierEndIndex + Math.ceil(20 / 0.5);
+          for (const lateralOffsetM of lateralOffsetsM) {
+            casesRun += 1;
+            const route = offsetCairoPhysicalRoute(
+              routeCase.route,
+              lateralOffsetM,
+            );
+            const simulation = new SimulationCore({
+              ...cairoConfig,
+              ...vehicle.physics,
+              playerClearanceHeightM: clearanceHeightM,
+              npcCount: 0,
+            });
+            simulation.setPlayerPose(route[0], 4);
+            simulation.drainEvents();
+
+            let cursor = 0;
+            let previousElevationM = route[0].elevationM;
+            let maximumElevationErrorM = 0;
+            let maximumElevationStepM = 0;
+            let maximumUpwardStepM = 0;
+            let maximumElevationErrorDescription = "";
+            let maximumElevationStepDescription = "";
+            let maximumCrossTrackM = 0;
+            let firstOffRoad: string | null = null;
+            let firstLateOwnership: string | null = null;
+            let firstDirectionMismatch: string | null = null;
+            let collision: string | null = null;
+            const seenLaneIds = new Set<string>();
+
+            for (
+              let tick = 0;
+              tick < 2_600 && cursor < route.length - 5;
+              tick += 1
+            ) {
+              const before = simulation.getSnapshot();
+              const beforeProgress = advanceCairoPathCursor(
+                route,
+                cursor,
+                before.player.x,
+                before.player.z,
+              );
+              cursor = beforeProgress.cursor;
+              maximumCrossTrackM = Math.max(
+                maximumCrossTrackM,
+                beforeProgress.crossTrackM,
+              );
+              const snapshot = simulation.step(
+                1 / 60,
+                cairoPathFollowerInput(route, cursor, before.player),
+              );
+              const afterProgress = advanceCairoPathCursor(
+                route,
+                cursor,
+                snapshot.player.x,
+                snapshot.player.z,
+              );
+              cursor = afterProgress.cursor;
+              maximumCrossTrackM = Math.max(
+                maximumCrossTrackM,
+                afterProgress.crossTrackM,
+              );
+
+              const elevationM = snapshot.player.elevationM ?? 0;
+              const elevationStepM = elevationM - previousElevationM;
+              previousElevationM = elevationM;
+              // The last few centimetres disappear when a projection becomes
+              // ground (zero elevation is omitted). That ordinary pavement
+              // landing is not a raised-profile snap.
+              if (elevationM >= 0.25 || route[cursor].elevationM >= 0.25) {
+                if (Math.abs(elevationStepM) > maximumElevationStepM) {
+                  maximumElevationStepM = Math.abs(elevationStepM);
+                  maximumElevationStepDescription = `tick ${tick}, point ${cursor}, ${snapshot.road.laneId ?? "none"}`;
+                }
+                maximumUpwardStepM = Math.max(
+                  maximumUpwardStepM,
+                  elevationStepM,
+                );
+                const elevationErrorM = Math.abs(
+                  elevationM - route[cursor].elevationM,
+                );
+                if (elevationErrorM > maximumElevationErrorM) {
+                  maximumElevationErrorM = elevationErrorM;
+                  maximumElevationErrorDescription = `tick ${tick}, point ${cursor}, ${snapshot.road.laneId ?? "none"}`;
+                }
+              }
+              if (snapshot.road.offRoad && !firstOffRoad) {
+                firstOffRoad = `tick ${tick}, point ${cursor}, ${snapshot.road.laneId ?? "none"} at ${snapshot.road.distanceFromLaneCentreM.toFixed(2)}m`;
+              }
+              if (
+                cursor >= ownershipDeadlineIndex &&
+                !snapshot.road.laneId?.startsWith(routeCase.expectedPrefix) &&
+                !firstLateOwnership
+              ) {
+                firstLateOwnership = `tick ${tick}, point ${cursor}, ${snapshot.road.laneId ?? "none"}`;
+              }
+              if (snapshot.road.laneId?.startsWith(routeCase.expectedPrefix)) {
+                seenLaneIds.add(snapshot.road.laneId);
+                if (
+                  snapshot.road.wrongWay !== routeCase.expectedWrongWay &&
+                  !firstDirectionMismatch
+                ) {
+                  firstDirectionMismatch = `tick ${tick}, ${snapshot.road.laneId}, wrongWay=${String(snapshot.road.wrongWay)}`;
+                }
+              }
+              const collisionEvent = simulation
+                .drainEvents()
+                .find((event) => event.code === "collision");
+              if (collisionEvent) {
+                collision = `tick ${tick}, ${String(
+                  collisionEvent.evidence.obstacle ?? "unknown obstacle",
+                )}/${String(
+                  collisionEvent.evidence.obstacleId ?? "unknown id",
+                )}`;
+                break;
+              }
+            }
+
+            const reasons: string[] = [];
+            if (collision) reasons.push(`collision ${collision}`);
+            if (firstOffRoad) reasons.push(`off-road ${firstOffRoad}`);
+            if (firstLateOwnership) {
+              reasons.push(`ownership missed at ${firstLateOwnership}`);
+            }
+            if (firstDirectionMismatch) {
+              reasons.push(`direction mismatch at ${firstDirectionMismatch}`);
+            }
+            if (cursor < route.length - 10) {
+              reasons.push(`only reached point ${cursor}/${route.length - 1}`);
+            }
+            const missingLaneIds = routeCase.expectedLaneIds.filter(
+              (laneId) => !seenLaneIds.has(laneId),
+            );
+            if (missingLaneIds.length > 0) {
+              reasons.push(`never projected ${missingLaneIds.join(", ")}`);
+            }
+            // Route stations are 0.5 m apart; on a curved 10% grade the
+            // monotonic cursor can lead the car's exact projected station by
+            // just over 12 cm at the inside paved edge. One-tick step limits
+            // below remain the independent guard against a real height snap.
+            if (maximumElevationErrorM > 0.13) {
+              reasons.push(
+                `authored height error ${maximumElevationErrorM.toFixed(3)}m at ${maximumElevationErrorDescription}`,
+              );
+            }
+            if (maximumElevationStepM > 0.12 || maximumUpwardStepM > 0.04) {
+              reasons.push(
+                `height step ${maximumElevationStepM.toFixed(3)}m, upward ${maximumUpwardStepM.toFixed(3)}m at ${maximumElevationStepDescription}`,
+              );
+            }
+            if (maximumCrossTrackM > 1.25) {
+              reasons.push(
+                `path follower deviated ${maximumCrossTrackM.toFixed(2)}m`,
+              );
+            }
+            if (reasons.length > 0) {
+              failures.push(
+                `${vehicle.id} ${routeCase.name}, ${lateralOffsetM.toFixed(2)}m lateral: ${reasons.join("; ")}`,
+              );
+            }
+          }
+        }
       }
-      const lift = approachLane.points.at(-1);
-      const beforeLift = approachLane.points.at(-2);
-      const afterLift = outgoingLane.points.at(1);
-      if (!lift || !beforeLift || !afterLift) {
-        throw new Error(`Incomplete Cairo handoff ${approachSurfaceId}`);
-      }
+
+      expect(casesRun).toBe(20);
       expect(
-        Math.hypot(
-          lift.x - outgoingLane.points[0].x,
-          lift.z - outgoingLane.points[0].z,
+        failures,
+        `West braid full-profile failures across usable pavement:\n${failures.join("\n")}`,
+      ).toEqual([]);
+    },
+  );
+
+  type CairoCrossRoadHandoff = {
+    readonly fromLane: NormalizedLane;
+    readonly toLane: NormalizedLane;
+  };
+  const cairoSixthOctoberCrossRoadHandoffs: CairoCrossRoadHandoff[] = [];
+  for (const fromLane of cairoRoadNetwork.lanes) {
+    for (const successorLaneId of fromLane.successorLaneIds) {
+      const toLane = cairoRoadNetwork.lanesById.get(successorLaneId);
+      if (
+        !toLane ||
+        fromLane.roadId === toLane.roadId ||
+        !(
+          fromLane.roadId?.includes("sixth-october") ||
+          toLane.roadId?.includes("sixth-october")
+        )
+      ) {
+        continue;
+      }
+      cairoSixthOctoberCrossRoadHandoffs.push({ fromLane, toLane });
+    }
+  }
+
+  it(
+    "crosses every Sixth October cross-road handoff in both physical directions with production colliders",
+    { timeout: 90_000 },
+    () => {
+      const uniqueRoadPairs = new Set(
+        cairoSixthOctoberCrossRoadHandoffs.map(
+          ({ fromLane, toLane }) => `${fromLane.roadId}->${toLane.roadId}`,
         ),
-      ).toBeLessThan(0.05);
+      );
+      expect(cairoSixthOctoberCrossRoadHandoffs).toHaveLength(50);
+      expect(uniqueRoadPairs).toHaveLength(46);
+      expect(
+        cairoSixthOctoberCrossRoadHandoffs.some(
+          ({ fromLane, toLane }) =>
+            fromLane.id === "cairo-sixth-october-east-entry-slip-2-forward-1" &&
+            toLane.id === "cairo-sixth-october-bridge-east-entry-1-forward-1",
+        ),
+        "The generated inventory must include the reported Al-Galaa lift mouth",
+      ).toBe(true);
 
-      const approachDx = lift.x - beforeLift.x;
-      const approachDz = lift.z - beforeLift.z;
-      const approachLengthM = Math.hypot(approachDx, approachDz);
-      const approachUx = approachDx / approachLengthM;
-      const approachUz = approachDz / approachLengthM;
-      const startDistanceM = Math.min(8, approachLengthM / 2);
-      const startAmount = startDistanceM / approachLengthM;
-      const startElevationM =
-        (lift.elevationM ?? 0) +
-        ((beforeLift.elevationM ?? 0) - (lift.elevationM ?? 0)) * startAmount;
-
-      const outgoingDx = afterLift.x - lift.x;
-      const outgoingDz = afterLift.z - lift.z;
-      const outgoingLengthM = Math.hypot(outgoingDx, outgoingDz);
-      const outgoingUx = outgoingDx / outgoingLengthM;
-      const outgoingUz = outgoingDz / outgoingLengthM;
       const simulation = new SimulationCore({
         ...cairoConfig,
+        ...deliveryVan.physics,
+        playerClearanceHeightM: deliveryVanClearanceHeightM,
         npcCount: 0,
-        // This regression isolates the clearance query. Static scenery has its
-        // own exhaustive collider tests and makes eight short traces needlessly
-        // scan thousands of unrelated buildings per fixed step.
-        staticObstacles: [],
       });
-      simulation.setPlayerPose(
-        {
-          x: lift.x - approachUx * startDistanceM,
-          z: lift.z - approachUz * startDistanceM,
-          heading: Math.atan2(approachUx, approachUz),
-          elevationM: startElevationM,
-        },
-        8,
-      );
+      const failures: string[] = [];
+      let casesRun = 0;
 
-      let progressBeyondLiftM = Number.NEGATIVE_INFINITY;
-      for (let tick = 0; tick < 120; tick += 1) {
-        simulation.step(1 / 60, { throttle: 1 });
-        const player = simulation.getSnapshot().player;
-        progressBeyondLiftM =
-          (player.x - lift.x) * outgoingUx + (player.z - lift.z) * outgoingUz;
+      for (const { fromLane, toLane } of cairoSixthOctoberCrossRoadHandoffs) {
+        const fromEndpoint = fromLane.points.at(-1);
+        const toEndpoint = toLane.points[0];
+        if (!fromEndpoint || !toEndpoint) {
+          failures.push(`${fromLane.id} -> ${toLane.id}: missing endpoint`);
+          continue;
+        }
+        const endpointGapM = Math.hypot(
+          fromEndpoint.x - toEndpoint.x,
+          fromEndpoint.z - toEndpoint.z,
+        );
+        const endpointElevationGapM = Math.abs(
+          (fromEndpoint.elevationM ?? 0) - (toEndpoint.elevationM ?? 0),
+        );
+        if (endpointGapM > 0.05 || endpointElevationGapM > 0.05) {
+          failures.push(
+            `${fromLane.id} -> ${toLane.id}: authored endpoint gap ${endpointGapM.toFixed(3)}m / elevation gap ${endpointElevationGapM.toFixed(3)}m`,
+          );
+          continue;
+        }
+
+        for (const reversePhysicalDirection of [false, true] as const) {
+          casesRun += 1;
+          const sourceLane = reversePhysicalDirection ? toLane : fromLane;
+          const targetLane = reversePhysicalDirection ? fromLane : toLane;
+          const startDistanceM = reversePhysicalDirection
+            ? Math.min(4, sourceLane.length)
+            : Math.max(0, sourceLane.length - 4);
+          const targetDistanceM = reversePhysicalDirection
+            ? Math.max(0, targetLane.length - 4)
+            : Math.min(4, targetLane.length);
+          const start = cairoRoadNetwork.pointOnLane(
+            sourceLane,
+            startDistanceM,
+          );
+          const afterHandoff = cairoRoadNetwork.pointOnLane(
+            targetLane,
+            targetDistanceM,
+          );
+          const outgoingDx = afterHandoff.x - fromEndpoint.x;
+          const outgoingDz = afterHandoff.z - fromEndpoint.z;
+          const outgoingLengthM = Math.hypot(outgoingDx, outgoingDz);
+          if (outgoingLengthM < 0.5) {
+            failures.push(
+              `${fromLane.id} -> ${toLane.id} ${reversePhysicalDirection ? "reverse" : "forward"}: target probe is degenerate`,
+            );
+            continue;
+          }
+          const outgoingUx = outgoingDx / outgoingLengthM;
+          const outgoingUz = outgoingDz / outgoingLengthM;
+          const label = `${sourceLane.id} => ${targetLane.id} (${reversePhysicalDirection ? "reverse physical" : "legal"})`;
+
+          simulation.reset();
+          simulation.setPlayerPose(
+            {
+              ...start,
+              heading: Math.atan2(
+                fromEndpoint.x - start.x,
+                fromEndpoint.z - start.z,
+              ),
+            },
+            6,
+          );
+          simulation.drainEvents();
+
+          let progressBeyondHandoffM = Number.NEGATIVE_INFINITY;
+          let collisionDescription: string | null = null;
+          let previousElevationM = start.elevationM ?? 0;
+          let largestElevationStepM = 0;
+
+          for (let tick = 0; tick < 120; tick += 1) {
+            const snapshot = simulation.step(1 / 60, { throttle: 0.45 });
+            progressBeyondHandoffM =
+              (snapshot.player.x - fromEndpoint.x) * outgoingUx +
+              (snapshot.player.z - fromEndpoint.z) * outgoingUz;
+            const elevationM = snapshot.player.elevationM ?? 0;
+            largestElevationStepM = Math.max(
+              largestElevationStepM,
+              Math.abs(elevationM - previousElevationM),
+            );
+            previousElevationM = elevationM;
+
+            const collision = simulation
+              .drainEvents()
+              .find((event) => event.code === "collision");
+            if (collision) {
+              collisionDescription = `${String(
+                collision.evidence.obstacle ?? "unknown obstacle",
+              )}/${String(
+                collision.evidence.obstacleId ?? "unknown id",
+              )}: ${collision.correction}`;
+            }
+            if (collisionDescription || progressBeyondHandoffM > 2.5) break;
+          }
+
+          const reasons: string[] = [];
+          if (collisionDescription)
+            reasons.push(`collision ${collisionDescription}`);
+          if (progressBeyondHandoffM <= 2.5) {
+            reasons.push(
+              `only reached ${progressBeyondHandoffM.toFixed(2)}m beyond the mouth`,
+            );
+          }
+          if (largestElevationStepM > 0.35) {
+            reasons.push(
+              `elevation jumped ${largestElevationStepM.toFixed(3)}m in one tick`,
+            );
+          }
+          if (reasons.length > 0)
+            failures.push(`${label}: ${reasons.join("; ")}`);
+        }
+      }
+
+      expect(casesRun).toBe(100);
+      expect(
+        failures.slice(0, 25),
+        `${failures.length} Sixth October handoff traces failed:\n${failures
+          .slice(0, 25)
+          .join("\n")}`,
+      ).toEqual([]);
+    },
+  );
+
+  it(
+    "drives the full legal Al-Galaa east entry at lane-centre and edge offsets without a hidden blocker",
+    { timeout: 90_000 },
+    () => {
+      const routeLaneIds = [
+        "cairo-galaa-street-10-reverse-1",
+        "cairo-sixth-october-east-entry-slip-1-forward-1",
+        "cairo-sixth-october-east-entry-slip-2-forward-1",
+        "cairo-sixth-october-bridge-east-entry-1-forward-1",
+        "cairo-sixth-october-bridge-east-entry-2-forward-1",
+        "cairo-sixth-october-bridge-east-entry-3-forward-1",
+        "cairo-sixth-october-bridge-east-ramp-2-reverse-1",
+        "cairo-sixth-october-bridge-east-ramp-1-reverse-1",
+        "cairo-sixth-october-bridge-6-reverse-1",
+      ] as const;
+      const route = routeLaneIds.map((laneId) => {
+        const lane = cairoRoadNetwork.lanesById.get(laneId);
+        if (!lane) throw new Error(`Missing east-entry route lane ${laneId}`);
+        return lane;
+      });
+      for (let index = 0; index + 1 < route.length; index += 1) {
+        expect(
+          route[index].successorLaneIds,
+          `${route[index].id} must legally lead to ${route[index + 1].id}`,
+        ).toContain(route[index + 1].id);
+      }
+
+      type EastEntryRoutePoint = {
+        readonly x: number;
+        readonly z: number;
+        readonly elevationM: number;
+        readonly heading: number;
+      };
+      const centrelinePoints: EastEntryRoutePoint[] = [];
+      const appendPoint = (point: EastEntryRoutePoint) => {
+        const previous = centrelinePoints.at(-1);
         if (
-          progressBeyondLiftM > 3 ||
-          simulation
-            .getEvents()
-            .some((event) => event.evidence.obstacle === "roadDeck")
+          previous &&
+          Math.hypot(previous.x - point.x, previous.z - point.z) < 0.01
         ) {
-          break;
+          return;
+        }
+        centrelinePoints.push(point);
+      };
+      route.forEach((lane, laneIndex) => {
+        const startDistanceM =
+          laneIndex === 0 ? Math.max(0, lane.length - 18) : 0;
+        const endDistanceM =
+          laneIndex === route.length - 1
+            ? Math.min(30, lane.length)
+            : lane.length;
+        for (
+          let distanceM = startDistanceM;
+          distanceM < endDistanceM;
+          distanceM += 0.75
+        ) {
+          const point = cairoRoadNetwork.pointOnLane(lane, distanceM);
+          appendPoint({
+            x: point.x,
+            z: point.z,
+            elevationM: point.elevationM ?? 0,
+            heading: point.heading,
+          });
+        }
+        const point = cairoRoadNetwork.pointOnLane(lane, endDistanceM);
+        appendPoint({
+          x: point.x,
+          z: point.z,
+          elevationM: point.elevationM ?? 0,
+          heading: point.heading,
+        });
+      });
+      const smoothedCentrelinePoints = centrelinePoints.map((point, index) => {
+        const behind = centrelinePoints[Math.max(0, index - 2)];
+        const ahead =
+          centrelinePoints[Math.min(centrelinePoints.length - 1, index + 2)];
+        return {
+          ...point,
+          heading: Math.atan2(ahead.x - behind.x, ahead.z - behind.z),
+        };
+      });
+      expect(smoothedCentrelinePoints.length).toBeGreaterThan(300);
+
+      const clampControl = (value: number) => Math.max(-1, Math.min(1, value));
+      const angleDifference = (target: number, current: number) =>
+        Math.atan2(Math.sin(target - current), Math.cos(target - current));
+      const requiredRoadIds = [
+        "cairo-galaa-street",
+        "cairo-sixth-october-east-entry-slip",
+        "cairo-sixth-october-bridge-east-entry",
+        "cairo-sixth-october-bridge-east-ramp",
+        "cairo-sixth-october-bridge",
+      ] as const;
+      const simulation = new SimulationCore({
+        ...cairoConfig,
+        ...deliveryVan.physics,
+        playerClearanceHeightM: deliveryVanClearanceHeightM,
+        npcCount: 0,
+      });
+      const failures: string[] = [];
+
+      for (const lateralOffsetM of [-0.9, 0, 0.9] as const) {
+        const routePoints = smoothedCentrelinePoints.map((point) => ({
+          ...point,
+          // Positive offsets are to the right of travel. The reported trace is
+          // retained literally as -0.9 m rather than rounded to lane centre.
+          x: point.x + Math.cos(point.heading) * lateralOffsetM,
+          z: point.z - Math.sin(point.heading) * lateralOffsetM,
+        }));
+        simulation.reset();
+        simulation.setPlayerPose(routePoints[0], 4);
+        simulation.drainEvents();
+
+        let cursor = 0;
+        let collisionDescription: string | null = null;
+        let firstOffRoadDescription: string | null = null;
+        let largestElevationStepM = 0;
+        let largestElevationDropM = 0;
+        let previousElevationM = routePoints[0].elevationM;
+        let maximumElevationM = previousElevationM;
+        let maximumCrossTrackM = 0;
+        const seenRoadIds = new Set<string>();
+
+        for (
+          let tick = 0;
+          tick < 2_200 && cursor < routePoints.length - 5;
+          tick += 1
+        ) {
+          const before = simulation.getSnapshot();
+          let nearestIndex = cursor;
+          let nearestDistanceM = Number.POSITIVE_INFINITY;
+          for (
+            let index = Math.max(0, cursor - 8);
+            index < Math.min(routePoints.length, cursor + 28);
+            index += 1
+          ) {
+            const distanceM = Math.hypot(
+              routePoints[index].x - before.player.x,
+              routePoints[index].z - before.player.z,
+            );
+            if (distanceM < nearestDistanceM) {
+              nearestDistanceM = distanceM;
+              nearestIndex = index;
+            }
+          }
+          cursor = Math.max(cursor, nearestIndex);
+          maximumCrossTrackM = Math.max(maximumCrossTrackM, nearestDistanceM);
+          const target =
+            routePoints[Math.min(routePoints.length - 1, cursor + 7)];
+          const desiredHeading = Math.atan2(
+            target.x - before.player.x,
+            target.z - before.player.z,
+          );
+          const headingError = angleDifference(
+            desiredHeading,
+            before.player.heading,
+          );
+          const snapshot = simulation.step(1 / 60, {
+            throttle: Math.abs(headingError) > 0.5 ? 0.18 : 0.45,
+            brake: Math.abs(headingError) > 0.9 ? 0.4 : 0,
+            steer: clampControl(headingError / 0.25) * 0.9,
+          });
+
+          const elevationM = snapshot.player.elevationM ?? 0;
+          largestElevationStepM = Math.max(
+            largestElevationStepM,
+            Math.abs(elevationM - previousElevationM),
+          );
+          largestElevationDropM = Math.max(
+            largestElevationDropM,
+            previousElevationM - elevationM,
+          );
+          previousElevationM = elevationM;
+          maximumElevationM = Math.max(maximumElevationM, elevationM);
+          const projectedLane = snapshot.road.laneId
+            ? cairoRoadNetwork.lanesById.get(snapshot.road.laneId)
+            : undefined;
+          if (projectedLane?.roadId) seenRoadIds.add(projectedLane.roadId);
+          if (snapshot.road.offRoad && !firstOffRoadDescription) {
+            firstOffRoadDescription = `tick ${tick}, cursor ${cursor}, lane ${snapshot.road.laneId ?? "none"}, ${snapshot.road.distanceFromLaneCentreM.toFixed(2)}m from centre`;
+          }
+
+          const collision = simulation
+            .drainEvents()
+            .find((event) => event.code === "collision");
+          if (collision) {
+            collisionDescription = `tick ${tick}, cursor ${cursor}, lane ${snapshot.road.laneId ?? "none"}: ${String(
+              collision.evidence.obstacle ?? "unknown obstacle",
+            )}/${String(
+              collision.evidence.obstacleId ?? "unknown id",
+            )} (${collision.correction})`;
+            break;
+          }
+        }
+
+        const finalSnapshot = simulation.getSnapshot();
+        const finalLane = finalSnapshot.road.laneId
+          ? cairoRoadNetwork.lanesById.get(finalSnapshot.road.laneId)
+          : undefined;
+        const reasons: string[] = [];
+        if (collisionDescription)
+          reasons.push(`collision ${collisionDescription}`);
+        if (firstOffRoadDescription) {
+          reasons.push(`went off-road at ${firstOffRoadDescription}`);
+        }
+        if (cursor < routePoints.length - 12) {
+          reasons.push(
+            `stopped at route point ${cursor}/${routePoints.length - 1} (${maximumCrossTrackM.toFixed(2)}m max cross-track)`,
+          );
+        }
+        const missingRoadIds = requiredRoadIds.filter(
+          (roadId) => !seenRoadIds.has(roadId),
+        );
+        if (missingRoadIds.length > 0) {
+          reasons.push(`never acquired ${missingRoadIds.join(", ")}`);
+        }
+        if (finalLane?.roadId !== "cairo-sixth-october-bridge") {
+          reasons.push(`finished on ${finalLane?.roadId ?? "no road"}`);
+        }
+        if (
+          maximumElevationM < 10 ||
+          (finalSnapshot.player.elevationM ?? 0) < 10
+        ) {
+          reasons.push(
+            `failed to climb onto the 10.5m deck (max ${maximumElevationM.toFixed(2)}m, final ${(finalSnapshot.player.elevationM ?? 0).toFixed(2)}m)`,
+          );
+        }
+        if (largestElevationStepM > 0.35 || largestElevationDropM > 0.08) {
+          reasons.push(
+            `discontinuous elevation (largest step ${largestElevationStepM.toFixed(3)}m, drop ${largestElevationDropM.toFixed(3)}m)`,
+          );
+        }
+        if (reasons.length > 0) {
+          failures.push(
+            `${lateralOffsetM.toFixed(1)}m offset: ${reasons.join("; ")}`,
+          );
         }
       }
 
       expect(
-        simulation
-          .getEvents()
-          .filter((event) => event.evidence.obstacle === "roadDeck"),
+        failures,
+        `The uninterrupted Al-Galaa entry traces must stay on their visible road:\n${failures.join("\n")}`,
       ).toEqual([]);
-      expect(progressBeyondLiftM).toBeGreaterThan(3);
     },
   );
 });

@@ -146,14 +146,19 @@ surface—not a landmark mesh—provides the drivable deck.
   unrelated lane whose profile rises into bridge structure, even when the
   nearest ground centreline is more than 12 m away and a deck is directly
   overhead. A live player car can acquire a profiled ramp only through its
-  current/adjacent lane or an immediate graph neighbour. For player level
-  ownership that neighbourhood includes predecessors as well as successors,
-  and its ramp heading is treated bidirectionally, so either an entrance or an
-  exit can be climbed from its physical mouth. NPC routing, signs and wrong-way
-  reporting continue to use the directed successor graph. Once a rising lane
-  owns the car, a sub-lane heading/hysteresis band prevents an overlapping
-  apron from stealing that ownership for one tick. The at-grade slips give
-  every ramp a unique x/z approach before vertical separation begins.
+  current/adjacent lane, an immediate graph neighbour, or a same-height raised
+  surface whose endpoint physically coincides with the occupied junction. The
+  coincident surfaces form a player-only branch-choice group across a short,
+  full-pavement-width strip at the endpoint, so the driver's trajectory can
+  choose either the entrance or exit before the sibling surface is removed
+  from consideration farther down the grade. If an ambiguous first choice was
+  wrong, connected pavement becomes eligible again only after the car has
+  physically left the selected lane's paved half-width. Ramp
+  axes are bidirectional for this level-ownership query. NPC routing, signs and
+  wrong-way reporting continue to use the untouched directed successor graph.
+  Away from a branch point, a sub-lane heading/hysteresis band prevents an
+  overlapping apron from stealing ownership for one tick. The at-grade slips
+  give every ramp a unique x/z approach before vertical separation begins.
 - Any authored pose with a finite elevation is authoritative. In particular,
   `elevationM: 0` clears an old bridge projection before selecting the street
   below; zero is not treated as a missing value.
@@ -289,9 +294,13 @@ remains passable, and a connected ramp climb reaches the elevated level without
 a false deck collision. Profile-derived production traces automatically
 inventory and traverse every elevated 6th October mainline, carrier, entry,
 stem and exit surface, including both terminals; a hand-maintained
-intermediate-only list is not accepted. Reverse-direction traces cover all six
-exit mouths uphill and all six entrances downhill; each follows its profile
-monotonically while continuing to report wrong-way and emits no deck collision.
+intermediate-only list is not accepted. The surface sweep uses every selectable
+career vehicle's real capsule and roof, both travel headings, and the centre
+plus both paved-edge offsets against every production obstacle. Graph-derived
+traces also cross every Sixth October cross-road handoff in both physical
+directions. Reverse-direction traces cover all six exit mouths uphill and all
+six entrances downhill; each follows its profile monotonically while
+continuing to report wrong-way and emits no deck collision.
 A dense
 Corniche entry and exit sweeps use the delivery van's complete
 rear/centre/front roof envelope. The entry check proves both through lanes are
@@ -302,11 +311,11 @@ Two production static-collider sweeps are mandatory and serve different
 purposes. The all-map sweep samples every legal lane at no more than 2 m
 intervals, interpolates the lane elevation and checks every production solid.
 The Cairo bridge sweep samples every 6th October lane at no more than 0.5 m
-intervals against the actual `roadBarrier` colliders. It uses the maximum
-catalogue capsule radius and half-length, left/centre/right legal vehicle
-positions and front/rear capsule discs. Together they prevent a clear
-centreline from concealing a stale barrier, intrusive miter, transverse end cap
-or non-barrier solid.
+intervals against every production solid, not only `roadBarrier` colliders. It
+uses the maximum catalogue capsule radius and half-length, left/centre/right
+legal vehicle positions and front/rear capsule discs. Together they prevent a
+clear centreline from concealing a stale barrier, intrusive miter, transverse
+end cap or non-barrier solid.
 
 For the implementation order and required drive checklist before extending
 this system to another city, see
