@@ -1538,8 +1538,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // other two materials are Tahrir ministries' deterministic warm/cool
     // occupied panes. Palette, bloom and texture-only horizon changes add no
     // meshes or materials. Other cities remain byte-for-byte unchanged.
-    totalMeshes: 20_054,
-    enabledMeshes: 20_010,
+    // -> 20_052/20_008: remove the reviewed 40 km/h post and plate from the
+    // Dokki ramp where they stood inside the adjacent bridge carriageway.
+    // Shared sign materials and every other city's scene remain unchanged.
+    // -> 20_051/20_007: narrow marked gap 7-9 to its rear bay, removing the
+    // west-exit terrace proxy while retaining the slim building behind it.
+    // The removed proxy was outside the fixed spawn's active set.
+    totalMeshes: 20_051,
+    enabledMeshes: 20_007,
     activeMeshes: 2_883,
     materials: 375,
     drawCallsPerFrame: 0,

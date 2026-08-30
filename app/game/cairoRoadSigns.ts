@@ -36,6 +36,14 @@ const CAIRO_REGULATORY_SIGN_EXCLUSIONS = new Set([
 export const CAIRO_REMOVED_WEST_RAMP_SPEED_SIGN_REF_ID =
   "cairo-sixth-october-bridge-west-ramp@-664,318.2:w:limit40:repeater";
 
+export const CAIRO_REMOVED_DOKKI_RAMP_SPEED_SIGN_REF_ID =
+  "cairo-sixth-october-bridge-dokki-ramp@-610,312.5:nw:limit40:entry";
+
+const CAIRO_SPEED_LIMIT_SIGN_EXCLUSIONS = new Set([
+  CAIRO_REMOVED_WEST_RAMP_SPEED_SIGN_REF_ID,
+  CAIRO_REMOVED_DOKKI_RAMP_SPEED_SIGN_REF_ID,
+]);
+
 const stationKey = (placement: RegulatorySignPlacement): string =>
   placement.refId.replace(/:[lr]$/, "");
 
@@ -117,7 +125,6 @@ export function curateCairoSpeedLimitSigns(
   placements: readonly SpeedLimitSignPlacement[],
 ): readonly SpeedLimitSignPlacement[] {
   return placements.filter(
-    (placement) =>
-      placement.refId !== CAIRO_REMOVED_WEST_RAMP_SPEED_SIGN_REF_ID,
+    (placement) => !CAIRO_SPEED_LIMIT_SIGN_EXCLUSIONS.has(placement.refId),
   );
 }

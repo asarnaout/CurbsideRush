@@ -5535,7 +5535,14 @@ export const CAIRO_MARKED_GAP_ASSET_BLOCKS: readonly ProceduralBlock[] = [
   markedGapAsset(7, 6, -706.8, 302.8, 20.5, -86.35, "-z", "cairo-westbank"),
   markedGapAsset(7, 7, -678.8, 302.8, 14, -86.35, "-z", "cairo-corniche"),
   markedGapAsset(7, 8, -762.8, 358.8, 27.4, -95.6, "+z", "cairo-westbank"),
-  markedGapAsset(7, 9, -734.83, 359.1, 27.4, -95.6, "+z", "cairo-westbank"),
+  // Keep only the rear slim bay here. The former 27.4 m parcel selected a
+  // low, wide terrace whose cornice rose beside the west-exit deck and read
+  // as a building standing in the bridge carriageway.
+  {
+    ...markedGapAsset(7, 9, -735.805829, 369.052274, 7.4, -95.6, "+z", "cairo-westbank"),
+    // The surviving rear bay keeps the original parcel's reviewed finish.
+    material: "cairo-render-grey",
+  },
   markedGapAsset(7, 10, -706.8, 358.8, 27.4, -95.6, "-z", "cairo-westbank"),
   markedGapAsset(7, 11, -678.8, 358.8, 27.4, -95.6, "-z", "cairo-corniche"),
   markedGapAsset(10, 1, -584, -33.5, 14, -95.95, "+z", "cairo-corniche"),

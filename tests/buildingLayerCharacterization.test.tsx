@@ -503,7 +503,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // -> 1_366 / 514 (Sixth October bridge-side infill): 17 planned Cairo
     // assets are added; 13 survive this fixed quality profile and two of
     // those deterministic models carry authored roof clutter.
-    buildingInstanceCount: 1_366,
+    // -> 1_365 / 514: narrowing marked gap 7-9 removes only its intrusive
+    // terrace; the rear slim building and seeded roof-clutter set stay fixed.
+    buildingInstanceCount: 1_365,
     cairoRoofClutterInstanceCount: 514,
     storefrontSignMaterialCount: 0,
   },

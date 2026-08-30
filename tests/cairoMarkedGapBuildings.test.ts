@@ -56,6 +56,26 @@ describe("Cairo owner-marked gap buildings", () => {
     expect(carved.blocks).toEqual(CAIRO_MARKED_GAP_ASSET_BLOCKS);
   });
 
+  it("keeps the reviewed west-exit terrace out of the bridge approach", () => {
+    const blockId = "cairo-marked-gap-7-9";
+    const block = blocksById.get(blockId);
+    expect(block?.center.x).toBeCloseTo(-735.805829, 5);
+    expect(block?.center.z).toBeCloseTo(369.052274, 5);
+    expect(block?.size.x).toBe(7.4);
+
+    const buildings = plan.buildings.filter(
+      (building) => building.blockId === blockId,
+    );
+    expect(buildings).toHaveLength(1);
+    expect(buildings[0]).toMatchObject({
+      source: "asset-slot",
+      modelId: "cairo-block-slim",
+      material: "cairo-render-grey",
+    });
+    expect(buildings[0].x).toBeCloseTo(-737.066441, 5);
+    expect(buildings[0].z).toBeCloseTo(368.074594, 5);
+  });
+
   it("promotes marked procedural footprints without stacking new geometry", () => {
     for (const [blockId, promotion] of Object.entries(
       CAIRO_MARKED_GAP_ASSET_PROMOTIONS,

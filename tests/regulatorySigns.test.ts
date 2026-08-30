@@ -11,6 +11,7 @@ import {
   type RegulatorySignPlacement,
 } from "../app/game/regulatorySigns";
 import {
+  CAIRO_REMOVED_DOKKI_RAMP_SPEED_SIGN_REF_ID,
   CAIRO_REMOVED_WEST_RAMP_SPEED_SIGN_REF_ID,
   curateCairoRegulatorySigns,
   curateCairoSpeedLimitSigns,
@@ -904,20 +905,24 @@ describe("speed-limit signage", () => {
     ).toBe(true);
   });
 
-  it("removes only the reviewed 40 sign from the west bridge ramp", () => {
+  it("removes the reviewed 40 signs around the west bridge merge", () => {
     const pack = getMapPack("cairo-central-nile");
     const raw = signsFor(pack);
     const presented = presentedSignsFor(pack);
-    expect(raw.map((sign) => sign.refId)).toContain(
+    const reviewed = [
       CAIRO_REMOVED_WEST_RAMP_SPEED_SIGN_REF_ID,
+      CAIRO_REMOVED_DOKKI_RAMP_SPEED_SIGN_REF_ID,
+    ];
+    expect(raw.map((sign) => sign.refId)).toEqual(
+      expect.arrayContaining(reviewed),
     );
-    expect(presented.map((sign) => sign.refId)).not.toContain(
-      CAIRO_REMOVED_WEST_RAMP_SPEED_SIGN_REF_ID,
+    expect(presented.map((sign) => sign.refId)).toEqual(
+      expect.not.arrayContaining(reviewed),
     );
     expect(presented.map((sign) => sign.refId)).toContain(
       "cairo-sixth-october-bridge-west-entry@-788,330:e:limit40:repeater",
     );
-    expect(presented).toHaveLength(raw.length - 1);
+    expect(presented).toHaveLength(raw.length - reviewed.length);
   });
 
   it("posts every map, including the one that posts a single figure", () => {
