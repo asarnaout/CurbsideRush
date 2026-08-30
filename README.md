@@ -100,7 +100,7 @@ Four rings, with dependency arrows pointing only inward: `SideSwapApp.tsx` (view
 - `app/game/regulatorySigns.ts` works out where a city posts its one-way and speed-limit signs, from the same lane graph the rules run on, so what a street tells you can never disagree with what it fines you for. `app/game/speeding.ts` decides what a patrol will actually stop you for, and `app/game/trafficSignals.ts` picks which junctions carry an enforcement camera.
 - `public/map-data/` contains frozen, checksummed OpenStreetMap extracts kept for provenance and attribution. Nothing reads them at runtime; the drivable geography is authored separately.
 
-`docs/` documents the internals in depth — the layering rules, the geometry conventions, and the invariants that are easy to break silently. [`CLAUDE.md`](CLAUDE.md) indexes it and says which page answers which kind of change.
+`docs/` documents the internals in depth — the layering rules, the geometry conventions, and the invariants that are easy to break silently. [`AGENTS.md`](AGENTS.md) indexes it and says which page answers which kind of change.
 
 Curbside Rush is a game for entertainment, not legal advice or driver-licensing instruction. Each country's road rules are tied to dated official sources recorded in `app/game/content.ts`.
 
