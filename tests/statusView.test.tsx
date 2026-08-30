@@ -21,7 +21,7 @@ describe("Status view", () => {
       "true",
     );
     expect(screen.getByText("Start a career to build your stats.")).toBeVisible();
-    expect(screen.getByLabelText("0.0 miles driven")).toBeVisible();
+    expect(screen.getByLabelText("0 miles driven")).toBeVisible();
     expect(screen.getByText("Deliveries")).toBeVisible();
     expect(screen.getByText("Rideshares")).toBeVisible();
     expect(screen.getByText("Tickets")).toBeVisible();
@@ -44,7 +44,7 @@ describe("Status view", () => {
     };
     render(<StatusView freeDriveStats={stats} career={null} initialMode="free" />);
 
-    expect(screen.getByLabelText("1.0 miles driven")).toBeVisible();
+    expect(screen.getByLabelText("1 miles driven")).toBeVisible();
     expect(screen.getByText("12")).toBeVisible();
     expect(screen.getByText("8")).toBeVisible();
     expect(screen.getByText("3")).toBeVisible();

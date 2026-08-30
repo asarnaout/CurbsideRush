@@ -168,16 +168,27 @@ const NYC = getDestinationProfile("us-nyc");
  * Opens a New York free drive holding `wallet` dollars over `litres` of fuel,
  * with the car parked at the first pump on the map.
  */
-const driveToThePumpsWith = async (wallet: number, litres: number) => {
+const driveToThePumpsWith = async (
+  wallet: number,
+  litres: number,
+  distanceDrivenM = 0,
+) => {
   const start = createDefaultProgress();
+  const prepared = setFuel(
+    debit(start, "us", start.walletByCountry.us - wallet),
+    "us",
+    litres,
+  );
   window.localStorage.setItem(
     PROGRESS_STORAGE_KEY,
     JSON.stringify(
-      setFuel(
-        debit(start, "us", start.walletByCountry.us - wallet),
-        "us",
-        litres,
-      ),
+      {
+        ...prepared,
+        freeDriveStats: {
+          ...prepared.freeDriveStats,
+          distanceDrivenM,
+        },
+      },
     ),
   );
   render(<SideSwapApp />);
@@ -324,15 +335,15 @@ describe("free-drive odometer persistence", () => {
   });
 
   it("flushes on pagehide and reloads the saved odometer", async () => {
-    await driveToThePumpsWith(20, 10);
+    await driveToThePumpsWith(20, 10, 1_400);
     for (let step = 0; step < 8; step += 1) moveThirtyMetres();
     window.dispatchEvent(new Event("pagehide"));
-    expect(storedDistance()).toBe(240);
+    expect(storedDistance()).toBe(1_640);
 
     cleanup();
     render(<SideSwapApp />);
     await screen.findByRole("heading", { name: /Rise and Grind/i });
     fireEvent.click(screen.getByRole("button", { name: /^Status$/i }));
-    expect(await screen.findByLabelText("0.1 miles driven")).toBeVisible();
+    expect(await screen.findByLabelText("1 miles driven")).toBeVisible();
   });
 });

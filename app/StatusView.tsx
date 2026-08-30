@@ -19,8 +19,7 @@ type StatusMode = "free" | "career";
 
 const countFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const milesFormatter = new Intl.NumberFormat("en-US", {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
+  maximumFractionDigits: 0,
 });
 
 function StatusGlyph({
