@@ -453,6 +453,225 @@ function buildDowntownWedgeBuilding(
   ctx.staticSceneryFreeze.push(root);
 }
 
+function createLionEllipsoid(
+  scene: Scene,
+  name: string,
+  position: Vector3,
+  scale: Vector3,
+  material: StandardMaterial,
+): Mesh {
+  const mesh = MeshBuilder.CreateIcoSphere(
+    name,
+    { radius: 1, subdivisions: 2 },
+    scene,
+  );
+  mesh.position.copyFrom(position);
+  mesh.scaling.copyFrom(scale);
+  setMeshMaterial(mesh, material);
+  return mesh;
+}
+
+/**
+ * One reusable, outward-facing Qasr El-Nil lion. The original statues are
+ * recumbent male lions by Henri Alfred Jacquemart: long forelegs and paws on
+ * the plinth, a raised head inside a heavy mane, folded haunches and a tail
+ * against the flank. Those silhouette cues matter far more from a moving car
+ * than small surface ornament, so this is a compact procedural sculpture
+ * rather than the featureless bronze box it replaces.
+ *
+ * Local +X is the lion's gaze. The bridge builder rotates the two endpoint
+ * pairs so every lion faces out toward its approach, as the real four do.
+ */
+function buildQasrElNilLionMaster(
+  scene: Scene,
+  landmarkId: string,
+  material: StandardMaterial,
+): Mesh {
+  const parts: Mesh[] = [];
+  const ellipsoid = (
+    name: string,
+    position: Vector3,
+    scale: Vector3,
+  ): Mesh => {
+    const mesh = createLionEllipsoid(
+      scene,
+      `${landmarkId}-lion-source-${name}`,
+      position,
+      scale,
+      material,
+    );
+    parts.push(mesh);
+    return mesh;
+  };
+  const limb = (
+    name: string,
+    position: Vector3,
+    lengthM: number,
+    diameterTopM: number,
+    diameterBottomM: number,
+  ): Mesh => {
+    const mesh = createCylinder(
+      scene,
+      `${landmarkId}-lion-source-${name}`,
+      {
+        height: lengthM,
+        diameterTop: diameterTopM,
+        diameterBottom: diameterBottomM,
+        tessellation: 10,
+      },
+      position,
+      material,
+    );
+    // Babylon cylinders grow along local Y; the reclining forelegs point in
+    // the lion's +X gaze direction.
+    mesh.rotation.z = -Math.PI / 2;
+    parts.push(mesh);
+    return mesh;
+  };
+
+  // Torso and seated rear quarters. Overlapping asymmetrical masses avoid the
+  // toy-like capsule silhouette of the previous single box.
+  ellipsoid("body", new Vector3(-0.18, 1.76, 0), new Vector3(1.12, 0.56, 0.54));
+  ellipsoid("haunch-left", new Vector3(-0.86, 1.68, 0.29), new Vector3(0.64, 0.68, 0.46));
+  ellipsoid("haunch-right", new Vector3(-0.86, 1.68, -0.29), new Vector3(0.64, 0.68, 0.46));
+  ellipsoid("chest", new Vector3(0.5, 1.98, 0), new Vector3(0.53, 0.82, 0.58));
+
+  // Jacquemart's lions read first by their mane. The broad core and lower
+  // cheek tufts leave a broken, leonine ruff instead of a spherical collar.
+  ellipsoid("mane", new Vector3(0.61, 2.49, 0), new Vector3(0.67, 0.82, 0.7));
+  for (const [name, position, scale] of [
+    ["mane-crown", new Vector3(0.54, 2.99, 0), new Vector3(0.4, 0.34, 0.5)],
+    ["mane-left", new Vector3(0.58, 2.45, 0.5), new Vector3(0.39, 0.52, 0.34)],
+    ["mane-right", new Vector3(0.58, 2.45, -0.5), new Vector3(0.39, 0.52, 0.34)],
+    ["mane-bib", new Vector3(0.48, 2.05, 0), new Vector3(0.46, 0.42, 0.55)],
+  ] as const) {
+    ellipsoid(name, position, scale);
+  }
+
+  // Head, paired muzzle pads and chin build an unmistakably feline face even
+  // in profile. The brows and nose project forward enough to catch highlights
+  // from Cairo's bridge lamps at night.
+  ellipsoid("head", new Vector3(0.96, 2.74, 0), new Vector3(0.49, 0.52, 0.43));
+  ellipsoid("muzzle-left", new Vector3(1.31, 2.58, 0.14), new Vector3(0.34, 0.24, 0.23));
+  ellipsoid("muzzle-right", new Vector3(1.31, 2.58, -0.14), new Vector3(0.34, 0.24, 0.23));
+  ellipsoid("chin", new Vector3(1.26, 2.39, 0), new Vector3(0.3, 0.2, 0.26));
+  ellipsoid("nose", new Vector3(1.58, 2.64, 0), new Vector3(0.14, 0.11, 0.18));
+  for (const side of [-1, 1]) {
+    ellipsoid(
+      `brow-${side}`,
+      new Vector3(1.27, 2.85, side * 0.27),
+      new Vector3(0.19, 0.1, 0.11),
+    );
+    const ear = createCylinder(
+      scene,
+      `${landmarkId}-lion-source-ear-${side}`,
+      {
+        height: 0.35,
+        diameterTop: 0.06,
+        diameterBottom: 0.3,
+        tessellation: 8,
+      },
+      new Vector3(0.78, 3.18, side * 0.31),
+      material,
+    );
+    ear.rotation.x = side * 0.18;
+    ear.rotation.z = -0.16;
+    parts.push(ear);
+  }
+
+  // Long, parallel forelegs and broad paws are the pose's strongest cue from
+  // the driver's low eye line. Small rear paws close the otherwise abrupt
+  // transition from haunch to stone.
+  for (const side of [-1, 1]) {
+    limb(
+      `foreleg-${side}`,
+      new Vector3(0.78, 1.39, side * 0.27),
+      1.32,
+      0.28,
+      0.36,
+    );
+    ellipsoid(
+      `forepaw-${side}`,
+      new Vector3(1.48, 1.31, side * 0.27),
+      new Vector3(0.38, 0.22, 0.29),
+    );
+    ellipsoid(
+      `hindpaw-${side}`,
+      new Vector3(-1.18, 1.3, side * 0.37),
+      new Vector3(0.43, 0.21, 0.3),
+    );
+  }
+
+  const tail = MeshBuilder.CreateTube(
+    `${landmarkId}-lion-source-tail`,
+    {
+      path: [
+        new Vector3(-1.13, 1.9, 0.48),
+        new Vector3(-1.42, 1.68, 0.54),
+        new Vector3(-1.4, 1.39, 0.49),
+        new Vector3(-1.18, 1.28, 0.39),
+        new Vector3(-0.98, 1.44, 0.34),
+      ],
+      radius: 0.075,
+      tessellation: 8,
+      cap: Mesh.CAP_ALL,
+    },
+    scene,
+  );
+  setMeshMaterial(tail, material);
+  parts.push(tail);
+  ellipsoid("tail-tuft", new Vector3(-0.93, 1.5, 0.32), new Vector3(0.2, 0.25, 0.16));
+
+  for (const part of parts) part.computeWorldMatrix(true);
+  const master = Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+  if (!master) {
+    throw new Error(`${landmarkId}: failed to assemble Qasr El-Nil lion`);
+  }
+  master.name = `${landmarkId}-lion-master`;
+  master.isVisible = false;
+  master.isPickable = false;
+  return master;
+}
+
+/** The real sculptures sit on tall, stepped pale-stone approach plinths. */
+function buildQasrElNilLionPlinthMaster(
+  scene: Scene,
+  landmarkId: string,
+  material: StandardMaterial,
+): Mesh {
+  const parts = [
+    createBox(
+      scene,
+      `${landmarkId}-lion-plinth-source-base`,
+      { width: 3.35, height: 0.24, depth: 2.05 },
+      new Vector3(0, 0.12, 0),
+      material,
+    ),
+    createBox(
+      scene,
+      `${landmarkId}-lion-plinth-source-shaft`,
+      { width: 2.82, height: 0.82, depth: 1.58 },
+      new Vector3(0, 0.65, 0),
+      material,
+    ),
+    createBox(
+      scene,
+      `${landmarkId}-lion-plinth-source-cap`,
+      { width: 3.12, height: 0.22, depth: 1.84 },
+      new Vector3(0, 1.17, 0),
+      material,
+    ),
+  ];
+  const master = Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+  if (!master) {
+    throw new Error(`${landmarkId}: failed to assemble Qasr El-Nil lion plinth`);
+  }
+  master.name = `${landmarkId}-lion-plinth-master`;
+  master.isVisible = false;
+  master.isPickable = false;
+  return master;
+}
+
 export interface CairoLandmarkCtx {
   readonly scene: Scene;
   readonly visualPalette: MapVisualPalette;
@@ -1472,34 +1691,49 @@ export function buildCairoLandmark(
       }
     }
     if (landmark.id === "cairo-qasr-el-nil-bridge") {
+      const lionBronze = makeMaterial(
+        scene,
+        `${landmark.id}-aged-lion-bronze`,
+        new Color3(0.28, 0.2, 0.105),
+      );
+      lionBronze.specularColor = new Color3(0.24, 0.2, 0.12);
+      lionBronze.specularPower = 48;
+      const lionMaster = buildQasrElNilLionMaster(
+        scene,
+        landmark.id,
+        lionBronze,
+      );
+      const plinthMaster = buildQasrElNilLionPlinthMaster(
+        scene,
+        landmark.id,
+        paleStone,
+      );
       for (const end of [-1, 1]) {
         for (const side of [-1, 1]) {
-          createBox(
-            scene,
+          const position = new Vector3(
+            end * (length / 2 - 2.2),
+            0,
+            side * (width / 2 + 1.15),
+          );
+          const plinth = plinthMaster.createInstance(
             `${landmark.id}-lion-plinth-${end}-${side}`,
-            { width: 1.5, height: 1.1, depth: 1.5 },
-            new Vector3(
-              end * (length / 2 - 2.2),
-              0.55,
-              side * (width / 2 + 0.8),
-            ),
-            paleStone,
-            root,
           );
-          createBox(
-            scene,
+          plinth.parent = root;
+          plinth.position.copyFrom(position);
+          plinth.isPickable = false;
+          ctx.staticSceneryFreeze.push(plinth);
+
+          const lion = lionMaster.createInstance(
             `${landmark.id}-lion-${end}-${side}`,
-            { width: 1.05, height: 0.72, depth: 1.65 },
-            new Vector3(
-              end * (length / 2 - 2.2),
-              1.45,
-              side * (width / 2 + 0.8),
-            ),
-            bronze,
-            root,
           );
+          lion.parent = root;
+          lion.position.copyFrom(position);
+          lion.rotation.y = end < 0 ? Math.PI : 0;
+          lion.isPickable = false;
+          ctx.staticSceneryFreeze.push(lion);
         }
       }
+      lionBronze.freeze();
     }
     return true;
   }
