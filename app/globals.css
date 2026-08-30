@@ -468,7 +468,7 @@ canvas:focus-visible {
   display: flex;
   justify-content: space-between;
   gap: 24px;
-  padding: 25px max(40px, calc((100vw - 1340px) / 2));
+  padding: 25px max(32px, calc((100vw - var(--wide-page-max)) / 2));
   border-top: 1px solid var(--hud-line);
   color: var(--hud-cream-40);
   font-size: 11px;
