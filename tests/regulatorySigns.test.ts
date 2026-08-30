@@ -960,13 +960,17 @@ describe("speed-limit signage", () => {
     // (Kawabata-dōri, Kawasemi-dōri), plus new junctions on five existing
     // roads — real new signed road length and junction density, not a
     // regression, the same class of growth every earlier bump documents.
+    // 356 -> 380 (Sakuragawa Urban Expressway): 23 new signed surfaces across
+    // roughly 4.3 km of trunk, carriers, ramps and flat auxiliary mouths
+    // (measured at 376 signs). Geometry/elevation checks still keep every sign
+    // beside its own carriageway and outside the driven envelope.
     const nyc = signsFor(nycPack());
     expect(nyc.length).toBeLessThan(nycPlacements().length);
     expect(nyc.length).toBeLessThanOrEqual(240);
     for (const pack of MAP_PACKS) {
       const budget =
         pack.id === "tokyo-setagaya"
-          ? 356
+          ? 380
           : pack.id === "nyc-upper-west-side" ||
             pack.id === "cairo-central-nile" ||
             pack.id === "london-south-kensington"

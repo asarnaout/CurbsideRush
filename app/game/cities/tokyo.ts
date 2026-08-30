@@ -12,7 +12,20 @@ import type {
   TrafficControlInstallation,
   WorldPoint,
 } from "../types";
-import { carveBlocksForRailCorridors } from "../geometry/railCorridor";
+import {
+  carveBlocksForLinearCorridors,
+  carveBlocksForRailCorridors,
+} from "../geometry/railCorridor";
+import {
+  offsetOpenRoadPolyline,
+  sampleOpenRoadCurve,
+  type OpenRoadCurveGeometry,
+  type OpenRoadCurveOptions,
+} from "../geometry/openRoadCurve";
+import {
+  createElevatedRoadDeckHeadroomQuery,
+  type ElevatedRoadDeckHeadroomQuery,
+} from "../geometry/elevatedRoadGeometry";
 import { CONNECTOR_BLEND_RUN_M, buildLaneTrueGeometry } from "../laneConnectors";
 import { buildingSetDepthM, isBuildingSetId } from "../buildingSets";
 import { hashStringToSeed, PAVED_SIDEWALK_WIDTH_M } from "../visuals";
@@ -254,6 +267,20 @@ interface TokyoRoadSpec {
   readonly speedLimitKmh: number;
   readonly oneWay?: "forward" | "reverse";
   readonly surfaceType?: "standard" | "shared_space";
+  /** Height at each authored topology knot. Omitted roads remain at grade. */
+  readonly elevationsM?: readonly number[];
+  /**
+   * Elevated expressway alignments resolve one canonical C1 curve which is
+   * then reused by lanes, asphalt, paint, deck, barriers and both maps.
+   */
+  readonly openCurve?: {
+    readonly handleRatio?: number;
+    readonly tangentByNodeId?: Readonly<
+      Record<string, { readonly x: number; readonly z: number }>
+    >;
+  };
+  /** Physical/visual depth of each elevated crash-parapet edge. */
+  readonly parapetDepthM?: number;
   /** Authored pavement width; omitted takes the paved-map 3.4 m default,
    * which is right for the wide arterials/collectors (>= 8 m carriageway).
    * Narrower roads (locals, shared-space, the yokochō) author an explicit
@@ -273,7 +300,13 @@ const tokyoRoad = (
 
 interface TokyoConnectorMovement {
   readonly fromRoadId: string;
+  readonly fromDirection?: "forward" | "reverse";
+  readonly fromLaneIndices?: readonly number[];
   readonly toRoadIds: readonly string[];
+  readonly toDirections?: Readonly<
+    Record<string, readonly ("forward" | "reverse")[]>
+  >;
+  readonly toLaneIndices?: Readonly<Record<string, readonly number[]>>;
 }
 
 interface TokyoJunctionConnectorSpec {
@@ -946,6 +979,98 @@ const jpEastNodes = {
   hkdXKeyaki: node("jp-hkd-x-keyaki", 930, 900),
 };
 
+// --- Sakuragawa Urban Expressway ------------------------------------------
+// A separate 10.5 m road level follows the central Setagaya/Higashi axis,
+// bows south to cross the Sakuragawa away from the existing at-grade Sakura
+// bridge, then returns to the east-bank arterial. Ground merge nodes are
+// deliberately outside ordinary junction boxes. Each auxiliary mouth starts
+// on the LEFT/nearside kerb for its legal direction (Japan is left-driving),
+// stays flat through the taper and only then reaches a profiled ramp.
+const jpSakuragawaExpresswayNodes = {
+  westExitGround: node("jp-sx-west-exit-ground", -1190, -168),
+  westEntryGround: node("jp-sx-west-entry-ground", -1160, -168),
+  westEntryTaper: node("jp-sx-west-entry-taper", -1145, -153),
+  westEntryLift: node("jp-sx-west-entry-lift", -1125, -148),
+  westEntryMid: node("jp-sx-west-entry-mid", -1095, -145),
+  westEntryClear: node("jp-sx-west-entry-clear", -1065, -150),
+  westExitClear: node("jp-sx-west-exit-clear", -1065, -188),
+  westExitMid: node("jp-sx-west-exit-mid", -1095, -192),
+  westExitLift: node("jp-sx-west-exit-lift", -1125, -188),
+  westExitTaper: node("jp-sx-west-exit-taper", -1150, -183),
+  westBraid: node("jp-sx-west-braid", -1035, -168),
+  westDeckEdge: node("jp-sx-west-deck-edge", -960, -168),
+  westCrest: node("jp-sx-west-crest", -900, -168),
+
+  kanpachiExitGround: node("jp-sx-kanpachi-exit-ground", -700, -330),
+  kanpachiEntryGround: node("jp-sx-kanpachi-entry-ground", -700, -250),
+  kanpachiEntryTaper: node("jp-sx-kanpachi-entry-taper", -716, -235),
+  kanpachiEntryLift: node("jp-sx-kanpachi-entry-lift", -718, -215),
+  kanpachiEntryClear: node("jp-sx-kanpachi-entry-clear", -720, -175),
+  kanpachiEntryBend: node("jp-sx-kanpachi-entry-bend", -700, -145),
+  kanpachiEntryThroat: node("jp-sx-kanpachi-entry-throat", -670, -150),
+  kanpachiEntryMerge: node("jp-sx-kanpachi-entry-merge", -640, -168),
+  kanpachiExitMerge: node("jp-sx-kanpachi-exit-merge", -760, -168),
+  kanpachiExitThroat: node("jp-sx-kanpachi-exit-throat", -800, -168),
+  kanpachiExitBend: node("jp-sx-kanpachi-exit-bend", -835, -195),
+  kanpachiExitClear: node("jp-sx-kanpachi-exit-clear", -835, -240),
+  kanpachiExitLift: node("jp-sx-kanpachi-exit-lift", -800, -285),
+  kanpachiExitTaper: node("jp-sx-kanpachi-exit-taper", -716, -300),
+
+  chuoExitGround: node("jp-sx-chuo-exit-ground", 440, -430),
+  chuoEntryGround: node("jp-sx-chuo-entry-ground", 440, -300),
+  chuoEntryTaper: node("jp-sx-chuo-entry-taper", 424, -280),
+  chuoEntryLift: node("jp-sx-chuo-entry-lift", 424, -250),
+  chuoEntryClear: node("jp-sx-chuo-entry-clear", 420, -215),
+  chuoEntryBend: node("jp-sx-chuo-entry-bend", 445, -190),
+  chuoEntryThroat: node("jp-sx-chuo-entry-throat", 475, -182),
+  chuoEntryMerge: node("jp-sx-chuo-entry-merge", 500, -185),
+  chuoExitMerge: node("jp-sx-chuo-exit-merge", 360, -168),
+  chuoExitThroat: node("jp-sx-chuo-exit-throat", 320, -168),
+  chuoExitCurveA: node("jp-sx-chuo-exit-curve-a", 260, -195),
+  chuoExitCurveB: node("jp-sx-chuo-exit-curve-b", 260, -245),
+  chuoExitCurveC: node("jp-sx-chuo-exit-curve-c", 310, -290),
+  chuoExitClear: node("jp-sx-chuo-exit-clear", 390, -330),
+  chuoExitLift: node("jp-sx-chuo-exit-lift", 456, -370),
+  chuoExitTaper: node("jp-sx-chuo-exit-taper", 450, -405),
+
+  riverWestShore: node("jp-sx-river-west-shore", 610, -260),
+  riverEastShore: node("jp-sx-river-east-shore", 725, -260),
+  riverEastBend: node("jp-sx-river-east-bend", 742, -252),
+  kawagishiExitMerge: node("jp-sx-kawagishi-exit-merge", 755, -230),
+  kawagishiEntryMerge: node("jp-sx-kawagishi-entry-merge", 790, -184),
+  kawagishiExitThroat: node("jp-sx-kawagishi-exit-throat", 768, -190),
+  kawagishiExitCurve: node("jp-sx-kawagishi-exit-curve", 768, -150),
+  kawagishiExitClear: node("jp-sx-kawagishi-exit-clear", 758, -120),
+  kawagishiExitLift: node("jp-sx-kawagishi-exit-lift", 754, -92),
+  kawagishiExitTaper: node("jp-sx-kawagishi-exit-taper", 758, -72),
+  kawagishiExitGround: node("jp-sx-kawagishi-exit-ground", 767.907, -60),
+  kawagishiEntryGround: node("jp-sx-kawagishi-entry-ground", 767.3, -35),
+  kawagishiEntryTaper: node("jp-sx-kawagishi-entry-taper", 785, -70),
+  kawagishiEntryLift: node("jp-sx-kawagishi-entry-lift", 805, -90),
+  kawagishiEntryClear: node("jp-sx-kawagishi-entry-clear", 830, -115),
+  kawagishiEntryBend: node("jp-sx-kawagishi-entry-bend", 840, -150),
+  kawagishiEntryThroat: node("jp-sx-kawagishi-entry-throat", 825, -180),
+  eastReturn: node("jp-sx-east-return", 860, -168),
+  eastCrest: node("jp-sx-east-crest", 930, -168),
+
+  eastDeckEdge: node("jp-sx-east-deck-edge", 970, -168),
+  eastBraid: node("jp-sx-east-braid", 1040, -168),
+  eastEntryClear: node("jp-sx-east-entry-clear", 1070, -172),
+  eastEntryMid: node("jp-sx-east-entry-mid", 1090, -185),
+  eastEntryLift: node("jp-sx-east-entry-lift", 1110, -184),
+  eastEntryTaper: node("jp-sx-east-entry-taper", 1125, -177),
+  eastEntryGround: node("jp-sx-east-entry-ground", 1140, -168),
+  eastExitClear: node("jp-sx-east-exit-clear", 1075, -168),
+  eastExitMid: node("jp-sx-east-exit-mid", 1105, -150),
+  eastExitLift: node("jp-sx-east-exit-lift", 1130, -150),
+  eastExitTaper: node("jp-sx-east-exit-taper", 1150, -155),
+  eastExitGround: node("jp-sx-east-exit-ground", 1180, -168),
+};
+
+const TOKYO_SAKURAGAWA_EXPRESSWAY_NODE_IDS = new Set(
+  Object.values(jpSakuragawaExpresswayNodes).map((item) => item.id),
+);
+
 // --- Ring + downtown skeleton (§8.4, west-of-river subset) -----------------
 const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   // Ascending z the whole way, every district's rung/collector crossings
@@ -974,7 +1099,7 @@ const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   // position/index) — Region E's own Sazanka-dōri reuses it directly as a
   // new THIRD arm on its existing 2-arm connector instead (below), needing
   // no insertion into this list at all.
-  tokyoRoad("jp-kanpachi-dori", "Kanpachi-dōri", ["jp-kp-s", "jp-ys-r1-kp", "jp-ys-r2-kp", "jp-ys-coll-kp", "jp-ys-r3-kp", "jp-ys-r4-kp", "jp-kp-minami", "jp-ys-r5-kp", "jp-ys-r6-kp", "jp-kanpachi-x-hiiragi", "jp-kp-setagaya", "jp-ni-r1-kp", "jp-ni-r2-kp", "jp-ni-coll-kp", "jp-ni-r3-kp", "jp-ni-r4-kp", "jp-ni-r5-kp", "jp-kp-koshu", "jp-mn-r6-kp", "jp-mn-r1-kp", "jp-mn-r2-kp", "jp-mn-coll-kp", "jp-mn-r4-kp", "jp-mn-r5-kp", "jp-mn-r7-kp", "jp-kp-n"], 2, 11, 50),
+  tokyoRoad("jp-kanpachi-dori", "Kanpachi-dōri", ["jp-kp-s", "jp-ys-r1-kp", "jp-ys-r2-kp", "jp-ys-coll-kp", "jp-ys-r3-kp", "jp-ys-r4-kp", "jp-kp-minami", "jp-ys-r5-kp", "jp-ys-r6-kp", "jp-sx-kanpachi-exit-ground", "jp-kanpachi-x-hiiragi", "jp-sx-kanpachi-entry-ground", "jp-kp-setagaya", "jp-ni-r1-kp", "jp-ni-r2-kp", "jp-ni-coll-kp", "jp-ni-r3-kp", "jp-ni-r4-kp", "jp-ni-r5-kp", "jp-kp-koshu", "jp-mn-r6-kp", "jp-mn-r1-kp", "jp-mn-r2-kp", "jp-mn-coll-kp", "jp-mn-r4-kp", "jp-mn-r5-kp", "jp-mn-r7-kp", "jp-kp-n"], 2, 11, 50),
   // "jp-sangen-x-ekimae-nishi" (Tokyo authenticity plan P4) is a NEW node
   // spliced between jp-ni-r4-sg and jp-sg-koshu — the 300 m gap Region B's
   // shopping street needed a real tee into. This renumbers every later
@@ -1026,7 +1151,7 @@ const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   // jp-chuo-x-koshu — keep their own slugs unchanged, confirmed directly:
   // neither one's own immediate neighbour moves).
   tokyoRoad("jp-miyanosaka-kita-dori", "Miyanosaka Kita-dōri", ["jp-nk-n", "jp-kp-n", "jp-sg-n", "jp-hanamizuki-n", "jp-chuo-n", "jp-kawabata-n"], 2, 7, 40),
-  tokyoRoad("jp-setagaya-dori-west", "Setagaya-dōri", ["jp-nk-setagaya", "jp-kp-setagaya", "jp-ss-w"], 2, 10, 50),
+  tokyoRoad("jp-setagaya-dori-west", "Setagaya-dōri", ["jp-nk-setagaya", "jp-sx-west-exit-ground", "jp-sx-west-entry-ground", "jp-kp-setagaya", "jp-ss-w"], 2, 10, 50),
   // "jp-koshu-x-nakasuji" (Tokyo authenticity plan P4) is a NEW node spliced
   // into this road's own LAST segment (jp-sg-koshu -> jp-chuo-x-koshu) — the
   // "insert past the last-referenced segment index" case, so nothing
@@ -1067,7 +1192,7 @@ const TOKYO_SKELETON_SPECS: readonly TokyoRoadSpec[] = [
   // ran entirely north of z=-800), so what was segment 1 (chuo-x-minami-kaido
   // -> chuo-x-setagaya) shifts to segment 2; grep confirmed nothing named it
   // by distance.
-  tokyoRoad("jp-chuo-dori-south", "Chūō-dōri", ["jp-chuo-x-minamimachi", "jp-chuo-x-minami-kaido", "jp-chuo-x-setagaya"], 2, 10, 50),
+  tokyoRoad("jp-chuo-dori-south", "Chūō-dōri", ["jp-chuo-x-minamimachi", "jp-chuo-x-minami-kaido", "jp-sx-chuo-exit-ground", "jp-sx-chuo-entry-ground", "jp-chuo-x-setagaya"], 2, 10, 50),
   tokyoRoad("jp-chuo-dori", "Chūō-dōri", ["jp-chuo-x-setagaya", "jp-chuo-x-minami-dori", "jp-chuo-x-nakamise", "jp-chuo-x-ekimae", "jp-chuo-x-kita-dori"], 4, 13.6, 50),
   // "jp-chuo-x-kawasemi" (Tokyo authenticity plan P8, Region F) is a NEW
   // node spliced between jp-chuo-x-koshu and jp-chuo-n — see jpKawabataNodes
@@ -1291,6 +1416,259 @@ const TOKYO_RIVER_SPECS: readonly TokyoRoadSpec[] = [
   tokyoRoad("jp-tsuki-ohashi", "Tsuki-ōhashi", ["jp-chuo-x-koshu", "jp-kawate-x-koshu", "jp-kawagishi-x-koshu", "jp-khh-w"], 2, 12, 50),
 ];
 
+// --- Sakuragawa Urban Expressway -----------------------------------------
+// A useful cross-city route, not a decorative edge span: the four-lane trunk
+// runs between the western and eastern ring roads, serves three intermediate
+// access sites, and crosses the Sakuragawa on its own high alignment. Each
+// direction has five legal entries/exits. The two terminal braids are short
+// two-way carriers; every intermediate ramp is one-way and attaches only to
+// the outer/nearside mainline lane for left-hand traffic.
+const TOKYO_SAKURAGAWA_EXPRESSWAY_PREFIX = "jp-sakuragawa-urban-expressway";
+const sxId = (suffix: string): string =>
+  `${TOKYO_SAKURAGAWA_EXPRESSWAY_PREFIX}-${suffix}`;
+
+const sakuragawaElevatedRoad = (
+  suffix: string,
+  name: string,
+  nodeIds: readonly string[],
+  laneCount: 1 | 2 | 4,
+  widthM: number,
+  elevationsM: readonly number[],
+  options: {
+    readonly oneWay?: "forward" | "reverse";
+    readonly handleRatio?: number;
+    readonly tangentByNodeId?: Readonly<
+      Record<string, { readonly x: number; readonly z: number }>
+    >;
+  } = {},
+): TokyoRoadSpec =>
+  tokyoRoad(sxId(suffix), name, nodeIds, laneCount, widthM, 60, {
+    ...(options.oneWay ? { oneWay: options.oneWay } : {}),
+    elevationsM,
+    sidewalkWidthM: 0,
+    parapetDepthM: 0.36,
+    openCurve: {
+      handleRatio: options.handleRatio ?? 0.34,
+      ...(options.tangentByNodeId
+        ? { tangentByNodeId: options.tangentByNodeId }
+        : {}),
+    },
+  });
+
+const sakuragawaSlipRoad = (
+  suffix: string,
+  name: string,
+  nodeIds: readonly string[],
+): TokyoRoadSpec =>
+  tokyoRoad(sxId(suffix), name, nodeIds, 1, 5.8, 60, {
+    oneWay: "forward",
+    // Flat auxiliary mouths remain part of the street: keep a narrow real
+    // pavement here, then end it at the barrier where the grade begins.
+    sidewalkWidthM: 1.4,
+    openCurve: { handleRatio: 0.3 },
+  });
+
+const TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS: readonly TokyoRoadSpec[] = [
+  sakuragawaElevatedRoad(
+    "mainline",
+    "Sakuragawa Urban Expressway",
+    [
+      "jp-sx-west-crest",
+      "jp-sx-kanpachi-exit-merge",
+      "jp-sx-kanpachi-entry-merge",
+      "jp-sx-chuo-exit-merge",
+      "jp-sx-chuo-entry-merge",
+      "jp-sx-river-west-shore",
+      "jp-sx-river-east-shore",
+      "jp-sx-river-east-bend",
+      "jp-sx-kawagishi-exit-merge",
+      "jp-sx-kawagishi-entry-merge",
+      "jp-sx-east-return",
+      "jp-sx-east-crest",
+    ],
+    4,
+    14,
+    [10.5, 10.5, 10.5, 10.5, 10.5, 10.5, 10.5, 10.5, 10.5, 10.5, 10.5, 10.5],
+    {
+      handleRatio: 0.48,
+      tangentByNodeId: {
+        "jp-sx-west-crest": { x: 1, z: 0 },
+        "jp-sx-kanpachi-exit-merge": { x: 1, z: 0 },
+        "jp-sx-kanpachi-entry-merge": { x: 1, z: 0 },
+        "jp-sx-chuo-exit-merge": { x: 1, z: 0 },
+        "jp-sx-river-west-shore": { x: 1, z: 0 },
+        "jp-sx-east-return": { x: 1, z: 0 },
+        "jp-sx-east-crest": { x: 1, z: 0 },
+      },
+    },
+  ),
+
+  // Western ring terminal: opposing ramps meet a raised two-way braid, so
+  // neither movement crosses the other direction at grade.
+  sakuragawaElevatedRoad(
+    "west-carrier",
+    "Sakuragawa Expressway West Link",
+    ["jp-sx-west-crest", "jp-sx-west-deck-edge", "jp-sx-west-braid"],
+    2,
+    7.5,
+    [10.5, 10.5, 7.5],
+    { tangentByNodeId: { "jp-sx-west-crest": { x: -1, z: 0 } } },
+  ),
+  sakuragawaElevatedRoad(
+    "west-entry-ramp",
+    "Sakuragawa Expressway West Entry",
+    ["jp-sx-west-entry-taper", "jp-sx-west-entry-lift", "jp-sx-west-entry-mid", "jp-sx-west-entry-clear", "jp-sx-west-braid"],
+    1,
+    5.8,
+    [0, 1.3, 3.25, 5.2, 7.5],
+    { oneWay: "forward", handleRatio: 0.46 },
+  ),
+  sakuragawaSlipRoad(
+    "west-entry-slip",
+    "Sakuragawa Expressway West Entry Slip",
+    ["jp-sx-west-entry-ground", "jp-sx-west-entry-taper"],
+  ),
+  sakuragawaElevatedRoad(
+    "west-exit-ramp",
+    "Sakuragawa Expressway West Exit",
+    ["jp-sx-west-braid", "jp-sx-west-exit-clear", "jp-sx-west-exit-mid", "jp-sx-west-exit-lift", "jp-sx-west-exit-taper"],
+    1,
+    5.8,
+    [7.5, 5.3, 3.45, 1.6, 0],
+    { oneWay: "forward", handleRatio: 0.46 },
+  ),
+  sakuragawaSlipRoad(
+    "west-exit-slip",
+    "Sakuragawa Expressway West Exit Slip",
+    ["jp-sx-west-exit-taper", "jp-sx-west-exit-ground"],
+  ),
+
+  sakuragawaElevatedRoad(
+    "kanpachi-entry-ramp",
+    "Sakuragawa Expressway Kanpachi Entry",
+    ["jp-sx-kanpachi-entry-taper", "jp-sx-kanpachi-entry-lift", "jp-sx-kanpachi-entry-clear", "jp-sx-kanpachi-entry-bend", "jp-sx-kanpachi-entry-throat", "jp-sx-kanpachi-entry-merge"],
+    1,
+    5.8,
+    [0, 1.5, 4.6, 7.5, 9.8, 10.5],
+    { oneWay: "forward", handleRatio: 0.46 },
+  ),
+  sakuragawaSlipRoad(
+    "kanpachi-entry-slip",
+    "Sakuragawa Expressway Kanpachi Entry Slip",
+    ["jp-sx-kanpachi-entry-ground", "jp-sx-kanpachi-entry-taper"],
+  ),
+  sakuragawaElevatedRoad(
+    "kanpachi-exit-ramp",
+    "Sakuragawa Expressway Kanpachi Exit",
+    ["jp-sx-kanpachi-exit-merge", "jp-sx-kanpachi-exit-throat", "jp-sx-kanpachi-exit-bend", "jp-sx-kanpachi-exit-clear", "jp-sx-kanpachi-exit-lift", "jp-sx-kanpachi-exit-taper"],
+    1,
+    5.8,
+    [10.5, 10.5, 10, 6.2, 1.7, 0],
+    { oneWay: "forward", handleRatio: 0.29 },
+  ),
+  sakuragawaSlipRoad(
+    "kanpachi-exit-slip",
+    "Sakuragawa Expressway Kanpachi Exit Slip",
+    ["jp-sx-kanpachi-exit-taper", "jp-sx-kanpachi-exit-ground"],
+  ),
+
+  sakuragawaElevatedRoad(
+    "chuo-entry-ramp",
+    "Sakuragawa Expressway Chuo Entry",
+    ["jp-sx-chuo-entry-taper", "jp-sx-chuo-entry-lift", "jp-sx-chuo-entry-clear", "jp-sx-chuo-entry-bend", "jp-sx-chuo-entry-throat", "jp-sx-chuo-entry-merge"],
+    1,
+    5.8,
+    [0, 2.2, 4.8, 7.5, 9.8, 10.5],
+    { oneWay: "forward", handleRatio: 0.46 },
+  ),
+  sakuragawaSlipRoad(
+    "chuo-entry-slip",
+    "Sakuragawa Expressway Chuo Entry Slip",
+    ["jp-sx-chuo-entry-ground", "jp-sx-chuo-entry-taper"],
+  ),
+  sakuragawaElevatedRoad(
+    "chuo-exit-ramp",
+    "Sakuragawa Expressway Chuo Exit",
+    ["jp-sx-chuo-exit-merge", "jp-sx-chuo-exit-throat", "jp-sx-chuo-exit-curve-a", "jp-sx-chuo-exit-curve-b", "jp-sx-chuo-exit-curve-c", "jp-sx-chuo-exit-clear", "jp-sx-chuo-exit-lift", "jp-sx-chuo-exit-taper"],
+    1,
+    5.8,
+    [10.5, 10.5, 9.7, 7, 5, 3, 1.5, 0],
+    { oneWay: "forward", handleRatio: 0.46 },
+  ),
+  sakuragawaSlipRoad(
+    "chuo-exit-slip",
+    "Sakuragawa Expressway Chuo Exit Slip",
+    ["jp-sx-chuo-exit-taper", "jp-sx-chuo-exit-ground"],
+  ),
+
+  sakuragawaElevatedRoad(
+    "kawagishi-entry-ramp",
+    "Sakuragawa Expressway Kawagishi Entry",
+    ["jp-sx-kawagishi-entry-taper", "jp-sx-kawagishi-entry-lift", "jp-sx-kawagishi-entry-clear", "jp-sx-kawagishi-entry-bend", "jp-sx-kawagishi-entry-throat", "jp-sx-kawagishi-entry-merge"],
+    1,
+    5.8,
+    [0, 1.8, 4.5, 7, 9.8, 10.5],
+    { oneWay: "forward", handleRatio: 0.46 },
+  ),
+  sakuragawaSlipRoad(
+    "kawagishi-entry-slip",
+    "Sakuragawa Expressway Kawagishi Entry Slip",
+    ["jp-sx-kawagishi-entry-ground", "jp-sx-kawagishi-entry-taper"],
+  ),
+  sakuragawaElevatedRoad(
+    "kawagishi-exit-ramp",
+    "Sakuragawa Expressway Kawagishi Exit",
+    ["jp-sx-kawagishi-exit-merge", "jp-sx-kawagishi-exit-throat", "jp-sx-kawagishi-exit-curve", "jp-sx-kawagishi-exit-clear", "jp-sx-kawagishi-exit-lift", "jp-sx-kawagishi-exit-taper"],
+    1,
+    5.8,
+    [10.5, 8.6, 6.1, 3.3, 1, 0],
+    { oneWay: "forward", handleRatio: 0.46 },
+  ),
+  sakuragawaSlipRoad(
+    "kawagishi-exit-slip",
+    "Sakuragawa Expressway Kawagishi Exit Slip",
+    ["jp-sx-kawagishi-exit-taper", "jp-sx-kawagishi-exit-ground"],
+  ),
+
+  sakuragawaElevatedRoad(
+    "east-carrier",
+    "Sakuragawa Expressway East Link",
+    ["jp-sx-east-crest", "jp-sx-east-deck-edge", "jp-sx-east-braid"],
+    2,
+    7.5,
+    [10.5, 10.5, 7.5],
+    { tangentByNodeId: { "jp-sx-east-crest": { x: 1, z: 0 } } },
+  ),
+  sakuragawaElevatedRoad(
+    "east-entry-ramp",
+    "Sakuragawa Expressway East Entry",
+    ["jp-sx-east-entry-taper", "jp-sx-east-entry-lift", "jp-sx-east-entry-mid", "jp-sx-east-entry-clear", "jp-sx-east-braid"],
+    1,
+    5.8,
+    [0, 1.3, 3.25, 5.2, 7.5],
+    { oneWay: "forward", handleRatio: 0.46 },
+  ),
+  sakuragawaSlipRoad(
+    "east-entry-slip",
+    "Sakuragawa Expressway East Entry Slip",
+    ["jp-sx-east-entry-ground", "jp-sx-east-entry-taper"],
+  ),
+  sakuragawaElevatedRoad(
+    "east-exit-ramp",
+    "Sakuragawa Expressway East Exit",
+    ["jp-sx-east-braid", "jp-sx-east-exit-clear", "jp-sx-east-exit-mid", "jp-sx-east-exit-lift", "jp-sx-east-exit-taper"],
+    1,
+    5.8,
+    [7.5, 5.3, 3.45, 1.6, 0],
+    { oneWay: "forward", handleRatio: 0.46 },
+  ),
+  sakuragawaSlipRoad(
+    "east-exit-slip",
+    "Sakuragawa Expressway East Exit Slip",
+    ["jp-sx-east-exit-taper", "jp-sx-east-exit-ground"],
+  ),
+];
+
 // --- East bank web (Phase 3, R3): the riverside collector plus a compact
 // arterial + residential pocket, same generator pattern and geometry gates as
 // Phase 2's west-bank districts. -------------------------------------------
@@ -1298,8 +1676,8 @@ const TOKYO_EAST_SPECS: readonly TokyoRoadSpec[] = [
   // East-bank riverside collector, mirroring jp-kawate-dori's role on the
   // west bank: solver-checked clear of the shore by 30-55 m at every node
   // (never under the plan's 6 m floor).
-  tokyoRoad("jp-kawagishi-dori", "Kawagishi-dōri", ["jp-kawagishi-x-minami", "jp-kawagishi-x-fuji", "jp-kawagishi-x-setagaya", "jp-kawagishi-w1", "jp-kawagishi-x-kawanaka", "jp-kawagishi-w2", "jp-kawagishi-x-koshu", "jp-kawagishi-x-kita"], 2, 8, 40),
-  tokyoRoad("jp-higashi-dori", "Higashi-dōri", ["jp-higashi-w", "jp-hd-x-tofu", "jp-hd-x-hondori", "jp-hd-x-soto"], 2, 10, 50),
+  tokyoRoad("jp-kawagishi-dori", "Kawagishi-dōri", ["jp-kawagishi-x-minami", "jp-kawagishi-x-fuji", "jp-kawagishi-x-setagaya", "jp-sx-kawagishi-exit-ground", "jp-sx-kawagishi-entry-ground", "jp-kawagishi-w1", "jp-kawagishi-x-kawanaka", "jp-kawagishi-w2", "jp-kawagishi-x-koshu", "jp-kawagishi-x-kita"], 2, 8, 40),
+  tokyoRoad("jp-higashi-dori", "Higashi-dōri", ["jp-higashi-w", "jp-hd-x-tofu", "jp-hd-x-hondori", "jp-sx-east-entry-ground", "jp-sx-east-exit-ground", "jp-hd-x-soto"], 2, 10, 50),
   tokyoRoad("jp-koshu-kaido-higashi", "Kōshū-kaidō", ["jp-khh-w", "jp-khh-x-keyaki", "jp-khh-x-hondori", "jp-khh-x-soto"], 2, 12, 50),
   tokyoRoad("jp-higashi-hondori", "Higashi Hon-dōri", ["jp-hh-s", "jp-hh-x-fuji", "jp-hd-x-hondori", "jp-kawanaka-e", "jp-khh-x-hondori", "jp-hh-n"], 2, 8, 40),
   // Closes the ring Higashi-dōri/Kōshū-kaidō-higashi would otherwise dead-end
@@ -1605,6 +1983,143 @@ const TOKYO_RIVER_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-khh-w", "jp-khh-w", ["jp-tsuki-ohashi", "jp-koshu-kaido-higashi"]),
 ];
 
+const directedTokyoMovement = (
+  fromRoadId: string,
+  fromDirection: "forward" | "reverse",
+  toRoadId: string,
+  toDirection: "forward" | "reverse",
+  options: {
+    readonly fromLaneIndices?: readonly number[];
+    readonly toLaneIndices?: readonly number[];
+  } = {},
+): TokyoConnectorMovement => ({
+  fromRoadId,
+  fromDirection,
+  ...(options.fromLaneIndices
+    ? { fromLaneIndices: options.fromLaneIndices }
+    : {}),
+  toRoadIds: [toRoadId],
+  toDirections: { [toRoadId]: [toDirection] },
+  ...(options.toLaneIndices
+    ? { toLaneIndices: { [toRoadId]: options.toLaneIndices } }
+    : {}),
+});
+
+const sakuragawaConnector = (
+  suffix: string,
+  nodeId: string,
+  movements: readonly TokyoConnectorMovement[],
+): TokyoJunctionConnectorSpec => ({
+  id: sxId(`junction-${suffix}`),
+  nodeId,
+  movements,
+});
+
+const TOKYO_SAKURAGAWA_EXPRESSWAY_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
+  // West terminal: eastbound enters on Setagaya-dori's north/nearside lane;
+  // westbound exits onto its south/nearside lane.
+  sakuragawaConnector("west-entry-ground", "jp-sx-west-entry-ground", [
+    directedTokyoMovement("jp-setagaya-dori-west", "forward", sxId("west-entry-slip"), "forward"),
+  ]),
+  sakuragawaConnector("west-entry-taper", "jp-sx-west-entry-taper", [
+    directedTokyoMovement(sxId("west-entry-slip"), "forward", sxId("west-entry-ramp"), "forward"),
+  ]),
+  sakuragawaConnector("west-braid", "jp-sx-west-braid", [
+    directedTokyoMovement(sxId("west-entry-ramp"), "forward", sxId("west-carrier"), "reverse"),
+    directedTokyoMovement(sxId("west-carrier"), "forward", sxId("west-exit-ramp"), "forward"),
+  ]),
+  sakuragawaConnector("west-crest", "jp-sx-west-crest", [
+    directedTokyoMovement(sxId("west-carrier"), "reverse", sxId("mainline"), "forward", { toLaneIndices: [1] }),
+    directedTokyoMovement(sxId("mainline"), "reverse", sxId("west-carrier"), "forward"),
+  ]),
+  sakuragawaConnector("west-exit-taper", "jp-sx-west-exit-taper", [
+    directedTokyoMovement(sxId("west-exit-ramp"), "forward", sxId("west-exit-slip"), "forward"),
+  ]),
+  sakuragawaConnector("west-exit-ground", "jp-sx-west-exit-ground", [
+    directedTokyoMovement(sxId("west-exit-slip"), "forward", "jp-setagaya-dori-west", "reverse"),
+  ]),
+
+  sakuragawaConnector("kanpachi-entry-ground", "jp-sx-kanpachi-entry-ground", [
+    directedTokyoMovement("jp-kanpachi-dori", "forward", sxId("kanpachi-entry-slip"), "forward"),
+  ]),
+  sakuragawaConnector("kanpachi-entry-taper", "jp-sx-kanpachi-entry-taper", [
+    directedTokyoMovement(sxId("kanpachi-entry-slip"), "forward", sxId("kanpachi-entry-ramp"), "forward"),
+  ]),
+  sakuragawaConnector("kanpachi-entry-merge", "jp-sx-kanpachi-entry-merge", [
+    directedTokyoMovement(sxId("kanpachi-entry-ramp"), "forward", sxId("mainline"), "forward", { toLaneIndices: [1] }),
+  ]),
+  sakuragawaConnector("kanpachi-exit-merge", "jp-sx-kanpachi-exit-merge", [
+    directedTokyoMovement(sxId("mainline"), "reverse", sxId("kanpachi-exit-ramp"), "forward", { fromLaneIndices: [1] }),
+  ]),
+  sakuragawaConnector("kanpachi-exit-taper", "jp-sx-kanpachi-exit-taper", [
+    directedTokyoMovement(sxId("kanpachi-exit-ramp"), "forward", sxId("kanpachi-exit-slip"), "forward"),
+  ]),
+  sakuragawaConnector("kanpachi-exit-ground", "jp-sx-kanpachi-exit-ground", [
+    directedTokyoMovement(sxId("kanpachi-exit-slip"), "forward", "jp-kanpachi-dori", "reverse"),
+  ]),
+
+  sakuragawaConnector("chuo-entry-ground", "jp-sx-chuo-entry-ground", [
+    directedTokyoMovement("jp-chuo-dori-south", "forward", sxId("chuo-entry-slip"), "forward"),
+  ]),
+  sakuragawaConnector("chuo-entry-taper", "jp-sx-chuo-entry-taper", [
+    directedTokyoMovement(sxId("chuo-entry-slip"), "forward", sxId("chuo-entry-ramp"), "forward"),
+  ]),
+  sakuragawaConnector("chuo-entry-merge", "jp-sx-chuo-entry-merge", [
+    directedTokyoMovement(sxId("chuo-entry-ramp"), "forward", sxId("mainline"), "forward", { toLaneIndices: [1] }),
+  ]),
+  sakuragawaConnector("chuo-exit-merge", "jp-sx-chuo-exit-merge", [
+    directedTokyoMovement(sxId("mainline"), "reverse", sxId("chuo-exit-ramp"), "forward", { fromLaneIndices: [1] }),
+  ]),
+  sakuragawaConnector("chuo-exit-taper", "jp-sx-chuo-exit-taper", [
+    directedTokyoMovement(sxId("chuo-exit-ramp"), "forward", sxId("chuo-exit-slip"), "forward"),
+  ]),
+  sakuragawaConnector("chuo-exit-ground", "jp-sx-chuo-exit-ground", [
+    directedTokyoMovement(sxId("chuo-exit-slip"), "forward", "jp-chuo-dori-south", "reverse"),
+  ]),
+
+  sakuragawaConnector("kawagishi-entry-ground", "jp-sx-kawagishi-entry-ground", [
+    directedTokyoMovement("jp-kawagishi-dori", "reverse", sxId("kawagishi-entry-slip"), "forward"),
+  ]),
+  sakuragawaConnector("kawagishi-entry-taper", "jp-sx-kawagishi-entry-taper", [
+    directedTokyoMovement(sxId("kawagishi-entry-slip"), "forward", sxId("kawagishi-entry-ramp"), "forward"),
+  ]),
+  sakuragawaConnector("kawagishi-entry-merge", "jp-sx-kawagishi-entry-merge", [
+    directedTokyoMovement(sxId("kawagishi-entry-ramp"), "forward", sxId("mainline"), "reverse", { toLaneIndices: [1] }),
+  ]),
+  sakuragawaConnector("kawagishi-exit-merge", "jp-sx-kawagishi-exit-merge", [
+    directedTokyoMovement(sxId("mainline"), "forward", sxId("kawagishi-exit-ramp"), "forward", { fromLaneIndices: [1] }),
+  ]),
+  sakuragawaConnector("kawagishi-exit-taper", "jp-sx-kawagishi-exit-taper", [
+    directedTokyoMovement(sxId("kawagishi-exit-ramp"), "forward", sxId("kawagishi-exit-slip"), "forward"),
+  ]),
+  sakuragawaConnector("kawagishi-exit-ground", "jp-sx-kawagishi-exit-ground", [
+    directedTokyoMovement(sxId("kawagishi-exit-slip"), "forward", "jp-kawagishi-dori", "forward"),
+  ]),
+
+  // East terminal mirrors the west: westbound entry uses the south/nearside
+  // lane, eastbound exit uses the north/nearside lane.
+  sakuragawaConnector("east-entry-ground", "jp-sx-east-entry-ground", [
+    directedTokyoMovement("jp-higashi-dori", "reverse", sxId("east-entry-slip"), "forward"),
+  ]),
+  sakuragawaConnector("east-entry-taper", "jp-sx-east-entry-taper", [
+    directedTokyoMovement(sxId("east-entry-slip"), "forward", sxId("east-entry-ramp"), "forward"),
+  ]),
+  sakuragawaConnector("east-braid", "jp-sx-east-braid", [
+    directedTokyoMovement(sxId("east-entry-ramp"), "forward", sxId("east-carrier"), "reverse"),
+    directedTokyoMovement(sxId("east-carrier"), "forward", sxId("east-exit-ramp"), "forward"),
+  ]),
+  sakuragawaConnector("east-crest", "jp-sx-east-crest", [
+    directedTokyoMovement(sxId("mainline"), "forward", sxId("east-carrier"), "forward"),
+    directedTokyoMovement(sxId("east-carrier"), "reverse", sxId("mainline"), "reverse", { toLaneIndices: [1] }),
+  ]),
+  sakuragawaConnector("east-exit-taper", "jp-sx-east-exit-taper", [
+    directedTokyoMovement(sxId("east-exit-ramp"), "forward", sxId("east-exit-slip"), "forward"),
+  ]),
+  sakuragawaConnector("east-exit-ground", "jp-sx-east-exit-ground", [
+    directedTokyoMovement(sxId("east-exit-slip"), "forward", "jp-higashi-dori", "forward"),
+  ]),
+];
+
 const TOKYO_EAST_CONNECTORS: readonly TokyoJunctionConnectorSpec[] = [
   tokyoJunction("jp-jct-kawanaka-e", "jp-kawanaka-e", ["jp-kawanaka-bashi", "jp-higashi-hondori"]),
   tokyoJunction("jp-jct-hd-x-tofu", "jp-hd-x-tofu", ["jp-higashi-dori", "jp-tofu-yokocho"]),
@@ -1638,6 +2153,7 @@ const jpGenNodeById = new Map<string, LaneNode>(
     ...Object.values(jpKawabataNodes),
     ...Object.values(jpRiverNodes),
     ...Object.values(jpEastNodes),
+    ...Object.values(jpSakuragawaExpresswayNodes),
   ].map((item) => [item.id, item]),
 );
 
@@ -1725,6 +2241,7 @@ const tokyoRoadSpecs: readonly TokyoRoadSpec[] = [
   ...TOKYO_KAWABATA_SPECS,
   ...TOKYO_RIVER_SPECS,
   ...TOKYO_EAST_SPECS,
+  ...TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS,
 ];
 const tokyoJunctionConnectors: readonly TokyoJunctionConnectorSpec[] = [
   ...TOKYO_SKELETON_CONNECTORS,
@@ -1739,8 +2256,176 @@ const tokyoJunctionConnectors: readonly TokyoJunctionConnectorSpec[] = [
   ...TOKYO_KAWABATA_CONNECTORS,
   ...TOKYO_RIVER_CONNECTORS,
   ...TOKYO_EAST_CONNECTORS,
+  ...TOKYO_SAKURAGAWA_EXPRESSWAY_CONNECTORS,
 ];
 const tokyoGenNodeList: readonly LaneNode[] = [...jpGenNodeById.values()];
+const tokyoAllNodeById = new Map<string, LaneNode>(
+  [...tokyoGenNodeList, ...jpNodesList].map((item) => [item.id, item]),
+);
+
+interface TokyoPlanDirection {
+  readonly x: number;
+  readonly z: number;
+}
+
+const normalizedTokyoDirection = (
+  x: number,
+  z: number,
+): TokyoPlanDirection | null => {
+  const lengthM = Math.hypot(x, z);
+  return lengthM > 0.001 ? { x: x / lengthM, z: z / lengthM } : null;
+};
+
+const authoredTokyoRoadCenterline = (
+  spec: TokyoRoadSpec,
+): readonly WorldPoint[] =>
+  spec.nodeIds.map((id, index) => {
+    const found = tokyoAllNodeById.get(id);
+    if (!found) throw new Error(`${spec.id} references a missing node "${id}"`);
+    return {
+      ...found.position,
+      elevationM: spec.elevationsM?.[index] ?? 0,
+    };
+  });
+
+const authoredTokyoTangentAt = (
+  points: readonly WorldPoint[],
+  index: number,
+): TokyoPlanDirection => {
+  const incoming = index > 0
+    ? normalizedTokyoDirection(
+        points[index].x - points[index - 1].x,
+        points[index].z - points[index - 1].z,
+      )
+    : null;
+  const outgoing = index + 1 < points.length
+    ? normalizedTokyoDirection(
+        points[index + 1].x - points[index].x,
+        points[index + 1].z - points[index].z,
+      )
+    : null;
+  if (!incoming) return outgoing ?? { x: 1, z: 0 };
+  if (!outgoing) return incoming;
+  return normalizedTokyoDirection(
+    incoming.x + outgoing.x,
+    incoming.z + outgoing.z,
+  ) ?? outgoing;
+};
+
+// At a shared mouth, the narrower slip/ramp inherits the widest road's axis.
+// This is what makes a branch peel away tangentially rather than kink across
+// the host lane, while still letting each ramp author its later curve.
+const tokyoDominantRoadAxisByNodeId = new Map<
+  string,
+  { readonly direction: TokyoPlanDirection; readonly widthM: number }
+>();
+for (const candidate of tokyoRoadSpecs) {
+  const points = authoredTokyoRoadCenterline(candidate);
+  for (let index = 0; index < candidate.nodeIds.length; index += 1) {
+    const nodeId = candidate.nodeIds[index];
+    const current = tokyoDominantRoadAxisByNodeId.get(nodeId);
+    if (!current || candidate.widthM > current.widthM) {
+      tokyoDominantRoadAxisByNodeId.set(nodeId, {
+        direction: authoredTokyoTangentAt(points, index),
+        widthM: candidate.widthM,
+      });
+    }
+  }
+}
+
+const openTokyoRoadGeometryForSpec = (
+  spec: TokyoRoadSpec,
+): OpenRoadCurveGeometry => {
+  const authored = authoredTokyoRoadCenterline(spec);
+  if (!spec.openCurve) {
+    return {
+      centerline: authored,
+      segments: authored.slice(1).map((current, index) => [authored[index], current]),
+    };
+  }
+
+  const tangentOverrides: Record<number, TokyoPlanDirection> = Object.fromEntries(
+    spec.nodeIds.flatMap((nodeId, index) => {
+      const dominant = tokyoDominantRoadAxisByNodeId.get(nodeId);
+      if (!dominant) return [];
+      const local = authoredTokyoTangentAt(authored, index);
+      const alignment =
+        local.x * dominant.direction.x + local.z * dominant.direction.z;
+      if (Math.abs(alignment) < Math.cos((55 * Math.PI) / 180)) return [];
+      return [[
+        index,
+        alignment >= 0
+          ? dominant.direction
+          : { x: -dominant.direction.x, z: -dominant.direction.z },
+      ] as const];
+    }),
+  );
+  for (const [nodeId, tangent] of Object.entries(
+    spec.openCurve.tangentByNodeId ?? {},
+  )) {
+    const index = spec.nodeIds.indexOf(nodeId);
+    if (index < 0) {
+      throw new Error(`${spec.id} curve authoring references missing ${nodeId}`);
+    }
+    tangentOverrides[index] = tangent;
+  }
+  return sampleOpenRoadCurve(authored, {
+    tangentOverrides,
+    handleRatio: spec.openCurve.handleRatio ?? 0.34,
+    maximumChordM: 7.5,
+    maximumHeadingStepDeg: 5,
+  } satisfies OpenRoadCurveOptions);
+};
+
+const tokyoRoadGeometryById = new Map(
+  tokyoRoadSpecs.map((spec) => [spec.id, openTokyoRoadGeometryForSpec(spec)]),
+);
+
+const tokyoDistanceBetween = (a: WorldPoint, b: WorldPoint): number =>
+  Math.hypot(b.x - a.x, b.z - a.z);
+
+const withTokyoLinearElevation = (
+  centerline: readonly WorldPoint[],
+  startElevationM: number,
+  endElevationM: number,
+): readonly WorldPoint[] => {
+  const segmentLengths = centerline.slice(1).map((current, index) =>
+    tokyoDistanceBetween(centerline[index], current),
+  );
+  const totalLengthM = segmentLengths.reduce((total, length) => total + length, 0);
+  let travelledM = 0;
+  return centerline.map((current, index) => {
+    if (index > 0) travelledM += segmentLengths[index - 1];
+    const amount = totalLengthM > 0 ? travelledM / totalLengthM : 0;
+    return {
+      x: current.x,
+      z: current.z,
+      elevationM: startElevationM + (endElevationM - startElevationM) * amount,
+    };
+  });
+};
+
+const withTokyoLaneConnectorRun = (
+  path: readonly WorldPoint[],
+): readonly WorldPoint[] => {
+  if (path.length <= 2) return path;
+  const prefixM = [0];
+  for (let index = 1; index < path.length; index += 1) {
+    prefixM.push(
+      prefixM[index - 1] + tokyoDistanceBetween(path[index - 1], path[index]),
+    );
+  }
+  const totalLengthM = prefixM.at(-1)!;
+  const minimumEndRunM = CONNECTOR_BLEND_RUN_M + 0.3;
+  const retained = path.filter(
+    (_, index) =>
+      index === 0 ||
+      index === path.length - 1 ||
+      (prefixM[index] >= minimumEndRunM &&
+        totalLengthM - prefixM[index] >= minimumEndRunM),
+  );
+  return retained.length >= 2 ? retained : [path[0], path.at(-1)!];
+};
 
 /**
  * Builds every raw (pre-successor) lane for the current `tokyoRoadSpecs`.
@@ -1752,14 +2437,15 @@ function buildTokyoRawLanes(): TokyoRawLane[] {
   // Includes the quarter's own nodes too: a generated road's terminus at the
   // seam (jp-ss-w, jp-ss-e, jp-d, jp-ne2) names an EXISTING quarter node, per
   // the plan's "never insert a node into a shipped polyline" rule.
-  const nodeById = new Map<string, LaneNode>(
-    [...tokyoGenNodeList, ...jpNodesList].map((item) => [item.id, item]),
-  );
+  const nodeById = tokyoAllNodeById;
   const rawLanes: TokyoRawLane[] = [];
   for (const spec of tokyoRoadSpecs) {
     const tier = tokyoTierFor(spec);
     if (!spec.oneWay && spec.laneCount % 2 !== 0) {
       throw new Error(`${spec.id} two-way laneCount must be even`);
+    }
+    if (spec.elevationsM && spec.elevationsM.length !== spec.nodeIds.length) {
+      throw new Error(`${spec.id} elevationsM must align with nodeIds`);
     }
     const directions = spec.oneWay
       ? ([spec.oneWay] as const)
@@ -1771,22 +2457,48 @@ function buildTokyoRawLanes(): TokyoRawLane[] {
       if (!start || !end) {
         throw new Error(`${spec.id} references a missing node "${spec.nodeIds[segment]}"/"${spec.nodeIds[segment + 1]}"`);
       }
+      const sampledSegment = tokyoRoadGeometryById.get(spec.id)?.segments[segment];
+      if (!sampledSegment) {
+        throw new Error(`${spec.id} has no geometry for segment ${segment}`);
+      }
       for (const direction of directions) {
         const from = direction === "forward" ? start : end;
         const to = direction === "forward" ? end : start;
+        const travelPath = direction === "forward"
+          ? sampledSegment
+          : [...sampledSegment].reverse();
         for (let laneIndex = 0; laneIndex < lanesPerDirection; laneIndex += 1) {
           const lateralOffset = spec.oneWay
             ? (laneIndex - (lanesPerDirection - 1) / 2) * tier.pitchM
             : -(tier.offsetM + laneIndex * tier.pitchM);
-          const geometry = buildLaneTrueGeometry(
-            from.position,
-            to.position,
-            tokyoOffsetPath(from.position, to.position, lateralOffset),
-            {
-              maxBlendLateralM: 5.25,
-              ...(spec.laneCount === 4 ? { connectorBlendSteps: 12 } : {}),
-            },
-          );
+          const laneCenterline = spec.openCurve
+            ? Math.abs(lateralOffset) < 0.001
+              ? travelPath
+              : buildLaneTrueGeometry(
+                  from.position,
+                  to.position,
+                  withTokyoLaneConnectorRun(
+                    offsetOpenRoadPolyline(travelPath, lateralOffset),
+                  ),
+                  { maxBlendLateralM: 5.25, connectorBlendSteps: 12 },
+                ).centerline
+            : buildLaneTrueGeometry(
+                from.position,
+                to.position,
+                tokyoOffsetPath(from.position, to.position, lateralOffset),
+                {
+                  maxBlendLateralM: 5.25,
+                  ...(spec.laneCount === 4 ? { connectorBlendSteps: 12 } : {}),
+                },
+              ).centerline;
+          const authoredStartElevationM = spec.elevationsM?.[segment] ?? 0;
+          const authoredEndElevationM = spec.elevationsM?.[segment + 1] ?? 0;
+          const fromElevationM = direction === "forward"
+            ? authoredStartElevationM
+            : authoredEndElevationM;
+          const toElevationM = direction === "forward"
+            ? authoredEndElevationM
+            : authoredStartElevationM;
           rawLanes.push({
             id: `${spec.id}-${segment + 1}-${direction}-${laneIndex + 1}`,
             reverseKey: `${spec.id}:${segment}`,
@@ -1796,8 +2508,16 @@ function buildTokyoRawLanes(): TokyoRawLane[] {
             widthM: tier.laneWidthM,
             from: from.id,
             to: to.id,
-            centerline: geometry.centerline,
-            role: spec.oneWay ? "one_way" : laneIndex > 0 ? "passing" : "travel",
+            centerline: withTokyoLinearElevation(
+              laneCenterline,
+              fromElevationM,
+              toElevationM,
+            ),
+            role: spec.oneWay
+              ? "one_way"
+              : spec.id === sxId("mainline")
+                ? laneIndex === 0 ? "passing" : "travel"
+                : laneIndex > 0 ? "passing" : "travel",
             trafficSide: "left",
             speedLimit: spec.speedLimitKmh,
             successors: [],
@@ -1813,7 +2533,17 @@ const tokyoConnectorByNode = new Map<string, TokyoJunctionConnectorSpec>();
 function rebuildTokyoConnectorIndex(): void {
   tokyoConnectorByNode.clear();
   for (const connector of tokyoJunctionConnectors) {
-    tokyoConnectorByNode.set(connector.nodeId, connector);
+    const previous = tokyoConnectorByNode.get(connector.nodeId);
+    tokyoConnectorByNode.set(
+      connector.nodeId,
+      previous
+        ? {
+            id: `${previous.id}+${connector.id}`,
+            nodeId: connector.nodeId,
+            movements: [...previous.movements, ...connector.movements],
+          }
+        : connector,
+    );
   }
 }
 
@@ -1822,8 +2552,8 @@ const tokyoAllowedCrossRoadsAt = (nodeId: string, fromRoadId: string): Set<strin
   new Set(
     tokyoConnectorByNode
       .get(nodeId)
-      ?.movements.find((movement) => movement.fromRoadId === fromRoadId)
-      ?.toRoadIds ?? [],
+      ?.movements.filter((movement) => movement.fromRoadId === fromRoadId)
+      .flatMap((movement) => movement.toRoadIds) ?? [],
   );
 
 /**
@@ -1846,7 +2576,16 @@ function buildTokyoGeneratedNetwork(): {
   }
 
   const generatedLanes: readonly LaneSegment[] = rawLanes.map((lane) => {
-    const allowed = tokyoAllowedCrossRoadsAt(lane.to, lane.roadId);
+    const matchingMovements =
+      tokyoConnectorByNode
+        .get(lane.to)
+        ?.movements.filter(
+          (movement) =>
+            movement.fromRoadId === lane.roadId &&
+            (!movement.fromDirection || movement.fromDirection === lane.direction) &&
+            (!movement.fromLaneIndices ||
+              movement.fromLaneIndices.includes(lane.laneIndex)),
+        ) ?? [];
     const successors = [
       ...new Set(
         (outboundByNode.get(lane.to) ?? [])
@@ -1855,8 +2594,24 @@ function buildTokyoGeneratedNetwork(): {
               (candidate as TokyoRawLane).reverseKey !== lane.reverseKey,
           )
           .filter(
-            (candidate) =>
-              candidate.roadId === lane.roadId || allowed.has(candidate.roadId),
+            (candidate) => {
+              if (candidate.roadId === lane.roadId) return true;
+              const directedCandidate = candidate as Partial<TokyoRawLane>;
+              return matchingMovements.some(
+                (movement) =>
+                  movement.toRoadIds.includes(candidate.roadId) &&
+                  (!movement.toDirections?.[candidate.roadId] ||
+                    (directedCandidate.direction !== undefined &&
+                      movement.toDirections[candidate.roadId]?.includes(
+                        directedCandidate.direction,
+                      ))) &&
+                  (!movement.toLaneIndices?.[candidate.roadId] ||
+                    (directedCandidate.laneIndex !== undefined &&
+                      movement.toLaneIndices[candidate.roadId]?.includes(
+                        directedCandidate.laneIndex,
+                      ))),
+              );
+            },
           )
           .map((candidate) => candidate.id)
           .sort((left, right) => left.localeCompare(right)),
@@ -1925,19 +2680,28 @@ function withGeneratedSuccessors(
 function buildTokyoGeneratedSurfaces(
   generatedLanes: readonly LaneSegment[],
 ): readonly RoadSurface[] {
-  const nodeById = new Map<string, LaneNode>(
-    [...tokyoGenNodeList, ...jpNodesList].map((item) => [item.id, item]),
-  );
   return tokyoRoadSpecs.map((spec) => {
-    const centerline = spec.nodeIds.map((id) => {
-      const found = nodeById.get(id);
-      if (!found) throw new Error(`${spec.id} references a missing node "${id}"`);
-      return found.position;
-    });
+    const centerline = tokyoRoadGeometryById.get(spec.id)!.centerline;
     const laneIds = generatedLanes
       .filter((lane) => lane.roadId === spec.id)
       .map((lane) => lane.id);
-    const markings = spec.oneWay
+    const markings = spec.id === sxId("mainline")
+      ? [
+          roadMarking(`${spec.id}-centre`, "centre_solid", centerline, "white"),
+          roadMarking(
+            `${spec.id}-forward-divider`,
+            "lane_dashed",
+            offsetOpenRoadPolyline(centerline, -TOKYO_STANDARD_PITCH_M),
+            "white",
+          ),
+          roadMarking(
+            `${spec.id}-reverse-divider`,
+            "lane_dashed",
+            offsetOpenRoadPolyline(centerline, TOKYO_STANDARD_PITCH_M),
+            "white",
+          ),
+        ]
+      : spec.oneWay
       ? spec.laneCount > 1
         ? [roadMarking(`${spec.id}-lane`, "lane_dashed", centerline, "white")]
         : []
@@ -1950,11 +2714,17 @@ function buildTokyoGeneratedSurfaces(
       spec.surfaceType ?? "standard",
       markings,
     );
+    const profiledSurface: RoadSurface = {
+      ...surface,
+      ...(spec.parapetDepthM !== undefined
+        ? { parapetDepthM: spec.parapetDepthM }
+        : {}),
+    };
     return spec.sidewalkWidthM === undefined
       ? (spec.widthM >= TOKYO_STANDARD_TIER_MIN_WIDTH_M
-        ? surface
-        : { ...surface, sidewalkWidthM: (spec.surfaceType ?? "standard") === "shared_space" ? 1.4 : 2.2 })
-      : { ...surface, sidewalkWidthM: spec.sidewalkWidthM };
+        ? profiledSurface
+        : { ...profiledSurface, sidewalkWidthM: (spec.surfaceType ?? "standard") === "shared_space" ? 1.4 : 2.2 })
+      : { ...profiledSurface, sidewalkWidthM: spec.sidewalkWidthM };
   });
 }
 
@@ -2082,6 +2852,7 @@ function deriveTokyoJunctionControls(
   roadSurfacesById: Map<string, RoadSurface>,
   generatedNodeIds: ReadonlySet<string>,
   signalNodeIds: ReadonlySet<string>,
+  elevatedRoadHeadroomAt: ElevatedRoadDeckHeadroomQuery,
 ): { readonly controls: readonly TrafficControl[]; readonly zones: readonly ConflictZone[] } {
   const roadSpecById = new Map(tokyoRoadSpecs.map((spec) => [spec.id, spec]));
   // Interior-node membership for EVERY road present in the map (old quarter's
@@ -2109,7 +2880,13 @@ function deriveTokyoJunctionControls(
   let controlIndex = 0;
 
   for (const nodeId of [...generatedNodeIds].sort()) {
-    if (signalNodeIds.has(nodeId)) continue;
+    // Expressway mouths are directional merge/diverge points, not surface
+    // intersections. Giving them generic stop controls creates invisible
+    // barriers on the high deck and contradicts the authored lane grants.
+    if (
+      signalNodeIds.has(nodeId) ||
+      TOKYO_SAKURAGAWA_EXPRESSWAY_NODE_IDS.has(nodeId)
+    ) continue;
     const position = nodePositionById.get(nodeId);
     if (!position) continue;
     const arrivals = arrivalsByNode.get(nodeId) ?? [];
@@ -2175,17 +2952,6 @@ function deriveTokyoJunctionControls(
         Math.max(0, stopDistanceM - CONNECTOR_BLEND_RUN_M - 1),
       );
       const stopPoint = lanePointAtDistanceTokyo(lane, stopDistanceM);
-      const rad = (headingDeg * Math.PI) / 180;
-      // LEFT-hand normal (Tokyo is left-hand traffic, unlike the NYC formula
-      // this is cloned from): negated right-hand normal, so the pole lands on
-      // the kerb beside the stopped lane's own near side, matching the
-      // existing quarter's own poles (e.g. jp-stop-narrow sits west of a
-      // northbound lane, not east). Using the RIGHT-hand normal here first
-      // landed poles across the carriageway, occasionally inside an opposing
-      // lane's envelope (content.test.ts "places physical traffic-control
-      // supports outside every lane envelope").
-      const leftX = -Math.cos(rad);
-      const leftZ = Math.sin(rad);
       const surface = roadSurfacesById.get(lane.roadId);
       const surfaceWidthM = Math.max(surface?.widthM ?? lane.widthM * 2, maxSurfaceWidthAtNodeM);
       // Clears the WHOLE road surface (every lane in both directions, by
@@ -2195,13 +2961,20 @@ function deriveTokyoJunctionControls(
       // under-shoots a multi-lane road's OUTER lane, which is exactly what
       // Chūō-dōri's 4-lane core tripped.
       const poleOffsetM = surfaceWidthM / 2 + 2.2;
+      const signPosition = safeTokyoStopSignPosition(
+        stopPoint,
+        headingDeg,
+        poleOffsetM,
+        allLanes,
+        elevatedRoadHeadroomAt,
+      );
       const approachId = `${id}-${lane.id}-app`;
       approaches.push(approach(approachId, lane.id, stopDistanceM, `${id}-stop`, [zoneId]));
       installations.push(
         installation(
           `${id}-${lane.id}-sign`,
-          stopPoint.x + leftX * poleOffsetM,
-          stopPoint.z + leftZ * poleOffsetM,
+          signPosition.x,
+          signPosition.z,
           headingDeg,
           "roadside_pole",
           "stop_sign",
@@ -2370,6 +3143,37 @@ const tokyoLaneClearanceAt = (
     ),
   );
 
+function safeTokyoStopSignPosition(
+  stopPoint: WorldPoint,
+  headingDeg: number,
+  poleOffsetM: number,
+  allLanes: readonly LaneSegment[],
+  elevatedRoadHeadroomAt: ElevatedRoadDeckHeadroomQuery,
+): WorldPoint {
+  const rad = (headingDeg * Math.PI) / 180;
+  const forwardX = Math.sin(rad);
+  const forwardZ = Math.cos(rad);
+  // Tokyo drives left, so signs remain on the driver's near/left kerb.
+  const leftX = -Math.cos(rad);
+  const leftZ = Math.sin(rad);
+  for (const backExtraM of [0, 3, 6, 9, 12, 15, 18, 24]) {
+    for (const lateralExtraM of [0, 0.9, 1.8, 2.7, 3.6, 4.5, 5.4, 6.3, 7.2]) {
+      const candidate = point(
+        stopPoint.x - forwardX * backExtraM + leftX * (poleOffsetM + lateralExtraM),
+        stopPoint.z - forwardZ * backExtraM + leftZ * (poleOffsetM + lateralExtraM),
+      );
+      const overhead = elevatedRoadHeadroomAt(candidate, 0, 0.55);
+      if (
+        tokyoLaneClearanceAt(candidate, allLanes) >= TOKYO_SIGNAL_LANE_CLEARANCE_M &&
+        (!overhead || overhead.headroomM >= 3.2)
+      ) return candidate;
+    }
+  }
+  throw new Error(
+    `tokyo.ts: no clear roadside stop-sign position at ${stopPoint.x},${stopPoint.z}`,
+  );
+}
+
 /** ~1 m before the stop line, so a driver stopped at the bar still sees the
  * head ahead rather than overhead/behind. */
 const TOKYO_SIGNAL_HEAD_SETBACK_M = 1;
@@ -2393,6 +3197,7 @@ function safeTokyoSignalPosition(
   stopDistanceM: number,
   ownSurfaceHalfWidthM: number,
   allLanes: readonly LaneSegment[],
+  elevatedRoadHeadroomAt: ElevatedRoadDeckHeadroomQuery,
 ): { readonly position: WorldPoint; readonly headingDeg: number } {
   const headingDeg = laneHeadingAtDistanceDegTokyo(
     lane,
@@ -2408,15 +3213,21 @@ function safeTokyoSignalPosition(
     return point(along.x + leftX * lateralM, along.z + leftZ * lateralM);
   };
   const kerbside = ownSurfaceHalfWidthM + TOKYO_SIGNAL_KERB_CLEARANCE_M;
-  for (const backExtraM of [0, 3, 6, 9, 12]) {
-    for (const lateralExtraM of [0, 0.9, 1.8]) {
+  for (const backExtraM of [0, 3, 6, 9, 12, 15, 18, 24]) {
+    for (const lateralExtraM of [0, 0.9, 1.8, 2.7, 3.6, 4.5, 5.4, 6.3, 7.2]) {
       const candidate = at(TOKYO_SIGNAL_HEAD_SETBACK_M + backExtraM, kerbside + lateralExtraM);
-      if (tokyoLaneClearanceAt(candidate, allLanes) >= TOKYO_SIGNAL_LANE_CLEARANCE_M) {
+      const overhead = elevatedRoadHeadroomAt(candidate, 0, 2);
+      if (
+        tokyoLaneClearanceAt(candidate, allLanes) >= TOKYO_SIGNAL_LANE_CLEARANCE_M &&
+        (!overhead || overhead.headroomM >= 6.2)
+      ) {
         return { position: candidate, headingDeg };
       }
     }
   }
-  return { position: at(TOKYO_SIGNAL_HEAD_SETBACK_M, kerbside), headingDeg };
+  throw new Error(
+    `tokyo.ts: no clear roadside signal position for ${lane.id}`,
+  );
 }
 
 /**
@@ -2432,6 +3243,7 @@ function safeTokyoSignalPosition(
 function deriveTokyoSignalControls(
   allLanes: readonly LaneSegment[],
   roadSurfacesById: Map<string, RoadSurface>,
+  elevatedRoadHeadroomAt: ElevatedRoadDeckHeadroomQuery,
 ): { readonly controls: readonly TrafficControl[]; readonly zones: readonly ConflictZone[] } {
   const nodePositionById = new Map<string, WorldPoint>();
   for (const node_ of tokyoGenNodeList) nodePositionById.set(node_.id, node_.position);
@@ -2501,6 +3313,7 @@ function deriveTokyoSignalControls(
         stopDistanceM,
         surfaceHalfWidthM,
         allLanes,
+        elevatedRoadHeadroomAt,
       );
       installations.push({
         id: `${controlId}-${armSlug}-head`,
@@ -2663,6 +3476,10 @@ function assembleTokyoGeneratedHalf() {
   const roadSurfacesById = new Map(
     [...jpQuarterSurfaces, ...generatedSurfaces].map((surface) => [surface.id, surface]),
   );
+  const elevatedRoadHeadroomAt = createElevatedRoadDeckHeadroomQuery([
+    ...jpQuarterSurfaces,
+    ...generatedSurfaces,
+  ]);
   const quarterLanesWithNewTurns = withGeneratedSuccessors(jpLanes, rawLanes);
   // A node counts as "touched by a generated lane" (and so gets its junction
   // control derived) iff a raw generated lane has an endpoint there — the
@@ -2680,6 +3497,7 @@ function assembleTokyoGeneratedHalf() {
     roadSurfacesById,
     rawLaneNodeIds,
     signalNodeIds,
+    elevatedRoadHeadroomAt,
   );
   // Signals (Tokyo expansion Phase 5, R10): a separate generator from the
   // stop derivation above (see the comment on `deriveTokyoSignalControls`
@@ -2690,6 +3508,7 @@ function assembleTokyoGeneratedHalf() {
   const { controls: signalControls, zones: signalZones } = deriveTokyoSignalControls(
     allGeneratedHalfLanes,
     roadSurfacesById,
+    elevatedRoadHeadroomAt,
   );
   const generatedControls = addTokyoScrambleCrosswalks(
     [...stopControls, ...signalControls],
@@ -3530,7 +4349,10 @@ const tokyoStyleForRoad = (roadId: string): TokyoZoneStyle => {
  * own 12 m end inset — bridges are dressed separately anyway (parapets,
  * lamps, the Kawanaka-bashi arch — `render/tokyoLandmarks.ts`), never by a
  * street-wall block. */
-const TOKYO_BRIDGE_ROAD_IDS: ReadonlySet<string> = new Set(TOKYO_RIVER_SPECS.map((spec) => spec.id));
+const TOKYO_BRIDGE_ROAD_IDS: ReadonlySet<string> = new Set([
+  ...TOKYO_RIVER_SPECS,
+  ...TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS,
+].map((spec) => spec.id));
 
 /** Small deterministic +/-2 m depth jitter (never touches length, height or
  * density) so a long straight run of parcels along one road does not read as
@@ -4275,6 +5097,24 @@ const tokyoEastRailCrossings = [
   }),
 );
 
+// Buildings have effectively unbounded collision height, so vertical
+// clearance alone cannot make an elevated road pass through a planned lot.
+// Carve the complete deck/ramp/slip envelope out of every authored block;
+// the shared carver trims or splits the street wall instead of deleting an
+// entire long frontage when only one ramp crosses it.
+const tokyoSakuragawaBuildCorridors = tokyoAllSurfaces
+  .filter((surface) =>
+    surface.id.startsWith(TOKYO_SAKURAGAWA_EXPRESSWAY_PREFIX),
+  )
+  .map((surface) => ({
+    points: surface.centerline,
+    corridorHalfWidthM:
+      surface.widthM / 2 +
+      (surface.sidewalkWidthM ?? 0) +
+      (surface.parapetDepthM ?? 0) +
+      0.8,
+  }));
+
 export const TOKYO_MAP_PACK: MapPack = {
   id: "tokyo-setagaya",
   name: "Tokyo — Setagaya",
@@ -4315,12 +5155,13 @@ export const TOKYO_MAP_PACK: MapPack = {
     // Kitazawa-kōen's pond (Phase 6, R4).
     waterBodies: [...TOKYO_WATER_BODIES, ...TOKYO_PHASE6_WATER_BODIES],
     // The whole block list — hand-carved quarter, generated street wall and
-    // every patch tier — passes through the rail-corridor carver last, so no
-    // block (present or future) can stand on the right-of-way. The carver
-    // splits a crossed block into its two flanks and drops slivers under
-    // 12 m; `tests/railCorridors.test.ts` re-proves the result against the
-    // planned building solids.
-    blocks: carveBlocksForRailCorridors([
+    // every patch tier — first clears the complete expressway envelope and
+    // then passes through the rail-corridor carver, so no block can stand in
+    // either right-of-way. Both carvers split crossed blocks into flanks and
+    // drop slivers under 12 m; the production geometry tests re-prove the
+    // result against the planned building solids.
+    blocks: carveBlocksForRailCorridors(
+      carveBlocksForLinearCorridors([
       { id: "jp-block-west", center: point(-70, 46), size: point(64, 40), heightRange: [5, 14], density: 0.72, material: "plaster" },
       { id: "jp-block-center", center: point(10, 46), size: point(64, 40), heightRange: [6, 18], density: 0.78, material: "tile" },
       // Split either side of the narrow shrine street: the old single
@@ -4374,7 +5215,9 @@ export const TOKYO_MAP_PACK: MapPack = {
       // Post-plan void-frontage fill (owner's "no gaps unless scenic" rule)
       // — see `tokyoVoidFrontagePatches`'s own doc comment above.
       ...tokyoVoidFrontagePatches,
-    ], TOKYO_RAIL_LINES).blocks,
+      ], tokyoSakuragawaBuildCorridors, { fragmentIdPrefix: "bw" }).blocks,
+      TOKYO_RAIL_LINES,
+    ).blocks,
     servicePoints: [
       // The narrow south road still needs a wide set-back because the lot is
       // anchored on the near lane. Shifted 4 m east of the old anchor so the
@@ -4429,7 +5272,7 @@ export const TOKYO_MAP_PACK: MapPack = {
       // them.
       { id: "jp-v2", kind: "shop", anchor: { laneId: "jp-uptown-east-2", distanceAlongM: 20 }, footprint: point(12, 9), name: "Miyanosaka Market" },
       { id: "jp-v3", kind: "residence", anchor: { laneId: "jp-north-east-2", distanceAlongM: 54 }, footprint: point(12, 10), name: "Setagaya Residence" },
-      { id: "jp-v4", kind: "office", anchor: { laneId: "jp-dori-east-2", distanceAlongM: 60 }, footprint: point(14, 12), name: "Setagaya-dori Office" },
+      { id: "jp-v4", kind: "office", anchor: { laneId: "jp-kita-dori-2-forward-1", distanceAlongM: 60 }, footprint: point(14, 12), name: "Setagaya-dori Office" },
       // Tokyo expansion Phase 7 (R6/R7/R8): 41 new venues across every
       // district the generated half's street wall (Phase 4) actually built,
       // per plan §8.9. Every anchor below was found by a scratchpad solver
@@ -4511,9 +5354,9 @@ export const TOKYO_MAP_PACK: MapPack = {
       // anchors on "p" (forward) — its "-1" side is the open river frontage
       // (`TOKYO_OPEN_WATERFRONT_SIDES`), correctly walled off from R18's
       // street-wall generator and so from venues too.
-      { id: "jp-v40", kind: "restaurant", anchor: { laneId: "jp-kawagishi-dori-3-forward-1", distanceAlongM: 129 }, footprint: point(12, 9), name: "Kawagishi Riverside Cafe" },
+      { id: "jp-v40", kind: "restaurant", anchor: { laneId: "jp-kawagishi-dori-6-forward-1", distanceAlongM: 60 }, footprint: point(12, 9), name: "Kawagishi Riverside Cafe" },
       { id: "jp-v41", kind: "restaurant", anchor: { laneId: "jp-higashi-hondori-4-forward-1", distanceAlongM: 189 }, footprint: point(12, 9), name: "Higashi Grill" },
-      { id: "jp-v42", kind: "shop", anchor: { laneId: "jp-higashi-dori-3-forward-1", distanceAlongM: 111 }, footprint: point(12, 9), name: "Hoshi Mart Higashi" },
+      { id: "jp-v42", kind: "shop", anchor: { laneId: "jp-higashi-soto-dori-1-forward-1", distanceAlongM: 100 }, footprint: point(12, 9), name: "Hoshi Mart Higashi" },
       { id: "jp-v43", kind: "office", anchor: { laneId: "jp-higashi-hondori-2-reverse-1", distanceAlongM: 105 }, footprint: point(14, 12), name: "Higashi Trading Office" },
       { id: "jp-v44", kind: "residence", anchor: { laneId: "jp-tofu-yokocho-2-reverse-1", distanceAlongM: 105 }, footprint: point(12, 10), name: "Hondori Residence" },
       // No dedicated depot glb (Cairo's `cairo-depot` is a Cairo-specific
@@ -4780,7 +5623,7 @@ export const TOKYO_MAP_PACK: MapPack = {
       anchoredSpawn("jp-car-kanpachi-s", "vehicle", "jp-kanpachi-dori-1-reverse-1", 20),
       anchoredSpawn("jp-car-koshu", "vehicle", "jp-koshu-kaido-1-forward-1", 150),
       anchoredSpawn("jp-car-minami-kaido", "vehicle", "jp-minami-kaido-1-forward-1", 150),
-      anchoredSpawn("jp-car-setagaya-w", "vehicle", "jp-setagaya-dori-west-1-forward-1", 150),
+      anchoredSpawn("jp-car-setagaya-w", "vehicle", "jp-setagaya-dori-west-3-forward-1", 110),
       anchoredSpawn("jp-car-chuo", "vehicle", "jp-chuo-dori-1-forward-1", 60),
       anchoredSpawn("jp-car-ekimae", "vehicle", "jp-eki-mae-dori-1-forward-1", 20),
       anchoredSpawn("jp-car-ichiban", "vehicle", "jp-ichiban-dori-1-forward-1", 90),
@@ -4807,6 +5650,12 @@ export const TOKYO_MAP_PACK: MapPack = {
       anchoredSpawn("jp-car-sakura-ohashi", "vehicle", "jp-sakura-ohashi-1-forward-1", 20),
       anchoredSpawn("jp-car-kawanaka-bashi", "vehicle", "jp-kawanaka-bashi-1-forward-1", 20),
       anchoredSpawn("jp-car-tsuki-ohashi", "vehicle", "jp-tsuki-ohashi-1-forward-1", 20),
+      anchoredSpawn(
+        "jp-car-sakuragawa-expressway",
+        "vehicle",
+        "jp-sakuragawa-urban-expressway-mainline-6-forward-2",
+        20,
+      ),
       anchoredSpawn("jp-car-higashi-hondori", "vehicle", "jp-higashi-hondori-1-forward-1", 100),
       anchoredSpawn("jp-car-kawagishi", "vehicle", "jp-kawagishi-dori-1-forward-1", 120),
       freeSpawn("jp-ped-tofu", "pedestrian", 870, -400, 0),

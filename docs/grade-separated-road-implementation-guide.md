@@ -13,10 +13,11 @@ Read all three companion chapters before editing a city:
 | [Verification and handoff](grade-separated-road-verification.md) | test matrix, production-collider sweeps, live QA and acceptance drives |
 
 Also read [map-authoring.md](map-authoring.md) for the road schema and
-[rendering.md](rendering.md) for scene-level performance rules. The Cairo-specific
-alignment and preservation record remains in
-[cairo-elevated-road-network.md](cairo-elevated-road-network.md); consult it as a
-worked example, never as the generic specification.
+[rendering.md](rendering.md) for scene-level performance rules. The map-specific
+alignment and preservation records are
+[cairo-elevated-road-network.md](cairo-elevated-road-network.md) and
+[tokyo-elevated-road-network.md](tokyo-elevated-road-network.md); consult them as
+worked examples, never as the generic specification.
 
 ## The contract
 
@@ -146,8 +147,8 @@ alignment.
 | `0.65 m` | visible structural-deck start; raised asphalt exists before it |
 | `0.175 m` | hidden slab lap beneath a connected paved mouth |
 | `8 m` | maximum barrier-collider chunk length on a grade |
-| `7.5 m`, `5°` | Cairo curve-sampler chord and heading-step caps |
-| `14 m`, `10.5%`, `22°` | Cairo regression floors for radius, grade and legal handoff |
+| `7.5 m`, `5°` | shipped Cairo/Tokyo curve-sampler chord and heading-step caps |
+| `14 m`, `10.5%`, `22°` | shipped Cairo/Tokyo regression floors for radius, grade and legal handoff |
 | `32 m` | exact clearance-query broadphase cell |
 | `45 m` | bridge static/mirror render-batch cell |
 | `2 m`, `0.5 m` | maximum all-lane and detailed bridge-envelope audit spacing |

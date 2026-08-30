@@ -40,7 +40,10 @@ describe("parkedCarsForMap", () => {
     expect(counts).toEqual({
       "nyc-upper-west-side": 467,
       "london-south-kensington": 182,
-      "tokyo-setagaya": 449,
+      // Eleven formerly generated Tokyo cars occupied frontage now reserved
+      // by the complete Sakuragawa deck/ramp/parapet envelope. Rejecting them
+      // is the same physical-clearance rule used by Cairo's low collars.
+      "tokyo-setagaya": 438,
       // Cairo's occupied kerbs are deliberate street character; every other
       // map holds its established count while Cairo alone takes the denser
       // keep profile. Eight formerly generated cars sat beneath the newly

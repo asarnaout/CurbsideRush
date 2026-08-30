@@ -49,8 +49,9 @@ export const CAIRO_BRIDGE_LAMP_SPACING_M = 26;
 export const CAIRO_BRIDGE_LAMP_END_INSET_M = 3;
 export const CAIRO_BRIDGE_LAMP_HEIGHT_M = 5.8;
 const CAIRO_BRIDGE_LAMP_OVERHEAD_CLEARANCE_M = 0.1;
-// The inward-facing arm and head reach almost two metres from the parapet
-// pole. Test that complete plan footprint against any higher flyover deck.
+// Tokyo deliberately reuses Cairo's proven detailed geometry dimensions. The
+// inward-facing arm and head reach almost two metres from the parapet pole, so
+// both styles test that complete plan footprint against higher flyover decks.
 const CAIRO_BRIDGE_LAMP_OVERHEAD_FOOTPRINT_RADIUS_M = 2;
 export const CAIRO_BRIDGE_PARAPET_TOTAL_HEIGHT_M =
   ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
@@ -88,9 +89,10 @@ const gridOffsetsWithinRun = (
 };
 
 /**
- * Repeatable Cairo barrier detail laid out in surface-distance space. Keeping
- * the post/reflector phase global stops the visual rhythm restarting at each
- * authored polyline segment or trimmed flyover junction.
+ * Repeatable detailed barrier geometry laid out in surface-distance space.
+ * The Cairo-named export is retained for compatibility; Tokyo deliberately
+ * uses the same global post/reflector phase so the rhythm does not restart at
+ * an authored polyline segment or trimmed flyover junction.
  */
 export function cairoBridgeBarrierVisualPlan(
   runLengthM: number,
@@ -123,10 +125,10 @@ export function cairoBridgeBarrierVisualPlan(
 }
 
 /**
- * One globally phased, alternating lamp line for Cairo's elevated roads.
- * Planning in surface-distance space keeps the rhythm continuous across the
- * short authored segments while the renderer can still discard stations that
- * land in a junction opening with no supporting parapet run.
+ * One globally phased, alternating lamp line for each detailed bridge style.
+ * The Cairo-named export is retained for compatibility. Planning in surface-
+ * distance space keeps the rhythm continuous across short authored segments
+ * while the renderer can discard stations in an unsupported junction opening.
  */
 export function cairoBridgeLampVisualPlan(
   runLengthM: number,
@@ -640,12 +642,12 @@ const createElevatedJunctionBarriers = (
   ctx: ElevatedRoadRenderCtx,
   envelope: ElevatedRoadJunctionEnvelope,
   surfaces: readonly ElevatedRoadGeometrySurface[],
-  usesCairoBarrierStyle: boolean,
+  usesDetailedBarrierStyle: boolean,
   concrete: StandardMaterial,
   underside: StandardMaterial,
-  cairoParapetConcrete: StandardMaterial,
-  cairoCoping: StandardMaterial,
-  cairoRail: StandardMaterial,
+  parapetConcrete: StandardMaterial,
+  copingMaterial: StandardMaterial,
+  railMaterial: StandardMaterial,
 ): void => {
   const surfaceById = new Map(surfaces.map((surface) => [surface.id, surface]));
   const parapetDepthM = Math.max(
@@ -681,14 +683,14 @@ const createElevatedJunctionBarriers = (
     girder.receiveShadows = true;
     ctx.registerStatic(girder, frame.segment.center.x, frame.segment.center.z);
 
-    const parapet = usesCairoBarrierStyle
+    const parapet = usesDetailedBarrierStyle
       ? createCairoParapetShell(
           ctx.scene,
           `${root.name}-parapet-profile`,
           frame.edgeRun,
           frame.segment,
           parapetDepthM,
-          cairoParapetConcrete,
+          parapetConcrete,
           root,
         )
       : createBox(
@@ -710,7 +712,7 @@ const createElevatedJunctionBarriers = (
         );
     ctx.registerShadowCaster(parapet, frame.segment.center.x, frame.segment.center.z);
 
-    if (usesCairoBarrierStyle) {
+    if (usesDetailedBarrierStyle) {
       const coping = createBox(
         ctx.scene,
         `${root.name}-parapet-coping`,
@@ -726,7 +728,7 @@ const createElevatedJunctionBarriers = (
             CAIRO_BRIDGE_PARAPET_COPING_HEIGHT_M / 2,
           0.025,
         ),
-        cairoCoping,
+        copingMaterial,
         root,
       );
       coping.isPickable = false;
@@ -772,7 +774,7 @@ const createElevatedJunctionBarriers = (
         ctx.scene,
         `${root.name}-parapet-maintenance-rail`,
         railBoxes,
-        cairoRail,
+        railMaterial,
         root,
       );
       if (railing) {
@@ -819,14 +821,14 @@ interface ElevatedRoadMeshBatch {
 }
 
 /**
- * The detailed Cairo bridge skin is intentionally authored as small, exact
- * pieces. Submitting each piece separately, however, made the bridge cost
- * thousands of main/shadow draw calls. This collector bakes those unchanged
- * world-space vertices into material/role/spatial batches. Main-camera and
- * mirror-only pieces use the session's 45 m static-visibility cell. Shadow
- * casters are deliberately stricter: they merge only when their original
- * registration coordinates are identical, preserving the session's exact
- * 90 m radial shadow selection and avoiding coarse shadow pop at ramps.
+ * Detailed bridge skins are intentionally authored as small, exact pieces.
+ * Submitting each piece separately, however, made Cairo's bridge cost
+ * thousands of main/shadow draw calls. This collector also handles Tokyo by
+ * baking unchanged world-space vertices into material/role/spatial batches.
+ * Main-camera and mirror-only pieces use the session's 45 m static-visibility
+ * cell. Shadow casters are deliberately stricter: they merge only when their
+ * original registration coordinates are identical, preserving the session's
+ * exact 90 m radial shadow selection and avoiding coarse shadow pop at ramps.
  */
 class ElevatedRoadStaticBatcher {
   readonly freezeNodes: TransformNode[] = [];
@@ -974,11 +976,12 @@ const material = (
 };
 
 /**
- * Cairo's road-bridge grammar: dark asphalt rides a dusty concrete box-girder
- * deck, continuous Jersey-style parapets trace every ramp, and octagonal
- * hammerhead piers repeat below the high mainline while yielding every road it
- * crosses. The road top itself is built by the ordinary RoadSurface pass, so
- * this layer can never become a decorative, undrivable duplicate.
+ * City-specific road-bridge grammar built over the shared physical outline.
+ * Cairo keeps its dusty concrete and aged green steel; Tokyo reuses the same
+ * continuous crash base, coping, upper rail, reflectors and lamps in clean pale
+ * concrete and blue-gray steel. The road top itself is built by the ordinary
+ * RoadSurface pass, so this layer can never become a decorative, undrivable
+ * duplicate.
  */
 export function buildElevatedRoadStructures(
   destinationCtx: ElevatedRoadRenderCtx,
@@ -1006,79 +1009,133 @@ export function buildElevatedRoadStructures(
       }
     : destinationCtx;
 
-  const usesCairoBarrierStyle = mapPack.id.toLowerCase().includes("cairo");
-  const cairoLampOverheadDeckAt = usesCairoBarrierStyle
+  const normalizedMapId = mapPack.id.toLowerCase();
+  const usesCairoBarrierStyle = normalizedMapId.includes("cairo");
+  const usesTokyoBarrierStyle = normalizedMapId.includes("tokyo");
+  const usesDetailedBarrierStyle =
+    usesCairoBarrierStyle || usesTokyoBarrierStyle;
+  const bridgeLampOverheadDeckAt = usesDetailedBarrierStyle
     ? createElevatedRoadDeckHeadroomQuery(allRoadSurfaces)
     : null;
 
   const concrete = material(
     ctx.scene,
-    "elevated-road-dusty-concrete",
-    new Color3(0.49, 0.47, 0.42),
+    usesTokyoBarrierStyle
+      ? "tokyo-bridge-pale-structural-concrete"
+      : "elevated-road-dusty-concrete",
+    usesTokyoBarrierStyle
+      ? new Color3(0.69, 0.71, 0.72)
+      : new Color3(0.49, 0.47, 0.42),
   );
   const underside = material(
     ctx.scene,
-    "elevated-road-shadow-concrete",
-    new Color3(0.31, 0.31, 0.29),
+    usesTokyoBarrierStyle
+      ? "tokyo-bridge-blue-gray-concrete"
+      : "elevated-road-shadow-concrete",
+    usesTokyoBarrierStyle
+      ? new Color3(0.3, 0.35, 0.39)
+      : new Color3(0.31, 0.31, 0.29),
   );
   const reflector = material(
     ctx.scene,
-    "elevated-road-amber-reflector",
+    usesTokyoBarrierStyle
+      ? "tokyo-bridge-cool-white-reflector"
+      : "elevated-road-amber-reflector",
     usesCairoBarrierStyle
       ? new Color3(0.86, 0.62, 0.18)
-      : new Color3(0.78, 0.52, 0.12),
+      : usesTokyoBarrierStyle
+        ? new Color3(0.78, 0.88, 0.96)
+        : new Color3(0.78, 0.52, 0.12),
   );
   reflector.emissiveColor = usesCairoBarrierStyle
     ? new Color3(0.16, 0.085, 0.014)
-    : new Color3(0.2, 0.105, 0.018);
+    : usesTokyoBarrierStyle
+      ? new Color3(0.12, 0.17, 0.24)
+      : new Color3(0.2, 0.105, 0.018);
 
-  const cairoParapetConcrete = usesCairoBarrierStyle
+  const bridgeParapetConcrete = usesCairoBarrierStyle
     ? material(
         ctx.scene,
         "cairo-bridge-weathered-parapet",
         new Color3(0.6, 0.56, 0.48),
       )
-    : concrete;
-  const cairoCoping = usesCairoBarrierStyle
+    : usesTokyoBarrierStyle
+      ? material(
+          ctx.scene,
+          "tokyo-bridge-clean-pale-parapet",
+          new Color3(0.76, 0.78, 0.79),
+        )
+      : concrete;
+  const bridgeCoping = usesCairoBarrierStyle
     ? material(
         ctx.scene,
         "cairo-bridge-sunlit-coping",
         new Color3(0.78, 0.72, 0.61),
       )
-    : concrete;
-  cairoCoping.emissiveColor = usesCairoBarrierStyle
+    : usesTokyoBarrierStyle
+      ? material(
+          ctx.scene,
+          "tokyo-bridge-blue-gray-coping",
+          new Color3(0.46, 0.55, 0.62),
+        )
+      : concrete;
+  bridgeCoping.emissiveColor = usesCairoBarrierStyle
     ? new Color3(0.025, 0.021, 0.014)
-    : Color3.Black();
-  const cairoRail = usesCairoBarrierStyle
+    : usesTokyoBarrierStyle
+      ? new Color3(0.012, 0.02, 0.028)
+      : Color3.Black();
+  const bridgeRail = usesCairoBarrierStyle
     ? material(
         ctx.scene,
         "cairo-bridge-aged-green-steel",
         new Color3(0.055, 0.12, 0.095),
       )
-    : underside;
+    : usesTokyoBarrierStyle
+      ? material(
+          ctx.scene,
+          "tokyo-bridge-dark-steel",
+          new Color3(0.055, 0.085, 0.12),
+        )
+      : underside;
   if (usesCairoBarrierStyle) {
-    cairoRail.specularColor = new Color3(0.12, 0.13, 0.1);
+    bridgeRail.specularColor = new Color3(0.12, 0.13, 0.1);
+  } else if (usesTokyoBarrierStyle) {
+    bridgeRail.specularColor = new Color3(0.18, 0.22, 0.25);
   }
-  const cairoBridgeLampIron = usesCairoBarrierStyle
+  const bridgeLampIron = usesCairoBarrierStyle
     ? material(
         ctx.scene,
         "cairo-bridge-lamp-iron",
         new Color3(0.075, 0.085, 0.085),
       )
-    : null;
-  const cairoBridgeLampHead = usesCairoBarrierStyle
+    : usesTokyoBarrierStyle
+      ? material(
+          ctx.scene,
+          "tokyo-bridge-lamp-dark-steel",
+          new Color3(0.045, 0.065, 0.09),
+        )
+      : null;
+  const bridgeLampHead = usesCairoBarrierStyle
     ? material(
         ctx.scene,
         "cairo-bridge-lamp-head",
         new Color3(0.88, 0.68, 0.38),
       )
-    : null;
-  if (cairoBridgeLampHead) {
-    cairoBridgeLampHead.emissiveColor = new Color3(1.55, 0.88, 0.32);
-    cairoBridgeLampHead.specularColor = Color3.Black();
+    : usesTokyoBarrierStyle
+      ? material(
+          ctx.scene,
+          "tokyo-bridge-lamp-head",
+          new Color3(0.78, 0.86, 0.94),
+        )
+      : null;
+  if (bridgeLampHead) {
+    bridgeLampHead.emissiveColor = usesCairoBarrierStyle
+      ? new Color3(1.55, 0.88, 0.32)
+      : new Color3(1.25, 1.48, 1.8);
+    bridgeLampHead.specularColor = Color3.Black();
   }
-  let cairoBridgeLampPool: StandardMaterial | null = null;
-  if (usesCairoBarrierStyle) {
+  let bridgeLampPool: StandardMaterial | null = null;
+  if (usesDetailedBarrierStyle) {
     // Raw RGBA keeps the bridge builder usable under Babylon's NullEngine
     // (no DOM/OffscreenCanvas) while producing the same soft additive spill
     // as the canvas-backed ground streetlights.
@@ -1091,9 +1148,9 @@ export function buildElevatedRoadStructures(
         const distance = Math.hypot(x - 63.5, y - 63.5) / 63;
         const falloff = Math.max(0, 1 - distance);
         const offset = (y * poolTextureSize + x) * 4;
-        poolTextureData[offset] = 255;
-        poolTextureData[offset + 1] = 178;
-        poolTextureData[offset + 2] = 96;
+        poolTextureData[offset] = usesCairoBarrierStyle ? 255 : 184;
+        poolTextureData[offset + 1] = usesCairoBarrierStyle ? 178 : 218;
+        poolTextureData[offset + 2] = usesCairoBarrierStyle ? 96 : 255;
         poolTextureData[offset + 3] = Math.round(
           255 * 0.74 * falloff * falloff,
         );
@@ -1107,21 +1164,27 @@ export function buildElevatedRoadStructures(
       true,
       false,
     );
-    poolTexture.name = "cairo-bridge-lamp-pool-tex";
+    poolTexture.name = usesCairoBarrierStyle
+      ? "cairo-bridge-lamp-pool-tex"
+      : "tokyo-bridge-lamp-pool-tex";
     poolTexture.hasAlpha = true;
 
-    cairoBridgeLampPool = new StandardMaterial(
-      "cairo-bridge-lamp-pool",
+    bridgeLampPool = new StandardMaterial(
+      usesCairoBarrierStyle
+        ? "cairo-bridge-lamp-pool"
+        : "tokyo-bridge-lamp-pool",
       ctx.scene,
     );
-    cairoBridgeLampPool.emissiveColor = new Color3(0.64, 0.41, 0.17);
-    cairoBridgeLampPool.emissiveTexture = poolTexture;
-    cairoBridgeLampPool.opacityTexture = poolTexture;
-    cairoBridgeLampPool.alphaMode = Constants.ALPHA_ADD;
-    cairoBridgeLampPool.diffuseColor = Color3.Black();
-    cairoBridgeLampPool.specularColor = Color3.Black();
-    cairoBridgeLampPool.disableLighting = true;
-    cairoBridgeLampPool.disableDepthWrite = true;
+    bridgeLampPool.emissiveColor = usesCairoBarrierStyle
+      ? new Color3(0.64, 0.41, 0.17)
+      : new Color3(0.28, 0.46, 0.68);
+    bridgeLampPool.emissiveTexture = poolTexture;
+    bridgeLampPool.opacityTexture = poolTexture;
+    bridgeLampPool.alphaMode = Constants.ALPHA_ADD;
+    bridgeLampPool.diffuseColor = Color3.Black();
+    bridgeLampPool.specularColor = Color3.Black();
+    bridgeLampPool.disableLighting = true;
+    bridgeLampPool.disableDepthWrite = true;
   }
 
   for (const surface of surfaces) {
@@ -1131,7 +1194,7 @@ export function buildElevatedRoadStructures(
       (totalM, segment) => totalM + segment.lengthM,
       0,
     );
-    const surfaceLampStations = usesCairoBarrierStyle
+    const surfaceLampStations = usesDetailedBarrierStyle
       ? cairoBridgeLampVisualPlan(surfaceLengthM).map((station) => ({
           distanceM: surfaceLengthM / 2 + station.offsetM,
           side: station.side,
@@ -1202,14 +1265,14 @@ export function buildElevatedRoadStructures(
         girder.receiveShadows = true;
         ctx.registerStatic(girder, segment.center.x, segment.center.z);
 
-        const parapet = usesCairoBarrierStyle
+        const parapet = usesDetailedBarrierStyle
           ? createCairoParapetShell(
               ctx.scene,
               `${root.name}-parapet-profile-${side}-${runIndex}`,
               run,
               segment,
               parapetDepthM,
-              cairoParapetConcrete,
+              bridgeParapetConcrete,
               root,
             )
           : createBox(
@@ -1233,7 +1296,7 @@ export function buildElevatedRoadStructures(
             );
         ctx.registerShadowCaster(parapet, segment.center.x, segment.center.z);
 
-        if (usesCairoBarrierStyle) {
+        if (usesDetailedBarrierStyle) {
           const lateralCenterM =
             side *
             (segment.deckWidthM / 2 -
@@ -1262,15 +1325,15 @@ export function buildElevatedRoadStructures(
                 CAIRO_BRIDGE_PARAPET_COPING_HEIGHT_M / 2,
               lateralCenterM + side * 0.025,
             ),
-            cairoCoping,
+            bridgeCoping,
             root,
           );
           coping.isPickable = false;
           ctx.registerShadowCaster(coping, segment.center.x, segment.center.z);
 
-          // Cairo's 6 October and 26 July bridge photographs consistently pair
-          // a solid concrete crash base with a close-spaced dark metal rail.
-          // The rail follows the already-trimmed run, so ramp mouths stay open.
+          // The proven detailed grammar pairs a solid concrete crash base with
+          // a close-spaced dark metal rail. It follows the already-trimmed run,
+          // so Cairo and Tokyo ramp mouths stay open.
           const railBaseY =
             ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
             ELEVATED_ROAD_PARAPET_HEIGHT_M;
@@ -1309,7 +1372,7 @@ export function buildElevatedRoadStructures(
             ctx.scene,
             `${root.name}-parapet-maintenance-rail-${side}-${runIndex}`,
             railBoxes,
-            cairoRail,
+            bridgeRail,
             root,
           );
           if (railing) {
@@ -1348,7 +1411,7 @@ export function buildElevatedRoadStructures(
             ctx.scene,
             `${root.name}-reflector-backing-${side}-${runIndex}`,
             reflectorBackings,
-            cairoCoping,
+            bridgeCoping,
             root,
           );
           const lensMesh = createCompoundQuadMesh(
@@ -1377,9 +1440,9 @@ export function buildElevatedRoadStructures(
             }));
           if (
             lampStations.length &&
-            cairoBridgeLampIron &&
-            cairoBridgeLampHead &&
-            cairoBridgeLampPool
+            bridgeLampIron &&
+            bridgeLampHead &&
+            bridgeLampPool
           ) {
             const poleBaseY =
               ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
@@ -1394,12 +1457,12 @@ export function buildElevatedRoadStructures(
               // The Corniche exit station at (84, 239) did exactly that on the
               // Sixth October mainline. Suppress any station whose complete
               // pole/arm envelope lacks headroom below a different surface.
-              if (cairoLampOverheadDeckAt) {
+              if (bridgeLampOverheadDeckAt) {
                 const base = Vector3.TransformCoordinates(
                   new Vector3(alongM, poleBaseY, poleCenterZ),
                   root.computeWorldMatrix(true),
                 );
-                const overhead = cairoLampOverheadDeckAt(
+                const overhead = bridgeLampOverheadDeckAt(
                   base,
                   base.y,
                   CAIRO_BRIDGE_LAMP_OVERHEAD_FOOTPRINT_RADIUS_M,
@@ -1455,7 +1518,7 @@ export function buildElevatedRoadStructures(
                 `${root.name}-lamp-pool-${side}-${runIndex}-${alongM.toFixed(2)}`,
                 { width: 10.5, height: 0.018, depth: poolDepthM },
                 new Vector3(alongM, 0.095, poolCenterZ),
-                cairoBridgeLampPool,
+                bridgeLampPool,
                 root,
               );
               ctx.registerStatic(pool, segment.center.x, segment.center.z);
@@ -1464,14 +1527,14 @@ export function buildElevatedRoadStructures(
               ctx.scene,
               `${root.name}-lamp-poles-${side}-${runIndex}`,
               poleBoxes,
-              cairoBridgeLampIron,
+              bridgeLampIron,
               root,
             );
             const heads = createCompoundBoxMesh(
               ctx.scene,
               `${root.name}-lamp-heads-${side}-${runIndex}`,
               headBoxes,
-              cairoBridgeLampHead,
+              bridgeLampHead,
               root,
             );
             if (poles) {
@@ -1485,8 +1548,8 @@ export function buildElevatedRoadStructures(
         }
 
         // Generic elevated-road fallback: sparse markers preserve the old
-        // treatment outside Cairo without turning the edge into an emissive
-        // ribbon.
+        // treatment outside Cairo and Tokyo without turning the edge into an
+        // emissive ribbon.
         const reflectorCount = Math.max(1, Math.floor(run.lengthM / 26));
         for (let index = 0; index < reflectorCount; index += 1) {
           const alongM =
@@ -1597,25 +1660,25 @@ export function buildElevatedRoadStructures(
       ctx,
       envelope,
       allRoadSurfaces,
-      usesCairoBarrierStyle,
+      usesDetailedBarrierStyle,
       concrete,
       underside,
-      cairoParapetConcrete,
-      cairoCoping,
-      cairoRail,
+      bridgeParapetConcrete,
+      bridgeCoping,
+      bridgeRail,
     );
   }
 
   concrete.freeze();
   underside.freeze();
   reflector.freeze();
-  if (usesCairoBarrierStyle) {
-    cairoParapetConcrete.freeze();
-    cairoCoping.freeze();
-    cairoRail.freeze();
-    cairoBridgeLampIron?.freeze();
-    cairoBridgeLampHead?.freeze();
-    cairoBridgeLampPool?.freeze();
+  if (usesDetailedBarrierStyle) {
+    bridgeParapetConcrete.freeze();
+    bridgeCoping.freeze();
+    bridgeRail.freeze();
+    bridgeLampIron?.freeze();
+    bridgeLampHead?.freeze();
+    bridgeLampPool?.freeze();
   }
   batcher?.finalize();
 }

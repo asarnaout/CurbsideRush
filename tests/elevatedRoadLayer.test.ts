@@ -23,6 +23,7 @@ type RoadSurface = NonNullable<
 
 const MAINLINE_ID = "cairo-sixth-october-bridge";
 const RAMP_ID = "cairo-sixth-october-test-entry";
+const TOKYO_SPAN_ID = "tokyo-sakuragawa-expressway-test";
 
 const surface = (
   id: string,
@@ -46,6 +47,13 @@ const mainline = surface(MAINLINE_ID, [
 const ramp = surface(RAMP_ID, [
   { x: 0, z: 30, elevationM: 0 },
   { x: 24, z: 30, elevationM: 8 },
+], 0.36);
+
+const tokyoSpan = surface(TOKYO_SPAN_ID, [
+  { x: -48, z: -6, elevationM: 8 },
+  { x: -16, z: -2, elevationM: 8 },
+  { x: 16, z: 4, elevationM: 8 },
+  { x: 48, z: 10, elevationM: 8 },
 ], 0.36);
 
 interface RenderedRoadLayer {
@@ -395,7 +403,78 @@ describe("elevated road barrier rendering", () => {
     );
   });
 
-  it("omits a lower-ramp lamp when its pole would pierce a crossing deck", () => {
+  it("renders Tokyo's detailed pale-concrete bridge skin in exact spatial batches", () => {
+    const unbatched = renderRoadLayer("synthetic-tokyo", [tokyoSpan]);
+    const batched = renderRoadLayer("synthetic-tokyo", [tokyoSpan], true);
+    const expectedMaterials = [
+      "tokyo-bridge-pale-structural-concrete",
+      "tokyo-bridge-blue-gray-concrete",
+      "tokyo-bridge-cool-white-reflector",
+      "tokyo-bridge-clean-pale-parapet",
+      "tokyo-bridge-blue-gray-coping",
+      "tokyo-bridge-dark-steel",
+      "tokyo-bridge-lamp-dark-steel",
+      "tokyo-bridge-lamp-head",
+      "tokyo-bridge-lamp-pool",
+    ];
+
+    expect(
+      new Set(unbatched.scene.materials.map((meshMaterial) => meshMaterial.name)),
+    ).toEqual(new Set(expectedMaterials));
+    for (const materialName of expectedMaterials) {
+      expect(
+        unbatched.scene.materials.filter(
+          (meshMaterial) => meshMaterial.name === materialName,
+        ),
+        materialName,
+      ).toHaveLength(1);
+    }
+    expect(
+      meshesFor(unbatched, TOKYO_SPAN_ID, "-parapet-profile-").every(
+        (mesh) => mesh.material?.name === "tokyo-bridge-clean-pale-parapet",
+      ),
+    ).toBe(true);
+    expect(
+      meshesFor(unbatched, TOKYO_SPAN_ID, "-parapet-coping-").every(
+        (mesh) => mesh.material?.name === "tokyo-bridge-blue-gray-coping",
+      ),
+    ).toBe(true);
+    expect(
+      meshesFor(
+        unbatched,
+        TOKYO_SPAN_ID,
+        "-parapet-maintenance-rail-",
+      ).every((mesh) => mesh.material?.name === "tokyo-bridge-dark-steel"),
+    ).toBe(true);
+    expect(meshesFor(unbatched, TOKYO_SPAN_ID, "-reflector-lens-").length).toBeGreaterThan(
+      0,
+    );
+    expect(meshesFor(unbatched, TOKYO_SPAN_ID, "-lamp-poles-").length).toBeGreaterThan(
+      0,
+    );
+    expect(meshesFor(unbatched, TOKYO_SPAN_ID, "-lamp-heads-").length).toBeGreaterThan(
+      0,
+    );
+    expect(meshesFor(unbatched, TOKYO_SPAN_ID, "-lamp-pool-").length).toBeGreaterThan(
+      1,
+    );
+
+    expect(worldGeometrySignature(batched)).toEqual(
+      worldGeometrySignature(unbatched),
+    );
+    expect(registeredShadowGeometrySignature(batched)).toEqual(
+      registeredShadowGeometrySignature(unbatched),
+    );
+    expect(
+      batched.meshes.reduce((sum, mesh) => sum + mesh.getTotalIndices(), 0),
+    ).toBe(
+      unbatched.meshes.reduce((sum, mesh) => sum + mesh.getTotalIndices(), 0),
+    );
+    expect(batched.meshes.length).toBeLessThan(unbatched.meshes.length);
+    expect(batched.scene.transformNodes.length).toBe(0);
+  });
+
+  it("omits a detailed lower-ramp lamp when its pole would pierce a crossing deck", () => {
     const lower = surface("cairo-stacked-lower", [
       { x: -26, z: 0, elevationM: 5 },
       { x: 26, z: 0, elevationM: 5 },
@@ -406,11 +485,15 @@ describe("elevated road barrier rendering", () => {
         { x: 0, z: 18, elevationM },
       ]);
 
-    const blocked = renderRoadLayer("synthetic-cairo", [lower, crossing(8)]);
-    expect(meshesFor(blocked, lower.id, "-lamp-poles-")).toHaveLength(0);
+    for (const mapId of ["synthetic-cairo", "synthetic-tokyo"]) {
+      const blocked = renderRoadLayer(mapId, [lower, crossing(8)]);
+      expect(meshesFor(blocked, lower.id, "-lamp-poles-"), mapId).toHaveLength(
+        0,
+      );
 
-    const clear = renderRoadLayer("synthetic-cairo", [lower, crossing(14)]);
-    expect(meshesFor(clear, lower.id, "-lamp-poles-")).toHaveLength(1);
+      const clear = renderRoadLayer(mapId, [lower, crossing(14)]);
+      expect(meshesFor(clear, lower.id, "-lamp-poles-"), mapId).toHaveLength(1);
+    }
   });
 
   it("faces tapered collar slab tops upward and undersides downward", () => {

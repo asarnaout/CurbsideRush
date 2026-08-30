@@ -1125,15 +1125,26 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // jp-chochin-yokocho-5 from the middle of the Niban-dori carriageway.
     // One hand-authored lantern is four instanced parts, all in this pose's
     // frustum; its shared masters/materials and every mirror count remain.
-    totalMeshes: 22_508,
-    enabledMeshes: 22_483,
-    activeMeshes: 1_638,
-    materials: 298,
+    // -> 28_066/28_041 (active 2_379, materials 307; Sakuragawa Urban
+    // Expressway): 23 signed surfaces add the 1.9 km four-lane trunk, two
+    // terminal carriers, ten curved ramps and ten flat host-road slips.
+    // Road/pavement geometry and the full profiled deck, girders, grounded
+    // parapets, reflectors, supports and elevation-aware lamp line account
+    // for the net +5_558 scene meshes after the expressway corridor re-deals
+    // Tokyo's blocks and roadside scatter. The fixed pose looks toward the
+    // central alignment, hence +741 active meshes and the larger mirror ring.
+    // The nine new materials are exactly Tokyo's pale structural/blue-grey
+    // underside concrete, cool reflector, parapet/coping/rail paints and the
+    // three cool-white lamp materials; the shared 45 m batcher remains active.
+    totalMeshes: 28_066,
+    enabledMeshes: 28_041,
+    activeMeshes: 2_379,
+    materials: 307,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 224,
-    mirrorDrawn: 263,
+    mirrorCandidates: 294,
+    mirrorDrawn: 291,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1257,7 +1268,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "473e5725": +rail-deck (bridge-fix pass).
     // -> "7d957807": +rail-shed-jp-setagaya-line-run-lamp (the depot shed's
     // gable lamp, minted only where a depot shed exists).
-    survivingMaterialNamesFingerprint: "7d957807",
+    // -> "3b41f838": the nine Tokyo-only expressway materials above.
+    survivingMaterialNamesFingerprint: "3b41f838",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
@@ -1544,10 +1556,15 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 20_051/20_007: narrow marked gap 7-9 to its rear bay, removing the
     // west-exit terrace proxy while retaining the slim building behind it.
     // The removed proxy was outside the fixed spawn's active set.
-    totalMeshes: 20_051,
-    enabledMeshes: 20_007,
+    // -> 20_053/20_009 (materials 376): Qasr El-Nil's four featureless lion
+    // boxes became instances of a two-piece sculpted master. Two hidden
+    // masters plus eight visible instances replace the prior eight boxes,
+    // net +2 meshes, and aged bronze adds the one new material. This landed
+    // before the Tokyo expressway work; the missed baseline is corrected here.
+    totalMeshes: 20_053,
+    enabledMeshes: 20_009,
     activeMeshes: 2_883,
-    materials: 375,
+    materials: 376,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
@@ -1593,7 +1610,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "26724b2c": eight more atlas/copy/portrait campaign materials each.
     // -> "bc3bdeee": +Tahrir warm/cool panes and the three bridge-lamp
     // materials described above.
-    survivingMaterialNamesFingerprint: "bc3bdeee",
+    // -> "0d008dde": +cairo-qasr-el-nil-bridge-aged-lion-bronze.
+    survivingMaterialNamesFingerprint: "0d008dde",
   },
 };
 

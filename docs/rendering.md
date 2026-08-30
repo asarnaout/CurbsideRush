@@ -30,8 +30,9 @@ query from that profile. Connected slabs overlap 0.175 m beneath the paved
 mouth; only parapet/fascia runs open around the legal carriageway. See
 [grade-separated-road-implementation-guide.md](grade-separated-road-implementation-guide.md)
 for the full simulation/authoring contract and
-[cairo-elevated-road-network.md](cairo-elevated-road-network.md) for the Cairo
-reference implementation.
+[cairo-elevated-road-network.md](cairo-elevated-road-network.md) and
+[tokyo-elevated-road-network.md](tokyo-elevated-road-network.md) for the two
+map-specific reference implementations.
 
 Three render-side rules are load-bearing:
 
@@ -46,19 +47,20 @@ Three render-side rules are load-bearing:
 - any destructible registration carries its elevation, and its pivot, fall,
   light pool and impact particles remain relative to that level.
 
-The detailed bridge skin is authored at full fidelity and then world-baked into
-spatial batches keyed by material, role, vertex layout, side orientation and
-`receiveShadows`. Freeze-only and mirror/static pieces use the session's 45 m
-grid. Shadow casters deliberately merge only at an **identical original x/z
+The detailed Cairo and Tokyo bridge skins are authored at full fidelity and
+then world-baked through the same collector into spatial batches keyed by
+material, role, vertex layout, side orientation and `receiveShadows`.
+Freeze-only and mirror/static pieces use the session's 45 m grid. Shadow
+casters deliberately merge only at an **identical original x/z
 registration point**: averaging a whole cell changes the exact 90 m radial
 shadow predicate and can make ramp shadows pop at the cutoff. Source transforms,
 vertices, indices, materials and the separate freeze-only/static/shadow roles
-are preserved. Cairo therefore keeps all 665,906 vertices and 325,356 triangles
-while replacing 13,566 meshes with 5,349 batches (a 60.6% reduction), including
-7,284 shadow meshes/registrations reduced to 5,007. At the Dokki ramp the live
-shadow units fall from 1,029 to 609 with the same 36,904 submitted source
-triangles. Tests compare world-space geometry grouped by the exact shadow
-registration point, not merely cell coverage.
+are preserved. The current Cairo reference budget contains 668,150 vertices
+and 979,614 indices, including 63 complete lamp stations; the finished layer
+stays at or below 5,500 scene meshes and 5,100 shadow registrations, with no
+merged mesh reaching 65,536 vertices. Tokyo uses the same collector and the
+same exact-equivalence rule. Tests compare world-space geometry grouped by the
+exact shadow registration point, not merely cell coverage.
 
 The renderer also passes the map pack's stable road-surface array through the
 shared junction-envelope cache and hands its already-resolved edge runs to the
@@ -79,7 +81,7 @@ active ground/elevated stroke from the player's road height, draw the occupied
 level strongly and retain the other level as a translucent context layer. The
 corner minimap pre-rasterises both exact road-level sheets when the map/size
 changes; crossing the 3.5 m level threshold switches cached canvases and never
-rebuilds the whole Cairo network during a ramp transition.
+rebuilds the whole city network during a ramp transition.
 
 ## Every building is planned once, before `buildScenarioEnvironment` runs
 
@@ -161,12 +163,14 @@ moonlight; what makes a map drivable is the scattered `streetlight` line in
   the wider default band).
 - **Elevated roads own their lamp line.** The generic roadside pass rejects
   elevated surfaces because a ground-height prop cannot inherit a sloped
-  deck. Cairo's bridge layer therefore lays a globally phased, alternating
-  26 m line in surface-distance space (65 stations survive on the authored
-  network), mounts each pole on the actual segment transform, and trims lamps
-  wherever the parapet opens at a merge. Its warm additive pools are
-  registered in the same static-visibility cells as the bridge instead of
-  becoming unculled point lights.
+  deck. The detailed Cairo and Tokyo bridge layers therefore lay a globally
+  phased, alternating 26 m line in surface-distance space, mount each pole on
+  the actual segment transform, and trim the complete pole/arm/head wherever
+  the parapet opens at a merge. Cairo keeps 63 warm-white stations on its
+  authored network; Tokyo uses the same geometry with cool-white materials and
+  its own network-derived count. Additive pools are registered in the same
+  static-visibility cells as the bridge instead of becoming unculled point
+  lights.
 
 Both halves are measurable without a browser, by running the real content
 modules in plain Node:

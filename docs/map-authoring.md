@@ -5,8 +5,9 @@ There is **no generic procedural city generator and no runtime map import**.
 
 For any bridge, flyover or ramp, the mandatory cross-system checklist is
 [grade-separated-road-implementation-guide.md](grade-separated-road-implementation-guide.md).
-The Cairo reference network and its preservation decisions are documented in
-[cairo-elevated-road-network.md](cairo-elevated-road-network.md).
+The map-specific reference networks and their preservation decisions are in
+[cairo-elevated-road-network.md](cairo-elevated-road-network.md) and
+[tokyo-elevated-road-network.md](tokyo-elevated-road-network.md).
 
 ## Two parallel truths that must stay in sync
 
@@ -506,6 +507,11 @@ and the museum forecourt are deliberate keep-opens. Cores derive material
 and heights from `cairoRoadsideStyle` at their own centre.
 
 ### Tokyo is two halves
+
+Tokyo's Sakuragawa Urban Expressway is a map-spanning, left-driving network,
+not a fourth surface river portal. Its five access sites, outer-lane ramp
+ownership and block-carving invariants are recorded in
+[tokyo-elevated-road-network.md](tokyo-elevated-road-network.md).
 
 Gotokuji — the original ~600×420 m village, node ids `jp-a`…`jp-ss-e` — is still
 **hand-authored lane by lane**, and stays that way: its 56 lanes and 20 road

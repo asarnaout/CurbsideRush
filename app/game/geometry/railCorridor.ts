@@ -21,6 +21,13 @@ export interface RailCorridorCarveResult {
   readonly trimmedBlockIds: readonly string[];
 }
 
+/** A linear construction keep-out shared by rail rights-of-way and authored
+ * road structures whose complete horizontal envelope must stay building-free. */
+export interface LinearBuildCorridor {
+  readonly points: readonly GameCanvasPoint[];
+  readonly corridorHalfWidthM: number;
+}
+
 interface Interval {
   start: number;
   end: number;
@@ -103,16 +110,20 @@ function mergeIntervals(intervals: Interval[]): Interval[] {
  * Carve every block so nothing overlaps any rail corridor. A block the
  * corridor crosses is split into the fragments either side of it (along the
  * block's local x axis); a block the corridor swallows is removed. Fragment
- * ids append `-rw` / `-re`-style suffixes derived from position so ids stay
- * stable and unique.
+ * ids append a caller-selected fragment prefix (`rw` by default) plus their
+ * position so ids stay stable and unique.
  */
-export function carveBlocksForRailCorridors(
+export function carveBlocksForLinearCorridors(
   blocks: readonly ProceduralBlock[],
-  railLines: readonly RailLine[],
-  options: { readonly minFragmentLengthM?: number } = {},
+  corridors: readonly LinearBuildCorridor[],
+  options: {
+    readonly minFragmentLengthM?: number;
+    readonly fragmentIdPrefix?: string;
+  } = {},
 ): RailCorridorCarveResult {
   const minFragment = options.minFragmentLengthM ?? MIN_FRAGMENT_LENGTH_M;
-  if (!railLines.length) {
+  const fragmentIdPrefix = options.fragmentIdPrefix ?? "rw";
+  if (!corridors.length) {
     return { blocks: [...blocks], removedBlockIds: [], trimmedBlockIds: [] };
   }
   const result: ProceduralBlock[] = [];
@@ -121,7 +132,7 @@ export function carveBlocksForRailCorridors(
   for (const block of blocks) {
     const halfU = block.size.x / 2;
     const shadows: Interval[] = [];
-    for (const line of railLines) {
+    for (const line of corridors) {
       const halfWidth = line.corridorHalfWidthM + CLEARANCE_M;
       for (let index = 0; index < line.points.length - 1; index += 1) {
         const shadow = corridorShadowOnBlock(
@@ -168,7 +179,9 @@ export function carveBlocksForRailCorridors(
       const centerU = (fragment.start + fragment.end) / 2;
       result.push({
         ...block,
-        id: fragments.length === 1 ? block.id : `${block.id}-rw${index}`,
+        id: fragments.length === 1
+          ? block.id
+          : `${block.id}-${fragmentIdPrefix}${index}`,
         center: {
           x: block.center.x + axisX * centerU,
           z: block.center.z + axisZ * centerU,
@@ -178,4 +191,13 @@ export function carveBlocksForRailCorridors(
     }
   }
   return { blocks: result, removedBlockIds, trimmedBlockIds };
+}
+
+/** Rail-specific compatibility wrapper; output remains byte-for-byte stable. */
+export function carveBlocksForRailCorridors(
+  blocks: readonly ProceduralBlock[],
+  railLines: readonly RailLine[],
+  options: { readonly minFragmentLengthM?: number } = {},
+): RailCorridorCarveResult {
+  return carveBlocksForLinearCorridors(blocks, railLines, options);
 }

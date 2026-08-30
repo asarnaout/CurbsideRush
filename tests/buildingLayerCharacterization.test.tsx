@@ -472,7 +472,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // it re-deals and the narrower kerb footprint fits six more members.
     // 3_813 -> 3_808 (rail feature): the Setagaya Line corridor carve
     // trims the handful of set-dressed parcels along the east run.
-    buildingInstanceCount: 3_808,
+    // 3_808 -> 3_743 (Sakuragawa Urban Expressway): the complete 23-surface
+    // asphalt/deck/parapet envelope trims or splits only the procedural lots
+    // it crosses. Sixty-five modelled building placements leave those
+    // fragments; the focused corridor test proves every surviving block is
+    // clear instead of relying on vertical separation from an elevated deck.
+    buildingInstanceCount: 3_743,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 0,
   },

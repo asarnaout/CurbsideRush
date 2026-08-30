@@ -626,7 +626,15 @@ export function buildPavementGraph(
   // see. The crossed road joins the vertex's cluster as a virtual member at
   // the projected arclength, so its rails get trimmed and corner-linked too.
   for (const rail of rails) {
-    for (let index = 0; index < rail.points.length; index += 1) {
+    // Open-road curves retain many sampled points between their authored
+    // knots. On an auxiliary slip those samples deliberately remain inside
+    // the host carriageway while the lane peels away; treating every sample
+    // as an authored junction manufactures dozens of pavement intersections.
+    // The two slip ends are its only topological mouths.
+    const candidatePointIndices = rail.id.endsWith("-slip")
+      ? [0, rail.points.length - 1]
+      : rail.points.map((_, index) => index);
+    for (const index of candidatePointIndices) {
       const point = rail.points[index];
       const owners = membership.get(`${rail.id}:${index}`) ?? [];
       const cluster = owners[0];

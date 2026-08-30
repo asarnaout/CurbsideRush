@@ -416,10 +416,10 @@ describe("buildPavementGraph", () => {
       }
       for (const node of graph.nodes) {
         if (node.edgeIds.length >= 2) continue;
-        // Cairo's auxiliary lanes deliberately terminate the old inner kerb
-        // instead of routing pedestrians across a motorway merge. Crowd
-        // walkers understand a degree-one end and turn around there; every
-        // other map still has the original all-circuit pavement contract.
+        // Cairo and Tokyo's auxiliary lanes deliberately terminate the old
+        // inner kerb instead of routing pedestrians across a motorway merge.
+        // Crowd walkers understand a degree-one end and turn around there;
+        // maps without slip roads retain the all-circuit pavement contract.
         const auxiliarySlips = surfaces.filter((surface) =>
           surface.id.endsWith("-slip"),
         );
@@ -428,7 +428,10 @@ describe("buildPavementGraph", () => {
             distanceToPolyline(node, surface.centerline),
           ),
         );
-        expect(pack.id, `node ${node.id}`).toBe("cairo-central-nile");
+        expect(
+          ["cairo-central-nile", "tokyo-setagaya"],
+          `node ${node.id}`,
+        ).toContain(pack.id);
         expect(
           distanceToNearestSlip,
           `${pack.id} node ${node.id} is not a guarded ramp-pavement end`,

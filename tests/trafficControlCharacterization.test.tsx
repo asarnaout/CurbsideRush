@@ -515,6 +515,42 @@ const EXPECTED_LONDON_TRAFFIC_CONTROL_MESH_NAMES = [
   "signal-lens-master",
 ].sort();
 
+// The expressway inserts a flat mouth into eight existing host-road segments.
+// The controls themselves do not move or multiply; only the approach lane's
+// immediate endpoint becomes the new authored mouth. Keep the historical
+// census readable and apply those eight exact segment-name substitutions.
+const TOKYO_EXPRESSWAY_APPROACH_ENDPOINT_RENAMES = [
+  [
+    "jp-gen-signal-jp-chuo-x-minami-kaido-jp-gen-signal-jp-chuo-x-minami-kaido-jp-chuo-dori-south-chuo-x-setagaya",
+    "jp-gen-signal-jp-chuo-x-minami-kaido-jp-gen-signal-jp-chuo-x-minami-kaido-jp-chuo-dori-south-sx-chuo-exit-ground",
+  ],
+  [
+    "jp-chuo-dori-south-chuo-x-minami-kaido",
+    "jp-chuo-dori-south-sx-chuo-entry-ground",
+  ],
+  ["jp-higashi-dori-hd-x-soto", "jp-higashi-dori-sx-east-entry-ground"],
+  [
+    "jp-higashi-dori-hd-x-hondori",
+    "jp-higashi-dori-sx-east-exit-ground",
+  ],
+  [
+    "jp-gen-signal-jp-kawagishi-x-setagaya-jp-gen-signal-jp-kawagishi-x-setagaya-jp-kawagishi-dori-kawagishi-w1",
+    "jp-gen-signal-jp-kawagishi-x-setagaya-jp-gen-signal-jp-kawagishi-x-setagaya-jp-kawagishi-dori-sx-kawagishi-exit-ground",
+  ],
+  [
+    "jp-kanpachi-dori-kanpachi-x-hiiragi",
+    "jp-kanpachi-dori-sx-kanpachi-entry-ground",
+  ],
+  [
+    "jp-setagaya-dori-west-nk-setagaya",
+    "jp-setagaya-dori-west-sx-west-entry-ground",
+  ],
+  [
+    "jp-setagaya-dori-west-kp-setagaya",
+    "jp-setagaya-dori-west-sx-west-exit-ground",
+  ],
+] as const;
+
 const EXPECTED_TOKYO_TRAFFIC_CONTROL_MESH_NAMES = [
   "crosswalk-stripe-master",
   "jp-crosswalk-shotengai-east-jp-shotengai-east-crosswalk-marking-stripe-0",
@@ -1477,7 +1513,15 @@ const EXPECTED_TOKYO_TRAFFIC_CONTROL_MESH_NAMES = [
   "jp-rail-signal-higashi-soto-jp-rail-signal-higashi-soto-gate-b-rail-pole",
   "jp-rail-signal-higashi-soto-jp-rail-signal-higashi-soto-gate-b-warning--1",
   "jp-rail-signal-higashi-soto-jp-rail-signal-higashi-soto-gate-b-warning-1",
-].sort();
+]
+  .map((meshName) =>
+    TOKYO_EXPRESSWAY_APPROACH_ENDPOINT_RENAMES.reduce(
+      (renamed, [previousEndpoint, expresswayEndpoint]) =>
+        renamed.replace(previousEndpoint, expresswayEndpoint),
+      meshName,
+    ),
+  )
+  .sort();
 
 async function mountAndCollectTrafficControlMeshes(
   element: React.ReactElement,

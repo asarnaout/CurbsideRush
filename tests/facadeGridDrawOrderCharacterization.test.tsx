@@ -537,9 +537,14 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // density is a grid-RESOLUTION knob, so two fragments deal more cells
     // than their parent did. London/NYC hold: their carved parcels are all
     // building-set strips with no facade-grid cells.
-    drawCount: 3_312,
+    // 3_312 -> 3_273 (Sakuragawa Urban Expressway): the road/deck/parapet
+    // corridor carver trims and splits the crossed Tokyo lots before facade
+    // planning. The surviving fragment set consumes 39 fewer deterministic
+    // facade draws; the fingerprint moves with those intentional new bounds.
+    drawCount: 3_273,
     // "4689c992" -> "2a378f07": facade-chunk merging (see Cairo's note).
-    facadeMeshFingerprint: "2a378f07",
+    // -> "b5e262bf": the expressway corridor carve above.
+    facadeMeshFingerprint: "b5e262bf",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the
@@ -614,14 +619,19 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     // remaining safe facade cells and their deterministic dressing join the
     // Cairo stream. London's new infill is asset-backed and does not touch its
     // facade-grid stream.
-    drawCount: 19_565,
+    // -> 19_559, "4b44f6a2" (prior Sixth October clearance rebuild): the
+    // El-Gabalaya, Ramses and Galaa frontage parcels were narrowed or moved
+    // away from the rebuilt ramps. Their resized facade grids net six fewer
+    // seeded draws and different chunk bounds. This predates the Tokyo work;
+    // the corresponding characterization baseline had not been reconciled.
+    drawCount: 19_559,
     // "f2628a4c" -> "e25257d5" (facade-chunk merging): the per-box meshes
     // merge into facade-chunk-* meshes post-preload, so the census hashes
     // chunk names and bounds now. drawCount — the actual seeded-stream
     // sensor — is untouched, and a planner draw-order regression still
     // surfaces through the chunks' bounds (a re-dealt box moves its
     // chunk's AABB).
-    facadeMeshFingerprint: "cbbb4850",
+    facadeMeshFingerprint: "4b44f6a2",
   },
 };
 

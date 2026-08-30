@@ -221,7 +221,12 @@ describe("ambient traffic trace characterization", () => {
       // the corridor.
       // -> 66c10afe (patrol-density reduction): two of five desktop patrol
       // identities remain, with no change to Tokyo's 32 vehicle slots.
-      "free-jp": "66c10afe",
+      // -> 1764a29d (Sakuragawa Urban Expressway): 23 authored road surfaces
+      // add 110 lane segments, directed ramp/mainline successor grants and
+      // one elevated-road vehicle spawn. Host-road node insertions also
+      // rename the affected segment ids, so the hashed lane assignments and
+      // positions intentionally move while the other cities remain stable.
+      "free-jp": "1764a29d",
       // Moves for the rail feature's Imbaba corridor: eleven generated
       // railway crossings put timetable-driven railway_signal lights and
       // stop lines on every N-S street at z=-720, and the corridor carve
